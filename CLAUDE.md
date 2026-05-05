@@ -160,3 +160,24 @@ into `docs/decisions.md`. New entries appended at the bottom; old entries preser
   - First NPC's personality + name still undesigned — user picks in Milestone 5 territory.
   - SAC is now permanently off on this machine (D-029); future Windows reinstall is the only way back. Acceptable for a dev machine.
   - Public-vs-private repo timing tension carried forward: repo is private; reassess flipping to public after v0.0 ships.
+
+### Session 3 — Milestone 1: Godot project bootstrap + WASD-controlled placeholder character
+
+- **Date:** 2026-05-06
+- **Goal of session:** ship M1 of the v0.0 plan — a moving placeholder character that proves the project loads, the input map works, and the per-milestone build/commit loop is real.
+- **What changed:**
+  - Created the Godot 4 project under `godot-project/`: `project.godot` (config + input map), `scenes/Main.tscn` (root Node2D, Player instanced at viewport centre), `scenes/Player.tscn` (CharacterBody2D + ColorRect placeholder + RectangleShape2D collider), `scripts/Player.gd` (12-line `_physics_process` using `Input.get_vector` over the four `move_*` actions).
+  - Filled out the architecture-proposed directory layout under `godot-project/`: `assets/{sprites,tilesets,audio,ui}/` and `addons/`, with `.gitkeep` placeholders. Removed the now-redundant top-level `godot-project/.gitkeep`.
+  - Defined the input map in `project.godot` with `move_up/down/left/right` actions bound to W/A/S/D + arrow keys, using `physical_keycode` so QWERTY/AZERTY users behave identically. Action names — never raw keycodes — referenced in code, preserving D-011's mobile-input architecture for later virtual-joystick additions.
+  - Validated the project headlessly *before* the user opened the editor (`godot --headless --path ... --import` exited cleanly with both `first_scan_filesystem` and `loading_editor_layout` `[ DONE ]`).
+  - Godot 4.6.2 auto-normalised `project.godot` on import: bumped min-version flag from `4.4` to `4.6`, added the 4.6-default `[animation]` block, dropped a redundant `window/stretch/aspect="keep"` line. Changes accepted as the canonical form.
+  - Established the per-milestone collaboration loop: I write code → headless validate → user opens Godot + F5 → user reports → commit + CLAUDE.md update → next milestone. Tier 1 visibility (CLI validation + user screenshots) is sufficient through v0.0; Tier 1.5 (a `tools/capture.gd` headless screenshot script) deferred until a visual milestone needs it.
+- **Decisions made:** None new this milestone.
+- **Commands run (important ones only):**
+  - `godot.exe --headless --path godot-project --import` (succeeded, no errors).
+  - User opened the editor, hit F5, confirmed the placeholder square moves in all 8 directions and stops on key release.
+- **Tests/checks run + results:**
+  - Headless project import: clean.
+  - Manual runtime test: light-blue 16×16 square moves cardinal + diagonal at 180 px/s, releases stop instantly. ✅
+- **Next steps:** Milestone 2 — `TileMapLayer` + tileset, `Camera2D` smooth-follow, wall collisions.
+- **Open questions/risks:** None new this milestone.
