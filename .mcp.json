@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "gopeak": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "gopeak"
+      ],
+      "env": {
+        "GODOT_PATH": "C:/Users/Raaed/Documents/Legacy Frontier/godot-engine/Godot_v4.6.2-stable_win64.exe",
+        "GOPEAK_TOOL_PROFILE": "compact"
+      }
+    }
+  }
+}

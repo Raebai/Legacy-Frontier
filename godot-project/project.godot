@@ -19,6 +19,10 @@ config/description="2D pixel-art top-down RPG with persistent AI NPCs and a livi
 run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 
+[autoload]
+
+MCPRuntime="*uid://qc4i28l1mvja"
+
 [display]
 
 window/size/viewport_width=640
@@ -26,6 +30,10 @@ window/size/viewport_height=360
 window/size/window_width_override=1280
 window/size/window_height_override=720
 window/stretch/mode="viewport"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/auto_reload/plugin.cfg", "res://addons/godot_mcp_editor/plugin.cfg", "res://addons/godot_mcp_runtime/plugin.cfg")
 
 [input]
 

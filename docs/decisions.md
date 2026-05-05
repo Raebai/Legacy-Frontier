@@ -216,3 +216,14 @@ Append-only decision log. Newest entries at the bottom. Format per the operating
 - **Alternatives considered:** Run Ollama in WSL2 (rejected for solo + part-time velocity reasons — adds a second OS to manage and re-introduces friction every time another Windows-native dev tool is installed); leave SAC on and avoid Ollama (rejected — Ollama is core infrastructure for the AI-NPC pillar, D-002, non-negotiable).
 - **Status:** Locked. Note: SAC cannot be re-enabled without a Windows reinstall; this is a one-way door per Microsoft policy.
 - **Date locked:** 2026-05-05.
+
+## D-030 — Adopt Gopeak Godot MCP server for Claude Code ↔ Godot integration
+
+- **Decision:** Use **HaD0Yun/Gopeak-godot-mcp** (MIT-licensed, ~160 stars, v2.3.6 released 2026-04-05) as the bridge between Claude Code and the Godot editor + runtime. Configured at *project* scope via `.mcp.json` (committed to the repo) so any future Claude Code session in this repo auto-loads the same MCP. The Gopeak Godot addons (`auto_reload`, `godot_mcp_runtime`, `godot_mcp_editor`) are vendored under `godot-project/addons/` so the project is reproducible without re-running install scripts. Tool surface limited to the core 33 via `GOPEAK_TOOL_PROFILE=compact` to keep my context window clean; remaining 80+ tools available on demand via Gopeak's `tool.catalog` mechanism.
+- **Reason:** v0.0 milestones M2 onward (tilemap, NPC sprite, dialogue UI, Ollama-streamed responses) increasingly require Claude to *see* the running game state — viewport screenshots, runtime scene-tree, node properties — and to *act on it* (run scenes, edit nodes, simulate input). The Tier 1 visibility model (CLI validation + user-pasted screenshots) was sufficient through M1 but becomes a velocity bottleneck once visuals become non-trivial. Gopeak ships 110+ tools covering exactly this surface (`capture_screenshot`, `inspect_runtime_tree`, `scene.create`, `editor.run`, GDScript LSP/DAP, input injection).
+- **Alternatives considered:**
+  - **Coding-Solo/godot-mcp** (3.4k stars, MIT) — most popular but missing screenshot capture, scene-tree readout, and live editing. Rejected because the user's stated need is exactly those features.
+  - **3ddelano/gdai-mcp-plugin-godot** (80 stars, *"All rights reserved"*) — failed the "open source" filter; eliminated immediately.
+  - **Tier 1.5 hand-rolled `tools/capture.gd`** (the screenshot-via-headless-script pattern) — kept as backup if Gopeak ever breaks; not chosen as primary because it's screenshot-only with no scene-tree access or interactive control.
+- **Status:** Locked. Risks accepted: 110+ tool surface area mitigated by `compact` profile; three localhost ports (6005/6006/7777) opened by addon, localhost-only and standard for IDE-bridge tooling; vendoring third-party GDScript into our `addons/` accepted as the Godot community norm and audited at install time.
+- **Date locked:** 2026-05-06.
