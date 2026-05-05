@@ -1,0 +1,186 @@
+# Decisions
+
+Append-only decision log. Newest entries at the bottom. Format per the operating rules:
+
+- **Decision:** what was decided
+- **Reason:** why
+- **Alternative considered:** what else was on the table and why we didn't pick it
+- **Date:** when locked
+- **Status:** locked / under review / superseded
+
+---
+
+## D-001 — Engine: Godot 4 + GDScript
+
+- **Decision:** Use Godot 4 with GDScript as the primary language.
+- **Reason:** Best-in-class for 2D games. Free, open source, single codebase exports to PC and mobile. GDScript is Python-flavoured, so Python instincts transfer. Strong tutorial ecosystem.
+- **Alternatives considered:** Unity (heavier, .NET-tied, larger ecosystem but overkill); Unreal (3D-first, heavyweight, harder for 2D and beginners); pure Python (Pygame/Arcade — would require building everything from scratch and would never ship).
+- **Status:** Locked.
+
+## D-002 — Local LLM: Ollama + Llama 3.2 3B
+
+- **Decision:** Use Ollama running locally with Llama 3.2 3B as the default NPC dialogue model.
+- **Reason:** Hardware (NVIDIA GPU on Windows) supports it easily. Free, no API costs. Players' conversations stay on-device. HTTP API is trivial to call from GDScript. Latency acceptable for dialogue.
+- **Alternatives considered:** API-based models (Claude, GPT — high quality but expensive per call and adds dependencies); larger local models (8B, 13B — slower, may not fit on all target hardware); rule-based dialogue (cheaper but doesn't deliver the core pillar).
+- **Status:** Locked.
+
+## D-003 — Project name: Legacy Frontier
+
+- **Decision:** Game is named "Legacy Frontier."
+- **Reason:** *Legacy* captures the persistent memory and history themes (NPCs remember, world remembers, civilisations leave traces). *Frontier* captures the exploration loop and the unknown edge.
+- **Alternatives considered:** Multiple unnamed candidates; nothing else surfaced as cleanly tied to the thesis.
+- **Status:** Locked.
+
+## D-004 — Camera: top-down 3/4 perspective
+
+- **Decision:** Top-down 3/4 perspective (Stardew Valley / Pokémon / Albion angle), zoomable for map view.
+- **Reason:** Best fit for the described gameplay (massive shared world with portals, clans, dungeons, magic). RuneScape, Tibia, Albion all built that vibe top-down for a reason — sideview struggles with many players in one space. Top-down also makes UI simpler (one camera, zoom for map view).
+- **Alternatives considered:** Sideview (Terraria-style — locked initially, then revisited; killed because civ-sim and many-player elements don't read well in sideview); pure top-down (WorldBox-clinical, too cold); hybrid sideview with separate Atlas screen (more complex, second camera).
+- **Status:** Locked. (Note: this decision flipped multiple times during early design exploration; this is the final lock.)
+
+## D-005 — World structure: hybrid overworld + Tower
+
+- **Decision:** A single massive interconnected overworld with a central Tower as a literal landmark structure. Tower floors are accessed via portals at the base; each floor is an instanced dungeon zone with its own theme, threats, and lore.
+- **Reason:** Combines Albion-style open exploration with Tower of God's vertical mystery and bounded progression. Open world feels alive; Tower delivers the "how far can you go" mystery driver. Floors are scoped content drops post-launch.
+- **Alternatives considered:** Pure Tower of floors (loses open-world feel); pure single open world (loses bounded mystery driver); infinite horizontal expansion (no progression structure).
+- **Status:** Locked.
+
+## D-006 — Civilisation simulation: out of scope
+
+- **Decision:** No civ-sim layer. NPCs are individuals; settlements stay small. No kingdoms-at-war, no nation politics.
+- **Reason:** The user explicitly pulled back from civ-sim depth. Civ-sim is also visually unreadable in any 2D camera mode at the player scales we're targeting. Scope reduction.
+- **Alternatives considered:** Full civ-sim (rejected — adds enormous scope, doesn't visualise well, not core to the player experience the user wants).
+- **Status:** Locked.
+
+## D-007 — Persistent avatar with Chronicle
+
+- **Decision:** When a player logs out, their character continues to exist as a simple-AI NPC. The world ticks forward. On login, an LLM-generated Chronicle (concise paragraph summary + structured deltas) tells the player what their character did while away.
+- **Reason:** This is the strongest retention mechanic in the design. Players log in daily to see the Chronicle. It also creates emergent stories that no scripted game can produce. Unifies offline simulation with the AI-NPC pillar — same engine viewed from different angle.
+- **Alternatives considered:** Character vanishes on logout (boring, world feels static); avatar persists but no Chronicle (hidden — players don't see the value); dramatic multi-page Chronicle (rejected as too overwhelming and expensive to generate).
+- **Status:** Locked.
+
+## D-008 — Chronicle format: concise
+
+- **Decision:** Chronicle is a concise paragraph summary + structured list of stat, item, and relationship deltas.
+- **Reason:** Cheaper to generate, faster to read, dopamine hit of "what changed?" without slogging through chapters. Can promote to "deluxe" mode later if tech and audience support it.
+- **Alternatives considered:** Dramatic multi-page narrated chapters; tiered (concise default + deluxe unlockable). Rejected for v1 — adds cost and complexity without proven demand.
+- **Status:** Locked for v1.
+
+## D-009 — Multiplayer scale: ~15–20 players per world
+
+- **Decision:** Target ~15–20 concurrent players per world instance/shard. Not a true MMO.
+- **Reason:** Achievable for a small dev team. Larger scales (100+) require dedicated MMO infrastructure, server engineering, and anti-cheat — all of which kill ambitious indies. 15–20 still feels populated in a large 2D world; players naturally spread across geography.
+- **Alternatives considered:** 100+ (initial target — too ambitious); 8 (Terraria default — too small for the multiplayer feel); single-player only (loses the shared-world pillar).
+- **Status:** Locked.
+
+## D-010 — Combat: weapon-based action combat
+
+- **Decision:** Real-time action combat where each weapon archetype defines its own combat feel. Stamina-gated dodge/sprint/heavy attacks. Iframes on dodge.
+- **Reason:** Standard ARPG pattern, well-trodden, references abound (Terraria, Dead Cells, Hollow Knight, Albion). Weapon-driven feel pairs with magic schools to create distinct character builds.
+- **Alternatives considered:** Turn-based (cooler for storytelling but doesn't match Terraria/Skyrim DNA); pure click-targeting MMO combat (less engaging); auto-battler (rejected as low-skill).
+- **Status:** Locked.
+
+## D-011 — Mobile-first input architecture
+
+- **Decision:** Virtual joystick + on-screen controls for mobile from day one. Keyboard/mouse adapts up from this baseline.
+- **Reason:** Retrofitting touch controls onto a desktop-first game is hell. Designing both in parallel from the start is the only sane path. Also forces clean input abstraction in code.
+- **Alternatives considered:** Desktop-first then port (rejected — would require rebuilding combat tuning); mobile-only (loses PC market and streaming audience).
+- **Status:** Locked.
+
+## D-012 — Death: soft (respawn + XP loss + durability damage)
+
+- **Decision:** Soft death by default. Respawn at nearest safe location. Lose XP in most-recently-used skill. Equipment takes durability damage. Permadeath is opt-in only.
+- **Reason:** Friendly enough for casual players; meaningful enough to make combat matter. Hardcore option for those who want stakes.
+- **Alternatives considered:** Permadeath default (too hostile); no penalty (no stakes); item drop on death (only in PvP zones now).
+- **Status:** Locked.
+
+## D-013 — PvP: designated zones only
+
+- **Decision:** Most of the world is PvE. Specific high-risk areas are flagged as PvP-enabled. PvP zones have full loot drops on death and better loot rewards.
+- **Reason:** Open-world full PvP divides players. PvE-only kills emergent player-vs-player drama. RuneScape's Wilderness model is the proven middle ground.
+- **Alternatives considered:** Open-world PvP (Albion-style, hardcore, niche); PvE-only (loses tension); faction-vs-faction warfare everywhere (rejected as scope creep).
+- **Status:** Locked.
+
+## D-014 — Magic: spell-based with magic schools, designed in Tier 5
+
+- **Decision:** Spells learned from scrolls / NPCs / discovery, organised into magic schools. Cultivation flavour (spells level through repeated casting). Specifics deferred to Tier 5.
+- **Reason:** Magic systems benefit from being designed once we understand the rest of the game. Premature design here would be wasted.
+- **Alternatives considered:** Skill-tree clickable magic (gamey, less in-world); single magic style (less variety); designed now (rejected — defer).
+- **Status:** Principles locked; specifics deferred.
+
+## D-015 — Crafting: minimalist, not core
+
+- **Decision:** Crafting and gathering exist (mining, herbalism, fishing, basic crafting) but are not central. Maybe 5–10 craftable categories.
+- **Reason:** Adds depth without consuming the design budget. Terraria-level crafting is a separate game.
+- **Alternatives considered:** Full sandbox crafting (Terraria-scale — rejected, too much scope); no crafting (less to do); deep crafting later (deferred).
+- **Status:** Locked at minimalist.
+
+## D-016 — Building: housing yes, no permanent territory
+
+- **Decision:** Players can claim small plots in approved town zones for housing. No permanent territory claims in the open world.
+- **Reason:** Personal expression without breaking shared-world dynamics. Wilderness stays shared.
+- **Alternatives considered:** Full territory claims (rejected — fragments the world); no housing (less expression); clan-only territory (deferred to Tier 6+).
+- **Status:** Locked.
+
+## D-017 — Pixel art: layered/AI-assisted pipeline
+
+- **Decision:** Anchor library handcrafted; layered sprite system for variation; Stable Diffusion / PixelLab.ai for AI-assisted asset creation in the offline pipeline. Runtime is 100% pre-baked sprites.
+- **Reason:** Style consistency (humans set style, AI scales it). Performance (no inference at runtime). Quality control (human review before ship).
+- **Alternatives considered:** Pure handcrafted (too slow for solo dev); runtime AI generation (style breaks, perf issues, weird artifacts); pure asset-pack purchase (no original style).
+- **Status:** Locked.
+
+## D-018 — Music: atmospheric melancholy fantasy, royalty-free placeholder until Tier 5
+
+- **Decision:** Music brief is "atmospheric melancholy fantasy with hypnotic, time-soaked textures." Royalty-free placeholders during dev; commission a composer at Tier 5+.
+- **Reason:** Game vibe reads even with placeholders if other systems are tight. Real composer cost is justifiable once the game has audience and funding.
+- **Alternatives considered:** Commission immediately (premature spend); chiptune (off-brief); orchestral epic (off-brief).
+- **Status:** Locked.
+
+## D-019 — God-mode: REMOVED
+
+- **Decision:** No god-mode play option. No world editor, no terraforming tools, no GM mode. Everyone plays as a character.
+- **Reason:** Tightens the pitch. Aligns with "the world is the world" — players don't bend the world. Removes a substantial chunk of work (Tier 8 god-mode tools).
+- **Alternatives considered:** Solo god-mode toggle; multiplayer GM/director role; streamer-as-god mode. All rejected.
+- **Status:** Locked. (Originally part of the trinity; removed mid-design.)
+
+## D-020 — Core design principle: "The world is the world"
+
+- **Decision:** Adopt "the world is the world" as the foundational design principle. The world exists on its own terms. The player is a participant, not a protagonist. NPCs have their own goals, lives, and deaths. No chosen-one framing. No main quest for the player. Permanent consequences.
+- **Reason:** Unifies all the other locked decisions (persistent avatar, AI NPC autonomy, no god-mode, world tick). Gives a clean test for future design questions: "does this make the world bend to the player?" If yes, kill it.
+- **Alternatives considered:** Standard chosen-one RPG framing (rejected — generic, contradicts the AI pillar); player-as-god framing (rejected with god-mode); hybrid (rejected as muddled).
+- **Status:** Locked. *Most important entry in this log.*
+
+## D-021 — Onboarding: arrive at the Tower base via portal
+
+- **Decision:** New players arrive at the base of the Tower via portal, equipped with a starter item only. Tutorial baked into early NPC interactions. Lore framing explains why strangers regularly appear.
+- **Reason:** Aligns with "world is the world" (no chosen-one wakeup). Gives every new player a shared cultural starting point. Tower-base as a hub funnels social interaction.
+- **Alternatives considered:** Wash up at coastal town (less central); standard "wake up amnesiac" (off-principle); separate tutorial mode (jarring).
+- **Status:** Locked.
+
+## D-022 — Quests: NPC needs + village boards + world events
+
+- **Decision:** Three quest sources combined. NPC-needs (LLM-narrated, mechanics coded). Village quest boards (procedural low-stakes). World events (open to all for a window, then gone whether you helped or not).
+- **Reason:** World-event quests are the strongest expression of "world is the world." Multiple sources mean variety; LLM narration makes each feel personal.
+- **Alternatives considered:** Single quest source (less variety); pure procedural (less narrative weight); pure scripted (doesn't scale).
+- **Status:** Locked.
+
+## D-023 — World bosses: 5–7 named, Shangri-La Frontier-inspired
+
+- **Decision:** 5–7 uniquely named world bosses with deep lore and extreme difficulty. First-kill triggers world-wide announcement and NPC gossip. Tier 6 design.
+- **Reason:** Anchors endgame content. Streaming-friendly (first-kills are events). Aligns with the source-material inspirations.
+- **Alternatives considered:** Many small bosses (less impact); single endgame boss (less variety); generic dungeon bosses (less narrative).
+- **Status:** Locked at concept; specifics designed in Tier 6.
+
+## D-024 — Build-in-public, no face-cam
+
+- **Decision:** Develop the game in public (public GitHub, devlogs, social content). The user will not appear on camera. Content is voice-over + screen capture + game footage. Brand is the game, not the developer's face.
+- **Reason:** User preference (privacy / personal choice). Plenty of successful indie devs build in public without face-cam (ConcernedApe, many others). Doesn't reduce the strategy's effectiveness.
+- **Alternatives considered:** Full face-cam build-in-public (rejected by user); silent development (loses the funding flywheel); pseudonymous (compatible with this).
+- **Status:** Locked.
+
+## D-025 — MCP-first funding strategy
+
+- **Decision:** Self-fund through the MCP (~Tier 2). Don't pursue publishers, grants, or investors until the MCP is playable.
+- **Reason:** Pre-prototype, almost no funder will write checks. With an MCP and audience, doors open. Self-funding through Tier 2 is feasible given the user's existing income (Goldman role).
+- **Alternatives considered:** Pursue funding from day one (rejected — wasted effort, weak position); fund only at launch (rejected — leaves money on the table during alpha); take on investor before product exists (rejected — bad terms, distraction).
+- **Status:** Locked.

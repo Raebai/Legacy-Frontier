@@ -1,0 +1,75 @@
+# --- Godot ---
+.godot/
+*.import
+export.cfg
+export_presets.cfg
+build/
+*.tmp
+.import/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+.python-version
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- IDEs ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-*
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Secrets / config ---
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+secrets/
+credentials/
+
+# --- Build outputs ---
+dist/
+out/
+exports/
+
+# --- Asset workspace (large source files; keep baked sprites tracked) ---
+art-source/raw/
+audio-source/raw/
+*.aseprite~
+*.psd~
+
+# --- Logs / temp ---
+*.log
+logs/
+tmp/
+
+# --- Local AI / models ---
+models/
+.ollama/
+*.gguf
+
+# --- Node (in case we add tooling) ---
+node_modules/
+npm-debug.log*
+
+# --- macOS specific (Aseprite users) ---
+.AppleDouble
+.LSOverride
+
+# --- Local tooling (Claude Code session data, Godot editor binary) ---
+.claude/
+godot-engine/
