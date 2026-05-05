@@ -130,3 +130,33 @@ into `docs/decisions.md`. New entries appended at the bottom; old entries preser
   - Specific magic schools — deferred to Tier 5.
   - Specific identities of the 5–7 world bosses — deferred to Tier 6.
   - First NPC personality for v0.0 — to be designed in next session.
+
+### Session 2 — Repo bootstrap, environment, v0.0 plan
+
+- **Date:** 2026-05-05
+- **Goal of session:** finish scaffolding into a working repo, install game-side AI infrastructure, lock the v0.0 implementation plan, ready M1 to start.
+- **What changed:**
+  - Read all existing docs and synthesised the project; flagged that `docs/` directory hadn't been created (files were at workspace root) and several smaller inconsistencies.
+  - **Filesystem layout aligned to `architecture.md`:** created `docs/`, moved 8 design docs into it, created `godot-project/`, `python-tools/`, `ai-bridge/`, `art-source/` with `.gitkeep` placeholders. Renamed unpacked Godot zip folder to `godot-engine/`.
+  - **`.gitignore` updated:** added `.claude/` (Claude Code session data) and `godot-engine/` (172 MB editor binary) so neither is ever committed.
+  - **Tooling installed:** Python 3.14.2 already present; Godot 4.6.2 stable manually placed under `godot-engine/`; Ollama 0.23.0 installed via winget after Smart App Control was disabled (D-029). Llama 3.2 3B *not yet pulled* — pending.
+  - **Git repo initialised** (`main` branch), local-scope identity set to `Raebai` + GitHub noreply email (D-028), initial scaffolding commit `d65a448` made (16 files, 1,750 insertions), pushed to private `https://github.com/Raebai/Legacy-Frontier`.
+  - **v0.0 implementation plan written** at `docs/sprint-1-plan.md` — 8 milestones from Godot project bootstrap through persistent NPC memory, with Godot concepts annotated inline since Sprint 0 is being skipped (D-026).
+  - **Sprint 0 retired** in favour of learn-by-reading-the-code approach (D-026); the *"Goldman analyst learning Godot"* content beat is also dropped.
+- **Decisions made:** D-026 (skip Sprint 0), D-027 (project structure at scaffolding), D-028 (pseudonymous git identity), D-029 (SAC disabled).
+- **Commands run (important ones only):**
+  - `git init -b main`, `git add .`, `git commit`, `git remote add origin ...`, `git push -u origin main`
+  - `winget install --id=Ollama.Ollama -e` (after disabling SAC; first attempt failed with `0x8007029c` due to SAC blocking installer execution)
+- **Tests/checks run + results:**
+  - `git log --oneline -1` → `d65a448 Initial scaffolding...`; `git branch -vv` shows `main` tracking `origin/main`. Push verified.
+  - `ollama --version` → `0.23.0`. HTTP API at `localhost:11434/api/tags` returns `HTTP 200 {"models":[]}`.
+  - `ollama list` → empty (model pull not yet run).
+- **Next steps:**
+  1. User runs `ollama pull llama3.2:3b` in a fresh Warp tab (~2 GB).
+  2. Once the model is local, run Step 4 — verify Ollama HTTP API with a real prompt via `Invoke-RestMethod`.
+  3. Begin **Milestone 1** of the v0.0 plan — Godot project bootstrap + WASD-controlled placeholder character.
+- **Open questions/risks:**
+  - Llama 3.2 3B pull is the only blocker on Step 4 and Milestone 5.
+  - First NPC's personality + name still undesigned — user picks in Milestone 5 territory.
+  - SAC is now permanently off on this machine (D-029); future Windows reinstall is the only way back. Acceptable for a dev machine.
+  - Public-vs-private repo timing tension carried forward: repo is private; reassess flipping to public after v0.0 ships.

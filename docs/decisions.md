@@ -184,3 +184,35 @@ Append-only decision log. Newest entries at the bottom. Format per the operating
 - **Reason:** Pre-prototype, almost no funder will write checks. With an MCP and audience, doors open. Self-funding through Tier 2 is feasible given the user's existing income (Goldman role).
 - **Alternatives considered:** Pursue funding from day one (rejected — wasted effort, weak position); fund only at launch (rejected — leaves money on the table during alpha); take on investor before product exists (rejected — bad terms, distraction).
 - **Status:** Locked.
+
+## D-026 — Skip Sprint 0; learn Godot by reading the code shipped
+
+- **Decision:** Skip Sprint 0 (the tutorial-driven Godot learning runway in `roadmap.md`) entirely. Go directly from scaffolding to v0.0 implementation. The user (a Godot beginner with strong Python fluency) learns Godot concepts by reading the code Claude writes during v0.0 milestones, with concepts annotated inline in 1–2 sentence explanations as they appear. If velocity feels too high, the user pauses Claude with *"explain that"* and gets a deeper walkthrough.
+- **Reason:** The user explicitly opted to skip tutorials in favour of learning-by-doing on the real project, in service of part-time velocity and content-strategy deadlines. The Sprint 0 "Goldman analyst learning Godot" content beat is also retired by this decision (it surfaced a partial-dox concern around naming the day-job employer in public posts).
+- **Alternatives considered:** Run Sprint 0 fully as written (rejected — slower; user prefers learning on the real codebase); a half-Sprint-0 of just the official "Your First 2D Game" tutorial (rejected as still slower than the chosen path; can be revisited if v0.0 milestones reveal genuine fundamentals gaps).
+- **Status:** Locked. Risk: heavier inline annotation burden on Claude during v0.0 milestones, accepted.
+- **Date locked:** 2026-05-05.
+
+## D-027 — Project structure laid out at scaffolding commit
+
+- **Decision:** At the initial scaffolding commit, create the full directory structure proposed in `architecture.md` (`docs/`, `godot-project/`, `python-tools/`, `ai-bridge/`, `art-source/`), with `.gitkeep` files in the empty subdirectories.
+- **Reason:** Locks the structure into commit #1 with no churn later. Every later commit places files in their architecture-correct location from the start. The cost is four `.gitkeep` files; the benefit is consistency.
+- **Alternatives considered:** Create directories lazily as files arrive (rejected — every "first file in this folder" commit becomes a structural decision; more drift risk).
+- **Status:** Locked.
+- **Date locked:** 2026-05-05.
+
+## D-028 — Git commit identity: pseudonymous (`Raebai` + GitHub noreply)
+
+- **Decision:** Configure `user.name = "Raebai"` and `user.email = "Raebai@users.noreply.github.com"` at `--local` scope in this repo only. The user's real email never appears in commit history.
+- **Reason:** Aligns with D-024 (build-in-public, no face-cam, pseudonymous). `Raebai` is the user's existing GitHub handle. Local-scope config keeps Legacy Frontier's identity isolated from any other git work on the same machine. The noreply form is GitHub-recognised and routes to the user's real address without exposing it.
+- **Alternatives considered:** Real email (rejected — permanent in commit history once repo goes public); a project-themed handle like `@legacyfrontier` (deferred — can switch the config later if the brand wants to be the game rather than the dev; old commits keep `Raebai`).
+- **Status:** Locked for now; revisit if a project-themed brand handle is chosen later.
+- **Date locked:** 2026-05-05.
+
+## D-029 — Smart App Control disabled on the dev machine
+
+- **Decision:** Smart App Control (SAC) was turned off on the development machine to allow installing Ollama (and the broader set of dev tools required for Tiers 1–8: Aseprite, Stable Diffusion tooling, Steam SDK, etc.). SAC's off state is permanent without an OS reinstall.
+- **Reason:** SAC is a security feature designed for non-developer machines; it silently blocks unsigned/low-reputation executables. For a developer machine that will install many dev tools over the project lifetime, SAC creates constant friction in exchange for marginal additional protection beyond what Microsoft Defender, SmartScreen, Firewall, Controlled Folder Access, and Tamper Protection already provide.
+- **Alternatives considered:** Run Ollama in WSL2 (rejected for solo + part-time velocity reasons — adds a second OS to manage and re-introduces friction every time another Windows-native dev tool is installed); leave SAC on and avoid Ollama (rejected — Ollama is core infrastructure for the AI-NPC pillar, D-002, non-negotiable).
+- **Status:** Locked. Note: SAC cannot be re-enabled without a Windows reinstall; this is a one-way door per Microsoft policy.
+- **Date locked:** 2026-05-05.
