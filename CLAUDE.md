@@ -181,3 +181,37 @@ into `docs/decisions.md`. New entries appended at the bottom; old entries preser
   - Manual runtime test: light-blue 16×16 square moves cardinal + diagonal at 180 px/s, releases stop instantly. ✅
 - **Next steps:** Milestone 2 — `TileMapLayer` + tileset, `Camera2D` smooth-follow, wall collisions.
 - **Open questions/risks:** None new this milestone.
+
+### Session 4 — Adopt Gopeak MCP, then pause
+
+- **Date:** 2026-05-06
+- **Goal of session:** raise the Claude ↔ Godot collaboration loop from "user pastes screenshots + runs F5" (Tier 1 visibility) to a real interactive bridge that lets Claude see scene state, capture screenshots, edit nodes, and run scenes directly. Then snapshot a clean handoff state.
+- **What changed:**
+  - Compared the top three open-source Godot MCP servers (Coding-Solo/godot-mcp at 3.4k stars, HaD0Yun/Gopeak-godot-mcp at 160 stars, 3ddelano/gdai-mcp-plugin-godot at 80 stars). GDAI eliminated as not actually open-source ("All rights reserved"); Coding-Solo eliminated despite the star lead because it lacks screenshot capture, scene-tree readout, and live editing — exactly the capabilities we need.
+  - Picked **Gopeak** (110+ tools, MIT, v2.3.6 — 2026-04-05). Logged as **D-030** with full rationale.
+  - Audited Gopeak's `install-addon.ps1` before user ran it (clean: 13 files into three addon dirs under `addons/`, no permission shenanigans).
+  - User ran `iwr | iex` from inside `godot-project/`; `auto_reload`, `godot_mcp_runtime`, and `godot_mcp_editor` addons landed in `godot-project/addons/` (Godot also auto-generated `.uid` sidecars on scan, also committed).
+  - Registered the MCP at *project* scope via `claude mcp add gopeak -s project ...`, creating `.mcp.json` at the repo root with `GODOT_PATH` and `GOPEAK_TOOL_PROFILE=compact` baked in. Project-scope means any future Claude Code session in this repo auto-loads the same MCP.
+  - User enabled the three plugins in Project Settings → Plugins. Godot wrote `[autoload] MCPRuntime` and `[editor_plugins] enabled=...` to `project.godot`.
+  - Two pushes to `origin/main` this session: `b4fed8c` (M1) and `4bb98ed` (MCP setup).
+- **Decisions made:** D-030 (adopt Gopeak MCP at project scope, vendored addons, compact tool profile).
+- **Commands run (important ones only):**
+  - `iwr https://raw.githubusercontent.com/HaD0Yun/Gopeak-godot-mcp/main/install-addon.ps1 -UseBasicParsing | iex` (from inside `godot-project/`).
+  - `claude mcp add gopeak -s project -e "GODOT_PATH=..." -e "GOPEAK_TOOL_PROFILE=compact" -- npx -y gopeak`.
+  - `git push origin main` (twice).
+- **Tests/checks run + results:**
+  - `node --version` → v24.13.0; `claude --version` → 2.1.129 (Claude Code).
+  - All 13 expected addon files (plus 9 Godot-generated `.uid` sidecars) verified in place.
+  - `git status` clean at end of session, both commits on `origin/main`.
+  - **MCP smoke test NOT yet run** — requires a fresh Claude Code session to load `.mcp.json`. Deferred to next session.
+- **Next steps (read on resume):**
+  1. **Keep Godot open** with the Legacy Frontier project loaded — the runtime + editor addons listen on localhost ports inside Godot.
+  2. **Restart Claude Code** if not already restarted: from a Warp tab in `C:\Users\Raaed\Documents\Legacy Frontier`, run `claude --continue` (or `claude --resume` if `--continue` misbehaves; or `claude` for a fresh session — this CLAUDE.md plus `docs/sprint-1-plan.md` and `docs/decisions.md` are sufficient context for cold-start).
+  3. **Approve the MCP prompt** that Claude Code shows on first run after seeing `.mcp.json`. The first `npx -y gopeak` invocation will download the package (~10–20 s).
+  4. **Smoke test:** Claude calls `ToolSearch` to load Gopeak tool schemas, then `capture_screenshot` to verify the bridge is real.
+  5. **Begin Milestone 2** of `docs/sprint-1-plan.md` — `TileMapLayer` + tileset, `Camera2D` smooth-follow, wall collisions. Now MCP-assisted: Claude writes/modifies the scene programmatically and verifies visually without forcing the user to F5-and-report each step.
+- **Open questions/risks:**
+  - Gopeak MCP smoke test still pending. Possible failures: ports blocked by firewall, `npx -y gopeak` resolution issues, addon initialisation errors on Godot side. If anything errors on next-session smoke test, paste the error and triage before touching M2.
+  - First NPC personality + name still undesigned — surfaces in M5 territory.
+  - Llama 3.2 3B is local and warm-tested (cold ~58 s, warm ~230 ms) but no NPC has been talked to yet; M5 is when that gets real.
+  - Public-vs-private repo flip decision still pending (currently private; reassess after v0.0 ships).
