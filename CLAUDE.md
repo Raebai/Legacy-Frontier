@@ -215,3 +215,31 @@ into `docs/decisions.md`. New entries appended at the bottom; old entries preser
   - First NPC personality + name still undesigned — surfaces in M5 territory.
   - Llama 3.2 3B is local and warm-tested (cold ~58 s, warm ~230 ms) but no NPC has been talked to yet; M5 is when that gets real.
   - Public-vs-private repo flip decision still pending (currently private; reassess after v0.0 ships).
+
+### Session 5 — Milestone 2: tilemap, camera follow, wall collisions
+
+- **Date:** 2026-05-06
+- **Goal of session:** ship M2 — a 24×16 tile room with grass interior, stone wall border that blocks movement, and a smooth-follow camera. First milestone with real Gopeak MCP assistance.
+- **What changed:**
+  - **Gopeak MCP smoke test passed.** `project-info` returned live data ("Legacy Frontier", 4.6.2.stable, 2 scenes, 10 scripts); `editor-status` reported `connected: true` once Godot was open with plugins enabled; `runtime-status` confirmed the autoload bound port 7777 once the game ran. The bridge is real and three-layered (static file ops / live editor / live runtime).
+  - **Placeholder atlas pipeline.** Wrote `python-tools/generate_placeholder_atlas.py` — stdlib-only PNG writer (`zlib` + `struct`, no Pillow dependency) that emits a 64×32 atlas: tile 0 grass (R78,G138,B64), tile 1 stone (R118,G118,B122), with a 4-px micro-checker so 32-px tile boundaries are visible at runtime. Output: `godot-project/assets/tilesets/placeholder_atlas.png` (155 bytes).
+  - **TileSet resource (`.tres`) hand-authored.** `godot-project/assets/tilesets/placeholder_atlas.tres` defines one `TileSetAtlasSource` over the PNG, two atlas tiles, and a single `physics_layer_0`. Wall tile `(1,0)` carries a polygon collider covering the full 32×32 cell; grass tile `(0,0)` is collision-free. Godot's importer auto-generated `.uid` sidecars and `.godot/imported/placeholder_atlas.png-*.ctex` cleanly on first load.
+  - **Programmatic room paint.** New `scripts/World.gd` extends `Node2D` and is attached to `Main`. In `_ready()` it loops a 24×16 grid and calls `tilemap.set_cell()` — wall on borders, grass inside. Reasoning: hand-encoding `tile_map_data` as a `PackedByteArray` blob in the `.tscn` is opaque and brittle; a 12-line GDScript painter is readable in git, easy to extend in M3 (NPC placement), and runs in <1 ms at startup.
+  - **`Main.tscn` rewritten.** Added `TileMapLayer` child (with `tile_set = ExtResource(...)` pointing at the `.tres`), attached `World.gd` to root, moved Player from `(320, 180)` (old viewport-centre) to `(384, 256)` (room-centre at 12×8 tiles of 32 px).
+  - **Camera2D added to `Player.tscn`.** Single new child node with `position_smoothing_enabled = true` and `position_smoothing_speed = 5.0`. Placing it inside `Player.tscn` (not `Main.tscn`) means the camera travels with the player automatically — no script glue needed. Camera2D also auto-promotes to active camera on `_ready()` because there's only one in the scene.
+  - **Per-milestone loop upgraded to Tier 2 visibility.** I drove `editor-run` directly via MCP (no F5 from the user), polled `editor-debug-output` for boot output (clean: only Vulkan banner + MCP runtime startup messages, zero errors), confirmed `runtime-status` showed the autoload connected on port 7777, then asked the user to play and report. Compared to M1, the user's job collapsed from "open editor → F5 → describe what you see" to "watch and report on feel."
+- **Decisions made:** None new. (D-030 covered Gopeak adoption; M2 used it as designed.)
+- **Commands run (important ones only):**
+  - `python python-tools/generate_placeholder_atlas.py` → `Wrote ...placeholder_atlas.png (155 bytes)`.
+  - `mcp__gopeak__editor-run` (M2 verification launch).
+  - `mcp__gopeak__editor-stop` (clean shutdown before commit).
+- **Tests/checks run + results:**
+  - Project boot via MCP `editor-run` — clean, no errors. Vulkan device picked up the RTX 4070 Laptop.
+  - `runtime-status` post-launch — `processActive: true`, `runtimeAddon: connected`, ping-pong RTT confirmed.
+  - User visually confirmed: grass + walls render, walls block movement, camera smoothly trails the player. ✅
+- **Open questions/risks:**
+  - **Gopeak dynamic-group tool schemas don't refresh mid-session in Claude Code.** Activating the `testing` group (which contains `capture_screenshot`, `inject_action`, `inject_key`) inside an already-running CC session reports the tools as "active" inside Gopeak, but their MCP tool schemas never become callable from this side until a CC restart. Workaround: pre-activate testing group at session start, or accept that for any *new* milestone needing screenshot/input injection, a quick CC restart is the price. Not blocking — fall back to user-as-camera works fine. Worth retesting on Gopeak v2.4 if/when it ships.
+  - First NPC personality + name still undesigned. Surfaces in M5.
+  - Llama 3.2 3B still un-talked-to; M5 is the test.
+  - Public-vs-private repo flip decision still pending; reassess after v0.0 ships.
+- **Next steps:** Milestone 3 — NPC entity + proximity detection (`Area2D` + signals). Per `docs/sprint-1-plan.md`. Will need an NPC sprite (different colour, `CharacterBody2D` or `StaticBody2D`), a child `Area2D` for the trigger zone, and a `Label`/`Control` floating hint that toggles via `body_entered` / `body_exited` signals.
