@@ -270,3 +270,33 @@ into `docs/decisions.md`. New entries appended at the bottom; old entries preser
   - Llama 3.2 3B still un-talked-to.
   - Public-vs-private repo flip decision still pending.
 - **Next steps:** Milestone 4 — dialogue UI scaffold. Pressing **E** while the hint is visible opens a full-screen overlay with: NPC name banner, message history pane (`RichTextLabel`), a single-line `LineEdit`, and a way to close (E or Esc). The NPC echoes input back as `"[NPC]: I heard you say: ..."` — no LLM yet, isolating the UI work before the streaming integration in M5.
+
+### Session 7 — Milestone 4: dialogue UI scaffold with placeholder echo
+
+- **Date:** 2026-05-06
+- **Goal of session:** ship M4 — pressing **E** in NPC proximity opens a centred dialogue overlay over a dimmed world; typing a line and pressing Enter appends `You: ...` then `NPC: I heard you say: ...` to a scrolling history; **Esc** closes the dialogue and unfreezes the player. No LLM yet — the milestone exists to isolate UI work before streaming integration lands in M5.
+- **What changed:**
+  - **`DialogueUI.tscn`** — `CanvasLayer` (layer 100, above world) → full-screen `ColorRect` dimmer at 55 % black → centred `PanelContainer` (520×260) → `VBoxContainer` holding `Label` (NameBanner), `RichTextLabel` (HistoryPane, BBCode + scroll-following + `focus_mode=0`) and `LineEdit` (InputField). `RichTextLabel` was chosen over plain `Label` precisely so M5 can colour-code player vs. NPC turns without touching the structure.
+  - **`DialogueUI.gd`** — autoloaded as singleton `Dialogue` via `[autoload] Dialogue="*res://scenes/DialogueUI.tscn"` in `project.godot`. Public surface: `open(data: NPCData)`, `close()`, `is_open() -> bool`. On open: shows the layer, sets the banner, clears history+input, calls `grab_focus()` on the LineEdit. On close: hides + releases focus. `_unhandled_input` only listens for `ui_cancel` (Esc) — does *not* listen for `talk` (E) because while open the LineEdit consumes E for normal text input, so binding E for close would conflict.
+  - **`NPC.gd`** updated to track `_player_in_range` and, in `_unhandled_input`, fire `Dialogue.open(data)` when the `talk` action presses while in range and dialogue is closed. `_unhandled_input` is the right hook here: GUI controls (the LineEdit when dialogue is open) get first crack at events, so once dialogue opens, NPC stops seeing keys → no double-trigger.
+  - **`Player.gd`** gated: at the top of `_physics_process`, if `Dialogue.is_open()` then zero velocity, `move_and_slide()`, return. WASD typed during dialogue typing therefore can't drive the player — and because the LineEdit is focused, those W/A/S/D presses go into the message text instead.
+  - **`project.godot`** — added `talk` input action bound to physical keycode 69 (E), and registered the `Dialogue` autoload alongside `MCPRuntime`.
+- **Bug ladder + final fix:**
+  1. **First run:** parser break — `Could not find type "NPCData" in the current scope` at `DialogueUI.gd:open(data: NPCData)`. Same trap as M3 (auto_reload addon updates files on disk but doesn't refresh `global_script_class_cache.cfg` mid-session).
+  2. **Recovery:** ran `godot --headless --path … --import` → cache rebuilt → next `editor-run` clean.
+  3. **Second issue (the real M4 saga):** after Enter-to-submit, the LineEdit *visually* still looked focused but **typed letters were dropped**; the user had to press Enter *again* to "wake it up." First attempt: synchronous `grab_focus()` after clearing — no help. Second: `call_deferred("grab_focus")` — no help. Third: `await get_tree().process_frame` + `_process` safety net that re-grabbed every frame — *also* no help.
+  4. **Root cause finally identified:** Godot 4 LineEdit defaults to **releasing focus on `text_submitted`**. The runtime fights any external `grab_focus` because LineEdit's own internal logic re-releases focus the next time it processes input. The canonical fix is the boolean property **`keep_editing_on_text_submit = true`** (added in Godot 4.0+). Setting it in `_ready()` flips LineEdit from "release on submit, you must regrab" to "stay focused, keep editing." With this property set, the convoluted `_process`/`await`/`call_deferred` stack collapses to a single line, and focus survives every submission cleanly.
+- **Decisions made:** None new (architectural choices — autoload singleton, `_unhandled_input` for NPC trigger, `keep_editing_on_text_submit` for LineEdit — are natural Godot 4 idioms; logging only if challenged).
+- **Commands run (important ones only):**
+  - `godot --headless --path … --import` (twice — once to register the new `class_name`, once just to be safe before the second debug run).
+  - `mcp__gopeak__editor-run` / `editor-debug-output` / `editor-stop` (multiple cycles during the LineEdit-focus saga).
+- **Tests/checks run + results:**
+  - Boot clean after each iteration; final run had zero errors with `keep_editing_on_text_submit = true` set.
+  - User verified the four acceptance criteria: walk-up + E opens dialogue with dimmed world, typing+Enter renders both turns to history, **continuous-typing across multiple submissions works without re-pressing Enter to refocus** (the M4 saga fix), Esc closes and movement returns.
+- **Open questions/risks:**
+  - **Recurring `class_name` cache trap** — every milestone that adds a new `class_name` script and immediately consumes it from another script (M3, M4) hits the parser-error-on-first-run quirk. Mitigation: I now do `--headless --import` automatically before any milestone that introduces a new `class_name`. Could automate as a hook before `editor-run` if it persists.
+  - **`keep_editing_on_text_submit` is the kind of trap that costs 30+ minutes if not known** — a future M8 polish item could be a "Godot UI gotchas" note in `docs/architecture.md` (text-input focus, modal stacking, when to use `_input` vs `_unhandled_input` vs `_gui_input`).
+  - First NPC's personality + name still placeholder. M5 is when "First NPC" gets a real identity.
+  - Llama 3.2 3B still un-talked-to. M5 is the test.
+  - Public-vs-private repo flip decision still pending.
+- **Next steps:** Milestone 5 — Ollama integration. Replace `_on_text_submitted`'s echo line with a real `HTTPRequest` POST to `http://localhost:11434/api/generate` carrying the personality prompt + the player's message; stream the response into the history pane chunk-by-chunk so the NPC appears to type. Architectural rule (architecture.md) holds: this is a *deliberate* LLM moment; movement / collision / hint logic still never call the LLM. M5 also requires the user to choose the first NPC's name + personality prompt — that's the design ask before I write the integration code.

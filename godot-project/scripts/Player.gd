@@ -15,6 +15,10 @@ const SPEED: float = 180.0
 
 
 func _physics_process(_delta: float) -> void:
+	if Dialogue.is_open():
+		velocity = Vector2.ZERO
+		move_and_slide()
+		return
 	# Returns a normalised Vector2 from the four movement actions.
 	# Diagonal motion is automatically the same speed as cardinal motion;
 	# no pythagorean correction needed.
