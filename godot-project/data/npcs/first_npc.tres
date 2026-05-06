@@ -1,0 +1,8 @@
+[gd_resource type="Resource" script_class="NPCData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/NPCData.gd" id="1_data_script"]
+
+[resource]
+script = ExtResource("1_data_script")
+npc_name = "First NPC"
+personality_prompt = ""

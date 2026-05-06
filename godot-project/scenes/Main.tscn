@@ -1,8 +1,9 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="PackedScene" path="res://scenes/Player.tscn" id="1_player_scene"]
 [ext_resource type="Script" path="res://scripts/World.gd" id="2_world_script"]
 [ext_resource type="TileSet" path="res://assets/tilesets/placeholder_atlas.tres" id="3_tileset"]
+[ext_resource type="PackedScene" path="res://scenes/NPC.tscn" id="4_npc_scene"]
 
 [node name="Main" type="Node2D"]
 script = ExtResource("2_world_script")
@@ -12,3 +13,6 @@ tile_set = ExtResource("3_tileset")
 
 [node name="Player" parent="." instance=ExtResource("1_player_scene")]
 position = Vector2(384, 256)
+
+[node name="NPC" parent="." instance=ExtResource("4_npc_scene")]
+position = Vector2(576, 256)

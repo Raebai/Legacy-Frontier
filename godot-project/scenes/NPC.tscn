@@ -1,0 +1,38 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/NPC.gd" id="1_npc_script"]
+[ext_resource type="Resource" path="res://data/npcs/first_npc.tres" id="2_npc_data"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_npc_body"]
+size = Vector2(16, 16)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_npc_proximity"]
+radius = 32.0
+
+[node name="NPC" type="StaticBody2D"]
+script = ExtResource("1_npc_script")
+data = ExtResource("2_npc_data")
+
+[node name="Visual" type="ColorRect" parent="."]
+offset_left = -8.0
+offset_top = -8.0
+offset_right = 8.0
+offset_bottom = 8.0
+color = Color(0.95, 0.5, 0.2, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("RectangleShape2D_npc_body")
+
+[node name="ProximityArea" type="Area2D" parent="."]
+
+[node name="ProximityShape" type="CollisionShape2D" parent="ProximityArea"]
+shape = SubResource("CircleShape2D_npc_proximity")
+
+[node name="HintLabel" type="Label" parent="."]
+visible = false
+offset_left = -28.0
+offset_top = -32.0
+offset_right = 28.0
+offset_bottom = -16.0
+text = "[E] Talk"
+horizontal_alignment = 1

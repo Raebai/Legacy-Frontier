@@ -243,3 +243,30 @@ into `docs/decisions.md`. New entries appended at the bottom; old entries preser
   - Llama 3.2 3B still un-talked-to; M5 is the test.
   - Public-vs-private repo flip decision still pending; reassess after v0.0 ships.
 - **Next steps:** Milestone 3 — NPC entity + proximity detection (`Area2D` + signals). Per `docs/sprint-1-plan.md`. Will need an NPC sprite (different colour, `CharacterBody2D` or `StaticBody2D`), a child `Area2D` for the trigger zone, and a `Label`/`Control` floating hint that toggles via `body_entered` / `body_exited` signals.
+
+### Session 6 — Milestone 3: NPC entity with proximity-triggered hint
+
+- **Date:** 2026-05-06
+- **Goal of session:** ship M3 — a static NPC that blocks movement, shows a `[E] Talk` hint when the player walks within 32 px, and hides it when they walk away. First milestone with a `Resource`-backed identity (NPCData) so the same scene can become any character later.
+- **What changed:**
+  - **`NPCData` resource class** (`scripts/NPCData.gd`). Two `@export` fields: `npc_name: String` and `personality_prompt: String` (multiline). Marked with `class_name NPCData` so any future scene/script can type-hint against it.
+  - **`first_npc.tres`** placeholder data instance at `data/npcs/first_npc.tres`. Name `"First NPC"`, prompt empty (filled in M5 — first NPC personality is the deliberate-design moment, not a Tier-1 detail). New top-level `data/` directory created for game-data resources distinct from `assets/`.
+  - **NPC scene** (`scenes/NPC.tscn`). `StaticBody2D` root (so the player physically can't walk through it) carrying: a 16×16 orange `ColorRect` visual (Color 0.95, 0.5, 0.2 — warm contrast against the player's blue), a 16×16 box `CollisionShape2D` for the body, a child `Area2D` (`ProximityArea`) with a 32-px radius `CircleShape2D` for the trigger zone, and a hidden `Label` (`HintLabel`) at offset `(-28, -32)` with text `"[E] Talk"` and centred horizontal alignment. The NPC instance gets `data = ExtResource(first_npc.tres)` baked in at scene level — assigning per-instance happens later when there's more than one NPC.
+  - **NPC controller** (`scripts/NPC.gd`). Extends `StaticBody2D`. In `_ready()` connects `proximity_area.body_entered` → `_on_body_entered`, `body_exited` → `_on_body_exited`, and forces `hint_label.visible = false` in case the scene file got corrupted. The handlers gate on `body.is_in_group("player")` — group-based identity instead of name/path coupling, so a hypothetical second player or a respawned player still triggers it.
+  - **`Player.tscn` joins the `"player"` group.** Added `groups=["player"]` to the root `CharacterBody2D` declaration. This is why NPC.gd's `is_in_group("player")` works at all — the group membership is baked in at scene definition time, no `_ready()` glue needed.
+  - **`Main.tscn` instances the NPC** at world position `(576, 256)` — six tiles east of the player at `(384, 256)`, well inside the 24-tile-wide room. Same column as the player so a single press of `D` brings them into proximity range.
+- **Decisions made:** None new. (Group-based body identity, StaticBody2D for the NPC body, NPCData as Resource — all natural Godot 4 idioms; logging only if they later get challenged.)
+- **Commands run (important ones only):**
+  - First `editor-run` → debugger break: `Parser Error: Could not find type "NPCData" in the current scope` at `NPC.gd:3`. Cause: Godot's global script class cache hadn't picked up the new `class_name NPCData` script yet — the auto-reload addon caught the file write but doesn't refresh `.godot/global_script_class_cache.cfg`.
+  - Recovery: `editor-stop`, then a headless `--import` against the project (`godot --headless --path ... --import`), confirmed `NPCData` appeared in `global_script_class_cache.cfg`, then re-ran. Clean boot, no errors.
+  - Final `editor-run` succeeded; user verified all three acceptance criteria.
+- **Tests/checks run + results:**
+  - Class cache check after headless reimport: `NPCData` present with base `Resource`, path `res://scripts/NPCData.gd`. ✅
+  - Project boot post-fix: clean (Vulkan + MCP runtime banner only, zero errors).
+  - User verified: orange NPC visible, hint appears within ~32 px and hides on departure, NPC body blocks movement. ✅
+- **Open questions/risks:**
+  - **`class_name` not auto-registering during a live editor session is a recurring trap** — the auto_reload addon updates the script files on disk and the editor's open buffer, but doesn't trigger Godot's filesystem rescan that rebuilds `global_script_class_cache.cfg`. Workaround for future milestones: after writing any new `class_name` script, run a headless `--import` once before the next `editor-run`. Cheap, deterministic. Could also automate as a pre-`editor-run` step if the trap recurs more than once.
+  - First NPC's personality + name still placeholder. M5 is when "First NPC" gets a real identity.
+  - Llama 3.2 3B still un-talked-to.
+  - Public-vs-private repo flip decision still pending.
+- **Next steps:** Milestone 4 — dialogue UI scaffold. Pressing **E** while the hint is visible opens a full-screen overlay with: NPC name banner, message history pane (`RichTextLabel`), a single-line `LineEdit`, and a way to close (E or Esc). The NPC echoes input back as `"[NPC]: I heard you say: ..."` — no LLM yet, isolating the UI work before the streaming integration in M5.
