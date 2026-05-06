@@ -19,6 +19,7 @@ var _engaged_npc: Node = null
 var _pending_npc: Node = null
 var _waiting: bool = false
 var _ending: bool = false  # in-flight response is a farewell parting line
+var _system_addendum: String = ""  # one-shot system-prompt augmentation, cleared after use
 var _farewell_regex: RegEx = null
 
 
@@ -53,6 +54,34 @@ func engage(npc: Node) -> void:
 	_engaged_npc = npc
 	input_field.placeholder_text = "Whisper to %s — Enter to send, Esc to leave" % npc.data.npc_name
 	_open_input_bar()
+	# Returning visitor: drop a callback line referencing prior conversation.
+	# Skipped on first-ever meeting (no memory yet) and when a request is mid-flight.
+	if npc.messages.size() > 0 and not _waiting:
+		_fire_callback_greeting()
+
+
+func _fire_callback_greeting() -> void:
+	# Synthetic stage-direction user turn so the message grammar stays alternating.
+	_engaged_npc.messages.append({"role": "user", "content": "(walks back up to you)"})
+	if _engaged_npc.has_method("show_thinking"):
+		_engaged_npc.show_thinking()
+	_pending_npc = _engaged_npc
+	_system_addendum = """The player has just walked back up to you. Read the conversation history above carefully — they have spoken with you before.
+
+Your reply MUST:
+1. Address them by name IF they ever shared one in the history.
+2. Reference one specific thing they said — a place, a plan, a feeling, a refusal.
+3. Optionally end with a small invitation that ties back to that specific thing — never a generic question.
+
+Your reply MUST NOT contain any of: "how can I help you", "welcome back, traveller", "good to see you again", "what brings you here". These are forbidden phrases.
+
+Maximum 30 words.
+
+Good examples:
+"Raaed. Coldrose still on your mind?"
+"Back already. The road you spoke of — did it open up for you?"
+"You returned. The thing you would not speak of — is it any easier now?\""""
+	_send_to_ollama()
 
 
 func disengage() -> void:
@@ -65,8 +94,12 @@ func disengage() -> void:
 		http.cancel_request()
 		_waiting = false
 		_pending_npc = null
+	var npc: Node = _engaged_npc
 	_engaged_npc = null
 	_close_input_bar()
+	# Persist what was said to disk (atomic write — survives a crash).
+	if npc != null and npc.has_method("save_memory"):
+		npc.save_memory()
 
 
 # ---- input ---------------------------------------------------------------
@@ -167,6 +200,9 @@ func _send_to_ollama() -> void:
 	var system_content: String = data.personality_prompt
 	if _ending:
 		system_content += "\n\nThe player is saying goodbye. Reply with one brief parting line in character — do not ask another question."
+	if _system_addendum != "":
+		system_content += "\n\n" + _system_addendum
+		_system_addendum = ""
 	var messages: Array = []
 	messages.append({"role": "system", "content": system_content})
 	messages.append_array(_pending_npc.messages)
@@ -189,6 +225,7 @@ func _on_request_completed(result: int, response_code: int, _hdrs: PackedStringA
 	_waiting = false
 	var target: Node = _pending_npc
 	_pending_npc = null
+	var was_ending: bool = _ending
 	_ending = false
 	if _engaged_npc != null:
 		input_field.editable = true
@@ -213,6 +250,10 @@ func _on_request_completed(result: int, response_code: int, _hdrs: PackedStringA
 	target.messages.append({"role": "assistant", "content": content})
 	if target.has_method("say"):
 		target.say(content, 10.0)
+	# After a farewell parting line lands, persist (player has already walked away —
+	# the disengage() save path was skipped for them, so we save here instead).
+	if was_ending and target.has_method("save_memory"):
+		target.save_memory()
 
 
 func _finish_with_error(msg: String) -> void:
