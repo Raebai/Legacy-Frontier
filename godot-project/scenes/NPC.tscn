@@ -1,7 +1,8 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/NPC.gd" id="1_npc_script"]
 [ext_resource type="Resource" path="res://data/npcs/first_npc.tres" id="2_npc_data"]
+[ext_resource type="PackedScene" path="res://scenes/SpeechBubble.tscn" id="3_speech_bubble"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_npc_body"]
 size = Vector2(16, 16)
@@ -36,3 +37,5 @@ offset_right = 28.0
 offset_bottom = -16.0
 text = "[E] Talk"
 horizontal_alignment = 1
+
+[node name="SpeechBubble" parent="." instance=ExtResource("3_speech_bubble")]

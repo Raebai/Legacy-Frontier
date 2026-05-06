@@ -227,3 +227,81 @@ Append-only decision log. Newest entries at the bottom. Format per the operating
   - **Tier 1.5 hand-rolled `tools/capture.gd`** (the screenshot-via-headless-script pattern) — kept as backup if Gopeak ever breaks; not chosen as primary because it's screenshot-only with no scene-tree access or interactive control.
 - **Status:** Locked. Risks accepted: 110+ tool surface area mitigated by `compact` profile; three localhost ports (6005/6006/7777) opened by addon, localhost-only and standard for IDE-bridge tooling; vendoring third-party GDScript into our `addons/` accepted as the Godot community norm and audited at install time.
 - **Date locked:** 2026-05-06.
+
+## D-031 — Tiered NPC dialogue (canned vs LLM) for scale beyond v0.0
+
+- **Decision:** Beyond v0.0, NPCs are split into three tiers based on dialogue depth:
+  - **Tier 0 — ambient:** villagers, generic guards, ambient crowd. Canned lines only — proximity hint shows a randomly-picked greeting from `NPCData.canned_greetings`. NO LLM call. Pressing E does not open a dialogue UI for them. They exist to make the world feel populated, not to be conversational partners.
+  - **Tier 1 — side characters:** shopkeepers, faction members, named-but-not-anchor NPCs. Canned greetings on proximity + an LLM-driven free-form dialogue UI when the player presses E. Memory persisted but on a lighter budget (smaller token window, shorter retention, no async consolidation).
+  - **Tier 2 — anchors:** Raebai, world bosses, faction leaders, plot-critical characters. Full LLM-driven dialogue, full memory persistence, async memory consolidation between sessions (per architecture.md). Population-budget intent: **10–20 anchors in the entire game**, not per region.
+- **Reason:** Llama 3.2 3B inference is ~1–5 s per call on the dev hardware and ~2 GB resident RAM. Per-greeting LLM calls don't scale: latency for the player is one issue, but the bigger one is that the design intent ("the world is the world") doesn't actually need every villager to have a generated personality. Architecture.md already rules out LLM in pathfinding, combat, or per-frame logic; this extends the same "deliberate-moment" principle to NPC dialogue surface area. Cost should scale with player attention, not NPC count.
+- **Alternatives considered:**
+  - **Full LLM for all NPCs.** Rejected — latency annoyance compounds at scale; most ambient NPCs don't gain anything from generated dialogue (you don't need a model to say "morning, traveller"); save-file size and consolidation cost would balloon unsustainably with hundreds of memory-bearing NPCs.
+  - **Pure canned dialogue everywhere with LLM only for "boss" encounters.** Rejected — kills the core pillar (deep, persistent NPC memory). Side characters benefiting from limited LLM is the right middle ground.
+  - **Smaller dedicated model for Tier 1** (e.g., Llama 3.2 1B or Qwen 0.5B for shopkeepers, 3B for anchors). Deferred — viable optimisation, but introduces a second model dependency. Revisit if Tier 1 latency becomes a problem in v0.5+ playtesting.
+- **Implementation deferred:** v0.0 ships with one Tier 2 anchor only (Raebai). The shape — `NPCData.tier: int` and `NPCData.canned_greetings: Array[String]` — gets added when NPC #2 is introduced, earliest v0.5 / Tier 1.5 territory. v0.0 deliberately treats Raebai as a Tier 2 anchor (full LLM, full memory) because v0.0's whole job is to prove that loop works.
+- **Status:** Locked architecturally; implementation deferred to v0.5+.
+- **Date locked:** 2026-05-06.
+
+## D-032 — Dialogue paradigm: in-world speech bubbles, not full-screen modal
+
+- **Decision:** v0.0+ uses Node2D-anchored speech bubbles above each character (player and NPCs) for dialogue, rendered in world space. The full-screen `DialogueUI` modal originally proposed in `docs/sprint-1-plan.md` M4 is retired; the `Dialogue` autoload is replaced by a `Conversation` autoload that hosts a thin bottom-anchored input bar HUD plus the per-character bubble system.
+- **Reason:** The full-screen modal contradicted the "world is the world" pillar and D-011's mobile-first input constraint. A modal stops the world; speech bubbles let the world breathe. Speech bubbles also scale naturally to the eventual broadcast/whisper audience model (D-033), to multi-NPC ambient reaction (D-031 Tier 0/1), and to mobile screens where a 360-px-tall viewport can't afford a 200+ px dimmed overlay. Pivoting now while there's only one NPC was cheap; doing it after M6/M7 had baked persistence into the modal would have been a costly rebuild.
+- **Alternatives considered:**
+  - **Keep the modal** (sprint-1-plan.md as written) — rejected mid-session after the first-implementation playtest collapsed the world-feel.
+  - **Hybrid: bubbles in the world AND a scrollable history panel** — deferred. The "you said: …" HUD line covers the immediate confirmation gap; a real scrollback log is a v0.5+ feature.
+- **Status:** Locked. Implementation: `scenes/SpeechBubble.tscn` + `scripts/SpeechBubble.gd` (Node2D bubble, dynamic shrink-to-fit sizing); `scenes/Conversation.tscn` + `scripts/Conversation.gd` (autoload HUD + state machine).
+- **Date locked:** 2026-05-06.
+
+## D-033 — Audience model: whisper (proximity, LLM) vs broadcast (public, no-LLM-yet)
+
+- **Decision:** Two dialogue modes:
+  - **Whisper** — `E` pressed in NPC proximity → input bar opens addressed to that NPC; messages route to the LLM with the NPC's personality + history; reply renders on the NPC's speech bubble. Player echo lives in a "you said: …" HUD line (see D-036) — no in-world player bubble.
+  - **Broadcast** — `Enter` pressed without engagement → input bar opens in public-speech mode; on submit, the message renders as a speech bubble above the player and the bar closes immediately so movement keys go back to movement. **No LLM call in v0.0** because there are no NPCs in earshot besides Raebai. Broadcast plumbing is built and ready; multi-NPC ambient reactions land alongside D-031's Tier 0/1 implementation in v0.5.
+- **Reason:** Two distinct conversational intents (private vs public) deserve two distinct UX surfaces and two distinct cost profiles. Whisper is the deliberate-LLM moment from architecture.md. Broadcast is what makes the world feel social and is the future entry point for D-031's tiered ambient reactions. Building both shapes now (even with broadcast inert in v0.0) means the eventual multi-NPC world drops into a system that already exists.
+- **Alternatives considered:**
+  - **Single mode (whisper only)** — rejected; would force a UX flip when broadcast lands later, and locking the right interaction grammar matters more than v0.0 needing the broadcast path immediately.
+  - **Always-on public chat (everything broadcasts)** — rejected because deliberate close-range LLM dialogue is the v0.0 magic moment and needs a dedicated, intentional gesture.
+- **Status:** Locked. Whisper fully implemented; broadcast UX implemented (input bar + bubble); audience-reaction layer deferred per D-031.
+- **Date locked:** 2026-05-06.
+
+## D-034 — NPC emotion / state tracking deferred to v0.5+
+
+- **Decision:** v0.0 ships with no per-NPC emotional or behavioural state — no mood, no trust meter, no opinion-of-player, no patience timer. Conversations are stateless apart from the message history sent to the LLM. The full state system is deferred to a v0.5 design pass.
+- **Reason:** The user surfaced the design intent (WorldBox-style NPC metrics) during M5 playtest. Building the right shape requires (a) deciding which scalars matter, (b) how they update (LLM-inferred? rule-based? hybrid?), (c) how they feed back into prompts, and (d) whether they're player-visible or hidden. Each is a real design conversation, not an implementation detail. With one NPC it's also impossible to feel out which dimensions matter most. v0.5 — when NPC #2 lands and D-031's tier system starts mattering — is the right moment.
+- **Alternatives considered:**
+  - **Stub a simple mood scalar now** — rejected; risks me building the wrong abstraction before the user has felt out which dimensions matter.
+  - **Skip state forever, lean on personality prompt + history** — rejected; loses too much of the design intent. NPCs need to remember not just what was said but how they felt about it.
+- **Status:** Architecturally locked as a v0.5+ design item; v0.0 implementation deliberately empty.
+- **Date locked:** 2026-05-06.
+
+## D-035 — M5 and M6 merged: history sent every LLM call
+
+- **Decision:** The `docs/sprint-1-plan.md` separation of M5 (Ollama integration) and M6 (in-session conversation history) is collapsed. M5 ships with full conversation history sent on every `/api/chat` call, accumulated per NPC instance as a `messages: Array[Dictionary]` of role/content dicts.
+- **Reason:** Stateless dialogue (M5 alone, as planned) tested as broken-looking in playtest — Raebai repeated the same question in different words and lost the thread. The user identified the symptom as "not very NPC-like." Putting history in M6 was a clean separation of concerns on paper, but in practice the magic-moment loop requires history from turn one. Shipping a known-broken intermediate state to "respect the milestone boundary" was performative rather than disciplined.
+- **Alternatives considered:**
+  - **Ship M5 stateless, fix in M6** — rejected per above.
+  - **Keep M5/M6 separate but consume history from a global manager** — rejected as YAGNI; the per-NPC array is the right shape for v0.0 and survives unchanged into M7's persistence layer.
+- **Status:** Locked. M6 task is folded into M5's commit.
+- **Date locked:** 2026-05-06.
+
+## D-036 — Player echo in whisper: HUD line, not in-world bubble
+
+- **Decision:** In whisper, the player's submitted message is shown as a small italic "you said: …" line above the input bar (a HUD `RichTextLabel` that auto-fades after 3 s or clears on the next keystroke). The player gets **no in-world speech bubble** while whispering. In broadcast, the player **does** get an in-world bubble. NPCs always render their replies as in-world bubbles regardless of mode.
+- **Reason:** At whisper proximity (player within ~32 px of NPC) two competing in-world bubbles on adjacent characters always overlap, no matter the dynamic sizing or smart side-offset. Beyond practical overlap, whisper *is* private/quiet by definition — a public-style bubble for it contradicts the audience metaphor in D-033. Putting the player echo in the HUD is the design-correct split: world above shows world-voices (NPC replies); chat UI at the bottom shows player input and its echo. This separation also scales: future scrollback log lives in the HUD area, never fights with bubbles.
+- **Alternatives considered:**
+  - **Show player bubble briefly with smart side-offset** — implemented and rejected after playtest; long messages still overlapped at close range, and the philosophical mismatch remained.
+  - **Hide the player echo entirely in whisper** — rejected; user explicitly wanted visual confirmation of submission.
+- **Status:** Locked.
+- **Date locked:** 2026-05-06.
+
+## D-037 — Farewell detection: keyword regex on player side, instant UI close
+
+- **Decision:** In whisper, when the player's message matches a small farewell-keyword regex (`bye|goodbye|farewell|later|peace|see you|i'm out|gotta go|good night|safe travels|take care`), the engine: (1) closes the input bar **immediately** and frees player movement; (2) keeps the in-flight LLM request alive via a separate `_pending_npc` reference so the parting reply still lands on the NPC's bubble when it arrives; (3) appends a one-line system-prompt augmentation telling the model the player is leaving and to give a brief parting line. NPC-initiated farewell (the NPC chooses to end the conversation) is **not** implemented in v0.0.
+- **Reason:** Conversational closure should feel human — typing "bye" and waiting 6+ seconds before regaining movement broke flow. Implementing this in-engine (not via prompt) is correct because the LLM has no way to actually *trigger* disengagement. The regex covers ~95 % of natural English farewells; false negatives are acceptable (player can still press Esc). NPC-initiated endings are deferred because they need state from D-034 (patience/mood); without that, the alternatives are a fragile `[END]` marker in the LLM output or a turn-count heuristic, both of which feel artificial.
+- **Alternatives considered:**
+  - **Embed `[END]` marker in LLM response** — rejected as fragile on a 3B model.
+  - **No farewell handling, rely on Esc** — rejected; UX feels abrupt and ignores natural conversational flow.
+  - **Wait for parting reply before closing UI** — implemented first, rejected after playtest; user explicitly wanted instant close even if the parting line lands a second or two later.
+- **Status:** Locked. NPC-initiated endings tracked under D-034's v0.5 design pass.
+- **Date locked:** 2026-05-06.

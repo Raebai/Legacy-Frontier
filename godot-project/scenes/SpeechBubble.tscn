@@ -1,0 +1,27 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/SpeechBubble.gd" id="1_bubble_script"]
+
+[node name="SpeechBubble" type="Node2D"]
+z_index = 50
+z_as_relative = false
+script = ExtResource("1_bubble_script")
+
+[node name="Panel" type="PanelContainer" parent="."]
+
+[node name="Margin" type="MarginContainer" parent="Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 6
+theme_override_constants/margin_top = 4
+theme_override_constants/margin_right = 6
+theme_override_constants/margin_bottom = 4
+
+[node name="Label" type="RichTextLabel" parent="Panel/Margin"]
+layout_mode = 2
+bbcode_enabled = true
+fit_content = true
+autowrap_mode = 0
+scroll_active = false
+
+[node name="FadeTimer" type="Timer" parent="."]
+one_shot = true

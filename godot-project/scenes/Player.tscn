@@ -1,6 +1,7 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/Player.gd" id="1_player_script"]
+[ext_resource type="PackedScene" path="res://scenes/SpeechBubble.tscn" id="2_speech_bubble"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_player"]
 size = Vector2(16, 16)
@@ -21,3 +22,5 @@ shape = SubResource("RectangleShape2D_player")
 [node name="Camera2D" type="Camera2D" parent="."]
 position_smoothing_enabled = true
 position_smoothing_speed = 5.0
+
+[node name="SpeechBubble" parent="." instance=ExtResource("2_speech_bubble")]

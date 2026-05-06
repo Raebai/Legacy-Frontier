@@ -1,21 +1,12 @@
-# Player.gd
-#
-# Top-down 3/4 movement for the player character. Reads the move_* input
-# actions defined in project.godot — never raw keycodes — so the same code
-# works on PC keyboard today and virtual joystick on mobile later (D-011).
-#
-# Lives on a CharacterBody2D. M1 has no walls, but move_and_slide() is the
-# right pattern from day one — M2 adds tile collision and this code stays
-# identical.
-
 extends CharacterBody2D
 
-# Movement speed in pixels per second. Tune by feel later.
 const SPEED: float = 180.0
+
+@onready var speech_bubble: Node2D = $SpeechBubble
 
 
 func _physics_process(_delta: float) -> void:
-	if Dialogue.is_open():
+	if Conversation.is_input_open():
 		velocity = Vector2.ZERO
 		move_and_slide()
 		return
@@ -27,3 +18,7 @@ func _physics_process(_delta: float) -> void:
 	)
 	velocity = direction * SPEED
 	move_and_slide()
+
+
+func say(text: String, fade_seconds: float = 6.0, x_offset: float = 0.0) -> void:
+	speech_bubble.say(text, fade_seconds, x_offset)
