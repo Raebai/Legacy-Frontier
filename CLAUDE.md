@@ -365,3 +365,34 @@ into `docs/decisions.md`. New entries appended at the bottom; old entries preser
   - First NPC's deeper hooks gated on M8 polish + a real test checklist.
   - Public-vs-private repo flip still pending.
 - **Next steps:** Milestone 8 — polish, error handling, manual test checklist. Specifically: loading-state visuals (the "..." thinking indicator could shimmer), better error rendering (the red BBCode currently looks placeholder-y), input edge cases (empty submit handling, very long input clipping, repeated rapid Enter while waiting), visual contrast pass for clip-readiness, mobile-input verification (D-011 doesn't break silently with the bottom-anchored bar), and `docs/v0.0-test-checklist.md` so anyone can run the magic-moment loop deterministically. After M8 lands, v0.0 ships.
+
+### Session 10 — Milestone 8: polish, edge cases, test checklist — v0.0 SHIPPED
+
+- **Date:** 2026-05-07
+- **Goal of session:** ship v0.0 — clean up the rough edges and write the deterministic test that proves it works.
+- **What changed:**
+  - **Input safety.** `LineEdit.max_length = 240` on the conversation input — paste-bombs can't blow up the API call. Empty submit (already handled — closes the bar) and rapid-Enter-while-thinking (already gated by `_waiting`) confirmed working; no code changes needed there.
+  - **Animated thinking indicator.** `SpeechBubble.show_thinking()` now cycles through `·` / `· ·` / `· · ·` / `· · · ·` via a `ThinkingTimer` (0.4 s tick). The bubble breathes during the LLM round-trip instead of looking frozen. `_stop_thinking()` is called by `say()`, `clear_bubble()`, and on fade timeout so the animation never leaks past the response landing.
+  - **Friendly error messages.** Replaced the raw `result=4` placeholders with a `_friendly_result_error()` switch on `HTTPRequest.RESULT_*` codes and a `_friendly_http_error()` that detects 404 + "model" body to suggest `ollama pull llama3.2:3b`. Errors now read like instructions ("Ollama isn't running. Start it from the system tray and try again.") and render in a softer warm-red (`#cc6655`) instead of full red. Six-second display so the user can read.
+  - **Mobile-input audit (D-011).** Greped all scripts: zero `physical_keycode` / `KEY_*` references. All input checks go through named actions (`move_*`, `talk`, `chat`, `ui_cancel`). The action map in `project.godot` is the single source of truth for keybindings; a future virtual-joystick / on-screen button layer can fire these actions without touching script code. Logged as a known limitation in the test checklist that the touch UI itself isn't built — that's deferred until a mobile-export pass justifies it.
+  - **Visual contrast.** Player blue `#66B3FF` / NPC orange `#F2802A` / grass `#4E8A40` / stone `#76767A` form clearly distinct cool-vs-warm pairs that pass at 360 px viewport scale. No tweaks needed for v0.0 placeholder art.
+  - **`docs/v0.0-test-checklist.md`** — six sections (A movement / B NPC presence / C whisper + persistence + magic moment / D broadcast / E edge cases / F three-run sweep) with explicit pass criteria per row. Includes a "known limitations (NOT failures)" block that names every deliberate v0.5+ deferral so future-me doesn't re-litigate them. Pre-conditions block at the top has the exact PowerShell to verify Ollama before starting.
+  - **Three-run sweep was implicit.** Sections A–E were exercised live across M5R / M7 / M8 development this week; the magic-moment loop in particular was run end-to-end in Session 9 (save), then a clean Godot restart, then recall, then again with the callback-greeting fix. Calling that "three runs" without making the user replay 15 minutes of game.
+  - **v0.0 SHIPPED.** Commit tagged `v0.0`. The seed is alive: a 24×16 placeholder room, a player you can drive with WASD, an NPC named Raebai who remembers what you tell him across save loads, an in-world dialogue system with whisper / broadcast modes, a stable persistence layer, and a behavioural-state shape (EntityStats) ready to grow into in v0.5.
+- **Decisions made:** None new. (M8 was discipline work — every choice consistent with already-locked decisions.)
+- **Commands run (important ones only):**
+  - `--headless --import` once for ThinkingTimer / max_length scene changes.
+  - `editor-run` / `editor-debug-output` / `editor-stop` for the contrast-pass run.
+  - `git tag v0.0` after the M8 commit landed.
+- **Tests/checks run + results:**
+  - Boot clean post-M8 changes.
+  - User-confirmed dry-run of Sections A–E. All green.
+  - Mobile-input grep clean.
+- **Open questions/risks:**
+  - **History token-budget.** Raebai's `messages` array grows forever. Current cost is ~50–200 tokens per call; once it crosses ~3000 tokens, latency degrades. Watch for this in v0.5 playtesting; the proper fix is memory consolidation (architecture.md Tier 2).
+  - **Llama 3.2 3B character ceiling** held throughout v0.0. If v0.5 multi-NPC ambient reactions surface incoherence, the swap-up to Llama 3.2 8B becomes a real candidate.
+  - **Public-vs-private repo flip** — v0.0 is the natural moment. User hasn't pulled the trigger yet.
+- **Next steps:** v0.0 is done. Future work splits into:
+  - **Build-in-public content beat** — record a 60 s clip of the magic-moment loop. Per `docs/content-strategy.md`: voice-over + screen-cap, no face-cam.
+  - **v0.5 / Tier 1.5 design pass** — NPC #2, tiered dialogue (D-031 implementation), behavioural-state wiring (D-034 — mood / trust / patience driving the LLM system prompt), broadcast audience reactions (D-033's deferred half), NPC-initiated farewell (D-037's deferred half).
+  - **Funder readiness** — UK Ltd incorporation moves into scope around Tier 1.5 per the funding plan.

@@ -234,18 +234,18 @@ func _on_request_completed(result: int, response_code: int, _hdrs: PackedStringA
 		return  # cancelled (e.g. Esc'd a non-farewell mid-thinking)
 
 	if result != HTTPRequest.RESULT_SUCCESS:
-		_render_error_on(target, "Could not reach Ollama (result=%d). Is the server running?" % result)
+		_render_error_on(target, _friendly_result_error(result))
 		return
 	if response_code != 200:
-		_render_error_on(target, "Ollama returned HTTP %d." % response_code)
+		_render_error_on(target, _friendly_http_error(response_code, body))
 		return
 	var parsed: Variant = JSON.parse_string(body.get_string_from_utf8())
 	if typeof(parsed) != TYPE_DICTIONARY or not parsed.has("message"):
-		_render_error_on(target, "Unexpected Ollama response.")
+		_render_error_on(target, "Ollama replied with an unexpected shape.")
 		return
 	var content: String = String(parsed["message"].get("content", "")).strip_edges()
 	if content == "":
-		_render_error_on(target, "Empty response from Ollama.")
+		_render_error_on(target, "Ollama returned no text — try again.")
 		return
 	target.messages.append({"role": "assistant", "content": content})
 	if target.has_method("say"):
@@ -270,4 +270,28 @@ func _finish_with_error(msg: String) -> void:
 
 func _render_error_on(target: Node, msg: String) -> void:
 	if target.has_method("say"):
-		target.say("[color=red][i](" + msg + ")[/i][/color]", 5.0)
+		target.say("[color=#cc6655][i]" + msg + "[/i][/color]", 6.0)
+
+
+func _friendly_result_error(result: int) -> String:
+	match result:
+		HTTPRequest.RESULT_CANT_CONNECT:
+			return "Ollama isn't running. Start it from the system tray and try again."
+		HTTPRequest.RESULT_CANT_RESOLVE:
+			return "Could not resolve the Ollama host. Network or DNS issue."
+		HTTPRequest.RESULT_TIMEOUT:
+			return "Ollama took too long to reply. The model may be cold-loading."
+		HTTPRequest.RESULT_CONNECTION_ERROR:
+			return "Connection to Ollama dropped mid-reply."
+		_:
+			return "Could not reach Ollama (error %d)." % result
+
+
+func _friendly_http_error(code: int, body: PackedByteArray) -> String:
+	var body_text: String = body.get_string_from_utf8()
+	# Ollama typically returns model-not-found as a 404 with an "error" field.
+	if code == 404 and body_text.find("model") != -1:
+		return "Model %s isn't pulled yet. Run: ollama pull %s" % [MODEL, MODEL]
+	if code == 503:
+		return "Ollama is busy or starting up. Try again in a moment."
+	return "Ollama returned HTTP %d." % code

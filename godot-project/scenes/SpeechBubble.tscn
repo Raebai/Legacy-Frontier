@@ -25,3 +25,6 @@ scroll_active = false
 
 [node name="FadeTimer" type="Timer" parent="."]
 one_shot = true
+
+[node name="ThinkingTimer" type="Timer" parent="."]
+wait_time = 0.4

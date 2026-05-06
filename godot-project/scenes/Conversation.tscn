@@ -25,6 +25,7 @@ layout_mode = 2
 [node name="LineEdit" type="LineEdit" parent="InputBar/HBox"]
 layout_mode = 2
 size_flags_horizontal = 3
+max_length = 240
 placeholder_text = "Talk to Raebai — Enter to send, Esc to leave"
 
 [node name="LastSaidLabel" type="RichTextLabel" parent="."]

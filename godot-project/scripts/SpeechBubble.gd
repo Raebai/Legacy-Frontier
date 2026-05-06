@@ -6,18 +6,24 @@ const MIN_WIDTH: float = 32.0  # only used by show_thinking()
 const BINARY_SEARCH_ITERATIONS: int = 6
 const BINARY_SEARCH_PRECISION: float = 4.0
 
+const THINKING_FRAMES: PackedStringArray = ["[i]·[/i]", "[i]· ·[/i]", "[i]· · ·[/i]", "[i]· · · ·[/i]"]
+
 @onready var panel: PanelContainer = $Panel
 @onready var label: RichTextLabel = $Panel/Margin/Label
 @onready var fade_timer: Timer = $FadeTimer
+@onready var thinking_timer: Timer = $ThinkingTimer
 
 # x_offset shifts the bubble horizontally relative to the character.
 # Used to anchor whispering player's bubble away from the NPC they're talking to.
 var _x_offset: float = 0.0
+var _thinking: bool = false
+var _thinking_frame: int = 0
 
 
 func _ready() -> void:
 	visible = false
 	fade_timer.timeout.connect(_on_fade_timeout)
+	thinking_timer.timeout.connect(_on_thinking_tick)
 
 
 func _process(_delta: float) -> void:
@@ -39,6 +45,7 @@ func _process(_delta: float) -> void:
 
 
 func say(text: String, fade_seconds: float = 6.0, x_offset: float = 0.0) -> void:
+	_stop_thinking()
 	label.text = text
 	_x_offset = x_offset
 	await _resize_to_content()
@@ -50,21 +57,39 @@ func say(text: String, fade_seconds: float = 6.0, x_offset: float = 0.0) -> void
 
 
 func show_thinking() -> void:
-	label.text = "[i]…[/i]"
+	_thinking = true
+	_thinking_frame = 0
+	label.text = THINKING_FRAMES[0]
 	_x_offset = 0.0
 	label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	label.custom_minimum_size = Vector2(MIN_WIDTH, 0)
 	visible = true
 	fade_timer.stop()
+	thinking_timer.start()
 
 
 func clear_bubble() -> void:
+	_stop_thinking()
 	visible = false
 	fade_timer.stop()
 
 
 func _on_fade_timeout() -> void:
+	_stop_thinking()
 	visible = false
+
+
+func _on_thinking_tick() -> void:
+	if not _thinking:
+		return
+	_thinking_frame = (_thinking_frame + 1) % THINKING_FRAMES.size()
+	label.text = THINKING_FRAMES[_thinking_frame]
+
+
+func _stop_thinking() -> void:
+	if _thinking:
+		_thinking = false
+		thinking_timer.stop()
 
 
 # Resize the label so the bubble fits text exactly.
