@@ -80,7 +80,10 @@ func save_memory() -> void:
 	var payload: Dictionary = {
 		"version": MEMORY_VERSION,
 		"npc_id": data.npc_id,
-		"messages": short_term,
+		"long_term_summary": long_term_summary,
+		"short_term": short_term,
+		"relationships": relationships,
+		"stats": {"mood": mood},
 	}
 	var f: FileAccess = FileAccess.open(tmp_path, FileAccess.WRITE)
 	if f == null:
