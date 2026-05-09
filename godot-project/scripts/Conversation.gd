@@ -197,12 +197,39 @@ func _send_to_ollama() -> void:
 	if _engaged_npc != null:
 		input_field.editable = false
 	var data: NPCData = _pending_npc.data
-	var system_content: String = data.personality_prompt
+	var npc: Node = _pending_npc
+
+	# Stable prefix order for KV-cache reuse across calls in a session
+	# (Token efficiency principle #1, docs/v0.5-design.md):
+	# 1. personality (static across all calls for this NPC)
+	# 2. long_term_summary (changes only at consolidation — rare)
+	# 3. relationship blocks (changes on consolidation/gossip)
+	# 4. state words (changes per turn — must come last so the prefix stays stable)
+	# 5. one-shot addenda (_ending, _system_addendum)
+	var parts: Array[String] = [data.personality_prompt]
+
+	if not npc.long_term_summary.is_empty():
+		parts.append("What you remember from before:\n" + npc.long_term_summary)
+
+	# Relationship block assembly. M9 ships with player-only since v0.5 has only
+	# one anchor at this milestone. M12 (Mirelle) adds the inactive-relationship
+	# omission rule (include if mentioned recently OR has unconsumed gossip).
+	if npc.relationships.has("player"):
+		var rel_line: String = MemoryUtils.compact_relationship("the player", npc.relationships["player"])
+		parts.append(rel_line)
+
+	# State words. At M9 defaults (mood=0, patience=1.0) these are "even" and
+	# "fresh and curious" — minimally directive seasoning. M11 wires real updates.
+	parts.append("Right now you are feeling: %s." % MemoryUtils.mood_word(npc.mood))
+	parts.append("Your patience for this conversation: %s." % MemoryUtils.patience_word(npc.patience))
+
 	if _ending:
-		system_content += "\n\nThe player is saying goodbye. Reply with one brief parting line in character — do not ask another question."
+		parts.append("The player is saying goodbye. Reply with one brief parting line in character — do not ask another question.")
 	if _system_addendum != "":
-		system_content += "\n\n" + _system_addendum
+		parts.append(_system_addendum)
 		_system_addendum = ""
+
+	var system_content: String = "\n\n".join(parts)
 	var messages: Array = []
 	messages.append({"role": "system", "content": system_content})
 	messages.append_array(_pending_npc.short_term)
