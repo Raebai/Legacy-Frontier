@@ -1,7 +1,7 @@
 extends StaticBody2D
 
 const MEMORY_DIR: String = "user://npc_memory"
-const MEMORY_VERSION: int = 1
+const MEMORY_VERSION: int = 2
 
 @export var data: NPCData
 
@@ -10,7 +10,19 @@ const MEMORY_VERSION: int = 1
 @onready var speech_bubble: Node2D = $SpeechBubble
 
 var _player_in_range: bool = false
-var messages: Array = []  # role/content dicts. Loaded from disk on _ready, persisted on engagement-end.
+
+# v0.5 four-layer memory state (per docs/v0.5-design.md "Memory architecture").
+# Persistent identity lives on `data` (NPCData resource).
+# The other three layers are runtime state, persisted to user://npc_memory/<npc_id>.json
+# at disengage / quit, hydrated from disk on _ready.
+var short_term: Array = []                       # role/content dicts (same shape as v0.0 messages)
+var long_term_summary: String = ""               # consolidated paragraph, populated by M10
+var relationships: Dictionary = {}               # entity_id -> {valence, key_facts, gossip_inbox}
+var mood: float = 0.0                            # NPC-wide; runtime override of data.stats.mood seed
+
+# Runtime-only patience scalar — not persisted per docs/v0.5-design.md D-034.
+# M11 wires the per-turn rule-based decay; M9 ships the slot at 1.0 (fresh).
+var patience: float = 1.0
 
 
 func _ready() -> void:
@@ -68,7 +80,7 @@ func save_memory() -> void:
 	var payload: Dictionary = {
 		"version": MEMORY_VERSION,
 		"npc_id": data.npc_id,
-		"messages": messages,
+		"messages": short_term,
 	}
 	var f: FileAccess = FileAccess.open(tmp_path, FileAccess.WRITE)
 	if f == null:
@@ -88,6 +100,9 @@ func save_memory() -> void:
 func _load_memory() -> void:
 	if data == null or data.npc_id == "":
 		return
+	# Seed mood from EntityStats baseline (v0.0 first-load path).
+	if data.stats != null:
+		mood = data.stats.mood
 	var path: String = MEMORY_DIR + "/" + data.npc_id + ".json"
 	if not FileAccess.file_exists(path):
 		return
@@ -101,8 +116,21 @@ func _load_memory() -> void:
 	if typeof(parsed) != TYPE_DICTIONARY:
 		push_warning("NPC._load_memory: %s is not a JSON object, ignoring" % path)
 		return
-	var saved_messages: Variant = parsed.get("messages", [])
-	if not (saved_messages is Array):
-		push_warning("NPC._load_memory: %s 'messages' is not an array, ignoring" % path)
+	var dict: Dictionary = parsed as Dictionary
+	# Detect schema version. Anything other than 2 is migrated through v1 path.
+	var version: int = int(dict.get("version", 1))
+	if version != MEMORY_VERSION:
+		dict = MemoryUtils.migrate_v1_to_v2(dict)
+		# Save the migrated form immediately so subsequent loads skip migration.
+		short_term = dict["short_term"]
+		long_term_summary = dict["long_term_summary"]
+		relationships = dict["relationships"]
+		mood = float(dict["stats"].get("mood", mood))
+		save_memory()
 		return
-	messages = saved_messages
+	# v2 direct load
+	short_term = dict.get("short_term", [])
+	long_term_summary = str(dict.get("long_term_summary", ""))
+	relationships = dict.get("relationships", {})
+	var stats_dict: Dictionary = dict.get("stats", {})
+	mood = float(stats_dict.get("mood", mood))
