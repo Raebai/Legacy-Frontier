@@ -56,13 +56,13 @@ func engage(npc: Node) -> void:
 	_open_input_bar()
 	# Returning visitor: drop a callback line referencing prior conversation.
 	# Skipped on first-ever meeting (no memory yet) and when a request is mid-flight.
-	if npc.messages.size() > 0 and not _waiting:
+	if npc.short_term.size() > 0 and not _waiting:
 		_fire_callback_greeting()
 
 
 func _fire_callback_greeting() -> void:
 	# Synthetic stage-direction user turn so the message grammar stays alternating.
-	_engaged_npc.messages.append({"role": "user", "content": "(walks back up to you)"})
+	_engaged_npc.short_term.append({"role": "user", "content": "(walks back up to you)"})
 	if _engaged_npc.has_method("show_thinking"):
 		_engaged_npc.show_thinking()
 	_pending_npc = _engaged_npc
@@ -173,7 +173,7 @@ func _on_text_submitted(message: String) -> void:
 		# Stage the request: append to NPC history, show their thinking bubble,
 		# then assign _pending_npc so the response routes correctly even after
 		# we close the UI on a farewell.
-		_engaged_npc.messages.append({"role": "user", "content": trimmed})
+		_engaged_npc.short_term.append({"role": "user", "content": trimmed})
 		if _engaged_npc.has_method("show_thinking"):
 			_engaged_npc.show_thinking()
 		_pending_npc = _engaged_npc
@@ -205,7 +205,7 @@ func _send_to_ollama() -> void:
 		_system_addendum = ""
 	var messages: Array = []
 	messages.append({"role": "system", "content": system_content})
-	messages.append_array(_pending_npc.messages)
+	messages.append_array(_pending_npc.short_term)
 	var body: Dictionary = {
 		"model": MODEL,
 		"messages": messages,
@@ -247,7 +247,7 @@ func _on_request_completed(result: int, response_code: int, _hdrs: PackedStringA
 	if content == "":
 		_render_error_on(target, "Ollama returned no text — try again.")
 		return
-	target.messages.append({"role": "assistant", "content": content})
+	target.short_term.append({"role": "assistant", "content": content})
 	if target.has_method("say"):
 		target.say(content, 10.0)
 	# After a farewell parting line lands, persist (player has already walked away —
