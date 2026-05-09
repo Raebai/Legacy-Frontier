@@ -237,13 +237,19 @@ func _send_to_ollama() -> void:
 		"model": MODEL,
 		"messages": messages,
 		"stream": false,
+		"keep_alive": "30m",
 		"options": {
 			"num_predict": 60,
 			"stop": ["\n\n"],
 		},
 	}
 	var headers: PackedStringArray = ["Content-Type: application/json"]
-	var err: int = http.request(OLLAMA_URL, headers, HTTPClient.METHOD_POST, JSON.stringify(body))
+	var body_json: String = JSON.stringify(body)
+	# Observability: log estimated input tokens per call (token-efficiency item #16).
+	# Uses MemoryUtils.estimate_tokens (char/4 approximation). Underestimates by
+	# ~10–15% on Llama 3.2 BPE; adequate for spotting prompt growth.
+	print("[ollama] %s tokens-in≈%d" % [_pending_npc.data.npc_id, MemoryUtils.estimate_tokens(body_json)])
+	var err: int = http.request(OLLAMA_URL, headers, HTTPClient.METHOD_POST, body_json)
 	if err != OK:
 		_finish_with_error("Could not start request to Ollama (Godot error %d)." % err)
 
