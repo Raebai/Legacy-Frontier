@@ -1,13 +1,10 @@
-# godot-project/scripts/MemoryUtils.gd
 class_name MemoryUtils
 extends Object
 
 const MEMORY_VERSION: int = 2
 
 
-# Migrate a parsed v1 save dict into v2 shape. Lossless wrap:
-# v1.messages -> v2.short_term; v2.long_term_summary, relationships, stats start empty/default.
-# A subsequent consolidation (M10) will produce real long_term content from short_term.
+# Lossless wrap; M10's consolidation produces real long_term content from short_term.
 static func migrate_v1_to_v2(v1: Dictionary) -> Dictionary:
 	return {
 		"version": MEMORY_VERSION,
@@ -19,7 +16,6 @@ static func migrate_v1_to_v2(v1: Dictionary) -> Dictionary:
 	}
 
 
-# Build a fresh v2 dict for a new NPC with no prior save.
 static func empty_v2(npc_id: String) -> Dictionary:
 	return {
 		"version": MEMORY_VERSION,
@@ -31,7 +27,6 @@ static func empty_v2(npc_id: String) -> Dictionary:
 	}
 
 
-# Map a valence/trust float to the NL band word used in system prompts.
 # Bands per docs/v0.5-design.md "System prompt assembly".
 static func valence_word(v: float) -> String:
 	if v > 0.6:
@@ -76,14 +71,11 @@ static func estimate_tokens(text: String) -> int:
 	return text.length() / 4
 
 
-# Compact one-line relationship encoding for the system prompt.
-# Example output:
-#   "Mirelle [warm] — old friend, news node. Recent rumours: raebai said: ..."
-# The display name is what shows in the prompt (e.g. "the player" for the player entity).
+# Example: "Mirelle [warm] — old friend, news node. Recent rumours: raebai said: ..."
 static func compact_relationship(display_name: String, rel: Dictionary) -> String:
 	var valence: float = float(rel.get("valence", 0.0))
-	var key_facts: Array = rel.get("key_facts", [])
-	var inbox: Array = rel.get("gossip_inbox", [])
+	var key_facts: Array = rel.get("key_facts", [])  # Variant content from JSON; coerced to String per-element below
+	var inbox: Array = rel.get("gossip_inbox", [])   # Variant content from JSON; per-element validated below
 
 	var line: String = "%s [%s]" % [display_name, valence_word(valence)]
 	if key_facts.size() > 0:
@@ -94,8 +86,11 @@ static func compact_relationship(display_name: String, rel: Dictionary) -> Strin
 	if inbox.size() > 0:
 		var rumours: Array[String] = []
 		for item in inbox:
+			if not (item is Dictionary):
+				continue
 			var from_id: String = str(item.get("from", "someone"))
 			var fact: String = str(item.get("fact", ""))
 			rumours.append("%s said: %s" % [from_id, fact])
-		line += ". Recent rumours: " + "; ".join(rumours)
+		if rumours.size() > 0:
+			line += ". Recent rumours: " + "; ".join(rumours)
 	return line + "."

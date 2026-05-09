@@ -13,6 +13,7 @@ func _init() -> void:
 	failed += _test_patience_word_bands()
 	failed += _test_estimate_tokens()
 	failed += _test_compact_relationship_minimal()
+	failed += _test_compact_relationship_empty_arrays()
 	failed += _test_compact_relationship_full()
 	if failed > 0:
 		printerr("M9 tests: %d FAILED" % failed)
@@ -62,6 +63,11 @@ func _test_valence_word_bands() -> int:
 	fails += _expect(MemoryUtils.valence_word(0.0) == "neutral", "valence: 0.0 -> neutral")
 	fails += _expect(MemoryUtils.valence_word(-0.4) == "cold", "valence: -0.4 -> cold")
 	fails += _expect(MemoryUtils.valence_word(-0.8) == "hostile", "valence: -0.8 -> hostile")
+	# Boundary checks (catches off-by-one threshold drift)
+	fails += _expect(MemoryUtils.valence_word(0.6) == "warm", "valence: 0.6 -> warm (boundary)")
+	fails += _expect(MemoryUtils.valence_word(0.2) == "neutral", "valence: 0.2 -> neutral (boundary)")
+	fails += _expect(MemoryUtils.valence_word(-0.2) == "cold", "valence: -0.2 -> cold (boundary)")
+	fails += _expect(MemoryUtils.valence_word(-0.6) == "hostile", "valence: -0.6 -> hostile (boundary)")
 	return fails
 
 
@@ -72,6 +78,10 @@ func _test_mood_word_bands() -> int:
 	fails += _expect(MemoryUtils.mood_word(0.0) == "even", "mood: 0.0 -> even")
 	fails += _expect(MemoryUtils.mood_word(-0.3) == "gloomy", "mood: -0.3 -> gloomy")
 	fails += _expect(MemoryUtils.mood_word(-0.7) == "dark", "mood: -0.7 -> dark")
+	fails += _expect(MemoryUtils.mood_word(0.5) == "settled", "mood: 0.5 -> settled (boundary)")
+	fails += _expect(MemoryUtils.mood_word(0.2) == "even", "mood: 0.2 -> even (boundary)")
+	fails += _expect(MemoryUtils.mood_word(-0.2) == "gloomy", "mood: -0.2 -> gloomy (boundary)")
+	fails += _expect(MemoryUtils.mood_word(-0.5) == "dark", "mood: -0.5 -> dark (boundary)")
 	return fails
 
 
@@ -81,6 +91,9 @@ func _test_patience_word_bands() -> int:
 	fails += _expect(MemoryUtils.patience_word(0.7) == "engaged", "patience: 0.7 -> engaged")
 	fails += _expect(MemoryUtils.patience_word(0.3) == "fading", "patience: 0.3 -> fading")
 	fails += _expect(MemoryUtils.patience_word(0.1) == "worn out, ready to leave", "patience: 0.1 -> worn out")
+	fails += _expect(MemoryUtils.patience_word(0.8) == "engaged", "patience: 0.8 -> engaged (boundary)")
+	fails += _expect(MemoryUtils.patience_word(0.5) == "fading", "patience: 0.5 -> fading (boundary)")
+	fails += _expect(MemoryUtils.patience_word(0.2) == "worn out, ready to leave", "patience: 0.2 -> worn out (boundary)")
 	return fails
 
 
@@ -96,6 +109,14 @@ func _test_compact_relationship_minimal() -> int:
 	var rel: Dictionary = {"valence": 0.4}
 	var line: String = MemoryUtils.compact_relationship("the player", rel)
 	return _expect(line == "the player [warm].", "compact (minimal): " + line)
+
+
+func _test_compact_relationship_empty_arrays() -> int:
+	# key_facts present-but-empty + gossip_inbox present-but-empty.
+	# Both branches should be taken (size() > 0 is false), output identical to minimal case.
+	var rel: Dictionary = {"valence": 0.4, "key_facts": [], "gossip_inbox": []}
+	var line: String = MemoryUtils.compact_relationship("the player", rel)
+	return _expect(line == "the player [warm].", "compact (empty arrays): " + line)
 
 
 func _test_compact_relationship_full() -> int:
