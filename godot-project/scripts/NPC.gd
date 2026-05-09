@@ -1,7 +1,7 @@
 extends StaticBody2D
 
 const MEMORY_DIR: String = "user://npc_memory"
-const MEMORY_VERSION: int = 2
+# MEMORY_VERSION lives on MemoryUtils; reference it via MemoryUtils.MEMORY_VERSION.
 
 @export var data: NPCData
 
@@ -15,7 +15,7 @@ var _player_in_range: bool = false
 # Persistent identity lives on `data` (NPCData resource).
 # The other three layers are runtime state, persisted to user://npc_memory/<npc_id>.json
 # at disengage / quit, hydrated from disk on _ready.
-var short_term: Array = []                       # role/content dicts (same shape as v0.0 messages)
+var short_term: Array[Dictionary] = []           # role/content dicts (same shape as v0.0 messages)
 var long_term_summary: String = ""               # consolidated paragraph, populated by M10
 var relationships: Dictionary = {}               # entity_id -> {valence, key_facts, gossip_inbox}
 var mood: float = 0.0                            # NPC-wide; runtime override of data.stats.mood seed
@@ -78,7 +78,7 @@ func save_memory() -> void:
 	var tmp_filename: String = filename + ".tmp"
 	var tmp_path: String = MEMORY_DIR + "/" + tmp_filename
 	var payload: Dictionary = {
-		"version": MEMORY_VERSION,
+		"version": MemoryUtils.MEMORY_VERSION,
 		"npc_id": data.npc_id,
 		"long_term_summary": long_term_summary,
 		"short_term": short_term,
@@ -120,19 +120,31 @@ func _load_memory() -> void:
 		push_warning("NPC._load_memory: %s is not a JSON object, ignoring" % path)
 		return
 	var dict: Dictionary = parsed as Dictionary
-	# Detect schema version. Anything other than 2 is migrated through v1 path.
-	var version: int = int(dict.get("version", 1))
-	if version != MEMORY_VERSION:
+	# JSON boundary: a hand-edited or external save could have version as null,
+	# a string, or anything. Treat anything that isn't a clean int 2 as v1 -> migrate.
+	var raw_version: Variant = dict.get("version", 1)
+	var version: int = raw_version if typeof(raw_version) == TYPE_INT else 1
+	if version != MemoryUtils.MEMORY_VERSION:
 		dict = MemoryUtils.migrate_v1_to_v2(dict)
-		# Save the migrated form immediately so subsequent loads skip migration.
-		short_term = dict["short_term"]
+		short_term.clear()
+		for item in dict["short_term"]:
+			if item is Dictionary:
+				short_term.append(item)
 		long_term_summary = dict["long_term_summary"]
 		relationships = dict["relationships"]
-		mood = float(dict["stats"].get("mood", mood))
+		# v1 had no persisted mood — the EntityStats seed set above stands.
+		# Save the migrated form so subsequent loads skip this branch.
+		# A failed save here is non-fatal: in-memory state is valid, the next
+		# launch simply re-migrates from the still-v1 file on disk.
 		save_memory()
 		return
 	# v2 direct load
-	short_term = dict.get("short_term", [])
+	short_term.clear()
+	var raw_short_term: Variant = dict.get("short_term", [])
+	if raw_short_term is Array:
+		for item in raw_short_term:
+			if item is Dictionary:
+				short_term.append(item)
 	long_term_summary = str(dict.get("long_term_summary", ""))
 	relationships = dict.get("relationships", {})
 	var stats_dict: Dictionary = dict.get("stats", {})
