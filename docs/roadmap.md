@@ -64,6 +64,34 @@ Per the operating rules, we explicitly track what's IN the MVP versus what's POS
 
 ---
 
+## v0.5 — Two-anchor village (NPC depth before combat)
+
+**Goal:** stop being *"a guy in a room who remembers"* and become *"a small village where two people remember the player and each other."* Per **D-038**, this cycle inserts ahead of Tier 1.5's combat work — NPC depth is the project's distinguishing pillar (D-002, D-007, D-020), and v0.5 directly seeds the patterns Tier 2 needs (consolidated memory, gossip propagation, behavioural state, broadcast reactions). Combat benefits from being designed against a richer NPC layer; ARPG combat against an NPC with mood and trust reads differently than combat against a stat block.
+
+**Scope:**
+
+- Second NPC (Mirelle) in a second handcrafted room, joined to v0.0's room by a 3-tile-wide connector. Per-room `Area2D` tracking via `current_room_id` for O(1) earshot determination.
+- **Four-layer memory model** per `architecture.md`: persistent identity (`NPCData` resource) + long-term summary (LLM-generated paragraph, ≤80 words) + short-term transcript (raw role/content dicts since last consolidation) + relationship registry (per-entity valence + key_facts + gossip_inbox). Stored as per-NPC JSON under a `version: 2` schema.
+- **LLM consolidation:** async on disengage when `short_term.size() >= 15`; parallel-sync on quit. Structured JSON via Ollama `format: "json"` with truncate-concat fallback.
+- **Behavioural state** (D-040): mood (NPC-wide, persisted, LLM-updated) + per-entity valence (persisted, LLM-updated) + runtime-only patience (rule-based per turn). NL band words feed the LLM prompt; raw scalars never appear.
+- **NPC-initiated farewell** via patience trigger (< 0.2) + D-037 regex on NPC reply.
+- **Gossip propagation** rule-based: NPC A's consolidation emits `strong_facts_to_share`; engine writes them into target NPCs' inboxes after a friendship gate; receiving NPC's prompt includes `Recent rumours:` block; receiving consolidation marks `consumed_inbox_indices`.
+- **Tier 0 ambient NPCs** in second room (3 archetypes — village child / grizzled local / passing trader). Canned greetings + classify-once-bucketed canned reactions. No LLM calls per ambient NPC.
+- **Broadcast reactions:** Enter-keyed public speech → ambient NPCs canned-react, anchors LLM-react with shallow prompts (personality + state + valence only, no long_term/short_term/inbox). Overheard hostility halves anchor patience.
+- **Token + engine efficiency** (D-045, 17 principles): KV-cache-stable prefix order, compact one-line relationship encoding, `keep_alive: "30m"`, parallel-quit consolidation, classify-once broadcast bucket, compile-once regexes, etc.
+
+**Sequencing:** **M9 → M12 → M11 → M10 → M13 → M14.** Foundation first; second NPC immediately so all later state/consolidation work tests against TWO NPCs from the start.
+
+**Done when:** the videoable beat lands — tell Raebai about heading to Coldrose, walk to Mirelle, she says *"heard you're off to Coldrose, love. Raebai's already told me half of it."*
+
+**Effort:** 8–12 sessions / ~6–10 weeks of evening velocity per `docs/v0.5-design.md`.
+
+**Content beat:** *"The world is bigger now — and they talk."*
+
+**Decisions:** D-038 through D-045 (see `docs/decisions.md`). Full design spec at `docs/v0.5-design.md`; per-milestone implementation plans at `docs/v0.5-m9-plan.md`, `docs/v0.5-m12-plan.md` (additional plans authored as their milestones come up).
+
+---
+
 ## Tier 1.5 — Core RPG primitives
 
 **Goal:** stop being a chat-with-an-NPC demo and become a tiny RPG.
@@ -211,6 +239,7 @@ A core principle: **every tier ships with one or more videoable moments.** Each 
 |------|--------------|
 | Sprint 0 | Learning journey: *"I'm a Goldman analyst learning Godot"* |
 | 1 / v0.0 | *"My NPC remembers me — watch this"* |
+| v0.5 | *"The world is bigger now — and they talk"* |
 | 1.5 | *"First combat, first death"* |
 | 2 | *"A vertical slice — playable region demo"* |
 | 3 | *"The world is huge now — exploration video"* |
