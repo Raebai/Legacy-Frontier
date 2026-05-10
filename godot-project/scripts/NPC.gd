@@ -206,3 +206,32 @@ func _seed_initial_relationships() -> void:
 			"key_facts": key_facts,
 			"gossip_inbox": [],
 		}
+
+
+# M11: Ensure relationships["player"] exists before any code path tries to
+# write to it. Bootstrap (_seed_initial_relationships) only seeds explicit
+# data.initial_relationships entries — the player isn't there until
+# something (M11 patience counter, M10 consolidation, M13 gossip) needs
+# to track them.
+func _ensure_player_relationship() -> void:
+	if relationships.has("player"):
+		return
+	relationships["player"] = {
+		"valence": 0.0,
+		"key_facts": [],
+		"gossip_inbox": [],
+		"low_patience_dismissals": 0,
+	}
+
+
+# M11 D-042: increment the dismissal counter on relationships.player.
+# M10 consolidation will read this when shaping valence_delta — repeated
+# patience-driven dismissals mean the player's reputation with this NPC
+# decays faster.
+func record_low_patience_dismissal() -> void:
+	_ensure_player_relationship()
+	var player_rel: Dictionary = relationships["player"]
+	# int() cast handles the JSON-parse-as-float case (the M9 trap) — saved
+	# state arrives as TYPE_FLOAT; freshly-seeded state is TYPE_INT.
+	var current: int = int(player_rel.get("low_patience_dismissals", 0))
+	player_rel["low_patience_dismissals"] = current + 1

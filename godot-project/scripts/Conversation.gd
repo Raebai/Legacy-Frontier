@@ -18,7 +18,8 @@ const MODEL: String = "llama3.2:3b"
 var _engaged_npc: Node = null
 var _pending_npc: Node = null
 var _waiting: bool = false
-var _ending: bool = false  # in-flight response is a farewell parting line
+var _ending: bool = false  # in-flight response is a player-side farewell parting line (D-037)
+var _ending_low_patience: bool = false  # in-flight response carries the M11 wrap-up addendum (D-042)
 var _system_addendum: String = ""  # one-shot system-prompt augmentation, cleared after use
 var _farewell_regex: RegEx = null
 
@@ -97,6 +98,7 @@ func disengage() -> void:
 		http.cancel_request()
 		_waiting = false
 		_pending_npc = null
+		_ending_low_patience = false  # cancelled with the request
 	var npc: Node = _engaged_npc
 	_engaged_npc = null
 	_close_input_bar()
@@ -191,6 +193,16 @@ func _on_text_submitted(message: String) -> void:
 			# Close UI instantly. Player walks free. Reply still lands on _pending_npc.
 			_engaged_npc = null
 			_close_input_bar()
+		elif _engaged_npc.patience < Patience.FAREWELL_THRESHOLD:
+			# M11 D-042: patience worn out — inject a one-shot addendum so the LLM
+			# produces a parting line in character. The regex-on-reply check in
+			# _on_request_completed detects whether the LLM complied and fires the
+			# same instant-close flow as D-037 (player-side) on a match. Reuses
+			# the _system_addendum slot — callback greeting (engage time) can't
+			# fire on the same turn as low-patience (mid-conversation), so they
+			# don't collide.
+			_ending_low_patience = true
+			_system_addendum = "Your patience for this conversation is worn out. End it naturally with a brief parting line that fits your personality. Don't be rude unless your trust toward this person is also low."
 		_send_to_ollama()
 	else:
 		# broadcast: world sees your bubble; bar closes.
@@ -269,6 +281,8 @@ func _on_request_completed(result: int, response_code: int, _hdrs: PackedStringA
 	_pending_npc = null
 	var was_ending: bool = _ending
 	_ending = false
+	var was_ending_low_patience: bool = _ending_low_patience
+	_ending_low_patience = false
 	if _engaged_npc != null:
 		input_field.editable = true
 		input_field.grab_focus()
@@ -296,6 +310,28 @@ func _on_request_completed(result: int, response_code: int, _hdrs: PackedStringA
 	# the disengage() save path was skipped for them, so we save here instead).
 	if was_ending and target.has_method("save_memory"):
 		target.save_memory()
+	# M11 D-042: if this in-flight request carried the low-patience wrap-up
+	# addendum, check whether the NPC actually delivered a farewell. The
+	# existing D-037 _farewell_regex covers the same set of parting phrases —
+	# symmetric detection both sides of the conversation. If matched, fire
+	# the instant-close flow + record the dismissal so M10 consolidation
+	# can shape valence over repeated burnout.
+	if was_ending_low_patience:
+		var matched_farewell: bool = (
+			_farewell_regex != null
+			and _farewell_regex.search(content.to_lower()) != null
+		)
+		if matched_farewell:
+			if target.has_method("record_low_patience_dismissal"):
+				target.record_low_patience_dismissal()
+			if target.has_method("save_memory"):
+				target.save_memory()
+			# Same instant-close shape as D-037 (player-side). _engaged_npc
+			# is still set (player didn't farewell-themselves) — null it and
+			# close UI so movement is freed.
+			if _engaged_npc != null:
+				_engaged_npc = null
+				_close_input_bar()
 
 
 func _finish_with_error(msg: String) -> void:
@@ -303,6 +339,7 @@ func _finish_with_error(msg: String) -> void:
 	var target: Node = _pending_npc
 	_pending_npc = null
 	_ending = false
+	_ending_low_patience = false
 	if _engaged_npc != null:
 		input_field.editable = true
 		input_field.grab_focus()
