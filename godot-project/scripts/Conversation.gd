@@ -52,6 +52,9 @@ func engage(npc: Node) -> void:
 	if input_bar.visible:
 		return
 	_engaged_npc = npc
+	# M11: patience resets to "fresh and curious" each conversation per D-040.
+	# Runtime-only — never persisted; doesn't carry across engagements.
+	npc.patience = 1.0
 	input_field.placeholder_text = "Whisper to %s — Enter to send, Esc to leave" % npc.data.npc_name
 	_open_input_bar()
 	# Returning visitor: drop a callback line referencing prior conversation.
@@ -169,6 +172,12 @@ func _on_text_submitted(message: String) -> void:
 	var player: Node = get_tree().get_first_node_in_group("player")
 	if _engaged_npc != null:
 		_show_last_said(trimmed)
+		# M11: rule-based patience update before farewell detection so a
+		# patience-driven farewell (Task 4) can fire on this turn if applicable.
+		var delta: float = Patience.compute_delta(trimmed, _engaged_npc)
+		var old_patience: float = _engaged_npc.patience
+		_engaged_npc.patience = clampf(old_patience + delta, 0.0, 1.0)
+		print("[patience] %s: %.2f -> %.2f" % [_engaged_npc.data.npc_id, old_patience, _engaged_npc.patience])
 		var is_farewell: bool = _farewell_regex != null and _farewell_regex.search(trimmed.to_lower()) != null
 		# Stage the request: append to NPC history, show their thinking bubble,
 		# then assign _pending_npc so the response routes correctly even after
