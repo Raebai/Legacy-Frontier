@@ -1,9 +1,20 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="PackedScene" path="res://scenes/Player.tscn" id="1_player_scene"]
 [ext_resource type="Script" path="res://scripts/World.gd" id="2_world_script"]
 [ext_resource type="TileSet" path="res://assets/tilesets/placeholder_atlas.tres" id="3_tileset"]
 [ext_resource type="PackedScene" path="res://scenes/NPC.tscn" id="4_npc_scene"]
+[ext_resource type="Script" path="res://scripts/RoomZone.gd" id="5_room_zone_script"]
+[ext_resource type="Resource" path="res://data/npcs/mirelle.tres" id="6_mirelle_data"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_first_room"]
+size = Vector2(768, 512)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_connector"]
+size = Vector2(128, 96)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_second_room"]
+size = Vector2(640, 512)
 
 [node name="Main" type="Node2D"]
 script = ExtResource("2_world_script")
@@ -16,3 +27,37 @@ position = Vector2(384, 256)
 
 [node name="NPC" parent="." instance=ExtResource("4_npc_scene")]
 position = Vector2(576, 256)
+
+[node name="Mirelle" parent="." instance=ExtResource("4_npc_scene")]
+position = Vector2(1280, 256)
+data = ExtResource("6_mirelle_data")
+
+[node name="FirstRoomZone" type="Area2D" parent="."]
+position = Vector2(384, 256)
+collision_layer = 0
+collision_mask = 7
+script = ExtResource("5_room_zone_script")
+room_id = "first"
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="FirstRoomZone"]
+shape = SubResource("RectangleShape2D_first_room")
+
+[node name="ConnectorZone" type="Area2D" parent="."]
+position = Vector2(832, 272)
+collision_layer = 0
+collision_mask = 7
+script = ExtResource("5_room_zone_script")
+room_id = "connector"
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="ConnectorZone"]
+shape = SubResource("RectangleShape2D_connector")
+
+[node name="SecondRoomZone" type="Area2D" parent="."]
+position = Vector2(1216, 256)
+collision_layer = 0
+collision_mask = 7
+script = ExtResource("5_room_zone_script")
+room_id = "second"
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="SecondRoomZone"]
+shape = SubResource("RectangleShape2D_second_room")
