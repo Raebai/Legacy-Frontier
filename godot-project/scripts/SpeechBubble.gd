@@ -6,7 +6,14 @@ const MIN_WIDTH: float = 32.0  # only used by show_thinking()
 const BINARY_SEARCH_ITERATIONS: int = 6
 const BINARY_SEARCH_PRECISION: float = 4.0
 
-const THINKING_FRAMES: PackedStringArray = ["[i]·[/i]", "[i]· ·[/i]", "[i]· · ·[/i]", "[i]· · · ·[/i]"]
+# Three frames with a bold dot sliding left-to-right against dim dots — reads
+# as "thinking" with horizontal motion rather than the additive grow-shrink
+# pattern of earlier versions.
+const THINKING_FRAMES: PackedStringArray = [
+	"[b]●[/b] [color=#888]●[/color] [color=#888]●[/color]",
+	"[color=#888]●[/color] [b]●[/b] [color=#888]●[/color]",
+	"[color=#888]●[/color] [color=#888]●[/color] [b]●[/b]",
+]
 
 @onready var panel: PanelContainer = $Panel
 @onready var label: RichTextLabel = $Panel/Margin/Label

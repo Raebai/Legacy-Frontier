@@ -297,7 +297,10 @@ func _on_request_completed(result: int, response_code: int, _hdrs: PackedStringA
 	_ending = false
 	var was_ending_low_patience: bool = _ending_low_patience
 	_ending_low_patience = false
-	if _engaged_npc != null:
+	# Re-enable input ONLY when the conversation continues. On a wrap-up
+	# close, the bar stays disabled during the 1.5s pacing pause so the
+	# player can't sneak another message in before the parting line lands.
+	if _engaged_npc != null and not was_ending_low_patience:
 		input_field.editable = true
 		input_field.grab_focus()
 	if target == null:
@@ -337,12 +340,18 @@ func _on_request_completed(result: int, response_code: int, _hdrs: PackedStringA
 			target.record_low_patience_dismissal()
 		if target.has_method("save_memory"):
 			target.save_memory()
-		# Same instant-close shape as D-037 (player-side). _engaged_npc
-		# is still set (player didn't farewell-themselves) — null it and
-		# close UI so movement is freed.
+		# Pacing pause: the parting line is already rendering in the bubble
+		# via target.say() above; hold the input bar open (but disabled)
+		# for 1.5s so the player can read the line before the bar visibly
+		# closes. Without this, the close feels abrupt — bubble appears
+		# and bar disappears in the same frame. After the pause we re-check
+		# that we're still engaged with the same target (player could have
+		# walked away mid-pause, triggering disengage from NPC._on_body_exited).
 		if _engaged_npc != null:
-			_engaged_npc = null
-			_close_input_bar()
+			await get_tree().create_timer(1.5).timeout
+			if _engaged_npc == target:
+				_engaged_npc = null
+				_close_input_bar()
 
 
 func _finish_with_error(msg: String) -> void:
