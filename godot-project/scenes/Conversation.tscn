@@ -10,13 +10,11 @@ script = ExtResource("1_conversation_script")
 timeout = 30.0
 
 [node name="InputBar" type="PanelContainer" parent="."]
-anchor_left = 0.0
+anchor_left = 0.2
 anchor_top = 1.0
-anchor_right = 1.0
+anchor_right = 0.8
 anchor_bottom = 1.0
-offset_left = 16.0
-offset_top = -56.0
-offset_right = -16.0
+offset_top = -48.0
 offset_bottom = -16.0
 
 [node name="HBox" type="HBoxContainer" parent="InputBar"]
@@ -27,21 +25,21 @@ layout_mode = 2
 size_flags_horizontal = 3
 max_length = 240
 placeholder_text = "Talk to Raebai — Enter to send, Esc to leave"
+theme_override_font_sizes/font_size = 14
 
 [node name="LastSaidLabel" type="RichTextLabel" parent="."]
 visible = false
-anchor_left = 0.0
+anchor_left = 0.2
 anchor_top = 1.0
-anchor_right = 1.0
+anchor_right = 0.8
 anchor_bottom = 1.0
-offset_left = 24.0
-offset_top = -84.0
-offset_right = -24.0
-offset_bottom = -58.0
+offset_top = -72.0
+offset_bottom = -50.0
 bbcode_enabled = true
 fit_content = true
 autowrap_mode = 2
 scroll_active = false
+theme_override_font_sizes/normal_font_size = 12
 
 [node name="LastSaidTimer" type="Timer" parent="."]
 one_shot = true
