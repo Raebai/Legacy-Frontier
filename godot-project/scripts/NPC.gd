@@ -24,11 +24,18 @@ var mood: float = 0.0                            # NPC-wide; runtime override of
 # M11 wires the per-turn rule-based decay; M9 ships the slot at 1.0 (fresh).
 var patience: float = 1.0
 
+# Set by RoomZone Area2Ds on body_entered. M14 broadcast earshot reads it.
+var current_room_id: String = ""
+
 
 func _ready() -> void:
 	hint_label.visible = false
 	proximity_area.body_entered.connect(_on_body_entered)
 	proximity_area.body_exited.connect(_on_body_exited)
+	# Apply per-NPC tint from NPCData so the shared NPC.tscn renders distinct
+	# hues without a code-change-per-character (M12).
+	if data != null:
+		($Visual as ColorRect).color = data.display_color
 	_load_memory()
 
 
@@ -100,6 +107,12 @@ func save_memory() -> void:
 		push_error("NPC.save_memory: rename %s -> %s failed (err=%d)" % [tmp_filename, filename, rename_err])
 
 
+# Orchestrator. Three paths land here:
+#   1. No save file on disk (first-time NPC like Mirelle on launch one)
+#   2. v1 save on disk (Raebai's v0.0 save before M9 verification migrated it)
+#   3. v2 save on disk (the steady state after M9)
+# Initial-relationships seeding fires on ALL three paths so first-time NPCs
+# start out knowing their pre-existing village (D-039 + M12 design).
 func _load_memory() -> void:
 	if data == null or data.npc_id == "":
 		return
@@ -107,18 +120,32 @@ func _load_memory() -> void:
 	if data.stats != null:
 		mood = data.stats.mood
 	var path: String = MEMORY_DIR + "/" + data.npc_id + ".json"
-	if not FileAccess.file_exists(path):
-		return
+	var did_v1_migration: bool = false
+	if FileAccess.file_exists(path):
+		did_v1_migration = _load_persisted_state(path)
+	# Seed initial_relationships for entities not already in the registry.
+	# Runs whether or not a save was loaded — applies to first-time NPCs
+	# (no save yet) AND subsequent loads where the saved relationships
+	# dict is missing newly-introduced anchors.
+	_seed_initial_relationships()
+	# If we just migrated v1->v2, persist the migrated state. Seeded
+	# relationships go in the same write so disk is consistent immediately.
+	if did_v1_migration:
+		save_memory()
+
+
+# Returns true if a v1->v2 migration occurred (caller should re-save).
+func _load_persisted_state(path: String) -> bool:
 	var f: FileAccess = FileAccess.open(path, FileAccess.READ)
 	if f == null:
 		push_error("NPC._load_memory: could not open %s for reading" % path)
-		return
+		return false
 	var content: String = f.get_as_text()
 	f.close()
 	var parsed: Variant = JSON.parse_string(content)
 	if typeof(parsed) != TYPE_DICTIONARY:
 		push_warning("NPC._load_memory: %s is not a JSON object, ignoring" % path)
-		return
+		return false
 	var dict: Dictionary = parsed as Dictionary
 	# JSON boundary: Godot's JSON parser returns numbers as TYPE_FLOAT — a JSON 2
 	# arrives as 2.0. Accept both TYPE_INT and TYPE_FLOAT; fall back to 1 for null,
@@ -135,12 +162,8 @@ func _load_memory() -> void:
 				short_term.append(item)
 		long_term_summary = dict["long_term_summary"]
 		relationships = dict["relationships"]
-		# v1 had no persisted mood — the EntityStats seed set above stands.
-		# Save the migrated form so subsequent loads skip this branch.
-		# A failed save here is non-fatal: in-memory state is valid, the next
-		# launch simply re-migrates from the still-v1 file on disk.
-		save_memory()
-		return
+		# v1 had no persisted mood — the EntityStats seed set in _load_memory stands.
+		return true
 	# v2 direct load
 	short_term.clear()
 	var raw_short_term: Variant = dict.get("short_term", [])
@@ -152,3 +175,34 @@ func _load_memory() -> void:
 	relationships = dict.get("relationships", {})
 	var stats_dict: Dictionary = dict.get("stats", {})
 	mood = float(stats_dict.get("mood", mood))
+	return false
+
+
+# Merge data.initial_relationships seeds into the runtime registry for
+# entities not already present. Saved relationships that have evolved
+# through consolidation are preserved — the seed only fills missing entries.
+# Edge cases (malformed seed dicts, empty entity_id, non-Array key_facts)
+# are skipped silently.
+func _seed_initial_relationships() -> void:
+	if data == null:
+		return
+	# `seed_entry` instead of `seed` — Godot's `seed()` RNG-seeder is a built-in
+	# global; using `seed` as an iterator variable shadows it (parse-time warning).
+	for seed_entry in data.initial_relationships:
+		if not (seed_entry is Dictionary):
+			continue
+		var entity_id: String = str(seed_entry.get("entity_id", ""))
+		if entity_id == "":
+			continue
+		if relationships.has(entity_id):
+			continue
+		var key_facts_seed: Variant = seed_entry.get("key_facts", [])
+		var key_facts: Array = []
+		if key_facts_seed is Array:
+			for fact in key_facts_seed:
+				key_facts.append(str(fact))
+		relationships[entity_id] = {
+			"valence": float(seed_entry.get("valence", 0.0)),
+			"key_facts": key_facts,
+			"gossip_inbox": [],
+		}

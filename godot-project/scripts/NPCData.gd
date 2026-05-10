@@ -23,3 +23,18 @@ extends Resource
 @export var canned_reactions_hostile: Array[String] = []
 @export var canned_reactions_friendly: Array[String] = []
 @export var canned_reactions_curious: Array[String] = []
+
+# ---- v0.5 M12 visual + relationship seeds --------------------------------
+# Per-NPC tint applied to the placeholder ColorRect by NPC._ready. Default
+# is Raebai's existing orange so first_npc.tres without an explicit setting
+# renders identically to v0.0/M9.
+@export var display_color: Color = Color(0.95, 0.5, 0.2, 1.0)
+
+# Seed relationships merged into the runtime registry on _load_memory ONLY
+# for entities not already present in the saved state. Lets two anchors
+# start out "knowing" each other (e.g. Mirelle ↔ Raebai at valence 0.7)
+# without needing a consolidation cycle to bootstrap.
+#
+# Each entry shape: {"entity_id": String, "valence": float, "key_facts": Array[String]}
+# Inspector edits work via Godot's Dictionary editor.
+@export var initial_relationships: Array[Dictionary] = []
