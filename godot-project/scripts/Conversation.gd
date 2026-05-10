@@ -201,8 +201,14 @@ func _on_text_submitted(message: String) -> void:
 			# brittle on Llama 3.2 3B — see decisions.md D-042). Reuses the
 			# _system_addendum slot; callback greeting fires only at engage
 			# time so it can't collide with this mid-conversation addendum.
+			# Few-shot examples + explicit no-question rule address the M11
+			# playtest finding that personality prompts emphasising question-
+			# asking (Raebai's whole voice) override generic "wrap up" instructions
+			# unless the wrap-up shape is shown by example. _send_to_ollama
+			# also lowers num_predict to 30 when this flag is set so the
+			# model can't produce a 40-word "wrap-up" with a trailing question.
 			_ending_low_patience = true
-			_system_addendum = "Your patience for this conversation is worn out. This is your final reply to this person. Make it a brief parting line — one short sentence that ends the conversation. Stay in character; don't be rude unless your trust toward this person is also low."
+			_system_addendum = "Your patience for this conversation is worn out. This is your final reply. Write ONE short statement that ends the conversation — no question, no offer, no invitation. Examples of the shape: \"Hm. Sit elsewhere then.\" / \"Let me be, Raaed.\" / \"Go on. The road is yours.\" / \"Walk easy.\" Stay in your voice; don't be rude unless your trust toward this person is also low."
 		_send_to_ollama()
 	else:
 		# broadcast: world sees your bubble; bar closes.
@@ -254,13 +260,21 @@ func _send_to_ollama() -> void:
 	var messages: Array = []
 	messages.append({"role": "system", "content": system_content})
 	messages.append_array(_pending_npc.short_term)
+	# M11 D-042: lower num_predict for the wrap-up turn so the model can't
+	# produce a 40-word "wrap-up" with a trailing question (M11 playtest
+	# showed Raebai's question-asking voice persists through generic wrap-up
+	# instructions; combined with the few-shot examples in _system_addendum,
+	# 30 tokens is enough to land a short statement and not enough to drift
+	# into a continuation). Normal turns and D-037 player-side farewells
+	# stay at 60 — those produce in-range parting lines without the cap.
+	var num_predict: int = 30 if _ending_low_patience else 60
 	var body: Dictionary = {
 		"model": MODEL,
 		"messages": messages,
 		"stream": false,
 		"keep_alive": "30m",
 		"options": {
-			"num_predict": 60,
+			"num_predict": num_predict,
 			"stop": ["\n\n"],
 		},
 	}
