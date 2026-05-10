@@ -194,15 +194,15 @@ func _on_text_submitted(message: String) -> void:
 			_engaged_npc = null
 			_close_input_bar()
 		elif _engaged_npc.patience < Patience.FAREWELL_THRESHOLD:
-			# M11 D-042: patience worn out — inject a one-shot addendum so the LLM
-			# produces a parting line in character. The regex-on-reply check in
-			# _on_request_completed detects whether the LLM complied and fires the
-			# same instant-close flow as D-037 (player-side) on a match. Reuses
-			# the _system_addendum slot — callback greeting (engage time) can't
-			# fire on the same turn as low-patience (mid-conversation), so they
-			# don't collide.
+			# M11 D-042 (updated 2026-05-10): patience worn out — inject a
+			# one-shot addendum telling the LLM this is its final reply.
+			# Engine instant-closes when the reply lands, regardless of the
+			# specific phrasing (the original regex-on-reply gate was too
+			# brittle on Llama 3.2 3B — see decisions.md D-042). Reuses the
+			# _system_addendum slot; callback greeting fires only at engage
+			# time so it can't collide with this mid-conversation addendum.
 			_ending_low_patience = true
-			_system_addendum = "Your patience for this conversation is worn out. End it naturally with a brief parting line that fits your personality. Don't be rude unless your trust toward this person is also low."
+			_system_addendum = "Your patience for this conversation is worn out. This is your final reply to this person. Make it a brief parting line — one short sentence that ends the conversation. Stay in character; don't be rude unless your trust toward this person is also low."
 		_send_to_ollama()
 	else:
 		# broadcast: world sees your bubble; bar closes.
@@ -310,28 +310,25 @@ func _on_request_completed(result: int, response_code: int, _hdrs: PackedStringA
 	# the disengage() save path was skipped for them, so we save here instead).
 	if was_ending and target.has_method("save_memory"):
 		target.save_memory()
-	# M11 D-042: if this in-flight request carried the low-patience wrap-up
-	# addendum, check whether the NPC actually delivered a farewell. The
-	# existing D-037 _farewell_regex covers the same set of parting phrases —
-	# symmetric detection both sides of the conversation. If matched, fire
-	# the instant-close flow + record the dismissal so M10 consolidation
-	# can shape valence over repeated burnout.
+	# M11 D-042 (updated 2026-05-10): if this in-flight request carried the
+	# wrap-up addendum, the NPC's reply IS the parting line regardless of
+	# specific phrasing. Patience itself is the trigger; we don't grade the
+	# LLM's wording afterwards. The earlier regex-on-reply gate was too
+	# brittle on Llama 3.2 3B — the model frequently produced in-character
+	# dismissals using words D-037's narrow regex didn't catch. Instant-
+	# close fires whenever was_ending_low_patience is true and a valid
+	# reply landed (error paths already returned before this point).
 	if was_ending_low_patience:
-		var matched_farewell: bool = (
-			_farewell_regex != null
-			and _farewell_regex.search(content.to_lower()) != null
-		)
-		if matched_farewell:
-			if target.has_method("record_low_patience_dismissal"):
-				target.record_low_patience_dismissal()
-			if target.has_method("save_memory"):
-				target.save_memory()
-			# Same instant-close shape as D-037 (player-side). _engaged_npc
-			# is still set (player didn't farewell-themselves) — null it and
-			# close UI so movement is freed.
-			if _engaged_npc != null:
-				_engaged_npc = null
-				_close_input_bar()
+		if target.has_method("record_low_patience_dismissal"):
+			target.record_low_patience_dismissal()
+		if target.has_method("save_memory"):
+			target.save_memory()
+		# Same instant-close shape as D-037 (player-side). _engaged_npc
+		# is still set (player didn't farewell-themselves) — null it and
+		# close UI so movement is freed.
+		if _engaged_npc != null:
+			_engaged_npc = null
+			_close_input_bar()
 
 
 func _finish_with_error(msg: String) -> void:
