@@ -68,6 +68,7 @@ static func patience_word(p: float) -> String:
 # Char-count / 4 approximation. Underestimates by ~10–15% on Llama 3.2 BPE
 # tokenization but adequate for observability — we only need order-of-magnitude.
 static func estimate_tokens(text: String) -> int:
+	@warning_ignore("integer_division")
 	return text.length() / 4
 
 

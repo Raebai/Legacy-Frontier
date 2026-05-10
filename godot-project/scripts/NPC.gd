@@ -120,10 +120,13 @@ func _load_memory() -> void:
 		push_warning("NPC._load_memory: %s is not a JSON object, ignoring" % path)
 		return
 	var dict: Dictionary = parsed as Dictionary
-	# JSON boundary: a hand-edited or external save could have version as null,
-	# a string, or anything. Treat anything that isn't a clean int 2 as v1 -> migrate.
+	# JSON boundary: Godot's JSON parser returns numbers as TYPE_FLOAT — a JSON 2
+	# arrives as 2.0. Accept both TYPE_INT and TYPE_FLOAT; fall back to 1 for null,
+	# string, dict, or anything else, which then triggers the migration branch
+	# (the correct conservative behaviour for malformed/hand-edited saves).
 	var raw_version: Variant = dict.get("version", 1)
-	var version: int = raw_version if typeof(raw_version) == TYPE_INT else 1
+	var is_numeric: bool = typeof(raw_version) == TYPE_INT or typeof(raw_version) == TYPE_FLOAT
+	var version: int = int(raw_version) if is_numeric else 1
 	if version != MemoryUtils.MEMORY_VERSION:
 		dict = MemoryUtils.migrate_v1_to_v2(dict)
 		short_term.clear()
