@@ -305,3 +305,104 @@ Append-only decision log. Newest entries at the bottom. Format per the operating
   - **Wait for parting reply before closing UI** — implemented first, rejected after playtest; user explicitly wanted instant close even if the parting line lands a second or two later.
 - **Status:** Locked. NPC-initiated endings tracked under D-034's v0.5 design pass.
 - **Date locked:** 2026-05-06.
+
+## D-038 — v0.5 reorders Tier 1.5: NPC depth before combat
+
+- **Decision:** Insert a "NPC depth" cycle (v0.5) BEFORE combat in the roadmap. v0.5 = NPC #2 (Mirelle) + four-layer memory + LLM consolidation + gossip propagation + behavioural state + Tier 0 ambient + broadcast reactions. Tier 1.5 (combat, inventory, equipment, action combat with multiple weapon archetypes) follows v0.5, not the other way around as originally written in `roadmap.md`.
+- **Reason:** NPC depth is the project's distinguishing pillar (D-002, D-007, D-020). Two anchors with consolidated memory, gossip, and visible emotional state directly unlock Tier 2 — the MCP target needs 5–10 NPCs with persistent memory, gossip propagation, and routines, and v0.5 is exactly that pattern in miniature. Combat is well-trodden ARPG territory (D-010) that benefits from being designed against a richer NPC layer (combat against an NPC with mood and trust reads differently than combat against a stat block). Reordering also defers a content-heavy milestone behind a pillar-defining one — better signal for build-in-public content beats (Mirelle gossiping about Raebai is a better video than a first-monster-fight reel).
+- **Alternatives considered:**
+  - **Combat-first per the original `roadmap.md` Tier 1.5 spec** — rejected; would force a second NPC-depth pass after combat lands, with combat code coupled to the pre-depth NPC shape.
+  - **Skip the v0.5 cycle entirely, go straight from v0.0 to combat** — rejected; would ship Tier 2 with the v0.0 single-NPC substrate and force a deep refactor mid-Tier-2 when content scaling actually demanded the depth.
+  - **Smaller v0.5 cycle (e.g. just NPC #2 with no consolidation/gossip)** — rejected; a second NPC without consolidation would just expose v0.0's bounded-context limitation twice over, and the gossip beat is the videoable unlock.
+- **Status:** Locked.
+- **Date locked:** 2026-05-09.
+
+## D-039 — Memory architecture: four-layer model + LLM consolidation
+
+- **Decision:** v0.5 commits to `architecture.md`'s four-layer memory model: persistent identity (`NPCData` resource) + long-term summary (LLM-generated paragraph, ≤80 words) + short-term transcript (raw role/content dicts since last consolidation) + relationship registry (per-entity `valence` + `key_facts` + `gossip_inbox`). Memory consolidation runs as an Ollama `/api/chat` call with `format: "json"` (grammar-constrained JSON mode). Trigger: **async** on disengage when `short_term.size() >= 15`; **parallel-sync** on quit for any NPC with non-empty `short_term`. State-swap rules at engage: atomic-swap if consolidation completed before engage; otherwise proceed with stale state and defer the swap until the next disengage→engage cycle (consolidation-in-flight writes file only, never mutates a running NPC instance mid-conversation). Storage: per-NPC JSON files at `user://npc_memory/<npc_id>.json` under a `version: 2` schema.
+- **Reason:** The bounded-context pattern from `architecture.md` is the only viable path to NPCs whose memory persists meaningfully across many sessions without prompts growing unbounded. Async-on-disengage means consolidation never blocks the player; parallel-sync-on-quit means a multi-NPC conversation history compounds linearly to ~5–10s, not 30s. Ollama's `format: "json"` achieves ≥95% structured-output reliability on Llama 3.2 3B with a truncate-concat fallback for the rare malformed case. The deferred-swap rule for engage-during-in-flight protects against UI hitches and the inconsistency of mutating an NPC's long-term memory mid-conversation; the file picks up on the next cycle, which is correct behaviour for a system where consolidation is "the model thinking quietly while the player walks."
+- **Alternatives considered:**
+  - **Single-layer (just append everything, send full history every call)** — rejected; prompt grows unbounded, token cost compounds, 3B coherence degrades past ~3000 tokens.
+  - **LLM-summarised-once-on-quit only** — rejected; conversations within a single long session would still grow unbounded.
+  - **Rule-based summarisation without LLM** — rejected; kills the "NPC remembers feelings, not just facts" pillar; rules can extract entities but not interpretation.
+  - **Blocking consolidation on engage** — rejected; breaks D-020 ("the world is the world") because the player would feel the LLM cost directly as a load delay every time they walked up.
+  - **Synchronous on disengage** — rejected; even a single 3–5 s pause after every "bye" cumulates to a noticeable tax on play feel.
+- **Status:** Locked.
+- **Date locked:** 2026-05-09.
+
+## D-040 — D-034 scalars locked: hidden mood / per-entity valence / runtime-only patience
+
+- **Decision:** Three behavioural-state scalars per NPC, with deliberately asymmetric properties:
+  - **Mood** (`-1.0` to `+1.0`, NPC-wide). **Persisted** to `stats.mood`. Updated by LLM at consolidation via `mood_delta`. Decays `-0.05` toward 0 per consolidation cycle (no day/night clock until Tier 3).
+  - **Trust / Valence** (`-1.0` to `+1.0`, per-entity). **Persisted** in `relationships[entity].valence`. Updated by LLM at consolidation via `valence_delta`. No automatic decay.
+  - **Patience** (`0.0` to `1.0`, per-conversation). **NOT persisted.** Runtime-only. Resets to `1.0` on engage. Updated rule-based per turn (insult `-0.25`, repeated question `-0.10`, default `-patience_decay_rate`, compliment `+0.10`, aligned-interest `+0.05`).
+  All scalars are hidden from the player (D-020 holds — no numeric optimisation surface). Scalars feed the LLM system prompt via NL band words (`valence_word` / `mood_word` / `patience_word` in `MemoryUtils`) — never raw floats.
+- **Reason:** Mixing mechanisms is correct because the three scalars answer three different questions. Mood ("how is this NPC feeling generally") and valence ("how does this NPC feel about that entity") evolve slowly over conversations and benefit from LLM contextual judgment — only the model can tell whether "thanks" was sincere or sarcastic. Patience ("is this player wearing this NPC out *right now*") is a per-conversation signal that needs deterministic per-turn response so insults reliably trigger NPC-initiated farewell — round-tripping every turn through the LLM is too slow and too costly. Persisting patience would defeat its purpose (the next conversation should reset, otherwise an NPC who got angry yesterday starts at -0.4 today, which is what valence is for). NL band words consistently outperform raw scalars on a 3B model — "warm" guides voice choice better than "0.4" on a model that doesn't reliably reason about scalars.
+- **Alternatives considered:**
+  - **All-LLM updates** — rejected; patience needs determinism for instant insult response, LLM round-trip per turn is too slow and burns tokens for a signal a regex can compute.
+  - **All-rule-based** — rejected; mood/valence need contextual interpretation that rules can't supply (sarcasm detection, sincere apology, etc.).
+  - **Fewer scalars (e.g. mood only)** — rejected; gossip propagation needs per-entity valence, and without trust-tracking the world feels memoryless about how NPCs *feel* about who.
+  - **Raw scalars in prompt** — rejected; 3B coherence drops, and even hidden scalars subtly encourage player optimisation framing.
+  - **Persist patience too** — rejected per the conceptual reasoning above.
+- **Status:** Locked.
+- **Date locked:** 2026-05-09.
+
+## D-041 — Gossip propagation: rule-based; routine-encounters short-circuited in v0.5
+
+- **Decision:** Memory propagation between NPCs ("gossip") is rule-based at the engine level, not LLM-mediated. NPC A's consolidation emits a `strong_facts_to_share` array (LLM-generated). The engine writes those into target NPCs' `relationships[about].gossip_inbox` after a friendship-gate (target's `relationships[A.npc_id].valence > 0.3`). The receiving NPC's next dialogue includes the inbox items as a `Recent rumours:` system-prompt block; their consolidation processes the inbox and marks `consumed_inbox_indices` for the engine to drop. **v0.5 short-circuits the "routine encounters" requirement** from `architecture.md` because both anchors are stationary — gossip propagates immediately at consolidation time. Routine-encounter triggering gates on actual proximity events when NPC routines land in Tier 3+.
+- **Reason:** `architecture.md` invariant: "the propagation is rule-based; the *expression* of it is LLM-driven." Keeping that invariant means gossip transmission is deterministic (no LLM hallucinations about who told whom what), while the actual *voicing* of gossip flows through the receiving NPC's personality + current state. Stationary anchors in v0.5 mean a routine-encounter requirement would never fire — short-circuiting at consolidation lets the videoable beat (Mirelle references something Raebai was told) actually work in v0.5 without a fake-routine kludge.
+- **Alternatives considered:**
+  - **LLM-mediated gossip transmission** — rejected; non-deterministic, hallucination-prone, expensive.
+  - **No gossip in v0.5** — rejected; kills sub-cycle (a) of v0.5's bundle (the videoable beat).
+  - **Require routine-encounter triggers even with stationary NPCs** — rejected; would make gossip silently undeliverable in v0.5; would need a fake-routine kludge to fire transmission.
+  - **Inbox bypass — receiving NPC gets gossip via the LLM directly** — rejected; loses determinism, can't unit-test.
+- **Status:** Locked. Routine-encounter trigger gates on actual proximity in Tier 3+.
+- **Date locked:** 2026-05-09.
+
+## D-042 — NPC-initiated farewell: patience trigger + farewell regex on NPC reply
+
+- **Decision:** D-037's deferred half (NPC chooses to end the conversation) lands via patience: when an NPC's patience drops below `0.2` at the start of their next turn, the next dialogue request receives a one-shot system addendum instructing the NPC to end the conversation with a brief parting line in character (don't be rude unless trust is also low). The engine then runs the existing D-037 farewell regex over the NPC's *reply*; if matched, fires the same instant-close flow as D-037's player-side. NPC also increments a `low_patience_dismissals` counter in `relationships.player` so repeated dismissals can shape trust at consolidation time.
+- **Reason:** NPC-initiated farewell needs a stable trigger that's both contextually meaningful and deterministically detectable. Patience supplies the contextual signal (this player is wearing this NPC out, computed cheaply per turn). The system-prompt addendum tells the LLM to wrap up. Regex-on-the-reply gives a deterministic detector that maps the LLM's natural-language farewell into a state transition. **Reusing D-037's regex** means there's one source of truth for "what counts as a farewell" — both sides of the conversation are symmetric on detection. The `low_patience_dismissals` counter feeds back into trust slowly through consolidation, so a player who repeatedly burns out NPCs sees their valence drift down without a per-turn rule that would feel like a slot machine.
+- **Alternatives considered:**
+  - **`[END]` marker in LLM output** — rejected; fragile on Llama 3.2 3B (Sessions 5–9 demonstrated 3B's tendency to ignore structural directives).
+  - **Turn-count heuristic** — rejected; feels artificial, doesn't respond to player behaviour.
+  - **NPC always answers, never initiates farewell** — rejected; D-034's whole point is that NPCs have inner state that influences willingness to talk.
+  - **Wait for the LLM to phrase the farewell, then check for it** (no patience trigger, just always run the regex) — rejected; the farewell-keyword regex on every NPC reply would create false positives on phrases like "see what you've done" — the patience gate is what makes the farewell intentional.
+- **Status:** Locked. Implementation in M11.
+- **Date locked:** 2026-05-09.
+
+## D-043 — D-031 Tier 1 deferred again; v0.5 ships Tier 0 + Tier 2 only
+
+- **Decision:** v0.5 implements only **Tier 0** (ambient: canned greetings + canned reactions, no LLM, E does nothing) and **Tier 2** (anchor: full LLM, full memory, async consolidation, behavioural state) from D-031's three-tier dialogue model. **Tier 1** (side characters: canned greeting + LLM dialogue, lighter memory) is deferred until a Tier 1 character is genuinely needed in the design.
+- **Reason:** Tier 0 and Tier 2 are the polar ends — they exercise the dialogue surface in two genuinely different ways (zero-LLM canned versus full-LLM with consolidation). Tier 1 sits between them and would force design decisions about a "lighter" memory budget (smaller token window? shorter retention? no async consolidation?) without a concrete character to validate the choices against. v0.5 has neither a shopkeeper nor a faction member nor any other natural Tier 1 archetype; building Tier 1 as scaffolding now is YAGNI. The shape stays locked architecturally (D-031 stands); only the implementation slips.
+- **Alternatives considered:**
+  - **Implement Tier 1 alongside Tier 0 + Tier 2** — rejected; building three tiers without three real consumers wastes design budget on Tier 1's "lighter memory" definition.
+  - **Ship Tier 2 only** — rejected; kills the small-crowd-reaction sub-cycle of v0.5 entirely.
+  - **Collapse Tier 0 into Tier 2 with empty personality prompts** — rejected; runtime cost of LLM-per-greeting is exactly what D-031 was designed to avoid.
+- **Status:** Locked. Tier 1 implementation deferred to whichever future cycle introduces a genuine Tier 1 character (likely Tier 2 with a shopkeeper or guard).
+- **Date locked:** 2026-05-09.
+
+## D-044 — v0.0 → v0.5 storage migration: lossless wrap
+
+- **Decision:** When v0.5 first encounters a `version: 1` save, it wraps the v1 dict into v2 shape: `messages` array → `short_term`, empty `long_term_summary`, empty `relationships`, default `stats: {"mood": 0.0}`. The migrated v2 is saved immediately so subsequent loads skip the migration branch. **No upfront LLM call** to populate `long_term_summary` at migration time — that happens naturally on the next consolidation trigger (when `short_term.size() >= 15` after disengage, or on quit if non-empty).
+- **Reason:** Lossless wrap is the cheapest correct migration. It preserves every player turn from v0.0 verbatim, costs no LLM call at migration time (so a player launching v0.5 for the first time doesn't see a load delay), and lets the natural consolidation pipeline produce the long-term summary from real evidence. Preflight-LLM-consolidation at migration would cost a 3–5 s pause on first launch with no visible benefit, since the next disengage would do the same work anyway.
+- **Alternatives considered:**
+  - **Preflight LLM consolidation at migration** — rejected per above.
+  - **Discard v1 saves entirely** — rejected; destroys the v0.0 magic moment for any player who already has a save.
+  - **Hand-author v1 saves into v2 shape** — rejected; wouldn't generalise to future schema bumps.
+  - **Keep both v1 and v2 side-by-side until consolidation** — rejected; doubles save state without benefit.
+- **Status:** Locked. Migration is implemented in M9 (`MemoryUtils.migrate_v1_to_v2`) and verified end-to-end against Raebai's v0.0 Coldrose save in Session 11.
+- **Date locked:** 2026-05-09.
+
+## D-045 — Token + engine efficiency principles for v0.5
+
+- **Decision:** v0.5 locks 17 efficiency principles spanning LLM-side and engine-side:
+  - **LLM-side:** (1) KV-cache-friendly stable prefix order — personality + long_term FIRST, never reordered between calls; (2) compact one-line relationship encoding; (3) consolidation trigger lowered from 20 → 15 turns; (4) bounded consolidation outputs (long_term ≤ 80 words; `new_facts` ≤ 3 phrases per entity); (5) shallow prompt for broadcast reactions (personality + state + valence only — no long_term, no short_term, no inbox); (6) gossip inbox compression at consolidation when > 5 items; (7) skip relationship blocks for entities not mentioned recently OR without unconsumed gossip; (8) `keep_alive: "30m"` on every Ollama call; (9) parallel HTTPRequests on quit consolidation; (10) don't gate engagement on in-flight consolidation (deferred-swap rules); (11) schema-by-example in consolidation prompt (terse JSON sample) instead of schema-by-prose.
+  - **Engine-side:** (12) compile regex once at `_ready()`, never per-turn; (13) patience updates signal-driven, never polled; (14) classify broadcast text ONCE per broadcast — reuse bucket for all in-earshot reactions; (15) earshot via `current_room_id` lookup, not per-broadcast distance check; (16) token estimator utility logs per-call estimate; (17) shared `Patience` utility used by both M11 (whisper) and M14 (overhear).
+- **Reason:** Each principle responds to a measured cost or a code-shape risk surfaced during the design pass. KV-cache reuse (#1, #2, #7) alone is the difference between ~5 s and ~1 s on follow-up turns at our prompt sizes — Llama 3.2 3B's KV cache survives across calls within a `keep_alive` window, so a stable prefix turns subsequent turns from full-context re-encoding into delta-only. #3, #4, #6, #11 attack consolidation cost. #5 attacks per-broadcast LLM cost. #8, #9, #10 attack quit-pause and engage-blocking surface. #12–#17 prevent per-frame work in surfaces that get called many times per second (broadcast reactions, patience updates).
+- **Alternatives considered:**
+  - **Defer all efficiency thinking until v0.5 playtest reveals a problem** — rejected; KV-cache reuse alone would force rebuilding system prompt assembly mid-cycle if surfaced during playtest.
+  - **Aim for a smaller principle list** — rejected; these are the genuine bites surfaced during design — dropping any of them would surface the problem in M10–M14 work.
+  - **Bake principles into ad-hoc code as needed without a canonical list** — rejected; without a list it's hard to verify a milestone honoured them all (and reviewers can't check).
+- **Status:** Locked. Open to adjustment based on M10–M14 playtest evidence.
+- **Date locked:** 2026-05-09.
