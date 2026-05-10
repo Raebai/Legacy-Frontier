@@ -53,9 +53,25 @@ func engage(npc: Node) -> void:
 	if input_bar.visible:
 		return
 	_engaged_npc = npc
-	# M11: patience resets to "fresh and curious" each conversation per D-040.
-	# Runtime-only — never persisted; doesn't carry across engagements.
-	npc.patience = 1.0
+	# M11 D-040 (refined 2026-05-10): starting patience reflects accumulated
+	# burnout from prior dismissals. The original D-040 locked "Resets to 1.0
+	# on engage" assuming M10's LLM-driven valence_delta would carry the
+	# burnout signal between conversations. M10 hasn't shipped — until it
+	# does, low_patience_dismissals is the proxy. 0.25 per prior dismissal
+	# means burnout snowballs across engagements ("memory is important"):
+	#   0 dismissals -> 1.00 ("fresh and curious")
+	#   1 dismissal  -> 0.75 ("engaged" but warming down)
+	#   2 dismissals -> 0.50
+	#   3 dismissals -> 0.25 ("fading")
+	#   4+ dismissals -> 0.00 ("worn out" — first message any tone triggers wrap-up)
+	# When M10 lands, this becomes derive-from-trust instead of derive-from-
+	# counter; same UX, more durable.
+	var dismissals: int = 0
+	if "relationships" in npc and npc.relationships.has("player"):
+		dismissals = int(npc.relationships["player"].get("low_patience_dismissals", 0))
+	npc.patience = clampf(1.0 - 0.25 * float(dismissals), 0.0, 1.0)
+	if dismissals > 0:
+		print("[patience] %s: engage with %d prior dismissals -> starting patience %.2f" % [npc.data.npc_id, dismissals, npc.patience])
 	input_field.placeholder_text = "Whisper to %s — Enter to send, Esc to leave" % npc.data.npc_name
 	_open_input_bar()
 	# Returning visitor: drop a callback line referencing prior conversation.
