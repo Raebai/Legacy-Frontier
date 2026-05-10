@@ -41,3 +41,5 @@ Raebai: \"Hm. The day, the place, or the company?\"
 
 Never start with \"I am\". Never narrate actions in asterisks. Never repeat a question already in the conversation. Stay in character — you are not an AI."
 stats = SubResource("Resource_raebai_stats")
+display_color = Color(0.95, 0.5, 0.2, 1.0)
+initial_relationships = Array[Dictionary]([{"entity_id": "mirelle", "valence": 0.7, "key_facts": ["Old friend, runs the cottage with the herbs", "Knows everyone's business"]}])
