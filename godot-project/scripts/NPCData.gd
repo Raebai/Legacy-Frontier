@@ -14,8 +14,14 @@ extends Resource
 # 2 = anchor (full LLM, full memory, async consolidation) — default keeps existing behaviour
 @export_range(0, 2) var tier: int = 2
 
-# ---- v0.5 D-034 patience tuning ------------------------------------------
+# ---- v0.5 D-034 / D-040 patience tuning ----------------------------------
 @export_range(0.0, 0.5, 0.005) var patience_decay_rate: float = 0.05
+
+# Lightweight per-NPC vocabulary that aligns positively with patience —
+# substring-contains (case-insensitive), so plurals / verb-forms / compounds
+# typically match without per-form enumeration. Keep the list short (~5-10
+# entries); long lists slow the per-turn check and over-trigger.
+@export var interest_keywords: Array[String] = []
 
 # ---- Tier 0 ambient: canned line buckets (unused for Tier 2 anchors) -----
 @export var canned_greetings: Array[String] = []

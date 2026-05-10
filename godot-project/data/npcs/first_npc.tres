@@ -43,3 +43,4 @@ Never start with \"I am\". Never narrate actions in asterisks. Never repeat a qu
 stats = SubResource("Resource_raebai_stats")
 display_color = Color(0.95, 0.5, 0.2, 1.0)
 initial_relationships = Array[Dictionary]([{"entity_id": "mirelle", "valence": 0.7, "key_facts": ["Old friend, runs the cottage with the herbs", "Knows everyone's business"]}])
+interest_keywords = Array[String](["book", "story", "history", "scroll", "writing", "memory", "remember"])

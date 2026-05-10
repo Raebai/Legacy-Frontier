@@ -50,3 +50,4 @@ stats = SubResource("Resource_mirelle_stats")
 patience_decay_rate = 0.05
 display_color = Color(0.847, 0.353, 0.498, 1.0)
 initial_relationships = Array[Dictionary]([{"entity_id": "raebai", "valence": 0.7, "key_facts": ["Old village friend, the chronicler", "Always with his nose in a book"]}])
+interest_keywords = Array[String](["herb", "village", "rumor", "people", "neighbor", "gossip", "garden"])
