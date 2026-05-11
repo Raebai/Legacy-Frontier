@@ -458,61 +458,85 @@ func _notification(what: int) -> void:
 		_on_quit_request()
 
 
-# Parallel-sync consolidation per D-039 + D-045 #9:
-# 1. If the player was mid-conversation, disengage() — saves + cancels in-flight.
-# 2. Collect every NPC with non-empty short_term that needs consolidation.
-#    Below-threshold short_term still consolidates at quit since this is the
-#    last chance to capture state.
-# 3. Fire start_consolidation on each (parallel — request() returns immediately).
-# 4. Await each request_completed serially. Since requests fire in parallel,
-#    total wait = max(times) ≈ 5-8s with keep_alive warm cache.
-# 5. Apply each result + save. Force save even if apply was a no-op so the
-#    raw short_term doesn't get lost on consolidation failure.
-# 6. get_tree().quit().
+# Quit handler (D-039 / D-045 #9), refined Session 14 after the first
+# playtest of M10 showed the original force-fire policy produced 10-15s
+# closes when both NPCs had pending consolidations from disengage. The
+# slow close was 100% redundant: the in-memory pending swaps were ignored
+# and fresh HTTP consolidations were fired from scratch — repeating work
+# that had already completed seconds before.
+#
+# Refined policy:
+# 1. Mid-conversation: disengage() — saves short_term + triggers
+#    threshold-gated async consolidation via maybe_consolidate.
+# 2. Apply any already-completed pending consolidations (free, in-memory,
+#    no HTTP). This is the common case after a normal play session.
+# 3. Await any in-flight consolidations (the ones disengage just fired
+#    or that arrived from earlier engagements) with a 5s timeout. The
+#    timeout protects against Ollama hangs (the underlying HTTPRequest
+#    timeout is 60s, which is too long for a close).
+# 4. After the wait, apply whatever completed; save_memory regardless so
+#    raw short_term sits on disk if consolidation timed out — next
+#    session's disengage will retry the consolidation organically.
+# 5. We deliberately do NOT force-fire new consolidations on quit. If
+#    short_term crossed the threshold during play, disengage already
+#    triggered consolidation. Below-threshold short_term is small enough
+#    to fit in next session's prompt without bloating; auto-handles
+#    on next disengage when accumulated turns push past 15.
+const QUIT_AWAIT_TIMEOUT_MS: int = 5000
+
+
 func _on_quit_request() -> void:
 	print("[quit] consolidation pass starting")
-	# Mid-conversation save: disengage() cancels in-flight + persists state.
-	# maybe_consolidate inside disengage is threshold-gated so it's a no-op
-	# below 15 turns; we force-fire below regardless.
+	# Mid-conversation save: disengage() cancels in-flight whisper + persists
+	# state. maybe_consolidate inside disengage is threshold-gated.
 	if _engaged_npc != null:
 		disengage()
 	var npcs: Array = get_tree().get_nodes_in_group("npc")
-	var npcs_to_wait_for: Array = []
+	# Phase 1: apply any already-completed pending consolidations. Instant.
+	var applied_count: int = 0
 	for npc in npcs:
-		if not ("short_term" in npc):
+		if not (npc.has_method("has_pending_consolidation") and npc.has_method("apply_pending_consolidation_if_ready")):
 			continue
-		# Already-in-flight from a recent disengage: await it.
+		if npc.has_pending_consolidation():
+			npc.apply_pending_consolidation_if_ready()  # internally saves
+			applied_count += 1
+	if applied_count > 0:
+		print("[quit] applied %d pending consolidation(s) instantly" % applied_count)
+	# Phase 2: collect in-flight consolidations.
+	var npcs_in_flight: Array = []
+	for npc in npcs:
 		if npc.has_method("is_consolidating") and npc.is_consolidating():
-			npcs_to_wait_for.append(npc)
-			continue
-		# Force-fire even below the 15-turn threshold — this is the last
-		# chance to consolidate before the process exits.
-		if npc.short_term.is_empty():
-			continue
-		if npc.has_method("start_consolidation") and npc.start_consolidation():
-			npcs_to_wait_for.append(npc)
-	if npcs_to_wait_for.is_empty():
-		print("[quit] nothing to consolidate")
+			npcs_in_flight.append(npc)
+	if npcs_in_flight.is_empty():
+		print("[quit] nothing in flight — exit immediate")
 		get_tree().quit()
 		return
-	# Show the overlay. Yield one frame so the dimmer actually renders before
-	# we block on HTTP awaits.
+	# Phase 3: await with timeout. Poll completion every frame; bail at 5s.
 	saving_overlay.visible = true
 	await get_tree().process_frame
-	print("[quit] awaiting %d consolidation(s)" % npcs_to_wait_for.size())
-	for npc in npcs_to_wait_for:
-		# Already-completed (rare race): is_consolidating returned true above
-		# but the signal already fired before our await. The signal would have
-		# already set _pending_consolidation; await would hang forever, so
-		# guard with the in-flight check.
-		if npc.has_method("is_consolidating") and npc.is_consolidating():
-			await npc._consolidator_http.request_completed
-		# Apply if a result landed (no-op on parse failure / null pending).
+	print("[quit] awaiting %d in-flight consolidation(s), 5s cap" % npcs_in_flight.size())
+	var deadline_ms: int = Time.get_ticks_msec() + QUIT_AWAIT_TIMEOUT_MS
+	var timed_out: bool = false
+	while true:
+		var any_in_flight: bool = false
+		for npc in npcs_in_flight:
+			if npc.is_consolidating():
+				any_in_flight = true
+				break
+		if not any_in_flight:
+			break
+		if Time.get_ticks_msec() > deadline_ms:
+			timed_out = true
+			break
+		await get_tree().process_frame
+	# Phase 4: apply whatever completed; save_memory always so raw short_term
+	# is durable even if consolidation timed out.
+	for npc in npcs_in_flight:
 		if npc.has_method("apply_pending_consolidation_if_ready"):
 			npc.apply_pending_consolidation_if_ready()
-		# Final save even if apply was a no-op — captures the raw short_term
-		# state in case consolidation failed.
 		if npc.has_method("save_memory"):
 			npc.save_memory()
+	if timed_out:
+		print("[quit] timed out — raw short_term saved, consolidation retries next session")
 	print("[quit] consolidation pass complete")
 	get_tree().quit()
