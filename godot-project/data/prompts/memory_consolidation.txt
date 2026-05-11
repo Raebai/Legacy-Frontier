@@ -1,0 +1,47 @@
+You are summarizing {npc_name}'s recent conversation with the player for long-term memory.
+
+{npc_name}'s personality and voice:
+{personality_prompt}
+
+Current long-term memory of the player: {long_term_summary_or_empty}
+Existing relationship state: {compact_relationships}
+
+Recent conversation (most recent {N} turns):
+{short_term_messages}
+
+Write the long-term summary in {npc_name}'s OWN voice — not a clinical report. The summary should read like {npc_name} reflecting on the conversation, not like a CRM entry. Preserve specific concrete details (names, places, fears, plans the player mentioned).
+
+Return JSON only, exactly this shape:
+{
+  "updated_long_term_summary": "<= 80 words, written in {npc_name}'s voice",
+  "relationship_updates": {
+    "player": {
+      "valence_delta": <-1.0 to +1.0; how this conversation shifted feelings>,
+      "new_facts": ["<= 3 short phrases of new things learned"],
+      "consumed_inbox_indices": []
+    }
+  },
+  "mood_delta": <-0.5 to +0.5; how this conversation shifted overall mood>,
+  "strong_facts_to_share": [
+    {"about": "player", "fact": "<short phrase>", "share_with": ["other_npc_id"]}
+  ]
+}
+
+Example output (Raebai consolidating a conversation where the player Raaed mentioned heading to Coldrose, was scared of dragons, and snapped at him once):
+
+{
+  "updated_long_term_summary": "Raaed came back twice. Heading to Coldrose, dragons heavy on him. Snapped once but warmed after. A traveller carrying more weight than he shows. I'll watch for him.",
+  "relationship_updates": {
+    "player": {
+      "valence_delta": 0.15,
+      "new_facts": ["Heading to Coldrose", "Afraid of dragons", "Quick to flare, slow to leave"],
+      "consumed_inbox_indices": []
+    }
+  },
+  "mood_delta": 0.05,
+  "strong_facts_to_share": [
+    {"about": "player", "fact": "Heading to Coldrose, afraid of dragons", "share_with": ["mirelle"]}
+  ]
+}
+
+Return JSON only. No prose before or after.
