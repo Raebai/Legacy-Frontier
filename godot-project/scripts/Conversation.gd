@@ -53,6 +53,14 @@ func engage(npc: Node) -> void:
 	if input_bar.visible:
 		return
 	_engaged_npc = npc
+	# M10 D-039: if a consolidation completed while the player was away,
+	# atomic-swap the new long_term + relationships into the NPC at engage
+	# time. Idempotent; has_pending_consolidation gates the actual work.
+	# Order matters: the swap must run BEFORE we read npc.relationships
+	# for the patience burnout lookup below, since consolidation may have
+	# updated low_patience_dismissals or other counters.
+	if npc.has_method("apply_pending_consolidation_if_ready"):
+		npc.apply_pending_consolidation_if_ready()
 	# M11 D-040 (refined 2026-05-10): starting patience reflects accumulated
 	# burnout from prior dismissals. The original D-040 locked "Resets to 1.0
 	# on engage" assuming M10's LLM-driven valence_delta would carry the
@@ -121,6 +129,12 @@ func disengage() -> void:
 	# Persist what was said to disk (atomic write — survives a crash).
 	if npc != null and npc.has_method("save_memory"):
 		npc.save_memory()
+	# M10 D-039: trigger async consolidation if short_term crossed the
+	# threshold. Fire-and-forget — player keeps moving while the model
+	# thinks; the result lands on npc._pending_consolidation and is applied
+	# at next engage via apply_pending_consolidation_if_ready.
+	if npc != null and npc.has_method("maybe_consolidate"):
+		npc.maybe_consolidate()
 
 
 # ---- input ---------------------------------------------------------------
@@ -343,6 +357,10 @@ func _on_request_completed(result: int, response_code: int, _hdrs: PackedStringA
 	# the disengage() save path was skipped for them, so we save here instead).
 	if was_ending and target.has_method("save_memory"):
 		target.save_memory()
+		# M10 D-039: D-037 player-side farewell exits skip disengage(), so the
+		# consolidation trigger lives here for that path too.
+		if target.has_method("maybe_consolidate"):
+			target.maybe_consolidate()
 	# M11 D-042 (updated 2026-05-10): if this in-flight request carried the
 	# wrap-up addendum, the NPC's reply IS the parting line regardless of
 	# specific phrasing. Patience itself is the trigger; we don't grade the
@@ -356,6 +374,11 @@ func _on_request_completed(result: int, response_code: int, _hdrs: PackedStringA
 			target.record_low_patience_dismissal()
 		if target.has_method("save_memory"):
 			target.save_memory()
+		# M10 D-039: M11 wrap-up close also bypasses disengage(), so trigger
+		# async consolidation here. The dismissal counter was just bumped
+		# above; consolidation reads that into the LLM prompt context.
+		if target.has_method("maybe_consolidate"):
+			target.maybe_consolidate()
 		# Pacing pause: the parting line is already rendering in the bubble
 		# via target.say() above; hold the input bar open (but disabled)
 		# for 1.5s so the player can read the line before the bar visibly
