@@ -10,7 +10,7 @@ size = Vector2(16, 16)
 [sub_resource type="CircleShape2D" id="CircleShape2D_npc_proximity"]
 radius = 32.0
 
-[node name="NPC" type="StaticBody2D"]
+[node name="NPC" type="StaticBody2D" groups=["npc"]]
 script = ExtResource("1_npc_script")
 data = ExtResource("2_npc_data")
 
@@ -39,3 +39,6 @@ text = "[E] Talk"
 horizontal_alignment = 1
 
 [node name="SpeechBubble" parent="." instance=ExtResource("3_speech_bubble")]
+
+[node name="ConsolidatorHTTP" type="HTTPRequest" parent="."]
+timeout = 60.0

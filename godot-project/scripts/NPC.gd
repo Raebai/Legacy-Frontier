@@ -8,6 +8,7 @@ const MEMORY_DIR: String = "user://npc_memory"
 @onready var hint_label: Label = $HintLabel
 @onready var proximity_area: Area2D = $ProximityArea
 @onready var speech_bubble: Node2D = $SpeechBubble
+@onready var _consolidator_http: HTTPRequest = $ConsolidatorHTTP
 
 var _player_in_range: bool = false
 
@@ -27,6 +28,22 @@ var patience: float = 1.0
 # Set by RoomZone Area2Ds on body_entered. M14 broadcast earshot reads it.
 var current_room_id: String = ""
 
+# M10 consolidation lifecycle state.
+# _consolidating: an async consolidation HTTP request is in flight.
+# _pending_consolidation: parsed consolidation result waiting to be applied at
+#   next engage (deferred-swap rule from D-039 — never mutate a running NPC
+#   instance mid-conversation). null when nothing pending.
+# pending_facts_to_share: queue of gossip events emitted by consolidation,
+#   consumed by M13. PERSISTED across save/load — without persistence the queue
+#   would evaporate on quit and M13 propagation would silently lose data.
+var _consolidating: bool = false
+var _pending_consolidation: Variant = null
+var pending_facts_to_share: Array = []
+
+const CONSOLIDATION_TURN_THRESHOLD: int = 15
+const OLLAMA_URL: String = "http://127.0.0.1:11434/api/chat"
+const OLLAMA_MODEL: String = "llama3.2:3b"
+
 
 func _ready() -> void:
 	hint_label.visible = false
@@ -37,6 +54,7 @@ func _ready() -> void:
 	if data != null:
 		($Visual as ColorRect).color = data.display_color
 	_load_memory()
+	_consolidator_http.request_completed.connect(_on_consolidation_completed)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -91,6 +109,10 @@ func save_memory() -> void:
 		"short_term": short_term,
 		"relationships": relationships,
 		"stats": {"mood": mood},
+		# M10 deviation: pending_facts_to_share is persisted so M13 gossip
+		# survives a quit between consolidation-emit and consume. Without
+		# persistence the queue evaporates on close.
+		"pending_facts_to_share": pending_facts_to_share,
 	}
 	var f: FileAccess = FileAccess.open(tmp_path, FileAccess.WRITE)
 	if f == null:
@@ -175,6 +197,14 @@ func _load_persisted_state(path: String) -> bool:
 	relationships = dict.get("relationships", {})
 	var stats_dict: Dictionary = dict.get("stats", {})
 	mood = float(stats_dict.get("mood", mood))
+	# M10 deviation: hydrate pending_facts_to_share queue if persisted.
+	# Pre-M10 saves won't have this field — default to empty.
+	pending_facts_to_share.clear()
+	var pfts_raw: Variant = dict.get("pending_facts_to_share", [])
+	if pfts_raw is Array:
+		for item in pfts_raw:
+			if item is Dictionary:
+				pending_facts_to_share.append(item)
 	return false
 
 
@@ -235,3 +265,93 @@ func record_low_patience_dismissal() -> void:
 	# state arrives as TYPE_FLOAT; freshly-seeded state is TYPE_INT.
 	var current: int = int(player_rel.get("low_patience_dismissals", 0))
 	player_rel["low_patience_dismissals"] = current + 1
+
+
+# ---- M10 consolidation lifecycle ----------------------------------------
+
+# True when an async consolidation HTTP request is in flight.
+func is_consolidating() -> bool:
+	return _consolidating
+
+
+# True if a parsed result is waiting to be applied at next engage.
+func has_pending_consolidation() -> bool:
+	return _pending_consolidation != null
+
+
+# Disengage-time gate: fire async consolidation if short_term crossed the
+# threshold. Returns true if a request was actually fired. Fire-and-forget —
+# the result lands on _pending_consolidation; apply_pending_consolidation_if_ready
+# performs the atomic swap at next engage.
+func maybe_consolidate() -> bool:
+	if _consolidating:
+		return false  # one already in flight
+	if short_term.size() < CONSOLIDATION_TURN_THRESHOLD:
+		return false  # below threshold
+	if data == null or data.npc_id == "":
+		return false  # transient NPC, never consolidates
+	return start_consolidation()
+
+
+# Lower-level: fire the consolidation HTTP request unconditionally (caller has
+# already decided this NPC should consolidate). Used by maybe_consolidate (with
+# threshold gate) and by the quit handler (forces consolidation regardless of
+# turn count so end-of-session state is captured).
+func start_consolidation() -> bool:
+	if _consolidating:
+		return false
+	if short_term.is_empty():
+		return false  # nothing to consolidate
+	_consolidating = true
+	var prompt: String = MemoryConsolidator.build_prompt(self)
+	if prompt == "":
+		_consolidating = false
+		return false
+	var messages: Array = [{"role": "user", "content": prompt}]
+	var body: Dictionary = {
+		"model": OLLAMA_MODEL,
+		"messages": messages,
+		"stream": false,
+		"format": "json",  # D-039: grammar-constrained JSON output
+		"keep_alive": "30m",  # D-045 #8
+		"options": {
+			"num_predict": 400,  # consolidation outputs are larger than turn replies
+		},
+	}
+	var body_json: String = JSON.stringify(body)
+	print("[consolidate] %s start, prompt tokens≈%d" % [data.npc_id, MemoryUtils.estimate_tokens(body_json)])
+	var headers: PackedStringArray = ["Content-Type: application/json"]
+	var err: int = _consolidator_http.request(OLLAMA_URL, headers, HTTPClient.METHOD_POST, body_json)
+	if err != OK:
+		push_error("NPC.start_consolidation: request error %d for %s" % [err, data.npc_id])
+		_consolidating = false
+		return false
+	return true
+
+
+func _on_consolidation_completed(result: int, response_code: int, _hdrs: PackedStringArray, body: PackedByteArray) -> void:
+	_consolidating = false
+	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
+		push_warning("[consolidate] %s failed result=%d code=%d — short_term preserved, retry on next trigger" % [data.npc_id, result, response_code])
+		return
+	var resp: Variant = JSON.parse_string(body.get_string_from_utf8())
+	if typeof(resp) != TYPE_DICTIONARY or not resp.has("message"):
+		push_warning("[consolidate] %s unexpected response shape" % data.npc_id)
+		return
+	var content: String = String(resp["message"].get("content", ""))
+	var parsed: Dictionary = MemoryConsolidator.parse_response(content)
+	_pending_consolidation = parsed
+	print("[consolidate] %s complete (deferred to next engage swap)" % data.npc_id)
+
+
+# Atomic swap at engage time per D-039: if a consolidation result is waiting,
+# apply it and clear the pending slot. Idempotent — calling twice is safe.
+# Saves to disk after applying so the consolidated state is durable immediately.
+func apply_pending_consolidation_if_ready() -> void:
+	if _pending_consolidation == null:
+		return
+	var parsed: Dictionary = _pending_consolidation
+	_pending_consolidation = null
+	MemoryConsolidator.apply_to_npc(self, parsed)
+	save_memory()
+	print("[consolidate] %s pending-swap applied at engage" % data.npc_id)
