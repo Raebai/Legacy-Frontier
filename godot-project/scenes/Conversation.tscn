@@ -44,3 +44,25 @@ theme_override_font_sizes/normal_font_size = 12
 [node name="LastSaidTimer" type="Timer" parent="."]
 one_shot = true
 wait_time = 3.0
+
+[node name="SavingOverlay" type="Control" parent="."]
+visible = false
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="Dimmer" type="ColorRect" parent="SavingOverlay"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0, 0, 0, 0.6)
+mouse_filter = 2
+
+[node name="Center" type="CenterContainer" parent="SavingOverlay"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="Label" type="Label" parent="SavingOverlay/Center"]
+text = "Saving conversations…"
+theme_override_font_sizes/font_size = 20
+theme_override_colors/font_color = Color(0.95, 0.95, 0.95, 1)

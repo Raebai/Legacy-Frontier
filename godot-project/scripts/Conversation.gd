@@ -8,6 +8,7 @@ const MODEL: String = "llama3.2:3b"
 @onready var input_field: LineEdit = $InputBar/HBox/LineEdit
 @onready var last_said: RichTextLabel = $LastSaidLabel
 @onready var last_said_timer: Timer = $LastSaidTimer
+@onready var saving_overlay: Control = $SavingOverlay
 
 # State separation:
 #   _engaged_npc — input bar is open and aimed at this NPC. Player movement is frozen.
@@ -27,12 +28,19 @@ var _farewell_regex: RegEx = null
 func _ready() -> void:
 	input_bar.visible = false
 	last_said.visible = false
+	saving_overlay.visible = false
 	input_field.keep_editing_on_text_submit = true
 	input_field.text_submitted.connect(_on_text_submitted)
 	input_field.text_changed.connect(_on_text_changed)
 	last_said_timer.timeout.connect(_hide_last_said)
 	http.request_completed.connect(_on_request_completed)
 	_farewell_regex = RegEx.create_from_string("\\b(bye|goodbye|farewell|later|peace|see\\s+(?:you|ya)|i'?m\\s+out|gotta\\s+go|got\\s+to\\s+go|good\\s+night|safe\\s+travels|take\\s+care)\\b")
+	# M10 D-039 quit handler: intercept the window close so we can flush
+	# in-flight consolidations + force-fire one per NPC with non-empty
+	# short_term before the process exits. Without set_auto_accept_quit(false),
+	# NOTIFICATION_WM_CLOSE_REQUEST fires AFTER Godot has decided to close —
+	# any await inside the handler races against the exit and usually loses.
+	get_tree().set_auto_accept_quit(false)
 
 
 # ---- public API ----------------------------------------------------------
@@ -433,3 +441,70 @@ func _friendly_http_error(code: int, body: PackedByteArray) -> String:
 	if code == 503:
 		return "Ollama is busy or starting up. Try again in a moment."
 	return "Ollama returned HTTP %d." % code
+
+
+# ---- M10 quit handler: parallel-sync consolidation --------------------------
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		_on_quit_request()
+
+
+# Parallel-sync consolidation per D-039 + D-045 #9:
+# 1. If the player was mid-conversation, disengage() — saves + cancels in-flight.
+# 2. Collect every NPC with non-empty short_term that needs consolidation.
+#    Below-threshold short_term still consolidates at quit since this is the
+#    last chance to capture state.
+# 3. Fire start_consolidation on each (parallel — request() returns immediately).
+# 4. Await each request_completed serially. Since requests fire in parallel,
+#    total wait = max(times) ≈ 5-8s with keep_alive warm cache.
+# 5. Apply each result + save. Force save even if apply was a no-op so the
+#    raw short_term doesn't get lost on consolidation failure.
+# 6. get_tree().quit().
+func _on_quit_request() -> void:
+	print("[quit] consolidation pass starting")
+	# Mid-conversation save: disengage() cancels in-flight + persists state.
+	# maybe_consolidate inside disengage is threshold-gated so it's a no-op
+	# below 15 turns; we force-fire below regardless.
+	if _engaged_npc != null:
+		disengage()
+	var npcs: Array = get_tree().get_nodes_in_group("npc")
+	var npcs_to_wait_for: Array = []
+	for npc in npcs:
+		if not ("short_term" in npc):
+			continue
+		# Already-in-flight from a recent disengage: await it.
+		if npc.has_method("is_consolidating") and npc.is_consolidating():
+			npcs_to_wait_for.append(npc)
+			continue
+		# Force-fire even below the 15-turn threshold — this is the last
+		# chance to consolidate before the process exits.
+		if npc.short_term.is_empty():
+			continue
+		if npc.has_method("start_consolidation") and npc.start_consolidation():
+			npcs_to_wait_for.append(npc)
+	if npcs_to_wait_for.is_empty():
+		print("[quit] nothing to consolidate")
+		get_tree().quit()
+		return
+	# Show the overlay. Yield one frame so the dimmer actually renders before
+	# we block on HTTP awaits.
+	saving_overlay.visible = true
+	await get_tree().process_frame
+	print("[quit] awaiting %d consolidation(s)" % npcs_to_wait_for.size())
+	for npc in npcs_to_wait_for:
+		# Already-completed (rare race): is_consolidating returned true above
+		# but the signal already fired before our await. The signal would have
+		# already set _pending_consolidation; await would hang forever, so
+		# guard with the in-flight check.
+		if npc.has_method("is_consolidating") and npc.is_consolidating():
+			await npc._consolidator_http.request_completed
+		# Apply if a result landed (no-op on parse failure / null pending).
+		if npc.has_method("apply_pending_consolidation_if_ready"):
+			npc.apply_pending_consolidation_if_ready()
+		# Final save even if apply was a no-op — captures the raw short_term
+		# state in case consolidation failed.
+		if npc.has_method("save_memory"):
+			npc.save_memory()
+	print("[quit] consolidation pass complete")
+	get_tree().quit()
