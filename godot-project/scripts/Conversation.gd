@@ -92,7 +92,12 @@ func engage(npc: Node) -> void:
 	_open_input_bar()
 	# Returning visitor: drop a callback line referencing prior conversation.
 	# Skipped on first-ever meeting (no memory yet) and when a request is mid-flight.
-	if npc.short_term.size() > 0 and not _waiting:
+	# Gate considers BOTH short_term (in-session continuity) AND long_term_summary
+	# (post-M10 consolidation moved past convos into long_term, clearing short_term).
+	# Pre-fix this used only short_term, so first re-engage after consolidation
+	# was silent — long_term had the memory but the gate evaluated false.
+	var has_memory: bool = npc.short_term.size() > 0 or not npc.long_term_summary.is_empty()
+	if has_memory and not _waiting:
 		_fire_callback_greeting()
 
 
@@ -102,11 +107,11 @@ func _fire_callback_greeting() -> void:
 	if _engaged_npc.has_method("show_thinking"):
 		_engaged_npc.show_thinking()
 	_pending_npc = _engaged_npc
-	_system_addendum = """The player has just walked back up to you. Read the conversation history above carefully — they have spoken with you before.
+	_system_addendum = """The player has just walked back up to you. The "What you remember from before" block above holds the substance of past conversations with them; recent turns may also appear after the system block.
 
 Your reply MUST:
-1. Address them by name IF they ever shared one in the history.
-2. Reference one specific thing they said — a place, a plan, a feeling, a refusal.
+1. Address them by name IF mentioned in what you remember.
+2. Reference one specific thing you remember — a place, a plan, a fear, a refusal.
 3. Optionally end with a small invitation that ties back to that specific thing — never a generic question.
 
 Your reply MUST NOT contain any of: "how can I help you", "welcome back, traveller", "good to see you again", "what brings you here". These are forbidden phrases.
@@ -303,9 +308,12 @@ func _send_to_ollama() -> void:
 	# showed Raebai's question-asking voice persists through generic wrap-up
 	# instructions; combined with the few-shot examples in _system_addendum,
 	# 30 tokens is enough to land a short statement and not enough to drift
-	# into a continuation). Normal turns and D-037 player-side farewells
-	# stay at 60 — those produce in-range parting lines without the cap.
-	var num_predict: int = 30 if _ending_low_patience else 60
+	# into a continuation). Normal turns capped at 45 (post-M10 session 14
+	# verification — user feedback "he talks too much"). 45 is ~30-35 words
+	# which is in-range without flattening voice; if still too much we lower
+	# further or add per-NPC overrides. Personality prompts deliberately
+	# NOT touched (Raebai-waffliness voice rules preserved).
+	var num_predict: int = 30 if _ending_low_patience else 45
 	var body: Dictionary = {
 		"model": MODEL,
 		"messages": messages,

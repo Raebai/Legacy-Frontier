@@ -22,6 +22,11 @@ bbcode_enabled = true
 fit_content = true
 autowrap_mode = 0
 scroll_active = false
+theme_override_font_sizes/normal_font_size = 11
+theme_override_font_sizes/bold_font_size = 11
+theme_override_font_sizes/italics_font_size = 11
+theme_override_font_sizes/bold_italics_font_size = 11
+theme_override_font_sizes/mono_font_size = 11
 
 [node name="FadeTimer" type="Timer" parent="."]
 one_shot = true
