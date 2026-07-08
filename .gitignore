@@ -52,6 +52,11 @@ audio-source/raw/
 *.aseprite~
 *.psd~
 
+# --- Raw asset-pack download staging (NOT used by the game; imported into
+#     godot-project/ when needed). Keeps ~800MB of packs out of git history. ---
+/Effects/
+/Music/
+
 # --- Logs / temp ---
 *.log
 logs/
