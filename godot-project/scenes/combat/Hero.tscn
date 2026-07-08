@@ -7,6 +7,8 @@
 size = Vector2(18, 18)
 
 [node name="Hero" type="CharacterBody2D" groups=["hero"]]
+collision_layer = 2
+collision_mask = 1
 script = ExtResource("1_hero_script")
 
 [node name="Visual" type="ColorRect" parent="."]

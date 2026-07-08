@@ -39,7 +39,40 @@ func _try_damage(node: Node) -> void:
 		node.take_damage(damage)
 		Juice.hit_stop()
 		Juice.shake_camera(6.0)
+		_spawn_impact_burst()
 		if node is CharacterBody2D:
 			node.velocity += _dir * 260.0
 			node.move_and_slide()
 		queue_free()
+
+
+func _spawn_impact_burst() -> void:
+	var parent: Node = get_parent()
+	if parent == null:
+		return
+	var burst := GPUParticles2D.new()
+	burst.emitting = false
+	burst.one_shot = true
+	burst.explosiveness = 1.0
+	burst.amount = 20
+	burst.lifetime = 0.4
+	var mat := ParticleProcessMaterial.new()
+	mat.particle_flag_disable_z = true
+	mat.spread = 180.0
+	mat.initial_velocity_min = 60.0
+	mat.initial_velocity_max = 130.0
+	mat.gravity = Vector3.ZERO
+	mat.scale_min = 1.0
+	mat.scale_max = 3.0
+	var ramp := Gradient.new()
+	ramp.set_color(0, Color(1.0, 0.8, 0.3, 0.9))
+	ramp.set_color(1, Color(1.0, 0.55, 0.15, 0.0))
+	var ramp_tex := GradientTexture1D.new()
+	ramp_tex.gradient = ramp
+	mat.color_ramp = ramp_tex
+	burst.process_material = mat
+	parent.add_child(burst)
+	burst.global_position = global_position
+	burst.restart()
+	burst.emitting = true
+	get_tree().create_timer(0.6).timeout.connect(burst.queue_free)
