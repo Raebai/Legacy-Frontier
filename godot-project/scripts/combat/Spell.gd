@@ -39,4 +39,7 @@ func _try_damage(node: Node) -> void:
 		node.take_damage(damage)
 		Juice.hit_stop()
 		Juice.shake_camera(6.0)
+		if node is CharacterBody2D:
+			node.velocity += _dir * 260.0
+			node.move_and_slide()
 		queue_free()
