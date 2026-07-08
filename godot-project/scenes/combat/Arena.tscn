@@ -1,0 +1,43 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/combat/Arena.gd" id="1_arena_script"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_top"]
+size = Vector2(1200, 16)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_bottom"]
+size = Vector2(1200, 16)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_left"]
+size = Vector2(16, 680)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_right"]
+size = Vector2(16, 680)
+
+[node name="Arena" type="Node2D"]
+script = ExtResource("1_arena_script")
+
+[node name="Floor" type="ColorRect" parent="."]
+offset_left = 0.0
+offset_top = 0.0
+offset_right = 1200.0
+offset_bottom = 680.0
+color = Color(0.14, 0.15, 0.18, 1)
+
+[node name="Walls" type="StaticBody2D" parent="."]
+
+[node name="WallTop" type="CollisionShape2D" parent="Walls"]
+position = Vector2(600, 0)
+shape = SubResource("RectangleShape2D_wall_top")
+
+[node name="WallBottom" type="CollisionShape2D" parent="Walls"]
+position = Vector2(600, 680)
+shape = SubResource("RectangleShape2D_wall_bottom")
+
+[node name="WallLeft" type="CollisionShape2D" parent="Walls"]
+position = Vector2(0, 340)
+shape = SubResource("RectangleShape2D_wall_left")
+
+[node name="WallRight" type="CollisionShape2D" parent="Walls"]
+position = Vector2(1200, 340)
+shape = SubResource("RectangleShape2D_wall_right")
