@@ -20,6 +20,20 @@ const WEAPON_STATS: Dictionary = {
 }
 const BLAST_COOLDOWN: float = 2.0
 const BLAST_FALLBACK_RANGE: float = 200.0
+## Blink teleport: instant reposition along facing with a shadow-poof at both
+## the origin and the destination (the "yin-yang shadow step").
+const BLINK_DISTANCE: float = 175.0
+const BLINK_COOLDOWN: float = 1.3
+const BLINK_IFRAME: float = 0.22
+const BLINK_SHADOW_COLOR: Color = Color(0.25, 0.1, 0.35, 0.8)
+## Dark-violet particle poof; end alpha 0 so it dissolves instead of popping.
+const BLINK_BURST_START: Color = Color(0.4, 0.18, 0.55, 0.9)
+const BLINK_BURST_END: Color = Color(0.08, 0.03, 0.15, 0.0)
+## Quick bright flash on arrival so the eye snaps to the new position.
+const BLINK_ARRIVAL_FLASH_COLOR: Color = Color(0.85, 0.7, 1.0)
+const BLINK_ARRIVAL_FLASH_TIME: float = 0.1
+## Back off this many px from a wall hit so we never re-embed in the collider.
+const BLINK_WALL_MARGIN: float = 2.0
 ## Input buffer: a melee/dash/blast press that lands while its gate is closed
 ## (cooldown running, mid-dash) is held this long and fired the moment the
 ## gate opens — no more silently dropped presses. `cast` is held/continuous
@@ -55,6 +69,8 @@ var _cast_cooldown_timer: float = 0.0
 var _melee_cooldown_timer: float = 0.0
 var _melee_kick_next: bool = false
 var _blast_cooldown_timer: float = 0.0
+var _blink_cooldown_timer: float = 0.0
+var _blink_iframe_timer: float = 0.0
 var _weapon: String = "fists"
 var _melee_damage: int = MELEE_DAMAGE
 var _melee_range: float = MELEE_RANGE
@@ -80,6 +96,8 @@ func _physics_process(delta: float) -> void:
 	_cast_cooldown_timer = max(_cast_cooldown_timer - delta, 0.0)
 	_melee_cooldown_timer = max(_melee_cooldown_timer - delta, 0.0)
 	_blast_cooldown_timer = max(_blast_cooldown_timer - delta, 0.0)
+	_blink_cooldown_timer = maxf(_blink_cooldown_timer - delta, 0.0)
+	_blink_iframe_timer = maxf(_blink_iframe_timer - delta, 0.0)
 	_update_input_buffer(delta)
 	if Input.is_action_pressed("cast") and _cast_cooldown_timer <= 0.0 and not is_dashing:
 		_cast()
@@ -122,7 +140,7 @@ func _update_input_buffer(delta: float) -> void:
 	_buffer_timer = maxf(_buffer_timer - delta, 0.0)
 	if _buffer_timer <= 0.0:
 		_buffered_action = ""
-	for action: String in ["melee", "dash", "blast"]:
+	for action: String in ["melee", "dash", "blast", "blink"]:
 		if Input.is_action_just_pressed(action):
 			_buffered_action = action
 			_buffer_timer = BUFFER_TIME
@@ -149,6 +167,10 @@ func _try_fire_buffered() -> bool:
 				_clear_input_buffer()
 				_start_dash()
 				return true
+		"blink":
+			if _blink_cooldown_timer <= 0.0:
+				_clear_input_buffer()
+				_blink()
 	return false
 
 
@@ -163,6 +185,49 @@ func _start_dash() -> void:
 	_dash_cooldown_timer = DASH_COOLDOWN
 	_dash_dir = facing
 	_ghost_timer = 0.0  # first afterimage lands this frame
+
+
+## Shadow blink: instant teleport up to BLINK_DISTANCE along facing, clamped
+## so we never land inside a wall. Leaves a dark silhouette + violet poof at
+## the origin, another poof + bright flash at the destination, and grants
+## BLINK_IFRAME seconds of invulnerability. Buffered like dash/melee/blast;
+## only reachable from the not-dashing path (same implicit gate as dash).
+func _blink() -> void:
+	if _blink_cooldown_timer > 0.0:
+		return
+	_blink_cooldown_timer = BLINK_COOLDOWN
+	_blink_iframe_timer = BLINK_IFRAME
+	var origin: Vector2 = global_position
+	var dir: Vector2 = facing.normalized()
+	if dir == Vector2.ZERO:
+		dir = Vector2.RIGHT
+	var dest: Vector2 = _blink_destination(origin, dir)
+	# Shadow-poof where we WERE: dark fading silhouette + violet burst.
+	rig.spawn_ghost(get_parent(), BLINK_SHADOW_COLOR, Vector2.ZERO, Vector2.ZERO, 0.35)
+	CombatVfx.spawn_burst(
+		get_parent(), origin, BLINK_BURST_START, BLINK_BURST_END,
+		18, 0.35, 40.0, 110.0, 1.5, 3.0
+	)
+	global_position = dest
+	# Arrival poof: bigger burst + a quick bright flash on the rig.
+	CombatVfx.spawn_burst(
+		get_parent(), dest, BLINK_BURST_START, BLINK_BURST_END,
+		24, 0.4, 60.0, 140.0, 1.5, 3.5
+	)
+	rig.flash_color(BLINK_ARRIVAL_FLASH_COLOR, BLINK_ARRIVAL_FLASH_TIME)
+	rig.play(CharacterRig.State.CAST)
+	Sfx.play("cast", -4.0, 0.15)  # pitched wide: reads as a "vwip" teleport
+
+
+## Safe destination up to BLINK_DISTANCE along `dir`: a test-only
+## move_and_collide sweep finds the first wall, and we stop BLINK_WALL_MARGIN
+## short of it so the body never teleports inside a collider.
+func _blink_destination(origin: Vector2, dir: Vector2) -> Vector2:
+	var travel: float = BLINK_DISTANCE
+	var collision: KinematicCollision2D = move_and_collide(dir * BLINK_DISTANCE, true)
+	if collision != null:
+		travel = maxf(collision.get_travel().length() - BLINK_WALL_MARGIN, 0.0)
+	return origin + dir * travel
 
 
 func _cast() -> void:
@@ -254,6 +319,9 @@ func take_damage(amount: int) -> void:
 	# DESIGN: dash grants i-frames (full dash duration). Flip to
 	# reposition-only by removing this guard.
 	if is_dashing:
+		return
+	# Blink grants a brief post-teleport i-frame window (BLINK_IFRAME).
+	if _blink_iframe_timer > 0.0:
 		return
 	hp = max(hp - amount, 0)
 	health_changed.emit(hp, max_hp)
