@@ -19,6 +19,11 @@ var _crate_spawned: bool = false
 var _crate_blasted: bool = false
 var _crate_pos: Vector2 = Vector2.ZERO
 
+# OP-aura tier ramp: bump Rank power to escalate the hero's aura newbie->god.
+var _tier_times: Array[float] = [0.6, 1.3, 2.0, 2.7, 3.4]
+var _tier_powers: Array[int] = [6, 16, 32, 54, 84]
+var _tier_i: int = 0
+
 var _t: float = 0.0
 var _shot: int = 0
 var _setup_done: bool = false
@@ -26,14 +31,14 @@ var _setup_done: bool = false
 # Capture timings (seconds) — spread to catch idle, run, cast, melee, blast
 # telegraph bloom + detonation, and hopefully a brute's danger circle.
 var _cap_times: Array[float] = [
-	0.5, 1.3, 1.5, 2.1, 2.3, 2.9, 3.1, 3.7, 3.9, 4.35, 4.5, 4.8, 5.0, 5.15, 5.3,
+	0.9, 1.0, 1.6, 1.7, 2.3, 2.4, 3.0, 3.1, 3.7, 3.85, 4.0, 4.2, 4.5, 4.8, 5.1,
 ]
 var _cap_i: int = 0
 
 # One-shot input pulses (parallel typed arrays; heterogeneous arrays trip the
 # project's warnings-as-errors config).
-var _pulse_times: Array[float] = [1.0, 1.8, 2.6, 3.4, 4.1]
-var _pulse_acts: Array[String] = ["cycle_element", "cycle_element", "cycle_element", "cycle_colourway", "cycle_colourway"]
+var _pulse_times: Array[float] = [0.3]
+var _pulse_acts: Array[String] = ["cycle_element"]
 var _pulse_done: Array[bool] = []
 
 var _rel_times: Array[float] = []
@@ -88,6 +93,13 @@ func _process(delta: float) -> void:
 			var cam: Camera2D = cams[0] as Camera2D
 			if cam != null:
 				cam.zoom = Vector2(2.6, 2.6)
+
+	# OP-aura tier ramp: escalate the hero's rank so the aura grows tier by tier.
+	if _tier_i < _tier_times.size() and _t >= _tier_times[_tier_i]:
+		var r: Node = get_node_or_null("/root/Rank")
+		if r != null and r.has_method("set_power"):
+			r.call("set_power", _tier_powers[_tier_i])
+		_tier_i += 1
 
 	# Crate destruction showcase: spawn a crate next to the hero, then blast it —
 	# shatters into debris + leaves a persistent scorch + crack decal, on camera.
