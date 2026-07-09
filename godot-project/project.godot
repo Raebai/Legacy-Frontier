@@ -25,6 +25,7 @@ MCPRuntime="*uid://qc4i28l1mvja"
 Conversation="*res://scenes/Conversation.tscn"
 Sfx="*res://scripts/combat/Sfx.gd"
 Music="*res://scripts/combat/Music.gd"
+Rank="*res://scripts/combat/Rank.gd"
 
 [display]
 

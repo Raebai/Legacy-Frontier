@@ -106,6 +106,9 @@ func _ready() -> void:
 	rig.set_tint(COLOURWAYS[_colourway])
 	rig.class_preset("mage")
 	_apply_element()
+	# Rank drives aura TIER (elaborateness); the element keeps driving COLOUR.
+	Rank.rank_changed.connect(_on_rank_changed)
+	rig.set_aura_tier(Rank.tier())
 	rig.hit_frame.connect(_on_melee_hit_frame)
 
 
@@ -218,6 +221,13 @@ func _cycle_element() -> void:
 func _apply_element() -> void:
 	_element_color = Elements.color(_element)
 	rig.set_aura(_element_color, AURA_STRENGTH)
+
+
+## Rank-up: the aura escalates a tier (more layers/motes/ring) plus a quick
+## element-coloured pop on the figure. No menus — this IS the feedback.
+func _on_rank_changed(new_tier: int, _title: String) -> void:
+	rig.set_aura_tier(new_tier)
+	rig.flash_color(_element_color, 0.18)
 
 
 ## Advance to the next body colourway (wraps) and retint the rig limbs.

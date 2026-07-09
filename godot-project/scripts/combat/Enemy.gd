@@ -172,12 +172,21 @@ func _flash() -> void:
 
 func _die() -> void:
 	_abort_attack()  # never leave an orphaned danger circle behind a corpse
+	_grant_kill_power()
 	_spawn_death_burst()
 	_spawn_corpse()
 	Sfx.play("enemy_death")
 	Juice.shake_camera(DEATH_SHAKE)
 	Juice.hit_stop(DEATH_HIT_STOP)
 	queue_free()
+
+
+## Feed the rank ladder: every kill grants power. Guarded lookup so headless
+## test contexts without the Rank autoload never crash.
+func _grant_kill_power() -> void:
+	var r: Node = get_node_or_null("/root/Rank")
+	if r != null and r.has_method("add_power"):
+		r.call("add_power", 3)  # matches Rank.KILL_POWER
 
 
 ## Tint-colored particle pop, noticeably bigger than a spell impact.
