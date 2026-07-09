@@ -13,7 +13,10 @@ const MELEE_DAMAGE: int = 14
 const MELEE_RANGE: float = 46.0
 const MELEE_ARC_DOT: float = 0.3
 const MELEE_KNOCKBACK: float = 220.0
+const BLAST_COOLDOWN: float = 2.0
+const BLAST_FALLBACK_RANGE: float = 200.0
 const SPELL_SCENE: PackedScene = preload("res://scenes/combat/Spell.tscn")
+const BLAST_SCENE: PackedScene = preload("res://scenes/combat/BlastSpell.tscn")
 
 @export var max_hp: int = 100
 var hp: int = 100
@@ -25,6 +28,7 @@ var _dash_dir: Vector2 = Vector2.RIGHT
 var _cast_cooldown_timer: float = 0.0
 var _melee_cooldown_timer: float = 0.0
 var _melee_kick_next: bool = false
+var _blast_cooldown_timer: float = 0.0
 
 @onready var rig: CharacterRig = $Rig
 
@@ -42,10 +46,13 @@ func _physics_process(delta: float) -> void:
 	_dash_cooldown_timer = max(_dash_cooldown_timer - delta, 0.0)
 	_cast_cooldown_timer = max(_cast_cooldown_timer - delta, 0.0)
 	_melee_cooldown_timer = max(_melee_cooldown_timer - delta, 0.0)
+	_blast_cooldown_timer = max(_blast_cooldown_timer - delta, 0.0)
 	if Input.is_action_pressed("cast") and _cast_cooldown_timer <= 0.0 and not is_dashing:
 		_cast()
 	if Input.is_action_just_pressed("melee") and _melee_cooldown_timer <= 0.0 and not is_dashing:
 		_melee()
+	if Input.is_action_just_pressed("blast") and _blast_cooldown_timer <= 0.0 and not is_dashing:
+		_blast()
 
 	if is_dashing:
 		_dash_timer -= delta
@@ -94,6 +101,21 @@ func _cast() -> void:
 	rig.play(CharacterRig.State.CAST)
 	Sfx.play("cast", 0.0, 0.08)
 	Juice.shake_camera(2.0)
+
+
+func _blast() -> void:
+	_blast_cooldown_timer = BLAST_COOLDOWN
+	var target: Node2D = Targeting.nearest(
+		global_position, get_tree().get_nodes_in_group("enemy")
+	)
+	var target_pos: Vector2 = (
+		target.global_position if target != null
+		else global_position + facing * BLAST_FALLBACK_RANGE
+	)
+	var blast: Node2D = BLAST_SCENE.instantiate()
+	get_parent().add_child(blast)
+	blast.detonate_at(target_pos)
+	rig.play(CharacterRig.State.CAST)
 
 
 func _melee() -> void:
