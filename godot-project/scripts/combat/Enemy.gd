@@ -50,6 +50,7 @@ func _flash() -> void:
 
 
 func _die() -> void:
+	Sfx.play("enemy_death")
 	Juice.shake_camera(8.0)
 	Juice.hit_stop()
 	queue_free()

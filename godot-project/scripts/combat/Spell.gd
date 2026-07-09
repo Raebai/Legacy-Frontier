@@ -37,6 +37,7 @@ func _on_hit(body: Node) -> void:
 func _try_damage(node: Node) -> void:
 	if node != null and node.is_in_group("enemy") and node.has_method("take_damage"):
 		node.take_damage(damage)
+		Sfx.play("spell_impact")
 		Juice.hit_stop()
 		Juice.shake_camera(6.0)
 		_spawn_impact_burst()

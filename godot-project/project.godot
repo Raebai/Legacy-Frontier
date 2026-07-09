@@ -23,6 +23,7 @@ config/features=PackedStringArray("4.6", "Forward Plus")
 
 MCPRuntime="*uid://qc4i28l1mvja"
 Conversation="*res://scenes/Conversation.tscn"
+Sfx="*res://scripts/combat/Sfx.gd"
 
 [display]
 

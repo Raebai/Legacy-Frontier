@@ -69,12 +69,14 @@ func _cast() -> void:
 	get_parent().add_child(spell)
 	spell.global_position = global_position
 	spell.launch(dir)
+	Sfx.play("cast", 0.0, 0.08)
 	Juice.shake_camera(2.0)
 
 
 func take_damage(amount: int) -> void:
 	hp = max(hp - amount, 0)
 	health_changed.emit(hp, max_hp)
+	Sfx.play("hero_hurt")
 	if hp == 0:
 		_die()
 
