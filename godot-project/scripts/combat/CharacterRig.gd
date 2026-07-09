@@ -18,6 +18,23 @@ const ONE_SHOT_DURATIONS: Dictionary = {
 ## Fraction of a PUNCH/KICK duration at which hit_frame fires.
 const HIT_FRAME_FRACTION: float = 0.55
 
+## Melee feel tuning. The strike curve is: wind BACK for the first
+## STRIKE_ANTICIPATION_FRACTION of the one-shot (down to -STRIKE_PULLBACK
+## extension), then snap forward (cubic ease-out) to full extension exactly
+## at HIT_FRAME_FRACTION, then follow through back to rest.
+const STRIKE_ANTICIPATION_FRACTION: float = 0.30
+const STRIKE_PULLBACK: float = 0.35
+## Squash-stretch impact pop: draw-time size multiplier applied when
+## hit_frame fires, easing back to 1.0 over POP_TIME seconds.
+const POP_SCALE: float = 1.12
+const POP_TIME: float = 0.1
+## Slash-arc swoosh: visible over [start, end] of the one-shot's normalized
+## time, sweeping SLASH_ARC_SPAN radians at radius height * factor.
+const SLASH_ARC_START: float = 0.38
+const SLASH_ARC_END: float = 0.9
+const SLASH_ARC_SPAN: float = 1.5
+const SLASH_ARC_RADIUS_FACTOR: float = 0.52
+
 ## Dash afterimages: script loaded lazily to keep the dependency one-way
 ## (RigGhost references CharacterRig for the shared figure draw).
 const GHOST_SCRIPT_PATH: String = "res://scripts/combat/RigGhost.gd"
@@ -43,6 +60,7 @@ var _one_shot_active: bool = false
 var _one_shot_time: float = 0.0
 var _one_shot_duration: float = 0.0
 var _hit_frame_emitted: bool = false
+var _pop_timer: float = 0.0
 var _flash_timer: float = 0.0
 var _flash_color: Color = Color.WHITE
 
@@ -57,12 +75,15 @@ func advance(delta: float) -> void:
 	_phase += delta
 	if _flash_timer > 0.0:
 		_flash_timer -= delta
+	if _pop_timer > 0.0:
+		_pop_timer -= delta
 	if _one_shot_active:
 		_one_shot_time += delta
 		var is_strike: bool = state == State.PUNCH or state == State.KICK
 		if is_strike and not _hit_frame_emitted \
 				and _one_shot_time >= _one_shot_duration * HIT_FRAME_FRACTION:
 			_hit_frame_emitted = true
+			_pop_timer = POP_TIME
 			hit_frame.emit()
 		if _one_shot_time >= _one_shot_duration:
 			_one_shot_active = false
@@ -185,7 +206,14 @@ func spawn_ghost(
 func _draw() -> void:
 	var col: Color = _flash_color if _flash_timer > 0.0 else limb_color
 	_draw_aura()
-	draw_figure(self, _compute_pose(), col, equipment, height)
+	# Impact pop: a transient DRAW-TIME size multiplier. Never touches
+	# node.scale — set_facing() owns scale.x for the horizontal flip.
+	if _pop_timer > 0.0:
+		var pop: float = 1.0 + (POP_SCALE - 1.0) * clampf(_pop_timer / POP_TIME, 0.0, 1.0)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2(pop, pop))
+	var pose: Dictionary = _compute_pose()
+	draw_figure(self, pose, col, equipment, height)
+	_draw_slash_arc(pose, col)
 
 
 ## Concentric fading circles under the figure, gently pulsing.
@@ -202,6 +230,53 @@ func _draw_aura() -> void:
 		draw_circle(center, radius, Color(aura_color.r, aura_color.g, aura_color.b, alpha))
 
 
+## Anticipation-then-thrust extension curve for PUNCH/KICK, over normalized
+## one-shot time t in [0, 1]:
+##   [0, STRIKE_ANTICIPATION_FRACTION]  wind back to -STRIKE_PULLBACK (ease-in,
+##                                      slow — the "loading up" read)
+##   [.., HIT_FRAME_FRACTION]           thrust to 1.0 with cubic ease-out
+##                                      (fast — full extension lands exactly
+##                                      on the hit_frame moment)
+##   [.., 1]                            follow-through: holds near extension,
+##                                      then retracts to 0
+static func _strike_ext(t: float) -> float:
+	if t < STRIKE_ANTICIPATION_FRACTION:
+		var wind_u: float = t / STRIKE_ANTICIPATION_FRACTION
+		return -STRIKE_PULLBACK * wind_u * wind_u
+	if t < HIT_FRAME_FRACTION:
+		var thrust_u: float = (t - STRIKE_ANTICIPATION_FRACTION) \
+				/ (HIT_FRAME_FRACTION - STRIKE_ANTICIPATION_FRACTION)
+		var eased: float = 1.0 - pow(1.0 - thrust_u, 3.0)
+		return lerpf(-STRIKE_PULLBACK, 1.0, eased)
+	var recover_u: float = (t - HIT_FRAME_FRACTION) / (1.0 - HIT_FRAME_FRACTION)
+	return 1.0 - recover_u * recover_u
+
+
+## Quick swoosh arc in front of the lead hand (PUNCH) or lead foot (KICK),
+## fading over the strike window. Local +x is the facing direction (the node
+## flip mirrors it for free). Cheap: two draw_arc calls.
+func _draw_slash_arc(pose: Dictionary, col: Color) -> void:
+	if not _one_shot_active or _one_shot_duration <= 0.0:
+		return
+	if state != State.PUNCH and state != State.KICK:
+		return
+	var t: float = clampf(_one_shot_time / _one_shot_duration, 0.0, 1.0)
+	if t < SLASH_ARC_START or t > SLASH_ARC_END:
+		return
+	var p: float = (t - SLASH_ARC_START) / (SLASH_ARC_END - SLASH_ARC_START)
+	var fade: float = 1.0 - p
+	var center: Vector2 = pose["shoulder"] if state == State.PUNCH else pose["hip"]
+	var mid_angle: float = 0.0 if state == State.PUNCH else 0.2
+	var radius: float = height * SLASH_ARC_RADIUS_FACTOR * (0.85 + 0.3 * p)
+	var start_angle: float = mid_angle - SLASH_ARC_SPAN * 0.5
+	var end_angle: float = mid_angle + SLASH_ARC_SPAN * 0.5
+	var w: float = pose["w"]
+	var glow: Color = Color(col.r, col.g, col.b, 0.35 * fade)
+	var core: Color = Color(1.0, 1.0, 1.0, 0.85 * fade)
+	draw_arc(center, radius, start_angle, end_angle, 10, glow, w * 1.8)
+	draw_arc(center, radius, start_angle, end_angle, 10, core, w * 0.8)
+
+
 ## Compute the current pose skeleton in local space. Keys: head_center,
 ## neck, hip, shoulder, hand_lead, hand_off, foot_lead, foot_off,
 ## plus stroke metrics r (head radius) and w (line width).
@@ -213,7 +288,10 @@ func _compute_pose() -> Dictionary:
 	var t: float = 0.0
 	if _one_shot_active and _one_shot_duration > 0.0:
 		t = clampf(_one_shot_time / _one_shot_duration, 0.0, 1.0)
-	var ext: float = sin(t * PI)  # 0 -> 1 at mid-point -> 0
+	# PUNCH/KICK: anticipation-then-thrust (negative = wound back).
+	# Other one-shots keep the smooth 0 -> 1 -> 0 wave.
+	var is_strike: bool = state == State.PUNCH or state == State.KICK
+	var ext: float = _strike_ext(t) if is_strike else sin(t * PI)
 
 	# Pose parameters. Angles are radians from each joint: 0 = forward
 	# (+x, lead side), PI/2 = straight down, PI = backward.
@@ -248,7 +326,9 @@ func _compute_pose() -> Dictionary:
 			arm_lead = -0.12
 			arm_off = 0.18
 		State.PUNCH:
-			lean = height * 0.06 * ext
+			# ext < 0 during anticipation coils the torso back and retracts
+			# the arm; the same formulas then thrust it past neutral.
+			lean = height * 0.08 * ext
 			arm_lead = lerpf(PI * 0.45, 0.0, ext)
 			arm_lead_len = arm_len * (0.8 + 0.5 * ext)
 			arm_off = PI * 0.5 + 0.4
