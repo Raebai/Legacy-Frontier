@@ -18,6 +18,21 @@ const TRAIL_SPACING: float = 5.0
 const FLICKER_SPEED: float = 40.0
 
 var _phase: float = 0.0
+## Live palette — starts at the warm defaults; set_tint() steers glow/trail
+## fully toward the element colour and only nudges the hot core, so the bolt
+## keeps its white-hot heart while reading unmistakably as its element.
+var _core_color: Color = CORE_COLOR
+var _glow_color: Color = GLOW_COLOR
+var _trail_color: Color = TRAIL_COLOR
+
+
+## Recolour the bolt toward an element colour (alphas preserved). Called by
+## the parent Spell's set_element_color(); never called = default warm look.
+func set_tint(c: Color) -> void:
+	_glow_color = Color(c.r, c.g, c.b, GLOW_COLOR.a)
+	_trail_color = Color(c.r, c.g, c.b, TRAIL_COLOR.a)
+	_core_color = CORE_COLOR.lerp(Color(c.r, c.g, c.b, CORE_COLOR.a), 0.25)
+	queue_redraw()
 
 
 func _process(delta: float) -> void:
@@ -33,12 +48,12 @@ func _draw() -> void:
 		var x0: float = -CORE_HALF_LEN - TRAIL_SPACING * float(i)
 		var x1: float = x0 - TRAIL_SPACING * 0.9
 		var seg_col: Color = Color(
-			TRAIL_COLOR.r, TRAIL_COLOR.g, TRAIL_COLOR.b, TRAIL_COLOR.a * f * f
+			_trail_color.r, _trail_color.g, _trail_color.b, _trail_color.a * f * f
 		)
 		_draw_capsule(Vector2(x1, 0.0), Vector2(x0, 0.0), CORE_HALF_WIDTH * f, seg_col)
 	# Outer warm glow hugging the bolt.
 	var glow_col: Color = Color(
-		GLOW_COLOR.r, GLOW_COLOR.g, GLOW_COLOR.b, GLOW_COLOR.a * flicker
+		_glow_color.r, _glow_color.g, _glow_color.b, _glow_color.a * flicker
 	)
 	_draw_capsule(
 		Vector2(-CORE_HALF_LEN - 2.0, 0.0),
@@ -49,7 +64,7 @@ func _draw() -> void:
 	# Bright hot core (elongated lozenge along the travel axis).
 	_draw_capsule(
 		Vector2(-CORE_HALF_LEN, 0.0), Vector2(CORE_HALF_LEN, 0.0),
-		CORE_HALF_WIDTH, CORE_COLOR
+		CORE_HALF_WIDTH, _core_color
 	)
 	# White-hot tip.
 	var tip_col: Color = Color(TIP_COLOR.r, TIP_COLOR.g, TIP_COLOR.b, TIP_COLOR.a * flicker)

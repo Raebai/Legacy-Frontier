@@ -7,11 +7,40 @@ const LIFETIME: float = 1.4
 @export var damage: int = 18
 var _dir: Vector2 = Vector2.RIGHT
 var _life: float = LIFETIME
+## Element tint (see Elements.gd). While unset, every visual keeps the
+## original warm fire-bolt default — set_element_color() flips the flag.
+var _element_color: Color = Color(1.0, 1.0, 1.0, 1.0)
+var _has_element_color: bool = false
 
 
 func launch(direction: Vector2) -> void:
 	_dir = direction.normalized()
 	rotation = _dir.angle()
+
+
+## Recolour the bolt toward an element: forwards to the drawn bolt visual
+## and retints the particle trail. Impact burst picks it up via the flag.
+func set_element_color(c: Color) -> void:
+	_element_color = c
+	_has_element_color = true
+	var visual: SpellBoltVisual = get_node_or_null("BoltVisual") as SpellBoltVisual
+	if visual != null:
+		visual.set_tint(c)
+	var trail: GPUParticles2D = get_node_or_null("Trail") as GPUParticles2D
+	if trail != null and trail.process_material is ParticleProcessMaterial:
+		# Duplicate the material so the tint is per-instance (the .tscn
+		# sub-resource is shared across every live spell otherwise).
+		var mat: ParticleProcessMaterial = (
+			trail.process_material.duplicate() as ParticleProcessMaterial
+		)
+		var grad: Gradient = Gradient.new()
+		grad.colors = PackedColorArray([
+			Color(c.r, c.g, c.b, 0.85), Color(c.r, c.g, c.b, 0.0)
+		])
+		var ramp: GradientTexture1D = GradientTexture1D.new()
+		ramp.gradient = grad
+		mat.color_ramp = ramp
+		trail.process_material = mat
 
 
 func _ready() -> void:
@@ -57,8 +86,15 @@ func _try_damage(node: Node) -> void:
 
 
 func _spawn_impact_burst() -> void:
+	# Warm fire-bolt default; element-tinted when set_element_color() ran.
+	var start: Color = Color(1.0, 0.8, 0.3, 0.9)
+	var end: Color = Color(1.0, 0.55, 0.15, 0.0)
+	if _has_element_color:
+		start = Color(_element_color.r, _element_color.g, _element_color.b, 0.9)
+		end = Color(
+			_element_color.r * 0.5, _element_color.g * 0.5, _element_color.b * 0.5, 0.0
+		)
 	CombatVfx.spawn_burst(
-		get_parent(), global_position,
-		Color(1.0, 0.8, 0.3, 0.9), Color(1.0, 0.55, 0.15, 0.0),
+		get_parent(), global_position, start, end,
 		20, 0.4, 60.0, 130.0, 1.0, 3.0
 	)

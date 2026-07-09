@@ -54,8 +54,18 @@ const MELEE_CAMERA_KICK: float = 5.0
 const GHOST_INTERVAL: float = 0.03
 const GHOST_COLOR: Color = Color(0.6, 0.85, 1.0, 0.72)
 ## Persistent "charged mage" aura (enemies get none — hero reads as hero).
-const AURA_COLOR: Color = Color(0.4, 0.7, 1.0, 1.0)
+## Aura COLOUR comes from the active element (see _apply_element); only the
+## strength is fixed here.
 const AURA_STRENGTH: float = 0.6
+## Body colourways (limb palette). Independent of the element — you can be a
+## Jade stickman casting Fire. Cycled with `cycle_colourway` (C).
+const COLOURWAYS: Array[Color] = [
+	Color(0.4, 0.7, 1.0),  # Azure (the original hero blue)
+	Color(1.0, 0.55, 0.35),  # Ember
+	Color(0.6, 0.4, 0.95),  # Void
+	Color(0.45, 0.9, 0.55),  # Jade
+	Color(0.85, 0.85, 0.9),  # Mono
+]
 const SPELL_SCENE: PackedScene = preload("res://scenes/combat/Spell.tscn")
 const BLAST_SCENE: PackedScene = preload("res://scenes/combat/BlastSpell.tscn")
 const NOVA_SCENE: PackedScene = preload("res://scenes/combat/EnergyNova.tscn")
@@ -81,6 +91,10 @@ var _melee_range: float = MELEE_RANGE
 var _melee_knockback: float = MELEE_KNOCKBACK
 var _buffered_action: String = ""
 var _buffer_timer: float = 0.0
+## Active element (aura + ability colour). Cycled with `cycle_element` (X).
+var _element: int = Elements.Element.ARCANE
+var _element_color: Color = Color(1.0, 1.0, 1.0, 1.0)
+var _colourway: int = 0
 
 @onready var rig: CharacterRig = $Rig
 
@@ -89,9 +103,9 @@ func _ready() -> void:
 	add_to_group("hero")
 	hp = max_hp
 	health_changed.emit(hp, max_hp)
-	rig.set_tint(Color(0.4, 0.7, 1, 1))
+	rig.set_tint(COLOURWAYS[_colourway])
 	rig.class_preset("mage")
-	rig.set_aura(AURA_COLOR, AURA_STRENGTH)
+	_apply_element()
 	rig.hit_frame.connect(_on_melee_hit_frame)
 
 
@@ -104,6 +118,11 @@ func _physics_process(delta: float) -> void:
 	_blink_iframe_timer = maxf(_blink_iframe_timer - delta, 0.0)
 	_nova_cooldown_timer = maxf(_nova_cooldown_timer - delta, 0.0)
 	_update_input_buffer(delta)
+	# Cosmetic toggles: instant, un-buffered, legal even mid-dash.
+	if Input.is_action_just_pressed("cycle_element"):
+		_cycle_element()
+	if Input.is_action_just_pressed("cycle_colourway"):
+		_cycle_colourway()
 	if Input.is_action_pressed("cast") and _cast_cooldown_timer <= 0.0 and not is_dashing:
 		_cast()
 
@@ -188,6 +207,26 @@ func _clear_input_buffer() -> void:
 	_buffer_timer = 0.0
 
 
+## Advance to the next element (wraps) and re-apply aura + ability colour.
+func _cycle_element() -> void:
+	_element = (_element + 1) % Elements.count()
+	_apply_element()
+
+
+## Element = aura + ability colour. The aura recolours instantly (the colour
+## change IS the feedback); _element_color feeds every subsequent cast.
+func _apply_element() -> void:
+	_element_color = Elements.color(_element)
+	rig.set_aura(_element_color, AURA_STRENGTH)
+
+
+## Advance to the next body colourway (wraps) and retint the rig limbs.
+## Purely cosmetic — independent of the element.
+func _cycle_colourway() -> void:
+	_colourway = (_colourway + 1) % COLOURWAYS.size()
+	rig.set_tint(COLOURWAYS[_colourway])
+
+
 func _start_dash() -> void:
 	is_dashing = true
 	_dash_timer = DASH_TIME
@@ -247,6 +286,8 @@ func _cast() -> void:
 	get_parent().add_child(spell)
 	spell.global_position = global_position
 	spell.launch(dir)
+	if spell.has_method("set_element_color"):
+		spell.call("set_element_color", _element_color)
 	rig.play(CharacterRig.State.CAST)
 	Sfx.play("cast", 0.0, 0.08)
 	Juice.shake_camera(2.0)
