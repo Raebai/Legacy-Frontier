@@ -43,6 +43,18 @@ const MAX_GHOSTS: int = 24
 const AURA_LAYERS: int = 3
 const AURA_PULSE_SPEED: float = 3.2
 const AURA_PULSE_AMOUNT: float = 0.15
+## Rank-driven aura escalation. Tier 0 = aura off; tier 1 = the baseline aura
+## (exactly the pre-rank look); tiers 2..5 stack intensity, extra silhouette
+## layers, orbiting motes, and (tier >= 3) a rotating ground ring. Everything
+## is element-coloured via `aura_color`.
+const AURA_TIER_MOTES: Array[int] = [0, 0, 4, 6, 9, 12]
+const AURA_TIER_STRENGTH_STEP: float = 0.14  # +strength per tier above 1
+const AURA_TIER_PULSE_STEP: float = 0.25     # +pulse fraction per tier above 1
+const MOTE_ORBIT_RADIUS_FACTOR: float = 0.7  # orbit radius = height * this
+const MOTE_ORBIT_SPEED: float = 1.6          # rad/s around the figure
+const MOTE_PULSE_SPEED: float = 4.2          # alpha shimmer speed
+const GROUND_RING_MIN_TIER: int = 3
+const GROUND_RING_SPIN_SPEED: float = 1.1    # rad/s arc rotation
 
 @export var limb_color: Color = Color(0.55, 0.75, 1.0, 1.0)
 @export var height: float = 22.0
@@ -50,6 +62,9 @@ const AURA_PULSE_AMOUNT: float = 0.15
 ## disables it entirely — enemies stay bare sticks.
 @export var aura_color: Color = Color(0.4, 0.7, 1.0, 1.0)
 @export var aura_strength: float = 0.0
+## Rank tier (0..5) driving aura elaborateness. Enemies stay at strength 0 so
+## their tier never matters; the hero's tier is fed by Rank via set_aura_tier.
+var aura_tier: int = 1
 
 var state: State = State.IDLE
 ## slot ("head"/"body"/"feet"/"weapon") -> kind id ("" clears).
@@ -170,6 +185,14 @@ func set_aura(color: Color, strength: float = 1.0) -> void:
 	queue_redraw()
 
 
+## Set the rank tier (0..5) driving aura escalation. Tier 0 kills the aura
+## outright; tier 1 is the baseline look; higher tiers get more layers,
+## orbiting motes, and the ground ring.
+func set_aura_tier(t: int) -> void:
+	aura_tier = clampi(t, 0, 5)
+	queue_redraw()
+
+
 ## Spawn a fading afterimage of the current pose under `parent` (dash trail).
 ## Pure visual: no animation, no collision; self-frees. Optional extras for
 ## the death-corpse read: `launch_velocity` makes the ghost drift as it
@@ -218,24 +241,70 @@ func _draw() -> void:
 
 ## Player-SHAPED aura: the figure silhouette drawn a few times in the aura
 ## colour, scaled up + fading outward behind the main figure — a glowing halo
-## that follows the pose, not a ground circle.
+## that follows the pose, not a ground circle. Rank tier escalates it: extra
+## layers + intensity + pulse, orbiting motes (tier >= 2), ground ring
+## (tier >= 3). Tier 1 is EXACTLY the pre-rank baseline; tier 0 draws nothing.
 func _draw_aura() -> void:
-	if aura_strength <= 0.0:
+	if aura_strength <= 0.0 or aura_tier <= 0:
 		return
-	var pulse: float = 1.0 - AURA_PULSE_AMOUNT * 0.5 \
-			+ AURA_PULSE_AMOUNT * 0.5 * sin(_phase * AURA_PULSE_SPEED)
+	# Tier 1 keeps the baseline strength/layers/pulse; each tier above stacks.
+	var over: float = float(aura_tier - 1)
+	var eff: float = minf(aura_strength + AURA_TIER_STRENGTH_STEP * over, 1.6)
+	var layers: int = AURA_LAYERS + maxi(aura_tier - 2, 0)
+	var pulse_amount: float = AURA_PULSE_AMOUNT * (1.0 + AURA_TIER_PULSE_STEP * over)
+	var pulse: float = 1.0 - pulse_amount * 0.5 \
+			+ pulse_amount * 0.5 * sin(_phase * AURA_PULSE_SPEED)
+	if aura_tier >= GROUND_RING_MIN_TIER:
+		_draw_ground_ring(eff)
 	var pose: Dictionary = _compute_pose()
 	var step: float = 0.13      # each halo layer is this much larger than the figure
 	var base_alpha: float = 0.3
 	# Outer (biggest, faintest) first so brighter inner layers sit on top.
-	for i: int in range(AURA_LAYERS):
-		var layer: int = AURA_LAYERS - i          # AURA_LAYERS..1 (outer -> inner)
+	for i: int in range(layers):
+		var layer: int = layers - i               # layers..1 (outer -> inner)
 		var s: float = (1.0 + step * float(layer)) * pulse
-		var a: float = aura_strength * base_alpha / float(layer)
+		var a: float = eff * base_alpha / float(layer)
 		var glow: Color = Color(aura_color.r, aura_color.g, aura_color.b, a)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2(s, s))
 		draw_figure(self, pose, glow, equipment, height)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)  # reset for the main figure
+	_draw_motes(eff)
+
+
+## Orbiting element-coloured motes — the "charged" read at tier >= 2. Each
+## mote is a bright core over a soft halo, alpha shimmering out of phase so
+## the ring never reads as a static decoration.
+func _draw_motes(eff: float) -> void:
+	var count: int = AURA_TIER_MOTES[aura_tier]
+	if count <= 0:
+		return
+	var orbit_r: float = height * MOTE_ORBIT_RADIUS_FACTOR
+	var mote_r: float = maxf(1.2, height * 0.06)
+	for i: int in range(count):
+		var ang: float = _phase * MOTE_ORBIT_SPEED + TAU * float(i) / float(count)
+		var pos: Vector2 = Vector2.from_angle(ang) * orbit_r
+		var a: float = clampf(
+			eff * (0.4 + 0.25 * sin(_phase * MOTE_PULSE_SPEED + float(i) * 1.7)),
+			0.08, 1.0
+		)
+		var core: Color = Color(aura_color.r, aura_color.g, aura_color.b, a)
+		var halo: Color = Color(aura_color.r, aura_color.g, aura_color.b, a * 0.35)
+		draw_circle(pos, mote_r * 1.9, halo)
+		draw_circle(pos, mote_r, core)
+
+
+## Faint rotating ground ring under the figure (tier >= 3): two opposed arcs
+## squashed into a floor ellipse, spinning with _phase.
+func _draw_ground_ring(eff: float) -> void:
+	var ring_center: Vector2 = Vector2(0.0, height * 0.55)
+	var radius: float = height * 0.62
+	var w: float = maxf(1.2, height * 0.05)
+	var col: Color = Color(aura_color.r, aura_color.g, aura_color.b, clampf(eff * 0.28, 0.0, 0.6))
+	var spin: float = _phase * GROUND_RING_SPIN_SPEED
+	draw_set_transform(ring_center, 0.0, Vector2(1.0, 0.38))
+	draw_arc(Vector2.ZERO, radius, spin, spin + 2.4, 16, col, w)
+	draw_arc(Vector2.ZERO, radius, spin + PI, spin + PI + 2.4, 16, col, w)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 ## Anticipation-then-thrust extension curve for PUNCH/KICK, over normalized
