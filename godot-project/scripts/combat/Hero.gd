@@ -19,11 +19,15 @@ var _dash_cooldown_timer: float = 0.0
 var _dash_dir: Vector2 = Vector2.RIGHT
 var _cast_cooldown_timer: float = 0.0
 
+@onready var rig: CharacterRig = $Rig
+
 
 func _ready() -> void:
 	add_to_group("hero")
 	hp = max_hp
 	health_changed.emit(hp, max_hp)
+	rig.set_tint(Color(0.4, 0.7, 1, 1))
+	rig.class_preset("mage")
 
 
 func _physics_process(delta: float) -> void:
@@ -38,6 +42,8 @@ func _physics_process(delta: float) -> void:
 		move_and_slide()
 		if _dash_timer <= 0.0:
 			is_dashing = false
+		rig.play(CharacterRig.State.DASH)
+		rig.set_facing(facing)
 		return
 
 	var direction: Vector2 = Input.get_vector(
@@ -52,6 +58,11 @@ func _physics_process(delta: float) -> void:
 
 	velocity = direction * SPEED
 	move_and_slide()
+	if direction != Vector2.ZERO:
+		rig.play(CharacterRig.State.RUN)
+	else:
+		rig.play(CharacterRig.State.IDLE)
+	rig.set_facing(facing)
 
 
 func _start_dash() -> void:
@@ -69,6 +80,7 @@ func _cast() -> void:
 	get_parent().add_child(spell)
 	spell.global_position = global_position
 	spell.launch(dir)
+	rig.play(CharacterRig.State.CAST)
 	Sfx.play("cast", 0.0, 0.08)
 	Juice.shake_camera(2.0)
 
@@ -76,6 +88,7 @@ func _cast() -> void:
 func take_damage(amount: int) -> void:
 	hp = max(hp - amount, 0)
 	health_changed.emit(hp, max_hp)
+	rig.play(CharacterRig.State.HURT)
 	Sfx.play("hero_hurt")
 	if hp == 0:
 		_die()

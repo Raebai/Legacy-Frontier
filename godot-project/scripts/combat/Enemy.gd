@@ -10,13 +10,13 @@ var hp: int = 40
 var _hero: Node2D = null
 var _touch_cooldown: float = 0.0
 
-@onready var _visual: ColorRect = $Visual
+@onready var rig: CharacterRig = $Rig
 
 
 func _ready() -> void:
 	add_to_group("enemy")
 	hp = max_hp
-	_visual.color = tint
+	rig.set_tint(tint)
 	var heroes: Array = get_tree().get_nodes_in_group("hero")
 	if not heroes.is_empty():
 		_hero = heroes[0]
@@ -25,10 +25,13 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	_touch_cooldown = max(_touch_cooldown - delta, 0.0)
 	if not is_instance_valid(_hero):
+		rig.play(CharacterRig.State.IDLE)
 		return
 	var dir: Vector2 = (_hero.global_position - global_position).normalized()
 	velocity = dir * move_speed
 	move_and_slide()
+	rig.play(CharacterRig.State.RUN)
+	rig.set_facing(dir)
 	if global_position.distance_to(_hero.global_position) < 22.0 and _touch_cooldown <= 0.0:
 		if _hero.has_method("take_damage"):
 			_hero.take_damage(touch_damage)
@@ -43,10 +46,7 @@ func take_damage(amount: int) -> void:
 
 
 func _flash() -> void:
-	_visual.color = Color.WHITE
-	await get_tree().create_timer(0.06).timeout
-	if is_instance_valid(self):
-		_visual.color = tint
+	rig.flash()
 
 
 func _die() -> void:
