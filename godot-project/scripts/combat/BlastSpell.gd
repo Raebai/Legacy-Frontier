@@ -38,6 +38,7 @@ func _detonate() -> void:
 	queue_redraw()
 	Juice.hit_stop(0.09)  # weighted: the AoE centerpiece, just under a kill
 	Juice.shake_camera(12.0)
+	Juice.zoom_punch_camera(0.1, 0.2)  # punch-zoom: the camera lunges in and eases back
 	Sfx.play("blast")
 	# Duck the music bed so the blast SFX owns the mix for a beat.
 	var music: Node = get_node_or_null("/root/Music")

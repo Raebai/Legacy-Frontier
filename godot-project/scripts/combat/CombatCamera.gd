@@ -23,9 +23,20 @@ const NOISE_SPEED: float = 28.0  # wobble frequency of the pseudo-noise
 const KICK_RETURN_SPEED: float = 10.0  # how fast the punch eases back
 const KICK_MAX: float = 26.0  # px cap on stacked kicks
 
+# --- Lookahead tuning (GMTK: camera drifts toward where the hero faces) ---
+const LOOKAHEAD_DIST: float = 22.0  # px of drift at full facing
+const LOOKAHEAD_SPEED: float = 4.0  # ease rate toward the facing target
+
 var _trauma: float = 0.0
 var _noise_t: float = 0.0
 var _kick_offset: Vector2 = Vector2.ZERO
+var _lookahead: Vector2 = Vector2.ZERO
+
+# --- Punch-zoom state (quick zoom-in kick that eases back to base) ---
+var _zoom_base: Vector2 = DEFAULT_ZOOM
+var _zoom_timer: float = 0.0
+var _zoom_duration: float = 0.0
+var _zoom_amount: float = 0.0
 
 
 func _ready() -> void:
@@ -48,16 +59,47 @@ func kick(dir: Vector2, amount: float) -> void:
 	_kick_offset = (_kick_offset + dir.normalized() * amount).limit_length(KICK_MAX)
 
 
+## Quick zoom-IN kick that eases back to whatever the zoom was at call time.
+## Base is captured at call time (demo harness and game use different zooms);
+## a punch landing mid-punch keeps the original un-punched base and just
+## re-arms the timer/amount so stacked blasts never ratchet the zoom.
+func zoom_punch(amount: float = 0.1, duration: float = 0.18) -> void:
+	if duration <= 0.0:
+		return
+	if _zoom_timer <= 0.0:
+		_zoom_base = zoom
+	_zoom_amount = amount
+	_zoom_duration = duration
+	_zoom_timer = duration
+
+
 func _process(delta: float) -> void:
+	# --- Punch-zoom: quick zoom-in that eases back (e runs 1 -> 0). ---
+	if _zoom_timer > 0.0:
+		_zoom_timer = maxf(_zoom_timer - delta, 0.0)
+		if _zoom_timer <= 0.0:
+			zoom = _zoom_base  # restore exactly, once
+		else:
+			var e: float = _zoom_timer / _zoom_duration
+			zoom = _zoom_base * (1.0 + _zoom_amount * e)
+	# --- Lookahead: drift toward where the hero is facing. ---
+	var lookahead_target: Vector2 = Vector2.ZERO
+	var p: Node = get_parent()
+	if p != null and "facing" in p:
+		var facing_value: Variant = p.get("facing")
+		if facing_value is Vector2:
+			lookahead_target = (facing_value as Vector2).normalized() * LOOKAHEAD_DIST
+	_lookahead = _lookahead.lerp(lookahead_target, minf(LOOKAHEAD_SPEED * delta, 1.0))
+	# --- Trauma shake + kick, composed with the lookahead drift. ---
 	_noise_t += delta * NOISE_SPEED
 	_trauma = maxf(_trauma - TRAUMA_DECAY * delta, 0.0)
 	_kick_offset = _kick_offset.lerp(Vector2.ZERO, minf(KICK_RETURN_SPEED * delta, 1.0))
 	var shake: float = _trauma * _trauma
-	if shake <= 0.0 and _kick_offset == Vector2.ZERO:
-		offset = Vector2.ZERO
-		return
-	# Two incommensurate sines per axis ~ cheap smooth noise (reads as a
-	# rumble that settles, not per-frame random static).
-	var nx: float = sin(_noise_t) * 0.6 + sin(_noise_t * 2.7 + 1.3) * 0.4
-	var ny: float = cos(_noise_t * 1.3 + 0.9) * 0.6 + sin(_noise_t * 3.4) * 0.4
-	offset = _kick_offset + Vector2(MAX_OFFSET.x * shake * nx, MAX_OFFSET.y * shake * ny)
+	var shake_offset: Vector2 = Vector2.ZERO
+	if shake > 0.0 or _kick_offset != Vector2.ZERO:
+		# Two incommensurate sines per axis ~ cheap smooth noise (reads as a
+		# rumble that settles, not per-frame random static).
+		var nx: float = sin(_noise_t) * 0.6 + sin(_noise_t * 2.7 + 1.3) * 0.4
+		var ny: float = cos(_noise_t * 1.3 + 0.9) * 0.6 + sin(_noise_t * 3.4) * 0.4
+		shake_offset = _kick_offset + Vector2(MAX_OFFSET.x * shake * nx, MAX_OFFSET.y * shake * ny)
+	offset = _lookahead + shake_offset

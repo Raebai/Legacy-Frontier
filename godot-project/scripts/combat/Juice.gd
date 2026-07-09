@@ -36,3 +36,13 @@ static func kick_camera(dir: Vector2, amount: float) -> void:
 	for cam in tree.get_nodes_in_group("combat_camera"):
 		if cam.has_method("kick"):
 			cam.kick(dir, amount)
+
+
+## Quick zoom-in kick that eases back — the "camera lunges at the blast" beat.
+static func zoom_punch_camera(amount: float = 0.1, duration: float = 0.18) -> void:
+	var tree: SceneTree = _tree()
+	if tree == null:
+		return
+	for cam in tree.get_nodes_in_group("combat_camera"):
+		if cam.has_method("zoom_punch"):
+			cam.zoom_punch(amount, duration)
