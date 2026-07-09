@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/combat/EnergyNova.gd" id="1_nova_script"]
+
+[node name="EnergyNova" type="Node2D"]
+script = ExtResource("1_nova_script")

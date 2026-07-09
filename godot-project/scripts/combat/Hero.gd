@@ -34,6 +34,8 @@ const BLINK_ARRIVAL_FLASH_COLOR: Color = Color(0.85, 0.7, 1.0)
 const BLINK_ARRIVAL_FLASH_TIME: float = 0.1
 ## Back off this many px from a wall hit so we never re-embed in the collider.
 const BLINK_WALL_MARGIN: float = 2.0
+## Energy nova: self-centered instant shockwave — the "get off me" button.
+const NOVA_COOLDOWN: float = 3.0
 ## Input buffer: a melee/dash/blast press that lands while its gate is closed
 ## (cooldown running, mid-dash) is held this long and fired the moment the
 ## gate opens — no more silently dropped presses. `cast` is held/continuous
@@ -56,6 +58,7 @@ const AURA_COLOR: Color = Color(0.4, 0.7, 1.0, 1.0)
 const AURA_STRENGTH: float = 0.6
 const SPELL_SCENE: PackedScene = preload("res://scenes/combat/Spell.tscn")
 const BLAST_SCENE: PackedScene = preload("res://scenes/combat/BlastSpell.tscn")
+const NOVA_SCENE: PackedScene = preload("res://scenes/combat/EnergyNova.tscn")
 
 @export var max_hp: int = 100
 var hp: int = 100
@@ -71,6 +74,7 @@ var _melee_kick_next: bool = false
 var _blast_cooldown_timer: float = 0.0
 var _blink_cooldown_timer: float = 0.0
 var _blink_iframe_timer: float = 0.0
+var _nova_cooldown_timer: float = 0.0
 var _weapon: String = "fists"
 var _melee_damage: int = MELEE_DAMAGE
 var _melee_range: float = MELEE_RANGE
@@ -98,6 +102,7 @@ func _physics_process(delta: float) -> void:
 	_blast_cooldown_timer = max(_blast_cooldown_timer - delta, 0.0)
 	_blink_cooldown_timer = maxf(_blink_cooldown_timer - delta, 0.0)
 	_blink_iframe_timer = maxf(_blink_iframe_timer - delta, 0.0)
+	_nova_cooldown_timer = maxf(_nova_cooldown_timer - delta, 0.0)
 	_update_input_buffer(delta)
 	if Input.is_action_pressed("cast") and _cast_cooldown_timer <= 0.0 and not is_dashing:
 		_cast()
@@ -140,7 +145,7 @@ func _update_input_buffer(delta: float) -> void:
 	_buffer_timer = maxf(_buffer_timer - delta, 0.0)
 	if _buffer_timer <= 0.0:
 		_buffered_action = ""
-	for action: String in ["melee", "dash", "blast", "blink"]:
+	for action: String in ["melee", "dash", "blast", "blink", "nova"]:
 		if Input.is_action_just_pressed(action):
 			_buffered_action = action
 			_buffer_timer = BUFFER_TIME
@@ -171,6 +176,10 @@ func _try_fire_buffered() -> bool:
 			if _blink_cooldown_timer <= 0.0:
 				_clear_input_buffer()
 				_blink()
+		"nova":
+			if _nova_cooldown_timer <= 0.0:
+				_clear_input_buffer()
+				_nova()
 	return false
 
 
@@ -255,6 +264,18 @@ func _blast() -> void:
 	var blast: Node2D = BLAST_SCENE.instantiate()
 	get_parent().add_child(blast)
 	blast.detonate_at(target_pos)
+	rig.play(CharacterRig.State.CAST)
+
+
+## Energy nova: instant self-centered shockwave. No telegraph — the panic
+## button fires the moment the press lands (buffered like blast/blink).
+func _nova() -> void:
+	if _nova_cooldown_timer > 0.0:
+		return
+	_nova_cooldown_timer = NOVA_COOLDOWN
+	var nova: Node2D = NOVA_SCENE.instantiate()
+	get_parent().add_child(nova)
+	nova.call("activate_at", global_position)
 	rig.play(CharacterRig.State.CAST)
 
 
