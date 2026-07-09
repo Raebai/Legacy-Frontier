@@ -230,7 +230,7 @@ func _on_melee_hit_frame() -> void:
 			enemy.apply_knockback(toward * _melee_knockback)
 		hit_any = true
 	if hit_any:
-		Juice.hit_stop()
+		Juice.hit_stop(MELEE_HIT_STOP)  # weighted: heavier than a spell hit
 		Juice.shake_camera(4.0)
 		Sfx.play("melee_hit")
 

@@ -11,6 +11,13 @@ extends CharacterBody2D
 
 const KNOCKBACK_DECAY: float = 900.0  # px/s the knockback impulse bleeds off
 
+# Death spectacle tuning ("bodies fly").
+const DEATH_HIT_STOP: float = 0.11  # weighted: a kill is the heaviest impact
+const DEATH_SHAKE: float = 8.0
+const DEATH_BURST_AMOUNT: int = 42  # bigger than a spell hit (20)
+const CORPSE_LAUNCH_SPEED: float = 240.0  # px/s the corpse silhouette flies
+const CORPSE_FADE_TIME: float = 0.6  # corpses linger past a dash ghost (0.34)
+
 # Telegraphed heavy attack tuning (brute archetype).
 const ATTACK_RANGE: float = 78.0  # start winding up inside this distance
 const ATTACK_WINDUP: float = 0.6  # seconds of tell before the strike lands
@@ -165,7 +172,37 @@ func _flash() -> void:
 
 func _die() -> void:
 	_abort_attack()  # never leave an orphaned danger circle behind a corpse
+	_spawn_death_burst()
+	_spawn_corpse()
 	Sfx.play("enemy_death")
-	Juice.shake_camera(8.0)
-	Juice.hit_stop()
+	Juice.shake_camera(DEATH_SHAKE)
+	Juice.hit_stop(DEATH_HIT_STOP)
 	queue_free()
+
+
+## Tint-colored particle pop, noticeably bigger than a spell impact.
+func _spawn_death_burst() -> void:
+	CombatVfx.spawn_burst(
+		get_parent(), global_position,
+		Color(tint.r, tint.g, tint.b, 1.0).lightened(0.3),
+		Color(tint.r, tint.g, tint.b, 0.0),
+		DEATH_BURST_AMOUNT, 0.5, 110.0, 240.0, 1.5, 4.0, 40.0, 90.0
+	)
+
+
+## Launched fading silhouette along the killing blow's knockback direction
+## (fallback: away from the hero) — the "body flies" read. Wind streaks
+## follow the launch so the corpse reads as flung, not teleported.
+func _spawn_corpse() -> void:
+	var launch_dir: Vector2 = _knockback.normalized()
+	if launch_dir == Vector2.ZERO and is_instance_valid(_hero):
+		launch_dir = (global_position - _hero.global_position).normalized()
+	if launch_dir == Vector2.ZERO:
+		launch_dir = Vector2.RIGHT
+	rig.spawn_ghost(
+		get_parent(),
+		Color(tint.r, tint.g, tint.b, 0.85),
+		launch_dir,
+		launch_dir * CORPSE_LAUNCH_SPEED,
+		CORPSE_FADE_TIME,
+	)

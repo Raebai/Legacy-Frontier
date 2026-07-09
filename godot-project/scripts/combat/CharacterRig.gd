@@ -149,9 +149,17 @@ func set_aura(color: Color, strength: float = 1.0) -> void:
 	queue_redraw()
 
 
-## Spawn a static, fading afterimage of the current pose under `parent`
-## (dash trail). Pure visual: no animation, no collision; self-frees.
-func spawn_ghost(parent: Node, ghost_color: Color, wind_dir: Vector2 = Vector2.ZERO) -> void:
+## Spawn a fading afterimage of the current pose under `parent` (dash trail).
+## Pure visual: no animation, no collision; self-frees. Optional extras for
+## the death-corpse read: `launch_velocity` makes the ghost drift as it
+## fades; `fade_time` > 0 overrides RigGhost.FADE_TIME.
+func spawn_ghost(
+	parent: Node,
+	ghost_color: Color,
+	wind_dir: Vector2 = Vector2.ZERO,
+	launch_velocity: Vector2 = Vector2.ZERO,
+	fade_time: float = 0.0,
+) -> void:
 	if parent == null or not is_inside_tree():
 		return
 	if get_tree().get_nodes_in_group("rig_ghost").size() >= MAX_GHOSTS:
@@ -163,6 +171,9 @@ func spawn_ghost(parent: Node, ghost_color: Color, wind_dir: Vector2 = Vector2.Z
 	ghost.set("fig_height", height)
 	ghost.set("base_color", ghost_color)
 	ghost.set("wind_dir", wind_dir)
+	ghost.set("launch_velocity", launch_velocity)
+	if fade_time > 0.0:
+		ghost.set("fade_time", fade_time)
 	parent.add_child(ghost)
 	ghost.global_transform = global_transform
 	# z_index 0 (not -1): the arena Floor ColorRect is an opaque z=0 canvas item,

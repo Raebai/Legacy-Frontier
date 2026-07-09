@@ -28,7 +28,7 @@ func _detonate() -> void:
 	_spawn_blast_burst()
 	_shockwave_elapsed = 0.0
 	queue_redraw()
-	Juice.hit_stop(0.09)
+	Juice.hit_stop(0.09)  # weighted: the AoE centerpiece, just under a kill
 	Juice.shake_camera(12.0)
 	Sfx.play("blast")
 	get_tree().create_timer(CLEANUP_DELAY).timeout.connect(queue_free)
@@ -81,36 +81,10 @@ func _draw() -> void:
 		draw_circle(Vector2.ZERO, BLAST_RADIUS * flash, Color(1.0, 0.9, 0.6, 0.35 * flash))
 
 
-## Mirrors Spell._spawn_impact_burst, scaled way up for the centerpiece.
+## The shared burst builder, scaled way up for the centerpiece.
 func _spawn_blast_burst() -> void:
-	var parent: Node = get_parent()
-	if parent == null:
-		return
-	var burst := GPUParticles2D.new()
-	burst.emitting = false
-	burst.one_shot = true
-	burst.explosiveness = 1.0
-	burst.amount = 90
-	burst.lifetime = 0.6
-	var mat := ParticleProcessMaterial.new()
-	mat.particle_flag_disable_z = true
-	mat.spread = 180.0
-	mat.initial_velocity_min = 160.0
-	mat.initial_velocity_max = 420.0
-	mat.gravity = Vector3.ZERO
-	mat.damping_min = 60.0
-	mat.damping_max = 140.0
-	mat.scale_min = 2.0
-	mat.scale_max = 6.0
-	var ramp := Gradient.new()
-	ramp.set_color(0, Color(1.0, 0.9, 0.45, 1.0))
-	ramp.set_color(1, Color(1.0, 0.4, 0.1, 0.0))
-	var ramp_tex := GradientTexture1D.new()
-	ramp_tex.gradient = ramp
-	mat.color_ramp = ramp_tex
-	burst.process_material = mat
-	parent.add_child(burst)
-	burst.global_position = global_position
-	burst.restart()
-	burst.emitting = true
-	get_tree().create_timer(0.9).timeout.connect(burst.queue_free)
+	CombatVfx.spawn_burst(
+		get_parent(), global_position,
+		Color(1.0, 0.9, 0.45, 1.0), Color(1.0, 0.4, 0.1, 0.0),
+		90, 0.6, 160.0, 420.0, 2.0, 6.0, 60.0, 140.0
+	)
