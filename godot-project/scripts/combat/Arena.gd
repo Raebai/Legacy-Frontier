@@ -5,8 +5,20 @@ const ENEMY_SCENE: PackedScene = preload("res://scenes/combat/Enemy.tscn")
 const TARGET_ENEMY_COUNT: int = 5
 const ARENA_MIN: Vector2 = Vector2(80, 80)
 const ARENA_MAX: Vector2 = Vector2(1120, 600)
+const MIN_SPAWN_DISTANCE_FROM_HERO: float = 160.0
+const SPAWN_POSITION_TRIES: int = 20
 
 var _spawn_timer: float = 0.0
+
+
+func _ready() -> void:
+	# Slice 0 isolation: the hub's Conversation autoload still loads here and
+	# its _unhandled_input steals Enter (`chat`) to open a broadcast text bar.
+	# Disable just its input processing while the arena runs — the autoload
+	# itself stays registered because Slice 1's hub merge depends on it.
+	var conversation: Node = get_node_or_null("/root/Conversation")
+	if conversation != null:
+		conversation.set_process_unhandled_input(false)
 
 
 func _process(delta: float) -> void:
@@ -31,7 +43,31 @@ func _spawn_enemy() -> void:
 		e.touch_damage = 18
 		e.tint = Color(0.7, 0.25, 0.45, 1)  # magenta brute
 	add_child(e)
-	e.global_position = Vector2(
-		randf_range(ARENA_MIN.x, ARENA_MAX.x),
-		randf_range(ARENA_MIN.y, ARENA_MAX.y)
-	)
+	e.global_position = _pick_spawn_position()
+
+
+func _pick_spawn_position() -> Vector2:
+	# Reject positions inside MIN_SPAWN_DISTANCE_FROM_HERO of the hero so an
+	# enemy can never spawn straight into contact-damage range (review M2).
+	var heroes: Array[Node] = get_tree().get_nodes_in_group("hero")
+	var hero: Node2D = null
+	if heroes.size() > 0:
+		hero = heroes[0] as Node2D
+	var best_pos: Vector2 = Vector2.ZERO
+	var best_dist: float = -1.0
+	for i in SPAWN_POSITION_TRIES:
+		var pos := Vector2(
+			randf_range(ARENA_MIN.x, ARENA_MAX.x),
+			randf_range(ARENA_MIN.y, ARENA_MAX.y)
+		)
+		if hero == null:
+			return pos
+		var dist: float = pos.distance_to(hero.global_position)
+		if dist >= MIN_SPAWN_DISTANCE_FROM_HERO:
+			return pos
+		if dist > best_dist:
+			best_dist = dist
+			best_pos = pos
+	# All tries were too close (hero effectively fills the arena):
+	# fall back to the farthest candidate so spawning never hangs.
+	return best_pos
