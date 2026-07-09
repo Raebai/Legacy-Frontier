@@ -31,6 +31,10 @@ func _detonate() -> void:
 	Juice.hit_stop(0.09)  # weighted: the AoE centerpiece, just under a kill
 	Juice.shake_camera(12.0)
 	Sfx.play("blast")
+	# Duck the music bed so the blast SFX owns the mix for a beat.
+	var music: Node = get_node_or_null("/root/Music")
+	if music != null and music.has_method("duck"):
+		music.call("duck", 8.0, 0.4)
 	get_tree().create_timer(CLEANUP_DELAY).timeout.connect(queue_free)
 
 
