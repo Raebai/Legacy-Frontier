@@ -32,6 +32,8 @@ const HURT_HIT_STOP: float = 0.05
 const HURT_SHAKE: float = 7.0
 ## Weighted hitstop: melee connect sits between spell hit and enemy death.
 const MELEE_HIT_STOP: float = 0.07
+## Directional camera punch along facing when a melee connects (px).
+const MELEE_CAMERA_KICK: float = 5.0
 ## Dash afterimage cadence/tint (~4-5 ghosts across the 0.14s dash).
 const GHOST_INTERVAL: float = 0.03
 const GHOST_COLOR: Color = Color(0.6, 0.85, 1.0, 0.72)
@@ -232,6 +234,7 @@ func _on_melee_hit_frame() -> void:
 	if hit_any:
 		Juice.hit_stop(MELEE_HIT_STOP)  # weighted: heavier than a spell hit
 		Juice.shake_camera(4.0)
+		Juice.kick_camera(facing, MELEE_CAMERA_KICK)  # punch INTO the hit
 		Sfx.play("melee_hit")
 
 

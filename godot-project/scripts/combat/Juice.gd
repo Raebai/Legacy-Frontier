@@ -25,3 +25,14 @@ static func shake_camera(amount: float = 6.0) -> void:
 	for cam in tree.get_nodes_in_group("combat_camera"):
 		if cam.has_method("add_shake"):
 			cam.add_shake(amount)
+
+
+## Directional camera punch along `dir` (px), eases back — pairs with
+## shake_camera for hits that have a clear direction (melee follow-through).
+static func kick_camera(dir: Vector2, amount: float) -> void:
+	var tree: SceneTree = _tree()
+	if tree == null:
+		return
+	for cam in tree.get_nodes_in_group("combat_camera"):
+		if cam.has_method("kick"):
+			cam.kick(dir, amount)
