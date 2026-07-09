@@ -1,12 +1,16 @@
 extends Camera2D
 ## A Camera2D that can screenshake. Registered in group "combat_camera".
 
-var _shake_amount: float = 0.0
+## Tight Stick Fight-style framing — the ~22px figures fill the screen.
+const DEFAULT_ZOOM: Vector2 = Vector2(2.2, 2.2)
 const SHAKE_DECAY: float = 12.0
+
+var _shake_amount: float = 0.0
 
 
 func _ready() -> void:
 	add_to_group("combat_camera")
+	zoom = DEFAULT_ZOOM
 
 
 func add_shake(amount: float) -> void:
