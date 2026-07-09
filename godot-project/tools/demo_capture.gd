@@ -11,10 +11,13 @@ extends Node2D
 # The harness prints the globalized OS path on startup so you can find them.
 const OUT_DIR: String = "user://demo"
 const ARENA: PackedScene = preload("res://scenes/combat/Arena.tscn")
-const ENEMY: PackedScene = preload("res://scenes/combat/Enemy.tscn")
+const PROP: PackedScene = preload("res://scenes/combat/DestructibleProp.tscn")
+const BLAST: PackedScene = preload("res://scenes/combat/BlastSpell.tscn")
 const QUIT_AT: float = 5.4
 
-var _kill_spawned: bool = false
+var _crate_spawned: bool = false
+var _crate_blasted: bool = false
+var _crate_pos: Vector2 = Vector2.ZERO
 
 var _t: float = 0.0
 var _shot: int = 0
@@ -23,14 +26,14 @@ var _setup_done: bool = false
 # Capture timings (seconds) — spread to catch idle, run, cast, melee, blast
 # telegraph bloom + detonation, and hopefully a brute's danger circle.
 var _cap_times: Array[float] = [
-	0.5, 0.69, 0.82, 1.6, 2.6, 3.26, 3.33, 3.4, 3.48, 3.57, 3.68, 3.82, 4.1, 4.6, 5.1,
+	0.5, 0.69, 0.82, 1.5, 2.9, 3.3, 3.55, 3.66, 3.74, 3.85, 4.0, 4.3, 4.7, 5.0, 5.25,
 ]
 var _cap_i: int = 0
 
 # One-shot input pulses (parallel typed arrays; heterogeneous arrays trip the
 # project's warnings-as-errors config).
-var _pulse_times: Array[float] = [0.6, 1.2, 2.6, 3.8, 1.5, 3.5]
-var _pulse_acts: Array[String] = ["dash", "melee", "melee", "melee", "blast", "blast"]
+var _pulse_times: Array[float] = [0.6, 1.2, 1.5]
+var _pulse_acts: Array[String] = ["dash", "melee", "blast"]
 var _pulse_done: Array[bool] = []
 
 var _rel_times: Array[float] = []
@@ -51,16 +54,25 @@ func _ready() -> void:
 	print("[DEMO] harness started, out=", ProjectSettings.globalize_path(OUT_DIR))
 
 
-func _spawn_kill_target() -> void:
+func _spawn_show_crate() -> void:
 	var heroes: Array = get_tree().get_nodes_in_group("hero")
 	if heroes.is_empty():
 		return
 	var hero: Node2D = heroes[0] as Node2D
-	var e: CharacterBody2D = ENEMY.instantiate() as CharacterBody2D
-	e.set("max_hp", 18)      # dies to the 40-dmg blast
-	e.set("move_speed", 40.0)  # slow, so it stays inside the blast radius
-	hero.get_parent().add_child(e)
-	e.global_position = hero.global_position + Vector2(52.0, -6.0)
+	_crate_pos = hero.global_position + Vector2(80.0, 0.0)
+	var crate: Node2D = PROP.instantiate() as Node2D
+	hero.get_parent().add_child(crate)
+	crate.global_position = _crate_pos
+
+
+func _blast_show_crate() -> void:
+	var heroes: Array = get_tree().get_nodes_in_group("hero")
+	if heroes.is_empty():
+		return
+	var hero: Node2D = heroes[0] as Node2D
+	var b: Node2D = BLAST.instantiate() as Node2D
+	hero.get_parent().add_child(b)
+	b.call("detonate_at", _crate_pos)
 
 
 func _queue_release(at: float, act: String) -> void:
@@ -81,11 +93,14 @@ func _process(delta: float) -> void:
 			if cam != null:
 				cam.zoom = Vector2(2.6, 2.6)
 
-	# Spawn a weak, slow enemy next to the hero just before the 2nd blast (t=3.5)
-	# so the blast one-shots it ON CAMERA — showcases the death burst + corpse.
-	if not _kill_spawned and _t >= 3.2:
-		_kill_spawned = true
-		_spawn_kill_target()
+	# Crate destruction showcase: spawn a crate next to the hero, then blast it —
+	# shatters into debris + leaves a persistent scorch + crack decal, on camera.
+	if not _crate_spawned and _t >= 2.7:
+		_crate_spawned = true
+		_spawn_show_crate()
+	if not _crate_blasted and _t >= 3.15:
+		_crate_blasted = true
+		_blast_show_crate()
 
 	for i in _pulse_times.size():
 		if not _pulse_done[i] and _t >= _pulse_times[i]:
