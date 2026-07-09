@@ -22,7 +22,7 @@ const BLAST_COOLDOWN: float = 2.0
 const BLAST_FALLBACK_RANGE: float = 200.0
 ## Dash afterimage cadence/tint (~4-5 ghosts across the 0.14s dash).
 const GHOST_INTERVAL: float = 0.03
-const GHOST_COLOR: Color = Color(0.45, 0.7, 1.0, 0.5)
+const GHOST_COLOR: Color = Color(0.6, 0.85, 1.0, 0.72)
 ## Persistent "charged mage" aura (enemies get none — hero reads as hero).
 const AURA_COLOR: Color = Color(0.4, 0.7, 1.0, 1.0)
 const AURA_STRENGTH: float = 0.6

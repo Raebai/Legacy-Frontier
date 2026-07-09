@@ -6,7 +6,7 @@ extends Node2D
 ## and copies the rig's global transform (facing flip included).
 ## Tuning knobs: FADE_TIME for trail persistence, WIND_* for streak look.
 
-const FADE_TIME: float = 0.25
+const FADE_TIME: float = 0.34
 const WIND_STREAKS: int = 2
 const WIND_LENGTH: float = 26.0
 const WIND_WIDTH: float = 1.2

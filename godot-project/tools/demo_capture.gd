@@ -20,7 +20,7 @@ var _setup_done: bool = false
 # Capture timings (seconds) — spread to catch idle, run, cast, melee, blast
 # telegraph bloom + detonation, and hopefully a brute's danger circle.
 var _cap_times: Array[float] = [
-	0.5, 0.8, 1.1, 1.5, 1.9, 2.1, 2.3, 2.7, 3.1, 3.5, 3.8, 4.1, 4.3, 4.7, 5.1,
+	0.5, 0.63, 0.69, 0.75, 0.82, 0.9, 1.2, 1.6, 2.0, 2.3, 2.7, 3.1, 3.6, 4.1, 5.0,
 ]
 var _cap_i: int = 0
 

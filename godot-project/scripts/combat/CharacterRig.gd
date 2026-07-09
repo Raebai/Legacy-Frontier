@@ -157,7 +157,10 @@ func spawn_ghost(parent: Node, ghost_color: Color, wind_dir: Vector2 = Vector2.Z
 	ghost.set("wind_dir", wind_dir)
 	parent.add_child(ghost)
 	ghost.global_transform = global_transform
-	ghost.z_index = -1
+	# z_index 0 (not -1): the arena Floor ColorRect is an opaque z=0 canvas item,
+	# so a z=-1 ghost renders BEHIND the floor and is invisible. The hero keeps
+	# its own higher z (set on the rig) so the figure still draws over its trail.
+	ghost.z_index = 0
 
 
 func _draw() -> void:
