@@ -3,7 +3,14 @@ extends Node2D
 
 const ENEMY_SCENE: PackedScene = preload("res://scenes/combat/Enemy.tscn")
 const WEAPON_PICKUP_SCENE: PackedScene = preload("res://scenes/combat/WeaponPickup.tscn")
+const DESTRUCTIBLE_SCENE: PackedScene = preload("res://scenes/combat/DestructibleProp.tscn")
 const WEAPON_PICKUP_POSITION: Vector2 = Vector2(560, 200)
+## Crate scatter: interior positions, all >=120 px from the hero start (600,340)
+## so nothing shatters in the player's face on frame one.
+const CRATE_POSITIONS: Array[Vector2] = [
+	Vector2(300, 180), Vector2(900, 180), Vector2(280, 520),
+	Vector2(920, 500), Vector2(600, 140), Vector2(770, 470),
+]
 const TARGET_ENEMY_COUNT: int = 5
 const ARENA_MIN: Vector2 = Vector2(80, 80)
 const ARENA_MAX: Vector2 = Vector2(1120, 600)
@@ -27,6 +34,12 @@ func _ready() -> void:
 	pickup.weapon_kind = "sword"
 	add_child(pickup)
 	pickup.global_position = WEAPON_PICKUP_POSITION
+
+	# Destructible crates: cover to fight around, spectacle when they burst.
+	for pos: Vector2 in CRATE_POSITIONS:
+		var crate: StaticBody2D = DESTRUCTIBLE_SCENE.instantiate()
+		add_child(crate)
+		crate.global_position = pos
 
 
 func _process(delta: float) -> void:

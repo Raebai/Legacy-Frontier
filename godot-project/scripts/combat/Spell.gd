@@ -35,7 +35,9 @@ func _on_hit(body: Node) -> void:
 
 
 func _try_damage(node: Node) -> void:
-	if node != null and node.is_in_group("enemy") and node.has_method("take_damage"):
+	if node == null:
+		return
+	if node.is_in_group("enemy") and node.has_method("take_damage"):
 		node.take_damage(damage)
 		Sfx.play("spell_impact")
 		Juice.hit_stop(0.045)  # weighted: lightest impact in the ladder
@@ -43,6 +45,14 @@ func _try_damage(node: Node) -> void:
 		_spawn_impact_burst()
 		if node.has_method("apply_knockback"):
 			node.apply_knockback(_dir * 260.0)
+		queue_free()
+	elif node.is_in_group("destructible") and node.has_method("take_damage"):
+		# Props take spell damage too (no knockback — crates don't slide).
+		node.take_damage(damage)
+		Sfx.play("spell_impact")
+		Juice.hit_stop(0.045)
+		Juice.shake_camera(6.0)
+		_spawn_impact_burst()
 		queue_free()
 
 

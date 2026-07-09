@@ -231,6 +231,18 @@ func _on_melee_hit_frame() -> void:
 		if enemy.has_method("apply_knockback"):
 			enemy.apply_knockback(toward * _melee_knockback)
 		hit_any = true
+	# Crates break under melee too — same range/arc gate as enemies.
+	for prop: Node in get_tree().get_nodes_in_group("destructible"):
+		if not prop is Node2D:
+			continue
+		if global_position.distance_to(prop.global_position) >= _melee_range:
+			continue
+		var toward_prop: Vector2 = (prop.global_position - global_position).normalized()
+		if facing.dot(toward_prop) <= MELEE_ARC_DOT:
+			continue
+		if prop.has_method("take_damage"):
+			prop.take_damage(_melee_damage)
+		hit_any = true
 	if hit_any:
 		Juice.hit_stop(MELEE_HIT_STOP)  # weighted: heavier than a spell hit
 		Juice.shake_camera(4.0)
