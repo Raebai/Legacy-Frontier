@@ -50,6 +50,7 @@ func _spawn_enemy() -> void:
 		e.move_speed = 62.0
 		e.touch_damage = 18
 		e.tint = Color(0.7, 0.25, 0.45, 1)  # magenta brute
+		e.uses_telegraphed_attack = true  # dodge-the-tell heavy strike
 	add_child(e)
 	e.global_position = _pick_spawn_position()
 
