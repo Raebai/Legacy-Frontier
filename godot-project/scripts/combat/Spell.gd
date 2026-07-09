@@ -41,9 +41,8 @@ func _try_damage(node: Node) -> void:
 		Juice.hit_stop()
 		Juice.shake_camera(6.0)
 		_spawn_impact_burst()
-		if node is CharacterBody2D:
-			node.velocity += _dir * 260.0
-			node.move_and_slide()
+		if node.has_method("apply_knockback"):
+			node.apply_knockback(_dir * 260.0)
 		queue_free()
 
 

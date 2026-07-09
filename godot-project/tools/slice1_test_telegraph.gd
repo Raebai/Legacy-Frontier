@@ -14,9 +14,15 @@ class StubEnemy:
 	extends CharacterBody2D
 
 	var damage_calls: Array[int] = []
+	var knockback: Vector2 = Vector2.ZERO
 
 	func take_damage(amount: int) -> void:
 		damage_calls.append(amount)
+
+	# Mirrors Enemy.apply_knockback — the real knockback path (a decaying
+	# impulse added to chase velocity, not a direct velocity write).
+	func apply_knockback(impulse: Vector2) -> void:
+		knockback = impulse
 
 
 func _process(_delta: float) -> bool:
@@ -108,8 +114,8 @@ func _test_blast_damage_radius_and_knockback() -> int:
 		"enemy inside radius takes DAMAGE exactly once"
 	)
 	failed += _expect(far.damage_calls.is_empty(), "enemy outside radius untouched")
-	failed += _expect(near.velocity.x > 0.0, "inside enemy knocked outward (+x)")
-	failed += _expect(far.velocity == Vector2.ZERO, "outside enemy gets no knockback")
+	failed += _expect(near.knockback.x > 0.0, "inside enemy knocked outward (+x)")
+	failed += _expect(far.knockback == Vector2.ZERO, "outside enemy gets no knockback")
 
 	root.remove_child(near)
 	root.remove_child(far)

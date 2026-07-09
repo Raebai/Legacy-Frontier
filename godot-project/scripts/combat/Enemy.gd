@@ -6,11 +6,21 @@ extends CharacterBody2D
 @export var touch_damage: int = 12
 @export var tint: Color = Color(0.9, 0.35, 0.3, 1)
 
+const KNOCKBACK_DECAY: float = 900.0  # px/s the knockback impulse bleeds off
+
 var hp: int = 40
 var _hero: Node2D = null
 var _touch_cooldown: float = 0.0
+var _knockback: Vector2 = Vector2.ZERO
 
 @onready var rig: CharacterRig = $Rig
+
+
+## Applied by melee / spell / blast. A decaying impulse added ON TOP of the
+## chase velocity so the hit actually displaces the enemy instead of being
+## stomped by the next physics tick's `velocity = dir * move_speed`.
+func apply_knockback(impulse: Vector2) -> void:
+	_knockback = impulse
 
 
 func _ready() -> void:
@@ -24,11 +34,16 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	_touch_cooldown = max(_touch_cooldown - delta, 0.0)
+	_knockback = _knockback.move_toward(Vector2.ZERO, KNOCKBACK_DECAY * delta)
 	if not is_instance_valid(_hero):
+		# No target, but still honour an in-flight knockback so a killing-blow
+		# pop reads even if the hero just vanished.
+		velocity = _knockback
+		move_and_slide()
 		rig.play(CharacterRig.State.IDLE)
 		return
 	var dir: Vector2 = (_hero.global_position - global_position).normalized()
-	velocity = dir * move_speed
+	velocity = dir * move_speed + _knockback
 	move_and_slide()
 	rig.play(CharacterRig.State.RUN)
 	rig.set_facing(dir)

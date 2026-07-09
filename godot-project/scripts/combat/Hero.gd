@@ -140,9 +140,8 @@ func _on_melee_hit_frame() -> void:
 			continue
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(MELEE_DAMAGE)
-		if enemy is CharacterBody2D:
-			enemy.velocity += toward * MELEE_KNOCKBACK
-			enemy.move_and_slide()
+		if enemy.has_method("apply_knockback"):
+			enemy.apply_knockback(toward * MELEE_KNOCKBACK)
 		hit_any = true
 	if hit_any:
 		Juice.hit_stop()

@@ -44,12 +44,11 @@ func _apply_blast_damage() -> void:
 			continue
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(DAMAGE)
-		if enemy is CharacterBody2D:
+		if enemy.has_method("apply_knockback"):
 			var away: Vector2 = (enemy.global_position - global_position).normalized()
 			if away == Vector2.ZERO:
 				away = Vector2.RIGHT
-			enemy.velocity += away * KNOCKBACK
-			enemy.move_and_slide()
+			enemy.apply_knockback(away * KNOCKBACK)
 
 
 func _process(delta: float) -> void:
