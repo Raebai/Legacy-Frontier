@@ -26,14 +26,14 @@ var _setup_done: bool = false
 # Capture timings (seconds) — spread to catch idle, run, cast, melee, blast
 # telegraph bloom + detonation, and hopefully a brute's danger circle.
 var _cap_times: Array[float] = [
-	0.5, 0.69, 0.82, 1.5, 2.9, 3.3, 3.55, 3.66, 3.74, 3.85, 4.0, 4.3, 4.7, 5.0, 5.25,
+	0.5, 0.69, 0.82, 1.05, 1.1, 1.17, 1.27, 2.9, 3.3, 3.6, 3.7, 4.0, 4.3, 4.7, 5.1,
 ]
 var _cap_i: int = 0
 
 # One-shot input pulses (parallel typed arrays; heterogeneous arrays trip the
 # project's warnings-as-errors config).
-var _pulse_times: Array[float] = [0.6, 1.2, 1.5]
-var _pulse_acts: Array[String] = ["dash", "melee", "blast"]
+var _pulse_times: Array[float] = [0.6, 1.0, 1.5]
+var _pulse_acts: Array[String] = ["dash", "blink", "blast"]
 var _pulse_done: Array[bool] = []
 
 var _rel_times: Array[float] = []
