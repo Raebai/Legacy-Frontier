@@ -26,14 +26,14 @@ var _setup_done: bool = false
 # Capture timings (seconds) — spread to catch idle, run, cast, melee, blast
 # telegraph bloom + detonation, and hopefully a brute's danger circle.
 var _cap_times: Array[float] = [
-	0.5, 1.05, 1.15, 2.0, 2.06, 2.13, 2.22, 2.35, 2.9, 3.3, 3.6, 3.7, 4.0, 4.3, 5.1,
+	0.5, 1.3, 1.5, 2.1, 2.3, 2.9, 3.1, 3.7, 3.9, 4.35, 4.5, 4.8, 5.0, 5.15, 5.3,
 ]
 var _cap_i: int = 0
 
 # One-shot input pulses (parallel typed arrays; heterogeneous arrays trip the
 # project's warnings-as-errors config).
-var _pulse_times: Array[float] = [0.6, 1.0, 2.0]
-var _pulse_acts: Array[String] = ["dash", "blink", "nova"]
+var _pulse_times: Array[float] = [1.0, 1.8, 2.6, 3.4, 4.1]
+var _pulse_acts: Array[String] = ["cycle_element", "cycle_element", "cycle_element", "cycle_colourway", "cycle_colourway"]
 var _pulse_done: Array[bool] = []
 
 var _rel_times: Array[float] = []
@@ -46,11 +46,7 @@ func _ready() -> void:
 	_pulse_done.resize(_pulse_times.size())
 	_pulse_done.fill(false)
 	Input.action_press("cast")  # hold cast: auto-fires at the nearest enemy
-	# a brief move to show the run cycle, released at 0.9s
-	Input.action_press("move_right")
-	Input.action_press("move_down")
-	_queue_release(0.9, "move_right")
-	_queue_release(0.9, "move_down")
+	# element showcase: hero stays put so the aura + bolt colour reads clearly
 	print("[DEMO] harness started, out=", ProjectSettings.globalize_path(OUT_DIR))
 
 
@@ -95,10 +91,10 @@ func _process(delta: float) -> void:
 
 	# Crate destruction showcase: spawn a crate next to the hero, then blast it —
 	# shatters into debris + leaves a persistent scorch + crack decal, on camera.
-	if not _crate_spawned and _t >= 2.7:
+	if not _crate_spawned and _t >= 99.0:
 		_crate_spawned = true
 		_spawn_show_crate()
-	if not _crate_blasted and _t >= 3.15:
+	if not _crate_blasted and _t >= 99.0:
 		_crate_blasted = true
 		_blast_show_crate()
 
