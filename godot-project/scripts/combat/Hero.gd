@@ -20,6 +20,18 @@ const WEAPON_STATS: Dictionary = {
 }
 const BLAST_COOLDOWN: float = 2.0
 const BLAST_FALLBACK_RANGE: float = 200.0
+## Input buffer: a melee/dash/blast press that lands while its gate is closed
+## (cooldown running, mid-dash) is held this long and fired the moment the
+## gate opens — no more silently dropped presses. `cast` is held/continuous
+## and stays un-buffered.
+const BUFFER_TIME: float = 0.12
+## Hit feedback when damage actually lands (not i-framed).
+const HURT_FLASH_COLOR: Color = Color(1.0, 0.2, 0.2)
+const HURT_FLASH_TIME: float = 0.12
+const HURT_HIT_STOP: float = 0.05
+const HURT_SHAKE: float = 7.0
+## Weighted hitstop: melee connect sits between spell hit and enemy death.
+const MELEE_HIT_STOP: float = 0.07
 ## Dash afterimage cadence/tint (~4-5 ghosts across the 0.14s dash).
 const GHOST_INTERVAL: float = 0.03
 const GHOST_COLOR: Color = Color(0.6, 0.85, 1.0, 0.72)
@@ -45,6 +57,8 @@ var _weapon: String = "fists"
 var _melee_damage: int = MELEE_DAMAGE
 var _melee_range: float = MELEE_RANGE
 var _melee_knockback: float = MELEE_KNOCKBACK
+var _buffered_action: String = ""
+var _buffer_timer: float = 0.0
 
 @onready var rig: CharacterRig = $Rig
 
@@ -64,12 +78,9 @@ func _physics_process(delta: float) -> void:
 	_cast_cooldown_timer = max(_cast_cooldown_timer - delta, 0.0)
 	_melee_cooldown_timer = max(_melee_cooldown_timer - delta, 0.0)
 	_blast_cooldown_timer = max(_blast_cooldown_timer - delta, 0.0)
+	_update_input_buffer(delta)
 	if Input.is_action_pressed("cast") and _cast_cooldown_timer <= 0.0 and not is_dashing:
 		_cast()
-	if Input.is_action_just_pressed("melee") and _melee_cooldown_timer <= 0.0 and not is_dashing:
-		_melee()
-	if Input.is_action_just_pressed("blast") and _blast_cooldown_timer <= 0.0 and not is_dashing:
-		_blast()
 
 	if is_dashing:
 		_dash_timer -= delta
@@ -91,9 +102,8 @@ func _physics_process(delta: float) -> void:
 	if direction != Vector2.ZERO:
 		facing = direction
 
-	if Input.is_action_just_pressed("dash") and _dash_cooldown_timer <= 0.0:
-		_start_dash()
-		return
+	if _try_fire_buffered():
+		return  # a dash started this frame — the dash branch owns movement now
 
 	velocity = direction * SPEED
 	move_and_slide()
@@ -102,6 +112,47 @@ func _physics_process(delta: float) -> void:
 	else:
 		rig.play(CharacterRig.State.IDLE)
 	rig.set_facing(facing)
+
+
+## Record melee/dash/blast presses into a single-slot buffer (newest press
+## wins) and expire the slot after BUFFER_TIME.
+func _update_input_buffer(delta: float) -> void:
+	_buffer_timer = maxf(_buffer_timer - delta, 0.0)
+	if _buffer_timer <= 0.0:
+		_buffered_action = ""
+	for action: String in ["melee", "dash", "blast"]:
+		if Input.is_action_just_pressed(action):
+			_buffered_action = action
+			_buffer_timer = BUFFER_TIME
+
+
+## Fire the buffered action if its gate is now open, consuming the buffer so
+## nothing double-fires. Only called from the not-dashing path, so the old
+## `not is_dashing` gates are implicit. Returns true if a dash started (the
+## caller must yield the rest of the frame to the dash branch).
+func _try_fire_buffered() -> bool:
+	if _buffered_action.is_empty():
+		return false
+	match _buffered_action:
+		"melee":
+			if _melee_cooldown_timer <= 0.0:
+				_clear_input_buffer()
+				_melee()
+		"blast":
+			if _blast_cooldown_timer <= 0.0:
+				_clear_input_buffer()
+				_blast()
+		"dash":
+			if _dash_cooldown_timer <= 0.0:
+				_clear_input_buffer()
+				_start_dash()
+				return true
+	return false
+
+
+func _clear_input_buffer() -> void:
+	_buffered_action = ""
+	_buffer_timer = 0.0
 
 
 func _start_dash() -> void:
@@ -185,9 +236,16 @@ func _on_melee_hit_frame() -> void:
 
 
 func take_damage(amount: int) -> void:
+	# DESIGN: dash grants i-frames (full dash duration). Flip to
+	# reposition-only by removing this guard.
+	if is_dashing:
+		return
 	hp = max(hp - amount, 0)
 	health_changed.emit(hp, max_hp)
 	rig.play(CharacterRig.State.HURT)
+	rig.flash_color(HURT_FLASH_COLOR, HURT_FLASH_TIME)
+	Juice.hit_stop(HURT_HIT_STOP)
+	Juice.shake_camera(HURT_SHAKE)
 	Sfx.play("hero_hurt")
 	if hp == 0:
 		_die()

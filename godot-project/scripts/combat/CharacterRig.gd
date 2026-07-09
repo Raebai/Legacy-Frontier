@@ -44,6 +44,7 @@ var _one_shot_time: float = 0.0
 var _one_shot_duration: float = 0.0
 var _hit_frame_emitted: bool = false
 var _flash_timer: float = 0.0
+var _flash_color: Color = Color.WHITE
 
 
 func _process(delta: float) -> void:
@@ -103,6 +104,13 @@ func set_tint(color: Color) -> void:
 
 ## Briefly whiten the whole figure (hit feedback), then restore the tint.
 func flash(duration: float = 0.06) -> void:
+	flash_color(Color.WHITE, duration)
+
+
+## Flash the figure in an arbitrary color (e.g. red for hero damage), then
+## restore the tint. `flash()` is the white default and stays the public API.
+func flash_color(color: Color, duration: float = 0.06) -> void:
+	_flash_color = color
 	_flash_timer = duration
 	queue_redraw()
 
@@ -164,7 +172,7 @@ func spawn_ghost(parent: Node, ghost_color: Color, wind_dir: Vector2 = Vector2.Z
 
 
 func _draw() -> void:
-	var col: Color = Color.WHITE if _flash_timer > 0.0 else limb_color
+	var col: Color = _flash_color if _flash_timer > 0.0 else limb_color
 	_draw_aura()
 	draw_figure(self, _compute_pose(), col, equipment, height)
 
