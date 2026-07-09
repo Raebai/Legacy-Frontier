@@ -10,6 +10,9 @@ const DAMAGE: int = 40
 const KNOCKBACK: float = 340.0
 const SHOCKWAVE_TIME: float = 0.25
 const CLEANUP_DELAY: float = 0.7
+# Every blast chars the floor: persistent scorch decal at the detonation point.
+const SCORCH_RADIUS_FACTOR: float = 0.8  # decal size relative to BLAST_RADIUS
+const SCORCH_TINT: Color = Color(0.09, 0.05, 0.03, 0.6)  # warm charred brown
 
 var _shockwave_elapsed: float = -1.0  # < 0 means not yet detonated.
 
@@ -26,6 +29,11 @@ func detonate_at(pos: Vector2) -> void:
 func _detonate() -> void:
 	_apply_blast_damage()
 	_spawn_blast_burst()
+	# Crater mark: accumulating floor damage is the "world gets wrecked" read.
+	ScorchDecal.spawn(
+		get_parent(), global_position,
+		BLAST_RADIUS * SCORCH_RADIUS_FACTOR, "scorch", SCORCH_TINT
+	)
 	_shockwave_elapsed = 0.0
 	queue_redraw()
 	Juice.hit_stop(0.09)  # weighted: the AoE centerpiece, just under a kill
@@ -53,6 +61,14 @@ func _apply_blast_damage() -> void:
 			if away == Vector2.ZERO:
 				away = Vector2.RIGHT
 			enemy.apply_knockback(away * KNOCKBACK)
+	# Crates in the blast radius shatter too (no knockback — they're static).
+	for prop: Node in get_tree().get_nodes_in_group("destructible"):
+		if not prop is Node2D:
+			continue
+		if global_position.distance_to(prop.global_position) > BLAST_RADIUS:
+			continue
+		if prop.has_method("take_damage"):
+			prop.take_damage(DAMAGE)
 
 
 func _process(delta: float) -> void:

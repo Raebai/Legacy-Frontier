@@ -19,6 +19,7 @@ size = Vector2(16, 680)
 script = ExtResource("1_arena_script")
 
 [node name="Floor" type="ColorRect" parent="."]
+z_index = -2
 offset_left = 0.0
 offset_top = 0.0
 offset_right = 1200.0
