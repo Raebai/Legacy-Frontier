@@ -11,7 +11,10 @@ extends Node2D
 # The harness prints the globalized OS path on startup so you can find them.
 const OUT_DIR: String = "user://demo"
 const ARENA: PackedScene = preload("res://scenes/combat/Arena.tscn")
+const ENEMY: PackedScene = preload("res://scenes/combat/Enemy.tscn")
 const QUIT_AT: float = 5.4
+
+var _kill_spawned: bool = false
 
 var _t: float = 0.0
 var _shot: int = 0
@@ -20,7 +23,7 @@ var _setup_done: bool = false
 # Capture timings (seconds) — spread to catch idle, run, cast, melee, blast
 # telegraph bloom + detonation, and hopefully a brute's danger circle.
 var _cap_times: Array[float] = [
-	0.5, 0.63, 0.69, 0.75, 0.82, 0.9, 1.2, 1.6, 2.0, 2.3, 2.7, 3.1, 3.6, 4.1, 5.0,
+	0.5, 0.69, 0.82, 1.6, 2.6, 3.26, 3.33, 3.4, 3.48, 3.57, 3.68, 3.82, 4.1, 4.6, 5.1,
 ]
 var _cap_i: int = 0
 
@@ -48,6 +51,18 @@ func _ready() -> void:
 	print("[DEMO] harness started, out=", ProjectSettings.globalize_path(OUT_DIR))
 
 
+func _spawn_kill_target() -> void:
+	var heroes: Array = get_tree().get_nodes_in_group("hero")
+	if heroes.is_empty():
+		return
+	var hero: Node2D = heroes[0] as Node2D
+	var e: CharacterBody2D = ENEMY.instantiate() as CharacterBody2D
+	e.set("max_hp", 18)      # dies to the 40-dmg blast
+	e.set("move_speed", 40.0)  # slow, so it stays inside the blast radius
+	hero.get_parent().add_child(e)
+	e.global_position = hero.global_position + Vector2(52.0, -6.0)
+
+
 func _queue_release(at: float, act: String) -> void:
 	_rel_times.append(at)
 	_rel_acts.append(act)
@@ -65,6 +80,12 @@ func _process(delta: float) -> void:
 			var cam: Camera2D = cams[0] as Camera2D
 			if cam != null:
 				cam.zoom = Vector2(2.6, 2.6)
+
+	# Spawn a weak, slow enemy next to the hero just before the 2nd blast (t=3.5)
+	# so the blast one-shots it ON CAMERA — showcases the death burst + corpse.
+	if not _kill_spawned and _t >= 3.2:
+		_kill_spawned = true
+		_spawn_kill_target()
 
 	for i in _pulse_times.size():
 		if not _pulse_done[i] and _t >= _pulse_times[i]:
