@@ -2,6 +2,8 @@ extends Node2D
 ## Slice 0 combat sandbox. Keeps ~5 enemies alive so the fight never stops.
 
 const ENEMY_SCENE: PackedScene = preload("res://scenes/combat/Enemy.tscn")
+const WEAPON_PICKUP_SCENE: PackedScene = preload("res://scenes/combat/WeaponPickup.tscn")
+const WEAPON_PICKUP_POSITION: Vector2 = Vector2(560, 200)
 const TARGET_ENEMY_COUNT: int = 5
 const ARENA_MIN: Vector2 = Vector2(80, 80)
 const ARENA_MAX: Vector2 = Vector2(1120, 600)
@@ -19,6 +21,12 @@ func _ready() -> void:
 	var conversation: Node = get_node_or_null("/root/Conversation")
 	if conversation != null:
 		conversation.set_process_unhandled_input(false)
+
+	# Slice 1: one sword on the floor — walk over it to equip (feel toy).
+	var pickup: Area2D = WEAPON_PICKUP_SCENE.instantiate()
+	pickup.weapon_kind = "sword"
+	add_child(pickup)
+	pickup.global_position = WEAPON_PICKUP_POSITION
 
 
 func _process(delta: float) -> void:

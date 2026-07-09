@@ -13,6 +13,11 @@ const MELEE_DAMAGE: int = 14
 const MELEE_RANGE: float = 46.0
 const MELEE_ARC_DOT: float = 0.3
 const MELEE_KNOCKBACK: float = 220.0
+## Melee tuning per weapon kind; the MELEE_* consts are the "fists" baseline.
+const WEAPON_STATS: Dictionary = {
+	"fists": {"damage": MELEE_DAMAGE, "range": MELEE_RANGE, "knockback": MELEE_KNOCKBACK},
+	"sword": {"damage": 26, "range": 60.0, "knockback": 320.0},
+}
 const BLAST_COOLDOWN: float = 2.0
 const BLAST_FALLBACK_RANGE: float = 200.0
 const SPELL_SCENE: PackedScene = preload("res://scenes/combat/Spell.tscn")
@@ -29,6 +34,10 @@ var _cast_cooldown_timer: float = 0.0
 var _melee_cooldown_timer: float = 0.0
 var _melee_kick_next: bool = false
 var _blast_cooldown_timer: float = 0.0
+var _weapon: String = "fists"
+var _melee_damage: int = MELEE_DAMAGE
+var _melee_range: float = MELEE_RANGE
+var _melee_knockback: float = MELEE_KNOCKBACK
 
 @onready var rig: CharacterRig = $Rig
 
@@ -118,6 +127,19 @@ func _blast() -> void:
 	rig.play(CharacterRig.State.CAST)
 
 
+## Equip a weapon kind: swaps the rig's weapon overlay AND retunes the melee
+## attack ("gear = visual + ability"). Unknown kinds fall back to fists.
+func equip_weapon(kind: String) -> void:
+	if not WEAPON_STATS.has(kind):
+		kind = "fists"
+	_weapon = kind
+	var stats: Dictionary = WEAPON_STATS[kind]
+	_melee_damage = stats["damage"]
+	_melee_range = stats["range"]
+	_melee_knockback = stats["knockback"]
+	rig.set_equipment("weapon", kind)
+
+
 func _melee() -> void:
 	_melee_cooldown_timer = MELEE_COOLDOWN
 	if _melee_kick_next:
@@ -133,15 +155,15 @@ func _on_melee_hit_frame() -> void:
 	for enemy: Node in get_tree().get_nodes_in_group("enemy"):
 		if not enemy is Node2D:
 			continue
-		if global_position.distance_to(enemy.global_position) >= MELEE_RANGE:
+		if global_position.distance_to(enemy.global_position) >= _melee_range:
 			continue
 		var toward: Vector2 = (enemy.global_position - global_position).normalized()
 		if facing.dot(toward) <= MELEE_ARC_DOT:
 			continue
 		if enemy.has_method("take_damage"):
-			enemy.take_damage(MELEE_DAMAGE)
+			enemy.take_damage(_melee_damage)
 		if enemy.has_method("apply_knockback"):
-			enemy.apply_knockback(toward * MELEE_KNOCKBACK)
+			enemy.apply_knockback(toward * _melee_knockback)
 		hit_any = true
 	if hit_any:
 		Juice.hit_stop()
