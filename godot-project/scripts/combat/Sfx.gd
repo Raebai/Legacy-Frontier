@@ -9,6 +9,8 @@ const STREAMS: Dictionary = {
 	"spell_impact": preload("res://assets/audio/sfx/spell_impact.ogg"),
 	"enemy_death": preload("res://assets/audio/sfx/enemy_death.ogg"),
 	"hero_hurt": preload("res://assets/audio/sfx/hero_hurt.ogg"),
+	"melee_swing": preload("res://assets/audio/sfx/melee_swing.ogg"),
+	"melee_hit": preload("res://assets/audio/sfx/melee_hit.ogg"),
 }
 
 const POOL_SIZE: int = 8
