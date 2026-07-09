@@ -216,18 +216,26 @@ func _draw() -> void:
 	_draw_slash_arc(pose, col)
 
 
-## Concentric fading circles under the figure, gently pulsing.
+## Player-SHAPED aura: the figure silhouette drawn a few times in the aura
+## colour, scaled up + fading outward behind the main figure — a glowing halo
+## that follows the pose, not a ground circle.
 func _draw_aura() -> void:
 	if aura_strength <= 0.0:
 		return
 	var pulse: float = 1.0 - AURA_PULSE_AMOUNT * 0.5 \
 			+ AURA_PULSE_AMOUNT * 0.5 * sin(_phase * AURA_PULSE_SPEED)
-	var center: Vector2 = Vector2(0.0, height * 0.05)
+	var pose: Dictionary = _compute_pose()
+	var step: float = 0.13      # each halo layer is this much larger than the figure
+	var base_alpha: float = 0.3
+	# Outer (biggest, faintest) first so brighter inner layers sit on top.
 	for i: int in range(AURA_LAYERS):
-		var frac: float = 1.0 - float(i) / float(AURA_LAYERS)  # 1.0 -> outermost
-		var radius: float = height * (0.35 + 0.45 * frac) * pulse
-		var alpha: float = aura_strength * 0.05 * (float(i) + 1.0)
-		draw_circle(center, radius, Color(aura_color.r, aura_color.g, aura_color.b, alpha))
+		var layer: int = AURA_LAYERS - i          # AURA_LAYERS..1 (outer -> inner)
+		var s: float = (1.0 + step * float(layer)) * pulse
+		var a: float = aura_strength * base_alpha / float(layer)
+		var glow: Color = Color(aura_color.r, aura_color.g, aura_color.b, a)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2(s, s))
+		draw_figure(self, pose, glow, equipment, height)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)  # reset for the main figure
 
 
 ## Anticipation-then-thrust extension curve for PUNCH/KICK, over normalized
