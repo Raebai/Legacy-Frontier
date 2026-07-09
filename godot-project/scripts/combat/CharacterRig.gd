@@ -18,8 +18,21 @@ const ONE_SHOT_DURATIONS: Dictionary = {
 ## Fraction of a PUNCH/KICK duration at which hit_frame fires.
 const HIT_FRAME_FRACTION: float = 0.55
 
+## Dash afterimages: script loaded lazily to keep the dependency one-way
+## (RigGhost references CharacterRig for the shared figure draw).
+const GHOST_SCRIPT_PATH: String = "res://scripts/combat/RigGhost.gd"
+const MAX_GHOSTS: int = 24
+## Aura tuning: layer count + pulse speed/amount.
+const AURA_LAYERS: int = 3
+const AURA_PULSE_SPEED: float = 3.2
+const AURA_PULSE_AMOUNT: float = 0.15
+
 @export var limb_color: Color = Color(0.55, 0.75, 1.0, 1.0)
 @export var height: float = 22.0
+## Soft radial glow under the figure ("charged" hero read). Strength 0
+## disables it entirely — enemies stay bare sticks.
+@export var aura_color: Color = Color(0.4, 0.7, 1.0, 1.0)
+@export var aura_strength: float = 0.0
 
 var state: State = State.IDLE
 ## slot ("head"/"body"/"feet"/"weapon") -> kind id ("" clears).
@@ -121,8 +134,56 @@ func class_preset(preset_name: String) -> void:
 			set_equipment("weapon", "orb")
 
 
+## Enable/retint the under-figure aura glow. strength 0 turns it off.
+func set_aura(color: Color, strength: float = 1.0) -> void:
+	aura_color = color
+	aura_strength = strength
+	queue_redraw()
+
+
+## Spawn a static, fading afterimage of the current pose under `parent`
+## (dash trail). Pure visual: no animation, no collision; self-frees.
+func spawn_ghost(parent: Node, ghost_color: Color, wind_dir: Vector2 = Vector2.ZERO) -> void:
+	if parent == null or not is_inside_tree():
+		return
+	if get_tree().get_nodes_in_group("rig_ghost").size() >= MAX_GHOSTS:
+		return
+	var ghost_script: GDScript = load(GHOST_SCRIPT_PATH) as GDScript
+	var ghost: Node2D = ghost_script.new() as Node2D
+	ghost.set("pose", _compute_pose())
+	ghost.set("equipment_slots", equipment.duplicate())
+	ghost.set("fig_height", height)
+	ghost.set("base_color", ghost_color)
+	ghost.set("wind_dir", wind_dir)
+	parent.add_child(ghost)
+	ghost.global_transform = global_transform
+	ghost.z_index = -1
+
+
 func _draw() -> void:
 	var col: Color = Color.WHITE if _flash_timer > 0.0 else limb_color
+	_draw_aura()
+	draw_figure(self, _compute_pose(), col, equipment, height)
+
+
+## Concentric fading circles under the figure, gently pulsing.
+func _draw_aura() -> void:
+	if aura_strength <= 0.0:
+		return
+	var pulse: float = 1.0 - AURA_PULSE_AMOUNT * 0.5 \
+			+ AURA_PULSE_AMOUNT * 0.5 * sin(_phase * AURA_PULSE_SPEED)
+	var center: Vector2 = Vector2(0.0, height * 0.05)
+	for i: int in range(AURA_LAYERS):
+		var frac: float = 1.0 - float(i) / float(AURA_LAYERS)  # 1.0 -> outermost
+		var radius: float = height * (0.35 + 0.45 * frac) * pulse
+		var alpha: float = aura_strength * 0.05 * (float(i) + 1.0)
+		draw_circle(center, radius, Color(aura_color.r, aura_color.g, aura_color.b, alpha))
+
+
+## Compute the current pose skeleton in local space. Keys: head_center,
+## neck, hip, shoulder, hand_lead, hand_off, foot_lead, foot_off,
+## plus stroke metrics r (head radius) and w (line width).
+func _compute_pose() -> Dictionary:
 	var w: float = maxf(1.5, height * 0.09)
 	var r: float = height * 0.16
 	var arm_len: float = height * 0.32
@@ -188,65 +249,110 @@ func _draw() -> void:
 	var neck: Vector2 = head_center + Vector2(0, r)
 	var hip: Vector2 = Vector2(0, height * 0.1 + bob * 0.5)
 	var shoulder: Vector2 = neck.lerp(hip, 0.15)
-	var hand_lead: Vector2 = shoulder + Vector2.from_angle(arm_lead) * arm_lead_len
-	var hand_off: Vector2 = shoulder + Vector2.from_angle(arm_off) * arm_len
-	var foot_lead: Vector2 = hip + Vector2.from_angle(leg_lead) * leg_lead_len
-	var foot_off: Vector2 = hip + Vector2.from_angle(leg_off) * leg_len
+
+	return {
+		"head_center": head_center,
+		"neck": neck,
+		"hip": hip,
+		"shoulder": shoulder,
+		"hand_lead": shoulder + Vector2.from_angle(arm_lead) * arm_lead_len,
+		"hand_off": shoulder + Vector2.from_angle(arm_off) * arm_len,
+		"foot_lead": hip + Vector2.from_angle(leg_lead) * leg_lead_len,
+		"foot_off": hip + Vector2.from_angle(leg_off) * leg_len,
+		"r": r,
+		"w": w,
+	}
+
+
+## Draw a stick-figure pose onto any CanvasItem. Must be called from that
+## item's own _draw(). Shared by _draw() and RigGhost so dash afterimages
+## render the exact same silhouette. `col.a` scales the robe/gear alphas.
+static func draw_figure(
+	item: CanvasItem,
+	pose: Dictionary,
+	col: Color,
+	equipment_slots: Dictionary,
+	fig_height: float,
+) -> void:
+	var w: float = pose["w"]
+	var r: float = pose["r"]
+	var head_center: Vector2 = pose["head_center"]
+	var neck: Vector2 = pose["neck"]
+	var hip: Vector2 = pose["hip"]
+	var shoulder: Vector2 = pose["shoulder"]
+	var hand_lead: Vector2 = pose["hand_lead"]
+	var hand_off: Vector2 = pose["hand_off"]
+	var foot_lead: Vector2 = pose["foot_lead"]
+	var foot_off: Vector2 = pose["foot_off"]
 
 	# Body-slot robe draws under the limbs.
-	if equipment.get("body", "") == "robe":
+	if equipment_slots.get("body", "") == "robe":
 		var robe: PackedVector2Array = PackedVector2Array([
 			neck + Vector2(-r * 0.8, 0),
 			neck + Vector2(r * 0.8, 0),
-			hip + Vector2(r * 1.7, height * 0.22),
-			hip + Vector2(-r * 1.7, height * 0.22),
+			hip + Vector2(r * 1.7, fig_height * 0.22),
+			hip + Vector2(-r * 1.7, fig_height * 0.22),
 		])
-		draw_colored_polygon(robe, Color(col.r, col.g, col.b, 0.45))
+		item.draw_colored_polygon(robe, Color(col.r, col.g, col.b, col.a * 0.45))
 
 	# The stick figure: head + torso + 2 arms + 2 legs.
-	draw_circle(head_center, r, col)
-	draw_line(neck, hip, col, w)
-	draw_line(shoulder, hand_lead, col, w)
-	draw_line(shoulder, hand_off, col, w)
-	draw_line(hip, foot_lead, col, w)
-	draw_line(hip, foot_off, col, w)
+	item.draw_circle(head_center, r, col)
+	item.draw_line(neck, hip, col, w)
+	item.draw_line(shoulder, hand_lead, col, w)
+	item.draw_line(shoulder, hand_off, col, w)
+	item.draw_line(hip, foot_lead, col, w)
+	item.draw_line(hip, foot_off, col, w)
 
-	_draw_equipment(col, w, r, head_center, hand_lead, foot_lead, foot_off)
+	_draw_equipment(
+		item, equipment_slots, col, w, r, fig_height,
+		head_center, hand_lead, foot_lead, foot_off
+	)
 
 
-func _draw_equipment(
+static func _draw_equipment(
+	item: CanvasItem,
+	equipment_slots: Dictionary,
 	col: Color,
 	w: float,
 	r: float,
+	fig_height: float,
 	head_center: Vector2,
 	hand_lead: Vector2,
 	foot_lead: Vector2,
 	foot_off: Vector2,
 ) -> void:
 	var gear_col: Color = col.lightened(0.25)
-	match equipment.get("head", ""):
+	match equipment_slots.get("head", ""):
 		"hat":
 			var hat: PackedVector2Array = PackedVector2Array([
 				head_center + Vector2(-r * 1.1, -r * 0.6),
 				head_center + Vector2(r * 1.1, -r * 0.6),
 				head_center + Vector2(0, -r * 2.3),
 			])
-			draw_colored_polygon(hat, gear_col)
+			item.draw_colored_polygon(hat, gear_col)
 		"hood":
-			draw_arc(head_center, r * 1.35, PI, TAU, 12, gear_col, w)
-	match equipment.get("feet", ""):
+			item.draw_arc(head_center, r * 1.35, PI, TAU, 12, gear_col, w)
+	match equipment_slots.get("feet", ""):
 		"sandals":
-			draw_line(foot_lead + Vector2(-r * 0.5, 0), foot_lead + Vector2(r * 0.5, 0), gear_col, w)
-			draw_line(foot_off + Vector2(-r * 0.5, 0), foot_off + Vector2(r * 0.5, 0), gear_col, w)
-	match equipment.get("weapon", ""):
+			item.draw_line(
+				foot_lead + Vector2(-r * 0.5, 0), foot_lead + Vector2(r * 0.5, 0), gear_col, w
+			)
+			item.draw_line(
+				foot_off + Vector2(-r * 0.5, 0), foot_off + Vector2(r * 0.5, 0), gear_col, w
+			)
+	match equipment_slots.get("weapon", ""):
 		"sword":
-			draw_line(hand_lead, hand_lead + Vector2(height * 0.32, -height * 0.1), gear_col, w)
+			item.draw_line(
+				hand_lead, hand_lead + Vector2(fig_height * 0.32, -fig_height * 0.1), gear_col, w
+			)
 		"staff":
-			draw_line(
-				hand_lead + Vector2(-height * 0.08, height * 0.3),
-				hand_lead + Vector2(height * 0.1, -height * 0.55),
+			item.draw_line(
+				hand_lead + Vector2(-fig_height * 0.08, fig_height * 0.3),
+				hand_lead + Vector2(fig_height * 0.1, -fig_height * 0.55),
 				gear_col, w
 			)
-			draw_circle(hand_lead + Vector2(height * 0.1, -height * 0.55), w * 1.2, gear_col)
+			item.draw_circle(
+				hand_lead + Vector2(fig_height * 0.1, -fig_height * 0.55), w * 1.2, gear_col
+			)
 		"orb":
-			draw_circle(hand_lead + Vector2(height * 0.14, 0), r * 0.6, gear_col)
+			item.draw_circle(hand_lead + Vector2(fig_height * 0.14, 0), r * 0.6, gear_col)

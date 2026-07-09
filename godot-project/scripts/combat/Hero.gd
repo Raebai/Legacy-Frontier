@@ -20,6 +20,12 @@ const WEAPON_STATS: Dictionary = {
 }
 const BLAST_COOLDOWN: float = 2.0
 const BLAST_FALLBACK_RANGE: float = 200.0
+## Dash afterimage cadence/tint (~4-5 ghosts across the 0.14s dash).
+const GHOST_INTERVAL: float = 0.03
+const GHOST_COLOR: Color = Color(0.45, 0.7, 1.0, 0.5)
+## Persistent "charged mage" aura (enemies get none — hero reads as hero).
+const AURA_COLOR: Color = Color(0.4, 0.7, 1.0, 1.0)
+const AURA_STRENGTH: float = 0.6
 const SPELL_SCENE: PackedScene = preload("res://scenes/combat/Spell.tscn")
 const BLAST_SCENE: PackedScene = preload("res://scenes/combat/BlastSpell.tscn")
 
@@ -30,6 +36,7 @@ var is_dashing: bool = false
 var _dash_timer: float = 0.0
 var _dash_cooldown_timer: float = 0.0
 var _dash_dir: Vector2 = Vector2.RIGHT
+var _ghost_timer: float = 0.0
 var _cast_cooldown_timer: float = 0.0
 var _melee_cooldown_timer: float = 0.0
 var _melee_kick_next: bool = false
@@ -48,6 +55,7 @@ func _ready() -> void:
 	health_changed.emit(hp, max_hp)
 	rig.set_tint(Color(0.4, 0.7, 1, 1))
 	rig.class_preset("mage")
+	rig.set_aura(AURA_COLOR, AURA_STRENGTH)
 	rig.hit_frame.connect(_on_melee_hit_frame)
 
 
@@ -67,6 +75,10 @@ func _physics_process(delta: float) -> void:
 		_dash_timer -= delta
 		velocity = _dash_dir * DASH_SPEED
 		move_and_slide()
+		_ghost_timer -= delta
+		if _ghost_timer <= 0.0:
+			_ghost_timer = GHOST_INTERVAL
+			rig.spawn_ghost(get_parent(), GHOST_COLOR, _dash_dir)
 		if _dash_timer <= 0.0:
 			is_dashing = false
 		rig.play(CharacterRig.State.DASH)
@@ -97,6 +109,7 @@ func _start_dash() -> void:
 	_dash_timer = DASH_TIME
 	_dash_cooldown_timer = DASH_COOLDOWN
 	_dash_dir = facing
+	_ghost_timer = 0.0  # first afterimage lands this frame
 
 
 func _cast() -> void:
