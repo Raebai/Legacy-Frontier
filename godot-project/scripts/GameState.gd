@@ -245,7 +245,20 @@ static func synthesize_floor_def(floor: int) -> FloorDef:
 	theme.name = floor_theme(floor)
 	theme.wash_tint = floor_theme_tint(floor)
 	fd.theme = theme
+	fd.layout = default_layout()
 	return fd
+
+
+## The legacy arena geometry as a LayoutDef — the null-tower fallback room + the
+## F6 sandbox room. Authored towers supply their own LayoutDefs.
+static func default_layout() -> LayoutDef:
+	var l := LayoutDef.new()
+	l.crate_positions = [
+		Vector2(300, 180), Vector2(900, 180), Vector2(280, 520),
+		Vector2(920, 500), Vector2(600, 140), Vector2(770, 470),
+	]
+	l.weapon_pickups = [Vector2(560, 200)]
+	return l
 
 
 ## How many enemies a floor spawns in total (ramps with depth; guardian floor
