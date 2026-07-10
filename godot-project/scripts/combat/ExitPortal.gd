@@ -12,6 +12,10 @@ const RADIUS: float = 30.0
 ## entrance). Defaults = cyan floor-exit.
 var portal_label: String = "EXIT"
 var ring_color: Color = Color(0.5, 1.0, 1.0)
+## Which body group triggers the portal. The arena floor-exit wants the combat
+## "hero"; the hub tower-entrance wants the hub "player" (they are DIFFERENT
+## nodes in different groups — using the wrong one makes the portal never fire).
+var trigger_group: String = "hero"
 
 var _t: float = 0.0
 var _armed: bool = false   # ignore the entry-frame overlap; require a real walk-in
@@ -44,7 +48,7 @@ func _process(delta: float) -> void:
 
 
 func _on_body_entered(body: Node) -> void:
-	if _armed and body.is_in_group("hero"):
+	if _armed and body.is_in_group(trigger_group):
 		taken.emit()
 
 

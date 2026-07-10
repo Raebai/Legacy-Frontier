@@ -56,6 +56,7 @@ func _spawn_tower_entrance() -> void:
 	var portal: Area2D = RUN_PORTAL_SCRIPT.new()
 	portal.portal_label = "ENTER THE TOWER"
 	portal.ring_color = Color(1.0, 0.6, 0.3)  # warm — distinct from the cyan floor-exit
+	portal.trigger_group = "player"  # the hub body is "player", NOT the arena "hero"
 	add_child(portal)
 	portal.global_position = TOWER_ENTRANCE_POSITION
 	portal.taken.connect(func() -> void: gs.enter_run())
