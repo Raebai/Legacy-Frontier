@@ -70,6 +70,31 @@ const SPELL_SCENE: PackedScene = preload("res://scenes/combat/Spell.tscn")
 const BLAST_SCENE: PackedScene = preload("res://scenes/combat/BlastSpell.tscn")
 const NOVA_SCENE: PackedScene = preload("res://scenes/combat/EnergyNova.tscn")
 
+## Two playable classes. MAGE = ranged zoner (homing bolt + giant telegraphed
+## blast + panic nova). ROGUE = in-and-out assassin (fast light thrown blade,
+## dash that STRIKES through enemies, snappy blink, a whirlwind AoE, no nova).
+## Every rogue ability reuses a mage primitive; the mage config equals the old
+## consts so the mage is byte-identical to before this change.
+enum HeroClass { MAGE, ROGUE }
+const CLASS_CONFIG: Dictionary = {
+	HeroClass.MAGE: {
+		"preset": "mage", "weapon": "",
+		"cast_cd": CAST_COOLDOWN, "dash_cd": DASH_COOLDOWN, "blink_cd": BLINK_COOLDOWN,
+		"blast_cd": BLAST_COOLDOWN,
+		"throw_blade": false, "blade_damage": 18,
+		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
+		"aoe": "blast", "has_nova": true,
+	},
+	HeroClass.ROGUE: {
+		"preset": "rogue", "weapon": "sword",
+		"cast_cd": 0.26, "dash_cd": 0.40, "blink_cd": 1.0,
+		"blast_cd": 2.5,
+		"throw_blade": true, "blade_damage": 11,
+		"dash_strike": true, "dash_strike_damage": 16, "dash_strike_range": 42.0,
+		"aoe": "nova", "has_nova": false,
+	},
+}
+
 @export var max_hp: int = 100
 var hp: int = 100
 var facing: Vector2 = Vector2.RIGHT
@@ -91,6 +116,9 @@ var _melee_range: float = MELEE_RANGE
 var _melee_knockback: float = MELEE_KNOCKBACK
 var _buffered_action: String = ""
 var _buffer_timer: float = 0.0
+var _hero_class: int = HeroClass.MAGE
+var _cfg: Dictionary = CLASS_CONFIG[HeroClass.MAGE]
+var _dash_hit: Array = []  # enemies/props already struck this dash (rogue no-multi-hit)
 ## Active element (aura + ability colour). Cycled with `cycle_element` (X).
 var _element: int = Elements.Element.ARCANE
 var _element_color: Color = Color(1.0, 1.0, 1.0, 1.0)
@@ -104,7 +132,14 @@ func _ready() -> void:
 	hp = max_hp
 	health_changed.emit(hp, max_hp)
 	rig.set_tint(COLOURWAYS[_colourway])
-	rig.class_preset("mage")
+	# Class comes from GameState (hub selection) if present, else defaults MAGE.
+	var gs: Node = get_node_or_null("/root/GameState")
+	var start_class: int = HeroClass.MAGE
+	if gs != null:
+		var sc: Variant = gs.get("selected_class")
+		if sc != null:
+			start_class = int(sc)
+	configure_class(start_class)
 	_apply_element()
 	# Rank drives aura TIER (elaborateness); the element keeps driving COLOUR.
 	Rank.rank_changed.connect(_on_rank_changed)
@@ -121,11 +156,13 @@ func _physics_process(delta: float) -> void:
 	_blink_iframe_timer = maxf(_blink_iframe_timer - delta, 0.0)
 	_nova_cooldown_timer = maxf(_nova_cooldown_timer - delta, 0.0)
 	_update_input_buffer(delta)
-	# Cosmetic toggles: instant, un-buffered, legal even mid-dash.
+	# Cosmetic + class toggles: instant, un-buffered, legal even mid-dash.
 	if Input.is_action_just_pressed("cycle_element"):
 		_cycle_element()
 	if Input.is_action_just_pressed("cycle_colourway"):
 		_cycle_colourway()
+	if Input.is_action_just_pressed("switch_class"):
+		_cycle_class()
 	if Input.is_action_pressed("cast") and _cast_cooldown_timer <= 0.0 and not is_dashing:
 		_cast()
 
@@ -133,6 +170,8 @@ func _physics_process(delta: float) -> void:
 		_dash_timer -= delta
 		velocity = _dash_dir * DASH_SPEED
 		move_and_slide()
+		if _cfg["dash_strike"]:
+			_dash_strike_sweep()  # rogue: dash deals melee damage through enemies
 		_ghost_timer -= delta
 		if _ghost_timer <= 0.0:
 			_ghost_timer = GHOST_INTERVAL
@@ -237,12 +276,77 @@ func _cycle_colourway() -> void:
 	rig.set_tint(COLOURWAYS[_colourway])
 
 
+## Configure the hero for a class: rig preset + weapon + per-class ability
+## tuning (_cfg). Called at _ready and on the debug switch. Clears cooldowns +
+## buffer so a mid-fight swap can't double-fire.
+func configure_class(cls: int) -> void:
+	_hero_class = cls
+	_cfg = CLASS_CONFIG[cls]
+	rig.class_preset(_cfg["preset"])
+	if String(_cfg["weapon"]) != "":
+		equip_weapon(String(_cfg["weapon"]))  # rogue: sword overlay + melee retune
+	else:
+		# Mage: keep the preset's staff overlay; melee falls back to fists stats.
+		_weapon = "fists"
+		_melee_damage = MELEE_DAMAGE
+		_melee_range = MELEE_RANGE
+		_melee_knockback = MELEE_KNOCKBACK
+	_dash_cooldown_timer = 0.0
+	_cast_cooldown_timer = 0.0
+	_blink_cooldown_timer = 0.0
+	_blast_cooldown_timer = 0.0
+	_nova_cooldown_timer = 0.0
+	_clear_input_buffer()
+
+
+## Debug: cycle class live (Tab) and persist the choice to GameState so the hub
+## selection and the next run stay in sync.
+func _cycle_class() -> void:
+	configure_class((_hero_class + 1) % HeroClass.size())
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null:
+		gs.selected_class = _hero_class
+
+
+## Rogue dash-strike: every enemy/crate the dash passes within range takes melee
+## damage once per dash (dedupe via _dash_hit). Mirrors _on_melee_hit_frame.
+func _dash_strike_sweep() -> void:
+	var rng: float = _cfg["dash_strike_range"]
+	var dmg: int = _cfg["dash_strike_damage"]
+	var hit_any: bool = false
+	for enemy: Node in get_tree().get_nodes_in_group("enemy"):
+		if not enemy is Node2D or enemy in _dash_hit:
+			continue
+		if global_position.distance_to(enemy.global_position) >= rng:
+			continue
+		_dash_hit.append(enemy)
+		if enemy.has_method("take_damage"):
+			enemy.take_damage(dmg)
+		if enemy.has_method("apply_knockback"):
+			enemy.apply_knockback(_dash_dir * _melee_knockback)
+		hit_any = true
+	for prop: Node in get_tree().get_nodes_in_group("destructible"):
+		if not prop is Node2D or prop in _dash_hit:
+			continue
+		if global_position.distance_to(prop.global_position) >= rng:
+			continue
+		_dash_hit.append(prop)
+		if prop.has_method("take_damage"):
+			prop.take_damage(dmg)
+		hit_any = true
+	if hit_any:
+		Juice.hit_stop(0.05)
+		Juice.shake_camera(4.0)
+		Sfx.play("melee_hit")
+
+
 func _start_dash() -> void:
 	is_dashing = true
 	_dash_timer = DASH_TIME
-	_dash_cooldown_timer = DASH_COOLDOWN
+	_dash_cooldown_timer = _cfg["dash_cd"]
 	_dash_dir = facing
 	_ghost_timer = 0.0  # first afterimage lands this frame
+	_dash_hit.clear()
 
 
 ## Shadow blink: instant teleport up to BLINK_DISTANCE along facing, clamped
@@ -253,7 +357,7 @@ func _start_dash() -> void:
 func _blink() -> void:
 	if _blink_cooldown_timer > 0.0:
 		return
-	_blink_cooldown_timer = BLINK_COOLDOWN
+	_blink_cooldown_timer = _cfg["blink_cd"]
 	_blink_iframe_timer = BLINK_IFRAME
 	var origin: Vector2 = global_position
 	var dir: Vector2 = facing.normalized()
@@ -289,7 +393,7 @@ func _blink_destination(origin: Vector2, dir: Vector2) -> Vector2:
 
 
 func _cast() -> void:
-	_cast_cooldown_timer = CAST_COOLDOWN
+	_cast_cooldown_timer = _cfg["cast_cd"]
 	var enemies: Array = get_tree().get_nodes_in_group("enemy")
 	var dir: Vector2 = Targeting.aim_direction(global_position, enemies, facing)
 	var spell: Area2D = SPELL_SCENE.instantiate()
@@ -298,6 +402,8 @@ func _cast() -> void:
 	spell.launch(dir)
 	if spell.has_method("set_element_color"):
 		spell.call("set_element_color", _element_color)
+	if bool(_cfg["throw_blade"]):
+		spell.set("damage", int(_cfg["blade_damage"]))  # rogue: faster, lighter
 	rig.play(CharacterRig.State.CAST)
 	Sfx.play("cast", 0.0, 0.08)
 	Juice.shake_camera(2.0)
@@ -305,7 +411,12 @@ func _cast() -> void:
 
 
 func _blast() -> void:
-	_blast_cooldown_timer = BLAST_COOLDOWN
+	_blast_cooldown_timer = _cfg["blast_cd"]
+	# Rogue's Q is a self-centered whirlwind (reuses the nova); mage's Q is the
+	# targeted giant blast.
+	if String(_cfg["aoe"]) == "nova":
+		_spawn_nova()
+		return
 	var target: Node2D = Targeting.nearest(
 		global_position, get_tree().get_nodes_in_group("enemy")
 	)
@@ -320,11 +431,18 @@ func _blast() -> void:
 
 
 ## Energy nova: instant self-centered shockwave. No telegraph — the panic
-## button fires the moment the press lands (buffered like blast/blink).
+## button fires the moment the press lands (buffered like blast/blink). Mage
+## only; the rogue's whirlwind reuses _spawn_nova through _blast.
 func _nova() -> void:
+	if not bool(_cfg["has_nova"]):
+		return
 	if _nova_cooldown_timer > 0.0:
 		return
 	_nova_cooldown_timer = NOVA_COOLDOWN
+	_spawn_nova()
+
+
+func _spawn_nova() -> void:
 	var nova: Node2D = NOVA_SCENE.instantiate()
 	get_parent().add_child(nova)
 	nova.call("activate_at", global_position)
