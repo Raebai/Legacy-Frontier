@@ -301,6 +301,7 @@ func _cast() -> void:
 	rig.play(CharacterRig.State.CAST)
 	Sfx.play("cast", 0.0, 0.08)
 	Juice.shake_camera(2.0)
+	_notify_element_used()
 
 
 func _blast() -> void:
@@ -407,6 +408,20 @@ func take_damage(amount: int) -> void:
 
 
 func _die() -> void:
-	# Slice 0: just reset to full so the feel loop never stops.
+	# In a run: death ends the run and bounces to the hub (GameState handles the
+	# scene change + outcome record). In the standalone sandbox: just reset to
+	# full so the feel loop never stops.
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and gs.is_run_active():
+		gs.end_run(true)
+		return
 	hp = max_hp
 	health_changed.emit(hp, max_hp)
+
+
+## Record the element behind an actual thrown ability into the run outcome
+## (guarded — no-op in the sandbox).
+func _notify_element_used() -> void:
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and gs.is_run_active():
+		gs.notify_element_used(Elements.display_name(_element))

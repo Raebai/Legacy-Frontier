@@ -173,6 +173,7 @@ func _flash() -> void:
 func _die() -> void:
 	_abort_attack()  # never leave an orphaned danger circle behind a corpse
 	_grant_kill_power()
+	_notify_run_kill()
 	_spawn_death_burst()
 	_spawn_corpse()
 	Sfx.play("enemy_death")
@@ -187,6 +188,14 @@ func _grant_kill_power() -> void:
 	var r: Node = get_node_or_null("/root/Rank")
 	if r != null and r.has_method("add_power"):
 		r.call("add_power", 3)  # matches Rank.KILL_POWER
+
+
+## Count the kill toward the active run's outcome record (guarded — no-op in
+## the standalone sandbox where no run is active).
+func _notify_run_kill() -> void:
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and gs.is_run_active():
+		gs.notify_kill()
 
 
 ## Tint-colored particle pop, noticeably bigger than a spell impact.
