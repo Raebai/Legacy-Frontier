@@ -122,6 +122,13 @@ Good examples:
 "Raaed. Coldrose still on your mind?"
 "Back already. The road you spoke of — did it open up for you?"
 "You returned. The thing you would not speak of — is it any easier now?\""""
+	# If the player just returned from a tower run, make the opening reference
+	# it specifically (one-shot; the durable key_fact carries it thereafter).
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and gs.has_method("consume_callback_run_hint"):
+		var run_hint: String = gs.consume_callback_run_hint()
+		if run_hint != "":
+			_system_addendum += "\n\n" + run_hint
 	_send_to_ollama()
 
 

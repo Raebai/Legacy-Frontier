@@ -22,11 +22,43 @@ const SOURCE_ID: int = 0
 const GRASS_TILE: Vector2i = Vector2i(0, 0)
 const WALL_TILE: Vector2i = Vector2i(1, 0)
 
+## Tower entrance sits in the first room, south of the player start (384,256),
+## far enough that spawning back into the hub never auto-triggers a new run.
+const TOWER_ENTRANCE_POSITION: Vector2 = Vector2(230, 410)
+const RUN_PORTAL_SCRIPT: Script = preload("res://scripts/combat/ExitPortal.gd")
+
 @onready var tilemap: TileMapLayer = $TileMapLayer
 
 
 func _ready() -> void:
 	_paint_world()
+
+	# Returning from the combat arena, the shared Conversation autoload had its
+	# input disabled by Arena._ready — turn it back on so the hub chat works.
+	var conversation: Node = get_node_or_null("/root/Conversation")
+	if conversation != null:
+		conversation.set_process_unhandled_input(true)
+
+	# The moat: push the just-finished run into the hub NPCs' durable memory so
+	# Raebai/Mirelle can reference it. No-op on a cold boot (no run yet).
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and gs.has_method("apply_run_to_hub_npcs"):
+		gs.apply_run_to_hub_npcs(get_tree())
+
+	_spawn_tower_entrance()
+
+
+## Walk-in portal that starts a run (hub -> arena via GameState.enter_run).
+func _spawn_tower_entrance() -> void:
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs == null:
+		return
+	var portal: Area2D = RUN_PORTAL_SCRIPT.new()
+	portal.portal_label = "ENTER THE TOWER"
+	portal.ring_color = Color(1.0, 0.6, 0.3)  # warm — distinct from the cyan floor-exit
+	add_child(portal)
+	portal.global_position = TOWER_ENTRANCE_POSITION
+	portal.taken.connect(func() -> void: gs.enter_run())
 
 
 func _paint_world() -> void:
