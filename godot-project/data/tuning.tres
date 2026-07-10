@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="TuningConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/combat/TuningConfig.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+hero_speed = 210.0
+dash_speed = 620.0
+dash_time = 0.14
+hurt_hit_stop = 0.05
+hurt_shake = 7.0
+melee_hit_stop = 0.07

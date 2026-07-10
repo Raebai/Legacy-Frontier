@@ -125,10 +125,22 @@ var _element_color: Color = Color(1.0, 1.0, 1.0, 1.0)
 var _colourway: int = 0
 
 @onready var rig: CharacterRig = $Rig
+var _tuning: Node = null  # cached /root/Tuning (null in headless tests -> fallbacks)
+
+
+## Live-tunable feel value: reads res://data/tuning.tres via the Tuning autoload,
+## falling back to the const default if the autoload/field is absent or unset.
+func _tune(key: String, fallback: float) -> float:
+	if _tuning != null and _tuning.cfg != null:
+		var v: Variant = _tuning.cfg.get(key)
+		if v != null:
+			return float(v)
+	return fallback
 
 
 func _ready() -> void:
 	add_to_group("hero")
+	_tuning = get_node_or_null("/root/Tuning")
 	hp = max_hp
 	health_changed.emit(hp, max_hp)
 	rig.set_tint(COLOURWAYS[_colourway])
@@ -168,7 +180,7 @@ func _physics_process(delta: float) -> void:
 
 	if is_dashing:
 		_dash_timer -= delta
-		velocity = _dash_dir * DASH_SPEED
+		velocity = _dash_dir * _tune("dash_speed", DASH_SPEED)
 		move_and_slide()
 		if _cfg["dash_strike"]:
 			_dash_strike_sweep()  # rogue: dash deals melee damage through enemies
@@ -191,7 +203,7 @@ func _physics_process(delta: float) -> void:
 	if _try_fire_buffered():
 		return  # a dash started this frame — the dash branch owns movement now
 
-	velocity = direction * SPEED
+	velocity = direction * _tune("hero_speed", SPEED)
 	move_and_slide()
 	if direction != Vector2.ZERO:
 		rig.play(CharacterRig.State.RUN)
@@ -342,7 +354,7 @@ func _dash_strike_sweep() -> void:
 
 func _start_dash() -> void:
 	is_dashing = true
-	_dash_timer = DASH_TIME
+	_dash_timer = _tune("dash_time", DASH_TIME)
 	_dash_cooldown_timer = _cfg["dash_cd"]
 	_dash_dir = facing
 	_ghost_timer = 0.0  # first afterimage lands this frame
@@ -500,7 +512,7 @@ func _on_melee_hit_frame() -> void:
 			prop.take_damage(_melee_damage)
 		hit_any = true
 	if hit_any:
-		Juice.hit_stop(MELEE_HIT_STOP)  # weighted: heavier than a spell hit
+		Juice.hit_stop(_tune("melee_hit_stop", MELEE_HIT_STOP))  # weighted: heavier than a spell hit
 		Juice.shake_camera(4.0)
 		Juice.kick_camera(facing, MELEE_CAMERA_KICK)  # punch INTO the hit
 		Sfx.play("melee_hit")
@@ -518,8 +530,8 @@ func take_damage(amount: int) -> void:
 	health_changed.emit(hp, max_hp)
 	rig.play(CharacterRig.State.HURT)
 	rig.flash_color(HURT_FLASH_COLOR, HURT_FLASH_TIME)
-	Juice.hit_stop(HURT_HIT_STOP)
-	Juice.shake_camera(HURT_SHAKE)
+	Juice.hit_stop(_tune("hurt_hit_stop", HURT_HIT_STOP))
+	Juice.shake_camera(_tune("hurt_shake", HURT_SHAKE))
 	Sfx.play("hero_hurt")
 	if hp == 0:
 		_die()
