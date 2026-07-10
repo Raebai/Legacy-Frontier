@@ -11,11 +11,17 @@ signal fired
 const FADE_TIME: float = 0.15
 const RING_COLOR: Color = Color(1.0, 0.35, 0.2, 0.55)
 
+enum Shape { CIRCLE, LINE }
+
 var _radius: float = 0.0
 var _windup: float = 0.0
 var _elapsed: float = 0.0
 var _running: bool = false
 var _has_fired: bool = false
+var _shape: Shape = Shape.CIRCLE
+var _length: float = 0.0
+var _width: float = 0.0
+var _angle: float = 0.0
 
 
 func start(radius: float, windup: float) -> void:
@@ -25,6 +31,17 @@ func start(radius: float, windup: float) -> void:
 	_running = true
 	_has_fired = false
 	queue_redraw()
+
+
+## Line telegraph: a growing rectangle from the origin along `angle`, marking a
+## charge lane. Reuses ALL of start()'s timing / advance() / fired logic — only
+## _draw branches on the shape. _radius is set to width so the _draw guard passes.
+func start_line(length: float, width: float, angle: float, windup: float) -> void:
+	_shape = Shape.LINE
+	_length = length
+	_width = width
+	_angle = angle
+	start(maxf(width, 1.0), windup)
 
 
 func _process(delta: float) -> void:
@@ -47,6 +64,9 @@ func advance(delta: float) -> void:
 
 func _draw() -> void:
 	if _radius <= 0.0:
+		return
+	if _shape == Shape.LINE:
+		_draw_line_shape()
 		return
 	if _has_fired:
 		# Brief afterglow while the BlastSpell's detonation takes over.
@@ -75,3 +95,19 @@ func _draw() -> void:
 			Vector2.ZERO, inner_r, 0.0, TAU, 40,
 			Color(1.0, 0.5, 0.25, 0.25 + 0.65 * t), 2.0
 		)
+
+
+## Charge-lane rectangle: grows from a stub to full length over the windup,
+## reddening as it fills, then a brief afterglow post-fire.
+func _draw_line_shape() -> void:
+	draw_set_transform(Vector2.ZERO, _angle, Vector2.ONE)
+	if _has_fired:
+		var fade: float = clampf(1.0 - (_elapsed - _windup) / FADE_TIME, 0.0, 1.0)
+		draw_rect(Rect2(0.0, -_width * 0.5, _length, _width), Color(1.0, 0.45, 0.2, 0.4 * fade), true)
+	else:
+		var t: float = clampf(_elapsed / _windup, 0.0, 1.0)
+		var grow: float = _length * (0.3 + 0.7 * t)
+		var col := Color(1.0, lerpf(0.6, 0.25, t), lerpf(0.35, 0.12, t), 0.2 + 0.45 * t)
+		draw_rect(Rect2(0.0, -_width * 0.5, grow, _width), col, true)
+		draw_line(Vector2.ZERO, Vector2(grow, 0.0), Color(1.0, 0.5, 0.25, 0.4 + 0.4 * t), 2.0)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

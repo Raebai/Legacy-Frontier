@@ -178,23 +178,57 @@ func _show_floor_banner(floor: int) -> void:
 
 
 # ------------------------------------------------------------------- shared
-## Spawn one enemy. `brute_chance` picks archetype; `hp_mult` scales HP for
-## floor depth (1.0 in sandbox).
+## Spawn one enemy of a weighted-random archetype. `brute_chance` biases the
+## brute weight (deeper floors -> tankier mix); `hp_mult` scales HP for depth
+## (1.0 in sandbox). All four archetypes appear in both modes.
 func _spawn_enemy(brute_chance: float, hp_mult: float) -> void:
 	var e: CharacterBody2D = ENEMY_SCENE.instantiate()
-	if randf() >= brute_chance:
-		e.max_hp = int(round(24 * hp_mult))
-		e.move_speed = 140.0
-		e.touch_damage = 8
-		e.tint = Color(0.95, 0.5, 0.25, 1)  # orange chaser
-	else:
-		e.max_hp = int(round(70 * hp_mult))
-		e.move_speed = 62.0
-		e.touch_damage = 18
-		e.tint = Color(0.7, 0.25, 0.45, 1)  # magenta brute
-		e.uses_telegraphed_attack = true  # dodge-the-tell heavy strike
+	_apply_archetype(e, _roll_archetype(brute_chance), hp_mult)
 	add_child(e)
 	e.global_position = _pick_spawn_position()
+
+
+## Weighted archetype roll. Chaser is the backbone; brute weight rises with the
+## floor; caster + charger add dodge-the-tell variety.
+func _roll_archetype(brute_chance: float) -> int:
+	var w_chaser: float = 0.32
+	var w_brute: float = 0.18 + 0.30 * brute_chance
+	var w_caster: float = 0.22
+	var total: float = w_chaser + w_brute + w_caster + 0.28  # charger fills the rest
+	var r: float = randf() * total
+	if r < w_chaser:
+		return 0  # CHASER
+	if r < w_chaser + w_brute:
+		return 1  # BRUTE
+	if r < w_chaser + w_brute + w_caster:
+		return 2  # CASTER
+	return 3  # CHARGER
+
+
+func _apply_archetype(e: CharacterBody2D, kind: int, hp_mult: float) -> void:
+	e.archetype = kind
+	match kind:
+		1:  # BRUTE — slow, tanky, telegraphed heavy strike
+			e.max_hp = int(round(70 * hp_mult))
+			e.move_speed = 62.0
+			e.touch_damage = 18
+			e.tint = Color(0.7, 0.25, 0.45, 1)  # magenta
+			e.uses_telegraphed_attack = true
+		2:  # CASTER — kites and lobs a dodgeable bolt
+			e.max_hp = int(round(30 * hp_mult))
+			e.move_speed = 80.0
+			e.touch_damage = 6
+			e.tint = Color(0.55, 0.45, 0.95, 1)  # indigo
+		3:  # CHARGER — telegraphs a lane then rockets down it
+			e.max_hp = int(round(45 * hp_mult))
+			e.move_speed = 55.0
+			e.touch_damage = 10
+			e.tint = Color(0.9, 0.6, 0.2, 1)  # amber
+		_:  # CHASER — fast, weak
+			e.max_hp = int(round(24 * hp_mult))
+			e.move_speed = 140.0
+			e.touch_damage = 8
+			e.tint = Color(0.95, 0.5, 0.25, 1)  # orange
 
 
 func _pick_spawn_position() -> Vector2:

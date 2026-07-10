@@ -8,6 +8,10 @@ extends CharacterBody2D
 @export var touch_damage: int = 12
 @export var tint: Color = Color(0.9, 0.35, 0.3, 1)
 @export var uses_telegraphed_attack: bool = false
+## 0=CHASER (fast/weak), 1=BRUTE (telegraphed heavy strike, uses the flag above),
+## 2=CASTER (kites + telegraphs a bolt to dodge), 3=CHARGER (telegraphs a lane
+## then rockets down it). See Archetype enum below.
+@export var archetype: int = 0
 
 const KNOCKBACK_DECAY: float = 900.0  # px/s the knockback impulse bleeds off
 
@@ -27,7 +31,26 @@ const ATTACK_COOLDOWN: float = 1.4  # seconds from strike until the next windup
 const ATTACK_LUNGE: float = 180.0  # impulse toward the circle on a landed hit
 const ATTACK_RECOVER_TIME: float = 0.3  # post-strike pause before re-chasing
 
-enum AttackState { CHASE, WINDUP, RECOVER }
+# Ranged CASTER archetype: kites in a band, telegraphs, fires a dodgeable bolt.
+const CASTER_RANGE_MIN: float = 180.0  # back away if the hero is closer than this
+const CASTER_RANGE_MAX: float = 320.0  # close in if farther than this; fire in-band
+const CASTER_WINDUP: float = 0.7
+const CASTER_COOLDOWN: float = 1.9
+const CASTER_TELE_RADIUS: float = 18.0  # small "charging" tell on the caster itself
+
+# CHARGER archetype: telegraphs a lane at the hero, then rockets down it.
+const CHARGE_RANGE: float = 260.0  # start the windup inside this distance
+const CHARGE_WINDUP: float = 0.7
+const CHARGE_SPEED: float = 520.0
+const CHARGE_TIME: float = 0.35  # seconds the charge lasts
+const CHARGE_DAMAGE: int = 24
+const CHARGE_LEN: float = 300.0  # telegraph lane length
+const CHARGE_WIDTH: float = 34.0
+const CHARGE_HIT_RADIUS: float = 26.0
+const CHARGE_COOLDOWN: float = 1.6
+
+enum AttackState { CHASE, WINDUP, RECOVER, CHARGING }
+enum Archetype { CHASER, BRUTE, CASTER, CHARGER }
 
 var hp: int = 40
 var _hero: Node2D = null
@@ -38,6 +61,10 @@ var _attack_cooldown: float = 0.0
 var _recover_timer: float = 0.0
 var _strike_center: Vector2 = Vector2.ZERO
 var _telegraph: Telegraph = null
+var _aim_dir: Vector2 = Vector2.RIGHT       # caster: shot direction, snapshot at windup
+var _charge_dir: Vector2 = Vector2.RIGHT    # charger: locked lane direction
+var _charge_timer: float = 0.0
+var _charge_hit: bool = false
 
 @onready var rig: CharacterRig = $Rig
 
@@ -78,6 +105,16 @@ func _physics_process(delta: float) -> void:
 		AttackState.RECOVER:
 			_process_recover(delta)
 			return
+		AttackState.CHARGING:
+			_process_charging(delta)
+			return
+	# Archetype-specific CHASE behaviour (chaser + brute fall through to default).
+	if archetype == Archetype.CASTER:
+		_caster_chase()
+		return
+	if archetype == Archetype.CHARGER:
+		_charger_chase()
+		return
 	var dir: Vector2 = (_hero.global_position - global_position).normalized()
 	velocity = dir * move_speed + _knockback
 	move_and_slide()
@@ -128,7 +165,106 @@ func _start_windup() -> void:
 
 func _on_telegraph_fired() -> void:
 	_telegraph = null  # the Telegraph fades and frees itself after firing
-	_resolve_strike(_strike_center)
+	match archetype:
+		Archetype.CASTER:
+			_fire_projectile()
+		Archetype.CHARGER:
+			_begin_charge()
+		_:
+			_resolve_strike(_strike_center)  # brute
+
+
+# ------------------------------------------------------------- CASTER (ranged)
+## Kite in the [MIN,MAX] band; fire when in-band and off cooldown.
+func _caster_chase() -> void:
+	var to_hero: Vector2 = _hero.global_position - global_position
+	var dist: float = to_hero.length()
+	var move_dir: Vector2 = Vector2.ZERO
+	if dist < CASTER_RANGE_MIN:
+		move_dir = -to_hero.normalized()          # too close — back away
+	elif dist > CASTER_RANGE_MAX:
+		move_dir = to_hero.normalized()           # too far — close in
+	velocity = move_dir * move_speed + _knockback
+	move_and_slide()
+	rig.play(CharacterRig.State.RUN if move_dir != Vector2.ZERO else CharacterRig.State.IDLE)
+	rig.set_facing(to_hero)
+	if _attack_cooldown <= 0.0 and dist >= CASTER_RANGE_MIN and dist <= CASTER_RANGE_MAX:
+		_start_caster_windup()
+
+
+## Root + a small charging tell on the caster; the shot direction is snapshot
+## NOW, so a moving hero can dodge by the time it fires.
+func _start_caster_windup() -> void:
+	_attack_state = AttackState.WINDUP
+	_aim_dir = (_hero.global_position - global_position).normalized()
+	if _aim_dir == Vector2.ZERO:
+		_aim_dir = Vector2.RIGHT
+	rig.flash()
+	_telegraph = Telegraph.new()
+	get_parent().add_child(_telegraph)
+	_telegraph.global_position = global_position   # tell is ON the caster
+	_telegraph.fired.connect(_on_telegraph_fired)
+	_telegraph.start(CASTER_TELE_RADIUS, CASTER_WINDUP)
+
+
+func _fire_projectile() -> void:
+	var proj := EnemyProjectile.new()
+	get_parent().add_child(proj)
+	proj.global_position = global_position
+	proj.launch(_aim_dir)
+	_attack_state = AttackState.RECOVER
+	_recover_timer = ATTACK_RECOVER_TIME
+	_attack_cooldown = CASTER_COOLDOWN
+
+
+# --------------------------------------------------------------- CHARGER (lane)
+## Chase toward the hero; lock a lane and telegraph it once in range.
+func _charger_chase() -> void:
+	var to_hero: Vector2 = _hero.global_position - global_position
+	var dist: float = to_hero.length()
+	velocity = to_hero.normalized() * move_speed + _knockback
+	move_and_slide()
+	rig.play(CharacterRig.State.RUN)
+	rig.set_facing(to_hero)
+	if _attack_cooldown <= 0.0 and dist <= CHARGE_RANGE:
+		_start_charger_windup()
+
+
+func _start_charger_windup() -> void:
+	_attack_state = AttackState.WINDUP
+	_charge_dir = (_hero.global_position - global_position).normalized()
+	if _charge_dir == Vector2.ZERO:
+		_charge_dir = Vector2.RIGHT
+	rig.flash()
+	_telegraph = Telegraph.new()
+	get_parent().add_child(_telegraph)
+	_telegraph.global_position = global_position
+	_telegraph.fired.connect(_on_telegraph_fired)
+	_telegraph.start_line(CHARGE_LEN, CHARGE_WIDTH, _charge_dir.angle(), CHARGE_WINDUP)
+
+
+func _begin_charge() -> void:
+	_attack_state = AttackState.CHARGING
+	_charge_timer = CHARGE_TIME
+	_charge_hit = false
+
+
+## Rocket down the locked lane; hit the hero once; end on timeout or a wall.
+func _process_charging(delta: float) -> void:
+	velocity = _charge_dir * CHARGE_SPEED
+	move_and_slide()
+	_charge_timer -= delta
+	if not _charge_hit and is_instance_valid(_hero) \
+			and _hero.has_method("take_damage") \
+			and global_position.distance_to(_hero.global_position) <= CHARGE_HIT_RADIUS:
+		_hero.take_damage(CHARGE_DAMAGE)
+		_charge_hit = true
+		Juice.shake_camera(5.0)
+		Sfx.play("melee_hit")
+	if _charge_timer <= 0.0 or get_slide_collision_count() > 0:
+		_attack_state = AttackState.RECOVER
+		_recover_timer = ATTACK_RECOVER_TIME
+		_attack_cooldown = CHARGE_COOLDOWN
 
 
 ## Strike resolution, split out so headless tests can drive it directly:
