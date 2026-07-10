@@ -52,7 +52,12 @@ var _elements_used: Dictionary = {}      # used as a String set
 
 
 # ---------------------------------------------------------------- transitions
+const TOWER_PATH: String = "res://data/towers/ashspire.tres"
+
+
 func enter_run() -> void:
+	if active_tower == null:
+		active_tower = _load_or_build_tower()
 	_floor = 1
 	_kills = 0
 	_boss_killed = false
@@ -63,12 +68,29 @@ func enter_run() -> void:
 	_change_scene(ARENA_SCENE)
 
 
+## Prefer a maker-authored tower .tres if one exists; otherwise build the default
+## Ashspire in code. Same data shapes either way.
+func _load_or_build_tower() -> TowerDef:
+	if ResourceLoader.exists(TOWER_PATH):
+		var t: Resource = load(TOWER_PATH)
+		if t is TowerDef:
+			return t
+	return build_default_tower()
+
+
+## Total floors in the active tower (or the legacy const when none is set).
+func total_floors() -> int:
+	if active_tower != null:
+		return active_tower.floors.size()
+	return TOTAL_FLOORS
+
+
 ## Called by the arena when a floor is cleared and the player takes the exit.
 ## Advances the floor counter, or ends the run in victory past the last floor.
 func advance_floor() -> void:
 	if not _run_active:
 		return
-	if _floor >= TOTAL_FLOORS:
+	if _floor >= total_floors():
 		_boss_killed = true          # cleared the guardian floor
 		end_run(false)
 		return
@@ -258,6 +280,62 @@ static func default_layout() -> LayoutDef:
 		Vector2(920, 500), Vector2(600, 140), Vector2(770, 470),
 	]
 	l.weapon_pickups = [Vector2(560, 200)]
+	return l
+
+
+# ======================================================================
+# The Ashspire — the default tower, built in code (a maker-authored
+# data/towers/ashspire.tres wins if present). Five TYPED floors so each plays
+# and reads differently: combat -> combat -> elite -> combat -> boss.
+# ======================================================================
+static func build_default_tower() -> TowerDef:
+	var t := TowerDef.new()
+	t.id = "ashspire"
+	t.display_name = "The Ashspire"
+	t.theme = _theme("surface", Color(0.20, 0.28, 0.22))
+	t.floors = [
+		# type, budget, cap, brute%, hp×, theme, layout
+		_make_floor(FloorDef.FloorType.COMBAT, 5, 3, 0.30, 1.0, _theme("surface", Color(0.20, 0.28, 0.22)), default_layout()),
+		_make_floor(FloorDef.FloorType.COMBAT, 6, 4, 0.35, 1.1, _theme("surface", Color(0.20, 0.28, 0.22)), default_layout()),
+		_make_floor(FloorDef.FloorType.ELITE, 4, 3, 0.55, 1.3, _theme("underground", Color(0.16, 0.13, 0.20)), _elite_layout()),
+		_make_floor(FloorDef.FloorType.COMBAT, 8, 4, 0.45, 1.3, _theme("underground", Color(0.16, 0.13, 0.20)), default_layout()),
+		_make_floor(FloorDef.FloorType.BOSS, 6, 4, 0.70, 1.6, _theme("sky", Color(0.22, 0.26, 0.40)), _boss_layout()),
+	]
+	return t
+
+
+static func _theme(name: String, tint: Color) -> EnvTheme:
+	var e := EnvTheme.new()
+	e.name = name
+	e.wash_tint = tint
+	return e
+
+
+static func _make_floor(type: int, budget: int, cap: int, brute: float, hp: float, theme: EnvTheme, layout: LayoutDef) -> FloorDef:
+	var f := FloorDef.new()
+	f.floor_type = type
+	f.enemy_budget = budget
+	f.concurrent_cap = cap
+	f.brute_chance = brute
+	f.hp_multiplier = hp
+	f.theme = theme
+	f.layout = layout
+	return f
+
+
+## Elite: a more open room (fewer crates) so the tankier fight has space.
+static func _elite_layout() -> LayoutDef:
+	var l := LayoutDef.new()
+	l.crate_positions = [Vector2(300, 180), Vector2(920, 500)]
+	l.weapon_pickups = [Vector2(560, 200)]
+	return l
+
+
+## Boss: a clean arena — no crates, no pickup clutter.
+static func _boss_layout() -> LayoutDef:
+	var l := LayoutDef.new()
+	l.crate_positions = []
+	l.weapon_pickups = []
 	return l
 
 

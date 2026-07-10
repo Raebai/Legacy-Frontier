@@ -23,6 +23,7 @@ func _process(_delta: float) -> bool:
 	failed += _test_ingest_run_fact(GS)
 	failed += _test_floor_math(GS)
 	failed += _test_floor_def_synthesis(GS)
+	failed += _test_tower_authoring(GS)
 	if failed > 0:
 		printerr("Slice2 runloop tests: %d FAILED" % failed)
 		quit(1)
@@ -154,6 +155,28 @@ func _test_floor_def_synthesis(GS: GDScript) -> int:
 		"floor 1 hp_multiplier is 1.0")
 	failed += _expect(float(GS.synthesize_floor_def(5).hp_multiplier) > 1.0,
 		"deeper floor hp_multiplier ramps")
+	return failed
+
+
+## The default Ashspire tower is a 5-floor typed spine ending in a BOSS.
+func _test_tower_authoring(GS: GDScript) -> int:
+	var failed: int = 0
+	var t: Resource = GS.build_default_tower()
+	failed += _expect(t.floors.size() == 5, "Ashspire has 5 floors")
+	# FloorType: COMBAT=0, ELITE=1, BOSS=2.
+	failed += _expect(int(t.floors[0].floor_type) == 0, "floor 1 is COMBAT")
+	failed += _expect(int(t.floors[2].floor_type) == 1, "floor 3 is ELITE")
+	failed += _expect(int(t.floors[4].floor_type) == 2, "floor 5 is BOSS")
+	failed += _expect(int(t.floors[0].enemy_budget) == 5, "floor 1 budget 5")
+	failed += _expect(int(t.floors[4].enemy_budget) == 6, "boss floor budget 6")
+	for i in range(t.floors.size()):
+		failed += _expect(t.floors[i].theme != null, "floor %d has a theme" % (i + 1))
+		failed += _expect(t.floors[i].layout != null, "floor %d has a layout" % (i + 1))
+	# Boss arena is clean (no crates); floor 1 has the full crate set.
+	failed += _expect((t.floors[4].layout.crate_positions as Array).size() == 0, "boss floor has no crates")
+	failed += _expect((t.floors[0].layout.crate_positions as Array).size() == 6, "floor 1 has 6 crates")
+	# Deeper floors lean brutier.
+	failed += _expect(float(t.floors[4].brute_chance) > float(t.floors[0].brute_chance), "brute mix ramps with depth")
 	return failed
 
 
