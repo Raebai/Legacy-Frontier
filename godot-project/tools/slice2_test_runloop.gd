@@ -22,6 +22,7 @@ func _process(_delta: float) -> bool:
 	failed += _test_merge_run_fact(GS)
 	failed += _test_ingest_run_fact(GS)
 	failed += _test_floor_math(GS)
+	failed += _test_floor_def_synthesis(GS)
 	if failed > 0:
 		printerr("Slice2 runloop tests: %d FAILED" % failed)
 		quit(1)
@@ -129,6 +130,30 @@ func _test_floor_math(GS: GDScript) -> int:
 	failed += _expect(String(GS.floor_theme(1)) == "surface", "floor 1 is surface")
 	failed += _expect(String(GS.floor_theme(3)) == "underground", "floor 3 is underground")
 	failed += _expect(String(GS.floor_theme(5)) == "sky", "floor 5 is sky")
+	return failed
+
+
+## Synthesized FloorDef (null-tower fallback) must match the depth math exactly,
+## so routing Arena through FloorDef is a byte-identical behaviour change.
+func _test_floor_def_synthesis(GS: GDScript) -> int:
+	var failed: int = 0
+	for floor in [1, 3, 5]:
+		var fd: Resource = GS.synthesize_floor_def(floor)
+		failed += _expect(int(fd.enemy_budget) == int(GS.floor_enemy_budget(floor)),
+			"floor %d budget matches math" % floor)
+		failed += _expect(int(fd.concurrent_cap) == int(GS.floor_concurrent_cap(floor)),
+			"floor %d cap matches math" % floor)
+		failed += _expect(is_equal_approx(float(fd.brute_chance), float(GS.floor_brute_chance(floor))),
+			"floor %d brute_chance matches math" % floor)
+		failed += _expect(String(fd.theme.name) == String(GS.floor_theme(floor)),
+			"floor %d theme name matches math" % floor)
+		failed += _expect(fd.theme.wash_tint == GS.floor_theme_tint(floor),
+			"floor %d theme tint matches math" % floor)
+	# hp_multiplier: 1.0 at floor 1, ramps with depth.
+	failed += _expect(is_equal_approx(float(GS.synthesize_floor_def(1).hp_multiplier), 1.0),
+		"floor 1 hp_multiplier is 1.0")
+	failed += _expect(float(GS.synthesize_floor_def(5).hp_multiplier) > 1.0,
+		"deeper floor hp_multiplier ramps")
 	return failed
 
 

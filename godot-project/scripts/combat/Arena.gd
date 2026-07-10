@@ -32,6 +32,7 @@ var _floor_budget: int = 0     # total enemies this floor
 var _floor_spawned: int = 0    # spawned so far this floor
 var _floor_cleared: bool = false
 var _brute_chance: float = 0.5
+var _current_floor_def: FloorDef = null
 var _theme_rect: ColorRect = null
 var _portal: ExitPortal = null
 var _floor_banner: Label = null
@@ -84,13 +85,16 @@ func _process_sandbox(delta: float) -> void:
 
 # ---------------------------------------------------------------------- RUN
 func _setup_floor(floor: int) -> void:
-	_floor_budget = GameState.floor_enemy_budget(floor)
+	# The floor is now DATA: the authored FloorDef if a tower is active, else one
+	# synthesized from the depth math. Arena consumes the FloorDef, not the math.
+	_current_floor_def = _gs.floor_def_for(floor)
+	_floor_budget = _current_floor_def.enemy_budget
 	_floor_spawned = 0
 	_floor_cleared = false
-	_brute_chance = GameState.floor_brute_chance(floor)
+	_brute_chance = _current_floor_def.brute_chance
 	_spawn_timer = 0.0
 	_clear_portal()
-	_apply_theme(GameState.floor_theme_tint(floor))
+	_apply_theme(_current_floor_def.theme.wash_tint)
 	_show_floor_banner(floor)
 
 
@@ -100,12 +104,10 @@ func _process_run(delta: float) -> void:
 	var alive: int = get_tree().get_nodes_in_group("enemy").size()
 	if _floor_spawned < _floor_budget:
 		_spawn_timer -= delta
-		var cap: int = GameState.floor_concurrent_cap(_gs.current_floor())
+		var cap: int = _current_floor_def.concurrent_cap
 		if _spawn_timer <= 0.0 and alive < cap:
 			_spawn_timer = 0.55
-			# Deeper floors: tankier enemies, more brutes.
-			var hp_mult: float = 1.0 + 0.15 * float(_gs.current_floor() - 1)
-			_spawn_enemy(_brute_chance, hp_mult)
+			_spawn_enemy(_brute_chance, _current_floor_def.hp_multiplier)
 			_floor_spawned += 1
 	elif alive == 0:
 		_on_floor_cleared()
@@ -173,7 +175,7 @@ func _build_floor_banner() -> void:
 func _show_floor_banner(floor: int) -> void:
 	if _floor_banner == null:
 		return
-	var theme_name: String = GameState.floor_theme(floor)
+	var theme_name: String = _current_floor_def.theme.name
 	_floor_banner.text = "Floor %d / %d  ·  %s" % [floor, GameState.TOTAL_FLOORS, theme_name]
 
 

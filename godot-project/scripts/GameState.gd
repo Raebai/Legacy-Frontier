@@ -34,6 +34,10 @@ const KEY_FACTS_CAP: int = 5
 ## the hub or the debug switch. 0 == MAGE, 1 == ROGUE (see Hero.HeroClass).
 var selected_class: int = 0
 
+## The tower being climbed. null = no authored tower -> floors are synthesized
+## from the depth math (keeps the F6 sandbox + the pre-tower path working).
+var active_tower: TowerDef = null
+
 var mode: int = Mode.HUB
 var last_run: Dictionary = {}            # {} until the first run ends
 var _pending_ingest: bool = false        # a finished run awaits hub-NPC ingest
@@ -218,6 +222,30 @@ static func ingest_run_fact(npc: Object, fact: String) -> void:
 	rel["key_facts"] = merge_run_fact(rel.get("key_facts", []), fact, KEY_FACTS_CAP)
 	if npc.has_method("save_memory"):
 		npc.save_memory()
+
+
+## The FloorDef for a given floor: the authored one if a tower is active, else a
+## FloorDef synthesized from the depth math (identical to pre-tower behaviour).
+func floor_def_for(floor: int) -> FloorDef:
+	if active_tower != null and floor >= 1 and floor <= active_tower.floors.size():
+		return active_tower.floors[floor - 1]
+	return synthesize_floor_def(floor)
+
+
+## Build a FloorDef purely from the depth math — the null-tower fallback. Pure +
+## static so it is headless-testable and matches the old f(floor) values exactly.
+static func synthesize_floor_def(floor: int) -> FloorDef:
+	var fd := FloorDef.new()
+	fd.floor_type = FloorDef.FloorType.COMBAT
+	fd.enemy_budget = floor_enemy_budget(floor)
+	fd.concurrent_cap = floor_concurrent_cap(floor)
+	fd.brute_chance = floor_brute_chance(floor)
+	fd.hp_multiplier = 1.0 + 0.15 * float(maxi(floor - 1, 0))
+	var theme := EnvTheme.new()
+	theme.name = floor_theme(floor)
+	theme.wash_tint = floor_theme_tint(floor)
+	fd.theme = theme
+	return fd
 
 
 ## How many enemies a floor spawns in total (ramps with depth; guardian floor
