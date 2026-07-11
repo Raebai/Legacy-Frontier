@@ -22,6 +22,9 @@ const WEAPON_STATS: Dictionary = {
 }
 const BLAST_COOLDOWN: float = 2.0
 const BLAST_FALLBACK_RANGE: float = 200.0
+## Meteor is player-placed at the cursor, clamped to this reach (skill-shot, not
+## a cross-stage snipe).
+const BLAST_MAX_RANGE: float = 480.0
 ## Blink teleport: instant reposition along facing with a shadow-poof at both
 ## the origin and the destination (the "yin-yang shadow step").
 const BLINK_DISTANCE: float = 175.0
@@ -37,7 +40,8 @@ const BLINK_ARRIVAL_FLASH_TIME: float = 0.1
 ## Back off this many px from a wall hit so we never re-embed in the collider.
 const BLINK_WALL_MARGIN: float = 2.0
 ## Energy nova: self-centered instant shockwave — the "get off me" button.
-const NOVA_COOLDOWN: float = 3.0
+## Bumped 3->5s: at 3s it was spammable enough to be oppressive.
+const NOVA_COOLDOWN: float = 5.0
 ## Perfect-timing parry (rogue only): a short ACTIVE window that REVERSES an
 ## incoming enemy bolt back at the enemy side. Miss the window and you eat it.
 const PARRY_WINDOW: float = 0.16
@@ -99,7 +103,7 @@ const CLASS_CONFIG: Dictionary = {
 		"blast_cd": BLAST_COOLDOWN,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
-		"aoe": "blast", "has_nova": true, "can_parry": false,
+		"aoe": "blast", "has_nova": true, "can_parry": true,
 	},
 	HeroClass.ROGUE: {
 		"preset": "rogue", "weapon": "sword",
@@ -489,25 +493,12 @@ func _blast() -> void:
 	if String(_cfg["aoe"]) == "nova":
 		_spawn_nova()
 		return
-	# Directional: throw the giant blast toward the cursor. If an enemy sits
-	# roughly under the reticle (within the aim cone + range), land it on them;
-	# otherwise detonate at arm's length along the aim.
-	var enemies: Array = get_tree().get_nodes_in_group("enemy")
-	var aim: Vector2 = Targeting.assisted_aim(global_position, _aim_dir, enemies)
-	var target_pos: Vector2 = global_position + aim * BLAST_FALLBACK_RANGE
-	var best_d: float = INF
-	for e in enemies:
-		if not is_instance_valid(e):
-			continue
-		var to_e: Vector2 = e.global_position - global_position
-		var dist: float = to_e.length()
-		if dist <= 0.0 or dist > BLAST_FALLBACK_RANGE * 1.6:
-			continue
-		if aim.dot(to_e / dist) < 0.9:
-			continue
-		if dist < best_d:
-			best_d = dist
-			target_pos = e.global_position
+	# You PLACE the meteor: it lands where the cursor points, clamped to a max
+	# cast range so it stays a skill-shot, not a whole-stage snipe.
+	var to_target: Vector2 = get_global_mouse_position() - global_position
+	if to_target.length() > BLAST_MAX_RANGE:
+		to_target = to_target.normalized() * BLAST_MAX_RANGE
+	var target_pos: Vector2 = global_position + to_target
 	var blast: Node2D = BLAST_SCENE.instantiate()
 	get_parent().add_child(blast)
 	blast.detonate_at(target_pos)

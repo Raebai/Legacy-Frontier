@@ -33,8 +33,11 @@ const P1_SPAWN: Vector2 = STAGE_SIZE * 0.5
 const BOT_SPAWN_POINTS: Array[Vector2] = [
 	Vector2(260, 210), Vector2(640, 390), Vector2(640, 210), Vector2(260, 390),
 ]
-## Bot archetype rotation: CHASER / CASTER / CHARGER (see Enemy.Archetype).
-const BOT_ARCHETYPES: Array[int] = [0, 2, 3]
+## Bot archetype rotation: CASTER / SUMMONER / CHARGER — spell-slinging opponents
+## (casters + summoners give you bolts to parry). See Enemy.Archetype.
+const BOT_ARCHETYPES: Array[int] = [2, 4, 3]
+## Versus bots are tankier than the tower's trash mobs so fights last.
+const BOT_HP: int = 110
 ## Destructible cover blocks, spread across the platform (64px default size).
 const COVER_POINTS: Array[Vector2] = [
 	Vector2(340, 220), Vector2(560, 380), Vector2(450, 170),
@@ -246,6 +249,7 @@ func _spawn_fighters() -> void:
 	for i: int in BOT_COUNT:
 		var bot: CharacterBody2D = enemy_scene.instantiate()
 		bot.archetype = BOT_ARCHETYPES[i % BOT_ARCHETYPES.size()]
+		bot.max_hp = BOT_HP  # set before add_child so Enemy._ready seeds hp = max_hp
 		bot.position = BOT_SPAWN_POINTS[i % BOT_SPAWN_POINTS.size()]
 		add_child(bot)
 		_register_fighter(bot, bot.global_position)
@@ -295,11 +299,12 @@ func _build_hud() -> void:
 	_stocks_label.add_theme_color_override("font_outline_color", Color(0.05, 0.05, 0.1, 0.9))
 	_stocks_label.add_theme_constant_override("outline_size", 4)
 	layer.add_child(_stocks_label)
+	# Banner sits near the TOP (was dead-center, covering the fight).
 	_banner = Label.new()
-	_banner.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_banner.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_banner.offset_top = 64.0
 	_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_banner.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_banner.add_theme_font_size_override("font_size", 34)
+	_banner.add_theme_font_size_override("font_size", 30)
 	_banner.add_theme_color_override("font_color", Color(1.0, 0.95, 0.8))
 	_banner.add_theme_color_override("font_outline_color", Color(0.08, 0.05, 0.12, 0.95))
 	_banner.add_theme_constant_override("outline_size", 8)

@@ -8,8 +8,9 @@ extends Node
 ## Swap the track by ear later: this const is the only place the path lives.
 const COMBAT_THEME_PATH: String = "res://assets/audio/music/combat_theme.mp3"
 
-## Music sits UNDER the SFX (which play at 0 db) — tune later by ear.
-const BASE_VOLUME_DB: float = -12.0
+## Music sits UNDER the SFX (which play at 0 db) — dropped to -20 (was -12) so
+## the bed stays background and the combat SFX own the mix.
+const BASE_VOLUME_DB: float = -20.0
 const SILENT_DB: float = -60.0
 const FADE_IN_TIME: float = 1.5
 const DUCK_RECOVER_TIME: float = 0.45

@@ -29,7 +29,7 @@ func _process(_delta: float) -> bool:
 	_ran = true
 	var failed: int = 0
 	failed += _test_rogue_parry_reflects()
-	failed += _test_mage_cannot_parry()
+	failed += _test_mage_can_parry_too()
 	failed += _test_no_window_takes_hit()
 	failed += _test_reflected_bolt_hits_enemy()
 	if failed > 0:
@@ -79,11 +79,11 @@ func _test_rogue_parry_reflects() -> int:
 	return failed
 
 
-func _test_mage_cannot_parry() -> int:
+func _test_mage_can_parry_too() -> int:
 	var failed: int = 0
 	var hero: CharacterBody2D = _make_hero(MAGE, Vector2(2000, 2000))
 	hero._try_parry_start()
-	failed += _expect(not hero.is_parrying(), "mage cannot open a parry window")
+	failed += _expect(hero.is_parrying(), "parry is universal now — mage can parry too")
 	return failed
 
 
