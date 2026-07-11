@@ -79,12 +79,15 @@ func spawn(brute_chance: float, hp_mult: float) -> void:
 
 
 ## Chaser is the backbone; brute weight rises with the floor; caster + charger
-## add dodge-the-tell variety.
+## add dodge-the-tell variety; summoner is a rare threat-multiplier whose
+## weight (like the brute's) scales with brute_chance — the FloorDef's
+## floor-difficulty knob — so it leans toward deeper floors.
 func _roll_archetype(brute_chance: float) -> int:
 	var w_chaser: float = 0.32
 	var w_brute: float = 0.18 + 0.30 * brute_chance
 	var w_caster: float = 0.22
-	var total: float = w_chaser + w_brute + w_caster + 0.28  # charger fills the rest
+	var w_summoner: float = 0.04 + 0.08 * brute_chance  # rare; rises with floor
+	var total: float = w_chaser + w_brute + w_caster + w_summoner + 0.28  # charger fills the rest
 	var r: float = randf() * total
 	if r < w_chaser:
 		return 0  # CHASER
@@ -92,6 +95,8 @@ func _roll_archetype(brute_chance: float) -> int:
 		return 1  # BRUTE
 	if r < w_chaser + w_brute + w_caster:
 		return 2  # CASTER
+	if r < w_chaser + w_brute + w_caster + w_summoner:
+		return 4  # SUMMONER
 	return 3  # CHARGER
 
 
@@ -114,6 +119,11 @@ func _apply_archetype(e: CharacterBody2D, kind: int, hp_mult: float) -> void:
 			e.move_speed = 55.0
 			e.touch_damage = 10
 			e.tint = Color(0.9, 0.6, 0.2, 1)  # amber
+		4:  # SUMMONER — kites and telegraphs a minion summon; priority target
+			e.max_hp = int(round(36 * hp_mult))
+			e.move_speed = 72.0
+			e.touch_damage = 6
+			e.tint = Color(0.35, 0.8, 0.55, 1)  # jade
 		_:  # CHASER — fast, weak
 			e.max_hp = int(round(24 * hp_mult))
 			e.move_speed = 140.0

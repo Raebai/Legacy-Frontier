@@ -10,7 +10,8 @@ extends CharacterBody2D
 @export var uses_telegraphed_attack: bool = false
 ## 0=CHASER (fast/weak), 1=BRUTE (telegraphed heavy strike, uses the flag above),
 ## 2=CASTER (kites + telegraphs a bolt to dodge), 3=CHARGER (telegraphs a lane
-## then rockets down it). See Archetype enum below.
+## then rockets down it), 4=SUMMONER (kites + telegraphs, then calls in weak
+## chaser minions — kill it before it swarms you). See Archetype enum below.
 @export var archetype: int = 0
 
 const KNOCKBACK_DECAY: float = 900.0  # px/s the knockback impulse bleeds off
@@ -49,8 +50,19 @@ const CHARGE_WIDTH: float = 34.0
 const CHARGE_HIT_RADIUS: float = 26.0
 const CHARGE_COOLDOWN: float = 1.6
 
+# SUMMONER archetype: kites like the caster, telegraphs on itself, then calls
+# in SUMMON_COUNT weak chaser minions. The tell is the window to burst it down.
+const SUMMONER_RANGE_MIN: float = 180.0  # same kite band as the caster
+const SUMMONER_RANGE_MAX: float = 320.0
+const SUMMON_WINDUP: float = 0.8
+const SUMMON_COOLDOWN: float = 4.0
+const SUMMON_COUNT: int = 2
+const SUMMON_MINION_HP: int = 18
+const SUMMON_TELE_RADIUS: float = 24.0  # "gathering magic" tell on the summoner
+const SUMMON_SCATTER: float = 36.0      # max spawn offset around the summoner
+
 enum AttackState { CHASE, WINDUP, RECOVER, CHARGING }
-enum Archetype { CHASER, BRUTE, CASTER, CHARGER }
+enum Archetype { CHASER, BRUTE, CASTER, CHARGER, SUMMONER }
 
 var hp: int = 40
 var _hero: Node2D = null
@@ -115,6 +127,9 @@ func _physics_process(delta: float) -> void:
 	if archetype == Archetype.CHARGER:
 		_charger_chase()
 		return
+	if archetype == Archetype.SUMMONER:
+		_summoner_chase()
+		return
 	var dir: Vector2 = (_hero.global_position - global_position).normalized()
 	velocity = dir * move_speed + _knockback
 	move_and_slide()
@@ -170,6 +185,8 @@ func _on_telegraph_fired() -> void:
 			_fire_projectile()
 		Archetype.CHARGER:
 			_begin_charge()
+		Archetype.SUMMONER:
+			_spawn_minions()
 		_:
 			_resolve_strike(_strike_center)  # brute
 
@@ -265,6 +282,58 @@ func _process_charging(delta: float) -> void:
 		_attack_state = AttackState.RECOVER
 		_recover_timer = ATTACK_RECOVER_TIME
 		_attack_cooldown = CHARGE_COOLDOWN
+
+
+# ------------------------------------------------------------ SUMMONER (minions)
+## Kite in the [MIN,MAX] band like the caster; summon when in-band and off
+## cooldown. The summoner itself never melees — its minions apply the pressure.
+func _summoner_chase() -> void:
+	var to_hero: Vector2 = _hero.global_position - global_position
+	var dist: float = to_hero.length()
+	var move_dir: Vector2 = Vector2.ZERO
+	if dist < SUMMONER_RANGE_MIN:
+		move_dir = -to_hero.normalized()          # too close — back away
+	elif dist > SUMMONER_RANGE_MAX:
+		move_dir = to_hero.normalized()           # too far — close in
+	velocity = move_dir * move_speed + _knockback
+	move_and_slide()
+	rig.play(CharacterRig.State.RUN if move_dir != Vector2.ZERO else CharacterRig.State.IDLE)
+	rig.set_facing(to_hero)
+	if _attack_cooldown <= 0.0 and dist >= SUMMONER_RANGE_MIN and dist <= SUMMONER_RANGE_MAX:
+		_start_summon_windup()
+
+
+## Root + a "gathering magic" tell on the summoner itself. The windup is the
+## fair-play window: burst the summoner (or knock it around) before it fires
+## and no minions arrive. _abort_attack() cancels this cleanly like any windup.
+func _start_summon_windup() -> void:
+	_attack_state = AttackState.WINDUP
+	rig.flash()
+	_telegraph = Telegraph.new()
+	get_parent().add_child(_telegraph)
+	_telegraph.global_position = global_position   # tell is ON the summoner
+	_telegraph.fired.connect(_on_telegraph_fired)
+	_telegraph.start(SUMMON_TELE_RADIUS, SUMMON_WINDUP)
+
+
+## The tell paid off: pop SUMMON_COUNT weak chaser minions in around the
+## summoner as arena siblings (their own _ready joins group "enemy" and finds
+## the hero), then recover and start the long summon cooldown.
+## Scene load()ed at runtime, not preload: Enemy.tscn references this very
+## script, so a preload here would be a cyclic resource dependency.
+func _spawn_minions() -> void:
+	var enemy_scene: PackedScene = load("res://scenes/combat/Enemy.tscn")
+	for i in SUMMON_COUNT:
+		var minion: CharacterBody2D = enemy_scene.instantiate()
+		minion.archetype = Archetype.CHASER
+		minion.max_hp = SUMMON_MINION_HP
+		minion.tint = Color(tint.r, tint.g, tint.b, 1.0).lightened(0.35)  # reads as spawn
+		get_parent().add_child(minion)
+		var offset := Vector2.from_angle(randf() * TAU) * randf_range(SUMMON_SCATTER * 0.4, SUMMON_SCATTER)
+		minion.global_position = global_position + offset
+	_attack_state = AttackState.RECOVER
+	_recover_timer = ATTACK_RECOVER_TIME
+	_attack_cooldown = SUMMON_COOLDOWN
 
 
 ## Strike resolution, split out so headless tests can drive it directly:
