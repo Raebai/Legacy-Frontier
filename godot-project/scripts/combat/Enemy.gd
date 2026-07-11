@@ -16,6 +16,15 @@ extends CharacterBody2D
 
 const KNOCKBACK_DECAY: float = 900.0  # px/s the knockback impulse bleeds off
 
+# Side-on platformer physics (mirrors Hero.gd's GRAVITY/MAX_FALL model):
+# enemies fall, stand on platforms, and chase-jump toward a hero above them.
+const GRAVITY: float = 1500.0
+const MAX_FALL: float = 950.0
+const JUMP_VELOCITY: float = -520.0
+const JUMP_TRIGGER_HEIGHT: float = 60.0     # hero at least this far ABOVE -> chase-jump
+const JUMP_HORIZONTAL_RANGE: float = 260.0  # ...and roughly this near on x
+const JUMP_COOLDOWN: float = 0.6
+
 # Death spectacle tuning ("bodies fly").
 const DEATH_HIT_STOP: float = 0.11  # weighted: a kill is the heaviest impact
 const DEATH_SHAKE: float = 8.0
@@ -77,6 +86,7 @@ var _aim_dir: Vector2 = Vector2.RIGHT       # caster: shot direction, snapshot a
 var _charge_dir: Vector2 = Vector2.RIGHT    # charger: locked lane direction
 var _charge_timer: float = 0.0
 var _charge_hit: bool = false
+var _jump_cd: float = 0.0                   # chase-jump cooldown, ticks down each frame
 
 @onready var rig: CharacterRig = $Rig
 
@@ -86,6 +96,12 @@ var _charge_hit: bool = false
 ## stomped by the next physics tick's `velocity = dir * move_speed`.
 func apply_knockback(impulse: Vector2) -> void:
 	_knockback = impulse
+	# Side-on: the VERTICAL part lands once as a real impulse into velocity.y so
+	# a hard hit pops the enemy off the ground (gravity owns y from here). Adding
+	# _knockback.y every frame instead would integrate the decaying impulse as an
+	# acceleration and launch bodies at absurd speeds. The horizontal part keeps
+	# the old decaying-channel treatment (`velocity.x = chase_x + _knockback.x`).
+	velocity.y += impulse.y
 
 
 ## A hard-knocked enemy that slams into a wall craters the floor + kicks up dust
@@ -104,6 +120,40 @@ func _check_wall_slam() -> void:
 	_knockback = Vector2.ZERO  # spent on the wall
 
 
+## Side-on vertical core: rest on the floor, else integrate gravity toward
+## MAX_FALL. A rising velocity (upward knockback pop from apply_knockback, or a
+## chase-jump) beats the floor-zeroing so the body actually leaves the ground.
+func _apply_gravity(delta: float) -> void:
+	if is_on_floor() and velocity.y >= 0.0:
+		velocity.y = 0.0
+	else:
+		velocity.y = minf(velocity.y + GRAVITY * delta, MAX_FALL)
+
+
+## Pure "should we chase-jump?" decision, floor check deliberately EXCLUDED so
+## headless tests can drive it without stepped physics: cooldown elapsed, and
+## the hero is meaningfully above us while roughly near on x.
+func _wants_chase_jump() -> bool:
+	if _jump_cd > 0.0 or not is_instance_valid(_hero):
+		return false
+	return _hero.global_position.y < global_position.y - JUMP_TRIGGER_HEIGHT \
+			and absf(_hero.global_position.x - global_position.x) < JUMP_HORIZONTAL_RANGE
+
+
+## Chase-jump: hop toward a hero that's above us, or over an obstacle we're
+## walking into. Called between _apply_gravity and move_and_slide, so the
+## is_on_floor()/is_on_wall() reads reflect the previous frame's slide state.
+func _try_chase_jump() -> void:
+	if not is_on_floor() or _jump_cd > 0.0:
+		return
+	# is_on_wall(), not get_slide_collision_count(): standing on the floor IS a
+	# slide collision every frame, which would read as permanently "blocked".
+	var blocked: bool = is_on_wall() and absf(velocity.x) > 10.0
+	if _wants_chase_jump() or blocked:
+		velocity.y = JUMP_VELOCITY
+		_jump_cd = JUMP_COOLDOWN
+
+
 func _ready() -> void:
 	add_to_group("enemy")
 	hp = max_hp
@@ -117,18 +167,20 @@ func _physics_process(delta: float) -> void:
 	_touch_cooldown = max(_touch_cooldown - delta, 0.0)
 	_knockback = _knockback.move_toward(Vector2.ZERO, KNOCKBACK_DECAY * delta)
 	_attack_cooldown = maxf(_attack_cooldown - delta, 0.0)
+	_jump_cd = maxf(_jump_cd - delta, 0.0)
 	if not is_instance_valid(_hero):
 		# No target, but still honour an in-flight knockback so a killing-blow
 		# pop reads even if the hero just vanished.
 		if _attack_state != AttackState.CHASE:
 			_abort_attack()  # hero vanished mid-windup/recover — bail cleanly
-		velocity = _knockback
+		velocity.x = _knockback.x
+		_apply_gravity(delta)
 		move_and_slide()
 		rig.play(CharacterRig.State.IDLE)
 		return
 	match _attack_state:
 		AttackState.WINDUP:
-			_process_windup()
+			_process_windup(delta)
 			return
 		AttackState.RECOVER:
 			_process_recover(delta)
@@ -138,20 +190,24 @@ func _physics_process(delta: float) -> void:
 			return
 	# Archetype-specific CHASE behaviour (chaser + brute fall through to default).
 	if archetype == Archetype.CASTER:
-		_caster_chase()
+		_caster_chase(delta)
 		return
 	if archetype == Archetype.CHARGER:
-		_charger_chase()
+		_charger_chase(delta)
 		return
 	if archetype == Archetype.SUMMONER:
-		_summoner_chase()
+		_summoner_chase(delta)
 		return
-	var dir: Vector2 = (_hero.global_position - global_position).normalized()
-	velocity = dir * move_speed + _knockback
+	# Side-on chase: close the HORIZONTAL gap; gravity owns y; jump to reach a
+	# hero above us or hop an obstacle in the way.
+	var chase_x: float = signf(_hero.global_position.x - global_position.x) * move_speed
+	velocity.x = chase_x + _knockback.x
+	_apply_gravity(delta)
+	_try_chase_jump()
 	move_and_slide()
 	_check_wall_slam()  # crater + dust if a hard hit just slammed us into a wall
 	rig.play(CharacterRig.State.RUN)
-	rig.set_facing(dir)
+	rig.set_facing(Vector2(signf(chase_x), 0.0))
 	if uses_telegraphed_attack and _attack_cooldown <= 0.0 \
 			and global_position.distance_to(_hero.global_position) <= ATTACK_RANGE:
 		_start_windup()
@@ -163,8 +219,10 @@ func _physics_process(delta: float) -> void:
 
 
 ## WINDUP: rooted in place (knockback still lands), visibly holding the tell.
-func _process_windup() -> void:
-	velocity = _knockback
+## Rooted means no CHASE drive — gravity still applies so the tell can't float.
+func _process_windup(delta: float) -> void:
+	velocity.x = _knockback.x
+	_apply_gravity(delta)
 	move_and_slide()
 	rig.play(CharacterRig.State.IDLE)
 	rig.set_facing(_hero.global_position - global_position)
@@ -172,7 +230,8 @@ func _process_windup() -> void:
 
 ## RECOVER: brief post-strike pause, then back to the chase.
 func _process_recover(delta: float) -> void:
-	velocity = _knockback
+	velocity.x = _knockback.x
+	_apply_gravity(delta)
 	move_and_slide()
 	rig.play(CharacterRig.State.IDLE)
 	_recover_timer -= delta
@@ -209,20 +268,23 @@ func _on_telegraph_fired() -> void:
 
 
 # ------------------------------------------------------------- CASTER (ranged)
-## Kite in the [MIN,MAX] band; fire when in-band and off cooldown.
-func _caster_chase() -> void:
+## Kite in the HORIZONTAL [MIN,MAX] band; fire when in-band and off cooldown.
+## Side-on: the band is measured on x only — gravity owns y. The bolt itself
+## still fires along the full 2D _aim_dir, so it can angle up/down at the hero.
+func _caster_chase(delta: float) -> void:
 	var to_hero: Vector2 = _hero.global_position - global_position
-	var dist: float = to_hero.length()
-	var move_dir: Vector2 = Vector2.ZERO
-	if dist < CASTER_RANGE_MIN:
-		move_dir = -to_hero.normalized()          # too close — back away
-	elif dist > CASTER_RANGE_MAX:
-		move_dir = to_hero.normalized()           # too far — close in
-	velocity = move_dir * move_speed + _knockback
+	var dist_x: float = absf(to_hero.x)
+	var move_x: float = 0.0
+	if dist_x < CASTER_RANGE_MIN:
+		move_x = -signf(to_hero.x)                # too close — back away
+	elif dist_x > CASTER_RANGE_MAX:
+		move_x = signf(to_hero.x)                 # too far — close in
+	velocity.x = move_x * move_speed + _knockback.x
+	_apply_gravity(delta)
 	move_and_slide()
-	rig.play(CharacterRig.State.RUN if move_dir != Vector2.ZERO else CharacterRig.State.IDLE)
+	rig.play(CharacterRig.State.RUN if move_x != 0.0 else CharacterRig.State.IDLE)
 	rig.set_facing(to_hero)
-	if _attack_cooldown <= 0.0 and dist >= CASTER_RANGE_MIN and dist <= CASTER_RANGE_MAX:
+	if _attack_cooldown <= 0.0 and dist_x >= CASTER_RANGE_MIN and dist_x <= CASTER_RANGE_MAX:
 		_start_caster_windup()
 
 
@@ -252,11 +314,14 @@ func _fire_projectile() -> void:
 
 
 # --------------------------------------------------------------- CHARGER (lane)
-## Chase toward the hero; lock a lane and telegraph it once in range.
-func _charger_chase() -> void:
+## Chase toward the hero on x; lock a lane and telegraph it once in range.
+## The approach also chase-jumps so it can reach a hero on a platform above.
+func _charger_chase(delta: float) -> void:
 	var to_hero: Vector2 = _hero.global_position - global_position
 	var dist: float = to_hero.length()
-	velocity = to_hero.normalized() * move_speed + _knockback
+	velocity.x = signf(to_hero.x) * move_speed + _knockback.x
+	_apply_gravity(delta)
+	_try_chase_jump()
 	move_and_slide()
 	rig.play(CharacterRig.State.RUN)
 	rig.set_facing(to_hero)
@@ -266,8 +331,10 @@ func _charger_chase() -> void:
 
 func _start_charger_windup() -> void:
 	_attack_state = AttackState.WINDUP
-	_charge_dir = (_hero.global_position - global_position).normalized()
-	if _charge_dir == Vector2.ZERO:
+	# Side-on: the charge is a HORIZONTAL rocket — lock a flat lane toward the
+	# hero's side of the screen, never a diagonal.
+	_charge_dir = Vector2(signf(_hero.global_position.x - global_position.x), 0.0)
+	if _charge_dir.x == 0.0:
 		_charge_dir = Vector2.RIGHT
 	rig.flash()
 	_telegraph = Telegraph.new()
@@ -284,8 +351,10 @@ func _begin_charge() -> void:
 
 
 ## Rocket down the locked lane; hit the hero once; end on timeout or a wall.
+## Gravity still applies, so a charge off a ledge arcs down instead of flying.
 func _process_charging(delta: float) -> void:
-	velocity = _charge_dir * CHARGE_SPEED
+	velocity.x = _charge_dir.x * CHARGE_SPEED
+	_apply_gravity(delta)
 	move_and_slide()
 	_charge_timer -= delta
 	if not _charge_hit and is_instance_valid(_hero) \
@@ -295,28 +364,32 @@ func _process_charging(delta: float) -> void:
 		_charge_hit = true
 		Juice.shake_camera(5.0)
 		Sfx.play("melee_hit")
-	if _charge_timer <= 0.0 or get_slide_collision_count() > 0:
+	# is_on_wall(), not get_slide_collision_count(): a grounded charge collides
+	# with the FLOOR every frame, which would end the rocket on frame one.
+	if _charge_timer <= 0.0 or is_on_wall():
 		_attack_state = AttackState.RECOVER
 		_recover_timer = ATTACK_RECOVER_TIME
 		_attack_cooldown = CHARGE_COOLDOWN
 
 
 # ------------------------------------------------------------ SUMMONER (minions)
-## Kite in the [MIN,MAX] band like the caster; summon when in-band and off
-## cooldown. The summoner itself never melees — its minions apply the pressure.
-func _summoner_chase() -> void:
+## Kite in the HORIZONTAL [MIN,MAX] band like the caster; summon when in-band
+## and off cooldown. The summoner itself never melees — its minions apply the
+## pressure. Side-on: band on x only, gravity owns y (same as _caster_chase).
+func _summoner_chase(delta: float) -> void:
 	var to_hero: Vector2 = _hero.global_position - global_position
-	var dist: float = to_hero.length()
-	var move_dir: Vector2 = Vector2.ZERO
-	if dist < SUMMONER_RANGE_MIN:
-		move_dir = -to_hero.normalized()          # too close — back away
-	elif dist > SUMMONER_RANGE_MAX:
-		move_dir = to_hero.normalized()           # too far — close in
-	velocity = move_dir * move_speed + _knockback
+	var dist_x: float = absf(to_hero.x)
+	var move_x: float = 0.0
+	if dist_x < SUMMONER_RANGE_MIN:
+		move_x = -signf(to_hero.x)                # too close — back away
+	elif dist_x > SUMMONER_RANGE_MAX:
+		move_x = signf(to_hero.x)                 # too far — close in
+	velocity.x = move_x * move_speed + _knockback.x
+	_apply_gravity(delta)
 	move_and_slide()
-	rig.play(CharacterRig.State.RUN if move_dir != Vector2.ZERO else CharacterRig.State.IDLE)
+	rig.play(CharacterRig.State.RUN if move_x != 0.0 else CharacterRig.State.IDLE)
 	rig.set_facing(to_hero)
-	if _attack_cooldown <= 0.0 and dist >= SUMMONER_RANGE_MIN and dist <= SUMMONER_RANGE_MAX:
+	if _attack_cooldown <= 0.0 and dist_x >= SUMMONER_RANGE_MIN and dist_x <= SUMMONER_RANGE_MAX:
 		_start_summon_windup()
 
 

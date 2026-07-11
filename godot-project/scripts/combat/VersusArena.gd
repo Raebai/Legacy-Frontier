@@ -20,41 +20,45 @@ const HERO_SCENE_PATH: String = "res://scenes/combat/Hero.tscn"
 const ENEMY_SCENE_PATH: String = "res://scenes/combat/Enemy.tscn"
 
 ## -- Match rules -----------------------------------------------------------
-const STAGE_SIZE: Vector2 = Vector2(900, 600)
+const STAGE_SIZE: Vector2 = Vector2(1200, 760)
 const STOCKS: int = 3
 const BOT_COUNT: int = 2
 const RESPAWN_INVULN: float = 0.8
 
-## -- Layout (stage-local; the stage centre is STAGE_SIZE * 0.5) -------------
-## Width of the pit ring framing the platform on every side.
-const PIT_MARGIN: float = 120.0
-## P1 respawns dead centre — the safest spot on the platform, never in a pit.
-const P1_SPAWN: Vector2 = STAGE_SIZE * 0.5
+## -- Side-on stage layout (stage-local; the arena node sits at the scene origin) --
+## Solid platforms (StaticBody2D, default layer 1 — the hero/enemy masks collide
+## with it) the fighters land + jump on: a wide ground plus two floating ledges.
+const PLATFORMS: Array[Dictionary] = [
+	{"center": Vector2(600, 600), "size": Vector2(780, 60)},  # main ground (top ~570)
+	{"center": Vector2(360, 410), "size": Vector2(210, 26)},  # left ledge
+	{"center": Vector2(840, 410), "size": Vector2(210, 26)},  # right ledge
+]
+## Blast zones (StageHazard PIT): fall below the stage or get knocked off the
+## sides = ring-out. No top zone — you can jet up freely.
+const BLAST_ZONES: Array[Dictionary] = [
+	{"center": Vector2(600, 850), "size": Vector2(2000, 260)},   # the void below
+	{"center": Vector2(-150, 400), "size": Vector2(260, 1200)},  # off the left
+	{"center": Vector2(1350, 400), "size": Vector2(260, 1200)},  # off the right
+]
+## Fighters spawn ABOVE the ground and drop onto it.
+const P1_SPAWN: Vector2 = Vector2(600, 480)
 const BOT_SPAWN_POINTS: Array[Vector2] = [
-	Vector2(260, 210), Vector2(640, 390), Vector2(640, 210), Vector2(260, 390),
+	Vector2(400, 430), Vector2(800, 430), Vector2(360, 330), Vector2(840, 330),
 ]
 ## Bot archetype rotation: CASTER / SUMMONER / CHARGER — spell-slinging opponents
 ## (casters + summoners give you bolts to parry). See Enemy.Archetype.
 const BOT_ARCHETYPES: Array[int] = [2, 4, 3]
 ## Versus bots are tankier than the tower's trash mobs so fights last.
 const BOT_HP: int = 110
-## Destructible cover blocks, spread across the platform (64px default size).
-const COVER_POINTS: Array[Vector2] = [
-	Vector2(340, 220), Vector2(560, 380), Vector2(450, 170),
-]
-## Edge slopes just inside the platform's left/right rims, each pointing at
-## the pit it feeds: standing there slides you off.
-const SLOPE_ZONE_SIZE: Vector2 = Vector2(60, 240)
-const SLOPE_LAYOUT: Array[Dictionary] = [
-	{"center": Vector2(150, 300), "dir": Vector2.LEFT},
-	{"center": Vector2(750, 300), "dir": Vector2.RIGHT},
-]
-const SLOPE_STRENGTH: float = 140.0
+## Destructible cover sitting on the ground (64px blocks; centre = ground_top - 32).
+const COVER_POINTS: Array[Vector2] = [Vector2(430, 538), Vector2(770, 538)]
 
-## -- Look --------------------------------------------------------------------
-const FLOOR_COLOR: Color = Color(0.16, 0.17, 0.22)
-const FLOOR_BORDER_COLOR: Color = Color(0.52, 0.54, 0.64)
-const FLOOR_BORDER_WIDTH: float = 3.0
+## -- Look (clean, simple Stick-Fight): flat sky + dark platforms w/ a bright rim --
+const SKY_COLOR: Color = Color(0.53, 0.74, 0.92)
+const SKY_LOWER_COLOR: Color = Color(0.63, 0.81, 0.93)
+const PLATFORM_COLOR: Color = Color(0.20, 0.22, 0.29)
+const PLATFORM_EDGE_COLOR: Color = Color(0.55, 0.85, 0.62)
+const PLATFORM_EDGE_H: float = 5.0
 const RESPAWN_POOF_START: Color = Color(0.75, 0.85, 1.0, 0.9)
 const RESPAWN_POOF_END: Color = Color(0.75, 0.85, 1.0, 0.0)
 
@@ -69,9 +73,10 @@ var _banner: Label = null
 
 
 func _ready() -> void:
-	_build_floor()
+	_build_background()
+	_build_platforms()
 	_build_cover()
-	_build_hazards()
+	_build_blast_zones()
 	_spawn_fighters()
 	_build_hud()
 	_update_hud()
@@ -164,31 +169,56 @@ func _finish_match(text: String) -> void:
 
 
 # ----------------------------------------------------------------------- build
-## Platform rect in stage-local space: STAGE_SIZE minus the pit ring.
-func _platform_rect() -> Rect2:
-	var margin := Vector2(PIT_MARGIN, PIT_MARGIN)
-	return Rect2(margin, STAGE_SIZE - margin * 2.0)
+## Flat sky backdrop (clean Stick-Fight look): a big sky rect + a slightly deeper
+## lower band for a hint of depth. Far behind everything; ignores the mouse.
+func _build_background() -> void:
+	var sky := ColorRect.new()
+	sky.position = Vector2(-500, -500)
+	sky.size = STAGE_SIZE + Vector2(1000, 1000)
+	sky.color = SKY_COLOR
+	sky.z_index = -20
+	sky.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(sky)
+	var lower := ColorRect.new()
+	lower.position = Vector2(-500, STAGE_SIZE.y * 0.5)
+	lower.size = Vector2(STAGE_SIZE.x + 1000, STAGE_SIZE.y + 500)
+	lower.color = SKY_LOWER_COLOR
+	lower.z_index = -19
+	lower.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(lower)
 
 
-## Central platform: a border rect peeking out from under the floor rect.
-## Plain ColorRects at negative z so fighters/hazards/cover all draw above;
-## mouse_filter IGNORE so they never eat the hero's aim clicks.
-func _build_floor() -> void:
-	var rect: Rect2 = _platform_rect()
-	var border := ColorRect.new()
-	border.position = rect.position - Vector2(FLOOR_BORDER_WIDTH, FLOOR_BORDER_WIDTH)
-	border.size = rect.size + Vector2(FLOOR_BORDER_WIDTH, FLOOR_BORDER_WIDTH) * 2.0
-	border.color = FLOOR_BORDER_COLOR
-	border.z_index = -10
-	border.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(border)
-	var floor_rect := ColorRect.new()
-	floor_rect.position = rect.position
-	floor_rect.size = rect.size
-	floor_rect.color = FLOOR_COLOR
-	floor_rect.z_index = -9
-	floor_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(floor_rect)
+## Solid platforms the fighters land + jump on (StaticBody2D default layer 1,
+## which the hero/enemy masks collide with; spells on mask 4 pass over them).
+func _build_platforms() -> void:
+	for p: Dictionary in PLATFORMS:
+		_make_platform(p["center"], p["size"])
+
+
+## One platform: a StaticBody2D box with a dark body + a bright top rim.
+func _make_platform(center: Vector2, size: Vector2) -> void:
+	var body := StaticBody2D.new()
+	body.position = center
+	var cs := CollisionShape2D.new()
+	var shape := RectangleShape2D.new()
+	shape.size = size
+	cs.shape = shape
+	body.add_child(cs)
+	var vis := ColorRect.new()
+	vis.position = -size * 0.5
+	vis.size = size
+	vis.color = PLATFORM_COLOR
+	vis.z_index = -5
+	vis.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	body.add_child(vis)
+	var rim := ColorRect.new()
+	rim.position = Vector2(-size.x * 0.5, -size.y * 0.5)
+	rim.size = Vector2(size.x, PLATFORM_EDGE_H)
+	rim.color = PLATFORM_EDGE_COLOR
+	rim.z_index = -4
+	rim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	body.add_child(rim)
+	add_child(body)
 
 
 ## Real blocking cover that spells + melee chew through (group "destructible").
@@ -199,34 +229,16 @@ func _build_cover() -> void:
 		add_child(block)
 
 
-## PIT ring on all four sides — each wired to _on_fighter_fell — plus the two
-## edge slopes that feed the left/right pits.
-func _build_hazards() -> void:
-	var pit_defs: Array[Dictionary] = [
-		{"center": Vector2(PIT_MARGIN * 0.5, STAGE_SIZE.y * 0.5),
-			"size": Vector2(PIT_MARGIN, STAGE_SIZE.y)},
-		{"center": Vector2(STAGE_SIZE.x - PIT_MARGIN * 0.5, STAGE_SIZE.y * 0.5),
-			"size": Vector2(PIT_MARGIN, STAGE_SIZE.y)},
-		{"center": Vector2(STAGE_SIZE.x * 0.5, PIT_MARGIN * 0.5),
-			"size": Vector2(STAGE_SIZE.x - PIT_MARGIN * 2.0, PIT_MARGIN)},
-		{"center": Vector2(STAGE_SIZE.x * 0.5, STAGE_SIZE.y - PIT_MARGIN * 0.5),
-			"size": Vector2(STAGE_SIZE.x - PIT_MARGIN * 2.0, PIT_MARGIN)},
-	]
-	for pit_def: Dictionary in pit_defs:
+## Blast zones — fall below the stage or get knocked off the sides = ring-out.
+## Each is a StageHazard PIT wired to _on_fighter_fell.
+func _build_blast_zones() -> void:
+	for z: Dictionary in BLAST_ZONES:
 		var pit := StageHazard.new()
 		pit.mode = StageHazard.Mode.PIT
-		pit.zone_size = pit_def["size"]
-		pit.position = pit_def["center"]
+		pit.zone_size = z["size"]
+		pit.position = z["center"]
 		pit.fighter_fell.connect(_on_fighter_fell)
 		add_child(pit)
-	for slope_def: Dictionary in SLOPE_LAYOUT:
-		var slope := StageHazard.new()
-		slope.mode = StageHazard.Mode.SLOPE
-		slope.zone_size = SLOPE_ZONE_SIZE
-		slope.slide_dir = slope_def["dir"]
-		slope.slide_strength = SLOPE_STRENGTH
-		slope.position = slope_def["center"]
-		add_child(slope)
 
 
 ## Runtime load()s, never preload: both scenes' scripts reference autoload
@@ -264,8 +276,9 @@ func _frame_camera_on(hero: Node) -> void:
 			break
 	if cam == null:
 		return
+	cam.zoom = Vector2(1.5, 1.5)  # wider than combat's 2.2 so jumps stay in frame
 	cam.limit_left = 0
-	cam.limit_top = 0
+	cam.limit_top = -200  # sky headroom when you jet up
 	cam.limit_right = int(STAGE_SIZE.x)
 	cam.limit_bottom = int(STAGE_SIZE.y)
 
