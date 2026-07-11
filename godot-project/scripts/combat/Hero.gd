@@ -12,11 +12,13 @@ const MELEE_COOLDOWN: float = 0.34
 const MELEE_DAMAGE: int = 14
 const MELEE_RANGE: float = 46.0
 const MELEE_ARC_DOT: float = 0.3
-const MELEE_KNOCKBACK: float = 220.0
+## Bumped for the Stick-Fight "shove" read — a connected punch should visibly
+## launch the target, not just tick it.
+const MELEE_KNOCKBACK: float = 300.0
 ## Melee tuning per weapon kind; the MELEE_* consts are the "fists" baseline.
 const WEAPON_STATS: Dictionary = {
 	"fists": {"damage": MELEE_DAMAGE, "range": MELEE_RANGE, "knockback": MELEE_KNOCKBACK},
-	"sword": {"damage": 26, "range": 60.0, "knockback": 320.0},
+	"sword": {"damage": 26, "range": 60.0, "knockback": 400.0},
 }
 const BLAST_COOLDOWN: float = 2.0
 const BLAST_FALLBACK_RANGE: float = 200.0
@@ -97,7 +99,13 @@ const CLASS_CONFIG: Dictionary = {
 
 @export var max_hp: int = 100
 var hp: int = 100
+## Twin-stick: `facing`/`_aim_dir` track the CURSOR (drive casts, melee arc, cast
+## pose, camera peek); `_move_dir` tracks WASD (drives dash + blink dodge). They
+## are decoupled so you can run one way while aiming/casting another (strafe).
 var facing: Vector2 = Vector2.RIGHT
+var _aim_dir: Vector2 = Vector2.RIGHT
+var _move_dir: Vector2 = Vector2.RIGHT
+var _footstep_timer: float = 0.0
 var is_dashing: bool = false
 var _dash_timer: float = 0.0
 var _dash_cooldown_timer: float = 0.0
@@ -168,6 +176,12 @@ func _physics_process(delta: float) -> void:
 	_blink_iframe_timer = maxf(_blink_iframe_timer - delta, 0.0)
 	_nova_cooldown_timer = maxf(_nova_cooldown_timer - delta, 0.0)
 	_update_input_buffer(delta)
+	# Twin-stick aim: track the cursor every frame so casts / cast-pose / camera
+	# peek use it even mid-dash. Movement (below) feeds _move_dir independently.
+	var to_mouse: Vector2 = get_global_mouse_position() - global_position
+	if to_mouse.length() > 1.0:
+		_aim_dir = to_mouse.normalized()
+	facing = _aim_dir
 	# Cosmetic + class toggles: instant, un-buffered, legal even mid-dash.
 	if Input.is_action_just_pressed("cycle_element"):
 		_cycle_element()
@@ -198,18 +212,26 @@ func _physics_process(delta: float) -> void:
 		"move_left", "move_right", "move_up", "move_down"
 	)
 	if direction != Vector2.ZERO:
-		facing = direction
+		_move_dir = direction
 
 	if _try_fire_buffered():
 		return  # a dash started this frame — the dash branch owns movement now
 
-	velocity = direction * _tune("hero_speed", SPEED)
+	# Accel/friction ramp for weight + flow (was an instant velocity snap).
+	var target_v: Vector2 = direction * _tune("hero_speed", SPEED)
+	velocity = velocity.move_toward(target_v, _tune("move_accel", 2600.0) * delta)
 	move_and_slide()
 	if direction != Vector2.ZERO:
 		rig.play(CharacterRig.State.RUN)
+		_footstep_timer -= delta
+		if _footstep_timer <= 0.0:
+			_footstep_timer = 0.22 if _hero_class == HeroClass.ROGUE else 0.27
+			Sfx.play("footstep", -6.0, 0.14)
 	else:
 		rig.play(CharacterRig.State.IDLE)
+		_footstep_timer = 0.0
 	rig.set_facing(facing)
+	rig.set_aim(_aim_dir)
 
 
 ## Record melee/dash/blast presses into a single-slot buffer (newest press
@@ -356,7 +378,7 @@ func _start_dash() -> void:
 	is_dashing = true
 	_dash_timer = _tune("dash_time", DASH_TIME)
 	_dash_cooldown_timer = _cfg["dash_cd"]
-	_dash_dir = facing
+	_dash_dir = _move_dir  # dodge toward MOVEMENT, not the cursor (twin-stick)
 	_ghost_timer = 0.0  # first afterimage lands this frame
 	_dash_hit.clear()
 
@@ -372,7 +394,7 @@ func _blink() -> void:
 	_blink_cooldown_timer = _cfg["blink_cd"]
 	_blink_iframe_timer = BLINK_IFRAME
 	var origin: Vector2 = global_position
-	var dir: Vector2 = facing.normalized()
+	var dir: Vector2 = _move_dir.normalized()  # blink dodges toward movement
 	if dir == Vector2.ZERO:
 		dir = Vector2.RIGHT
 	var dest: Vector2 = _blink_destination(origin, dir)
@@ -407,7 +429,9 @@ func _blink_destination(origin: Vector2, dir: Vector2) -> Vector2:
 func _cast() -> void:
 	_cast_cooldown_timer = _cfg["cast_cd"]
 	var enemies: Array = get_tree().get_nodes_in_group("enemy")
-	var dir: Vector2 = Targeting.aim_direction(global_position, enemies, facing)
+	# Aim at the cursor, softly assisted toward an enemy inside the forgiveness
+	# cone so you connect without pixel-hunting (twin-stick, touch-portable).
+	var dir: Vector2 = Targeting.assisted_aim(global_position, _aim_dir, enemies)
 	var spell: Area2D = SPELL_SCENE.instantiate()
 	get_parent().add_child(spell)
 	spell.global_position = global_position
@@ -416,9 +440,10 @@ func _cast() -> void:
 		spell.call("set_element_color", _element_color)
 	if bool(_cfg["throw_blade"]):
 		spell.set("damage", int(_cfg["blade_damage"]))  # rogue: faster, lighter
+	rig.set_aim(_aim_dir)
 	rig.play(CharacterRig.State.CAST)
 	Sfx.play("cast", 0.0, 0.08)
-	Juice.shake_camera(2.0)
+	Juice.shake_camera(1.0)  # trimmed from 2.0 — casting shouldn't rattle the frame
 	_notify_element_used()
 
 
@@ -429,16 +454,29 @@ func _blast() -> void:
 	if String(_cfg["aoe"]) == "nova":
 		_spawn_nova()
 		return
-	var target: Node2D = Targeting.nearest(
-		global_position, get_tree().get_nodes_in_group("enemy")
-	)
-	var target_pos: Vector2 = (
-		target.global_position if target != null
-		else global_position + facing * BLAST_FALLBACK_RANGE
-	)
+	# Directional: throw the giant blast toward the cursor. If an enemy sits
+	# roughly under the reticle (within the aim cone + range), land it on them;
+	# otherwise detonate at arm's length along the aim.
+	var enemies: Array = get_tree().get_nodes_in_group("enemy")
+	var aim: Vector2 = Targeting.assisted_aim(global_position, _aim_dir, enemies)
+	var target_pos: Vector2 = global_position + aim * BLAST_FALLBACK_RANGE
+	var best_d: float = INF
+	for e in enemies:
+		if not is_instance_valid(e):
+			continue
+		var to_e: Vector2 = e.global_position - global_position
+		var dist: float = to_e.length()
+		if dist <= 0.0 or dist > BLAST_FALLBACK_RANGE * 1.6:
+			continue
+		if aim.dot(to_e / dist) < 0.9:
+			continue
+		if dist < best_d:
+			best_d = dist
+			target_pos = e.global_position
 	var blast: Node2D = BLAST_SCENE.instantiate()
 	get_parent().add_child(blast)
 	blast.detonate_at(target_pos)
+	rig.set_aim(_aim_dir)
 	rig.play(CharacterRig.State.CAST)
 
 
@@ -516,6 +554,7 @@ func _on_melee_hit_frame() -> void:
 		Juice.shake_camera(4.0)
 		Juice.kick_camera(facing, MELEE_CAMERA_KICK)  # punch INTO the hit
 		Sfx.play("melee_hit")
+		Sfx.play("ding", -3.0, 0.05)  # the bright Stick-Fight "clean hit" ding
 
 
 func take_damage(amount: int) -> void:

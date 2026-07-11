@@ -47,14 +47,14 @@ func _test_blink_moves_along_facing() -> int:
 	var failed: int = 0
 	var hero: CharacterBody2D = _make_hero()
 	hero.global_position = Vector2(5000.0, 5000.0)  # open space, far from anything
-	hero.facing = Vector2.DOWN
+	hero._move_dir = Vector2.DOWN  # blink follows MOVEMENT now (twin-stick), not aim
 	var origin: Vector2 = hero.global_position
 
 	hero._blink()
 	var expected: Vector2 = origin + Vector2.DOWN * hero.BLINK_DISTANCE
 	failed += _expect(
 		hero.global_position.distance_to(expected) < 1.0,
-		"blink teleports BLINK_DISTANCE along facing (got %s, want %s)"
+		"blink teleports BLINK_DISTANCE along movement (got %s, want %s)"
 		% [hero.global_position, expected]
 	)
 	failed += _expect(
@@ -72,7 +72,7 @@ func _test_blink_respects_cooldown() -> int:
 	var failed: int = 0
 	var hero: CharacterBody2D = _make_hero()
 	hero.global_position = Vector2(5000.0, 8000.0)
-	hero.facing = Vector2.RIGHT
+	hero._move_dir = Vector2.RIGHT
 
 	hero._blink()
 	var after_first: Vector2 = hero.global_position
@@ -112,12 +112,12 @@ func _test_blink_zero_facing_guard() -> int:
 	var failed: int = 0
 	var hero: CharacterBody2D = _make_hero()
 	hero.global_position = Vector2(8000.0, 8000.0)
-	hero.facing = Vector2.ZERO  # unreachable in play, but the guard must hold
+	hero._move_dir = Vector2.ZERO  # unreachable in play, but the guard must hold
 	var origin: Vector2 = hero.global_position
 
 	hero._blink()
 	failed += _expect(
 		hero.global_position.distance_to(origin + Vector2.RIGHT * hero.BLINK_DISTANCE) < 1.0,
-		"zero facing falls back to RIGHT"
+		"zero movement dir falls back to RIGHT"
 	)
 	return failed

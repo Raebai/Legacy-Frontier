@@ -78,6 +78,9 @@ var _hit_frame_emitted: bool = false
 var _pop_timer: float = 0.0
 var _flash_timer: float = 0.0
 var _flash_color: Color = Color.WHITE
+## Local-space pitch (radians) for the CAST lead arm, from set_aim(). 0 = forward,
+## +PI/2 = straight down. Horizontal side is the node flip (set_facing).
+var _aim_angle: float = 0.0
 
 
 func _process(delta: float) -> void:
@@ -130,6 +133,15 @@ func set_facing(dir: Vector2) -> void:
 		scale.x = -1.0
 	elif dir.x > 0.0:
 		scale.x = 1.0
+
+
+## Aim the CAST lead arm/staff toward `dir` (the cursor direction). The node flip
+## (set_facing) owns left/right, so we only capture the vertical pitch in the
+## mirrored local frame: local +x is always "forward toward facing", so the arm
+## angle is atan2(dir.y, |dir.x|). The cast pose reads _aim_angle for arm_lead.
+func set_aim(dir: Vector2) -> void:
+	if dir != Vector2.ZERO:
+		_aim_angle = atan2(dir.y, absf(dir.x))
 
 
 ## Set the base limb/head color (enemy archetype tint, hero blue, ...).
@@ -399,8 +411,10 @@ func _compute_pose() -> Dictionary:
 			arm_lead = PI * 0.5 + 0.7
 			arm_off = PI * 0.5 + 0.95
 		State.CAST:
+			# Lead arm thrusts toward the aim pitch (staff points at the cursor);
+			# off arm stays as a light counter-pose.
 			lean = height * 0.05
-			arm_lead = -0.12
+			arm_lead = _aim_angle
 			arm_off = 0.18
 		State.PUNCH:
 			# ext < 0 during anticipation coils the torso back and retracts
