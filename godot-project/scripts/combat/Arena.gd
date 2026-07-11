@@ -37,6 +37,7 @@ func _ready() -> void:
 	_encounter = ENCOUNTER_SCRIPT.new()
 	add_child(_encounter)
 	_encounter.cleared.connect(_on_floor_cleared)
+	_build_ability_bar()
 
 	_gs = get_node_or_null("/root/GameState")
 	_run_mode = _gs != null and _gs.is_run_active()
@@ -119,6 +120,16 @@ func _clear_portal() -> void:
 			_portal.taken.disconnect(_on_portal_taken)
 		_portal.queue_free()
 	_portal = null
+
+
+## MMO-style ability/cooldown hotbar. Reads the hero each frame and self-finds
+## it via the "hero" group, so it works in both RUN and SANDBOX modes and simply
+## draws nothing if no hero is present.
+func _build_ability_bar() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 60  # above the floor banner (50), below Conversation (100)
+	add_child(layer)
+	layer.add_child(AbilityBar.new())
 
 
 # ------------------------------------------------------------------- theme/UI
