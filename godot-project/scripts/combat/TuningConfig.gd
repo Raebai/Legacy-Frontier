@@ -19,3 +19,8 @@ extends Resource
 @export var hurt_hit_stop: float = 0.05  # freeze when the hero takes a hit
 @export var hurt_shake: float = 7.0      # shake when the hero takes a hit
 @export var melee_hit_stop: float = 0.07 # freeze when a melee connects
+@export var move_accel: float = 2600.0   # px/s^2 velocity ramp (weight/flow); high = snappy
+
+@export_group("Camera")
+@export var lookahead_dist: float = 8.0  # px the camera peeks toward aim (was 22 — the "shake when I move")
+@export var shake_scale: float = 1.0     # global multiplier on screenshake magnitude (0 = off)

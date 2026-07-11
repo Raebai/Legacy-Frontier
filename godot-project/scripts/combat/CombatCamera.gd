@@ -23,14 +23,19 @@ const NOISE_SPEED: float = 28.0  # wobble frequency of the pseudo-noise
 const KICK_RETURN_SPEED: float = 10.0  # how fast the punch eases back
 const KICK_MAX: float = 26.0  # px cap on stacked kicks
 
-# --- Lookahead tuning (GMTK: camera drifts toward where the hero faces) ---
-const LOOKAHEAD_DIST: float = 22.0  # px of drift at full facing
-const LOOKAHEAD_SPEED: float = 4.0  # ease rate toward the facing target
+# --- Lookahead tuning (GMTK: camera drifts toward where the hero AIMS) ---
+# Default trimmed 22 -> 8: at 2.2x zoom the old 22px drift read as the screen
+# lurching every time you changed direction ("shake when I move"). Live-tunable
+# via Tuning.lookahead_dist. Lookahead now tracks aim, not movement, so strafing
+# doesn't jerk the frame.
+const LOOKAHEAD_DIST: float = 8.0
+const LOOKAHEAD_SPEED: float = 4.0  # ease rate toward the aim target
 
 var _trauma: float = 0.0
 var _noise_t: float = 0.0
 var _kick_offset: Vector2 = Vector2.ZERO
 var _lookahead: Vector2 = Vector2.ZERO
+var _tuning: Node = null  # cached /root/Tuning (null in headless -> const fallbacks)
 
 # --- Punch-zoom state (quick zoom-in kick that eases back to base) ---
 var _zoom_base: Vector2 = DEFAULT_ZOOM
@@ -42,6 +47,17 @@ var _zoom_amount: float = 0.0
 func _ready() -> void:
 	add_to_group("combat_camera")
 	zoom = DEFAULT_ZOOM
+	_tuning = get_node_or_null("/root/Tuning")
+
+
+## Live feel value from the Tuning autoload (falls back to the const default
+## when the autoload/field is absent, e.g. in headless tests).
+func _tune(key: String, fallback: float) -> float:
+	if _tuning != null and _tuning.cfg != null:
+		var v: Variant = _tuning.cfg.get(key)
+		if v != null:
+			return float(v)
+	return fallback
 
 
 ## Add shake energy directly in trauma units (0..1).
@@ -82,19 +98,24 @@ func _process(delta: float) -> void:
 		else:
 			var e: float = _zoom_timer / _zoom_duration
 			zoom = _zoom_base * (1.0 + _zoom_amount * e)
-	# --- Lookahead: drift toward where the hero is facing. ---
+	# --- Lookahead: gentle peek toward where the hero AIMS (falls back to
+	# facing). Tracking aim not movement means strafing doesn't jerk the frame. ---
 	var lookahead_target: Vector2 = Vector2.ZERO
 	var p: Node = get_parent()
-	if p != null and "facing" in p:
-		var facing_value: Variant = p.get("facing")
-		if facing_value is Vector2:
-			lookahead_target = (facing_value as Vector2).normalized() * LOOKAHEAD_DIST
+	if p != null:
+		var dir_value: Variant = null
+		if "_aim_dir" in p:
+			dir_value = p.get("_aim_dir")
+		elif "facing" in p:
+			dir_value = p.get("facing")
+		if dir_value is Vector2 and (dir_value as Vector2) != Vector2.ZERO:
+			lookahead_target = (dir_value as Vector2).normalized() * _tune("lookahead_dist", LOOKAHEAD_DIST)
 	_lookahead = _lookahead.lerp(lookahead_target, minf(LOOKAHEAD_SPEED * delta, 1.0))
 	# --- Trauma shake + kick, composed with the lookahead drift. ---
 	_noise_t += delta * NOISE_SPEED
 	_trauma = maxf(_trauma - TRAUMA_DECAY * delta, 0.0)
 	_kick_offset = _kick_offset.lerp(Vector2.ZERO, minf(KICK_RETURN_SPEED * delta, 1.0))
-	var shake: float = _trauma * _trauma
+	var shake: float = _trauma * _trauma * _tune("shake_scale", 1.0)
 	var shake_offset: Vector2 = Vector2.ZERO
 	if shake > 0.0 or _kick_offset != Vector2.ZERO:
 		# Two incommensurate sines per axis ~ cheap smooth noise (reads as a
