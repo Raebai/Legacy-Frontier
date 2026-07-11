@@ -2,6 +2,17 @@
 
 > Customised for the Legacy Frontier project. Based on the user's reusable workspace template.
 
+## ⚡ Current Direction (READ THIS FIRST — the session log below is partly historical)
+
+Legacy Frontier has **pivoted twice** since the v0.5 work logged in "Session Context Update" (Sessions 1–14). Those sessions describe a **now-PARKED** game — do not assume they describe current work.
+
+- **ACTIVE (2026-07-08 →):** a mobile-first **2D top-down co-op roguelite tower-climber** — Soul Knight feel + Hades soul + Tower of God structure + Cuphead-hard bosses, with the AI-NPC-memory hub as the moat. Canonical design: **`docs/v2.0-design.md`**. Working branch: **`v2.0-tower`**.
+- **PARKED (not deleted):** the v1.0 3D action-RPG (branch `v1.0-3d`) and the v0.0–v0.5 2D AI-NPC-memory game (`main`). The 2D + memory stack is reused, not thrown away.
+- **Live state ledger — open this at the start of every session:** **`.superpowers/sdd/progress.md`** (read its top STATUS block first). Then `git log --oneline`, then `docs/v2.0-design.md`.
+- **Memory pointers:** `project_v2_tower_pivot.md` (active) and `project_3d_protagonist_pivot.md` (superseded).
+- **Current state:** Slices 0/1/2 are built + headless-verified but **UNPLAYTESTED** (awaiting maker F5 GO/NO-GO — Gopeak can't render feel). In progress: a data-driven-floors + persistent-climb refactor, **steps 1–4 done, step 5 (persistent-climb spine) not started.** Full detail in `progress.md`.
+- The `docs/roadmap.md` "Tier" language in the Mission/Scope sections below is v0.5-era and is **superseded by `docs/v2.0-design.md`** for current work.
+
 ## Mission
 
 Ship a high-quality MVP of Legacy Frontier — a 2D pixel-art top-down RPG with persistent AI NPCs and a living world — incrementally, fast and safely. The MCP target is the Tier 2 vertical slice (see `docs/roadmap.md`).
@@ -591,3 +602,22 @@ into `docs/decisions.md`. New entries appended at the bottom; old entries preser
   - Raebai's `pending_facts_to_share`: 2 facts queued to share with Mirelle ("Lifelong fears are the most daunting", "Cottage with herbs, running a place called the haven").
   - Mirelle's `pending_facts_to_share`: 1 fact queued to share with Raebai ("Coldrose on his mind").
   - M13 design (per `docs/v0.5-design.md` + D-041): rule-based propagation — when NPC A's pending_facts_to_share has entries with share_with containing NPC B's id, AND B is in earshot during a routine encounter (M13 short-circuits "routine encounters" for stationary anchors per D-041), drain the queue into B's `relationships[player].gossip_inbox`. B's next consolidation reads gossip_inbox + can produce `consumed_inbox_indices` to drain (already wired in apply_to_npc). Plus relationship-block filter expansion in Conversation.gd to include NPCs with unconsumed gossip (currently only `player`). M13 doesn't need a fresh LLM call — it's pure rule-based propagation. Effort estimate per design: 1 session. After M13: M14 (Tier 0 ambient + broadcast — last v0.5 milestone before audit).
+
+---
+
+## Session Context Update — v2.0 CATCH-UP BACKFILL (append-only)
+
+### Sessions 15+ — Two pivots, then the v2.0 tower-climber (Slices 0/1/2 + floors refactor)
+
+- **Date:** 2026-06 to 2026-07-11 (consolidated backfill). The granular per-session ledger for this arc lives in `.superpowers/sdd/progress.md` and `docs/v2.0-design.md`, NOT here. This entry exists so a cold-start reader of CLAUDE.md is not misled by Sessions 1–14, which describe now-parked work.
+- **Why this entry exists:** Sessions 1–14 document the v0.0→v0.5 2D AI-NPC-memory game on `main` (shipped v0.0 + most of v0.5 through M10). The project then pivoted twice and the CLAUDE.md log was not kept current. This closes the gap. Canonical current-state sources: `.superpowers/sdd/progress.md` (live ledger), `docs/v2.0-design.md` (design north star), memory files `project_v2_tower_pivot.md` (active) / `project_3d_protagonist_pivot.md` (superseded).
+- **Pivot 1 (2026-06-02) — 3D action-RPG.** Briefly pivoted to a 3D protagonist action-RPG on branch `v1.0-3d`. PARKED (not deleted) — open-world 3D was studio-years scope for a solo dev.
+- **Pivot 2 (2026-07-08) — the ACTIVE direction: 2D co-op roguelite tower-climber.** Branch `v2.0-tower` off `main`. Mobile-first 2D top-down spell-brawler about climbing an endless Tower. Identity: Soul Knight form + Hades soul + Tower of God structure + Cuphead-hard bosses + the shipped AI-NPC-memory hub as the moat. Reuses the 2D + memory stack; Raebai (the v0.0 chronicler) records your ascent. Multiplayer SP-first, staged toward an "MMO-feel" ladder, never a real MMO. Canonical: `docs/v2.0-design.md`. Discipline: tiny vertical slices.
+- **Built on `v2.0-tower` — all HEADLESS-VERIFIED, all UNPLAYTESTED** (awaiting maker F5 GO/NO-GO; Gopeak screenshots don't render under the dummy renderer, so feel/look needs the maker's hands):
+  - **Slice 0** — combat-feel toy: move + dash + auto-aim cast, one room, juice (hitstop/screenshake). Reviewed clean (`.superpowers/sdd/slice0-final-review.md`).
+  - **Slice 1** — "Stick Fight, with magic": procedural stick-figure rig, melee, telegraphed giant blast (Q), blink (R), nova (T), destructible crates + scorch decals, elements, rank/aura, combat music. Game-feel foundation built toward Stick-Fight smoothness (input buffering, dash i-frames, weighted hitstop, trauma screenshake, enemy death spectacle). HONEST GAP: AVM-shorts animation FLUIDITY needs real animated sprites (asset-gen pipeline) — procedural rigs get juice/destruction/abilities, not sprite fluidity. Don't overpromise.
+  - **Slice 2** — closed the LOOP: hub (Raebai + Mirelle) → "ENTER THE TOWER" portal → 5 climbing floors (theme bands surface→underground→sky, denser/tankier with depth) → return to hub where NPCs REMEMBER the run (floor / died-or-cleared / element) via the existing memory plumbing (no schema bump). Plus rogue class + Tab live-switch (mage byte-identical), telegraphed caster + charger enemies (dodge-the-tell), `Tuning` autoload live feel-knobs. 15 headless test suites green. Playtest guide: `docs/v2.0-slice2-checklist.md`.
+- **In progress (paused mid-refactor, 2026-07-11): data-driven floors + persistent climb.** Brainstormed spec: `docs/superpowers/specs/2026-07-10-the-climb-and-floors-design.md`. Maker-approved decisions: NO roguelite reset → a PERSISTENT Tower-of-God climb; death = drop 2 floors but keep everything, town clocks your falls; floors = data-driven typed floors over ONE parameterized room shell. Steps 1–4 done + committed (`27fe4fc` data types; `b7079e3` extracted FloorBuilder + Encounter from the Arena god-script; `ff7ec07` authored Ashspire = 5 typed floors). **Step 5 — the persistent-climb spine (climber state to disk, resume from saved floor, `Hero._die` → drop-2-stay-in-tower instead of return-to-hub, town clocks the CLIMB) — NOT STARTED.** Until step 5 lands, death still uses Slice 2 behavior (die → back to hub).
+- **How to check state / play (next session):** read the top STATUS block of `.superpowers/sdd/progress.md`, then `git log --oneline`, then `docs/v2.0-design.md`. Play: **F5** boots the full loop (`Main.tscn`); **F6** on `scenes/combat/Arena.tscn` is the combat sandbox. Hub NPCs need Ollama + `llama3.2:3b` running. Controls in `docs/v2.0-slice2-checklist.md`.
+- **Note on the decision log:** v2.0 design decisions live in `docs/v2.0-design.md` (§20 forks, §21 Slice 2), not `docs/decisions.md` (which is frozen at v0.0–v0.5 D-001..D-045).
+- **Next steps:** maker playtests the current loop (F5), gives GO/NO-GO per `docs/v2.0-slice2-checklist.md`; then resume floors step 5 (persistent-climb spine). After: floor-5 bespoke multi-phase guardian, hub class-select UI, more run-flavour into NPC memory.
