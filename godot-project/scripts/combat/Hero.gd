@@ -481,7 +481,10 @@ func _blink() -> void:
 	var dir: Vector2 = _aim_dir  # blink toward the cursor (up to a platform / across a gap)
 	if dir == Vector2.ZERO:
 		dir = Vector2.RIGHT
-	var dest: Vector2 = _blink_destination(origin, dir)
+	# Blink THROUGH walls to where you aim: to the cursor if it's within range,
+	# else BLINK_DISTANCE along the aim. No wall clamp — it's a phase-blink.
+	var mouse_dist: float = (get_global_mouse_position() - origin).length()
+	var dest: Vector2 = origin + dir * minf(mouse_dist, BLINK_DISTANCE)
 	# Shadow-poof where we WERE: dark fading silhouette + violet burst.
 	rig.spawn_ghost(get_parent(), BLINK_SHADOW_COLOR, Vector2.ZERO, Vector2.ZERO, 0.35)
 	CombatVfx.spawn_burst(

@@ -95,6 +95,19 @@ Files: `python-tools/generate_placeholder_sfx.py` (new), `assets/audio/sfx/{ding
 - HP carrying hub↔run.
 - Persistent-climb spine (that's the parked floors step 5 — separate track).
 
+## Wave 3 REFRAMED (2026-07-11) — Versus Arena (the near-term focus)
+
+Maker redirected the near-term focus mid-Slice-3 to a **Smash / Brawlhalla / Stick-Fight-style versus arena** as the testbed for all the new combat. Explicitly NOT a pivot — a continuation: the game already renders side-on (upright stick figures) with top-down-style free movement, and that view/movement does NOT change. All versus features are ADDITIVE on the existing engine. NO literal gravity/jumping/side-view-blast-zone rebuild (deferred unless maker asks) — "knocked off the edge" is delivered via pit/edge ring-out + slope-slide instead, which reuses everything and stays mobile-first.
+
+Versus additions (build order):
+1. **Destructible map** — spells + blasts + hard hits crater/break the stage. Requires Spell/BlastSpell/Nova to damage the "destructible" group (currently only melee/dash do). New `DestructibleTerrain` (StaticBody2D cover/terrain, multi-hit, shatters to open the space).
+2. **Ring-out** — pit/edge zones: a fighter knocked into / walking off = lose a stock; slope zones slide fighters toward the drop. Stocks/respawn manager. New `StageHazard` (pit + slope).
+3. **Impact juice** — dust puff on landing (flight/dash-stop), floor crater + dust + extra hitstop when a hard knockback slams a fighter into a wall/floor ("damage where they're sent").
+4. **Flight ability** — grounded default; a levitate ability lifts the figure (shadow shrinks), dust on land.
+5. **Versus stage + mode** — a Smash/Brawlhalla-like layout (central platform, edges/pits, slopes, destructible cover) with P1 (maker) vs AI bots + stocks; architected so a local gamepad P2 (twin-stick maps perfectly) slots in later.
+6. **Mobile** — keep touch/mobile in mind throughout (down the line): anchored HUD, directional aim, no pixel-perfect requirements.
+North-star content (LATER, not now): "insane" anime ultimates — divine smite, a long-cast magic-circle bear summon, etc. — built on the existing telegraph→long-cast→screen-filling-payoff pattern once the arena feels good.
+
 ## Decisions (to log in v2.0-design.md)
 
 - **D-S3-1** Twin-stick: attacks aim at cursor (soft-assisted), dash/blink follow movement. Reverses the auto-aim pillar but preserves mobile-first via directional aim + assist.
