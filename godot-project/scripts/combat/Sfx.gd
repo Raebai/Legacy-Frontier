@@ -12,6 +12,9 @@ const STREAMS: Dictionary = {
 	"melee_swing": preload("res://assets/audio/sfx/melee_swing.ogg"),
 	"melee_hit": preload("res://assets/audio/sfx/melee_hit.ogg"),
 	"blast": preload("res://assets/audio/sfx/blast.ogg"),
+	# Slice 3: bright "ding" on a clean melee/parry connect + running footsteps.
+	"ding": preload("res://assets/audio/sfx/ding.wav"),
+	"footstep": preload("res://assets/audio/sfx/footstep.wav"),
 }
 
 const POOL_SIZE: int = 8
