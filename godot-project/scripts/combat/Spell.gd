@@ -46,6 +46,7 @@ func set_element_color(c: Color) -> void:
 func _ready() -> void:
 	body_entered.connect(_on_hit)
 	area_entered.connect(_on_area_hit)
+	collision_mask = collision_mask | 1  # also stop on platforms/walls (layer 1)
 
 
 func _physics_process(delta: float) -> void:
@@ -83,6 +84,13 @@ func _try_damage(node: Node) -> void:
 		Juice.shake_camera(6.0)
 		_spawn_impact_burst()
 		queue_free()
+	elif node is StaticBody2D:
+		# A platform/wall stops the bolt — small explosion, no pass-through.
+		Sfx.play("spell_impact")
+		Juice.hit_stop(0.03)
+		Juice.shake_camera(3.0)
+		_spawn_impact_burst()
+		queue_free()
 
 
 func _spawn_impact_burst() -> void:
@@ -96,5 +104,5 @@ func _spawn_impact_burst() -> void:
 		)
 	CombatVfx.spawn_burst(
 		get_parent(), global_position, start, end,
-		20, 0.4, 60.0, 130.0, 1.0, 3.0
+		28, 0.45, 90.0, 220.0, 1.5, 4.0
 	)

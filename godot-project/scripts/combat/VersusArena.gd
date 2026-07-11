@@ -76,7 +76,7 @@ func _ready() -> void:
 	_build_background()
 	_build_platforms()
 	_build_cover()
-	_build_blast_zones()
+	_build_walls()
 	_spawn_fighters()
 	_build_hud()
 	_update_hud()
@@ -165,7 +165,13 @@ func _finish_match(text: String) -> void:
 	if _banner != null:
 		_banner.text = text
 		_banner.visible = true
+		get_tree().create_timer(2.5).timeout.connect(_hide_banner)  # brief, then gone
 	_update_hud()
+
+
+func _hide_banner() -> void:
+	if _banner != null:
+		_banner.visible = false
 
 
 # ----------------------------------------------------------------------- build
@@ -229,16 +235,11 @@ func _build_cover() -> void:
 		add_child(block)
 
 
-## Blast zones — fall below the stage or get knocked off the sides = ring-out.
-## Each is a StageHazard PIT wired to _on_fighter_fell.
-func _build_blast_zones() -> void:
-	for z: Dictionary in BLAST_ZONES:
-		var pit := StageHazard.new()
-		pit.mode = StageHazard.Mode.PIT
-		pit.zone_size = z["size"]
-		pit.position = z["center"]
-		pit.fighter_fell.connect(_on_fighter_fell)
-		add_child(pit)
+## No falling off (yet): tall side walls contain the fighters. The ring-out
+## system (_on_fighter_fell) stays dormant — no blast zones are built for now.
+func _build_walls() -> void:
+	_make_platform(Vector2(195, 290), Vector2(30, 620))   # left wall
+	_make_platform(Vector2(1005, 290), Vector2(30, 620))  # right wall
 
 
 ## Runtime load()s, never preload: both scenes' scripts reference autoload

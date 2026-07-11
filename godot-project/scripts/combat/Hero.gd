@@ -13,7 +13,7 @@ const GRAVITY: float = 1500.0
 const MAX_FALL: float = 950.0
 const JUMP_VELOCITY: float = -540.0
 const DOUBLE_JUMP_VELOCITY: float = -470.0
-const MAX_AIR_JUMPS: int = 1
+const MAX_AIR_JUMPS: int = 0  # single jump (up arrow) — no double-jump
 const COYOTE_TIME: float = 0.10      # jump slightly after leaving a ledge
 const JUMP_BUFFER_TIME: float = 0.10 # jump queued slightly before landing
 const GROUND_ACCEL: float = 2600.0
@@ -90,7 +90,7 @@ const GHOST_COLOR: Color = Color(0.6, 0.85, 1.0, 0.72)
 ## Persistent "charged mage" aura (enemies get none — hero reads as hero).
 ## Aura COLOUR comes from the active element (see _apply_element); only the
 ## strength is fixed here.
-const AURA_STRENGTH: float = 0.6
+const AURA_STRENGTH: float = 0.0  # off — the glow behind the figure obscured it
 ## Body colourways (limb palette). Independent of the element — you can be a
 ## Jade stickman casting Fire. Cycled with `cycle_colourway` (C).
 const COLOURWAYS: Array[Color] = [
@@ -462,7 +462,7 @@ func _start_dash() -> void:
 	is_dashing = true
 	_dash_timer = _tune("dash_time", DASH_TIME)
 	_dash_cooldown_timer = _cfg["dash_cd"]
-	_dash_dir = _move_dir  # dodge toward MOVEMENT, not the cursor (twin-stick)
+	_dash_dir = _aim_dir  # dash toward where you aim — any direction
 	_ghost_timer = 0.0  # first afterimage lands this frame
 	_dash_hit.clear()
 
