@@ -38,6 +38,11 @@ const BLINK_ARRIVAL_FLASH_TIME: float = 0.1
 const BLINK_WALL_MARGIN: float = 2.0
 ## Energy nova: self-centered instant shockwave — the "get off me" button.
 const NOVA_COOLDOWN: float = 3.0
+## Perfect-timing parry (rogue only): a short ACTIVE window that REVERSES an
+## incoming enemy bolt back at the enemy side. Miss the window and you eat it.
+const PARRY_WINDOW: float = 0.16
+const PARRY_COOLDOWN: float = 0.9
+const PARRY_FLASH_COLOR: Color = Color(0.8, 1.0, 1.0)
 ## Input buffer: a melee/dash/blast press that lands while its gate is closed
 ## (cooldown running, mid-dash) is held this long and fired the moment the
 ## gate opens — no more silently dropped presses. `cast` is held/continuous
@@ -85,7 +90,7 @@ const CLASS_CONFIG: Dictionary = {
 		"blast_cd": BLAST_COOLDOWN,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
-		"aoe": "blast", "has_nova": true,
+		"aoe": "blast", "has_nova": true, "can_parry": false,
 	},
 	HeroClass.ROGUE: {
 		"preset": "rogue", "weapon": "sword",
@@ -93,7 +98,7 @@ const CLASS_CONFIG: Dictionary = {
 		"blast_cd": 2.5,
 		"throw_blade": true, "blade_damage": 11,
 		"dash_strike": true, "dash_strike_damage": 16, "dash_strike_range": 42.0,
-		"aoe": "nova", "has_nova": false,
+		"aoe": "nova", "has_nova": false, "can_parry": true,
 	},
 }
 
@@ -118,6 +123,8 @@ var _blast_cooldown_timer: float = 0.0
 var _blink_cooldown_timer: float = 0.0
 var _blink_iframe_timer: float = 0.0
 var _nova_cooldown_timer: float = 0.0
+var _parry_window_timer: float = 0.0
+var _parry_cooldown_timer: float = 0.0
 var _weapon: String = "fists"
 var _melee_damage: int = MELEE_DAMAGE
 var _melee_range: float = MELEE_RANGE
@@ -175,6 +182,8 @@ func _physics_process(delta: float) -> void:
 	_blink_cooldown_timer = maxf(_blink_cooldown_timer - delta, 0.0)
 	_blink_iframe_timer = maxf(_blink_iframe_timer - delta, 0.0)
 	_nova_cooldown_timer = maxf(_nova_cooldown_timer - delta, 0.0)
+	_parry_window_timer = maxf(_parry_window_timer - delta, 0.0)
+	_parry_cooldown_timer = maxf(_parry_cooldown_timer - delta, 0.0)
 	_update_input_buffer(delta)
 	# Twin-stick aim: track the cursor every frame so casts / cast-pose / camera
 	# peek use it even mid-dash. Movement (below) feeds _move_dir independently.
@@ -189,6 +198,8 @@ func _physics_process(delta: float) -> void:
 		_cycle_colourway()
 	if Input.is_action_just_pressed("switch_class"):
 		_cycle_class()
+	if Input.is_action_just_pressed("parry") and not is_dashing:
+		_try_parry_start()
 	if Input.is_action_pressed("cast") and _cast_cooldown_timer <= 0.0 and not is_dashing:
 		_cast()
 
@@ -330,6 +341,8 @@ func configure_class(cls: int) -> void:
 	_blink_cooldown_timer = 0.0
 	_blast_cooldown_timer = 0.0
 	_nova_cooldown_timer = 0.0
+	_parry_window_timer = 0.0
+	_parry_cooldown_timer = 0.0
 	_clear_input_buffer()
 
 
@@ -497,6 +510,68 @@ func _spawn_nova() -> void:
 	get_parent().add_child(nova)
 	nova.call("activate_at", global_position)
 	rig.play(CharacterRig.State.CAST)
+
+
+## Open the perfect-timing parry window (rogue only, off cooldown). The reward
+## (ding + reflect) only fires if a bolt actually arrives during the window —
+## see try_parry(). The opening itself is a quick blade-flash tell.
+func _try_parry_start() -> void:
+	if not bool(_cfg["can_parry"]):
+		return  # class can't parry (mage)
+	if _parry_cooldown_timer > 0.0:
+		return
+	_parry_window_timer = PARRY_WINDOW
+	_parry_cooldown_timer = PARRY_COOLDOWN
+	rig.set_aim(_aim_dir)
+	rig.play(CharacterRig.State.CAST)
+	rig.flash_color(PARRY_FLASH_COLOR, PARRY_WINDOW)
+	CombatVfx.spawn_burst(
+		get_parent(), global_position + _aim_dir * 20.0,
+		Color(PARRY_FLASH_COLOR.r, PARRY_FLASH_COLOR.g, PARRY_FLASH_COLOR.b, 0.8),
+		Color(PARRY_FLASH_COLOR.r, PARRY_FLASH_COLOR.g, PARRY_FLASH_COLOR.b, 0.0),
+		10, 0.2, 40.0, 90.0
+	)
+	Sfx.play("melee_swing", -2.0, 0.1)
+
+
+## Called by an incoming enemy bolt as it reaches the hero. If the parry window
+## is open, reverse the bolt toward the nearest enemy (fallback: where the hero
+## aims), pay out the reward juice (bright ding + hitstop + flash), and return
+## true — the bolt keeps flying, now hostile to enemies. One reflect per window.
+func try_parry(proj: Node) -> bool:
+	if _parry_window_timer <= 0.0:
+		return false
+	if not is_instance_valid(proj) or not proj.has_method("reflect"):
+		return false
+	var target: Node2D = Targeting.nearest(global_position, get_tree().get_nodes_in_group("enemy"))
+	var dir: Vector2 = _aim_dir
+	if target != null:
+		dir = (target.global_position - global_position).normalized()
+	proj.reflect(dir, _element_color)
+	Sfx.play("ding", 2.0, 0.02)  # the whole payoff — a crisp, loud parry ding
+	Juice.hit_stop(0.09)
+	Juice.shake_camera(4.0)
+	rig.flash_color(PARRY_FLASH_COLOR, 0.14)
+	_parry_window_timer = 0.0
+	return true
+
+
+func is_parrying() -> bool:
+	return _parry_window_timer > 0.0
+
+
+## Cooldown snapshot for the AbilityBar HUD — one dict per slot, in bar order.
+## `enabled` false = the slot is dimmed (class can't use it): mage shows Nova,
+## rogue shows Parry.
+func ability_hud_state() -> Array:
+	return [
+		{"name": "Cast", "key": "LMB", "remaining": _cast_cooldown_timer, "total": float(_cfg["cast_cd"]), "enabled": true},
+		{"name": "Dash", "key": "Spc", "remaining": _dash_cooldown_timer, "total": float(_cfg["dash_cd"]), "enabled": true},
+		{"name": "AoE", "key": "Q", "remaining": _blast_cooldown_timer, "total": float(_cfg["blast_cd"]), "enabled": true},
+		{"name": "Blink", "key": "R", "remaining": _blink_cooldown_timer, "total": float(_cfg["blink_cd"]), "enabled": true},
+		{"name": "Nova", "key": "T", "remaining": _nova_cooldown_timer, "total": NOVA_COOLDOWN, "enabled": bool(_cfg["has_nova"])},
+		{"name": "Parry", "key": "RMB", "remaining": _parry_cooldown_timer, "total": PARRY_COOLDOWN, "enabled": bool(_cfg["can_parry"])},
+	]
 
 
 ## Equip a weapon kind: swaps the rig's weapon overlay AND retunes the melee
