@@ -19,6 +19,7 @@ var trigger_group: String = "hero"
 
 var _t: float = 0.0
 var _armed: bool = false   # ignore the entry-frame overlap; require a real walk-in
+var _taken: bool = false   # fire exactly once (poll + signal both guard on this)
 
 
 func _ready() -> void:
@@ -45,11 +46,29 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_t += delta
 	queue_redraw()
+	# Poll overlap each frame once armed: body_entered only fires on the ENTER
+	# edge, which is missed if the body already overlaps when the portal arms or
+	# only brushes the trigger. Polling get_overlapping_bodies makes walk-in
+	# reliable. _taken guards against re-firing.
+	if _armed and not _taken:
+		for body in get_overlapping_bodies():
+			if body.is_in_group(trigger_group):
+				_fire()
+				return
 
 
 func _on_body_entered(body: Node) -> void:
 	if _armed and body.is_in_group(trigger_group):
-		taken.emit()
+		_fire()
+
+
+## Emit `taken` exactly once (guarded), regardless of whether the poll or the
+## enter-signal got here first.
+func _fire() -> void:
+	if _taken:
+		return
+	_taken = true
+	taken.emit()
 
 
 func _draw() -> void:
