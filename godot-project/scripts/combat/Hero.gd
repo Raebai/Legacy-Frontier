@@ -43,6 +43,15 @@ const NOVA_COOLDOWN: float = 3.0
 const PARRY_WINDOW: float = 0.16
 const PARRY_COOLDOWN: float = 0.9
 const PARRY_FLASH_COLOR: Color = Color(0.8, 1.0, 1.0)
+## Flight ability (hold Fly / Left Shift): grounded by default; lift off to glide
+## OVER pits (no ring-out while airborne). Fuel drains while flying, regenerates
+## on the ground; empty = forced landing. A resource — you can't camp the air.
+const FLY_FUEL_MAX: float = 1.0
+const FLY_DRAIN: float = 0.5         # fuel/sec airborne (~2s from a full tank)
+const FLY_REGEN: float = 0.35        # fuel/sec regained grounded (~3s refill)
+const FLY_MIN_TO_START: float = 0.2  # min fuel to lift off (stops empty-tank flutter)
+const FLY_SPEED_MULT: float = 1.15   # gliding is a touch faster than walking
+const AIRBORNE_LERP: float = 7.0     # how fast the lift visual eases in/out
 ## Input buffer: a melee/dash/blast press that lands while its gate is closed
 ## (cooldown running, mid-dash) is held this long and fired the moment the
 ## gate opens — no more silently dropped presses. `cast` is held/continuous
@@ -125,6 +134,9 @@ var _blink_iframe_timer: float = 0.0
 var _nova_cooldown_timer: float = 0.0
 var _parry_window_timer: float = 0.0
 var _parry_cooldown_timer: float = 0.0
+var _flying: bool = false
+var _fly_fuel: float = FLY_FUEL_MAX
+var _airborne: float = 0.0
 var _weapon: String = "fists"
 var _melee_damage: int = MELEE_DAMAGE
 var _melee_range: float = MELEE_RANGE
@@ -202,6 +214,7 @@ func _physics_process(delta: float) -> void:
 		_try_parry_start()
 	if Input.is_action_pressed("cast") and _cast_cooldown_timer <= 0.0 and not is_dashing:
 		_cast()
+	_update_flight(delta)
 
 	if is_dashing:
 		_dash_timer -= delta
@@ -235,7 +248,10 @@ func _physics_process(delta: float) -> void:
 		return  # a dash started this frame — the dash branch owns movement now
 
 	# Accel/friction ramp for weight + flow (was an instant velocity snap).
-	var target_v: Vector2 = direction * _tune("hero_speed", SPEED)
+	var spd: float = _tune("hero_speed", SPEED)
+	if _flying:
+		spd *= FLY_SPEED_MULT  # gliding is a touch faster
+	var target_v: Vector2 = direction * spd
 	velocity = velocity.move_toward(target_v, _tune("move_accel", 2600.0) * delta)
 	move_and_slide()
 	if direction != Vector2.ZERO:
@@ -566,6 +582,47 @@ func is_parrying() -> bool:
 	return _parry_window_timer > 0.0
 
 
+## Flight: read the hold input (never mid-dash), tick the fuel/state machine,
+## then ease the airborne lift visual on the rig. Split from _tick_flight so
+## headless tests can drive the fuel logic without simulating input.
+func _update_flight(delta: float) -> void:
+	_tick_flight(Input.is_action_pressed("fly") and not is_dashing, delta)
+	_airborne = move_toward(_airborne, 1.0 if _flying else 0.0, AIRBORNE_LERP * delta)
+	rig.set_airborne(_airborne)
+
+
+## Fuel/state core (testable seam). Fly while held + fueled; lifting off needs
+## FLY_MIN_TO_START so an empty tank can't flutter. Fuel drains airborne, regens
+## grounded. A flying->grounded transition kicks up landing dust.
+func _tick_flight(want_fly: bool, delta: float) -> void:
+	var fly_now: bool
+	if _flying:
+		fly_now = want_fly and _fly_fuel > 0.0
+	else:
+		fly_now = want_fly and _fly_fuel >= FLY_MIN_TO_START
+	if fly_now:
+		_fly_fuel = maxf(_fly_fuel - FLY_DRAIN * delta, 0.0)
+	else:
+		_fly_fuel = minf(_fly_fuel + FLY_REGEN * delta, FLY_FUEL_MAX)
+	if _flying and not fly_now:
+		_land()
+	_flying = fly_now
+
+
+## Touchdown dust puff (also fires on a forced landing when the tank runs dry).
+func _land() -> void:
+	CombatVfx.spawn_burst(
+		get_parent(), global_position,
+		Color(0.82, 0.82, 0.88, 0.65), Color(0.82, 0.82, 0.88, 0.0),
+		10, 0.28, 30.0, 100.0
+	)
+
+
+## True while airborne — the versus ring-out skips flying fighters (glide the pits).
+func is_flying() -> bool:
+	return _flying
+
+
 ## Cooldown snapshot for the AbilityBar HUD — one dict per slot, in bar order.
 ## `enabled` false = the slot is dimmed (class can't use it): mage shows Nova,
 ## rogue shows Parry.
@@ -577,6 +634,9 @@ func ability_hud_state() -> Array:
 		{"name": "Blink", "key": "R", "remaining": _blink_cooldown_timer, "total": float(_cfg["blink_cd"]), "enabled": true},
 		{"name": "Nova", "key": "T", "remaining": _nova_cooldown_timer, "total": NOVA_COOLDOWN, "enabled": bool(_cfg["has_nova"])},
 		{"name": "Parry", "key": "RMB", "remaining": _parry_cooldown_timer, "total": PARRY_COOLDOWN, "enabled": bool(_cfg["can_parry"])},
+		# Fly slot doubles as a fuel gauge: the cooldown-fill shows the DRAINED
+		# fuel (empty tank = full overlay), so it reads as a jetpack meter.
+		{"name": "Fly", "key": "Shf", "remaining": FLY_FUEL_MAX - _fly_fuel, "total": FLY_FUEL_MAX, "enabled": true},
 	]
 
 

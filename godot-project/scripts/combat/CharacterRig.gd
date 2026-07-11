@@ -28,6 +28,8 @@ const STRIKE_PULLBACK: float = 0.35
 ## hit_frame fires, easing back to 1.0 over POP_TIME seconds.
 const POP_SCALE: float = 1.12
 const POP_TIME: float = 0.1
+## Flight: fraction of the figure's height it rises at full airborne (set_airborne).
+const AIRBORNE_LIFT_FACTOR: float = 0.7
 ## Slash-arc swoosh: visible over [start, end] of the one-shot's normalized
 ## time, sweeping SLASH_ARC_SPAN radians at radius height * factor.
 const SLASH_ARC_START: float = 0.38
@@ -81,6 +83,8 @@ var _flash_color: Color = Color.WHITE
 ## Local-space pitch (radians) for the CAST lead arm, from set_aim(). 0 = forward,
 ## +PI/2 = straight down. Horizontal side is the node flip (set_facing).
 var _aim_angle: float = 0.0
+## Airborne lift for the flight ability (0 = grounded, 1 = fully lifted).
+var _airborne: float = 0.0
 
 
 func _process(delta: float) -> void:
@@ -142,6 +146,13 @@ func set_facing(dir: Vector2) -> void:
 func set_aim(dir: Vector2) -> void:
 	if dir != Vector2.ZERO:
 		_aim_angle = atan2(dir.y, absf(dir.x))
+
+
+## Flight lift, 0 (grounded) .. 1 (airborne). Driven by Hero._update_flight;
+## raises the drawn figure and drops a shrinking ground shadow beneath it.
+func set_airborne(v: float) -> void:
+	_airborne = clampf(v, 0.0, 1.0)
+	queue_redraw()
 
 
 ## Set the base limb/head color (enemy archetype tint, hero blue, ...).
@@ -240,15 +251,32 @@ func spawn_ghost(
 
 func _draw() -> void:
 	var col: Color = _flash_color if _flash_timer > 0.0 else limb_color
+	if _airborne > 0.01:
+		_draw_shadow()  # ground shadow stays put while the figure lifts (flight)
 	_draw_aura()
-	# Impact pop: a transient DRAW-TIME size multiplier. Never touches
-	# node.scale — set_facing() owns scale.x for the horizontal flip.
+	# Draw-time transform: impact pop (scale) composed with flight lift (y-offset).
+	# Never touches node.scale — set_facing() owns scale.x for the horizontal flip.
+	var pop_scale: Vector2 = Vector2.ONE
 	if _pop_timer > 0.0:
 		var pop: float = 1.0 + (POP_SCALE - 1.0) * clampf(_pop_timer / POP_TIME, 0.0, 1.0)
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2(pop, pop))
+		pop_scale = Vector2(pop, pop)
+	var lift: Vector2 = Vector2(0.0, -_airborne * height * AIRBORNE_LIFT_FACTOR)
+	if lift != Vector2.ZERO or pop_scale != Vector2.ONE:
+		draw_set_transform(lift, 0.0, pop_scale)
 	var pose: Dictionary = _compute_pose()
 	draw_figure(self, pose, col, equipment, height)
 	_draw_slash_arc(pose, col)
+
+
+## Soft ground shadow beneath the figure while airborne — shrinks + fades as it
+## rises, selling the top-down "lifted off the ground" read. Drawn in un-lifted
+## space (stays on the floor) before the figure's lift transform.
+func _draw_shadow() -> void:
+	var sh_scale: float = 1.0 - 0.45 * _airborne
+	var sh_alpha: float = 0.30 * (1.0 - 0.35 * _airborne)
+	draw_set_transform(Vector2(0.0, height * 0.5), 0.0, Vector2(sh_scale, sh_scale * 0.4))
+	draw_circle(Vector2.ZERO, height * 0.42, Color(0.0, 0.0, 0.0, sh_alpha))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 ## Player-SHAPED aura: the figure silhouette drawn a few times in the aura

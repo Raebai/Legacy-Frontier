@@ -99,6 +99,9 @@ func _on_fighter_fell(body: Node) -> void:
 	var entry: Dictionary = _registry[id]
 	if float(entry["invuln"]) > 0.0:
 		return
+	# Airborne fighters glide over the pit — flight is the "cross the gap" answer.
+	if body.has_method("is_flying") and body.is_flying():
+		return
 	entry["stocks"] = int(entry["stocks"]) - 1
 	if int(entry["stocks"]) > 0:
 		_respawn(body as Node2D, entry)

@@ -26,6 +26,7 @@ func _process(_delta: float) -> bool:
 	failed += _test_ring_out_respawns_p1(arena)
 	failed += _test_invuln_blocks_double_stock_loss(arena)
 	failed += _test_ring_out_respawns_bot(arena)
+	failed += _test_flying_ignores_pit(arena)
 	failed += _test_p1_elimination_ends_match(arena)
 
 	if failed > 0:
@@ -141,6 +142,26 @@ func _test_ring_out_respawns_bot(arena: Node2D) -> int:
 	)
 	failed += _expect(bot.hp == bot.max_hp, "bot respawn refills hp to max")
 	failed += _expect(not arena._match_over, "bots respawning never ends the match")
+	return failed
+
+
+## Airborne fighters glide over pits: a fall report while flying burns no stock.
+func _test_flying_ignores_pit(arena: Node2D) -> int:
+	var failed: int = 0
+	var p1: Node2D = _p1_of()
+	if p1 == null:
+		return 1
+	var entry: Dictionary = _entry_of(arena, p1)
+	var before: int = int(entry["stocks"])
+	entry["invuln"] = 0.0
+	p1._flying = true  # airborne — the pit must not ring it out
+	arena._on_fighter_fell(p1)
+	failed += _expect(
+		int(entry["stocks"]) == before,
+		"a flying fighter glides over the pit, no stock lost (got %d, was %d)"
+			% [int(entry["stocks"]), before]
+	)
+	p1._flying = false  # land again so the elimination test can burn stocks
 	return failed
 
 
