@@ -7,6 +7,20 @@ const SPEED: float = 210.0
 const DASH_SPEED: float = 620.0
 const DASH_TIME: float = 0.14
 const DASH_COOLDOWN: float = 0.55
+## Side-on platformer physics: gravity + jumping (Stick-Fight model). Movement is
+## horizontal (A/D); Space jumps (+ one air jump); Ctrl dashes; Shift flies.
+const GRAVITY: float = 1500.0
+const MAX_FALL: float = 950.0
+const JUMP_VELOCITY: float = -540.0
+const DOUBLE_JUMP_VELOCITY: float = -470.0
+const MAX_AIR_JUMPS: int = 1
+const COYOTE_TIME: float = 0.10      # jump slightly after leaving a ledge
+const JUMP_BUFFER_TIME: float = 0.10 # jump queued slightly before landing
+const GROUND_ACCEL: float = 2600.0
+const AIR_ACCEL: float = 1400.0      # less control mid-air
+## Flight becomes a jetpack: hold to rise against gravity (fuel-limited).
+const FLY_ASCEND_SPEED: float = 280.0
+const FLY_THRUST: float = 2000.0
 const CAST_COOLDOWN: float = 0.35
 const MELEE_COOLDOWN: float = 0.34
 const MELEE_DAMAGE: int = 14
@@ -141,6 +155,9 @@ var _parry_cooldown_timer: float = 0.0
 var _flying: bool = false
 var _fly_fuel: float = FLY_FUEL_MAX
 var _airborne: float = 0.0
+var _coyote: float = 0.0
+var _jump_buffer: float = 0.0
+var _air_jumps: int = 0
 var _weapon: String = "fists"
 var _melee_damage: int = MELEE_DAMAGE
 var _melee_range: float = MELEE_RANGE
@@ -242,30 +259,58 @@ func _physics_process(delta: float) -> void:
 		rig.set_facing(facing)
 		return
 
-	var direction: Vector2 = Input.get_vector(
-		"move_left", "move_right", "move_up", "move_down"
-	)
-	if direction != Vector2.ZERO:
-		_move_dir = direction
+	# --- Side-on movement: horizontal input, gravity, jumping ---
+	var move_x: float = Input.get_axis("move_left", "move_right")
+	if move_x != 0.0:
+		_move_dir = Vector2(signf(move_x), 0.0)  # dash/blink dodge direction
+	if Input.is_action_just_pressed("jump"):
+		_jump_buffer = JUMP_BUFFER_TIME
+	_jump_buffer = maxf(_jump_buffer - delta, 0.0)
 
 	if _try_fire_buffered():
 		return  # a dash started this frame — the dash branch owns movement now
 
-	# Accel/friction ramp for weight + flow (was an instant velocity snap).
-	var spd: float = _tune("hero_speed", SPEED)
+	# Coyote window + air-jump refill while grounded.
+	if is_on_floor():
+		_coyote = COYOTE_TIME
+		_air_jumps = MAX_AIR_JUMPS
+	else:
+		_coyote = maxf(_coyote - delta, 0.0)
+
+	# Vertical: jetpack rise overrides gravity; else fall, or rest on the floor.
 	if _flying:
-		spd *= FLY_SPEED_MULT  # gliding is a touch faster
-	var target_v: Vector2 = direction * spd
-	velocity = velocity.move_toward(target_v, _tune("move_accel", 2600.0) * delta)
+		velocity.y = move_toward(velocity.y, -FLY_ASCEND_SPEED, FLY_THRUST * delta)
+	elif is_on_floor():
+		velocity.y = 0.0
+	else:
+		velocity.y = minf(velocity.y + GRAVITY * delta, MAX_FALL)
+
+	# Jump (buffered): ground/coyote first, then a single air (double) jump.
+	if _jump_buffer > 0.0 and not _flying:
+		if is_on_floor() or _coyote > 0.0:
+			velocity.y = JUMP_VELOCITY
+			_jump_buffer = 0.0
+			_coyote = 0.0
+		elif _air_jumps > 0:
+			velocity.y = DOUBLE_JUMP_VELOCITY
+			_air_jumps -= 1
+			_jump_buffer = 0.0
+
+	# Horizontal accel — less control in the air.
+	var spd: float = _tune("hero_speed", SPEED)
+	var accel: float = GROUND_ACCEL if is_on_floor() else AIR_ACCEL
+	velocity.x = move_toward(velocity.x, move_x * spd, accel * delta)
 	move_and_slide()
-	if direction != Vector2.ZERO:
-		rig.play(CharacterRig.State.RUN)
+
+	# Rig: run/idle (footsteps only grounded); the figure just holds its pose airborne.
+	var moving: bool = absf(move_x) > 0.01
+	rig.play(CharacterRig.State.RUN if moving else CharacterRig.State.IDLE)
+	if moving and is_on_floor():
 		_footstep_timer -= delta
 		if _footstep_timer <= 0.0:
 			_footstep_timer = 0.22 if _hero_class == HeroClass.ROGUE else 0.27
 			Sfx.play("footstep", -6.0, 0.14)
 	else:
-		rig.play(CharacterRig.State.IDLE)
 		_footstep_timer = 0.0
 	rig.set_facing(facing)
 	rig.set_aim(_aim_dir)
@@ -433,7 +478,7 @@ func _blink() -> void:
 	_blink_cooldown_timer = _cfg["blink_cd"]
 	_blink_iframe_timer = BLINK_IFRAME
 	var origin: Vector2 = global_position
-	var dir: Vector2 = _move_dir.normalized()  # blink dodges toward movement
+	var dir: Vector2 = _aim_dir  # blink toward the cursor (up to a platform / across a gap)
 	if dir == Vector2.ZERO:
 		dir = Vector2.RIGHT
 	var dest: Vector2 = _blink_destination(origin, dir)
