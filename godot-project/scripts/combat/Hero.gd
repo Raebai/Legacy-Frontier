@@ -215,6 +215,12 @@ func _physics_process(delta: float) -> void:
 			rig.spawn_ghost(get_parent(), GHOST_COLOR, _dash_dir)
 		if _dash_timer <= 0.0:
 			is_dashing = false
+			# Skid-to-a-stop dust puff — the "come down to the ground" kick-up.
+			CombatVfx.spawn_burst(
+				get_parent(), global_position,
+				Color(0.82, 0.82, 0.88, 0.6), Color(0.82, 0.82, 0.88, 0.0),
+				8, 0.25, 30.0, 95.0
+			)
 		rig.play(CharacterRig.State.DASH)
 		rig.set_facing(facing)
 		return

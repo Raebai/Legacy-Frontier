@@ -88,6 +88,22 @@ func apply_knockback(impulse: Vector2) -> void:
 	_knockback = impulse
 
 
+## A hard-knocked enemy that slams into a wall craters the floor + kicks up dust
+## ("damage the floor wherever they're sent"). Spends the remaining knockback so
+## it fires once per slam, not every frame it stays pinned.
+func _check_wall_slam() -> void:
+	if _knockback.length() < 250.0 or get_slide_collision_count() <= 0:
+		return
+	CombatVfx.spawn_burst(
+		get_parent(), global_position,
+		Color(0.72, 0.7, 0.68, 0.7), Color(0.72, 0.7, 0.68, 0.0),
+		12, 0.32, 40.0, 130.0
+	)
+	ScorchDecal.spawn(get_parent(), global_position, 15.0, "crack", Color(0.2, 0.2, 0.22, 0.5))
+	Juice.shake_camera(3.0)
+	_knockback = Vector2.ZERO  # spent on the wall
+
+
 func _ready() -> void:
 	add_to_group("enemy")
 	hp = max_hp
@@ -133,6 +149,7 @@ func _physics_process(delta: float) -> void:
 	var dir: Vector2 = (_hero.global_position - global_position).normalized()
 	velocity = dir * move_speed + _knockback
 	move_and_slide()
+	_check_wall_slam()  # crater + dust if a hard hit just slammed us into a wall
 	rig.play(CharacterRig.State.RUN)
 	rig.set_facing(dir)
 	if uses_telegraphed_attack and _attack_cooldown <= 0.0 \
