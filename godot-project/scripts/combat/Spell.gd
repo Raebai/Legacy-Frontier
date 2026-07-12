@@ -118,9 +118,13 @@ func _try_damage(node: Node) -> void:
 			node.apply_knockback(_dir * 260.0)
 		queue_free()
 	elif node.is_in_group("destructible") and node.has_method("take_damage"):
-		# Props take spell damage too (no knockback — crates don't slide).
+		# Props take spell damage too. Prefer damage_at so parts break off exactly
+		# where the bolt lands, along its travel direction (falls back to take_damage).
 		_dead = true
-		node.take_damage(damage)
+		if node.has_method("damage_at"):
+			node.damage_at(damage, global_position, _dir)
+		else:
+			node.take_damage(damage)
 		Sfx.play("spell_impact")
 		Juice.hit_stop(0.045)
 		Juice.shake_camera(6.0)

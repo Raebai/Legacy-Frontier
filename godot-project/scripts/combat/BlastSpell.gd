@@ -90,7 +90,11 @@ func _apply_blast_damage() -> void:
 			continue
 		if global_position.distance_to(prop.global_position) > BLAST_RADIUS:
 			continue
-		if prop.has_method("take_damage"):
+		# Blow parts off outward from the blast centre (falls back to take_damage).
+		if prop.has_method("damage_at"):
+			var out: Vector2 = ((prop as Node2D).global_position - global_position).normalized()
+			prop.damage_at(DAMAGE, (prop as Node2D).global_position, out if out != Vector2.ZERO else Vector2.UP)
+		elif prop.has_method("take_damage"):
 			prop.take_damage(DAMAGE)
 
 
