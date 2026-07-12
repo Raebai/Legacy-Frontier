@@ -11,6 +11,7 @@ extends RefCounted
 const BEAM_PATH: String = "res://scripts/combat/BeamSpell.gd"
 const RAY_PATH: String = "res://scripts/combat/DivineRay.gd"
 const METEOR_PATH: String = "res://scripts/combat/MeteorSigil.gd"
+const CONVERGENCE_PATH: String = "res://scripts/combat/StarConvergence.gd"
 const NOVA_PATH: String = "res://scenes/combat/EnergyNova.tscn"
 
 
@@ -55,6 +56,16 @@ static func cast(
 			arena.add_child(meteor)
 			meteor.set("element_id", elem)
 			meteor.rain(caster_pos + mto, col, spell.radius, spell.damage, spell.count, fx)
+			return true
+		SpellDef.Kind.CONVERGENCE:
+			# Converges on the ground point the player aims at, clamped to reach.
+			var cto: Vector2 = aim
+			if cto.length() > spell.reach:
+				cto = cto.normalized() * spell.reach
+			var conv: Node2D = (load(CONVERGENCE_PATH) as GDScript).new()
+			arena.add_child(conv)
+			conv.set("element_id", elem)
+			conv.converge(caster_pos + cto, col, spell.radius, spell.damage, fx)
 			return true
 		SpellDef.Kind.NOVA:
 			var nova: Node2D = (load(NOVA_PATH) as PackedScene).instantiate()

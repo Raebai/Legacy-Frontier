@@ -532,7 +532,8 @@ func _cast_signature() -> void:
 	# Sky spells (meteor / divine row) raise the staff UP and place from the hero;
 	# beams emanate FROM the staff tip toward the aim. Set the pose FIRST so
 	# get_weapon_tip() reads the pointed staff.
-	var sky: bool = spell.kind == SpellDef.Kind.METEOR or spell.kind == SpellDef.Kind.DIVINE_RAY
+	var sky: bool = spell.kind == SpellDef.Kind.METEOR or spell.kind == SpellDef.Kind.DIVINE_RAY \
+			or spell.kind == SpellDef.Kind.CONVERGENCE
 	rig.set_aim(Vector2.UP if sky else _aim_dir)
 	rig.play(CharacterRig.State.CAST)
 	var origin: Vector2 = global_position if sky else rig.get_weapon_tip()

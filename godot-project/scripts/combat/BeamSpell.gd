@@ -243,17 +243,26 @@ func _draw() -> void:
 	var core: Color = _effect_core_color()
 	# Layered beam: wide soft glow -> mid body -> hot core (core tinted per
 	# effect: icy white / furnace yellow / radiant warm white / pure white).
-	if _effect == "holy":
-		# Extra-wide feathery halo — holy reads as radiance, not a laser.
-		_draw_beam_band(_origin, tip, w * 2.7, Color(c.r, c.g, c.b, 0.12 * intensity))
-	_draw_beam_band(_origin, tip, w * 1.8, Color(c.r, c.g, c.b, 0.28 * intensity))
-	_draw_beam_band(_origin, tip, w * 1.0, Color(c.r, c.g, c.b, 0.7 * intensity))
-	_draw_beam_band(_origin, tip, w * 0.4, Color(core.r, core.g, core.b, 0.95 * intensity))
-	_draw_effect_detail(tip, w, intensity)
+	if _effect == "fire":
+		# FIRE = two serpentine DRAGONS weaving around a thin spine (the hit
+		# corridor is unchanged — this is a visual skin over the same line).
+		_draw_beam_band(_origin, tip, w * 0.35, Color(core.r, core.g, core.b, 0.85 * intensity))
+		_draw_fire_dragons(tip, w, intensity, c, core)
+	else:
+		if _effect == "holy":
+			# Extra-wide feathery halo — holy reads as radiance, not a laser.
+			_draw_beam_band(_origin, tip, w * 2.7, Color(c.r, c.g, c.b, 0.12 * intensity))
+		_draw_beam_band(_origin, tip, w * 1.8, Color(c.r, c.g, c.b, 0.28 * intensity))
+		_draw_beam_band(_origin, tip, w * 1.0, Color(c.r, c.g, c.b, 0.7 * intensity))
+		_draw_beam_band(_origin, tip, w * 0.4, Color(core.r, core.g, core.b, 0.95 * intensity))
+		_draw_effect_detail(tip, w, intensity)
 	# Muzzle flash + impact flash.
 	draw_circle(_origin, w * 1.4, Color(core.r, core.g, core.b, 0.5 * intensity))
 	draw_circle(tip, w * 1.2, Color(c.r, c.g, c.b, 0.5 * intensity))
 	draw_circle(tip, w * 0.6, Color(core.r, core.g, core.b, 0.6 * intensity))
+	# ICE = a hexagonal "freezing lens" flare at the muzzle (unmistakable ice read).
+	if _effect == "frost":
+		_draw_frost_lens(w, intensity, core)
 
 
 ## Beam flicker character: frost is dead-steady (cold), fire rages, holy
@@ -290,8 +299,8 @@ func _draw_effect_detail(tip: Vector2, w: float, intensity: float) -> void:
 	var perp: Vector2 = _dir.orthogonal()
 	match _effect:
 		"frost":
-			for i: int in 7:
-				var t: float = (float(i) + 0.7) / 7.5
+			for i: int in 11:
+				var t: float = (float(i) + 0.7) / 11.5
 				var p: Vector2 = _origin.lerp(tip, t)
 				var side: float = 1.0 if i % 2 == 0 else -1.0
 				var reach: float = w * (1.3 + 0.5 * sin(float(i) * 12.9898))
@@ -314,6 +323,59 @@ func _draw_effect_detail(tip: Vector2, w: float, intensity: float) -> void:
 				var ma: float = (0.35 + 0.25 * sin(_elapsed * 9.0 + float(i))) * intensity
 				draw_circle(p, w * 0.4, Color(1.0, 0.97, 0.8, ma * 0.5))
 				draw_circle(p, w * 0.16, Color(1.0, 1.0, 0.95, ma))
+		"arcane":
+			for i: int in 5:
+				var ap: Vector2 = _origin.lerp(tip, (float(i) + 0.5) / 5.0)
+				var apulse: float = 0.5 + 0.5 * sin(_elapsed * 6.0 - float(i) * 1.3)
+				var arr: float = w * (0.5 + 0.7 * apulse)
+				draw_arc(ap, arr, 0.0, TAU, 18, Color(_color.r, _color.g, _color.b, 0.6 * intensity), 1.5)
+				for k: int in 6:
+					var av: Vector2 = Vector2.from_angle(_elapsed * 1.5 + TAU * float(k) / 6.0)
+					draw_line(ap + av * arr * 0.7, ap + av * arr, Color(1.0, 0.9, 1.0, 0.5 * intensity), 1.5)
+
+
+## FIRE beam skin: two serpentine dragon bodies weaving in counter-phase around
+## the beam centerline (the hit corridor is unchanged — visual only).
+func _draw_fire_dragons(tip: Vector2, w: float, intensity: float, c: Color, core: Color) -> void:
+	_draw_dragon_body(tip, w, intensity, core, 1.0, 0.0)
+	_draw_dragon_body(tip, w, intensity, core, -1.0, PI)
+
+
+func _draw_dragon_body(tip: Vector2, w: float, intensity: float, core: Color, side_sign: float, phase_offset: float) -> void:
+	var perp: Vector2 = _dir.orthogonal()
+	var seg: int = 14
+	var amp: float = w * 1.5
+	var pts: PackedVector2Array = PackedVector2Array()
+	for i: int in seg + 1:
+		var t: float = float(i) / float(seg)
+		var along: Vector2 = _origin.lerp(tip, t)
+		var off: float = sin(t * 5.0 - _elapsed * 9.0 + phase_offset) * amp * side_sign * (0.35 + 0.65 * t)
+		pts.append(along + perp * off)
+	draw_polyline(pts, Color(1.0, 0.4, 0.1, 0.35 * intensity), w * 1.3)
+	draw_polyline(pts, Color(1.0, 0.6, 0.2, 0.7 * intensity), w * 0.55)
+	draw_polyline(pts, Color(core.r, core.g, core.b, 0.9 * intensity), w * 0.22)
+	var head: Vector2 = pts[pts.size() - 1]
+	var hdir: Vector2 = (head - pts[pts.size() - 2]).normalized()
+	var hperp: Vector2 = hdir.orthogonal()
+	draw_colored_polygon(PackedVector2Array([
+		head + hdir * w * 1.1, head + hperp * w * 0.7, head - hperp * w * 0.7,
+	]), Color(1.0, 0.7, 0.2, 0.9 * intensity))
+	draw_circle(head, w * 0.35, Color(core.r, core.g, core.b, intensity))
+	for i: int in range(3, seg, 3):
+		var p: Vector2 = pts[i]
+		var d: Vector2 = (pts[i] - pts[i - 1]).normalized()
+		draw_line(p, p + d.orthogonal() * side_sign * w * 0.9, Color(1.0, 0.5, 0.1, 0.7 * intensity), 2.0)
+
+
+## ICE muzzle "freezing lens": a hexagonal crystal facet at the beam origin.
+func _draw_frost_lens(w: float, intensity: float, core: Color) -> void:
+	var r: float = w * 1.3
+	var pts: PackedVector2Array = PackedVector2Array()
+	for i: int in 6:
+		pts.append(_origin + Vector2.from_angle(_dir.angle() + TAU * float(i) / 6.0) * r)
+	draw_colored_polygon(pts, Color(0.8, 0.95, 1.0, 0.35 * intensity))
+	draw_polyline(pts + PackedVector2Array([pts[0]]), Color(0.9, 0.98, 1.0, 0.9 * intensity), 2.0)
+	draw_circle(_origin, w * 0.4, Color(core.r, core.g, core.b, intensity))
 
 
 ## A filled beam band (rectangle) of thickness `thick` from `a` to `b`.

@@ -13,6 +13,7 @@ extends SceneTree
 const BEAM_PATH: String = "res://scripts/combat/BeamSpell.gd"
 const RAY_PATH: String = "res://scripts/combat/DivineRay.gd"
 const METEOR_PATH: String = "res://scripts/combat/MeteorSigil.gd"
+const CONVERGENCE_PATH: String = "res://scripts/combat/StarConvergence.gd"
 
 var _ran: bool = false
 
@@ -25,6 +26,7 @@ func _process(_delta: float) -> bool:
 	failed += _test_beam_line()
 	failed += _test_divine_radius()
 	failed += _test_meteor_radius()
+	failed += _test_convergence_radius()
 	if failed > 0:
 		printerr("Slice4 spell tests: %d FAILED" % failed)
 		quit(1)
@@ -91,4 +93,16 @@ func _test_meteor_radius() -> int:
 	var hit: Array = meteor.targets_in_radius(impact, 48.0, [close, far])
 	failed += _expect(close in hit, "enemy in a meteor blast is hit")
 	failed += _expect(not (far in hit), "enemy outside a meteor blast is missed")
+	return failed
+
+
+func _test_convergence_radius() -> int:
+	var failed: int = 0
+	var center := Vector2(0.0, 0.0)
+	var inside: Node2D = _node_at(Vector2(100.0, 0.0))    # inside a 160px nova
+	var far: Node2D = _node_at(Vector2(220.0, 0.0))       # outside it
+	var conv: GDScript = load(CONVERGENCE_PATH)
+	var hit: Array = conv.targets_in_radius(center, 160.0, [inside, far])
+	failed += _expect(inside in hit, "enemy inside the convergence nova is hit")
+	failed += _expect(not (far in hit), "enemy outside the nova is missed")
 	return failed

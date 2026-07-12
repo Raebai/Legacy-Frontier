@@ -28,12 +28,13 @@ static func build() -> Array:
 			"A fat, roaring beam of fire. Shorter reach, brutal width.",
 			0, 55, 4.0, 58, 900.0, 42.0),       # FIRE / orange
 		_ray("judgment", "Judgment · Divine Ray",
-			"A seal opens in the heavens and a pillar of holy light smites the "
-			+ "ground you mark. The isekai divine descent.",
-			Color(1.0, 0.92, 0.55), 50, 4.0, 54, 92.0),   # holy gold (no element)
-		_ray("heavens_verdict", "Heaven's Verdict",
-			"A vast divine circle and a cataclysmic ray — wide footprint, heavy toll.",
-			Color(1.0, 0.86, 0.4), 68, 5.5, 64, 140.0),   # bright gold, big radius
+			"A seal opens in the heavens and a SINGLE pillar of holy light smites the "
+			+ "exact ground you mark. Precise, punishing — dodge the tell or take the hit.",
+			Color(1.0, 0.92, 0.55), 40, 2.6, 95, 70.0),   # single pillar, high-commit point strike
+		_convergence("heavens_verdict", "Heaven's Verdict",
+			"The sky closes in a ring of radiant lances that slam together as one "
+			+ "cataclysmic nova. The longest telegraph in the tree — and the hardest-hitting.",
+			Color(1.0, 0.86, 0.4), 85, 7.0, 130, 160.0),  # slow, biggest single hit in the kit
 		_meteor("meteor_sigil", "Meteor Sigil",
 			"A colossal sigil opens in the sky and a barrage of meteors rains over "
 			+ "the marked ground. The isekai bombardment.",
@@ -108,4 +109,26 @@ static func _ray(
 	s.damage = dmg
 	s.radius = radius
 	s.reach = 280.0
+	return s
+
+
+## Heaven's Verdict's spectacle: a radial star-convergence nova (SpellDef.Kind
+## .CONVERGENCE). Holy, no element tint; the longest telegraph + biggest single hit.
+static func _convergence(
+	id: String, name: String, desc: String, color: Color,
+	mp: int, cd: float, dmg: int, radius: float
+) -> SpellDef:
+	var s := SpellDef.new()
+	s.id = id
+	s.display_name = name
+	s.description = desc
+	s.kind = SpellDef.Kind.CONVERGENCE
+	s.use_element_color = false
+	s.color = color
+	s.effect = "holy"
+	s.mp_cost = mp
+	s.cooldown = cd
+	s.damage = dmg
+	s.radius = radius
+	s.reach = 320.0
 	return s

@@ -1,31 +1,23 @@
 class_name DivineRay
 extends Node2D
-## Signature spectacle #2 — DIVINE RAY / JUDGEMENT. A holy sigil opens in the
-## sky and a ROW of towering PILLARS OF LIGHT crashes down across the WHOLE
-## horizontal row at the target's Y — not a single point where you clicked, but
-## a left-to-right sweep of smiting columns spanning the width of the arena.
-## Each pillar is a white-hot core in a radiant column, a blinding ground flash
-## and an expanding ring, with heavy juice. The row read makes it a wall of
-## judgement from the sky rather than a single spotlight.
+## Signature spectacle #2 — JUDGMENT. A holy sigil opens in the sky and a SINGLE
+## towering pillar of light crashes down on the ONE point you mark — a precise,
+## high-commitment single-target smite (dodge the tell or eat a heavy hit), NOT a
+## whole-row room-wipe. Radius damage on the pillar footprint (targets_in_radius,
+## pure/testable); strike() drives the timeline. Instantiate .new(), add to the
+## arena, call strike().
 ##
 ## The trailing `effect` param picks the elemental CHARACTER
 ## ("holy" | "frost" | "fire" | "arcane") — same pillar silhouette, distinct
 ## palette + impact, so it reads different at a glance.
-##
-## Each pillar deals radius damage on its ground footprint (targets_in_radius,
-## pure/testable); strike() drives the timeline. Instantiate .new(), add to the
-## arena, call strike().
 
 const CHARGE_TIME: float = 0.42   # sky sigil + ground telegraph
-const STRIKE_TIME: float = 0.34   # window the row of pillars sweeps across
-const PILLAR_HOLD: float = 0.16   # each pillar held at full brightness
+const PILLAR_HOLD: float = 0.18   # the pillar held at full brightness
 const FADE_TIME: float = 0.30
 const SKY_HEIGHT: float = 560.0   # how far above the ground the sigil hangs
-const DEFAULT_RADIUS: float = 90.0
-const DEFAULT_DAMAGE: int = 52
-const KNOCKBACK: float = 300.0
-const ROW_SPACING: float = 110.0    # px between pillars along the row
-const ROW_HALF_SPAN: float = 650.0  # pillars span ±this around the target x
+const DEFAULT_RADIUS: float = 70.0
+const DEFAULT_DAMAGE: int = 95
+const KNOCKBACK: float = 320.0
 
 var _ground: Vector2 = Vector2.ZERO
 var _color: Color = Color(1.0, 0.92, 0.55, 1.0)
@@ -33,19 +25,14 @@ var _radius: float = DEFAULT_RADIUS
 var _damage: int = DEFAULT_DAMAGE
 var _effect: String = "holy"
 var _elapsed: float = -1.0
+var _struck: bool = false
 var _circle: MagicCircle = null
-## Each pillar: {"x": float, "delay": float, "struck": bool}. All share the
-## target Y (_ground.y); delay staggers them left-to-right for the sweep read.
-var _pillars: Array = []
-var _row_min_x: float = 0.0
-var _row_max_x: float = 0.0
-## Elemental ailment (Elements.Element) applied to enemies a pillar hits. -1=none.
+## Elemental ailment (Elements.Element) applied to enemies the pillar hits. -1=none.
 var element_id: int = -1
 
 
-## Public entry: smite the WHOLE horizontal row at `target`'s Y with a swept
-## wall of pillars, each dealing `damage` over `radius`. Colour tints the
-## spectacle; `effect` picks its character ("holy"/"frost"/"fire"/"arcane").
+## Public entry: smite the single point `target` with a pillar dealing `damage`
+## over `radius`. Colour tints the spectacle; `effect` picks its character.
 func strike(
 	target: Vector2, color: Color = Color(1.0, 0.92, 0.55),
 	radius: float = DEFAULT_RADIUS, damage: int = DEFAULT_DAMAGE,
@@ -57,23 +44,13 @@ func strike(
 	_damage = damage
 	_effect = effect
 	_elapsed = 0.0
-	# Build the row of pillars: evenly spaced across ±ROW_HALF_SPAN of the
-	# target x, all at the target Y, delay-staggered left-to-right for the sweep.
-	var count: int = int(floor((ROW_HALF_SPAN * 2.0) / ROW_SPACING)) + 1
-	_row_min_x = target.x - ROW_HALF_SPAN
-	_row_max_x = target.x + ROW_HALF_SPAN
-	for i: int in count:
-		var px: float = _row_min_x + float(i) * ROW_SPACING
-		var sweep: float = float(i) / float(maxi(count - 1, 1))
-		_pillars.append({"x": px, "delay": sweep * STRIKE_TIME, "struck": false})
-	# The sky sigil hangs over the target column, oversized so it feels like it
-	# presides over the whole row.
+	# The sky sigil hangs over the strike column, oversized so it presides over it.
 	_circle = MagicCircle.new()
 	add_child(_circle)
 	_circle.global_position = _ground - Vector2(0.0, SKY_HEIGHT)
 	_circle.appear(_color, _radius * 2.6, CHARGE_TIME * 0.85)
-	# EDGE-ON along the vertical pillars: side-on, the sky sigil reads as a thin
-	# horizontal gate the columns of light drop through.
+	# EDGE-ON along the vertical pillar: the sky sigil reads as a thin horizontal
+	# gate the column of light drops through.
 	_circle.set_orientation(true, Vector2.DOWN, 0.16)
 	Sfx.play("cast", -4.0, 0.05)
 	queue_redraw()
@@ -83,28 +60,21 @@ func _process(delta: float) -> void:
 	if _elapsed < 0.0:
 		return
 	_elapsed += delta
-	var since: float = _elapsed - CHARGE_TIME
-	if since >= 0.0:
-		for m: Dictionary in _pillars:
-			if not m["struck"] and since >= float(m["delay"]):
-				_smite_pillar(m)
-	# Dissolve the sky sigil once the row has finished sweeping (vanish() is
-	# idempotent — it self-guards against being started twice).
-	if _circle != null and is_instance_valid(_circle) \
-			and _elapsed >= CHARGE_TIME + STRIKE_TIME:
-		_circle.vanish(PILLAR_HOLD + FADE_TIME)
-	if _elapsed >= CHARGE_TIME + STRIKE_TIME + PILLAR_HOLD + FADE_TIME:
+	if not _struck and _elapsed >= CHARGE_TIME:
+		_smite()
+	if _circle != null and is_instance_valid(_circle) and _elapsed >= CHARGE_TIME:
+		_circle.vanish(PILLAR_HOLD + FADE_TIME)  # idempotent
+	if _elapsed >= CHARGE_TIME + PILLAR_HOLD + FADE_TIME:
 		queue_free()
 		return
 	queue_redraw()
 
 
-## One pillar of the row lands: radius damage once at its footprint, impact
-## spray + mark, and a screen kick scaled down per-pillar (so the whole row
-## doesn't nuke the camera). The central pillars kick hardest.
-func _smite_pillar(m: Dictionary) -> void:
-	m["struck"] = true
-	var at: Vector2 = Vector2(float(m["x"]), _ground.y)
+## The pillar lands: radius damage once at the marked point, impact spray + mark,
+## and a heavy screen kick (Judgment is a big single-target hit).
+func _smite() -> void:
+	_struck = true
+	var at: Vector2 = _ground
 	for enemy: Node in targets_in_radius(at, _radius, get_tree().get_nodes_in_group("enemy")):
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(_damage)
@@ -116,20 +86,15 @@ func _smite_pillar(m: Dictionary) -> void:
 	for prop: Node in targets_in_radius(at, _radius, get_tree().get_nodes_in_group("destructible")):
 		if prop.has_method("take_damage"):
 			prop.take_damage(_damage)
-	# Parented to the arena (get_parent()), not self: bursts outlive this
-	# short-lived spectacle node so they fade naturally after we free.
 	_impact_burst(at)
 	_impact_mark(at)
-	# Central pillars (near the target x) shake hardest; the flanks are lighter.
-	var closeness: float = 1.0 - clampf(absf(at.x - _ground.x) / ROW_HALF_SPAN, 0.0, 1.0)
-	Juice.shake_camera(4.0 + 8.0 * closeness)
-	if closeness > 0.85:
-		Juice.hit_stop(0.08)
-		Juice.zoom_punch_camera(0.08, 0.22)
-	Sfx.play("blast", -2.0 + 2.0 * closeness, 0.08)
+	Juice.hit_stop(0.09)
+	Juice.shake_camera(14.0)
+	Juice.zoom_punch_camera(0.09, 0.24)
+	Sfx.play("blast", 0.0, 0.08)
 
 
-## Impact spray at a pillar's footprint, charactered per effect.
+## Impact spray at the footprint, charactered per effect.
 func _impact_burst(at: Vector2) -> void:
 	var fade: Color = Color(_color.r, _color.g, _color.b, 0.0)
 	match _effect:
@@ -156,7 +121,7 @@ func _impact_burst(at: Vector2) -> void:
 			)
 
 
-## Lingering ground mark under a pillar: frost cracks the ground with ice, fire
+## Lingering ground mark under the pillar: frost cracks the ground with ice, fire
 ## scorches it. Holy/arcane leave no residue (pure light/energy).
 func _impact_mark(at: Vector2) -> void:
 	match _effect:
@@ -187,41 +152,29 @@ func _draw() -> void:
 	var c: Color = _color
 	var sky_y: float = _ground.y - SKY_HEIGHT
 	if _elapsed < CHARGE_TIME:
-		# Telegraph: a bright line across the WHOLE row + a growing ring at each
-		# pillar footprint, so the player reads "the whole row is coming".
+		# Telegraph: a single growing danger ring at the marked point (no full-row
+		# line — that whole-map tell is exactly what the maker wanted gone).
 		var tp: float = _elapsed / CHARGE_TIME
-		draw_line(Vector2(_row_min_x, _ground.y), Vector2(_row_max_x, _ground.y),
-			Color(c.r, c.g, c.b, 0.35 * tp), 2.0)
-		for m: Dictionary in _pillars:
-			var px: float = float(m["x"])
-			var rr: float = _radius * (0.3 + 0.6 * tp)
-			draw_arc(Vector2(px, _ground.y), rr, 0.0, TAU, 28, Color(c.r, c.g, c.b, 0.4 * tp), 2.0)
+		draw_arc(_ground, _radius * (0.3 + 0.6 * tp), 0.0, TAU, 32, Color(c.r, c.g, c.b, 0.45 * tp), 2.5)
 		return
-	# Each pillar draws with its own intensity envelope keyed off its strike time.
-	var since: float = _elapsed - CHARGE_TIME
-	var core: Color = _effect_core_color()
-	for m: Dictionary in _pillars:
-		var local: float = since - float(m["delay"])
-		if local < 0.0:
-			continue
-		var intensity: float
-		if local < PILLAR_HOLD:
-			intensity = 1.0 if local > 0.04 else local / 0.04
-		else:
-			intensity = clampf(1.0 - (local - PILLAR_HOLD) / FADE_TIME, 0.0, 1.0)
-		if intensity <= 0.01:
-			continue
-		_draw_pillar(float(m["x"]), sky_y, c, core, intensity)
+	var local: float = _elapsed - CHARGE_TIME
+	var intensity: float
+	if local < PILLAR_HOLD:
+		intensity = 1.0 if local > 0.04 else local / 0.04
+	else:
+		intensity = clampf(1.0 - (local - PILLAR_HOLD) / FADE_TIME, 0.0, 1.0)
+	if intensity <= 0.01:
+		return
+	_draw_pillar(_ground.x, sky_y, c, _effect_core_color(), intensity)
 
 
-## Draw one column of light at ground x `px`, from `sky_y` down to the ground.
+## Draw the column of light at ground x `px`, from `sky_y` down to the ground.
 func _draw_pillar(px: float, sky_y: float, c: Color, core: Color, intensity: float) -> void:
 	var flick: float = _effect_flicker()
 	var w: float = _radius * 0.9 * intensity * flick
 	var sky: Vector2 = Vector2(px, sky_y)
 	var ground: Vector2 = Vector2(px, _ground.y)
 	if _effect == "holy":
-		# Extra-wide feathery halo — holy reads as radiance, not a laser.
 		_draw_column(sky, ground, w * 2.6, Color(c.r, c.g, c.b, 0.1 * intensity))
 	_draw_column(sky, ground, w * 1.7, Color(c.r, c.g, c.b, 0.25 * intensity))
 	_draw_column(sky, ground, w * 1.0, Color(c.r, c.g, c.b, 0.65 * intensity))
@@ -233,8 +186,6 @@ func _draw_pillar(px: float, sky_y: float, c: Color, core: Color, intensity: flo
 	draw_arc(ground, ring_r, 0.0, TAU, 40, Color(c.r, c.g, c.b, 0.6 * intensity), 4.0 * intensity)
 
 
-## Column flicker character (matches BeamSpell): frost steady/cold, fire rages,
-## holy breathes slowly, arcane keeps a subtle energy flicker.
 func _effect_flicker() -> float:
 	match _effect:
 		"frost":
@@ -247,7 +198,6 @@ func _effect_flicker() -> float:
 			return 0.94 + 0.06 * sin(_elapsed * 28.0)
 
 
-## Hot-core tint per effect (innermost band + ground flash).
 func _effect_core_color() -> Color:
 	match _effect:
 		"frost":
@@ -260,9 +210,7 @@ func _effect_core_color() -> Color:
 			return Color(1.0, 0.98, 0.88)
 
 
-## Per-effect garnish drawn along a column so each element is unmistakable:
-## frost = crystalline shards jutting off the column, fire = drifting embers,
-## holy = bobbing feathery motes. Arcane stays the clean column.
+## Per-effect garnish drawn along the column so each element is unmistakable.
 func _draw_effect_detail(sky: Vector2, ground: Vector2, w: float, intensity: float) -> void:
 	match _effect:
 		"frost":
