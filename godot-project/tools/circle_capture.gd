@@ -35,15 +35,17 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	await _wait(15)
-	_grab(0)   # materialising
-	await _wait(26)
-	_grab(1)   # full + spinning
-	await _wait(34)
-	_grab(2)   # later phase
-	_circle.vanish(0.45)
-	await _wait(14)
-	_grab(3)   # blooming out
+	await _wait(28)
+	_grab(0)   # [0] FACE-ON (portal / summon / meteor)
+	_circle.set_orientation(true, Vector2.RIGHT, 0.14)  # beam aimed right -> vertical gate
+	await _wait(16)
+	_grab(1)   # [1] EDGE-ON horizontal beam
+	_circle.set_orientation(true, Vector2.DOWN, 0.16)   # vertical pillar -> horizontal gate
+	await _wait(16)
+	_grab(2)   # [2] EDGE-ON vertical (divine ray)
+	_circle.set_orientation(true, Vector2(1.0, -0.6), 0.14)  # diagonal aim
+	await _wait(16)
+	_grab(3)   # [3] EDGE-ON diagonal beam
 	var err: int = _sheet.save_png(OUT)
 	if err == OK:
 		print("circle_showcase: saved ", ProjectSettings.globalize_path(OUT))

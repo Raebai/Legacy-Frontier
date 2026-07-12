@@ -45,6 +45,9 @@ func strike(
 	add_child(_circle)
 	_circle.global_position = _sky
 	_circle.appear(_color, _radius * 2.3, CHARGE_TIME * 0.85)
+	# EDGE-ON along the vertical pillar: side-on, the sky sigil reads as a thin
+	# horizontal gate the column of light drops through.
+	_circle.set_orientation(true, Vector2.DOWN, 0.16)
 	Sfx.play("cast", -4.0, 0.05)
 	queue_redraw()
 

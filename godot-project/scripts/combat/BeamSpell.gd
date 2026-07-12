@@ -54,6 +54,9 @@ func fire(
 	add_child(_circle)
 	_circle.global_position = _origin
 	_circle.appear(_color, _width * CIRCLE_RADIUS_FACTOR, CHARGE_TIME * 0.9)
+	# EDGE-ON: a beam's sigil faces the target, so side-on it's a thin gate
+	# perpendicular to the beam that the bolt bursts through (not a flat circle).
+	_circle.set_orientation(true, _dir, 0.14)
 	# Gathering spark at the muzzle — energy pulled in before the shot. Parented
 	# to the arena (get_parent()), NOT self: the burst outlives this short-lived
 	# spectacle node, matching Spell/Enemy so it fades naturally after we free.
