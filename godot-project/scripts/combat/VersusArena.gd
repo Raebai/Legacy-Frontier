@@ -239,10 +239,21 @@ func _make_platform(center: Vector2, size: Vector2) -> void:
 	shape.size = size
 	cs.shape = shape
 	body.add_child(cs)
-	var vis := ColorRect.new()
+	# Gradient body (top-lit -> darker base) for depth against the epic sky.
+	var grad := Gradient.new()
+	grad.set_color(0, PLATFORM_COLOR.lightened(0.14))
+	grad.set_color(1, PLATFORM_COLOR.darkened(0.28))
+	var tex := GradientTexture2D.new()
+	tex.gradient = grad
+	tex.fill_from = Vector2(0.0, 0.0)
+	tex.fill_to = Vector2(0.0, 1.0)
+	tex.width = 8
+	tex.height = 64
+	var vis := TextureRect.new()
+	vis.texture = tex
+	vis.stretch_mode = TextureRect.STRETCH_SCALE
 	vis.position = -size * 0.5
 	vis.size = size
-	vis.color = PLATFORM_COLOR
 	vis.z_index = -5
 	vis.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	body.add_child(vis)
@@ -253,6 +264,14 @@ func _make_platform(center: Vector2, size: Vector2) -> void:
 	rim.z_index = -4
 	rim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	body.add_child(rim)
+	# Soft lit-edge glow just under the rim — reads as a lit ledge, not a flat slab.
+	var glow := ColorRect.new()
+	glow.position = Vector2(-size.x * 0.5, -size.y * 0.5 + PLATFORM_EDGE_H)
+	glow.size = Vector2(size.x, 9.0)
+	glow.color = Color(PLATFORM_EDGE_COLOR.r, PLATFORM_EDGE_COLOR.g, PLATFORM_EDGE_COLOR.b, 0.16)
+	glow.z_index = -4
+	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	body.add_child(glow)
 	add_child(body)
 
 
