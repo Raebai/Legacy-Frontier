@@ -600,7 +600,15 @@ func _start_dash() -> void:
 	is_dashing = true
 	_dash_timer = _tune("dash_time", DASH_TIME)
 	_dash_cooldown_timer = _cfg["dash_cd"]
-	_dash_dir = _move_dir  # dash in the RUN direction (not the cursor) — mobile-friendly
+	# Dash in the direction the character is actually MOVING — includes vertical, so
+	# dashing while jumping goes up-diagonal, while falling goes down. Falls back to
+	# the walk direction (then facing) when nearly still.
+	if velocity.length() > 40.0:
+		_dash_dir = velocity.normalized()
+	elif _move_dir != Vector2.ZERO:
+		_dash_dir = _move_dir
+	else:
+		_dash_dir = Vector2(signf(facing.x), 0.0) if facing.x != 0.0 else Vector2.RIGHT
 	_ghost_timer = 0.0  # first afterimage lands this frame
 	_dash_hit.clear()
 

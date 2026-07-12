@@ -48,7 +48,7 @@ const BOT_SPAWN_POINTS: Array[Vector2] = [
 ## Bot archetype rotation — a varied roster so every fight reads different:
 ## CASTER(2) / SUMMONER(4) / ASSASSIN(5) / BOMBER(6) / CHARGER(3). Tints + speeds
 ## come from Enemy's per-archetype defaults. See Enemy.Archetype.
-const BOT_ARCHETYPES: Array[int] = [2, 4, 5, 6, 3]
+const BOT_ARCHETYPES: Array[int] = [2, 4, 5, 3]  # BOMBER(6) pulled: it suicide-cleared bots at spawn
 ## Versus bots are tankier than the tower's trash mobs so fights last.
 const BOT_HP: int = 110
 ## Destructible cover sitting on the ground (64px blocks; centre = ground_top - 32).
@@ -71,9 +71,16 @@ var _p1: Node2D = null
 var _match_over: bool = false
 var _stocks_label: Label = null
 var _banner: Label = null
+var _pause_overlay: Control = null
+## Victory can't be declared during this opening grace (stops a frame-0 / spawn
+## transient from instantly flashing "VICTORY").
+var _grace: float = 1.2
 
 
 func _ready() -> void:
+	# ALWAYS so Esc can toggle pause even while the tree is paused; the fighters
+	# are set PAUSABLE in _spawn_fighters so THEY still freeze.
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build_background()
 	_build_platforms()
 	_build_cover()
@@ -84,15 +91,32 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	if _match_over:
+	if get_tree().paused or _match_over:
 		return
+	_grace = maxf(_grace - delta, 0.0)
 	for entry: Dictionary in _registry.values():
 		entry["invuln"] = maxf(float(entry["invuln"]) - delta, 0.0)
 	# Bots can also die to plain damage (Enemy._die -> queue_free), which never
-	# routes through a pit — poll so that kill path ends the match too.
-	if _bots_alive() == 0:
+	# routes through a pit — poll so that kill path ends the match too. Grace-gated
+	# so a spawn-frame transient can't instantly flash VICTORY.
+	if _grace <= 0.0 and _bots_alive() == 0:
 		_finish_match("VICTORY — P1 wins!")
 	_update_hud()  # poll-don't-push (the AbilityBar idiom): always current
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel"):
+		_toggle_pause()
+		get_viewport().set_input_as_handled()
+
+
+## Toggle a real tree pause + the overlay. VersusArena is ALWAYS so this keeps
+## working while paused; the fighters (PAUSABLE) freeze.
+func _toggle_pause() -> void:
+	var p: bool = not get_tree().paused
+	get_tree().paused = p
+	if _pause_overlay != null:
+		_pause_overlay.visible = p
 
 
 # -------------------------------------------------------------------- ring-out
@@ -254,6 +278,7 @@ func _spawn_fighters() -> void:
 	_p1 = hero_scene.instantiate()
 	_p1.position = P1_SPAWN
 	add_child(_p1)
+	_p1.process_mode = Node.PROCESS_MODE_PAUSABLE  # freeze when the arena pauses
 	_register_fighter(_p1, _p1.global_position)
 	_frame_camera_on(_p1)
 	var enemy_scene: PackedScene = load(ENEMY_SCENE_PATH)
@@ -263,6 +288,7 @@ func _spawn_fighters() -> void:
 		bot.max_hp = BOT_HP  # set before add_child so Enemy._ready seeds hp = max_hp
 		bot.position = BOT_SPAWN_POINTS[i % BOT_SPAWN_POINTS.size()]
 		add_child(bot)
+		bot.process_mode = Node.PROCESS_MODE_PAUSABLE  # freeze when the arena pauses
 		_register_fighter(bot, bot.global_position)
 
 
@@ -334,11 +360,41 @@ func _build_hud() -> void:
 	_banner.add_theme_constant_override("outline_size", 8)
 	_banner.visible = false
 	layer.add_child(_banner)
+	_build_pause_overlay(layer)
+
+
+## Hidden dim overlay with PAUSED + Resume/Reset — toggled by Esc. Lives on the
+## ALWAYS HUD layer so its buttons work while the tree is paused.
+func _build_pause_overlay(layer: CanvasLayer) -> void:
+	_pause_overlay = ColorRect.new()
+	_pause_overlay.color = Color(0.03, 0.03, 0.06, 0.72)
+	_pause_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_pause_overlay.visible = false
+	layer.add_child(_pause_overlay)
+	var vb := VBoxContainer.new()
+	vb.set_anchors_preset(Control.PRESET_CENTER)
+	vb.alignment = BoxContainer.ALIGNMENT_CENTER
+	vb.add_theme_constant_override("separation", 12)
+	_pause_overlay.add_child(vb)
+	var plabel := Label.new()
+	plabel.text = "PAUSED"
+	plabel.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	plabel.add_theme_font_size_override("font_size", 34)
+	vb.add_child(plabel)
+	var resume := Button.new()
+	resume.text = "Resume  (Esc)"
+	resume.pressed.connect(_toggle_pause)
+	vb.add_child(resume)
+	var reset2 := Button.new()
+	reset2.text = "Reset Map"
+	reset2.pressed.connect(_reset_arena)
+	vb.add_child(reset2)
 
 
 ## Full arena reset — reload the scene so cover, bots, stocks + the match state
 ## all rebuild from scratch. Bound to the Reset Map button.
 func _reset_arena() -> void:
+	get_tree().paused = false  # don't carry the pause into the fresh scene
 	get_tree().reload_current_scene()
 
 
