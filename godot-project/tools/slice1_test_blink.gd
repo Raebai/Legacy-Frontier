@@ -47,7 +47,7 @@ func _test_blink_moves_along_facing() -> int:
 	var failed: int = 0
 	var hero: CharacterBody2D = _make_hero()
 	hero.global_position = Vector2(5000.0, 5000.0)  # open space, far from anything
-	hero._aim_dir = Vector2.DOWN  # blink follows MOVEMENT now (twin-stick), not aim
+	hero._move_dir = Vector2.DOWN  # blink follows the MOVEMENT direction now
 	var origin: Vector2 = hero.global_position
 
 	hero._blink()
@@ -72,7 +72,7 @@ func _test_blink_respects_cooldown() -> int:
 	var failed: int = 0
 	var hero: CharacterBody2D = _make_hero()
 	hero.global_position = Vector2(5000.0, 8000.0)
-	hero._aim_dir = Vector2.RIGHT
+	hero._move_dir = Vector2.RIGHT
 
 	hero._blink()
 	var after_first: Vector2 = hero.global_position
@@ -112,7 +112,7 @@ func _test_blink_zero_facing_guard() -> int:
 	var failed: int = 0
 	var hero: CharacterBody2D = _make_hero()
 	hero.global_position = Vector2(8000.0, 8000.0)
-	hero._aim_dir = Vector2.ZERO  # unreachable in play, but the guard must hold
+	hero._move_dir = Vector2.ZERO  # unreachable in play, but the guard must hold
 	var origin: Vector2 = hero.global_position
 
 	hero._blink()

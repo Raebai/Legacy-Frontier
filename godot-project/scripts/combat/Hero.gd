@@ -51,8 +51,6 @@ const BLINK_BURST_END: Color = Color(0.08, 0.03, 0.15, 0.0)
 ## Quick bright flash on arrival so the eye snaps to the new position.
 const BLINK_ARRIVAL_FLASH_COLOR: Color = Color(0.85, 0.7, 1.0)
 const BLINK_ARRIVAL_FLASH_TIME: float = 0.1
-## Back off this many px from a wall hit so we never re-embed in the collider.
-const BLINK_WALL_MARGIN: float = 2.0
 ## Energy nova: self-centered instant shockwave — the "get off me" button.
 ## Bumped 3->5s: at 3s it was spammable enough to be oppressive.
 const NOVA_COOLDOWN: float = 5.0
@@ -61,6 +59,9 @@ const NOVA_COOLDOWN: float = 5.0
 const PARRY_WINDOW: float = 0.16
 const PARRY_COOLDOWN: float = 0.9
 const PARRY_FLASH_COLOR: Color = Color(0.8, 1.0, 1.0)
+## The directional block SHELL lingers a touch longer than the active window so
+## the deflect reads (the arc is the whole tell — no omni flash).
+const PARRY_SHIELD_TIME: float = 0.26
 ## Flight ability (hold Fly / Left Shift): grounded by default; lift off to glide
 ## OVER pits (no ring-out while airborne). Fuel drains while flying, regenerates
 ## on the ground; empty = forced landing. A resource — you can't camp the air.
@@ -158,6 +159,7 @@ var _airborne: float = 0.0
 var _coyote: float = 0.0
 var _jump_buffer: float = 0.0
 var _air_jumps: int = 0
+var _was_on_floor: bool = true  # for the landing-dust transition edge
 var _weapon: String = "fists"
 var _melee_damage: int = MELEE_DAMAGE
 var _melee_range: float = MELEE_RANGE
@@ -217,6 +219,12 @@ func _physics_process(delta: float) -> void:
 	_nova_cooldown_timer = maxf(_nova_cooldown_timer - delta, 0.0)
 	_parry_window_timer = maxf(_parry_window_timer - delta, 0.0)
 	_parry_cooldown_timer = maxf(_parry_cooldown_timer - delta, 0.0)
+	# Landing dust: white puff the instant we touch down after being airborne (not
+	# while gliding). At the top so it fires even on dash frames. is_on_floor()
+	# here reflects the previous frame's move_and_slide.
+	if is_on_floor() and not _was_on_floor and not _flying:
+		_spawn_foot_puff()
+	_was_on_floor = is_on_floor()
 	_update_input_buffer(delta)
 	# Twin-stick aim: track the cursor every frame so casts / cast-pose / camera
 	# peek use it even mid-dash. Movement (below) feeds _move_dir independently.
@@ -256,7 +264,7 @@ func _physics_process(delta: float) -> void:
 				8, 0.25, 30.0, 95.0
 			)
 		rig.play(CharacterRig.State.DASH)
-		rig.set_facing(facing)
+		rig.set_facing(_dash_dir)  # body faces where the dash is going
 		return
 
 	# --- Side-on movement: horizontal input, gravity, jumping ---
@@ -286,15 +294,18 @@ func _physics_process(delta: float) -> void:
 		velocity.y = minf(velocity.y + GRAVITY * delta, MAX_FALL)
 
 	# Jump (buffered): ground/coyote first, then a single air (double) jump.
+	# Each kick-off throws a little white dust puff at the feet (Stick-Fight).
 	if _jump_buffer > 0.0 and not _flying:
 		if is_on_floor() or _coyote > 0.0:
 			velocity.y = JUMP_VELOCITY
 			_jump_buffer = 0.0
 			_coyote = 0.0
+			_spawn_foot_puff()
 		elif _air_jumps > 0:
 			velocity.y = DOUBLE_JUMP_VELOCITY
 			_air_jumps -= 1
 			_jump_buffer = 0.0
+			_spawn_foot_puff()
 
 	# Horizontal accel — less control in the air.
 	var spd: float = _tune("hero_speed", SPEED)
@@ -312,7 +323,15 @@ func _physics_process(delta: float) -> void:
 			Sfx.play("footstep", -6.0, 0.14)
 	else:
 		_footstep_timer = 0.0
-	rig.set_facing(facing)
+	# Stick-Fight decouple: the BODY faces MOVEMENT (idle keeps the last facing —
+	# set_facing ignores x==0); the cast arm/weapon aims at the true cursor. The
+	# figure is FACELESS (no eyes) — aim reads from the body + the pointed weapon +
+	# the parry shield, the Stick-Fight way. During a melee strike the body turns
+	# to the aim so the punch points at the target.
+	if rig.is_striking():
+		rig.set_facing(_aim_dir)
+	else:
+		rig.set_facing(Vector2(move_x, 0.0))
 	rig.set_aim(_aim_dir)
 
 
@@ -467,24 +486,24 @@ func _start_dash() -> void:
 	_dash_hit.clear()
 
 
-## Shadow blink: instant teleport up to BLINK_DISTANCE along facing, clamped
-## so we never land inside a wall. Leaves a dark silhouette + violet poof at
-## the origin, another poof + bright flash at the destination, and grants
-## BLINK_IFRAME seconds of invulnerability. Buffered like dash/melee/blast;
-## only reachable from the not-dashing path (same implicit gate as dash).
+## Shadow blink: instant teleport BLINK_DISTANCE along the MOVEMENT direction,
+## phasing THROUGH walls (no clamp — mobile-friendly, no aim needed). Leaves a
+## dark silhouette + violet poof at the origin, another poof + bright flash at
+## the destination, and grants BLINK_IFRAME seconds of invulnerability. Buffered
+## like dash/melee/blast; only reachable from the not-dashing path.
 func _blink() -> void:
 	if _blink_cooldown_timer > 0.0:
 		return
 	_blink_cooldown_timer = _cfg["blink_cd"]
 	_blink_iframe_timer = BLINK_IFRAME
 	var origin: Vector2 = global_position
-	var dir: Vector2 = _aim_dir  # blink toward the cursor (up to a platform / across a gap)
+	# Blink along the MOVEMENT/walk direction (mobile-friendly — no aim needed),
+	# phasing THROUGH walls a fixed BLINK_DISTANCE. _move_dir persists the last
+	# walk direction, so a standing blink still fires (falls back to RIGHT).
+	var dir: Vector2 = _move_dir
 	if dir == Vector2.ZERO:
 		dir = Vector2.RIGHT
-	# Blink THROUGH walls to where you aim: to the cursor if it's within range,
-	# else BLINK_DISTANCE along the aim. No wall clamp — it's a phase-blink.
-	var mouse_dist: float = (get_global_mouse_position() - origin).length()
-	var dest: Vector2 = origin + dir * minf(mouse_dist, BLINK_DISTANCE)
+	var dest: Vector2 = origin + dir.normalized() * BLINK_DISTANCE
 	# Shadow-poof where we WERE: dark fading silhouette + violet burst.
 	rig.spawn_ghost(get_parent(), BLINK_SHADOW_COLOR, Vector2.ZERO, Vector2.ZERO, 0.35)
 	CombatVfx.spawn_burst(
@@ -499,18 +518,7 @@ func _blink() -> void:
 	)
 	rig.flash_color(BLINK_ARRIVAL_FLASH_COLOR, BLINK_ARRIVAL_FLASH_TIME)
 	rig.play(CharacterRig.State.CAST)
-	Sfx.play("cast", -4.0, 0.15)  # pitched wide: reads as a "vwip" teleport
-
-
-## Safe destination up to BLINK_DISTANCE along `dir`: a test-only
-## move_and_collide sweep finds the first wall, and we stop BLINK_WALL_MARGIN
-## short of it so the body never teleports inside a collider.
-func _blink_destination(origin: Vector2, dir: Vector2) -> Vector2:
-	var travel: float = BLINK_DISTANCE
-	var collision: KinematicCollision2D = move_and_collide(dir * BLINK_DISTANCE, true)
-	if collision != null:
-		travel = maxf(collision.get_travel().length() - BLINK_WALL_MARGIN, 0.0)
-	return origin + dir * travel
+	Sfx.play("blink", 0.0, 0.1)  # dedicated synth "vwip" teleport sound
 
 
 func _cast() -> void:
@@ -583,15 +591,11 @@ func _try_parry_start() -> void:
 		return
 	_parry_window_timer = PARRY_WINDOW
 	_parry_cooldown_timer = PARRY_COOLDOWN
+	# The Stick-Fight block: a white curved shield SHELL thrown up in the aim
+	# direction (the tell), plus an arm-raise. No omni flash/burst.
 	rig.set_aim(_aim_dir)
 	rig.play(CharacterRig.State.CAST)
-	rig.flash_color(PARRY_FLASH_COLOR, PARRY_WINDOW)
-	CombatVfx.spawn_burst(
-		get_parent(), global_position + _aim_dir * 20.0,
-		Color(PARRY_FLASH_COLOR.r, PARRY_FLASH_COLOR.g, PARRY_FLASH_COLOR.b, 0.8),
-		Color(PARRY_FLASH_COLOR.r, PARRY_FLASH_COLOR.g, PARRY_FLASH_COLOR.b, 0.0),
-		10, 0.2, 40.0, 90.0
-	)
+	rig.set_parry(_aim_dir, PARRY_SHIELD_TIME)
 	Sfx.play("melee_swing", -2.0, 0.1)
 
 
@@ -612,7 +616,9 @@ func try_parry(proj: Node) -> bool:
 	Sfx.play("ding", 2.0, 0.02)  # the whole payoff — a crisp, loud parry ding
 	Juice.hit_stop(0.09)
 	Juice.shake_camera(4.0)
-	rig.flash_color(PARRY_FLASH_COLOR, 0.14)
+	# Snap the shield toward where the bolt was sent — a bright deflect flourish.
+	rig.set_parry(dir, PARRY_SHIELD_TIME)
+	rig.flash_color(PARRY_FLASH_COLOR, 0.1)
 	_parry_window_timer = 0.0
 	return true
 
@@ -646,6 +652,17 @@ func _tick_flight(want_fly: bool, delta: float) -> void:
 	if _flying and not fly_now:
 		_land()
 	_flying = fly_now
+
+
+## Small white dust puff at the feet — jump kick-off + landing touchdown. The
+## Stick-Fight jump/land dust; spawned a touch below the origin so it sits at the
+## ground contact, not the torso.
+func _spawn_foot_puff() -> void:
+	CombatVfx.spawn_burst(
+		get_parent(), global_position + Vector2(0.0, 12.0),
+		Color(1.0, 1.0, 1.0, 0.72), Color(1.0, 1.0, 1.0, 0.0),
+		9, 0.28, 22.0, 95.0
+	)
 
 
 ## Touchdown dust puff (also fires on a forced landing when the tank runs dry).

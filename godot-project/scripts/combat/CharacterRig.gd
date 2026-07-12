@@ -57,9 +57,14 @@ const MOTE_ORBIT_SPEED: float = 1.6          # rad/s around the figure
 const MOTE_PULSE_SPEED: float = 4.2          # alpha shimmer speed
 const GROUND_RING_MIN_TIER: int = 3
 const GROUND_RING_SPIN_SPEED: float = 1.1    # rad/s arc rotation
+## Crisp Stick-Fight read: a dark outline drawn under the bold limb colour, and
+## how much wider than the limb the outline extends (px). The main _draw passes
+## OUTLINE_COLOR; the aura silhouette + dash ghosts draw outline-less (soft).
+const OUTLINE_COLOR: Color = Color(0.07, 0.08, 0.13, 1.0)
+const OUTLINE_EXTRA: float = 1.8
 
 @export var limb_color: Color = Color(0.55, 0.75, 1.0, 1.0)
-@export var height: float = 22.0
+@export var height: float = 26.0
 ## Soft radial glow under the figure ("charged" hero read). Strength 0
 ## disables it entirely — enemies stay bare sticks.
 @export var aura_color: Color = Color(0.4, 0.7, 1.0, 1.0)
@@ -80,9 +85,17 @@ var _hit_frame_emitted: bool = false
 var _pop_timer: float = 0.0
 var _flash_timer: float = 0.0
 var _flash_color: Color = Color.WHITE
-## Local-space pitch (radians) for the CAST lead arm, from set_aim(). 0 = forward,
-## +PI/2 = straight down. Horizontal side is the node flip (set_facing).
-var _aim_angle: float = 0.0
+## World-space cursor direction for the CAST lead arm, from set_aim(). The arm
+## points at the TRUE cursor even when the body faces the other way (twin-stick):
+## _compute_pose mirrors it into the (possibly flipped) local frame.
+var _aim_world: Vector2 = Vector2.RIGHT
+## Directional parry SHIELD (Stick-Fight block): a white curved shell drawn in
+## the aim direction while active. set_parry() arms it; it fades over its window.
+## Faceless otherwise — Stick-Fight fighters convey aim by the body + the shield,
+## never a face.
+var _parry_dir: Vector2 = Vector2.RIGHT
+var _parry_timer: float = 0.0
+var _parry_duration: float = 0.0
 ## Airborne lift for the flight ability (0 = grounded, 1 = fully lifted).
 var _airborne: float = 0.0
 
@@ -99,6 +112,8 @@ func advance(delta: float) -> void:
 		_flash_timer -= delta
 	if _pop_timer > 0.0:
 		_pop_timer -= delta
+	if _parry_timer > 0.0:
+		_parry_timer -= delta
 	if _one_shot_active:
 		_one_shot_time += delta
 		var is_strike: bool = state == State.PUNCH or state == State.KICK
@@ -131,6 +146,13 @@ func play(new_state: State) -> void:
 	queue_redraw()
 
 
+## True while a melee strike (PUNCH/KICK) one-shot is playing. Hero faces the
+## aim during a strike so the punch animation points at the cursor/target (the
+## arm extends in the body-facing direction), matching the aim-directed damage arc.
+func is_striking() -> bool:
+	return _one_shot_active and (state == State.PUNCH or state == State.KICK)
+
+
 ## Flip horizontally to face `dir`. Unchanged when dir.x == 0.
 func set_facing(dir: Vector2) -> void:
 	if dir.x < 0.0:
@@ -139,13 +161,23 @@ func set_facing(dir: Vector2) -> void:
 		scale.x = 1.0
 
 
-## Aim the CAST lead arm/staff toward `dir` (the cursor direction). The node flip
-## (set_facing) owns left/right, so we only capture the vertical pitch in the
-## mirrored local frame: local +x is always "forward toward facing", so the arm
-## angle is atan2(dir.y, |dir.x|). The cast pose reads _aim_angle for arm_lead.
+## Aim the CAST lead arm/staff toward `dir` (the cursor direction), stored as a
+## world vector so the arm can point at the true cursor even when the body faces
+## the other way. _compute_pose mirrors it into the local frame for the flip.
 func set_aim(dir: Vector2) -> void:
 	if dir != Vector2.ZERO:
-		_aim_angle = atan2(dir.y, absf(dir.x))
+		_aim_world = dir.normalized()
+
+
+## Arm the directional parry shield: a white curved shell drawn facing `dir`
+## (the aim/threat direction) for `duration` seconds, fading as it expires. The
+## Stick-Fight block/deflect read — replaces the old omni flash.
+func set_parry(dir: Vector2, duration: float) -> void:
+	if dir != Vector2.ZERO:
+		_parry_dir = dir.normalized()
+	_parry_duration = maxf(duration, 0.01)
+	_parry_timer = _parry_duration
+	queue_redraw()
 
 
 ## Flight lift, 0 (grounded) .. 1 (airborne). Driven by Hero._update_flight;
@@ -264,8 +296,41 @@ func _draw() -> void:
 	if lift != Vector2.ZERO or pop_scale != Vector2.ONE:
 		draw_set_transform(lift, 0.0, pop_scale)
 	var pose: Dictionary = _compute_pose()
-	draw_figure(self, pose, col, equipment, height)
+	draw_figure(self, pose, col, equipment, height, OUTLINE_COLOR)
 	_draw_slash_arc(pose, col)
+	_draw_parry_shield(pose)
+
+
+## Directional parry SHIELD — a white "section of a sphere": a solid curved band
+## in front of the figure, facing _parry_dir, with a bright leading rim. Fades
+## over its window. The Stick-Fight block/deflect. The world aim is mirrored into
+## the (possibly flipped) local frame so it points at the true threat direction.
+func _draw_parry_shield(pose: Dictionary) -> void:
+	if _parry_timer <= 0.0 or _parry_duration <= 0.0:
+		return
+	var frac: float = clampf(_parry_timer / _parry_duration, 0.0, 1.0)
+	# Snap in bright, ease out: full for the first half of the window, then fade.
+	var alpha: float = minf(1.0, frac * 2.0)
+	var s: float = 1.0 if scale.x >= 0.0 else -1.0
+	var aim: Vector2 = Vector2(_parry_dir.x * s, _parry_dir.y).normalized()
+	var center: Vector2 = pose["shoulder"].lerp(pose["hip"], 0.4)  # chest height
+	var ang: float = aim.angle()
+	var half_span: float = 0.85                       # ~1.7 rad of arc (a shell)
+	var r_in: float = height * 0.5
+	var r_out: float = height * 0.66
+	# Solid curved band, built as a polygon strip between the inner + outer arcs.
+	var pts: PackedVector2Array = PackedVector2Array()
+	var steps: int = 12
+	for i: int in range(steps + 1):
+		var a: float = ang - half_span + (2.0 * half_span) * float(i) / float(steps)
+		pts.append(center + Vector2.from_angle(a) * r_out)
+	for i: int in range(steps + 1):
+		var a: float = ang + half_span - (2.0 * half_span) * float(i) / float(steps)
+		pts.append(center + Vector2.from_angle(a) * r_in)
+	draw_colored_polygon(pts, Color(0.95, 0.98, 1.0, 0.62 * alpha))
+	# Bright leading rim on the outer edge + a soft outer glow.
+	draw_arc(center, r_out, ang - half_span, ang + half_span, 16, Color(1, 1, 1, 0.95 * alpha), maxf(2.0, height * 0.05))
+	draw_arc(center, r_out + height * 0.06, ang - half_span, ang + half_span, 16, Color(0.85, 0.95, 1.0, 0.22 * alpha), height * 0.09)
 
 
 ## Soft ground shadow beneath the figure while airborne — shrinks + fades as it
@@ -398,8 +463,8 @@ func _draw_slash_arc(pose: Dictionary, col: Color) -> void:
 ## neck, hip, shoulder, hand_lead, hand_off, foot_lead, foot_off,
 ## plus stroke metrics r (head radius) and w (line width).
 func _compute_pose() -> Dictionary:
-	var w: float = maxf(1.5, height * 0.09)
-	var r: float = height * 0.16
+	var w: float = maxf(2.0, height * 0.11)
+	var r: float = height * 0.15
 	var arm_len: float = height * 0.32
 	var leg_len: float = height * 0.4
 	var t: float = 0.0
@@ -425,13 +490,15 @@ func _compute_pose() -> Dictionary:
 		State.IDLE:
 			bob = sin(_phase * 2.0) * height * 0.03
 		State.RUN:
-			lean = height * 0.08
-			var swing: float = sin(_phase * 12.0) * 0.55
+			# Bigger swing + bob than before: the walk should visibly read as
+			# moving (the maker's "current run cycle looks like not-moving").
+			lean = height * 0.10
+			var swing: float = sin(_phase * 12.0) * 0.7
 			leg_lead = PI * 0.5 - swing
 			leg_off = PI * 0.5 + swing
-			arm_lead = PI * 0.5 + swing * 0.7
-			arm_off = PI * 0.5 - swing * 0.7
-			bob = absf(sin(_phase * 12.0)) * height * 0.02
+			arm_lead = PI * 0.5 + swing * 0.8
+			arm_off = PI * 0.5 - swing * 0.8
+			bob = absf(sin(_phase * 12.0)) * height * 0.035
 		State.DASH:
 			lean = height * 0.22
 			leg_lead = PI * 0.5 + 0.55
@@ -439,10 +506,12 @@ func _compute_pose() -> Dictionary:
 			arm_lead = PI * 0.5 + 0.7
 			arm_off = PI * 0.5 + 0.95
 		State.CAST:
-			# Lead arm thrusts toward the aim pitch (staff points at the cursor);
-			# off arm stays as a light counter-pose.
+			# Lead arm points at the TRUE world cursor — mirror it into the
+			# (possibly flipped) local frame so the staff aims right even when the
+			# body faces the other way (twin-stick cast).
 			lean = height * 0.05
-			arm_lead = _aim_angle
+			var cast_s: float = 1.0 if scale.x >= 0.0 else -1.0
+			arm_lead = Vector2(_aim_world.x * cast_s, _aim_world.y).angle()
 			arm_off = 0.18
 		State.PUNCH:
 			# ext < 0 during anticipation coils the torso back and retracts
@@ -494,6 +563,7 @@ static func draw_figure(
 	col: Color,
 	equipment_slots: Dictionary,
 	fig_height: float,
+	outline_col: Color = Color(0.0, 0.0, 0.0, 0.0),
 ) -> void:
 	var w: float = pose["w"]
 	var r: float = pose["r"]
@@ -516,20 +586,50 @@ static func draw_figure(
 		])
 		item.draw_colored_polygon(robe, Color(col.r, col.g, col.b, col.a * 0.45))
 
-	# The stick figure: head + torso + 2 arms + 2 legs.
+	# Crisp dark OUTLINE pass: the same skeleton drawn thicker underneath so the
+	# bold coloured figure reads against any background (the Stick-Fight look).
+	# Aura silhouette + dash ghosts pass no outline_col (a==0) -> they stay soft.
+	if outline_col.a > 0.0:
+		var oc: Color = Color(outline_col.r, outline_col.g, outline_col.b, outline_col.a * col.a)
+		var ow: float = w + OUTLINE_EXTRA
+		item.draw_line(neck, hip, oc, ow)
+		item.draw_line(shoulder, hand_lead, oc, ow)
+		item.draw_line(shoulder, hand_off, oc, ow)
+		item.draw_line(hip, foot_lead, oc, ow)
+		item.draw_line(hip, foot_off, oc, ow)
+		# Round the limb ends + head so the outline has no flat butt-caps.
+		item.draw_circle(hand_lead, ow * 0.5, oc)
+		item.draw_circle(hand_off, ow * 0.5, oc)
+		item.draw_circle(foot_lead, ow * 0.5, oc)
+		item.draw_circle(foot_off, ow * 0.5, oc)
+		item.draw_circle(head_center, r + OUTLINE_EXTRA * 0.7, oc)
+
+	# The stick figure: head + torso + 2 arms + 2 legs, in the bold limb colour.
 	item.draw_circle(head_center, r, col)
 	item.draw_line(neck, hip, col, w)
 	item.draw_line(shoulder, hand_lead, col, w)
 	item.draw_line(shoulder, hand_off, col, w)
 	item.draw_line(hip, foot_lead, col, w)
 	item.draw_line(hip, foot_off, col, w)
+	# Rounded joints/ends: filled dots cap the lines so the limbs read solid.
+	item.draw_circle(shoulder, w * 0.5, col)
+	item.draw_circle(hip, w * 0.5, col)
+	item.draw_circle(hand_lead, w * 0.5, col)
+	item.draw_circle(hand_off, w * 0.5, col)
+	item.draw_circle(foot_lead, w * 0.5, col)
+	item.draw_circle(foot_off, w * 0.5, col)
 
 	_draw_equipment(
 		item, equipment_slots, col, w, r, fig_height,
-		head_center, hand_lead, foot_lead, foot_off
+		head_center, shoulder, hand_lead, foot_lead, foot_off
 	)
 
 
+## Gear overlay. Weapons are oriented ALONG the lead arm (hand - shoulder) so
+## they read as HELD and gripped, not floating: the shaft runs through the hand
+## and the business end points where the arm points — so casting (arm at cursor)
+## aims the staff/sword at the target. A thin dark under-edge keeps the crisp
+## outlined Stick-Fight look.
 static func _draw_equipment(
 	item: CanvasItem,
 	equipment_slots: Dictionary,
@@ -538,6 +638,7 @@ static func _draw_equipment(
 	r: float,
 	fig_height: float,
 	head_center: Vector2,
+	shoulder: Vector2,
 	hand_lead: Vector2,
 	foot_lead: Vector2,
 	foot_off: Vector2,
@@ -561,19 +662,38 @@ static func _draw_equipment(
 			item.draw_line(
 				foot_off + Vector2(-r * 0.5, 0), foot_off + Vector2(r * 0.5, 0), gear_col, w
 			)
+
+	# Arm direction: from the shoulder through the lead hand, extended outward.
+	var arm_dir: Vector2 = hand_lead - shoulder
+	if arm_dir.length() < 0.001:
+		arm_dir = Vector2.RIGHT
+	arm_dir = arm_dir.normalized()
+	var perp: Vector2 = arm_dir.orthogonal()
+	var edge: Color = Color(0.07, 0.08, 0.13, col.a)  # dark under-edge (OUTLINE feel)
 	match equipment_slots.get("weapon", ""):
 		"sword":
+			# Blade runs out along the arm; a short crossguard sits across the grip.
+			var s_len: float = fig_height * 0.5
+			var s_base: Vector2 = hand_lead - arm_dir * (fig_height * 0.05)
+			var s_tip: Vector2 = hand_lead + arm_dir * s_len
+			item.draw_line(hand_lead - perp * r * 0.7, hand_lead + perp * r * 0.7, edge, w * 1.1)
+			item.draw_line(s_base, s_tip, edge, w * 1.5)          # dark edge under the blade
+			item.draw_line(s_base, s_tip, gear_col, w * 0.95)     # blade body
 			item.draw_line(
-				hand_lead, hand_lead + Vector2(fig_height * 0.32, -fig_height * 0.1), gear_col, w
-			)
+				hand_lead + arm_dir * (s_len * 0.4), s_tip, gear_col.lightened(0.35), w * 0.35
+			)  # bright fuller/shine toward the tip
+			item.draw_circle(s_tip, w * 0.5, gear_col)            # rounded point
 		"staff":
-			item.draw_line(
-				hand_lead + Vector2(-fig_height * 0.08, fig_height * 0.3),
-				hand_lead + Vector2(fig_height * 0.1, -fig_height * 0.55),
-				gear_col, w
-			)
-			item.draw_circle(
-				hand_lead + Vector2(fig_height * 0.1, -fig_height * 0.55), w * 1.2, gear_col
-			)
+			# Long shaft the hand grips near its lower third; glowing head at the tip.
+			var st_len: float = fig_height * 0.62
+			var st_butt: Vector2 = hand_lead - arm_dir * (fig_height * 0.2)
+			var st_tip: Vector2 = hand_lead + arm_dir * st_len
+			item.draw_line(st_butt, st_tip, edge, w * 1.5)        # dark edge
+			item.draw_line(st_butt, st_tip, gear_col, w * 0.95)   # shaft
+			item.draw_circle(st_tip, w * 2.0, Color(gear_col.r, gear_col.g, gear_col.b, col.a * 0.35))
+			item.draw_circle(st_tip, w * 1.25, gear_col.lightened(0.4))  # bright head orb
 		"orb":
-			item.draw_circle(hand_lead + Vector2(fig_height * 0.14, 0), r * 0.6, gear_col)
+			# A floating orb hovering just past the grip, with a soft halo.
+			var o_c: Vector2 = hand_lead + arm_dir * (fig_height * 0.14)
+			item.draw_circle(o_c, r * 0.85, Color(gear_col.r, gear_col.g, gear_col.b, col.a * 0.3))
+			item.draw_circle(o_c, r * 0.55, gear_col.lightened(0.35))
