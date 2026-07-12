@@ -2,8 +2,14 @@ extends CharacterBody2D
 ## Slice 0 combat protagonist (the mage). Move now; dash + cast added next.
 
 signal health_changed(current: int, maximum: int)
+signal mana_changed(current: float, maximum: int)
+signal signature_changed(display_name: String)
 
 const SPEED: float = 210.0
+## Mana (MP): gates the big SIGNATURE spectacle spells (the magic-circle beam /
+## divine ray). Regenerates over time so ultimates are a paced resource, not
+## spammable. Costs + cooldowns live per-spell on the SpellDef.
+const MP_REGEN: float = 20.0  # mp/sec
 const DASH_SPEED: float = 620.0
 const DASH_TIME: float = 0.14
 const DASH_COOLDOWN: float = 0.55
@@ -132,6 +138,13 @@ const CLASS_CONFIG: Dictionary = {
 
 @export var max_hp: int = 100
 var hp: int = 100
+@export var max_mp: int = 100
+var mp: float = 100.0
+## Equipped SIGNATURE loadout (SpellLibrary) — the spell tree the player cycles
+## (V) and unleashes (Ultimate key), MP-gated with a per-spell cooldown.
+var _signatures: Array = []
+var _signature_index: int = 0
+var _signature_cd_timer: float = 0.0
 ## Twin-stick: `facing`/`_aim_dir` track the CURSOR (drive casts, melee arc, cast
 ## pose, camera peek); `_move_dir` tracks WASD (drives dash + blink dodge). They
 ## are decoupled so you can run one way while aiming/casting another (strafe).
@@ -203,10 +216,20 @@ func _ready() -> void:
 			start_class = int(sc)
 	configure_class(start_class)
 	_apply_element()
+	# Signature spell loadout — the playable slice of the spell tree.
+	_signatures = SpellLibrary.build()
+	mp = float(max_mp)
+	mana_changed.emit(mp, max_mp)
+	if not _signatures.is_empty():
+		signature_changed.emit(_signatures[_signature_index].display_name)
 	# Rank drives aura TIER (elaborateness); the element keeps driving COLOUR.
 	Rank.rank_changed.connect(_on_rank_changed)
 	rig.set_aura_tier(Rank.tier())
 	rig.hit_frame.connect(_on_melee_hit_frame)
+	# Floating HP + MP bars over the head.
+	var bars := CharacterBars.new()
+	add_child(bars)
+	bars.configure(self, true, -26.0)
 
 
 func _physics_process(delta: float) -> void:
@@ -219,6 +242,11 @@ func _physics_process(delta: float) -> void:
 	_nova_cooldown_timer = maxf(_nova_cooldown_timer - delta, 0.0)
 	_parry_window_timer = maxf(_parry_window_timer - delta, 0.0)
 	_parry_cooldown_timer = maxf(_parry_cooldown_timer - delta, 0.0)
+	_signature_cd_timer = maxf(_signature_cd_timer - delta, 0.0)
+	# Mana regenerates every frame (even mid-dash) so ultimates stay paced.
+	if mp < float(max_mp):
+		mp = minf(mp + MP_REGEN * delta, float(max_mp))
+		mana_changed.emit(mp, max_mp)
 	# Landing dust: white puff the instant we touch down after being airborne (not
 	# while gliding). At the top so it fires even on dash frames. is_on_floor()
 	# here reflects the previous frame's move_and_slide.
@@ -239,6 +267,10 @@ func _physics_process(delta: float) -> void:
 		_cycle_colourway()
 	if Input.is_action_just_pressed("switch_class"):
 		_cycle_class()
+	if Input.is_action_just_pressed("cycle_signature"):
+		_cycle_signature()
+	if Input.is_action_just_pressed("ultimate") and not is_dashing:
+		_cast_signature()
 	if Input.is_action_just_pressed("parry") and not is_dashing:
 		_try_parry_start()
 	if Input.is_action_pressed("cast") and _cast_cooldown_timer <= 0.0 and not is_dashing:
@@ -443,6 +475,51 @@ func _cycle_class() -> void:
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs != null:
 		gs.selected_class = _hero_class
+
+
+## Unleash the equipped SIGNATURE spectacle toward the aim, if off cooldown and
+## MP allows. Consumes the SpellDef's mp_cost; SpellCaster picks the spectacle
+## (magic-circle beam / divine ray / ...). Not buffered — a deliberate press.
+func _cast_signature() -> void:
+	if _signatures.is_empty() or _signature_cd_timer > 0.0:
+		return
+	var spell: SpellDef = _signatures[_signature_index]
+	if mp < float(spell.mp_cost):
+		# Not enough mana: a soft fizzle cue, no cast, no cooldown burned.
+		rig.flash_color(Color(0.5, 0.5, 0.6), 0.08)
+		Sfx.play("melee_swing", -14.0, 0.0)
+		return
+	mp -= float(spell.mp_cost)
+	mana_changed.emit(mp, max_mp)
+	_signature_cd_timer = spell.cooldown
+	SpellCaster.cast(spell, get_parent(), global_position, get_global_mouse_position(), _element_color)
+	rig.set_aim(_aim_dir)
+	rig.play(CharacterRig.State.CAST)
+	_notify_element_used()
+
+
+## Swap to the next equipped signature (the loadout cycle — V). On mobile this is
+## a loadout selector, not a per-cast key, so the in-combat input set stays small.
+func _cycle_signature() -> void:
+	if _signatures.is_empty():
+		return
+	_signature_index = (_signature_index + 1) % _signatures.size()
+	signature_changed.emit(_signatures[_signature_index].display_name)
+	Sfx.play("footstep", -3.0, 0.25)
+
+
+## Active signature (or null) — for the HUD label + cooldown/MP readout.
+func current_signature() -> SpellDef:
+	if _signatures.is_empty():
+		return null
+	return _signatures[_signature_index]
+
+
+func signature_cooldown_ratio() -> float:
+	var s: SpellDef = current_signature()
+	if s == null or s.cooldown <= 0.0:
+		return 0.0
+	return clampf(_signature_cd_timer / s.cooldown, 0.0, 1.0)
 
 
 ## Rogue dash-strike: every enemy/crate the dash passes within range takes melee
@@ -690,10 +767,27 @@ func ability_hud_state() -> Array:
 		{"name": "Blink", "key": "R", "remaining": _blink_cooldown_timer, "total": float(_cfg["blink_cd"]), "enabled": true},
 		{"name": "Nova", "key": "T", "remaining": _nova_cooldown_timer, "total": NOVA_COOLDOWN, "enabled": bool(_cfg["has_nova"])},
 		{"name": "Parry", "key": "RMB", "remaining": _parry_cooldown_timer, "total": PARRY_COOLDOWN, "enabled": bool(_cfg["can_parry"])},
+		# Signature ultimate — name updates as you cycle the loadout (V). Dimmed
+		# when mana can't cover the cast; the floating MP bar shows the fill.
+		_signature_hud_slot(),
 		# Fly slot doubles as a fuel gauge: the cooldown-fill shows the DRAINED
 		# fuel (empty tank = full overlay), so it reads as a jetpack meter.
 		{"name": "Fly", "key": "Shf", "remaining": FLY_FUEL_MAX - _fly_fuel, "total": FLY_FUEL_MAX, "enabled": true},
 	]
+
+
+## Hotbar slot for the equipped signature: short name (first word of the spell),
+## the Ultimate key, its cooldown wipe, and dimmed when mana can't cover it.
+func _signature_hud_slot() -> Dictionary:
+	var sig: SpellDef = current_signature()
+	if sig == null:
+		return {"name": "Ult", "key": "G", "remaining": 0.0, "total": 0.0, "enabled": false}
+	var short_name: String = sig.display_name.split(" ")[0]
+	return {
+		"name": short_name, "key": "G",
+		"remaining": _signature_cd_timer, "total": maxf(sig.cooldown, 0.01),
+		"enabled": mp >= float(sig.mp_cost),
+	}
 
 
 ## Equip a weapon kind: swaps the rig's weapon overlay AND retunes the melee

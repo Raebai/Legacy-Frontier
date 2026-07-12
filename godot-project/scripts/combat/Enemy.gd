@@ -161,6 +161,10 @@ func _ready() -> void:
 	var heroes: Array = get_tree().get_nodes_in_group("hero")
 	if not heroes.is_empty():
 		_hero = heroes[0]
+	# Floating HP bar over the head (enemies have no MP).
+	var bars := CharacterBars.new()
+	add_child(bars)
+	bars.configure(self, false, -24.0)
 
 
 func _physics_process(delta: float) -> void:
