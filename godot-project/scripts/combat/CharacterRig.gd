@@ -6,7 +6,7 @@ extends Node2D
 
 signal hit_frame
 
-enum State { IDLE, RUN, DASH, CAST, PUNCH, KICK, HURT }
+enum State { IDLE, RUN, DASH, CAST, PUNCH, KICK, HURT, WALL_SLIDE }
 
 ## One-shot states auto-return to IDLE after their fixed duration.
 const ONE_SHOT_DURATIONS: Dictionary = {
@@ -556,6 +556,17 @@ func _compute_pose() -> Dictionary:
 			arm_off = PI + 0.5
 			leg_lead = PI * 0.5 - 0.35
 			leg_off = PI * 0.5 - 0.1
+		State.WALL_SLIDE:
+			# Clinging to a wall (facing it, +x = wall): both arms reach up-into the
+			# wall, legs bent + splayed against it. The IK bends knees/elbows so it
+			# reads as a real cling + slide, not a stiff stick.
+			lean = height * 0.05
+			arm_lead = -0.55
+			arm_off = 0.25
+			arm_lead_len = arm_len * 0.9
+			leg_lead = PI * 0.5 - 0.15
+			leg_off = PI * 0.5 + 0.4
+			leg_lead_len = leg_len * 0.82
 
 	# Skeleton joints (local space; feet at +height/2, head top at -height/2).
 	var head_center: Vector2 = Vector2(lean, -height * 0.5 + r + bob)
@@ -599,6 +610,19 @@ static func draw_figure(
 	var foot_lead: Vector2 = pose["foot_lead"]
 	var foot_off: Vector2 = pose["foot_off"]
 
+	# --- ARTICULATED limbs (the Stick-Fight upgrade): solve a KNEE per leg + an
+	# ELBOW per arm with 2-bone IK so the figure BENDS like a real body instead of
+	# stiff straight sticks. Segment sums exceed the limb reach so there's always
+	# a real bend; knees bend forward (+x local), elbows bend down. ---
+	var thigh: float = fig_height * 0.23
+	var shin: float = fig_height * 0.25
+	var upper: float = fig_height * 0.2
+	var fore: float = fig_height * 0.2
+	var knee_lead: Vector2 = _ik_joint(hip, foot_lead, thigh, shin, Vector2.RIGHT)
+	var knee_off: Vector2 = _ik_joint(hip, foot_off, thigh, shin, Vector2.RIGHT)
+	var elbow_lead: Vector2 = _ik_joint(shoulder, hand_lead, upper, fore, Vector2.DOWN)
+	var elbow_off: Vector2 = _ik_joint(shoulder, hand_off, upper, fore, Vector2.DOWN)
+
 	# Body-slot robe draws under the limbs.
 	if equipment_slots.get("body", "") == "robe":
 		var robe: PackedVector2Array = PackedVector2Array([
@@ -609,43 +633,67 @@ static func draw_figure(
 		])
 		item.draw_colored_polygon(robe, Color(col.r, col.g, col.b, col.a * 0.45))
 
-	# Crisp dark OUTLINE pass: the same skeleton drawn thicker underneath so the
-	# bold coloured figure reads against any background (the Stick-Fight look).
+	# Crisp dark OUTLINE pass: the same articulated skeleton drawn thicker under so
+	# the bold coloured figure reads against any background (the Stick-Fight look).
 	# Aura silhouette + dash ghosts pass no outline_col (a==0) -> they stay soft.
 	if outline_col.a > 0.0:
 		var oc: Color = Color(outline_col.r, outline_col.g, outline_col.b, outline_col.a * col.a)
 		var ow: float = w + OUTLINE_EXTRA
 		item.draw_line(neck, hip, oc, ow)
-		item.draw_line(shoulder, hand_lead, oc, ow)
-		item.draw_line(shoulder, hand_off, oc, ow)
-		item.draw_line(hip, foot_lead, oc, ow)
-		item.draw_line(hip, foot_off, oc, ow)
-		# Round the limb ends + head so the outline has no flat butt-caps.
+		_draw_limb(item, shoulder, elbow_lead, hand_lead, oc, ow)
+		_draw_limb(item, shoulder, elbow_off, hand_off, oc, ow)
+		_draw_limb(item, hip, knee_lead, foot_lead, oc, ow)
+		_draw_limb(item, hip, knee_off, foot_off, oc, ow)
 		item.draw_circle(hand_lead, ow * 0.5, oc)
 		item.draw_circle(hand_off, ow * 0.5, oc)
 		item.draw_circle(foot_lead, ow * 0.5, oc)
 		item.draw_circle(foot_off, ow * 0.5, oc)
 		item.draw_circle(head_center, r + OUTLINE_EXTRA * 0.7, oc)
 
-	# The stick figure: head + torso + 2 arms + 2 legs, in the bold limb colour.
+	# The figure: head + torso + 2 articulated arms + 2 articulated legs.
 	item.draw_circle(head_center, r, col)
 	item.draw_line(neck, hip, col, w)
-	item.draw_line(shoulder, hand_lead, col, w)
-	item.draw_line(shoulder, hand_off, col, w)
-	item.draw_line(hip, foot_lead, col, w)
-	item.draw_line(hip, foot_off, col, w)
+	_draw_limb(item, shoulder, elbow_lead, hand_lead, col, w)
+	_draw_limb(item, shoulder, elbow_off, hand_off, col, w)
+	_draw_limb(item, hip, knee_lead, foot_lead, col, w)
+	_draw_limb(item, hip, knee_off, foot_off, col, w)
 	# Rounded joints/ends: filled dots cap the lines so the limbs read solid.
 	item.draw_circle(shoulder, w * 0.5, col)
-	item.draw_circle(hip, w * 0.5, col)
+	item.draw_circle(hip, w * 0.55, col)
 	item.draw_circle(hand_lead, w * 0.5, col)
 	item.draw_circle(hand_off, w * 0.5, col)
-	item.draw_circle(foot_lead, w * 0.5, col)
-	item.draw_circle(foot_off, w * 0.5, col)
+	item.draw_circle(foot_lead, w * 0.55, col)  # slightly bigger = a "foot"
+	item.draw_circle(foot_off, w * 0.55, col)
 
 	_draw_equipment(
 		item, equipment_slots, col, w, r, fig_height,
 		head_center, shoulder, hand_lead, foot_lead, foot_off
 	)
+
+
+## Draw a two-segment limb root->mid->end with a rounded joint cap at the mid.
+static func _draw_limb(item: CanvasItem, a: Vector2, mid: Vector2, b: Vector2, col: Color, w: float) -> void:
+	item.draw_line(a, mid, col, w)
+	item.draw_line(mid, b, col, w)
+	item.draw_circle(mid, w * 0.5, col)  # knee / elbow cap
+
+
+## 2-bone IK: the joint of a chain root->end with segment lengths l1 (root->joint)
+## and l2 (joint->end), bent toward `hint`. Clamped so an over-extended chain just
+## straightens instead of producing NaNs.
+static func _ik_joint(root: Vector2, end: Vector2, l1: float, l2: float, hint: Vector2) -> Vector2:
+	var delta: Vector2 = end - root
+	var dist: float = delta.length()
+	if dist < 0.0001:
+		return root
+	var d: float = clampf(dist, absf(l1 - l2) + 0.01, l1 + l2 - 0.01)
+	var dir: Vector2 = delta / dist
+	var along: float = (l1 * l1 - l2 * l2 + d * d) / (2.0 * d)
+	var h: float = sqrt(maxf(l1 * l1 - along * along, 0.0))
+	var perp: Vector2 = dir.orthogonal()
+	if perp.dot(hint) < 0.0:
+		perp = -perp
+	return root + dir * along + perp * h
 
 
 ## Gear overlay. Weapons are oriented ALONG the lead arm (hand - shoulder) so

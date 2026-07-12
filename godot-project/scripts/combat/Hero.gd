@@ -167,6 +167,7 @@ var _parry_window_timer: float = 0.0
 var _parry_cooldown_timer: float = 0.0
 var _wall_jump_lock: float = 0.0   # horizontal-input lock after a wall-kick
 var _was_wall_sliding: bool = false
+var _wall_dust_timer: float = 0.0
 var _coyote: float = 0.0
 var _jump_buffer: float = 0.0
 var _air_jumps: int = 0
@@ -366,7 +367,21 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	_was_wall_sliding = wall_sliding
 
-	# Rig: run/idle (footsteps only grounded); the figure just holds its pose airborne.
+	# Rig: a distinct WALL-SLIDE cling (so you read as ON the wall) with friction
+	# dust; otherwise run/idle with grounded footsteps.
+	if wall_sliding:
+		rig.play(CharacterRig.State.WALL_SLIDE)
+		rig.set_facing(Vector2(-wall_normal.x, 0.0))  # turn to face the wall
+		_wall_dust_timer -= delta
+		if _wall_dust_timer <= 0.0:
+			_wall_dust_timer = 0.09
+			CombatVfx.spawn_burst(
+				get_parent(), global_position + Vector2(-wall_normal.x * 9.0, 8.0),
+				Color(0.85, 0.85, 0.9, 0.6), Color(0.85, 0.85, 0.9, 0.0),
+				5, 0.25, 20.0, 70.0
+			)
+		rig.set_aim(_aim_dir)
+		return
 	var moving: bool = absf(move_x) > 0.01
 	rig.play(CharacterRig.State.RUN if moving else CharacterRig.State.IDLE)
 	if moving and is_on_floor():
@@ -584,7 +599,7 @@ func _start_dash() -> void:
 	is_dashing = true
 	_dash_timer = _tune("dash_time", DASH_TIME)
 	_dash_cooldown_timer = _cfg["dash_cd"]
-	_dash_dir = _aim_dir  # dash toward where you aim — any direction
+	_dash_dir = _move_dir  # dash in the RUN direction (not the cursor) — mobile-friendly
 	_ghost_timer = 0.0  # first afterimage lands this frame
 	_dash_hit.clear()
 
