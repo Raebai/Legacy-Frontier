@@ -180,6 +180,25 @@ func set_parry(dir: Vector2, duration: float) -> void:
 	queue_redraw()
 
 
+## World position of the lead-weapon tip (staff crystal / sword point / hand), so
+## spells emanate FROM the weapon rather than the body centre. Reads the current
+## pose (so during a CAST it points at the aim); `to_global` handles the L/R flip.
+func get_weapon_tip() -> Vector2:
+	var pose: Dictionary = _compute_pose()
+	var shoulder: Vector2 = pose["shoulder"]
+	var hand: Vector2 = pose["hand_lead"]
+	var arm_dir: Vector2 = hand - shoulder
+	if arm_dir.length() < 0.001:
+		arm_dir = Vector2.RIGHT
+	arm_dir = arm_dir.normalized()
+	var reach: float = 0.0
+	match equipment.get("weapon", ""):
+		"staff": reach = height * 0.38
+		"sword": reach = height * 0.5
+		"orb": reach = height * 0.14
+	return to_global(hand + arm_dir * reach)
+
+
 ## Flight lift, 0 (grounded) .. 1 (airborne). Driven by Hero._update_flight;
 ## raises the drawn figure and drops a shrinking ground shadow beneath it.
 func set_airborne(v: float) -> void:
@@ -490,15 +509,19 @@ func _compute_pose() -> Dictionary:
 		State.IDLE:
 			bob = sin(_phase * 2.0) * height * 0.03
 		State.RUN:
-			# Bigger swing + bob than before: the walk should visibly read as
-			# moving (the maker's "current run cycle looks like not-moving").
-			lean = height * 0.10
-			var swing: float = sin(_phase * 12.0) * 0.7
+			# Smoother, weightier gait (Stick-Fight feel): a calmer stride
+			# frequency, a real leg lift on the back-swing (stride, not a scissor),
+			# arm counter-swing, and a two-step bounce synced to the footfalls.
+			var sp: float = _phase * 9.5
+			var swing: float = sin(sp) * 0.9
+			lean = height * 0.13
 			leg_lead = PI * 0.5 - swing
 			leg_off = PI * 0.5 + swing
-			arm_lead = PI * 0.5 + swing * 0.8
-			arm_off = PI * 0.5 - swing * 0.8
-			bob = absf(sin(_phase * 12.0)) * height * 0.035
+			# Shorten whichever leg is swinging back so it "lifts" off the ground.
+			leg_lead_len = leg_len * (1.0 - 0.16 * maxf(-sin(sp), 0.0))
+			arm_lead = PI * 0.5 + swing * 0.75
+			arm_off = PI * 0.5 - swing * 0.75
+			bob = absf(sin(sp)) * height * 0.055
 		State.DASH:
 			lean = height * 0.22
 			leg_lead = PI * 0.5 + 0.55
@@ -684,14 +707,22 @@ static func _draw_equipment(
 			)  # bright fuller/shine toward the tip
 			item.draw_circle(s_tip, w * 0.5, gear_col)            # rounded point
 		"staff":
-			# Long shaft the hand grips near its lower third; glowing head at the tip.
-			var st_len: float = fig_height * 0.62
-			var st_butt: Vector2 = hand_lead - arm_dir * (fig_height * 0.2)
+			# Sleek short WAND: a thin shaft the hand grips, tipped with a small
+			# glowing crystal (a cut gem) — reads cool without dominating the figure.
+			var st_len: float = fig_height * 0.38
+			var st_butt: Vector2 = hand_lead - arm_dir * (fig_height * 0.07)
 			var st_tip: Vector2 = hand_lead + arm_dir * st_len
-			item.draw_line(st_butt, st_tip, edge, w * 1.5)        # dark edge
-			item.draw_line(st_butt, st_tip, gear_col, w * 0.95)   # shaft
-			item.draw_circle(st_tip, w * 2.0, Color(gear_col.r, gear_col.g, gear_col.b, col.a * 0.35))
-			item.draw_circle(st_tip, w * 1.25, gear_col.lightened(0.4))  # bright head orb
+			item.draw_line(st_butt, st_tip, edge, w * 0.95)       # dark edge
+			item.draw_line(st_butt, st_tip, gear_col, w * 0.55)   # thin shaft
+			# Angular crystal tip (a small 4-point gem), glowing.
+			var gem: float = maxf(w * 1.4, 2.4)
+			var gp: Vector2 = arm_dir.orthogonal()
+			var gem_pts: PackedVector2Array = PackedVector2Array([
+				st_tip + arm_dir * gem, st_tip + gp * gem * 0.55,
+				st_tip - arm_dir * gem * 0.45, st_tip - gp * gem * 0.55,
+			])
+			item.draw_colored_polygon(gem_pts, gear_col.lightened(0.45))
+			item.draw_circle(st_tip + arm_dir * gem * 0.2, w * 0.45, Color(1, 1, 1, col.a))  # hot glint
 		"orb":
 			# A floating orb hovering just past the grip, with a soft halo.
 			var o_c: Vector2 = hand_lead + arm_dir * (fig_height * 0.14)

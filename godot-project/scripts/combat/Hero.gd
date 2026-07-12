@@ -13,20 +13,28 @@ const MP_REGEN: float = 20.0  # mp/sec
 const DASH_SPEED: float = 620.0
 const DASH_TIME: float = 0.14
 const DASH_COOLDOWN: float = 0.55
-## Side-on platformer physics: gravity + jumping (Stick-Fight model). Movement is
-## horizontal (A/D); Space jumps (+ one air jump); Ctrl dashes; Shift flies.
-const GRAVITY: float = 1500.0
-const MAX_FALL: float = 950.0
+## Side-on platformer physics (Stick-Fight feel): asymmetric gravity (floaty
+## apex, weighty landing), snappy accel + friction, WALL-SLIDE + WALL-JUMP so you
+## can cling to and scale walls. Movement is horizontal (A/D); jump; dash.
+const GRAVITY: float = 1500.0          # rise gravity (floaty apex)
+const GRAVITY_FALL: float = 2100.0     # heavier coming down (weighty landing)
+const MAX_FALL: float = 1000.0
 const JUMP_VELOCITY: float = -540.0
 const DOUBLE_JUMP_VELOCITY: float = -470.0
-const MAX_AIR_JUMPS: int = 0  # single jump (up arrow) — no double-jump
+const MAX_AIR_JUMPS: int = 0  # no mid-air double-jump — wall-jump is the air move
 const COYOTE_TIME: float = 0.10      # jump slightly after leaving a ledge
 const JUMP_BUFFER_TIME: float = 0.10 # jump queued slightly before landing
 const GROUND_ACCEL: float = 2600.0
-const AIR_ACCEL: float = 1400.0      # less control mid-air
-## Flight becomes a jetpack: hold to rise against gravity (fuel-limited).
-const FLY_ASCEND_SPEED: float = 280.0
-const FLY_THRUST: float = 2000.0
+const GROUND_FRICTION: float = 2900.0  # crisp stop with a hint of slide
+const AIR_ACCEL: float = 1450.0        # strong air control (Stick-Fight)
+## Wall-slide + wall-jump (the Stick-Fight wall tech): grip a wall while falling
+## into it (clamped slide speed), then kick off away+up; a slide-then-jump boosts.
+const WALL_SLIDE_MAX_FALL: float = 150.0
+const WALL_STICK_PUSH: float = 6.0     # tiny into-wall x so is_on_wall stays true
+const WALL_JUMP_PUSH: float = 300.0    # launch away from the wall (> SPEED)
+const WALL_JUMP_UP: float = -460.0     # up kick — a diagonal arc, not a rocket
+const WALL_JUMP_LOCKOUT: float = 0.15  # brief horizontal-input lock after the kick
+const SLIDE_JUMP_BOOST: float = 1.25   # extra push jumping straight out of a slide
 const CAST_COOLDOWN: float = 0.35
 const MELEE_COOLDOWN: float = 0.34
 const MELEE_DAMAGE: int = 14
@@ -68,15 +76,6 @@ const PARRY_FLASH_COLOR: Color = Color(0.8, 1.0, 1.0)
 ## The directional block SHELL lingers a touch longer than the active window so
 ## the deflect reads (the arc is the whole tell — no omni flash).
 const PARRY_SHIELD_TIME: float = 0.26
-## Flight ability (hold Fly / Left Shift): grounded by default; lift off to glide
-## OVER pits (no ring-out while airborne). Fuel drains while flying, regenerates
-## on the ground; empty = forced landing. A resource — you can't camp the air.
-const FLY_FUEL_MAX: float = 1.0
-const FLY_DRAIN: float = 0.5         # fuel/sec airborne (~2s from a full tank)
-const FLY_REGEN: float = 0.35        # fuel/sec regained grounded (~3s refill)
-const FLY_MIN_TO_START: float = 0.2  # min fuel to lift off (stops empty-tank flutter)
-const FLY_SPEED_MULT: float = 1.15   # gliding is a touch faster than walking
-const AIRBORNE_LERP: float = 7.0     # how fast the lift visual eases in/out
 ## Input buffer: a melee/dash/blast press that lands while its gate is closed
 ## (cooldown running, mid-dash) is held this long and fired the moment the
 ## gate opens — no more silently dropped presses. `cast` is held/continuous
@@ -166,9 +165,8 @@ var _blink_iframe_timer: float = 0.0
 var _nova_cooldown_timer: float = 0.0
 var _parry_window_timer: float = 0.0
 var _parry_cooldown_timer: float = 0.0
-var _flying: bool = false
-var _fly_fuel: float = FLY_FUEL_MAX
-var _airborne: float = 0.0
+var _wall_jump_lock: float = 0.0   # horizontal-input lock after a wall-kick
+var _was_wall_sliding: bool = false
 var _coyote: float = 0.0
 var _jump_buffer: float = 0.0
 var _air_jumps: int = 0
@@ -243,6 +241,7 @@ func _physics_process(delta: float) -> void:
 	_parry_window_timer = maxf(_parry_window_timer - delta, 0.0)
 	_parry_cooldown_timer = maxf(_parry_cooldown_timer - delta, 0.0)
 	_signature_cd_timer = maxf(_signature_cd_timer - delta, 0.0)
+	_wall_jump_lock = maxf(_wall_jump_lock - delta, 0.0)
 	# Mana regenerates every frame (even mid-dash) so ultimates stay paced.
 	if mp < float(max_mp):
 		mp = minf(mp + MP_REGEN * delta, float(max_mp))
@@ -250,7 +249,7 @@ func _physics_process(delta: float) -> void:
 	# Landing dust: white puff the instant we touch down after being airborne (not
 	# while gliding). At the top so it fires even on dash frames. is_on_floor()
 	# here reflects the previous frame's move_and_slide.
-	if is_on_floor() and not _was_on_floor and not _flying:
+	if is_on_floor() and not _was_on_floor:
 		_spawn_foot_puff()
 	_was_on_floor = is_on_floor()
 	_update_input_buffer(delta)
@@ -275,7 +274,6 @@ func _physics_process(delta: float) -> void:
 		_try_parry_start()
 	if Input.is_action_pressed("cast") and _cast_cooldown_timer <= 0.0 and not is_dashing:
 		_cast()
-	_update_flight(delta)
 
 	if is_dashing:
 		_dash_timer -= delta
@@ -317,33 +315,56 @@ func _physics_process(delta: float) -> void:
 	else:
 		_coyote = maxf(_coyote - delta, 0.0)
 
-	# Vertical: jetpack rise overrides gravity; else fall, or rest on the floor.
-	if _flying:
-		velocity.y = move_toward(velocity.y, -FLY_ASCEND_SPEED, FLY_THRUST * delta)
-	elif is_on_floor():
+	# --- Wall-slide: gripping a wall while falling INTO it (is_on_wall_only so a
+	# grounded corner never counts). get_wall_normal points AWAY from the wall. ---
+	var wall_normal: Vector2 = get_wall_normal()
+	var pushing_into_wall: bool = move_x != 0.0 and is_on_wall_only() \
+			and signf(move_x) == -signf(wall_normal.x)
+	var wall_sliding: bool = is_on_wall_only() and velocity.y > 0.0 and pushing_into_wall
+
+	# Vertical: asymmetric gravity (floaty apex, weighty fall); wall-slide clamps it.
+	if is_on_floor():
 		velocity.y = 0.0
 	else:
-		velocity.y = minf(velocity.y + GRAVITY * delta, MAX_FALL)
+		var g: float = GRAVITY if velocity.y < 0.0 else GRAVITY_FALL
+		velocity.y = minf(velocity.y + g * delta, MAX_FALL)
+		if wall_sliding:
+			velocity.y = minf(velocity.y, WALL_SLIDE_MAX_FALL)
+	# Variable jump height: releasing jump while rising cuts the ascent short.
+	if Input.is_action_just_released("jump") and velocity.y < 0.0:
+		velocity.y *= 0.5
 
-	# Jump (buffered): ground/coyote first, then a single air (double) jump.
-	# Each kick-off throws a little white dust puff at the feet (Stick-Fight).
-	if _jump_buffer > 0.0 and not _flying:
+	# Jump (buffered): ground/coyote, else a WALL-JUMP off a gripped wall.
+	if _jump_buffer > 0.0:
 		if is_on_floor() or _coyote > 0.0:
 			velocity.y = JUMP_VELOCITY
 			_jump_buffer = 0.0
 			_coyote = 0.0
 			_spawn_foot_puff()
-		elif _air_jumps > 0:
-			velocity.y = DOUBLE_JUMP_VELOCITY
-			_air_jumps -= 1
+		elif is_on_wall_only():
+			# Kick away from the wall + up; a slide-then-jump gets a speed boost.
+			var boost: float = SLIDE_JUMP_BOOST if _was_wall_sliding else 1.0
+			velocity.x = wall_normal.x * WALL_JUMP_PUSH * boost
+			velocity.y = WALL_JUMP_UP
+			_wall_jump_lock = WALL_JUMP_LOCKOUT
 			_jump_buffer = 0.0
 			_spawn_foot_puff()
 
-	# Horizontal accel — less control in the air.
+	# Horizontal: accel toward input, friction to a stop. The wall-jump lockout
+	# briefly preserves the kick-off so it can't be cancelled back into the wall.
 	var spd: float = _tune("hero_speed", SPEED)
-	var accel: float = GROUND_ACCEL if is_on_floor() else AIR_ACCEL
-	velocity.x = move_toward(velocity.x, move_x * spd, accel * delta)
+	if _wall_jump_lock <= 0.0:
+		if move_x != 0.0:
+			var accel: float = GROUND_ACCEL if is_on_floor() else AIR_ACCEL
+			velocity.x = move_toward(velocity.x, move_x * spd, accel * delta)
+		else:
+			var fric: float = GROUND_FRICTION if is_on_floor() else AIR_ACCEL
+			velocity.x = move_toward(velocity.x, 0.0, fric * delta)
+	# Tiny push into the wall so move_and_slide keeps registering the slide.
+	if wall_sliding:
+		velocity.x = -wall_normal.x * WALL_STICK_PUSH
 	move_and_slide()
+	_was_wall_sliding = wall_sliding
 
 	# Rig: run/idle (footsteps only grounded); the figure just holds its pose airborne.
 	var moving: bool = absf(move_x) > 0.01
@@ -492,9 +513,14 @@ func _cast_signature() -> void:
 	mp -= float(spell.mp_cost)
 	mana_changed.emit(mp, max_mp)
 	_signature_cd_timer = spell.cooldown
-	SpellCaster.cast(spell, get_parent(), global_position, get_global_mouse_position(), _element_color)
-	rig.set_aim(_aim_dir)
+	# Sky spells (meteor / divine row) raise the staff UP and place from the hero;
+	# beams emanate FROM the staff tip toward the aim. Set the pose FIRST so
+	# get_weapon_tip() reads the pointed staff.
+	var sky: bool = spell.kind == SpellDef.Kind.METEOR or spell.kind == SpellDef.Kind.DIVINE_RAY
+	rig.set_aim(Vector2.UP if sky else _aim_dir)
 	rig.play(CharacterRig.State.CAST)
+	var origin: Vector2 = global_position if sky else rig.get_weapon_tip()
+	SpellCaster.cast(spell, get_parent(), origin, get_global_mouse_position(), _element_color, spell.effect)
 	_notify_element_used()
 
 
@@ -604,16 +630,16 @@ func _cast() -> void:
 	# Aim at the cursor, softly assisted toward an enemy inside the forgiveness
 	# cone so you connect without pixel-hunting (twin-stick, touch-portable).
 	var dir: Vector2 = Targeting.assisted_aim(global_position, _aim_dir, enemies)
+	rig.set_aim(_aim_dir)
+	rig.play(CharacterRig.State.CAST)  # pose the staff at the aim FIRST...
 	var spell: Area2D = SPELL_SCENE.instantiate()
 	get_parent().add_child(spell)
-	spell.global_position = global_position
+	spell.global_position = rig.get_weapon_tip()  # ...so the bolt leaves the tip
 	spell.launch(dir)
 	if spell.has_method("set_element_color"):
 		spell.call("set_element_color", _element_color)
 	if bool(_cfg["throw_blade"]):
 		spell.set("damage", int(_cfg["blade_damage"]))  # rogue: faster, lighter
-	rig.set_aim(_aim_dir)
-	rig.play(CharacterRig.State.CAST)
 	Sfx.play("cast", 0.0, 0.08)
 	Juice.shake_camera(1.0)  # trimmed from 2.0 — casting shouldn't rattle the frame
 	_notify_element_used()
@@ -704,33 +730,6 @@ func is_parrying() -> bool:
 	return _parry_window_timer > 0.0
 
 
-## Flight: read the hold input (never mid-dash), tick the fuel/state machine,
-## then ease the airborne lift visual on the rig. Split from _tick_flight so
-## headless tests can drive the fuel logic without simulating input.
-func _update_flight(delta: float) -> void:
-	_tick_flight(Input.is_action_pressed("fly") and not is_dashing, delta)
-	_airborne = move_toward(_airborne, 1.0 if _flying else 0.0, AIRBORNE_LERP * delta)
-	rig.set_airborne(_airborne)
-
-
-## Fuel/state core (testable seam). Fly while held + fueled; lifting off needs
-## FLY_MIN_TO_START so an empty tank can't flutter. Fuel drains airborne, regens
-## grounded. A flying->grounded transition kicks up landing dust.
-func _tick_flight(want_fly: bool, delta: float) -> void:
-	var fly_now: bool
-	if _flying:
-		fly_now = want_fly and _fly_fuel > 0.0
-	else:
-		fly_now = want_fly and _fly_fuel >= FLY_MIN_TO_START
-	if fly_now:
-		_fly_fuel = maxf(_fly_fuel - FLY_DRAIN * delta, 0.0)
-	else:
-		_fly_fuel = minf(_fly_fuel + FLY_REGEN * delta, FLY_FUEL_MAX)
-	if _flying and not fly_now:
-		_land()
-	_flying = fly_now
-
-
 ## Small white dust puff at the feet — jump kick-off + landing touchdown. The
 ## Stick-Fight jump/land dust; spawned a touch below the origin so it sits at the
 ## ground contact, not the torso.
@@ -740,20 +739,6 @@ func _spawn_foot_puff() -> void:
 		Color(1.0, 1.0, 1.0, 0.72), Color(1.0, 1.0, 1.0, 0.0),
 		9, 0.28, 22.0, 95.0
 	)
-
-
-## Touchdown dust puff (also fires on a forced landing when the tank runs dry).
-func _land() -> void:
-	CombatVfx.spawn_burst(
-		get_parent(), global_position,
-		Color(0.82, 0.82, 0.88, 0.65), Color(0.82, 0.82, 0.88, 0.0),
-		10, 0.28, 30.0, 100.0
-	)
-
-
-## True while airborne — the versus ring-out skips flying fighters (glide the pits).
-func is_flying() -> bool:
-	return _flying
 
 
 ## Cooldown snapshot for the AbilityBar HUD — one dict per slot, in bar order.
@@ -770,9 +755,6 @@ func ability_hud_state() -> Array:
 		# Signature ultimate — name updates as you cycle the loadout (V). Dimmed
 		# when mana can't cover the cast; the floating MP bar shows the fill.
 		_signature_hud_slot(),
-		# Fly slot doubles as a fuel gauge: the cooldown-fill shows the DRAINED
-		# fuel (empty tank = full overlay), so it reads as a jetpack meter.
-		{"name": "Fly", "key": "Shf", "remaining": FLY_FUEL_MAX - _fly_fuel, "total": FLY_FUEL_MAX, "enabled": true},
 	]
 
 

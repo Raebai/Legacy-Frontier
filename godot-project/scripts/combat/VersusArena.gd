@@ -22,7 +22,7 @@ const ENEMY_SCENE_PATH: String = "res://scenes/combat/Enemy.tscn"
 ## -- Match rules -----------------------------------------------------------
 const STAGE_SIZE: Vector2 = Vector2(1200, 760)
 const STOCKS: int = 3
-const BOT_COUNT: int = 2
+const BOT_COUNT: int = 4
 const RESPAWN_INVULN: float = 0.8
 
 ## -- Side-on stage layout (stage-local; the arena node sits at the scene origin) --
@@ -45,9 +45,10 @@ const P1_SPAWN: Vector2 = Vector2(600, 480)
 const BOT_SPAWN_POINTS: Array[Vector2] = [
 	Vector2(400, 430), Vector2(800, 430), Vector2(360, 330), Vector2(840, 330),
 ]
-## Bot archetype rotation: CASTER / SUMMONER / CHARGER — spell-slinging opponents
-## (casters + summoners give you bolts to parry). See Enemy.Archetype.
-const BOT_ARCHETYPES: Array[int] = [2, 4, 3]
+## Bot archetype rotation — a varied roster so every fight reads different:
+## CASTER(2) / SUMMONER(4) / ASSASSIN(5) / BOMBER(6) / CHARGER(3). Tints + speeds
+## come from Enemy's per-archetype defaults. See Enemy.Archetype.
+const BOT_ARCHETYPES: Array[int] = [2, 4, 5, 6, 3]
 ## Versus bots are tankier than the tower's trash mobs so fights last.
 const BOT_HP: int = 110
 ## Destructible cover sitting on the ground (64px blocks; centre = ground_top - 32).
@@ -277,7 +278,7 @@ func _frame_camera_on(hero: Node) -> void:
 			break
 	if cam == null:
 		return
-	cam.zoom = Vector2(1.5, 1.5)  # wider than combat's 2.2 so jumps stay in frame
+	cam.zoom = Vector2(1.1, 1.1)  # zoomed out so the big sigils + meteor barrage fit
 	cam.limit_left = 0
 	cam.limit_top = -200  # sky headroom when you jet up
 	cam.limit_right = int(STAGE_SIZE.x)
@@ -310,6 +311,18 @@ func _build_hud() -> void:
 	_stocks_label.add_theme_color_override("font_outline_color", Color(0.05, 0.05, 0.1, 0.9))
 	_stocks_label.add_theme_constant_override("outline_size", 4)
 	layer.add_child(_stocks_label)
+	# Reset-map button (top-right) — clickable on desktop + touch. Rebuilds the
+	# whole arena (cover, bots, stocks) by reloading the scene.
+	var reset_btn := Button.new()
+	reset_btn.text = "Reset Map"
+	reset_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	reset_btn.offset_left = -122.0
+	reset_btn.offset_right = -10.0
+	reset_btn.offset_top = 8.0
+	reset_btn.offset_bottom = 36.0
+	reset_btn.add_theme_font_size_override("font_size", 13)
+	reset_btn.pressed.connect(_reset_arena)
+	layer.add_child(reset_btn)
 	# Banner sits near the TOP (was dead-center, covering the fight).
 	_banner = Label.new()
 	_banner.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -321,6 +334,12 @@ func _build_hud() -> void:
 	_banner.add_theme_constant_override("outline_size", 8)
 	_banner.visible = false
 	layer.add_child(_banner)
+
+
+## Full arena reset — reload the scene so cover, bots, stocks + the match state
+## all rebuild from scratch. Bound to the Reset Map button.
+func _reset_arena() -> void:
+	get_tree().reload_current_scene()
 
 
 func _update_hud() -> void:
