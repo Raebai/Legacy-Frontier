@@ -95,6 +95,13 @@ func is_active() -> bool:
 			or _weaken > 0.0 or _unstable > 0.0
 
 
+## True while a movement-locking ailment (freeze or shock-stun) holds — the Enemy
+## uses this to suppress starting a NEW attack windup, so a frozen/shocked enemy
+## is genuinely locked down (chill only slows).
+func is_hard_cc() -> bool:
+	return _freeze > 0.0 or _shock > 0.0
+
+
 func _process(delta: float) -> void:
 	_phase += delta
 	if _burn > 0.0:

@@ -257,6 +257,10 @@ func _physics_process(delta: float) -> void:
 	_attack_cooldown = maxf(_attack_cooldown - delta, 0.0)
 	_jump_cd = maxf(_jump_cd - delta, 0.0)
 	_speed_scale = _status.slow_factor() if _status != null and is_instance_valid(_status) else 1.0
+	# Hard CC (freeze/shock) suppresses NEW attacks: hold the cooldown just above
+	# zero so no windup can trigger until it wears off. Chill only slows (above).
+	if _status != null and is_instance_valid(_status) and _status.is_hard_cc():
+		_attack_cooldown = maxf(_attack_cooldown, 0.05)
 	if not is_instance_valid(_hero):
 		# No target, but still honour an in-flight knockback so a killing-blow
 		# pop reads even if the hero just vanished.
