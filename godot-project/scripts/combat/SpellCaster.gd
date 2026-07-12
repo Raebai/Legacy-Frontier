@@ -10,6 +10,7 @@ extends RefCounted
 
 const BEAM_PATH: String = "res://scripts/combat/BeamSpell.gd"
 const RAY_PATH: String = "res://scripts/combat/DivineRay.gd"
+const METEOR_PATH: String = "res://scripts/combat/MeteorSigil.gd"
 const NOVA_PATH: String = "res://scenes/combat/EnergyNova.tscn"
 
 
@@ -40,11 +41,20 @@ static func cast(
 			arena.add_child(ray)
 			ray.strike(caster_pos + to, col, spell.radius, spell.damage)
 			return true
+		SpellDef.Kind.METEOR:
+			# Rains on the ground point the player aims at, clamped to reach.
+			var mto: Vector2 = aim
+			if mto.length() > spell.reach:
+				mto = mto.normalized() * spell.reach
+			var meteor: Node2D = (load(METEOR_PATH) as GDScript).new()
+			arena.add_child(meteor)
+			meteor.rain(caster_pos + mto, col, spell.radius, spell.damage, spell.count)
+			return true
 		SpellDef.Kind.NOVA:
 			var nova: Node2D = (load(NOVA_PATH) as PackedScene).instantiate()
 			arena.add_child(nova)
 			nova.call("activate_at", caster_pos)
 			return true
 		_:
-			# METEOR + any unbuilt kind: safe no-op until its scene exists.
+			# Any unbuilt kind: safe no-op until its scene exists.
 			return false

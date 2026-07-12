@@ -1,0 +1,132 @@
+class_name MeteorSigil
+extends Node2D
+## Signature spectacle #3 — METEOR SIGIL. A huge magic circle opens high in the
+## sky over the marked area and a BARRAGE of meteors streaks down, each a fiery
+## head + trail that detonates on the ground with a burst + a small radius of
+## damage. Staggered so it reads as a shower, climaxing on the last few. The
+## area-bombardment counterpart to the beam (line) and divine ray (single
+## column) — the third distinct spectacle silhouette.
+##
+## Per-meteor radius damage (targets_in_radius, pure/testable); rain() drives the
+## timeline. Instantiate .new(), add to the arena, call rain().
+
+const CHARGE_TIME: float = 0.5     # sky sigil + ground telegraph
+const FALL_TIME: float = 0.42      # per-meteor descent
+const BARRAGE_TIME: float = 0.85   # window the meteors spawn across
+const FADE_TIME: float = 0.35
+## Meteors streak in from just above the combat view (not far off-screen) so you
+## SEE the shower coming down — readability + the "here it comes" tell.
+const SKY_HEIGHT: float = 360.0
+const DEFAULT_RADIUS: float = 135.0
+const DEFAULT_DAMAGE: int = 22     # per meteor — many meteors overlap
+const DEFAULT_COUNT: int = 10
+const METEOR_IMPACT_RADIUS: float = 48.0
+const KNOCKBACK: float = 240.0
+const SLANT: Vector2 = Vector2(110.0, 0.0)  # meteors streak in from the upper-right
+
+var _center: Vector2 = Vector2.ZERO
+var _color: Color = Color(1.0, 0.55, 0.2, 1.0)
+var _radius: float = DEFAULT_RADIUS
+var _damage: int = DEFAULT_DAMAGE
+var _elapsed: float = -1.0
+var _circle: MagicCircle = null
+var _meteors: Array = []  # each: {delay, from, to, landed}
+
+
+## Public entry: open a sigil over `target` and rain `count` meteors within
+## `radius`. Colour tints the shower.
+func rain(
+	target: Vector2, color: Color, radius: float = DEFAULT_RADIUS,
+	damage: int = DEFAULT_DAMAGE, count: int = DEFAULT_COUNT,
+) -> void:
+	_center = target
+	_color = color
+	_radius = radius
+	_damage = damage
+	_elapsed = 0.0
+	_circle = MagicCircle.new()
+	add_child(_circle)
+	_circle.global_position = _center - Vector2(0.0, SKY_HEIGHT)
+	_circle.appear(_color, radius * 1.35, CHARGE_TIME * 0.85)
+	for i: int in count:
+		var ang: float = randf() * TAU
+		var dist: float = sqrt(randf()) * radius  # sqrt -> uniform over the disc
+		var to: Vector2 = _center + Vector2.from_angle(ang) * dist
+		# All streak in from the same upper-right slant so it reads as a shower.
+		var from: Vector2 = to + SLANT + Vector2(0.0, -SKY_HEIGHT)
+		var delay: float = (float(i) / float(count)) * BARRAGE_TIME + randf_range(0.0, 0.06)
+		_meteors.append({"delay": delay, "from": from, "to": to, "landed": false})
+	Sfx.play("cast", -3.0, 0.05)
+	queue_redraw()
+
+
+func _process(delta: float) -> void:
+	if _elapsed < 0.0:
+		return
+	_elapsed += delta
+	for m: Dictionary in _meteors:
+		if not m["landed"] and _elapsed >= CHARGE_TIME + float(m["delay"]) + FALL_TIME:
+			_land(m)
+	if _elapsed >= CHARGE_TIME + BARRAGE_TIME + FALL_TIME + FADE_TIME:
+		queue_free()
+		return
+	queue_redraw()
+
+
+## One meteor lands: radius damage + fiery burst + a light screen kick.
+func _land(m: Dictionary) -> void:
+	m["landed"] = true
+	var at: Vector2 = m["to"]
+	for enemy: Node in targets_in_radius(at, METEOR_IMPACT_RADIUS, get_tree().get_nodes_in_group("enemy")):
+		if enemy.has_method("take_damage"):
+			enemy.take_damage(_damage)
+		if enemy.has_method("apply_knockback"):
+			var away: Vector2 = ((enemy as Node2D).global_position - at).normalized()
+			enemy.apply_knockback((away if away != Vector2.ZERO else Vector2.UP) * KNOCKBACK)
+	for prop: Node in targets_in_radius(at, METEOR_IMPACT_RADIUS, get_tree().get_nodes_in_group("destructible")):
+		if prop.has_method("take_damage"):
+			prop.take_damage(_damage)
+	CombatVfx.spawn_burst(
+		self, at, Color(1.0, 0.95, 0.7, 0.95), Color(_color.r, _color.g, _color.b, 0.0),
+		22, 0.4, 80.0, 240.0, 1.5, 3.5
+	)
+	DebrisChunk.spawn_burst(self, at, Color(0.35, 0.3, 0.3), 3, Vector2.UP, 180.0)
+	Juice.shake_camera(5.0)
+	Sfx.play("spell_impact", 0.0, 0.1)
+
+
+## Pure geometry (testable): nodes within `radius` of `center`.
+static func targets_in_radius(center: Vector2, radius: float, nodes: Array) -> Array:
+	var out: Array = []
+	for n: Node in nodes:
+		if n is Node2D and center.distance_to((n as Node2D).global_position) <= radius:
+			out.append(n)
+	return out
+
+
+func _draw() -> void:
+	if _elapsed < 0.0:
+		return
+	var c: Color = _color
+	if _elapsed < CHARGE_TIME:
+		# Telegraph: a growing danger ring on the ground footprint.
+		var tp: float = _elapsed / CHARGE_TIME
+		draw_arc(_center, _radius * (0.4 + 0.6 * tp), 0.0, TAU, 44, Color(c.r, c.g, c.b, 0.45 * tp), 2.5)
+		return
+	# Draw each in-flight meteor: a bright head + a fading motion trail.
+	for m: Dictionary in _meteors:
+		if m["landed"]:
+			continue
+		var start_t: float = CHARGE_TIME + float(m["delay"])
+		if _elapsed < start_t:
+			continue
+		var f: float = clampf((_elapsed - start_t) / FALL_TIME, 0.0, 1.0)
+		var from: Vector2 = m["from"]
+		var to: Vector2 = m["to"]
+		var pos: Vector2 = from.lerp(to, f)
+		var trail: Vector2 = from.lerp(to, maxf(f - 0.38, 0.0))
+		draw_line(trail, pos, Color(c.r, c.g, c.b, 0.5), 10.0)        # wide soft trail
+		draw_line(trail, pos, Color(1.0, 0.9, 0.6, 0.7), 4.0)         # bright inner trail
+		draw_circle(pos, 13.0, Color(c.r, c.g, c.b, 0.4))            # fiery halo
+		draw_circle(pos, 8.0, Color(c.r, c.g, c.b, 0.95))           # head
+		draw_circle(pos, 4.5, Color(1.0, 0.97, 0.85, 1.0))         # white-hot core

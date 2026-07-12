@@ -32,6 +32,7 @@ enum Kind { BEAM, DIVINE_RAY, NOVA, METEOR }
 @export var width: float = 30.0
 @export var radius: float = 90.0
 @export var reach: float = 260.0
+@export var count: int = 10  # projectiles for a barrage kind (Meteor Sigil)
 
 
 ## Resolve the tint for a cast: an explicit colour override, else the element

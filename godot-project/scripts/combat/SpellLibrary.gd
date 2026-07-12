@@ -34,7 +34,31 @@ static func build() -> Array:
 		_ray("heavens_verdict", "Heaven's Verdict",
 			"A vast divine circle and a cataclysmic ray — wide footprint, heavy toll.",
 			Color(1.0, 0.86, 0.4), 68, 5.5, 64, 140.0),   # bright gold, big radius
+		_meteor("meteor_sigil", "Meteor Sigil",
+			"A colossal sigil opens in the sky and a barrage of meteors rains over "
+			+ "the marked ground. The isekai bombardment.",
+			0, 72, 6.0, 22, 140.0, 11),                   # FIRE / orange, 11 meteors
 	]
+
+
+static func _meteor(
+	id: String, name: String, desc: String, element: int,
+	mp: int, cd: float, dmg: int, radius: float, count: int
+) -> SpellDef:
+	var s := SpellDef.new()
+	s.id = id
+	s.display_name = name
+	s.description = desc
+	s.kind = SpellDef.Kind.METEOR
+	s.element = element
+	s.use_element_color = true
+	s.mp_cost = mp
+	s.cooldown = cd
+	s.damage = dmg
+	s.radius = radius
+	s.count = count
+	s.reach = 300.0
+	return s
 
 
 static func _beam(

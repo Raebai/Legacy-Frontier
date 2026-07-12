@@ -31,6 +31,14 @@ func _run() -> void:
 	var ray_script: GDScript = load("res://scripts/combat/DivineRay.gd")
 	var color := Color(0.6, 0.4, 1.0)
 
+	# --- Meteor Sigil FIRST (no prior hitstop to dilate its timing). ---
+	var meteor: Node2D = (load("res://scripts/combat/MeteorSigil.gd") as GDScript).new()
+	_arena.add_child(meteor)
+	meteor.rain(_hero.global_position + Vector2(120.0, 0.0), Color(1.0, 0.55, 0.2), 135.0, 22, 11)
+	await _wait(52)   # mid-barrage: meteors streaking down + ground impacts
+	root.get_texture().get_image().save_png("user://meteor_full.png")
+	await _wait(40)   # let the barrage finish before the next spell
+
 	# --- Beam: fire from the hero toward the right, capture charge/fire/fade. ---
 	var beam: Node2D = beam_script.new()
 	_arena.add_child(beam)

@@ -12,6 +12,7 @@ extends SceneTree
 
 const BEAM_PATH: String = "res://scripts/combat/BeamSpell.gd"
 const RAY_PATH: String = "res://scripts/combat/DivineRay.gd"
+const METEOR_PATH: String = "res://scripts/combat/MeteorSigil.gd"
 
 var _ran: bool = false
 
@@ -23,6 +24,7 @@ func _process(_delta: float) -> bool:
 	var failed: int = 0
 	failed += _test_beam_line()
 	failed += _test_divine_radius()
+	failed += _test_meteor_radius()
 	if failed > 0:
 		printerr("Slice4 spell tests: %d FAILED" % failed)
 		quit(1)
@@ -77,4 +79,16 @@ func _test_divine_radius() -> int:
 	failed += _expect(inside in hit, "enemy inside the divine footprint is hit")
 	failed += _expect(edge in hit, "enemy at the footprint edge is hit")
 	failed += _expect(not (outside in hit), "enemy outside the footprint is missed")
+	return failed
+
+
+func _test_meteor_radius() -> int:
+	var failed: int = 0
+	var impact := Vector2(0.0, 0.0)
+	var close: Node2D = _node_at(Vector2(30.0, 0.0))    # inside a 48px meteor blast
+	var far: Node2D = _node_at(Vector2(120.0, 0.0))     # outside it
+	var meteor: GDScript = load(METEOR_PATH)
+	var hit: Array = meteor.targets_in_radius(impact, 48.0, [close, far])
+	failed += _expect(close in hit, "enemy in a meteor blast is hit")
+	failed += _expect(not (far in hit), "enemy outside a meteor blast is missed")
 	return failed
