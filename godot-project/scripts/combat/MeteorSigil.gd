@@ -9,10 +9,14 @@ extends Node2D
 ##
 ## Per-meteor radius damage (targets_in_radius, pure/testable); rain() drives the
 ## timeline. Instantiate .new(), add to the arena, call rain().
+##
+## The trailing `effect` param picks the elemental CHARACTER of the shower
+## ("fire" | "frost" | "arcane" | "holy") — same barrage silhouette, distinct
+## head/trail palette + impact, so it reads different at a glance.
 
 const CHARGE_TIME: float = 0.5     # sky sigil + ground telegraph
-const FALL_TIME: float = 0.42      # per-meteor descent
-const BARRAGE_TIME: float = 0.85   # window the meteors spawn across
+const FALL_TIME: float = 0.52      # per-meteor descent (slowed — less frantic)
+const BARRAGE_TIME: float = 1.15   # window the meteors spawn across (slowed)
 const FADE_TIME: float = 0.35
 ## Meteors streak in from just above the combat view (not far off-screen) so you
 ## SEE the shower coming down — readability + the "here it comes" tell.
@@ -28,6 +32,7 @@ var _center: Vector2 = Vector2.ZERO
 var _color: Color = Color(1.0, 0.55, 0.2, 1.0)
 var _radius: float = DEFAULT_RADIUS
 var _damage: int = DEFAULT_DAMAGE
+var _effect: String = "fire"
 var _elapsed: float = -1.0
 var _circle: MagicCircle = null
 var _circle_dismissed: bool = false
@@ -35,15 +40,18 @@ var _meteors: Array = []  # each: {delay, from, to, landed}
 
 
 ## Public entry: open a sigil over `target` and rain `count` meteors within
-## `radius`. Colour tints the shower.
+## `radius`. Colour tints the shower; `effect` picks its character
+## ("fire"/"frost"/"arcane"/"holy").
 func rain(
 	target: Vector2, color: Color, radius: float = DEFAULT_RADIUS,
 	damage: int = DEFAULT_DAMAGE, count: int = DEFAULT_COUNT,
+	effect: String = "fire",
 ) -> void:
 	_center = target
 	_color = color
 	_radius = radius
 	_damage = damage
+	_effect = effect
 	_elapsed = 0.0
 	_circle = MagicCircle.new()
 	add_child(_circle)
@@ -95,13 +103,40 @@ func _land(m: Dictionary) -> void:
 			prop.take_damage(_damage)
 	# Parented to the arena (get_parent()), not self: later meteors' bursts +
 	# debris must outlive this spectacle node so they settle/fade naturally.
-	CombatVfx.spawn_burst(
-		get_parent(), at, Color(1.0, 0.95, 0.7, 0.95), Color(_color.r, _color.g, _color.b, 0.0),
-		22, 0.4, 80.0, 240.0, 1.5, 3.5
-	)
-	DebrisChunk.spawn_burst(get_parent(), at, Color(0.35, 0.3, 0.3), 3, Vector2.UP, 180.0)
+	_impact_burst(at)
 	Juice.shake_camera(5.0)
 	Sfx.play("spell_impact", 0.0, 0.1)
+
+
+## One meteor's impact spray + residue, charactered per effect.
+func _impact_burst(at: Vector2) -> void:
+	var fade: Color = Color(_color.r, _color.g, _color.b, 0.0)
+	match _effect:
+		"frost":
+			CombatVfx.spawn_burst(
+				get_parent(), at, Color(0.9, 0.98, 1.0, 0.95), fade,
+				22, 0.4, 120.0, 300.0, 0.6, 1.6, 2.5, 5.0
+			)
+			ScorchDecal.spawn(get_parent(), at, METEOR_IMPACT_RADIUS * 0.7, "crack",
+				Color(0.62, 0.88, 1.0, 0.45), 5.0)
+		"arcane":
+			CombatVfx.spawn_burst(
+				get_parent(), at, Color(1, 1, 1, 0.95), fade,
+				22, 0.4, 80.0, 240.0, 1.5, 3.5
+			)
+		"holy":
+			CombatVfx.spawn_burst(
+				get_parent(), at, Color(1.0, 0.99, 0.9, 0.95), fade,
+				24, 0.45, 50.0, 190.0, 1.0, 2.5, 1.0, 2.0
+			)
+		_:
+			CombatVfx.spawn_burst(
+				get_parent(), at, Color(1.0, 0.95, 0.7, 0.95), fade,
+				22, 0.4, 80.0, 240.0, 1.5, 3.5
+			)
+			DebrisChunk.spawn_burst(get_parent(), at, Color(0.35, 0.3, 0.3), 3, Vector2.UP, 180.0)
+			ScorchDecal.spawn(get_parent(), at, METEOR_IMPACT_RADIUS * 0.7, "scorch",
+				Color(0.06, 0.03, 0.02, 0.55), 8.0)
 
 
 ## Pure geometry (testable): nodes within `radius` of `center`.
@@ -134,8 +169,36 @@ func _draw() -> void:
 		var to: Vector2 = m["to"]
 		var pos: Vector2 = from.lerp(to, f)
 		var trail: Vector2 = from.lerp(to, maxf(f - 0.38, 0.0))
+		var inner: Color = _trail_inner_color()
+		var core: Color = _effect_core_color()
 		draw_line(trail, pos, Color(c.r, c.g, c.b, 0.5), 10.0)        # wide soft trail
-		draw_line(trail, pos, Color(1.0, 0.9, 0.6, 0.7), 4.0)         # bright inner trail
-		draw_circle(pos, 13.0, Color(c.r, c.g, c.b, 0.4))            # fiery halo
+		draw_line(trail, pos, Color(inner.r, inner.g, inner.b, 0.7), 4.0)  # bright inner trail
+		draw_circle(pos, 13.0, Color(c.r, c.g, c.b, 0.4))            # elemental halo
 		draw_circle(pos, 8.0, Color(c.r, c.g, c.b, 0.95))           # head
-		draw_circle(pos, 4.5, Color(1.0, 0.97, 0.85, 1.0))         # white-hot core
+		draw_circle(pos, 4.5, core)                                 # hot core
+
+
+## Bright inner-trail tint per effect.
+func _trail_inner_color() -> Color:
+	match _effect:
+		"frost":
+			return Color(0.85, 0.97, 1.0)
+		"arcane":
+			return Color(1.0, 0.85, 1.0)
+		"holy":
+			return Color(1.0, 0.99, 0.85)
+		_:
+			return Color(1.0, 0.9, 0.6)
+
+
+## Hot-core tint per effect (the white-hot centre of each meteor head).
+func _effect_core_color() -> Color:
+	match _effect:
+		"frost":
+			return Color(0.92, 0.99, 1.0, 1.0)
+		"arcane":
+			return Color(1.0, 0.95, 1.0, 1.0)
+		"holy":
+			return Color(1.0, 1.0, 0.92, 1.0)
+		_:
+			return Color(1.0, 0.97, 0.85, 1.0)

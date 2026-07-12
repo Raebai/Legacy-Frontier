@@ -52,6 +52,7 @@ static func _meteor(
 	s.kind = SpellDef.Kind.METEOR
 	s.element = element
 	s.use_element_color = true
+	s.effect = _effect_for_element(element)
 	s.mp_cost = mp
 	s.cooldown = cd
 	s.damage = dmg
@@ -72,12 +73,22 @@ static func _beam(
 	s.kind = SpellDef.Kind.BEAM
 	s.element = element
 	s.use_element_color = true
+	s.effect = _effect_for_element(element)
 	s.mp_cost = mp
 	s.cooldown = cd
 	s.damage = dmg
 	s.length = length
 	s.width = width
 	return s
+
+
+## Elemental particle character from the element index (see Elements.Element):
+## FIRE 0 -> fire, ICE 1 -> frost, ARCANE 4 -> arcane; others fall back to arcane.
+static func _effect_for_element(element: int) -> String:
+	match element:
+		0: return "fire"
+		1: return "frost"
+		_: return "arcane"
 
 
 static func _ray(
@@ -91,6 +102,7 @@ static func _ray(
 	s.kind = SpellDef.Kind.DIVINE_RAY
 	s.use_element_color = false
 	s.color = color
+	s.effect = "holy"
 	s.mp_cost = mp
 	s.cooldown = cd
 	s.damage = dmg

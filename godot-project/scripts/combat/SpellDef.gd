@@ -22,6 +22,9 @@ enum Kind { BEAM, DIVINE_RAY, NOVA, METEOR }
 @export var element: int = -1
 @export var use_element_color: bool = true
 @export var color: Color = Color(0.7, 0.5, 1.0, 1.0)
+## Elemental CHARACTER of the spectacle ("arcane" | "frost" | "fire" | "holy") —
+## picks the particle language / palette so each legendary reads distinct.
+@export var effect: String = "arcane"
 ## Cost + pacing. mp_cost gates the cast; cooldown is the per-spell reuse timer.
 @export var mp_cost: int = 45
 @export var cooldown: float = 3.5

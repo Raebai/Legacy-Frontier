@@ -18,11 +18,13 @@ const NOVA_PATH: String = "res://scenes/combat/EnergyNova.tscn"
 ## `fallback_color` is the caster's current element colour (used when the SpellDef
 ## inherits). Returns true if a spectacle was spawned.
 static func cast(
-	spell: SpellDef, arena: Node, caster_pos: Vector2, target_pos: Vector2, fallback_color: Color
+	spell: SpellDef, arena: Node, caster_pos: Vector2, target_pos: Vector2,
+	fallback_color: Color, effect: String = ""
 ) -> bool:
 	if spell == null or arena == null or not arena.is_inside_tree():
 		return false
 	var col: Color = spell.resolve_color(fallback_color)
+	var fx: String = effect if effect != "" else spell.effect  # elemental character
 	var aim: Vector2 = (target_pos - caster_pos)
 	if aim == Vector2.ZERO:
 		aim = Vector2.RIGHT
@@ -30,7 +32,7 @@ static func cast(
 		SpellDef.Kind.BEAM:
 			var beam: Node2D = (load(BEAM_PATH) as GDScript).new()
 			arena.add_child(beam)
-			beam.fire(caster_pos, aim.normalized(), col, spell.length, spell.width, spell.damage)
+			beam.fire(caster_pos, aim.normalized(), col, spell.length, spell.width, spell.damage, fx)
 			return true
 		SpellDef.Kind.DIVINE_RAY:
 			# Lands on the ground point the player aims at, clamped to reach.
@@ -39,7 +41,7 @@ static func cast(
 				to = to.normalized() * spell.reach
 			var ray: Node2D = (load(RAY_PATH) as GDScript).new()
 			arena.add_child(ray)
-			ray.strike(caster_pos + to, col, spell.radius, spell.damage)
+			ray.strike(caster_pos + to, col, spell.radius, spell.damage, fx)
 			return true
 		SpellDef.Kind.METEOR:
 			# Rains on the ground point the player aims at, clamped to reach.
@@ -48,7 +50,7 @@ static func cast(
 				mto = mto.normalized() * spell.reach
 			var meteor: Node2D = (load(METEOR_PATH) as GDScript).new()
 			arena.add_child(meteor)
-			meteor.rain(caster_pos + mto, col, spell.radius, spell.damage, spell.count)
+			meteor.rain(caster_pos + mto, col, spell.radius, spell.damage, spell.count, fx)
 			return true
 		SpellDef.Kind.NOVA:
 			var nova: Node2D = (load(NOVA_PATH) as PackedScene).instantiate()

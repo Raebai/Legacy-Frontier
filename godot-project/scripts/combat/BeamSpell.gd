@@ -10,6 +10,11 @@ extends Node2D
 ## Damage is a pure geometric line test (targets_on_beam) so it's headless-
 ## testable; the fire() entry drives the visual/juice timeline. Instantiate
 ## .new(), add as a child of the arena, then call fire().
+##
+## The trailing `effect` param picks the elemental CHARACTER of the spectacle
+## ("frost" | "fire" | "arcane" | "holy") — same beam silhouette, distinct
+## palette + particle language + lingering mark, so each legendary reads
+## different at a glance.
 
 const CHARGE_TIME: float = 0.34   # sigil gather (telegraph)
 const FIRE_TIME: float = 0.26     # beam held at full intensity
@@ -26,13 +31,15 @@ var _color: Color = Color(0.95, 0.4, 0.85, 1.0)
 var _length: float = DEFAULT_LENGTH
 var _width: float = DEFAULT_WIDTH
 var _damage: int = DEFAULT_DAMAGE
+var _effect: String = "arcane"
 var _elapsed: float = -1.0     # < 0 = not fired yet
 var _fired: bool = false       # damage/juice applied once at end of charge
 var _circle: MagicCircle = null
 
 
 ## Public entry: charge at `origin`, then fire a beam of `length`/`width` along
-## `dir`, dealing `damage`. Colour tints the whole spectacle (element).
+## `dir`, dealing `damage`. Colour tints the whole spectacle (element);
+## `effect` picks its particle character ("frost"/"fire"/"arcane"/"holy").
 func fire(
 	origin: Vector2,
 	dir: Vector2,
@@ -40,6 +47,7 @@ func fire(
 	length: float = DEFAULT_LENGTH,
 	width: float = DEFAULT_WIDTH,
 	damage: int = DEFAULT_DAMAGE,
+	effect: String = "arcane",
 ) -> void:
 	_origin = origin
 	_dir = dir.normalized() if dir != Vector2.ZERO else Vector2.RIGHT
@@ -47,6 +55,7 @@ func fire(
 	_length = length
 	_width = width
 	_damage = damage
+	_effect = effect
 	global_position = Vector2.ZERO  # we draw in world space from _origin
 	_elapsed = 0.0
 	# Muzzle sigil materialises during the charge, oriented at the origin.
@@ -57,15 +66,41 @@ func fire(
 	# EDGE-ON: a beam's sigil faces the target, so side-on it's a thin gate
 	# perpendicular to the beam that the bolt bursts through (not a flat circle).
 	_circle.set_orientation(true, _dir, 0.14)
-	# Gathering spark at the muzzle — energy pulled in before the shot. Parented
-	# to the arena (get_parent()), NOT self: the burst outlives this short-lived
-	# spectacle node, matching Spell/Enemy so it fades naturally after we free.
-	CombatVfx.spawn_burst(
-		get_parent(), _origin, Color(1, 1, 1, 0.9), Color(_color.r, _color.g, _color.b, 0.0),
-		18, CHARGE_TIME, 30.0, 90.0, 1.0, 2.5
-	)
+	# Gathering particles at the muzzle — energy pulled in before the shot,
+	# charactered per effect. Parented to the arena (get_parent()), NOT self:
+	# the burst outlives this short-lived spectacle node, matching Spell/Enemy
+	# so it fades naturally after we free.
+	_charge_burst()
 	Sfx.play("cast", -2.0, 0.05)
 	queue_redraw()
+
+
+## Muzzle-gather particles, per effect: frost = fast sharp shards that snap to
+## a cold stop, fire = slow flickery embers, holy = drifting feathery motes,
+## arcane = the classic bright energy spark.
+func _charge_burst() -> void:
+	var fade: Color = Color(_color.r, _color.g, _color.b, 0.0)
+	match _effect:
+		"frost":
+			CombatVfx.spawn_burst(
+				get_parent(), _origin, Color(0.85, 0.97, 1.0, 0.95), fade,
+				16, CHARGE_TIME * 0.85, 70.0, 160.0, 0.6, 1.6, 2.5, 5.0
+			)
+		"fire":
+			CombatVfx.spawn_burst(
+				get_parent(), _origin, Color(1.0, 0.75, 0.3, 0.9), Color(0.9, 0.2, 0.05, 0.0),
+				22, CHARGE_TIME, 20.0, 70.0, 1.2, 3.2
+			)
+		"holy":
+			CombatVfx.spawn_burst(
+				get_parent(), _origin, Color(1.0, 0.98, 0.85, 0.9), fade,
+				26, CHARGE_TIME * 1.1, 15.0, 55.0, 0.8, 2.2, 1.0, 2.0
+			)
+		_:
+			CombatVfx.spawn_burst(
+				get_parent(), _origin, Color(1, 1, 1, 0.9), fade,
+				18, CHARGE_TIME, 30.0, 90.0, 1.0, 2.5
+			)
 
 
 func _process(delta: float) -> void:
@@ -86,16 +121,59 @@ func _discharge() -> void:
 	_fired = true
 	_apply_beam_damage()
 	var tip: Vector2 = _beam_tip()
-	CombatVfx.spawn_burst(
-		get_parent(), tip, Color(1, 1, 1, 0.95), Color(_color.r, _color.g, _color.b, 0.0),
-		46, 0.5, 120.0, 360.0, 1.5, 4.0
-	)
+	_impact_burst(tip)
+	_impact_mark(tip)
 	Juice.hit_stop(0.09)
 	Juice.shake_camera(16.0)
 	Juice.zoom_punch_camera(0.1, 0.24)
 	Sfx.play("blast", 1.0, 0.08)
 	if _circle != null and is_instance_valid(_circle):
 		_circle.vanish(FIRE_TIME + FADE_TIME)
+
+
+## Impact spray at the beam tip, charactered per effect: frost = fast shards
+## that snap to a cold stop, fire = a warm ember spray + physical ember debris,
+## holy = a big feathery radiant flash, arcane = the classic white-hot spray.
+func _impact_burst(tip: Vector2) -> void:
+	var fade: Color = Color(_color.r, _color.g, _color.b, 0.0)
+	match _effect:
+		"frost":
+			CombatVfx.spawn_burst(
+				get_parent(), tip, Color(0.9, 0.98, 1.0, 0.95), fade,
+				40, 0.45, 180.0, 420.0, 0.7, 1.8, 3.0, 6.0
+			)
+		"fire":
+			CombatVfx.spawn_burst(
+				get_parent(), tip, Color(1.0, 0.85, 0.4, 0.95), Color(0.85, 0.15, 0.05, 0.0),
+				46, 0.55, 100.0, 320.0, 1.5, 4.0
+			)
+			DebrisChunk.spawn_burst(get_parent(), tip, Color(0.55, 0.25, 0.1), 4, _dir, 200.0)
+		"holy":
+			CombatVfx.spawn_burst(
+				get_parent(), tip, Color(1.0, 0.99, 0.9, 0.98), fade,
+				52, 0.65, 60.0, 220.0, 1.0, 3.0, 1.0, 2.5
+			)
+		_:
+			CombatVfx.spawn_burst(
+				get_parent(), tip, Color(1, 1, 1, 0.95), fade,
+				46, 0.5, 120.0, 360.0, 1.5, 4.0
+			)
+
+
+## Lingering ground mark at the impact, per effect: frost leaves an icy shard
+## crack, fire a burnt scorch. Arcane/holy leave no residue (pure energy/light).
+func _impact_mark(tip: Vector2) -> void:
+	match _effect:
+		"frost":
+			ScorchDecal.spawn(
+				get_parent(), tip, _width * 1.2, "crack",
+				Color(0.62, 0.88, 1.0, 0.5), 6.0
+			)
+		"fire":
+			ScorchDecal.spawn(
+				get_parent(), tip, _width * 1.3, "scorch",
+				Color(0.06, 0.03, 0.02, 0.6), 8.0
+			)
 
 
 ## Beam damage: every enemy/destructible whose centre lies on the beam segment
@@ -155,17 +233,83 @@ func _draw() -> void:
 	if intensity <= 0.01:
 		return
 	var tip: Vector2 = _beam_tip()
-	var flick: float = 0.9 + 0.1 * sin(_elapsed * 60.0)  # subtle energy flicker
+	var flick: float = _effect_flicker()
 	var w: float = _width * intensity * flick
 	var c: Color = _color
-	# Layered beam: wide soft glow -> mid body -> white-hot core.
+	var core: Color = _effect_core_color()
+	# Layered beam: wide soft glow -> mid body -> hot core (core tinted per
+	# effect: icy white / furnace yellow / radiant warm white / pure white).
+	if _effect == "holy":
+		# Extra-wide feathery halo — holy reads as radiance, not a laser.
+		_draw_beam_band(_origin, tip, w * 2.7, Color(c.r, c.g, c.b, 0.12 * intensity))
 	_draw_beam_band(_origin, tip, w * 1.8, Color(c.r, c.g, c.b, 0.28 * intensity))
 	_draw_beam_band(_origin, tip, w * 1.0, Color(c.r, c.g, c.b, 0.7 * intensity))
-	_draw_beam_band(_origin, tip, w * 0.4, Color(1, 1, 1, 0.95 * intensity))
+	_draw_beam_band(_origin, tip, w * 0.4, Color(core.r, core.g, core.b, 0.95 * intensity))
+	_draw_effect_detail(tip, w, intensity)
 	# Muzzle flash + impact flash.
-	draw_circle(_origin, w * 1.4, Color(1, 1, 1, 0.5 * intensity))
+	draw_circle(_origin, w * 1.4, Color(core.r, core.g, core.b, 0.5 * intensity))
 	draw_circle(tip, w * 1.2, Color(c.r, c.g, c.b, 0.5 * intensity))
-	draw_circle(tip, w * 0.6, Color(1, 1, 1, 0.6 * intensity))
+	draw_circle(tip, w * 0.6, Color(core.r, core.g, core.b, 0.6 * intensity))
+
+
+## Beam flicker character: frost is dead-steady (cold), fire rages, holy
+## breathes slowly, arcane keeps the classic subtle energy flicker.
+func _effect_flicker() -> float:
+	match _effect:
+		"frost":
+			return 1.0
+		"fire":
+			return 0.8 + 0.2 * sin(_elapsed * 85.0)
+		"holy":
+			return 0.94 + 0.06 * sin(_elapsed * 28.0)
+		_:
+			return 0.9 + 0.1 * sin(_elapsed * 60.0)
+
+
+## Hot-core tint per effect (the innermost band + flashes).
+func _effect_core_color() -> Color:
+	match _effect:
+		"frost":
+			return Color(0.9, 0.98, 1.0)
+		"fire":
+			return Color(1.0, 0.93, 0.62)
+		"holy":
+			return Color(1.0, 0.98, 0.88)
+		_:
+			return Color(1, 1, 1)
+
+
+## Per-effect garnish drawn ALONG the beam so each element is unmistakable:
+## frost = crystalline shards jutting off the beam, fire = drifting embers,
+## holy = bobbing feathery motes. Arcane stays the clean energy beam.
+func _draw_effect_detail(tip: Vector2, w: float, intensity: float) -> void:
+	var perp: Vector2 = _dir.orthogonal()
+	match _effect:
+		"frost":
+			for i: int in 7:
+				var t: float = (float(i) + 0.7) / 7.5
+				var p: Vector2 = _origin.lerp(tip, t)
+				var side: float = 1.0 if i % 2 == 0 else -1.0
+				var reach: float = w * (1.3 + 0.5 * sin(float(i) * 12.9898))
+				var base_half: Vector2 = _dir * (w * 0.35)
+				draw_colored_polygon(PackedVector2Array([
+					p - base_half, p + base_half, p + perp * side * reach,
+				]), Color(0.85, 0.97, 1.0, 0.75 * intensity))
+		"fire":
+			for i: int in 9:
+				var t: float = fposmod(float(i) / 9.0 + _elapsed * 0.9 + sin(float(i) * 7.31) * 0.05, 1.0)
+				var p: Vector2 = _origin.lerp(tip, t) \
+					+ perp * sin(_elapsed * 14.0 + float(i) * 2.1) * w * 1.1
+				draw_circle(p, w * 0.16 + 1.5,
+					Color(1.0, 0.55 + 0.3 * absf(sin(float(i) * 3.7)), 0.15, 0.8 * intensity))
+		"holy":
+			for i: int in 8:
+				var t: float = (float(i) + 0.5) / 8.0
+				var p: Vector2 = _origin.lerp(tip, t) \
+					+ perp * sin(_elapsed * 6.0 + float(i) * 1.7) * w * 1.4
+				var ma: float = (0.35 + 0.25 * sin(_elapsed * 9.0 + float(i))) * intensity
+				draw_circle(p, w * 0.4, Color(1.0, 0.97, 0.8, ma * 0.5))
+				draw_circle(p, w * 0.16, Color(1.0, 1.0, 0.95, ma))
 
 
 ## A filled beam band (rectangle) of thickness `thick` from `a` to `b`.

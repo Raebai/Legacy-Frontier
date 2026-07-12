@@ -28,35 +28,36 @@ func _run() -> void:
 	_hero = _find_hero()
 	_zoom(1.15)
 	var beam_script: GDScript = load("res://scripts/combat/BeamSpell.gd")
-	var ray_script: GDScript = load("res://scripts/combat/DivineRay.gd")
-	var color := Color(0.6, 0.4, 1.0)
+	var ray_script: GDScript = load("res://scripts/combat/MeteorSigil.gd")
+	var o: Vector2 = _hero.global_position
 
-	# --- Meteor Sigil FIRST (no prior hitstop to dilate its timing). ---
-	var meteor: Node2D = (load("res://scripts/combat/MeteorSigil.gd") as GDScript).new()
-	_arena.add_child(meteor)
-	meteor.rain(_hero.global_position + Vector2(120.0, 0.0), Color(1.0, 0.55, 0.2), 135.0, 22, 11)
-	await _wait(52)   # mid-barrage: meteors streaking down + ground impacts
-	root.get_texture().get_image().save_png("user://meteor_full.png")
-	await _wait(40)   # let the barrage finish before the next spell
-
-	# --- Beam: fire from the hero toward the right, capture charge/fire/fade. ---
-	var beam: Node2D = beam_script.new()
-	_arena.add_child(beam)
-	beam.fire(_hero.global_position, Vector2.RIGHT, color, 900.0, 30.0, 46)
-	await _wait(16)
-	_grab(0)   # charging sigil
-	await _wait(8)
-	_grab(1)   # fire flash
-	await _wait(26)
-	_grab(3)   # fading
-
-	# --- Divine ray: crash a column down on a point to the hero's right. ---
-	var ray: Node2D = ray_script.new()
+	# [0] FROST beam (cyan crystalline).
+	var b0: Node2D = beam_script.new()
+	_arena.add_child(b0)
+	b0.fire(o, Vector2.RIGHT, Color(0.5, 0.85, 1.0), 900.0, 30.0, 46, "frost")
+	await _wait(24)
+	_grab(0)
+	await _wait(30)
+	# [1] FIRE beam (orange embers).
+	var b1: Node2D = beam_script.new()
+	_arena.add_child(b1)
+	b1.fire(o, Vector2.RIGHT, Color(1.0, 0.5, 0.15), 900.0, 30.0, 46, "fire")
+	await _wait(24)
+	_grab(1)
+	await _wait(30)
+	# [2] HOLY divine ray ROW (golden pillars sweeping the row).
+	var ray: Node2D = (load("res://scripts/combat/DivineRay.gd") as GDScript).new()
 	_arena.add_child(ray)
-	ray.strike(_hero.global_position + Vector2(150.0, 0.0), Color(1.0, 0.92, 0.55), 90.0, 50)
-	await _wait(27)   # just past the 0.42s charge -> pillar at full brightness
-	root.get_texture().get_image().save_png("user://divine_ray_full.png")
-	_grab(2)   # column crashing down
+	ray.strike(o + Vector2(60.0, 0.0), Color(1.0, 0.92, 0.55), 90.0, 50, "holy")
+	await _wait(30)
+	_grab(2)
+	await _wait(40)
+	# [3] FIRE meteor barrage.
+	var meteor: Node2D = ray_script.new()
+	_arena.add_child(meteor)
+	meteor.rain(o + Vector2(80.0, -20.0), Color(1.0, 0.55, 0.2), 140.0, 22, 11, "fire")
+	await _wait(40)
+	_grab(3)
 
 	var err: int = _sheet.save_png(OUT)
 	if err == OK:
