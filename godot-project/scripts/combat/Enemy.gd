@@ -2,6 +2,9 @@ extends CharacterBody2D
 ## Slice 0 enemy: chases the hero, takes spell damage, damages on contact, dies.
 ## Slice 1: brutes (`uses_telegraphed_attack`) wind up a Telegraph danger circle
 ## and land a heavy strike on whoever is still standing in it — dodge the tell.
+## Now a seven-archetype roster (see Archetype below) with signature tints +
+## speeds (_apply_archetype_defaults) — every attack is telegraphed, every
+## silhouette color-coded.
 
 @export var max_hp: int = 40
 @export var move_speed: float = 95.0
@@ -11,7 +14,10 @@ extends CharacterBody2D
 ## 0=CHASER (fast/weak), 1=BRUTE (telegraphed heavy strike, uses the flag above),
 ## 2=CASTER (kites + telegraphs a bolt to dodge), 3=CHARGER (telegraphs a lane
 ## then rockets down it), 4=SUMMONER (kites + telegraphs, then calls in weak
-## chaser minions — kill it before it swarms you). See Archetype enum below.
+## chaser minions — kill it before it swarms you), 5=ASSASSIN (jittery
+## hit-and-run: quick telegraphed lunge, then retreats out of reach),
+## 6=BOMBER (waddles in and self-detonates on a big slow tell — area denial;
+## kill it at range or dodge the circle). See Archetype enum below.
 @export var archetype: int = 0
 
 const KNOCKBACK_DECAY: float = 900.0  # px/s the knockback impulse bleeds off
@@ -70,8 +76,47 @@ const SUMMON_MINION_HP: int = 18
 const SUMMON_TELE_RADIUS: float = 24.0  # "gathering magic" tell on the summoner
 const SUMMON_SCATTER: float = 36.0      # max spawn offset around the summoner
 
+# ASSASSIN archetype: fast, fragile hit-and-run. Weaves on approach (jittery
+# direction feints), snapshots the hero under a QUICK small tell, lunges the
+# lane, then RETREATS out of reach — hard to pin, easy to kill if you do.
+const ASSASSIN_STRIKE_RANGE: float = 120.0  # start the windup inside this distance
+const ASSASSIN_WINDUP: float = 0.35         # the fastest tell in the roster
+const ASSASSIN_TELE_RADIUS: float = 26.0    # small strike-point circle
+const ASSASSIN_LUNGE_SPEED: float = 620.0
+const ASSASSIN_LUNGE_TIME: float = 0.22
+const ASSASSIN_DAMAGE: int = 14
+const ASSASSIN_HIT_RADIUS: float = 24.0
+const ASSASSIN_COOLDOWN: float = 1.1
+const ASSASSIN_RETREAT_TIME: float = 0.8    # disengage window after each strike
+const ASSASSIN_JITTER_INTERVAL: float = 0.28  # re-roll the feint this often
+const ASSASSIN_JITTER_CHANCE: float = 0.4     # odds a roll reverses the approach
+
+# BOMBER archetype: walking bomb. Waddles in, roots, and telegraphs the BIGGEST,
+# SLOWEST tell in the roster centered on the marked spot — then detonates,
+# killing itself. Dodge the circle or burst it down before the tell fills.
+const BOMB_TRIGGER_RANGE: float = 72.0  # start the fuse inside this distance
+const BOMB_WINDUP: float = 0.9          # long fuse — generous dodge window
+const BOMB_RADIUS: float = 78.0         # big danger circle
+const BOMB_DAMAGE: int = 30
+const BOMB_KNOCKBACK: float = 320.0     # shove on a caught hero (if supported)
+
 enum AttackState { CHASE, WINDUP, RECOVER, CHARGING }
-enum Archetype { CHASER, BRUTE, CASTER, CHARGER, SUMMONER }
+enum Archetype { CHASER, BRUTE, CASTER, CHARGER, SUMMONER, ASSASSIN, BOMBER }
+
+# Signature stats + tint per archetype so a glance tells them apart even when a
+# spawner sets ONLY `archetype` (VersusArena bots, sandbox tools). Values mirror
+# Encounter.gd's stat table for the first five so both spawn paths agree.
+# Applied field-by-field in _apply_archetype_defaults ONLY where the export is
+# still at its generic script default — explicit spawner overrides always win.
+const ARCHETYPE_DEFAULTS: Dictionary = {
+	Archetype.CHASER: {"hp": 24, "speed": 140.0, "touch": 8, "tint": Color(0.95, 0.5, 0.25, 1)},   # orange
+	Archetype.BRUTE: {"hp": 70, "speed": 62.0, "touch": 18, "tint": Color(0.7, 0.25, 0.45, 1)},    # magenta
+	Archetype.CASTER: {"hp": 30, "speed": 80.0, "touch": 6, "tint": Color(0.55, 0.45, 0.95, 1)},   # indigo
+	Archetype.CHARGER: {"hp": 45, "speed": 55.0, "touch": 10, "tint": Color(0.9, 0.6, 0.2, 1)},    # amber
+	Archetype.SUMMONER: {"hp": 36, "speed": 72.0, "touch": 6, "tint": Color(0.35, 0.8, 0.55, 1)},  # jade
+	Archetype.ASSASSIN: {"hp": 20, "speed": 175.0, "touch": 8, "tint": Color(0.82, 0.86, 0.92, 1)},  # silver
+	Archetype.BOMBER: {"hp": 55, "speed": 70.0, "touch": 6, "tint": Color(0.34, 0.35, 0.4, 1)},    # charcoal
+}
 
 var hp: int = 40
 var _hero: Node2D = null
@@ -87,6 +132,9 @@ var _charge_dir: Vector2 = Vector2.RIGHT    # charger: locked lane direction
 var _charge_timer: float = 0.0
 var _charge_hit: bool = false
 var _jump_cd: float = 0.0                   # chase-jump cooldown, ticks down each frame
+var _retreat_timer: float = 0.0             # assassin: post-strike disengage window
+var _jitter_timer: float = 0.0              # assassin: time until the next feint roll
+var _jitter_sign: float = 1.0               # assassin: current approach feint (+1/-1)
 
 @onready var rig: CharacterRig = $Rig
 
@@ -154,8 +202,27 @@ func _try_chase_jump() -> void:
 		_jump_cd = JUMP_COOLDOWN
 
 
+## Per-archetype signature stats/looks, applied ONLY to fields still at their
+## generic script defaults so explicit spawner values (Encounter's stat table,
+## VersusArena's BOT_HP) always win. A bare Enemy with just `archetype` set now
+## reads distinct at a glance instead of shipping five identical red rigs.
+func _apply_archetype_defaults() -> void:
+	var d: Dictionary = ARCHETYPE_DEFAULTS.get(archetype, ARCHETYPE_DEFAULTS[Archetype.CHASER])
+	if max_hp == 40:
+		max_hp = int(d["hp"])
+	if move_speed == 95.0:
+		move_speed = float(d["speed"])
+	if touch_damage == 12:
+		touch_damage = int(d["touch"])
+	if tint == Color(0.9, 0.35, 0.3, 1):
+		tint = d["tint"] as Color
+	if archetype == Archetype.BRUTE:
+		uses_telegraphed_attack = true  # a brute that never swings isn't a brute
+
+
 func _ready() -> void:
 	add_to_group("enemy")
+	_apply_archetype_defaults()
 	hp = max_hp
 	rig.set_tint(tint)
 	var heroes: Array = get_tree().get_nodes_in_group("hero")
@@ -201,6 +268,12 @@ func _physics_process(delta: float) -> void:
 		return
 	if archetype == Archetype.SUMMONER:
 		_summoner_chase(delta)
+		return
+	if archetype == Archetype.ASSASSIN:
+		_assassin_chase(delta)
+		return
+	if archetype == Archetype.BOMBER:
+		_bomber_chase(delta)
 		return
 	# Side-on chase: close the HORIZONTAL gap; gravity owns y; jump to reach a
 	# hero above us or hop an obstacle in the way.
@@ -267,6 +340,10 @@ func _on_telegraph_fired() -> void:
 			_begin_charge()
 		Archetype.SUMMONER:
 			_spawn_minions()
+		Archetype.ASSASSIN:
+			_begin_lunge()
+		Archetype.BOMBER:
+			_detonate()
 		_:
 			_resolve_strike(_strike_center)  # brute
 
@@ -356,24 +433,35 @@ func _begin_charge() -> void:
 
 ## Rocket down the locked lane; hit the hero once; end on timeout or a wall.
 ## Gravity still applies, so a charge off a ledge arcs down instead of flying.
+## Shared by CHARGER (long heavy rocket -> RECOVER) and ASSASSIN (short quick
+## lunge -> straight back to CHASE with a retreat window: no standing around).
 func _process_charging(delta: float) -> void:
-	velocity.x = _charge_dir.x * CHARGE_SPEED
+	var is_assassin: bool = archetype == Archetype.ASSASSIN
+	var lunge_speed: float = ASSASSIN_LUNGE_SPEED if is_assassin else CHARGE_SPEED
+	var lunge_damage: int = ASSASSIN_DAMAGE if is_assassin else CHARGE_DAMAGE
+	var hit_radius: float = ASSASSIN_HIT_RADIUS if is_assassin else CHARGE_HIT_RADIUS
+	velocity.x = _charge_dir.x * lunge_speed
 	_apply_gravity(delta)
 	move_and_slide()
 	_charge_timer -= delta
 	if not _charge_hit and is_instance_valid(_hero) \
 			and _hero.has_method("take_damage") \
-			and global_position.distance_to(_hero.global_position) <= CHARGE_HIT_RADIUS:
-		_hero.take_damage(CHARGE_DAMAGE)
+			and global_position.distance_to(_hero.global_position) <= hit_radius:
+		_hero.take_damage(lunge_damage)
 		_charge_hit = true
 		Juice.shake_camera(5.0)
 		Sfx.play("melee_hit")
 	# is_on_wall(), not get_slide_collision_count(): a grounded charge collides
 	# with the FLOOR every frame, which would end the rocket on frame one.
 	if _charge_timer <= 0.0 or is_on_wall():
-		_attack_state = AttackState.RECOVER
-		_recover_timer = ATTACK_RECOVER_TIME
-		_attack_cooldown = CHARGE_COOLDOWN
+		if is_assassin:
+			_attack_state = AttackState.CHASE
+			_retreat_timer = ASSASSIN_RETREAT_TIME
+			_attack_cooldown = ASSASSIN_COOLDOWN
+		else:
+			_attack_state = AttackState.RECOVER
+			_recover_timer = ATTACK_RECOVER_TIME
+			_attack_cooldown = CHARGE_COOLDOWN
 
 
 # ------------------------------------------------------------ SUMMONER (minions)
@@ -428,6 +516,125 @@ func _spawn_minions() -> void:
 	_attack_state = AttackState.RECOVER
 	_recover_timer = ATTACK_RECOVER_TIME
 	_attack_cooldown = SUMMON_COOLDOWN
+
+
+# ---------------------------------------------------------- ASSASSIN (hit-and-run)
+## Approach with feints (brief random direction reversals so it's hard to pin),
+## strike with a QUICK small tell + lunge, then retreat out of reach. The
+## retreat window overrides everything: after a strike it runs AWAY first.
+func _assassin_chase(delta: float) -> void:
+	var to_hero: Vector2 = _hero.global_position - global_position
+	var dir_x: float = signf(to_hero.x)
+	if dir_x == 0.0:
+		dir_x = 1.0
+	var move_x: float = dir_x
+	if _retreat_timer > 0.0:
+		_retreat_timer -= delta
+		move_x = -dir_x                           # disengage: sprint away
+	else:
+		_jitter_timer -= delta
+		if _jitter_timer <= 0.0:
+			_jitter_timer = ASSASSIN_JITTER_INTERVAL
+			_jitter_sign = -1.0 if randf() < ASSASSIN_JITTER_CHANCE else 1.0
+		if absf(to_hero.x) < ASSASSIN_STRIKE_RANGE * 2.0:
+			move_x = dir_x * _jitter_sign         # feint: jittery, unpredictable
+	velocity.x = move_x * move_speed + _knockback.x
+	_apply_gravity(delta)
+	_try_chase_jump()
+	move_and_slide()
+	_check_wall_slam()
+	rig.play(CharacterRig.State.RUN)
+	rig.set_facing(to_hero)
+	if _retreat_timer <= 0.0 and _attack_cooldown <= 0.0 \
+			and global_position.distance_to(_hero.global_position) <= ASSASSIN_STRIKE_RANGE:
+		_start_assassin_windup()
+
+
+## Snapshot the hero under a small FAST tell (the quickest windup in the
+## roster) and lock a flat lunge lane toward it — same side-on grammar as the
+## charger, just faster, shorter, and weaker.
+func _start_assassin_windup() -> void:
+	_attack_state = AttackState.WINDUP
+	_strike_center = _hero.global_position
+	_charge_dir = Vector2(signf(_strike_center.x - global_position.x), 0.0)
+	if _charge_dir.x == 0.0:
+		_charge_dir = Vector2.RIGHT
+	rig.flash()
+	_telegraph = Telegraph.new()
+	get_parent().add_child(_telegraph)
+	_telegraph.global_position = _strike_center
+	_telegraph.fired.connect(_on_telegraph_fired)
+	_telegraph.start(ASSASSIN_TELE_RADIUS, ASSASSIN_WINDUP)
+
+
+## The assassin's lunge rides the CHARGING state; _process_charging branches
+## on archetype for speed/damage/exit (retreat instead of RECOVER).
+func _begin_lunge() -> void:
+	_attack_state = AttackState.CHARGING
+	_charge_timer = ASSASSIN_LUNGE_TIME
+	_charge_hit = false
+
+
+# ------------------------------------------------------------- BOMBER (walking bomb)
+## Standard side-on waddle toward the hero; inside trigger range it roots and
+## lights the fuse. Slower and fatter than a chaser — the threat is the blast,
+## not the chase, so kill it at range or hold the dodge for the fuse.
+func _bomber_chase(delta: float) -> void:
+	var chase_x: float = signf(_hero.global_position.x - global_position.x) * move_speed
+	velocity.x = chase_x + _knockback.x
+	_apply_gravity(delta)
+	_try_chase_jump()
+	move_and_slide()
+	_check_wall_slam()
+	rig.play(CharacterRig.State.RUN)
+	rig.set_facing(Vector2(signf(chase_x), 0.0))
+	if _attack_cooldown <= 0.0 \
+			and global_position.distance_to(_hero.global_position) <= BOMB_TRIGGER_RANGE:
+		_start_bomb_windup()
+		return
+	if global_position.distance_to(_hero.global_position) < 22.0 and _touch_cooldown <= 0.0:
+		if _hero.has_method("take_damage"):
+			_hero.take_damage(touch_damage)
+			_touch_cooldown = 0.8
+
+
+## Root and mark the blast zone where the bomber stands: the BIGGEST, SLOWEST
+## tell in the roster. Interrupting is the counter — _abort_attack (via death)
+## defuses it cleanly like any other windup, and a knocked-around bomber still
+## detonates on the MARKED circle, not wherever it got shoved (dodge-the-tell
+## grammar: the telegraph is always the truth).
+func _start_bomb_windup() -> void:
+	_attack_state = AttackState.WINDUP
+	_strike_center = global_position
+	rig.flash()
+	_telegraph = Telegraph.new()
+	get_parent().add_child(_telegraph)
+	_telegraph.global_position = _strike_center
+	_telegraph.fired.connect(_on_telegraph_fired)
+	_telegraph.start(BOMB_RADIUS, BOMB_WINDUP)
+
+
+## The fuse ran out: damage + shove a hero still inside the marked circle,
+## scorch the ground, and die in the blast (the death spectacle in _die stacks
+## on top — bomb VFX first, then the corpse launch). Suicide trade by design.
+func _detonate() -> void:
+	if is_instance_valid(_hero) and _hero.has_method("take_damage") \
+			and _hero.global_position.distance_to(_strike_center) <= BOMB_RADIUS:
+		_hero.take_damage(BOMB_DAMAGE)
+		if _hero.has_method("apply_knockback"):
+			var away: Vector2 = (_hero.global_position - _strike_center).normalized()
+			if away == Vector2.ZERO:
+				away = Vector2.UP
+			_hero.apply_knockback(away * BOMB_KNOCKBACK)
+	CombatVfx.spawn_burst(
+		get_parent(), _strike_center,
+		Color(1.0, 0.75, 0.35, 0.95), Color(0.9, 0.3, 0.15, 0.0),
+		36, 0.45, 120.0, 260.0, 1.5, 4.0, 40.0, 90.0
+	)
+	ScorchDecal.spawn(get_parent(), _strike_center, BOMB_RADIUS * 0.55, "scorch", Color(0.15, 0.13, 0.12, 0.55))
+	Juice.shake_camera(7.0)
+	Sfx.play("blast")
+	_die()
 
 
 ## Strike resolution, split out so headless tests can drive it directly:
