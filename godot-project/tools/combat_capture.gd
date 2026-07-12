@@ -35,6 +35,8 @@ func _initialize() -> void:
 			scene_path = arg
 		elif arg == "telegraphs":
 			_mode = "telegraphs"
+		elif arg == "status":
+			_mode = "status"
 	var packed: PackedScene = load(scene_path)
 	if packed == null:
 		printerr("combat_capture: could not load ", scene_path)
@@ -54,6 +56,8 @@ func _run() -> void:
 	for t: int in total:
 		if _mode == "telegraphs":
 			_force_windups()
+		elif _mode == "status":
+			_apply_statuses()
 		for f: int in FRAME_GAP:
 			await process_frame
 		await RenderingServer.frame_post_draw
@@ -88,6 +92,17 @@ func _force_windups() -> void:
 		if e.get("_attack_state") != 0:  # already winding up / charging
 			continue
 		e.set("_attack_cooldown", 0.0)
+
+
+## Showcase the elemental ailments: paint each bot with a different element
+## (re-applied each cycle so the overlays stay lit; a second ICE freezes).
+func _apply_statuses() -> void:
+	var enemies: Array = root.get_tree().get_nodes_in_group("enemy")
+	var elems: Array = [0, 1, 2, 3, 4]  # fire, ice, lightning, shadow, arcane
+	for i: int in enemies.size():
+		var e: Node = enemies[i]
+		if is_instance_valid(e) and e.has_method("apply_status"):
+			e.apply_status(elems[i % elems.size()], false)
 
 
 func _save_sheet(tiles: Array) -> void:

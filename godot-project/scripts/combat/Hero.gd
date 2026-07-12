@@ -666,6 +666,7 @@ func _cast() -> void:
 	spell.launch(dir)
 	if spell.has_method("set_element_color"):
 		spell.call("set_element_color", _element_color)
+	spell.set("element_id", _element)  # a hit applies the active element's ailment
 	if bool(_cfg["throw_blade"]):
 		spell.set("damage", int(_cfg["blade_damage"]))  # rogue: faster, lighter
 	Sfx.play("cast", 0.0, 0.08)
@@ -688,6 +689,7 @@ func _blast() -> void:
 	var target_pos: Vector2 = global_position + to_target
 	var blast: Node2D = BLAST_SCENE.instantiate()
 	get_parent().add_child(blast)
+	blast.set("element_id", _element)
 	blast.detonate_at(target_pos)
 	rig.set_aim(_aim_dir)
 	rig.play(CharacterRig.State.CAST)
@@ -708,6 +710,7 @@ func _nova() -> void:
 func _spawn_nova() -> void:
 	var nova: Node2D = NOVA_SCENE.instantiate()
 	get_parent().add_child(nova)
+	nova.set("element_id", _element)
 	nova.call("activate_at", global_position)
 	rig.play(CharacterRig.State.CAST)
 

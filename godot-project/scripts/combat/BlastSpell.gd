@@ -19,6 +19,8 @@ const DEBRIS_COUNT: int = 12  # rock/ember chunks blown up out of the crater
 const DEBRIS_COLOR: Color = Color(0.36, 0.3, 0.26)  # charred stone
 
 var _shockwave_elapsed: float = -1.0  # < 0 means not yet detonated.
+## Element index (Elements.Element) applied as an ailment to enemies in radius.
+var element_id: int = -1
 
 
 ## Public entry: place the blast, start the danger bloom.
@@ -79,6 +81,8 @@ func _apply_blast_damage() -> void:
 			continue
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(DAMAGE)
+		if element_id >= 0 and enemy.has_method("apply_status"):
+			enemy.apply_status(element_id)
 		if enemy.has_method("apply_knockback"):
 			var away: Vector2 = (enemy.global_position - global_position).normalized()
 			if away == Vector2.ZERO:

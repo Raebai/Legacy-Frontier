@@ -150,6 +150,8 @@ var _jitter_timer: float = 0.0              # assassin: time until the next fein
 var _jitter_sign: float = 1.0               # assassin: current approach feint (+1/-1)
 var _caster_signal: CasterSignal = null     # on-body charge glow (the "from caster" tell)
 var _minions: Array = []                    # live summoned minions, pruned for the cap
+var _status: StatusComponent = null         # elemental ailments (burn/chill/shock/...)
+var _speed_scale: float = 1.0               # movement slow from chill/freeze/shock
 
 @onready var rig: CharacterRig = $Rig
 
@@ -254,6 +256,7 @@ func _physics_process(delta: float) -> void:
 	_knockback = _knockback.move_toward(Vector2.ZERO, KNOCKBACK_DECAY * delta)
 	_attack_cooldown = maxf(_attack_cooldown - delta, 0.0)
 	_jump_cd = maxf(_jump_cd - delta, 0.0)
+	_speed_scale = _status.slow_factor() if _status != null and is_instance_valid(_status) else 1.0
 	if not is_instance_valid(_hero):
 		# No target, but still honour an in-flight knockback so a killing-blow
 		# pop reads even if the hero just vanished.
@@ -292,7 +295,7 @@ func _physics_process(delta: float) -> void:
 		return
 	# Side-on chase: close the HORIZONTAL gap; gravity owns y; jump to reach a
 	# hero above us or hop an obstacle in the way.
-	var chase_x: float = signf(_hero.global_position.x - global_position.x) * move_speed
+	var chase_x: float = signf(_hero.global_position.x - global_position.x) * move_speed * _speed_scale
 	velocity.x = chase_x + _knockback.x
 	_apply_gravity(delta)
 	_try_chase_jump()
@@ -380,7 +383,7 @@ func _caster_chase(delta: float) -> void:
 		move_x = -signf(to_hero.x)                # too close — back away
 	elif dist_x > CASTER_RANGE_MAX:
 		move_x = signf(to_hero.x)                 # too far — close in
-	velocity.x = move_x * move_speed + _knockback.x
+	velocity.x = move_x * move_speed * _speed_scale + _knockback.x
 	_apply_gravity(delta)
 	move_and_slide()
 	rig.play(CharacterRig.State.RUN if move_x != 0.0 else CharacterRig.State.IDLE)
@@ -426,7 +429,7 @@ func _fire_projectile() -> void:
 func _charger_chase(delta: float) -> void:
 	var to_hero: Vector2 = _hero.global_position - global_position
 	var dist: float = to_hero.length()
-	velocity.x = signf(to_hero.x) * move_speed + _knockback.x
+	velocity.x = signf(to_hero.x) * move_speed * _speed_scale + _knockback.x
 	_apply_gravity(delta)
 	_try_chase_jump()
 	move_and_slide()
@@ -506,7 +509,7 @@ func _summoner_chase(delta: float) -> void:
 		move_x = -signf(to_hero.x)                # too close — back away
 	elif dist_x > SUMMONER_RANGE_MAX:
 		move_x = signf(to_hero.x)                 # too far — close in
-	velocity.x = move_x * move_speed + _knockback.x
+	velocity.x = move_x * move_speed * _speed_scale + _knockback.x
 	_apply_gravity(delta)
 	move_and_slide()
 	rig.play(CharacterRig.State.RUN if move_x != 0.0 else CharacterRig.State.IDLE)
@@ -576,7 +579,7 @@ func _assassin_chase(delta: float) -> void:
 			_jitter_sign = -1.0 if randf() < ASSASSIN_JITTER_CHANCE else 1.0
 		if absf(to_hero.x) < ASSASSIN_STRIKE_RANGE * 2.0:
 			move_x = dir_x * _jitter_sign         # feint: jittery, unpredictable
-	velocity.x = move_x * move_speed + _knockback.x
+	velocity.x = move_x * move_speed * _speed_scale + _knockback.x
 	_apply_gravity(delta)
 	_try_chase_jump()
 	move_and_slide()
@@ -622,7 +625,7 @@ func _begin_lunge() -> void:
 ## lights the fuse. Slower and fatter than a chaser — the threat is the blast,
 ## not the chase, so kill it at range or hold the dodge for the fuse.
 func _bomber_chase(delta: float) -> void:
-	var chase_x: float = signf(_hero.global_position.x - global_position.x) * move_speed
+	var chase_x: float = signf(_hero.global_position.x - global_position.x) * move_speed * _speed_scale
 	velocity.x = chase_x + _knockback.x
 	_apply_gravity(delta)
 	_try_chase_jump()
@@ -745,10 +748,24 @@ func _live_minion_count() -> int:
 
 
 func take_damage(amount: int) -> void:
-	hp = max(hp - amount, 0)
+	# Weaken (shadow) amplifies incoming damage.
+	var dealt: int = amount
+	if _status != null and is_instance_valid(_status):
+		dealt = int(round(float(amount) * _status.damage_mult()))
+	hp = max(hp - dealt, 0)
 	_flash()
 	if hp == 0:
 		_die()
+
+
+## Apply an elemental ailment (called by the hero's element-carrying spells).
+## Lazily creates the StatusComponent child on first use; can_chain gates the
+## lightning hop so a chained shock can't re-chain forever.
+func apply_status(element: int, can_chain: bool = true) -> void:
+	if _status == null or not is_instance_valid(_status):
+		_status = StatusComponent.new()
+		add_child(_status)
+	_status.apply(element, can_chain)
 
 
 func _flash() -> void:

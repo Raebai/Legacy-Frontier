@@ -22,6 +22,8 @@ const DEBRIS_COUNT: int = 8
 const DEBRIS_COLOR: Color = Color(0.45, 0.55, 0.62)  # cool shattered stone
 
 var _shockwave_elapsed: float = -1.0  # < 0 means not yet fired.
+## Element index (Elements.Element) applied as an ailment to enemies in radius.
+var element_id: int = -1
 
 
 ## Public entry: place the nova on the caster and fire IMMEDIATELY.
@@ -71,6 +73,8 @@ func _apply_nova_damage() -> void:
 			continue
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(NOVA_DAMAGE)
+		if element_id >= 0 and enemy.has_method("apply_status"):
+			enemy.apply_status(element_id)
 		if enemy.has_method("apply_knockback"):
 			var away: Vector2 = (enemy.global_position - global_position).normalized()
 			if away == Vector2.ZERO:

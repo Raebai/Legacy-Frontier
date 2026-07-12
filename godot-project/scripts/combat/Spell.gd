@@ -11,6 +11,9 @@ var _life: float = LIFETIME
 ## original warm fire-bolt default — set_element_color() flips the flag.
 var _element_color: Color = Color(1.0, 1.0, 1.0, 1.0)
 var _has_element_color: bool = false
+## Element index (Elements.Element) so a hit applies the matching ailment.
+## -1 = no element (never applies a status).
+var element_id: int = -1
 ## Set the instant we consume ourselves, so the segment raycast and the Area2D
 ## callbacks can't both resolve the same bolt (double-damage / freed-node errors).
 var _dead: bool = false
@@ -110,6 +113,8 @@ func _try_damage(node: Node) -> void:
 	if node.is_in_group("enemy") and node.has_method("take_damage"):
 		_dead = true
 		node.take_damage(damage)
+		if element_id >= 0 and node.has_method("apply_status"):
+			node.apply_status(element_id)
 		Sfx.play("spell_impact")
 		Juice.hit_stop(0.045)  # weighted: lightest impact in the ladder
 		Juice.shake_camera(6.0)
