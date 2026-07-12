@@ -39,6 +39,8 @@ var _circle: MagicCircle = null
 var _pillars: Array = []
 var _row_min_x: float = 0.0
 var _row_max_x: float = 0.0
+## Elemental ailment (Elements.Element) applied to enemies a pillar hits. -1=none.
+var element_id: int = -1
 
 
 ## Public entry: smite the WHOLE horizontal row at `target`'s Y with a swept
@@ -106,6 +108,8 @@ func _smite_pillar(m: Dictionary) -> void:
 	for enemy: Node in targets_in_radius(at, _radius, get_tree().get_nodes_in_group("enemy")):
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(_damage)
+		if element_id >= 0 and enemy.has_method("apply_status"):
+			enemy.apply_status(element_id)
 		if enemy.has_method("apply_knockback"):
 			var away: Vector2 = ((enemy as Node2D).global_position - at).normalized()
 			enemy.apply_knockback((away if away != Vector2.ZERO else Vector2.UP) * KNOCKBACK)

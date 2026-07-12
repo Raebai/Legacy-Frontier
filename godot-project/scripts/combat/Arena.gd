@@ -18,7 +18,7 @@ var _run_mode: bool = false
 var _current_floor_def: FloorDef = null
 var _encounter: Encounter = null
 var _room: Node2D = null
-var _theme_rect: ColorRect = null
+var _atmo: Atmosphere = null
 var _portal: ExitPortal = null
 var _floor_banner: Label = null
 var _spawn_timer: float = 0.0
@@ -133,21 +133,17 @@ func _build_ability_bar() -> void:
 
 
 # ------------------------------------------------------------------- theme/UI
-## Subtle full-viewport atmosphere wash so each layer band reads distinct.
+## Themed atmosphere per floor band (tint + vignette + drifting motes) so each
+## layer of the climb reads distinct — richer than the old flat colour wash.
 func _build_theme_layer() -> void:
-	var layer := CanvasLayer.new()
-	layer.layer = 1  # above the world, below the Rank HUD (50) + Conversation (100)
-	add_child(layer)
-	_theme_rect = ColorRect.new()
-	_theme_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_theme_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_theme_rect.color = Color(0, 0, 0, 0)
-	layer.add_child(_theme_rect)
+	_atmo = Atmosphere.new()
+	add_child(_atmo)
 
 
 func _apply_theme(tint: Color) -> void:
-	if _theme_rect != null:
-		_theme_rect.color = Color(tint.r, tint.g, tint.b, 0.14)
+	if _atmo != null:
+		var accent: Color = Color(tint.r, tint.g, tint.b, 1.0).lightened(0.55)
+		_atmo.build_wash(tint, accent)
 
 
 func _build_floor_banner() -> void:

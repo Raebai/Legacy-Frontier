@@ -35,6 +35,8 @@ var _effect: String = "arcane"
 var _elapsed: float = -1.0     # < 0 = not fired yet
 var _fired: bool = false       # damage/juice applied once at end of charge
 var _circle: MagicCircle = null
+## Elemental ailment (Elements.Element) applied to enemies the beam hits. -1=none.
+var element_id: int = -1
 
 
 ## Public entry: charge at `origin`, then fire a beam of `length`/`width` along
@@ -183,6 +185,8 @@ func _apply_beam_damage() -> void:
 	for enemy: Node in targets_on_beam(_origin, _dir, _length, half, get_tree().get_nodes_in_group("enemy")):
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(_damage)
+		if element_id >= 0 and enemy.has_method("apply_status"):
+			enemy.apply_status(element_id)
 		if enemy.has_method("apply_knockback"):
 			enemy.apply_knockback(_dir * KNOCKBACK)
 	for prop: Node in targets_on_beam(_origin, _dir, _length, half, get_tree().get_nodes_in_group("destructible")):

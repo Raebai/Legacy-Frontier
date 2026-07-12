@@ -34,6 +34,69 @@ func build(bounds: Rect2, palette: Dictionary = {}) -> void:
 	queue_redraw()
 
 
+# ------------------------------------------------------- screen-space WASH mode
+## Themed atmosphere for the flat/box arena rooms (no world skyline): a faint
+## colour tint + a theme-tinted vignette + drifting motes, all on a screen-space
+## CanvasLayer. Re-callable per floor (clears first) so the climb re-tints as the
+## band changes (surface -> underground -> sky). Use this instead of build().
+func build_wash(tint: Color, accent: Color) -> void:
+	for c: Node in get_children():
+		c.queue_free()
+	var layer := CanvasLayer.new()
+	layer.layer = 1  # above the world, below the HUD (50/60/100)
+	add_child(layer)
+	# Faint flat colour tint (subtle — the room still reads through it).
+	var flat := ColorRect.new()
+	flat.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	flat.color = Color(tint.r, tint.g, tint.b, 0.10)
+	flat.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(flat)
+	# Theme-tinted vignette darkening the edges for depth.
+	var grad := Gradient.new()
+	grad.set_color(0, Color(tint.r * 0.4, tint.g * 0.4, tint.b * 0.5, 0.0))
+	grad.set_color(1, Color(tint.r * 0.25, tint.g * 0.25, tint.b * 0.35, 0.55))
+	grad.set_offset(0, 0.42)
+	var tex := GradientTexture2D.new()
+	tex.gradient = grad
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(1.0, 1.0)
+	tex.width = 256
+	tex.height = 256
+	var vr := TextureRect.new()
+	vr.texture = tex
+	vr.stretch_mode = TextureRect.STRETCH_SCALE
+	vr.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	vr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(vr)
+	# Drifting ambient motes across the screen (accent dust).
+	var motes := GPUParticles2D.new()
+	motes.amount = 40
+	motes.lifetime = 9.0
+	motes.preprocess = 9.0
+	motes.position = Vector2(320, 180)  # viewport centre (640x360)
+	var mat := ParticleProcessMaterial.new()
+	mat.particle_flag_disable_z = true
+	mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	mat.emission_box_extents = Vector3(360.0, 220.0, 0.0)
+	mat.direction = Vector3(0.15, -1.0, 0.0)
+	mat.spread = 30.0
+	mat.gravity = Vector3.ZERO
+	mat.initial_velocity_min = 3.0
+	mat.initial_velocity_max = 11.0
+	mat.scale_min = 1.0
+	mat.scale_max = 2.4
+	var ramp := Gradient.new()
+	ramp.set_color(0, Color(accent.r, accent.g, accent.b, 0.0))
+	ramp.set_color(1, Color(accent.r, accent.g, accent.b, 0.0))
+	ramp.add_point(0.5, Color(accent.r, accent.g, accent.b, 0.4))
+	var ramp_tex := GradientTexture1D.new()
+	ramp_tex.gradient = ramp
+	mat.color_ramp = ramp_tex
+	motes.process_material = mat
+	layer.add_child(motes)
+
+
 # ------------------------------------------------------------------------ sky
 func _build_sky() -> void:
 	var grad := Gradient.new()

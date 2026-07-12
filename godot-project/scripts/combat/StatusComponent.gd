@@ -111,7 +111,10 @@ func _process(delta: float) -> void:
 			_burn_tick = BURN_TICK
 			_deal_self(BURN_TICK_DMG)
 	_chill = maxf(_chill - delta, 0.0)
+	var was_frozen: bool = _freeze > 0.0
 	_freeze = maxf(_freeze - delta, 0.0)
+	if was_frozen and _freeze <= 0.0:
+		_shatter()  # the ice breaks
 	_shock = maxf(_shock - delta, 0.0)
 	_weaken = maxf(_weaken - delta, 0.0)
 	if _unstable > 0.0:
@@ -168,6 +171,21 @@ func _pop_unstable() -> void:
 		Color(0.95, 0.4, 0.85, 0.95), Color(0.6, 0.2, 0.7, 0.0), 20, 0.4, 80.0, 200.0
 	)
 	_deal_self(UNSTABLE_POP_DMG)
+
+
+## The ice breaks: a quick crystal-shard burst when a freeze ends (satisfying
+## "shatter" read). Sfx via a guarded lookup so headless contexts stay safe.
+func _shatter() -> void:
+	var owner_e: Node = get_parent()
+	if owner_e == null or not is_instance_valid(owner_e) or not owner_e is Node2D:
+		return
+	CombatVfx.spawn_burst(
+		owner_e.get_parent(), (owner_e as Node2D).global_position,
+		Color(0.85, 0.97, 1.0, 0.95), Color(0.5, 0.75, 1.0, 0.0), 14, 0.35, 80.0, 200.0, 0.6, 1.8
+	)
+	var sfx: Node = owner_e.get_node_or_null("/root/Sfx")
+	if sfx != null and sfx.has_method("play"):
+		sfx.call("play", "spell_impact", -4.0, 0.15)
 
 
 # ------------------------------------------------------------------- overlay draw

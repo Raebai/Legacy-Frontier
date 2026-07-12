@@ -25,6 +25,7 @@ static func cast(
 		return false
 	var col: Color = spell.resolve_color(fallback_color)
 	var fx: String = effect if effect != "" else spell.effect  # elemental character
+	var elem: int = resolve_element(spell)  # ailment applied on hit
 	var aim: Vector2 = (target_pos - caster_pos)
 	if aim == Vector2.ZERO:
 		aim = Vector2.RIGHT
@@ -32,6 +33,7 @@ static func cast(
 		SpellDef.Kind.BEAM:
 			var beam: Node2D = (load(BEAM_PATH) as GDScript).new()
 			arena.add_child(beam)
+			beam.set("element_id", elem)
 			beam.fire(caster_pos, aim.normalized(), col, spell.length, spell.width, spell.damage, fx)
 			return true
 		SpellDef.Kind.DIVINE_RAY:
@@ -41,6 +43,7 @@ static func cast(
 				to = to.normalized() * spell.reach
 			var ray: Node2D = (load(RAY_PATH) as GDScript).new()
 			arena.add_child(ray)
+			ray.set("element_id", elem)
 			ray.strike(caster_pos + to, col, spell.radius, spell.damage, fx)
 			return true
 		SpellDef.Kind.METEOR:
@@ -50,13 +53,32 @@ static func cast(
 				mto = mto.normalized() * spell.reach
 			var meteor: Node2D = (load(METEOR_PATH) as GDScript).new()
 			arena.add_child(meteor)
+			meteor.set("element_id", elem)
 			meteor.rain(caster_pos + mto, col, spell.radius, spell.damage, spell.count, fx)
 			return true
 		SpellDef.Kind.NOVA:
 			var nova: Node2D = (load(NOVA_PATH) as PackedScene).instantiate()
 			arena.add_child(nova)
+			nova.set("element_id", elem)
 			nova.call("activate_at", caster_pos)
 			return true
 		_:
 			# Any unbuilt kind: safe no-op until its scene exists.
 			return false
+
+
+## Elemental ailment index (Elements.Element) a signature applies on hit: the
+## SpellDef's explicit element if set, else mapped from its `effect` character.
+static func resolve_element(spell: SpellDef) -> int:
+	if spell.element >= 0:
+		return spell.element
+	match spell.effect:
+		"frost":
+			return Elements.Element.ICE
+		"fire":
+			return Elements.Element.FIRE
+		"holy":
+			return Elements.Element.LIGHTNING  # divine smite reads as a shock
+		"arcane":
+			return Elements.Element.ARCANE
+	return Elements.Element.ARCANE
