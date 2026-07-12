@@ -9,7 +9,9 @@ extends Node2D
 signal fired
 
 const FADE_TIME: float = 0.15
-const RING_COLOR: Color = Color(1.0, 0.35, 0.2, 0.55)
+## Crisp, saturated danger-red (was a muddy orange at 0.55 alpha that blended to
+## an ugly "pink" over the sky). Now it reads clearly as an enemy attack tell.
+const RING_COLOR: Color = Color(0.95, 0.16, 0.13, 0.85)
 
 enum Shape { CIRCLE, LINE }
 
@@ -71,10 +73,10 @@ func _draw() -> void:
 	if _has_fired:
 		# Brief afterglow while the BlastSpell's detonation takes over.
 		var fade: float = clampf(1.0 - (_elapsed - _windup) / FADE_TIME, 0.0, 1.0)
-		draw_circle(Vector2.ZERO, _radius, Color(1.0, 0.45, 0.2, 0.35 * fade))
+		draw_circle(Vector2.ZERO, _radius, Color(1.0, 0.28, 0.16, 0.4 * fade))
 		draw_arc(
 			Vector2.ZERO, _radius, 0.0, TAU, 48,
-			Color(1.0, 0.35, 0.2, 0.6 * fade), 3.0
+			Color(1.0, 0.18, 0.13, 0.7 * fade), 3.0
 		)
 		return
 	# Static outer danger ring — the boundary of what is about to hurt.
@@ -85,15 +87,15 @@ func _draw() -> void:
 	var inner_r: float = minf(_radius * t * pulse, _radius)
 	var fill := Color(
 		1.0,
-		lerpf(0.72, 0.28, t),
-		lerpf(0.4, 0.12, t),
-		lerpf(0.14, 0.45, t)
+		lerpf(0.5, 0.14, t),
+		lerpf(0.28, 0.11, t),
+		lerpf(0.16, 0.5, t)
 	)
 	draw_circle(Vector2.ZERO, inner_r, fill)
 	if inner_r > 2.0:
 		draw_arc(
 			Vector2.ZERO, inner_r, 0.0, TAU, 40,
-			Color(1.0, 0.5, 0.25, 0.25 + 0.65 * t), 2.0
+			Color(1.0, 0.32, 0.18, 0.25 + 0.65 * t), 2.0
 		)
 
 

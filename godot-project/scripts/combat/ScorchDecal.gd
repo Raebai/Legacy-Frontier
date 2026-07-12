@@ -11,18 +11,26 @@ const CRACK_LINE_COUNT: int = 5
 const CRACK_SEGMENTS: int = 3
 const CRACK_WIDTH: float = 2.0
 const CRACK_JAG: float = 0.18  # lateral jitter as a fraction of radius
+const FADE_OUT: float = 1.6  # seconds of alpha ramp before a lifetime'd decal frees
 
 @export var radius: float = 24.0
 @export var kind: String = "scorch"  # "scorch" | "crack"
 @export var tint: Color = Color(0.05, 0.03, 0.02, 0.55)
+## 0 = persist for the session (the old accumulate-forever behaviour). > 0 =
+## the decal holds, then fades over the last FADE_OUT seconds and frees, so
+## meteor/nova scars "clear up over time" instead of cluttering the arena.
+@export var lifetime: float = 0.0
 
 var _crack_lines: Array[PackedVector2Array] = []
+var _age: float = 0.0
 
 
 ## Instantiate a decal under `parent` at world `pos`. Null-safe: silently
 ## skips when the parent is gone (e.g. a blast resolving during teardown).
+## `decal_lifetime` > 0 makes it fade + free (see the `lifetime` export).
 static func spawn(
-	parent: Node, pos: Vector2, decal_radius: float, decal_kind: String, decal_tint: Color
+	parent: Node, pos: Vector2, decal_radius: float, decal_kind: String, decal_tint: Color,
+	decal_lifetime: float = 0.0,
 ) -> void:
 	if parent == null or not parent.is_inside_tree():
 		return
@@ -30,10 +38,22 @@ static func spawn(
 	decal.radius = decal_radius
 	decal.kind = decal_kind
 	decal.tint = decal_tint
+	decal.lifetime = decal_lifetime
 	decal.z_index = -1
 	parent.add_child(decal)
 	decal.global_position = pos
 	_enforce_cap(parent.get_tree())
+
+
+## Fade-and-free for lifetime'd decals (no-op for persistent ones).
+func _process(delta: float) -> void:
+	if lifetime <= 0.0:
+		return
+	_age += delta
+	if _age >= lifetime:
+		queue_free()
+	elif _age > lifetime - FADE_OUT:
+		modulate.a = clampf((lifetime - _age) / FADE_OUT, 0.0, 1.0)
 
 
 ## Cheap safety against unbounded growth over a long session: past MAX_DECALS

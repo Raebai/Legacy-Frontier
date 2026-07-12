@@ -10,9 +10,13 @@ const DAMAGE: int = 40
 const KNOCKBACK: float = 340.0
 const SHOCKWAVE_TIME: float = 0.25
 const CLEANUP_DELAY: float = 0.7
-# Every blast chars the floor: persistent scorch decal at the detonation point.
+# Every blast chars the floor beneath it: a scorch decal snapped down onto the
+# ground (never a mid-air smear) that fades + clears after SCORCH_LIFETIME.
 const SCORCH_RADIUS_FACTOR: float = 0.8  # decal size relative to BLAST_RADIUS
 const SCORCH_TINT: Color = Color(0.09, 0.05, 0.03, 0.6)  # warm charred brown
+const SCORCH_LIFETIME: float = 7.0  # seconds before the crater fades away
+const DEBRIS_COUNT: int = 12  # rock/ember chunks blown up out of the crater
+const DEBRIS_COLOR: Color = Color(0.36, 0.3, 0.26)  # charred stone
 
 var _shockwave_elapsed: float = -1.0  # < 0 means not yet detonated.
 
@@ -29,11 +33,18 @@ func detonate_at(pos: Vector2) -> void:
 func _detonate() -> void:
 	_apply_blast_damage()
 	_spawn_blast_burst()
-	# Crater mark: accumulating floor damage is the "world gets wrecked" read.
-	ScorchDecal.spawn(
-		get_parent(), global_position,
-		BLAST_RADIUS * SCORCH_RADIUS_FACTOR, "scorch", SCORCH_TINT
-	)
+	# Crater mark + physics debris, snapped to the FLOOR below the blast (never a
+	# mid-air smear) and given a lifetime so it clears up. Skipped over a pit.
+	var hit: Dictionary = _floor_below(global_position, BLAST_RADIUS * 2.2)
+	if not hit.is_empty():
+		var floor_pos: Vector2 = hit["position"]
+		ScorchDecal.spawn(
+			get_parent(), floor_pos,
+			BLAST_RADIUS * SCORCH_RADIUS_FACTOR, "scorch", SCORCH_TINT, SCORCH_LIFETIME
+		)
+		DebrisChunk.spawn_burst(
+			get_parent(), floor_pos, DEBRIS_COLOR, DEBRIS_COUNT, Vector2.UP, 300.0
+		)
 	_shockwave_elapsed = 0.0
 	queue_redraw()
 	Juice.hit_stop(0.09)  # weighted: the AoE centerpiece, just under a kill
@@ -45,6 +56,17 @@ func _detonate() -> void:
 	if music != null and music.has_method("duck"):
 		music.call("duck", 8.0, 0.4)
 	get_tree().create_timer(CLEANUP_DELAY).timeout.connect(queue_free)
+
+
+## Downward raycast to the nearest floor/platform (collision layer 1) within
+## `max_dist`. Returns the intersect_ray dict ({} if nothing below — e.g. over a
+## pit) so callers place scorch + debris ON the ground, never in the sky.
+func _floor_below(from: Vector2, max_dist: float) -> Dictionary:
+	var world: World2D = get_world_2d()
+	if world == null:
+		return {}
+	var query := PhysicsRayQueryParameters2D.create(from, from + Vector2(0.0, max_dist), 1)
+	return world.direct_space_state.intersect_ray(query)
 
 
 ## Radius-query damage + outward knockback. Split out so headless tests can

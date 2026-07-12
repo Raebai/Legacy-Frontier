@@ -11,6 +11,9 @@ var _life: float = LIFETIME
 ## original warm fire-bolt default — set_element_color() flips the flag.
 var _element_color: Color = Color(1.0, 1.0, 1.0, 1.0)
 var _has_element_color: bool = false
+## Set the instant we consume ourselves, so the segment raycast and the Area2D
+## callbacks can't both resolve the same bolt (double-damage / freed-node errors).
+var _dead: bool = false
 
 
 func launch(direction: Vector2) -> void:
@@ -44,16 +47,53 @@ func set_element_color(c: Color) -> void:
 
 
 func _ready() -> void:
+	add_to_group("player_spell")  # projectile-vs-projectile clash (EnemyProjectile)
 	body_entered.connect(_on_hit)
 	area_entered.connect(_on_area_hit)
 	collision_mask = collision_mask | 1  # also stop on platforms/walls (layer 1)
 
 
+## Consumed by a projectile clash (a stronger enemy bolt): burst + free.
+func fizzle() -> void:
+	if _dead:
+		return
+	_dead = true
+	_spawn_impact_burst()
+	queue_free()
+
+
 func _physics_process(delta: float) -> void:
+	var prev: Vector2 = global_position
 	global_position += _dir * SPEED * delta
 	_life -= delta
+	if _resolve_segment(prev):
+		return  # hit a wall / cover / enemy along the path — no pass-through
 	if _life <= 0.0:
 		queue_free()
+
+
+## Deterministic anti-pass-through: raycast the segment we just travelled against
+## our own collision_mask (walls L1, enemies + destructible cover L3) and route
+## whatever we hit through _try_damage — the same enemy / destructible / wall
+## handling as the Area2D callbacks. A ray can't tunnel past a fast frame, and it
+## catches solids reliably even when Area2D monitoring misses a dynamically-added
+## StaticBody collider (the bug where bolts phased through cover). Headless helper
+## tests have no physics world -> no-op, so they keep driving _try_damage directly.
+func _resolve_segment(prev: Vector2) -> bool:
+	if _dead:
+		return true
+	var world: World2D = get_world_2d()
+	if world == null:
+		return false
+	var query := PhysicsRayQueryParameters2D.create(prev, global_position, collision_mask)
+	query.collide_with_areas = false
+	query.collide_with_bodies = true
+	var hit: Dictionary = world.direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return false
+	global_position = hit["position"]
+	_try_damage(hit["collider"])
+	return _dead  # true if the hit consumed us; a no-op hit lets the bolt fly on
 
 
 func _on_area_hit(area: Area2D) -> void:
@@ -65,9 +105,10 @@ func _on_hit(body: Node) -> void:
 
 
 func _try_damage(node: Node) -> void:
-	if node == null:
+	if _dead or node == null:
 		return
 	if node.is_in_group("enemy") and node.has_method("take_damage"):
+		_dead = true
 		node.take_damage(damage)
 		Sfx.play("spell_impact")
 		Juice.hit_stop(0.045)  # weighted: lightest impact in the ladder
@@ -78,18 +119,23 @@ func _try_damage(node: Node) -> void:
 		queue_free()
 	elif node.is_in_group("destructible") and node.has_method("take_damage"):
 		# Props take spell damage too (no knockback — crates don't slide).
+		_dead = true
 		node.take_damage(damage)
 		Sfx.play("spell_impact")
 		Juice.hit_stop(0.045)
 		Juice.shake_camera(6.0)
 		_spawn_impact_burst()
+		DebrisChunk.spawn_burst(get_parent(), global_position, Color(0.4, 0.4, 0.45), 4, _dir, 200.0)
 		queue_free()
 	elif node is StaticBody2D:
-		# A platform/wall stops the bolt — small explosion, no pass-through.
+		# A platform/wall stops the bolt — small explosion + stone chips fly off
+		# the surface in the bolt's travel direction (the "spells hit the floor").
+		_dead = true
 		Sfx.play("spell_impact")
 		Juice.hit_stop(0.03)
 		Juice.shake_camera(3.0)
 		_spawn_impact_burst()
+		DebrisChunk.spawn_burst(get_parent(), global_position, Color(0.5, 0.5, 0.55), 5, _dir, 210.0)
 		queue_free()
 
 

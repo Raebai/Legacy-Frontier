@@ -15,6 +15,8 @@ const STREAMS: Dictionary = {
 	# Slice 3: bright "ding" on a clean melee/parry connect + running footsteps.
 	"ding": preload("res://assets/audio/sfx/ding.wav"),
 	"footstep": preload("res://assets/audio/sfx/footstep.wav"),
+	# Shadow-blink teleport: short "vwip" (down-then-up pitch sweep + sparkle).
+	"blink": preload("res://assets/audio/sfx/blink.wav"),
 }
 
 const POOL_SIZE: int = 8

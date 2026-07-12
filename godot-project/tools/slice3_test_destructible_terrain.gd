@@ -111,15 +111,22 @@ func _test_post_death_damage_is_a_noop() -> int:
 	var decals_before: int = _alive_decals().size()
 	terrain.take_damage(terrain.max_hp)
 	failed += _expect(terrain.is_queued_for_deletion(), "lethal hit frees the block")
+	# Shatter now bursts into physics DebrisChunks (group "debris_chunk") and
+	# drops NO floor decal — the block stood in the air, so a crack mark there
+	# just floated. Verify physics rubble spawned and no decal was dropped.
 	failed += _expect(
-		_alive_decals().size() == decals_before + 1,
-		"break drops exactly one floor decal"
+		_alive_decals().size() == decals_before,
+		"terrain shatter drops no floor decal (was a floating spider)"
+	)
+	failed += _expect(
+		get_nodes_in_group("debris_chunk").size() > 0,
+		"terrain shatter bursts into physics debris chunks"
 	)
 	# Overkill after death must be a safe no-op: no crash, no second shatter.
 	terrain.take_damage(999)
 	failed += _expect(terrain.hp == 0, "post-death damage leaves hp at 0")
 	failed += _expect(
-		_alive_decals().size() == decals_before + 1, "post-death damage spawns nothing"
+		_alive_decals().size() == decals_before, "post-death damage spawns nothing"
 	)
 	return failed
 

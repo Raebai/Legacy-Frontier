@@ -42,12 +42,60 @@ func reflect(new_dir: Vector2, color: Color) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	var prev: Vector2 = global_position
 	global_position += _dir * SPEED * delta
 	_life -= delta
 	queue_redraw()
+	if _check_wall(prev):
+		return  # stopped on a platform/wall (no more pass-through)
+	if not _reflected and _check_clash():
+		return  # a stronger player bolt fizzled us
 	_check_hit()          # split out so headless tests can drive it
 	if _life <= 0.0:
 		queue_free()
+
+
+## Stop on a platform/wall (collision layer 1): raycast the segment we just
+## travelled; on a hit, snap to the surface, burst + free. No-op with no physics
+## world (headless tests that drive _check_hit directly never reach here).
+func _check_wall(prev: Vector2) -> bool:
+	var world: World2D = get_world_2d()
+	if world == null:
+		return false
+	var query := PhysicsRayQueryParameters2D.create(prev, global_position, 1)
+	var hit: Dictionary = world.direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return false
+	global_position = hit["position"]
+	_burst_and_free()
+	return true
+
+
+## Projectile-vs-projectile: if a player Spell is within reach, the stronger one
+## wins — the weaker fizzles. A tie leaves us flying (we fizzle the spell). Only
+## non-reflected (still-hostile) bolts clash with the player's spells.
+func _check_clash() -> bool:
+	for s: Node in get_tree().get_nodes_in_group("player_spell"):
+		if not (s is Node2D) or not is_instance_valid(s):
+			continue
+		if global_position.distance_to((s as Node2D).global_position) > HIT_RADIUS + 6.0:
+			continue
+		var spell_dmg: int = 0
+		var d: Variant = s.get("damage")
+		if d != null:
+			spell_dmg = int(d)
+		if spell_dmg > _damage:
+			_burst_and_free()  # the stronger spell survives; we die
+			return true
+		if s.has_method("fizzle"):
+			s.call("fizzle")  # we're stronger-or-equal: the spell fizzles, we fly on
+		CombatVfx.spawn_burst(
+			get_parent(), global_position,
+			Color(1.0, 1.0, 1.0, 0.9), Color(_color.r, _color.g, _color.b, 0.0),
+			10, 0.25, 60.0, 150.0
+		)
+		return false
+	return false
 
 
 ## Damage the first target within HIT_RADIUS, then burst + free. Targets the

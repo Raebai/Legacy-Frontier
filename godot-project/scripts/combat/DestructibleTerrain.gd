@@ -35,11 +35,9 @@ const DEBRIS_DAMPING_MIN: float = 60.0
 const DEBRIS_DAMPING_MAX: float = 140.0
 # Flying rubble chunks (real Node2Ds, beyond the particle burst — same
 # mechanism as DestructibleProp's plank chunks, tinted stone).
-const RUBBLE_CHUNK_COUNT: int = 7
-const RUBBLE_CHUNK_SPEED: float = 240.0  # px/s initial drift
-const RUBBLE_CHUNK_FADE: float = 0.55  # s to fade + free
+const RUBBLE_CHUNK_COUNT: int = 8
+const RUBBLE_CHUNK_SPEED: float = 260.0  # px/s initial launch (physics chunks)
 const SHATTER_SHAKE: float = 4.0
-const RUBBLE_DECAL_TINT: Color = Color(0.12, 0.12, 0.14, 0.8)  # dark stone dust
 # Progressive damage cracks across the block face.
 const MAX_CRACKS: int = 6
 const CRACK_SEGMENTS: int = 3
@@ -96,10 +94,12 @@ func take_damage(amount: int) -> void:
 func _shatter() -> void:
 	remove_from_group("destructible")
 	_spawn_debris_burst()
-	_spawn_rubble_chunks()
-	ScorchDecal.spawn(
-		get_parent(), global_position,
-		minf(block_size.x, block_size.y) * 0.4, "crack", RUBBLE_DECAL_TINT
+	# Real-physics rubble that bursts radially out of the block and tumbles onto
+	# the floor (replaces the old flat ColorRect-tween chunks). No floor decal:
+	# the block stood in the AIR, so a crack mark there just floated as spider
+	# legs — the flying chunks + burst convey the destruction on their own.
+	DebrisChunk.spawn_burst(
+		get_parent(), global_position, base_color, RUBBLE_CHUNK_COUNT, Vector2.ZERO, RUBBLE_CHUNK_SPEED
 	)
 	Juice.shake_camera(SHATTER_SHAKE)
 	Sfx.play("enemy_death")
@@ -128,30 +128,6 @@ func _spawn_debris_burst() -> void:
 		DEBRIS_SCALE_MIN, DEBRIS_SCALE_MAX,
 		DEBRIS_DAMPING_MIN, DEBRIS_DAMPING_MAX
 	)
-
-
-## A few rubble squares that fly outward, decelerate and fade — same "bits
-## everywhere" mechanism as DestructibleProp's plank chunks, tinted stone.
-func _spawn_rubble_chunks() -> void:
-	var parent: Node = get_parent()
-	if parent == null or not parent.is_inside_tree():
-		return
-	for i: int in RUBBLE_CHUNK_COUNT:
-		var chunk: ColorRect = ColorRect.new()
-		var side: float = randf_range(4.0, 8.0)
-		chunk.size = Vector2(side, side)
-		chunk.color = base_color.darkened(randf_range(0.0, 0.3))
-		parent.add_child(chunk)
-		chunk.global_position = global_position - chunk.size * 0.5
-		chunk.rotation = randf() * TAU
-		var dir: Vector2 = Vector2.from_angle(randf() * TAU)
-		var target: Vector2 = chunk.global_position + dir * RUBBLE_CHUNK_SPEED * RUBBLE_CHUNK_FADE
-		var tween: Tween = chunk.create_tween()
-		tween.set_parallel(true)
-		tween.tween_property(chunk, "global_position", target, RUBBLE_CHUNK_FADE) \
-			.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-		tween.tween_property(chunk, "modulate:a", 0.0, RUBBLE_CHUNK_FADE)
-		tween.chain().tween_callback(chunk.queue_free)
 
 
 ## Pre-bake the full jagged crack set once (ScorchDecal's approach) so _draw()

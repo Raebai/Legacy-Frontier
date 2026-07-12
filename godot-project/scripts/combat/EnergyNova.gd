@@ -14,8 +14,12 @@ const NOVA_KNOCKBACK: float = 420.0
 const SHOCKWAVE_TIME: float = 0.32
 const CLEANUP_DELAY: float = 0.7
 ## Faint floor cracks under the caster: the shockwave visibly stresses the arena.
+## Snapped down onto the actual floor (never the sky) + fades so it clears up.
 const CRACK_RADIUS_FACTOR: float = 0.35
 const CRACK_TINT: Color = Color(0.3, 0.4, 0.5, 0.45)
+const CRACK_LIFETIME: float = 5.0  # seconds before the crack fades away
+const DEBRIS_COUNT: int = 8
+const DEBRIS_COLOR: Color = Color(0.45, 0.55, 0.62)  # cool shattered stone
 
 var _shockwave_elapsed: float = -1.0  # < 0 means not yet fired.
 
@@ -25,11 +29,18 @@ func activate_at(pos: Vector2) -> void:
 	global_position = pos
 	_apply_nova_damage()
 	_spawn_nova_burst()
-	# Cracked floor under the burst point — cool-tinted, unlike blast scorch.
-	ScorchDecal.spawn(
-		get_parent(), global_position,
-		NOVA_RADIUS * CRACK_RADIUS_FACTOR, "crack", CRACK_TINT
-	)
+	# Crack the FLOOR beneath the caster only — NEVER the sky (the maker's ask).
+	# Airborne over a pit -> no crack, no debris; just the energy ring rings out.
+	var hit: Dictionary = _floor_below(global_position, NOVA_RADIUS)
+	if not hit.is_empty():
+		var floor_pos: Vector2 = hit["position"]
+		ScorchDecal.spawn(
+			get_parent(), floor_pos,
+			NOVA_RADIUS * CRACK_RADIUS_FACTOR, "crack", CRACK_TINT, CRACK_LIFETIME
+		)
+		DebrisChunk.spawn_burst(
+			get_parent(), floor_pos, DEBRIS_COLOR, DEBRIS_COUNT, Vector2.UP, 240.0
+		)
 	_shockwave_elapsed = 0.0
 	queue_redraw()
 	Juice.hit_stop(0.1)
@@ -37,6 +48,17 @@ func activate_at(pos: Vector2) -> void:
 	Juice.zoom_punch_camera(0.12, 0.22)
 	Sfx.play("blast", 2.0, 0.1)
 	get_tree().create_timer(CLEANUP_DELAY).timeout.connect(queue_free)
+
+
+## Downward raycast to the floor/platform (collision layer 1) within `max_dist`.
+## Returns the intersect_ray dict ({} if nothing below — airborne over a pit) so
+## the crack + debris land ON the ground, never mid-air ("no cracking the sky").
+func _floor_below(from: Vector2, max_dist: float) -> Dictionary:
+	var world: World2D = get_world_2d()
+	if world == null:
+		return {}
+	var query := PhysicsRayQueryParameters2D.create(from, from + Vector2(0.0, max_dist), 1)
+	return world.direct_space_state.intersect_ray(query)
 
 
 ## Radius-query damage + OUTWARD knockback. Split out so headless tests can

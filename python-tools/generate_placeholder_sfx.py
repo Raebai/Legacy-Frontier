@@ -1,8 +1,9 @@
 """
 Generate placeholder combat/movement SFX using stdlib only.
-Two 16-bit PCM mono WAVs at 44100 Hz:
+Three 16-bit PCM mono WAVs at 44100 Hz:
   ding.wav     -- bright "clean hit / parry" ding (decaying inharmonic sine partials)
   footstep.wav -- soft low thump (sine burst + smoothed noise, fast decay)
+  blink.wav    -- epic shadow-step teleport (charge whoosh -> bright bell + sub thump)
 Output: godot-project/assets/audio/sfx/
 """
 
@@ -95,9 +96,79 @@ def make_footstep() -> list[float]:
     return normalize(samples, 0.55)
 
 
+def make_blink() -> list[float]:
+    """Shadow-blink teleport, EPIC read (not the old goofy vwip). Three stacked
+    layers around a single ARRIVAL moment at ~40% through:
+      1. Charge whoosh  -- a rising, swelling tone + noise that gathers energy
+                           before the step (integrated phase, so click-free).
+      2. Arrival bell   -- a bright inharmonic ping (bell-like partials off the
+                           harmonic series -> "magic", not "organ") that snaps in
+                           at the arrival and rings out.
+      3. Sub thump      -- a low ~70 Hz sine kick at the arrival for weight/body,
+                           so the step lands with impact instead of chirping.
+    Plus an airy smoothed-noise sparkle tail on the re-entry. Contour: swell ->
+    bright hit + low boom -> shimmer decay. Reads as a powerful phase-step."""
+    duration = 0.34
+    n = int(SAMPLE_RATE * duration)
+    rng = random.Random(7)  # deterministic output across runs
+
+    arrival = 0.40  # fraction where the charge resolves into the arrival hit
+    bell_base = 880.0
+    # (frequency multiplier, relative amplitude, decay rate per second)
+    bell_partials = [
+        (1.00, 1.00, 11.0),  # rings longest
+        (2.03, 0.55, 17.0),  # inharmonic -> metallic/magical
+        (3.87, 0.30, 25.0),  # top shimmer, dies fastest
+    ]
+
+    # Smoothed noise for the charge swell + re-entry sparkle (footstep low-pass).
+    noise = [rng.uniform(-1.0, 1.0) for _ in range(n)]
+    smoothed = [(noise[i] + noise[i - 1]) / 2.0 if i > 0 else noise[0] for i in range(n)]
+
+    attack_samples = int(SAMPLE_RATE * 0.003)   # ~3 ms attack, no onset click
+    release_samples = int(SAMPLE_RATE * 0.040)  # ~40 ms release, no tail click
+
+    samples: list[float] = []
+    phase = 0.0
+    for i in range(n):
+        u = i / n  # normalized position 0..1
+        s = 0.0
+
+        # 1. Charge whoosh: rises 240 -> ~1500 Hz, swelling louder toward arrival.
+        if u < arrival:
+            v = u / arrival
+            freq = 240.0 + 1300.0 * (v * v)
+            phase += 2.0 * math.pi * freq / SAMPLE_RATE
+            s += 0.42 * v * math.sin(phase)
+            s += 0.38 * (v * v) * smoothed[i]
+        else:
+            phase += 2.0 * math.pi * 1500.0 / SAMPLE_RATE  # keep phase continuous
+
+        # 2 + 3. Arrival bell + sub thump, timed from the arrival moment.
+        if u >= arrival:
+            ta = (u - arrival) * duration  # seconds since arrival
+            bell = 0.0
+            for ratio, amp, decay in bell_partials:
+                bell += amp * math.exp(-decay * ta) * math.sin(2.0 * math.pi * bell_base * ratio * ta)
+            s += 0.72 * bell
+            s += 0.60 * math.exp(-26.0 * ta) * math.sin(2.0 * math.pi * 70.0 * ta)  # sub thump
+            s += 0.16 * math.exp(-15.0 * ta) * smoothed[i]                          # airy sparkle
+
+        if i < attack_samples:
+            s *= i / attack_samples
+        if i >= n - release_samples:
+            s *= (n - i) / release_samples
+        samples.append(s)
+    return normalize(samples, 0.82)
+
+
 def main() -> None:
     out_dir = Path(__file__).resolve().parent.parent / "godot-project" / "assets" / "audio" / "sfx"
-    for name, samples in (("ding.wav", make_ding()), ("footstep.wav", make_footstep())):
+    for name, samples in (
+        ("ding.wav", make_ding()),
+        ("footstep.wav", make_footstep()),
+        ("blink.wav", make_blink()),
+    ):
         path = out_dir / name
         write_wav(path, samples)
         print(f"Wrote {path} ({path.stat().st_size} bytes)")
