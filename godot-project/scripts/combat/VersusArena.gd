@@ -210,20 +210,17 @@ func _hide_banner() -> void:
 ## Flat sky backdrop (clean Stick-Fight look): a big sky rect + a slightly deeper
 ## lower band for a hint of depth. Far behind everything; ignores the mouse.
 func _build_background() -> void:
-	var sky := ColorRect.new()
-	sky.position = Vector2(-500, -500)
-	sky.size = STAGE_SIZE + Vector2(1000, 1000)
-	sky.color = SKY_COLOR
-	sky.z_index = -20
-	sky.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(sky)
-	var lower := ColorRect.new()
-	lower.position = Vector2(-500, STAGE_SIZE.y * 0.5)
-	lower.size = Vector2(STAGE_SIZE.x + 1000, STAGE_SIZE.y + 500)
-	lower.color = SKY_LOWER_COLOR
-	lower.z_index = -19
-	lower.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(lower)
+	# Epic backdrop (gradient sky + distant tower spires + drifting motes +
+	# vignette) instead of two flat ColorRects — see Atmosphere.gd.
+	var atmo := Atmosphere.new()
+	add_child(atmo)
+	atmo.build(Rect2(Vector2(-400, -420), STAGE_SIZE + Vector2(800, 900)), {
+		"sky_top": Color(0.09, 0.11, 0.26),
+		"sky_bottom": Color(0.44, 0.60, 0.82),
+		"silhouette_far": Color(0.19, 0.23, 0.40),
+		"silhouette_near": Color(0.11, 0.14, 0.24),
+		"accent": Color(0.75, 0.88, 1.0),
+	})
 
 
 ## Solid platforms the fighters land + jump on (StaticBody2D default layer 1,
