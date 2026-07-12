@@ -62,6 +62,27 @@ const GROUND_RING_SPIN_SPEED: float = 1.1    # rad/s arc rotation
 ## OUTLINE_COLOR; the aura silhouette + dash ghosts draw outline-less (soft).
 const OUTLINE_COLOR: Color = Color(0.07, 0.08, 0.13, 1.0)
 const OUTLINE_EXTRA: float = 1.8
+## --- Active-ragdoll spring sim: the DRAWN limbs physically lag/swing/flail
+## toward the procedural pose (_compute_pose is the animation TARGET) instead
+## of snapping to it, and go limp on death. Stable point-mass springs in LOCAL
+## space — deliberately NOT RigidBody2D/PinJoint2D, which explode and fight the
+## kinematic controller. ---
+## Joints driven by the sim; neck is re-derived from head_center in _sim_pose().
+const SIM_JOINTS: Array[String] = [
+	"head_center", "shoulder", "hip",
+	"hand_lead", "hand_off", "foot_lead", "foot_off",
+]
+## Extremities flail harder on impulses + receive the inertial trail nudge.
+const SIM_EXTREMITIES: Array[String] = [
+	"head_center", "hand_lead", "hand_off", "foot_lead", "foot_off",
+]
+const STIFFNESS: float = 140.0         # spring pull toward the animation target
+const DAMPING: float = 14.0            # velocity damping (keeps the sim stable)
+const GRAVITY: float = 700.0           # applied only when limp (ragdoll droop)
+const MAX_OFFSET_FACTOR: float = 0.55  # max drift = height * this (anti-explosion clamp)
+const LIMP_EASE_SPEED: float = 5.0     # _limp eases toward _limp_target at this /s
+const IMPULSE_EXTREMITY_MULT: float = 1.6  # hands/feet/head kick harder on hits
+const BODY_TRAIL_FACTOR: float = 0.06  # inertial limb-trail from body accel (subtle)
 
 @export var limb_color: Color = Color(0.55, 0.75, 1.0, 1.0)
 @export var height: float = 26.0
@@ -98,6 +119,19 @@ var _parry_timer: float = 0.0
 var _parry_duration: float = 0.0
 ## Airborne lift for the flight ability (0 = grounded, 1 = fully lifted).
 var _airborne: float = 0.0
+## Active-ragdoll sim state: joint key -> simulated LOCAL position / velocity.
+## Lazily seeded to the current target pose on first use so limbs never spring
+## in from the origin. Pure Dictionary/Vector2 math — headless-safe.
+var _sim: Dictionary = {}
+var _sim_vel: Dictionary = {}
+var _sim_ready: bool = false
+## Limpness 0 (fully animated) .. 1 (ragdoll: weak springs + gravity droop).
+var _limp: float = 0.0
+var _limp_target: float = 0.0
+## Body velocity fed by set_body_velocity(); its frame-to-frame CHANGE nudges
+## the extremities so limbs trail when the body launches/stops.
+var _body_vel: Vector2 = Vector2.ZERO
+var _prev_body_vel: Vector2 = Vector2.ZERO
 
 
 func _process(delta: float) -> void:
@@ -125,7 +159,105 @@ func advance(delta: float) -> void:
 		if _one_shot_time >= _one_shot_duration:
 			_one_shot_active = false
 			state = State.IDLE
+	_step_sim(delta)
 	queue_redraw()
+
+
+## Step the active-ragdoll spring sim toward the current animation target pose.
+## Stable by construction: springs weaken as _limp rises, damping is clamped,
+## and every joint is hard-clamped to height * MAX_OFFSET_FACTOR from its
+## target so the sim can never explode. _compute_pose() is called ONCE here
+## and reused for every joint.
+func _step_sim(delta: float) -> void:
+	var target_pose: Dictionary = _compute_pose()
+	_ensure_sim(target_pose)
+	if delta <= 0.0:
+		return
+	_limp = move_toward(_limp, _limp_target, LIMP_EASE_SPEED * delta)
+	var stiffness: float = lerpf(STIFFNESS, STIFFNESS * 0.05, _limp)
+	var damp: float = clampf(1.0 - DAMPING * delta, 0.0, 1.0)
+	var max_off: float = height * MAX_OFFSET_FACTOR
+	# Inertial trail: extremities get a nudge OPPOSITE the body's velocity
+	# change (mirrored into the local flip) so limbs lag on launch/stop.
+	var dv: Vector2 = _body_vel - _prev_body_vel
+	_prev_body_vel = _body_vel
+	if not (is_finite(dv.x) and is_finite(dv.y)):
+		dv = Vector2.ZERO
+	var flip_s: float = 1.0 if scale.x >= 0.0 else -1.0
+	var trail: Vector2 = Vector2(-dv.x * flip_s, -dv.y) * BODY_TRAIL_FACTOR
+	for key: String in SIM_JOINTS:
+		var target: Vector2 = target_pose[key]
+		var vel: Vector2 = _sim_vel[key]
+		vel += (target - _sim[key]) * stiffness * delta
+		vel += Vector2(0.0, GRAVITY * _limp) * delta
+		if SIM_EXTREMITIES.has(key):
+			vel += trail
+		vel *= damp
+		var pos: Vector2 = _sim[key] + vel * delta
+		var off: Vector2 = pos - target
+		var off_len: float = off.length()
+		if off_len > max_off:
+			pos = target + off / off_len * max_off
+		_sim[key] = pos
+		_sim_vel[key] = vel
+
+
+## Lazily seed the sim at the target pose (first advance, or an apply_impulse
+## arriving before the first frame) so joints never spring in from the origin.
+func _ensure_sim(target_pose: Dictionary = {}) -> void:
+	if _sim_ready:
+		return
+	var pose: Dictionary = target_pose if not target_pose.is_empty() else _compute_pose()
+	for key: String in SIM_JOINTS:
+		_sim[key] = pose[key]
+		_sim_vel[key] = Vector2.ZERO
+	_sim_ready = true
+
+
+## The pose actually DRAWN: _compute_pose() with the driven joints replaced by
+## their simulated positions, neck re-derived from the simmed head so head and
+## torso stay connected. r + w pass through. draw_figure's 2-bone IK then bends
+## knees/elbows from the simmed hip/shoulder/hand/foot for free. Falls back to
+## the raw animation pose until the sim is seeded.
+func _sim_pose() -> Dictionary:
+	var pose: Dictionary = _compute_pose()
+	if not _sim_ready:
+		return pose
+	for key: String in SIM_JOINTS:
+		pose[key] = _sim[key]
+	pose["neck"] = _sim["head_center"] + Vector2(0.0, pose["r"])
+	return pose
+
+
+## Jolt the limbs: mirror `world_dir` into the (possibly flipped) local frame
+## and kick every simmed joint's velocity — extremities harder — so a hit
+## sends hands/feet/head flailing before the springs reel them back in.
+func apply_impulse(world_dir: Vector2, strength: float) -> void:
+	if world_dir == Vector2.ZERO \
+			or not (is_finite(world_dir.x) and is_finite(world_dir.y)) \
+			or not is_finite(strength) or strength == 0.0:
+		return
+	_ensure_sim()
+	var flip_s: float = 1.0 if scale.x >= 0.0 else -1.0
+	var local: Vector2 = Vector2(world_dir.x * flip_s, world_dir.y).normalized()
+	for key: String in SIM_JOINTS:
+		var mult: float = IMPULSE_EXTREMITY_MULT if SIM_EXTREMITIES.has(key) else 1.0
+		_sim_vel[key] += local * strength * mult
+	queue_redraw()
+
+
+## Set the limpness target: 0 = fully animated, 1 = full ragdoll (weak springs
+## + gravity droop). Eased in advance() so death melts rather than snaps.
+func set_limp(t: float) -> void:
+	_limp_target = clampf(t, 0.0, 1.0)
+
+
+## Feed the owning body's velocity (e.g. Hero.velocity each physics frame).
+## The frame-to-frame CHANGE adds a small inertial nudge to the extremities so
+## limbs trail when the body accelerates or stops. NaN-guarded; subtle.
+func set_body_velocity(v: Vector2) -> void:
+	if is_finite(v.x) and is_finite(v.y):
+		_body_vel = v
 
 
 ## Set the current animation state. Looping states (IDLE/RUN/DASH) are
@@ -314,7 +446,7 @@ func _draw() -> void:
 	var lift: Vector2 = Vector2(0.0, -_airborne * height * AIRBORNE_LIFT_FACTOR)
 	if lift != Vector2.ZERO or pop_scale != Vector2.ONE:
 		draw_set_transform(lift, 0.0, pop_scale)
-	var pose: Dictionary = _compute_pose()
+	var pose: Dictionary = _sim_pose()  # draw the PHYSICAL body, not the raw target
 	draw_figure(self, pose, col, equipment, height, OUTLINE_COLOR)
 	_draw_slash_arc(pose, col)
 	_draw_parry_shield(pose)
@@ -380,7 +512,7 @@ func _draw_aura() -> void:
 			+ pulse_amount * 0.5 * sin(_phase * AURA_PULSE_SPEED)
 	if aura_tier >= GROUND_RING_MIN_TIER:
 		_draw_ground_ring(eff)
-	var pose: Dictionary = _compute_pose()
+	var pose: Dictionary = _sim_pose()  # halo hugs the PHYSICAL body
 	var step: float = 0.13      # each halo layer is this much larger than the figure
 	var base_alpha: float = 0.3
 	# Outer (biggest, faintest) first so brighter inner layers sit on top.

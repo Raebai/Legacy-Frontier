@@ -366,6 +366,7 @@ func _physics_process(delta: float) -> void:
 		velocity.x = -wall_normal.x * WALL_STICK_PUSH
 	move_and_slide()
 	_was_wall_sliding = wall_sliding
+	rig.set_body_velocity(velocity)  # ragdoll: limbs trail when you launch/stop
 
 	# Rig: a distinct WALL-SLIDE cling (so you read as ON the wall) with friction
 	# dust; otherwise run/idle with grounded footsteps.
@@ -857,6 +858,7 @@ func take_damage(amount: int) -> void:
 	health_changed.emit(hp, max_hp)
 	rig.play(CharacterRig.State.HURT)
 	rig.flash_color(HURT_FLASH_COLOR, HURT_FLASH_TIME)
+	rig.apply_impulse(Vector2(-facing.x, -0.7), 300.0)  # ragdoll flinch on the hit
 	Juice.hit_stop(_tune("hurt_hit_stop", HURT_HIT_STOP))
 	Juice.shake_camera(_tune("hurt_shake", HURT_SHAKE))
 	Sfx.play("hero_hurt")
