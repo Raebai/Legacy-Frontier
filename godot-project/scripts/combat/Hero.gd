@@ -43,6 +43,9 @@ const MELEE_ARC_DOT: float = 0.3
 ## Bumped for the Stick-Fight "shove" read — a connected punch should visibly
 ## launch the target, not just tick it.
 const MELEE_KNOCKBACK: float = 300.0
+## Ragdoll shove the hero RECEIVES (bomb blast / reflected bolt / slam) — decays
+## like the enemy channel so a hit displaces you, then you regain control.
+const KNOCKBACK_DECAY: float = 900.0
 ## Melee tuning per weapon kind; the MELEE_* consts are the "fists" baseline.
 const WEAPON_STATS: Dictionary = {
 	"fists": {"damage": MELEE_DAMAGE, "range": MELEE_RANGE, "knockback": MELEE_KNOCKBACK},
@@ -183,6 +186,7 @@ var _melee_range: float = MELEE_RANGE
 var _melee_knockback: float = MELEE_KNOCKBACK
 var _buffered_action: String = ""
 var _buffer_timer: float = 0.0
+var _knockback: Vector2 = Vector2.ZERO  # shove received from an enemy hit / bomb
 var _hero_class: int = HeroClass.MAGE
 var _cfg: Dictionary = CLASS_CONFIG[HeroClass.MAGE]
 var _dash_hit: Array = []  # enemies/props already struck this dash (rogue no-multi-hit)
@@ -248,6 +252,7 @@ func _physics_process(delta: float) -> void:
 	_parry_cooldown_timer = maxf(_parry_cooldown_timer - delta, 0.0)
 	_signature_cd_timer = maxf(_signature_cd_timer - delta, 0.0)
 	_wall_jump_lock = maxf(_wall_jump_lock - delta, 0.0)
+	_knockback = _knockback.move_toward(Vector2.ZERO, KNOCKBACK_DECAY * delta)
 	# Mana regenerates every frame (even mid-dash) so ultimates stay paced.
 	if mp < float(max_mp):
 		mp = minf(mp + MP_REGEN * delta, float(max_mp))
@@ -329,8 +334,8 @@ func _physics_process(delta: float) -> void:
 	var wall_sliding: bool = is_on_wall_only() and velocity.y > 0.0 and pushing_into_wall
 
 	# Vertical: asymmetric gravity (floaty apex, weighty fall); wall-slide clamps it.
-	if is_on_floor():
-		velocity.y = 0.0
+	if is_on_floor() and velocity.y >= 0.0:
+		velocity.y = 0.0  # guard: an upward knockback pop must beat the floor-zero
 	else:
 		var g: float = GRAVITY if velocity.y < 0.0 else GRAVITY_FALL
 		velocity.y = minf(velocity.y + g * delta, MAX_FALL)
@@ -369,7 +374,9 @@ func _physics_process(delta: float) -> void:
 	# Tiny push into the wall so move_and_slide keeps registering the slide.
 	if wall_sliding:
 		velocity.x = -wall_normal.x * WALL_STICK_PUSH
+	velocity.x += _knockback.x  # ragdoll shove from an enemy hit / bomb
 	move_and_slide()
+	_check_wall_slam()  # crack a breakable we were slammed into
 	_was_wall_sliding = wall_sliding
 	rig.set_body_velocity(velocity)  # ragdoll: limbs trail when you launch/stop
 
@@ -918,6 +925,21 @@ func _on_melee_hit_frame() -> void:
 		Juice.kick_camera(facing, MELEE_CAMERA_KICK)  # punch INTO the hit
 		Sfx.play("melee_hit")
 		Sfx.play("ding", -3.0, 0.05)  # the bright Stick-Fight "clean hit" ding
+
+
+## Receive a shove (bomb blast / reflected bolt / slam). Same i-frame contract as
+## take_damage — a dashing or just-blinked hero shrugs it off. The .y lands once as
+## a real impulse; .x rides the decaying channel (added into velocity each frame).
+func apply_knockback(impulse: Vector2) -> void:
+	if is_dashing or _blink_iframe_timer > 0.0:
+		return
+	_knockback = impulse
+	velocity.y += impulse.y
+
+
+## Slammed hard into a destructible/breakable this frame? Crack it (shared helper).
+func _check_wall_slam() -> void:
+	_knockback = SlamPhysics.check(self, _knockback)
 
 
 func take_damage(amount: int) -> void:

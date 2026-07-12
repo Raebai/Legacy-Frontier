@@ -20,6 +20,19 @@ var _traveled: float = 0.0
 var _reflected: bool = false
 var _damage: int = DAMAGE
 var _color: Color = COLOR
+var _dead: bool = false
+
+
+func _ready() -> void:
+	add_to_group("enemy_projectile")  # so AoE spells can clear it from the air
+
+
+## Cleared by an AoE detonation (blast/nova) sweeping over it: burst + free once.
+func consume() -> void:
+	if _dead:
+		return
+	_dead = true
+	_burst_and_free()
 
 
 func launch(dir: Vector2) -> void:
@@ -43,6 +56,8 @@ func reflect(new_dir: Vector2, color: Color) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if _dead:
+		return
 	var prev: Vector2 = global_position
 	global_position += _dir * SPEED * delta
 	_traveled += SPEED * delta

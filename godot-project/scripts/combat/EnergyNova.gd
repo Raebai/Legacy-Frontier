@@ -92,6 +92,11 @@ func _apply_nova_damage() -> void:
 			prop.damage_at(NOVA_DAMAGE, (prop as Node2D).global_position, out if out != Vector2.ZERO else Vector2.UP)
 		elif prop.has_method("take_damage"):
 			prop.take_damage(NOVA_DAMAGE)
+	# Enemy bolts caught in the nova are cleared from the air (spell-vs-spell).
+	for proj: Node in get_tree().get_nodes_in_group("enemy_projectile"):
+		if proj is Node2D and global_position.distance_to((proj as Node2D).global_position) <= NOVA_RADIUS \
+				and proj.has_method("consume"):
+			proj.call("consume")
 
 
 func _process(delta: float) -> void:

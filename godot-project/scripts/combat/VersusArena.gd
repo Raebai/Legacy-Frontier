@@ -53,6 +53,11 @@ const BOT_ARCHETYPES: Array[int] = [2, 4, 5, 3]  # BOMBER(6) pulled: it suicide-
 const BOT_HP: int = 110
 ## Destructible cover sitting on the ground (64px blocks; centre = ground_top - 32).
 const COVER_POINTS: Array[Vector2] = [Vector2(430, 538), Vector2(770, 538)]
+## Breakable + regenerating platforms (amber rim) — destroy them, they reform ~6s
+## later. A high-traffic lane between the two ledges = a knockback-slam demo.
+const BREAKABLE_PLATFORMS: Array[Dictionary] = [
+	{"center": Vector2(600, 300), "size": Vector2(160, 22)},
+]
 
 ## -- Look (clean, simple Stick-Fight): flat sky + dark platforms w/ a bright rim --
 const SKY_COLOR: Color = Color(0.53, 0.74, 0.92)
@@ -84,6 +89,7 @@ func _ready() -> void:
 	_build_background()
 	_build_platforms()
 	_build_cover()
+	_build_breakable_platforms()
 	_build_walls()
 	_spawn_fighters()
 	_build_hud()
@@ -281,6 +287,15 @@ func _build_cover() -> void:
 		var block := DestructibleTerrain.new()
 		block.position = point
 		add_child(block)
+
+
+## Breakable + regenerating platforms you can stand/jump on and destroy.
+func _build_breakable_platforms() -> void:
+	for p: Dictionary in BREAKABLE_PLATFORMS:
+		var plat := BreakablePlatform.new()
+		plat.platform_size = p["size"]
+		add_child(plat)
+		plat.position = p["center"]
 
 
 ## No falling off (yet): tall side walls contain the fighters. The ring-out
