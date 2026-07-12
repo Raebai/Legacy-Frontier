@@ -115,3 +115,44 @@ Order: tooling → telegraphs → elemental effects → dash+summoner cap → pa
 Each lands as its own commit, headless-verified (keep all slice suites green: telegraph, enemy
 archetypes, enemy abilities, versus, parry, etc.) and visually verified via the GPU capture loop.
 Then the maker playtests F6/F5 for feel.
+
+---
+
+## ROUND 2 — playtest feedback (2026-07-12, after the overhaul) — being implemented via parallel design agents + sequential build
+
+Constraint: Godot project is single-writer (shared .godot cache + git index) → agents DESIGN in
+parallel (read-only), orchestrator builds sequentially. Design workflow: `combat-feedback-design`.
+
+**Bugs**
+- After BLINK, gravity feels too heavy (blink doesn't reset velocity → inherited fall + GRAVITY_FALL).
+- Can BLINK INTO walls (ends inside a solid) — must relocate landing to nearest open spot.
+- Can walk UNDER/INTO the destructible cover block + under the floating stage into the block (cover not solid).
+- Point-blank cast passes THROUGH a block (segment ray starts past it).
+- Dash cooldown too short → can basically FLY (chained up-diagonal dashes).
+- Projectiles STOP mid-air (lifetime timer) — should fly until they hit a platform or leave the map.
+
+**Combat depth / interactions**
+- Bots are dumb: just follow, can't dash/jump UP to the player on a ledge, clump under. Want smarter pursuit.
+- Want ENEMIES to CAST SPELLS so spell-vs-spell + spell-vs-punch interactions show.
+- Spells should have KNOCKBACK; knocked hard into a breakable → it cracks/breaks.
+- Block islands = ACTUAL destructible blocks you can also JUMP OFF THE SIDES of (fully solid + breakable).
+- Breakable PLATFORMS that REGENERATE naturally after a while.
+
+**Feel (Stick-Fight quality bar)**
+- Ragdoll still not floppy enough; want Stick-Fight-level animation/feel — simple + smooth.
+- No way to DEFLECT PUNCHES (parry only reflects projectiles) — add melee/lunge deflect in the parry window.
+- Jump slightly HIGHER.
+- Frozen/CC'd enemies should read as frozen (stop the run cycle).
+- Some SFX need work.
+- Big spells (meteor, etc.) should ZOOM the camera OUT a little to show the spell action.
+
+**Spell identities + balance (own design agent)**
+- Judgment + Heaven's Verdict are WAY too OP → rebalance.
+- Every element/signature must look DISTINCT (not one shared beam silhouette recoloured):
+  Fire = two moving DRAGONS; Ice = a beam with ice/crystal effects; Arcane(purple) = its own thing.
+- Judgment = a SINGLE LINE/column, not the whole-map row.
+- Heaven's Verdict = a DIFFERENT spectacle (not another divine ray).
+- Balance via risk/reward: harder-to-hit / more-committed spells hit harder.
+
+**Structural**
+- Build the PERSISTENT-CLIMB spine (floors step 5): death = drop 2 floors, stay in the tower, town clocks falls.
