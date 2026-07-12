@@ -76,13 +76,13 @@ const SIM_JOINTS: Array[String] = [
 const SIM_EXTREMITIES: Array[String] = [
 	"head_center", "hand_lead", "hand_off", "foot_lead", "foot_off",
 ]
-const STIFFNESS: float = 80.0          # LOOSER = floppier, more ragdoll swing
-const DAMPING: float = 10.0            # a touch less = more overshoot/swing (still stable)
+const STIFFNESS: float = 60.0          # LOOSER still — floppier, more ragdoll swing
+const DAMPING: float = 8.0             # less = more overshoot/swing (still stable)
 const GRAVITY: float = 800.0           # applied only when limp (ragdoll droop)
-const MAX_OFFSET_FACTOR: float = 0.7   # allow more drift so limbs really swing
+const MAX_OFFSET_FACTOR: float = 0.85  # allow more drift so limbs really swing
 const LIMP_EASE_SPEED: float = 5.0     # _limp eases toward _limp_target at this /s
-const IMPULSE_EXTREMITY_MULT: float = 2.1  # hands/feet/head whip harder on hits
-const BODY_TRAIL_FACTOR: float = 0.18  # much more inertial limb-trail on launch/stop
+const IMPULSE_EXTREMITY_MULT: float = 2.6  # hands/feet/head whip harder on hits
+const BODY_TRAIL_FACTOR: float = 0.26  # more inertial limb-trail on launch/stop
 
 @export var limb_color: Color = Color(0.55, 0.75, 1.0, 1.0)
 @export var height: float = 26.0

@@ -950,6 +950,16 @@ func take_damage(amount: int) -> void:
 	# Blink grants a brief post-teleport i-frame window (BLINK_IFRAME).
 	if _blink_iframe_timer > 0.0:
 		return
+	# Perfect-parry window also BLOCKS a melee / contact / charge hit (deflect
+	# punches, not just projectiles) — the reward is the same crisp ding + flash.
+	if _parry_window_timer > 0.0:
+		Sfx.play("ding", 2.0, 0.02)
+		Juice.hit_stop(0.08)
+		Juice.shake_camera(4.0)
+		rig.flash_color(PARRY_FLASH_COLOR, 0.1)
+		rig.set_parry(_aim_dir, PARRY_SHIELD_TIME)
+		_parry_window_timer = 0.0
+		return
 	hp = max(hp - amount, 0)
 	health_changed.emit(hp, max_hp)
 	rig.play(CharacterRig.State.HURT)

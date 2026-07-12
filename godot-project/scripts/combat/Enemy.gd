@@ -152,6 +152,7 @@ var _caster_signal: CasterSignal = null     # on-body charge glow (the "from cas
 var _minions: Array = []                    # live summoned minions, pruned for the cap
 var _status: StatusComponent = null         # elemental ailments (burn/chill/shock/...)
 var _speed_scale: float = 1.0               # movement slow from chill/freeze/shock
+var _bolt_element: int = -1                 # caster: rolled element tint for its bolt
 
 @onready var rig: CharacterRig = $Rig
 
@@ -227,6 +228,8 @@ func _apply_archetype_defaults() -> void:
 		tint = d["tint"] as Color
 	if archetype == Archetype.BRUTE:
 		uses_telegraphed_attack = true  # a brute that never swings isn't a brute
+	if archetype == Archetype.CASTER:
+		_bolt_element = randi() % Elements.count()  # a visible elemental bolt
 
 
 func _ready() -> void:
@@ -292,7 +295,7 @@ func _physics_process(delta: float) -> void:
 	# Side-on chase: close the HORIZONTAL gap; gravity owns y; jump to reach a
 	# hero above us or hop an obstacle in the way.
 	var chase_x: float = signf(_hero.global_position.x - global_position.x) * move_speed * _speed_scale
-	velocity.x = chase_x + _knockback.x
+	velocity.x = chase_x + _knockback.x + _separation_x()
 	_apply_gravity(delta)
 	_try_chase_jump()
 	move_and_slide()
@@ -414,6 +417,7 @@ func _fire_projectile() -> void:
 	get_parent().add_child(proj)
 	proj.global_position = global_position
 	proj.launch(_aim_dir)
+	proj.set_element(_bolt_element)
 	_attack_state = AttackState.RECOVER
 	_recover_timer = ATTACK_RECOVER_TIME
 	_attack_cooldown = CASTER_COOLDOWN
@@ -622,7 +626,7 @@ func _begin_lunge() -> void:
 ## not the chase, so kill it at range or hold the dodge for the fuse.
 func _bomber_chase(delta: float) -> void:
 	var chase_x: float = signf(_hero.global_position.x - global_position.x) * move_speed * _speed_scale
-	velocity.x = chase_x + _knockback.x
+	velocity.x = chase_x + _knockback.x + _separation_x()
 	_apply_gravity(delta)
 	_try_chase_jump()
 	move_and_slide()
@@ -731,6 +735,20 @@ func _free_caster_signal() -> void:
 func _accent() -> Color:
 	var c: Color = TELE_ACCENTS.get(archetype, Telegraph.RING_COLOR)
 	return c
+
+
+## Boids-style separation nudge so chasers don't stack into one body on the hero
+## (enemies don't physically collide with each other). O(n) over the small roster.
+func _separation_x() -> float:
+	var push: float = 0.0
+	for other: Node in get_tree().get_nodes_in_group("enemy"):
+		if other == self or not other is Node2D:
+			continue
+		var d: Vector2 = global_position - (other as Node2D).global_position
+		var dist: float = d.length()
+		if dist > 0.001 and dist < 34.0:
+			push += signf(d.x) * (34.0 - dist) / 34.0
+	return clampf(push, -1.0, 1.0) * 70.0
 
 
 ## Live minion count for the summoner cap — prunes freed/queued refs in place.

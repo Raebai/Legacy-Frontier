@@ -21,6 +21,14 @@ var _reflected: bool = false
 var _damage: int = DAMAGE
 var _color: Color = COLOR
 var _dead: bool = false
+var element_id: int = -1
+
+
+## Tint the bolt to an element (visual — so player + enemy spells read distinct).
+func set_element(id: int) -> void:
+	element_id = id
+	if id >= 0:
+		_color = Elements.color(id)
 
 
 func _ready() -> void:
