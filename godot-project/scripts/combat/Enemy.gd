@@ -72,6 +72,7 @@ const SUMMONER_RANGE_MAX: float = 320.0
 const SUMMON_WINDUP: float = 0.8
 const SUMMON_COOLDOWN: float = 4.0
 const SUMMON_COUNT: int = 2
+const SUMMON_MAX_ALIVE: int = 4  # hard cap on concurrent minions — no infinite swarm
 const SUMMON_MINION_HP: int = 18
 const SUMMON_TELE_RADIUS: float = 24.0  # "gathering magic" tell on the summoner
 const SUMMON_SCATTER: float = 36.0      # max spawn offset around the summoner
@@ -118,6 +119,18 @@ const ARCHETYPE_DEFAULTS: Dictionary = {
 	Archetype.BOMBER: {"hp": 55, "speed": 70.0, "touch": 6, "tint": Color(0.34, 0.35, 0.4, 1)},    # charcoal
 }
 
+## Per-archetype telegraph accent so each tell reads distinct ("cool prep noters
+## based on the attack"): area-denial tells stay danger-red, directional tells
+## take the archetype's own hue. Falls back to red.
+const TELE_ACCENTS: Dictionary = {
+	Archetype.BRUTE: Color(0.95, 0.16, 0.13),
+	Archetype.CASTER: Color(0.62, 0.52, 1.0),
+	Archetype.CHARGER: Color(1.0, 0.65, 0.2),
+	Archetype.SUMMONER: Color(0.4, 0.9, 0.6),
+	Archetype.ASSASSIN: Color(0.9, 0.95, 1.0),
+	Archetype.BOMBER: Color(1.0, 0.5, 0.15),
+}
+
 var hp: int = 40
 var _hero: Node2D = null
 var _touch_cooldown: float = 0.0
@@ -135,6 +148,8 @@ var _jump_cd: float = 0.0                   # chase-jump cooldown, ticks down ea
 var _retreat_timer: float = 0.0             # assassin: post-strike disengage window
 var _jitter_timer: float = 0.0              # assassin: time until the next feint roll
 var _jitter_sign: float = 1.0               # assassin: current approach feint (+1/-1)
+var _caster_signal: CasterSignal = null     # on-body charge glow (the "from caster" tell)
+var _minions: Array = []                    # live summoned minions, pruned for the cap
 
 @onready var rig: CharacterRig = $Rig
 
@@ -327,12 +342,17 @@ func _start_windup() -> void:
 	# and must not ride along if the brute gets knocked around mid-windup.
 	get_parent().add_child(_telegraph)
 	_telegraph.global_position = _strike_center
+	_telegraph.source = self
+	_telegraph.accent = _accent()
+	_telegraph.style = Telegraph.Style.ZONE
 	_telegraph.fired.connect(_on_telegraph_fired)
 	_telegraph.start(ATTACK_RADIUS, ATTACK_WINDUP)
+	_spawn_caster_signal(14.0, ATTACK_WINDUP)
 
 
 func _on_telegraph_fired() -> void:
 	_telegraph = null  # the Telegraph fades and frees itself after firing
+	_free_caster_signal()
 	match archetype:
 		Archetype.CASTER:
 			_fire_projectile()
@@ -380,8 +400,14 @@ func _start_caster_windup() -> void:
 	_telegraph = Telegraph.new()
 	get_parent().add_child(_telegraph)
 	_telegraph.global_position = global_position   # tell is ON the caster
+	_telegraph.source = self
+	_telegraph.accent = _accent()
+	_telegraph.style = Telegraph.Style.MUZZLE
+	_telegraph.aim_dir = _aim_dir
+	_telegraph.reach = 130.0
 	_telegraph.fired.connect(_on_telegraph_fired)
 	_telegraph.start(CASTER_TELE_RADIUS, CASTER_WINDUP)
+	_spawn_caster_signal(11.0, CASTER_WINDUP)
 
 
 func _fire_projectile() -> void:
@@ -421,8 +447,12 @@ func _start_charger_windup() -> void:
 	_telegraph = Telegraph.new()
 	get_parent().add_child(_telegraph)
 	_telegraph.global_position = global_position
+	_telegraph.source = self
+	_telegraph.accent = _accent()
+	_telegraph.style = Telegraph.Style.LANE
 	_telegraph.fired.connect(_on_telegraph_fired)
 	_telegraph.start_line(CHARGE_LEN, CHARGE_WIDTH, _charge_dir.angle(), CHARGE_WINDUP)
+	_spawn_caster_signal(12.0, CHARGE_WINDUP)
 
 
 func _begin_charge() -> void:
@@ -481,7 +511,8 @@ func _summoner_chase(delta: float) -> void:
 	move_and_slide()
 	rig.play(CharacterRig.State.RUN if move_x != 0.0 else CharacterRig.State.IDLE)
 	rig.set_facing(to_hero)
-	if _attack_cooldown <= 0.0 and dist_x >= SUMMONER_RANGE_MIN and dist_x <= SUMMONER_RANGE_MAX:
+	if _attack_cooldown <= 0.0 and dist_x >= SUMMONER_RANGE_MIN and dist_x <= SUMMONER_RANGE_MAX \
+			and _live_minion_count() < SUMMON_MAX_ALIVE:
 		_start_summon_windup()
 
 
@@ -494,8 +525,12 @@ func _start_summon_windup() -> void:
 	_telegraph = Telegraph.new()
 	get_parent().add_child(_telegraph)
 	_telegraph.global_position = global_position   # tell is ON the summoner
+	_telegraph.source = self
+	_telegraph.accent = _accent()
+	_telegraph.style = Telegraph.Style.GATHER
 	_telegraph.fired.connect(_on_telegraph_fired)
 	_telegraph.start(SUMMON_TELE_RADIUS, SUMMON_WINDUP)
+	_spawn_caster_signal(12.0, SUMMON_WINDUP)
 
 
 ## The tell paid off: pop SUMMON_COUNT weak chaser minions in around the
@@ -505,7 +540,9 @@ func _start_summon_windup() -> void:
 ## script, so a preload here would be a cyclic resource dependency.
 func _spawn_minions() -> void:
 	var enemy_scene: PackedScene = load("res://scenes/combat/Enemy.tscn")
-	for i in SUMMON_COUNT:
+	# Never exceed the concurrent cap: only fill the remaining room.
+	var to_spawn: int = mini(SUMMON_COUNT, maxi(SUMMON_MAX_ALIVE - _live_minion_count(), 0))
+	for i in to_spawn:
 		var minion: CharacterBody2D = enemy_scene.instantiate()
 		minion.archetype = Archetype.CHASER
 		minion.max_hp = SUMMON_MINION_HP
@@ -513,6 +550,7 @@ func _spawn_minions() -> void:
 		get_parent().add_child(minion)
 		var offset := Vector2.from_angle(randf() * TAU) * randf_range(SUMMON_SCATTER * 0.4, SUMMON_SCATTER)
 		minion.global_position = global_position + offset
+		_minions.append(minion)
 	_attack_state = AttackState.RECOVER
 	_recover_timer = ATTACK_RECOVER_TIME
 	_attack_cooldown = SUMMON_COOLDOWN
@@ -563,8 +601,12 @@ func _start_assassin_windup() -> void:
 	_telegraph = Telegraph.new()
 	get_parent().add_child(_telegraph)
 	_telegraph.global_position = _strike_center
+	_telegraph.source = self
+	_telegraph.accent = _accent()
+	_telegraph.style = Telegraph.Style.DART
 	_telegraph.fired.connect(_on_telegraph_fired)
 	_telegraph.start(ASSASSIN_TELE_RADIUS, ASSASSIN_WINDUP)
+	_spawn_caster_signal(10.0, ASSASSIN_WINDUP)
 
 
 ## The assassin's lunge rides the CHARGING state; _process_charging branches
@@ -610,8 +652,12 @@ func _start_bomb_windup() -> void:
 	_telegraph = Telegraph.new()
 	get_parent().add_child(_telegraph)
 	_telegraph.global_position = _strike_center
+	_telegraph.source = self
+	_telegraph.accent = _accent()
+	_telegraph.style = Telegraph.Style.BOMB
 	_telegraph.fired.connect(_on_telegraph_fired)
 	_telegraph.start(BOMB_RADIUS, BOMB_WINDUP)
+	_spawn_caster_signal(16.0, BOMB_WINDUP)
 
 
 ## The fuse ran out: damage + shove a hero still inside the marked circle,
@@ -663,6 +709,39 @@ func _abort_attack() -> void:
 			_telegraph.fired.disconnect(_on_telegraph_fired)
 		_telegraph.queue_free()
 	_telegraph = null
+	_free_caster_signal()
+
+
+## The on-body charge glow (CasterSignal) — the tell reading as "FROM this enemy."
+## A child of the enemy so it follows a shoved body; freed on fire/abort.
+func _spawn_caster_signal(base_r: float, windup: float) -> void:
+	_free_caster_signal()
+	_caster_signal = CasterSignal.new()
+	add_child(_caster_signal)
+	_caster_signal.position = Vector2(0.0, -8.0)  # around the chest / weapon
+	_caster_signal.charge(_accent(), windup, base_r)
+
+
+func _free_caster_signal() -> void:
+	if is_instance_valid(_caster_signal):
+		_caster_signal.queue_free()
+	_caster_signal = null
+
+
+## Telegraph accent colour for this archetype (falls back to danger-red).
+func _accent() -> Color:
+	var c: Color = TELE_ACCENTS.get(archetype, Telegraph.RING_COLOR)
+	return c
+
+
+## Live minion count for the summoner cap — prunes freed/queued refs in place.
+func _live_minion_count() -> int:
+	var alive: Array = []
+	for m: Node in _minions:
+		if is_instance_valid(m) and not m.is_queued_for_deletion():
+			alive.append(m)
+	_minions = alive
+	return _minions.size()
 
 
 func take_damage(amount: int) -> void:

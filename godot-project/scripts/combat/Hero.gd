@@ -600,10 +600,14 @@ func _start_dash() -> void:
 	is_dashing = true
 	_dash_timer = _tune("dash_time", DASH_TIME)
 	_dash_cooldown_timer = _cfg["dash_cd"]
-	# Dash in the direction the character is actually MOVING — includes vertical, so
-	# dashing while jumping goes up-diagonal, while falling goes down. Falls back to
-	# the walk direction (then facing) when nearly still.
-	if velocity.length() > 40.0:
+	# Dash the EXACT angle of the held movement keys (true 8-way): W+D -> up-right,
+	# S+A -> down-left, D alone -> flat right. Accurate to which keys are down,
+	# including vertical. Falls back to live velocity, then the last walk dir /
+	# facing, only when no direction key is held (a standing dash).
+	var keys: Vector2 = Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	if keys.length() > 0.1:
+		_dash_dir = keys.normalized()
+	elif velocity.length() > 40.0:
 		_dash_dir = velocity.normalized()
 	elif _move_dir != Vector2.ZERO:
 		_dash_dir = _move_dir
