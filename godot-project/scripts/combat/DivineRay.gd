@@ -44,7 +44,7 @@ func strike(
 	_circle = MagicCircle.new()
 	add_child(_circle)
 	_circle.global_position = _sky
-	_circle.appear(_color, _radius * 1.5, CHARGE_TIME * 0.85)
+	_circle.appear(_color, _radius * 2.3, CHARGE_TIME * 0.85)
 	Sfx.play("cast", -4.0, 0.05)
 	queue_redraw()
 
@@ -74,8 +74,10 @@ func _smite() -> void:
 	for prop: Node in targets_in_radius(_ground, _radius, get_tree().get_nodes_in_group("destructible")):
 		if prop.has_method("take_damage"):
 			prop.take_damage(_damage)
+	# Parented to the arena (get_parent()), not self: the burst outlives this
+	# short-lived spectacle node so it fades naturally after we free.
 	CombatVfx.spawn_burst(
-		self, _ground, Color(1, 1, 1, 0.98), Color(_color.r, _color.g, _color.b, 0.0),
+		get_parent(), _ground, Color(1, 1, 1, 0.98), Color(_color.r, _color.g, _color.b, 0.0),
 		52, 0.55, 90.0, 320.0, 1.5, 4.5
 	)
 	Juice.hit_stop(0.1)

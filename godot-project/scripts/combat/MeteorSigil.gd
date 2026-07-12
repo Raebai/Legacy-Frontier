@@ -30,6 +30,7 @@ var _radius: float = DEFAULT_RADIUS
 var _damage: int = DEFAULT_DAMAGE
 var _elapsed: float = -1.0
 var _circle: MagicCircle = null
+var _circle_dismissed: bool = false
 var _meteors: Array = []  # each: {delay, from, to, landed}
 
 
@@ -47,7 +48,7 @@ func rain(
 	_circle = MagicCircle.new()
 	add_child(_circle)
 	_circle.global_position = _center - Vector2(0.0, SKY_HEIGHT)
-	_circle.appear(_color, radius * 1.35, CHARGE_TIME * 0.85)
+	_circle.appear(_color, radius * 1.9, CHARGE_TIME * 0.85)
 	for i: int in count:
 		var ang: float = randf() * TAU
 		var dist: float = sqrt(randf()) * radius  # sqrt -> uniform over the disc
@@ -67,6 +68,12 @@ func _process(delta: float) -> void:
 	for m: Dictionary in _meteors:
 		if not m["landed"] and _elapsed >= CHARGE_TIME + float(m["delay"]) + FALL_TIME:
 			_land(m)
+	# Dissolve the sky sigil once the barrage has all launched (matches the
+	# graceful vanish beam/ray get, instead of popping when we free).
+	if not _circle_dismissed and _elapsed >= CHARGE_TIME + BARRAGE_TIME:
+		_circle_dismissed = true
+		if _circle != null and is_instance_valid(_circle):
+			_circle.vanish(FALL_TIME + FADE_TIME)
 	if _elapsed >= CHARGE_TIME + BARRAGE_TIME + FALL_TIME + FADE_TIME:
 		queue_free()
 		return
@@ -86,11 +93,13 @@ func _land(m: Dictionary) -> void:
 	for prop: Node in targets_in_radius(at, METEOR_IMPACT_RADIUS, get_tree().get_nodes_in_group("destructible")):
 		if prop.has_method("take_damage"):
 			prop.take_damage(_damage)
+	# Parented to the arena (get_parent()), not self: later meteors' bursts +
+	# debris must outlive this spectacle node so they settle/fade naturally.
 	CombatVfx.spawn_burst(
-		self, at, Color(1.0, 0.95, 0.7, 0.95), Color(_color.r, _color.g, _color.b, 0.0),
+		get_parent(), at, Color(1.0, 0.95, 0.7, 0.95), Color(_color.r, _color.g, _color.b, 0.0),
 		22, 0.4, 80.0, 240.0, 1.5, 3.5
 	)
-	DebrisChunk.spawn_burst(self, at, Color(0.35, 0.3, 0.3), 3, Vector2.UP, 180.0)
+	DebrisChunk.spawn_burst(get_parent(), at, Color(0.35, 0.3, 0.3), 3, Vector2.UP, 180.0)
 	Juice.shake_camera(5.0)
 	Sfx.play("spell_impact", 0.0, 0.1)
 

@@ -18,7 +18,7 @@ const DEFAULT_LENGTH: float = 1100.0
 const DEFAULT_WIDTH: float = 30.0
 const DEFAULT_DAMAGE: int = 46
 const KNOCKBACK: float = 360.0
-const CIRCLE_RADIUS_FACTOR: float = 2.4  # muzzle sigil radius = width * this
+const CIRCLE_RADIUS_FACTOR: float = 3.3  # muzzle sigil radius = width * this (grand)
 
 var _origin: Vector2 = Vector2.ZERO
 var _dir: Vector2 = Vector2.RIGHT
@@ -54,9 +54,11 @@ func fire(
 	add_child(_circle)
 	_circle.global_position = _origin
 	_circle.appear(_color, _width * CIRCLE_RADIUS_FACTOR, CHARGE_TIME * 0.9)
-	# Gathering spark at the muzzle — energy pulled in before the shot.
+	# Gathering spark at the muzzle — energy pulled in before the shot. Parented
+	# to the arena (get_parent()), NOT self: the burst outlives this short-lived
+	# spectacle node, matching Spell/Enemy so it fades naturally after we free.
 	CombatVfx.spawn_burst(
-		self, _origin, Color(1, 1, 1, 0.9), Color(_color.r, _color.g, _color.b, 0.0),
+		get_parent(), _origin, Color(1, 1, 1, 0.9), Color(_color.r, _color.g, _color.b, 0.0),
 		18, CHARGE_TIME, 30.0, 90.0, 1.0, 2.5
 	)
 	Sfx.play("cast", -2.0, 0.05)
@@ -82,7 +84,7 @@ func _discharge() -> void:
 	_apply_beam_damage()
 	var tip: Vector2 = _beam_tip()
 	CombatVfx.spawn_burst(
-		self, tip, Color(1, 1, 1, 0.95), Color(_color.r, _color.g, _color.b, 0.0),
+		get_parent(), tip, Color(1, 1, 1, 0.95), Color(_color.r, _color.g, _color.b, 0.0),
 		46, 0.5, 120.0, 360.0, 1.5, 4.0
 	)
 	Juice.hit_stop(0.09)
