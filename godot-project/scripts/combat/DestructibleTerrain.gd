@@ -26,6 +26,9 @@ extends StaticBody2D
 # Non-lethal hit feedback: brief lighten + a tiny visual jolt (per the crate).
 const HIT_FLASH_TIME: float = 0.09
 const HIT_NUDGE: float = 2.0  # px — terrain is heavier than a crate, jolts less
+# The collider sinks this far into the ground below so there's no flush T-junction
+# seam a CharacterBody could slip through (the "walk under/into the block" bug).
+const GROUND_OVERLAP_MARGIN: float = 8.0
 # Cell grid: the face is carved into ~this-sized squares; each knocked-out
 # cell becomes one recognizable flying "part" (bigger than DebrisChunk dust).
 const TARGET_CELL_SIZE: float = 16.0
@@ -96,9 +99,12 @@ func _ready() -> void:
 	hp = max_hp
 	collision_layer = 5  # bits 1 + 4, see header
 	var shape: RectangleShape2D = RectangleShape2D.new()
-	shape.size = block_size
+	# Grow the collider DOWN by the overlap margin (the visual face stays block_size)
+	# so it overlaps the ground instead of sharing a flush seam — no slip-through.
+	shape.size = block_size + Vector2(0.0, GROUND_OVERLAP_MARGIN)
 	var collider: CollisionShape2D = CollisionShape2D.new()
 	collider.shape = shape
+	collider.position = Vector2(0.0, GROUND_OVERLAP_MARGIN * 0.5)  # keep the TOP edge fixed
 	add_child(collider)  # centered on origin, like the drawn face
 	_build_cell_grid()
 	queue_redraw()

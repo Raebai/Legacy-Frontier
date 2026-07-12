@@ -2,11 +2,13 @@ extends Area2D
 ## A straight-flying auto-aimed projectile. Hits the first enemy, then frees.
 
 const SPEED: float = 460.0
-const LIFETIME: float = 1.4
+## Fly until a wall/enemy stops it, or this far (well past any arena) — a bolt
+## should never just STOP mid-air; the arena walls stop it first.
+const MAX_TRAVEL: float = 2600.0
 
 @export var damage: int = 18
 var _dir: Vector2 = Vector2.RIGHT
-var _life: float = LIFETIME
+var _traveled: float = 0.0
 ## Element tint (see Elements.gd). While unset, every visual keeps the
 ## original warm fire-bolt default — set_element_color() flips the flag.
 var _element_color: Color = Color(1.0, 1.0, 1.0, 1.0)
@@ -68,10 +70,10 @@ func fizzle() -> void:
 func _physics_process(delta: float) -> void:
 	var prev: Vector2 = global_position
 	global_position += _dir * SPEED * delta
-	_life -= delta
+	_traveled += SPEED * delta
 	if _resolve_segment(prev):
 		return  # hit a wall / cover / enemy along the path — no pass-through
-	if _life <= 0.0:
+	if _traveled >= MAX_TRAVEL:
 		queue_free()
 
 
@@ -91,6 +93,7 @@ func _resolve_segment(prev: Vector2) -> bool:
 	var query := PhysicsRayQueryParameters2D.create(prev, global_position, collision_mask)
 	query.collide_with_areas = false
 	query.collide_with_bodies = true
+	query.hit_from_inside = true  # point-blank: the ray may START inside the block
 	var hit: Dictionary = world.direct_space_state.intersect_ray(query)
 	if hit.is_empty():
 		return false

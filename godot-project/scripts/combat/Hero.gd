@@ -12,14 +12,14 @@ const SPEED: float = 210.0
 const MP_REGEN: float = 20.0  # mp/sec
 const DASH_SPEED: float = 620.0
 const DASH_TIME: float = 0.14
-const DASH_COOLDOWN: float = 0.55
+const DASH_COOLDOWN: float = 0.9  # was 0.55 — chained diagonal dashes let you "fly"
 ## Side-on platformer physics (Stick-Fight feel): asymmetric gravity (floaty
 ## apex, weighty landing), snappy accel + friction, WALL-SLIDE + WALL-JUMP so you
 ## can cling to and scale walls. Movement is horizontal (A/D); jump; dash.
 const GRAVITY: float = 1500.0          # rise gravity (floaty apex)
 const GRAVITY_FALL: float = 2100.0     # heavier coming down (weighty landing)
 const MAX_FALL: float = 1000.0
-const JUMP_VELOCITY: float = -540.0
+const JUMP_VELOCITY: float = -580.0  # slightly higher jump (maker feedback)
 const DOUBLE_JUMP_VELOCITY: float = -470.0
 const MAX_AIR_JUMPS: int = 0  # no mid-air double-jump — wall-jump is the air move
 const COYOTE_TIME: float = 0.10      # jump slightly after leaving a ledge
@@ -56,6 +56,11 @@ const BLAST_MAX_RANGE: float = 480.0
 ## Blink teleport: instant reposition along facing with a shadow-poof at both
 ## the origin and the destination (the "yin-yang shadow step").
 const BLINK_DISTANCE: float = 175.0
+## Blink lands you THROUGH walls but never INSIDE one: probe the endpoint against
+## solids (layer 1) and relocate to the nearest clear spot if it's blocked.
+const BLINK_WALL_MASK: int = 1
+const BLINK_PROBE_STEP: float = 6.0
+const BLINK_PROBE_EXTRA: float = 60.0
 const BLINK_COOLDOWN: float = 1.3
 const BLINK_IFRAME: float = 0.22
 const BLINK_SHADOW_COLOR: Color = Color(0.25, 0.1, 0.35, 0.8)
@@ -127,7 +132,7 @@ const CLASS_CONFIG: Dictionary = {
 	},
 	HeroClass.ROGUE: {
 		"preset": "rogue", "weapon": "sword",
-		"cast_cd": 0.26, "dash_cd": 0.40, "blink_cd": 1.0,
+		"cast_cd": 0.26, "dash_cd": 0.70, "blink_cd": 1.0,
 		"blast_cd": 2.5,
 		"throw_blade": true, "blade_damage": 11,
 		"dash_strike": true, "dash_strike_damage": 16, "dash_strike_range": 42.0,
@@ -635,7 +640,8 @@ func _blink() -> void:
 	var dir: Vector2 = _move_dir
 	if dir == Vector2.ZERO:
 		dir = Vector2.RIGHT
-	var dest: Vector2 = origin + dir.normalized() * BLINK_DISTANCE
+	# Land THROUGH walls but never INSIDE one (relocate a blocked endpoint).
+	var dest: Vector2 = _safe_blink_destination(origin, origin + dir.normalized() * BLINK_DISTANCE)
 	# Shadow-poof where we WERE: dark fading silhouette + violet burst.
 	rig.spawn_ghost(get_parent(), BLINK_SHADOW_COLOR, Vector2.ZERO, Vector2.ZERO, 0.35)
 	CombatVfx.spawn_burst(
@@ -643,6 +649,7 @@ func _blink() -> void:
 		18, 0.35, 40.0, 110.0, 1.5, 3.0
 	)
 	global_position = dest
+	velocity.y = 0.0  # don't inherit fall speed -> no "heavy gravity" right after a blink
 	# Arrival poof: bigger burst + a quick bright flash on the rig.
 	CombatVfx.spawn_burst(
 		get_parent(), dest, BLINK_BURST_START, BLINK_BURST_END,
@@ -651,6 +658,57 @@ func _blink() -> void:
 	rig.flash_color(BLINK_ARRIVAL_FLASH_COLOR, BLINK_ARRIVAL_FLASH_TIME)
 	rig.play(CharacterRig.State.CAST)
 	Sfx.play("blink", 0.0, 0.1)  # dedicated synth "vwip" teleport sound
+
+
+## Blink landing safety: the endpoint may never rest INSIDE a solid. Test the
+## destination against layer-1 solids; if blocked, probe forward past a thin wall,
+## then back toward the origin, returning the first clear spot. Phasing THROUGH a
+## wall mid-blink stays fine — only the resting spot matters.
+func _safe_blink_destination(origin: Vector2, dest: Vector2) -> Vector2:
+	var world: World2D = get_world_2d()
+	if world == null:
+		return dest  # headless / no physics world — leave as-is
+	var shape: Shape2D = _blink_shape()
+	if shape == null:
+		return dest
+	var space: PhysicsDirectSpaceState2D = world.direct_space_state
+	var q := PhysicsShapeQueryParameters2D.new()
+	q.shape = shape
+	q.collision_mask = BLINK_WALL_MASK
+	q.collide_with_bodies = true
+	q.collide_with_areas = false
+	q.exclude = [get_rid()]
+	var span: Vector2 = dest - origin
+	if span.length() < 1.0:
+		return dest
+	var dir: Vector2 = span.normalized()
+	q.transform = Transform2D(0.0, dest)
+	if space.intersect_shape(q, 1).is_empty():
+		return dest  # clear — the common case
+	# Blocked: look for daylight just PAST a thin wall first...
+	var d: float = BLINK_PROBE_STEP
+	while d <= BLINK_PROBE_EXTRA:
+		q.transform = Transform2D(0.0, dest + dir * d)
+		if space.intersect_shape(q, 1).is_empty():
+			return dest + dir * d
+		d += BLINK_PROBE_STEP
+	# ...else fall back toward the origin (land just before a thick wall).
+	var max_back: float = span.length()
+	d = BLINK_PROBE_STEP
+	while d <= max_back:
+		q.transform = Transform2D(0.0, dest - dir * d)
+		if space.intersect_shape(q, 1).is_empty():
+			return dest - dir * d
+		d += BLINK_PROBE_STEP
+	return origin  # nowhere clear — don't move
+
+
+## The hero's own collision shape (found at runtime — no hard-coded node name).
+func _blink_shape() -> Shape2D:
+	for c: Node in get_children():
+		if c is CollisionShape2D and (c as CollisionShape2D).shape != null:
+			return (c as CollisionShape2D).shape
+	return null
 
 
 func _cast() -> void:

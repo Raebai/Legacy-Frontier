@@ -5,7 +5,8 @@ extends Node2D
 ## Primitive-drawn placeholder; shader VFX later.
 
 const SPEED: float = 260.0
-const LIFETIME: float = 2.0
+## Fly until a wall/target/clash stops it, or this far past any arena — no mid-air stop.
+const MAX_TRAVEL: float = 2600.0
 const DAMAGE: int = 16
 const HIT_RADIUS: float = 16.0
 const COLOR: Color = Color(0.7, 0.6, 1.0)
@@ -13,7 +14,7 @@ const COLOR: Color = Color(0.7, 0.6, 1.0)
 const REFLECT_DAMAGE_MULT: float = 1.5
 
 var _dir: Vector2 = Vector2.RIGHT
-var _life: float = LIFETIME
+var _traveled: float = 0.0
 ## Flipped true by a perfectly-timed hero parry: the bolt reverses to hunt the
 ## "enemy" group with boosted damage, recolored to the hero's element.
 var _reflected: bool = false
@@ -36,7 +37,7 @@ func reflect(new_dir: Vector2, color: Color) -> void:
 	if _dir == Vector2.ZERO:
 		_dir = Vector2.RIGHT
 	rotation = _dir.angle()
-	_life = LIFETIME
+	_traveled = 0.0
 	_damage = int(round(DAMAGE * REFLECT_DAMAGE_MULT))
 	_color = color
 
@@ -44,14 +45,14 @@ func reflect(new_dir: Vector2, color: Color) -> void:
 func _physics_process(delta: float) -> void:
 	var prev: Vector2 = global_position
 	global_position += _dir * SPEED * delta
-	_life -= delta
+	_traveled += SPEED * delta
 	queue_redraw()
 	if _check_wall(prev):
 		return  # stopped on a platform/wall (no more pass-through)
 	if not _reflected and _check_clash():
 		return  # a stronger player bolt fizzled us
 	_check_hit()          # split out so headless tests can drive it
-	if _life <= 0.0:
+	if _traveled >= MAX_TRAVEL:
 		queue_free()
 
 
@@ -63,6 +64,7 @@ func _check_wall(prev: Vector2) -> bool:
 	if world == null:
 		return false
 	var query := PhysicsRayQueryParameters2D.create(prev, global_position, 1)
+	query.hit_from_inside = true  # point-blank shots may start inside the block
 	var hit: Dictionary = world.direct_space_state.intersect_ray(query)
 	if hit.is_empty():
 		return false
