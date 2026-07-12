@@ -71,7 +71,7 @@ var _p1: Node2D = null
 var _match_over: bool = false
 var _stocks_label: Label = null
 var _banner: Label = null
-var _pause_overlay: Control = null
+var _pause_menu: PauseMenu = null
 ## Victory can't be declared during this opening grace (stops a frame-0 / spawn
 ## transient from instantly flashing "VICTORY").
 var _grace: float = 1.2
@@ -113,10 +113,17 @@ func _unhandled_input(event: InputEvent) -> void:
 ## Toggle a real tree pause + the overlay. VersusArena is ALWAYS so this keeps
 ## working while paused; the fighters (PAUSABLE) freeze.
 func _toggle_pause() -> void:
-	var p: bool = not get_tree().paused
+	_set_paused(not get_tree().paused)
+
+
+## Pause/unpause + open/close the menu together (bound to Esc + the Resume button).
+func _set_paused(p: bool) -> void:
 	get_tree().paused = p
-	if _pause_overlay != null:
-		_pause_overlay.visible = p
+	if _pause_menu != null:
+		if p:
+			_pause_menu.open()
+		else:
+			_pause_menu.close()
 
 
 # -------------------------------------------------------------------- ring-out
@@ -366,29 +373,18 @@ func _build_hud() -> void:
 ## Hidden dim overlay with PAUSED + Resume/Reset — toggled by Esc. Lives on the
 ## ALWAYS HUD layer so its buttons work while the tree is paused.
 func _build_pause_overlay(layer: CanvasLayer) -> void:
-	_pause_overlay = ColorRect.new()
-	_pause_overlay.color = Color(0.03, 0.03, 0.06, 0.72)
-	_pause_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_pause_overlay.visible = false
-	layer.add_child(_pause_overlay)
-	var vb := VBoxContainer.new()
-	vb.set_anchors_preset(Control.PRESET_CENTER)
-	vb.alignment = BoxContainer.ALIGNMENT_CENTER
-	vb.add_theme_constant_override("separation", 12)
-	_pause_overlay.add_child(vb)
-	var plabel := Label.new()
-	plabel.text = "PAUSED"
-	plabel.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	plabel.add_theme_font_size_override("font_size", 34)
-	vb.add_child(plabel)
-	var resume := Button.new()
-	resume.text = "Resume  (Esc)"
-	resume.pressed.connect(_toggle_pause)
-	vb.add_child(resume)
-	var reset2 := Button.new()
-	reset2.text = "Reset Map"
-	reset2.pressed.connect(_reset_arena)
-	vb.add_child(reset2)
+	_pause_menu = PauseMenu.new()
+	layer.add_child(_pause_menu)
+	_pause_menu.build("Exit to Hub")
+	_pause_menu.resume_requested.connect(func() -> void: _set_paused(false))
+	_pause_menu.exit_requested.connect(_exit_to_hub)
+
+
+## Leave the versus sandbox back to the hub (Main.tscn). Unpause first so the
+## fresh scene doesn't inherit the paused tree.
+func _exit_to_hub() -> void:
+	get_tree().paused = false
+	get_tree().change_scene_to_file("res://scenes/Main.tscn")
 
 
 ## Full arena reset — reload the scene so cover, bots, stocks + the match state

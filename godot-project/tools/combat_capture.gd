@@ -37,6 +37,10 @@ func _initialize() -> void:
 			_mode = "telegraphs"
 		elif arg == "status":
 			_mode = "status"
+		elif arg == "pause":
+			_mode = "pause"
+		elif arg == "settings":
+			_mode = "settings"
 	var packed: PackedScene = load(scene_path)
 	if packed == null:
 		printerr("combat_capture: could not load ", scene_path)
@@ -49,6 +53,15 @@ func _initialize() -> void:
 func _run() -> void:
 	for i: int in SETTLE_FRAMES:
 		await process_frame
+	if _mode == "pause" or _mode == "settings":
+		for c: Node in root.get_children():
+			if c.has_method("_toggle_pause"):
+				c.call("_toggle_pause")
+				break
+		if _mode == "settings":
+			var menus: Array = root.find_children("*", "PauseMenu", true, false)
+			if not menus.is_empty():
+				menus[0].call("_open_settings")
 	var total: int = TILES_COLS * TILES_ROWS
 	var tiles: Array = []
 	var full_a: Image = null
