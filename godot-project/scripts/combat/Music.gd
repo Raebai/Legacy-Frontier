@@ -7,6 +7,10 @@ extends Node
 
 ## Swap the track by ear later: this const is the only place the path lives.
 const COMBAT_THEME_PATH: String = "res://assets/audio/music/combat_theme.mp3"
+## Mystic-forest hub ambience (synth pad, seamless loop) — a different bed for the
+## lobby so the hub feels calm + artsy, not like a fight.
+const HUB_THEME_PATH: String = "res://assets/audio/music/hub_ambience.wav"
+const HUB_VOLUME_DB: float = -20.0  # a touch more present than combat (no SFX competing)
 
 ## Music sits UNDER the SFX (which play at 0 db) — dropped to -20 (was -12) so
 ## the bed stays background and the combat SFX own the mix.
@@ -17,6 +21,7 @@ const DUCK_RECOVER_TIME: float = 0.45
 
 var _player: AudioStreamPlayer
 var _combat_stream: AudioStreamMP3
+var _hub_stream: AudioStream
 var _base_db: float = BASE_VOLUME_DB
 var _volume_tween: Tween
 
@@ -33,6 +38,17 @@ func _ready() -> void:
 		_combat_stream.loop = true
 	else:
 		push_warning("Music: combat theme failed to load (%s)" % COMBAT_THEME_PATH)
+	# Hub ambience (WAV pad) — force a seamless full-length forward loop.
+	var hub: Resource = load(HUB_THEME_PATH)
+	if hub is AudioStream:
+		_hub_stream = hub
+		if hub is AudioStreamWAV:
+			var w := hub as AudioStreamWAV
+			w.loop_mode = AudioStreamWAV.LOOP_FORWARD
+			w.loop_begin = 0
+			# 16-bit mono -> 2 bytes/frame; loop the whole clip.
+			w.loop_end = w.data.size() / 2
+	if _combat_stream == null and _hub_stream == null:
 		return
 	play_combat()
 
@@ -65,8 +81,26 @@ func play_combat() -> void:
 		return
 	if _player.playing and _player.stream == _combat_stream:
 		return
+	_base_db = BASE_VOLUME_DB  # reset from the hub bed's level if we came from the lobby
 	_kill_volume_tween()
 	_player.stream = _combat_stream
+	_player.volume_db = SILENT_DB
+	_player.play()
+	_volume_tween = get_tree().create_tween()
+	_volume_tween.tween_property(_player, "volume_db", _base_db, FADE_IN_TIME)
+
+
+## Switch to the mystic-forest HUB ambience with a fade-in. Idempotent — called by
+## the hub (World._ready); the arenas call play_combat() to switch back.
+func play_hub() -> void:
+	if _hub_stream == null:
+		play_combat()  # no hub bed available — keep whatever's playing
+		return
+	if _player.playing and _player.stream == _hub_stream:
+		return
+	_base_db = HUB_VOLUME_DB
+	_kill_volume_tween()
+	_player.stream = _hub_stream
 	_player.volume_db = SILENT_DB
 	_player.play()
 	_volume_tween = get_tree().create_tween()

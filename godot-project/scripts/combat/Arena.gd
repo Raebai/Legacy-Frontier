@@ -30,6 +30,10 @@ func _ready() -> void:
 	var conversation: Node = get_node_or_null("/root/Conversation")
 	if conversation != null:
 		conversation.set_process_unhandled_input(false)
+	# Switch the music bed back to combat (the hub swapped it to the calm ambience).
+	var music: Node = get_node_or_null("/root/Music")
+	if music != null and music.has_method("play_combat"):
+		music.play_combat()
 
 	_room = Node2D.new()
 	_room.name = "Room"

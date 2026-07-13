@@ -12,6 +12,15 @@ const MEMORY_DIR: String = "user://npc_memory"
 
 var _player_in_range: bool = false
 
+## Hub side-on ambience: the NPC ambles back and forth on the town ground and
+## STOPS when the player is close enough to talk (maker: "show NPCs walking around
+## but stop when you go up to them"). Off until World calls set_hub_patrol().
+var _hub_rig: CharacterRig = null
+var _patrol_center: float = 0.0
+var _patrol_range: float = 0.0
+var _patrol_dir: float = 1.0
+const PATROL_SPEED: float = 32.0
+
 # v0.5 four-layer memory state (per docs/v0.5-design.md "Memory architecture").
 # Persistent identity lives on `data` (NPCData resource).
 # The other three layers are runtime state, persisted to user://npc_memory/<npc_id>.json
@@ -55,13 +64,41 @@ func _ready() -> void:
 	var block: Node = get_node_or_null("Visual")
 	if block != null:
 		(block as CanvasItem).visible = false
-	var rig := CharacterRig.new()
-	add_child(rig)
-	rig.play(CharacterRig.State.IDLE)
+	_hub_rig = CharacterRig.new()
+	add_child(_hub_rig)
+	_hub_rig.play(CharacterRig.State.IDLE)
 	if data != null:
-		rig.set_tint(data.display_color)
+		_hub_rig.set_tint(data.display_color)
 	_load_memory()
 	_consolidator_http.request_completed.connect(_on_consolidation_completed)
+
+
+## World calls this to make the NPC amble around `center_x` within +/- range.
+func set_hub_patrol(center_x: float, patrol_range: float) -> void:
+	_patrol_center = center_x
+	_patrol_range = patrol_range
+
+
+## Hub patrol: walk back and forth, but STOP (idle, facing the player) whenever the
+## player is close enough to talk or a conversation is active. NPC is a StaticBody2D
+## so we just animate its x directly — no gravity needed on the flat town ground.
+func _physics_process(delta: float) -> void:
+	if _patrol_range <= 0.0 or _hub_rig == null:
+		return  # not a patrolling hub NPC (e.g. headless tests)
+	var conversing: bool = Conversation != null and Conversation.is_engaged()
+	if _player_in_range or conversing:
+		_hub_rig.play(CharacterRig.State.IDLE)
+		return
+	var nx: float = global_position.x + _patrol_dir * PATROL_SPEED * delta
+	if nx > _patrol_center + _patrol_range:
+		_patrol_dir = -1.0
+		nx = _patrol_center + _patrol_range
+	elif nx < _patrol_center - _patrol_range:
+		_patrol_dir = 1.0
+		nx = _patrol_center - _patrol_range
+	global_position.x = nx
+	_hub_rig.play(CharacterRig.State.RUN)
+	_hub_rig.set_facing(Vector2(_patrol_dir, 0.0))
 
 
 func _unhandled_input(event: InputEvent) -> void:

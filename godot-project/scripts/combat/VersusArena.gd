@@ -90,6 +90,10 @@ func _ready() -> void:
 	# ALWAYS so Esc can toggle pause even while the tree is paused; the fighters
 	# are set PAUSABLE in _spawn_fighters so THEY still freeze.
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	# Switch the music bed back to combat (the hub swaps it to the calm ambience).
+	var music: Node = get_node_or_null("/root/Music")
+	if music != null and music.has_method("play_combat"):
+		music.play_combat()
 	_build_background()
 	_build_platforms()
 	_build_cover()

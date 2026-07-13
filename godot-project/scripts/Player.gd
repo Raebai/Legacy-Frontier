@@ -1,6 +1,12 @@
 extends CharacterBody2D
+## Hub player — now SIDE-ON (gravity + jump), matching the combat feel (maker:
+## "the lobby should be side-on all the time like the battle place"). A/D move,
+## W/Up/Space jump; stands + jumps on the town ground plane.
 
-const SPEED: float = 180.0
+const SPEED: float = 200.0
+const GRAVITY: float = 1400.0
+const JUMP_VELOCITY: float = -520.0
+const MAX_FALL: float = 1000.0
 
 @onready var speech_bubble: Node2D = $SpeechBubble
 
@@ -30,29 +36,36 @@ func set_class_tint(c: Color) -> void:
 		_rig.set_tint(c)
 
 
-func _physics_process(_delta: float) -> void:
-	# Frozen while a conversation input bar OR the class-select panel is open.
+func _physics_process(delta: float) -> void:
+	# Frozen while a conversation input bar OR the class-select panel is open —
+	# gravity still applies so we rest on the ground, but no walking/jumping.
 	var selecting: bool = ClassSelect != null and ClassSelect.is_open()
 	if Conversation.is_input_open() or selecting:
-		velocity = Vector2.ZERO
+		velocity.x = 0.0
+		velocity.y = 0.0 if is_on_floor() else minf(velocity.y + GRAVITY * delta, MAX_FALL)
 		move_and_slide()
 		if _rig != null:
 			_rig.play(CharacterRig.State.IDLE)
 		return
-	# Returns a normalised Vector2 from the four movement actions.
-	# Diagonal motion is automatically the same speed as cardinal motion;
-	# no pythagorean correction needed.
-	var direction: Vector2 = Input.get_vector(
-		"move_left", "move_right", "move_up", "move_down"
-	)
-	velocity = direction * SPEED
+	# Side-on: horizontal walk, gravity, jump off the ground.
+	var move_x: float = Input.get_axis("move_left", "move_right")
+	velocity.x = move_x * SPEED
+	if is_on_floor():
+		velocity.y = 0.0
+		if Input.is_action_just_pressed("jump") or Input.is_action_just_pressed("move_up"):
+			velocity.y = JUMP_VELOCITY
+	else:
+		velocity.y = minf(velocity.y + GRAVITY * delta, MAX_FALL)
 	move_and_slide()
-	# Drive the stick figure: run while moving, face the horizontal travel.
+	# Drive the stick figure: airborne pose, else run/idle facing travel.
 	if _rig != null:
-		if direction.length() > 0.1:
+		if not is_on_floor():
+			_rig.play(CharacterRig.State.DASH)  # a taut airborne pose
+			if absf(move_x) > 0.01:
+				_rig.set_facing(Vector2(move_x, 0.0))
+		elif absf(move_x) > 0.01:
 			_rig.play(CharacterRig.State.RUN)
-			if absf(direction.x) > 0.01:
-				_rig.set_facing(direction)
+			_rig.set_facing(Vector2(move_x, 0.0))
 		else:
 			_rig.play(CharacterRig.State.IDLE)
 
