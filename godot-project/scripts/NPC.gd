@@ -49,10 +49,17 @@ func _ready() -> void:
 	hint_label.visible = false
 	proximity_area.body_entered.connect(_on_body_entered)
 	proximity_area.body_exited.connect(_on_body_exited)
-	# Apply per-NPC tint from NPCData so the shared NPC.tscn renders distinct
-	# hues without a code-change-per-character (M12).
+	# Replace the block "Visual" with a stick-figure rig (maker: "everything should
+	# be in stick form"), tinted per-NPC from NPCData so the shared NPC.tscn still
+	# renders distinct characters without a code-change-per-character (M12).
+	var block: Node = get_node_or_null("Visual")
+	if block != null:
+		(block as CanvasItem).visible = false
+	var rig := CharacterRig.new()
+	add_child(rig)
+	rig.play(CharacterRig.State.IDLE)
 	if data != null:
-		($Visual as ColorRect).color = data.display_color
+		rig.set_tint(data.display_color)
 	_load_memory()
 	_consolidator_http.request_completed.connect(_on_consolidation_completed)
 

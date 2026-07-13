@@ -128,18 +128,9 @@ func _refresh_highlight() -> void:
 func _apply_feedback(index: int) -> void:
 	var col: Color = ClassInfo.color_for(index)
 	var player: Node = get_tree().get_first_node_in_group("player")
-	if player != null:
-		var rect: ColorRect = _find_color_rect(player)
-		if rect != null:
-			rect.color = col
+	if player != null and player.has_method("set_class_tint"):
+		player.call("set_class_tint", col)  # retint the stick figure
 	for label: Node in get_tree().get_nodes_in_group("class_hud_label"):
 		if label is Label:
 			(label as Label).text = "Class: %s" % ClassInfo.name_for(index)
 	_refresh_highlight()
-
-
-func _find_color_rect(node: Node) -> ColorRect:
-	for c: Node in node.get_children():
-		if c is ColorRect:
-			return c as ColorRect
-	return null

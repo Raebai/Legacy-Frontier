@@ -14,17 +14,17 @@ var _in_range: bool = false
 
 
 func _ready() -> void:
-	# Visual: a gold pillar (a tall bright block so it reads as a landmark).
-	var visual := ColorRect.new()
-	visual.color = PILLAR_COLOR
-	visual.size = Vector2(22, 30)
-	visual.position = Vector2(-11, -20)
-	add_child(visual)
-	var glow := ColorRect.new()  # soft top accent
-	glow.color = Color(1.0, 0.95, 0.6, 0.5)
-	glow.size = Vector2(22, 6)
-	glow.position = Vector2(-11, -22)
-	add_child(glow)
+	# Visual: a gold STICK-FIGURE statue on a small pedestal (a "choose your
+	# fighter" mannequin) — in stick form like everything else, not a block.
+	var base := ColorRect.new()  # a slim pedestal so the figure reads as a statue
+	base.color = Color(0.85, 0.72, 0.32, 1.0)
+	base.size = Vector2(20, 5)
+	base.position = Vector2(-10, 1)
+	add_child(base)
+	var statue := CharacterRig.new()
+	statue.set_tint(PILLAR_COLOR)
+	statue.play(CharacterRig.State.IDLE)
+	add_child(statue)
 	# Solid body collider (layer 1 so the top-down player bumps it).
 	var shape := CollisionShape2D.new()
 	var rect := RectangleShape2D.new()

@@ -81,11 +81,8 @@ func _reflect_selected_class() -> void:
 	var gs: Node = get_node_or_null("/root/GameState")
 	var idx: int = int(gs.get("selected_class")) if gs != null else 0
 	var player: Node = get_tree().get_first_node_in_group("player")
-	if player != null:
-		for c: Node in player.get_children():
-			if c is ColorRect:
-				(c as ColorRect).color = ClassInfo.color_for(idx)
-				break
+	if player != null and player.has_method("set_class_tint"):
+		player.call("set_class_tint", ClassInfo.color_for(idx))  # retint the stick figure
 	for label: Node in get_tree().get_nodes_in_group("class_hud_label"):
 		if label is Label:
 			(label as Label).text = "Class: %s" % ClassInfo.name_for(idx)
