@@ -28,6 +28,7 @@ Music="*res://scripts/combat/Music.gd"
 Rank="*res://scripts/combat/Rank.gd"
 GameState="*res://scripts/GameState.gd"
 Tuning="*res://scripts/combat/Tuning.gd"
+ClassSelect="*res://scripts/ClassSelect.gd"
 
 [display]
 

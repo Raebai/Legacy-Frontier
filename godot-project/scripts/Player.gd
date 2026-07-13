@@ -9,7 +9,9 @@ var current_room_id: String = ""
 
 
 func _physics_process(_delta: float) -> void:
-	if Conversation.is_input_open():
+	# Frozen while a conversation input bar OR the class-select panel is open.
+	var selecting: bool = ClassSelect != null and ClassSelect.is_open()
+	if Conversation.is_input_open() or selecting:
 		velocity = Vector2.ZERO
 		move_and_slide()
 		return

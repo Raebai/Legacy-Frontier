@@ -58,9 +58,17 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("talk") and _player_in_range and not Conversation.is_engaged():
+	if event.is_action_pressed("talk") and _player_in_range and not Conversation.is_engaged() \
+			and not _class_select_open():
 		Conversation.engage(self)
 		get_viewport().set_input_as_handled()
+
+
+## True while the hub Class-Select panel is open (don't open a chat over it).
+## Guarded lookup so headless NPC tests without the autoload stay safe.
+func _class_select_open() -> bool:
+	var sel: Node = get_node_or_null("/root/ClassSelect")
+	return sel != null and sel.has_method("is_open") and sel.is_open()
 
 
 func _on_body_entered(body: Node2D) -> void:

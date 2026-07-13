@@ -26,6 +26,10 @@ const WALL_TILE: Vector2i = Vector2i(1, 0)
 ## far enough that spawning back into the hub never auto-triggers a new run.
 const TOWER_ENTRANCE_POSITION: Vector2 = Vector2(230, 410)
 const RUN_PORTAL_SCRIPT: Script = preload("res://scripts/combat/ExitPortal.gd")
+## The Class Altar (walk up, press E → the 8-class select panel) sits north of the
+## player start, opposite the tower portal so the two landmarks don't crowd.
+const CLASS_ALTAR_SCRIPT: Script = preload("res://scripts/ClassAltar.gd")
+const CLASS_ALTAR_POSITION: Vector2 = Vector2(384, 150)
 
 @onready var tilemap: TileMapLayer = $TileMapLayer
 
@@ -46,6 +50,45 @@ func _ready() -> void:
 		gs.apply_run_to_hub_npcs(get_tree())
 
 	_spawn_tower_entrance()
+	_spawn_class_altar()
+	_spawn_class_hud()
+	_reflect_selected_class()
+
+
+## The Class Altar landmark — walk up + E opens the ClassSelect lobby panel.
+func _spawn_class_altar() -> void:
+	var altar: StaticBody2D = CLASS_ALTAR_SCRIPT.new()
+	add_child(altar)
+	altar.global_position = CLASS_ALTAR_POSITION
+
+
+## A small always-visible HUD label showing the chosen class in the hub.
+func _spawn_class_hud() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 40
+	add_child(layer)
+	var label := Label.new()
+	label.add_to_group("class_hud_label")
+	label.position = Vector2(14, 10)
+	label.add_theme_font_size_override("font_size", 16)
+	label.add_theme_color_override("font_color", Color(0.95, 0.96, 1.0))
+	layer.add_child(label)
+
+
+## Reflect the persisted class on hub entry: tint the player + set the HUD label
+## (so returning from a run shows the class you climbed as).
+func _reflect_selected_class() -> void:
+	var gs: Node = get_node_or_null("/root/GameState")
+	var idx: int = int(gs.get("selected_class")) if gs != null else 0
+	var player: Node = get_tree().get_first_node_in_group("player")
+	if player != null:
+		for c: Node in player.get_children():
+			if c is ColorRect:
+				(c as ColorRect).color = ClassInfo.color_for(idx)
+				break
+	for label: Node in get_tree().get_nodes_in_group("class_hud_label"):
+		if label is Label:
+			(label as Label).text = "Class: %s" % ClassInfo.name_for(idx)
 
 
 ## Walk-in portal that starts a run (hub -> arena via GameState.enter_run).

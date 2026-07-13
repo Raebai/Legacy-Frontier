@@ -46,6 +46,8 @@ const DISABLED_ALPHA: float = 0.32
 ## Snapshot of the hero's slot dictionaries, refreshed once per frame in
 ## _process and consumed by _draw. Empty = draw nothing (no hero this scene).
 var _slots: Array = []
+## Current class name, drawn above the hotbar so the player always knows their class.
+var _class_name: String = ""
 
 
 func _ready() -> void:
@@ -62,8 +64,10 @@ func _process(_delta: float) -> void:
 	var hero: Node = get_tree().get_first_node_in_group("hero")
 	if hero == null or not hero.has_method("ability_hud_state"):
 		_slots = []
+		_class_name = ""
 	else:
 		_slots = hero.ability_hud_state()
+		_class_name = String(hero.call("class_display_name")) if hero.has_method("class_display_name") else ""
 	queue_redraw()
 
 
@@ -76,6 +80,12 @@ func _draw() -> void:
 	var total_w: float = float(count) * SLOT_SIZE + float(count - 1) * SLOT_GAP
 	var origin_x: float = (view.x - total_w) * 0.5
 	var origin_y: float = view.y - BOTTOM_MARGIN - SLOT_SIZE
+	# Class name centered just above the hotbar (always know your class).
+	if _class_name != "":
+		draw_string(
+			font, Vector2(origin_x, origin_y - 9.0), _class_name.to_upper(),
+			HORIZONTAL_ALIGNMENT_CENTER, total_w, 13, Color(0.95, 0.96, 1.0, 0.95)
+		)
 	for i: int in range(count):
 		if not _slots[i] is Dictionary:
 			continue  # malformed entry — skip rather than crash the HUD

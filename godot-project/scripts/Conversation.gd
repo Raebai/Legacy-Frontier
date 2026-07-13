@@ -165,6 +165,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	if event.is_action_pressed("chat") and not input_bar.visible:
+		var sel: Node = get_node_or_null("/root/ClassSelect")
+		if sel != null and sel.has_method("is_open") and sel.is_open():
+			return  # don't open the broadcast bar over the class-select panel
 		_open_broadcast()
 		get_viewport().set_input_as_handled()
 
