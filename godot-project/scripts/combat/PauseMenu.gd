@@ -95,6 +95,21 @@ func _build_settings() -> void:
 	slider.value_changed.connect(_on_volume_changed)
 	_settings_col.add_child(slider)
 
+	# Camera zoom (maker: "we should be able to alter the zoom in the setting").
+	# Slider LEFT = wider view, RIGHT = tighter. Applies live + persists.
+	var zoom_label := Label.new()
+	zoom_label.text = "Camera Zoom"
+	zoom_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_settings_col.add_child(zoom_label)
+	var zoom_slider := HSlider.new()
+	zoom_slider.min_value = 1.0
+	zoom_slider.max_value = 2.6
+	zoom_slider.step = 0.05
+	zoom_slider.custom_minimum_size = Vector2(240, 20)
+	zoom_slider.value = _current_zoom()
+	zoom_slider.value_changed.connect(_on_zoom_changed)
+	_settings_col.add_child(zoom_slider)
+
 	# Controls reference.
 	var ctrl_title := Label.new()
 	ctrl_title.text = "Controls"
@@ -149,3 +164,21 @@ func _on_volume_changed(v: float) -> void:
 		return
 	# A linear 0 slider = silence; otherwise map to dB.
 	AudioServer.set_bus_volume_db(idx, linear_to_db(maxf(v, 0.0001)) if v > 0.0 else -80.0)
+
+
+# ------------------------------------------------------------------ camera zoom
+## Current resting zoom from GameState (falls back to a sensible middle).
+func _current_zoom() -> float:
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null:
+		var v: Variant = gs.get("camera_zoom")
+		if v != null:
+			return float(v)
+	return 1.6
+
+
+## Live-apply the zoom to every combat camera (they persist it to GameState).
+func _on_zoom_changed(v: float) -> void:
+	for cam: Node in get_tree().get_nodes_in_group("combat_camera"):
+		if cam.has_method("set_base_zoom"):
+			cam.call("set_base_zoom", v)

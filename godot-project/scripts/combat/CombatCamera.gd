@@ -7,8 +7,12 @@ extends Camera2D
 ## slam. Legacy add_shake(amount) callers are normalized into trauma via
 ## SHAKE_TO_TRAUMA so Juice.shake_camera and existing call sites keep working.
 
-## Tight Stick Fight-style framing — the ~22px figures fill the screen.
-const DEFAULT_ZOOM: Vector2 = Vector2(2.2, 2.2)
+## Resting framing pulled back from the old tight 2.2 so more of the fight reads
+## (maker: "a bit too zoomed in generally"). The player can dial it in Settings
+## (GameState.camera_zoom, 1.0 wide .. 2.6 tight); this is the fallback default.
+const DEFAULT_ZOOM: Vector2 = Vector2(1.6, 1.6)
+const ZOOM_MIN: float = 1.0
+const ZOOM_MAX: float = 2.6
 
 # --- Shake tuning ---
 const MAX_OFFSET: Vector2 = Vector2(28.0, 20.0)  # px at full (1.0) trauma
@@ -56,8 +60,30 @@ var _pull_active: bool = false
 
 func _ready() -> void:
 	add_to_group("combat_camera")
-	zoom = DEFAULT_ZOOM
 	_tuning = get_node_or_null("/root/Tuning")
+	# Resting zoom comes from the player's saved preference (Settings), falling
+	# back to DEFAULT_ZOOM. _zoom_base is captured so punch/pull compose onto it.
+	var z: float = DEFAULT_ZOOM.x
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null:
+		var v: Variant = gs.get("camera_zoom")
+		if v != null:
+			z = clampf(float(v), ZOOM_MIN, ZOOM_MAX)
+	zoom = Vector2(z, z)
+	_zoom_base = zoom
+
+
+## Set the resting zoom live from the Settings slider: update the base (and the
+## visible zoom when no transient effect is running) and persist to GameState so
+## the choice survives scene changes.
+func set_base_zoom(z: float) -> void:
+	z = clampf(z, ZOOM_MIN, ZOOM_MAX)
+	_zoom_base = Vector2(z, z)
+	if _zoom_timer <= 0.0 and not _pull_active:
+		zoom = _zoom_base
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null:
+		gs.set("camera_zoom", z)
 
 
 ## Live feel value from the Tuning autoload (falls back to the const default

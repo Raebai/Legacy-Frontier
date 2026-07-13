@@ -31,8 +31,13 @@ const RUN_FACT_PREFIX: String = "just back: "
 const KEY_FACTS_CAP: int = 5
 
 ## Which hero class the next/current run uses. Read by Hero._ready(). Set from
-## the hub or the debug switch. 0 == MAGE, 1 == ROGUE (see Hero.HeroClass).
+## the hub or the debug switch. 0..7 (see Hero.HeroClass / CLASS_NAMES).
 var selected_class: int = 0
+
+## Player camera-zoom preference (combat). Lower = wider view. Read by
+## CombatCamera as its resting zoom; adjustable live from the pause Settings.
+## Default pulled back from the old tight 2.2 so more of the fight is visible.
+var camera_zoom: float = 1.6
 
 ## The tower being climbed. null = no authored tower -> floors are synthesized
 ## from the depth math (keeps the F6 sandbox + the pre-tower path working).
