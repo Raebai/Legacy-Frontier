@@ -66,6 +66,9 @@ func _ready() -> void:
 		(block as CanvasItem).visible = false
 	_hub_rig = CharacterRig.new()
 	add_child(_hub_rig)
+	# Feet at the node origin (rig draws feet height*0.5 below its own origin) so the
+	# NPC stands ON the ground, not sunk into it.
+	_hub_rig.position.y = -_hub_rig.height * 0.5
 	_hub_rig.play(CharacterRig.State.IDLE)
 	if data != null:
 		_hub_rig.set_tint(data.display_color)

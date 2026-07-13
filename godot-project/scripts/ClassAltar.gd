@@ -23,6 +23,7 @@ func _ready() -> void:
 	add_child(base)
 	var statue := CharacterRig.new()
 	statue.set_tint(PILLAR_COLOR)
+	statue.position.y = -statue.height * 0.5  # feet at the altar origin (on the ground)
 	statue.play(CharacterRig.State.IDLE)
 	add_child(statue)
 	# Solid body collider (layer 1 so the top-down player bumps it).

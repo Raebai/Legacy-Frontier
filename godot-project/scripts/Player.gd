@@ -25,6 +25,14 @@ func _ready() -> void:
 	_rig = CharacterRig.new()
 	add_child(_rig)
 	_rig.play(CharacterRig.State.IDLE)
+	# Feet-on-ground: the rig draws its feet height*0.5 BELOW its origin, and the
+	# 16x16 collision is centred. Shift the collision up so the node origin sits at
+	# the feet, then lift the rig so its drawn feet land on that origin — no more
+	# characters sunk into the floor.
+	for c: Node in get_children():
+		if c is CollisionShape2D:
+			(c as CollisionShape2D).position.y -= 8.0
+	_rig.position.y = -_rig.height * 0.5
 	var gs: Node = get_node_or_null("/root/GameState")
 	var idx: int = int(gs.get("selected_class")) if gs != null else 0
 	_rig.set_tint(ClassInfo.color_for(idx))

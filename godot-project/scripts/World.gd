@@ -7,18 +7,25 @@ extends Node2D
 ## the old top-down two-room tilemap (the TileMapLayer is retired, kept only so the
 ## existing Main.tscn node refs stay valid).
 
-const TOWN_WIDTH: float = 1720.0
+const TOWN_WIDTH: float = 1180.0          # tighter — everything close, not spread out
 const GROUND_Y: float = 452.0            # top surface of the ground
 const GROUND_THICKNESS: float = 260.0
-## Spawn AT the central campfire so the opening frames the cozy heart of town;
-## the class altar sits to the left, the tower entrance to the right.
-const PLAYER_SPAWN: Vector2 = Vector2(680.0, GROUND_Y - 30.0)
-const CAMPFIRE_X: float = 800.0                       # the heart of the clearing
-const CLASS_ALTAR_X: float = 520.0
-const TOWER_X: float = 1420.0
-const RAEBAI_X: float = 640.0
-const MIRELLE_X: float = 980.0
-const NPC_PATROL_RANGE: float = 120.0
+## Spawn AT the central campfire — the cozy heart. Class altar left, tower DOOR
+## right, a raised loft (armory) up-left. Everything is close together.
+const PLAYER_SPAWN: Vector2 = Vector2(560.0, GROUND_Y - 30.0)
+const CAMPFIRE_X: float = 600.0                       # the heart of the clearing
+const CLASS_ALTAR_X: float = 400.0
+const TOWER_X: float = 880.0
+const RAEBAI_X: float = 500.0
+const MIRELLE_X: float = 720.0
+const NPC_PATROL_RANGE: float = 75.0
+## Second-floor LOFT (the armory) — a raised deck reachable by a step, up-left.
+const LOFT_CENTER: Vector2 = Vector2(215.0, GROUND_Y - 118.0)
+const LOFT_SIZE: Vector2 = Vector2(300.0, 16.0)
+const STEP_CENTER: Vector2 = Vector2(330.0, GROUND_Y - 58.0)
+const STEP_SIZE: Vector2 = Vector2(120.0, 14.0)
+const TOWER_DOOR_SCRIPT: Script = preload("res://scripts/TowerDoor.gd")
+const ARMORY_SCRIPT: Script = preload("res://scripts/ArmoryStation.gd")
 
 const GROUND_COLOR: Color = Color(0.10, 0.11, 0.13)   # dark mossy forest floor
 const GROUND_RIM: Color = Color(0.3, 0.55, 0.42)      # faint mystic teal rim
@@ -43,6 +50,7 @@ func _ready() -> void:
 
 	_build_backdrop()
 	_build_ground()
+	_build_loft()
 	_spawn_ambience()
 	_place_player()
 	_place_npcs()
@@ -160,19 +168,46 @@ func _place_npcs() -> void:
 
 
 # ----------------------------------------------------------------- interactables
-## Walk-in portal that starts a run (hub -> arena via GameState.enter_run), a
-## grand tower entrance on the ground at the far end of town.
+## The tower DOOR — a walk-up, press-E entrance (not a walk-in circle) on the
+## ground at the right of the clearing.
 func _spawn_tower_entrance() -> void:
-	var gs: Node = get_node_or_null("/root/GameState")
-	if gs == null:
-		return
-	var portal: Area2D = RUN_PORTAL_SCRIPT.new()
-	portal.portal_label = "ENTER THE TOWER"
-	portal.ring_color = Color(1.0, 0.6, 0.3)
-	portal.trigger_group = "player"
-	add_child(portal)
-	portal.global_position = Vector2(TOWER_X, GROUND_Y - 34.0)
-	portal.taken.connect(func() -> void: gs.enter_run())
+	var door: StaticBody2D = TOWER_DOOR_SCRIPT.new()
+	add_child(door)
+	door.global_position = Vector2(TOWER_X, GROUND_Y)
+
+
+## Second-floor LOFT (the armory deck) + a step up to it, both solid platforms, with
+## an Armory station on top — a raised area for gear so the hub has depth.
+func _build_loft() -> void:
+	_make_platform(LOFT_CENTER, LOFT_SIZE)
+	_make_platform(STEP_CENTER, STEP_SIZE)
+	var armory: StaticBody2D = ARMORY_SCRIPT.new()
+	add_child(armory)
+	armory.global_position = Vector2(LOFT_CENTER.x, LOFT_CENTER.y - LOFT_SIZE.y * 0.5)
+
+
+## A solid wooden platform (dark body + a warm-lit top rim), matching the ground.
+func _make_platform(center: Vector2, size: Vector2) -> void:
+	var body := StaticBody2D.new()
+	body.position = center
+	var cs := CollisionShape2D.new()
+	var shape := RectangleShape2D.new()
+	shape.size = size
+	cs.shape = shape
+	body.add_child(cs)
+	var rect := ColorRect.new()
+	rect.color = Color(0.14, 0.12, 0.11)
+	rect.size = size
+	rect.position = -size * 0.5
+	rect.z_index = -5
+	body.add_child(rect)
+	var rim := ColorRect.new()
+	rim.color = GROUND_RIM
+	rim.size = Vector2(size.x, 3.0)
+	rim.position = Vector2(-size.x * 0.5, -size.y * 0.5)
+	rim.z_index = -4
+	body.add_child(rim)
+	add_child(body)
 
 
 ## The Class Altar STATUE — walk up + E opens the ClassSelect lobby panel.
