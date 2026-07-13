@@ -5,7 +5,11 @@ extends RefCounted
 ## of the body colourway (Hero.COLOURWAYS) — you can be a Jade stickman
 ## casting Fire. Static helpers only; no instances needed.
 
-enum Element { FIRE, ICE, LIGHTNING, SHADOW, ARCANE }
+## Eight elements — one signature identity per playable class. The first five keep
+## their indices (0..4) so every existing save / cast / test stays valid; EARTH,
+## HOLY, WIND are appended. StatusComponent maps the three new ones onto proven
+## ailment mechanics (see StatusComponent.apply) with their own tint.
+enum Element { FIRE, ICE, LIGHTNING, SHADOW, ARCANE, EARTH, HOLY, WIND }
 
 
 ## Signature colour for an element. Unknown values fall back to ARCANE.
@@ -21,6 +25,12 @@ static func color(e: int) -> Color:
 			return Color(0.6, 0.35, 0.9)  # violet
 		Element.ARCANE:
 			return Color(0.95, 0.4, 0.85)  # magenta
+		Element.EARTH:
+			return Color(0.78, 0.55, 0.28)  # amber-brown
+		Element.HOLY:
+			return Color(1.0, 0.93, 0.6)  # gold-white
+		Element.WIND:
+			return Color(0.62, 0.96, 0.86)  # teal-white
 	return Color(0.95, 0.4, 0.85)
 
 
@@ -37,6 +47,12 @@ static func display_name(e: int) -> String:
 			return "Shadow"
 		Element.ARCANE:
 			return "Arcane"
+		Element.EARTH:
+			return "Earth"
+		Element.HOLY:
+			return "Holy"
+		Element.WIND:
+			return "Wind"
 	return "Arcane"
 
 

@@ -381,7 +381,11 @@ func set_equipment(slot: String, kind: String) -> void:
 	queue_redraw()
 
 
-## Convenience gear bundles — substrate for classes later.
+## Convenience gear bundles — one per playable class. Classes WITH a weapon
+## (Hero.CLASS_CONFIG "weapon") override the weapon slot via equip_weapon after
+## this; weaponless classes (mage staff, brawler fists) keep what's set here.
+## Overlay art is reused (robe/hat/hood/staff/sword/orb/fists) — the strong
+## class read comes from the element colour, AoE variant, and signature ult.
 func class_preset(preset_name: String) -> void:
 	match preset_name:
 		"mage":
@@ -396,6 +400,30 @@ func class_preset(preset_name: String) -> void:
 			set_equipment("body", "robe")
 			set_equipment("head", "hat")
 			set_equipment("weapon", "orb")
+		"brawler":  # bare-fisted bruiser — no robe, no weapon
+			set_equipment("body", "")
+			set_equipment("head", "")
+			set_equipment("weapon", "")
+		"juggernaut":  # heavy — bare torso, weapon (hammer) from equip_weapon
+			set_equipment("body", "")
+			set_equipment("head", "")
+			set_equipment("weapon", "sword")
+		"cleric":  # hooded templar with a staff
+			set_equipment("body", "robe")
+			set_equipment("head", "hood")
+			set_equipment("weapon", "staff")
+		"cryomancer":  # hatted frost caster
+			set_equipment("body", "robe")
+			set_equipment("head", "hat")
+			set_equipment("weapon", "staff")
+		"stormcaller":  # hatted storm caster
+			set_equipment("body", "robe")
+			set_equipment("head", "hat")
+			set_equipment("weapon", "staff")
+		"warlock":  # hooded hexer with a scythe (sword overlay)
+			set_equipment("body", "robe")
+			set_equipment("head", "hood")
+			set_equipment("weapon", "sword")
 
 
 ## Enable/retint the under-figure aura glow. strength 0 turns it off.

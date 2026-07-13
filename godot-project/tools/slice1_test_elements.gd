@@ -52,7 +52,7 @@ func _make_spell() -> Area2D:
 	return spell
 
 
-## The five element colours are exactly as specced AND mutually distinct.
+## The eight element colours are exactly as specced AND mutually distinct.
 func _test_element_colors_distinct_and_correct() -> int:
 	var failed: int = 0
 	var expected: Array[Color] = [
@@ -61,6 +61,9 @@ func _test_element_colors_distinct_and_correct() -> int:
 		Color(1.0, 0.9, 0.3),  # LIGHTNING
 		Color(0.6, 0.35, 0.9),  # SHADOW
 		Color(0.95, 0.4, 0.85),  # ARCANE
+		Color(0.78, 0.55, 0.28),  # EARTH
+		Color(1.0, 0.93, 0.6),  # HOLY
+		Color(0.62, 0.96, 0.86),  # WIND
 	]
 	for e: int in range(Elements.count()):
 		failed += _expect(
@@ -76,11 +79,11 @@ func _test_element_colors_distinct_and_correct() -> int:
 	return failed
 
 
-## display_name covers all five; count() is 5.
+## display_name covers all eight; count() is 8.
 func _test_display_names_and_count() -> int:
 	var failed: int = 0
-	failed += _expect(Elements.count() == 5, "count() is 5")
-	var names: Array[String] = ["Fire", "Ice", "Lightning", "Shadow", "Arcane"]
+	failed += _expect(Elements.count() == 8, "count() is 8")
+	var names: Array[String] = ["Fire", "Ice", "Lightning", "Shadow", "Arcane", "Earth", "Holy", "Wind"]
 	for e: int in range(Elements.count()):
 		failed += _expect(
 			Elements.display_name(e) == names[e],
@@ -89,16 +92,20 @@ func _test_display_names_and_count() -> int:
 	return failed
 
 
-## Cycling wraps: the element after ARCANE (last) is FIRE (first).
+## Cycling wraps: the element after WIND (last) is FIRE (first).
 func _test_cycle_wrap_math() -> int:
 	var failed: int = 0
 	failed += _expect(
-		(Elements.Element.ARCANE + 1) % Elements.count() == Elements.Element.FIRE,
-		"(ARCANE + 1) %% count() wraps to FIRE"
+		(Elements.Element.WIND + 1) % Elements.count() == Elements.Element.FIRE,
+		"(WIND + 1) %% count() wraps to FIRE"
 	)
 	failed += _expect(
 		(Elements.Element.FIRE + 1) % Elements.count() == Elements.Element.ICE,
 		"(FIRE + 1) %% count() advances to ICE"
+	)
+	failed += _expect(
+		(Elements.Element.ARCANE + 1) % Elements.count() == Elements.Element.EARTH,
+		"(ARCANE + 1) %% count() advances to EARTH (the first appended element)"
 	)
 	return failed
 
@@ -122,14 +129,14 @@ func _test_hero_element_cycling() -> int:
 
 	hero._cycle_element()
 	failed += _expect(
-		hero._element == Elements.Element.FIRE, "one cycle wraps ARCANE -> FIRE"
+		hero._element == Elements.Element.EARTH, "one cycle advances ARCANE -> EARTH"
 	)
 	failed += _expect(
-		hero.rig.aura_color == Elements.color(Elements.Element.FIRE),
-		"aura recolours to fire on cycle"
+		hero.rig.aura_color == Elements.color(Elements.Element.EARTH),
+		"aura recolours to earth on cycle"
 	)
 	failed += _expect(
-		hero._element_color == Elements.color(Elements.Element.FIRE),
+		hero._element_color == Elements.color(Elements.Element.EARTH),
 		"_element_color follows the cycle (feeds the cast bolt)"
 	)
 
@@ -137,7 +144,7 @@ func _test_hero_element_cycling() -> int:
 		hero._cycle_element()
 	failed += _expect(
 		hero._element == Elements.Element.ARCANE,
-		"five total cycles land back on ARCANE (full wrap)"
+		"count() total cycles land back on ARCANE (full wrap)"
 	)
 	return failed
 

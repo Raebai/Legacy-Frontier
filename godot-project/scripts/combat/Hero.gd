@@ -118,28 +118,81 @@ const SPELL_SCENE: PackedScene = preload("res://scenes/combat/Spell.tscn")
 const BLAST_SCENE: PackedScene = preload("res://scenes/combat/BlastSpell.tscn")
 const NOVA_SCENE: PackedScene = preload("res://scenes/combat/EnergyNova.tscn")
 
-## Two playable classes. MAGE = ranged zoner (homing bolt + giant telegraphed
-## blast + panic nova). ROGUE = in-and-out assassin (fast light thrown blade,
-## dash that STRIKES through enemies, snappy blink, a whirlwind AoE, no nova).
-## Every rogue ability reuses a mage primitive; the mage config equals the old
-## consts so the mage is byte-identical to before this change.
-enum HeroClass { MAGE, ROGUE }
+## EIGHT playable classes over ONE mobile-first slot system (see
+## docs/superpowers/specs/2026-07-13-eight-class-roster-and-abilities.md). Each
+## configures the SAME 7 slots with its own flavour — element, weapon, AoE
+## variant, signature loadout — so touch controls never change but each class
+## FEELS distinct. Enum names MAGE/ROGUE keep indices 0/1 (Arcanist/Shadowblade
+## display names) so existing saves + tests stay valid; the mage config still
+## equals the old consts, so index 0 is byte-identical to before.
+##
+## AoE (Q) variants: "blast" (placed meteor), "nova" (self whirlwind),
+## "fist_shock" (fire-punch shockwave), "ground_slam" (earth crater). `element`
+## is the class's default element (auto-set on switch; X still cycles). Signature
+## loadout comes from SpellLibrary.build_for_class(class_id).
+enum HeroClass { MAGE, ROGUE, BRAWLER, JUGGERNAUT, CLERIC, CRYOMANCER, STORMCALLER, WARLOCK }
+const CLASS_NAMES: Array[String] = [
+	"Arcanist", "Shadowblade", "Brawler", "Juggernaut",
+	"Cleric", "Cryomancer", "Stormcaller", "Warlock",
+]
 const CLASS_CONFIG: Dictionary = {
-	HeroClass.MAGE: {
-		"preset": "mage", "weapon": "",
+	HeroClass.MAGE: {  # ARCANIST — ranged arcane zoner (byte-identical to the old mage)
+		"preset": "mage", "weapon": "", "element": Elements.Element.ARCANE, "melee_element": -1,
 		"cast_cd": CAST_COOLDOWN, "dash_cd": DASH_COOLDOWN, "blink_cd": BLINK_COOLDOWN,
 		"blast_cd": BLAST_COOLDOWN,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
 		"aoe": "blast", "has_nova": true, "can_parry": true,
 	},
-	HeroClass.ROGUE: {
-		"preset": "rogue", "weapon": "sword",
+	HeroClass.ROGUE: {  # SHADOWBLADE — in-and-out assassin (shadow sword)
+		"preset": "rogue", "weapon": "sword", "element": Elements.Element.SHADOW, "melee_element": Elements.Element.SHADOW,
 		"cast_cd": 0.26, "dash_cd": 0.70, "blink_cd": 1.0,
 		"blast_cd": 2.5,
 		"throw_blade": true, "blade_damage": 11,
 		"dash_strike": true, "dash_strike_damage": 16, "dash_strike_range": 42.0,
 		"aoe": "nova", "has_nova": false, "can_parry": true,
+	},
+	HeroClass.BRAWLER: {  # pure melee, huge knockback — fire fists + Chidori ult
+		"preset": "brawler", "weapon": "", "element": Elements.Element.FIRE, "melee_element": Elements.Element.FIRE,
+		"cast_cd": 0.22, "dash_cd": 0.70, "blink_cd": 1.1, "blast_cd": 2.2,
+		"throw_blade": false, "blade_damage": 18,
+		"dash_strike": true, "dash_strike_damage": 20, "dash_strike_range": 44.0,
+		"aoe": "fist_shock", "has_nova": true, "can_parry": true,
+	},
+	HeroClass.JUGGERNAUT: {  # tank bruiser — hammer + ground slam
+		"preset": "juggernaut", "weapon": "sword", "element": Elements.Element.EARTH, "melee_element": Elements.Element.EARTH,
+		"cast_cd": 0.40, "dash_cd": 0.90, "blink_cd": 1.4, "blast_cd": 2.6,
+		"throw_blade": false, "blade_damage": 18,
+		"dash_strike": true, "dash_strike_damage": 22, "dash_strike_range": 48.0,
+		"aoe": "ground_slam", "has_nova": true, "can_parry": true,
+	},
+	HeroClass.CLERIC: {  # radiant bruiser — holy
+		"preset": "cleric", "weapon": "staff", "element": Elements.Element.HOLY, "melee_element": Elements.Element.HOLY,
+		"cast_cd": 0.32, "dash_cd": 0.85, "blink_cd": 1.2, "blast_cd": 2.4,
+		"throw_blade": false, "blade_damage": 18,
+		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
+		"aoe": "blast", "has_nova": true, "can_parry": true,
+	},
+	HeroClass.CRYOMANCER: {  # ice control caster
+		"preset": "cryomancer", "weapon": "staff", "element": Elements.Element.ICE, "melee_element": Elements.Element.ICE,
+		"cast_cd": 0.34, "dash_cd": 0.90, "blink_cd": 1.2, "blast_cd": 2.6,
+		"throw_blade": false, "blade_damage": 18,
+		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
+		"aoe": "blast", "has_nova": true, "can_parry": true,
+	},
+	HeroClass.STORMCALLER: {  # chain-lightning caster — faster wind-dash
+		"preset": "stormcaller", "weapon": "staff", "element": Elements.Element.LIGHTNING, "melee_element": Elements.Element.LIGHTNING,
+		"cast_cd": 0.30, "dash_cd": 0.60, "blink_cd": 1.0, "blast_cd": 2.4,
+		"throw_blade": false, "blade_damage": 18,
+		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
+		"aoe": "blast", "has_nova": true, "can_parry": true,
+	},
+	HeroClass.WARLOCK: {  # dark hexer — shadow scythe
+		"preset": "warlock", "weapon": "sword", "element": Elements.Element.SHADOW, "melee_element": Elements.Element.SHADOW,
+		"cast_cd": 0.30, "dash_cd": 0.85, "blink_cd": 1.1, "blast_cd": 2.5,
+		"throw_blade": false, "blade_damage": 18,
+		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
+		"aoe": "blast", "has_nova": true, "can_parry": true,
 	},
 }
 
@@ -222,14 +275,11 @@ func _ready() -> void:
 		var sc: Variant = gs.get("selected_class")
 		if sc != null:
 			start_class = int(sc)
+	# configure_class sets the class element, rig preset, weapon, AND the class's
+	# signature loadout (SpellLibrary.build_for_class) + emits signature_changed.
 	configure_class(start_class)
-	_apply_element()
-	# Signature spell loadout — the playable slice of the spell tree.
-	_signatures = SpellLibrary.build()
 	mp = float(max_mp)
 	mana_changed.emit(mp, max_mp)
-	if not _signatures.is_empty():
-		signature_changed.emit(_signatures[_signature_index].display_name)
 	# Rank drives aura TIER (elaborateness); the element keeps driving COLOUR.
 	Rank.rank_changed.connect(_on_rank_changed)
 	rig.set_aura_tier(Rank.tier())
@@ -515,6 +565,16 @@ func configure_class(cls: int) -> void:
 	_parry_window_timer = 0.0
 	_parry_cooldown_timer = 0.0
 	_clear_input_buffer()
+	# Auto-set the class's signature element (X still cycles from here) + swap in
+	# the class's themed signature loadout (its hero-fantasy ultimate first).
+	if _cfg.has("element"):
+		_element = int(_cfg["element"])
+		_apply_element()
+	_signatures = SpellLibrary.build_for_class(cls)
+	_signature_index = 0
+	_signature_cd_timer = 0.0
+	if not _signatures.is_empty():
+		signature_changed.emit(_signatures[_signature_index].display_name)
 
 
 ## Debug: cycle class live (Tab) and persist the choice to GameState so the hub
@@ -541,6 +601,15 @@ func _cast_signature() -> void:
 	mp -= float(spell.mp_cost)
 	mana_changed.emit(mp, max_mp)
 	_signature_cd_timer = spell.cooldown
+	# Chidori / rush: LUNGE forward as the lightning lance rips out (dash-punch read).
+	if spell.kind == SpellDef.Kind.RUSH:
+		rig.set_aim(_aim_dir)
+		rig.play(CharacterRig.State.PUNCH)
+		if _aim_dir.x != 0.0:
+			velocity.x = signf(_aim_dir.x) * 360.0
+		SpellCaster.cast(spell, get_parent(), rig.get_weapon_tip(), get_global_mouse_position(), _element_color, spell.effect)
+		_notify_element_used()
+		return
 	# Sky spells (meteor / divine row) raise the staff UP and place from the hero;
 	# beams emanate FROM the staff tip toward the aim. Set the pose FIRST so
 	# get_weapon_tip() reads the pointed staff.
@@ -740,15 +809,24 @@ func _cast() -> void:
 	_notify_element_used()
 
 
+## The Q slot — dispatched on the class's AoE variant. Every variant carries the
+## hero's ACTIVE element (so a Brawler who cycles to Ice throws an ice-punch).
 func _blast() -> void:
 	_blast_cooldown_timer = _cfg["blast_cd"]
-	# Rogue's Q is a self-centered whirlwind (reuses the nova); mage's Q is the
-	# targeted giant blast.
-	if String(_cfg["aoe"]) == "nova":
-		_spawn_nova()
-		return
-	# You PLACE the meteor: it lands where the cursor points, clamped to a max
-	# cast range so it stays a skill-shot, not a whole-stage snipe.
+	match String(_cfg["aoe"]):
+		"nova":
+			_spawn_nova()          # rogue whirlwind
+		"fist_shock":
+			_fire_punch()          # brawler — lunging elemental shockwave
+		"ground_slam":
+			_ground_slam()         # juggernaut — self-centred crater
+		_:
+			_meteor_blast()        # placed giant blast (mage / cleric / caster classes)
+
+
+## Placed giant blast: lands where the cursor points, clamped to a max cast range
+## so it stays a skill-shot, not a whole-stage snipe.
+func _meteor_blast() -> void:
 	var to_target: Vector2 = get_global_mouse_position() - global_position
 	if to_target.length() > BLAST_MAX_RANGE:
 		to_target = to_target.normalized() * BLAST_MAX_RANGE
@@ -759,6 +837,38 @@ func _blast() -> void:
 	blast.detonate_at(target_pos)
 	rig.set_aim(_aim_dir)
 	rig.play(CharacterRig.State.CAST)
+
+
+## FIRE PUNCH — the Brawler's Q. A lunging straight that erupts an elemental
+## shockwave just in front of the fist: instant (no windup), tight radius, HUGE
+## knockback + the active element's ailment. Reads as a committed melee blast.
+func _fire_punch() -> void:
+	rig.set_aim(_aim_dir)
+	rig.play(CharacterRig.State.PUNCH)
+	# A short forward lunge so the punch drives INTO the target.
+	velocity.x = signf(_aim_dir.x) * 300.0 if _aim_dir.x != 0.0 else velocity.x
+	var center: Vector2 = global_position + _aim_dir.normalized() * 44.0
+	var blast: Node2D = BLAST_SCENE.instantiate()
+	get_parent().add_child(blast)
+	blast.call("configure", {
+		"target_group": "enemy", "damage": 30, "radius": 66.0,
+		"knockback": 430.0, "element_id": _element,
+	})
+	blast.call("detonate_now", center)
+
+
+## GROUND SLAM — the Juggernaut's Q. A small hop then a self-centred crater: wide
+## radius, heavy knockback + the active element's ailment (Stagger by default).
+func _ground_slam() -> void:
+	rig.play(CharacterRig.State.CAST)
+	velocity.y = -240.0  # a small hop into the slam
+	var blast: Node2D = BLAST_SCENE.instantiate()
+	get_parent().add_child(blast)
+	blast.call("configure", {
+		"target_group": "enemy", "damage": 34, "radius": 98.0,
+		"knockback": 380.0, "element_id": _element,
+	})
+	blast.call("detonate_now", global_position)
 
 
 ## Energy nova: instant self-centered shockwave. No telegraph — the panic
@@ -845,7 +955,7 @@ func ability_hud_state() -> Array:
 	return [
 		{"name": "Cast", "key": "LMB", "remaining": _cast_cooldown_timer, "total": float(_cfg["cast_cd"]), "enabled": true},
 		{"name": "Dash", "key": "Spc", "remaining": _dash_cooldown_timer, "total": float(_cfg["dash_cd"]), "enabled": true},
-		{"name": "AoE", "key": "Q", "remaining": _blast_cooldown_timer, "total": float(_cfg["blast_cd"]), "enabled": true},
+		{"name": _aoe_slot_name(), "key": "Q", "remaining": _blast_cooldown_timer, "total": float(_cfg["blast_cd"]), "enabled": true},
 		{"name": "Blink", "key": "R", "remaining": _blink_cooldown_timer, "total": float(_cfg["blink_cd"]), "enabled": true},
 		{"name": "Nova", "key": "T", "remaining": _nova_cooldown_timer, "total": NOVA_COOLDOWN, "enabled": bool(_cfg["has_nova"])},
 		{"name": "Parry", "key": "RMB", "remaining": _parry_cooldown_timer, "total": PARRY_COOLDOWN, "enabled": bool(_cfg["can_parry"])},
@@ -853,6 +963,20 @@ func ability_hud_state() -> Array:
 		# when mana can't cover the cast; the floating MP bar shows the fill.
 		_signature_hud_slot(),
 	]
+
+
+## Short HUD label for the Q slot, per the class's AoE variant.
+func _aoe_slot_name() -> String:
+	match String(_cfg["aoe"]):
+		"nova": return "Whirl"
+		"fist_shock": return "FirePunch"
+		"ground_slam": return "Slam"
+		_: return "Meteor"
+
+
+## Class display name (Arcanist / Brawler / ...) for HUD / debug.
+func class_display_name() -> String:
+	return CLASS_NAMES[_hero_class] if _hero_class < CLASS_NAMES.size() else "Class"
 
 
 ## Hotbar slot for the equipped signature: short name (first word of the spell),
@@ -894,6 +1018,7 @@ func _melee() -> void:
 
 func _on_melee_hit_frame() -> void:
 	var hit_any: bool = false
+	var melee_el: int = int(_cfg.get("melee_element", -1))  # class element on the strike
 	for enemy: Node in get_tree().get_nodes_in_group("enemy"):
 		if not enemy is Node2D:
 			continue
@@ -906,6 +1031,8 @@ func _on_melee_hit_frame() -> void:
 			enemy.take_damage(_melee_damage)
 		if enemy.has_method("apply_knockback"):
 			enemy.apply_knockback(toward * _melee_knockback)
+		if melee_el >= 0 and enemy.has_method("apply_status"):
+			enemy.apply_status(melee_el)  # burning / staggering / etc. fists
 		hit_any = true
 	# Crates break under melee too — same range/arc gate as enemies.
 	for prop: Node in get_tree().get_nodes_in_group("destructible"):

@@ -28,12 +28,19 @@ const UNSTABLE_DURATION: float = 1.2
 const UNSTABLE_POP_DMG: int = 12
 const UNSTABLE_POP_RADIUS: float = 46.0
 
-# Element indices mirror Elements.Element (FIRE,ICE,LIGHTNING,SHADOW,ARCANE).
+# Element indices mirror Elements.Element.
 const FIRE: int = 0
 const ICE: int = 1
 const LIGHTNING: int = 2
 const SHADOW: int = 3
 const ARCANE: int = 4
+# The three appended elements reuse proven ailment mechanics with their own tint
+# (the overlay lerps toward _last_color): EARTH = Stagger (direct root, like a
+# freeze), HOLY = Radiance (a burn DoT), WIND = Gale (a brief stun, like shock).
+const EARTH: int = 5
+const HOLY: int = 6
+const WIND: int = 7
+const STAGGER_DURATION: float = 0.7  # earth root — shorter than a full ice freeze
 
 var _burn: float = 0.0
 var _burn_tick: float = 0.0
@@ -68,6 +75,12 @@ func apply(element: int, can_chain: bool = true) -> void:
 			_weaken = WEAKEN_DURATION
 		ARCANE:
 			_unstable = UNSTABLE_DURATION
+		EARTH:
+			_freeze = STAGGER_DURATION   # Stagger: a direct short root (brown crust via tint)
+		HOLY:
+			_burn = BURN_DURATION        # Radiance: a radiant burn (gold flames via tint)
+		WIND:
+			_shock = SHOCK_STUN          # Gale: a brief stun (teal arcs via tint; no chain)
 	queue_redraw()
 
 
@@ -189,6 +202,15 @@ func _shatter() -> void:
 
 
 # ------------------------------------------------------------------- overlay draw
+## Blend an ailment's base colour toward the causing element's tint so a reused
+## mechanic (EARTH→freeze, HOLY→burn, WIND→shock) still READS as its own element.
+## For the native element _last_color ~= the base, so the look is unchanged.
+func _ail_tint(base: Color) -> Color:
+	var t: Color = base.lerp(Color(_last_color.r, _last_color.g, _last_color.b, base.a), 0.45)
+	t.a = base.a
+	return t
+
+
 func _draw() -> void:
 	var r: float = 14.0
 	if _freeze > 0.0:
@@ -213,11 +235,11 @@ func _draw_burn(r: float) -> void:
 		var tip: Vector2 = Vector2(bx + 2.0 * sin(_phase * 9.0 + float(i)), -r * 0.4 - h)
 		draw_colored_polygon(PackedVector2Array([
 			Vector2(bx - 3.0, r * 0.4), Vector2(bx + 3.0, r * 0.4), tip,
-		]), Color(1.0, 0.55, 0.15, 0.55))
+		]), _ail_tint(Color(1.0, 0.55, 0.15, 0.55)))
 		draw_colored_polygon(PackedVector2Array([
 			Vector2(bx - 1.5, r * 0.3), Vector2(bx + 1.5, r * 0.3),
 			tip.lerp(Vector2(bx, r * 0.3), 0.35),
-		]), Color(1.0, 0.9, 0.4, 0.7))
+		]), _ail_tint(Color(1.0, 0.9, 0.4, 0.7)))
 	for i: int in 3:
 		var a: float = _phase * 3.0 + float(i) * 2.1
 		var ey: float = -fposmod(_phase * 30.0 + float(i) * 20.0, 40.0)
@@ -240,8 +262,8 @@ func _draw_freeze(r: float) -> void:
 		Vector2(-r, -r * 1.2), Vector2(r * 0.9, -r * 1.1), Vector2(r * 1.1, r * 0.8),
 		Vector2(-r * 0.8, r * 1.2), Vector2(-r * 1.15, -r * 0.2),
 	])
-	draw_colored_polygon(pts, Color(0.55, 0.85, 1.0, 0.4))
-	draw_polyline(pts + PackedVector2Array([pts[0]]), Color(0.85, 0.97, 1.0, 0.9), 2.0)
+	draw_colored_polygon(pts, _ail_tint(Color(0.55, 0.85, 1.0, 0.4)))
+	draw_polyline(pts + PackedVector2Array([pts[0]]), _ail_tint(Color(0.85, 0.97, 1.0, 0.9)), 2.0)
 	# Internal facet lines.
 	draw_line(Vector2(-r, -r * 1.2), Vector2(r * 0.3, r), Color(1, 1, 1, 0.35), 1.0)
 	draw_line(Vector2(r * 0.9, -r * 1.1), Vector2(-r * 0.4, r * 0.6), Color(1, 1, 1, 0.3), 1.0)
@@ -256,7 +278,7 @@ func _draw_shock(r: float) -> void:
 			var ang: float = a0 + float(k) * 0.5
 			var rad: float = r * (0.8 + 0.5 * float((k + i) % 2))
 			pts.append(Vector2.from_angle(ang) * rad)
-		draw_polyline(pts, Color(1.0, 0.95, 0.4, 0.85), 1.5)
+		draw_polyline(pts, _ail_tint(Color(1.0, 0.95, 0.4, 0.85)), 1.5)
 
 
 func _draw_weaken(r: float) -> void:

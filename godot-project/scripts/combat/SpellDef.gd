@@ -11,7 +11,7 @@ extends Resource
 
 ## The spectacle this spell casts. Reserve values for spells designed but not yet
 ## built (see docs/v2.0-spell-system-design.md); SpellCaster falls back safely.
-enum Kind { BEAM, DIVINE_RAY, NOVA, METEOR, CONVERGENCE }
+enum Kind { BEAM, DIVINE_RAY, NOVA, METEOR, CONVERGENCE, RUSH }
 
 @export var id: String = ""
 @export var display_name: String = ""
