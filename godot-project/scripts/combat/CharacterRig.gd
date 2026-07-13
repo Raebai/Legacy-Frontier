@@ -132,6 +132,11 @@ var _limp_target: float = 0.0
 ## the extremities so limbs trail when the body launches/stops.
 var _body_vel: Vector2 = Vector2.ZERO
 var _prev_body_vel: Vector2 = Vector2.ZERO
+## Hard-CC freeze: while true the locomotion cycle (_phase) HOLDS so a frozen /
+## shocked enemy reads as genuinely rooted under the ice instead of jogging in
+## place. The spring sim + timers still tick (a hit still flails, flashes clear),
+## only the animation clock stops. Set by the owner from StatusComponent.is_hard_cc.
+var _frozen: bool = false
 
 
 func _process(delta: float) -> void:
@@ -141,7 +146,10 @@ func _process(delta: float) -> void:
 ## Per-frame update, split out from _process so headless tests can drive
 ## the rig deterministically without a real frame loop.
 func advance(delta: float) -> void:
-	_phase += delta
+	# Frozen: hold the locomotion phase so the run/idle cycle stops dead. Timers +
+	# sim below still advance so the ice-shatter flash and a knock still read.
+	if not _frozen:
+		_phase += delta
 	if _flash_timer > 0.0:
 		_flash_timer -= delta
 	if _pop_timer > 0.0:
@@ -258,6 +266,12 @@ func set_limp(t: float) -> void:
 func set_body_velocity(v: Vector2) -> void:
 	if is_finite(v.x) and is_finite(v.y):
 		_body_vel = v
+
+
+## Freeze/unfreeze the locomotion cycle. True = hold the run/idle animation clock
+## (the "frozen under ice" read for hard-CC'd enemies); the spring sim still ticks.
+func set_frozen(frozen: bool) -> void:
+	_frozen = frozen
 
 
 ## Set the current animation state. Looping states (IDLE/RUN/DASH) are

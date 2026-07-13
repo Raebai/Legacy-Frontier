@@ -49,7 +49,7 @@ func _test_rogue_config() -> int:
 	failed += _expect(String(hero.rig.equipment.get("weapon", "")) == "sword", "rogue equips sword")
 	failed += _expect(hero._melee_damage == 26, "rogue melee retuned to sword damage 26")
 	failed += _expect(is_equal_approx(float(hero._cfg["cast_cd"]), 0.26), "rogue cast_cd 0.26")
-	failed += _expect(is_equal_approx(float(hero._cfg["dash_cd"]), 0.40), "rogue dash_cd 0.40")
+	failed += _expect(is_equal_approx(float(hero._cfg["dash_cd"]), 0.70), "rogue dash_cd 0.70 (no dash-fly)")
 	failed += _expect(is_equal_approx(float(hero._cfg["blink_cd"]), 1.0), "rogue blink_cd 1.0")
 	failed += _expect(bool(hero._cfg["dash_strike"]) == true, "rogue has dash_strike")
 	failed += _expect(bool(hero._cfg["has_nova"]) == false, "rogue has no nova")

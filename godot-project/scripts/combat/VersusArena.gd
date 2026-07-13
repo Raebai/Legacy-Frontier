@@ -22,7 +22,7 @@ const ENEMY_SCENE_PATH: String = "res://scenes/combat/Enemy.tscn"
 ## -- Match rules -----------------------------------------------------------
 const STAGE_SIZE: Vector2 = Vector2(1200, 760)
 const STOCKS: int = 3
-const BOT_COUNT: int = 4
+const BOT_COUNT: int = 5
 const RESPAWN_INVULN: float = 0.8
 
 ## -- Side-on stage layout (stage-local; the arena node sits at the scene origin) --
@@ -44,11 +44,15 @@ const BLAST_ZONES: Array[Dictionary] = [
 const P1_SPAWN: Vector2 = Vector2(600, 480)
 const BOT_SPAWN_POINTS: Array[Vector2] = [
 	Vector2(400, 430), Vector2(800, 430), Vector2(360, 330), Vector2(840, 330),
+	Vector2(600, 500),  # centre, drops to the main ground — the MAGE / leap demo
 ]
 ## Bot archetype rotation — a varied roster so every fight reads different:
 ## CASTER(2) / SUMMONER(4) / ASSASSIN(5) / BOMBER(6) / CHARGER(3). Tints + speeds
 ## come from Enemy's per-archetype defaults. See Enemy.Archetype.
-const BOT_ARCHETYPES: Array[int] = [2, 4, 5, 3]  # BOMBER(6) pulled: it suicide-cleared bots at spawn
+## CASTER(2), SUMMONER(4), ASSASSIN(5), CHARGER(3), MAGE(7) — the full readable
+## roster. BOMBER(6) stays pulled (it suicide-cleared bots at spawn). The MAGE
+## telegraphs a ground AoE; grounded bots LEAP to a hero who climbs a ledge.
+const BOT_ARCHETYPES: Array[int] = [2, 4, 5, 3, 7]
 ## Versus bots are tankier than the tower's trash mobs so fights last.
 const BOT_HP: int = 110
 ## Destructible cover sitting on the ground (64px blocks; centre = ground_top - 32).

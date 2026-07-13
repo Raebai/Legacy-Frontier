@@ -46,6 +46,7 @@ static func cast(
 			arena.add_child(ray)
 			ray.set("element_id", elem)
 			ray.strike(caster_pos + to, col, spell.radius, spell.damage, fx)
+			Juice.zoom_pull_camera(0.15, 0.45, 0.16, 0.55)  # pull back to reveal the pillar
 			return true
 		SpellDef.Kind.METEOR:
 			# Rains on the ground point the player aims at, clamped to reach.
@@ -56,6 +57,7 @@ static func cast(
 			arena.add_child(meteor)
 			meteor.set("element_id", elem)
 			meteor.rain(caster_pos + mto, col, spell.radius, spell.damage, spell.count, fx)
+			Juice.zoom_pull_camera(0.2, 0.9, 0.2, 0.7)  # widest pull — the bombardment
 			return true
 		SpellDef.Kind.CONVERGENCE:
 			# Converges on the ground point the player aims at, clamped to reach.
@@ -66,6 +68,7 @@ static func cast(
 			arena.add_child(conv)
 			conv.set("element_id", elem)
 			conv.converge(caster_pos + cto, col, spell.radius, spell.damage, fx)
+			Juice.zoom_pull_camera(0.22, 1.0, 0.3, 0.8)  # longest tell, biggest reveal
 			return true
 		SpellDef.Kind.NOVA:
 			var nova: Node2D = (load(NOVA_PATH) as PackedScene).instantiate()

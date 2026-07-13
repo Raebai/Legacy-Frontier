@@ -101,8 +101,32 @@ const BOMB_RADIUS: float = 78.0         # big danger circle
 const BOMB_DAMAGE: int = 30
 const BOMB_KNOCKBACK: float = 320.0     # shove on a caught hero (if supported)
 
-enum AttackState { CHASE, WINDUP, RECOVER, CHARGING }
-enum Archetype { CHASER, BRUTE, CASTER, CHARGER, SUMMONER, ASSASSIN, BOMBER }
+# MAGE archetype: kites like the caster but instead of a bolt it telegraphs a
+# ground AoE at the marked spot (a parameterized BlastSpell aimed at the hero).
+# The tell is a big danger ZONE — dodge OUT of the circle. Elemental (rolled).
+const MAGE_RANGE_MIN: float = 210.0   # kite band, a touch longer than the caster
+const MAGE_RANGE_MAX: float = 380.0
+const MAGE_WINDUP: float = 0.85       # generous — it's a big AoE
+const MAGE_COOLDOWN: float = 2.6
+const MAGE_AOE_RADIUS: float = 70.0
+const MAGE_AOE_DAMAGE: int = 20
+const MAGE_AOE_KNOCKBACK: float = 260.0
+const MAGE_BLAST_SCENE: String = "res://scenes/combat/BlastSpell.tscn"
+
+# LEAP system: a fixed chase-hop tops out around JUMP_VELOCITY^2/(2*GRAVITY)
+# (~90px); arena ledges sit ~170px up, out of hop reach. A leap solves a
+# ballistic launch that CLEARS the target height, so enemies actually pursue a
+# hero onto a platform instead of milling below it.
+const LEAP_MIN_HEIGHT: float = 105.0   # above the hop's reach -> needs a real leap
+const LEAP_MAX_HEIGHT: float = 340.0   # don't attempt absurd heights
+const LEAP_HORIZONTAL_RANGE: float = 400.0  # ...and roughly under/near the ledge on x
+const LEAP_CLEARANCE: float = 46.0     # arc apex clears the target height by this
+const LEAP_COOLDOWN: float = 1.5
+const LEAP_MAX_SPEED: float = 900.0    # cap the horizontal launch (no rail-gun leaps)
+const LEAP_MAX_AIR_TIME: float = 1.6   # safety timeout out of the LEAPING state
+
+enum AttackState { CHASE, WINDUP, RECOVER, CHARGING, LEAPING }
+enum Archetype { CHASER, BRUTE, CASTER, CHARGER, SUMMONER, ASSASSIN, BOMBER, MAGE }
 
 # Signature stats + tint per archetype so a glance tells them apart even when a
 # spawner sets ONLY `archetype` (VersusArena bots, sandbox tools). Values mirror
@@ -117,6 +141,7 @@ const ARCHETYPE_DEFAULTS: Dictionary = {
 	Archetype.SUMMONER: {"hp": 36, "speed": 72.0, "touch": 6, "tint": Color(0.35, 0.8, 0.55, 1)},  # jade
 	Archetype.ASSASSIN: {"hp": 20, "speed": 175.0, "touch": 8, "tint": Color(0.82, 0.86, 0.92, 1)},  # silver
 	Archetype.BOMBER: {"hp": 55, "speed": 70.0, "touch": 6, "tint": Color(0.34, 0.35, 0.4, 1)},    # charcoal
+	Archetype.MAGE: {"hp": 34, "speed": 78.0, "touch": 6, "tint": Color(0.5, 0.3, 0.85, 1)},       # deep violet
 }
 
 ## Per-archetype telegraph accent so each tell reads distinct ("cool prep noters
@@ -129,6 +154,7 @@ const TELE_ACCENTS: Dictionary = {
 	Archetype.SUMMONER: Color(0.4, 0.9, 0.6),
 	Archetype.ASSASSIN: Color(0.9, 0.95, 1.0),
 	Archetype.BOMBER: Color(1.0, 0.5, 0.15),
+	Archetype.MAGE: Color(0.72, 0.45, 1.0),
 }
 
 var hp: int = 40
@@ -145,6 +171,8 @@ var _charge_dir: Vector2 = Vector2.RIGHT    # charger: locked lane direction
 var _charge_timer: float = 0.0
 var _charge_hit: bool = false
 var _jump_cd: float = 0.0                   # chase-jump cooldown, ticks down each frame
+var _leap_timer: float = 0.0                # LEAPING: remaining airborne safety window
+var _leap_cd: float = 0.0                   # cooldown between ledge leaps
 var _retreat_timer: float = 0.0             # assassin: post-strike disengage window
 var _jitter_timer: float = 0.0              # assassin: time until the next feint roll
 var _jitter_sign: float = 1.0               # assassin: current approach feint (+1/-1)
@@ -198,11 +226,19 @@ func _wants_chase_jump() -> bool:
 			and absf(_hero.global_position.x - global_position.x) < JUMP_HORIZONTAL_RANGE
 
 
-## Chase-jump: hop toward a hero that's above us, or over an obstacle we're
+## Chase-jump / LEAP: reach a hero that's above us, or hop an obstacle we're
 ## walking into. Called between _apply_gravity and move_and_slide, so the
 ## is_on_floor()/is_on_wall() reads reflect the previous frame's slide state.
+## A high hero (on a ledge, past the fixed hop's reach) triggers a ballistic
+## LEAP; a modestly-higher hero or a wall triggers the small fixed hop.
 func _try_chase_jump() -> void:
-	if not is_on_floor() or _jump_cd > 0.0:
+	if not is_on_floor():
+		return
+	# Leap has priority: it's the only way to actually reach a hero on a ledge.
+	if _wants_leap():
+		_start_leap()
+		return
+	if _jump_cd > 0.0:
 		return
 	# is_on_wall(), not get_slide_collision_count(): standing on the floor IS a
 	# slide collision every frame, which would read as permanently "blocked".
@@ -210,6 +246,64 @@ func _try_chase_jump() -> void:
 	if _wants_chase_jump() or blocked:
 		velocity.y = JUMP_VELOCITY
 		_jump_cd = JUMP_COOLDOWN
+
+
+## Pure "should we LEAP?" decision (floor check excluded, like _wants_chase_jump,
+## so headless tests can drive it): cooldown elapsed and the hero sits above us
+## by more than a fixed hop can clear, but within a leapable height + x window.
+func _wants_leap() -> bool:
+	if _leap_cd > 0.0 or not is_instance_valid(_hero):
+		return false
+	var dy: float = global_position.y - _hero.global_position.y  # positive = hero above
+	var dx: float = absf(_hero.global_position.x - global_position.x)
+	return dy > LEAP_MIN_HEIGHT and dy < LEAP_MAX_HEIGHT and dx < LEAP_HORIZONTAL_RANGE
+
+
+## Ballistic launch velocity that carries `from` up and over to `to`: pick a
+## vertical velocity whose apex clears the target height by LEAP_CLEARANCE, then
+## the horizontal that lands at the target on the descending arc. Pure math —
+## headless-testable. Solves 0.5*g*t^2 + vy*t - dy = 0 for the descending root.
+func compute_leap_velocity(from: Vector2, to: Vector2) -> Vector2:
+	var g: float = GRAVITY
+	var dx: float = to.x - from.x
+	var dy: float = to.y - from.y                 # negative when the target is above
+	var rise: float = maxf(-dy, 0.0) + LEAP_CLEARANCE
+	var vy: float = -sqrt(2.0 * g * rise)         # upward launch (y-down: negative)
+	var disc: float = vy * vy + 2.0 * g * dy
+	disc = maxf(disc, 0.0)
+	var t: float = (-vy + sqrt(disc)) / g          # time to reach target.y descending
+	t = maxf(t, 0.05)
+	var vx: float = clampf(dx / t, -LEAP_MAX_SPEED, LEAP_MAX_SPEED)
+	return Vector2(vx, vy)
+
+
+## Commit to a leap: launch, enter LEAPING (owns movement until landing/timeout).
+func _start_leap() -> void:
+	_attack_state = AttackState.LEAPING
+	_leap_timer = LEAP_MAX_AIR_TIME
+	_leap_cd = LEAP_COOLDOWN
+	velocity = compute_leap_velocity(global_position, _hero.global_position)
+	rig.flash()  # a quick "it's springing at you" tell
+
+
+## LEAPING: ride the ballistic arc (no chase drive so the launch holds), gravity
+## owns y. Touch-damages a hero we pass through mid-air. Exits to CHASE on landing
+## (grounded + descending) or the safety timeout.
+func _process_leap(delta: float) -> void:
+	_leap_timer -= delta
+	_apply_gravity(delta)
+	move_and_slide()
+	_check_wall_slam()
+	rig.play(CharacterRig.State.DASH)  # a taut airborne pose
+	if is_instance_valid(_hero):
+		rig.set_facing(_hero.global_position - global_position)
+		if global_position.distance_to(_hero.global_position) < 24.0 and _touch_cooldown <= 0.0 \
+				and _hero.has_method("take_damage"):
+			_hero.take_damage(touch_damage)
+			_touch_cooldown = 0.8
+	var landed: bool = is_on_floor() and velocity.y >= 0.0
+	if landed or _leap_timer <= 0.0:
+		_attack_state = AttackState.CHASE
 
 
 ## Per-archetype signature stats/looks, applied ONLY to fields still at their
@@ -228,8 +322,8 @@ func _apply_archetype_defaults() -> void:
 		tint = d["tint"] as Color
 	if archetype == Archetype.BRUTE:
 		uses_telegraphed_attack = true  # a brute that never swings isn't a brute
-	if archetype == Archetype.CASTER:
-		_bolt_element = randi() % Elements.count()  # a visible elemental bolt
+	if archetype == Archetype.CASTER or archetype == Archetype.MAGE:
+		_bolt_element = randi() % Elements.count()  # a visible elemental bolt / AoE
 
 
 func _ready() -> void:
@@ -251,10 +345,16 @@ func _physics_process(delta: float) -> void:
 	_knockback = _knockback.move_toward(Vector2.ZERO, KNOCKBACK_DECAY * delta)
 	_attack_cooldown = maxf(_attack_cooldown - delta, 0.0)
 	_jump_cd = maxf(_jump_cd - delta, 0.0)
+	_leap_cd = maxf(_leap_cd - delta, 0.0)
 	_speed_scale = _status.slow_factor() if _status != null and is_instance_valid(_status) else 1.0
 	# Hard CC (freeze/shock) suppresses NEW attacks: hold the cooldown just above
 	# zero so no windup can trigger until it wears off. Chill only slows (above).
-	if _status != null and is_instance_valid(_status) and _status.is_hard_cc():
+	# It also FREEZES the rig's locomotion cycle so the body reads as rooted under
+	# the ice instead of jogging in place.
+	var hard_cc: bool = _status != null and is_instance_valid(_status) and _status.is_hard_cc()
+	if is_instance_valid(rig):
+		rig.set_frozen(hard_cc)
+	if hard_cc:
 		_attack_cooldown = maxf(_attack_cooldown, 0.05)
 	if not is_instance_valid(_hero):
 		# No target, but still honour an in-flight knockback so a killing-blow
@@ -276,9 +376,15 @@ func _physics_process(delta: float) -> void:
 		AttackState.CHARGING:
 			_process_charging(delta)
 			return
+		AttackState.LEAPING:
+			_process_leap(delta)
+			return
 	# Archetype-specific CHASE behaviour (chaser + brute fall through to default).
 	if archetype == Archetype.CASTER:
 		_caster_chase(delta)
+		return
+	if archetype == Archetype.MAGE:
+		_mage_chase(delta)
 		return
 	if archetype == Archetype.CHARGER:
 		_charger_chase(delta)
@@ -366,6 +472,8 @@ func _on_telegraph_fired() -> void:
 			_begin_lunge()
 		Archetype.BOMBER:
 			_detonate()
+		Archetype.MAGE:
+			_cast_mage_aoe()
 		_:
 			_resolve_strike(_strike_center)  # brute
 
@@ -421,6 +529,65 @@ func _fire_projectile() -> void:
 	_attack_state = AttackState.RECOVER
 	_recover_timer = ATTACK_RECOVER_TIME
 	_attack_cooldown = CASTER_COOLDOWN
+
+
+# ---------------------------------------------------------------- MAGE (AoE zoner)
+## Kite in the HORIZONTAL [MIN,MAX] band like the caster; when in-band and off
+## cooldown, telegraph a big ground AoE at the hero's snapshot position — dodge
+## OUT of the marked circle. The AoE itself is a parameterized BlastSpell aimed at
+## group "hero". Side-on: band on x only, gravity owns y.
+func _mage_chase(delta: float) -> void:
+	var to_hero: Vector2 = _hero.global_position - global_position
+	var dist_x: float = absf(to_hero.x)
+	var move_x: float = 0.0
+	if dist_x < MAGE_RANGE_MIN:
+		move_x = -signf(to_hero.x)                # too close — back away
+	elif dist_x > MAGE_RANGE_MAX:
+		move_x = signf(to_hero.x)                 # too far — close in
+	velocity.x = move_x * move_speed * _speed_scale + _knockback.x
+	_apply_gravity(delta)
+	move_and_slide()
+	rig.play(CharacterRig.State.RUN if move_x != 0.0 else CharacterRig.State.IDLE)
+	rig.set_facing(to_hero)
+	if _attack_cooldown <= 0.0 and dist_x >= MAGE_RANGE_MIN and dist_x <= MAGE_RANGE_MAX:
+		_start_mage_windup()
+
+
+## Root + mark the AoE ZONE where the hero stands NOW (snapshot). A moving hero
+## dodges out of the circle by the time it lands. Self charge-glow reads "FROM me".
+func _start_mage_windup() -> void:
+	_attack_state = AttackState.WINDUP
+	_strike_center = _hero.global_position
+	rig.flash()
+	_telegraph = Telegraph.new()
+	get_parent().add_child(_telegraph)
+	_telegraph.global_position = _strike_center     # the ground zone to dodge out of
+	_telegraph.source = self
+	_telegraph.accent = _accent()
+	_telegraph.style = Telegraph.Style.ZONE
+	_telegraph.fired.connect(_on_telegraph_fired)
+	_telegraph.start(MAGE_AOE_RADIUS, MAGE_WINDUP)
+	_spawn_caster_signal(13.0, MAGE_WINDUP)
+
+
+## The tell paid off: drop a configured BlastSpell on the marked spot, targeting
+## the HERO group, tinted + ailment-ed by the mage's rolled element. detonate_now
+## skips the BlastSpell's own windup — the Enemy telegraph already served the tell.
+func _cast_mage_aoe() -> void:
+	var blast_scene: PackedScene = load(MAGE_BLAST_SCENE)
+	var blast: Node2D = blast_scene.instantiate()
+	get_parent().add_child(blast)
+	blast.call("configure", {
+		"target_group": "hero",
+		"damage": MAGE_AOE_DAMAGE,
+		"radius": MAGE_AOE_RADIUS,
+		"knockback": MAGE_AOE_KNOCKBACK,
+		"element_id": _bolt_element,
+	})
+	blast.call("detonate_now", _strike_center)
+	_attack_state = AttackState.RECOVER
+	_recover_timer = ATTACK_RECOVER_TIME
+	_attack_cooldown = MAGE_COOLDOWN
 
 
 # --------------------------------------------------------------- CHARGER (lane)

@@ -30,6 +30,9 @@ func _process(_delta: float) -> bool:
 	failed += _test_horizontal_chase_intent()
 	failed += _test_charger_lane_is_horizontal()
 	failed += _test_jump_decision()
+	failed += _test_leap_decision()
+	failed += _test_leap_velocity_reaches_ledge()
+	failed += _test_mage_windup_and_aoe()
 	if failed > 0:
 		printerr("Slice3 enemy side-on tests: %d FAILED" % failed)
 		quit(1)
@@ -192,5 +195,86 @@ func _test_jump_decision() -> int:
 	enemy.set("_jump_cd", 0.5)
 	failed += _expect(not enemy._wants_chase_jump(), "jump cooldown still running -> no jump")
 
+	_teardown(ctx)
+	return failed
+
+
+## LEAP decision: a hero on a HIGH ledge (past the fixed hop's ~90px reach) and
+## roughly under/near on x triggers a leap; too-low / too-far / on-cooldown don't.
+func _test_leap_decision() -> int:
+	var failed: int = 0
+	var c: Dictionary = _consts()
+	# Hero 180 up (> LEAP_MIN_HEIGHT 105) and 120 near on x (< 400).
+	var ctx: Dictionary = _setup(int((c["Archetype"] as Dictionary)["CHASER"]), Vector2(120, -180), Vector2.ZERO)
+	var enemy: CharacterBody2D = ctx["enemy"]
+	var hero: StubHero = ctx["hero"]
+
+	enemy.set("_leap_cd", 0.0)
+	failed += _expect(enemy._wants_leap(), "hero on a high ledge, near on x -> wants to leap")
+
+	hero.global_position = Vector2(120, -70)
+	failed += _expect(not enemy._wants_leap(), "hero only a hop above (< LEAP_MIN_HEIGHT) -> no leap")
+
+	hero.global_position = Vector2(600, -180)
+	failed += _expect(not enemy._wants_leap(), "hero high but too far on x -> no leap")
+
+	hero.global_position = Vector2(120, -180)
+	enemy.set("_leap_cd", 1.0)
+	failed += _expect(not enemy._wants_leap(), "leap cooldown running -> no leap")
+
+	_teardown(ctx)
+	return failed
+
+
+## The ballistic solve actually CLEARS the target height: the launch apex above
+## the start (v.y^2 / 2g) must reach the ledge, the launch is upward, carries
+## toward the target, and the horizontal is capped.
+func _test_leap_velocity_reaches_ledge() -> int:
+	var failed: int = 0
+	var c: Dictionary = _consts()
+	var ctx: Dictionary = _setup(int((c["Archetype"] as Dictionary)["CHASER"]), Vector2(300, 0), Vector2.ZERO)
+	var enemy: CharacterBody2D = ctx["enemy"]
+	var g: float = float(c["GRAVITY"])
+	var ledge_h: float = 173.0
+	var v: Vector2 = enemy.compute_leap_velocity(Vector2.ZERO, Vector2(140.0, -ledge_h))
+	failed += _expect(v.y < 0.0, "leap launches upward")
+	var apex: float = (v.y * v.y) / (2.0 * g)
+	failed += _expect(apex >= ledge_h, "leap apex clears the target ledge height (%.0f >= %.0f)" % [apex, ledge_h])
+	failed += _expect(v.x > 0.0, "leap carries toward a target on the right")
+	failed += _expect(absf(v.x) <= float(c["LEAP_MAX_SPEED"]) + 0.01, "horizontal launch is capped")
+	_teardown(ctx)
+	return failed
+
+
+## MAGE: in-band it telegraphs a ground ZONE at the hero's snapshot spot, then the
+## tell fires a BlastSpell configured to hurt group "hero" — the hero takes the AoE.
+func _test_mage_windup_and_aoe() -> int:
+	var failed: int = 0
+	var c: Dictionary = _consts()
+	var states: Dictionary = c["AttackState"]
+	# Hero 300px right — inside the MAGE band [210, 380].
+	var ctx: Dictionary = _setup(int((c["Archetype"] as Dictionary)["MAGE"]), Vector2(300, 0), Vector2.ZERO)
+	var enemy: CharacterBody2D = ctx["enemy"]
+	var hero: StubHero = ctx["hero"]
+
+	enemy._physics_process(TICK)
+	failed += _expect(enemy.get("_attack_state") == states["WINDUP"], "mage in-band enters WINDUP")
+	var tg: Telegraph = null
+	for child in (ctx["arena"] as Node2D).get_children():
+		if child is Telegraph:
+			tg = child
+			break
+	failed += _expect(tg != null, "mage WINDUP spawns a ground-zone telegraph")
+	if tg != null:
+		failed += _expect(
+			tg.global_position == hero.global_position,
+			"mage AoE zone is snapshot at the hero's position (dodge OUT of it)"
+		)
+		tg.advance(float(c["MAGE_WINDUP"]) + 0.05)
+	failed += _expect(enemy.get("_attack_state") == states["RECOVER"], "mage enters RECOVER after casting")
+	failed += _expect(
+		hero.damage_calls.has(int(c["MAGE_AOE_DAMAGE"])),
+		"the hero standing in the marked zone takes the MAGE AoE damage"
+	)
 	_teardown(ctx)
 	return failed

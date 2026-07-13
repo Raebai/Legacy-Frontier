@@ -37,11 +37,21 @@ var _kick_offset: Vector2 = Vector2.ZERO
 var _lookahead: Vector2 = Vector2.ZERO
 var _tuning: Node = null  # cached /root/Tuning (null in headless -> const fallbacks)
 
-# --- Punch-zoom state (quick zoom-in kick that eases back to base) ---
+# --- Punch-zoom state (quick zoom-IN kick that eases back to base) ---
 var _zoom_base: Vector2 = DEFAULT_ZOOM
 var _zoom_timer: float = 0.0
 var _zoom_duration: float = 0.0
 var _zoom_amount: float = 0.0
+# --- Pull-zoom state (temporary zoom-OUT that eases out, HOLDS, eases back) so a
+# big spell reveals the whole play — the maker's "zoom out on meteor" ask. The
+# envelope runs ease_in -> hold -> ease_out; composed multiplicatively with the
+# punch so a blast can punch-in AND the ult pulls-out without fighting. ---
+var _pull_amount: float = 0.0    # fraction to widen (0.16 = show ~16% more)
+var _pull_ein: float = 0.12
+var _pull_hold: float = 0.5
+var _pull_eout: float = 0.55
+var _pull_elapsed: float = 0.0
+var _pull_active: bool = false
 
 
 func _ready() -> void:
@@ -75,29 +85,73 @@ func kick(dir: Vector2, amount: float) -> void:
 	_kick_offset = (_kick_offset + dir.normalized() * amount).limit_length(KICK_MAX)
 
 
-## Quick zoom-IN kick that eases back to whatever the zoom was at call time.
-## Base is captured at call time (demo harness and game use different zooms);
-## a punch landing mid-punch keeps the original un-punched base and just
-## re-arms the timer/amount so stacked blasts never ratchet the zoom.
+## Capture the resting zoom as the base ONLY when no zoom effect is running, so
+## punch + pull compose onto the true resting zoom instead of ratcheting off a
+## mid-effect value (demo harness + game use different resting zooms).
+func _capture_base_if_idle() -> void:
+	if _zoom_timer <= 0.0 and not _pull_active:
+		_zoom_base = zoom
+
+
+## Quick zoom-IN kick that eases back. Re-arming mid-punch keeps the base + just
+## resets the timer/amount so stacked blasts never ratchet the zoom.
 func zoom_punch(amount: float = 0.1, duration: float = 0.18) -> void:
 	if duration <= 0.0:
 		return
-	if _zoom_timer <= 0.0:
-		_zoom_base = zoom
+	_capture_base_if_idle()
 	_zoom_amount = amount
 	_zoom_duration = duration
 	_zoom_timer = duration
 
 
+## Temporary zoom-OUT that eases wide, HOLDS, then eases back — the "camera pulls
+## back to show the spell" beat for big spectacles (meteor / divine ray / ult).
+## amount is the widen fraction (0.16 shows ~16% more). Re-arming restarts the
+## envelope; the wider of two overlapping pulls wins via max on amount.
+func zoom_pull(amount: float = 0.16, hold: float = 0.5, ease_in: float = 0.12, ease_out: float = 0.55) -> void:
+	if amount <= 0.0:
+		return
+	_capture_base_if_idle()
+	_pull_amount = maxf(_pull_amount, amount) if _pull_active else amount
+	_pull_ein = maxf(ease_in, 0.001)
+	_pull_hold = maxf(hold, 0.0)
+	_pull_eout = maxf(ease_out, 0.001)
+	_pull_elapsed = 0.0
+	_pull_active = true
+
+
+## Current pull widen factor (0..1 of _pull_amount) across the ease/hold/ease
+## envelope. Clears _pull_active when the envelope completes.
+func _pull_progress(delta: float) -> float:
+	if not _pull_active:
+		return 0.0
+	_pull_elapsed += delta
+	var total: float = _pull_ein + _pull_hold + _pull_eout
+	if _pull_elapsed >= total:
+		_pull_active = false
+		return 0.0
+	if _pull_elapsed < _pull_ein:
+		return smoothstep(0.0, 1.0, _pull_elapsed / _pull_ein)
+	if _pull_elapsed < _pull_ein + _pull_hold:
+		return 1.0
+	var t: float = (_pull_elapsed - _pull_ein - _pull_hold) / _pull_eout
+	return smoothstep(1.0, 0.0, t)
+
+
 func _process(delta: float) -> void:
-	# --- Punch-zoom: quick zoom-in that eases back (e runs 1 -> 0). ---
+	# --- Compose zoom: resting base * punch-IN factor * pull-OUT factor. When both
+	# effects are idle, restore the base exactly. ---
+	var punch_factor: float = 1.0
 	if _zoom_timer > 0.0:
 		_zoom_timer = maxf(_zoom_timer - delta, 0.0)
-		if _zoom_timer <= 0.0:
-			zoom = _zoom_base  # restore exactly, once
-		else:
-			var e: float = _zoom_timer / _zoom_duration
-			zoom = _zoom_base * (1.0 + _zoom_amount * e)
+		if _zoom_timer > 0.0:
+			punch_factor = 1.0 + _zoom_amount * (_zoom_timer / _zoom_duration)
+	var pull_p: float = _pull_progress(delta)
+	var pull_factor: float = 1.0 - _pull_amount * pull_p  # < 1 widens the view
+	if _zoom_timer > 0.0 or _pull_active:
+		zoom = _zoom_base * punch_factor * pull_factor
+	elif punch_factor == 1.0 and pull_p == 0.0:
+		zoom = _zoom_base  # restore exactly, once both effects finish
 	# --- Lookahead: gentle peek toward where the hero AIMS (falls back to
 	# facing). Tracking aim not movement means strafing doesn't jerk the frame. ---
 	var lookahead_target: Vector2 = Vector2.ZERO

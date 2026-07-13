@@ -919,6 +919,19 @@ func _on_melee_hit_frame() -> void:
 		if prop.has_method("take_damage"):
 			prop.take_damage(_melee_damage)
 		hit_any = true
+	# A swing also SWATS enemy bolts out of the air (punch-fizzles-bolt): same
+	# range + facing-arc gate, so a well-timed punch is a melee "parry".
+	for proj: Node in get_tree().get_nodes_in_group("enemy_projectile"):
+		if not proj is Node2D:
+			continue
+		if global_position.distance_to((proj as Node2D).global_position) >= _melee_range:
+			continue
+		var toward_proj: Vector2 = ((proj as Node2D).global_position - global_position).normalized()
+		if facing.dot(toward_proj) <= MELEE_ARC_DOT:
+			continue
+		if proj.has_method("consume"):
+			proj.call("consume")
+			hit_any = true
 	if hit_any:
 		Juice.hit_stop(_tune("melee_hit_stop", MELEE_HIT_STOP))  # weighted: heavier than a spell hit
 		Juice.shake_camera(4.0)

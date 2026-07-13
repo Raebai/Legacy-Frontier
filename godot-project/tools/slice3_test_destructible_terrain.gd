@@ -66,8 +66,13 @@ func _test_terrain_starts_at_max_hp() -> int:
 		var rect_shape: RectangleShape2D = collider.shape as RectangleShape2D
 		failed += _expect(rect_shape != null, "collider shape is a RectangleShape2D")
 		if rect_shape != null:
+			# The collider grows DOWN by GROUND_OVERLAP_MARGIN (8px; the visual face
+			# stays block_size) so there's no flush T-junction seam you can walk under.
+			var margin: float = float((terrain.get_script() as GDScript).get_script_constant_map().get("GROUND_OVERLAP_MARGIN", 8.0))
+			var block: Vector2 = terrain.get("block_size")
+			var expected: Vector2 = block + Vector2(0.0, margin)
 			failed += _expect(
-				rect_shape.size == terrain.block_size, "collider size matches block_size"
+				rect_shape.size == expected, "collider size = block_size grown down by the overlap margin"
 			)
 	return failed
 

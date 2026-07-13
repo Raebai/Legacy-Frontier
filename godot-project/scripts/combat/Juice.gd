@@ -46,3 +46,14 @@ static func zoom_punch_camera(amount: float = 0.1, duration: float = 0.18) -> vo
 	for cam in tree.get_nodes_in_group("combat_camera"):
 		if cam.has_method("zoom_punch"):
 			cam.zoom_punch(amount, duration)
+
+
+## Temporary zoom-OUT that eases wide, holds, eases back — the "camera pulls back
+## to show the big spell" beat (meteor / divine ray / ultimate spectacles).
+static func zoom_pull_camera(amount: float = 0.16, hold: float = 0.5, ease_in: float = 0.12, ease_out: float = 0.55) -> void:
+	var tree: SceneTree = _tree()
+	if tree == null:
+		return
+	for cam in tree.get_nodes_in_group("combat_camera"):
+		if cam.has_method("zoom_pull"):
+			cam.zoom_pull(amount, hold, ease_in, ease_out)
