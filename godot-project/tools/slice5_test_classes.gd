@@ -30,6 +30,7 @@ func _process(_delta: float) -> bool:
 	var failed: int = 0
 	failed += _test_all_classes_configure()
 	failed += _test_class_elements_and_aoe()
+	failed += _test_class_primaries()
 	failed += _test_signature_loadouts()
 	failed += _test_rush_line_geometry()
 	failed += _test_new_element_ailments()
@@ -84,6 +85,36 @@ func _test_class_elements_and_aoe() -> int:
 		hero.configure_class(cls)
 		failed += _expect(int(hero._element) == expect_element[cls], "class %d element = %d" % [cls, expect_element[cls]])
 		failed += _expect(String(hero._cfg["aoe"]) == expect_aoe[cls], "class %d AoE = %s" % [cls, expect_aoe[cls]])
+	hero.queue_free()
+	return failed
+
+
+## Each class has a STRUCTURALLY distinct primary (LMB) + movement identity — the
+## maker's "classes must feel different, not just different spells" requirement.
+func _test_class_primaries() -> int:
+	var failed: int = 0
+	var hero: CharacterBody2D = _make_hero()
+	# Expected LMB primary per class (default "bolt" when unset).
+	var expect_primary: Array[String] = [
+		"bolt", "bolt", "melee_combo", "heavy_swing", "bolt", "frost_cone", "bolt", "bolt"
+	]
+	for cls: int in range(8):
+		hero.configure_class(cls)
+		var prim: String = String(hero._cfg.get("primary", "bolt"))
+		failed += _expect(prim == expect_primary[cls], "class %d primary = %s (got %s)" % [cls, expect_primary[cls], prim])
+	# Brawler (2): melee primary + no magic + a double-jump + an uppercut mobility.
+	hero.configure_class(2)
+	failed += _expect(int(hero._max_air_jumps) == 1, "Brawler double-jumps (air_jumps 1)")
+	failed += _expect(String(hero._cfg.get("mobility2", "")) == "uppercut", "Brawler R is the uppercut")
+	# Juggernaut (3): wide slow swing + a long BLOCK window.
+	hero.configure_class(3)
+	failed += _expect(hero._melee_arc_dot <= 0.0, "Juggernaut swings a wide (>=180deg) arc")
+	failed += _expect(hero._parry_window_len > 0.3, "Juggernaut BLOCK has a long defensive window")
+	# Cleric (4) heal-bolt + Stormcaller (6) chain-bolt flags present.
+	hero.configure_class(4)
+	failed += _expect(int(hero._cfg.get("bolt_heal", 0)) > 0, "Cleric bolt lifesteals")
+	hero.configure_class(6)
+	failed += _expect(int(hero._cfg.get("bolt_chain", 0)) > 0, "Stormcaller bolt chains")
 	hero.queue_free()
 	return failed
 

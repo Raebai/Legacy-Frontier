@@ -7,6 +7,14 @@ const SPEED: float = 460.0
 const MAX_TRAVEL: float = 2600.0
 
 @export var damage: int = 18
+## Per-class primary flavour (all default off = the plain Arcanist bolt):
+## heal_on_hit lifesteals to `caster` (Cleric/Warlock); chain_count arcs the hit
+## to nearby enemies (Stormcaller). caster is the Hero, for the lifesteal callback.
+var heal_on_hit: int = 0
+var caster: Node = null
+var chain_count: int = 0
+const CHAIN_RANGE: float = 200.0
+const CHAIN_DAMAGE_FACTOR: float = 0.5
 var _dir: Vector2 = Vector2.RIGHT
 var _traveled: float = 0.0
 ## Element tint (see Elements.gd). While unset, every visual keeps the
@@ -118,6 +126,12 @@ func _try_damage(node: Node) -> void:
 		node.take_damage(damage)
 		if element_id >= 0 and node.has_method("apply_status"):
 			node.apply_status(element_id)
+		# Lifesteal (Cleric heal-bolt / Warlock drain-bolt): heal the caster.
+		if heal_on_hit > 0 and is_instance_valid(caster) and caster.has_method("heal"):
+			caster.call("heal", heal_on_hit)
+		# Chain (Stormcaller chain-bolt): arc the hit to nearby stragglers.
+		if chain_count > 0:
+			_do_chain(node)
 		Sfx.play("spell_impact")
 		Juice.hit_stop(0.045)  # weighted: lightest impact in the ladder
 		Juice.shake_camera(6.0)
@@ -149,6 +163,37 @@ func _try_damage(node: Node) -> void:
 		_spawn_impact_burst()
 		DebrisChunk.spawn_burst(get_parent(), global_position, Color(0.5, 0.5, 0.55), 5, _dir, 210.0)
 		queue_free()
+
+
+## Chain the hit to the nearest OTHER enemies (Stormcaller). Each arc deals a
+## fraction of damage + the element + a spark line so the jump reads.
+func _do_chain(first: Node) -> void:
+	var here: Vector2 = global_position
+	var already: Array = [first]
+	var arc_dmg: int = int(round(float(damage) * CHAIN_DAMAGE_FACTOR))
+	for _i: int in chain_count:
+		var best: Node2D = null
+		var best_d: float = CHAIN_RANGE
+		for e: Node in get_tree().get_nodes_in_group("enemy"):
+			if e in already or not e is Node2D or not is_instance_valid(e):
+				continue
+			var d: float = here.distance_to((e as Node2D).global_position)
+			if d < best_d:
+				best_d = d
+				best = e as Node2D
+		if best == null:
+			break
+		if best.has_method("take_damage"):
+			best.take_damage(arc_dmg)
+		if element_id >= 0 and best.has_method("apply_status"):
+			best.apply_status(element_id, false)
+		var col: Color = _element_color if _has_element_color else Color(1.0, 0.95, 0.4)
+		CombatVfx.spawn_burst(
+			get_parent(), best.global_position, Color(col.r, col.g, col.b, 0.95),
+			Color(col.r, col.g, col.b, 0.0), 8, 0.22, 50.0, 130.0
+		)
+		already.append(best)
+		here = best.global_position
 
 
 func _spawn_impact_burst() -> void:

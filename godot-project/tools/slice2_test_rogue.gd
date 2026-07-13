@@ -48,7 +48,7 @@ func _test_rogue_config() -> int:
 	hero.configure_class(hero.HeroClass.ROGUE)
 	failed += _expect(String(hero.rig.equipment.get("weapon", "")) == "sword", "rogue equips sword")
 	failed += _expect(hero._melee_damage == 26, "rogue melee retuned to sword damage 26")
-	failed += _expect(is_equal_approx(float(hero._cfg["cast_cd"]), 0.26), "rogue cast_cd 0.26")
+	failed += _expect(is_equal_approx(float(hero._cfg["cast_cd"]), 0.30), "rogue cast_cd 0.30 (burst-flurry recover)")
 	failed += _expect(is_equal_approx(float(hero._cfg["dash_cd"]), 0.70), "rogue dash_cd 0.70 (no dash-fly)")
 	failed += _expect(is_equal_approx(float(hero._cfg["blink_cd"]), 1.0), "rogue blink_cd 1.0")
 	failed += _expect(bool(hero._cfg["dash_strike"]) == true, "rogue has dash_strike")
@@ -77,10 +77,10 @@ func _test_mage_config_unchanged() -> int:
 
 func _test_throw_blade_damage() -> int:
 	var failed: int = 0
-	# Rogue blade is lighter (11); mage bolt is the Spell default (18).
+	# Rogue blade is lighter (9, burst-flurry); mage bolt is the Spell default (18).
 	var rogue: CharacterBody2D = _make_hero()
 	rogue.configure_class(rogue.HeroClass.ROGUE)
-	failed += _expect(_cast_and_read_damage(rogue) == 11, "rogue thrown blade deals 11")
+	failed += _expect(_cast_and_read_damage(rogue) == 9, "rogue thrown blade deals 9 (burst)")
 	var mage: CharacterBody2D = _make_hero()
 	mage.configure_class(mage.HeroClass.MAGE)
 	failed += _expect(_cast_and_read_damage(mage) == 18, "mage bolt deals the default 18")

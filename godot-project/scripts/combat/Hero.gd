@@ -144,51 +144,58 @@ const CLASS_CONFIG: Dictionary = {
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
 		"aoe": "blast", "has_nova": true, "can_parry": true,
 	},
-	HeroClass.ROGUE: {  # SHADOWBLADE — in-and-out assassin (shadow sword)
+	HeroClass.ROGUE: {  # SHADOWBLADE — twitchy assassin; LMB = 3-dagger flurry
 		"preset": "rogue", "weapon": "sword", "element": Elements.Element.SHADOW, "melee_element": Elements.Element.SHADOW,
-		"cast_cd": 0.26, "dash_cd": 0.70, "blink_cd": 1.0,
+		"primary": "bolt", "bolt_burst": 3, "bolt_spread": 0.13,
+		"cast_cd": 0.30, "dash_cd": 0.70, "blink_cd": 1.0,
 		"blast_cd": 2.5,
-		"throw_blade": true, "blade_damage": 11,
+		"throw_blade": true, "blade_damage": 9,
 		"dash_strike": true, "dash_strike_damage": 16, "dash_strike_range": 42.0,
 		"aoe": "nova", "has_nova": false, "can_parry": true,
 	},
-	HeroClass.BRAWLER: {  # pure melee, huge knockback — fire fists + Chidori ult
+	HeroClass.BRAWLER: {  # PURE MELEE, no magic — punch/kick combo + double-jump + Chidori
 		"preset": "brawler", "weapon": "", "element": Elements.Element.FIRE, "melee_element": Elements.Element.FIRE,
+		"primary": "melee_combo", "air_jumps": 1, "melee_cd": 0.20, "melee_knockback": 320.0,
 		"cast_cd": 0.22, "dash_cd": 0.70, "blink_cd": 1.1, "blast_cd": 2.2,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": true, "dash_strike_damage": 20, "dash_strike_range": 44.0,
-		"aoe": "fist_shock", "has_nova": true, "can_parry": true,
+		"mobility2": "uppercut", "aoe": "fist_shock", "has_nova": true, "can_parry": true,
 	},
-	HeroClass.JUGGERNAUT: {  # tank bruiser — hammer + ground slam
+	HeroClass.JUGGERNAUT: {  # slow siege tank — wide heavy hammer, BLOCK, no blink
 		"preset": "juggernaut", "weapon": "sword", "element": Elements.Element.EARTH, "melee_element": Elements.Element.EARTH,
+		"primary": "heavy_swing", "melee_cd": 0.55, "melee_arc_dot": 0.0, "melee_damage": 30, "melee_range": 70.0, "melee_knockback": 470.0,
 		"cast_cd": 0.40, "dash_cd": 0.90, "blink_cd": 1.4, "blast_cd": 2.6,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": true, "dash_strike_damage": 22, "dash_strike_range": 48.0,
-		"aoe": "ground_slam", "has_nova": true, "can_parry": true,
+		"defense": "block", "aoe": "ground_slam", "has_nova": true, "can_parry": true,
 	},
-	HeroClass.CLERIC: {  # radiant bruiser — holy
+	HeroClass.CLERIC: {  # radiant sustain bruiser — LMB heal-bolt (lifesteal)
 		"preset": "cleric", "weapon": "staff", "element": Elements.Element.HOLY, "melee_element": Elements.Element.HOLY,
+		"primary": "bolt", "bolt_heal": 4,
 		"cast_cd": 0.32, "dash_cd": 0.85, "blink_cd": 1.2, "blast_cd": 2.4,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
 		"aoe": "blast", "has_nova": true, "can_parry": true,
 	},
-	HeroClass.CRYOMANCER: {  # ice control caster
+	HeroClass.CRYOMANCER: {  # ice control — LMB is a FROST CONE, not a bolt
 		"preset": "cryomancer", "weapon": "staff", "element": Elements.Element.ICE, "melee_element": Elements.Element.ICE,
+		"primary": "frost_cone",
 		"cast_cd": 0.34, "dash_cd": 0.90, "blink_cd": 1.2, "blast_cd": 2.6,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
 		"aoe": "blast", "has_nova": true, "can_parry": true,
 	},
-	HeroClass.STORMCALLER: {  # chain-lightning caster — faster wind-dash
+	HeroClass.STORMCALLER: {  # hyper-mobile chain caster — LMB arcs, fast wind-dash
 		"preset": "stormcaller", "weapon": "staff", "element": Elements.Element.LIGHTNING, "melee_element": Elements.Element.LIGHTNING,
-		"cast_cd": 0.30, "dash_cd": 0.60, "blink_cd": 1.0, "blast_cd": 2.4,
+		"primary": "bolt", "bolt_chain": 2,
+		"cast_cd": 0.30, "dash_cd": 0.55, "blink_cd": 1.0, "blast_cd": 2.4,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
 		"aoe": "blast", "has_nova": true, "can_parry": true,
 	},
-	HeroClass.WARLOCK: {  # dark hexer — shadow scythe
+	HeroClass.WARLOCK: {  # dark attrition hexer — LMB drain-bolt (weaken + lifesteal)
 		"preset": "warlock", "weapon": "sword", "element": Elements.Element.SHADOW, "melee_element": Elements.Element.SHADOW,
+		"primary": "bolt", "bolt_heal": 3,
 		"cast_cd": 0.30, "dash_cd": 0.85, "blink_cd": 1.1, "blast_cd": 2.5,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
@@ -226,17 +233,21 @@ var _blink_iframe_timer: float = 0.0
 var _nova_cooldown_timer: float = 0.0
 var _parry_window_timer: float = 0.0
 var _parry_cooldown_timer: float = 0.0
+var _parry_window_len: float = PARRY_WINDOW  # per-class (Juggernaut BLOCK = longer window)
 var _wall_jump_lock: float = 0.0   # horizontal-input lock after a wall-kick
 var _was_wall_sliding: bool = false
 var _wall_dust_timer: float = 0.0
 var _coyote: float = 0.0
 var _jump_buffer: float = 0.0
 var _air_jumps: int = 0
+var _max_air_jumps: int = 0  # per-class air jumps (Brawler double-jumps); set in configure_class
 var _was_on_floor: bool = true  # for the landing-dust transition edge
 var _weapon: String = "fists"
 var _melee_damage: int = MELEE_DAMAGE
 var _melee_range: float = MELEE_RANGE
 var _melee_knockback: float = MELEE_KNOCKBACK
+var _melee_cd: float = MELEE_COOLDOWN     # per-class swing cadence (Brawler fast, Juggernaut slow)
+var _melee_arc_dot: float = MELEE_ARC_DOT # per-class arc width (Juggernaut swings wide)
 var _buffered_action: String = ""
 var _buffer_timer: float = 0.0
 var _knockback: Vector2 = Vector2.ZERO  # shove received from an enemy hit / bomb
@@ -369,10 +380,10 @@ func _physics_process(delta: float) -> void:
 	if _try_fire_buffered():
 		return  # a dash started this frame — the dash branch owns movement now
 
-	# Coyote window + air-jump refill while grounded.
+	# Coyote window + air-jump refill while grounded (per-class: Brawler double-jumps).
 	if is_on_floor():
 		_coyote = COYOTE_TIME
-		_air_jumps = MAX_AIR_JUMPS
+		_air_jumps = _max_air_jumps
 	else:
 		_coyote = maxf(_coyote - delta, 0.0)
 
@@ -408,6 +419,13 @@ func _physics_process(delta: float) -> void:
 			velocity.x = wall_normal.x * WALL_JUMP_PUSH * boost
 			velocity.y = WALL_JUMP_UP
 			_wall_jump_lock = WALL_JUMP_LOCKOUT
+			_jump_buffer = 0.0
+			_spawn_foot_puff()
+		elif _air_jumps > 0:
+			# Air (double) jump — classes with air_jumps > 0 (Brawler). A puff + a
+			# quick flip-flourish sells the mid-air kick.
+			velocity.y = DOUBLE_JUMP_VELOCITY
+			_air_jumps -= 1
 			_jump_buffer = 0.0
 			_spawn_foot_puff()
 
@@ -557,6 +575,16 @@ func configure_class(cls: int) -> void:
 		_melee_damage = MELEE_DAMAGE
 		_melee_range = MELEE_RANGE
 		_melee_knockback = MELEE_KNOCKBACK
+	# Per-class melee tuning (cadence + arc width + optional stat overrides) so a
+	# Brawler jabs fast/narrow and a Juggernaut swings slow/wide/hard.
+	_melee_cd = float(_cfg.get("melee_cd", MELEE_COOLDOWN))
+	_melee_arc_dot = float(_cfg.get("melee_arc_dot", MELEE_ARC_DOT))
+	if _cfg.has("melee_damage"):
+		_melee_damage = int(_cfg["melee_damage"])
+	if _cfg.has("melee_range"):
+		_melee_range = float(_cfg["melee_range"])
+	if _cfg.has("melee_knockback"):
+		_melee_knockback = float(_cfg["melee_knockback"])
 	_dash_cooldown_timer = 0.0
 	_cast_cooldown_timer = 0.0
 	_blink_cooldown_timer = 0.0
@@ -565,6 +593,11 @@ func configure_class(cls: int) -> void:
 	_parry_window_timer = 0.0
 	_parry_cooldown_timer = 0.0
 	_clear_input_buffer()
+	# Per-class movement identity: air (double) jumps refill count.
+	_max_air_jumps = int(_cfg.get("air_jumps", 0))
+	_air_jumps = _max_air_jumps
+	# Juggernaut BLOCK = a longer, more forgiving defensive window than a parry.
+	_parry_window_len = 0.40 if String(_cfg.get("defense", "parry")) == "block" else PARRY_WINDOW
 	# Auto-set the class's signature element (X still cycles from here) + swap in
 	# the class's themed signature loadout (its hero-fantasy ultimate first).
 	if _cfg.has("element"):
@@ -705,6 +738,11 @@ func _start_dash() -> void:
 ## the destination, and grants BLINK_IFRAME seconds of invulnerability. Buffered
 ## like dash/melee/blast; only reachable from the not-dashing path.
 func _blink() -> void:
+	# Brawler can't teleport — its R is a launcher UPPERCUT that pops enemies into
+	# the air (double-jump after them to juggle).
+	if String(_cfg.get("mobility2", "blink")) == "uppercut":
+		_uppercut()
+		return
 	if _blink_cooldown_timer > 0.0:
 		return
 	_blink_cooldown_timer = _cfg["blink_cd"]
@@ -734,6 +772,40 @@ func _blink() -> void:
 	rig.flash_color(BLINK_ARRIVAL_FLASH_COLOR, BLINK_ARRIVAL_FLASH_TIME)
 	rig.play(CharacterRig.State.CAST)
 	Sfx.play("blink", 0.0, 0.1)  # dedicated synth "vwip" teleport sound
+
+
+## BRAWLER uppercut (R) — a rising launcher: the hero hops and everything in a
+## short forward range is popped UP (sets up an air-juggle with the double-jump).
+func _uppercut() -> void:
+	if _blink_cooldown_timer > 0.0:
+		return
+	_blink_cooldown_timer = maxf(_cfg["blink_cd"], 1.1)
+	rig.set_facing(_aim_dir)
+	rig.play(CharacterRig.State.KICK)
+	velocity.y = -320.0  # the hero rises with the uppercut
+	var face_x: float = signf(_aim_dir.x) if _aim_dir.x != 0.0 else 1.0
+	var hit_any: bool = false
+	for enemy: Node in get_tree().get_nodes_in_group("enemy"):
+		if not enemy is Node2D:
+			continue
+		var to: Vector2 = enemy.global_position - global_position
+		if to.length() > 70.0 or signf(to.x) != face_x and absf(to.x) > 10.0:
+			continue
+		if enemy.has_method("take_damage"):
+			enemy.take_damage(18)
+		if enemy.has_method("apply_knockback"):
+			enemy.apply_knockback(Vector2(face_x * 120.0, -470.0))  # POP up + slight away
+		if enemy.has_method("apply_status"):
+			enemy.apply_status(_element)
+		hit_any = true
+	CombatVfx.spawn_burst(
+		get_parent(), global_position + Vector2(face_x * 20.0, -6.0),
+		Color(1.0, 0.9, 0.5, 0.8), Color(1.0, 0.5, 0.15, 0.0), 12, 0.3, 60.0, 180.0
+	)
+	Sfx.play("melee_hit")
+	if hit_any:
+		Juice.hit_stop(0.06)
+		Juice.shake_camera(5.0)
 
 
 ## Blink landing safety: the endpoint may never rest INSIDE a solid. Test the
@@ -787,26 +859,130 @@ func _blink_shape() -> Shape2D:
 	return null
 
 
+## The LMB PRIMARY — dispatched per class so no two classes attack the same way:
+## melee_combo (Brawler punch/kick, no magic), heavy_swing (Juggernaut wide slow
+## hammer), frost_cone (Cryomancer chilling cone), or a bolt with per-class flavour
+## flags (plain / heal / drain / chain / burst). This is the core "classes feel
+## different, not just different spells" fix.
 func _cast() -> void:
+	match String(_cfg.get("primary", "bolt")):
+		"melee_combo":
+			_primary_melee_combo()
+		"heavy_swing":
+			_primary_heavy_swing()
+		"frost_cone":
+			_primary_frost_cone()
+		_:
+			_primary_bolt()
+
+
+## Ranged bolt with per-class flavour: bolt_heal (Cleric/Warlock lifesteal),
+## bolt_chain (Stormcaller arc), bolt_burst (Shadowblade flurry, spread shots).
+func _primary_bolt() -> void:
 	_cast_cooldown_timer = _cfg["cast_cd"]
 	var enemies: Array = get_tree().get_nodes_in_group("enemy")
-	# Aim at the cursor, softly assisted toward an enemy inside the forgiveness
-	# cone so you connect without pixel-hunting (twin-stick, touch-portable).
-	var dir: Vector2 = Targeting.assisted_aim(global_position, _aim_dir, enemies)
+	# Aim at the cursor, softly assisted toward an enemy inside the forgiveness cone.
+	var base_dir: Vector2 = Targeting.assisted_aim(global_position, _aim_dir, enemies)
 	rig.set_aim(_aim_dir)
-	rig.play(CharacterRig.State.CAST)  # pose the staff at the aim FIRST...
-	var spell: Area2D = SPELL_SCENE.instantiate()
-	get_parent().add_child(spell)
-	spell.global_position = rig.get_weapon_tip()  # ...so the bolt leaves the tip
-	spell.launch(dir)
-	if spell.has_method("set_element_color"):
-		spell.call("set_element_color", _element_color)
-	spell.set("element_id", _element)  # a hit applies the active element's ailment
-	if bool(_cfg["throw_blade"]):
-		spell.set("damage", int(_cfg["blade_damage"]))  # rogue: faster, lighter
+	rig.play(CharacterRig.State.CAST)
+	var origin: Vector2 = rig.get_weapon_tip()
+	var burst: int = int(_cfg.get("bolt_burst", 1))
+	var spread: float = float(_cfg.get("bolt_spread", 0.0))
+	for i: int in maxi(burst, 1):
+		# Fan a burst symmetrically around the aim (single shot -> no offset).
+		var off: float = 0.0 if burst <= 1 else (float(i) - float(burst - 1) * 0.5) * spread
+		var dir: Vector2 = base_dir.rotated(off)
+		var spell: Area2D = SPELL_SCENE.instantiate()
+		get_parent().add_child(spell)
+		spell.global_position = origin
+		spell.launch(dir)
+		if spell.has_method("set_element_color"):
+			spell.call("set_element_color", _element_color)
+		spell.set("element_id", _element)
+		if bool(_cfg["throw_blade"]):
+			spell.set("damage", int(_cfg["blade_damage"]))
+		# Flavour flags.
+		var heal: int = int(_cfg.get("bolt_heal", 0))
+		if heal > 0:
+			spell.set("heal_on_hit", heal)
+			spell.set("caster", self)
+		var chain: int = int(_cfg.get("bolt_chain", 0))
+		if chain > 0:
+			spell.set("chain_count", chain)
 	Sfx.play("cast", 0.0, 0.08)
-	Juice.shake_camera(1.0)  # trimmed from 2.0 — casting shouldn't rattle the frame
+	Juice.shake_camera(1.0)
 	_notify_element_used()
+
+
+## BRAWLER primary — a punch→punch→KICK melee combo that steps you forward. No
+## projectile. The melee cooldown gates the cadence, so holding LMB auto-combos;
+## every 3rd swing is a launcher kick. Reuses the rig PUNCH/KICK + hit_frame path.
+func _primary_melee_combo() -> void:
+	if _melee_cooldown_timer > 0.0:
+		return
+	rig.set_facing(_aim_dir)
+	_melee()  # alternates PUNCH/KICK via _melee_kick_next, sets _melee_cooldown, swing sfx
+	# Step INTO the combo so the boxer walks his punches forward.
+	if _aim_dir.x != 0.0:
+		velocity.x = signf(_aim_dir.x) * 200.0
+
+
+## JUGGERNAUT primary — a slow, wide overhead hammer swing that staggers a crowd.
+## Wide arc + big knockback come from the per-class melee params (configure_class);
+## the slow _melee_cd is the commitment.
+func _primary_heavy_swing() -> void:
+	if _melee_cooldown_timer > 0.0:
+		return
+	rig.set_facing(_aim_dir)
+	rig.play(CharacterRig.State.PUNCH)
+	_melee_cooldown_timer = _melee_cd
+	Sfx.play("melee_swing", 0.0, 0.12)
+
+
+## CRYOMANCER primary — a short-range FROST CONE (no projectile): every enemy in
+## the forward arc is chilled (2nd stack freezes) + lightly shoved. Forces mid-range.
+func _primary_frost_cone() -> void:
+	if _cast_cooldown_timer > 0.0:
+		return
+	_cast_cooldown_timer = _cfg["cast_cd"]
+	rig.set_aim(_aim_dir)
+	rig.play(CharacterRig.State.CAST)
+	const CONE_RANGE: float = 118.0
+	const CONE_COS: float = 0.5  # ~60° half-angle
+	const CONE_DAMAGE: int = 12
+	var hit_any: bool = false
+	for enemy: Node in get_tree().get_nodes_in_group("enemy"):
+		if not enemy is Node2D:
+			continue
+		var to: Vector2 = enemy.global_position - global_position
+		if to.length() > CONE_RANGE or _aim_dir.dot(to.normalized()) < CONE_COS:
+			continue
+		if enemy.has_method("take_damage"):
+			enemy.take_damage(CONE_DAMAGE)
+		if enemy.has_method("apply_status"):
+			enemy.apply_status(_element)
+		if enemy.has_method("apply_knockback"):
+			enemy.apply_knockback(to.normalized() * 160.0)
+		hit_any = true
+	# Frost fan VFX along the aim.
+	var fan_at: Vector2 = global_position + _aim_dir * CONE_RANGE * 0.55
+	CombatVfx.spawn_burst(
+		get_parent(), fan_at, Color(0.85, 0.97, 1.0, 0.9), Color(0.5, 0.8, 1.0, 0.0),
+		20, 0.32, 120.0, 260.0, 0.6, 1.8
+	)
+	Sfx.play("cast", -2.0, 0.06)
+	if hit_any:
+		Juice.shake_camera(2.0)
+	_notify_element_used()
+
+
+## Heal the hero (Cleric/Warlock lifesteal, Cleric heal-nova). Clamps to max_hp.
+func heal(amount: int) -> void:
+	if amount <= 0 or hp >= max_hp:
+		return
+	hp = mini(hp + amount, max_hp)
+	health_changed.emit(hp, max_hp)
+	rig.flash_color(Color(0.6, 1.0, 0.7), 0.08)  # a soft green heal tick
 
 
 ## The Q slot — dispatched on the class's AoE variant. Every variant carries the
@@ -899,7 +1075,7 @@ func _try_parry_start() -> void:
 		return  # class can't parry (mage)
 	if _parry_cooldown_timer > 0.0:
 		return
-	_parry_window_timer = PARRY_WINDOW
+	_parry_window_timer = _parry_window_len
 	_parry_cooldown_timer = PARRY_COOLDOWN
 	# The Stick-Fight block: a white curved shield SHELL thrown up in the aim
 	# direction (the tell), plus an arm-raise. No omni flash/burst.
@@ -1007,7 +1183,7 @@ func equip_weapon(kind: String) -> void:
 
 
 func _melee() -> void:
-	_melee_cooldown_timer = MELEE_COOLDOWN
+	_melee_cooldown_timer = _melee_cd
 	if _melee_kick_next:
 		rig.play(CharacterRig.State.KICK)
 	else:
@@ -1025,7 +1201,7 @@ func _on_melee_hit_frame() -> void:
 		if global_position.distance_to(enemy.global_position) >= _melee_range:
 			continue
 		var toward: Vector2 = (enemy.global_position - global_position).normalized()
-		if facing.dot(toward) <= MELEE_ARC_DOT:
+		if facing.dot(toward) <= _melee_arc_dot:
 			continue
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(_melee_damage)
@@ -1041,7 +1217,7 @@ func _on_melee_hit_frame() -> void:
 		if global_position.distance_to(prop.global_position) >= _melee_range:
 			continue
 		var toward_prop: Vector2 = (prop.global_position - global_position).normalized()
-		if facing.dot(toward_prop) <= MELEE_ARC_DOT:
+		if facing.dot(toward_prop) <= _melee_arc_dot:
 			continue
 		if prop.has_method("take_damage"):
 			prop.take_damage(_melee_damage)
@@ -1054,7 +1230,7 @@ func _on_melee_hit_frame() -> void:
 		if global_position.distance_to((proj as Node2D).global_position) >= _melee_range:
 			continue
 		var toward_proj: Vector2 = ((proj as Node2D).global_position - global_position).normalized()
-		if facing.dot(toward_proj) <= MELEE_ARC_DOT:
+		if facing.dot(toward_proj) <= _melee_arc_dot:
 			continue
 		if proj.has_method("consume"):
 			proj.call("consume")
