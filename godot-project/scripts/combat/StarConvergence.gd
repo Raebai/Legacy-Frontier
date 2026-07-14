@@ -97,7 +97,7 @@ func _impact_burst(at: Vector2) -> void:
 	var fade: Color = Color(_color.r, _color.g, _color.b, 0.0)
 	CombatVfx.spawn_burst(
 		get_parent(), at, Color(1.0, 0.99, 0.9, 0.98), fade,
-		64, 0.7, 120.0, 380.0, 1.5, 4.0, 1.0, 2.5
+		64, 0.7, 120.0, 380.0, 1.5, 4.0, 1.0, 2.5, true
 	)
 
 

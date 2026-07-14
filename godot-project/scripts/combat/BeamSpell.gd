@@ -142,23 +142,23 @@ func _impact_burst(tip: Vector2) -> void:
 		"frost":
 			CombatVfx.spawn_burst(
 				get_parent(), tip, Color(0.9, 0.98, 1.0, 0.95), fade,
-				40, 0.45, 180.0, 420.0, 0.7, 1.8, 3.0, 6.0
+				40, 0.45, 180.0, 420.0, 0.7, 1.8, 3.0, 6.0, true
 			)
 		"fire":
 			CombatVfx.spawn_burst(
 				get_parent(), tip, Color(1.0, 0.85, 0.4, 0.95), Color(0.85, 0.15, 0.05, 0.0),
-				46, 0.55, 100.0, 320.0, 1.5, 4.0
+				46, 0.55, 100.0, 320.0, 1.5, 4.0, 0.0, 0.0, true
 			)
 			DebrisChunk.spawn_burst(get_parent(), tip, Color(0.55, 0.25, 0.1), 4, _dir, 200.0)
 		"holy":
 			CombatVfx.spawn_burst(
 				get_parent(), tip, Color(1.0, 0.99, 0.9, 0.98), fade,
-				52, 0.65, 60.0, 220.0, 1.0, 3.0, 1.0, 2.5
+				52, 0.65, 60.0, 220.0, 1.0, 3.0, 1.0, 2.5, true
 			)
 		_:
 			CombatVfx.spawn_burst(
 				get_parent(), tip, Color(1, 1, 1, 0.95), fade,
-				46, 0.5, 120.0, 360.0, 1.5, 4.0
+				46, 0.5, 120.0, 360.0, 1.5, 4.0, 0.0, 0.0, true
 			)
 
 

@@ -14,6 +14,21 @@ const DOT_SIZE: float = 16.0
 const SCALE_FACTOR: float = 0.15
 static var _dot_tex: Texture2D = null
 
+## Cached additive blend material. Overlapping energy motes SUM to white-hot
+## (a real spark/fireball) instead of averaging to muddy grey. Shared static so
+## every additive burst reuses one material (no per-cast alloc churn). Debris /
+## dust / smoke bursts leave this off (`additive=false`) and stay alpha-blended.
+static var _add_mat: CanvasItemMaterial = null
+
+
+static func additive_mat() -> CanvasItemMaterial:
+	if _add_mat != null:
+		return _add_mat
+	var m := CanvasItemMaterial.new()
+	m.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	_add_mat = m
+	return _add_mat
+
 
 static func _soft_dot() -> Texture2D:
 	if _dot_tex != null:
@@ -48,9 +63,10 @@ static func spawn_burst(
 	scale_max: float = 3.0,
 	damping_min: float = 0.0,
 	damping_max: float = 0.0,
-) -> void:
+	additive: bool = false,
+) -> GPUParticles2D:
 	if parent == null or not parent.is_inside_tree():
-		return
+		return null
 	var burst := GPUParticles2D.new()
 	burst.emitting = false
 	burst.one_shot = true
@@ -58,6 +74,8 @@ static func spawn_burst(
 	burst.amount = amount
 	burst.lifetime = lifetime
 	burst.texture = _soft_dot()  # glowing round dots, not hard squares
+	if additive:
+		burst.material = additive_mat()  # energy motes build to white-hot
 	var mat := ParticleProcessMaterial.new()
 	mat.particle_flag_disable_z = true
 	mat.spread = 180.0
@@ -81,3 +99,4 @@ static func spawn_burst(
 	burst.restart()
 	burst.emitting = true
 	parent.get_tree().create_timer(lifetime + 0.3).timeout.connect(burst.queue_free)
+	return burst

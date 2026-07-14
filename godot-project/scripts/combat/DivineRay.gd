@@ -101,23 +101,23 @@ func _impact_burst(at: Vector2) -> void:
 		"frost":
 			CombatVfx.spawn_burst(
 				get_parent(), at, Color(0.9, 0.98, 1.0, 0.96), fade,
-				34, 0.5, 150.0, 360.0, 0.7, 1.8, 3.0, 6.0
+				34, 0.5, 150.0, 360.0, 0.7, 1.8, 3.0, 6.0, true
 			)
 		"fire":
 			CombatVfx.spawn_burst(
 				get_parent(), at, Color(1.0, 0.85, 0.4, 0.95), Color(0.85, 0.15, 0.05, 0.0),
-				38, 0.55, 90.0, 300.0, 1.5, 4.5
+				38, 0.55, 90.0, 300.0, 1.5, 4.5, 0.0, 0.0, true
 			)
 			DebrisChunk.spawn_burst(get_parent(), at, Color(0.55, 0.25, 0.1), 3, Vector2.UP, 190.0)
 		"arcane":
 			CombatVfx.spawn_burst(
 				get_parent(), at, Color(1, 1, 1, 0.96), fade,
-				40, 0.5, 100.0, 320.0, 1.4, 4.0
+				40, 0.5, 100.0, 320.0, 1.4, 4.0, 0.0, 0.0, true
 			)
 		_:
 			CombatVfx.spawn_burst(
 				get_parent(), at, Color(1.0, 0.99, 0.9, 0.98), fade,
-				44, 0.6, 70.0, 260.0, 1.0, 3.0, 1.0, 2.5
+				44, 0.6, 70.0, 260.0, 1.0, 3.0, 1.0, 2.5, true
 			)
 
 

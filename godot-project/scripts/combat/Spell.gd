@@ -190,7 +190,7 @@ func _do_chain(first: Node) -> void:
 		var col: Color = _element_color if _has_element_color else Color(1.0, 0.95, 0.4)
 		CombatVfx.spawn_burst(
 			get_parent(), best.global_position, Color(col.r, col.g, col.b, 0.95),
-			Color(col.r, col.g, col.b, 0.0), 8, 0.22, 50.0, 130.0
+			Color(col.r, col.g, col.b, 0.0), 8, 0.22, 50.0, 130.0, 1.0, 3.0, 0.0, 0.0, true
 		)
 		already.append(best)
 		here = best.global_position
@@ -207,5 +207,5 @@ func _spawn_impact_burst() -> void:
 		)
 	CombatVfx.spawn_burst(
 		get_parent(), global_position, start, end,
-		28, 0.45, 90.0, 220.0, 1.5, 4.0
+		28, 0.45, 90.0, 220.0, 1.5, 4.0, 0.0, 0.0, true
 	)

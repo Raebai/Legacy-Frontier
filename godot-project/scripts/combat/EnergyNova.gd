@@ -137,5 +137,5 @@ func _spawn_nova_burst() -> void:
 	CombatVfx.spawn_burst(
 		get_parent(), global_position,
 		Color(0.75, 0.95, 1.0, 1.0), Color(0.25, 0.55, 1.0, 0.0),
-		110, 0.55, 220.0, 520.0, 2.0, 6.0, 80.0, 160.0
+		110, 0.55, 220.0, 520.0, 2.0, 6.0, 80.0, 160.0, true
 	)

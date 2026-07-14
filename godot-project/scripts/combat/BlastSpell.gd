@@ -173,5 +173,5 @@ func _spawn_blast_burst() -> void:
 	CombatVfx.spawn_burst(
 		get_parent(), global_position,
 		Color(1.0, 0.9, 0.45, 1.0), Color(1.0, 0.4, 0.1, 0.0),
-		90, 0.6, 160.0, 420.0, 2.0, 6.0, 60.0, 140.0
+		90, 0.6, 160.0, 420.0, 2.0, 6.0, 60.0, 140.0, true
 	)

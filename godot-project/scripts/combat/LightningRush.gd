@@ -62,7 +62,7 @@ func rush(
 	# Charge crackle at the fist — sharp electric sparks gathering.
 	CombatVfx.spawn_burst(
 		get_parent(), _origin, Color(1.0, 1.0, 0.85, 0.95), Color(_color.r, _color.g, _color.b, 0.0),
-		20, CHARGE_TIME * 0.9, 60.0, 150.0, 0.6, 1.6, 2.5, 5.0
+		20, CHARGE_TIME * 0.9, 60.0, 150.0, 0.6, 1.6, 2.5, 5.0, true
 	)
 	Sfx.play("cast", 2.0, 0.04)
 	queue_redraw()
@@ -100,7 +100,7 @@ func _discharge() -> void:
 	_resolve_chain(struck)
 	CombatVfx.spawn_burst(
 		get_parent(), _beam_tip(), CORE_COLOR, Color(_color.r, _color.g, _color.b, 0.0),
-		34, 0.4, 140.0, 380.0, 0.7, 2.0, 3.0, 6.0
+		34, 0.4, 140.0, 380.0, 0.7, 2.0, 3.0, 6.0, true
 	)
 	Juice.hit_stop(0.1)
 	Juice.shake_camera(15.0)
