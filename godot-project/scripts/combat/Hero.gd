@@ -661,6 +661,15 @@ func _cycle_class() -> void:
 		gs.selected_class = _hero_class
 
 
+## Live class cycle for a test button (mirrors the Tab press).
+func cycle_class_next() -> void:
+	_cycle_class()
+
+
+func current_class_name() -> String:
+	return CLASS_NAMES[_hero_class] if _hero_class < CLASS_NAMES.size() else "Class"
+
+
 ## Unleash the equipped SIGNATURE spectacle toward the aim, if off cooldown and
 ## MP allows. Consumes the SpellDef's mp_cost; SpellCaster picks the spectacle
 ## (magic-circle beam / divine ray / ...). Not buffered — a deliberate press.
@@ -737,6 +746,9 @@ func _process_channel(delta: float) -> void:
 	rig.set_body_velocity(Vector2.ZERO)
 	if _channel_circle != null and is_instance_valid(_channel_circle):
 		_channel_circle.global_position = global_position + Vector2(0.0, 6.0)
+		# The sigil GROWS as the cast charges — small at first, large at release.
+		var prog: float = 1.0 - _channel_timer / maxf(_channel_total, 0.001)
+		_channel_circle.scale = Vector2.ONE * (0.5 + 0.85 * prog)
 	# Gather motes now and then — energy converging on the caster.
 	if fmod(_channel_timer, 0.12) < delta:
 		CombatVfx.spawn_burst(get_parent(), global_position, Color(_element_color.r, _element_color.g, _element_color.b, 0.7),
