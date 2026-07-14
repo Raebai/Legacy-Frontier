@@ -1,48 +1,105 @@
 extends Node
 ## Global one-shot sound player (autoload `Sfx`).
 ## Plays combat SFX on a small round-robin pool of AudioStreamPlayers so
-## overlapping casts/hits/deaths never cut each other off. Slight per-play
-## pitch variation keeps repeated sounds from feeling robotic.
+## overlapping casts/hits/deaths never cut each other off.
+##
+## Each key maps to an ARRAY of variant streams (synthesized layered
+## transient+body+tail sounds — see python-tools/generate_placeholder_sfx.py).
+## `play()` picks a random variant AND applies a small pitch jitter so repeated
+## hits never machine-gun the same sample (Stick-Fight feel study §5). Everything
+## routes to the "SFX" bus; "big" keys (the blast) duck the Music bus so the hit
+## lands harder.
 
 const STREAMS: Dictionary = {
-	"cast": preload("res://assets/audio/sfx/cast.ogg"),
-	"spell_impact": preload("res://assets/audio/sfx/spell_impact.ogg"),
-	"enemy_death": preload("res://assets/audio/sfx/enemy_death.ogg"),
-	"hero_hurt": preload("res://assets/audio/sfx/hero_hurt.ogg"),
-	"melee_swing": preload("res://assets/audio/sfx/melee_swing.ogg"),
-	"melee_hit": preload("res://assets/audio/sfx/melee_hit.ogg"),
-	"blast": preload("res://assets/audio/sfx/blast.ogg"),
-	# Slice 3: bright "ding" on a clean melee/parry connect + running footsteps.
-	"ding": preload("res://assets/audio/sfx/ding.wav"),
-	"footstep": preload("res://assets/audio/sfx/footstep.wav"),
+	"cast": [
+		preload("res://assets/audio/sfx/cast_1.wav"),
+		preload("res://assets/audio/sfx/cast_2.wav"),
+	],
+	"spell_impact": [
+		preload("res://assets/audio/sfx/spell_impact_1.wav"),
+		preload("res://assets/audio/sfx/spell_impact_2.wav"),
+		preload("res://assets/audio/sfx/spell_impact_3.wav"),
+	],
+	"enemy_death": [
+		preload("res://assets/audio/sfx/enemy_death_1.wav"),
+		preload("res://assets/audio/sfx/enemy_death_2.wav"),
+	],
+	"hero_hurt": [
+		preload("res://assets/audio/sfx/hero_hurt_1.wav"),
+		preload("res://assets/audio/sfx/hero_hurt_2.wav"),
+	],
+	"melee_swing": [
+		preload("res://assets/audio/sfx/melee_swing_1.wav"),
+		preload("res://assets/audio/sfx/melee_swing_2.wav"),
+	],
+	"melee_hit": [
+		preload("res://assets/audio/sfx/melee_hit_1.wav"),
+		preload("res://assets/audio/sfx/melee_hit_2.wav"),
+		preload("res://assets/audio/sfx/melee_hit_3.wav"),
+	],
+	"blast": [
+		preload("res://assets/audio/sfx/blast_1.wav"),
+		preload("res://assets/audio/sfx/blast_2.wav"),
+	],
+	# Bright "ding" on a clean melee/parry connect + running footsteps.
+	"ding": [preload("res://assets/audio/sfx/ding.wav")],
+	"footstep": [preload("res://assets/audio/sfx/footstep.wav")],
 	# Shadow-blink teleport: short "vwip" (down-then-up pitch sweep + sparkle).
-	"blink": preload("res://assets/audio/sfx/blink.wav"),
+	"blink": [preload("res://assets/audio/sfx/blink.wav")],
 }
 
+## Keys big enough to briefly duck the music under them (SFX cuts through).
+const DUCK_KEYS: Dictionary = {"blast": true}
+
+const SFX_BUS: StringName = &"SFX"
 const POOL_SIZE: int = 8
 
 var _players: Array[AudioStreamPlayer] = []
 var _next: int = 0
+var _last_variant: Dictionary = {}  # key -> last index played, to avoid immediate repeats
 
 
 func _ready() -> void:
 	# Keep SFX audible while hit-stop slows the game clock.
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	var has_sfx_bus: bool = AudioServer.get_bus_index(SFX_BUS) != -1
 	for i in POOL_SIZE:
 		var p := AudioStreamPlayer.new()
+		if has_sfx_bus:
+			p.bus = SFX_BUS
 		add_child(p)
 		_players.append(p)
 
 
 ## Play a named SFX. `pitch_variation` is a ± fraction (0.08 = ±8%).
 func play(key: String, volume_db: float = 0.0, pitch_variation: float = 0.06) -> void:
-	var stream: AudioStream = STREAMS.get(key)
-	if stream == null:
+	var variants: Array = STREAMS.get(key, [])
+	if variants.is_empty():
 		push_warning("Sfx: unknown key '%s'" % key)
 		return
+	var stream: AudioStream = _pick_variant(key, variants)
 	var p: AudioStreamPlayer = _players[_next]
 	_next = (_next + 1) % POOL_SIZE
 	p.stream = stream
 	p.volume_db = volume_db
 	p.pitch_scale = 1.0 + randf_range(-pitch_variation, pitch_variation)
 	p.play()
+	if DUCK_KEYS.has(key):
+		# Resolve the Music autoload via the tree (not the global identifier) so
+		# this compiles in isolated --script test contexts where autoloads aren't
+		# registered; at runtime /root/Music is the autoload.
+		var music: Node = get_node_or_null(^"/root/Music")
+		if music != null and music.has_method(&"duck"):
+			music.call(&"duck")
+
+
+## Pick a random variant, but avoid replaying the exact same one back-to-back
+## (only matters when a key has 2+ variants).
+func _pick_variant(key: String, variants: Array) -> AudioStream:
+	if variants.size() == 1:
+		return variants[0]
+	var idx: int = randi() % variants.size()
+	if idx == _last_variant.get(key, -1):
+		idx = (idx + 1) % variants.size()
+	_last_variant[key] = idx
+	return variants[idx]

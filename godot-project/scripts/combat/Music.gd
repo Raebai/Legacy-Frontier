@@ -30,7 +30,9 @@ func _ready() -> void:
 	# Keep the bed playing while hit-stop slows the game clock.
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_player = AudioStreamPlayer.new()
-	_player.bus = &"Master"
+	# Route to the dedicated Music bus so big SFX can duck it independently of
+	# Master (falls back to Master if the bus layout isn't present).
+	_player.bus = &"Music" if AudioServer.get_bus_index(&"Music") != -1 else &"Master"
 	add_child(_player)
 	var stream: Resource = load(COMBAT_THEME_PATH)
 	if stream is AudioStreamMP3:

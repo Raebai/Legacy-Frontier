@@ -19,6 +19,10 @@ config/description="2D pixel-art top-down RPG with persistent AI NPCs and a livi
 run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 
+[audio]
+
+buses/default_bus_layout="res://default_bus_layout.tres"
+
 [autoload]
 
 MCPRuntime="*uid://qc4i28l1mvja"
