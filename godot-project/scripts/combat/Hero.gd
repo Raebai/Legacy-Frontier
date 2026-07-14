@@ -658,6 +658,7 @@ func _cast_signature() -> void:
 	if spell.kind == SpellDef.Kind.RUSH:
 		rig.set_aim(_aim_dir)
 		rig.play(CharacterRig.State.PUNCH)
+		rig.cast_gesture(CharacterRig.GestureKind.FLICK, 0.8, _element)  # snap into the lunge
 		if _aim_dir.x != 0.0:
 			velocity.x = signf(_aim_dir.x) * 360.0
 		SpellCaster.cast(spell, get_parent(), rig.get_weapon_tip(), get_global_mouse_position(), _element_color, spell.effect)
@@ -906,6 +907,7 @@ func _primary_bolt() -> void:
 	var base_dir: Vector2 = Targeting.assisted_aim(global_position, _aim_dir, enemies)
 	rig.set_aim(_aim_dir)
 	rig.play(CharacterRig.State.CAST)
+	rig.cast_gesture(CharacterRig.GestureKind.FLICK, 0.5, _element)  # quick hand-flick tell
 	var origin: Vector2 = rig.get_weapon_tip()
 	var burst: int = int(_cfg.get("bolt_burst", 1))
 	var spread: float = float(_cfg.get("bolt_spread", 0.0))
@@ -956,6 +958,7 @@ func _primary_heavy_swing() -> void:
 		return
 	rig.set_facing(_aim_dir)
 	rig.play(CharacterRig.State.PUNCH)
+	rig.cast_gesture(CharacterRig.GestureKind.STOMP, 0.6, _element)  # heavy earth wind-up
 	_melee_cooldown_timer = _melee_cd
 	Sfx.play("melee_swing", 0.0, 0.12)
 
@@ -968,6 +971,7 @@ func _primary_frost_cone() -> void:
 	_cast_cooldown_timer = _cfg["cast_cd"]
 	rig.set_aim(_aim_dir)
 	rig.play(CharacterRig.State.CAST)
+	rig.cast_gesture(CharacterRig.GestureKind.IGNITE_DROP, 0.6, _element)  # frost coats the hand
 	const CONE_RANGE: float = 118.0
 	const CONE_COS: float = 0.5  # ~60° half-angle
 	const CONE_DAMAGE: int = 12
@@ -1035,6 +1039,7 @@ func _meteor_blast() -> void:
 	blast.detonate_at(target_pos)
 	rig.set_aim(_aim_dir)
 	rig.play(CharacterRig.State.CAST)
+	rig.cast_gesture(CharacterRig.GestureKind.RAISE, 0.65, _element)  # arm gathers, lobs the blast
 
 
 ## FIRE PUNCH — the Brawler's Q. A lunging straight that erupts an elemental
@@ -1043,6 +1048,7 @@ func _meteor_blast() -> void:
 func _fire_punch() -> void:
 	rig.set_aim(_aim_dir)
 	rig.play(CharacterRig.State.PUNCH)
+	rig.cast_gesture(CharacterRig.GestureKind.IGNITE_DROP, 0.8, _element)  # the FIST ignites
 	# A short forward lunge so the punch drives INTO the target.
 	velocity.x = signf(_aim_dir.x) * 300.0 if _aim_dir.x != 0.0 else velocity.x
 	var center: Vector2 = global_position + _aim_dir.normalized() * 44.0
@@ -1059,6 +1065,7 @@ func _fire_punch() -> void:
 ## radius, heavy knockback + the active element's ailment (Stagger by default).
 func _ground_slam() -> void:
 	rig.play(CharacterRig.State.CAST)
+	rig.cast_gesture(CharacterRig.GestureKind.STOMP, 0.8, _element)  # fist drives down
 	velocity.y = -240.0  # a small hop into the slam
 	var blast: Node2D = BLAST_SCENE.instantiate()
 	get_parent().add_child(blast)
@@ -1087,6 +1094,7 @@ func _spawn_nova() -> void:
 	nova.set("element_id", _element)
 	nova.call("activate_at", global_position)
 	rig.play(CharacterRig.State.CAST)
+	rig.cast_gesture(CharacterRig.GestureKind.RAISE, 0.6, _element)  # arms fling out the nova
 
 
 ## Open the perfect-timing parry window (rogue only, off cooldown). The reward
@@ -1210,6 +1218,7 @@ func _melee() -> void:
 		rig.play(CharacterRig.State.KICK)
 	else:
 		rig.play(CharacterRig.State.PUNCH)
+		rig.cast_gesture(CharacterRig.GestureKind.IGNITE_DROP, 0.4, _element)  # fist ignites on the punch
 	_melee_kick_next = not _melee_kick_next
 	Sfx.play("melee_swing", 0.0, 0.08)
 

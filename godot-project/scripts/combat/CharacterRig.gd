@@ -18,6 +18,19 @@ const ONE_SHOT_DURATIONS: Dictionary = {
 ## Fraction of a PUNCH/KICK duration at which hit_frame fires.
 const HIT_FRAME_FRACTION: float = 0.55
 
+## Cast-gesture kinds — a small vocabulary of LIMB-ISOLATED "turn-on" tells that
+## OVERLAY the lead arm only, so they compose over any locomotion (run/jump/dash).
+## The ULTIMATE tier (float-channel) is a SEPARATE channel (Hero-side), not here.
+enum GestureKind { NONE, FLICK, IGNITE_DROP, RAISE, GATHER, STOMP }
+
+const GESTURE_DURATIONS: Dictionary = {
+	GestureKind.FLICK: 0.12,        # quick snap — light bolts
+	GestureKind.IGNITE_DROP: 0.20,  # hand drops, fist ignites — the fire-fist tell
+	GestureKind.RAISE: 0.30,        # arm gathers overhead — medium AoE
+	GestureKind.GATHER: 0.50,       # both hands to chest then thrust — heavy
+	GestureKind.STOMP: 0.24,        # fist drives down + foot plant — earth
+}
+
 ## Melee feel tuning. The strike curve is: wind BACK for the first
 ## STRIKE_ANTICIPATION_FRACTION of the one-shot (down to -STRIKE_PULLBACK
 ## extension), then snap forward (cubic ease-out) to full extension exactly
@@ -132,6 +145,14 @@ var _limp_target: float = 0.0
 ## was before (so a hit-flop doesn't clobber a held hold-DOWN ragdoll).
 var _flop_timer: float = 0.0
 var _flop_prev_target: float = 0.0
+## Cast-gesture overlay channel — independent of the State one-shot machine so a
+## tell can play WHILE running/jumping/dashing. Offsets only the lead arm.
+var _gesture_kind: int = GestureKind.NONE
+var _gesture_time: float = 0.0
+var _gesture_dur: float = 0.0
+var _gesture_intensity: float = 0.0  # 0..1 spell power -> offset amplitude + VFX size
+var _gesture_element: int = -1       # Elements.Element id for the hand VFX, -1 = none
+var _gesture_active: bool = false
 ## Body velocity fed by set_body_velocity(); its frame-to-frame CHANGE nudges
 ## the extremities so limbs trail when the body launches/stops.
 var _body_vel: Vector2 = Vector2.ZERO
@@ -160,6 +181,12 @@ func advance(delta: float) -> void:
 		_flop_timer -= delta
 		if _flop_timer <= 0.0:
 			_limp_target = _flop_prev_target  # recover to the pre-flop resting limp
+	if _gesture_active:
+		# Real delta, NOT gated by _frozen — a cast tell should still finish under CC.
+		_gesture_time += delta
+		if _gesture_time >= _gesture_dur:
+			_gesture_active = false
+			_gesture_kind = GestureKind.NONE
 	if _pop_timer > 0.0:
 		_pop_timer -= delta
 	if _parry_timer > 0.0:
@@ -292,6 +319,21 @@ func set_body_velocity(v: Vector2) -> void:
 ## (the "frozen under ice" read for hard-CC'd enemies); the spring sim still ticks.
 func set_frozen(frozen: bool) -> void:
 	_frozen = frozen
+
+
+## Fire a limb-isolated cast "turn-on" tell that OVERLAYS the lead arm only, so it
+## composes with whatever locomotion is active (run/jump/dash) instead of locking
+## the body. Independent of the State machine — call alongside play(CAST) or alone.
+## `intensity` 0..1 scales the offset amplitude + VFX size (spell power). `element`
+## (Elements.Element id, or -1) drives the hand ignite VFX; -1 = motion only.
+func cast_gesture(kind: int, intensity: float = 0.6, element: int = -1) -> void:
+	_gesture_kind = kind
+	_gesture_intensity = clampf(intensity, 0.0, 1.0)
+	_gesture_element = element
+	_gesture_dur = float(GESTURE_DURATIONS.get(kind, 0.2)) * (0.9 + 0.2 * _gesture_intensity)
+	_gesture_time = 0.0
+	_gesture_active = kind != GestureKind.NONE
+	queue_redraw()
 
 
 ## Set the current animation state. Looping states (IDLE/RUN/DASH) are
@@ -512,6 +554,7 @@ func _draw() -> void:
 	draw_figure(self, pose, col, equipment, height, OUTLINE_COLOR)
 	_draw_slash_arc(pose, col)
 	_draw_parry_shield(pose)
+	_draw_cast_gesture_vfx(pose)
 
 
 ## Directional parry SHIELD — a white "section of a sphere": a solid curved band
@@ -672,6 +715,115 @@ func _draw_slash_arc(pose: Dictionary, col: Color) -> void:
 	draw_arc(center, radius, start_angle, end_angle, 10, core, w * 0.8)
 
 
+## Per-element hand "ignite" VFX drawn at the casting hand during a cast gesture —
+## the "turn-on" tell (fire fist, frost hand, sparking fist...). Reuses the HDR-core
+## + AA bloom idiom; the glow envelope ignites and dies with the gesture. Only runs
+## at draw time (never headless), so Elements lookups here are safe.
+func _draw_cast_gesture_vfx(pose: Dictionary) -> void:
+	if not _gesture_active or _gesture_element < 0:
+		return
+	var gu: float = clampf(_gesture_time / _gesture_dur, 0.0, 1.0)
+	var glow: float = sin(gu * PI) * (0.4 + 0.6 * _gesture_intensity)
+	if glow <= 0.01:
+		return
+	var p: Vector2 = pose["hand_lead"]
+	var rad: float = pose["w"] * (1.6 + 1.4 * _gesture_intensity)
+	var ec: Color = Elements.color(_gesture_element)
+	var lifted: Color = Color(ec.r, ec.g, ec.b).lerp(Color(1, 1, 1), 0.4)
+	var peak: float = maxf(lifted.r, maxf(lifted.g, lifted.b))
+	var k: float = 1.55 / maxf(peak, 0.001)
+	var core: Color = Color(lifted.r * k, lifted.g * k, lifted.b * k, glow)
+	var halo: Color = Color(ec.r, ec.g, ec.b, glow * 0.35)
+	match _gesture_element:
+		Elements.Element.FIRE: _vfx_fire(p, rad, core, halo)
+		Elements.Element.ICE: _vfx_ice(p, rad, core, halo)
+		Elements.Element.LIGHTNING: _vfx_lightning(p, rad, core, halo)
+		Elements.Element.SHADOW: _vfx_shadow(p, rad, core, halo)
+		Elements.Element.ARCANE: _vfx_arcane(p, rad, core, halo)
+		Elements.Element.EARTH: _vfx_earth(p, rad, halo)
+		Elements.Element.HOLY: _vfx_holy(p, rad, core, halo)
+		Elements.Element.WIND: _vfx_wind(p, rad, core, halo)
+		_: draw_circle(p, rad * 0.6, core, true, -1.0, true)
+
+
+func _vfx_fire(p: Vector2, rad: float, core: Color, halo: Color) -> void:
+	draw_circle(p, rad * 1.8, halo, true, -1.0, true)
+	for i in 3:
+		var a: float = -PI * 0.5 + (float(i) - 1.0) * 0.5 + sin(_phase * 20.0 + float(i)) * 0.15
+		var tip: Vector2 = p + Vector2.from_angle(a) * rad * (1.4 + 0.4 * sin(_phase * 30.0 + float(i)))
+		var base: float = rad * 0.5
+		draw_colored_polygon(PackedVector2Array([
+			p + Vector2.from_angle(a + 1.2) * base, p + Vector2.from_angle(a - 1.2) * base, tip
+		]), Color(core.r, core.g, core.b, core.a * 0.9))
+	draw_circle(p, rad * 0.5, core, true, -1.0, true)
+
+
+func _vfx_ice(p: Vector2, rad: float, core: Color, halo: Color) -> void:
+	draw_arc(p, rad, 0.0, TAU, 12, halo, 1.5, true)
+	for i in 6:
+		var a: float = TAU * float(i) / 6.0 + _phase * 0.5
+		draw_line(p, p + Vector2.from_angle(a) * rad * 1.3, core, 1.6, true)
+	draw_circle(p, rad * 0.35, core, true, -1.0, true)
+
+
+func _vfx_lightning(p: Vector2, rad: float, core: Color, halo: Color) -> void:
+	draw_circle(p, rad * 1.2, halo, true, -1.0, true)
+	for i in 4:
+		var a: float = TAU * float(i) / 4.0 + _phase * 3.0
+		var d: Vector2 = Vector2.from_angle(a)
+		var pts: PackedVector2Array = PackedVector2Array([
+			p, p + d * rad * 0.7 + d.orthogonal() * sin(_phase * 40.0 + float(i)) * rad * 0.3, p + d * rad * 1.4
+		])
+		draw_polyline(pts, core, 1.4, true)
+	draw_circle(p, rad * 0.4, core, true, -1.0, true)
+
+
+func _vfx_shadow(p: Vector2, rad: float, _core: Color, halo: Color) -> void:
+	for i in 2:
+		var a0: float = _phase * 1.5 + PI * float(i)
+		draw_arc(p, rad * (0.9 + 0.3 * float(i)), a0, a0 + PI * 0.9, 12,
+			Color(halo.r, halo.g, halo.b, halo.a * 1.6), 2.0, true)
+	draw_circle(p, rad * 0.5, Color(0.5, 0.3, 0.9, halo.a * 1.6), true, -1.0, true)
+
+
+func _vfx_arcane(p: Vector2, rad: float, core: Color, halo: Color) -> void:
+	draw_arc(p, rad, 0.0, TAU, 20, halo, 1.5, true)
+	var pts: PackedVector2Array = PackedVector2Array()
+	for i in 4:
+		var a: float = TAU * float(i) / 3.0 + _phase * 2.0  # spinning triangle (wraps closed)
+		pts.append(p + Vector2.from_angle(a) * rad * 0.8)
+	draw_polyline(pts, core, 1.4, true)
+	draw_circle(p, rad * 0.3, core, true, -1.0, true)
+
+
+func _vfx_earth(p: Vector2, rad: float, halo: Color) -> void:
+	# Matte stone chunks coat the fist — no bloom core (earth reads solid, not lit).
+	for i in 4:
+		var a: float = TAU * float(i) / 4.0 + 0.4
+		var c: Vector2 = p + Vector2.from_angle(a) * rad * 0.7
+		var s: float = rad * 0.5
+		draw_colored_polygon(PackedVector2Array([
+			c + Vector2(-s, -s * 0.6), c + Vector2(s, -s * 0.4), c + Vector2(s * 0.7, s), c + Vector2(-s * 0.8, s * 0.7)
+		]), Color(0.42, 0.3, 0.18, clampf(halo.a * 2.4, 0.0, 1.0)))
+	draw_circle(p, rad * 0.3, Color(0.6, 0.46, 0.26, clampf(halo.a * 2.2, 0.0, 1.0)), true, -1.0, true)
+
+
+func _vfx_holy(p: Vector2, rad: float, core: Color, halo: Color) -> void:
+	draw_arc(p, rad * 1.3, 0.0, TAU, 20, core, 1.6, true)
+	draw_circle(p, rad * 1.6, Color(halo.r, halo.g, halo.b, halo.a * 0.8), true, -1.0, true)
+	draw_circle(p, rad * 0.4, core, true, -1.0, true)
+
+
+func _vfx_wind(p: Vector2, rad: float, core: Color, _halo: Color) -> void:
+	for i in 2:
+		var pts: PackedVector2Array = PackedVector2Array()
+		for j in 8:
+			var t: float = float(j) / 7.0
+			var a: float = _phase * 2.0 + PI * float(i) + t * TAU * 0.6
+			pts.append(p + Vector2.from_angle(a) * rad * (0.3 + t))
+		draw_polyline(pts, Color(core.r, core.g, core.b, core.a * 0.7), 1.5, true)
+
+
 ## Compute the current pose skeleton in local space. Keys: head_center,
 ## neck, hip, shoulder, hand_lead, hand_off, foot_lead, foot_off,
 ## plus stroke metrics r (head radius) and w (line width).
@@ -767,16 +919,59 @@ func _compute_pose() -> Dictionary:
 	var neck: Vector2 = head_center + Vector2(0, r)
 	var hip: Vector2 = Vector2(0, height * 0.1 + bob * 0.5)
 	var shoulder: Vector2 = neck.lerp(hip, 0.15)
+	var hand_lead: Vector2 = shoulder + Vector2.from_angle(arm_lead) * arm_lead_len
+	var hand_off: Vector2 = shoulder + Vector2.from_angle(arm_off) * arm_len
+	var foot_lead: Vector2 = hip + Vector2.from_angle(leg_lead) * leg_lead_len
+	var foot_off: Vector2 = hip + Vector2.from_angle(leg_off) * leg_len
+
+	# Cast-gesture overlay: additive, lead-arm-isolated, composes over locomotion.
+	# Damped out automatically when limp (the sim's stiffness is _limp-scaled).
+	if _gesture_active and _limp < 0.9:
+		var gu: float = clampf(_gesture_time / _gesture_dur, 0.0, 1.0)
+		var amp: float = height * (0.25 + 0.55 * _gesture_intensity)
+		var cast_s: float = 1.0 if scale.x >= 0.0 else -1.0
+		var aim_l: Vector2 = Vector2(_aim_world.x * cast_s, _aim_world.y)
+		if aim_l.length() < 0.001:
+			aim_l = Vector2.RIGHT
+		aim_l = aim_l.normalized()
+		var aim_perp: Vector2 = aim_l.orthogonal()
+		match _gesture_kind:
+			GestureKind.FLICK:
+				var e: float = sin(gu * PI)  # 0..1..0 snap out then back
+				hand_lead += aim_l * amp * 0.9 * e - aim_perp * amp * 0.25 * e
+				shoulder += aim_l * amp * 0.12 * e
+			GestureKind.IGNITE_DROP:
+				var drop: float = 1.0 - pow(1.0 - gu, 2.0)  # ease-out drop
+				var back: float = sin(gu * PI)              # recover hump
+				hand_lead += Vector2(0.0, amp * 0.8) * drop * (1.0 - 0.6 * back) - aim_l * amp * 0.2 * back
+				shoulder += Vector2(0.0, amp * 0.15) * drop
+			GestureKind.RAISE:
+				var e3: float = sin(gu * PI)
+				hand_lead += Vector2(-aim_l.x * amp * 0.3, -amp * 1.1) * e3
+				shoulder += Vector2(0.0, -amp * 0.2) * e3
+			GestureKind.GATHER:
+				var pull: float = smoothstep(0.0, 0.55, gu)
+				var thrust: float = smoothstep(0.55, 1.0, gu)
+				var chest: Vector2 = shoulder.lerp(hip, 0.35) - hand_lead
+				hand_lead += chest * 0.7 * pull * (1.0 - thrust) + aim_l * amp * 1.2 * thrust
+				hand_off += (shoulder.lerp(hip, 0.35) - hand_off) * 0.6 * pull * (1.0 - thrust)
+				shoulder += aim_l * amp * 0.25 * thrust - Vector2(0.0, amp * 0.1) * pull
+			GestureKind.STOMP:
+				var slam: float = 1.0 - pow(1.0 - gu, 3.0)  # hard ease-out slam
+				var settle: float = sin(gu * PI)
+				hand_lead += Vector2(aim_l.x * amp * 0.2, amp * 1.0) * slam
+				shoulder += Vector2(0.0, amp * 0.2) * slam
+				foot_lead += Vector2(aim_l.x * amp * 0.3, amp * 0.15) * settle
 
 	return {
 		"head_center": head_center,
 		"neck": neck,
 		"hip": hip,
 		"shoulder": shoulder,
-		"hand_lead": shoulder + Vector2.from_angle(arm_lead) * arm_lead_len,
-		"hand_off": shoulder + Vector2.from_angle(arm_off) * arm_len,
-		"foot_lead": hip + Vector2.from_angle(leg_lead) * leg_lead_len,
-		"foot_off": hip + Vector2.from_angle(leg_off) * leg_len,
+		"hand_lead": hand_lead,
+		"hand_off": hand_off,
+		"foot_lead": foot_lead,
+		"foot_off": foot_off,
 		"r": r,
 		"w": w,
 	}
