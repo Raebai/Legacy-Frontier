@@ -229,23 +229,14 @@ func _draw() -> void:
 		_draw_unstable(r)
 
 
-func _draw_burn(r: float) -> void:
-	# Flickering flame licks rising off the body + a few ember motes.
-	for i: int in 5:
-		var bx: float = (float(i) - 2.0) * r * 0.4
-		var h: float = r * (0.9 + 0.5 * sin(_phase * 12.0 + float(i) * 1.7))
-		var tip: Vector2 = Vector2(bx + 2.0 * sin(_phase * 9.0 + float(i)), -r * 0.4 - h)
-		draw_colored_polygon(PackedVector2Array([
-			Vector2(bx - 3.0, r * 0.4), Vector2(bx + 3.0, r * 0.4), tip,
-		]), _ail_tint(Color(1.0, 0.55, 0.15, 0.55)))
-		draw_colored_polygon(PackedVector2Array([
-			Vector2(bx - 1.5, r * 0.3), Vector2(bx + 1.5, r * 0.3),
-			tip.lerp(Vector2(bx, r * 0.3), 0.35),
-		]), _ail_tint(Color(1.0, 0.9, 0.4, 0.7)))
-	for i: int in 3:
-		var a: float = _phase * 3.0 + float(i) * 2.1
-		var ey: float = -fposmod(_phase * 30.0 + float(i) * 20.0, 40.0)
-		draw_circle(Vector2(r * 0.5 * sin(a), ey * 0.5), 1.5, Color(1.0, 0.7, 0.3, 0.6))
+func _draw_burn(_r: float) -> void:
+	# Realistic organic flames licking off the body (maker: "the fire effect is so
+	# corny; make it more like fire" + subtle on the enemy). Two small offset flames
+	# via the shared CharacterRig.draw_flame so the burn coat matches the hero's fire.
+	# HOLY-radiance reuses this burn mechanic; its gold tint is carried by the
+	# glow-on-tick pulse (Enemy.take_damage), so keeping the flame fire-hued is fine.
+	CharacterRig.draw_flame(self, Vector2(-4.0, 2.0), 7.0, 0.85, _phase)
+	CharacterRig.draw_flame(self, Vector2(5.0, 3.0), 5.5, 0.7, _phase * 1.13 + 1.7)
 
 
 func _draw_chill(r: float) -> void:

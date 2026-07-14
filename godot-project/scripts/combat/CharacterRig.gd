@@ -594,7 +594,7 @@ func _draw() -> void:
 func _draw_hand_fire(pose: Dictionary) -> void:
 	if _hand_fire <= 0.01 or _hand_fire_element != Elements.Element.FIRE:
 		return
-	_draw_flame(pose["hand_lead"], pose["w"] * 1.7, _hand_fire)
+	draw_flame(self, pose["hand_lead"], pose["w"] * 1.7, _hand_fire, _phase)
 
 
 ## Directional parry SHIELD — a white "section of a sphere": a solid curved band
@@ -789,50 +789,51 @@ func _draw_cast_gesture_vfx(pose: Dictionary) -> void:
 func _vfx_fire(p: Vector2, rad: float, _core: Color, _halo: Color) -> void:
 	# Realistic organic flame (maker: "the fire effect is so corny; make it seem
 	# more like fire"). SMALL/subtle on-character — a compact licking flame, not a
-	# big flashy overlay. The shared _draw_flame does the layered tongues + embers.
-	_draw_flame(p, rad, 1.0)
+	# big flashy overlay. The shared static draw_flame does tongues + embers.
+	draw_flame(self, p, rad, 1.0, _phase)
 
 
 ## Layered organic flame: a deep-red -> orange -> white-hot core with noise-driven
 ## LICKING tongues (curved teardrops that waver, not flat triangles) and rising
 ## embers. Additive/HDR so the core blooms. `size` sets the scale, `strength` 0..1
-## fades the whole thing. Local -y is UP so the flame rises correctly. Draw-time only.
-func _draw_flame(p: Vector2, size: float, strength: float) -> void:
+## fades the whole thing. Local -y is UP so the flame rises. STATIC so any canvas
+## item (the rig, the enemy status coat) draws the exact same fire. Draw-time only.
+static func draw_flame(item: CanvasItem, p: Vector2, size: float, strength: float, phase: float) -> void:
 	if strength <= 0.01:
 		return
 	# Soft outer glow: warm heat haze at the edges (kept faint so it never reads as
 	# a dark disc — on the bright arena the bloom pass carries the glow).
-	draw_circle(p + Vector2(0.0, -size * 0.2), size * 1.5, Color(1.0, 0.4, 0.12, 0.10 * strength), true, -1.0, true)
+	item.draw_circle(p + Vector2(0.0, -size * 0.2), size * 1.5, Color(1.0, 0.4, 0.12, 0.10 * strength), true, -1.0, true)
 	# Licking tongues — teardrop polygons that waver with the phase and taper to a
 	# flickering tip. Deep-red outer tongue with a brighter orange inner tongue.
 	for i: int in 3:
 		var seed: float = float(i) * 2.3
-		var sway: float = sin(_phase * 9.0 + seed) * size * 0.3
-		var h: float = size * (1.5 + 0.55 * sin(_phase * 13.0 + seed)) * (0.55 + 0.6 * strength)
+		var sway: float = sin(phase * 9.0 + seed) * size * 0.3
+		var h: float = size * (1.5 + 0.55 * sin(phase * 13.0 + seed)) * (0.55 + 0.6 * strength)
 		var base_w: float = size * (0.44 - 0.08 * float(i))
 		var bx: float = (float(i) - 1.0) * size * 0.34
 		var basep: Vector2 = p + Vector2(bx, size * 0.35)
 		var tip: Vector2 = p + Vector2(bx + sway, -h)
 		var mid: Vector2 = basep.lerp(tip, 0.5) + Vector2(sway * 0.5, 0.0)
-		draw_colored_polygon(PackedVector2Array([
+		item.draw_colored_polygon(PackedVector2Array([
 			basep + Vector2(-base_w, 0.0), basep + Vector2(base_w, 0.0),
 			mid + Vector2(base_w * 0.5, 0.0), tip, mid + Vector2(-base_w * 0.5, 0.0),
 		]), Color(0.9, 0.24, 0.05, 0.6 * strength))
 		var iw: float = base_w * 0.55
-		draw_colored_polygon(PackedVector2Array([
+		item.draw_colored_polygon(PackedVector2Array([
 			basep + Vector2(-iw, 0.0), basep + Vector2(iw, 0.0),
 			mid.lerp(tip, 0.2) + Vector2(iw * 0.5, 0.0), tip.lerp(basep, 0.12),
 			mid.lerp(tip, 0.2) + Vector2(-iw * 0.5, 0.0),
 		]), Color(1.15, 0.55, 0.12, 0.8 * strength))
 	# White-hot core (HDR > 1 so the bloom pass lifts it).
-	draw_circle(p + Vector2(0.0, size * 0.05), size * 0.42, Color(1.7, 1.1, 0.5, 0.9 * strength), true, -1.0, true)
+	item.draw_circle(p + Vector2(0.0, size * 0.05), size * 0.42, Color(1.7, 1.1, 0.5, 0.9 * strength), true, -1.0, true)
 	# Rising embers that drift up + fade.
 	for i: int in 3:
 		var span: float = size * 3.2
-		var ey: float = -fposmod(_phase * 34.0 + float(i) * 19.0, span)
-		var ex: float = sin(_phase * 3.0 + float(i) * 2.1) * size * 0.5
+		var ey: float = -fposmod(phase * 34.0 + float(i) * 19.0, span)
+		var ex: float = sin(phase * 3.0 + float(i) * 2.1) * size * 0.5
 		var ea: float = clampf((1.0 - (-ey) / span) * 0.85 * strength, 0.0, 1.0)
-		draw_circle(p + Vector2(ex, ey), maxf(1.0, size * 0.09), Color(1.4, 0.65, 0.2, ea), true, -1.0, true)
+		item.draw_circle(p + Vector2(ex, ey), maxf(1.0, size * 0.09), Color(1.4, 0.65, 0.2, ea), true, -1.0, true)
 
 
 func _vfx_ice(p: Vector2, rad: float, core: Color, halo: Color) -> void:
