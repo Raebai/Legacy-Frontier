@@ -116,6 +116,10 @@ func _land(m: Dictionary) -> void:
 ## One meteor's impact spray + residue, charactered per effect.
 func _impact_burst(at: Vector2) -> void:
 	var fade: Color = Color(_color.r, _color.g, _color.b, 0.0)
+	# The element's ORGANIC signature (flame / shards / arcs / smoke / sigil / stone /
+	# rays / wisps) on top of the energy burst below — realistic look for ALL elements.
+	if element_id >= 0:
+		ElementFx.spawn(get_parent(), at, element_id, METEOR_IMPACT_RADIUS * 0.62)
 	match _effect:
 		"frost":
 			CombatVfx.spawn_burst(
@@ -135,8 +139,7 @@ func _impact_burst(at: Vector2) -> void:
 				24, 0.45, 50.0, 190.0, 1.0, 2.5, 1.0, 2.0, true
 			)
 		"fire":
-			# Real organic FLAME plume (was falling to the corny generic yellow burst).
-			FlameBurst.spawn(get_parent(), at, METEOR_IMPACT_RADIUS * 0.7)
+			# Warm ember burst under the flame plume (spawned by ElementFx above).
 			CombatVfx.spawn_burst(
 				get_parent(), at, Color(1.5, 0.7, 0.2, 0.95), Color(0.8, 0.2, 0.05, 0.0),
 				16, 0.5, 60.0, 210.0, 1.0, 2.6, 0.5, 1.6, true

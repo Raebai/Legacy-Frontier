@@ -171,12 +171,14 @@ func _draw() -> void:
 
 ## The shared burst builder, scaled way up for the centerpiece.
 func _spawn_blast_burst() -> void:
+	# Element-tinted energy shockwave (was a fixed orange burst for EVERY element).
+	var ec: Color = Elements.color(element_id) if element_id >= 0 else Color(1.0, 0.9, 0.45)
 	CombatVfx.spawn_burst(
 		get_parent(), global_position,
-		Color(1.0, 0.9, 0.45, 1.0), Color(1.0, 0.4, 0.1, 0.0),
+		Color(ec.r, ec.g, ec.b, 1.0), Color(ec.r * 0.6, ec.g * 0.6, ec.b * 0.6, 0.0),
 		90, 0.6, 160.0, 420.0, 2.0, 6.0, 60.0, 140.0, true
 	)
-	# A FIRE blast (fire punch shockwave / fire meteor) blooms a real organic flame
-	# plume on top of the energy burst — the de-corny fire on the big spells.
-	if element_id == Elements.Element.FIRE:
-		FlameBurst.spawn(get_parent(), global_position, 48.0)
+	# The element's ORGANIC signature blooms on top (flame / shards / arcs / smoke /
+	# sigil / stone / rays / wisps) — the "realistic + cool for ALL elements" pass.
+	if element_id >= 0:
+		ElementFx.spawn(get_parent(), global_position, element_id, 50.0)
