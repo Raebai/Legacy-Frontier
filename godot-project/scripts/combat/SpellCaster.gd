@@ -19,6 +19,10 @@ const PILLAR_PATH: String = "res://scripts/combat/RockPillar.gd"
 const WALL_PATH: String = "res://scripts/combat/RockWall.gd"
 const ICE_WALL_PATH: String = "res://scripts/combat/IceWall.gd"
 const CHAIN_PATH: String = "res://scripts/combat/ChainBolt.gd"
+const ZONE_PATH: String = "res://scripts/combat/ZoneSpell.gd"
+const MISSILES_PATH: String = "res://scripts/combat/RuneOrbs.gd"
+const TETHER_PATH: String = "res://scripts/combat/DrainTether.gd"
+const FLURRY_PATH: String = "res://scripts/combat/BladeFlurry.gd"
 
 
 ## Cast `spell` from `caster_pos` toward `target_pos`, parented under `arena`.
@@ -127,6 +131,41 @@ static func cast(
 			arena.add_child(ch)
 			ch.set("element_id", elem)
 			ch.call("chain", caster_pos, aim.normalized(), col, spell.count, spell.reach, spell.damage, fx)
+			return true
+		SpellDef.Kind.ZONE:
+			# A persistent ground field placed at the marked point (clamped to reach).
+			var zto: Vector2 = aim
+			if zto.length() > spell.reach:
+				zto = zto.normalized() * spell.reach
+			var zn: Node2D = (load(ZONE_PATH) as GDScript).new()
+			arena.add_child(zn)
+			zn.set("element_id", elem)
+			# `length` doubles as the field lifetime for a ZONE (cast_time must stay 0
+			# so it doesn't trigger the levitating channel); default 4.5s.
+			var zlife: float = spell.length if spell.length > 0.5 and spell.length < 20.0 else 4.5
+			zn.call("open", caster_pos + zto, col, spell.radius, spell.damage, fx, zlife)
+			Juice.zoom_pull_camera(0.14, 0.5, 0.16, 0.55)
+			return true
+		SpellDef.Kind.MISSILES:
+			# A fan of homing rune-orbs launched along the aim from the weapon tip.
+			var mo: Node2D = (load(MISSILES_PATH) as GDScript).new()
+			arena.add_child(mo)
+			mo.set("element_id", elem)
+			mo.call("launch", caster_pos, aim.normalized(), col, spell.count, spell.damage, fx)
+			return true
+		SpellDef.Kind.TETHER:
+			# A life-drain tether locking the nearest enemy in the aim direction.
+			var te: Node2D = (load(TETHER_PATH) as GDScript).new()
+			arena.add_child(te)
+			te.set("element_id", elem)
+			te.call("tether", caster_pos, aim.normalized(), col, spell.damage, fx)
+			return true
+		SpellDef.Kind.FLURRY:
+			# A burst of dashing crescent slashes in front of the caster.
+			var fl: Node2D = (load(FLURRY_PATH) as GDScript).new()
+			arena.add_child(fl)
+			fl.set("element_id", elem)
+			fl.call("flurry", caster_pos, aim.normalized(), col, spell.damage, spell.count, fx)
 			return true
 		_:
 			# Any unbuilt kind: safe no-op until its scene exists.

@@ -148,6 +148,24 @@ func _test_signature_loadouts() -> int:
 	failed += _expect(cryo[0].id == "ice_wall" and int(cryo[0].kind) == int(SpellDef.Kind.ICE_WALL), "Cryomancer leads with the Ice Wall (not a beam)")
 	var storm: Array = SpellLibrary.build_for_class(6)
 	failed += _expect(storm[0].id == "chain_lightning" and int(storm[0].kind) == int(SpellDef.Kind.CHAIN), "Stormcaller leads with Chain Lightning (not a beam)")
+	# Arcanist keeps Zoltraak (the one legit beam) but its meteor-clone -> rune-orbs.
+	var arc: Array = SpellLibrary.build_for_class(0)
+	failed += _expect(arc[1].id == "rune_orbs" and int(arc[1].kind) == int(SpellDef.Kind.MISSILES), "Arcanist's alt is homing rune-orbs (not a meteor)")
+	# Shadowblade: teleport-strike + blade flurry (no beam, no meteor).
+	var shadow: Array = SpellLibrary.build_for_class(1)
+	failed += _expect(shadow[0].id == "blink_strike" and int(shadow[0].kind) == int(SpellDef.Kind.BLINK_STRIKE), "Shadowblade leads with the teleport-strike")
+	failed += _expect(int(shadow[1].kind) == int(SpellDef.Kind.FLURRY), "Shadowblade's alt is the blade flurry")
+	# Warlock: void zone + drain tether (no beam, no meteor).
+	var lock: Array = SpellLibrary.build_for_class(7)
+	failed += _expect(lock[0].id == "void_zone" and int(lock[0].kind) == int(SpellDef.Kind.ZONE), "Warlock leads with the Void Zone field")
+	failed += _expect(int(lock[1].kind) == int(SpellDef.Kind.TETHER), "Warlock's alt is the drain tether")
+	# Cryomancer's alt is now a Blizzard ZONE (not the frozen-comet meteor).
+	failed += _expect(int(cryo[1].kind) == int(SpellDef.Kind.ZONE), "Cryomancer's alt is the Blizzard field (not a meteor)")
+	# No class still leads with a plain BEAM except Arcanist's canonical Zoltraak.
+	for cls2: int in range(8):
+		var lo: Array = SpellLibrary.build_for_class(cls2)
+		if int(lo[0].kind) == int(SpellDef.Kind.BEAM):
+			failed += _expect(lo[0].id == "zoltraak", "class %d's signature beam is only the legit Zoltraak (got %s)" % [cls2, lo[0].id])
 	return failed
 
 

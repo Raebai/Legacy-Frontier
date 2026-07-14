@@ -703,6 +703,26 @@ func _cast_signature() -> void:
 		SpellCaster.cast(spell, get_parent(), rig.get_weapon_tip(), get_global_mouse_position(), _element_color, spell.effect)
 		_notify_element_used()
 		return
+	# Shadow-step: the Shadowblade TELEPORTS to the marked point mid-slash. The
+	# reposition has to move the Hero node (SpellCaster is static + can't), so it's
+	# handled here; BlinkStrike owns the crossed-line damage + streak/slash visuals.
+	if spell.kind == SpellDef.Kind.BLINK_STRIKE:
+		var bfrom: Vector2 = global_position
+		var to_aim: Vector2 = get_global_mouse_position() - bfrom
+		if to_aim.length() > spell.reach:
+			to_aim = to_aim.normalized() * spell.reach
+		var dest: Vector2 = _safe_blink_destination(bfrom, bfrom + to_aim)
+		var bs: Node2D = (load("res://scripts/combat/BlinkStrike.gd") as GDScript).new()
+		get_parent().add_child(bs)
+		bs.set("element_id", SpellCaster.resolve_element(spell))
+		global_position = dest
+		velocity.y = 0.0  # don't inherit fall speed through the teleport
+		_blink_iframe_timer = BLINK_IFRAME
+		bs.call("strike", bfrom, dest, _element_color, spell.damage, spell.effect)
+		rig.flash_color(BLINK_ARRIVAL_FLASH_COLOR, BLINK_ARRIVAL_FLASH_TIME)
+		rig.play(CharacterRig.State.CAST)
+		_notify_element_used()
+		return
 	# Sky spells (meteor / divine row) raise the staff UP and place from the hero;
 	# beams emanate FROM the staff tip toward the aim. Set the pose FIRST so
 	# get_weapon_tip() reads the pointed staff.

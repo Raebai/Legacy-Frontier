@@ -18,22 +18,22 @@ extends RefCounted
 ## Hero.HeroClass (0 ARCANIST .. 7 WARLOCK). Unknown ids fall back to the full cycle.
 static func build_for_class(class_id: int) -> Array:
 	match class_id:
-		0:  # ARCANIST — arcane
-			return [_zoltraak(), _meteor_sigil()]
-		1:  # SHADOWBLADE — shadow
-			return [_umbral_lance(), _void_barrage()]
+		0:  # ARCANIST — arcane (keep the canonical Zoltraak beam; rune-orbs replace the meteor-clone)
+			return [_zoltraak(), _rune_orbs()]
+		1:  # SHADOWBLADE — shadow (mobility+burst: teleport-strike + blade flurry, NOT beams)
+			return [_blink_strike(), _blade_flurry()]
 		2:  # BRAWLER — lightning (Chidori) + fire
 			return [_chidori(), _infernal_lance()]
 		3:  # JUGGERNAUT — earth (the full earthbending kit: throw / pillar / wall + legacy ults)
 			return [_boulder_hurl(), _rock_pillar(), _rock_wall(), _colossus_pillar(), _avalanche()]
 		4:  # CLERIC — holy
 			return [_heavens_verdict(), _judgment()]
-		5:  # CRYOMANCER — ice (bespoke zoning identity, not a recolored beam)
-			return [_ice_wall(), _frozen_comet()]
+		5:  # CRYOMANCER — ice (zoning: ice wall + blizzard field, no beam/meteor-clone)
+			return [_ice_wall(), _blizzard()]
 		6:  # STORMCALLER — lightning (chain leap, not a recolored beam)
 			return [_chain_lightning(), _chidori()]
-		7:  # WARLOCK — shadow
-			return [_void_barrage(), _umbral_lance()]
+		7:  # WARLOCK — shadow (attrition: void zone + life-drain tether, not beams/meteors)
+			return [_void_zone(), _drain_tether()]
 	return build()
 
 
@@ -189,6 +189,117 @@ static func _chain_lightning() -> SpellDef:
 	s.damage = 46
 	s.count = 5      # max hops
 	s.reach = 240.0  # hop range
+	return s
+
+
+## ARCANE MISSILES — Arcanist. A fan of homing rune-orbs (replaces the meteor-clone).
+static func _rune_orbs() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "rune_orbs"
+	s.display_name = "Arcane Missiles"
+	s.description = "Loose a fan of spinning rune-orbs that HOME onto your foes and "\
+		+ "pop in precise arcane bursts."
+	s.kind = SpellDef.Kind.MISSILES
+	s.element = Elements.Element.ARCANE
+	s.use_element_color = true
+	s.effect = "arcane"
+	s.mp_cost = 50
+	s.cooldown = 3.4
+	s.damage = 24  # per orb
+	s.count = 6
+	return s
+
+
+## SHADOW STEP — Shadowblade signature. Teleport-strike (replaces the Umbral beam).
+static func _blink_strike() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "blink_strike"
+	s.display_name = "Shadow Step"
+	s.description = "Dissolve into shadow and reappear at the marked point mid-slash "\
+		+ "— everything on the crossed line is cut and left WEAKENED."
+	s.kind = SpellDef.Kind.BLINK_STRIKE
+	s.element = Elements.Element.SHADOW
+	s.use_element_color = true
+	s.effect = "shadow"
+	s.mp_cost = 48
+	s.cooldown = 3.2
+	s.damage = 55
+	s.reach = 300.0  # blink distance
+	return s
+
+
+## BLADE FLURRY — Shadowblade alt. A burst of crescent slashes (replaces Void Barrage).
+static func _blade_flurry() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "blade_flurry"
+	s.display_name = "Blade Flurry"
+	s.description = "A blur of dashing slashes fans across the front — every foe in "\
+		+ "the arc is cut again and again."
+	s.kind = SpellDef.Kind.FLURRY
+	s.element = Elements.Element.SHADOW
+	s.use_element_color = true
+	s.effect = "shadow"
+	s.mp_cost = 44
+	s.cooldown = 3.0
+	s.damage = 16  # per slash
+	s.count = 6
+	return s
+
+
+## VOID ZONE — Warlock signature. A persistent shadow field (replaces Void Barrage).
+static func _void_zone() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "void_zone"
+	s.display_name = "Void Zone"
+	s.description = "Open a pool of writhing void on the marked ground — foes inside "\
+		+ "bleed shadow and are WEAKENED for as long as they linger."
+	s.kind = SpellDef.Kind.ZONE
+	s.element = Elements.Element.SHADOW
+	s.use_element_color = true
+	s.effect = "shadow"
+	s.mp_cost = 60
+	s.cooldown = 6.5
+	s.damage = 10   # per tick
+	s.radius = 130.0
+	s.reach = 300.0
+	s.length = 4.8  # field lifetime (see SpellCaster ZONE arm)
+	return s
+
+
+## LIFE-DRAIN TETHER — Warlock alt. Drain a foe + heal yourself (replaces Umbral beam).
+static func _drain_tether() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "drain_tether"
+	s.display_name = "Drain Tether"
+	s.description = "Snap a writhing tendril to the nearest foe and DRAIN its life — "\
+		+ "it bleeds while you are healed."
+	s.kind = SpellDef.Kind.TETHER
+	s.element = Elements.Element.SHADOW
+	s.use_element_color = true
+	s.effect = "shadow"
+	s.mp_cost = 46
+	s.cooldown = 3.4
+	s.damage = 11  # per tick
+	return s
+
+
+## BLIZZARD — Cryomancer alt. A persistent frost field (replaces the Frozen Comet meteor).
+static func _blizzard() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "blizzard"
+	s.display_name = "Blizzard"
+	s.description = "Call a swirling snow field over the marked ground — everything "\
+		+ "inside is chilled toward a FREEZE."
+	s.kind = SpellDef.Kind.ZONE
+	s.element = Elements.Element.ICE
+	s.use_element_color = true
+	s.effect = "frost"
+	s.mp_cost = 58
+	s.cooldown = 6.0
+	s.damage = 8   # per tick
+	s.radius = 135.0
+	s.reach = 300.0
+	s.length = 4.2  # field lifetime
 	return s
 
 
