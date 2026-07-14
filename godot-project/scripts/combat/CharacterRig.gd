@@ -91,6 +91,10 @@ const SIM_EXTREMITIES: Array[String] = [
 ]
 const STIFFNESS: float = 60.0          # LOOSER still — floppier, more ragdoll swing
 const DAMPING: float = 8.0             # less = more overshoot/swing (still stable)
+## The FEET spring softer than the rest so the legs lag, swing, and settle loosely
+## as you walk (maker: "the legs should feel free and flowy like Stick Fight").
+## Lower = floppier legs. Applied on top of the global stiffness in _step_sim.
+const LOOSE_LEG_STIFFNESS: float = 0.5
 const GRAVITY: float = 800.0           # applied only when limp (ragdoll droop)
 const MAX_OFFSET_FACTOR: float = 0.85  # allow more drift so limbs really swing
 const LIMP_EASE_SPEED: float = 5.0     # _limp eases toward _limp_target at this /s
@@ -237,10 +241,13 @@ func _step_sim(delta: float) -> void:
 		dv = Vector2.ZERO
 	var flip_s: float = 1.0 if scale.x >= 0.0 else -1.0
 	var trail: Vector2 = Vector2(-dv.x * flip_s, -dv.y) * BODY_TRAIL_FACTOR
+	var leg_stiffness: float = stiffness * LOOSE_LEG_STIFFNESS
 	for key: String in SIM_JOINTS:
 		var target: Vector2 = target_pose[key]
 		var vel: Vector2 = _sim_vel[key]
-		vel += (target - _sim[key]) * stiffness * delta
+		# The feet spring softer -> the legs lag + swing loosely (the flowy walk).
+		var k_stiff: float = leg_stiffness if (key == "foot_lead" or key == "foot_off") else stiffness
+		vel += (target - _sim[key]) * k_stiff * delta
 		vel += Vector2(0.0, GRAVITY * _limp) * delta
 		if SIM_EXTREMITIES.has(key):
 			vel += trail
@@ -928,6 +935,7 @@ func _compute_pose() -> Dictionary:
 	var leg_lead: float = PI * 0.5 - 0.18
 	var leg_off: float = PI * 0.5 + 0.18
 	var leg_lead_len: float = leg_len
+	var leg_off_len: float = leg_len
 
 	match state:
 		State.IDLE:
@@ -936,16 +944,21 @@ func _compute_pose() -> Dictionary:
 			# Smoother, weightier gait (Stick-Fight feel): a calmer stride
 			# frequency, a real leg lift on the back-swing (stride, not a scissor),
 			# arm counter-swing, and a two-step bounce synced to the footfalls.
-			var sp: float = _phase * 9.5
-			var swing: float = sin(sp) * 0.9
+			# Looser, bigger stride — the legs swing wide and the knees lift more, so
+			# the soft foot-springs (LOOSE_LEG_STIFFNESS) let them lag + flop loosely
+			# for the free, flowy Stick-Fight walk.
+			var sp: float = _phase * 9.0
+			var swing: float = sin(sp) * 1.1
 			lean = height * 0.13
 			leg_lead = PI * 0.5 - swing
 			leg_off = PI * 0.5 + swing
-			# Shorten whichever leg is swinging back so it "lifts" off the ground.
-			leg_lead_len = leg_len * (1.0 - 0.16 * maxf(-sin(sp), 0.0))
-			arm_lead = PI * 0.5 + swing * 0.75
-			arm_off = PI * 0.5 - swing * 0.75
-			bob = absf(sin(sp)) * height * 0.055
+			# Lift whichever leg is swinging back (knee bends up) — both legs, opposite
+			# phase — for a loose knees-up gait rather than stiff scissoring sticks.
+			leg_lead_len = leg_len * (1.0 - 0.24 * maxf(-sin(sp), 0.0))
+			leg_off_len = leg_len * (1.0 - 0.24 * maxf(sin(sp), 0.0))
+			arm_lead = PI * 0.5 + swing * 0.7
+			arm_off = PI * 0.5 - swing * 0.7
+			bob = absf(sin(sp)) * height * 0.06
 		State.DASH:
 			lean = height * 0.22
 			leg_lead = PI * 0.5 + 0.55
@@ -1012,7 +1025,7 @@ func _compute_pose() -> Dictionary:
 	var hand_lead: Vector2 = shoulder + Vector2.from_angle(arm_lead) * arm_lead_len
 	var hand_off: Vector2 = shoulder + Vector2.from_angle(arm_off) * arm_len
 	var foot_lead: Vector2 = hip + Vector2.from_angle(leg_lead) * leg_lead_len
-	var foot_off: Vector2 = hip + Vector2.from_angle(leg_off) * leg_len
+	var foot_off: Vector2 = hip + Vector2.from_angle(leg_off) * leg_off_len
 
 	# Cast-gesture overlay: additive, lead-arm-isolated, composes over locomotion.
 	# Damped out automatically when limp (the sim's stiffness is _limp-scaled).
