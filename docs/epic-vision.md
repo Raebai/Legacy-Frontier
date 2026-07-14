@@ -27,6 +27,19 @@ systems (sound + VFX + camera + time + destruction) firing IN SYNC on key beats:
   the hero) ring the hero out from valid spots. Review `BLAST_ZONES` positions + hole-drop.
 - **"Entire floor needs fixing"**: review `DestructibleFloor` segment collision/seams.
 
+### Phase 1b — TWO MORE BUGS/ASKS from playtest (fold into Phase 1/2)
+- **"I WIN after ~one character — should only win when ALL enemies dead."** VersusArena
+  `_finish_match("VICTORY")` fires when `_bots_alive()==0`. BlastSpell uses `target_group`
+  ("hero" for the MAGE bot) so it's probably NOT AoE friendly-fire — most likely the **bots
+  are RINGING OUT on the broken map / falling into the void** (bad footing, floor holes, or
+  the blast-zones catching them), so only ~1 is left to kill. Fixing the map + spawns + void
+  (Phase 1) likely resolves it. ALSO verify no enemy projectile/minion friendly-fires other
+  enemies, and consider tracking eliminations explicitly vs the transient `_bots_alive()` poll.
+- **Q (AoE slot) abilities are "just reworks of each other."** Correct — blast/nova/fist_shock/
+  ground_slam are all `BlastSpell.configure` variants. Same fix as the G signatures got: give
+  each CLASS a DISTINCT, epic Q spectacle (not a recolored blast). This is a per-class-Q kit
+  pass parallel to the signature de-clone already done.
+
 ### Phase 2 — MAKE THE G's ANIME FINISHERS (the headline feel ask)
 Maker: *"isn't G the ULTIMATE where the character does something awesome? ice is cringe — no
 spell circle, no summoning animation. They ALL need that for the G's ESPECIALLY."*
