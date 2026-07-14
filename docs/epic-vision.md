@@ -1,0 +1,83 @@
+# Legacy Frontier — EPIC north-star + resume plan (2026-07-14)
+
+> Written at the maker's request as the resume point after a big playtest-feedback storm.
+> The **tactical, itemised** TODO also lives at the top of `.superpowers/sdd/progress.md`
+> (block "LATER-4 — PLAYTEST FEEDBACK STORM"). This doc is the STRATEGY / why.
+> Playtest scene: `scenes/combat/VersusArena.tscn` (F6). Branch `v2.0-tower`, NOT pushed.
+
+## The vibe we're chasing
+Fast-paced, anime-epic, **spells flying everywhere**, the map getting **torn apart**, big
+screen-filling ultimates with real ceremony — a "can't put it down" game. Right now the
+PIECES exist (8 bespoke class kits, spectacles, destruction, ring-out, per-ability SFX)
+but they fire FLATLY and don't COMPOSE into epic. "Epic" is not a feature — it's many
+systems (sound + VFX + camera + time + destruction) firing IN SYNC on key beats:
+**anticipation → crescendo → payoff → aftermath.**
+
+## Strategy — 4 phases, in order
+
+### Phase 1 — FIX THE FOUNDATION (can't be epic if it's janky)
+- **Map is scattered / "blocks stuck between bridges"**: floating ledges (300,560)/(720,470)
+  + breakable (980,380) sit at random heights with big empty gaps to the right-third mountain
+  → reads as disconnected blocks. Redesign into ONE cohesive, connected, readable stage
+  (platforms closer/lower, mid-layer connected to ground + mountain, kill the empty vertical
+  void). See `tools/arena_wide_capture.gd`.
+- **Ducking clips the hero INTO the floor** (hold DOWN ragdoll): the limp rig droops below its
+  collision. Clamp the limp droop to the floor / reduce limp gravity when grounded.
+- **VOID/ring-out "sends me out of the map"**: blast-zone PITs (or a floor hole opening under
+  the hero) ring the hero out from valid spots. Review `BLAST_ZONES` positions + hole-drop.
+- **"Entire floor needs fixing"**: review `DestructibleFloor` segment collision/seams.
+
+### Phase 2 — MAKE THE G's ANIME FINISHERS (the headline feel ask)
+Maker: *"isn't G the ULTIMATE where the character does something awesome? ice is cringe — no
+spell circle, no summoning animation. They ALL need that for the G's ESPECIALLY."*
+- Channeled ults (beam/ray/meteor/convergence) already levitate + grow a `MagicCircle`
+  (float-channel). The INSTANT signatures (ice_wall, chain_lightning, rune_orbs, blink_strike,
+  blade_flurry, void_zone, drain_tether, boulder/pillar/wall) fire with NO ceremony → cheap.
+- **FIX: every signature gets an epic SUMMON windup** — `MagicCircle` spell-circle blooms +
+  committed cast pose + gather motes (~0.3–0.6s) → the spell ERUPTS. Route them through a
+  short `_begin_channel`-style windup or a shared "summon flash" helper.
+
+### Phase 3 — SPELL-STORM DENSITY + PRESSURE
+- **Give the ENEMIES the class kits** so the screen is full of BOTH your spells and theirs.
+- Faster pacing (shorter cooldowns, snappier dashes), **trails + bloom on everything**,
+  ragdolls launching on death. "Make the enemies even cooler / more diverse."
+
+### Phase 4 — THE HOOK (can't-let-go)
+- **DMC-style style/combo meter** rewarding flashy, varied, no-repeat ability chains.
+- Riding on the **persistent Tower climb** (death = drop 2 floors, keep everything, NPCs
+  remember + roast your run) — escalation + "just one more floor" + a style score to beat.
+- Swap in the **real SFX packs** for pro polish.
+
+## The through-line to BUILD: an `EpicMoment` juice system
+One system that, on any big beat (ult cast, big hit, kill), SYNCHRONIZES: charge-sound →
+growing sigil → camera pull/slow-mo → hitstop → screenshake → bloom flash → aftermath.
+Wire every ult + every kill through it. `Juice.on_hit` is the seed — generalize it.
+
+## DESTRUCTION must be BIGGER + NATURAL (maker: "not destroying the map nearly as much as I hoped")
+- Spells should TEAR UP the map far more — bigger break radius, more flying chunks, more
+  craters, floors/platforms dramatically collapsing where big spells land.
+- But LOCALIZED + natural: only the surface AT the impact breaks/chips (not the whole thing),
+  diversified block looks, smaller chunks. Cover currently shatters WHOLE — make it chip.
+
+## AUDIO — still corny, needs work (maker)
+- **Zoltraak / the `beam` SFX sounds goofy/corny** (the charge_up is good; the discharge isn't).
+  Rework the `make_beam` synth (less kazoo, more searing laser) — or replace with a real clip.
+- **Meteor animation weird + its ground AREA effect looks off** — rework to look epic (longer-term).
+- **Fantasy SFX pack** uploaded at `Effects/Free Fantasy SFX Pack By TomMusic` (+ Sonniss
+  downloading). Audit + map clips to the wired `Sfx.gd` keys (cast/charge_up/beam/cannon/zap/
+  ice/earth/holy/nova/blast/melee_hit/melee_swing/blink/footstep/ding/hero_hurt/enemy_death/
+  spell_impact) — drop `.wav` into `assets/audio/sfx/`, keys already wired. **NO voice grunts**
+  (maker: "corny"). Maker also grabbed VFX libs (godot-4-VFX-assets, GODOT-VFX-LIBRARY, portal
+  shader) + KayKit packs in Downloads — potential integration.
+- **VFX FOLDER (maker will add before resume — ACTION THIS):** the maker is dropping a VFX
+  asset folder into the project for resume. On resume: FIND it (likely `Effects/` or a new
+  `vfx/` dir, or the downloaded `godot-4-VFX-assets` / `GODOT-VFX-LIBRARY` / portal-shader
+  packs), audit what's in it (particle scenes, shaders, sprite-sheets), and INTEGRATE the
+  relevant ones to make spells/impacts look epic — this directly serves "all moves must look
+  epic" + the spell-storm density. Wire into the spectacle scenes + ElementFx / impact sites.
+
+## Recommended resume order (next session, fresh context)
+1. **Phase 1** — one clean connected arena + fix ducking-clip + void ring-out + floor. (foundation)
+2. **Phase 2** — epic summon windup (spell circle + pose) for ALL signatures + the `EpicMoment` sync system.
+3. Bigger natural destruction + rework the `beam` SFX.
+4. Phase 3 (enemy kits/density) → Phase 4 (style meter + climb + real SFX packs).
