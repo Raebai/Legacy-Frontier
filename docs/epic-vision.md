@@ -82,12 +82,17 @@ Wire every ult + every kill through it. `Juice.on_hit` is the seed — generaliz
   spell_impact) — drop `.wav` into `assets/audio/sfx/`, keys already wired. **NO voice grunts**
   (maker: "corny"). Maker also grabbed VFX libs (godot-4-VFX-assets, GODOT-VFX-LIBRARY, portal
   shader) + KayKit packs in Downloads — potential integration.
-- **VFX FOLDER (maker will add before resume — ACTION THIS):** the maker is dropping a VFX
-  asset folder into the project for resume. On resume: FIND it (likely `Effects/` or a new
-  `vfx/` dir, or the downloaded `godot-4-VFX-assets` / `GODOT-VFX-LIBRARY` / portal-shader
-  packs), audit what's in it (particle scenes, shaders, sprite-sheets), and INTEGRATE the
-  relevant ones to make spells/impacts look epic — this directly serves "all moves must look
-  epic" + the spell-storm density. Wire into the spectacle scenes + ElementFx / impact sites.
+- **VFX + SFX ASSETS ARE NOW IN `Effects/` (maker extracted them — ACTION ON RESUME):**
+  - VFX: **`Effects/GODOT-VFX-LIBRARY-main/addons/vfx_library`** (a Godot 4 VFX addon — enable
+    it as a plugin, use its particle effects) + **`Effects/godot-4-VFX-assets-main/effects`**.
+    Audit the particle scenes/shaders, wire the epic ones into the spectacle scenes + ElementFx
+    + impact sites (beams, meteor, ults, hits) so "all moves look epic" + spell-storm density.
+  - SFX (Sonniss/pro packs, replace the synth placeholders — map to the wired Sfx.gd keys):
+    `Effects/Cinematic Sound Design - Colossal Impacts` + `Effective Trailer Booms` -> cannon/blast;
+    `Alexander Kopeikin - Emotion and Magic` -> beam/cast/charge_up/holy/nova/zap;
+    `Alexander Kopeikin - 100 kHz Designed Ice` -> ice; `David Dumais - Melee Weapons` -> melee_hit/swing;
+    `Cinematic Sound Design - Cartoon Impacts` -> spell_impact/ding. FIX the corny `beam` synth
+    by dropping a real searing-laser clip over `beam_1/2.wav`. NO voice grunts.
 
 ## Recommended resume order (next session, fresh context)
 1. **Phase 1** — one clean connected arena + fix ducking-clip + void ring-out + floor. (foundation)
