@@ -14,6 +14,9 @@ const METEOR_PATH: String = "res://scripts/combat/MeteorSigil.gd"
 const CONVERGENCE_PATH: String = "res://scripts/combat/StarConvergence.gd"
 const RUSH_PATH: String = "res://scripts/combat/LightningRush.gd"
 const NOVA_PATH: String = "res://scenes/combat/EnergyNova.tscn"
+const BOULDER_PATH: String = "res://scripts/combat/BoulderHurl.gd"
+const PILLAR_PATH: String = "res://scripts/combat/RockPillar.gd"
+const WALL_PATH: String = "res://scripts/combat/RockWall.gd"
 
 
 ## Cast `spell` from `caster_pos` toward `target_pos`, parented under `arena`.
@@ -83,6 +86,31 @@ static func cast(
 			arena.add_child(nova)
 			nova.set("element_id", elem)
 			nova.call("activate_at", caster_pos)
+			return true
+		SpellDef.Kind.BOULDER:
+			# Rips a boulder from the ground and hurls it along the aim.
+			var b: Node2D = (load(BOULDER_PATH) as GDScript).new()
+			arena.add_child(b)
+			b.set("element_id", elem)
+			b.call("hurl", caster_pos, aim.normalized(), col, spell.radius, spell.damage, fx)
+			return true
+		SpellDef.Kind.PILLAR:
+			# Erupts a stone pillar under the marked ground point (uppercut launch).
+			var pto: Vector2 = aim
+			if pto.length() > spell.reach:
+				pto = pto.normalized() * spell.reach
+			var pil: Node2D = (load(PILLAR_PATH) as GDScript).new()
+			arena.add_child(pil)
+			pil.set("element_id", elem)
+			pil.call("erupt", caster_pos + pto, col, spell.radius, spell.damage, fx)
+			Juice.zoom_pull_camera(0.13, 0.4, 0.14, 0.5)
+			return true
+		SpellDef.Kind.WALL:
+			# Raises a temporary blocking stone wall in the aim direction.
+			var wl: Node2D = (load(WALL_PATH) as GDScript).new()
+			arena.add_child(wl)
+			wl.set("element_id", elem)
+			wl.call("raise_wall", caster_pos, aim.normalized(), col, fx)
 			return true
 		_:
 			# Any unbuilt kind: safe no-op until its scene exists.

@@ -11,7 +11,7 @@ extends Resource
 
 ## The spectacle this spell casts. Reserve values for spells designed but not yet
 ## built (see docs/v2.0-spell-system-design.md); SpellCaster falls back safely.
-enum Kind { BEAM, DIVINE_RAY, NOVA, METEOR, CONVERGENCE, RUSH }
+enum Kind { BEAM, DIVINE_RAY, NOVA, METEOR, CONVERGENCE, RUSH, BOULDER, PILLAR, WALL }
 
 @export var id: String = ""
 @export var display_name: String = ""
@@ -36,6 +36,9 @@ enum Kind { BEAM, DIVINE_RAY, NOVA, METEOR, CONVERGENCE, RUSH }
 @export var radius: float = 90.0
 @export var reach: float = 260.0
 @export var count: int = 10  # projectiles for a barrage kind (Meteor Sigil)
+## Float-channel windup (seconds). >0 = the caster LEVITATES + channels for this
+## long before the spell fires (interruptible by a hit). 0 = instant cast.
+@export var cast_time: float = 0.0
 
 
 ## Resolve the tint for a cast: an explicit colour override, else the element

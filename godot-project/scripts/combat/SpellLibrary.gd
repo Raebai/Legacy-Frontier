@@ -24,8 +24,8 @@ static func build_for_class(class_id: int) -> Array:
 			return [_umbral_lance(), _void_barrage()]
 		2:  # BRAWLER — lightning (Chidori) + fire
 			return [_chidori(), _infernal_lance()]
-		3:  # JUGGERNAUT — earth
-			return [_colossus_pillar(), _avalanche()]
+		3:  # JUGGERNAUT — earth (the full earthbending kit: throw / pillar / wall + legacy ults)
+			return [_boulder_hurl(), _rock_pillar(), _rock_wall(), _colossus_pillar(), _avalanche()]
 		4:  # CLERIC — holy
 			return [_heavens_verdict(), _judgment()]
 		5:  # CRYOMANCER — ice
@@ -149,6 +149,58 @@ static func _frozen_comet() -> SpellDef:
 	return _meteor("frozen_comet", "Frozen Comet",
 		"Shards of a shattered comet rain from a frozen sky over the marked ground.",
 		Elements.Element.ICE, 70, 6.0, 22, 138.0, 11)
+
+
+## BOULDER HURL — Juggernaut earth. Rip a boulder from the ground and throw it.
+static func _boulder_hurl() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "boulder_hurl"
+	s.display_name = "Boulder Hurl"
+	s.description = "Rip a boulder from the earth and HURL it down the aim — it shatters on impact, throwing everything back."
+	s.kind = SpellDef.Kind.BOULDER
+	s.element = Elements.Element.EARTH
+	s.use_element_color = true
+	s.effect = "earth"
+	s.mp_cost = 50
+	s.cooldown = 3.4
+	s.damage = 52
+	s.radius = 84.0
+	return s
+
+
+## ROCK PILLAR — Juggernaut earth. A telegraphed eruption that launches skyward.
+static func _rock_pillar() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "rock_pillar"
+	s.display_name = "Rock Pillar"
+	s.description = "A telegraphed stone spire ERUPTS from the ground, launching everything in its footprint skyward."
+	s.kind = SpellDef.Kind.PILLAR
+	s.element = Elements.Element.EARTH
+	s.use_element_color = true
+	s.effect = "earth"
+	s.mp_cost = 52
+	s.cooldown = 4.0
+	s.damage = 58
+	s.radius = 66.0
+	s.reach = 280.0
+	return s
+
+
+## ROCK WALL — Juggernaut earth. A temporary blocking barrier of stone (no damage).
+static func _rock_wall() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "rock_wall"
+	s.display_name = "Rock Wall"
+	s.description = "Raise a temporary wall of stone in the aim direction — it blocks enemy bodies and projectiles for a few seconds, then crumbles."
+	s.kind = SpellDef.Kind.WALL
+	s.element = Elements.Element.EARTH
+	s.use_element_color = true
+	s.effect = "earth"
+	s.mp_cost = 40
+	s.cooldown = 5.0
+	s.damage = 0
+	s.reach = 90.0
+	return s
 
 
 static func _meteor(

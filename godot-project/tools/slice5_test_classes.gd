@@ -135,10 +135,12 @@ func _test_signature_loadouts() -> int:
 	# Cleric (4) leads with Heaven's Verdict (convergence).
 	var cleric: Array = SpellLibrary.build_for_class(4)
 	failed += _expect(cleric[0].id == "heavens_verdict", "Cleric's first signature is Heaven's Verdict")
-	# Juggernaut (3) leads with the earth Colossus Pillar.
+	# Juggernaut (3) now leads with the full earthbending kit (Boulder Hurl first).
 	var jugg: Array = SpellLibrary.build_for_class(3)
-	failed += _expect(jugg[0].id == "colossus_pillar", "Juggernaut's first signature is the Colossus Pillar")
-	failed += _expect(int(jugg[0].element) == 5, "Colossus Pillar carries the EARTH element (Stagger)")
+	failed += _expect(jugg[0].id == "boulder_hurl", "Juggernaut's first signature is Boulder Hurl")
+	failed += _expect(int(jugg[0].element) == 5, "Boulder Hurl carries the EARTH element (Stagger)")
+	failed += _expect(jugg.size() >= 5, "Juggernaut has the 3 earth-kit spells + 2 legacy ults")
+	failed += _expect(jugg[1].id == "rock_pillar" and jugg[2].id == "rock_wall", "earth kit: pillar then wall")
 	return failed
 
 
