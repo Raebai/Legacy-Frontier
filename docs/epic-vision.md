@@ -16,11 +16,15 @@ systems (sound + VFX + camera + time + destruction) firing IN SYNC on key beats:
 ## Strategy — 4 phases, in order
 
 ### Phase 1 — FIX THE FOUNDATION (can't be epic if it's janky)
-- **Map is scattered / "blocks stuck between bridges"**: floating ledges (300,560)/(720,470)
-  + breakable (980,380) sit at random heights with big empty gaps to the right-third mountain
-  → reads as disconnected blocks. Redesign into ONE cohesive, connected, readable stage
-  (platforms closer/lower, mid-layer connected to ground + mountain, kill the empty vertical
-  void). See `tools/arena_wide_capture.gd`.
+- **Map is scattered + the PLATFORMS LOOK WEIRD/WRONG** (maker: "what's up with all these weird
+  platforms, the map needs to look way better, more REALISTIC and actually FUN"): the floating
+  ledges (300,560)/(720,470) + breakable (980,380) sit at random heights with big empty gaps to
+  the right-third mountain → reads as disconnected abstract blocks, not a place. FULL VISUAL
+  REDESIGN: one cohesive, connected, REALISTIC-looking, FUN stage — believable terrain/rock/
+  ruins art (not flat dark slabs with green rims), platforms that feel intentional + reachable +
+  connected to the ground + mountain, no empty vertical void, clear traversal + fight flow.
+  Consider the KayKit / Stylized Nature / VFX assets the maker downloaded for a real look.
+  See `tools/arena_wide_capture.gd`.
 - **Ducking clips the hero INTO the floor** (hold DOWN ragdoll): the limp rig droops below its
   collision. Clamp the limp droop to the floor / reduce limp gravity when grounded.
 - **VOID/ring-out "sends me out of the map"**: blast-zone PITs (or a floor hole opening under
