@@ -281,6 +281,7 @@ func _ready() -> void:
 	hp = max_hp
 	health_changed.emit(hp, max_hp)
 	rig.set_tint(COLOURWAYS[_colourway])
+	rig.set_aim_arm(true)  # twin-stick: the lead hand always aims at the cursor
 	# Class comes from GameState (hub selection) if present, else defaults MAGE.
 	var gs: Node = get_node_or_null("/root/GameState")
 	var start_class: int = HeroClass.MAGE
