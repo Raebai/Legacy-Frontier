@@ -25,9 +25,11 @@ const CHUNK_MASK: int = 1  # platforms/walls only
 const SIZE_MIN: float = 4.0
 const SIZE_MAX: float = 9.0
 # Lifetime: fly + settle for LIFETIME_*, then fade out over FADE_TIME.
-const LIFETIME_MIN: float = 0.9
-const LIFETIME_MAX: float = 1.4
-const FADE_TIME: float = 0.4
+# Longer settle + lingering rubble = Stick-Fight "permanence" (the world stays
+# visibly impacted after the fight moment, not wiped a second later).
+const LIFETIME_MIN: float = 2.6
+const LIFETIME_MAX: float = 4.2
+const FADE_TIME: float = 1.2
 # Launch shaping (spawn_burst).
 const SPEED_VARIANCE: float = 0.35  # +/- fraction of the requested speed
 const SPREAD_ARC: float = 0.9  # rad each side around impact_dir
