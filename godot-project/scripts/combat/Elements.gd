@@ -56,6 +56,30 @@ static func display_name(e: int) -> String:
 	return "Arcane"
 
 
+## Particle-language / effect string for an element — the token the spectacle
+## scenes + ElementFx read to pick their palette (fire / frost / lightning / ...).
+## Unknown values fall back to "arcane".
+static func effect_name(e: int) -> String:
+	match e:
+		Element.FIRE:
+			return "fire"
+		Element.ICE:
+			return "frost"
+		Element.LIGHTNING:
+			return "lightning"
+		Element.SHADOW:
+			return "shadow"
+		Element.ARCANE:
+			return "arcane"
+		Element.EARTH:
+			return "earth"
+		Element.HOLY:
+			return "holy"
+		Element.WIND:
+			return "wind"
+	return "arcane"
+
+
 ## Number of elements — the modulus for cycle wrapping.
 static func count() -> int:
 	return Element.size()

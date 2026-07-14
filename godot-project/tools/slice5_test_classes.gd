@@ -82,7 +82,8 @@ func _test_class_elements_and_aoe() -> int:
 	var hero: CharacterBody2D = _make_hero()
 	# element index per class (matches CLASS_CONFIG): FIRE0 ICE1 LIGHT2 SHAD3 ARC4 EARTH5 HOLY6 WIND7
 	var expect_element: Array[int] = [4, 3, 0, 5, 6, 1, 2, 3]  # Arcanist..Warlock
-	var expect_aoe: Array[String] = ["blast", "nova", "fist_shock", "ground_slam", "blast", "blast", "blast", "blast"]
+	# Each class has a DISTINCT Q spectacle now (no more 5 shared blasts).
+	var expect_aoe: Array[String] = ["arcane_meteor", "nova", "fist_shock", "ground_slam", "consecrate", "ice_shards", "call_lightning", "curse_chain"]
 	for cls: int in range(8):
 		hero.configure_class(cls)
 		failed += _expect(int(hero._element) == expect_element[cls], "class %d element = %d" % [cls, expect_element[cls]])

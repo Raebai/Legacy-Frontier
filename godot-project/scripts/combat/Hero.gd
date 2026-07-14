@@ -151,7 +151,7 @@ const CLASS_CONFIG: Dictionary = {
 		"blast_cd": BLAST_COOLDOWN,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
-		"aoe": "blast", "has_nova": true, "can_parry": true,
+		"aoe": "arcane_meteor", "has_nova": true, "can_parry": true,  # Q: arcane star-fall
 	},
 	HeroClass.ROGUE: {  # SHADOWBLADE — twitchy assassin; LMB = 3-dagger flurry
 		"preset": "rogue", "weapon": "sword", "element": Elements.Element.SHADOW, "melee_element": Elements.Element.SHADOW,
@@ -184,7 +184,7 @@ const CLASS_CONFIG: Dictionary = {
 		"cast_cd": 0.32, "dash_cd": 0.85, "blink_cd": 1.2, "blast_cd": 2.4,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
-		"aoe": "blast", "has_nova": true, "can_parry": true,
+		"aoe": "consecrate", "has_nova": true, "can_parry": true,  # Q: consecrated ground
 	},
 	HeroClass.CRYOMANCER: {  # ice control — LMB is a FROST CONE, not a bolt
 		"preset": "cryomancer", "weapon": "staff", "element": Elements.Element.ICE, "melee_element": Elements.Element.ICE,
@@ -192,7 +192,7 @@ const CLASS_CONFIG: Dictionary = {
 		"cast_cd": 0.34, "dash_cd": 0.90, "blink_cd": 1.2, "blast_cd": 2.6,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
-		"aoe": "blast", "has_nova": true, "can_parry": true,
+		"aoe": "ice_shards", "has_nova": true, "can_parry": true,  # Q: homing frost shards
 	},
 	HeroClass.STORMCALLER: {  # hyper-mobile chain caster — LMB arcs, fast wind-dash
 		"preset": "stormcaller", "weapon": "staff", "element": Elements.Element.LIGHTNING, "melee_element": Elements.Element.LIGHTNING,
@@ -200,7 +200,7 @@ const CLASS_CONFIG: Dictionary = {
 		"cast_cd": 0.30, "dash_cd": 0.55, "blink_cd": 1.0, "blast_cd": 2.4,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
-		"aoe": "blast", "has_nova": true, "can_parry": true,
+		"aoe": "call_lightning", "has_nova": true, "can_parry": true,  # Q: lightning strike column
 	},
 	HeroClass.WARLOCK: {  # dark attrition hexer — LMB drain-bolt (weaken + lifesteal)
 		"preset": "warlock", "weapon": "sword", "element": Elements.Element.SHADOW, "melee_element": Elements.Element.SHADOW,
@@ -208,7 +208,7 @@ const CLASS_CONFIG: Dictionary = {
 		"cast_cd": 0.30, "dash_cd": 0.85, "blink_cd": 1.1, "blast_cd": 2.5,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
-		"aoe": "blast", "has_nova": true, "can_parry": true,
+		"aoe": "curse_chain", "has_nova": true, "can_parry": true,  # Q: leaping shadow chain
 	},
 }
 
@@ -1229,8 +1229,18 @@ func _blast() -> void:
 			_fire_punch()          # brawler — lunging elemental shockwave
 		"ground_slam":
 			_ground_slam()         # juggernaut — self-centred crater
+		"arcane_meteor":
+			_arcane_meteor()       # arcanist — arcane star-fall barrage
+		"consecrate":
+			_consecrate()          # cleric — hallowed ground field
+		"ice_shards":
+			_ice_shards()          # cryomancer — homing frost shard spray
+		"call_lightning":
+			_call_lightning()      # stormcaller — lightning strike column
+		"curse_chain":
+			_curse_chain()         # warlock — leaping shadow chain
 		_:
-			_meteor_blast()        # placed giant blast (mage / cleric / caster classes)
+			_meteor_blast()        # placed giant blast (fallback)
 
 
 ## Placed giant blast: lands where the cursor points, clamped to a max cast range
@@ -1303,6 +1313,75 @@ func _spawn_nova() -> void:
 	nova.call("activate_at", global_position)
 	rig.play(CharacterRig.State.CAST)
 	rig.cast_gesture(CharacterRig.GestureKind.RAISE, 0.6, _element)  # arms fling out the nova
+
+
+## Cursor target for a placed Q, clamped to BLAST_MAX_RANGE so it stays a skill-shot.
+func _aoe_target() -> Vector2:
+	var to_target: Vector2 = get_global_mouse_position() - global_position
+	if to_target.length() > BLAST_MAX_RANGE:
+		to_target = to_target.normalized() * BLAST_MAX_RANGE
+	return global_position + to_target
+
+
+# ---- Per-class DISTINCT Q spectacles (maker: "Q's are just reworks of each other
+# — give each CLASS a distinct epic Q, not a recolored blast"). Each reuses a
+# proven spectacle scene in a config distinct from that class's G signature, and
+# carries the hero's ACTIVE element. Runtime-load()ed (never preload) so the
+# headless slice harness that compiles Hero doesn't early-compile these.
+
+## ARCANIST Q — Arcane Storm: a short barrage of arcane meteors rains on the cursor.
+func _arcane_meteor() -> void:
+	var meteor: Node2D = (load("res://scripts/combat/MeteorSigil.gd") as GDScript).new()
+	get_parent().add_child(meteor)
+	meteor.set("element_id", _element)
+	meteor.call("rain", _aoe_target(), _element_color, 92.0, 22, 5, Elements.effect_name(_element))
+	rig.set_aim(Vector2.UP)
+	rig.play(CharacterRig.State.CAST)
+	rig.cast_gesture(CharacterRig.GestureKind.RAISE, 0.7, _element)
+
+
+## CLERIC Q — Consecrate: hallowed ground pulses holy damage where the cursor points.
+func _consecrate() -> void:
+	var zone: Node2D = (load("res://scripts/combat/ZoneSpell.gd") as GDScript).new()
+	get_parent().add_child(zone)
+	zone.set("element_id", _element)
+	zone.call("open", _aoe_target(), _element_color, 98.0, 11, Elements.effect_name(_element), 4.0)
+	rig.set_aim(_aim_dir)
+	rig.play(CharacterRig.State.CAST)
+	rig.cast_gesture(CharacterRig.GestureKind.RAISE, 0.6, _element)
+
+
+## CRYOMANCER Q — Ice Shards: a spray of homing frost shards toward the aim.
+func _ice_shards() -> void:
+	var orbs: Node2D = (load("res://scripts/combat/RuneOrbs.gd") as GDScript).new()
+	get_parent().add_child(orbs)
+	orbs.set("element_id", _element)
+	orbs.call("launch", rig.get_weapon_tip(), _aim_dir.normalized(), _element_color, 6, 18, Elements.effect_name(_element))
+	rig.set_aim(_aim_dir)
+	rig.play(CharacterRig.State.CAST)
+	rig.cast_gesture(CharacterRig.GestureKind.FLICK, 0.7, _element)
+
+
+## STORMCALLER Q — Call Lightning: a bolt column crashes down on the cursor.
+func _call_lightning() -> void:
+	var ray: Node2D = (load("res://scripts/combat/DivineRay.gd") as GDScript).new()
+	get_parent().add_child(ray)
+	ray.set("element_id", _element)
+	ray.call("strike", _aoe_target(), _element_color, 74.0, 34, Elements.effect_name(_element))
+	rig.set_aim(Vector2.UP)
+	rig.play(CharacterRig.State.CAST)
+	rig.cast_gesture(CharacterRig.GestureKind.RAISE, 0.7, _element)
+
+
+## WARLOCK Q — Curse Chain: a shadow bolt leaps enemy-to-enemy from the aim.
+func _curse_chain() -> void:
+	var ch: Node2D = (load("res://scripts/combat/ChainBolt.gd") as GDScript).new()
+	get_parent().add_child(ch)
+	ch.set("element_id", _element)
+	ch.call("chain", rig.get_weapon_tip(), _aim_dir.normalized(), _element_color, 4, 240.0, 30, Elements.effect_name(_element))
+	rig.set_aim(_aim_dir)
+	rig.play(CharacterRig.State.CAST)
+	rig.cast_gesture(CharacterRig.GestureKind.FLICK, 0.7, _element)
 
 
 ## Open the perfect-timing parry window (rogue only, off cooldown). The reward
@@ -1385,6 +1464,11 @@ func _aoe_slot_name() -> String:
 		"nova": return "Whirl"
 		"fist_shock": return "FirePunch"
 		"ground_slam": return "Slam"
+		"arcane_meteor": return "ArcaneStorm"
+		"consecrate": return "Consecrate"
+		"ice_shards": return "IceShards"
+		"call_lightning": return "CallLightning"
+		"curse_chain": return "CurseChain"
 		_: return "Meteor"
 
 

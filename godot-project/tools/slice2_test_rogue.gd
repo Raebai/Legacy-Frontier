@@ -71,7 +71,7 @@ func _test_mage_config_unchanged() -> int:
 	failed += _expect(is_equal_approx(float(hero._cfg["dash_cd"]), hero.DASH_COOLDOWN), "mage dash_cd == const")
 	failed += _expect(bool(hero._cfg["dash_strike"]) == false, "mage has no dash_strike")
 	failed += _expect(bool(hero._cfg["has_nova"]) == true, "mage has nova")
-	failed += _expect(String(hero._cfg["aoe"]) == "blast", "mage Q is the giant blast")
+	failed += _expect(String(hero._cfg["aoe"]) == "arcane_meteor", "mage Q is the arcane meteor storm")
 	return failed
 
 
