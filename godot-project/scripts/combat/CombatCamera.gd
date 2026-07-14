@@ -21,6 +21,9 @@ const FRAME_VIEWPORT: Vector2 = Vector2(640.0, 360.0)
 const FRAME_PAD: Vector2 = Vector2(300.0, 220.0)  # breathing room around the group
 const FRAME_ZOOM_MIN: float = 0.5  # allow pulling well back to keep everyone in view
 const FRAME_SPEED: float = 3.5     # ease rate toward the framed centroid/zoom
+# How far the framed center leans from the HERO (0) toward the geometric centroid
+# of all fighters (1). 0.55 keeps the player weighted-center while bots still pull.
+const HERO_FRAME_BIAS: float = 0.55
 
 # --- Shake tuning ---
 const MAX_OFFSET: Vector2 = Vector2(28.0, 20.0)  # px at full (1.0) trauma
@@ -204,7 +207,11 @@ func _frame_group_update(delta: float) -> void:
 		_frame_offset = _frame_offset.lerp(Vector2.ZERO, ease)
 		_zoom_base = _zoom_base.lerp(DEFAULT_ZOOM, ease)
 		return
-	var centroid: Vector2 = (mn + mx) * 0.5
+	# Bias the framed center toward the HERO (maker: "keep the PLAYER the focus").
+	# The bots still pull the frame + drive the auto-zoom, but the hero is weighted
+	# ~55% toward center so you never lose track of who you are.
+	var geo_center: Vector2 = (mn + mx) * 0.5
+	var centroid: Vector2 = hero_pos.lerp(geo_center, HERO_FRAME_BIAS)
 	var span: Vector2 = (mx - mn) + FRAME_PAD
 	var fit: float = minf(FRAME_VIEWPORT.x / maxf(span.x, 1.0), FRAME_VIEWPORT.y / maxf(span.y, 1.0))
 	fit = clampf(fit, FRAME_ZOOM_MIN, ZOOM_MAX)

@@ -733,6 +733,11 @@ func _begin_channel(spell: SpellDef, sky: bool) -> void:
 	_channel_circle.global_position = global_position + Vector2(0.0, 6.0)
 	_channel_circle.call("appear", _element_color, 44.0 + 26.0 * clampf(spell.mp_cost / 90.0, 0.0, 1.0), spell.cast_time)
 	Sfx.play("cast", -1.0, 0.05)
+	# Pull the camera WIDE for the whole build-up + release so the "insane spell"
+	# reads (maker: "when these insane spells are being cast we should zoom out to
+	# see the spell"). Hold spans the channel; the fire-time pull in SpellCaster
+	# composes on top (max-of-amounts), and it eases back after the cast lands.
+	Juice.zoom_pull_camera(0.26, spell.cast_time + 0.55, 0.2, 0.7)
 
 
 ## Per-frame while channeling: ease the levitation, hold the pose, count down, and
@@ -773,14 +778,31 @@ func _finish_channel() -> void:
 
 
 ## A hit landed mid-channel — the ultimate is DISRUPTED (mana/cooldown stay spent).
+## Make this UNMISTAKABLE (maker: "the interrupt isn't quite working properly" —
+## it fired but read as nothing happening): the growing sigil SHATTERS in the
+## element hue, the screen flashes + shakes hard, and the caster is flung out of
+## the float. You should never wonder whether the ult got cut.
 func _cancel_channel() -> void:
 	if not _channeling:
 		return
+	var burst_pos: Vector2 = global_position
+	if _channel_circle != null and is_instance_valid(_channel_circle):
+		burst_pos = _channel_circle.global_position
+	var ec: Color = _element_color
 	_end_channel()
-	rig.flash_color(Color(0.7, 0.5, 0.9), 0.14)  # disrupt cue
-	Sfx.play("melee_swing", -8.0, 0.12)
-	CombatVfx.spawn_burst(get_parent(), global_position, Color(0.6, 0.5, 0.7, 0.8),
-		Color(0.3, 0.25, 0.4, 0.0), 12, 0.4, 60.0, 160.0)
+	# Sigil shatter: a bright element-hued blowout ring of shards where the circle was.
+	CombatVfx.spawn_burst(get_parent(), burst_pos,
+		Color(ec.r, ec.g, ec.b, 0.95), Color(ec.r, ec.g, ec.b, 0.0),
+		26, 0.45, 90.0, 280.0, 1.5, 3.2, 0.0, 0.0, true)
+	# A grey "fizzle" puff over the caster reads as the spell collapsing.
+	CombatVfx.spawn_burst(get_parent(), global_position, Color(0.7, 0.6, 0.75, 0.85),
+		Color(0.3, 0.25, 0.4, 0.0), 14, 0.4, 50.0, 150.0)
+	rig.flash_color(Color(0.85, 0.55, 1.0), 0.18)  # violet disrupt flash
+	rig.apply_impulse(Vector2(-facing.x, 0.6), 260.0)  # flung out of the float
+	Juice.impact_frame(0.8)  # brief anime freeze so the cut lands
+	Juice.shake_camera(9.0)
+	Sfx.play("hero_hurt", 0.0, 0.1)
+	Sfx.play("melee_swing", -6.0, 0.14)
 
 
 ## Shared channel teardown: drop the float, fizzle the sigil, restore physics.

@@ -77,7 +77,6 @@ const RESPAWN_POOF_END: Color = Color(0.75, 0.85, 1.0, 0.0)
 ## registered at 0 stocks (the _match_over guard makes further falls no-ops).
 var _registry: Dictionary = {}
 var _p1: Node2D = null
-var _class_btn: Button = null
 var _match_over: bool = false
 var _stocks_label: Label = null
 var _banner: Label = null
@@ -413,17 +412,18 @@ func _build_hud() -> void:
 	diff_btn.text = "Difficulty: %s" % _difficulty_name()
 	diff_btn.pressed.connect(_cycle_difficulty)
 	layer.add_child(diff_btn)
-	# CLASS swapper — tap to cycle all 8 classes live (same as Tab), for testing.
-	_class_btn = Button.new()
-	_class_btn.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	_class_btn.offset_left = 10.0
-	_class_btn.offset_right = 190.0
-	_class_btn.offset_top = 40.0
-	_class_btn.offset_bottom = 68.0
-	_class_btn.add_theme_font_size_override("font_size", 13)
-	_class_btn.text = "Class: —  ▶"
-	_class_btn.pressed.connect(_on_class_button)
-	layer.add_child(_class_btn)
+	# (Class swapping is Tab-only now — the on-screen Class button was removed at
+	# maker request; keep a quiet text instruction instead of a tappable button.)
+	var class_hint := Label.new()
+	class_hint.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	class_hint.offset_left = 12.0
+	class_hint.offset_top = 40.0
+	class_hint.add_theme_font_size_override("font_size", 12)
+	class_hint.add_theme_color_override("font_color", Color(0.85, 0.85, 0.95, 0.7))
+	class_hint.add_theme_color_override("font_outline_color", Color(0.05, 0.05, 0.1, 0.8))
+	class_hint.add_theme_constant_override("outline_size", 3)
+	class_hint.text = "Tab: switch class"
+	layer.add_child(class_hint)
 	# Banner sits near the TOP (was dead-center, covering the fight).
 	_banner = Label.new()
 	_banner.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -485,12 +485,3 @@ func _update_hud() -> void:
 	if _p1 != null and is_instance_valid(_p1) and _registry.has(_p1.get_instance_id()):
 		p1_stocks = int(_registry[_p1.get_instance_id()]["stocks"])
 	_stocks_label.text = "P1 stocks: %d    Bots left: %d" % [p1_stocks, _bots_alive()]
-	if _class_btn != null and _p1 != null and is_instance_valid(_p1) and _p1.has_method("current_class_name"):
-		_class_btn.text = "Class: %s  ▶" % _p1.call("current_class_name")
-
-
-## Tap the class button = cycle the hero's class live (same as the Tab key).
-func _on_class_button() -> void:
-	if _p1 != null and is_instance_valid(_p1) and _p1.has_method("cycle_class_next"):
-		_p1.call("cycle_class_next")
-		_update_hud()
