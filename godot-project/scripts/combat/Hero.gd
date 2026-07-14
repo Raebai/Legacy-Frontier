@@ -331,6 +331,28 @@ var _channel_lift: float = 0.0
 var _channel_base_y: float = 0.0
 var _channel_circle: Node2D = null
 
+## Epic SUMMON windup: every INSTANT signature (ice_wall / chain / rune_orbs /
+## flurry / void_zone / tether / boulder / pillar / wall / rush / blink) now blooms
+## a grounded spell-circle + committed cast pose + gather motes for a short beat,
+## THEN ERUPTS (maker: "ice is cringe — no spell circle, no summoning animation;
+## they ALL need that for the G's ESPECIALLY"). Lighter than the channel: grounded
+## (no levitation), shorter, and mobility bursts (rush/blink) get a faster windup so
+## they stay snappy. Interruptible by a hit (ult lost, MP/cd spent — like the channel).
+const SUMMON_WINDUP: float = 0.42       # planted / erupting signatures
+const SUMMON_WINDUP_FAST: float = 0.22  # rush / blink — keep the mobility snappy
+const SUMMON_NORMAL: int = 0
+const SUMMON_RUSH: int = 1
+const SUMMON_BLINK: int = 2
+var _summoning: bool = false
+var _summon_timer: float = 0.0
+var _summon_total: float = 0.0
+var _summon_spell: SpellDef = null
+var _summon_sky: bool = false
+var _summon_special: int = 0
+var _summon_aim: Vector2 = Vector2.RIGHT
+var _summon_target: Vector2 = Vector2.ZERO
+var _summon_circle: Node2D = null
+
 
 func _physics_process(delta: float) -> void:
 	_dash_cooldown_timer = max(_dash_cooldown_timer - delta, 0.0)
@@ -354,6 +376,11 @@ func _physics_process(delta: float) -> void:
 	# committed (no movement/input) until the cast fires or a hit interrupts it.
 	if _channeling:
 		_process_channel(delta)
+		return
+	# SUMMON WINDUP: while the spell circle blooms the hero is committed (grounded,
+	# no movement/input) until it erupts or a hit interrupts it.
+	if _summoning:
+		_process_summon(delta)
 		return
 	# Landing dust: white puff the instant we touch down after being airborne (not
 	# while gliding). At the top so it fires even on dash frames. is_on_floor()
@@ -707,51 +734,141 @@ func _cast_signature() -> void:
 	mp -= float(spell.mp_cost)
 	mana_changed.emit(mp, max_mp)
 	_signature_cd_timer = spell.cooldown
-	# Chidori / rush: LUNGE forward as the lightning lance rips out (dash-punch read).
-	if spell.kind == SpellDef.Kind.RUSH:
-		rig.set_aim(_aim_dir)
-		rig.play(CharacterRig.State.PUNCH)
-		rig.cast_gesture(CharacterRig.GestureKind.FLICK, 0.8, _element)  # snap into the lunge
-		if _aim_dir.x != 0.0:
-			velocity.x = signf(_aim_dir.x) * 360.0
-		SpellCaster.cast(spell, get_parent(), rig.get_weapon_tip(), get_global_mouse_position(), _element_color, spell.effect)
-		_notify_element_used()
-		return
-	# Shadow-step: the Shadowblade TELEPORTS to the marked point mid-slash. The
-	# reposition has to move the Hero node (SpellCaster is static + can't), so it's
-	# handled here; BlinkStrike owns the crossed-line damage + streak/slash visuals.
-	if spell.kind == SpellDef.Kind.BLINK_STRIKE:
-		var bfrom: Vector2 = global_position
-		var to_aim: Vector2 = get_global_mouse_position() - bfrom
-		if to_aim.length() > spell.reach:
-			to_aim = to_aim.normalized() * spell.reach
-		var dest: Vector2 = _safe_blink_destination(bfrom, bfrom + to_aim)
-		var bs: Node2D = (load("res://scripts/combat/BlinkStrike.gd") as GDScript).new()
-		get_parent().add_child(bs)
-		bs.set("element_id", SpellCaster.resolve_element(spell))
-		global_position = dest
-		velocity.y = 0.0  # don't inherit fall speed through the teleport
-		_blink_iframe_timer = BLINK_IFRAME
-		bs.call("strike", bfrom, dest, _element_color, spell.damage, spell.effect)
-		rig.flash_color(BLINK_ARRIVAL_FLASH_COLOR, BLINK_ARRIVAL_FLASH_TIME)
-		rig.play(CharacterRig.State.CAST)
-		_notify_element_used()
-		return
 	# Sky spells (meteor / divine row) raise the staff UP and place from the hero;
-	# beams emanate FROM the staff tip toward the aim. Set the pose FIRST so
-	# get_weapon_tip() reads the pointed staff.
+	# beams emanate FROM the staff tip toward the aim.
 	var sky: bool = spell.kind == SpellDef.Kind.METEOR or spell.kind == SpellDef.Kind.DIVINE_RAY \
 			or spell.kind == SpellDef.Kind.CONVERGENCE
-	# Big spectacles LEVITATE + channel for cast_time, THEN fire (interruptible).
+	# Big spectacles LEVITATE + channel for cast_time, THEN fire — they carry their
+	# own float ceremony already.
 	if spell.cast_time > 0.0:
 		_begin_channel(spell, sky)
 		return
+	# Every OTHER signature now blooms an epic SUMMON windup (spell circle + committed
+	# cast pose + gather motes) before it erupts. Rush + blink keep their special
+	# fire logic (lunge / teleport), routed through _finish_summon.
+	var special: int = SUMMON_NORMAL
+	if spell.kind == SpellDef.Kind.RUSH:
+		special = SUMMON_RUSH
+	elif spell.kind == SpellDef.Kind.BLINK_STRIKE:
+		special = SUMMON_BLINK
+	_begin_summon(spell, sky, special)
+
+
+## Start the epic summon windup: freeze committed, bloom a grounded spell circle,
+## GATHER pose, charge SFX. The actual spell fires in _finish_summon.
+func _begin_summon(spell: SpellDef, sky: bool, special: int) -> void:
+	_summoning = true
+	_summon_spell = spell
+	_summon_sky = sky
+	_summon_special = special
+	_summon_total = SUMMON_WINDUP_FAST if special != SUMMON_NORMAL else SUMMON_WINDUP
+	_summon_timer = _summon_total
+	_summon_aim = _aim_dir
+	_summon_target = get_global_mouse_position()
+	velocity = Vector2.ZERO
 	rig.set_aim(Vector2.UP if sky else _aim_dir)
 	rig.play(CharacterRig.State.CAST)
-	var origin: Vector2 = global_position if sky else rig.get_weapon_tip()
-	SpellCaster.cast(spell, get_parent(), origin, get_global_mouse_position(), _element_color, spell.effect)
+	rig.cast_gesture(CharacterRig.GestureKind.GATHER, 0.9, _element)  # both hands gather the power
+	# The summoning sigil blooms beneath the caster over the windup (sized by cost).
+	_summon_circle = MagicCircle.new()
+	get_parent().add_child(_summon_circle)
+	_summon_circle.global_position = global_position + Vector2(0.0, 8.0)
+	var r: float = 34.0 + 22.0 * clampf(spell.mp_cost / 90.0, 0.0, 1.0)
+	_summon_circle.call("appear", _element_color, r, _summon_total)
+	Sfx.play("charge_up", -6.0, 0.05)
+
+
+## Hold the committed summon each frame: stay put + grounded, grow the sigil, gather
+## converging motes, then erupt when the windup elapses.
+func _process_summon(delta: float) -> void:
+	velocity = Vector2.ZERO
+	move_and_slide()  # hold position (gravity zeroed -> committed in place)
+	rig.set_body_velocity(Vector2.ZERO)
+	rig.play(CharacterRig.State.CAST)  # keep the committed cast pose held
+	if _summon_circle != null and is_instance_valid(_summon_circle):
+		_summon_circle.global_position = global_position + Vector2(0.0, 8.0)
+		var prog: float = 1.0 - _summon_timer / maxf(_summon_total, 0.001)
+		_summon_circle.scale = Vector2.ONE * (0.55 + 0.7 * prog)  # sigil grows as it charges
+	# Energy motes converge inward on the caster (the wind-up).
+	if fmod(_summon_timer, 0.09) < delta:
+		CombatVfx.spawn_burst(get_parent(), global_position,
+			Color(_element_color.r, _element_color.g, _element_color.b, 0.75),
+			Color(_element_color.r, _element_color.g, _element_color.b, 0.0),
+			5, 0.26, 48.0, 100.0, 0.5, 1.4, 0.0, 0.0, true)
+	_summon_timer -= delta
+	if _summon_timer <= 0.0:
+		_finish_summon()
+
+
+## The eruption: run the signature's real fire logic, then fire ONE synchronized
+## epic beat (camera reveal + punch + shake + hitstop) as the payoff.
+func _finish_summon() -> void:
+	var spell: SpellDef = _summon_spell
+	var special: int = _summon_special
+	var sky: bool = _summon_sky
+	var aim: Vector2 = _summon_aim
+	var target: Vector2 = _summon_target
+	_end_summon()
+	if spell == null:
+		return
+	match special:
+		SUMMON_RUSH:
+			# Chidori / rush: LUNGE forward as the lance rips out.
+			rig.set_aim(aim)
+			rig.play(CharacterRig.State.PUNCH)
+			rig.cast_gesture(CharacterRig.GestureKind.FLICK, 0.9, _element)
+			if aim.x != 0.0:
+				velocity.x = signf(aim.x) * 360.0
+			SpellCaster.cast(spell, get_parent(), rig.get_weapon_tip(), target, _element_color, spell.effect)
+		SUMMON_BLINK:
+			# Shadow-step: TELEPORT to the marked point mid-slash (moves the Hero node).
+			var bfrom: Vector2 = global_position
+			var to_aim: Vector2 = target - bfrom
+			if to_aim.length() > spell.reach:
+				to_aim = to_aim.normalized() * spell.reach
+			var dest: Vector2 = _safe_blink_destination(bfrom, bfrom + to_aim)
+			var bs: Node2D = (load("res://scripts/combat/BlinkStrike.gd") as GDScript).new()
+			get_parent().add_child(bs)
+			bs.set("element_id", SpellCaster.resolve_element(spell))
+			global_position = dest
+			velocity.y = 0.0
+			_blink_iframe_timer = BLINK_IFRAME
+			bs.call("strike", bfrom, dest, _element_color, spell.damage, spell.effect)
+			rig.flash_color(BLINK_ARRIVAL_FLASH_COLOR, BLINK_ARRIVAL_FLASH_TIME)
+			rig.play(CharacterRig.State.CAST)
+		_:
+			rig.set_aim(Vector2.UP if sky else aim)
+			rig.play(CharacterRig.State.CAST)
+			var origin: Vector2 = global_position if sky else rig.get_weapon_tip()
+			SpellCaster.cast(spell, get_parent(), origin, target, _element_color, spell.effect)
+			_self_recoil(110.0)  # the ultimate shoves you back
 	_notify_element_used()
-	_self_recoil(110.0)  # the beam/ultimate shoves you back
+	# THE PAYOFF — the crescendo after the anticipation. Blink already flashes, so
+	# skip the heavy speed-line frame on it; the planted/rush eruptions get it.
+	Juice.epic_moment({"strength": 1.0, "frame": special != SUMMON_BLINK})
+
+
+## Shared summon teardown: clear state + bloom the sigil out (the eruption flare).
+func _end_summon() -> void:
+	_summoning = false
+	_summon_spell = null
+	if _summon_circle != null and is_instance_valid(_summon_circle):
+		_summon_circle.call("vanish", 0.2)  # blooms out as the spell erupts
+	_summon_circle = null
+
+
+## A landed hit shatters the summon — sigil breaks, the ult is lost (MP + cooldown
+## already spent, like the channel). Lighter feedback than the channel interrupt.
+func _cancel_summon() -> void:
+	var pos: Vector2 = global_position
+	_end_summon()
+	CombatVfx.spawn_burst(get_parent(), pos,
+		Color(_element_color.r, _element_color.g, _element_color.b, 0.9),
+		Color(_element_color.r, _element_color.g, _element_color.b, 0.0),
+		14, 0.4, 60.0, 200.0, 1.0, 3.0)
+	rig.flash_color(Color(0.7, 0.4, 0.9), 0.12)
+	Juice.shake_camera(6.0)
+	Sfx.play("melee_swing", -8.0, 0.0)
 
 
 ## Enter the levitating cast: lift off, lock the aim, grow a build-up sigil, hold
@@ -817,6 +934,9 @@ func _finish_channel() -> void:
 	SpellCaster.cast(spell, get_parent(), origin, _channel_target, _element_color, spell.effect)
 	_notify_element_used()
 	_self_recoil(90.0)
+	# The biggest beat in the game — the full synchronized epic payoff (the channeled
+	# ults are the screen-fillers, so strength + speed-lines are dialed up).
+	Juice.epic_moment({"strength": 1.25, "frame": true})
 
 
 ## A hit landed mid-channel — the ultimate is DISRUPTED (mana/cooldown stay spent).
@@ -1643,9 +1763,12 @@ func take_damage(amount: int) -> void:
 		Juice.impact_frame(1.0)  # the DEFLECT beat — anime freeze-frame
 		_parry_window_timer = 0.0
 		return
-	# A LANDED hit (not dodged/parried) shatters a float-channel — lose the ult.
+	# A LANDED hit (not dodged/parried) shatters a float-channel OR a summon windup —
+	# lose the ult (mana + cooldown already spent).
 	if _channeling:
 		_cancel_channel()
+	if _summoning:
+		_cancel_summon()
 	hp = max(hp - amount, 0)
 	health_changed.emit(hp, max_hp)
 	DamageNumber.spawn(get_parent(), global_position + Vector2(0.0, -18.0), amount, Color(1.0, 0.35, 0.35), amount >= 18)

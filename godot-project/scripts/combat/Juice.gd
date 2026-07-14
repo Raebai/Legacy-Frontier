@@ -66,6 +66,35 @@ static func on_hit(ctx: Dictionary) -> void:
 		hit_stop(hs)
 
 
+## THE EPIC MOMENT — one synchronized "big beat" for an ult release / finisher:
+## the crescendo->payoff cluster fired IN SYNC (the maker's north-star juice system).
+## Pairs with the caster-side anticipation (charge SFX + growing spell circle +
+## gather motes) so the whole arc reads anticipation -> crescendo -> payoff ->
+## aftermath. Composed from the existing camera/time primitives so it layers with
+## a spell's own zoom_pull without fighting. Every key optional:
+##   strength: float   overall scale (0.6 small .. 1.4 screen-filling ult)
+##   frame: bool       also fire the full-screen impact-frame speed-lines (biggest)
+##   shake: float      override the screenshake amount (else scales from strength)
+##   sfx: String       an accent Sfx key to punch on the release
+static func epic_moment(opts: Dictionary = {}) -> void:
+	var s: float = opts.get("strength", 1.0)
+	# Reveal: pull the frame WIDE to show the whole spectacle, hold, ease home.
+	zoom_pull_camera(0.18 * s, 0.5, 0.12, 0.55)
+	# ...with a quick lunge-IN punch layered on the reveal — the "slam" of release.
+	zoom_punch_camera(0.07 * s, 0.18)
+	shake_camera(float(opts.get("shake", 9.0 * s)))
+	var sfx: String = opts.get("sfx", "")
+	if sfx != "":
+		var tree: SceneTree = _tree()
+		if tree != null:
+			var sfx_node: Node = tree.root.get_node_or_null(^"/root/Sfx")
+			if sfx_node != null and sfx_node.has_method(&"play"):
+				sfx_node.call("play", sfx, 0.0, 0.05)
+	if bool(opts.get("frame", false)):
+		impact_frame(0.7 * s)
+	hit_stop(0.07 * s)  # fired LAST (it awaits) so the reveal/shake land first
+
+
 ## The anime IMPACT FRAME — spawn a full-screen speed-line + flash burst, a harder
 ## freeze, a big zoom-punch + shake spike. Reserve for CURATED cool moments (a big
 ## deflect, a heavy punch, a finisher) — not every hit. Respects the hit-stop toggle.
