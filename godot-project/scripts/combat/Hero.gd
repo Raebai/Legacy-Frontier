@@ -251,6 +251,7 @@ var _melee_arc_dot: float = MELEE_ARC_DOT # per-class arc width (Juggernaut swin
 var _buffered_action: String = ""
 var _buffer_timer: float = 0.0
 var _knockback: Vector2 = Vector2.ZERO  # shove received from an enemy hit / bomb
+var _ragdolling: bool = false  # hold DOWN -> go limp + flop (the Stick-Fight ragdoll toy)
 var _hero_class: int = HeroClass.MAGE
 var _cfg: Dictionary = CLASS_CONFIG[HeroClass.MAGE]
 var _dash_hit: Array = []  # enemies/props already struck this dash (rogue no-multi-hit)
@@ -323,6 +324,7 @@ func _physics_process(delta: float) -> void:
 	# here reflects the previous frame's move_and_slide.
 	if is_on_floor() and not _was_on_floor:
 		_spawn_foot_puff()
+		Juice.shake_camera(2.5)  # a little land thud (Stick-Fight juice)
 	_was_on_floor = is_on_floor()
 	_update_input_buffer(delta)
 	# Twin-stick aim: track the cursor every frame so casts / cast-pose / camera
@@ -331,6 +333,23 @@ func _physics_process(delta: float) -> void:
 	if to_mouse.length() > 1.0:
 		_aim_dir = to_mouse.normalized()
 	facing = _aim_dir
+	# Hold DOWN to go LIMP — the Stick-Fight ragdoll flop. Abilities + walking are
+	# suspended; the active-ragdoll rig droops and gravity/friction bring you to the
+	# ground. Release to snap back up.
+	if Input.is_action_pressed("move_down") and not is_dashing:
+		if not _ragdolling:
+			_ragdolling = true
+			rig.set_limp(1.0)
+			rig.apply_impulse(Vector2(0.0, 1.0), 220.0)  # a little flop-down kick
+		velocity.x = move_toward(velocity.x, 0.0, GROUND_FRICTION * delta) + _knockback.x
+		velocity.y = 0.0 if (is_on_floor() and velocity.y >= 0.0) else minf(velocity.y + GRAVITY_FALL * delta, MAX_FALL)
+		move_and_slide()
+		rig.play(CharacterRig.State.HURT)
+		rig.set_body_velocity(velocity)
+		return
+	elif _ragdolling:
+		_ragdolling = false
+		rig.set_limp(0.0)
 	# Cosmetic + class toggles: instant, un-buffered, legal even mid-dash.
 	if Input.is_action_just_pressed("cycle_element"):
 		_cycle_element()

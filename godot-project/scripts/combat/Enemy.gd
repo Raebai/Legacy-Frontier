@@ -182,6 +182,25 @@ var _status: StatusComponent = null         # elemental ailments (burn/chill/sho
 var _speed_scale: float = 1.0               # movement slow from chill/freeze/shock
 var _bolt_element: int = -1                 # caster: rolled element tint for its bolt
 
+# Difficulty (GameState.enemy_difficulty): scales stats + unlocks smart evasion.
+# Easy/Normal are the shipped behaviour; Hard DODGES incoming hero bolts, and
+# Impossible also DEFLECTS them point-blank and counter-fires — the "incredible"
+# enemies the maker wants. Each row: hp/speed mult, cooldown-tick speed (higher =
+# attacks more often), whether it dodges, whether it can deflect, evade reflex cd.
+const DIFFICULTY: Array[Dictionary] = [
+	{"hp": 0.7, "speed": 0.85, "cd_speed": 0.7, "dodge": false, "deflect": false, "evade_cd": 1.2},  # Easy
+	{"hp": 1.0, "speed": 1.0, "cd_speed": 1.0, "dodge": false, "deflect": false, "evade_cd": 1.0},   # Normal
+	{"hp": 1.6, "speed": 1.2, "cd_speed": 1.5, "dodge": true, "deflect": false, "evade_cd": 0.85},   # Hard
+	{"hp": 2.4, "speed": 1.5, "cd_speed": 2.1, "dodge": true, "deflect": true, "evade_cd": 0.5},     # Impossible
+]
+const EVADE_DANGER_R: float = 155.0   # a hero bolt inside this triggers a dodge
+const EVADE_DEFLECT_R: float = 58.0   # ...inside this (Impossible) it's deflected
+var _cd_speed: float = 1.0            # attack-cooldown tick multiplier
+var _smart_dodge: bool = false        # Hard+: hops away from incoming hero bolts
+var _can_deflect: bool = false        # Impossible: point-blank deflect + counter
+var _evade_reflex: float = 1.0        # cooldown between evades (difficulty reflex)
+var _evade_cd: float = 0.0
+
 @onready var rig: CharacterRig = $Rig
 
 
@@ -326,9 +345,74 @@ func _apply_archetype_defaults() -> void:
 		_bolt_element = randi() % Elements.count()  # a visible elemental bolt / AoE
 
 
+## Scale stats + unlock smart behaviours from GameState.enemy_difficulty.
+func _apply_difficulty() -> void:
+	var gs: Node = get_node_or_null("/root/GameState")
+	var d: int = int(gs.get("enemy_difficulty")) if gs != null else 1
+	d = clampi(d, 0, DIFFICULTY.size() - 1)
+	var cfg: Dictionary = DIFFICULTY[d]
+	max_hp = int(round(float(max_hp) * float(cfg["hp"])))
+	move_speed *= float(cfg["speed"])
+	_cd_speed = float(cfg["cd_speed"])
+	_smart_dodge = bool(cfg["dodge"])
+	_can_deflect = bool(cfg["deflect"])
+	_evade_reflex = float(cfg["evade_cd"])
+
+
+## Hard+ reflex: if a hero bolt is closing in, DODGE (hop clear, reusing the leap
+## arc) or — point-blank on Impossible — DEFLECT it (fizzle + counter-fire) while
+## still advancing. Returns true only when a dodge took over movement this frame.
+func _try_evade(delta: float) -> bool:
+	if _evade_cd > 0.0:
+		return false
+	var threat: Node2D = null
+	var best: float = EVADE_DANGER_R
+	for s: Node in get_tree().get_nodes_in_group("player_spell"):
+		if not s is Node2D or not is_instance_valid(s):
+			continue
+		var dd: float = global_position.distance_to((s as Node2D).global_position)
+		if dd < best:
+			best = dd
+			threat = s as Node2D
+	if threat == null:
+		return false
+	_evade_cd = _evade_reflex
+	if _can_deflect and best < EVADE_DEFLECT_R:
+		_deflect(threat)
+		return false  # deflect keeps us advancing — menacing
+	# Dodge: hop away from the bolt, riding the ballistic LEAPING state.
+	var away: float = signf(global_position.x - threat.global_position.x)
+	if away == 0.0:
+		away = 1.0
+	velocity = Vector2(away * move_speed * 2.2, JUMP_VELOCITY * 0.8)
+	_attack_state = AttackState.LEAPING
+	_leap_timer = 0.45
+	rig.flash()
+	_apply_gravity(delta)
+	move_and_slide()
+	return true
+
+
+## Point-blank deflect (Impossible): block the hero bolt + counter-fire back.
+func _deflect(bolt: Node2D) -> void:
+	if bolt.has_method("fizzle"):
+		bolt.call("fizzle")
+	elif bolt.has_method("consume"):
+		bolt.call("consume")
+	rig.flash()
+	Sfx.play("ding", 0.0, 0.02)
+	if is_instance_valid(_hero):
+		var proj := EnemyProjectile.new()
+		get_parent().add_child(proj)
+		proj.global_position = global_position
+		proj.launch((_hero.global_position - global_position).normalized())
+		proj.set_element(_bolt_element if _bolt_element >= 0 else 2)
+
+
 func _ready() -> void:
 	add_to_group("enemy")
 	_apply_archetype_defaults()
+	_apply_difficulty()
 	hp = max_hp
 	rig.set_tint(tint)
 	var heroes: Array = get_tree().get_nodes_in_group("hero")
@@ -343,7 +427,10 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	_touch_cooldown = max(_touch_cooldown - delta, 0.0)
 	_knockback = _knockback.move_toward(Vector2.ZERO, KNOCKBACK_DECAY * delta)
-	_attack_cooldown = maxf(_attack_cooldown - delta, 0.0)
+	_attack_cooldown = maxf(_attack_cooldown - delta * _cd_speed, 0.0)  # harder = faster attacks
+	_evade_cd = maxf(_evade_cd - delta, 0.0)
+	if _smart_dodge and _attack_state == AttackState.CHASE and _try_evade(delta):
+		return  # dodged / deflected a hero bolt this frame
 	_jump_cd = maxf(_jump_cd - delta, 0.0)
 	_leap_cd = maxf(_leap_cd - delta, 0.0)
 	_speed_scale = _status.slow_factor() if _status != null and is_instance_valid(_status) else 1.0

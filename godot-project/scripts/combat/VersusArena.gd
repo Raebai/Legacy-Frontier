@@ -395,6 +395,18 @@ func _build_hud() -> void:
 	reset_btn.add_theme_font_size_override("font_size", 13)
 	reset_btn.pressed.connect(_reset_arena)
 	layer.add_child(reset_btn)
+	# Difficulty selector — cycles Easy/Normal/Hard/Impossible and rebuilds the
+	# arena so the bots respawn at the new difficulty (Hard+ dodge, Impossible deflects).
+	var diff_btn := Button.new()
+	diff_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	diff_btn.offset_left = -270.0
+	diff_btn.offset_right = -128.0
+	diff_btn.offset_top = 8.0
+	diff_btn.offset_bottom = 36.0
+	diff_btn.add_theme_font_size_override("font_size", 13)
+	diff_btn.text = "Difficulty: %s" % _difficulty_name()
+	diff_btn.pressed.connect(_cycle_difficulty)
+	layer.add_child(diff_btn)
 	# Banner sits near the TOP (was dead-center, covering the fight).
 	_banner = Label.new()
 	_banner.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -424,6 +436,22 @@ func _build_pause_overlay(layer: CanvasLayer) -> void:
 func _exit_to_hub() -> void:
 	get_tree().paused = false
 	get_tree().change_scene_to_file("res://scenes/Main.tscn")
+
+
+func _difficulty_name() -> String:
+	var gs: Node = get_node_or_null("/root/GameState")
+	var d: int = int(gs.get("enemy_difficulty")) if gs != null else 1
+	var names: Array = ["Easy", "Normal", "Hard", "Impossible"]
+	return String(names[clampi(d, 0, 3)])
+
+
+## Cycle Easy -> Normal -> Hard -> Impossible and rebuild so the bots respawn smarter.
+func _cycle_difficulty() -> void:
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null:
+		gs.set("enemy_difficulty", (int(gs.get("enemy_difficulty")) + 1) % 4)
+	get_tree().paused = false
+	get_tree().reload_current_scene()
 
 
 ## Full arena reset — reload the scene so cover, bots, stocks + the match state

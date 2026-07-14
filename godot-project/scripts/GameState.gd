@@ -39,6 +39,11 @@ var selected_class: int = 0
 ## Default pulled back from the old tight 2.2 so more of the fight is visible.
 var camera_zoom: float = 1.6
 
+## Enemy difficulty (0 Easy, 1 Normal, 2 Hard, 3 Impossible). Enemy._ready scales
+## stats + unlocks smart behaviours (dodge / deflect). Set in the practice arena.
+var enemy_difficulty: int = 1
+const DIFFICULTY_NAMES: Array[String] = ["Easy", "Normal", "Hard", "Impossible"]
+
 ## The tower being climbed. null = no authored tower -> floors are synthesized
 ## from the depth math (keeps the F6 sandbox + the pre-tower path working).
 var active_tower: TowerDef = null
