@@ -20,76 +20,66 @@ const HERO_SCENE_PATH: String = "res://scenes/combat/Hero.tscn"
 const ENEMY_SCENE_PATH: String = "res://scenes/combat/Enemy.tscn"
 
 ## -- Match rules -----------------------------------------------------------
-## A BIG terrain stage (maker: "make the map bigger and different, like a terrain
-## almost with a mountain in it"): an open destructible ground plane on the left/
-## centre and a climbable stepped MOUNTAIN filling the right third. Fall off the
-## sides or through a hole into the void = ring-out.
+## A cohesive, realistic, FUN battleground (maker: "the map needs to look way
+## better, more REALISTIC and actually FUN ... platforms that feel intentional +
+## connected to the ground, not disconnected abstract blocks"). ONE connected rock
+## landscape — a broad fight floor rising through jumpable stairs to a right bluff,
+## a left mound, and rooted broken-stone ruins over the middle. Everything is SOLID
+## (no fall-through-into-the-void): ring-out only off the far L/R edges, so nobody
+## is unfairly "sent out of the map" and the bots can't fall through and hand an
+## early win. Destruction lives in the cover + craters, not the load-bearing floor.
 const STAGE_SIZE: Vector2 = Vector2(2000, 1000)
-const GROUND_TOP: float = 780.0    # y of the walkable ground surface
-const MOUNTAIN_X0: float = 1120.0  # ground ends here; mountain foot begins
+const GROUND_TOP: float = 780.0    # y of the main walkable ground surface
 const STOCKS: int = 3
 const BOT_COUNT: int = 5
 const RESPAWN_INVULN: float = 0.8
 
-## -- Side-on stage layout (stage-local; the arena node sits at the scene origin) --
-## Permanent floating ledges (StaticBody2D layer 1). The main GROUND is a
-## DestructibleFloor (see _build_ground), not a permanent slab.
-const PLATFORMS: Array[Dictionary] = [
-	{"center": Vector2(300, 560), "size": Vector2(220, 26)},  # left ledge
-	{"center": Vector2(720, 470), "size": Vector2(240, 26)},  # centre ledge
+## Connected, solid TERRACES forming one realistic rock landmass (drawn by
+## ArenaTerrain, collided as permanent StaticBody2Ds). Ordered low-surface -> high
+## so the terrain draws back-to-front; overlaps turn the risers into jumpable
+## stairs. Each: the walkable SURFACE y + the x span.
+const TERRACES: Array[Dictionary] = [
+	{"surface_y": 780.0, "x0": 40.0,   "x1": 1400.0},  # main ground — the fight floor
+	{"surface_y": 700.0, "x0": 40.0,   "x1": 250.0},   # left mound
+	{"surface_y": 690.0, "x0": 1330.0, "x1": 1580.0},  # right rise — step 1
+	{"surface_y": 600.0, "x0": 1540.0, "x1": 1760.0},  # right rise — step 2
+	{"surface_y": 510.0, "x0": 1700.0, "x1": 1965.0},  # right bluff — high ground
 ]
-## Permanent stepped MOUNTAIN core (right third). collision_layer 1 — ALWAYS
-## climbable + always standing (its destructible skin sits on top). Each tier
-## steps in + up by a jumpable gap so fighters ascend to contest the summit.
-const MOUNTAIN_TIERS: Array[Dictionary] = [
-	{"center": Vector2(1560, 900), "size": Vector2(880, 200)},  # foot, top y=800
-	{"center": Vector2(1600, 720), "size": Vector2(720, 80)},   # top y=680
-	{"center": Vector2(1650, 600), "size": Vector2(560, 70)},   # top y=565
-	{"center": Vector2(1700, 480), "size": Vector2(420, 65)},   # top y=447
-	{"center": Vector2(1750, 365), "size": Vector2(300, 60)},   # top y=335
-	{"center": Vector2(1800, 262), "size": Vector2(190, 60)},   # summit, top y=232
+const TERRACE_DEPTH: float = 320.0  # each collider extends this far down (solid rock)
+
+## Rooted broken-stone ruins filling the vertical space over the ground (RuinPlatform
+## draws support struts beneath so they read connected, not floating).
+const RUINS: Array[Dictionary] = [
+	{"center": Vector2(600.0, 672.0),  "size": Vector2(190.0, 22.0)},
+	{"center": Vector2(1050.0, 588.0), "size": Vector2(170.0, 22.0)},
 ]
-## Blast zones (StageHazard PIT): the void BELOW everything (full-width so a hole
-## opened anywhere catches you — no fall-forever) + off both far edges = ring-out.
+
+## Ring-out ONLY off the far L/R edges (no void beneath the solid terrain).
 const BLAST_ZONES: Array[Dictionary] = [
-	{"center": Vector2(1000, 1220), "size": Vector2(2800, 500)},  # full-width void below
-	{"center": Vector2(-190, 500), "size": Vector2(340, 1500)},   # off the far left
-	{"center": Vector2(2190, 500), "size": Vector2(340, 1500)},   # off the far right
+	{"center": Vector2(-180.0, 480.0), "size": Vector2(360.0, 1800.0)},  # off far left
+	{"center": Vector2(2200.0, 480.0), "size": Vector2(360.0, 1800.0)},  # off far right
 ]
-## Fighters spawn over PERMANENT footing (ledges / mountain tiers / plinths) so a
-## respawn never drops straight into a fresh hole.
-const P1_SPAWN: Vector2 = Vector2(360, 500)
+## Fighters spawn on SOLID terraces / ruins, a little above so they settle on top.
+const P1_SPAWN: Vector2 = Vector2(320.0, 716.0)
 const BOT_SPAWN_POINTS: Array[Vector2] = [
-	Vector2(720, 400),   # over the centre ledge
-	Vector2(1600, 640),  # mountain tier 2
-	Vector2(1700, 400),  # mountain tier 4
-	Vector2(1800, 180),  # summit
-	Vector2(480, 640),   # near the P1 plinth
-]
-## Small PERMANENT spawn plinths so P1 + the near bot always land solid even after
-## the ground around them is blown away.
-const SPAWN_PLINTHS: Array[Dictionary] = [
-	{"center": Vector2(360, 640), "size": Vector2(160, 26)},
-	{"center": Vector2(480, 700), "size": Vector2(140, 24)},
+	Vector2(780.0, 716.0),   # main ground, right-centre
+	Vector2(1470.0, 628.0),  # right rise step 1
+	Vector2(1830.0, 448.0),  # right bluff
+	Vector2(1050.0, 540.0),  # atop the high ruin
+	Vector2(160.0, 636.0),   # left mound
 ]
 ## CASTER(2), SUMMONER(4), ASSASSIN(5), CHARGER(3), MAGE(7) — the full readable
 ## roster. The MAGE telegraphs a ground AoE; grounded bots LEAP to a hero who climbs.
 const BOT_ARCHETYPES: Array[int] = [2, 4, 5, 3, 7]
 ## Versus bots are tankier than the tower's trash mobs so fights last.
 const BOT_HP: int = 110
-## Destructible cover sitting on the ground (64px blocks; centre = surface - 32).
-const COVER_POINTS: Array[Vector2] = [Vector2(520, GROUND_TOP - 32.0), Vector2(940, GROUND_TOP - 32.0)]
-## Breakable + regenerating platform (amber rim) — a lane between the ledge + mountain.
+## Destructible cover sitting on the main ground (64px blocks; centre = surface - 32).
+const COVER_POINTS: Array[Vector2] = [Vector2(470.0, GROUND_TOP - 32.0), Vector2(1180.0, GROUND_TOP - 32.0)]
+## One breakable + regenerating lane between the ground and the ruins.
 const BREAKABLE_PLATFORMS: Array[Dictionary] = [
-	{"center": Vector2(980, 380), "size": Vector2(180, 22)},
+	{"center": Vector2(840.0, 700.0), "size": Vector2(170.0, 22.0)},
 ]
 
-## -- Look (clean, simple Stick-Fight): flat sky + dark platforms w/ a bright rim --
-const SKY_COLOR: Color = Color(0.53, 0.74, 0.92)
-const SKY_LOWER_COLOR: Color = Color(0.63, 0.81, 0.93)
-const PLATFORM_COLOR: Color = Color(0.20, 0.22, 0.29)
-const PLATFORM_EDGE_COLOR: Color = Color(0.55, 0.85, 0.62)
-const PLATFORM_EDGE_H: float = 5.0
 const RESPAWN_POOF_START: Color = Color(0.75, 0.85, 1.0, 0.9)
 const RESPAWN_POOF_END: Color = Color(0.75, 0.85, 1.0, 0.0)
 
@@ -116,14 +106,11 @@ func _ready() -> void:
 	if music != null and music.has_method("play_combat"):
 		music.play_combat()
 	_build_background()
-	_build_mountain()          # permanent stepped core + silhouette (right third)
-	_build_ground()            # destructible floor run (left/centre)
-	_build_platforms()         # the two floating ledges
-	_build_spawn_plinths()     # permanent respawn footing
+	_build_terrain()           # connected solid rock terraces + realistic look
+	_build_ruins()             # rooted broken-stone platforms over the ground
 	_build_cover()
 	_build_breakable_platforms()
-	_build_mountain_skin()     # destructible ledges perched on the tiers
-	_build_blast_zones()       # LIVE ring-out — fall off/through = lose a stock
+	_build_blast_zones()       # ring-out off the far L/R edges only
 	_spawn_fighters()
 	_build_hud()
 	_update_hud()
@@ -254,65 +241,55 @@ func _build_background() -> void:
 	Atmosphere.add_glow(self)  # 2D bloom: pushed spell cores radiate
 	var atmo := Atmosphere.new()
 	add_child(atmo)
+	# Warm, readable DUSK (not near-black night) so the battlefield reads as a fun
+	# place: a soft blue sky over a warm pale haze at the horizon, with the distant
+	# tower-spires HAZED (low contrast) so they recede as background instead of
+	# looming as black teeth over the fight.
 	atmo.build(Rect2(Vector2(-400, -420), STAGE_SIZE + Vector2(800, 900)), {
-		"sky_top": Color(0.09, 0.11, 0.26),
-		"sky_bottom": Color(0.44, 0.60, 0.82),
-		"silhouette_far": Color(0.19, 0.23, 0.40),
-		"silhouette_near": Color(0.11, 0.14, 0.24),
-		"accent": Color(0.75, 0.88, 1.0),
+		"sky_top": Color(0.23, 0.31, 0.49),
+		"sky_bottom": Color(0.72, 0.69, 0.66),
+		"silhouette_far": Color(0.42, 0.46, 0.56),
+		"silhouette_near": Color(0.30, 0.33, 0.44),
+		"accent": Color(0.92, 0.95, 1.0),
 	})
 
 
-## Solid platforms the fighters land + jump on (StaticBody2D default layer 1,
-## which the hero/enemy masks collide with; spells on mask 4 pass over them).
-func _build_platforms() -> void:
-	for p: Dictionary in PLATFORMS:
-		_make_platform(p["center"], p["size"])
+## The connected rock landscape: a permanent solid collider per terrace + ONE
+## ArenaTerrain node that draws them all as one realistic layered landmass. The
+## colliders extend well below their surface + overlap horizontally, so the risers
+## are jumpable stairs and no CharacterBody snags a seam. z-order: the terrain draws
+## behind the fighters; the colliders carry no visual.
+func _build_terrain() -> void:
+	for t: Dictionary in TERRACES:
+		_make_terrace(float(t["surface_y"]), float(t["x0"]), float(t["x1"]))
+	var terrain := ArenaTerrain.new()
+	terrain.terraces = TERRACES
+	terrain.floor_y = STAGE_SIZE.y
+	add_child(terrain)
 
 
-## One platform: a StaticBody2D box with a dark body + a bright top rim.
-func _make_platform(center: Vector2, size: Vector2) -> void:
+## One solid, permanent terrace collider (layer 1). The TOP edge sits exactly on
+## surface_y; the box grows down by TERRACE_DEPTH so it reads as deep rock and
+## nobody clips under it.
+func _make_terrace(surface_y: float, x0: float, x1: float) -> void:
 	var body := StaticBody2D.new()
-	body.position = center
+	var w: float = x1 - x0
+	body.position = Vector2((x0 + x1) * 0.5, surface_y + TERRACE_DEPTH * 0.5)
 	var cs := CollisionShape2D.new()
 	var shape := RectangleShape2D.new()
-	shape.size = size
+	shape.size = Vector2(w, TERRACE_DEPTH)
 	cs.shape = shape
 	body.add_child(cs)
-	# Gradient body (top-lit -> darker base) for depth against the epic sky.
-	var grad := Gradient.new()
-	grad.set_color(0, PLATFORM_COLOR.lightened(0.14))
-	grad.set_color(1, PLATFORM_COLOR.darkened(0.28))
-	var tex := GradientTexture2D.new()
-	tex.gradient = grad
-	tex.fill_from = Vector2(0.0, 0.0)
-	tex.fill_to = Vector2(0.0, 1.0)
-	tex.width = 8
-	tex.height = 64
-	var vis := TextureRect.new()
-	vis.texture = tex
-	vis.stretch_mode = TextureRect.STRETCH_SCALE
-	vis.position = -size * 0.5
-	vis.size = size
-	vis.z_index = -5
-	vis.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	body.add_child(vis)
-	var rim := ColorRect.new()
-	rim.position = Vector2(-size.x * 0.5, -size.y * 0.5)
-	rim.size = Vector2(size.x, PLATFORM_EDGE_H)
-	rim.color = PLATFORM_EDGE_COLOR
-	rim.z_index = -4
-	rim.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	body.add_child(rim)
-	# Soft lit-edge glow just under the rim — reads as a lit ledge, not a flat slab.
-	var glow := ColorRect.new()
-	glow.position = Vector2(-size.x * 0.5, -size.y * 0.5 + PLATFORM_EDGE_H)
-	glow.size = Vector2(size.x, 9.0)
-	glow.color = Color(PLATFORM_EDGE_COLOR.r, PLATFORM_EDGE_COLOR.g, PLATFORM_EDGE_COLOR.b, 0.16)
-	glow.z_index = -4
-	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	body.add_child(glow)
 	add_child(body)
+
+
+## Rooted broken-stone ruin platforms over the ground (solid; drawn by RuinPlatform).
+func _build_ruins() -> void:
+	for r: Dictionary in RUINS:
+		var ruin := RuinPlatform.new()
+		ruin.platform_size = r["size"]
+		add_child(ruin)
+		ruin.position = r["center"]
 
 
 ## Real blocking cover that spells + melee chew through (group "destructible").
@@ -332,42 +309,9 @@ func _build_breakable_platforms() -> void:
 		plat.position = p["center"]
 
 
-## The permanent stepped MOUNTAIN core (right third) — always-climbable layer-1
-## tiers + a drawn silhouette behind them. The destructible skin sits on top.
-func _build_mountain() -> void:
-	var silhouette := MountainMass.new()
-	add_child(silhouette)
-	for tier: Dictionary in MOUNTAIN_TIERS:
-		_make_platform(tier["center"], tier["size"])
-
-
-## The main GROUND as a run of independent destructible segments (real holes on
-## hard hits, caught by the full-width void below).
-func _build_ground() -> void:
-	var floor_run := DestructibleFloor.new()
-	floor_run.run_start = Vector2(40.0, GROUND_TOP)
-	floor_run.run_end_x = MOUNTAIN_X0
-	add_child(floor_run)
-
-
-## Small permanent plinths under the spawn points so respawns always land solid.
-func _build_spawn_plinths() -> void:
-	for p: Dictionary in SPAWN_PLINTHS:
-		_make_platform(p["center"], p["size"])
-
-
-## Destructible ledges perched on the mountain tier tops — the "everything breaks"
-## fantasy without removing the permanent climbable core.
-func _build_mountain_skin() -> void:
-	for point: Vector2 in [Vector2(1560, 660), Vector2(1700, 425), Vector2(1620, 545)]:
-		var block := DestructibleTerrain.new()
-		block.position = point
-		add_child(block)
-
-
-## LIVE ring-out: instantiate the blast-zone PITs and wire fighter_fell -> the
-## stock/respawn manager (was dormant; maker: "the fighter should be able to fall
-## out and die not fall forever ... when they die they respawn").
+## LIVE ring-out: instantiate the far-edge PITs and wire fighter_fell -> the
+## stock/respawn manager. Only off the sides now (no void beneath the solid rock),
+## so a fall is an earned knock-off, never a floor-hole handing an early win.
 func _build_blast_zones() -> void:
 	for z: Dictionary in BLAST_ZONES:
 		var pit := StageHazard.new()
@@ -419,14 +363,14 @@ func _frame_camera_on(hero: Node) -> void:
 			break
 	if cam == null:
 		return
-	# Wider resting frame for the big terrain; limits let the camera see a hair into
-	# the void (so the plunge reads before ring-out) + summit headroom. Fit-all keeps
-	# the active cluster framed + pans across the terrain as the fight moves.
+	# Frame the connected terrain; limits let the camera see a hair off the edges
+	# (so a plunge reads before ring-out) + headroom above the bluff for jumps /
+	# jetpack / big spells. Fit-all keeps the active cluster framed as the fight roams.
 	cam.zoom = Vector2(1.0, 1.0)
-	cam.limit_left = -120
-	cam.limit_top = -240  # summit (peak ~y205) + jet-up headroom
-	cam.limit_right = int(STAGE_SIZE.x) + 120
-	cam.limit_bottom = int(STAGE_SIZE.y) + 220
+	cam.limit_left = -140
+	cam.limit_top = 40  # headroom above the right bluff (surface ~y510) for air play
+	cam.limit_right = int(STAGE_SIZE.x) + 140
+	cam.limit_bottom = int(GROUND_TOP) + 240
 
 
 ## Registry seam (also driven by the headless test): every fighter enters the

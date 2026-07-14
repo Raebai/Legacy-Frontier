@@ -136,6 +136,10 @@ var _parry_timer: float = 0.0
 var _parry_duration: float = 0.0
 ## Airborne lift for the flight ability (0 = grounded, 1 = fully lifted).
 var _airborne: float = 0.0
+## Grounded flag (driven by Hero.is_on_floor). When limp + grounded, the ragdoll
+## droop is clamped to the floor line so hold-DOWN ducking can't sink the drawn
+## limbs THROUGH the collision (maker: "ducking clips the hero into the floor").
+var _grounded: bool = true
 ## Active-ragdoll sim state: joint key -> simulated LOCAL position / velocity.
 ## Lazily seeded to the current target pose on first use so limbs never spring
 ## in from the origin. Pure Dictionary/Vector2 math — headless-safe.
@@ -257,6 +261,17 @@ func _step_sim(delta: float) -> void:
 		var off_len: float = off.length()
 		if off_len > max_off:
 			pos = target + off / off_len * max_off
+		# Ducking (hold-DOWN ragdoll) must never droop THROUGH the floor: when limp
+		# AND grounded, clamp each joint to the standing foot line (y = height*0.5,
+		# where the animated feet already rest) and kill downward velocity so the
+		# limbs settle ON the floor instead of sinking below the collision box. Only
+		# grounded — a mid-air knockback ragdoll still flails freely.
+		if _grounded and _limp > 0.01:
+			var floor_y: float = height * 0.5
+			if pos.y > floor_y:
+				pos.y = floor_y
+				if vel.y > 0.0:
+					vel.y = 0.0
 		_sim[key] = pos
 		_sim_vel[key] = vel
 
@@ -449,6 +464,12 @@ func get_lead_hand_global() -> Vector2:
 func set_airborne(v: float) -> void:
 	_airborne = clampf(v, 0.0, 1.0)
 	queue_redraw()
+
+
+## Grounded state from the owning body (Hero.is_on_floor). Gates the limp
+## floor-clamp in _step_sim so ducking never sinks the ragdoll into the ground.
+func set_grounded(g: bool) -> void:
+	_grounded = g
 
 
 ## Set the base limb/head color (enemy archetype tint, hero blue, ...).

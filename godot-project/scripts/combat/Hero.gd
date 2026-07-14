@@ -369,6 +369,9 @@ func _physics_process(delta: float) -> void:
 	if to_mouse.length() > 1.0:
 		_aim_dir = to_mouse.normalized()
 	facing = _aim_dir
+	# Feed groundedness to the rig so a limp (hold-DOWN) ragdoll clamps to the floor
+	# instead of drooping through it. Set every frame; cheap.
+	rig.set_grounded(is_on_floor())
 	# Hold DOWN to go LIMP — the Stick-Fight ragdoll flop. Abilities + walking are
 	# suspended; the active-ragdoll rig droops and gravity/friction bring you to the
 	# ground. Release to snap back up.

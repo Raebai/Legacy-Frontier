@@ -49,7 +49,7 @@ func _test_default_weapon_is_fists() -> int:
 	var hero: CharacterBody2D = _make_hero()
 	failed += _expect(hero._weapon == "fists", "default weapon is fists")
 	failed += _expect(hero._melee_damage == 14, "fists damage 14")
-	failed += _expect(hero._melee_range == 46.0, "fists range 46")
+	failed += _expect(hero._melee_range == 58.0, "fists range 58")
 	failed += _expect(hero._melee_knockback == 300.0, "fists knockback 300 (Slice 3 shove bump)")
 	failed += _expect(
 		hero.rig.equipment.get("weapon", "") == "staff",
@@ -74,7 +74,7 @@ func _test_equip_sword_swaps_rig_and_stats() -> int:
 	hero.equip_weapon("fists")
 	failed += _expect(hero._weapon == "fists", "equip_weapon(fists) reverts _weapon")
 	failed += _expect(hero._melee_damage == 14, "fists damage restored")
-	failed += _expect(hero._melee_range == 46.0, "fists range restored")
+	failed += _expect(hero._melee_range == 58.0, "fists range restored")
 	failed += _expect(hero._melee_knockback == 300.0, "fists knockback restored")
 	return failed
 
