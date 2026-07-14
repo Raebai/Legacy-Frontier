@@ -134,6 +134,15 @@ func _impact_burst(at: Vector2) -> void:
 				get_parent(), at, Color(1.0, 0.99, 0.9, 0.95), fade,
 				24, 0.45, 50.0, 190.0, 1.0, 2.5, 1.0, 2.0, true
 			)
+		"fire":
+			# Real organic FLAME plume (was falling to the corny generic yellow burst).
+			FlameBurst.spawn(get_parent(), at, METEOR_IMPACT_RADIUS * 0.7)
+			CombatVfx.spawn_burst(
+				get_parent(), at, Color(1.5, 0.7, 0.2, 0.95), Color(0.8, 0.2, 0.05, 0.0),
+				16, 0.5, 60.0, 210.0, 1.0, 2.6, 0.5, 1.6, true
+			)
+			ScorchDecal.spawn(get_parent(), at, METEOR_IMPACT_RADIUS * 0.7, "scorch",
+				Color(0.08, 0.03, 0.02, 0.6), 8.0)
 		"lightning":
 			CombatVfx.spawn_burst(
 				get_parent(), at, Color(1.0, 1.0, 0.7, 0.95), fade,

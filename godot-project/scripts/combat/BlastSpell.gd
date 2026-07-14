@@ -176,3 +176,7 @@ func _spawn_blast_burst() -> void:
 		Color(1.0, 0.9, 0.45, 1.0), Color(1.0, 0.4, 0.1, 0.0),
 		90, 0.6, 160.0, 420.0, 2.0, 6.0, 60.0, 140.0, true
 	)
+	# A FIRE blast (fire punch shockwave / fire meteor) blooms a real organic flame
+	# plume on top of the energy burst — the de-corny fire on the big spells.
+	if element_id == Elements.Element.FIRE:
+		FlameBurst.spawn(get_parent(), global_position, 48.0)
