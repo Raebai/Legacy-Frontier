@@ -51,6 +51,9 @@ const WEAPON_STATS: Dictionary = {
 	"fists": {"damage": MELEE_DAMAGE, "range": MELEE_RANGE, "knockback": MELEE_KNOCKBACK},
 	"sword": {"damage": 26, "range": 60.0, "knockback": 400.0},
 }
+## After a fire-element melee the lead fist stays LIT for this long, the flame
+## trailing embers as the hand moves (item 3). Strength decays with the timer.
+const FLAMING_FIST_TIME: float = 1.6
 const BLAST_COOLDOWN: float = 2.0
 const BLAST_FALLBACK_RANGE: float = 200.0
 ## Meteor is player-placed at the cursor, clamped to this reach (skill-shot, not
@@ -228,6 +231,9 @@ var _ghost_timer: float = 0.0
 var _cast_cooldown_timer: float = 0.0
 var _melee_cooldown_timer: float = 0.0
 var _melee_kick_next: bool = false
+var _flaming_fist_timer: float = 0.0
+var _fist_ember_timer: float = 0.0
+var _last_hand_pos: Vector2 = Vector2.ZERO
 var _blast_cooldown_timer: float = 0.0
 var _blink_cooldown_timer: float = 0.0
 var _blink_iframe_timer: float = 0.0
@@ -334,6 +340,7 @@ func _physics_process(delta: float) -> void:
 	_signature_cd_timer = maxf(_signature_cd_timer - delta, 0.0)
 	_wall_jump_lock = maxf(_wall_jump_lock - delta, 0.0)
 	_knockback = _knockback.move_toward(Vector2.ZERO, KNOCKBACK_DECAY * delta)
+	_update_flaming_fist(delta)
 	# Mana regenerates every frame (even mid-dash) so ultimates stay paced.
 	if mp < float(max_mp):
 		mp = minf(mp + MP_REGEN * delta, float(max_mp))
@@ -1360,7 +1367,33 @@ func _melee() -> void:
 		rig.play(CharacterRig.State.PUNCH)
 		rig.cast_gesture(CharacterRig.GestureKind.IGNITE_DROP, 0.4, _element)  # fist ignites on the punch
 	_melee_kick_next = not _melee_kick_next
+	# A fire-element punch LIGHTS the fist: it stays lit + trails embers for ~1.6s.
+	if int(_cfg.get("melee_element", -1)) == Elements.Element.FIRE:
+		_flaming_fist_timer = FLAMING_FIST_TIME
 	Sfx.play("melee_swing", 0.0, 0.08)
+
+
+## Drive the persistent flaming fist: decay the timer, feed the rig the current
+## fire strength, and trail small embers from the moving hand. Runs every frame.
+func _update_flaming_fist(delta: float) -> void:
+	if _flaming_fist_timer <= 0.0:
+		return
+	_flaming_fist_timer = maxf(_flaming_fist_timer - delta, 0.0)
+	var s: float = clampf(_flaming_fist_timer / FLAMING_FIST_TIME, 0.0, 1.0)
+	rig.set_hand_fire(s, Elements.Element.FIRE)
+	var hand_pos: Vector2 = rig.get_lead_hand_global()
+	_fist_ember_timer -= delta
+	if _fist_ember_timer <= 0.0 and _last_hand_pos != Vector2.ZERO \
+			and hand_pos.distance_to(_last_hand_pos) > 4.0:
+		_fist_ember_timer = 0.045
+		CombatVfx.spawn_burst(
+			get_parent(), hand_pos,
+			Color(1.3, 0.55, 0.15, 0.8 * s), Color(0.8, 0.2, 0.05, 0.0),
+			3, 0.4, 20.0, 75.0, 0.6, 1.5, 0.0, 0.0, true
+		)
+	_last_hand_pos = hand_pos
+	if _flaming_fist_timer <= 0.0:
+		rig.set_hand_fire(0.0, Elements.Element.FIRE)  # snuff out
 
 
 func _on_melee_hit_frame() -> void:
