@@ -43,6 +43,7 @@ func activate_at(pos: Vector2) -> void:
 		DebrisChunk.spawn_burst(
 			get_parent(), floor_pos, DEBRIS_COLOR, DEBRIS_COUNT, Vector2.UP, 240.0
 		)
+		GroundCrater.spawn(get_parent(), floor_pos, NOVA_RADIUS * 0.35, false)  # persistent gouge
 	_shockwave_elapsed = 0.0
 	queue_redraw()
 	Juice.hit_stop(0.1)

@@ -108,6 +108,7 @@ func _land(m: Dictionary) -> void:
 	# Parented to the arena (get_parent()), not self: later meteors' bursts +
 	# debris must outlive this spectacle node so they settle/fade naturally.
 	_impact_burst(at)
+	GroundCrater.spawn(get_parent(), at, METEOR_IMPACT_RADIUS * 0.55, true)  # gouge per impact (capped)
 	Juice.shake_camera(5.0)
 	Sfx.play("spell_impact", 0.0, 0.1)
 

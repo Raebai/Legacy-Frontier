@@ -38,5 +38,6 @@ static func check(body: CharacterBody2D, knockback: Vector2) -> Vector2:
 		12, 0.32, 40.0, 130.0
 	)
 	ScorchDecal.spawn(body.get_parent(), body.global_position, 15.0, "crack", Color(0.2, 0.2, 0.22, 0.5))
+	GroundCrater.spawn(body.get_parent(), body.global_position, 20.0, true)  # gouge where a hard slam lands
 	Juice.shake_camera(5.0 if hit_destructible else 3.0)
 	return Vector2.ZERO

@@ -72,6 +72,7 @@ func _detonate() -> void:
 		DebrisChunk.spawn_burst(
 			get_parent(), floor_pos, DEBRIS_COLOR, DEBRIS_COUNT, Vector2.UP, 300.0
 		)
+		GroundCrater.spawn(get_parent(), floor_pos, BLAST_RADIUS * 0.7, false)  # persistent gouge
 	_shockwave_elapsed = 0.0
 	queue_redraw()
 	Juice.hit_stop(0.09)  # weighted: the AoE centerpiece, just under a kill
