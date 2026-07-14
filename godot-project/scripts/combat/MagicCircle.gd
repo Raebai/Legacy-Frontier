@@ -120,12 +120,12 @@ func _draw_edge() -> void:
 	for i: int in PULSE_RINGS:
 		var t: float = fposmod(_phase * 0.55 + float(i) / float(PULSE_RINGS), 1.0)
 		var k: float = 0.75 + t * 0.9
-		draw_polyline(_ellipse_pts(ex * k, R * k, 48), Color(c.r, c.g, c.b, (1.0 - t) * 0.2 * a), 2.0)
+		draw_polyline(_ellipse_pts(ex * k, R * k, 48), Color(c.r, c.g, c.b, (1.0 - t) * 0.2 * a), 2.0, true)
 
 	# Nested edge-on rings.
-	draw_polyline(_ellipse_pts(ex * breath, R * breath, 56), ring, 3.0)
-	draw_polyline(_ellipse_pts(ex * 0.72 * breath, R * 0.72 * breath, 48), soft, 2.0)
-	draw_polyline(_ellipse_pts(ex * 0.46, R * 0.46, 40), soft, 1.5)
+	draw_polyline(_ellipse_pts(ex * breath, R * breath, 56), ring, 3.0, true)
+	draw_polyline(_ellipse_pts(ex * 0.72 * breath, R * 0.72 * breath, 48), soft, 2.0, true)
+	draw_polyline(_ellipse_pts(ex * 0.46, R * 0.46, 40), soft, 1.5, true)
 
 	# Rim glyphs orbiting the edge-on ring — foreshortened, brighter at the front.
 	for i: int in MOTES:
@@ -133,23 +133,23 @@ func _draw_edge() -> void:
 		var pos: Vector2 = Vector2(ex * cos(th), R * 0.94 * sin(th))
 		var depth: float = 0.45 + 0.55 * (0.5 + 0.5 * cos(th))  # front (cos>0) bigger/brighter
 		var ma: float = clampf(0.35 + 0.5 * depth, 0.12, 1.0) * a
-		draw_circle(pos, maxf(2.0, R * 0.03) * depth, Color(c.r, c.g, c.b, ma * 0.5))
-		draw_circle(pos, maxf(1.2, R * 0.02) * depth, Color(1.0, 1.0, 1.0, ma))
+		draw_circle(pos, maxf(2.0, R * 0.03) * depth, Color(c.r, c.g, c.b, ma * 0.5), true, -1.0, true)
+		draw_circle(pos, maxf(1.2, R * 0.02) * depth, Color(1.0, 1.0, 1.0, ma), true, -1.0, true)
 
 	# Runic ticks around the rim, extending outward, sliding with the spin.
 	for i: int in EDGE_TICKS:
 		var th2: float = _phase * 1.6 + TAU * float(i) / float(EDGE_TICKS)
 		var p0: Vector2 = Vector2(ex * cos(th2), R * sin(th2))
 		var p1: Vector2 = Vector2(ex * 1.7 * cos(th2), R * 1.07 * sin(th2))
-		draw_line(p0, p1, Color(c.r, c.g, c.b, 0.4 * a), 1.5)
+		draw_line(p0, p1, Color(c.r, c.g, c.b, 0.4 * a), 1.5, true)
 
 	# Central APERTURE — the bright slit the beam bursts from (pulses).
 	var pulse: float = 0.8 + 0.2 * sin(_phase * 8.0)
-	draw_line(Vector2(0.0, -R * 0.62), Vector2(0.0, R * 0.62), Color(c.r, c.g, c.b, 0.55 * a), maxf(3.0, ex * 1.3) * pulse)
-	draw_line(Vector2(0.0, -R * 0.5), Vector2(0.0, R * 0.5), white, maxf(1.5, ex * 0.5) * pulse)
+	draw_line(Vector2(0.0, -R * 0.62), Vector2(0.0, R * 0.62), Color(c.r, c.g, c.b, 0.55 * a), maxf(3.0, ex * 1.3) * pulse, true)
+	draw_line(Vector2(0.0, -R * 0.5), Vector2(0.0, R * 0.5), white, maxf(1.5, ex * 0.5) * pulse, true)
 	# Hot core.
-	draw_circle(Vector2.ZERO, R * 0.12 * pulse, Color(c.r, c.g, c.b, 0.3 * a))
-	draw_circle(Vector2.ZERO, R * 0.07 * pulse, white)
+	draw_circle(Vector2.ZERO, R * 0.12 * pulse, Color(c.r, c.g, c.b, 0.3 * a), true, -1.0, true)
+	draw_circle(Vector2.ZERO, R * 0.07 * pulse, white, true, -1.0, true)
 
 
 ## A closed ellipse polyline with x half-extent `ex`, y half-extent `ey`.
@@ -175,22 +175,22 @@ func _draw_face() -> void:
 	for i: int in PULSE_RINGS:
 		var t: float = fposmod(_phase * 0.55 + float(i) / float(PULSE_RINGS), 1.0)
 		var rr: float = R * (0.75 + t * 0.9)
-		draw_arc(Vector2.ZERO, rr, 0.0, TAU, 60, Color(c.r, c.g, c.b, (1.0 - t) * 0.22 * a), 2.0)
+		draw_arc(Vector2.ZERO, rr, 0.0, TAU, 60, Color(c.r, c.g, c.b, (1.0 - t) * 0.22 * a), 2.0, true)
 
 	draw_set_transform(Vector2.ZERO, _phase * SPIN_SPEED, Vector2(s, s) * breath)
-	draw_arc(Vector2.ZERO, radius, 0.0, TAU, 84, ring, 3.5)
-	draw_arc(Vector2.ZERO, radius * 0.965, 0.0, TAU, 84, Color(1, 1, 1, 0.2 * a), 1.5)
+	draw_arc(Vector2.ZERO, radius, 0.0, TAU, 84, ring, 3.5, true)
+	draw_arc(Vector2.ZERO, radius * 0.965, 0.0, TAU, 84, Color(1, 1, 1, 0.2 * a), 1.5, true)
 	_draw_dashed_ring(radius * 0.88, DASH_SEGMENTS, 0.55, Color(c.r, c.g, c.b, 0.75 * a), 3.0)
 	for i: int in TICKS:
 		var dirv: Vector2 = Vector2.from_angle(TAU * float(i) / float(TICKS))
-		draw_line(dirv * radius * 0.76, dirv * radius * 0.94, Color(c.r, c.g, c.b, 0.5 * a), 1.5)
+		draw_line(dirv * radius * 0.76, dirv * radius * 0.94, Color(c.r, c.g, c.b, 0.5 * a), 1.5, true)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 	draw_set_transform(Vector2.ZERO, -_phase * SPIN_SPEED * 0.7, Vector2(s, s) * breath)
-	draw_arc(Vector2.ZERO, radius * 0.64, 0.0, TAU, 60, soft, 2.0)
+	draw_arc(Vector2.ZERO, radius * 0.64, 0.0, TAU, 60, soft, 2.0, true)
 	for i: int in SPOKES:
 		var sd: Vector2 = Vector2.from_angle(TAU * float(i) / float(SPOKES))
-		draw_line(sd * radius * 0.34, sd * radius * 0.6, Color(c.r, c.g, c.b, 0.4 * a), 1.5)
+		draw_line(sd * radius * 0.34, sd * radius * 0.6, Color(c.r, c.g, c.b, 0.4 * a), 1.5, true)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 	draw_set_transform(Vector2.ZERO, _phase * SPIN_SPEED * 0.35, Vector2(s, s))
@@ -206,20 +206,20 @@ func _draw_face() -> void:
 		var ang: float = _phase * 1.5 + TAU * float(i) / float(MOTES)
 		var pos: Vector2 = Vector2.from_angle(ang) * R * 0.72
 		var ma: float = clampf(0.55 + 0.35 * sin(_phase * 5.0 + float(i) * 1.6), 0.15, 1.0) * a
-		draw_circle(pos, maxf(2.0, radius * 0.03), Color(c.r, c.g, c.b, ma * 0.4))
-		draw_circle(pos, maxf(1.2, radius * 0.018), Color(1, 1, 1, ma))
+		draw_circle(pos, maxf(2.0, radius * 0.03), Color(c.r, c.g, c.b, ma * 0.4), true, -1.0, true)
+		draw_circle(pos, maxf(1.2, radius * 0.018), Color(1, 1, 1, ma), true, -1.0, true)
 
 	var pulse: float = 0.82 + 0.18 * sin(_phase * 7.5)
-	draw_circle(Vector2.ZERO, radius * 0.22 * s * pulse, Color(c.r, c.g, c.b, 0.28 * a))
-	draw_arc(Vector2.ZERO, radius * 0.15 * s, 0.0, TAU, 28, ring, 2.0)
-	draw_circle(Vector2.ZERO, radius * 0.09 * s * pulse, white)
+	draw_circle(Vector2.ZERO, radius * 0.22 * s * pulse, Color(c.r, c.g, c.b, 0.28 * a), true, -1.0, true)
+	draw_arc(Vector2.ZERO, radius * 0.15 * s, 0.0, TAU, 28, ring, 2.0, true)
+	draw_circle(Vector2.ZERO, radius * 0.09 * s * pulse, white, true, -1.0, true)
 
 
 func _draw_dashed_ring(r: float, count: int, fill: float, col: Color, width: float) -> void:
 	var slot: float = TAU / float(count)
 	for i: int in count:
 		var start: float = slot * float(i)
-		draw_arc(Vector2.ZERO, r, start, start + slot * fill, 6, col, width)
+		draw_arc(Vector2.ZERO, r, start, start + slot * fill, 6, col, width, true)
 
 
 func _draw_star(r: float, points: int, offset: float, col: Color) -> void:
@@ -227,4 +227,4 @@ func _draw_star(r: float, points: int, offset: float, col: Color) -> void:
 	for i: int in points:
 		pts.append(Vector2.from_angle(offset - PI / 2.0 + TAU * float(i) / float(points)) * r)
 	pts.append(pts[0])
-	draw_polyline(pts, col, 2.0)
+	draw_polyline(pts, col, 2.0, true)

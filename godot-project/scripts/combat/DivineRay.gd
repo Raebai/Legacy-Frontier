@@ -155,7 +155,7 @@ func _draw() -> void:
 		# Telegraph: a single growing danger ring at the marked point (no full-row
 		# line — that whole-map tell is exactly what the maker wanted gone).
 		var tp: float = _elapsed / CHARGE_TIME
-		draw_arc(_ground, _radius * (0.3 + 0.6 * tp), 0.0, TAU, 32, Color(c.r, c.g, c.b, 0.45 * tp), 2.5)
+		draw_arc(_ground, _radius * (0.3 + 0.6 * tp), 0.0, TAU, 32, Color(c.r, c.g, c.b, 0.45 * tp), 2.5, true)
 		return
 	var local: float = _elapsed - CHARGE_TIME
 	var intensity: float
@@ -181,9 +181,9 @@ func _draw_pillar(px: float, sky_y: float, c: Color, core: Color, intensity: flo
 	_draw_column(sky, ground, w * 0.4, Color(core.r, core.g, core.b, 0.95 * intensity))
 	_draw_effect_detail(sky, ground, w, intensity)
 	# Ground impact: bright flash disc + an expanding ring.
-	draw_circle(ground, w * 1.5, Color(core.r, core.g, core.b, 0.5 * intensity))
+	draw_circle(ground, w * 1.5, Color(core.r, core.g, core.b, 0.5 * intensity), true, -1.0, true)
 	var ring_r: float = _radius * (1.0 + 1.4 * (1.0 - intensity))
-	draw_arc(ground, ring_r, 0.0, TAU, 40, Color(c.r, c.g, c.b, 0.6 * intensity), 4.0 * intensity)
+	draw_arc(ground, ring_r, 0.0, TAU, 40, Color(c.r, c.g, c.b, 0.6 * intensity), 4.0 * intensity, true)
 
 
 func _effect_flicker() -> float:
@@ -229,15 +229,15 @@ func _draw_effect_detail(sky: Vector2, ground: Vector2, w: float, intensity: flo
 				var p: Vector2 = sky.lerp(ground, t) \
 					+ Vector2(sin(_elapsed * 14.0 + float(i) * 2.1) * w * 1.1, 0.0)
 				draw_circle(p, w * 0.16 + 1.5,
-					Color(1.0, 0.55 + 0.3 * absf(sin(float(i) * 3.7)), 0.15, 0.8 * intensity))
+					Color(1.0, 0.55 + 0.3 * absf(sin(float(i) * 3.7)), 0.15, 0.8 * intensity), true, -1.0, true)
 		"holy":
 			for i: int in 7:
 				var t: float = (float(i) + 0.5) / 7.0
 				var p: Vector2 = sky.lerp(ground, t) \
 					+ Vector2(sin(_elapsed * 6.0 + float(i) * 1.7) * w * 1.3, 0.0)
 				var ma: float = (0.35 + 0.25 * sin(_elapsed * 9.0 + float(i))) * intensity
-				draw_circle(p, w * 0.4, Color(1.0, 0.97, 0.8, ma * 0.5))
-				draw_circle(p, w * 0.16, Color(1.0, 1.0, 0.95, ma))
+				draw_circle(p, w * 0.4, Color(1.0, 0.97, 0.8, ma * 0.5), true, -1.0, true)
+				draw_circle(p, w * 0.16, Color(1.0, 1.0, 0.95, ma), true, -1.0, true)
 
 
 ## A vertical band of thickness `thick` from `sky` down to `ground`.

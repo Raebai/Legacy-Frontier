@@ -176,8 +176,8 @@ func _draw() -> void:
 	if _elapsed < CHARGE_TIME:
 		# Charge: a tight crackle ball at the fist gathering to full.
 		var cp: float = _elapsed / CHARGE_TIME
-		draw_circle(_origin, _width * (0.4 + 0.5 * cp), Color(_color.r, _color.g, _color.b, 0.4 * cp))
-		draw_circle(_origin, _width * 0.35 * cp, Color(CORE_COLOR.r, CORE_COLOR.g, CORE_COLOR.b, 0.7 * cp))
+		draw_circle(_origin, _width * (0.4 + 0.5 * cp), Color(_color.r, _color.g, _color.b, 0.4 * cp), true, -1.0, true)
+		draw_circle(_origin, _width * 0.35 * cp, Color(CORE_COLOR.r, CORE_COLOR.g, CORE_COLOR.b, 0.7 * cp), true, -1.0, true)
 		return
 	var since: float = _elapsed - CHARGE_TIME
 	var intensity: float
@@ -195,21 +195,21 @@ func _draw() -> void:
 		var along: Vector2 = _origin.lerp(tip, float(i) / float(BOLT_SEGMENTS))
 		pts.append(along + perp * _jag(i, BOLT_SEGMENTS))
 	# Layered: wide soft glow -> arc body -> white-hot core.
-	draw_polyline(pts, Color(_color.r, _color.g, _color.b, 0.22 * intensity), _width * 1.4)
-	draw_polyline(pts, Color(_color.r, _color.g, _color.b, 0.65 * intensity), _width * 0.5)
-	draw_polyline(pts, Color(CORE_COLOR.r, CORE_COLOR.g, CORE_COLOR.b, 0.95 * intensity), _width * 0.18)
+	draw_polyline(pts, Color(_color.r, _color.g, _color.b, 0.22 * intensity), _width * 1.4, true)
+	draw_polyline(pts, Color(_color.r, _color.g, _color.b, 0.65 * intensity), _width * 0.5, true)
+	draw_polyline(pts, Color(CORE_COLOR.r, CORE_COLOR.g, CORE_COLOR.b, 0.95 * intensity), _width * 0.18, true)
 	# Branch forks off a few mid-bolt nodes (short jagged offshoots).
 	for i: int in range(2, BOLT_SEGMENTS - 1, 3):
 		var base: Vector2 = pts[i]
 		var side: float = 1.0 if (i + int(_flick_seed)) % 2 == 0 else -1.0
 		var fork_dir: Vector2 = (_dir + perp * side * 1.4).normalized()
 		var fork_end: Vector2 = base + fork_dir * _width * (1.2 + absf(sin(float(i) + _flick_seed)))
-		draw_line(base, fork_end, Color(_color.r, _color.g, _color.b, 0.6 * intensity), 2.0)
-		draw_line(base, fork_end, Color(CORE_COLOR.r, CORE_COLOR.g, CORE_COLOR.b, 0.5 * intensity), 1.0)
+		draw_line(base, fork_end, Color(_color.r, _color.g, _color.b, 0.6 * intensity), 2.0, true)
+		draw_line(base, fork_end, Color(CORE_COLOR.r, CORE_COLOR.g, CORE_COLOR.b, 0.5 * intensity), 1.0, true)
 	# Muzzle + impact flash.
-	draw_circle(_origin, _width * 1.3, Color(CORE_COLOR.r, CORE_COLOR.g, CORE_COLOR.b, 0.55 * intensity))
-	draw_circle(tip, _width * 1.1, Color(_color.r, _color.g, _color.b, 0.5 * intensity))
-	draw_circle(tip, _width * 0.5, Color(CORE_COLOR.r, CORE_COLOR.g, CORE_COLOR.b, 0.6 * intensity))
+	draw_circle(_origin, _width * 1.3, Color(CORE_COLOR.r, CORE_COLOR.g, CORE_COLOR.b, 0.55 * intensity), true, -1.0, true)
+	draw_circle(tip, _width * 1.1, Color(_color.r, _color.g, _color.b, 0.5 * intensity), true, -1.0, true)
+	draw_circle(tip, _width * 0.5, Color(CORE_COLOR.r, CORE_COLOR.g, CORE_COLOR.b, 0.6 * intensity), true, -1.0, true)
 	# The fork-arc to a chained straggler (a thin jagged line).
 	if _has_chain:
 		var cperp: Vector2 = (_chain_to - _chain_from).orthogonal().normalized()
@@ -219,5 +219,5 @@ func _draw() -> void:
 			var base2: Vector2 = _chain_from.lerp(_chain_to, t)
 			var jitter: float = sin(float(i) * 9.0 + _flick_seed) * sin(t * PI) * 10.0
 			cpts.append(base2 + cperp * jitter)
-		draw_polyline(cpts, Color(_color.r, _color.g, _color.b, 0.8 * intensity), 3.0)
-		draw_polyline(cpts, Color(CORE_COLOR.r, CORE_COLOR.g, CORE_COLOR.b, 0.7 * intensity), 1.2)
+		draw_polyline(cpts, Color(_color.r, _color.g, _color.b, 0.8 * intensity), 3.0, true)
+		draw_polyline(cpts, Color(CORE_COLOR.r, CORE_COLOR.g, CORE_COLOR.b, 0.7 * intensity), 1.2, true)

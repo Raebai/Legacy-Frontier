@@ -118,18 +118,18 @@ func _draw() -> void:
 	draw_arc(
 		Vector2.ZERO, r, 0.0, TAU, 64,
 		Color(0.6, 0.9, 1.0, 0.95 * alpha), lerpf(12.0, 2.0, t)
-	)
+	, true)
 	draw_arc(
 		Vector2.ZERO, r * 0.8, 0.0, TAU, 48,
 		Color(0.85, 0.95, 1.0, 0.6 * alpha), lerpf(7.0, 1.0, t)
-	)
+	, true)
 	# Hot white-blue flash core right at the burst.
 	if t < 0.4:
 		var flash: float = 1.0 - t / 0.4
 		draw_circle(
 			Vector2.ZERO, NOVA_RADIUS * 0.9 * flash,
 			Color(0.85, 0.95, 1.0, 0.35 * flash)
-		)
+		, true, -1.0, true)
 
 
 ## The shared burst builder, tuned for a big bright energy ring-out.

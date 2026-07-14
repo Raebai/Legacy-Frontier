@@ -157,15 +157,15 @@ func _draw() -> void:
 	draw_arc(
 		Vector2.ZERO, r, 0.0, TAU, 64,
 		Color(1.0, 0.85, 0.5, 0.9 * alpha), lerpf(10.0, 2.0, t)
-	)
+	, true)
 	draw_arc(
 		Vector2.ZERO, r * 0.78, 0.0, TAU, 48,
 		Color(1.0, 0.5, 0.2, 0.5 * alpha), lerpf(6.0, 1.0, t)
-	)
+	, true)
 	# Hot flash core right after detonation.
 	if t < 0.4:
 		var flash: float = 1.0 - t / 0.4
-		draw_circle(Vector2.ZERO, BLAST_RADIUS * flash, Color(1.0, 0.9, 0.6, 0.35 * flash))
+		draw_circle(Vector2.ZERO, BLAST_RADIUS * flash, Color(1.0, 0.9, 0.6, 0.35 * flash), true, -1.0, true)
 
 
 ## The shared burst builder, scaled way up for the centerpiece.

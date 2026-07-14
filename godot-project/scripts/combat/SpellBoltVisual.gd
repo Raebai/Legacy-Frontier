@@ -68,11 +68,11 @@ func _draw() -> void:
 	)
 	# White-hot tip.
 	var tip_col: Color = Color(TIP_COLOR.r, TIP_COLOR.g, TIP_COLOR.b, TIP_COLOR.a * flicker)
-	draw_circle(Vector2(CORE_HALF_LEN, 0.0), CORE_HALF_WIDTH * 0.9, tip_col)
+	draw_circle(Vector2(CORE_HALF_LEN, 0.0), CORE_HALF_WIDTH * 0.9, tip_col, true, -1.0, true)
 
 
 ## Elongated capsule/lozenge: a thick line with round end-caps.
 func _draw_capsule(from_point: Vector2, to_point: Vector2, half_width: float, col: Color) -> void:
-	draw_line(from_point, to_point, col, half_width * 2.0)
-	draw_circle(from_point, half_width, col)
-	draw_circle(to_point, half_width, col)
+	draw_line(from_point, to_point, col, half_width * 2.0, true)
+	draw_circle(from_point, half_width, col, true, -1.0, true)
+	draw_circle(to_point, half_width, col, true, -1.0, true)

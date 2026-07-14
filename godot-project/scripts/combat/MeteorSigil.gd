@@ -159,7 +159,7 @@ func _draw() -> void:
 	if _elapsed < CHARGE_TIME:
 		# Telegraph: a growing danger ring on the ground footprint.
 		var tp: float = _elapsed / CHARGE_TIME
-		draw_arc(_center, _radius * (0.4 + 0.6 * tp), 0.0, TAU, 44, Color(c.r, c.g, c.b, 0.45 * tp), 2.5)
+		draw_arc(_center, _radius * (0.4 + 0.6 * tp), 0.0, TAU, 44, Color(c.r, c.g, c.b, 0.45 * tp), 2.5, true)
 		return
 	# Draw each in-flight meteor: a bright head + a fading motion trail.
 	for m: Dictionary in _meteors:
@@ -175,11 +175,11 @@ func _draw() -> void:
 		var trail: Vector2 = from.lerp(to, maxf(f - 0.38, 0.0))
 		var inner: Color = _trail_inner_color()
 		var core: Color = _effect_core_color()
-		draw_line(trail, pos, Color(c.r, c.g, c.b, 0.5), 10.0)        # wide soft trail
-		draw_line(trail, pos, Color(inner.r, inner.g, inner.b, 0.7), 4.0)  # bright inner trail
-		draw_circle(pos, 13.0, Color(c.r, c.g, c.b, 0.4))            # elemental halo
-		draw_circle(pos, 8.0, Color(c.r, c.g, c.b, 0.95))           # head
-		draw_circle(pos, 4.5, core)                                 # hot core
+		draw_line(trail, pos, Color(c.r, c.g, c.b, 0.5), 10.0, true)        # wide soft trail
+		draw_line(trail, pos, Color(inner.r, inner.g, inner.b, 0.7), 4.0, true)  # bright inner trail
+		draw_circle(pos, 13.0, Color(c.r, c.g, c.b, 0.4), true, -1.0, true)            # elemental halo
+		draw_circle(pos, 8.0, Color(c.r, c.g, c.b, 0.95), true, -1.0, true)           # head
+		draw_circle(pos, 4.5, core, true, -1.0, true)                                 # hot core
 
 
 ## Bright inner-trail tint per effect.
