@@ -163,8 +163,18 @@ func _draw_impact(c: Color) -> void:
 	if intensity <= 0.01:
 		return
 	var t: float = clampf(local / (IMPACT_HOLD + FADE_TIME), 0.0, 1.0)
+	# Broad radiant flash wash: a big soft disc that punches ONCE at the very
+	# moment of impact then vanishes fast (a true flash, not a lingering white-
+	# out). Brief window + LDR-ish tint so bloom lifts it without erasing the
+	# scene — the finisher reads huge but you still see the bodies fly.
+	var flash: float = clampf(1.0 - local / 0.13, 0.0, 1.0)
+	if flash > 0.0:
+		draw_circle(_ground, _radius * (1.4 + 1.0 * flash), Color(1.15, 1.12, 1.0, 0.14 * flash), true, -1.0, true)
 	draw_circle(_ground, _radius * (0.5 + 0.5 * intensity), Color(1.7, 1.65, 1.5, 0.5 * intensity), true, -1.0, true)
 	draw_circle(_ground, _radius * 0.3 * intensity, Color(1.9, 1.9, 1.7, 0.8 * intensity), true, -1.0, true)
-	for k: int in 2:
-		var rr: float = _radius * (0.6 + (0.9 + 0.4 * float(k)) * t)
-		draw_arc(_ground, rr, 0.0, TAU, 56, Color(c.r, c.g, c.b, (0.7 - 0.25 * float(k)) * intensity), lerpf(6.0, 1.0, t), true)
+	# Three expanding shockwave rings — the third races out bigger/faster with a
+	# thin bright leading edge, selling the concussion.
+	for k: int in 3:
+		var rr: float = _radius * (0.6 + (0.9 + 0.5 * float(k)) * t)
+		draw_arc(_ground, rr, 0.0, TAU, 64, Color(c.r, c.g, c.b, (0.72 - 0.2 * float(k)) * intensity), lerpf(6.0, 1.0, t), true)
+	draw_arc(_ground, _radius * (0.6 + 2.0 * t), 0.0, TAU, 72, Color(1.7, 1.65, 1.5, 0.5 * (1.0 - t) * intensity), lerpf(3.0, 1.0, t), true)

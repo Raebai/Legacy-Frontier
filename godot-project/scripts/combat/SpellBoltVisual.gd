@@ -3,8 +3,7 @@ extends Node2D
 ## Procedural magic-bolt visual: white-hot core + warm glow + tapering trail.
 ## Local +X is the travel axis — the parent Spell sets `rotation` from its
 ## direction in launch(), so this node just draws along +X.
-## Tuning knobs: CORE_* for bolt size, TRAIL_* for tail length/density,
-## FLICKER_SPEED for the energy shimmer.
+## Tuning knobs: CORE_* for bolt size, TRAIL_* for tail length/density.
 
 const CORE_COLOR: Color = Color(1.5, 1.45, 1.2, 1.0)  # HDR >1.0 so the core blooms
 const TIP_COLOR: Color = Color(1.8, 1.8, 1.8, 0.95)  # HDR white-hot tip
@@ -13,11 +12,9 @@ const TRAIL_COLOR: Color = Color(1.0, 0.58, 0.18, 0.55)
 const CORE_HALF_LEN: float = 5.0
 const CORE_HALF_WIDTH: float = 2.4
 const GLOW_SCALE: float = 2.6
-const TRAIL_SEGMENTS: int = 4
-const TRAIL_SPACING: float = 5.0
-const FLICKER_SPEED: float = 40.0
+const TRAIL_SEGMENTS: int = 6
+const TRAIL_SPACING: float = 4.2
 
-var _phase: float = 0.0
 ## Live palette — starts at the warm defaults; set_tint() steers glow/trail
 ## fully toward the element colour and only nudges the hot core, so the bolt
 ## keeps its white-hot heart while reading unmistakably as its element.
@@ -35,14 +32,11 @@ func set_tint(c: Color) -> void:
 	queue_redraw()
 
 
-func _process(delta: float) -> void:
-	_phase += delta
-	queue_redraw()
-
-
 func _draw() -> void:
-	var flicker: float = 0.9 + 0.1 * sin(_phase * FLICKER_SPEED)
-	# Tapering trail: segments march backwards (-X), fading and thinning.
+	# The bolt draws in its own LOCAL frame (the parent moves it), so it only
+	# needs to redraw when the tint changes — no per-frame queue_redraw for a
+	# near-invisible flicker (that was N redraws/frame in bullet-heavy fights).
+	# Trail: segments march backwards (-X), fading and thinning into a taper.
 	for i: int in range(TRAIL_SEGMENTS):
 		var f: float = 1.0 - float(i + 1) / float(TRAIL_SEGMENTS + 1)
 		var x0: float = -CORE_HALF_LEN - TRAIL_SPACING * float(i)
@@ -52,9 +46,7 @@ func _draw() -> void:
 		)
 		_draw_capsule(Vector2(x1, 0.0), Vector2(x0, 0.0), CORE_HALF_WIDTH * f, seg_col)
 	# Outer warm glow hugging the bolt.
-	var glow_col: Color = Color(
-		_glow_color.r, _glow_color.g, _glow_color.b, _glow_color.a * flicker
-	)
+	var glow_col: Color = _glow_color
 	_draw_capsule(
 		Vector2(-CORE_HALF_LEN - 2.0, 0.0),
 		Vector2(CORE_HALF_LEN + 1.0, 0.0),
@@ -67,8 +59,7 @@ func _draw() -> void:
 		CORE_HALF_WIDTH, _core_color
 	)
 	# White-hot tip.
-	var tip_col: Color = Color(TIP_COLOR.r, TIP_COLOR.g, TIP_COLOR.b, TIP_COLOR.a * flicker)
-	draw_circle(Vector2(CORE_HALF_LEN, 0.0), CORE_HALF_WIDTH * 0.9, tip_col, true, -1.0, true)
+	draw_circle(Vector2(CORE_HALF_LEN, 0.0), CORE_HALF_WIDTH * 0.9, TIP_COLOR, true, -1.0, true)
 
 
 ## Elongated capsule/lozenge: a thick line with round end-caps.

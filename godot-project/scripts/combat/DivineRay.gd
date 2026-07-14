@@ -178,7 +178,10 @@ func _draw_pillar(px: float, sky_y: float, c: Color, core: Color, intensity: flo
 		_draw_column(sky, ground, w * 2.6, Color(c.r, c.g, c.b, 0.1 * intensity))
 	_draw_column(sky, ground, w * 1.7, Color(c.r, c.g, c.b, 0.25 * intensity))
 	_draw_column(sky, ground, w * 1.0, Color(c.r, c.g, c.b, 0.65 * intensity))
-	_draw_column(sky, ground, w * 0.4, Color(core.r, core.g, core.b, 0.95 * intensity))
+	# Bright core as a thick AA line (clean round-profile edges) instead of a
+	# flat aliased quad; the soft outer bands stay polygons (no below-ground cap
+	# bulge, MSAA is fine for their low alpha).
+	draw_line(sky, ground, Color(core.r, core.g, core.b, 0.95 * intensity), w * 0.4, true)
 	_draw_effect_detail(sky, ground, w, intensity)
 	# Ground impact: bright flash disc + an expanding ring.
 	draw_circle(ground, w * 1.5, Color(core.r, core.g, core.b, 0.5 * intensity), true, -1.0, true)

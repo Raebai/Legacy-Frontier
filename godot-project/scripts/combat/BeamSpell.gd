@@ -380,10 +380,9 @@ func _draw_frost_lens(w: float, intensity: float, core: Color) -> void:
 
 ## A filled beam band (rectangle) of thickness `thick` from `a` to `b`.
 func _draw_beam_band(a: Vector2, b: Vector2, thick: float, col: Color) -> void:
-	var d: Vector2 = (b - a)
-	if d.length() < 0.001:
+	if (b - a).length() < 0.001:
 		return
-	var perp: Vector2 = d.normalized().orthogonal() * (thick * 0.5)
-	draw_colored_polygon(
-		PackedVector2Array([a + perp, b + perp, b - perp, a - perp]), col
-	)
+	# A thick ANTIALIASED line = a round-profile capsule with smooth edges and
+	# round caps — a cleaner, rounder beam than the old flat aliased quad
+	# (draw_colored_polygon has no AA arg; draw_line does).
+	draw_line(a, b, col, thick, true)
