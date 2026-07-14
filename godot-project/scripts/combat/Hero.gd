@@ -1175,6 +1175,7 @@ func _fire_punch() -> void:
 		"knockback": 430.0, "element_id": _element,
 	})
 	blast.call("detonate_now", center)
+	Juice.impact_frame(0.8)  # the cool PUNCH beat
 
 
 ## GROUND SLAM — the Juggernaut's Q. A small hop then a self-centred crater: wide
@@ -1436,10 +1437,9 @@ func take_damage(amount: int) -> void:
 	# punches, not just projectiles) — the reward is the same crisp ding + flash.
 	if _parry_window_timer > 0.0:
 		Sfx.play("ding", 2.0, 0.02)
-		Juice.hit_stop(0.08)
-		Juice.shake_camera(4.0)
 		rig.flash_color(PARRY_FLASH_COLOR, 0.1)
 		rig.set_parry(_aim_dir, PARRY_SHIELD_TIME)
+		Juice.impact_frame(1.0)  # the DEFLECT beat — anime freeze-frame
 		_parry_window_timer = 0.0
 		return
 	# A LANDED hit (not dodged/parried) shatters a float-channel — lose the ult.

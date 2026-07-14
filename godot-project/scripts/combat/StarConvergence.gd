@@ -86,10 +86,10 @@ func _detonate() -> void:
 		if prop.has_method("take_damage"):
 			prop.take_damage(_damage)
 	_impact_burst(at)
-	Juice.hit_stop(0.14)
 	Juice.shake_camera(24.0)
 	Juice.zoom_punch_camera(0.14, 0.3)
 	Sfx.play("blast", 2.0, 0.1)
+	Juice.impact_frame(1.4)  # the FINISHER beat — biggest impact frame
 
 
 ## Big radiant nova spray at the point (holy character; scaled up for the finisher).
