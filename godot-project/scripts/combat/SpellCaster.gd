@@ -17,6 +17,8 @@ const NOVA_PATH: String = "res://scenes/combat/EnergyNova.tscn"
 const BOULDER_PATH: String = "res://scripts/combat/BoulderHurl.gd"
 const PILLAR_PATH: String = "res://scripts/combat/RockPillar.gd"
 const WALL_PATH: String = "res://scripts/combat/RockWall.gd"
+const ICE_WALL_PATH: String = "res://scripts/combat/IceWall.gd"
+const CHAIN_PATH: String = "res://scripts/combat/ChainBolt.gd"
 
 
 ## Cast `spell` from `caster_pos` toward `target_pos`, parented under `arena`.
@@ -111,6 +113,20 @@ static func cast(
 			arena.add_child(wl)
 			wl.set("element_id", elem)
 			wl.call("raise_wall", caster_pos, aim.normalized(), col, fx)
+			return true
+		SpellDef.Kind.ICE_WALL:
+			# Raises a temporary blocking ICE wall in the aim direction (chills on touch).
+			var iw: Node2D = (load(ICE_WALL_PATH) as GDScript).new()
+			arena.add_child(iw)
+			iw.set("element_id", elem)
+			iw.call("raise_wall", caster_pos, aim.normalized(), col, fx)
+			return true
+		SpellDef.Kind.CHAIN:
+			# A jagged bolt that leaps enemy-to-enemy from the caster along the aim.
+			var ch: Node2D = (load(CHAIN_PATH) as GDScript).new()
+			arena.add_child(ch)
+			ch.set("element_id", elem)
+			ch.call("chain", caster_pos, aim.normalized(), col, spell.count, spell.reach, spell.damage, fx)
 			return true
 		_:
 			# Any unbuilt kind: safe no-op until its scene exists.

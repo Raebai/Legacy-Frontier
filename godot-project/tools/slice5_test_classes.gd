@@ -11,6 +11,7 @@ const HERO_PATH: String = "res://scenes/combat/Hero.tscn"
 # aren't registered at parse time — the repo preload trap). StatusComponent looks
 # Sfx up by node path, so it preloads safely.
 const RUSH_PATH: String = "res://scripts/combat/LightningRush.gd"
+const CHAIN_PATH: String = "res://scripts/combat/ChainBolt.gd"  # runtime-load (autoload-safe)
 const StatusScript: GDScript = preload("res://scripts/combat/StatusComponent.gd")
 
 var _ran: bool = false
@@ -33,6 +34,7 @@ func _process(_delta: float) -> bool:
 	failed += _test_class_primaries()
 	failed += _test_signature_loadouts()
 	failed += _test_rush_line_geometry()
+	failed += _test_chain_geometry()
 	failed += _test_new_element_ailments()
 	if failed > 0:
 		printerr("Slice5 class tests: %d FAILED" % failed)
@@ -141,6 +143,29 @@ func _test_signature_loadouts() -> int:
 	failed += _expect(int(jugg[0].element) == 5, "Boulder Hurl carries the EARTH element (Stagger)")
 	failed += _expect(jugg.size() >= 5, "Juggernaut has the 3 earth-kit spells + 2 legacy ults")
 	failed += _expect(jugg[1].id == "rock_pillar" and jugg[2].id == "rock_wall", "earth kit: pillar then wall")
+	# Cryomancer (5) + Stormcaller (6) now lead with BESPOKE kits, not beam-clones.
+	var cryo: Array = SpellLibrary.build_for_class(5)
+	failed += _expect(cryo[0].id == "ice_wall" and int(cryo[0].kind) == int(SpellDef.Kind.ICE_WALL), "Cryomancer leads with the Ice Wall (not a beam)")
+	var storm: Array = SpellLibrary.build_for_class(6)
+	failed += _expect(storm[0].id == "chain_lightning" and int(storm[0].kind) == int(SpellDef.Kind.CHAIN), "Stormcaller leads with Chain Lightning (not a beam)")
+	return failed
+
+
+## ChainBolt.build_chain: target 1 is the nearest enemy in the aim direction; each
+## hop is the nearest unvisited within hop range; behind-the-origin is skipped.
+func _test_chain_geometry() -> int:
+	var failed: int = 0
+	var a := Dummy.new(); a.global_position = Vector2(120, 0)    # first target (ahead)
+	var b := Dummy.new(); b.global_position = Vector2(260, 40)   # within hop of a
+	var c := Dummy.new(); c.global_position = Vector2(1000, 0)   # too far for hop 2
+	var behind := Dummy.new(); behind.global_position = Vector2(-200, 0)  # behind origin
+	var chain_script: GDScript = load(CHAIN_PATH)
+	var links: Array = chain_script.build_chain(Vector2.ZERO, Vector2.RIGHT, 560.0, 240.0, 5, [a, b, c, behind])
+	failed += _expect(links.size() == 2, "chain hits the reachable pair (a -> b), stops at the gap")
+	failed += _expect(links.size() >= 1 and links[0] == a, "first link is the nearest forward target")
+	failed += _expect(not links.has(behind), "a target behind the origin is never chained")
+	failed += _expect(not links.has(c), "a target beyond hop range is not reached")
+	a.free(); b.free(); c.free(); behind.free()
 	return failed
 
 

@@ -28,10 +28,10 @@ static func build_for_class(class_id: int) -> Array:
 			return [_boulder_hurl(), _rock_pillar(), _rock_wall(), _colossus_pillar(), _avalanche()]
 		4:  # CLERIC — holy
 			return [_heavens_verdict(), _judgment()]
-		5:  # CRYOMANCER — ice
-			return [_frostpiercer(), _frozen_comet()]
-		6:  # STORMCALLER — lightning
-			return [_tempest(), _chidori()]
+		5:  # CRYOMANCER — ice (bespoke zoning identity, not a recolored beam)
+			return [_ice_wall(), _frozen_comet()]
+		6:  # STORMCALLER — lightning (chain leap, not a recolored beam)
+			return [_chain_lightning(), _chidori()]
 		7:  # WARLOCK — shadow
 			return [_void_barrage(), _umbral_lance()]
 	return build()
@@ -149,6 +149,47 @@ static func _frozen_comet() -> SpellDef:
 	return _meteor("frozen_comet", "Frozen Comet",
 		"Shards of a shattered comet rain from a frozen sky over the marked ground.",
 		Elements.Element.ICE, 70, 6.0, 22, 138.0, 11)
+
+
+## ICE WALL — Cryomancer. A temporary blocking barrier of ice that CHILLS on touch.
+## Bespoke zoning identity (replaces the Frostpiercer beam-clone).
+static func _ice_wall() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "ice_wall"
+	s.display_name = "Ice Wall"
+	s.description = "Raise a crystalline wall of ice in the aim direction — it blocks "\
+		+ "enemy bodies and projectiles for a few seconds and CHILLS anything pressed "\
+		+ "against it, then shatters."
+	s.kind = SpellDef.Kind.ICE_WALL
+	s.element = Elements.Element.ICE
+	s.use_element_color = true
+	s.effect = "frost"
+	s.mp_cost = 40
+	s.cooldown = 5.0
+	s.damage = 0
+	s.reach = 90.0
+	return s
+
+
+## CHAIN LIGHTNING — Stormcaller. A jagged bolt that leaps enemy-to-enemy.
+## Bespoke mobile-chain identity (replaces the Tempest beam-clone). `count` = hops,
+## `reach` = hop range.
+static func _chain_lightning() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "chain_lightning"
+	s.display_name = "Chain Lightning"
+	s.description = "Loose a bolt that LEAPS from foe to foe — up to five links, "\
+		+ "shocking each, the damage falling off with every jump."
+	s.kind = SpellDef.Kind.CHAIN
+	s.element = Elements.Element.LIGHTNING
+	s.use_element_color = true
+	s.effect = "lightning"
+	s.mp_cost = 44
+	s.cooldown = 3.0
+	s.damage = 46
+	s.count = 5      # max hops
+	s.reach = 240.0  # hop range
+	return s
 
 
 ## BOULDER HURL — Juggernaut earth. Rip a boulder from the ground and throw it.
