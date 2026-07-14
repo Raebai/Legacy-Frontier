@@ -146,8 +146,8 @@ func _draw_converge(c: Color) -> void:
 		var head: Vector2 = start.lerp(_ground, eased)
 		var tail: Vector2 = start.lerp(_ground, maxf(eased - 0.28, 0.0))
 		draw_line(tail, head, Color(c.r, c.g, c.b, 0.5), 9.0, true)                  # wide soft lance
-		draw_line(tail, head, Color(1.0, 0.99, 0.88, 0.85), 3.5, true)              # bright core
-		draw_circle(head, 6.0, Color(1.0, 1.0, 0.95, 0.9), true, -1.0, true)                    # radiant head
+		draw_line(tail, head, Color(1.7, 1.6, 1.35, 0.85), 3.5, true)              # HDR bright core
+		draw_circle(head, 6.0, Color(1.75, 1.75, 1.6, 0.9), true, -1.0, true)                    # HDR radiant head
 	# The point brightens as they close in.
 	draw_circle(_ground, _radius * 0.12 * eased, Color(c.r, c.g, c.b, 0.5 * eased), true, -1.0, true)
 
@@ -163,8 +163,8 @@ func _draw_impact(c: Color) -> void:
 	if intensity <= 0.01:
 		return
 	var t: float = clampf(local / (IMPACT_HOLD + FADE_TIME), 0.0, 1.0)
-	draw_circle(_ground, _radius * (0.5 + 0.5 * intensity), Color(1.0, 0.99, 0.9, 0.5 * intensity), true, -1.0, true)
-	draw_circle(_ground, _radius * 0.3 * intensity, Color(1.0, 1.0, 0.95, 0.8 * intensity), true, -1.0, true)
+	draw_circle(_ground, _radius * (0.5 + 0.5 * intensity), Color(1.7, 1.65, 1.5, 0.5 * intensity), true, -1.0, true)
+	draw_circle(_ground, _radius * 0.3 * intensity, Color(1.9, 1.9, 1.7, 0.8 * intensity), true, -1.0, true)
 	for k: int in 2:
 		var rr: float = _radius * (0.6 + (0.9 + 0.4 * float(k)) * t)
 		draw_arc(_ground, rr, 0.0, TAU, 56, Color(c.r, c.g, c.b, (0.7 - 0.25 * float(k)) * intensity), lerpf(6.0, 1.0, t), true)

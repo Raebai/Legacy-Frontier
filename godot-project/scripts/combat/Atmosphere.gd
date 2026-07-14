@@ -11,12 +11,32 @@ extends Node2D
 ## the platforms (-5) + fighters (0). The vignette rides its own CanvasLayer
 ## above the world but below the HUD.
 
+## Shared 2D-bloom environment (spell cores >1.0 radiate). Requires
+## rendering/viewport/hdr_2d=true. Tune params in the .tres.
+const GLOW_ENV_PATH: String = "res://scenes/combat/combat_glow.tres"
+
 var _bounds: Rect2 = Rect2(0, 0, 1200, 760)
 var _sky_top: Color = Color(0.10, 0.13, 0.28)
 var _sky_bottom: Color = Color(0.42, 0.60, 0.82)
 var _sil_far: Color = Color(0.20, 0.24, 0.40)
 var _sil_near: Color = Color(0.12, 0.15, 0.26)
 var _accent: Color = Color(0.7, 0.85, 1.0)
+
+
+## Add a WorldEnvironment (2D glow/bloom) under `parent` if it hasn't got one.
+## Idempotent — safe to call once per arena _ready. Cheap screen post-process.
+static func add_glow(parent: Node) -> void:
+	if parent == null:
+		return
+	for child: Node in parent.get_children():
+		if child is WorldEnvironment:
+			return
+	var env: Environment = load(GLOW_ENV_PATH)
+	if env == null:
+		return
+	var we := WorldEnvironment.new()
+	we.environment = env
+	parent.add_child(we)
 
 
 func build(bounds: Rect2, palette: Dictionary = {}) -> void:

@@ -199,10 +199,10 @@ func _trail_inner_color() -> Color:
 func _effect_core_color() -> Color:
 	match _effect:
 		"frost":
-			return Color(0.92, 0.99, 1.0, 1.0)
+			return Color(1.5, 1.6, 1.7, 1.0)  # HDR cores bloom
 		"arcane":
-			return Color(1.0, 0.95, 1.0, 1.0)
+			return Color(1.7, 1.5, 1.7, 1.0)
 		"holy":
-			return Color(1.0, 1.0, 0.92, 1.0)
+			return Color(1.75, 1.75, 1.5, 1.0)
 		_:
-			return Color(1.0, 0.97, 0.85, 1.0)
+			return Color(1.8, 1.6, 1.2, 1.0)

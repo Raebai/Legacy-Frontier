@@ -165,7 +165,7 @@ func _draw() -> void:
 	# Hot flash core right after detonation.
 	if t < 0.4:
 		var flash: float = 1.0 - t / 0.4
-		draw_circle(Vector2.ZERO, BLAST_RADIUS * flash, Color(1.0, 0.9, 0.6, 0.35 * flash), true, -1.0, true)
+		draw_circle(Vector2.ZERO, BLAST_RADIUS * flash, Color(1.7, 1.45, 0.9, 0.35 * flash), true, -1.0, true)
 
 
 ## The shared burst builder, scaled way up for the centerpiece.

@@ -283,13 +283,13 @@ func _effect_flicker() -> float:
 func _effect_core_color() -> Color:
 	match _effect:
 		"frost":
-			return Color(0.9, 0.98, 1.0)
+			return Color(1.4, 1.5, 1.7)  # HDR cores bloom
 		"fire":
-			return Color(1.0, 0.93, 0.62)
+			return Color(1.8, 1.55, 1.0)
 		"holy":
-			return Color(1.0, 0.98, 0.88)
+			return Color(1.85, 1.75, 1.45)
 		_:
-			return Color(1, 1, 1)
+			return Color(1.6, 1.6, 1.7)
 
 
 ## Per-effect garnish drawn ALONG the beam so each element is unmistakable:

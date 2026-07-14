@@ -128,7 +128,7 @@ func _draw() -> void:
 		var flash: float = 1.0 - t / 0.4
 		draw_circle(
 			Vector2.ZERO, NOVA_RADIUS * 0.9 * flash,
-			Color(0.85, 0.95, 1.0, 0.35 * flash)
+			Color(1.4, 1.6, 1.9, 0.35 * flash)
 		, true, -1.0, true)
 
 

@@ -226,6 +226,7 @@ func _hide_banner() -> void:
 func _build_background() -> void:
 	# Epic backdrop (gradient sky + distant tower spires + drifting motes +
 	# vignette) instead of two flat ColorRects — see Atmosphere.gd.
+	Atmosphere.add_glow(self)  # 2D bloom: pushed spell cores radiate
 	var atmo := Atmosphere.new()
 	add_child(atmo)
 	atmo.build(Rect2(Vector2(-400, -420), STAGE_SIZE + Vector2(800, 900)), {

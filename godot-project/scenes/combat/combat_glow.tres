@@ -1,0 +1,23 @@
+[gd_resource type="Environment" format=3]
+
+; 2D bloom for the combat arenas. Requires rendering/viewport/hdr_2d=true.
+; background_mode = 4 (CANVAS) so the drawn 2D backdrop (Atmosphere) stays the
+; background and the glow post-process samples the canvas. Only pixels whose
+; luminance clears glow_hdr_threshold bloom, so spell cores pushed >1.0 (and
+; the brightest telegraph/aura highlights) radiate while soft bands stay
+; controlled. Tune glow_intensity / glow_bloom / glow_hdr_threshold by eye.
+
+[resource]
+background_mode = 4
+glow_enabled = true
+glow_normalized = true
+glow_intensity = 0.9
+glow_strength = 1.0
+glow_bloom = 0.12
+glow_blend_mode = 1
+glow_hdr_threshold = 1.0
+glow_hdr_scale = 2.0
+glow_levels/2 = 1.0
+glow_levels/3 = 1.0
+glow_levels/4 = 1.0
+glow_levels/5 = 0.6

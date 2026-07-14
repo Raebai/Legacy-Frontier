@@ -35,6 +35,7 @@ func _ready() -> void:
 	if music != null and music.has_method("play_combat"):
 		music.play_combat()
 
+	Atmosphere.add_glow(self)  # 2D bloom: pushed spell cores radiate
 	_room = Node2D.new()
 	_room.name = "Room"
 	add_child(_room)

@@ -113,7 +113,7 @@ func _draw_edge() -> void:
 	var ex: float = maxf(R * _edge_thick, 3.0)   # half-thickness (along the beam)
 	var ring: Color = Color(c.r, c.g, c.b, 0.9 * a)
 	var soft: Color = Color(c.r, c.g, c.b, 0.5 * a)
-	var white: Color = Color(1.0, 1.0, 1.0, a)
+	var white: Color = Color(1.7, 1.7, 1.8, a)  # HDR aperture/core blooms
 	var breath: float = 1.0 + 0.04 * sin(_phase * 4.0)
 
 	# Emanating edge-on ripples, expanding along the gate.
@@ -169,7 +169,7 @@ func _draw_face() -> void:
 	var R: float = radius * s
 	var ring: Color = Color(c.r, c.g, c.b, 0.9 * a)
 	var soft: Color = Color(c.r, c.g, c.b, 0.5 * a)
-	var white: Color = Color(1.0, 1.0, 1.0, a)
+	var white: Color = Color(1.7, 1.7, 1.8, a)  # HDR aperture/core blooms
 	var breath: float = 1.0 + 0.03 * sin(_phase * 4.0)
 
 	for i: int in PULSE_RINGS:

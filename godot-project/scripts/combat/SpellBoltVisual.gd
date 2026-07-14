@@ -6,8 +6,8 @@ extends Node2D
 ## Tuning knobs: CORE_* for bolt size, TRAIL_* for tail length/density,
 ## FLICKER_SPEED for the energy shimmer.
 
-const CORE_COLOR: Color = Color(1.0, 0.97, 0.8, 1.0)
-const TIP_COLOR: Color = Color(1.0, 1.0, 1.0, 0.95)
+const CORE_COLOR: Color = Color(1.5, 1.45, 1.2, 1.0)  # HDR >1.0 so the core blooms
+const TIP_COLOR: Color = Color(1.8, 1.8, 1.8, 0.95)  # HDR white-hot tip
 const GLOW_COLOR: Color = Color(1.0, 0.7, 0.25, 0.35)
 const TRAIL_COLOR: Color = Color(1.0, 0.58, 0.18, 0.55)
 const CORE_HALF_LEN: float = 5.0

@@ -104,7 +104,8 @@ const GHOST_COLOR: Color = Color(0.6, 0.85, 1.0, 0.72)
 ## Persistent "charged mage" aura (enemies get none — hero reads as hero).
 ## Aura COLOUR comes from the active element (see _apply_element); only the
 ## strength is fixed here.
-const AURA_STRENGTH: float = 0.0  # off — the glow behind the figure obscured it
+const AURA_STRENGTH: float = 0.6  # re-enabled: the HDR bloom pass now carries the
+# glow as a soft halo instead of a flat sprite that obscured the figure.
 ## Body colourways (limb palette). Independent of the element — you can be a
 ## Jade stickman casting Fire. Cycled with `cycle_colourway` (C).
 const COLOURWAYS: Array[Color] = [

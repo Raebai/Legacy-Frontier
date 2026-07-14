@@ -159,3 +159,4 @@ cycle_signature={
 
 anti_aliasing/quality/msaa_2d=2
 textures/default_filters/anisotropic_filtering_level=0
+viewport/hdr_2d=true

@@ -21,7 +21,7 @@ const KNOCKBACK: float = 460.0    # brutal — it's a committed melee ultimate
 const CHAIN_RANGE: float = 220.0  # fork-arc reach to a nearby straggler
 const CHAIN_DAMAGE_FACTOR: float = 0.5
 const BOLT_SEGMENTS: int = 12     # jagged bolt resolution
-const CORE_COLOR: Color = Color(0.95, 0.98, 1.0)  # white-hot lightning core
+const CORE_COLOR: Color = Color(1.7, 1.75, 1.9)  # HDR white-hot lightning core (blooms)
 
 var _origin: Vector2 = Vector2.ZERO
 var _dir: Vector2 = Vector2.RIGHT
