@@ -103,4 +103,12 @@ static func resolve_element(spell: SpellDef) -> int:
 			return Elements.Element.LIGHTNING  # divine smite reads as a shock
 		"arcane":
 			return Elements.Element.ARCANE
+		"lightning":
+			return Elements.Element.LIGHTNING
+		"shadow":
+			return Elements.Element.SHADOW
+		"earth":
+			return Elements.Element.EARTH
+		"wind":
+			return Elements.Element.WIND
 	return Elements.Element.ARCANE

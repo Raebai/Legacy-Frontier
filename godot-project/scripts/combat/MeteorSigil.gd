@@ -133,6 +133,29 @@ func _impact_burst(at: Vector2) -> void:
 				get_parent(), at, Color(1.0, 0.99, 0.9, 0.95), fade,
 				24, 0.45, 50.0, 190.0, 1.0, 2.5, 1.0, 2.0, true
 			)
+		"lightning":
+			CombatVfx.spawn_burst(
+				get_parent(), at, Color(1.0, 1.0, 0.7, 0.95), fade,
+				24, 0.3, 180.0, 420.0, 0.4, 1.2, 4.0, 8.0, true
+			)
+		"shadow":
+			CombatVfx.spawn_burst(
+				get_parent(), at, Color(0.7, 0.45, 1.0, 0.95), Color(0.14, 0.05, 0.3, 0.0),
+				24, 0.5, 70.0, 220.0, 1.2, 3.0, 1.0, 2.5, true
+			)
+		"earth":
+			CombatVfx.spawn_burst(
+				get_parent(), at, Color(0.85, 0.62, 0.35, 0.9), Color(0.4, 0.28, 0.15, 0.0),
+				20, 0.45, 60.0, 210.0, 1.6, 4.2
+			)
+			DebrisChunk.spawn_burst(get_parent(), at, Color(0.5, 0.38, 0.22), 4, Vector2.UP, 210.0)
+			ScorchDecal.spawn(get_parent(), at, METEOR_IMPACT_RADIUS * 0.7, "crack",
+				Color(0.6, 0.45, 0.28, 0.5), 6.0)
+		"wind":
+			CombatVfx.spawn_burst(
+				get_parent(), at, Color(0.72, 1.0, 0.92, 0.9), fade,
+				22, 0.35, 170.0, 420.0, 0.6, 1.7, 2.0, 5.0, true
+			)
 		_:
 			CombatVfx.spawn_burst(
 				get_parent(), at, Color(1.0, 0.95, 0.7, 0.95), fade,
@@ -191,6 +214,14 @@ func _trail_inner_color() -> Color:
 			return Color(1.0, 0.85, 1.0)
 		"holy":
 			return Color(1.0, 0.99, 0.85)
+		"lightning":
+			return Color(1.0, 1.0, 0.75)
+		"shadow":
+			return Color(0.8, 0.55, 1.0)
+		"earth":
+			return Color(0.9, 0.72, 0.45)
+		"wind":
+			return Color(0.8, 1.0, 0.95)
 		_:
 			return Color(1.0, 0.9, 0.6)
 
@@ -204,5 +235,13 @@ func _effect_core_color() -> Color:
 			return Color(1.7, 1.5, 1.7, 1.0)
 		"holy":
 			return Color(1.75, 1.75, 1.5, 1.0)
+		"lightning":
+			return Color(1.9, 1.7, 0.9, 1.0)
+		"shadow":
+			return Color(1.5, 1.0, 1.9, 1.0)
+		"earth":
+			return Color(1.7, 1.35, 0.85, 1.0)
+		"wind":
+			return Color(1.35, 1.85, 1.7, 1.0)
 		_:
 			return Color(1.8, 1.6, 1.2, 1.0)

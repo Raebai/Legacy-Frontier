@@ -28,7 +28,13 @@ var _trail_color: Color = TRAIL_COLOR
 func set_tint(c: Color) -> void:
 	_glow_color = Color(c.r, c.g, c.b, GLOW_COLOR.a)
 	_trail_color = Color(c.r, c.g, c.b, TRAIL_COLOR.a)
-	_core_color = CORE_COLOR.lerp(Color(c.r, c.g, c.b, CORE_COLOR.a), 0.25)
+	# HDR core: lift the element colour toward white then push >1.0 so the bolt's
+	# heart BLOOMS in its own hue (shadow=violet, earth=amber, lightning=yellow)
+	# instead of washing to generic white — keeps element identity through bloom.
+	var lifted: Color = Color(c.r, c.g, c.b).lerp(Color(1, 1, 1), 0.4)
+	var peak: float = maxf(lifted.r, maxf(lifted.g, lifted.b))
+	var k: float = 1.55 / maxf(peak, 0.001)
+	_core_color = Color(lifted.r * k, lifted.g * k, lifted.b * k, CORE_COLOR.a)
 	queue_redraw()
 
 

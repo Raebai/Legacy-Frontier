@@ -114,6 +114,27 @@ func _impact_burst(at: Vector2) -> void:
 				get_parent(), at, Color(1, 1, 1, 0.96), fade,
 				40, 0.5, 100.0, 320.0, 1.4, 4.0, 0.0, 0.0, true
 			)
+		"lightning":
+			CombatVfx.spawn_burst(
+				get_parent(), at, Color(1.0, 1.0, 0.7, 0.96), fade,
+				38, 0.34, 200.0, 480.0, 0.4, 1.3, 4.0, 8.0, true
+			)
+		"shadow":
+			CombatVfx.spawn_burst(
+				get_parent(), at, Color(0.7, 0.45, 1.0, 0.96), Color(0.14, 0.05, 0.3, 0.0),
+				40, 0.6, 80.0, 240.0, 1.2, 3.2, 1.0, 2.5, true
+			)
+		"earth":
+			CombatVfx.spawn_burst(
+				get_parent(), at, Color(0.85, 0.62, 0.35, 0.9), Color(0.4, 0.28, 0.15, 0.0),
+				28, 0.5, 60.0, 220.0, 1.6, 4.5
+			)
+			DebrisChunk.spawn_burst(get_parent(), at, Color(0.5, 0.38, 0.22), 5, Vector2.UP, 220.0)
+		"wind":
+			CombatVfx.spawn_burst(
+				get_parent(), at, Color(0.72, 1.0, 0.92, 0.9), fade,
+				36, 0.4, 190.0, 460.0, 0.6, 1.8, 2.0, 5.0, true
+			)
 		_:
 			CombatVfx.spawn_burst(
 				get_parent(), at, Color(1.0, 0.99, 0.9, 0.98), fade,
@@ -197,6 +218,14 @@ func _effect_flicker() -> float:
 			return 0.8 + 0.2 * sin(_elapsed * 85.0)
 		"arcane":
 			return 0.9 + 0.1 * sin(_elapsed * 60.0)
+		"lightning":
+			return 0.6 + 0.4 * sin(_elapsed * 95.0)
+		"shadow":
+			return 0.82 + 0.18 * sin(_elapsed * 18.0)
+		"earth":
+			return 1.0
+		"wind":
+			return 0.88 + 0.12 * sin(_elapsed * 70.0)
 		_:
 			return 0.94 + 0.06 * sin(_elapsed * 28.0)
 
@@ -209,6 +238,14 @@ func _effect_core_color() -> Color:
 			return Color(1.8, 1.55, 1.0)
 		"arcane":
 			return Color(1.6, 1.6, 1.7)
+		"lightning":
+			return Color(1.9, 1.7, 0.9)
+		"shadow":
+			return Color(1.5, 1.0, 1.9)
+		"earth":
+			return Color(1.7, 1.35, 0.85)
+		"wind":
+			return Color(1.35, 1.85, 1.7)
 		_:
 			return Color(1.85, 1.75, 1.45)
 

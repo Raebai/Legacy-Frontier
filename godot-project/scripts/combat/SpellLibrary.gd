@@ -192,13 +192,19 @@ static func _beam(
 	return s
 
 
-## Elemental particle character from the element index (see Elements.Element):
-## FIRE 0 -> fire, ICE 1 -> frost, ARCANE 4 -> arcane; others fall back to arcane.
+## Elemental particle CHARACTER from the element index (see Elements.Element).
+## Every element now has its own bespoke spectacle skin (was: only fire/frost/
+## arcane; shadow/earth/wind/lightning fell through to arcane garnish).
 static func _effect_for_element(element: int) -> String:
 	match element:
-		0: return "fire"
-		1: return "frost"
-		_: return "arcane"
+		0: return "fire"       # FIRE
+		1: return "frost"      # ICE
+		2: return "lightning"  # LIGHTNING — jagged crackle + sparks
+		3: return "shadow"     # SHADOW — inky violet tendrils
+		5: return "earth"      # EARTH — chunky amber debris + dust
+		6: return "holy"       # HOLY
+		7: return "wind"       # WIND — fast teal wisps
+		_: return "arcane"     # ARCANE (4) + anything unmapped
 
 
 static func _ray(
