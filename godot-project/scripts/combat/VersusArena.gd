@@ -20,47 +20,68 @@ const HERO_SCENE_PATH: String = "res://scenes/combat/Hero.tscn"
 const ENEMY_SCENE_PATH: String = "res://scenes/combat/Enemy.tscn"
 
 ## -- Match rules -----------------------------------------------------------
-const STAGE_SIZE: Vector2 = Vector2(1200, 760)
+## A BIG terrain stage (maker: "make the map bigger and different, like a terrain
+## almost with a mountain in it"): an open destructible ground plane on the left/
+## centre and a climbable stepped MOUNTAIN filling the right third. Fall off the
+## sides or through a hole into the void = ring-out.
+const STAGE_SIZE: Vector2 = Vector2(2000, 1000)
+const GROUND_TOP: float = 780.0    # y of the walkable ground surface
+const MOUNTAIN_X0: float = 1120.0  # ground ends here; mountain foot begins
 const STOCKS: int = 3
 const BOT_COUNT: int = 5
 const RESPAWN_INVULN: float = 0.8
 
 ## -- Side-on stage layout (stage-local; the arena node sits at the scene origin) --
-## Solid platforms (StaticBody2D, default layer 1 — the hero/enemy masks collide
-## with it) the fighters land + jump on: a wide ground plus two floating ledges.
+## Permanent floating ledges (StaticBody2D layer 1). The main GROUND is a
+## DestructibleFloor (see _build_ground), not a permanent slab.
 const PLATFORMS: Array[Dictionary] = [
-	{"center": Vector2(600, 600), "size": Vector2(780, 60)},  # main ground (top ~570)
-	{"center": Vector2(360, 410), "size": Vector2(210, 26)},  # left ledge
-	{"center": Vector2(840, 410), "size": Vector2(210, 26)},  # right ledge
+	{"center": Vector2(300, 560), "size": Vector2(220, 26)},  # left ledge
+	{"center": Vector2(720, 470), "size": Vector2(240, 26)},  # centre ledge
 ]
-## Blast zones (StageHazard PIT): fall below the stage or get knocked off the
-## sides = ring-out. No top zone — you can jet up freely.
+## Permanent stepped MOUNTAIN core (right third). collision_layer 1 — ALWAYS
+## climbable + always standing (its destructible skin sits on top). Each tier
+## steps in + up by a jumpable gap so fighters ascend to contest the summit.
+const MOUNTAIN_TIERS: Array[Dictionary] = [
+	{"center": Vector2(1560, 900), "size": Vector2(880, 200)},  # foot, top y=800
+	{"center": Vector2(1600, 720), "size": Vector2(720, 80)},   # top y=680
+	{"center": Vector2(1650, 600), "size": Vector2(560, 70)},   # top y=565
+	{"center": Vector2(1700, 480), "size": Vector2(420, 65)},   # top y=447
+	{"center": Vector2(1750, 365), "size": Vector2(300, 60)},   # top y=335
+	{"center": Vector2(1800, 262), "size": Vector2(190, 60)},   # summit, top y=232
+]
+## Blast zones (StageHazard PIT): the void BELOW everything (full-width so a hole
+## opened anywhere catches you — no fall-forever) + off both far edges = ring-out.
 const BLAST_ZONES: Array[Dictionary] = [
-	{"center": Vector2(600, 850), "size": Vector2(2000, 260)},   # the void below
-	{"center": Vector2(-150, 400), "size": Vector2(260, 1200)},  # off the left
-	{"center": Vector2(1350, 400), "size": Vector2(260, 1200)},  # off the right
+	{"center": Vector2(1000, 1220), "size": Vector2(2800, 500)},  # full-width void below
+	{"center": Vector2(-190, 500), "size": Vector2(340, 1500)},   # off the far left
+	{"center": Vector2(2190, 500), "size": Vector2(340, 1500)},   # off the far right
 ]
-## Fighters spawn ABOVE the ground and drop onto it.
-const P1_SPAWN: Vector2 = Vector2(600, 480)
+## Fighters spawn over PERMANENT footing (ledges / mountain tiers / plinths) so a
+## respawn never drops straight into a fresh hole.
+const P1_SPAWN: Vector2 = Vector2(360, 500)
 const BOT_SPAWN_POINTS: Array[Vector2] = [
-	Vector2(400, 430), Vector2(800, 430), Vector2(360, 330), Vector2(840, 330),
-	Vector2(600, 500),  # centre, drops to the main ground — the MAGE / leap demo
+	Vector2(720, 400),   # over the centre ledge
+	Vector2(1600, 640),  # mountain tier 2
+	Vector2(1700, 400),  # mountain tier 4
+	Vector2(1800, 180),  # summit
+	Vector2(480, 640),   # near the P1 plinth
 ]
-## Bot archetype rotation — a varied roster so every fight reads different:
-## CASTER(2) / SUMMONER(4) / ASSASSIN(5) / BOMBER(6) / CHARGER(3). Tints + speeds
-## come from Enemy's per-archetype defaults. See Enemy.Archetype.
+## Small PERMANENT spawn plinths so P1 + the near bot always land solid even after
+## the ground around them is blown away.
+const SPAWN_PLINTHS: Array[Dictionary] = [
+	{"center": Vector2(360, 640), "size": Vector2(160, 26)},
+	{"center": Vector2(480, 700), "size": Vector2(140, 24)},
+]
 ## CASTER(2), SUMMONER(4), ASSASSIN(5), CHARGER(3), MAGE(7) — the full readable
-## roster. BOMBER(6) stays pulled (it suicide-cleared bots at spawn). The MAGE
-## telegraphs a ground AoE; grounded bots LEAP to a hero who climbs a ledge.
+## roster. The MAGE telegraphs a ground AoE; grounded bots LEAP to a hero who climbs.
 const BOT_ARCHETYPES: Array[int] = [2, 4, 5, 3, 7]
 ## Versus bots are tankier than the tower's trash mobs so fights last.
 const BOT_HP: int = 110
-## Destructible cover sitting on the ground (64px blocks; centre = ground_top - 32).
-const COVER_POINTS: Array[Vector2] = [Vector2(430, 538), Vector2(770, 538)]
-## Breakable + regenerating platforms (amber rim) — destroy them, they reform ~6s
-## later. A high-traffic lane between the two ledges = a knockback-slam demo.
+## Destructible cover sitting on the ground (64px blocks; centre = surface - 32).
+const COVER_POINTS: Array[Vector2] = [Vector2(520, GROUND_TOP - 32.0), Vector2(940, GROUND_TOP - 32.0)]
+## Breakable + regenerating platform (amber rim) — a lane between the ledge + mountain.
 const BREAKABLE_PLATFORMS: Array[Dictionary] = [
-	{"center": Vector2(600, 300), "size": Vector2(160, 22)},
+	{"center": Vector2(980, 380), "size": Vector2(180, 22)},
 ]
 
 ## -- Look (clean, simple Stick-Fight): flat sky + dark platforms w/ a bright rim --
@@ -95,10 +116,14 @@ func _ready() -> void:
 	if music != null and music.has_method("play_combat"):
 		music.play_combat()
 	_build_background()
-	_build_platforms()
+	_build_mountain()          # permanent stepped core + silhouette (right third)
+	_build_ground()            # destructible floor run (left/centre)
+	_build_platforms()         # the two floating ledges
+	_build_spawn_plinths()     # permanent respawn footing
 	_build_cover()
 	_build_breakable_platforms()
-	_build_walls()
+	_build_mountain_skin()     # destructible ledges perched on the tiers
+	_build_blast_zones()       # LIVE ring-out — fall off/through = lose a stock
 	_spawn_fighters()
 	_build_hud()
 	_update_hud()
@@ -307,11 +332,50 @@ func _build_breakable_platforms() -> void:
 		plat.position = p["center"]
 
 
-## No falling off (yet): tall side walls contain the fighters. The ring-out
-## system (_on_fighter_fell) stays dormant — no blast zones are built for now.
-func _build_walls() -> void:
-	_make_platform(Vector2(195, 290), Vector2(30, 620))   # left wall
-	_make_platform(Vector2(1005, 290), Vector2(30, 620))  # right wall
+## The permanent stepped MOUNTAIN core (right third) — always-climbable layer-1
+## tiers + a drawn silhouette behind them. The destructible skin sits on top.
+func _build_mountain() -> void:
+	var silhouette := MountainMass.new()
+	add_child(silhouette)
+	for tier: Dictionary in MOUNTAIN_TIERS:
+		_make_platform(tier["center"], tier["size"])
+
+
+## The main GROUND as a run of independent destructible segments (real holes on
+## hard hits, caught by the full-width void below).
+func _build_ground() -> void:
+	var floor_run := DestructibleFloor.new()
+	floor_run.run_start = Vector2(40.0, GROUND_TOP)
+	floor_run.run_end_x = MOUNTAIN_X0
+	add_child(floor_run)
+
+
+## Small permanent plinths under the spawn points so respawns always land solid.
+func _build_spawn_plinths() -> void:
+	for p: Dictionary in SPAWN_PLINTHS:
+		_make_platform(p["center"], p["size"])
+
+
+## Destructible ledges perched on the mountain tier tops — the "everything breaks"
+## fantasy without removing the permanent climbable core.
+func _build_mountain_skin() -> void:
+	for point: Vector2 in [Vector2(1560, 660), Vector2(1700, 425), Vector2(1620, 545)]:
+		var block := DestructibleTerrain.new()
+		block.position = point
+		add_child(block)
+
+
+## LIVE ring-out: instantiate the blast-zone PITs and wire fighter_fell -> the
+## stock/respawn manager (was dormant; maker: "the fighter should be able to fall
+## out and die not fall forever ... when they die they respawn").
+func _build_blast_zones() -> void:
+	for z: Dictionary in BLAST_ZONES:
+		var pit := StageHazard.new()
+		pit.mode = StageHazard.Mode.PIT
+		pit.zone_size = z["size"]
+		pit.position = z["center"]
+		pit.fighter_fell.connect(_on_fighter_fell)
+		add_child(pit)
 
 
 ## Runtime load()s, never preload: both scenes' scripts reference autoload
@@ -355,11 +419,14 @@ func _frame_camera_on(hero: Node) -> void:
 			break
 	if cam == null:
 		return
-	cam.zoom = Vector2(1.1, 1.1)  # zoomed out so the big sigils + meteor barrage fit
-	cam.limit_left = 0
-	cam.limit_top = -200  # sky headroom when you jet up
-	cam.limit_right = int(STAGE_SIZE.x)
-	cam.limit_bottom = int(STAGE_SIZE.y)
+	# Wider resting frame for the big terrain; limits let the camera see a hair into
+	# the void (so the plunge reads before ring-out) + summit headroom. Fit-all keeps
+	# the active cluster framed + pans across the terrain as the fight moves.
+	cam.zoom = Vector2(1.0, 1.0)
+	cam.limit_left = -120
+	cam.limit_top = -240  # summit (peak ~y205) + jet-up headroom
+	cam.limit_right = int(STAGE_SIZE.x) + 120
+	cam.limit_bottom = int(STAGE_SIZE.y) + 220
 
 
 ## Registry seam (also driven by the headless test): every fighter enters the

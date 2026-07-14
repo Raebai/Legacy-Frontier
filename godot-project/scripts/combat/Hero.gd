@@ -69,6 +69,11 @@ const BLINK_PROBE_STEP: float = 6.0
 const BLINK_PROBE_EXTRA: float = 60.0
 const BLINK_COOLDOWN: float = 1.3
 const BLINK_IFRAME: float = 0.22
+## You may never blink OUT of the map — a landing spot inside a ring-out PIT (or
+## within this margin of one) is rejected and pulled back toward the origin (maker:
+## "you shouldn't be able to teleport out of the map ... limit it to where you
+## actually can teleport"). Landing inside a solid is already rejected separately.
+const BLINK_PIT_MARGIN: float = 22.0
 const BLINK_SHADOW_COLOR: Color = Color(0.25, 0.1, 0.35, 0.8)
 ## Dark-violet particle poof; end alpha 0 so it dissolves instead of popping.
 const BLINK_BURST_START: Color = Color(0.4, 0.18, 0.55, 0.9)
@@ -167,7 +172,7 @@ const CLASS_CONFIG: Dictionary = {
 	},
 	HeroClass.JUGGERNAUT: {  # slow siege tank — wide heavy hammer, BLOCK, no blink
 		"preset": "juggernaut", "weapon": "sword", "element": Elements.Element.EARTH, "melee_element": Elements.Element.EARTH,
-		"primary": "heavy_swing", "melee_cd": 0.55, "melee_arc_dot": 0.0, "melee_damage": 30, "melee_range": 70.0, "melee_knockback": 470.0,
+		"primary": "heavy_swing", "melee_cd": 0.55, "melee_arc_dot": 0.0, "melee_damage": 30, "melee_range": 96.0, "melee_knockback": 470.0,
 		"cast_cd": 0.40, "dash_cd": 0.90, "blink_cd": 1.4, "blast_cd": 2.6,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": true, "dash_strike_damage": 22, "dash_strike_range": 48.0,
@@ -1019,24 +1024,45 @@ func _safe_blink_destination(origin: Vector2, dest: Vector2) -> Vector2:
 		return dest
 	var dir: Vector2 = span.normalized()
 	q.transform = Transform2D(0.0, dest)
-	if space.intersect_shape(q, 1).is_empty():
+	if space.intersect_shape(q, 1).is_empty() and not _dest_in_pit(dest):
 		return dest  # clear — the common case
-	# Blocked: look for daylight just PAST a thin wall first...
+	# Blocked (solid OR over the void): look for daylight just PAST a thin wall first...
 	var d: float = BLINK_PROBE_STEP
 	while d <= BLINK_PROBE_EXTRA:
-		q.transform = Transform2D(0.0, dest + dir * d)
-		if space.intersect_shape(q, 1).is_empty():
-			return dest + dir * d
+		var pf: Vector2 = dest + dir * d
+		q.transform = Transform2D(0.0, pf)
+		if space.intersect_shape(q, 1).is_empty() and not _dest_in_pit(pf):
+			return pf
 		d += BLINK_PROBE_STEP
-	# ...else fall back toward the origin (land just before a thick wall).
+	# ...else fall back toward the origin (which is on the map) — this is what
+	# "limits it to where you can actually teleport": you slide back onto solid map.
 	var max_back: float = span.length()
 	d = BLINK_PROBE_STEP
 	while d <= max_back:
-		q.transform = Transform2D(0.0, dest - dir * d)
-		if space.intersect_shape(q, 1).is_empty():
-			return dest - dir * d
+		var pb: Vector2 = dest - dir * d
+		q.transform = Transform2D(0.0, pb)
+		if space.intersect_shape(q, 1).is_empty() and not _dest_in_pit(pb):
+			return pb
 		d += BLINK_PROBE_STEP
 	return origin  # nowhere clear — don't move
+
+
+## True if `pos` lands inside a ring-out PIT (a StageHazard in PIT mode), plus a
+## margin off the lip. Loose group + property lookup so Hero doesn't hard-depend on
+## StageHazard. Headless (no stage_hazard group) -> always false, so blink tests
+## are unaffected. Mode.PIT == 0.
+func _dest_in_pit(pos: Vector2) -> bool:
+	for h: Node in get_tree().get_nodes_in_group("stage_hazard"):
+		if not h is Node2D or int(h.get("mode")) != 0:
+			continue
+		var size_v: Variant = h.get("zone_size")
+		if not size_v is Vector2:
+			continue
+		var half: Vector2 = (size_v as Vector2) * 0.5 + Vector2(BLINK_PIT_MARGIN, BLINK_PIT_MARGIN)
+		var rel: Vector2 = pos - (h as Node2D).global_position
+		if absf(rel.x) <= half.x and absf(rel.y) <= half.y:
+			return true
+	return false
 
 
 ## The hero's own collision shape (found at runtime — no hard-coded node name).
@@ -1124,7 +1150,13 @@ func _primary_heavy_swing() -> void:
 		return
 	rig.set_facing(_aim_dir)
 	rig.play(CharacterRig.State.PUNCH)
-	rig.cast_gesture(CharacterRig.GestureKind.STOMP, 0.6, _element)  # heavy earth wind-up
+	# Smaller wind-up (maker: "make the charge up for the heavys just slightly smaller").
+	rig.cast_gesture(CharacterRig.GestureKind.STOMP, 0.4, _element)
+	# STEP INTO the swing so the heavy actually closes + CONNECTS (maker: the heavy
+	# attacks "aren't working" — they were whiffing at its short reach). The lunge +
+	# the wider reach (CLASS_CONFIG) make the hammer land instead of swinging air.
+	if _aim_dir.x != 0.0:
+		velocity.x = signf(_aim_dir.x) * 190.0
 	_melee_cooldown_timer = _melee_cd
 	Sfx.play("melee_swing", 0.0, 0.12)
 
