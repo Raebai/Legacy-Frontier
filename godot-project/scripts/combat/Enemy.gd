@@ -207,7 +207,8 @@ var _evade_cd: float = 0.0
 ## Applied by melee / spell / blast. A decaying impulse added ON TOP of the
 ## chase velocity so the hit actually displaces the enemy instead of being
 ## stomped by the next physics tick's `velocity = dir * move_speed`.
-func apply_knockback(impulse: Vector2) -> void:
+func apply_knockback(impulse: Vector2, do_flop: bool = true) -> void:
+	impulse *= _knockback_mult()  # global over-tune (Stick-Fight: displacement IS the feel)
 	_knockback = impulse
 	# Side-on: the VERTICAL part lands once as a real impulse into velocity.y so
 	# a hard hit pops the enemy off the ground (gravity owns y from here). Adding
@@ -215,6 +216,21 @@ func apply_knockback(impulse: Vector2) -> void:
 	# acceleration and launch bodies at absurd speeds. The horizontal part keeps
 	# the old decaying-channel treatment (`velocity.x = chase_x + _knockback.x`).
 	velocity.y += impulse.y
+	# Direction-aware ragdoll FLOP — bigger hit = bigger flop (the visual "reel").
+	if do_flop and rig != null and impulse.length() > 12.0:
+		var mag: float = impulse.length()
+		rig.flop(clampf(mag / 700.0, 0.25, 0.8), 0.2)
+		rig.apply_impulse(impulse.normalized(), minf(mag, 900.0) * 0.9)
+
+
+## Global knockback multiplier from the Tuning autoload (falls back to 1.6).
+func _knockback_mult() -> float:
+	var t: Node = get_node_or_null(^"/root/Tuning")
+	if t != null and t.get(&"cfg") != null:
+		var v: Variant = t.cfg.get(&"knockback_mult")
+		if v != null:
+			return float(v)
+	return 1.6
 
 
 ## A hard-knocked enemy that slams into a wall craters the floor + kicks up dust
@@ -1037,7 +1053,7 @@ func apply_status(element: int, can_chain: bool = true) -> void:
 
 
 func _flash() -> void:
-	rig.flash()
+	rig.flash_color(Color(1.7, 1.7, 1.7), 0.08)  # HDR white hit-pop (blooms)
 
 
 func _die() -> void:

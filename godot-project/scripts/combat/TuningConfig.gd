@@ -23,4 +23,8 @@ extends Resource
 
 @export_group("Camera")
 @export var lookahead_dist: float = 8.0  # px the camera peeks toward aim (was 22 — the "shake when I move")
-@export var shake_scale: float = 1.0     # global multiplier on screenshake magnitude (0 = off)
+@export var shake_scale: float = 1.0     # global multiplier on screenshake magnitude (0 = off). Screenshake slider drives this.
+
+@export_group("Combat feel")
+@export var knockback_mult: float = 1.6  # global multiplier on ALL knockback impulses (Stick-Fight "displacement is the feel"; ~1.5-2x reads powerful)
+@export var hit_stop_enabled: bool = true  # accessibility: off = no time-freeze on hits

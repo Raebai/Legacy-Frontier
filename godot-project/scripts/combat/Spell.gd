@@ -132,9 +132,9 @@ func _try_damage(node: Node) -> void:
 		# Chain (Stormcaller chain-bolt): arc the hit to nearby stragglers.
 		if chain_count > 0:
 			_do_chain(node)
-		Sfx.play("spell_impact")
-		Juice.hit_stop(0.045)  # weighted: lightest impact in the ladder
-		Juice.shake_camera(6.0)
+		# One dispatcher fires the camera/time/sound cluster in sync (study §4);
+		# the burst + knockback (victim body reaction) fire alongside it.
+		Juice.on_hit({"sfx": "spell_impact", "hitstop": 0.045, "shake": 6.0, "dir": _dir, "kick": 5.0})
 		_spawn_impact_burst()
 		if node.has_method("apply_knockback"):
 			node.apply_knockback(_dir * 260.0)

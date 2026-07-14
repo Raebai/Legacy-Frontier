@@ -115,10 +115,13 @@ func _test_vertical_knockback_pop() -> int:
 	var ctx: Dictionary = _setup(int((c["Archetype"] as Dictionary)["CHASER"]), Vector2(500, 0), Vector2.ZERO)
 	var enemy: CharacterBody2D = ctx["enemy"]
 	enemy.velocity = Vector2.ZERO
+	# apply_knockback scales the impulse by the global knockback_mult (Tuning);
+	# assert against the same source so the invariant tracks the tuning knob.
+	var kb_mult: float = enemy._knockback_mult()
 	enemy.apply_knockback(Vector2(180.0, -400.0))
 	failed += _expect(
-		is_equal_approx(enemy.velocity.y, -400.0),
-		"vertical knockback lands as a one-shot upward impulse into velocity.y"
+		is_equal_approx(enemy.velocity.y, -400.0 * kb_mult),
+		"vertical knockback lands as a one-shot upward impulse into velocity.y (x knockback_mult)"
 	)
 	enemy._apply_gravity(TICK)
 	failed += _expect(enemy.velocity.y < 0.0, "the pop is still rising after one gravity tick")

@@ -9,13 +9,61 @@ static func _tree() -> SceneTree:
 
 static func hit_stop(duration: float = 0.06) -> void:
 	var tree: SceneTree = _tree()
-	if tree == null:
+	if tree == null or not _hit_stop_enabled():
 		return
 	Engine.time_scale = 0.05
 	# ignore_time_scale = true so the restore timer runs in real time.
 	var timer: SceneTreeTimer = tree.create_timer(duration, true, false, true)
 	await timer.timeout
 	Engine.time_scale = 1.0
+
+
+## Accessibility toggle (Tuning.cfg.hit_stop_enabled) — off = no time-freeze.
+static func _hit_stop_enabled() -> bool:
+	var tree: SceneTree = _tree()
+	if tree == null:
+		return true
+	var t: Node = tree.root.get_node_or_null(^"/root/Tuning")
+	if t == null or t.get(&"cfg") == null:
+		return true
+	var v: Variant = t.cfg.get(&"hit_stop_enabled")
+	return v == null or bool(v)
+
+
+## Unified "fire ALL the juice for one hit" dispatcher — the Stick-Fight
+## simultaneity trick (study §4): one call fires the whole camera/time/sound
+## cluster in sync (previously duplicated as hit_stop+shake+zoom+sfx at ~15 hit
+## sites). The victim's body reaction (white flash + knockback + ragdoll flop)
+## fires from the entity's own take_damage/apply_knockback so it's direction-
+## aware and covers every damage source — together they are the "all six at
+## once" hit. Every ctx key is optional (absent = skipped):
+##   dir: Vector2      hit direction (drives the directional camera kick)
+##   shake: float      screenshake amount
+##   kick: float       directional camera-punch px along dir
+##   zoom: float       zoom-punch amount
+##   sfx: String       Sfx key to play (+ sfx_db, sfx_pitch)
+##   hitstop: float    freeze duration — fired LAST (it awaits) so the rest lands first
+static func on_hit(ctx: Dictionary) -> void:
+	var dir: Vector2 = ctx.get("dir", Vector2.ZERO)
+	var shake: float = ctx.get("shake", 0.0)
+	if shake > 0.0:
+		shake_camera(shake)
+	var kick: float = ctx.get("kick", 0.0)
+	if kick > 0.0 and dir != Vector2.ZERO:
+		kick_camera(dir.normalized(), kick)
+	var zoom: float = ctx.get("zoom", 0.0)
+	if zoom > 0.0:
+		zoom_punch_camera(zoom)
+	var sfx: String = ctx.get("sfx", "")
+	if sfx != "":
+		var tree: SceneTree = _tree()
+		if tree != null:
+			var sfx_node: Node = tree.root.get_node_or_null(^"/root/Sfx")
+			if sfx_node != null and sfx_node.has_method(&"play"):
+				sfx_node.call("play", sfx, ctx.get("sfx_db", 0.0), ctx.get("sfx_pitch", 0.06))
+	var hs: float = ctx.get("hitstop", 0.0)
+	if hs > 0.0:
+		hit_stop(hs)
 
 
 static func shake_camera(amount: float = 6.0) -> void:

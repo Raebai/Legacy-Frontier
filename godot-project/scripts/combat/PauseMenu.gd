@@ -110,6 +110,28 @@ func _build_settings() -> void:
 	zoom_slider.value_changed.connect(_on_zoom_changed)
 	_settings_col.add_child(zoom_slider)
 
+	# Screen shake intensity (0 = off) — motion-sensitivity accessibility; drives
+	# Tuning.cfg.shake_scale, which CombatCamera already reads live.
+	var shake_label := Label.new()
+	shake_label.text = "Screen Shake"
+	shake_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_settings_col.add_child(shake_label)
+	var shake_slider := HSlider.new()
+	shake_slider.min_value = 0.0
+	shake_slider.max_value = 1.0
+	shake_slider.step = 0.05
+	shake_slider.custom_minimum_size = Vector2(240, 20)
+	shake_slider.value = _current_shake()
+	shake_slider.value_changed.connect(_on_shake_changed)
+	_settings_col.add_child(shake_slider)
+
+	# Hit-stop toggle — some players dislike the micro-freeze on impacts.
+	var hs_btn := CheckButton.new()
+	hs_btn.text = "Hit-Stop"
+	hs_btn.button_pressed = _current_hit_stop()
+	hs_btn.toggled.connect(_on_hit_stop_toggled)
+	_settings_col.add_child(hs_btn)
+
 	# Controls reference.
 	var ctrl_title := Label.new()
 	ctrl_title.text = "Controls"
@@ -182,3 +204,43 @@ func _on_zoom_changed(v: float) -> void:
 	for cam: Node in get_tree().get_nodes_in_group("combat_camera"):
 		if cam.has_method("set_base_zoom"):
 			cam.call("set_base_zoom", v)
+
+
+## The Tuning autoload's live config resource (holds shake_scale, hit_stop_enabled).
+func _tuning_cfg() -> Object:
+	var t: Node = get_node_or_null("/root/Tuning")
+	if t != null:
+		return t.get("cfg")
+	return null
+
+
+func _current_shake() -> float:
+	var cfg: Object = _tuning_cfg()
+	if cfg != null:
+		var v: Variant = cfg.get("shake_scale")
+		if v != null:
+			return float(v)
+	return 1.0
+
+
+## Screenshake slider → Tuning.cfg.shake_scale (CombatCamera reads it live via
+## trauma * trauma * shake_scale). Persists across scenes (Tuning is an autoload).
+func _on_shake_changed(v: float) -> void:
+	var cfg: Object = _tuning_cfg()
+	if cfg != null:
+		cfg.set("shake_scale", v)
+
+
+func _current_hit_stop() -> bool:
+	var cfg: Object = _tuning_cfg()
+	if cfg != null:
+		var v: Variant = cfg.get("hit_stop_enabled")
+		if v != null:
+			return bool(v)
+	return true
+
+
+func _on_hit_stop_toggled(on: bool) -> void:
+	var cfg: Object = _tuning_cfg()
+	if cfg != null:
+		cfg.set("hit_stop_enabled", on)

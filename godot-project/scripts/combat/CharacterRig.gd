@@ -128,6 +128,10 @@ var _sim_ready: bool = false
 ## Limpness 0 (fully animated) .. 1 (ragdoll: weak springs + gravity droop).
 var _limp: float = 0.0
 var _limp_target: float = 0.0
+## Transient flop-on-hit: raises _limp_target for a beat then restores whatever it
+## was before (so a hit-flop doesn't clobber a held hold-DOWN ragdoll).
+var _flop_timer: float = 0.0
+var _flop_prev_target: float = 0.0
 ## Body velocity fed by set_body_velocity(); its frame-to-frame CHANGE nudges
 ## the extremities so limbs trail when the body launches/stops.
 var _body_vel: Vector2 = Vector2.ZERO
@@ -152,6 +156,10 @@ func advance(delta: float) -> void:
 		_phase += delta
 	if _flash_timer > 0.0:
 		_flash_timer -= delta
+	if _flop_timer > 0.0:
+		_flop_timer -= delta
+		if _flop_timer <= 0.0:
+			_limp_target = _flop_prev_target  # recover to the pre-flop resting limp
 	if _pop_timer > 0.0:
 		_pop_timer -= delta
 	if _parry_timer > 0.0:
@@ -258,6 +266,18 @@ func apply_impulse(world_dir: Vector2, strength: float) -> void:
 ## + gravity droop). Eased in advance() so death melts rather than snaps.
 func set_limp(t: float) -> void:
 	_limp_target = clampf(t, 0.0, 1.0)
+
+
+## Flop-on-hit: briefly weaken the springs (raise the limp target) so the body
+## visibly reels from a blow, then auto-recover to whatever the limp was before
+## (0 normally, or 1 if a hold-DOWN ragdoll is active — so they don't fight).
+## `strength` 0..1 = how limp; `hold` = seconds before recovery starts. Pair with
+## apply_impulse() for the directional whip. Eased both ways via set_limp/advance.
+func flop(strength: float = 0.7, hold: float = 0.18) -> void:
+	if _flop_timer <= 0.0:
+		_flop_prev_target = _limp_target  # remember the resting limp only on entry
+	_flop_timer = maxf(_flop_timer, hold)
+	_limp_target = maxf(_limp_target, clampf(strength, 0.0, 1.0))
 
 
 ## Feed the owning body's velocity (e.g. Hero.velocity each physics frame).

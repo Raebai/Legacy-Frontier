@@ -673,6 +673,7 @@ func _cast_signature() -> void:
 	var origin: Vector2 = global_position if sky else rig.get_weapon_tip()
 	SpellCaster.cast(spell, get_parent(), origin, get_global_mouse_position(), _element_color, spell.effect)
 	_notify_element_used()
+	_self_recoil(110.0)  # the beam/ultimate shoves you back
 
 
 ## Swap to the next equipped signature (the loadout cycle — V). On mobile this is
@@ -1009,6 +1010,7 @@ func heal(amount: int) -> void:
 ## hero's ACTIVE element (so a Brawler who cycles to Ice throws an ice-punch).
 func _blast() -> void:
 	_blast_cooldown_timer = _cfg["blast_cd"]
+	_self_recoil(80.0)  # the giant blast kicks the caster back
 	match String(_cfg["aoe"]):
 		"nova":
 			_spawn_nova()          # rogue whirlwind
@@ -1256,21 +1258,40 @@ func _on_melee_hit_frame() -> void:
 			proj.call("consume")
 			hit_any = true
 	if hit_any:
-		Juice.hit_stop(_tune("melee_hit_stop", MELEE_HIT_STOP))  # weighted: heavier than a spell hit
-		Juice.shake_camera(4.0)
-		Juice.kick_camera(facing, MELEE_CAMERA_KICK)  # punch INTO the hit
-		Sfx.play("melee_hit")
+		# Unified hit juice (study §4) — heavier freeze than a spell hit + a punch
+		# INTO the strike direction, all in sync.
+		Juice.on_hit({
+			"sfx": "melee_hit", "hitstop": _tune("melee_hit_stop", MELEE_HIT_STOP),
+			"shake": 4.0, "dir": facing, "kick": MELEE_CAMERA_KICK,
+		})
 		Sfx.play("ding", -3.0, 0.05)  # the bright Stick-Fight "clean hit" ding
 
 
 ## Receive a shove (bomb blast / reflected bolt / slam). Same i-frame contract as
 ## take_damage — a dashing or just-blinked hero shrugs it off. The .y lands once as
 ## a real impulse; .x rides the decaying channel (added into velocity each frame).
-func apply_knockback(impulse: Vector2) -> void:
+func apply_knockback(impulse: Vector2, do_flop: bool = true) -> void:
 	if is_dashing or _blink_iframe_timer > 0.0:
 		return
+	impulse *= _tune("knockback_mult", 1.6)  # global over-tune knob
 	_knockback = impulse
 	velocity.y += impulse.y
+	# Reel from the blow (skip while the manual hold-DOWN ragdoll owns the limp,
+	# and skip for self-recoil which passes do_flop=false).
+	if do_flop and rig != null and impulse.length() > 12.0 and not _ragdolling:
+		var mag: float = impulse.length()
+		rig.flop(clampf(mag / 800.0, 0.2, 0.7), 0.18)
+		rig.apply_impulse(impulse.normalized(), minf(mag, 800.0) * 0.85)
+
+
+## Firing a big spell shoves the caster back (Stick-Fight recoil = power is
+## dangerous). Horizontal-only + opposite the aim, so directed beams push you
+## back while sky-aimed spells (aim.x ~ 0) barely recoil and vertical hops
+## aren't fought. Routes through apply_knockback with do_flop=false (no self-flop).
+func _self_recoil(amount: float) -> void:
+	if absf(_aim_dir.x) < 0.15:
+		return
+	apply_knockback(Vector2(-signf(_aim_dir.x) * amount, 0.0), false)
 
 
 ## Slammed hard into a destructible/breakable this frame? Crack it (shared helper).
