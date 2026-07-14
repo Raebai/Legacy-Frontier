@@ -106,7 +106,7 @@ func _discharge() -> void:
 	Juice.shake_camera(15.0)
 	Juice.zoom_punch_camera(0.11, 0.22)
 	Juice.zoom_pull_camera(0.14, 0.3, 0.12, 0.45)  # brief pull to show the strike
-	Sfx.play("blast", 2.0, 0.06)
+	Sfx.play("zap", 2.0, 0.06)
 	var music: Node = get_node_or_null("/root/Music")
 	if music != null and music.has_method("duck"):
 		music.call("duck", 7.0, 0.35)

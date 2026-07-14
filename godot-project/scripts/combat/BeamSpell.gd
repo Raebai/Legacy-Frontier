@@ -128,7 +128,7 @@ func _discharge() -> void:
 	Juice.hit_stop(0.09)
 	Juice.shake_camera(16.0)
 	Juice.zoom_punch_camera(0.1, 0.24)
-	Sfx.play("blast", 1.0, 0.08)
+	Sfx.play("beam", 1.0, 0.06)  # laser discharge
 	if _circle != null and is_instance_valid(_circle):
 		_circle.vanish(FIRE_TIME + FADE_TIME)
 

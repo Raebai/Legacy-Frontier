@@ -58,7 +58,7 @@ func raise_wall(
 	CombatVfx.spawn_burst(get_parent(), _floor_base, Color(0.85, 0.62, 0.35, 0.8),
 		Color(0.4, 0.28, 0.15, 0.0), 16, 0.45, 70.0, 200.0, 1.5, 4.0)
 	Juice.shake_camera(6.0)
-	Sfx.play("blast", -4.0, 0.08)
+	Sfx.play("earth", -4.0, 0.08)
 	queue_redraw()
 
 

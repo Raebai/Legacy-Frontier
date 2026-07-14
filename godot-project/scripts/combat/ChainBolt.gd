@@ -53,7 +53,7 @@ func chain(
 			8, 0.3, 40.0, 130.0, 0.6, 1.5, 0.0, 0.0, true)
 	Juice.shake_camera(6.0)
 	Juice.zoom_pull_camera(0.12, 0.35, 0.12, 0.45)
-	Sfx.play("blast", -1.0, 0.06)
+	Sfx.play("zap", -1.0, 0.08)
 	queue_redraw()
 
 

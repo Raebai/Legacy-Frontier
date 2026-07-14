@@ -308,6 +308,107 @@ def make_blink() -> Samples:
 
 
 # ---------------------------------------------------------------------------
+# Anime ABILITY sounds — one per ability family (charge-up, beam, cannon, zap,
+# ice, earth, holy, nova). The maker's "cool anime sound effects ... charge up
+# for a beam ... crazy cannon abilities" ask, synthesized from the same toolkit.
+# ---------------------------------------------------------------------------
+
+def make_charge_up(variant: int) -> Samples:
+    """Anime beam/ult CHARGE-UP: a long swelling rise — pitch sweeps UP while the
+    amplitude swells, over a shimmering bell + building airy hiss. The 'powering
+    up' before a beam/ultimate fires."""
+    seed = 800 + variant
+    dur = 0.9
+    n = _n(dur)
+    rise = sweep(180.0, 900.0 + variant * 80.0, dur, 0.0, 1.0, curve=2.2)
+    shimmer = partials(440.0, [(1.0, 0.3, 1.5), (2.01, 0.2, 2.0), (3.0, 0.15, 2.5)], dur)
+    air = noise(dur, 0.0, 1.0, seed, lowpass=3)
+    out = [((i / n) ** 2) * (0.5 * rise[i] + 0.3 * shimmer[i] + 0.25 * air[i]) for i in range(n)]
+    return normalize(de_click(out, 6.0, 40.0), 0.72)
+
+
+def make_beam(variant: int) -> Samples:
+    """Magic BEAM discharge (Zoltraak): a sharp fire transient + a bright sustained
+    laser tone + a downward sweep. The 'PSHOOM' of a screen-crossing beam."""
+    seed = 810 + variant
+    t = transient(0.8, seed, bright=6500.0)
+    laser = mix(
+        tone(1400.0 - variant * 100.0, 0.28, 8.0, 0.6),
+        partials(700.0, [(1.0, 0.4, 6.0), (2.5, 0.25, 10.0), (4.0, 0.15, 14.0)], 0.28),
+    )
+    swoosh = sweep(1800.0, 500.0, 0.3, 5.0, 0.4, curve=1.5)
+    tail = noise(0.3, 8.0, 0.25, seed + 2, lowpass=1)
+    return normalize(de_click(mix(t, laser, swoosh, tail), 1.0, 22.0), 0.9)
+
+
+def make_cannon(variant: int) -> Samples:
+    """The 'crazy cannon' ULTIMATE boom — bigger + deeper than blast: a massive
+    crack, a huge inharmonic boom, a very deep long sub, a long rolling tail."""
+    seed = 820 + variant
+    t = transient(1.0, seed, bright=4500.0)
+    boom = partials(85.0 - variant * 5.0, [(1.0, 1.0, 7.0), (1.6, 0.6, 11.0), (2.4, 0.35, 16.0)], 0.6)
+    sub = sub_kick(110.0, 30.0, 0.7, 4.0, 1.0)
+    roll = noise(0.8, 3.5, 0.55, seed + 4, lowpass=3)
+    return normalize(de_click(mix(t, boom, sub, roll), 1.0, 45.0), 1.0)
+
+
+def make_zap(variant: int) -> Samples:
+    """Lightning ZAP (chidori / chain): a crackling electric snap — sharp transient +
+    fast raw high crackle + a buzzing inharmonic body."""
+    seed = 830 + variant
+    t = transient(0.9, seed, bright=8000.0 - variant * 300.0)
+    crackle = noise(0.22, 30.0, 0.6, seed, lowpass=0)  # raw = electric
+    buzz = mix(
+        tone(2200.0, 0.14, 30.0, 0.4),
+        partials(900.0, [(1.0, 0.4, 22.0), (2.7, 0.3, 30.0), (4.3, 0.2, 40.0)], 0.14),
+    )
+    return normalize(de_click(mix(t, crackle, buzz), 0.5, 16.0), 0.88)
+
+
+def make_ice(variant: int) -> Samples:
+    """ICE crystal shatter/form: a bright glassy inharmonic tinkle + a frosty
+    crackle. Reads crystalline + cold."""
+    seed = 840 + variant
+    t = transient(0.6, seed, bright=9000.0)
+    glass = partials(1800.0, [(1.0, 0.5, 10.0), (1.5, 0.35, 14.0), (2.3, 0.25, 18.0), (3.1, 0.15, 24.0)], 0.3)
+    tinkle = noise(0.3, 12.0, 0.3, seed + 1, lowpass=1)
+    return normalize(de_click(mix(t, glass, tinkle), 0.5, 18.0), 0.82)
+
+
+def make_earth(variant: int) -> Samples:
+    """EARTH rumble: a heavy low thud + a gravelly crumble + a deep sub — rock/
+    stone erupting."""
+    seed = 850 + variant
+    t = transient(0.7, seed, bright=2500.0)
+    thud = tone(75.0, 0.3, 12.0, 0.9)
+    gravel = noise(0.4, 7.0, 0.55, seed, lowpass=2)
+    sub = sub_kick(70.0, 34.0, 0.35, 8.0, 0.7)
+    return normalize(de_click(mix(t, thud, gravel, sub), 1.0, 26.0), 0.9)
+
+
+def make_holy(variant: int = 0) -> Samples:
+    """HOLY radiant chord: a bright shimmering bell chord + an airy rising swell —
+    divine / angelic."""
+    seed = 860 + variant
+    chord = partials(523.0, [(1.0, 0.5, 3.0), (1.5, 0.4, 4.0), (2.0, 0.35, 5.0), (3.0, 0.2, 6.0)], 0.5)
+    shimmer = sweep(800.0, 2000.0, 0.5, 2.0, 0.3, curve=2.0)
+    air = noise(0.5, 4.0, 0.25, seed, lowpass=3)
+    return normalize(de_click(mix(chord, shimmer, air), 8.0, 45.0), 0.78)
+
+
+def make_nova(variant: int) -> Samples:
+    """NOVA expanding pulse: a swell-in then a released whoomph + deep sub — the
+    'get off me' shockwave."""
+    seed = 870 + variant
+    n = _n(0.4)
+    swell = sweep(200.0, 700.0, 0.4, 0.0, 1.0, curve=2.0)
+    sub = sub_kick(120.0, 40.0, 0.4, 5.0, 0.9)
+    air = noise(0.4, 6.0, 0.4, seed, lowpass=2)
+    out = [math.sin(math.pi * (i / n)) * (0.5 * swell[i] + 0.3 * air[i]) + 0.6 * sub[i] for i in range(n)]
+    return normalize(de_click(out, 3.0, 22.0), 0.9)
+
+
+# ---------------------------------------------------------------------------
 # Main — write single cues + multi-variant impacts
 # ---------------------------------------------------------------------------
 
@@ -324,6 +425,15 @@ SOUND_SET: dict[str, tuple] = {
     "ding": (make_ding, 1),
     "footstep": (make_footstep, 1),
     "blink": (make_blink, 1),
+    # Anime ability sounds (one per ability family).
+    "charge_up": (make_charge_up, 2),
+    "beam": (make_beam, 2),
+    "cannon": (make_cannon, 2),
+    "zap": (make_zap, 2),
+    "ice": (make_ice, 2),
+    "earth": (make_earth, 2),
+    "holy": (make_holy, 1),
+    "nova": (make_nova, 2),
 }
 
 

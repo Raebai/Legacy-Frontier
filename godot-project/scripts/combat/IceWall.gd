@@ -61,7 +61,7 @@ func raise_wall(
 		Color(0.4, 0.65, 1.0, 0.0), 16, 0.45, 70.0, 200.0, 0.8, 2.4, 0.0, 0.0, true)
 	_chill_touching()
 	Juice.shake_camera(5.0)
-	Sfx.play("blast", -5.0, 0.1)
+	Sfx.play("ice", -3.0, 0.08)
 	queue_redraw()
 
 
@@ -116,7 +116,7 @@ func _process(delta: float) -> void:
 		CombatVfx.spawn_burst(get_parent(), _floor_base - Vector2(0.0, WALL_SIZE.y * 0.5),
 			Color(0.85, 0.97, 1.0, 0.95), Color(0.5, 0.75, 1.0, 0.0), 16, 0.4, 80.0, 220.0, 0.6, 2.0, 0.0, 0.0, true)
 		Juice.shake_camera(4.0)
-		Sfx.play("spell_impact", -3.0, 0.12)  # ice shatter
+		Sfx.play("ice", -4.0, 0.1)  # ice shatter
 	if _elapsed >= RISE_TIME + LIFETIME + CRUMBLE_TIME:
 		queue_free()
 		return

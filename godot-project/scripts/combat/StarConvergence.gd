@@ -51,7 +51,7 @@ func converge(
 	add_child(_circle)
 	_circle.global_position = _ground - Vector2(0.0, SKY_HEIGHT)
 	_circle.appear(_color, _radius * 2.2, CHARGE_TIME * 0.85)
-	Sfx.play("cast", -2.0, 0.05)
+	Sfx.play("holy", -3.0, 0.05)  # radiant chord as the lances gather
 	queue_redraw()
 
 
@@ -88,7 +88,7 @@ func _detonate() -> void:
 	_impact_burst(at)
 	Juice.shake_camera(24.0)
 	Juice.zoom_punch_camera(0.14, 0.3)
-	Sfx.play("blast", 2.0, 0.1)
+	Sfx.play("cannon", 2.0, 0.06)  # the convergence nova
 	Juice.impact_frame(1.4)  # the FINISHER beat — biggest impact frame
 
 

@@ -49,7 +49,7 @@ func activate_at(pos: Vector2) -> void:
 	Juice.hit_stop(0.1)
 	Juice.shake_camera(14.0)
 	Juice.zoom_punch_camera(0.12, 0.22)
-	Sfx.play("blast", 2.0, 0.1)
+	Sfx.play("nova", 1.0, 0.08)
 	get_tree().create_timer(CLEANUP_DELAY).timeout.connect(queue_free)
 
 

@@ -68,7 +68,7 @@ func hurl(
 	ScorchDecal.spawn(get_parent(), Vector2(_pos.x, _ground_y), BOULDER_R * 1.3, "crack",
 		Color(0.5, 0.36, 0.22, 0.6), 7.0)  # the HOLE left in the ground
 	Juice.shake_camera(3.0)
-	Sfx.play("blast", -6.0, 0.1)
+	Sfx.play("earth", -4.0, 0.08)
 	queue_redraw()
 
 

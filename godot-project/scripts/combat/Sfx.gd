@@ -46,10 +46,40 @@ const STREAMS: Dictionary = {
 	"footstep": [preload("res://assets/audio/sfx/footstep.wav")],
 	# Shadow-blink teleport: short "vwip" (down-then-up pitch sweep + sparkle).
 	"blink": [preload("res://assets/audio/sfx/blink.wav")],
+	# Anime ability sounds — one per ability family (see generate_placeholder_sfx.py).
+	"charge_up": [
+		preload("res://assets/audio/sfx/charge_up_1.wav"),
+		preload("res://assets/audio/sfx/charge_up_2.wav"),
+	],
+	"beam": [
+		preload("res://assets/audio/sfx/beam_1.wav"),
+		preload("res://assets/audio/sfx/beam_2.wav"),
+	],
+	"cannon": [
+		preload("res://assets/audio/sfx/cannon_1.wav"),
+		preload("res://assets/audio/sfx/cannon_2.wav"),
+	],
+	"zap": [
+		preload("res://assets/audio/sfx/zap_1.wav"),
+		preload("res://assets/audio/sfx/zap_2.wav"),
+	],
+	"ice": [
+		preload("res://assets/audio/sfx/ice_1.wav"),
+		preload("res://assets/audio/sfx/ice_2.wav"),
+	],
+	"earth": [
+		preload("res://assets/audio/sfx/earth_1.wav"),
+		preload("res://assets/audio/sfx/earth_2.wav"),
+	],
+	"holy": [preload("res://assets/audio/sfx/holy.wav")],
+	"nova": [
+		preload("res://assets/audio/sfx/nova_1.wav"),
+		preload("res://assets/audio/sfx/nova_2.wav"),
+	],
 }
 
 ## Keys big enough to briefly duck the music under them (SFX cuts through).
-const DUCK_KEYS: Dictionary = {"blast": true}
+const DUCK_KEYS: Dictionary = {"blast": true, "cannon": true, "beam": true}
 
 const SFX_BUS: StringName = &"SFX"
 const POOL_SIZE: int = 8

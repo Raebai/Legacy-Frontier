@@ -52,7 +52,7 @@ func strike(
 	# EDGE-ON along the vertical pillar: the sky sigil reads as a thin horizontal
 	# gate the column of light drops through.
 	_circle.set_orientation(true, Vector2.DOWN, 0.16)
-	Sfx.play("cast", -4.0, 0.05)
+	Sfx.play("holy", -5.0, 0.05)  # radiant chord as the seal opens
 	queue_redraw()
 
 
@@ -91,7 +91,7 @@ func _smite() -> void:
 	Juice.hit_stop(0.09)
 	Juice.shake_camera(14.0)
 	Juice.zoom_punch_camera(0.09, 0.24)
-	Sfx.play("blast", 0.0, 0.08)
+	Sfx.play("cannon", 0.0, 0.06)  # the pillar slams down
 
 
 ## Impact spray at the footprint, charactered per effect.

@@ -49,7 +49,7 @@ func erupt(
 	_elapsed = 0.0
 	for i in BLOCKS:
 		_jitter.append(randf_range(-0.28, 0.28))
-	Sfx.play("cast", -4.0, 0.05)
+	Sfx.play("earth", -3.0, 0.08)
 	Juice.shake_camera(3.0)
 	queue_redraw()
 

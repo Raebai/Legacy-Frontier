@@ -525,6 +525,12 @@ func _physics_process(delta: float) -> void:
 		if _footstep_timer <= 0.0:
 			_footstep_timer = 0.22 if _hero_class == HeroClass.ROGUE else 0.27
 			Sfx.play("footstep", -6.0, 0.14)
+			# Stick-Fight walk dust: a small puff kicks up at the feet each footfall.
+			CombatVfx.spawn_burst(
+				get_parent(), global_position + Vector2(-signf(move_x) * 6.0, 12.0),
+				Color(0.85, 0.85, 0.9, 0.45), Color(0.85, 0.85, 0.9, 0.0),
+				4, 0.24, 14.0, 52.0
+			)
 	else:
 		_footstep_timer = 0.0
 	# Stick-Fight decouple: the BODY faces MOVEMENT (idle keeps the last facing —
@@ -765,7 +771,7 @@ func _begin_channel(spell: SpellDef, sky: bool) -> void:
 	get_parent().add_child(_channel_circle)
 	_channel_circle.global_position = global_position + Vector2(0.0, 6.0)
 	_channel_circle.call("appear", _element_color, 44.0 + 26.0 * clampf(spell.mp_cost / 90.0, 0.0, 1.0), spell.cast_time)
-	Sfx.play("cast", -1.0, 0.05)
+	Sfx.play("charge_up", -2.0, 0.04)  # anime beam/ult power-up swell
 	# Pull the camera WIDE for the whole build-up + release so the "insane spell"
 	# reads (maker: "when these insane spells are being cast we should zoom out to
 	# see the spell"). Hold spans the channel; the fire-time pull in SpellCaster
