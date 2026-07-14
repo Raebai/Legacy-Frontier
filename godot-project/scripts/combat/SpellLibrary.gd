@@ -221,6 +221,7 @@ static func _meteor(
 	s.radius = radius
 	s.count = count
 	s.reach = 300.0
+	s.cast_time = 1.1  # levitating windup
 	return s
 
 
@@ -241,6 +242,7 @@ static func _beam(
 	s.damage = dmg
 	s.length = length
 	s.width = width
+	s.cast_time = 1.0  # levitating windup
 	return s
 
 
@@ -276,6 +278,7 @@ static func _ray(
 	s.damage = dmg
 	s.radius = radius
 	s.reach = 280.0
+	s.cast_time = 1.0  # levitating windup
 	return s
 
 
@@ -298,4 +301,5 @@ static func _convergence(
 	s.damage = dmg
 	s.radius = radius
 	s.reach = 320.0
+	s.cast_time = 1.3  # the finisher: longest levitating windup
 	return s

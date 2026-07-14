@@ -303,6 +303,23 @@ func _ready() -> void:
 	bars.configure(self, true, -26.0)
 
 
+## Float-channel: the 4 big spectacles (beam/ray/meteor/convergence) become a
+## committed levitating cast. Press G -> the hero lifts off + a build-up sigil
+## grows for cast_time; if a hit lands the channel is INTERRUPTED (cast lost, mana
+## + cooldown already spent). Survive it and the ultimate unleashes.
+const CHANNEL_LIFT_HEIGHT: float = 34.0
+const CHANNEL_LIFT_SPEED: float = 180.0
+var _channeling: bool = false
+var _channel_timer: float = 0.0
+var _channel_total: float = 0.0
+var _channel_spell: SpellDef = null
+var _channel_target: Vector2 = Vector2.ZERO
+var _channel_sky: bool = false
+var _channel_lift: float = 0.0
+var _channel_base_y: float = 0.0
+var _channel_circle: Node2D = null
+
+
 func _physics_process(delta: float) -> void:
 	_dash_cooldown_timer = max(_dash_cooldown_timer - delta, 0.0)
 	_cast_cooldown_timer = max(_cast_cooldown_timer - delta, 0.0)
@@ -320,6 +337,11 @@ func _physics_process(delta: float) -> void:
 	if mp < float(max_mp):
 		mp = minf(mp + MP_REGEN * delta, float(max_mp))
 		mana_changed.emit(mp, max_mp)
+	# FLOAT-CHANNEL: while casting a big spectacle the hero levitates + is fully
+	# committed (no movement/input) until the cast fires or a hit interrupts it.
+	if _channeling:
+		_process_channel(delta)
+		return
 	# Landing dust: white puff the instant we touch down after being airborne (not
 	# while gliding). At the top so it fires even on dash frames. is_on_floor()
 	# here reflects the previous frame's move_and_slide.
@@ -669,12 +691,94 @@ func _cast_signature() -> void:
 	# get_weapon_tip() reads the pointed staff.
 	var sky: bool = spell.kind == SpellDef.Kind.METEOR or spell.kind == SpellDef.Kind.DIVINE_RAY \
 			or spell.kind == SpellDef.Kind.CONVERGENCE
+	# Big spectacles LEVITATE + channel for cast_time, THEN fire (interruptible).
+	if spell.cast_time > 0.0:
+		_begin_channel(spell, sky)
+		return
 	rig.set_aim(Vector2.UP if sky else _aim_dir)
 	rig.play(CharacterRig.State.CAST)
 	var origin: Vector2 = global_position if sky else rig.get_weapon_tip()
 	SpellCaster.cast(spell, get_parent(), origin, get_global_mouse_position(), _element_color, spell.effect)
 	_notify_element_used()
 	_self_recoil(110.0)  # the beam/ultimate shoves you back
+
+
+## Enter the levitating cast: lift off, lock the aim, grow a build-up sigil, hold
+## a committed CAST pose. MP + cooldown are already spent (interrupt = no refund).
+func _begin_channel(spell: SpellDef, sky: bool) -> void:
+	_channeling = true
+	_channel_spell = spell
+	_channel_sky = sky
+	_channel_timer = spell.cast_time
+	_channel_total = spell.cast_time
+	_channel_target = get_global_mouse_position()
+	_channel_base_y = global_position.y
+	_channel_lift = 0.0
+	velocity = Vector2.ZERO
+	rig.set_aim(Vector2.UP if sky else _aim_dir)
+	rig.play(CharacterRig.State.CAST)
+	rig.set_airborne(true)  # legs dangle while floating
+	# Build-up sigil that grows beneath/around the caster over the channel.
+	_channel_circle = MagicCircle.new()
+	get_parent().add_child(_channel_circle)
+	_channel_circle.global_position = global_position + Vector2(0.0, 6.0)
+	_channel_circle.call("appear", _element_color, 44.0 + 26.0 * clampf(spell.mp_cost / 90.0, 0.0, 1.0), spell.cast_time)
+	Sfx.play("cast", -1.0, 0.05)
+
+
+## Per-frame while channeling: ease the levitation, hold the pose, count down, and
+## on completion fire the spell (or the physics loop already returned early on cancel).
+func _process_channel(delta: float) -> void:
+	_channel_lift = move_toward(_channel_lift, CHANNEL_LIFT_HEIGHT, CHANNEL_LIFT_SPEED * delta)
+	var bob: float = sin((_channel_total - _channel_timer) * 6.0) * 2.0
+	global_position.y = _channel_base_y - _channel_lift + bob
+	velocity = Vector2.ZERO
+	rig.set_airborne(true)
+	rig.set_body_velocity(Vector2.ZERO)
+	if _channel_circle != null and is_instance_valid(_channel_circle):
+		_channel_circle.global_position = global_position + Vector2(0.0, 6.0)
+	# Gather motes now and then — energy converging on the caster.
+	if fmod(_channel_timer, 0.12) < delta:
+		CombatVfx.spawn_burst(get_parent(), global_position, Color(_element_color.r, _element_color.g, _element_color.b, 0.7),
+			Color(_element_color.r, _element_color.g, _element_color.b, 0.0), 6, 0.3, 40.0, 90.0, 0.5, 1.4, 0.0, 0.0, true)
+	_channel_timer -= delta
+	if _channel_timer <= 0.0:
+		_finish_channel()
+
+
+## Channel completed uninterrupted — unleash the spectacle, then settle back down.
+func _finish_channel() -> void:
+	var spell: SpellDef = _channel_spell
+	_end_channel()
+	if spell == null:
+		return
+	rig.set_aim(Vector2.UP if _channel_sky else _aim_dir)
+	rig.play(CharacterRig.State.CAST)
+	var origin: Vector2 = global_position if _channel_sky else rig.get_weapon_tip()
+	SpellCaster.cast(spell, get_parent(), origin, _channel_target, _element_color, spell.effect)
+	_notify_element_used()
+	_self_recoil(90.0)
+
+
+## A hit landed mid-channel — the ultimate is DISRUPTED (mana/cooldown stay spent).
+func _cancel_channel() -> void:
+	if not _channeling:
+		return
+	_end_channel()
+	rig.flash_color(Color(0.7, 0.5, 0.9), 0.14)  # disrupt cue
+	Sfx.play("melee_swing", -8.0, 0.12)
+	CombatVfx.spawn_burst(get_parent(), global_position, Color(0.6, 0.5, 0.7, 0.8),
+		Color(0.3, 0.25, 0.4, 0.0), 12, 0.4, 60.0, 160.0)
+
+
+## Shared channel teardown: drop the float, fizzle the sigil, restore physics.
+func _end_channel() -> void:
+	_channeling = false
+	_channel_spell = null
+	rig.set_airborne(false)
+	if _channel_circle != null and is_instance_valid(_channel_circle):
+		_channel_circle.call("vanish", 0.2)
+	_channel_circle = null
 
 
 ## Swap to the next equipped signature (the loadout cycle — V). On mobile this is
@@ -1326,6 +1430,9 @@ func take_damage(amount: int) -> void:
 		rig.set_parry(_aim_dir, PARRY_SHIELD_TIME)
 		_parry_window_timer = 0.0
 		return
+	# A LANDED hit (not dodged/parried) shatters a float-channel — lose the ult.
+	if _channeling:
+		_cancel_channel()
 	hp = max(hp - amount, 0)
 	health_changed.emit(hp, max_hp)
 	rig.play(CharacterRig.State.HURT)
