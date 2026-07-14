@@ -329,6 +329,10 @@ func _spawn_fighters() -> void:
 	_p1.process_mode = Node.PROCESS_MODE_PAUSABLE  # freeze when the arena pauses
 	_register_fighter(_p1, _p1.global_position)
 	_frame_camera_on(_p1)
+	# Practice arena: keep ALL fighters on screen (couch-brawler auto-framing).
+	for cam: Node in get_tree().get_nodes_in_group("combat_camera"):
+		if cam.has_method("set_frame_all"):
+			cam.call("set_frame_all", true)
 	var enemy_scene: PackedScene = load(ENEMY_SCENE_PATH)
 	for i: int in BOT_COUNT:
 		var bot: CharacterBody2D = enemy_scene.instantiate()

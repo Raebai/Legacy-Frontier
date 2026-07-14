@@ -14,6 +14,14 @@ const DEFAULT_ZOOM: Vector2 = Vector2(1.6, 1.6)
 const ZOOM_MIN: float = 1.0
 const ZOOM_MAX: float = 2.6
 
+# --- "Fit all fighters" framing (couch-brawler camera; opt-in via set_frame_all).
+# Each frame, frame the bounding box of the hero + all live bots and auto-zoom so
+# everyone stays on screen. Base design resolution is 640x360 (project stretch).
+const FRAME_VIEWPORT: Vector2 = Vector2(640.0, 360.0)
+const FRAME_PAD: Vector2 = Vector2(300.0, 220.0)  # breathing room around the group
+const FRAME_ZOOM_MIN: float = 0.5  # allow pulling well back to keep everyone in view
+const FRAME_SPEED: float = 3.5     # ease rate toward the framed centroid/zoom
+
 # --- Shake tuning ---
 const MAX_OFFSET: Vector2 = Vector2(28.0, 20.0)  # px at full (1.0) trauma
 const TRAUMA_DECAY: float = 1.4  # trauma units shed per second
@@ -56,6 +64,15 @@ var _pull_hold: float = 0.5
 var _pull_eout: float = 0.55
 var _pull_elapsed: float = 0.0
 var _pull_active: bool = false
+
+# --- Fit-all framing state ---
+var _frame_all: bool = false
+var _frame_offset: Vector2 = Vector2.ZERO
+
+
+## Enable the couch-brawler "keep everyone on screen" camera (practice arena).
+func set_frame_all(enabled: bool) -> void:
+	_frame_all = enabled
 
 
 func _ready() -> void:
@@ -164,7 +181,40 @@ func _pull_progress(delta: float) -> float:
 	return smoothstep(1.0, 0.0, t)
 
 
+## Fit-all: frame the hero + all live bots, easing the base zoom + a centering
+## offset so every fighter stays on screen. Drives _zoom_base (punch/pull compose
+## on top) and _frame_offset (added to the final camera offset).
+func _frame_group_update(delta: float) -> void:
+	var p: Node = get_parent()
+	if p == null or not (p is Node2D):
+		return
+	var hero_pos: Vector2 = (p as Node2D).global_position
+	var mn: Vector2 = hero_pos
+	var mx: Vector2 = hero_pos
+	var count: int = 1
+	for e: Node in get_tree().get_nodes_in_group("enemy"):
+		if e is Node2D and is_instance_valid(e):
+			var q: Vector2 = (e as Node2D).global_position
+			mn = mn.min(q)
+			mx = mx.max(q)
+			count += 1
+	var ease: float = minf(FRAME_SPEED * delta, 1.0)
+	if count <= 1:
+		# Only the hero left — ease back to the resting default.
+		_frame_offset = _frame_offset.lerp(Vector2.ZERO, ease)
+		_zoom_base = _zoom_base.lerp(DEFAULT_ZOOM, ease)
+		return
+	var centroid: Vector2 = (mn + mx) * 0.5
+	var span: Vector2 = (mx - mn) + FRAME_PAD
+	var fit: float = minf(FRAME_VIEWPORT.x / maxf(span.x, 1.0), FRAME_VIEWPORT.y / maxf(span.y, 1.0))
+	fit = clampf(fit, FRAME_ZOOM_MIN, ZOOM_MAX)
+	_frame_offset = _frame_offset.lerp(centroid - hero_pos, ease)
+	_zoom_base = _zoom_base.lerp(Vector2(fit, fit), ease)
+
+
 func _process(delta: float) -> void:
+	if _frame_all:
+		_frame_group_update(delta)
 	# --- Compose zoom: resting base * punch-IN factor * pull-OUT factor. When both
 	# effects are idle, restore the base exactly. ---
 	var punch_factor: float = 1.0
@@ -203,4 +253,4 @@ func _process(delta: float) -> void:
 		var nx: float = sin(_noise_t) * 0.6 + sin(_noise_t * 2.7 + 1.3) * 0.4
 		var ny: float = cos(_noise_t * 1.3 + 0.9) * 0.6 + sin(_noise_t * 3.4) * 0.4
 		shake_offset = _kick_offset + Vector2(MAX_OFFSET.x * shake * nx, MAX_OFFSET.y * shake * ny)
-	offset = _lookahead + shake_offset
+	offset = _lookahead + shake_offset + _frame_offset
