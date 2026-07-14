@@ -5,6 +5,24 @@ Plan: `docs/v2.0-slice0-plan.md`. Slice 1 plan: TBD.
 Godot headless binary: `godot-engine/Godot_v4.6.2-stable_win64_console.exe`
 Builder model: Fable 5.
 
+=== 2026-07-14 (LATER-4) — PLAYTEST FEEDBACK STORM — PRIORITISED TODO (READ FIRST, next session, fresh context) ===
+Maker rapid-fire playtested the new terrain map + classes + SFX and fired a burst of feedback. A FEW quick fixes shipped (commit "playtest fixes": fairer ice FREEZE 0.6s/0.32-slow, fist MELEE_RANGE 46->58, BlinkStrike dmg 55->85, chidori+meteor open with charge_up SFX). The REST is captured here — do these in order:
+*** THE BIG ONE — EPIC ULT SUMMONING (maker: "isn't G meant to be the ULTIMATE where the character does something awesome ... ice is cringe, no spell circle or cool summoning animation — they ALL need that for the G's ESPECIALLY"): ***
+  - The CHANNELED ults (beam/ray/meteor/convergence) already levitate + grow a MagicCircle (float-channel). But the INSTANT signatures I added (ice_wall, chain_lightning, rune_orbs, blink_strike, blade_flurry, void_zone, drain_tether, boulder/pillar/wall) fire INSTANTLY with NO ceremony -> feel cheap/"cringe".
+  - FIX: give EVERY signature an epic SUMMON windup — a MagicCircle spell-circle + a committed cast pose/animation (~0.3-0.6s) before it fires. Either route them through a short _begin_channel-style windup, or a new "summon flash" (MagicCircle.appear + rig CAST pose + gather motes) then fire. This is the headline feel ask.
+MAP / FLOOR (maker: "the map is not good, needs optimising, blocks stuck between bridges, ENTIRE FLOOR needs fixing"):
+  - Layout is SCATTERED: floating ledges (300,560)/(720,470) + breakable (980,380) sit at random heights with big empty gaps to the mountain (right third) -> reads as disconnected blocks, not a cohesive stage. Redesign into a connected, readable stage (bring platforms closer/lower, connect the mid-layer to the ground + mountain, cut the empty vertical void). See arena_wide_capture.gd.
+  - DUCKING (hold DOWN ragdoll) CLIPS the hero INTO the floor — likely the limp rig DROOPS below the collision (GRAVITY*_limp pulls drawn feet under the floor line). Clamp the limp droop to the floor, or reduce limp gravity when grounded.
+  - VOID/ring-out "SENDS ME OUT OF THE MAP" — the blast-zone PITs (or a floor hole opening under the hero) are ringing the hero out from seemingly-valid spots. Review BLAST_ZONES positions + whether destructible-floor holes drop the hero unfairly.
+NATURAL LOCALIZED DESTRUCTION (maker: "parts break off WHERE HIT, not the entire thing ... surfaces here and there ... feel natural"):
+  - DestructibleFloor breaks per-segment (good) but an AoE hits ALL segments in radius -> a big swath vanishes. Cover blocks (DestructibleTerrain) shatter WHOLE. Make destruction granular + local: only the surface AT the impact chips/breaks, smaller chunks, diversified block looks. Finer segments; chip-not-vanish for cover.
+CONTENT / POLISH:
+  - METEOR: animation "weird", the ElementFx AREA effect on the ground looks off — rework meteor to look epic (maker flagged as longer-term).
+  - "ALL MOVES need to look EPIC" — VFX polish pass on the spectacles (+ the beam BODIES / ray-convergence PILLARS per-element ElementFx skin still pending).
+  - ENEMY DIVERSIFICATION (maker: "you have all these classes, make the enemies even cooler") — give bots the bespoke class kits / more varied cool archetypes.
+  - FANTASY SFX PACK: maker uploaded "Effects/Free Fantasy SFX Pack By TomMusic" (+ Sonniss downloading). Audit it, map clips to the Sfx.gd keys (cast/charge_up/beam/cannon/zap/ice/earth/holy/nova/blast/melee_hit/melee_swing/blink/footstep/ding/hero_hurt/enemy_death/spell_impact), drop .wav into assets/audio/sfx/ (keys already wired). NO voice grunts (maker: "corny"). Maker also grabbed VFX libs (godot-4-VFX-assets, GODOT-VFX-LIBRARY, portal shader) + KayKit packs in Downloads — potential integration.
+
+
 === 2026-07-14 (LATER-3) — "do it all, big push": attack fix + BIGGER TERRAIN MAP w/ MOUNTAIN + full destructible + LIVE ring-out + blink-clamp + big-spell fire ===
 Continuation (maker: "do everything don't pause and wait, big push" + a burst of asks). Used 1 background READ-ONLY design agent (bigger-map/destructible/ring-out spec). ALL headless-verified (12-suite sweep green) + GPU-verified. UNPLAYTESTED for feel. NOT pushed. Commits on v2.0-tower:
 - CLASS ATTACKS FIXED: melee primaries were logic-correct (proven by NEW tools/test_class_attacks.gd — all 8 primaries land/fire) but WHIFFING at short reach. Juggernaut heavy-swing range 70->96 + forward LUNGE so it closes+connects; STOMP wind-up 0.6->0.4 (maker: "charge up slightly smaller").
