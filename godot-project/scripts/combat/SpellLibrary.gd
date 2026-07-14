@@ -223,7 +223,7 @@ static func _blink_strike() -> SpellDef:
 	s.effect = "shadow"
 	s.mp_cost = 48
 	s.cooldown = 3.2
-	s.damage = 55
+	s.damage = 85  # was 55 — the assassin's signature should HURT (maker: "not strong")
 	s.reach = 300.0  # blink distance
 	return s
 

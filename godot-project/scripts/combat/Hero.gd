@@ -38,7 +38,7 @@ const SLIDE_JUMP_BOOST: float = 1.25   # extra push jumping straight out of a sl
 const CAST_COOLDOWN: float = 0.35
 const MELEE_COOLDOWN: float = 0.34
 const MELEE_DAMAGE: int = 14
-const MELEE_RANGE: float = 46.0
+const MELEE_RANGE: float = 58.0  # was 46 — short fists whiffed (Brawler LMB "not working")
 const MELEE_ARC_DOT: float = 0.3
 ## Bumped for the Stick-Fight "shove" read — a connected punch should visibly
 ## launch the target, not just tick it.

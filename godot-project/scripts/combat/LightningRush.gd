@@ -64,7 +64,7 @@ func rush(
 		get_parent(), _origin, Color(1.0, 1.0, 0.85, 0.95), Color(_color.r, _color.g, _color.b, 0.0),
 		20, CHARGE_TIME * 0.9, 60.0, 150.0, 0.6, 1.6, 2.5, 5.0, true
 	)
-	Sfx.play("cast", 2.0, 0.04)
+	Sfx.play("charge_up", 1.0, 0.04)  # chidori charge — epic power-up before the strike
 	queue_redraw()
 
 

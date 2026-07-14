@@ -67,7 +67,7 @@ func rain(
 		var from: Vector2 = to + SLANT + Vector2(0.0, -SKY_HEIGHT)
 		var delay: float = (float(i) / float(count)) * BARRAGE_TIME + randf_range(0.0, 0.06)
 		_meteors.append({"delay": delay, "from": from, "to": to, "landed": false})
-	Sfx.play("cast", -3.0, 0.05)
+	Sfx.play("charge_up", -2.0, 0.05)  # meteor sigil opens — epic build before the barrage
 	queue_redraw()
 
 
