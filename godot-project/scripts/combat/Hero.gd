@@ -1470,6 +1470,7 @@ func take_damage(amount: int) -> void:
 		_cancel_channel()
 	hp = max(hp - amount, 0)
 	health_changed.emit(hp, max_hp)
+	DamageNumber.spawn(get_parent(), global_position + Vector2(0.0, -18.0), amount, Color(1.0, 0.35, 0.35), amount >= 18)
 	rig.play(CharacterRig.State.HURT)
 	rig.flash_color(HURT_FLASH_COLOR, HURT_FLASH_TIME)
 	rig.apply_impulse(Vector2(-facing.x, -0.7), 300.0)  # ragdoll flinch on the hit

@@ -1031,13 +1031,27 @@ func _live_minion_count() -> int:
 	return _minions.size()
 
 
-func take_damage(amount: int) -> void:
+## `tint` with alpha > 0 marks an ELEMENTAL source (a DoT tick / chain / pop):
+## the hit flashes + the floating number take that element hue and the body pulses
+## a bloomed glow in the ailment colour (maker: "make them glow w tik damage").
+## Alpha 0 (the default) is a plain physical hit — the HDR white pop as before.
+func take_damage(amount: int, tint: Color = Color(1.0, 1.0, 1.0, 0.0)) -> void:
 	# Weaken (shadow) amplifies incoming damage.
 	var dealt: int = amount
 	if _status != null and is_instance_valid(_status):
 		dealt = int(round(float(amount) * _status.damage_mult()))
 	hp = max(hp - dealt, 0)
-	_flash()
+	var is_elemental: bool = tint.a > 0.0
+	if is_elemental:
+		# Glow-on-tick: a brief bloomed pulse in the ailment hue (HDR > 1 so it
+		# blooms) — damage-over-time reads as a rhythmic glow + a floating number.
+		rig.flash_color(Color(tint.r * 1.5 + 0.2, tint.g * 1.5 + 0.2, tint.b * 1.5 + 0.2), 0.12)
+	else:
+		_flash()
+	# Floating combat number over the head. Elemental ticks take the hue; physical
+	# hits are near-white. Big hits get the crit treatment.
+	var num_col: Color = Color(tint.r, tint.g, tint.b, 1.0) if is_elemental else Color(1.0, 0.96, 0.9)
+	DamageNumber.spawn(get_parent(), global_position + Vector2(0.0, -16.0), dealt, num_col, dealt >= 20)
 	if hp == 0:
 		_die()
 

@@ -13,7 +13,8 @@ var _ran: bool = false
 class StubEnemy:
 	extends Node2D
 	var dmg: Array[int] = []
-	func take_damage(amount: int) -> void:
+	# Matches Enemy.take_damage's optional element tint (DoT ticks pass a hue).
+	func take_damage(amount: int, _tint: Color = Color(1.0, 1.0, 1.0, 0.0)) -> void:
 		dmg.append(amount)
 
 
