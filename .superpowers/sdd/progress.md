@@ -5,7 +5,13 @@ Plan: `docs/v2.0-slice0-plan.md`. Slice 1 plan: TBD.
 Godot headless binary: `godot-engine/Godot_v4.6.2-stable_win64_console.exe`
 Builder model: Fable 5.
 
-=== 2026-07-14 (LATEST) — SIDE-ON MYSTIC-FOREST HUB + RENDER-QUALITY + STICK-FIGHT STUDY (read this FIRST) ===
+=== 2026-07-14 (LATEST) — PRACTICE-ARENA DIFFICULTY + RAGDOLL + SPELL-VFX QUALITY (read this FIRST) ===
+Continues the same session below. COMMITTED (branch v2.0-tower, NOT pushed; 33/33 suites green):
+- 56840d5 ENEMY DIFFICULTY (practice arena VersusArena F6): a 'Difficulty' button cycles Easy/Normal/Hard/Impossible (GameState.enemy_difficulty + rebuild). Enemy._apply_difficulty scales hp/speed/attack-rate; Hard DODGES hero bolts (leap-arc hop), Impossible DEFLECTS point-blank (fizzle+counter-fire) while advancing. + HOLD move_down -> Hero LIMP ragdoll flop (rig.set_limp). + land-thud shake.
+- b4887c9 SPELL VFX: the real 'pixelated effects' culprit = CombatVfx.spawn_burst had no particle texture -> hard squares. Added cached soft radial-dot texture -> ALL bursts glow. + committed docs/references/spell-polish-plan.md (per-spell polish plan) + earlier docs/references/stick-fight-feel-study.md (game-feel bar).
+RESUME: memory [[project_v2_combat_feel_todo]] has the exact next actions. Maker will likely say 'do the spell polish' or 'do the juice+audio' -> execute the two plan docs end-to-end (antialiased sweep, HDR/bloom, additive beams, knockback amplitude, active-ragdoll, layered audio). Play F6 on Impossible + hold DOWN to flop.
+
+=== 2026-07-14 — SIDE-ON MYSTIC-FOREST HUB + RENDER-QUALITY + STICK-FIGHT STUDY ===
 Maker feedback burst (many messages, autonomous "ultrathink, apply, then pause"). Design agents used for class-kit + lobby + Stick-Fight research (read-only; built sequentially). All headless-verified (33/33 suites) + boot/render-verified. NOT pushed.
 COMMITTED (branch v2.0-tower):
 - 7478141 ZOOM: default 2.2->1.6 + live Camera Zoom slider in pause Settings (GameState.camera_zoom, persists).
