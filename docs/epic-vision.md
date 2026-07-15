@@ -13,9 +13,16 @@ but they fire FLATLY and don't COMPOSE into epic. "Epic" is not a feature — it
 systems (sound + VFX + camera + time + destruction) firing IN SYNC on key beats:
 **anticipation → crescendo → payoff → aftermath.**
 
+## Progress (2026-07-15)
+**Phase 1 ✅ DONE**, **Phase 1b ✅ DONE**, **Phase 2 ✅ DONE**, **Mobile touch ✅ first-pass DONE** —
+shipped + pushed to `origin/v2.0-tower` (see `.superpowers/sdd/progress.md` top block for the
+commit map). All headless + GPU-verified, UNPLAYTESTED for feel (needs maker F6). Remaining:
+Phase 3 (enemy kits/density + bigger natural destruction + de-corny beam SFX) and Phase 4
+(DMC style meter + real SFX packs), plus mobile on-device feel tuning.
+
 ## Strategy — 4 phases, in order
 
-### Phase 1 — FIX THE FOUNDATION (can't be epic if it's janky)
+### Phase 1 — FIX THE FOUNDATION (can't be epic if it's janky) — ✅ DONE
 - **Map is scattered + the PLATFORMS LOOK WEIRD/WRONG** (maker: "what's up with all these weird
   platforms, the map needs to look way better, more REALISTIC and actually FUN"): the floating
   ledges (300,560)/(720,470) + breakable (980,380) sit at random heights with big empty gaps to
@@ -44,7 +51,7 @@ systems (sound + VFX + camera + time + destruction) firing IN SYNC on key beats:
   each CLASS a DISTINCT, epic Q spectacle (not a recolored blast). This is a per-class-Q kit
   pass parallel to the signature de-clone already done.
 
-### Phase 2 — MAKE THE G's ANIME FINISHERS (the headline feel ask)
+### Phase 2 — MAKE THE G's ANIME FINISHERS (the headline feel ask) — ✅ DONE
 Maker: *"isn't G the ULTIMATE where the character does something awesome? ice is cringe — no
 spell circle, no summoning animation. They ALL need that for the G's ESPECIALLY."*
 - Channeled ults (beam/ray/meteor/convergence) already levitate + grow a `MagicCircle`
