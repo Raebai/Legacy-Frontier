@@ -3,12 +3,17 @@ extends Node
 ## Plays combat SFX on a small round-robin pool of AudioStreamPlayers so
 ## overlapping casts/hits/deaths never cut each other off.
 ##
-## Each key maps to an ARRAY of variant streams (synthesized layered
-## transient+body+tail sounds — see python-tools/generate_placeholder_sfx.py).
-## `play()` picks a random variant AND applies a small pitch jitter so repeated
-## hits never machine-gun the same sample (Stick-Fight feel study §5). Everything
-## routes to the "SFX" bus; "big" keys (the blast) duck the Music bus so the hit
-## lands harder.
+## Each key maps to an ARRAY of variant streams. Most combat keys now use REAL
+## game-ready clips from the royalty-free "Free Fantasy SFX Pack by TomMusic" (dropped
+## over the old filenames — de-cornies the beam + gives spells/melee real weight):
+## beam=Firespray, cast=Fireball, charge_up=Firebuff, ice=Ice Throw/Freeze, earth=Rock
+## Meteor/Wall, nova=Wave Attack, blast=Rock Meteor Swarm, spell_impact=Spell Impact,
+## melee_hit=Sword Impact, melee_swing=Sword Attack, footstep=Dirt Walk. The rest
+## (zap/holy/cannon/blink/ding/hero_hurt/enemy_death) stay on the synth placeholders
+## from python-tools/generate_placeholder_sfx.py (no fitting royalty-free source, or
+## they double as generic thuds). `play()` picks a random variant + a small pitch
+## jitter so repeats never machine-gun the same sample (Stick-Fight feel study §5).
+## Everything routes to the "SFX" bus; "big" keys (blast/cannon/beam) duck the Music.
 
 const STREAMS: Dictionary = {
 	"cast": [
