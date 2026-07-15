@@ -31,7 +31,7 @@ const HIT_NUDGE: float = 2.0  # px — terrain is heavier than a crate, jolts le
 const GROUND_OVERLAP_MARGIN: float = 8.0
 # Cell grid: the face is carved into ~this-sized squares; each knocked-out
 # cell becomes one recognizable flying "part" (bigger than DebrisChunk dust).
-const TARGET_CELL_SIZE: float = 16.0
+const TARGET_CELL_SIZE: float = 12.0  # smaller cells -> more, finer chip chunks
 const MIN_CELLS_PER_AXIS: int = 2
 const MAX_CELLS_PER_AXIS: int = 12
 # Per-hit caps so a big AoE sweep can't spawn hundreds of bodies in one frame.
@@ -80,7 +80,10 @@ const CELL_SHADE_VARIANCE: float = 0.07
 const EXPOSED_EDGE_WIDTH: float = 1.5
 
 @export var block_size: Vector2 = Vector2(64, 64)
-@export var max_hp: int = 60
+## Higher than the old 60 so a single blast (~40) CHIPS a corner instead of near-
+## destroying the block — cover erodes over several hits then collapses (maker:
+## "parts break off WHERE HIT, not the entire thing").
+@export var max_hp: int = 120
 @export var base_color: Color = Color(0.42, 0.44, 0.5)  # stone-ish
 
 var hp: int = 60
@@ -139,7 +142,7 @@ func damage_at(amount: int, world_pos: Vector2, dir: Vector2) -> void:
 	if hp == 0:
 		_shatter(dir)
 		return
-	_knock_out_cells(world_pos, dir)
+	_knock_out_cells(amount, world_pos, dir)
 	if _intact_count <= SHATTER_MIN_CELLS:
 		_shatter(dir)
 		return
@@ -206,18 +209,17 @@ func _cell_exposed(index: int) -> bool:
 	)
 
 
-## How many cells this hit should remove: enough to keep the surviving-cell
-## count tracking the hp fraction (self-correcting even when per-hit caps
-## lag it), at least 1 so every hit visibly bites, capped per hit.
-func _cells_to_knock_out() -> int:
-	var total: int = _cols * _rows
-	var target_intact: int = ceili(float(hp) / float(maxi(max_hp, 1)) * float(total))
-	return clampi(_intact_count - target_intact, 1, MAX_CELLS_PER_HIT)
+## How many cells this hit chips: LOCAL to the impact + scaled by damage, NOT the
+## global hp fraction (which made a single blast erase most of the face -> "shatters
+## whole"). A ~40-dmg blast chips ~2 cells near the hit; the block erodes over
+## several hits then collapses at hp 0. At least 1 so every hit visibly bites.
+func _chip_count(amount: int) -> int:
+	return clampi(int(ceil(float(amount) / 22.0)), 1, MAX_CELLS_PER_HIT)
 
 
 ## Remove the cluster of intact cells nearest the hit (exposed cells first)
 ## and launch each as a breakaway physics part along `dir`.
-func _knock_out_cells(world_pos: Vector2, dir: Vector2) -> void:
+func _knock_out_cells(amount: int, world_pos: Vector2, dir: Vector2) -> void:
 	var local_pos: Vector2 = to_local(world_pos)
 	var candidates: Array[int] = []
 	for i: int in _cells.size():
@@ -234,7 +236,9 @@ func _knock_out_cells(world_pos: Vector2, dir: Vector2) -> void:
 	candidates.sort_custom(
 		func(a: int, b: int) -> bool: return scores[a] < scores[b]
 	)
-	var knock: int = mini(_cells_to_knock_out(), candidates.size())
+	# Chip only the few cells NEAREST the hit (nearest-first sort above) so a hit
+	# bites a local hole, not a swath across the whole face.
+	var knock: int = mini(_chip_count(amount), candidates.size())
 	var chunk_budget: int = mini(MAX_CHUNKS_PER_HIT, _debris_headroom())
 	for k: int in knock:
 		var index: int = candidates[k]

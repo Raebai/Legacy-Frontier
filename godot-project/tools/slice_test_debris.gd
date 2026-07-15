@@ -43,14 +43,14 @@ func _run() -> void:
 			break
 	_expect(moved, "chunks move (launch + gravity) away from the spawn point")
 
-	# 3) global cap: flooding with 200 more never exceeds MAX_LIVE_CHUNKS (90).
-	DebrisChunk.spawn_burst(container, Vector2(0.0, -60.0), Color(0.4, 0.4, 0.45), 200, Vector2.ZERO, 200.0)
+	# 3) global cap: flooding with 300 more never exceeds MAX_LIVE_CHUNKS.
+	DebrisChunk.spawn_burst(container, Vector2(0.0, -60.0), Color(0.4, 0.4, 0.45), 300, Vector2.ZERO, 200.0)
 	await physics_frame
 	var total: int = 0
 	for c: Node in get_nodes_in_group("debris_chunk"):
 		if is_instance_valid(c) and not c.is_queued_for_deletion():
 			total += 1
-	_expect(total <= 90, "global live-chunk cap respected (got %d)" % total)
+	_expect(total <= DebrisChunk.MAX_LIVE_CHUNKS, "global live-chunk cap respected (got %d)" % total)
 
 	if _failed > 0:
 		printerr("DEBRIS tests: %d FAILED" % _failed)

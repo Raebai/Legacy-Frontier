@@ -47,7 +47,7 @@ func _make_terrain() -> StaticBody2D:
 func _test_terrain_starts_at_max_hp() -> int:
 	var failed: int = 0
 	var terrain: StaticBody2D = _make_terrain()
-	failed += _expect(terrain.max_hp == 60, "default max_hp is 60")
+	failed += _expect(terrain.max_hp == 120, "default max_hp is 120 (cover chips + lasts)")
 	failed += _expect(terrain.hp == terrain.max_hp, "terrain starts at max_hp")
 	failed += _expect(
 		terrain.is_in_group("destructible"), "terrain joins the destructible group"
@@ -94,11 +94,11 @@ func _test_partial_damage_does_not_break() -> int:
 func _test_cumulative_damage_breaks_at_zero() -> int:
 	var failed: int = 0
 	var terrain: StaticBody2D = _make_terrain()
-	terrain.take_damage(30)
+	terrain.take_damage(terrain.max_hp - 20)
 	failed += _expect(
-		not terrain.is_queued_for_deletion(), "half damage leaves the block standing"
+		not terrain.is_queued_for_deletion(), "heavy sub-lethal damage leaves the block standing"
 	)
-	terrain.take_damage(30)  # cumulative 60 == max_hp
+	terrain.take_damage(20)  # cumulative == max_hp
 	failed += _expect(terrain.hp == 0, "cumulative lethal damage zeroes hp")
 	failed += _expect(
 		terrain.is_queued_for_deletion(), "broken terrain queues for deletion"

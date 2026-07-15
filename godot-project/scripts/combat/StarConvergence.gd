@@ -86,6 +86,9 @@ func _detonate() -> void:
 		if prop.has_method("take_damage"):
 			prop.take_damage(_damage)
 	_impact_burst(at)
+	# The finisher CRATERS the ground + throws rubble (was burst-only).
+	GroundCrater.spawn(get_parent(), at, _radius * 0.7, true)
+	DebrisChunk.spawn_burst(get_parent(), at, Color(0.3, 0.26, 0.22), 18, Vector2.UP, 320.0)
 	Juice.shake_camera(24.0)
 	Juice.zoom_punch_camera(0.14, 0.3)
 	Sfx.play("cannon", 2.0, 0.06)  # the convergence nova

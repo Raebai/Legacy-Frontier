@@ -17,7 +17,7 @@ func _process(_delta: float) -> bool:
 	var crater_script: GDScript = load("res://scripts/combat/GroundCrater.gd")
 
 	# Spawn well over the cap (snap=false so no raycast) — only MAX_CRATERS stay alive.
-	for i in 30:
+	for i in crater_script.MAX_CRATERS + 12:
 		crater_script.spawn(parent, Vector2(float(i) * 10.0, 0.0), 30.0, false)
 	failed += _expect(_alive_craters() == crater_script.MAX_CRATERS,
 		"crater count capped at MAX_CRATERS (got %d)" % _alive_craters())

@@ -15,7 +15,7 @@ const CLEANUP_DELAY: float = 0.7
 const SCORCH_RADIUS_FACTOR: float = 0.8  # decal size relative to BLAST_RADIUS
 const SCORCH_TINT: Color = Color(0.09, 0.05, 0.03, 0.6)  # warm charred brown
 const SCORCH_LIFETIME: float = 7.0  # seconds before the crater fades away
-const DEBRIS_COUNT: int = 12  # rock/ember chunks blown up out of the crater
+const DEBRIS_COUNT: int = 22  # rock/ember chunks blown up out of the crater (bigger)
 const DEBRIS_COLOR: Color = Color(0.36, 0.3, 0.26)  # charred stone
 
 var _shockwave_elapsed: float = -1.0  # < 0 means not yet detonated.
@@ -72,7 +72,7 @@ func _detonate() -> void:
 		DebrisChunk.spawn_burst(
 			get_parent(), floor_pos, DEBRIS_COLOR, DEBRIS_COUNT, Vector2.UP, 300.0
 		)
-		GroundCrater.spawn(get_parent(), floor_pos, BLAST_RADIUS * 0.7, false)  # persistent gouge
+		GroundCrater.spawn(get_parent(), floor_pos, BLAST_RADIUS * 0.95, false)  # persistent gouge (bigger)
 	_shockwave_elapsed = 0.0
 	queue_redraw()
 	Juice.hit_stop(0.09)  # weighted: the AoE centerpiece, just under a kill
@@ -124,10 +124,15 @@ func _apply_blast_damage() -> void:
 			continue
 		if global_position.distance_to(prop.global_position) > radius:
 			continue
-		# Blow parts off outward from the blast centre (falls back to take_damage).
+		# Blow parts off the BLAST-FACING side (localized chip): aim the hit at the
+		# point on the prop nearest the blast centre, not its centre, so cover breaks
+		# WHERE the blast touched it (maker: "parts break off where hit").
 		if prop.has_method("damage_at"):
-			var out: Vector2 = ((prop as Node2D).global_position - global_position).normalized()
-			prop.damage_at(damage, (prop as Node2D).global_position, out if out != Vector2.ZERO else Vector2.UP)
+			var prop_pos: Vector2 = (prop as Node2D).global_position
+			var toward: Vector2 = (global_position - prop_pos).normalized()
+			var contact: Vector2 = prop_pos + toward * minf(global_position.distance_to(prop_pos), 30.0)
+			var out: Vector2 = -toward
+			prop.damage_at(damage, contact, out if out != Vector2.ZERO else Vector2.UP)
 		elif prop.has_method("take_damage"):
 			prop.take_damage(damage)
 	# Only the HERO's blast clears enemy bolts from the air (spell-vs-spell); an

@@ -18,12 +18,13 @@ extends RigidBody2D
 ## it under a dummy renderer.
 
 const GROUP_NAME: String = "debris_chunk"
-const MAX_LIVE_CHUNKS: int = 90  # global perf cap; spawn_burst refuses beyond it
+const MAX_LIVE_CHUNKS: int = 160  # global perf cap; more rubble on screen (was 90)
 const CHUNK_LAYER: int = 32  # layer 6 — dedicated, see header
 const CHUNK_MASK: int = 1  # platforms/walls only
-# Visual size band (px across, roughly).
-const SIZE_MIN: float = 4.0
-const SIZE_MAX: float = 9.0
+# Visual size band (px across, roughly). Wider band -> more diversified chunks
+# (maker: "diversified block looks, smaller chunks" alongside bigger rubble).
+const SIZE_MIN: float = 3.0
+const SIZE_MAX: float = 13.0
 # Lifetime: fly + settle for LIFETIME_*, then fade out over FADE_TIME.
 # Longer settle + lingering rubble = Stick-Fight "permanence" (the world stays
 # visibly impacted after the fight moment, not wiped a second later).

@@ -7,7 +7,7 @@ extends Node2D
 ## autoloads (draw + one raycast only), so the headless harness can load() it.
 
 const GROUP_NAME: String = "ground_crater"
-const MAX_CRATERS: int = 24        # session cap; oldest freed past this
+const MAX_CRATERS: int = 44        # session cap; oldest freed past this (more scarring)
 const SNAP_MAX_DIST: float = 260.0 # downward raycast reach to find the floor
 
 @export var radius: float = 40.0

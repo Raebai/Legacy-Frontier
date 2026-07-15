@@ -156,6 +156,8 @@ func _impact_mark(at: Vector2) -> void:
 				get_parent(), at, _radius * 0.5, "scorch",
 				Color(0.06, 0.03, 0.02, 0.6), 8.0
 			)
+	# The pillar crashing down GOUGES the ground (was scorch-only) — snapped to floor.
+	GroundCrater.spawn(get_parent(), at, _radius * 0.6, true)
 
 
 ## Pure geometry (testable): nodes within `radius` of `center`.
