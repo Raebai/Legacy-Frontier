@@ -271,6 +271,10 @@ var _dash_hit: Array = []  # enemies/props already struck this dash (rogue no-mu
 var _element: int = Elements.Element.ARCANE
 var _element_color: Color = Color(1.0, 1.0, 1.0, 1.0)
 var _colourway: int = 0
+## Mobile: set by TouchControls when the on-screen pad is active (or true on any
+## touchscreen). Switches aim from the cursor to auto-target the nearest enemy so
+## every ability works by tapping a button — no pixel-precise aiming (mobile-first).
+var touch_input: bool = false
 
 @onready var rig: CharacterRig = $Rig
 var _tuning: Node = null  # cached /root/Tuning (null in headless tests -> fallbacks)
@@ -354,6 +358,12 @@ var _summon_target: Vector2 = Vector2.ZERO
 var _summon_circle: Node2D = null
 
 
+## True when aim should auto-target (mobile): the TouchControls pad is active, or the
+## device is a touchscreen. Cached DisplayServer call is cheap.
+func _touch_aim() -> bool:
+	return touch_input or DisplayServer.is_touchscreen_available()
+
+
 func _physics_process(delta: float) -> void:
 	_dash_cooldown_timer = max(_dash_cooldown_timer - delta, 0.0)
 	_cast_cooldown_timer = max(_cast_cooldown_timer - delta, 0.0)
@@ -390,11 +400,18 @@ func _physics_process(delta: float) -> void:
 		Juice.shake_camera(2.5)  # a little land thud (Stick-Fight juice)
 	_was_on_floor = is_on_floor()
 	_update_input_buffer(delta)
-	# Twin-stick aim: track the cursor every frame so casts / cast-pose / camera
-	# peek use it even mid-dash. Movement (below) feeds _move_dir independently.
-	var to_mouse: Vector2 = get_global_mouse_position() - global_position
-	if to_mouse.length() > 1.0:
-		_aim_dir = to_mouse.normalized()
+	# Aim resolution. On MOBILE (touch) there's no cursor — auto-aim at the nearest
+	# enemy (movement biases the fallback) so every ability is usable by just tapping
+	# a button, no pixel-precise aiming. On desktop, twin-stick: track the cursor
+	# every frame so casts / cast-pose / camera peek use it even mid-dash.
+	if _touch_aim():
+		var enemies: Array = get_tree().get_nodes_in_group("enemy")
+		var fallback: Vector2 = _move_dir if _move_dir != Vector2.ZERO else facing
+		_aim_dir = Targeting.aim_direction(global_position, enemies, fallback)
+	else:
+		var to_mouse: Vector2 = get_global_mouse_position() - global_position
+		if to_mouse.length() > 1.0:
+			_aim_dir = to_mouse.normalized()
 	facing = _aim_dir
 	# Feed groundedness to the rig so a limp (hold-DOWN) ragdoll clamps to the floor
 	# instead of drooping through it. Set every frame; cheap.

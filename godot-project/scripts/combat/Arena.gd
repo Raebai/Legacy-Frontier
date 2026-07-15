@@ -135,6 +135,8 @@ func _build_ability_bar() -> void:
 	layer.layer = 60  # above the floor banner (50), below Conversation (100)
 	add_child(layer)
 	layer.add_child(AbilityBar.new())
+	# Mobile two-thumb touch pad (self-hides on desktop; keyboard/mouse unaffected).
+	add_child(TouchControls.new())
 
 
 # ------------------------------------------------------------------- theme/UI

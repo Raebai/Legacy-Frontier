@@ -447,6 +447,8 @@ func _build_hud() -> void:
 	_banner.visible = false
 	layer.add_child(_banner)
 	_build_pause_overlay(layer)
+	# Mobile two-thumb touch pad (self-hides on desktop; keyboard/mouse unaffected).
+	add_child(TouchControls.new())
 
 
 ## Hidden dim overlay with PAUSED + Resume/Reset — toggled by Esc. Lives on the
