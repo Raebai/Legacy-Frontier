@@ -22,7 +22,12 @@ static func spawn(parent: Node, world_pos: Vector2, element: int, size: float) -
 	if parent == null or not parent.is_inside_tree():
 		return
 	if element == Elements.Element.FIRE:
-		FlameBurst.spawn(parent, world_pos, size)  # fire = the flame plume
+		FlameBurst.spawn(parent, world_pos, size)  # fire = the procedural flame plume
+		# ...and a real stylized EXPLOSION on the BIGGER fire beats (blast / nova /
+		# fire-beam impact) — gated by size so DoT ticks + the meteor barrage's many
+		# small impacts don't spawn a swarm. Layers over the flame plume.
+		if size >= 40.0:
+			Vfx.explosion(parent, world_pos, clampf(size / 210.0, 0.17, 0.42))
 		return
 	var fx := ElementFx.new()
 	fx._element = element
