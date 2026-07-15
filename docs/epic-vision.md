@@ -14,11 +14,14 @@ systems (sound + VFX + camera + time + destruction) firing IN SYNC on key beats:
 **anticipation → crescendo → payoff → aftermath.**
 
 ## Progress (2026-07-15)
-**Phase 1 ✅ DONE**, **Phase 1b ✅ DONE**, **Phase 2 ✅ DONE**, **Mobile touch ✅ first-pass DONE** —
-shipped + pushed to `origin/v2.0-tower` (see `.superpowers/sdd/progress.md` top block for the
-commit map). All headless + GPU-verified, UNPLAYTESTED for feel (needs maker F6). Remaining:
-Phase 3 (enemy kits/density + bigger natural destruction + de-corny beam SFX) and Phase 4
-(DMC style meter + real SFX packs), plus mobile on-device feel tuning.
+**Phase 1 ✅**, **Phase 1b ✅**, **Phase 2 ✅**, **Mobile touch ✅ (first-pass)**, plus the
+cross-cutting items: **bigger + natural/localized DESTRUCTION ✅**, **de-corny beam + real
+SFX packs ✅**, **VFX-asset integration ✅** (stylized explosion on fire beats; the cheap
+pixel-particle scenes were evaluated + rejected as worse than the procedural VFX). All
+shipped + pushed to `origin/v2.0-tower` (commit map in `.superpowers/sdd/progress.md` top
+block). Headless + GPU-verified, UNPLAYTESTED for feel (needs maker F6). Remaining: Phase 3
+(enemy class kits + spell-storm density), Phase 4 (DMC style/combo meter + climb + more real
+SFX), the meteor-area rework, remaining cinematic-SFX trimming, and mobile on-device tuning.
 
 ## Strategy — 4 phases, in order
 
