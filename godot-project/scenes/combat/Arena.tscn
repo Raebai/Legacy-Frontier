@@ -1,7 +1,6 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/combat/Arena.gd" id="1_arena_script"]
-[ext_resource type="PackedScene" path="res://scenes/combat/Hero.tscn" id="2_hero_scene"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_top"]
 size = Vector2(1200, 16)
@@ -45,6 +44,3 @@ shape = SubResource("RectangleShape2D_wall_left")
 [node name="WallRight" type="CollisionShape2D" parent="Walls"]
 position = Vector2(1200, 340)
 shape = SubResource("RectangleShape2D_wall_right")
-
-[node name="Hero" parent="." instance=ExtResource("2_hero_scene")]
-position = Vector2(600, 340)

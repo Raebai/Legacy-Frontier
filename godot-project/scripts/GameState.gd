@@ -121,6 +121,8 @@ func total_floors() -> int:
 ## Called by the arena when a floor is cleared and the player takes the exit.
 ## Advances the floor counter, or ends the run in victory past the last floor.
 func advance_floor() -> void:
+	if _is_net_client():
+		return                            # co-op: only the host advances the party
 	if not _run_active:
 		return
 	if _floor >= total_floors():
@@ -136,10 +138,36 @@ func advance_floor() -> void:
 	floor_advanced.emit(_floor)
 
 
+## Co-op: enter the tower at `floor` WITHOUT a scene change (the Net RPC changes
+## scene on all peers) and WITHOUT persistence (the host owns climber.json). Sets
+## the shared run state so every peer's Arena runs in run-mode + builds the same
+## floor (the default Ashspire is code-built identically on both sides).
+func enter_coop_run(floor: int) -> void:
+	if active_tower == null:
+		active_tower = _load_or_build_tower()
+	_floor = clampi(floor, 1, total_floors())
+	_highest_floor = maxi(_highest_floor, _floor)
+	_kills = 0
+	_boss_killed = false
+	_elements_used = {}
+	_run_active = true
+	mode = Mode.RUN
+	run_started.emit()
+
+
+## In co-op only the HOST drives the run spine (advance/fall/return + persistence);
+## clients follow the host's replicated floor. True on a client in a live session.
+func _is_net_client() -> bool:
+	var n: Node = get_node_or_null("/root/Net")
+	return n != null and n.is_active() and not n.is_host()
+
+
 ## Failing a floor: drop 2 floors, stay in the tower, keep everything. Ticks the
 ## falls counter and emits `fell` — the Arena rebuilds the dropped floor in place
 ## and revives the hero. No scene change, no hub trip.
 func fall() -> void:
+	if _is_net_client():
+		return                            # co-op: only the host drives falls
 	if not _run_active:
 		return                            # sandbox death: Hero handles the local reset
 	_falls += 1

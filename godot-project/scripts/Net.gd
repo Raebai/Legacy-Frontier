@@ -138,6 +138,28 @@ func _sync_class_table(table: Dictionary) -> void:
 	lobby_changed.emit()
 
 
+# ============================================================ co-op run entry
+## Host broadcasts "everyone into the tower". Sets the shared run state on every
+## peer (host owns floor progression + climber.json thereafter) then loads Arena.
+func start_coop_run() -> void:
+	if not is_host():
+		return
+	var floor: int = 1
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and gs.has_method("current_floor"):
+		floor = int(gs.current_floor())
+	_enter_coop_run.rpc(floor)
+	_enter_coop_run(floor)
+
+
+@rpc("authority", "call_local", "reliable")
+func _enter_coop_run(floor: int) -> void:
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and gs.has_method("enter_coop_run"):
+		gs.enter_coop_run(floor)
+	get_tree().change_scene_to_file("res://scenes/combat/Arena.tscn")
+
+
 # =========================================================== DAMAGE ROUTER
 ## Damage is applied on the VICTIM's authority. Singleplayer -> direct call.
 func deal_damage(target: Node, amount: int, tint: Color = Color(1, 1, 1, 0)) -> void:
@@ -188,13 +210,24 @@ func _maybe_cli_autostart() -> void:
 
 func _cli_host() -> void:
 	player_connected.connect(func(id: int) -> void:
-		print("[NET] host sees peer %d, total=%d" % [id, multiplayer.get_peers().size() + 1]))
+		print("[NET] host sees peer %d, total=%d" % [id, multiplayer.get_peers().size() + 1])
+		get_tree().create_timer(1.0).timeout.connect(func() -> void:
+			start_coop_run()
+			get_tree().create_timer(2.0).timeout.connect(_cli_count.bind("host"))))
 	var err: int = host(0)
 	print("[NET] host start err=%d id=%d" % [err, my_id()])
 
 
 func _cli_join(ip: String) -> void:
-	join_ok.connect(func() -> void: print("[NET] client connected, my_id=%d" % multiplayer.get_unique_id()))
+	join_ok.connect(func() -> void:
+		print("[NET] client connected, my_id=%d" % multiplayer.get_unique_id())
+		get_tree().create_timer(4.0).timeout.connect(_cli_count.bind("client")))
 	join_failed.connect(func() -> void: print("[NET] client FAILED"))
 	var err: int = join(ip, 0)
 	print("[NET] client join err=%d" % err)
+
+
+func _cli_count(who: String) -> void:
+	var heroes: int = get_tree().get_nodes_in_group("hero").size()
+	var enemies: int = get_tree().get_nodes_in_group("enemy").size()
+	print("[NET] %s heroes=%d enemies=%d" % [who, heroes, enemies])

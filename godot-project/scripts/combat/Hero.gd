@@ -225,6 +225,12 @@ var _signature_cd_timer: float = 0.0
 ## pose, camera peek); `_move_dir` tracks WASD (drives dash + blink dodge). They
 ## are decoupled so you can run one way while aiming/casting another (strafe).
 var facing: Vector2 = Vector2.RIGHT
+
+## Co-op: the class comes from the lobby (net_class >= 0), not GameState. `_net`
+## caches /root/Net so the per-frame authority check is cheap. Singleplayer leaves
+## net_class at -1 and _net.is_active() false, so nothing below changes SP.
+var net_class: int = -1
+var _net: Node = null
 var _aim_dir: Vector2 = Vector2.RIGHT
 var _move_dir: Vector2 = Vector2.RIGHT
 var _footstep_timer: float = 0.0
@@ -297,16 +303,20 @@ func _ready() -> void:
 	health_changed.emit(hp, max_hp)
 	rig.set_tint(COLOURWAYS[_colourway])
 	rig.set_aim_arm(true)  # twin-stick: the lead hand always aims at the cursor
-	# Class comes from GameState (hub selection) if present, else defaults MAGE.
+	# Class comes from the co-op lobby (net_class) first, else GameState, else MAGE.
+	_net = get_node_or_null("/root/Net")
 	var gs: Node = get_node_or_null("/root/GameState")
 	var start_class: int = HeroClass.MAGE
-	if gs != null:
+	if net_class >= 0:
+		start_class = net_class
+	elif gs != null:
 		var sc: Variant = gs.get("selected_class")
 		if sc != null:
 			start_class = int(sc)
 	# configure_class sets the class element, rig preset, weapon, AND the class's
 	# signature loadout (SpellLibrary.build_for_class) + emits signature_changed.
 	configure_class(start_class)
+	_setup_net_role()
 	mp = float(max_mp)
 	mana_changed.emit(mp, max_mp)
 	# Rank drives aura TIER (elaborateness); the element keeps driving COLOUR.
@@ -365,6 +375,11 @@ func _touch_aim() -> bool:
 
 
 func _physics_process(delta: float) -> void:
+	# Co-op: you only drive YOUR hero. Remote heroes follow the synchronizer and
+	# just animate (no Input, no move_and_slide).
+	if _net != null and _net.is_active() and not is_multiplayer_authority():
+		_remote_visual(delta)
+		return
 	_dash_cooldown_timer = max(_dash_cooldown_timer - delta, 0.0)
 	_cast_cooldown_timer = max(_cast_cooldown_timer - delta, 0.0)
 	_melee_cooldown_timer = max(_melee_cooldown_timer - delta, 0.0)
@@ -1804,6 +1819,11 @@ func _die() -> void:
 	# ticks the fall counter + saves; the Arena rebuilds the dropped floor in place
 	# and revives us). In the standalone sandbox: just reset to full so the feel
 	# loop never stops.
+	# Co-op MVP: respawn in place at full HP (shared party-wipe -> fall is a
+	# documented follow-up). The owner revives itself; hp syncs to the others.
+	if _net != null and _net.is_active():
+		revive()
+		return
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs != null and gs.is_run_active():
 		gs.fall()
@@ -1834,6 +1854,54 @@ func revive() -> void:
 	velocity = Vector2.ZERO
 	if is_instance_valid(rig):
 		rig.play(CharacterRig.State.IDLE)
+
+
+# ------------------------------------------------------------- co-op networking
+## Camera + synchronizer role. Only in a live session; SP leaves the camera as-is.
+func _setup_net_role() -> void:
+	if _net == null or not _net.is_active():
+		return
+	_setup_net_sync()
+	var cam := get_node_or_null("Camera2D") as Camera2D
+	if is_multiplayer_authority():
+		if cam != null:
+			cam.make_current()   # the local hero owns the viewport
+	elif cam != null:
+		cam.enabled = false      # remote heroes never steal the view
+
+
+## A MultiplayerSynchronizer that streams this hero's transform + state from its
+## owner to every peer. Built in code (no .tscn surgery).
+func _setup_net_sync() -> void:
+	var cfg := SceneReplicationConfig.new()
+	for p: String in [":position", ":velocity", ":facing", ":hp", ":net_class"]:
+		cfg.add_property(NodePath(p))
+	cfg.property_set_replication_mode(NodePath(":position"), SceneReplicationConfig.REPLICATION_MODE_ALWAYS)
+	cfg.property_set_replication_mode(NodePath(":velocity"), SceneReplicationConfig.REPLICATION_MODE_ALWAYS)
+	var sync := MultiplayerSynchronizer.new()
+	sync.name = "NetSync"
+	sync.root_path = NodePath("..")   # relative to this Hero
+	sync.replication_config = cfg
+	add_child(sync)
+	sync.set_multiplayer_authority(get_multiplayer_authority())
+
+
+## Remote heroes animate from replicated velocity/facing; no input, no physics.
+func _remote_visual(_delta: float) -> void:
+	if is_instance_valid(rig):
+		rig.set_body_velocity(velocity)
+		rig.set_facing(facing)
+		rig.play(CharacterRig.State.RUN if absf(velocity.x) > 8.0 else CharacterRig.State.IDLE)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _net_take_damage(amount: int, _tint: Color = Color(1, 1, 1, 0)) -> void:
+	take_damage(amount)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _net_apply_knockback(impulse: Vector2) -> void:
+	apply_knockback(impulse)
 
 
 ## Record the element behind an actual thrown ability into the run outcome

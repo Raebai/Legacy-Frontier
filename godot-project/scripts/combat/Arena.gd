@@ -45,6 +45,7 @@ func _ready() -> void:
 	_encounter.cleared.connect(_on_floor_cleared)
 	_build_ability_bar()
 	_build_pause_overlay()
+	_setup_heroes()
 
 	_gs = get_node_or_null("/root/GameState")
 	_run_mode = _gs != null and _gs.is_run_active()
@@ -245,6 +246,58 @@ func _clear_portal() -> void:
 ## MMO-style ability/cooldown hotbar. Reads the hero each frame and self-finds
 ## it via the "hero" group, so it works in both RUN and SANDBOX modes and simply
 ## draws nothing if no hero is present.
+## Spawn the hero(es). SP: one local hero at the classic centre. Co-op: the host
+## spawns one Hero per peer through a MultiplayerSpawner (each with that peer's
+## authority); clients get the spawns replicated automatically. The hero used to
+## be hard-coded in Arena.tscn — it's now created here so co-op can vary the count.
+var _heroes_root: Node2D = null
+var _hero_spawner: MultiplayerSpawner = null
+
+
+func _setup_heroes() -> void:
+	_heroes_root = Node2D.new()
+	_heroes_root.name = "Heroes"
+	add_child(_heroes_root)
+	var net: Node = get_node_or_null("/root/Net")
+	if net != null and net.is_active():
+		_hero_spawner = MultiplayerSpawner.new()
+		_hero_spawner.name = "HeroSpawner"
+		add_child(_hero_spawner)
+		_hero_spawner.spawn_path = _heroes_root.get_path()
+		_hero_spawner.spawn_function = Callable(self, "_spawn_hero_net")
+		if net.is_host():
+			# Defer so every client's Arena + spawner is ready to receive the
+			# replicated hero spawns (avoids the "spawned before the client loaded"
+			# race). LAN-scale simple; a ready-handshake is the robust follow-up.
+			get_tree().create_timer(0.6).timeout.connect(_spawn_all_heroes)
+	else:
+		var h: Node = load("res://scenes/combat/Hero.tscn").instantiate()
+		(h as Node2D).position = Vector2(600.0, 340.0)
+		_heroes_root.add_child(h)
+
+
+func _spawn_all_heroes() -> void:
+	var net: Node = get_node_or_null("/root/Net")
+	if net == null or not net.is_host() or _hero_spawner == null:
+		return
+	var i: int = 0
+	for pid in net.peers():
+		var pos: Vector2 = Vector2(600.0, 340.0) + Vector2(60.0 * float(i), 0.0)
+		_hero_spawner.spawn({"peer": int(pid), "cls": int(net.class_of(pid)), "x": pos.x, "y": pos.y})
+		i += 1
+
+
+## MultiplayerSpawner custom spawn — runs on every peer with identical data, so
+## authority assignment is deterministic. Set props BEFORE the spawner adds it.
+func _spawn_hero_net(data: Dictionary) -> Node:
+	var h: Node = load("res://scenes/combat/Hero.tscn").instantiate()
+	h.name = "Hero_%d" % int(data["peer"])
+	(h as Node2D).position = Vector2(float(data["x"]), float(data["y"]))
+	h.set("net_class", int(data["cls"]))
+	h.set_multiplayer_authority(int(data["peer"]))
+	return h
+
+
 func _build_ability_bar() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 60  # above the floor banner (50), below Conversation (100)
