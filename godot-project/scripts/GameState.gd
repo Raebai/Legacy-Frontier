@@ -16,6 +16,7 @@ signal run_started
 signal run_ended(outcome: Dictionary)        # combat resolved (victory or death)
 signal floor_advanced(floor: int)            # cleared a floor, entering the next
 signal returned_to_hub(outcome: Dictionary)  # hub NPCs have ingested the run
+signal fell(new_floor: int)                  # died on a floor -> dropped, staying in the tower
 
 enum Mode { HUB, RUN }
 
@@ -29,6 +30,11 @@ const RUN_FACT_PREFIX: String = "just back: "
 ## Must match MemoryConsolidator.MAX_KEY_FACTS_PER_ENTITY so a run fact obeys the
 ## same cap the consolidation pipeline enforces.
 const KEY_FACTS_CAP: int = 5
+
+## Climber save schema version (bump + migrate if the shape changes).
+const CLIMBER_SAVE_VERSION: int = 1
+## Where the persistent climber lives (highest/current floor, falls, conquered, rank).
+const CLIMBER_PATH: String = "user://climber.json"
 
 ## Which hero class the next/current run uses. Read by Hero._ready(). Set from
 ## the hub or the debug switch. 0..7 (see Hero.HeroClass / CLASS_NAMES).
@@ -48,6 +54,12 @@ const DIFFICULTY_NAMES: Array[String] = ["Easy", "Normal", "Hard", "Impossible"]
 ## from the depth math (keeps the F6 sandbox + the pre-tower path working).
 var active_tower: TowerDef = null
 
+# --- persistent climber state (loaded at _ready, saved at every floor transition) ---
+var _highest_floor: int = 1          # highest floor ever reached (monotonic)
+var _falls: int = 0                  # cumulative falls (deaths); the town clocks these
+var tower_conquered: bool = false    # cleared the guardian at least once this save
+var _saved_rank_power: int = 0       # Rank.power snapshot, applied to /root/Rank on enter_run
+
 var mode: int = Mode.HUB
 var last_run: Dictionary = {}            # {} until the first run ends
 var _pending_ingest: bool = false        # a finished run awaits hub-NPC ingest
@@ -65,10 +77,21 @@ var _elements_used: Dictionary = {}      # used as a String set
 const TOWER_PATH: String = "res://data/towers/ashspire.tres"
 
 
+func _ready() -> void:
+	_load_climber()
+
+
 func enter_run() -> void:
 	if active_tower == null:
 		active_tower = _load_or_build_tower()
-	_floor = 1
+	# Persistent climb: a conquered tower re-climbs fresh; otherwise resume from
+	# the saved floor. NEVER a blanket reset to 1.
+	if tower_conquered:
+		_floor = 1
+		tower_conquered = false
+	_floor = clampi(_floor, 1, total_floors())
+	_highest_floor = maxi(_highest_floor, _floor)
+	_restore_rank_power()
 	_kills = 0
 	_boss_killed = false
 	_elements_used = {}
@@ -101,11 +124,41 @@ func advance_floor() -> void:
 	if not _run_active:
 		return
 	if _floor >= total_floors():
-		_boss_killed = true          # cleared the guardian floor
+		_boss_killed = true               # cleared the guardian floor
+		tower_conquered = true
+		_highest_floor = maxi(_highest_floor, total_floors())
+		_save_climber()
 		end_run(false)
 		return
 	_floor += 1
+	_highest_floor = maxi(_highest_floor, _floor)
+	_save_climber()
 	floor_advanced.emit(_floor)
+
+
+## Failing a floor: drop 2 floors, stay in the tower, keep everything. Ticks the
+## falls counter and emits `fell` — the Arena rebuilds the dropped floor in place
+## and revives the hero. No scene change, no hub trip.
+func fall() -> void:
+	if not _run_active:
+		return                            # sandbox death: Hero handles the local reset
+	_falls += 1
+	_floor = fall_floor(_floor)
+	_save_climber()
+	fell.emit(_floor)
+
+
+## Deliberate hub return from a cleared floor. Banks the cleared floor (resume
+## continues the climb, no refight), then bounces to the hub with a "walked out
+## alive" outcome the NPCs ingest.
+func return_to_hub() -> void:
+	if not _run_active:
+		return
+	if _floor < total_floors():
+		_floor += 1
+		_highest_floor = maxi(_highest_floor, _floor)
+	_save_climber()
+	end_run(false)
 
 
 ## End the run (died == true on a hero death, false on a full clear) and bounce
@@ -116,7 +169,7 @@ func end_run(died: bool) -> void:
 	_run_active = false
 	last_run = build_outcome(
 		_floor, _kills, _boss_killed, died,
-		_elements_used.keys(), _rank_tier(), _rank_title()
+		_elements_used.keys(), _rank_tier(), _rank_title(), _falls
 	)
 	_pending_ingest = true
 	_run_hint_unshown = true
@@ -139,9 +192,77 @@ func apply_run_to_hub_npcs(tree: SceneTree) -> void:
 
 
 func _change_scene(path: String) -> void:
+	if not is_inside_tree():
+		return
 	var tree: SceneTree = get_tree()
 	if tree != null:
 		tree.change_scene_to_file(path)
+
+
+# --------------------------------------------------- climber persistence (IO)
+## Atomic save: write <path>.tmp then rename over the real file, so a crash
+## mid-write can't corrupt an existing climber. Mirrors NPC.save_memory.
+func _save_climber(path: String = CLIMBER_PATH) -> void:
+	var payload: Dictionary = build_climber_save(
+		_floor, _highest_floor, _falls, tower_conquered, _live_rank_power()
+	)
+	var tmp_path: String = path + ".tmp"
+	var f: FileAccess = FileAccess.open(tmp_path, FileAccess.WRITE)
+	if f == null:
+		push_error("GameState._save_climber: cannot open %s for writing" % tmp_path)
+		return
+	f.store_string(JSON.stringify(payload, "\t"))
+	f.close()
+	var dir: DirAccess = DirAccess.open("user://")
+	if dir == null:
+		push_error("GameState._save_climber: cannot open user://")
+		return
+	var err: int = dir.rename(tmp_path.get_file(), path.get_file())
+	if err != OK:
+		push_error("GameState._save_climber: rename %s -> %s failed (err=%d)" % [tmp_path.get_file(), path.get_file(), err])
+
+
+## Load the climber from disk into the runtime vars. Missing file -> defaults
+## (fresh climber at floor 1) so the pre-step-5 behaviour is preserved exactly.
+func _load_climber(path: String = CLIMBER_PATH) -> void:
+	if not FileAccess.file_exists(path):
+		return
+	var f: FileAccess = FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return
+	var text: String = f.get_as_text()
+	f.close()
+	var parsed: Variant = JSON.parse_string(text)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		push_error("GameState._load_climber: malformed save, ignoring")
+		return
+	var state: Dictionary = parse_climber_save(parsed)
+	_floor = int(state["current_floor"])
+	_highest_floor = int(state["highest_floor"])
+	_falls = int(state["falls"])
+	tower_conquered = bool(state["tower_conquered"])
+	_saved_rank_power = int(state["rank_power"])
+
+
+## The live rank power to persist. Reads /root/Rank when present (combat), else
+## falls back to the last-saved snapshot (headless / hub) so a save never zeroes it.
+func _live_rank_power() -> int:
+	if not is_inside_tree():
+		return _saved_rank_power
+	var r: Node = get_node_or_null("/root/Rank")
+	if r != null:
+		return int(r.power)
+	return _saved_rank_power
+
+
+## Push the saved rank power back into /root/Rank (called on entering the tower,
+## where the Rank HUD + aura live). No-op headless / if Rank is absent.
+func _restore_rank_power() -> void:
+	if not is_inside_tree():
+		return
+	var r: Node = get_node_or_null("/root/Rank")
+	if r != null and r.has_method("set_power"):
+		r.set_power(_saved_rank_power)
 
 
 # --------------------------------------------------- live-run notifications
@@ -162,11 +283,15 @@ func consume_callback_run_hint() -> String:
 
 
 func _rank_tier() -> int:
+	if not is_inside_tree():
+		return 0
 	var r: Node = get_node_or_null("/root/Rank")
 	return int(r.call("tier")) if r != null else 0
 
 
 func _rank_title() -> String:
+	if not is_inside_tree():
+		return "Nameless"
 	var r: Node = get_node_or_null("/root/Rank")
 	return String(r.call("title")) if r != null else "Nameless"
 
@@ -178,7 +303,7 @@ func _rank_title() -> String:
 ## Frozen record of a finished run.
 static func build_outcome(
 	floor_reached: int, kills: int, boss_killed: bool, died: bool,
-	elements: Array, rank_tier: int, rank_title: String
+	elements: Array, rank_tier: int, rank_title: String, falls: int = 0
 ) -> Dictionary:
 	var elems: Array = []
 	for e in elements:
@@ -192,6 +317,7 @@ static func build_outcome(
 		"rank_tier": rank_tier,
 		"rank_title": rank_title,
 		"elements_used": elems,
+		"falls": maxi(falls, 0),
 	}
 
 
@@ -199,20 +325,24 @@ static func build_outcome(
 static func build_run_fact(run: Dictionary) -> String:
 	var floor_reached: int = int(run.get("floor_reached", 1))
 	var kills: int = int(run.get("enemies_killed", 0))
+	var falls: int = int(run.get("falls", 0))
 	var elems: Array = run.get("elements_used", [])
 	var elem_clause: String = ""
 	if elems.size() > 0:
 		elem_clause = ", wielding %s" % String(elems[0]).to_lower()
+	var fall_clause: String = ""
+	if falls > 0:
+		fall_clause = " (%d falls so far)" % falls
 	if bool(run.get("died", false)):
-		return "%sfell on floor %d after %d kills%s, came back rattled" % [
-			RUN_FACT_PREFIX, floor_reached, kills, elem_clause
+		return "%sfell on floor %d after %d kills%s, came back rattled%s" % [
+			RUN_FACT_PREFIX, floor_reached, kills, elem_clause, fall_clause
 		]
 	if bool(run.get("boss_killed", false)):
 		return "%sconquered all %d floors and felled the guardian%s" % [
 			RUN_FACT_PREFIX, floor_reached, elem_clause
 		]
-	return "%swalked out of floor %d alive after %d kills%s" % [
-		RUN_FACT_PREFIX, floor_reached, kills, elem_clause
+	return "%swalked out of floor %d alive after %d kills%s%s" % [
+		RUN_FACT_PREFIX, floor_reached, kills, elem_clause, fall_clause
 	]
 
 
@@ -220,9 +350,13 @@ static func build_run_fact(run: Dictionary) -> String:
 static func run_hint_text(run: Dictionary) -> String:
 	var floor_reached: int = int(run.get("floor_reached", 1))
 	if bool(run.get("died", false)):
-		return ("The player has JUST returned from the tower — they died on floor %d. "
+		var falls: int = int(run.get("falls", 0))
+		var fall_note: String = ""
+		if falls > 1:
+			fall_note = " That is %d falls now." % falls
+		return ("The player has JUST returned from the tower — they died on floor %d.%s "
 			+ "Open by acknowledging that specifically, in your own voice — needle them "
-			+ "or console them, but reference the fall.") % floor_reached
+			+ "or console them, but reference the fall.") % [floor_reached, fall_note]
 	if bool(run.get("boss_killed", false)):
 		return ("The player has JUST returned from the tower — they cleared every floor "
 			+ "and put down the guardian. Open by reacting to THAT feat specifically, in "
@@ -291,6 +425,43 @@ static func default_layout() -> LayoutDef:
 	]
 	l.weapon_pickups = [Vector2(560, 200)]
 	return l
+
+
+## Failing a floor drops you 2 floors but never below 1. Pure so it tests headlessly.
+static func fall_floor(current: int) -> int:
+	return maxi(current - 2, 1)
+
+
+## The on-disk climber record. All fields clamped to their floors; highest is
+## never below current. Static + pure -> headless-testable.
+static func build_climber_save(current_floor: int, highest_floor: int, falls: int, tower_conquered: bool, rank_power: int) -> Dictionary:
+	var current: int = maxi(current_floor, 1)
+	return {
+		"version": CLIMBER_SAVE_VERSION,
+		"current_floor": current,
+		"highest_floor": maxi(highest_floor, current),
+		"falls": maxi(falls, 0),
+		"tower_conquered": tower_conquered,
+		"rank_power": maxi(rank_power, 0),
+	}
+
+
+## Parse a raw (JSON-loaded) climber dict into typed fields. JSON.parse_string
+## returns numbers as TYPE_FLOAT, so EVERY int is coerced through int() — the M9
+## trap. A malformed/empty dict yields fresh-climber defaults (floor 1).
+static func parse_climber_save(raw: Dictionary) -> Dictionary:
+	var current: int = maxi(int(raw.get("current_floor", 1)), 1)
+	var highest: int = maxi(int(raw.get("highest_floor", current)), current)
+	var falls: int = maxi(int(raw.get("falls", 0)), 0)
+	var conquered: bool = bool(raw.get("tower_conquered", false))
+	var rank_power: int = maxi(int(raw.get("rank_power", 0)), 0)
+	return {
+		"current_floor": current,
+		"highest_floor": highest,
+		"falls": falls,
+		"tower_conquered": conquered,
+		"rank_power": rank_power,
+	}
 
 
 # ======================================================================
