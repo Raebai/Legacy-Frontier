@@ -1800,12 +1800,13 @@ func take_damage(amount: int) -> void:
 
 
 func _die() -> void:
-	# In a run: death ends the run and bounces to the hub (GameState handles the
-	# scene change + outcome record). In the standalone sandbox: just reset to
-	# full so the feel loop never stops.
+	# In a run: a death is a FALL — drop 2 floors but stay in the tower (GameState
+	# ticks the fall counter + saves; the Arena rebuilds the dropped floor in place
+	# and revives us). In the standalone sandbox: just reset to full so the feel
+	# loop never stops.
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs != null and gs.is_run_active():
-		gs.end_run(true)
+		gs.fall()
 		return
 	hp = max_hp
 	health_changed.emit(hp, max_hp)

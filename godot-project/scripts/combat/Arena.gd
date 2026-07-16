@@ -20,6 +20,8 @@ var _encounter: Encounter = null
 var _room: Node2D = null
 var _atmo: Atmosphere = null
 var _portal: ExitPortal = null
+var _return_portal: ExitPortal = null
+const RETURN_PORTAL_COLOR: Color = Color(1.0, 0.85, 0.4)   # warm gold vs the cyan climb-exit
 var _floor_banner: Label = null
 var _spawn_timer: float = 0.0
 
@@ -51,6 +53,8 @@ func _ready() -> void:
 		_build_floor_banner()
 		if not _gs.floor_advanced.is_connected(_on_floor_advanced):
 			_gs.floor_advanced.connect(_on_floor_advanced)
+		if not _gs.fell.is_connected(_on_fell):
+			_gs.fell.connect(_on_fell)
 		_setup_floor(_gs.current_floor())
 	else:
 		# Sandbox: the legacy default room + an endless trickle (below).
@@ -99,13 +103,33 @@ func _rebuild_room() -> void:
 func _on_floor_cleared() -> void:
 	if not _run_mode:
 		return
+	var layout: LayoutDef = _current_floor_def.layout
 	var exit_pt: Vector2 = DEFAULT_EXIT_POINT
-	if _current_floor_def.layout != null:
-		exit_pt = _current_floor_def.layout.exit_point
+	if layout != null:
+		exit_pt = layout.exit_point
 	_portal = EXIT_PORTAL_SCRIPT.new() as ExitPortal
 	add_child(_portal)
 	_portal.global_position = exit_pt
 	_portal.taken.connect(_on_portal_taken)
+	# A deliberate hub-return portal appears alongside the climb-exit on every
+	# non-final floor. Clearing the BOSS floor is the conquer (the climb-exit's
+	# advance path handles it), so no return portal there.
+	if _gs.current_floor() < _gs.total_floors():
+		var return_pt: Vector2 = Vector2(exit_pt.x, 520.0)
+		if layout != null:
+			return_pt = Vector2(layout.hero_start.x, layout.room_size.y - 120.0)
+		_return_portal = EXIT_PORTAL_SCRIPT.new() as ExitPortal
+		_return_portal.portal_label = "RETURN TO TOWN"
+		_return_portal.ring_color = RETURN_PORTAL_COLOR
+		_return_portal.trigger_group = "hero"
+		add_child(_return_portal)
+		_return_portal.global_position = return_pt
+		_return_portal.taken.connect(_on_return_taken)
+
+
+func _on_return_taken() -> void:
+	_clear_portal()
+	_gs.return_to_hub()
 
 
 func _on_portal_taken() -> void:
@@ -119,12 +143,51 @@ func _on_floor_advanced(new_floor: int) -> void:
 	_setup_floor(new_floor)
 
 
+## A fall landed us on an earlier floor: clear the current fight, rebuild the
+## dropped floor, and revive the hero. Reuses the same floor-rebuild path as a
+## normal climb — the only difference is we may have live enemies to clear.
+func _on_fell(new_floor: int) -> void:
+	_clear_portal()
+	_clear_enemies()
+	_setup_floor(new_floor)   # sets _current_floor_def to the dropped floor, respawns the fight
+	_revive_hero()            # after _setup_floor so hero_start reflects the new floor
+
+
+func _clear_enemies() -> void:
+	for e in get_tree().get_nodes_in_group("enemy"):
+		e.queue_free()
+
+
+## Full-heal + reposition the hero to the (new) floor's start. MVP revive: HP +
+## position. The active-ragdoll rig self-recovers from the death flinch.
+func _revive_hero() -> void:
+	var heroes: Array[Node] = get_tree().get_nodes_in_group("hero")
+	if heroes.is_empty():
+		return
+	var hero: Node2D = heroes[0] as Node2D
+	if hero == null:
+		return
+	var full: int = int(hero.get("max_hp"))
+	hero.set("hp", full)
+	if hero.has_signal("health_changed"):
+		hero.emit_signal("health_changed", full, full)
+	var start: Vector2 = Vector2(600, 340)
+	if _current_floor_def != null and _current_floor_def.layout != null:
+		start = _current_floor_def.layout.hero_start
+	hero.global_position = start
+
+
 func _clear_portal() -> void:
 	if is_instance_valid(_portal):
 		if _portal.taken.is_connected(_on_portal_taken):
 			_portal.taken.disconnect(_on_portal_taken)
 		_portal.queue_free()
 	_portal = null
+	if is_instance_valid(_return_portal):
+		if _return_portal.taken.is_connected(_on_return_taken):
+			_return_portal.taken.disconnect(_on_return_taken)
+		_return_portal.queue_free()
+	_return_portal = null
 
 
 ## MMO-style ability/cooldown hotbar. Reads the hero each frame and self-finds
