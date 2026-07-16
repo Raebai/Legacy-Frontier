@@ -32,10 +32,8 @@ func _ready() -> void:
 	var conversation: Node = get_node_or_null("/root/Conversation")
 	if conversation != null:
 		conversation.set_process_unhandled_input(false)
-	# Switch the music bed back to combat (the hub swapped it to the calm ambience).
-	var music: Node = get_node_or_null("/root/Music")
-	if music != null and music.has_method("play_combat"):
-		music.play_combat()
+	# Music mood is chosen per-mode: run mode -> _setup_floor picks adventure/boss
+	# from the floor type; sandbox -> adventure (below). (The hub set the town bed.)
 
 	Atmosphere.add_glow(self)  # 2D bloom: pushed spell cores radiate
 	_room = Node2D.new()
@@ -59,6 +57,9 @@ func _ready() -> void:
 	else:
 		# Sandbox: the legacy default room + an endless trickle (below).
 		FloorBuilder.build_props(_room, GameState.synthesize_floor_def(1).layout)
+		var music: Node = get_node_or_null("/root/Music")
+		if music != null and music.has_method("play_adventure"):
+			music.play_adventure()
 
 
 func _process(delta: float) -> void:
@@ -75,6 +76,7 @@ func _process(delta: float) -> void:
 # ---------------------------------------------------------------------- RUN
 func _setup_floor(floor: int) -> void:
 	_current_floor_def = _gs.floor_def_for(floor)
+	_apply_floor_music()
 	_rebuild_room()
 	_clear_portal()
 	var theme: EnvTheme = _resolve_theme()
@@ -82,6 +84,19 @@ func _setup_floor(floor: int) -> void:
 		_apply_theme(theme.wash_tint)
 	_show_floor_banner(floor, theme)
 	_encounter.run_floor(_current_floor_def)
+
+
+## Boss floors get the boss bed; everything else the adventure bed. Fires on
+## every floor (re)build, so stepping onto floor 5 (BOSS) auto-swaps with a fade.
+func _apply_floor_music() -> void:
+	var music: Node = get_node_or_null("/root/Music")
+	if music == null:
+		return
+	if _current_floor_def != null and _current_floor_def.floor_type == FloorDef.FloorType.BOSS:
+		if music.has_method("play_boss"):
+			music.play_boss()
+	elif music.has_method("play_adventure"):
+		music.play_adventure()
 
 
 ## A floor's theme, falling back to the tower default, then null.
