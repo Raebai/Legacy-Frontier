@@ -49,6 +49,11 @@ func _ready() -> void:
 
 # ------------------------------------------------------------------ boss brain
 func _physics_process(delta: float) -> void:
+	# Co-op: the guardian is host-authoritative — a client puppet only animates from
+	# the synced transform/hp (no phases, no attacks, no move_and_slide) on its side.
+	if _net != null and _net.is_active() and not is_multiplayer_authority():
+		_remote_enemy_visual(delta)
+		return
 	_touch_cooldown = max(_touch_cooldown - delta, 0.0)
 	_knockback = _knockback.move_toward(Vector2.ZERO, KNOCKBACK_DECAY * delta)
 	_apply_gravity(delta)
@@ -284,14 +289,17 @@ func _atk_summon() -> void:
 	var n: int = mini(2, ADD_CAP - _summoned.size())
 	if n <= 0:
 		return
+	var chaser: Dictionary = ARCHETYPE_DEFAULTS[Archetype.CHASER]
 	for i: int in n:
-		var e: Node = load("res://scenes/combat/Enemy.tscn").instantiate()
-		e.archetype = 0   # CHASER
-		e.max_hp = 22
-		e.tint = Color(1.0, 0.6, 0.35, 1)
-		get_parent().add_child(e)
-		e.global_position = global_position + Vector2(randf_range(-90.0, 90.0), -20.0)
-		_summoned.append(e)
+		var pos: Vector2 = global_position + Vector2(randf_range(-90.0, 90.0), -20.0)
+		var e: Node = _spawn_runtime_enemy({
+			"boss": false, "arch": 0, "hp": 22,
+			"spd": float(chaser["speed"]), "touch": int(chaser["touch"]),
+			"tint": Color(1.0, 0.6, 0.35, 1), "tele": false,
+			"x": pos.x, "y": pos.y,
+		})
+		if e != null:
+			_summoned.append(e)
 
 
 func _prune_summoned() -> void:

@@ -38,6 +38,32 @@ var _timer: float = 0.0
 var _running: bool = false
 var _done: bool = false
 
+## Co-op: enemies are HOST-authoritative. In a session the host builds every enemy
+## through Arena's MultiplayerSpawner (so spawns + despawns replicate to clients);
+## clients never spawn/clear (the host drives + Net broadcasts floor changes). null
+## / inactive in SP -> the direct add_child path (byte-identical to before).
+var _net: Node = null
+var _net_spawner: MultiplayerSpawner = null
+## Co-op safety delay before the first host spawn, so late-loading clients' Arena +
+## EnemySpawner are ready to receive the replicated spawns (mirrors the hero spawner).
+const COOP_SPAWN_DELAY: float = 0.7
+
+
+func _ready() -> void:
+	_net = get_node_or_null("/root/Net")
+
+
+## Arena wires the co-op enemy spawner here (host + client both, so both build the
+## same enemies from the replicated spawn data).
+func set_net_spawner(spawner: MultiplayerSpawner) -> void:
+	_net_spawner = spawner
+
+
+## In a live session only the HOST spawns/clears enemies; clients mirror via the
+## spawner + Net floor broadcasts. False in SP (host-of-one).
+func _is_net_client() -> bool:
+	return _net != null and _net.is_active() and not _net.is_host()
+
 
 func configure(rect_min: Vector2, rect_max: Vector2, min_dist: float) -> void:
 	_rect_min = rect_min
@@ -59,11 +85,24 @@ func run_floor(floor_def: FloorDef) -> void:
 	_timer = 0.0
 	_done = false
 	_running = true
+	# Co-op client: the host owns spawning + the clear gate. Configure the room but
+	# spawn nothing here — enemies arrive over the spawner, floor changes over Net.
+	if _is_net_client():
+		_running = false
+		return
+	# Co-op host: hold the first spawn briefly so every client's EnemySpawner exists.
+	if _net != null and _net.is_active():
+		_timer = COOP_SPAWN_DELAY
 	# BOSS floor: spawn the guardian up front + cut the add budget. The guardian
 	# joins the "enemy" group, so the existing "alive == 0" clear gate waits for it.
 	if floor_def.floor_type == FloorDef.FloorType.BOSS:
 		_budget = mini(_budget, BOSS_ADD_BUDGET)
-		spawn_boss(_hp)
+		if _net != null and _net.is_active():
+			get_tree().create_timer(COOP_SPAWN_DELAY).timeout.connect(func() -> void:
+				if is_instance_valid(self):
+					spawn_boss(_hp))
+		else:
+			spawn_boss(_hp)
 
 
 func stop() -> void:
@@ -71,7 +110,7 @@ func stop() -> void:
 
 
 func _process(delta: float) -> void:
-	if not _running or _done:
+	if not _running or _done or _is_net_client():
 		return
 	var alive: int = get_tree().get_nodes_in_group("enemy").size()
 	if _spawned < _budget:
@@ -91,13 +130,14 @@ func _process(delta: float) -> void:
 ## leaves them; the rig height is bumped AFTER add_child (rig is @onready). Returns
 ## the guardian so a caller could wire a health banner / phase logic later.
 func spawn_boss(hp_mult: float) -> Node:
-	var e: CharacterBody2D = BOSS_SCENE.instantiate()
-	e.max_hp = int(round(BOSS_BASE_HP * hp_mult))   # set pre-_ready so defaults don't override
-	e.move_speed = BOSS_MOVE_SPEED
-	e.touch_damage = BOSS_TOUCH_DAMAGE
-	get_parent().add_child(e)   # Boss._ready installs rig height/tint/aura + adornment + bar + intro
-	e.global_position = _boss_spawn_position()
-	return e
+	var pos: Vector2 = _boss_spawn_position()
+	return _emit_enemy({
+		"boss": true,
+		"hp": int(round(BOSS_BASE_HP * hp_mult)),   # set pre-_ready so defaults don't override
+		"spd": BOSS_MOVE_SPEED,
+		"touch": BOSS_TOUCH_DAMAGE,
+		"x": pos.x, "y": pos.y,
+	})
 
 
 ## The guardian stands well to one side of the hero (toward centre) so the
@@ -114,10 +154,49 @@ func _boss_spawn_position() -> Vector2:
 
 ## Spawn one enemy of a weighted-random archetype into the arena.
 func spawn(brute_chance: float, hp_mult: float) -> void:
-	var e: CharacterBody2D = ENEMY_SCENE.instantiate()
-	_apply_archetype(e, _roll_archetype(brute_chance), hp_mult)
+	var kind: int = _roll_archetype(brute_chance)
+	var s: Dictionary = _archetype_stats(kind, hp_mult)
+	var pos: Vector2 = _pick_spawn_position()
+	_emit_enemy({
+		"boss": false, "arch": kind,
+		"hp": s["hp"], "spd": s["spd"], "touch": s["touch"], "tint": s["tint"], "tele": s["tele"],
+		"x": pos.x, "y": pos.y,
+	})
+
+
+## The one place an enemy enters the world: co-op host -> through the MultiplayerSpawner
+## (replicated to clients, authority set in Arena._spawn_enemy_net); SP -> direct
+## add_child. Returns the built node in SP (null in co-op — the spawner owns it).
+func _emit_enemy(data: Dictionary) -> Node:
+	if _net_spawner != null:
+		_net_spawner.spawn(data)
+		return null
+	var e: CharacterBody2D = build_enemy_from_data(data)
 	get_parent().add_child(e)
-	e.global_position = _pick_spawn_position()
+	return e
+
+
+## Pure construction from a spawn-data dict — the single source of truth used by the
+## SP direct path AND Arena's MultiplayerSpawner spawn_function (which runs on every
+## peer with identical data, so host + clients build byte-identical enemies). Stats
+## are set pre-_ready so Enemy._apply_archetype_defaults leaves the explicit values.
+func build_enemy_from_data(data: Dictionary) -> CharacterBody2D:
+	var e: CharacterBody2D
+	if bool(data.get("boss", false)):
+		e = BOSS_SCENE.instantiate()   # Boss._ready installs rig height/tint/aura + bar + intro
+		e.max_hp = int(data["hp"])
+		e.move_speed = float(data["spd"])
+		e.touch_damage = int(data["touch"])
+	else:
+		e = ENEMY_SCENE.instantiate()
+		e.archetype = int(data["arch"])
+		e.max_hp = int(data["hp"])
+		e.move_speed = float(data["spd"])
+		e.touch_damage = int(data["touch"])
+		e.tint = data["tint"]
+		e.uses_telegraphed_attack = bool(data["tele"])
+	e.position = Vector2(float(data["x"]), float(data["y"]))
+	return e
 
 
 ## Weighted roll over ALL EIGHT archetypes. Chaser is the backbone; the tankier /
@@ -148,50 +227,27 @@ func _roll_archetype(brute_chance: float) -> int:
 	return 0  # CHASER fallback
 
 
-func _apply_archetype(e: CharacterBody2D, kind: int, hp_mult: float) -> void:
-	e.archetype = kind
+## Pure per-archetype stat table {hp, spd, touch, tint, tele}, scaled by hp_mult.
+## Values match Enemy.ARCHETYPE_DEFAULTS so both spawn paths agree. Pure so it can
+## build a spawn-data dict without instantiating a throwaway node.
+func _archetype_stats(kind: int, hp_mult: float) -> Dictionary:
 	match kind:
 		1:  # BRUTE — slow, tanky, telegraphed heavy strike
-			e.max_hp = int(round(70 * hp_mult))
-			e.move_speed = 62.0
-			e.touch_damage = 18
-			e.tint = Color(0.7, 0.25, 0.45, 1)  # magenta
-			e.uses_telegraphed_attack = true
+			return {"hp": int(round(70 * hp_mult)), "spd": 62.0, "touch": 18, "tint": Color(0.7, 0.25, 0.45, 1), "tele": true}
 		2:  # CASTER — kites and lobs a dodgeable bolt
-			e.max_hp = int(round(30 * hp_mult))
-			e.move_speed = 80.0
-			e.touch_damage = 6
-			e.tint = Color(0.55, 0.45, 0.95, 1)  # indigo
+			return {"hp": int(round(30 * hp_mult)), "spd": 80.0, "touch": 6, "tint": Color(0.55, 0.45, 0.95, 1), "tele": false}
 		3:  # CHARGER — telegraphs a lane then rockets down it
-			e.max_hp = int(round(45 * hp_mult))
-			e.move_speed = 55.0
-			e.touch_damage = 10
-			e.tint = Color(0.9, 0.6, 0.2, 1)  # amber
+			return {"hp": int(round(45 * hp_mult)), "spd": 55.0, "touch": 10, "tint": Color(0.9, 0.6, 0.2, 1), "tele": false}
 		4:  # SUMMONER — kites and telegraphs a minion summon; priority target
-			e.max_hp = int(round(36 * hp_mult))
-			e.move_speed = 72.0
-			e.touch_damage = 6
-			e.tint = Color(0.35, 0.8, 0.55, 1)  # jade
+			return {"hp": int(round(36 * hp_mult)), "spd": 72.0, "touch": 6, "tint": Color(0.35, 0.8, 0.55, 1), "tele": false}
 		5:  # ASSASSIN — fast, fragile hit-and-run, weaving approach
-			e.max_hp = int(round(20 * hp_mult))
-			e.move_speed = 175.0
-			e.touch_damage = 8
-			e.tint = Color(0.82, 0.86, 0.92, 1)  # silver
+			return {"hp": int(round(20 * hp_mult)), "spd": 175.0, "touch": 8, "tint": Color(0.82, 0.86, 0.92, 1), "tele": false}
 		6:  # BOMBER — walking bomb; roots and telegraphs the biggest blast
-			e.max_hp = int(round(55 * hp_mult))
-			e.move_speed = 70.0
-			e.touch_damage = 6
-			e.tint = Color(0.34, 0.35, 0.4, 1)  # charcoal
+			return {"hp": int(round(55 * hp_mult)), "spd": 70.0, "touch": 6, "tint": Color(0.34, 0.35, 0.4, 1), "tele": false}
 		7:  # MAGE — kites like a caster but telegraphs a ground AoE
-			e.max_hp = int(round(34 * hp_mult))
-			e.move_speed = 78.0
-			e.touch_damage = 6
-			e.tint = Color(0.5, 0.3, 0.85, 1)  # deep violet
+			return {"hp": int(round(34 * hp_mult)), "spd": 78.0, "touch": 6, "tint": Color(0.5, 0.3, 0.85, 1), "tele": false}
 		_:  # CHASER — fast, weak
-			e.max_hp = int(round(24 * hp_mult))
-			e.move_speed = 140.0
-			e.touch_damage = 8
-			e.tint = Color(0.95, 0.5, 0.25, 1)  # orange
+			return {"hp": int(round(24 * hp_mult)), "spd": 140.0, "touch": 8, "tint": Color(0.95, 0.5, 0.25, 1), "tele": false}
 
 
 func _pick_spawn_position() -> Vector2:

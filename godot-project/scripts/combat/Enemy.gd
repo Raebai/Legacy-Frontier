@@ -449,9 +449,16 @@ func _ready() -> void:
 	var bars := CharacterBars.new()
 	add_child(bars)
 	bars.configure(self, false, -24.0)
+	_setup_enemy_net()
 
 
 func _physics_process(delta: float) -> void:
+	# Co-op: enemies are HOST-authoritative. A client-side puppet runs NO AI/physics —
+	# its transform + hp arrive over the MultiplayerSynchronizer; it only animates.
+	if _net != null and _net.is_active() and not is_multiplayer_authority():
+		_remote_enemy_visual(delta)
+		return
+	_retarget()  # multi-hero: chase the nearest LIVING hero (SP: the one hero, unchanged)
 	_touch_cooldown = max(_touch_cooldown - delta, 0.0)
 	_knockback = _knockback.move_toward(Vector2.ZERO, KNOCKBACK_DECAY * delta)
 	_attack_cooldown = maxf(_attack_cooldown - delta * _cd_speed, 0.0)  # harder = faster attacks
@@ -823,21 +830,43 @@ func _start_summon_windup() -> void:
 ## Scene load()ed at runtime, not preload: Enemy.tscn references this very
 ## script, so a preload here would be a cyclic resource dependency.
 func _spawn_minions() -> void:
-	var enemy_scene: PackedScene = load("res://scenes/combat/Enemy.tscn")
 	# Never exceed the concurrent cap: only fill the remaining room.
 	var to_spawn: int = mini(SUMMON_COUNT, maxi(SUMMON_MAX_ALIVE - _live_minion_count(), 0))
+	var chaser: Dictionary = ARCHETYPE_DEFAULTS[Archetype.CHASER]
+	var lit: Color = Color(tint.r, tint.g, tint.b, 1.0).lightened(0.35)  # reads as spawn
 	for i in to_spawn:
-		var minion: CharacterBody2D = enemy_scene.instantiate()
-		minion.archetype = Archetype.CHASER
-		minion.max_hp = SUMMON_MINION_HP
-		minion.tint = Color(tint.r, tint.g, tint.b, 1.0).lightened(0.35)  # reads as spawn
-		get_parent().add_child(minion)
 		var offset := Vector2.from_angle(randf() * TAU) * randf_range(SUMMON_SCATTER * 0.4, SUMMON_SCATTER)
-		minion.global_position = global_position + offset
-		_minions.append(minion)
+		var pos: Vector2 = global_position + offset
+		var minion: Node = _spawn_runtime_enemy({
+			"boss": false, "arch": Archetype.CHASER, "hp": SUMMON_MINION_HP,
+			"spd": float(chaser["speed"]), "touch": int(chaser["touch"]), "tint": lit, "tele": false,
+			"x": pos.x, "y": pos.y,
+		})
+		if minion != null:
+			_minions.append(minion)
 	_attack_state = AttackState.RECOVER
 	_recover_timer = ATTACK_RECOVER_TIME
 	_attack_cooldown = SUMMON_COOLDOWN
+
+
+## Spawn a runtime enemy (summoner minion / boss add) through the Arena so it goes
+## via the co-op MultiplayerSpawner when a session is up (replicated + host-owned),
+## or straight into the arena in SP. Falls back to a plain instantiate when the
+## parent isn't an Arena (headless helper tests). Returns the node (may be null).
+func _spawn_runtime_enemy(data: Dictionary) -> Node:
+	var parent: Node = get_parent()
+	if parent != null and parent.has_method("spawn_extra_enemy"):
+		return parent.spawn_extra_enemy(data)
+	var e: Node = load("res://scenes/combat/Enemy.tscn").instantiate()
+	e.archetype = int(data["arch"])
+	e.max_hp = int(data["hp"])
+	e.move_speed = float(data["spd"])
+	e.touch_damage = int(data["touch"])
+	e.tint = data["tint"]
+	if parent != null:
+		parent.add_child(e)
+		(e as Node2D).global_position = Vector2(float(data["x"]), float(data["y"]))
+	return e
 
 
 # ---------------------------------------------------------- ASSASSIN (hit-and-run)
@@ -1155,3 +1184,61 @@ func _net_take_damage(amount: int, tint: Color = Color(1.0, 1.0, 1.0, 0.0)) -> v
 @rpc("any_peer", "call_remote", "reliable")
 func _net_apply_knockback(impulse: Vector2) -> void:
 	apply_knockback(impulse)
+
+
+## Co-op: stand up a MultiplayerSynchronizer that streams this enemy's transform +
+## hp from the host (authority) to every client. Built in code (no .tscn surgery),
+## mirroring Hero._setup_net_sync. No-op in SP.
+func _setup_enemy_net() -> void:
+	if _net == null or not _net.is_active():
+		return
+	var cfg := SceneReplicationConfig.new()
+	for p: String in [":position", ":velocity", ":hp"]:
+		cfg.add_property(NodePath(p))
+	cfg.property_set_replication_mode(NodePath(":position"), SceneReplicationConfig.REPLICATION_MODE_ALWAYS)
+	cfg.property_set_replication_mode(NodePath(":velocity"), SceneReplicationConfig.REPLICATION_MODE_ALWAYS)
+	var sync := MultiplayerSynchronizer.new()
+	sync.name = "NetSync"
+	sync.root_path = NodePath("..")
+	sync.replication_config = cfg
+	add_child(sync)
+	sync.set_multiplayer_authority(get_multiplayer_authority())
+
+
+## Client puppet: no AI, no move_and_slide (position is streamed). Just animate the
+## rig from the synced velocity + face the nearest hero, and keep the HP bar honest
+## (hp is synced, so CharacterBars follows automatically).
+func _remote_enemy_visual(_delta: float) -> void:
+	if not is_instance_valid(rig):
+		return
+	rig.set_body_velocity(velocity)
+	rig.play(CharacterRig.State.RUN if absf(velocity.x) > 8.0 else CharacterRig.State.IDLE)
+	var nearest: Node2D = _nearest_hero()
+	if nearest != null:
+		rig.set_facing(nearest.global_position - global_position)
+
+
+## Retarget to the nearest LIVING hero each host frame (co-op: chase whoever is
+## closest; SP: the single hero, so this is a no-op change in feel).
+func _retarget() -> void:
+	var nearest: Node2D = _nearest_hero()
+	if nearest != null:
+		_hero = nearest
+
+
+## Nearest hero that isn't downed (co-op). Falls back to any hero. null if none.
+func _nearest_hero() -> Node2D:
+	var best: Node2D = null
+	var best_d: float = INF
+	var any: Node2D = null
+	for h: Node in get_tree().get_nodes_in_group("hero"):
+		if not (h is Node2D) or not is_instance_valid(h):
+			continue
+		any = h as Node2D
+		if h.has_method("is_downed") and h.is_downed():
+			continue
+		var d: float = global_position.distance_squared_to((h as Node2D).global_position)
+		if d < best_d:
+			best_d = d
+			best = h as Node2D
+	return best if best != null else any

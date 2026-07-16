@@ -46,6 +46,7 @@ func _ready() -> void:
 	_build_ability_bar()
 	_build_pause_overlay()
 	_setup_heroes()
+	_setup_enemy_spawner()   # co-op: host-authoritative enemies replicate through this
 
 	_gs = get_node_or_null("/root/GameState")
 	_run_mode = _gs != null and _gs.is_run_active()
@@ -285,6 +286,46 @@ func _spawn_all_heroes() -> void:
 		var pos: Vector2 = Vector2(600.0, 340.0) + Vector2(60.0 * float(i), 0.0)
 		_hero_spawner.spawn({"peer": int(pid), "cls": int(net.class_of(pid)), "x": pos.x, "y": pos.y})
 		i += 1
+
+
+## Co-op: a MultiplayerSpawner that replicates the host's enemy spawns (AND despawns
+## on death) to every client. spawn_path is the Arena itself, so enemies stay DIRECT
+## Arena children exactly like SP (their get_parent()==Arena world-spawning is
+## unchanged). Both host + clients build each enemy from the same replicated data via
+## Encounter.build_enemy_from_data; only the host runs their AI (Enemy gates on
+## authority). No-op in SP — Encounter falls back to direct add_child.
+var _enemy_spawner: MultiplayerSpawner = null
+
+
+func _setup_enemy_spawner() -> void:
+	var net: Node = get_node_or_null("/root/Net")
+	if net == null or not net.is_active():
+		return
+	_enemy_spawner = MultiplayerSpawner.new()
+	_enemy_spawner.name = "EnemySpawner"
+	add_child(_enemy_spawner)
+	_enemy_spawner.spawn_path = get_path()   # enemies are direct Arena children
+	_enemy_spawner.spawn_function = Callable(self, "_spawn_enemy_net")
+	_encounter.set_net_spawner(_enemy_spawner)
+
+
+## Runs on every peer with identical spawn data. The host owns every enemy (authority
+## = peer 1); clients build the same node as a puppet driven by the enemy's NetSync.
+func _spawn_enemy_net(data: Dictionary) -> Node:
+	var e: CharacterBody2D = _encounter.build_enemy_from_data(data)
+	e.set_multiplayer_authority(1)
+	return e
+
+
+## Route a runtime-spawned enemy (summoner minions, boss adds) through the same
+## replicated path in co-op, or straight into the arena in SP. Called by enemies via
+## get_parent().spawn_extra_enemy(...) — get_parent() is the Arena.
+func spawn_extra_enemy(data: Dictionary) -> Node:
+	if _enemy_spawner != null:
+		return _enemy_spawner.spawn(data)
+	var e: CharacterBody2D = _encounter.build_enemy_from_data(data)
+	add_child(e)
+	return e
 
 
 ## MultiplayerSpawner custom spawn — runs on every peer with identical data, so

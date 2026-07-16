@@ -229,5 +229,17 @@ func _cli_join(ip: String) -> void:
 
 func _cli_count(who: String) -> void:
 	var heroes: int = get_tree().get_nodes_in_group("hero").size()
-	var enemies: int = get_tree().get_nodes_in_group("enemy").size()
-	print("[NET] %s heroes=%d enemies=%d" % [who, heroes, enemies])
+	var enemy_nodes: Array = get_tree().get_nodes_in_group("enemy")
+	var enemies: int = enemy_nodes.size()
+	# Prove the enemies are HOST-authoritative (authority==1) and that the client's
+	# copies track the host's transform: print the count owned by peer 1 + the first
+	# enemy's rounded position. Host + client rows should show the SAME position.
+	var host_owned: int = 0
+	var sample: String = "-"
+	for e: Node in enemy_nodes:
+		if e.get_multiplayer_authority() == 1:
+			host_owned += 1
+		if sample == "-" and e is Node2D:
+			var p: Vector2 = (e as Node2D).global_position
+			sample = "(%d,%d)" % [int(round(p.x)), int(round(p.y))]
+	print("[NET] %s heroes=%d enemies=%d host_owned=%d first_enemy_pos=%s" % [who, heroes, enemies, host_owned, sample])
