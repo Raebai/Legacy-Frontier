@@ -1,5 +1,8 @@
 class_name MeteorSigil
 extends Node2D
+
+## Who this meteor storm's damage hits. Default "enemy"; the Boss sets "hero".
+var target_group: String = "enemy"
 ## Signature spectacle #3 — METEOR SIGIL. A huge magic circle opens high in the
 ## sky over the marked area and a BARRAGE of meteors streaks down, each a fiery
 ## head + trail that detonates on the ground with a burst + a small radius of
@@ -94,7 +97,7 @@ func _process(delta: float) -> void:
 func _land(m: Dictionary) -> void:
 	m["landed"] = true
 	var at: Vector2 = m["to"]
-	for enemy: Node in targets_in_radius(at, METEOR_IMPACT_RADIUS, get_tree().get_nodes_in_group("enemy")):
+	for enemy: Node in targets_in_radius(at, METEOR_IMPACT_RADIUS, get_tree().get_nodes_in_group(target_group)):
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(_damage)
 		if element_id >= 0 and enemy.has_method("apply_status"):

@@ -1,5 +1,8 @@
 class_name DivineRay
 extends Node2D
+
+## Who this ray's damage hits. Default "enemy"; the Boss sets "hero".
+var target_group: String = "enemy"
 ## Signature spectacle #2 — JUDGMENT. A holy sigil opens in the sky and a SINGLE
 ## towering pillar of light crashes down on the ONE point you mark — a precise,
 ## high-commitment single-target smite (dodge the tell or eat a heavy hit), NOT a
@@ -75,7 +78,7 @@ func _process(delta: float) -> void:
 func _smite() -> void:
 	_struck = true
 	var at: Vector2 = _ground
-	for enemy: Node in targets_in_radius(at, _radius, get_tree().get_nodes_in_group("enemy")):
+	for enemy: Node in targets_in_radius(at, _radius, get_tree().get_nodes_in_group(target_group)):
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(_damage)
 		if element_id >= 0 and enemy.has_method("apply_status"):

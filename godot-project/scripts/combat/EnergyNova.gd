@@ -1,5 +1,8 @@
 class_name EnergyNova
 extends Node2D
+
+## Who this nova's damage hits. Default "enemy"; the Boss sets "hero".
+var target_group: String = "enemy"
 ## Self-centered ENERGY NOVA: the "get off me" panic button. An instant
 ## screen-push shockwave that bursts out FROM THE HERO — no telegraph, no
 ## windup (contrast: BlastSpell's targeted danger-bloom). Damage is a pure
@@ -67,7 +70,7 @@ func _floor_below(from: Vector2, max_dist: float) -> Dictionary:
 ## Radius-query damage + OUTWARD knockback. Split out so headless tests can
 ## exercise the geometry without driving the VFX/juice side effects.
 func _apply_nova_damage() -> void:
-	for enemy: Node in get_tree().get_nodes_in_group("enemy"):
+	for enemy: Node in get_tree().get_nodes_in_group(target_group):
 		if not enemy is Node2D:
 			continue
 		if global_position.distance_to(enemy.global_position) > NOVA_RADIUS:

@@ -10,6 +10,7 @@ extends Node
 signal cleared
 
 const ENEMY_SCENE: PackedScene = preload("res://scenes/combat/Enemy.tscn")
+const BOSS_SCENE: PackedScene = preload("res://scenes/combat/Boss.tscn")
 const SPAWN_TRIES: int = 20
 const SPAWN_INTERVAL: float = 0.55
 
@@ -90,24 +91,25 @@ func _process(delta: float) -> void:
 ## leaves them; the rig height is bumped AFTER add_child (rig is @onready). Returns
 ## the guardian so a caller could wire a health banner / phase logic later.
 func spawn_boss(hp_mult: float) -> Node:
-	var e: CharacterBody2D = ENEMY_SCENE.instantiate()
-	e.archetype = 1                                   # BRUTE — telegraphed heavy swing
-	e.max_hp = int(round(BOSS_BASE_HP * hp_mult))
+	var e: CharacterBody2D = BOSS_SCENE.instantiate()
+	e.max_hp = int(round(BOSS_BASE_HP * hp_mult))   # set pre-_ready so defaults don't override
 	e.move_speed = BOSS_MOVE_SPEED
 	e.touch_damage = BOSS_TOUCH_DAMAGE
-	e.tint = BOSS_TINT
-	e.uses_telegraphed_attack = true
-	get_parent().add_child(e)
-	var rig: Node = e.get_node_or_null("Rig")
-	if rig != null and is_instance_valid(rig):
-		rig.set("height", BOSS_HEIGHT)
+	get_parent().add_child(e)   # Boss._ready installs rig height/tint/aura + adornment + bar + intro
 	e.global_position = _boss_spawn_position()
 	return e
 
 
-## Center of the spawn rect — the guardian holds the middle of the arena.
+## The guardian stands well to one side of the hero (toward centre) so the
+## colossus reads as its own giant silhouette, not stacked on the player.
 func _boss_spawn_position() -> Vector2:
-	return Vector2((_rect_min.x + _rect_max.x) * 0.5, (_rect_min.y + _rect_max.y) * 0.5)
+	var center := Vector2((_rect_min.x + _rect_max.x) * 0.5, (_rect_min.y + _rect_max.y) * 0.5)
+	var heroes: Array[Node] = get_tree().get_nodes_in_group("hero")
+	if heroes.size() > 0 and heroes[0] is Node2D:
+		var hx: float = (heroes[0] as Node2D).global_position.x
+		var bx: float = hx + (300.0 if hx < center.x else -300.0)
+		return Vector2(clampf(bx, _rect_min.x + 70.0, _rect_max.x - 70.0), center.y)
+	return Vector2(clampf(center.x + 300.0, _rect_min.x, _rect_max.x), center.y)
 
 
 ## Spawn one enemy of a weighted-random archetype into the arena.

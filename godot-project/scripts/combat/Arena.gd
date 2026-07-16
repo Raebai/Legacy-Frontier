@@ -85,7 +85,17 @@ func _setup_floor(floor: int) -> void:
 	if theme != null:
 		_apply_theme(theme.wash_tint)
 	_show_floor_banner(floor, theme)
+	_apply_floor_camera()
 	_encounter.run_floor(_current_floor_def)
+
+
+## Boss floors frame the whole arena (couch-brawler fit-all) so the giant
+## Guardian is fully in shot; other floors follow the hero normally.
+func _apply_floor_camera() -> void:
+	var is_boss: bool = _current_floor_def != null and _current_floor_def.floor_type == FloorDef.FloorType.BOSS
+	for cam: Node in get_tree().get_nodes_in_group("combat_camera"):
+		if cam.has_method("set_frame_all"):
+			cam.set_frame_all(is_boss)
 
 
 ## Boss floors get the boss bed; everything else the adventure bed. Fires on

@@ -1,5 +1,8 @@
 class_name StarConvergence
 extends Node2D
+
+## Who this convergence's damage hits. Default "enemy"; the Boss sets "hero".
+var target_group: String = "enemy"
 ## Signature spectacle #4 — HEAVEN'S VERDICT. The sky closes in a RING of radiant
 ## lances around the marked point; they rush INWARD and slam together as one
 ## cataclysmic holy nova. Distinct from Judgment (a vertical single pillar) and
@@ -74,7 +77,7 @@ func _process(delta: float) -> void:
 func _detonate() -> void:
 	_detonated = true
 	var at: Vector2 = _ground
-	for enemy: Node in targets_in_radius(at, _radius, get_tree().get_nodes_in_group("enemy")):
+	for enemy: Node in targets_in_radius(at, _radius, get_tree().get_nodes_in_group(target_group)):
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(_damage)
 		if element_id >= 0 and enemy.has_method("apply_status"):

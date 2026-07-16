@@ -1,5 +1,9 @@
 class_name BeamSpell
 extends Node2D
+
+## Which group this beam's damage query hits. Default "enemy" (hero casts it);
+## the Boss sets "hero" so it can fire the same beam AT the player.
+var target_group: String = "enemy"
 ## Signature spectacle #1 — the Frieren "Zoltraak" SIGIL BEAM. A huge magic
 ## circle materialises at the muzzle, gathers for a beat (a fair telegraph —
 ## dodge-the-tell), then FIRES a screen-crossing energy beam along the aim:
@@ -204,7 +208,7 @@ func _impact_mark(tip: Vector2) -> void:
 ## (within half-width) takes damage; enemies are shoved along the beam.
 func _apply_beam_damage() -> void:
 	var half: float = _width * 0.5 + 8.0  # a little forgiveness on the width
-	for enemy: Node in targets_on_beam(_origin, _dir, _length, half, get_tree().get_nodes_in_group("enemy")):
+	for enemy: Node in targets_on_beam(_origin, _dir, _length, half, get_tree().get_nodes_in_group(target_group)):
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(_damage)
 		if element_id >= 0 and enemy.has_method("apply_status"):

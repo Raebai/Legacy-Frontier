@@ -1,5 +1,8 @@
 class_name RockPillar
 extends Node2D
+
+## Who this pillar's damage hits. Default "enemy"; the Boss sets "hero".
+var target_group: String = "enemy"
 ## Earthbending ROCK PILLAR (the uppercut). A telegraphed danger ring + rumble,
 ## then a chunky stone column ERUPTS up from the ground at the marked point,
 ## launching everything in its footprint straight UP (big vertical knockback) +
@@ -105,7 +108,7 @@ static func targets_in_radius(center: Vector2, radius: float, nodes: Array) -> A
 
 
 func _apply_launch() -> void:
-	for enemy: Node in targets_in_radius(_ground, _radius, get_tree().get_nodes_in_group("enemy")):
+	for enemy: Node in targets_in_radius(_ground, _radius, get_tree().get_nodes_in_group(target_group)):
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(_damage)
 		if element_id >= 0 and enemy.has_method("apply_status"):
