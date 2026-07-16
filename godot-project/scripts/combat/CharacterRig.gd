@@ -73,8 +73,8 @@ const GROUND_RING_SPIN_SPEED: float = 1.1    # rad/s arc rotation
 ## Crisp Stick-Fight read: a dark outline drawn under the bold limb colour, and
 ## how much wider than the limb the outline extends (px). The main _draw passes
 ## OUTLINE_COLOR; the aura silhouette + dash ghosts draw outline-less (soft).
-const OUTLINE_COLOR: Color = Color(0.07, 0.08, 0.13, 1.0)
-const OUTLINE_EXTRA: float = 1.8
+const OUTLINE_COLOR: Color = Color(0.10, 0.11, 0.16, 0.85)  # soft rim, not a jet-black keyline (SF is flat/solid)
+const OUTLINE_EXTRA: float = 1.0                            # thin edge, not a fat cartoon outline
 ## --- Active-ragdoll spring sim: the DRAWN limbs physically lag/swing/flail
 ## toward the procedural pose (_compute_pose is the animation TARGET) instead
 ## of snapping to it, and go limp on death. Stable point-mass springs in LOCAL
@@ -934,7 +934,7 @@ func _vfx_wind(p: Vector2, rad: float, core: Color, _halo: Color) -> void:
 ## neck, hip, shoulder, hand_lead, hand_off, foot_lead, foot_off,
 ## plus stroke metrics r (head radius) and w (line width).
 func _compute_pose() -> Dictionary:
-	var w: float = maxf(2.0, height * 0.11)
+	var w: float = maxf(2.0, height * 0.12)   # a touch bolder for the iconic SF limb read
 	var r: float = height * 0.15
 	var arm_len: float = height * 0.32
 	var leg_len: float = height * 0.4
@@ -1087,16 +1087,17 @@ func _compute_pose() -> Dictionary:
 				shoulder += Vector2(0.0, amp * 0.2) * slam
 				foot_lead += Vector2(aim_l.x * amp * 0.3, amp * 0.15) * settle
 
-	# Visible hands/fists + feet (Stick-Fight read): round hands that clearly show,
-	# the LEAD fist CLENCHES bigger through a punch/kick, and BULKS while a
-	# flaming-fist charge is active (set_hand_fire). Feet are drawn with a forward toe.
-	var hand_base_r: float = w * 1.35
+	# Hands/feet as Stick-Fight capsule CAPS (radius = half the limb width) — no
+	# ball fists, no toes. The lead hand gets a whisper of clench through a strike
+	# and a modest bulk on a flaming charge, but stays SF-scale (the flame VFX
+	# carries the fire read, not a bloated fist).
+	var hand_base_r: float = w * 0.5
 	var hand_lead_r: float = hand_base_r
 	if is_strike:
-		hand_lead_r = w * lerpf(1.45, 2.15, clampf(ext, 0.0, 1.0))  # clench into the hit
+		hand_lead_r = w * lerpf(0.5, 0.8, clampf(ext, 0.0, 1.0))  # subtle SF-scale clench
 	if _hand_fire > 0.01:
-		hand_lead_r = maxf(hand_lead_r, w * (1.5 + 0.7 * _hand_fire))
-	var foot_r: float = w * 0.72
+		hand_lead_r = maxf(hand_lead_r, w * (0.6 + 0.4 * _hand_fire))
+	var foot_r: float = w * 0.5
 
 	return {
 		"head_center": head_center,
@@ -1140,8 +1141,7 @@ static func draw_figure(
 	# hand-built pose that predates them, so callers never break).
 	var hlr: float = pose.get("hand_lead_r", w * 0.5)
 	var hor: float = pose.get("hand_off_r", w * 0.5)
-	var ftr: float = pose.get("foot_r", w * 0.55)
-	var toe: Vector2 = Vector2(ftr * 1.25, 0.0)  # forward toe (+x local = facing)
+	var ftr: float = pose.get("foot_r", w * 0.5)
 
 	# --- ARTICULATED limbs (the Stick-Fight upgrade): solve a KNEE per leg + an
 	# ELBOW per arm with 2-bone IK so the figure BENDS like a real body instead of
@@ -1180,9 +1180,7 @@ static func draw_figure(
 		item.draw_circle(hand_lead, hlr + OUTLINE_EXTRA * 0.6, oc)
 		item.draw_circle(hand_off, hor + OUTLINE_EXTRA * 0.6, oc)
 		item.draw_circle(foot_lead, ftr + OUTLINE_EXTRA * 0.5, oc)
-		item.draw_circle(foot_lead + toe, ftr * 0.72 + OUTLINE_EXTRA * 0.4, oc)
 		item.draw_circle(foot_off, ftr + OUTLINE_EXTRA * 0.5, oc)
-		item.draw_circle(foot_off + toe, ftr * 0.72 + OUTLINE_EXTRA * 0.4, oc)
 		item.draw_circle(head_center, r + OUTLINE_EXTRA * 0.7, oc)
 
 	# The figure: head + torso + 2 articulated arms + 2 articulated legs.
@@ -1199,11 +1197,9 @@ static func draw_figure(
 	# lead fist grows through a strike / flaming charge via hlr from _compute_pose.
 	item.draw_circle(hand_off, hor, col)
 	item.draw_circle(hand_lead, hlr, col)
-	# Feet: a rounded heel + a forward toe so they read as feet, not just dots.
+	# Feet: rounded leg-ends only (SF has no toe nub).
 	item.draw_circle(foot_off, ftr, col)
-	item.draw_circle(foot_off + toe, ftr * 0.72, col)
 	item.draw_circle(foot_lead, ftr, col)
-	item.draw_circle(foot_lead + toe, ftr * 0.72, col)
 
 	_draw_equipment(
 		item, equipment_slots, col, w, r, fig_height,
