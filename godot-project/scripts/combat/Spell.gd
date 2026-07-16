@@ -64,6 +64,9 @@ func _ready() -> void:
 	body_entered.connect(_on_hit)
 	area_entered.connect(_on_area_hit)
 	collision_mask = collision_mask | 1  # also stop on platforms/walls (layer 1)
+	var netmgr: Node = get_node_or_null("/root/Net")
+	if netmgr != null and netmgr.is_active():
+		collision_mask = collision_mask | 2  # co-op friendly fire: also hit heroes (layer 2)
 
 
 ## Consumed by a projectile clash (a stronger enemy bolt): burst + free.
@@ -102,6 +105,8 @@ func _resolve_segment(prev: Vector2) -> bool:
 	query.collide_with_areas = false
 	query.collide_with_bodies = true
 	query.hit_from_inside = true  # point-blank: the ray may START inside the block
+	if is_instance_valid(caster) and caster is CollisionObject2D:
+		query.exclude = [(caster as CollisionObject2D).get_rid()]  # never self-stop on the caster
 	var hit: Dictionary = world.direct_space_state.intersect_ray(query)
 	if hit.is_empty():
 		return false
@@ -139,6 +144,17 @@ func _try_damage(node: Node) -> void:
 		if node.has_method("apply_knockback"):
 			node.apply_knockback(_dir * 260.0)
 		queue_free()
+	elif node.is_in_group("hero") and node != caster and node.has_method("take_damage"):
+		# FRIENDLY FIRE (co-op): a hero-cast spell can hit OTHER heroes (never the
+		# caster). Routed through Net so damage lands on the victim's authority.
+		var netmgr: Node = get_node_or_null("/root/Net")
+		if netmgr != null and netmgr.is_active():
+			_dead = true
+			netmgr.deal_damage(node, damage)
+			netmgr.deal_knockback(node, _dir * 240.0)
+			Juice.on_hit({"sfx": "spell_impact", "hitstop": 0.045, "shake": 6.0, "dir": _dir, "kick": 5.0})
+			_spawn_impact_burst()
+			queue_free()
 	elif node.is_in_group("destructible") and node.has_method("take_damage"):
 		# Props take spell damage too. Prefer damage_at so parts break off exactly
 		# where the bolt lands, along its travel direction (falls back to take_damage).
