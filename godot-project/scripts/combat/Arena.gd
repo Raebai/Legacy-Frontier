@@ -299,4 +299,7 @@ func _show_floor_banner(floor: int, theme: EnvTheme) -> void:
 	if _gs.active_tower != null:
 		total = _gs.active_tower.floors.size()
 	var theme_name: String = theme.name if theme != null else "?"
-	_floor_banner.text = "Floor %d / %d  ·  %s" % [floor, total, theme_name]
+	var label: String = "Floor %d / %d  ·  %s" % [floor, total, theme_name]
+	if _current_floor_def != null and _current_floor_def.floor_type == FloorDef.FloorType.BOSS:
+		label = "⚔  GUARDIAN  ⚔   ·   " + label
+	_floor_banner.text = label

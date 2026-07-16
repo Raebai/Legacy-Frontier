@@ -13,6 +13,16 @@ const ENEMY_SCENE: PackedScene = preload("res://scenes/combat/Enemy.tscn")
 const SPAWN_TRIES: int = 20
 const SPAWN_INTERVAL: float = 0.55
 
+# BOSS floor: one big GOLD guardian (BRUTE base — telegraphed heavy swing),
+# hp scaled by the floor's hp_multiplier. A handful of adds trickle alongside;
+# the floor clears only when the guardian AND every add are dead.
+const BOSS_BASE_HP: int = 520
+const BOSS_HEIGHT: float = 42.0       # rig height (visual size); collision stays clean
+const BOSS_TOUCH_DAMAGE: int = 26
+const BOSS_MOVE_SPEED: float = 66.0
+const BOSS_TINT: Color = Color(0.95, 0.78, 0.25, 1)   # gold
+const BOSS_ADD_BUDGET: int = 3        # the guardian is the star; only a few adds
+
 # Spawn area (from the floor's LayoutDef; defaults match the legacy arena rect).
 var _rect_min: Vector2 = Vector2(80, 80)
 var _rect_max: Vector2 = Vector2(1120, 600)
@@ -48,6 +58,11 @@ func run_floor(floor_def: FloorDef) -> void:
 	_timer = 0.0
 	_done = false
 	_running = true
+	# BOSS floor: spawn the guardian up front + cut the add budget. The guardian
+	# joins the "enemy" group, so the existing "alive == 0" clear gate waits for it.
+	if floor_def.floor_type == FloorDef.FloorType.BOSS:
+		_budget = mini(_budget, BOSS_ADD_BUDGET)
+		spawn_boss(_hp)
 
 
 func stop() -> void:
@@ -68,6 +83,31 @@ func _process(delta: float) -> void:
 		_done = true
 		_running = false
 		cleared.emit()
+
+
+## Spawn the floor's GUARDIAN — a scaled-up gold BRUTE. Stats are set BEFORE
+## add_child so _apply_archetype_defaults (which only fills still-default fields)
+## leaves them; the rig height is bumped AFTER add_child (rig is @onready). Returns
+## the guardian so a caller could wire a health banner / phase logic later.
+func spawn_boss(hp_mult: float) -> Node:
+	var e: CharacterBody2D = ENEMY_SCENE.instantiate()
+	e.archetype = 1                                   # BRUTE — telegraphed heavy swing
+	e.max_hp = int(round(BOSS_BASE_HP * hp_mult))
+	e.move_speed = BOSS_MOVE_SPEED
+	e.touch_damage = BOSS_TOUCH_DAMAGE
+	e.tint = BOSS_TINT
+	e.uses_telegraphed_attack = true
+	get_parent().add_child(e)
+	var rig: Node = e.get_node_or_null("Rig")
+	if rig != null and is_instance_valid(rig):
+		rig.set("height", BOSS_HEIGHT)
+	e.global_position = _boss_spawn_position()
+	return e
+
+
+## Center of the spawn rect — the guardian holds the middle of the arena.
+func _boss_spawn_position() -> Vector2:
+	return Vector2((_rect_min.x + _rect_max.x) * 0.5, (_rect_min.y + _rect_max.y) * 0.5)
 
 
 ## Spawn one enemy of a weighted-random archetype into the arena.
