@@ -168,6 +168,7 @@ func _on_fell(new_floor: int) -> void:
 	_clear_enemies()
 	_setup_floor(new_floor)   # sets _current_floor_def to the dropped floor, respawns the fight
 	_revive_hero()            # after _setup_floor so hero_start reflects the new floor
+	_flash_fall(new_floor)    # a brief "YOU FELL" beat so the drop reads
 
 
 func _clear_enemies() -> void:
@@ -184,14 +185,38 @@ func _revive_hero() -> void:
 	var hero: Node2D = heroes[0] as Node2D
 	if hero == null:
 		return
-	var full: int = int(hero.get("max_hp"))
-	hero.set("hp", full)
-	if hero.has_signal("health_changed"):
-		hero.emit_signal("health_changed", full, full)
+	if hero.has_method("revive"):
+		hero.call("revive")   # full clean reset: hp, cooldowns, channel/summon, ragdoll
+	else:
+		var full: int = int(hero.get("max_hp"))
+		hero.set("hp", full)
+		if hero.has_signal("health_changed"):
+			hero.emit_signal("health_changed", full, full)
 	var start: Vector2 = Vector2(600, 340)
 	if _current_floor_def != null and _current_floor_def.layout != null:
 		start = _current_floor_def.layout.hero_start
 	hero.global_position = start
+
+
+## A brief red "YOU FELL — dropped to Floor N" flash on a fall (fades after ~1.8s).
+func _flash_fall(new_floor: int) -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 70
+	add_child(layer)
+	var lbl := Label.new()
+	lbl.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	lbl.offset_top = 150.0
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.text = "▼  YOU FELL  ▼\ndropped to Floor %d" % new_floor
+	lbl.add_theme_font_size_override("font_size", 32)
+	lbl.add_theme_color_override("font_color", Color(0.96, 0.42, 0.36))
+	lbl.add_theme_color_override("font_outline_color", Color(0.05, 0.03, 0.05, 0.95))
+	lbl.add_theme_constant_override("outline_size", 6)
+	layer.add_child(lbl)
+	var tw := create_tween()
+	tw.tween_interval(1.2)
+	tw.tween_property(lbl, "modulate:a", 0.0, 0.6)
+	tw.tween_callback(layer.queue_free)
 
 
 func _clear_portal() -> void:

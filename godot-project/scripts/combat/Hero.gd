@@ -1812,6 +1812,30 @@ func _die() -> void:
 	health_changed.emit(hp, max_hp)
 
 
+## Full clean reset after a FALL (Arena calls this on the fell-respawn) so you
+## resume upright — not mid-channel, on-cooldown, knocked-back, or ragdolling.
+func revive() -> void:
+	hp = max_hp
+	health_changed.emit(hp, max_hp)
+	_dash_cooldown_timer = 0.0
+	_cast_cooldown_timer = 0.0
+	_melee_cooldown_timer = 0.0
+	_blast_cooldown_timer = 0.0
+	_blink_cooldown_timer = 0.0
+	_nova_cooldown_timer = 0.0
+	_parry_cooldown_timer = 0.0
+	_signature_cd_timer = 0.0
+	if _channeling:
+		_cancel_channel()
+	if _summoning:
+		_cancel_summon()
+	_ragdolling = false
+	_knockback = Vector2.ZERO
+	velocity = Vector2.ZERO
+	if is_instance_valid(rig):
+		rig.play(CharacterRig.State.IDLE)
+
+
 ## Record the element behind an actual thrown ability into the run outcome
 ## (guarded — no-op in the sandbox).
 func _notify_element_used() -> void:
