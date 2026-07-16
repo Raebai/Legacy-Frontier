@@ -89,6 +89,11 @@ func _boss_touch() -> void:
 func take_damage(amount: int, tint: Color = Color(1.0, 1.0, 1.0, 0.0)) -> void:
 	if _bphase == BPhase.DEAD:
 		return
+	# Co-op: a hit on a client-side puppet boss forwards to the host BEFORE any phase
+	# logic — only the host advances phases / spawns adds (the guardian is host-owned).
+	if _net != null and _net.is_active() and not is_multiplayer_authority():
+		rpc_id(get_multiplayer_authority(), &"_net_take_damage", amount, tint)
+		return
 	super.take_damage(amount, tint)   # hp / flash / numbers / may call _die
 	if _bphase == BPhase.DEAD:
 		return
@@ -100,6 +105,10 @@ func take_damage(amount: int, tint: Color = Color(1.0, 1.0, 1.0, 0.0)) -> void:
 
 
 func apply_knockback(impulse: Vector2, do_flop: bool = true) -> void:
+	# Puppet -> forward the RAW impulse to the host; the host applies RESIST once.
+	if _net != null and _net.is_active() and not is_multiplayer_authority():
+		rpc_id(get_multiplayer_authority(), &"_net_apply_knockback", impulse)
+		return
 	super.apply_knockback(impulse * KNOCKBACK_RESIST, do_flop)
 
 

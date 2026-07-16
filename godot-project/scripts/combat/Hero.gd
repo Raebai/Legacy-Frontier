@@ -1750,6 +1750,10 @@ func _on_melee_hit_frame() -> void:
 ## take_damage — a dashing or just-blinked hero shrugs it off. The .y lands once as
 ## a real impulse; .x rides the decaying channel (added into velocity each frame).
 func apply_knockback(impulse: Vector2, do_flop: bool = true) -> void:
+	# Co-op: a shove computed on another peer is forwarded to this hero's owner.
+	if _net != null and _net.is_active() and not is_multiplayer_authority():
+		rpc_id(get_multiplayer_authority(), &"_net_apply_knockback", impulse)
+		return
 	if is_dashing or _blink_iframe_timer > 0.0:
 		return
 	impulse *= _tune("knockback_mult", 1.6)  # global over-tune knob
@@ -1779,6 +1783,13 @@ func _check_wall_slam() -> void:
 
 
 func take_damage(amount: int) -> void:
+	# Co-op: a hit computed on another peer (e.g. the host's enemy AI striking THIS
+	# hero, whom the host only holds as a puppet) is forwarded to this hero's owner,
+	# where its i-frames / parry / channel-break all resolve authoritatively. SP /
+	# owner -> fall through and apply locally (byte-identical to before).
+	if _net != null and _net.is_active() and not is_multiplayer_authority():
+		rpc_id(get_multiplayer_authority(), &"_net_take_damage", amount)
+		return
 	# DESIGN: dash grants i-frames (full dash duration). Flip to
 	# reposition-only by removing this guard.
 	if is_dashing:

@@ -158,6 +158,11 @@ const TELE_ACCENTS: Dictionary = {
 }
 
 var hp: int = 40
+## Co-op: cached /root/Net. Enemies are HOST-authoritative — the host spawns them
+## through a MultiplayerSpawner (authority = peer 1) and streams pos/vel/hp via a
+## code-built MultiplayerSynchronizer; clients run NO AI (puppets animate from the
+## sync). null / inactive in SP -> every guard below is a no-op (byte-identical).
+var _net: Node = null
 var _hero: Node2D = null
 var _touch_cooldown: float = 0.0
 var _knockback: Vector2 = Vector2.ZERO
@@ -208,6 +213,11 @@ var _evade_cd: float = 0.0
 ## chase velocity so the hit actually displaces the enemy instead of being
 ## stomped by the next physics tick's `velocity = dir * move_speed`.
 func apply_knockback(impulse: Vector2, do_flop: bool = true) -> void:
+	# Co-op: a shove landing on a client-side PUPPET is forwarded to the host (who
+	# owns the real enemy + its synced transform). SP / host -> apply locally.
+	if _net != null and _net.is_active() and not is_multiplayer_authority():
+		rpc_id(get_multiplayer_authority(), &"_net_apply_knockback", impulse)
+		return
 	impulse *= _knockback_mult()  # global over-tune (Stick-Fight: displacement IS the feel)
 	_knockback = impulse
 	# Side-on: the VERTICAL part lands once as a real impulse into velocity.y so
@@ -427,6 +437,7 @@ func _deflect(bolt: Node2D) -> void:
 
 func _ready() -> void:
 	add_to_group("enemy")
+	_net = get_node_or_null("/root/Net")
 	_apply_archetype_defaults()
 	_apply_difficulty()
 	hp = max_hp
@@ -1036,6 +1047,12 @@ func _live_minion_count() -> int:
 ## a bloomed glow in the ailment colour (maker: "make them glow w tik damage").
 ## Alpha 0 (the default) is a plain physical hit — the HDR white pop as before.
 func take_damage(amount: int, tint: Color = Color(1.0, 1.0, 1.0, 0.0)) -> void:
+	# Co-op: enemies are host-authoritative. A hit landing on a client-side PUPPET is
+	# forwarded to the host, who owns the real enemy, resolves it, and syncs hp back.
+	# SP / host (authority) -> apply locally (byte-identical to before).
+	if _net != null and _net.is_active() and not is_multiplayer_authority():
+		rpc_id(get_multiplayer_authority(), &"_net_take_damage", amount, tint)
+		return
 	# Weaken (shadow) amplifies incoming damage.
 	var dealt: int = amount
 	if _status != null and is_instance_valid(_status):
@@ -1124,3 +1141,17 @@ func _spawn_corpse() -> void:
 		launch_dir * CORPSE_LAUNCH_SPEED,
 		CORPSE_FADE_TIME,
 	)
+
+
+# ------------------------------------------------------------- co-op networking
+## Damage/knockback forwarded from a puppet (any peer) run on the HOST authority
+## here — the same take_damage/apply_knockback the local hit path uses, so the
+## resolution (hp, death, phase logic in Boss) lives in one place.
+@rpc("any_peer", "call_remote", "reliable")
+func _net_take_damage(amount: int, tint: Color = Color(1.0, 1.0, 1.0, 0.0)) -> void:
+	take_damage(amount, tint)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _net_apply_knockback(impulse: Vector2) -> void:
+	apply_knockback(impulse)
