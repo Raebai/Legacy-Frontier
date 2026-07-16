@@ -26,6 +26,7 @@ const RETURN_PORTAL_COLOR: Color = Color(1.0, 0.85, 0.4)   # warm gold vs the cy
 var _floor_banner: Label = null
 var _pause_menu: PauseMenu = null
 var _spawn_timer: float = 0.0
+var _wipe_handled: bool = false   # co-op: debounce the party-wipe -> fall to once per floor
 
 
 func _ready() -> void:
@@ -75,6 +76,9 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	# Co-op: the host watches for a full party wipe -> drop the party a floor.
+	if _is_coop_host():
+		_check_party_wipe()
 	if _run_mode:
 		return  # Encounter drives the finite floor; nothing to poll here
 	# Sandbox trickle: keep ~TARGET_ENEMY_COUNT alive forever.
@@ -202,6 +206,10 @@ func _on_portal_taken() -> void:
 
 func _on_floor_advanced(new_floor: int) -> void:
 	_setup_floor(new_floor)
+	# Co-op: a downed hero comes back up on the next floor (the party carried them).
+	if _net != null and _net.is_active():
+		_revive_local_heroes()
+	_wipe_handled = false
 
 
 ## A fall landed us on an earlier floor: clear the current fight, rebuild the
@@ -214,13 +222,55 @@ func _on_fell(new_floor: int) -> void:
 	if not _is_net_client():
 		_clear_enemies()
 	_setup_floor(new_floor)   # sets _current_floor_def to the dropped floor, respawns the fight
-	_revive_hero()            # after _setup_floor so hero_start reflects the new floor
+	# Co-op: revive the whole party (each peer revives the hero it owns). SP: the one hero.
+	if _net != null and _net.is_active():
+		_revive_local_heroes()
+	else:
+		_revive_hero()        # after _setup_floor so hero_start reflects the new floor
 	_flash_fall(new_floor)    # a brief "YOU FELL" beat so the drop reads
+	_wipe_handled = false
 
 
 ## Co-op client (host drives the spine + enemy lifecycle). False in SP.
 func _is_net_client() -> bool:
 	return _net != null and _net.is_active() and not _net.is_host()
+
+
+func _is_coop_host() -> bool:
+	return _net != null and _net.is_active() and _net.is_host()
+
+
+## Co-op: when EVERY hero is downed, the host drops the whole party a floor (a shared
+## party wipe). Debounced to once per floor — the fell rebuild revives everyone and
+## clears the flag. Runs on the host only (it owns the run spine).
+func _check_party_wipe() -> void:
+	if _wipe_handled or not _run_mode:
+		return
+	var heroes: Array = get_tree().get_nodes_in_group("hero")
+	if heroes.is_empty():
+		return
+	for h: Node in heroes:
+		if not (h.has_method("is_downed") and h.is_downed()):
+			return   # someone's still standing — no wipe
+	_wipe_handled = true
+	_net.request_fall()   # host -> GameState.fall() -> fell broadcast -> revive all
+
+
+## Co-op: revive the hero(es) THIS peer owns (authority), repositioned to the floor
+## start. Position syncs from the owner, so each peer reviving its own hero brings the
+## whole party back up. Called on a fall (party wipe) and on a floor advance.
+func _revive_local_heroes() -> void:
+	var start: Vector2 = Vector2(600, 340)
+	if _current_floor_def != null and _current_floor_def.layout != null:
+		start = _current_floor_def.layout.hero_start
+	var i: int = 0
+	for h: Node in get_tree().get_nodes_in_group("hero"):
+		if not (h is Node2D) or not h.is_multiplayer_authority():
+			continue
+		if h.has_method("revive"):
+			h.call("revive")
+		(h as Node2D).global_position = start + Vector2(50.0 * float(i), 0.0)
+		i += 1
 
 
 func _clear_enemies() -> void:

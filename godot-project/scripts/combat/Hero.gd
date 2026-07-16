@@ -282,6 +282,13 @@ var _colourway: int = 0
 ## every ability works by tapping a button — no pixel-precise aiming (mobile-first).
 var touch_input: bool = false
 
+## Co-op: a died hero is DOWNED (ragdoll, no input, damage-immune) instead of
+## instantly reviving — enemies ignore it and the party stays in the fight. When
+## EVERY hero is downed the host drops the party a floor (revives all). Synced so
+## the host + peers can read each hero's state. SP never sets this (Hero._die keeps
+## the old fall/reset). Public for the MultiplayerSynchronizer property path.
+var downed: bool = false
+
 @onready var rig: CharacterRig = $Rig
 var _tuning: Node = null  # cached /root/Tuning (null in headless tests -> fallbacks)
 
@@ -379,6 +386,11 @@ func _physics_process(delta: float) -> void:
 	# just animate (no Input, no move_and_slide).
 	if _net != null and _net.is_active() and not is_multiplayer_authority():
 		_remote_visual(delta)
+		return
+	# Co-op: downed = a limp ragdoll on the ground, no input/abilities, until the party
+	# falls or clears the floor and everyone revives.
+	if downed:
+		_process_downed(delta)
 		return
 	_dash_cooldown_timer = max(_dash_cooldown_timer - delta, 0.0)
 	_cast_cooldown_timer = max(_cast_cooldown_timer - delta, 0.0)
@@ -1790,6 +1802,9 @@ func take_damage(amount: int) -> void:
 	if _net != null and _net.is_active() and not is_multiplayer_authority():
 		rpc_id(get_multiplayer_authority(), &"_net_take_damage", amount)
 		return
+	# Co-op: a downed hero is out of the fight — immune until revived.
+	if downed:
+		return
 	# DESIGN: dash grants i-frames (full dash duration). Flip to
 	# reposition-only by removing this guard.
 	if is_dashing:
@@ -1830,10 +1845,11 @@ func _die() -> void:
 	# ticks the fall counter + saves; the Arena rebuilds the dropped floor in place
 	# and revives us). In the standalone sandbox: just reset to full so the feel
 	# loop never stops.
-	# Co-op MVP: respawn in place at full HP (shared party-wipe -> fall is a
-	# documented follow-up). The owner revives itself; hp syncs to the others.
+	# Co-op: go DOWNED (out of the fight, not gone). The Arena host watches for a full
+	# party wipe -> drops the party a floor + revives everyone; a floor advance also
+	# revives the downed. The owner drives its own downed state; it syncs to the others.
 	if _net != null and _net.is_active():
-		revive()
+		_enter_downed()
 		return
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs != null and gs.is_run_active():
@@ -1843,9 +1859,44 @@ func _die() -> void:
 	health_changed.emit(hp, max_hp)
 
 
+## Co-op: fall limp and drop out of the fight (immune, no input). hp stays 0. Cancels
+## any in-flight channel/summon so nothing fires from a corpse.
+func _enter_downed() -> void:
+	downed = true
+	velocity = Vector2.ZERO
+	_knockback = Vector2.ZERO
+	if _channeling:
+		_cancel_channel()
+	if _summoning:
+		_cancel_summon()
+	if is_instance_valid(rig):
+		rig.set_limp(1.0)
+		rig.apply_impulse(Vector2(-facing.x, -0.6), 260.0)  # a death flop
+		rig.play(CharacterRig.State.HURT)
+	Sfx.play("hero_hurt", 0.0, 0.1)
+
+
+## Downed physics: just slump — gravity + friction to a stop, limp rig, no abilities.
+func _process_downed(delta: float) -> void:
+	velocity.x = move_toward(velocity.x, 0.0, GROUND_FRICTION * delta)
+	if is_on_floor() and velocity.y >= 0.0:
+		velocity.y = 0.0
+	else:
+		velocity.y = minf(velocity.y + GRAVITY_FALL * delta, MAX_FALL)
+	move_and_slide()
+	if is_instance_valid(rig):
+		rig.set_body_velocity(velocity)
+		rig.play(CharacterRig.State.HURT)
+
+
+func is_downed() -> bool:
+	return downed
+
+
 ## Full clean reset after a FALL (Arena calls this on the fell-respawn) so you
 ## resume upright — not mid-channel, on-cooldown, knocked-back, or ragdolling.
 func revive() -> void:
+	downed = false
 	hp = max_hp
 	health_changed.emit(hp, max_hp)
 	_dash_cooldown_timer = 0.0
@@ -1864,6 +1915,7 @@ func revive() -> void:
 	_knockback = Vector2.ZERO
 	velocity = Vector2.ZERO
 	if is_instance_valid(rig):
+		rig.set_limp(0.0)   # clear the downed ragdoll
 		rig.play(CharacterRig.State.IDLE)
 
 
@@ -1885,7 +1937,7 @@ func _setup_net_role() -> void:
 ## owner to every peer. Built in code (no .tscn surgery).
 func _setup_net_sync() -> void:
 	var cfg := SceneReplicationConfig.new()
-	for p: String in [":position", ":velocity", ":facing", ":hp", ":net_class"]:
+	for p: String in [":position", ":velocity", ":facing", ":hp", ":net_class", ":downed"]:
 		cfg.add_property(NodePath(p))
 	cfg.property_set_replication_mode(NodePath(":position"), SceneReplicationConfig.REPLICATION_MODE_ALWAYS)
 	cfg.property_set_replication_mode(NodePath(":velocity"), SceneReplicationConfig.REPLICATION_MODE_ALWAYS)
@@ -1899,10 +1951,16 @@ func _setup_net_sync() -> void:
 
 ## Remote heroes animate from replicated velocity/facing; no input, no physics.
 func _remote_visual(_delta: float) -> void:
-	if is_instance_valid(rig):
-		rig.set_body_velocity(velocity)
-		rig.set_facing(facing)
-		rig.play(CharacterRig.State.RUN if absf(velocity.x) > 8.0 else CharacterRig.State.IDLE)
+	if not is_instance_valid(rig):
+		return
+	if downed:
+		rig.set_limp(1.0)
+		rig.play(CharacterRig.State.HURT)
+		return
+	rig.set_limp(0.0)
+	rig.set_body_velocity(velocity)
+	rig.set_facing(facing)
+	rig.play(CharacterRig.State.RUN if absf(velocity.x) > 8.0 else CharacterRig.State.IDLE)
 
 
 @rpc("any_peer", "call_remote", "reliable")
