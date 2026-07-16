@@ -14,6 +14,7 @@ const SANDBOX_SPAWN_INTERVAL: float = 1.2
 const DEFAULT_EXIT_POINT: Vector2 = Vector2(600, 130)
 
 var _gs: Node = null
+var _net: Node = null   # cached /root/Net (co-op); null / inactive in SP
 var _run_mode: bool = false
 var _current_floor_def: FloorDef = null
 var _encounter: Encounter = null
@@ -49,6 +50,7 @@ func _ready() -> void:
 	_setup_enemy_spawner()   # co-op: host-authoritative enemies replicate through this
 
 	_gs = get_node_or_null("/root/GameState")
+	_net = get_node_or_null("/root/Net")
 	_run_mode = _gs != null and _gs.is_run_active()
 	if _run_mode:
 		_build_theme_layer()
@@ -57,6 +59,12 @@ func _ready() -> void:
 			_gs.floor_advanced.connect(_on_floor_advanced)
 		if not _gs.fell.is_connected(_on_fell):
 			_gs.fell.connect(_on_fell)
+		# Co-op client: the host broadcasts "floor cleared" -> spawn our exit portal(s)
+		# locally so any hero can pull the party forward (the host debounces advances).
+		var net: Node = get_node_or_null("/root/Net")
+		if net != null and net.is_active() and net.has_signal("net_floor_cleared") \
+				and not net.net_floor_cleared.is_connected(_spawn_exit_portals):
+			net.net_floor_cleared.connect(_spawn_exit_portals)
 		_setup_floor(_gs.current_floor())
 	else:
 		# Sandbox: the legacy default room + an endless trickle (below).
@@ -129,8 +137,21 @@ func _rebuild_room() -> void:
 	FloorBuilder.build_props(_room, _current_floor_def.layout)
 
 
+## Host: the floor's fight is done -> open the exit portal(s), then (co-op) tell the
+## clients to open theirs so ANY hero can pull the party forward.
 func _on_floor_cleared() -> void:
 	if not _run_mode:
+		return
+	_spawn_exit_portals()
+	var net: Node = get_node_or_null("/root/Net")
+	if net != null and net.is_active() and net.is_host():
+		net.broadcast_floor_cleared()
+
+
+## Build the climb-exit (+ a return-to-town portal on non-final floors). Idempotent —
+## the co-op net_floor_cleared broadcast may arrive while the portal already exists.
+func _spawn_exit_portals() -> void:
+	if not _run_mode or is_instance_valid(_portal):
 		return
 	var layout: LayoutDef = _current_floor_def.layout
 	var exit_pt: Vector2 = DEFAULT_EXIT_POINT
@@ -158,14 +179,25 @@ func _on_floor_cleared() -> void:
 
 func _on_return_taken() -> void:
 	_clear_portal()
-	_gs.return_to_hub()
+	# Co-op: the host owns the run spine -> ask it to return the party (ends the run
+	# for everyone). SP: return straight to the hub.
+	var net: Node = get_node_or_null("/root/Net")
+	if net != null and net.is_active():
+		net.request_return()
+	else:
+		_gs.return_to_hub()
 
 
 func _on_portal_taken() -> void:
 	_clear_portal()
-	# advance_floor climbs to the next floor (emits floor_advanced -> re-setup)
-	# or ends the run in victory (scene change).
-	_gs.advance_floor()
+	# Co-op: request the host to advance the party (debounced to once per clear); the
+	# host's floor_advanced rebuilds every peer. SP: advance directly (climb, or end
+	# the run in victory past the last floor).
+	var net: Node = get_node_or_null("/root/Net")
+	if net != null and net.is_active():
+		net.request_advance()
+	else:
+		_gs.advance_floor()
 
 
 func _on_floor_advanced(new_floor: int) -> void:
@@ -177,10 +209,18 @@ func _on_floor_advanced(new_floor: int) -> void:
 ## normal climb — the only difference is we may have live enemies to clear.
 func _on_fell(new_floor: int) -> void:
 	_clear_portal()
-	_clear_enemies()
+	# Co-op: only the HOST clears enemies (its despawns replicate to clients via the
+	# spawner); a client freeing puppets here would fight the spawner. SP -> clear.
+	if not _is_net_client():
+		_clear_enemies()
 	_setup_floor(new_floor)   # sets _current_floor_def to the dropped floor, respawns the fight
 	_revive_hero()            # after _setup_floor so hero_start reflects the new floor
 	_flash_fall(new_floor)    # a brief "YOU FELL" beat so the drop reads
+
+
+## Co-op client (host drives the spine + enemy lifecycle). False in SP.
+func _is_net_client() -> bool:
+	return _net != null and _net.is_active() and not _net.is_host()
 
 
 func _clear_enemies() -> void:

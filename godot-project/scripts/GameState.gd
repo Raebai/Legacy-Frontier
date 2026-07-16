@@ -155,6 +155,23 @@ func enter_coop_run(floor: int) -> void:
 	run_started.emit()
 
 
+## Co-op CLIENT mirror: the host drives the spine, so a client applies the host's
+## floor directly (bypassing the _is_net_client guards on advance/fall) and re-emits
+## the signal that rebuilds its Arena. is_fall picks fell (rebuild + revive) vs a
+## normal floor_advanced. Host-side / SP never call this — it's the client receiver.
+func net_set_floor(floor: int, is_fall: bool) -> void:
+	if active_tower == null:
+		active_tower = _load_or_build_tower()
+	_floor = clampi(floor, 1, total_floors())
+	_highest_floor = maxi(_highest_floor, _floor)
+	_run_active = true
+	mode = Mode.RUN
+	if is_fall:
+		fell.emit(_floor)
+	else:
+		floor_advanced.emit(_floor)
+
+
 ## In co-op only the HOST drives the run spine (advance/fall/return + persistence);
 ## clients follow the host's replicated floor. True on a client in a live session.
 func _is_net_client() -> bool:

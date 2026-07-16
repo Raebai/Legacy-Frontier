@@ -12,6 +12,7 @@ signal server_started
 signal join_ok
 signal join_failed
 signal lobby_changed
+signal net_floor_cleared   # host cleared the floor -> clients spawn the exit portal(s)
 
 const DEFAULT_PORT: int = 24565
 const DEFAULT_IP: String = "127.0.0.1"
@@ -21,6 +22,10 @@ const MAX_PLAYERS: int = 4
 ## pick and the host rebroadcasts the whole thing.
 var peer_class: Dictionary = {}
 var _pending_class: int = 0
+## True between a floor clearing and the party advancing — the host advances ONCE
+## per clear, whichever hero reaches the exit first (debounces two near-simultaneous
+## portal takes into a single floor step).
+var _pending_advance: bool = false
 
 
 func _ready() -> void:
@@ -29,6 +34,14 @@ func _ready() -> void:
 	multiplayer.connected_to_server.connect(_on_connected_ok)
 	multiplayer.connection_failed.connect(_on_connected_fail)
 	multiplayer.server_disconnected.connect(_on_server_disconnected)
+	# Co-op: bridge the host's run-spine to the clients. These GameState signals only
+	# fire on the host in a session (clients are guarded), and in SP is_host() is
+	# false, so the handlers are no-ops unless a real co-op run is driving them.
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null:
+		gs.floor_advanced.connect(_on_gs_floor_advanced)
+		gs.fell.connect(_on_gs_fell)
+		gs.run_ended.connect(_on_gs_run_ended)
 	_maybe_cli_autostart()
 
 
@@ -160,6 +173,121 @@ func _enter_coop_run(floor: int) -> void:
 	get_tree().change_scene_to_file("res://scenes/combat/Arena.tscn")
 
 
+# ==================================================== co-op run-spine (floor sync)
+## Host cleared the floor: arm the advance debounce + tell clients to spawn the exit
+## portal(s) so ANY hero (host or client) can pull the party forward.
+func broadcast_floor_cleared() -> void:
+	if not is_host():
+		return
+	_pending_advance = true
+	_client_cleared.rpc()
+
+
+@rpc("authority", "call_remote", "reliable")
+func _client_cleared() -> void:
+	net_floor_cleared.emit()   # the client Arena spawns its exit portal(s)
+
+
+## A hero took the exit portal. Client -> ask the host; host -> advance the party
+## (once per clear). The host's advance_floor emits floor_advanced, which both
+## rebuilds the host Arena AND rebroadcasts to every client below.
+func request_advance() -> void:
+	if not is_active():
+		return
+	if is_host():
+		_do_host_advance()
+	else:
+		_req_advance.rpc_id(1)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _req_advance() -> void:
+	if is_host():
+		_do_host_advance()
+
+
+func _do_host_advance() -> void:
+	if not _pending_advance:
+		return                          # already advanced this floor (debounce)
+	_pending_advance = false
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null:
+		gs.advance_floor()
+
+
+## A hero took the RETURN-TO-TOWN portal. Client -> ask the host; host -> return the
+## party to the hub (ends the run -> run_ended tears the session down for everyone).
+func request_return() -> void:
+	if not is_active():
+		return
+	if is_host():
+		_do_host_return()
+	else:
+		_req_return.rpc_id(1)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _req_return() -> void:
+	if is_host():
+		_do_host_return()
+
+
+func _do_host_return() -> void:
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null:
+		gs.return_to_hub()
+
+
+## Party wipe (Task 4): a hero requests the host to drop the party a floor. Client ->
+## ask the host; host -> fall (drops 2, rebuilds, revives everyone via the fell sync).
+func request_fall() -> void:
+	if not is_active():
+		return
+	if is_host():
+		_do_host_fall()
+	else:
+		_req_fall.rpc_id(1)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _req_fall() -> void:
+	if is_host():
+		_do_host_fall()
+
+
+func _do_host_fall() -> void:
+	_pending_advance = false   # a fall supersedes any pending advance
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and gs.has_method("fall"):
+		gs.fall()
+
+
+# ---- host -> client rebroadcast of the run-spine signals (host-only; SP no-ops) ---
+func _on_gs_floor_advanced(floor: int) -> void:
+	if is_host():
+		_client_floor.rpc(floor, false)
+
+
+func _on_gs_fell(floor: int) -> void:
+	if is_host():
+		_client_floor.rpc(floor, true)
+
+
+func _on_gs_run_ended(_outcome: Dictionary) -> void:
+	# Co-op run over (conquer / return / abandon): tear the session down. Clients get
+	# server_disconnected -> they bounce home on their own. Deferred so the current
+	# signal + the host's own scene change finish first.
+	if is_host() and is_active():
+		call_deferred("leave")
+
+
+@rpc("authority", "call_remote", "reliable")
+func _client_floor(floor: int, is_fall: bool) -> void:
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and gs.has_method("net_set_floor"):
+		gs.net_set_floor(floor, is_fall)
+
+
 # =========================================================== DAMAGE ROUTER
 ## Damage is applied on the VICTIM's authority. Singleplayer -> direct call.
 func deal_damage(target: Node, amount: int, tint: Color = Color(1, 1, 1, 0)) -> void:
@@ -213,7 +341,13 @@ func _cli_host() -> void:
 		print("[NET] host sees peer %d, total=%d" % [id, multiplayer.get_peers().size() + 1])
 		get_tree().create_timer(1.0).timeout.connect(func() -> void:
 			start_coop_run()
-			get_tree().create_timer(2.0).timeout.connect(_cli_count.bind("host"))))
+			get_tree().create_timer(2.0).timeout.connect(func() -> void:
+				_cli_count("host")
+				# Prove the floor-advance broadcast: arm the debounce (simulate a clear)
+				# + advance the party, then re-report so the client's floor should follow.
+				_pending_advance = true
+				_do_host_advance()
+				get_tree().create_timer(2.0).timeout.connect(_cli_count.bind("host2")))))
 	var err: int = host(0)
 	print("[NET] host start err=%d id=%d" % [err, my_id()])
 
@@ -221,7 +355,9 @@ func _cli_host() -> void:
 func _cli_join(ip: String) -> void:
 	join_ok.connect(func() -> void:
 		print("[NET] client connected, my_id=%d" % multiplayer.get_unique_id())
-		get_tree().create_timer(4.0).timeout.connect(_cli_count.bind("client")))
+		get_tree().create_timer(4.0).timeout.connect(func() -> void:
+			_cli_count("client")
+			get_tree().create_timer(2.0).timeout.connect(_cli_count.bind("client2"))))
 	join_failed.connect(func() -> void: print("[NET] client FAILED"))
 	var err: int = join(ip, 0)
 	print("[NET] client join err=%d" % err)
@@ -242,4 +378,8 @@ func _cli_count(who: String) -> void:
 		if sample == "-" and e is Node2D:
 			var p: Vector2 = (e as Node2D).global_position
 			sample = "(%d,%d)" % [int(round(p.x)), int(round(p.y))]
-	print("[NET] %s heroes=%d enemies=%d host_owned=%d first_enemy_pos=%s" % [who, heroes, enemies, host_owned, sample])
+	var floor: int = -1
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and gs.has_method("current_floor"):
+		floor = int(gs.current_floor())
+	print("[NET] %s heroes=%d enemies=%d host_owned=%d first_enemy_pos=%s floor=%d" % [who, heroes, enemies, host_owned, sample, floor])
