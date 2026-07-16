@@ -23,6 +23,7 @@ var _portal: ExitPortal = null
 var _return_portal: ExitPortal = null
 const RETURN_PORTAL_COLOR: Color = Color(1.0, 0.85, 0.4)   # warm gold vs the cyan climb-exit
 var _floor_banner: Label = null
+var _pause_menu: PauseMenu = null
 var _spawn_timer: float = 0.0
 
 
@@ -43,6 +44,7 @@ func _ready() -> void:
 	add_child(_encounter)
 	_encounter.cleared.connect(_on_floor_cleared)
 	_build_ability_bar()
+	_build_pause_overlay()
 
 	_gs = get_node_or_null("/root/GameState")
 	_run_mode = _gs != null and _gs.is_run_active()
@@ -215,6 +217,50 @@ func _build_ability_bar() -> void:
 	layer.add_child(AbilityBar.new())
 	# Mobile two-thumb touch pad (self-hides on desktop; keyboard/mouse unaffected).
 	add_child(TouchControls.new())
+
+
+## Pause overlay on its own ALWAYS layer so Resume/Settings/Exit work while the
+## tree is paused. Esc toggles it; Exit bails to the hub (mid-floor = no bank).
+func _build_pause_overlay() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 90  # above the ability bar (60), below Conversation (100)
+	add_child(layer)
+	_pause_menu = PauseMenu.new()
+	layer.add_child(_pause_menu)
+	_pause_menu.build("Exit to Town")
+	_pause_menu.resume_requested.connect(func() -> void: _set_paused(false))
+	_pause_menu.exit_requested.connect(_exit_to_hub)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	# Arena is PAUSABLE, so this only fires while UNPAUSED -> it can only OPEN the
+	# menu. The PauseMenu (ALWAYS) handles Esc-to-resume once the tree is paused.
+	if event.is_action_pressed("ui_cancel") and not get_tree().paused:
+		_set_paused(true)
+		get_viewport().set_input_as_handled()
+
+
+func _toggle_pause() -> void:
+	_set_paused(not get_tree().paused)
+
+
+func _set_paused(p: bool) -> void:
+	get_tree().paused = p
+	if _pause_menu != null:
+		if p:
+			_pause_menu.open()
+		else:
+			_pause_menu.close()
+
+
+## Leave the tower back to the hub. Mid-floor in a run -> abandon (no bank, resume
+## here next time). Sandbox (no active run) -> straight to Main.tscn.
+func _exit_to_hub() -> void:
+	get_tree().paused = false
+	if _gs != null and _gs.is_run_active() and _gs.has_method("abandon_to_hub"):
+		_gs.abandon_to_hub()
+	else:
+		get_tree().change_scene_to_file("res://scenes/Main.tscn")
 
 
 # ------------------------------------------------------------------- theme/UI

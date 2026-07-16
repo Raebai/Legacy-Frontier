@@ -95,6 +95,25 @@ func _build_settings() -> void:
 	slider.value_changed.connect(_on_volume_changed)
 	_settings_col.add_child(slider)
 
+	# Music volume — drives the dedicated Music bus (independent of Master/SFX).
+	var music_label := Label.new()
+	music_label.text = "Music Volume"
+	music_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_settings_col.add_child(music_label)
+	var music_slider := HSlider.new()
+	music_slider.min_value = 0.0
+	music_slider.max_value = 1.0
+	music_slider.step = 0.01
+	music_slider.custom_minimum_size = Vector2(240, 20)
+	music_slider.value = _current_music_linear()
+	music_slider.value_changed.connect(_on_music_volume_changed)
+	_settings_col.add_child(music_slider)
+	# The "cool option": cycle the current mood's playlist (same as the M key).
+	_settings_col.add_child(_menu_button("Next Track  (M)", func() -> void:
+		var m: Node = get_node_or_null("/root/Music")
+		if m != null and m.has_method("cycle_track"):
+			m.call("cycle_track")))
+
 	# Camera zoom (maker: "we should be able to alter the zoom in the setting").
 	# Slider LEFT = wider view, RIGHT = tighter. Applies live + persists.
 	var zoom_label := Label.new()
@@ -168,9 +187,39 @@ func _menu_button(text: String, cb: Callable) -> Button:
 	return b
 
 
+# --------------------------------------------------------------- resume on Esc
+## PauseMenu is PROCESS_MODE_ALWAYS, so it keeps getting input while the tree is
+## paused — that's how Esc closes the menu even though the (pausable) host can't
+## process input while paused. Only acts while the menu is open.
+func _unhandled_input(event: InputEvent) -> void:
+	if not visible:
+		return
+	if event.is_action_pressed("ui_cancel"):
+		resume_requested.emit()
+		get_viewport().set_input_as_handled()
+
+
 # ------------------------------------------------------------------ audio (master bus)
 func _master_bus() -> int:
 	return AudioServer.get_bus_index("Master")
+
+
+func _music_bus() -> int:
+	return AudioServer.get_bus_index("Music")
+
+
+func _current_music_linear() -> float:
+	var idx: int = _music_bus()
+	if idx < 0:
+		return 1.0
+	return clampf(db_to_linear(AudioServer.get_bus_volume_db(idx)), 0.0, 1.0)
+
+
+func _on_music_volume_changed(v: float) -> void:
+	var idx: int = _music_bus()
+	if idx < 0:
+		return
+	AudioServer.set_bus_volume_db(idx, linear_to_db(maxf(v, 0.0001)) if v > 0.0 else -80.0)
 
 
 func _current_master_linear() -> float:

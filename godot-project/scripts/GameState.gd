@@ -161,6 +161,15 @@ func return_to_hub() -> void:
 	end_run(false)
 
 
+## Bail to the hub MID-FLOOR (from the pause menu) WITHOUT banking — you didn't
+## clear this floor, so resume lands you back on it. Saves + bounces to the hub.
+func abandon_to_hub() -> void:
+	if not _run_active:
+		return
+	_save_climber()
+	end_run(false)
+
+
 ## End the run (died == true on a hero death, false on a full clear) and bounce
 ## back to the hub. The outcome is frozen into last_run and queued for ingest.
 func end_run(died: bool) -> void:
