@@ -118,26 +118,32 @@ func spawn(brute_chance: float, hp_mult: float) -> void:
 	e.global_position = _pick_spawn_position()
 
 
-## Chaser is the backbone; brute weight rises with the floor; caster + charger
-## add dodge-the-tell variety; summoner is a rare threat-multiplier whose
-## weight (like the brute's) scales with brute_chance — the FloorDef's
-## floor-difficulty knob — so it leans toward deeper floors.
+## Weighted roll over ALL EIGHT archetypes. Chaser is the backbone; the tankier /
+## trickier kinds (brute, summoner, assassin, bomber, mage) scale up with
+## brute_chance — the FloorDef's floor-difficulty knob — so deeper floors get
+## nastier and more varied. Insertion order is deterministic (GDScript dicts keep
+## it), so the accumulate-until-r walk is stable.
 func _roll_archetype(brute_chance: float) -> int:
-	var w_chaser: float = 0.32
-	var w_brute: float = 0.18 + 0.30 * brute_chance
-	var w_caster: float = 0.22
-	var w_summoner: float = 0.04 + 0.08 * brute_chance  # rare; rises with floor
-	var total: float = w_chaser + w_brute + w_caster + w_summoner + 0.28  # charger fills the rest
+	var weights: Dictionary = {
+		0: 0.30,                          # CHASER — fast weak backbone
+		1: 0.14 + 0.24 * brute_chance,    # BRUTE — telegraphed heavy
+		2: 0.16,                          # CASTER — dodgeable bolt
+		3: 0.13,                          # CHARGER — lane dash
+		4: 0.03 + 0.07 * brute_chance,    # SUMMONER — rare threat-multiplier
+		5: 0.06 + 0.08 * brute_chance,    # ASSASSIN — fast hit-and-run
+		6: 0.04 + 0.06 * brute_chance,    # BOMBER — biggest telegraphed blast
+		7: 0.05 + 0.08 * brute_chance,    # MAGE — telegraphed AoE
+	}
+	var total: float = 0.0
+	for w: float in weights.values():
+		total += w
 	var r: float = randf() * total
-	if r < w_chaser:
-		return 0  # CHASER
-	if r < w_chaser + w_brute:
-		return 1  # BRUTE
-	if r < w_chaser + w_brute + w_caster:
-		return 2  # CASTER
-	if r < w_chaser + w_brute + w_caster + w_summoner:
-		return 4  # SUMMONER
-	return 3  # CHARGER
+	var acc: float = 0.0
+	for kind: int in weights:
+		acc += float(weights[kind])
+		if r < acc:
+			return kind
+	return 0  # CHASER fallback
 
 
 func _apply_archetype(e: CharacterBody2D, kind: int, hp_mult: float) -> void:
@@ -164,6 +170,21 @@ func _apply_archetype(e: CharacterBody2D, kind: int, hp_mult: float) -> void:
 			e.move_speed = 72.0
 			e.touch_damage = 6
 			e.tint = Color(0.35, 0.8, 0.55, 1)  # jade
+		5:  # ASSASSIN — fast, fragile hit-and-run, weaving approach
+			e.max_hp = int(round(20 * hp_mult))
+			e.move_speed = 175.0
+			e.touch_damage = 8
+			e.tint = Color(0.82, 0.86, 0.92, 1)  # silver
+		6:  # BOMBER — walking bomb; roots and telegraphs the biggest blast
+			e.max_hp = int(round(55 * hp_mult))
+			e.move_speed = 70.0
+			e.touch_damage = 6
+			e.tint = Color(0.34, 0.35, 0.4, 1)  # charcoal
+		7:  # MAGE — kites like a caster but telegraphs a ground AoE
+			e.max_hp = int(round(34 * hp_mult))
+			e.move_speed = 78.0
+			e.touch_damage = 6
+			e.tint = Color(0.5, 0.3, 0.85, 1)  # deep violet
 		_:  # CHASER — fast, weak
 			e.max_hp = int(round(24 * hp_mult))
 			e.move_speed = 140.0
