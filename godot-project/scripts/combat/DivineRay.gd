@@ -94,6 +94,7 @@ func _smite() -> void:
 	Juice.hit_stop(0.09)
 	Juice.shake_camera(14.0)
 	Juice.zoom_punch_camera(0.09, 0.24)
+	PostProcess.shock(0.55)  # the pillar-slam ripples the screen
 	Sfx.play("cannon", 0.0, 0.06)  # the pillar slams down
 
 

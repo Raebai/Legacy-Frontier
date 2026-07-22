@@ -81,6 +81,7 @@ func _detonate() -> void:
 	# ...then pull the frame back to reveal the whole detonation (the "show the big
 	# spell" beat) — a gentle widen that holds through the shockwave and eases home.
 	Juice.zoom_pull_camera(0.14, 0.35, 0.14, 0.5)
+	PostProcess.shock(0.5)  # the AoE detonation ripples the screen (modest — Q fires often)
 	Sfx.play("blast")
 	# Duck the music bed so the blast SFX owns the mix for a beat.
 	var music: Node = get_node_or_null("/root/Music")
