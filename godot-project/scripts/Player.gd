@@ -44,10 +44,25 @@ func set_class_tint(c: Color) -> void:
 		_rig.set_tint(c)
 
 
+## Live loadout PREVIEW for the hub Armory (Loadout UI): dress the hub stick in the
+## class's default gear (`preset`) then apply the chosen weapon/head/body overrides
+## so the player sees exactly what the run hero will wear. Cosmetic only.
+func preview_loadout(preset: String, loadout: Dictionary) -> void:
+	if _rig == null:
+		return
+	if preset != "":
+		_rig.class_preset(preset)
+	for slot: String in ["weapon", "head", "body"]:
+		var kind: String = String(loadout.get(slot, ""))
+		if kind != "":
+			_rig.set_equipment(slot, kind)
+
+
 func _physics_process(delta: float) -> void:
 	# Frozen while a conversation input bar OR the class-select panel is open —
 	# gravity still applies so we rest on the ground, but no walking/jumping.
-	var selecting: bool = ClassSelect != null and ClassSelect.is_open()
+	var selecting: bool = (ClassSelect != null and ClassSelect.is_open()) \
+			or (Loadout != null and Loadout.is_open())
 	if Conversation.is_input_open() or selecting:
 		velocity.x = 0.0
 		velocity.y = 0.0 if is_on_floor() else minf(velocity.y + GRAVITY * delta, MAX_FALL)

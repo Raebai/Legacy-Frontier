@@ -5,7 +5,7 @@ extends StaticBody2D
 ## a proper armory space. Same walk-up idiom as the NPCs / altar / tower door.
 
 const HINT_TEXT: String = "[E] Armory"
-const TOAST_TEXT: String = "⚒  Armory — gear & spell loadout coming soon"
+const TOAST_TEXT: String = "⚒  Armory — open the loadout"
 const RACK_COLOR: Color = Color(0.32, 0.26, 0.2)
 const BLADE_COLOR: Color = Color(0.7, 0.75, 0.82)
 
@@ -78,6 +78,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	var sel: Node = get_node_or_null("/root/ClassSelect")
 	if sel != null and sel.has_method("is_open") and sel.is_open():
 		return
-	_toast.visible = true
-	_toast_t = 2.5
-	get_viewport().set_input_as_handled()
+	# Walk up + E opens the loadout panel (gear per slot + its abilities).
+	var lo: Node = get_node_or_null("/root/Loadout")
+	if lo != null and lo.has_method("open"):
+		lo.call("open")
+		get_viewport().set_input_as_handled()

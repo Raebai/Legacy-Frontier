@@ -292,6 +292,17 @@ const GEAR_ELEMENT: Dictionary = {
 var _gear_speed_mult: float = 1.0
 var _gear_ward_frac: float = 0.0
 var _gear_ward_used: bool = false
+## Class melee/HP base snapshot (captured post-class-setup incl. equip_weapon) that
+## the gear mults scale FROM — so _recompute is idempotent and never clobbers the
+## weapon-specific melee tuning equip_weapon already applied.
+var _base_melee_damage: int = MELEE_DAMAGE
+var _base_melee_knockback: float = MELEE_KNOCKBACK
+var _base_melee_cd: float = MELEE_COOLDOWN
+var _base_max_hp: int = BASE_MAX_HP
+## The player's LOADOUT choices (from the hub Armory). Only these override the class
+## and grant gear abilities — class-default gear stays cosmetic + as-tuned, so a class
+## you never re-geared plays exactly as balanced. slot -> kind.
+var _gear_override: Dictionary = {}
 var _colourway: int = 0
 ## Mobile: set by TouchControls when the on-screen pad is active (or true on any
 ## touchscreen). Switches aim from the cursor to auto-target the nearest enemy so
@@ -338,7 +349,7 @@ func _ready() -> void:
 			start_class = int(sc)
 	# configure_class sets the class element, rig preset, weapon, AND the class's
 	# signature loadout (SpellLibrary.build_for_class) + emits signature_changed.
-	configure_class(start_class)
+	configure_class(start_class)  # also applies the hub Armory loadout (GameState.loadout)
 	_setup_net_role()
 	mp = float(max_mp)
 	mana_changed.emit(mp, max_mp)
@@ -759,7 +770,15 @@ func configure_class(cls: int) -> void:
 	_signature_cd_timer = 0.0
 	if not _signatures.is_empty():
 		signature_changed.emit(_signatures[_signature_index].display_name)
-	_recompute_gear_effects()  # equipped gear's abilities override/scale the class base
+	# Snapshot the fully-tuned class base (post equip_weapon) so gear mults scale from
+	# it idempotently, then apply any loadout overrides' abilities.
+	_base_melee_damage = _melee_damage
+	_base_melee_knockback = _melee_knockback
+	_base_melee_cd = _melee_cd
+	_base_max_hp = max_hp
+	_gear_override.clear()  # a fresh class = a fresh loadout base...
+	_recompute_gear_effects()
+	_apply_gamestate_loadout(get_node_or_null("/root/GameState"))  # ...then re-apply the hub loadout
 
 
 # ---------------------------------------------------------------- gear abilities
@@ -767,8 +786,32 @@ func configure_class(cls: int) -> void:
 ## "body") to `kind` ("" clears), update the rig overlay, and re-apply the gear
 ## abilities. Idempotent — the effects recompute from the class base every time.
 func set_loadout(slot: String, kind: String) -> void:
-	rig.set_equipment(slot, kind)
+	if kind == "":
+		_gear_override.erase(slot)
+	else:
+		_gear_override[slot] = kind
+	rig.set_equipment(slot, kind)  # cosmetic overlay follows the choice
 	_recompute_gear_effects()
+
+
+## Apply the hub Armory's loadout override (GameState.loadout) after the class base:
+## any non-empty slot swaps the class-default piece for the player's choice, then the
+## gear abilities recompute once. No-op when nothing is overridden (default classes).
+func _apply_gamestate_loadout(gs: Node) -> void:
+	if gs == null:
+		return
+	var lo: Variant = gs.get("loadout")
+	if not (lo is Dictionary):
+		return
+	var changed: bool = false
+	for slot: String in ["weapon", "head", "body"]:
+		var kind: String = String((lo as Dictionary).get(slot, ""))
+		if kind != "":
+			_gear_override[slot] = kind
+			rig.set_equipment(slot, kind)
+			changed = true
+	if changed:
+		_recompute_gear_effects()
 
 
 ## Aggregate the equipped gear's effect bags (weapon/head/body) into one modifier
@@ -779,7 +822,7 @@ func _aggregate_gear() -> Dictionary:
 		"max_hp": 1.0, "speed": 1.0, "ward": 0.0, "element": -1,
 	}
 	for slot: String in ["weapon", "head", "body"]:
-		var kind: String = String(rig.equipment.get(slot, ""))
+		var kind: String = String(_gear_override.get(slot, ""))  # only player CHOICES grant abilities
 		if kind == "":
 			continue
 		var e: Dictionary = GearAbilities.effect(kind)
@@ -797,12 +840,12 @@ func _aggregate_gear() -> Dictionary:
 ## class config + every loadout swap; safe to re-run.
 func _recompute_gear_effects() -> void:
 	var g: Dictionary = _aggregate_gear()
-	# Melee profile from the class base * gear mult.
-	_melee_damage = int(round(float(_cfg.get("melee_damage", MELEE_DAMAGE)) * float(g["melee_damage"])))
-	_melee_knockback = float(_cfg.get("melee_knockback", MELEE_KNOCKBACK)) * float(g["melee_knockback"])
-	_melee_cd = float(_cfg.get("melee_cd", MELEE_COOLDOWN)) * float(g["melee_cd"])
-	# Max HP from the flat base * gear mult (keep the current fill ratio).
-	var new_max: int = maxi(int(round(float(BASE_MAX_HP) * float(g["max_hp"]))), 1)
+	# Melee profile from the captured class base * gear mult (idempotent).
+	_melee_damage = int(round(float(_base_melee_damage) * float(g["melee_damage"])))
+	_melee_knockback = _base_melee_knockback * float(g["melee_knockback"])
+	_melee_cd = _base_melee_cd * float(g["melee_cd"])
+	# Max HP from the class base * gear mult (keep the current fill ratio).
+	var new_max: int = maxi(int(round(float(_base_max_hp) * float(g["max_hp"]))), 1)
 	if new_max != max_hp:
 		var ratio: float = float(hp) / float(maxi(max_hp, 1))
 		max_hp = new_max

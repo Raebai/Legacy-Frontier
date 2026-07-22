@@ -40,6 +40,11 @@ const CLIMBER_PATH: String = "user://climber.json"
 ## the hub or the debug switch. 0..7 (see Hero.HeroClass / CLASS_NAMES).
 var selected_class: int = 0
 
+## Player gear loadout override, set from the hub Armory (Loadout UI). Slot -> gear
+## kind; "" = keep the class default. Applied by Hero._ready after configure_class,
+## so the chosen weapon/head/body (and their GearAbilities) shape the run hero.
+var loadout: Dictionary = {"weapon": "", "head": "", "body": ""}
+
 ## Player camera-zoom preference (combat). Lower = wider view. Read by
 ## CombatCamera as its resting zoom; adjustable live from the pause Settings.
 ## Default pulled back from the old tight 2.2 so more of the fight is visible.

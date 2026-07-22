@@ -33,6 +33,7 @@ Rank="*res://scripts/combat/Rank.gd"
 GameState="*res://scripts/GameState.gd"
 Tuning="*res://scripts/combat/Tuning.gd"
 ClassSelect="*res://scripts/ClassSelect.gd"
+Loadout="*res://scripts/Loadout.gd"
 Net="*res://scripts/Net.gd"
 
 [display]
