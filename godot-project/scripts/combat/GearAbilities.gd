@@ -13,34 +13,48 @@ extends RefCounted
 ## data (no combat wiring) so it can't destabilise the balanced classes before it's
 ## designed + felt.
 
-## kind -> {name, desc, element}. element is a hint string ("" = none) for the
-## eventual effect, deliberately NOT the Elements enum so this file has zero deps.
+## kind -> {name, desc, element, effect}. `effect` is a machine-readable modifier
+## bag the Hero aggregates (Hero._aggregate_gear); ACTIVE effects are the ones with
+## a single clean combat hook. `element` (string) is deliberately NOT the Elements
+## enum so this file stays dependency-free — the Hero maps it. Descriptions match
+## the WIRED behaviour (no promises the code doesn't keep).
+##
+## effect keys: element (str) | melee_damage/melee_knockback/melee_cd/max_hp/speed
+## (float mults) | ward (float 0..1, first-hit reduction). {} = no hero effect
+## (enemy/boss pieces — their "ability" is the roster AI behaviour they already drive).
 const ABILITIES: Dictionary = {
-	# --- caster staves (hero) ---
-	"staff":       {"name": "Arcane Focus", "desc": "Basic casts pierce the first target and gain range.", "element": "arcane"},
-	"staff_ice":   {"name": "Frostbite",    "desc": "Hits apply Chill, slowing what they touch.",          "element": "ice"},
-	"staff_storm": {"name": "Chain Surge",  "desc": "Hits arc to one nearby enemy.",                       "element": "lightning"},
-	"staff_holy":  {"name": "Sanctify",     "desc": "Casts heal you for a sliver of the damage dealt.",    "element": "holy"},
-	# --- martial weapons (hero) ---
-	"sword":       {"name": "Riposte",      "desc": "A perfect parry counters for bonus damage.",          "element": ""},
-	"dagger":      {"name": "Backstab",     "desc": "Strikes from behind land as crits.",                  "element": ""},
-	"hammer":      {"name": "Quake",        "desc": "Heavy hits send a shockwave along the ground.",       "element": "earth"},
-	"scythe":      {"name": "Reap",         "desc": "Kills heal you and refund a little cooldown.",        "element": "shadow"},
-	"orb":         {"name": "Conjure",      "desc": "Passively orbits a homing wisp that strikes foes.",   "element": "arcane"},
-	# --- enemy / boss pieces (identity; effects shared with the roster AI) ---
-	"club":        {"name": "Bludgeon",     "desc": "Melee lands with extra knockback.",                   "element": ""},
-	"spear":       {"name": "Lunge",        "desc": "Longer reach; opens with a dash-thrust.",             "element": ""},
-	"bomb":        {"name": "Volatile",     "desc": "Detonates in a fiery AoE on death.",                  "element": "fire"},
-	"crown":       {"name": "Sovereign",    "desc": "Commands nearby allies; bolsters their resolve.",     "element": ""},
-	"robe":        {"name": "Warded",       "desc": "A cloth ward softens the first hit each fight.",      "element": ""},
-	"hat":         {"name": "Insight",      "desc": "Faster ability cooldowns.",                           "element": ""},
-	"hood":        {"name": "Shadowstep",   "desc": "Dash leaves no trace and briefly cloaks you.",        "element": ""},
+	# --- caster weapons: your weapon defines your ELEMENT (the flagship gear ability) ---
+	"staff":       {"name": "Arcane Focus", "desc": "Your spells strike as Arcane.",              "element": "arcane",    "effect": {"element": "arcane"}},
+	"staff_ice":   {"name": "Frostbite",    "desc": "Your spells strike as Ice — foes are Chilled.", "element": "ice",    "effect": {"element": "ice"}},
+	"staff_storm": {"name": "Chain Surge",  "desc": "Your spells strike as Lightning.",           "element": "lightning", "effect": {"element": "lightning"}},
+	"staff_holy":  {"name": "Sanctify",     "desc": "Your spells strike as Holy.",                "element": "holy",      "effect": {"element": "holy"}},
+	"scythe":      {"name": "Reap",         "desc": "Your spells strike as Shadow.",              "element": "shadow",    "effect": {"element": "shadow"}},
+	"orb":         {"name": "Conjure",      "desc": "Your spells strike as Arcane.",              "element": "arcane",    "effect": {"element": "arcane"}},
+	# --- martial weapons: melee profile ---
+	"sword":       {"name": "Keen Edge",    "desc": "Sharper strikes (+15% melee damage).",       "element": "",          "effect": {"melee_damage": 1.15}},
+	"dagger":      {"name": "Flurry",       "desc": "Faster, nimbler strikes.",                   "element": "",          "effect": {"melee_cd": 0.7, "speed": 1.06}},
+	"hammer":      {"name": "Quake",        "desc": "Crushing blows: +20% damage, big knockback.", "element": "",         "effect": {"melee_damage": 1.2, "melee_knockback": 1.4}},
+	# --- head ---
+	"hat":         {"name": "Fortified",    "desc": "Hardier: +12% max HP.",                      "element": "",          "effect": {"max_hp": 1.12}},
+	"hood":        {"name": "Fleet",        "desc": "Fleet-footed: +12% move speed.",             "element": "",          "effect": {"speed": 1.12}},
+	# --- body ---
+	"robe":        {"name": "Warded",       "desc": "Wards the first hit each fight (-40%).",      "element": "",          "effect": {"ward": 0.4}},
+	# --- enemy / boss pieces (identity only; the roster AI already drives these) ---
+	"club":        {"name": "Bludgeon",     "desc": "Heavy melee with extra knockback.",          "element": "",          "effect": {}},
+	"spear":       {"name": "Lunge",        "desc": "Long reach; a dash-thrust charge.",          "element": "",          "effect": {}},
+	"bomb":        {"name": "Volatile",     "desc": "Detonates in a fiery AoE.",                  "element": "fire",      "effect": {}},
+	"crown":       {"name": "Sovereign",    "desc": "A guardian-king's regalia.",                 "element": "",          "effect": {}},
 }
 
 
 ## The ability record for a gear kind, or {} if the piece has none.
 static func of(kind: String) -> Dictionary:
 	return ABILITIES.get(kind, {})
+
+
+## The machine-readable effect bag for a gear kind (Hero aggregates these), or {}.
+static func effect(kind: String) -> Dictionary:
+	return (ABILITIES.get(kind, {}) as Dictionary).get("effect", {})
 
 
 static func has_ability(kind: String) -> bool:

@@ -276,6 +276,22 @@ var _dash_hit: Array = []  # enemies/props already struck this dash (rogue no-mu
 ## Active element (aura + ability colour). Cycled with `cycle_element` (X).
 var _element: int = Elements.Element.ARCANE
 var _element_color: Color = Color(1.0, 1.0, 1.0, 1.0)
+
+## GEAR EFFECTS (GearAbilities): aggregated from the equipped weapon/head/body and
+## applied at single clean hooks — an elemental weapon overrides `_element`, melee
+## mults rescale the melee profile, the hat rescales max HP, the hood rescales move
+## speed, the robe wards the first hit each fight. Recomputed idempotently from the
+## class BASE in _recompute_gear_effects (safe to re-run on a loadout swap).
+const BASE_MAX_HP: int = 100
+const GEAR_ELEMENT: Dictionary = {
+	"arcane": Elements.Element.ARCANE, "ice": Elements.Element.ICE,
+	"lightning": Elements.Element.LIGHTNING, "holy": Elements.Element.HOLY,
+	"shadow": Elements.Element.SHADOW, "fire": Elements.Element.FIRE,
+	"earth": Elements.Element.EARTH,
+}
+var _gear_speed_mult: float = 1.0
+var _gear_ward_frac: float = 0.0
+var _gear_ward_used: bool = false
 var _colourway: int = 0
 ## Mobile: set by TouchControls when the on-screen pad is active (or true on any
 ## touchscreen). Switches aim from the cursor to auto-target the nearest enemy so
@@ -560,7 +576,7 @@ func _physics_process(delta: float) -> void:
 
 	# Horizontal: accel toward input, friction to a stop. The wall-jump lockout
 	# briefly preserves the kick-off so it can't be cancelled back into the wall.
-	var spd: float = _tune("hero_speed", SPEED)
+	var spd: float = _tune("hero_speed", SPEED) * _gear_speed_mult  # gear: hood = fleet-footed
 	if _wall_jump_lock <= 0.0:
 		if move_x != 0.0:
 			var accel: float = GROUND_ACCEL if is_on_floor() else AIR_ACCEL
@@ -743,6 +759,62 @@ func configure_class(cls: int) -> void:
 	_signature_cd_timer = 0.0
 	if not _signatures.is_empty():
 		signature_changed.emit(_signatures[_signature_index].display_name)
+	_recompute_gear_effects()  # equipped gear's abilities override/scale the class base
+
+
+# ---------------------------------------------------------------- gear abilities
+## Public loadout hook (the loadout UI): swap the piece in `slot` ("weapon"/"head"/
+## "body") to `kind` ("" clears), update the rig overlay, and re-apply the gear
+## abilities. Idempotent — the effects recompute from the class base every time.
+func set_loadout(slot: String, kind: String) -> void:
+	rig.set_equipment(slot, kind)
+	_recompute_gear_effects()
+
+
+## Aggregate the equipped gear's effect bags (weapon/head/body) into one modifier
+## set. Mults multiply, ward takes the strongest, an elemental weapon wins the element.
+func _aggregate_gear() -> Dictionary:
+	var out: Dictionary = {
+		"melee_damage": 1.0, "melee_knockback": 1.0, "melee_cd": 1.0,
+		"max_hp": 1.0, "speed": 1.0, "ward": 0.0, "element": -1,
+	}
+	for slot: String in ["weapon", "head", "body"]:
+		var kind: String = String(rig.equipment.get(slot, ""))
+		if kind == "":
+			continue
+		var e: Dictionary = GearAbilities.effect(kind)
+		for k: String in ["melee_damage", "melee_knockback", "melee_cd", "max_hp", "speed"]:
+			if e.has(k):
+				out[k] *= float(e[k])
+		if e.has("ward"):
+			out["ward"] = maxf(out["ward"], float(e["ward"]))
+		if e.has("element"):
+			out["element"] = int(GEAR_ELEMENT.get(String(e["element"]), -1))
+	return out
+
+
+## Apply the aggregated gear effects from the class BASE (idempotent). Called on
+## class config + every loadout swap; safe to re-run.
+func _recompute_gear_effects() -> void:
+	var g: Dictionary = _aggregate_gear()
+	# Melee profile from the class base * gear mult.
+	_melee_damage = int(round(float(_cfg.get("melee_damage", MELEE_DAMAGE)) * float(g["melee_damage"])))
+	_melee_knockback = float(_cfg.get("melee_knockback", MELEE_KNOCKBACK)) * float(g["melee_knockback"])
+	_melee_cd = float(_cfg.get("melee_cd", MELEE_COOLDOWN)) * float(g["melee_cd"])
+	# Max HP from the flat base * gear mult (keep the current fill ratio).
+	var new_max: int = maxi(int(round(float(BASE_MAX_HP) * float(g["max_hp"]))), 1)
+	if new_max != max_hp:
+		var ratio: float = float(hp) / float(maxi(max_hp, 1))
+		max_hp = new_max
+		hp = clampi(int(round(float(new_max) * ratio)), 1, new_max)
+		health_changed.emit(hp, max_hp)
+	_gear_speed_mult = float(g["speed"])
+	_gear_ward_frac = float(g["ward"])
+	_gear_ward_used = false  # a fresh loadout / class = a fresh ward
+	# The flagship: an elemental WEAPON overrides your element (gear defines your kit).
+	if int(g["element"]) >= 0:
+		_element = int(g["element"])
+		_apply_element()
 
 
 ## Debug: cycle class live (Tab) and persist the choice to GameState so the hub
@@ -1827,6 +1899,11 @@ func take_damage(amount: int) -> void:
 		_cancel_channel()
 	if _summoning:
 		_cancel_summon()
+	# Gear: a warding robe softens the FIRST hit each fight (GearAbilities "Warded").
+	if _gear_ward_frac > 0.0 and not _gear_ward_used and amount > 0:
+		amount = int(round(float(amount) * (1.0 - _gear_ward_frac)))
+		_gear_ward_used = true
+		rig.flash_color(Color(0.75, 0.85, 1.0), 0.14)  # a pale ward shimmer
 	hp = max(hp - amount, 0)
 	health_changed.emit(hp, max_hp)
 	DamageNumber.spawn(get_parent(), global_position + Vector2(0.0, -18.0), amount, Color(1.0, 0.35, 0.35), amount >= 18)
