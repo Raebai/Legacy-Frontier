@@ -114,6 +114,23 @@ var aura_tier: int = 1
 var state: State = State.IDLE
 ## slot ("head"/"body"/"feet"/"weapon") -> kind id ("" clears).
 var equipment: Dictionary = {}
+## slot -> Texture2D pixel-art overlay. When a set_equipment kind has a matching
+## piece in EQUIP_TEX, the TEXTURE supersedes the procedural draw for that slot
+## (drawn at the head/hand/body anchor, tracking the pose + facing flip). This is
+## how PixelLab-generated gear "customises the stick figure" WITHOUT replacing it.
+var equipment_tex: Dictionary = {}
+## Equipment-kind -> pixel-art overlay path (PixelLab-generated, see
+## python-tools/pixellab_gen.py). A kind with no entry falls back to the procedural
+## piece in draw_figure, so partial coverage is fine.
+const EQUIP_TEX: Dictionary = {
+	"hat": "res://assets/sprites/equipment/hat_wizard.png",
+	"hood": "res://assets/sprites/equipment/hood.png",
+	"staff": "res://assets/sprites/equipment/staff.png",
+	"sword": "res://assets/sprites/equipment/sword.png",
+	"hammer": "res://assets/sprites/equipment/hammer.png",
+	"scythe": "res://assets/sprites/equipment/scythe.png",
+	"orb": "res://assets/sprites/equipment/orb.png",
+}
 
 var _phase: float = 0.0
 var _one_shot_active: bool = false
@@ -496,9 +513,24 @@ func flash_color(color: Color, duration: float = 0.06) -> void:
 func set_equipment(slot: String, kind: String) -> void:
 	if kind == "":
 		equipment.erase(slot)
+		equipment_tex.erase(slot)
 	else:
-		equipment[slot] = kind
+		equipment[slot] = kind          # always record the LOGICAL kind (state/tests)
+		var tex: Texture2D = _equip_texture(kind)
+		if tex != null:
+			equipment_tex[slot] = tex   # a pixel-art piece exists -> draw it, skip procedural
+		else:
+			equipment_tex.erase(slot)   # no texture -> draw_figure draws the procedural piece
 	queue_redraw()
+
+
+## The PixelLab pixel-art overlay for an equipment kind, or null if none exists
+## (falls back to the procedural draw). Cached by the resource loader.
+func _equip_texture(kind: String) -> Texture2D:
+	var path: String = EQUIP_TEX.get(kind, "")
+	if path != "" and ResourceLoader.exists(path):
+		return load(path) as Texture2D
+	return null
 
 
 ## Convenience gear bundles — one per playable class. Classes WITH a weapon
@@ -524,10 +556,10 @@ func class_preset(preset_name: String) -> void:
 			set_equipment("body", "")
 			set_equipment("head", "")
 			set_equipment("weapon", "")
-		"juggernaut":  # heavy — bare torso, weapon (hammer) from equip_weapon
+		"juggernaut":  # heavy — bare torso, two-handed war hammer
 			set_equipment("body", "")
 			set_equipment("head", "")
-			set_equipment("weapon", "sword")
+			set_equipment("weapon", "hammer")
 		"cleric":  # hooded templar with a staff
 			set_equipment("body", "robe")
 			set_equipment("head", "hood")
@@ -540,10 +572,10 @@ func class_preset(preset_name: String) -> void:
 			set_equipment("body", "robe")
 			set_equipment("head", "hat")
 			set_equipment("weapon", "staff")
-		"warlock":  # hooded hexer with a scythe (sword overlay)
+		"warlock":  # hooded hexer with a scythe
 			set_equipment("body", "robe")
 			set_equipment("head", "hood")
-			set_equipment("weapon", "sword")
+			set_equipment("weapon", "scythe")
 
 
 ## Enable/retint the under-figure aura glow. strength 0 turns it off.
@@ -609,7 +641,17 @@ func _draw() -> void:
 	if lift != Vector2.ZERO or pop_scale != Vector2.ONE:
 		draw_set_transform(lift, 0.0, pop_scale)
 	var pose: Dictionary = _sim_pose()  # draw the PHYSICAL body, not the raw target
-	draw_figure(self, pose, col, equipment, height, OUTLINE_COLOR)
+	# Slots with a pixel-art overlay are drawn as textures below — hide their
+	# procedural version so the two don't stack (the logical `equipment` is intact).
+	var procedural: Dictionary = equipment
+	if not equipment_tex.is_empty():
+		procedural = {}
+		for s: String in equipment:
+			if not equipment_tex.has(s):
+				procedural[s] = equipment[s]
+	draw_figure(self, pose, col, procedural, height, OUTLINE_COLOR)
+	if not equipment_tex.is_empty():
+		_draw_equipment_textures(pose)
 	_draw_slash_arc(pose, col)
 	_draw_parry_shield(pose)
 	_draw_cast_gesture_vfx(pose)
@@ -623,6 +665,49 @@ func _draw_hand_fire(pose: Dictionary) -> void:
 	if _hand_fire <= 0.01 or _hand_fire_element != Elements.Element.FIRE:
 		return
 	draw_flame(self, pose["hand_lead"], pose["w"] * 1.7, _hand_fire, _phase)
+
+
+## Crisp pixel-art gear: nearest sampling so the PixelLab overlays don't blur when
+## scaled to the rig (the procedural AA lines are unaffected — filter is texture-only).
+func _ready() -> void:
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+
+
+## Draw the pixel-art gear overlays at their pose anchors, ON TOP of the stick
+## figure. Scaled to the rig height; the facing flip (node scale.x) carries the
+## horizontal mirror for free since this draws in the rig's local frame. Head gear
+## caps the head, weapons rise from the lead hand. This is the "customise the stick
+## figure" layer — the silhouette stays a stick, the gear gives it identity.
+func _draw_equipment_textures(pose: Dictionary) -> void:
+	var r: float = pose["r"]
+	for slot: String in equipment_tex:
+		var tex: Texture2D = equipment_tex[slot]
+		if tex == null or not is_instance_valid(tex):
+			continue
+		var tsz: Vector2 = tex.get_size()
+		if tsz.x <= 0.0 or tsz.y <= 0.0:
+			continue
+		var anchor: Vector2
+		var target_h: float
+		match slot:
+			"head":
+				anchor = pose["head_center"] - Vector2(0.0, r * 0.85)  # sit ON the head
+				target_h = r * 2.4
+			"weapon":
+				# Tall weapons (staff/sword/hammer/scythe) fill the figure height; a
+				# square-ish held item (orb) is a small hand prop, not a polearm.
+				var aspect: float = tsz.x / tsz.y
+				target_h = height * 0.55 if (aspect > 0.7 and aspect < 1.4) else height * 1.0
+				anchor = pose["hand_lead"] - Vector2(0.0, target_h * 0.18)  # gripped, rises up
+			"body":
+				anchor = pose["shoulder"].lerp(pose["hip"], 0.5)
+				target_h = height * 0.8
+			_:
+				anchor = pose["head_center"]
+				target_h = height * 0.5
+		var s: float = target_h / tsz.y
+		var draw_sz: Vector2 = tsz * s
+		draw_texture_rect(tex, Rect2(anchor - draw_sz * 0.5, draw_sz), false)
 
 
 ## Directional parry SHIELD — a white "section of a sphere": a solid curved band
