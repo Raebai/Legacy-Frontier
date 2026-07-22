@@ -22,6 +22,11 @@ var _damage: int = DAMAGE
 var _color: Color = COLOR
 var _dead: bool = false
 var element_id: int = -1
+## Co-op: a client-side VISUAL twin of a host bolt (Net._spawn_projectile_twin).
+## Flies + stops on walls + bursts for the LOOK, but never damages, clashes with a
+## hero's spell, or is parried — the host's real bolt owns all of that via the
+## damage router. Set true BEFORE add_child so _ready skips the clearable group.
+var visual_only: bool = false
 
 
 ## Tint the bolt to an element (visual — so player + enemy spells read distinct).
@@ -32,6 +37,8 @@ func set_element(id: int) -> void:
 
 
 func _ready() -> void:
+	if visual_only:
+		return  # a cosmetic twin: not clearable, not queried — it just flies + draws
 	add_to_group("enemy_projectile")  # so AoE spells can clear it from the air
 
 
@@ -72,6 +79,13 @@ func _physics_process(delta: float) -> void:
 	queue_redraw()
 	if _check_wall(prev):
 		return  # stopped on a platform/wall (no more pass-through)
+	# Co-op twin: stops on walls + bursts for the look above, but skips ALL gameplay
+	# (clash/hit/parry) — those would double-resolve on the client. The host's real
+	# bolt applies the damage via the router; this copy exists only to be seen.
+	if visual_only:
+		if _traveled >= MAX_TRAVEL:
+			queue_free()
+		return
 	if not _reflected and _check_clash():
 		return  # a stronger player bolt fizzled us
 	_check_hit()          # split out so headless tests can drive it

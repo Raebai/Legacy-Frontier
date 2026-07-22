@@ -428,11 +428,10 @@ func _deflect(bolt: Node2D) -> void:
 	rig.flash()
 	Sfx.play("ding", 0.0, 0.02)
 	if is_instance_valid(_hero):
-		var proj := EnemyProjectile.new()
-		get_parent().add_child(proj)
-		proj.global_position = global_position
-		proj.launch((_hero.global_position - global_position).normalized())
-		proj.set_element(_bolt_element if _bolt_element >= 0 else 2)
+		_spawn_enemy_bolt(
+			global_position,
+			(_hero.global_position - global_position).normalized(),
+			_bolt_element if _bolt_element >= 0 else 2)
 
 
 func _ready() -> void:
@@ -560,22 +559,68 @@ func _process_recover(delta: float) -> void:
 		_attack_state = AttackState.CHASE
 
 
+## True only on the co-op HOST (the only peer whose AI reaches an attack windup:
+## client enemies are puppets that return early from _physics_process). False in
+## SP (no session) — so every broadcast below is a no-op and SP stays byte-identical.
+func _coop_active() -> bool:
+	return _net != null and _net.is_host()
+
+
+## Build THE host's danger indicator for an attack tell and — in a co-op session —
+## broadcast a source-less VISUAL twin to every client so a remote hero sees the
+## same tell before it can land (a Telegraph carries no damage; the twin is safe).
+## Single construction path for all seven archetype windups. Returns the host node
+## so the caller holds it in `_telegraph` (for abort/clear). `cfg` keys mirror the
+## Telegraph fields: style, pos, accent, radius, windup; plus line/length/width/angle
+## for LANE and aim/reach for MUZZLE.
+func _emit_telegraph(cfg: Dictionary) -> Telegraph:
+	var style_v: Variant = cfg.get("style", Telegraph.Style.ZONE)
+	var pos: Vector2 = cfg.get("pos", global_position)
+	var accent: Color = cfg.get("accent", _accent())
+	var radius: float = float(cfg.get("radius", ATTACK_RADIUS))
+	var windup: float = float(cfg.get("windup", ATTACK_WINDUP))
+	var is_line: bool = bool(cfg.get("line", false))
+	var aim: Vector2 = cfg.get("aim", Vector2.RIGHT)
+	var reach: float = float(cfg.get("reach", 120.0))
+	var length: float = float(cfg.get("length", 0.0))
+	var width: float = float(cfg.get("width", 0.0))
+	var angle: float = float(cfg.get("angle", 0.0))
+
+	var tele := Telegraph.new()
+	# Sibling in the arena, not a child: the sigil marks a spot in the world and
+	# must not ride along if the caster gets knocked around mid-windup.
+	get_parent().add_child(tele)
+	tele.global_position = pos
+	tele.source = self
+	tele.accent = accent
+	tele.style = style_v
+	tele.aim_dir = aim
+	tele.reach = reach
+	tele.fired.connect(_on_telegraph_fired)
+	if is_line:
+		tele.start_line(length, width, angle, windup)
+	else:
+		tele.start(radius, windup)
+
+	if _coop_active():
+		_net.broadcast_telegraph({
+			"style": style_v, "pos": pos, "accent": accent,
+			"radius": radius, "windup": windup, "line": is_line,
+			"aim": aim, "reach": reach, "length": length, "width": width, "angle": angle,
+		})
+	return tele
+
+
 ## Snapshot the hero's position, spawn the danger circle there, hold still.
 ## A stationary player gets hit; a dashing player escapes the circle.
 func _start_windup() -> void:
 	_attack_state = AttackState.WINDUP
 	_strike_center = _hero.global_position
 	rig.flash()  # readable tell: the brute blinks as it roots itself
-	_telegraph = Telegraph.new()
-	# Sibling in the arena, not a child: the circle marks a spot in the world
-	# and must not ride along if the brute gets knocked around mid-windup.
-	get_parent().add_child(_telegraph)
-	_telegraph.global_position = _strike_center
-	_telegraph.source = self
-	_telegraph.accent = _accent()
-	_telegraph.style = Telegraph.Style.ZONE
-	_telegraph.fired.connect(_on_telegraph_fired)
-	_telegraph.start(ATTACK_RADIUS, ATTACK_WINDUP)
+	_telegraph = _emit_telegraph({
+		"style": Telegraph.Style.ZONE, "pos": _strike_center,
+		"radius": ATTACK_RADIUS, "windup": ATTACK_WINDUP,
+	})
 	_spawn_caster_signal(14.0, ATTACK_WINDUP)
 
 
@@ -628,25 +673,29 @@ func _start_caster_windup() -> void:
 	if _aim_dir == Vector2.ZERO:
 		_aim_dir = Vector2.RIGHT
 	rig.flash()
-	_telegraph = Telegraph.new()
-	get_parent().add_child(_telegraph)
-	_telegraph.global_position = global_position   # tell is ON the caster
-	_telegraph.source = self
-	_telegraph.accent = _accent()
-	_telegraph.style = Telegraph.Style.MUZZLE
-	_telegraph.aim_dir = _aim_dir
-	_telegraph.reach = 130.0
-	_telegraph.fired.connect(_on_telegraph_fired)
-	_telegraph.start(CASTER_TELE_RADIUS, CASTER_WINDUP)
+	_telegraph = _emit_telegraph({
+		"style": Telegraph.Style.MUZZLE, "pos": global_position,  # tell is ON the caster
+		"radius": CASTER_TELE_RADIUS, "windup": CASTER_WINDUP,
+		"aim": _aim_dir, "reach": 130.0,
+	})
 	_spawn_caster_signal(11.0, CASTER_WINDUP)
 
 
-func _fire_projectile() -> void:
+## Spawn a hostile bolt (the REAL, damaging one, host-authoritative) and — in a
+## co-op session — broadcast a VISUAL-only twin so a remote hero sees the shot that
+## can hit it. Shared by the caster's fire and the Impossible-tier deflect counter.
+func _spawn_enemy_bolt(pos: Vector2, dir: Vector2, element: int) -> void:
 	var proj := EnemyProjectile.new()
 	get_parent().add_child(proj)
-	proj.global_position = global_position
-	proj.launch(_aim_dir)
-	proj.set_element(_bolt_element)
+	proj.global_position = pos
+	proj.launch(dir)
+	proj.set_element(element)
+	if _coop_active():
+		_net.broadcast_projectile({"pos": pos, "dir": dir, "element": element})
+
+
+func _fire_projectile() -> void:
+	_spawn_enemy_bolt(global_position, _aim_dir, _bolt_element)
 	_attack_state = AttackState.RECOVER
 	_recover_timer = ATTACK_RECOVER_TIME
 	_attack_cooldown = CASTER_COOLDOWN
@@ -680,14 +729,10 @@ func _start_mage_windup() -> void:
 	_attack_state = AttackState.WINDUP
 	_strike_center = _hero.global_position
 	rig.flash()
-	_telegraph = Telegraph.new()
-	get_parent().add_child(_telegraph)
-	_telegraph.global_position = _strike_center     # the ground zone to dodge out of
-	_telegraph.source = self
-	_telegraph.accent = _accent()
-	_telegraph.style = Telegraph.Style.ZONE
-	_telegraph.fired.connect(_on_telegraph_fired)
-	_telegraph.start(MAGE_AOE_RADIUS, MAGE_WINDUP)
+	_telegraph = _emit_telegraph({
+		"style": Telegraph.Style.ZONE, "pos": _strike_center,  # ground zone to dodge out of
+		"radius": MAGE_AOE_RADIUS, "windup": MAGE_WINDUP,
+	})
 	_spawn_caster_signal(13.0, MAGE_WINDUP)
 
 
@@ -735,14 +780,11 @@ func _start_charger_windup() -> void:
 	if _charge_dir.x == 0.0:
 		_charge_dir = Vector2.RIGHT
 	rig.flash()
-	_telegraph = Telegraph.new()
-	get_parent().add_child(_telegraph)
-	_telegraph.global_position = global_position
-	_telegraph.source = self
-	_telegraph.accent = _accent()
-	_telegraph.style = Telegraph.Style.LANE
-	_telegraph.fired.connect(_on_telegraph_fired)
-	_telegraph.start_line(CHARGE_LEN, CHARGE_WIDTH, _charge_dir.angle(), CHARGE_WINDUP)
+	_telegraph = _emit_telegraph({
+		"style": Telegraph.Style.LANE, "pos": global_position, "line": true,
+		"length": CHARGE_LEN, "width": CHARGE_WIDTH, "angle": _charge_dir.angle(),
+		"windup": CHARGE_WINDUP,
+	})
 	_spawn_caster_signal(12.0, CHARGE_WINDUP)
 
 
@@ -813,14 +855,10 @@ func _summoner_chase(delta: float) -> void:
 func _start_summon_windup() -> void:
 	_attack_state = AttackState.WINDUP
 	rig.flash()
-	_telegraph = Telegraph.new()
-	get_parent().add_child(_telegraph)
-	_telegraph.global_position = global_position   # tell is ON the summoner
-	_telegraph.source = self
-	_telegraph.accent = _accent()
-	_telegraph.style = Telegraph.Style.GATHER
-	_telegraph.fired.connect(_on_telegraph_fired)
-	_telegraph.start(SUMMON_TELE_RADIUS, SUMMON_WINDUP)
+	_telegraph = _emit_telegraph({
+		"style": Telegraph.Style.GATHER, "pos": global_position,  # tell is ON the summoner
+		"radius": SUMMON_TELE_RADIUS, "windup": SUMMON_WINDUP,
+	})
 	_spawn_caster_signal(12.0, SUMMON_WINDUP)
 
 
@@ -911,14 +949,10 @@ func _start_assassin_windup() -> void:
 	if _charge_dir.x == 0.0:
 		_charge_dir = Vector2.RIGHT
 	rig.flash()
-	_telegraph = Telegraph.new()
-	get_parent().add_child(_telegraph)
-	_telegraph.global_position = _strike_center
-	_telegraph.source = self
-	_telegraph.accent = _accent()
-	_telegraph.style = Telegraph.Style.DART
-	_telegraph.fired.connect(_on_telegraph_fired)
-	_telegraph.start(ASSASSIN_TELE_RADIUS, ASSASSIN_WINDUP)
+	_telegraph = _emit_telegraph({
+		"style": Telegraph.Style.DART, "pos": _strike_center,
+		"radius": ASSASSIN_TELE_RADIUS, "windup": ASSASSIN_WINDUP,
+	})
 	_spawn_caster_signal(10.0, ASSASSIN_WINDUP)
 
 
@@ -962,14 +996,10 @@ func _start_bomb_windup() -> void:
 	_attack_state = AttackState.WINDUP
 	_strike_center = global_position
 	rig.flash()
-	_telegraph = Telegraph.new()
-	get_parent().add_child(_telegraph)
-	_telegraph.global_position = _strike_center
-	_telegraph.source = self
-	_telegraph.accent = _accent()
-	_telegraph.style = Telegraph.Style.BOMB
-	_telegraph.fired.connect(_on_telegraph_fired)
-	_telegraph.start(BOMB_RADIUS, BOMB_WINDUP)
+	_telegraph = _emit_telegraph({
+		"style": Telegraph.Style.BOMB, "pos": _strike_center,
+		"radius": BOMB_RADIUS, "windup": BOMB_WINDUP,
+	})
 	_spawn_caster_signal(16.0, BOMB_WINDUP)
 
 

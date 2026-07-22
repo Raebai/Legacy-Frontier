@@ -15,4 +15,6 @@ kill "$HP" "$CP" 2>/dev/null
 wait 2>/dev/null
 echo "=== HOST ===";   grep "\[NET\]" "$OUT/coop_host.log"
 echo "=== CLIENT ==="; grep "\[NET\]" "$OUT/coop_client.log"
-echo "PASS if host sees a peer (total=2) and both print heroes=2."
+echo "PASS if host sees a peer (total=2), both print heroes=2, the client's floor"
+echo "follows the host to 2, AND the client's twins=2 (proves the attack-visual"
+echo "tell/bolt RPC path delivers over the wire — a client sees what can hit it)."

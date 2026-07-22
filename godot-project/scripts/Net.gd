@@ -26,6 +26,10 @@ var _pending_class: int = 0
 ## per clear, whichever hero reaches the exit first (debounces two near-simultaneous
 ## portal takes into a single floor step).
 var _pending_advance: bool = false
+## Count of attack-visual twins this peer has built from host broadcasts (client-side
+## only; the host builds real nodes, never twins). Surfaced by the loopback smoke
+## test to prove the tell/bolt RPC path delivers over the wire.
+var _twins_built: int = 0
 
 
 func _ready() -> void:
@@ -321,6 +325,72 @@ func _local_damage(target: Node, amount: int, tint: Color) -> void:
 		target.take_damage(amount)         # Hero.take_damage(amount)
 
 
+# ===================================================== ATTACK-VISUAL REPLICATION
+## Enemies are host-authoritative: their bodies + hp + damage replicate, but an
+## attack's TELL (the Telegraph danger sigil) and a caster's BOLT are host-only
+## nodes. A client would then be hit by a tell it never saw — unfair. The host
+## broadcasts a cosmetic twin of each; every client builds a DAMAGE-FREE copy into
+## its Arena so the whole roster's attacks READ on every screen. The twins carry
+## NO gameplay (all damage/knockback stays host-authoritative via the router above);
+## they exist purely to be seen, animate on their own _process, and free themselves.
+## No-op in SP / when not the host. `data` is an RPC Dictionary (types preserved —
+## no JSON float trap here), keyed by the Telegraph / EnemyProjectile fields.
+func broadcast_telegraph(data: Dictionary) -> void:
+	if is_host():
+		_client_telegraph.rpc(data)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _client_telegraph(data: Dictionary) -> void:
+	var scene: Node = get_tree().current_scene
+	if scene != null:
+		_spawn_telegraph_twin(scene, data)
+
+
+func broadcast_projectile(data: Dictionary) -> void:
+	if is_host():
+		_client_projectile.rpc(data)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _client_projectile(data: Dictionary) -> void:
+	var scene: Node = get_tree().current_scene
+	if scene != null:
+		_spawn_projectile_twin(scene, data)
+
+
+## A damage-free Telegraph copy at the marked spot. Source-less (no caster tether —
+## the client doesn't hold the host's enemy node) but the danger sigil itself reads.
+## Style/geometry/timing come straight from the host's _emit_telegraph cfg.
+func _spawn_telegraph_twin(scene: Node, data: Dictionary) -> void:
+	_twins_built += 1
+	var tele := Telegraph.new()
+	scene.add_child(tele)
+	tele.global_position = data.get("pos", Vector2.ZERO)
+	tele.accent = data.get("accent", Telegraph.RING_COLOR)
+	tele.style = data.get("style", Telegraph.Style.ZONE)   # Variant->enum (runtime-safe)
+	tele.aim_dir = data.get("aim", Vector2.RIGHT)
+	tele.reach = float(data.get("reach", 120.0))
+	if bool(data.get("line", false)):
+		tele.start_line(
+			float(data.get("length", 0.0)), float(data.get("width", 0.0)),
+			float(data.get("angle", 0.0)), float(data.get("windup", 0.5)))
+	else:
+		tele.start(float(data.get("radius", 40.0)), float(data.get("windup", 0.5)))
+
+
+## A visual_only EnemyProjectile twin — flies, stops on walls, bursts for the look,
+## never damages/clashes (visual_only gates all of that in EnemyProjectile).
+func _spawn_projectile_twin(scene: Node, data: Dictionary) -> void:
+	_twins_built += 1
+	var proj := EnemyProjectile.new()
+	proj.visual_only = true
+	scene.add_child(proj)
+	proj.global_position = data.get("pos", Vector2.ZERO)
+	proj.launch(data.get("dir", Vector2.RIGHT))
+	proj.set_element(int(data.get("element", -1)))
+
+
 # --------------------------------------------------- headless two-instance test
 ## `-- --server` hosts; `-- --client [ip]` joins loopback. Prints [NET] lines the
 ## PowerShell two-process test greps for. Deferred so the tree is ready.
@@ -343,6 +413,14 @@ func _cli_host() -> void:
 			start_coop_run()
 			get_tree().create_timer(2.0).timeout.connect(func() -> void:
 				_cli_count("host")
+				# Prove ATTACK-VISUAL replication end-to-end: broadcast one tell + one
+				# bolt twin over the wire (host builds none locally; the client should
+				# build both -> its _twins_built rises to 2, reported by _cli_count).
+				broadcast_telegraph({
+					"style": 0, "pos": Vector2(400, 300), "accent": Color(1, 0.2, 0.15),
+					"radius": 40.0, "windup": 0.6, "line": false,
+				})
+				broadcast_projectile({"pos": Vector2(400, 300), "dir": Vector2.RIGHT, "element": 0})
 				# Prove the floor-advance broadcast: arm the debounce (simulate a clear)
 				# + advance the party, then re-report so the client's floor should follow.
 				_pending_advance = true
@@ -382,4 +460,4 @@ func _cli_count(who: String) -> void:
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs != null and gs.has_method("current_floor"):
 		floor = int(gs.current_floor())
-	print("[NET] %s heroes=%d enemies=%d host_owned=%d first_enemy_pos=%s floor=%d" % [who, heroes, enemies, host_owned, sample, floor])
+	print("[NET] %s heroes=%d enemies=%d host_owned=%d first_enemy_pos=%s floor=%d twins=%d" % [who, heroes, enemies, host_owned, sample, floor, _twins_built])
