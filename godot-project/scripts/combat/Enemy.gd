@@ -144,6 +144,19 @@ const ARCHETYPE_DEFAULTS: Dictionary = {
 	Archetype.MAGE: {"hp": 34, "speed": 78.0, "touch": 6, "tint": Color(0.5, 0.3, 0.85, 1)},       # deep violet
 }
 
+## Per-archetype pixel WEAPON (PixelLab overlay on the stick, via CharacterRig's
+## equipment system) so the roster reads distinct at a glance (maker: "loads of
+## enemies ... cooler"). CHASER stays bare (fast/weak); the rest carry a signature.
+const ARCHETYPE_GEAR: Dictionary = {
+	Archetype.BRUTE: "club",
+	Archetype.CASTER: "staff",
+	Archetype.CHARGER: "spear",
+	Archetype.SUMMONER: "orb",
+	Archetype.ASSASSIN: "dagger",
+	Archetype.BOMBER: "bomb",
+	Archetype.MAGE: "staff",
+}
+
 ## Per-archetype telegraph accent so each tell reads distinct ("cool prep noters
 ## based on the attack"): area-denial tells stay danger-red, directional tells
 ## take the archetype's own hue. Falls back to red.
@@ -371,6 +384,14 @@ func _apply_archetype_defaults() -> void:
 		_bolt_element = randi() % Elements.count()  # a visible elemental bolt / AoE
 
 
+## Equip the archetype's signature pixel weapon on the rig (no-op for CHASER + when
+## the piece has no texture). Boss overrides this (it dresses itself in _ready).
+func _apply_archetype_gear() -> void:
+	var kind: String = ARCHETYPE_GEAR.get(archetype, "")
+	if kind != "" and is_instance_valid(rig):
+		rig.set_equipment("weapon", kind)
+
+
 ## Scale stats + unlock smart behaviours from GameState.enemy_difficulty.
 func _apply_difficulty() -> void:
 	var gs: Node = get_node_or_null("/root/GameState")
@@ -441,6 +462,7 @@ func _ready() -> void:
 	_apply_difficulty()
 	hp = max_hp
 	rig.set_tint(tint)
+	_apply_archetype_gear()
 	var heroes: Array = get_tree().get_nodes_in_group("hero")
 	if not heroes.is_empty():
 		_hero = heroes[0]

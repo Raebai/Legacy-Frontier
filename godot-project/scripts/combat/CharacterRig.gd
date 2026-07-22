@@ -133,6 +133,12 @@ const EQUIP_TEX: Dictionary = {
 	"staff_ice": "res://assets/sprites/equipment/staff_ice.png",
 	"staff_storm": "res://assets/sprites/equipment/staff_storm.png",
 	"staff_holy": "res://assets/sprites/equipment/staff_holy.png",
+	"club": "res://assets/sprites/equipment/club.png",
+	"spear": "res://assets/sprites/equipment/spear.png",
+	"dagger": "res://assets/sprites/equipment/dagger.png",
+	"bomb": "res://assets/sprites/equipment/bomb.png",
+	"crown": "res://assets/sprites/equipment/crown.png",
+	"robe": "res://assets/sprites/equipment/robe.png",
 }
 ## PixelLab magic-circle emblem for the ground aura (tier >= 3), tinted per element.
 const AURA_CIRCLE_PATH: String = "res://assets/sprites/fx/magic_circle.png"
@@ -705,8 +711,8 @@ func _draw_equipment_textures(pose: Dictionary) -> void:
 				target_h = height * 0.55 if (aspect > 0.7 and aspect < 1.4) else height * 1.0
 				anchor = pose["hand_lead"] - Vector2(0.0, target_h * 0.18)  # gripped, rises up
 			"body":
-				anchor = pose["shoulder"].lerp(pose["hip"], 0.5)
-				target_h = height * 0.8
+				anchor = pose["shoulder"].lerp(pose["hip"], 0.95)  # drape from shoulders down
+				target_h = height * 1.3                             # past the hip over the legs
 			_:
 				anchor = pose["head_center"]
 				target_h = height * 0.5

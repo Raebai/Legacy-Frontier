@@ -37,6 +37,7 @@ func _ready() -> void:
 		rig.set("height", RIG_HEIGHT)
 		rig.set_tint(STONE_TINT)
 		rig.class_preset("brawler")
+		rig.set_equipment("head", "crown")            # a guardian-king crown on the colossus
 		rig.set_aura(Color(1.0, 0.45, 0.15), 0.45)   # subtle ember halo — the stone body must read
 		rig.set_aura_tier(2)
 	_adorn = BossAdornment.new()
