@@ -131,6 +131,8 @@ const EQUIP_TEX: Dictionary = {
 	"scythe": "res://assets/sprites/equipment/scythe.png",
 	"orb": "res://assets/sprites/equipment/orb.png",
 }
+## PixelLab magic-circle emblem for the ground aura (tier >= 3), tinted per element.
+const AURA_CIRCLE_PATH: String = "res://assets/sprites/fx/magic_circle.png"
 
 var _phase: float = 0.0
 var _one_shot_active: bool = false
@@ -807,18 +809,43 @@ func _draw_motes(eff: float) -> void:
 		draw_circle(pos, mote_r, core)
 
 
-## Faint rotating ground ring under the figure (tier >= 3): two opposed arcs
-## squashed into a floor ellipse, spinning with _phase.
+## Rotating ground ring under the figure (tier >= 3): a PixelLab magic-circle
+## emblem squashed onto the floor + element-tinted + slowly spinning, with the two
+## opposed procedural arcs counter-spinning over it for extra motion. The emblem is
+## a white/cyan sigil so aura_color tints it to the wielder's element.
 func _draw_ground_ring(eff: float) -> void:
 	var ring_center: Vector2 = Vector2(0.0, height * 0.55)
 	var radius: float = height * 0.62
 	var w: float = maxf(1.2, height * 0.05)
 	var col: Color = Color(aura_color.r, aura_color.g, aura_color.b, clampf(eff * 0.28, 0.0, 0.6))
 	var spin: float = _phase * GROUND_RING_SPIN_SPEED
+	# Pixel magic-circle emblem: squashed to the floor, tinted, counter-spinning.
+	var emblem: Texture2D = _aura_circle_texture()
+	if emblem != null:
+		var tsz: Vector2 = emblem.get_size()
+		if tsz.x > 0.0:
+			var esz: float = (height * 1.7) / tsz.x  # emblem diameter vs figure
+			var ecol: Color = Color(aura_color.r, aura_color.g, aura_color.b, clampf(eff * 0.55, 0.0, 0.95))
+			draw_set_transform(ring_center, -spin * 0.5, Vector2(esz, esz * 0.4))
+			draw_texture(emblem, -tsz * 0.5, ecol)
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	draw_set_transform(ring_center, 0.0, Vector2(1.0, 0.38))
 	draw_arc(Vector2.ZERO, radius, spin, spin + 2.4, 16, col, w)
 	draw_arc(Vector2.ZERO, radius, spin + PI, spin + PI + 2.4, 16, col, w)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## Lazily-loaded, cached PixelLab magic-circle emblem for the ground aura (null if
+## the asset is missing -> falls back to the procedural arcs only).
+static var _aura_circle: Texture2D = null
+static var _aura_circle_tried: bool = false
+
+func _aura_circle_texture() -> Texture2D:
+	if not _aura_circle_tried:
+		_aura_circle_tried = true
+		if ResourceLoader.exists(AURA_CIRCLE_PATH):
+			_aura_circle = load(AURA_CIRCLE_PATH) as Texture2D
+	return _aura_circle
 
 
 ## Anticipation-then-thrust extension curve for PUNCH/KICK, over normalized

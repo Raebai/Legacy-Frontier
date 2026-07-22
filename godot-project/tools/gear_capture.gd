@@ -27,6 +27,8 @@ func _initialize() -> void:
 		if rig.has_method("set_tint"):
 			rig.call("set_tint", TINTS[i])
 		rig.call("class_preset", CLASSES[i])
+		rig.call("set_aura", TINTS[i], 1.0)   # element-tinted aura
+		rig.call("set_aura_tier", 4)          # tier >= 3 shows the magic-circle ground ring
 		rig.call("play", 0)  # State.IDLE
 		var label := Label.new()
 		label.text = CLASSES[i]
