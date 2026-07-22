@@ -299,6 +299,7 @@ var _base_melee_damage: int = MELEE_DAMAGE
 var _base_melee_knockback: float = MELEE_KNOCKBACK
 var _base_melee_cd: float = MELEE_COOLDOWN
 var _base_max_hp: int = BASE_MAX_HP
+var _base_element: int = Elements.Element.ARCANE  # class innate element (revert target)
 ## The player's LOADOUT choices (from the hub Armory). Only these override the class
 ## and grant gear abilities — class-default gear stays cosmetic + as-tuned, so a class
 ## you never re-geared plays exactly as balanced. slot -> kind.
@@ -776,6 +777,7 @@ func configure_class(cls: int) -> void:
 	_base_melee_knockback = _melee_knockback
 	_base_melee_cd = _melee_cd
 	_base_max_hp = max_hp
+	_base_element = _element  # class innate element (a non-elemental weapon reverts here)
 	_gear_override.clear()  # a fresh class = a fresh loadout base...
 	_recompute_gear_effects()
 	_apply_gamestate_loadout(get_node_or_null("/root/GameState"))  # ...then re-apply the hub loadout
@@ -854,10 +856,11 @@ func _recompute_gear_effects() -> void:
 	_gear_speed_mult = float(g["speed"])
 	_gear_ward_frac = float(g["ward"])
 	_gear_ward_used = false  # a fresh loadout / class = a fresh ward
-	# The flagship: an elemental WEAPON overrides your element (gear defines your kit).
-	if int(g["element"]) >= 0:
-		_element = int(g["element"])
-		_apply_element()
+	# Element follows the WEAPON: an elemental weapon (staff_ice, scythe, ...) sets it;
+	# a non-elemental weapon reverts to the class's innate element (never sticks).
+	var ge: int = int(g["element"])
+	_element = ge if ge >= 0 else _base_element
+	_apply_element()
 
 
 ## Debug: cycle class live (Tab) and persist the choice to GameState so the hub
