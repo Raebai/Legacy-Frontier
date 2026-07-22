@@ -83,6 +83,7 @@ static func epic_moment(opts: Dictionary = {}) -> void:
 	# ...with a quick lunge-IN punch layered on the reveal — the "slam" of release.
 	zoom_punch_camera(0.07 * s, 0.18)
 	shake_camera(float(opts.get("shake", 9.0 * s)))
+	PostProcess.shock(s)  # the screen-space ripple that sells the "insane" beat
 	var sfx: String = opts.get("sfx", "")
 	if sfx != "":
 		var tree: SceneTree = _tree()
@@ -107,6 +108,7 @@ static func impact_frame(strength: float = 1.0) -> void:
 	f.call("flash", strength)
 	zoom_punch_camera(0.14 * strength, 0.22)
 	shake_camera(11.0 * strength)
+	PostProcess.shock(1.15 * strength)  # a hard screen ripple on the curated impact frame
 	hit_stop(0.15 * strength)
 
 

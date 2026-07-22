@@ -29,3 +29,4 @@ static func explosion(parent: Node, world_pos: Vector2, size: float = 0.32) -> v
 	ex.global_position = world_pos
 	ex.scale = Vector2.ONE * size
 	ex.z_index = 4  # above the fighters, below the HUD
+	PostProcess.pulse_heat(clampf(size * 1.6, 0.2, 0.7))  # fire beat -> heat-haze shimmer

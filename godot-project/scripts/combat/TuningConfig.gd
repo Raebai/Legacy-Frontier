@@ -28,3 +28,6 @@ extends Resource
 @export_group("Combat feel")
 @export var knockback_mult: float = 1.6  # global multiplier on ALL knockback impulses (Stick-Fight "displacement is the feel"; ~1.5-2x reads powerful)
 @export var hit_stop_enabled: bool = true  # accessibility: off = no time-freeze on hits
+
+@export_group("Graphics")
+@export var post_process_enabled: bool = true  # the reactive screen-space grade ("the look"); off = raw render (low-end / accessibility)

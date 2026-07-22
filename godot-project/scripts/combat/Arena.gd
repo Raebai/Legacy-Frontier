@@ -39,6 +39,7 @@ func _ready() -> void:
 	# from the floor type; sandbox -> adventure (below). (The hub set the town bed.)
 
 	Atmosphere.add_glow(self)  # 2D bloom: pushed spell cores radiate
+	PostProcess.add(self)      # reactive screen-space grade ("the look")
 	_room = Node2D.new()
 	_room.name = "Room"
 	add_child(_room)
@@ -494,6 +495,7 @@ func _apply_theme(tint: Color) -> void:
 	if _atmo != null:
 		var accent: Color = Color(tint.r, tint.g, tint.b, 1.0).lightened(0.55)
 		_atmo.build_wash(tint, accent)
+	PostProcess.set_theme(tint)  # re-tint the grade to match the floor band
 
 
 func _build_floor_banner() -> void:

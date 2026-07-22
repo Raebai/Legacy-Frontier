@@ -239,6 +239,7 @@ func _build_background() -> void:
 	# Epic backdrop (gradient sky + distant tower spires + drifting motes +
 	# vignette) instead of two flat ColorRects — see Atmosphere.gd.
 	Atmosphere.add_glow(self)  # 2D bloom: pushed spell cores radiate
+	PostProcess.add(self)      # reactive screen-space grade ("the look")
 	var atmo := Atmosphere.new()
 	add_child(atmo)
 	# Warm, readable DUSK (not near-black night) so the battlefield reads as a fun

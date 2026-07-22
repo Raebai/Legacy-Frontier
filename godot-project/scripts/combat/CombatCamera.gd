@@ -121,6 +121,12 @@ func add_trauma(amount: float) -> void:
 	_trauma = minf(_trauma + amount, 1.0)
 
 
+## Current trauma (0..1). Read by PostProcess so the screen-space aberration
+## tracks the exact same energy that drives the shake — hits smear the picture.
+func trauma() -> float:
+	return _trauma
+
+
 ## Legacy pixel-ish API (existing callers pass ~2..12); routed into trauma.
 func add_shake(amount: float) -> void:
 	add_trauma(amount * SHAKE_TO_TRAUMA)
