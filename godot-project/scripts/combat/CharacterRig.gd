@@ -130,6 +130,9 @@ const EQUIP_TEX: Dictionary = {
 	"hammer": "res://assets/sprites/equipment/hammer.png",
 	"scythe": "res://assets/sprites/equipment/scythe.png",
 	"orb": "res://assets/sprites/equipment/orb.png",
+	"staff_ice": "res://assets/sprites/equipment/staff_ice.png",
+	"staff_storm": "res://assets/sprites/equipment/staff_storm.png",
+	"staff_holy": "res://assets/sprites/equipment/staff_holy.png",
 }
 ## PixelLab magic-circle emblem for the ground aura (tier >= 3), tinted per element.
 const AURA_CIRCLE_PATH: String = "res://assets/sprites/fx/magic_circle.png"
@@ -562,18 +565,18 @@ func class_preset(preset_name: String) -> void:
 			set_equipment("body", "")
 			set_equipment("head", "")
 			set_equipment("weapon", "hammer")
-		"cleric":  # hooded templar with a staff
+		"cleric":  # hooded templar with a radiant holy staff
 			set_equipment("body", "robe")
 			set_equipment("head", "hood")
-			set_equipment("weapon", "staff")
-		"cryomancer":  # hatted frost caster
+			set_equipment("weapon", "staff_holy")
+		"cryomancer":  # hatted frost caster with an ice staff
 			set_equipment("body", "robe")
 			set_equipment("head", "hat")
-			set_equipment("weapon", "staff")
-		"stormcaller":  # hatted storm caster
+			set_equipment("weapon", "staff_ice")
+		"stormcaller":  # hatted storm caster with a lightning staff
 			set_equipment("body", "robe")
 			set_equipment("head", "hat")
-			set_equipment("weapon", "staff")
+			set_equipment("weapon", "staff_storm")
 		"warlock":  # hooded hexer with a scythe
 			set_equipment("body", "robe")
 			set_equipment("head", "hood")

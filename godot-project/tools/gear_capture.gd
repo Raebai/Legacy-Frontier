@@ -5,20 +5,20 @@
 # Output: user://gear.png
 extends SceneTree
 
-const CLASSES: Array = ["mage", "rogue", "warlock", "juggernaut", "summoner", "cleric"]
+const CLASSES: Array = ["mage", "cryomancer", "stormcaller", "cleric", "warlock", "rogue", "juggernaut", "summoner"]
 const TINTS: Array = [
-	Color(0.55, 0.75, 1.0), Color(0.8, 0.85, 0.9), Color(0.7, 0.45, 1.0),
-	Color(1.0, 0.7, 0.35), Color(0.4, 0.9, 0.6), Color(1.0, 0.95, 0.7),
+	Color(0.7, 0.5, 1.0), Color(0.5, 0.85, 1.0), Color(1.0, 0.9, 0.4), Color(1.0, 0.95, 0.7),
+	Color(0.7, 0.45, 1.0), Color(0.8, 0.85, 0.9), Color(1.0, 0.7, 0.35), Color(0.4, 0.9, 0.6),
 ]
 
 
 func _initialize() -> void:
 	var bg := ColorRect.new()
 	bg.color = Color(0.14, 0.15, 0.19)
-	bg.size = Vector2(760, 400)
+	bg.size = Vector2(1365, 768)
 	root.add_child(bg)
 	var rig_script: GDScript = load("res://scripts/combat/CharacterRig.gd")
-	var x: float = 90.0
+	var x: float = 95.0
 	for i: int in CLASSES.size():
 		var rig: Node2D = rig_script.new()
 		rig.set("height", 74.0)
@@ -34,7 +34,7 @@ func _initialize() -> void:
 		label.text = CLASSES[i]
 		label.position = Vector2(x - 30.0, 300.0)
 		root.add_child(label)
-		x += 115.0
+		x += 150.0
 	_run()
 
 
