@@ -5,6 +5,18 @@ Plan: `docs/v2.0-slice0-plan.md`. Slice 1 plan: TBD.
 Godot headless binary: `godot-engine/Godot_v4.6.2-stable_win64_console.exe`
 Builder model: Fable 5.
 
+## ★★ READ FIRST (2026-07-23) — CURRENT STATE, supersedes the 2026-07-16 block below ★★
+Everything below in this file is history. The current arc = a big **CUSTOMIZATION + JUICE + CO-OP** push, all shipped + pushed to `origin/v2.0-tower`, headless-validated + GPU-verified by Claude's eyes, but **UNPLAYTESTED for FEEL/BALANCE** by the maker. THE #1 THING THAT NEEDS DOING: **maker F5 the stack** (nothing else should gate on more building until it's felt).
+
+What's built (newest, all on `v2.0-tower`):
+- **PixelLab gear customization** — sticks STAY sticks; PixelLab only *customises* them. Pipeline `python-tools/pixellab_gen.py` (key in gitignored `.env`, ~17 trial gens left). 20 pixel pieces overlay the rigs via `CharacterRig.EQUIP_TEX`. All 8 hero classes + 8 enemy archetypes + boss have gear; auras = a spinning magic-circle ground sigil. Memory [[project_v2_pixellab_gear]].
+- **Gear ABILITIES + LOADOUT UI** — `GearAbilities.gd` effect bags; gear grants real effects (weapon→element, hat +HP, robe ward, armor -15% dmg, etc.) OVERRIDE-ONLY (class defaults stay as-tuned). Hub **Armory** (walk-up+E) → `Loadout.gd` UI picks weapon/head/body, writes `GameState.loadout`, applied by Hero. Integration-tested (`tools/slice_test_loadout.gd`).
+- **Reactive POST-PROCESS grade** ("the look") — `PostProcess.gd` + `post_process.gdshader`: chromatic aberration on hits, shockwave ripple on ults, heat-haze, filmic grade. Memory [[project_v2_postprocess_look]].
+- **CO-OP attack-visual replication (#1 + #2)** — enemy tells + bolts + mage/bomber DETONATIONS now replicate to clients (floors 1-4 visually fair). BOSS spectacle set still host-only (deferred, floor-5-only).
+
+TUNE KNOBS (all one place each): gear values → `GearAbilities.ABILITIES`; gear placement → `CharacterRig._draw_equipment_textures`; grade intensity → `PostProcess.SHOCK_BASE_AMP`.
+NEXT (maker-directed, after F5): tune to feel; then optionally per-ability weapon swaps, more gear effects, "defaults grant abilities" flip, or co-op BOSS spectacle replication. Detail in the newest dated `===` entries at the BOTTOM of this file (2026-07-22 / 2026-07-23). Verify: `bash python-tools/coop_smoketest.sh`; sweep = run every `tools/slice*_test_*.gd` (52 green).
+
 ## ▶▶ RESUME HERE (2026-07-16) — the maker said "resume" continues THESE TWO THINGS ▶▶
 The **CO-OP** and **BOSS** milestones both have a shipped+verified FOUNDATION on `v2.0-tower` (pushed). "Resume" = keep improving these two to a fully-shared, feel-tuned state. Read this block, then `git log --oneline`, then `docs/v2.0-coop-and-boss-checklist.md`.
 
