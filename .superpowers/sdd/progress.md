@@ -5,6 +5,20 @@ Plan: `docs/v2.0-slice0-plan.md`. Slice 1 plan: TBD.
 Godot headless binary: `godot-engine/Godot_v4.6.2-stable_win64_console.exe`
 Builder model: Fable 5.
 
+## ★★★ READ FIRST (2026-07-24) — SUPERSEDES every block below ★★★
+**Push 1 "Stick Fight Feel Foundation" shipped on `v2.0-tower` (NOT pushed to origin).** 8 tasks, each subagent-built + reviewed + fixed (SDD). Headless-verified (all slice suites green; sandbox boots clean) but **UNPLAYTESTED for FEEL — awaiting maker F5.** Maker-directed pivot: strip to a Smash/Stick-Fight SANDBOX + fix the core feel; tower/co-op/customization polish deferred. Then maker said **PAUSE** when done.
+
+What changed (commits `a51b901`..`53f3af6`; SDD ledger `.superpowers/sdd/push1-progress.md`):
+- **BOOT:** F5 now drops straight into `scenes/combat/VersusArena.tscn` (destructible bot arena); intro Lobby bypassed (kept on disk); hub **Armory hidden**; 2-3 passive practice **DUMMIES** added (group `"dummy"`, excluded from win count).
+- **RIG (Stick Fight active ragdoll, per maker):** foot-plant IK (feet grip floor/platforms), tamed resting drift, bold dark-keyline silhouette, aim-arm SNAPS to cursor. **NO canned jump pose** — airborne + hits go LOOSE/reactive (partial-limp regime reusing the `flop()` system). Memory `[[project_v2_rig_ragdoll_direction]]`.
+- **MOVEMENT:** weighty (rise 2600 / fall 3000 / jump -740 / air_accel 750 / max_fall 1400) — killed the floaty flying. All live-tunable via `TuningConfig` (`move_gravity_rise/fall`, `move_jump_velocity`, `move_air_accel`, `move_max_fall`, `pct_per_damage`).
+- **DEATH MODEL:** Smash damage-% + ring-out. No HP depletion — % builds, higher % = fly farther, eliminated only by ring-out (`StageHazard` pits). HP bars → **% bars**. GATED behind `GameState.ringout_mode` (VersusArena on; tower/co-op forced off) so the tower Arena keeps HP-death. Bots knock-out-able the same way.
+- **BUGS FIXED:** own bolt no longer self-damages (caster set for all classes + `Spell.gd` guard); melee **AUTO-TARGETS** nearest enemy in range + lunge + tighter hit-frame (0.35).
+- **SPELLS:** right-sized the screen-eating MeteorSigil(Q)/EnergyNova(T) visuals — visual-only, hit radius unchanged + boundary-tested.
+
+NEXT: maker **F5s** the sandbox (checklist in the session / `docs/superpowers/plans/2026-07-23-stickfight-feel-foundation.md`), tunes feel via the live knobs, then **PAUSE**. Deferred: **Push 2** = free-pick spell loadout with emergent class name (spec/plan not yet written); optional final whole-branch review (per-task reviews done); figure-size-vs-camera framing follow-up. F5 tunables + minor findings roll-up in `push1-progress.md`.
+Plan/spec: `docs/superpowers/plans/2026-07-23-stickfight-feel-foundation.md` + `docs/superpowers/specs/2026-07-23-stickfight-feel-foundation-design.md`.
+
 ## ★★ READ FIRST (2026-07-23) — CURRENT STATE, supersedes the 2026-07-16 block below ★★
 Everything below in this file is history. The current arc = a big **CUSTOMIZATION + JUICE + CO-OP** push, all shipped + pushed to `origin/v2.0-tower`, headless-validated + GPU-verified by Claude's eyes, but **UNPLAYTESTED for FEEL/BALANCE** by the maker. THE #1 THING THAT NEEDS DOING: **maker F5 the stack** (nothing else should gate on more building until it's felt).
 
