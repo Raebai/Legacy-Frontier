@@ -14,12 +14,22 @@ const BG: Color = Color(0.06, 0.07, 0.11, 0.85)
 const OUTLINE: Color = Color(0.0, 0.0, 0.0, 0.7)
 const MP_COLOR: Color = Color(0.4, 0.62, 1.0, 1.0)
 
+## Above this % the fill bar saturates (the number keeps climbing regardless).
+const PCT_VISUAL_MAX: float = 150.0
+## Warm (low %) -> red (high %), Smash-style: the more hurt, the redder + farther you fly.
+const PCT_WARM: Color = Color(1.0, 0.82, 0.35)
+const PCT_RED: Color = Color(0.95, 0.16, 0.12)
+
 var _target: Node = null
 var _show_mp: bool = false
 var _hp_ratio: float = 1.0
 var _mp_ratio: float = 1.0
 var _has_hp: bool = false
 var _has_mp: bool = false
+## SANDBOX Smash mode (GameState.ringout_mode): render a rising damage % instead
+## of the green HP bar.
+var _ringout: bool = false
+var _pct: float = 0.0
 
 
 ## Attach to `target` (read its hp/max_hp; mp/max_mp if `show_mp`) and float the
@@ -34,6 +44,13 @@ func configure(target: Node, show_mp: bool = false, y_offset: float = -24.0) -> 
 func _process(_delta: float) -> void:
 	if _target == null or not is_instance_valid(_target):
 		visible = false
+		return
+	# Sandbox Smash: show the accrued damage % (rising, warm->red) instead of HP.
+	_ringout = _is_ringout_mode()
+	if _ringout:
+		var pct: Variant = _target.get("damage_pct")
+		_pct = float(pct) if pct != null else 0.0
+		queue_redraw()
 		return
 	var max_hp: Variant = _target.get("max_hp")
 	var hp: Variant = _target.get("hp")
@@ -50,12 +67,38 @@ func _process(_delta: float) -> void:
 
 
 func _draw() -> void:
+	if _ringout:
+		_draw_pct()
+		return
 	if not _has_hp:
 		return
 	var x: float = -WIDTH * 0.5
 	_bar(Vector2(x, 0.0), WIDTH, HP_H, _hp_ratio, _hp_color(_hp_ratio))
 	if _show_mp and _has_mp:
 		_bar(Vector2(x, HP_H + GAP), WIDTH, MP_H, _mp_ratio, MP_COLOR)
+
+
+## Smash readout: a warm->red fill that grows with % + the number itself climbing
+## over the head. The fill saturates at PCT_VISUAL_MAX; the number never caps.
+func _draw_pct() -> void:
+	var x: float = -WIDTH * 0.5
+	var ratio: float = clampf(_pct / PCT_VISUAL_MAX, 0.0, 1.0)
+	var col: Color = PCT_WARM.lerp(PCT_RED, ratio)
+	_bar(Vector2(x, 0.0), WIDTH, HP_H, ratio, col)
+	var font: Font = ThemeDB.fallback_font
+	if font == null:
+		return
+	var label: String = "%d%%" % int(round(_pct))
+	# Sit the number just above the bar, colour-matched to the fill, dark-outlined.
+	var pos := Vector2(x, -3.0)
+	draw_string_outline(font, pos + Vector2(0, -1), label, HORIZONTAL_ALIGNMENT_CENTER, WIDTH, 11, 3, Color(0.05, 0.05, 0.08, 0.9))
+	draw_string(font, pos + Vector2(0, -1), label, HORIZONTAL_ALIGNMENT_CENTER, WIDTH, 11, col)
+
+
+## True when the sandbox ring-out model is active (GameState.ringout_mode).
+func _is_ringout_mode() -> bool:
+	var gs: Node = get_node_or_null("/root/GameState")
+	return gs != null and bool(gs.get("ringout_mode"))
 
 
 ## One bar: dark outline, dark bg track, then a fill of `ratio` width.

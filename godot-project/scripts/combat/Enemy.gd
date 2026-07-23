@@ -181,6 +181,13 @@ const TELE_ACCENTS: Dictionary = {
 }
 
 var hp: int = 40
+## SANDBOX Smash model (GameState.ringout_mode): hits pile onto this damage_pct
+## instead of draining hp, knockback scales with it, and the enemy can ONLY be
+## removed by a ring-out (VersusArena). Tower mode ignores it (hp-death clears
+## floors). Reset to 0 on a ring-out respawn / passive respawn.
+var damage_pct: float = 0.0
+## Each point of incoming damage adds this much % — shared value with Hero.PCT_PER_DAMAGE.
+const PCT_PER_DAMAGE: float = 0.8
 ## Co-op: cached /root/Net. Enemies are HOST-authoritative — the host spawns them
 ## through a MultiplayerSpawner (authority = peer 1) and streams pos/vel/hp via a
 ## code-built MultiplayerSynchronizer; clients run NO AI (puppets animate from the
@@ -243,6 +250,10 @@ func apply_knockback(impulse: Vector2, do_flop: bool = true) -> void:
 		rpc_id(get_multiplayer_authority(), &"_net_apply_knockback", impulse)
 		return
 	impulse *= _knockback_mult()  # global over-tune (Stick-Fight: displacement IS the feel)
+	# Smash sandbox: the higher this enemy's damage %, the farther the same hit
+	# sends it — that's what makes a ring-out reachable. No-op in tower mode.
+	if _is_ringout_mode():
+		impulse *= ringout_knockback_scale(damage_pct)
 	_knockback = impulse
 	# Side-on: the VERTICAL part lands once as a real impulse into velocity.y so
 	# a hard hit pops the enemy off the ground (gravity owns y from here). Adding
@@ -255,6 +266,19 @@ func apply_knockback(impulse: Vector2, do_flop: bool = true) -> void:
 		var mag: float = impulse.length()
 		rig.flop(clampf(mag / 700.0, 0.25, 0.8), 0.2)
 		rig.apply_impulse(impulse.normalized(), minf(mag, 900.0) * 0.9)
+
+
+## SANDBOX Smash: knockback multiplier at a given damage %. Pure + static (mirrors
+## Hero.ringout_knockback_scale) — 0% -> 1.0x, 100% -> 2.0x, linear beyond.
+static func ringout_knockback_scale(pct: float) -> float:
+	return 1.0 + pct / 100.0
+
+
+## True when the sandbox ring-out model is active (GameState.ringout_mode). Guarded
+## so headless / host-authoritative contexts without the autoload read false.
+func _is_ringout_mode() -> bool:
+	var gs: Node = get_node_or_null("/root/GameState")
+	return gs != null and bool(gs.get("ringout_mode"))
 
 
 ## Global knockback multiplier from the Tuning autoload (falls back to 1.6).
@@ -1171,7 +1195,13 @@ func take_damage(amount: int, tint: Color = Color(1.0, 1.0, 1.0, 0.0)) -> void:
 	var dealt: int = amount
 	if _status != null and is_instance_valid(_status):
 		dealt = int(round(float(amount) * _status.damage_mult()))
-	hp = max(hp - dealt, 0)
+	# Smash sandbox: accrue damage % (no hp drain, no hp-death — only a ring-out
+	# removes a bot). Tower mode: drain hp and die at 0 (unchanged).
+	var ringout: bool = _is_ringout_mode()
+	if ringout:
+		damage_pct += float(dealt) * PCT_PER_DAMAGE
+	else:
+		hp = max(hp - dealt, 0)
 	var is_elemental: bool = tint.a > 0.0
 	if is_elemental:
 		# Glow-on-tick: a brief bloomed pulse in the ailment hue (HDR > 1 so it
@@ -1183,7 +1213,7 @@ func take_damage(amount: int, tint: Color = Color(1.0, 1.0, 1.0, 0.0)) -> void:
 	# hits are near-white. Big hits get the crit treatment.
 	var num_col: Color = Color(tint.r, tint.g, tint.b, 1.0) if is_elemental else Color(1.0, 0.96, 0.9)
 	DamageNumber.spawn(get_parent(), global_position + Vector2(0.0, -16.0), dealt, num_col, dealt >= 20)
-	if hp == 0:
+	if not ringout and hp == 0:
 		_die()
 
 
@@ -1239,6 +1269,7 @@ func _respawn_passive() -> void:
 	velocity = Vector2.ZERO
 	_knockback = Vector2.ZERO
 	hp = max_hp
+	damage_pct = 0.0        # fresh punching bag: reset the accrued Smash %
 	visible = true
 	set_physics_process(true)
 	if cs != null:

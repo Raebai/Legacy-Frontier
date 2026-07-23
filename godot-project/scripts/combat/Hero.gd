@@ -214,6 +214,14 @@ const CLASS_CONFIG: Dictionary = {
 
 @export var max_hp: int = 100
 var hp: int = 100
+## SANDBOX Smash model (GameState.ringout_mode): instead of draining hp, hits pile
+## onto this damage_pct, and knockback scales with it (higher % = you fly farther).
+## Reset to 0 on a ring-out respawn (VersusArena._respawn). Tower mode ignores it.
+var damage_pct: float = 0.0
+## Each point of incoming damage adds this much % (Smash-style). ~0.8 keeps a
+## typical 12-28 dmg hit in the single-to-low-double-digit range so % builds over
+## a fight rather than spiking. Shared value with Enemy.PCT_PER_DAMAGE.
+const PCT_PER_DAMAGE: float = 0.8
 @export var max_mp: int = 100
 var mp: float = 100.0
 ## Equipped SIGNATURE loadout (SpellLibrary) — the spell tree the player cycles
@@ -1879,6 +1887,19 @@ func _on_melee_hit_frame() -> void:
 		Sfx.play("ding", -3.0, 0.05)  # the bright Stick-Fight "clean hit" ding
 
 
+## SANDBOX Smash: the knockback multiplier at a given damage %. Pure + static so
+## it's headless-testable: 0% -> 1.0x, 100% -> 2.0x, and it grows linearly beyond.
+static func ringout_knockback_scale(pct: float) -> float:
+	return 1.0 + pct / 100.0
+
+
+## True when the sandbox ring-out model is active (GameState.ringout_mode). Guarded
+## lookup so headless contexts / a bare instance without the autoload read false.
+func _is_ringout_mode() -> bool:
+	var gs: Node = get_node_or_null("/root/GameState")
+	return gs != null and bool(gs.get("ringout_mode"))
+
+
 ## Receive a shove (bomb blast / reflected bolt / slam). Same i-frame contract as
 ## take_damage — a dashing or just-blinked hero shrugs it off. The .y lands once as
 ## a real impulse; .x rides the decaying channel (added into velocity each frame).
@@ -1890,6 +1911,10 @@ func apply_knockback(impulse: Vector2, do_flop: bool = true) -> void:
 	if is_dashing or _blink_iframe_timer > 0.0:
 		return
 	impulse *= _tune("knockback_mult", 1.6)  # global over-tune knob
+	# Smash sandbox: the higher THIS fighter's damage %, the farther the same hit
+	# sends them (that's how a ring-out becomes reachable). No-op in tower mode.
+	if _is_ringout_mode():
+		impulse *= ringout_knockback_scale(damage_pct)
 	_knockback = impulse
 	velocity.y += impulse.y
 	# Reel from the blow (skip while the manual hold-DOWN ragdoll owns the limp,
@@ -1955,7 +1980,13 @@ func take_damage(amount: int) -> void:
 		amount = int(round(float(amount) * (1.0 - _gear_ward_frac)))
 		_gear_ward_used = true
 		rig.flash_color(Color(0.75, 0.85, 1.0), 0.14)  # a pale ward shimmer
-	hp = max(hp - amount, 0)
+	# Smash sandbox: pile onto the damage % (no hp drain, no hp-death — the only
+	# way out is a ring-out). Tower mode: drain hp and die at 0 (unchanged).
+	var ringout: bool = _is_ringout_mode()
+	if ringout:
+		damage_pct += float(amount) * PCT_PER_DAMAGE
+	else:
+		hp = max(hp - amount, 0)
 	health_changed.emit(hp, max_hp)
 	DamageNumber.spawn(get_parent(), global_position + Vector2(0.0, -18.0), amount, Color(1.0, 0.35, 0.35), amount >= 18)
 	rig.play(CharacterRig.State.HURT)
@@ -1964,7 +1995,7 @@ func take_damage(amount: int) -> void:
 	Juice.hit_stop(_tune("hurt_hit_stop", HURT_HIT_STOP))
 	Juice.shake_camera(_tune("hurt_shake", HURT_SHAKE))
 	Sfx.play("hero_hurt")
-	if hp == 0:
+	if not ringout and hp == 0:
 		_die()
 
 

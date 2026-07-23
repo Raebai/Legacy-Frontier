@@ -59,6 +59,13 @@ const DIFFICULTY_NAMES: Array[String] = ["Easy", "Normal", "Hard", "Impossible"]
 ## from the depth math (keeps the F6 sandbox + the pre-tower path working).
 var active_tower: TowerDef = null
 
+## SANDBOX-ONLY Smash model. When true, fighters accrue a damage_pct instead of
+## losing hp, knockback scales with that %, and the ONLY elimination is a ring-out
+## (StageHazard pit). The tower leaves this FALSE so hp-death still clears floors
+## and the slice/climb tests stay green. Set true by VersusArena._ready; forced
+## false by enter_run / enter_coop_run so a tower run is never in ring-out mode.
+var ringout_mode: bool = false
+
 # --- persistent climber state (loaded at _ready, saved at every floor transition) ---
 var _highest_floor: int = 1          # highest floor ever reached (monotonic)
 var _falls: int = 0                  # cumulative falls (deaths); the town clocks these
@@ -87,6 +94,7 @@ func _ready() -> void:
 
 
 func enter_run() -> void:
+	ringout_mode = false                  # a tower run is HP-death, never ring-out
 	if active_tower == null:
 		active_tower = _load_or_build_tower()
 	# Persistent climb: a conquered tower re-climbs fresh; otherwise resume from
@@ -148,6 +156,7 @@ func advance_floor() -> void:
 ## the shared run state so every peer's Arena runs in run-mode + builds the same
 ## floor (the default Ashspire is code-built identically on both sides).
 func enter_coop_run(floor: int) -> void:
+	ringout_mode = false                  # co-op is a tower run: HP-death, not ring-out
 	if active_tower == null:
 		active_tower = _load_or_build_tower()
 	_floor = clampi(floor, 1, total_floors())

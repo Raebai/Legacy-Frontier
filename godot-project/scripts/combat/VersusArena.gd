@@ -115,6 +115,12 @@ func _ready() -> void:
 	# ALWAYS so Esc can toggle pause even while the tree is paused; the fighters
 	# are set PAUSABLE in _spawn_fighters so THEY still freeze.
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	# Smash sandbox: switch the whole scene to the damage-% + ring-out model. The
+	# tower's Arena leaves this off (hp-death clears floors); enter_run turns it
+	# back off, so it never leaks into a run. See GameState.ringout_mode.
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null:
+		gs.set("ringout_mode", true)
 	# Switch the music bed back to combat (the hub swaps it to the calm ambience).
 	var music: Node = get_node_or_null("/root/Music")
 	if music != null and music.has_method("play_combat"):
@@ -199,6 +205,9 @@ func _respawn(body: Node2D, entry: Dictionary) -> void:
 		body.set("hp", max_hp_v)
 		if body.has_signal("health_changed"):
 			body.emit_signal("health_changed", int(max_hp_v), int(max_hp_v))
+	# Smash sandbox: a fresh life starts back at 0% (light again, hard to launch).
+	if body.get("damage_pct") != null:
+		body.set("damage_pct", 0.0)
 	CombatVfx.spawn_burst(
 		self, entry["spawn"], RESPAWN_POOF_START, RESPAWN_POOF_END,
 		16, 0.35, 50.0, 120.0, 1.5, 3.0
@@ -503,6 +512,11 @@ func _build_pause_overlay(layer: CanvasLayer) -> void:
 ## Leave the versus sandbox back to the hub (Main.tscn). Unpause first so the
 ## fresh scene doesn't inherit the paused tree.
 func _exit_to_hub() -> void:
+	# Leave the Smash model behind so the hub / a subsequent tower run is never
+	# stuck in ring-out mode (enter_run also forces this off — belt + suspenders).
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null:
+		gs.set("ringout_mode", false)
 	get_tree().paused = false
 	get_tree().change_scene_to_file("res://scenes/Main.tscn")
 
