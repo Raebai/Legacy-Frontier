@@ -218,10 +218,6 @@ var hp: int = 100
 ## onto this damage_pct, and knockback scales with it (higher % = you fly farther).
 ## Reset to 0 on a ring-out respawn (VersusArena._respawn). Tower mode ignores it.
 var damage_pct: float = 0.0
-## Each point of incoming damage adds this much % (Smash-style). ~0.8 keeps a
-## typical 12-28 dmg hit in the single-to-low-double-digit range so % builds over
-## a fight rather than spiking. Shared value with Enemy.PCT_PER_DAMAGE.
-const PCT_PER_DAMAGE: float = 0.8
 @export var max_mp: int = 100
 var mp: float = 100.0
 ## Equipped SIGNATURE loadout (SpellLibrary) — the spell tree the player cycles
@@ -1982,9 +1978,11 @@ func take_damage(amount: int) -> void:
 		rig.flash_color(Color(0.75, 0.85, 1.0), 0.14)  # a pale ward shimmer
 	# Smash sandbox: pile onto the damage % (no hp drain, no hp-death — the only
 	# way out is a ring-out). Tower mode: drain hp and die at 0 (unchanged).
+	# pct_per_damage is read from Tuning (single shared source with Enemy — see
+	# TuningConfig.pct_per_damage) so a retune can't silently diverge the two.
 	var ringout: bool = _is_ringout_mode()
 	if ringout:
-		damage_pct += float(amount) * PCT_PER_DAMAGE
+		damage_pct += float(amount) * _tune("pct_per_damage", 0.8)
 	else:
 		hp = max(hp - amount, 0)
 	health_changed.emit(hp, max_hp)

@@ -186,8 +186,6 @@ var hp: int = 40
 ## removed by a ring-out (VersusArena). Tower mode ignores it (hp-death clears
 ## floors). Reset to 0 on a ring-out respawn / passive respawn.
 var damage_pct: float = 0.0
-## Each point of incoming damage adds this much % — shared value with Hero.PCT_PER_DAMAGE.
-const PCT_PER_DAMAGE: float = 0.8
 ## Co-op: cached /root/Net. Enemies are HOST-authoritative — the host spawns them
 ## through a MultiplayerSpawner (authority = peer 1) and streams pos/vel/hp via a
 ## code-built MultiplayerSynchronizer; clients run NO AI (puppets animate from the
@@ -289,6 +287,18 @@ func _knockback_mult() -> float:
 		if v != null:
 			return float(v)
 	return 1.6
+
+
+## SANDBOX Smash model: % gained per point of incoming damage, from the Tuning
+## autoload (falls back to 0.8) — single shared source with Hero._tune so the two
+## can't silently diverge on a retune (see TuningConfig.pct_per_damage).
+func _pct_per_damage() -> float:
+	var t: Node = get_node_or_null(^"/root/Tuning")
+	if t != null and t.get(&"cfg") != null:
+		var v: Variant = t.cfg.get(&"pct_per_damage")
+		if v != null:
+			return float(v)
+	return 0.8
 
 
 ## A hard-knocked enemy that slams into a wall craters the floor + kicks up dust
@@ -1102,7 +1112,14 @@ func _detonate() -> void:
 	ScorchDecal.spawn(get_parent(), _strike_center, BOMB_RADIUS * 0.55, "scorch", Color(0.15, 0.13, 0.12, 0.55))
 	Juice.shake_camera(7.0)
 	Sfx.play("blast")
-	_die()
+	# Ring-out is the SOLE elimination path in the sandbox (see _is_ringout_mode
+	# throughout this file): a bomber's own detonation must not self-remove it via
+	# _die()/queue_free(), even though the AoE damage/knockback above is unchanged.
+	# BOMBER is currently excluded from VersusArena.BOT_ARCHETYPES, so this branch
+	# is dormant today; if BOMBER is ever added to the sandbox roster, revisit
+	# whether a ring-out-surviving bomber should recover into CHASE/RECOVER here.
+	if not _is_ringout_mode():
+		_die()
 
 
 ## Strike resolution, split out so headless tests can drive it directly:
@@ -1199,7 +1216,7 @@ func take_damage(amount: int, tint: Color = Color(1.0, 1.0, 1.0, 0.0)) -> void:
 	# removes a bot). Tower mode: drain hp and die at 0 (unchanged).
 	var ringout: bool = _is_ringout_mode()
 	if ringout:
-		damage_pct += float(dealt) * PCT_PER_DAMAGE
+		damage_pct += float(dealt) * _pct_per_damage()
 	else:
 		hp = max(hp - dealt, 0)
 	var is_elemental: bool = tint.a > 0.0

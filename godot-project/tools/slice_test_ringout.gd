@@ -25,6 +25,7 @@ func _process(_delta: float) -> bool:
 	failed += _test_damage_pct_accrues_and_no_hp_death()
 	failed += _test_knockback_grows_with_pct()
 	failed += _test_ring_out_is_the_only_elimination()
+	failed += _test_hero_ring_out()
 	failed += _test_hp_death_still_works_when_off()
 	if failed > 0:
 		printerr("ringout tests: %d FAILED" % failed)
@@ -191,6 +192,54 @@ func _test_ring_out_is_the_only_elimination() -> int:
 			dummies_alive += 1
 	f += _expect(dummies_alive == arena.DUMMY_COUNT,
 		"dummies remain after the round ends, got %d" % dummies_alive)
+	return f
+
+
+# --------------------------------------------------------------- hero ring-out
+## Ring-out isn't just a bot path: P1 (the hero body, VersusArena._p1) goes
+## through the exact same _on_fighter_fell -> respawn/eliminate flow. A fall
+## with stocks remaining must decrement stocks AND zero the accrued damage_pct
+## (a fresh life starts light); the final fall (stocks hit 0) must fire the
+## elimination path (_match_over + a DEFEAT banner), mirroring the bot half of
+## _test_ring_out_is_the_only_elimination above.
+func _test_hero_ring_out() -> int:
+	var f: int = 0
+	var arena_script: GDScript = load(ARENA_SCRIPT_PATH)
+	var arena: Node2D = arena_script.new()
+	root.add_child(arena)
+	f += _expect(_gs() != null and bool(_gs().get("ringout_mode")),
+		"VersusArena._ready turned ring-out mode ON (hero test)")
+
+	var p1: Node2D = arena.get("_p1")
+	f += _expect(p1 != null and is_instance_valid(p1), "arena has a live P1 hero body")
+	var id: int = p1.get_instance_id()
+	f += _expect(arena._registry.has(id), "P1 is registered in the fall registry")
+
+	# Give the hero some accrued % (as a real fight would) before the first fall.
+	p1.set("damage_pct", 42.0)
+	var entry: Dictionary = arena._registry[id]
+	var stocks_before: int = int(entry["stocks"])
+	f += _expect(stocks_before == arena.STOCKS, "P1 starts at STOCKS stocks, got %d" % stocks_before)
+
+	# Fall #1: stocks remain, so this must respawn (not eliminate).
+	entry["invuln"] = 0.0
+	arena._on_fighter_fell(p1)
+	var stocks_after_1: int = int(arena._registry[id]["stocks"])
+	f += _expect(stocks_after_1 == stocks_before - 1,
+		"a hero fall decrements stocks (got %d, want %d)" % [stocks_after_1, stocks_before - 1])
+	f += _expect(is_equal_approx(float(p1.get("damage_pct")), 0.0),
+		"hero damage_pct resets to 0 on respawn (got %.1f)" % float(p1.get("damage_pct")))
+	f += _expect(not arena._match_over, "match isn't over yet — P1 still has stocks left")
+
+	# Burn the remaining stocks through the same pit path; the LAST one must
+	# eliminate P1 (out of stocks -> _finish_match, DEFEAT branch of _eliminate).
+	while int(arena._registry[id]["stocks"]) > 0:
+		arena._registry[id]["invuln"] = 0.0
+		arena._on_fighter_fell(p1)
+	f += _expect(arena._match_over, "P1 running out of stocks ends the match")
+	f += _expect(arena._banner != null and arena._banner.visible
+		and arena._banner.text.begins_with("DEFEAT"),
+		"DEFEAT banner shows once P1 is fully ringed out")
 	return f
 
 

@@ -32,6 +32,7 @@ extends Resource
 
 @export_group("Combat feel")
 @export var knockback_mult: float = 1.6  # global multiplier on ALL knockback impulses (Stick-Fight "displacement is the feel"; ~1.5-2x reads powerful)
+@export var pct_per_damage: float = 0.8  # SANDBOX Smash model (GameState.ringout_mode): % gained per point of incoming damage. Single source of truth for Hero + Enemy so they can't silently diverge on retune; ~0.8 keeps a typical 12-28 dmg hit in the single-to-low-double-digit % range
 @export var hit_stop_enabled: bool = true  # accessibility: off = no time-freeze on hits
 
 @export_group("Graphics")
