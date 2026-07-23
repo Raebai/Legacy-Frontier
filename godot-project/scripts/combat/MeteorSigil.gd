@@ -30,6 +30,12 @@ const DEFAULT_COUNT: int = 10
 const METEOR_IMPACT_RADIUS: float = 48.0
 const KNOCKBACK: float = 240.0
 const SLANT: Vector2 = Vector2(110.0, 0.0)  # meteors streak in from the upper-right
+## VISUAL-ONLY: sky sigil circle size relative to the AoE `radius` passed to
+## rain(). Was 1.9 (the sigil bloomed to ~350 world-units wide — at the combat
+## camera's default 1.6x zoom that read as roughly half the screen, dwarfing
+## the fighters). Does NOT feed damage — targets_in_radius()/_land() always use
+## METEOR_IMPACT_RADIUS (per-meteor, unchanged) for the actual hit query.
+const SIGIL_VISUAL_RADIUS_FACTOR: float = 1.1
 
 var _center: Vector2 = Vector2.ZERO
 var _color: Color = Color(1.0, 0.55, 0.2, 1.0)
@@ -61,7 +67,7 @@ func rain(
 	_circle = MagicCircle.new()
 	add_child(_circle)
 	_circle.global_position = _center - Vector2(0.0, SKY_HEIGHT)
-	_circle.appear(_color, radius * 1.9, CHARGE_TIME * 0.85)
+	_circle.appear(_color, radius * SIGIL_VISUAL_RADIUS_FACTOR, CHARGE_TIME * 0.85)
 	for i: int in count:
 		var ang: float = randf() * TAU
 		var dist: float = sqrt(randf()) * radius  # sqrt -> uniform over the disc

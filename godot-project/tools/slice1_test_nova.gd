@@ -42,6 +42,7 @@ func _process(_delta: float) -> bool:
 	failed += _test_nova_hits_destructibles_in_radius()
 	failed += _test_nova_center_overlap_knockback_fallback()
 	failed += _test_hero_nova_cooldown_gate()
+	failed += _test_nova_hit_radius_unaffected_by_visual_shrink()
 	if failed > 0:
 		printerr("Slice1 nova tests: %d FAILED" % failed)
 		quit(1)
@@ -158,6 +159,33 @@ func _test_nova_center_overlap_knockback_fallback() -> int:
 	failed += _expect(
 		absf(overlapped.last_knockback.length() - nova.NOVA_KNOCKBACK) < 0.01,
 		"fallback knockback keeps full NOVA_KNOCKBACK magnitude"
+	)
+	return failed
+
+
+## Task 7 (right-size spell VFX): EnergyNova's shockwave RING was shrunk
+## visually via VISUAL_RADIUS_FACTOR, but _apply_nova_damage() must keep using
+## the raw NOVA_RADIUS untouched. Pins the exact hit boundary at NOVA_RADIUS
+## (135.0): 1px inside hits, 1px outside misses. If VISUAL_RADIUS_FACTOR (0.62)
+## ever leaked into the damage query, the boundary would shrink to ~83.7 and
+## the "1px inside" case below would start failing.
+func _test_nova_hit_radius_unaffected_by_visual_shrink() -> int:
+	var failed: int = 0
+	var center: Vector2 = Vector2(11000.0, 5000.0)
+	var nova: Node2D = _make_nova()
+	nova.global_position = center
+	var just_inside: StubEnemy = _make_enemy(center + Vector2(float(nova.NOVA_RADIUS) - 1.0, 0.0))
+	var just_outside: StubEnemy = _make_enemy(center + Vector2(float(nova.NOVA_RADIUS) + 1.0, 0.0))
+
+	nova.call("_apply_nova_damage")
+	failed += _expect(
+		just_inside.damage_taken == nova.NOVA_DAMAGE,
+		"enemy 1px inside the true NOVA_RADIUS (135) still takes damage (got %d)" % just_inside.damage_taken
+	)
+	failed += _expect(
+		just_outside.damage_taken == 0,
+		"enemy 1px outside the true NOVA_RADIUS (135) is untouched — visual shrink did not leak into the hit query (got %d)"
+		% just_outside.damage_taken
 	)
 	return failed
 

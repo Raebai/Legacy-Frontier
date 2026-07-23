@@ -12,6 +12,12 @@ var target_group: String = "enemy"
 ## juice. Cool energy palette so it reads distinctly from the warm blast.
 
 const NOVA_RADIUS: float = 135.0
+## VISUAL-ONLY: scales the drawn shockwave ring/flash relative to NOVA_RADIUS.
+## The ring used to reach NOVA_RADIUS * 1.3 (~350 world-units across) which at
+## the combat camera's default 1.6x zoom read as roughly half the screen. This
+## factor only feeds _draw() below — _apply_nova_damage() always queries the
+## raw NOVA_RADIUS, so the hit/knockback footprint is unchanged.
+const VISUAL_RADIUS_FACTOR: float = 0.62
 const NOVA_DAMAGE: int = 30
 const NOVA_KNOCKBACK: float = 420.0
 const SHOCKWAVE_TIME: float = 0.32
@@ -118,7 +124,8 @@ func _draw() -> void:
 	if t >= 1.0:
 		return
 	# Expanding energy ring: brighter and reaches further than the blast's.
-	var r: float = lerpf(10.0, NOVA_RADIUS * 1.3, t)
+	# (Visual only — scaled by VISUAL_RADIUS_FACTOR; the hit radius stays NOVA_RADIUS.)
+	var r: float = lerpf(10.0, NOVA_RADIUS * VISUAL_RADIUS_FACTOR * 1.3, t)
 	var alpha: float = 1.0 - t
 	draw_arc(
 		Vector2.ZERO, r, 0.0, TAU, 64,
@@ -132,7 +139,7 @@ func _draw() -> void:
 	if t < 0.4:
 		var flash: float = 1.0 - t / 0.4
 		draw_circle(
-			Vector2.ZERO, NOVA_RADIUS * 0.9 * flash,
+			Vector2.ZERO, NOVA_RADIUS * VISUAL_RADIUS_FACTOR * 0.9 * flash,
 			Color(1.4, 1.6, 1.9, 0.35 * flash)
 		, true, -1.0, true)
 
