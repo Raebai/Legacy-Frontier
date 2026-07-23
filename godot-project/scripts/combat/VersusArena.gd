@@ -73,6 +73,20 @@ const BOT_SPAWN_POINTS: Array[Vector2] = [
 const BOT_ARCHETYPES: Array[int] = [2, 4, 5, 3, 7]
 ## Versus bots are tankier than the tower's trash mobs so fights last.
 const BOT_HP: int = 110
+## Stationary PRACTICE DUMMIES (Task 1 sandbox): a permanent punching bag either
+## side of P1_SPAWN, grey so they read distinct from the coloured live bots.
+## In group "enemy" (so every hero attack/spell hits them, zero spell-file
+## edits needed) AND "dummy" (so _bots_alive() / the win condition can exclude
+## them below — see _bots_alive). `passive = true` on Enemy skips their
+## chase/attack AI; Enemy._die respawns them in place instead of freeing them.
+const DUMMY_COUNT: int = 2
+const DUMMY_X_OFFSETS: Array[float] = [-120.0, 120.0]
+const DUMMY_TINT: Color = Color(0.55, 0.55, 0.58, 1.0)  # neutral grey
+const DUMMY_HP: int = 9999  # tanky on purpose — combo practice, not a fast kill
+## Dummies get an effectively-infinite stock count so a stray ring-out (they
+## stand on solid ground, nowhere near a pit) respawns them via the normal
+## fighter-registry path instead of ever reaching _eliminate()'s queue_free.
+const DUMMY_STOCKS: int = 999999
 ## Destructible cover sitting on the main ground (64px blocks; centre = surface - 32).
 const COVER_POINTS: Array[Vector2] = [Vector2(470.0, GROUND_TOP - 32.0), Vector2(1180.0, GROUND_TOP - 32.0)]
 ## One breakable + regenerating lane between the ground and the ruins.
@@ -112,6 +126,7 @@ func _ready() -> void:
 	_build_breakable_platforms()
 	_build_blast_zones()       # ring-out off the far L/R edges only
 	_spawn_fighters()
+	_spawn_dummies()           # stationary practice dummies (Task 1 sandbox)
 	_build_hud()
 	_update_hud()
 
@@ -204,12 +219,16 @@ func _eliminate(body: Node2D, id: int) -> void:
 
 ## Bots still standing: registered, alive, and not mid-free. Ring-out
 ## eliminations leave the registry; damage kills go invalid/queued here.
+## Practice dummies (group "dummy") are deliberately EXCLUDED — they're also in
+## group "enemy" (so hero attacks/spells hit them) but must never count toward
+## "Bots left" or the win condition, or the round could never end.
 func _bots_alive() -> int:
 	var count: int = 0
 	for entry: Dictionary in _registry.values():
 		var node: Node = entry["node"]
 		if is_instance_valid(node) and not node.is_queued_for_deletion() \
-				and node.is_in_group("enemy") and int(entry["stocks"]) > 0:
+				and node.is_in_group("enemy") and not node.is_in_group("dummy") \
+				and int(entry["stocks"]) > 0:
 			count += 1
 	return count
 
@@ -352,6 +371,24 @@ func _spawn_fighters() -> void:
 		_register_fighter(bot, bot.global_position)
 
 
+## Stationary practice dummies a short distance either side of P1_SPAWN, on the
+## same solid ground so they settle without a fall. Grey-tinted, passive, and
+## registered like any other fighter (so a stray ring-out still respawns them
+## through the normal path) — see the DUMMY_* constants above for the "why".
+func _spawn_dummies() -> void:
+	var enemy_scene: PackedScene = load(ENEMY_SCENE_PATH)
+	for i: int in DUMMY_COUNT:
+		var dummy: CharacterBody2D = enemy_scene.instantiate()
+		dummy.passive = true       # Enemy.gd: no chase/attack AI, respawns in place on "death"
+		dummy.max_hp = DUMMY_HP
+		dummy.tint = DUMMY_TINT
+		dummy.position = P1_SPAWN + Vector2(DUMMY_X_OFFSETS[i % DUMMY_X_OFFSETS.size()], 0.0)
+		add_child(dummy)
+		dummy.add_to_group("dummy")  # ALSO group "enemy" via Enemy._ready — see _bots_alive
+		dummy.process_mode = Node.PROCESS_MODE_PAUSABLE  # freeze when the arena pauses
+		_register_fighter(dummy, dummy.global_position, DUMMY_STOCKS)
+
+
 ## Clamp P1's follow-camera to the stage bounds so it frames the platform + pits
 ## instead of drifting into the void past the edges. Stage-local == global here
 ## (the VersusArena node sits at the scene origin). The Hero's camera is a
@@ -375,11 +412,12 @@ func _frame_camera_on(hero: Node) -> void:
 
 
 ## Registry seam (also driven by the headless test): every fighter enters the
-## match with STOCKS stocks, its own respawn point, and no invuln.
-func _register_fighter(body: Node2D, spawn: Vector2) -> void:
+## match with STOCKS stocks (dummies pass DUMMY_STOCKS instead), its own
+## respawn point, and no invuln.
+func _register_fighter(body: Node2D, spawn: Vector2, stocks: int = STOCKS) -> void:
 	_registry[body.get_instance_id()] = {
 		"node": body,
-		"stocks": STOCKS,
+		"stocks": stocks,
 		"spawn": spawn,
 		"invuln": 0.0,
 	}

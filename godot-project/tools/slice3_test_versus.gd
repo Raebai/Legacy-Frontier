@@ -58,19 +58,33 @@ func _test_match_setup(arena: Node2D) -> int:
 	failed += _expect(
 		get_nodes_in_group("hero").size() == 1, "exactly one P1 exists (group 'hero')"
 	)
-	var bots: Array = get_nodes_in_group("enemy")
+	# Task 1 sandbox: VersusArena also spawns stationary practice dummies into
+	# group "enemy" (so hero attacks/spells still hit them) AND group "dummy"
+	# (so _bots_alive()/the win condition exclude them — see VersusArena.gd).
+	# Exclude dummies here to keep asserting the real BOT_COUNT roster.
+	var bots: Array = get_nodes_in_group("enemy").filter(
+		func(n: Node) -> bool: return not n.is_in_group("dummy")
+	)
 	failed += _expect(
 		bots.size() == arena.BOT_COUNT,
-		"BOT_COUNT bots exist (group 'enemy'), got %d" % bots.size()
+		"BOT_COUNT bots exist (group 'enemy', excluding dummies), got %d" % bots.size()
+	)
+	var dummies: Array = get_nodes_in_group("dummy")
+	failed += _expect(
+		dummies.size() == arena.DUMMY_COUNT,
+		"DUMMY_COUNT practice dummies exist (group 'dummy'), got %d" % dummies.size()
 	)
 	failed += _expect(
-		arena._registry.size() == arena.BOT_COUNT + 1,
-		"registry holds BOT_COUNT+1 fighters, got %d" % arena._registry.size()
+		arena._registry.size() == arena.BOT_COUNT + arena.DUMMY_COUNT + 1,
+		"registry holds BOT_COUNT+DUMMY_COUNT+1 fighters, got %d" % arena._registry.size()
 	)
 	for entry: Dictionary in arena._registry.values():
+		var node: Node = entry["node"]
+		if node != null and node.is_in_group("dummy"):
+			continue  # dummies get a near-infinite stock count — see DUMMY_STOCKS
 		failed += _expect(
 			int(entry.get("stocks", -1)) == arena.STOCKS,
-			"every fighter starts with STOCKS stocks"
+			"every non-dummy fighter starts with STOCKS stocks"
 		)
 	return failed
 

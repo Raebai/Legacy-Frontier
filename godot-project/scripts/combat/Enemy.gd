@@ -11,6 +11,12 @@ extends CharacterBody2D
 @export var touch_damage: int = 12
 @export var tint: Color = Color(0.9, 0.35, 0.3, 1)
 @export var uses_telegraphed_attack: bool = false
+## Practice-dummy mode (Task 1 sandbox): skips chase/retarget + all attack
+## windups so the enemy just stands and takes hits — a stationary punching bag.
+## Still joins group "enemy" via the normal _ready path, so every existing
+## hero attack/spell (which targets that group) hits it with zero spell-file
+## edits. _die() respawns a passive enemy in place instead of freeing it.
+@export var passive: bool = false
 ## 0=CHASER (fast/weak), 1=BRUTE (telegraphed heavy strike, uses the flag above),
 ## 2=CASTER (kites + telegraphs a bolt to dodge), 3=CHARGER (telegraphs a lane
 ## then rockets down it), 4=SUMMONER (kites + telegraphs, then calls in weak
@@ -37,6 +43,10 @@ const DEATH_SHAKE: float = 8.0
 const DEATH_BURST_AMOUNT: int = 42  # bigger than a spell hit (20)
 const CORPSE_LAUNCH_SPEED: float = 240.0  # px/s the corpse silhouette flies
 const CORPSE_FADE_TIME: float = 0.6  # corpses linger past a dash ghost (0.34)
+
+# Passive practice-dummy tuning (Task 1 sandbox): a shorter, quieter "knocked
+# out" beat than a real kill, then it pops back up at its home spot.
+const PASSIVE_RESPAWN_DELAY: float = 1.0
 
 # Telegraphed heavy attack tuning (brute archetype).
 const ATTACK_RANGE: float = 78.0  # start winding up inside this distance
@@ -199,6 +209,7 @@ var _minions: Array = []                    # live summoned minions, pruned for 
 var _status: StatusComponent = null         # elemental ailments (burn/chill/shock/...)
 var _speed_scale: float = 1.0               # movement slow from chill/freeze/shock
 var _bolt_element: int = -1                 # caster: rolled element tint for its bolt
+var _passive_home: Vector2 = Vector2.ZERO   # passive: fixed spot it respawns to
 
 # Difficulty (GameState.enemy_difficulty): scales stats + unlocks smart evasion.
 # Easy/Normal are the shipped behaviour; Hard DODGES incoming hero bolts, and
@@ -470,6 +481,8 @@ func _ready() -> void:
 	var bars := CharacterBars.new()
 	add_child(bars)
 	bars.configure(self, false, -24.0)
+	if passive:
+		_passive_home = global_position  # position is set by the spawner before add_child
 	_setup_enemy_net()
 
 
@@ -478,6 +491,9 @@ func _physics_process(delta: float) -> void:
 	# its transform + hp arrive over the MultiplayerSynchronizer; it only animates.
 	if _net != null and _net.is_active() and not is_multiplayer_authority():
 		_remote_enemy_visual(delta)
+		return
+	if passive:
+		_process_passive(delta)
 		return
 	_retarget()  # multi-hero: chase the nearest LIVING hero (SP: the one hero, unchanged)
 	_touch_cooldown = max(_touch_cooldown - delta, 0.0)
@@ -558,6 +574,19 @@ func _physics_process(delta: float) -> void:
 		if _hero.has_method("take_damage"):
 			_hero.take_damage(touch_damage)
 			_touch_cooldown = 0.8
+
+
+## Practice dummy (Task 1 sandbox): no chase, no retarget, no attack windup —
+## just absorb knockback/gravity and stand there so it reads as an inert
+## punching bag. Still takes damage normally via take_damage/_die below.
+func _process_passive(delta: float) -> void:
+	_touch_cooldown = maxf(_touch_cooldown - delta, 0.0)
+	_knockback = _knockback.move_toward(Vector2.ZERO, KNOCKBACK_DECAY * delta)
+	velocity.x = _knockback.x
+	_apply_gravity(delta)
+	move_and_slide()
+	_check_wall_slam()
+	rig.play(CharacterRig.State.IDLE)
 
 
 ## WINDUP: rooted in place (knockback still lands), visibly holding the tell.
@@ -1174,6 +1203,15 @@ func _flash() -> void:
 
 func _die() -> void:
 	_abort_attack()  # never leave an orphaned danger circle behind a corpse
+	if passive:
+		# Practice dummy: never actually leaves — a quieter "knocked out" beat,
+		# then it pops back up at its fixed spot (see _respawn_passive). No kill
+		# power / run-kill credit — it isn't a real kill.
+		_spawn_death_burst()
+		Sfx.play("enemy_death")
+		Juice.shake_camera(DEATH_SHAKE * 0.4)
+		_respawn_passive()
+		return
 	_grant_kill_power()
 	_notify_run_kill()
 	_spawn_death_burst()
@@ -1182,6 +1220,34 @@ func _die() -> void:
 	Juice.shake_camera(DEATH_SHAKE)
 	Juice.hit_stop(DEATH_HIT_STOP)
 	queue_free()
+
+
+## Hide + disable the collider for PASSIVE_RESPAWN_DELAY, then pop back up at
+## `_passive_home` with hp refilled — a permanent punching bag that never
+## actually leaves the tree. Guards `is_instance_valid(self)` after the await
+## in case the whole arena (and this node with it) got torn down meanwhile.
+func _respawn_passive() -> void:
+	visible = false
+	set_physics_process(false)
+	var cs: CollisionShape2D = get_node_or_null("CollisionShape2D")
+	if cs != null:
+		cs.set_deferred("disabled", true)
+	await get_tree().create_timer(PASSIVE_RESPAWN_DELAY).timeout
+	if not is_instance_valid(self):
+		return
+	global_position = _passive_home
+	velocity = Vector2.ZERO
+	_knockback = Vector2.ZERO
+	hp = max_hp
+	visible = true
+	set_physics_process(true)
+	if cs != null:
+		cs.set_deferred("disabled", false)
+	CombatVfx.spawn_burst(
+		get_parent(), _passive_home,
+		Color(0.75, 0.85, 1.0, 0.9), Color(0.75, 0.85, 1.0, 0.0),
+		16, 0.35, 50.0, 120.0, 1.5, 3.0
+	)
 
 
 ## Feed the rank ladder: every kill grants power. Guarded lookup so headless

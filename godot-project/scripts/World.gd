@@ -181,9 +181,13 @@ func _spawn_tower_entrance() -> void:
 func _build_loft() -> void:
 	_make_platform(LOFT_CENTER, LOFT_SIZE)
 	_make_platform(STEP_CENTER, STEP_SIZE)
-	var armory: StaticBody2D = ARMORY_SCRIPT.new()
-	add_child(armory)
-	armory.global_position = Vector2(LOFT_CENTER.x, LOFT_CENTER.y - LOFT_SIZE.y * 0.5)
+	# hidden 2026-07-23 (sandbox focus): loft platform stays (still climbable),
+	# but the Armory station itself doesn't spawn while we're stripped down to
+	# the VersusArena combat sandbox (Task 1 of the Stick Fight Feel Foundation).
+	if false:
+		var armory: StaticBody2D = ARMORY_SCRIPT.new()
+		add_child(armory)
+		armory.global_position = Vector2(LOFT_CENTER.x, LOFT_CENTER.y - LOFT_SIZE.y * 0.5)
 
 
 ## A solid wooden platform (dark body + a warm-lit top rim), matching the ground.
