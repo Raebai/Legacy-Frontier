@@ -773,6 +773,8 @@ func _cast_mage_aoe() -> void:
 		"element_id": _bolt_element,
 	})
 	blast.call("detonate_now", _strike_center)
+	if _coop_active():  # clients see a damage-free twin of the detonation
+		_net.broadcast_blast(_strike_center, _bolt_element, MAGE_AOE_RADIUS)
 	_attack_state = AttackState.RECOVER
 	_recover_timer = ATTACK_RECOVER_TIME
 	_attack_cooldown = MAGE_COOLDOWN
@@ -1042,6 +1044,8 @@ func _detonate() -> void:
 		Color(1.0, 0.75, 0.35, 0.95), Color(0.9, 0.3, 0.15, 0.0),
 		36, 0.45, 120.0, 260.0, 1.5, 4.0, 40.0, 90.0
 	)
+	if _coop_active():  # clients see the bomber's detonation burst
+		_net.broadcast_burst(_strike_center, Color(1.0, 0.75, 0.35, 0.95), Color(0.9, 0.3, 0.15, 0.0))
 	ScorchDecal.spawn(get_parent(), _strike_center, BOMB_RADIUS * 0.55, "scorch", Color(0.15, 0.13, 0.12, 0.55))
 	Juice.shake_camera(7.0)
 	Sfx.play("blast")

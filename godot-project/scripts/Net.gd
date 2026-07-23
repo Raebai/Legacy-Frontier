@@ -391,6 +391,39 @@ func _spawn_projectile_twin(scene: Node, data: Dictionary) -> void:
 	proj.set_element(int(data.get("element", -1)))
 
 
+## DETONATION spectacle replication (backlog #2): the enemy MAGE's ground AoE and the
+## BOMBER's blast render only on the host — the client sees the tell (above) but not
+## the detonation art. The host broadcasts a damage-free twin of each. No-op in SP.
+func broadcast_blast(pos: Vector2, element: int, radius: float) -> void:
+	if is_host():
+		_client_blast.rpc(pos, element, radius)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _client_blast(pos: Vector2, element: int, radius: float) -> void:
+	var scene: Node = get_tree().current_scene
+	if scene == null:
+		return
+	_twins_built += 1
+	var blast := BlastSpell.new()
+	scene.add_child(blast)
+	blast.configure({"visual_only": true, "element_id": element, "radius": radius, "target_group": "hero"})
+	blast.detonate_now(pos)
+
+
+func broadcast_burst(pos: Vector2, c1: Color, c2: Color) -> void:
+	if is_host():
+		_client_burst.rpc(pos, c1, c2)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _client_burst(pos: Vector2, c1: Color, c2: Color) -> void:
+	var scene: Node = get_tree().current_scene
+	if scene != null:
+		_twins_built += 1
+		CombatVfx.spawn_burst(scene, pos, c1, c2, 36, 0.45, 120.0, 260.0, 1.5, 4.0, 40.0, 90.0)
+
+
 # --------------------------------------------------- headless two-instance test
 ## `-- --server` hosts; `-- --client [ip]` joins loopback. Prints [NET] lines the
 ## PowerShell two-process test greps for. Deferred so the tree is ready.

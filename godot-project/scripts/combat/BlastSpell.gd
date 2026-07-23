@@ -28,6 +28,9 @@ var damage: int = DAMAGE
 var radius: float = BLAST_RADIUS
 var knockback: float = KNOCKBACK
 var windup: float = WINDUP
+## Co-op: a client-side VISUAL twin (Net._client_blast) — plays the full spectacle
+## (burst/shockwave/scorch) but applies NO damage (the host's real blast owns that).
+var visual_only: bool = false
 
 
 ## Reconfigure before detonating (enemy MAGE aims it at group "hero", smaller
@@ -39,6 +42,7 @@ func configure(opts: Dictionary) -> void:
 	knockback = float(opts.get("knockback", knockback))
 	windup = float(opts.get("windup", windup))
 	element_id = int(opts.get("element_id", element_id))
+	visual_only = bool(opts.get("visual_only", visual_only))
 
 
 ## Public entry: place the blast, start the danger bloom over the windup.
@@ -58,7 +62,8 @@ func detonate_now(pos: Vector2) -> void:
 
 
 func _detonate() -> void:
-	_apply_blast_damage()
+	if not visual_only:  # the twin plays the spectacle only; the host owns the damage
+		_apply_blast_damage()
 	_spawn_blast_burst()
 	# Crater mark + physics debris, snapped to the FLOOR below the blast (never a
 	# mid-air smear) and given a lifetime so it clears up. Skipped over a pit.
