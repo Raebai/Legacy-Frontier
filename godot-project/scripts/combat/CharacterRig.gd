@@ -139,6 +139,10 @@ const EQUIP_TEX: Dictionary = {
 	"bomb": "res://assets/sprites/equipment/bomb.png",
 	"crown": "res://assets/sprites/equipment/crown.png",
 	"robe": "res://assets/sprites/equipment/robe.png",
+	"helmet": "res://assets/sprites/equipment/helmet.png",
+	"cape": "res://assets/sprites/equipment/cape.png",
+	"armor": "res://assets/sprites/equipment/armor.png",
+	"greatsword": "res://assets/sprites/equipment/greatsword.png",
 }
 ## PixelLab magic-circle emblem for the ground aura (tier >= 3), tinted per element.
 const AURA_CIRCLE_PATH: String = "res://assets/sprites/fx/magic_circle.png"

@@ -9,9 +9,9 @@ extends CanvasLayer
 const SLOTS: Array = ["weapon", "head", "body"]
 const SLOT_LABELS: Dictionary = {"weapon": "WEAPON", "head": "HEAD", "body": "BODY"}
 const OPTIONS: Dictionary = {
-	"weapon": ["", "staff", "staff_ice", "staff_storm", "staff_holy", "sword", "dagger", "hammer", "scythe", "orb"],
-	"head": ["", "hat", "hood"],
-	"body": ["", "robe"],
+	"weapon": ["", "staff", "staff_ice", "staff_storm", "staff_holy", "sword", "dagger", "hammer", "greatsword", "scythe", "orb"],
+	"head": ["", "hat", "hood", "helmet"],
+	"body": ["", "robe", "cape", "armor"],
 }
 const HIGHLIGHT: Color = Color(0.55, 0.9, 1.0)
 

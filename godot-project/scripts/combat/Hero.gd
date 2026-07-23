@@ -292,6 +292,7 @@ const GEAR_ELEMENT: Dictionary = {
 var _gear_speed_mult: float = 1.0
 var _gear_ward_frac: float = 0.0
 var _gear_ward_used: bool = false
+var _gear_damage_reduction: float = 0.0  # armor: flat % off every hit (persistent)
 ## Class melee/HP base snapshot (captured post-class-setup incl. equip_weapon) that
 ## the gear mults scale FROM — so _recompute is idempotent and never clobbers the
 ## weapon-specific melee tuning equip_weapon already applied.
@@ -821,7 +822,7 @@ func _apply_gamestate_loadout(gs: Node) -> void:
 func _aggregate_gear() -> Dictionary:
 	var out: Dictionary = {
 		"melee_damage": 1.0, "melee_knockback": 1.0, "melee_cd": 1.0,
-		"max_hp": 1.0, "speed": 1.0, "ward": 0.0, "element": -1,
+		"max_hp": 1.0, "speed": 1.0, "ward": 0.0, "damage_reduction": 0.0, "element": -1,
 	}
 	for slot: String in ["weapon", "head", "body"]:
 		var kind: String = String(_gear_override.get(slot, ""))  # only player CHOICES grant abilities
@@ -831,8 +832,9 @@ func _aggregate_gear() -> Dictionary:
 		for k: String in ["melee_damage", "melee_knockback", "melee_cd", "max_hp", "speed"]:
 			if e.has(k):
 				out[k] *= float(e[k])
-		if e.has("ward"):
-			out["ward"] = maxf(out["ward"], float(e["ward"]))
+		for k: String in ["ward", "damage_reduction"]:
+			if e.has(k):
+				out[k] = maxf(out[k], float(e[k]))
 		if e.has("element"):
 			out["element"] = int(GEAR_ELEMENT.get(String(e["element"]), -1))
 	return out
@@ -855,6 +857,7 @@ func _recompute_gear_effects() -> void:
 		health_changed.emit(hp, max_hp)
 	_gear_speed_mult = float(g["speed"])
 	_gear_ward_frac = float(g["ward"])
+	_gear_damage_reduction = float(g["damage_reduction"])
 	_gear_ward_used = false  # a fresh loadout / class = a fresh ward
 	# Element follows the WEAPON: an elemental weapon (staff_ice, scythe, ...) sets it;
 	# a non-elemental weapon reverts to the class's innate element (never sticks).
@@ -1945,7 +1948,9 @@ func take_damage(amount: int) -> void:
 		_cancel_channel()
 	if _summoning:
 		_cancel_summon()
-	# Gear: a warding robe softens the FIRST hit each fight (GearAbilities "Warded").
+	# Gear: plate armour flatly reduces EVERY hit; a warding robe softens the FIRST hit.
+	if _gear_damage_reduction > 0.0 and amount > 0:
+		amount = int(round(float(amount) * (1.0 - _gear_damage_reduction)))
 	if _gear_ward_frac > 0.0 and not _gear_ward_used and amount > 0:
 		amount = int(round(float(amount) * (1.0 - _gear_ward_frac)))
 		_gear_ward_used = true
