@@ -14,6 +14,11 @@ extends Resource
 @export var hero_speed: float = 210.0    # base walk speed
 @export var dash_speed: float = 620.0    # dash burst velocity (distance = speed*time)
 @export var dash_time: float = 0.14      # dash duration AND i-frame window length
+@export var move_gravity_rise: float = 2600.0  # rise gravity (real weight, not floaty apex)
+@export var move_gravity_fall: float = 3000.0  # fall gravity (heavier coming down)
+@export var move_jump_velocity: float = -740.0 # jump launch velocity (a committed hop, not a float)
+@export var move_air_accel: float = 750.0      # air accel/decel (low = no mid-air free-steer)
+@export var move_max_fall: float = 1400.0      # terminal fall speed clamp
 
 @export_group("Hero feel")
 @export var hurt_hit_stop: float = 0.05  # freeze when the hero takes a hit

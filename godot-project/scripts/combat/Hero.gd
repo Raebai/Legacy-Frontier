@@ -556,8 +556,8 @@ func _physics_process(delta: float) -> void:
 	if is_on_floor() and velocity.y >= 0.0:
 		velocity.y = 0.0  # guard: an upward knockback pop must beat the floor-zero
 	else:
-		var g: float = GRAVITY if velocity.y < 0.0 else GRAVITY_FALL
-		velocity.y = minf(velocity.y + g * delta, MAX_FALL)
+		var g: float = _tune("move_gravity_rise", GRAVITY) if velocity.y < 0.0 else _tune("move_gravity_fall", GRAVITY_FALL)
+		velocity.y = minf(velocity.y + g * delta, _tune("move_max_fall", MAX_FALL))
 		if wall_sliding:
 			velocity.y = minf(velocity.y, WALL_SLIDE_MAX_FALL)
 	# Variable jump height: releasing jump while rising cuts the ascent short.
@@ -567,7 +567,7 @@ func _physics_process(delta: float) -> void:
 	# Jump (buffered): ground/coyote, else a WALL-JUMP off a gripped wall.
 	if _jump_buffer > 0.0:
 		if is_on_floor() or _coyote > 0.0:
-			velocity.y = JUMP_VELOCITY
+			velocity.y = _tune("move_jump_velocity", JUMP_VELOCITY)
 			_jump_buffer = 0.0
 			_coyote = 0.0
 			_spawn_foot_puff()
@@ -592,10 +592,10 @@ func _physics_process(delta: float) -> void:
 	var spd: float = _tune("hero_speed", SPEED) * _gear_speed_mult  # gear: hood = fleet-footed
 	if _wall_jump_lock <= 0.0:
 		if move_x != 0.0:
-			var accel: float = GROUND_ACCEL if is_on_floor() else AIR_ACCEL
+			var accel: float = GROUND_ACCEL if is_on_floor() else _tune("move_air_accel", AIR_ACCEL)
 			velocity.x = move_toward(velocity.x, move_x * spd, accel * delta)
 		else:
-			var fric: float = GROUND_FRICTION if is_on_floor() else AIR_ACCEL
+			var fric: float = GROUND_FRICTION if is_on_floor() else _tune("move_air_accel", AIR_ACCEL)
 			velocity.x = move_toward(velocity.x, 0.0, fric * delta)
 	# Tiny push into the wall so move_and_slide keeps registering the slide.
 	if wall_sliding:
