@@ -18,6 +18,8 @@ func _process(_delta: float) -> bool:
 	failed += _test_air_phase_toggle_and_pose()
 	failed += _test_aim_arm_snaps_to_angle_idle()
 	failed += _test_aim_arm_tracks_in_air()
+	failed += _test_aim_arm_sim_bypass_snaps_idle()
+	failed += _test_aim_arm_sim_bypass_snaps_air()
 	failed += _test_foot_plant_clamps()
 	failed += _test_spring_tamed()
 	if failed > 0:
@@ -106,6 +108,52 @@ func _test_aim_arm_tracks_in_air() -> int:
 	var hand_angle: float = ((pose["hand_lead"] as Vector2) - (pose["shoulder"] as Vector2)).angle()
 	var diff: float = absf(angle_difference(hand_angle, aim.angle()))
 	f += _expect(diff < 0.02, "AIR lead hand tracks aim (angle diff %.4f rad)" % diff)
+	rig.free()
+	return f
+
+
+## The _compute_pose tests above only exercise the un-simmed animation TARGET. The
+## actual "hand always points at the cursor" mechanism Hero relies on is the SPRING
+## BYPASS inside _sim_pose() (hand_lead is overwritten with the un-lagged target
+## AFTER the spring sim runs), so a fast aim swing can't smear the visible hand behind
+## the cursor. Seed the sim, then deliberately displace the simulated hand_lead far
+## from the aim target (as a real spring lag would), and assert _sim_pose() still
+## snaps it back. This FAILS if the bypass line in _sim_pose() is removed/commented.
+func _test_aim_arm_sim_bypass_snaps_idle() -> int:
+	var f: int = 0
+	var rig := CharacterRig.new()
+	rig.set_aim_arm(true)  # state defaults to IDLE
+	var aim: Vector2 = Vector2(0.6, -0.4).normalized()
+	rig.set_aim(aim)
+	rig.advance(0.016)  # seeds _sim (lazily, at the already aim-aligned target pose)
+	# Deliberately lag the simulated hand far from the aim target (angle ~157 deg
+	# away from `aim`), mimicking a spring that hasn't caught up to a fast aim swing.
+	rig._sim["hand_lead"] = (rig._sim["shoulder"] as Vector2) + Vector2(-40.0, 60.0)
+	var pose: Dictionary = rig._sim_pose()
+	var hand_angle: float = ((pose["hand_lead"] as Vector2) - (pose["shoulder"] as Vector2)).angle()
+	var diff: float = absf(angle_difference(hand_angle, aim.angle()))
+	f += _expect(diff < 0.02, "IDLE sim-bypass snaps a lagged hand back to aim (angle diff %.4f rad)" % diff)
+	rig.free()
+	return f
+
+
+## Same bypass, in AIR — the aim-snap gate covers AIR too (Task 6), so a jumping
+## Hero's hand must also ignore the spring lag and track the cursor exactly.
+func _test_aim_arm_sim_bypass_snaps_air() -> int:
+	var f: int = 0
+	var rig := CharacterRig.new()
+	rig.set_aim_arm(true)
+	rig.play(CharacterRig.State.AIR)
+	rig.set_air_phase(false, false)
+	var aim: Vector2 = Vector2(-0.3, -0.7).normalized()  # up-left
+	rig.set_aim(aim)
+	rig.advance(0.016)
+	# Lag angle ~82 deg away from `aim` here.
+	rig._sim["hand_lead"] = (rig._sim["shoulder"] as Vector2) + Vector2(50.0, -30.0)
+	var pose: Dictionary = rig._sim_pose()
+	var hand_angle: float = ((pose["hand_lead"] as Vector2) - (pose["shoulder"] as Vector2)).angle()
+	var diff: float = absf(angle_difference(hand_angle, aim.angle()))
+	f += _expect(diff < 0.02, "AIR sim-bypass snaps a lagged hand back to aim (angle diff %.4f rad)" % diff)
 	rig.free()
 	return f
 

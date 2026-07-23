@@ -92,14 +92,25 @@ const SIM_EXTREMITIES: Array[String] = [
 	"head_center", "hand_lead", "hand_off", "foot_lead", "foot_off",
 ]
 const STIFFNESS: float = 180.0         # STIFF — the resting/running pose SETTLES, no float smear
+## Full-ragdoll (_limp==1) stiffness floor: an ABSOLUTE value (not a fraction of the
+## now-higher STIFFNESS) so taming the resting pose can't also tame the post-hit HURT
+## flail / hold-DOWN ragdoll. Matches the pre-tame feel exactly (old STIFFNESS=60 *
+## 0.05 == 3.0). See _step_sim: stiffness = lerpf(STIFFNESS, FULL_LIMP_STIFFNESS, _limp).
+const FULL_LIMP_STIFFNESS: float = 3.0
 const DAMPING: float = 8.0             # less = more overshoot/swing (still stable)
 ## The FEET spring softer than the rest — but ONLY as the body goes limp (the
 ## post-hit HURT flail / hold-DOWN ragdoll). At rest _limp is 0, so the legs spring
 ## at FULL stiffness and plant firmly; they only go loose/flowy under a real flop.
-## (See _step_sim: leg_stiffness = stiffness * lerpf(1, LOOSE_LEG_STIFFNESS, _limp).)
+## (See _step_sim: leg_stiffness = stiffness * lerpf(1, LOOSE_LEG_STIFFNESS, _limp) —
+## at full limp this derives 3.0 * 0.5 == 1.5, the pre-tame full-flail leg stiffness.)
 const LOOSE_LEG_STIFFNESS: float = 0.5
 const GRAVITY: float = 800.0           # applied only when limp (ragdoll droop)
 const MAX_OFFSET_FACTOR: float = 0.35  # limbs settle tight to the pose; only a limp flail drifts far
+## Full-ragdoll (_limp==1) offset clamp: the pre-tame amplitude, restored ONLY as the
+## body goes limp (see _step_sim: max_off = height * lerpf(MAX_OFFSET_FACTOR,
+## FULL_LIMP_OFFSET_FACTOR, _limp)) so the resting pose stays tight but a real flail
+## still has its old reach.
+const FULL_LIMP_OFFSET_FACTOR: float = 0.85
 const LIMP_EASE_SPEED: float = 5.0     # _limp eases toward _limp_target at this /s
 const IMPULSE_EXTREMITY_MULT: float = 2.6  # hands/feet/head whip harder on hits
 const BODY_TRAIL_FACTOR: float = 0.26  # more inertial limb-trail on launch/stop
@@ -287,9 +298,13 @@ func _step_sim(delta: float) -> void:
 	if delta <= 0.0:
 		return
 	_limp = move_toward(_limp, _limp_target, LIMP_EASE_SPEED * delta)
-	var stiffness: float = lerpf(STIFFNESS, STIFFNESS * 0.05, _limp)
+	# Lerp toward an ABSOLUTE full-limp floor (not a fraction of STIFFNESS) so the
+	# resting-pose tame (STIFFNESS 60->180) can't also tighten the post-hit flail.
+	var stiffness: float = lerpf(STIFFNESS, FULL_LIMP_STIFFNESS, _limp)
 	var damp: float = clampf(1.0 - DAMPING * delta, 0.0, 1.0)
-	var max_off: float = height * MAX_OFFSET_FACTOR
+	# Limp-scale the clamp too: tight at rest (MAX_OFFSET_FACTOR), the old wide
+	# reach (FULL_LIMP_OFFSET_FACTOR) back at full ragdoll so a real flail isn't capped.
+	var max_off: float = height * lerpf(MAX_OFFSET_FACTOR, FULL_LIMP_OFFSET_FACTOR, _limp)
 	# Inertial trail: extremities get a nudge OPPOSITE the body's velocity
 	# change (mirrored into the local flip) so limbs lag on launch/stop.
 	var dv: Vector2 = _body_vel - _prev_body_vel

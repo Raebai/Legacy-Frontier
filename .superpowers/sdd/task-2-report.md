@@ -48,3 +48,106 @@
 - The live raycast is **runtime-only** (guarded by `is_inside_tree()` + null `World2D`/space checks); it can't be exercised headlessly, so the headless test covers the pure `_plant_foot` math and the capture covers the live grounding. Query runs from `_process` (via `advance()`); the capture run produced no "flushing queries" or space-state errors.
 - Applied to **all fighters** (rig is visual) — intended; does not touch co-op gameplay-logic paths, so the SP-byte-identical rule is unaffected.
 - No new `class_name` introduced; headless `--import` run clean before capture regardless.
+
+## Fix pass — closing 2 Important review findings
+
+### Finding 1: spring-tame over-stiffened the HURT ragdoll flail
+
+Root cause: taming the resting pose (STIFFNESS 60→180, MAX_OFFSET_FACTOR 0.85→0.35) also
+tamed the fully-limp flail, because both the offset clamp and the full-limp stiffness floor
+were derived as a flat/proportional function of the now-higher numbers instead of being
+pinned to the pre-tame absolute values.
+
+**Fix — two new named constants + two formula changes in `_step_sim` (CharacterRig.gd):**
+
+- Added `const FULL_LIMP_STIFFNESS: float = 3.0` (matches the pre-diff floor exactly:
+  old `STIFFNESS(60) * 0.05 == 3.0`).
+- Added `const FULL_LIMP_OFFSET_FACTOR: float = 0.85` (the pre-diff `MAX_OFFSET_FACTOR`
+  value, restored only as the body goes limp).
+- `stiffness` formula changed from a STIFFNESS-relative floor to an absolute-value lerp:
+  - Before: `var stiffness: float = lerpf(STIFFNESS, STIFFNESS * 0.05, _limp)` → full-limp
+    floor scaled to `180*0.05 = 9.0` (3× tighter than intended).
+  - After: `var stiffness: float = lerpf(STIFFNESS, FULL_LIMP_STIFFNESS, _limp)` → full-limp
+    floor is the absolute `3.0` regardless of the resting STIFFNESS, so raising STIFFNESS for
+    the resting pose can never retune the flail.
+- `max_off` formula limp-scaled instead of flat:
+  - Before: `var max_off: float = height * MAX_OFFSET_FACTOR` → `0.35` in every state,
+    including full ragdoll.
+  - After: `var max_off: float = height * lerpf(MAX_OFFSET_FACTOR, FULL_LIMP_OFFSET_FACTOR, _limp)`
+    → `0.35` at rest (tamed, unchanged), lerping up to `0.85` at full limp (the old flail reach).
+- The leg formula (`leg_stiffness = stiffness * lerpf(1.0, LOOSE_LEG_STIFFNESS, _limp)`, line
+  unchanged) automatically derives the correct full-limp leg floor from the fixed body
+  `stiffness`: at `_limp==1`, `stiffness==3.0`, `lerpf(1,0.5,1)==0.5` → `leg_stiffness == 1.5`,
+  exactly the pre-diff full-flail leg stiffness (`60*0.05*0.5`). No separate leg constant or
+  formula change was needed — only the body-stiffness fix.
+- Resting (`_limp==0`) behavior is untouched: `stiffness==STIFFNESS==180`,
+  `max_off==height*MAX_OFFSET_FACTOR==height*0.35`, `leg_stiffness==180` (full stiffness,
+  planted legs) — identical to the pre-fix-pass tamed pose.
+
+Both new constants are documented in-place with comments cross-referencing the formulas that
+consume them, matching the file's existing constant-documentation style.
+
+### Finding 2: aim-arm test didn't exercise the real spring-bypass
+
+Root cause: `_test_aim_arm_snaps_to_angle_idle` / `_test_aim_arm_tracks_in_air` call
+`rig._compute_pose()` directly on a fresh, unseeded rig (`_sim_ready == false`), so they only
+assert the un-simmed animation TARGET is aim-aligned. They never touch `_sim_pose()`'s bypass
+line (`pose["hand_lead"] = target_hand_lead`, `CharacterRig.gd:419`) — the actual mechanism
+that snaps the DRAWN (simulated/lagged) hand back to the cursor every frame. Removing that
+line would not fail either test.
+
+**Fix — two new tests added to `tools/slice_test_rig.gd`** (kept the existing two
+`_compute_pose`-gate tests unchanged, per the brief):
+
+- `_test_aim_arm_sim_bypass_snaps_idle()` — IDLE state.
+- `_test_aim_arm_sim_bypass_snaps_air()` — AIR state, falling phase.
+
+Both follow the same recipe: `set_aim_arm(true)` + `set_aim(aim)`, then `rig.advance(0.016)`
+to lazily seed `_sim` (Godot's `_ensure_sim` seeds every joint at the current — already
+aim-aligned — target pose with zero velocity, so after one `advance()` call `_sim["hand_lead"]`
+sits exactly on the aim target). The test then **deliberately displaces**
+`rig._sim["hand_lead"]` to a point far off-angle from the aim target (IDLE case: offset
+`(-40, 60)` from the simulated shoulder, ~157° away from the aim angle; AIR case: offset
+`(50, -30)`, ~82° away) — simulating a spring that has genuinely lagged behind a fast aim
+swing. It then calls `rig._sim_pose()` (the real per-frame draw-pose path) and asserts the
+returned `hand_lead` angle (relative to the returned `shoulder`) is within 0.02 rad of the
+un-lagged `set_aim` target, exactly like the existing tests' tolerance.
+
+**RED/GREEN evidence (headless GDScript, not pytest):**
+
+1. Baseline run — GREEN:
+   ```
+   godot-engine/Godot_v4.6.2-stable_win64_console.exe --headless --path godot-project --script tools/slice_test_rig.gd
+   → rig tests: all PASS
+   ```
+2. Temporarily replaced the bypass line's body with `pass` (commented out
+   `pose["hand_lead"] = target_hand_lead`, `CharacterRig.gd:419`) and re-ran — RED:
+   ```
+   FAIL: IDLE sim-bypass snaps a lagged hand back to aim (angle diff 2.7468 rad)
+   FAIL: AIR sim-bypass snaps a lagged hand back to aim (angle diff 1.4353 rad)
+   rig tests: 2 FAILED
+   ```
+   Exactly the 2 new tests failed; the pre-existing 2 `_compute_pose`-based aim tests still
+   passed (confirming they do NOT cover the bypass — the gap the finding identified). Exit
+   code 1.
+3. Restored the bypass line verbatim and re-ran — GREEN again:
+   ```
+   rig tests: all PASS
+   ```
+   Exit code 0. Diff after restore is clean (`git diff` shows no residual change to
+   `CharacterRig.gd`'s `_sim_pose`).
+
+### Verification — full sweep
+
+- `tools/slice_test_rig.gd` alone: `rig tests: all PASS`, exit 0.
+- Full sweep of every `godot-project/tools/slice*_test_*.gd` (40 files, including
+  `slice1_test_rig.gd` and every enemy/coop/spell/gear/loadout suite): **all 40 green**, exit
+  0 for every file. Two pre-existing benign runtime errors unrelated to this change
+  (`slice_test_boss.gd`: `Parameter "data.tree" is null"` from a null-tree edge case;
+  `slice_test_climb.gd`: `Can't use get_node() with absolute paths from outside the active
+  scene tree` from headless scene-tree access) still print their errors but still report
+  `all PASS` with exit 0 — unchanged from before this fix pass, not introduced by it.
+- `git status` / `git diff --stat` confirm only the two authorized files changed:
+  `godot-project/scripts/combat/CharacterRig.gd` and `godot-project/tools/slice_test_rig.gd`.
+  No foot-plant, AIR pose, silhouette, or aim-gate logic was touched — only the limp-scaling
+  formulas in `_step_sim` and the new test functions.
