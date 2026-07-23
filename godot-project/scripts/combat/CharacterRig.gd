@@ -6,7 +6,9 @@ extends Node2D
 
 signal hit_frame
 
-enum State { IDLE, RUN, DASH, CAST, PUNCH, KICK, HURT, WALL_SLIDE }
+## AIR is the jump/fall/land locomotion state (added at the END so existing
+## indices are stable). Hero drives it via play(State.AIR) + set_air_phase(...).
+enum State { IDLE, RUN, DASH, CAST, PUNCH, KICK, HURT, WALL_SLIDE, AIR }
 
 ## One-shot states auto-return to IDLE after their fixed duration.
 const ONE_SHOT_DURATIONS: Dictionary = {
@@ -73,8 +75,8 @@ const GROUND_RING_SPIN_SPEED: float = 1.1    # rad/s arc rotation
 ## Crisp Stick-Fight read: a dark outline drawn under the bold limb colour, and
 ## how much wider than the limb the outline extends (px). The main _draw passes
 ## OUTLINE_COLOR; the aura silhouette + dash ghosts draw outline-less (soft).
-const OUTLINE_COLOR: Color = Color(0.10, 0.11, 0.16, 0.85)  # soft rim, not a jet-black keyline (SF is flat/solid)
-const OUTLINE_EXTRA: float = 1.0                            # thin edge, not a fat cartoon outline
+const OUTLINE_COLOR: Color = Color(0.04, 0.04, 0.07, 1.0)   # true dark keyline — bold SF silhouette against any bg
+const OUTLINE_EXTRA: float = 2.0                            # thicker edge so the figure reads as a solid puppet, not a speck
 ## --- Active-ragdoll spring sim: the DRAWN limbs physically lag/swing/flail
 ## toward the procedural pose (_compute_pose is the animation TARGET) instead
 ## of snapping to it, and go limp on death. Stable point-mass springs in LOCAL
@@ -89,20 +91,29 @@ const SIM_JOINTS: Array[String] = [
 const SIM_EXTREMITIES: Array[String] = [
 	"head_center", "hand_lead", "hand_off", "foot_lead", "foot_off",
 ]
-const STIFFNESS: float = 60.0          # LOOSER still — floppier, more ragdoll swing
+const STIFFNESS: float = 180.0         # STIFF — the resting/running pose SETTLES, no float smear
 const DAMPING: float = 8.0             # less = more overshoot/swing (still stable)
-## The FEET spring softer than the rest so the legs lag, swing, and settle loosely
-## as you walk (maker: "the legs should feel free and flowy like Stick Fight").
-## Lower = floppier legs. Applied on top of the global stiffness in _step_sim.
+## The FEET spring softer than the rest — but ONLY as the body goes limp (the
+## post-hit HURT flail / hold-DOWN ragdoll). At rest _limp is 0, so the legs spring
+## at FULL stiffness and plant firmly; they only go loose/flowy under a real flop.
+## (See _step_sim: leg_stiffness = stiffness * lerpf(1, LOOSE_LEG_STIFFNESS, _limp).)
 const LOOSE_LEG_STIFFNESS: float = 0.5
 const GRAVITY: float = 800.0           # applied only when limp (ragdoll droop)
-const MAX_OFFSET_FACTOR: float = 0.85  # allow more drift so limbs really swing
+const MAX_OFFSET_FACTOR: float = 0.35  # limbs settle tight to the pose; only a limp flail drifts far
 const LIMP_EASE_SPEED: float = 5.0     # _limp eases toward _limp_target at this /s
 const IMPULSE_EXTREMITY_MULT: float = 2.6  # hands/feet/head whip harder on hits
 const BODY_TRAIL_FACTOR: float = 0.26  # more inertial limb-trail on launch/stop
+## Foot-plant IK raycast layer. World/platform solids all sit on physics layer bit 1
+## (value 1): VersusArena._make_terrace terraces (StaticBody2D default layer 1),
+## RuinPlatform (default layer 1), BreakablePlatform (collision_layer 5 = bits 1+3),
+## Rock/IceWall (layer 1) — matching Hero.BLINK_WALL_MASK. Fighter bodies live on
+## layers 2/4, so a mask-1 downward ray never hits the figure's own body.
+const GROUND_MASK: int = 1
 
 @export var limb_color: Color = Color(0.55, 0.75, 1.0, 1.0)
-@export var height: float = 26.0
+## Moderate size bump (was 26) so the fighter reads as a bold puppet, not a speck.
+## Boss.tscn / capture rigs override this per-instance, so only the default fighters grow.
+@export var height: float = 31.0
 ## Soft radial glow under the figure ("charged" hero read). Strength 0
 ## disables it entirely — enemies stay bare sticks.
 @export var aura_color: Color = Color(0.4, 0.7, 1.0, 1.0)
@@ -172,6 +183,15 @@ var _airborne: float = 0.0
 ## droop is clamped to the floor line so hold-DOWN ducking can't sink the drawn
 ## limbs THROUGH the collision (maker: "ducking clips the hero into the floor").
 var _grounded: bool = true
+## AIR-state phase (set by Hero via set_air_phase): _air_rising = ascending (tuck +
+## arms up), else falling (legs reach down); _air_grounded = the brief landing squash.
+## Only read inside the State.AIR pose branch.
+var _air_rising: bool = false
+var _air_grounded: bool = false
+## Cached LOCAL-space y of the floor directly under the figure this frame (INF = no
+## ground found / airborne). Refreshed once per frame by _update_ground_probe and
+## consumed by the foot-plant in _sim_pose so the stance foot rests ON the ground.
+var _ground_local_y: float = INF
 ## Active-ragdoll sim state: joint key -> simulated LOCAL position / velocity.
 ## Lazily seeded to the current target pose on first use so limbs never spring
 ## in from the origin. Pure Dictionary/Vector2 math — headless-safe.
@@ -252,6 +272,7 @@ func advance(delta: float) -> void:
 			_one_shot_active = false
 			state = State.IDLE
 	_step_sim(delta)
+	_update_ground_probe()
 	queue_redraw()
 
 
@@ -277,7 +298,10 @@ func _step_sim(delta: float) -> void:
 		dv = Vector2.ZERO
 	var flip_s: float = 1.0 if scale.x >= 0.0 else -1.0
 	var trail: Vector2 = Vector2(-dv.x * flip_s, -dv.y) * BODY_TRAIL_FACTOR
-	var leg_stiffness: float = stiffness * LOOSE_LEG_STIFFNESS
+	# Legs spring at FULL stiffness for a planted, settled stance (no float smear);
+	# they only go loose/flowy (LOOSE_LEG_STIFFNESS) as the body goes limp — the
+	# post-hit HURT flail / hold-DOWN ragdoll — so normal walking can't drift.
+	var leg_stiffness: float = stiffness * lerpf(1.0, LOOSE_LEG_STIFFNESS, _limp)
 	for key: String in SIM_JOINTS:
 		var target: Vector2 = target_pose[key]
 		var vel: Vector2 = _sim_vel[key]
@@ -320,6 +344,46 @@ func _ensure_sim(target_pose: Dictionary = {}) -> void:
 	_sim_ready = true
 
 
+## Raycast straight down from above the figure to the nearest world/platform collider
+## (GROUND_MASK) and cache the contact point in LOCAL y, so _sim_pose can plant the
+## stance foot ON the real floor instead of floating above / sinking below it. Runs
+## once per frame; sets _ground_local_y = INF when airborne, off-tree (headless), or
+## no ground is within reach (feet then hang at their natural pose). A downward ray is
+## vertical regardless of scale.x, so the facing flip doesn't matter.
+func _update_ground_probe() -> void:
+	_ground_local_y = INF
+	if not _grounded or state == State.AIR or not is_inside_tree():
+		return
+	var world: World2D = get_world_2d()
+	if world == null:
+		return
+	var space: PhysicsDirectSpaceState2D = world.direct_space_state
+	if space == null:
+		return
+	# From ~head height down past the feet; long enough to reach the floor a standing
+	# figure rests on, short enough that a launched fighter finds no ground (INF).
+	var from_w: Vector2 = global_position + Vector2(0.0, -height * 0.5)
+	var to_w: Vector2 = global_position + Vector2(0.0, height * 1.5)
+	var q := PhysicsRayQueryParameters2D.create(from_w, to_w, GROUND_MASK)
+	q.collide_with_areas = false
+	q.collide_with_bodies = true
+	var hit: Dictionary = space.intersect_ray(q)
+	if hit.is_empty():
+		return
+	# Only the y matters for the plant; to_local strips the node position (scale.y is 1).
+	_ground_local_y = to_local(hit["position"] as Vector2).y
+
+
+## Clamp a drawn foot so it rests ON the ground contact line, never sinking below it:
+## a support foot (at/below the line) plants exactly on the floor; a lifted foot
+## (above the line — a mid-stride swing / kick) is left untouched so the stride still
+## reads. Pure math, headless-testable; callers decide WHEN to plant (grounded only).
+func _plant_foot(local_foot: Vector2, ground_local_y: float) -> Vector2:
+	if local_foot.y >= ground_local_y:
+		return Vector2(local_foot.x, ground_local_y)
+	return local_foot
+
+
 ## The pose actually DRAWN: _compute_pose() with the driven joints replaced by
 ## their simulated positions, neck re-derived from the simmed head so head and
 ## torso stay connected. r + w pass through. draw_figure's 2-bone IK then bends
@@ -329,10 +393,29 @@ func _sim_pose() -> Dictionary:
 	var pose: Dictionary = _compute_pose()
 	if not _sim_ready:
 		return pose
+	var target_hand_lead: Vector2 = pose["hand_lead"]  # the aim TARGET, before sim overwrite
 	for key: String in SIM_JOINTS:
 		pose[key] = _sim[key]
 	pose["neck"] = _sim["head_center"] + Vector2(0.0, pose["r"])
+	# Aim-snap: while twin-stick aiming (Hero), the lead hand tracks the cursor with
+	# NO spring lag in the aim states, so the visible hand points EXACTLY where the
+	# player aims instead of smearing behind it. Strikes/other states keep the sim.
+	if aim_arm and _is_aim_state():
+		pose["hand_lead"] = target_hand_lead
+	# Foot-plant IK: grounded (and not mid-flail) -> plant the support foot on the real
+	# floor line so the figure stands ON the ground; the swing foot keeps its lift.
+	if _grounded and state != State.AIR and _limp < 0.5 and is_finite(_ground_local_y):
+		pose["foot_lead"] = _plant_foot(pose["foot_lead"], _ground_local_y)
+		pose["foot_off"] = _plant_foot(pose["foot_off"], _ground_local_y)
 	return pose
+
+
+## States in which the twin-stick lead arm points at the cursor (aim_arm heroes only):
+## the resting/moving/airborne/dashing poses + the committed cast. Strikes + wall-slide
+## keep their scripted arm so the punch/cling reads.
+func _is_aim_state() -> bool:
+	return state == State.IDLE or state == State.RUN or state == State.AIR \
+			or state == State.DASH or state == State.CAST
 
 
 ## Jolt the limbs: mirror `world_dir` into the (possibly flipped) local frame
@@ -502,6 +585,15 @@ func set_airborne(v: float) -> void:
 ## floor-clamp in _step_sim so ducking never sinks the ragdoll into the ground.
 func set_grounded(g: bool) -> void:
 	_grounded = g
+
+
+## Set the AIR-state phase (Hero drives this alongside play(State.AIR)): `rising` =
+## ascending off a jump (knees tuck, arms up); false = falling (legs reach down for
+## the ground). `grounded` = the brief touch-down squash. Only read in the AIR pose
+## branch — harmless to call in any state.
+func set_air_phase(rising: bool, grounded: bool) -> void:
+	_air_rising = rising
+	_air_grounded = grounded
 
 
 ## Set the base limb/head color (enemy archetype tint, hero blue, ...).
@@ -1059,8 +1151,8 @@ func _vfx_wind(p: Vector2, rad: float, core: Color, _halo: Color) -> void:
 ## neck, hip, shoulder, hand_lead, hand_off, foot_lead, foot_off,
 ## plus stroke metrics r (head radius) and w (line width).
 func _compute_pose() -> Dictionary:
-	var w: float = maxf(2.0, height * 0.12)   # a touch bolder for the iconic SF limb read
-	var r: float = height * 0.15
+	var w: float = maxf(2.0, height * 0.16)   # BOLD limbs — the iconic thick SF puppet read
+	var r: float = height * 0.18              # bigger head to match the bolder limbs
 	var arm_len: float = height * 0.32
 	var leg_len: float = height * 0.4
 	var t: float = 0.0
@@ -1086,6 +1178,35 @@ func _compute_pose() -> Dictionary:
 	match state:
 		State.IDLE:
 			bob = sin(_phase * 2.0) * height * 0.03
+		State.AIR:
+			# Jump/fall/land — NO run-cycle leg pumping (that's what made a jump read as
+			# "hovering while jogging"). Rising: tuck the knees up + throw the arms up for
+			# the leap. Falling: reach the legs down to meet the ground, arms out to
+			# balance. Landing: a brief crouch/squash as the weight lands.
+			if _air_grounded:
+				bob = height * 0.10                     # weight drops into a landing crouch
+				leg_lead = PI * 0.5 - 0.34
+				leg_off = PI * 0.5 + 0.34
+				leg_lead_len = leg_len * 0.70
+				leg_off_len = leg_len * 0.70
+				arm_lead = PI * 0.5 + 0.55
+				arm_off = PI * 0.5 - 0.55
+			elif _air_rising:
+				lean = height * 0.05
+				leg_lead = PI * 0.5 - 0.55              # knees tuck up toward the chest
+				leg_off = PI * 0.5 - 0.25
+				leg_lead_len = leg_len * 0.58
+				leg_off_len = leg_len * 0.68
+				arm_lead = PI * 0.5 - 0.75              # arms swing up with the leap
+				arm_off = PI * 0.5 - 0.95
+			else:
+				lean = height * 0.03
+				leg_lead = PI * 0.5 + 0.14              # legs reach down for the landing
+				leg_off = PI * 0.5 - 0.14
+				leg_lead_len = leg_len * 1.06
+				leg_off_len = leg_len * 1.06
+				arm_lead = PI * 0.5 - 0.4               # arms out to balance the fall
+				arm_off = PI * 0.5 + 0.4
 		State.RUN:
 			# Smoother, weightier gait (Stick-Fight feel): a calmer stride
 			# frequency, a real leg lift on the back-swing (stride, not a scissor),
@@ -1156,7 +1277,7 @@ func _compute_pose() -> Dictionary:
 	# running, so the visible hand always aims where the mouse is (Stick-Fight). The
 	# spring sim eases the drawn hand so it tracks smoothly instead of snapping; the
 	# OFF arm keeps its locomotion swing so the body still reads as running.
-	if aim_arm and (state == State.IDLE or state == State.RUN):
+	if aim_arm and _is_aim_state():
 		var aim_s: float = 1.0 if scale.x >= 0.0 else -1.0
 		var aim_local: Vector2 = Vector2(_aim_world.x * aim_s, _aim_world.y)
 		if aim_local.length() > 0.001:
