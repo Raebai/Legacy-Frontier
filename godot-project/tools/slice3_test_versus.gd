@@ -27,6 +27,7 @@ func _process(_delta: float) -> bool:
 	failed += _test_invuln_blocks_double_stock_loss(arena)
 	failed += _test_ring_out_respawns_bot(arena)
 	failed += _test_p1_elimination_ends_match(arena)
+	failed += _test_dummy_never_blocks_victory()
 
 	if failed > 0:
 		printerr("Slice3 versus tests: %d FAILED" % failed)
@@ -81,7 +82,12 @@ func _test_match_setup(arena: Node2D) -> int:
 	for entry: Dictionary in arena._registry.values():
 		var node: Node = entry["node"]
 		if node != null and node.is_in_group("dummy"):
-			continue  # dummies get a near-infinite stock count — see DUMMY_STOCKS
+			# dummies get a near-infinite stock count — see DUMMY_STOCKS
+			failed += _expect(
+				int(entry.get("stocks", -1)) == arena.DUMMY_STOCKS,
+				"dummy fighters start with DUMMY_STOCKS stocks, got %d" % int(entry.get("stocks", -1))
+			)
+			continue
 		failed += _expect(
 			int(entry.get("stocks", -1)) == arena.STOCKS,
 			"every non-dummy fighter starts with STOCKS stocks"
@@ -135,7 +141,12 @@ func _test_invuln_blocks_double_stock_loss(arena: Node2D) -> int:
 
 func _test_ring_out_respawns_bot(arena: Node2D) -> int:
 	var failed: int = 0
-	var bots: Array = get_nodes_in_group("enemy")
+	# Filter out group "dummy" (also in "enemy" — see VersusArena._spawn_dummies)
+	# so this test asserts against a real bot regardless of whether
+	# _spawn_fighters() or _spawn_dummies() happens to run first.
+	var bots: Array = get_nodes_in_group("enemy").filter(
+		func(n: Node) -> bool: return not n.is_in_group("dummy")
+	)
 	if bots.is_empty():
 		return 1
 	var bot: Node2D = bots[0]
@@ -188,5 +199,77 @@ func _test_p1_elimination_ends_match(arena: Node2D) -> int:
 	arena._on_fighter_fell(p1)
 	failed += _expect(
 		int(entry["stocks"]) == 0, "post-match falls burn nothing"
+	)
+	return failed
+
+
+## Regression: a dummy must NEVER block (or falsely trigger) the victory check.
+## Runs against its OWN freshly-instantiated arena rather than the shared one
+## the tests above mutate — _match_over latches permanently once P1's
+## elimination test above ends the shared match in DEFEAT, and _on_fighter_fell
+## early-returns once _match_over is true, so this scenario ("kill every real
+## bot, leave the dummies alive, expect VICTORY") cannot be exercised on the
+## already-finished shared arena. A second instance gives a clean, isolated
+## match. Bots are looked up via THIS arena's own _registry (never a raw
+## get_nodes_in_group query), since the shared arena's fighters are still
+## live in the same SceneTree and would otherwise leak into the count.
+##
+## Why this guards the real bug class: if _bots_alive() ever stopped
+## excluding group "dummy" (VersusArena.gd ~:230), the two permanently-alive,
+## never-freed dummies would keep _bots_alive() stuck at >= 2 forever, and
+## this match would never reach VICTORY no matter how many real bots die —
+## the round-end check would hang after every real bot was eliminated.
+func _test_dummy_never_blocks_victory() -> int:
+	var failed: int = 0
+	var arena2_script: GDScript = load(ARENA_SCRIPT_PATH)
+	var arena2: Node2D = arena2_script.new()
+	root.add_child(arena2)  # _ready builds a second, independent match
+
+	var real_bot_ids: Array = []
+	for id: int in arena2._registry.keys():
+		var entry: Dictionary = arena2._registry[id]
+		var node: Node = entry["node"]
+		if node != null and node.is_in_group("enemy") and not node.is_in_group("dummy"):
+			real_bot_ids.append(id)
+	failed += _expect(
+		real_bot_ids.size() == arena2.BOT_COUNT,
+		"fresh arena has BOT_COUNT real bots to eliminate, got %d" % real_bot_ids.size()
+	)
+
+	# Kill every real bot through the same _on_fighter_fell ring-out path the
+	# other tests use (STOCKS falls each, invuln zeroed first so every call
+	# actually lands), leaving the dummies completely untouched.
+	for id: int in real_bot_ids:
+		var entry: Dictionary = arena2._registry[id]
+		var node: Node2D = entry["node"]
+		for i: int in arena2.STOCKS:
+			entry["invuln"] = 0.0
+			arena2._on_fighter_fell(node)
+
+	failed += _expect(
+		arena2._bots_alive() == 0,
+		"_bots_alive() excludes the still-alive dummies, got %d" % arena2._bots_alive()
+	)
+	failed += _expect(
+		arena2._match_over,
+		"eliminating every real bot ends the match even though dummies remain"
+	)
+	failed += _expect(
+		arena2._banner != null and arena2._banner.visible
+			and arena2._banner.text.begins_with("VICTORY"),
+		"the victory finish fires (banner reads VICTORY), got %s"
+			% (arena2._banner.text if arena2._banner != null else "<no banner>")
+	)
+
+	var dummies_alive: int = 0
+	for entry: Dictionary in arena2._registry.values():
+		var node: Node = entry["node"]
+		if node != null and is_instance_valid(node) and node.is_in_group("dummy") \
+				and not node.is_queued_for_deletion():
+			dummies_alive += 1
+	failed += _expect(
+		dummies_alive == arena2.DUMMY_COUNT,
+		"every dummy is still alive + in group 'dummy' after the real-bot wipe, got %d"
+			% dummies_alive
 	)
 	return failed

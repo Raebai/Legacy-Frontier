@@ -177,3 +177,104 @@ introduced by this task.)
   the brief's stated file list; rationale is above and I believe it's exactly
   what the brief's Step 6 anticipated, but flagging clearly since it wasn't
   explicitly pre-approved.
+
+## Fix pass
+
+Test-only follow-up closing 3 coverage findings on `godot-project/tools/slice3_test_versus.gd`.
+No production `.gd`/`.tscn`/`.godot` files changed (verified: `git status --porcelain`
+shows only the test file modified after this pass).
+
+### 1. (Important) New regression test — `_test_dummy_never_blocks_victory()`
+
+Added a new test asserting a dummy can never block (or falsely gate) the
+victory check. It runs against a **freshly-instantiated second `VersusArena`**
+rather than the shared `arena` the other tests mutate, because `_match_over`
+latches permanently once `_test_p1_elimination_ends_match` ends the shared
+match in DEFEAT, and `VersusArena._on_fighter_fell` early-returns once
+`_match_over` is true (VersusArena.gd:175) — the "kill every real bot, leave
+dummies alive, expect VICTORY" scenario cannot be exercised on an
+already-finished shared arena. A second instance gives a clean, isolated
+match; real bots are looked up via that instance's own `_registry` (filtered
+`node.is_in_group("enemy") and not node.is_in_group("dummy")`), never a raw
+`get_nodes_in_group()` query, since the shared arena's fighters are still live
+in the same `SceneTree` and would otherwise leak into the count.
+
+The test:
+- Collects the fresh arena's `BOT_COUNT` real bot ids from its own registry.
+- Kills each real bot through the same `_on_fighter_fell` ring-out path the
+  existing tests use (`STOCKS` falls per bot, `invuln` zeroed before each call
+  so every fall actually lands) — mirrors the pattern already used in
+  `_test_p1_elimination_ends_match`.
+- Asserts `_bots_alive() == 0`, `_match_over == true`, and the banner text
+  begins with `"VICTORY"` (not `"DEFEAT"`).
+- Asserts all `DUMMY_COUNT` dummies are still `is_instance_valid`, in group
+  `"dummy"`, and not `is_queued_for_deletion()`.
+
+**RED-then-GREEN evidence** (a purely additive assertion on a fresh instance
+can't be exercised against the current, correct code without breaking
+something first, so I reverted the production fix under test, confirmed RED,
+then restored it):
+- Temporarily reverted `VersusArena._bots_alive()` (VersusArena.gd:225-233) to
+  drop the `and not node.is_in_group("dummy")` clause.
+- Ran `godot-engine/Godot_v4.6.2-stable_win64_console.exe --headless --path godot-project --script tools/slice3_test_versus.gd`
+  → **RED**:
+  ```
+  FAIL: _bots_alive() excludes the still-alive dummies, got 2
+  FAIL: eliminating every real bot ends the match even though dummies remain
+  FAIL: the victory finish fires (banner reads VICTORY), got
+  Slice3 versus tests: 3 FAILED
+  ```
+  Exactly the failure mode described in `VersusArena.gd`'s own comment on
+  `_bots_alive()`: without the dummy exclusion, the two permanently-alive,
+  never-freed dummies keep `_bots_alive()` stuck at 2 forever, so the round
+  can never reach VICTORY no matter how many real bots die.
+- Restored `_bots_alive()` to its original, correct form (verified
+  `git diff --stat godot-project/scripts/combat/VersusArena.gd` shows no
+  diff), re-ran the same command → **GREEN**: `Slice3 versus tests: all PASS`.
+
+### 2. (Minor) Dummy-stocks assertion in `_test_match_setup`
+
+The loop that previously `continue`d past dummy registry entries (skipping
+the "every fighter starts with STOCKS stocks" check for them) now asserts, in
+the dummy branch, `int(entry.get("stocks", -1)) == arena.DUMMY_STOCKS` before
+continuing.
+
+### 3. (Minor) Ordering-fragility hardening in `_test_ring_out_respawns_bot`
+
+`get_nodes_in_group("enemy")[0]` previously assumed the first enemy in the
+group array is a real bot (an implicit ordering dependency on
+`_spawn_fighters()` running before `_spawn_dummies()`, flagged as a known risk
+in the original report's self-review). Now filters `not n.is_in_group("dummy")`
+first, matching the same filter idiom already used in `_test_match_setup`, so
+the test no longer silently depends on spawn-call order.
+
+### Test commands + output
+
+Amended-suite run:
+```
+godot-engine/Godot_v4.6.2-stable_win64_console.exe --headless --path godot-project --script tools/slice3_test_versus.gd
+```
+```
+Slice3 versus tests: all PASS
+```
+(A benign pre-existing `ObjectDB instances leaked at exit` / `1 resources
+still in use at exit` warning still appears — confirmed present on an
+unmodified baseline run via `git stash` before this pass too; not introduced
+by this fix pass, and expected given the test harness never frees the
+arena/root nodes before `quit()`.)
+
+Full sweep — every `godot-project/tools/slice*_test_*.gd` (38 files, run
+individually, same loop as the original report):
+```
+for f in godot-project/tools/slice*_test_*.gd; do
+  godot-engine/Godot_v4.6.2-stable_win64_console.exe --headless --path godot-project --script "tools/$(basename "$f")"
+done
+```
+All 38 green, including `slice3_test_versus.gd` (`Slice3 versus tests: all
+PASS`). No regressions in any other suite.
+
+### Fix-pass concerns
+
+- None blocking. Production code was never left in the reverted state —
+  confirmed via `git status --porcelain` (only the test file shows modified)
+  and `git diff --stat` on `VersusArena.gd` (empty) before committing.
