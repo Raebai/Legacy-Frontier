@@ -105,6 +105,9 @@ func _resolve_segment(prev: Vector2) -> bool:
 	query.collide_with_areas = false
 	query.collide_with_bodies = true
 	query.hit_from_inside = true  # point-blank: the ray may START inside the block
+	# Excluded unconditionally whenever caster is set (not gated on heal_on_hit) —
+	# a bolt spawns overlapping its own caster's body, so without this every
+	# class's bolt (not just lifesteal ones) could immediately self-stop / self-hit.
 	if is_instance_valid(caster) and caster is CollisionObject2D:
 		query.exclude = [(caster as CollisionObject2D).get_rid()]  # never self-stop on the caster
 	var hit: Dictionary = world.direct_space_state.intersect_ray(query)
@@ -125,6 +128,13 @@ func _on_hit(body: Node) -> void:
 
 func _try_damage(node: Node) -> void:
 	if _dead or node == null:
+		return
+	# Defensive backstop: a bolt must never damage its own caster, regardless of
+	# which group/branch below would otherwise match (Area2D overlap fires the
+	# instant the bolt spawns on the caster's own body). This holds even if some
+	# future call site forgets to set caster, or the group-specific guards below
+	# are bypassed by a new node type.
+	if node == caster:
 		return
 	if node.is_in_group("enemy") and node.has_method("take_damage"):
 		_dead = true

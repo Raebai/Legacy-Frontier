@@ -43,6 +43,14 @@ const MELEE_ARC_DOT: float = 0.3
 ## Bumped for the Stick-Fight "shove" read — a connected punch should visibly
 ## launch the target, not just tick it.
 const MELEE_KNOCKBACK: float = 300.0
+## Short forward step on EVERY plain melee swing (Stick-Fight punches step INTO
+## the hit). Softer than the combo/heavy-swing lunges (200/190) since this is
+## the bare-fists baseline they build on top of.
+const MELEE_LUNGE_SPEED: float = 170.0
+## Small always-fires hitstop/shake so a swing reads even when it misses —
+## much lighter than the on-connect Juice.on_hit cluster below.
+const MELEE_SWING_HIT_STOP: float = 0.02
+const MELEE_SWING_SHAKE: float = 1.5
 ## Ragdoll shove the hero RECEIVES (bomb blast / reflected bolt / slam) — decays
 ## like the enemy channel so a hit displaces you, then you regain control.
 const KNOCKBACK_DECAY: float = 900.0
@@ -1414,11 +1422,15 @@ func _primary_bolt() -> void:
 		spell.set("element_id", _element)
 		if bool(_cfg["throw_blade"]):
 			spell.set("damage", int(_cfg["blade_damage"]))
+		# Caster is set for EVERY class's bolt (not just heal-flavoured ones) so the
+		# friendly-fire guard in Spell.gd can always exclude the caster from their
+		# own bolt — MAGE/STORMCALLER/ROGUE bolts were previously spawning with
+		# caster == null and could hit their own thrower.
+		spell.set("caster", self)
 		# Flavour flags.
 		var heal: int = int(_cfg.get("bolt_heal", 0))
 		if heal > 0:
 			spell.set("heal_on_hit", heal)
-			spell.set("caster", self)
 		var chain: int = int(_cfg.get("bolt_chain", 0))
 		if chain > 0:
 			spell.set("chain_count", chain)
@@ -1804,6 +1816,13 @@ func _melee() -> void:
 	# A fire-element punch LIGHTS the fist: it stays lit + trails embers for ~1.6s.
 	if int(_cfg.get("melee_element", -1)) == Elements.Element.FIRE:
 		_flaming_fist_timer = FLAMING_FIST_TIME
+	# Short forward lunge on EVERY swing, not just the combo/heavy-swing primaries
+	# (maker: the plain click/melee "feels weird" — it used to just plant the
+	# figure in place). _primary_melee_combo()/_primary_heavy_swing() set
+	# velocity.x again right after calling into this, so this is simply
+	# overwritten there — no double-step / compounding for those callers.
+	if _aim_dir.x != 0.0:
+		velocity.x = signf(_aim_dir.x) * MELEE_LUNGE_SPEED
 	Sfx.play("melee_swing", 0.0, 0.08)
 
 
@@ -1830,16 +1849,39 @@ func _update_flaming_fist(delta: float) -> void:
 		rig.set_hand_fire(0.0, Elements.Element.FIRE)  # snuff out
 
 
+## The nearest enemy within _melee_range (or null) — the melee auto-target.
+func _nearest_enemy_in_melee_range() -> Node2D:
+	var nearest: Node2D = null
+	var nearest_d: float = _melee_range
+	for enemy: Node in get_tree().get_nodes_in_group("enemy"):
+		if not enemy is Node2D:
+			continue
+		var d: float = global_position.distance_to((enemy as Node2D).global_position)
+		if d < nearest_d:
+			nearest_d = d
+			nearest = enemy as Node2D
+	return nearest
+
+
 func _on_melee_hit_frame() -> void:
 	var hit_any: bool = false
 	var melee_el: int = int(_cfg.get("melee_element", -1))  # class element on the strike
+	# Auto-target (Stick-Fight punches don't need pixel-perfect aim): the single
+	# NEAREST enemy within _melee_range always connects, regardless of the facing
+	# cone below — a click near an enemy shouldn't whiff just because the cursor
+	# isn't exactly on them. Wide swings (Juggernaut's soft _melee_arc_dot) still
+	# additionally cleave every OTHER enemy that IS inside the strict arc, so
+	# that crowd-hit behaviour is unchanged; auto-target only adds a guaranteed
+	# hit, it never removes the arc-gated ones.
+	var nearest_enemy: Node2D = _nearest_enemy_in_melee_range()
 	for enemy: Node in get_tree().get_nodes_in_group("enemy"):
 		if not enemy is Node2D:
 			continue
 		if global_position.distance_to(enemy.global_position) >= _melee_range:
 			continue
 		var toward: Vector2 = (enemy.global_position - global_position).normalized()
-		if facing.dot(toward) <= _melee_arc_dot:
+		var in_arc: bool = facing.dot(toward) > _melee_arc_dot
+		if not in_arc and enemy != nearest_enemy:
 			continue
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(_melee_damage)
@@ -1881,6 +1923,12 @@ func _on_melee_hit_frame() -> void:
 			"shake": 4.0, "dir": facing, "kick": MELEE_CAMERA_KICK,
 		})
 		Sfx.play("ding", -3.0, 0.05)  # the bright Stick-Fight "clean hit" ding
+	else:
+		# Every swing reads even on a MISS — a small hitstop/shake so the punch
+		# still has weight when it doesn't land (much lighter than the on-connect
+		# cluster above). The melee_swing whoosh SFX + rig slash-arc already fire
+		# unconditionally at swing-start, so this is just the missing impact beat.
+		Juice.on_hit({"hitstop": MELEE_SWING_HIT_STOP, "shake": MELEE_SWING_SHAKE, "dir": facing})
 
 
 ## SANDBOX Smash: the knockback multiplier at a given damage %. Pure + static so
