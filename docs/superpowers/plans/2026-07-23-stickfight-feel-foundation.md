@@ -138,18 +138,28 @@ Interface contract between Task 2 (rig) and Task 6 (Hero): the rig exposes
 
 ---
 
-### Task 6: Wire jump/air state — Hero.gd ↔ CharacterRig
+### Task 6: RAGDOLL air/hit reactions (REFRAMED per maker 2026-07-23) — Hero.gd ↔ CharacterRig
+
+**Maker directive:** "there shouldnt be like a jump pose it should be ragdoll exactly like how the figure moves in Stick Fight." So this task does NOT wire a canned air pose. It makes airborne + hit reactions read as an **active ragdoll** (loose, trailing limbs) by reusing the existing spring/`flop()`/limp machinery. Grounded stays settled (foot-plant from Task 2). See memory `[[project_v2_rig_ragdoll_direction]]`.
+
+**Key insight:** Task 3 made the body weighty (real gravity, low air control). On a weighty body, loosening the LIMB sim in the air reads as Stick-Fight ragdoll, NOT the old "floating drift" (which was floaty *body* movement, now fixed).
 
 **Files:**
-- Modify: `godot-project/scripts/combat/Hero.gd:624-625` (state selection)
+- Modify: `godot-project/scripts/combat/CharacterRig.gd` (remove the Task-2 canned AIR tuck/reach/land pose; make airborne a LOOSE stiffness regime; tighten `HIT_FRAME_FRACTION`)
+- Modify: `godot-project/scripts/combat/Hero.gd` (drive the loose-air regime when `not is_on_floor()`)
+- Modify: `godot-project/tools/slice_test_rig.gd` (assert airborne loosens effective stiffness, not a fixed pose)
 
 **Interfaces:**
-- Consumes: `CharacterRig.State.AIR`, `rig.play(State.AIR)`, `rig.set_air_phase(rising, grounded)` from Task 2.
+- Reuses the Task-2 hook `rig.set_air_phase(rising, grounded)` and `State.AIR`, but repurposes them: AIR = a looseness regime, not a keyframe pose.
 
-- [ ] **Step 1:** In the rig-drive block (`Hero.gd:624-625`), select `State.AIR` when `not is_on_floor()`, else RUN/IDLE by horizontal input. Each frame call `rig.set_air_phase(velocity.y < 0.0, is_on_floor())` so the rig tucks on rise / reaches on fall / squashes on land.
-- [ ] **Step 2:** Run the full slice sweep — green.
-- [ ] **Step 3:** Capture: `combat_capture.gd` on `VersusArena` → read `combat_sheet.png` to confirm a real jump arc/pose (not floating legs).
-- [ ] **Step 4:** Commit `feat: hero selects rig AIR state in the air (jump/fall/land pose)`.
+- [ ] **Step 1:** In `CharacterRig.gd`, REMOVE the canned AIR pose branch added in Task 2 (the tuck-on-rise / reach-on-fall / squash-on-land keyframe math). Keep the `State.AIR` enum + `set_air_phase(rising, grounded)` as the hook.
+- [ ] **Step 2:** Add an **airborne looseness regime**: when airborne, lerp the spring stiffness/`max_off` toward a LOOSE setting — partway between the grounded (settled) values and the full-limp flail values — so limbs trail/flail with momentum + gravity but the body still tracks the weighty CharacterBody2D position. NOT full limp (that stays for hits). Reuse the existing limp/flail formulation (a partial `_limp`-like factor for air) rather than authoring poses. `rising`/`grounded` may bias the looseness (e.g. slightly looser on the way down) but there is NO scripted pose.
+- [ ] **Step 3:** Tighten melee impact: lower `HIT_FRAME_FRACTION` (0.55 → ~0.35) in `CharacterRig.gd` (deferred from Task 5 — the const lives in the rig) so the punch lands closer to the click.
+- [ ] **Step 4:** In `Hero.gd`'s rig-drive block, when `not is_on_floor()` drive the loose-air regime (call `play(State.AIR)` + `set_air_phase(velocity.y < 0.0, is_on_floor())`); else RUN/IDLE grounded (settled + foot-plant, unchanged). On landing, settle promptly.
+- [ ] **Step 5:** Update `slice_test_rig.gd`: replace any assertion that AIR produces a specific canned pose with an assertion that AIR produces a LOOSER effective stiffness/offset than grounded (and looser than resting, but not fully limp). Keep the aim-bypass + foot-plant tests. Print `rig tests: all PASS`.
+- [ ] **Step 6:** Run the new rig test + the FULL sweep — green.
+- [ ] **Step 7:** Capture `verify_feel_capture.gd` + `combat_capture.gd`; confirm the airborne figure shows LOOSE trailing limbs (ragdoll), not a canned tuck, and grounded stays settled. Report the PNG paths for the controller to eyeball.
+- [ ] **Step 8:** Commit `feat: ragdoll air/hit reactions (loose trailing limbs, no canned pose) + tighter melee hit-frame`.
 
 ---
 
@@ -170,8 +180,8 @@ Interface contract between Task 2 (rig) and Task 6 (Hero): the rig exposes
 
 - [ ] **Step 1:** Run the ENTIRE `tools/slice*_test_*.gd` sweep — all green.
 - [ ] **Step 2:** Boot check: `Godot_v4.6.2-stable_win64_console.exe --headless --path godot-project scenes/combat/VersusArena.tscn --quit-after 180` — clean, no errors.
-- [ ] **Step 3:** GPU capture `combat_capture.gd` + `verify_feel_capture.gd`; read both PNGs and confirm: bold grounded figure, aim arm tracks, jump pose, right-sized spells, `%` bars (no HP bar).
-- [ ] **Step 4:** Launch the real GUI window for the maker (`Godot_v4.6.2-stable_win64.exe --path godot-project`) and hand off an F5 checklist: does it feel grounded (no flying), does the arm follow the mouse, do jumps have a pose, does melee connect on click, does getting launched off the edge = death (no HP bar), do your own spells stop hurting you.
+- [ ] **Step 3:** GPU capture `combat_capture.gd` + `verify_feel_capture.gd`; read both PNGs and confirm: bold grounded figure (settled, feet planted), aim arm tracks, airborne = LOOSE ragdoll limbs (not a canned pose), right-sized spells, `%` bars (no HP bar).
+- [ ] **Step 4:** Launch the real GUI window for the maker (`Godot_v4.6.2-stable_win64.exe --path godot-project`) and hand off an F5 checklist: grounded feel (no flying), arm follows the mouse, jumping/getting-hit reads as Stick-Fight ragdoll (loose limbs, not a stiff pose), melee connects on click, getting launched off the edge = death (no HP bar), your own spells no longer hurt you.
 - [ ] **Step 5:** Update `.superpowers/sdd/progress.md` READ-FIRST block with the new state. Commit `docs: ledger — Stick Fight feel foundation (Push 1) shipped, awaiting maker F5`.
 
 ## Self-Review
