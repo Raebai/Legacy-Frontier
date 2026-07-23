@@ -15,7 +15,7 @@ func _process(_delta: float) -> bool:
 	_ran = true
 	var failed: int = 0
 	failed += _test_air_state_exists()
-	failed += _test_air_phase_toggle_and_pose()
+	failed += _test_air_phase_and_looseness()
 	failed += _test_aim_arm_snaps_to_angle_idle()
 	failed += _test_aim_arm_tracks_in_air()
 	failed += _test_aim_arm_sim_bypass_snaps_idle()
@@ -50,30 +50,54 @@ func _test_air_state_exists() -> int:
 	return f
 
 
-## set_air_phase flips the rising/grounded flags, and the AIR pose branch actually
-## differs between the rising (knees tucked) and falling (legs reaching down) phases.
-func _test_air_phase_toggle_and_pose() -> int:
+## set_air_phase flips the rising/grounded flags, and (Task 6 reframe) AIR is a LOOSENESS
+## REGIME — no canned pose. Airborne must lerp the effective spring stiffness/offset
+## PARTWAY toward full limp (looser than the settled grounded value, but NOT as loose as
+## a full-limp hit flop). rising is biased a touch tighter than falling; landing settles
+## the looseness back to 0 promptly. Guards against a canned jump pose returning.
+func _test_air_phase_and_looseness() -> int:
 	var f: int = 0
 	var rig := CharacterRig.new()
+	# Flags still toggle (Hero drives them; they only BIAS the looseness now).
 	rig.set_air_phase(true, false)
 	f += _expect(rig._air_rising and not rig._air_grounded, "set_air_phase(true,false)")
 	rig.set_air_phase(false, true)
 	f += _expect(not rig._air_rising and rig._air_grounded, "set_air_phase(false,true)")
+
+	# Grounded/IDLE: no air looseness — the spring stays at the full settled stiffness.
+	rig.play(CharacterRig.State.IDLE)
+	for _i in range(20):
+		rig.advance(0.016)
+	f += _expect(is_equal_approx(rig._air_loose, 0.0), "grounded IDLE keeps air looseness at 0")
+
+	# Airborne (falling): the spring loosens PARTWAY toward full limp.
 	rig.play(CharacterRig.State.AIR)
-	# Rising vs falling must produce visibly different leg poses (tuck vs reach).
-	rig.set_air_phase(true, false)
-	var rising: Dictionary = rig._compute_pose()
-	rig.set_air_phase(false, false)
-	var falling: Dictionary = rig._compute_pose()
-	f += _expect(
-		(rising["foot_lead"] as Vector2).distance_to(falling["foot_lead"]) > 1.0,
-		"AIR rising and falling foot poses must differ"
-	)
-	# The rising tuck lifts the lead foot HIGHER (smaller y) than the falling reach.
-	f += _expect(
-		(rising["foot_lead"] as Vector2).y < (falling["foot_lead"] as Vector2).y,
-		"AIR rising foot tucks up above the falling reach"
-	)
+	rig.set_air_phase(false, false)  # falling
+	for _i in range(30):
+		rig.advance(0.016)
+	var air_loose: float = rig._air_loose
+	f += _expect(air_loose > 0.0, "AIR loosens the spring above the grounded/settled value")
+	f += _expect(air_loose < 1.0, "AIR is PARTIAL looseness, never full limp")
+	# Effective stiffness/offset must sit STRICTLY between the settled grounded values
+	# and the full-limp floor: looser than grounded, tighter than a hit-flop ragdoll.
+	var air_stiff: float = lerpf(CharacterRig.STIFFNESS, CharacterRig.FULL_LIMP_STIFFNESS, air_loose)
+	f += _expect(air_stiff < CharacterRig.STIFFNESS, "AIR effective stiffness looser than grounded")
+	f += _expect(air_stiff > CharacterRig.FULL_LIMP_STIFFNESS, "AIR effective stiffness stiffer than full limp")
+	var air_off: float = lerpf(CharacterRig.MAX_OFFSET_FACTOR, CharacterRig.FULL_LIMP_OFFSET_FACTOR, air_loose)
+	f += _expect(air_off > CharacterRig.MAX_OFFSET_FACTOR, "AIR effective offset wider than grounded")
+	f += _expect(air_off < CharacterRig.FULL_LIMP_OFFSET_FACTOR, "AIR effective offset tighter than full limp")
+
+	# Rising is biased a touch tighter than falling (a coiled leap vs a loose drop).
+	rig.set_air_phase(true, false)  # rising
+	for _i in range(30):
+		rig.advance(0.016)
+	f += _expect(rig._air_loose < air_loose, "rising is biased tighter than falling")
+
+	# Landing (back to a grounded state) settles the looseness to 0 promptly.
+	rig.play(CharacterRig.State.IDLE)
+	for _i in range(30):
+		rig.advance(0.016)
+	f += _expect(is_equal_approx(rig._air_loose, 0.0), "returning to grounded settles air looseness to 0")
 	rig.free()
 	return f
 

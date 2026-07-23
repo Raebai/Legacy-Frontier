@@ -17,8 +17,9 @@ const ONE_SHOT_DURATIONS: Dictionary = {
 	State.CAST: 0.28,
 	State.HURT: 0.18,
 }
-## Fraction of a PUNCH/KICK duration at which hit_frame fires.
-const HIT_FRAME_FRACTION: float = 0.55
+## Fraction of a PUNCH/KICK duration at which hit_frame fires. Tightened 0.55 -> 0.35
+## so the hit lands closer to the click (deferred from Task 5 — the const lives here).
+const HIT_FRAME_FRACTION: float = 0.35
 
 ## Cast-gesture kinds — a small vocabulary of LIMB-ISOLATED "turn-on" tells that
 ## OVERLAY the lead arm only, so they compose over any locomotion (run/jump/dash).
@@ -112,6 +113,16 @@ const MAX_OFFSET_FACTOR: float = 0.35  # limbs settle tight to the pose; only a 
 ## still has its old reach.
 const FULL_LIMP_OFFSET_FACTOR: float = 0.85
 const LIMP_EASE_SPEED: float = 5.0     # _limp eases toward _limp_target at this /s
+## Airborne active-ragdoll looseness (NO canned jump pose — maker directive: "ragdoll
+## exactly like Stick Fight"). While the AIR state is active the spring is lerped
+## PARTWAY toward the full-limp flail — never all the way (full limp stays reserved for
+## hits / flop()) — so the DRAWN limbs trail + swing with the body's momentum + gravity
+## while the weighty CharacterBody2D arcs. Falling is a touch looser than rising (a loose
+## drop vs a coiled leap). Combined with _limp via maxf so a hit mid-air still hits FULL
+## limp. Eased faster than _limp so landing settles back to the foot-planted stance promptly.
+const AIR_LOOSE_FALLING: float = 0.55   # ~halfway to full limp on the way down
+const AIR_LOOSE_RISING: float = 0.42    # slightly tighter ascending (coiled leap)
+const AIR_LOOSE_EASE_SPEED: float = 9.0
 const IMPULSE_EXTREMITY_MULT: float = 2.6  # hands/feet/head whip harder on hits
 const BODY_TRAIL_FACTOR: float = 0.26  # more inertial limb-trail on launch/stop
 ## Foot-plant IK raycast layer. World/platform solids all sit on physics layer bit 1
@@ -194,11 +205,18 @@ var _airborne: float = 0.0
 ## droop is clamped to the floor line so hold-DOWN ducking can't sink the drawn
 ## limbs THROUGH the collision (maker: "ducking clips the hero into the floor").
 var _grounded: bool = true
-## AIR-state phase (set by Hero via set_air_phase): _air_rising = ascending (tuck +
-## arms up), else falling (legs reach down); _air_grounded = the brief landing squash.
-## Only read inside the State.AIR pose branch.
+## AIR-state phase (set by Hero via set_air_phase). There is NO scripted jump pose —
+## these only BIAS the airborne looseness regime (_air_loose) in _step_sim: _air_rising
+## = ascending (biased a touch tighter, a coiled leap), else falling (looser drop);
+## _air_grounded = the brief landing frame (looseness settles back to 0). Harmless in
+## any state — only consumed while state == State.AIR.
 var _air_rising: bool = false
 var _air_grounded: bool = false
+## Airborne looseness 0 (grounded / settled) .. AIR_LOOSE_* (trailing-limb ragdoll in
+## the air). Eased toward its state-driven target in _step_sim and combined with _limp
+## via maxf, so the AIR state loosens the spring PARTWAY toward full limp without ever
+## reaching the hit/flop full-ragdoll amplitude.
+var _air_loose: float = 0.0
 ## Cached LOCAL-space y of the floor directly under the figure this frame (INF = no
 ## ground found / airborne). Refreshed once per frame by _update_ground_probe and
 ## consumed by the foot-plant in _sim_pose so the stance foot rests ON the ground.
@@ -298,13 +316,22 @@ func _step_sim(delta: float) -> void:
 	if delta <= 0.0:
 		return
 	_limp = move_toward(_limp, _limp_target, LIMP_EASE_SPEED * delta)
+	# Airborne looseness (NO canned pose): while in AIR, ease PARTWAY toward full limp so
+	# the limbs trail/flail with momentum + gravity; rising is biased tighter than falling;
+	# _air_grounded (the landing frame) drops the target to 0 so the stance settles fast.
+	# `loose` = maxf(_limp, _air_loose): a hit mid-air still overrides to FULL limp.
+	var air_target: float = 0.0
+	if state == State.AIR and not _air_grounded:
+		air_target = AIR_LOOSE_RISING if _air_rising else AIR_LOOSE_FALLING
+	_air_loose = move_toward(_air_loose, air_target, AIR_LOOSE_EASE_SPEED * delta)
+	var loose: float = maxf(_limp, _air_loose)
 	# Lerp toward an ABSOLUTE full-limp floor (not a fraction of STIFFNESS) so the
 	# resting-pose tame (STIFFNESS 60->180) can't also tighten the post-hit flail.
-	var stiffness: float = lerpf(STIFFNESS, FULL_LIMP_STIFFNESS, _limp)
+	var stiffness: float = lerpf(STIFFNESS, FULL_LIMP_STIFFNESS, loose)
 	var damp: float = clampf(1.0 - DAMPING * delta, 0.0, 1.0)
 	# Limp-scale the clamp too: tight at rest (MAX_OFFSET_FACTOR), the old wide
 	# reach (FULL_LIMP_OFFSET_FACTOR) back at full ragdoll so a real flail isn't capped.
-	var max_off: float = height * lerpf(MAX_OFFSET_FACTOR, FULL_LIMP_OFFSET_FACTOR, _limp)
+	var max_off: float = height * lerpf(MAX_OFFSET_FACTOR, FULL_LIMP_OFFSET_FACTOR, loose)
 	# Inertial trail: extremities get a nudge OPPOSITE the body's velocity
 	# change (mirrored into the local flip) so limbs lag on launch/stop.
 	var dv: Vector2 = _body_vel - _prev_body_vel
@@ -316,14 +343,14 @@ func _step_sim(delta: float) -> void:
 	# Legs spring at FULL stiffness for a planted, settled stance (no float smear);
 	# they only go loose/flowy (LOOSE_LEG_STIFFNESS) as the body goes limp — the
 	# post-hit HURT flail / hold-DOWN ragdoll — so normal walking can't drift.
-	var leg_stiffness: float = stiffness * lerpf(1.0, LOOSE_LEG_STIFFNESS, _limp)
+	var leg_stiffness: float = stiffness * lerpf(1.0, LOOSE_LEG_STIFFNESS, loose)
 	for key: String in SIM_JOINTS:
 		var target: Vector2 = target_pose[key]
 		var vel: Vector2 = _sim_vel[key]
 		# The feet spring softer -> the legs lag + swing loosely (the flowy walk).
 		var k_stiff: float = leg_stiffness if (key == "foot_lead" or key == "foot_off") else stiffness
 		vel += (target - _sim[key]) * k_stiff * delta
-		vel += Vector2(0.0, GRAVITY * _limp) * delta
+		vel += Vector2(0.0, GRAVITY * loose) * delta
 		if SIM_EXTREMITIES.has(key):
 			vel += trail
 		vel *= damp
@@ -337,7 +364,7 @@ func _step_sim(delta: float) -> void:
 		# where the animated feet already rest) and kill downward velocity so the
 		# limbs settle ON the floor instead of sinking below the collision box. Only
 		# grounded — a mid-air knockback ragdoll still flails freely.
-		if _grounded and _limp > 0.01:
+		if _grounded and loose > 0.01:
 			var floor_y: float = height * 0.5
 			if pos.y > floor_y:
 				pos.y = floor_y
@@ -602,10 +629,11 @@ func set_grounded(g: bool) -> void:
 	_grounded = g
 
 
-## Set the AIR-state phase (Hero drives this alongside play(State.AIR)): `rising` =
-## ascending off a jump (knees tuck, arms up); false = falling (legs reach down for
-## the ground). `grounded` = the brief touch-down squash. Only read in the AIR pose
-## branch — harmless to call in any state.
+## Set the AIR-state phase (Hero drives this alongside play(State.AIR)). NO pose is
+## keyframed off these — they only BIAS the airborne looseness regime (_air_loose) in
+## _step_sim: `rising` = ascending (biased a touch tighter, a coiled leap); false =
+## falling (looser drop); `grounded` = the landing frame (looseness settles to 0).
+## Harmless to call in any state — only consumed while state == State.AIR.
 func set_air_phase(rising: bool, grounded: bool) -> void:
 	_air_rising = rising
 	_air_grounded = grounded
@@ -1194,34 +1222,15 @@ func _compute_pose() -> Dictionary:
 		State.IDLE:
 			bob = sin(_phase * 2.0) * height * 0.03
 		State.AIR:
-			# Jump/fall/land — NO run-cycle leg pumping (that's what made a jump read as
-			# "hovering while jogging"). Rising: tuck the knees up + throw the arms up for
-			# the leap. Falling: reach the legs down to meet the ground, arms out to
-			# balance. Landing: a brief crouch/squash as the weight lands.
-			if _air_grounded:
-				bob = height * 0.10                     # weight drops into a landing crouch
-				leg_lead = PI * 0.5 - 0.34
-				leg_off = PI * 0.5 + 0.34
-				leg_lead_len = leg_len * 0.70
-				leg_off_len = leg_len * 0.70
-				arm_lead = PI * 0.5 + 0.55
-				arm_off = PI * 0.5 - 0.55
-			elif _air_rising:
-				lean = height * 0.05
-				leg_lead = PI * 0.5 - 0.55              # knees tuck up toward the chest
-				leg_off = PI * 0.5 - 0.25
-				leg_lead_len = leg_len * 0.58
-				leg_off_len = leg_len * 0.68
-				arm_lead = PI * 0.5 - 0.75              # arms swing up with the leap
-				arm_off = PI * 0.5 - 0.95
-			else:
-				lean = height * 0.03
-				leg_lead = PI * 0.5 + 0.14              # legs reach down for the landing
-				leg_off = PI * 0.5 - 0.14
-				leg_lead_len = leg_len * 1.06
-				leg_off_len = leg_len * 1.06
-				arm_lead = PI * 0.5 - 0.4               # arms out to balance the fall
-				arm_off = PI * 0.5 + 0.4
+			# NO scripted jump pose (maker: "there shouldnt be like a jump pose it should
+			# be ragdoll exactly like Stick Fight"). AIR is a LOOSENESS REGIME, not a
+			# keyframe: the TARGET stays the neutral standing hang (defaults below) and
+			# _step_sim lerps the spring PARTWAY toward full limp (see _air_loose) so the
+			# limbs trail + swing with the body's momentum + gravity while the weighty
+			# CharacterBody2D arcs. No run-cycle leg pumping here (that read as jogging in
+			# mid-air); rising/falling only BIAS the looseness, never the pose. The aim
+			# arm still overrides the lead hand below (twin-stick), unchanged.
+			pass
 		State.RUN:
 			# Smoother, weightier gait (Stick-Fight feel): a calmer stride
 			# frequency, a real leg lift on the back-swing (stride, not a scissor),

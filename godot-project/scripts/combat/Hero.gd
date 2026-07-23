@@ -634,7 +634,14 @@ func _physics_process(delta: float) -> void:
 		rig.set_aim(_aim_dir)
 		return
 	var moving: bool = absf(move_x) > 0.01
-	rig.play(CharacterRig.State.RUN if moving else CharacterRig.State.IDLE)
+	# Airborne: drive the loose-air ragdoll regime (NO canned jump pose — the limbs
+	# trail/flail via _step_sim's air looseness). Grounded: settle into RUN/IDLE with
+	# the foot-plant. rising = velocity.y < 0.0 (ascending) biases the looseness only.
+	if not is_on_floor():
+		rig.play(CharacterRig.State.AIR)
+		rig.set_air_phase(velocity.y < 0.0, is_on_floor())
+	else:
+		rig.play(CharacterRig.State.RUN if moving else CharacterRig.State.IDLE)
 	if moving and is_on_floor():
 		_footstep_timer -= delta
 		if _footstep_timer <= 0.0:
