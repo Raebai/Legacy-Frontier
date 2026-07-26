@@ -107,7 +107,9 @@ func _ready() -> void:
 
 
 ## Play a named SFX. `pitch_variation` is a ± fraction (0.08 = ±8%).
-func play(key: String, volume_db: float = 0.0, pitch_variation: float = 0.06) -> void:
+## `pitch_base` re-pitches the sample before the jitter (0.7 = a deeper thud from
+## the same clip — lets one asset serve as footstep tick AND land thud).
+func play(key: String, volume_db: float = 0.0, pitch_variation: float = 0.06, pitch_base: float = 1.0) -> void:
 	var variants: Array = STREAMS.get(key, [])
 	if variants.is_empty():
 		push_warning("Sfx: unknown key '%s'" % key)
@@ -117,7 +119,7 @@ func play(key: String, volume_db: float = 0.0, pitch_variation: float = 0.06) ->
 	_next = (_next + 1) % POOL_SIZE
 	p.stream = stream
 	p.volume_db = volume_db
-	p.pitch_scale = 1.0 + randf_range(-pitch_variation, pitch_variation)
+	p.pitch_scale = pitch_base * (1.0 + randf_range(-pitch_variation, pitch_variation))
 	p.play()
 	if DUCK_KEYS.has(key):
 		# Resolve the Music autoload via the tree (not the global identifier) so

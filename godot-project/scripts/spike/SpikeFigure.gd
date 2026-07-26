@@ -56,6 +56,22 @@ const WALL_SLIDE_MIN := 55.0    # min slide speed while clinging — never fully
 const WALL_JUMP_LOCK := 0.15    # input lockout after a wall-jump so holding-into-wall can't eat the launch
 const PUNCH_COOLDOWN := 0.26    # min time between punches — no momentum-fly from spamming
 const STAGGER_TIME := 0.4
+# AIR-DASH (ported from Hero.gd): burst toward aim/move, air-capable, i-frames for
+# the whole dash (is_dashing gates hit()), ghost afterimages on a fixed cadence.
+const DASH_SPEED := 620.0
+const DASH_TIME := 0.14
+const DASH_COOLDOWN := 0.6
+const GHOST_INTERVAL := 0.03
+const GHOST_COLOR := Color(0.6, 0.85, 1.0, 0.55)
+# PARRY/DEFLECT (ported from Hero.gd): short active window; a bolt arriving inside
+# it is reflected toward the aim with a ding + a directional shield-arc shell tell.
+const PARRY_WINDOW := 0.16
+const PARRY_COOLDOWN := 0.9
+const PARRY_SHIELD_TIME := 0.26
+const PARRY_REACH := 40.0       # shield-arc radius = the deflect catch radius
+const PARRY_COLOR := Color(0.85, 1.0, 1.0)
+const CAST_TIME := 0.3          # brief two-handed channel pose (Phase 2 windups stack on top)
+const BOLT_HIT_RADIUS := 17.0   # unparried incoming bolt connects at this range
 const CRAWL_FACTOR := 0.34      # prone crawl speed as a fraction of walk speed
 const PUNCH_TIME := 0.22
 const NECK_Y := -14.0           # torso top (head blob sits just above)
@@ -155,9 +171,33 @@ var _stagger := 0.0
 var _clock := 0.0
 var _was_air := false
 var _last_floor_y := 0.0
+var _peak_fall := 0.0           # fastest downward speed this airtime — scales the land thud
+
+# dash state
+var is_dashing := false
+var _dash_timer := 0.0
+var _dash_cd := 0.0
+var _dash_dir := Vector2.RIGHT
+var _ghost_t := 0.0
+
+# parry state
+var _parry_window := 0.0
+var _parry_cd := 0.0
+var _parry_shell_t := 0.0
+var _parry_dir := Vector2.RIGHT
+
+# cast state
+var _cast_timer := 0.0
+var _cast_ang := 0.0
+
+# shared speed-line resources (built once)
+static var _streak_mat: CanvasItemMaterial = null
+static var _streak_curve: Curve = null
 
 
 signal punched(dir: Vector2)
+signal casting(dir: Vector2)
+signal parried(world_pos: Vector2)   # a bolt was deflected — controller adds the camera juice
 
 
 func _ready() -> void:
@@ -290,8 +330,78 @@ func punch() -> void:
 	_torso.apply_central_impulse(dir * lunge)
 	var lsh: Vector2 = _torso.to_global(Vector2(SHOULDER_DX if lead == 0 else -SHOULDER_DX, SHOULDER_OFF.y))
 	var fist: Vector2 = lsh + dir * (UARM_LEN + FARM_LEN)
-	_spawn_wind_streaks(fist + dir * 9.0, 11, dir)   # wind marks burst IN FRONT of the fist
+	_spawn_wind_streaks(fist + dir * 9.0, 9, dir, "punch")   # wind marks burst IN FRONT of the fist
+	_sfx("melee_swing", -3.0, 0.1)
 	punched.emit(dir)
+
+
+## AIR-DASH: burst toward `dir` (8-way, vertical included — NO floor gate). Full-duration
+## i-frames via the is_dashing guard in hit(); blue ghost afterimages on a fixed cadence.
+func dash(dir: Vector2) -> bool:
+	if dead or is_dashing or _dash_cd > 0.0:
+		return false
+	is_dashing = true
+	_dash_timer = DASH_TIME
+	_dash_cd = DASH_COOLDOWN
+	_ghost_t = 0.0
+	_dash_dir = dir.normalized() if dir != Vector2.ZERO else Vector2(_facing, 0)
+	if absf(_dash_dir.x) > 0.15:
+		_facing = signf(_dash_dir.x)
+	_sfx("melee_swing", -5.0, 0.08, 0.78)            # whoosh: swing clip pitched down
+	_spawn_wind_streaks(_torso.global_position, 8, _dash_dir, "dash")
+	# limbs get flung by the burst — reads as a real jerk, not a glide
+	for i in 2:
+		_arm_vel[i] += randf_range(-5.0, 5.0)
+		_leg_vel[i] += randf_range(-4.0, 4.0)
+	return true
+
+
+## PARRY: open the deflect window + throw up the directional shield-arc tell toward
+## the aim. The reward (ding + reflect) only fires if a bolt arrives in the window —
+## see _process_projectiles().
+func parry() -> bool:
+	if dead or _parry_cd > 0.0:
+		return false
+	_parry_cd = PARRY_COOLDOWN
+	_parry_window = PARRY_WINDOW
+	_parry_shell_t = PARRY_SHIELD_TIME
+	var sh: Vector2 = _torso.to_global(SHOULDER_OFF)
+	_parry_dir = (ctrl_aim - sh).normalized() if ctrl_aim != Vector2.ZERO else Vector2(_facing, 0)
+	if absf(_parry_dir.x) > 0.15:
+		_facing = signf(_parry_dir.x)
+	# lead arm sweeps up into the guard
+	var lead := 0 if _facing >= 0.0 else 1
+	var err := wrapf(_parry_dir.angle() - _arm_ang[lead], -PI, PI)
+	_arm_vel[lead] += err * 16.0
+	_farm_vel[lead] += err * 16.0
+	_sfx("melee_swing", -6.0, 0.1, 1.15)             # quick guard "swish" tell
+	return true
+
+
+## CAST channel: brief two-handed pose toward `dir` + `casting` signal — the rig hook
+## Phase 2 per-spell windups (magic circles / ground slams) build on. Mirrors the
+## intent of Hero._begin_summon (committed pose while the spell forms).
+func cast(dir: Vector2) -> void:
+	if dead:
+		return
+	var d := dir.normalized() if dir != Vector2.ZERO else Vector2(_facing, 0)
+	_cast_timer = CAST_TIME
+	_cast_ang = d.angle()
+	if absf(d.x) > 0.15:
+		_facing = signf(d.x)
+	# both arms sweep toward the cast direction
+	for i in 2:
+		var err := wrapf(_cast_ang - _arm_ang[i], -PI, PI)
+		_arm_vel[i] += err * 14.0
+		_farm_vel[i] += err * 14.0
+	casting.emit(d)
+
+
+## Defensive Sfx dispatch (via /root so spike headless tests without autoloads survive).
+func _sfx(key: String, db := 0.0, pvar := 0.06, pitch := 1.0) -> void:
+	var s: Node = get_node_or_null(^"/root/Sfx")
+	if s != null and s.has_method(&"play"):
+		s.call(&"play", key, db, pvar, pitch)
 
 
 func _spawn_puffs(pos: Vector2, count: int, size: float) -> void:
@@ -333,37 +443,111 @@ func _spawn_puffs(pos: Vector2, count: int, size: float) -> void:
 		twf.chain().tween_callback(f.queue_free)
 
 
-func _spawn_wind_streaks(pos: Vector2, count: int, bias := Vector2.ZERO) -> void:
-	# a handful of SHORT white wind dashes near the action — biased in the ACTION'S
-	# direction (punch dir / up on jump), with spread, darting outward + fading fast
+## Stick-Fight-crisp SPEED-LINES: tapered (thick root -> needle tip via width_curve),
+## gently bowed along the travel arc, additive-blended, subtly tinted per action,
+## darting along the motion and gone in a blink. Flavors:
+##   "punch" — warm, tight fast cone ahead of the fist
+##   "jump"  — cool + airy upward fan from the feet
+##   "wall"  — cool kick-off spray along the wall-jump launch
+##   "hit"   — warm scattered shock ticks around the impact
+##   "dash"  — cool long streaks trailing the dash line
+func _spawn_wind_streaks(pos: Vector2, count: int, bias := Vector2.ZERO, flavor := "") -> void:
 	var directional := bias != Vector2.ZERO
-	var base_ang := bias.angle()
+	var base_ang := bias.angle() if directional else 0.0
+	var tint := Color(0.92, 0.95, 1.0)          # faint cool default (never flat white)
+	var spread := 0.7
+	var len_min := 20.0
+	var len_max := 44.0
+	var dart_min := 34.0
+	var dart_max := 66.0
+	var life := 0.17
+	match flavor:
+		"punch":
+			tint = Color(1.0, 0.87, 0.7)
+			spread = 0.34
+			len_min = 26.0; len_max = 56.0
+			dart_min = 60.0; dart_max = 110.0
+			life = 0.13
+		"jump":
+			tint = Color(0.8, 0.9, 1.0)
+			spread = 0.5
+			len_min = 24.0; len_max = 48.0
+			dart_min = 40.0; dart_max = 76.0
+			life = 0.22
+		"wall":
+			tint = Color(0.8, 0.9, 1.0)
+			spread = 0.42
+			len_min = 20.0; len_max = 44.0
+			dart_min = 46.0; dart_max = 86.0
+			life = 0.16
+		"hit":
+			tint = Color(1.0, 0.82, 0.66)
+			spread = 1.35                       # scattered — a shock splash, not a cone
+			len_min = 13.0; len_max = 30.0
+			dart_min = 44.0; dart_max = 84.0
+			life = 0.13
+		"dash":
+			tint = Color(0.7, 0.86, 1.0)
+			spread = 0.26
+			len_min = 30.0; len_max = 62.0
+			dart_min = 44.0; dart_max = 92.0
+			life = 0.16
 	for i in count:
-		var ang := (base_ang + randf_range(-0.85, 0.85)) if directional else (randf() * TAU)
+		var ang := (base_ang + randf_range(-spread, spread)) if directional else (randf() * TAU)
 		var d := Vector2.from_angle(ang)
-		var seg := randf_range(18.0, 44.0)          # LONG, random speed-lines (Stick Fight)
+		var n := d.orthogonal()
+		var seg := randf_range(len_min, len_max)
+		var bow := randf_range(0.05, 0.16) * seg * (1.0 if randf() < 0.5 else -1.0)
 		var ln := Line2D.new()
-		ln.points = PackedVector2Array([-d * seg * 0.5, d * seg * 0.5])
-		ln.width = randf_range(2.8, 5.2)            # bolder / more visible
+		# 6 points root->tip, bowed sideways (peak mid-line) → a motion ARC, not a spike
+		var pts := PackedVector2Array()
+		for s_i in 6:
+			var t := s_i / 5.0
+			pts.append(d * (t - 0.35) * seg + n * bow * sin(t * PI))
+		ln.points = pts
+		ln.width = randf_range(3.2, 5.6)
+		ln.width_curve = _streak_width_curve()   # thick root -> needle tip (the taper)
+		ln.material = _streak_material()         # additive — glows over the scene
 		ln.begin_cap_mode = Line2D.LINE_CAP_ROUND
 		ln.end_cap_mode = Line2D.LINE_CAP_ROUND
-		ln.default_color = Color(1, 1, 1, randf_range(0.6, 0.95))
+		ln.joint_mode = Line2D.LINE_JOINT_ROUND
+		ln.default_color = Color(tint.r, tint.g, tint.b, randf_range(0.55, 0.9))
 		# scatter along + across the action direction (mostly ahead of it)
-		var off := (d * randf_range(-4.0, 15.0) + d.orthogonal() * randf_range(-11.0, 11.0)) if directional else Vector2(randf_range(-17.0, 17.0), randf_range(-15.0, 15.0))
+		var off := (d * randf_range(-4.0, 15.0) + n * randf_range(-11.0, 11.0)) if directional else Vector2(randf_range(-17.0, 17.0), randf_range(-15.0, 15.0))
 		ln.position = pos + off
 		add_child(ln)
+		var this_life := life * randf_range(0.8, 1.2)
 		var tw := create_tween()
 		tw.set_parallel(true)
-		tw.tween_property(ln, "position", ln.position + d * randf_range(26.0, 58.0), 0.2)
-		tw.tween_property(ln, "modulate:a", 0.0, randf_range(0.16, 0.28))
+		tw.tween_property(ln, "position", ln.position + d * randf_range(dart_min, dart_max), this_life * 1.3).set_ease(Tween.EASE_OUT)
+		tw.tween_property(ln, "modulate:a", 0.0, this_life)
 		tw.chain().tween_callback(ln.queue_free)
 
 
+static func _streak_material() -> CanvasItemMaterial:
+	if _streak_mat == null:
+		_streak_mat = CanvasItemMaterial.new()
+		_streak_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	return _streak_mat
+
+
+static func _streak_width_curve() -> Curve:
+	if _streak_curve == null:
+		_streak_curve = Curve.new()
+		_streak_curve.add_point(Vector2(0.0, 1.0))
+		_streak_curve.add_point(Vector2(0.55, 0.5))
+		_streak_curve.add_point(Vector2(1.0, 0.05))
+	return _streak_curve
+
+
 ## A HIT: knocked back + flinch, stays standing, recovers. (Only kill() floors it.)
+## Dashing = i-frames: the whole DASH_TIME window shrugs hits off.
 func hit(dir: Vector2, strength: float) -> void:
+	if is_dashing:
+		return
 	_stagger = STAGGER_TIME
 	_torso.apply_central_impulse(dir * strength)
-	_spawn_wind_streaks(_torso.to_global(SHOULDER_OFF) - dir * 6.0, 5, dir)
+	_spawn_wind_streaks(_torso.to_global(SHOULDER_OFF) - dir * 6.0, 6, dir, "hit")
 	# hits rattle the limbs loose too
 	for i in 2:
 		_arm_vel[i] += randf_range(-6.0, 6.0)
@@ -395,6 +579,11 @@ func _physics_process(delta: float) -> void:
 	_punch_cd = maxf(0.0, _punch_cd - delta)
 	_jump_lock = maxf(0.0, _jump_lock - delta)
 	_wj_lock = maxf(0.0, _wj_lock - delta)
+	_dash_cd = maxf(0.0, _dash_cd - delta)
+	_parry_window = maxf(0.0, _parry_window - delta)
+	_parry_cd = maxf(0.0, _parry_cd - delta)
+	_parry_shell_t = maxf(0.0, _parry_shell_t - delta)
+	_cast_timer = maxf(0.0, _cast_timer - delta)
 	_clock += delta
 	# FACE the way you actually MOVE (real velocity), not the raw key: no snap-turn on a
 	# tap, you feel resistance (pinned on a wall = no motion = no turn), and a prone body
@@ -445,8 +634,14 @@ func _physics_process(delta: float) -> void:
 		torso.global_position = p
 		if torso.linear_velocity.y > 0.0:
 			torso.linear_velocity.y = 0.0
+	if not grounded:
+		_peak_fall = maxf(_peak_fall, torso.linear_velocity.y)   # fastest drop → land thud weight
 	if grounded and _was_air and not dead:
 		_spawn_puffs(Vector2((_foot[0].x + _foot[1].x) * 0.5, _last_floor_y), 7, 6.0)   # LANDING dust AT the floor
+		if _peak_fall > 140.0:                                   # real fall, not a step off a curb
+			var impact := clampf(_peak_fall / 900.0, 0.0, 1.0)
+			_sfx("footstep", lerpf(-10.0, -1.0, impact), 0.1, lerpf(0.8, 0.6, impact))   # deeper+louder with speed
+		_peak_fall = 0.0
 	_was_air = not grounded
 	if grounded:
 		_coyote = 0.12
@@ -481,11 +676,15 @@ func _physics_process(delta: float) -> void:
 		_torso.angular_damp = 8.0 if grounded else 2.0
 
 	if not dead:
-		var controlled := _stagger <= 0.0
-		_support(torso, grounded, dist, delta)
-		if controlled:
-			_move(torso)
-			_do_jump(torso, grounded, delta)
+		if is_dashing:
+			_process_dash(torso, delta)          # dash OWNS the velocity — no spring/move/jump
+		else:
+			var controlled := _stagger <= 0.0
+			_support(torso, grounded, dist, delta)
+			if controlled:
+				_move(torso)
+				_do_jump(torso, grounded, delta)
+		_process_projectiles()
 	else:
 		_corpse_settle(torso)
 	_update_arms(torso, delta)
@@ -586,7 +785,8 @@ func _do_jump(torso: RigidBody2D, grounded: bool, delta: float) -> void:
 		for i in 2:
 			_arm_vel[i] += randf_range(-6.0, 6.0)
 			_leg_vel[i] += randf_range(-6.0, 6.0)
-		_spawn_wind_streaks(torso.to_global(Vector2(-away * 9.0, 0)), 5, Vector2(away, -0.6))
+		_spawn_wind_streaks(torso.to_global(Vector2(-away * 9.0, 0)), 5, Vector2(away, -0.6), "wall")
+		_sfx("melee_swing", -9.0, 0.1, 0.72)          # kick-off whoomph
 	if _pending_jump:
 		_jump_crouch -= delta
 		if _jump_crouch <= 0.0:
@@ -604,8 +804,98 @@ func _do_jump(torso: RigidBody2D, grounded: bool, delta: float) -> void:
 				_shin_vel[i] += randf_range(-5.0, 5.0)
 				_arm_vel[i] += randf_range(-6.0, 6.0)
 				_farm_vel[i] += randf_range(-5.0, 5.0)
-			_spawn_wind_streaks((_foot[0] + _foot[1]) * 0.5 + Vector2(0, -8.0), 9, Vector2(0, -1))
+			_spawn_wind_streaks((_foot[0] + _foot[1]) * 0.5 + Vector2(0, -8.0), 9, Vector2(0, -1), "jump")
 			_spawn_puffs((_foot[0] + _foot[1]) * 0.5, 6, 6.0)   # JUMP-off dust from the floor
+			_sfx("melee_swing", -10.0, 0.1, 0.68)               # soft liftoff whoomph
+
+
+## Dash frame: hold the burst velocity (beats gravity/spring), drop ghosts on cadence,
+## then skid off the burst at the end instead of rocketing on.
+func _process_dash(torso: RigidBody2D, delta: float) -> void:
+	_dash_timer -= delta
+	torso.linear_velocity = _dash_dir * DASH_SPEED
+	torso.angular_velocity = 0.0
+	_ghost_t -= delta
+	if _ghost_t <= 0.0:
+		_ghost_t = GHOST_INTERVAL
+		_spawn_ghost()
+	if _dash_timer <= 0.0:
+		is_dashing = false
+		torso.linear_velocity *= 0.35
+		_spawn_puffs(torso.global_position + Vector2(0, RIDE_HEIGHT * 0.5), 4, 5.0)
+
+
+## Blue afterimage: snapshot the CURRENT drawn pose (torso, head, arms, legs) as a
+## fading world-locked ghost — the dash reads as a smear of where you were.
+func _spawn_ghost() -> void:
+	if _torso == null:
+		return
+	var g := Node2D.new()
+	g.z_index = -1                                   # behind the live figure
+	add_child(g)
+	var neck: Vector2 = _torso.to_global(Vector2(0, NECK_Y))
+	var hip: Vector2 = _torso.to_global(HIP_OFF)
+	_ghost_line(g, PackedVector2Array([neck, hip]))
+	var head := Polygon2D.new()
+	var hc: Vector2 = _torso.to_global(Vector2(0, NECK_Y - HEAD_R + 0.5))
+	var pts := PackedVector2Array()
+	for i in 14:
+		pts.append(hc + Vector2.from_angle(TAU * i / 14.0) * HEAD_R)
+	head.polygon = pts
+	head.color = GHOST_COLOR
+	g.add_child(head)
+	for i in 2:
+		_ghost_line(g, _arm_line[i].points)
+		_ghost_line(g, PackedVector2Array([hip, _knee[i], _foot[i]]))
+	var tw := create_tween()
+	tw.tween_property(g, "modulate:a", 0.0, 0.22)
+	tw.tween_callback(g.queue_free)
+
+
+func _ghost_line(parent: Node2D, pts: PackedVector2Array) -> void:
+	if pts.size() < 2:
+		return
+	var ln := Line2D.new()
+	ln.points = pts
+	ln.width = LIMB_W
+	ln.default_color = GHOST_COLOR
+	ln.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	ln.end_cap_mode = Line2D.LINE_CAP_ROUND
+	ln.joint_mode = Line2D.LINE_JOINT_ROUND
+	parent.add_child(ln)
+
+
+## Incoming-bolt hookup: while the parry window is open, a hostile bolt inside the
+## shield reach is REFLECTED toward the aim (ding + shell flourish + `parried`);
+## otherwise a bolt that reaches the body connects (shove + burst). Dash i-frames
+## let it pass clean through.
+func _process_projectiles() -> void:
+	if _torso == null:
+		return
+	var tp: Vector2 = _torso.global_position
+	for p in get_tree().get_nodes_in_group("enemy_projectile"):
+		if not (p is Node2D) or not is_instance_valid(p):
+			continue
+		if p.get("_reflected") == true:
+			continue                                 # already ours — flying back out
+		var pp: Vector2 = (p as Node2D).global_position
+		var d := tp.distance_to(pp)
+		if _parry_window > 0.0 and d <= PARRY_REACH + 10.0 and p.has_method("reflect"):
+			p.call("reflect", _parry_dir, PARRY_COLOR)
+			_parry_window = 0.0                      # one reflect per window
+			_parry_shell_t = PARRY_SHIELD_TIME       # shell flares fresh on the connect
+			_sfx("ding", 2.0, 0.02)                  # the whole payoff — crisp + loud
+			_spawn_wind_streaks(pp, 7, _parry_dir, "hit")
+			parried.emit(pp)
+			return
+		if d <= BOLT_HIT_RADIUS and not is_dashing:
+			var dirv := (tp - pp).normalized()
+			if dirv == Vector2.ZERO:
+				dirv = Vector2(-_facing, 0.0)
+			if p.has_method("consume"):
+				p.call("consume")                    # its own burst + free
+			hit((dirv + Vector2(0, -0.3)).normalized(), 420.0)
+			return
 
 
 func _update_arms(torso: RigidBody2D, delta: float) -> void:
@@ -637,6 +927,16 @@ func _update_arms(torso: RigidBody2D, delta: float) -> void:
 			damp = 2.5
 			fstiff = FARM_AIR_STIFF
 			fdamp = FARM_AIR_DAMP
+		elif _cast_timer > 0.0:
+			# CAST channel: BOTH arms thrust toward the cast line (two-handed focus)
+			target = _cast_ang + side * 0.13
+			stiff = ARM_STIFF * 3.2
+			damp = ARM_DAMP * 1.6
+		elif _parry_shell_t > 0.0:
+			# guard: both arms hold the shield line while the shell shows
+			target = _parry_dir.angle() + side * 0.2
+			stiff = ARM_STIFF * 2.6
+			damp = ARM_DAMP * 1.4
 		elif _stagger > 0.0:
 			target = atan2(-0.6, -_facing)                   # recoil back/up
 		elif ctrl_aim_hold:
@@ -786,6 +1086,7 @@ func _update_legs(torso: RigidBody2D, floor_y: float, grounded: bool, delta: flo
 			if _swing_t >= 1.0:
 				_plant[_swing_foot] = _swing_to
 				_spawn_puffs(_swing_to, 2, 4.0)          # footstep dust
+				_sfx("footstep", -6.0, 0.14)             # quiet tick on each plant (grounded+moving only)
 	elif _duck_t > 0.25:
 		# DUCK-FLOP: the feet slide out along the floor AWAY from the head, so the
 		# body ends fully stretched out prone with loosely-bent legs
@@ -866,3 +1167,14 @@ func _draw() -> void:
 		draw_circle(knee, LIMB_W * 0.5, body_color)
 		draw_circle(foot, LIMB_W * 0.5, body_color)
 	draw_circle(hip, LIMB_W * 0.5, body_color)
+	# PARRY SHELL — the directional shield-arc tell thrown up toward the aim. Bright
+	# while the ACTIVE window is open, then the lingering shell fades with the timer.
+	if _parry_shell_t > 0.0:
+		var c: Vector2 = _torso.to_global(SHOULDER_OFF)
+		var pa := _parry_dir.angle()
+		var fade := clampf(_parry_shell_t / PARRY_SHIELD_TIME, 0.0, 1.0)
+		var hot := 1.0 if _parry_window > 0.0 else 0.55          # active window = hot
+		draw_arc(c, PARRY_REACH, pa - 0.95, pa + 0.95, 22,
+			Color(PARRY_COLOR.r, PARRY_COLOR.g, PARRY_COLOR.b, 0.95 * fade * hot), 4.5, true)
+		draw_arc(c, PARRY_REACH - 7.0, pa - 0.72, pa + 0.72, 16,
+			Color(PARRY_COLOR.r, PARRY_COLOR.g, PARRY_COLOR.b, 0.38 * fade * hot), 2.5, true)

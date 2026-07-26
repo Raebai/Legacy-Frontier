@@ -5,7 +5,8 @@ extends Node2D
 ## sandbox. Touches no game logic. Delete scripts/spike/ + scenes/spike/ to remove.
 ##
 ## move A/D (or arrows) · jump W/Space/Up · duck/crawl S · aim MOUSE · LMB punch ·
-## RMB (or F) CAST spell · Q/E cycle spell · H hit · K kill · R reset · TAB physics-tune
+## RMB (or F) CAST spell · Q/E cycle spell · SHIFT dash · C parry · B incoming test-bolt ·
+## H hit · K kill · R reset · TAB physics-tune
 
 const FIG := preload("res://scripts/spike/SpikeFigure.gd")
 const ENEMY_SCENE := "res://scenes/combat/Enemy.tscn"
@@ -119,6 +120,7 @@ func _spawn_figure() -> void:
 	_fig.configure(_knobs)
 	add_child(_fig)
 	_fig.punched.connect(_on_punch)
+	_fig.parried.connect(_on_parried)
 
 
 ## The stickman's punch lands on nearby dummies: damage + a satisfying knockback shove.
@@ -129,15 +131,25 @@ func _on_punch(dir: Vector2) -> void:
 	if t == null:
 		return
 	var origin: Vector2 = t.global_position
+	var connected := false
 	for d in _dummies:
 		if not is_instance_valid(d):
 			continue
 		var to: Vector2 = (d as Node2D).global_position - origin
 		if to.length() < 96.0 and to.normalized().dot(dir) > 0.25:   # in front, in range
+			connected = true
 			if d.has_method("take_damage"):
 				d.call("take_damage", 22)
 			if d.has_method("apply_knockback"):
 				d.call("apply_knockback", dir * 620.0)
+	if connected:
+		Sfx.play("melee_hit", 0.0, 0.1)              # the CONNECT crack (swing already played on the rig)
+
+
+## A successful deflect: localized impact frame AT the parry point (ding + shell fire
+## on the rig itself) — the curated "big deflect" beat from the feel study.
+func _on_parried(world_pos: Vector2) -> void:
+	Juice.impact_frame(0.45, world_pos)
 
 
 func _build_camera() -> void:
@@ -188,9 +200,42 @@ func _cast() -> void:
 	var origin: Vector2 = t.global_position if t != null else _fig.global_position
 	var target: Vector2 = get_global_mouse_position()
 	var spell: SpellDef = _spells[_sidx]
+	_fig.cast((target - origin).normalized())        # rig cast pose FIRST (Phase 2 windups hook here)
 	SpellCaster.cast(spell, self, origin, target, Color(0.78, 0.84, 1.0), "")
 	_shake = maxf(_shake, 0.35)
 	_shake_dir = (target - origin).normalized()
+
+
+## Dash toward held movement keys (true 8-way incl. straight up/down); with no
+## direction held, dash toward the mouse aim.
+func _dash() -> void:
+	var dir := Vector2.ZERO
+	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
+		dir.x -= 1.0
+	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
+		dir.x += 1.0
+	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
+		dir.y -= 1.0
+	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
+		dir.y += 1.0
+	if dir == Vector2.ZERO:
+		var t: Node2D = _fig.get("_torso")
+		if t != null:
+			dir = (get_global_mouse_position() - t.global_position).normalized()
+	_fig.dash(dir)
+
+
+## Lob a slow hostile test-bolt in from ahead of the figure, aimed at it — the
+## deflect target: parry (C) as it arrives to reflect it back out with the ding.
+func _spawn_test_bolt() -> void:
+	var t: Node2D = _fig.get("_torso")
+	if t == null:
+		return
+	var facing: float = _fig.get("_facing")
+	var proj := EnemyProjectile.new()
+	add_child(proj)
+	proj.global_position = t.global_position + Vector2(facing * 330.0, -26.0)
+	proj.launch((t.global_position - proj.global_position).normalized())
 
 
 func _cycle(step: int) -> void:
@@ -218,6 +263,12 @@ func _input(event: InputEvent) -> void:
 				_cycle(-1)
 			KEY_F:
 				_cast()
+			KEY_SHIFT:
+				_dash()
+			KEY_C:
+				_fig.parry()
+			KEY_B:
+				_spawn_test_bolt()
 			KEY_H:
 				var d := Vector2(_fig._facing if _fig._facing != 0 else 1.0, -0.35)
 				_fig.hit(d.normalized(), 460.0)
@@ -268,7 +319,7 @@ func _update_hud() -> void:
 	if _hud == null or _spells.is_empty():
 		return
 	var s: SpellDef = _spells[_sidx]
-	var txt := "SPELL PLAYGROUND   [%d / %d]   %s\n%s · %s · dmg %d · cd %.1fs%s\n\nRMB / F  CAST toward mouse    Q E  cycle spell    LMB  punch    R  reset\nmove A/D · jump W/Space · duck/crawl S · aim mouse · H hit · K kill · TAB tune" % [
+	var txt := "SPELL PLAYGROUND   [%d / %d]   %s\n%s · %s · dmg %d · cd %.1fs%s\n\nRMB / F  CAST toward mouse    Q E  cycle spell    LMB  punch    SHIFT  dash    C  parry    B  test-bolt    R  reset\nmove A/D · jump W/Space · duck/crawl S · aim mouse · H hit · K kill · TAB tune" % [
 		_sidx + 1, _spells.size(), s.display_name,
 		_kind_name(s.kind), _elem_name(s.element), int(s.damage), float(s.cooldown), _extra(s),
 	]
