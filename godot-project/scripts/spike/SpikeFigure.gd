@@ -290,7 +290,7 @@ func punch() -> void:
 	_torso.apply_central_impulse(dir * lunge)
 	var lsh: Vector2 = _torso.to_global(Vector2(SHOULDER_DX if lead == 0 else -SHOULDER_DX, SHOULDER_OFF.y))
 	var fist: Vector2 = lsh + dir * (UARM_LEN + FARM_LEN)
-	_spawn_wind_streaks(fist + dir * 9.0, 6, dir)   # wind marks burst IN FRONT of the fist
+	_spawn_wind_streaks(fist + dir * 9.0, 11, dir)   # wind marks burst IN FRONT of the fist
 	punched.emit(dir)
 
 
@@ -339,12 +339,12 @@ func _spawn_wind_streaks(pos: Vector2, count: int, bias := Vector2.ZERO) -> void
 	var directional := bias != Vector2.ZERO
 	var base_ang := bias.angle()
 	for i in count:
-		var ang := (base_ang + randf_range(-0.55, 0.55)) if directional else (randf() * TAU)
+		var ang := (base_ang + randf_range(-0.85, 0.85)) if directional else (randf() * TAU)
 		var d := Vector2.from_angle(ang)
-		var seg := randf_range(5.0, 12.0)
+		var seg := randf_range(18.0, 44.0)          # LONG, random speed-lines (Stick Fight)
 		var ln := Line2D.new()
 		ln.points = PackedVector2Array([-d * seg * 0.5, d * seg * 0.5])
-		ln.width = randf_range(1.8, 2.6)
+		ln.width = randf_range(2.8, 5.2)            # bolder / more visible
 		ln.begin_cap_mode = Line2D.LINE_CAP_ROUND
 		ln.end_cap_mode = Line2D.LINE_CAP_ROUND
 		ln.default_color = Color(1, 1, 1, randf_range(0.6, 0.95))
@@ -354,8 +354,8 @@ func _spawn_wind_streaks(pos: Vector2, count: int, bias := Vector2.ZERO) -> void
 		add_child(ln)
 		var tw := create_tween()
 		tw.set_parallel(true)
-		tw.tween_property(ln, "position", ln.position + d * randf_range(8.0, 16.0), 0.18)
-		tw.tween_property(ln, "modulate:a", 0.0, randf_range(0.13, 0.22))
+		tw.tween_property(ln, "position", ln.position + d * randf_range(26.0, 58.0), 0.2)
+		tw.tween_property(ln, "modulate:a", 0.0, randf_range(0.16, 0.28))
 		tw.chain().tween_callback(ln.queue_free)
 
 
@@ -604,7 +604,7 @@ func _do_jump(torso: RigidBody2D, grounded: bool, delta: float) -> void:
 				_shin_vel[i] += randf_range(-5.0, 5.0)
 				_arm_vel[i] += randf_range(-6.0, 6.0)
 				_farm_vel[i] += randf_range(-5.0, 5.0)
-			_spawn_wind_streaks((_foot[0] + _foot[1]) * 0.5 + Vector2(0, -8.0), 5, Vector2(0, -1))
+			_spawn_wind_streaks((_foot[0] + _foot[1]) * 0.5 + Vector2(0, -8.0), 9, Vector2(0, -1))
 			_spawn_puffs((_foot[0] + _foot[1]) * 0.5, 6, 6.0)   # JUMP-off dust from the floor
 
 
