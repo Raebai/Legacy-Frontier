@@ -200,8 +200,13 @@ func _cast() -> void:
 	var origin: Vector2 = t.global_position if t != null else _fig.global_position
 	var target: Vector2 = get_global_mouse_position()
 	var spell: SpellDef = _spells[_sidx]
-	_fig.cast((target - origin).normalized())        # rig cast pose FIRST (Phase 2 windups hook here)
-	SpellCaster.cast(spell, self, origin, target, Color(0.78, 0.84, 1.0), "")
+	# Rule 4: the rig throws each KIND of spell with its own body language — a wall
+	# gets slammed out of the ground, a bombardment gets a ritual circle, a chidori
+	# gets coiled into the chest. The pose fires FIRST so the windup reads as the
+	# cause of the spectacle rather than a shrug alongside it.
+	var pose: int = CastStyle.for_spell(spell.kind)
+	_fig.cast((target - origin).normalized(), pose)
+	SpellCaster.cast(spell, self, origin, target, Color(0.78, 0.84, 1.0), "", _fig)
 	_shake = maxf(_shake, 0.35)
 	_shake_dir = (target - origin).normalized()
 

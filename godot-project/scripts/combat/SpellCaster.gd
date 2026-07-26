@@ -24,6 +24,7 @@ const MISSILES_PATH: String = "res://scripts/combat/RuneOrbs.gd"
 const TETHER_PATH: String = "res://scripts/combat/DrainTether.gd"
 const FLURRY_PATH: String = "res://scripts/combat/BladeFlurry.gd"
 const BLINK_PATH: String = "res://scripts/combat/BlinkStrike.gd"
+const SHADOW_ROOT_PATH: String = "res://scripts/combat/ShadowRoot.gd"
 
 
 ## Cast `spell` from `caster_pos` toward `target_pos`, parented under `arena`.
@@ -139,6 +140,17 @@ static func cast(
 			ch.call("chain", caster_pos, aim.normalized(), col, spell.count, spell.reach, spell.damage, fx)
 			return true
 		SpellDef.Kind.ZONE:
+			# Shadow is no longer a placed puddle recoloured from blizzard — it ERUPTS
+			# from the caster's feet and races along the ground to ROOT whoever the
+			# tendrils catch, with a real dodge window before the grip locks. Same
+			# ZONE kind (so loadouts/saves are untouched); the spectacle forks here.
+			if fx == "shadow":
+				var sr: Node2D = (load(SHADOW_ROOT_PATH) as GDScript).new()
+				arena.add_child(sr)
+				sr.set("element_id", elem)
+				sr.call("erupt", caster_pos, aim, col, spell.radius, spell.damage, fx)
+				Juice.zoom_pull_camera(0.12, 0.4, 0.14, 0.5)
+				return true
 			# A persistent ground field placed at the marked point (clamped to reach).
 			var zto: Vector2 = aim
 			if zto.length() > spell.reach:

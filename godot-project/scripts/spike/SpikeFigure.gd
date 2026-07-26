@@ -189,6 +189,7 @@ var _parry_dir := Vector2.RIGHT
 # cast state
 var _cast_timer := 0.0
 var _cast_ang := 0.0
+var _cast_pose := CastStyle.Pose.POINT   # body language for the windup in progress
 
 # shared speed-line resources (built once)
 static var _streak_mat: CanvasItemMaterial = null
@@ -356,6 +357,28 @@ func dash(dir: Vector2) -> bool:
 	return true
 
 
+## SpellCaster's BLINK_STRIKE callback (duck-typed `blink_to`, same contract Hero
+## implements): teleport to `dest` and report where we actually ended up so the cut
+## is drawn to the real destination.
+##
+## The rig is one RigidBody2D torso with procedural limbs hanging off it, so moving
+## the torso moves the whole figure — but the limbs' sprung angles are kept and
+## given a jolt, so arriving reads as being YANKED through the shadow rather than
+## snapping to a new spot fully composed. Velocity is cleared so you don't keep the
+## momentum you had before vanishing.
+func blink_to(dest: Vector2) -> Vector2:
+	if dead or _torso == null:
+		return _torso.global_position if _torso != null else dest
+	_spawn_wind_streaks(_torso.global_position, 8, (dest - _torso.global_position).normalized(), "dash")
+	_torso.global_position = dest
+	_torso.linear_velocity = Vector2.ZERO
+	_torso.angular_velocity = 0.0
+	for i in 2:
+		_arm_vel[i] += randf_range(-7.0, 7.0)
+		_leg_vel[i] += randf_range(-6.0, 6.0)
+	return dest
+
+
 ## PARRY: open the deflect window + throw up the directional shield-arc tell toward
 ## the aim. The reward (ding + reflect) only fires if a bolt arrives in the window —
 ## see _process_projectiles().
@@ -378,23 +401,52 @@ func parry() -> bool:
 	return true
 
 
-## CAST channel: brief two-handed pose toward `dir` + `casting` signal — the rig hook
-## Phase 2 per-spell windups (magic circles / ground slams) build on. Mirrors the
-## intent of Hero._begin_summon (committed pose while the spell forms).
-func cast(dir: Vector2) -> void:
+## CAST windup toward `dir`, in one of the CastStyle.Pose body languages, plus the
+## `casting` signal. Rule 4: no spell is a plain instant spawn — the pose IS the
+## tell, and its length is the opponent's dodge window, so `pose` drives both how
+## the body moves and how long it commits. Mirrors Hero._begin_summon's intent.
+##
+## The pose only seeds the impulse here; `_solve_arms` holds the shape for the
+## rest of the window (see the `_cast_timer > 0.0` branch). Everything stays in
+## the existing spring solver so a hit mid-cast still ragdolls out of it — a
+## canned keyframe would fight the active-ragdoll direction.
+func cast(dir: Vector2, pose: int = CastStyle.Pose.POINT) -> void:
 	if dead:
 		return
 	var d := dir.normalized() if dir != Vector2.ZERO else Vector2(_facing, 0)
-	_cast_timer = CAST_TIME
+	_cast_pose = pose
+	_cast_timer = CastStyle.duration(pose)
 	_cast_ang = d.angle()
 	if absf(d.x) > 0.15:
 		_facing = signf(d.x)
-	# both arms sweep toward the cast direction
+	var throw_ang := _cast_arm_target(d)
+	# Kick the arms toward the pose's line. SLAM and COIL wind the opposite way
+	# first so the release has somewhere to travel from — anticipation is what
+	# makes a gesture read as force rather than teleporting into position.
+	var kick := 14.0
+	match pose:
+		CastStyle.Pose.SLAM:
+			throw_ang = -PI * 0.5          # arms go OVERHEAD; the drive-down is below
+			kick = 18.0
+		CastStyle.Pose.COIL:
+			throw_ang = d.angle() + PI     # coil back away from the aim
+			kick = 20.0
+		CastStyle.Pose.LASH:
+			kick = 26.0                    # one sharp flick, no anticipation
 	for i in 2:
-		var err := wrapf(_cast_ang - _arm_ang[i], -PI, PI)
-		_arm_vel[i] += err * 14.0
-		_farm_vel[i] += err * 14.0
+		# LASH is asymmetric: only the lead arm whips, the other stays loose.
+		if pose == CastStyle.Pose.LASH and i != 0:
+			continue
+		var err := wrapf(throw_ang - _arm_ang[i], -PI, PI)
+		_arm_vel[i] += err * kick
+		_farm_vel[i] += err * kick
 	casting.emit(d)
+
+
+## Where the arms want to END UP for a pose. SLAM resolves at the end of the
+## window (the drive-down), so it is handled by _solve_arms rather than here.
+func _cast_arm_target(d: Vector2) -> float:
+	return d.angle()
 
 
 ## Defensive Sfx dispatch (via /root so spike headless tests without autoloads survive).
@@ -928,10 +980,49 @@ func _update_arms(torso: RigidBody2D, delta: float) -> void:
 			fstiff = FARM_AIR_STIFF
 			fdamp = FARM_AIR_DAMP
 		elif _cast_timer > 0.0:
-			# CAST channel: BOTH arms thrust toward the cast line (two-handed focus)
-			target = _cast_ang + side * 0.13
+			# CAST windup — the SHAPE depends on the pose (rule 4: no two spells are
+			# thrown the same way). `prog` runs 0->1 across the window so a pose can
+			# wind up and then RELEASE inside a single gesture.
+			var prog: float = 1.0 - clampf(
+				_cast_timer / maxf(CastStyle.duration(_cast_pose), 0.001), 0.0, 1.0)
 			stiff = ARM_STIFF * 3.2
 			damp = ARM_DAMP * 1.6
+			match _cast_pose:
+				CastStyle.Pose.SLAM:
+					# Overhead, then DRIVE into the ground past halfway. The snap from
+					# up to down IS the gesture — that's what sells "the earth answers".
+					target = lerpf(-PI * 0.5, PI * 0.42, smoothstep(0.35, 0.85, prog))
+					stiff = ARM_STIFF * (2.4 + 3.0 * prog)  # accelerates into the slam
+					damp = ARM_DAMP * 1.3
+				CastStyle.Pose.CIRCLE:
+					# Ritual sweep: arms open OUT to frame the circle, then present it
+					# forward. Capped at a half-turn spread — past that the arms swing
+					# BEHIND the head and read as "hands up" instead of "drawing a ring".
+					target = _cast_ang + side * lerpf(PI * 0.5, 0.24, smoothstep(0.3, 1.0, prog))
+					stiff = ARM_STIFF * 2.6
+					damp = ARM_DAMP * 1.8                   # slower, deliberate
+				CastStyle.Pose.CHANNEL:
+					# Arms UP and HELD while power gathers — the long readable tell.
+					target = lerpf(_cast_ang, -PI * 0.5, 0.75) + side * 0.3
+					stiff = ARM_STIFF * 2.2
+					damp = ARM_DAMP * 2.2                   # very steady, no wobble
+				CastStyle.Pose.COIL:
+					# Pull tight to the chest, then FIRE down the aim on release.
+					target = _cast_ang + (PI if prog < 0.55 else 0.0) + side * 0.1
+					stiff = ARM_STIFF * 4.0                 # snappy in both directions
+					damp = ARM_DAMP * 1.4
+				CastStyle.Pose.LASH:
+					# Asymmetric flick: the lead arm snaps out, the off arm trails loose.
+					if side > 0.0:
+						target = _cast_ang
+						stiff = ARM_STIFF * 4.5
+						damp = ARM_DAMP * 1.2
+					else:
+						target = _cast_ang + PI * 0.55
+						stiff = ARM_STIFF * 0.8
+						damp = ARM_DAMP * 0.9
+				_:
+					target = _cast_ang + side * 0.13        # POINT: two-handed thrust
 		elif _parry_shell_t > 0.0:
 			# guard: both arms hold the shield line while the shell shows
 			target = _parry_dir.angle() + side * 0.2

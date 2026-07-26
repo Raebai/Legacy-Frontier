@@ -275,23 +275,27 @@ static func _blade_flurry() -> SpellDef:
 	return s
 
 
-## VOID ZONE — Warlock signature. A persistent shadow field (replaces Void Barrage).
+## SHADOW ROOT — Warlock signature. Shadows erupt FROM the caster and race along the
+## ground; dodge the converging mark or be ROOTED in place and weakened.
+##
+## Was "Void Zone", a straight recolour of Blizzard's ground ellipse. Kept on the
+## ZONE kind and the `void_zone` id so loadouts and saved cycles keep resolving —
+## SpellCaster's ZONE arm forks on effect=="shadow" to the eruption spectacle.
 static func _void_zone() -> SpellDef:
 	var s := SpellDef.new()
 	s.id = "void_zone"
-	s.display_name = "Void Zone"
-	s.description = "Open a pool of writhing void on the marked ground — foes inside "\
-		+ "bleed shadow and are WEAKENED for as long as they linger."
+	s.display_name = "Shadow Root"
+	s.description = "Shadows erupt from your feet and race along the ground — dodge "\
+		+ "the converging mark or be ROOTED in place, weakened, while the dark grips."
 	s.kind = SpellDef.Kind.ZONE
 	s.element = Elements.Element.SHADOW
 	s.use_element_color = true
 	s.effect = "shadow"
-	s.mp_cost = 60
+	s.mp_cost = 55
 	s.cooldown = 6.5
-	s.damage = 10   # per tick
-	s.radius = 130.0
+	s.damage = 26   # one-shot damage on the catch (no longer a per-tick field)
+	s.radius = 64.0  # grasp half-width at the lock point
 	s.reach = 300.0
-	s.length = 4.8  # field lifetime (see SpellCaster ZONE arm)
 	return s
 
 
