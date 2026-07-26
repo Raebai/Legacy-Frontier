@@ -1005,19 +1005,11 @@ func _finish_summon() -> void:
 				velocity.x = signf(aim.x) * 360.0
 			SpellCaster.cast(spell, get_parent(), rig.get_weapon_tip(), target, _element_color, spell.effect)
 		SUMMON_BLINK:
-			# Shadow-step: TELEPORT to the marked point mid-slash (moves the Hero node).
-			var bfrom: Vector2 = global_position
-			var to_aim: Vector2 = target - bfrom
-			if to_aim.length() > spell.reach:
-				to_aim = to_aim.normalized() * spell.reach
-			var dest: Vector2 = _safe_blink_destination(bfrom, bfrom + to_aim)
-			var bs: Node2D = (load("res://scripts/combat/BlinkStrike.gd") as GDScript).new()
-			get_parent().add_child(bs)
-			bs.set("element_id", SpellCaster.resolve_element(spell))
-			global_position = dest
-			velocity.y = 0.0
-			_blink_iframe_timer = BLINK_IFRAME
-			bs.call("strike", bfrom, dest, _element_color, spell.damage, spell.effect)
+			# Shadow-step: TELEPORT to the marked point mid-slash. The displacement
+			# itself lives in blink_to() below, which SpellCaster calls back into —
+			# so blink now goes through the same data->dispatch seam as every other
+			# spell instead of being hand-rolled here.
+			SpellCaster.cast(spell, get_parent(), global_position, target, _element_color, spell.effect, self)
 			rig.flash_color(BLINK_ARRIVAL_FLASH_COLOR, BLINK_ARRIVAL_FLASH_TIME)
 			rig.play(CharacterRig.State.CAST)
 		_:
@@ -1318,6 +1310,18 @@ func _uppercut() -> void:
 ## destination against layer-1 solids; if blocked, probe forward past a thin wall,
 ## then back toward the origin, returning the first clear spot. Phasing THROUGH a
 ## wall mid-blink stays fine — only the resting spot matters.
+## SpellCaster's BLINK_STRIKE callback (duck-typed `blink_to`): vet the requested
+## landing spot, actually move, and return where we ENDED UP so the slash is drawn
+## to the real destination. Hero's own rule — never blink into a pit or a wall —
+## stays owned here rather than leaking into the generic dispatcher.
+func blink_to(dest: Vector2) -> Vector2:
+	var safe: Vector2 = _safe_blink_destination(global_position, dest)
+	global_position = safe
+	velocity.y = 0.0
+	_blink_iframe_timer = BLINK_IFRAME
+	return safe
+
+
 func _safe_blink_destination(origin: Vector2, dest: Vector2) -> Vector2:
 	var world: World2D = get_world_2d()
 	if world == null:

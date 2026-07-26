@@ -23,14 +23,20 @@ const ZONE_PATH: String = "res://scripts/combat/ZoneSpell.gd"
 const MISSILES_PATH: String = "res://scripts/combat/RuneOrbs.gd"
 const TETHER_PATH: String = "res://scripts/combat/DrainTether.gd"
 const FLURRY_PATH: String = "res://scripts/combat/BladeFlurry.gd"
+const BLINK_PATH: String = "res://scripts/combat/BlinkStrike.gd"
 
 
 ## Cast `spell` from `caster_pos` toward `target_pos`, parented under `arena`.
 ## `fallback_color` is the caster's current element colour (used when the SpellDef
 ## inherits). Returns true if a spectacle was spawned.
+##
+## `caster` is optional and only consulted by kinds that MOVE the caster (today
+## just BLINK_STRIKE). Passing it is what lets a self-displacing spell go through
+## this one seam instead of needing bespoke handling in every caster — see the
+## `blink_to` duck-typed contract on the BLINK_STRIKE arm below.
 static func cast(
 	spell: SpellDef, arena: Node, caster_pos: Vector2, target_pos: Vector2,
-	fallback_color: Color, effect: String = ""
+	fallback_color: Color, effect: String = "", caster: Node = null
 ) -> bool:
 	if spell == null or arena == null or not arena.is_inside_tree():
 		return false
@@ -159,6 +165,26 @@ static func cast(
 			arena.add_child(te)
 			te.set("element_id", elem)
 			te.call("tether", caster_pos, aim.normalized(), col, spell.damage, fx)
+			return true
+		SpellDef.Kind.BLINK_STRIKE:
+			# Shadow-step: the caster TELEPORTS to the marked point mid-slash, and the
+			# cut lands along the path travelled. Previously this had no arm here at
+			# all — Hero special-cased it, so blink was dead in every other caster
+			# (the playground included). The displacement is delegated: a caster that
+			# implements `blink_to(dest) -> Vector2` vets the landing spot (Hero
+			# refuses to blink into a pit) and returns where it ACTUALLY ended up, so
+			# the slash is drawn to the real destination. Casters without the method
+			# still get the cut, they just don't move.
+			var bto: Vector2 = aim
+			if bto.length() > spell.reach:
+				bto = bto.normalized() * spell.reach
+			var dest: Vector2 = caster_pos + bto
+			if caster != null and caster.has_method("blink_to"):
+				dest = caster.call("blink_to", dest)
+			var bs: Node2D = (load(BLINK_PATH) as GDScript).new()
+			arena.add_child(bs)
+			bs.set("element_id", elem)
+			bs.call("strike", caster_pos, dest, col, spell.damage, fx)
 			return true
 		SpellDef.Kind.FLURRY:
 			# A burst of dashing crescent slashes in front of the caster.
