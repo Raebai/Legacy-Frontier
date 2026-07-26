@@ -3,8 +3,8 @@ extends Node2D
 ## Signature spectacle — CHIDORI / Thunderclap. The Brawler's ultimate: a brief
 ## crackling charge, then a JAGGED lightning LANCE rips down the aim in an instant
 ## — nothing like the clean Zoltraak beam. Everything on the line takes heavy
-## damage + Shock and is thrown along the strike; the bolt then FORKS a chain-arc
-## to a nearby straggler. Heavy juice: hitstop, big shake, zoom-punch, thunder crack.
+## damage + Shock and is thrown along the strike; the bolt then FORKS a fixed arc
+## off the tip. Heavy juice: hitstop, big shake, zoom-punch, thunder crack.
 ##
 ## Damage is a pure line test (targets_on_line, headless-testable). rush() drives
 ## the visual/juice timeline. Instantiate .new(), add under the arena, call rush().
@@ -18,7 +18,9 @@ const DEFAULT_LENGTH: float = 620.0
 const DEFAULT_WIDTH: float = 26.0
 const DEFAULT_DAMAGE: int = 62
 const KNOCKBACK: float = 460.0    # brutal — it's a committed melee ultimate
-const CHAIN_RANGE: float = 220.0  # fork-arc reach to a nearby straggler
+const CHAIN_RANGE: float = 220.0  # fork-arc reach off the lance tip
+const FORK_ANGLE: float = 0.85    # radians the fork kicks off the lance axis
+const FORK_CORRIDOR: float = 34.0 # half-width of the fork's damage corridor
 const CHAIN_DAMAGE_FACTOR: float = 0.5
 const BOLT_SEGMENTS: int = 12     # jagged bolt resolution
 const CORE_COLOR: Color = Color(1.7, 1.75, 1.9)  # HDR white-hot lightning core (blooms)
@@ -112,28 +114,26 @@ func _discharge() -> void:
 		music.call("duck", 7.0, 0.35)
 
 
-## Fork a chain-arc to the nearest enemy NOT already on the line (a straggler),
-## dealing partial damage + Shock so the strike jumps like real lightning.
+## Fork an arc off the tip — a FIXED geometric branch, not a search for a victim
+## (magic-overhaul rule 1: no auto-aim anywhere). The arc kicks off at a set angle
+## from the lance and damages whatever happens to be standing in it, with partial
+## damage + Shock, so the strike jumps like real lightning without hunting.
 func _resolve_chain(already_hit: Array) -> void:
 	var tip: Vector2 = _beam_tip()
-	var best: Node2D = null
-	var best_d: float = CHAIN_RANGE
-	for e: Node in get_tree().get_nodes_in_group("enemy"):
-		if e in already_hit or not e is Node2D or not is_instance_valid(e):
-			continue
-		var d: float = tip.distance_to((e as Node2D).global_position)
-		if d < best_d:
-			best_d = d
-			best = e as Node2D
-	if best == null:
-		return
-	if best.has_method("take_damage"):
-		best.take_damage(int(round(float(_damage) * CHAIN_DAMAGE_FACTOR)))
-	if best.has_method("apply_status"):
-		best.apply_status(element_id, false)  # no further chain
+	# Deterministic side from the strike's own geometry — reads random, never seeks.
+	var side: float = 1.0 if sin(_origin.x * 0.07 + _origin.y * 0.11) >= 0.0 else -1.0
+	var fork_dir: Vector2 = _dir.rotated(side * FORK_ANGLE)
 	_chain_from = tip
-	_chain_to = best.global_position
+	_chain_to = tip + fork_dir * CHAIN_RANGE
 	_has_chain = true
+	for e: Node in targets_on_line(tip, fork_dir, CHAIN_RANGE, FORK_CORRIDOR,
+			get_tree().get_nodes_in_group("enemy")):
+		if e in already_hit or not is_instance_valid(e):
+			continue
+		if e.has_method("take_damage"):
+			e.take_damage(int(round(float(_damage) * CHAIN_DAMAGE_FACTOR)))
+		if e.has_method("apply_status"):
+			e.apply_status(element_id, false)  # no further chain
 
 
 ## Pure geometry (testable): nodes whose centre projects onto the segment

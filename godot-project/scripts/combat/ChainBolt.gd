@@ -3,11 +3,17 @@ extends Node2D
 ## CHAIN LIGHTNING (Stormcaller) / CHAIN-SMITE (Cleric, holy tint) — a jagged bolt
 ## that LEAPS enemy-to-enemy, up to N hops, shocking each with damage falloff.
 ## Nothing like a straight beam: it forks around the arena, hitting a whole chain.
-## First target = nearest enemy in the aim direction; each hop = nearest unvisited
-## within hop range. Instantiate .new(), add under the arena, call chain().
-## Damage/target order is a pure static selector (build_chain) — headless-testable.
+## Instantiate .new(), add under the arena, call chain(). Damage/target order is a
+## pure static selector (build_chain) — headless-testable.
+##
+## NO SEEK on the opening strike (magic-overhaul rule 1): the bolt goes exactly
+## where you point. Target 1 must lie inside a narrow CORRIDOR around the aim ray
+## — aim wide and the bolt rips into empty air and fizzles, no free retarget. The
+## arcs AFTER a landed hit are the spell's identity (that is what "chain" means)
+## and stay automatic; they are a consequence of connecting, not aim assist.
 
 const FIRST_REACH: float = 560.0   # reach for the initial arc to target 1
+const FIRST_CORRIDOR: float = 46.0 # half-width of the aim corridor for target 1
 const HOP_RANGE: float = 240.0     # leap distance between links
 const FALLOFF: float = 0.82        # damage retained per hop
 const LIFE: float = 0.34
@@ -31,6 +37,9 @@ func chain(
 	var links: Array = build_chain(origin, d, FIRST_REACH, hop_range, max_hops,
 		get_tree().get_nodes_in_group("enemy"))
 	_points = PackedVector2Array([origin])
+	if links.is_empty():
+		_whiff(origin, d)
+		return
 	var dmg: float = float(damage)
 	var tint: Color = Color(color.r, color.g, color.b, 1.0)
 	for e: Node in links:
@@ -57,13 +66,29 @@ func chain(
 	queue_redraw()
 
 
-## Pure geometry (testable): the ordered chain of nodes struck. Target 1 = nearest
-## node in the forward half-plane within `first_reach`; each subsequent = nearest
-## unvisited within `hop_range` of the previous. Up to `max_hops` total.
+## A miss: the bolt still rips the full reach down the aim and dies in empty air.
+## The player SEES where their aim went — no silent nothing, and no retarget.
+func _whiff(origin: Vector2, d: Vector2) -> void:
+	_points.append(origin + d * FIRST_REACH)
+	_elapsed = 0.0
+	global_position = Vector2.ZERO
+	CombatVfx.spawn_burst(get_parent(), origin, CORE_COLOR, Color(_color.r, _color.g, _color.b, 0.0),
+		8, 0.25, 50.0, 120.0, 0.6, 1.4, 0.0, 0.0, true)
+	Juice.shake_camera(2.5)
+	Sfx.play("zap", -4.0, 0.08)
+	queue_redraw()
+
+
+## Pure geometry (testable): the ordered chain of nodes struck. Target 1 = the
+## nearest node actually ON the aim ray — inside `corridor` perpendicular of it and
+## within `first_reach` along it. Each subsequent = nearest unvisited within
+## `hop_range` of the previous. Up to `max_hops` total. Empty if the aim misses.
 static func build_chain(
-	origin: Vector2, dir: Vector2, first_reach: float, hop_range: float, max_hops: int, nodes: Array
+	origin: Vector2, dir: Vector2, first_reach: float, hop_range: float, max_hops: int, nodes: Array,
+	corridor: float = FIRST_CORRIDOR
 ) -> Array:
 	var d: Vector2 = dir.normalized() if dir != Vector2.ZERO else Vector2.RIGHT
+	var perp: Vector2 = d.orthogonal()
 	var out: Array = []
 	var first: Node2D = null
 	var best: float = first_reach
@@ -71,11 +96,13 @@ static func build_chain(
 		if not n is Node2D:
 			continue
 		var rel: Vector2 = (n as Node2D).global_position - origin
-		if rel.dot(d) < 0.0:
-			continue  # must be in the aim direction
-		var dist: float = rel.length()
-		if dist < best:
-			best = dist
+		var along: float = rel.dot(d)
+		if along < 0.0 or along > first_reach:
+			continue  # behind the caster, or past the bolt's reach
+		if absf(rel.dot(perp)) > corridor:
+			continue  # off the aim line — the bolt does NOT bend to find it
+		if along < best:
+			best = along
 			first = n as Node2D
 	if first == null:
 		return out

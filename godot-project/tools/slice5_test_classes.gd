@@ -170,21 +170,26 @@ func _test_signature_loadouts() -> int:
 	return failed
 
 
-## ChainBolt.build_chain: target 1 is the nearest enemy in the aim direction; each
-## hop is the nearest unvisited within hop range; behind-the-origin is skipped.
+## ChainBolt.build_chain: target 1 must be ON the aim ray (no seek — overhaul rule
+## 1); each hop is the nearest unvisited within hop range; behind-origin is skipped.
 func _test_chain_geometry() -> int:
 	var failed: int = 0
-	var a := Dummy.new(); a.global_position = Vector2(120, 0)    # first target (ahead)
+	var a := Dummy.new(); a.global_position = Vector2(120, 0)    # first target (on the line)
 	var b := Dummy.new(); b.global_position = Vector2(260, 40)   # within hop of a
 	var c := Dummy.new(); c.global_position = Vector2(1000, 0)   # too far for hop 2
 	var behind := Dummy.new(); behind.global_position = Vector2(-200, 0)  # behind origin
 	var chain_script: GDScript = load(CHAIN_PATH)
 	var links: Array = chain_script.build_chain(Vector2.ZERO, Vector2.RIGHT, 560.0, 240.0, 5, [a, b, c, behind])
 	failed += _expect(links.size() == 2, "chain hits the reachable pair (a -> b), stops at the gap")
-	failed += _expect(links.size() >= 1 and links[0] == a, "first link is the nearest forward target")
+	failed += _expect(links.size() >= 1 and links[0] == a, "first link is the target on the aim line")
 	failed += _expect(not links.has(behind), "a target behind the origin is never chained")
 	failed += _expect(not links.has(c), "a target beyond hop range is not reached")
-	a.free(); b.free(); c.free(); behind.free()
+	# NO SEEK: an enemy that is forward and close but OFF the aim corridor is missed
+	# entirely — the bolt does not bend to find it, and nothing chains off a whiff.
+	var off_line := Dummy.new(); off_line.global_position = Vector2(150, 300)
+	var missed: Array = chain_script.build_chain(Vector2.ZERO, Vector2.RIGHT, 560.0, 240.0, 5, [off_line])
+	failed += _expect(missed.is_empty(), "an off-corridor target is never sought — the aim just misses")
+	a.free(); b.free(); c.free(); behind.free(); off_line.free()
 	return failed
 
 

@@ -1,21 +1,29 @@
 class_name RuneOrbs
 extends Node2D
 ## Arcanist SIGNATURE — ARCANE MISSILES (SpellDef.Kind.MISSILES). A fan of small
-## spinning rune-glyphs launches from the weapon tip and HOMES onto the nearest
-## enemies, each popping in a precise arcane burst (Unstable). Precise control —
-## not a beam, not a meteor. `count` orbs, `reach` unused, damage per orb. Draws in
-## world coordinates; each orb is a bright core under a slowly spinning glyph.
+## spinning rune-glyphs streams from the weapon tip along the AIM and pops in a
+## precise arcane burst (Unstable). Precise control — not a beam, not a meteor.
+## `count` orbs, `reach` unused, damage per orb. Draws in world coordinates; each
+## orb is a bright core under a slowly spinning glyph.
+##
+## NO HOMING (magic-overhaul rule 1). Each orb flies a STRAIGHT line along its own
+## fan angle; the only curvature is a cosmetic weave around that fixed axis, which
+## never changes where the orb ends up. Landing hits is the caster's aim, and the
+## stagger between launches is the target's dodge window.
 
 const SPEED: float = 430.0
-const TURN: float = 6.5         # homing steer rate (higher = sharper curve)
 const HIT_RADIUS: float = 16.0
 const MAX_LIFE: float = 1.7
 const ORB_R: float = 6.0
+const FAN_SPREAD: float = 0.3   # radians between adjacent orbs in the fan
+const STAGGER: float = 0.055    # launch delay per orb — they STREAM out, not a wall
+const WEAVE_AMP: float = 7.0    # cosmetic sideways weave (px) around the fixed axis
+const WEAVE_FREQ: float = 11.0
 
 var element_id: int = Elements.Element.ARCANE
 var _color: Color = Color(0.85, 0.5, 1.0, 1.0)
 var _dmg: int = 24
-var _orbs: Array = []   # each: {pos:Vector2, vel:Vector2, alive:bool, spin:float}
+var _orbs: Array = []   # each: {origin, dir, perp, delay, phase, alive, pos, spin}
 var _elapsed: float = 0.0
 
 
@@ -24,9 +32,19 @@ func launch(origin: Vector2, aim: Vector2, color: Color, count: int = 5, damage:
 	_dmg = damage
 	var base: Vector2 = aim.normalized() if aim != Vector2.ZERO else Vector2.RIGHT
 	for i in count:
-		var spread: float = (float(i) - float(count - 1) * 0.5) * 0.3
-		var dir: Vector2 = base.rotated(spread)
-		_orbs.append({"pos": origin, "vel": dir * SPEED, "alive": true, "spin": float(i) * 1.3})
+		# Fan outward from the centre of the volley, innermost orbs leaving first.
+		var offset: float = float(i) - float(count - 1) * 0.5
+		var dir: Vector2 = base.rotated(offset * FAN_SPREAD)
+		_orbs.append({
+			"origin": origin,
+			"dir": dir,
+			"perp": dir.orthogonal(),
+			"delay": absf(offset) * STAGGER,
+			"phase": float(i) * 1.7,
+			"alive": true,
+			"pos": origin,
+			"spin": float(i) * 1.3,
+		})
 	global_position = Vector2.ZERO
 	Sfx.play("cast", 1.0, 0.05)
 	queue_redraw()
@@ -39,13 +57,12 @@ func _process(delta: float) -> void:
 		if not orb["alive"]:
 			continue
 		any_alive = true
-		var target: Node2D = _nearest_enemy_node(orb["pos"])
-		if target != null:
-			var want: Vector2 = (target.global_position - orb["pos"]).normalized() * SPEED
-			orb["vel"] = (orb["vel"] as Vector2).lerp(want, clampf(TURN * delta, 0.0, 1.0))
-		orb["pos"] = (orb["pos"] as Vector2) + (orb["vel"] as Vector2) * delta
+		var age: float = _elapsed - float(orb["delay"])
+		if age <= 0.0:
+			continue  # still queued at the weapon tip
+		orb["pos"] = _orb_position(orb, age)
 		orb["spin"] = float(orb["spin"]) + delta * 8.0
-		var e: Node = _enemy_within(orb["pos"], HIT_RADIUS)
+		var e: Node = _target_within(orb["pos"], HIT_RADIUS)
 		if e != null:
 			_pop(orb, e)
 	if _elapsed >= MAX_LIFE:
@@ -55,6 +72,16 @@ func _process(delta: float) -> void:
 		queue_free()
 		return
 	queue_redraw()
+
+
+## Straight-line travel along the orb's fixed launch axis, plus a purely cosmetic
+## weave perpendicular to it. The weave tapers in from the muzzle so the stream
+## reads as ribboning rather than wobbling off-aim.
+func _orb_position(orb: Dictionary, age: float) -> Vector2:
+	var along: Vector2 = (orb["origin"] as Vector2) + (orb["dir"] as Vector2) * SPEED * age
+	var taper: float = clampf(age * 4.0, 0.0, 1.0)
+	var wob: float = sin(age * WEAVE_FREQ + float(orb["phase"])) * WEAVE_AMP * taper
+	return along + (orb["perp"] as Vector2) * wob
 
 
 func _pop(orb: Dictionary, e: Node) -> void:
@@ -68,28 +95,19 @@ func _pop(orb: Dictionary, e: Node) -> void:
 		10, 0.3, 50.0, 140.0, 0.6, 1.6, 0.0, 0.0, true)
 
 
-func _nearest_enemy_node(from: Vector2) -> Node2D:
-	var best: Node2D = null
-	var bd: float = 1.0e9
-	for e: Node in get_tree().get_nodes_in_group("enemy"):
-		if e is Node2D and is_instance_valid(e):
-			var d: float = from.distance_to((e as Node2D).global_position)
-			if d < bd:
-				bd = d
-				best = e as Node2D
-	return best
-
-
-func _enemy_within(p: Vector2, r: float) -> Node:
-	for e: Node in get_tree().get_nodes_in_group("enemy"):
-		if e is Node2D and is_instance_valid(e) and p.distance_to((e as Node2D).global_position) <= r:
-			return e
+## Nearest damageable thing the orb has physically flown into — enemies first,
+## then destructible cover (so a volley chews through crates like it should).
+func _target_within(p: Vector2, r: float) -> Node:
+	for group: String in ["enemy", "destructible"]:
+		for e: Node in get_tree().get_nodes_in_group(group):
+			if e is Node2D and is_instance_valid(e) and p.distance_to((e as Node2D).global_position) <= r:
+				return e
 	return null
 
 
 func _draw() -> void:
 	for orb in _orbs:
-		if not orb["alive"]:
+		if not orb["alive"] or _elapsed < float(orb["delay"]):
 			continue
 		var p: Vector2 = orb["pos"]
 		var spin: float = orb["spin"]
