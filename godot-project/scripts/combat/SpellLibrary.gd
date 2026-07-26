@@ -152,6 +152,10 @@ static func _colossus_pillar() -> SpellDef:
 		+ "staggering everything caught beneath it.",
 		Elements.color(Elements.Element.EARTH), 42, 2.8, 96, 74.0)
 	s.element = Elements.Element.EARTH  # Stagger ailment (not the holy default)
+	# ...and the SPECTACLE must be stone too. `_ray()` hardcodes effect="holy" for
+	# Judgment's sake, which this spell was silently inheriting — so a "titanic
+	# stone spire" rendered as a holy light column wearing an earth-brown tint.
+	s.effect = "earth"
 	return s
 
 

@@ -4,10 +4,16 @@ extends Node2D
 ## Who this pillar's damage hits. Default "enemy"; the Boss sets "hero".
 var target_group: String = "enemy"
 ## Earthbending ROCK PILLAR (the uppercut). A telegraphed danger ring + rumble,
-## then a chunky stone column ERUPTS up from the ground at the marked point,
+## then ONE sharp stone FANG jabs up from the ground at the marked point,
 ## launching everything in its footprint straight UP (big vertical knockback) +
 ## damage + Stagger, then crumbles into rubble and leaves a cracked ground.
 ## Instantiate .new(), add to arena, call erupt(). Draws in world coordinates.
+##
+## Identity split (magic-overhaul phase 2): rock_pillar is the FAST, SHARP,
+## SINGLE spike — warm brown, snappy, punts one target skyward. The slow, vast,
+## multi-slab area-denial spire is Colossus Pillar (DivineRay stone mode). The
+## old stacked-block column read as a mini-colossus, so the silhouette here is
+## now a tapering fang with an HDR tip glint instead of block strata.
 
 const CHARGE_TIME: float = 0.40    # telegraphed danger ring + rumble
 const ERUPT_RISE: float = 0.14     # column shoots up
@@ -148,23 +154,28 @@ func _draw() -> void:
 	draw_circle(_ground, PILLAR_WIDTH * 0.9, Color(0.55, 0.42, 0.28, 0.35 * alpha), true, -1.0, true)
 
 
+## ONE sharp tapering fang (not stacked blocks — that silhouette now belongs to
+## Colossus Pillar). Kinked edges keep it reading as fractured stone; the lit
+## left face gives it volume and the HDR tip glint sells "sharp".
 func _draw_column(height: float, alpha: float) -> void:
-	var block_h: float = height / float(BLOCKS)
-	for i in BLOCKS:
-		var y_top: float = _ground.y - block_h * float(i + 1)
-		var y_bot: float = _ground.y - block_h * float(i)
-		var jx: float = _jitter[i] * PILLAR_WIDTH
-		var hw: float = PILLAR_WIDTH * 0.5 * (1.0 - 0.06 * float(i))  # slight taper up
-		var cx: float = _ground.x + jx
-		var verts: PackedVector2Array = PackedVector2Array([
-			Vector2(cx - hw, y_bot), Vector2(cx - hw * 0.85, y_top),
-			Vector2(cx + hw * 0.9, y_top), Vector2(cx + hw, y_bot),
-		])
-		draw_colored_polygon(verts, Color(BODY_COLOR.r, BODY_COLOR.g, BODY_COLOR.b, alpha))
-		# Lit top edge + HDR corner + dark seam.
-		draw_line(Vector2(cx - hw * 0.85, y_top), Vector2(cx + hw * 0.9, y_top),
-			Color(LIT_COLOR.r, LIT_COLOR.g, LIT_COLOR.b, alpha), 3.0, true)
-		draw_line(Vector2(cx - hw * 0.85, y_top), Vector2(cx - hw, y_bot),
-			Color(RIM_COLOR.r, RIM_COLOR.g, RIM_COLOR.b, alpha), 1.4, true)
-		draw_line(Vector2(cx - hw, y_bot), Vector2(cx + hw, y_bot),
-			Color(SEAM_COLOR.r, SEAM_COLOR.g, SEAM_COLOR.b, alpha), 2.0, true)
+	var hw: float = PILLAR_WIDTH * 0.5
+	var x: float = _ground.x
+	var base_l := Vector2(x - hw, _ground.y)
+	var base_r := Vector2(x + hw, _ground.y)
+	var apex := Vector2(x + _jitter[0] * 10.0, _ground.y - height)
+	# Jagged silhouette: base → left kink → apex → right kink → base.
+	var kink_l := Vector2(x - hw * 0.42 + _jitter[1] * 7.0, _ground.y - height * 0.52)
+	var kink_r := Vector2(x + hw * 0.5 + _jitter[2] * 7.0, _ground.y - height * 0.44)
+	draw_colored_polygon(PackedVector2Array([base_l, kink_l, apex, kink_r, base_r]),
+		Color(BODY_COLOR.r, BODY_COLOR.g, BODY_COLOR.b, alpha))
+	# Lit left face (sun side) + central fracture seam down from the apex.
+	draw_line(base_l, kink_l, Color(LIT_COLOR.r, LIT_COLOR.g, LIT_COLOR.b, 0.8 * alpha), 2.2, true)
+	draw_line(kink_l, apex, Color(LIT_COLOR.r, LIT_COLOR.g, LIT_COLOR.b, alpha), 2.6, true)
+	draw_line(apex, Vector2(x + _jitter[3] * 5.0, _ground.y),
+		Color(SEAM_COLOR.r, SEAM_COLOR.g, SEAM_COLOR.b, 0.85 * alpha), 2.0, true)
+	# HDR glint running down from the tip — the "sharp" read (blooms).
+	draw_line(apex, apex.lerp(kink_r, 0.35),
+		Color(RIM_COLOR.r, RIM_COLOR.g, RIM_COLOR.b, alpha), 1.6, true)
+	draw_circle(apex, 2.6, Color(1.6, 1.3, 0.8, alpha), true, -1.0, true)
+	# Dark seam where the fang split the ground.
+	draw_line(base_l, base_r, Color(SEAM_COLOR.r, SEAM_COLOR.g, SEAM_COLOR.b, alpha), 2.0, true)
