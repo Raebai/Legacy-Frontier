@@ -20,6 +20,14 @@ static var _dot_tex: Texture2D = null
 ## dust / smoke bursts leave this off (`additive=false`) and stay alpha-blended.
 static var _add_mat: CanvasItemMaterial = null
 
+## Cached ParticleProcessMaterials keyed by the full tuning tuple. A burst
+## material is read-only once built, so concurrent bursts safely share one
+## instance — repeat casts of the same spell stop allocating a fresh
+## ParticleProcessMaterial + Gradient + GradientTexture1D every call (§0.4
+## GC-churn fix; worst offenders were meteor showers / blast / nova). Call
+## sites use constant tunings, so the cache stays small and never invalidates.
+static var _mat_cache: Dictionary = {}
+
 
 static func additive_mat() -> CanvasItemMaterial:
 	if _add_mat != null:
@@ -50,6 +58,9 @@ static func _soft_dot() -> Texture2D:
 ## Spawn a self-freeing radial GPUParticles2D burst under `parent` at `pos`.
 ## Particle color ramps from `color_start` to `color_end` (end alpha should
 ## be 0 so the burst fades out instead of popping off).
+## `dir` + `spread_deg` (optional) make the burst a directional spark CONE
+## instead of the default 360° radial — the Stick-Fight "sparks along the hit
+## direction" recipe. Leave `dir` at ZERO for the classic radial burst.
 static func spawn_burst(
 	parent: Node,
 	pos: Vector2,
@@ -64,6 +75,8 @@ static func spawn_burst(
 	damping_min: float = 0.0,
 	damping_max: float = 0.0,
 	additive: bool = false,
+	dir: Vector2 = Vector2.ZERO,
+	spread_deg: float = 180.0,
 ) -> GPUParticles2D:
 	if parent == null or not parent.is_inside_tree():
 		return null
@@ -76,9 +89,45 @@ static func spawn_burst(
 	burst.texture = _soft_dot()  # glowing round dots, not hard squares
 	if additive:
 		burst.material = additive_mat()  # energy motes build to white-hot
+	burst.process_material = _process_mat(
+		color_start, color_end, velocity_min, velocity_max,
+		scale_min, scale_max, damping_min, damping_max, dir, spread_deg)
+	parent.add_child(burst)
+	burst.global_position = pos
+	burst.restart()
+	burst.emitting = true
+	parent.get_tree().create_timer(lifetime + 0.3).timeout.connect(burst.queue_free)
+	return burst
+
+
+## Cached ParticleProcessMaterial for a tuning tuple (see _mat_cache docs).
+static func _process_mat(
+	color_start: Color,
+	color_end: Color,
+	velocity_min: float,
+	velocity_max: float,
+	scale_min: float,
+	scale_max: float,
+	damping_min: float,
+	damping_max: float,
+	dir: Vector2,
+	spread_deg: float,
+) -> ParticleProcessMaterial:
+	var key := "%s|%s|%.1f|%.1f|%.3f|%.3f|%.1f|%.1f|%.3f,%.3f|%.1f" % [
+		color_start.to_html(true), color_end.to_html(true),
+		velocity_min, velocity_max, scale_min, scale_max,
+		damping_min, damping_max, dir.x, dir.y, spread_deg]
+	var cached: Variant = _mat_cache.get(key)
+	if cached != null:
+		return cached
 	var mat := ParticleProcessMaterial.new()
 	mat.particle_flag_disable_z = true
-	mat.spread = 180.0
+	if dir != Vector2.ZERO:
+		# Directional cone along the hit direction (impact sparks).
+		mat.direction = Vector3(dir.x, dir.y, 0.0)
+		mat.spread = clampf(spread_deg, 1.0, 180.0)
+	else:
+		mat.spread = 180.0  # classic full-circle radial burst
 	mat.initial_velocity_min = velocity_min
 	mat.initial_velocity_max = velocity_max
 	mat.gravity = Vector3.ZERO
@@ -93,10 +142,5 @@ static func spawn_burst(
 	var ramp_tex := GradientTexture1D.new()
 	ramp_tex.gradient = ramp
 	mat.color_ramp = ramp_tex
-	burst.process_material = mat
-	parent.add_child(burst)
-	burst.global_position = pos
-	burst.restart()
-	burst.emitting = true
-	parent.get_tree().create_timer(lifetime + 0.3).timeout.connect(burst.queue_free)
-	return burst
+	_mat_cache[key] = mat
+	return mat

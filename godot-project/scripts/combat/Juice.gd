@@ -99,13 +99,15 @@ static func epic_moment(opts: Dictionary = {}) -> void:
 ## The anime IMPACT FRAME — spawn a full-screen speed-line + flash burst, a harder
 ## freeze, a big zoom-punch + shake spike. Reserve for CURATED cool moments (a big
 ## deflect, a heavy punch, a finisher) — not every hit. Respects the hit-stop toggle.
-static func impact_frame(strength: float = 1.0) -> void:
+## Pass the WORLD hit position when one exists so the flash + converging lines
+## happen AT the impact (screen-projected) — omitted = viewport centre (legacy).
+static func impact_frame(strength: float = 1.0, world_pos: Vector2 = Vector2.INF) -> void:
 	var tree: SceneTree = _tree()
 	if tree == null:
 		return
 	var f: Node = (load("res://scripts/combat/ImpactFrame.gd") as GDScript).new()
 	tree.root.add_child(f)
-	f.call("flash", strength)
+	f.call("flash", strength, world_pos)
 	zoom_punch_camera(0.14 * strength, 0.22)
 	shake_camera(11.0 * strength)
 	PostProcess.shock(1.15 * strength)  # a hard screen ripple on the curated impact frame

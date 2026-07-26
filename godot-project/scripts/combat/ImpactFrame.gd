@@ -10,6 +10,10 @@ const DURATION: float = 0.22
 var _t: float = 0.0
 var _strength: float = 1.0
 var _rect: Control = null
+## World-space hit position the burst converges on. Vector2.INF = no position
+## supplied -> legacy behaviour (viewport centre). Passing the real hit point
+## makes the flash + speed lines happen AT the impact instead of centre-screen.
+var _world_pos: Vector2 = Vector2.INF
 
 
 func _init() -> void:
@@ -25,8 +29,9 @@ func _ready() -> void:
 	_rect.draw.connect(_draw_frame)
 
 
-func flash(strength: float = 1.0) -> void:
+func flash(strength: float = 1.0, world_pos: Vector2 = Vector2.INF) -> void:
 	_strength = clampf(strength, 0.3, 1.6)
+	_world_pos = world_pos
 
 
 func _process(delta: float) -> void:
@@ -41,7 +46,7 @@ func _process(delta: float) -> void:
 func _draw_frame() -> void:
 	var u: float = clampf(_t / DURATION, 0.0, 1.0)
 	var vp: Vector2 = _rect.size
-	var c: Vector2 = vp * 0.5
+	var c: Vector2 = _convergence_point(vp)
 	var fade: float = 1.0 - u
 	# White flash that snaps in then falls off fast.
 	if u < 0.35:
@@ -57,3 +62,15 @@ func _draw_frame() -> void:
 		var d: Vector2 = Vector2.from_angle(a)
 		var w: float = (2.0 + 6.0 * absf(sin(float(i) * 7.7))) * _strength
 		_rect.draw_line(c + d * inner, c + d * diag * 0.8, col, w)
+
+
+## Screen-space point the flash + speed lines converge on: the world hit
+## position projected through the active camera's canvas transform, clamped
+## a margin inside the screen so near-edge / off-screen hits still read.
+## No world position -> viewport centre (backward-compatible default).
+func _convergence_point(vp: Vector2) -> Vector2:
+	if not _world_pos.is_finite():
+		return vp * 0.5
+	var screen: Vector2 = _rect.get_viewport().get_canvas_transform() * _world_pos
+	var margin: Vector2 = vp * 0.12
+	return screen.clamp(margin, vp - margin)

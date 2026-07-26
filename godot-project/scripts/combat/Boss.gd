@@ -123,7 +123,7 @@ func _die() -> void:
 		return
 	_bphase = BPhase.DEAD
 	Juice.epic_moment({"strength": 1.4, "frame": true, "shake": 20.0, "sfx": "cannon"})
-	Juice.impact_frame(1.3)
+	Juice.impact_frame(1.3, global_position)  # localized on the falling boss
 	var sc := StarConvergence.new()
 	sc.target_group = "none"   # visual-only finisher (no group "none" -> hits nobody)
 	get_parent().add_child(sc)
@@ -169,7 +169,7 @@ func _enter_phase(p: int) -> void:
 				rig.set_tint(Color(0.52, 0.28, 0.24))
 				rig.set_aura(Color(1.0, 0.28, 0.08), 0.78)
 				rig.set_aura_tier(4)
-			Juice.impact_frame(1.2)
+			Juice.impact_frame(1.2, global_position)  # enrage beat AT the boss
 			Juice.epic_moment({"strength": 1.2, "shake": 14.0, "sfx": "cannon"})
 	emit_signal("phase_changed", current_phase())
 

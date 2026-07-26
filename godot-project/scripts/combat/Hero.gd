@@ -2015,7 +2015,9 @@ func take_damage(amount: int) -> void:
 		Sfx.play("ding", 2.0, 0.02)
 		rig.flash_color(PARRY_FLASH_COLOR, 0.1)
 		rig.set_parry(_aim_dir, PARRY_SHIELD_TIME)
-		Juice.impact_frame(1.0)  # the DEFLECT beat — anime freeze-frame
+		# The DEFLECT beat — anime freeze-frame localized AT the hero, biased a
+		# touch toward the attacker (aim side) so the burst reads at the clash.
+		Juice.impact_frame(1.0, global_position + _aim_dir * 18.0)
 		_parry_window_timer = 0.0
 		return
 	# A LANDED hit (not dodged/parried) shatters a float-channel OR a summon windup —

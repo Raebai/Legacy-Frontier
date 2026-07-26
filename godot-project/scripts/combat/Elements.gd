@@ -34,6 +34,26 @@ static func color(e: int) -> Color:
 	return Color(0.95, 0.4, 0.85)
 
 
+## Peak channel value for emissive() cores — >1.0 so they clear the arena
+## bloom threshold (combat_glow.tres glow_hdr_threshold) and radiate.
+const EMISSIVE_PEAK: float = 1.7
+
+
+## HDR "hot core" companion for an element: the signature colour lifted so its
+## brightest channel lands at EMISSIVE_PEAK, plus a small push toward hot white.
+## Keeps the hue while guaranteeing even the dark elements (SHADOW, EARTH)
+## bloom a bright core under the glow pass instead of reading muddy. Use for
+## core bands / tips / flash discs; keep outer glow bands on color() so
+## telegraphs and soft falloff stay controlled (only >1.0 blooms).
+static func emissive(e: int) -> Color:
+	var c: Color = color(e)
+	var peak: float = maxf(c.r, maxf(c.g, c.b))
+	var s: float = EMISSIVE_PEAK / maxf(peak, 0.001)
+	var boosted := Color(c.r * s, c.g * s, c.b * s, 1.0)
+	# 15% toward hot white so cores read incandescent, not neon-saturated.
+	return boosted.lerp(Color(1.9, 1.9, 1.9, 1.0), 0.15)
+
+
 ## Human-readable name. Unknown values fall back to "Arcane".
 static func display_name(e: int) -> String:
 	match e:
