@@ -50,7 +50,7 @@ const JUMP_LOCK := 0.22
 const JUMP_COOLDOWN := 0.30     # floor between jumps — can't machine-gun-mash the key
 const WALL_JUMP_PUSH := 380.0   # horizontal launch when you kick off a wall
 const WALL_JUMP_UP := 660.0     # vertical launch when you kick off a wall
-const WALL_PROBE := 15.0        # how far to the side we look for a wall to cling/kick
+const WALL_PROBE := 26.0        # reach far enough that a tilted torso still finds the wall (was 15 — grip dropped out)
 const WALL_SLIDE_SPEED := 130.0 # max fall speed while clinging a wall (time to wall-jump)
 const WALL_SLIDE_MIN := 55.0    # min slide speed while clinging — never fully glue/hover on a wall
 const WALL_JUMP_LOCK := 0.15    # input lockout after a wall-jump so holding-into-wall can't eat the launch
@@ -506,7 +506,13 @@ func _support(torso: RigidBody2D, grounded: bool, dist: float, delta: float) -> 
 	var lean := clampf(torso.linear_velocity.x / move_speed, -1.0, 1.0) * RUN_LEAN
 	var cap := MAX_LEAN
 	var gain := 1.0
-	if not grounded:
+	if not grounded and _clinging:
+		# clinging a wall: keep the body UPRIGHT (firm uprighting, tight cap) so it doesn't
+		# tip over and pull the hip out of wall-probe range — that's what dropped the grip
+		gain = 0.55
+		cap = 0.4
+		lean = float(_wall_dir) * 0.12
+	elif not grounded:
 		# AIRBORNE: barely uprighted — the whole body tips with its momentum and only
 		# slowly rights itself, like a loose ragdoll that happens to land feet-first
 		gain = 0.09

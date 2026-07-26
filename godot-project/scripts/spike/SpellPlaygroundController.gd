@@ -105,7 +105,8 @@ func _build_targets() -> void:
 		d.set("passive", true)
 		d.set("max_hp", 99999)
 		d.set("tint", Color(0.56, 0.56, 0.6))
-		d.set("position", Vector2(dx, FLOOR_Y - 46.0))
+		d.set("scale", Vector2(1.9, 1.9))            # match the stick fighter's size (dummies default ~half)
+		d.set("position", Vector2(dx, FLOOR_Y - 100.0))
 		add_child(d)
 		d.add_to_group("dummy")
 		_dummies.append(d)
@@ -117,7 +118,26 @@ func _spawn_figure() -> void:
 	_fig.body_color = FIG_COLOR
 	_fig.configure(_knobs)
 	add_child(_fig)
-	_fig.punched.connect(func(d): _shake = maxf(_shake, 0.5); _shake_dir = d)
+	_fig.punched.connect(_on_punch)
+
+
+## The stickman's punch lands on nearby dummies: damage + a satisfying knockback shove.
+func _on_punch(dir: Vector2) -> void:
+	_shake = maxf(_shake, 0.5)
+	_shake_dir = dir
+	var t: Node2D = _fig.get("_torso")
+	if t == null:
+		return
+	var origin: Vector2 = t.global_position
+	for d in _dummies:
+		if not is_instance_valid(d):
+			continue
+		var to: Vector2 = (d as Node2D).global_position - origin
+		if to.length() < 96.0 and to.normalized().dot(dir) > 0.25:   # in front, in range
+			if d.has_method("take_damage"):
+				d.call("take_damage", 22)
+			if d.has_method("apply_knockback"):
+				d.call("apply_knockback", dir * 620.0)
 
 
 func _build_camera() -> void:
