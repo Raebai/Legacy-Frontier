@@ -6,19 +6,29 @@ extends Node2D
 var target_group: String = "enemy"
 ## Signature spectacle #1 — the Frieren "Zoltraak" SIGIL BEAM. A huge magic
 ## circle materialises at the muzzle, gathers for a beat (a fair telegraph —
-## dodge-the-tell), then FIRES a screen-crossing energy beam along the aim:
-## white-hot core inside a fat element-coloured glow, damaging everything on the
-## line, with heavy juice (hitstop, big shake, zoom-punch) and impact spray at
-## the far end. Then the beam fades and the circle dissolves.
+## dodge-the-tell), then FIRES a screen-crossing energy beam along the aim,
+## damaging everything on the line, with heavy juice (hitstop, big shake,
+## zoom-punch) and impact spray at the far end. Then the beam fades and the
+## circle dissolves.
 ##
 ## Damage is a pure geometric line test (targets_on_beam) so it's headless-
 ## testable; the fire() entry drives the visual/juice timeline. Instantiate
 ## .new(), add as a child of the arena, then call fire().
 ##
-## The trailing `effect` param picks the elemental CHARACTER of the spectacle
-## ("frost" | "fire" | "arcane" | "holy") — same beam silhouette, distinct
-## palette + particle language + lingering mark, so each legendary reads
-## different at a glance.
+## The trailing `effect` param picks the elemental IDENTITY of the spectacle —
+## and each element gets its own SILHOUETTE, not a tint-swap:
+##   "fire"      = two serpentine dragons weaving around a thin spine.
+##   "frost"     = steady cold lance + crystal shards + hexagonal muzzle lens.
+##   "arcane"    = ZOLTRAAK: a hard-edged razor lance with an arrowhead point,
+##                 crisp edge rails and compression rings racing forward.
+##   "shadow"    = UMBRAL: a light-EATING void core that blacks out the
+##                 background, violet fray gnawing its rim, wisps peeling
+##                 backward off the beam.
+##   "lightning" = TEMPEST: no solid beam at all — a braided storm torrent of
+##                 four crackling strands, spark debris and strobing forks.
+##   "holy"      = extra-wide feathery radiance (glow bands + motes).
+## The damage corridor is IDENTICAL for all of them (same line test) — only
+## the visual language changes, so no skin is a stealth balance change.
 
 const CHARGE_TIME: float = 0.34   # sigil gather (telegraph)
 const FIRE_TIME: float = 0.26     # beam held at full intensity
@@ -45,7 +55,8 @@ var element_id: int = -1
 
 ## Public entry: charge at `origin`, then fire a beam of `length`/`width` along
 ## `dir`, dealing `damage`. Colour tints the whole spectacle (element);
-## `effect` picks its particle character ("frost"/"fire"/"arcane"/"holy").
+## `effect` picks its elemental identity ("frost"/"fire"/"arcane"/"shadow"/
+## "lightning"/"holy" — each a distinct silhouette, see class doc).
 func fire(
 	origin: Vector2,
 	dir: Vector2,
@@ -83,6 +94,7 @@ func fire(
 
 ## Muzzle-gather particles, per effect: frost = fast sharp shards that snap to
 ## a cold stop, fire = slow flickery embers, holy = drifting feathery motes,
+## shadow = dark motes draining in, lightning = nervous static sparks,
 ## arcane = the classic bright energy spark.
 func _charge_burst() -> void:
 	var fade: Color = Color(_color.r, _color.g, _color.b, 0.0)
@@ -101,6 +113,18 @@ func _charge_burst() -> void:
 			CombatVfx.spawn_burst(
 				get_parent(), _origin, Color(1.0, 0.98, 0.85, 0.9), fade,
 				26, CHARGE_TIME * 1.1, 15.0, 55.0, 0.8, 2.2, 1.0, 2.0
+			)
+		"shadow":
+			# Slow dark motes fading to nothing — light being drained, not emitted.
+			CombatVfx.spawn_burst(
+				get_parent(), _origin, Color(0.45, 0.2, 0.75, 0.85), Color(0.05, 0.0, 0.1, 0.0),
+				20, CHARGE_TIME, 25.0, 80.0, 1.2, 2.8
+			)
+		"lightning":
+			# Fast sparks with hard damping — static snapping around the muzzle.
+			CombatVfx.spawn_burst(
+				get_parent(), _origin, Color(1.0, 0.95, 0.6, 0.95), fade,
+				24, CHARGE_TIME * 0.7, 90.0, 200.0, 0.5, 1.4, 5.0, 9.0
 			)
 		_:
 			CombatVfx.spawn_burst(
@@ -245,13 +269,16 @@ func _beam_tip() -> Vector2:
 	return _origin + _dir * _length
 
 
+## Deterministic 0..1 hash from an int — stable pseudo-random for drawn
+## garnish (no RNG state, so redraws don't pop; feed quantized time for
+## electric "snap" motion).
+static func _hash01(n: int) -> float:
+	return fposmod(sin(float(n) * 12.9898) * 43758.5453, 1.0)
+
+
 func _draw() -> void:
 	if _elapsed < CHARGE_TIME:
-		# During the charge, only a faint aiming line hints where the beam will go.
-		if _elapsed >= 0.0:
-			var tp: float = _elapsed / CHARGE_TIME
-			draw_line(_origin, _origin + _dir * _length,
-				Color(_color.r, _color.g, _color.b, 0.12 * tp), 2.0, true)
+		_draw_charge_hint()
 		return
 	var since_fire: float = _elapsed - CHARGE_TIME
 	# Intensity: a bright flash on the first frames, settling, then fading out.
@@ -268,28 +295,77 @@ func _draw() -> void:
 	var w: float = _width * intensity * flick
 	var c: Color = _color
 	var core: Color = _effect_core_color()
-	# Layered beam: wide soft glow -> mid body -> hot core (core tinted per
-	# effect: icy white / furnace yellow / radiant warm white / pure white).
-	if _effect == "fire":
-		# FIRE = two serpentine DRAGONS weaving around a thin spine (the hit
-		# corridor is unchanged — this is a visual skin over the same line).
-		_draw_beam_band(_origin, tip, w * 0.35, Color(core.r, core.g, core.b, 0.85 * intensity))
-		_draw_fire_dragons(tip, w, intensity, c, core)
-	else:
-		if _effect == "holy":
-			# Extra-wide feathery halo — holy reads as radiance, not a laser.
-			_draw_beam_band(_origin, tip, w * 2.7, Color(c.r, c.g, c.b, 0.12 * intensity))
-		_draw_beam_band(_origin, tip, w * 1.8, Color(c.r, c.g, c.b, 0.28 * intensity))
-		_draw_beam_band(_origin, tip, w * 1.0, Color(c.r, c.g, c.b, 0.7 * intensity))
-		_draw_beam_band(_origin, tip, w * 0.4, Color(core.r, core.g, core.b, 0.95 * intensity))
-		_draw_effect_detail(tip, w, intensity)
-	# Muzzle flash + impact flash.
-	draw_circle(_origin, w * 1.4, Color(core.r, core.g, core.b, 0.5 * intensity), true, -1.0, true)
-	draw_circle(tip, w * 1.2, Color(c.r, c.g, c.b, 0.5 * intensity), true, -1.0, true)
-	draw_circle(tip, w * 0.6, Color(core.r, core.g, core.b, 0.6 * intensity), true, -1.0, true)
+	# Per-element SILHOUETTE — each beam is a different shape, not a recolor.
+	match _effect:
+		"fire":
+			# FIRE = two serpentine DRAGONS weaving around a thin spine (the hit
+			# corridor is unchanged — this is a visual skin over the same line).
+			_draw_beam_band(_origin, tip, w * 0.35, Color(core.r, core.g, core.b, 0.85 * intensity))
+			_draw_fire_dragons(tip, w, intensity, c, core)
+		"arcane":
+			_draw_zoltraak_lance(tip, w, intensity, c, core)
+		"shadow":
+			_draw_umbral_void(tip, w, intensity, c, core)
+		"lightning":
+			_draw_tempest_torrent(tip, w, intensity, c, core)
+		_:
+			if _effect == "holy":
+				# Extra-wide feathery halo — holy reads as radiance, not a laser.
+				_draw_beam_band(_origin, tip, w * 2.7, Color(c.r, c.g, c.b, 0.12 * intensity))
+			_draw_beam_band(_origin, tip, w * 1.8, Color(c.r, c.g, c.b, 0.28 * intensity))
+			_draw_beam_band(_origin, tip, w * 1.0, Color(c.r, c.g, c.b, 0.7 * intensity))
+			_draw_beam_band(_origin, tip, w * 0.4, Color(core.r, core.g, core.b, 0.95 * intensity))
+			_draw_effect_detail(tip, w, intensity)
+	# Muzzle flash + impact flash — per identity: shadow gets an IMPLOSION
+	# (dark disc + violet ring, a white flash would break the light-eating
+	# read); arcane gets a TIGHT surgical glint (a soft ball would blow out
+	# the razor); everyone else keeps the classic hot ball.
+	match _effect:
+		"shadow":
+			_draw_umbral_flashes(tip, w, intensity, core)
+		"arcane":
+			_draw_zoltraak_glints(tip, w, intensity, core)
+		_:
+			draw_circle(_origin, w * 1.4, Color(core.r, core.g, core.b, 0.5 * intensity), true, -1.0, true)
+			draw_circle(tip, w * 1.2, Color(c.r, c.g, c.b, 0.5 * intensity), true, -1.0, true)
+			draw_circle(tip, w * 0.6, Color(core.r, core.g, core.b, 0.6 * intensity), true, -1.0, true)
 	# ICE = a hexagonal "freezing lens" flare at the muzzle (unmistakable ice read).
 	if _effect == "frost":
 		_draw_frost_lens(w, intensity, core)
+
+
+## Charge-phase telegraph, charactered per element so the TELL already tells
+## you what's coming: arcane = twin hairline rails compressing onto the cut
+## line, shadow = the lane visibly DARKENS, lightning = a nervous jittering
+## thread, everything else = the classic faint aiming line.
+func _draw_charge_hint() -> void:
+	if _elapsed < 0.0:
+		return
+	var tp: float = _elapsed / CHARGE_TIME
+	var tip: Vector2 = _origin + _dir * _length
+	var perp: Vector2 = _dir.orthogonal()
+	match _effect:
+		"arcane":
+			# The razor's sheath forming: two rails squeeze toward the centreline.
+			var gap: float = _width * (1.5 - 1.15 * tp)
+			var rail: Color = Color(_color.r, _color.g, _color.b, 0.18 * tp)
+			draw_line(_origin + perp * gap, tip + perp * gap, rail, 1.0, true)
+			draw_line(_origin - perp * gap, tip - perp * gap, rail, 1.0, true)
+		"shadow":
+			# The world dims along the lane before the void rips open.
+			draw_line(_origin, tip, Color(0.02, 0.0, 0.06, 0.35 * tp), _width * 0.9 * tp, true)
+			draw_line(_origin, tip, Color(_color.r, _color.g, _color.b, 0.10 * tp), 2.0, true)
+		"lightning":
+			# A thin thread of static, snapping between positions.
+			var tq: int = int(floorf(_elapsed * 30.0))
+			var pts: PackedVector2Array = PackedVector2Array()
+			for i: int in 13:
+				var t: float = float(i) / 12.0
+				var jag: float = (_hash01(i * 17 + tq * 31) * 2.0 - 1.0) * _width * 0.5 * sin(t * PI)
+				pts.append(_origin.lerp(tip, t) + perp * jag)
+			draw_polyline(pts, Color(_color.r, _color.g, _color.b, 0.20 * tp), 1.5, true)
+		_:
+			draw_line(_origin, tip, Color(_color.r, _color.g, _color.b, 0.12 * tp), 2.0, true)
 
 
 ## Beam flicker character: frost is dead-steady (cold), fire rages, holy
@@ -311,7 +387,7 @@ func _effect_flicker() -> float:
 		"wind":
 			return 0.88 + 0.12 * sin(_elapsed * 70.0)  # breezy flutter
 		_:
-			return 0.9 + 0.1 * sin(_elapsed * 60.0)
+			return 0.96 + 0.04 * sin(_elapsed * 60.0)  # arcane: razor stays near-rigid
 
 
 ## Hot-core tint per effect (the innermost band + flashes).
@@ -335,9 +411,10 @@ func _effect_core_color() -> Color:
 			return Color(1.6, 1.6, 1.7)
 
 
-## Per-effect garnish drawn ALONG the beam so each element is unmistakable:
-## frost = crystalline shards jutting off the beam, fire = drifting embers,
-## holy = bobbing feathery motes. Arcane stays the clean energy beam.
+## Per-effect garnish drawn ALONG the beam for the skins that still use the
+## generic band-stack: frost = crystalline shards jutting off the beam,
+## holy = bobbing feathery motes. (Fire/arcane/shadow/lightning have whole
+## bespoke silhouettes and never reach here.)
 func _draw_effect_detail(tip: Vector2, w: float, intensity: float) -> void:
 	var perp: Vector2 = _dir.orthogonal()
 	match _effect:
@@ -351,13 +428,6 @@ func _draw_effect_detail(tip: Vector2, w: float, intensity: float) -> void:
 				draw_colored_polygon(PackedVector2Array([
 					p - base_half, p + base_half, p + perp * side * reach,
 				]), Color(0.85, 0.97, 1.0, 0.75 * intensity))
-		"fire":
-			for i: int in 9:
-				var t: float = fposmod(float(i) / 9.0 + _elapsed * 0.9 + sin(float(i) * 7.31) * 0.05, 1.0)
-				var p: Vector2 = _origin.lerp(tip, t) \
-					+ perp * sin(_elapsed * 14.0 + float(i) * 2.1) * w * 1.1
-				draw_circle(p, w * 0.16 + 1.5,
-					Color(1.0, 0.55 + 0.3 * absf(sin(float(i) * 3.7)), 0.15, 0.8 * intensity), true, -1.0, true)
 		"holy":
 			for i: int in 8:
 				var t: float = (float(i) + 0.5) / 8.0
@@ -366,15 +436,174 @@ func _draw_effect_detail(tip: Vector2, w: float, intensity: float) -> void:
 				var ma: float = (0.35 + 0.25 * sin(_elapsed * 9.0 + float(i))) * intensity
 				draw_circle(p, w * 0.4, Color(1.0, 0.97, 0.8, ma * 0.5), true, -1.0, true)
 				draw_circle(p, w * 0.16, Color(1.0, 1.0, 0.95, ma), true, -1.0, true)
-		"arcane":
-			for i: int in 5:
-				var ap: Vector2 = _origin.lerp(tip, (float(i) + 0.5) / 5.0)
-				var apulse: float = 0.5 + 0.5 * sin(_elapsed * 6.0 - float(i) * 1.3)
-				var arr: float = w * (0.5 + 0.7 * apulse)
-				draw_arc(ap, arr, 0.0, TAU, 18, Color(_color.r, _color.g, _color.b, 0.6 * intensity), 1.5, true)
-				for k: int in 6:
-					var av: Vector2 = Vector2.from_angle(_elapsed * 1.5 + TAU * float(k) / 6.0)
-					draw_line(ap + av * arr * 0.7, ap + av * arr, Color(1.0, 0.9, 1.0, 0.5 * intensity), 1.5, true)
+
+
+## ZOLTRAAK skin (arcane) — Frieren's razor: THIN, hard-edged, almost
+## architectural (the visual opposite of the fire dragons). The interior is a
+## DENSE dark magenta — brightness lives only at the rims, the racing edge
+## glints and the arrowhead tip. The profile tapers toward the point (the
+## speed read comes from shape + glints, not stamped symbols).
+func _draw_zoltraak_lance(tip: Vector2, w: float, intensity: float, c: Color, core: Color) -> void:
+	var perp: Vector2 = _dir.orthogonal()
+	var head_len: float = minf(w * 5.0, _length * 0.14)
+	var neck: Vector2 = tip - _dir * head_len
+	# Tapering half-widths: base -> neck. THIN — a razor, not a slab.
+	var e0: float = w * 0.5
+	var e1: float = w * 0.34
+	# Barely-there sheath hugging the blade.
+	draw_line(_origin, neck, Color(c.r, c.g, c.b, 0.10 * intensity), w * 1.15, true)
+	# Dense interior — deep SATURATED magenta, quiet enough that the rims cut
+	# but clearly coloured (a near-black fill would read as umbral's cousin).
+	draw_colored_polygon(PackedVector2Array([
+		_origin + perp * e0, neck + perp * e1, neck - perp * e1, _origin - perp * e0,
+	]), Color(c.r * 0.62, c.g * 0.4, c.b * 0.68, 0.92 * intensity))
+	# Arrowhead: the one place the interior burns white — energy concentrates
+	# at the leading edge.
+	draw_colored_polygon(PackedVector2Array([
+		neck + perp * e1, tip, neck - perp * e1,
+	]), Color(core.r, core.g, core.b, 0.9 * intensity))
+	# HDR razor rims converging on the point — the brightness belongs HERE.
+	var rail: Color = Color(1.7, 1.25, 1.9, 0.9 * intensity)
+	draw_polyline(PackedVector2Array([_origin + perp * e0, neck + perp * e1, tip]), rail, 1.5, true)
+	draw_polyline(PackedVector2Array([_origin - perp * e0, neck - perp * e1, tip]), rail, 1.5, true)
+	# Dim hairline filament down the middle — hints at the compressed core
+	# without lighting up the interior.
+	draw_line(_origin, neck, Color(core.r, core.g, core.b, 0.3 * intensity), w * 0.12, true)
+	# Edge GLINTS: short ultra-fast highlights racing along each rim toward the
+	# tip — unevenly spaced, swept; suggestions of speed, not road markings.
+	for i: int in 3:
+		var t0: float = fposmod(_hash01(i * 47 + 5) + _elapsed * (3.5 + 0.6 * float(i)), 1.0)
+		var t1: float = minf(t0 + 0.05, 1.0)
+		var side: float = 1.0 if i % 2 == 0 else -1.0
+		var a_pt: Vector2 = _origin.lerp(neck, t0) + perp * side * lerpf(e0, e1, t0)
+		var b_pt: Vector2 = _origin.lerp(neck, t1) + perp * side * lerpf(e0, e1, t1)
+		draw_line(a_pt, b_pt, Color(1.9, 1.6, 2.0, 0.85 * intensity), 2.2, true)
+
+
+## UMBRAL skin (shadow) — light-EATER. The core is near-black and near-opaque:
+## it VOIDS the background instead of adding light. The only emission is the
+## violet fray gnawing its rim, a flickering anti-light seam trapped inside,
+## and wisps of shadow peeling off and trailing BACKWARD against the flight.
+## HDR lives in the rim + seam so it still blooms without becoming a glow tube.
+func _draw_umbral_void(tip: Vector2, w: float, intensity: float, c: Color, core: Color) -> void:
+	var perp: Vector2 = _dir.orthogonal()
+	# Faint violet corona — the light the void hasn't finished eating.
+	draw_line(_origin, tip, Color(c.r, c.g, c.b, 0.20 * intensity), w * 2.5, true)
+	# Darkness bleeding OUTWARD over the corona in two steps: a gradient of
+	# black eating the glow, so only the outermost fringe of violet survives.
+	draw_line(_origin, tip, Color(0.02, 0.0, 0.06, 0.5 * intensity), w * 1.8, true)
+	# THE VOID: near-opaque core, blacking out everything beneath it.
+	draw_line(_origin, tip, Color(0.02, 0.0, 0.06, 0.92 * intensity), w * 1.1, true)
+	# Frayed rims: two ragged HDR violet threads per side gnawing at the void's
+	# edge (an inner bright fray + a dim outer echo for depth).
+	var fray_col: Color = Color(1.25, 0.6, 2.0, 0.7 * intensity)
+	var fray_dim: Color = Color(0.9, 0.4, 1.5, 0.35 * intensity)
+	for side: float in [-1.0, 1.0]:
+		var pts: PackedVector2Array = PackedVector2Array()
+		var pts_out: PackedVector2Array = PackedVector2Array()
+		var n: int = 26
+		for i: int in n + 1:
+			var t: float = float(i) / float(n)
+			var gnaw: float = sin(t * 47.0 + _elapsed * 11.0 * side) * 0.45 \
+				+ sin(t * 19.0 - _elapsed * 7.0) * 0.35 \
+				+ sin(t * 83.0 + _elapsed * 17.0) * 0.20
+			var p: Vector2 = _origin.lerp(tip, t)
+			pts.append(p + perp * side * (w * 0.58 + gnaw * w * 0.30))
+			pts_out.append(p + perp * side * (w * 0.95 + gnaw * w * 0.45))
+		draw_polyline(pts, fray_col, 1.6, true)
+		draw_polyline(pts_out, fray_dim, 1.3, true)
+	# Anti-light seam: a HAIRLINE violet-white flicker trapped inside the
+	# darkness — kept dim so the void stays a void, not a glow tube.
+	var seam_a: float = (0.25 + 0.2 * sin(_elapsed * 24.0)) * intensity
+	draw_line(_origin, tip, Color(core.r, core.g, core.b, seam_a), w * 0.1, true)
+	# Peeling wisps: shadow flakes off the rim, curling backward and drifting
+	# toward the muzzle (the beam sheds darkness against its own flight).
+	for i: int in 10:
+		var t: float = fposmod(_hash01(i * 31 + 7) - _elapsed * 0.45, 1.0)
+		if t < 0.06 or t > 0.94:
+			continue
+		var side: float = -1.0 if i % 2 == 0 else 1.0
+		var curl: float = 0.6 + 0.8 * _hash01(i * 13)
+		var root: Vector2 = _origin.lerp(tip, t) + perp * side * w * 0.58
+		draw_polyline(PackedVector2Array([
+			root,
+			root - _dir * w * 0.9 + perp * side * w * 0.5 * curl,
+			root - _dir * w * 2.0 + perp * side * w * 1.2 * curl,
+		]), Color(c.r * 1.3, c.g, c.b * 1.5, 0.65 * intensity * sin(t * PI)), 2.2, true)
+
+
+## Arcane endpoint treatment: TIGHT, hard, small — a pin-point flash + thin
+## cross glints at muzzle and tip, keeping the surgical read (never a soft
+## ball wider than the beam itself).
+func _draw_zoltraak_glints(tip: Vector2, w: float, intensity: float, core: Color) -> void:
+	var perp: Vector2 = _dir.orthogonal()
+	var g: Color = Color(1.9, 1.7, 2.0, 0.9 * intensity)
+	draw_circle(_origin, w * 0.42, Color(core.r, core.g, core.b, 0.9 * intensity), true, -1.0, true)
+	draw_line(_origin - perp * w * 1.5, _origin + perp * w * 1.5, g, 1.4, true)
+	draw_line(_origin - _dir * w * 0.9, _origin + _dir * w * 0.9, g, 1.4, true)
+	draw_circle(tip, w * 0.35, Color(core.r, core.g, core.b, 0.85 * intensity), true, -1.0, true)
+	draw_line(tip - perp * w * 1.1, tip + perp * w * 1.1, g, 1.2, true)
+
+
+## Shadow endpoint treatment: dark discs ringed in HDR violet — an IMPLOSION
+## read at muzzle and tip, replacing the white-hot flashes every other beam
+## gets (a bright flash would betray the light-eating identity).
+func _draw_umbral_flashes(tip: Vector2, w: float, intensity: float, core: Color) -> void:
+	var ring: Color = Color(1.25, 0.6, 2.0, 0.8 * intensity)
+	var pulse: float = 1.0 + 0.12 * sin(_elapsed * 20.0)
+	draw_circle(_origin, w * 1.25, Color(0.03, 0.0, 0.08, 0.75 * intensity), true, -1.0, true)
+	draw_arc(_origin, w * 1.4 * pulse, 0.0, TAU, 40, ring, 2.0, true)
+	draw_circle(tip, w * 1.1, Color(0.03, 0.0, 0.08, 0.7 * intensity), true, -1.0, true)
+	draw_arc(tip, w * 1.3 * pulse, 0.0, TAU, 40, ring, 2.0, true)
+	draw_circle(tip, w * 0.35, Color(core.r, core.g, core.b, 0.7 * intensity), true, -1.0, true)
+
+
+## TEMPEST skin (lightning) — NOT a solid beam: a braided storm torrent. Four
+## turbulent strands helix around the damage corridor in counter-phase, with a
+## time-QUANTIZED crackle jitter so they SNAP like electricity instead of
+## swaying like water; spark debris streaks race down the lane and jagged
+## forks strobe off the braid. Only a faint haze marks the true hit corridor.
+func _draw_tempest_torrent(tip: Vector2, w: float, intensity: float, c: Color, core: Color) -> void:
+	var perp: Vector2 = _dir.orthogonal()
+	var tq: int = int(floorf(_elapsed * 32.0))  # quantized time — electric snap
+	# Faint corridor haze — the only hint of the actual damage lane.
+	draw_line(_origin, tip, Color(c.r, c.g, c.b, 0.10 * intensity), w * 2.1, true)
+	# Braided strands, converging at muzzle and tip (a torrent, not a tube).
+	var n: int = 30
+	for s: int in 4:
+		var phase: float = TAU * float(s) / 4.0
+		var freq: float = 2.4 + 0.7 * float(s)
+		var amp: float = w * (0.8 + 0.35 * _hash01(s * 71 + 3))
+		var pts: PackedVector2Array = PackedVector2Array()
+		for i: int in n + 1:
+			var t: float = float(i) / float(n)
+			var env: float = 0.3 + 0.7 * sin(t * PI)
+			var off: float = sin(TAU * t * freq - _elapsed * (15.0 + 2.5 * float(s)) + phase) * amp * env
+			off += (_hash01(i * 7 + s * 131 + tq * 17) * 2.0 - 1.0) * w * 0.38 * env
+			pts.append(_origin.lerp(tip, t) + perp * off)
+		draw_polyline(pts, Color(c.r, c.g, c.b, 0.45 * intensity), w * 0.30, true)
+		draw_polyline(pts, Color(core.r, core.g, core.b, 0.8 * intensity), w * 0.12, true)
+	# Spark debris streaking down the torrent (reads as carried wind-borne grit).
+	for i: int in 12:
+		var t: float = fposmod(_hash01(i * 53 + 11) + _elapsed * (1.5 + _hash01(i * 3) * 0.9), 1.0)
+		var drift: float = (_hash01(i * 29 + tq) * 2.0 - 1.0) * w * 0.9
+		var p: Vector2 = _origin.lerp(tip, t) + perp * drift
+		draw_line(p - _dir * w * 1.4, p + _dir * w * 0.7,
+			Color(1.9, 1.8, 1.1, 0.8 * intensity * sin(t * PI)), 1.8, true)
+	# Jagged forks flicking off the braid — hash-gated so they strobe on/off.
+	for i: int in 3:
+		if _hash01(i * 397 + tq) < 0.45:
+			continue
+		var t: float = 0.2 + 0.6 * _hash01(i * 211 + tq * 7)
+		var side: float = -1.0 if _hash01(i * 61 + tq) < 0.5 else 1.0
+		var base_p: Vector2 = _origin.lerp(tip, t)
+		var out: Vector2 = perp * side
+		draw_polyline(PackedVector2Array([
+			base_p,
+			base_p + out * w * 0.9 + _dir * w * 0.5,
+			base_p + out * w * 1.5 - _dir * w * 0.2,
+			base_p + out * w * 2.4 + _dir * w * 0.4,
+		]), Color(1.9, 1.7, 0.9, 0.8 * intensity), 1.8, true)
 
 
 ## FIRE beam skin: two serpentine dragon bodies weaving in counter-phase around
