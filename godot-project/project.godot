@@ -16,12 +16,12 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 config/name="Legacy Frontier"
 config/description="2D pixel-art top-down RPG with persistent AI NPCs and a living world. Tier 1 / v0.0 — the seed."
-run/main_scene="res://scenes/combat/VersusArena.tscn"
+run/main_scene="res://scenes/spike/SpellSandbox.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 
 [audio]
 
-buses/default_bus_layout="res://default_bus_layout.tres"
+buses/default_bus_layout="uid://bmf45kua0q6jc"
 
 [autoload]
 
@@ -43,7 +43,6 @@ window/size/viewport_height=360
 window/size/window_width_override=1366
 window/size/window_height_override=768
 window/stretch/mode="canvas_items"
-window/stretch/aspect="keep"
 
 [editor_plugins]
 
@@ -98,7 +97,7 @@ jump={
 }
 cast={
 "deadzone": 0.5,
-"events": [Object(InputEventMouseButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":1,"canceled":false,"pressed":false,"double_click":false,"script":null)
+"events": [Object(InputEventMouseButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"button_mask":0,"position":Vector2(0, 0),"global_position":Vector2(0, 0),"factor":1.0,"button_index":1,"canceled":false,"pressed":false,"double_click":false,"script":null)
 ]
 }
 melee={
@@ -108,7 +107,7 @@ melee={
 }
 parry={
 "deadzone": 0.5,
-"events": [Object(InputEventMouseButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":2,"canceled":false,"pressed":false,"double_click":false,"script":null)
+"events": [Object(InputEventMouseButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"button_mask":0,"position":Vector2(0, 0),"global_position":Vector2(0, 0),"factor":1.0,"button_index":2,"canceled":false,"pressed":false,"double_click":false,"script":null)
 ]
 }
 blast={
@@ -164,6 +163,6 @@ cycle_music={
 
 [rendering]
 
-anti_aliasing/quality/msaa_2d=3
 textures/default_filters/anisotropic_filtering_level=0
 viewport/hdr_2d=true
+anti_aliasing/quality/msaa_2d=3

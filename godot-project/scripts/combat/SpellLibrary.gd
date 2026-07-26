@@ -46,6 +46,31 @@ static func build() -> Array:
 	]
 
 
+## EVERY named spell in the tree, grouped by kind — for the spell-audit sandbox so
+## each one can be reviewed individually. Fresh instances each call.
+static func build_all() -> Array:
+	return [
+		# BEAMS (line lance)
+		_zoltraak(), _frostpiercer(), _infernal_lance(), _umbral_lance(), _tempest(),
+		# RUSH / CHAIN (lightning lances)
+		_chidori(), _chain_lightning(),
+		# DIVINE RAY / PILLAR (single-point smite)
+		_judgment(), _colossus_pillar(), _rock_pillar(),
+		# CONVERGENCE (radial finisher)
+		_heavens_verdict(),
+		# METEOR (bombardment)
+		_meteor_sigil(), _void_barrage(), _avalanche(), _frozen_comet(),
+		# MISSILES / BOULDER (projectiles)
+		_rune_orbs(), _boulder_hurl(),
+		# BLINK / FLURRY (melee bursts)
+		_blink_strike(), _blade_flurry(),
+		# ZONE / TETHER (fields + drain)
+		_void_zone(), _blizzard(), _drain_tether(),
+		# WALLS (barriers)
+		_rock_wall(), _ice_wall(),
+	]
+
+
 # ------------------------------------------------------------- named signatures
 static func _zoltraak() -> SpellDef:
 	return _beam("zoltraak", "Zoltraak · Arcane Beam",
