@@ -92,7 +92,8 @@ static func epic_moment(opts: Dictionary = {}) -> void:
 			if sfx_node != null and sfx_node.has_method(&"play"):
 				sfx_node.call("play", sfx, 0.0, 0.05)
 	if bool(opts.get("frame", false)):
-		impact_frame(0.7 * s)
+		# "at" is the world point the beat belongs to; omitted = viewport centre.
+		impact_frame(0.7 * s, opts.get("at", Vector2.INF))
 	hit_stop(0.07 * s)  # fired LAST (it awaits) so the reveal/shake land first
 
 

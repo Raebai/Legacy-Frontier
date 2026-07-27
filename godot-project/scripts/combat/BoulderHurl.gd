@@ -25,6 +25,12 @@ const BODY_COLOR: Color = Color(0.34, 0.24, 0.15)
 const LIT_COLOR: Color = Color(0.62, 0.46, 0.26)
 const RIM_COLOR: Color = Color(1.15, 0.92, 0.55)  # HDR highlight (blooms)
 const DUST_TINT: Color = Color(0.55, 0.42, 0.28, 0.5)
+const SHADOW_COLOR: Color = Color(0.18, 0.12, 0.07)  # the away-facing facets
+const CRACK_COLOR: Color = Color(0.14, 0.09, 0.05, 0.85)
+## Sun is up-and-left, matching the arena's lit-crust terrain shading.
+const LIGHT_DIR: Vector2 = Vector2(-0.55, -0.835)
+const CORE_SCALE: float = 0.52   # inner cap; the ring between it and the rim = facets
+const TRAIL_LENGTH: int = 7      # dust puffs kept behind a rock in flight
 
 var _origin: Vector2 = Vector2.ZERO
 var _dir: Vector2 = Vector2.RIGHT
@@ -43,6 +49,8 @@ var _flying: bool = false
 var _done: bool = false
 var _shockwave_elapsed: float = -1.0
 var _shape: PackedVector2Array = PackedVector2Array()
+var _cracks: Array[PackedVector2Array] = []   # local-space fissures, tumble with the body
+var _trail: Array[Vector2] = []               # recent positions, oldest first
 
 
 func hurl(
@@ -61,6 +69,7 @@ func hurl(
 	_pos = Vector2(from.x + _dir.x * 26.0, _ground_y)
 	_prev_pos = _pos
 	_shape = _make_boulder(BOULDER_R)
+	_cracks = _make_cracks(BOULDER_R)
 	# Ground cracks open as the rock tears out.
 	DebrisChunk.spawn_burst(get_parent(), Vector2(_pos.x, _ground_y), Color(0.5, 0.38, 0.22), 5, Vector2.UP, 200.0)
 	CombatVfx.spawn_burst(get_parent(), Vector2(_pos.x, _ground_y), Color(0.85, 0.62, 0.35, 0.8),
@@ -103,6 +112,10 @@ func _process(delta: float) -> void:
 		_prev_pos = _pos
 		_pos += _dir * FLIGHT_SPEED * delta
 		_traveled += FLIGHT_SPEED * delta
+		# Wake: keep the last few positions so _draw can taper dust behind it.
+		_trail.append(_prev_pos)
+		if _trail.size() > TRAIL_LENGTH:
+			_trail.remove_at(0)
 		var hit_pos: Vector2 = _pos
 		if _check_flight_collision(hit_pos):
 			_impact(_hit_point)
@@ -183,14 +196,32 @@ func _apply_impact_damage(at: Vector2) -> void:
 			proj.call("consume")
 
 
+## An irregular chunk, not a polygon. The old version spaced 7 verts evenly and
+## only jittered the radius, which reads as a slightly-dented heptagon — the
+## "flat brown hexagon" look. Jittering the ANGLES too gives uneven edge lengths,
+## which is what makes a silhouette read as broken rock.
 func _make_boulder(rad: float) -> PackedVector2Array:
 	var pts: PackedVector2Array = PackedVector2Array()
-	var n: int = 7
+	var n: int = 9
 	for i in n:
-		var a: float = TAU * float(i) / float(n)
-		var r: float = rad * randf_range(0.78, 1.12)
-		pts.append(Vector2.from_angle(a) * r)
+		var a: float = TAU * (float(i) + randf_range(-0.32, 0.32)) / float(n)
+		pts.append(Vector2.from_angle(a) * rad * randf_range(0.68, 1.15))
 	return pts
+
+
+## Two or three fissures across the chunk, in LOCAL space so they rotate with it.
+func _make_cracks(rad: float) -> Array[PackedVector2Array]:
+	var out: Array[PackedVector2Array] = []
+	for c in randi_range(2, 3):
+		var a: float = randf() * TAU
+		var start: Vector2 = Vector2.from_angle(a) * rad * randf_range(0.55, 0.95)
+		var line := PackedVector2Array([start])
+		var heading: float = a + PI + randf_range(-0.6, 0.6)
+		for seg in 3:
+			heading += randf_range(-0.5, 0.5)
+			line.append(line[line.size() - 1] + Vector2.from_angle(heading) * rad * randf_range(0.2, 0.4))
+		out.append(line)
+	return out
 
 
 func _draw() -> void:
@@ -199,27 +230,47 @@ func _draw() -> void:
 	if _shockwave_elapsed >= 0.0:
 		_draw_shockwave()
 		return
-	# Boulder body at _pos, rotated by _spin.
 	var rot: Transform2D = Transform2D(_spin, _pos)
-	var body: PackedVector2Array = PackedVector2Array()
-	var lit: PackedVector2Array = PackedVector2Array()
-	for i in _shape.size():
-		body.append(rot * _shape[i])
-	draw_colored_polygon(body, BODY_COLOR)
-	# Lit top edge (upper verts) + HDR rim highlight.
-	for i in _shape.size():
+	var n: int = _shape.size()
+	# 1) Dust TRAIL behind the rock — a tapering line of puffs along the recent
+	# path, so a thrown boulder leaves a wake instead of one smear circle.
+	for i in _trail.size():
+		var age: float = float(i + 1) / float(_trail.size())   # 1.0 = newest
+		draw_circle(_trail[i], BOULDER_R * (0.26 + 0.52 * age),
+			Color(DUST_TINT.r, DUST_TINT.g, DUST_TINT.b, DUST_TINT.a * age * 0.75),
+			true, -1.0, true)
+	# 2) Faceted body. Each rim edge gets its own quad running back to an inner
+	# cap, shaded by which way that facet points relative to the sun. Because the
+	# facets are built from the ROTATED verts, the shading tumbles with the rock —
+	# that turning light is what sells mass. A single flat fill with a painted-on
+	# highlight (the old draw) stays visually still no matter how fast it spins.
+	for i in n:
 		var a: Vector2 = rot * _shape[i]
-		var b: Vector2 = rot * _shape[(i + 1) % _shape.size()]
-		var mid: Vector2 = (a + b) * 0.5
-		if mid.y < _pos.y:  # upper-facing edge catches light
-			draw_line(a, b, LIT_COLOR, 2.0, true)
-			if mid.x < _pos.x:
-				draw_line(a, b, RIM_COLOR, 1.2, true)
-	# Inner facet for chunk read.
-	draw_circle(_pos, BOULDER_R * 0.34, Color(0.42, 0.3, 0.18), true, -1.0, true)
-	# Dust smear trailing opposite travel.
-	if _flying:
-		draw_circle(_pos - _dir * BOULDER_R * 0.8, BOULDER_R * 0.7, DUST_TINT, true, -1.0, true)
+		var b: Vector2 = rot * _shape[(i + 1) % n]
+		var ca: Vector2 = rot * (_shape[i] * CORE_SCALE)
+		var cb: Vector2 = rot * (_shape[(i + 1) % n] * CORE_SCALE)
+		var facing: Vector2 = ((a + b) * 0.5 - _pos).normalized()
+		var lam: float = clampf(facing.dot(LIGHT_DIR) * 0.5 + 0.5, 0.0, 1.0)
+		draw_colored_polygon(PackedVector2Array([ca, a, b, cb]),
+			SHADOW_COLOR.lerp(LIT_COLOR, lam * lam))
+	# 3) Inner cap — the flat top plane of the chunk.
+	var cap := PackedVector2Array()
+	for i in n:
+		cap.append(rot * (_shape[i] * CORE_SCALE))
+	draw_colored_polygon(cap, BODY_COLOR.lerp(LIT_COLOR, 0.28))
+	# 4) Fissures across the face.
+	for crack: PackedVector2Array in _cracks:
+		var world := PackedVector2Array()
+		for p: Vector2 in crack:
+			world.append(rot * p)
+		draw_polyline(world, CRACK_COLOR, 1.4, true)
+	# 5) HDR rim on the sun-facing silhouette edges — the only part that blooms,
+	# so the rock catches light without the whole mass glowing.
+	for i in n:
+		var a: Vector2 = rot * _shape[i]
+		var b: Vector2 = rot * _shape[(i + 1) % n]
+		if ((a + b) * 0.5 - _pos).normalized().dot(LIGHT_DIR) > 0.35:
+			draw_line(a, b, RIM_COLOR, 1.6, true)
 
 
 func _draw_shockwave() -> void:

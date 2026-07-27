@@ -95,7 +95,10 @@ func _detonate() -> void:
 	Juice.shake_camera(24.0)
 	Juice.zoom_punch_camera(0.14, 0.3)
 	Sfx.play("cannon", 2.0, 0.06)  # the convergence nova
-	Juice.impact_frame(1.4)  # the FINISHER beat — biggest impact frame
+	# The FINISHER beat — biggest impact frame in the kit. Localized on the nova:
+	# the convergence can land well off to one side, and a centre-screen whiteout
+	# would read as "the screen exploded" rather than "THAT exploded".
+	Juice.impact_frame(1.4, at)
 
 
 ## Big radiant nova spray at the point (holy character; scaled up for the finisher).

@@ -48,14 +48,26 @@ func _draw_frame() -> void:
 	var vp: Vector2 = _rect.size
 	var c: Vector2 = _convergence_point(vp)
 	var fade: float = 1.0 - u
-	# White flash that snaps in then falls off fast.
+	var diag: float = vp.length()
+	# White flash that snaps in then falls off fast. It is a RADIAL bloom centred
+	# on the hit, not a full-screen wash: a flat white rect ignores the
+	# convergence point entirely, so an explosion off to one side still whited
+	# out the middle of the screen and read as a UI glitch rather than as that
+	# thing detonating. Nested circles stack alpha toward the centre = falloff.
 	if u < 0.35:
 		var flash_a: float = (1.0 - u / 0.35) * _strength
-		_rect.draw_rect(Rect2(Vector2.ZERO, vp), Color(1.4, 1.4, 1.5, 0.45 * flash_a))
+		# A weak whole-screen lift keeps the "the world went white" concussion...
+		_rect.draw_rect(Rect2(Vector2.ZERO, vp), Color(1.4, 1.4, 1.5, 0.10 * flash_a))
+		# ...while the blowout itself sits ON the blast and expands with it.
+		var rings: int = 7
+		var peak: float = diag * 0.23 * (0.75 + 0.85 * u)
+		for i in rings:
+			var t: float = float(i) / float(rings - 1)   # 0 = outermost ring
+			_rect.draw_circle(c, peak * (1.0 - t * 0.86),
+				Color(1.4, 1.4, 1.5, 0.13 * flash_a), true, -1.0, true)
 	# Radial speed lines rushing inward from the edges toward the center.
 	var n: int = 44
 	var col: Color = Color(0.04, 0.04, 0.07, 0.8 * fade * _strength)
-	var diag: float = vp.length()
 	var inner: float = diag * (0.16 + 0.18 * u)
 	for i in n:
 		var a: float = TAU * float(i) / float(n) + sin(float(i) * 12.3) * 0.06
