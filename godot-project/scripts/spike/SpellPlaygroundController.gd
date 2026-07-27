@@ -384,6 +384,8 @@ func _kind_name(k: int) -> String:
 		SpellDef.Kind.TETHER: return "TETHER"
 		SpellDef.Kind.FLURRY: return "FLURRY"
 		SpellDef.Kind.BLINK_STRIKE: return "BLINK"
+		SpellDef.Kind.CRAWLER: return "CRAWLER"
+		SpellDef.Kind.THROWN_ANCHOR: return "ANCHOR"
 	return "SPELL"
 
 

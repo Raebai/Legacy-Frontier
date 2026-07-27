@@ -23,6 +23,8 @@ enum Pose {
 	CHANNEL,  ## Arms raised and HELD while power gathers. The long tell.
 	COIL,     ## Pulled tight to the chest, then released. Explosive, bodily.
 	LASH,     ## One arm whips out. Snappy, organic, asymmetric.
+	SWEEP,    ## Low crouch, trailing hand DRAGS the ground and flicks forward.
+	THROW,    ## Over-the-shoulder overhand with a step in. The whole mass commits.
 }
 
 
@@ -41,6 +43,10 @@ static func for_spell(kind: int) -> int:
 			return Pose.COIL        # mobility + melee ultimates come from the body
 		SpellDef.Kind.TETHER, SpellDef.Kind.CHAIN, SpellDef.Kind.MISSILES:
 			return Pose.LASH        # whips, arcs and streams flick off one hand
+		SpellDef.Kind.CRAWLER:
+			return Pose.SWEEP       # it peels off the FLOOR, so the hand must go there
+		SpellDef.Kind.THROWN_ANCHOR:
+			return Pose.THROW       # a thrown object wants weight behind it, not a flick
 		_:
 			return Pose.POINT       # beams and anything new: aimed two-handed thrust
 
@@ -60,5 +66,9 @@ static func duration(pose: int) -> float:
 			return 0.22   # snappy — mobility must not feel sticky
 		Pose.LASH:
 			return 0.18   # the flick is the whole gesture
+		Pose.SWEEP:
+			return 0.28   # long enough for the drag to read, short of a slam's commit
+		Pose.THROW:
+			return 0.20   # a dagger leaves the hand fast; the follow-through is after
 		_:
 			return 0.30

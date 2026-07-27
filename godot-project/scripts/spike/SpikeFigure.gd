@@ -429,10 +429,12 @@ func cast(dir: Vector2, pose: int = CastStyle.Pose.POINT) -> void:
 	if absf(d.x) > 0.15:
 		_facing = signf(d.x)
 	var throw_ang := _cast_arm_target(d)
+	var sx: float = signf(d.x) if d.x != 0.0 else _facing
 	# Kick the arms toward the pose's line. SLAM and COIL wind the opposite way
 	# first so the release has somewhere to travel from — anticipation is what
 	# makes a gesture read as force rather than teleporting into position.
 	var kick := 14.0
+	var body_shove := Vector2.ZERO   # poses that move the caster's MASS, not just arms
 	match pose:
 		CastStyle.Pose.SLAM:
 			throw_ang = -PI * 0.5          # arms go OVERHEAD; the drive-down is below
@@ -442,9 +444,24 @@ func cast(dir: Vector2, pose: int = CastStyle.Pose.POINT) -> void:
 			kick = 20.0
 		CastStyle.Pose.LASH:
 			kick = 26.0                    # one sharp flick, no anticipation
+		CastStyle.Pose.SWEEP:
+			# Hand starts LOW AND BEHIND so the drag has floor to cover. Sinking the
+			# torso as well is the point of the pose: the spell leaves at ground
+			# level, and a caster standing tall would look like it left the hands.
+			throw_ang = PI * 0.5 + 0.7 * sx
+			kick = 16.0
+			body_shove = Vector2(sx * 200.0, 900.0)
+		CastStyle.Pose.THROW:
+			# Over the shoulder: up and BACK, then the whole body steps through it.
+			# The step is what separates this from LASH's wrist flick.
+			throw_ang = -PI * 0.5 - 0.7 * sx
+			kick = 22.0
+			body_shove = Vector2(sx * 1500.0, -260.0)
+	if body_shove != Vector2.ZERO and _torso != null:
+		_torso.apply_central_impulse(body_shove)
 	for i in 2:
-		# LASH is asymmetric: only the lead arm whips, the other stays loose.
-		if pose == CastStyle.Pose.LASH and i != 0:
+		# LASH and THROW are asymmetric: only the lead arm works, the other trails.
+		if (pose == CastStyle.Pose.LASH or pose == CastStyle.Pose.THROW) and i != 0:
 			continue
 		var err := wrapf(throw_ang - _arm_ang[i], -PI, PI)
 		_arm_vel[i] += err * kick
@@ -959,14 +976,47 @@ func _ghost_line(parent: Node2D, pts: PackedVector2Array) -> void:
 	parent.add_child(ln)
 
 
+## One reflect attempt against a deflectable node. Spell spectacles park at the
+## arena origin and draw in world coordinates, so `global_position` is not where
+## they ARE — anything that wants to be parried reports its live point through
+## `deflect_point()`. Plain bolts, which really do live at their own transform,
+## fall back to it. Returns true when the window was spent on this node.
+func _try_reflect(n: Node, tp: Vector2) -> bool:
+	if not (n is Node2D) or not is_instance_valid(n):
+		return false
+	if _parry_window <= 0.0 or not n.has_method("reflect"):
+		return false
+	if n.get("_reflected") == true:
+		return false
+	var at: Vector2 = (n as Node2D).global_position
+	if n.has_method("deflect_point"):
+		at = n.call("deflect_point")
+	if tp.distance_to(at) > PARRY_REACH + 10.0:
+		return false
+	n.call("reflect", _parry_dir, PARRY_COLOR)
+	_parry_window = 0.0                      # one reflect per window
+	_parry_shell_t = PARRY_SHIELD_TIME       # shell flares fresh on the connect
+	_sfx("ding", 2.0, 0.02)                  # the whole payoff — crisp + loud
+	_spawn_wind_streaks(at, 7, _parry_dir, "hit")
+	parried.emit(at)
+	return true
+
+
 ## Incoming-bolt hookup: while the parry window is open, a hostile bolt inside the
 ## shield reach is REFLECTED toward the aim (ding + shell flourish + `parried`);
 ## otherwise a bolt that reaches the body connects (shove + burst). Dash i-frames
 ## let it pass clean through.
+##
+## Signature SPELLS that opted into the deflect layer are scanned too, but only
+## for the reflect half: their own selectors own damage, and a spell the figure
+## just cast is still sitting on top of it for the first frame.
 func _process_projectiles() -> void:
 	if _torso == null:
 		return
 	var tp: Vector2 = _torso.global_position
+	for s in get_tree().get_nodes_in_group("deflectable_spell"):
+		if _try_reflect(s, tp):
+			return
 	for p in get_tree().get_nodes_in_group("enemy_projectile"):
 		if not (p is Node2D) or not is_instance_valid(p):
 			continue
@@ -974,13 +1024,7 @@ func _process_projectiles() -> void:
 			continue                                 # already ours — flying back out
 		var pp: Vector2 = (p as Node2D).global_position
 		var d := tp.distance_to(pp)
-		if _parry_window > 0.0 and d <= PARRY_REACH + 10.0 and p.has_method("reflect"):
-			p.call("reflect", _parry_dir, PARRY_COLOR)
-			_parry_window = 0.0                      # one reflect per window
-			_parry_shell_t = PARRY_SHIELD_TIME       # shell flares fresh on the connect
-			_sfx("ding", 2.0, 0.02)                  # the whole payoff — crisp + loud
-			_spawn_wind_streaks(pp, 7, _parry_dir, "hit")
-			parried.emit(pp)
+		if _try_reflect(p, tp):
 			return
 		if d <= BOLT_HIT_RADIUS and not is_dashing:
 			var dirv := (tp - pp).normalized()
@@ -1065,6 +1109,32 @@ func _update_arms(torso: RigidBody2D, delta: float) -> void:
 						damp = ARM_DAMP * 0.9
 				_:
 					target = _cast_ang + side * 0.13        # POINT: two-handed thrust
+			# SWEEP and THROW hold their shape after the match: both need per-side
+			# asymmetry, and nesting that inside the shared table above made the
+			# common poses harder to read than they are worth.
+			if _cast_pose == CastStyle.Pose.SWEEP:
+				# The hand stays DOWN for the whole window and drags from behind to
+				# in front — the arc never leaves ground level, which is the read
+				# that separates "I sent something along the floor" from SLAM's "I
+				# hit the floor". Still low on release: lifting at the end would put
+				# the spell back in the hands.
+				var sweep: float = smoothstep(0.15, 0.9, prog)
+				target = PI * 0.5 + lerpf(0.7, -0.62, sweep) * _facing + side * 0.12
+				stiff = ARM_STIFF * (2.0 + 2.6 * sweep)   # accelerates into the flick
+				damp = ARM_DAMP * 1.2
+			elif _cast_pose == CastStyle.Pose.THROW:
+				# Overhand: the lead arm whips from over the shoulder THROUGH the aim
+				# and keeps going, so the release reads as a follow-through instead of
+				# a stop. The off arm counter-swings to sell the shoulder turn.
+				if side > 0.0:
+					var whip: float = smoothstep(0.1, 0.7, prog)
+					target = lerpf(-PI * 0.5 - 0.7 * _facing, _cast_ang + 0.45 * _facing, whip)
+					stiff = ARM_STIFF * (2.2 + 3.4 * whip)
+					damp = ARM_DAMP * 1.1
+				else:
+					target = _cast_ang + PI * 0.75
+					stiff = ARM_STIFF * 0.7
+					damp = ARM_DAMP * 0.8
 		elif is_dashing:
 			# Arms SWEPT BACK along the dash line — the classic burst silhouette. Stiff
 			# so they commit for the whole 0.14 s instead of flailing through it.

@@ -405,6 +405,9 @@ const SUMMON_WINDUP_FAST: float = 0.22  # rush / blink — keep the mobility sna
 const SUMMON_NORMAL: int = 0
 const SUMMON_RUSH: int = 1
 const SUMMON_BLINK: int = 2
+## load()ed by path, never class_name: this file is compiled by headless tools
+## that have no autoloads, and RiftDagger touches Sfx/Juice at parse time.
+const RIFT_DAGGER_PATH: String = "res://scripts/combat/RiftDagger.gd"
 var _summoning: bool = false
 var _summon_timer: float = 0.0
 var _summon_total: float = 0.0
@@ -907,9 +910,18 @@ func current_class_name() -> String:
 ## MP allows. Consumes the SpellDef's mp_cost; SpellCaster picks the spectacle
 ## (magic-circle beam / divine ray / ...). Not buffered — a deliberate press.
 func _cast_signature() -> void:
-	if _signatures.is_empty() or _signature_cd_timer > 0.0:
+	if _signatures.is_empty():
 		return
 	var spell: SpellDef = _signatures[_signature_index]
+	# Second beat of a THROWN_ANCHOR: with a dagger already out, this press means
+	# RECALL, and it must be free. This branch has to sit ABOVE both gates below —
+	# the cooldown is running from the throw, and charging mana again would bill
+	# the player twice for one cast.
+	if spell.kind == SpellDef.Kind.THROWN_ANCHOR \
+			and (load(RIFT_DAGGER_PATH) as GDScript).try_recall(get_tree(), self):
+		return
+	if _signature_cd_timer > 0.0:
+		return
 	if mp < float(spell.mp_cost):
 		# Not enough mana: a soft fizzle cue, no cast, no cooldown burned.
 		rig.flash_color(Color(0.5, 0.5, 0.6), 0.08)
@@ -1016,7 +1028,10 @@ func _finish_summon() -> void:
 			rig.set_aim(Vector2.UP if sky else aim)
 			rig.play(CharacterRig.State.CAST)
 			var origin: Vector2 = global_position if sky else rig.get_weapon_tip()
-			SpellCaster.cast(spell, get_parent(), origin, target, _element_color, spell.effect)
+			# `self` is passed on the plain path too now: a deferred-resolution
+			# spell (Rift Dagger) needs to know whose anchor it is, and the arg is
+			# ignored by every kind that doesn't move or own the caster.
+			SpellCaster.cast(spell, get_parent(), origin, target, _element_color, spell.effect, self)
 			_self_recoil(110.0)  # the ultimate shoves you back
 	_notify_element_used()
 	# THE PAYOFF — the crescendo after the anticipation. Blink already flashes, so
@@ -1789,12 +1804,28 @@ func class_display_name() -> String:
 	return CLASS_NAMES[_hero_class] if _hero_class < CLASS_NAMES.size() else "Class"
 
 
+## Start the signature cooldown from OUTSIDE. A deferred-resolution spell (the
+## Rift Dagger) only "completes" when its anchor resolves or expires, so it — not
+## _cast_signature — decides when the timer starts. maxf, never assign: it must
+## not be able to SHORTEN a timer that is already running.
+func start_signature_cooldown(seconds: float) -> void:
+	_signature_cd_timer = maxf(_signature_cd_timer, seconds)
+
+
 ## Hotbar slot for the equipped signature: short name (first word of the spell),
 ## the Ultimate key, its cooldown wipe, and dimmed when mana can't cover it.
+##
+## With a live rift anchor out, the slot changes MEANING rather than gaining a
+## second binding — so the bar shows RECALL, ready, for as long as the press
+## would recall. AbilityBar renders from this dictionary alone, so nothing on the
+## UI side needs to know the spell has two beats.
 func _signature_hud_slot() -> Dictionary:
 	var sig: SpellDef = current_signature()
 	if sig == null:
 		return {"name": "Ult", "key": "G", "remaining": 0.0, "total": 0.0, "enabled": false}
+	if sig.kind == SpellDef.Kind.THROWN_ANCHOR \
+			and (load(RIFT_DAGGER_PATH) as GDScript).find_anchor(get_tree(), self) != null:
+		return {"name": "RECALL", "key": "G", "remaining": 0.0, "total": 0.01, "enabled": true}
 	var short_name: String = sig.display_name.split(" ")[0]
 	return {
 		"name": short_name, "key": "G",

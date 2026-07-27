@@ -7,6 +7,7 @@ extends SceneTree
 
 const HERO_SCENE_PATH: String = "res://scenes/combat/Hero.tscn"
 const PROJ_SCRIPT_PATH: String = "res://scripts/combat/EnemyProjectile.gd"
+const DAGGER_PATH: String = "res://scripts/combat/RiftDagger.gd"
 const ROGUE: int = 1  # Hero.HeroClass.ROGUE
 const MAGE: int = 0   # Hero.HeroClass.MAGE
 
@@ -32,6 +33,7 @@ func _process(_delta: float) -> bool:
 	failed += _test_mage_can_parry_too()
 	failed += _test_no_window_takes_hit()
 	failed += _test_reflected_bolt_hits_enemy()
+	failed += _test_parried_dagger_severs_anchor()
 	if failed > 0:
 		printerr("Slice3 parry tests: %d FAILED" % failed)
 		quit(1)
@@ -110,4 +112,32 @@ func _test_reflected_bolt_hits_enemy() -> int:
 	var hit: bool = proj._check_hit()
 	failed += _expect(hit, "reflected bolt strikes an enemy")
 	failed += _expect(enemy.damage_taken > 0, "reflected bolt deals damage to the enemy")
+	return failed
+
+
+## The Rift Dagger is the first SIGNATURE spell in the parry layer, and its
+## deflect does more than turn the blade around: clearing the owner SEVERS the
+## anchor, so the thrower's recall press finds nothing. That cancellation is the
+## counterplay the spell is balanced around, so it is worth pinning down.
+func _test_parried_dagger_severs_anchor() -> int:
+	var failed: int = 0
+	var thrower := Node2D.new()
+	root.add_child(thrower)
+	thrower.global_position = Vector2(5000, 5000)
+	var dagger: Node2D = (load(DAGGER_PATH) as GDScript).new()
+	root.add_child(dagger)
+	dagger.call("throw_dagger", thrower, Vector2(5000, 5000), Vector2.RIGHT,
+		Color.WHITE, 700.0, 70.0, 34, 4.0, 4.5, "shadow")
+	failed += _expect(dagger.get("_target_group") == "enemy", "a thrown dagger hunts enemies")
+	failed += _expect(
+		(load(DAGGER_PATH) as GDScript).find_anchor(get_root().get_tree(), thrower) == dagger,
+		"a live dagger is findable as its thrower's anchor")
+	dagger.call("reflect", Vector2.LEFT, Color.WHITE)
+	failed += _expect(dagger.get("_reflected") == true, "a parried dagger is marked reflected")
+	failed += _expect(dagger.get("_dir").x < 0.0, "a parried dagger flies back the other way")
+	failed += _expect(dagger.get("_target_group") == "hero", "a parried dagger now hunts heroes")
+	failed += _expect(dagger.get("_owner") == null, "a parried dagger's anchor is SEVERED")
+	failed += _expect(
+		(load(DAGGER_PATH) as GDScript).find_anchor(get_root().get_tree(), thrower) == null,
+		"the thrower can no longer recall to a parried dagger")
 	return failed

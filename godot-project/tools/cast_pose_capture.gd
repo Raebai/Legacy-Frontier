@@ -44,6 +44,8 @@ func _run() -> void:
 		[CastStyle.Pose.CHANNEL, "channel"],
 		[CastStyle.Pose.COIL, "coil"],
 		[CastStyle.Pose.LASH, "lash"],
+		[CastStyle.Pose.SWEEP, "sweep"],
+		[CastStyle.Pose.THROW, "throw"],
 	]:
 		await _shoot(int(pose[0]), String(pose[1]))
 	quit(0)

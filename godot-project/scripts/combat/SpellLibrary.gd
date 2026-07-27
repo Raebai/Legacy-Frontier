@@ -20,8 +20,10 @@ static func build_for_class(class_id: int) -> Array:
 	match class_id:
 		0:  # ARCANIST — arcane (keep the canonical Zoltraak beam; rune-orbs replace the meteor-clone)
 			return [_zoltraak(), _rune_orbs()]
-		1:  # SHADOWBLADE — shadow (mobility+burst: teleport-strike + blade flurry, NOT beams)
-			return [_blink_strike(), _blade_flurry()]
+		1:  # SHADOWBLADE — shadow (mobility+burst: teleport-strike + blade flurry,
+			# plus the two new shapes — the class was otherwise all-melee and had
+			# no way to threaten anything it could not already touch)
+			return [_blink_strike(), _blade_flurry(), _creeping_shade(), _rift_dagger()]
 		2:  # BRAWLER — lightning (Chidori) + fire
 			return [_chidori(), _infernal_lance()]
 		3:  # JUGGERNAUT — earth (the full earthbending kit: throw / pillar / wall + legacy ults)
@@ -68,6 +70,8 @@ static func build_all() -> Array:
 		_void_zone(), _blizzard(), _drain_tether(),
 		# WALLS (barriers)
 		_rock_wall(), _ice_wall(),
+		# NEW DELIVERY SHAPES (floor traveller + thrown anchor)
+		_creeping_shade(), _rift_dagger(),
 	]
 
 
@@ -333,6 +337,60 @@ static func _blizzard() -> SpellDef:
 	s.radius = 135.0
 	s.reach = 300.0
 	s.length = 4.2  # field lifetime
+	return s
+
+
+## CREEPING SHADE — Shadowblade third signature. A shadow peels off the caster's
+## feet and RACES ALONG THE FLOOR, hugging terrain, until it reaches a body — then
+## it rears into a spike and launches them. Passes UNDER walls; dies in pits.
+##
+## `reach` is the travel BUDGET (not a distance to the cursor — the strike point
+## is emergent) and `radius` the catch half-width. cast_time stays 0 so it goes
+## through the summon path: the levitating channel would lift the caster off the
+## floor the spell is supposed to leave from.
+static func _creeping_shade() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "creeping_shade"
+	s.display_name = "Creeping Shade"
+	s.description = "Peel your own shadow off the ground and send it racing along "\
+		+ "the floor — it follows every slope, slips under walls, and SPIKES the "\
+		+ "first thing it reaches into the air. Jump it or wear it."
+	s.kind = SpellDef.Kind.CRAWLER
+	s.element = Elements.Element.SHADOW
+	s.use_element_color = true
+	s.effect = "shadow"
+	s.mp_cost = 52
+	s.cooldown = 5.5
+	s.damage = 60
+	s.reach = 620.0
+	s.radius = 26.0
+	return s
+
+
+## RIFT DAGGER — Shadowblade / Arcanist. Throw a dagger that sticks where it lands
+## (wall, crate, or a body that walks away with it); press again to TEAR yourself
+## through to it. Two beats, one button.
+##
+## Damage is deliberately low on BOTH halves: this is a positioning tool, and a
+## teleport that also killed would make the second beat automatic. `length` is the
+## anchor lifetime (the same double-duty ZONE already gives it), and the cooldown
+## does not start until the anchor resolves.
+static func _rift_dagger() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "rift_dagger"
+	s.display_name = "Rift Dagger"
+	s.description = "Hurl a dagger down the aim — it sticks in whatever it reaches. "\
+		+ "Press again and the rift tears you through to it, bursting on arrival."
+	s.kind = SpellDef.Kind.THROWN_ANCHOR
+	s.element = Elements.Element.SHADOW
+	s.use_element_color = true
+	s.effect = "shadow"
+	s.mp_cost = 46
+	s.cooldown = 4.5
+	s.damage = 34
+	s.reach = 700.0
+	s.radius = 70.0
+	s.length = 4.0
 	return s
 
 

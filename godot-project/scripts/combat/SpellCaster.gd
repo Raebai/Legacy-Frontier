@@ -25,6 +25,8 @@ const TETHER_PATH: String = "res://scripts/combat/DrainTether.gd"
 const FLURRY_PATH: String = "res://scripts/combat/BladeFlurry.gd"
 const BLINK_PATH: String = "res://scripts/combat/BlinkStrike.gd"
 const SHADOW_ROOT_PATH: String = "res://scripts/combat/ShadowRoot.gd"
+const CRAWLER_PATH: String = "res://scripts/combat/ShadowCrawler.gd"
+const DAGGER_PATH: String = "res://scripts/combat/RiftDagger.gd"
 
 
 ## Cast `spell` from `caster_pos` toward `target_pos`, parented under `arena`.
@@ -204,6 +206,30 @@ static func cast(
 			arena.add_child(fl)
 			fl.set("element_id", elem)
 			fl.call("flurry", caster_pos, aim.normalized(), col, spell.damage, spell.count, fx)
+			return true
+		SpellDef.Kind.CRAWLER:
+			# A ground-hugging traveller launched from the caster's feet along the
+			# aim. Nothing is clamped to reach here (unlike every placed spell
+			# above): the strike point is EMERGENT, and `reach` is the crawler's own
+			# travel budget rather than a distance to the cursor.
+			var cr: Node2D = (load(CRAWLER_PATH) as GDScript).new()
+			arena.add_child(cr)
+			cr.set("element_id", elem)
+			cr.call("crawl", caster_pos, aim.normalized(), col, spell.reach,
+				spell.radius, spell.damage, fx)
+			Juice.zoom_pull_camera(0.10, 0.5, 0.12, 0.5)
+			return true
+		SpellDef.Kind.THROWN_ANCHOR:
+			# One button, two beats: with a live anchor out, the press means RECALL.
+			# Doing it here rather than only in Hero means every caster — playground
+			# figure, bots, a future co-op peer — gets the second beat for free.
+			if (load(DAGGER_PATH) as GDScript).try_recall(arena.get_tree(), caster):
+				return true
+			var dg: Node2D = (load(DAGGER_PATH) as GDScript).new()
+			arena.add_child(dg)
+			dg.set("element_id", elem)
+			dg.call("throw_dagger", caster, caster_pos, aim.normalized(), col,
+				spell.reach, spell.radius, spell.damage, spell.length, spell.cooldown, fx)
 			return true
 		_:
 			# Any unbuilt kind: safe no-op until its scene exists.
