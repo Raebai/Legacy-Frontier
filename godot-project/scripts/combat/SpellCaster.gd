@@ -54,6 +54,10 @@ static func cast(
 			var beam: Node2D = (load(BEAM_PATH) as GDScript).new()
 			arena.add_child(beam)
 			beam.set("element_id", elem)
+			# Caster identity for the reaction layer: two beams from the SAME
+			# caster inside the combo window fuse (Hollow Purple's self-combo
+			# row); two casters' beams meeting is a separate, rarer row.
+			beam.set("caster_node", caster)
 			beam.fire(caster_pos, aim.normalized(), col, spell.length, spell.width, spell.damage, fx)
 			return true
 		SpellDef.Kind.DIVINE_RAY:

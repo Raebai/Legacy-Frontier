@@ -48,9 +48,18 @@ var _damage: int = DEFAULT_DAMAGE
 var _effect: String = "arcane"
 var _elapsed: float = -1.0     # < 0 = not fired yet
 var _fired: bool = false       # damage/juice applied once at end of charge
+## SEIZED by a reaction (Hollow Purple's first beat): the timeline is pinned so
+## the beam stays drawn exactly where it was and does nothing else. A single
+## early-return, deliberately — the worst a bug here can do is make a beam
+## LINGER, never damage twice.
+var _frozen: bool = false
 var _circle: MagicCircle = null
 ## Elemental ailment (Elements.Element) applied to enemies the beam hits. -1=none.
 var element_id: int = -1
+## Who cast this. Set by SpellCaster; drives the reaction layer's SAME-OWNER
+## rules, which is how one caster combines two of their own spells. Not `owner`:
+## that name is already Node's scene-ownership property.
+var caster_node: Node = null
 
 
 ## Public entry: charge at `origin`, then fire a beam of `length`/`width` along
@@ -89,7 +98,62 @@ func fire(
 	# so it fades naturally after we free.
 	_charge_burst()
 	Sfx.play("cast", -2.0, 0.05)
+	# Join the reaction system. Registering during the CHARGE is correct:
+	# reaction_active() keeps the beam inert until it actually fires, so two
+	# beams cannot annihilate while they are still only telegraphs.
+	var reactor: Node = get_node_or_null(^"/root/SpellReactor")
+	if reactor != null:
+		reactor.call(&"register", self, ReactionTable.Form.BEAM, element_id)
 	queue_redraw()
+
+
+func _exit_tree() -> void:
+	var reactor: Node = get_node_or_null(^"/root/SpellReactor")
+	if reactor != null:
+		reactor.call(&"unregister", self)
+
+
+# --- reaction contract (see SpellReactor) -----------------------------------
+
+## World-space geometry, built from `_origin` — NOT from global_position, which
+## is (0, 0) because this node draws in world coordinates. Width matches the
+## damage corridor (`_apply_beam_damage`'s half-width, doubled).
+func reaction_shape() -> Dictionary:
+	return SpellGeometry.capsule(_origin, _beam_tip(), _width + 16.0)
+
+
+## LOAD-BEARING: false during the CHARGE_TIME telegraph, so two beams cannot
+## annihilate while they are still only telegraphs. True for the beam's whole
+## VISIBLE life — the held shot plus its fade — which is also what sets the
+## self-combo window: two beams cast within ~0.48 s of each other are live at
+## the same moment and can fuse. Deliberate double-tap, never an accident.
+func reaction_active() -> bool:
+	return _fired and not _frozen and _elapsed < CHARGE_TIME + FIRE_TIME + FADE_TIME
+
+
+func reaction_element() -> int:
+	return element_id
+
+
+func reaction_form() -> int:
+	return ReactionTable.Form.BEAM
+
+
+func reaction_owner() -> Node:
+	return caster_node
+
+
+## Pinned in place: still drawn at its current intensity, doing nothing.
+func reaction_freeze() -> void:
+	_frozen = true
+
+
+## Spent by a reaction. Dismiss the muzzle sigil and go, WITHOUT the normal
+## end-of-life beat — the beam did not land, it was eaten.
+func reaction_consume() -> void:
+	if _circle != null and is_instance_valid(_circle):
+		_circle.vanish(0.12)
+	queue_free()
 
 
 ## Muzzle-gather particles, per effect: frost = fast sharp shards that snap to
@@ -134,7 +198,7 @@ func _charge_burst() -> void:
 
 
 func _process(delta: float) -> void:
-	if _elapsed < 0.0:
+	if _elapsed < 0.0 or _frozen:
 		return
 	_elapsed += delta
 	if not _fired and _elapsed >= CHARGE_TIME:

@@ -81,6 +81,97 @@ const CAST_TIME := 0.3          # brief two-handed channel pose (Phase 2 windups
 const BOLT_HIT_RADIUS := 17.0   # unparried incoming bolt connects at this range
 const CRAWL_FACTOR := 0.34      # prone crawl speed as a fraction of walk speed
 const PUNCH_TIME := 0.22
+const PUNCH_REACH := 96.0       # bare-fist connect range the sandbox reads back
+const PUNCH_DAMAGE := 22
+
+# ---- HELD WEAPONS ----
+# STICKS STAY STICKS: the weapon is an overlay gripped in the sprung hand and
+# carried by the arm's own solved angle. The silhouette stays a stick figure.
+#
+# The art is drawn PROCEDURALLY (see _weapon_shapes), NOT from the PixelLab
+# EQUIP_TEX pieces the shipped CharacterRig uses. That was tried first and judged
+# from renders: at the playground's 0.55 zoom the pixel sprites collapse into dark
+# smears, and a detailed pixel-art object bolted onto a clean flat-vector stickman
+# reads as two different drawings. These shapes are Stick-Fight-shaped instead —
+# bold flat fills, a thick dark keyline, no interior detail, stroke weights matched
+# to the rig's own LIMB_W — so the weapon looks like part of the same character and
+# is identifiable from its outline alone at small size.
+#
+# There is NO canned swing animation. Stick Fight's melee is a DRAG: the blade is
+# a physical thing being hauled around by the arm, so the motion is whatever the
+# spring solver produces while you pull the aim across the screen. Whip the cursor
+# and you get a wild fast sweep; ease it over and you get a slow menacing drag.
+# Damage comes from the blade's SWEPT PATH between physics frames and scales with
+# how fast the steel is actually travelling (see _process_blade) — a sword resting
+# against someone does nothing at all.
+# Per-entry fields:
+#   len    — fist-to-tip length in px; the damaging blade line and the art's own
+#            geometry are both authored against it (the rig stands ~90 px, so a
+#            sword reading at ~48 px of steel is right)
+#   HEFT — the whole feel of the drag lives in these four springs. High stiffness +
+#   high damping = a light blade that snaps to the cursor (dagger). Low stiffness +
+#   low damping = a heavy head that takes time to get moving and then keeps going,
+#   overshooting the aim (hammer). This is the ONLY thing that makes weapons feel
+#   different to hold, so it is tuned per weapon rather than derived from length.
+#   dstiff/ddamp   — upper-arm spring while dragging
+#   fstiff/fdamp   — forearm (wrist) spring while dragging; lower = more blade whip
+#   flick  — spring impulse a CLICK injects, for a snap-slash without a cursor drag
+#   hold   — how long a click keeps the drag alive on its own
+#   cd     — click cooldown
+#   lunge  — multiplier on the body's shove when clicked
+#   dmg    — damage at BLADE_REF_SPEED; scaled by real blade speed at contact
+#   trail  — colour of the blade-path smear
+const WEAPONS: Dictionary = {
+	"sword": {
+		"len": 48.0, "bulk": 5.5, "dstiff": 260.0, "ddamp": 10.0, "fstiff": 200.0, "fdamp": 9.0,
+		"flick": 17.0, "hold": 0.18, "cd": 0.20, "lunge": 0.85,
+		"dmg": 30, "pitch": 1.0, "trail": Color(0.86, 0.94, 1.0),
+	},
+	"dagger": {
+		"len": 28.0, "bulk": 4.0, "dstiff": 380.0, "ddamp": 15.0, "fstiff": 300.0, "fdamp": 12.0,
+		"flick": 22.0, "hold": 0.12, "cd": 0.12, "lunge": 0.6,
+		"dmg": 15, "pitch": 1.35, "trail": Color(0.92, 0.96, 1.0),
+	},
+	"staff": {
+		"len": 58.0, "bulk": 8.0, "dstiff": 150.0, "ddamp": 6.5, "fstiff": 110.0, "fdamp": 6.0,
+		"flick": 15.0, "hold": 0.22, "cd": 0.26, "lunge": 1.0,
+		"dmg": 24, "pitch": 0.92, "trail": Color(0.60, 0.94, 1.0),
+	},
+	"hammer": {
+		"len": 50.0, "bulk": 15.0, "dstiff": 88.0, "ddamp": 3.4, "fstiff": 70.0, "fdamp": 3.2,
+		"flick": 13.0, "hold": 0.30, "cd": 0.34, "lunge": 1.5,
+		"dmg": 44, "pitch": 0.70, "trail": Color(1.0, 0.86, 0.66),
+	},
+	"greatsword": {
+		"len": 66.0, "bulk": 7.5, "dstiff": 104.0, "ddamp": 4.2, "fstiff": 84.0, "fdamp": 4.0,
+		"flick": 14.0, "hold": 0.26, "cd": 0.30, "lunge": 1.35,
+		"dmg": 40, "pitch": 0.80, "trail": Color(0.90, 0.92, 1.0),
+	},
+}
+## Cycle order for the sandbox. "" = bare fists (the original punch, untouched).
+const WEAPON_ORDER: Array = ["", "sword", "dagger", "staff", "hammer", "greatsword"]
+const TRAIL_POINTS := 14        # blade-tip samples kept for the motion smear
+const TRAIL_FADE := 0.16        # how long the smear lingers once the blade slows
+## Blade speed (px/s, measured at the tip) below which the steel is just being
+## carried — no smear, no damage. A sword left touching someone is not an attack.
+const BLADE_MIN_SPEED := 260.0
+## Speed a solid slash travels at; damage is scaled against this and capped at 1.5x
+## so a frantic cursor whip is strong but not a one-frame execution.
+const BLADE_REF_SPEED := 1100.0
+const BLADE_HIT_PAD := 26.0     # target half-width the swept path has to reach
+const BLADE_HIT_CD := 0.26      # per-target re-hit cooldown (no per-frame shredding)
+## Stick-Fight weapon palette: a handful of bold flats and one dark keyline. The
+## keyline is what makes the weapon belong to the same drawing as the stickman.
+const KEYLINE := Color(0.06, 0.06, 0.09)
+const KEY_W := 3.4              # keyline stroke, sized against the rig's LIMB_W 5.5
+const STEEL := Color(0.82, 0.86, 0.92)
+const WOOD := Color(0.42, 0.28, 0.19)
+const GOLD := Color(0.86, 0.68, 0.28)
+const GEM := Color(0.42, 0.92, 1.0)
+## How far the weapon is cocked up off the arm line while carried at rest. Applied
+## as -_facing * CARRY_TILT, so the two facings are mirror images of one pose.
+const CARRY_TILT := 1.95
+
 const NECK_Y := -14.0           # torso top (head blob sits just above)
 const SHOULDER_OFF := Vector2(0, -10)   # arms emerge a bit below the neck (clean round head)
 const SHOULDER_DX := 0.5                # arms leave from the torso CENTER line (single-stroke shoulder)
@@ -125,6 +216,11 @@ var ctrl_jump := false
 var ctrl_duck := false
 var ctrl_aim := Vector2.ZERO
 var ctrl_aim_hold := false      # LMB held → arms track the cursor
+## "Use what you are holding" HELD DOWN, for an armed figure: the blade is dragged
+## toward ctrl_aim for as long as this is true. Left as its own flag (rather than
+## reusing ctrl_aim_hold) so the controller can bind it explicitly; either one
+## opens the drag, so a sandbox that only sets ctrl_aim_hold still works.
+var ctrl_weapon_drag := false
 var dead := false
 
 var _parts := {}               # {"torso": RigidBody2D} — controller compat
@@ -138,6 +234,7 @@ var _wj_lock := 0.0           # input-lockout timer after a wall-jump
 var _clinging := false        # gripping a wall this frame (airborne + pressing into it)
 var _wall_dust_t := 0.0       # wall-slide dust cadence
 var _arm_line: Array = []       # two Line2D (drawn in front of the torso)
+var _hand := [Vector2.ZERO, Vector2.ZERO]   # solved hand positions (weapon grip point)
 var _facing := 1.0
 var _arm_ang := [0.0, 0.0]       # sprung upper-arm world angles
 var _arm_vel := [0.0, 0.0]
@@ -194,6 +291,25 @@ var _parry_cd := 0.0
 var _parry_shell_t := 0.0
 var _parry_dir := Vector2.RIGHT
 
+# weapon state
+var _weapon := ""               # "" = bare fists; otherwise a WEAPONS key
+var _wep_art: Node2D            # procedural weapon shapes, parked at the fist
+var _wep_trail: Line2D          # additive smear tracing the blade tip as it drags
+## 1 = carried at rest (weapon cocked up out of the ground), 0 = in line with the
+## arm for the drag. Eased, so readying the weapon is a lift rather than a snap.
+var _carry := 1.0
+var _drag_hold := 0.0           # a click keeps the drag alive this long on its own
+var _blade_a := Vector2.ZERO    # this frame's blade line (grip -> tip)
+var _blade_b := Vector2.ZERO
+var _blade_pa := Vector2.ZERO   # last frame's blade line — the pair sweeps a quad
+var _blade_pb := Vector2.ZERO
+var _blade_live := false        # the blade line is valid (populated for >= 1 frame)
+var _blade_speed := 0.0         # tip speed px/s — the thing damage scales on
+var _blade_travel := Vector2.ZERO
+var _blade_cd := {}             # instance_id -> per-target re-hit cooldown
+var _trail_pts: PackedVector2Array = PackedVector2Array()
+var _trail_life := 0.0
+
 # cast state
 var _cast_timer := 0.0
 var _cast_ang := 0.0
@@ -206,6 +322,8 @@ static var _streak_curve: Curve = null
 
 signal punched(dir: Vector2)
 signal casting(dir: Vector2)
+## The dragged blade's swept path cut something. `damage` is already speed-scaled.
+signal blade_hit(target: Node, world_pos: Vector2, dir: Vector2, damage: int)
 signal parried(world_pos: Vector2)   # a bolt was deflected — controller adds the camera juice
 
 
@@ -270,6 +388,35 @@ func _build() -> void:
 		add_child(ln)
 		_arm_line.append(ln)
 
+	_build_weapon_nodes()
+
+
+## The held-gear layer. Added AFTER the arm lines so the weapon reads as being in
+## FRONT of the fist rather than buried behind the forearm stroke, and the trail
+## last of all so the arc glows over everything it sweeps past.
+func _build_weapon_nodes() -> void:
+	# The weapon lives in its OWN local frame: +X runs from the fist to the tip, so
+	# every shape is authored once and the only thing that ever changes is this
+	# node's position (the fist) and rotation (the arm's angle). Nothing is ever
+	# mirrored by a negative scale — a scale flip on a node that also carries a
+	# rotation reverses the rotation's handedness, which is exactly how a blade
+	# that points up-and-forward facing right ends up pointing down into the floor
+	# facing left. Facing is already baked into the arm angle we read.
+	_wep_art = Node2D.new()
+	_wep_art.visible = false
+	add_child(_wep_art)
+
+	_wep_trail = Line2D.new()
+	_wep_trail.width = 9.0
+	_wep_trail.width_curve = _streak_width_curve()
+	_wep_trail.material = _streak_material()
+	_wep_trail.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	_wep_trail.end_cap_mode = Line2D.LINE_CAP_ROUND
+	_wep_trail.joint_mode = Line2D.LINE_JOINT_ROUND
+	_wep_trail.visible = false
+	add_child(_wep_trail)
+	_apply_weapon()
+
 
 func _capsule_col(radius: float, height: float, off: Vector2) -> CollisionShape2D:
 	var c := CollisionShape2D.new()
@@ -317,30 +464,380 @@ func configure(k: Dictionary) -> void:
 		_torso.gravity_scale = grav_scale
 
 
+# ---- weapons ----
+
+## Put a weapon in the figure's hand. `kind` is a WEAPONS key, or "" for bare
+## fists (which keeps the original punch untouched). Safe to call before _ready().
+func set_weapon(kind: String) -> void:
+	_weapon = kind if WEAPONS.has(kind) else ""
+	_trail_pts = PackedVector2Array()
+	_trail_life = 0.0
+	_blade_live = false          # no swept quad across a weapon swap (it would be a teleport)
+	_blade_speed = 0.0
+	_blade_cd.clear()
+	_carry = 1.0                 # a fresh weapon starts carried, not readied
+	_apply_weapon()
+
+
+func weapon() -> String:
+	return _weapon
+
+
+## Step through WEAPON_ORDER (fists included) and return the new kind — the
+## sandbox's review affordance.
+func cycle_weapon(step: int) -> String:
+	var idx: int = WEAPON_ORDER.find(_weapon)
+	if idx < 0:
+		idx = 0
+	set_weapon(WEAPON_ORDER[(idx + step + WEAPON_ORDER.size()) % WEAPON_ORDER.size()])
+	return _weapon
+
+
+## How far the figure can actually touch something: a fist is the arm, a weapon is
+## the arm plus the steel past the fist. Reported so a consumer never has to guess
+## a range constant.
+func melee_reach() -> float:
+	if _weapon == "":
+		return PUNCH_REACH
+	var w := _wep()
+	return UARM_LEN + FARM_LEN + float(w["len"])
+
+
+## Damage at BLADE_REF_SPEED. What actually lands is this scaled by how fast the
+## blade was moving (see _blade_damage).
+func melee_damage() -> int:
+	return int(_wep().get("dmg", PUNCH_DAMAGE)) if _weapon != "" else PUNCH_DAMAGE
+
+
+## True while the blade is being hauled around — the armed figure's attack state.
+func is_dragging() -> bool:
+	return _weapon != "" and not dead and (ctrl_weapon_drag or ctrl_aim_hold or _drag_hold > 0.0)
+
+
+## Live tip speed in px/s, for anything that wants to react to a real slash.
+func blade_speed() -> float:
+	return _blade_speed
+
+
+func _wep() -> Dictionary:
+	return WEAPONS.get(_weapon, {}) as Dictionary
+
+
+## Rebuild the weapon's procedural shapes. Called on every set_weapon; the art is
+## static geometry in the weapon's local frame, so it is built once per swap and
+## then only moved by _update_weapon.
+func _apply_weapon() -> void:
+	if _wep_art == null:
+		return                                  # called before _build — reapplied there
+	for c in _wep_art.get_children():
+		c.queue_free()
+	if _weapon == "":
+		_wep_art.visible = false
+		if _wep_trail != null:
+			_wep_trail.visible = false
+		return
+	_wep_art.visible = true
+	for part: Dictionary in _weapon_shapes(_weapon):
+		var pts: PackedVector2Array = part["poly"]
+		# KEYLINE FIRST, fill on top: the line is centred on the outline, so the
+		# half that survives is a clean dark border of KEY_W/2. It is what stops
+		# the weapon dissolving into the red body it overlaps, and it is the single
+		# biggest reason these read as Stick Fight objects rather than clip art.
+		var key := Line2D.new()
+		key.points = pts
+		key.closed = true
+		key.width = KEY_W
+		key.default_color = KEYLINE
+		key.joint_mode = Line2D.LINE_JOINT_ROUND
+		key.begin_cap_mode = Line2D.LINE_CAP_ROUND
+		key.end_cap_mode = Line2D.LINE_CAP_ROUND
+		_wep_art.add_child(key)
+		var fill := Polygon2D.new()
+		fill.polygon = pts
+		fill.color = part["color"]
+		_wep_art.add_child(fill)
+
+
+## Weapon geometry in the weapon's own frame: origin AT THE FIST, +X toward the
+## tip, +/-Y across the blade. Deliberately few, chunky parts — a Stick Fight
+## weapon has to be identifiable from its silhouette at 0.55 zoom, so interior
+## detail is worse than useless. Widths are matched to the rig's LIMB_W (5.5) so
+## the weapon carries the same line weight as the fighter holding it.
+func _weapon_shapes(kind: String) -> Array:
+	match kind:
+		"sword":
+			return [
+				{"poly": _bar(-13.0, 1.0, 3.4), "color": WOOD},
+				{"poly": _disc(Vector2(-14.0, 0.0), 4.6), "color": GOLD},
+				{"poly": _bar_at(0.0, 5.0, 10.0), "color": GOLD},
+				{"poly": _blade(4.0, 48.0, 5.2), "color": STEEL},
+			]
+		"dagger":
+			return [
+				{"poly": _bar(-8.0, 0.0, 2.8), "color": WOOD},
+				{"poly": _disc(Vector2(-9.0, 0.0), 3.4), "color": GOLD},
+				{"poly": _bar_at(-1.0, 2.0, 6.2), "color": GOLD},
+				{"poly": _blade(1.0, 28.0, 3.8), "color": STEEL},
+			]
+		"staff":
+			return [
+				{"poly": _bar(-24.0, 47.0, 3.6), "color": WOOD},
+				{"poly": _bar_at(30.0, 34.0, 6.0), "color": GOLD},
+				{"poly": _disc(Vector2(51.0, 0.0), 8.0), "color": GEM},
+			]
+		"hammer":
+			return [
+				{"poly": _bar(-16.0, 34.0, 3.8), "color": WOOD},
+				{"poly": _bar(24.0, 31.0, 6.2), "color": GOLD},   # collar: where haft meets head
+				# the head is a single trapezoid — one shape, instantly a hammer
+				{"poly": PackedVector2Array([
+					Vector2(30.0, -15.0), Vector2(50.0, -11.5),
+					Vector2(50.0, 11.5), Vector2(30.0, 15.0)]), "color": STEEL},
+			]
+		"greatsword":
+			return [
+				{"poly": _bar(-18.0, 0.0, 3.8), "color": WOOD},
+				{"poly": _disc(Vector2(-19.0, 0.0), 5.2), "color": GOLD},
+				{"poly": _bar_at(-1.0, 5.0, 14.0), "color": GOLD},
+				{"poly": _blade(4.0, 66.0, 7.0), "color": STEEL},
+			]
+	return []
+
+
+## Axis-aligned bar from x0 to x1, half-height h.
+func _bar(x0: float, x1: float, h: float) -> PackedVector2Array:
+	return PackedVector2Array([
+		Vector2(x0, -h), Vector2(x1, -h), Vector2(x1, h), Vector2(x0, h)])
+
+
+## A CROSS bar (guard): spans x0..x1 along the blade, reaching +/-h ACROSS it.
+func _bar_at(x0: float, x1: float, h: float) -> PackedVector2Array:
+	return _bar(x0, x1, h)
+
+
+## Blade: parallel-sided from x0, then a hard point at x1. One taper, no fuller,
+## no engraving — the outline is the whole read.
+func _blade(x0: float, x1: float, h: float) -> PackedVector2Array:
+	var shoulder: float = x1 - h * 2.4
+	return PackedVector2Array([
+		Vector2(x0, -h), Vector2(shoulder, -h), Vector2(x1, 0.0),
+		Vector2(shoulder, h), Vector2(x0, h)])
+
+
+func _disc(c: Vector2, r: float) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	for i in 12:
+		pts.append(c + Vector2.from_angle(TAU * i / 12.0) * r)
+	return pts
+
+
+## Grip the weapon in the LEAD hand along the FOREARM's solved angle, then record
+## the blade line for this frame. Everything here is READ off the spring solver —
+## the weapon inherits the arm's lag, overshoot and ragdoll flail for free. It is
+## carried, never keyframed, which is why dragging the aim fast and dragging it
+## slow produce genuinely different motion instead of the same clip at two speeds.
+func _update_weapon(delta: float) -> void:
+	if _wep_art == null:
+		return
+	if _weapon == "":
+		_blade_live = false
+		_blade_speed = 0.0
+		return
+	var lead := 0 if _facing >= 0.0 else 1
+	var w := _wep()
+	var grip: Vector2 = _hand[lead]
+	# CARRY vs READY. At rest the arm hangs straight down, and a weapon laid along
+	# it points into the floor; the fighter cocks it up and forward instead, which
+	# is both how Stick Fight carries a weapon and why nothing clips the ground.
+	# The offset is applied ABOUT THE FACING, not as a mirrored transform, so left
+	# and right are the same pose reflected rather than one of them inverted.
+	_carry = move_toward(_carry, 0.0 if is_dragging() else 1.0, delta * 6.0)
+	var ang: float = _farm_ang[lead] - _facing * CARRY_TILT * _carry
+	var wlen := float(w["len"])
+	# Same rule the limbs already follow: never draw through the floor. The carry
+	# pose does the heavy lifting; this is the backstop for crouches, slopes and
+	# whatever pose the ragdoll lands in.
+	ang = _floor_clamp_ang(grip, ang, wlen, float(w.get("bulk", 5.0)))
+	var dir := Vector2.from_angle(ang)
+	var tip: Vector2 = grip + dir * wlen
+	_wep_art.position = grip
+	_wep_art.rotation = ang
+	# roll the blade line forward — the PREVIOUS pair plus this one is the swept quad
+	if _blade_live:
+		_blade_pa = _blade_a
+		_blade_pb = _blade_b
+	else:
+		_blade_pa = grip
+		_blade_pb = tip
+	_blade_a = grip
+	_blade_b = tip
+	_blade_travel = _blade_b - _blade_pb
+	_blade_speed = _blade_travel.length() / maxf(delta, 0.0001) if _blade_live else 0.0
+	_blade_live = true
+
+
+## Damage for a contact at the current blade speed. Below BLADE_MIN_SPEED nothing
+## lands at all: the swept path only cuts when there is real motion behind it.
+func _blade_damage() -> int:
+	var scale: float = clampf(_blade_speed / BLADE_REF_SPEED, 0.0, 1.5)
+	return maxi(1, int(round(float(melee_damage()) * scale)))
+
+
+## SWEPT-PATH melee. The damaging shape is the quad between LAST frame's blade
+## line and THIS frame's, so what connects is where the steel actually went —
+## no cone, no range check in front of the body. A blade held still touching
+## someone does nothing; a fast slash across them bites hard.
+func _process_blade(delta: float) -> void:
+	for id: int in _blade_cd.keys():
+		var t: float = float(_blade_cd[id]) - delta
+		if t <= 0.0:
+			_blade_cd.erase(id)
+		else:
+			_blade_cd[id] = t
+	if _weapon == "" or dead or not _blade_live or _blade_speed < BLADE_MIN_SPEED:
+		return
+	var dmg: int = _blade_damage()
+	var dir: Vector2 = _blade_travel.normalized()
+	if dir == Vector2.ZERO:
+		dir = Vector2(_facing, 0.0)
+	var quad := PackedVector2Array([_blade_pa, _blade_pb, _blade_b, _blade_a])
+	var seen := {}
+	for group: String in ["enemy", "dummy"]:
+		for n in get_tree().get_nodes_in_group(group):
+			if not (n is Node2D) or not is_instance_valid(n):
+				continue
+			var id: int = n.get_instance_id()
+			if seen.has(id) or _blade_cd.has(id):
+				continue
+			seen[id] = true
+			var p: Vector2 = (n as Node2D).global_position
+			var touched: bool = _seg_dist(p, _blade_a, _blade_b) <= BLADE_HIT_PAD \
+				or _seg_dist(p, _blade_pa, _blade_pb) <= BLADE_HIT_PAD \
+				or Geometry2D.is_point_in_polygon(p, quad)
+			if not touched:
+				continue
+			_blade_cd[id] = BLADE_HIT_CD
+			if n.has_method("take_damage"):
+				n.call("take_damage", dmg)
+			if n.has_method("apply_knockback"):
+				n.call("apply_knockback", dir * (200.0 + 14.0 * float(dmg)))
+			_spawn_wind_streaks(p, 5, dir, "hit")
+			_sfx("melee_hit", -2.0, 0.1, float(_wep().get("pitch", 1.0)))
+			blade_hit.emit(n, p, dir, dmg)
+
+
+## Rotate a held weapon just enough that its tip sits ON the floor rather than
+## through it, keeping the side it points to. Returns the original angle when the
+## tip is already clear or the floor is unknown.
+func _floor_clamp_ang(grip: Vector2, ang: float, reach: float, bulk := 0.0) -> float:
+	if _last_floor_y <= 0.0 or reach <= 0.001:
+		return ang
+	# `bulk` is the half-width of the weapon's widest part: a hammer head clears the
+	# ground long before its centre line does, so the tip alone is not the test
+	var floor_y: float = _last_floor_y - bulk * 0.7
+	if grip.y + sin(ang) * reach <= floor_y:
+		return ang
+	var s: float = (floor_y - grip.y) / reach
+	if s < -1.0 or s > 1.0:
+		return ang                       # can't be satisfied — leave the pose alone
+	var a: float = asin(s)
+	return a if cos(ang) >= 0.0 else PI - a
+
+
+## Distance from a point to a segment — the swept-path contact test.
+func _seg_dist(p: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab := b - a
+	var len_sq := ab.length_squared()
+	if len_sq < 0.0001:
+		return p.distance_to(a)
+	var t := clampf((p - a).dot(ab) / len_sq, 0.0, 1.0)
+	return p.distance_to(a + ab * t)
+
+
+## The motion smear. Driven by BLADE SPEED, not by an attack timer — so the smear
+## IS the feedback for how hard you are dragging: it only appears once the steel
+## is genuinely moving, and it thickens and brightens with speed.
+func _update_trail(delta: float) -> void:
+	if _wep_trail == null:
+		return
+	if _weapon != "" and _blade_speed >= BLADE_MIN_SPEED:
+		_trail_pts.append(_blade_b)
+		while _trail_pts.size() > TRAIL_POINTS:
+			_trail_pts.remove_at(0)
+		_trail_life = TRAIL_FADE
+	elif _trail_life > 0.0:
+		_trail_life = maxf(0.0, _trail_life - delta)
+		if _trail_pts.size() > 2:
+			_trail_pts.remove_at(0)          # the smear retracts as it fades
+	if _trail_life <= 0.0 or _trail_pts.size() < 2:
+		_wep_trail.visible = false
+		if _trail_life <= 0.0:
+			_trail_pts = PackedVector2Array()
+		return
+	var hot: float = clampf(_blade_speed / BLADE_REF_SPEED, 0.0, 1.0)
+	var tint: Color = _wep().get("trail", Color(0.88, 0.94, 1.0))
+	tint.a = (0.36 + 0.56 * hot) * (_trail_life / TRAIL_FADE)
+	_wep_trail.default_color = tint
+	# scaled to the weapon: a fixed-width smear that flatters a greatsword buries a
+	# dagger under its own effect
+	_wep_trail.width = float(_wep().get("len", 48.0)) * (0.10 + 0.19 * hot)
+	# NEWEST sample first: the shared width curve runs thick->needle along the
+	# polyline, and the smear has to be fattest AT THE BLADE and thin out behind
+	# it. Feeding the samples in chronological order puts the fat end on the
+	# oldest point and reads as a solid ribbon hanging in the air.
+	var pts := PackedVector2Array()
+	for i in range(_trail_pts.size() - 1, -1, -1):
+		pts.append(_trail_pts[i])
+	_wep_trail.points = pts
+	_wep_trail.visible = true
+
+
 # ---- actions ----
 
+## USE WHAT YOU ARE HOLDING.
+##
+## BARE-HANDED this is the original straight thrust, unchanged — the fist snaps
+## out along the aim, the body lunges, `punched` fires and the sandbox does its
+## own fist-range hit check.
+##
+## ARMED it is NOT an animation. A click just SHOVES the arm springs toward the
+## aim and holds the drag open for a moment; from there the blade is a physical
+## thing being hauled around, and what lands is whatever its swept path crosses
+## (see _process_blade). Hold the button and keep moving the aim and the same
+## impulse becomes a continuous drag — click and hold are the same verb, which is
+## the whole point.
 func punch() -> void:
 	if _punch_cd > 0.0:
 		return                     # still cooling down — ignore the spam-click
-	_punch_cd = PUNCH_COOLDOWN
-	_punch_timer = PUNCH_TIME
+	var w := _wep()
+	var armed: bool = _weapon != ""
+	_punch_cd = float(w.get("cd", PUNCH_COOLDOWN))
+	# The punch POSE branch in _update_arms is fists-only. An armed figure must not
+	# get a scripted thrust laid over the drag, so its timer stays at zero.
+	_punch_timer = 0.0 if armed else PUNCH_TIME
 	var sh: Vector2 = _torso.to_global(SHOULDER_OFF)
 	var dir := (ctrl_aim - sh).normalized() if ctrl_aim != Vector2.ZERO else Vector2(_facing, 0)
 	_punch_ang = dir.angle()
-	_facing = 1.0 if dir.x >= 0.0 else -1.0        # turn toward the punch (click)
-	# ONE arm punches (the aim-side arm) — snap it out toward the punch
+	_facing = 1.0 if dir.x >= 0.0 else -1.0        # turn toward the strike (click)
+	# ONE arm works (the aim-side arm) — snap it out toward the aim
 	var lead := 0 if _facing >= 0.0 else 1
+	var kick: float = float(w.get("flick", 20.0)) if armed else 20.0
 	var err := wrapf(_punch_ang - _arm_ang[lead], -PI, PI)
-	_arm_vel[lead] += err * 20.0
-	_farm_vel[lead] += err * 20.0
-	# body MOMENTUM — the punch shoves you: a solid shove PLANTED, still a real half-shove in
-	# the air (but the punch cooldown + gravity keep you from spamming into flight)
+	_arm_vel[lead] += err * kick
+	_farm_vel[lead] += err * kick
+	if armed:
+		_drag_hold = float(w.get("hold", 0.18))
+	# body MOMENTUM — the strike shoves you: a solid shove PLANTED, still a real half-shove in
+	# the air (but the cooldown + gravity keep you from spamming into flight)
 	var lunge := punch_lunge if _grounded else punch_lunge * 0.5
+	lunge *= float(w.get("lunge", 1.0))
 	_torso.apply_central_impulse(dir * lunge)
 	var lsh: Vector2 = _torso.to_global(Vector2(SHOULDER_DX if lead == 0 else -SHOULDER_DX, SHOULDER_OFF.y))
 	var fist: Vector2 = lsh + dir * (UARM_LEN + FARM_LEN)
 	_spawn_wind_streaks(fist + dir * 9.0, 9, dir, "punch")   # wind marks burst IN FRONT of the fist
-	_sfx("melee_swing", -3.0, 0.1)
+	_sfx("melee_swing", -3.0, 0.1, float(w.get("pitch", 1.0)))
+	# `punched` still fires armed: the sandbox hangs camera shake and the rock-wall
+	# shove off it, and both read correctly for a blade strike too.
 	punched.emit(dir)
 
 
@@ -662,12 +1159,20 @@ func _physics_process(delta: float) -> void:
 	_parry_cd = maxf(0.0, _parry_cd - delta)
 	_parry_shell_t = maxf(0.0, _parry_shell_t - delta)
 	_cast_timer = maxf(0.0, _cast_timer - delta)
+	_drag_hold = maxf(0.0, _drag_hold - delta)
 	_clock += delta
 	# FACE the way you actually MOVE (real velocity), not the raw key: no snap-turn on a
 	# tap, you feel resistance (pinned on a wall = no motion = no turn), and a prone body
 	# (duck held) never auto-swaps facing when you press left/right.
 	if _duck_t < 0.35 and absf(_torso.linear_velocity.x) > 24.0:
 		_facing = signf(_torso.linear_velocity.x)
+	# Dragging a weapon, you face where the steel is going — same rule punch() uses
+	# on a click. Without this, walking one way while dragging the blade the other
+	# swaps which hand holds it mid-slash and the weapon teleports across the body.
+	if is_dragging() and ctrl_aim != Vector2.ZERO:
+		var adx: float = ctrl_aim.x - _torso.global_position.x
+		if absf(adx) > 20.0:
+			_facing = signf(adx)
 	if _stagger > 0.0:
 		_stagger -= delta
 
@@ -767,6 +1272,9 @@ func _physics_process(delta: float) -> void:
 		_corpse_settle(torso)
 	_update_arms(torso, delta)
 	_update_legs(torso, floor_y, grounded, delta)
+	_update_weapon(delta)         # rides the hand solved just above
+	_process_blade(delta)         # swept path between last frame's blade line and this one
+	_update_trail(delta)
 	_jump_held_prev = ctrl_jump   # track input edge for next frame's jump gate
 	queue_redraw()
 
@@ -948,6 +1456,10 @@ func _spawn_ghost() -> void:
 	for i in 2:
 		_ghost_line(g, _arm_line[i].points)
 		_ghost_line(g, PackedVector2Array([hip, _knee[i], _foot[i]]))
+	if _weapon != "" and _blade_live:
+		# the weapon smears with you — a ghost holding nothing while the live figure
+		# carries a sword reads as a second, unarmed character
+		_ghost_line(g, PackedVector2Array([_blade_a, _blade_b]))
 	var tw := create_tween()
 	tw.tween_property(g, "modulate:a", 0.0, GHOST_FADE)
 	tw.tween_callback(g.queue_free)
@@ -1042,7 +1554,8 @@ func _update_arms(torso: RigidBody2D, delta: float) -> void:
 	var vx := torso.linear_velocity.x
 	var vy := torso.linear_velocity.y
 	var punching := _punch_timer > 0.0
-	var lead := 0 if _facing >= 0.0 else 1                    # aim-side arm does the punch
+	var dragging := is_dragging()                             # armed + "use" held/clicked
+	var lead := 0 if _facing >= 0.0 else 1                    # aim-side arm works
 	var airborne := _jump_lock > 0.0 or absf(vy) > 60.0
 	for i in 2:
 		var side := 1.0 if i == 0 else -1.0
@@ -1149,6 +1662,24 @@ func _update_arms(torso: RigidBody2D, delta: float) -> void:
 			damp = ARM_DAMP * 1.4
 		elif _stagger > 0.0:
 			target = atan2(-0.6, -_facing)                   # recoil back/up
+		elif dragging and i == lead:
+			# THE DRAG (Stick Fight melee). The arm is pulled toward wherever the aim
+			# currently is and NOTHING else scripts it: the blade's whole motion is
+			# the spring chasing a moving target, so a whipped cursor produces a fast
+			# wild sweep and a slow cursor produces a slow menacing drag out of the
+			# same code. The per-weapon springs ARE the heft — a dagger snaps onto
+			# the cursor, a hammer lumbers after it and overshoots past it.
+			# Sits below cast/dash/parry/stagger on purpose: those are committed body
+			# states and a held button must not blank them out.
+			var w := _wep()
+			target = (ctrl_aim - sh).angle()
+			stiff = float(w.get("dstiff", ARM_STIFF))
+			damp = float(w.get("ddamp", ARM_DAMP))
+			# the wrist is deliberately looser than the shoulder: the blade trails
+			# behind the hand and then whips past it, which is where the arc comes
+			# from without anybody having drawn one
+			fstiff = float(w.get("fstiff", FARM_STIFF))
+			fdamp = float(w.get("fdamp", FARM_DAMP))
 		elif ctrl_aim_hold:
 			target = (ctrl_aim - sh).angle()                 # HOLD click: arms track the cursor
 			stiff = ARM_STIFF * 1.6
@@ -1209,6 +1740,7 @@ func _update_arms(torso: RigidBody2D, delta: float) -> void:
 		elbow.x = _wall_clamp_x(elbow.x)                     # never draw an arm through a wall
 		hand.x = _wall_clamp_x(hand.x)
 		_arm_line[i].points = PackedVector2Array([sh, elbow, hand])
+		_hand[i] = hand                                      # weapon grip point
 
 
 func _update_legs(torso: RigidBody2D, floor_y: float, grounded: bool, delta: float) -> void:

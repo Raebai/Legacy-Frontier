@@ -115,6 +115,25 @@ static func impact_frame(strength: float = 1.0, world_pos: Vector2 = Vector2.INF
 	hit_stop(0.15 * strength)
 
 
+## Project a WORLD point to a screen UV (0..1). PostProcess.shock takes a
+## screen-space centre, so a beat that belongs to a place in the world (a beam
+## crossing, a localized impact) has to be projected or the ripple silently
+## centres on the middle of the screen. Falls back to the centre when there is
+## no viewport/camera (headless).
+static func world_to_uv(world_pos: Vector2) -> Vector2:
+	var tree: SceneTree = _tree()
+	if tree == null:
+		return Vector2(0.5, 0.5)
+	var vp: Viewport = tree.root.get_viewport()
+	if vp == null:
+		return Vector2(0.5, 0.5)
+	var size: Vector2 = vp.get_visible_rect().size
+	if size.x <= 0.0 or size.y <= 0.0:
+		return Vector2(0.5, 0.5)
+	var screen: Vector2 = vp.get_canvas_transform() * world_pos
+	return Vector2(clampf(screen.x / size.x, 0.0, 1.0), clampf(screen.y / size.y, 0.0, 1.0))
+
+
 static func shake_camera(amount: float = 6.0) -> void:
 	var tree: SceneTree = _tree()
 	if tree == null:

@@ -35,6 +35,7 @@ Tuning="*res://scripts/combat/Tuning.gd"
 ClassSelect="*res://scripts/ClassSelect.gd"
 Loadout="*res://scripts/Loadout.gd"
 Net="*res://scripts/Net.gd"
+SpellReactor="*res://scripts/combat/SpellReactor.gd"
 
 [display]
 

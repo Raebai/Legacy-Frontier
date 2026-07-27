@@ -70,6 +70,12 @@ static func bucket_key(form_a: int, form_b: int) -> int:
 ##                    sits on form_a, and BOTH orderings are tried.
 ##   require_opposed: only fires when the two elements annihilate
 ##   require_same   : only fires when the two elements match
+##   require_owner  : "same"      — one caster combining their OWN two spells
+##                    "different" — two casters' effects meeting
+##                    "any"       — either (the default)
+##                  Ownership is a PREDICATE like any other, so "combine your own
+##                  spells" and "your beam meets the boss's" are two rows of data
+##                  rather than a branch in the reactor.
 ##   priority       : higher wins when several rules match a pair
 ##   consumes_a/b   : the effect is spent by the reaction
 static func _rule(outcome: String, form_a: int, form_b: int, opts: Dictionary = {}) -> Dictionary:
@@ -81,6 +87,7 @@ static func _rule(outcome: String, form_a: int, form_b: int, opts: Dictionary = 
 		"elements_b": opts.get("elements_b", []),
 		"require_opposed": opts.get("require_opposed", false),
 		"require_same": opts.get("require_same", false),
+		"require_owner": opts.get("require_owner", "any"),
 		"priority": opts.get("priority", 0),
 		"consumes_a": opts.get("consumes_a", false),
 		"consumes_b": opts.get("consumes_b", false),
@@ -95,10 +102,26 @@ static func _rule(outcome: String, form_a: int, form_b: int, opts: Dictionary = 
 static func rules() -> Array:
 	var E := Elements.Element
 	return [
-		# HOLLOW PURPLE. Two opposing beams crossed collapse into an annihilation.
-		# One row, all four opposing pairs, because the predicate does the work.
+		# HOLLOW PURPLE, the SELF-COMBO — the headline path. ONE caster fires two
+		# opposing-element spells inside a short window and fuses them: both are
+		# absorbed into a circle in front of them and the result erupts along
+		# their aim.
+		#
+		# Same-owner is the PRIMARY row because the cross-caster version is
+		# almost unreachable: it would need two casters, opposing elements,
+		# simultaneous casts AND the beams physically overlapping. As a
+		# self-combo it is available in every fight, it rewards loadout planning,
+		# and it turns four equipped spells into a combo web.
 		_rule("hollow_purple", Form.BEAM, Form.BEAM, {
-			"require_opposed": true, "priority": 100,
+			"require_opposed": true, "require_owner": "same", "priority": 100,
+			"consumes_a": true, "consumes_b": true, "radius": 190.0, "damage": 150,
+		}),
+		# ...and a genuine cross-caster crossing still works, as the rarer
+		# surprise: co-op partners, or a boss beam meeting the hero's. Same
+		# outcome, staged at the geometric crossing instead of in front of a
+		# caster. One field of data is the whole difference.
+		_rule("hollow_purple", Form.BEAM, Form.BEAM, {
+			"require_opposed": true, "require_owner": "different", "priority": 95,
 			"consumes_a": true, "consumes_b": true, "radius": 190.0, "damage": 150,
 		}),
 		# Two beams of the SAME element reinforce instead of annihilating — the
@@ -163,14 +186,20 @@ static func rules() -> Array:
 ## Best matching rule for a pair of live effects, or {} when they simply coexist.
 ## `a` and `b` are {form, element} descriptors. Both orderings are tried, so a
 ## rule written fire-beam-vs-ice-wall also fires when the wall is seen first.
-static func match_rule(form_a: int, element_a: int, form_b: int, element_b: int) -> Dictionary:
+##
+## `owner_rel` is how the two effects' casters relate: "same", "different",
+## "unowned", or "" when the caller has no ownership information at all — in
+## which case the owner predicate is simply not applied, so the table stays
+## testable in isolation. SpellReactor always supplies a real value.
+static func match_rule(form_a: int, element_a: int, form_b: int, element_b: int,
+		owner_rel: String = "") -> Dictionary:
 	var key: int = bucket_key(form_a, form_b)
 	var best: Dictionary = {}
 	for r: Dictionary in rules():
 		if bucket_key(int(r["form_a"]), int(r["form_b"])) != key:
 			continue
-		if not _sides_match(r, form_a, element_a, form_b, element_b) \
-				and not _sides_match(r, form_b, element_b, form_a, element_a):
+		if not _sides_match(r, form_a, element_a, form_b, element_b, owner_rel) \
+				and not _sides_match(r, form_b, element_b, form_a, element_a, owner_rel):
 			continue
 		if best.is_empty() or int(r["priority"]) > int(best["priority"]):
 			best = r
@@ -180,8 +209,13 @@ static func match_rule(form_a: int, element_a: int, form_b: int, element_b: int)
 
 
 static func _sides_match(r: Dictionary, form_a: int, element_a: int,
-		form_b: int, element_b: int) -> bool:
+		form_b: int, element_b: int, owner_rel: String = "") -> bool:
 	if int(r["form_a"]) != form_a or int(r["form_b"]) != form_b:
+		return false
+	var need_owner: String = String(r.get("require_owner", "any"))
+	# "unowned" satisfies neither "same" nor "different" — without two known
+	# casters there is no relationship to require.
+	if need_owner != "any" and owner_rel != "" and need_owner != owner_rel:
 		return false
 	if bool(r["require_opposed"]) and not opposed(element_a, element_b):
 		return false
