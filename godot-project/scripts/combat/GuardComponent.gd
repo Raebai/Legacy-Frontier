@@ -23,6 +23,12 @@ extends Node
 
 ## Node name used when attaching, so lookups are cheap and repeatable.
 const NODE_NAME: StringName = &"GuardComponent"
+## Hard floor on the combined PERCENTAGE stack — the most any amount of armour,
+## wards and robes may reduce a hit to. Percentages compose multiplicatively, so
+## three individually-modest sources already reached 0.244x (taking a quarter of
+## every hit, permanently). Without a floor, mitigation scales into invulnerability
+## without any single number ever looking wrong.
+const MIN_DAMAGE_MULT: float = 0.60
 
 ## Persistent percentage off every hit (gear armour). No expiry.
 var persistent_reduction: float = 0.0
@@ -126,13 +132,26 @@ func mitigate(amount: int) -> int:
 		return amount
 	if _immune_timer > 0.0:
 		return 0
-	var remaining: float = float(amount)
+	# The PERCENTAGE stack is floored, not left to multiply freely. Armour, a ward
+	# and a robe each look modest alone but compose multiplicatively — a routine
+	# kit already reached 0.244x, i.e. taking a quarter of every hit forever. The
+	# floor keeps every individual source meaningful while making the total
+	# survivable to fight against; the absorb pool below is applied AFTER it, so
+	# burst protection is still worth stacking on top.
+	var mult: float = 1.0
 	if persistent_reduction > 0.0:
-		remaining = remaining * (1.0 - persistent_reduction)
+		mult *= (1.0 - persistent_reduction)
 	if timed_reduction > 0.0:
-		remaining = remaining * (1.0 - timed_reduction)
+		mult *= (1.0 - timed_reduction)
+	# The floor applies to the STANDING reduction only. That is the dangerous
+	# part — it is always on, and it composes multiplicatively toward
+	# invulnerability without any single number looking wrong. A one-shot soak is
+	# spent the moment it fires, so it cannot compound and is applied on top of
+	# the floor rather than being capped by it. This also keeps existing gear
+	# behaviour identical, which a blanket floor would silently have rebalanced.
+	var remaining: float = float(amount) * maxf(mult, MIN_DAMAGE_MULT)
 	if oneshot_fraction > 0.0 and not _oneshot_used:
-		remaining = remaining * (1.0 - oneshot_fraction)
+		remaining *= (1.0 - oneshot_fraction)
 		_oneshot_used = true
 	if absorb > 0.0:
 		var eaten: float = minf(absorb, remaining)

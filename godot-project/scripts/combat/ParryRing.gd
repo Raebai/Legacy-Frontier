@@ -37,19 +37,31 @@ const SUSTAIN_REDUCTION: float = 0.35
 
 enum Quality { NONE, SUSTAIN, PERFECT }
 
+## Enforced gap between guards. Without it, releasing and re-pressing re-arms the
+## perfect window instantly, so mashing the button carpets the fight in perfect
+## reads and the timing stops being a skill at all.
+const REARM_TIME: float = 0.35
+
 var held: bool = false
 var _t: float = 0.0
+var _rearm: float = 0.0
 
 
-## Press: the ring blooms at full radius and starts closing.
-func press() -> void:
+## Press: the ring blooms at full radius and starts closing. Refused while
+## re-arming, so a mashed guard simply does not come up.
+func press() -> bool:
+	if held or _rearm > 0.0:
+		return false
 	held = true
 	_t = 0.0
+	return true
 
 
-## Release: resets, so every attempt is a fresh committed read rather than a
-## permanently-armed shield.
+## Release: resets and starts the re-arm, so every attempt is a fresh committed
+## read rather than a permanently-armed shield.
 func release() -> void:
+	if held:
+		_rearm = REARM_TIME
 	held = false
 	_t = 0.0
 
@@ -57,6 +69,14 @@ func release() -> void:
 func tick(delta: float) -> void:
 	if held:
 		_t += delta
+	else:
+		_rearm = maxf(_rearm - delta, 0.0)
+
+
+## False while the guard is recovering — the bar should show this, or the player
+## cannot tell a refused press from a mistimed one.
+func is_ready() -> bool:
+	return _rearm <= 0.0
 
 
 ## 0..1 progress through the shrink, clamped once the ring bottoms out.

@@ -3,308 +3,334 @@
 **Date:** 2026-07-27
 **Branch:** `stickman-integrate`
 **Status:** design (READ-ONLY recon) → awaiting maker review → plan → build
-**Scope:** how the EXISTING verbs (move, jump, dash, use, deflect, select-slot) are controlled on a phone and on a desktop, and every place the current design fights "flow like Stick Fight".
-**Companion:** `docs/superpowers/specs/2026-07-27-mobile-casting-ux.md` — that spec decides WHICH spells you carry (a capped, typed 4). This spec decides HOW you hold and use them. Where they disagree, §6 reconciles them explicitly.
+**Scope:** how the EXISTING verbs (move, jump, dash, use, deflect, select-slot) are controlled on a phone and on a desktop; every place the current design fights "flow like Stick Fight"; and the defensive-budget consequences of the maker's flow decisions.
+**Companion:** `docs/superpowers/specs/2026-07-27-mobile-casting-ux.md` — that spec decides WHICH spells you carry (a capped 4). This one decides HOW you hold and use them. §7 reconciles them.
+
+**Maker decisions taken as GIVEN, not re-derived:**
+1. **Casts do not root you.** You keep moving; the body floats slightly or does something spell-relevant; a magic circle blooms.
+2. **Cooldowns stay**, made acceptable because **melee is always available** — you fight in the gaps. `HandSlots` slot 0 is fists and fists never cool down.
+3. **Domains need arena-scale environmental telegraphs** while casting — magic circles, sky colour, mist rolling in. The tell *is* the fantasy.
 
 ---
 
 ## 0. TL;DR
 
-- **The drag thesis HOLDS, and it is stronger than stated.** Blade damage is a function of *aim velocity* (`SpikeFigure._process_blade` scales damage by `_blade_speed` against `BLADE_REF_SPEED`, and refuses to damage below `BLADE_MIN_SPEED`). A thumb drag and a mouse drag are not merely analogous — they are the only two input devices that natively produce the quantity the mechanic reads. A stick-plus-fire-button *cannot* express it. **Verdict: fuse aim and use into one right-thumb zone.**
-- **It holds for casting as ONE ZONE, not as one gesture.** Same zone, three grammars chosen by what is in your hand: fists = tap, weapon = hold-and-drag (no commit moment), spell = drag-to-aim, release-to-cast. This is exactly the seam `HandSlots.primary_action()` already models; it needs one new accessor.
-- **DEFLECT must stay a discrete button.** 0.16 s window, zero input buffer, no coyote time. Every gesture costs 60–120 ms of *recognition* latency before it is even recognised, and any right-side swipe is ambiguous against the drag — a misread makes you *swing* when you meant to *block*. Button, on the left thumb.
-- **JUMP moves onto the joystick (push up).** Argued from the code, not taste: jump is the only verb in the game with BOTH an input buffer (`JUMP_BUFFER_TIME` 0.10 s) and a coyote window (`COYOTE_TIME` 0.10 s) — it is by construction the most latency-tolerant verb we have, so it gets the gesture and deflect gets the button.
-- **Slot selection stays in combat**, on a bottom-centre League-style bar, **direct tap** (not scroll) on both platforms — because with the cap at 4 spells the carousel is ~6 entries and a 6-square bar fits between the thumbs, out of both thumb zones. The *loadout* (which 4) still changes only out of combat.
-- **Dash gesture: judged workable but risky**, specified with a hard tap-primer that movement input physically cannot produce, plus a re-arm lockout and a kill switch. It ships with a dash button still available until F5 says otherwise.
-- **Top three flow-breakers:** (1) every signature roots you for ≥0.42 s while the playground rig roots you for 0 s — two different games; (2) input is *discarded*, not buffered, during those windups; (3) holding DOWN (duck/ragdoll) silently disables your entire defensive kit.
+- **The drag thesis HOLDS**, for a stronger reason than "the motion is the same": blade damage is a function of *aim velocity* (`SpikeFigure._process_blade` scales by `_blade_speed` against `BLADE_REF_SPEED`, refusing damage below `BLADE_MIN_SPEED`). A thumb drag and a mouse drag are the only two inputs that natively produce that quantity. A stick-plus-fire-button cannot. **Fuse aim and use into one right-thumb zone.** It holds for casting as **one zone, three grammars** — not one gesture.
+- **The guard/drag thumb conflict is NOT a platform asymmetry to accept or equalise — it is a balance bug that mobile accidentally hides.** Desktop holding RMB+LMB gets *free permanent 35 % damage reduction while attacking at full strength*. Fix the mechanic: **guarding suppresses the use-verb, by rule, on both platforms.** The rig's own `_update_arms` priority already ranks parry above drag. Once that rule exists the asymmetry vanishes and desktop loses nothing it should have had.
+- **Guard therefore belongs on the RIGHT thumb** — this reverses the obvious answer, and reverses my own first draft. The old 0.16 s hidden window demanded a zero-travel button; `ParryRing`'s 0.42 s shrink gives ~0.33 s of lead, which comfortably affords ~90 ms of thumb travel. And the left thumb must stay free, because **you must be able to move while guarding**, whereas you must *not* be able to attack while guarding.
+- **The defensive budget is broken. A competent player is effectively un-hittable.** ~32.5 % of all time can be spent invulnerable from dash + blink i-frames alone, on top of a free, cooldown-less, infinitely-holdable 35 % DR, on top of full negation + reflect on a read, on top of multiplicatively-stacking `GuardComponent` mitigation — and casting no longer creates a vulnerability window either. §5 says what to cut, bluntly.
+- **Hero's melee cannot carry the connective-tissue load the cooldown philosophy assigns it.** The spike rig's *drag* can, easily. That makes the drag work load-bearing for the whole cooldown design, not a mobile-input nicety.
+- **Top three flow-breakers:** (1) `_channeling` / `_summoning` early-return past *everything* — that is the root the maker is deleting, and §6.1 lists every site; (2) input is **discarded**, not buffered, during those windups; (3) holding DOWN silently disables your entire defensive kit.
 
 ---
 
 ## 1. Ground truth — verified on this branch
 
-Everything below is read from the code, not assumed.
+### 1.1 The verbs
 
-### 1.1 The verbs, and what actually drives them
-
-| verb | desktop binding | Hero path | notes |
+| verb | desktop | Hero path | forgiveness in code |
 |---|---|---|---|
-| move | A/D + arrows (`move_left`/`move_right`) | `Hero.gd:545` `Input.get_axis` | horizontal only; vertical axis is unused for movement |
-| duck / ragdoll | S (`move_down`) held | `Hero.gd:492` | **returns early — see §7.3** |
-| jump | W / Up (`jump`) | `Hero.gd:548,578` | buffered 0.10 s + coyote 0.10 s + variable height on release |
-| dash | Space (`dash`) | buffered → `_start_dash` (`Hero.gd:1227`) | 0.14 s, 620 px/s, i-frames, `DASH_COOLDOWN` 0.9 s |
-| use | LMB (`cast`), F (`melee`) | `Hero.gd:519`, buffered | two separate actions today |
-| deflect | RMB (`parry`) | `Hero.gd:517` → `_try_parry_start` | `PARRY_WINDOW` **0.16 s**, `PARRY_COOLDOWN` 0.9 s, **not buffered** |
-| abilities | Q/R/T/G | buffered except `ultimate` | `blast`/`blink`/`nova` buffered; `ultimate` + `parry` + `cast` polled raw |
-| select | V (`cycle_signature`) | `Hero.gd:513` | cycles signatures only |
+| move | A/D (`move_left/right`) | `Hero.gd:545` `Input.get_axis` | — |
+| duck / ragdoll | S (`move_down`) held | `Hero.gd:492` | **early-returns — §6.3** |
+| jump | W / Up | `Hero.gd:548,578` | buffer 0.10 s **+** coyote 0.10 s **+** variable height |
+| dash | Space | buffered → `_start_dash` (`:1227`) | 0.12 s buffer |
+| use | LMB (`cast`), F (`melee`) | `:519`, buffered | `cast` **none**, `melee` 0.12 s |
+| deflect | RMB (`parry`) | `:517` → `_try_parry_start` | **none** |
+| abilities | Q/R/T/G | buffered except `ultimate` | `ultimate` **none** |
+| select | V | `:513` | — |
 
-`BUFFER_TIME = 0.12 s`, and the buffer covers exactly `["melee","dash","blast","blink","nova"]` (`Hero.gd:678`). **`cast`, `parry` and `ultimate` — two of which are the highest-stakes inputs in the game — have no forgiveness at all.**
+`BUFFER_TIME = 0.12 s` covers exactly `["melee","dash","blast","blink","nova"]` (`:678`). **`cast`, `parry` and `ultimate` — two of them the highest-stakes inputs in the game — have zero forgiveness.**
 
 ### 1.2 The two rigs disagree about commitment
 
 | | `SpikeFigure.cast()` (playground) | `Hero._begin_summon` / `_begin_channel` |
 |---|---|---|
 | duration | `CastStyle.duration(pose)` = **0.18–0.46 s** | **0.42 s** summon (0.22 rush/blink), **1.0–1.3 s** channel |
-| movement | **unaffected** — `_cast_timer` only re-targets the arm springs (`SpikeFigure.gd:1458`); the torso keeps its physics | **rooted** — `velocity = Vector2.ZERO`, `move_and_slide()` to hold position, `return` before all movement code (`Hero.gd:457-464`, `_process_summon`, `_process_channel`) |
-| jump / dash during | yes | no |
-| cancel | naturally, by moving | only by being hit, which costs MP + cooldown |
+| movement | **unaffected** — `_cast_timer` only re-targets the arm springs (`:1458`); the torso keeps its physics | **rooted** — `velocity = ZERO`, `return` before all movement code (`:457-464`) |
+| cancel | naturally, by moving | only by being hit, at full MP + cooldown cost |
 
-This is the single biggest finding in this document. **The thing the maker F5s and enjoys does not root; the shipped hero roots on every single signature.** "Make it flow like Stick Fight" is, mechanically, "make Hero behave like SpikeFigure, except where the drama is deliberate."
+**The thing the maker F5s and enjoys does not root. The shipped hero roots on every single signature.** Maker decision 1 resolves this in the playground's favour; §6.1 is the work.
 
 ### 1.3 The drag, exactly as implemented
 
-`SpikeFigure._update_arms`, the `dragging and i == lead` branch (line 1542):
+`SpikeFigure._update_arms`, `dragging and i == lead` (line 1542):
 
 ```gdscript
 target = (ctrl_aim - sh).angle()
-stiff  = w["dstiff"];  damp  = w["ddamp"]
-fstiff = w["fstiff"];  fdamp = w["fdamp"]
+stiff = w["dstiff"];  damp = w["ddamp"];  fstiff = w["fstiff"];  fdamp = w["fdamp"]
 ```
 
-- The arm spring chases **the angle from the shoulder to `ctrl_aim`**. Nothing else scripts it. There is no swing animation.
-- Damage (`_process_blade`) tests the **swept quad between physics frames** and scales by `_blade_speed / BLADE_REF_SPEED` (1100 px/s), refusing to fire below `BLADE_MIN_SPEED` (260 px/s). A sword resting on someone does nothing.
-- `punch()` while armed sets `_punch_timer = 0` and only injects a spring impulse (`flick`) plus `_drag_hold` seconds of drag. The header says it outright (line 691): *"click and hold are the same verb, which is the whole point."*
+The arm spring chases the **angle from shoulder to `ctrl_aim`**, and nothing else scripts it. `_process_blade` tests the **swept quad between physics frames** and scales damage by `_blade_speed / BLADE_REF_SPEED` (1100 px/s), refusing below `BLADE_MIN_SPEED` (260 px/s). `punch()` while armed sets `_punch_timer = 0` and only injects a spring impulse plus `_drag_hold`; the header says it outright (line 691): *"click and hold are the same verb, which is the whole point."*
 
-Reach geometry: `UARM_LEN + FARM_LEN = 30 px`; a sword adds `56 × 0.86 ≈ 48 px` of steel past the fist. **Blade tip radius ≈ 78 world px from the shoulder.**
+Geometry: `UARM_LEN + FARM_LEN = 30 px`; a sword adds `56 × 0.86 ≈ 48 px`. **Blade tip radius ≈ 78 world px from the shoulder.**
 
 ### 1.4 The rig already ranks the verbs
 
-`_update_arms` resolves its branches in a fixed priority order:
+`_update_arms` resolves in a fixed order:
 
 ```
-punch  >  dead  >  cast  >  dash  >  parry  >  stagger  >  DRAG  >  aim-hold  >  ...
+punch > dead > cast > DASH > PARRY > stagger > DRAG > aim-hold > cling > air > duck > idle
 ```
 
-**Dash and parry both sit ABOVE drag.** The rig has already decided that the defensive verbs preempt the offensive one. §5 promotes this from an animation detail to the input model's organising principle.
+**Dash and parry both sit above drag.** The rig has already decided the defensive verbs preempt the offensive one. §4 promotes this from an animation detail to the load-bearing rule of the whole input model.
 
-### 1.5 `TouchControls.gd` as it now stands
+### 1.5 The new defensive layer (built, largely unwired)
 
-`CanvasLayer` layer 70, hidden unless `DisplayServer.is_touchscreen_available()` or `force_visible`. Left 45% = a dynamic joystick (`JOY_RADIUS` 66, `JOY_DEADZONE` 0.18, `JOY_DUCK_THRESHOLD` 0.6 → `move_down`). Right = a fixed arc of buttons; the recent fix corrected JUMP from `move_up` to `jump` and added the missing `HIT` (`melee`) and `PARRY` buttons.
+**`ParryRing.gd`** — deflect is now a *held* input:
 
-Current button count: **8** (JUMP, CAST, DASH, Q, G, BLINK, HIT, PARRY) plus the joystick. That is the number this spec exists to reduce.
+| | value | meaning |
+|---|---|---|
+| `SHRINK_TIME` | 0.42 s | press → ring closes from arm's length to the body |
+| `PERFECT_START/END` | 0.78 → 1.0 | perfect band = **0.328 s to 0.42 s** after press, a **~0.092 s window** |
+| `SUSTAIN_REDUCTION` | 0.35 | overshoot → a guard you may **hold forever** at 35 % DR |
+| `damage_mult()` | PERFECT **0.0**, SUSTAIN 0.65 | a perfect read fully negates |
+| `can_reflect()` | PERFECT only | |
+| cooldown | **none** — `release()` just sets `_t = 0` | |
 
-The layer feeds `Input.action_press` / `action_release` on named actions, so it composes with `Hero` with zero combat-code change. **That seam is correct and every recommendation here preserves it.**
+**`SpellDeflect.gd`** — **every** attack spell is now deflectable, including all 26 signatures. `DEFLECTED_DAMAGE_MULT = 0.0` (full negation). `WINDOW_ULT = 0.22` makes ults brutal to time but not exempt.
 
-Two structural facts worth keeping: the joystick's **vertical axis is only half used** (down = duck; up does nothing), and the code already establishes that *"buttons consume their own taps in `_gui_input` first, so those never reach here"* (line 69) — i.e. HUD Controls take touch priority over the zones.
+**`GuardComponent.gd`** — one mitigation path: `immunity → persistent × timed → one-shot → absorb`. Each factor capped at 0.95 **individually**; the *combination* is uncapped. Its own header warns that stacking wards on i-frames and a free parry *"is the fastest route to an un-hittable player"*. It does not enforce that.
 
-### 1.6 The aim path violates the drag
+**Wiring status:** `ParryRing` is referenced only by `tools/slice6_test_parry_ring.gd`. It is **not yet in `Hero`**, which still runs the old `PARRY_WINDOW = 0.16` / `PARRY_COOLDOWN = 0.9` path. That is fortunate — §5's cuts can land as part of the wiring rather than as a nerf to something shipped.
 
-`Hero.gd:477-480` — on touch, aim comes from `Targeting.aim_direction()`, a **hard snap to the nearest enemy**. §5.4 shows this is not merely a rules violation; it is *mechanically incompatible* with the drag.
+### 1.6 Other verified numbers
 
-### 1.7 `HandSlots.gd`
-
-Pure data, headless-tested (`tools/slice6_test_hand_slots.gd`), **not yet wired to any rig or renderer**. Slot 0 is always FISTS, then weapons, then spells; `cycle()` wraps via `wrapi`; per-slot cooldowns; `primary_action()` returns `punch` / `swing` / `cast`; a cooling slot stays *selectable* by design (line 117).
-
-### 1.8 The spell set
-
-`SpellLibrary.build_all()` returns **26** spells. Cooldowns run **3.0–6.5 s**. Only **4 of the 26** carry a `cast_time` (1.0 / 1.0 / 1.1 / 1.3) — the levitating channel. Everything else routes to the 0.42 s summon.
-
-**Per the maker: a character never carries more than 4.** `build_all()` is a review harness, not a loadout.
+- `DASH_TIME` 0.14 s, i-frames for the whole window, `DASH_COOLDOWN` 0.9 s, 620 px/s → 87 px.
+- `BLINK_IFRAME` 0.22 s, `BLINK_COOLDOWN` 1.3 s, `BLINK_DISTANCE` 175 px, **phases through walls**.
+- Hero `SPEED` 210 px/s, `MP_REGEN` 20/s.
+- Spell cooldowns **3.0–6.5 s**; only **4 of 26** carry a `cast_time` (1.0 / 1.0 / 1.1 / 1.3).
+- `Hero` melee: `MELEE_COOLDOWN` 0.34, `MELEE_DAMAGE` 14, `MELEE_RANGE` 58, **auto-targets** via `_nearest_enemy_in_melee_range` (`:1895`).
+- Touch aim: `Hero.gd:477-480` snaps to nearest enemy via `Targeting.aim_direction`.
+- Base viewport **640 × 360**, `canvas_items` stretch (≈ ×3.0 at 1080p landscape).
 
 ---
 
 ## 2. THE DRAG THESIS — judged
 
-### 2.1 It holds, for a stronger reason than "the motion is the same"
+### 2.1 It holds, and for a mechanical reason
 
-The usual argument is aesthetic: dragging your thumb looks like dragging a blade. True, but weak — plenty of mechanics look like their input and still play badly.
+The usual argument is aesthetic. The real one is that **the damage model reads a quantity only a positional drag produces.**
 
-The real argument is that **the mechanic's damage model reads a quantity that only a positional drag produces.**
+Damage is `f(blade tip speed)`, and tip speed is `angular velocity of the arm target × ~78 px`. The arm target is `(ctrl_aim - shoulder).angle()`. So what the game samples sixty times a second is **the angular velocity of the aim point around the character**.
 
-Damage is `f(blade tip speed)`, and blade tip speed is `angular velocity of the arm target × ~78 px`. The arm target is `(ctrl_aim - shoulder).angle()`. So what the game actually samples, sixty times a second, is **the angular velocity of the player's aim point around the character.**
+- A **mouse** produces that directly. A **thumb drag** produces that directly.
+- An **analog stick + fire button** does not. A stick reports *deflection* — a position the game must integrate into a heading. Integration decouples thumb speed from blade speed: either the blade caps at the integrator's rate (no fast slashes) or deflection becomes a swing-speed throttle (which is not a drag). Either way the mechanic is replaced by a different one wearing the same art.
 
-- A **mouse** produces that directly.
-- A **thumb drag** produces that directly.
-- An **analog stick + fire button** does not. A stick reports *deflection*, a position that the game would have to integrate into an aim heading. Integrating means thumb speed is decoupled from blade speed: you would either cap the blade at the integrator's rate (no fast slashes) or make deflection mean "swing speed" (which is a throttle, not a drag). Either way you have replaced the mechanic with a different one that happens to share art.
-
-So the fusion is not a convenience that saves a button. **Splitting aim from use would break the melee.** That settles it.
+**Splitting aim from use would break the melee.** That settles it.
 
 ### 2.2 The numbers say mobile is not disadvantaged
 
 With a 1:1 mapping from thumb angle (around the pad's own centre) to aim angle:
 
-| thumb sweep | angular velocity | blade tip speed | reads as |
+| thumb sweep | angular velocity | tip speed | reads as |
 |---|---|---|---|
 | half-turn in 0.20 s | 15.7 rad/s | ~1225 px/s | saturates `BLADE_REF_SPEED` — a full-power whip |
 | half-turn in 0.50 s | 6.3 rad/s | ~490 px/s | a solid slash |
 | half-turn in 1.20 s | 2.6 rad/s | ~204 px/s | **below** `BLADE_MIN_SPEED` — carrying, not attacking |
 
-The entire designed dynamic range of the damage model lands inside the range of comfortable human thumb sweeps **with no gain constant at all**. That is a strong signal the mechanic was, accidentally, built mobile-native.
+The whole designed dynamic range lands inside comfortable human thumb sweeps **with no gain constant at all**. The mechanic was, accidentally, built mobile-native.
 
 ### 2.3 An emergent symmetry worth not breaking
 
-Both platforms have **inverse-radius gain**:
+Both platforms have **inverse-radius gain**. Desktop: the further the cursor from the character, the less angle a given mouse move produces — so players learn to bring the cursor in close for fast slashes. Mobile: with a dynamic pad, the further out you hold your thumb, the less angle a given finger move produces. Identical curve, identical geometry. **Do not normalise either.** It is expressive, it is what the maker is already playing, and it means the two platforms perform the same act rather than two acts that resemble each other.
 
-- Desktop: the further the cursor sits from the character, the less angle a given mouse movement produces. Players naturally learn to bring the cursor in close for fast slashes and hold it out for slow, menacing drags.
-- Mobile: with a dynamic pad, the further out from the pad centre you hold your thumb, the less angle a given finger movement produces. Identical curve, for identical geometric reasons.
+### 2.4 For CASTING: one zone, three grammars
 
-**Do not normalise either one.** This is expressive, it is already what the maker is playing, and it means the two platforms really are performing the same act rather than two acts that look alike.
-
-### 2.4 Does it hold for CASTING? — partly, and here is the honest line
-
-**No, not as the same gesture. Yes, as the same zone and the same aim source.**
-
-A weapon drag is *continuous*: the damage has already happened by the time you let go, so release means nothing. A cast is *discrete*: nothing happens until you commit, so release means everything. Forcing them into one grammar gives the weapon a meaningless release and the spell a meaningless drag.
-
-But the aim source is identical, and for the *placed* spells the drag does real work (direction **and** reach). So:
+A weapon drag is *continuous* — the damage has already happened by the time you let go, so release means nothing. A cast is *discrete* — nothing happens until you commit, so release means everything. One grammar gives the weapon a meaningless release and the spell a meaningless drag.
 
 > **ONE ZONE. THREE GRAMMARS, chosen by what is in your hand.**
 
 | in hand | touch down | drag | release |
 |---|---|---|---|
-| **FISTS** | `punch()` immediately along the current aim | re-aims (arms track, via `ctrl_aim_hold`) | nothing |
-| **WEAPON** | opens the drag (`ctrl_weapon_drag = true`) + the `flick` impulse | **is the swing** — this is where damage happens | closes the drag. No commit. |
+| **FISTS** | strike immediately along the current aim | re-aims (and, per §5.6, drags) | nothing |
+| **WEAPON** | opens the drag (`ctrl_weapon_drag = true`) + the `flick` impulse | **is the swing** | closes the drag. No commit. |
 | **SPELL (aimed)** | begins aiming; a ghost line shows the heading | re-aims | **casts** along the held heading |
 | **SPELL (placed)** | begins aiming; a ghost footprint appears at `reach` | sweeps direction **and** distance (`0.35–1.0 × reach` by pad radius) | **casts** at the previewed point |
 
-A quick tap on a spell slot (down and up inside `TAP_MS` = 140 ms, travel < 12 units) casts straight down the last aim, so a panic tap still works.
+A quick tap on a spell slot (down and up inside `TAP_MS` 140 ms, travel < 12 units) casts down the last aim, so a panic tap still works.
 
-`HandSlots` already answers "what does use mean" via `primary_action()`. It needs one more accessor so the touch layer knows the *grammar*, not just the *action*:
+`HandSlots.primary_action()` already answers "what does use mean". It needs one more accessor so the touch layer knows the *grammar*:
 
 ```gdscript
 enum Grammar { TAP, HOLD_DRAG, RELEASE_TO_COMMIT }
 func use_grammar() -> int   # FISTS -> TAP, WEAPON -> HOLD_DRAG, SPELL -> RELEASE_TO_COMMIT
 ```
 
-**The honest cost:** your right thumb's grammar changes when you change slots. Holding a sword, letting go does nothing; holding a spell, letting go fires. That is a real learning tax and the single most likely source of "I didn't mean to cast that". Mitigations, in order of value: (1) the bar's kind glyph (fist / blade / rune) is the *primary* read on each square, not the name; (2) the ghost preview only appears for the RELEASE grammars, so seeing a ghost means "letting go fires"; (3) auto-return to slot 0 after a cast (§6.4) means the default resting grammar is always the weapon's.
+**The honest cost:** your right thumb's grammar changes when you change slots — with a sword, letting go does nothing; with a spell, letting go fires. That is a real learning tax and the likeliest source of "I didn't mean to cast that". Mitigations, in order of value: (1) the bar's **kind glyph** (fist / blade / rune) is the primary read on each square, above the name; (2) a **ghost preview appears only for RELEASE grammars**, so seeing a ghost means letting go fires; (3) **auto-return to slot 0** after a cast (§7.4), so the default resting grammar is always the weapon's.
 
 ---
 
-## 3. THE MOBILE LAYOUT
+## 3. THE THUMB CONFLICT — the crux
 
-Base space is 640×360 (`project.godot` `viewport_width/height`, `canvas_items` stretch). All numbers below are base units; multiply by ~3.0 for a 1080p phone in landscape.
+Deflect is now a **held** input whose perfect band sits 0.328–0.42 s after the press. The drag is also a held input. One thumb cannot do both. Desktop can hold RMB and LMB with no trouble.
+
+### 3.1 The asymmetry is real, but it is the wrong thing to look at
+
+Follow the desktop side through:
+
+> A desktop player holds RMB. The ring bottoms out at 0.42 s into **SUSTAIN**. Sustain has **no cooldown, no resource cost, no duration limit, and no movement penalty**. They keep holding it, and drag the blade with LMB at full strength.
+>
+> **That is a permanent, free 35 % damage reduction while attacking at 100 %.**
+
+There is no version of that which is intended. Mobile's one-thumb limit is not a disadvantage — it is the *only thing currently preventing* the degenerate case. **The asymmetry is a symptom; the mechanic is the bug.**
+
+So the question "accept it, equalise it, or move the guard" has a fourth and correct answer: **make guarding and attacking mutually exclusive by rule**, and the asymmetry ceases to exist.
+
+### 3.2 The rule
+
+> **While the guard is held, the use-verb is suppressed.** The drag closes on the frame guard is pressed; spells will not fire; fists will not strike. Releasing guard restores the use-verb on the next frame.
+> Symmetrically, **pressing use does not break an active guard** — guard wins, because it is the committed act.
+
+This is not invented. `_update_arms` already resolves `PARRY > DRAG` (§1.4). The input layer is being made to agree with the rig it drives.
+
+Consequences:
+- **Desktop loses nothing it should have had.** RMB+LMB now expresses "guard", exactly as it does on mobile.
+- **Mobile is no longer disadvantaged.** Zero asymmetry, zero platform-specific balance.
+- **The guard becomes a real decision** — which is what `ParryRing`'s own header promises (*"a real decision instead of a reflex"*) and what a free concurrent sustain silently destroys.
+- **It creates the vulnerability window that removing the cast-root deleted.** See §5.5 — this is structurally important.
+
+### 3.3 …and therefore the guard belongs on the RIGHT thumb
+
+This reverses the obvious answer, and reverses my own first draft. The reasoning that put deflect on the left thumb was correct **for the old mechanic** and is wrong for the new one:
+
+| | old parry (`PARRY_WINDOW` 0.16 s, hidden) | new `ParryRing` (0.42 s shrink) |
+|---|---|---|
+| lead time before the block matters | ~0 — you react into a 160 ms window | **~0.33 s** — you commit, then wait |
+| affordable input latency | ~0 ms; any thumb travel eats the window | **~90 ms of thumb travel is 27 % of the lead** |
+| compatible with attacking | had to be, so it could not share the attack thumb | **must not be** (§3.2), so it *should* share it |
+
+Two independent arguments now point the same way:
+
+1. **The right thumb has nothing to do while guarding.** By §3.2 the use-verb is suppressed, so the drag zone is inert. Putting the guard anywhere else wastes a thumb.
+2. **The left thumb must stay free, because you must be able to MOVE while guarding.** Retreating behind a guard is the core defensive act; a guard that stops your feet is a guard nobody uses. Putting the guard on the left thumb would make it mutually exclusive with *movement* — a far worse exclusion than the one with attacking, and one that no rule justifies.
+
+**The shrinking ring is precisely what unlocks this placement.** The old window forbade any travel cost; the new one affords it.
+
+### 3.4 Layout consequence
+
+The right side splits into two touch regions. The split is **positional, so recognition is instantaneous** — no hold-vs-tap discrimination, no swipe recognition, no ambiguity with the drag.
+
+```
+                          ╭──────────────────────────╮
+                          │                          │
+                          │      USE / DRAG ZONE     │
+                          │   (aim · swing · cast)   │
+                          │                          │
+                          ╰──────────────────────────╯
+                          ╭──────────────────────────╮
+                          │   G U A R D   B A N D    │   ← hold anywhere in here
+                          ╰──────────────────────────╯
+```
+
+| knob | value (base 640×360) |
+|---|---|
+| right region | `x > 360` |
+| **guard band** | the bottom **74 units** of it: `y > 286`, `x > 400` — a wide, shallow strip your thumb drops onto |
+| use / drag zone | the rest of `x > 360`, i.e. `y < 286` |
+| thumb travel to guard | ~40–60 base units ≈ 12–18 mm ≈ **60–90 ms** — 18–27 % of the ring's 0.33 s lead |
+| ring feedback | the ring is drawn **on the character**, not on the band — you watch the fight, not your thumb |
+
+The band is deliberately a *band*, not a button: under pressure you drop your thumb, you do not aim it. It is also on the outer/lower edge, which is where a thumb naturally rests between actions.
+
+**Desktop:** RMB held = guard; the ring draws on the character; LMB is ignored while RMB is held (§3.2). Identical model, native input.
+
+### 3.5 Honest costs of this decision
+
+1. **You cannot re-aim while guarding.** Your aim freezes at its last heading for the duration. Acceptable — a guard is a committed defensive act — but it means a guard that gets baited leaves you facing the wrong way. That is the intended punish.
+2. **60–90 ms of travel is not free.** Against a genuinely unreactable attack you will be late. The ring's lead absorbs it; a *surprise* attack still beats you, which is correct.
+3. **Two right-side regions means an edge case at the boundary.** A drag that wanders down into the band must not become a guard. Rule: **the region is decided at touch-down and latched for the life of that touch.** A drag that started in the use zone stays a drag no matter where the thumb travels.
+
+---
+
+## 4. THE MOBILE LAYOUT
 
 ```
  ┌──────────────────────────────────────────────────────────────────────┐
  │                                                                      │
+ │                      (the fight — nothing occludes it)               │
  │                                                                      │
- │                     (the fight — nothing occludes it)                │
- │                                                                      │
- │                                              ╭───────────────╮       │
- │                                              │               │       │
- │        LEFT ZONE  x<240                      │   USE / DRAG  │       │
- │        dynamic joystick spawns               │   ZONE        │       │
- │        where you press:                      │   x>360       │       │
- │          ◄─►  move (analog)                  │               │       │
- │          ▲    JUMP  (ny < -0.62)             │  touch-down = │       │
- │          ▼    DUCK  (ny > +0.60)             │  pad centre;  │       │
- │          tap-tap-flick = DASH                │  angle = aim; │       │
- │                                              │  radius=reach │       │
- │   ╭────────╮                                 ╰───────────────╯       │
- │   │DEFLECT │        ▢ ▢ ▢ ▢ ▢ ▢                       ╭─────╮        │
- │   │  58²   │        the SLOT BAR                      │DASH │        │
- │   ╰────────╯        (bottom-centre, tap to select)    ╰─────╯        │
+ │                                          ╭────────────────────────╮  │
+ │      LEFT ZONE  x<240                    │                        │  │
+ │      dynamic joystick spawns             │     USE / DRAG ZONE    │  │
+ │      where you press:                    │   touch-down = pad     │  │
+ │        ◄─►  move (analog)                │   centre; angle = aim; │  │
+ │        ▲    JUMP  (ny < -0.62)           │   radius = reach       │  │
+ │        ▼    DUCK  (ny > +0.60)           │                        │  │
+ │        tap-tap-flick = DASH              ╰────────────────────────╯  │
+ │                                          ╭────────────────────────╮  │
+ │                    ▢ ▢ ▢ ▢ ▢ ▢           │   G U A R D            │  │
+ │                    the SLOT BAR          ╰────────────────────────╯  │
  └──────────────────────────────────────────────────────────────────────┘
-      LEFT THUMB              between thumbs                RIGHT THUMB
+      LEFT THUMB          between thumbs              RIGHT THUMB
 ```
 
-**Combat touch targets: 3** (left zone, deflect, use zone) + an optional dash button + a bar you touch rarely. Down from 8 buttons + joystick.
+**Combat touch targets: 3** (left zone, use zone, guard band) + a bar you touch rarely. Down from the current **8 buttons** + joystick.
 
-### 3.1 Left zone — movement, jump, duck, dash
+### 4.1 Left zone — move, jump, duck, dash
 
 | knob | value | note |
 |---|---|---|
-| zone | `x < 0.375 × 640 = 240`, minus the deflect rect + a 10-unit halo, minus the bar hit rect | the joystick spawns on press, as today |
-| `JOY_RADIUS` | 66 (unchanged) | |
-| `JOY_DEADZONE` | 0.18 (unchanged) | |
-| `JOY_DUCK_THRESHOLD` | +0.60 (unchanged) → `move_down` | |
+| zone | `x < 240` (0.375 × 640), minus the bar hit rect | dynamic joystick, spawns on press |
+| `JOY_RADIUS` / `JOY_DEADZONE` | 66 / 0.18 | unchanged |
+| `JOY_DUCK_THRESHOLD` | +0.60 → `move_down` | unchanged |
 | **`JOY_JUMP_THRESHOLD`** | **−0.62** → press `jump` | new |
-| **`JOY_JUMP_RELEASE`** | **−0.40** → release `jump` | hysteresis; also drives variable jump height, since `Hero.gd:578` cuts the ascent on `just_released` |
+| **`JOY_JUMP_RELEASE`** | **−0.40** → release `jump` | hysteresis; also drives variable jump height (`Hero.gd:578` cuts the ascent on `just_released`) |
 
-**Why jump becomes a gesture and deflect does not.** We have exactly one free gesture channel on the left thumb — the joystick's upper half, currently unused — and exactly one verb that cannot tolerate a gesture. Assign by latency tolerance, which the code has already quantified for us:
+**Why jump becomes a gesture.** The joystick's vertical axis is currently half-used (down = duck; up does nothing) — one free gesture channel. Assign it by latency tolerance, which the code has already quantified:
 
-| verb | input forgiveness in code | tolerates recognition latency? |
+| verb | forgiveness in code | tolerates recognition latency? |
 |---|---|---|
-| **jump** | `JUMP_BUFFER_TIME` 0.10 s **and** `COYOTE_TIME` 0.10 s — the only verb with both | **yes**, ~100 ms in both directions |
-| **deflect** | none. Not buffered (`Hero.gd:678` list excludes `parry`), 0.16 s reward window | **no** |
+| **jump** | buffer 0.10 s **and** coyote 0.10 s — the only verb with both | **yes**, ~100 ms either way |
+| **guard** | none; a 0.092 s perfect band | **no** |
 
-Jump also happens constantly while moving, so freeing it from a button that costs you the stick is the larger flow win; deflect happens at most every 0.9 s.
+Jump also happens constantly while moving, so freeing it from a button that costs you the stick is the larger flow win.
 
-**The false positive to watch:** a diagonal up-right push to run right would jump. `−0.62` is deliberately steeper than the duck's `+0.60` for this reason (running is a horizontal act; ducking is a deliberate one). If F5 says people still jump by accident, the next lever is a *rate* gate — require the vertical to cross the threshold within 120 ms of leaving the deadzone, so a slow diagonal lean never fires.
+**The false positive to watch:** a diagonal up-right push to start running would jump. `−0.62` is deliberately steeper than the duck's `+0.60` for that reason. If F5 says it is not enough, the next lever is a *rate* gate — require the vertical to cross within 120 ms of leaving the deadzone, so a slow diagonal lean never fires.
 
-### 3.2 Deflect — a discrete button, and why no gesture can do this
-
-Budget: `PARRY_WINDOW` is **0.16 s**, and it is a *reward* window — a projectile must arrive inside it. The player must see the tell, decide, input, and have the window still open when the bolt lands. There is no buffer and no coyote.
-
-| candidate | recognition latency | ambiguity |
-|---|---|---|
-| **discrete button** | **0 frames** — `InputEventScreenTouch.pressed` is the decision | none |
-| swipe | ≥ the swipe duration; a 40-unit swipe at a brisk 600 units/s = **67 ms**, realistically 90–120 ms under panic | **fatal** — a right-zone swipe *is* the weapon drag. A misread swings your sword when you meant to block. |
-| double-tap | two contacts, ≥ 120–180 ms, cannot fire before the second | none, but strictly worse than a button |
-| hold-vs-tap | needs a ~200 ms discriminator | worst of both |
-
-A gesture eats **45–75 % of a 160 ms window before the game has even decided what you did**. Verdict: **button, non-negotiable.**
-
-Placement: **bottom-left corner, 58×58, offset (10, 10)** — the left thumb, not the right, because `HandSlots` specifies deflect works *in every state*, and if it lived on the right thumb you could not deflect mid-drag. It is also consistent with the rig, which already ranks parry above drag (§1.4).
-
-| knob | value |
-|---|---|
-| rect | `(10, 292)` → `(68, 350)` in base space |
-| joystick exclusion | the rect + 10-unit halo |
-| **`DEFLECT_MOVE_GRACE`** | **0.25 s** — when the left thumb leaves the joystick to hit deflect, hold the last horizontal move action rather than zeroing it |
-
-`DEFLECT_MOVE_GRACE` is the small change that keeps this from breaking flow. Without it, every block stops you dead; with it, you keep your momentum through the block, which is the Stick-Fight read.
-
-**Honest cost:** you still cannot steer *during* the block. Accepted, because the block is 0.26 s of shell and comes with a 0.9 s cooldown.
-
-**A contradiction to resolve before building:** `HandSlots` says deflect is available *"always, in every state, armed or not"*, but `Hero._try_parry_start` gates on `_cfg["can_parry"]`, which is **false for the mage**. A prominent on-screen button that does nothing for one class is a mobile-UX landmine. **Recommend resolving toward `HandSlots`:** every class deflects; classes differ in *window length* and *cooldown*, not in whether the verb exists. Maker call, flagged.
-
-### 3.3 The use / drag zone — the fused right thumb
+### 4.2 Use / drag zone
 
 | knob | value | why |
 |---|---|---|
-| zone | `x > 360`, excluding the bar hit rect and the dash button | ~44 % of the width, the whole height |
-| pad centre | **the touch-down point** (dynamic, like the left stick) | you can hold the phone however you like |
-| **`DRAG_DEAD`** | **10 units** — below this radius, hold the previous aim | avoids an undefined angle at touch-down and stops the aim snapping when you first plant your thumb |
-| aim | `angle(touch − pad_centre)`, **unclamped** | leaving it unclamped is what preserves the inverse-radius gain of §2.3 |
-| **`R_REACH`** | **70 units** — radius clamp used *only* for the placed-spell reach magnitude | `magnitude = clamp(r / 70, 0, 1)`, mapped to `0.35–1.0 × spell.reach` |
-| **`TAP_MS` / `TAP_TRAVEL`** | **140 ms / 12 units** — a tap, not a drag | lets a panic tap cast down the last aim |
+| zone | `x > 360`, `y < 286`, region latched at touch-down (§3.5.3) | ~44 % of width |
+| pad centre | **the touch-down point** (dynamic) | hold the phone however you like |
+| **`DRAG_DEAD`** | **10 units** — below this radius, hold the previous aim | no undefined angle at touch-down; no snap when you plant your thumb |
+| aim | `angle(touch − pad_centre)`, **unclamped** | preserves the inverse-radius gain of §2.3 |
+| **`R_REACH`** | **70 units** — clamp used *only* for placed-spell reach | `magnitude = clamp(r / 70, 0, 1)` → `0.35–1.0 × spell.reach` |
+| **`TAP_MS` / `TAP_TRAVEL`** | **140 ms / 12 units** | a panic tap casts down the last aim |
 
-Everything downstream consumes one plain unit vector plus one scalar magnitude. **No code below the input layer knows which device produced them** — that is the seam that keeps desktop and mobile from forking.
+Everything downstream consumes one unit vector plus one scalar. **No code below the input layer knows which device produced them.**
 
-### 3.4 The slot bar
+### 4.3 Guard band
 
-Bottom-centre, **between the thumb zones** — the one piece of screen neither thumb occupies. Direct tap; see §6 for why tap beats scroll.
+Per §3.4. Held; `ParryRing.press()` on touch-down, `release()` on lift. No cooldown of its own today — §5.2 adds one.
+
+### 4.4 Slot bar
+
+Bottom-centre — **the one region neither thumb occupies.** Direct tap (see §7.1).
 
 | knob | value |
 |---|---|
-| slot size (drawn) | 40 × 40, gap 6 |
-| 6 slots | 270 wide, centred → `x ∈ [185, 455]` |
+| drawn size | 40 × 40, gap 6 → 6 slots = 270 wide, centred `x ∈ [185, 455]` |
 | bottom margin | 12 → `y ∈ [308, 348]` |
-| **hit rect** | **48 wide × 56 tall**, centred on the drawn square, extending *upward* into empty screen |
-| touch priority | the bar is a real `Control` and consumes its own touches first; the zone tests reject touches inside its hit rect (the pattern `TouchControls.gd:69` already establishes) |
+| **hit rect** | **48 × 56**, centred on the square, extending **upward** into empty screen |
+| touch priority | the bar is a real `Control` and consumes its own touches first (the pattern `TouchControls.gd:69` already establishes); zone tests reject touches inside its hit rect |
 
-A 40-unit square is ~120 device px ≈ 7.6 mm at 1080p/400 ppi — under the comfortable minimum, which is exactly why the *hit* rect is larger than the *drawn* rect. That is standard and honest: draw small, hit big.
+A 40-unit square is ~7.6 mm at 1080p/400 ppi — under the comfortable minimum, which is exactly why the hit rect is larger than the drawn rect. Draw small, hit big.
 
-**Slot read (in priority order — the eye is on the fight, not the bar):**
+**Slot read, in priority order** (your eye is on the fight, not the bar):
 
-1. **Selected = the square LIFTS 4 units** and gains a 2 px accent border. Position change is preattentive; colour alone is not.
-2. **Kind glyph, top-left, 8 px** — fist / blade / rune. This is what tells you your right-thumb *grammar*, so it outranks the name.
-3. **Cooling** — the existing bottom-up wipe + 1-decimal seconds from `AbilityBar._draw_slot`. That code is already good; reuse it verbatim.
-4. **Selected AND cooling** — wipe + lift + a **diagonal hatch**. This is the state where your USE button does nothing, and it must be unmistakable.
-5. **Key label** — `1`–`6` on desktop, **omitted on touch** (there are no keys).
-6. Name: bottom, tiny, dim. Identification only.
+1. **Selected = the square LIFTS 4 units** + a 2 px accent border. Position change is preattentive; colour alone is not.
+2. **Kind glyph, top-left, 8 px** — fist / blade / rune. This is your right-thumb *grammar*, so it outranks the name.
+3. **Cooling** — the existing bottom-up wipe + 1-decimal seconds from `AbilityBar._draw_slot`. Reuse verbatim; that code is already good.
+4. **Selected AND cooling** — wipe + lift + a **diagonal hatch**. This is the state where your USE does nothing and it must be unmistakable.
+5. **Key label** — `1`–`6` on desktop, **omitted on touch**.
+6. Name: bottom, tiny, dim.
 
-### 3.5 Dash button (optional, default ON for playtest 1)
+### 4.5 Dash gesture
 
-Bottom-right, 46×46, offset (10, 10). Dashes along the current joystick heading, else `facing`. It exists so the gesture in §4 can be judged on its merits rather than shipped because there is no alternative.
+**Judgement: good idea, real risk.** In its favour, dash direction already comes from the movement thumb (`_start_dash` reads `Input.get_vector` over the move actions, `:1235`), so putting the trigger there reunites it with its direction. Against it: the left thumb is on the joystick continuously, and the naive gesture is close to ordinary movement — and a misfire spends 0.14 s of i-frames, a 0.9 s cooldown, and 87 px of displacement that off a ledge is a death.
 
----
-
-## 4. THE DASH GESTURE — judged, then specified
-
-### 4.1 The judgement
-
-**The idea is good and the risk is real.** In its favour: dash direction already comes from the movement thumb (`_start_dash` reads `Input.get_vector` over the move actions, `Hero.gd:1235`), so putting the *trigger* on the movement thumb reunites it with its *direction*. It is also a known idiom.
-
-Against it: the left thumb is on the joystick continuously, and the naive gesture ("move, then move again") is uncomfortably close to ordinary movement — stop, start again; micro-adjust at a ledge; reposition a drifting thumb. And the cost of a misfire is unusually high:
-
-- dash spends **0.14 s of i-frames** and a **0.9 s cooldown** — your defensive resource, gone
-- it displaces you `620 × 0.14 ≈ 87 px`, which off a ledge is a death
-- in a Cuphead-hard game those are the same event
-
-So the gesture must require something ordinary movement **physically cannot produce**. That discriminator is a genuine TAP as the primer: a contact that lifts within 180 ms having travelled less than 24 units. Movement input never does that — a movement push holds for hundreds of milliseconds and travels past the 0.18 deadzone and keeps going.
-
-### 4.2 The gesture, exactly
+So the gesture must require something ordinary movement **physically cannot produce**: a genuine TAP primer.
 
 ```
   TAP            LIFT              RE-PRESS            FLICK
@@ -315,236 +341,295 @@ So the gesture must require something ordinary movement **physically cannot prod
 
 | symbol | value | rationale |
 |---|---|---|
-| `DASH_TAP_MAX_MS` | **180 ms** | the primer must lift fast; movement holds are 300 ms+ |
-| `DASH_TAP_MAX_TRAVEL` | **24 units** (0.36 × `JOY_RADIUS`) | a tap barely moves; a movement push clears the 12-unit deadzone and keeps going |
-| `DASH_GAP_MAX_MS` | **200 ms** | lift → re-press. A deliberate double-tap rhythm is 90–180 ms; a thumb reposition or a movement pause is longer |
-| `DASH_REPRESS_MAX_DIST` | **40 units** | a double-tap happens in place; a reposition travels further |
-| `DASH_FLICK_MIN_DIST` | **41 units** (0.62 × `JOY_RADIUS`) | must clear the deadzone by a wide margin |
-| `DASH_FLICK_MAX_MS` | **170 ms** | from re-press to threshold crossing → implies a floor of **~241 units/s**; resuming a walk is slower |
-| `DASH_REARM_LOCKOUT` | **400 ms** | after a dash fires, no new gesture recognition — kills chain-dashing from a wobbling thumb |
-| direction | the flick vector at the moment of crossing, normalised, **full 360°** | upgrades `_start_dash`'s 8-way-from-keys to analog |
+| `DASH_TAP_MAX_MS` | **180 ms** | movement holds are 300 ms+ |
+| `DASH_TAP_MAX_TRAVEL` | **24 units** (0.36 × `JOY_RADIUS`) | a movement push clears the 12-unit deadzone and keeps going |
+| `DASH_GAP_MAX_MS` | **200 ms** | a deliberate double-tap rhythm is 90–180 ms; a reposition is slower |
+| `DASH_REPRESS_MAX_DIST` | **40 units** | a double-tap happens in place |
+| `DASH_FLICK_MIN_DIST` | **41 units** (0.62 × `JOY_RADIUS`) | clears the deadzone by a wide margin |
+| `DASH_FLICK_MAX_MS` | **170 ms** | implies a floor of ~241 units/s; resuming a walk is slower |
+| `DASH_REARM_LOCKOUT` | **400 ms** | kills chain-dashing from a wobbling thumb |
+| direction | flick vector at crossing, normalised, **full 360°** | upgrades `_start_dash`'s 8-way-from-keys to analog |
 
-### 4.3 How accidental dashes are prevented — the full list
+**Accidental-dash prevention, in full:** (1) the tap primer cannot be produced by movement input — this is the load-bearing filter; (2) proximity kills the thumb-reposition case; (3) the flick speed floor kills the resume-walking case; (4) the re-arm lockout kills stutter double-fires; (5) a dash is gated on `_dash_cooldown_timer <= 0` anyway, so a misfire inside the 0.9 s cooldown costs nothing and the *effective* misfire rate is below the *recognition* rate; (6) kill switch `Tuning.dash_gesture_enabled`; (7) **mandatory instrumentation** — print `[dash] gesture fired — primer age N ms, flick M units/s` plus a counter for `fired within 250 ms of a movement resume`. Without a number, "does it misfire?" is unanswerable at F5.
 
-1. **The tap primer cannot be produced by movement input.** This is the load-bearing filter. To move, you hold; to prime, you must lift within 180 ms having barely moved.
-2. **Proximity requirement** kills the thumb-reposition false positive (repositioning lands somewhere else).
-3. **Flick speed floor** (~241 units/s) kills the resume-walking false positive.
-4. **Re-arm lockout** kills stutter double-fires.
-5. **The dash is gated on `_dash_cooldown_timer <= 0` anyway** — a misfire inside the 0.9 s cooldown costs literally nothing, so the *effective* misfire rate is lower than the *recognition* misfire rate.
-6. **Kill switch:** `Tuning.dash_gesture_enabled`, and the dash button of §3.5 stays available.
-7. **Instrumentation, mandatory in the playground build:** print `[dash] gesture fired — primer age N ms, flick M units/s`, and a second counter for `gesture fired within 250 ms of a movement resume` — a suspected-misfire proxy. Without a number, "does it misfire?" is unanswerable at F5.
+**Plumbing:** `_start_dash` derives direction from `Input.get_vector` over the move actions, and the touch joystick never presses `move_up`. So `TouchControls` sets a `dash_dir_hint: Vector2` on the hero in the same frame it presses `dash`, and `_start_dash` gains a first branch that consumes and clears it, falling through to the existing chain otherwise. Three lines; no desktop behaviour change; headless-testable.
 
-### 4.4 Plumbing note
+**Desktop parity:** two `is_action_just_pressed` of the **same** move action within `DESKTOP_DOUBLE_TAP_MS` = **260 ms**, firing on the second press with zero added latency; direction from `Input.get_vector` at fire time. **Space stays the primary desktop dash** — desktop has keys to spare, and taking one away to prove a point is what makes a game feel like a phone port. The double-tap transfers the *concept*, not the necessity. 260 ms is deliberately tighter than the classic 300 ms because tapping D twice to inch right is a real desktop pattern.
 
-`_start_dash` derives its direction from `Input.get_vector` over the move actions, and the touch joystick never presses `move_up`. So a 360° flick dash needs the direction passed explicitly. Minimal change that preserves the action seam:
-
-- `TouchControls` sets a `dash_dir_hint: Vector2` on the hero in the same frame it presses the `dash` action.
-- `_start_dash` gains a first branch: if the hint is non-zero, use it and clear it; otherwise fall through to the existing key/velocity/facing chain, unchanged.
-
-Three lines, no behavioural change on desktop, headless-testable.
-
-### 4.5 Desktop parity
-
-| knob | value |
-|---|---|
-| gesture | two `is_action_just_pressed` of the **same** move action within `DESKTOP_DOUBLE_TAP_MS` = **260 ms** |
-| fires | on the second press, immediately — zero added latency |
-| direction | `Input.get_vector(...)` at fire time, so W held + double-tapped D = up-right |
-| toggle | `Tuning.dash_double_tap_enabled`, default ON |
-
-**Space stays the primary desktop dash.** Desktop has keys to spare; taking one away to prove a point would make it feel like a phone port. The double-tap is a *parity* gesture that transfers the *concept* (direction-first dash), not a replacement. 260 ms is deliberately tighter than the classic 300 ms because tapping D twice to inch right is a real desktop pattern.
-
----
-
-## 5. Consequences for the aim path
-
-### 5.1 Auto-aim is not merely against the rules — it is incompatible with the drag
-
-`Hero.gd:477-480` snaps the touch aim to the nearest enemy. Under the drag model, the arm target *is* the aim. So auto-aim would:
-
-- pin the arm target to an enemy, meaning **your thumb drag produces no arm motion at all** — the drag input would be inert
-- and when the nearest enemy changes, **whip the blade at something you did not aim at**, at whatever speed the snap implies
-
-The earlier spec argued this on rules grounds. The drag makes it a mechanical argument. **Delete the `Targeting.aim_direction` branch from the hero's aim path.** `Targeting` stays in the file for enemy AI, which is allowed to aim at the player.
-
-### 5.2 Aim latch on committed casts
-
-`_begin_summon` / `_begin_channel` already snapshot the aim (`_summon_aim = _aim_dir`). Keep that. A committed windup that silently re-aims is a lie about commitment, and a thumb resting on a pad wobbles. But see §7.2 — the *placed point* should come from `origin + aim × reach`, not `get_global_mouse_position()` (`Hero.gd:963, 1073`), which is desktop-only code sitting on a mobile-first path.
-
-### 5.3 Defensive verbs preempt the drag
-
-Promote `_update_arms`'s existing priority order (§1.4) to an input-layer rule:
-
-> **Pressing DEFLECT or DASH closes the drag immediately, on the frame of the press, without requiring the right thumb to lift.**
-
-The rig already renders it this way. Making the input layer agree means you never get the state where you are holding a swing you cannot escape.
-
----
-
-## 6. SLOT SELECTION — reconciling the two specs
-
-The cap is settled: **4 spells, chosen out of combat.** So the in-combat carousel is fists + (0–1 weapon) + 4 spells ≈ **5–6 entries**. The "26-long carousel" objection is moot and is withdrawn.
-
-### 6.1 Scroll/cycle vs direct selection at ~6 entries
-
-| | cycle (scroll / next-button) | direct (tap a square / press 1–6) |
-|---|---|---|
-| controls needed | 1 (or 2 for bidirectional) | 6 |
-| cost to reach a specific slot | **O(n)** — with `wrapi` the worst case is 3 steps | **O(1)** |
-| under pressure | you must *watch the bar* to know where you landed — your eyes leave the fight | spatial; no readback needed |
-| mobile screen cost | ~0 | **6 targets — but they sit in the dead zone between the thumbs, not in either thumb zone** |
-| transfers between platforms | scroll ↔ nothing on mobile | tap ↔ number key: **same spatial order, same index** |
-
-**Recommendation: DIRECT on both platforms.** The deciding argument is not the O(n) cost — at n=6 that is survivable. It is these two:
-
-1. **Direct tap costs nothing that the drag wants.** A cycle button on mobile has to live *somewhere*, and every somewhere is inside a thumb zone. The bottom-centre bar is the one region neither thumb occupies, and it is already on screen. So direct selection is, on mobile, *cheaper* than a cycle button.
-2. **Cycling requires visual readback.** With direct selection you know what you selected because you chose *where* you touched. With cycling you must look at the bar to find out where you ended up — in a Cuphead-hard game, that is the eye leaving the fight at exactly the wrong moment.
-
-**Keep `cycle()` anyway.** It is what the desktop scroll wheel drives (free, natural, no cost), and it is what a gamepad shoulder button will drive. It just is not the primary model.
-
-Muscle memory transfers because both platforms use the *same index in the same left-to-right order*: slot 3 is slot 3 whether you press `3` or tap the third square.
-
-### 6.2 Does slot selection belong in combat?
-
-**Yes — because a "slot" here is your hand, not a menu.** Weapons are picked up mid-fight (that is the Stick-Fight fantasy), and `HandSlots` correctly puts FISTS at index 0 as the never-strandable panic option.
-
-**No — for the loadout.** *Which* 4 spells you carry is a grimoire decision, made out of combat, exactly as the companion spec argues.
-
-That is the clean reconciliation: **the bar is what you are holding; the grimoire is what you brought.**
-
-### 6.3 What should change in `HandSlots.gd`
-
-The model is right. Four additions, all small:
-
-1. **`use_grammar() -> int`** (§2.4). The touch layer needs the grammar, not just the action name.
-2. **A stable, typed slot order.** `rebuild()` should emit `[FISTS, weapon?, PRIMARY, AREA, MOBILITY, SIGNATURE]` — the companion spec's typed slots become an *ordering guarantee* rather than a separate system. This is what makes tap-position muscle memory survive a class change: slot 4 is always "get out of trouble", on Cryomancer and on Brawler alike.
-3. **`auto_return: bool = true`** — after a SPELL slot fires, return `selected` to 0. See §7.4; this is a flow fix, not a convenience.
-4. **`pin()`** — the player can pin a slot to defeat auto-return (long-press the square on touch; hold the number key on desktop).
-
-Keep `cycle()`'s wrap, keep cooling slots selectable (the comment at line 117 is right — hiding a slot would make the bar lie about what you own); auto-return is what stops "selectable while dead" from producing a dead USE button.
-
-### 6.4 Desktop control set — native, not a port
+### 4.6 Desktop control set — native, not a port
 
 ```
-A / D              move
-W / Up             jump          S    duck / ragdoll
-Space              dash          (double-tap a direction = parity gesture)
+A / D              move                    W / Up  jump        S  duck / ragdoll
+Space              dash                    (double-tap a direction = parity gesture)
 LEFT MOUSE         USE — hold and move the mouse to drag the blade;
                    press-and-release to cast the held spell
-RIGHT MOUSE        DEFLECT
-WHEEL              cycle slots            1..6   select slot directly
+RIGHT MOUSE        GUARD (held). Suppresses LEFT MOUSE while held (§3.2).
+WHEEL              cycle slots             1..6   select slot directly
 cursor             aim, always, no button
 ```
 
-Compared with today this **removes** Q / R / T / G / F / V as ability keys — they fold into slots — and **adds** the wheel and 1–6. Net: fewer keys, mouse-centric, and the mouse does more of the work. That is more native than the current scheme, not less.
+Against today this **removes** Q / R / T / G / F / V as ability keys (they fold into slots) and **adds** the wheel and 1–6. Net: fewer keys, mouse-centric, more of the work done by the mouse. That is more native than the current scheme, not less.
 
 ---
 
-## 7. THE FLOW PROBLEM — every breaker, with a fix
+## 5. THE DEFENSIVE BUDGET — the blunt answer
 
-Stick Fight flows because it has few verbs, no modal states, momentum that always carries, and a weapon whose aiming and attacking are one act. We have the last one already (§2). Here is everything fighting the other three.
+### 5.1 Add it up
 
-### 7.1 BREAKER #1 — every signature roots you; the playground rig roots you for nothing
+| source | invulnerability / mitigation | cost | uptime |
+|---|---|---|---|
+| **dash i-frames** | **total**, 0.14 s | 0.9 s cd | **15.6 %** |
+| **blink i-frames** | **total**, 0.22 s, +175 px **through walls** | 1.3 s cd | **16.9 %** |
+| **perfect parry** | **1.00× negation** + reflect, vs *every* spell incl. ults | a 0.092 s read | repeatable, **no cooldown** |
+| **sustained guard** | **0.35× off everything** | *none* — hold forever | **100 %** when not attacking |
+| **`GuardComponent`** | persistent × timed × one-shot × absorb, **uncapped in combination** | gear / wards | persistent |
+| **casts no longer root** | removes the last reliable punish window | — | — |
 
-**The evidence** (§1.2): `_process_channel` and `_process_summon` zero velocity, hold position and `return` before all movement code. `SpikeFigure.cast()` only re-targets the arm springs and lets the torso keep its physics. All 26 spells route through one of the two Hero windups, so **every signature roots you for at least 0.42 s**, and 4 of them root you for 1.0–1.3 s while levitating.
+Dash and blink are **independent cooldowns**, so alternated they put an invulnerable frame within reach roughly every 0.45 s, and **32.5 % of all elapsed time can be spent invulnerable** — while also repositioning 87 px or 175 px.
 
-**The maker's instinct — tiered commitment — is right. But the tiers should be read out of the data we already have, not invented.** `CastStyle.duration()` already encodes a per-kind commitment scale (LASH 0.18 → COIL 0.22 → SWEEP 0.28 → SLAM 0.34 → CIRCLE 0.40 → CHANNEL 0.46) and `SpellDef.cast_time` already separates the four true spectacles. So:
+Stacked multiplicatively, a modest kit (gear 0.25, a ward 0.50, sustained guard 0.35) already lands at `0.75 × 0.50 × 0.65 =` **0.244×** — a 76 % reduction — *before* absorb, *before* i-frames, *before* a perfect parry sets it to zero.
 
-| tier | source | duration | movement | jump / dash | cancel | spells |
-|---|---|---|---|---|---|---|
-| **T1 SNAP** | pose is LASH / THROW / COIL | 0.18–0.22 s | **full** | **yes** | n/a | tether, chain, missiles, rush, nova, flurry, blink-strike, rift dagger |
-| **T2 PLANT** | pose is SLAM / SWEEP / CIRCLE / POINT | 0.28–0.42 s | **40 % speed**, no jump | **dash cancels** (50 % cooldown refund) | yes, by dash | walls, pillars, boulders, meteors, zones, crawler, beams |
-| **T3 COMMIT** | `cast_time > 0` | 1.0–1.3 s | **rooted + levitating** (unchanged) | no | **no** | the 4 channelled spectacles, and future domains |
+### 5.2 Verdict
 
-**The commitment IS the drama — so it must be rare.** Under this split, 22 of 26 spells stop rooting you outright or become dash-cancellable, and the 4 that root you become genuinely special rather than the default tax on casting. That is the whole answer to "make it flow", and it maps onto existing fields with zero new authoring.
+**Yes. A competent player is effectively un-hittable, and it is not close.** The remaining way to take damage is to choose to.
 
-Note the tiering also fixes the rig divergence for free: T1 is exactly what `SpikeFigure` already does, so the playground and the hero converge instead of drifting.
+And the failure mode is worse than "too easy". It is **boring, then unfair**: the only lever left against an un-hittable player is enormous enemy damage, so the rare hits that land delete you. That is the classic over-defence death spiral — a one-mistake game with no mid-range, which is the opposite of Cuphead-hard (Cuphead is hard because you get hit *often* and survive *a bit*).
 
-### 7.2 BREAKER #2 — input is DISCARDED, not buffered, during windups
+### 5.3 What I would cut, in order
 
-`Hero._physics_process` returns at lines 457–464 for channel/summon, but `_update_input_buffer(delta)` is at line **472**. **Nothing you press during a windup is even recorded.** And `BUFFER_TIME` is 0.12 s — shorter than the 0.42 s summon — so even if it were recorded it would expire.
+**CUT 1 — SUSTAIN must cost something. This is the worst item on the list.** A free, permanent, cooldown-less, movement-unimpeded 35 % DR has no cost, no counterplay and no decision. `ParryRing`'s own doc reasons *"not much, or holding would beat timing"* — but 35 % at zero cost beats timing on expected value for anyone not confident of a 0.092 s band, so the intended decision never actually gets made.
+- **(a) Sustain drains a guard meter** — deplete over ~1.5 s of holding, refill only while not guarding. This makes holding a real decision, and gives enemies a **guard-break** on depletion, which is also a great spectacle and a great tell.
+- **(b) Sustain suppresses movement to ~30 % speed.** Turtling should be static.
+- Recommend **(a) + (b)**. Sustain becomes *turtling*: safe, immobile, finite.
 
-This is the classic "the game ate my input" feeling, and it is at its worst immediately after the most committed action in the game.
+**CUT 2 — the ring needs a re-arm cost.** `release()` sets `_t = 0` instantly, so a player can spam press/release fishing for perfects at zero risk. Add `RING_REARM = 0.35 s` after any release, **or** make a *whiffed* guard (released with no hit having arrived) cost 0.6 s. Without this the "real decision" the header promises is not a decision — you simply always guard.
 
-**Fix, three parts:**
-1. Move `_update_input_buffer(delta)` **above** the channel/summon early returns.
-2. While a committed state is active, do not expire the buffer — hold the newest press and fire it on exit.
-3. Add `parry` and the slot-use action to the buffered list. Right now `cast`, `parry` and `ultimate` are polled raw (`Hero.gd:515-519`) and get **zero** forgiveness, while `melee`/`dash`/`blast`/`blink`/`nova` get 0.12 s. The two highest-stakes inputs having the least forgiveness is backwards.
+**CUT 3 — pick ONE i-frame mobility, not two.** Dash *and* blink both grant invulnerability *and* displacement; blink additionally phases through walls. Two independent invulnerable escapes is one too many, and it is also what makes kiting (§5.7) degenerate. Recommend: **blink loses its i-frames** and keeps the displacement (175 px + wall-phase is already an enormous escape), **or** blink becomes the MOBILITY *slot* spell so it competes with your other three rather than being free alongside them. The typed-slot model (§7.2) makes the second option natural.
 
-### 7.3 BREAKER #3 — holding DOWN silently disables your entire defensive kit
+**CUT 4 — cap the `GuardComponent` stack.** Each factor is capped at 0.95 individually; the combination is uncapped. Add a floor: **total pre-guard mitigation cannot exceed 0.60.** The class header already identifies stacking as the fastest route to an un-hittable player; it just does not enforce it.
 
-`Hero.gd:492-502`: the duck / ragdoll branch runs `move_and_slide()` and **returns**. Everything below it — the ability polls at 507–520 and `_try_fire_buffered()` at 552 — never runs. So while ducking you cannot deflect, cast, dash, or fire an ultimate, and nothing tells you.
+**CUT 5 — keep `DEFLECTED_DAMAGE_MULT = 0.0` for PERFECT, but only once CUTs 1–2 land.** Full negation on a hard read is correct and it *should* be the best moment in a fight (`SpellDeflect`'s header is right about this). The problem is never the reward; it is that reaching the reward currently costs nothing. Fix the cost, keep the payoff.
 
-On mobile this is worse than on desktop, because duck is `ny > 0.60` on the analog joystick: a player steering with a low thumb can cross into duck **without intending to**, and lose their block. That is a silent, invisible, unrecoverable failure at exactly the moment they most need the block.
+**KEEP — casts do not root you.** That is the maker's decision and it is right for flow. But name the consequence honestly: **removing the root removes the only window in which a spell-heavy player was reliably punishable.** It has to be re-created somewhere, and §5.5 is where.
 
-**Fix:** duck should suppress *locomotion*, not *defence*. Let `parry` and `dash` fire from inside the duck branch (both already have their own gating), and only suppress movement/jump/cast. Alternatively, raise `JOY_DUCK_THRESHOLD` on touch and require the crossing to be *fast*, as with the jump gate — but the real fix is the first one.
+### 5.4 What the cuts add up to
 
-### 7.4 BREAKER #4 — cooldowns make spells punctuation, but the UI treats them as the sentence
+| after the cuts | |
+|---|---|
+| i-frame uptime | 15.6 % (dash only) instead of 32.5 % |
+| sustain | costs a meter, immobilises you, breakable by enemies |
+| guard spam | gated by a 0.35 s re-arm |
+| mitigation stack | floored at 0.60 pre-guard |
+| perfect parry | untouched — still absolute, still the best moment in a fight |
 
-Spell cooldowns are 3.0–6.5 s. With 4 spells, a 10-second engagement affords roughly **one or two casts**, after which you are holding fists or steel. The weapon drag, by contrast, has a `cd` of 0.12–0.34 s and costs no resource.
+That is still a *generously* defended player. It is no longer an un-hittable one.
 
-**So the game already has the Stick-Fight-paced layer it needs — it is the drag.** The flow problem is not that cooldowns exist (they are what makes a spell an event). It is that the input scheme and the HUD present spells as the primary verb while the drag carries the actual tempo.
+### 5.5 The structural payoff — the guard becomes the new vulnerability window
 
-**Fix:** `auto_return` (§6.3). After a spell fires, the carousel snaps back to slot 0, so your resting grammar is always "I am holding a weapon and can fight". Casting becomes a deliberate departure from the default rather than a state you get stranded in behind a 6.5 s cooldown with a dead USE button. Pinning is available for players who want the old behaviour.
+This is the part worth stating on its own, because it is what makes the maker's flow decisions safe:
 
-### 7.5 BREAKER #5 — nothing is cancellable by choice
+> Before: you were punishable **while casting** (rooted 0.42–1.3 s).
+> After: you are punishable **while guarding** — because guard suppresses attacking (§3.2), drains a meter (CUT 1a), immobilises you (CUT 1b) and can be broken (CUT 1a).
 
-`_cancel_summon` / `_cancel_channel` fire **only when you are hit**, and they cost MP and cooldown. In Stick Fight, every commitment can be abandoned. Here you can only be *punished* out of one.
+The vulnerability has moved from something the game imposed on you to **something you chose**, which is strictly better design and produces a real rhythm: *attack → get pressured → guard (stop attacking, drain, root yourself) → get baited → punished*. Every one of those beats is a decision.
 
-**Fix:** T2 PLANT is dash-cancellable with a 50 % cooldown refund (the dash i-frames become the escape hatch, which is also a nice skill expression). T3 COMMIT stays uncancellable — that is the drama, deliberately.
+### 5.6 Is Hero's melee good enough to be the connective tissue?
 
-### 7.6 BREAKER #6 — the aim mode changes what your thumb does (covered in §5.1)
+Maker decision 2 assigns melee a heavy load: it is what makes 3.0–6.5 s cooldowns acceptable. Two different melees exist in this repo and they are not close.
 
-Auto-aim makes the drag input inert. Deleting it is a flow fix, not only a rules fix.
+**Hero's melee — NO.** `MELEE_DAMAGE` 14 on a `MELEE_COOLDOWN` 0.34 s = 41 dps, delivered by a discrete button that **auto-targets the nearest enemy** (`_nearest_enemy_in_melee_range`, `:1895`). It has a cooldown, so it is stop-start too; it aims itself, so it has no expression and no skill; and it is one animation. Filling a 6.5 s gap with it means tapping one self-aiming button eighteen times. That makes cooldowns *worse*, not acceptable.
 
-### 7.7 BREAKER #7 — the right thumb's grammar changes with the slot (covered in §2.4)
+**The spike rig's drag — YES, easily.** Continuous input; a real skill ceiling (damage scales with blade speed, `BLADE_REF_SPEED` 1100, floor 260); five distinct per-weapon heft profiles (`dstiff`/`ddamp`/`fstiff`/`fdamp`); swept-path contact; no resource; per-target `BLADE_HIT_CD` 0.26 rather than a global cooldown; and it is the same act as aiming. It is a fighting *system*, not a filler animation.
 
-Real, unavoidable given one carousel for weapons and spells, mitigated by the kind glyph, the ghost preview and auto-return.
+**Therefore: the drag is load-bearing for the entire cooldown philosophy, not a mobile-input nicety.** It must land before, or with, any cooldown rebalancing. Sequenced accordingly in §8.
 
-### 7.8 BREAKER #8 — momentum does not survive UI touches
+**One gap to close: bare fists have no drag.** `is_dragging()` requires `_weapon != ""`, so slot 0 — the slot `HandSlots` guarantees you always have — is the *weak* melee. `_process_blade` already tests the swept path of a segment, so give the fist a zero-length "blade" on the forearm segment: `dmg` ~10, high `dstiff`/`ddamp` (snappy, short reach), no trail. Unarmed becomes the same verb as armed with less reach and less damage. Small change, large payoff — the connective tissue then works even with nothing in your hands.
 
-Two places today: leaving the joystick to press a button zeroes your movement instantly (`_stop_joy` → `_release_all_move`), and every committed windup zeroes `velocity` outright. Stick Fight's momentum always carries.
+### 5.7 Kiting — is casting-while-moving with no auto-aim a problem?
 
-**Fix:** `DEFLECT_MOVE_GRACE` (§3.2) for the first; T1/T2 not zeroing velocity for the second. In T2, decelerate to 40 % over ~0.1 s rather than snapping to zero — a planted cast should read as *bracing*, not as *hitting a wall*.
+**Not by itself. It becomes one only in combination with CUT 3.**
+
+Three things already limit it:
+
+1. **No auto-aim is the primary limiter, and it cuts against the kiter.** Aiming manually while retreating is genuinely hard: the target's relative angle changes *because you are moving*, so a backpedalling caster is fighting their own movement with their aim thumb. Manual aim makes kiting a skill tax, not a free win. This is the strongest argument that the maker's two decisions are compatible.
+2. **Cooldowns.** 3.0–6.5 s across four spells means a kiter is out of spells after roughly four casts and must either close to melee or run in circles doing nothing. Maker decision 2, read from the other direction: **melee is what stops kiting from dominating, because a kiter who refuses to melee simply stops dealing damage.**
+3. **Arena geometry.** Floors are one parameterized room shell; walls and breakable platforms cap kite distance. Worth stating explicitly: **arena size is now a balance parameter, not just a layout one.**
+
+What actually breaks it is **mobility with i-frames**: dash (87 px, invulnerable) plus blink (175 px, invulnerable, through walls) lets a player outrun anything and cast in between, with the i-frames covering the approach they failed to prevent. **Fix CUT 3 and kiting self-limits.**
+
+Two cheap additional levers, both compatible with "casts do not root you":
+
+- **A cast movement *penalty*, not a root.** While a cast's pose window is active, movement runs at **70 %** (T1) / **55 %** (T2). You keep full control and full momentum; you are just slower, so backpedalling-while-casting loses ground. This is the single cheapest anti-kite lever and it honours the maker's decision exactly — a slowdown is not a root.
+- **Generalise the reach clamp.** `Hero.BLAST_MAX_RANGE = 480` already exists as the "skill-shot, not a cross-stage snipe" clamp. A 1250 px beam (`frostpiercer`) in a room narrower than 1250 px is a free full-screen hit, kiting or not. Move the clamp onto `SpellDef` and apply it to every kind.
+
+Encounter composition is the remaining lever and belongs to the enemy work, not here: a kiter should be answered by ranged casters, a brawler by chargers. Both archetypes already exist from Slice 2.
 
 ---
 
-## 8. Build order
+## 6. THE FLOW WORK
 
-Each phase is felt at F5 before the next one starts. Phases 1 and 2 are the maker's stated priorities and neither one touches mobile.
+### 6.1 Every place movement/input is gated on `_channeling` / `_summoning`
+
+This is the concrete work for maker decision 1. Sites in `Hero.gd`:
+
+| line | what it does | what it becomes |
+|---|---|---|
+| **457-459** | `if _channeling: _process_channel(delta); return` — **the master gate**. Skips the input buffer, aim resolution, ragdoll, every ability poll, all movement, jump, and the rig state machine. | **delete the return.** `_channeling` becomes a *modifier* flag consumed further down. |
+| **462-464** | `if _summoning: _process_summon(delta); return` — same. | **delete the return.** |
+| `_begin_channel` **1074** | `_channel_base_y = global_position.y` — anchors the levitation to a fixed world Y | **delete.** Levitation becomes a rig offset, not a position anchor. |
+| `_begin_channel` **1076** | `velocity = Vector2.ZERO` | delete |
+| `_begin_channel` **1079** | `rig.set_airborne(true)` | keep — it is the "legs dangle" look and is now cosmetic |
+| `_process_channel` **1096-1099** | `global_position.y = _channel_base_y - _channel_lift + bob`; `velocity = Vector2.ZERO` | **replace with `rig.set_float_offset(_channel_lift + bob)` plus a gravity bias.** Assigning `global_position` bypasses collision; a rig offset does not. |
+| `_process_channel` **1101** | `rig.set_body_velocity(Vector2.ZERO)` | pass the real velocity — the limbs should trail as you drift |
+| `_process_summon` **980-982** | `velocity = Vector2.ZERO`; `move_and_slide()`; `rig.set_body_velocity(ZERO)` | apply the §5.7 speed multiplier instead of zeroing |
+| `_process_summon` **983** | `rig.play(CAST)` every frame | keep, but let RUN/AIR win when actually moving so the body reads as *moving while casting* |
+| `_begin_summon` **964** | `velocity = Vector2.ZERO` | delete |
+| `_finish_summon` **1035** / `_finish_channel` **1127** | `_self_recoil(110 / 90)` | make it **additive** to existing velocity — it currently assumes you were standing still |
+| `_cancel_channel` **1154** | `rig.apply_impulse(...)` "flung out of the float" | keep; it now reads as being knocked out of a drift |
+| `_begin_summon` **963** / `_begin_channel` **1073** | `get_global_mouse_position()` | `origin + aim_dir × reach` — desktop-only code on a mobile-first path |
+| **962 / 1073** | `_summon_aim = _aim_dir`, `_channel_target` | **keep the aim latch.** Even a mobile cast must not re-aim mid-windup — that is the drama and the opponent's read. |
+
+Additional rules once the returns are gone:
+- `_channeling` / `_summoning` **suppress the use-verb and other casts** (one cast at a time), and **suppress jump** in T2/T3.
+- **Dash cancels** a T2 cast for a 50 % cooldown refund (§6.5). T3 stays uncancellable — that is the drama.
+- The rig needs `set_float_offset(px: float)`, a purely visual Y offset. This is the one genuinely new rig API.
+
+### 6.2 Input is DISCARDED, not buffered, during windups
+
+`_update_input_buffer(delta)` is at line **472**, *below* the early returns at 457–464. **Nothing pressed during a windup is even recorded**, and `BUFFER_TIME` (0.12 s) is shorter than the 0.42 s summon anyway. This is the classic "the game ate my input", occurring immediately after the most committed action in the game.
+
+**Fix:** (1) move `_update_input_buffer` **above** the committed-state handling; (2) do not expire the buffer while a committed state is active — hold the newest press and fire it on exit; (3) add `parry` and the slot-use action to the buffered list. Right now `cast`, `parry` and `ultimate` are polled raw (`:515-519`) with **zero** forgiveness while `melee`/`dash`/`blast`/`blink`/`nova` get 0.12 s. The two highest-stakes inputs having the least forgiveness is backwards.
+
+### 6.3 Holding DOWN silently disables the entire defensive kit
+
+`Hero.gd:492-502`: the duck / ragdoll branch runs `move_and_slide()` and **returns**. Everything below — the ability polls at 507–520 and `_try_fire_buffered()` at 552 — never runs. **While ducking you cannot guard, cast, dash or ult, and nothing tells you.**
+
+On mobile this is worse, because duck is `ny > 0.60` on an analog stick: a player steering with a low thumb can cross into duck **unintentionally** and lose their block. A silent, invisible, unrecoverable failure at exactly the wrong moment.
+
+**Fix:** duck should suppress *locomotion*, not *defence*. Let `parry` and `dash` fire from inside the duck branch (both have their own gating already); suppress only movement, jump and cast.
+
+### 6.4 Cooldowns make spells punctuation — the UI should agree
+
+With 3.0–6.5 s cooldowns across four spells, a 10-second engagement affords one or two casts. Maker decision 2 is that melee fills the gaps; §5.6 says only the *drag* can do that. The remaining problem is presentational: the input scheme and HUD currently present spells as the primary verb.
+
+**Fix:** `auto_return` on `HandSlots` — after a spell fires, the carousel snaps back to slot 0. Your resting grammar becomes "I am holding a weapon and can fight", casting becomes a deliberate departure, and you are never stranded behind a 6.5 s cooldown with a dead USE button. `pin()` is available for players who want the old behaviour.
+
+### 6.5 Nothing is cancellable by choice
+
+`_cancel_summon` / `_cancel_channel` fire **only when you are hit**, at full MP + cooldown cost. In Stick Fight every commitment can be abandoned; here you can only be *punished* out of one.
+
+**Fix:** a T2 cast is dash-cancellable with a 50 % cooldown refund — the dash i-frames become the escape hatch, which is also good skill expression. A T3 domain is not cancellable; that is the drama, deliberately.
+
+### 6.6 Auto-aim is incompatible with the drag
+
+`Hero.gd:477-480` snaps the touch aim to the nearest enemy. Under the drag model the arm target *is* the aim, so auto-aim would **pin the arm target to an enemy — making your thumb drag inert** — and then **whip the blade at something you did not aim at** whenever the nearest enemy changed. This is a mechanical incompatibility, not only a rules violation. **Delete the `Targeting.aim_direction` branch from the hero's aim path.** `Targeting` stays in the file for enemy AI, which is allowed to aim at the player.
+
+### 6.7 Momentum does not survive UI touches
+
+Leaving the joystick zeroes movement instantly (`_stop_joy` → `_release_all_move`), and every committed windup zeroes `velocity`. Stick Fight's momentum always carries. §6.1 fixes the second; for the first, decelerate over ~0.1 s rather than snapping to zero. In a cast, decelerating to the §5.7 multiplier should read as *bracing*, not as *hitting a wall*.
+
+---
+
+## 7. SLOT SELECTION
+
+The cap is settled: **4 spells, chosen out of combat.** So the in-combat carousel is fists + (0–1 weapon) + 4 spells ≈ **5–6 entries**. The "26-long carousel is too slow" objection is moot and is withdrawn.
+
+### 7.1 Cycle vs direct at ~6 entries
+
+| | cycle (scroll / next-button) | direct (tap a square / press 1–6) |
+|---|---|---|
+| controls needed | 1–2 | 6 |
+| cost to reach a slot | **O(n)** — worst case 3 with `wrapi` | **O(1)** |
+| under pressure | you must **watch the bar** to see where you landed | spatial; no readback |
+| mobile screen cost | ~0 | **6 targets — but in the dead zone between the thumbs, in neither thumb zone** |
+| transfers across platforms | scroll ↔ nothing on mobile | tap ↔ number key: **same index, same order** |
+
+**Recommendation: DIRECT on both platforms.** The deciding arguments are not the O(n) cost (survivable at n=6) but:
+
+1. **Direct tap costs nothing the drag wants.** A cycle button on mobile has to live *somewhere*, and every somewhere is inside a thumb zone. The bottom-centre bar is the one region neither thumb occupies and it is already on screen — so direct is, on mobile, *cheaper* than a cycle button.
+2. **Cycling requires visual readback.** Direct selection tells you what you chose by *where* you touched. Cycling makes you look at the bar to find out — the eye leaving the fight at exactly the wrong moment.
+
+**Keep `cycle()` anyway** — it is what the desktop wheel drives (free, natural) and what a gamepad shoulder button will drive. It is just not the primary model. Muscle memory transfers because both platforms use the same index in the same left-to-right order.
+
+### 7.2 What should change in `HandSlots.gd`
+
+The model is right. Four additions:
+
+1. **`use_grammar() -> int`** (§2.4) — the touch layer needs the grammar, not just the action name.
+2. **A stable, typed slot order.** `rebuild()` emits `[FISTS, weapon?, PRIMARY, AREA, MOBILITY, SIGNATURE]`. The companion spec's typed slots become an *ordering guarantee* rather than a separate system — this is what makes tap-position muscle memory survive a class change (slot 4 is always "get out of trouble", on Cryomancer and Brawler alike). It is also where blink lands if CUT 3 takes option two.
+3. **`auto_return: bool = true`** (§6.4).
+4. **`pin()`** — defeats auto-return; long-press the square on touch, hold the number key on desktop.
+
+Keep the `wrapi` wrap; keep cooling slots selectable (the comment at line 117 is right — hiding a slot would make the bar lie about what you own). `auto_return` is what stops "selectable while dead" from producing a dead USE button.
+
+### 7.3 Does selection belong in combat?
+
+**Yes for the bar — it is your hand, not a menu.** Weapons are picked up mid-fight (the Stick-Fight fantasy), and `HandSlots` correctly puts FISTS at index 0 as the never-strandable panic option.
+**No for the loadout** — *which* four spells you carry is a grimoire decision, made out of combat, exactly as the companion spec argues.
+
+**The bar is what you are holding; the grimoire is what you brought.**
+
+---
+
+## 8. DOMAIN TELEGRAPHS (maker decision 3)
+
+Arena-scale, not a body effect. `scripts/combat/Atmosphere.gd` is the natural home; this should be **one component driven by the spell's windup progress**, not per-spell art, or 26 spells become 26 telegraph implementations.
+
+`Atmosphere.domain_telegraph(centre, radius, colour, duration)` drives five layers off a single `0→1` progress:
+
+| layer | behaviour | role |
+|---|---|---|
+| **ground circle** | a world-anchored magic circle grows to the domain radius over the windup | **this is the dodge information** — its edge is the boundary |
+| **sky / backdrop** | ramps toward the element colour | the fantasy; readable in peripheral vision |
+| **mist / motes** | roll inward across the whole room toward the centre | direction cue — tells you where the centre is without looking |
+| **audio** | rising sub-bass + `charge_up` pitched down | the tell you get with your eyes on your own character |
+| **camera** | `Juice.zoom_pull_camera` — already used at `_begin_channel:1090` | reuse verbatim |
+
+**The flow-critical consequence of removing the root:** because the caster now MOVES during the cast, **the circle must be anchored to the world at cast start, not to the caster.** A telegraph that slides around with the caster is not dodge information — the boundary would keep moving out from under the player who is trying to leave it. This is non-obvious and it falls straight out of maker decision 1.
+
+Two more consequences worth building in from the start:
+- **Co-op:** the boundary needs an ally-readable colour, since "inside or outside" is a shared decision.
+- **The caster is now dodgeable-adjacent too.** A moving caster inside their own growing domain is a legible, dramatic image — and it means the domain should damage *by area*, not by "everyone who was in range at cast time", or the movement is cosmetic.
+
+---
+
+## 9. BUILD ORDER
+
+Each phase is felt at F5 before the next starts.
 
 | phase | contents | risk | why here |
 |---|---|---|---|
-| **0 — verify** | Headless test asserting the just-landed `TouchControls` fixes: JUMP presses `jump` (not `move_up`), HIT presses `melee`, PARRY presses `parry`. Extend `tools/slice_test_touch.gd`. | none | lock the regression before the file is rewritten |
-| **1 — FLOW** | §7.1 commitment tiers, §7.2 buffer during windups + buffer `parry`/use, §7.3 duck stops eating defence, §7.5 dash-cancel on T2, §7.8 no velocity snap. **`Hero.gd` only. Desktop only. Subtractive.** | medium (touches Hero) | the maker's stated next priority, and it is felt the instant you F5 |
-| **2 — THE HAND** | Wire `HandSlots` to `SpikeFigure` in the playground + the bar renderer + LMB/RMB/wheel/1–6 + `use_grammar()` + `auto_return`. **Desktop only — the drag already exists there.** | low (playground) | tests the whole thesis for the price of a desktop change |
-| **3 — THE THUMB** | The fused touch drag zone (§3.3), the three grammars, ghost previews, and **delete the `Targeting` aim path** (§5.1 — required, auto-aim fights the drag). `TouchControls` with `force_visible` in the playground. | medium | the first real mobile work, judged against a model already proven on desktop |
-| **4 — THE GESTURES** | Dash flick (§4) + instrumentation, jump-on-stick-up (§3.1), deflect button + `DEFLECT_MOVE_GRACE` (§3.2), dash button toggle. All behind `Tuning` flags. | high (feel) | the only genuinely unproven interactions; isolated so they can be switched off without unpicking anything |
-| **5 — THE HERO** | Port phases 2–4 from the playground onto `Hero` + `AbilityBar`; placed-spell point from `origin + aim × reach` instead of `get_global_mouse_position()` (§5.2). | real | last, on a model that has been felt three times by then |
+| **0 — verify** | Headless test locking the just-landed `TouchControls` fixes: JUMP presses `jump` (not `move_up`), HIT presses `melee`, PARRY presses `parry`. Extend `tools/slice_test_touch.gd`. | none | lock the regression before the file is rewritten |
+| **1 — DEFENSIVE BUDGET** | §5 CUTs 1–4 as part of wiring `ParryRing` into `Hero` (it is unwired today, so these land as *design*, not as a nerf to something shipped). Plus §3.2's guard-suppresses-use rule. | medium | everything downstream is balanced against this; doing it later means re-tuning twice |
+| **2 — FLOW** | §6.1 unroot casts (the full site list), §6.2 buffer during windups, §6.3 duck stops eating defence, §6.5 dash-cancel, §6.7 momentum. **`Hero.gd` + rig `set_float_offset`. Desktop only.** | medium | the maker's stated priority, felt the instant you F5 |
+| **3 — THE HAND** | `HandSlots` wired to `SpikeFigure` in the playground + the bar renderer + LMB/RMB/wheel/1–6 + `use_grammar()` + `auto_return` + **fists get the drag** (§5.6). **Desktop only — the drag already exists there.** | low (playground) | tests the whole thesis at desktop prices; also the connective tissue that makes phase 2's cooldowns survivable |
+| **4 — THE THUMB** | The fused touch drag zone (§4.2), the three grammars, ghost previews, the guard band (§4.3), and **delete the `Targeting` aim path** (§6.6 — required; auto-aim fights the drag). `TouchControls` with `force_visible` in the playground. | medium | first real mobile work, against a model already proven on desktop |
+| **5 — THE GESTURES** | Dash flick + instrumentation (§4.5), jump-on-stick-up (§4.1), `Tuning` flags for both. | high (feel) | the only genuinely unproven interactions; isolated so they can be switched off without unpicking anything |
+| **6 — DOMAINS + HERO** | §8 telegraph component; port phases 3–5 onto `Hero` + `AbilityBar`; placed-spell point from `origin + aim × reach`. | real | last, on a model felt four times by then |
 
 ---
 
-## 9. What will feel bad, and why
+## 10. What will feel bad, and why
 
-Stated plainly, because each of these is a real cost being knowingly accepted.
-
-1. **The first ten minutes on touch will be worse than today.** Losing auto-aim means you will miss things you used to hit. That is the price of the drag and of the no-auto-aim rule; it recovers, but the first session is a regression and should not be mistaken for a bug.
-2. **Deflect costs you your steering for a beat.** `DEFLECT_MOVE_GRACE` preserves your *momentum* but you cannot *change* direction during the block. Unavoidable with two thumbs and three left-side verbs.
-3. **The right thumb's grammar changes with the slot.** Sword: letting go does nothing. Spell: letting go fires. Some casts will be accidents. The glyph, the ghost and auto-return reduce this; nothing eliminates it.
-4. **The dash flick will misfire in the first hour.** The tap primer is a strong filter but not a proof. This is why the button and the kill switch ship alongside, and why §4.3(7) demands a misfire counter rather than a vibe.
-5. **Jump-on-stick-up will produce accidental jumps** when a player pushes diagonally to start running. The `−0.62` threshold and the hysteresis reduce it; the rate gate is the next lever if F5 says it is not enough.
-6. **Placed-spell reach is strictly worse on mobile than on desktop.** Desktop keeps the cursor and gets a point; mobile gets a direction and a radius. This is an honest asymmetry, not a bug, and it is the correct direction for the asymmetry to run.
-7. **Bar squares are small and you will miss under pressure.** The oversized hit rect helps; a missed tap means your USE does the *previous* thing, which under auto-return is at least always "swing the weapon" rather than something random.
-8. **Tiering may make signatures feel less special.** If T1 swallows too many spells, casting stops being an event. The tier assignment is a `CastStyle`-driven table, so it is one line per kind to move a spell up a tier — expect to move two or three after the first playtest.
-9. **T3 is uncancellable on purpose, and it will kill you.** A 1.3 s levitating root in a Cuphead-hard fight is a genuine gamble. That is the design. If it reads as unfair rather than dramatic, the lever is the *count* of T3 spells (currently 4), not the mechanic.
+1. **The first ten minutes on touch will be worse than today.** Losing auto-aim means missing things you used to hit. That is the price of the drag and the no-auto-aim rule. It recovers; do not mistake it for a bug.
+2. **You cannot re-aim while guarding.** Your heading freezes for the guard's duration, so a baited guard leaves you facing the wrong way. That is the intended punish, and it will feel bad on purpose.
+3. **60–90 ms of thumb travel to the guard band is not free.** Against a genuinely unreactable attack you will be late. The ring's 0.33 s lead absorbs it; a *surprise* still beats you, which is correct.
+4. **CUT 1 will read as a nerf even though sustain never shipped.** Turtling at 35 % forever *feels* good and losing it feels like losing something. It is the difference between the game having a defensive decision and not having one.
+5. **The right thumb's grammar changes with the slot.** Sword: letting go does nothing. Spell: letting go fires. Some casts will be accidents. The glyph, the ghost and auto-return reduce this; nothing eliminates it.
+6. **The dash flick will misfire in the first hour.** The tap primer is a strong filter, not a proof. This is why §4.5(7) demands a counter rather than a vibe.
+7. **Jump-on-stick-up will produce accidental jumps** on a diagonal run start. The `−0.62` threshold and hysteresis reduce it; the rate gate is the next lever.
+8. **Placed-spell reach is strictly worse on mobile than on desktop.** Desktop keeps the cursor and gets a point; mobile gets a direction and a radius. An honest asymmetry, and the correct direction for one to run.
+9. **Bar squares are small and you will miss under pressure.** The oversized hit rect helps; under `auto_return` a missed tap at least always means "swing the weapon" rather than something random.
+10. **Unrooted casting may make the big spells feel less momentous.** The root was doing dramatic work as well as balance work. §8's environmental telegraph is what has to replace that weight — if domains do not feel enormous after unrooting, the answer is more arena-scale telegraph, not the root coming back.
 
 ---
 
-## 10. Open questions for the maker
+## 11. Open questions for the maker
 
-1. **Deflect for every class?** `HandSlots` says always; `Hero._cfg["can_parry"]` says not for the mage. A visible button that does nothing is worse than either answer. (Recommend: everyone deflects; window length and cooldown vary by class.)
-2. **Jump on the stick, or keep the JUMP button?** (Recommend the stick — it frees the button for deflect, and jump is the only verb with both a buffer and a coyote window.)
-3. **Auto-return to slot 0 after a cast?** (Recommend yes, with pinning. It is the difference between spells being punctuation and spells being a state you get stranded in.)
-4. **T2 at 40 % movement speed** — or fully mobile, or fully rooted? This is the single biggest feel knob in the flow work and it wants a `Tuning` entry from day one.
-5. **Dash flick default ON or OFF for playtest 1?** (Recommend ON *with* the button also present, so the misfire counter gets real data.)
-6. **Desktop: does the wheel cycle, or is 1–6 enough?** (Recommend both — the wheel is free and some players never learn number rows.)
+1. **Guard suppresses attacking on BOTH platforms (§3.2)?** This is the single most consequential recommendation here. (Recommend yes — the alternative is a free 35 % DR while attacking on desktop.)
+2. **Guard on the right thumb (§3.3)?** It reverses the obvious answer and my own first draft. (Recommend yes — you must move while guarding; you must not attack while guarding.)
+3. **CUT 3 — does blink lose its i-frames, or become the MOBILITY slot spell?** (Recommend the slot; it competes rather than being free, and the typed-slot order already makes room.)
+4. **CUT 1 — guard meter, or just a decay + movement penalty?** A meter costs a HUD element but gives enemies a guard-break, which is a good spectacle and a good tell.
+5. **Cast movement penalty of 70 % / 55 % (§5.7)?** Wants a `Tuning` entry from day one; it is the biggest feel knob in the flow work.
+6. **Fists get the drag (§5.6)?** (Recommend yes — otherwise the one slot you are guaranteed to always have is the one that is not fun.)
+7. **Dash flick default ON or OFF for playtest 1?** (Recommend ON, so the misfire counter gets real data.)

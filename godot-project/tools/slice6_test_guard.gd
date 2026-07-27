@@ -16,6 +16,7 @@ func _process(_delta: float) -> bool:
 	failed += _test_order()
 	failed += _test_replace_not_stack()
 	failed += _test_attachment()
+	failed += _test_reduction_floor()
 	if failed > 0:
 		printerr("Guard tests: %d FAILED" % failed)
 		quit(1)
@@ -83,10 +84,12 @@ func _test_absorb() -> int:
 func _test_order() -> int:
 	var ok: int = 0
 	var g := _guard()
-	g.set_gear(0.5, 0.0)          # halve everything
+	# 20% armour, deliberately inside MIN_DAMAGE_MULT so this test measures ORDER
+	# and not the floor — real gear reduction is ~15%, so this is representative.
+	g.set_gear(0.2, 0.0)
 	g.grant_absorb(20.0, 5.0)
-	# 100 -> 50 by armour, then 20 eaten by the pool -> 30 lands, pool empty.
-	ok += _expect(g.mitigate(100) == 30, "reductions apply before the absorb pool")
+	# 100 -> 80 by armour, then 20 eaten by the pool -> 60 lands, pool empty.
+	ok += _expect(g.mitigate(100) == 60, "reductions apply before the absorb pool")
 	ok += _expect(g.absorb <= 0.01, "the pool drained by the REDUCED amount")
 	# Zero and negative damage must pass through untouched and consume nothing.
 	var z := _guard()
@@ -128,4 +131,21 @@ func _test_attachment() -> int:
 	# Duck-typed on ANY node, so Enemy/Boss/bots work with no extra code.
 	ok += _expect(GuardComponent.of(null) == null, "a null body yields no guard")
 	ok += _expect(GuardComponent.peek(null) == null, "peeking a null body is safe")
+	return ok
+
+
+## Percentages compose multiplicatively toward invulnerability without any single
+## number looking wrong, so the STANDING stack is floored.
+func _test_reduction_floor() -> int:
+	var ok: int = 0
+	var g := _guard()
+	g.set_gear(0.5, 0.0)
+	g.grant_reduction(0.5, 5.0)      # 0.5 * 0.5 = 0.25x, below the floor
+	ok += _expect(g.mitigate(100) == int(round(100.0 * GuardComponent.MIN_DAMAGE_MULT)),
+		"stacked standing reduction is floored (got %d)" % g.mitigate(100))
+	# A one-shot soak is spent immediately, so it cannot compound and applies on
+	# top of the floor — which is also what keeps existing gear behaviour intact.
+	var h := _guard()
+	h.set_gear(0.15, 0.5)
+	ok += _expect(h.mitigate(100) == 43, "the one-shot robe still stacks past the floor")
 	return ok

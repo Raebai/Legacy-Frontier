@@ -1,0 +1,155 @@
+class_name LoadoutBar
+extends Control
+## The slot bar along the bottom — what you are holding, at a glance.
+##
+## Renders a HandSlots model as a short row of squares: fists, your weapon, and
+## up to four spells. Small, centred, bottom-anchored, and tappable, so the same
+## control works with a mouse click, a number key, or a thumb.
+##
+## NO ART DEPENDENCY. Icons are drawn procedurally from the spell's KIND and
+## element colour, so the bar is complete the moment a spell exists and never
+## waits on an artist — and because the glyph comes from the kind, two spells that
+## behave alike look alike, which is a useful signal rather than a limitation.
+##
+## DIRECT SELECTION, not scroll-only. With a cap of four spells the whole bar is
+## reachable in one tap, and cycling would be O(n) under pressure — the reason
+## League gives fixed keys rather than a wheel. Scrolling still works as a
+## convenience, it just isn't the only way in.
+
+signal slot_selected(index: int)
+
+const SLOT: float = 34.0          # square edge, in the 640x360 base space
+const GAP: float = 6.0
+const BOTTOM_MARGIN: float = 10.0
+const CORNER: float = 5.0
+const BG: Color = Color(0.09, 0.10, 0.14, 0.82)
+const BORDER: Color = Color(0.42, 0.45, 0.55, 0.9)
+const BORDER_SELECTED: Color = Color(1.0, 0.94, 0.72, 1.0)
+const COOLDOWN_VEIL: Color = Color(0.03, 0.04, 0.07, 0.72)
+const FISTS_TINT: Color = Color(0.85, 0.86, 0.92)
+const WEAPON_TINT: Color = Color(0.78, 0.82, 0.95)
+## The selected slot lifts slightly. Movement reads faster than a colour change
+## when your eyes are on the fight rather than the bar.
+const SELECTED_LIFT: float = 3.0
+
+var slots: HandSlots = null
+
+
+func _ready() -> void:
+	mouse_filter = Control.MOUSE_FILTER_STOP
+	set_anchors_preset(Control.PRESET_FULL_RECT)
+
+
+func _process(_delta: float) -> void:
+	queue_redraw()
+
+
+## Top-left corner of slot `i`, in this control's space.
+func _slot_pos(i: int, count: int) -> Vector2:
+	var total: float = float(count) * SLOT + float(maxi(count - 1, 0)) * GAP
+	var x: float = (size.x - total) * 0.5 + float(i) * (SLOT + GAP)
+	var y: float = size.y - SLOT - BOTTOM_MARGIN
+	if slots != null and i == slots.selected:
+		y -= SELECTED_LIFT
+	return Vector2(x, y)
+
+
+func _gui_input(event: InputEvent) -> void:
+	if slots == null or slots.slots.is_empty():
+		return
+	var at: Vector2 = Vector2.ZERO
+	if event is InputEventMouseButton and event.pressed:
+		at = (event as InputEventMouseButton).position
+	elif event is InputEventScreenTouch and (event as InputEventScreenTouch).pressed:
+		at = (event as InputEventScreenTouch).position
+	else:
+		return
+	var count: int = slots.slots.size()
+	for i in count:
+		# Generous vertical padding on the hit box: a thumb is far bigger than a
+		# 34 px square, and a tap that misses the bar during a fight is worse
+		# than one that lands on the wrong slot.
+		if Rect2(_slot_pos(i, count) - Vector2(0.0, 8.0), Vector2(SLOT, SLOT + 16.0)).has_point(at):
+			slots.select(i)
+			slot_selected.emit(i)
+			accept_event()
+			return
+
+
+func _draw() -> void:
+	if slots == null or slots.slots.is_empty():
+		return
+	var count: int = slots.slots.size()
+	for i in count:
+		var entry: Dictionary = slots.slots[i]
+		var pos: Vector2 = _slot_pos(i, count)
+		var box := Rect2(pos, Vector2(SLOT, SLOT))
+		var is_sel: bool = i == slots.selected
+		draw_rect(box, BG, true)
+		_draw_glyph(entry, box)
+		# Cooldown veil sweeps DOWNWARD as it recovers, so a nearly-ready slot is
+		# nearly clear. Reading "how much is left" from a shrinking veil is faster
+		# than reading a number mid-fight.
+		var cd: float = float(entry.get("cooldown", 0.0))
+		if cd > 0.0:
+			var total: float = maxf(float(entry.get("cooldown_total", cd)), 0.001)
+			var frac: float = clampf(cd / total, 0.0, 1.0)
+			draw_rect(Rect2(pos, Vector2(SLOT, SLOT * frac)), COOLDOWN_VEIL, true)
+		draw_rect(box, BORDER_SELECTED if is_sel else BORDER, false, 2.0 if is_sel else 1.0)
+		if is_sel:
+			# A soft outer glow so the selected slot survives a busy background.
+			draw_rect(box.grow(2.0), Color(BORDER_SELECTED.r, BORDER_SELECTED.g,
+				BORDER_SELECTED.b, 0.35), false, 1.0)
+
+
+## Procedural icon per slot. Shape comes from what the thing DOES (its kind) and
+## colour from its element, so the bar is self-describing without any assets.
+func _draw_glyph(entry: Dictionary, box: Rect2) -> void:
+	var c: Vector2 = box.get_center()
+	var r: float = SLOT * 0.28
+	match int(entry.get("kind", HandSlots.Kind.FISTS)):
+		HandSlots.Kind.FISTS:
+			draw_circle(c, r * 0.8, FISTS_TINT, true, -1.0, true)
+			return
+		HandSlots.Kind.WEAPON:
+			# A blade: a long tapered wedge with a crossguard.
+			draw_colored_polygon(PackedVector2Array([
+				c + Vector2(0.0, -r * 1.25), c + Vector2(r * 0.30, r * 0.25),
+				c + Vector2(-r * 0.30, r * 0.25)]), WEAPON_TINT)
+			draw_line(c + Vector2(-r * 0.62, r * 0.3), c + Vector2(r * 0.62, r * 0.3),
+				WEAPON_TINT, 2.0, true)
+			return
+	var spell: Variant = entry.get("spell")
+	var tint: Color = Color(0.75, 0.65, 1.0)
+	var kind: int = -1
+	if spell != null:
+		kind = int(spell.get("kind"))
+		var e: int = int(spell.get("element"))
+		tint = Elements.color(e) if e >= 0 else tint
+	match kind:
+		SpellDef.Kind.BEAM, SpellDef.Kind.DIVINE_RAY:
+			draw_line(c + Vector2(-r, r * 0.7), c + Vector2(r, -r * 0.7), tint, 3.0, true)
+		SpellDef.Kind.WALL, SpellDef.Kind.ICE_WALL, SpellDef.Kind.PILLAR:
+			draw_rect(Rect2(c - Vector2(r * 0.55, r), Vector2(r * 1.1, r * 2.0)), tint, true)
+		SpellDef.Kind.ZONE:
+			draw_arc(c, r, 0.0, TAU, 20, tint, 2.4, true)
+		SpellDef.Kind.METEOR, SpellDef.Kind.CONVERGENCE:
+			draw_circle(c + Vector2(0.0, r * 0.35), r * 0.55, tint, true, -1.0, true)
+			draw_line(c + Vector2(0.0, -r), c + Vector2(0.0, -r * 0.1), tint, 2.0, true)
+		SpellDef.Kind.CRAWLER:
+			# A ground-hugging wave, sat low in the box to read as "along the floor".
+			var pts := PackedVector2Array()
+			for i in 9:
+				var t: float = float(i) / 8.0
+				pts.append(c + Vector2(lerpf(-r, r, t), r * 0.55 + sin(t * TAU) * r * 0.3))
+			draw_polyline(pts, tint, 2.2, true)
+		SpellDef.Kind.THROWN_ANCHOR:
+			draw_colored_polygon(PackedVector2Array([
+				c + Vector2(0.0, -r), c + Vector2(r * 0.6, 0.0),
+				c + Vector2(0.0, r), c + Vector2(-r * 0.6, 0.0)]), tint)
+		SpellDef.Kind.CHAIN, SpellDef.Kind.MISSILES:
+			for k in 3:
+				draw_circle(c + Vector2(lerpf(-r * 0.7, r * 0.7, float(k) / 2.0), 0.0),
+					r * 0.30, tint, true, -1.0, true)
+		_:
+			draw_arc(c, r * 0.85, 0.0, TAU, 16, tint, 2.2, true)

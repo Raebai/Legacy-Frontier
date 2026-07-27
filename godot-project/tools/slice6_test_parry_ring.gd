@@ -16,6 +16,7 @@ func _process(_delta: float) -> bool:
 	failed += _test_sustain_is_weaker()
 	failed += _test_ult_interaction()
 	failed += _test_guard_blocks_attack()
+	failed += _test_rearm()
 	if failed > 0:
 		printerr("Parry ring tests: %d FAILED" % failed)
 		quit(1)
@@ -34,7 +35,7 @@ func _expect(cond: bool, msg: String) -> int:
 
 func _held(seconds: float) -> ParryRing:
 	var r := ParryRing.new()
-	r.press()
+	var _p: bool = r.press()
 	r.tick(seconds)
 	return r
 
@@ -44,7 +45,7 @@ func _test_shrink_and_reset() -> int:
 	var r := ParryRing.new()
 	ok += _expect(is_equal_approx(r.radius01(), ParryRing.RADIUS_MAX),
 		"an idle ring sits at full radius")
-	r.press()
+	var _p: bool = r.press()
 	ok += _expect(is_equal_approx(r.radius01(), ParryRing.RADIUS_MAX),
 		"the ring blooms at full radius on press")
 	r.tick(ParryRing.SHRINK_TIME * 0.5)
@@ -122,10 +123,27 @@ func _test_guard_blocks_attack() -> int:
 	var ok: int = 0
 	var r := ParryRing.new()
 	ok += _expect(not r.blocks_attack(), "not guarding leaves attacking free")
-	r.press()
+	var _p: bool = r.press()
 	ok += _expect(r.blocks_attack(), "guarding locks out attacking from the first frame")
 	r.tick(ParryRing.SHRINK_TIME * 3.0)
 	ok += _expect(r.blocks_attack(), "a sustained guard still costs your offence")
 	r.release()
 	ok += _expect(not r.blocks_attack(), "releasing frees attacking again")
+	return ok
+
+
+## Mashing guard must not carpet the fight in perfect reads.
+func _test_rearm() -> int:
+	var ok: int = 0
+	var r := ParryRing.new()
+	ok += _expect(r.press(), "a fresh guard comes up")
+	r.tick(ParryRing.SHRINK_TIME * 0.9)
+	ok += _expect(r.quality() == ParryRing.Quality.PERFECT, "and can be timed perfectly")
+	r.release()
+	ok += _expect(not r.is_ready(), "releasing starts a re-arm")
+	ok += _expect(not r.press(), "a mashed re-press is refused while re-arming")
+	ok += _expect(r.quality() == ParryRing.Quality.NONE, "a refused press guards nothing")
+	r.tick(ParryRing.REARM_TIME + 0.01)
+	ok += _expect(r.is_ready(), "the guard re-arms after the gap")
+	ok += _expect(r.press(), "and can be pressed again")
 	return ok
