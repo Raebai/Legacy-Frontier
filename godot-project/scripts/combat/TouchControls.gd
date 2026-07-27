@@ -149,19 +149,28 @@ func _release_all_move() -> void:
 ## from the side, distance UP from the bottom). Sizes/positions are the on-device
 ## FEEL knobs the maker tunes.
 func _build_buttons() -> void:
-	# JUMP — left thumb, above the dynamic move-joystick zone.
-	_add_button("JUMP", "move_up", "bl", Vector2(14, 60), 52.0)
+	# JUMP — left thumb, above the dynamic move-joystick zone. Presses "jump", NOT
+	# "move_up": Hero polls the "jump" action, so pressing move_up made the touch
+	# jump button silently do nothing at all on a device.
+	_add_button("JUMP", "jump", "bl", Vector2(14, 60), 52.0)
 	# Right-thumb ability arc, hugging the bottom-right corner.
 	_add_button("CAST", "cast", "br", Vector2(16, 14), 58.0)   # primary (biggest, corner)
 	_add_button("DASH", "dash", "br", Vector2(82, 12), 46.0)
 	_add_button("Q", "blast", "br", Vector2(22, 82), 46.0)
 	_add_button("G", "ultimate", "br", Vector2(86, 74), 50.0)  # the ultimate
 	_add_button("BLINK", "blink", "br", Vector2(146, 28), 42.0)
+	# Melee and parry had no touch affordance at all — both are core verbs (parry is
+	# the whole defensive game), so on a phone they were simply unplayable.
+	_add_button("HIT", "melee", "br", Vector2(150, 92), 44.0)
+	_add_button("PARRY", "parry", "bl", Vector2(14, 124), 48.0)
 
 
 func _add_button(label: String, action: String, corner: String, off: Vector2, size: float) -> void:
 	var b := Button.new()
 	b.text = label
+	# The action this button drives, readable from outside so a test can assert the
+	# wiring rather than just counting buttons.
+	b.set_meta("action", action)
 	b.focus_mode = Control.FOCUS_NONE
 	b.add_theme_font_size_override("font_size", 12)
 	b.add_theme_color_override("font_color", Color(1, 1, 1, 0.92))

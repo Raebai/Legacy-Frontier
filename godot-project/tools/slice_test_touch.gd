@@ -14,6 +14,7 @@ func _process(_delta: float) -> bool:
 	var failed: int = 0
 	failed += _test_hidden_on_desktop()
 	failed += _test_forced_builds_buttons()
+	failed += _test_buttons_drive_real_actions()
 	failed += _test_move_injection()
 	if failed > 0:
 		printerr("Touch tests: %d FAILED" % failed)
@@ -51,6 +52,32 @@ func _test_forced_builds_buttons() -> int:
 			buttons += 1
 	var ok: int = _expect(pad.visible, "forced pad is visible")
 	ok += _expect(buttons >= 6, "pad built the thumb buttons (got %d)" % buttons)
+	pad.queue_free()
+	return ok
+
+
+## Every action a touch button drives must EXIST in the input map AND be an action
+## something actually polls. The JUMP button shipped pressing "move_up" while
+## Hero polls "jump", so touch jump was dead on a device — and the old test still
+## passed, because counting buttons never checks what they are wired to.
+func _test_buttons_drive_real_actions() -> int:
+	var pad := TouchControls.new()
+	pad.force_visible = true
+	root.add_child(pad)
+	var ok: int = 0
+	var seen: Array[String] = []
+	for c: Node in pad.get_children():
+		if not (c is Button):
+			continue
+		var action: String = String(c.get_meta("action", ""))
+		if action == "":
+			continue
+		seen.append(action)
+		ok += _expect(InputMap.has_action(action),
+			"touch button '%s' drives a real action '%s'" % [(c as Button).text, action])
+	# The verbs a phone player cannot play without.
+	for required: String in ["jump", "cast", "dash", "melee", "parry"]:
+		ok += _expect(seen.has(required), "touch pad exposes '%s'" % required)
 	pad.queue_free()
 	return ok
 
