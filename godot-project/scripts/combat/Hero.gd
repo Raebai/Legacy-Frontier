@@ -302,9 +302,8 @@ const GEAR_ELEMENT: Dictionary = {
 	"earth": Elements.Element.EARTH,
 }
 var _gear_speed_mult: float = 1.0
-var _gear_ward_frac: float = 0.0
-var _gear_ward_used: bool = false
-var _gear_damage_reduction: float = 0.0  # armor: flat % off every hit (persistent)
+# Gear mitigation moved to GuardComponent (see _apply_gear / take_damage) so ward
+# spells, armour and the one-shot robe all resolve through a single path.
 ## Class melee/HP base snapshot (captured post-class-setup incl. equip_weapon) that
 ## the gear mults scale FROM — so _recompute is idempotent and never clobbers the
 ## weapon-specific melee tuning equip_weapon already applied.
@@ -878,9 +877,10 @@ func _recompute_gear_effects() -> void:
 		hp = clampi(int(round(float(new_max) * ratio)), 1, new_max)
 		health_changed.emit(hp, max_hp)
 	_gear_speed_mult = float(g["speed"])
-	_gear_ward_frac = float(g["ward"])
-	_gear_damage_reduction = float(g["damage_reduction"])
-	_gear_ward_used = false  # a fresh loadout / class = a fresh ward
+	# Gear mitigation lives on the shared guard, not in local fields, so ward
+	# spells and armour resolve through ONE path instead of two that disagree.
+	# Re-applying also re-arms the one-shot robe: a fresh loadout = a fresh ward.
+	GuardComponent.of(self).set_gear(float(g["damage_reduction"]), float(g["ward"]))
 	# Element follows the WEAPON: an elemental weapon (staff_ice, scythe, ...) sets it;
 	# a non-elemental weapon reverts to the class's innate element (never sticks).
 	var ge: int = int(g["element"])
@@ -2055,18 +2055,22 @@ func take_damage(amount: int) -> void:
 		Juice.impact_frame(1.0, global_position + _aim_dir * 18.0)
 		_parry_window_timer = 0.0
 		return
-	# A LANDED hit (not dodged/parried) shatters a float-channel OR a summon windup —
-	# lose the ult (mana + cooldown already spent).
-	if _channeling:
-		_cancel_channel()
-	if _summoning:
-		_cancel_summon()
-	# Gear: plate armour flatly reduces EVERY hit; a warding robe softens the FIRST hit.
-	if _gear_damage_reduction > 0.0 and amount > 0:
-		amount = int(round(float(amount) * (1.0 - _gear_damage_reduction)))
-	if _gear_ward_frac > 0.0 and not _gear_ward_used and amount > 0:
-		amount = int(round(float(amount) * (1.0 - _gear_ward_frac)))
-		_gear_ward_used = true
+	# MITIGATION RUNS BEFORE THE INTERRUPT. It used to run after, so a hit your
+	# gear soaked entirely still shattered a 1.3 s channel — the ward paid for
+	# nothing. Maker's rule: only a hit that actually LANDS breaks your cast.
+	# GuardComponent is the single mitigation path (gear armour, the one-shot
+	# warding robe, and ward spells), replacing three fields that were inlined
+	# here and invisible to every other body in the game.
+	var guard: GuardComponent = GuardComponent.peek(self)
+	if guard != null:
+		amount = guard.mitigate(amount)
+	# A hit that got through shatters a float-channel OR a summon windup — the ult
+	# is lost with its mana and cooldown already spent. Fully absorbed = cast survives.
+	if amount > 0:
+		if _channeling:
+			_cancel_channel()
+		if _summoning:
+			_cancel_summon()
 		rig.flash_color(Color(0.75, 0.85, 1.0), 0.14)  # a pale ward shimmer
 	# Smash sandbox: pile onto the damage % (no hp drain, no hp-death — the only
 	# way out is a ring-out). Tower mode: drain hp and die at 0 (unchanged).

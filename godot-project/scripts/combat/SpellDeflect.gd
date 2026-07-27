@@ -24,6 +24,23 @@ extends RefCounted
 ## balance problem it fixes. Landing one is meant to be the best moment in a
 ## fight, so it pays off accordingly.
 ##
+## TWO DEFLECT PATHS, AND WHY BOTH EXIST (settle this here rather than in review):
+## there is a second contract in the codebase — `reflect()` / `_reflected` /
+## `deflect_point()` plus group "deflectable_spell" — used by the bolt, the Rift
+## Dagger and the Creeping Shade. They are NOT rivals; they cover different spell
+## shapes, and the split is by whether the spell physically TRAVELS.
+##
+##   TRAVELS  (bolt, dagger, crawler, boulder, orbs) -> the reflect() path.
+##            You catch it and send it back. Strictly better fantasy, so it wins
+##            wherever it applies, and it is what "deflect" means to a player.
+##   DOESN'T  (beams, meteors, zones, walls, pillars, convergence) -> this file.
+##            There is nothing to send back — a meteor barrage cannot be returned
+##            to sender — so a correctly-timed guard EATS the hit instead.
+##
+## The rule for new spells: if it has a position that moves, give it reflect().
+## Otherwise route its damage through resolve() here. Both end in the same crisp
+## ding and the same shield flourish, so players read one defensive verb, not two.
+##
 ## VICTIM CONTRACT (duck-typed, matching this codebase's wall_distance/blink_to
 ## idiom so Hero, the spike rig, an Enemy and a future bot all work unchanged):
 ##   is_parrying() -> bool              required; no method = simply takes the hit
