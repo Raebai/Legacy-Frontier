@@ -62,7 +62,14 @@ const DASH_SPEED := 620.0
 const DASH_TIME := 0.14
 const DASH_COOLDOWN := 0.6
 const GHOST_INTERVAL := 0.03
+## Afterimages tint from the figure's OWN body_color (see _ghost_tint) rather than
+## this constant — a hardcoded blue trail behind a red stickman reads as a separate
+## swarm of characters, not as where you just were. Kept as the fallback alpha/mix.
 const GHOST_COLOR := Color(0.6, 0.85, 1.0, 0.55)
+const GHOST_FADE := 0.34        # was 0.22 — the smear needs to persist to register
+const GHOST_ALPHA := 0.72       # was 0.55
+const DASH_LEAN := 0.62         # radians of forward pitch into the dash
+const DASH_WIND_INTERVAL := 0.035   # trailing wind streaks DURING the dash, not just at launch
 # PARRY/DEFLECT (ported from Hero.gd): short active window; a bolt arriving inside
 # it is reflected toward the aim with a ding + a directional shield-arc shell tell.
 const PARRY_WINDOW := 0.16
@@ -179,6 +186,7 @@ var _dash_timer := 0.0
 var _dash_cd := 0.0
 var _dash_dir := Vector2.RIGHT
 var _ghost_t := 0.0
+var _dash_wind_t := 0.0
 
 # parry state
 var _parry_window := 0.0
@@ -345,6 +353,7 @@ func dash(dir: Vector2) -> bool:
 	_dash_timer = DASH_TIME
 	_dash_cd = DASH_COOLDOWN
 	_ghost_t = 0.0
+	_dash_wind_t = 0.0
 	_dash_dir = dir.normalized() if dir != Vector2.ZERO else Vector2(_facing, 0)
 	if absf(_dash_dir.x) > 0.15:
 		_facing = signf(_dash_dir.x)
@@ -757,7 +766,17 @@ func _support(torso: RigidBody2D, grounded: bool, dist: float, delta: float) -> 
 	var lean := clampf(torso.linear_velocity.x / move_speed, -1.0, 1.0) * RUN_LEAN
 	var cap := MAX_LEAN
 	var gain := 1.0
-	if not grounded and _clinging:
+	if is_dashing:
+		# DASH = the one COMMITTED body shape. Everything else in this chain is
+		# reactive (lean follows velocity, air goes loose). A dash has to read as a
+		# DRIVEN pose or the afterimages are five copies of a standing man — which is
+		# exactly why the trail read as a swarm of sticks rather than a smear.
+		# Still a spring TARGET, not a canned keyframe: hits and terrain keep
+		# fighting it, so the rig stays a ragdoll.
+		lean = _dash_dir.x * DASH_LEAN
+		cap = MAX_LEAN + 0.5
+		gain = 2.6                              # commits hard and holds
+	elif not grounded and _clinging:
 		# clinging a wall: keep the body UPRIGHT (firm uprighting, tight cap) so it doesn't
 		# tip over and pull the hip out of wall-probe range — that's what dropped the grip
 		gain = 0.55
@@ -871,10 +890,23 @@ func _process_dash(torso: RigidBody2D, delta: float) -> void:
 	if _ghost_t <= 0.0:
 		_ghost_t = GHOST_INTERVAL
 		_spawn_ghost()
+	# Wind keeps TEARING off the body for the whole burst. A single burst at launch
+	# (which is all this used to do) leaves the middle of the dash visually dead —
+	# the streaks are what tie the afterimages together into one smear.
+	_dash_wind_t -= delta
+	if _dash_wind_t <= 0.0:
+		_dash_wind_t = DASH_WIND_INTERVAL
+		_spawn_wind_streaks(torso.global_position - _dash_dir * 6.0, 3, _dash_dir, "dash")
 	if _dash_timer <= 0.0:
 		is_dashing = false
 		torso.linear_velocity *= 0.35
-		_spawn_puffs(torso.global_position + Vector2(0, RIDE_HEIGHT * 0.5), 4, 5.0)
+		# Skid-stop: the burst has to LAND, not just stop. Dust at the feet plus a
+		# backward-thrown particle spray reading as the arrest of all that momentum.
+		_spawn_puffs(torso.global_position + Vector2(0, RIDE_HEIGHT * 0.5), 7, 6.5)
+		CombatVfx.spawn_burst(get_parent(),
+			torso.global_position + Vector2(0.0, RIDE_HEIGHT * 0.45),
+			_ghost_tint(), Color(_ghost_tint().r, _ghost_tint().g, _ghost_tint().b, 0.0),
+			8, 0.28, 70.0, 190.0, 1.2, 2.8, 0.0, 0.0, true, -_dash_dir, 55.0)
 
 
 ## Blue afterimage: snapshot the CURRENT drawn pose (torso, head, arms, legs) as a
@@ -894,14 +926,24 @@ func _spawn_ghost() -> void:
 	for i in 14:
 		pts.append(hc + Vector2.from_angle(TAU * i / 14.0) * HEAD_R)
 	head.polygon = pts
-	head.color = GHOST_COLOR
+	head.color = _ghost_tint()
 	g.add_child(head)
 	for i in 2:
 		_ghost_line(g, _arm_line[i].points)
 		_ghost_line(g, PackedVector2Array([hip, _knee[i], _foot[i]]))
 	var tw := create_tween()
-	tw.tween_property(g, "modulate:a", 0.0, 0.22)
+	tw.tween_property(g, "modulate:a", 0.0, GHOST_FADE)
 	tw.tween_callback(g.queue_free)
+
+
+## Afterimage colour: the figure's OWN body colour lifted toward the cool ghost
+## hue, not the flat blue constant. A hardcoded blue trail behind a red stickman
+## reads as A SWARM OF OTHER CHARACTERS; tinting from body_color makes the trail
+## unmistakably "where you just were", which is the entire point of the smear.
+func _ghost_tint() -> Color:
+	var c: Color = body_color.lerp(GHOST_COLOR, 0.35)
+	c.a = GHOST_ALPHA
+	return c
 
 
 func _ghost_line(parent: Node2D, pts: PackedVector2Array) -> void:
@@ -910,7 +952,7 @@ func _ghost_line(parent: Node2D, pts: PackedVector2Array) -> void:
 	var ln := Line2D.new()
 	ln.points = pts
 	ln.width = LIMB_W
-	ln.default_color = GHOST_COLOR
+	ln.default_color = _ghost_tint()
 	ln.begin_cap_mode = Line2D.LINE_CAP_ROUND
 	ln.end_cap_mode = Line2D.LINE_CAP_ROUND
 	ln.joint_mode = Line2D.LINE_JOINT_ROUND
@@ -1023,6 +1065,13 @@ func _update_arms(torso: RigidBody2D, delta: float) -> void:
 						damp = ARM_DAMP * 0.9
 				_:
 					target = _cast_ang + side * 0.13        # POINT: two-handed thrust
+		elif is_dashing:
+			# Arms SWEPT BACK along the dash line — the classic burst silhouette. Stiff
+			# so they commit for the whole 0.14 s instead of flailing through it.
+			target = (-_dash_dir).angle() + side * 0.16
+			stiff = ARM_STIFF * 3.6
+			damp = ARM_DAMP * 1.8
+			f_off = 0.12 * side
 		elif _parry_shell_t > 0.0:
 			# guard: both arms hold the shield line while the shell shows
 			target = _parry_dir.angle() + side * 0.2
@@ -1124,6 +1173,26 @@ func _update_legs(torso: RigidBody2D, floor_y: float, grounded: bool, delta: flo
 		_plant[1] = Vector2(hip.x - STANCE, floor_y)
 		_swing_t = 1.0
 		_gait_ready = true
+		return
+
+	if is_dashing:
+		# Legs trail BACK along the dash line, split slightly so the silhouette reads
+		# as a stride frozen mid-burst rather than two sticks glued together. Sits
+		# ahead of the airborne branch because a dash is usually airborne and the
+		# slack-ragdoll target would otherwise wash the committed pose out.
+		var back: float = (-_dash_dir).angle()
+		for i in 2:
+			var lside := 1.0 if i == 0 else -1.0
+			var ltarget: float = back + lside * 0.30
+			_leg_vel[i] += wrapf(ltarget - _leg_ang[i], -PI, PI) * 210.0 * delta
+			_leg_vel[i] *= exp(-13.0 * delta)
+			_leg_ang[i] += _leg_vel[i] * delta
+			var st: float = _leg_ang[i] + lside * 0.22
+			_shin_vel[i] += wrapf(st - _shin_ang[i], -PI, PI) * 190.0 * delta
+			_shin_vel[i] *= exp(-13.0 * delta)
+			_shin_ang[i] += _shin_vel[i] * delta
+			_knee[i] = hip + Vector2.from_angle(_leg_ang[i]) * THIGH_LEN
+			_foot[i] = _knee[i] + Vector2.from_angle(_shin_ang[i]) * SHIN_LEN
 		return
 
 	if not grounded:
