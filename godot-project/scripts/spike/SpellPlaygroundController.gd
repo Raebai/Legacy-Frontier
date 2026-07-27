@@ -41,7 +41,7 @@ var _bar: LoadoutBar = null
 
 var _knobs := {
 	"stiffness": 3000.0, "damping": 90.0, "max_torque": 14000.0, "air_factor": 0.2,
-	"grav_scale": 2.0, "jump_speed": 700.0, "move_speed": 300.0, "upright_k": 55000.0, "punch_lunge": 3400.0,
+	"grav_scale": 2.0, "jump_speed": 700.0, "move_speed": 420.0, "upright_k": 55000.0, "punch_lunge": 3400.0,
 }
 var _knob_order := ["stiffness", "damping", "max_torque", "air_factor", "grav_scale", "jump_speed", "move_speed", "upright_k", "punch_lunge"]
 var _sel := 0

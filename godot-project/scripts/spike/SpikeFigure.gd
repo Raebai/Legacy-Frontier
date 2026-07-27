@@ -58,8 +58,8 @@ const PUNCH_COOLDOWN := 0.26    # min time between punches — no momentum-fly f
 const STAGGER_TIME := 0.4
 # AIR-DASH (ported from Hero.gd): burst toward aim/move, air-capable, i-frames for
 # the whole dash (is_dashing gates hit()), ghost afterimages on a fixed cadence.
-const DASH_SPEED := 620.0
-const DASH_TIME := 0.14
+const DASH_SPEED := 900.0
+const DASH_TIME := 0.19
 const DASH_COOLDOWN := 0.6
 const GHOST_INTERVAL := 0.03
 ## Afterimages tint from the figure's OWN body_color (see _ghost_tint) rather than
@@ -78,7 +78,7 @@ const PARRY_SHIELD_TIME := 0.26
 const PARRY_REACH := 40.0       # shield-arc radius = the deflect catch radius
 const PARRY_COLOR := Color(0.85, 1.0, 1.0)
 const CAST_TIME := 0.3          # brief two-handed channel pose (Phase 2 windups stack on top)
-const BOLT_HIT_RADIUS := 17.0   # unparried incoming bolt connects at this range
+const BOLT_HIT_RADIUS := 9.0    # margin around the SPINE+HEAD silhouette (see body_distance)
 const CRAWL_FACTOR := 0.34      # prone crawl speed as a fraction of walk speed
 const PUNCH_TIME := 0.22
 const PUNCH_REACH := 96.0       # bare-fist connect range the sandbox reads back
@@ -1536,7 +1536,8 @@ func _try_reflect(n: Node, tp: Vector2) -> bool:
 	var at: Vector2 = (n as Node2D).global_position
 	if n.has_method("deflect_point"):
 		at = n.call("deflect_point")
-	if tp.distance_to(at) > PARRY_REACH + 10.0:
+	var catch: float = PARRY_REACH * (_ring.radius01() if _ring.held else 1.0)
+	if tp.distance_to(at) > catch + 10.0:
 		return false
 	n.call("reflect", _parry_dir, PARRY_COLOR)
 	_parry_window = 0.0                      # one reflect per window
@@ -1555,6 +1556,27 @@ func _try_reflect(n: Node, tp: Vector2) -> bool:
 ## Signature SPELLS that opted into the deflect layer are scanned too, but only
 ## for the reflect half: their own selectors own damage, and a spell the figure
 ## just cast is still sitting on top of it for the first frame.
+## Distance from `p` to the figure's ACTUAL silhouette: the spine as a segment
+## from neck to hip, plus the head as a circle on top. The old test was a single
+## 17 px circle around the torso centre, which is wrong in both directions — a
+## bolt through the head or the shins missed entirely, while anything near the
+## midriff connected from further away than the body is wide. Limbs are
+## deliberately excluded: getting clipped by a flailing arm you did not control
+## feels arbitrary, so the spine and head are the honest target.
+func body_distance(p: Vector2) -> float:
+	if _torso == null:
+		return INF
+	var neck: Vector2 = _torso.to_global(Vector2(0, NECK_Y))
+	var hip: Vector2 = _torso.to_global(HIP_OFF)
+	var spine: Vector2 = hip - neck
+	var len2: float = spine.length_squared()
+	var on_spine: Vector2 = neck
+	if len2 > 0.0001:
+		on_spine = neck + spine * clampf((p - neck).dot(spine) / len2, 0.0, 1.0)
+	var head_c: Vector2 = _torso.to_global(Vector2(0, NECK_Y - HEAD_R + 0.5))
+	return minf(p.distance_to(on_spine), p.distance_to(head_c) - HEAD_R)
+
+
 func _process_projectiles() -> void:
 	if _torso == null:
 		return
@@ -1568,7 +1590,7 @@ func _process_projectiles() -> void:
 		if p.get("_reflected") == true:
 			continue                                 # already ours — flying back out
 		var pp: Vector2 = (p as Node2D).global_position
-		var d := tp.distance_to(pp)
+		var d := body_distance(pp)
 		if _try_reflect(p, tp):
 			return
 		if d <= BOLT_HIT_RADIUS and not is_dashing:
@@ -1967,24 +1989,16 @@ func _draw() -> void:
 	if _parry_shell_t > 0.0:
 		var c: Vector2 = _torso.to_global(SHOULDER_OFF)
 		var pa := _parry_dir.angle()
-		# THE GUARD RING. A full white boundary that closes toward the body while
-		# right click is held: you WATCH the timing rather than memorising an
-		# invisible window, and so does your opponent, who can bait it. The tight
-		# band is the perfect read — it flares white there so the moment is
-		# unmistakable — and overshooting leaves a dim ring, the weaker sustained
-		# hold. Drawn before the shell so the shell reads on top of it.
-		if _ring.held:
-			var rr: float = PARRY_REACH * 2.15 * _ring.radius01()
-			var q: int = _ring.quality()
-			var ring_col: Color = Color(2.4, 2.4, 2.6, 0.95) if q == ParryRing.Quality.PERFECT 				else Color(0.80, 0.86, 1.0, 0.34 if q == ParryRing.Quality.SUSTAIN else 0.62)
-			draw_arc(c, rr, 0.0, TAU, 40, ring_col,
-				3.4 if q == ParryRing.Quality.PERFECT else 2.0, true)
-			if q == ParryRing.Quality.PERFECT:
-				# A brief inner echo so the perfect band reads as a snap, not a size.
-				draw_arc(c, rr * 0.72, 0.0, TAU, 32, Color(2.0, 2.0, 2.3, 0.5), 2.0, true)
 		var fade := clampf(_parry_shell_t / PARRY_SHIELD_TIME, 0.0, 1.0)
 		var hot := 1.0 if _parry_window > 0.0 else 0.55          # active window = hot
-		draw_arc(c, PARRY_REACH, pa - 0.95, pa + 0.95, 22,
+		# HOLDING THE GUARD CLOSES IT. The shield arc IS the blocking region, so
+		# shrinking the drawing and shrinking the hitbox are the same act — what
+		# you see is exactly what still blocks. Hold too long and the region is
+		# small enough to slip past, which is the cost of not timing it.
+		var reach: float = PARRY_REACH * (_ring.radius01() if _ring.held else 1.0)
+		if _ring.held and _ring.quality() == ParryRing.Quality.PERFECT:
+			hot = 1.0                                            # the tight band flares
+		draw_arc(c, reach, pa - 0.95, pa + 0.95, 22,
 			Color(PARRY_COLOR.r, PARRY_COLOR.g, PARRY_COLOR.b, 0.95 * fade * hot), 4.5, true)
-		draw_arc(c, PARRY_REACH - 7.0, pa - 0.72, pa + 0.72, 16,
+		draw_arc(c, reach - 7.0, pa - 0.72, pa + 0.72, 16,
 			Color(PARRY_COLOR.r, PARRY_COLOR.g, PARRY_COLOR.b, 0.38 * fade * hot), 2.5, true)
