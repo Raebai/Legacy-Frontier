@@ -222,10 +222,14 @@ var _passive_home: Vector2 = Vector2.ZERO   # passive: fixed spot it respawns to
 # enemies the maker wants. Each row: hp/speed mult, cooldown-tick speed (higher =
 # attacks more often), whether it dodges, whether it can deflect, evade reflex cd.
 const DIFFICULTY: Array[Dictionary] = [
-	{"hp": 0.7, "speed": 0.85, "cd_speed": 0.7, "dodge": false, "deflect": false, "evade_cd": 1.2},  # Easy
-	{"hp": 1.0, "speed": 1.0, "cd_speed": 1.0, "dodge": false, "deflect": false, "evade_cd": 1.0},   # Normal
-	{"hp": 1.6, "speed": 1.2, "cd_speed": 1.5, "dodge": true, "deflect": false, "evade_cd": 0.85},   # Hard
-	{"hp": 2.4, "speed": 1.5, "cd_speed": 2.1, "dodge": true, "deflect": true, "evade_cd": 0.5},     # Impossible
+	# react = modelled reaction time in seconds; p_miss = share of threats this tier
+	# deliberately fumbles. Those two ARE the difficulty dial — never damage buffs,
+	# and never letting a bot act on something the player cannot see. A frame-1
+	# dodge reads as a cheater; a bot that never whiffs is not beatable-feeling.
+	{"hp": 0.7, "speed": 0.85, "cd_speed": 0.7, "dodge": false, "deflect": false, "evade_cd": 1.2, "react": 0.45, "p_miss": 0.45},  # Easy
+	{"hp": 1.0, "speed": 1.0, "cd_speed": 1.0, "dodge": false, "deflect": false, "evade_cd": 1.0, "react": 0.35, "p_miss": 0.30},   # Normal
+	{"hp": 1.6, "speed": 1.2, "cd_speed": 1.5, "dodge": true, "deflect": false, "evade_cd": 0.85, "react": 0.26, "p_miss": 0.16},   # Hard
+	{"hp": 2.4, "speed": 1.5, "cd_speed": 2.1, "dodge": true, "deflect": true, "evade_cd": 0.5, "react": 0.15, "p_miss": 0.03},     # Impossible
 ]
 const EVADE_DANGER_R: float = 155.0   # a hero bolt inside this triggers a dodge
 const EVADE_DEFLECT_R: float = 58.0   # ...inside this (Impossible) it's deflected
@@ -234,6 +238,17 @@ var _smart_dodge: bool = false        # Hard+: hops away from incoming hero bolt
 var _can_deflect: bool = false        # Impossible: point-blank deflect + counter
 var _evade_reflex: float = 1.0        # cooldown between evades (difficulty reflex)
 var _evade_cd: float = 0.0
+## Mirrors Spell.SPEED. Spell.gd declares no class_name, so its const cannot be
+## referenced from here; if that speed is ever retuned, this must follow or bots
+## will lead their dodges wrongly.
+const HERO_BOLT_SPEED: float = 460.0
+## Brain time. Accumulated from the SCALED physics delta on purpose: hit-stop drops
+## Engine.time_scale to 0.05, so a wall-clock reaction timer would hand every bot a
+## ~20x reflex boost on each connect.
+var _brain_clock: float = 0.0
+var _reactions := BotDodge.Reactions.new()
+var _react_delay: float = 0.35
+var _p_miss: float = 0.30
 
 @onready var rig: CharacterRig = $Rig
 
@@ -449,40 +464,112 @@ func _apply_difficulty() -> void:
 	_smart_dodge = bool(cfg["dodge"])
 	_can_deflect = bool(cfg["deflect"])
 	_evade_reflex = float(cfg["evade_cd"])
+	_react_delay = float(cfg["react"])
+	_p_miss = float(cfg["p_miss"])
 
 
 ## Hard+ reflex: if a hero bolt is closing in, DODGE (hop clear, reusing the leap
 ## arc) or — point-blank on Impossible — DEFLECT it (fizzle + counter-fire) while
 ## still advancing. Returns true only when a dodge took over movement this frame.
 func _try_evade(delta: float) -> bool:
+	_brain_clock += delta
 	if _evade_cd > 0.0:
 		return false
-	var threat: Node2D = null
-	var best: float = EVADE_DANGER_R
+	var me: Vector2 = global_position
+	var live: Array = []
+	var nearest_bolt: Node2D = null
+	var nearest_d: float = EVADE_DANGER_R
+	var best: Dictionary = {}
+	var best_tti: float = INF
+
+	# Incoming bolts. Velocity comes free from the projectile's own facing + speed,
+	# so this reads nothing a player couldn't see on screen.
 	for s: Node in get_tree().get_nodes_in_group("player_spell"):
 		if not s is Node2D or not is_instance_valid(s):
 			continue
-		var dd: float = global_position.distance_to((s as Node2D).global_position)
-		if dd < best:
-			best = dd
-			threat = s as Node2D
-	if threat == null:
+		var sp: Node2D = s as Node2D
+		var id: int = sp.get_instance_id()
+		live.append(id)
+		var d: float = me.distance_to(sp.global_position)
+		if d < nearest_d:
+			nearest_d = d
+			nearest_bolt = sp
+		_reactions.observe(id, _brain_clock, _react_delay, randf(), _p_miss)
+		if not _reactions.visible(id, _brain_clock):
+			continue
+		var t: Dictionary = BotDodge.threat_from_projectile(
+			me, sp.global_position, Vector2.from_angle(sp.rotation) * HERO_BOLT_SPEED)
+		if bool(t["threatening"]) and float(t["tti"]) < best_tti:
+			best_tti = float(t["tti"])
+			best = t
+
+	# Telegraphed ground danger — the hero's blast/meteor marks. Skip anything an
+	# enemy planted: our own tells cannot hurt us, and dodging them looks insane.
+	for node: Node in get_tree().get_nodes_in_group(Telegraph.GROUP):
+		var tg := node as Telegraph
+		if tg == null or not is_instance_valid(tg) or not tg.is_armed():
+			continue
+		if tg.source != null and tg.source.is_in_group("enemy"):
+			continue
+		var tid: int = tg.get_instance_id()
+		live.append(tid)
+		_reactions.observe(tid, _brain_clock, _react_delay, randf(), _p_miss)
+		if not _reactions.visible(tid, _brain_clock):
+			continue
+		var shape: Dictionary = tg.danger_shape()
+		var tt: Dictionary = {}
+		if String(shape.get("shape", "")) == "line":
+			var from: Vector2 = shape["from"]
+			var to: Vector2 = shape["to"]
+			tt = BotDodge.threat_from_lane(me, velocity, from, (to - from).angle(),
+				from.distance_to(to), float(shape["width"]), tg.time_to_impact())
+		else:
+			tt = BotDodge.threat_from_circle(me, velocity, shape["center"],
+				float(shape["radius"]), tg.time_to_impact())
+		if bool(tt["threatening"]) and float(tt["tti"]) < best_tti:
+			best_tti = float(tt["tti"])
+			best = tt
+
+	_reactions.forget_missing(live)
+
+	# Point-blank deflect stays ahead of the dodge: swatting a bolt while still
+	# walking at you is more menacing than hopping away from it.
+	if _can_deflect and nearest_bolt != null and nearest_d < EVADE_DEFLECT_R:
+		_evade_cd = _evade_reflex
+		_deflect(nearest_bolt)
 		return false
-	_evade_cd = _evade_reflex
-	if _can_deflect and best < EVADE_DEFLECT_R:
-		_deflect(threat)
-		return false  # deflect keeps us advancing — menacing
-	# Dodge: hop away from the bolt, riding the ballistic LEAPING state.
-	var away: float = signf(global_position.x - threat.global_position.x)
-	if away == 0.0:
-		away = 1.0
-	velocity = Vector2(away * move_speed * 2.2, JUMP_VELOCITY * 0.8)
-	_attack_state = AttackState.LEAPING
-	_leap_timer = 0.45
-	rig.flash()
-	_apply_gravity(delta)
-	move_and_slide()
-	return true
+
+	if best.is_empty():
+		return false
+	var exit: Vector2 = best.get("exit", Vector2.ZERO)
+	# Dead-centre in a blast has no shortest exit — break the tie toward open floor.
+	if bool(best.get("degenerate", false)) or exit.length_squared() < 0.001:
+		var open: float = signf(me.x - (_hero.global_position.x if is_instance_valid(_hero) else me.x - 1.0))
+		exit = Vector2(open if open != 0.0 else 1.0, 0.0) * float(best.get("exit_len", 40.0))
+	var choice: Dictionary = BotDodge.choose_response(best, {
+		"grounded": is_on_floor(),          # this body has no dash, blink or parry
+	})
+	var dir: Vector2 = choice.get("dir", Vector2.ZERO)
+	match String(choice.get("action", "none")):
+		"jump":
+			_evade_cd = _evade_reflex
+			var away: float = signf(exit.x) if absf(exit.x) > 0.01 else signf(dir.x)
+			velocity = Vector2(away * move_speed * 2.2, JUMP_VELOCITY * 0.8)
+			_attack_state = AttackState.LEAPING
+			_leap_timer = 0.45
+			rig.flash()
+			_apply_gravity(delta)
+			move_and_slide()
+			return true
+		"walk":
+			# Walking out of a marked circle is the new behaviour: the old evade only
+			# knew how to hop away from a bolt, so ground AoE simply landed on it.
+			_evade_cd = _evade_reflex * 0.5   # cheaper than a leap, so it can re-steer
+			velocity.x = signf(exit.x) * move_speed * 1.35
+			_apply_gravity(delta)
+			move_and_slide()
+			return true
+	return false
 
 
 ## Point-blank deflect (Impossible): block the hero bolt + counter-fire back.
