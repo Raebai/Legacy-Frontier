@@ -5,7 +5,20 @@ Plan: `docs/v2.0-slice0-plan.md`. Slice 1 plan: TBD.
 Godot headless binary: `godot-engine/Godot_v4.6.2-stable_win64_console.exe`
 Builder model: Fable 5.
 
-## ★★★ READ FIRST (2026-07-24) — SUPERSEDES every block below ★★★
+## ★★★★ READ FIRST (2026-07-27) — MAGIC OVERHAUL, Phase 2 COMPLETE — supersedes every block below ★★★★
+Branch **`stickman-integrate`** (NOT pushed). Plan: `docs/references/magic-overhaul-plan.md`. Verify loop = **render a capture PNG and LOOK at it**, not "tests green". UNPLAYTESTED for feel — awaiting maker F5 of `scenes/spike/SpellPlayground.tscn`.
+
+**Phases 0, 1, 2a–2h are DONE and committed** (`c952a94`..`d543b9d`). Phase 2 is finished: every recolor family is broken and all 24 spells have been rendered and judged.
+- 2a kill all homing/auto-aim · 2b blink_strike onto the normal dispatch seam · 2c colossus_pillar is stone again · 2d per-spell cast poses (`CastStyle.gd`) + Shadow Root + blizzard-as-weather · 2e the 5-beam family · **2f the walls** (rock = opaque + SHOVEABLE, ice = translucent + SHATTERS) · **2g the 4-meteor family** (fire meteors / frost spikes / earth boulders / shadow tears) · **2h** blade-flurry crescents + faceted boulder + localized impact flash.
+- **Maker's 9 original TODO asks are all addressed** (cast animations, no auto-aim, dodgeable, rock≠ice, wall shove, blizzard rework, shadow root, air-dash, deflect).
+- Two bugs found by rendering, both fixed: the shoved rock wall died on the FIRST crate (`_hit_world` judged smash-through by group membership, but a collapsing cover leaves the group while its collider lives to the deferred free — now anything `is_queued_for_deletion()` counts as smashed); and the biggest impact frame always whited out screen CENTRE regardless of where the blast was (maker-reported — now passes a world position and draws a radial bloom on it).
+
+**NEXT = Phase 3, the curated interaction layer** (~20–30 hand-authored element×kind reactions). The hooks are already in place: `RockWall` group `"shoveable"` + `shove(dir)` + `find_shoveable_near()`, `IceWall` group `"ice_wall"` + idempotent `shatter()`. Headliners: **Hollow Purple** (two opposing-element beams crossed → purple annihilation), fire beam/boulder → ice wall shatters, fire + blizzard → steam, chain lightning through a chilled target, meteor inside a void zone. Also in Phase 3: wire the 24 signatures into the parry/reflect layer (today only the basic bolt is deflectable). Then Phase 4 = audit + montage + balance.
+
+Verify anything here with: full sweep `for f in godot-project/tools/slice*_test_*.gd` (43/43 green), a `--headless scenes/Main.tscn --quit-after 180` boot check, and the capture tools `tools/{wall,meteor,melee}_agent_capture.gd` (GUI binary, PNGs land in `%APPDATA%\Godot\app_userdata\Legacy Frontier\`).
+NOTE: `godot-project/{scenes/Main.tscn, data/npcs/*.tres, default_bus_layout.tres, assets/tilesets/*.tres}` carry uncommitted Godot editor re-save churn (uid/unique_id churn on the old v0.5 hub scene) — unrelated to magic, deliberately left out of these commits.
+
+## ★★★ READ FIRST (2026-07-24) — superseded by the 2026-07-27 block above ★★★
 **Push 1 "Stick Fight Feel Foundation" shipped on `v2.0-tower` (NOT pushed to origin).** 8 tasks, each subagent-built + reviewed + fixed (SDD). Headless-verified (all slice suites green; sandbox boots clean) but **UNPLAYTESTED for FEEL — awaiting maker F5.** Maker-directed pivot: strip to a Smash/Stick-Fight SANDBOX + fix the core feel; tower/co-op/customization polish deferred. Then maker said **PAUSE** when done.
 
 What changed (commits `a51b901`..`53f3af6`; SDD ledger `.superpowers/sdd/push1-progress.md`):
