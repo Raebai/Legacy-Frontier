@@ -75,6 +75,38 @@ Related and unbuilt: the maker wants a magic circle + slight levitation when
 casting the more powerful spells (this belongs with the CastStyle wiring, #2
 below), and the circle should sit ABOVE.
 
+## SPELL-vs-SPELL INTERACTION (maker, and it pairs with the environment work)
+
+"If any two of these line spells hit each other they should EXPLODE and go away.
+Same if it hits the ice wall — use common sense for how they interact." So:
+colliding spells must resolve against each other, not pass through.
+
+Most of the machinery already exists and is unused: `SpellReactor` (autoload)
+already detects two live effects overlapping and dispatches through
+`ReactionTable`, which already carries rows for shatter-ice-barrier, steam,
+ground-out, carve and a same-element merge. What is missing is that only
+`BeamSpell` implements the participant contract — every other spectacle is
+invisible to the reactor. Wiring the rest (reaction_shape/_active/_element/
+_form/_owner/_consume) is the unlock, plus a generic "two projectiles meet ->
+both detonate" row, which is the common-sense default the maker is describing.
+
+## MAGE DEFLECT = AN ABSORBING MAGIC CIRCLE (maker)
+
+For a caster, the guard should be a magic circle summoned at the right moment:
+right click, and a spell that meets the circle on time is ABSORBED into it rather
+than reflected. Same `ParryRing` timing underneath (perfect band = absorb), but a
+class-specific presentation and outcome. This is the natural home for the
+"different classes guard differently" idea — the swordsman parries with the
+blade, the mage catches it in a sigil.
+
+## HITBOX — spells pass through heads without registering (maker)
+
+Reported live. The FIGURE's hit test was rewritten this session to use the real
+silhouette (`SpikeFigure.body_distance`: spine segment + head circle, 9 px
+margin). The dummies are `Enemy` nodes and were NOT changed — they still use
+their own detection, so this is most likely on the Enemy side. Check what radius
+Enemy uses and whether it accounts for the rig's height at all.
+
 ## Next work the maker asked for
 
 - **Organise the spells**: pick 4 into slots, make the kit make sense per class,
