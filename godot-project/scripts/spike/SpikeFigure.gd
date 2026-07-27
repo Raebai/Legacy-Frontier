@@ -78,6 +78,10 @@ const PARRY_SHIELD_TIME := 0.26
 const PARRY_REACH := 40.0       # shield-arc radius = the deflect catch radius
 const PARRY_COLOR := Color(0.85, 1.0, 1.0)
 const CAST_TIME := 0.3          # brief two-handed channel pose (Phase 2 windups stack on top)
+## Knockback scales off the spell's own damage, so a heavier spell throws you
+## further without anyone maintaining a second table of forces.
+const BOLT_KNOCKBACK_BASE := 300.0
+const BOLT_KNOCKBACK_PER_DAMAGE := 9.0
 const BOLT_HIT_RADIUS := 9.0    # margin around the SPINE+HEAD silhouette (see body_distance)
 const CRAWL_FACTOR := 0.34      # prone crawl speed as a fraction of walk speed
 const PUNCH_TIME := 0.22
@@ -1594,12 +1598,23 @@ func _process_projectiles() -> void:
 		if _try_reflect(p, tp):
 			return
 		if d <= BOLT_HIT_RADIUS and not is_dashing:
-			var dirv := (tp - pp).normalized()
+			# You are thrown along the spell's MOMENTUM, not merely shoved away
+			# from the point it happened to occupy. A projectile carries a
+			# direction; being hit by it should send you where it was going, which
+			# is what makes a hit read as an impact rather than a nudge.
+			var dirv := Vector2.from_angle(p.rotation) if p is Node2D else Vector2.ZERO
+			if dirv == Vector2.ZERO:
+				dirv = (tp - pp).normalized()
 			if dirv == Vector2.ZERO:
 				dirv = Vector2(-_facing, 0.0)
+			# ...and heavier spells throw you further. Scaled off the projectile's
+			# own damage so a spell that hits hard also HITS hard, with no second
+			# number to keep in sync.
+			var pdmg: Variant = p.get(&"damage")
+			var force: float = BOLT_KNOCKBACK_BASE + BOLT_KNOCKBACK_PER_DAMAGE 				* float(pdmg if pdmg != null else 20.0)
 			if p.has_method("consume"):
 				p.call("consume")                    # its own burst + free
-			hit((dirv + Vector2(0, -0.3)).normalized(), 420.0)
+			hit((dirv + Vector2(0, -0.3)).normalized(), clampf(force, 300.0, 1500.0))
 			return
 
 

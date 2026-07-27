@@ -181,8 +181,12 @@ func _on_parried(world_pos: Vector2) -> void:
 ## caps this at four chosen out of combat.
 func _build_bar() -> void:
 	_slots = HandSlots.new()
-	_slots.rebuild([], _spells)
-	_slots.select(mini(_sidx + 1, _slots.slots.size() - 1))
+	# The REAL loadout shape: four spell slots plus a dedicated ult slot (fists
+	# stay at 0). The playground still reaches all 26 spells — Q/E swaps which
+	# spell sits in the SELECTED slot, drawn from the spells that slot accepts —
+	# so everything stays testable while the bar shows the shipping layout.
+	_slots.rebuild([], _default_loadout())
+	_slots.select(1)
 	var layer := CanvasLayer.new()
 	layer.layer = 20
 	add_child(layer)
@@ -190,6 +194,48 @@ func _build_bar() -> void:
 	_bar.slots = _slots
 	layer.add_child(_bar)
 	_bar.slot_selected.connect(_on_slot_selected)
+
+
+## Four QUICK/HEAVY spells then one ULT — the shipping loadout, filled with the
+## first spell of each shelf so the bar is never empty on boot.
+func _default_loadout() -> Array:
+	var quick: Array = SpellTier.filter(_spells, SpellTier.Tier.QUICK)
+	var heavy: Array = SpellTier.filter(_spells, SpellTier.Tier.HEAVY)
+	var ults: Array = SpellTier.filter(_spells, SpellTier.Tier.ULT)
+	var pool: Array = quick + heavy
+	var out: Array = []
+	for i in 4:
+		if i < pool.size():
+			out.append(pool[i])
+	if not ults.is_empty():
+		out.append(ults[0])
+	return out
+
+
+## Spells this slot is allowed to hold. Slot 5 (index 4 among spells) is the ult
+## slot; the other four take anything that is not an ult.
+func _pool_for_slot(slot: int) -> Array:
+	if SpellTier.slot_accepts_ult(slot - 1):
+		return SpellTier.filter(_spells, SpellTier.Tier.ULT)
+	return SpellTier.filter(_spells, SpellTier.Tier.QUICK) 		+ SpellTier.filter(_spells, SpellTier.Tier.HEAVY)
+
+
+## Q/E swap the spell IN the selected slot rather than moving the selection, so
+## the bar keeps its shape while every spell stays reachable for review.
+func _swap_in_slot(dir: int) -> void:
+	if _slots == null or _slots.selected <= 0:
+		return
+	var pool: Array = _pool_for_slot(_slots.selected)
+	if pool.is_empty():
+		return
+	var entry: Dictionary = _slots.slots[_slots.selected]
+	var cur: int = pool.find(entry.get("spell"))
+	var nxt: Variant = pool[wrapi(cur + signi(dir), 0, pool.size())]
+	entry["spell"] = nxt
+	entry["id"] = String(nxt.get(&"id"))
+	entry["name"] = String(nxt.get(&"display_name"))
+	_sidx = maxi(_spells.find(nxt), 0)
+	_update_hud()
 
 
 ## Tapping a square picks it; slot 0 is fists, so spell indices are offset by one.
@@ -342,9 +388,9 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_E:
-				_cycle_synced(1)
+				_swap_in_slot(1)
 			KEY_Q:
-				_cycle_synced(-1)
+				_swap_in_slot(-1)
 			KEY_B:
 				_spawn_test_bolt()
 			KEY_H:
