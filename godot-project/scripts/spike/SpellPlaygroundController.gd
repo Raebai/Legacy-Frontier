@@ -17,6 +17,10 @@ const HALF_W := 560.0
 const CEIL_Y := -320.0
 const FIG_COLOR := Color(0.93, 0.51, 0.51)
 const COVER_X := [-210.0, 90.0, 360.0]
+## How close the fighter must be to a standing rock wall for a punch to shove it.
+## Generous vs the 96 px dummy punch: the wall is a big object and hunting for a
+## pixel-perfect contact point would make the shove feel unreliable.
+const SHOVE_REACH := 150.0
 const DUMMY_X := [-70.0, 220.0]
 
 var _fig: SpikeFigure
@@ -124,6 +128,8 @@ func _spawn_figure() -> void:
 
 
 ## The stickman's punch lands on nearby dummies: damage + a satisfying knockback shove.
+## A punch that lands on a standing ROCK WALL instead SHOVES it — the wall becomes a
+## grinding projectile that plows the arena until it hits something solid.
 func _on_punch(dir: Vector2) -> void:
 	_shake = maxf(_shake, 0.5)
 	_shake_dir = dir
@@ -131,6 +137,18 @@ func _on_punch(dir: Vector2) -> void:
 	if t == null:
 		return
 	var origin: Vector2 = t.global_position
+	# Wall first: if one is in reach, the punch commits to shoving it rather than
+	# also cutting through to whatever stands behind it.
+	var wall: Node2D = RockWall.find_shoveable_near(get_tree(), origin, SHOVE_REACH)
+	if wall != null:
+		# footprint_center(), not global_position: the wall node sits at the arena
+		# origin and draws in world coords. Gate on facing so punching AWAY from
+		# a wall never drags it back onto you.
+		var to_wall: Vector2 = wall.call("footprint_center") - origin
+		if to_wall.normalized().dot(dir) > 0.1:
+			if wall.call("shove", Vector2(signf(to_wall.x) if to_wall.x != 0.0 else 1.0, 0.0)):
+				_shake = maxf(_shake, 0.9)
+				return
 	var connected := false
 	for d in _dummies:
 		if not is_instance_valid(d):

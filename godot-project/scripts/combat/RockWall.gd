@@ -125,6 +125,15 @@ static func find_shoveable_near(tree: SceneTree, pos: Vector2, max_dist: float =
 	return best
 
 
+## Where this wall actually STANDS right now. The node itself sits at the arena
+## origin and everything is drawn in world coordinates, so `global_position` is
+## not the wall — callers deciding "is it to my left or my right" must ask for
+## this. Distinct from the static wall_center() above, which PREDICTS where a
+## wall would land for a given caster + aim before one exists.
+func footprint_center() -> Vector2:
+	return _floor_base - Vector2(0.0, WALL_SIZE.y * 0.5)
+
+
 ## Distance from `pos` to this wall's blocking footprint (0 when touching it).
 func wall_distance(pos: Vector2) -> float:
 	var hw: float = WALL_SIZE.x * 0.5
