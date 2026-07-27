@@ -24,6 +24,10 @@ const COVER_X := [-210.0, 90.0, 360.0]
 ## pixel-perfect contact point would make the shove feel unreliable.
 const SHOVE_REACH := 150.0
 const DUMMY_X := [-70.0, 220.0]
+## Windup multiplier per tier — a jab is near-instant, an ult is a commitment.
+const _TIER_WINDUP := {0: 0.35, 1: 1.0, 2: 1.9}
+## Upward impulse as the heavier spells gather. Quick spells never levitate.
+const _LEVITATE := {0: 0.0, 1: 900.0, 2: 1600.0}
 
 var _fig: SpikeFigure
 var _cam: Camera2D
@@ -299,10 +303,45 @@ func _cast() -> void:
 	# gets coiled into the chest. The pose fires FIRST so the windup reads as the
 	# cause of the spectacle rather than a shrug alongside it.
 	var pose: int = CastStyle.for_spell(spell.kind)
-	_fig.cast((target - origin).normalized(), pose)
-	SpellCaster.cast(spell, self, origin, target, Color(0.78, 0.84, 1.0), "", _fig)
+	var aim: Vector2 = (target - origin).normalized()
+	_fig.cast(aim, pose)
+	# THE CASTING PROCESS. The spell no longer leaves the same frame you press:
+	# the body winds up, a sigil opens along the aim, and only then does it fire.
+	# How long you are committed scales with the spell's TIER, so a quick jab is
+	# nearly instant while an ult is a visible, punishable commitment — that
+	# window IS the counterplay, and it is why casting is worth watching.
+	var tier: int = SpellTier.of(spell)
+	var windup: float = CastStyle.duration(pose) * _TIER_WINDUP[tier]
+	_cast_cd = maxf(0.35, windup + 0.12)
+	var circle := MagicCircle.new()
+	add_child(circle)
+	circle.position = origin + aim * 46.0
+	circle.appear(SpellTier.color(tier), 34.0 + 26.0 * float(tier), maxf(windup * 0.7, 0.08))
+	# Side-on, along the aim: a circle in this game stands perpendicular to the
+	# way its magic travels, so you can read where a cast is pointed off the sigil.
+	circle.set_orientation(true, aim, 0.22)
+	# Heavier spells lift you slightly off the floor as they gather — the body
+	# telling you this one costs something. Never for a quick spell, or the whole
+	# kit would feel floaty.
+	if tier != SpellTier.Tier.QUICK:
+		var t2: Node = _fig.get("_torso")
+		if t2 is RigidBody2D:
+			(t2 as RigidBody2D).apply_central_impulse(Vector2(0.0, -_LEVITATE[tier]))
+	if windup > 0.0:
+		await get_tree().create_timer(windup).timeout
+	if not is_instance_valid(_fig) or not is_instance_valid(circle):
+		return
+	circle.vanish(0.14)
+	# Re-read the aim at RELEASE: you kept control through the windup, so the
+	# spell should go where you are pointing NOW, not where you were when you
+	# pressed.
+	var release_target: Vector2 = get_global_mouse_position()
+	var t3: Node2D = _fig.get("_torso")
+	var release_origin: Vector2 = t3.global_position if t3 != null else origin
+	SpellCaster.cast(spell, self, release_origin, release_target,
+		Color(0.78, 0.84, 1.0), "", _fig)
 	_shake = maxf(_shake, 0.35)
-	_shake_dir = (target - origin).normalized()
+	_shake_dir = (release_target - release_origin).normalized()
 
 
 ## Dash toward held movement keys (true 8-way incl. straight up/down); with no
