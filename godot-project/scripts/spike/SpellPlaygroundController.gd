@@ -7,7 +7,7 @@ extends Node2D
 ## Combat verbs use the GAME's input map so the sandbox is a true preview, not a
 ## third control scheme: LMB cast · F melee · RMB deflect · SPACE dash.
 ## move A/D (or arrows) · jump W/Up · duck/crawl S · aim MOUSE ·
-## Q/E cycle spell · B incoming test-bolt ·
+## Q/E or SCROLL cycle spell · HOLD RMB = guard ring · B incoming test-bolt ·
 ## H hit · K kill · R reset · TAB physics-tune
 
 const FIG := preload("res://scripts/spike/SpikeFigure.gd")
@@ -35,6 +35,9 @@ var _dummies: Array = []
 var _shake := 0.0
 var _shake_dir := Vector2.ZERO
 var _cast_cd := 0.0
+## What is in the hand right now, and the bar that shows it.
+var _slots: HandSlots = null
+var _bar: LoadoutBar = null
 
 var _knobs := {
 	"stiffness": 3000.0, "damping": 90.0, "max_torque": 14000.0, "air_factor": 0.2,
@@ -56,6 +59,7 @@ func _ready() -> void:
 	_spawn_figure()
 	_build_camera()
 	_build_hud()
+	_build_bar()
 	_update_hud()
 
 
@@ -172,6 +176,29 @@ func _on_parried(world_pos: Vector2) -> void:
 	Juice.impact_frame(0.45, world_pos)
 
 
+## The League-style strip along the bottom: fists, then the spells you can reach.
+## The playground carries all 26 so every spell stays reviewable; the real game
+## caps this at four chosen out of combat.
+func _build_bar() -> void:
+	_slots = HandSlots.new()
+	_slots.rebuild([], _spells)
+	_slots.select(mini(_sidx + 1, _slots.slots.size() - 1))
+	var layer := CanvasLayer.new()
+	layer.layer = 20
+	add_child(layer)
+	_bar = LoadoutBar.new()
+	_bar.slots = _slots
+	layer.add_child(_bar)
+	_bar.slot_selected.connect(_on_slot_selected)
+
+
+## Tapping a square picks it; slot 0 is fists, so spell indices are offset by one.
+func _on_slot_selected(index: int) -> void:
+	if index > 0:
+		_sidx = wrapi(index - 1, 0, _spells.size())
+	_update_hud()
+
+
 func _build_camera() -> void:
 	var cam := Camera2D.new()
 	cam.position = _fig.spawn_pos
@@ -264,6 +291,14 @@ func _spawn_test_bolt() -> void:
 	proj.launch((t.global_position - proj.global_position).normalized())
 
 
+## Q/E and the scroll wheel move the SAME selection the bar shows, so the two
+## never disagree about what is in your hand.
+func _cycle_synced(d: int) -> void:
+	_cycle(d)
+	if _slots != null:
+		_slots.select(_sidx + 1)
+
+
 func _cycle(step: int) -> void:
 	_sidx = (_sidx + step + _spells.size()) % _spells.size()
 	_update_hud()
@@ -283,13 +318,23 @@ func _input(event: InputEvent) -> void:
 	# they are debug affordances (spawn a bolt, kill, reset) and do not belong in
 	# the game's input map.
 	if event.is_action_pressed("cast"):
-		_cast()
+		# Holding the guard costs your offence — the trade that stops a sustained
+		# hold being free. Same rule on every platform.
+		if _fig.is_guarding():
+			return
+		if _slots != null and _slots.primary_action() == "punch":
+			_fig.punch()
+		else:
+			_cast()
 		return
 	if event.is_action_pressed("melee"):
 		_fig.punch()
 		return
 	if event.is_action_pressed("parry"):
-		_fig.parry()
+		_fig.guard_press()
+		return
+	if event.is_action_released("parry"):
+		_fig.guard_release()
 		return
 	if event.is_action_pressed("dash"):
 		_dash()
@@ -297,9 +342,9 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_E:
-				_cycle(1)
+				_cycle_synced(1)
 			KEY_Q:
-				_cycle(-1)
+				_cycle_synced(-1)
 			KEY_B:
 				_spawn_test_bolt()
 			KEY_H:
@@ -352,7 +397,7 @@ func _update_hud() -> void:
 	if _hud == null or _spells.is_empty():
 		return
 	var s: SpellDef = _spells[_sidx]
-	var txt := "SPELL PLAYGROUND   [%d / %d]   %s\n%s · %s · dmg %d · cd %.1fs%s\n\nLMB  CAST toward mouse    F  punch    RMB  DEFLECT    SPACE  dash    Q E  cycle spell    B  test-bolt    R  reset\nmove A/D · jump W/Up · duck/crawl S · aim mouse · H hit · K kill · TAB tune" % [
+	var txt := "SPELL PLAYGROUND   [%d / %d]   %s\n%s · %s · dmg %d · cd %.1fs%s\n\nLMB  CAST toward mouse    F  punch    RMB  HOLD to guard    SPACE  dash    Q E / SCROLL  cycle    B  test-bolt    R  reset\nmove A/D · jump W/Up · duck/crawl S · aim mouse · H hit · K kill · TAB tune" % [
 		_sidx + 1, _spells.size(), s.display_name,
 		_kind_name(s.kind), _elem_name(s.element), int(s.damage), float(s.cooldown), _extra(s),
 	]

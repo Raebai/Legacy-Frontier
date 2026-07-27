@@ -290,6 +290,9 @@ var _parry_window := 0.0
 var _parry_cd := 0.0
 var _parry_shell_t := 0.0
 var _parry_dir := Vector2.RIGHT
+## The held guard: a white boundary that shrinks toward the body while you hold
+## right click. The tight band is the perfect read. See ParryRing.
+var _ring := ParryRing.new()
 
 # weapon state
 var _weapon := ""               # "" = bare fists; otherwise a WEAPONS key
@@ -888,6 +891,31 @@ func blink_to(dest: Vector2) -> Vector2:
 ## PARRY: open the deflect window + throw up the directional shield-arc tell toward
 ## the aim. The reward (ding + reflect) only fires if a bolt arrives in the window —
 ## see _process_projectiles().
+## Right click DOWN: bloom the guard ring and start it closing.
+func guard_press() -> void:
+	if _ring.press():
+		_parry_dir = _guard_dir()
+		if absf(_parry_dir.x) > 0.15:
+			_facing = signf(_parry_dir.x)
+
+
+## Right click UP: the ring resets and begins its re-arm.
+func guard_release() -> void:
+	_ring.release()
+
+
+func _guard_dir() -> Vector2:
+	var sh: Vector2 = _torso.to_global(SHOULDER_OFF) if _torso != null else Vector2.ZERO
+	var d: Vector2 = (ctrl_aim - sh).normalized() if ctrl_aim != Vector2.ZERO else Vector2(_facing, 0)
+	return d if d != Vector2.ZERO else Vector2(_facing, 0)
+
+
+## True while the guard is up — the caller must suppress attacking, because
+## holding a guard costs your offence.
+func is_guarding() -> bool:
+	return _ring.blocks_attack()
+
+
 func parry() -> bool:
 	if dead or _parry_cd > 0.0:
 		return false
@@ -1155,6 +1183,11 @@ func _physics_process(delta: float) -> void:
 	_jump_lock = maxf(0.0, _jump_lock - delta)
 	_wj_lock = maxf(0.0, _wj_lock - delta)
 	_dash_cd = maxf(0.0, _dash_cd - delta)
+	_ring.tick(delta)
+	if _ring.held:
+		_parry_dir = _guard_dir()
+		# The shell tracks the guard so the shield visibly faces where you aim.
+		_parry_shell_t = maxf(_parry_shell_t, 0.05)
 	_parry_window = maxf(0.0, _parry_window - delta)
 	_parry_cd = maxf(0.0, _parry_cd - delta)
 	_parry_shell_t = maxf(0.0, _parry_shell_t - delta)
@@ -1496,7 +1529,7 @@ func _ghost_line(parent: Node2D, pts: PackedVector2Array) -> void:
 func _try_reflect(n: Node, tp: Vector2) -> bool:
 	if not (n is Node2D) or not is_instance_valid(n):
 		return false
-	if _parry_window <= 0.0 or not n.has_method("reflect"):
+	if (_parry_window <= 0.0 and not _ring.can_reflect()) or not n.has_method("reflect"):
 		return false
 	if n.get("_reflected") == true:
 		return false
@@ -1934,6 +1967,21 @@ func _draw() -> void:
 	if _parry_shell_t > 0.0:
 		var c: Vector2 = _torso.to_global(SHOULDER_OFF)
 		var pa := _parry_dir.angle()
+		# THE GUARD RING. A full white boundary that closes toward the body while
+		# right click is held: you WATCH the timing rather than memorising an
+		# invisible window, and so does your opponent, who can bait it. The tight
+		# band is the perfect read — it flares white there so the moment is
+		# unmistakable — and overshooting leaves a dim ring, the weaker sustained
+		# hold. Drawn before the shell so the shell reads on top of it.
+		if _ring.held:
+			var rr: float = PARRY_REACH * 2.15 * _ring.radius01()
+			var q: int = _ring.quality()
+			var ring_col: Color = Color(2.4, 2.4, 2.6, 0.95) if q == ParryRing.Quality.PERFECT 				else Color(0.80, 0.86, 1.0, 0.34 if q == ParryRing.Quality.SUSTAIN else 0.62)
+			draw_arc(c, rr, 0.0, TAU, 40, ring_col,
+				3.4 if q == ParryRing.Quality.PERFECT else 2.0, true)
+			if q == ParryRing.Quality.PERFECT:
+				# A brief inner echo so the perfect band reads as a snap, not a size.
+				draw_arc(c, rr * 0.72, 0.0, TAU, 32, Color(2.0, 2.0, 2.3, 0.5), 2.0, true)
 		var fade := clampf(_parry_shell_t / PARRY_SHIELD_TIME, 0.0, 1.0)
 		var hot := 1.0 if _parry_window > 0.0 else 0.55          # active window = hot
 		draw_arc(c, PARRY_REACH, pa - 0.95, pa + 0.95, 22,

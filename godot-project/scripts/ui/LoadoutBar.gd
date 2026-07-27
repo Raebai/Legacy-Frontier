@@ -37,7 +37,14 @@ var slots: HandSlots = null
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	# Anchors ALONE leave size at (0,0) until a layout pass, and this control
+	# positions everything from `size` — so it would draw its squares off-screen
+	# on the first frames, or never if nothing triggers a resize.
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var vp: Viewport = get_viewport()
+	if vp != null:
+		size = vp.get_visible_rect().size
+		vp.size_changed.connect(func() -> void: size = vp.get_visible_rect().size)
 
 
 func _process(_delta: float) -> void:

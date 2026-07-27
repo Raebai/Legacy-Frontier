@@ -88,10 +88,22 @@ static func _hollow_purple(ctx: Dictionary) -> bool:
 		_consume(node_b)
 		return true
 
+	# Somewhere to hang the collapse. Falling back to the current scene matters:
+	# returning false here USED to leave both beams frozen but neither consumed
+	# nor released, so the fusion visibly seized and then simply let go — which is
+	# exactly how this failed. A beam whose parent is momentarily unusable is not
+	# a reason to abandon a reaction that has already committed.
 	var parent: Node = node_a.get_parent()
-	if parent == null:
+	if parent == null or not parent.is_inside_tree():
 		parent = node_b.get_parent()
 	if parent == null or not parent.is_inside_tree():
+		var tree: SceneTree = Engine.get_main_loop() as SceneTree
+		parent = tree.current_scene if tree != null else null
+	if parent == null or not parent.is_inside_tree():
+		# Genuinely nowhere to stage it — hand the beams BACK rather than leaving
+		# them stuck mid-seize.
+		_unfreeze(node_a)
+		_unfreeze(node_b)
 		return false
 	var rule: Dictionary = ctx["rule"]
 	var hp: Node2D = (load(HOLLOW_PURPLE_PATH) as GDScript).new()
@@ -129,3 +141,11 @@ static func _freeze(n: Node) -> void:
 static func _consume(n: Node) -> void:
 	if n != null and is_instance_valid(n) and n.has_method(&"reaction_consume"):
 		n.call(&"reaction_consume")
+
+
+## Hand a seized effect back. Only used when a committed reaction cannot be
+## staged after all — without it the participant stays frozen forever and the
+## fusion reads as "grabbed them, then thought better of it".
+static func _unfreeze(n: Node) -> void:
+	if n != null and is_instance_valid(n) and n.has_method(&"reaction_release"):
+		n.call(&"reaction_release")

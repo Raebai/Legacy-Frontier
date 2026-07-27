@@ -148,6 +148,13 @@ func reaction_freeze() -> void:
 	_frozen = true
 
 
+## Released by a reaction that seized this beam and then could not stage itself.
+## Without this the beam would hang frozen until it expired, which reads as the
+## fusion grabbing it and then letting go for no reason.
+func reaction_release() -> void:
+	_frozen = false
+
+
 ## Spent by a reaction. Dismiss the muzzle sigil and go, WITHOUT the normal
 ## end-of-life beat — the beam did not land, it was eaten.
 func reaction_consume() -> void:
