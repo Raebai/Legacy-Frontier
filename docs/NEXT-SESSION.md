@@ -53,6 +53,28 @@ Several systems were finished, tested and then never connected. Three remain:
 Already wired this session: `GuardComponent`→Hero, `BotDodge`→Enemy,
 `ParryRing`+`HandSlots`+`LoadoutBar`→playground, `Telegraph` perception.
 
+## TOP PRIORITY NEXT — spells must respect the environment
+
+Maker, and it is the biggest outstanding gameplay gap: **no spell may pass
+through geometry.** Meteors currently fall THROUGH the floor; nothing may end up
+below or inside the environment. A spell that meets a wall, the ground, or cover
+should IMPACT there — and destroy what it can. "Every single spell should be
+interactive." Environment-shaped spells included, and the whole thing should feel
+more natural.
+
+This is systemic, not a one-file fix: most spectacles resolve damage with a
+geometry query and never ask what is between them and the target. Expect to
+touch most scripts in `scripts/combat/`. Suggested approach: one shared
+"stop at the first solid" helper (there is already a segment-raycast idiom in
+`Spell.gd` and in `RockWall._hit_world`, which also documents the trap that
+destructibles must be smashed THROUGH rather than treated as walls), then thread
+each spectacle's spawn/travel/impact through it. Falling spells need their
+impact Y resolved against the floor beneath the target, not the target's own Y.
+
+Related and unbuilt: the maker wants a magic circle + slight levitation when
+casting the more powerful spells (this belongs with the CastStyle wiring, #2
+below), and the circle should sit ABOVE.
+
 ## Next work the maker asked for
 
 - **Organise the spells**: pick 4 into slots, make the kit make sense per class,
