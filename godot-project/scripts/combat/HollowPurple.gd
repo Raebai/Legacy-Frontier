@@ -162,9 +162,9 @@ func _open_circle() -> void:
 	# Lifted above display range so the sigil blooms instead of sitting flat.
 	_circle.appear(Color(_body.r * 1.5, _body.g * 1.5, _body.b * 1.5, 1.0), CIRCLE_RADIUS, 0.20)
 	_circle.set_orientation(true, _axis, CIRCLE_EDGE_THICK)
-	# Behind this node's own drawing, so the vortex arms wind in FRONT of the
-	# ring and the black core of the held beat is not covered by the aperture.
-	_circle.z_index = -1
+	# In FRONT of the beams so the gate visibly swallows them, rather than being
+	# occluded by the very things it is eating.
+	_circle.z_index = 2
 	Juice.shake_camera(11.0)
 	PostProcess.shock(0.75, Juice.world_to_uv(_p))
 	# Wider than StarConvergence's 0.22 — the current widest pull in the game —
