@@ -4,8 +4,10 @@ extends Node2D
 ## punch, ragdoll) + the real spell tree (SpellCaster) + destructibles, in one throwaway
 ## sandbox. Touches no game logic. Delete scripts/spike/ + scenes/spike/ to remove.
 ##
-## move A/D (or arrows) · jump W/Space/Up · duck/crawl S · aim MOUSE · LMB punch ·
-## RMB (or F) CAST spell · Q/E cycle spell · SHIFT dash · C parry · B incoming test-bolt ·
+## Combat verbs use the GAME's input map so the sandbox is a true preview, not a
+## third control scheme: LMB cast · F melee · RMB deflect · SPACE dash.
+## move A/D (or arrows) · jump W/Up · duck/crawl S · aim MOUSE ·
+## Q/E cycle spell · B incoming test-bolt ·
 ## H hit · K kill · R reset · TAB physics-tune
 
 const FIG := preload("res://scripts/spike/SpikeFigure.gd")
@@ -185,16 +187,17 @@ func _physics_process(_delta: float) -> void:
 	if _fig == null:
 		return
 	_cast_cd = maxf(0.0, _cast_cd - _delta)
-	var mx := 0.0
-	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
-		mx -= 1.0
-	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
-		mx += 1.0
-	_fig.ctrl_move_x = mx
-	_fig.ctrl_jump = Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP) or Input.is_key_pressed(KEY_SPACE)
-	_fig.ctrl_duck = Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN)
+	# Movement through named actions too, so a virtual joystick can drive the
+	# playground later without touching this file (the project's mobile-first rule
+	# is that code names actions and never keys).
+	_fig.ctrl_move_x = Input.get_axis("move_left", "move_right")
+	# Jump is W/Up only — SPACE belongs to dash, matching the game's input map.
+	_fig.ctrl_jump = Input.is_action_pressed("jump")
+	_fig.ctrl_duck = Input.is_action_pressed("move_down")
 	_fig.ctrl_aim = get_global_mouse_position()
-	_fig.ctrl_aim_hold = Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+	# Aim-hold is the CAST button held down, so it follows the rebind rather than
+	# staying pinned to whatever the left mouse button happens to do.
+	_fig.ctrl_aim_hold = Input.is_action_pressed("cast")
 
 
 func _process(delta: float) -> void:
@@ -273,23 +276,30 @@ func _reset_arena() -> void:
 func _input(event: InputEvent) -> void:
 	if _fig == null:
 		return
-	if event is InputEventMouseButton and event.pressed:
-		if event.button_index == MOUSE_BUTTON_LEFT:
-			_fig.punch()
-		elif event.button_index == MOUSE_BUTTON_RIGHT:
-			_cast()
-	elif event is InputEventKey and event.pressed and not event.echo:
+	# The four combat verbs go through the ACTION MAP, not raw keys, so the
+	# playground answers the same bindings the shipped game does instead of being
+	# a third control scheme to remember: LMB cast · F melee · RMB deflect ·
+	# SPACE dash. The sandbox-only keys below stay on raw keycodes deliberately —
+	# they are debug affordances (spawn a bolt, kill, reset) and do not belong in
+	# the game's input map.
+	if event.is_action_pressed("cast"):
+		_cast()
+		return
+	if event.is_action_pressed("melee"):
+		_fig.punch()
+		return
+	if event.is_action_pressed("parry"):
+		_fig.parry()
+		return
+	if event.is_action_pressed("dash"):
+		_dash()
+		return
+	if event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_E:
 				_cycle(1)
 			KEY_Q:
 				_cycle(-1)
-			KEY_F:
-				_cast()
-			KEY_SHIFT:
-				_dash()
-			KEY_C:
-				_fig.parry()
 			KEY_B:
 				_spawn_test_bolt()
 			KEY_H:
@@ -342,7 +352,7 @@ func _update_hud() -> void:
 	if _hud == null or _spells.is_empty():
 		return
 	var s: SpellDef = _spells[_sidx]
-	var txt := "SPELL PLAYGROUND   [%d / %d]   %s\n%s · %s · dmg %d · cd %.1fs%s\n\nRMB / F  CAST toward mouse    Q E  cycle spell    LMB  punch    SHIFT  dash    C  parry    B  test-bolt    R  reset\nmove A/D · jump W/Space · duck/crawl S · aim mouse · H hit · K kill · TAB tune" % [
+	var txt := "SPELL PLAYGROUND   [%d / %d]   %s\n%s · %s · dmg %d · cd %.1fs%s\n\nLMB  CAST toward mouse    F  punch    RMB  DEFLECT    SPACE  dash    Q E  cycle spell    B  test-bolt    R  reset\nmove A/D · jump W/Up · duck/crawl S · aim mouse · H hit · K kill · TAB tune" % [
 		_sidx + 1, _spells.size(), s.display_name,
 		_kind_name(s.kind), _elem_name(s.element), int(s.damage), float(s.cooldown), _extra(s),
 	]
