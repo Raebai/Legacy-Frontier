@@ -45,6 +45,14 @@ var style: Style = Style.ZONE
 var aim_dir: Vector2 = Vector2.RIGHT
 var reach: float = 120.0
 
+## Every live telegraph joins this group so a dodging brain can find the set of
+## things currently threatening it in one scan. See the perception block below.
+const GROUP: StringName = &"telegraph"
+
+
+func _ready() -> void:
+	add_to_group(GROUP)
+
 
 func start(radius: float, windup: float) -> void:
 	_radius = radius
@@ -83,6 +91,41 @@ func advance(delta: float) -> void:
 		_running = false
 		queue_free()
 	queue_redraw()
+
+
+# ---- perception ------------------------------------------------------------
+# A telegraph IS the game's promise that something is about to happen at a place.
+# Every field describing that promise was private and the node joined no group, so
+# an AI could not see the one thing it is supposed to dodge. These expose the
+# danger as world-space geometry plus a countdown — nothing a human player cannot
+# already read off the screen, which keeps a dodging bot fair by construction
+# rather than by convention.
+#
+# Unlike the spell spectacles (which park at the arena origin and draw in world
+# coordinates), a Telegraph node sits AT the danger point and draws in local
+# space, so global_position is genuinely meaningful here.
+
+## World-space danger footprint. Circle: {shape, center, radius}.
+## Line: {shape, from, to, width}.
+func danger_shape() -> Dictionary:
+	if _shape == Shape.LINE:
+		return {
+			"shape": "line",
+			"from": global_position,
+			"to": global_position + Vector2.from_angle(_angle) * _length,
+			"width": _width,
+		}
+	return {"shape": "circle", "center": global_position, "radius": _radius}
+
+
+## Seconds until this fires. <= 0.0 means it has already gone off.
+func time_to_impact() -> float:
+	return _windup - _elapsed
+
+
+## Still worth dodging: running and not yet fired.
+func is_armed() -> bool:
+	return _running and not _has_fired
 
 
 func _draw() -> void:
