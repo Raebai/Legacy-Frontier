@@ -105,3 +105,18 @@ func damage_mult() -> float:
 ## the safe option would also be the strong one.
 func can_reflect() -> bool:
 	return quality() == Quality.PERFECT
+
+
+## GUARDING LOCKS OUT ATTACKING. This is a balance rule, not a UI limitation, and
+## it applies on every platform.
+##
+## It came out of a mobile constraint — the right thumb cannot hold the guard AND
+## drag the blade at once — but the constraint turned out to be the correct rule.
+## Without it, a sustained guard is free: you hold it permanently, take reduced
+## damage forever, and keep swinging. Costing it your offence makes holding a real
+## trade instead of a default state, and it removes the platform asymmetry where a
+## desktop player could hold both buttons and a phone player could not.
+##
+## Callers must consult this before running the primary action.
+func blocks_attack() -> bool:
+	return held

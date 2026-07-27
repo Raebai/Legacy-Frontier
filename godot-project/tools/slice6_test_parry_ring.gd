@@ -15,6 +15,7 @@ func _process(_delta: float) -> bool:
 	failed += _test_timing_bands()
 	failed += _test_sustain_is_weaker()
 	failed += _test_ult_interaction()
+	failed += _test_guard_blocks_attack()
 	if failed > 0:
 		printerr("Parry ring tests: %d FAILED" % failed)
 		quit(1)
@@ -113,4 +114,18 @@ func _test_ult_interaction() -> int:
 		"a sustained guard reports no freshness")
 	ok += _expect(sustained.freshness() < 1.0 - SpellDeflect.WINDOW_ULT,
 		"...so holding guard can never turn an ult")
+	return ok
+
+
+## Holding guard must cost your offence, or the safe option is free.
+func _test_guard_blocks_attack() -> int:
+	var ok: int = 0
+	var r := ParryRing.new()
+	ok += _expect(not r.blocks_attack(), "not guarding leaves attacking free")
+	r.press()
+	ok += _expect(r.blocks_attack(), "guarding locks out attacking from the first frame")
+	r.tick(ParryRing.SHRINK_TIME * 3.0)
+	ok += _expect(r.blocks_attack(), "a sustained guard still costs your offence")
+	r.release()
+	ok += _expect(not r.blocks_attack(), "releasing frees attacking again")
 	return ok

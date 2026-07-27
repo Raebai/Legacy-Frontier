@@ -77,6 +77,11 @@ const BLINK_PROBE_STEP: float = 6.0
 const BLINK_PROBE_EXTRA: float = 60.0
 const BLINK_COOLDOWN: float = 1.3
 const BLINK_IFRAME: float = 0.22
+## Share of a dash that is invulnerable, measured from its START. Below 1.0 the
+## dash stops being a reactive get-out-of-jail button and becomes a commitment
+## you have to read early — the tail of the dash can still be hit. This is the
+## primary dial for how forgiving evasion feels; 1.0 restores the old behaviour.
+const DASH_IFRAME_FRACTION: float = 0.6
 ## You may never blink OUT of the map — a landing spot inside a ring-out PIT (or
 ## within this margin of one) is rejected and pulled back toward the origin (maker:
 ## "you shouldn't be able to teleport out of the map ... limit it to where you
@@ -2026,6 +2031,15 @@ func _check_wall_slam() -> void:
 	_knockback = SlamPhysics.check(self, _knockback)
 
 
+## True only during the opening slice of a dash. _dash_timer counts DOWN from the
+## dash duration, so "early" is a HIGH remaining time.
+func _dash_invulnerable() -> bool:
+	if not is_dashing:
+		return false
+	var total: float = _tune("dash_time", DASH_TIME)
+	return _dash_timer >= total * (1.0 - DASH_IFRAME_FRACTION)
+
+
 func take_damage(amount: int) -> void:
 	# Co-op: a hit computed on another peer (e.g. the host's enemy AI striking THIS
 	# hero, whom the host only holds as a puppet) is forwarded to this hero's owner,
@@ -2037,9 +2051,12 @@ func take_damage(amount: int) -> void:
 	# Co-op: a downed hero is out of the fight — immune until revived.
 	if downed:
 		return
-	# DESIGN: dash grants i-frames (full dash duration). Flip to
-	# reposition-only by removing this guard.
-	if is_dashing:
+	# Dash i-frames cover only the EARLY part of the dash, not all of it. Full-
+	# duration invulnerability made dash a free "delete that attack" button: you
+	# could react late, dash into a hit that had already connected, and take
+	# nothing. Now a dash must be started BEFORE the hit lands, so it is a read
+	# rather than a panic button, and a late dash still gets punished.
+	if _dash_invulnerable():
 		return
 	# Blink grants a brief post-teleport i-frame window (BLINK_IFRAME).
 	if _blink_iframe_timer > 0.0:
