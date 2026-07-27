@@ -58,8 +58,8 @@ const PUNCH_COOLDOWN := 0.26    # min time between punches — no momentum-fly f
 const STAGGER_TIME := 0.4
 # AIR-DASH (ported from Hero.gd): burst toward aim/move, air-capable, i-frames for
 # the whole dash (is_dashing gates hit()), ghost afterimages on a fixed cadence.
-const DASH_SPEED := 900.0
-const DASH_TIME := 0.19
+const DASH_SPEED := 1150.0
+const DASH_TIME := 0.22
 const DASH_COOLDOWN := 0.6
 const GHOST_INTERVAL := 0.03
 ## Afterimages tint from the figure's OWN body_color (see _ghost_tint) rather than
@@ -1153,8 +1153,11 @@ func hit(dir: Vector2, strength: float) -> void:
 	if is_dashing:
 		return
 	_stagger = STAGGER_TIME
-	_torso.apply_central_impulse(dir * strength)
-	_spawn_wind_streaks(_torso.to_global(SHOULDER_OFF) - dir * 6.0, 6, dir, "hit")
+	# Thrown SIDEWAYS, not skyward: see Juice.lateral_knockback for why a blast at
+	# your feet used to launch you straight up.
+	var throw: Vector2 = Juice.lateral_knockback(dir * strength)
+	_torso.apply_central_impulse(throw)
+	_spawn_wind_streaks(_torso.to_global(SHOULDER_OFF) - dir * 6.0, 6, throw.normalized(), "hit")
 	# hits rattle the limbs loose too
 	for i in 2:
 		_arm_vel[i] += randf_range(-6.0, 6.0)
@@ -1540,8 +1543,13 @@ func _try_reflect(n: Node, tp: Vector2) -> bool:
 	var at: Vector2 = (n as Node2D).global_position
 	if n.has_method("deflect_point"):
 		at = n.call("deflect_point")
-	var catch: float = PARRY_REACH * (_ring.radius01() if _ring.held else 1.0)
-	if tp.distance_to(at) > catch + 10.0:
+	if _ring.held:
+		# Only what the (narrowing) arc covers is caught — the drawing and the
+		# catch are the same shape, so nothing blocks off-screen of the shield.
+		var span: float = lerpf(0.95, 0.30, 1.0 - _ring.radius01())
+		if absf(wrapf((at - tp).angle() - _parry_dir.angle(), -PI, PI)) > span:
+			return false
+	if tp.distance_to(at) > PARRY_REACH + 10.0:
 		return false
 	n.call("reflect", _parry_dir, PARRY_COLOR)
 	_parry_window = 0.0                      # one reflect per window
@@ -2006,14 +2014,14 @@ func _draw() -> void:
 		var pa := _parry_dir.angle()
 		var fade := clampf(_parry_shell_t / PARRY_SHIELD_TIME, 0.0, 1.0)
 		var hot := 1.0 if _parry_window > 0.0 else 0.55          # active window = hot
-		# HOLDING THE GUARD CLOSES IT. The shield arc IS the blocking region, so
-		# shrinking the drawing and shrinking the hitbox are the same act — what
-		# you see is exactly what still blocks. Hold too long and the region is
-		# small enough to slip past, which is the cost of not timing it.
-		var reach: float = PARRY_REACH * (_ring.radius01() if _ring.held else 1.0)
-		if _ring.held and _ring.quality() == ParryRing.Quality.PERFECT:
-			hot = 1.0                                            # the tight band flares
-		draw_arc(c, reach, pa - 0.95, pa + 0.95, 22,
-			Color(PARRY_COLOR.r, PARRY_COLOR.g, PARRY_COLOR.b, 0.95 * fade * hot), 4.5, true)
-		draw_arc(c, reach - 7.0, pa - 0.72, pa + 0.72, 16,
-			Color(PARRY_COLOR.r, PARRY_COLOR.g, PARRY_COLOR.b, 0.38 * fade * hot), 2.5, true)
+		# HOLDING THE GUARD NARROWS IT. The arc stays at arm's length — it never
+		# creeps in toward the body — but the span you actually cover shrinks, so
+		# holding trades coverage for nothing and timing it is the skill. One
+		# clean white line: the shield is information, not decoration.
+		var span: float = 0.95
+		if _ring.held:
+			span = lerpf(0.95, 0.30, 1.0 - _ring.radius01())
+			if _ring.quality() == ParryRing.Quality.PERFECT:
+				hot = 1.0                                        # the tight band flares
+		draw_arc(c, PARRY_REACH, pa - span, pa + span, 26,
+			Color(1.0, 1.0, 1.0, 0.95 * fade * hot), 2.6, true)

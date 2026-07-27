@@ -45,7 +45,7 @@ var _bar: LoadoutBar = null
 
 var _knobs := {
 	"stiffness": 3000.0, "damping": 90.0, "max_torque": 14000.0, "air_factor": 0.2,
-	"grav_scale": 2.0, "jump_speed": 700.0, "move_speed": 420.0, "upright_k": 55000.0, "punch_lunge": 3400.0,
+	"grav_scale": 2.0, "jump_speed": 880.0, "move_speed": 420.0, "upright_k": 55000.0, "punch_lunge": 3400.0,
 }
 var _knob_order := ["stiffness", "damping", "max_torque", "air_factor", "grav_scale", "jump_speed", "move_speed", "upright_k", "punch_lunge"]
 var _sel := 0
@@ -117,8 +117,13 @@ func _build_targets() -> void:
 	var es: PackedScene = load(ENEMY_SCENE)
 	for dx: float in DUMMY_X:
 		var d: Node = es.instantiate()
-		d.set("passive", true)
-		d.set("max_hp", 99999)
+		# They WALK AND FIGHT BACK now, rather than standing there as targets — you
+		# cannot judge a defensive kit against something that never attacks. Left
+		# on the default difficulty so it is a spar, not a gauntlet, and given real
+		# (if generous) HP so they can actually be killed instead of being
+		# invincible posts.
+		d.set("passive", false)
+		d.set("max_hp", 450)
 		d.set("tint", Color(0.56, 0.56, 0.6))
 		d.set("scale", Vector2(1.9, 1.9))            # match the stick fighter's size (dummies default ~half)
 		d.set("position", Vector2(dx, FLOOR_Y - 100.0))
@@ -214,6 +219,14 @@ func _default_loadout() -> Array:
 	if not ults.is_empty():
 		out.append(ults[0])
 	return out
+
+
+## A spell's own colour: its element tint where it has one, else its authored
+## override — the same choice SpellCaster makes when it tints the spectacle.
+func _spell_colour(spell: SpellDef) -> Color:
+	if spell.use_element_color and spell.element >= 0:
+		return Elements.color(spell.element)
+	return spell.color
 
 
 ## Spells this slot is allowed to hold. Slot 5 (index 4 among spells) is the ult
@@ -316,7 +329,11 @@ func _cast() -> void:
 	var circle := MagicCircle.new()
 	add_child(circle)
 	circle.position = origin + aim * 46.0
-	circle.appear(SpellTier.color(tier), 34.0 + 26.0 * float(tier), maxf(windup * 0.7, 0.08))
+	# The sigil is the SPELL'S colour, not its tier's. Badging the circle by tier
+	# meant a gold ring opened and then something violet came out of it, which
+	# reads as two unrelated effects. The circle is the spell arriving, so it has
+	# to be the same colour as the thing it delivers; SIZE alone carries the tier.
+	circle.appear(_spell_colour(spell), 34.0 + 26.0 * float(tier), maxf(windup * 0.7, 0.08))
 	# Side-on, along the aim: a circle in this game stands perpendicular to the
 	# way its magic travels, so you can read where a cast is pointed off the sigil.
 	circle.set_orientation(true, aim, 0.22)

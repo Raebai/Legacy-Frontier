@@ -134,6 +134,36 @@ static func world_to_uv(world_pos: Vector2) -> Vector2:
 	return Vector2(clampf(screen.x / size.x, 0.0, 1.0), clampf(screen.y / size.y, 0.0, 1.0))
 
 
+## Flatten a knockback toward the HORIZONTAL, preserving its magnitude.
+##
+## Radial knockback is computed as "away from the blast centre", and a blast that
+## lands at someone's FEET therefore points almost straight up — so a meteor or a
+## ground detonation launched people vertically instead of throwing them aside.
+## That reads as a bug even though every individual spell was doing something
+## reasonable.
+##
+## MUST be applied by the SOURCE that computes a radial "away" vector, not
+## blanket-applied when a body receives a shove: several attacks launch straight
+## up ON PURPOSE (the uppercut, the wall plow's up-and-out), and flattening those
+## silently removes a designed behaviour — slice3_test_enemy_sideon exists to
+## catch exactly that, and did. A small upward share is kept and enforced so a
+## flattened hit still leaves the floor and the ragdoll can tumble.
+static func lateral_knockback(v: Vector2, max_vertical_share: float = 0.55) -> Vector2:
+	var mag: float = v.length()
+	if mag <= 0.001:
+		return v
+	var n: Vector2 = v / mag
+	# Nothing horizontal at all (a dead-on vertical hit): pick a side rather than
+	# firing them at the ceiling.
+	if absf(n.x) < 0.001:
+		n.x = 1.0 if randf() < 0.5 else -1.0
+	var lift: float = clampf(n.y, -max_vertical_share, max_vertical_share)
+	# Always at least a little lift, so a flattened hit still leaves the ground.
+	if lift > -0.18:
+		lift = -0.18
+	return Vector2(signf(n.x) * sqrt(maxf(1.0 - lift * lift, 0.0)), lift) * mag
+
+
 static func shake_camera(amount: float = 6.0) -> void:
 	var tree: SceneTree = _tree()
 	if tree == null:
