@@ -1,5 +1,22 @@
 # Slice 0 (+ Slice 1) — Subagent-Driven Execution Ledger
 
+## ★★★★★ READ FIRST (2026-07-27) — ON "RESUME", START AT `docs/NEXT-SESSION.md` ★★★★★
+Active branch **`stickman-integrate`** (the magic/stickman work), NOT `v2.0-tower`.
+**`docs/NEXT-SESSION.md` is the live handoff** — the broken thing, the
+built-but-never-wired audit, and the ordered work queue. Read it before anything
+else in this file; everything below is older.
+
+One-line state: 52/52 suites green, all scenes boot, tree committed, and the
+whole stack is **essentially unplaytested** — the combat-feel numbers are
+reasoning, not feel. Queue in priority order: spells must stop passing through
+terrain; spell-vs-spell collisions (mostly an unlock — `SpellReactor` exists and
+already has the rows, but only `BeamSpell` implements the participant contract);
+finish Hollow Purple's gate (four dead ends already ruled out — do not repeat
+them); wire `SpellDeflect` (currently ZERO consumers, so "everything is
+deflectable" is still untrue); wire `CastStyle` into `Hero`; kill the three
+remaining auto-aim sites in `Hero.gd`.
+
+
 Branch: `v2.0-tower` (built directly on branch — Godot/Gopeak bind to this working dir).
 Plan: `docs/v2.0-slice0-plan.md`. Slice 1 plan: TBD.
 Godot headless binary: `godot-engine/Godot_v4.6.2-stable_win64_console.exe`
