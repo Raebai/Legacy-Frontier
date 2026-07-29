@@ -1,131 +1,107 @@
-# RESUME HERE — 2026-07-27 handoff
+# RESUME HERE — 2026-07-29 handoff
 
-Branch `stickman-integrate`. **52/52 suites green, all three scenes boot clean,
-working tree committed.** F5 = `scenes/spike/SpellPlayground.tscn`.
+Branch `stickman-integrate`. **91/91 suites green; `VersusArena.tscn`, `Main.tscn`
+and `SpellPlayground.tscn` all boot clean. NOTHING IS COMMITTED — the whole of the
+2026-07-27→29 session is sitting in the working tree.**
 
-## Controls (playground now matches the game's input map)
+Play: **`scenes/combat/VersusArena.tscn` → F6.** You land in a 1v1 against a bot.
+**Esc** = Resume · Settings · **Fight the Boss** · Rematch · Exit to Hub.
+**Esc → Settings → Bot Duel**: difficulty, bot class, learning, show-learned,
+bot-intent, forget-me. F5 still opens the SpellPlayground.
 
-`LMB` use what you hold (punch / cast) · `RMB` **HOLD** to guard · `SPACE` dash ·
-`W/↑` jump · `A/D` move · `S` duck · `Q/E` or **scroll** cycle spell ·
-`G` cycle weapon · `B` test bolt · `H` hit · `K` kill · `R` reset · `TAB` tune.
+## READ THIS FIRST — "green" now means something
 
-## THE ONE BROKEN THING — Hollow Purple's gate
+64 of the test suites were silently passing while testing nothing. In GDScript a
+dead property read **aborts the enclosing function** and returns the type's zero,
+which the `failed += _test_x()` idiom reads as "no failures" — so a renamed member
+disabled its own assertion *and every assertion after it*. All suites now
+accumulate failures on a **member** and record a **completion sentinel**, so a test
+that aborts fails BY ABSENCE. `tools/slice_test_loadout.gd` is the reference.
+**Never write `failed += _test_x()` again.**
 
-The fusion **seizes correctly** (both beams visibly bend into the crossing — that
-part looks right) but the magic-circle gate never appears and the sequence ends
-without a discharge.
+## The maker's rig — SETTLED, and this was the session's hardest thread
 
-What is already ruled OUT — do not repeat these:
-- Not orientation. Side-on (`edge_on`) is CORRECT for this 2D side view; a
-  face-on ring was tried and is wrong by design. Reverted.
-- Not z-order. Tried in front of the beams; no change.
-- Not the parent lookup. That was a genuine bug (it froze both beams then bailed
-  without consuming OR releasing them, so the fusion grabbed the beams and let
-  go) and it is FIXED — `reaction_release()` + a current-scene fallback.
-- Not a crash. No runtime error is raised during the effect.
+`Hero.tscn` uses `CharacterRig.gd`; the maker's hand-tuned rig is
+`scripts/spike/SpikeFigure.gd` (playground only). They are different files, and for
+most of this session the game ran the wrong one. Three attempts shipped partial
+ports before the real cause was found: the spike's feel comes from **two springs on
+a torso that never touches the ground** — a one-sided **ride spring** (legs push up,
+never pull down) and a **pitch spring** whose gain IS the state machine (1.0
+planted, 0.09 airborne, 2.6 dashing). Earlier ports brought the skin (world-locked
+feet, slack limbs, proportions) and left the skeleton. Both springs are now in
+`CharacterRig`, driving the rig node's own `position.y`/`rotation` — which is why
+`Enemy._silhouette()`, `get_weapon_tip()` and the ghosts all follow for free.
+Rig ticks on `_physics_process`, sub-stepped 1/480 s.
 
-The decisive clue: a `print` placed inside `HollowPurple._process` produced **no
-output at all**. So either that `_process` never runs, or `_circle` is never
-assigned in `_open_circle()`. Start there — instrument `begin()` and
-`_open_circle()` directly rather than guessing at draw parameters, which is the
-mistake that burned two attempts.
+**Do not "improve" the spike's numbers.** They are hand-tuned. One is flagged:
+`PRONE_RIDE_FACTOR` is the spike's 0.552; 0.30 is also tested if the knocked-down
+sprawl sinks too far.
 
-Note the capture still stages it as **two crossing beams**. The maker wants the
-SELF-COMBO: spells shoot from the caster, are absorbed into a circle in front of
-them, and fire back out along the aim. The data rule exists
-(`require_owner: "same"` in `ReactionTable`) but the demo path does not use it.
+## THE ONE RULE THAT KEEPS FINDING BUGS
 
-## BUILT BUT NEVER WIRED — audit results
+**A spectacle built without a caster is silently inert in the whole reaction
+system.** `reaction_owner()` returns null → reports "unowned" → satisfies neither
+`require_owner: "same"` nor `"different"` → matches NO clash row. Nothing errors.
+That single omission was: the Hollow Purple "bug" that burned two sessions (the
+spell was never broken — the capture tool spawned casterless beams), seven unowned
+Boss spectacles, two on Enemy, and the zone field unable to reach its own authored
+rows. `SpellCaster._stamp()` now stamps element + tier + caster + target_group on
+all 21 arms, so forgetting is no longer expressible there.
 
-Several systems were finished, tested and then never connected. Three remain:
+## Other traps that cost real time (do not rediscover)
 
-1. **`SpellDeflect` has ZERO consumers.** So "every attack spell is deflectable"
-   is still NOT true in game — only the basic bolt is. It needs threading through
-   each spectacle's existing damage loop (one call, no new per-frame work).
-2. **`CastStyle` is not used by `Hero`.** Per-spell cast poses exist only in the
-   playground; the shipped hero still hardcodes one gesture for every spell.
-   Wiring this is also where the maker's "magic circle + slight levitation when
-   casting the more powerful spells" belongs.
-3. **Auto-aim is still live in `Hero.gd`** at three sites — `Targeting.aim_direction`
-   (485), `assisted_aim` (1436), and `nearest` (1746, which redirects a parried
-   bolt at the nearest enemy). This contradicts the locked no-auto-aim rule.
+- **`take_damage` ships two signatures** — 1-arg (Hero, destructibles), 2-arg
+  (Enemy, Boss). Calling the 2-arg form on a hero aborts the function, losing the
+  hit *and* everything after it. **Always use `SpellTargets.hurt()`.**
+- **`Net.is_active()` was true in single player** — Godot installs an
+  `OfflineMultiplayerPeer` that reports CONNECTED, so ~40 co-op gates were silently
+  open in SP. Fixed by excluding that peer type.
+- **Autoloads are NOT registered under `--script`.** Naming `Sfx`/`Net`/`Tuning`
+  inside a **static** function is a *compile* error that fails the whole dependency
+  chain, and reports as an unrelated missing method. Use the tree lookup
+  (`SpellDeflect._sfx`).
+- **Spectacles park at the arena origin** — `global_position` is (0,0) and is NOT
+  where the effect is.
+- **Stale global class cache** — run `--headless --import` after any new
+  `class_name`, or Godot reports a missing method on a class that plainly has it.
+- **Group drift**: `"hero"` (tower) vs `"player"` (v0.0 hub). Wrong group = a
+  mechanic that silently does nothing (it killed the tether's life-drain AND the
+  consecration field's heal).
 
-Already wired this session: `GuardComponent`→Hero, `BotDodge`→Enemy,
-`ParryRing`+`HandSlots`+`LoadoutBar`→playground, `Telegraph` perception.
+## Built this session (all headless-verified, MOSTLY UNPLAYTESTED)
 
-## TOP PRIORITY NEXT — spells must respect the environment
+Melee **clash** (blows declare at the commit, not at contact) · **impact-frame
+vocabulary** (white blow-out / black silhouette cut / element field / invert /
+cut-in) with a rate-limiting arbiter + accessibility ceiling · **spell-vs-spell
+reactions** incl. weight (equal annihilates, heavier overpowers), fire shatters ice,
+**holy BANISHES shadow** (erasure, no knockback), the rock-wall **ram** ·
+**Aegis Ward** (protective spell; plates burn down, weight drops, no HP number) ·
+**Swordsaint** 9th class (guard BANKS a perfect parry into a cut) + Horizon Cut ·
+**factions** (hero-vs-hero works at all) · **bots** (three-layer brain, per-instance
+input, difficulty dial proven 0.41→0.95 escape) + **adaptive learning** persisted to
+`user://bot_adapt/` · **bot sim** with seeded anomaly detection · **twin-stick
+touch** · **115-key audio roster** from the local library · meteor **sky gate**
+restored (it had been deleted, so rocks fell from off-screen).
 
-Maker, and it is the biggest outstanding gameplay gap: **no spell may pass
-through geometry.** Meteors currently fall THROUGH the floor; nothing may end up
-below or inside the environment. A spell that meets a wall, the ground, or cover
-should IMPACT there — and destroy what it can. "Every single spell should be
-interactive." Environment-shaped spells included, and the whole thing should feel
-more natural.
+## Open / next
 
-This is systemic, not a one-file fix: most spectacles resolve damage with a
-geometry query and never ask what is between them and the target. Expect to
-touch most scripts in `scripts/combat/`. Suggested approach: one shared
-"stop at the first solid" helper (there is already a segment-raycast idiom in
-`Spell.gd` and in `RockWall._hit_world`, which also documents the trap that
-destructibles must be smashed THROUGH rather than treated as walls), then thread
-each spectacle's spawn/travel/impact through it. Falling spells need their
-impact Y resolved against the floor beneath the target, not the target's own Y.
+1. **COMMIT.** Nothing is committed. This is the biggest risk in the repo.
+2. Maker F5 verdict on the rig springs, knockback (`TuningConfig.knockback_mult`
+   1.6→1.0; go 1.2 if floaty), and whether the mirror-match beam explosion reads.
+3. `BotAdapt.anti_camp` lives in `BotController`; belongs in `BotBrain._steer`.
+4. Bot slot coverage uneven — Arcanist leans on its damage line.
+5. Licensing: **Pepper Sound Pack wants attribution** on the credits screen;
+   TomMusic's licence is unconfirmed (pre-existing). See `assets/audio/CREDITS.md`.
+6. `hollow_purple` still to rename (IP); proposal `prism_collapse`, file list in the
+   session log.
+7. Melee still auto-targets the nearest enemy — in tension with the locked
+   no-auto-aim rule. Maker's call.
 
-Related and unbuilt: the maker wants a magic circle + slight levitation when
-casting the more powerful spells (this belongs with the CastStyle wiring, #2
-below), and the circle should sit ABOVE.
+## Standing judgement — repeat it, do not soften it
 
-## SPELL-vs-SPELL INTERACTION (maker, and it pairs with the environment work)
-
-"If any two of these line spells hit each other they should EXPLODE and go away.
-Same if it hits the ice wall — use common sense for how they interact." So:
-colliding spells must resolve against each other, not pass through.
-
-Most of the machinery already exists and is unused: `SpellReactor` (autoload)
-already detects two live effects overlapping and dispatches through
-`ReactionTable`, which already carries rows for shatter-ice-barrier, steam,
-ground-out, carve and a same-element merge. What is missing is that only
-`BeamSpell` implements the participant contract — every other spectacle is
-invisible to the reactor. Wiring the rest (reaction_shape/_active/_element/
-_form/_owner/_consume) is the unlock, plus a generic "two projectiles meet ->
-both detonate" row, which is the common-sense default the maker is describing.
-
-## MAGE DEFLECT = AN ABSORBING MAGIC CIRCLE (maker)
-
-For a caster, the guard should be a magic circle summoned at the right moment:
-right click, and a spell that meets the circle on time is ABSORBED into it rather
-than reflected. Same `ParryRing` timing underneath (perfect band = absorb), but a
-class-specific presentation and outcome. This is the natural home for the
-"different classes guard differently" idea — the swordsman parries with the
-blade, the mage catches it in a sigil.
-
-## HITBOX — spells pass through heads without registering (maker)
-
-Reported live. The FIGURE's hit test was rewritten this session to use the real
-silhouette (`SpikeFigure.body_distance`: spine segment + head circle, 9 px
-margin). The dummies are `Enemy` nodes and were NOT changed — they still use
-their own detection, so this is most likely on the Enemy side. Check what radius
-Enemy uses and whether it accounts for the rig's height at all.
-
-## Next work the maker asked for
-
-- **Organise the spells**: pick 4 into slots, make the kit make sense per class,
-  then test them all. The 26 in `build_all()` are a review harness — the real
-  loadout caps at 4.
-- Cast-time magic circles + slight levitation for the bigger spells (see #2).
-- **Legendary weapon tiers** (e.g. the teleport dagger as a legendary variant).
-- Screen effects on the big casts (PostProcess already has the primitives).
-- Swordsman class + signature-ult framework + domains — specs are written in
-  `docs/superpowers/specs/2026-07-27-*`.
-
-## Standing judgement to repeat, not soften
-
-Everything above is headless-verified and **almost entirely unplaytested**. The
-defence numbers especially are reasoning, not feel: `DASH_IFRAME_FRACTION` 0.6,
-`GuardComponent.MIN_DAMAGE_MULT` 0.60, `ParryRing.REARM_TIME` 0.35 and the ~0.09 s
-perfect window are all guesses until played. Retune from one session rather than
-building further on top of them.
-
-Three live IP borrows still in shipped strings: `"Zoltraak"` (its description
-names Frieren outright), `"Chidori"`, and `hollow_purple`. The maker agreed to
-structure-not-silhouettes, so these want renaming.
+Every feel number in this stack is **reasoning, not feel**. Clash window 0.09,
+guard bands, impact-frame `MIN_INTERVAL` 0.26, the whole audio mix (nobody has
+heard it), knockback, the rig springs. The maker's one-line complaints from live
+play found more real bugs this session than the entire test suite did — the dodge
+bug, the invisible sky gate, the silent beam clash, the wrong rig. **Playtest
+beats reasoning every time.**

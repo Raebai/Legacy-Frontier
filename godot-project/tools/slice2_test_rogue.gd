@@ -3,6 +3,29 @@
 # the first _process frame, never preload()ed (repo test-trap idiom).
 extends SceneTree
 
+# ── Vacuous-pass armour (see tools/slice_test_loadout.gd for the full write-up) ──
+# A dead member read (a field that was renamed or moved) is NOT a test failure in
+# GDScript: it logs a runtime error, ABORTS the enclosing function, and hands the
+# caller back the return type's zero value. Under the old `failed += _test_x()`
+# idiom that reads as "zero failures", so the suite printed all PASS while
+# silently skipping every assertion after the dead line. Static typing does not
+# help — a typed reference to a renamed field compiles clean and dies the same way.
+# So: failures accumulate on the MEMBER `_fails` (an abort cannot discard them),
+# and every test's last line records that it reached the end. A test that aborts
+# part-way is then missing from `_completed` and fails the suite BY ABSENCE.
+
+## Every test that must run to completion. A name missing from `_completed`
+## at the end means that test aborted part-way and fails the suite.
+const TESTS: Array[String] = [
+	"rogue_config",
+	"mage_config_unchanged",
+	"throw_blade_damage",
+	"dash_strike_dedupe",
+]
+
+var _fails: int = 0
+var _completed: Dictionary = {}
+
 const HERO_SCENE_PATH: String = "res://scenes/combat/Hero.tscn"
 
 var _ran: bool = false
@@ -12,13 +35,15 @@ func _process(_delta: float) -> bool:
 	if _ran:
 		return false
 	_ran = true
-	var failed: int = 0
-	failed += _test_rogue_config()
-	failed += _test_mage_config_unchanged()
-	failed += _test_throw_blade_damage()
-	failed += _test_dash_strike_dedupe()
-	if failed > 0:
-		printerr("Slice2 rogue tests: %d FAILED" % failed)
+	_test_rogue_config()
+	_test_mage_config_unchanged()
+	_test_throw_blade_damage()
+	_test_dash_strike_dedupe()
+	for t: String in TESTS:
+		_expect(_completed.has(t),
+			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
+	if _fails > 0:
+		printerr("Slice2 rogue tests: %d FAILED" % _fails)
 		quit(1)
 	else:
 		print("Slice2 rogue tests: all PASS")
@@ -26,11 +51,19 @@ func _process(_delta: float) -> bool:
 	return true
 
 
-func _expect(cond: bool, msg: String) -> int:
+## Accumulates onto the MEMBER `_fails`, never a return value — a failure recorded
+## before an abort therefore survives the abort instead of being discarded with the
+## aborted function's result.
+func _expect(cond: bool, msg: String) -> void:
 	if not cond:
 		printerr("FAIL: ", msg)
-		return 1
-	return 0
+		_fails += 1
+
+
+## Last line of every test: "I reached the end." A name missing from `_completed`
+## means that test aborted part-way. See TESTS.
+func _completes(test_name: String) -> void:
+	_completed[test_name] = true
 
 
 func _make_hero() -> CharacterBody2D:
@@ -42,49 +75,46 @@ func _make_hero() -> CharacterBody2D:
 	return hero
 
 
-func _test_rogue_config() -> int:
-	var failed: int = 0
+func _test_rogue_config() -> void:
 	var hero: CharacterBody2D = _make_hero()
 	hero.configure_class(hero.HeroClass.ROGUE)
-	failed += _expect(String(hero.rig.equipment.get("weapon", "")) == "sword", "rogue equips sword")
-	failed += _expect(hero._melee_damage == 26, "rogue melee retuned to sword damage 26")
-	failed += _expect(is_equal_approx(float(hero._cfg["cast_cd"]), 0.30), "rogue cast_cd 0.30 (burst-flurry recover)")
-	failed += _expect(is_equal_approx(float(hero._cfg["dash_cd"]), 0.70), "rogue dash_cd 0.70 (no dash-fly)")
-	failed += _expect(is_equal_approx(float(hero._cfg["blink_cd"]), 1.0), "rogue blink_cd 1.0")
-	failed += _expect(bool(hero._cfg["dash_strike"]) == true, "rogue has dash_strike")
-	failed += _expect(bool(hero._cfg["has_nova"]) == false, "rogue has no nova")
-	failed += _expect(String(hero._cfg["aoe"]) == "nova", "rogue Q is whirlwind (nova)")
+	_expect(String(hero.rig.equipment.get("weapon", "")) == "sword", "rogue equips sword")
+	_expect(hero._melee_damage == 26, "rogue melee retuned to sword damage 26")
+	_expect(is_equal_approx(float(hero._cfg["cast_cd"]), 0.30), "rogue cast_cd 0.30 (burst-flurry recover)")
+	_expect(is_equal_approx(float(hero._cfg["dash_cd"]), 0.70), "rogue dash_cd 0.70 (no dash-fly)")
+	_expect(is_equal_approx(float(hero._cfg["blink_cd"]), 1.0), "rogue blink_cd 1.0")
+	_expect(bool(hero._cfg["dash_strike"]) == true, "rogue has dash_strike")
+	_expect(bool(hero._cfg["has_nova"]) == false, "rogue has no nova")
+	_expect(String(hero._cfg["aoe"]) == "nova", "rogue Q is whirlwind (nova)")
 	# Nova (T) is a no-op for the rogue.
 	hero._nova_cooldown_timer = 0.0
 	hero._nova()
-	failed += _expect(hero._nova_cooldown_timer == 0.0, "rogue _nova() is a no-op (no cooldown spent)")
-	return failed
+	_expect(hero._nova_cooldown_timer == 0.0, "rogue _nova() is a no-op (no cooldown spent)")
+	_completes("rogue_config")
 
 
-func _test_mage_config_unchanged() -> int:
-	var failed: int = 0
+func _test_mage_config_unchanged() -> void:
 	var hero: CharacterBody2D = _make_hero()
 	hero.configure_class(hero.HeroClass.MAGE)
-	failed += _expect(String(hero.rig.equipment.get("weapon", "")) == "staff", "mage keeps staff")
-	failed += _expect(hero._melee_damage == hero.MELEE_DAMAGE, "mage melee is fists baseline")
-	failed += _expect(is_equal_approx(float(hero._cfg["cast_cd"]), hero.CAST_COOLDOWN), "mage cast_cd == const")
-	failed += _expect(is_equal_approx(float(hero._cfg["dash_cd"]), hero.DASH_COOLDOWN), "mage dash_cd == const")
-	failed += _expect(bool(hero._cfg["dash_strike"]) == false, "mage has no dash_strike")
-	failed += _expect(bool(hero._cfg["has_nova"]) == true, "mage has nova")
-	failed += _expect(String(hero._cfg["aoe"]) == "arcane_meteor", "mage Q is the arcane meteor storm")
-	return failed
+	_expect(String(hero.rig.equipment.get("weapon", "")) == "staff", "mage keeps staff")
+	_expect(hero._melee_damage == hero.MELEE_DAMAGE, "mage melee is fists baseline")
+	_expect(is_equal_approx(float(hero._cfg["cast_cd"]), hero.CAST_COOLDOWN), "mage cast_cd == const")
+	_expect(is_equal_approx(float(hero._cfg["dash_cd"]), hero.DASH_COOLDOWN), "mage dash_cd == const")
+	_expect(bool(hero._cfg["dash_strike"]) == false, "mage has no dash_strike")
+	_expect(bool(hero._cfg["has_nova"]) == true, "mage has nova")
+	_expect(String(hero._cfg["aoe"]) == "arcane_meteor", "mage Q is the arcane meteor storm")
+	_completes("mage_config_unchanged")
 
 
-func _test_throw_blade_damage() -> int:
-	var failed: int = 0
+func _test_throw_blade_damage() -> void:
 	# Rogue blade is lighter (9, burst-flurry); mage bolt is the Spell default (18).
 	var rogue: CharacterBody2D = _make_hero()
 	rogue.configure_class(rogue.HeroClass.ROGUE)
-	failed += _expect(_cast_and_read_damage(rogue) == 9, "rogue thrown blade deals 9 (burst)")
+	_expect(_cast_and_read_damage(rogue) == 9, "rogue thrown blade deals 9 (burst)")
 	var mage: CharacterBody2D = _make_hero()
 	mage.configure_class(mage.HeroClass.MAGE)
-	failed += _expect(_cast_and_read_damage(mage) == 18, "mage bolt deals the default 18")
-	return failed
+	_expect(_cast_and_read_damage(mage) == 18, "mage bolt deals the default 18")
+	_completes("throw_blade_damage")
 
 
 ## Cast once with no enemies present and read the damage on the spell it spawned.
@@ -99,8 +129,7 @@ func _cast_and_read_damage(hero: CharacterBody2D) -> int:
 	return -999
 
 
-func _test_dash_strike_dedupe() -> int:
-	var failed: int = 0
+func _test_dash_strike_dedupe() -> void:
 	var hero: CharacterBody2D = _make_hero()
 	hero.configure_class(hero.HeroClass.ROGUE)
 	hero.global_position = Vector2(1000, 1000)
@@ -112,14 +141,14 @@ func _test_dash_strike_dedupe() -> int:
 	hero._dash_hit.clear()
 	hero._dash_strike_sweep()
 	hero._dash_strike_sweep()  # second sweep same dash — must NOT hit again
-	failed += _expect(target.hits == 1, "dash-strike hits each enemy once per dash (got %d)" % target.hits)
-	failed += _expect(target.last_damage == 16, "dash-strike deals 16 (got %d)" % target.last_damage)
+	_expect(target.hits == 1, "dash-strike hits each enemy once per dash (got %d)" % target.hits)
+	_expect(target.last_damage == 16, "dash-strike deals 16 (got %d)" % target.last_damage)
 	# A fresh dash clears the dedupe set and can hit again.
 	hero._dash_hit.clear()
 	hero._dash_strike_sweep()
-	failed += _expect(target.hits == 2, "next dash can strike the same enemy again")
+	_expect(target.hits == 2, "next dash can strike the same enemy again")
 	target.queue_free()
-	return failed
+	_completes("dash_strike_dedupe")
 
 
 class _StubEnemy extends Node2D:

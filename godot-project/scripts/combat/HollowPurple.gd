@@ -1,11 +1,26 @@
 class_name HollowPurple
 extends Node2D
-## THE HEADLINER. Two beams of OPPOSING elements cross, and a magic circle opens
-## at the crossing and EATS them both.
+## THE HEADLINER. Two beams of OPPOSING elements fuse, and a magic circle opens
+## between them and EATS them both.
+##
+## ⚠ WHERE IT STAGES IS NOT THIS FILE'S DECISION. `begin()` is handed a point and
+## an axis and draws what it is told, because the SAME spectacle serves two
+## authored rows (see ReactionTable):
+##   SELF-COMBO (priority 100, the headline path) — one caster double-taps two
+##     opposing spells; the gate opens a fixed distance in FRONT of them and the
+##     annihilation fires along their aim. There is no crossing to stage at:
+##     both beams left the same muzzle.
+##   CROSSING (priority 95, the rarer surprise) — two SEPARATE casters' beams
+##     genuinely overlap; the gate opens at the geometric crossing and fires
+##     along the two beams' angle bisector.
+## Reading this file as if the crossing were the only case is how the demo path
+## drifted into staging two ownerless beams from two origins — a pair that
+## matches neither row, so nothing was ever built. `_axis` and `_p` below are the
+## caller's answer to both questions and the only geometry that matters here.
 ##
 ## Three beats:
-##   INTAKE    (0.00 - 0.60)  a magic circle blooms at the crossing — ORIENTED
-##                            ALONG THE BISECTOR, facing where the blast will
+##   INTAKE    (0.00 - 0.60)  a magic circle blooms at the fusion point —
+##                            ORIENTED ALONG `_axis`, facing where the blast will
 ##                            go, so the shape is readable a beat early — and both
 ##                            beams stream INTO it — the far length past the
 ##                            circle is swallowed first, then each beam is drawn
@@ -17,10 +32,11 @@ extends Node2D
 ##                            screen dimmed around it, and NO audio. The game is
 ##                            loud constantly; 180 ms of nothing is the loudest
 ##                            thing available, and it costs zero assets.
-##   DISCHARGE (0.78 - 1.70)  the annihilation fires OUT of the circle, along the
-##                            two beams' angle BISECTOR — so it reads as their
-##                            combined output, and the second caster aims it by
-##                            choosing their angle — plus a radial ring and a
+##   DISCHARGE (0.78 - 1.70)  the annihilation fires OUT of the circle, along
+##                            `_axis` — the caster's aim on a self-combo, the two
+##                            beams' angle bisector on a crossing — so either way
+##                            it reads as their combined output and a player aims
+##                            it by choosing their angle. Plus a radial ring and a
 ##                            near-black erased scar where the ground was.
 ##
 ## THE COLOUR IS COMPUTED, NOT AUTHORED. The two element colours are summed as
@@ -143,11 +159,11 @@ func _target_groups(ga: String, gb: String) -> Array[String]:
 
 # ------------------------------------------------------------ beats
 
-## Beat one: the circle opens at the crossing, ORIENTED ALONG THE BISECTOR —
-## the same axis the annihilation will fire out along. A magic circle in this
-## game stands perpendicular to the direction its magic travels, so you can read
-## where an attack is pointed off the sigil alone; here that means the shape is
-## legible a full beat before the discharge, and the opponent gets that beat.
+## Beat one: the circle opens at `_p`, ORIENTED ALONG `_axis` — the same axis the
+## annihilation will fire out along. A magic circle in this game stands
+## perpendicular to the direction its magic travels, so you can read where an
+## attack is pointed off the sigil alone; here that means the shape is legible a
+## full beat before the discharge, and the opponent gets that beat.
 ##
 ## MagicCircle already models this: set_orientation(true, axis) rotates the node
 ## to the axis and draws the ring as an ellipse foreshortened about it (narrow
@@ -170,7 +186,7 @@ func _open_circle() -> void:
 	# Wider than StarConvergence's 0.22 — the current widest pull in the game —
 	# and started HERE so the frame is already open when the beams go in.
 	Juice.zoom_pull_camera(0.28, 1.15, 0.18, 0.6)
-	Sfx.play("cast", 1.0, 0.0, 0.55)  # a deep gather, not a hit
+	Sfx.play("hollow_intake", 1.0, 0.0, 0.55)  # a deep gather, not a hit
 
 
 func _held() -> void:
@@ -193,12 +209,22 @@ func _discharge() -> void:
 	if _circle != null and is_instance_valid(_circle):
 		_circle.set_process(true)
 		_circle.vanish(0.30)   # blooms outward as the lance leaves it
-	# NOTE: deliberately NOT `frame: true`. Juice.impact_frame draws a
-	# full-screen white speed-line burst; rendered against this it completely
-	# buries the lance, and the lance IS the payoff.
-	Juice.epic_moment({"strength": 1.35, "shake": 22.0, "at": _p, "sfx": "blast"})
+	# NOTE: still deliberately NOT the WHITE blow-out. Rendered against this, a
+	# full-screen white speed-line burst completely buries the lance, and the
+	# lance IS the payoff.
+	#
+	# The BLACK cut is the opposite, and it is this spell's own language handed
+	# back to it: the most striking beat this effect already has is a black core
+	# with a hairline white horizon, which is exactly what
+	# `ImpactFrame.Style.SILHOUETTE` draws. So the discharge now drops the screen
+	# out for 0.13 s with the lance lit against it. `lines: false` — the lance is
+	# the only line allowed on this frame.
+	Juice.epic_moment({
+		"strength": 1.35, "shake": 22.0, "at": _p, "sfx": "blast",
+		"frame": true, "style": ImpactFrame.Style.SILHOUETTE, "lines": false,
+	})
 	PostProcess.shock(1.4, Juice.world_to_uv(_p))
-	Sfx.play("beam", -6.0, 0.0, 0.62)  # the same laser, pitched into a groan
+	Sfx.play("hollow_erase", -6.0, 0.0, 0.62)  # erasure, not a laser
 
 
 func _process(delta: float) -> void:
@@ -349,7 +375,7 @@ func _draw_absorbed_beam(bd: Dictionary, k: float) -> void:
 	var from: Vector2 = bd["from"]
 	var to: Vector2 = bd["to"]
 	var dir: Vector2 = (to - from).normalized()
-	var far: float = (to - _p).dot(dir)          # length beyond the crossing
+	var far: float = (to - _p).dot(dir)          # length overshooting past the gate
 	var w: float = float(bd["width"]) * (1.0 - 0.32 * k)
 	var col: Color = Elements.color(int(bd["element"]))
 	var core: Color = Elements.emissive(int(bd["element"]))
@@ -386,7 +412,7 @@ func _draw_absorbed_beam(bd: Dictionary, k: float) -> void:
 ## where the straight beam ended, so the two join without a seam) to 1 (centre).
 ##
 ## `squash` is why this is drawn as an ellipse and not a circle: the sigil stands
-## EDGE-ON along the bisector, so its face is foreshortened, and energy orbiting
+## EDGE-ON along `_axis`, so its face is foreshortened, and energy orbiting
 ## it has to pass visibly in front of and behind the ring. At the rim the arm is
 ## round (it has to meet the incoming beam) and it flattens onto the portal's
 ## face as it winds in.
@@ -458,8 +484,8 @@ func _draw_held(k: float) -> void:
 	draw_arc(_p, r * 1.35, 0.0, TAU, 72, Color(1.0, 1.0, 1.0, 0.12 * (1.0 - k)), 1.0, true)
 
 
-## Beat three. It comes OUT of the circle: a lance along the two beams' angle
-## bisector, a radial ring, and the two parent hues bleeding along the rims.
+## Beat three. It comes OUT of the circle: a lance along `_axis`, a radial ring,
+## and the two parent hues bleeding along the rims.
 func _draw_discharge(k: float) -> void:
 	var burst: float = clampf(k * 7.0, 0.0, 1.0)          # 0 -> 1 in the first ~70 ms
 	# Held at full for the first third of the beat, then eased out. An

@@ -36,8 +36,15 @@ const FADE_TIME: float = 0.22     # beam + circle dissolve
 const DEFAULT_LENGTH: float = 1100.0
 const DEFAULT_WIDTH: float = 30.0
 const DEFAULT_DAMAGE: int = 46
-const KNOCKBACK: float = 360.0
+const KNOCKBACK: float = 235.0   # was 360.0 — maker: spell knockback was way too much
 const CIRCLE_RADIUS_FACTOR: float = 3.3  # muzzle sigil radius = width * this (grand)
+## How long an ADOPTED cast sigil takes to travel from where the caster's windup
+## hung it (over their head, for the big spells) down to this beam's muzzle.
+## UNTESTED GUESS: 62 % of the charge, so the sigil is settled and spinning at the
+## muzzle for the last ~0.13 s before the shot leaves. The travel is the point —
+## it is what visually connects the ritual to the shot — but a sigil still sliding
+## when the beam fires would read as the gate missing its own bolt.
+const CIRCLE_HANDOFF_TRAVEL: float = CHARGE_TIME * 0.62
 
 var _origin: Vector2 = Vector2.ZERO
 var _dir: Vector2 = Vector2.RIGHT
@@ -46,6 +53,30 @@ var _length: float = DEFAULT_LENGTH
 var _width: float = DEFAULT_WIDTH
 var _damage: int = DEFAULT_DAMAGE
 var _effect: String = "arcane"
+
+
+## This beam's OWN discharge recording. Five distinct beams — The Ordinary Spell,
+## Frostpiercer, Infernal Lance, Umbral Lance and Tempest — all played the single
+## key "beam", so a screen-crossing shadow lance and an ice lance were the same
+## sound with a different picture. The elemental identity is already carried by
+## `_effect` (the same string that picks the particle character and the silhouette),
+## so the audio simply reads the value the visuals already branch on rather than
+## inventing a second classification that could drift out of step with it.
+##
+## Falls back to the arcane voice for any unmapped effect: Sfx.play() warns-and-
+## bails on an unknown key, and a warning per shot would be worse than a near-miss.
+func _beam_sfx_key() -> String:
+	match _effect:
+		"frost":
+			return "beam_frost"
+		"fire":
+			return "beam_fire"
+		"shadow":
+			return "beam_shadow"
+		"lightning":
+			return "beam_storm"
+		_:
+			return "beam_arcane"
 var _elapsed: float = -1.0     # < 0 = not fired yet
 var _fired: bool = false       # damage/juice applied once at end of charge
 ## SEIZED by a reaction (Hollow Purple's first beat): the timeline is pinned so
@@ -84,14 +115,25 @@ func fire(
 	_effect = effect
 	global_position = Vector2.ZERO  # we draw in world space from _origin
 	_elapsed = 0.0
-	# Muzzle sigil materialises during the charge, oriented at the origin.
-	_circle = MagicCircle.new()
-	add_child(_circle)
-	_circle.global_position = _origin
-	_circle.appear(_color, _width * CIRCLE_RADIUS_FACTOR, CHARGE_TIME * 0.9)
+	# ONE CONTINUOUS SIGIL PER CAST — the hand-off seam documented at the top of
+	# MagicCircle.gd. If the caster opened a windup sigil, ADOPT it: it travels
+	# from wherever the ritual hung it down to this muzzle and keeps spinning,
+	# instead of the caster dismissing theirs and this opening a second one, which
+	# read as the ritual restarting mid-cast. With no windup to adopt (enemy and
+	# boss beams, reaction-spawned beams, remote co-op peers) this opens its own
+	# sigil exactly as it always did — adoption is optional, never required.
+	#
 	# EDGE-ON: a beam's sigil faces the target, so side-on it's a thin gate
 	# perpendicular to the beam that the bolt bursts through (not a flat circle).
-	_circle.set_orientation(true, _dir, 0.14)
+	# An adopted sigil that was face-on FOLDS into that gate over the travel
+	# rather than snapping, so the turn reads as the ritual aiming itself.
+	# `_origin` is world space; `global_position` is (0, 0) here because this node
+	# draws in world coordinates, and passing it would strand the sigil at the
+	# arena origin (see SpellGeometry.gd's trap note).
+	_circle = MagicCircle.adopt_or_open(
+		self, caster_node, _origin, _color, _width * CIRCLE_RADIUS_FACTOR,
+		CHARGE_TIME * 0.9, true, _dir, 0.14, CIRCLE_HANDOFF_TRAVEL
+	)
 	# Gathering particles at the muzzle — energy pulled in before the shot,
 	# charactered per effect. Parented to the arena (get_parent()), NOT self:
 	# the burst outlives this short-lived spectacle node, matching Spell/Enemy
@@ -228,7 +270,20 @@ func _discharge() -> void:
 	Juice.shake_camera(16.0)
 	Juice.zoom_punch_camera(0.1, 0.24)
 	PostProcess.shock(0.6)  # a screen ripple rides the beam discharge (scaled, not the full ult warp)
-	Sfx.play("beam", 1.0, 0.06)  # laser discharge
+	# THE BLACK CUT, and specifically not the white blow-out. A beam's payoff is a
+	# long readable LINE across the screen; a white flash erases it (that is the
+	# recorded reason three ults here deleted their impact frames — see
+	# StarConvergence._slam) while a black field silhouettes it and makes it the
+	# only thing you can see. The horizon the silhouette style draws through the
+	# hit runs along the same axis, so the mark reads as the beam, not as a
+	# generic screen effect. `lines: false` keeps the wedges off it for the same
+	# reason: nothing should compete with the beam.
+	Juice.frame({
+		"style": ImpactFrame.Style.SILHOUETTE, "strength": 1.0, "at": tip,
+		"element": element_id, "lines": false,
+		"zoom": 0.0, "shake": 0.0, "shock": 0.0, "hitstop": 0.0,
+	})
+	Sfx.play(_beam_sfx_key(), 1.0, 0.06)  # discharge, in this beam's own voice
 	if _circle != null and is_instance_valid(_circle):
 		_circle.vanish(FIRE_TIME + FADE_TIME)
 

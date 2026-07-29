@@ -16,15 +16,46 @@ const FIRST_REACH: float = 560.0   # reach for the initial arc to target 1
 const FIRST_CORRIDOR: float = 46.0 # half-width of the aim corridor for target 1
 const HOP_RANGE: float = 240.0     # leap distance between links
 const FALLOFF: float = 0.82        # damage retained per hop
-const LIFE: float = 0.34
-const SEG: int = 6                 # jagged segments per link
+## Was 0.34 — long enough that the bolt sat on screen as a DECAL, which is the
+## corniest thing electricity can do. A discharge is near-instantaneous with an
+## afterimage. UNTESTED FEEL GUESS.
+const LIFE: float = 0.22
+## Was 6. Six evenly-spaced kinks per link is a sawtooth, and on the common
+## one-target case that sawtooth rendered as a single smooth drooping thread — the
+## "one lonely arc" read. UNTESTED FEEL GUESS.
+const SEG: int = 14
+## How far a vertex may slide ALONG its link, as a fraction of one segment. Breaks
+## the sawtooth rhythm. Under 0.5 so vertices stay strictly ordered.
+const AXIS_SCATTER: float = 0.45
+const JAG: float = 13.0            # peak lateral wander of a link, px
+## How often the whole bolt re-randomises, in Hz. Quantized, not continuous — the
+## snap between discrete shapes is what reads as electric rather than as a rope.
+const JITTER_HZ: float = 34.0
+## Dimmer filaments braided alongside each link. One path is a line; three
+## overlapping filaments have volume. UNTESTED FEEL GUESS.
+const GHOST_STRANDS: int = 2
+const BRANCH_SLOTS: int = 4        # dead-end offshoots considered per link
+const BRANCH_CHANCE: float = 0.5   # gate per slot per tick — they strobe
+const BRANCH_LEN: float = 26.0     # px, before per-branch hash variation
+const FLICKER_FLOOR: float = 0.35  # a dying arc gutters, it does not ramp
 const CORE_COLOR: Color = Color(1.7, 1.75, 1.9)  # HDR white-hot core (blooms)
 
+## WHO THIS SPELL MAY HURT. Stamped by SpellCaster._stamp() at cast time, so it
+## follows the CASTER's faction rather than being fixed at "enemy" forever.
+##
+## Every spectacle used to scan the literal group "enemy", which is why a
+## hero-shaped bot's spells passed harmlessly through another hero: the aim was
+## right, the spectacle spawned and drew, and then it queried a group its target
+## was not in. Nothing errored — the spell simply never hit anything, which reads
+## as a physics bug rather than a targeting one.
+##
+## Defaults to "enemy", so every existing caster, capture tool and test is
+## byte-identical and single player does not change by one branch.
+var target_group: String = "enemy"
 var element_id: int = Elements.Element.LIGHTNING
 var _color: Color = Color(1.0, 0.95, 0.4, 1.0)
 var _points: PackedVector2Array = PackedVector2Array()
 var _elapsed: float = -1.0
-var _seed: float = 0.0
 
 
 ## Fire the chain from `origin` toward `aim`, hopping up to `max_hops` enemies.
@@ -35,7 +66,7 @@ func chain(
 	_color = color
 	var d: Vector2 = aim.normalized() if aim != Vector2.ZERO else Vector2.RIGHT
 	var links: Array = build_chain(origin, d, FIRST_REACH, hop_range, max_hops,
-		get_tree().get_nodes_in_group("enemy"))
+		get_tree().get_nodes_in_group(target_group))
 	_points = PackedVector2Array([origin])
 	if links.is_empty():
 		_whiff(origin, d)
@@ -46,7 +77,7 @@ func chain(
 		if e is Node2D and is_instance_valid(e):
 			_points.append((e as Node2D).global_position)  # capture BEFORE damage (may free)
 		if e.has_method("take_damage"):
-			e.take_damage(int(round(dmg)), tint)
+			SpellTargets.hurt(e, int(round(dmg)), tint)
 		if e.has_method("apply_status"):
 			e.apply_status(element_id, false)
 		if e.has_method("apply_knockback"):
@@ -62,6 +93,17 @@ func chain(
 			8, 0.3, 40.0, 130.0, 0.6, 1.5, 0.0, 0.0, true)
 	Juice.shake_camera(6.0)
 	Juice.zoom_pull_camera(0.12, 0.35, 0.12, 0.45)
+	# A modest screen ripple from the LAST body in the chain, so the eye is pulled
+	# down the chain rather than to the caster. Kept well under the Chidori's 0.75
+	# — this is a 3 s-cooldown staple, not an ultimate.
+	PostProcess.shock(0.35, Juice.world_to_uv(_points[_points.size() - 1]))
+	# One LIGHTNING-coloured mark at the end of the chain, on the HEAVY rung —
+	# this is a 3 s-cooldown staple, not an ultimate, and the ladder is the thing
+	# that keeps it from feeling like one. Staged on the LAST body struck, same as
+	# the ripple, so the eye is pulled down the chain rather than back to the
+	# caster. Camera + freeze suppressed (fired above).
+	Juice.tier_frame(SpellTier.Tier.HEAVY, _points[_points.size() - 1], element_id,
+		{"zoom": 0.0, "shake": 0.0, "shock": 0.0, "hitstop": 0.0})
 	Sfx.play("zap", -1.0, 0.08)
 	queue_redraw()
 
@@ -75,7 +117,7 @@ func _whiff(origin: Vector2, d: Vector2) -> void:
 	CombatVfx.spawn_burst(get_parent(), origin, CORE_COLOR, Color(_color.r, _color.g, _color.b, 0.0),
 		8, 0.25, 50.0, 120.0, 0.6, 1.4, 0.0, 0.0, true)
 	Juice.shake_camera(2.5)
-	Sfx.play("zap", -4.0, 0.08)
+	Sfx.play("zap_chain", -4.0, 0.08)
 	queue_redraw()
 
 
@@ -129,33 +171,99 @@ func _process(delta: float) -> void:
 	if _elapsed < 0.0:
 		return
 	_elapsed += delta
-	_seed += delta * 90.0
 	if _elapsed >= LIFE:
 		queue_free()
 		return
 	queue_redraw()
 
 
+## Deterministic 0..1 hash from an int — same idiom as BeamSpell._hash01. No RNG
+## state, so a redraw never pops; feed QUANTIZED time and the shape snaps.
+static func _hash01(n: int) -> float:
+	return fposmod(sin(float(n) * 12.9898) * 43758.5453, 1.0)
+
+
+static func _hsign(n: int) -> float:
+	return _hash01(n) * 2.0 - 1.0
+
+
+## One filament between two strike points. `salt` selects the strand (0 = the main
+## arc), `tq` is the quantized time tick. Pure + static so the "the drawn path
+## stays between the two points it damaged" invariant is headless-testable — same
+## reasoning as build_chain being a pure selector.
+##
+## Endpoints are pinned: a link MUST start and end on the bodies it hit, or the
+## picture stops matching the damage. Everything between them scatters.
+static func link_points(a: Vector2, b: Vector2, salt: int, tq: int) -> PackedVector2Array:
+	var span: Vector2 = b - a
+	var perp: Vector2 = span.orthogonal().normalized() if span != Vector2.ZERO else Vector2.UP
+	var pts: PackedVector2Array = PackedVector2Array()
+	for i: int in SEG + 1:
+		var t: float = float(i) / float(SEG)
+		if i > 0 and i < SEG:
+			t += _hsign(i * 31 + salt * 977 + tq * 61) * AXIS_SCATTER / float(SEG)
+			t = clampf(t, 0.0, 1.0)
+		var env: float = sin(t * PI)  # pinned at both ends
+		# Two hash octaves — a coarse wander plus a fine kink, so the path has
+		# structure at two scales instead of one uniform zigzag.
+		var n: float = _hsign(i * 7 + salt * 131 + tq * 17) * 0.7 \
+				+ _hsign(i * 53 + salt * 419 + tq * 5) * 0.3
+		pts.append(a.lerp(b, t) + perp * n * env * JAG)
+	return pts
+
+
 func _draw() -> void:
 	if _elapsed < 0.0 or _points.size() < 2:
 		return
 	var intensity: float = clampf(1.0 - _elapsed / LIFE, 0.0, 1.0)
+	var tq: int = int(floorf(_elapsed * JITTER_HZ))
+	# A dying arc gutters rather than ramping smoothly to nothing.
+	intensity *= FLICKER_FLOOR + (1.0 - FLICKER_FLOOR) * _hash01(tq * 991)
 	for i in range(_points.size() - 1):
-		_draw_link(_points[i], _points[i + 1], intensity)
-	# Bright node flashes at each strike point.
+		_draw_link(_points[i], _points[i + 1], intensity, tq, i)
+	# Bright node flashes at each strike point — the bolt EARTHING into a body.
 	for i in range(_points.size()):
-		draw_circle(_points[i], 6.0, Color(CORE_COLOR.r, CORE_COLOR.g, CORE_COLOR.b, 0.6 * intensity), true, -1.0, true)
+		draw_circle(_points[i], 9.0, Color(_color.r, _color.g, _color.b, 0.35 * intensity), true, -1.0, true)
+		draw_circle(_points[i], 4.0, Color(CORE_COLOR.r, CORE_COLOR.g, CORE_COLOR.b, 0.85 * intensity), true, -1.0, true)
 
 
-## One jagged link between two strike points (tapered jitter so ends connect).
-func _draw_link(a: Vector2, b: Vector2, intensity: float) -> void:
-	var perp: Vector2 = (b - a).orthogonal().normalized()
-	var pts: PackedVector2Array = PackedVector2Array()
-	for i in SEG + 1:
-		var t: float = float(i) / float(SEG)
-		var base: Vector2 = a.lerp(b, t)
-		var jit: float = sin(float(i) * 12.9 + _seed) * sin(t * PI) * 14.0
-		pts.append(base + perp * jit)
-	draw_polyline(pts, Color(_color.r, _color.g, _color.b, 0.25 * intensity), 6.0, true)
-	draw_polyline(pts, Color(_color.r, _color.g, _color.b, 0.7 * intensity), 2.4, true)
-	draw_polyline(pts, Color(CORE_COLOR.r, CORE_COLOR.g, CORE_COLOR.b, 0.95 * intensity), 1.0, true)
+## One link between two strike points: a faint straight haze marking the true
+## path, dim braided ghost filaments, the white-hot main arc, and strobing
+## dead-end forks. The old version drew a single smooth polyline, which on the
+## common ONE-target case rendered as a lonely drooping thread — a wire, not a
+## discharge. Everything here exists to break that single-line read.
+func _draw_link(a: Vector2, b: Vector2, intensity: float, tq: int, salt_base: int) -> void:
+	draw_line(a, b, Color(_color.r, _color.g, _color.b, 0.12 * intensity), JAG * 1.6, true)
+	for s: int in range(GHOST_STRANDS, 0, -1):
+		var gp: PackedVector2Array = link_points(a, b, salt_base * 13 + s, tq)
+		draw_polyline(gp, Color(_color.r, _color.g, _color.b, 0.32 * intensity), 1.8, true)
+		draw_polyline(gp, Color(CORE_COLOR.r, CORE_COLOR.g, CORE_COLOR.b, 0.28 * intensity), 1.0, true)
+	var pts: PackedVector2Array = link_points(a, b, salt_base * 13, tq)
+	draw_polyline(pts, Color(_color.r, _color.g, _color.b, 0.75 * intensity), 3.0, true)
+	draw_polyline(pts, Color(CORE_COLOR.r, CORE_COLOR.g, CORE_COLOR.b, 0.95 * intensity), 1.2, true)
+	_draw_branches(pts, intensity, tq, salt_base)
+
+
+## Dead-end offshoots off a link. Lightning forks constantly and most forks go
+## nowhere; an unbranched path is the tell that it came out of a for-loop. Purely
+## decorative — the chain's damage is applied at the NODES, never along the drawn
+## path, so a fork cannot promise reach that doesn't exist.
+func _draw_branches(pts: PackedVector2Array, intensity: float, tq: int, salt_base: int) -> void:
+	var perp: Vector2 = (pts[pts.size() - 1] - pts[0]).orthogonal().normalized()
+	for b: int in BRANCH_SLOTS:
+		var k: int = b * 397 + salt_base * 53 + tq * 13
+		if _hash01(k) > BRANCH_CHANCE:
+			continue
+		# Never fork off the endpoints — a fork growing out of a struck body reads
+		# as a bug rather than as electricity.
+		var i: int = 1 + int(_hash01(k + 7) * float(pts.size() - 3))
+		var base: Vector2 = pts[i]
+		var along: Vector2 = (pts[i + 1] - pts[i - 1]).normalized()
+		var side: float = 1.0 if _hash01(k + 61) < 0.5 else -1.0
+		var reach: float = BRANCH_LEN * (0.5 + 0.8 * _hash01(k + 823))
+		var p1: Vector2 = base + perp * side * reach * 0.6 + along * reach * 0.4
+		var p2: Vector2 = p1 + perp * side * reach * 0.5 - along * reach * 0.15
+		draw_polyline(PackedVector2Array([base, p1, p2]),
+			Color(_color.r, _color.g, _color.b, 0.55 * intensity), 1.8, true)
+		draw_polyline(PackedVector2Array([base, p1, p2]),
+			Color(CORE_COLOR.r, CORE_COLOR.g, CORE_COLOR.b, 0.45 * intensity), 0.9, true)

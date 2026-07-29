@@ -80,7 +80,11 @@ func _ready() -> void:
 
 
 func _cycle_class() -> void:
-	_selected_class = (_selected_class + 1) % 8
+	# Derived from the real roster, NEVER a hardcoded count. A literal `% 8` made the
+	# 9th class (the Swordsaint) unselectable in co-op the moment it was added — and
+	# it failed SILENTLY: the button simply never reached it, so the class looked
+	# missing rather than unreachable. Any future class is now selectable for free.
+	_selected_class = (_selected_class + 1) % maxi(ClassInfo.count(), 1)
 	_class_btn.text = "Class: %d" % _selected_class
 
 

@@ -6,20 +6,71 @@ extends Node2D
 ## + dust, gouges the ground (crack + hole). Grounded earth move — no float.
 ## Instantiate .new(), add to the arena, call hurl(). Node sits at arena origin;
 ## everything is drawn in world coordinates (mirrors DivineRay/MeteorSigil).
+##
+## World contract (docs/spell-world-contract.md), all four parts:
+##   SPAWN  — the rip point is the FLOOR under the caster (SpellWorld.floor_below)
+##            and is refused if it would put the rock inside solid geometry.
+##   TRAVEL — the segment JUST TRAVELLED is raycast every frame, so a fast rock
+##            cannot tunnel through a wall; destructible cover in the path is
+##            smashed and damaged rather than stopping it.
+##   TARGETS— SpellTargets: silhouette-tested (a head at rock height registers)
+##            and line-of-sight-gated (the blast does not reach round a wall).
+##   DEFLECT— the boulder physically TRAVELS, so it takes the `reflect()` path,
+##            not SpellDeflect.resolve: you catch it and send it back at whoever
+##            threw it. That is strictly the better fantasy and it is what
+##            SpellDeflect's class docs name this spell for.
+##
+## ⚠ WHAT THE RADIUS AUDIT FOUND HERE (two mismatches, both fixed):
+##   1. The in-flight hit test was `BOULDER_R + HIT_PAD` = 40 px against a rock
+##      drawn at ~26 px — a 54 % over-reach, and a second forgiveness scheme
+##      stacked on top of the target's own `hit_margin()`, which is exactly what
+##      SpellTargets' stacking caveat forbids. HIT_PAD is gone; the test is the
+##      drawn radius, plus whatever forgiveness the TARGET publishes for itself.
+##   2. Every drawn element (shockwave, crater, scorch, floor probe) used the
+##      CONST `IMPACT_RADIUS` while the damage used `_radius`, the caller's
+##      value. They agree today only because the one shipping caster happens to
+##      pass 84.0. Everything drawn now reads `_radius`.
+##   3. The shockwave ring raced out to `IMPACT_RADIUS * 1.35` — 113 px of
+##      drawn danger around an 84 px blast. It is now capped at `_radius` with a
+##      boundary arc held at exactly `_radius`, which is the idiom BlinkStrike
+##      already ships ("the boundary arc is held at exactly BLAST_RADIUS").
 
+## THE DODGE BUDGET. RISE_TIME + HANG_TIME is how long the rock is visibly torn
+## out of the ground and held at the apex before it moves at all — the window to
+## get out of the lane. UNTESTED GUESS: 0.42 s total, deliberately longer than
+## BlinkStrike's 0.30 tell because this one crosses the screen afterwards.
 const RISE_TIME: float = 0.30      # rips up out of the ground
 const HANG_TIME: float = 0.12      # hangs a beat at apex (anticipation)
 const FLIGHT_SPEED: float = 900.0
 const MAX_FLIGHT: float = 900.0    # px cap before auto-detonate
 const RISE_HEIGHT: float = 46.0
 const BOULDER_R: float = 26.0
-const HIT_PAD: float = 14.0        # extra reach on the flight enemy-check
 const IMPACT_RADIUS: float = 84.0
 const DEFAULT_DAMAGE: int = 52
-const KNOCKBACK: float = 460.0     # HEAVY (above Nova's 420)
+const KNOCKBACK: float = 300.0   # was 460.0 — maker: spell knockback was way too much     # HEAVY (above Nova's 420)
 const CLEANUP_DELAY: float = 0.8
 const DEBRIS_COUNT: int = 16
 const SHOCKWAVE_TIME: float = 0.28
+
+## How far down we look for the ground the rock is torn out of. Generous enough
+## to reach the floor from a mid-jump cast, short enough that a caster standing
+## over a pit reports "no floor" instead of ripping a boulder from a slab three
+## screens below. UNTESTED GUESS.
+const FLOOR_PROBE: float = 260.0
+## Where the rock is torn out, relative to the caster, along the aim. Far enough
+## that it is not drawn inside the caster's own body; near enough that it still
+## reads as THEIR boulder. UNTESTED GUESS (unchanged from the original).
+const RIP_OFFSET: float = 26.0
+## How far OFF a struck surface the blast is resolved from. A wall impact point
+## sits exactly on the wall's face, and a line-of-sight ray fired from a point
+## lying on a collider can report an instant block against that very surface —
+## which would cull everything the detonation should have hit. Pushing the blast
+## centre out along the surface normal is also just physically right: the rock
+## shatters against the wall, not inside it. UNTESTED GUESS.
+const IMPACT_LIFT: float = 4.0
+## A reflected boulder gets its travel budget back so it can actually reach the
+## thrower. 1.0 = the full MAX_FLIGHT again. UNTESTED GUESS.
+const REFLECT_TRAVEL_FACTOR: float = 1.0
 
 const BODY_COLOR: Color = Color(0.34, 0.24, 0.15)
 const LIT_COLOR: Color = Color(0.62, 0.46, 0.26)
@@ -32,12 +83,25 @@ const LIGHT_DIR: Vector2 = Vector2(-0.55, -0.835)
 const CORE_SCALE: float = 0.52   # inner cap; the ring between it and the rim = facets
 const TRAIL_LENGTH: int = 7      # dust puffs kept behind a rock in flight
 
+## Who this boulder hurts. "enemy" while the caster owns it; a REFLECTED boulder
+## flips to "hero", which is what makes catching one a counter-attack rather than
+## a mere cancel (the same flip RiftDagger.reflect performs).
+var target_group: String = "enemy"
+
 var _origin: Vector2 = Vector2.ZERO
 var _dir: Vector2 = Vector2.RIGHT
 var _color: Color = Color(0.78, 0.55, 0.28)
 var _radius: float = IMPACT_RADIUS
 var _damage: int = DEFAULT_DAMAGE
 var element_id: int = -1
+## Who cast this. Drives the reaction layer's same-owner rules, and keeps the
+## thrower's own body from stopping the rock the instant it spawns. Cleared on a
+## reflect, so a caught boulder can come back and hit the person who threw it.
+var caster_node: Node = null
+## Reaction weight — see SpellTier. Set by SpellCaster at cast time; the default
+## middle shelf keeps an unset boulder evenly matched with every other
+## un-adopted spectacle, exactly as it behaves today.
+var spell_tier: int = SpellTier.DEFAULT_WEIGHT
 
 var _elapsed: float = -1.0
 var _ground_y: float = 0.0
@@ -46,11 +110,14 @@ var _prev_pos: Vector2 = Vector2.ZERO
 var _traveled: float = 0.0
 var _spin: float = 0.0
 var _flying: bool = false
-var _done: bool = false
+var _reflected: bool = false
 var _shockwave_elapsed: float = -1.0
 var _shape: PackedVector2Array = PackedVector2Array()
 var _cracks: Array[PackedVector2Array] = []   # local-space fissures, tumble with the body
 var _trail: Array[Vector2] = []               # recent positions, oldest first
+## Where the flight stopped, and what stopped it. Set by `_check_flight_collision`
+## so `_process` does not have to re-derive the impact point.
+var _hit_point: Vector2 = Vector2.ZERO
 
 
 func hurl(
@@ -63,10 +130,21 @@ func hurl(
 	_radius = radius
 	_damage = damage
 	_elapsed = 0.0
-	# Find the ground the boulder rips out of; if over a pit, rip from the caster.
-	var hit: Dictionary = _floor_below(from, 260.0)
-	_ground_y = float(hit["position"].y) if not hit.is_empty() else from.y + 30.0
-	_pos = Vector2(from.x + _dir.x * 26.0, _ground_y)
+	var skip: Array[RID] = SpellWorld.rids([caster_node])
+	# Find the ground the boulder rips out of. Over a pit there IS no ground, and
+	# the honest answer is caller-specific (see SpellWorld.floor_below's ⚠): this
+	# spell is grounded earth, so it rips from just under the caster's own feet
+	# rather than refusing to cast — the rock still exists, it just came from the
+	# ledge you are standing on.
+	var ground: Dictionary = SpellWorld.floor_below(from, FLOOR_PROBE, skip, self)
+	_ground_y = (ground["position"] as Vector2).y if bool(ground["hit"]) else from.y + 30.0
+	_pos = Vector2(from.x + _dir.x * RIP_OFFSET, _ground_y)
+	# NOTHING MAY START INSIDE THE ENVIRONMENT. Ripping the rock out flush against
+	# a wall would spawn it inside the wall and it would then "impact" on its first
+	# frame from within solid rock. Fall back to directly under the caster, which
+	# is where they are standing and therefore known to be free.
+	if SpellWorld.is_blocked(_pos, BOULDER_R, skip, self):
+		_pos = Vector2(from.x, _ground_y)
 	_prev_pos = _pos
 	_shape = _make_boulder(BOULDER_R)
 	_cracks = _make_cracks(BOULDER_R)
@@ -78,17 +156,97 @@ func hurl(
 		Color(0.5, 0.36, 0.22, 0.6), 7.0)  # the HOLE left in the ground
 	Juice.shake_camera(3.0)
 	Sfx.play("earth", -4.0, 0.08)
+	# Deflect path #1 (the reflect() half): a thing that physically travels can be
+	# CAUGHT and sent back, so it advertises itself to the parry scans.
+	add_to_group("deflectable_spell")
+	# Join the reaction system. `reaction_active()` keeps it inert until it is
+	# actually flying, so a rock still being torn free cannot annihilate anything.
+	var reactor: Node = get_node_or_null(^"/root/SpellReactor")
+	if reactor != null:
+		reactor.call(&"register", self, ReactionTable.Form.PROJECTILE, element_id)
 	queue_redraw()
 
 
-## Downward floor raycast (collision layer 1) — the ground the rock rips from.
-func _floor_below(from: Vector2, max_dist: float) -> Dictionary:
-	var world: World2D = get_world_2d()
-	if world == null:
-		return {}
-	var query := PhysicsRayQueryParameters2D.create(from, from + Vector2(0.0, max_dist), 1)
-	return world.direct_space_state.intersect_ray(query)
+func _exit_tree() -> void:
+	var reactor: Node = get_node_or_null(^"/root/SpellReactor")
+	if reactor != null:
+		reactor.call(&"unregister", self)
 
+
+# --- deflect contract (the reflect() half — see SpellDeflect's class docs) ----
+
+## Where this spell physically IS, for the parry scans. The NODE parks at the
+## arena origin and draws in world coordinates, so `global_position` is (0, 0)
+## and would put every parry check at the top-left of the level.
+func deflect_point() -> Vector2:
+	return _pos
+
+
+## Caught and sent back. Reversing the rock is only half of it: flipping
+## `target_group` and clearing `caster_node` is what turns a block into a
+## counter-attack — the boulder now hunts the side that threw it, and the
+## thrower's own body no longer excludes itself from the travel ray.
+##
+## Deliberately silent: the parrier (Hero._try_parry / SpikeFigure._try_reflect)
+## already plays the "ding", and a second one here would double it.
+func reflect(new_dir: Vector2, color: Color) -> void:
+	if _reflected or not _flying or _shockwave_elapsed >= 0.0:
+		return
+	_reflected = true
+	_dir = new_dir.normalized() if new_dir != Vector2.ZERO else -_dir
+	_color = color
+	_traveled = MAX_FLIGHT * (1.0 - REFLECT_TRAVEL_FACTOR)
+	caster_node = null
+	target_group = "hero"
+	_trail.clear()
+	queue_redraw()
+
+
+## AoE sweeps clear pending hazards through this (mirrors EnemyProjectile.consume
+## and RiftDagger.consume): detonate where it stands.
+func consume() -> void:
+	if _shockwave_elapsed < 0.0:
+		_impact(_pos)
+
+
+# --- reaction contract (see SpellReactor) ------------------------------------
+
+## World-space geometry built from `_pos` and the DRAWN radius — never from
+## `global_position`, which is (0, 0) for this node.
+func reaction_shape() -> Dictionary:
+	return SpellGeometry.circle(_pos, BOULDER_R)
+
+
+## LOAD-BEARING: false while the rock is still being torn out of the ground and
+## false once it has shattered, so a boulder can only react during the part of
+## its life where it is a rock crossing the arena.
+func reaction_active() -> bool:
+	return _flying and _shockwave_elapsed < 0.0
+
+
+func reaction_element() -> int:
+	return element_id
+
+
+func reaction_form() -> int:
+	return ReactionTable.Form.PROJECTILE
+
+
+func reaction_owner() -> Node:
+	return caster_node
+
+
+func reaction_weight() -> int:
+	return spell_tier
+
+
+## Spent by a reaction: the rock was eaten mid-flight. It goes WITHOUT its
+## detonation — no damage, no crater, no shockwave.
+func reaction_consume() -> void:
+	queue_free()
+
+
+# --- flight ------------------------------------------------------------------
 
 func _process(delta: float) -> void:
 	if _elapsed < 0.0:
@@ -101,9 +259,9 @@ func _process(delta: float) -> void:
 		return
 	if _elapsed < RISE_TIME:
 		var u: float = _elapsed / RISE_TIME
-		_pos.y = _ground_y - RISE_HEIGHT * (1.0 - pow(1.0 - u, 2.0))  # ease-out lift
+		_pos.y = _ground_y - _rise_height() * (1.0 - pow(1.0 - u, 2.0))  # ease-out lift
 	elif _elapsed < RISE_TIME + HANG_TIME:
-		_pos.y = _ground_y - RISE_HEIGHT
+		_pos.y = _ground_y - _rise_height()
 	else:
 		# FLIGHT
 		if not _flying:
@@ -116,8 +274,7 @@ func _process(delta: float) -> void:
 		_trail.append(_prev_pos)
 		if _trail.size() > TRAIL_LENGTH:
 			_trail.remove_at(0)
-		var hit_pos: Vector2 = _pos
-		if _check_flight_collision(hit_pos):
+		if _check_flight_collision():
 			_impact(_hit_point)
 			return
 		if _traveled >= MAX_FLIGHT:
@@ -126,74 +283,129 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
-var _hit_point: Vector2 = Vector2.ZERO
+## How high the rock is torn before it is thrown, CLIPPED against whatever is
+## above the rip point. Ripping a boulder up through a low ceiling would draw it
+## inside the ceiling for the whole anticipation beat.
+func _rise_height() -> float:
+	var up: Vector2 = Vector2(_pos.x, _ground_y) + Vector2.UP * RISE_HEIGHT
+	var r: Dictionary = SpellWorld.first_solid(Vector2(_pos.x, _ground_y), up,
+		SpellWorld.rids([caster_node]), self)
+	return float(r["distance"]) if bool(r["hit"]) else RISE_HEIGHT
 
 
-## First enemy within reach OR a layer-1 wall along the travelled segment.
-func _check_flight_collision(_unused: Vector2) -> bool:
-	for e: Node in get_tree().get_nodes_in_group("enemy"):
-		if e is Node2D and _pos.distance_to((e as Node2D).global_position) <= BOULDER_R + HIT_PAD:
-			_hit_point = (e as Node2D).global_position
-			return true
-	var world: World2D = get_world_2d()
-	if world != null:
-		var q := PhysicsRayQueryParameters2D.create(_prev_pos, _pos, 1)
-		q.hit_from_inside = true
-		var wall: Dictionary = world.direct_space_state.intersect_ray(q)
-		if not wall.is_empty():
-			_hit_point = wall["position"]
-			return true
-	return false
+## Did the rock meet anything on the segment it JUST travelled?
+##
+## ORDER MATTERS AND IT USED TO BE WRONG. The world is asked FIRST: previously
+## the enemy scan ran first, so a rock could "hit" someone standing on the far
+## side of a wall it had not reached yet. Now the wall stops it at the wall, and
+## only a clear segment goes on to look for a victim.
+##
+## Raycasting the segment JUST TRAVELLED (rather than probing forward from the
+## new position) is what makes this un-tunnellable: at 900 px/s the rock moves
+## 15 px a frame and a 40 px-thin wall is trivially skipped by a point test.
+func _check_flight_collision() -> bool:
+	var skip: Array[RID] = SpellWorld.rids([caster_node])
+	var world: Dictionary = SpellWorld.first_solid(_prev_pos, _pos, skip, self)
+	# "Destroy what it can": destructible cover is torn THROUGH by a rock this
+	# heavy, and everything it tore through comes back to be damaged.
+	for prop: Node in (world["smashed"] as Array[Node]):
+		_smash(prop, world["position"] as Vector2)
+	if bool(world["hit"]):
+		# Pushed IMPACT_LIFT out along the surface normal — see the constant.
+		var n: Vector2 = world["normal"]
+		_hit_point = (world["position"] as Vector2) + n.normalized() * IMPACT_LIFT \
+			if n != Vector2.ZERO else world["position"]
+		return true
+	# Clear segment — now look for a body. `BOULDER_R` and nothing else: the drawn
+	# rock's own radius, with the target's published `hit_margin()` added by
+	# SpellTargets. No call-site pad (see the ⚠ in the class docs).
+	var found: Array = SpellTargets.in_radius(_pos, BOULDER_R,
+		get_tree().get_nodes_in_group(target_group), [caster_node], self)
+	if found.is_empty():
+		return false
+	# Detonate where the ROCK is, not where the victim is: the blast radius covers
+	# them either way, and the crater belongs under the rock.
+	_hit_point = _pos
+	return true
 
 
 func _impact(at: Vector2) -> void:
 	_pos = at
+	if is_in_group("deflectable_spell"):
+		remove_from_group("deflectable_spell")  # no longer catchable — it has landed
 	_apply_impact_damage(at)
 	_shatter(at)
 	_shockwave_elapsed = 0.0
 	Juice.on_hit({"dir": _dir, "shake": 13.0, "kick": 10.0, "zoom": 0.11,
 		"sfx": "blast", "sfx_pitch": 0.1, "hitstop": 0.1})
 	Juice.zoom_pull_camera(0.12, 0.3, 0.12, 0.45)
+	# A rock arriving is mass, not magic: the white blow-out, on this hurl's own
+	# shelf. Camera + freeze suppressed — the two lines above already fired both,
+	# and a second freeze here is precisely the stacking that turns a volley of
+	# these into slow motion.
+	Juice.tier_frame(spell_tier, at, element_id,
+		{"style": ImpactFrame.Style.BLOWOUT,
+		"zoom": 0.0, "shake": 0.0, "shock": 0.0, "hitstop": 0.0})
 	get_tree().create_timer(CLEANUP_DELAY).timeout.connect(queue_free)
 
 
 func _shatter(at: Vector2) -> void:
-	var hit: Dictionary = _floor_below(at, IMPACT_RADIUS * 2.2)
-	var floor_pos: Vector2 = hit["position"] if not hit.is_empty() else at
-	DebrisChunk.spawn_burst(get_parent(), floor_pos, Color(0.5, 0.38, 0.22), DEBRIS_COUNT, _dir, 340.0)
+	# Ground residue is snapped to the FLOOR, and SKIPPED entirely over a pit —
+	# a crater hanging in mid-air is the same bug as a meteor under the floor,
+	# seen from the other side (GroundCrater already makes this call).
+	var ground: Dictionary = SpellWorld.floor_below(at, _radius * 2.2,
+		SpellWorld.rids([caster_node]), self)
 	CombatVfx.spawn_burst(get_parent(), at, Color(0.85, 0.62, 0.35, 0.9), Color(0.4, 0.28, 0.15, 0.0),
 		30, 0.5, 80.0, 260.0, 1.8, 5.0)
-	ScorchDecal.spawn(get_parent(), floor_pos, IMPACT_RADIUS * 0.6, "crack",
+	if not bool(ground["hit"]):
+		return
+	var floor_pos: Vector2 = ground["position"]
+	DebrisChunk.spawn_burst(get_parent(), floor_pos, Color(0.5, 0.38, 0.22), DEBRIS_COUNT, _dir, 340.0)
+	ScorchDecal.spawn(get_parent(), floor_pos, _radius * 0.6, "crack",
 		Color(0.6, 0.45, 0.28, 0.6), 8.0)
 
 
-## Pure geometry (testable): nodes within `radius` of `center`.
-static func targets_in_radius(center: Vector2, radius: float, nodes: Array) -> Array:
-	var out: Array = []
-	for n: Node in nodes:
-		if n is Node2D and center.distance_to((n as Node2D).global_position) <= radius:
-			out.append(n)
-	return out
-
-
+## Blast damage. `_radius` — the same number the shockwave and the boundary arc
+## are drawn at — with line of sight on, so the blast cannot reach round a wall.
 func _apply_impact_damage(at: Vector2) -> void:
-	for enemy: Node in targets_in_radius(at, _radius, get_tree().get_nodes_in_group("enemy")):
-		if enemy.has_method("take_damage"):
-			enemy.take_damage(_damage)
+	var skip: Array = [caster_node]
+	for enemy: Node in SpellTargets.in_radius(at, _radius,
+			get_tree().get_nodes_in_group(target_group), skip, self):
+		var away: Vector2 = ((enemy as Node2D).global_position - at).normalized()
+		if away == Vector2.ZERO:
+			away = Vector2.UP
+		# The DETONATION does not travel — there is nothing to send back once the
+		# rock has already shattered — so the blast half routes through
+		# SpellDeflect.resolve and a well-timed guard eats it. (Catching the rock
+		# IN FLIGHT is the other, better answer: see `reflect`.)
+		var dealt: int = SpellDeflect.resolve(enemy, _damage, _dir,
+			SpellTargets.aim_point(enemy))
+		if dealt > 0 and enemy.has_method("take_damage"):
+			enemy.take_damage(dealt)
+		if dealt <= 0:
+			continue  # parried: the guard ate the ailment and the shove too
 		if element_id >= 0 and enemy.has_method("apply_status"):
 			enemy.apply_status(element_id)
 		if enemy.has_method("apply_knockback"):
-			var away: Vector2 = ((enemy as Node2D).global_position - at).normalized()
-			enemy.apply_knockback((away if away != Vector2.ZERO else Vector2.UP) * KNOCKBACK)
-	for prop: Node in targets_in_radius(at, _radius, get_tree().get_nodes_in_group("destructible")):
-		if prop.has_method("damage_at"):
-			prop.damage_at(_damage, (prop as Node2D).global_position, _dir)
-		elif prop.has_method("take_damage"):
-			prop.take_damage(_damage)
-	for proj: Node in get_tree().get_nodes_in_group("enemy_projectile"):
-		if proj is Node2D and at.distance_to((proj as Node2D).global_position) <= _radius \
-				and proj.has_method("consume"):
+			enemy.apply_knockback(away * KNOCKBACK)
+	for prop: Node in SpellTargets.in_radius(at, _radius,
+			get_tree().get_nodes_in_group("destructible"), skip, self):
+		_smash(prop, at)
+	for proj: Node in SpellTargets.in_radius(at, _radius,
+			get_tree().get_nodes_in_group("enemy_projectile"), skip, self):
+		if proj.has_method("consume"):
 			proj.call("consume")
+
+
+## Damage one destructible, preferring the localized `damage_at` so cover breaks
+## where the rock struck it. Shared by the travel smash and the blast.
+func _smash(prop: Node, at: Vector2) -> void:
+	if prop == null or not is_instance_valid(prop) or prop.is_queued_for_deletion():
+		return
+	if prop.has_method("damage_at"):
+		prop.call("damage_at", _damage, at, _dir)
+	elif prop.has_method("take_damage"):
+		prop.call("take_damage", _damage)
 
 
 ## An irregular chunk, not a polygon. The old version spaced 7 verts evenly and
@@ -273,13 +485,18 @@ func _draw() -> void:
 			draw_line(a, b, RIM_COLOR, 1.6, true)
 
 
+## The detonation, drawn at EXACTLY the radius that damaged. The expanding ring
+## stops at `_radius` instead of racing 35 % past it, and a boundary arc is held
+## at `_radius` for the whole fade so the extent stays legible after the wave has
+## passed — the treatment BlinkStrike already ships for the same reason.
 func _draw_shockwave() -> void:
 	var t: float = clampf(_shockwave_elapsed / SHOCKWAVE_TIME, 0.0, 1.0)
 	if t >= 1.0:
 		return
 	var alpha: float = 1.0 - t
-	var r: float = lerpf(8.0, IMPACT_RADIUS * 1.35, t)
+	draw_arc(_pos, _radius, 0.0, TAU, 48, Color(0.85, 0.6, 0.3, 0.35 * alpha), 2.0, true)
+	var r: float = lerpf(8.0, _radius, t)
 	draw_arc(_pos, r, 0.0, TAU, 48, Color(0.85, 0.6, 0.3, 0.9 * alpha), lerpf(9.0, 2.0, t), true)
 	if t < 0.4:
 		var flash: float = 1.0 - t / 0.4
-		draw_circle(_pos, IMPACT_RADIUS * 0.7 * flash, Color(1.3, 1.0, 0.6, 0.35 * flash), true, -1.0, true)
+		draw_circle(_pos, _radius * flash, Color(1.3, 1.0, 0.6, 0.35 * flash), true, -1.0, true)

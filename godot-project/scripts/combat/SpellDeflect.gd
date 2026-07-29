@@ -50,6 +50,17 @@ extends RefCounted
 ##                                      un-upgraded victim never silently loses
 ##                                      its ability to block ordinary spells.
 ##   on_spell_deflected(dir: Vector2)   optional; consume the window + strike the pose
+##
+## THE CONTRACT AND resolve()'s SIGNATURE ARE FROZEN. About fifteen spell scripts
+## are being written against `resolve(victim, damage, dir, at, window_fraction)`
+## right now; growing an argument or a required method later means fifteen edits
+## and a window where half of them are wrong. So the CLASS-SPECIFIC half of the
+## guard — the mage's magic circle, which catches a spell and sends it back
+## rather than merely eating it — is NOT threaded through here as a parameter.
+## It is discovered on the victim, exactly the way GuardComponent is discovered on
+## a body in Hero.take_damage: if a SigilGuard node is attached, a confirmed
+## deflect is also an absorb. A swordsman has no such node and is unaffected, and
+## a spell script never learns the difference exists.
 
 ## Multiplier applied to a deflected spell's damage. Zero = a clean parry fully
 ## negates. Named because "chip damage through a parry" is a plausible balance
@@ -97,6 +108,16 @@ static func resolve(victim: Node, damage: int, dir: Vector2, at: Vector2,
 		return damage
 	if victim.has_method("on_spell_deflected"):
 		victim.call("on_spell_deflected", dir)
+	# A CASTER catches it in the sigil and sends something back; everyone else
+	# eats it. Both branches keep the shared payoff below, on purpose — the ding,
+	# the hitstop and the impact frame are what tell the player "you blocked
+	# that", and they must sound identical whichever class did it. What the sigil
+	# adds on top is its own flare and the returned echo, so the outcome differs
+	# without the READ differing. See SigilGuard for what "sent back" means when
+	# the spell is a meteor barrage that cannot physically be returned.
+	var sigil: SigilGuard = SigilGuard.peek(victim)
+	if sigil != null and sigil.is_armed():
+		sigil.absorb(damage, dir, at)
 	if window_fraction <= EPIC_THRESHOLD:
 		_epic_payoff(at)
 	else:
@@ -111,7 +132,10 @@ static func _payoff(at: Vector2) -> void:
 	Juice.hit_stop(0.09)
 	Juice.shake_camera(4.0)
 	# Localized, so a deflect off to one side reads there and not at screen centre.
-	Juice.impact_frame(0.45, at)
+	# LOCAL, deliberately: an ordinary parry is a small crisp read that happens
+	# several times a fight. Giving it a full-screen wash spends the loudest tool
+	# in the game on the quietest moment, and makes the ULT turn below indistinct.
+	Juice.frame({"style": ImpactFrame.Style.LOCAL, "strength": 0.55, "at": at})
 
 
 ## Turning an ULT is the hardest read in the game, so it gets the loudest beat in
@@ -120,7 +144,12 @@ static func _payoff(at: Vector2) -> void:
 static func _epic_payoff(at: Vector2) -> void:
 	_sfx("ding", 4.0)
 	_sfx("cannon", 1.0)
-	Juice.epic_moment({"strength": 1.35, "shake": 18.0, "frame": true, "at": at})
+	# CUT_IN — the climax mark, and the only place outside a boss death that earns
+	# it. Turning an ULT is the hardest read in the game; it previously got the
+	# same white wash as an ordinary parry, so the hardest thing a player can do
+	# looked identical to the easiest.
+	Juice.epic_moment({"strength": 1.35, "shake": 18.0, "frame": false, "at": at})
+	Juice.frame({"style": ImpactFrame.Style.CUT_IN, "strength": 1.4, "at": at})
 	CombatVfx.spawn_burst(_arena(), at,
 		Color(2.2, 2.0, 1.4, 1.0), Color(1.0, 0.85, 0.4, 0.0),
 		34, 0.55, 120.0, 420.0, 1.8, 4.6, 0.0, 0.0, true)

@@ -20,31 +20,107 @@ extends RefCounted
 ##
 ## Pure timing model — no nodes, no drawing. The rig renders `radius01()`, and
 ## `quality()` is what the damage path asks. Keeps the whole thing testable.
+##
+## TWO STYLES, ONE CLOCK. Classes guard DIFFERENTLY — the swordsman parries with
+## the blade, the mage catches the spell in a summoned sigil (see SigilGuard) —
+## but they must never be two timing implementations. A second clock is exactly
+## how the two guard paths drift apart: one gets a balance tweak, the other
+## silently does not, and "the parry window" stops being one thing players can
+## learn. So `style` is a dimension ON this clock: it moves NUMBERS and reports
+## which presentation to draw, and every state machine below (press/release,
+## progress, quality, re-arm) is shared verbatim.
 
-## Seconds from press until the ring reaches the perfect band.
+## ---------------------------------------------------------------------------
+## THE ENTIRE DEFENSIVE TIMING BUDGET. Every number in this block is REASONED,
+## NOT FELT — none of it has been playtested. They are kept together, named, so
+## the maker can tune the whole defensive feel in one place rather than hunting
+## magic numbers through the guard, the sigil and the damage path.
+## ---------------------------------------------------------------------------
+
+## Seconds from press until the ring reaches the perfect band. SHARED by both
+## styles deliberately: the gesture takes the same time to make whoever you are,
+## so what differs between classes is how FORGIVING the catch is, not how long
+## you must wait — a different shrink time would make the two guards feel like
+## unrelated buttons rather than one verb with two costumes.
 const SHRINK_TIME: float = 0.42
-## The perfect band, as a fraction of the shrink. Entering at 0.78 gives a window
-## of ~0.09 s — demanding but reactable, and deliberately close to the old fixed
-## PARRY_WINDOW of 0.16 s so existing muscle memory is not thrown away.
+## The perfect band, as a fraction of the shrink. BLADE entering at 0.78 gives a
+## window of ~0.09 s — demanding but reactable, and deliberately close to the old
+## fixed PARRY_WINDOW of 0.16 s so existing muscle memory is not thrown away.
 const PERFECT_START: float = 0.78
 const PERFECT_END: float = 1.0
+## SIGIL's band, ~0.057 s (about 3.4 frames at 60 Hz) — roughly two-thirds of the
+## blade's. THIS IS THE MAGE'S PRICE. Catching a spell and sending it back is a
+## strictly stronger outcome than eating it, so it must be strictly harder to
+## land; paying for it in window width keeps the cost inside the same read the
+## player is already making, instead of bolting on a resource to watch.
+const SIGIL_PERFECT_START: float = 0.865
 ## Ring size at full extension and at its tightest, as a fraction of arm reach.
 const RADIUS_MAX: float = 1.0
 const RADIUS_MIN: float = 0.34
-## What a sustained (overshot) guard still does. Not zero, or holding would be
-## strictly pointless; not much, or holding would beat timing.
+## What a sustained (overshot) BLADE guard still does. Not zero, or holding would
+## be strictly pointless; not much, or holding would beat timing.
 const SUSTAIN_REDUCTION: float = 0.35
 
 enum Quality { NONE, SUSTAIN, PERFECT }
+## BLADE = steel held in the way, SIGIL = a circle summoned to meet the spell.
+enum Style { BLADE, SIGIL }
 
 ## Enforced gap between guards. Without it, releasing and re-pressing re-arms the
 ## perfect window instantly, so mashing the button carpets the fight in perfect
 ## reads and the timing stops being a skill at all.
 const REARM_TIME: float = 0.35
+## SIGIL re-arm — the mage's second price. A blade is already in your hand, so a
+## whiffed parry costs you a beat; a sigil has to be SUMMONED again from nothing,
+## so a whiffed catch costs you a good deal more than a beat. It also stops the
+## tighter window being farmed by simply attempting the catch twice as often.
+const SIGIL_REARM_TIME: float = 0.55
 
+## Which presentation + outcome this guard uses. Set once by the owner from its
+## class; never flipped mid-guard (the clock would jump bands under the player).
+var style: int = Style.BLADE
 var held: bool = false
 var _t: float = 0.0
 var _rearm: float = 0.0
+
+
+## Convenience for owners that build the ring at class-setup time.
+static func for_style(s: int) -> ParryRing:
+	var r := ParryRing.new()
+	r.style = s
+	return r
+
+
+## Where the perfect band opens for THIS style.
+func perfect_start() -> float:
+	return SIGIL_PERFECT_START if style == Style.SIGIL else PERFECT_START
+
+
+## The perfect band in seconds — what the player is actually asked to hit.
+func perfect_window() -> float:
+	return (PERFECT_END - perfect_start()) * SHRINK_TIME
+
+
+func rearm_time() -> float:
+	return SIGIL_REARM_TIME if style == Style.SIGIL else REARM_TIME
+
+
+## Does overshooting leave you with anything? A BLADE bottoms out into a weaker
+## SUSTAINED guard — steel is still in the way whether or not you timed it. A
+## SIGIL has no such fallback: a summoning that meets nothing COLLAPSES, and a
+## collapsed circle blocks exactly nothing.
+##
+## This is the mage's third and largest price, and it is the one that carries the
+## fantasy rather than just the maths. The swordsman's guard degrades gracefully;
+## the mage's is all-or-nothing. It also removes the "hold the circle up forever"
+## default that would otherwise make a sigil the safest object in the game.
+func has_sustain() -> bool:
+	return style != Style.SIGIL
+
+
+## True once a SIGIL has been held past its band and fizzled. Always false for a
+## blade, which bottoms out rather than collapsing.
+func is_collapsed() -> bool:
+	return held and not has_sustain() and _t > SHRINK_TIME
 
 
 ## Press: the ring blooms at full radius and starts closing. Refused while
@@ -61,7 +137,7 @@ func press() -> bool:
 ## read rather than a permanently-armed shield.
 func release() -> void:
 	if held:
-		_rearm = REARM_TIME
+		_rearm = rearm_time()
 	held = false
 	_t = 0.0
 
@@ -96,10 +172,12 @@ func quality() -> int:
 	if not held:
 		return Quality.NONE
 	var p: float = progress()
-	if p >= PERFECT_START and p <= PERFECT_END and _t <= SHRINK_TIME:
+	if p >= perfect_start() and p <= PERFECT_END and _t <= SHRINK_TIME:
 		return Quality.PERFECT
 	if _t > SHRINK_TIME:
-		return Quality.SUSTAIN     # overshot — the ring bottomed out
+		# Overshot. A blade bottoms out into the weaker sustained guard; a sigil
+		# has already collapsed and guards nothing at all (see has_sustain).
+		return Quality.SUSTAIN if has_sustain() else Quality.NONE
 	return Quality.NONE            # still closing; too early to block anything
 
 
@@ -138,5 +216,13 @@ func can_reflect() -> bool:
 ## desktop player could hold both buttons and a phone player could not.
 ##
 ## Callers must consult this before running the primary action.
+##
+## A COLLAPSED SIGIL IS THE ONE EXEMPTION. Once a mage's circle has fizzled there
+## is nothing in the way and nothing being maintained, so holding the button past
+## that point is not a guard — it is a finger resting on a key. Charging the
+## offence lock for it would make the mage pay the sustained guard's price while
+## receiving none of its protection, which is a bug dressed as a balance rule.
+## The re-arm still only starts on RELEASE, so this cannot be farmed: you must
+## let go (and eat the longer sigil re-arm) to get another circle.
 func blocks_attack() -> bool:
-	return held
+	return held and not is_collapsed()

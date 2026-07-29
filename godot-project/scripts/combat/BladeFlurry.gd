@@ -25,7 +25,26 @@ const SLASH_THICKNESS: float = 15.0
 const SLASH_SWEEP: float = 0.55  # radians a crescent travels over its visible life
 const CRESCENT_STEPS: int = 18
 
+## Stamped by `SpellCaster._stamp()`. `element_id` was the only one of the three
+## that existed, so the other two `set()` calls were SILENT NO-OPS — which meant
+## this spectacle reported as "unowned", matched no ownership-gated clash row, and
+## was quietly inert in the reaction system. Declaring them is the whole fix, and
+## the day this file adopts the participant contract it will already have the data.
+## WHO THIS SPELL MAY HURT. Stamped by SpellCaster._stamp() at cast time, so it
+## follows the CASTER's faction rather than being fixed at "enemy" forever.
+##
+## Every spectacle used to scan the literal group "enemy", which is why a
+## hero-shaped bot's spells passed harmlessly through another hero: the aim was
+## right, the spectacle spawned and drew, and then it queried a group its target
+## was not in. Nothing errored — the spell simply never hit anything, which reads
+## as a physics bug rather than a targeting one.
+##
+## Defaults to "enemy", so every existing caster, capture tool and test is
+## byte-identical and single player does not change by one branch.
+var target_group: String = "enemy"
 var element_id: int = Elements.Element.SHADOW
+var spell_tier: int = SpellTier.Tier.HEAVY
+var caster_node: Node = null
 var _origin: Vector2 = Vector2.ZERO
 var _dir: Vector2 = Vector2.RIGHT
 var _color: Color = Color(0.6, 0.35, 0.95, 1.0)
@@ -68,20 +87,27 @@ func _process(delta: float) -> void:
 ## One slash: cut every enemy in the forward cone within RANGE.
 func _slash() -> void:
 	var tint: Color = Color(_color.r, _color.g, _color.b, 1.0)
-	for e: Node in get_tree().get_nodes_in_group("enemy"):
-		if not e is Node2D or not is_instance_valid(e):
-			continue
-		var to: Vector2 = (e as Node2D).global_position - _origin
-		if to.length() > RANGE or _dir.dot(to.normalized()) < ARC_DOT:
-			continue
+	# SILHOUETTE + LINE OF SIGHT. This was `(e.global_position - _origin).length()`,
+	# a point test against a node origin that sits ~10 px BELOW the drawn head (19 px
+	# on the 1.9x sparring dummies) — the maker's "spells pass through heads without
+	# registering" bug, in the spell that is now TWO classes' damage line. It also
+	# cut through walls, because a distance test never asks what is in between.
+	# `_origin` is the WORLD point this effect drew itself at; the node itself parks
+	# at the arena origin, so its transform must never be used here.
+	for e: Node in SpellTargets.in_cone(_origin, _dir, RANGE, ARC_DOT,
+			get_tree().get_nodes_in_group(target_group), [caster_node], self):
 		if e.has_method("take_damage"):
-			e.take_damage(_dmg, tint)
+			SpellTargets.hurt(e, _dmg, tint)
 		if e.has_method("apply_status"):
 			e.apply_status(element_id)
 		if e.has_method("apply_knockback"):
 			e.apply_knockback(_dir * KNOCKBACK)
-	for prop: Node in get_tree().get_nodes_in_group("destructible"):
-		if prop is Node2D and _origin.distance_to((prop as Node2D).global_position) <= RANGE and prop.has_method("take_damage"):
+	# Crates are swept in a full RADIUS rather than the arc, exactly as before —
+	# a flurry this close chews the cover around it, and narrowing that to the cone
+	# would be a behaviour change smuggled into a targeting fix.
+	for prop: Node in SpellTargets.in_radius(_origin, RANGE,
+			get_tree().get_nodes_in_group("destructible"), [caster_node], self):
+		if prop.has_method("take_damage"):
 			prop.take_damage(_dmg)
 	Sfx.play("melee_hit", -4.0, 0.1)
 	CombatVfx.spawn_burst(get_parent(), _origin + _dir * RANGE * 0.6,

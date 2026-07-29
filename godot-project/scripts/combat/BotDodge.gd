@@ -180,26 +180,52 @@ static func choose_response(threat: Dictionary, caps: Dictionary) -> Dictionary:
 	var tti: float = float(threat.get("tti", 0.0))
 	var dir: Vector2 = exit.normalized() if exit.length_squared() > 0.0001 else Vector2.ZERO
 
+	# ⚠ THE VERTICAL EXIT IS A JUMP, AND IT HAS TO BE TESTED FIRST. This body has no
+	# "walk up" and no "walk down" — a dash is expressed through the MOVEMENT keys,
+	# so a dash whose direction is vertical flattens to (0, 0) at the intent seam and
+	# presses dash with no direction at all.
+	#
+	# That is not a corner case, it is the COMMON case: two fighters stand on the
+	# same floor, so a bolt crosses the gap horizontally, and the shortest way out of
+	# a horizontal lane is perpendicular — i.e. straight up or straight down, every
+	# single time. With the dash rung above the jump rung, every horizontal projectile
+	# in the game produced a burnt dash, a latched reflex, and a bot standing still
+	# inside the bolt for the length of the latch. That is the "the bot never dodges"
+	# report, and this ordering is the fix.
+	#
+	# Both SIGNS are answered by a jump: a lane is symmetric, so leaving it upward is
+	# the same escape as leaving it downward, and upward is the only one a body
+	# standing on the floor actually has.
+	var vertical: bool = absf(dir.y) >= VERTICAL_EXIT_DOT
+	if vertical and bool(caps.get("grounded", false)):
+		return {"action": "jump", "dir": dir}
+
 	if bool(caps.get("dash_ready", false)) and float(caps.get("dash_dist", 0.0)) >= need \
-			and dir != Vector2.ZERO:
+			and dir != Vector2.ZERO and not vertical:
 		return {"action": "dash", "dir": dir}
 	# Timing a dash so its i-frames cover impact beats a threat WITHOUT escaping
 	# it. It is the strongest read available and looks like cheating when
 	# unrestricted, so the caller gates it to the top difficulties.
+	#
+	# This is also the airborne answer to a vertical exit: the direction cannot be
+	# expressed, but the INVULNERABILITY can, and that is the whole point of the rung.
 	if bool(caps.get("dash_ready", false)) and bool(caps.get("allow_iframe", false)) \
 			and tti <= IFRAME_LEAD:
-		return {"action": "dash_iframe", "dir": dir if dir != Vector2.ZERO else Vector2.RIGHT}
+		var iframe_dir: Vector2 = dir if dir != Vector2.ZERO and not vertical else Vector2.RIGHT
+		return {"action": "dash_iframe", "dir": iframe_dir}
+	# Blink is pressed through the same movement keys as the dash, so it inherits the
+	# same inability to express a vertical direction.
 	if bool(caps.get("blink_ready", false)) and float(caps.get("blink_dist", 0.0)) >= need \
-			and dir != Vector2.ZERO:
+			and dir != Vector2.ZERO and not vertical:
 		return {"action": "blink", "dir": dir}
 	# Parry answers melee, contact and charge hits too — not just projectiles —
 	# so it is a legitimate reply to a charger lane, not a projectile-only reflex.
 	if bool(caps.get("can_parry", false)) and bool(caps.get("parry_ready", false)) \
 			and tti <= float(caps.get("parry_window", 0.0)):
 		return {"action": "parry", "dir": dir}
-	if bool(caps.get("grounded", false)) and dir != Vector2.ZERO \
-			and dir.dot(Vector2.UP) >= VERTICAL_EXIT_DOT:
-		return {"action": "jump", "dir": dir}
+	# (The old grounded-jump rung lived here, BELOW the dash. It was unreachable in
+	# practice — the dash rung above it accepted the same vertical exits and always
+	# won — so it has moved to the top of the ladder rather than being duplicated.)
 	if dir == Vector2.ZERO:
 		return {"action": "none", "dir": Vector2.ZERO}
 	return {"action": "walk", "dir": dir}
@@ -227,6 +253,14 @@ class Reactions extends RefCounted:
 			return
 		_reveal[id] = now + delay
 		_whiff[id] = roll < p_miss
+
+	## Has this threat already been sighted? Callers ask BEFORE rolling, so the
+	## random draws behind `observe` are spent once per threat rather than once per
+	## frame per threat. Not just thrift: a caller re-rolling every frame would be
+	## drawing from a stream whose length depends on the frame rate, which quietly
+	## makes a bot's behaviour un-reproducible from a seed.
+	func knows(id: int) -> bool:
+		return _reveal.has(id)
 
 	## True once the delay has elapsed and this threat was not rolled as a whiff.
 	func visible(id: int, now: float) -> bool:

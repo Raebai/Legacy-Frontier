@@ -42,6 +42,24 @@ const STEP_TRIGGER := 15.0     # back foot this far behind the hip → step it f
 const STEP_LIFT := 13.0        # swing-foot lift height
 const IDLE_SPEED := 14.0       # below this speed = idle (feet settle, no stepping)
 
+# footstep AUDIO (see Sfx.gd for the mix rationale). The step fires on the real
+# world-locked PLANT below — the same event that drops the dust puff — so the
+# sound is always exactly on the visible footfall and can never drift out of
+# sync the way a separate stepping timer would.
+# UNTESTED GUESSES, all of them: audio can't be judged headless.
+const STEP_SFX_DB := -6.0        # on top of Sfx's TICK class trim — the maker asked for SMALL
+const STEP_SFX_PITCH_VAR := 0.16 # ±16% per step so a run doesn't machine-gun one tone
+const STEP_SFX_DB_VAR := 2.2     # ± dB per step — footfalls are never identical weight
+const STEP_SFX_MIN_GAP := 0.085  # floor between steps; a jittery gait can't stutter-fire
+# LANDING is its own sound, not a pitched-down step. Scaled by how fast you were
+# falling: stepping off a curb barely registers, a real drop lands hard.
+const LAND_SFX_MIN_FALL := 140.0 # px/s of peak descent below which landing is silent
+const LAND_SFX_FULL_FALL := 900.0 # px/s that counts as a full-weight landing
+const LAND_SFX_DB_SOFT := -12.0
+const LAND_SFX_DB_HARD := -1.0
+const LAND_SFX_PITCH_SOFT := 1.12 # a light touch-down is higher/lighter …
+const LAND_SFX_PITCH_HARD := 0.86 # … a heavy one is deeper
+
 # feel
 const MAX_LEAN := 0.5
 const RUN_LEAN := 0.16
@@ -261,6 +279,7 @@ var _swing_from := Vector2.ZERO
 var _swing_to := Vector2.ZERO
 var _foot := [Vector2.ZERO, Vector2.ZERO]     # rendered foot positions
 var _knee := [Vector2.ZERO, Vector2.ZERO]
+var _last_step_sfx := -1.0                   # _clock of the last footstep sound (min-gap guard)
 
 var _cur_ride := RIDE_HEIGHT
 var _lean_cap := MAX_LEAN
@@ -843,6 +862,18 @@ func punch() -> void:
 	var fist: Vector2 = lsh + dir * (UARM_LEN + FARM_LEN)
 	_spawn_wind_streaks(fist + dir * 9.0, 9, dir, "punch")   # wind marks burst IN FRONT of the fist
 	_sfx("melee_swing", -3.0, 0.1, float(w.get("pitch", 1.0)))
+	# THE CLASH. Declared here — at the COMMIT, after the swing has visibly started
+	# but before anything resolves — because that is the only ordering in which two
+	# blows can meet without taxing every punch in the game with the window's worth
+	# of input latency (see MeleeClash's model note).
+	#
+	# Deliberately AFTER the arm kick, the lunge and the whoosh: a clashed swing must
+	# still look like a swing. What it loses is its OUTCOME — `punched` never fires,
+	# so the sandbox's damage/knockback/wall-shove pass never runs — and `on_clash`
+	# above rebounds the arm that just committed, so the fist visibly bounces instead
+	# of completing its arc.
+	if MeleeClash.declare_and_spend(self, dir, melee_reach(), melee_damage()):
+		return
 	# `punched` still fires armed: the sandbox hangs camera shake and the rock-wall
 	# shove off it, and both read correctly for a blade strike too.
 	punched.emit(dir)
@@ -1004,11 +1035,33 @@ func _cast_arm_target(d: Vector2) -> float:
 	return d.angle()
 
 
-## Defensive Sfx dispatch (via /root so spike headless tests without autoloads survive).
+## Defensive Sfx dispatch, so spike headless tests without autoloads survive.
+## Resolved RELATIVE to root rather than as the absolute "/root/Sfx": a `--script`
+## context has no active scene, and an absolute get_node from there errors on
+## every call. Relative-from-root finds the autoload at runtime and quietly
+## returns null in tests.
 func _sfx(key: String, db := 0.0, pvar := 0.06, pitch := 1.0) -> void:
-	var s: Node = get_node_or_null(^"/root/Sfx")
+	# is_inside_tree() FIRST: get_tree() itself errors on a detached node.
+	if not is_inside_tree():
+		return
+	var s: Node = get_tree().root.get_node_or_null(^"Sfx")
 	if s != null and s.has_method(&"play"):
 		s.call(&"play", key, db, pvar, pitch)
+
+
+## One footstep. Called ONLY from the gait's world-locked plant, which already
+## guarantees grounded + moving + not ducking + not dead/dashing/airborne (every
+## one of those regimes returns from _legs before reaching the step branch), so
+## this adds no state checks of its own — only the anti-stutter floor.
+##
+## Extra per-step level jitter on top of Sfx's own: a footstep repeats far more
+## often than any other sound in the game, so it is the one most likely to be
+## heard as "the same sample again".
+func _step_sfx() -> void:
+	if _clock - _last_step_sfx < STEP_SFX_MIN_GAP:
+		return
+	_last_step_sfx = _clock
+	_sfx("step", STEP_SFX_DB + randf_range(-STEP_SFX_DB_VAR, STEP_SFX_DB_VAR), STEP_SFX_PITCH_VAR)
 
 
 func _spawn_puffs(pos: Vector2, count: int, size: float) -> void:
@@ -1164,6 +1217,52 @@ func hit(dir: Vector2, strength: float) -> void:
 		_farm_vel[i] += randf_range(-5.0, 5.0)
 
 
+## CLASH RECOIL — this figure's blow MET another blow instead of landing (see
+## MeleeClash). Preferred over `hit()` by MeleeClash._recoil because a clash is not
+## being hit: nothing got through, so there is no flinch to punish and no i-frame
+## question to ask. What there is, is a swing that has been stopped dead.
+##
+## Everything here is the EXISTING ragdoll machinery, per the standing rig
+## directive — the same torso impulse `hit()` throws, the same limb-velocity
+## rattle — plus the one thing that makes it read as a clash rather than a shove:
+## the striking arm is driven BACKWARD off the axis it committed along, so the
+## fist visibly rebounds instead of completing its arc into empty air.
+##
+## `strength` is the same impulse scale `hit()` takes, so both paths tune together.
+func on_clash(dir: Vector2, strength: float) -> void:
+	if dead or _torso == null:
+		return
+	# The swing is spent: kill the scripted thrust and the weapon drag so the arm
+	# stops committing, and charge the cooldown so a clash cannot be mashed through.
+	_punch_timer = 0.0
+	_drag_hold = 0.0
+	_punch_cd = maxf(_punch_cd, PUNCH_COOLDOWN)
+	_stagger = maxf(_stagger, STAGGER_TIME * 0.6)   # briefer than a real hit — you weren't hurt
+	# Thrown apart laterally, for the same reason hit() flattens: a clash between
+	# fighters at different heights must not launch anyone at the ceiling.
+	var throw: Vector2 = Juice.lateral_knockback(dir * strength)
+	# SET the velocity rather than ADDING an impulse — the one place this path must
+	# differ from hit(), and it is not a style choice. A punch has ALREADY fired
+	# `punch_lunge` (3400) INTO the opponent by the time the clash resolves, which is
+	# most of an order of magnitude more than the clash throw; adding to it left both
+	# fighters still travelling forward and they visibly walked THROUGH each other
+	# instead of bouncing off. MEASURED in tools/clash_capture.gd, not assumed.
+	# Overwriting the horizontal cancels the committed lunge, which is exactly what
+	# "your blow was stopped dead" should do to your momentum. The vertical takes
+	# whichever is more upward so a clash mid-jump does not slam anyone downward.
+	_torso.linear_velocity = Vector2(throw.x, minf(_torso.linear_velocity.y, throw.y))
+	_spawn_wind_streaks(_torso.to_global(SHOULDER_OFF) + dir * 8.0, 8, throw.normalized(), "hit")
+	# THE REBOUND. Shove both arm springs toward the recoil axis — the lead arm was
+	# committed the other way, so this reverses it hard and the far arm follows
+	# loosely, which is what an active ragdoll does when its punch is blocked.
+	var recoil_ang: float = dir.angle()
+	for i in 2:
+		var err: float = wrapf(recoil_ang - _arm_ang[i], -PI, PI)
+		_arm_vel[i] += err * 26.0 + randf_range(-7.0, 7.0)
+		_farm_vel[i] += err * 20.0 + randf_range(-6.0, 6.0)
+		_leg_vel[i] += randf_range(-4.0, 4.0)
+
+
 func kill() -> void:
 	dead = true
 	_torso.collision_mask = WORLD_LAYER
@@ -1261,9 +1360,18 @@ func _physics_process(delta: float) -> void:
 		_peak_fall = maxf(_peak_fall, torso.linear_velocity.y)   # fastest drop → land thud weight
 	if grounded and _was_air and not dead:
 		_spawn_puffs(Vector2((_foot[0].x + _foot[1].x) * 0.5, _last_floor_y), 7, 6.0)   # LANDING dust AT the floor
-		if _peak_fall > 140.0:                                   # real fall, not a step off a curb
-			var impact := clampf(_peak_fall / 900.0, 0.0, 1.0)
-			_sfx("footstep", lerpf(-10.0, -1.0, impact), 0.1, lerpf(0.8, 0.6, impact))   # deeper+louder with speed
+		if _peak_fall > LAND_SFX_MIN_FALL:                       # real fall, not a step off a curb
+			# A dedicated land sample (sub under a thump) instead of the old
+			# pitched-down footstep — a landing is a different physical event
+			# from a walking step and pitching one into the other read as neither.
+			var impact := clampf(_peak_fall / LAND_SFX_FULL_FALL, 0.0, 1.0)
+			_sfx(
+				"land",
+				lerpf(LAND_SFX_DB_SOFT, LAND_SFX_DB_HARD, impact),
+				0.08,
+				lerpf(LAND_SFX_PITCH_SOFT, LAND_SFX_PITCH_HARD, impact)
+			)
+			_last_step_sfx = _clock   # a landing counts as a footfall: don't step on its heels
 		_peak_fall = 0.0
 	_was_air = not grounded
 	if grounded:
@@ -1575,6 +1683,20 @@ func _try_reflect(n: Node, tp: Vector2) -> bool:
 ## midriff connected from further away than the body is wide. Limbs are
 ## deliberately excluded: getting clipped by a flailing arm you did not control
 ## feels arbitrary, so the spine and head are the honest target.
+## WHERE THIS FIGURE ACTUALLY IS. `global_position` on this node is NOT it: the
+## node never moves, the `_torso` RigidBody2D underneath it does, so the node's own
+## transform reports the spawn point for the whole match. Anything reasoning about
+## where two fighters stand relative to each other (MeleeClash) must ask for this
+## instead — see the transform-trap note in MeleeClash._pos_of, which is where a
+## silent `global_position` read made the clash never fire.
+##
+## Deliberately NOT named `head_point`: that key already means "the drawn head" to
+## SpellTargets.aim_point, and quietly answering it here would move where every
+## existing selector aims at this figure. This is the torso — the body's centre.
+func body_origin() -> Vector2:
+	return _torso.global_position if _torso != null else global_position
+
+
 func body_distance(p: Vector2) -> float:
 	if _torso == null:
 		return INF
@@ -1926,7 +2048,7 @@ func _update_legs(torso: RigidBody2D, floor_y: float, grounded: bool, delta: flo
 			if _swing_t >= 1.0:
 				_plant[_swing_foot] = _swing_to
 				_spawn_puffs(_swing_to, 2, 4.0)          # footstep dust
-				_sfx("footstep", -6.0, 0.14)             # quiet tick on each plant (grounded+moving only)
+				_step_sfx()                              # small tick ON the plant (grounded+moving only)
 	elif _duck_t > 0.25:
 		# DUCK-FLOP: the feet slide out along the floor AWAY from the head, so the
 		# body ends fully stretched out prone with loosely-bent legs

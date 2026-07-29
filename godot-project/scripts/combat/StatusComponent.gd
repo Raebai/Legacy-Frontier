@@ -144,7 +144,10 @@ func _deal_self(amount: int) -> void:
 	if owner_e != null and is_instance_valid(owner_e) and owner_e.has_method("take_damage"):
 		# Pass the ailment hue so the DoT tick spawns a coloured damage number + a
 		# glow-pulse in the ailment colour (the "glow w/ tick" read).
-		owner_e.call("take_damage", amount, Color(_last_color.r, _last_color.g, _last_color.b, 1.0))
+		# Adapter: Hero takes take_damage(int), Enemy takes (int, Color). The 2-arg
+		# form on a hero THROWS and aborts the enclosing function, losing the hit and
+		# everything after it. Latent until factions let these point at a hero.
+		SpellTargets.hurt(owner_e, amount, Color(_last_color.r, _last_color.g, _last_color.b, 1.0))
 
 
 ## Lightning hop: nearest OTHER enemy in range takes chain damage + a shock (no
@@ -166,7 +169,7 @@ func _chain_shock() -> void:
 	if best == null:
 		return
 	if best.has_method("take_damage"):
-		best.call("take_damage", SHOCK_CHAIN_DMG, Color(1.0, 0.95, 0.4, 1.0))
+		SpellTargets.hurt(best, SHOCK_CHAIN_DMG, Color(1.0, 0.95, 0.4, 1.0))
 	if best.has_method("apply_status"):
 		best.call("apply_status", LIGHTNING, false)
 	CombatVfx.spawn_burst(

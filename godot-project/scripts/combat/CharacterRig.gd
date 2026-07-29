@@ -5,6 +5,11 @@ extends Node2D
 ## set_equipment/class_preset + hit_frame) is the swap contract.
 
 signal hit_frame
+## Fires the instant the RUN cycle plants a foot — i.e. on the frame the visible
+## body bob bottoms out. Hooked for the footstep sound below; also the right hook
+## for anything else that should land on a footfall (dust puffs, screen wobble)
+## instead of on a separate timer that will drift out of sync with the feet.
+signal foot_planted
 
 ## AIR is the jump/fall/land locomotion state (added at the END so existing
 ## indices are stable). Hero drives it via play(State.AIR) + set_air_phase(...).
@@ -77,7 +82,32 @@ const GROUND_RING_SPIN_SPEED: float = 1.1    # rad/s arc rotation
 ## how much wider than the limb the outline extends (px). The main _draw passes
 ## OUTLINE_COLOR; the aura silhouette + dash ghosts draw outline-less (soft).
 const OUTLINE_COLOR: Color = Color(0.04, 0.04, 0.07, 1.0)   # true dark keyline — bold SF silhouette against any bg
-const OUTLINE_EXTRA: float = 2.0                            # thicker edge so the figure reads as a solid puppet, not a speck
+## Keyline width, as a FRACTION of the limb width rather than a flat +2 px. It used
+## to be an absolute, which was survivable while limbs were 16% of height (5 px at
+## the default) but swamps the now-spindly stroke (a flat +2 on a 2.3 px limb is a
+## keyline nearly as wide as the limb, and the figure turns back into a black blob).
+## Scaling it keeps the exact same read at every rig height AND every stroke weight.
+const OUTLINE_FACTOR: float = 0.62
+## Absolute floor so the keyline never vanishes on a tiny rig at 640x360.
+const OUTLINE_MIN: float = 1.0
+
+## --- STICKMAN PROPORTIONS ---
+## The maker has said twice, flatly: "the characters are not stickmen, I just want to
+## see STICKMEN". These two numbers are why. They were 0.18 (head) and 0.16 (limb),
+## i.e. a head 36% of the figure's height and limbs a sixth of it — bobble-headed and
+## stubby, which reads as a chibi mascot, not a stick figure.
+##
+## The hand-tuned spike rig (scripts/spike/SpikeFigure.gd, the look the maker signed
+## off on) sits at head r ~= 0.094 of height and stroke ~= 0.064: SPINDLY. These are
+## pulled to just above the spike's numbers — a hair bolder, because this rig draws at
+## ~31 px against the spike's ~86 px and has to survive a 640x360 backbuffer.
+##
+## ⚠ Enemy.RIG_HEAD_R_FACTOR MIRRORS HEAD_R_FACTOR and must move with it, or the hit
+## silhouette drifts off the drawing and spells start passing through heads again.
+## The head TOP still lands exactly at -height/2 either way (head_center = -h/2 + r),
+## so nothing that frames off the figure's extents changes.
+const HEAD_R_FACTOR: float = 0.105
+const LIMB_W_FACTOR: float = 0.075
 ## --- Active-ragdoll spring sim: the DRAWN limbs physically lag/swing/flail
 ## toward the procedural pose (_compute_pose is the animation TARGET) instead
 ## of snapping to it, and go limp on death. Stable point-mass springs in LOCAL
@@ -124,13 +154,274 @@ const AIR_LOOSE_FALLING: float = 0.55   # ~halfway to full limp on the way down
 const AIR_LOOSE_RISING: float = 0.42    # slightly tighter ascending (coiled leap)
 const AIR_LOOSE_EASE_SPEED: float = 9.0
 const IMPULSE_EXTREMITY_MULT: float = 2.6  # hands/feet/head whip harder on hits
+## Clash recoil amplitude (see clash_recoil). Louder than the ordinary knockback
+## flop Hero.apply_knockback fires (0.2..0.7 limp, ~680 jolt) because meeting a
+## blow head-on stops the arm dead, where a knockback only shoves the torso.
+## UNTESTED GUESS — tune with MeleeClash's budget, not on its own.
+const CLASH_FLOP: float = 0.62
+const CLASH_FLOP_HOLD: float = 0.20
+const CLASH_LIMB_JOLT: float = 900.0
 const BODY_TRAIL_FACTOR: float = 0.26  # more inertial limb-trail on launch/stop
+## RUN arm-swing frequency. Since the WORLD-LOCKED gait (below) took over the legs
+## this only drives the arm counter-swing and the idle breath; the legs no longer
+## read off it at all. Kept as the public stride-rate knob (tests + tuning).
+const RUN_PHASE_RATE: float = 9.0
+
+## --- WORLD-LOCKED FOOT PLANTS (ported from SpikeFigure._update_legs) ---
+## THE anti-slide. A phase-driven sine gait makes the feet skate along the ground —
+## the figure jogs in place while the body translates, which is exactly the "old
+## stickman" read. Instead a foot is NAILED to a WORLD position and stays there while
+## the body travels over it; when the hip gets STEP_TRIGGER ahead of the rearmost
+## plant, that foot swings through a lifted arc to a new plant STEP_LENGTH ahead.
+## The contact point does not move while it bears weight, so the ground grips.
+##
+## Everything is expressed against the figure's own LEG REACH (height * 0.4, the
+## hip->foot length _compute_pose uses) rather than raw height, so a 1.9x sparring
+## dummy and a 0.6x minion both stride in proportion. The factors reproduce
+## SpikeFigure's hand-tuned absolutes at its own 44 px leg (30 / 15 / 4.5 / 13 px).
+## The absolutes are NOT copied from SpikeFigure, deliberately. The spike stands ~86 px
+## with a 44 px leg and tops out at 300 px/s — 6.8 leg-lengths per second. This rig
+## stands 31 px with a 12.4 px leg and the hero also runs ~180-300 px/s, i.e. ~15 leg-
+## lengths per second: proportionally the game figure sprints twice as hard as the
+## spike ever did. Porting the spike's numbers verbatim made the hip outrun the planted
+## foot by two whole leg-lengths, the IK clamped, and the legs read as dragged stilts.
+## So the SHAPE of the gait is the spike's; the stride is re-derived for this figure.
+const STEP_LENGTH_FACTOR: float = 1.0    # forward plant distance / leg reach
+const STEP_TRIGGER_FACTOR: float = 0.5   # hip-ahead-of-rear-plant before it steps
+const STANCE_FACTOR: float = 0.10        # half stance width at rest
+const STEP_LIFT_FACTOR: float = 0.295    # swing-arc apex height
+## Below this world speed (px/s) the figure is idle: feet stop stepping and ease
+## back under the hips so a standing fighter SETTLES instead of marching on the spot.
+const GAIT_IDLE_SPEED: float = 14.0
+## Swing rate is DERIVED from how often a step is needed (speed / step length) rather
+## than lerped off an absolute speed range. That self-tunes: a 1.9x sparring dummy, a
+## small minion and a sprinting hero all complete the swing in the same FRACTION of
+## their own step interval, so none of them ever has a foot still in the air when the
+## next step is already due. SWING_DUTY > 1 = the foot lands before the next step
+## comes round; the clamps stop a crawl from taking a whole second per step or a blink-
+## speed slide from stepping every frame.
+const SWING_DUTY: float = 1.7
+const SWING_RATE_SLOW: float = 5.0
+const SWING_RATE_FAST: float = 30.0
+## How fast idle feet ease back to the stance position (fraction per frame at 60 fps).
+const IDLE_SETTLE: float = 0.25
+## Body rise over the support leg mid-step. The hips are highest when the swinging
+## foot passes the planted one, so the bounce is a CONSEQUENCE of the stride rather
+## than a sine bolted next to it.
+const STRIDE_BOB_FACTOR: float = 0.05
+## Footstep audio. OFF by default and per-instance: this rig drives every enemy
+## as well as the hero, and a room of eight enemies all ticking would be a
+## cacophony — the owner opts in (see `step_sfx`). Levels are UNTESTED GUESSES;
+## the maker asked for SMALL steps, and Sfx grades `step` at its quietest class.
+const STEP_SFX_DB: float = -6.0
+const STEP_SFX_PITCH_VAR: float = 0.16   # ±16% per step so a run doesn't machine-gun one tone
+const STEP_SFX_DB_VAR: float = 2.2       # ± dB per step — footfalls are never identical weight
+## Above this looseness the figure is ragdolling (hit flail, airborne trail, hold-
+## DOWN flop) and has no feet under it to plant, so no step fires. Deliberately
+## well under AIR_LOOSE_RISING (0.42) so leaving the ground silences steps at once.
+const STEP_SFX_MAX_LOOSE: float = 0.25
 ## Foot-plant IK raycast layer. World/platform solids all sit on physics layer bit 1
 ## (value 1): VersusArena._make_terrace terraces (StaticBody2D default layer 1),
 ## RuinPlatform (default layer 1), BreakablePlatform (collision_layer 5 = bits 1+3),
 ## Rock/IceWall (layer 1) — matching Hero.BLINK_WALL_MASK. Fighter bodies live on
 ## layers 2/4, so a mask-1 downward ray never hits the figure's own body.
 const GROUND_MASK: int = 1
+
+## --- THE FLOATING-CAPSULE BODY (ported from SpikeFigure's RigidBody2D torso) ---
+##
+## THIS is the thing two previous ports left behind, and it is where the spike's
+## whole sense of WEIGHT lives. Everything above (world-locked feet, slack airborne
+## limbs, slimmer proportions) is the spike's SKIN. This is its SKELETON.
+##
+## In `SpikeFigure` the torso is a `RigidBody2D` that does not rest on the floor —
+## it FLOATS on a spring probe above it (`_support`):
+##
+##     f = (ride_height - ground_distance) * RIDE_SPRING + velocity.y * RIDE_DAMP
+##
+## and its rotation is a second spring, a torque toward a lean target whose GAIN is
+## the state machine's real voice: 1.0 planted, 0.09 airborne (so the body tips and
+## tumbles with its own momentum rather than holding a pose), 2.6 through a dash.
+## Two springs, and between them you get: knees that BUCKLE and rebound when you
+## land, a body that pitches into a run and rights itself late, a hit that tips you
+## over instead of nudging a stack of static sticks.
+##
+## PORTED AS HAND-INTEGRATED MATH, NOT AS A PHYSICS BODY — and that is not a
+## compromise, it is the correct reading of what the RigidBody was doing. Strip the
+## collision response (which `Hero`'s `CharacterBody2D` already owns) and the spike's
+## torso is exactly two damped harmonic oscillators. A real `RigidBody2D` here would
+## have to OWN the character's world position — which is precisely the hazard that
+## made a wholesale swap impossible: `SpikeFigure`'s node never moves, the body hangs
+## off a child, and every `to_global` / `get_weapon_tip` / `Enemy.body_distance()` /
+## `SpellTargets` caller in the game reads a node that would stand still while the
+## character walked away. So the springs are integrated by hand, in the rig's OWN
+## transform, and the node keeps tracking the character exactly as before.
+##
+## ⚠ THE OUTPUT IS THE NODE'S OWN `position.y` AND `rotation`, ON PURPOSE.
+## It would have been easier to bend the drawing (a `draw_set_transform`, or an
+## offset baked into `_compute_pose`). That is the trap: `Enemy._silhouette()` builds
+## the hit shape by pushing ANALYTIC head/hip points through `rig.global_transform`,
+## so a drawing that moves without the transform moving is the "spells pass through
+## heads" bug returning by the back door. Driving the transform means the silhouette,
+## `get_weapon_tip()`, `get_lead_hand_global()`, the dash ghosts and the world-locked
+## foot plants ALL follow for free, because every one of them already goes through
+## `to_local` / `to_global` / `global_transform`.
+##
+## And the world-locked feet are what turn a body offset into a real SQUASH: the
+## plants are held in WORLD space, so when the body drops 4 px the feet do not, the
+## hip-to-foot distance shrinks, and `draw_figure`'s 2-bone IK bends the knees out.
+## The compression is a CONSEQUENCE of the body sinking over planted feet — the same
+## way it is in the spike — not a keyframe of a crouch.
+##
+## Spring rates are the spike's own, converted from force/torque to acceleration by
+## dividing out its torso's mass and inertia, so the RESPONSE CURVE is identical:
+##   ride:  RIDE_SPRING 4200 / mass 8      = 525   -> w = 22.9 rad/s, zeta = 0.71
+##   pitch: upright_k 55000 / inertia ~1067 = 51.5 -> w = 7.2 rad/s,  zeta = 0.39
+## Frequency is a TIME property and is deliberately NOT rescaled for this smaller
+## figure — a landing thump reads at ~0.27 s whether the fighter is 86 px or 31 px.
+## AMPLITUDES are scaled by height/SPIKE_HEIGHT_REF, because those are lengths.
+const RIDE_SPRING_K: float = 525.0      # SpikeFigure RIDE_SPRING / torso mass
+const RIDE_DAMP_K: float = 32.5         # SpikeFigure RIDE_DAMP / torso mass
+## ⚠ THE RIDE SPRING IS ONE-SIDED, AND THAT IS WHERE THE BOUNCE COMES FROM.
+##
+## Easy to miss, and missing it is the difference between a landing that thumps and a
+## landing that merely cushions. `SpikeFigure._support` does:
+##
+##     f = clampf(comp * RIDE_SPRING + velocity.y * RIDE_DAMP, 0.0, RIDE_FORCE_MAX)
+##
+## clamped at ZERO on the low end: the probe can PUSH THE BODY UP off its legs, it can
+## never PULL IT DOWN. What pulls it down is gravity, always on (`grav_scale` 2.0).
+##
+## So a landing is not a symmetric damped oscillator at all. It is: compress, the
+## spring fires the body back up, the spring then SWITCHES OFF as the body rises past
+## its rest height, and the body is in genuine free fall until it lands on the spring
+## again. Two or three diminishing hops — which is exactly what a Stick Fight landing
+## looks like, and what a symmetric spring (zeta 0.71 -> 4% overshoot) cannot produce.
+##
+## The steady sag confirms the reading arithmetically: the spike annotates RIDE_HEIGHT
+## as "hip(12) + legs(44)*0.97 + spring sag ~4", and sag = gravity / spring = 1960/525
+## = 3.7 px. That is the same 4 px, derived independently. `_ride` here is measured
+## from the SAGGED rest so a standing figure idles at exactly 0.
+## (literal denominator, not SPIKE_HEIGHT_REF — that constant is declared below.)
+const RIDE_SAG_FACTOR: float = 4.0 / 86.0   # rest compression / figure height
+const PITCH_SPRING_K: float = 51.5      # SpikeFigure upright_k / torso inertia
+const PITCH_DAMP_K: float = 5.6         # SpikeFigure upright_d / torso inertia
+## The spike stands ~86 px (head 8 + torso 26 + legs 44). Every LENGTH ported from it
+## is expressed as a fraction of this so a 31 px fighter, a 1.9x sparring dummy and
+## the 60 px Guardian all squash in proportion instead of by a hardcoded pixel count.
+const SPIKE_HEIGHT_REF: float = 86.0
+## Fraction of the impact speed that becomes downward squash velocity on touchdown.
+##
+## 1.0, i.e. ALL OF IT, and that is the faithful number rather than a bold one. In
+## SpikeFigure the falling `RigidBody2D` arrives at the contact point still travelling
+## at its full descent speed and the ride spring catches every bit of it; nothing
+## bleeds the impact off first. Anything less here is a landing with the weight turned
+## down, which is precisely the note that came back twice.
+##
+## What it produces, checked against the source rather than eyeballed: a 700 px/s fall
+## into a zeta-0.71 spring peaks at (v/w) * 0.49 = 15 px of compression on the spike's
+## 86 px figure — 17% of its height, a deep visible crouch that recovers in ~0.15 s.
+## `_body_scale()` reproduces the same 17% on a 31 px fighter (5.4 px). The clamp below
+## is set with headroom so even a terminal-velocity drop is not flattened by it.
+const LAND_ABSORB: float = 1.0
+## Descent speed (px/s) at/above which a landing is a full-weight slam. Matches
+## SpikeFigure.LAND_SFX_FULL_FALL so the visible squash and the land THUD peak together.
+const LAND_FALL_FULL: float = 900.0
+## Below this descent speed a touchdown is a step off a curb — no squash at all
+## (SpikeFigure.LAND_SFX_MIN_FALL, same reasoning).
+const LAND_FALL_MIN: float = 140.0
+## Ceiling on the support the legs can produce, as an ACCELERATION — the port of
+## SpikeFigure's `RIDE_FORCE_MAX` (120000) over its torso mass (8). The spike bounds
+## the FORCE, not the travel, and that difference matters: a force cap lets an enormous
+## impact compress further, where a travel cap would flatten every big landing to the
+## same depth. There is deliberately no position clamp here for the same reason.
+const RIDE_ACCEL_MAX: float = 15000.0
+## Where the body SITS when fully limp and on the ground — the hold-DOWN ragdoll /
+## death sprawl. Straight from the spike: RIDE_HEIGHT 58.5 -> RIDE_PRONE 11 is a drop
+## of 47.5 px on its ~86 px figure.
+##
+## ⚠ FLAGGED, NOT TUNED. An earlier pass of this port pulled the number back to 0.30
+## by eye, reasoning that CharacterRig's limbs ALSO droop under `_limp` (the spike's do
+## not — its legs stay IK'd to their plants) so the two effects stack and 0.55 would be
+## double-counting. That reasoning may well be right, but it is a JUDGEMENT about the
+## maker's hand-tuned number, and the standing instruction is to port the number and
+## raise the concern rather than quietly correct it. So: 0.552, and if the prone sprawl
+## reads as sinking too far on F5, THIS is the constant, and 0.30 is the tested
+## alternative.
+const PRONE_RIDE_FACTOR: float = 47.5 / 86.0
+## Lean TARGETS per regime, radians (SpikeFigure._support, verbatim).
+const RUN_LEAN: float = 0.16
+const AIR_LEAN: float = 0.68
+const DASH_LEAN: float = 0.62
+const WALL_LEAN: float = 0.12
+const PRONE_LEAN: float = 1.42
+## Lean-spring GAIN per regime. The 0.09 is the important one: airborne, the upright
+## spring is almost switched OFF, so the body keeps whatever rotation the launch or
+## the hit gave it and only slowly rights itself. That is what "loose" looks like.
+const PITCH_GAIN_GROUND: float = 1.0
+const PITCH_GAIN_AIR: float = 0.09
+const PITCH_GAIN_DASH: float = 2.6
+const PITCH_GAIN_WALL: float = 0.55
+const PITCH_GAIN_LIMP: float = 0.22
+## Lean CAPS per regime (SpikeFigure MAX_LEAN and its per-branch overrides). Eased
+## toward, never snapped, so touching down does not jerk the body upright.
+const LEAN_CAP_GROUND: float = 0.5
+const LEAN_CAP_AIR: float = 1.15
+const LEAN_CAP_DASH: float = 1.0
+const LEAN_CAP_WALL: float = 0.4
+const LEAN_CAP_PRONE: float = 1.85
+const LEAN_CAP_EASE: float = 5.0
+## Reference ground speed the lean normalises against — Hero.SPEED. A fighter at full
+## run leans RUN_LEAN; the spike divides by its own move_speed for the same reason.
+const LEAN_REF_SPEED: float = 210.0
+
+## UPRIGHT RECOVERY — untested guesses, all three. `loose` below this counts as
+## "the flop is over"; the body then returns to its stance lean at this rate
+## (rad/s) and its residual spin is bled off so it settles instead of hunting.
+## Turn RATE up if he still looks drunk after a hit; turn it DOWN if knockdowns
+## snap back too eagerly and stop reading as a ragdoll.
+const UPRIGHT_RECOVER_LOOSE: float = 0.35
+const UPRIGHT_RECOVER_RATE: float = 5.0
+const UPRIGHT_SETTLE_DAMP: float = 0.55
+## Above this much residual spin (rad/s) the body is still mid-blow and recovery
+## keeps its hands off. UNTESTED GUESS.
+const UPRIGHT_RECOVER_MAX_SPIN: float = 1.2
+## How much of an `apply_impulse` / `clash_recoil` reaches the BODY rather than only
+## the drawn limbs. This is the other half of "hits go loose": SpikeFigure.hit() throws
+## the whole capsule torso with `apply_central_impulse`, so the figure is shoved at
+## chest height while its feet are still planted, and it TIPS. The old rig only rattled
+## the hands, which is why a hit never read as the character being hit.
+##
+## ⚠ LATERAL ONLY, and that is the spike's own rule rather than a simplification of it.
+## `hit()` routes every blow through `Juice.lateral_knockback` first, whose entire job
+## is to flatten the vertical — the comment there is explicit that a blast at your feet
+## used to launch you straight up. Feeding the vertical component into the ride spring
+## would reintroduce exactly what that helper exists to prevent, so it is dropped here
+## too and only the sideways shove reaches the body.
+##
+## The SCALE is re-derived rather than ported, and there is no honest alternative:
+## `strength` in this rig is a limb-velocity number, the spike's is an impulse into an
+## 8 kg RigidBody2D, and the two share no unit. Set so the knockback flop Hero already
+## fires (~220) leans the body a few degrees and a full clash jolt (900) topples it —
+## the same outcomes the spike produces at its own amplitudes.
+const IMPULSE_TO_SPIN: float = 0.0055
+## Integration sub-step for the body springs, and its ceiling. 1/480 s is comfortably
+## inside the stiff ride spring's stability and accuracy band; the cap bounds the cost
+## of a single long frame (an alt-tab, a level load) to 8 iterations of ~10 float ops.
+## See the ⚠ in _step_body for why this exists at all.
+const BODY_SUBSTEP: float = 1.0 / 480.0
+const BODY_MAX_SUBSTEPS: int = 8
+
+## Master switch for the floating-capsule body springs. ON everywhere by default —
+## this is the rig, not an effect. It exists for two reasons: the A/B capture
+## (tools/rig_ragdoll_capture.gd renders both columns through this SAME code path, so
+## a before/after is a real comparison rather than a reconstruction), and as a kill
+## switch if a particular figure ever needs to be nailed rigidly upright. Turning it
+## off zeroes the springs and leaves the transform exactly where the owner put it.
+@export var body_springs: bool = true
+
+## Opt in to gait-driven footstep audio for THIS figure. Off by default because
+## the same rig drives every enemy. The `foot_planted` signal fires either way.
+@export var step_sfx: bool = false
 
 @export var limb_color: Color = Color(0.55, 0.75, 1.0, 1.0)
 ## Moderate size bump (was 26) so the fighter reads as a bold puppet, not a speck.
@@ -147,40 +438,78 @@ var aura_tier: int = 1
 var state: State = State.IDLE
 ## slot ("head"/"body"/"feet"/"weapon") -> kind id ("" clears).
 var equipment: Dictionary = {}
-## slot -> Texture2D pixel-art overlay. When a set_equipment kind has a matching
-## piece in EQUIP_TEX, the TEXTURE supersedes the procedural draw for that slot
-## (drawn at the head/hand/body anchor, tracking the pose + facing flip). This is
-## how PixelLab-generated gear "customises the stick figure" WITHOUT replacing it.
-var equipment_tex: Dictionary = {}
-## Equipment-kind -> pixel-art overlay path (PixelLab-generated, see
-## python-tools/pixellab_gen.py). A kind with no entry falls back to the procedural
-## piece in draw_figure, so partial coverage is fine.
-const EQUIP_TEX: Dictionary = {
-	"hat": "res://assets/sprites/equipment/hat_wizard.png",
-	"hood": "res://assets/sprites/equipment/hood.png",
-	"staff": "res://assets/sprites/equipment/staff.png",
-	"sword": "res://assets/sprites/equipment/sword.png",
-	"hammer": "res://assets/sprites/equipment/hammer.png",
-	"scythe": "res://assets/sprites/equipment/scythe.png",
-	"orb": "res://assets/sprites/equipment/orb.png",
-	"staff_ice": "res://assets/sprites/equipment/staff_ice.png",
-	"staff_storm": "res://assets/sprites/equipment/staff_storm.png",
-	"staff_holy": "res://assets/sprites/equipment/staff_holy.png",
-	"club": "res://assets/sprites/equipment/club.png",
-	"spear": "res://assets/sprites/equipment/spear.png",
-	"dagger": "res://assets/sprites/equipment/dagger.png",
-	"bomb": "res://assets/sprites/equipment/bomb.png",
-	"crown": "res://assets/sprites/equipment/crown.png",
-	"robe": "res://assets/sprites/equipment/robe.png",
-	"helmet": "res://assets/sprites/equipment/helmet.png",
-	"cape": "res://assets/sprites/equipment/cape.png",
-	"armor": "res://assets/sprites/equipment/armor.png",
-	"greatsword": "res://assets/sprites/equipment/greatsword.png",
+
+## Every gear kind the rig can draw. This USED to be EQUIP_TEX — a kind -> PixelLab
+## PNG map whose textures were blitted ON TOP of the finished stick figure. That is
+## gone (maker: "remove the clothing … replace the gear, like replace the torso or
+## head etc., not be on top of them"): a pixel-art sprite pasted over a flat-vector
+## stickman reads as a sticker on a character rather than as the character, and at
+## 640x360 the detailed pieces collapsed into dark smears anyway — the same judgement
+## SpikeFigure reached from renders and wrote up above its own procedural weapons.
+##
+## Gear is now drawn PROCEDURALLY in the rig's own line-art idiom, and — for the head
+## and torso — INSTEAD OF the default part rather than over it (see _draw_head /
+## _draw_torso). A helmet IS the head; armour IS the torso. Held weapons stay props,
+## because a sword is not a body part. STICKS STAY STICKS: every piece is a bold flat
+## fill in the figure's own colour with the same dark keyline and the same stroke
+## weights, so the silhouette is a stickman WEARING gear.
+##
+## Kept as a flat registry (not a path map) because the loadout UI, the enemy
+## archetype table and GearAbilities all need to agree on which kinds exist.
+const GEAR_KINDS: Array[String] = [
+	# head — each REPLACES the head circle, at head-circle scale
+	"hat", "hood", "helmet", "crown",
+	# body — each REPLACES the torso segment
+	"robe", "armor",
+	# held weapons
+	"staff", "staff_ice", "staff_storm", "staff_holy", "orb",
+	"sword", "greatsword", "dagger", "hammer", "scythe", "spear", "club", "bomb",
+]
+## MASTER CLOTHING SWITCH. False = helmets / hoods / hats / crowns / robes / armour /
+## sandals are NOT DRAWN AT ALL, and every figure is a plain stick figure. Default
+## false on the maker's twice-repeated instruction ("the characters are not stickmen,
+## I just want to see STICKMEN" + the earlier "remove the clothing"), and because the
+## whole point of the substitution scheme above — gear that REPLACES a body part — is
+## that it changes the silhouette, which is exactly what stops it reading as a stick
+## figure. HELD WEAPONS are deliberately NOT covered by this flag: a stickman with a
+## sword is still a stickman.
+##
+## Static so the flag is a property of the drawing, not of any one instance — the
+## rig, RigGhost's afterimages and the aura silhouette all go through draw_figure and
+## must never disagree about what the character looks like. Flip it to true (from a
+## capture tool, or permanently) to get the armoured look back; nothing else changes.
+static var draw_clothing: bool = false
+## Head kinds that BECOME the head (the default head circle is suppressed for them).
+const HEAD_GEAR: Array[String] = ["hat", "hood", "helmet", "crown"]
+## Body kinds that BECOME the torso (the default spine stroke is suppressed).
+const TORSO_GEAR: Array[String] = ["robe", "armor"]
+## Element tints for the staff variants' crystal — the ONE spot of non-body colour a
+## piece is allowed, because it is the gameplay read (your staff sets your element).
+const STAFF_GEM_TINT: Dictionary = {
+	"staff_ice": Color(0.55, 0.9, 1.0),
+	"staff_storm": Color(1.0, 0.92, 0.4),
+	"staff_holy": Color(1.0, 0.97, 0.8),
 }
 ## PixelLab magic-circle emblem for the ground aura (tier >= 3), tinted per element.
 const AURA_CIRCLE_PATH: String = "res://assets/sprites/fx/magic_circle.png"
 
 var _phase: float = 0.0
+## --- world-locked gait state (see the STEP_* constants) ---
+## WORLD-space plant positions, one per foot. Held still while the foot bears
+## weight; that immobility IS the anti-slide.
+var _plant_w: Array[Vector2] = [Vector2.ZERO, Vector2.ZERO]
+## Seeded false so the first grounded frame plants the feet under wherever the body
+## actually is, instead of springing them in from a stale world position.
+var _gait_ready: bool = false
+var _swing_foot: int = 0
+var _swing_t: float = 1.0                  # 1.0 = both feet planted
+var _swing_from: Vector2 = Vector2.ZERO
+var _swing_to: Vector2 = Vector2.ZERO
+## Previous frame's world x, for deriving travel speed WITHOUT requiring the owner to
+## call set_body_velocity — Boss and the capture rigs don't, and the gait must still work.
+var _prev_gx: float = 0.0
+var _prev_gx_valid: bool = false
+var _gait_speed: float = 0.0
 var _one_shot_active: bool = false
 var _one_shot_time: float = 0.0
 var _one_shot_duration: float = 0.0
@@ -261,8 +590,65 @@ var aim_arm: bool = false
 var _hand_fire: float = 0.0
 var _hand_fire_element: int = -1
 
+## --- floating-capsule body state (see the FLOATING-CAPSULE BODY block) ---
+## Vertical displacement of the body from its rest height, in LOCAL px, POSITIVE =
+## sunk/compressed. Written out to the node's own `position.y` each frame.
+var _ride: float = 0.0
+var _ride_vel: float = 0.0
+## Body lean in radians, world space. Written out to the node's own `rotation`.
+var _pitch: float = 0.0
+var _pitch_vel: float = 0.0
+## Eased lean clamp — ported from SpikeFigure._lean_cap. Eased rather than switched
+## so leaving a loose regime (landing, ending a dash) does not snap the body upright.
+var _lean_cap: float = LEAN_CAP_GROUND
+## What this rig last WROTE into the node transform, so the owner's own base offset
+## is recoverable. Player.gd and NPC.gd set `_rig.position.y = -height * 0.5` once in
+## _ready to stand their hub figures on the node origin; subtracting what we applied
+## recovers that base instead of fighting it. (Both write before the first advance(),
+## when the applied offset is still 0, so the base is read correctly.)
+var _applied_ride: float = 0.0
+## Previous frame's UN-SQUASHED world y + validity, for deriving fall speed without
+## requiring the owner to feed velocity — Enemy, Boss and every capture harness drive
+## the rig without ever calling set_grounded/set_body_velocity, and a landing must
+## still land. Mirrors the _prev_gx idiom the gait already uses.
+var _prev_gy: float = 0.0
+var _prev_gy_valid: bool = false
+var _fall_speed: float = 0.0
+## Fastest descent seen during the current airtime — the landing squash scales on it,
+## exactly as SpikeFigure._peak_fall scales its land thud.
+var _peak_fall: float = 0.0
+## Airborne last frame, for edge-detecting takeoff and touchdown.
+var _was_airborne: bool = false
+## World y of the floor under the figure this frame (INF = none found). The WORLD
+## twin of _ground_local_y: once the body can PITCH, a single local y is no longer a
+## horizontal floor line, so anything clamping a limb to the ground has to go through
+## _local_floor_y(x) instead. Kept alongside rather than replacing it because the
+## local value is still the honest answer for a point directly under the origin.
+var _ground_world_y: float = INF
 
-func _process(delta: float) -> void:
+
+## ⚠ THE RIG TICKS ON PHYSICS, NOT ON RENDER — and this line moved for a measured
+## reason, not a stylistic one.
+##
+## It used to be `_process`. That was harmless while the rig was a pure poser, and
+## became a real bug the moment the body springs landed, because the springs measure
+## the CHARACTER'S OWN MOTION and the character moves in `_physics_process`:
+##
+##   * UNDERSAMPLED IMPACT. Fall speed is derived from the node's world travel. Sampled
+##     off-cadence from the body that produces it, a hero touching down at 900 px/s was
+##     measured at 604 — the landing arrived a third lighter than the fall that caused
+##     it. MEASURED in a probe against a real Hero in VersusArena, not reasoned about.
+##   * A LOST PEAK. The squash is a ~10-physics-frame event. Whenever a render frame
+##     spanned several physics ticks, the whole compression happened between two
+##     samples and the deepest part of it was never drawn at all. In-game the landing
+##     came out at 1.75 px where the isolated rig produced 5.4.
+##
+## SpikeFigure drives its torso from `_physics_process` for exactly this reason. On a
+## fixed 60 Hz tick the springs are also deterministic, so the feel no longer depends on
+## the player's monitor — which matters more than smoothness here, because everything
+## the rig is drawn RELATIVE to (the hero's position, the world-locked plants) is
+## already on the physics clock.
+func _physics_process(delta: float) -> void:
 	advance(delta)
 
 
@@ -300,9 +686,416 @@ func advance(delta: float) -> void:
 		if _one_shot_time >= _one_shot_duration:
 			_one_shot_active = false
 			state = State.IDLE
-	_step_sim(delta)
+	# Ground probe FIRST: both the gait (where to plant) and the sim's foot clamp read
+	# the floor line, so it has to be this frame's, not last frame's.
 	_update_ground_probe()
+	# Then the BODY, then the LIMBS — in that order and not the other way round.
+	# The body springs move the node's own transform, and the world-locked foot plants
+	# are pulled back through `to_local`, so the limbs must be solved AFTER the body has
+	# settled this frame or the knees would buckle one frame late (which reads as a
+	# floaty landing rather than a heavy one).
+	_track_body_motion(delta)
+	_update_gait(delta)
+	_step_body(delta)
+	_apply_body_transform()
+	_step_sim(delta)
 	queue_redraw()
+
+
+## Derive this frame's true vertical motion and edge-detect takeoff / touchdown.
+##
+## Reads the NODE's own world travel rather than a fed velocity, on purpose: `Enemy`
+## and `Boss` never call `set_grounded`, most enemy states never call
+## `set_body_velocity`, and every capture harness drives the rig by moving it. The
+## gait already derives horizontal speed this way for exactly the same reason.
+##
+## The rig's OWN squash is subtracted out before measuring, or the ride spring would
+## read its own oscillation back as body motion and drive itself.
+func _track_body_motion(delta: float) -> void:
+	if delta <= 0.0:
+		return
+	var gy: float = global_position.y - _applied_ride
+	if _prev_gy_valid:
+		var raw: float = (gy - _prev_gy) / delta
+		# Same teleport guard the gait uses: a blink must not read as a 20,000 px/s fall.
+		_fall_speed = raw if absf(raw) < 4000.0 else 0.0
+	_prev_gy = gy
+	_prev_gy_valid = true
+
+	# "Airborne" is whatever the owner tells us, if it tells us anything. Hero drives
+	# both; Enemy leaves _grounded true and never plays AIR, so its fighters simply
+	# never take off and the landing path never fires for them — correct, and free.
+	var airborne: bool = state == State.AIR or not _grounded
+	if airborne:
+		# Take the OWNER'S fed velocity when there is one, and the derived travel
+		# otherwise. Both are needed: `move_and_slide` clips the node's motion on the
+		# contact frame, so travel alone under-reports the very impact being measured;
+		# and Enemy/Boss/capture rigs never feed velocity at all, so the fed value alone
+		# would leave them landing weightless. `maxf` of the two is right because
+		# `_body_vel` rests at ZERO for the owners that do not feed it.
+		_peak_fall = maxf(_peak_fall, maxf(_fall_speed, _body_vel.y))   # +y is down
+	if airborne and not _was_airborne:
+		# TAKEOFF. Nothing is injected, deliberately: SpikeFigure sets JUMP_CROUCH to
+		# 0.0 ("Stick Fight jumps fire immediately") and gates its ride spring OFF for
+		# the whole `_jump_lock` window, so leaving the ground neither crouches nor
+		# stretches the body there. An earlier pass of this port added an upward yank
+		# because it looked good; it is not in the source, so it is gone. All that
+		# happens on takeoff is that the airtime measurement starts.
+		_peak_fall = 0.0
+	elif not airborne and _was_airborne:
+		# TOUCHDOWN — inject the impact as downward ride velocity and let the spring
+		# do the rest: compress, rebound, settle. The knees buckle because the feet are
+		# world-locked and the hips have just dropped toward them.
+		var impact: float = clampf(_peak_fall, 0.0, LAND_FALL_FULL)
+		if impact > LAND_FALL_MIN:
+			_ride_vel += impact * LAND_ABSORB * _body_scale()
+		_peak_fall = 0.0
+	_was_airborne = airborne
+
+
+## Length scale for everything ported from the spike: it hand-tuned its amplitudes
+## against an ~86 px figure, and this rig draws fighters from 31 px to the Guardian's
+## 60. Frequencies are NOT scaled (see the constants block) — only lengths.
+func _body_scale() -> float:
+	return height / SPIKE_HEIGHT_REF
+
+
+## Integrate the two body springs — the port of SpikeFigure._support().
+##
+## RIDE: a damped harmonic oscillator toward a rest height. Nothing drives it in
+## steady state; it only ever has energy because a landing, a takeoff or a hit put
+## some in. That is why it reads as weight rather than as a bob.
+##
+## PITCH: a torque spring toward a per-regime lean target, whose GAIN is the whole
+## point — near-zero in the air so the body tips with its momentum, hard through a
+## dash so the burst is a committed shape, slack when limp so a hit topples you.
+func _step_body(delta: float) -> void:
+	if not body_springs:
+		# Kill switch / the capture's BEFORE column. Zeroed rather than merely skipped,
+		# so _apply_body_transform hands the node straight back to its owner.
+		_reset_body_springs()
+		return
+	if delta <= 0.0:
+		return
+	var loose: float = maxf(_limp, _air_loose)
+	var airborne: bool = state == State.AIR or not _grounded
+	var facing: float = 1.0 if scale.x >= 0.0 else -1.0
+
+	# ---- ride target ----
+	# Rest is 0. The one thing that MOVES it is going limp on the ground: the
+	# hold-DOWN ragdoll / death sprawl drops the body toward the floor, which is
+	# SpikeFigure's RIDE_HEIGHT -> RIDE_PRONE collapse.
+	var ride_target: float = 0.0
+	if _grounded and not airborne:
+		ride_target = PRONE_RIDE_FACTOR * height * clampf(_limp, 0.0, 1.0)
+	# Frozen (hard CC): rooted under the ice — hold the body still rather than letting
+	# it keep swaying, but keep the spring live so the shatter still knocks it.
+	if _frozen:
+		ride_target = 0.0
+	# ⚠ SUB-STEPPED, AND IT IS NOT AN OPTIMISATION DETAIL — IT IS THE LANDING.
+	#
+	# The ride spring is STIFF: w = 22.9 rad/s and a damping coefficient of 32.5, so at
+	# a 60 Hz frame the damping term alone is 32.5/60 = 0.54 of the velocity per step.
+	# Explicit Euler at that rate does not merely lose accuracy, it eats the effect: a
+	# 700 px/s landing that should compress ~17% of the figure's height came out at 8%,
+	# because the first frame threw away more than half the impact velocity before it
+	# had moved the body anywhere. MEASURED — that discrepancy is what sent this back
+	# for a second pass, and it would have shipped as "the landing still feels light".
+	#
+	# It also makes the feel FRAME-RATE INDEPENDENT, which matters beyond correctness:
+	# without it the same jump lands heavier at 30 fps than at 144 fps, and the maker
+	# would be tuning against their own monitor.
+	var steps: int = clampi(int(ceil(delta / BODY_SUBSTEP)), 1, BODY_MAX_SUBSTEPS)
+	var sdt: float = delta / float(steps)
+	# ONE-SIDED spring + constant weight — see the ⚠ on RIDE_SAG_FACTOR. `sag` is the
+	# rest compression that exactly balances the weight, so a standing figure idles at
+	# _ride == 0 while the maths underneath stays the spike's. The `maxf(..., 0.0)` is
+	# the asymmetry: the moment the body rises past where the legs can push, the support
+	# vanishes and it falls back onto the spring under its own weight.
+	var sag: float = RIDE_SAG_FACTOR * height
+	var weight: float = RIDE_SPRING_K * sag
+	# The clamp is on the SUPPORT, exactly as SpikeFigure clamps its ride force to
+	# RIDE_FORCE_MAX — bounding what the legs can push with, never bounding how far the
+	# body is allowed to travel. A travel clamp would flatten every heavy landing to the
+	# same depth, which is the one thing a weight system must not do.
+	for _s: int in steps:
+		var support: float = clampf(
+			RIDE_SPRING_K * (_ride - ride_target + sag) + RIDE_DAMP_K * _ride_vel,
+			0.0, RIDE_ACCEL_MAX
+		)
+		_ride_vel += (weight - support) * sdt
+		_ride += _ride_vel * sdt
+
+	# ---- lean target + gain + cap, by regime (SpikeFigure._support's branch chain) ----
+	var vx_n: float = clampf(_gait_speed / LEAN_REF_SPEED, -1.0, 1.0)
+	var lean: float = 0.0
+	var gain: float = PITCH_GAIN_GROUND
+	var cap: float = LEAN_CAP_GROUND
+	if _frozen:
+		gain = PITCH_GAIN_GROUND
+		cap = 0.12                      # rooted: barely allowed to lean at all
+	elif state == State.DASH:
+		# The ONE committed body shape in the whole chain. Everything else here is
+		# reactive; a dash has to read as DRIVEN or the afterimages are five copies of
+		# a standing man. Still a spring TARGET, so hits and terrain keep fighting it.
+		#
+		# Leans off the dash DIRECTION, not the facing, because SpikeFigure does
+		# (`_dash_dir.x * DASH_LEAN`): a dash straight up must not pitch the body over.
+		# Falls back to facing for any owner that does not feed velocity.
+		var ddir: Vector2 = _body_vel.normalized()
+		lean = (ddir.x if ddir != Vector2.ZERO else facing) * DASH_LEAN
+		gain = PITCH_GAIN_DASH
+		cap = LEAN_CAP_DASH
+	elif state == State.WALL_SLIDE:
+		# Clinging: firm uprighting, tight cap, a slight lean into the wall. The spike
+		# learned the hard way that letting the body tip here pulls the hip out of
+		# wall-probe range and drops the grip.
+		lean = -facing * WALL_LEAN
+		gain = PITCH_GAIN_WALL
+		cap = LEAN_CAP_WALL
+	elif airborne:
+		# THE LOOSE ONE. Barely uprighted, wide cap: the body tips with its momentum
+		# and rights itself only slowly, like a ragdoll that happens to land feet first.
+		lean = vx_n * AIR_LEAN
+		gain = PITCH_GAIN_AIR
+		cap = LEAN_CAP_AIR
+	elif loose > 0.35:
+		# Limp on the ground — the duck-flop / knocked-down sprawl. The lean target
+		# itself rotates the body down flat, and the cap opens to let it get there.
+		lean = facing * PRONE_LEAN * loose
+		gain = PITCH_GAIN_LIMP
+		cap = LEAN_CAP_GROUND + (LEAN_CAP_PRONE - LEAN_CAP_GROUND) * loose
+	else:
+		# Planted. Lean with the run, and lean HARDER when you are being held back:
+		# input that is not turning into motion (walking into a wall, shoving through
+		# a body) shows as a strain. `_body_vel` is the INTENDED velocity the owner
+		# fed us; `_gait_speed` is what the world actually granted. The difference is
+		# the resistance. Zero for any owner that never feeds velocity.
+		lean = vx_n * RUN_LEAN
+		if _body_vel != Vector2.ZERO:
+			var resist: float = clampf((_body_vel.x - _gait_speed) / LEAN_REF_SPEED, -1.0, 1.0)
+			lean += resist * RUN_LEAN * 1.6
+	# (An earlier pass added a "fold forward on landing" term here, tipping the body into
+	# its own arrival. It read well and it is not in SpikeFigure — its landing lean is
+	# just the ordinary velocity lean, with `_lean_cap` easing so touching down does not
+	# snap. Removed rather than kept: differences from the source are regressions.)
+
+	# Same sub-stepping, same reason (the dash gain of 2.6 pushes the pitch spring into
+	# the same stiffness band the ride spring lives in permanently).
+	for _s: int in steps:
+		var err: float = wrapf(lean - _pitch, -PI, PI)
+		_pitch_vel += (PITCH_SPRING_K * err - PITCH_DAMP_K * _pitch_vel) * gain * sdt
+		_pitch += _pitch_vel * sdt
+	# UPRIGHT RECOVERY. Once the body is planted and the looseness has drained, the
+	# pose belongs to the stance again — but the pitch spring alone takes a long time
+	# to get there, because the branch that tipped him over runs at PITCH_GAIN_LIMP
+	# (0.22, deliberately weak so a knockdown *sprawls* instead of snapping back).
+	# The result the maker reported is a figure that never quite stands up straight
+	# after its first hit. Recovery is therefore its own term rather than a bigger
+	# limp gain: raising that gain would stiffen the sprawl itself, which is the one
+	# thing the ragdoll is for.
+	# Gated on residual SPIN as well as looseness. Without the spin test this term
+	# cancelled a blow outright — a hit imparts pitch velocity before `_limp` has
+	# eased up, so recovery would haul the body upright on the very frame it was
+	# supposed to be knocked over. The tilt is allowed to happen and to ring out;
+	# recovery only owns the tail.
+	if state != State.AIR and loose <= UPRIGHT_RECOVER_LOOSE 			and absf(_pitch_vel) < UPRIGHT_RECOVER_MAX_SPIN:
+		_pitch = move_toward(_pitch, lean, UPRIGHT_RECOVER_RATE * delta)
+		if absf(_pitch - lean) < 0.004:
+			_pitch_vel *= UPRIGHT_SETTLE_DAMP
+	_lean_cap = move_toward(_lean_cap, cap, LEAN_CAP_EASE * delta)
+	if absf(_pitch) > _lean_cap:
+		_pitch = clampf(_pitch, -_lean_cap, _lean_cap)
+		_pitch_vel = 0.0
+	if not (is_finite(_ride) and is_finite(_pitch)):
+		_reset_body_springs()
+	# (An earlier pass also fed the ride velocity into the limb sim as an inertial drag.
+	# Removed: SpikeFigure has no such coupling, and it does not need one — its limbs are
+	# IK'd off the torso body, so they follow it for free. The same is true here once the
+	# springs drive the NODE transform: the limb sim works in local space, so the whole
+	# skeleton travels with the body automatically and an extra nudge is double-counting.)
+
+
+## Push this frame's body springs out into the node's own transform. See the ⚠ in the
+## FLOATING-CAPSULE BODY block for why it has to be the transform and not the drawing.
+##
+## `position.y` is written as base + ride, where the base is recovered by subtracting
+## what we applied last frame — so an owner that sets its own rig offset (the hub's
+## Player.gd / NPC.gd) keeps it. `rotation` is owned outright: nothing else in the
+## codebase writes it (set_facing owns scale.x, and only scale.x).
+func _apply_body_transform() -> void:
+	var base_y: float = position.y - _applied_ride
+	position.y = base_y + _ride
+	_applied_ride = _ride
+	rotation = _pitch
+
+
+## Drop all body-spring energy and return to a clean upright rest. Used as the NaN
+## backstop and by owners that teleport a figure (so it does not arrive mid-topple).
+func _reset_body_springs() -> void:
+	_ride = 0.0
+	_ride_vel = 0.0
+	_pitch = 0.0
+	_pitch_vel = 0.0
+	_lean_cap = LEAN_CAP_GROUND
+	_peak_fall = 0.0
+
+
+## LOCAL y of the world floor directly beneath the LOCAL x given.
+##
+## Exists because the body can now PITCH: once the node is rotated, "the floor" is no
+## longer a constant local y, and clamping a foot to one would let a leaning figure
+## push a foot through the ground on one side and hover it on the other. Round-trips
+## through the real transform, so it is exact under rotation, ride offset AND the
+## facing flip. INF when no ground was found (airborne / headless / off-tree), which
+## every caller already treats as "do not clamp".
+func _local_floor_y(local_x: float) -> float:
+	if not is_finite(_ground_world_y):
+		return INF
+	return to_local(Vector2(to_global(Vector2(local_x, 0.0)).x, _ground_world_y)).y
+
+
+## Current body-spring squash in local px (positive = compressed). Public so the
+## owner can keep anything it parents SEPARATELY from the rig — notably Enemy's
+## hurtbox Area2D — locked to the drawn body. See Enemy._sync_body_offset.
+func body_ride() -> float:
+	return _ride
+
+
+## Current body lean in radians (world space). Public for the same reason.
+func body_pitch() -> float:
+	return _pitch
+
+
+## Advance the WORLD-LOCKED gait: hold each planted foot still in world space while
+## the body travels over it, and swing the rearmost foot forward when the hip has
+## outrun it. This is the port of SpikeFigure._update_legs' grounded branch, and it
+## is the single biggest reason the spike rig reads as PLANTED where the phase-driven
+## one reads as skating.
+##
+## Runs in WORLD space on purpose. The plants have to be independent of the node
+## (which is translating, and flips scale.x on a turn); _compute_pose converts them
+## back through to_local, which mirrors them into the facing frame for free.
+##
+## `foot_planted` now fires on the REAL plant event — the frame a foot actually
+## touches down — rather than on a sine crossing that merely correlated with it. The
+## signal contract is unchanged, but the tick can no longer drift from the visible
+## footfall, and it naturally scales with travel speed instead of a fixed cadence.
+func _update_gait(delta: float) -> void:
+	if delta <= 0.0:
+		return
+	# Travel speed from the node's OWN world motion, not set_body_velocity: Boss, the
+	# hub NPC rigs and the capture harnesses never feed velocity, and they must still
+	# stride correctly. One frame of history, guarded so a teleport/blink can't be read
+	# as a 20,000 px/s sprint.
+	var gx: float = global_position.x
+	if _prev_gx_valid:
+		var raw: float = (gx - _prev_gx) / delta
+		if absf(raw) < 4000.0:
+			_gait_speed = raw
+		else:
+			_gait_speed = 0.0
+			_gait_ready = false   # blink/teleport: re-seed the plants at the new spot
+	_prev_gx = gx
+	_prev_gx_valid = true
+
+	var leg: float = height * 0.4          # matches _compute_pose's leg_len
+	var stance: float = leg * STANCE_FACTOR
+	# Airborne, ragdolling or frozen: no gait. Drop readiness so the next grounded
+	# frame re-seeds the plants under the body (a landing must never drag the feet
+	# back to where the jump started).
+	if not _grounded or state == State.AIR or _frozen \
+			or maxf(_limp, _air_loose) > STEP_SFX_MAX_LOOSE:
+		_gait_ready = false
+		_swing_t = 1.0
+		return
+
+	# Floor line in world y. No probe hit (off-tree/headless) -> the figure's own
+	# standing foot line, so a detached test rig still produces a sane stride.
+	#
+	# ⚠ The fallback measures from the UN-SQUASHED body (global y minus the ride
+	# spring's current compression). If the plants sank with the squash there would be
+	# no squash: the feet would follow the hips down and the knees would never bend.
+	# The whole landing read depends on the ground staying where the ground is.
+	var floor_w: float = _ground_world_y if is_finite(_ground_world_y) \
+			else (global_position.y - _ride) + height * 0.5
+	if not _gait_ready:
+		_plant_w[0] = Vector2(gx + stance, floor_w)
+		_plant_w[1] = Vector2(gx - stance, floor_w)
+		_swing_t = 1.0
+		_gait_ready = true
+		return
+
+	var moving: bool = absf(_gait_speed) > GAIT_IDLE_SPEED
+	var step_len: float = leg * STEP_LENGTH_FACTOR
+	if moving:
+		var walk_dir: float = signf(_gait_speed)
+		if _swing_t >= 1.0:
+			# Step whichever foot is furthest BEHIND along the direction of travel.
+			var behind: int = 0 if (_plant_w[0].x - _plant_w[1].x) * walk_dir <= 0.0 else 1
+			if (gx - _plant_w[behind].x) * walk_dir > leg * STEP_TRIGGER_FACTOR:
+				_swing_foot = behind
+				_swing_from = _plant_w[behind]
+				_swing_to = Vector2(gx + walk_dir * step_len, floor_w)
+				_swing_t = 0.0
+		else:
+			# Complete the swing in ~1/SWING_DUTY of the interval between steps at this
+			# speed, so the foot is always down before the next one is due.
+			var rate: float = clampf(
+				absf(_gait_speed) / maxf(step_len, 0.001) * SWING_DUTY,
+				SWING_RATE_SLOW, SWING_RATE_FAST
+			)
+			_swing_t += delta * rate
+			if _swing_t >= 1.0:
+				_swing_t = 1.0
+				_plant_w[_swing_foot] = _swing_to
+				foot_planted.emit()
+				if step_sfx:
+					_play_step_sfx()
+	else:
+		# Idle: stop stepping and let the feet ease back under the hips, so a standing
+		# fighter settles into a clean stance instead of marching on the spot.
+		_swing_t = 1.0
+		var ease: float = clampf(IDLE_SETTLE * delta * 60.0, 0.0, 1.0)
+		_plant_w[0] = _plant_w[0].lerp(Vector2(gx + stance, floor_w), ease)
+		_plant_w[1] = _plant_w[1].lerp(Vector2(gx - stance, floor_w), ease)
+
+
+## This frame's WORLD foot position for index `i`: the held plant, or the lifted arc
+## if this is the swinging foot. Pure read of the gait state — safe to call from
+## _compute_pose (which must stay side-effect free; the ghost + aura call it too).
+func _gait_foot_world(i: int) -> Vector2:
+	if i == _swing_foot and _swing_t < 1.0:
+		var leg: float = height * 0.4
+		return Vector2(
+			lerpf(_swing_from.x, _swing_to.x, _swing_t),
+			lerpf(_swing_from.y, _swing_to.y, _swing_t)
+					- sin(_swing_t * PI) * leg * STEP_LIFT_FACTOR
+		)
+	return _plant_w[i]
+
+
+## Extra per-step level jitter on top of Sfx's own: a footstep repeats far more
+## often than any other sound in the game, so it is the one most likely to be
+## heard as "the same sample again".
+##
+## Sfx is resolved through the tree, and RELATIVE to root rather than as the
+## absolute "/root/Sfx": a `--script` test context has no active scene, and an
+## absolute get_node from there errors on every single call. Relative-from-root
+## resolves the autoload at runtime and quietly returns null in tests.
+func _play_step_sfx() -> void:
+	# is_inside_tree() FIRST: get_tree() itself errors on a detached node, which a
+	# --script test harness produces.
+	if not is_inside_tree():
+		return
+	var sfx: Node = get_tree().root.get_node_or_null(^"Sfx")
+	if sfx != null and sfx.has_method(&"play"):
+		sfx.call(
+			&"play",
+			"step",
+			STEP_SFX_DB + randf_range(-STEP_SFX_DB_VAR, STEP_SFX_DB_VAR),
+			STEP_SFX_PITCH_VAR
+		)
 
 
 ## Step the active-ragdoll spring sim toward the current animation target pose.
@@ -365,7 +1158,12 @@ func _step_sim(delta: float) -> void:
 		# limbs settle ON the floor instead of sinking below the collision box. Only
 		# grounded — a mid-air knockback ragdoll still flails freely.
 		if _grounded and loose > 0.01:
-			var floor_y: float = height * 0.5
+			# The floor is asked for PER JOINT x, not as one local y: with the body
+			# spring driving the node's rotation, a single local line would cut through
+			# the ground on the downhill side of a lean and float above it on the other.
+			# Falls back to the standing foot line when there is no probe (headless).
+			var probe: float = _local_floor_y(pos.x)
+			var floor_y: float = probe if is_finite(probe) else height * 0.5 - _ride
 			if pos.y > floor_y:
 				pos.y = floor_y
 				if vel.y > 0.0:
@@ -394,6 +1192,7 @@ func _ensure_sim(target_pose: Dictionary = {}) -> void:
 ## vertical regardless of scale.x, so the facing flip doesn't matter.
 func _update_ground_probe() -> void:
 	_ground_local_y = INF
+	_ground_world_y = INF
 	if not _grounded or state == State.AIR or not is_inside_tree():
 		return
 	var world: World2D = get_world_2d()
@@ -412,7 +1211,10 @@ func _update_ground_probe() -> void:
 	var hit: Dictionary = space.intersect_ray(q)
 	if hit.is_empty():
 		return
-	# Only the y matters for the plant; to_local strips the node position (scale.y is 1).
+	# WORLD y is the authority now that the body can pitch (see _local_floor_y); the
+	# local twin is kept because it is still the right answer under the origin and
+	# because _sim_pose's plant contract is expressed in local space.
+	_ground_world_y = (hit["position"] as Vector2).y
 	_ground_local_y = to_local(hit["position"] as Vector2).y
 
 
@@ -446,9 +1248,13 @@ func _sim_pose() -> Dictionary:
 		pose["hand_lead"] = target_hand_lead
 	# Foot-plant IK: grounded (and not mid-flail) -> plant the support foot on the real
 	# floor line so the figure stands ON the ground; the swing foot keeps its lift.
-	if _grounded and state != State.AIR and _limp < 0.5 and is_finite(_ground_local_y):
-		pose["foot_lead"] = _plant_foot(pose["foot_lead"], _ground_local_y)
-		pose["foot_off"] = _plant_foot(pose["foot_off"], _ground_local_y)
+	if _grounded and state != State.AIR and _limp < 0.5 and is_finite(_ground_world_y):
+		# Per-foot floor line, for the same reason the sim's clamp is per joint: a
+		# pitched body has no single local ground y.
+		var fl: Vector2 = pose["foot_lead"]
+		var fo: Vector2 = pose["foot_off"]
+		pose["foot_lead"] = _plant_foot(fl, _local_floor_y(fl.x))
+		pose["foot_off"] = _plant_foot(fo, _local_floor_y(fo.x))
 	return pose
 
 
@@ -474,6 +1280,15 @@ func apply_impulse(world_dir: Vector2, strength: float) -> void:
 	for key: String in SIM_JOINTS:
 		var mult: float = IMPULSE_EXTREMITY_MULT if SIM_EXTREMITIES.has(key) else 1.0
 		_sim_vel[key] += local * strength * mult
+	# ...AND THE BODY ITSELF. This is the half that was missing, and it is why hits
+	# used to rattle a fighter's hands without ever making the fighter look hit:
+	# SpikeFigure.hit() throws the whole capsule torso, so the figure tips and sinks.
+	# The blow is applied in WORLD terms (the facing flip is a drawing concern, not a
+	# physical one): a downward blow compresses the ride, a lateral one spins the body
+	# away from it — the torso is shoved at chest height while the feet are still
+	# planted, which is exactly what topples a standing person.
+	var wd: Vector2 = world_dir.normalized()
+	_pitch_vel += wd.x * strength * IMPULSE_TO_SPIN
 	queue_redraw()
 
 
@@ -493,6 +1308,27 @@ func flop(strength: float = 0.7, hold: float = 0.18) -> void:
 		_flop_prev_target = _limp_target  # remember the resting limp only on entry
 	_flop_timer = maxf(_flop_timer, hold)
 	_limp_target = maxf(_limp_target, clampf(strength, 0.0, 1.0))
+
+
+## CLASH RECOIL — the rig's reaction to a blow that MET another blow rather than
+## landing on a body (see MeleeClash). Driven separately from, and on top of, the
+## knockback flop the body already takes, because the two are different events: a
+## knockback is the torso being shoved, a clash is the STRIKING ARM being stopped
+## dead by something as hard as it is.
+##
+## NOT A CANNED POSE, deliberately — per the standing rig directive, the reaction
+## is the existing active-ragdoll machinery at clash amplitude and nothing else:
+## `flop()` raises the limp target so the springs go slack and the body visibly
+## reels, `apply_impulse()` whips every simmed joint (extremities hardest) BACK
+## along the axis the blow came from. Two calls, no new state, no keyframes, and it
+## composes with a hold-DOWN ragdoll or a death melt instead of fighting them.
+##
+## `strength01` 0..1 scales both halves together so an even clash and a swatted
+## overpower differ in amplitude without differing in kind.
+func clash_recoil(away_dir: Vector2, strength01: float = 1.0) -> void:
+	var s: float = clampf(strength01, 0.0, 1.0)
+	flop(CLASH_FLOP * s, CLASH_FLOP_HOLD)
+	apply_impulse(away_dir, CLASH_LIMB_JOLT * s)
 
 
 ## Feed the owning body's velocity (e.g. Hero.velocity each physics frame).
@@ -604,7 +1440,11 @@ func get_weapon_tip() -> Vector2:
 	arm_dir = arm_dir.normalized()
 	var reach: float = 0.0
 	match equipment.get("weapon", ""):
-		"staff": reach = height * 0.38
+		"staff", "staff_ice", "staff_storm", "staff_holy": reach = height * 0.38
+		"greatsword": reach = height * 0.62
+		"dagger": reach = height * 0.24
+		"spear": reach = height * 0.72
+		"scythe": reach = height * 0.6
 		"sword": reach = height * 0.5
 		"orb": reach = height * 0.14
 	return to_global(hand + arm_dir * reach)
@@ -663,24 +1503,9 @@ func flash_color(color: Color, duration: float = 0.06) -> void:
 func set_equipment(slot: String, kind: String) -> void:
 	if kind == "":
 		equipment.erase(slot)
-		equipment_tex.erase(slot)
 	else:
-		equipment[slot] = kind          # always record the LOGICAL kind (state/tests)
-		var tex: Texture2D = _equip_texture(kind)
-		if tex != null:
-			equipment_tex[slot] = tex   # a pixel-art piece exists -> draw it, skip procedural
-		else:
-			equipment_tex.erase(slot)   # no texture -> draw_figure draws the procedural piece
+		equipment[slot] = kind
 	queue_redraw()
-
-
-## The PixelLab pixel-art overlay for an equipment kind, or null if none exists
-## (falls back to the procedural draw). Cached by the resource loader.
-func _equip_texture(kind: String) -> Texture2D:
-	var path: String = EQUIP_TEX.get(kind, "")
-	if path != "" and ResourceLoader.exists(path):
-		return load(path) as Texture2D
-	return null
 
 
 ## Convenience gear bundles — one per playable class. Classes WITH a weapon
@@ -791,17 +1616,9 @@ func _draw() -> void:
 	if lift != Vector2.ZERO or pop_scale != Vector2.ONE:
 		draw_set_transform(lift, 0.0, pop_scale)
 	var pose: Dictionary = _sim_pose()  # draw the PHYSICAL body, not the raw target
-	# Slots with a pixel-art overlay are drawn as textures below — hide their
-	# procedural version so the two don't stack (the logical `equipment` is intact).
-	var procedural: Dictionary = equipment
-	if not equipment_tex.is_empty():
-		procedural = {}
-		for s: String in equipment:
-			if not equipment_tex.has(s):
-				procedural[s] = equipment[s]
-	draw_figure(self, pose, col, procedural, height, OUTLINE_COLOR)
-	if not equipment_tex.is_empty():
-		_draw_equipment_textures(pose)
+	# One pass, one drawing: draw_figure now substitutes geared parts for default
+	# parts internally, so there is no second overlay layer to keep in sync.
+	draw_figure(self, pose, col, equipment, height, OUTLINE_COLOR)
 	_draw_slash_arc(pose, col)
 	_draw_parry_shield(pose)
 	_draw_cast_gesture_vfx(pose)
@@ -817,47 +1634,10 @@ func _draw_hand_fire(pose: Dictionary) -> void:
 	draw_flame(self, pose["hand_lead"], pose["w"] * 1.7, _hand_fire, _phase)
 
 
-## Crisp pixel-art gear: nearest sampling so the PixelLab overlays don't blur when
-## scaled to the rig (the procedural AA lines are unaffected — filter is texture-only).
+## The magic-circle ground emblem is still a texture, so keep nearest sampling (the
+## procedural AA lines are unaffected — the filter is texture-only).
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-
-
-## Draw the pixel-art gear overlays at their pose anchors, ON TOP of the stick
-## figure. Scaled to the rig height; the facing flip (node scale.x) carries the
-## horizontal mirror for free since this draws in the rig's local frame. Head gear
-## caps the head, weapons rise from the lead hand. This is the "customise the stick
-## figure" layer — the silhouette stays a stick, the gear gives it identity.
-func _draw_equipment_textures(pose: Dictionary) -> void:
-	var r: float = pose["r"]
-	for slot: String in equipment_tex:
-		var tex: Texture2D = equipment_tex[slot]
-		if tex == null or not is_instance_valid(tex):
-			continue
-		var tsz: Vector2 = tex.get_size()
-		if tsz.x <= 0.0 or tsz.y <= 0.0:
-			continue
-		var anchor: Vector2
-		var target_h: float
-		match slot:
-			"head":
-				anchor = pose["head_center"] - Vector2(0.0, r * 0.85)  # sit ON the head
-				target_h = r * 2.4
-			"weapon":
-				# Tall weapons (staff/sword/hammer/scythe) fill the figure height; a
-				# square-ish held item (orb) is a small hand prop, not a polearm.
-				var aspect: float = tsz.x / tsz.y
-				target_h = height * 0.55 if (aspect > 0.7 and aspect < 1.4) else height * 1.0
-				anchor = pose["hand_lead"] - Vector2(0.0, target_h * 0.18)  # gripped, rises up
-			"body":
-				anchor = pose["shoulder"].lerp(pose["hip"], 0.95)  # drape from shoulders down
-				target_h = height * 1.3                             # past the hip over the legs
-			_:
-				anchor = pose["head_center"]
-				target_h = height * 0.5
-		var s: float = target_h / tsz.y
-		var draw_sz: Vector2 = tsz * s
-		draw_texture_rect(tex, Rect2(anchor - draw_sz * 0.5, draw_sz), false)
 
 
 ## Directional parry SHIELD — a white "section of a sphere": a solid curved band
@@ -1194,8 +1974,9 @@ func _vfx_wind(p: Vector2, rad: float, core: Color, _halo: Color) -> void:
 ## neck, hip, shoulder, hand_lead, hand_off, foot_lead, foot_off,
 ## plus stroke metrics r (head radius) and w (line width).
 func _compute_pose() -> Dictionary:
-	var w: float = maxf(2.0, height * 0.16)   # BOLD limbs — the iconic thick SF puppet read
-	var r: float = height * 0.18              # bigger head to match the bolder limbs
+	# THIN limbs + a small round head — the stick-figure read. See HEAD_R_FACTOR.
+	var w: float = maxf(1.6, height * LIMB_W_FACTOR)
+	var r: float = maxf(2.0, height * HEAD_R_FACTOR)
 	var arm_len: float = height * 0.32
 	var leg_len: float = height * 0.4
 	var t: float = 0.0
@@ -1222,9 +2003,21 @@ func _compute_pose() -> Dictionary:
 		State.IDLE:
 			bob = sin(_phase * 2.0) * height * 0.03
 		State.AIR:
-			# NO scripted jump pose (maker: "there shouldnt be like a jump pose it should
-			# be ragdoll exactly like Stick Fight"). AIR is a LOOSENESS REGIME, not a
-			# keyframe: the TARGET stays the neutral standing hang (defaults below) and
+			# STILL no scripted jump pose (maker: "there shouldnt be like a jump pose it
+			# should be ragdoll exactly like Stick Fight"). What the TARGET now is, ported
+			# from SpikeFigure's airborne branch, is a SLACK HANG: both legs dangle toward
+			# world-down and TRAIL the body's horizontal momentum (leap right and the legs
+			# are left behind, to the left), splayed a little so the silhouette isn't two
+			# sticks glued together. That is derived from velocity, not keyframed — there
+			# is no pose clock here, only "where would loose legs be at this speed".
+			var air_flip: float = 1.0 if scale.x >= 0.0 else -1.0
+			var air_trail: float = clampf(_body_vel.x * air_flip / 420.0, -1.0, 1.0)
+			# Split wider than SpikeFigure's 0.2 rad: it draws a 44 px leg where this rig
+			# draws a 12 px one, so the same angle collapsed both legs into a single blob.
+			leg_lead = PI * 0.5 - air_trail * 0.95 + 0.34
+			leg_off = PI * 0.5 - air_trail * 0.95 - 0.34
+			# AIR is a LOOSENESS REGIME, not a
+			# keyframe: the springs do the rest —
 			# _step_sim lerps the spring PARTWAY toward full limp (see _air_loose) so the
 			# limbs trail + swing with the body's momentum + gravity while the weighty
 			# CharacterBody2D arcs. No run-cycle leg pumping here (that read as jogging in
@@ -1238,7 +2031,7 @@ func _compute_pose() -> Dictionary:
 			# Looser, bigger stride — the legs swing wide and the knees lift more, so
 			# the soft foot-springs (LOOSE_LEG_STIFFNESS) let them lag + flop loosely
 			# for the free, flowy Stick-Fight walk.
-			var sp: float = _phase * 9.0
+			var sp: float = _phase * RUN_PHASE_RATE
 			var swing: float = sin(sp) * 1.1
 			lean = height * 0.13
 			leg_lead = PI * 0.5 - swing
@@ -1249,7 +2042,12 @@ func _compute_pose() -> Dictionary:
 			leg_off_len = leg_len * (1.0 - 0.24 * maxf(sin(sp), 0.0))
 			arm_lead = PI * 0.5 + swing * 0.7
 			arm_off = PI * 0.5 - swing * 0.7
-			bob = absf(sin(sp)) * height * 0.06
+			# Body RISE over the support leg while the other foot passes it. The bounce is
+			# now a CONSEQUENCE of the stride rather than a second sine running alongside
+			# it, so it can never beat against the visible footfalls. (Local +y is down,
+			# hence the negative.) The leg angles above survive only as the pre-seed
+			# fallback — the world-locked plants below overwrite both feet outright.
+			bob = -sin(_swing_t * PI) * height * STRIDE_BOB_FACTOR
 		State.DASH:
 			lean = height * 0.22
 			leg_lead = PI * 0.5 + 0.55
@@ -1317,6 +2115,17 @@ func _compute_pose() -> Dictionary:
 	var hand_off: Vector2 = shoulder + Vector2.from_angle(arm_off) * arm_len
 	var foot_lead: Vector2 = hip + Vector2.from_angle(leg_lead) * leg_lead_len
 	var foot_off: Vector2 = hip + Vector2.from_angle(leg_off) * leg_off_len
+
+	# --- WORLD-LOCKED FEET (the anti-slide) ---
+	# In the grounded locomotion states the drawn feet are NOT derived from a swing
+	# angle at all: they are the gait's world plants pulled back through to_local, so
+	# a foot bearing weight stays nailed to the same point on the floor while the body
+	# travels over it. to_local also mirrors them into the facing frame, so a turn
+	# doesn't teleport the stance. Strikes (KICK), CAST, DASH, HURT, WALL_SLIDE and AIR
+	# keep their own scripted/loose legs — those poses are not standing on anything.
+	if _gait_ready and (state == State.IDLE or state == State.RUN):
+		foot_lead = to_local(_gait_foot_world(0))
+		foot_off = to_local(_gait_foot_world(1))
 
 	# Cast-gesture overlay: additive, lead-arm-isolated, composes over locomotion.
 	# Damped out automatically when limp (the sim's stiffness is _limp-scaled).
@@ -1426,36 +2235,45 @@ static func draw_figure(
 	var elbow_lead: Vector2 = _ik_joint(shoulder, hand_lead, upper, fore, Vector2.DOWN)
 	var elbow_off: Vector2 = _ik_joint(shoulder, hand_off, upper, fore, Vector2.DOWN)
 
-	# Body-slot robe draws under the limbs.
-	if equipment_slots.get("body", "") == "robe":
-		var robe: PackedVector2Array = PackedVector2Array([
-			neck + Vector2(-r * 0.8, 0),
-			neck + Vector2(r * 0.8, 0),
-			hip + Vector2(r * 1.7, fig_height * 0.22),
-			hip + Vector2(-r * 1.7, fig_height * 0.22),
-		])
-		item.draw_colored_polygon(robe, Color(col.r, col.g, col.b, col.a * 0.45))
+	# CLOTHING IS OFF BY DEFAULT (see draw_clothing). A stickman holding a sword is
+	# still unmistakably a stickman; a stickman in a cuirass and a great-helm is a
+	# little armoured man. The slots are still SET (GearAbilities, the loadout UI and
+	# the enemy archetype table all read `equipment`) — they simply aren't DRAWN, so
+	# the ability plumbing is untouched and this is one boolean away from coming back.
+	var head_kind: String = String(equipment_slots.get("head", "")) if draw_clothing else ""
+	var body_kind: String = String(equipment_slots.get("body", "")) if draw_clothing else ""
 
 	# Crisp dark OUTLINE pass: the same articulated skeleton drawn thicker under so
 	# the bold coloured figure reads against any background (the Stick-Fight look).
 	# Aura silhouette + dash ghosts pass no outline_col (a==0) -> they stay soft.
+	# The GEARED head/torso are outlined by the same helpers that draw them, so a
+	# helmet gets the identical keyline the bare head would have had — the gear is
+	# part of the drawing, not a decal sitting on it.
 	if outline_col.a > 0.0:
 		var oc: Color = Color(outline_col.r, outline_col.g, outline_col.b, outline_col.a * col.a)
-		var ow: float = w + OUTLINE_EXTRA
-		item.draw_line(neck, hip, oc, ow)
+		# Keyline scaled off the stroke (see OUTLINE_FACTOR) rather than a flat +2 px,
+		# so a spindly limb keeps a proportionate dark edge instead of disappearing
+		# under one. `oe` is the per-side bleed the joint dots reuse below.
+		var oe: float = maxf(OUTLINE_MIN, w * OUTLINE_FACTOR)
+		var ow: float = w + oe
+		_draw_torso(item, body_kind, neck, hip, oc, ow, r)
 		_draw_limb(item, shoulder, elbow_lead, hand_lead, oc, ow)
 		_draw_limb(item, shoulder, elbow_off, hand_off, oc, ow)
 		_draw_limb(item, hip, knee_lead, foot_lead, oc, ow)
 		_draw_limb(item, hip, knee_off, foot_off, oc, ow)
-		item.draw_circle(hand_lead, hlr + OUTLINE_EXTRA * 0.6, oc)
-		item.draw_circle(hand_off, hor + OUTLINE_EXTRA * 0.6, oc)
-		item.draw_circle(foot_lead, ftr + OUTLINE_EXTRA * 0.5, oc)
-		item.draw_circle(foot_off, ftr + OUTLINE_EXTRA * 0.5, oc)
-		item.draw_circle(head_center, r + OUTLINE_EXTRA * 0.7, oc)
+		item.draw_circle(hand_lead, hlr + oe * 0.6, oc)
+		item.draw_circle(hand_off, hor + oe * 0.6, oc)
+		item.draw_circle(foot_lead, ftr + oe * 0.5, oc)
+		item.draw_circle(foot_off, ftr + oe * 0.5, oc)
+		# The head keyline is sized off the LIMB bleed, not the head radius, so the
+		# skull keeps a matching line weight rather than a fat ring of its own.
+		_draw_head(item, head_kind, head_center, r + oe * 0.7, oc, ow)
 
-	# The figure: head + torso + 2 articulated arms + 2 articulated legs.
-	item.draw_circle(head_center, r, col)
-	item.draw_line(neck, hip, col, w)
+	# The figure: head + torso + 2 articulated arms + 2 articulated legs. The head and
+	# torso are drawn THROUGH the gear helpers, which substitute the geared part for
+	# the default one rather than stacking a second shape over it.
+	_draw_head(item, head_kind, head_center, r, col, w)
+	_draw_torso(item, body_kind, neck, hip, col, w, r)
 	_draw_limb(item, shoulder, elbow_lead, hand_lead, col, w)
 	_draw_limb(item, shoulder, elbow_off, hand_off, col, w)
 	_draw_limb(item, hip, knee_lead, foot_lead, col, w)
@@ -1475,6 +2293,107 @@ static func draw_figure(
 		item, equipment_slots, col, w, r, fig_height,
 		head_center, shoulder, hand_lead, foot_lead, foot_off
 	)
+
+
+## THE HEAD — geared or bare. Head gear does not sit ON the head, it IS the head:
+## the default circle is never drawn underneath, so the figure reads as a stickman
+## whose head is a helmet, not a stickman with a helmet sticker.
+##
+## HITBOX CONTRACT: every variant keeps a filled disc of EXACTLY radius `r` centred
+## on `head_center`, because that circle is what Enemy.body_distance / SpellTargets
+## test against. Silhouette embellishments (a hat's cone, a crown's points) only ever
+## ADD outside that disc — they never shrink or move it. Break this and spells start
+## passing through heads again.
+##
+## Called twice: once with the outline colour + inflated radius, once with the body
+## colour, so the gear inherits the same keyline treatment as the rest of the figure.
+static func _draw_head(
+	item: CanvasItem, kind: String, c: Vector2, r: float, col: Color, w: float
+) -> void:
+	# The mandated disc, always. Everything below only extends the silhouette upward.
+	item.draw_circle(c, r, col)
+	match kind:
+		"helmet":
+			# A closed great-helm: the skull disc plus a squared jaw-guard dropping
+			# past it, with a visor slit cut in the body colour's dark twin.
+			item.draw_colored_polygon(PackedVector2Array([
+				c + Vector2(-r * 0.95, -r * 0.1), c + Vector2(r * 0.95, -r * 0.1),
+				c + Vector2(r * 0.8, r * 1.15), c + Vector2(-r * 0.8, r * 1.15),
+			]), col)
+			# Crest ridge along the top — the read that says "plate", at outline weight.
+			item.draw_line(c + Vector2(0.0, -r * 1.25), c + Vector2(0.0, -r * 0.2), col, w * 0.7)
+		"hat":
+			# Pointed wizard cone rising straight out of the skull, plus a wide brim.
+			item.draw_colored_polygon(PackedVector2Array([
+				c + Vector2(-r * 0.85, -r * 0.4), c + Vector2(r * 0.85, -r * 0.4),
+				c + Vector2(r * 0.12, -r * 2.5),
+			]), col)
+			# Brim kept just wider than the skull. At r*1.7 it read as a crossbar bolted
+			# through the head rather than a hat the head is wearing.
+			item.draw_line(c + Vector2(-r * 1.2, -r * 0.45), c + Vector2(r * 1.2, -r * 0.45), col, w * 0.6)
+		"hood":
+			# A cowl peak swept back off the crown, so the head is a hooded shape.
+			item.draw_colored_polygon(PackedVector2Array([
+				c + Vector2(-r * 1.15, r * 0.5), c + Vector2(-r * 1.05, -r * 0.75),
+				c + Vector2(r * 0.2, -r * 1.5), c + Vector2(r * 1.1, -r * 0.2),
+				c + Vector2(r * 0.95, r * 0.85),
+			]), col)
+		"crown":
+			# Three points straight off the skull — regalia, not a hat.
+			for i: int in 3:
+				var bx: float = (float(i) - 1.0) * r * 0.72
+				item.draw_colored_polygon(PackedVector2Array([
+					c + Vector2(bx - r * 0.33, -r * 0.75), c + Vector2(bx + r * 0.33, -r * 0.75),
+					c + Vector2(bx, -r * 1.85),
+				]), col)
+			item.draw_line(c + Vector2(-r, -r * 0.72), c + Vector2(r, -r * 0.72), col, w * 0.8)
+
+
+## THE TORSO — geared or bare. Same substitution rule: armour IS the torso, so the
+## plain spine stroke is not drawn under it.
+##
+## HITBOX CONTRACT: every variant is built around the neck->hip segment, which is
+## what body_distance measures the spine against. Gear may only THICKEN that segment
+## (making the drawn body bigger than the hitbox, which is forgiving); it must never
+## displace it.
+##
+## `cape` was dropped outright rather than drawn. It is an accessory that hangs off
+## a body, so there is no body part for it to become — and the maker's first
+## instruction was "remove the clothing". Its GearAbilities entry is untouched, so
+## nothing that reads the ability registry breaks; it simply has no silhouette.
+static func _draw_torso(
+	item: CanvasItem, kind: String, neck: Vector2, hip: Vector2, col: Color, w: float, r: float
+) -> void:
+	match kind:
+		"armor":
+			# A plated slab: the spine stroke widened into a cuirass with squared
+			# pauldron shoulders. Solid fill in the body colour — same drawing, more
+			# of it — rather than a lighter sheet laid over a thin stick.
+			var down: Vector2 = (hip - neck)
+			if down.length() < 0.001:
+				down = Vector2.DOWN
+			var side: Vector2 = down.orthogonal().normalized()
+			item.draw_colored_polygon(PackedVector2Array([
+				neck + side * r * 1.05, neck - side * r * 1.05,
+				hip - side * r * 0.95, hip + side * r * 0.95,
+			]), col)
+			item.draw_line(neck, hip, col, w)     # keeps the exact spine axis solid
+		"robe":
+			# The torso flares into a bell down past the hip: the caster's body IS the
+			# robe. Fully opaque in the body colour (the old version was a 45%-alpha
+			# sheet draped over the stick — visibly a garment ON a figure).
+			var d: Vector2 = (hip - neck)
+			if d.length() < 0.001:
+				d = Vector2.DOWN
+			var sd: Vector2 = d.orthogonal().normalized()
+			var hem: Vector2 = hip + d.normalized() * r * 1.6
+			item.draw_colored_polygon(PackedVector2Array([
+				neck + sd * r * 0.75, neck - sd * r * 0.75,
+				hem - sd * r * 1.9, hem + sd * r * 1.9,
+			]), col)
+			item.draw_line(neck, hip, col, w)
+		_:
+			item.draw_line(neck, hip, col, w)
 
 
 ## Draw a two-segment limb root->mid->end with a rounded joint cap at the mid.
@@ -1514,24 +2433,18 @@ static func _draw_equipment(
 	w: float,
 	r: float,
 	fig_height: float,
-	head_center: Vector2,
+	_head_center: Vector2,
 	shoulder: Vector2,
 	hand_lead: Vector2,
 	foot_lead: Vector2,
 	foot_off: Vector2,
 ) -> void:
 	var gear_col: Color = col.lightened(0.25)
-	match equipment_slots.get("head", ""):
-		"hat":
-			var hat: PackedVector2Array = PackedVector2Array([
-				head_center + Vector2(-r * 1.1, -r * 0.6),
-				head_center + Vector2(r * 1.1, -r * 0.6),
-				head_center + Vector2(0, -r * 2.3),
-			])
-			item.draw_colored_polygon(hat, gear_col)
-		"hood":
-			item.draw_arc(head_center, r * 1.35, PI, TAU, 12, gear_col, w)
-	match equipment_slots.get("feet", ""):
+	# NOTE: the head slot is NOT handled here any more — head gear replaces the head
+	# itself (see _draw_head), so drawing it a second time here would put the sticker
+	# back on top of the body part it is supposed to BE.
+	# Footwear is clothing too — gated with the rest of it (see draw_clothing).
+	match (equipment_slots.get("feet", "") if draw_clothing else ""):
 		"sandals":
 			item.draw_line(
 				foot_lead + Vector2(-r * 0.5, 0), foot_lead + Vector2(r * 0.5, 0), gear_col, w
@@ -1577,8 +2490,118 @@ static func _draw_equipment(
 			])
 			item.draw_colored_polygon(gem_pts, gear_col.lightened(0.45))
 			item.draw_circle(st_tip + arm_dir * gem * 0.2, w * 0.45, Color(1, 1, 1, col.a))  # hot glint
+		"greatsword":
+			# The sword's silhouette at brutal scale: longer, thicker, blunter tip.
+			_draw_blade(item, hand_lead, arm_dir, perp, fig_height * 0.62, w * 1.2, r * 0.95, gear_col, edge, col)
+		"dagger":
+			# The same blade language, short and quick — identifiable from outline alone.
+			_draw_blade(item, hand_lead, arm_dir, perp, fig_height * 0.26, w * 0.85, r * 0.45, gear_col, edge, col)
+		"spear":
+			# Long plain haft ending in a leaf point. Reach IS the read.
+			var sp_tip: Vector2 = hand_lead + arm_dir * (fig_height * 0.72)
+			var sp_butt: Vector2 = hand_lead - arm_dir * (fig_height * 0.16)
+			item.draw_line(sp_butt, sp_tip, edge, w * 0.9)
+			item.draw_line(sp_butt, sp_tip, gear_col, w * 0.5)
+			var sp_base: Vector2 = sp_tip - arm_dir * (fig_height * 0.12)
+			item.draw_colored_polygon(PackedVector2Array([
+				sp_base + perp * w * 0.9, sp_tip, sp_base - perp * w * 0.9,
+			]), gear_col.lightened(0.3))
+		"hammer":
+			# Short haft, big square head — the mass is all at the far end, which is
+			# exactly what should read at a glance.
+			_draw_hafted(item, hand_lead, arm_dir, perp, fig_height * 0.44, w, gear_col, edge)
+			var h_c: Vector2 = hand_lead + arm_dir * (fig_height * 0.44)
+			var h_s: float = fig_height * 0.095
+			item.draw_colored_polygon(PackedVector2Array([
+				h_c + perp * h_s - arm_dir * h_s * 0.72, h_c + perp * h_s + arm_dir * h_s * 0.72,
+				h_c - perp * h_s + arm_dir * h_s * 0.72, h_c - perp * h_s - arm_dir * h_s * 0.72,
+			]), gear_col)
+		"club":
+			# A haft that simply swells toward the business end — the crude cousin of
+			# the hammer, told entirely through taper.
+			var c_butt: Vector2 = hand_lead - arm_dir * (fig_height * 0.08)
+			var c_tip: Vector2 = hand_lead + arm_dir * (fig_height * 0.42)
+			item.draw_line(c_butt, c_tip, edge, w * 1.9)
+			item.draw_colored_polygon(PackedVector2Array([
+				c_butt + perp * w * 0.4, c_butt - perp * w * 0.4,
+				c_tip - perp * w * 0.95, c_tip + perp * w * 0.95,
+			]), gear_col)
+			item.draw_circle(c_tip, w * 0.95, gear_col)
+		"scythe":
+			# Long haft with a crescent sweeping off the tip — the one weapon whose
+			# outline is a curve, so it can't be confused with the straight family.
+			_draw_hafted(item, hand_lead, arm_dir, perp, fig_height * 0.6, w, gear_col, edge)
+			var sc_tip: Vector2 = hand_lead + arm_dir * (fig_height * 0.6)
+			var sc_r: float = fig_height * 0.2
+			var sc_c: Vector2 = sc_tip - perp * sc_r * 0.55
+			var sc_a: float = perp.angle()
+			item.draw_arc(sc_c, sc_r, sc_a - 0.35, sc_a + 1.5, 14, edge, w * 1.5)
+			item.draw_arc(sc_c, sc_r, sc_a - 0.35, sc_a + 1.5, 14, gear_col.lightened(0.3), w * 0.8)
+		"bomb":
+			# A held sphere with a lit fuse — a prop in the fist, not a polearm.
+			var b_c: Vector2 = hand_lead + arm_dir * (r * 0.5)
+			item.draw_circle(b_c, r * 0.95, edge)
+			item.draw_circle(b_c, r * 0.78, gear_col.darkened(0.35))
+			item.draw_line(b_c + Vector2(0.0, -r * 0.78), b_c + Vector2(r * 0.4, -r * 1.8), gear_col, w * 0.4)
+			item.draw_circle(b_c + Vector2(r * 0.4, -r * 1.8), w * 0.55, Color(1.0, 0.75, 0.3, col.a))
+		"staff_ice", "staff_storm", "staff_holy":
+			# Same wand silhouette as "staff" — only the crystal changes colour, because
+			# the element is the gameplay read and the shape is the class read.
+			_draw_wand(
+				item, hand_lead, arm_dir, fig_height, w, gear_col, edge, col,
+				STAFF_GEM_TINT.get(equipment_slots.get("weapon", ""), gear_col) as Color
+			)
 		"orb":
 			# A floating orb hovering just past the grip, with a soft halo.
 			var o_c: Vector2 = hand_lead + arm_dir * (fig_height * 0.14)
 			item.draw_circle(o_c, r * 0.85, Color(gear_col.r, gear_col.g, gear_col.b, col.a * 0.3))
 			item.draw_circle(o_c, r * 0.55, gear_col.lightened(0.35))
+
+
+## Bold flat blade with a dark keyline + a crossguard: the shared shape behind
+## sword / greatsword / dagger, so the family reads as one weapon at three scales.
+static func _draw_blade(
+	item: CanvasItem, grip: Vector2, dir: Vector2, perp: Vector2,
+	blade_len: float, thick: float, guard: float,
+	gear_col: Color, edge: Color, col: Color
+) -> void:
+	var base: Vector2 = grip - dir * (blade_len * 0.1)
+	var tip: Vector2 = grip + dir * blade_len
+	item.draw_line(grip - perp * guard, grip + perp * guard, edge, thick * 0.8)
+	item.draw_line(base, tip, edge, thick * 1.5)
+	item.draw_line(base, tip, gear_col, thick)
+	item.draw_line(grip + dir * (blade_len * 0.4), tip, gear_col.lightened(0.35), thick * 0.35)
+	item.draw_circle(tip, thick * 0.5, gear_col)
+	# Silence the unused-parameter warning without dropping the alpha contract:
+	# every colour above already carries col.a through gear_col/edge.
+	if col.a < 0.0:
+		return
+
+
+## Plain hafted shaft (hammer/scythe/spear backbone): keyline under, body over.
+static func _draw_hafted(
+	item: CanvasItem, grip: Vector2, dir: Vector2, _perp: Vector2,
+	shaft_len: float, w: float, gear_col: Color, edge: Color
+) -> void:
+	var butt: Vector2 = grip - dir * (shaft_len * 0.22)
+	var tip: Vector2 = grip + dir * shaft_len
+	item.draw_line(butt, tip, edge, w * 0.95)
+	item.draw_line(butt, tip, gear_col, w * 0.55)
+
+
+## The wand shape shared by every staff variant; `gem` tints only the crystal.
+static func _draw_wand(
+	item: CanvasItem, grip: Vector2, dir: Vector2, fig_height: float, w: float,
+	gear_col: Color, edge: Color, col: Color, gem_col: Color
+) -> void:
+	var st_len: float = fig_height * 0.38
+	var butt: Vector2 = grip - dir * (fig_height * 0.07)
+	var tip: Vector2 = grip + dir * st_len
+	item.draw_line(butt, tip, edge, w * 0.95)
+	item.draw_line(butt, tip, gear_col, w * 0.55)
+	var gem: float = maxf(w * 1.4, 2.4)
+	var gp: Vector2 = dir.orthogonal()
+	item.draw_colored_polygon(PackedVector2Array([
+		tip + dir * gem, tip + gp * gem * 0.55, tip - dir * gem * 0.45, tip - gp * gem * 0.55,
+	]), Color(gem_col.r, gem_col.g, gem_col.b, col.a))
+	item.draw_circle(tip + dir * gem * 0.2, w * 0.45, Color(1, 1, 1, col.a))

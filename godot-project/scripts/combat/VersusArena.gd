@@ -17,7 +17,9 @@ extends Node2D
 ## the same fighter from burning a second stock in the same beat.
 
 const HERO_SCENE_PATH: String = "res://scenes/combat/Hero.tscn"
-const ENEMY_SCENE_PATH: String = "res://scenes/combat/Enemy.tscn"
+## The tower arena — where the boss lives. Reached by PATH (see _enter_boss_fight).
+const ARENA_SCENE: String = "res://scenes/combat/Arena.tscn"
+const ARENA_SCRIPT: String = "res://scripts/combat/Arena.gd"
 
 ## -- Match rules -----------------------------------------------------------
 ## A cohesive, realistic, FUN battleground (maker: "the map needs to look way
@@ -31,7 +33,6 @@ const ENEMY_SCENE_PATH: String = "res://scenes/combat/Enemy.tscn"
 const STAGE_SIZE: Vector2 = Vector2(2000, 1000)
 const GROUND_TOP: float = 780.0    # y of the main walkable ground surface
 const STOCKS: int = 3
-const BOT_COUNT: int = 5
 const RESPAWN_INVULN: float = 0.8
 
 ## Connected, solid TERRACES forming one realistic rock landmass (drawn by
@@ -59,34 +60,8 @@ const BLAST_ZONES: Array[Dictionary] = [
 	{"center": Vector2(-180.0, 480.0), "size": Vector2(360.0, 1800.0)},  # off far left
 	{"center": Vector2(2200.0, 480.0), "size": Vector2(360.0, 1800.0)},  # off far right
 ]
-## Fighters spawn on SOLID terraces / ruins, a little above so they settle on top.
+## The reference point the stage is laid out around (the human duellist's side).
 const P1_SPAWN: Vector2 = Vector2(320.0, 716.0)
-const BOT_SPAWN_POINTS: Array[Vector2] = [
-	Vector2(780.0, 716.0),   # main ground, right-centre
-	Vector2(1470.0, 628.0),  # right rise step 1
-	Vector2(1830.0, 448.0),  # right bluff
-	Vector2(1050.0, 540.0),  # atop the high ruin
-	Vector2(160.0, 636.0),   # left mound
-]
-## CASTER(2), SUMMONER(4), ASSASSIN(5), CHARGER(3), MAGE(7) — the full readable
-## roster. The MAGE telegraphs a ground AoE; grounded bots LEAP to a hero who climbs.
-const BOT_ARCHETYPES: Array[int] = [2, 4, 5, 3, 7]
-## Versus bots are tankier than the tower's trash mobs so fights last.
-const BOT_HP: int = 110
-## Stationary PRACTICE DUMMIES (Task 1 sandbox): a permanent punching bag either
-## side of P1_SPAWN, grey so they read distinct from the coloured live bots.
-## In group "enemy" (so every hero attack/spell hits them, zero spell-file
-## edits needed) AND "dummy" (so _bots_alive() / the win condition can exclude
-## them below — see _bots_alive). `passive = true` on Enemy skips their
-## chase/attack AI; Enemy._die respawns them in place instead of freeing them.
-const DUMMY_COUNT: int = 2
-const DUMMY_X_OFFSETS: Array[float] = [-120.0, 120.0]
-const DUMMY_TINT: Color = Color(0.55, 0.55, 0.58, 1.0)  # neutral grey
-const DUMMY_HP: int = 9999  # tanky on purpose — combo practice, not a fast kill
-## Dummies get an effectively-infinite stock count so a stray ring-out (they
-## stand on solid ground, nowhere near a pit) respawns them via the normal
-## fighter-registry path instead of ever reaching _eliminate()'s queue_free.
-const DUMMY_STOCKS: int = 999999
 ## Destructible cover sitting on the main ground (64px blocks; centre = surface - 32).
 const COVER_POINTS: Array[Vector2] = [Vector2(470.0, GROUND_TOP - 32.0), Vector2(1180.0, GROUND_TOP - 32.0)]
 ## One breakable + regenerating lane between the ground and the ruins.
@@ -97,6 +72,164 @@ const BREAKABLE_PLATFORMS: Array[Dictionary] = [
 const RESPAWN_POOF_START: Color = Color(0.75, 0.85, 1.0, 0.9)
 const RESPAWN_POOF_END: Color = Color(0.75, 0.85, 1.0, 0.0)
 
+## ------------------------------------------------------------------ SHOWCASE
+## SHOWCASE MODE — two BOT-DRIVEN HEROES fighting each other on this stage,
+## instead of P1 plus a roster of Enemy trash. Built for the clip capture
+## (`tools/bot_clip_capture.gd`) and playable from F5 by setting the two statics
+## before the scene loads.
+##
+## It exists because the interesting fight is class-vs-class: opposed elements are
+## what make the reaction matrix fire (a FIRE beam shatters an ICE wall; HOLY
+## `banish`es SHADOW; LIGHTNING through a frost field `supercharge`s), and none of
+## that can happen between a hero and a melee trash mob.
+##
+## ⚠ NOTHING HERE HELPS A BOT. Both fighters get the same stock `BotController` +
+## `BotBrain` + `BotProfile` the game ships, at the same difficulty, seeing only
+## what a human sees. A staged fight with rigged bots is worthless for finding
+## bugs and dishonest as marketing, so the only thing this mode changes is WHO is
+## on the stage — never what they know or how hard they hit.
+##
+## Statics rather than exports: the capture tool loads this scene by path and has
+## no instance to configure before `_ready` runs.
+static var showcase_a: int = -1        # Hero.HeroClass, or -1 for the normal arena
+static var showcase_b: int = -1
+static var showcase_difficulty: int = 2
+
+## -------------------------------------------------------------------- DUEL
+## DUEL MODE — the maker, with their own hands, against ONE bot hero.
+##
+## The showcase above is two bots fighting for a camera. This is the thing that
+## was actually asked for: "I want to fight a bot, and it can learn from me, and
+## we can find bugs together." Same stage, same bot stack, same difficulty table
+## — the only difference is that fighter A has no controller and therefore reads
+## the real `Input`, exactly as it does in the tower.
+##
+## STATICS, and they SURVIVE A SCENE RELOAD. Every knob below (difficulty, the
+## bot's class, whether it is learning) is changed by reloading the scene, so
+## they have to outlive the node — a member would reset to its default on the
+## first difficulty change and the maker would never be able to leave Normal.
+##
+## ⚠ THE DUEL IS NOW THE ONLY MODE. The five-bot practice arena was removed at
+## maker request ("remove that group battle"), so entering this scene drops you
+## straight into the 1v1. `duel_human` is kept because the sim/smoke tools set it,
+## but it no longer decides anything: `_is_duel()` is simply "not a showcase".
+static var duel_human: bool = true
+## The bot's Hero.HeroClass. The human's class is whatever they picked (Tab, or
+## GameState.selected_class), so the two are independent — you can fight your own
+## class in a mirror or bring a Brawler to a Cryomancer.
+static var duel_bot_class: int = 0
+## Difficulty tier for the duel bot (BotProfile.Tier). Separate from
+## GameState.enemy_difficulty, which drives the trash-mob arena: mixing them
+## would mean changing the practice bots' difficulty every time you retuned your
+## sparring partner.
+static var duel_difficulty: int = 1
+## Is the bot allowed to learn from this fight? A toggle rather than a constant
+## because "does it feel different when it has been studying me" is exactly the
+## comparison the maker needs to be able to make in one click.
+static var duel_learning: bool = true
+## Draw the bot's current intent over its head. OFF by default — it is a
+## debugging aid, and a permanent readout of what your opponent is about to do
+## would wreck the fight it is meant to help you debug.
+static var duel_show_intent: bool = false
+## Show the learned profile of the human as an overlay. Also off by default; this
+## is the "and see it" half of "resettable and inspectable".
+static var duel_show_learning: bool = false
+
+## Where the two duellists start. Far enough apart to have an approach, near
+## enough that the first exchange happens inside one camera frame.
+const DUEL_SPAWN_HUMAN: Vector2 = Vector2(560.0, 716.0)
+const DUEL_SPAWN_BOT: Vector2 = Vector2(1120.0, 716.0)
+## Both duellists are tanky enough that a fight lasts long enough to read — and
+## it is applied to BOTH, so it is a match-length knob and never an advantage.
+const DUEL_HP: int = 260
+## The pair-framing camera is tighter for a played duel than for a clip: you need
+## to read your own rig's wind-up, not just see both fighters somewhere in shot.
+const DUEL_FRAME_MARGIN: float = 380.0
+const DUEL_ZOOM_MIN: float = 0.72
+const DUEL_ZOOM_MAX: float = 1.30
+## Hold after a knockdown before the next round starts.
+const DUEL_REMATCH_GRACE: float = 1.4
+
+## ------------------------------------------------------------- OBSERVATION
+## How long after the bot presses a kit slot a hit on the human still counts as
+## THAT SLOT's hit. A window rather than a signal because `Hero` publishes no
+## took-damage signal to hang an exact attribution on (only `health_changed`,
+## which also fires on heals and respawns) — and because half the kit is a
+## travelling projectile or a placed bombardment anyway, so "the damage arrives
+## later" is the normal case, not the edge one.
+##
+## 1.1 s covers a bolt crossing the stage and a meteor's fall. Longer would start
+## crediting the wrong spell in a busy exchange.
+const CREDIT_WINDOW: float = 1.1
+## After the bot whiffs, damage the human deals inside this window is filed as a
+## PUNISH. Roughly one recovery animation.
+const PUNISH_WINDOW: float = 1.3
+## A threat this close to the human counts as "something is coming at you", which
+## is the gate on filing a movement as a DODGE rather than as a stroll.
+const DODGE_NOTICE_RADIUS: float = 190.0
+## Minimum horizontal speed before a movement is a break rather than a shuffle.
+const DODGE_SPEED: float = 120.0
+## One dodge per this many seconds, so a single evasion is not filed sixty times.
+const DODGE_DEBOUNCE: float = 0.7
+## How often the learned record is flushed to disk during a fight. Also written
+## on quit and on every round end; this is the belt-and-braces for a hard kill.
+const LEARN_SAVE_PERIOD: float = 20.0
+
+## ------------------------------------------------------------- LIVE PROBE
+## PLAYING THE GAME IS A BUG HUNT. The headless sim's detectors are pure
+## predicates in `BotSimProbe`; the duel runs the same ones over the same frames
+## the maker is playing, and writes the same machine-readable report. Loaded BY
+## PATH and guarded, the `_attach_bot` idiom — a missing tools script must never
+## stop the maker from playing.
+const PROBE_SCRIPT: String = "res://tools/bot_sim_probe.gd"
+const LIVE_REPORT_DIR: String = "user://bot_sim_live"
+## THE FLOOR LINE FOR A PLAYED ARENA, and it is not GROUND_TOP.
+##
+## `GROUND_TOP` is a walkable SURFACE; the terrain colliders extend TERRACE_DEPTH
+## below it as solid rock. So "below the floor" here means below the bottom of
+## the rock — anything above that is either standing on a terrace or inside one,
+## and only the second is a bug the maker can act on.
+const PROBE_FLOOR_Y: float = GROUND_TOP + TERRACE_DEPTH
+## ...and it only applies OVER the terrain. Off the left and right rims there is
+## deliberately nothing to stand on — that is the ring-out, the whole point of
+## the stage. Reporting a legitimate knock-off as "fell through the floor" is
+## precisely the false positive the headless run produced 329 of.
+const PROBE_TERRAIN_X0: float = 40.0
+const PROBE_TERRAIN_X1: float = 1965.0
+## Collapse identical findings inside this window into one row with a count. The
+## detectors run per frame, so without this a single one-second event is 60 rows
+## and the report says nothing about how many DISTINCT things went wrong.
+const PROBE_DEDUP_WINDOW: float = 1.5
+
+const BOT_CONTROLLER_SCRIPT: String = "res://scripts/combat/BotController.gd"
+const BOT_BRAIN_SCRIPT: String = "res://scripts/combat/BotBrain.gd"
+const BOT_PROFILE_SCRIPT: String = "res://scripts/combat/BotProfile.gd"
+## Where the two showcase fighters start: far enough apart that they have to
+## close, near enough that the opening exchange happens inside one camera frame.
+const SHOWCASE_SPAWN_A: Vector2 = Vector2(520.0, 716.0)
+const SHOWCASE_SPAWN_B: Vector2 = Vector2(1080.0, 716.0)
+## Showcase fighters are tankier than a stock hero so the fight lasts long enough
+## to show a kit off. Applied to BOTH equally — it is a clip-length knob, not an
+## advantage.
+const SHOWCASE_HP: int = 320
+## Framing. MARGIN is the slack around the two fighters, so a beam or a meteor
+## column has room to land inside the shot instead of half off it.
+## MEASURED, NOT GUESSED. The first framing pass used a 900 px margin and allowed
+## zoom down to 0.42, and the rendered frames showed two fighters the size of
+## commas at opposite ends of an empty stage — technically "both in frame", and
+## unwatchable. These numbers keep the pair large enough to read the rig, the
+## staff and the damage percentage.
+const SHOWCASE_FRAME_MARGIN: float = 480.0
+const SHOWCASE_ZOOM_MIN: float = 0.60
+const SHOWCASE_ZOOM_MAX: float = 1.25
+## How far above the fighters the eye sits, so the floor falls in the lower third.
+## Rendered and looked at: at 130 the horizon sat at ~95% of frame height and the
+## fighters' feet were clipped by the bottom edge. 45 puts the floor in the lower
+## third with headroom above for a meteor column or a raised staff.
+const SHOWCASE_EYE_LIFT: float = 45.0
+## How long the KO banner holds before the next bout begins.
+const SHOWCASE_REMATCH_GRACE: float = 1.1
+
 ## instance_id -> {"node": Node2D, "stocks": int, "spawn": Vector2 (global),
 ## "invuln": float}. Eliminated bots are erased; the eliminated hero stays
 ## registered at 0 stocks (the _match_over guard makes further falls no-ops).
@@ -106,6 +239,37 @@ var _match_over: bool = false
 var _stocks_label: Label = null
 var _banner: Label = null
 var _pause_menu: PauseMenu = null
+## Showcase-only pair-framing camera; see _build_showcase_camera.
+var _show_cam: Camera2D = null
+## Pair-camera framing knobs, so the same tracker serves the wide clip framing
+## and the tighter played-duel framing without a second copy of the code.
+var _cam_margin: float = SHOWCASE_FRAME_MARGIN
+var _cam_zoom_min: float = SHOWCASE_ZOOM_MIN
+var _cam_zoom_max: float = SHOWCASE_ZOOM_MAX
+
+## ---- duel state ----------------------------------------------------------
+var _duel_bot: CharacterBody2D = null
+var _duel_ctrl: RefCounted = null          # the bot's BotController
+var _duel_clock: float = 0.0               # match clock, for the observation windows
+var _learn_store: Dictionary = {}
+var _learn_rec: Dictionary = {}
+var _learn_class: int = -1                 # which human class the record belongs to
+var _learn_save_at: float = 0.0
+## Pending cast credit: {"slot": int, "at": float} while a bot cast is in flight.
+var _credit: Dictionary = {}
+var _last_whiff_at: float = -99.0
+var _human_hp_last: int = -1
+var _bot_hp_last: int = -1
+var _dodge_ready_at: float = 0.0
+var _duel_labels: Dictionary = {}          # name -> Label / Button, for live text
+var _intent_label: Label = null
+var _learn_label: Label = null
+
+## ---- live probe state ----------------------------------------------------
+var _probe: GDScript = null
+var _findings: Array[Dictionary] = []
+var _finding_seen: Dictionary = {}         # "kind|label" -> {"at": float, "row": Dictionary}
+var _probe_hp_trail: Array[Dictionary] = []
 ## Victory can't be declared during this opening grace (stops a frame-0 / spawn
 ## transient from instantly flashing "VICTORY").
 var _grace: float = 1.2
@@ -132,7 +296,6 @@ func _ready() -> void:
 	_build_breakable_platforms()
 	_build_blast_zones()       # ring-out off the far L/R edges only
 	_spawn_fighters()
-	_spawn_dummies()           # stationary practice dummies (Task 1 sandbox)
 	_build_hud()
 	_update_hud()
 
@@ -143,11 +306,24 @@ func _process(delta: float) -> void:
 	_grace = maxf(_grace - delta, 0.0)
 	for entry: Dictionary in _registry.values():
 		entry["invuln"] = maxf(float(entry["invuln"]) - delta, 0.0)
-	# Bots can also die to plain damage (Enemy._die -> queue_free), which never
-	# routes through a pit — poll so that kill path ends the match too. Grace-gated
-	# so a spawn-frame transient can't instantly flash VICTORY.
-	if _grace <= 0.0 and _bots_alive() == 0:
-		_finish_match("VICTORY — P1 wins!")
+	if _is_duel():
+		_duel_clock += delta
+		_update_showcase_camera(delta)
+		_tick_showcase_banner()
+		# Learning and bug-hunting run on the same frames the fight does — they are
+		# observers, and neither is allowed to change what happens.
+		_observe_duel(delta)
+		_probe_tick(delta)
+		_update_duel_overlays()
+		# Two heroes, no "enemy" side: the roster poll below would read zero bots on
+		# frame one and flash VICTORY over the fight. A duel ends on a knockdown.
+		_poll_showcase_end()
+	else:
+		# Showcase: two bot heroes, no "enemy" side at all — the bout ends when one
+		# of the two is down, never on an enemy-roster poll.
+		_update_showcase_camera(delta)
+		_tick_showcase_banner()
+		_poll_showcase_end()
 	_update_hud()  # poll-don't-push (the AbilityBar idiom): always current
 
 
@@ -214,32 +390,109 @@ func _respawn(body: Node2D, entry: Dictionary) -> void:
 	)
 
 
-## Out of stocks. Bots free + leave the registry (then check victory); P1
-## stays in the tree — its camera is the viewport — but the match ends.
+## Out of stocks.
+##
+## Both fighters here are HEROES (the group battle is gone), so nobody is freed:
+## a stock-out ends the MATCH, and the match immediately restocks both sides so
+## the maker can keep fighting without reloading the scene. Anything unexpected
+## still in group "enemy" (a stray sandbox spawn) is simply removed.
 func _eliminate(body: Node2D, id: int) -> void:
 	if body.is_in_group("enemy"):
 		_registry.erase(id)
 		body.queue_free()
-		if _bots_alive() == 0:
-			_finish_match("VICTORY — P1 wins!")
 		return
-	_finish_match("DEFEAT — the bots hold the stage")
+	_restock("YOU WIN THE MATCH" if body == _duel_bot else "BOT WINS THE MATCH")
 
 
-## Bots still standing: registered, alive, and not mid-free. Ring-out
-## eliminations leave the registry; damage kills go invalid/queued here.
-## Practice dummies (group "dummy") are deliberately EXCLUDED — they're also in
-## group "enemy" (so hero attacks/spells hit them) but must never count toward
-## "Bots left" or the win condition, or the round could never end.
-func _bots_alive() -> int:
-	var count: int = 0
+## Refill every registered fighter's stocks and reset the round, so a finished
+## match rolls straight into the next one. A "Rematch" that costs a scene reload
+## would throw away the learned record's in-flight session for no reason.
+func _restock(banner_text: String) -> void:
+	for entry: Dictionary in _registry.values():
+		entry["stocks"] = STOCKS
+		entry["invuln"] = RESPAWN_INVULN
+	if _banner != null:
+		_banner.text = banner_text
+		_banner.visible = true
+	_grace = DUEL_REMATCH_GRACE
+	_reset_round_bodies()
+
+
+## True while this scene is running as a two-bot showcase duel.
+func _is_showcase() -> bool:
+	return showcase_a >= 0 and showcase_b >= 0
+
+
+## Showcase end condition: the duel is over when a registered hero reaches 0 hp.
+## Grace-gated like the normal poll so a spawn-frame transient cannot end it.
+## A KO in showcase mode RESETS THE BOUT instead of ending the scene.
+##
+## A clip that stops the first time somebody goes down is mostly a still frame —
+## the first capture ran 400 frames and spent 340 of them watching a corpse. So a
+## showcase is a sparring loop: on a knockdown both fighters are restored, both
+## are returned to their own spawn, and the fight starts again.
+##
+## ⚠ SYMMETRICAL, DELIBERATELY. Both sides are reset identically, and neither
+## gets health, cooldowns or knowledge the other does not. This changes how long
+## the CAMERA rolls, never who wins — a clip of a rigged fight would be worthless
+## for finding bugs and dishonest as marketing.
+func _poll_showcase_end() -> void:
+	if _grace > 0.0:
+		return
+	var downed: Node = null
 	for entry: Dictionary in _registry.values():
 		var node: Node = entry["node"]
-		if is_instance_valid(node) and not node.is_queued_for_deletion() \
-				and node.is_in_group("enemy") and not node.is_in_group("dummy") \
-				and int(entry["stocks"]) > 0:
-			count += 1
-	return count
+		if not is_instance_valid(node) or node.is_queued_for_deletion():
+			continue
+		if int(node.get("hp")) <= 0:
+			downed = node
+			break
+	if downed == null:
+		return
+	if _banner != null:
+		if _is_duel():
+			# Say who won in the maker's own terms, not "class X down".
+			_banner.text = "BOT WINS THE ROUND" if downed == _p1 else "YOU WIN THE ROUND"
+		else:
+			_banner.text = "%s DOWN" % _class_label(_showcase_class_of(downed))
+		_banner.visible = true
+	_grace = DUEL_REMATCH_GRACE if _is_duel() else SHOWCASE_REMATCH_GRACE
+	# A round ended: that is the natural moment to bank what was learned, so a
+	# crash or an Alt-F4 mid-next-round cannot cost the whole session.
+	if _is_duel():
+		_flush_learning()
+	_reset_round_bodies()
+
+
+## Restore every registered fighter: full hp, 0%, back on its own spawn, with an
+## arrival poof. Shared by the knockdown reset and by the stock-out restock, so
+## "a new round starts" means exactly one thing.
+func _reset_round_bodies() -> void:
+	var full_hp: int = DUEL_HP if _is_duel() else SHOWCASE_HP
+	for entry: Dictionary in _registry.values():
+		var node: Node = entry["node"]
+		if not is_instance_valid(node) or node.is_queued_for_deletion():
+			continue
+		node.set("hp", full_hp)
+		if node.get("damage_pct") != null:
+			node.set("damage_pct", 0.0)
+		if node.has_signal("health_changed"):
+			node.emit_signal("health_changed", full_hp, full_hp)
+		(node as Node2D).global_position = entry["spawn"]
+		CombatVfx.spawn_burst(self, entry["spawn"], RESPAWN_POOF_START,
+			RESPAWN_POOF_END, 20, 0.4, 60.0, 150.0, 1.5, 3.5)
+
+
+## Which showcase slot a fighter is, so the banner can name its class. `_p1` is
+## fighter A by construction in `_spawn_showcase`.
+func _showcase_class_of(node: Node) -> int:
+	return showcase_a if node == _p1 else showcase_b
+
+
+## Hide the KO banner once the next bout is under way.
+func _tick_showcase_banner() -> void:
+	if _banner != null and _banner.visible and _grace <= 0.0:
+		_banner.visible = false
 
 
 ## Latch _match_over + show the big centre banner. Idempotent — the first
@@ -274,13 +527,27 @@ func _build_background() -> void:
 	# place: a soft blue sky over a warm pale haze at the horizon, with the distant
 	# tower-spires HAZED (low contrast) so they recede as background instead of
 	# looming as black teeth over the fight.
-	atmo.build(Rect2(Vector2(-400, -420), STAGE_SIZE + Vector2(800, 900)), {
+	# SHOWCASE gets a LIFTED palette. The played arena's dusk reads fine on a lit
+	# monitor with a camera close to the action; framed wide for a clip it came out
+	# near-black, with two dark stick figures on dark rock against a dark sky —
+	# checked by rendering it and looking. Brighter sky, warmer ground haze, and
+	# lighter spires give the fighters something to be silhouetted AGAINST.
+	var sky: Dictionary = {
 		"sky_top": Color(0.23, 0.31, 0.49),
 		"sky_bottom": Color(0.72, 0.69, 0.66),
 		"silhouette_far": Color(0.42, 0.46, 0.56),
 		"silhouette_near": Color(0.30, 0.33, 0.44),
 		"accent": Color(0.92, 0.95, 1.0),
-	})
+	}
+	if _is_showcase():
+		sky = {
+			"sky_top": Color(0.38, 0.50, 0.74),
+			"sky_bottom": Color(0.93, 0.86, 0.78),
+			"silhouette_far": Color(0.62, 0.66, 0.78),
+			"silhouette_near": Color(0.47, 0.50, 0.63),
+			"accent": Color(1.0, 0.98, 0.92),
+		}
+	atmo.build(Rect2(Vector2(-400, -420), STAGE_SIZE + Vector2(800, 900)), sky)
 
 
 ## The connected rock landscape: a permanent solid collider per terrace + ONE
@@ -358,70 +625,341 @@ func _build_blast_zones() -> void:
 ## Hero goes in first so each bot's _ready finds it via the "hero" group.
 ## Bot archetypes are set BEFORE add_child so Enemy._ready sees them.
 func _spawn_fighters() -> void:
+	if _is_showcase():
+		_spawn_showcase()
+	else:
+		_spawn_duel()
+
+
+## SHOWCASE: two bot heroes, opposed classes, pointed at each other.
+##
+## The two things that make hero-vs-hero work at all, and both are easy to miss:
+##   FACTION — damage used to be routed by the hardwired group `"enemy"`, so two
+##             heroes swinging at each other did nothing whatsoever. `hostile_group`
+##             (via `set_hostile`) is what makes the fight real.
+##   CAMERA  — `Hero.tscn` carries its own Camera2D. Two live cameras fight over
+##             the viewport, so exactly ONE stays enabled and is put in fit-all
+##             mode; the second is disabled the way a co-op puppet's is.
+func _spawn_showcase() -> void:
 	var hero_scene: PackedScene = load(HERO_SCENE_PATH)
-	_p1 = hero_scene.instantiate()
-	_p1.position = P1_SPAWN
-	add_child(_p1)
-	_p1.process_mode = Node.PROCESS_MODE_PAUSABLE  # freeze when the arena pauses
-	_register_fighter(_p1, _p1.global_position)
-	_frame_camera_on(_p1)
-	# Practice arena: keep ALL fighters on screen (couch-brawler auto-framing).
-	for cam: Node in get_tree().get_nodes_in_group("combat_camera"):
-		if cam.has_method("set_frame_all"):
-			cam.call("set_frame_all", true)
-	var enemy_scene: PackedScene = load(ENEMY_SCENE_PATH)
-	for i: int in BOT_COUNT:
-		var bot: CharacterBody2D = enemy_scene.instantiate()
-		bot.archetype = BOT_ARCHETYPES[i % BOT_ARCHETYPES.size()]
-		bot.max_hp = BOT_HP  # set before add_child so Enemy._ready seeds hp = max_hp
-		bot.position = BOT_SPAWN_POINTS[i % BOT_SPAWN_POINTS.size()]
-		add_child(bot)
-		bot.process_mode = Node.PROCESS_MODE_PAUSABLE  # freeze when the arena pauses
-		_register_fighter(bot, bot.global_position)
+	var a: CharacterBody2D = _spawn_showcase_fighter(hero_scene, showcase_a, SHOWCASE_SPAWN_A, true)
+	var b: CharacterBody2D = _spawn_showcase_fighter(hero_scene, showcase_b, SHOWCASE_SPAWN_B, false)
+	_p1 = a
+	# BOTH hero cameras are off in showcase mode — the pair-framing camera below
+	# owns the viewport, because a camera that follows one fighter loses the other
+	# the moment the fight spreads out.
+	_build_showcase_camera()
+	# Face them at each other on frame one so the opening reads as a duel rather
+	# than as two bots noticing each other.
+	if a != null and b != null:
+		a.set("facing", Vector2.RIGHT)
+		b.set("facing", Vector2.LEFT)
 
 
-## Stationary practice dummies a short distance either side of P1_SPAWN, on the
-## same solid ground so they settle without a fall. Grey-tinted, passive, and
-## registered like any other fighter (so a stray ring-out still respawns them
-## through the normal path) — see the DUMMY_* constants above for the "why".
-func _spawn_dummies() -> void:
-	var enemy_scene: PackedScene = load(ENEMY_SCENE_PATH)
-	for i: int in DUMMY_COUNT:
-		var dummy: CharacterBody2D = enemy_scene.instantiate()
-		dummy.passive = true       # Enemy.gd: no chase/attack AI, respawns in place on "death"
-		dummy.max_hp = DUMMY_HP
-		dummy.tint = DUMMY_TINT
-		dummy.position = P1_SPAWN + Vector2(DUMMY_X_OFFSETS[i % DUMMY_X_OFFSETS.size()], 0.0)
-		add_child(dummy)
-		dummy.add_to_group("dummy")  # ALSO group "enemy" via Enemy._ready — see _bots_alive
-		dummy.process_mode = Node.PROCESS_MODE_PAUSABLE  # freeze when the arena pauses
-		_register_fighter(dummy, dummy.global_position, DUMMY_STOCKS)
-
-
-## Clamp P1's follow-camera to the stage bounds so it frames the platform + pits
-## instead of drifting into the void past the edges. Stage-local == global here
-## (the VersusArena node sits at the scene origin). The Hero's camera is a
-## Camera2D child of the Hero scene.
-func _frame_camera_on(hero: Node) -> void:
-	var cam: Camera2D = null
+## One showcase fighter: class, faction, bot brain, camera, registry entry.
+func _spawn_showcase_fighter(scene: PackedScene, class_id: int, at: Vector2,
+		keep_camera: bool) -> CharacterBody2D:
+	var hero: CharacterBody2D = scene.instantiate()
+	hero.set("net_class", class_id)   # read by Hero._ready, before configure_class
+	hero.max_hp = SHOWCASE_HP
+	hero.position = at
+	add_child(hero)
+	hero.process_mode = Node.PROCESS_MODE_PAUSABLE
+	if hero.has_method("configure_class"):
+		hero.configure_class(class_id)
+	hero.set("max_hp", SHOWCASE_HP)
+	hero.set("hp", SHOWCASE_HP)
+	if hero.has_method("set_hostile"):
+		hero.call("set_hostile", &"hero")
+	else:
+		hero.set("hostile_group", &"hero")
+	# Every hero camera is disabled in showcase mode (`keep_camera` is unused here
+	# and kept only so the signature still reads as intentional): the arena's own
+	# pair-framing camera is current instead.
 	for child: Node in hero.get_children():
 		if child is Camera2D:
-			cam = child as Camera2D
-			break
-	if cam == null:
+			(child as Camera2D).enabled = false
+	_attach_bot(hero)
+	_register_fighter(hero, hero.global_position)
+	return hero
+
+
+# ====================================================================== DUEL
+## True while this scene is running as HUMAN vs ONE BOT — i.e. always, unless a
+## capture tool has set the two showcase classes. The five-bot practice arena
+## that used to be the default was removed at maker request.
+func _is_duel() -> bool:
+	return not _is_showcase()
+
+
+## THE MAKER'S FIGHT. Two heroes: A has no controller (so `Hero._pressed` falls
+## through to the real `Input` and the maker drives it), B carries the shipped
+## bot stack at the chosen tier.
+##
+## THREE THINGS MAKE THIS WORK, and each of them is a bug if forgotten:
+##   FACTION — damage routes through `hostile_group`. Two heroes both defaulted to
+##             `"enemy"` would swing at each other all day and connect with
+##             nothing. `set_faction` puts each on a team the other is hostile to.
+##   CAMERA  — `Hero.tscn` carries a Camera2D, and `Hero._setup_net_role` only
+##             disables it in a NETWORKED session (it early-returns offline). So
+##             offline, a second hero's camera fights the first for the viewport.
+##             Both are disabled here and the arena's pair-framing camera owns it.
+##   LEARNING— the record is loaded and attached BEFORE the first tick, so the bot
+##             walks in already knowing what it learned last time you played.
+func _spawn_duel() -> void:
+	var hero_scene: PackedScene = load(HERO_SCENE_PATH)
+
+	# --- the human. Added FIRST on purpose: `AbilityBar` binds to
+	# `get_first_node_in_group("hero")`, and both duellists are heroes, so
+	# whichever enters the tree first owns the hotbar. That must be yours.
+	_p1 = hero_scene.instantiate()
+	_p1.position = DUEL_SPAWN_HUMAN
+	_p1.max_hp = DUEL_HP
+	add_child(_p1)
+	_p1.process_mode = Node.PROCESS_MODE_PAUSABLE
+	_p1.set("max_hp", DUEL_HP)
+	_p1.set("hp", DUEL_HP)
+	_p1.call("set_faction", &"duel_human", &"duel_bot")
+	_p1.set("facing", Vector2.RIGHT)
+	_register_fighter(_p1, _p1.global_position)
+
+	# --- the bot.
+	_duel_bot = hero_scene.instantiate()
+	_duel_bot.set("net_class", duel_bot_class)   # read by Hero._ready, before configure_class
+	_duel_bot.max_hp = DUEL_HP
+	_duel_bot.position = DUEL_SPAWN_BOT
+	add_child(_duel_bot)
+	_duel_bot.process_mode = Node.PROCESS_MODE_PAUSABLE
+	if _duel_bot.has_method("configure_class"):
+		_duel_bot.configure_class(duel_bot_class)
+	_duel_bot.set("max_hp", DUEL_HP)
+	_duel_bot.set("hp", DUEL_HP)
+	_duel_bot.call("set_faction", &"duel_bot", &"duel_human")
+	_duel_bot.set("facing", Vector2.LEFT)
+	_attach_bot(_duel_bot, duel_difficulty)
+	_register_fighter(_duel_bot, _duel_bot.global_position)
+
+	# Neither hero's own camera runs: the pair-framing one below does, because a
+	# camera glued to you loses your opponent the moment the fight spreads out.
+	for h: Node in [_p1, _duel_bot]:
+		for child: Node in h.get_children():
+			if child is Camera2D:
+				(child as Camera2D).enabled = false
+	_cam_margin = DUEL_FRAME_MARGIN
+	_cam_zoom_min = DUEL_ZOOM_MIN
+	_cam_zoom_max = DUEL_ZOOM_MAX
+	_build_showcase_camera()
+	_show_cam.zoom = Vector2(DUEL_ZOOM_MAX, DUEL_ZOOM_MAX)
+
+	_begin_learning()
+	_probe_begin()
+	_human_hp_last = DUEL_HP
+	_bot_hp_last = DUEL_HP
+
+
+## Load what the bot knows about the human, attach it to the controller, and
+## count the session. The record is keyed by the HUMAN'S class: how you play an
+## Arcanist and how you play a Brawler are different problems, and one averaged
+## record would have learned nothing about either.
+func _begin_learning() -> void:
+	_learn_store = BotAdapt.load_store()
+	_learn_class = int(_p1.get("_hero_class")) if _p1 != null else -1
+	if _learn_class < 0:
+		var gs: Node = get_node_or_null("/root/GameState")
+		_learn_class = int(gs.get("selected_class")) if gs != null else 0
+	_learn_rec = BotAdapt.repair_record(BotAdapt.record_for(_learn_store, _learn_class))
+	_learn_rec["sessions"] = int(_learn_rec.get("sessions", 0)) + 1
+	if _duel_ctrl != null and duel_learning:
+		_duel_ctrl.set("adapt", _learn_rec)
+		# The middle of this bot's own spacing band, so the spacing half of the
+		# adaptation knows what it is comparing your habits against. Read from the
+		# brain's own table rather than restated, so a retune over there lands here.
+		var bands: Array = BotBrain.CLASS_BAND
+		if duel_bot_class >= 0 and duel_bot_class < bands.size():
+			var b: Dictionary = bands[duel_bot_class]
+			_duel_ctrl.set("band_centre", (float(b["min"]) + float(b["max"])) * 0.5)
+	_learn_save_at = LEARN_SAVE_PERIOD
+
+
+## Bank the record. Cheap (one small JSON, atomically renamed) and called at every
+## natural pause, because a "learning" feature that loses the session on an
+## Alt-F4 has not learned anything.
+func _flush_learning() -> void:
+	if _learn_store.is_empty() or _learn_class < 0:
 		return
-	# Frame the connected terrain; limits let the camera see a hair off the edges
-	# (so a plunge reads before ring-out) + headroom above the bluff for jumps /
-	# jetpack / big spells. Fit-all keeps the active cluster framed as the fight roams.
-	cam.zoom = Vector2(1.0, 1.0)
-	cam.limit_left = -140
-	cam.limit_top = 40  # headroom above the right bluff (surface ~y510) for air play
-	cam.limit_right = int(STAGE_SIZE.x) + 140
-	cam.limit_bottom = int(GROUND_TOP) + 240
+	BotAdapt.save_store(_learn_store)
+
+
+## Forget everything about this player, from the button. Deletes the file AND
+## resets the in-memory record, so the bot you are currently fighting goes back
+## to a stock difficulty tier immediately rather than at the next reload.
+func _forget_learning() -> void:
+	BotAdapt.wipe()
+	_learn_store = BotAdapt.empty_store()
+	_learn_rec = BotAdapt.record_for(_learn_store, _learn_class)
+	if _duel_ctrl != null:
+		_duel_ctrl.set("adapt", _learn_rec if duel_learning else {})
+	if _banner != null:
+		_banner.text = "the bot has forgotten you"
+		_banner.visible = true
+		get_tree().create_timer(1.6).timeout.connect(_hide_banner)
+
+
+# ------------------------------------------------------- duel: observation
+## WATCH THE HUMAN. Everything sampled here is read off a drawn thing — two
+## positions, whether a guard ring is up, whether the feet are on the floor, how
+## much a health bar moved. No inputs, no cooldowns, no intent. See the fairness
+## note at the top of `BotAdapt`.
+func _observe_duel(delta: float) -> void:
+	if _p1 == null or _duel_bot == null:
+		return
+	if not is_instance_valid(_p1) or not is_instance_valid(_duel_bot):
+		return
+	if not duel_learning or _learn_rec.is_empty():
+		return
+	_follow_class_swap()
+
+	var human: CharacterBody2D = _p1 as CharacterBody2D
+	var sep: float = human.global_position.distance_to(_duel_bot.global_position)
+	var guarding: bool = bool(human.call("is_parrying")) if human.has_method("is_parrying") else false
+	var airborne: bool = not human.is_on_floor()
+	BotAdapt.observe_tick(_learn_rec, sep, guarding, airborne)
+
+	# --- DODGES. Only filed while something is genuinely coming at them, so a
+	# stroll across the stage is never recorded as an evasion habit. Debounced so
+	# one break is one observation rather than sixty.
+	if _duel_clock >= _dodge_ready_at and _threat_near(human.global_position):
+		var vx: float = human.velocity.x
+		if absf(vx) >= DODGE_SPEED or airborne:
+			_dodge_ready_at = _duel_clock + DODGE_DEBOUNCE
+			BotAdapt.observe_dodge(_learn_rec, signf(vx), airborne,
+				bool(human.get("is_dashing")))
+
+	_observe_damage()
+	_observe_bot_casts()
+
+	_learn_save_at -= delta
+	if _learn_save_at <= 0.0:
+		_learn_save_at = LEARN_SAVE_PERIOD
+		_flush_learning()
+
+
+## TAB MID-FIGHT RE-KEYS THE LEARNED RECORD.
+##
+## The record is keyed by the HUMAN'S class on purpose — how you play an Arcanist
+## and how you play a Brawler are different problems, and one averaged record
+## learns neither. But the maker swaps class mid-duel ("I WANT to be able to swap
+## classes like the punch and stuff"), and without this every observation after
+## the swap would be filed against the class they just stopped playing: the
+## Brawler record would slowly fill with Arcanist spacing.
+##
+## Banks the outgoing record first, so a swap is a save point like every other
+## natural pause.
+func _follow_class_swap() -> void:
+	if _p1 == null or not is_instance_valid(_p1):
+		return
+	var now: int = int(_p1.get("_hero_class"))
+	if now == _learn_class:
+		return
+	_flush_learning()
+	_learn_class = now
+	_learn_rec = BotAdapt.repair_record(BotAdapt.record_for(_learn_store, _learn_class))
+	_learn_rec["sessions"] = int(_learn_rec.get("sessions", 0)) + 1
+	if _duel_ctrl != null:
+		_duel_ctrl.set("adapt", _learn_rec)
+	# The credit/punish windows describe the PREVIOUS kit; carrying them across a
+	# swap would credit the new class's record with the old one's exchange.
+	_credit = {}
+	_last_whiff_at = -99.0
+
+
+## Is a live telegraph or an in-flight projectile close enough to the human to be
+## the reason they just moved? Reuses the bot's own perception helper so "what
+## counts as a threat" cannot drift between what the bot dodges and what the
+## learner thinks you dodged.
+func _threat_near(at: Vector2) -> bool:
+	for t: Variant in BotController.perceive_threats(get_tree(), at, _p1):
+		if not (t is Dictionary):
+			continue
+		var d: Dictionary = t
+		var p: Vector2 = d.get("pos", Vector2.ZERO)
+		if at.distance_to(p) <= DODGE_NOTICE_RADIUS + float(d.get("radius", 0.0)):
+			return true
+	return false
+
+
+## Health bars, both ways. Polled rather than signal-driven because `Hero` has no
+## took-damage signal — only `health_changed`, which also fires on heals and on
+## the round reset, so a listener would file a respawn as a 260-point hit.
+func _observe_damage() -> void:
+	var human_hp: int = int(_p1.get("hp"))
+	var bot_hp: int = int(_duel_bot.get("hp"))
+	# Round resets refill both bars; a RISE is never damage.
+	var human_drop: int = _human_hp_last - human_hp
+	var bot_drop: int = _bot_hp_last - bot_hp
+	_human_hp_last = human_hp
+	_bot_hp_last = bot_hp
+
+	if human_drop > 0:
+		# The bot connected. Credit the slot it committed if one is still inside
+		# its window; otherwise it was a fist or a basic bolt and only the total
+		# is recorded.
+		if not _credit.is_empty() and _duel_clock - float(_credit["at"]) <= CREDIT_WINDOW:
+			BotAdapt.observe_bot_hit(_learn_rec, int(_credit["slot"]), human_drop)
+			_credit = {}
+		else:
+			_learn_rec["bot_damage"] = int(_learn_rec.get("bot_damage", 0)) + human_drop
+	if bot_drop > 0:
+		# Did this land while the bot was recovering from a whiff? That is the
+		# "do they punish a mistake" read, and it is the term that talks the bot
+		# out of long channels against a player who does.
+		var punished: bool = _duel_clock - _last_whiff_at <= PUNISH_WINDOW
+		BotAdapt.observe_human_damage(_learn_rec, bot_drop, punished)
+		if punished:
+			_last_whiff_at = -99.0   # one punish per whiff, not one per tick of a beam
+
+
+## Watch the bot's OWN presses through the controller it is driven by, and expire
+## a credit that never landed into a whiff.
+func _observe_bot_casts() -> void:
+	if _duel_ctrl != null:
+		var i: Variant = _duel_ctrl.get("intent")
+		if i is Dictionary:
+			var slot: int = int((i as Dictionary).get("cast_slot", -1))
+			# The brain latches a cast for CAST_LATCH, so the press is emitted on
+			# exactly one frame — but only file a NEW credit when the previous one
+			# has resolved, or a fast rotation would overwrite an in-flight meteor.
+			if slot >= 0 and _credit.is_empty():
+				_credit = {"slot": slot, "at": _duel_clock}
+				BotAdapt.observe_bot_cast(_learn_rec, slot)
+	if not _credit.is_empty() and _duel_clock - float(_credit["at"]) > CREDIT_WINDOW:
+		BotAdapt.observe_bot_whiff(_learn_rec)
+		_last_whiff_at = _duel_clock
+		_credit = {}
+
+
+## Hand a hero the game's own bot stack. Every piece is load()ed at runtime and
+## every step is guarded, so a roster where one of the three modules has not
+## landed yet produces a hero that simply stands still rather than a crash.
+func _attach_bot(hero: CharacterBody2D, tier: int = -1) -> void:
+	if not FileAccess.file_exists(BOT_CONTROLLER_SCRIPT):
+		return
+	var ctrl_script: GDScript = load(BOT_CONTROLLER_SCRIPT) as GDScript
+	if ctrl_script == null:
+		return
+	var ctrl: RefCounted = ctrl_script.new()
+	if FileAccess.file_exists(BOT_BRAIN_SCRIPT):
+		ctrl.set("brain", load(BOT_BRAIN_SCRIPT))
+	if FileAccess.file_exists(BOT_PROFILE_SCRIPT):
+		var prof: GDScript = load(BOT_PROFILE_SCRIPT) as GDScript
+		if prof != null and prof.has_method("of"):
+			ctrl.set("profile", prof.call("of", showcase_difficulty if tier < 0 else tier))
+	hero.set("controller", ctrl)
+	_duel_ctrl = ctrl
 
 
 ## Registry seam (also driven by the headless test): every fighter enters the
-## match with STOCKS stocks (dummies pass DUMMY_STOCKS instead), its own
+## match with STOCKS stocks, its own
 ## respawn point, and no invuln.
 func _register_fighter(body: Node2D, spawn: Vector2, stocks: int = STOCKS) -> void:
 	_registry[body.get_instance_id()] = {
@@ -439,64 +977,108 @@ func _build_hud() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 60  # AbilityBar's home per Arena.gd — below Conversation (100)
 	add_child(layer)
-	layer.add_child(AbilityBar.new())
-	_stocks_label = Label.new()
-	_stocks_label.position = Vector2(14, 10)
-	_stocks_label.add_theme_font_size_override("font_size", 13)
-	_stocks_label.add_theme_color_override("font_color", Color(0.95, 0.95, 1.0, 0.95))
-	_stocks_label.add_theme_color_override("font_outline_color", Color(0.05, 0.05, 0.1, 0.9))
-	_stocks_label.add_theme_constant_override("outline_size", 4)
-	layer.add_child(_stocks_label)
-	# Reset-map button (top-right) — clickable on desktop + touch. Rebuilds the
-	# whole arena (cover, bots, stocks) by reloading the scene.
-	var reset_btn := Button.new()
-	reset_btn.text = "Reset Map"
-	reset_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	reset_btn.offset_left = -122.0
-	reset_btn.offset_right = -10.0
-	reset_btn.offset_top = 8.0
-	reset_btn.offset_bottom = 36.0
-	reset_btn.add_theme_font_size_override("font_size", 13)
-	reset_btn.pressed.connect(_reset_arena)
-	layer.add_child(reset_btn)
-	# Difficulty selector — cycles Easy/Normal/Hard/Impossible and rebuilds the
-	# arena so the bots respawn at the new difficulty (Hard+ dodge, Impossible deflects).
-	var diff_btn := Button.new()
-	diff_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	diff_btn.offset_left = -270.0
-	diff_btn.offset_right = -128.0
-	diff_btn.offset_top = 8.0
-	diff_btn.offset_bottom = 36.0
-	diff_btn.add_theme_font_size_override("font_size", 13)
-	diff_btn.text = "Difficulty: %s" % _difficulty_name()
-	diff_btn.pressed.connect(_cycle_difficulty)
-	layer.add_child(diff_btn)
-	# (Class swapping is Tab-only now — the on-screen Class button was removed at
-	# maker request; keep a quiet text instruction instead of a tappable button.)
-	var class_hint := Label.new()
-	class_hint.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	class_hint.offset_left = 12.0
-	class_hint.offset_top = 40.0
-	class_hint.add_theme_font_size_override("font_size", 12)
-	class_hint.add_theme_color_override("font_color", Color(0.85, 0.85, 0.95, 0.7))
-	class_hint.add_theme_color_override("font_outline_color", Color(0.05, 0.05, 0.1, 0.8))
-	class_hint.add_theme_constant_override("outline_size", 3)
-	class_hint.text = "Tab: switch class"
-	layer.add_child(class_hint)
-	# Banner sits near the TOP (was dead-center, covering the fight).
+	# SHOWCASE: no chrome. The ability hotbar and the touch pad belong to a PLAYED
+	# arena; in a clip they are bands of UI covering the fight and a hotbar reading
+	# out cooldowns for a hero nobody is holding. The banner is kept — it is the only
+	# element that says anything about the duel.
+	if _is_showcase():
+		_build_showcase_banner(layer)
+		_build_pause_overlay(layer)
+		return
+	_build_duel_hud(layer)
+
+
+## The only HUD a showcase keeps: the match-over banner, and a small corner card
+## naming the two classes so a viewer knows what they are watching.
+func _build_showcase_banner(layer: CanvasLayer) -> void:
+	var card := Label.new()
+	card.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	card.offset_left = 16.0
+	card.offset_top = 12.0
+	card.add_theme_font_size_override("font_size", 18)
+	card.add_theme_color_override("font_color", Color(0.96, 0.96, 1.0, 0.92))
+	card.add_theme_color_override("font_outline_color", Color(0.04, 0.03, 0.09, 0.95))
+	card.add_theme_constant_override("outline_size", 6)
+	card.text = "%s  vs  %s" % [_class_label(showcase_a), _class_label(showcase_b)]
+	layer.add_child(card)
 	_banner = Label.new()
 	_banner.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	_banner.offset_top = 64.0
+	_banner.offset_top = 56.0
 	_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_banner.add_theme_font_size_override("font_size", 30)
+	_banner.add_theme_font_size_override("font_size", 34)
 	_banner.add_theme_color_override("font_color", Color(1.0, 0.95, 0.8))
 	_banner.add_theme_color_override("font_outline_color", Color(0.08, 0.05, 0.12, 0.95))
 	_banner.add_theme_constant_override("outline_size", 8)
 	_banner.visible = false
 	layer.add_child(_banner)
-	_build_pause_overlay(layer)
-	# Mobile two-thumb touch pad (self-hides on desktop; keyboard/mouse unaffected).
-	add_child(TouchControls.new())
+
+
+## Class id -> the name the design doc uses (HeroClass.MAGE is the Arcanist).
+func _class_label(id: int) -> String:
+	var names: Array[String] = [
+		"ARCANIST", "SHADOWBLADE", "BRAWLER", "JUGGERNAUT", "CLERIC",
+		"CRYOMANCER", "STORMCALLER", "WARLOCK", "SWORDSAINT",
+	]
+	return names[id] if id >= 0 and id < names.size() else "?"
+
+
+## THE SHOWCASE CAMERA — the fix for the failure mode every capture tool in this
+## project has shipped at least once: the payoff landing off the edge of frame.
+##
+## Neither hero's own Camera2D can do this job. It follows ONE body, so the moment
+## the fight spreads the other fighter leaves the shot, and its limits are tuned
+## for a player who is always the centre of attention. This one frames the PAIR:
+## it sits on their midpoint and zooms to whatever keeps both inside the frame
+## with a margin, so a duel that roams the whole stage stays readable.
+func _build_showcase_camera() -> void:
+	_show_cam = Camera2D.new()
+	_show_cam.zoom = Vector2(0.62, 0.62)
+	_show_cam.position_smoothing_enabled = true
+	_show_cam.position_smoothing_speed = 4.0
+	add_child(_show_cam)
+	_show_cam.make_current()
+
+
+## Track the pair. Called every frame from _process.
+func _update_showcase_camera(delta: float) -> void:
+	if _show_cam == null:
+		return
+	var pts: Array[Vector2] = []
+	for entry: Dictionary in _registry.values():
+		var n: Node = entry["node"]
+		if is_instance_valid(n) and not n.is_queued_for_deletion():
+			pts.append((n as Node2D).global_position)
+	if pts.is_empty():
+		return
+	var mid: Vector2 = Vector2.ZERO
+	for p: Vector2 in pts:
+		mid += p
+	mid /= float(pts.size())
+	var spread: float = 0.0
+	for p: Vector2 in pts:
+		spread = maxf(spread, absf(p.x - mid.x) * 2.0)
+	# Zoom so the separation plus a generous margin spans the viewport width. The
+	# margin is what leaves room for a beam or a meteor column to land INSIDE the
+	# frame rather than half off it.
+	var view_w: float = float(get_viewport().get_visible_rect().size.x)
+	var want: float = clampf(view_w / maxf(spread + _cam_margin, 1.0),
+		_cam_zoom_min, _cam_zoom_max)
+	var z: float = lerpf(_show_cam.zoom.x, want, clampf(delta * 2.5, 0.0, 1.0))
+	_show_cam.zoom = Vector2(z, z)
+	# Bias UP from the midpoint: the fighters stand ON the ground, so centring on
+	# them puts half the frame underground. Lifting the eye puts the floor in the
+	# lower third and gives the sky back to the spectacle.
+	# Clamped to the stage so the camera never drifts far enough for the void under
+	# the terrain, or the space past the rim, to fill a third of the shot.
+	# ⚠ THE VERTICAL CLAMP IS ANCHORED TO THE GROUND, and that is the whole point.
+	# The first version clamped to absolute world y and a fighter launched high
+	# dragged the eye up with it — 340 of the 400 captured frames came back as
+	# empty sky with no floor and no fighters in them, which is how this was
+	# found. Holding the camera within a band ABOVE THE FLOOR means the stage is
+	# always in shot no matter how far a knockback throws somebody.
+	_show_cam.global_position = Vector2(
+		clampf(mid.x, 340.0, STAGE_SIZE.x - 340.0),
+		clampf(mid.y - SHOWCASE_EYE_LIFT, GROUND_TOP - 330.0, GROUND_TOP - 30.0))
 
 
 ## Hidden dim overlay with PAUSED + Resume/Reset — toggled by Esc. Lives on the
@@ -507,6 +1089,54 @@ func _build_pause_overlay(layer: CanvasLayer) -> void:
 	_pause_menu.build("Exit to Hub")
 	_pause_menu.resume_requested.connect(func() -> void: _set_paused(false))
 	_pause_menu.exit_requested.connect(_exit_to_hub)
+	if _is_duel():
+		_build_duel_settings()
+
+
+## THE DUEL'S KNOBS, in the Esc menu instead of over the fight.
+##
+## MAIN menu: the two things you want in one press — a rematch, and the way into
+## the boss. SETTINGS: everything that tunes the sparring partner.
+##
+## The live/reload split is unchanged and deliberate: Learning and the two
+## overlays apply on the spot (reloading to turn a debug readout on would throw
+## away the fight you turned it on to look at), while difficulty and the bot's
+## class need a fresh bot and therefore reload the scene — which is why every one
+## of those knobs is a STATIC.
+func _build_duel_settings() -> void:
+	_pause_menu.add_action("Fight the Boss", _enter_boss_fight)
+	_pause_menu.add_action("Rematch", _reset_arena)
+
+	_pause_menu.add_setting_section("Bot Duel")
+	_duel_labels["difficulty"] = _pause_menu.add_setting_button(
+		"Difficulty: %s" % _duel_difficulty_name(), _cycle_duel_difficulty)
+	_duel_labels["botclass"] = _pause_menu.add_setting_button(
+		"Bot class: %s" % _class_label(duel_bot_class), _cycle_duel_bot_class)
+	_duel_labels["learning"] = _pause_menu.add_setting_button(
+		"Learning: %s" % ("ON" if duel_learning else "OFF"), _toggle_duel_learning)
+	_duel_labels["show"] = _pause_menu.add_setting_button(
+		"Show learned: %s" % ("ON" if duel_show_learning else "OFF"), _toggle_duel_show_learning)
+	_duel_labels["intent"] = _pause_menu.add_setting_button(
+		"Bot intent: %s" % ("ON" if duel_show_intent else "OFF"), _toggle_duel_show_intent)
+	_pause_menu.add_setting_button("Forget me", _forget_learning)
+
+
+## STRAIGHT TO THE ASHSPIRE GUARDIAN. The boss otherwise costs a full four-floor
+## climb to reach, which is not a way to TEST it — so this drops the maker into
+## the tower Arena with the guardian already on the stage (see Arena.boss_rush).
+## The learned record is banked first: leaving a fight is a save point.
+func _enter_boss_fight() -> void:
+	_flush_learning()
+	_probe_finish()
+	# BY PATH, never by `class_name Arena`: naming the class here would compile
+	# Arena.gd (and its autoload-referencing chain) whenever THIS script is
+	# load()ed by a headless `--script` harness, where no autoload is registered.
+	# Same reason the capture tools reach this scene by path. (_attach_bot idiom.)
+	var arena_script: GDScript = load(ARENA_SCRIPT) as GDScript
+	if arena_script != null:
+		arena_script.set("boss_rush", true)
+	get_tree().paused = false
+	get_tree().change_scene_to_file(ARENA_SCENE)
 
 
 ## Leave the versus sandbox back to the hub (Main.tscn). Unpause first so the
@@ -521,22 +1151,6 @@ func _exit_to_hub() -> void:
 	get_tree().change_scene_to_file("res://scenes/Main.tscn")
 
 
-func _difficulty_name() -> String:
-	var gs: Node = get_node_or_null("/root/GameState")
-	var d: int = int(gs.get("enemy_difficulty")) if gs != null else 1
-	var names: Array = ["Easy", "Normal", "Hard", "Impossible"]
-	return String(names[clampi(d, 0, 3)])
-
-
-## Cycle Easy -> Normal -> Hard -> Impossible and rebuild so the bots respawn smarter.
-func _cycle_difficulty() -> void:
-	var gs: Node = get_node_or_null("/root/GameState")
-	if gs != null:
-		gs.set("enemy_difficulty", (int(gs.get("enemy_difficulty")) + 1) % 4)
-	get_tree().paused = false
-	get_tree().reload_current_scene()
-
-
 ## Full arena reset — reload the scene so cover, bots, stocks + the match state
 ## all rebuild from scratch. Bound to the Reset Map button.
 func _reset_arena() -> void:
@@ -544,10 +1158,327 @@ func _reset_arena() -> void:
 	get_tree().reload_current_scene()
 
 
+# ================================================================== DUEL HUD
+## THE PLAY HUD IS NOW CLEAN. Everything that used to be a right-hand column of
+## buttons over the fight — difficulty, the bot's class, learning, the two debug
+## overlays, forget, rematch — moved into the Esc pause menu's Settings panel at
+## maker request ("all those settings should be in the settings when I press
+## escape"). What is left on screen while you play: your hotbar, the score line,
+## the two overlays you deliberately turned on, and the round banner.
+func _build_duel_hud(layer: CanvasLayer) -> void:
+	layer.add_child(AbilityBar.new())   # your own hotbar — you are playing this one
+
+	# Who is fighting whom, top-left, plus the live round state.
+	_stocks_label = Label.new()
+	_stocks_label.position = Vector2(14, 10)
+	_stocks_label.add_theme_font_size_override("font_size", 13)
+	_stocks_label.add_theme_color_override("font_color", Color(0.95, 0.95, 1.0, 0.95))
+	_stocks_label.add_theme_color_override("font_outline_color", Color(0.05, 0.05, 0.1, 0.9))
+	_stocks_label.add_theme_constant_override("outline_size", 4)
+	layer.add_child(_stocks_label)
+
+	# THE INSPECTION HALF of "resettable and inspectable": everything the bot has
+	# learned about you, in words, refreshed live. Off by default.
+	_learn_label = Label.new()
+	_learn_label.position = Vector2(14, 34)
+	_learn_label.add_theme_font_size_override("font_size", 11)
+	_learn_label.add_theme_color_override("font_color", Color(0.80, 0.92, 1.0, 0.92))
+	_learn_label.add_theme_color_override("font_outline_color", Color(0.04, 0.04, 0.09, 0.9))
+	_learn_label.add_theme_constant_override("outline_size", 3)
+	_learn_label.visible = duel_show_learning
+	layer.add_child(_learn_label)
+
+	# What the bot is doing THIS FRAME — the readable-opponent requirement. Bottom
+	# centre so it never sits over either fighter.
+	_intent_label = Label.new()
+	_intent_label.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_intent_label.offset_top = -74.0
+	_intent_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_intent_label.add_theme_font_size_override("font_size", 12)
+	_intent_label.add_theme_color_override("font_color", Color(1.0, 0.86, 0.62, 0.95))
+	_intent_label.add_theme_color_override("font_outline_color", Color(0.05, 0.04, 0.09, 0.95))
+	_intent_label.add_theme_constant_override("outline_size", 4)
+	_intent_label.visible = duel_show_intent
+	layer.add_child(_intent_label)
+
+	_banner = Label.new()
+	_banner.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_banner.offset_top = 64.0
+	_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_banner.add_theme_font_size_override("font_size", 30)
+	_banner.add_theme_color_override("font_color", Color(1.0, 0.95, 0.8))
+	_banner.add_theme_color_override("font_outline_color", Color(0.08, 0.05, 0.12, 0.95))
+	_banner.add_theme_constant_override("outline_size", 8)
+	_banner.visible = false
+	layer.add_child(_banner)
+	_build_pause_overlay(layer)
+	add_child(TouchControls.new())
+
+
+func _duel_difficulty_name() -> String:
+	var names: Array = ["Easy", "Normal", "Hard", "Impossible"]
+	return String(names[clampi(duel_difficulty, 0, 3)])
+
+
+## The knobs. Difficulty and class both need a fresh bot, so they reload; the
+## three toggles are applied live, because reloading to turn a debug overlay on
+## would throw away the fight you turned it on to look at.
+func _cycle_duel_difficulty() -> void:
+	_flush_learning()
+	duel_difficulty = (duel_difficulty + 1) % 4
+	get_tree().paused = false
+	get_tree().reload_current_scene()
+
+
+func _cycle_duel_bot_class() -> void:
+	_flush_learning()
+	duel_bot_class = (duel_bot_class + 1) % 9   # Hero.HeroClass has nine members
+	get_tree().paused = false
+	get_tree().reload_current_scene()
+
+
+func _toggle_duel_learning() -> void:
+	duel_learning = not duel_learning
+	# Applied to the live bot immediately: handing it an EMPTY record is exactly
+	# what "off" means — `BotAdapt` treats an empty record as no adaptation at all,
+	# so the bot reverts to the stock difficulty tier the same frame.
+	if _duel_ctrl != null:
+		_duel_ctrl.set("adapt", _learn_rec if duel_learning else {})
+	if _duel_labels.has("learning"):
+		(_duel_labels["learning"] as Button).text = "Learning: %s" % ("ON" if duel_learning else "OFF")
+
+
+func _toggle_duel_show_learning() -> void:
+	duel_show_learning = not duel_show_learning
+	if _learn_label != null:
+		_learn_label.visible = duel_show_learning
+	if _duel_labels.has("show"):
+		(_duel_labels["show"] as Button).text = "Show learned: %s" % ("ON" if duel_show_learning else "OFF")
+
+
+func _toggle_duel_show_intent() -> void:
+	duel_show_intent = not duel_show_intent
+	if _intent_label != null:
+		_intent_label.visible = duel_show_intent
+	if _duel_labels.has("intent"):
+		(_duel_labels["intent"] as Button).text = "Bot intent: %s" % ("ON" if duel_show_intent else "OFF")
+
+
+## Refresh the two live overlays. Poll-don't-push, the AbilityBar idiom: always
+## current, and no signal to forget to disconnect.
+func _update_duel_overlays() -> void:
+	if _learn_label != null and _learn_label.visible:
+		_learn_label.text = "\n".join(BotAdapt.summary_lines(_learn_rec))
+	if _intent_label != null and _intent_label.visible and _duel_ctrl != null:
+		_intent_label.text = _describe_intent()
+
+
+## The bot's current intent in one readable line — the "show what it is doing"
+## requirement. Names the SLOT ROLE rather than the index, because "payoff" tells
+## you what is about to happen and "3" does not.
+func _describe_intent() -> String:
+	var i: Variant = _duel_ctrl.get("intent")
+	if not (i is Dictionary):
+		return ""
+	var d: Dictionary = i
+	var parts: PackedStringArray = PackedStringArray()
+	var slot: int = int(d.get("cast_slot", -1))
+	if slot >= 0:
+		var roles: Array[String] = ["damage", "control", "answer", "payoff", "ULT"]
+		var name: String = roles[slot] if slot < roles.size() else str(slot)
+		var spell: Variant = _duel_bot.call("signature_at", slot) if _duel_bot != null \
+			and _duel_bot.has_method("signature_at") else null
+		# `.get()` on a missing property returns null, and `String(null)` renders as
+		# "<null>" rather than throwing — so the name is only used when it is one.
+		var pretty: Variant = spell.get("display_name") if spell != null else null
+		if pretty is String and String(pretty) != "":
+			name = "%s (%s)" % [String(pretty), name]
+		parts.append("CAST %s" % name)
+	if bool(d.get("guard", false)):
+		parts.append("GUARD")
+	if bool(d.get("dash", false)):
+		parts.append("DASH")
+	if bool(d.get("jump", false)):
+		parts.append("JUMP")
+	if bool(d.get("fire", false)):
+		parts.append("swing")
+	var move: Vector2 = d.get("move", Vector2.ZERO)
+	if absf(move.x) > 0.01:
+		parts.append("move %s" % ("<-" if move.x < 0.0 else "->"))
+	if parts.is_empty():
+		parts.append("holding")
+	return "BOT: " + "  |  ".join(parts)
+
+
+# ================================================================ LIVE PROBE
+## PLAY THE GAME, FIND THE BUGS. The headless sim's detectors are pure predicates
+## in `BotSimProbe`; the duel runs the same ones over the frames the maker is
+## actually playing and writes the same machine-readable report, so a session at
+## the keyboard produces the same artefact a batch run does.
+func _probe_begin() -> void:
+	if not FileAccess.file_exists(PROBE_SCRIPT):
+		return   # tools script absent — never a reason to stop the maker playing
+	_probe = load(PROBE_SCRIPT) as GDScript
+	_findings.clear()
+	_finding_seen.clear()
+	_probe_hp_trail.clear()
+
+
+## One frame of checks over both fighters and every live projectile.
+func _probe_tick(_delta: float) -> void:
+	if _probe == null:
+		return
+	for entry: Dictionary in _registry.values():
+		var n: Variant = entry["node"]
+		if n == null or not is_instance_valid(n) or not (n is Node2D):
+			continue
+		_probe_body(n as Node2D)
+	for n: Node in get_tree().get_nodes_in_group("player_spell"):
+		if not (n is Node2D):
+			continue
+		var p: Vector2 = (n as Node2D).global_position
+		if bool(_probe.call("position_is_broken", p)):
+			_file_finding("error", "spell_nan_position", "spell",
+				"a projectile reached a non-finite position %s" % p)
+			n.queue_free()
+		elif _under_terrain(p):
+			_file_finding("error", "spell_below_floor", "spell",
+				"a projectile resolved inside the terrain at %s" % p)
+	_probe_stalemate()
+
+
+## Per-body world integrity. NaN first, because a broken coordinate makes every
+## geometric test after it meaningless.
+func _probe_body(node: Node2D) -> void:
+	var pos: Vector2 = node.global_position
+	var label: String = "you" if node == _p1 else "bot"
+	if bool(_probe.call("position_is_broken", pos)):
+		_file_finding("error", "nan_position", label,
+			"%s reached a non-finite position %s" % [label, pos])
+		node.global_position = Vector2(DUEL_SPAWN_HUMAN.x, GROUND_TOP - 60.0)
+		return
+	if _under_terrain(pos):
+		_file_finding("error", "body_below_floor", label,
+			"%s is inside the terrain at %s (rock bottom y=%.1f)"
+				% [label, pos, PROBE_FLOOR_Y])
+	var hp: int = int(node.get("hp"))
+	var mx: int = int(node.get("max_hp"))
+	if bool(_probe.call("hp_out_of_range", hp, mx)):
+		_file_finding("error", "hp_out_of_range", label,
+			"%s hp=%d outside [0, %d]" % [label, hp, mx])
+
+
+## ⚠ THE X GATE IS THE WHOLE POINT, and it is what the headless run was missing.
+##
+## This stage has no floor past its rims — that IS the ring-out, the central
+## mechanic. A fighter falling off the left edge is not "falling through the
+## floor", it is losing a stock, and reporting it as a world bug buries the real
+## ones. So the check applies only OVER the rock, and "below" means below the
+## BOTTOM of the terrain colliders, not below their walkable surface.
+func _under_terrain(pos: Vector2) -> bool:
+	if pos.x < PROBE_TERRAIN_X0 or pos.x > PROBE_TERRAIN_X1:
+		return false
+	return pos.y > PROBE_FLOOR_Y
+
+
+## Nothing is happening. A stalemate between a human and a bot is not a softlock,
+## but it IS the exact behavioural gap the headless run found between two ranged
+## bots, so it is worth a row when it happens to a person too.
+func _probe_stalemate() -> void:
+	var total: int = 0
+	for entry: Dictionary in _registry.values():
+		var n: Variant = entry["node"]
+		if n != null and is_instance_valid(n):
+			total += int((n as Node).get("hp"))
+	_probe_hp_trail.append({"t": _duel_clock, "total": total})
+	while _probe_hp_trail.size() > 2 \
+			and float(_probe_hp_trail[0]["t"]) < _duel_clock - 12.0:
+		_probe_hp_trail.pop_front()
+	var span: float = _duel_clock - float(_probe_hp_trail[0]["t"])
+	var movement: int = absi(int(_probe_hp_trail[0]["total"]) - total)
+	if bool(_probe.call("stalemate", movement, span, 12.0)):
+		_file_finding("warn", "stalemate", "match",
+			"no HP moved in %.1fs (total stayed at %d)" % [span, total])
+		_probe_hp_trail.clear()
+
+
+## ONE FINDING IS ONE ROW — but a per-frame detector fires per frame, so an event
+## that lasts a second is sixty identical rows unless something collapses them.
+## Identical kind+subject inside PROBE_DEDUP_WINDOW increments a count on the
+## existing row instead of appending. Without this the report says "329
+## body_below_floor" when what happened was one fighter falling once.
+func _file_finding(severity: String, kind: String, label: String,
+		detail: String) -> void:
+	var key: String = "%s|%s" % [kind, label]
+	if _finding_seen.has(key):
+		var prev: Dictionary = _finding_seen[key]
+		if _duel_clock - float(prev["at"]) <= PROBE_DEDUP_WINDOW:
+			prev["at"] = _duel_clock
+			var row: Dictionary = prev["row"]
+			row["repeats"] = int(row.get("repeats", 1)) + 1
+			return
+	var anomaly: Dictionary = _probe.call("anomaly", kind, severity,
+		"duel:%s vs %s" % [_class_label(_learn_class), _class_label(duel_bot_class)],
+		0, _duel_clock, detail, {"tier": _duel_difficulty_name()})
+	anomaly["repeats"] = 1
+	_findings.append(anomaly)
+	_finding_seen[key] = {"at": _duel_clock, "row": anomaly}
+	# Loud in the console too. A report the maker has to remember to go and read
+	# is a report that goes unread; a line in the output while they play is not.
+	print("[duel-probe] %s %s: %s" % [severity, kind, detail])
+
+
+## Write the session's findings out in the same JSON + CSV shape the headless run
+## produces, so `python-tools/bot_sim_report.py` aggregates a played session and a
+## batch run side by side.
+func _probe_finish() -> void:
+	if _probe == null or _findings.is_empty():
+		return
+	DirAccess.make_dir_recursive_absolute(LIVE_REPORT_DIR)
+	var stamp: String = Time.get_datetime_string_from_system().replace(":", "-")
+	var payload: Dictionary = {
+		"source": "duel",
+		"human_class": _class_label(_learn_class),
+		"bot_class": _class_label(duel_bot_class),
+		"difficulty": _duel_difficulty_name(),
+		"duration": snappedf(_duel_clock, 0.01),
+		"anomalies": _findings,
+		"summary": _probe.call("summarize", _findings),
+	}
+	var f: FileAccess = FileAccess.open("%s/duel-%s.json" % [LIVE_REPORT_DIR, stamp],
+		FileAccess.WRITE)
+	if f != null:
+		f.store_string(JSON.stringify(payload, "\t"))
+		f.close()
+	var rows: PackedStringArray = PackedStringArray([String(_probe.call("csv_header"))])
+	for a: Dictionary in _findings:
+		rows.append(String(_probe.call("csv_row", a)))
+	var c: FileAccess = FileAccess.open("%s/duel-%s.csv" % [LIVE_REPORT_DIR, stamp],
+		FileAccess.WRITE)
+	if c != null:
+		c.store_string("\n".join(rows))
+		c.close()
+	print("[duel-probe] wrote %d finding(s) to %s" % [_findings.size(), LIVE_REPORT_DIR])
+
+
+## Leaving the scene by ANY route — the pause menu, the window close, a mode
+## switch — banks the learned record and the findings. `_exit_tree` rather than a
+## per-button call because there are five ways out of this scene and four of them
+## would eventually be forgotten.
+func _exit_tree() -> void:
+	if not _is_duel():
+		return
+	_flush_learning()
+	_probe_finish()
+
+
 func _update_hud() -> void:
 	if _stocks_label == null:
 		return
-	var p1_stocks: int = 0
-	if _p1 != null and is_instance_valid(_p1) and _registry.has(_p1.get_instance_id()):
-		p1_stocks = int(_registry[_p1.get_instance_id()]["stocks"])
-	_stocks_label.text = "P1 stocks: %d    Bots left: %d" % [p1_stocks, _bots_alive()]
+	if _is_duel():
+		var you: int = int(_p1.get("hp")) if _p1 != null and is_instance_valid(_p1) else 0
+		var bot: int = int(_duel_bot.get("hp")) if _duel_bot != null and is_instance_valid(_duel_bot) else 0
+		_stocks_label.text = "YOU %d    BOT (%s, %s) %d" % [
+			you, _class_label(duel_bot_class), _duel_difficulty_name(), bot]
+		return
+	# Showcase: the corner card already names the two classes; nothing to poll.

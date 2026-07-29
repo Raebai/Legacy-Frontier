@@ -4,6 +4,28 @@
 # each test drives _physics_process / Telegraph.advance by hand.
 extends SceneTree
 
+# ── Vacuous-pass armour (see tools/slice_test_loadout.gd for the full write-up) ──
+# A dead member read (a field that was renamed or moved) is NOT a test failure in
+# GDScript: it logs a runtime error, ABORTS the enclosing function, and hands the
+# caller back the return type's zero value. Under the old `failed += _test_x()`
+# idiom that reads as "zero failures", so the suite printed all PASS while
+# silently skipping every assertion after the dead line. Static typing does not
+# help — a typed reference to a renamed field compiles clean and dies the same way.
+# So: failures accumulate on the MEMBER `_fails` (an abort cannot discard them),
+# and every test's last line records that it reached the end. A test that aborts
+# part-way is then missing from `_completed` and fails the suite BY ABSENCE.
+
+## Every test that must run to completion. A name missing from `_completed`
+## at the end means that test aborted part-way and fails the suite.
+const TESTS: Array[String] = [
+	"caster_windup_fires_dodgeable_bolt",
+	"charger_line_telegraph_then_hit",
+	"line_telegraph_fires_once",
+]
+
+var _fails: int = 0
+var _completed: Dictionary = {}
+
 const ENEMY_SCRIPT_PATH: String = "res://scripts/combat/Enemy.gd"
 const RigScript: GDScript = preload("res://scripts/combat/CharacterRig.gd")
 const TICK: float = 1.0 / 60.0
@@ -22,12 +44,14 @@ func _process(_delta: float) -> bool:
 	if _ran:
 		return false
 	_ran = true
-	var failed: int = 0
-	failed += _test_caster_windup_fires_dodgeable_bolt()
-	failed += _test_charger_line_telegraph_then_hit()
-	failed += _test_line_telegraph_fires_once()
-	if failed > 0:
-		printerr("Slice2 enemy-archetype tests: %d FAILED" % failed)
+	_test_caster_windup_fires_dodgeable_bolt()
+	_test_charger_line_telegraph_then_hit()
+	_test_line_telegraph_fires_once()
+	for t: String in TESTS:
+		_expect(_completed.has(t),
+			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
+	if _fails > 0:
+		printerr("Slice2 enemy-archetype tests: %d FAILED" % _fails)
 		quit(1)
 	else:
 		print("Slice2 enemy-archetype tests: all PASS")
@@ -35,11 +59,19 @@ func _process(_delta: float) -> bool:
 	return true
 
 
-func _expect(cond: bool, msg: String) -> int:
+## Accumulates onto the MEMBER `_fails`, never a return value — a failure recorded
+## before an abort therefore survives the abort instead of being discarded with the
+## aborted function's result.
+func _expect(cond: bool, msg: String) -> void:
 	if not cond:
 		printerr("FAIL: ", msg)
-		return 1
-	return 0
+		_fails += 1
+
+
+## Last line of every test: "I reached the end." A name missing from `_completed`
+## means that test aborted part-way. See TESTS.
+func _completes(test_name: String) -> void:
+	_completed[test_name] = true
 
 
 func _consts() -> Dictionary:
@@ -93,8 +125,7 @@ func _find_projectile(arena: Node2D) -> Node:
 	return null
 
 
-func _test_caster_windup_fires_dodgeable_bolt() -> int:
-	var failed: int = 0
+func _test_caster_windup_fires_dodgeable_bolt() -> void:
 	var c: Dictionary = _consts()
 	var states: Dictionary = c["AttackState"]
 	# Hero at 250px — inside the caster band [180, 320].
@@ -103,30 +134,29 @@ func _test_caster_windup_fires_dodgeable_bolt() -> int:
 	var hero: StubHero = ctx["hero"]
 
 	enemy._physics_process(TICK)
-	failed += _expect(enemy.get("_attack_state") == states["WINDUP"], "caster in-band enters WINDUP")
+	_expect(enemy.get("_attack_state") == states["WINDUP"], "caster in-band enters WINDUP")
 	var tg: Telegraph = _find_telegraph(ctx["arena"])
-	failed += _expect(tg != null, "caster WINDUP spawns a telegraph tell")
-	failed += _expect(_find_projectile(ctx["arena"]) == null, "no bolt before the telegraph fires")
+	_expect(tg != null, "caster WINDUP spawns a telegraph tell")
+	_expect(_find_projectile(ctx["arena"]) == null, "no bolt before the telegraph fires")
 
 	if tg != null:
 		tg.advance(float(c["CASTER_WINDUP"]) + 0.05)
-	failed += _expect(enemy.get("_attack_state") == states["RECOVER"], "caster enters RECOVER after firing")
+	_expect(enemy.get("_attack_state") == states["RECOVER"], "caster enters RECOVER after firing")
 	var proj: Node = _find_projectile(ctx["arena"])
-	failed += _expect(proj != null, "telegraph firing spawns an EnemyProjectile")
+	_expect(proj != null, "telegraph firing spawns an EnemyProjectile")
 	if proj != null:
 		proj.set_physics_process(false)
 		# The bolt hits a hero standing on it (dodging it — moving away — would miss).
 		hero.global_position = (proj as Node2D).global_position
 		var hit: bool = proj._check_hit()
-		failed += _expect(hit, "bolt hits a hero within HIT_RADIUS")
-		failed += _expect(hero.damage_calls == [int(proj.get("DAMAGE"))], "bolt deals its DAMAGE once")
+		_expect(hit, "bolt hits a hero within HIT_RADIUS")
+		_expect(hero.damage_calls == [int(proj.get("DAMAGE"))], "bolt deals its DAMAGE once")
 
 	_teardown(ctx)
-	return failed
+	_completes("caster_windup_fires_dodgeable_bolt")
 
 
-func _test_charger_line_telegraph_then_hit() -> int:
-	var failed: int = 0
+func _test_charger_line_telegraph_then_hit() -> void:
 	var c: Dictionary = _consts()
 	var states: Dictionary = c["AttackState"]
 	# Hero at 200px — inside CHARGE_RANGE (260).
@@ -135,42 +165,41 @@ func _test_charger_line_telegraph_then_hit() -> int:
 	var hero: StubHero = ctx["hero"]
 
 	enemy._physics_process(TICK)
-	failed += _expect(enemy.get("_attack_state") == states["WINDUP"], "charger in range enters WINDUP")
+	_expect(enemy.get("_attack_state") == states["WINDUP"], "charger in range enters WINDUP")
 	var tg: Telegraph = _find_telegraph(ctx["arena"])
-	failed += _expect(tg != null, "charger spawns a telegraph")
+	_expect(tg != null, "charger spawns a telegraph")
 	if tg != null:
-		failed += _expect(tg.get("_shape") == Telegraph.Shape.LINE, "charger telegraph is a LINE")
+		_expect(tg.get("_shape") == Telegraph.Shape.LINE, "charger telegraph is a LINE")
 		tg.advance(float(c["CHARGE_WINDUP"]) + 0.05)
-	failed += _expect(enemy.get("_attack_state") == states["CHARGING"], "charger begins CHARGING after the tell")
+	_expect(enemy.get("_attack_state") == states["CHARGING"], "charger begins CHARGING after the tell")
 
 	# Put the hero right on the lane so the charge connects within a tick or two.
 	hero.global_position = enemy.global_position + Vector2(20, 0)
 	enemy._physics_process(TICK)
-	failed += _expect(hero.damage_calls == [int(c["CHARGE_DAMAGE"])], "charge hits the hero once for CHARGE_DAMAGE")
+	_expect(hero.damage_calls == [int(c["CHARGE_DAMAGE"])], "charge hits the hero once for CHARGE_DAMAGE")
 
 	# Charge times out -> RECOVER.
 	enemy._physics_process(float(c["CHARGE_TIME"]) + 0.05)
-	failed += _expect(enemy.get("_attack_state") == states["RECOVER"], "charge ends in RECOVER")
+	_expect(enemy.get("_attack_state") == states["RECOVER"], "charge ends in RECOVER")
 	# Even multiple ticks on the hero deal no second hit (single-hit guard).
 	enemy.set("_attack_state", states["CHARGING"])
 	enemy.set("_charge_timer", float(c["CHARGE_TIME"]))
 	enemy._physics_process(TICK)
-	failed += _expect(hero.damage_calls.size() == 1, "charge never double-hits the same hero")
+	_expect(hero.damage_calls.size() == 1, "charge never double-hits the same hero")
 
 	_teardown(ctx)
-	return failed
+	_completes("charger_line_telegraph_then_hit")
 
 
-func _test_line_telegraph_fires_once() -> int:
-	var failed: int = 0
+func _test_line_telegraph_fires_once() -> void:
 	var tg := Telegraph.new()
 	root.add_child(tg)
 	var fires: Array = []
 	tg.fired.connect(func() -> void: fires.append(1))
 	tg.start_line(300.0, 34.0, 0.0, 0.5)
-	failed += _expect(tg.get("_shape") == Telegraph.Shape.LINE, "start_line sets LINE shape")
+	_expect(tg.get("_shape") == Telegraph.Shape.LINE, "start_line sets LINE shape")
 	tg.advance(0.4)
-	failed += _expect(fires.is_empty(), "line telegraph has not fired mid-windup")
+	_expect(fires.is_empty(), "line telegraph has not fired mid-windup")
 	tg.advance(0.15)
-	failed += _expect(fires.size() == 1, "line telegraph fires exactly once at windup end")
-	return failed
+	_expect(fires.size() == 1, "line telegraph fires exactly once at windup end")
+	_completes("line_telegraph_fires_once")

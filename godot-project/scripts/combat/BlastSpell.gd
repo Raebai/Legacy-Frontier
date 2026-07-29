@@ -1,22 +1,58 @@
 class_name BlastSpell
 extends Node2D
 ## The GIANT blast: telegraph blooms over a windup, then a huge AoE detonation.
-## Damage is a pure radius query on the "enemy" group — no Area2D needed.
+## Damage is a pure radius query on the `target_group` group — no Area2D needed.
 ## Spectacle: big particle burst + expanding shockwave ring + heavy juice.
+##
+## ⚠ NOTE THE ONE PLACE THIS SPELL DIFFERS FROM ITS SIBLINGS. Most spectacles
+## park at the arena origin and draw in world coordinates, so their
+## `global_position` is a lie about where the effect is. THIS ONE DOES NOT:
+## `detonate_at` / `detonate_now` MOVE the node to the blast centre and `_draw`
+## works in local space around it. So `global_position` really is the blast
+## centre here, and it is the correct thing to pass to SpellTargets / SpellWorld.
+## Every other file in this family must not copy that.
+##
+## World contract (docs/spell-world-contract.md), all four parts:
+##   SPAWN  — ground residue (scorch / debris / crater) is snapped to the FLOOR
+##            beneath the blast and skipped entirely over a pit.
+##   TRAVEL — nothing travels; a blast is instantaneous at its centre.
+##   TARGETS— SpellTargets: silhouette-tested (a head at blast height registers)
+##            and line-of-sight-gated, so the blast no longer reaches through a
+##            wall it is merely standing next to.
+##   DEFLECT— the detonation does not travel, so there is nothing to send back:
+##            it routes damage through SpellDeflect.resolve and a well-timed
+##            guard EATS it.
+##
+## ⚠ WHAT THE RADIUS AUDIT FOUND HERE. `radius` is configurable (the Brawler's
+## fire punch uses 66, the enemy MAGE 70, the hero's giant blast 92, the
+## Juggernaut's ground slam 98, the Boss's slam 100) and it is what DAMAGE used —
+## but every DRAWN element was hard-wired to the `BLAST_RADIUS` const, 92. So the
+## fire punch drew a blast 39 % wider than it could hurt, and the ground slam
+## damaged 6 px outside its own picture. All drawing now reads `radius`. The
+## shockwave ring also raced out to 1.35x the radius; it is now capped at the
+## radius with a boundary arc held at exactly the radius, which is the treatment
+## BlinkStrike already ships for the same reason.
 
 const BLAST_RADIUS: float = 92.0
 const WINDUP: float = 0.55
 const DAMAGE: int = 40
-const KNOCKBACK: float = 340.0
+const KNOCKBACK: float = 220.0   # was 340.0 — maker: spell knockback was way too much
 const SHOCKWAVE_TIME: float = 0.25
 const CLEANUP_DELAY: float = 0.7
 # Every blast chars the floor beneath it: a scorch decal snapped down onto the
 # ground (never a mid-air smear) that fades + clears after SCORCH_LIFETIME.
-const SCORCH_RADIUS_FACTOR: float = 0.8  # decal size relative to BLAST_RADIUS
+const SCORCH_RADIUS_FACTOR: float = 0.8  # decal size relative to the blast radius
 const SCORCH_TINT: Color = Color(0.09, 0.05, 0.03, 0.6)  # warm charred brown
 const SCORCH_LIFETIME: float = 7.0  # seconds before the crater fades away
 const DEBRIS_COUNT: int = 22  # rock/ember chunks blown up out of the crater (bigger)
 const DEBRIS_COLOR: Color = Color(0.36, 0.3, 0.26)  # charred stone
+## How far down the floor probe reaches, as a multiple of the blast radius. Deep
+## enough to find the ground from a blast placed at head height on a tall ledge,
+## shallow enough that a blast over a pit reports "no floor". UNTESTED GUESS.
+const FLOOR_PROBE_FACTOR: float = 2.2
+## Crater gouge size relative to the blast radius. UNTESTED GUESS (carried over
+## from the original hard-wired 0.95 * BLAST_RADIUS).
+const CRATER_RADIUS_FACTOR: float = 0.95
 
 var _shockwave_elapsed: float = -1.0  # < 0 means not yet detonated.
 ## Element index (Elements.Element) applied as an ailment to enemies in radius.
@@ -31,6 +67,18 @@ var windup: float = WINDUP
 ## Co-op: a client-side VISUAL twin (Net._client_blast) — plays the full spectacle
 ## (burst/shockwave/scorch) but applies NO damage (the host's real blast owns that).
 var visual_only: bool = false
+## Who cast this. Excluded from the damage sweep and from the line-of-sight rays,
+## and published to the reaction layer as the owner. Optional: no shipping caller
+## sets it yet, and null is a legal "unowned" blast that behaves exactly as today.
+var caster_node: Node = null
+## Reaction weight — see SpellTier. The default middle shelf keeps an unset blast
+## evenly matched with every other un-adopted spectacle.
+var spell_tier: int = SpellTier.DEFAULT_WEIGHT
+## How much of a victim's parry window counts against this blast. WINDOW_NORMAL =
+## the whole window (an ordinary spell). A caller that reconfigures this into an
+## ult-weight AoE should pass SpellDeflect.WINDOW_ULT so only the opening sliver
+## of a parry turns it. Nothing sets it today, so behaviour is unchanged.
+var deflect_window: float = SpellDeflect.WINDOW_NORMAL
 
 
 ## Reconfigure before detonating (enemy MAGE aims it at group "hero", smaller
@@ -43,11 +91,19 @@ func configure(opts: Dictionary) -> void:
 	windup = float(opts.get("windup", windup))
 	element_id = int(opts.get("element_id", element_id))
 	visual_only = bool(opts.get("visual_only", visual_only))
+	deflect_window = float(opts.get("deflect_window", deflect_window))
 
 
 ## Public entry: place the blast, start the danger bloom over the windup.
+##
+## THE WINDUP IS THE DODGE BUDGET. The Telegraph draws a danger ring at exactly
+## `radius` — the same number that damages — and you have `windup` seconds to
+## leave it. `detonate_now` skips this ONLY for callers that already ran their own
+## tell (the enemy MAGE's Enemy-side telegraph) or that are a melee-range punch
+## whose own animation is the tell.
 func detonate_at(pos: Vector2) -> void:
 	global_position = pos
+	_join_reaction()
 	var telegraph := Telegraph.new()
 	add_child(telegraph)
 	telegraph.fired.connect(_detonate)
@@ -58,26 +114,89 @@ func detonate_at(pos: Vector2) -> void:
 ## its own telegraph (the enemy MAGE's Enemy-side tell) or for tests.
 func detonate_now(pos: Vector2) -> void:
 	global_position = pos
+	_join_reaction()
 	_detonate()
 
+
+## Register with the reaction layer. A co-op VISUAL TWIN is deliberately kept
+## out: the host's real blast is already registered, and a damage-free duplicate
+## on the client would fire a second reaction for the same detonation.
+func _join_reaction() -> void:
+	if visual_only:
+		return
+	var reactor: Node = get_node_or_null(^"/root/SpellReactor")
+	if reactor != null:
+		reactor.call(&"register", self, ReactionTable.Form.IMPACT, element_id)
+
+
+func _exit_tree() -> void:
+	var reactor: Node = get_node_or_null(^"/root/SpellReactor")
+	if reactor != null:
+		reactor.call(&"unregister", self)
+
+
+# --- reaction contract (see SpellReactor) ------------------------------------
+
+## Unlike its siblings this node really is AT the blast centre (see the class
+## docs), so `global_position` is the honest answer here and only here.
+func reaction_shape() -> Dictionary:
+	return SpellGeometry.circle(global_position, radius)
+
+
+## LOAD-BEARING: false during the Telegraph windup — a danger ring is not a
+## detonation and must not annihilate anything — and false once the shockwave has
+## passed. True only while the blast is actually on screen doing something.
+func reaction_active() -> bool:
+	return _shockwave_elapsed >= 0.0 and _shockwave_elapsed < SHOCKWAVE_TIME
+
+
+func reaction_element() -> int:
+	return element_id
+
+
+func reaction_form() -> int:
+	return ReactionTable.Form.IMPACT
+
+
+func reaction_owner() -> Node:
+	return caster_node
+
+
+func reaction_weight() -> int:
+	return spell_tier
+
+
+## Spent by a reaction: go without the trailing shockwave beat. NOTE the damage
+## has already landed by the time a blast can be reacted to at all — an IMPACT is
+## a done deal the instant it fires, which is exactly what distinguishes it from
+## a BEAM or a BARRIER that persists.
+func reaction_consume() -> void:
+	queue_free()
+
+
+# --- the detonation ----------------------------------------------------------
 
 func _detonate() -> void:
 	if not visual_only:  # the twin plays the spectacle only; the host owns the damage
 		_apply_blast_damage()
 	_spawn_blast_burst()
 	# Crater mark + physics debris, snapped to the FLOOR below the blast (never a
-	# mid-air smear) and given a lifetime so it clears up. Skipped over a pit.
-	var hit: Dictionary = _floor_below(global_position, BLAST_RADIUS * 2.2)
-	if not hit.is_empty():
-		var floor_pos: Vector2 = hit["position"]
+	# mid-air smear) and given a lifetime so it clears up. Skipped over a pit —
+	# `hit` is checked rather than trusting `position`, because SpellWorld returns
+	# the caller's own point unchanged on a miss (see floor_below's ⚠).
+	var ground: Dictionary = SpellWorld.floor_below(
+		global_position, radius * FLOOR_PROBE_FACTOR,
+		SpellWorld.rids([caster_node]), self)
+	if bool(ground["hit"]):
+		var floor_pos: Vector2 = ground["position"]
 		ScorchDecal.spawn(
 			get_parent(), floor_pos,
-			BLAST_RADIUS * SCORCH_RADIUS_FACTOR, "scorch", SCORCH_TINT, SCORCH_LIFETIME
+			radius * SCORCH_RADIUS_FACTOR, "scorch", SCORCH_TINT, SCORCH_LIFETIME
 		)
 		DebrisChunk.spawn_burst(
 			get_parent(), floor_pos, DEBRIS_COLOR, DEBRIS_COUNT, Vector2.UP, 300.0
 		)
-		GroundCrater.spawn(get_parent(), floor_pos, BLAST_RADIUS * 0.95, false)  # persistent gouge (bigger)
+		GroundCrater.spawn(get_parent(), floor_pos, radius * CRATER_RADIUS_FACTOR, false)
 	_shockwave_elapsed = 0.0
 	queue_redraw()
 	Juice.hit_stop(0.09)  # weighted: the AoE centerpiece, just under a kill
@@ -87,6 +206,13 @@ func _detonate() -> void:
 	# spell" beat) — a gentle widen that holds through the shockwave and eases home.
 	Juice.zoom_pull_camera(0.14, 0.35, 0.14, 0.5)
 	PostProcess.shock(0.5)  # the AoE detonation ripples the screen (modest — Q fires often)
+	# The punctuation beat, on the rung this blast's own SpellTier shelf puts it:
+	# a heavy Q lands a white blow-out, an ult-weight one takes the screen in its
+	# ELEMENT's colour, so a fire blast and an ice blast do not end identically.
+	# Camera + freeze suppressed — the four lines above already fired them, tuned
+	# for this spell; the frame here is the mark only.
+	Juice.tier_frame(spell_tier, global_position, element_id,
+		{"zoom": 0.0, "shake": 0.0, "shock": 0.0, "hitstop": 0.0})
 	Sfx.play("blast")
 	# Duck the music bed so the blast SFX owns the mix for a beat.
 	var music: Node = get_node_or_null("/root/Music")
@@ -95,41 +221,34 @@ func _detonate() -> void:
 	get_tree().create_timer(CLEANUP_DELAY).timeout.connect(queue_free)
 
 
-## Downward raycast to the nearest floor/platform (collision layer 1) within
-## `max_dist`. Returns the intersect_ray dict ({} if nothing below — e.g. over a
-## pit) so callers place scorch + debris ON the ground, never in the sky.
-func _floor_below(from: Vector2, max_dist: float) -> Dictionary:
-	var world: World2D = get_world_2d()
-	if world == null:
-		return {}
-	var query := PhysicsRayQueryParameters2D.create(from, from + Vector2(0.0, max_dist), 1)
-	return world.direct_space_state.intersect_ray(query)
-
-
 ## Radius-query damage + outward knockback against `target_group`. Split out so
 ## headless tests can exercise the geometry without driving the Telegraph timing.
+##
+## Every sweep below uses `radius` — the same number the Telegraph ring, the
+## shockwave, the flash core and the crater are drawn at.
 func _apply_blast_damage() -> void:
-	for victim: Node in get_tree().get_nodes_in_group(target_group):
-		if not victim is Node2D:
-			continue
-		if global_position.distance_to(victim.global_position) > radius:
-			continue
-		if victim.has_method("take_damage"):
-			victim.take_damage(damage)
+	var skip: Array = [caster_node]
+	for victim: Node in SpellTargets.in_radius(global_position, radius,
+			get_tree().get_nodes_in_group(target_group), skip, self):
+		var away: Vector2 = ((victim as Node2D).global_position - global_position).normalized()
+		if away == Vector2.ZERO:
+			away = Vector2.RIGHT
+		# Deflectable: a blast does not travel, so there is nothing to send back
+		# and a correctly-timed guard EATS it (SpellDeflect's non-travelling path).
+		var dealt: int = SpellDeflect.resolve(victim, damage, away,
+			SpellTargets.aim_point(victim), deflect_window)
+		if dealt > 0 and victim.has_method("take_damage"):
+			victim.take_damage(dealt)
+		if dealt <= 0:
+			continue  # parried: the guard ate the ailment and the shove with it
 		if element_id >= 0 and victim.has_method("apply_status"):
 			victim.apply_status(element_id)
 		if victim.has_method("apply_knockback"):
-			var away: Vector2 = (victim.global_position - global_position).normalized()
-			if away == Vector2.ZERO:
-				away = Vector2.RIGHT
 			victim.apply_knockback(away * knockback)
 	# Crates in the blast radius shatter too (no knockback — they're static). An
 	# enemy MAGE's blast can crack cover as well, so this isn't hero-gated.
-	for prop: Node in get_tree().get_nodes_in_group("destructible"):
-		if not prop is Node2D:
-			continue
-		if global_position.distance_to(prop.global_position) > radius:
-			continue
+	for prop: Node in SpellTargets.in_radius(global_position, radius,
+			get_tree().get_nodes_in_group("destructible"), skip, self):
 		# Blow parts off the BLAST-FACING side (localized chip): aim the hit at the
 		# point on the prop nearest the blast centre, not its centre, so cover breaks
 		# WHERE the blast touched it (maker: "parts break off where hit").
@@ -144,9 +263,9 @@ func _apply_blast_damage() -> void:
 	# Only the HERO's blast clears enemy bolts from the air (spell-vs-spell); an
 	# enemy blast must never eat its own team's projectiles.
 	if target_group == "enemy":
-		for proj: Node in get_tree().get_nodes_in_group("enemy_projectile"):
-			if proj is Node2D and global_position.distance_to((proj as Node2D).global_position) <= radius \
-					and proj.has_method("consume"):
+		for proj: Node in SpellTargets.in_radius(global_position, radius,
+				get_tree().get_nodes_in_group("enemy_projectile"), skip, self):
+			if proj.has_method("consume"):
 				proj.call("consume")
 
 
@@ -157,15 +276,21 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
+## Drawn in LOCAL space — this node sits AT the blast centre (see the class
+## docs), which is why every point here is relative to Vector2.ZERO.
 func _draw() -> void:
 	if _shockwave_elapsed < 0.0:
 		return
 	var t: float = clampf(_shockwave_elapsed / SHOCKWAVE_TIME, 0.0, 1.0)
 	if t >= 1.0:
 		return
-	# Expanding shockwave ring: races out past the blast radius and fades.
-	var r: float = lerpf(8.0, BLAST_RADIUS * 1.35, t)
 	var alpha: float = 1.0 - t
+	# The boundary, held at EXACTLY the damage radius for the whole fade, so the
+	# extent stays legible after the wave itself has swept past it.
+	draw_arc(Vector2.ZERO, radius, 0.0, TAU, 64, Color(1.0, 0.85, 0.5, 0.3 * alpha), 2.0, true)
+	# Expanding shockwave ring: races out TO the blast radius and fades. It used
+	# to overshoot to 1.35x, drawing 33 px of danger that could never hurt anyone.
+	var r: float = lerpf(8.0, radius, t)
 	draw_arc(
 		Vector2.ZERO, r, 0.0, TAU, 64,
 		Color(1.0, 0.85, 0.5, 0.9 * alpha), lerpf(10.0, 2.0, t)
@@ -174,10 +299,11 @@ func _draw() -> void:
 		Vector2.ZERO, r * 0.78, 0.0, TAU, 48,
 		Color(1.0, 0.5, 0.2, 0.5 * alpha), lerpf(6.0, 1.0, t)
 	, true)
-	# Hot flash core right after detonation.
+	# Hot flash core right after detonation — starts at exactly the damage radius
+	# and collapses inward, so the very first frame states the true extent.
 	if t < 0.4:
 		var flash: float = 1.0 - t / 0.4
-		draw_circle(Vector2.ZERO, BLAST_RADIUS * flash, Color(1.7, 1.45, 0.9, 0.35 * flash), true, -1.0, true)
+		draw_circle(Vector2.ZERO, radius * flash, Color(1.7, 1.45, 0.9, 0.35 * flash), true, -1.0, true)
 
 
 ## The shared burst builder, scaled way up for the centerpiece.

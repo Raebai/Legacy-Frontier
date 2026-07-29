@@ -35,6 +35,32 @@ extends Node
 ##                                     DIFFERENT owners (two casters' effects
 ##                                     meeting) — a data predicate in
 ##                                     ReactionTable, never a branch in here.
+##   reaction_weight()  -> int         OPTIONAL. A SpellTier.Tier — QUICK / HEAVY
+##                                     / ULT. How much this effect WEIGHS when it
+##                                     meets another head-on: two evenly matched
+##                                     spells annihilate each other, a heavier one
+##                                     eats the lighter and keeps going, a barrier
+##                                     stops what it is not outmatched by. Like
+##                                     everything else here it is only ever read
+##                                     as a PREDICATE by ReactionTable.
+##                                     POLLED every tick, alongside
+##                                     reaction_active() rather than captured at
+##                                     registration like form and element — those
+##                                     two genuinely cannot change, whereas an
+##                                     effect getting LIGHTER as it is spent is a
+##                                     thing we want to be able to author (a ward
+##                                     that has absorbed most of its budget should
+##                                     stop out-weighing the next thing to hit it).
+##                                     NOT IMPLEMENTED = SpellTier.DEFAULT_WEIGHT,
+##                                     the middle shelf. Since every spectacle
+##                                     that has not adopted this weighs the same as
+##                                     every other, they all stay evenly matched
+##                                     with each other and behave exactly as they
+##                                     do today — which is what lets the ~15
+##                                     spectacles adopt it one at a time.
+##                                     The whole adoption is one method:
+##                                         func reaction_weight() -> int:
+##                                             return SpellTier.Tier.ULT
 ##   reaction_consume() -> void        the reaction spent this effect: tear down
 ##                                     WITHOUT the normal end-of-life beat.
 ##   reaction_freeze()  -> void        OPTIONAL. Pin the effect where it is,
@@ -69,8 +95,9 @@ var spawn_effects: bool = true
 ## Total reactions fired since boot (diagnostics + tests).
 var fired_count: int = 0
 
-## {node, form, element, id}. Typed array of plain dicts — one allocation per
-## registration, none per tick.
+## {node, form, element, weight, id}. Typed array of plain dicts — one allocation
+## per registration, none per tick. `weight` is seeded here and refreshed in
+## place by the tick's activity sweep, so polling it costs no allocation either.
 var _live: Array[Dictionary] = []
 ## "idA:idB:outcome" -> true. Keyed on INSTANCE IDS, never node references, so a
 ## freed spectacle cannot keep this dictionary alive; the sweep prunes dead ids.
@@ -118,7 +145,10 @@ func register(node: Node, form: int, element: int) -> void:
 		_sweep_invalid()
 		if _live.size() >= MAX_LIVE:
 			return  # over budget: this effect simply does not react
-	_live.append({"node": node, "form": form, "element": element, "id": id})
+	_live.append({
+		"node": node, "form": form, "element": element,
+		"weight": _weight_of(node), "id": id,
+	})
 
 
 ## Remove an effect (its `_exit_tree`, or the moment it is consumed). Safe to
@@ -179,6 +209,11 @@ func resolve_now() -> int:
 		var n: Node = e["node"]
 		if not n.has_method(&"reaction_active") or not bool(n.call(&"reaction_active")):
 			continue
+		# Weight refreshed here and NOT per pair: one duck-typed call per live
+		# effect per tick (12 worst case), against up to 66 pair tests that all
+		# read the result. Keeping it out of the pair loop is the whole reason
+		# this sits in the activity sweep rather than next to the rule lookup.
+		e["weight"] = _weight_of(n)
 		active.append(e)
 	if active.size() < 2:
 		return 0
@@ -196,7 +231,8 @@ func resolve_now() -> int:
 			# Stage 3 — the authored predicate, ownership included.
 			var rel: String = _owner_relation(a["node"], b["node"])
 			var rule: Dictionary = ReactionTable.match_rule(
-				int(a["form"]), int(a["element"]), int(b["form"]), int(b["element"]), rel)
+				int(a["form"]), int(a["element"]), int(b["form"]), int(b["element"]),
+					rel, int(a["weight"]), int(b["weight"]))
 			if rule.is_empty():
 				continue
 			# Stage 4 — one crossing fires once.
@@ -224,6 +260,10 @@ func _fire(rule: Dictionary, a: Dictionary, b: Dictionary,
 		"rule": rule,
 		"a": a["node"], "b": b["node"],
 		"element_a": int(a["element"]), "element_b": int(b["element"]),
+		# The shelves the rule was matched on. An outcome that wants to scale
+		# itself by how lopsided the clash was reads these rather than asking the
+		# nodes again — the answer could have changed since the match.
+		"weight_a": int(a["weight"]), "weight_b": int(b["weight"]),
 		"shape_a": sa, "shape_b": sb,
 		"owner_rel": rel,
 		"owner": _owner_of(b["node"]),
@@ -238,6 +278,16 @@ func _fire(rule: Dictionary, a: Dictionary, b: Dictionary,
 	fired_count += 1
 	reaction_fired.emit(outcome, ctx["point"], ctx["a"], ctx["b"])
 	return true
+
+
+## The shelf an effect fights at. Duck-typed exactly like _owner_of: a spectacle
+## that has not adopted reaction_weight() is not broken, it is average — and
+## every un-adopted spectacle is average TOGETHER, which is why adding this
+## changed nothing about how today's beams meet each other.
+static func _weight_of(n: Node) -> int:
+	if n != null and is_instance_valid(n) and n.has_method(&"reaction_weight"):
+		return SpellTier.weight_or_default(int(n.call(&"reaction_weight")))
+	return SpellTier.DEFAULT_WEIGHT
 
 
 static func _owner_of(n: Node) -> Node:

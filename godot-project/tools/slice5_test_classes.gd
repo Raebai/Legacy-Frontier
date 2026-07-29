@@ -1,10 +1,36 @@
 # Run: godot --headless --path godot-project --script tools/slice5_test_classes.gd
 # Slice 5: the EIGHT-class roster. Verifies every class configures cleanly with the
-# right element / AoE variant / signature loadout, the Chidori (LightningRush) line
-# geometry, and the three appended elements' ailment mappings.
+# right element / AoE variant / signature loadout, the Thunderclap (LightningRush)
+# line geometry, and the three appended elements' ailment mappings.
 # Hero.gd + LightningRush reference autoloads, so scenes are load()ed at runtime
 # (repo test-trap idiom) and tests run on the first _process frame.
 extends SceneTree
+
+# ── Vacuous-pass armour (see tools/slice_test_loadout.gd for the full write-up) ──
+# A dead member read (a field that was renamed or moved) is NOT a test failure in
+# GDScript: it logs a runtime error, ABORTS the enclosing function, and hands the
+# caller back the return type's zero value. Under the old `failed += _test_x()`
+# idiom that reads as "zero failures", so the suite printed all PASS while
+# silently skipping every assertion after the dead line. Static typing does not
+# help — a typed reference to a renamed field compiles clean and dies the same way.
+# So: failures accumulate on the MEMBER `_fails` (an abort cannot discard them),
+# and every test's last line records that it reached the end. A test that aborts
+# part-way is then missing from `_completed` and fails the suite BY ABSENCE.
+
+## Every test that must run to completion. A name missing from `_completed`
+## at the end means that test aborted part-way and fails the suite.
+const TESTS: Array[String] = [
+	"all_classes_configure",
+	"class_elements_and_aoe",
+	"class_primaries",
+	"signature_loadouts",
+	"rush_line_geometry",
+	"chain_geometry",
+	"new_element_ailments",
+]
+
+var _fails: int = 0
+var _completed: Dictionary = {}
 
 const HERO_PATH: String = "res://scenes/combat/Hero.tscn"
 # LightningRush calls Sfx.* directly, so it must be load()ed at RUNTIME (autoloads
@@ -28,16 +54,18 @@ func _process(_delta: float) -> bool:
 	if _ran:
 		return false
 	_ran = true
-	var failed: int = 0
-	failed += _test_all_classes_configure()
-	failed += _test_class_elements_and_aoe()
-	failed += _test_class_primaries()
-	failed += _test_signature_loadouts()
-	failed += _test_rush_line_geometry()
-	failed += _test_chain_geometry()
-	failed += _test_new_element_ailments()
-	if failed > 0:
-		printerr("Slice5 class tests: %d FAILED" % failed)
+	_test_all_classes_configure()
+	_test_class_elements_and_aoe()
+	_test_class_primaries()
+	_test_signature_loadouts()
+	_test_rush_line_geometry()
+	_test_chain_geometry()
+	_test_new_element_ailments()
+	for t: String in TESTS:
+		_expect(_completed.has(t),
+			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
+	if _fails > 0:
+		printerr("Slice5 class tests: %d FAILED" % _fails)
 		quit(1)
 	else:
 		print("Slice5 class tests: all PASS")
@@ -45,11 +73,19 @@ func _process(_delta: float) -> bool:
 	return true
 
 
-func _expect(cond: bool, msg: String) -> int:
+## Accumulates onto the MEMBER `_fails`, never a return value — a failure recorded
+## before an abort therefore survives the abort instead of being discarded with the
+## aborted function's result.
+func _expect(cond: bool, msg: String) -> void:
 	if not cond:
 		printerr("FAIL: ", msg)
-		return 1
-	return 0
+		_fails += 1
+
+
+## Last line of every test: "I reached the end." A name missing from `_completed`
+## means that test aborted part-way. See TESTS.
+func _completes(test_name: String) -> void:
+	_completed[test_name] = true
 
 
 func _make_hero() -> CharacterBody2D:
@@ -59,144 +95,175 @@ func _make_hero() -> CharacterBody2D:
 
 
 ## Every one of the 8 classes configures without error and reports its name.
-func _test_all_classes_configure() -> int:
-	var failed: int = 0
+func _test_all_classes_configure() -> void:
 	var hero: CharacterBody2D = _make_hero()
 	var names: Array = hero.CLASS_NAMES
-	failed += _expect(names.size() == 8, "8 class display names")
-	failed += _expect(int(hero.HeroClass.size()) == 8, "8 HeroClass enum values")
-	for cls: int in range(8):
+	# DERIVED, never hardcoded. This assertion used to read `== 8`, which is the same
+	# stale-count bug as Lobby.gd's `% 8`: adding a class turned a correct roster into
+	# a red test and told you nothing about what was actually wrong.
+	var roster: int = int(hero.HeroClass.size())
+	_expect(names.size() == roster,
+		"a display name per class (%d names, %d classes)" % [names.size(), roster])
+	_expect(int(hero.CLASS_CONFIG.size()) == roster, "a CLASS_CONFIG row per class")
+	_expect(ClassInfo.count() == roster, "a class-select card per class")
+	for cls: int in range(roster):
 		hero.configure_class(cls)
-		failed += _expect(int(hero._hero_class) == cls, "class %d configured" % cls)
-		failed += _expect(
+		_expect(int(hero._hero_class) == cls, "class %d configured" % cls)
+		_expect(
 			hero.class_display_name() == String(names[cls]),
 			"class %d reports its display name %s" % [cls, names[cls]]
 		)
 	hero.queue_free()
-	return failed
+	_completes("all_classes_configure")
 
 
 ## Each class auto-sets its signature element and its AoE (Q) variant.
-func _test_class_elements_and_aoe() -> int:
-	var failed: int = 0
+func _test_class_elements_and_aoe() -> void:
 	var hero: CharacterBody2D = _make_hero()
 	# element index per class (matches CLASS_CONFIG): FIRE0 ICE1 LIGHT2 SHAD3 ARC4 EARTH5 HOLY6 WIND7
-	var expect_element: Array[int] = [4, 3, 0, 5, 6, 1, 2, 3]  # Arcanist..Warlock
+	# Arcanist..Swordsaint. The Swordsaint is ARCANE like the Arcanist, but note its
+	# CLASS_CONFIG `melee_element` is -1: the element only TINTS the blade, it is
+	# never applied as an ailment, which is that class's whole flavour rule.
+	var expect_element: Array[int] = [4, 3, 0, 5, 6, 1, 2, 3, 4]
 	# Each class has a DISTINCT Q spectacle now (no more 5 shared blasts).
-	var expect_aoe: Array[String] = ["arcane_meteor", "nova", "fist_shock", "ground_slam", "consecrate", "ice_shards", "call_lightning", "curse_chain"]
-	for cls: int in range(8):
+	var expect_aoe: Array[String] = ["arcane_meteor", "nova", "fist_shock", "ground_slam",
+		"consecrate", "ice_shards", "call_lightning", "curse_chain", "ground_slam"]
+	for cls: int in range(int(hero.HeroClass.size())):
 		hero.configure_class(cls)
-		failed += _expect(int(hero._element) == expect_element[cls], "class %d element = %d" % [cls, expect_element[cls]])
-		failed += _expect(String(hero._cfg["aoe"]) == expect_aoe[cls], "class %d AoE = %s" % [cls, expect_aoe[cls]])
+		_expect(int(hero._element) == expect_element[cls], "class %d element = %d" % [cls, expect_element[cls]])
+		_expect(String(hero._cfg["aoe"]) == expect_aoe[cls], "class %d AoE = %s" % [cls, expect_aoe[cls]])
 	hero.queue_free()
-	return failed
+	_completes("class_elements_and_aoe")
 
 
 ## Each class has a STRUCTURALLY distinct primary (LMB) + movement identity — the
 ## maker's "classes must feel different, not just different spells" requirement.
-func _test_class_primaries() -> int:
-	var failed: int = 0
+func _test_class_primaries() -> void:
 	var hero: CharacterBody2D = _make_hero()
 	# Expected LMB primary per class (default "bolt" when unset).
 	var expect_primary: Array[String] = [
-		"bolt", "bolt", "melee_combo", "heavy_swing", "bolt", "frost_cone", "bolt", "bolt"
+		"bolt", "bolt", "melee_combo", "heavy_swing", "bolt", "frost_cone", "bolt", "bolt",
+		"heavy_swing",
 	]
-	for cls: int in range(8):
+	for cls: int in range(int(hero.HeroClass.size())):
 		hero.configure_class(cls)
 		var prim: String = String(hero._cfg.get("primary", "bolt"))
-		failed += _expect(prim == expect_primary[cls], "class %d primary = %s (got %s)" % [cls, expect_primary[cls], prim])
+		_expect(prim == expect_primary[cls], "class %d primary = %s (got %s)" % [cls, expect_primary[cls], prim])
 	# Brawler (2): melee primary + no magic + a double-jump + an uppercut mobility.
 	hero.configure_class(2)
-	failed += _expect(int(hero._max_air_jumps) == 1, "Brawler double-jumps (air_jumps 1)")
-	failed += _expect(String(hero._cfg.get("mobility2", "")) == "uppercut", "Brawler R is the uppercut")
+	_expect(int(hero._max_air_jumps) == 1, "Brawler double-jumps (air_jumps 1)")
+	_expect(String(hero._cfg.get("mobility2", "")) == "uppercut", "Brawler R is the uppercut")
 	# Juggernaut (3): wide slow swing + a long BLOCK window.
 	hero.configure_class(3)
-	failed += _expect(hero._melee_arc_dot <= 0.0, "Juggernaut swings a wide (>=180deg) arc")
-	failed += _expect(hero._parry_window_len > 0.3, "Juggernaut BLOCK has a long defensive window")
+	_expect(hero._melee_arc_dot <= 0.0, "Juggernaut swings a wide (>=180deg) arc")
+	_expect(hero._parry_window_len > 0.3, "Juggernaut BLOCK has a long defensive window")
 	# Cleric (4) heal-bolt + Stormcaller (6) chain-bolt flags present.
 	hero.configure_class(4)
-	failed += _expect(int(hero._cfg.get("bolt_heal", 0)) > 0, "Cleric bolt lifesteals")
+	_expect(int(hero._cfg.get("bolt_heal", 0)) > 0, "Cleric bolt lifesteals")
 	hero.configure_class(6)
-	failed += _expect(int(hero._cfg.get("bolt_chain", 0)) > 0, "Stormcaller bolt chains")
+	_expect(int(hero._cfg.get("bolt_chain", 0)) > 0, "Stormcaller bolt chains")
 	hero.queue_free()
-	return failed
+	_completes("class_primaries")
 
 
-## Each class equips its themed loadout (non-empty SpellDefs); the Brawler leads
-## with the Chidori RUSH, the Cleric with Heaven's Verdict.
-func _test_signature_loadouts() -> int:
-	var failed: int = 0
-	for cls: int in range(8):
+## Each class equips its curated 4+1 kit (non-empty SpellDefs) in ROLE_ORDER —
+## damage, control, answer, payoff, ult. The per-class spot checks below name the
+## SLOT they expect, so a kit reshuffle fails loudly here rather than silently
+## handing a class somebody else's identity. The kit's structural invariants
+## (exactly 5, tiers legal, roles distinct) are pinned in slice8_test_spell_kits.
+func _test_signature_loadouts() -> void:
+	# EVERY class boots with a playable loadout, whether or not SpellLibrary has an
+	# authored kit for it — `build_for_class` falls back to the review cycle so a new
+	# class is never spell-less. (`slice8_test_spell_kits.gd` is the suite that
+	# demands an AUTHORED kit per class; this one only demands a working one.)
+	for cls: int in range(int(ClassInfo.count())):
 		var loadout: Array = SpellLibrary.build_for_class(cls)
-		failed += _expect(not loadout.is_empty(), "class %d has a signature loadout" % cls)
+		_expect(not loadout.is_empty(), "class %d has a signature loadout" % cls)
 		for s in loadout:
-			failed += _expect(s is SpellDef and s.display_name != "", "class %d loadout entries are named SpellDefs" % cls)
-	# Brawler (2) leads with the Chidori lightning RUSH.
+			_expect(s is SpellDef and s.display_name != "", "class %d loadout entries are named SpellDefs" % cls)
+	# Brawler (2) opens on the Thunderclap lightning RUSH (renamed from the borrowed
+	# technique name in the IP pass — the id moved too, nothing persists spell ids).
 	var brawler: Array = SpellLibrary.build_for_class(2)
-	failed += _expect(brawler[0].id == "chidori", "Brawler's first signature is the Chidori")
-	failed += _expect(int(brawler[0].kind) == int(SpellDef.Kind.RUSH), "Chidori is a RUSH-kind spell")
-	# Cleric (4) leads with Heaven's Verdict (convergence).
+	_expect(brawler[0].id == "thunderclap", "Brawler's damage slot is the Thunderclap")
+	_expect(int(brawler[0].kind) == int(SpellDef.Kind.RUSH), "Thunderclap is a RUSH-kind spell")
+	# Cleric (4) finishes on Heaven's Verdict (convergence) — slot 4 is the ult slot.
 	var cleric: Array = SpellLibrary.build_for_class(4)
-	failed += _expect(cleric[0].id == "heavens_verdict", "Cleric's first signature is Heaven's Verdict")
-	# Juggernaut (3) now leads with the full earthbending kit (Boulder Hurl first).
+	_expect(cleric[4].id == "heavens_verdict", "Cleric's ult is Heaven's Verdict")
+	_expect(cleric[0].id == "rune_orbs" and int(cleric[0].kind) == int(SpellDef.Kind.MISSILES), "Cleric's damage line is the rune-orb fan")
+	# Juggernaut (3) keeps the full earthbending kit; Rift Dagger is its one
+	# off-school pick (the tank had no way to close).
 	var jugg: Array = SpellLibrary.build_for_class(3)
-	failed += _expect(jugg[0].id == "boulder_hurl", "Juggernaut's first signature is Boulder Hurl")
-	failed += _expect(int(jugg[0].element) == 5, "Boulder Hurl carries the EARTH element (Stagger)")
-	failed += _expect(jugg.size() >= 5, "Juggernaut has the 3 earth-kit spells + 2 legacy ults")
-	failed += _expect(jugg[1].id == "rock_pillar" and jugg[2].id == "rock_wall", "earth kit: pillar then wall")
-	# Cryomancer (5) + Stormcaller (6) now lead with BESPOKE kits, not beam-clones.
+	_expect(jugg[0].id == "boulder_hurl", "Juggernaut's damage slot is Boulder Hurl")
+	_expect(int(jugg[0].element) == 5, "Boulder Hurl carries the EARTH element (Stagger)")
+	_expect(jugg[1].id == "rock_wall" and jugg[3].id == "rock_pillar", "earth kit: wall zones, pillar pays off")
+	_expect(jugg[4].id == "colossus_pillar", "Juggernaut's ult is the Colossus Pillar")
+	# Cryomancer (5): the Frostpiercer BEAM is its damage line (short channel, HEAVY
+	# shelf), the Ice Wall its defensive answer, and the Glacial Spine its ult.
 	var cryo: Array = SpellLibrary.build_for_class(5)
-	failed += _expect(cryo[0].id == "ice_wall" and int(cryo[0].kind) == int(SpellDef.Kind.ICE_WALL), "Cryomancer leads with the Ice Wall (not a beam)")
+	_expect(cryo[0].id == "frostpiercer" and int(cryo[0].kind) == int(SpellDef.Kind.BEAM), "Cryomancer's damage line is the Frostpiercer beam")
+	_expect(cryo[2].id == "ice_wall" and int(cryo[2].kind) == int(SpellDef.Kind.ICE_WALL), "Cryomancer's answer is the Ice Wall")
+	_expect(cryo[4].id == "frozen_comet", "Cryomancer's ult is the Glacial Spine")
+	# Stormcaller (6) opens on the chain leap, not a recoloured beam.
 	var storm: Array = SpellLibrary.build_for_class(6)
-	failed += _expect(storm[0].id == "chain_lightning" and int(storm[0].kind) == int(SpellDef.Kind.CHAIN), "Stormcaller leads with Chain Lightning (not a beam)")
-	# Arcanist keeps Zoltraak (the one legit beam) but its meteor-clone -> rune-orbs.
+	_expect(storm[0].id == "chain_lightning" and int(storm[0].kind) == int(SpellDef.Kind.CHAIN), "Stormcaller's damage line is Chain Lightning")
+	_expect(storm[4].id == "tempest", "Stormcaller's ult is the Tempest beam")
+	# Arcanist (0): The Ordinary Spell is its damage line, not a once-a-fight ult —
+	# the point of the rename was that the fantasy and the shelf now agree.
 	var arc: Array = SpellLibrary.build_for_class(0)
-	failed += _expect(arc[1].id == "rune_orbs" and int(arc[1].kind) == int(SpellDef.Kind.MISSILES), "Arcanist's alt is homing rune-orbs (not a meteor)")
-	# Shadowblade: teleport-strike + blade flurry (no beam, no meteor).
+	_expect(arc[0].id == "ordinary_spell" and int(arc[0].kind) == int(SpellDef.Kind.BEAM), "Arcanist's damage line is The Ordinary Spell")
+	_expect(arc[4].id == "meteor_sigil", "Arcanist's ult is the Meteor Sigil")
+	# Shadowblade (1): flurry to pressure, Shadow Step as the finisher.
 	var shadow: Array = SpellLibrary.build_for_class(1)
-	failed += _expect(shadow[0].id == "blink_strike" and int(shadow[0].kind) == int(SpellDef.Kind.BLINK_STRIKE), "Shadowblade leads with the teleport-strike")
-	failed += _expect(int(shadow[1].kind) == int(SpellDef.Kind.FLURRY), "Shadowblade's alt is the blade flurry")
-	# Warlock: void zone + drain tether (no beam, no meteor).
+	_expect(int(shadow[0].kind) == int(SpellDef.Kind.FLURRY), "Shadowblade's damage line is the blade flurry")
+	_expect(shadow[3].id == "blink_strike" and int(shadow[3].kind) == int(SpellDef.Kind.BLINK_STRIKE), "Shadowblade's payoff is the teleport-strike")
+	_expect(shadow[4].id == "umbral_lance", "Shadowblade's ult is the Umbral Lance beam")
+	# Warlock (7): tether to sustain, Shadow Root to hold.
 	var lock: Array = SpellLibrary.build_for_class(7)
-	failed += _expect(lock[0].id == "void_zone" and int(lock[0].kind) == int(SpellDef.Kind.ZONE), "Warlock leads with the Void Zone field")
-	failed += _expect(int(lock[1].kind) == int(SpellDef.Kind.TETHER), "Warlock's alt is the drain tether")
-	# Cryomancer's alt is now a Blizzard ZONE (not the frozen-comet meteor).
-	failed += _expect(int(cryo[1].kind) == int(SpellDef.Kind.ZONE), "Cryomancer's alt is the Blizzard field (not a meteor)")
-	# No class still leads with a plain BEAM except Arcanist's canonical Zoltraak.
-	for cls2: int in range(8):
+	_expect(int(lock[0].kind) == int(SpellDef.Kind.TETHER), "Warlock's damage line is the drain tether")
+	_expect(lock[1].id == "void_zone" and int(lock[1].kind) == int(SpellDef.Kind.ZONE), "Warlock's control is the Shadow Root field")
+	# Cryomancer's control slot is the Blizzard ZONE (not a meteor).
+	_expect(int(cryo[1].kind) == int(SpellDef.Kind.ZONE), "Cryomancer's control is the Blizzard field")
+	# A BEAM never sits in the first three slots of a kit. It may be a DAMAGE line
+	# (the two short-channel HEAVY beams) or an ULT, and nothing in between — this
+	# is the rule that stopped three of the five beams being unreachable.
+	# Only classes with an AUTHORED kit are held to the slot rules — the fallback
+	# cycle is the review harness, not a curated kit, and holding it to kit rules
+	# would assert something nobody designed.
+	for cls2: int in range(int(ClassInfo.count())):
+		if SpellLibrary.kit_for_class(cls2).is_empty():
+			continue
 		var lo: Array = SpellLibrary.build_for_class(cls2)
-		if int(lo[0].kind) == int(SpellDef.Kind.BEAM):
-			failed += _expect(lo[0].id == "zoltraak", "class %d's signature beam is only the legit Zoltraak (got %s)" % [cls2, lo[0].id])
-	return failed
+		for i: int in range(1, mini(4, lo.size())):
+			_expect(int(lo[i].kind) != int(SpellDef.Kind.BEAM),
+				"class %d slot %d is not a beam (got %s)" % [cls2, i, lo[i].id])
+	_completes("signature_loadouts")
 
 
 ## ChainBolt.build_chain: target 1 must be ON the aim ray (no seek — overhaul rule
 ## 1); each hop is the nearest unvisited within hop range; behind-origin is skipped.
-func _test_chain_geometry() -> int:
-	var failed: int = 0
+func _test_chain_geometry() -> void:
 	var a := Dummy.new(); a.global_position = Vector2(120, 0)    # first target (on the line)
 	var b := Dummy.new(); b.global_position = Vector2(260, 40)   # within hop of a
 	var c := Dummy.new(); c.global_position = Vector2(1000, 0)   # too far for hop 2
 	var behind := Dummy.new(); behind.global_position = Vector2(-200, 0)  # behind origin
 	var chain_script: GDScript = load(CHAIN_PATH)
 	var links: Array = chain_script.build_chain(Vector2.ZERO, Vector2.RIGHT, 560.0, 240.0, 5, [a, b, c, behind])
-	failed += _expect(links.size() == 2, "chain hits the reachable pair (a -> b), stops at the gap")
-	failed += _expect(links.size() >= 1 and links[0] == a, "first link is the target on the aim line")
-	failed += _expect(not links.has(behind), "a target behind the origin is never chained")
-	failed += _expect(not links.has(c), "a target beyond hop range is not reached")
+	_expect(links.size() == 2, "chain hits the reachable pair (a -> b), stops at the gap")
+	_expect(links.size() >= 1 and links[0] == a, "first link is the target on the aim line")
+	_expect(not links.has(behind), "a target behind the origin is never chained")
+	_expect(not links.has(c), "a target beyond hop range is not reached")
 	# NO SEEK: an enemy that is forward and close but OFF the aim corridor is missed
 	# entirely — the bolt does not bend to find it, and nothing chains off a whiff.
 	var off_line := Dummy.new(); off_line.global_position = Vector2(150, 300)
 	var missed: Array = chain_script.build_chain(Vector2.ZERO, Vector2.RIGHT, 560.0, 240.0, 5, [off_line])
-	failed += _expect(missed.is_empty(), "an off-corridor target is never sought — the aim just misses")
+	_expect(missed.is_empty(), "an off-corridor target is never sought — the aim just misses")
 	a.free(); b.free(); c.free(); behind.free(); off_line.free()
-	return failed
+	_completes("chain_geometry")
 
 
 ## LightningRush.targets_on_line: only nodes whose centre lies on the segment
 ## within the half-width are struck (pure geometry, mirrors the beam test).
-func _test_rush_line_geometry() -> int:
-	var failed: int = 0
+func _test_rush_line_geometry() -> void:
 	var on_line := Dummy.new()
 	on_line.global_position = Vector2(200, 0)   # straight ahead, on the line
 	var off_line := Dummy.new()
@@ -207,34 +274,33 @@ func _test_rush_line_geometry() -> int:
 	var hit: Array = rush_script.targets_on_line(
 		Vector2.ZERO, Vector2.RIGHT, 620.0, 20.0, [on_line, off_line, behind]
 	)
-	failed += _expect(hit.has(on_line), "a target on the lance line is struck")
-	failed += _expect(not hit.has(off_line), "a target off the line is missed")
-	failed += _expect(not hit.has(behind), "a target behind the origin is missed")
+	_expect(hit.has(on_line), "a target on the lance line is struck")
+	_expect(not hit.has(off_line), "a target off the line is missed")
+	_expect(not hit.has(behind), "a target behind the origin is missed")
 	on_line.free(); off_line.free(); behind.free()
-	return failed
+	_completes("rush_line_geometry")
 
 
 ## The three appended elements map onto proven ailments: EARTH staggers (hard CC),
 ## HOLY burns (active DoT), WIND stuns (hard CC).
-func _test_new_element_ailments() -> int:
-	var failed: int = 0
+func _test_new_element_ailments() -> void:
 	var holder := Node2D.new()
 	root.add_child(holder)
 
 	var earth: StatusComponent = StatusScript.new()
 	holder.add_child(earth)
 	earth.apply(StatusScript.EARTH)
-	failed += _expect(earth.is_hard_cc(), "EARTH applies a Stagger (hard CC / root)")
+	_expect(earth.is_hard_cc(), "EARTH applies a Stagger (hard CC / root)")
 
 	var holy: StatusComponent = StatusScript.new()
 	holder.add_child(holy)
 	holy.apply(StatusScript.HOLY)
-	failed += _expect(holy.is_active() and not holy.is_hard_cc(), "HOLY applies a Radiance burn (active, not CC)")
+	_expect(holy.is_active() and not holy.is_hard_cc(), "HOLY applies a Radiance burn (active, not CC)")
 
 	var wind: StatusComponent = StatusScript.new()
 	holder.add_child(wind)
 	wind.apply(StatusScript.WIND)
-	failed += _expect(wind.is_hard_cc(), "WIND applies a Gale stun (hard CC)")
+	_expect(wind.is_hard_cc(), "WIND applies a Gale stun (hard CC)")
 
 	holder.queue_free()
-	return failed
+	_completes("new_element_ailments")

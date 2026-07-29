@@ -4,6 +4,28 @@
 #   Godot_v4.6.2-stable_win64_console.exe --path godot-project --headless --script tools/slice6_test_spell_deflect.gd
 extends SceneTree
 
+# ── Vacuous-pass armour (see tools/slice_test_loadout.gd for the full write-up) ──
+# A dead member read (a field that was renamed or moved) is NOT a test failure in
+# GDScript: it logs a runtime error, ABORTS the enclosing function, and hands the
+# caller back the return type's zero value. Under the old `failed += _test_x()`
+# idiom that reads as "zero failures", so the suite printed all PASS while
+# silently skipping every assertion after the dead line. Static typing does not
+# help — a typed reference to a renamed field compiles clean and dies the same way.
+# So: failures accumulate on the MEMBER `_fails` (an abort cannot discard them),
+# and every test's last line records that it reached the end. A test that aborts
+# part-way is then missing from `_completed` and fails the suite BY ABSENCE.
+
+## Every test that must run to completion. A name missing from `_completed`
+## at the end means that test aborted part-way and fails the suite.
+const TESTS: Array[String] = [
+	"ordinary_spells",
+	"ults_are_hard_but_possible",
+	"contract_tolerance",
+]
+
+var _fails: int = 0
+var _completed: Dictionary = {}
+
 var _ran: bool = false
 
 
@@ -42,12 +64,14 @@ func _process(_delta: float) -> bool:
 	if _ran:
 		return false
 	_ran = true
-	var failed: int = 0
-	failed += _test_ordinary_spells()
-	failed += _test_ults_are_hard_but_possible()
-	failed += _test_contract_tolerance()
-	if failed > 0:
-		printerr("Spell deflect tests: %d FAILED" % failed)
+	_test_ordinary_spells()
+	_test_ults_are_hard_but_possible()
+	_test_contract_tolerance()
+	for t: String in TESTS:
+		_expect(_completed.has(t),
+			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
+	if _fails > 0:
+		printerr("Spell deflect tests: %d FAILED" % _fails)
 		quit(1)
 	else:
 		print("Spell deflect tests: all PASS")
@@ -55,81 +79,86 @@ func _process(_delta: float) -> bool:
 	return true
 
 
-func _expect(cond: bool, msg: String) -> int:
+## Accumulates onto the MEMBER `_fails`, never a return value — a failure recorded
+## before an abort therefore survives the abort instead of being discarded with the
+## aborted function's result.
+func _expect(cond: bool, msg: String) -> void:
 	if not cond:
 		printerr("FAIL: ", msg)
-		return 1
-	return 0
+		_fails += 1
 
 
-func _test_ordinary_spells() -> int:
-	var ok: int = 0
+## Last line of every test: "I reached the end." A name missing from `_completed`
+## means that test aborted part-way. See TESTS.
+func _completes(test_name: String) -> void:
+	_completed[test_name] = true
+
+
+func _test_ordinary_spells() -> void:
 	var g := Guard.new()
 	root.add_child(g)
 	# Anywhere inside the window blocks an ordinary spell — even the last sliver.
 	g.freshness = 0.05
 	var dealt: int = SpellDeflect.resolve(g, 90, Vector2.RIGHT, Vector2.ZERO)
-	ok += _expect(dealt == 0, "a parried ordinary spell deals no damage (got %d)" % dealt)
-	ok += _expect(g.deflected == 1, "the victim is told it deflected")
-	ok += _expect(g.last_dir == Vector2.RIGHT, "the deflect carries the spell's direction")
+	_expect(dealt == 0, "a parried ordinary spell deals no damage (got %d)" % dealt)
+	_expect(g.deflected == 1, "the victim is told it deflected")
+	_expect(g.last_dir == Vector2.RIGHT, "the deflect carries the spell's direction")
 	# Not parrying -> full damage passes through untouched.
 	g.parrying = false
-	ok += _expect(SpellDeflect.resolve(g, 90, Vector2.RIGHT, Vector2.ZERO) == 90,
+	_expect(SpellDeflect.resolve(g, 90, Vector2.RIGHT, Vector2.ZERO) == 90,
 		"an unparried spell deals its full damage")
-	ok += _expect(g.deflected == 1, "no deflect is recorded when not parrying")
+	_expect(g.deflected == 1, "no deflect is recorded when not parrying")
 	g.free()
-	return ok
+	_completes("ordinary_spells")
 
 
-func _test_ults_are_hard_but_possible() -> int:
-	var ok: int = 0
+func _test_ults_are_hard_but_possible() -> void:
 	var g := Guard.new()
 	root.add_child(g)
 	# Late in the window: an ordinary spell is blocked, the ult is NOT. This is
 	# the whole point — same press, different outcome by timing.
 	g.freshness = 0.5
-	ok += _expect(SpellDeflect.resolve(g, 200, Vector2.RIGHT, Vector2.ZERO) == 0,
+	_expect(SpellDeflect.resolve(g, 200, Vector2.RIGHT, Vector2.ZERO) == 0,
 		"a late parry still stops an ordinary spell")
 	var late_ult: int = SpellDeflect.resolve(g, 200, Vector2.RIGHT, Vector2.ZERO,
 		SpellDeflect.WINDOW_ULT)
-	ok += _expect(late_ult == 200, "a late parry does NOT stop an ult (got %d)" % late_ult)
+	_expect(late_ult == 200, "a late parry does NOT stop an ult (got %d)" % late_ult)
 	# Pressed on the exact frame: the ult IS turned. It must be possible, not a lie.
 	g.freshness = 1.0
 	var perfect: int = SpellDeflect.resolve(g, 200, Vector2.RIGHT, Vector2.ZERO,
 		SpellDeflect.WINDOW_ULT)
-	ok += _expect(perfect == 0, "a frame-perfect parry DOES turn an ult (got %d)" % perfect)
+	_expect(perfect == 0, "a frame-perfect parry DOES turn an ult (got %d)" % perfect)
 	# The boundary is where the constant says it is, not somewhere accidental.
 	g.freshness = 1.0 - SpellDeflect.WINDOW_ULT + 0.01
-	ok += _expect(SpellDeflect.would_deflect(g, SpellDeflect.WINDOW_ULT),
+	_expect(SpellDeflect.would_deflect(g, SpellDeflect.WINDOW_ULT),
 		"just inside the ult window connects")
 	g.freshness = 1.0 - SpellDeflect.WINDOW_ULT - 0.01
-	ok += _expect(not SpellDeflect.would_deflect(g, SpellDeflect.WINDOW_ULT),
+	_expect(not SpellDeflect.would_deflect(g, SpellDeflect.WINDOW_ULT),
 		"just outside the ult window does not")
-	ok += _expect(SpellDeflect.WINDOW_ULT < SpellDeflect.WINDOW_NORMAL,
+	_expect(SpellDeflect.WINDOW_ULT < SpellDeflect.WINDOW_NORMAL,
 		"an ult window is strictly tighter than an ordinary one")
 	g.free()
-	return ok
+	_completes("ults_are_hard_but_possible")
 
 
-func _test_contract_tolerance() -> int:
-	var ok: int = 0
+func _test_contract_tolerance() -> void:
 	# A victim with no freshness reporting keeps the lenient behaviour rather
 	# than silently losing the ability to block anything.
 	var legacy := LegacyGuard.new()
 	root.add_child(legacy)
-	ok += _expect(SpellDeflect.resolve(legacy, 70, Vector2.RIGHT, Vector2.ZERO) == 0,
+	_expect(SpellDeflect.resolve(legacy, 70, Vector2.RIGHT, Vector2.ZERO) == 0,
 		"a victim without freshness reporting can still parry")
-	ok += _expect(SpellDeflect.would_deflect(legacy, SpellDeflect.WINDOW_ULT),
+	_expect(SpellDeflect.would_deflect(legacy, SpellDeflect.WINDOW_ULT),
 		"...and is not quietly barred from parrying ults")
 	legacy.free()
 	# Anything with no defensive vocabulary simply takes the hit.
 	var crate := Bystander.new()
 	root.add_child(crate)
-	ok += _expect(SpellDeflect.resolve(crate, 55, Vector2.RIGHT, Vector2.ZERO) == 55,
+	_expect(SpellDeflect.resolve(crate, 55, Vector2.RIGHT, Vector2.ZERO) == 55,
 		"a target that cannot parry takes full damage")
-	ok += _expect(not SpellDeflect.would_deflect(crate), "...and never reads as parrying")
+	_expect(not SpellDeflect.would_deflect(crate), "...and never reads as parrying")
 	crate.free()
 	# A freed/null victim must not crash a damage loop mid-iteration.
-	ok += _expect(SpellDeflect.resolve(null, 40, Vector2.RIGHT, Vector2.ZERO) == 40,
+	_expect(SpellDeflect.resolve(null, 40, Vector2.RIGHT, Vector2.ZERO) == 40,
 		"a null victim passes damage through instead of erroring")
-	return ok
+	_completes("contract_tolerance")

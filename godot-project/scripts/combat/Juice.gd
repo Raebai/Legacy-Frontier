@@ -7,15 +7,26 @@ static func _tree() -> SceneTree:
 	return Engine.get_main_loop() as SceneTree
 
 
+## Generation counter for OVERLAPPING freezes. Two hit-stops in flight used to
+## fight: the shorter one's restore fired first and snapped time_scale back to 1
+## while the longer one was still meant to be holding, so a big beat layered over
+## a small one silently lost its freeze. Only the LATEST freeze restores; earlier
+## ones see a stale generation and return without touching time_scale.
+static var _hit_stop_gen: int = 0
+
+
 static func hit_stop(duration: float = 0.06) -> void:
 	var tree: SceneTree = _tree()
 	if tree == null or not _hit_stop_enabled():
 		return
+	_hit_stop_gen += 1
+	var gen: int = _hit_stop_gen
 	Engine.time_scale = 0.05
 	# ignore_time_scale = true so the restore timer runs in real time.
 	var timer: SceneTreeTimer = tree.create_timer(duration, true, false, true)
 	await timer.timeout
-	Engine.time_scale = 1.0
+	if gen == _hit_stop_gen:
+		Engine.time_scale = 1.0
 
 
 ## Accessibility toggle (Tuning.cfg.hit_stop_enabled) — off = no time-freeze.
@@ -93,26 +104,124 @@ static func epic_moment(opts: Dictionary = {}) -> void:
 				sfx_node.call("play", sfx, 0.0, 0.05)
 	if bool(opts.get("frame", false)):
 		# "at" is the world point the beat belongs to; omitted = viewport centre.
-		impact_frame(0.7 * s, opts.get("at", Vector2.INF))
+		# `style` / `element` let a caller pick its mark from the vocabulary
+		# instead of always getting the white wash (the default stays BLOWOUT so
+		# existing epic_moment callers are unchanged).
+		# Camera + freeze are suppressed here (zoom/shake/shock/hitstop 0): this
+		# function ALREADY fired all four, and letting the frame fire its own set
+		# on top double-punches the camera and lets the frame's freeze overwrite
+		# the epic beat's own, tuned one.
+		frame({
+			"style": int(opts.get("style", ImpactFrame.Style.BLOWOUT)),
+			"strength": 0.7 * s,
+			"at": opts.get("at", Vector2.INF),
+			"element": int(opts.get("element", -1)),
+			"lines": bool(opts.get("lines", true)),
+			"zoom": 0.0, "shake": 0.0, "shock": 0.0, "hitstop": 0.0,
+		})
 	hit_stop(0.07 * s)  # fired LAST (it awaits) so the reveal/shake land first
 
 
-## The anime IMPACT FRAME — spawn a full-screen speed-line + flash burst, a harder
-## freeze, a big zoom-punch + shake spike. Reserve for CURATED cool moments (a big
-## deflect, a heavy punch, a finisher) — not every hit. Respects the hit-stop toggle.
-## Pass the WORLD hit position when one exists so the flash + converging lines
-## happen AT the impact (screen-projected) — omitted = viewport centre (legacy).
-static func impact_frame(strength: float = 1.0, world_pos: Vector2 = Vector2.INF) -> void:
+## THE PUNCTUATION BEAT — one entry point for every impact frame in the game.
+##
+## Fires a screen mark (see `ImpactFrame.Style` for the vocabulary and when to
+## reach for each) together with the camera/time cluster that sells it. Whether
+## it plays at all is decided by `ImpactFrame.decide`, the global arbiter — see
+## that file for why a referee is not optional here.
+##
+## ⚠ WHEN THE ARBITER SAYS NO, *NOTHING* FIRES — not the mark, and not the shake
+## / zoom / ripple / freeze either. That is deliberate and it is what makes a
+## barrage safe. The freeze in particular is the dangerous half: `hit_stop` drops
+## `Engine.time_scale` to 0.05, and twelve boulders landing inside 0.34 s each
+## requesting their own 0.2 s freeze is how you lock the game in stuttering slow
+## motion for seconds (MeteorSigil._land_earth carries the scar). Callers all
+## fire their OWN on-hit juice already, so a suppressed frame costs the hit
+## nothing — it just does not get punctuated.
+##
+## opts (all optional):
+##   style: int       an ImpactFrame.Style; default BLOWOUT
+##   strength: float  0.25 .. 1.6
+##   duration: float  real seconds; default per style
+##   at: Vector2      WORLD hit position — pass it whenever one exists
+##   element: int     an Elements.Element; supplies the tint for COLOR_FIELD etc.
+##   tint: Color      explicit tint, overriding `element`
+##   lines: bool      draw the style's radial lines/wedges (default true)
+##   shake/zoom/shock/hitstop: floats overriding the strength-derived cluster
+## Returns true when the frame actually played.
+static func frame(opts: Dictionary = {}) -> bool:
 	var tree: SceneTree = _tree()
 	if tree == null:
-		return
-	var f: Node = (load("res://scripts/combat/ImpactFrame.gd") as GDScript).new()
-	tree.root.add_child(f)
-	f.call("flash", strength, world_pos)
-	zoom_punch_camera(0.14 * strength, 0.22)
-	shake_camera(11.0 * strength)
-	PostProcess.shock(1.15 * strength)  # a hard screen ripple on the curated impact frame
-	hit_stop(0.15 * strength)
+		return false
+	var strength: float = float(opts.get("strength", 1.0))
+	var decision: Dictionary = ImpactFrame.decide({
+		"style": int(opts.get("style", ImpactFrame.Style.BLOWOUT)),
+		"strength": strength,
+		"duration": opts.get("duration", ImpactFrame.default_duration(
+			int(opts.get("style", ImpactFrame.Style.BLOWOUT)))),
+	})
+	if not bool(decision["granted"]):
+		return false
+	# The mark's own strength may have been clamped by the accessibility
+	# downgrade; the surrounding cluster follows it down so the whole beat
+	# softens together instead of a quiet flash under a violent camera.
+	var s: float = float(decision["strength"])
+	var at: Vector2 = opts.get("at", Vector2.INF)
+	var element: int = int(opts.get("element", -1))
+	var tint: Color = opts.get("tint",
+		Elements.color(element) if element >= 0 else Color(1.0, 1.0, 1.0))
+	ImpactFrame.spawn(decision, at, tint, bool(opts.get("lines", true)))
+	var zoom: float = float(opts.get("zoom", 0.14 * s))
+	if zoom > 0.0:
+		zoom_punch_camera(zoom, 0.22)
+	var shake: float = float(opts.get("shake", 11.0 * s))
+	if shake > 0.0:
+		shake_camera(shake)
+	var shock: float = float(opts.get("shock", 1.15 * s))
+	if shock > 0.0:
+		# Centre the ripple on the hit when we know where it is, for the same
+		# reason the mark itself is: a beat that belongs to a place in the world
+		# and rings from screen centre reads as a UI glitch.
+		if at.is_finite():
+			PostProcess.shock(shock, world_to_uv(at))
+		else:
+			PostProcess.shock(shock)
+	var hs: float = float(opts.get("hitstop", 0.15 * s))
+	if hs > 0.0:
+		hit_stop(hs)   # fired LAST (it awaits) so the rest lands first
+	return true
+
+
+## THE TIER LADDER — what a spectacle should call. A jab, a heavy spell, an ult
+## and a climax get four different marks, keyed off the SAME `SpellTier` shelf the
+## clash layer and the audio roster already read, so "an ult feels like an ult"
+## means one thing across the game. See ImpactFrame's TIER_* constants.
+##
+## `element` (an Elements.Element, or -1) is what makes two ults of different
+## elements end on genuinely different screens rather than on the same white
+## wash — the specific failure that got impact frames deleted from three spells
+## here. Pass the spell's `element_id`.
+##
+## `opts` is forwarded to `frame`, so a spectacle can override any single part of
+## its rung (a style, a duration) without leaving the ladder.
+static func tier_frame(tier: int, at: Vector2 = Vector2.INF, element: int = -1,
+		opts: Dictionary = {}) -> bool:
+	var cfg: Dictionary = {"at": at, "element": element}
+	cfg.merge(ImpactFrame.ladder(tier, element, bool(opts.get("climax", false))))
+	cfg.merge(opts, true)
+	cfg.erase("climax")
+	return frame(cfg)
+
+
+## Legacy entry point, unchanged in signature and (when the arbiter grants it) in
+## behaviour: a white blow-out with the original camera/time cluster. Kept so the
+## ~10 existing call sites outside this system keep working; new call sites should
+## prefer `tier_frame` so they land on the ladder.
+static func impact_frame(strength: float = 1.0, world_pos: Vector2 = Vector2.INF) -> void:
+	frame({
+		"style": ImpactFrame.Style.BLOWOUT, "strength": strength, "at": world_pos,
+		"zoom": 0.14 * strength, "shake": 11.0 * strength,
+		"shock": 1.15 * strength, "hitstop": 0.15 * strength,
+	})
 
 
 ## Project a WORLD point to a screen UV (0..1). PostProcess.shock takes a

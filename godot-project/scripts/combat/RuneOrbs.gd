@@ -20,6 +20,13 @@ const STAGGER: float = 0.055    # launch delay per orb — they STREAM out, not 
 const WEAVE_AMP: float = 7.0    # cosmetic sideways weave (px) around the fixed axis
 const WEAVE_FREQ: float = 11.0
 
+## WHO THIS SPELL MAY HURT. Stamped by SpellCaster._stamp() at cast time, so it
+## follows the CASTER's faction rather than being fixed at "enemy" forever. Every
+## spectacle used to scan the literal group "enemy", which is why a hero-shaped
+## bot's spells passed harmlessly through another hero: the aim was right, the
+## spectacle spawned and drew, then it queried a group its target was not in.
+## Nothing errored. Defaults to "enemy", so single player is byte-identical.
+var target_group: String = "enemy"
 var element_id: int = Elements.Element.ARCANE
 var _color: Color = Color(0.85, 0.5, 1.0, 1.0)
 var _dmg: int = 24
@@ -87,7 +94,7 @@ func _orb_position(orb: Dictionary, age: float) -> Vector2:
 func _pop(orb: Dictionary, e: Node) -> void:
 	orb["alive"] = false
 	if e.has_method("take_damage"):
-		e.take_damage(_dmg, Color(_color.r, _color.g, _color.b, 1.0))
+		SpellTargets.hurt(e, _dmg, Color(_color.r, _color.g, _color.b, 1.0))
 	if e.has_method("apply_status"):
 		e.apply_status(element_id)
 	CombatVfx.spawn_burst(get_parent(), orb["pos"],
@@ -98,7 +105,9 @@ func _pop(orb: Dictionary, e: Node) -> void:
 ## Nearest damageable thing the orb has physically flown into — enemies first,
 ## then destructible cover (so a volley chews through crates like it should).
 func _target_within(p: Vector2, r: float) -> Node:
-	for group: String in ["enemy", "destructible"]:
+	# The hostile faction, then the always-neutral destructibles — cover belongs to
+	# nobody, so it stays a literal rather than following the caster.
+	for group: String in [target_group, "destructible"]:
 		for e: Node in get_tree().get_nodes_in_group(group):
 			if e is Node2D and is_instance_valid(e) and p.distance_to((e as Node2D).global_position) <= r:
 				return e

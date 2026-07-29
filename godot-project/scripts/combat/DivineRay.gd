@@ -3,29 +3,78 @@ extends Node2D
 
 ## Who this ray's damage hits. Default "enemy"; the Boss sets "hero".
 var target_group: String = "enemy"
-## Signature spectacle #2 — JUDGMENT. A holy sigil opens in the sky and a SINGLE
-## towering pillar of light crashes down on the ONE point you mark — a precise,
-## high-commitment single-target smite (dodge the tell or eat a heavy hit), NOT a
-## whole-row room-wipe. Radius damage on the pillar footprint (targets_in_radius,
-## pure/testable); strike() drives the timeline. Instantiate .new(), add to the
-## arena, call strike().
+## THE VERDICT — the ult that is one instantaneous vertical LINE, and then a burn
+## that will not go away.
+##
+## IDENTITY (maker, mid-playtest: "most ults look the same — just are recolours or
+## retypes of the same meteor type of thing"). The axes that separate this from
+## the rest of the kit are TIMING and STILLNESS, not palette:
+##   * DIRECTION  — strictly vertical, sky to ground, full screen height. The
+##                  Siege closes in horizontally, the bombardment sweeps across on
+##                  a diagonal, the nova pushes out along the floor. This is the
+##                  only ult that is a single clean vertical.
+##   * TIMING     — a long MOTIONLESS tell, then a SNAP, then a long slow burn
+##                  down. Nothing else in the kit holds still while it threatens,
+##                  and nothing else lingers afterwards: the aftermath here is
+##                  3.5x longer than the hit that caused it, so a Verdict is
+##                  still visibly cooling on screen a second later.
+##   * EYE        — travels DOWN a line. Every other ult asks the eye to watch a
+##                  patch of ground.
+##   * SCREEN     — a downward camera kick (`kick_camera`), which no other spell
+##                  uses, instead of the shared zoom-punch.
+##   * RESIDUE    — none. Pure light leaves nothing but the afterimage. Craters
+##                  and scorch belong to the things made of rock and fire.
+##
+## ⚠ THE SKY MAGIC CIRCLE IS GONE, DELIBERATELY. It used to open a sigil overhead,
+## and that sigil was the single biggest cause of the "they all look the same"
+## verdict: five of the seven ults opened with the same hexagram at the same size
+## in the same place, and it is the brightest object on screen during the beat the
+## player has longest to study. The tell here is now a HAIRLINE THREAD hanging
+## dead still in the exact column the pillar will occupy — unique in the kit, and
+## strictly more informative than a circle floating above the action.
+##
+## Damage matches what is DRAWN: the bright column (a vertical capsule) plus the
+## ground footprint disc. `targets_in_radius` stays as the pure/testable primitive;
+## `strike()` drives the timeline. Instantiate .new(), add to the arena, call
+## strike().
 ##
 ## The trailing `effect` param picks the elemental CHARACTER
 ## ("holy" | "frost" | "fire" | "arcane" | ...) — same pillar silhouette,
-## distinct palette + impact, so it reads different at a glance.
+## distinct palette + impact.
 ##
 ## EXCEPTION — "earth" (Colossus Pillar): not a light column at all. It runs a
 ## separate stone-eruption timeline: fissures crack outward + the ground heaves
 ## (long telegraph), then a titanic slate spire ERUPTS from below with dust,
-## debris and a heavy landing thump, holds as area denial, then crumbles.
+## debris and a heavy landing thump, holds as area denial, then crumbles. That
+## mode was already the most distinct thing in the ult set — an opaque physical
+## OBJECT with real mass where everything else is glowing light — so its look is
+## deliberately left alone here; only its damage shape was corrected.
 
-const CHARGE_TIME: float = 0.42   # sky sigil + ground telegraph
-const PILLAR_HOLD: float = 0.18   # the pillar held at full brightness
-const FADE_TIME: float = 0.30
-const SKY_HEIGHT: float = 560.0   # how far above the ground the sigil hangs
+## THE DODGE BUDGET for the light column: 0.55 s of motionless thread before the
+## pillar lands. Longer than the old 0.42 because the tell is now quiet and still
+## rather than a growing ring — a subtle tell has to last longer to be fair.
+## UNTESTED GUESS.
+const CHARGE_TIME: float = 0.55
+## The hit itself: a SNAP, cut from 0.18 to make the contrast with the long fade
+## sharp. The pillar should feel like it was already over before you registered it.
+const PILLAR_HOLD: float = 0.06
+## The long burn-down. 0.30 -> 0.85: this is the "retinal afterimage" that gives
+## the Verdict a silhouette in memory rather than just at the moment of impact.
+const FADE_TIME: float = 0.85
+const SKY_HEIGHT: float = 560.0   # how far above the ground the column starts
 const DEFAULT_RADIUS: float = 70.0
 const DEFAULT_DAMAGE: int = 95
-const KNOCKBACK: float = 320.0
+const KNOCKBACK: float = 210.0   # was 320.0 — maker: spell knockback was way too much
+## Half-width of the DAMAGING column, as a fraction of `_radius`.
+##
+## THE MISMATCH THIS FIXES: damage was a plain circle of `_radius` around the
+## ground point, so (a) it reached `_radius` straight DOWN through the floor, and
+## (b) a body standing high up inside the drawn column — on a platform, mid-jump —
+## was outside the circle and took nothing at all, despite a pillar of light being
+## drawn straight through it. The column is drawn with a bright band about
+## `_radius * 0.9` across, so half of that is 0.45; 0.5 is that band plus a hair,
+## and it is measured to the target's silhouette rather than to a point. UNTESTED.
+const COLUMN_HALF_FACTOR: float = 0.5
 
 # ── COLOSSUS PILLAR / stone mode ("earth" effect) ────────────────────────────
 # The "earth" character is not a tinted light column — it is GEOLOGY: fissures
@@ -48,6 +97,15 @@ const STONE_LIT: Color = Color(0.68, 0.60, 0.47)
 const STONE_RIM: Color = Color(1.22, 1.06, 0.84)    # HDR mineral seam (subtle bloom, not wire)
 const STONE_SEAM: Color = Color(0.15, 0.13, 0.10)
 const STONE_DUST: Color = Color(0.62, 0.52, 0.38)
+## Colossus damage shape, corrected to match its DRAWING (see the audit note on
+## `_erupt_stone`). The spire is drawn `_radius * 0.95` wide at the base and
+## STONE_HEIGHT tall; the broken-slab rubble hump around its foot spans
+## `+/- _radius * 0.85`. The old damage query was a single `_radius` circle at the
+## base, which was simultaneously too WIDE (it hit past the rubble, and `_radius`
+## straight down through the floor) and far too SHORT (a body level with the
+## middle of a 300 px spire took nothing while rock was drawn through it).
+const STONE_BASE_FACTOR: float = 0.85    # x _radius — matches the drawn rubble hump
+const STONE_COLUMN_FACTOR: float = 0.5   # x _radius — matches the drawn slab width
 
 var _ground: Vector2 = Vector2.ZERO
 var _color: Color = Color(1.0, 0.92, 0.55, 1.0)
@@ -56,7 +114,6 @@ var _damage: int = DEFAULT_DAMAGE
 var _effect: String = "holy"
 var _elapsed: float = -1.0
 var _struck: bool = false
-var _circle: MagicCircle = null
 ## Elemental ailment (Elements.Element) applied to enemies the pillar hits. -1=none.
 var element_id: int = -1
 
@@ -104,15 +161,12 @@ func strike(
 		Juice.shake_camera(3.0)
 		queue_redraw()
 		return
-	# The sky sigil hangs over the strike column, oversized so it presides over it.
-	_circle = MagicCircle.new()
-	add_child(_circle)
-	_circle.global_position = _ground - Vector2(0.0, SKY_HEIGHT)
-	_circle.appear(_color, _radius * 2.6, CHARGE_TIME * 0.85)
-	# EDGE-ON along the vertical pillar: the sky sigil reads as a thin horizontal
-	# gate the column of light drops through.
-	_circle.set_orientation(true, Vector2.DOWN, 0.16)
-	Sfx.play("holy", -5.0, 0.05)  # radiant chord as the seal opens
+	# NO SKY SIGIL (see the header note). The tell is drawn by this file, in
+	# _draw_thread(): a hairline of light hanging dead still in the exact column
+	# the pillar will fill. Stillness is the whole point — every other telegraph in
+	# the game grows, spins or pulses, so a threat that simply HANGS there is
+	# instantly identifiable as this one.
+	Sfx.play("holy", -8.0, 0.05)  # a quiet, sustained note under the stillness
 	queue_redraw()
 
 
@@ -132,8 +186,6 @@ func _process(delta: float) -> void:
 func _light_step() -> bool:
 	if not _struck and _elapsed >= CHARGE_TIME:
 		_smite()
-	if _circle != null and is_instance_valid(_circle) and _elapsed >= CHARGE_TIME:
-		_circle.vanish(PILLAR_HOLD + FADE_TIME)  # idempotent
 	return _elapsed >= CHARGE_TIME + PILLAR_HOLD + FADE_TIME
 
 
@@ -181,7 +233,14 @@ func _stone_step(delta: float) -> bool:
 func _erupt_stone() -> void:
 	_struck = true
 	var at: Vector2 = _ground
-	for enemy: Node in targets_in_radius(at, _radius, get_tree().get_nodes_in_group(target_group)):
+	# AUDIT FIX — the damage now has the SHAPE OF THE SPIRE. See STONE_BASE_FACTOR
+	# / STONE_COLUMN_FACTOR: a tall narrow capsule for the slab stack plus the
+	# rubble hump at its foot, instead of one `_radius` ball at the base that was
+	# both wider than the drawn rock at ground level and blind to everything above
+	# knee height on a 300 px tower.
+	for enemy: Node in _column_targets(
+			STONE_HEIGHT, _radius * STONE_COLUMN_FACTOR, _radius * STONE_BASE_FACTOR,
+			get_tree().get_nodes_in_group(target_group)):
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(_damage)
 		if element_id >= 0 and enemy.has_method("apply_status"):
@@ -189,7 +248,9 @@ func _erupt_stone() -> void:
 		if enemy.has_method("apply_knockback"):
 			var away: Vector2 = ((enemy as Node2D).global_position - at).normalized()
 			enemy.apply_knockback((away if away != Vector2.ZERO else Vector2.UP) * KNOCKBACK)
-	for prop: Node in targets_in_radius(at, _radius, get_tree().get_nodes_in_group("destructible")):
+	for prop: Node in _column_targets(
+			STONE_HEIGHT, _radius * STONE_COLUMN_FACTOR, _radius * STONE_BASE_FACTOR,
+			get_tree().get_nodes_in_group("destructible")):
 		if prop.has_method("take_damage"):
 			prop.take_damage(_damage)
 	# Fast grit blasting outward at the base + slow dust that HANGS in the air.
@@ -207,6 +268,12 @@ func _erupt_stone() -> void:
 	Juice.shake_camera(18.0)
 	Juice.zoom_punch_camera(0.10, 0.26)
 	PostProcess.shock(0.6)  # the whole screen feels the mass land
+	# A falling MASS is the one thing the white blow-out was always right for —
+	# it is a concussion, not a shape — so this rung takes it straight off the
+	# ladder at ULT weight. Camera + freeze suppressed (fired above, tuned).
+	Juice.tier_frame(SpellTier.Tier.ULT, at, element_id,
+		{"style": ImpactFrame.Style.BLOWOUT,
+		"zoom": 0.0, "shake": 0.0, "shock": 0.0, "hitstop": 0.0})
 	Sfx.play("cannon", 1.0, 0.05, 0.72)  # pitched DOWN — heavy landing thump
 	Sfx.play("earth", -1.0, 0.06)
 
@@ -216,7 +283,14 @@ func _erupt_stone() -> void:
 func _smite() -> void:
 	_struck = true
 	var at: Vector2 = _ground
-	for enemy: Node in targets_in_radius(at, _radius, get_tree().get_nodes_in_group(target_group)):
+	# AUDIT FIX — damage now has the SHAPE OF THE PILLAR: the drawn column as a
+	# vertical capsule from the sky down, plus the ground footprint disc. The old
+	# `_radius` circle at the ground point missed anyone standing high inside the
+	# beam (on a platform, mid-jump) while reaching `_radius` down through the
+	# floor into the level below. See COLUMN_HALF_FACTOR.
+	for enemy: Node in _column_targets(
+			SKY_HEIGHT, _radius * COLUMN_HALF_FACTOR, _radius,
+			get_tree().get_nodes_in_group(target_group)):
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(_damage)
 		if element_id >= 0 and enemy.has_method("apply_status"):
@@ -224,16 +298,50 @@ func _smite() -> void:
 		if enemy.has_method("apply_knockback"):
 			var away: Vector2 = ((enemy as Node2D).global_position - at).normalized()
 			enemy.apply_knockback((away if away != Vector2.ZERO else Vector2.UP) * KNOCKBACK)
-	for prop: Node in targets_in_radius(at, _radius, get_tree().get_nodes_in_group("destructible")):
+	for prop: Node in _column_targets(
+			SKY_HEIGHT, _radius * COLUMN_HALF_FACTOR, _radius,
+			get_tree().get_nodes_in_group("destructible")):
 		if prop.has_method("take_damage"):
 			prop.take_damage(_damage)
 	_impact_burst(at)
 	_impact_mark(at)
 	Juice.hit_stop(0.09)
 	Juice.shake_camera(14.0)
-	Juice.zoom_punch_camera(0.09, 0.24)
-	PostProcess.shock(0.55)  # the pillar-slam ripples the screen
+	# A DOWNWARD camera kick rather than the zoom-punch every other big spell
+	# fires: the screen is shoved along the same axis the pillar travelled, which
+	# is a distinct physical read and costs nothing.
+	Juice.kick_camera(Vector2.DOWN, 16.0)
+	PostProcess.shock(0.55, Juice.world_to_uv(at))  # ripple centred on the strike
+	# The COLUMN of light gets the colour field, not the blow-out: the whole read
+	# of this spell is "the sky opened in <element>", and a field of that element
+	# is that sentence as a single frame. A white flash would say "something
+	# exploded", which is the wrong spell.
+	Juice.tier_frame(SpellTier.Tier.ULT, at, element_id,
+		{"zoom": 0.0, "shake": 0.0, "shock": 0.0, "hitstop": 0.0})
 	Sfx.play("cannon", 0.0, 0.06)  # the pillar slams down
+
+
+## Everyone inside a vertical effect standing on `_ground`: a capsule `height` tall
+## and `half_width` wide, UNIONed with a `base_radius` disc at its foot.
+##
+## That union is the honest description of both vertical spells in this file — a
+## tall narrow body with a wider splash where it meets the floor — and replacing
+## the single ground circle with it is what stops the drawn extent and the damaged
+## extent disagreeing in BOTH directions at once.
+##
+## Order is deterministic (capsule hits first, then disc-only hits) because the
+## input group order is, which keeps it headless-testable. LOS is on for both
+## halves: the column is traced from the sky so a target under a ledge is
+## correctly shielded, and the disc is traced from the impact point so the splash
+## cannot leak through a wall or the floor.
+func _column_targets(height: float, half_width: float, base_radius: float,
+		nodes: Array) -> Array:
+	var top := Vector2(_ground.x, _ground.y - height)
+	var out: Array = SpellTargets.on_line(top, Vector2.DOWN, height, half_width, nodes, [], self)
+	for n: Node in SpellTargets.in_radius(_ground, base_radius, nodes, [], self):
+		if not out.has(n):
+			out.append(n)
+	return out
 
 
 ## Impact spray at the footprint, charactered per effect.
@@ -285,7 +393,15 @@ func _impact_burst(at: Vector2) -> void:
 
 
 ## Lingering ground mark under the pillar: frost cracks the ground with ice, fire
-## scorches it. Holy/arcane leave no residue (pure light/energy).
+## scorches it.
+##
+## ⚠ HOLY / ARCANE DELIBERATELY LEAVE NOTHING, AND THE CRATER IS GONE. This used
+## to gouge the ground on every effect, so the floor after a Verdict looked
+## identical to the floor after a meteor storm or a convergence — the residue is a
+## read the player gets for free, seconds after the spell, and spending it on the
+## same crater every time threw that read away. Craters belong to the ults made of
+## ROCK (the Colossus, the boulder barrage). This one's aftermath is the column
+## burning down in place above an untouched floor.
 func _impact_mark(at: Vector2) -> void:
 	match _effect:
 		"frost":
@@ -298,17 +414,21 @@ func _impact_mark(at: Vector2) -> void:
 				get_parent(), at, _radius * 0.5, "scorch",
 				Color(0.06, 0.03, 0.02, 0.6), 8.0
 			)
-	# The pillar crashing down GOUGES the ground (was scorch-only) — snapped to floor.
-	GroundCrater.spawn(get_parent(), at, _radius * 0.6, true)
+			GroundCrater.spawn(get_parent(), at, _radius * 0.5, true)
 
 
 ## Pure geometry (testable): nodes within `radius` of `center`.
+##
+## Kept as a static so `slice4_test_spells` can pin the footprint boundary without
+## a physics world, but the body now delegates to the shared selector so the game
+## has ONE definition of "inside the blast" instead of the seven copy-pasted ones
+## this used to be part of. `require_los = false` because this overload asks the
+## pure SHAPE question; the live paths ask the cover question too. A target with no
+## drawn silhouette (crate, bolt, test stub) falls back to exactly the
+## `global_position` distance test that used to be written out here, so the pinned
+## boundary is byte-identical.
 static func targets_in_radius(center: Vector2, radius: float, nodes: Array) -> Array:
-	var out: Array = []
-	for n: Node in nodes:
-		if n is Node2D and center.distance_to((n as Node2D).global_position) <= radius:
-			out.append(n)
-	return out
+	return SpellTargets.in_radius(center, radius, nodes, [], null, false)
 
 
 func _draw() -> void:
@@ -320,10 +440,7 @@ func _draw() -> void:
 	var c: Color = _color
 	var sky_y: float = _ground.y - SKY_HEIGHT
 	if _elapsed < CHARGE_TIME:
-		# Telegraph: a single growing danger ring at the marked point (no full-row
-		# line — that whole-map tell is exactly what the maker wanted gone).
-		var tp: float = _elapsed / CHARGE_TIME
-		draw_arc(_ground, _radius * (0.3 + 0.6 * tp), 0.0, TAU, 32, Color(c.r, c.g, c.b, 0.45 * tp), 2.5, true)
+		_draw_thread(c, sky_y, _elapsed / CHARGE_TIME)
 		return
 	var local: float = _elapsed - CHARGE_TIME
 	var intensity: float
@@ -334,6 +451,33 @@ func _draw() -> void:
 	if intensity <= 0.01:
 		return
 	_draw_pillar(_ground.x, sky_y, c, _effect_core_color(), intensity)
+
+
+## THE TELL — a hairline of light hanging DEAD STILL down the exact column the
+## pillar will fill, plus a tight ring marking the footprint on the floor.
+##
+## Why a thread instead of the old growing danger ring: the ring said "something
+## will happen here" in the same visual language as every other spell in the game,
+## and said nothing about the column. The thread states the full silhouette of the
+## incoming attack a half-second early — you can see the whole vertical corridor
+## you must not be standing in — while being almost motionless, which makes it
+## read as menace rather than as activity. It BRIGHTENS and THINS rather than
+## growing, so the escalation is legible without anything moving.
+func _draw_thread(c: Color, sky_y: float, tp: float) -> void:
+	var sky := Vector2(_ground.x, sky_y)
+	var ground := Vector2(_ground.x, _ground.y)
+	# The thread: a soft halo and a hard hairline, both narrowing as it charges.
+	draw_line(sky, ground, Color(c.r, c.g, c.b, 0.05 + 0.13 * tp), lerpf(7.0, 2.5, tp), true)
+	draw_line(sky, ground, Color(1.4, 1.35, 1.1, 0.35 + 0.55 * tp), lerpf(2.0, 0.9, tp), true)
+	# The footprint, drawn at the TRUE radius from the first frame — it does not
+	# grow, because the danger area never grows either.
+	draw_arc(_ground, _radius, 0.0, TAU, 40, Color(c.r, c.g, c.b, 0.25 + 0.45 * tp), 2.0, true)
+	# One bead of light slides down the thread in the last third: the only motion
+	# in the whole tell, and it is the "now" cue.
+	if tp > 0.66:
+		var f: float = (tp - 0.66) / 0.34
+		draw_circle(sky.lerp(ground, f * f), 3.0 + 3.0 * f,
+			Color(1.6, 1.55, 1.3, 0.9), true, -1.0, true)
 
 
 ## Draw the column of light at ground x `px`, from `sky_y` down to the ground.
@@ -351,10 +495,16 @@ func _draw_pillar(px: float, sky_y: float, c: Color, core: Color, intensity: flo
 	# bulge, MSAA is fine for their low alpha).
 	draw_line(sky, ground, Color(core.r, core.g, core.b, 0.95 * intensity), w * 0.4, true)
 	_draw_effect_detail(sky, ground, w, intensity)
-	# Ground impact: bright flash disc + an expanding ring.
-	draw_circle(ground, w * 1.5, Color(core.r, core.g, core.b, 0.5 * intensity), true, -1.0, true)
-	var ring_r: float = _radius * (1.0 + 1.4 * (1.0 - intensity))
-	draw_arc(ground, ring_r, 0.0, TAU, 40, Color(c.r, c.g, c.b, 0.6 * intensity), 4.0 * intensity, true)
+	# Ground impact: a bright disc at the foot of the column, held INSIDE the
+	# footprint.
+	draw_circle(ground, minf(w * 1.5, _radius), Color(core.r, core.g, core.b, 0.5 * intensity), true, -1.0, true)
+	# ⚠ NO EXPANDING SHOCKWAVE RING HERE ANY MORE. An expanding ring at the impact
+	# point was the single most-shared motif in the ult set — the Siege, the nova,
+	# the bombardment and this all ended with one, which is a large part of why the
+	# maker read them as retypes of each other. This spell's aftermath is the
+	# COLUMN itself burning down in place, which is a silhouette nothing else has.
+	# The footprint is instead stated as a static ring at the true radius.
+	draw_arc(ground, _radius, 0.0, TAU, 40, Color(c.r, c.g, c.b, 0.55 * intensity), 2.0, true)
 
 
 func _effect_flicker() -> float:

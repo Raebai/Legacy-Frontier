@@ -105,11 +105,60 @@ const PARRY_FLASH_COLOR: Color = Color(0.8, 1.0, 1.0)
 ## The directional block SHELL lingers a touch longer than the active window so
 ## the deflect reads (the arc is the whole tell — no omni flash).
 const PARRY_SHIELD_TIME: float = 0.26
+
+## --- THE BLADE GUARD (Swordsaint) --------------------------------------------
+## THE CLASS'S WHOLE IDENTITY IN ONE MECHANIC: it is the only class whose DEFENCE
+## PRODUCES ITS OFFENCE. Everyone else guards to survive a beat; the Swordsaint
+## guards to be PAID, and the payment is the biggest single number in its kit.
+##
+## The clock is `ParryRing` in `Style.BLADE` — NOT a third scheme. That file is
+## explicit that a second timing implementation is how two guard paths drift apart
+## ("one gets a balance tweak, the other silently does not"), so everything about
+## WHEN the guard is good — the 0.42 s shrink, the ~0.09 s perfect band, the 0.35 s
+## re-arm, the offence lock — is read from there and none of it is re-declared
+## here. What lives here is only what happens AFTERWARDS, which is the part that is
+## this class's rather than the ring's.
+##
+## BLADE is also the style with a SAFE FALLBACK: overshoot the band and steel is
+## still in the way, so you bottom out into a chip-reducing sustained guard. That
+## asymmetry against the mage's SIGIL (tighter band, longer re-arm, and a circle
+## that catches nothing simply COLLAPSES) is already built and tested in ParryRing
+## and SigilGuard; this class is the BLADE half of it, wired up.
+##
+## Only a PERFECT read banks. A sustained guard survives; it does not earn — or
+## holding the button would be both the safe option and the strong one.
+const GUARD_BANK_HITS: int = 3
+## Cap on the banked total. Without it, one blocked boss slam (130) would return
+## 234 from a single button, which is a bigger hit than any ult in the game.
+const GUARD_BANK_CAP: int = 60
+## What the bank pays back on release. Above 1.0 because the read is hard and the
+## commitment is real — you gave up moving and attacking to earn it. 60 banked
+## returns 108.
+const GUARD_RETURN_MULT: float = 1.8
+## The unsheathe cut: a short LINE along the aim, not a circle. Range is deliberately
+## under the class's 86 px blade reach plus a step, so cashing the bank still requires
+## the attacker to be in front of you rather than merely nearby.
+const GUARD_CUT_RANGE: float = 120.0
+const GUARD_CUT_HALF_WIDTH: float = 18.0
+const GUARD_CUT_KNOCKBACK: float = 380.0
+## Reach of the guard's own deflect sweep, in px from the body. The blade is held
+## out, so this is arm's length plus the blade — anything that physically travels
+## and touches it while the ring is PERFECT gets turned. There is no separate timing
+## window: the ring is the window.
+const GUARD_DEFLECT_REACH: float = 74.0
 ## Input buffer: a melee/dash/blast press that lands while its gate is closed
 ## (cooldown running, mid-dash) is held this long and fired the moment the
 ## gate opens — no more silently dropped presses. `cast` is held/continuous
 ## and stays un-buffered.
 const BUFFER_TIME: float = 0.12
+## Aim-stick deadzone: how far the AIM stick (right thumb on touch, `aim_*` actions)
+## must be pushed before it re-points the aim. Below this the last aim is HELD, so
+## lifting the thumb to tap an ability doesn't fling the shot somewhere random.
+## This is the ONE owner of that number — TouchControls deliberately publishes the raw
+## stick with no deadzone of its own, because a per-axis deadzone up there would carve
+## dead sectors near the axes (a 5-degree-up shot snapping flat).
+## UNTESTED FEEL GUESS — no device playtest has happened yet.
+const TOUCH_AIM_DEADZONE: float = 0.20
 ## Hit feedback when damage actually lands (not i-framed).
 const HURT_FLASH_COLOR: Color = Color(1.0, 0.2, 0.2)
 const HURT_FLASH_TIME: float = 0.12
@@ -152,10 +201,14 @@ const NOVA_SCENE: PackedScene = preload("res://scenes/combat/EnergyNova.tscn")
 ## "fist_shock" (fire-punch shockwave), "ground_slam" (earth crater). `element`
 ## is the class's default element (auto-set on switch; X still cycles). Signature
 ## loadout comes from SpellLibrary.build_for_class(class_id).
-enum HeroClass { MAGE, ROGUE, BRAWLER, JUGGERNAUT, CLERIC, CRYOMANCER, STORMCALLER, WARLOCK }
+## APPEND ONLY. `_cycle_class` already wraps with `% HeroClass.size()`, but two
+## places in the project hardcode the old count and must be widened alongside any
+## addition here — `scripts/ui/Lobby.gd:83` (`% 8`, which would silently make a new
+## class unselectable in co-op) and `tools/slice5_test_classes.gd`.
+enum HeroClass { MAGE, ROGUE, BRAWLER, JUGGERNAUT, CLERIC, CRYOMANCER, STORMCALLER, WARLOCK, SWORDSAINT }
 const CLASS_NAMES: Array[String] = [
 	"Arcanist", "Shadowblade", "Brawler", "Juggernaut",
-	"Cleric", "Cryomancer", "Stormcaller", "Warlock",
+	"Cleric", "Cryomancer", "Stormcaller", "Warlock", "Swordsaint",
 ]
 const CLASS_CONFIG: Dictionary = {
 	HeroClass.MAGE: {  # ARCANIST — ranged arcane zoner (byte-identical to the old mage)
@@ -175,7 +228,7 @@ const CLASS_CONFIG: Dictionary = {
 		"dash_strike": true, "dash_strike_damage": 16, "dash_strike_range": 42.0,
 		"aoe": "nova", "has_nova": false, "can_parry": true,
 	},
-	HeroClass.BRAWLER: {  # PURE MELEE, no magic — punch/kick combo + double-jump + Chidori
+	HeroClass.BRAWLER: {  # PURE MELEE, no magic — punch/kick combo + double-jump + Thunderclap
 		"preset": "brawler", "weapon": "", "element": Elements.Element.FIRE, "melee_element": Elements.Element.FIRE,
 		"primary": "melee_combo", "air_jumps": 1, "melee_cd": 0.20, "melee_knockback": 320.0,
 		"cast_cd": 0.22, "dash_cd": 0.70, "blink_cd": 1.1, "blast_cd": 2.2,
@@ -223,6 +276,47 @@ const CLASS_CONFIG: Dictionary = {
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
 		"aoe": "curse_chain", "has_nova": true, "can_parry": true,  # Q: leaping shadow chain
 	},
+	# 8 SWORDSAINT — the DUELIST. The only class whose DEFENCE produces its OFFENCE:
+	# every other class guards to survive a beat, this one guards to be paid. See the
+	# BLADE-GUARD block below for the whole identity.
+	#
+	# `defense: "held_guard"` is the switch. It routes RMB onto ParryRing's BLADE
+	# style — a visible ring you close on the hit rather than a hidden 0.16 s window —
+	# and banks what it turns away into an unsheathe cut on release.
+	#
+	# NO BLINK (`blink_cd` is left at a real value only because `_blink()` reads it;
+	# `mobility2: "uppercut"` sends R to the rising cut instead, so this class has no
+	# teleport at all). It closes on foot or by dash-strike and does not teleport out
+	# of its own mistakes — the same trade Juggernaut makes.
+	#
+	# `melee_element: -1` is deliberate and is the class's whole flavour rule: PLAIN
+	# STEEL APPLIES NO AILMENT. Give the Swordsaint a burn and it becomes "the fire
+	# melee class"; the point is that the blade is just a blade, and the X-cycle only
+	# tints the edge (which is what still feeds the reaction layer).
+	#
+	# `preset: "rogue"` because CharacterRig ships no "swordsaint" arm and an
+	# unmatched preset name silently leaves the PREVIOUS class's kit on the figure.
+	# "rogue" is hood + sword, and `get_weapon_tip()` gives "sword" a real
+	# `height * 0.5` reach. A bespoke preset with a two-handed greatsword is a
+	# CharacterRig change and is reported in the handoff, not faked here.
+	HeroClass.SWORDSAINT: {
+		"preset": "rogue", "weapon": "sword",
+		"element": Elements.Element.ARCANE, "melee_element": -1,  # plain steel: no ailment
+		"primary": "heavy_swing",
+		# The greatsword profile, expressed as melee overrides rather than a new
+		# WEAPON_STATS row: a "greatsword" kind would have no rig texture and no
+		# `get_weapon_tip` arm, so the blade would vanish and every spell would spawn
+		# out of the hero's navel. Slower and wider than the Shadowblade, shorter and
+		# far more controllable than the Juggernaut's 96 px hammer.
+		"melee_cd": 0.42, "melee_arc_dot": 0.05, "melee_damage": 26,
+		"melee_range": 86.0, "melee_knockback": 430.0,
+		"cast_cd": 0.45, "dash_cd": 0.80, "blink_cd": 1.2, "blast_cd": 3.0,
+		"throw_blade": false, "blade_damage": 18,
+		"dash_strike": true, "dash_strike_damage": 24, "dash_strike_range": 52.0,
+		"mobility2": "uppercut",  # a rising cut, not a teleport
+		"defense": "held_guard", "aoe": "ground_slam",
+		"has_nova": false, "can_parry": true,
+	},
 }
 
 @export var max_hp: int = 100
@@ -250,7 +344,6 @@ var net_class: int = -1
 var _net: Node = null
 var _aim_dir: Vector2 = Vector2.RIGHT
 var _move_dir: Vector2 = Vector2.RIGHT
-var _footstep_timer: float = 0.0
 var is_dashing: bool = false
 var _dash_timer: float = 0.0
 var _dash_cooldown_timer: float = 0.0
@@ -269,6 +362,15 @@ var _nova_cooldown_timer: float = 0.0
 var _parry_window_timer: float = 0.0
 var _parry_cooldown_timer: float = 0.0
 var _parry_window_len: float = PARRY_WINDOW  # per-class (Juggernaut BLOCK = longer window)
+## The BLADE guard ring — non-null ONLY for a class whose `defense` is
+## "held_guard" (today: Swordsaint). Null everywhere else, so all eight shipped
+## classes keep the press-window parry they were balanced against and nothing about
+## their defensive feel moves. Migrating the other eight onto the ring is a real
+## improvement and a separate change; doing it inside a new class's commit would
+## retune eight classes under cover of adding a ninth.
+var _guard: ParryRing = null
+var _guard_bank: int = 0
+var _guard_hits: int = 0
 var _wall_jump_lock: float = 0.0   # horizontal-input lock after a wall-kick
 var _was_wall_sliding: bool = false
 var _wall_dust_timer: float = 0.0
@@ -337,6 +439,201 @@ var downed: bool = false
 @onready var rig: CharacterRig = $Rig
 var _tuning: Node = null  # cached /root/Tuning (null in headless tests -> fallbacks)
 
+# ------------------------------------------------- FACTIONS + BOT CONTROL SEAM
+## THE GROUP THIS HERO'S ATTACKS SCAN — its faction, expressed the way targeting
+## already works everywhere else in this codebase.
+##
+## Damage routing here used to be group-HARDWIRED rather than faction-based: the
+## melee/dash/uppercut sweeps iterated `get_nodes_in_group("enemy")` as a literal,
+## `_fire_punch` / `_ground_slam` hard-coded `"target_group": "enemy"`, and
+## `SpellCaster.cast` had no group parameter at all, so every spectacle kept its
+## `"enemy"` default whoever threw it. The consequence was that a hero-shaped bot
+## could be driven perfectly and still could not fight ANYONE: it ignored other
+## heroes completely, and in single player hero-vs-hero did literally nothing in
+## either direction.
+##
+## Default `&"enemy"` = exactly today's behaviour, everywhere, so single player is
+## unchanged unless a caller deliberately opts in.
+var hostile_group: StringName = &"enemy"
+## The team group this hero ANSWERS to, joined on top of the permanent `hero`
+## group. Empty = no team, which is single player.
+##
+## This is the half that makes "same faction cannot hurt each other" expressible
+## rather than just "heroes can hurt heroes": two bots on one side share a team
+## group and both point `hostile_group` at the OTHER team's, so neither one's
+## attacks can find the other at all. With `hostile_group = &"hero"` alone the
+## only reachable arrangement is everyone-hits-everyone.
+@export var faction_group: StringName = &""
+## The per-instance input source. `null` = the human path — real `Input`, real
+## cursor, byte-identical to before this seam existed, which is why every helper
+## below is written as `controller != null` and not the other way round.
+##
+## Untyped so a scripted stub (a test, a replay) only has to implement the six
+## polling methods, matching how the rest of this codebase duck-types its seams.
+## In practice this is a `BotController`; see that file for why global
+## `Input.action_press` cannot do this job.
+var controller: Object = null
+## The bot's own clock, advanced on SCALED delta. It exists so a bot's reaction
+## timing lives on the SAME clock the player perceives: `Juice.hit_stop` drops
+## `Engine.time_scale` to 0.05, so a bot ticking on unscaled time would get a
+## ~20x reflex boost every time anything connected — a difficulty cheat that
+## would look like physics.
+var _bot_clock: float = 0.0
+
+
+## Join a faction: which team I am on, and which team I attack. One call because
+## setting one without the other is always a bug — a hero with a team but no
+## hostile group attacks nobody, and one with a hostile group but no team cannot
+## be attacked back.
+##
+## Safe before OR after the node enters the tree: `_ready` re-joins the group, and
+## this joins immediately when already inside.
+func set_faction(team: StringName, hostile: StringName) -> void:
+	faction_group = team
+	hostile_group = hostile
+	if team != &"" and is_inside_tree():
+		add_to_group(team)
+
+
+## SELECT A KIT SPELL BY INDEX — the seam that makes a bot able to use its whole
+## kit at all.
+##
+## `cast_slot` indexes `_signatures`, which `SpellLibrary.build_for_class` returns
+## in `ROLE_ORDER` (damage / control / answer / payoff / ult), so `idx` IS the
+## role for every class.
+##
+## ⚠ WHY THIS EXISTS RATHER THAN A BOT PRESSING `cycle_signature`. That action is
+## SHARED UI: it is the player's V key, it walks the selection one step at a time
+## (so reaching slot 3 takes three presses and passes through two wrong spells),
+## and pressing it through global `Input` would cycle the HUMAN'S selection too.
+## `BotController` therefore keeps `cycle_signature` permanently forbidden and
+## comes here instead. Without this method a bot can only ever cast whichever
+## signature happened to be selected — i.e. it spams one spell forever, which is
+## exactly what it did before this landed.
+##
+## Deliberately does NOT emit `signature_changed`: that signal drives the player's
+## on-screen loadout label, and a bot silently retargeting its own kit must not
+## make the human's HUD flicker through spell names they did not choose.
+## Returns false for an out-of-range index rather than clamping, so a brain bug
+## reads as "the cast did not happen" instead of as a plausible wrong spell.
+func bot_select_signature(idx: int) -> bool:
+	if idx < 0 or idx >= _signatures.size():
+		return false
+	_signature_index = idx
+	return true
+
+
+## The spell currently selected for the `ultimate` button, or null.
+func signature_at(idx: int) -> SpellDef:
+	if idx < 0 or idx >= _signatures.size():
+		return null
+	return _signatures[idx] as SpellDef
+
+
+## Everything a bot brain is allowed to know about THIS body, in the blackboard's
+## key names. Lives here rather than in BotController so the private cooldown
+## timers stay private and so any other body type (an Enemy, later) can become
+## bot-drivable by implementing this one method.
+##
+## FAIRNESS: own state only. Every field is something the player reads off their
+## own screen — their body, their floating HP/MP bars, their ability bar, their
+## own class and its loadout. There is deliberately no field describing the
+## OPPONENT'S cooldowns, mana or intent.
+func bot_body_state() -> Dictionary:
+	var cds: Array[float] = []
+	for _i: int in BotIntent.CD_COUNT:
+		cds.append(0.0)
+	# The five kit slots share ONE cooldown bank — picking a different role does
+	# not dodge it. Published per-slot anyway so `cooldowns[cast_slot]` is always
+	# the right question to ask, whatever the numbering grows into later.
+	for slot: int in BotIntent.SLOT_COUNT:
+		cds[slot] = _signature_cd_timer
+	cds[BotIntent.CD_PRIMARY] = _cast_cooldown_timer
+	cds[BotIntent.CD_DASH] = _dash_cooldown_timer
+	cds[BotIntent.CD_BLAST] = _blast_cooldown_timer
+	cds[BotIntent.CD_BLINK] = _blink_cooldown_timer
+	cds[BotIntent.CD_NOVA] = _nova_cooldown_timer
+	cds[BotIntent.CD_SWING] = _melee_cooldown_timer
+	# The defensive slot is two different verbs behind one button, so the number
+	# published is the one the ability bar shows: a press class reports its wipe,
+	# a held-guard class reports its re-arm.
+	cds[BotIntent.CD_GUARD] = _parry_cooldown_timer
+	if _guard != null:
+		cds[BotIntent.CD_GUARD] = 0.0 if _guard.is_ready() else _guard.rearm_time()
+	# Per-kit-slot facts a brain cannot derive from `class_id` alone because they
+	# move at runtime: can I pay for it, and does it commit me to an interruptible
+	# levitating channel (`cast_time > 0`) that any landed hit shatters.
+	var affordable: Array[bool] = []
+	var cast_times: Array[float] = []
+	for slot: int in BotIntent.SLOT_COUNT:
+		var s: SpellDef = signature_at(slot)
+		affordable.append(s != null and mp >= float(s.mp_cost))
+		cast_times.append(s.cast_time if s != null else 0.0)
+	return {
+		"self_id": get_instance_id(),
+		"self_pos": global_position,
+		"self_vel": velocity,
+		"self_hp_frac": clampf(float(hp) / float(maxi(max_hp, 1)), 0.0, 1.0),
+		"self_mp_frac": clampf(mp / float(maxi(max_mp, 1)), 0.0, 1.0),
+		"on_floor": is_on_floor(),
+		"facing": signf(facing.x),
+		"reach": _melee_range,
+		"cooldowns": cds,
+		"hostile_group": hostile_group,
+		# WHICH CLASS I AM. Unlocks the kit facts, the role meanings and every
+		# reaction combo for a brain that wants to look them up in SpellLibrary.
+		# Fair: it is your own character, named on your own HUD.
+		"class_id": _hero_class,
+		"slot_affordable": affordable,
+		"slot_cast_time": cast_times,
+		# The defensive verb, which differs in KIND and not just in numbers: 0 = a
+		# press window (most classes), 1 = a held BLADE ring with its own much
+		# narrower perfect band. A brain that times a guard identically for both
+		# is wrong for one of them.
+		"guard_style": 1 if _guard != null else 0,
+		"can_parry": bool(_cfg.get("can_parry", false)),
+	}
+
+
+# --- the six polling helpers every input call site in this file now goes through.
+# With `controller == null` each one resolves to the IDENTICAL `Input` call it
+# replaced — same order, same allocation, no branch reordering — which is the
+# whole basis for claiming single player is unchanged. TouchControls also keeps
+# working untouched, because it drives these same named actions through global
+# `Input`, which is still exactly the null-controller path.
+
+func _pressed(action: StringName) -> bool:
+	return controller.pressed(action) if controller != null else Input.is_action_pressed(action)
+
+
+func _just(action: StringName) -> bool:
+	return controller.just_pressed(action) if controller != null \
+		else Input.is_action_just_pressed(action)
+
+
+func _released(action: StringName) -> bool:
+	return controller.just_released(action) if controller != null \
+		else Input.is_action_just_released(action)
+
+
+func _axis(neg: StringName, pos: StringName) -> float:
+	return controller.axis(neg, pos) if controller != null else Input.get_axis(neg, pos)
+
+
+func _vector(nx: StringName, px: StringName, ny: StringName, py: StringName) -> Vector2:
+	return controller.vector(nx, px, ny, py) if controller != null \
+		else Input.get_vector(nx, px, ny, py)
+
+
+## Replaces `get_global_mouse_position()`. A bot has no cursor, so its controller
+## projects a point along the direction its brain chose — which is why this is a
+## world POINT and not a direction: the placed spells (`_aoe_target`, the summon
+## target) need real ground coordinates, and only the controller knows how far
+## down the aim the bot meant.
+func _aim_point() -> Vector2:
+	return controller.aim_point(global_position) if controller != null \
+		else get_global_mouse_position()
+
 
 ## Live-tunable feel value: reads res://data/tuning.tres via the Tuning autoload,
 ## falling back to the const default if the autoload/field is absent or unset.
@@ -350,6 +647,11 @@ func _tune(key: String, fallback: float) -> float:
 
 func _ready() -> void:
 	add_to_group("hero")
+	# Team membership, when a spawner set one before add_child(). The permanent
+	# `hero` group above is identity ("I am a hero"); this one is allegiance, and a
+	# hero with no team simply never joins a second group — which is single player.
+	if faction_group != &"":
+		add_to_group(faction_group)
 	_tuning = get_node_or_null("/root/Tuning")
 	hp = max_hp
 	health_changed.emit(hp, max_hp)
@@ -375,6 +677,15 @@ func _ready() -> void:
 	Rank.rank_changed.connect(_on_rank_changed)
 	rig.set_aura_tier(Rank.tier())
 	rig.hit_frame.connect(_on_melee_hit_frame)
+	# Footfalls come off the RIG's own run cycle, not a timer here. The rig watches the
+	# same phase expression the pose is drawn from, so the step can never drift off the
+	# visible feet and retuning the stride moves the sound with it. `step_sfx` is off by
+	# default because the same rig drives every enemy (eight of them ticking would be a
+	# cacophony) — the HERO opts in. The parallel _footstep_timer that used to live in
+	# _physics_process is GONE: two footstep clocks fighting each other sounded worse
+	# than the original stacking bug.
+	rig.step_sfx = true
+	rig.foot_planted.connect(_on_foot_planted)
 	# Floating HP + MP bars over the head.
 	var bars := CharacterBars.new()
 	add_child(bars)
@@ -395,17 +706,20 @@ var _channel_target: Vector2 = Vector2.ZERO
 var _channel_sky: bool = false
 var _channel_lift: float = 0.0
 var _channel_base_y: float = 0.0
-var _channel_circle: Node2D = null
 
 ## Epic SUMMON windup: every INSTANT signature (ice_wall / chain / rune_orbs /
-## flurry / void_zone / tether / boulder / pillar / wall / rush / blink) now blooms
-## a grounded spell-circle + committed cast pose + gather motes for a short beat,
-## THEN ERUPTS (maker: "ice is cringe — no spell circle, no summoning animation;
-## they ALL need that for the G's ESPECIALLY"). Lighter than the channel: grounded
-## (no levitation), shorter, and mobility bursts (rush/blink) get a faster windup so
-## they stay snappy. Interruptible by a hit (ult lost, MP/cd spent — like the channel).
-const SUMMON_WINDUP: float = 0.42       # planted / erupting signatures
-const SUMMON_WINDUP_FAST: float = 0.22  # rush / blink — keep the mobility snappy
+## flurry / void_zone / tether / boulder / pillar / wall / rush / blink) blooms a
+## spell-circle + a committed cast pose + gather motes for a short beat, THEN
+## ERUPTS (maker: "ice is cringe — no spell circle, no summoning animation; they
+## ALL need that for the G's ESPECIALLY"). Interruptible by a hit (ult lost, MP/cd
+## spent — like the channel).
+##
+## The windup is no longer one length and one gesture for every spell: it comes
+## from CastStyle (kind -> body language) scaled by SpellTier (how much the spell
+## costs you). The two hand-tuned constants this replaces — a 0.42 s planted windup
+## and a 0.22 s fast one for rush/blink — now fall out of the table instead of
+## being special-cased: RUSH and BLINK_STRIKE are COIL poses, and COIL is 0.22 s
+## precisely because mobility must not feel sticky.
 const SUMMON_NORMAL: int = 0
 const SUMMON_RUSH: int = 1
 const SUMMON_BLINK: int = 2
@@ -420,7 +734,153 @@ var _summon_sky: bool = false
 var _summon_special: int = 0
 var _summon_aim: Vector2 = Vector2.RIGHT
 var _summon_target: Vector2 = Vector2.ZERO
-var _summon_circle: Node2D = null
+var _summon_pose: int = CastStyle.Pose.POINT
+var _summon_tier: int = SpellTier.Tier.HEAVY
+## Levitation bookkeeping for the windup. `_summon_lift` is a pure POSITION offset
+## from the y we lifted off at — never a velocity — so it cannot fight the gravity
+## integration in _physics_process, and _end_summon can always put the hero back on
+## exactly the ground they left.
+var _summon_lift: float = 0.0
+var _summon_lift_target: float = 0.0
+var _summon_base_y: float = 0.0
+## spell.id -> the timestamp its name card was last shown at. Feeds
+## SignatureRite's repeat-suppression rule; per-hero so co-op players do not share
+## a clock. See _declare_signature.
+var _last_declared: Dictionary = {}
+
+## --- THE CASTING PROCESS (CastStyle + SpellTier) -----------------------------
+## A cast is a PROCESS, not a spawn: the body winds up, a sigil opens, and only
+## then does the spectacle exist. The length of that windup is the opponent's
+## DODGE WINDOW (CastStyle's own rule), so these are balance numbers dressed as
+## animation timings — which is why the windup has to gate the spawn rather than
+## play alongside it.
+##
+## THE WINDUP LADDER NOW LIVES IN `SignatureRite.TIER_WINDUP`, and the length of
+## any one cast comes from `SignatureRite.windup_for(spell)`. It moved because the
+## windup is not private bookkeeping — it IS the opponent's dodge budget, and the
+## rite has to be able to report that number for a caster that is not this file
+## (a boss, the playground rig). One table, read from both sides, rather than two
+## that drift.
+## Slight levitation (px) held during the windup, indexed by SpellTier.Tier. QUICK
+## never leaves the floor: the maker asked for "SLIGHT levitation when casting the
+## MORE POWERFUL spells", and a kit where every jab hops reads floaty, not weighty.
+## UNTESTED FEEL GUESS — this is the "is it a flourish or a jump" dial.
+const CAST_TIER_LIFT: Array[float] = [0.0, 6.0, 11.0]
+## How fast the lift eases in (px/s). Fast enough to be at full height inside even
+## the shortest non-quick windup (LASH, 0.18 s), slow enough to read as gathering
+## rather than popping. UNTESTED FEEL GUESS.
+const CAST_LIFT_SPEED: float = 70.0
+## How airborne the RIG is told it is at full lift (0..1). Not 1.0: the legs should
+## dangle a little, not fully unweight like the float-channel does. UNTESTED.
+const CAST_LIFT_AIRBORNE: float = 0.35
+## The sigil hangs ABOVE the caster (maker: "the circle should sit ABOVE"). The rise
+## is this much from the hero origin (which sits at the figure's MIDDLE, so ~24 px
+## already clears the head) PLUS a share of the sigil's own radius — a bigger ring
+## has to float HIGHER or it sinks back onto the caster, and "above" would only be
+## true for the smallest spell. Not the full radius: a little overlap keeps the ring
+## reading as attached to the caster rather than as scenery floating nearby.
+##
+## This offset is only authoritative WHILE the caster still owns the sigil. Once a
+## spectacle claims it (see the hand-off seam below) the claimer is free to travel
+## it down/forward to the muzzle, and this file stops touching its position at all.
+## UNTESTED FEEL GUESSES.
+const CAST_CIRCLE_ABOVE: float = 24.0
+const CAST_CIRCLE_CLEARANCE: float = 0.9
+## Windup-sigil radius: a base plus a part that scales with the spell's MP cost, so
+## the ring's SIZE is how the picture says "this one is expensive".
+##
+## Deliberately small against the ~40 px figure. The numbers these replace (34 + 22,
+## and 44 + 26 for the channel) were tuned for a sigil that sat at the caster's FEET
+## as a ground aura; hung above the head at that size it drew a portal that
+## swallowed the caster whole — visible in tools/cast_windup_capture.gd. The channel
+## still runs bigger because it is the screen-filler ceremony. UNTESTED FEEL GUESSES.
+const CAST_SIGIL_RADIUS: float = 17.0
+const CAST_SIGIL_RADIUS_PER_COST: float = 11.0
+const CHANNEL_SIGIL_RADIUS: float = 21.0
+const CHANNEL_SIGIL_RADIUS_PER_COST: float = 13.0
+
+## --- ONE SIGIL PER CAST: THE CASTER SIDE OF THE HAND-OFF ---------------------
+## Maker, mid-playtest: "there should be no spells where I summon a circle, it goes
+## away, and then another circle spawns which the spell comes out of."
+##
+## That bug is two independent spawners with no knowledge of each other: the caster
+## opens a windup sigil and dismisses it, and then the spectacle opens its OWN
+## muzzle sigil. The player watches the ritual visibly restart mid-cast.
+##
+## The protocol lives in MagicCircle.gd (read its hand-off block — it owns both
+## halves). This file is only the CASTER side, which is two calls:
+##
+##     MagicCircle.offer(_cast_sigil, self)   # at the moment the spell fires
+##     MagicCircle.withdraw(self)             # on ANY interruption
+##
+## Offering does not dismiss: the spectacle spawned on the same frame adopts the
+## live node, reparents it and glides it to the muzzle with its spin and phase
+## running on unbroken. An offer nobody takes blooms itself out after MagicCircle's
+## own TTL, which is what most spells want — a wall or a nova opens no sigil of its
+## own, so its offer is MEANT to go unclaimed and degrade to the old behaviour.
+## `withdraw` is therefore belt-and-braces rather than load-bearing, but a shattered
+## cast should not wait out a TTL to clear its ring.
+##
+## Because adoption happens in the SAME FRAME as the offer, offering must be the
+## last thing that happens before SpellCaster.cast() — which is why _end_summon /
+## _end_channel take a `handoff` flag rather than always doing one or the other.
+##
+## The live windup sigil, while the CASTER still owns it. One variable for both
+## ceremonies (summon windup and float-channel) precisely so there is a single
+## thing to hand over — and the beam case, which is the duplicate-circle bug the
+## maker actually reported, goes through the channel.
+var _cast_sigil: MagicCircle = null
+## Rise above the hero origin for the CURRENT sigil, computed when it opens because
+## it depends on that sigil's radius (see CAST_CIRCLE_CLEARANCE).
+var _cast_sigil_rise: float = CAST_CIRCLE_ABOVE
+
+
+## Open the windup sigil above the caster. `radius` scales with the spell's cost so
+## the ring's SIZE carries how expensive the thing coming out of it is.
+##
+## Orientation is deliberately left FACE-ON — the maker asked for a circle sitting
+## ABOVE the caster, and a summoning ring read head-on is what that picture is. An
+## edge-on gate belongs at the MUZZLE, pointed down the shot, and that is the
+## adopting spectacle's business: BeamSpell.adopt_or_open() passes edge_on and the
+## sigil FOLDS into the gate as it travels down. Setting it edge-on here produced a
+## tall vertical lens hanging over the head that read as a bug, not a ritual.
+func _open_cast_sigil(radius: float, grow_time: float) -> void:
+	_discard_cast_sigil()  # a cast can be interrupted but never queued — never stack two
+	_cast_sigil_rise = CAST_CIRCLE_ABOVE + radius * CAST_CIRCLE_CLEARANCE
+	var sigil := MagicCircle.new()
+	get_parent().add_child(sigil)
+	sigil.global_position = _cast_sigil_pos()
+	sigil.appear(_element_color, radius, grow_time)
+	_cast_sigil = sigil
+
+
+## Offer the sigil to whichever spectacle is about to spawn. Deliberately does NOT
+## vanish it — dismissing here is precisely the duplicate-circle bug. Hero drops its
+## own reference immediately: from this instant the node belongs to the protocol,
+## and this file must never move or rescale it again.
+func _release_cast_sigil() -> void:
+	if _cast_sigil != null and is_instance_valid(_cast_sigil):
+		MagicCircle.offer(_cast_sigil, self)
+	_cast_sigil = null
+
+
+## Dismiss the sigil outright. For a cast that produces NO spectacle — an
+## interrupted windup, a shattered channel — where there is nothing to hand it to.
+## The withdraw() covers the narrow case of a cast that already offered and is then
+## torn down before anything adopted; it is a no-op otherwise, so it is safe to call
+## unconditionally.
+func _discard_cast_sigil() -> void:
+	if _cast_sigil != null and is_instance_valid(_cast_sigil):
+		_cast_sigil.vanish(0.2)
+	_cast_sigil = null
+	MagicCircle.withdraw(self)
+
+
+## Where the sigil hangs while the CASTER still owns it: clear above the head,
+## tracking them upward as they levitate. Once offered, this file stops positioning
+## it entirely so the adopting spectacle can travel it down to the muzzle.
+func _cast_sigil_pos() -> Vector2:
+	return global_position + Vector2(0.0, -_cast_sigil_rise)
 
 
 ## True when aim should auto-target (mobile): the TouchControls pad is active, or the
@@ -440,6 +900,13 @@ func _physics_process(delta: float) -> void:
 	if downed:
 		_process_downed(delta)
 		return
+	# BOT: decide this frame's intent before anything reads input. Above the
+	# cooldown ticks so the brain sees the same cooldowns the player's ability bar
+	# showed at the end of last frame, and `delta` is the SCALED one every other
+	# timer in this function uses — see `_bot_clock`.
+	if controller != null:
+		_bot_clock += delta
+		controller.tick(self, _bot_clock)
 	_dash_cooldown_timer = max(_dash_cooldown_timer - delta, 0.0)
 	_cast_cooldown_timer = max(_cast_cooldown_timer - delta, 0.0)
 	_melee_cooldown_timer = max(_melee_cooldown_timer - delta, 0.0)
@@ -449,6 +916,12 @@ func _physics_process(delta: float) -> void:
 	_nova_cooldown_timer = maxf(_nova_cooldown_timer - delta, 0.0)
 	_parry_window_timer = maxf(_parry_window_timer - delta, 0.0)
 	_parry_cooldown_timer = maxf(_parry_cooldown_timer - delta, 0.0)
+	# The BLADE ring is ticked HERE, above the channel/summon early-returns, so its
+	# re-arm keeps running while the hero is committed to something else. A guard
+	# whose recovery paused whenever you were busy would silently re-arm instantly
+	# after every cast.
+	if _guard != null:
+		_guard.tick(delta)
 	_signature_cd_timer = maxf(_signature_cd_timer - delta, 0.0)
 	_wall_jump_lock = maxf(_wall_jump_lock - delta, 0.0)
 	_knockback = _knockback.move_toward(Vector2.ZERO, KNOCKBACK_DECAY * delta)
@@ -475,18 +948,48 @@ func _physics_process(delta: float) -> void:
 		Juice.shake_camera(2.5)  # a little land thud (Stick-Fight juice)
 	_was_on_floor = is_on_floor()
 	_update_input_buffer(delta)
-	# Aim resolution. On MOBILE (touch) there's no cursor — auto-aim at the nearest
-	# enemy (movement biases the fallback) so every ability is usable by just tapping
-	# a button, no pixel-precise aiming. On desktop, twin-stick: track the cursor
-	# every frame so casts / cast-pose / camera peek use it even mid-dash.
-	if _touch_aim():
-		var enemies: Array = get_tree().get_nodes_in_group("enemy")
-		var fallback: Vector2 = _move_dir if _move_dir != Vector2.ZERO else facing
-		_aim_dir = Targeting.aim_direction(global_position, enemies, fallback)
+	# Aim resolution. LOCKED RULE: no auto-aim, no homing — on EVERY platform the aim
+	# is the direction the player is actually pointing, and landing a spell is their
+	# skill, not the game's. On desktop that's the cursor, tracked every frame so
+	# casts / cast-pose / camera peek use it even mid-dash.
+	# On MOBILE there is no cursor, so the aim is the RIGHT THUMB STICK'S own direction
+	# (the `aim_*` actions, published by TouchControls). It used to snap to the nearest
+	# enemy here, which quietly handed the phone player a targeting computer the desktop
+	# player is denied — exactly the auto-aim the rule forbids.
+	#
+	# It then briefly read the MOVE stick, which was worse than it looked: that layer
+	# published no upward component at all, so a touch player could not aim above the
+	# horizon at anything, ever. Aim now has its own stick and its own actions, fully
+	# decoupled from movement (pushing move-down ducks you; it does not aim at the
+	# floor). A released thumb HOLDS the last aim rather than resetting to a default,
+	# so letting go to tap an ability button doesn't fling the shot somewhere else.
+	#
+	# The stick is checked BEFORE the platform test on purpose: any device that can
+	# push `aim_*` past the deadzone (touch pad, a gamepad's right stick, the IJKL
+	# keyboard fallback) steers the aim, and the mouse only takes over when the stick
+	# is at rest. That keeps one code path for every input device instead of three.
+	#
+	# A CONTROLLER WINS OVER BOTH. It is checked first and returns before the stick
+	# and the cursor are consulted, because both of those read PROCESS-GLOBAL state:
+	# a bot sharing a machine with a player would otherwise inherit the human's
+	# thumbstick and the human's cursor as its own aim. The same "hold the last aim
+	# rather than snap to a default" rule applies, so a brain that declines to aim
+	# on a frame keeps pointing where it was.
+	if controller != null:
+		var to_aim: Vector2 = _aim_point() - global_position
+		if to_aim.length() > 1.0:
+			_aim_dir = to_aim.normalized()
 	else:
-		var to_mouse: Vector2 = get_global_mouse_position() - global_position
-		if to_mouse.length() > 1.0:
-			_aim_dir = to_mouse.normalized()
+		var aim_stick: Vector2 = Vector2(
+			Input.get_action_strength("aim_right") - Input.get_action_strength("aim_left"),
+			Input.get_action_strength("aim_down") - Input.get_action_strength("aim_up")
+		)
+		if aim_stick.length() > TOUCH_AIM_DEADZONE:
+			_aim_dir = aim_stick.normalized()
+		elif not _touch_aim():
+			var to_mouse: Vector2 = get_global_mouse_position() - global_position
+			if to_mouse.length() > 1.0:
+				_aim_dir = to_mouse.normalized()
 	facing = _aim_dir
 	# Feed groundedness to the rig so a limp (hold-DOWN) ragdoll clamps to the floor
 	# instead of drooping through it. Set every frame; cheap.
@@ -494,7 +997,7 @@ func _physics_process(delta: float) -> void:
 	# Hold DOWN to go LIMP — the Stick-Fight ragdoll flop. Abilities + walking are
 	# suspended; the active-ragdoll rig droops and gravity/friction bring you to the
 	# ground. Release to snap back up.
-	if Input.is_action_pressed("move_down") and not is_dashing:
+	if _pressed(&"move_down") and not is_dashing:
 		if not _ragdolling:
 			_ragdolling = true
 			rig.set_limp(1.0)
@@ -509,19 +1012,30 @@ func _physics_process(delta: float) -> void:
 		_ragdolling = false
 		rig.set_limp(0.0)
 	# Cosmetic + class toggles: instant, un-buffered, legal even mid-dash.
-	if Input.is_action_just_pressed("cycle_element"):
+	if _just(&"cycle_element"):
 		_cycle_element()
-	if Input.is_action_just_pressed("cycle_colourway"):
+	if _just(&"cycle_colourway"):
 		_cycle_colourway()
-	if Input.is_action_just_pressed("switch_class"):
+	if _just(&"switch_class"):
 		_cycle_class()
-	if Input.is_action_just_pressed("cycle_signature"):
+	if _just(&"cycle_signature"):
 		_cycle_signature()
-	if Input.is_action_just_pressed("ultimate") and not is_dashing:
-		_cast_signature()
-	if Input.is_action_just_pressed("parry") and not is_dashing:
+	# THE DEFENSIVE VERB. Two shapes behind one button: eight classes press for a
+	# fixed window, the Swordsaint HOLDS a shrinking ring. `_guard != null` is the
+	# only switch, so nothing about the press path changed for anyone else.
+	if _guard != null:
+		_process_blade_guard(delta)
+	elif _just(&"parry") and not is_dashing:
 		_try_parry_start()
-	if Input.is_action_pressed("cast") and _cast_cooldown_timer <= 0.0 and not is_dashing:
+	# GUARDING LOCKS OUT ATTACKING — ParryRing's own rule, and a balance one rather
+	# than a UI limitation: a sustained guard that cost nothing offensively would be
+	# a permanent free damage reduction. It also removes the platform asymmetry where
+	# a desktop player could hold guard and swing but a thumb cannot.
+	var guard_locked: bool = _guard != null and _guard.blocks_attack()
+	if _just(&"ultimate") and not is_dashing and not guard_locked:
+		_cast_signature()
+	if _pressed(&"cast") and _cast_cooldown_timer <= 0.0 and not is_dashing \
+			and not guard_locked:
 		_cast()
 
 	if is_dashing:
@@ -544,13 +1058,27 @@ func _physics_process(delta: float) -> void:
 			)
 		rig.play(CharacterRig.State.DASH)
 		rig.set_facing(_dash_dir)  # body faces where the dash is going
+		# The dash branch returns early, so the rig used to spend the whole burst on a
+		# stale velocity: no inertial limb trail, and (since the body springs landed)
+		# no way to tell a horizontal dash from a vertical one. Feeding it here gives
+		# the rig the dash's true DIRECTION, which is what SpikeFigure leans off
+		# (`lean = _dash_dir.x * DASH_LEAN` — a straight-up dash does not pitch).
+		rig.set_body_velocity(velocity)
 		return
 
 	# --- Side-on movement: horizontal input, gravity, jumping ---
-	var move_x: float = Input.get_axis("move_left", "move_right")
+	var move_x: float = _axis(&"move_left", &"move_right")
+	# A HELD BLADE GUARD ROOTS YOU. The blade is planted, not carried, and that is
+	# what makes walking away the clean counter to it: an opponent who simply
+	# declines to swing beats the guard outright, and the Swordsaint has spent the
+	# hold for nothing. Rooting is also what keeps the bank honest — you cannot chase
+	# someone down while holding a loaded return.
+	if _guard != null and _guard.blocks_attack():
+		move_x = 0.0
+		_jump_buffer = 0.0
 	if move_x != 0.0:
 		_move_dir = Vector2(signf(move_x), 0.0)  # dash/blink dodge direction
-	if Input.is_action_just_pressed("jump"):
+	if _just(&"jump"):
 		_jump_buffer = JUMP_BUFFER_TIME
 	_jump_buffer = maxf(_jump_buffer - delta, 0.0)
 
@@ -580,7 +1108,7 @@ func _physics_process(delta: float) -> void:
 		if wall_sliding:
 			velocity.y = minf(velocity.y, WALL_SLIDE_MAX_FALL)
 	# Variable jump height: releasing jump while rising cuts the ascent short.
-	if Input.is_action_just_released("jump") and velocity.y < 0.0:
+	if _released(&"jump") and velocity.y < 0.0:
 		velocity.y *= 0.5
 
 	# Jump (buffered): ground/coyote, else a WALL-JUMP off a gripped wall.
@@ -649,19 +1177,10 @@ func _physics_process(delta: float) -> void:
 		rig.set_air_phase(velocity.y < 0.0, is_on_floor())
 	else:
 		rig.play(CharacterRig.State.RUN if moving else CharacterRig.State.IDLE)
-	if moving and is_on_floor():
-		_footstep_timer -= delta
-		if _footstep_timer <= 0.0:
-			_footstep_timer = 0.22 if _hero_class == HeroClass.ROGUE else 0.27
-			Sfx.play("footstep", -6.0, 0.14)
-			# Stick-Fight walk dust: a small puff kicks up at the feet each footfall.
-			CombatVfx.spawn_burst(
-				get_parent(), global_position + Vector2(-signf(move_x) * 6.0, 12.0),
-				Color(0.85, 0.85, 0.9, 0.45), Color(0.85, 0.85, 0.9, 0.0),
-				4, 0.24, 14.0, 52.0
-			)
-	else:
-		_footstep_timer = 0.0
+	# NOTE: no footstep/dust block here any more. Both are driven by the rig's
+	# `foot_planted` signal (see _on_foot_planted) so the crunch and the puff land on
+	# the frame the foot visibly hits the ground, instead of on a timer that slowly
+	# slid out of phase with the animation.
 	# Stick-Fight decouple: the BODY faces MOVEMENT (idle keeps the last facing —
 	# set_facing ignores x==0); the cast arm/weapon aims at the true cursor. The
 	# figure is FACELESS (no eyes) — aim reads from the body + the pointed weapon +
@@ -681,7 +1200,7 @@ func _update_input_buffer(delta: float) -> void:
 	if _buffer_timer <= 0.0:
 		_buffered_action = ""
 	for action: String in ["melee", "dash", "blast", "blink", "nova"]:
-		if Input.is_action_just_pressed(action):
+		if _just(StringName(action)):
 			_buffered_action = action
 			_buffer_timer = BUFFER_TIME
 
@@ -692,6 +1211,12 @@ func _update_input_buffer(delta: float) -> void:
 ## caller must yield the rest of the frame to the dash branch).
 func _try_fire_buffered() -> bool:
 	if _buffered_action.is_empty():
+		return false
+	# A held BLADE guard locks out the offence (ParryRing.blocks_attack). The press
+	# is deliberately NOT dropped, only held: the buffer already exists so a press
+	# through a closed gate fires the moment the gate opens, and that is exactly the
+	# right feel here — let go of guard and the swing you asked for comes out.
+	if _guard != null and _guard.blocks_attack():
 		return false
 	match _buffered_action:
 		"melee":
@@ -787,7 +1312,14 @@ func configure_class(cls: int) -> void:
 	_max_air_jumps = int(_cfg.get("air_jumps", 0))
 	_air_jumps = _max_air_jumps
 	# Juggernaut BLOCK = a longer, more forgiving defensive window than a parry.
-	_parry_window_len = 0.40 if String(_cfg.get("defense", "parry")) == "block" else PARRY_WINDOW
+	var defense: String = String(_cfg.get("defense", "parry"))
+	_parry_window_len = 0.40 if defense == "block" else PARRY_WINDOW
+	# HELD GUARD: swap the press-window parry for ParryRing's BLADE style. Rebuilt
+	# (not merely reset) on every class change so a ring can never survive a swap
+	# half-held — a stuck `held` would silently lock the next class out of attacking.
+	_guard = ParryRing.for_style(ParryRing.Style.BLADE) if defense == "held_guard" else null
+	_guard_bank = 0
+	_guard_hits = 0
 	# Auto-set the class's signature element (X still cycles from here) + swap in
 	# the class's themed signature loadout (its hero-fantasy ultimate first).
 	if _cfg.has("element"):
@@ -955,41 +1487,109 @@ func _cast_signature() -> void:
 	_begin_summon(spell, sky, special)
 
 
-## Start the epic summon windup: freeze committed, bloom a grounded spell circle,
-## GATHER pose, charge SFX. The actual spell fires in _finish_summon.
+## Start the summon windup: freeze committed, throw the spell's OWN body language,
+## and (for anything above a jab) open a sigil overhead + lift slightly off the
+## floor. The actual spell fires in _finish_summon, after the windup elapses — the
+## delay is the point, not a side effect.
 func _begin_summon(spell: SpellDef, sky: bool, special: int) -> void:
 	_summoning = true
 	_summon_spell = spell
 	_summon_sky = sky
 	_summon_special = special
-	_summon_total = SUMMON_WINDUP_FAST if special != SUMMON_NORMAL else SUMMON_WINDUP
+	# BODY LANGUAGE comes from the spell's KIND, not from one gesture reused for
+	# everything: a wall gets slammed out of the ground, a bombardment gets a ritual
+	# circle, a lightning rush gets coiled into the chest. Same table the playground rig
+	# reads, so a spell looks like ITSELF regardless of who throws it.
+	_summon_pose = CastStyle.for_spell(spell.kind)
+	_summon_tier = SpellTier.of(spell)
+	_summon_total = SignatureRite.windup_for(spell)
 	_summon_timer = _summon_total
+	# THE DECLARE BEAT rides the windup that is already being spent — it adds no
+	# time, and the suppression rules keep it from becoming a tax (see SignatureRite).
+	_declare_signature(spell, _summon_total, _summon_tier)
 	_summon_aim = _aim_dir
-	_summon_target = get_global_mouse_position()
+	_summon_target = _aim_point()
 	velocity = Vector2.ZERO
+	# Levitation is armed here but applied per-frame in _process_summon, so a windup
+	# that is cancelled on its very first frame never leaves the hero off the ground.
+	_summon_lift = 0.0
+	_summon_base_y = global_position.y
+	_summon_lift_target = CAST_TIER_LIFT[_summon_tier]
 	rig.set_aim(Vector2.UP if sky else _aim_dir)
 	rig.play(CharacterRig.State.CAST)
-	rig.cast_gesture(CharacterRig.GestureKind.GATHER, 0.9, _element)  # both hands gather the power
-	# The summoning sigil blooms beneath the caster over the windup (sized by cost).
-	_summon_circle = MagicCircle.new()
-	get_parent().add_child(_summon_circle)
-	_summon_circle.global_position = global_position + Vector2(0.0, 8.0)
-	var r: float = 34.0 + 22.0 * clampf(spell.mp_cost / 90.0, 0.0, 1.0)
-	_summon_circle.call("appear", _element_color, r, _summon_total)
+	# Intensity rises with the tier so the arms commit harder for the expensive
+	# spells — the same escalation the windup length and the lift already carry.
+	rig.cast_gesture(_pose_gesture(_summon_pose), 0.5 + 0.25 * float(_summon_tier), _element)
+	# A QUICK spell gets NO sigil: the maker's ask was a circle for the MORE POWERFUL
+	# spells, and a summoning ring opening for a throwaway would cheapen the ones
+	# that matter. (Nothing in the shipped library is QUICK yet — this is the gate
+	# for when cheap signatures land.)
+	if _summon_tier != SpellTier.Tier.QUICK:
+		_open_cast_sigil(
+			CAST_SIGIL_RADIUS + CAST_SIGIL_RADIUS_PER_COST * clampf(spell.mp_cost / 90.0, 0.0, 1.0),
+			_summon_total)
 	Sfx.play("charge_up", -6.0, 0.05)
 
 
-## Hold the committed summon each frame: stay put + grounded, grow the sigil, gather
-## converging motes, then erupt when the windup elapses.
+## Play the DECLARE beat for a signature, if the rite's three suppression rules
+## allow it. `_last_declared` is PER HERO on purpose: two co-op players must not
+## share a repeat clock, or one of them ulting would silence the other's card.
+##
+## The card is tinted with the SPELL's resolved colour rather than the caster's
+## current element, so a spell that overrides its tint announces itself in its own
+## colour and the card is class-legible before any of the spell exists.
+func _declare_signature(spell: SpellDef, windup: float, tier: int) -> void:
+	if spell == null:
+		return
+	var now: float = float(Time.get_ticks_msec()) / 1000.0
+	if not SignatureRite.should_declare(tier, spell.id, _last_declared, now,
+			SignatureRite.card_live()):
+		return
+	if SignatureRite.announce(self, spell.display_name.to_upper(),
+			spell.resolve_color(_element_color), windup):
+		_last_declared[spell.id] = now
+
+
+## CastStyle.Pose -> the rig's cast-gesture vocabulary. CastStyle names EIGHT body
+## languages; CharacterRig ships SIX limb-isolated verbs, so this is a deliberate
+## lossy translation that picks the verb whose MOTION is closest to the pose's
+## intent. That is exactly the split CastStyle documents: a pose is DIRECTION, and
+## each rig interprets it with the joints it actually has.
+static func _pose_gesture(pose: int) -> int:
+	match pose:
+		CastStyle.Pose.SLAM:
+			return CharacterRig.GestureKind.STOMP       # fist drives down + foot plant
+		CastStyle.Pose.CIRCLE, CastStyle.Pose.CHANNEL, CastStyle.Pose.THROW:
+			return CharacterRig.GestureKind.RAISE       # the arm goes overhead first
+		CastStyle.Pose.LASH:
+			return CharacterRig.GestureKind.FLICK       # one sharp snap off one hand
+		CastStyle.Pose.SWEEP:
+			return CharacterRig.GestureKind.IGNITE_DROP # the hand has to go LOW
+		_:
+			# POINT and COIL are the two-handed ones: hands to the chest, then drive
+			# out along the aim. GATHER is the rig's only both-hands verb.
+			return CharacterRig.GestureKind.GATHER
+
+
+## Hold the committed summon each frame: stay put, ease the slight levitation, grow
+## the sigil, gather converging motes, then erupt when the windup elapses.
 func _process_summon(delta: float) -> void:
 	velocity = Vector2.ZERO
+	# SLIGHT levitation: the toes leaving the floor as the power gathers. Written as
+	# an absolute offset from the take-off y (not an upward velocity) so gravity —
+	# which this branch skips entirely — has nothing to fight, and so the restore in
+	# _end_summon is exact rather than "fall back down eventually".
+	if _summon_lift_target > 0.0:
+		_summon_lift = move_toward(_summon_lift, _summon_lift_target, CAST_LIFT_SPEED * delta)
+		global_position.y = _summon_base_y - _summon_lift
+		rig.set_airborne(CAST_LIFT_AIRBORNE * (_summon_lift / _summon_lift_target))
 	move_and_slide()  # hold position (gravity zeroed -> committed in place)
 	rig.set_body_velocity(Vector2.ZERO)
 	rig.play(CharacterRig.State.CAST)  # keep the committed cast pose held
-	if _summon_circle != null and is_instance_valid(_summon_circle):
-		_summon_circle.global_position = global_position + Vector2(0.0, 8.0)
+	if _cast_sigil != null and is_instance_valid(_cast_sigil):
+		_cast_sigil.global_position = _cast_sigil_pos()
 		var prog: float = 1.0 - _summon_timer / maxf(_summon_total, 0.001)
-		_summon_circle.scale = Vector2.ONE * (0.55 + 0.7 * prog)  # sigil grows as it charges
+		_cast_sigil.scale = Vector2.ONE * (0.55 + 0.7 * prog)  # sigil grows as it charges
 	# Energy motes converge inward on the caster (the wind-up).
 	if fmod(_summon_timer, 0.09) < delta:
 		CombatVfx.spawn_burst(get_parent(), global_position,
@@ -1009,24 +1609,31 @@ func _finish_summon() -> void:
 	var sky: bool = _summon_sky
 	var aim: Vector2 = _summon_aim
 	var target: Vector2 = _summon_target
-	_end_summon()
+	# handoff: OFFER the windup sigil instead of dismissing it, so the spectacle
+	# spawned on this same frame adopts and continues it. Every SpellCaster.cast()
+	# below therefore passes `self` — that is the key MagicCircle.adopt_or_open()
+	# looks the pending offer up by.
+	_end_summon(true)
 	if spell == null:
+		# Nothing will spawn, so nothing can adopt the offer. Withdraw it rather than
+		# leaving a ring hanging over a cast that never happened.
+		_discard_cast_sigil()
 		return
 	match special:
 		SUMMON_RUSH:
-			# Chidori / rush: LUNGE forward as the lance rips out.
+			# Thunderclap / rush: LUNGE forward as the lance rips out.
 			rig.set_aim(aim)
 			rig.play(CharacterRig.State.PUNCH)
 			rig.cast_gesture(CharacterRig.GestureKind.FLICK, 0.9, _element)
 			if aim.x != 0.0:
 				velocity.x = signf(aim.x) * 360.0
-			SpellCaster.cast(spell, get_parent(), rig.get_weapon_tip(), target, _element_color, spell.effect)
+			SpellCaster.cast(spell, get_parent(), rig.get_weapon_tip(), target, _element_color, spell.effect, self, hostile_group)
 		SUMMON_BLINK:
 			# Shadow-step: TELEPORT to the marked point mid-slash. The displacement
 			# itself lives in blink_to() below, which SpellCaster calls back into —
 			# so blink now goes through the same data->dispatch seam as every other
 			# spell instead of being hand-rolled here.
-			SpellCaster.cast(spell, get_parent(), global_position, target, _element_color, spell.effect, self)
+			SpellCaster.cast(spell, get_parent(), global_position, target, _element_color, spell.effect, self, hostile_group)
 			rig.flash_color(BLINK_ARRIVAL_FLASH_COLOR, BLINK_ARRIVAL_FLASH_TIME)
 			rig.play(CharacterRig.State.CAST)
 		_:
@@ -1036,7 +1643,7 @@ func _finish_summon() -> void:
 			# `self` is passed on the plain path too now: a deferred-resolution
 			# spell (Rift Dagger) needs to know whose anchor it is, and the arg is
 			# ignored by every kind that doesn't move or own the caster.
-			SpellCaster.cast(spell, get_parent(), origin, target, _element_color, spell.effect, self)
+			SpellCaster.cast(spell, get_parent(), origin, target, _element_color, spell.effect, self, hostile_group)
 			_self_recoil(110.0)  # the ultimate shoves you back
 	_notify_element_used()
 	# THE PAYOFF — the crescendo after the anticipation. Blink already flashes, so
@@ -1044,13 +1651,31 @@ func _finish_summon() -> void:
 	Juice.epic_moment({"strength": 1.0, "frame": special != SUMMON_BLINK})
 
 
-## Shared summon teardown: clear state + bloom the sigil out (the eruption flare).
-func _end_summon() -> void:
+## Shared summon teardown: put the hero back on the ground, clear state, and either
+## hand the sigil on or dismiss it.
+##
+## EVERY exit runs through here — the spell firing, a hit shattering the windup, a
+## co-op down, a revive — which is the whole reason the levitation is undone here
+## and nowhere else. The windup branch returns before gravity is integrated, so a
+## cast that ended mid-lift without this restore would leave the hero parked in
+## mid-air with no force to bring them back down.
+##
+## `handoff` true = a spectacle is about to spawn and should CONTINUE this sigil
+## (no dismissal — dismissing is the duplicate-circle bug). False = the cast died,
+## so there is nothing to hand it to and it goes out.
+func _end_summon(handoff: bool = false) -> void:
 	_summoning = false
 	_summon_spell = null
-	if _summon_circle != null and is_instance_valid(_summon_circle):
-		_summon_circle.call("vanish", 0.2)  # blooms out as the spell erupts
-	_summon_circle = null
+	if _summon_lift != 0.0:
+		global_position.y = _summon_base_y
+		_summon_lift = 0.0
+	_summon_lift_target = 0.0
+	if is_instance_valid(rig):
+		rig.set_airborne(0.0)
+	if handoff:
+		_release_cast_sigil()
+	else:
+		_discard_cast_sigil()
 
 
 ## A landed hit shatters the summon — sigil breaks, the ult is lost (MP + cooldown
@@ -1058,6 +1683,9 @@ func _end_summon() -> void:
 func _cancel_summon() -> void:
 	var pos: Vector2 = global_position
 	_end_summon()
+	# The name goes with the cast. A card left hanging over a shattered windup reads
+	# as "the ult went off" at the exact moment the player needs to know it did not.
+	SignatureRite.dismiss(self)
 	CombatVfx.spawn_burst(get_parent(), pos,
 		Color(_element_color.r, _element_color.g, _element_color.b, 0.9),
 		Color(_element_color.r, _element_color.g, _element_color.b, 0.0),
@@ -1075,18 +1703,30 @@ func _begin_channel(spell: SpellDef, sky: bool) -> void:
 	_channel_sky = sky
 	_channel_timer = spell.cast_time
 	_channel_total = spell.cast_time
-	_channel_target = get_global_mouse_position()
+	_channel_target = _aim_point()
+	# The channelled tier is where the rite reads best: a 1.0-1.3 s windup gives the
+	# card its full 0.30-0.39 s DECLARE and still leaves the longest CHARGE — i.e.
+	# the longest dodge window — in the game.
+	_declare_signature(spell, spell.cast_time, SpellTier.of(spell))
 	_channel_base_y = global_position.y
 	_channel_lift = 0.0
 	velocity = Vector2.ZERO
 	rig.set_aim(Vector2.UP if sky else _aim_dir)
 	rig.play(CharacterRig.State.CAST)
 	rig.set_airborne(true)  # legs dangle while floating
-	# Build-up sigil that grows beneath/around the caster over the channel.
-	_channel_circle = MagicCircle.new()
-	get_parent().add_child(_channel_circle)
-	_channel_circle.global_position = global_position + Vector2(0.0, 6.0)
-	_channel_circle.call("appear", _element_color, 44.0 + 26.0 * clampf(spell.mp_cost / 90.0, 0.0, 1.0), spell.cast_time)
+	# The channel gets the spell's own body language too, so a channelled wall still
+	# reads as a slam and a beam still reads as a thrust. The channel's LENGTH stays
+	# the spell's authored cast_time — that number is already the balance-tuned dodge
+	# window, so it is never scaled by CastStyle/tier on top.
+	rig.cast_gesture(_pose_gesture(CastStyle.for_spell(spell.kind)), 1.0, _element)
+	# Build-up sigil that grows ABOVE the caster over the channel (maker: "the circle
+	# should sit ABOVE"), opened through the SAME seam as the summon windup. This is
+	# the path the reported duplicate-circle bug lives on — a channelled BEAM used to
+	# dismiss this ring and then BeamSpell.fire() opened a second one at the muzzle —
+	# so it matters most here that the sigil is handed over rather than dismissed.
+	_open_cast_sigil(
+		CHANNEL_SIGIL_RADIUS + CHANNEL_SIGIL_RADIUS_PER_COST * clampf(spell.mp_cost / 90.0, 0.0, 1.0),
+		spell.cast_time)
 	Sfx.play("charge_up", -2.0, 0.04)  # anime beam/ult power-up swell
 	# Pull the camera WIDE for the whole build-up + release so the "insane spell"
 	# reads (maker: "when these insane spells are being cast we should zoom out to
@@ -1104,11 +1744,11 @@ func _process_channel(delta: float) -> void:
 	velocity = Vector2.ZERO
 	rig.set_airborne(true)
 	rig.set_body_velocity(Vector2.ZERO)
-	if _channel_circle != null and is_instance_valid(_channel_circle):
-		_channel_circle.global_position = global_position + Vector2(0.0, 6.0)
+	if _cast_sigil != null and is_instance_valid(_cast_sigil):
+		_cast_sigil.global_position = _cast_sigil_pos()
 		# The sigil GROWS as the cast charges — small at first, large at release.
 		var prog: float = 1.0 - _channel_timer / maxf(_channel_total, 0.001)
-		_channel_circle.scale = Vector2.ONE * (0.5 + 0.85 * prog)
+		_cast_sigil.scale = Vector2.ONE * (0.5 + 0.85 * prog)
 	# Gather motes now and then — energy converging on the caster.
 	if fmod(_channel_timer, 0.12) < delta:
 		CombatVfx.spawn_burst(get_parent(), global_position, Color(_element_color.r, _element_color.g, _element_color.b, 0.7),
@@ -1121,13 +1761,19 @@ func _process_channel(delta: float) -> void:
 ## Channel completed uninterrupted — unleash the spectacle, then settle back down.
 func _finish_channel() -> void:
 	var spell: SpellDef = _channel_spell
-	_end_channel()
+	# handoff: the build-up sigil survives the end of the channel so the spectacle
+	# below can adopt it instead of opening a second ring at the muzzle.
+	_end_channel(true)
 	if spell == null:
+		_discard_cast_sigil()  # nothing will spawn, so nothing can adopt it
 		return
 	rig.set_aim(Vector2.UP if _channel_sky else _aim_dir)
 	rig.play(CharacterRig.State.CAST)
 	var origin: Vector2 = global_position if _channel_sky else rig.get_weapon_tip()
-	SpellCaster.cast(spell, get_parent(), origin, _channel_target, _element_color, spell.effect)
+	# `self` is the key MagicCircle.adopt_or_open() looks the pending offer up by, so
+	# BeamSpell continues THIS sigil rather than opening a second one at the muzzle.
+	# Kinds that don't want a caster ignore the argument.
+	SpellCaster.cast(spell, get_parent(), origin, _channel_target, _element_color, spell.effect, self, hostile_group)
 	_notify_element_used()
 	_self_recoil(90.0)
 	# The biggest beat in the game — the full synchronized epic payoff (the channeled
@@ -1144,10 +1790,11 @@ func _cancel_channel() -> void:
 	if not _channeling:
 		return
 	var burst_pos: Vector2 = global_position
-	if _channel_circle != null and is_instance_valid(_channel_circle):
-		burst_pos = _channel_circle.global_position
+	if _cast_sigil != null and is_instance_valid(_cast_sigil):
+		burst_pos = _cast_sigil.global_position
 	var ec: Color = _element_color
-	_end_channel()
+	_end_channel()  # no handoff — an interrupted channel spawns nothing to adopt it
+	SignatureRite.dismiss(self)  # the announcement dies with the cast it announced
 	# Sigil shatter: a bright element-hued blowout ring of shards where the circle was.
 	CombatVfx.spawn_burst(get_parent(), burst_pos,
 		Color(ec.r, ec.g, ec.b, 0.95), Color(ec.r, ec.g, ec.b, 0.0),
@@ -1157,20 +1804,27 @@ func _cancel_channel() -> void:
 		Color(0.3, 0.25, 0.4, 0.0), 14, 0.4, 50.0, 150.0)
 	rig.flash_color(Color(0.85, 0.55, 1.0), 0.18)  # violet disrupt flash
 	rig.apply_impulse(Vector2(-facing.x, 0.6), 260.0)  # flung out of the float
-	Juice.impact_frame(0.8)  # brief anime freeze so the cut lands
+	# SILHOUETTE, not the white blow-out: this cut's payoff is a READABLE SHAPE, and
+	# white erases the very crescent the beat exists to show off. The black cut keeps
+	# the arc and both fighters lit against near-nothing.
+	Juice.frame({"style": ImpactFrame.Style.SILHOUETTE, "strength": 0.95,
+		"at": global_position + _aim_dir * 40.0})
 	Juice.shake_camera(9.0)
 	Sfx.play("hero_hurt", 0.0, 0.1)
 	Sfx.play("melee_swing", -6.0, 0.14)
 
 
-## Shared channel teardown: drop the float, fizzle the sigil, restore physics.
-func _end_channel() -> void:
+## Shared channel teardown: drop the float, restore physics, and either hand the
+## sigil to the spectacle about to spawn (`handoff`) or put it out.
+func _end_channel(handoff: bool = false) -> void:
 	_channeling = false
 	_channel_spell = null
-	rig.set_airborne(false)
-	if _channel_circle != null and is_instance_valid(_channel_circle):
-		_channel_circle.call("vanish", 0.2)
-	_channel_circle = null
+	if is_instance_valid(rig):
+		rig.set_airborne(false)
+	if handoff:
+		_release_cast_sigil()
+	else:
+		_discard_cast_sigil()
 
 
 ## Swap to the next equipped signature (the loadout cycle — V). On mobile this is
@@ -1203,10 +1857,20 @@ func _dash_strike_sweep() -> void:
 	var rng: float = _cfg["dash_strike_range"]
 	var dmg: int = _cfg["dash_strike_damage"]
 	var hit_any: bool = false
-	for enemy: Node in get_tree().get_nodes_in_group("enemy"):
-		if not enemy is Node2D or enemy in _dash_hit:
-			continue
-		if global_position.distance_to(enemy.global_position) >= rng:
+	# SILHOUETTE, NOT ORIGIN. This used to be `distance_to(enemy.global_position)`,
+	# a zero-size point test against a node origin that sits ~10 px BELOW the drawn
+	# head (19 px on the 1.9x sparring dummies) — the maker's "spells pass through
+	# heads without registering" bug, in its melee form. `SpellTargets` measures the
+	# drawn body and adds the target's OWN published forgiveness, and it filters
+	# line-of-sight so a dash can no longer strike through a wall it passed beside.
+	#
+	# ⚠ The reach GROWS as a result — up to about half a rig height on the vertical
+	# axis — and that growth is the fix, not a side effect. If dash-strike ever feels
+	# too generous the knob is `dash_strike_range` in CLASS_CONFIG or
+	# `Enemy.HIT_MARGIN_FACTOR`, never both, and never a third margin added here.
+	for enemy: Node in SpellTargets.in_radius(global_position, rng,
+			get_tree().get_nodes_in_group(hostile_group), [self], self):
+		if enemy in _dash_hit:
 			continue
 		_dash_hit.append(enemy)
 		if enemy.has_method("take_damage"):
@@ -1214,10 +1878,9 @@ func _dash_strike_sweep() -> void:
 		if enemy.has_method("apply_knockback"):
 			enemy.apply_knockback(_dash_dir * _melee_knockback)
 		hit_any = true
-	for prop: Node in get_tree().get_nodes_in_group("destructible"):
-		if not prop is Node2D or prop in _dash_hit:
-			continue
-		if global_position.distance_to(prop.global_position) >= rng:
+	for prop: Node in SpellTargets.in_radius(global_position, rng,
+			get_tree().get_nodes_in_group("destructible"), [self], self):
+		if prop in _dash_hit:
 			continue
 		_dash_hit.append(prop)
 		if prop.has_method("take_damage"):
@@ -1237,7 +1900,7 @@ func _start_dash() -> void:
 	# S+A -> down-left, D alone -> flat right. Accurate to which keys are down,
 	# including vertical. Falls back to live velocity, then the last walk dir /
 	# facing, only when no direction key is held (a standing dash).
-	var keys: Vector2 = Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	var keys: Vector2 = _vector(&"move_left", &"move_right", &"move_up", &"move_down")
 	if keys.length() > 0.1:
 		_dash_dir = keys.normalized()
 	elif velocity.length() > 40.0:
@@ -1303,12 +1966,17 @@ func _uppercut() -> void:
 	velocity.y = -320.0  # the hero rises with the uppercut
 	var face_x: float = signf(_aim_dir.x) if _aim_dir.x != 0.0 else 1.0
 	var hit_any: bool = false
-	for enemy: Node in get_tree().get_nodes_in_group("enemy"):
-		if not enemy is Node2D:
-			continue
-		var to: Vector2 = enemy.global_position - global_position
-		if to.length() > 70.0 or signf(to.x) != face_x and absf(to.x) > 10.0:
-			continue
+	# A launcher is the one melee move whose whole point is VERTICAL, so an
+	# origin-point test was the worst possible fit: it measured to a spot below the
+	# head of the very thing it is trying to pop into the air. Silhouette-measured
+	# now, in a wedge that is the forward half plus a small overlap behind — which is
+	# what the old `signf(to.x) != face_x and absf(to.x) > 10.0` clause was
+	# approximating for a body standing directly on top of you.
+	const UPPERCUT_REACH: float = 70.0
+	const UPPERCUT_DOT: float = -0.2
+	for enemy: Node in SpellTargets.in_cone(global_position, Vector2(face_x, 0.0),
+			UPPERCUT_REACH, UPPERCUT_DOT, get_tree().get_nodes_in_group(hostile_group),
+			[self], self):
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(18)
 		if enemy.has_method("apply_knockback"):
@@ -1431,9 +2099,13 @@ func _cast() -> void:
 ## bolt_chain (Stormcaller arc), bolt_burst (Shadowblade flurry, spread shots).
 func _primary_bolt() -> void:
 	_cast_cooldown_timer = _cfg["cast_cd"]
-	var enemies: Array = get_tree().get_nodes_in_group("enemy")
-	# Aim at the cursor, softly assisted toward an enemy inside the forgiveness cone.
-	var base_dir: Vector2 = Targeting.assisted_aim(global_position, _aim_dir, enemies)
+	# The bolt goes EXACTLY where the player is pointing. It used to be bent toward
+	# an enemy inside a forgiveness cone, which is aim assist by another name: the
+	# locked rule is that hitting is the shooter's skill and dodging is the target's,
+	# and a cone that quietly corrects a near-miss steals from both sides of that.
+	# Forgiveness now has to come from the spell's SHAPE (width/arc/burst spread),
+	# never from the engine steering it after release.
+	var base_dir: Vector2 = _aim_dir.normalized() if _aim_dir != Vector2.ZERO else facing
 	rig.set_aim(_aim_dir)
 	rig.play(CharacterRig.State.CAST)
 	rig.cast_gesture(CharacterRig.GestureKind.FLICK, 0.5, _element)  # quick hand-flick tell
@@ -1453,11 +2125,21 @@ func _primary_bolt() -> void:
 		spell.set("element_id", _element)
 		if bool(_cfg["throw_blade"]):
 			spell.set("damage", int(_cfg["blade_damage"]))
+		# WHOSE SIDE THE BOLT IS ON. A method rather than a field write because
+		# it also opens the hero collision layer on the projectile: a
+		# hero-hostile bolt that never gets that mask bit passes clean through
+		# its target with damage code that looks perfectly correct.
+		spell.call("set_hostile_group", hostile_group)
 		# Caster is set for EVERY class's bolt (not just heal-flavoured ones) so the
 		# friendly-fire guard in Spell.gd can always exclude the caster from their
 		# own bolt — MAGE/STORMCALLER/ROGUE bolts were previously spawning with
 		# caster == null and could hit their own thrower.
 		spell.set("caster", self)
+		# ...and its WEIGHT. Without this the bolt reports SpellTier.DEFAULT_WEIGHT
+		# (HEAVY), so a free, spammable primary would trade evenly in a clash against
+		# a committed heavy spell, and would be read as HEAVY by the deflect window
+		# fraction. A basic cast belongs on the QUICK shelf.
+		spell.set("spell_tier", SpellTier.Tier.QUICK)
 		# Flavour flags.
 		var heal: int = int(_cfg.get("bolt_heal", 0))
 		if heal > 0:
@@ -1515,12 +2197,13 @@ func _primary_frost_cone() -> void:
 	const CONE_COS: float = 0.5  # ~60° half-angle
 	const CONE_DAMAGE: int = 12
 	var hit_any: bool = false
-	for enemy: Node in get_tree().get_nodes_in_group("enemy"):
-		if not enemy is Node2D:
-			continue
-		var to: Vector2 = enemy.global_position - global_position
-		if to.length() > CONE_RANGE or _aim_dir.dot(to.normalized()) < CONE_COS:
-			continue
+	# The cone is now measured against the DRAWN body and line-of-sight filtered,
+	# through the same selector every spell uses. It was the clearest instance of the
+	# head bug in a primary attack: a frost cone aimed at head height resolved
+	# against an origin ~10 px lower and simply did not connect.
+	for enemy: Node in SpellTargets.in_cone(global_position, _aim_dir, CONE_RANGE,
+			CONE_COS, get_tree().get_nodes_in_group(hostile_group), [self], self):
+		var to: Vector2 = (enemy as Node2D).global_position - global_position
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(CONE_DAMAGE)
 		if enemy.has_method("apply_status"):
@@ -1578,13 +2261,20 @@ func _blast() -> void:
 ## Placed giant blast: lands where the cursor points, clamped to a max cast range
 ## so it stays a skill-shot, not a whole-stage snipe.
 func _meteor_blast() -> void:
-	var to_target: Vector2 = get_global_mouse_position() - global_position
+	var to_target: Vector2 = _aim_point() - global_position
 	if to_target.length() > BLAST_MAX_RANGE:
 		to_target = to_target.normalized() * BLAST_MAX_RANGE
 	var target_pos: Vector2 = global_position + to_target
 	var blast: Node2D = BLAST_SCENE.instantiate()
 	get_parent().add_child(blast)
 	blast.set("element_id", _element)
+	_stamp_faction(blast)
+	# OWNERSHIP. A spectacle with no caster reports as "unowned", which satisfies
+	# neither `require_owner: "same"` nor `"different"` — so it matches NO clash row
+	# and is silently inert in the entire reaction system. Nothing errors; the spell
+	# simply never reacts with anything, which is the single most repeated bug in
+	# this codebase.
+	blast.set("caster_node", self)
 	blast.detonate_at(target_pos)
 	rig.set_aim(_aim_dir)
 	rig.play(CharacterRig.State.CAST)
@@ -1604,11 +2294,16 @@ func _fire_punch() -> void:
 	var blast: Node2D = BLAST_SCENE.instantiate()
 	get_parent().add_child(blast)
 	blast.call("configure", {
-		"target_group": "enemy", "damage": 30, "radius": 66.0,
+		"target_group": String(hostile_group), "damage": 30, "radius": 66.0,
 		"knockback": 430.0, "element_id": _element,
 	})
+	blast.set("caster_node", self)  # unowned = inert in the reaction layer (see _blast)
 	blast.call("detonate_now", center)
-	Juice.impact_frame(0.8)  # the cool PUNCH beat
+	# The PUNCH beat, graded off the shared tier ladder rather than a bare 0.8 — a
+	# punch is a physical concussion, so it lands on BLOWOUT, and it now reads as
+	# lighter than an ult instead of matching one. Localized on the blast, because
+	# an unpositioned frame whites out screen centre wherever the hit actually was.
+	Juice.tier_frame(SpellTier.Tier.HEAVY, center, _element)
 
 
 ## GROUND SLAM — the Juggernaut's Q. A small hop then a self-centred crater: wide
@@ -1620,9 +2315,10 @@ func _ground_slam() -> void:
 	var blast: Node2D = BLAST_SCENE.instantiate()
 	get_parent().add_child(blast)
 	blast.call("configure", {
-		"target_group": "enemy", "damage": 34, "radius": 98.0,
+		"target_group": String(hostile_group), "damage": 34, "radius": 98.0,
 		"knockback": 380.0, "element_id": _element,
 	})
+	blast.set("caster_node", self)  # unowned = inert in the reaction layer (see _blast)
 	blast.call("detonate_now", global_position)
 
 
@@ -1642,14 +2338,29 @@ func _spawn_nova() -> void:
 	var nova: Node2D = NOVA_SCENE.instantiate()
 	get_parent().add_child(nova)
 	nova.set("element_id", _element)
+	_stamp_faction(nova)
 	nova.call("activate_at", global_position)
 	rig.play(CharacterRig.State.CAST)
 	rig.cast_gesture(CharacterRig.GestureKind.RAISE, 0.6, _element)  # arms fling out the nova
 
 
+## Point a spectacle this file spawned DIRECTLY at this hero's faction.
+##
+## The per-class Q's below bypass `SpellCaster.cast` (they hand-build their
+## spectacle from a `load()`ed script), so they miss `SpellCaster._stamp` and
+## would otherwise keep the `"enemy"` default forever — the exact silent gap that
+## made hero-vs-hero inert. Both property spellings are written for the same
+## reason and with the same safety as the stamp: `set()` on a property a
+## spectacle has not declared is a silent no-op, so a spectacle that hard-codes
+## its target group today simply starts obeying this the day it grows the field.
+func _stamp_faction(node: Node) -> void:
+	node.set("target_group", String(hostile_group))
+	node.set("_target_group", String(hostile_group))
+
+
 ## Cursor target for a placed Q, clamped to BLAST_MAX_RANGE so it stays a skill-shot.
 func _aoe_target() -> Vector2:
-	var to_target: Vector2 = get_global_mouse_position() - global_position
+	var to_target: Vector2 = _aim_point() - global_position
 	if to_target.length() > BLAST_MAX_RANGE:
 		to_target = to_target.normalized() * BLAST_MAX_RANGE
 	return global_position + to_target
@@ -1666,6 +2377,7 @@ func _arcane_meteor() -> void:
 	var meteor: Node2D = (load("res://scripts/combat/MeteorSigil.gd") as GDScript).new()
 	get_parent().add_child(meteor)
 	meteor.set("element_id", _element)
+	_stamp_faction(meteor)
 	meteor.call("rain", _aoe_target(), _element_color, 92.0, 22, 5, Elements.effect_name(_element))
 	rig.set_aim(Vector2.UP)
 	rig.play(CharacterRig.State.CAST)
@@ -1677,6 +2389,7 @@ func _consecrate() -> void:
 	var zone: Node2D = (load("res://scripts/combat/ZoneSpell.gd") as GDScript).new()
 	get_parent().add_child(zone)
 	zone.set("element_id", _element)
+	_stamp_faction(zone)
 	zone.call("open", _aoe_target(), _element_color, 98.0, 11, Elements.effect_name(_element), 4.0)
 	rig.set_aim(_aim_dir)
 	rig.play(CharacterRig.State.CAST)
@@ -1688,6 +2401,7 @@ func _ice_shards() -> void:
 	var orbs: Node2D = (load("res://scripts/combat/RuneOrbs.gd") as GDScript).new()
 	get_parent().add_child(orbs)
 	orbs.set("element_id", _element)
+	_stamp_faction(orbs)
 	orbs.call("launch", rig.get_weapon_tip(), _aim_dir.normalized(), _element_color, 6, 18, Elements.effect_name(_element))
 	rig.set_aim(_aim_dir)
 	rig.play(CharacterRig.State.CAST)
@@ -1699,6 +2413,7 @@ func _call_lightning() -> void:
 	var ray: Node2D = (load("res://scripts/combat/DivineRay.gd") as GDScript).new()
 	get_parent().add_child(ray)
 	ray.set("element_id", _element)
+	_stamp_faction(ray)
 	ray.call("strike", _aoe_target(), _element_color, 74.0, 34, Elements.effect_name(_element))
 	rig.set_aim(Vector2.UP)
 	rig.play(CharacterRig.State.CAST)
@@ -1710,6 +2425,7 @@ func _curse_chain() -> void:
 	var ch: Node2D = (load("res://scripts/combat/ChainBolt.gd") as GDScript).new()
 	get_parent().add_child(ch)
 	ch.set("element_id", _element)
+	_stamp_faction(ch)
 	ch.call("chain", rig.get_weapon_tip(), _aim_dir.normalized(), _element_color, 4, 240.0, 30, Elements.effect_name(_element))
 	rig.set_aim(_aim_dir)
 	rig.play(CharacterRig.State.CAST)
@@ -1734,19 +2450,32 @@ func _try_parry_start() -> void:
 	Sfx.play("melee_swing", -2.0, 0.1)
 
 
-## Called by an incoming enemy bolt as it reaches the hero. If the parry window
-## is open, reverse the bolt toward the nearest enemy (fallback: where the hero
-## aims), pay out the reward juice (bright ding + hitstop + flash), and return
-## true — the bolt keeps flying, now hostile to enemies. One reflect per window.
+## Called by an incoming enemy bolt as it reaches the hero. If the parry window is
+## open, send the bolt back out ALONG THE SHIELD'S FACING — i.e. wherever the
+## player is aiming — pay out the reward juice (bright ding + hitstop + flash), and
+## return true; the bolt keeps flying, now hostile to enemies. One reflect per window.
+##
+## It used to redirect at the nearest enemy, which made a parry a homing missile:
+## you only had to get the TIMING right and the engine picked the victim. Two
+## honest options were on the table — bounce it straight back along the incoming
+## line (return-to-sender), or send it along the defender's aim. The aim wins,
+## because the incoming line is chosen by the ATTACKER, so return-to-sender still
+## leaves the defender with nothing to steer. Aim makes a parry two skills stacked:
+## time the window AND have the shield pointed where you want the bolt to go. It
+## also matches what is already on screen — _try_parry_start throws the shell up in
+## _aim_dir, so the bolt leaving along that same line is the picture you just saw.
 func try_parry(proj: Node) -> bool:
-	if _parry_window_timer <= 0.0:
+	# Two guards, one answer. The press-window classes consume their window on a
+	# reflect (one per press); the BLADE ring does NOT — its ~0.09 s perfect band is
+	# already the whole limit, and consuming on top would mean a wall of arrows costs
+	# a Swordsaint one deflect and then hits them with the rest, which is the
+	# opposite of what holding a blade in the way looks like.
+	var ring_perfect: bool = _guard != null and _guard.can_reflect()
+	if _parry_window_timer <= 0.0 and not ring_perfect:
 		return false
 	if not is_instance_valid(proj) or not proj.has_method("reflect"):
 		return false
-	var target: Node2D = Targeting.nearest(global_position, get_tree().get_nodes_in_group("enemy"))
-	var dir: Vector2 = _aim_dir
-	if target != null:
-		dir = (target.global_position - global_position).normalized()
+	var dir: Vector2 = _aim_dir.normalized() if _aim_dir != Vector2.ZERO else facing
 	proj.reflect(dir, _element_color)
 	Sfx.play("ding", 2.0, 0.02)  # the whole payoff — a crisp, loud parry ding
 	Juice.hit_stop(0.09)
@@ -1754,12 +2483,179 @@ func try_parry(proj: Node) -> bool:
 	# Snap the shield toward where the bolt was sent — a bright deflect flourish.
 	rig.set_parry(dir, PARRY_SHIELD_TIME)
 	rig.flash_color(PARRY_FLASH_COLOR, 0.1)
-	_parry_window_timer = 0.0
+	if not ring_perfect:
+		_parry_window_timer = 0.0
 	return true
 
 
+## SpellDeflect's victim contract. A held BLADE guard reports as parrying whenever
+## it is doing ANYTHING — a perfect read or the weaker sustained bottom-out — so a
+## spell that only chips through a sustain still routes through the deflect path
+## and still reads as "I blocked that".
 func is_parrying() -> bool:
-	return _parry_window_timer > 0.0
+	if _parry_window_timer > 0.0:
+		return true
+	return _guard != null and _guard.quality() != ParryRing.Quality.NONE
+
+
+## SpellDeflect's optional freshness hook, and the ONE place the two guard shapes
+## genuinely differ in outcome.
+##
+## The press-window classes return 1.0 whenever their window is open. That is not
+## laziness — it preserves TODAY'S behaviour exactly: Hero previously had no
+## `parry_freshness` at all, and `SpellDeflect.would_deflect` treats a missing
+## method as fully lenient. Returning a decaying value here would silently make
+## every ult in the game far harder for eight shipped classes to block, under cover
+## of adding a ninth.
+##
+## The BLADE ring reports `ParryRing.freshness()`, which is 1.0 on a PERFECT read
+## and 0.0 on a SUSTAIN. Against `SpellDeflect.WINDOW_ULT` (0.22) only the perfect
+## read clears the bar, so the asymmetry falls out of the ring rather than being
+## invented here: a Swordsaint can eat an ult, but only by closing the ring exactly
+## on it — holding a guard up will never do it.
+func parry_freshness() -> float:
+	if _parry_window_timer > 0.0:
+		return 1.0
+	return _guard.freshness() if _guard != null else 0.0
+
+
+## A non-travelling spell was eaten by the guard (SpellDeflect's optional hook).
+## Strike the pose toward it; the bank is handled in take_damage, which is the only
+## place that knows how much was turned away.
+func on_spell_deflected(dir: Vector2) -> void:
+	if is_instance_valid(rig):
+		rig.set_parry(dir if dir != Vector2.ZERO else _aim_dir, PARRY_SHIELD_TIME)
+		rig.flash_color(PARRY_FLASH_COLOR, 0.1)
+
+
+# --------------------------------------------------------------- BLADE GUARD
+## Per-frame guard handling for a `defense: "held_guard"` class. Press to bloom the
+## ring, hold to close it, release to cash whatever it banked.
+##
+## The ring's own clock is ticked at the top of `_physics_process` (so the re-arm
+## runs even while committed); this is only input, pose and the deflect sweep.
+func _process_blade_guard(delta: float) -> void:
+	if is_dashing:
+		return
+	if _just(&"parry"):
+		if _guard.press():
+			_guard_bank = 0
+			_guard_hits = 0
+			# The tell is the same Stick-Fight shell every other class throws up, so
+			# an opponent reads "they are guarding" identically whoever it is. What
+			# differs is what happens next, not what it looks like starting.
+			rig.set_aim(_aim_dir)
+			rig.set_parry(_aim_dir, ParryRing.SHRINK_TIME + 0.2)
+			Sfx.play("melee_swing", -4.0, 0.14)
+	elif _released(&"parry"):
+		_release_blade_guard()
+	if _guard.held:
+		# Hold the plant: the blade tracks the aim so the guard is directional, and
+		# the shell is refreshed so it never blinks out mid-hold.
+		rig.set_aim(_aim_dir)
+		rig.set_parry(_aim_dir, 0.12)
+		rig.play(CharacterRig.State.CAST)
+		_guard_deflect_sweep()
+		# Auto-cash at the bank limit. Holding past three turned hits would let a
+		# Swordsaint stand in a barrage and walk out with a capped return for free;
+		# forcing the release makes the third block the DECISION point.
+		if _guard_hits >= GUARD_BANK_HITS:
+			_release_blade_guard()
+
+
+## Let go. Cash the bank as an unsheathe cut, then start the ring's re-arm.
+func _release_blade_guard() -> void:
+	if _guard == null or not _guard.held:
+		return
+	var banked: int = _guard_bank
+	_guard.release()
+	_guard_bank = 0
+	_guard_hits = 0
+	if banked > 0:
+		_unsheathe_cut(banked)
+
+
+## THE PAYMENT. A short line along the aim carrying `banked * GUARD_RETURN_MULT`.
+##
+## A LINE and not a circle, on purpose: an omni-burst would make the guard a
+## panic button that punishes everyone who happened to be nearby, whereas a line
+## means you must still be pointed at the thing you blocked. It is aimed with
+## `_aim_dir`, so it is a real aim decision and never an auto-target.
+func _unsheathe_cut(banked: int) -> void:
+	var dmg: int = int(round(float(banked) * GUARD_RETURN_MULT))
+	var dir: Vector2 = _aim_dir.normalized() if _aim_dir != Vector2.ZERO else facing
+	rig.set_aim(dir)
+	rig.play(CharacterRig.State.PUNCH)
+	var pool: Array = get_tree().get_nodes_in_group(hostile_group)
+	pool.append_array(get_tree().get_nodes_in_group("destructible"))
+	# Silhouette-aware, line-of-sight filtered — the same selector every spell now
+	# uses, so the cut cannot reach a body through a wall and cannot pass through a
+	# head without registering.
+	var hit_any: bool = false
+	for n: Node in SpellTargets.on_line(global_position, dir, GUARD_CUT_RANGE,
+			GUARD_CUT_HALF_WIDTH, pool, [self], self):
+		if n.is_in_group("destructible"):
+			if n.has_method("take_damage"):
+				n.call("take_damage", dmg)
+			hit_any = true
+			continue
+		if n.has_method("take_damage"):
+			n.call("take_damage", dmg)
+		if n.has_method("apply_knockback"):
+			n.call("apply_knockback", dir * GUARD_CUT_KNOCKBACK)
+		hit_any = true
+	CombatVfx.spawn_burst(get_parent(), global_position + dir * GUARD_CUT_RANGE * 0.55,
+		Color(1.0, 0.98, 0.9, 0.95), Color(_element_color.r, _element_color.g, _element_color.b, 0.0),
+		20, 0.3, 140.0, 340.0, 0.8, 2.4, 0.0, 0.0, true)
+	Sfx.play("melee_hit", 2.0, 0.08)
+	Juice.on_hit({
+		"hitstop": 0.08 if hit_any else 0.03, "shake": 9.0 if hit_any else 3.0,
+		"dir": dir, "kick": MELEE_CAMERA_KICK,
+	})
+
+
+## THE DRAG IS THE DEFLECT. While the ring is in its PERFECT band, anything that
+## physically travels and touches the blade is turned — no separate button, no
+## second timer. Only travelling things: a beam or a meteor has nothing to send
+## back, so those go through `SpellDeflect.resolve()` on the damage path instead
+## (that file's doctrine, and why both groups are not swept here).
+func _guard_deflect_sweep() -> void:
+	if not _guard.can_reflect():
+		return
+	var dir: Vector2 = _aim_dir.normalized() if _aim_dir != Vector2.ZERO else facing
+	for group: String in ["enemy_projectile", "deflectable_spell"]:
+		for proj: Node in get_tree().get_nodes_in_group(group):
+			if not is_instance_valid(proj) or not proj.has_method("reflect"):
+				continue
+			if bool(proj.get("_reflected")):
+				continue
+			# A spectacle parks at the arena origin, so its transform is a lie —
+			# ask it where it actually is (the house `deflect_point` contract) and
+			# only fall back to the transform for a genuine moving body.
+			var at: Vector2 = (proj as Node2D).global_position if proj is Node2D else global_position
+			if proj.has_method("deflect_point"):
+				at = proj.call("deflect_point") as Vector2
+			if global_position.distance_to(at) > GUARD_DEFLECT_REACH:
+				continue
+			proj.call("reflect", dir, _element_color)
+			Sfx.play("ding", 2.0, 0.02)
+			Juice.hit_stop(0.09)
+			Juice.shake_camera(4.0)
+			rig.set_parry(dir, PARRY_SHIELD_TIME)
+			rig.flash_color(PARRY_FLASH_COLOR, 0.1)
+
+
+## One foot has hit the ground on the rig's run cycle — kick up the Stick-Fight walk
+## dust behind it. The rig fires this twice per stride, only while grounded, running,
+## un-frozen and not ragdolled, so there is nothing to re-gate here; it also owns the
+## STEP SOUND (rig.step_sfx, enabled in _ready), so this handler is purely the visual
+## half. Trails behind the direction of travel, hence the -signf on the live velocity.
+func _on_foot_planted() -> void:
+	CombatVfx.spawn_burst(
+		get_parent(), global_position + Vector2(-signf(velocity.x) * 6.0, 12.0),
+		Color(0.85, 0.85, 0.9, 0.45), Color(0.85, 0.85, 0.9, 0.0),
+		4, 0.24, 14.0, 52.0
+	)
 
 
 ## Small white dust puff at the feet — jump kick-off + landing touchdown. The
@@ -1783,11 +2679,31 @@ func ability_hud_state() -> Array:
 		{"name": _aoe_slot_name(), "key": "Q", "remaining": _blast_cooldown_timer, "total": float(_cfg["blast_cd"]), "enabled": true},
 		{"name": "Blink", "key": "R", "remaining": _blink_cooldown_timer, "total": float(_cfg["blink_cd"]), "enabled": true},
 		{"name": "Nova", "key": "T", "remaining": _nova_cooldown_timer, "total": NOVA_COOLDOWN, "enabled": bool(_cfg["has_nova"])},
-		{"name": "Parry", "key": "RMB", "remaining": _parry_cooldown_timer, "total": PARRY_COOLDOWN, "enabled": bool(_cfg["can_parry"])},
+		_defense_hud_slot(),
 		# Signature ultimate — name updates as you cycle the loadout (V). Dimmed
 		# when mana can't cover the cast; the floating MP bar shows the fill.
 		_signature_hud_slot(),
 	]
+
+
+## The defensive slot, which is two different verbs behind one button.
+##
+## A press-window class shows PARRY and its cooldown wipe. A held-guard class shows
+## GUARD and its RE-ARM — different word because it is a different act, and the bar
+## is where a player learns that. ParryRing does not publish the remaining re-arm
+## (only `is_ready()`), so the wipe is full-or-empty: it answers "can I guard yet",
+## which is the only question the bar is actually being asked here.
+func _defense_hud_slot() -> Dictionary:
+	if _guard != null:
+		return {
+			"name": "Guard", "key": "RMB",
+			"remaining": 0.0 if _guard.is_ready() else _guard.rearm_time(),
+			"total": _guard.rearm_time(), "enabled": true,
+		}
+	return {
+		"name": "Parry", "key": "RMB", "remaining": _parry_cooldown_timer,
+		"total": PARRY_COOLDOWN, "enabled": bool(_cfg["can_parry"]),
+	}
 
 
 ## Short HUD label for the Q slot, per the class's AoE variant.
@@ -1831,7 +2747,10 @@ func _signature_hud_slot() -> Dictionary:
 	if sig.kind == SpellDef.Kind.THROWN_ANCHOR \
 			and (load(RIFT_DAGGER_PATH) as GDScript).find_anchor(get_tree(), self) != null:
 		return {"name": "RECALL", "key": "G", "remaining": 0.0, "total": 0.01, "enabled": true}
-	var short_name: String = sig.display_name.split(" ")[0]
+	# Not split(" ")[0]: the IP rename made zoltraak "The Ordinary Spell", so the
+	# ability bar proudly read **The**. short_spell_name() drops leading articles
+	# and takes the first real word.
+	var short_name: String = AbilityBar.short_spell_name(sig.display_name)
 	return {
 		"name": short_name, "key": "G",
 		"remaining": _signature_cd_timer, "total": maxf(sig.cooldown, 0.01),
@@ -1871,6 +2790,13 @@ func _melee() -> void:
 	if _aim_dir.x != 0.0:
 		velocity.x = signf(_aim_dir.x) * MELEE_LUNGE_SPEED
 	Sfx.play("melee_swing", 0.0, 0.08)
+	# DECLARE the swing for the clash layer — at the COMMIT, not at contact. That
+	# ordering is the whole trick: declaring on contact means this blow has already
+	# hurt the other fighter before they swing, and fixing THAT would mean holding
+	# every punch in the game for the clash window (~90 ms of latency on every
+	# swing) to pay for a rare event. Declaring here decides the clash while both
+	# fighters are still in wind-up, at zero cost to the ones that never clash.
+	MeleeClash.declare(self, _aim_dir, _melee_range, _melee_damage)
 
 
 ## Drive the persistent flaming fist: decay the timer, feed the rig the current
@@ -1896,21 +2822,30 @@ func _update_flaming_fist(delta: float) -> void:
 		rig.set_hand_fire(0.0, Elements.Element.FIRE)  # snuff out
 
 
-## The nearest enemy within _melee_range (or null) — the melee auto-target.
+## The nearest HOSTILE within _melee_range (or null) — the melee auto-target.
+##
+## ⚠ This is aim assist and it predates the locked no-aim-assist rule. It survives
+## deliberately (`slice_test_selfdamage.gd` asserts it: an enemy directly BEHIND
+## you still eats the swing) and it only ever ADDS a guaranteed hit, never removes
+## an arc-gated one — but it is in genuine tension with that rule and stays
+## flagged rather than quietly deleted. What changed here is only WHOSE nearest
+## body it finds: the scan is the caster's faction now, so a bot-driven hero
+## auto-targets the hero it is fighting instead of ignoring it and hunting for
+## monsters that are not in this arena.
 func _nearest_enemy_in_melee_range() -> Node2D:
-	var nearest: Node2D = null
-	var nearest_d: float = _melee_range
-	for enemy: Node in get_tree().get_nodes_in_group("enemy"):
-		if not enemy is Node2D:
-			continue
-		var d: float = global_position.distance_to((enemy as Node2D).global_position)
-		if d < nearest_d:
-			nearest_d = d
-			nearest = enemy as Node2D
-	return nearest
+	# Nearest measured to the SILHOUETTE, so a tall enemy whose head is closer than a
+	# short enemy's origin wins — which is what the eye expects, and which is what
+	# `SpellTargets.nearest` is documented as the seam for.
+	return SpellTargets.nearest(global_position, _melee_range,
+		get_tree().get_nodes_in_group(hostile_group), [self], self)
 
 
 func _on_melee_hit_frame() -> void:
+	# The swing was spent meeting another blow head-on, so it must NOT also land.
+	# A clash that still dealt its damage would read as "we both hit each other"
+	# rather than "our blows cancelled", and the whole beat is the cancellation.
+	if MeleeClash.consume_spent(self):
+		return
 	var hit_any: bool = false
 	var melee_el: int = int(_cfg.get("melee_element", -1))  # class element on the strike
 	# Auto-target (Stick-Fight punches don't need pixel-perfect aim): the single
@@ -1921,15 +2856,32 @@ func _on_melee_hit_frame() -> void:
 	# that crowd-hit behaviour is unchanged; auto-target only adds a guaranteed
 	# hit, it never removes the arc-gated ones.
 	var nearest_enemy: Node2D = _nearest_enemy_in_melee_range()
-	for enemy: Node in get_tree().get_nodes_in_group("enemy"):
-		if not enemy is Node2D:
-			continue
-		if global_position.distance_to(enemy.global_position) >= _melee_range:
-			continue
-		var toward: Vector2 = (enemy.global_position - global_position).normalized()
-		var in_arc: bool = facing.dot(toward) > _melee_arc_dot
-		if not in_arc and enemy != nearest_enemy:
-			continue
+	# THE ARC IS NOW MEASURED AGAINST THE DRAWN BODY. All three loops below used to
+	# be `distance_to(node.global_position)` — a point test against an origin that
+	# sits ~10 px under the head being aimed at (19 px on the 1.9x dummies), which is
+	# the maker's "spells pass through heads without registering" bug in the form the
+	# player meets it most often. `SpellTargets.in_cone` keeps the exact same
+	# `facing.dot(toward) > _melee_arc_dot` predicate (strict, so no swing silently
+	# widens) but measures REACH to the silhouette, adds the target's own published
+	# `hit_margin`, and filters line-of-sight so a punch cannot land through a wall.
+	#
+	# ⚠ THE STACKING CAVEAT: reach therefore grows, by up to about half a rig height
+	# on the vertical axis. That IS the fix. If melee starts feeling too long, tune
+	# `MELEE_RANGE` / the per-class `melee_range` OR `Enemy.HIT_MARGIN_FACTOR` —
+	# never both, and never a third margin at this call site.
+	var enemies_in_arc: Array = SpellTargets.in_cone(global_position, facing,
+		_melee_range, _melee_arc_dot, get_tree().get_nodes_in_group(hostile_group),
+		[self], self)
+	# The auto-target is PRESERVED deliberately, not reintroduced: it predates this
+	# change, `slice_test_selfdamage.gd` asserts it explicitly (an enemy directly
+	# BEHIND you still eats the swing), and it only ever ADDS a guaranteed hit — it
+	# never removes an arc-gated one. It is, however, in genuine tension with the
+	# locked no-aim-assist rule, and it is flagged in the handoff rather than
+	# silently deleted here.
+	if nearest_enemy != null and not enemies_in_arc.has(nearest_enemy):
+		enemies_in_arc.append(nearest_enemy)
+	for enemy: Node in enemies_in_arc:
+		var toward: Vector2 = ((enemy as Node2D).global_position - global_position).normalized()
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(_melee_damage)
 		if enemy.has_method("apply_knockback"):
@@ -1938,26 +2890,27 @@ func _on_melee_hit_frame() -> void:
 			enemy.apply_status(melee_el)  # burning / staggering / etc. fists
 		hit_any = true
 	# Crates break under melee too — same range/arc gate as enemies.
-	for prop: Node in get_tree().get_nodes_in_group("destructible"):
-		if not prop is Node2D:
-			continue
-		if global_position.distance_to(prop.global_position) >= _melee_range:
-			continue
-		var toward_prop: Vector2 = (prop.global_position - global_position).normalized()
-		if facing.dot(toward_prop) <= _melee_arc_dot:
-			continue
+	for prop: Node in SpellTargets.in_cone(global_position, facing, _melee_range,
+			_melee_arc_dot, get_tree().get_nodes_in_group("destructible"), [self], self):
 		if prop.has_method("take_damage"):
 			prop.take_damage(_melee_damage)
 		hit_any = true
 	# A swing also SWATS enemy bolts out of the air (punch-fizzles-bolt): same
-	# range + facing-arc gate, so a well-timed punch is a melee "parry".
-	for proj: Node in get_tree().get_nodes_in_group("enemy_projectile"):
-		if not proj is Node2D:
-			continue
-		if global_position.distance_to((proj as Node2D).global_position) >= _melee_range:
-			continue
-		var toward_proj: Vector2 = ((proj as Node2D).global_position - global_position).normalized()
-		if facing.dot(toward_proj) <= _melee_arc_dot:
+	# range + facing-arc gate, so a well-timed punch is a melee "parry". LOS is off
+	# for this one — a bolt is IN FLIGHT between you and whatever fired it, and
+	# culling it for cover it is currently passing would make the swat unreliable
+	# in exactly the cluttered rooms where it matters.
+	# BOTH bolt groups. Scanning only "enemy_projectile" meant a hero could never
+	# swat a RIVAL HERO's bolt, which joins "player_spell" — invisible while every
+	# fight was hero-vs-enemy, and a hole the moment factions let two heroes fight.
+	# The blade guard could already catch them (it scans "deflectable_spell"), so
+	# the punch-parry was the odd one out rather than the rule.
+	var bolts: Array = get_tree().get_nodes_in_group("enemy_projectile")
+	bolts.append_array(get_tree().get_nodes_in_group("player_spell"))
+	for proj: Node in SpellTargets.in_cone(global_position, facing, _melee_range,
+			_melee_arc_dot, bolts, [self], self, false):
+		# Never swat your own shot out of the air on the follow-through.
+		if proj.get("caster") == self or proj.get("caster_node") == self:
 			continue
 		if proj.has_method("consume"):
 			proj.call("consume")
@@ -2001,7 +2954,10 @@ func apply_knockback(impulse: Vector2, do_flop: bool = true) -> void:
 		return
 	if is_dashing or _blink_iframe_timer > 0.0:
 		return
-	impulse *= _tune("knockback_mult", 1.6)  # global over-tune knob
+	# THE knockback knob (TuningConfig.knockback_mult). Fallback must MATCH the
+	# exported default — 1.6 -> 1.0 with the "knockback is too much" pass, or a
+	# context without the Tuning autoload silently keeps the old launch feel.
+	impulse *= _tune("knockback_mult", 1.0)
 	# Smash sandbox: the higher THIS fighter's damage %, the farther the same hit
 	# sends them (that's how a ring-out becomes reachable). No-op in tower mode.
 	if _is_ringout_mode():
@@ -2069,9 +3025,29 @@ func take_damage(amount: int) -> void:
 		rig.set_parry(_aim_dir, PARRY_SHIELD_TIME)
 		# The DEFLECT beat — anime freeze-frame localized AT the hero, biased a
 		# touch toward the attacker (aim side) so the burst reads at the clash.
-		Juice.impact_frame(1.0, global_position + _aim_dir * 18.0)
+		Juice.frame({"style": ImpactFrame.Style.LOCAL, "strength": 0.7,
+			"at": global_position + _aim_dir * 18.0})
 		_parry_window_timer = 0.0
 		return
+	# THE BLADE GUARD. Resolved ABOVE ordinary mitigation because its outcome is
+	# categorical rather than a percentage: a perfect read is a total negate plus a
+	# BANK, and banking a number that gear had already shaved would pay the
+	# Swordsaint less for the same read the better armoured they were, which is
+	# backwards. A sustained (overshot) guard only chips, and banks nothing — see
+	# the BLADE-GUARD constants block for why holding must never earn.
+	if _guard != null:
+		match _guard.quality():
+			ParryRing.Quality.PERFECT:
+				_guard_bank = mini(_guard_bank + amount, GUARD_BANK_CAP)
+				_guard_hits += 1
+				Sfx.play("ding", 2.0, 0.02)
+				rig.flash_color(PARRY_FLASH_COLOR, 0.1)
+				rig.set_parry(_aim_dir, PARRY_SHIELD_TIME)
+				Juice.frame({"style": ImpactFrame.Style.LOCAL, "strength": 0.7,
+			"at": global_position + _aim_dir * 18.0})
+				return
+			ParryRing.Quality.SUSTAIN:
+				amount = int(round(float(amount) * _guard.damage_mult()))
 	# MITIGATION RUNS BEFORE THE INTERRUPT. It used to run after, so a hit your
 	# gear soaked entirely still shattered a 1.3 s channel — the ward paid for
 	# nothing. Maker's rule: only a hit that actually LANDS breaks your cast.
@@ -2184,6 +3160,14 @@ func revive() -> void:
 	_ragdolling = false
 	_knockback = Vector2.ZERO
 	velocity = Vector2.ZERO
+	# CLEAR A HELD BLADE GUARD. `_physics_process` returns early while downed, so a
+	# player who was holding guard when they went down never gets their RELEASE seen
+	# — and a ring left `held` blocks attacking and rooting FOREVER after the revive.
+	# A genuine softlock, and the only place it can be reached.
+	if _guard != null:
+		_guard.release()
+		_guard_bank = 0
+		_guard_hits = 0
 	if is_instance_valid(rig):
 		rig.set_limp(0.0)   # clear the downed ragdoll
 		rig.play(CharacterRig.State.IDLE)

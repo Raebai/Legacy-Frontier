@@ -31,9 +31,31 @@ extends Resource
 @export var shake_scale: float = 1.0     # global multiplier on screenshake magnitude (0 = off). Screenshake slider drives this.
 
 @export_group("Combat feel")
-@export var knockback_mult: float = 1.6  # global multiplier on ALL knockback impulses (Stick-Fight "displacement is the feel"; ~1.5-2x reads powerful)
+## THE knockback knob. Multiplies EVERY impulse — melee, spells, blasts, guard-cut —
+## for both Hero and Enemy, so it is the one number to turn when hits feel wrong.
+## Cut 1.6 -> 1.0 on the maker's "the knockback is too much": at 1.6 a plain 300-unit
+## fist was shoving 480 units and a juggernaut swing 750, which reads as a launch
+## rather than an impact. At 1.0 every KNOCKBACK constant in the codebase finally
+## means what it says, and the per-weapon SHAPE (fists 300 < swordsaint 430 <
+## juggernaut 470) is untouched — this was never a per-weapon problem.
+##
+## ⚠ Deliberately NOT the same thing as the Smash ring-out scaling, which multiplies
+## on top of this AFTER damage % is read (see Hero/Enemy.ringout_knockback_scale) and
+## is the core mechanic of the arena. Cutting the base does not flatten that curve —
+## a 100%-damage fighter still takes 2x whatever this knob says.
+## UNTESTED GUESS. If it now reads floaty rather than punchy, come back HERE first.
+@export var knockback_mult: float = 1.0
 @export var pct_per_damage: float = 0.8  # SANDBOX Smash model (GameState.ringout_mode): % gained per point of incoming damage. Single source of truth for Hero + Enemy so they can't silently diverge on retune; ~0.8 keeps a typical 12-28 dmg hit in the single-to-low-double-digit % range
 @export var hit_stop_enabled: bool = true  # accessibility: off = no time-freeze on hits
 
 @export_group("Graphics")
 @export var post_process_enabled: bool = true  # the reactive screen-space grade ("the look"); off = raw render (low-end / accessibility)
+## PHOTOSENSITIVITY option. On = every full-screen impact frame (the white
+## blow-out, the black silhouette cut, the colour field, the negative, the
+## cut-in) DOWNGRADES to ImpactFrame.Style.LOCAL — a small, low-contrast ring
+## around the hit — instead of a large-area high-contrast flash. Hit-stop,
+## screenshake, camera punch and the screen ripple all still fire, so the game
+## keeps every bit of its weight; only the flashing goes.
+## Note this is the OPT-IN softening: a hard flash-rate ceiling
+## (ImpactFrame.MAX_FULLSCREEN_FLASHES_PER_SECOND) applies to everyone either way.
+@export var reduce_flashing: bool = false

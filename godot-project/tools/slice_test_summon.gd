@@ -21,6 +21,20 @@ func _process(_delta: float) -> bool:
 	hero.set_physics_process(false)
 	hero.global_position = Vector2(600, 700)
 	for cls: int in 8:
+		# FIXTURE HYGIENE, and it is load-bearing. One hero is reconfigured through all
+		# 8 classes, but a cast leaves WORLD state behind — Rift Dagger plants a thrown
+		# anchor that outlives the cast. The next class holding that spell then reads an
+		# anchor already in flight and takes its two-beat RECALL branch, so it never
+		# starts a summon windup and the assertion fails for a reason that has nothing
+		# to do with the spell under test.
+		#
+		# This mattered well beyond the suite: it silently constrained DESIGN. Because
+		# the second kit holding Rift Dagger always failed here, the spell could only
+		# ever be placed in ONE class's loadout — a data restriction invented entirely
+		# by a dirty fixture. Clearing between classes is what makes the loop's
+		# "one hero, 8 classes" shortcut honest.
+		for anchor: Node in get_nodes_in_group("rift_anchor"):
+			anchor.free()   # free(), not queue_free(): the next cast happens THIS frame
 		hero.configure_class(cls)
 		var sigs: Array = hero.get("_signatures")
 		for i: int in sigs.size():

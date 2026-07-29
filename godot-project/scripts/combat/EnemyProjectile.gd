@@ -22,6 +22,22 @@ var _damage: int = DAMAGE
 var _color: Color = COLOR
 var _dead: bool = false
 var element_id: int = -1
+## WHO FIRED THIS. Same name and shape as BeamSpell.caster_node / ZoneSpell.caster_node
+## so there is one spelling of "whose effect is this" across the codebase.
+##
+## Load-bearing the moment a bolt is registered with SpellReactor, and NOT bookkeeping:
+## the reaction layer's ownership predicate reads reaction_owner(), and a null caster
+## reports as "unowned", which satisfies neither `require_owner: "same"` nor
+## `"different"`. An ownerless effect therefore matches NO clash row at all and is
+## silently inert in the entire reaction system — no error, no warning, it just never
+## reacts with anything. That exact omission is what made Hollow Purple look broken for
+## two sessions. Enemy._spawn_enemy_bolt fills this in at launch.
+##
+## HONEST SCOPE: a bolt is not a SpellReactor participant yet (no reaction_shape /
+## reaction_active / reaction_form), so today this only attributes the shot. The field
+## and the accessor exist now so that attribution is REAL rather than a no-op `set()`
+## the day someone registers bolts as Form.PROJECTILE.
+var caster_node: Node = null
 ## Co-op: a client-side VISUAL twin of a host bolt (Net._spawn_projectile_twin).
 ## Flies + stops on walls + bursts for the LOOK, but never damages, clashes with a
 ## hero's spell, or is parried — the host's real bolt owns all of that via the
@@ -50,6 +66,13 @@ func consume() -> void:
 	_burst_and_free()
 
 
+## The SpellReactor participant accessor, duck-typed exactly like BeamSpell's. Safe to
+## call before the rest of the contract exists — the reactor only ever asks this of
+## effects it is already tracking.
+func reaction_owner() -> Node:
+	return caster_node
+
+
 func launch(dir: Vector2) -> void:
 	_dir = dir.normalized()
 	if _dir == Vector2.ZERO:
@@ -57,8 +80,17 @@ func launch(dir: Vector2) -> void:
 	rotation = _dir.angle()
 
 
-## Perfect-parry reversal: fly toward `new_dir` (sender / nearest enemy), switch
-## allegiance to the "enemy" group, boost damage, recolor, and refresh lifetime.
+## Perfect-parry reversal: fly along `new_dir` — the DEFENDER'S AIM, not a target —
+## switch allegiance to the "enemy" group, boost damage, recolor, and refresh lifetime.
+##
+## `new_dir` used to be "sender / nearest enemy", and the comment saying so outlived
+## the code by a session. Auto-aim is gone (a locked project rule): picking the victim
+## for the player made a parry a homing missile you won by getting the TIMING right
+## alone. Hero.try_parry now passes `_aim_dir`, so a parry is two stacked skills —
+## time the window AND have the shield pointed where you want the bolt to go — and the
+## bolt leaves along the same line the shield was just thrown up on, which is the
+## picture already on screen. This function itself stays dumb: it takes a direction
+## and flies down it. Whoever parries decides the direction.
 func reflect(new_dir: Vector2, color: Color) -> void:
 	_reflected = true
 	_dir = new_dir.normalized()
@@ -177,3 +209,12 @@ func _draw() -> void:
 	draw_circle(Vector2.ZERO, 8.0, Color(_color.r, _color.g, _color.b, 0.35))
 	# short motion streak behind the bolt
 	draw_line(Vector2.ZERO, Vector2(-12.0, 0.0), Color(_color.r, _color.g, _color.b, 0.5), 3.0)
+
+
+## Where this bolt is GOING, in px/s. The bot's threat solver predicts an
+## interception point from a projectile's velocity, and without this it had to
+## guess — the duplicated fallback in BotController hardcoded 260.0, which is a
+## second copy of this constant waiting to drift. Same name as Spell.travel_velocity()
+## so one duck-typed call covers both bolt kinds.
+func travel_velocity() -> Vector2:
+	return _dir * SPEED

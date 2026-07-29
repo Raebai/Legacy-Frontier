@@ -16,9 +16,34 @@ extends Node2D
 ##
 ## Counterplay is the strongest in the kit: parrying the dagger in flight severs
 ## the anchor (`_owner` is cleared), so the whole two-beat play is cancelled, not
-## merely redirected.
+## merely redirected. A dagger that has ALREADY been turned once cannot be turned
+## again (`_reflected` is a one-shot, and the parry scan skips a reflected blade so
+## it does not eat a guard press for nothing) — instead its hit is threaded through
+## `SpellDeflect.resolve`, so a correctly-timed guard EATS the returned blade.
 ##
 ## Draws in world coordinates; the node itself parks at the arena origin.
+##
+## ── WORLD CONTRACT (docs/spell-world-contract.md) ────────────────────────────
+## SPAWN.   The recall destination is vetted with `SpellWorld.is_blocked` before
+##          the caster is moved: the blade plants itself IN walls by design, so
+##          "arrive on the blade" would drop a body inside solid rock — the mirror
+##          image of a meteor under the floor, and the same rule forbids both.
+## TRAVEL.  Both the body test and the world test run against the segment JUST
+##          TRAVELLED (`_prev` -> `_pos`), never a forward guess, so a 780 px/s
+##          blade cannot tunnel through a thin wall or a thin enemy on a bad frame.
+## IMPACT.  Every radius query goes through `SpellTargets`, which tests the DRAWN
+##          silhouette (fixing the maker's "spells pass through heads") and drops
+##          anything behind cover (fixing "spells get out of the radius").
+##
+## ⚠ ONE DELIBERATE EXEMPTION FROM THE SMASH RULE. Everywhere else a spell tears
+## THROUGH destructible cover; this one does not. `first_solid` is called with
+## `smash_destructibles = false`, because a thrown dagger is an OBJECT and the
+## class docs already promise it "can stick in a wall, in a crate, or in a BODY".
+## Planting in the crate is the fiction. What was MISSING is the other half of the
+## maker's ask — "destroy what it can" — so the crate now takes the blade's damage
+## at the exact face it was struck. Before this, a dagger that stuck in a crate
+## dealt it precisely nothing: the old code stopped on the crate's layer-1 collider
+## in the wall raycast and never reached the destructible loop below it.
 
 const SPEED: float = 780.0          # slower than every beam — you can watch it come
 const SPIN: float = 22.0            # rad/s tumble in flight
@@ -35,9 +60,30 @@ const BLADE_HALF_W: float = 4.2
 const GRIP_LEN: float = 9.0
 const TRAIL_LENGTH: int = 5
 
+# --- world-contract constants. ALL UNTESTED GUESSES: reasoning, not feel. -----
+
+## How far outside a surface a rescued recall destination is pushed. Just enough
+## that the arriving body is clear of the collider rather than kissing it, and it
+## doubles as the probe radius for the legality test — a hero-sized destination is
+## only legal if a hero-sized volume fits. Sibling reference: BlinkStrike's
+## SURFACE_PAD is 8.0 for a blast CENTRE, which has no body; this is a little more
+## generous because it is a body that has to stand there. UNTESTED GUESS.
+const ARRIVE_CLEARANCE: float = 10.0
+
+## How far down the whiffed dagger looks for a floor to plant itself in. Was a bare
+## `400.0` inline; named because it is the number that decides whether a dagger
+## thrown over a chasm finds the far ledge or is declared lost. UNTESTED GUESS.
+const DROP_PROBE: float = 400.0
+
 enum State { FLYING, STUCK, RECALLING, SPENT }
 
 var element_id: int = Elements.Element.SHADOW
+
+## The clash shelf this spell fights at (SpellTier.Tier), set by SpellCaster at
+## cast time; also the dial deciding how hard the blade is to guard against — an
+## ult only connects with the opening sliver of a parry window. Middle shelf when
+## nobody sets it, which is how every un-adopted spectacle already behaves.
+var spell_tier: int = SpellTier.DEFAULT_WEIGHT
 
 var _owner: Node = null
 var _color: Color = Color(0.6, 0.35, 0.95)
@@ -93,7 +139,65 @@ func throw_dagger(
 	add_to_group("rift_anchor")
 	add_to_group("deflectable_spell")
 	Sfx.play("melee_swing", -3.0, 0.15)
+	# Join the reaction system. A thrown blade is the archetypal PROJECTILE form;
+	# reaction_active() keeps it inert once it has planted itself, so a stuck anchor
+	# sitting in a wall for four seconds is scenery, not a live reagent.
+	var reactor: Node = get_node_or_null(^"/root/SpellReactor")
+	if reactor != null:
+		reactor.call(&"register", self, ReactionTable.Form.PROJECTILE, element_id)
 	queue_redraw()
+
+
+func _exit_tree() -> void:
+	var reactor: Node = get_node_or_null(^"/root/SpellReactor")
+	if reactor != null:
+		reactor.call(&"unregister", self)
+
+
+# --- reaction contract (see SpellReactor) -----------------------------------
+
+## World space, built from `_pos` — NOT from global_position, which is (0,0)
+## because this node draws in world coordinates. HIT_RADIUS is the same number the
+## flight collision uses, so what reacts and what damages are one shape.
+func reaction_shape() -> Dictionary:
+	return SpellGeometry.circle(_pos, HIT_RADIUS)
+
+
+## Only while it is actually a moving blade. A STUCK anchor is an object someone
+## left in the wall; a RECALLING one is a tell; a SPENT one is a fading ring. None
+## of those should annihilate a beam that happens to sweep past.
+func reaction_active() -> bool:
+	return _state == State.FLYING
+
+
+func reaction_element() -> int:
+	return element_id
+
+
+func reaction_form() -> int:
+	return ReactionTable.Form.PROJECTILE
+
+
+func reaction_owner() -> Node:
+	return _owner
+
+
+func reaction_weight() -> int:
+	return spell_tier
+
+
+## Spent by a reaction: end the spell through the shared exit so the thrower still
+## gets their cooldown back. A blade eaten by a reaction is not a wasted slot.
+func reaction_consume() -> void:
+	_finish()
+
+
+## How much of a victim's parry window counts against this hit. SpellDeflect's
+## policy is that nothing is unparryable but an ult is brutal to time, so the tier
+## the spell already declares picks the dial rather than this file inventing one.
+func _deflect_window() -> float:
+	return SpellDeflect.WINDOW_ULT if spell_tier == SpellTier.Tier.ULT \
+		else SpellDeflect.WINDOW_NORMAL
 
 
 ## Nearest live anchor owned by `caster`, told to recall. True if one existed —
@@ -126,12 +230,19 @@ static func find_anchor(tree: SceneTree, caster: Node) -> Node2D:
 
 
 ## Pure geometry (testable): nodes within `radius` of `center`.
+##
+## RETAINED, NOT DELETED, and that is a deliberate exception to
+## `docs/spell-world-contract.md`'s "delete the local helper outright": the shipped
+## suite tools/slice4_test_spells.gd asserts on this exact static and is owned
+## elsewhere. The BODY is gone though — it forwards to the shared selector, so
+## there is one implementation in the game rather than seven.
+##
+## Line of sight is OFF here on purpose: this is the PURE-GEOMETRY entry point,
+## taking a bare node list with no caster and no world context, which is how the
+## suite calls it. The real damage path (`_resolve_recall`) calls
+## `SpellTargets.in_radius` directly WITH line of sight.
 static func targets_in_radius(center: Vector2, radius: float, nodes: Array) -> Array:
-	var out: Array = []
-	for n: Node in nodes:
-		if n is Node2D and center.distance_to((n as Node2D).global_position) <= radius:
-			out.append(n)
-	return out
+	return SpellTargets.in_radius(center, radius, nodes, [], null, false)
 
 
 ## Begin the second beat. The tell runs even from mid-flight, so a snap double-tap
@@ -182,12 +293,17 @@ func _process(delta: float) -> void:
 		State.FLYING:
 			_fly(delta)
 		State.STUCK:
-			_ride()
+			# _ride() can END the spell (the carrier died over a pit), so its answer
+			# is checked rather than ignored — otherwise the dissolve beat plays
+			# twice in one frame.
+			if not _ride():
+				return
 			if _age >= _live_time:
 				_dissolve()
 				return
 		State.RECALLING:
-			_ride()
+			if not _ride():
+				return
 			_recall_t += delta
 			if _recall_t >= RECALL_TELL:
 				_resolve_recall()
@@ -208,7 +324,15 @@ func _fly(delta: float) -> void:
 		_drop_v += DROP_GRAVITY * delta
 		_pos += Vector2(_dir.x * DROP_DRIFT, _drop_v) * delta
 		if _drop_t >= DROP_ARC:
-			_stick_world(_floor_under(_pos))
+			# THE PIT RULE. `floor_below` reports its miss rather than dropping the
+			# point to the far end of the probe, so a dagger thrown over a chasm is
+			# LOST instead of hanging in mid-air. "Nothing may end up below or inside
+			# the environment" cuts both ways: not under the floor, and not in the void.
+			var ground: Dictionary = _floor_below(_pos)
+			if not bool(ground["hit"]):
+				_dissolve()
+				return
+			_stick_world(ground["position"] as Vector2)
 			return
 	else:
 		_pos += _dir * SPEED * delta
@@ -225,46 +349,96 @@ func _fly(delta: float) -> void:
 
 ## Bodies first, then a world raycast along the segment travelled — the same
 ## order BoulderHurl uses, so a dagger never tunnels through a thin wall.
+##
+## THREE THINGS CHANGED HERE, all of them audit findings rather than balance calls.
+##
+## 1. THE BODY TEST WAS A LIE ABOUT ITS OWN SIZE. It measured `_pos` to the
+##    victim's ORIGIN with `HIT_RADIUS + 12.0` — a 27 px point test, where the
+##    blade is drawn 20 px long and HIT_RADIUS is 15. Two separate faults: the
+##    `+ 12.0` was a second forgiveness scheme bolted on at the call site (exactly
+##    what the contract forbids stacking), and testing the origin is the maker's
+##    "spells pass through heads without registering" bug — a head sits ~10 px
+##    ABOVE the origin (19 px on the 1.9x dummies). It is now one
+##    `SpellTargets.on_line` capsule at HIT_RADIUS against the DRAWN silhouette,
+##    with the target's own `hit_margin()` as the only forgiveness.
+##    BALANCE: against a plain prop the reach SHRINKS by 12 px; against a drawn
+##    body it grows, because the measurement starts at the body's edge instead of
+##    its middle. Both moves are toward what is drawn.
+##
+## 2. IT ONLY TESTED WHERE THE BLADE ENDED UP. At 780 px/s a 30 fps frame moves the
+##    blade 26 px — further than HIT_RADIUS — so a thin enemy could be stepped over
+##    entirely. The capsule now spans `_prev` -> `_pos`, the segment JUST TRAVELLED.
+##
+## 3. STICKING IN A CRATE DEALT IT NOTHING. Cover is on collision layer 1, so the
+##    old wall raycast stopped on it and returned before the destructible loop
+##    below could ever run — that loop was dead code. The world query now reports
+##    what it stopped against and the blade damages it at the exact face it bit.
 func _check_flight_collision() -> bool:
-	for e: Node in get_tree().get_nodes_in_group(_target_group):
-		if not (e is Node2D) or not is_instance_valid(e):
-			continue
-		var n: Node2D = e as Node2D
-		if _pos.distance_to(n.global_position) > HIT_RADIUS + 12.0:
-			continue
+	var skip: Array = [_owner]
+	var travel: Vector2 = _pos - _prev
+	# Nearest-first: the blade meets what is closest to where it STARTED the step,
+	# not whichever body the group array happened to list first.
+	var struck: Array = SpellTargets.sorted_by_distance(_prev,
+		SpellTargets.on_line(_prev, travel, travel.length(), HIT_RADIUS,
+			get_tree().get_nodes_in_group(_target_group), skip, self))
+	if not struck.is_empty():
+		var n: Node2D = struck[0] as Node2D
+		var at: Vector2 = SpellTargets.aim_point(n)
+		# Deflect contract: a blade that has already been turned once cannot be
+		# turned again, so a guard EATS it instead — and eats the blade with it,
+		# since a dagger absorbed by a sigil has no business staying stuck in the
+		# body that absorbed it.
+		var dealt: int = SpellDeflect.resolve(n, _damage, _dir, at, _deflect_window())
+		if dealt <= 0:
+			_finish()
+			return true
 		if n.has_method("take_damage"):
-			n.call("take_damage", _damage, Color(_color.r, _color.g, _color.b, 1.0))
+			SpellTargets.hurt(n, dealt, Color(_color.r, _color.g, _color.b, 1.0))
 		if n.has_method("apply_status"):
 			n.call("apply_status", element_id)
 		_stick_body(n)
 		return true
 	# A hostile dagger (an enemy's, or one that was parried back) can itself be
-	# parried. The owner is excluded so a thrower never parries their own throw.
-	for h: Node in get_tree().get_nodes_in_group("hero"):
-		if h == _owner or not (h is Node2D) or not is_instance_valid(h):
-			continue
-		if _pos.distance_to((h as Node2D).global_position) > HIT_RADIUS + 8.0:
-			continue
-		if h.has_method("try_parry") and h.call("try_parry", self):
-			return false
-	var world: World2D = get_world_2d()
-	if world != null:
-		var q := PhysicsRayQueryParameters2D.create(_prev, _pos, 1)
-		q.hit_from_inside = true
-		var wall: Dictionary = world.direct_space_state.intersect_ray(q)
-		if not wall.is_empty():
-			_stick_world(wall["position"] as Vector2)
-			return true
-	for prop: Node in get_tree().get_nodes_in_group("destructible"):
-		if not (prop is Node2D) or not is_instance_valid(prop):
-			continue
-		if _pos.distance_to((prop as Node2D).global_position) > HIT_RADIUS + 18.0:
-			continue
-		if prop.has_method("take_damage"):
-			prop.call("take_damage", _damage)
-		_stick_body(prop as Node2D)
+	# parried. The owner is excluded so a thrower never parries their own throw, and
+	# an ALREADY-reflected blade is skipped: reflect() is a one-shot, so scanning
+	# would consume a hero's parry press and change nothing. That blade is stopped
+	# through SpellDeflect above instead.
+	if not _reflected:
+		for h: Node in get_tree().get_nodes_in_group("hero"):
+			if h == _owner or not (h is Node2D) or not is_instance_valid(h):
+				continue
+			if not SpellTargets.hits(h, _pos, HIT_RADIUS):
+				continue
+			if h.has_method("try_parry") and h.call("try_parry", self):
+				return false
+	# The world, along the segment just travelled. `smash_destructibles = false` is
+	# THE deliberate exemption documented in the class header: a thrown dagger is an
+	# object that plants itself in cover rather than tearing through it.
+	var world: Dictionary = SpellWorld.first_solid(_prev, _pos,
+		SpellWorld.rids([_owner]), self, false)
+	if bool(world["hit"]):
+		_bite_cover(world)
+		_stick_world(world["position"] as Vector2)
 		return true
 	return false
+
+
+## "Destroy what it can": if the thing that stopped the blade was breakable, chip
+## it at the face that was actually struck, using the impact normal so the damage
+## lands on the side the dagger came from. `is_smashable` also answers true for a
+## body already queued for deletion, hence the validity guard — that one is a
+## corpse, not cover.
+func _bite_cover(world: Dictionary) -> void:
+	var col: Object = world.get("collider")
+	if col == null or not is_instance_valid(col) or not SpellWorld.is_smashable(col):
+		return
+	var at: Vector2 = world["position"] as Vector2
+	var normal: Vector2 = world["normal"] as Vector2
+	if col.has_method("damage_at"):
+		col.call("damage_at", _damage, at,
+			normal if normal != Vector2.ZERO else -_dir)
+	elif col.has_method("take_damage"):
+		col.call("take_damage", _damage)
 
 
 ## Buried in a body: the dagger keeps a fixed offset and RIDES it. A dagger stuck
@@ -296,24 +470,33 @@ func _land() -> void:
 ## Keep station on whatever we are buried in. If it dies the dagger does not go
 ## with it — it drops to the floor at its last position and stays recallable, so
 ## killing the carrier is not a free cancel.
-func _ride() -> void:
+##
+## Returns FALSE when the spell ended inside this call (the carrier died over a
+## pit), so the caller stops rather than running a second end-of-life beat.
+func _ride() -> bool:
 	if _anchor_node == null:
-		return
+		return true
 	if not is_instance_valid(_anchor_node):
 		_anchor_node = null
-		_pos = _floor_under(_pos)
-		return
+		var ground: Dictionary = _floor_below(_pos)
+		if not bool(ground["hit"]):
+			# The carrier died over a chasm. A dagger cannot hang in thin air, and
+			# leaving a recall anchor floating in the void would teleport the caster
+			# into it — the same rule that stops meteors landing under the floor.
+			_dissolve()
+			return false
+		_pos = ground["position"] as Vector2
+		return true
 	_pos = _anchor_node.global_position + _stick_offset
+	return true
 
 
-## First floor below `from`, or `from` itself when there is none (or no physics).
-func _floor_under(from: Vector2) -> Vector2:
-	var world: World2D = get_world_2d()
-	if world == null:
-		return from
-	var q := PhysicsRayQueryParameters2D.create(from, from + Vector2(0.0, 400.0), 1)
-	var hit: Dictionary = world.direct_space_state.intersect_ray(q)
-	return (hit["position"] as Vector2) if not hit.is_empty() else from
+## The floor beneath `from`, as SpellWorld's standard result. CHECK `hit` — on a
+## miss `position` is `from` unchanged (there genuinely is no floor there), and
+## every caller here treats that as "the dagger is lost" rather than planting it in
+## mid-air.
+func _floor_below(from: Vector2) -> Dictionary:
+	return SpellWorld.floor_below(from, DROP_PROBE, SpellWorld.rids([_owner]), self)
 
 
 ## The second beat resolves: the caster is torn through to the blade and the rift
@@ -322,24 +505,39 @@ func _floor_under(from: Vector2) -> Vector2:
 ## pit" rule is not duplicated here.
 func _resolve_recall() -> void:
 	var from: Vector2 = _owner_point()
-	var dest: Vector2 = _pos + Vector2(0.0, -4.0)
+	# Vet the landing spot BEFORE handing it on. The blade plants itself in walls by
+	# design, so the naive "arrive on the blade" puts a body inside solid rock; the
+	# caster's own blink_to then gets a point that is already legal instead of one it
+	# has to rescue (and SpikeFigure's blink_to does not rescue at all).
+	var dest: Vector2 = _safe_arrival(_pos + Vector2(0.0, -4.0), from)
 	if _owner != null and is_instance_valid(_owner) and _owner.has_method("blink_to"):
 		dest = _owner.call("blink_to", dest)
 	elif _owner is Node2D and is_instance_valid(_owner):
 		(_owner as Node2D).global_position = dest
 	var tint := Color(_color.r, _color.g, _color.b, 1.0)
-	for e: Node in targets_in_radius(dest, _burst_r, get_tree().get_nodes_in_group(_target_group)):
+	var skip: Array = [_owner]
+	for e: Node in SpellTargets.in_radius(dest, _burst_r,
+			get_tree().get_nodes_in_group(_target_group), skip, self):
+		# The arrival burst does not travel, so per SpellDeflect's split there is
+		# nothing to send back: a correctly-timed guard eats it, shove included.
+		var dealt: int = SpellDeflect.resolve(e, _damage,
+			(e as Node2D).global_position - dest, SpellTargets.aim_point(e),
+			_deflect_window())
+		if dealt <= 0:
+			continue
 		if e.has_method("take_damage"):
-			e.call("take_damage", _damage, tint)
+			SpellTargets.hurt(e, dealt, tint)
 		if e.has_method("apply_status"):
 			e.call("apply_status", element_id)
 		if e.has_method("apply_knockback"):
 			var away: Vector2 = ((e as Node2D).global_position - dest).normalized()
 			e.call("apply_knockback", (away if away != Vector2.ZERO else Vector2.UP) * ARRIVE_KNOCK)
-	for prop: Node in targets_in_radius(dest, _burst_r, get_tree().get_nodes_in_group("destructible")):
+	for prop: Node in SpellTargets.in_radius(dest, _burst_r,
+			get_tree().get_nodes_in_group("destructible"), skip, self):
 		if prop.has_method("take_damage"):
 			prop.call("take_damage", _damage)
-	for proj: Node in targets_in_radius(dest, _burst_r, get_tree().get_nodes_in_group("enemy_projectile")):
+	for proj: Node in SpellTargets.in_radius(dest, _burst_r,
+			get_tree().get_nodes_in_group("enemy_projectile"), skip, self):
 		if proj.has_method("consume"):
 			proj.call("consume")
 	# Inky puff where the caster WAS, hot flash where they arrive — the same
@@ -352,10 +550,42 @@ func _resolve_recall() -> void:
 		0.7, 2.0, 0.0, 0.0, true)
 	Juice.hit_stop(0.06)
 	Juice.shake_camera(8.0)
-	Juice.impact_frame(0.6, dest)
+	# The shadow family's shared mark — the negative (see ShadowRoot._erupt).
+	# A teleport is the single best fit for it in the whole kit: the picture is
+	# identical either side of the blink except that YOU moved, which is exactly
+	# what an inverted frame says.
+	Juice.frame({
+		"style": ImpactFrame.Style.INVERT, "strength": 0.9, "at": dest,
+		"zoom": 0.0, "shake": 0.0, "shock": 0.0, "hitstop": 0.0,
+	})
 	Sfx.play("blink", 0.0, 0.05)
 	_pos = dest
 	_finish()
+
+
+## The nearest point to `dest` a BODY may legally rest at, walking back toward
+## `home` (the caster, who is standing somewhere legal by construction).
+##
+## A POINT test, not a segment test, and that distinction is load-bearing: a rift
+## tear is ALLOWED to cross a thin wall — only the RESTING SPOT matters. This is
+## the same rule Hero._safe_blink_destination and BlinkStrike.safe_blast_point
+## document, and a segment raycast here would drag every legal recall back to the
+## first wall between the caster and their own blade.
+##
+## Destructible cover does NOT block: you may appear inside a crate, and it breaks.
+## The back-ray, however, runs with smashing OFF — we are looking for the surface we
+## came through, and a crate is a perfectly good surface to stand just outside of.
+func _safe_arrival(dest: Vector2, home: Vector2) -> Vector2:
+	var skip: Array[RID] = SpellWorld.rids([_owner])
+	if not SpellWorld.is_blocked(dest, ARRIVE_CLEARANCE, skip, self):
+		return dest
+	var away: Vector2 = home - dest
+	if away.length() < 1.0:
+		return home
+	var back: Dictionary = SpellWorld.first_solid(dest, home, skip, self, false)
+	if not bool(back["hit"]):
+		return home  # buried, but no surface between here and home — fall all the way
+	return (back["position"] as Vector2) + away.normalized() * ARRIVE_CLEARANCE
 
 
 ## The anchor was never used: it crumbles and hands the cooldown back.

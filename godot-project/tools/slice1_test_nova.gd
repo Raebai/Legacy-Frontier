@@ -5,6 +5,30 @@
 # scenes are load()ed at runtime, never preload()ed.
 extends SceneTree
 
+# ── Vacuous-pass armour (see tools/slice_test_loadout.gd for the full write-up) ──
+# A dead member read (a field that was renamed or moved) is NOT a test failure in
+# GDScript: it logs a runtime error, ABORTS the enclosing function, and hands the
+# caller back the return type's zero value. Under the old `failed += _test_x()`
+# idiom that reads as "zero failures", so the suite printed all PASS while
+# silently skipping every assertion after the dead line. Static typing does not
+# help — a typed reference to a renamed field compiles clean and dies the same way.
+# So: failures accumulate on the MEMBER `_fails` (an abort cannot discard them),
+# and every test's last line records that it reached the end. A test that aborts
+# part-way is then missing from `_completed` and fails the suite BY ABSENCE.
+
+## Every test that must run to completion. A name missing from `_completed`
+## at the end means that test aborted part-way and fails the suite.
+const TESTS: Array[String] = [
+	"nova_damages_and_pushes_inside_only",
+	"nova_hits_destructibles_in_radius",
+	"nova_center_overlap_knockback_fallback",
+	"hero_nova_cooldown_gate",
+	"nova_hit_radius_unaffected_by_visual_shrink",
+]
+
+var _fails: int = 0
+var _completed: Dictionary = {}
+
 const NOVA_SCENE_PATH: String = "res://scenes/combat/EnergyNova.tscn"
 const HERO_SCENE_PATH: String = "res://scenes/combat/Hero.tscn"
 
@@ -37,14 +61,16 @@ func _process(_delta: float) -> bool:
 	if _ran:
 		return false
 	_ran = true
-	var failed: int = 0
-	failed += _test_nova_damages_and_pushes_inside_only()
-	failed += _test_nova_hits_destructibles_in_radius()
-	failed += _test_nova_center_overlap_knockback_fallback()
-	failed += _test_hero_nova_cooldown_gate()
-	failed += _test_nova_hit_radius_unaffected_by_visual_shrink()
-	if failed > 0:
-		printerr("Slice1 nova tests: %d FAILED" % failed)
+	_test_nova_damages_and_pushes_inside_only()
+	_test_nova_hits_destructibles_in_radius()
+	_test_nova_center_overlap_knockback_fallback()
+	_test_hero_nova_cooldown_gate()
+	_test_nova_hit_radius_unaffected_by_visual_shrink()
+	for t: String in TESTS:
+		_expect(_completed.has(t),
+			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
+	if _fails > 0:
+		printerr("Slice1 nova tests: %d FAILED" % _fails)
 		quit(1)
 	else:
 		print("Slice1 nova tests: all PASS")
@@ -52,11 +78,19 @@ func _process(_delta: float) -> bool:
 	return true
 
 
-func _expect(cond: bool, msg: String) -> int:
+## Accumulates onto the MEMBER `_fails`, never a return value — a failure recorded
+## before an abort therefore survives the abort instead of being discarded with the
+## aborted function's result.
+func _expect(cond: bool, msg: String) -> void:
 	if not cond:
 		printerr("FAIL: ", msg)
-		return 1
-	return 0
+		_fails += 1
+
+
+## Last line of every test: "I reached the end." A name missing from `_completed`
+## means that test aborted part-way. See TESTS.
+func _completes(test_name: String) -> void:
+	_completed[test_name] = true
 
 
 func _make_nova() -> Node2D:
@@ -93,41 +127,39 @@ func _make_prop(pos: Vector2) -> StubProp:
 ## Full activate_at drive: inside enemy takes damage + OUTWARD knockback,
 ## outside enemy is completely untouched. Clusters sit far apart so tests
 ## never cross-hit each other's radius-135 queries.
-func _test_nova_damages_and_pushes_inside_only() -> int:
-	var failed: int = 0
+func _test_nova_damages_and_pushes_inside_only() -> void:
 	var center: Vector2 = Vector2(5000.0, 5000.0)
 	var inside: StubEnemy = _make_enemy(center + Vector2(80.0, 0.0))
 	var outside: StubEnemy = _make_enemy(center + Vector2(300.0, 0.0))
 	var nova: Node2D = _make_nova()
 
 	nova.call("activate_at", center)
-	failed += _expect(
+	_expect(
 		nova.global_position == center, "activate_at places the nova at the given position"
 	)
-	failed += _expect(
+	_expect(
 		inside.damage_taken == nova.NOVA_DAMAGE,
 		"enemy inside NOVA_RADIUS takes NOVA_DAMAGE (got %d)" % inside.damage_taken
 	)
-	failed += _expect(
+	_expect(
 		inside.last_knockback.normalized().dot(Vector2.RIGHT) > 0.99,
 		"inside enemy is pushed OUTWARD, away from the center (got %s)"
 		% inside.last_knockback
 	)
-	failed += _expect(
+	_expect(
 		absf(inside.last_knockback.length() - nova.NOVA_KNOCKBACK) < 0.01,
 		"knockback magnitude is NOVA_KNOCKBACK"
 	)
-	failed += _expect(outside.damage_taken == 0, "enemy outside NOVA_RADIUS takes no damage")
-	failed += _expect(
+	_expect(outside.damage_taken == 0, "enemy outside NOVA_RADIUS takes no damage")
+	_expect(
 		outside.last_knockback == Vector2.ZERO, "enemy outside NOVA_RADIUS gets no knockback"
 	)
-	return failed
+	_completes("nova_damages_and_pushes_inside_only")
 
 
 ## _apply_nova_damage() drives the geometry directly: crates in range shatter,
 ## crates out of range are untouched.
-func _test_nova_hits_destructibles_in_radius() -> int:
-	var failed: int = 0
+func _test_nova_hits_destructibles_in_radius() -> void:
 	var center: Vector2 = Vector2(8000.0, 5000.0)
 	var inside: StubProp = _make_prop(center + Vector2(0.0, 60.0))
 	var outside: StubProp = _make_prop(center + Vector2(0.0, 400.0))
@@ -135,32 +167,31 @@ func _test_nova_hits_destructibles_in_radius() -> int:
 	nova.global_position = center
 
 	nova.call("_apply_nova_damage")
-	failed += _expect(
+	_expect(
 		inside.damage_taken == nova.NOVA_DAMAGE, "destructible inside takes NOVA_DAMAGE"
 	)
-	failed += _expect(outside.damage_taken == 0, "destructible outside is untouched")
-	return failed
+	_expect(outside.damage_taken == 0, "destructible outside is untouched")
+	_completes("nova_hits_destructibles_in_radius")
 
 
 ## Enemy standing EXACTLY on the caster: zero-length away vector must fall
 ## back to RIGHT instead of a zero knockback.
-func _test_nova_center_overlap_knockback_fallback() -> int:
-	var failed: int = 0
+func _test_nova_center_overlap_knockback_fallback() -> void:
 	var center: Vector2 = Vector2(5000.0, 8000.0)
 	var overlapped: StubEnemy = _make_enemy(center)
 	var nova: Node2D = _make_nova()
 	nova.global_position = center
 
 	nova.call("_apply_nova_damage")
-	failed += _expect(
+	_expect(
 		overlapped.last_knockback.normalized().dot(Vector2.RIGHT) > 0.99,
 		"enemy overlapping the center still gets pushed (RIGHT fallback)"
 	)
-	failed += _expect(
+	_expect(
 		absf(overlapped.last_knockback.length() - nova.NOVA_KNOCKBACK) < 0.01,
 		"fallback knockback keeps full NOVA_KNOCKBACK magnitude"
 	)
-	return failed
+	_completes("nova_center_overlap_knockback_fallback")
 
 
 ## Task 7 (right-size spell VFX): EnergyNova's shockwave RING was shrunk
@@ -169,8 +200,7 @@ func _test_nova_center_overlap_knockback_fallback() -> int:
 ## (135.0): 1px inside hits, 1px outside misses. If VISUAL_RADIUS_FACTOR (0.62)
 ## ever leaked into the damage query, the boundary would shrink to ~83.7 and
 ## the "1px inside" case below would start failing.
-func _test_nova_hit_radius_unaffected_by_visual_shrink() -> int:
-	var failed: int = 0
+func _test_nova_hit_radius_unaffected_by_visual_shrink() -> void:
 	var center: Vector2 = Vector2(11000.0, 5000.0)
 	var nova: Node2D = _make_nova()
 	nova.global_position = center
@@ -178,43 +208,42 @@ func _test_nova_hit_radius_unaffected_by_visual_shrink() -> int:
 	var just_outside: StubEnemy = _make_enemy(center + Vector2(float(nova.NOVA_RADIUS) + 1.0, 0.0))
 
 	nova.call("_apply_nova_damage")
-	failed += _expect(
+	_expect(
 		just_inside.damage_taken == nova.NOVA_DAMAGE,
 		"enemy 1px inside the true NOVA_RADIUS (135) still takes damage (got %d)" % just_inside.damage_taken
 	)
-	failed += _expect(
+	_expect(
 		just_outside.damage_taken == 0,
 		"enemy 1px outside the true NOVA_RADIUS (135) is untouched — visual shrink did not leak into the hit query (got %d)"
 		% just_outside.damage_taken
 	)
-	return failed
+	_completes("nova_hit_radius_unaffected_by_visual_shrink")
 
 
 ## Hero wiring: _nova() spawns the nova at the hero, starts the cooldown, and
 ## re-firing during cooldown is a no-op.
-func _test_hero_nova_cooldown_gate() -> int:
-	var failed: int = 0
+func _test_hero_nova_cooldown_gate() -> void:
 	var hero: CharacterBody2D = _make_hero()
 	hero.global_position = Vector2(8000.0, 8000.0)
 	var nearby: StubEnemy = _make_enemy(hero.global_position + Vector2(70.0, 0.0))
 
 	hero._nova()
-	failed += _expect(
+	_expect(
 		hero._nova_cooldown_timer == hero.NOVA_COOLDOWN, "nova starts its cooldown"
 	)
-	failed += _expect(
+	_expect(
 		nearby.damage_taken == 30,
 		"hero nova damages an enemy standing next to the hero (got %d)" % nearby.damage_taken
 	)
 
 	hero._nova()  # still on cooldown — must be a no-op
-	failed += _expect(
+	_expect(
 		nearby.damage_taken == 30, "second immediate nova does nothing (cooldown gate)"
 	)
 
 	hero._nova_cooldown_timer = 0.0  # simulate cooldown expiry
 	hero._nova()
-	failed += _expect(
+	_expect(
 		nearby.damage_taken == 60, "nova fires again once cooldown expires"
 	)
-	return failed
+	_completes("hero_nova_cooldown_gate")

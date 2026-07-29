@@ -25,6 +25,7 @@ enum Pose {
 	LASH,     ## One arm whips out. Snappy, organic, asymmetric.
 	SWEEP,    ## Low crouch, trailing hand DRAGS the ground and flicks forward.
 	THROW,    ## Over-the-shoulder overhand with a step in. The whole mass commits.
+	UNSHEATHE,## Blade drawn slowly ACROSS the body, then released. The iai draw.
 }
 
 
@@ -47,6 +48,12 @@ static func for_spell(kind: int) -> int:
 			return Pose.SWEEP       # it peels off the FLOOR, so the hand must go there
 		SpellDef.Kind.THROWN_ANCHOR:
 			return Pose.THROW       # a thrown object wants weight behind it, not a flick
+		SpellDef.Kind.ARC:
+			# The crescent LEAVES THE SHEATH — the cut and the draw are the same
+			# motion, so any other pose makes the wall look unrelated to the body
+			# that threw it. Without this arm ARC falls through to POINT, which
+			# reads as pushing the crescent rather than drawing it.
+			return Pose.UNSHEATHE
 		_:
 			return Pose.POINT       # beams and anything new: aimed two-handed thrust
 
@@ -70,5 +77,11 @@ static func duration(pose: int) -> float:
 			return 0.28   # long enough for the drag to read, short of a slam's commit
 		Pose.THROW:
 			return 0.20   # a dagger leaves the hand fast; the follow-through is after
+		Pose.UNSHEATHE:
+			# The LONGEST windup in the vocabulary, and that is the point: an iai draw
+			# is slow on purpose, and this duration is the opponent's first dodge
+			# window (Horizon Cut then stacks two more — the travel and the height
+			# band). A fast draw would make the crescent's damage indefensible.
+			return 0.50
 		_:
 			return 0.30

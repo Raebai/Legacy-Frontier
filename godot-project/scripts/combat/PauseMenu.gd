@@ -17,6 +17,14 @@ var _settings_col: VBoxContainer = null
 var _main_center: CenterContainer = null
 var _settings_center: CenterContainer = null
 var _exit_label: String = "Exit to Hub"
+## Kept so injected items can be slotted ABOVE them — the exit stays the last
+## thing on the main menu and Back stays the last thing in Settings, however many
+## host-specific rows get added in between.
+var _exit_btn: Button = null
+var _back_btn: Button = null
+## Settings rows are scrollable: the duel knobs pushed the column past the bottom
+## of a 720p window, and a control you cannot reach is a control you do not have.
+var _settings_scroll: ScrollContainer = null
 
 
 ## Build the overlay. `exit_label` names the exit button (e.g. "Exit to Hub" /
@@ -62,7 +70,46 @@ func _build_main() -> void:
 	_main_col.add_child(title)
 	_main_col.add_child(_menu_button("Resume  (Esc)", func() -> void: resume_requested.emit()))
 	_main_col.add_child(_menu_button("Settings", _open_settings))
-	_main_col.add_child(_menu_button(_exit_label, func() -> void: exit_requested.emit()))
+	_exit_btn = _menu_button(_exit_label, func() -> void: exit_requested.emit())
+	_main_col.add_child(_exit_btn)
+
+
+# ------------------------------------------------------- host-injected items
+## Add a button to the MAIN pause menu (e.g. "Fight the Boss"). Slotted above the
+## exit button so leaving is always the last row no matter what a host injects.
+func add_action(text: String, cb: Callable) -> Button:
+	var b: Button = _menu_button(text, cb)
+	_main_col.add_child(b)
+	if _exit_btn != null:
+		_main_col.move_child(_exit_btn, _main_col.get_child_count() - 1)
+	return b
+
+
+## Add a button to the SETTINGS sub-panel — this is where a host puts its own
+## knobs (the duel's difficulty / bot class / learning toggles). Slotted above
+## "Back", which stays the last row.
+func add_setting_button(text: String, cb: Callable) -> Button:
+	var b: Button = _menu_button(text, cb)
+	b.custom_minimum_size = Vector2(240, 30)
+	b.add_theme_font_size_override("font_size", 14)
+	_settings_col.add_child(b)
+	if _back_btn != null:
+		_settings_col.move_child(_back_btn, _settings_col.get_child_count() - 1)
+	return b
+
+
+## A section heading in the SETTINGS sub-panel, so an injected block of knobs
+## reads as its own group rather than as more audio sliders.
+func add_setting_section(title: String) -> Label:
+	var l := Label.new()
+	l.text = title
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.add_theme_font_size_override("font_size", 18)
+	l.add_theme_color_override("font_color", Color(1.0, 0.88, 0.62))
+	_settings_col.add_child(l)
+	if _back_btn != null:
+		_settings_col.move_child(_back_btn, _settings_col.get_child_count() - 1)
+	return l
 
 
 func _build_settings() -> void:
@@ -70,10 +117,18 @@ func _build_settings() -> void:
 	_settings_center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_settings_center.visible = false
 	add_child(_settings_center)
+	# SCROLLED. Hosts inject their own rows here (the duel's five knobs), and the
+	# column already ran to the bottom of a 720p window with just the built-ins —
+	# an unreachable control is not a control.
+	_settings_scroll = ScrollContainer.new()
+	_settings_scroll.custom_minimum_size = Vector2(320, 520)
+	_settings_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_settings_center.add_child(_settings_scroll)
 	_settings_col = VBoxContainer.new()
 	_settings_col.alignment = BoxContainer.ALIGNMENT_CENTER
+	_settings_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_settings_col.add_theme_constant_override("separation", 12)
-	_settings_center.add_child(_settings_col)
+	_settings_scroll.add_child(_settings_col)
 
 	var title := Label.new()
 	title.text = "SETTINGS"
@@ -164,7 +219,8 @@ func _build_settings() -> void:
 	ctrl.add_theme_color_override("font_color", Color(0.82, 0.86, 0.95))
 	_settings_col.add_child(ctrl)
 
-	_settings_col.add_child(_menu_button("Back", _close_settings))
+	_back_btn = _menu_button("Back", _close_settings)
+	_settings_col.add_child(_back_btn)
 
 
 func _open_settings() -> void:

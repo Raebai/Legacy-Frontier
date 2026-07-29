@@ -26,6 +26,24 @@ enum Kind { FISTS, WEAPON, SPELL }
 var slots: Array[Dictionary] = []
 var selected: int = 0
 
+## A CONTEXTUAL CLAIM on the use button, published from outside once the world
+## says something nearer-to-hand than the carousel should answer the press.
+## Empty string = no claim, the selected slot decides as normal.
+##
+## Today the only claimant is the ROCK WALL TWO-BEAT: the first press summons the
+## wall, the second press has to be the PUNCH that sends it — one button, two
+## beats — even though what is held is still a spell. That exception lives here
+## rather than in the input handler so `primary_action()` remains the single
+## answer to "what does the use button do right now"; a controller that branched
+## on the wall itself before asking would be a second, competing answer, and the
+## two would drift.
+##
+## Deliberately a plain string set from outside: this class stays pure data with
+## no tree access, so the world query (is there a wall of mine in reach, am I
+## facing it, is the combo window still open) stays in the caster where the feel
+## numbers live, and this file stays headless-testable.
+var contextual_primary: String = ""
+
 
 func _init() -> void:
 	slots = [_fists()]
@@ -76,8 +94,26 @@ func current_kind() -> int:
 	return int(current().get("kind", Kind.FISTS))
 
 
+## Hand the use button to the world for a beat (or give it back with ""). Called
+## every frame by whoever owns the world query — passing the same value twice is
+## free, so the caller never has to track edges.
+func claim_primary(action: String) -> void:
+	contextual_primary = action
+
+
+## True while something in the world has taken the use button off the carousel.
+## The HUD/tell asks this; it must never have to re-derive the rule.
+func has_contextual_primary() -> bool:
+	return contextual_primary != ""
+
+
 ## What LEFT CLICK means right now. The whole point of the model in one call.
+## A contextual claim wins over the carousel — that is what makes it a claim —
+## and it never touches `selected`, so the bar keeps showing what you actually
+## hold and the press after the claim lapses is a normal cast again.
 func primary_action() -> String:
+	if contextual_primary != "":
+		return contextual_primary
 	match current_kind():
 		Kind.WEAPON:
 			return "swing"

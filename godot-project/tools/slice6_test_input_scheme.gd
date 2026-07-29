@@ -7,6 +7,27 @@
 #   Godot_v4.6.2-stable_win64_console.exe --path godot-project --headless --script tools/slice6_test_input_scheme.gd
 extends SceneTree
 
+# ── Vacuous-pass armour (see tools/slice_test_loadout.gd for the full write-up) ──
+# A dead member read (a field that was renamed or moved) is NOT a test failure in
+# GDScript: it logs a runtime error, ABORTS the enclosing function, and hands the
+# caller back the return type's zero value. Under the old `failed += _test_x()`
+# idiom that reads as "zero failures", so the suite printed all PASS while
+# silently skipping every assertion after the dead line. Static typing does not
+# help — a typed reference to a renamed field compiles clean and dies the same way.
+# So: failures accumulate on the MEMBER `_fails` (an abort cannot discard them),
+# and every test's last line records that it reached the end. A test that aborts
+# part-way is then missing from `_completed` and fails the suite BY ABSENCE.
+
+## Every test that must run to completion. A name missing from `_completed`
+## at the end means that test aborted part-way and fails the suite.
+const TESTS: Array[String] = [
+	"scheme",
+	"no_double_bound_buttons",
+]
+
+var _fails: int = 0
+var _completed: Dictionary = {}
+
 const KEY_SPACE_PHYS: int = 32
 const KEY_W_PHYS: int = 87
 const MOUSE_LEFT: int = 1
@@ -19,11 +40,13 @@ func _process(_delta: float) -> bool:
 	if _ran:
 		return false
 	_ran = true
-	var failed: int = 0
-	failed += _test_scheme()
-	failed += _test_no_double_bound_buttons()
-	if failed > 0:
-		printerr("Input scheme tests: %d FAILED" % failed)
+	_test_scheme()
+	_test_no_double_bound_buttons()
+	for t: String in TESTS:
+		_expect(_completed.has(t),
+			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
+	if _fails > 0:
+		printerr("Input scheme tests: %d FAILED" % _fails)
 		quit(1)
 	else:
 		print("Input scheme tests: all PASS")
@@ -31,11 +54,19 @@ func _process(_delta: float) -> bool:
 	return true
 
 
-func _expect(cond: bool, msg: String) -> int:
+## Accumulates onto the MEMBER `_fails`, never a return value — a failure recorded
+## before an abort therefore survives the abort instead of being discarded with the
+## aborted function's result.
+func _expect(cond: bool, msg: String) -> void:
 	if not cond:
 		printerr("FAIL: ", msg)
-		return 1
-	return 0
+		_fails += 1
+
+
+## Last line of every test: "I reached the end." A name missing from `_completed`
+## means that test aborted part-way. See TESTS.
+func _completes(test_name: String) -> void:
+	_completed[test_name] = true
 
 
 ## True when `action` is bound to the given mouse button index.
@@ -61,27 +92,25 @@ func _has_key(action: String, phys: int) -> bool:
 	return false
 
 
-func _test_scheme() -> int:
-	var ok: int = 0
-	ok += _expect(_has_mouse("parry", MOUSE_RIGHT), "right mouse button deflects")
-	ok += _expect(_has_key("dash", KEY_SPACE_PHYS), "space dashes")
-	ok += _expect(_has_key("jump", KEY_W_PHYS), "W jumps")
+func _test_scheme() -> void:
+	_expect(_has_mouse("parry", MOUSE_RIGHT), "right mouse button deflects")
+	_expect(_has_key("dash", KEY_SPACE_PHYS), "space dashes")
+	_expect(_has_key("jump", KEY_W_PHYS), "W jumps")
 	# The two that would quietly undo the scheme.
-	ok += _expect(not _has_key("jump", KEY_SPACE_PHYS),
+	_expect(not _has_key("jump", KEY_SPACE_PHYS),
 		"space is NOT also jump — it belongs to dash")
-	ok += _expect(not _has_mouse("cast", MOUSE_RIGHT),
+	_expect(not _has_mouse("cast", MOUSE_RIGHT),
 		"right mouse is NOT also cast — it belongs to deflect")
-	return ok
+	_completes("scheme")
 
 
 ## No button may drive two combat verbs at once: pressing it would fire both, and
 ## which one "wins" is then down to polling order rather than design.
-func _test_no_double_bound_buttons() -> int:
+func _test_no_double_bound_buttons() -> void:
 	var verbs: Array[String] = [
 		"cast", "melee", "parry", "dash", "jump", "blast", "blink", "nova", "ultimate",
 	]
 	var seen: Dictionary = {}          # binding signature -> the verb that claimed it
-	var ok: int = 0
 	for action: String in verbs:
 		if not InputMap.has_action(action):
 			continue
@@ -95,7 +124,7 @@ func _test_no_double_bound_buttons() -> int:
 				sig = "key:%d" % k.physical_keycode
 			if sig == "":
 				continue
-			ok += _expect(not seen.has(sig),
+			_expect(not seen.has(sig),
 				"%s is bound to '%s' and also '%s'" % [sig, seen.get(sig, ""), action])
 			seen[sig] = action
-	return ok
+	_completes("no_double_bound_buttons")

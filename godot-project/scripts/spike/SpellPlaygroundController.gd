@@ -9,6 +9,9 @@ extends Node2D
 ## move A/D (or arrows) · jump W/Up · duck/crawl S · aim MOUSE ·
 ## Q/E or SCROLL cycle spell · HOLD RMB = guard ring · B incoming test-bolt ·
 ## H hit · K kill · R reset · TAB physics-tune
+##
+## ROCK WALL IS A TWO-BEAT SPELL ON ONE BUTTON: LMB raises the wall, LMB again
+## punches it across the arena. See the SHOVE_* constants for the exact rule.
 
 const FIG := preload("res://scripts/spike/SpikeFigure.gd")
 const ENEMY_SCENE := "res://scenes/combat/Enemy.tscn"
@@ -19,10 +22,34 @@ const HALF_W := 560.0
 const CEIL_Y := -320.0
 const FIG_COLOR := Color(0.93, 0.51, 0.51)
 const COVER_X := [-210.0, 90.0, 360.0]
+
+## ---- THE ROCK WALL TWO-BEAT -------------------------------------------------
+## The maker's ask: "the first left click summons it, the second left click should
+## be the punch that sends it". One button, two beats. The shove itself was always
+## built — it was just unreachable, because while a spell is held LMB means CAST,
+## so the second press raised a second wall and the punch path was never taken.
+## These three numbers ARE the arbitration rule; a press only becomes a punch when
+## all of them hold (plus: the wall must be one YOU raised, and still standing).
+##
 ## How close the fighter must be to a standing rock wall for a punch to shove it.
 ## Generous vs the 96 px dummy punch: the wall is a big object and hunting for a
 ## pixel-perfect contact point would make the shove feel unreliable.
 const SHOVE_REACH := 150.0
+## How long after a wall erupts the second beat stays armed.
+##
+## THE ESCAPE HATCH, and the reason the claim is timed at all: a wall lives 4.5 s,
+## and a wall you raised as COVER and then stood behind must not spend those
+## seconds eating your casts. The window expires well inside the wall's life, so
+## a combo you meant to throw is always available and a wall you meant to keep
+## quietly hands the button back — and waiting it out (or simply aiming somewhere
+## else) is how you get a SECOND wall. Nothing is ever locked away: F (melee)
+## shoves any standing wall in reach at any time, window or no window.
+## UNTESTED GUESS: 2.5 s is reasoning, not feel. Tune it here.
+const SHOVE_CLAIM_WINDOW := 2.5
+## How much "toward the wall" a swing has to be before it counts as aimed at it.
+## Shared by both halves of the shove so the tell can never light up for a press
+## that then misses — one gate, asked twice.
+const SHOVE_FACING_DOT := 0.1
 const DUMMY_X := [-70.0, 220.0]
 ## Windup multiplier per tier — a jab is near-instant, an ult is a commitment.
 const _TIER_WINDUP := {0: 0.35, 1: 1.0, 2: 1.9}
@@ -42,6 +69,10 @@ var _cast_cd := 0.0
 ## What is in the hand right now, and the bar that shows it.
 var _slots: HandSlots = null
 var _bar: LoadoutBar = null
+## The wall currently holding the use button, or null. Kept as a reference (not
+## just a bool) so the tell is switched off on exactly the wall that had it, even
+## if the claim jumps straight from one wall to another in a single frame.
+var _primed_wall: Node2D = null
 
 var _knobs := {
 	"stiffness": 3000.0, "damping": 90.0, "max_torque": 14000.0, "air_factor": 0.2,
@@ -153,17 +184,16 @@ func _on_punch(dir: Vector2) -> void:
 		return
 	var origin: Vector2 = t.global_position
 	# Wall first: if one is in reach, the punch commits to shoving it rather than
-	# also cutting through to whatever stands behind it.
-	var wall: Node2D = RockWall.find_shoveable_near(get_tree(), origin, SHOVE_REACH)
+	# also cutting through to whatever stands behind it. `false` = the ANY-wall
+	# test: a thrown fist shoves whatever it can reach, including walls whose
+	# two-beat window has lapsed and walls nobody owns. That is the escape hatch
+	# the timed claim in _update_shove_claim() leans on.
+	var wall: Node2D = _shoveable_for(origin, dir, false)
 	if wall != null:
-		# footprint_center(), not global_position: the wall node sits at the arena
-		# origin and draws in world coords. Gate on facing so punching AWAY from
-		# a wall never drags it back onto you.
 		var to_wall: Vector2 = wall.call("footprint_center") - origin
-		if to_wall.normalized().dot(dir) > 0.1:
-			if wall.call("shove", Vector2(signf(to_wall.x) if to_wall.x != 0.0 else 1.0, 0.0)):
-				_shake = maxf(_shake, 0.9)
-				return
+		if wall.call("shove", Vector2(signf(to_wall.x) if to_wall.x != 0.0 else 1.0, 0.0)):
+			_shake = maxf(_shake, 0.9)
+			return
 	var connected := false
 	for d in _dummies:
 		if not is_instance_valid(d):
@@ -177,6 +207,69 @@ func _on_punch(dir: Vector2) -> void:
 				d.call("apply_knockback", dir * 620.0)
 	if connected:
 		Sfx.play("melee_hit", 0.0, 0.1)              # the CONNECT crack (swing already played on the rig)
+
+
+## THE one reach + facing test behind BOTH halves of the shove, so the tell can
+## never promise a punch that then misses.
+##
+## `dir` is a unit aim/punch direction and `origin` is the TORSO — the same origin
+## _on_punch reports against. (punch() derives its direction from the shoulder,
+## ~10 px off; far inside the dot gate, and using two different origins here is
+## exactly how a tell and its action drift apart.)
+##
+## `claimable` adds the two gates that let a wall STEAL the use button: it must
+## be a wall YOU raised, and still inside the combo window. A plain F punch passes
+## false and shoves any standing wall it can reach.
+func _shoveable_for(origin: Vector2, dir: Vector2, claimable: bool) -> Node2D:
+	var wall: Node2D = RockWall.find_shoveable_near(
+		get_tree(), origin, SHOVE_REACH, _fig if claimable else null)
+	if wall == null:
+		return null
+	if claimable and float(wall.call("time_since_raise")) > SHOVE_CLAIM_WINDOW:
+		return null
+	# footprint_center(), not global_position: the wall node sits at the arena
+	# origin and draws in world coords, so its transform is (0,0) and a facing
+	# test against it would answer for the middle of the arena, not the wall.
+	# Gate on facing so punching AWAY from a wall never drags it back onto you.
+	var to_wall: Vector2 = wall.call("footprint_center") - origin
+	if to_wall.normalized().dot(dir) <= SHOVE_FACING_DOT:
+		return null
+	return wall
+
+
+## THE ARBITRATION. Resolved every frame: does the use button belong to a wall
+## standing in front of you, or to the spell in your hand? Published through
+## HandSlots so primary_action() stays the single answer to "what does left click
+## do", and read back by the input handler exactly as if fists were equipped.
+##
+## Note this is a no-op when fists are already held — they punch anyway — so the
+## claim only ever CHANGES anything for the beat it exists for: the press right
+## after you raised your own wall.
+func _update_shove_claim() -> void:
+	var wall: Node2D = null
+	var t: Node2D = _fig.get("_torso") as Node2D
+	# Guarding already costs you your offence (see the cast branch in _input), so
+	# it must not light the tell either — a promise the press would not keep.
+	if t != null and not _fig.is_guarding():
+		var aim: Vector2 = (_fig.ctrl_aim - t.global_position).normalized()
+		wall = _shoveable_for(t.global_position, aim, true)
+	_set_primed_wall(wall)
+	if _slots != null:
+		_slots.claim_primary("punch" if wall != null else "")
+
+
+## Move the "next press punches me" highlight, and refresh the HUD line only when
+## it actually changes — the state flips rarely, so the tell stays event-driven
+## rather than rebuilding the label every frame.
+func _set_primed_wall(wall: Node2D) -> void:
+	if wall == _primed_wall:
+		return
+	if is_instance_valid(_primed_wall) and _primed_wall.has_method("set_primed"):
+		_primed_wall.call("set_primed", false)
+	_primed_wall = wall
+	if wall != null:
+		wall.call("set_primed", true)
+	_update_hud()
 
 
 ## A successful deflect: localized impact frame AT the parry point (ding + shell fire
@@ -288,6 +381,10 @@ func _physics_process(_delta: float) -> void:
 	# Aim-hold is the CAST button held down, so it follows the rebind rather than
 	# staying pinned to whatever the left mouse button happens to do.
 	_fig.ctrl_aim_hold = Input.is_action_pressed("cast")
+	# AFTER the aim is written, never before: the claim is decided against where
+	# you are pointing THIS frame, so a flick away from the wall hands the button
+	# back on the same frame the tell goes out.
+	_update_shove_claim()
 
 
 func _process(delta: float) -> void:
@@ -347,14 +444,43 @@ func _cast() -> void:
 	if windup > 0.0:
 		await get_tree().create_timer(windup).timeout
 	if not is_instance_valid(_fig) or not is_instance_valid(circle):
+		# Interrupted windup: the cast never happens, so nothing will ever adopt
+		# this sigil. Bloom it out rather than leaking it — and withdraw in case
+		# an earlier offer from this caster is still pending.
+		if is_instance_valid(circle):
+			circle.vanish(0.14)
+		MagicCircle.withdraw(_fig)
 		return
-	circle.vanish(0.14)
+	# HAND OFF rather than dismiss. Vanishing here and letting SpellCaster build a
+	# fresh muzzle sigil is exactly the bug the maker reported — "I summon a circle,
+	# it goes away, and then another circle spawns which the spell comes out of".
+	# The two even shared a radius (34+26*tier ≈ width*3.3 ≈ 86 px) and sat only
+	# 46 px apart, so it read as one circle glitching rather than as two, which is
+	# why it survived earlier review. `offer` parks this circle for the spectacle
+	# about to be built; adopt_or_open() claims it by caster and travels it to the
+	# muzzle, so ONE sigil spans the whole cast.
+	#
+	# Ordering is load-bearing: offer() must run BEFORE SpellCaster.cast() in the
+	# same frame, and the local reference is dropped immediately afterwards so
+	# nothing here keeps driving a circle that now belongs to the spell.
+	MagicCircle.offer(circle, _fig)
+	circle = null
 	# Re-read the aim at RELEASE: you kept control through the windup, so the
 	# spell should go where you are pointing NOW, not where you were when you
 	# pressed.
 	var release_target: Vector2 = get_global_mouse_position()
 	var t3: Node2D = _fig.get("_torso")
 	var release_origin: Vector2 = t3.global_position if t3 != null else origin
+	# The trailing `_fig` is the caster, and it is what makes the wall two-beat work:
+	# a wall knows who raised it, so the NEXT press can be a PUNCH that shoves it
+	# rather than a second wall — and cannot be a punch aimed at somebody else's.
+	#
+	# This used to be bracketed by a snapshot/adopt pair that diffed the "shoveable"
+	# group before and after the cast, because SpellCaster did not forward the caster
+	# to raise_wall(). It now stamps caster identity onto EVERY spectacle it builds,
+	# so the diff was doing nothing but re-deriving an answer already recorded — and
+	# a workaround left in place after its cause is fixed is just a second mechanism
+	# to keep in sync. Deleted.
 	SpellCaster.cast(spell, self, release_origin, release_target,
 		Color(0.78, 0.84, 1.0), "", _fig)
 	_shake = maxf(_shake, 0.35)
@@ -424,6 +550,10 @@ func _input(event: InputEvent) -> void:
 		# hold being free. Same rule on every platform.
 		if _fig.is_guarding():
 			return
+		# primary_action() is the ONLY question asked here, and it already folds in
+		# the rock-wall two-beat claim (_update_shove_claim): with your own wall
+		# standing in front of you it answers "punch" even though a spell is held,
+		# so the second press sends the wall instead of raising another one.
 		if _slots != null and _slots.primary_action() == "punch":
 			_fig.punch()
 		else:
@@ -503,6 +633,15 @@ func _update_hud() -> void:
 		_sidx + 1, _spells.size(), s.display_name,
 		_kind_name(s.kind), _elem_name(s.element), int(s.damage), float(s.cooldown), _extra(s),
 	]
+	# The second half of the tell. The pulsing crown on the wall says "me"; this
+	# says what the button will DO, because a player mid-fight should never have
+	# to infer that from a highlight they have not been taught yet.
+	# is_instance_valid, not != null: a freed wall leaves the reference reading as
+	# non-null until _update_shove_claim clears it next frame, and the HUD is also
+	# rebuilt by the slot keys in between — which would flash the line on a wall
+	# that has already crumbled.
+	if is_instance_valid(_primed_wall):
+		txt += "\n>> WALL PRIMED — LMB PUNCHES IT (aim away to cast instead)"
 	if _show_tune:
 		txt += "\n\n-- physics tune (number keys select · [ ] adjust) --"
 		for i in _knob_order.size():

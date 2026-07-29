@@ -121,7 +121,15 @@ func _cast() -> void:
 	if _spells.is_empty():
 		return
 	var spell: SpellDef = _spells[_idx]
-	SpellCaster.cast(spell, self, CASTER, TARGET, Color(0.78, 0.84, 1.0), "")
+	# The trailing `self` is the CASTER IDENTITY, and it is load-bearing rather
+	# than decorative: the reaction layer's ownership predicate reads it, and a
+	# null caster reports as "unowned", which satisfies neither `require_owner:
+	# "same"` nor `"different"` — so an ownerless spell silently matches NO rule
+	# and can never react with anything. That exact omission is what made Hollow
+	# Purple look broken for two sessions: the effect was fine, nothing was ever
+	# asked to build it. The sandbox fires every spell from one notional caster,
+	# so `self` stands in as that caster and the self-combo rows stay reachable.
+	SpellCaster.cast(spell, self, CASTER, TARGET, Color(0.78, 0.84, 1.0), "", self)
 
 
 func _input(event: InputEvent) -> void:

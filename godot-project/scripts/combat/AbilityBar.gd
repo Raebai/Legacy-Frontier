@@ -68,7 +68,60 @@ func _process(_delta: float) -> void:
 	else:
 		_slots = hero.ability_hud_state()
 		_class_name = String(hero.call("class_display_name")) if hero.has_method("class_display_name") else ""
+		_repair_signature_label(hero)
 	queue_redraw()
+
+
+## THE BIG BEAM'S NAME. `Hero._signature_hud_slot()` shortens the equipped
+## signature with `display_name.split(" ")[0]` — take the first word — which was
+## fine for "Infernal Lance" and "Umbral Lance" and broke the moment the IP pass
+## renamed `zoltraak` to **"The Ordinary Spell"**. First word of that is "The",
+## so the maker's signature beam has been labelled `The` on the hotbar ever since.
+##
+## Fixed HERE rather than in Hero.gd because Hero is held by another agent — and
+## the fix has to live at the point the label is CHOSEN, not merely rendered:
+## once Hero has already thrown away everything after the first space, "The" is
+## unrecoverable. So the bar goes back to the source (`current_signature()`, a
+## public method it already polls this same hero for) and re-derives the short
+## name properly. When Hero.gd learns the same rule this becomes a no-op that
+## computes the identical string — it is not a race, both sides agree.
+##
+## Only the slot keyed "G" is touched, and only when it is not showing the Rift
+## Dagger's transient "RECALL" state, so a future reordering of the hotbar cannot
+## make this repair the wrong slot.
+func _repair_signature_label(hero: Node) -> void:
+	if _slots.is_empty() or not hero.has_method("current_signature"):
+		return
+	var sig: SpellDef = hero.call("current_signature") as SpellDef
+	if sig == null or sig.display_name == "":
+		return
+	for i: int in range(_slots.size()):
+		if not _slots[i] is Dictionary:
+			continue
+		var slot: Dictionary = _slots[i]
+		if String(slot.get("key", "")) != "G" or String(slot.get("name", "")) == "RECALL":
+			continue
+		slot["name"] = short_spell_name(sig.display_name)
+		return
+
+
+## A hotbar-sized label for a spell, from its full display name.
+##
+## The rule is "the most IDENTIFYING word", not "the first word" — the two only
+## agree when a name happens to open with its own noun. Leading articles carry no
+## identity at all, so they are dropped, and what is left is the first remaining
+## word ("The Ordinary Spell" -> "Ordinary", "Infernal Lance" -> "Infernal",
+## "Frostpiercer" -> "Frostpiercer"). A name that is NOTHING but articles falls
+## back to the whole string rather than to the empty one — a wrong label is
+## recoverable, a blank slot is not.
+##
+## Static and pure so a test can pin it without a scene tree.
+static func short_spell_name(display_name: String) -> String:
+	const ARTICLES: Array[String] = ["the", "a", "an", "of"]
+	for word: String in display_name.split(" ", false):
+		if not ARTICLES.has(word.to_lower()):
+			return word
+	return display_name
 
 
 func _draw() -> void:

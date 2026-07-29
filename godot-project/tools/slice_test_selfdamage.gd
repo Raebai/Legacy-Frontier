@@ -6,6 +6,28 @@
 # targets the nearest in-range enemy even when the cursor isn't aimed at them.
 extends SceneTree
 
+# ── Vacuous-pass armour (see tools/slice_test_loadout.gd for the full write-up) ──
+# A dead member read (a field that was renamed or moved) is NOT a test failure in
+# GDScript: it logs a runtime error, ABORTS the enclosing function, and hands the
+# caller back the return type's zero value. Under the old `failed += _test_x()`
+# idiom that reads as "zero failures", so the suite printed all PASS while
+# silently skipping every assertion after the dead line. Static typing does not
+# help — a typed reference to a renamed field compiles clean and dies the same way.
+# So: failures accumulate on the MEMBER `_fails` (an abort cannot discard them),
+# and every test's last line records that it reached the end. A test that aborts
+# part-way is then missing from `_completed` and fails the suite BY ABSENCE.
+
+## Every test that must run to completion. A name missing from `_completed`
+## at the end means that test aborted part-way and fails the suite.
+const TESTS: Array[String] = [
+	"bolt_sets_caster_for_every_class",
+	"try_damage_never_hits_caster",
+	"melee_autotargets_nearest_enemy",
+]
+
+var _fails: int = 0
+var _completed: Dictionary = {}
+
 const HERO_PATH: String = "res://scenes/combat/Hero.tscn"
 const SPELL_PATH: String = "res://scripts/combat/Spell.gd"
 
@@ -39,12 +61,14 @@ func _process(_delta: float) -> bool:
 	if _ran:
 		return false
 	_ran = true
-	var failed: int = 0
-	failed += _test_bolt_sets_caster_for_every_class()
-	failed += _test_try_damage_never_hits_caster()
-	failed += _test_melee_autotargets_nearest_enemy()
-	if failed > 0:
-		printerr("selfdamage tests: %d FAILED" % failed)
+	_test_bolt_sets_caster_for_every_class()
+	_test_try_damage_never_hits_caster()
+	_test_melee_autotargets_nearest_enemy()
+	for t: String in TESTS:
+		_expect(_completed.has(t),
+			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
+	if _fails > 0:
+		printerr("selfdamage tests: %d FAILED" % _fails)
 		quit(1)
 	else:
 		print("selfdamage tests: all PASS")
@@ -52,11 +76,19 @@ func _process(_delta: float) -> bool:
 	return true
 
 
-func _expect(cond: bool, msg: String) -> int:
+## Accumulates onto the MEMBER `_fails`, never a return value — a failure recorded
+## before an abort therefore survives the abort instead of being discarded with the
+## aborted function's result.
+func _expect(cond: bool, msg: String) -> void:
 	if not cond:
 		printerr("FAIL: ", msg)
-		return 1
-	return 0
+		_fails += 1
+
+
+## Last line of every test: "I reached the end." A name missing from `_completed`
+## means that test aborted part-way. See TESTS.
+func _completes(test_name: String) -> void:
+	_completed[test_name] = true
 
 
 ## Swaps the live /root/Net autoload for a FakeNet reporting is_active()==true,
@@ -89,8 +121,7 @@ func _restore_net(real_net: Node) -> void:
 ## _cast(), confirms the spawned spell's caster is the hero, then feeds the
 ## bolt back at its own caster through the real _try_damage hit path and
 # confirms it never lands.
-func _test_bolt_sets_caster_for_every_class() -> int:
-	var f: int = 0
+func _test_bolt_sets_caster_for_every_class() -> void:
 	var real_net: Node = _force_net_active()
 	for cls: int in [0, 1, 6]:
 		var hero: CharacterBody2D = (load(HERO_PATH) as PackedScene).instantiate()
@@ -102,28 +133,27 @@ func _test_bolt_sets_caster_for_every_class() -> int:
 		var pct_before: float = float(hero.get("damage_pct"))
 		hero.call("_cast")
 		var spells: Array = get_nodes_in_group("player_spell")
-		f += _expect(not spells.is_empty(), "class %d bolt spawned a player_spell" % cls)
+		_expect(not spells.is_empty(), "class %d bolt spawned a player_spell" % cls)
 		if not spells.is_empty():
 			var spell: Node = spells[spells.size() - 1]
-			f += _expect(spell.get("caster") == hero, "class %d bolt caster == hero" % cls)
+			_expect(spell.get("caster") == hero, "class %d bolt caster == hero" % cls)
 			# The bolt spawns overlapping its own caster; drive the real hit
 			# handler with the caster as the "hit" node and confirm nothing lands.
 			spell.call("_try_damage", hero)
-			f += _expect(int(hero.get("hp")) == hp_before, "class %d bolt never drops caster hp" % cls)
-			f += _expect(float(hero.get("damage_pct")) == pct_before, "class %d bolt never raises caster damage_pct" % cls)
-			f += _expect(not bool(spell.get("_dead")), "class %d bolt isn't consumed hitting its own caster" % cls)
+			_expect(int(hero.get("hp")) == hp_before, "class %d bolt never drops caster hp" % cls)
+			_expect(float(hero.get("damage_pct")) == pct_before, "class %d bolt never raises caster damage_pct" % cls)
+			_expect(not bool(spell.get("_dead")), "class %d bolt isn't consumed hitting its own caster" % cls)
 		for s: Node in spells:
 			s.queue_free()
 		hero.queue_free()
 	_restore_net(real_net)
-	return f
+	_completes("bolt_sets_caster_for_every_class")
 
 
 ## Defensive backstop: Spell._try_damage must no-op whenever node == caster,
 ## regardless of the node's group — belt-and-suspenders even if some future
 ## call site forgets to set caster in time, independent of Net's live state.
-func _test_try_damage_never_hits_caster() -> int:
-	var f: int = 0
+func _test_try_damage_never_hits_caster() -> void:
 	var s := Node2D.new()
 	root.add_child(s)
 	var stub := StubEnemy.new()
@@ -133,19 +163,18 @@ func _test_try_damage_never_hits_caster() -> int:
 	s.add_child(spell)  # runs _ready() (group + collision mask)
 	spell.set("caster", stub)
 	spell.call("_try_damage", stub)
-	f += _expect(stub.hit_count == 0, "_try_damage never calls take_damage on its own caster")
-	f += _expect(not bool(spell.get("_dead")), "spell isn't consumed by hitting its own caster")
+	_expect(stub.hit_count == 0, "_try_damage never calls take_damage on its own caster")
+	_expect(not bool(spell.get("_dead")), "spell isn't consumed by hitting its own caster")
 	root.remove_child(s)
 	s.free()
-	return f
+	_completes("try_damage_never_hits_caster")
 
 
 ## Melee auto-target: the cursor points RIGHT (facing = RIGHT) but the only
 ## enemy in range sits directly BEHIND (LEFT) — well outside the old strict
 ## facing.dot(toward) <= _melee_arc_dot cone (dot ~ -1.0 <<= 0.3). The swing
 ## must still connect because the nearest in-range enemy always auto-targets.
-func _test_melee_autotargets_nearest_enemy() -> int:
-	var f: int = 0
+func _test_melee_autotargets_nearest_enemy() -> void:
 	var hero: CharacterBody2D = (load(HERO_PATH) as PackedScene).instantiate()
 	root.add_child(hero)
 	hero.configure_class(2)  # BRAWLER — default MELEE_ARC_DOT (0.3), no override
@@ -157,11 +186,11 @@ func _test_melee_autotargets_nearest_enemy() -> int:
 	enemy.global_position = Vector2(-20.0, 0.0)  # within _melee_range, opposite the cursor
 	root.add_child(enemy)
 	hero.call("_on_melee_hit_frame")
-	f += _expect(enemy.hit_count > 0, "melee auto-targets the nearest enemy even when the cursor isn't aimed at them")
+	_expect(enemy.hit_count > 0, "melee auto-targets the nearest enemy even when the cursor isn't aimed at them")
 	# Control: with no enemy at all in range, nothing should hit or crash.
 	enemy.global_position = Vector2(500.0, 500.0)  # out of _melee_range
 	hero.call("_on_melee_hit_frame")
-	f += _expect(enemy.hit_count == 1, "no false hit once the enemy leaves melee range")
+	_expect(enemy.hit_count == 1, "no false hit once the enemy leaves melee range")
 	hero.queue_free()
 	enemy.queue_free()
-	return f
+	_completes("melee_autotargets_nearest_enemy")

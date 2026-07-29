@@ -50,9 +50,28 @@ func _ready() -> void:
 
 
 ## True whenever a real ENet session is up (host or client). Singleplayer -> false.
+##
+## ⚠ THE `OfflineMultiplayerPeer` EXCLUSION IS LOAD-BEARING, NOT DEFENSIVE. A
+## SceneTree with no session does NOT have a null peer: Godot installs an
+## `OfflineMultiplayerPeer`, and that peer reports `CONNECTION_CONNECTED`. So the
+## old two-clause test was **true in single player**, and since ~40 call sites
+## across this codebase gate co-op behaviour on it under the stated rule "SP must
+## stay byte-identical, everything co-op is gated on Net.is_active()", every one of
+## those gates has silently been OPEN in single player.
+##
+## It was found the way this class of bug always gets found — by someone measuring
+## rather than assuming, while asking why an un-factioned hero bolt could already
+## damage another hero in a solo game. The damage-routing paths mostly no-op with
+## one peer, which is exactly why it survived: it fails quietly and in the
+## direction that still looks correct.
+##
+## Kept as an explicit type test rather than a `get_unique_id() != 1` check,
+## because the host of a real session also has id 1.
 func is_active() -> bool:
 	var p: MultiplayerPeer = multiplayer.multiplayer_peer
-	return p != null and p.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED
+	if p == null or p is OfflineMultiplayerPeer:
+		return false
+	return p.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED
 
 
 func is_host() -> bool:

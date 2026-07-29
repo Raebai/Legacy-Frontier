@@ -11,9 +11,13 @@ var target_group: String = "enemy"
 ##   FIRE   — true meteors: tumbling molten rock with glowing cracks and a
 ##            ragged burning tail; impact explodes outward and leaves a
 ##            persistent scorch + a flickering ember pool.
-##   FROST  — sheer crystal SPIKES that spear straight down (no arc, no tail —
-##            just cold air-streaks), plant in the ground as standing jagged
-##            crystal, then shatter into shards a beat later.
+##   FROST  — NO LONGER A BOMBARDMENT. See the fork at the top of rain(): the
+##            ice family now erupts from the FLOOR as a spreading crest of
+##            spikes (IceSpikeLine.gd) instead of raining spears on a circle.
+##            The old falling-spear draw / _land_frost / IceSpikeCluster below
+##            are now UNREACHABLE from rain(). Kept for one iteration so the
+##            redesign is a small, reversible diff while it is still unplayed;
+##            if the crest survives its first playtest, delete them.
 ##   EARTH  — heavy dumb BOULDERS: slower, no tail, a looming ground shadow;
 ##            impact is a dust plume + debris chunks kicked sideways + the
 ##            hardest camera thump of the four.
@@ -30,6 +34,12 @@ var target_group: String = "enemy"
 ## the timeline. Instantiate .new(), add to the arena, call rain(). The
 ## trailing `effect` param picks the element ("fire"|"frost"|"earth"|"shadow"
 ## bespoke; anything else falls back to the classic head+trail template).
+
+## The frost family's spectacle now lives in its own file (see the FROST fork in
+## rain()). load()ed by PATH, never by class_name: this script is load()ed at
+## runtime by headless tools precisely so nothing early-compiles the autoload
+## chain, and a class_name reference would drag IceSpikeLine in at compile time.
+const SPIKE_LINE_PATH: String = "res://scripts/combat/IceSpikeLine.gd"
 
 const CHARGE_TIME: float = 0.5     # sky sigil + ground telegraph before ANY launch
 const FALL_TIME: float = 0.52      # fire + generic per-meteor descent
@@ -51,21 +61,151 @@ const RIFT_OPEN_FRAC: float = 0.64
 ## Meteors streak in from just above the combat view (not far off-screen) so you
 ## SEE the shower coming down — readability + the "here it comes" tell.
 const SKY_HEIGHT: float = 360.0
+
+# ── THE SKY GATE: the summoning circle the bombardment pours OUT of ──────────
+# THE MAKER, LIVE, MID-PLAYTEST: "I can't see the circle for the sky attack."
+#
+# He was right, and the cause is not a bug — it is an amputation. The previous
+# pass DELETED the shared sky sigil (its tombstone is still the `⚠ NO MAGIC
+# CIRCLE` note in `rain()`) on the grounds that it was the single biggest reason
+# five ults read as one another. That diagnosis was correct. The amputation was
+# not: what it left behind is a bombardment with no visible SOURCE. Rocks appear
+# somewhere near the top of the frame and fall, which is the least magical way it
+# is possible to stage a summon, and the capture of the charge beat showed
+# literally nothing overhead but seven stray ignition ticks floating in a void.
+#
+# The gate comes back — but it is not the old shared object:
+#   * IT IS CLAMPED INTO FRAME (`_clamp_into_view`). The old sigil hung at
+#     SKY_HEIGHT (360 px) over a floor-level footprint, and the base viewport is
+#     640x360, so on a camera sitting anywhere near the floor the circle was
+#     simply ABOVE THE TOP OF THE SCREEN. A circle you cannot see is not a circle.
+#   * THE METEORS ARE BORN ON IT (`_gate_mouth`). The shower comes out of the
+#     ritual instead of out of the bezel, and each rock gets a birth bloom at the
+#     mouth (`_draw_birth_bloom`) so you SEE it emerge.
+#   * ITS COMPOSITION IS PER-FAMILY — one wide gate for fire's sweeping front,
+#     three small holes for earth's avalanche — so the opening beat still says
+#     which spell this is at a glance, which is what the deletion was protecting.
+#
+# ⚠ THE GATE IS SCENERY. It deals no damage, and it does not touch `_spread`, so
+# the drawn danger footprint and the rolled impact points are the same numbers
+# they were before this block existed (pinned by tools/slice_test_meteor_gate.gd).
+# Nor does it move any timing: CHARGE_TIME, the per-meteor delays and `_fall_time`
+# are untouched, so every dodge budget is exactly what it was.
+#
+## Gate centre height above the footprint, BEFORE the in-frame clamp. Lower than
+## SKY_HEIGHT on purpose — the gate is the thing you must actually look at, so it
+## wants to sit inside the frame by construction and rely on the clamp only as a
+## backstop. UNTESTED GUESS.
+const GATE_HEIGHT: float = 236.0
+## Gate radius as a fraction of the footprint half-width, with hard bounds so a
+## tiny-radius spell still gets a legible circle and a huge one does not fill the
+## sky.
+##
+## ⚠ THE MAX IS THE IMPORTANT ONE AND IT WAS MEASURED, NOT GUESSED. The first
+## render of this gate used 178 and the result was a circle whose diameter was
+## most of the arena view: it hung down over the player, the impact footprint and
+## the falling rocks all at once, so the fix for "I can't see the circle" briefly
+## became "I can't see anything else". A gate has to be big enough to read as a
+## ritual and small enough that the fight still happens underneath it.
+const GATE_RADIUS_FACTOR: float = 0.52
+const GATE_RADIUS_MIN: float = 46.0
+const GATE_RADIUS_MAX: float = 104.0
+## Clearance kept between the gate's rim and the edge of the visible frame.
+## UNTESTED GUESS.
+const GATE_MARGIN: float = 12.0
+## The clamp may never drag the gate closer than this to the ground it feeds —
+## otherwise a very short camera view would slide the summoning circle down onto
+## the player's head. When the view is too short to satisfy both, THIS wins and
+## the gate is allowed to ride partly off the top: a circle overlapping the
+## fight would be worse than a circle half in frame. UNTESTED GUESS.
+const GATE_MIN_LIFT: float = 178.0
+## EARTH opens several small holes instead of one wide gate — the avalanche drops
+## out of a cracked ceiling, not a portal. Composition, not colour, is what keeps
+## it from reading as a recoloured fire storm. UNTESTED GUESS.
+const GATE_COUNT_EARTH: int = 3
+const GATE_RADIUS_FACTOR_EARTH: float = 1.7
+## Spacing between multiple gates, measured IN GATE RADII rather than in px or in
+## fractions of the footprint. Earth's footprint is deliberately narrow
+## (SPREAD_EARTH 0.55), so a footprint-relative spacing put its three holes on top
+## of each other and they read as one lumpy circle. > 2.0 guarantees clear air
+## between the rims. UNTESTED GUESS.
+const GATE_SEPARATION: float = 2.35
+## Fraction of the gate's own radius that meteors are born within, so ten rocks
+## do not all leave from one pixel at the centre. UNTESTED GUESS.
+const GATE_MOUTH_SPREAD: float = 0.74
+## How long a meteor's birth bloom burns at the gate mouth after it launches.
+## Short — it is a "something came through" pop, not a second telegraph.
+## UNTESTED GUESS.
+const GATE_BIRTH_FLASH: float = 0.17
+## How long the gate takes to bloom shut once the last rock is through.
+## UNTESTED GUESS.
+const GATE_CLOSE_TIME: float = 0.32
+## Radius of the halo the birth bloom flares to, in px. UNTESTED GUESS.
+const BIRTH_BLOOM_RADIUS: float = 27.0
 const DEFAULT_RADIUS: float = 135.0
 const DEFAULT_DAMAGE: int = 22     # per meteor — many meteors overlap
 const DEFAULT_COUNT: int = 10
 const METEOR_IMPACT_RADIUS: float = 48.0
 const KNOCKBACK: float = 240.0
 const SLANT: Vector2 = Vector2(110.0, 0.0)  # fire meteors streak in from the upper-right
-## VISUAL-ONLY: sky sigil circle size relative to the AoE `radius` passed to
-## rain(). Does NOT feed damage — targets_in_radius()/_land() always use
-## METEOR_IMPACT_RADIUS (per-meteor) for the actual hit query.
-const SIGIL_VISUAL_RADIUS_FACTOR: float = 1.1
+## (SIGIL_VISUAL_RADIUS_FACTOR removed with the sky sigil — see `rain()`.)
 ## The arena is SIDE-VIEW: the AoE `radius` is a ground FOOTPRINT, so impact
 ## points scatter across a y-squashed ellipse hugging the floor plane. A full
 ## disc put ~half the strikes (and their telegraphs) in empty sky, which
 ## destroyed the "this is where it lands" read and wasted damage on air.
 const GROUND_SCATTER: Vector2 = Vector2(1.0, 0.35)
+
+# ── PER-FAMILY SHAPE: why fire, earth and shadow are no longer recolours ─────
+# The maker's verdict, mid-playtest: "most ults look the same — just are
+# recolours or retypes of the same meteor type of thing." It was correct, and the
+# proof was brutal: rendered side by side, the fire / earth / shadow arms of this
+# file produced the SAME image with the hue rotated — an identical hexagram sigil
+# at an identical size in an identical place, over an identical tight cluster of
+# staggered impacts. Colour was doing 100% of the differentiation.
+#
+# Two structural causes, both fixed here:
+#   1. THE SHARED SKY SIGIL. It was the biggest, brightest object on screen, it
+#      was the same for every family, and it appeared during the beat the player
+#      has longest to look at it. It is GONE (see `rain()`); each family now
+#      opens with its own tell in its own visual language.
+#   2. IDENTICAL SPREAD AND RHYTHM. Every family scattered over the same ellipse
+#      across the same 1.15 s. The constants below give each one a different
+#      FOOTPRINT SHAPE and a different TIMING ENVELOPE, which is what the eye
+#      actually reads at a glance:
+#
+#   FIRE   — THE BOMBARDMENT. A wide front sweeping ACROSS the screen on the
+#            entry diagonal, right to left, over the longest window. Rhythm.
+#   EARTH  — THE AVALANCHE. A tight cluster of dead weight arriving almost
+#            TOGETHER in one concentrated multi-thump. Mass.
+#   SHADOW — THE UNMAKING. No sky and no falling object at all: tears open low,
+#            the screen DIMS instead of brightening, everything is pulled inward.
+#            Negative space (the lesson from HollowPurple).
+#
+# All three UNTESTED GUESSES — they are shape and feel, which only F5 can judge.
+## Horizontal spread multipliers on the `radius` footprint, per family.
+const SPREAD_FIRE: float = 1.7      # a broad front, not a puddle
+const SPREAD_EARTH: float = 0.55    # concentrated mass
+const SPREAD_SHADOW: float = 1.0
+## Window the strikes are spread across, per family. Fire is a long rhythm; earth
+## is nearly simultaneous; shadow sits between, with most of its time spent
+## opening rather than falling.
+const BARRAGE_TIME_EARTH: float = 0.34
+const BARRAGE_TIME_SHADOW: float = 0.75
+## Fire sweeps along its entry diagonal instead of popping at random: impacts are
+## ordered by x so the eye TRACKS a wave crossing the ground. Ordering an existing
+## barrage costs nothing and is the single biggest readability win in this file.
+const SWEEP_JITTER: float = 0.10    # fraction of the window left random, so the
+                                    # sweep still feels like weather, not a comb
+## SHADOW's dimming veil — the anti-explosion. Alpha it reaches at full collapse.
+##
+## ⚠ THE TENSION IN THIS NUMBER, since it will want tuning on the first playtest:
+## the veil sits on a CanvasLayer ABOVE the world, so it dims the void spectacle
+## by exactly as much as it dims everything else. Too high and the spell hides
+## its own payoff; too low and "the lights went out" stops reading. 0.42 was
+## picked by rendering it: at 0.55 the implosion rings were being swallowed. Raise
+## it only alongside a brightness lift on the violet elements. UNTESTED GUESS.
+const VOID_VEIL_ALPHA: float = 0.42
+const VOID_VEIL_TINT: Color = Color(0.02, 0.0, 0.04, 0.0)
 ## Ground-plane squash for every per-impact marker (matches the 0.4–0.5 used
 ## by the charge telegraphs / decals) — markers are floor shading, never HUD.
 const MARKER_SQUASH: Vector2 = Vector2(1.0, 0.45)
@@ -76,11 +216,39 @@ var _radius: float = DEFAULT_RADIUS
 var _damage: int = DEFAULT_DAMAGE
 var _effect: String = "fire"
 var _elapsed: float = -1.0
-var _circle: MagicCircle = null
-var _circle_dismissed: bool = false
 var _meteors: Array = []  # each: {delay, from, to, landed, seed, spin, verts}
+## The scatter half-extents actually used, in world px. Kept as state (rather than
+## recomputed) because the CHARGE TELEGRAPH has to be drawn at exactly the same
+## extent the strikes are rolled within — a per-family spread multiplier that fed
+## the scatter but not the tell would be a fresh "the spell got out of its drawn
+## radius" bug, which is the thing this pass exists to stop.
+var _spread: Vector2 = Vector2.ZERO
+## SHADOW only: the full-screen dimmer (see VOID_VEIL_ALPHA).
+var _veil: ColorRect = null
 ## Elemental ailment (Elements.Element) applied to enemies a meteor hits. -1=none.
 var element_id: int = -1
+## One impact frame per BARRAGE, not per impact. See `_punctuate_once` — this
+## single bool is the difference between one beat and a dozen-frame strobe.
+var _punctuated: bool = false
+## WHO CAST THIS. Written by `SpellCaster._stamp` — and until now it was written
+## into thin air: `Object.set()` on a property a script does not declare is a
+## silent no-op, so this spectacle has always been handed its caster and always
+## dropped it on the floor. Declaring it is what lets the sky gate ADOPT the
+## caster's live windup sigil (MagicCircle.offer/adopt_or_open) instead of opening
+## a second one — i.e. what makes the cast one continuous ritual that visibly
+## rises from the hand into the sky, rather than two circles in a row.
+var caster_node: Node = null
+## The summoning gate(s) the bombardment falls out of. Empty for SHADOW, which
+## has no sky beat by design (see `_open_gates`).
+var _gates: Array[MagicCircle] = []
+## Gate centres in WORLD space, post-clamp. Kept separate from `_gates` because
+## `_spawn_point` and `_draw` need the geometry every frame and must not care
+## whether a circle node is still alive.
+var _gate_points: PackedVector2Array = PackedVector2Array()
+## The radius every gate opened at — one number, so the mouth the rocks are born
+## in can never drift away from the circle that is drawn.
+var _gate_radius: float = 0.0
+var _gates_dismissed: bool = false
 
 
 ## Public entry: open a sigil over `target` and rain `count` meteors within
@@ -91,24 +259,39 @@ func rain(
 	damage: int = DEFAULT_DAMAGE, count: int = DEFAULT_COUNT,
 	effect: String = "fire",
 ) -> void:
+	# FROST FORK (maker, mid-playtest: the ice bombardment "reads as more an AoE
+	# spell ... let's change it so it's not just a random zone of frost"). Ice no
+	# longer falls from the sky — it comes UP out of the floor at the aimed point
+	# and spreads outward, so it is dodged by JUMPING rather than by standing
+	# somewhere else. Handled here rather than as a new SpellDef.Kind because the
+	# Kind->spectacle dispatch table (SpellCaster.gd) is owned elsewhere, and the
+	# METEOR arm already hands us exactly what the crest needs: the ground point
+	# the player AIMED at, clamped to reach. Fire / earth / shadow fall through
+	# untouched and stay bombardments.
+	if effect == "frost":
+		_hand_off_to_spike_line(target, color, radius, damage)
+		return
 	_center = target
 	_color = color
 	_radius = radius
 	_damage = damage
 	_effect = effect
 	_elapsed = 0.0
-	_circle = MagicCircle.new()
-	add_child(_circle)
-	_circle.global_position = _center - Vector2(0.0, SKY_HEIGHT)
-	_circle.appear(_color, radius * SIGIL_VISUAL_RADIUS_FACTOR, CHARGE_TIME * 0.85)
+	_spread = GROUND_SCATTER * radius
+	_spread.x *= _spread_factor()
+	# THE GATE OPENS FIRST, and the order is load-bearing: `_spawn_point` births
+	# every rock on a gate mouth, so the gates have to exist before the roll loop.
+	# (The old code needed no ordering because rocks spawned at a blind offset off
+	# the top of the frame — which is exactly the bug.)
+	_open_gates()
 	for i: int in count:
 		var ang: float = randf() * TAU
-		var dist: float = sqrt(randf()) * radius  # sqrt -> uniform over the disc
-		# GROUND_SCATTER pins the whole shower to the floor band (see const WHY).
-		var to: Vector2 = _center + Vector2.from_angle(ang) * dist * GROUND_SCATTER
-		var delay: float = (float(i) / float(count)) * BARRAGE_TIME + randf_range(0.0, 0.06)
+		var unit: float = sqrt(randf())  # sqrt -> uniform over the disc
+		# The scatter uses _spread, and so does the telegraph — one number, so the
+		# drawn danger area and the rolled impact area can never drift apart.
+		var to: Vector2 = _center + Vector2.from_angle(ang) * unit * _spread
 		var m: Dictionary = {
-			"delay": delay, "from": _spawn_point(to), "to": to, "landed": false,
+			"delay": 0.0, "from": _spawn_point(to), "to": to, "landed": false,
 			"seed": randf() * TAU, "spin": randf_range(-2.2, 2.2),
 			"verts": PackedVector2Array(),
 		}
@@ -121,23 +304,242 @@ func rain(
 				m["verts"] = _bake_rock(17.0, 0.4)
 				m["spin"] = randf_range(-3.4, 3.4)  # boulders tumble harder
 		_meteors.append(m)
-	Sfx.play("charge_up", -2.0, 0.05)  # sigil opens — epic build before the barrage
+	_schedule_barrage()
+	if _effect == "shadow":
+		_build_veil()
+		# NO rising chord. The Unmaking's tell is the light going out; a build-up
+		# sting would make it read as another firework winding up.
+		Sfx.play("charge_up", -12.0, 0.05, 0.55)  # pitched far down, almost subsonic
+	else:
+		Sfx.play("charge_up", -2.0, 0.05)  # epic build before the barrage
 	queue_redraw()
 
 
-## Where this element's falling object enters from. Fire keeps the classic
-## upper-right slant (a shower streaking in); frost/earth drop near-vertically
-## (spears and dead weight); shadow tears open LOW — nothing falls from the sky.
+## Horizontal spread multiplier — the footprint SHAPE that separates the families
+## at a glance (a wide front vs a concentrated pile). See the PER-FAMILY block.
+func _spread_factor() -> float:
+	match _effect:
+		"fire":
+			return SPREAD_FIRE
+		"earth":
+			return SPREAD_EARTH
+		"shadow":
+			return SPREAD_SHADOW
+		_:
+			return 1.0
+
+
+## Window the strikes are spread across. The TIMING ENVELOPE is half of each
+## family's identity: two spells with the same envelope feel the same even when
+## they look different, which is exactly how these three ended up interchangeable.
+func _barrage_time() -> float:
+	match _effect:
+		"earth":
+			return BARRAGE_TIME_EARTH
+		"shadow":
+			return BARRAGE_TIME_SHADOW
+		_:
+			return BARRAGE_TIME
+
+
+## Assign each strike its delay.
+##
+## FIRE SWEEPS: impacts are ordered along the entry diagonal (right to left, since
+## SLANT brings the meteors in from the upper right) so the barrage reads as one
+## wave crossing the ground rather than as popcorn. Only SWEEP_JITTER of the
+## window is left random, which keeps it weather rather than a metronome.
+##
+## EARTH and SHADOW keep an unordered scatter: a tight simultaneous slam has no
+## direction to sweep along, and giving it one would just make it a faster fire.
+func _schedule_barrage() -> void:
+	var window: float = _barrage_time()
+	var n: int = _meteors.size()
+	if n == 0:
+		return
+	if _effect == "fire":
+		# Descending x — the wave starts where the meteors come FROM.
+		_meteors.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+			return (a["to"] as Vector2).x > (b["to"] as Vector2).x
+		)
+	for i: int in n:
+		var base: float = (float(i) / float(n)) * window
+		_meteors[i]["delay"] = base + randf_range(0.0, window * SWEEP_JITTER)
+
+
+## SHADOW's dimmer. A CanvasLayer above the world but below the post-process
+## grade, mirroring HollowPurple's veil — the one spell in the game whose payoff
+## is the screen getting DARKER. Everything else in the kit competes to be the
+## brightest thing on screen, so going the other way is instantly identifiable.
+func _build_veil() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 7  # above the world, below the post-process grade (8) and HUD
+	add_child(layer)
+	_veil = ColorRect.new()
+	_veil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_veil.color = VOID_VEIL_TINT
+	layer.add_child(_veil)
+
+
+## Swap ourselves out for the ice crest. The line is parented to the ARENA
+## (get_parent()), never to this node, because we free ourselves immediately —
+## it has to outlive the sigil that never opened. `_elapsed` is left at -1.0 so
+## _process/_draw stay inert for the frame or two before the free lands.
+##
+## Every real caller add_child()s this node before calling rain(), so get_parent()
+## is the arena; a caller that hasn't is a no-op cast rather than a crash.
+func _hand_off_to_spike_line(
+	target: Vector2, color: Color, half_length: float, damage: int
+) -> void:
+	var host: Node = get_parent()
+	if host == null or not host.is_inside_tree():
+		return
+	var line: Node2D = (load(SPIKE_LINE_PATH) as GDScript).new()
+	host.add_child(line)
+	# Both are set on US before rain() is called (SpellCaster sets element_id,
+	# Boss sets target_group), so they carry straight across.
+	line.set("element_id", element_id)
+	line.set("target_group", target_group)
+	line.call("erupt", target, color, half_length, damage, "frost")
+	queue_free()
+
+
+## Open the summoning gate(s) this bombardment falls out of. See the SKY GATE
+## block at the top for why this exists at all.
+##
+## SHADOW IS DELIBERATELY EXCLUDED and that is not an oversight: The Unmaking is
+## the one family in this file that is NOT a bombardment. Nothing falls, so there
+## is nothing for a gate to be the source of, and its identity (see the PER-FAMILY
+## SHAPE block) is precisely that the sky stays empty while the lights go out.
+## Hanging a bright circle over it would delete the one ult that reads by absence.
+func _open_gates() -> void:
+	if _effect == "shadow":
+		return
+	var n: int = GATE_COUNT_EARTH if _effect == "earth" else 1
+	var factor: float = GATE_RADIUS_FACTOR_EARTH if _effect == "earth" else GATE_RADIUS_FACTOR
+	# Divided by the gate count so three holes span roughly the same ceiling one
+	# wide gate would, rather than three overlapping full-size circles.
+	_gate_radius = clampf(_spread.x * factor / float(n), GATE_RADIUS_MIN, GATE_RADIUS_MAX)
+	var view: Rect2 = _visible_world_rect()
+	var col: Color = _gate_color()
+	for i: int in n:
+		# Single gate sits over the middle of the footprint; multiple gates step
+		# outward from it in GATE RADII (see that constant) so the avalanche
+		# visibly drops from several separate cracks at once.
+		var fx: float = 0.0 if n == 1 else (float(i) - float(n - 1) * 0.5)
+		var want := Vector2(
+			_center.x + fx * _gate_radius * GATE_SEPARATION, _center.y - GATE_HEIGHT)
+		var at: Vector2 = _clamp_into_view(want, _gate_radius, view)
+		_gate_points.append(at)
+		var circle: MagicCircle
+		if i == 0:
+			# THE HAND-OFF (see MagicCircle's seam doc): if the caster has a live
+			# windup sigil on offer, this ADOPTS it — the circle the player watched
+			# gather in the hand travels up and becomes the gate, spin and phase
+			# unbroken. With nothing on offer (enemy casts, boss casts, capture
+			# tools) it opens a fresh one and nothing else changes.
+			circle = MagicCircle.adopt_or_open(
+				self, caster_node, at, col, _gate_radius, CHARGE_TIME * 0.85)
+		else:
+			circle = MagicCircle.new()
+			add_child(circle)
+			circle.global_position = at
+			circle.appear(col, _gate_radius, CHARGE_TIME * 0.85)
+		# BEHIND this node's own drawing. A child CanvasItem draws AFTER its
+		# parent by default, which put the sigil ON TOP of the rocks — the first
+		# render had meteors disappearing INSIDE the circle they were supposedly
+		# coming out of, which is the opposite of the read this whole change is
+		# for. z_as_relative is on by default, so -1 is "just behind my parent".
+		circle.z_index = -1
+		_gates.append(circle)
+
+
+## The gate's own colour. Fire's gate is a hot portal; earth's is a rune-lit
+## crack in dusty stone, NOT a flare — the family's tell is still "no light of its
+## own", it just now has a visible mouth. Everything else inherits the spell tint.
+func _gate_color() -> Color:
+	match _effect:
+		"fire":
+			return Color(1.15, 0.5, 0.16)
+		"earth":
+			return Color(0.86, 0.62, 0.32)
+	return _color
+
+
+## The world rectangle the camera can actually see, or a zero Rect2 when there is
+## no viewport (headless helper callers) — in which case the clamp is skipped and
+## the gate keeps its unclamped placement.
+##
+## ⚠ Read at CAST time, which is BEFORE SpellCaster's `zoom_pull_camera` has
+## widened the view. That is the safe direction to be wrong in: clamping against
+## the TIGHTER pre-pull rect can only ever put the gate further inside the frame
+## the player ends up looking at.
+func _visible_world_rect() -> Rect2:
+	var vp: Viewport = get_viewport()
+	if vp == null:
+		return Rect2()
+	var inv: Transform2D = vp.get_canvas_transform().affine_inverse()
+	return Rect2(inv * Vector2.ZERO, inv.basis_xform(vp.get_visible_rect().size))
+
+
+## Drag a gate centre far enough inside `view` that its whole disc is on screen.
+## This is the function that answers the maker's complaint literally.
+func _clamp_into_view(want: Vector2, r: float, view: Rect2) -> Vector2:
+	if view.size.x <= 0.0 or view.size.y <= 0.0:
+		return want
+	var pad: float = r + GATE_MARGIN
+	var out: Vector2 = want
+	# Down into frame from the top...
+	out.y = maxf(out.y, view.position.y + pad)
+	# ...but never down onto the fight (GATE_MIN_LIFT's note explains which of the
+	# two constraints wins when the view is too short to honour both).
+	out.y = minf(out.y, _center.y - GATE_MIN_LIFT)
+	out.x = clampf(out.x, view.position.x + pad, view.end.x - pad)
+	return out
+
+
+## Where this element's falling object enters from. Fire / earth / generic are now
+## BORN ON A GATE (that is the whole point of the sky gate). Frost keeps its
+## vertical drop for the hand-driven callers that still reach the old spear draw,
+## and shadow tears open LOW — nothing falls from the sky for it at all.
 func _spawn_point(to: Vector2) -> Vector2:
 	match _effect:
 		"frost":
 			return to + Vector2(randf_range(-10.0, 10.0), -SKY_HEIGHT)
-		"earth":
-			return to + Vector2(randf_range(-18.0, 18.0) + 26.0, -SKY_HEIGHT)
 		"shadow":
 			return to + Vector2(0.0, -RIFT_HEIGHT)
-		_:
-			return to + SLANT + Vector2(0.0, -SKY_HEIGHT)
+	return _gate_mouth(to)
+
+
+## A random point in the mouth of one of the gates.
+##
+## ⚠ THE GATE IS PICKED AT RANDOM, NOT BY PROXIMITY, and the render is why. The
+## obvious rule — "fall out of the hole above your mark" — silently collapses when
+## the gate spacing is wider than the footprint, which is exactly EARTH's case
+## (SPREAD_EARTH narrows the footprint to ~74 px while GATE_SEPARATION puts the
+## holes ~108 px apart). Every boulder then picked the centre hole and the two
+## outer ones sat there decoratively doing nothing. A random hole spreads the
+## avalanche across all three and the converging diagonals read better anyway.
+##
+## Falls back to the old blind off-screen offset if no gate opened, so a
+## hand-driven caller that skipped `_open_gates` still gets a falling object.
+func _gate_mouth(to: Vector2) -> Vector2:
+	if _gate_points.is_empty():
+		return to + SLANT + Vector2(0.0, -SKY_HEIGHT)
+	var best: Vector2 = _gate_points[randi() % _gate_points.size()]
+	var ang: float = randf() * TAU
+	var reach: float = sqrt(randf()) * _gate_radius * GATE_MOUTH_SPREAD
+	return best + Vector2.from_angle(ang) * reach
+
+
+## Bloom the gates shut once the last rock is through. Called from `_process`.
+func _dismiss_gates() -> void:
+	if _gates_dismissed:
+		return
+	_gates_dismissed = true
+	for g: MagicCircle in _gates:
+		if is_instance_valid(g):
+			g.vanish(GATE_CLOSE_TIME)
 
 
 ## Per-element descent duration (see the constants' WHY note).
@@ -165,16 +567,35 @@ func _process(delta: float) -> void:
 	for m: Dictionary in _meteors:
 		if not m["landed"] and _elapsed >= CHARGE_TIME + float(m["delay"]) + _fall_time():
 			_land(m)
-	# Dissolve the sky sigil once the barrage has all launched (matches the
-	# graceful vanish beam/ray get, instead of popping when we free).
-	if not _circle_dismissed and _elapsed >= CHARGE_TIME + BARRAGE_TIME:
-		_circle_dismissed = true
-		if _circle != null and is_instance_valid(_circle):
-			_circle.vanish(_fall_time() + FADE_TIME)
-	if _elapsed >= CHARGE_TIME + BARRAGE_TIME + _fall_time() + FADE_TIME:
+	_update_veil()
+	# The gate closes when the last rock is through it, NOT when this node dies —
+	# so the circle blooms shut while the shower is still landing, which is the
+	# order the ritual reads in. (The bloom finishes well inside the node's own
+	# remaining lifetime: `_fall_time` alone is >= 0.4 s against GATE_CLOSE_TIME.)
+	if _elapsed >= CHARGE_TIME + _barrage_time():
+		_dismiss_gates()
+	if _elapsed >= CHARGE_TIME + _barrage_time() + _fall_time() + FADE_TIME:
 		queue_free()
 		return
 	queue_redraw()
+
+
+## SHADOW only: the screen darkens through the charge, sits at its darkest across
+## the collapse, and lifts over the fade. The darkness IS the spectacle — it is
+## what makes The Unmaking legible as a different KIND of event from a spell that
+## drops burning rocks, even with the colour drained out of both.
+func _update_veil() -> void:
+	if _veil == null:
+		return
+	var lift_at: float = CHARGE_TIME + _barrage_time() + _fall_time()
+	var a: float
+	if _elapsed < CHARGE_TIME:
+		a = VOID_VEIL_ALPHA * (_elapsed / CHARGE_TIME)
+	elif _elapsed < lift_at:
+		a = VOID_VEIL_ALPHA
+	else:
+		a = VOID_VEIL_ALPHA * clampf(1.0 - (_elapsed - lift_at) / maxf(FADE_TIME, 0.001), 0.0, 1.0)
+	_veil.color = Color(VOID_VEIL_TINT.r, VOID_VEIL_TINT.g, VOID_VEIL_TINT.b, a)
 
 
 ## One strike lands: radius damage + status (shared contract), then the
@@ -182,6 +603,22 @@ func _process(delta: float) -> void:
 ## (get_parent()), never self — they must outlive this spectacle node.
 func _land(m: Dictionary) -> void:
 	m["landed"] = true
+	# THE FLOOR FIX (docs/spell-world-contract.md names this file as the canonical
+	# offender). The impact point was a raw scatter roll, and a scatter roll lands
+	# in mid-air or below the world about as often as it lands on the ground — so
+	# strikes were detonating inside and underneath the floor. Resolve the y
+	# against the floor BENEATH the roll instead, and over a genuine pit skip the
+	# strike entirely rather than dropping it into the void.
+	#
+	# SHADOW is exempt: its tears open in the AIR at RIFT_HEIGHT by design, and
+	# snapping them to the floor would delete the one family that is not a
+	# bombardment at all.
+	if _effect != "shadow":
+		var ground: Dictionary = SpellWorld.floor_below(m["to"] as Vector2, SKY_HEIGHT * 1.5, [], self)
+		if not bool(ground["hit"]):
+			return
+		# Write it back so the in-flight draw ends exactly where the impact is.
+		m["to"] = ground["position"]
 	var at: Vector2 = m["to"]
 	_apply_damage(at)
 	match _effect:
@@ -195,13 +632,50 @@ func _land(m: Dictionary) -> void:
 			_land_shadow(at)
 		_:
 			_land_generic(at)
+	_punctuate_once(at)
+
+
+## ONE punctuation beat for the WHOLE barrage, fired on the first strike that
+## actually lands, and never again from this sigil.
+##
+## ⚠ THIS FUNCTION EXISTS BECAUSE OF THE SCAR RECORDED IN `_land_earth`. A
+## barrage puts up to a dozen impacts inside ~0.34 s. A per-impact frame is the
+## obvious thing to write and it is wrong twice over: the marks would strobe, and
+## the freeze each one carries would drop `Engine.time_scale` to 0.05 while the
+## REMAINING boulders are still scheduled in GAME time — every freeze pushing the
+## next landing further out in real time and re-triggering another freeze, which
+## locks the game in stuttering slow motion for seconds.
+##
+## The global arbiter would refuse the extra marks anyway (that is its job, and
+## Juice.frame fires nothing at all when it refuses, freeze included), but
+## relying on the referee to clean up after a call site that asks for twelve
+## frames is not the same as a call site that asks for one. Both guards, on
+## purpose: this flag is the intent, the arbiter is the safety net.
+##
+## The FIRST impact is deliberately the one that gets it rather than the last:
+## the barrage's drama is the arrival, and a mark on the final trailing rock
+## lands after the player has already read the event.
+func _punctuate_once(at: Vector2) -> void:
+	if _punctuated:
+		return
+	_punctuated = true
+	# Camera + freeze suppressed. The per-impact shakes and ripples stack into the
+	# sustained pounding that IS this spell's grammar; a frame-owned freeze on top
+	# is the trap above.
+	Juice.tier_frame(SpellTier.Tier.ULT, at, element_id,
+		{"zoom": 0.0, "shake": 0.0, "shock": 0.0, "hitstop": 0.0})
 
 
 ## Shared damage/status contract for every element; only the knockback
 ## CHARACTER differs — fire blasts away, frost pins (soft push), earth slams
 ## hardest, shadow PULLS INWARD (the implosion made mechanical).
 func _apply_damage(at: Vector2) -> void:
-	for enemy: Node in targets_in_radius(at, METEOR_IMPACT_RADIUS, get_tree().get_nodes_in_group(target_group)):
+	# Silhouette-aware + line-of-sight selection (see `targets_in_radius` below for
+	# why the static stayed). Cover blocks the blast: a meteor landing on the far
+	# side of a wall no longer reaches through it, and a strike no longer damages
+	# METEOR_IMPACT_RADIUS straight down through the floor.
+	for enemy: Node in SpellTargets.in_radius(
+			at, METEOR_IMPACT_RADIUS, get_tree().get_nodes_in_group(target_group), [], self):
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(_damage)
 		if element_id >= 0 and enemy.has_method("apply_status"):
@@ -219,7 +693,8 @@ func _apply_damage(at: Vector2) -> void:
 					enemy.apply_knockback(out * 300.0)   # the heaviest thump
 				_:
 					enemy.apply_knockback(out * KNOCKBACK)
-	for prop: Node in targets_in_radius(at, METEOR_IMPACT_RADIUS, get_tree().get_nodes_in_group("destructible")):
+	for prop: Node in SpellTargets.in_radius(
+			at, METEOR_IMPACT_RADIUS, get_tree().get_nodes_in_group("destructible"), [], self):
 		if prop.has_method("take_damage"):
 			prop.take_damage(_damage)
 
@@ -237,7 +712,14 @@ func _land_fire(at: Vector2) -> void:
 		Color(0.08, 0.03, 0.02, 0.6), 8.0)
 	EmberPool.spawn(get_parent(), at, METEOR_IMPACT_RADIUS * 0.6)
 	GroundCrater.spawn(get_parent(), at, METEOR_IMPACT_RADIUS * 0.55, true)
-	Juice.shake_camera(5.0)
+	# FIRE's screen grammar: HEAT. Every strike pulses the heat-haze in the grade,
+	# so a long bombardment visibly cooks the whole picture — a cumulative, rising
+	# effect no other spell in the kit produces. Shake stays small on purpose: this
+	# family's weight comes from RHYTHM (many light beats) where earth's comes from
+	# MASS (one heavy one), and giving both a big thump is how they became the
+	# same spell with different colours.
+	PostProcess.pulse_heat(0.5)
+	Juice.shake_camera(4.5)
 	Sfx.play("spell_impact", 0.0, 0.08)
 
 
@@ -279,7 +761,19 @@ func _land_earth(at: Vector2) -> void:
 	ScorchDecal.spawn(get_parent(), at, METEOR_IMPACT_RADIUS * 0.7, "crack",
 		Color(0.6, 0.45, 0.28, 0.5), 6.0)
 	GroundCrater.spawn(get_parent(), at, METEOR_IMPACT_RADIUS * 0.8, true)
-	Juice.shake_camera(7.5)
+	# EARTH's screen grammar: MASS. Because BARRAGE_TIME_EARTH lands the whole
+	# cluster in ~0.34 s, these stack into one sustained pounding rather than a
+	# rhythm — which is exactly the read the avalanche wants and the opposite of
+	# fire's long simmer. No heat pulse, no zoom: just weight arriving.
+	#
+	# ⚠ AND DELIBERATELY NO `hit_stop`. It is the obvious way to sell weight and it
+	# is a trap HERE: `hit_stop` drops `Engine.time_scale` to 0.05, the remaining
+	# boulders are scheduled in GAME time, so each freeze pushes the next landing
+	# further out in REAL time and re-triggers another freeze. A dozen strikes in a
+	# 0.34 s cluster would lock the game in stuttering slow motion for seconds.
+	# Weight here comes from shakes and ripples STACKING, which compose safely.
+	Juice.shake_camera(11.0)
+	PostProcess.shock(0.35, Juice.world_to_uv(at))
 	Sfx.play("spell_impact", 2.0, 0.05, 0.7)  # pitched DOWN — dead weight, not energy
 
 
@@ -292,8 +786,14 @@ func _land_shadow(at: Vector2) -> void:
 	VoidImplosion.spawn(get_parent(), at, METEOR_IMPACT_RADIUS)
 	ScorchDecal.spawn(get_parent(), at, METEOR_IMPACT_RADIUS * 0.55, "scorch",
 		Color(0.08, 0.03, 0.14, 0.5), 5.0)
-	Juice.shake_camera(4.5)
-	Sfx.play("spell_impact", -1.0, 0.06, 0.8)
+	# SHADOW's screen grammar: STILLNESS. Almost no shake, no ripple, no heat, no
+	# hit-stop. The game is loud constantly, so an ult that takes the light away
+	# and then barely moves the camera is the loudest contrast available and costs
+	# nothing (the lesson HollowPurple's silent HELD beat proved). The veil is
+	# doing the work; adding a thump here would drag it back toward being a
+	# purple explosion.
+	Juice.shake_camera(1.5)
+	Sfx.play("spell_impact", -3.0, 0.06, 0.62)  # pitched down, quiet — a swallow
 
 
 ## Fallback impact for non-bespoke effects (arcane/holy/lightning/wind/etc):
@@ -342,12 +842,17 @@ func _impact_burst(at: Vector2) -> void:
 
 
 ## Pure geometry (testable): nodes within `radius` of `center`.
+##
+## Kept as a static so `slice4_test_spells` can pin the per-meteor boundary
+## without a physics world, but the body now delegates to the shared selector so
+## the game has ONE definition of "inside the blast" rather than the seven
+## copy-pasted ones this used to be part of. `require_los = false` because this
+## overload asks the pure SHAPE question; `_apply_damage` asks the cover question
+## too. A target with no drawn silhouette (crate, bolt, test stub) falls back to
+## exactly the `global_position` distance test that used to be written out here,
+## so the pinned boundary is byte-identical.
 static func targets_in_radius(center: Vector2, radius: float, nodes: Array) -> Array:
-	var out: Array = []
-	for n: Node in nodes:
-		if n is Node2D and center.distance_to((n as Node2D).global_position) <= radius:
-			out.append(n)
-	return out
+	return SpellTargets.in_radius(center, radius, nodes, [], null, false)
 
 
 ## Bake one irregular rock silhouette (7 verts) — fire meteor / earth boulder.
@@ -378,6 +883,12 @@ func _draw() -> void:
 			_draw_impact_marker(m, clampf((_elapsed - mark_t) / maxf(land_t - mark_t, 0.001), 0.0, 1.0))
 		if _elapsed < launch_t:
 			continue
+		# THE EMERGENCE. A rock that merely exists at the gate's centre on frame
+		# one has not come THROUGH anything — the eye needs the mouth to flare as
+		# it passes. Drawn before the object so the object rides out of the flare.
+		var since: float = _elapsed - launch_t
+		if since < GATE_BIRTH_FLASH and not _gate_points.is_empty():
+			_draw_birth_bloom(m["from"] as Vector2, 1.0 - since / GATE_BIRTH_FLASH)
 		var f: float = clampf((_elapsed - launch_t) / _fall_time(), 0.0, 1.0)
 		match _effect:
 			"fire":
@@ -392,34 +903,95 @@ func _draw() -> void:
 				_draw_generic_meteor(m, f)
 
 
-## Area telegraph during the sigil charge — flavoured so the DANGER ZONE itself
-## already reads as the element before anything falls.
+## The flare a rock leaves behind as it comes THROUGH the gate mouth. `k` ramps
+## 1 -> 0 across GATE_BIRTH_FLASH. HDR core so it blooms in the grade.
+func _draw_birth_bloom(at: Vector2, k: float) -> void:
+	var c: Color = _effect_core_color()
+	draw_circle(at, BIRTH_BLOOM_RADIUS * k, Color(c.r, c.g, c.b, 0.26 * k), true, -1.0, true)
+	draw_circle(at, BIRTH_BLOOM_RADIUS * 0.42 * k, Color(c.r, c.g, c.b, 0.8 * k), true, -1.0, true)
+	# An expanding rim: the ripple in the gate's surface the object punched through.
+	draw_arc(at, BIRTH_BLOOM_RADIUS * (1.35 - k), 0.0, TAU, 26,
+		Color(c.r, c.g, c.b, 0.45 * k), 2.0, true)
+
+
+## THE OPENING TELL — one per family, in three different visual languages.
+##
+## This function used to be the clearest evidence for the maker's verdict: every
+## family drew the same one-or-two concentric rings, recoloured. Under a big
+## shared sigil, that meant the first half-second of a fire storm, an earth storm
+## and a void storm were the same picture. Each family now gets a tell built from
+## a different PRIMITIVE — a burning horizon, an absence of light, a set of
+## vertical tears — so the spell is identifiable before anything has landed, and
+## identifiable with the colour drained out.
+##
+## Everything is drawn at `_spread`, the exact half-extents the strikes are rolled
+## within, so the danger area promised by the tell is the danger area used.
 func _draw_charge_telegraph(tp: float) -> void:
-	var r: float = _radius * (0.4 + 0.6 * tp)
+	var ex: float = _spread.x * (0.55 + 0.45 * tp)
+	var ey: float = maxf(_spread.y, 1.0)
+	var squash: float = ey / maxf(_spread.x, 1.0)
 	match _effect:
 		"fire":
+			# THE BURNING HORIZON. A wide, low band of heat lying across the whole
+			# strike front — the shape says "a broad front is coming", which is
+			# what fire's spread actually is. Plus ignition streaks high above,
+			# angled along the entry diagonal, so the DIRECTION is legible early.
 			var flick: float = 0.06 * sin(_elapsed * 24.0)
-			draw_arc(_center, r, 0.0, TAU, 44, Color(1.1, 0.45, 0.12, (0.4 + flick) * tp), 2.5, true)
-			draw_arc(_center, r * 0.82, 0.0, TAU, 40, Color(1.4, 0.7, 0.2, 0.22 * tp), 1.5, true)
+			draw_set_transform(_center, 0.0, Vector2(1.0, squash))
+			draw_circle(Vector2.ZERO, ex, Color(0.9, 0.28, 0.06, (0.10 + 0.12 * tp)), true, -1.0, true)
+			draw_arc(Vector2.ZERO, ex, 0.0, TAU, 56, Color(1.2, 0.5, 0.14, (0.35 + flick) * tp), 2.5, true)
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			# Ignition dripping out of the GATE's rim while it charges, so the
+			# source of the shower is legible before the first rock is through.
+			# These used to hang at a blind -SKY_HEIGHT offset with nothing around
+			# them: the capture of the charge beat showed seven stray red ticks
+			# floating in an empty void, attached to no object at all.
+			if not _gate_points.is_empty():
+				var mouth: Vector2 = _gate_points[0]
+				for k: int in 9:
+					var th: float = float(k) * 2.39 + _elapsed * 1.6
+					var rim: Vector2 = Vector2(cos(th), 0.5 * sin(th)) * _gate_radius * 0.86
+					var drip: float = 26.0 * tp * (0.5 + 0.5 * absf(sin(_elapsed * 6.0 + float(k))))
+					draw_line(mouth + rim, mouth + rim + Vector2(0.0, drip),
+						Color(1.3, 0.6, 0.2, 0.3 * tp), 2.0, true)
 		"frost":
-			draw_arc(_center, r, 0.0, TAU, 44, Color(0.72, 0.92, 1.0, 0.42 * tp), 2.0, true)
-			for k: int in 16:  # crystalline rim ticks — a ring of hoarfrost
-				var dirv: Vector2 = Vector2.from_angle(TAU * float(k) / 16.0)
-				draw_line(_center + dirv * r * 0.94, _center + dirv * (r * 0.94 + 7.0),
-					Color(0.9, 1.0, 1.1, 0.5 * tp), 1.4, true)
+			# UNREACHABLE from rain() since the frost fork (see the top of rain()).
+			# Kept only so a hand-driven caller passing "frost" still draws something.
+			draw_arc(_center, ex, 0.0, TAU, 44, Color(0.72, 0.92, 1.0, 0.42 * tp), 2.0, true)
 		"earth":
-			draw_set_transform(_center, 0.0, Vector2(1.0, 0.5))
-			draw_circle(Vector2.ZERO, r * 0.9, Color(0.5, 0.4, 0.28, 0.16 * tp), true, -1.0, true)
-			draw_arc(Vector2.ZERO, r, 0.0, TAU, 40, Color(0.85, 0.68, 0.44, 0.55 * tp), 3.0, true)
-			draw_arc(Vector2.ZERO, r * 0.8, 0.0, TAU, 36, Color(0.66, 0.52, 0.34, 0.35 * tp), 1.8, true)
+			# THE SHADOW OF THE MASS. Earth's tell emits NO light at all — it is a
+			# darkening on the floor plus a low haze of disturbed dust, tightly
+			# concentrated. An absence where every other tell is a glow, and the
+			# only tell in the kit you read by things getting darker underfoot.
+			draw_set_transform(_center, 0.0, Vector2(1.0, squash))
+			draw_circle(Vector2.ZERO, ex * 1.05, Color(0.05, 0.04, 0.03, 0.10 + 0.30 * tp), true, -1.0, true)
+			draw_circle(Vector2.ZERO, ex * 0.55 * tp, Color(0.03, 0.02, 0.02, 0.35 * tp), true, -1.0, true)
 			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			# Dust lifting off the ground as the pressure wave arrives ahead of the
+			# rock — motion without light.
+			for k: int in 9:
+				var px: float = _center.x + lerpf(-ex, ex, float(k) / 8.0)
+				var lift: float = 14.0 * tp * (0.5 + 0.5 * absf(sin(_elapsed * 5.0 + float(k))))
+				draw_line(
+					Vector2(px, _center.y), Vector2(px, _center.y - lift),
+					Color(0.5, 0.42, 0.3, 0.20 * tp), 1.6, true
+				)
 		"shadow":
-			draw_set_transform(_center, 0.0, Vector2(1.0, 0.45))
-			draw_circle(Vector2.ZERO, r * 0.85, Color(0.05, 0.02, 0.1, 0.2 * tp), true, -1.0, true)
-			draw_arc(Vector2.ZERO, r, 0.0, TAU, 40, Color(0.75, 0.32, 1.15, 0.45 * tp), 2.2, true)
-			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			# THE TEARS. No ground ring, no glow, no falling anything: thin vertical
+			# slits prising open in mid-air at RIFT_HEIGHT while the veil takes the
+			# light out of the room. The eye is pulled UP and into the gaps, which
+			# is the opposite instruction from every other ult in the kit.
+			for k: int in 6:
+				var fx: float = lerpf(-0.85, 0.85, float(k) / 5.0)
+				var p: Vector2 = _center + Vector2(fx * ex, -RIFT_HEIGHT * (0.7 + 0.3 * absf(fx)))
+				var h: float = 34.0 * tp * (0.6 + 0.6 * absf(sin(float(k) * 2.7)))
+				var w: float = 1.0 + 3.0 * tp * tp
+				draw_line(p + Vector2(0.0, -h), p + Vector2(0.0, h),
+					Color(0.02, 0.0, 0.04, 0.85 * tp), w + 3.0, true)
+				draw_line(p + Vector2(0.0, -h), p + Vector2(0.0, h),
+					Color(0.8, 0.35, 1.2, 0.55 * tp), w, true)
 		_:
-			draw_arc(_center, r, 0.0, TAU, 44,
+			draw_arc(_center, ex, 0.0, TAU, 44,
 				Color(_color.r, _color.g, _color.b, 0.45 * tp), 2.5, true)
 
 

@@ -122,10 +122,24 @@ func _die() -> void:
 	if _bphase == BPhase.DEAD:
 		return
 	_bphase = BPhase.DEAD
-	Juice.epic_moment({"strength": 1.4, "frame": true, "shake": 20.0, "sfx": "cannon"})
-	Juice.impact_frame(1.3, global_position)  # localized on the falling boss
+	# THE CLIMAX RUNG. A boss dying is the one moment in a run that earns the most
+	# expensive mark in the vocabulary: `CUT_IN` slams black bars in from top and
+	# bottom and holds on a band the boss is still DRAWN inside, so you watch it
+	# fall instead of watching a white rectangle. If this fires more than once a
+	# fight something has gone wrong — that rarity is what makes it land.
+	#
+	# The old pair of calls here (an epic_moment with frame:true AND a second
+	# impact_frame at 1.3, back to back) was two white blow-outs on top of each
+	# other; the arbiter would now refuse the second one anyway, but asking for it
+	# was the bug. One beat, one mark.
+	Juice.epic_moment({"strength": 1.4, "shake": 20.0, "sfx": "cannon"})
+	Juice.tier_frame(SpellTier.Tier.ULT, global_position, -1, {"climax": true})
 	var sc := StarConvergence.new()
 	sc.target_group = "none"   # visual-only finisher (no group "none" -> hits nobody)
+	# Owned too, even though it damages nobody: the reaction layer does not care
+	# about target groups, and a death spectacle crossing a live hero beam should
+	# read as the boss's, not as an ownerless orphan.
+	sc.set("caster_node", self)
 	get_parent().add_child(sc)
 	sc.converge(global_position, Color(1.0, 0.6, 0.2), 180.0, 0, "holy")
 	if _bar != null:
@@ -169,8 +183,13 @@ func _enter_phase(p: int) -> void:
 				rig.set_tint(Color(0.52, 0.28, 0.24))
 				rig.set_aura(Color(1.0, 0.28, 0.08), 0.78)
 				rig.set_aura_tier(4)
-			Juice.impact_frame(1.2, global_position)  # enrage beat AT the boss
-			Juice.epic_moment({"strength": 1.2, "shake": 14.0, "sfx": "cannon"})
+			# The enrage is a REVEAL, not a detonation: the boss changes and you
+			# need to see what it changed into. So the black cut, which drops the
+			# room out and leaves the new silhouette lit, rather than the white
+			# blow-out, which erases the very thing the beat exists to show.
+			Juice.epic_moment({"strength": 1.2, "shake": 14.0, "sfx": "cannon",
+				"frame": true, "at": global_position,
+				"style": ImpactFrame.Style.SILHOUETTE})
 	emit_signal("phase_changed", current_phase())
 
 
@@ -233,6 +252,10 @@ func _atk_slam() -> void:
 	var center: Vector2 = _hero.global_position
 	var b: Node = load("res://scenes/combat/BlastSpell.tscn").instantiate()
 	get_parent().add_child(b)
+	# CASTER IDENTITY — see _atk_beam for why this is load-bearing rather than
+	# bookkeeping. `set()` is a silent no-op on a spectacle that has not declared
+	# `caster_node` yet, so this is safe now and becomes live the day it does.
+	b.set("caster_node", self)
 	b.configure({"target_group": "hero", "damage": 28, "radius": 100, "knockback": 360, "windup": 0.7, "element_id": Elements.Element.EARTH})
 	b.detonate_at(center)   # runs its own ZONE telegraph windup (the dodge tell)
 	get_tree().create_timer(0.7).timeout.connect(func() -> void:
@@ -252,6 +275,7 @@ func _atk_pillars() -> void:
 				return
 			var p := RockPillar.new()
 			p.target_group = "hero"
+			p.set("caster_node", self)   # caster identity — see _atk_beam
 			get_parent().add_child(p)
 			p.erupt(pt, Color(0.8, 0.55, 0.28), 66.0, 30))
 
@@ -265,6 +289,14 @@ func _atk_beam() -> void:
 	var beam := BeamSpell.new()
 	beam.target_group = "hero"
 	beam.element_id = Elements.Element.ARCANE
+	# CASTER IDENTITY — load-bearing, not bookkeeping. The reaction layer's
+	# ownership predicate reads this, and a null caster reports as "unowned",
+	# which satisfies neither `require_owner: "same"` nor `"different"`. So an
+	# ownerless beam matches NO clash row at all: without this line the boss's
+	# beam could never annihilate against the hero's, and the cross-caster
+	# Hollow Purple row was unreachable in single-player. The same omission is
+	# what made Hollow Purple look broken for two sessions.
+	beam.caster_node = self
 	get_parent().add_child(beam)
 	beam.fire(origin, dir, Color(0.7, 0.4, 1.0), 1400.0, 34.0, 34, "arcane")
 
@@ -281,6 +313,7 @@ func _atk_rays() -> void:
 				return
 			var d := DivineRay.new()
 			d.target_group = "hero"
+			d.set("caster_node", self)   # caster identity — see _atk_beam
 			get_parent().add_child(d)
 			d.strike(pt, Color(1.0, 0.5, 0.2), 70.0, 40, "fire"))
 
@@ -316,6 +349,7 @@ func _atk_meteor() -> void:
 		return
 	var m := MeteorSigil.new()
 	m.target_group = "hero"
+	m.set("caster_node", self)   # caster identity — see _atk_beam
 	get_parent().add_child(m)
 	m.rain(_hero.global_position, Color(1.0, 0.55, 0.2), 170.0, 22, 12, "fire")
 	Juice.zoom_pull_camera(0.16, 0.5)
@@ -326,6 +360,7 @@ func _atk_convergence() -> void:
 		return
 	var s := StarConvergence.new()
 	s.target_group = "hero"
+	s.set("caster_node", self)   # caster identity — see _atk_beam
 	get_parent().add_child(s)
 	s.converge(_hero.global_position, Color(1.0, 0.4, 0.15), 170.0, 110, "fire")
 
@@ -333,6 +368,7 @@ func _atk_convergence() -> void:
 func _atk_nova() -> void:
 	var n: Node = load("res://scenes/combat/EnergyNova.tscn").instantiate()
 	n.target_group = "hero"
+	n.set("caster_node", self)   # caster identity — see _atk_beam
 	get_parent().add_child(n)
 	n.activate_at(global_position)
 

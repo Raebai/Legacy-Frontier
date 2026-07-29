@@ -9,11 +9,32 @@ extends Node2D
 ## smashes crates, and slams to a stop against real world geometry.
 ## Instantiate .new(), add to arena, call raise_wall(). Draws in world coords.
 ##
+## THE TWO-BEAT (the maker's ask): rock wall is ONE button pressed twice — the
+## first press summons the wall, the second press is the punch that sends it. The
+## arbitration that decides which of those a press means lives in the caster (it
+## is made of feel numbers — reach, facing, how long the combo stays open); this
+## file owns the three things the caster needs to make that call honestly:
+## `caster_node` (whose wall is it), `can_shove()` (would a press do anything) and
+## `set_primed()` (the tell, so the player can SEE the second beat is armed).
+##
 ## SHOVE CONTRACT (for the punch / RMB hook in SpikeFigure):
 ##   * every standing wall is in the "shoveable" group
 ##   * `shove(dir, speed)` starts the slide (returns false if crumbling/sliding)
+##   * `can_shove()` = would a shove do anything RIGHT NOW — ask BEFORE committing
+##     a button press to a wall, or the press gets eaten by one already sliding
 ##   * `wall_distance(pos)` = px from pos to the wall's footprint (for range checks)
-##   * `RockWall.find_shoveable_near(tree, pos, max_dist)` = nearest shoveable or null
+##   * `time_since_raise()` = seconds since it erupted (for combo-window checks)
+##   * `RockWall.find_shoveable_near(tree, pos, max_dist, by)` = nearest shoveable
+##   * `RockWall.snapshot_shoveable()` / `adopt_new_shoveable()` = stamp ownership
+##     around a cast, since SpellCaster does not forward the caster to raise_wall
+##
+## REACTION CONTRACT (see SpellReactor): this wall is a BARRIER of EARTH — the
+## only barrier in the game that stone counters a school with. `ground_out` (a
+## lightning beam is eaten by the earth it hits), `carve` (an evenly matched beam
+## BORES THROUGH stone instead of stopping — the one authored exception where a
+## barrier is porous), `breach` and `barrier_blocks` all reach it the moment
+## `raise_wall()` registers. See reaction_form() for the ruling on what a SHOVED
+## wall is, which is the one genuinely arguable call in here.
 
 const WALL_OFFSET: float = 90.0     # how far in front of the caster it rises
 const WALL_SIZE: Vector2 = Vector2(44.0, 124.0)  # thickness x height — CHUNKY (ice is slim)
@@ -40,9 +61,63 @@ const LIT_COLOR: Color = Color(0.62, 0.46, 0.26)
 const RIM_COLOR: Color = Color(1.15, 0.92, 0.55)  # HDR highlight (blooms)
 const SEAM_COLOR: Color = Color(0.16, 0.11, 0.07)
 const AMBER_RIM: Color = Color(0.85, 0.55, 0.15)
+## Primed-crown tell. Fast enough to read as "armed, act now" rather than as the
+## wall's idle breathing, and the glow is multiplied into already-HDR colours so
+## the bloom does the work instead of a bigger shape.
+## UNTESTED GUESS: both numbers are reasoning, not feel — tune them here.
+const PRIME_PULSE_HZ: float = 2.6
+const PRIME_GLOW: float = 0.9
 const DUST_TINT: Color = Color(0.55, 0.42, 0.28, 0.5)
 
-var element_id: int = -1
+## ── the reaction contract's one number ───────────────────────────────────────
+## Half-width of the volume `reaction_shape()` publishes. Deliberately the SAME
+## reach `_smash_props()` already uses to decide that an enemy bolt has been eaten
+## by the mass (`wall_distance(p) <= PLOW_PAD`): the wall has ONE contact volume,
+## and a second number saying "how close a spell has to be to count as hitting the
+## stone" is exactly how drawn-vs-damaged drift starts.
+##
+## It lands where the wall is DRAWN rather than where its collider is. The blocking
+## box is only ±22 px, but the widest slab is drawn out to roughly ±43 with its
+## bulges — so a beam that visibly strikes the stone must ground out on it instead
+## of passing through a gap the player cannot see. 22 + 22 = 44 covers that.
+const REACTION_HALF_WIDTH: float = WALL_SIZE.x * 0.5 + PLOW_PAD
+
+## EARTH, not -1. Two reasons, and the first one is fatal on its own:
+##   1. `SpellReactor.register()` REFUSES any effect with `element < 0` outright
+##      (an elementless effect would match wildcard rows as a phantom element), so
+##      a wall reporting -1 is turned away at the door and every earth row authored
+##      for it — `ground_out`, `carve` — is unreachable.
+##   2. It is what SpellCaster already stamps. The shipped rock_wall SpellDef
+##      declares `element = Elements.Element.EARTH`, so every cast wall has been
+##      EARTH since the stamp landed; -1 was only ever the value a wall built
+##      directly with .new() (capture tools, spikes) was left holding. Defaulting
+##      to the same thing makes the two agree instead of depending on who built it.
+## Knock-on, stated rather than discovered later: `_plow_enemies()` gates its
+## `apply_status` on `element_id >= 0`, so a directly-built wall now also applies
+## the EARTH ailment when it plows — which is what a cast one already did.
+## WHO THIS SPELL MAY HURT. Stamped by SpellCaster._stamp() at cast time, so it
+## follows the CASTER's faction rather than being fixed at "enemy" forever.
+##
+## Every spectacle used to scan the literal group "enemy", which is why a
+## hero-shaped bot's spells passed harmlessly through another hero: the aim was
+## right, the spectacle spawned and drew, and then it queried a group its target
+## was not in. Nothing errored — the spell simply never hit anything, which reads
+## as a physics bug rather than a targeting one.
+##
+## Defaults to "enemy", so every existing caster, capture tool and test is
+## byte-identical and single player does not change by one branch.
+var target_group: String = "enemy"
+var element_id: int = Elements.Element.EARTH
+## Reaction WEIGHT — a SpellTier.Tier, stamped by SpellCaster at cast time from the
+## spell's own cast time / cooldown / cost. The shipped rock_wall is HEAVY, which
+## is what puts it on the barrier ladder's middle rungs: an ULT beam BREACHES it,
+## an evenly matched one CARVES through it, and a lighter one is simply stopped.
+var spell_tier: int = SpellTier.DEFAULT_WEIGHT
+## WHO RAISED THIS. Same name and shape as BeamSpell's `caster_node`, so the one
+## question the reaction layer keeps asking — "is this mine?" — is asked the same
+## way everywhere. Null means nobody has claimed it: an unowned wall can still be
+## punched by anyone, it just cannot steal anybody's use button.
+var caster_node: Node = null
 var _floor_base: Vector2 = Vector2.ZERO
 var _color: Color = Color(0.78, 0.55, 0.28)
 var _elapsed: float = -1.0
@@ -64,6 +139,7 @@ var _slide_speed: float = SHOVE_SPEED
 var _slide_traveled: float = 0.0
 var _grind_t: float = 0.0
 var _plowed: Dictionary = {}        # instance_id -> true (each enemy hit once per slide)
+var _primed: bool = false           # the next use-press punches me — see set_primed()
 
 
 func raise_wall(
@@ -97,7 +173,125 @@ func raise_wall(
 		Color(0.5, 0.36, 0.22, 0.5), 6.0)
 	Juice.shake_camera(7.0)
 	Sfx.play("earth", -4.0, 0.08)
+	# Join the reaction system. Unlike BeamSpell (which registers during a charge it
+	# is not yet allowed to react from) there is no telegraph to sit through here:
+	# the blocking collider above is live on this very frame, so the wall is a
+	# reactant from the moment it erupts. See reaction_active().
+	var reactor: Node = get_node_or_null(^"/root/SpellReactor")
+	if reactor != null:
+		reactor.call(&"register", self, ReactionTable.Form.BARRIER, element_id)
 	queue_redraw()
+
+
+func _exit_tree() -> void:
+	var reactor: Node = get_node_or_null(^"/root/SpellReactor")
+	if reactor != null:
+		reactor.call(&"unregister", self)
+
+
+# --- reaction contract (see SpellReactor) -----------------------------------
+
+## World-space geometry, built from `_floor_base` — NOT from `global_position`,
+## which is (0, 0) because this node draws in world coordinates. It also TRACKS: a
+## shoved wall moves `_floor_base` every frame, so the shape follows the slide with
+## nothing extra to keep in sync.
+##
+## THE INSET. A capsule is a segment inflated by half its width, so its end caps
+## stick out REACTION_HALF_WIDTH px past each endpoint. Handing it the raw base and
+## crown would promise 44 px of reach above the wall (and 44 px underground) that
+## the wall does not have. Pulling both endpoints IN by the half-width makes the
+## stadium span exactly base..base-WALL_SIZE.y — the wall you can see. The clamp
+## matters here rather than being defensive boilerplate: this wall is 124 tall and
+## 88 wide through the reaction volume, so the inset is a real fraction of it.
+func reaction_shape() -> Dictionary:
+	var hw: float = REACTION_HALF_WIDTH
+	var inset: float = minf(hw, WALL_SIZE.y * 0.5)
+	return SpellGeometry.capsule(
+		_floor_base + Vector2.UP * inset,
+		_floor_base + Vector2.UP * (WALL_SIZE.y - inset),
+		hw * 2.0)
+
+
+## LOAD-BEARING, and a DELIBERATE departure from BeamSpell / RockPillar, which are
+## both inert for their whole telegraph. Those two have nothing there yet during the
+## tell. This wall's StaticBody2D is created at full size in `raise_wall()` and is
+## already stopping bodies and enemy bolts throughout the 0.34 s upheaval — so
+## treating the rise as a telegraph would let a beam sail through a wall that is
+## visibly, physically in its way.
+##
+## TRUE WHILE SLIDING, which is the interesting half. A shoved wall is still a slab
+## of stone standing between two people: a beam fired at it should still ground out
+## / carve / be stopped, and a moving shield you punched into the line of fire is a
+## play rather than a hole in the system. What it is NOT any more is a barrier the
+## reaction layer can treat as furniture — see reaction_form().
+##
+## False once `_crumbling` (the collider is disabled and what is left is dust) and
+## false before the raise. `_process_slide` sets `_elapsed = -1.0` on the off-map
+## despawn, which lands on the same guard.
+func reaction_active() -> bool:
+	return _elapsed >= 0.0 and not _crumbling
+
+
+func reaction_element() -> int:
+	return element_id
+
+
+## THE RULING: a shoved wall is still a BARRIER, not a PROJECTILE.
+##
+## The fiction pulls the other way and it is worth saying why it loses. A wall
+## grinding across the arena at 820 px/s IS a battering ram, and as a PROJECTILE it
+## would reach rows a barrier cannot: `shrapnel_cone` against an ice wall,
+## `breach` against a lighter barrier. That is the more exciting answer. It is also
+## the wrong one, for two reasons that are about this system rather than about
+## taste:
+##
+##  1. THE SHAPE CANNOT TELL BOTH STORIES. `ReactionOutcomes._travel_dir()` reads a
+##     projectile's heading straight off its capsule (from -> to). This wall's
+##     capsule stands VERTICALLY whether it is parked or grinding, because that is
+##     the shape of a slab of stone. Registering the ram as a projectile would make
+##     `shrapnel_cone` throw its shards straight UP out of the wall instead of along
+##     the slide — a cone drawn one way and damaging another, i.e. exactly the
+##     drawn-vs-damaged class of bug this layer keeps finding. Re-shaping the
+##     capsule along the slide is not an escape either: a 124 px tall wall laid out
+##     as a horizontal capsule would claim ±66 px of phantom reach off both ends.
+##  2. FORM IS CAPTURED AT REGISTRATION, not polled. SpellReactor stores `form` in
+##     its live dict and only re-reads `active` and `weight` each tick, so changing
+##     form mid-life means unregister + re-register — which also drops the pair memo
+##     and lets an already-resolved pair fire a second time. The contract does not
+##     offer a form change, and inventing one for a single spell is how a detector
+##     acquires a special case.
+##
+## Nothing is lost from the ram itself: its damage story is `_plow_enemies()`,
+## `_smash_props()` and `_hit_world()`, none of which are reactions. What IS
+## genuinely missing is "ram the ice wall and burst it", because BARRIER vs BARRIER
+## is the authored `none` row. That is a TABLE decision (a row in ReactionTable), not
+## a lie told by this file about what it is.
+func reaction_form() -> int:
+	return ReactionTable.Form.BARRIER
+
+
+func reaction_owner() -> Node:
+	return caster_node
+
+
+func reaction_weight() -> int:
+	return spell_tier
+
+
+## Spent by a reaction — and spent through the wall's OWN death, reached exactly the
+## way `_slam_stop()` reaches it: fast-forward onto the crumble timeline, then run
+## the single teardown that leaves the "shoveable" group, disables the collider,
+## sprays the rubble and lets `_process` free it on schedule. A private teardown
+## here is how a wall ends up freed while still in the group the two-beat searches,
+## or still blocking, or silently gone.
+##
+## Guarded rather than assumed idempotent: `_begin_crumble()` re-fires debris and a
+## camera shake, and a wall consumed twice in one tick would double both.
+func reaction_consume() -> void:
+	if _elapsed < 0.0 or _crumbling:
+		return
+	_elapsed = RISE_TIME + LIFETIME
+	_begin_crumble()
 
 
 ## Pure geometry (testable): where the wall lands relative to the caster + aim.
@@ -110,7 +304,17 @@ static func wall_center(from: Vector2, aim: Vector2, offset: float = WALL_OFFSET
 
 ## Nearest standing shoveable wall within `max_dist` px of `pos`, or null.
 ## Cheap helper for the punch hook: one group scan, footprint-distance check.
-static func find_shoveable_near(tree: SceneTree, pos: Vector2, max_dist: float = 140.0) -> Node2D:
+##
+## Walls that could not answer a shove right now (mid-slide, crumbling) are
+## skipped rather than returned-and-refused: the two-beat spends a BUTTON PRESS
+## on whatever comes back, and a press swallowed by a wall already grinding away
+## from you is a dead press. `by` narrows the search to walls that node raised,
+## which is what keeps the use-button claim from hijacking someone else's wall
+## in co-op. Both filters stay duck-typed via has_method so anything else that
+## joins the group and answers wall_distance() is still findable.
+static func find_shoveable_near(
+	tree: SceneTree, pos: Vector2, max_dist: float = 140.0, by: Node = null
+) -> Node2D:
 	if tree == null:
 		return null
 	var best: Node2D = null
@@ -118,11 +322,74 @@ static func find_shoveable_near(tree: SceneTree, pos: Vector2, max_dist: float =
 	for w: Node in tree.get_nodes_in_group("shoveable"):
 		if not is_instance_valid(w) or not w.has_method("wall_distance"):
 			continue
+		if w.has_method("can_shove") and not bool(w.call("can_shove")):
+			continue
+		if by != null and not (w.has_method("is_raised_by") and bool(w.call("is_raised_by", by))):
+			continue
 		var d: float = w.call("wall_distance", pos)
 		if d <= best_d:
 			best_d = d
 			best = w as Node2D
 	return best
+
+
+## Would a shove actually do something to this wall right now? `shove()` already
+## refuses when the wall is still underground, sliding or crumbling — this asks
+## the same question BEFORE a caller commits an input to it.
+func can_shove() -> bool:
+	return _elapsed >= 0.0 and not _crumbling and not _sliding
+
+
+## Seconds since this wall erupted, for combo-window checks. INF before the raise
+## so an un-raised wall can never look "fresh". Only meaningful while the wall is
+## standing: _slam_stop() fast-forwards _elapsed onto the crumble timeline, which
+## is fine because can_shove() has already excluded that wall by then.
+func time_since_raise() -> float:
+	return _elapsed if _elapsed >= 0.0 else INF
+
+
+func is_raised_by(who: Node) -> bool:
+	return who != null and caster_node == who
+
+
+## THE TELL. Before the player presses the button for the second beat they have
+## to be able to SEE that it will punch rather than cast. This deliberately does
+## not add a new highlight: the wall already draws an amber crown rim as its
+## "you can interact with this" cue, and priming just makes that same line
+## brighter, fatter and pulsing — the wall waking up, not a new UI element.
+func set_primed(on: bool) -> void:
+	if _primed == on:
+		return
+	_primed = on
+	queue_redraw()
+
+
+## --- ownership handoff -------------------------------------------------------
+## SpellCaster does not forward the caster to raise_wall(), and it has no reason
+## to: a wall does not move whoever cast it, which is the only thing that seam
+## passes a caster for. The two-beat DOES need it, so the caster brackets its own
+## cast with these two calls and adopts whatever wall appeared. Bracketing rather
+## than "nearest wall" or "newest wall" guessing keeps it exact — it cannot pick
+## up somebody else's wall standing next to you, and it stays correct if a single
+## cast ever raises more than one.
+static func snapshot_shoveable(tree: SceneTree) -> Array:
+	return tree.get_nodes_in_group("shoveable") if tree != null else []
+
+
+## Stamp `by` onto every shoveable wall that was not in `before`. Returns how many
+## were adopted. Already-owned walls are left alone, so a second bracket around a
+## nested cast can never steal the first caster's wall.
+static func adopt_new_shoveable(tree: SceneTree, before: Array, by: Node) -> int:
+	if tree == null:
+		return 0
+	var claimed: int = 0
+	for w: Node in tree.get_nodes_in_group("shoveable"):
+		var wall := w as RockWall
+		if wall == null or wall.caster_node != null or before.has(wall):
+			continue
+		wall.caster_node = by
+		claimed += 1
+	return claimed
 
 
 ## Where this wall actually STANDS right now. The node itself sits at the arena
@@ -158,6 +425,7 @@ func shove(dir: Vector2, speed: float = SHOVE_SPEED) -> bool:
 	_slide_dir = Vector2(sx, 0.0)
 	_slide_speed = maxf(speed, 100.0)
 	_sliding = true
+	_primed = false  # the second beat has been spent — stop advertising it
 	_elapsed = maxf(_elapsed, RISE_TIME)  # a mid-rise shove snaps the wall solid first
 	for i in SLABS:
 		_slab_locked[i] = true
@@ -258,6 +526,7 @@ func _process_rise_locks() -> void:
 func _begin_crumble() -> void:
 	_crumbling = true
 	_sliding = false
+	_primed = false
 	remove_from_group("shoveable")
 	if _collider != null:
 		_collider.set_deferred("disabled", true)  # stops blocking once it crumbles
@@ -343,7 +612,7 @@ func _is_smashable(n: Node) -> bool:
 ## up-and-out launch. One hit per enemy per slide (no per-frame damage ticks).
 func _plow_enemies() -> void:
 	var hw: float = WALL_SIZE.x * 0.5 + PLOW_PAD
-	for e: Node in get_tree().get_nodes_in_group("enemy"):
+	for e: Node in get_tree().get_nodes_in_group(target_group):
 		if not e is Node2D or not is_instance_valid(e):
 			continue
 		var p: Vector2 = (e as Node2D).global_position
@@ -445,16 +714,23 @@ func _draw() -> void:
 		draw_line(pts[2], pts[3], Color(LIT_COLOR.r, LIT_COLOR.g, LIT_COLOR.b, alpha), 3.2, true)
 		draw_line(pts[3], pts[4], Color(LIT_COLOR.r, LIT_COLOR.g, LIT_COLOR.b, alpha), 3.2, true)
 	# HDR amber rim on the crown — the "you can interact with this" cue
-	# (echoes BreakablePlatform; here it marks the wall as shoveable).
+	# (echoes BreakablePlatform; here it marks the wall as shoveable). PRIMED, the
+	# SAME line pulses hot and thick rather than a second highlight appearing: the
+	# wall wakes up. It rides the per-frame queue_redraw() _process already does,
+	# so the tell costs nothing beyond two multiplies.
 	if top_slab >= 0:
+		var pulse: float = (0.5 + 0.5 * sin(_elapsed * PRIME_PULSE_HZ * TAU)) if _primed else 0.0
 		var crown: PackedVector2Array = _slab_polys[top_slab]
 		var cb: float = _slab_base_y[top_slab]
 		var cu: float = clampf((_elapsed - _slab_delay[top_slab]) / SLAB_RISE, 0.0, 1.0)
 		var cs: float = _rise_ease(cu)
 		var a := _floor_base + shake_off + Vector2(crown[2].x + lean_px, cb + (crown[2].y - cb) * cs)
 		var b := _floor_base + shake_off + Vector2(crown[4].x + lean_px, cb + (crown[4].y - cb) * cs)
-		draw_line(a, b, Color(RIM_COLOR.r, RIM_COLOR.g, RIM_COLOR.b, alpha * 0.9), 2.0, true)
-		draw_line(a, (a + b) * 0.5, Color(AMBER_RIM.r, AMBER_RIM.g, AMBER_RIM.b, alpha * 0.8), 3.4, true)
+		var rim: Color = RIM_COLOR * (1.0 + PRIME_GLOW * pulse)
+		var amber: Color = AMBER_RIM * (1.0 + PRIME_GLOW * pulse)
+		draw_line(a, b, Color(rim.r, rim.g, rim.b, alpha * 0.9), 2.0 + 2.4 * pulse, true)
+		draw_line(a, (a + b) * 0.5, Color(amber.r, amber.g, amber.b, alpha * 0.8),
+			3.4 + 3.0 * pulse, true)
 	# Dust skirt at the base; while sliding it smears out behind the wall.
 	draw_circle(_floor_base + shake_off, WALL_SIZE.x * 0.8,
 		Color(0.55, 0.42, 0.28, 0.35 * alpha), true, -1.0, true)

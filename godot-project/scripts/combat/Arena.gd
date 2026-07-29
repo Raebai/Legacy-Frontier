@@ -28,6 +28,23 @@ var _pause_menu: PauseMenu = null
 var _spawn_timer: float = 0.0
 var _wipe_handled: bool = false   # co-op: debounce the party-wipe -> fall to once per floor
 
+## ------------------------------------------------------------- BOSS RUSH
+## STRAIGHT TO THE ASHSPIRE GUARDIAN, no climb. The boss sits on floor 5, so the
+## only way to look at it used to be to play four floors first — which is not a
+## way to TEST it, and testing it is exactly what was asked for.
+##
+## Set true (by the duel's Esc menu, or by a tool) BEFORE this scene loads: the
+## sandbox branch of _ready then builds the default room, spawns the guardian and
+## nothing else, and switches to boss framing + the boss bed. It does NOT start a
+## run — GameState is untouched, so this can never leave a half-begun climb behind.
+##
+## A STATIC because it has to survive the scene change that carries you here, and
+## it is cleared on the way in so one boss fight never silently becomes forever.
+static var boss_rush: bool = false
+## Full boss hp (the multiplier a floor-5 FloorDef would have applied).
+const BOSS_RUSH_HP_MULT: float = 1.6
+var _boss_rush_active: bool = false
+
 
 func _ready() -> void:
 	# Slice 0 isolation: keep the hub's Conversation autoload from stealing Enter
@@ -72,7 +89,25 @@ func _ready() -> void:
 		# Sandbox: the legacy default room + an endless trickle (below).
 		FloorBuilder.build_props(_room, GameState.synthesize_floor_def(1).layout)
 		var music: Node = get_node_or_null("/root/Music")
-		if music != null and music.has_method("play_adventure"):
+		# BOSS RUSH: the guardian, alone, right now. Consume the flag on the way in
+		# so a later F6 sandbox is a sandbox again.
+		if boss_rush:
+			boss_rush = false
+			_boss_rush_active = true
+			_encounter.spawn_boss(BOSS_RUSH_HP_MULT)
+			# Fit-all framing, exactly as a real BOSS floor gets — the guardian is
+			# big enough that a hero-glued camera cuts half of it off.
+			for cam: Node in get_tree().get_nodes_in_group("combat_camera"):
+				if cam.has_method("set_frame_all"):
+					cam.set_frame_all(true)
+			if music != null and music.has_method("play_boss"):
+				music.play_boss()
+			# Esc gets the two things you want during a boss test: another go, and
+			# the way back to the duel you came from.
+			if _pause_menu != null:
+				_pause_menu.add_action("Fight the Boss Again", _restart_boss_rush)
+				_pause_menu.add_action("Back to the Duel", _exit_to_duel)
+		elif music != null and music.has_method("play_adventure"):
 			music.play_adventure()
 
 
@@ -80,8 +115,8 @@ func _process(delta: float) -> void:
 	# Co-op: the host watches for a full party wipe -> drop the party a floor.
 	if _is_coop_host():
 		_check_party_wipe()
-	if _run_mode:
-		return  # Encounter drives the finite floor; nothing to poll here
+	if _run_mode or _boss_rush_active:
+		return  # Encounter drives the finite floor; a boss rush is the boss ALONE
 	# Sandbox trickle: keep ~TARGET_ENEMY_COUNT alive forever.
 	_spawn_timer -= delta
 	if _spawn_timer <= 0.0:
@@ -481,6 +516,19 @@ func _exit_to_hub() -> void:
 		_gs.abandon_to_hub()
 	else:
 		get_tree().change_scene_to_file("res://scenes/Main.tscn")
+
+
+## Another go at the guardian: re-arm the flag and rebuild this scene.
+func _restart_boss_rush() -> void:
+	boss_rush = true
+	get_tree().paused = false
+	get_tree().reload_current_scene()
+
+
+## Back to the 1v1 you came from.
+func _exit_to_duel() -> void:
+	get_tree().paused = false
+	get_tree().change_scene_to_file("res://scenes/combat/VersusArena.tscn")
 
 
 # ------------------------------------------------------------------- theme/UI

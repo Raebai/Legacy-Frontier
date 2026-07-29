@@ -48,6 +48,52 @@ const CORPSE_FADE_TIME: float = 0.6  # corpses linger past a dash ghost (0.34)
 # out" beat than a real kill, then it pops back up at its home spot.
 const PASSIVE_RESPAWN_DELAY: float = 1.0
 
+# ------------------------------------------------------------- HIT SILHOUETTE
+# THE BUG THIS EXISTS TO FIX: Enemy.tscn ships a 20x20 movement collider centred
+# on the origin, but the rig it draws is `rig.height` (31) tall and is drawn
+# CENTRED on that same origin — head top at -15.5, feet at +15.5. So the solid
+# part of an enemy covered only the middle 64% of the drawing, and roughly HALF
+# the head circle (y in [-15.5, -10]) had nothing behind it. A bolt aimed at the
+# head flew straight through and registered nothing. On the SpellPlayground
+# sparring dummies (scale 1.9) that dead zone is 10.4 px tall — big enough to
+# aim into deliberately, which is exactly what the maker reported.
+#
+# The three factors below MIRROR CharacterRig._compute_pose() exactly
+# (r = height * 0.18, hip = height * 0.1, leg_len = height * 0.4). They are NOT
+# tunables: if the rig's pose maths changes, these must change with it or the hit
+# test drifts off the drawing all over again. One silhouette, one source.
+## MIRRORS CharacterRig.HEAD_R_FACTOR. Moved 0.18 -> 0.105 with the stickman
+## proportion pass — the DRAWN head shrank, so the tested head must shrink with it or
+## the hit disc is bigger than the skull and hits register on empty air beside it.
+## The head TOP is unchanged (head_center = -h/2 + r), so nothing else re-derives.
+const RIG_HEAD_R_FACTOR: float = 0.105
+const RIG_HIP_Y_FACTOR: float = 0.1
+const RIG_LEG_LEN_FACTOR: float = 0.4
+## Forgiveness ring around the silhouette for body_distance() callers, as a
+## FRACTION of rig height so a 1.9x-scaled sparring dummy gets a proportionally
+## bigger margin rather than the same absolute one. UNTESTED GUESS: 0.12 * 31 =
+## 3.7 px on a standard enemy, which is about the drawn limb half-width
+## (height * 0.08) plus a whisker. Tune it HERE, never at a call site — a second
+## margin constant somewhere else is how the two-schemes bug started.
+## Raised 0.12 -> 0.155 alongside the stickman proportion pass. The figure got THINNER
+## (head 0.18h -> 0.105h, stroke 0.16h -> 0.075h), so a fixed margin would have quietly
+## shrunk the whole catchable area by a third and walked straight back into the "spells
+## pass through heads" report. This keeps the effective head reach (r + margin) at
+## ~0.26h against the old ~0.30h — still slightly tighter than before, deliberately,
+## because the drawing genuinely is slimmer. UNTESTED GUESS: 0.155 * 31 = 4.8 px.
+const HIT_MARGIN_FACTOR: float = 0.155
+## Physics layer for the hurtbox when this node's own collision_layer is 0
+## (headless harnesses build a bare Enemy with engine defaults, not the scene).
+## Layer 3 / value 4 is the "spell-hittable" bucket Spell.tscn already masks.
+const HURTBOX_FALLBACK_LAYER: int = 4
+## Rig height assumed when there is no rig at all (headless stubs). Matches
+## CharacterRig's own default so the fallback silhouette is the shipped one.
+const RIG_FALLBACK_HEIGHT: float = 31.0
+## Hurtbox width when the movement collider isn't a rectangle we can read. 0.65
+## is Enemy.tscn's shipped 20/31 ratio — the point is that the fix NEVER widens
+## an enemy, it only makes it as tall as it is drawn.
+const HURTBOX_WIDTH_FALLBACK_FACTOR: float = 0.65
+
 # Telegraphed heavy attack tuning (brute archetype).
 const ATTACK_RANGE: float = 78.0  # start winding up inside this distance
 const ATTACK_WINDUP: float = 0.6  # seconds of tell before the strike lands
@@ -252,6 +298,185 @@ var _p_miss: float = 0.30
 
 @onready var rig: CharacterRig = $Rig
 
+## Silhouette-shaped Area2D that makes the DRAWN figure solid to spells (see the
+## HIT SILHOUETTE block up top). Built in _ready, resized whenever rig.height moves.
+var _hurtbox: Area2D = null
+var _hurtbox_height: float = -1.0  # rig height the current shapes were cut for
+
+
+# --------------------------------------------------------------- hit silhouette
+## Distance from world point `p` to this enemy's REAL silhouette: the spine as a
+## segment from neck to hip, plus the head as a circle on top. Negative inside the
+## head. This is deliberately the same shape and the same formula as
+## SpikeFigure.body_distance() — the player figure and the enemies must agree on
+## what a body is, because two different silhouette tests is precisely how "spells
+## pass through heads" happened. Callers test `body_distance(p) <= hit_margin()`.
+##
+## Limbs are excluded on purpose (same reasoning as SpikeFigure): being clipped by
+## a flailing arm you did not control feels arbitrary. Spine + head is the honest
+## target. Scale-aware — a 1.9x sparring dummy reports 1.9x the reach, so no call
+## site needs to know about node scale.
+func body_distance(p: Vector2) -> float:
+	var s: Dictionary = _silhouette()
+	if s.is_empty():
+		# No rig (headless stub / mid-teardown): fall back to the origin point so a
+		# caller still gets a monotonic distance rather than INF-shaped nonsense.
+		return global_position.distance_to(p)
+	var spine_d: float = SpellGeometry.point_segment_distance(
+		p, s["neck"] as Vector2, s["hip"] as Vector2
+	)
+	return minf(spine_d, p.distance_to(s["head"] as Vector2) - float(s["head_r"]))
+
+
+## The forgiveness ring `body_distance` is meant to be compared against, in WORLD
+## px (already multiplied by node scale). See HIT_MARGIN_FACTOR.
+func hit_margin() -> float:
+	var s: Dictionary = _silhouette()
+	var h: float = float(rig.height) if is_instance_valid(rig) else RIG_FALLBACK_HEIGHT
+	return h * HIT_MARGIN_FACTOR * float(s.get("scale", 1.0))
+
+
+## World position of the drawn HEAD's centre. Sits well ABOVE global_position
+## (which is mid-body): 9.9 px on a standard enemy, 18.9 px on a 1.9x dummy,
+## 30.4 px on the Guardian. Anything that wants to aim at, mark, or centre an
+## effect on an enemy's head wants this, not global_position.
+func head_point() -> Vector2:
+	var s: Dictionary = _silhouette()
+	return (s["head"] as Vector2) if not s.is_empty() else global_position
+
+
+## The world-space skeleton the two functions above share: neck / hip / head
+## centre / head radius / uniform scale. Empty when there is no rig to measure.
+func _silhouette() -> Dictionary:
+	if not is_instance_valid(rig):
+		return {}
+	var h: float = float(rig.height)
+	var head_r: float = h * RIG_HEAD_R_FACTOR
+	var head_local := Vector2(0.0, -h * 0.5 + head_r)
+	var xf: Transform2D = rig.global_transform
+	# get_scale().y is the honest uniform scale: set_facing() mirrors only scale.x,
+	# and a mirrored basis makes get_scale() report a NEGATIVE y — hence absf.
+	var s: float = absf(xf.get_scale().y)
+	return {
+		"neck": xf * (head_local + Vector2(0.0, head_r)),
+		"hip": xf * Vector2(0.0, h * RIG_HIP_Y_FACTOR),
+		"head": xf * head_local,
+		"head_r": head_r * s,
+		"scale": s,
+	}
+
+
+## Build the silhouette hurtbox: a head CIRCLE plus a neck-to-feet BOX, sitting on
+## the same physics layer spells already scan. It is a separate Area2D rather than
+## a resize of the movement collider on purpose — growing the CharacterBody2D's
+## own shape would move where the enemy stands on floors and where it bumps
+## ceilings, which is a movement change nobody asked for. The movement collider
+## stays on the layer too, so the two overlap and Spell.gd's ray backstop
+## (collide_with_areas = false) still has a solid body to hit.
+func _build_hurtbox() -> void:
+	if _hurtbox != null and is_instance_valid(_hurtbox):
+		return
+	_hurtbox = Area2D.new()
+	_hurtbox.name = "Hurtbox"
+	_hurtbox.collision_layer = collision_layer if collision_layer != 0 else HURTBOX_FALLBACK_LAYER
+	_hurtbox.collision_mask = 0    # it is detected, it never detects
+	_hurtbox.monitoring = false    # ...so skip the overlap work entirely
+	_hurtbox.monitorable = true
+	# Shapes are built with .new() per instance: a shared sub-resource would have
+	# every enemy in the arena resizing every other enemy's hurtbox.
+	var head := CollisionShape2D.new()
+	head.name = "HurtHead"
+	head.shape = CircleShape2D.new()
+	_hurtbox.add_child(head)
+	var torso := CollisionShape2D.new()
+	torso.name = "HurtBody"
+	torso.shape = RectangleShape2D.new()
+	_hurtbox.add_child(torso)
+	add_child(_hurtbox)
+	_sync_hurtbox()
+
+
+## Cut the hurtbox shapes to the rig's CURRENT height. Public because anything
+## that resizes a rig after spawn (Boss bumps it to 95 in its own _ready, and
+## Encounter documents bumping guardian height after add_child) must be able to
+## re-cut without knowing how the shapes are laid out.
+func refresh_hurtbox() -> void:
+	_sync_hurtbox()
+
+
+## ⚠ WHY THERE IS NO RIG OFFSET HERE, AND WHY THE HURTBOX MUST NOT ASSUME ONE.
+##
+## The hub does offset its rig — Player.gd and NPC.gd both run
+## `_rig.position.y = -_rig.height * 0.5`. Enemy (and Hero) deliberately do not, and
+## copying that one line across would be a bug, not a fix. Two reasons, measured
+## against the shipped scenes rather than eyeballed:
+##
+##   1. IT IS HALF OF A PAIR. Player.gd ALSO shifts its collider up by half its
+##      height first, so the node origin ends up at the feet and the lifted rig lands
+##      on it. Enemy.tscn's collider is centred on the origin. Lifting the rig alone
+##      would leave enemies floating a full 15.5 px above the floor they stand on —
+##      a much louder bug than the one being fixed.
+##   2. THE COMBAT ARENA HAS ONE CONVENTION AND BOTH ACTORS FOLLOW IT. Measured:
+##      Enemy draws its feet at y +15.5 with its collider bottom at +10 (sinks 5.5);
+##      Hero draws its feet at +15.5 with its collider bottom at +9 (sinks 6.5). The
+##      hero sinks MORE. Correcting the enemy alone would not un-sink the arena, it
+##      would just make enemies hover relative to the player standing next to them.
+##      Whether the arena should adopt the hub's feet-on-origin convention is a
+##      combat-wide change (Hero.tscn/Hero.gd + Enemy.tscn + every spawner that
+##      positions a body), not an Enemy-local one.
+##
+## So the silhouette below matches WHAT IS DRAWN, which is the property that has to
+## hold: a bolt aimed at a head must hit the head the player can see. IF the arena
+## ever does adopt the feet-on-origin convention, every `y` computed here must gain
+## the same `rig.position.y` term — otherwise the hitbox stays where the art used to
+## be, which is precisely the head-shaped dead zone this hurtbox was added to close.
+func _sync_hurtbox() -> void:
+	if _hurtbox == null or not is_instance_valid(_hurtbox) or not is_instance_valid(rig):
+		return
+	var h: float = float(rig.height)
+	_hurtbox_height = h
+	var head_r: float = h * RIG_HEAD_R_FACTOR
+	var head_y: float = -h * 0.5 + head_r          # head TOP lands exactly at -h/2
+	var neck_y: float = head_y + head_r
+	var feet_y: float = h * RIG_HIP_Y_FACTOR + h * RIG_LEG_LEN_FACTOR
+	var head_cs := _hurtbox.get_node_or_null("HurtHead") as CollisionShape2D
+	var torso_cs := _hurtbox.get_node_or_null("HurtBody") as CollisionShape2D
+	if head_cs != null and head_cs.shape is CircleShape2D:
+		(head_cs.shape as CircleShape2D).radius = head_r
+		head_cs.position = Vector2(0.0, head_y)
+	if torso_cs != null and torso_cs.shape is RectangleShape2D:
+		(torso_cs.shape as RectangleShape2D).size = Vector2(_hurtbox_width(h), feet_y - neck_y)
+		torso_cs.position = Vector2(0.0, (neck_y + feet_y) * 0.5)
+
+
+## Keep the hurtbox glued to the DRAWN body once the rig's floating-capsule springs
+## start moving it (CharacterRig's ride + pitch — see its FLOATING-CAPSULE BODY block).
+##
+## `body_distance()` / `head_point()` above already follow for free, because they push
+## analytic points through `rig.global_transform`. The hurtbox Area2D does NOT: it is
+## a child of the Enemy, not of the rig, so without this it would stay bolt upright at
+## the un-squashed height while the figure visibly buckles on landing or topples from a
+## hit. That gap is the "spells pass through heads" bug in miniature — a hitbox left
+## where the art used to be — so it is closed here rather than left as a rounding error.
+##
+## Two float writes a frame. The shapes themselves are untouched; only the frame they
+## live in moves, so no hitbox is inflated by this.
+func _sync_body_offset() -> void:
+	if _hurtbox == null or not is_instance_valid(_hurtbox) or not is_instance_valid(rig):
+		return
+	_hurtbox.position.y = rig.body_ride()
+	_hurtbox.rotation = rig.body_pitch()
+
+
+## The hurtbox is exactly as WIDE as the movement collider already was. The fix is
+## "an enemy is as tall as it is drawn", not "enemies are bigger now" — reusing
+## the shipped width means no horizontal hitbox inflation sneaks in with it.
+func _hurtbox_width(rig_height: float) -> float:
+	var cs := get_node_or_null("CollisionShape2D") as CollisionShape2D
+	if cs != null and cs.shape is RectangleShape2D:
+		return (cs.shape as RectangleShape2D).size.x
+	return rig_height * HURTBOX_WIDTH_FALLBACK_FACTOR
+
 
 ## Applied by melee / spell / blast. A decaying impulse added ON TOP of the
 ## chase velocity so the hit actually displaces the enemy instead of being
@@ -294,14 +519,16 @@ func _is_ringout_mode() -> bool:
 	return gs != null and bool(gs.get("ringout_mode"))
 
 
-## Global knockback multiplier from the Tuning autoload (falls back to 1.6).
+## Global knockback multiplier from the Tuning autoload. The fallback must MATCH
+## TuningConfig.knockback_mult's exported default (1.6 -> 1.0 with the "knockback is
+## too much" pass) or a headless/autoload-less context keeps the old launch feel.
 func _knockback_mult() -> float:
 	var t: Node = get_node_or_null(^"/root/Tuning")
 	if t != null and t.get(&"cfg") != null:
 		var v: Variant = t.cfg.get(&"knockback_mult")
 		if v != null:
 			return float(v)
-	return 1.6
+	return 1.0
 
 
 ## SANDBOX Smash model: % gained per point of incoming damage, from the Tuning
@@ -604,10 +831,33 @@ func _ready() -> void:
 	bars.configure(self, false, -24.0)
 	if passive:
 		_passive_home = global_position  # position is set by the spawner before add_child
+	# Make the DRAWN figure solid to spells (head included). Deferred re-cut because
+	# subclasses resize the rig AFTER super._ready() returns — Boss sets height 95 on
+	# the next line of its own _ready, and a deferred call lands after that.
+	_build_hurtbox()
+	_sync_hurtbox.call_deferred()
 	_setup_enemy_net()
 
 
 func _physics_process(delta: float) -> void:
+	# A rig can be resized long after _ready (class presets, guardian scaling). One
+	# float compare a frame keeps the hurtbox honest without anyone remembering to
+	# call refresh_hurtbox(). Sits ABOVE the co-op puppet early-out on purpose: a
+	# client-side puppet is still shot at locally, so its silhouette must be right.
+	if is_instance_valid(rig) and not is_equal_approx(_hurtbox_height, rig.height):
+		_sync_hurtbox()
+	_sync_body_offset()
+	# Groundedness for the rig's floating-capsule body: an enemy that is launched,
+	# leaps or is knocked off a ledge now gets the same takeoff stretch and weighted
+	# landing squash the hero does, instead of touching down like a decal.
+	#
+	# The `velocity.y` guard is deliberate and load-bearing: several enemy states
+	# (passive sparring dummies, frozen/stunned, the co-op puppet path) return before
+	# ever calling move_and_slide, so `is_on_floor()` is stale-false for them. A body
+	# with no vertical motion is standing on something by definition — that reading
+	# keeps every non-moving enemy planted rather than silently switching its gait off.
+	if is_instance_valid(rig):
+		rig.set_grounded(is_on_floor() or absf(velocity.y) < 1.0)
 	# Co-op: enemies are HOST-authoritative. A client-side puppet runs NO AI/physics —
 	# its transform + hp arrive over the MultiplayerSynchronizer; it only animates.
 	if _net != null and _net.is_active() and not is_multiplayer_authority():
@@ -858,6 +1108,13 @@ func _start_caster_windup() -> void:
 ## can hit it. Shared by the caster's fire and the Impossible-tier deflect counter.
 func _spawn_enemy_bolt(pos: Vector2, dir: Vector2, element: int) -> void:
 	var proj := EnemyProjectile.new()
+	# WHOSE BOLT THIS IS. Set BEFORE add_child so it is true for the whole of the
+	# projectile's life, including its first frame. A spectacle built without a
+	# caster reports as "unowned" to the reaction layer, which satisfies neither
+	# `require_owner: "same"` nor `"different"` — so it matches NO clash row and is
+	# silently inert there, with nothing logged to say so. Bolts are not registered
+	# reactants yet; this is what makes them attributable the moment they are.
+	proj.caster_node = self
 	get_parent().add_child(proj)
 	proj.global_position = pos
 	proj.launch(dir)
@@ -915,6 +1172,10 @@ func _cast_mage_aoe() -> void:
 	var blast_scene: PackedScene = load(MAGE_BLAST_SCENE)
 	var blast: Node2D = blast_scene.instantiate()
 	get_parent().add_child(blast)
+	# Caster identity — same reasoning as _spawn_enemy_bolt above. `set()` is a
+	# silent no-op while BlastSpell has no `caster_node` field, so this is safe now
+	# and becomes live the day it grows one.
+	blast.set("caster_node", self)
 	blast.call("configure", {
 		"target_group": "hero",
 		"damage": MAGE_AOE_DAMAGE,
@@ -1213,6 +1474,17 @@ func _detonate() -> void:
 ## hero still inside the circle -> heavy damage + lunge + juice; else a miss.
 ## Either way the brute enters RECOVER and the cooldown runs from the strike.
 func _resolve_strike(center: Vector2) -> void:
+	# CLASH: this swing may have met the hero's head-on. Enemies declare here rather
+	# than at their windup because their attack is already committed by this point —
+	# and declaring gets bots, co-op partners and sparring dummies into the clash
+	# layer with no bespoke AI code, since nothing scans the world for candidates:
+	# only DECLARED swings can clash.
+	if MeleeClash.declare_and_spend(self, (center - global_position).normalized(),
+			ATTACK_RADIUS, ATTACK_DAMAGE):
+		_attack_state = AttackState.RECOVER
+		_recover_timer = ATTACK_RECOVER_TIME
+		_attack_cooldown = ATTACK_COOLDOWN
+		return
 	if is_instance_valid(_hero) and _hero.has_method("take_damage") \
 			and _hero.global_position.distance_to(center) <= ATTACK_RADIUS:
 		_hero.take_damage(ATTACK_DAMAGE)
@@ -1352,6 +1624,14 @@ func _die() -> void:
 	_spawn_corpse()
 	Sfx.play("enemy_death")
 	Juice.shake_camera(DEATH_SHAKE)
+	# A KILL is punctuation — but the localized ring, never a full-screen flash.
+	# A wave fight kills a dozen things in a few seconds and full-screen marks on
+	# each would be exactly the strobe the arbiter exists to prevent; the ring is
+	# small, low-contrast and cheap to see often, which is precisely the shelf the
+	# QUICK rung of the ladder is for. Fired with its own camera/freeze cluster
+	# suppressed because the two lines above already fired those, tuned.
+	Juice.tier_frame(SpellTier.Tier.QUICK, global_position, -1,
+		{"zoom": 0.0, "shake": 0.0, "shock": 0.0, "hitstop": 0.0})
 	Juice.hit_stop(DEATH_HIT_STOP)
 	queue_free()
 
@@ -1366,6 +1646,10 @@ func _respawn_passive() -> void:
 	var cs: CollisionShape2D = get_node_or_null("CollisionShape2D")
 	if cs != null:
 		cs.set_deferred("disabled", true)
+	# ...and the silhouette hurtbox with it, or a "knocked out" dummy would still
+	# eat bolts through its (invisible) head for the whole respawn delay.
+	if is_instance_valid(_hurtbox):
+		_hurtbox.set_deferred("monitorable", false)
 	await get_tree().create_timer(PASSIVE_RESPAWN_DELAY).timeout
 	if not is_instance_valid(self):
 		return
@@ -1378,6 +1662,8 @@ func _respawn_passive() -> void:
 	set_physics_process(true)
 	if cs != null:
 		cs.set_deferred("disabled", false)
+	if is_instance_valid(_hurtbox):
+		_hurtbox.set_deferred("monitorable", true)
 	CombatVfx.spawn_burst(
 		get_parent(), _passive_home,
 		Color(0.75, 0.85, 1.0, 0.9), Color(0.75, 0.85, 1.0, 0.0),

@@ -26,6 +26,37 @@ extends Node2D
 ## Look: it EATS light — a near-black core trail with a violet fray, spikes
 ## sprouting from the path it has already covered, HDR sparks reserved for the
 ## head so bloom accents the darkness instead of washing it out.
+##
+## ── WORLD CONTRACT (docs/spell-world-contract.md) ────────────────────────────
+## THIS SPELL IS THE DOCUMENTED EXCEPTION, and the exception is deliberately narrow.
+## Two of the four contracts apply in full; two are opted out of, with reasons:
+##
+## ADOPTED — TRAVEL/SMASH. Cover is now chewed off the `smashed` list of a real
+##   segment query along the path just travelled, so a destructible is torn through
+##   wherever the shade actually crossed it. See `_chew_cover`.
+## ADOPTED — DEFLECT. It travels, so it takes the reflect() half of SpellDeflect's
+##   split (already present, verified) AND routes its strike through
+##   `SpellDeflect.resolve`, because reflect() is a ONE-SHOT: a shade that has
+##   already been turned once has no second reversal left, and without this a guard
+##   press against the returning wave would do nothing at all.
+##
+## OPTED OUT — LINE OF SIGHT ON THE CATCH. This is the documented case in the
+##   contract: the shade passes UNDER barriers, and that is the kit's only answer to
+##   a wall. Culling a victim because a Rock Wall stands between the caster and them
+##   would delete the spell's entire reason to exist.
+## OPTED OUT — `SpellWorld.floor_below` FOR THE FLOOR PROBE. Not a style choice and
+##   NOT laziness: `SpellWorld.first_solid` casts with `hit_from_inside = true`
+##   (correct for it — a spell released inside a ledge must impact, not phase). The
+##   head lives AT floor level and is therefore INSIDE any layer-1 wall it is
+##   passing under, so a hit_from_inside probe would answer with the wall's own
+##   underside and pin the shade there. `_floor_y` keeps its bespoke ray with
+##   hit_from_inside OFF, which is precisely the mechanism behind "goes under
+##   walls". If SpellWorld ever grows a `hit_from_inside` opt-out this can adopt it;
+##   until then, do not "consolidate" this probe.
+##
+## THE PIT DEATH IS NOT A BUG EITHER. Running out of floor kills the spell
+## (PIT_DROP) and running out of climb on a vertical face kills it (WALL_CLIMB).
+## Losing the spell to terrain is the cost of a spell terrain steers.
 
 const SPEED: float = 520.0          # px/s along the floor
 const CATCH_Y: float = 54.0         # a body's centre may be this far ABOVE the head
@@ -48,9 +79,28 @@ const FACE_SLOPE: float = 1.35
 const FANG_HEIGHT: float = 74.0
 const SPARKS: int = 5
 
+## How far ABOVE the floor the cover-chewing segment is cast. Not zero, and that
+## matters: a ray run exactly along the floor surface starts on the floor
+## collider's own boundary, where `hit_from_inside` makes the answer ambiguous —
+## it can report the ground itself and truncate the smash list on frame one.
+## 10 px sits inside the drawn wave (the core line is 7 px wide, the halo 12) and
+## comfortably below the top of any crate worth chewing. UNTESTED GUESS.
+const CHEW_LIFT: float = 10.0
+
 enum State { TRAVEL, SNAP, SHRED, WHIFF, DEAD }
 
 var element_id: int = Elements.Element.SHADOW
+
+## The clash shelf this spell fights at (SpellTier.Tier), set by SpellCaster at
+## cast time; also the dial deciding how hard the strike is to guard against.
+## Middle shelf when nobody sets it, matching every un-adopted spectacle.
+var spell_tier: int = SpellTier.DEFAULT_WEIGHT
+
+## Who cast it, for the reaction layer's owner predicate. Named `caster_node` to
+## match BeamSpell, which is the established idiom for this seam. Optional and
+## null-safe: nothing sets it today, and "unowned" is the correct conservative
+## answer rather than a wrong one.
+var caster_node: Node = null
 
 var _color: Color = Color(0.6, 0.35, 0.9)
 var _range: float = 620.0
@@ -111,7 +161,67 @@ func crawl(
 		Vector2(_dir_sign, -0.15), 26.0)
 	Juice.shake_camera(3.0)
 	Sfx.play("cast", -6.0, 0.06, 0.82)   # pitched DOWN — it comes from under you
+	# Join the reaction system. PROJECTILE: this is the one shadow spell whose
+	# position genuinely moves, and reaction_active() keeps it to the TRAVEL state
+	# so the rear-up, the shred and the whiff claw are not live reagents.
+	var reactor: Node = get_node_or_null(^"/root/SpellReactor")
+	if reactor != null:
+		reactor.call(&"register", self, ReactionTable.Form.PROJECTILE, element_id)
 	queue_redraw()
+
+
+func _exit_tree() -> void:
+	var reactor: Node = get_node_or_null(^"/root/SpellReactor")
+	if reactor != null:
+		reactor.call(&"unregister", self)
+
+
+# --- reaction contract (see SpellReactor) -----------------------------------
+
+## World space, built from `_head` — NOT from global_position, which is (0,0)
+## because this node draws in world coordinates. `_catch_x` is the same half-width
+## the catch uses, so the reaction footprint and the hitbox are one number.
+func reaction_shape() -> Dictionary:
+	return SpellGeometry.circle(_head, _catch_x)
+
+
+## Only while it is actually racing. Once it has rear-up on a victim the outcome is
+## decided; a beam sweeping through the shred beat should not un-decide it.
+func reaction_active() -> bool:
+	return _state == State.TRAVEL
+
+
+func reaction_element() -> int:
+	return element_id
+
+
+func reaction_form() -> int:
+	return ReactionTable.Form.PROJECTILE
+
+
+## Null until SpellCaster's CRAWLER arm sets `caster_node` — one line in a file
+## owned elsewhere, reported rather than edited. Until then this reads "unowned",
+## which satisfies neither owner predicate, exactly as SpellReactor intends.
+func reaction_owner() -> Node:
+	return caster_node
+
+
+func reaction_weight() -> int:
+	return spell_tier
+
+
+## Spent by a reaction: gone, with none of the fang / claw / dissipate beats. The
+## shade did not arrive anywhere — it was eaten on the way.
+func reaction_consume() -> void:
+	queue_free()
+
+
+## How much of a victim's parry window counts against this hit. SpellDeflect's
+## policy is that nothing is unparryable but an ult is brutal to time, so the tier
+## the spell already declares picks the dial rather than this file inventing one.
+func _deflect_window() -> float:
+	return SpellDeflect.WINDOW_ULT if spell_tier == SpellTier.Tier.ULT \
+		else SpellDeflect.WINDOW_NORMAL
 
 
 ## Where this spell physically IS, for the parry scans. The node parks at the
@@ -148,6 +258,10 @@ func consume() -> void:
 ## head is currently buried in is ignored and the ground under it is found — the
 ## mechanism behind "passes under barriers". Returns the input unchanged when
 ## there is no physics world (headless), so geometry stays sane.
+##
+## ⚠ DO NOT REPLACE THIS WITH `SpellWorld.floor_below`. It is the documented opt-out
+## in the class header: SpellWorld casts with hit_from_inside ON, which would find
+## the underside of the very wall this spell exists to pass beneath.
 func _floor_snap(from: Vector2) -> Vector2:
 	var y: float = _floor_y(from.x, from.y)
 	return from if is_inf(y) else Vector2(from.x, y)
@@ -230,30 +344,47 @@ func _travel(delta: float) -> void:
 ## First body standing in the head's column. STOPS on it — a piercing floor wave
 ## would just be a beam that takes longer, which is the sameness this spell exists
 ## to break. Airborne bodies above CATCH_Y are simply passed under.
+##
+## NO LINE-OF-SIGHT FILTER HERE, and that is the documented exemption rather than an
+## oversight — see the class header. The only thing adopted from SpellTargets is the
+## target's OWN forgiveness ring, which widens the column in proportion to how large
+## the body is drawn (≈7 px on a 1.9x sparring dummy) and is the ONLY margin scheme
+## allowed on top of `_catch_x`. `alive()` also drops anything that died earlier in
+## this same frame, which used to be able to eat a whole snap beat.
 func _catch() -> Node2D:
-	for e: Node in get_tree().get_nodes_in_group(_target_group):
-		if not (e is Node2D) or not is_instance_valid(e):
-			continue
+	for e: Node in SpellTargets.alive(get_tree().get_nodes_in_group(_target_group)):
 		var n: Node2D = e as Node2D
-		if caught_by(_head, n.global_position, _catch_x):
+		if caught_by(_head, n.global_position, _catch_x + SpellTargets.hit_margin(n)):
 			return n
 	return null
 
 
 ## A floor wave should chew cover on its way past, so a crate is not a safe place
 ## to stand. Damage-once-per-crate; the shade does not stop for props.
+##
+## AUDIT FINDING, FIXED HERE. The old test compared the head to each prop's
+## `global_position` inside two hand-tuned pads (`_catch_x + 10` across,
+## `CATCH_Y + 30` / `CATCH_UNDER - 10` vertically). That is a third and fourth
+## forgiveness scheme layered on `_catch_x`, and — worse — it only ever sees cover
+## whose ORIGIN happens to sit near the head, so a wide destructible span the shade
+## crossed the middle of was never touched. It is now the segment JUST TRAVELLED,
+## and whatever the world says was torn through is what gets damaged.
+##
+## ⚠ `hit` IS DELIBERATELY IGNORED. This spell goes UNDER walls, so the query is
+## used ONLY for its `smashed` list — never for its stop point. That single line IS
+## the exemption. What SpellWorld buys in exchange is the smash rule itself: a crate
+## that collapsed THIS FRAME has already left the "destructible" group while its
+## collider survives until the deferred free, and a group-only test (which is what
+## the old loop was) misses it.
 func _chew_cover() -> void:
-	for prop: Node in get_tree().get_nodes_in_group("destructible"):
-		if not (prop is Node2D) or not is_instance_valid(prop) or prop in _chewed:
-			continue
-		var p: Vector2 = (prop as Node2D).global_position
-		if absf(p.x - _head.x) > _catch_x + 10.0:
-			continue
-		if _head.y - p.y > CATCH_Y + 30.0 or _head.y - p.y < CATCH_UNDER - 10.0:
+	var lift := Vector2(0.0, -CHEW_LIFT)
+	var bitten: Dictionary = SpellWorld.first_solid(_prev + lift, _head + lift, [], self)
+	for prop: Node in (bitten["smashed"] as Array[Node]):
+		if prop in _chewed:
 			continue
 		_chewed.append(prop)
 		if prop.has_method("damage_at"):
-			prop.call("damage_at", _damage, p, Vector2(_dir_sign, -0.2))
+			prop.call("damage_at", _damage, _head, Vector2(_dir_sign, -0.2))
 		elif prop.has_method("take_damage"):
 			prop.call("take_damage", _damage)
 
@@ -276,14 +407,26 @@ func _strike() -> void:
 	_state_t = 0.0
 	var tint := Color(_color.r, _color.g, _color.b, 1.0)
 	if _victim != null and is_instance_valid(_victim):
-		if _victim.has_method("take_damage"):
-			_victim.call("take_damage", _damage, tint)
-		if _victim.has_method("apply_status"):
-			# SHADOW only. The launch IS the payload here — layering a root on top
-			# would make this ShadowRoot with extra steps.
-			_victim.call("apply_status", element_id)
-		if _victim.has_method("apply_knockback"):
-			_victim.call("apply_knockback", Vector2(_dir_sign * KNOCK_FWD, KNOCK_UP))
+		# Deflect contract, second half. reflect() (above) is the FIRST half and is a
+		# one-shot: a shade already turned once cannot be turned again, so without
+		# this a guard press against the returning wave would be worth nothing. A
+		# clean guard eats the strike whole — no damage, no ailment, no launch. `at`
+		# is the victim's head, not this node's transform, which is (0,0).
+		var dealt: int = SpellDeflect.resolve(_victim, _damage,
+			Vector2(_dir_sign, 0.0), SpellTargets.aim_point(_victim), _deflect_window())
+		if dealt > 0:
+			# Through the adapter: a HERO victim declares take_damage(int) while an
+			# Enemy declares take_damage(int, Color), and calling the two-arg form
+			# on a hero is a runtime error that ABORTS this function — so the
+			# ailment and the launch below would be skipped too. Unreachable until
+			# the faction seam let a spell target a hero; found by the bot sim.
+			SpellTargets.hurt(_victim, dealt, tint)
+			if _victim.has_method("apply_status"):
+				# SHADOW only. The launch IS the payload here — layering a root on
+				# top would make this ShadowRoot with extra steps.
+				_victim.call("apply_status", element_id)
+			if _victim.has_method("apply_knockback"):
+				_victim.call("apply_knockback", Vector2(_dir_sign * KNOCK_FWD, KNOCK_UP))
 	# Dark implosion first, then sparse HDR violet on top: the burst should read as
 	# the light going out, with bloom only on the flecks.
 	CombatVfx.spawn_burst(get_parent(), _strike_at + Vector2(0.0, -14.0),
@@ -293,7 +436,13 @@ func _strike() -> void:
 	CombatVfx.spawn_burst(get_parent(), _strike_at + Vector2(0.0, -20.0),
 		em, Color(_color.r, _color.g, _color.b, 0.0),
 		8, 0.32, 120.0, 280.0, 0.4, 1.0, 0.0, 0.0, true, Vector2.UP, 30.0)
-	Juice.impact_frame(0.7, _strike_at)
+	# The shadow family's shared mark — the negative (see ShadowRoot._erupt for
+	# why all five shadow spells punctuate the same way). A little stronger than
+	# the root's because this one is a STRIKE, not a hold.
+	Juice.frame({
+		"style": ImpactFrame.Style.INVERT, "strength": 1.0, "at": _strike_at,
+		"zoom": 0.0, "shake": 0.0, "shock": 0.0, "hitstop": 0.0,
+	})
 	Juice.hit_stop(0.07)
 	Juice.shake_camera(9.0)
 	Sfx.play("spell_impact", -2.0, 0.06, 0.86)
