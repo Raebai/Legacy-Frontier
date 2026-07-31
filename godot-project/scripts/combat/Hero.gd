@@ -151,6 +151,41 @@ const GUARD_DEFLECT_REACH: float = 74.0
 ## gate opens — no more silently dropped presses. `cast` is held/continuous
 ## and stays un-buffered.
 const BUFFER_TIME: float = 0.12
+## Actions that go through that single-slot buffer (newest press wins).
+const BUFFERED_ACTIONS: Array[StringName] = [&"melee", &"dash", &"blast", &"blink", &"nova"]
+
+## THE THREE SPELL BUTTONS, in kit-slot order — the right thumb's whole job.
+##
+## One action per kit slot, so slot 3 is ONE press away instead of three presses of a
+## cycle key that passes through two spells you did not want on the way. Before this
+## the hand had three real per-slot cooldowns and exactly one trigger, so the hotbar
+## had to label the selected slot with the cast key and the other two with the cycle
+## key — the bar telling the truth about a control scheme that had not been built.
+##
+## WHAT SURVIVES, and why neither is dead weight:
+##   * `ultimate` — "throw whatever is SELECTED". It is `BotController.CAST_ACTION`:
+##     a bot picks a slot by index (`bot_select_signature`) and then pulls this one
+##     trigger, because pressing a per-slot key through the global `Input` singleton
+##     would drive the human's hero too. Retiring it would cut the bot seam in half.
+##   * `cycle_signature` (V) — DEMOTED, not retired. It moves the selection that the
+##     hotbar lifts and that `ultimate` fires. It is no longer how a player reaches a
+##     spell, and no HUD label mentions it any more.
+##
+## Kept the same length as `SpellTier.SLOT_COUNT` by `_verify_spell_actions()` at
+## `_ready`, so growing the hand can never leave a slot silently unreachable.
+const SPELL_ACTIONS: Array[StringName] = [&"spell_1", &"spell_2", &"spell_3"]
+## What the hotbar prints on each spell slot. Derived from the bindings above rather
+## than typed in twice — the labels were wrong for exactly as long as they were a
+## separate list from the actions.
+const SPELL_KEYS: Array[String] = ["1", "2", "3"]
+## Spell presses buffer LONGER than the melee/dash set. A dash is 0.14 s and eats any
+## press made during it, so a 0.12 s buffer drops a spell queued at the START of a
+## dash — which is precisely the moment you queue one ("dash in, then hit them").
+## 0.22 s covers a whole dash plus a frame.
+const SPELL_BUFFER_TIME: float = 0.22
+## How the buffer encodes a spell slot. `#` so it can never collide with a plain
+## action name if one is ever added that starts with "spell".
+const SPELL_BUFFER_PREFIX: String = "spell#"
 ## Aim-stick deadzone: how far the AIM stick (right thumb on touch, `aim_*` actions)
 ## must be pushed before it re-points the aim. Below this the last aim is HELD, so
 ## lifting the thumb to tap an ability doesn't fling the shot somewhere random.
@@ -367,6 +402,14 @@ var _signature_index: int = 0
 ## Never index `_hand` with a signature index directly — go through `_hand_slot()`.
 var _hand: HandSlots = HandSlots.new()
 const HAND_SPELL_OFFSET: int = 1
+## READY-FLASH. How long a slot celebrates coming off cooldown. Long enough to catch
+## out of the corner of an eye mid-fight, short enough that three slots recovering in
+## sequence do not merge into one continuous glow. UNTESTED FEEL GUESS.
+const READY_PULSE_TIME: float = 0.38
+## Per-slot flash timers + the not-ready -> ready edge detector behind them. Sized
+## lazily to `SpellTier.SLOT_COUNT` on the first tick.
+var _ready_pulse: Array[float] = []
+var _was_slot_ready: Array[bool] = []
 ## Twin-stick: `facing`/`_aim_dir` track the CURSOR (drive casts, melee arc, cast
 ## pose, camera peek); `_move_dir` tracks WASD (drives dash + blink dodge). They
 ## are decoupled so you can run one way while aiming/casting another (strafe).
@@ -422,6 +465,11 @@ var _melee_cd: float = MELEE_COOLDOWN     # per-class swing cadence (Brawler fas
 var _melee_arc_dot: float = MELEE_ARC_DOT # per-class arc width (Juggernaut swings wide)
 var _buffered_action: String = ""
 var _buffer_timer: float = 0.0
+## True when the buffered entry came from a HELD button rather than a fresh press.
+## Only the spell buttons can produce one (hold = repeat-cast), and it is what stops
+## a held button from firing the Rift Dagger's free RECALL beat the instant the throw
+## leaves your hand: recall is a second PRESS, not a continuation of the first.
+var _buffer_from_hold: bool = false
 var _knockback: Vector2 = Vector2.ZERO  # shove received from an enemy hit / bomb
 var _ragdolling: bool = false  # hold DOWN -> go limp + flop (the Stick-Fight ragdoll toy)
 var _hero_class: int = HeroClass.MAGE
@@ -712,7 +760,23 @@ func _tune(key: String, fallback: float) -> float:
 	return fallback
 
 
+## THE THREE SPELL BUTTONS MUST COVER THE WHOLE HAND. A kit that grew to four slots
+## with three bound actions would leave slot 4 castable only through the demoted
+## cycle key — silently, with a hotbar that draws it and a button that never reaches
+## it. Shouted at boot rather than discovered in a playtest.
+func _verify_spell_actions() -> void:
+	if SPELL_ACTIONS.size() != SpellTier.SLOT_COUNT:
+		push_error("Hero: %d spell buttons for %d kit slots — a slot is unreachable."
+			% [SPELL_ACTIONS.size(), SpellTier.SLOT_COUNT])
+	if SPELL_KEYS.size() != SPELL_ACTIONS.size():
+		push_error("Hero: spell key labels and spell actions have drifted apart.")
+	for a: StringName in SPELL_ACTIONS:
+		if not InputMap.has_action(a):
+			push_error("Hero: spell action '%s' is not in the input map." % a)
+
+
 func _ready() -> void:
+	_verify_spell_actions()
 	add_to_group("hero")
 	# FRIENDLY FIRE, the hero half. `mortal` is the shared "I am a damageable
 	# fighter" group every spell scans once friendly fire is on (see
@@ -1002,6 +1066,19 @@ func _physics_process(delta: float) -> void:
 	# Every kit slot recovers independently, and they all recover WHILE you are
 	# committed to something else — same reasoning as the guard ring above.
 	_hand.tick(delta)
+	# ...and so does the input buffer, for the same reason: a press queued a moment
+	# before a channel started must not be sitting there when the channel ends.
+	_age_input_buffer(delta)
+	# THE WINDUP IS NOT A DEAD BEAT. Recording presses HERE — above the channel and
+	# summon early-returns — is what lets you queue the next move while a spell is
+	# still blooming, so the instant it resolves the dash or the follow-up spell is
+	# already coming out. It used to sit below those returns, which meant every press
+	# made during a windup was silently thrown away: the most committed, most
+	# expressive moment in the game was also the one where the buttons stopped
+	# answering. The commitment itself is untouched — a windup still cannot be
+	# cancelled, it just no longer eats the press that comes after it.
+	_update_input_buffer(delta)
+	_tick_ready_pulse(delta)
 	_wall_jump_lock = maxf(_wall_jump_lock - delta, 0.0)
 	_knockback = _knockback.move_toward(Vector2.ZERO, KNOCKBACK_DECAY * delta)
 	_update_flaming_fist(delta)
@@ -1026,7 +1103,6 @@ func _physics_process(delta: float) -> void:
 		_spawn_foot_puff()
 		Juice.shake_camera(2.5)  # a little land thud (Stick-Fight juice)
 	_was_on_floor = is_on_floor()
-	_update_input_buffer(delta)
 	# Aim resolution. LOCKED RULE: no auto-aim, no homing — on EVERY platform the aim
 	# is the direction the player is actually pointing, and landing a spell is their
 	# skill, not the game's. On desktop that's the cursor, tracked every frame so
@@ -1116,6 +1192,11 @@ func _physics_process(delta: float) -> void:
 	# a permanent free damage reduction. It also removes the platform asymmetry where
 	# a desktop player could hold guard and swing but a thumb cannot.
 	var guard_locked: bool = _guard != null and _guard.blocks_attack()
+	# `ultimate` = "throw whatever is SELECTED", and it is what a BOT pulls after
+	# choosing a slot by index (see SPELL_ACTIONS). Unbuffered on purpose: a bot
+	# re-decides its whole intent every physics tick, so a queued press would fire a
+	# decision it had already changed its mind about. The three PLAYER spell buttons
+	# go through the buffer instead — `_try_fire_buffered_spell`.
 	if _just(&"ultimate") and not is_dashing and not guard_locked:
 		_cast_signature()
 	if _pressed(&"cast") and _cast_cooldown_timer <= 0.0 and not is_dashing \
@@ -1167,7 +1248,9 @@ func _physics_process(delta: float) -> void:
 	_jump_buffer = maxf(_jump_buffer - delta, 0.0)
 
 	if _try_fire_buffered():
-		return  # a dash started this frame — the dash branch owns movement now
+		# A dash started (the dash branch owns movement now), or a spell committed to a
+		# channel/summon that owns the body until it resolves.
+		return
 
 	# Coyote window + air-jump refill while grounded (per-class: Brawler double-jumps).
 	if is_on_floor():
@@ -1277,22 +1360,97 @@ func _physics_process(delta: float) -> void:
 	rig.set_aim(_aim_dir)
 
 
-## Record melee/dash/blast presses into a single-slot buffer (newest press
-## wins) and expire the slot after BUFFER_TIME.
-func _update_input_buffer(delta: float) -> void:
+## Age the buffer. Split out from `_update_input_buffer` and ticked with the cooldown
+## timers at the TOP of the frame, ABOVE the channel/summon early-returns — otherwise
+## a buffered press froze for the whole of a levitating cast and then fired on the
+## frame it ended, seconds after the player let go of the button.
+##
+## ⚠ THE TIMER DECAYS ON SCALED DELTA, which is deliberate and worth stating: during
+## a `Juice.hit_stop` the whole game runs at `time_scale = 0.05`, so a 0.22 s buffer
+## becomes ~4 seconds of WALL time. A press made during the freeze therefore survives
+## the freeze, which is exactly what you want — the hit-stop is a punctuation mark,
+## not a window where your buttons stop working.
+func _age_input_buffer(delta: float) -> void:
 	_buffer_timer = maxf(_buffer_timer - delta, 0.0)
 	if _buffer_timer <= 0.0:
 		_buffered_action = ""
-	for action: String in ["melee", "dash", "blast", "blink", "nova"]:
-		if _just(StringName(action)):
-			_buffered_action = action
-			_buffer_timer = BUFFER_TIME
+		_buffer_from_hold = false
+
+
+## Record melee/dash/blast/spell presses into the single-slot buffer (newest press
+## wins).
+func _update_input_buffer(_delta: float) -> void:
+	for action: StringName in BUFFERED_ACTIONS:
+		if _just(action):
+			_latch_buffer(String(action), BUFFER_TIME, false)
+	# THE THREE SPELL BUTTONS. A press latches; a HELD button re-latches once the
+	# buffer has been spent, which is what makes holding one repeat-cast the moment
+	# the slot comes back instead of sitting there doing nothing. A fresh press of a
+	# DIFFERENT button always wins over a hold, because the hold branch only fills an
+	# empty buffer.
+	for i: int in SPELL_ACTIONS.size():
+		var action: StringName = SPELL_ACTIONS[i]
+		if _just(action):
+			_latch_buffer(spell_buffer_key(i), SPELL_BUFFER_TIME, false)
+		elif _buffered_action.is_empty() and _pressed(action):
+			_latch_buffer(spell_buffer_key(i), SPELL_BUFFER_TIME, true)
+
+
+## The buffer's encoding of "the player asked for kit slot `i`". Static + public so
+## the tests pin the same string the hero writes rather than re-deriving it.
+static func spell_buffer_key(slot: int) -> String:
+	return SPELL_BUFFER_PREFIX + str(slot)
+
+
+## Which kit slot a buffered entry refers to, or -1 when it is not a spell entry.
+static func spell_buffer_slot(entry: String) -> int:
+	if not entry.begins_with(SPELL_BUFFER_PREFIX):
+		return -1
+	return int(entry.substr(SPELL_BUFFER_PREFIX.length()))
+
+
+func _latch_buffer(entry: String, window: float, from_hold: bool) -> void:
+	_buffered_action = entry
+	_buffer_timer = window
+	_buffer_from_hold = from_hold
+
+
+## THE PRESS THAT FALLS BETWEEN TWO PHYSICS FRAMES.
+##
+## Every gate in this file is polled from `_physics_process`, and `Juice.hit_stop`
+## drops `Engine.time_scale` to 0.05 — so a 0.06 s hit-stop is ~0.003 s of GAME time
+## and the physics step simply does not run during it. A tap that starts AND ends
+## inside that window is never seen by a physics-frame poll: the button did nothing,
+## at the single most action-packed moment in the game. That is not a theory about
+## the engine, it is the arithmetic of a fixed-timestep loop under a time scale.
+##
+## `_process` runs once per RENDERED frame regardless of `time_scale`, so latching
+## the same edges here catches those taps and shaves up to a physics frame (~16 ms)
+## off every other press. The buffer is idempotent — the physics poll re-latching the
+## same entry a frame later is a no-op — so the two paths cannot double-fire.
+##
+## ⚠ HUMAN PATH ONLY. A bot's edges live on its `BotController`, which is advanced
+## once per PHYSICS tick inside `controller.tick()`; polling it from a render frame
+## would read the same intent two, three, four times and hand bots extra presses.
+## `controller != null` is the same seam test every input call in this file uses.
+func _process(_delta: float) -> void:
+	if controller != null or downed:
+		return
+	if _net != null and _net.is_active() and not is_multiplayer_authority():
+		return
+	for action: StringName in BUFFERED_ACTIONS:
+		if Input.is_action_just_pressed(action):
+			_latch_buffer(String(action), BUFFER_TIME, false)
+	for i: int in SPELL_ACTIONS.size():
+		if Input.is_action_just_pressed(SPELL_ACTIONS[i]):
+			_latch_buffer(spell_buffer_key(i), SPELL_BUFFER_TIME, false)
 
 
 ## Fire the buffered action if its gate is now open, consuming the buffer so
 ## nothing double-fires. Only called from the not-dashing path, so the old
-## `not is_dashing` gates are implicit. Returns true if a dash started (the
-## caller must yield the rest of the frame to the dash branch).
+## `not is_dashing` gates are implicit. Returns true when the CALLER MUST YIELD the
+## rest of the frame — a dash started, or a spell committed to a channel/summon that
+## has already zeroed the velocity and set the cast pose.
 func _try_fire_buffered() -> bool:
 	if _buffered_action.is_empty():
 		return false
@@ -1324,12 +1482,47 @@ func _try_fire_buffered() -> bool:
 			if _nova_cooldown_timer <= 0.0:
 				_clear_input_buffer()
 				_nova()
+		_:
+			return _try_fire_buffered_spell()
 	return false
+
+
+## The buffered half of the three spell buttons.
+##
+## Returns true when the cast committed to a channel/summon, because those set
+## `velocity = Vector2.ZERO` and a committed cast pose, and the movement block below
+## the caller would spend the rest of the frame re-accelerating the body and stomping
+## the pose back to RUN/IDLE. One frame, but it is the FIRST frame of the cast — the
+## one the whole "casting must feel incredible" ceremony opens on.
+func _try_fire_buffered_spell() -> bool:
+	var slot: int = spell_buffer_slot(_buffered_action)
+	if slot < 0 or slot >= _signatures.size():
+		return false
+	# A HELD button waits for the slot to actually recover. A fresh PRESS may also
+	# take the Rift Dagger's free RECALL beat, which lives above the cooldown gate in
+	# `_cast_signature` — holding the button through a throw must not instantly yank
+	# the dagger back, because recall is a second decision and not a continuation.
+	if not signature_ready(slot) and (_buffer_from_hold or not _slot_recall_pending(slot)):
+		return false
+	_clear_input_buffer()
+	cast_signature_slot(slot)
+	return _channeling or _summoning
+
+
+## True when slot `i` holds a live thrown anchor, so the next press means RECALL and
+## is free rather than blocked by the throw's own cooldown. Mirrors the same query
+## `_signature_hud_slot` makes to draw "RECALL" on the bar — one rule, two readers.
+func _slot_recall_pending(i: int) -> bool:
+	var sig: SpellDef = signature_at(i)
+	if sig == null or sig.kind != SpellDef.Kind.THROWN_ANCHOR:
+		return false
+	return (load(RIFT_DAGGER_PATH) as GDScript).find_anchor(get_tree(), self) != null
 
 
 func _clear_input_buffer() -> void:
 	_buffered_action = ""
 	_buffer_timer = 0.0
+	_buffer_from_hold = false
 
 
 ## Advance to the next element (wraps) and re-apply aura + ability colour.
@@ -1921,8 +2114,120 @@ func _end_channel(handoff: bool = false) -> void:
 		_discard_cast_sigil()
 
 
-## Swap to the next equipped signature (the loadout cycle — V). On mobile this is
-## a loadout selector, not a per-cast key, so the in-combat input set stays small.
+## CAST KIT SLOT `idx` DIRECTLY — what a spell BUTTON does, as opposed to the
+## select-then-trigger pair a cycle key forces.
+##
+## Moving `_signature_index` is not a side effect, it is half the point: the hotbar's
+## lifted frame follows the spell you actually threw, `ultimate`/`cycle_signature`
+## carry on meaning what they always meant, and `start_signature_cooldown` (the Rift
+## Dagger's deferred bill) charges the slot the dagger came out of.
+##
+## `signature_changed` is emitted only on a real change, so mashing one button does
+## not spam the HUD label every press.
+##
+## Returns false for a slot this class does not carry, rather than clamping — a
+## button that reaches nothing must read as "nothing happened", never as a plausible
+## wrong spell fired on your behalf (the same rule as `bot_select_signature`).
+func cast_signature_slot(idx: int) -> bool:
+	if idx < 0 or idx >= _signatures.size():
+		return false
+	if idx != _signature_index:
+		_signature_index = idx
+		signature_changed.emit(_signatures[idx].display_name)
+	_cast_signature()
+	return true
+
+
+## Everything a spell BUTTON needs to draw itself, for one kit slot. One publisher
+## for the hotbar, the loadout bar and the touch pad, so a fourth reader cannot
+## invent a fifth answer to "is this button ready".
+##
+## `pulse` is 0..1 and decays from 1 on the frame the slot came off cooldown — the
+## READY-FLASH. It is here rather than in each HUD because three HUDs each keeping
+## their own "was it ready last frame" latch is three chances to disagree, and
+## because a HUD that is not on screen yet would miss the edge entirely.
+func spell_button_state(slot: int) -> Dictionary:
+	var sig: SpellDef = signature_at(slot)
+	var pulse: float = 0.0
+	if slot >= 0 and slot < _ready_pulse.size():
+		pulse = _ready_pulse[slot] / READY_PULSE_TIME
+	return {
+		"slot": slot,
+		"key": SPELL_KEYS[slot] if slot >= 0 and slot < SPELL_KEYS.size() else "",
+		"name": AbilityBar.short_spell_name(sig.display_name) if sig != null else "--",
+		"remaining": signature_cooldown(slot) if sig != null else 0.0,
+		"total": maxf(sig.cooldown, 0.01) if sig != null else 0.0,
+		"ready": sig != null and signature_ready(slot),
+		"filled": sig != null,
+		"pulse": clampf(pulse, 0.0, 1.0),
+		"selected": slot == _signature_index,
+	}
+
+
+## The same answer for a NON-spell touch button, keyed by the action it drives, so the
+## pad can draw a cooldown veil on DASH and PARRY without knowing which row of
+## `ability_hud_state()` they happen to occupy. That index coupling is exactly how a
+## HUD ends up drawing the wrong ability's timer after someone reorders the bar.
+##
+## An action with no cooldown (jump) reports ready with a zero total, which the veil
+## renders as "nothing to draw" — one shape for every button rather than a special
+## case per verb.
+func touch_button_state(action: StringName) -> Dictionary:
+	match action:
+		&"dash":
+			return _touch_state(_dash_cooldown_timer, float(_cfg["dash_cd"]))
+		&"parry":
+			if _guard != null:
+				var rearm: float = _guard.rearm_time()
+				return _touch_state(0.0 if _guard.is_ready() else rearm, rearm)
+			return _touch_state(_parry_cooldown_timer, PARRY_COOLDOWN)
+		&"blast":
+			return _touch_state(_blast_cooldown_timer, float(_cfg["blast_cd"]))
+		&"blink":
+			return _touch_state(_blink_cooldown_timer, float(_cfg["blink_cd"]))
+		&"nova":
+			return _touch_state(_nova_cooldown_timer, NOVA_COOLDOWN)
+		&"melee":
+			return _touch_state(_melee_cooldown_timer, _melee_cd)
+	return _touch_state(0.0, 0.0)
+
+
+func _touch_state(remaining: float, total: float) -> Dictionary:
+	return {"remaining": maxf(remaining, 0.0), "total": maxf(total, 0.0),
+		"ready": remaining <= 0.0, "pulse": 0.0, "filled": true, "name": ""}
+
+
+## Age the ready-flash timers and catch the not-ready -> ready edge on every slot.
+## Ticked with the cooldown bank (above the channel/summon early-returns) so a slot
+## that recovers DURING a long cast still flashes when the cast ends.
+func _tick_ready_pulse(delta: float) -> void:
+	var n: int = SpellTier.SLOT_COUNT
+	if _ready_pulse.size() != n:
+		_ready_pulse.resize(n)
+		_was_slot_ready.resize(n)
+		for i: int in n:
+			_ready_pulse[i] = 0.0
+			# Seeded from the LIVE state, not from `true`: seeding optimistic would
+			# make every slot that happened to be recovering at spawn flash once for
+			# no reason the player could connect to anything.
+			_was_slot_ready[i] = signature_at(i) != null and signature_ready(i)
+	for i: int in n:
+		_ready_pulse[i] = maxf(_ready_pulse[i] - delta, 0.0)
+		var now_ready: bool = signature_at(i) != null and signature_ready(i)
+		if now_ready and not _was_slot_ready[i]:
+			_ready_pulse[i] = READY_PULSE_TIME
+			# The ULT gets an audible tick as well as a visual one. Only the ult: three
+			# chimes a rotation is noise, and the ult is the one you are actually
+			# waiting on. Quiet and pitched up so it sits above the fight rather than
+			# in it.
+			if i == SpellTier.ULT_SLOT:
+				Sfx.play("sigil_form", -13.0, 0.02, 1.5)
+		_was_slot_ready[i] = now_ready
+
+
+## Swap to the next equipped signature (the loadout cycle — V). DEMOTED by the three
+## spell buttons: it still moves the selection the hotbar lifts and `ultimate` fires,
+## but it is no longer how a player reaches a spell, and no HUD label names it.
 func _cycle_signature() -> void:
 	if _signatures.is_empty():
 		return
@@ -2866,12 +3171,12 @@ func start_signature_cooldown(seconds: float) -> void:
 ## before per-slot cooldowns — no separate number to show anyway. Three slots is the
 ## control scheme drawn honestly.
 ##
-## KEY LABELS ARE THE TRUTH ABOUT THE BINDINGS, not an aspiration. There is still one
-## `ultimate` action and one `cycle_signature` action, so the SELECTED slot is labelled
-## with the cast key and the others with the cycle key. When the touch layer grows
-## three real buttons (and the desktop map three real keys) this is the one place that
-## changes. Publishing "1 / 2 / 3" today would be the class cards advertising spells
-## nobody equips, all over again.
+## KEY LABELS ARE THE TRUTH ABOUT THE BINDINGS, not an aspiration. They used to read
+## "G" on the selected slot and "V" on the other two, because there was exactly one
+## trigger and a cycle key — the bar honestly describing a control scheme that had
+## not been built. Now each slot has its OWN action (`SPELL_ACTIONS`) and its own key,
+## so the labels come straight off `SPELL_KEYS` and the bar and the bindings cannot
+## drift apart without `_verify_spell_actions` shouting at boot.
 func _signature_hud_slots() -> Array:
 	var out: Array = []
 	for i: int in SpellTier.SLOT_COUNT:
@@ -2889,18 +3194,22 @@ func _signature_hud_slots() -> Array:
 func _signature_hud_slot(i: int = -1) -> Dictionary:
 	var idx: int = _signature_index if i < 0 else i
 	var selected: bool = idx == _signature_index
-	# The cast key on the slot you would actually cast; the cycle key on the rest.
-	var key: String = "G" if selected else "V"
+	# This slot's OWN key. Every slot is one press away now, so there is no "the one
+	# you can cast" and "the ones you have to cycle to" any more.
+	var key: String = SPELL_KEYS[idx] if idx >= 0 and idx < SPELL_KEYS.size() else ""
+	var pulse: float = 0.0
+	if idx >= 0 and idx < _ready_pulse.size():
+		pulse = clampf(_ready_pulse[idx] / READY_PULSE_TIME, 0.0, 1.0)
 	var sig: SpellDef = signature_at(idx)
 	if sig == null:
 		# An empty slot is DRAWN, dimmed, rather than skipped: a hand with a hole in it
 		# is information (this class carries two spells, or a pickup slot is open), and
 		# a bar that silently shrinks makes the remaining buttons move under the thumb.
 		return {"name": "--", "key": key, "remaining": 0.0, "total": 0.0,
-			"enabled": false, "selected": selected}
+			"enabled": false, "selected": selected, "pulse": 0.0}
 	if sig.kind == SpellDef.Kind.THROWN_ANCHOR 			and (load(RIFT_DAGGER_PATH) as GDScript).find_anchor(get_tree(), self) != null:
 		return {"name": "RECALL", "key": key, "remaining": 0.0, "total": 0.01,
-			"enabled": true, "selected": selected}
+			"enabled": true, "selected": selected, "pulse": pulse}
 	# Not split(" ")[0]: the IP rename made zoltraak "The Ordinary Spell", so the
 	# ability bar proudly read **The**. short_spell_name() drops leading articles
 	# and takes the first real word.
@@ -2913,6 +3222,10 @@ func _signature_hud_slot(i: int = -1) -> Dictionary:
 		# slot that was BOTH dimmed and wiped said the same thing twice.
 		"enabled": true,
 		"selected": selected,
+		# 1 -> 0 across READY_PULSE_TIME on the frame this slot came back. The bar
+		# draws it as a flare; a ready button should INVITE the press, not merely
+		# stop refusing it.
+		"pulse": pulse,
 	}
 
 

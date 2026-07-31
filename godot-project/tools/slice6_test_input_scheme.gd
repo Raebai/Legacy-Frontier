@@ -3,8 +3,18 @@
 # a half-finished rebind leaves a verb on the wrong button and nobody notices
 # until it is felt in a playtest. These pin the maker-chosen scheme:
 #   RIGHT MOUSE = deflect/parry   ·   SPACE = dash   ·   W/UP = jump (never space)
+#   1 / 2 / 3   = the three SPELL BUTTONS, one per kit slot
 # and, just as importantly, that no two verbs fight over the same button.
-#   Godot_v4.6.2-stable_win64_console.exe --path godot-project --headless --script tools/slice6_test_input_scheme.gd
+#
+# ⚠ UPDATED DELIBERATELY when the three spell buttons landed. `spell_1/2/3` join the
+# double-binding sweep because they are the buttons the whole right thumb is built
+# around, and a stray rebind putting one of them on a key another verb already owns
+# would fire both — with "which wins" decided by polling order rather than by design.
+# `ultimate` stays in the list and stays bound: it is the trigger a BOT pulls after
+# choosing a slot by index (BotController.CAST_ACTION), and it must keep a key of its
+# own rather than sharing one with the slot it happens to be pointing at.
+#
+# Run: Godot_v4.6.2-stable_win64_console.exe --path godot-project --headless --script tools/slice6_test_input_scheme.gd
 extends SceneTree
 
 # ── Vacuous-pass armour (see tools/slice_test_loadout.gd for the full write-up) ──
@@ -30,6 +40,8 @@ var _completed: Dictionary = {}
 
 const KEY_SPACE_PHYS: int = 32
 const KEY_W_PHYS: int = 87
+## Physical number-row 1. The three spell buttons are 1/2/3 = 49/50/51.
+const KEY_1_PHYS: int = 49
 const MOUSE_LEFT: int = 1
 const MOUSE_RIGHT: int = 2
 
@@ -101,6 +113,11 @@ func _test_scheme() -> void:
 		"space is NOT also jump — it belongs to dash")
 	_expect(not _has_mouse("cast", MOUSE_RIGHT),
 		"right mouse is NOT also cast — it belongs to deflect")
+	# One key per kit slot. An unbound action does not error — it reports "not pressed"
+	# forever, which is indistinguishable from a dead button.
+	for i: int in 3:
+		_expect(_has_key("spell_%d" % (i + 1), KEY_1_PHYS + i),
+			"the '%d' key throws kit slot %d" % [i + 1, i])
 	_completes("scheme")
 
 
@@ -109,6 +126,7 @@ func _test_scheme() -> void:
 func _test_no_double_bound_buttons() -> void:
 	var verbs: Array[String] = [
 		"cast", "melee", "parry", "dash", "jump", "blast", "blink", "nova", "ultimate",
+		"spell_1", "spell_2", "spell_3",
 	]
 	var seen: Dictionary = {}          # binding signature -> the verb that claimed it
 	for action: String in verbs:
