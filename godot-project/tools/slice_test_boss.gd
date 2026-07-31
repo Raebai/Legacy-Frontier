@@ -41,9 +41,12 @@ func _run() -> void:
 	root.add_child(arena)
 	var enc: Node = enc_script.new()
 	arena.add_child(enc)
+	# 1.2: the guardian arrives AFTER the last wave, not at the door. Run the
+	# floor's wave list down to nothing so the boss gate opens.
 	enc.run_floor(boss_def)
 	await process_frame
-	await process_frame
+	_expect(_find_boss() == null, "no guardian while waves are still running")
+	await _drain_waves(enc)
 
 	var guardian: Node = _find_boss()
 	_expect(guardian != null, "boss floor spawned a Boss")
@@ -96,15 +99,42 @@ func _run() -> void:
 	_expect(was_defeated[0], "boss emitted 'defeated' on death")
 	_expect(_find_boss() == null, "dead boss left the 'enemy' group (clear gate satisfied)")
 
-	# --- regression: a COMBAT floor spawns no Boss ---
+	# --- 1.2: a COMBAT floor also ends on a guardian, scaled DOWN ---
 	var enc2: Node = enc_script.new()
 	arena.add_child(enc2)
 	enc2.run_floor(tower.floors[0])
 	await process_frame
-	await process_frame
-	_expect(_find_boss() == null, "a COMBAT floor spawns no Boss")
+	_expect(_find_boss() == null, "a COMBAT floor holds its guardian back behind the waves")
+	await _drain_waves(enc2)
+	var mini: Node = _find_boss()
+	_expect(mini != null, "a COMBAT floor DOES get a boss once its waves are down")
+	if mini != null:
+		_expect(int(mini.get("max_hp")) < 400,
+			"the COMBAT-floor guardian is scaled down (got %d hp)" % int(mini.get("max_hp")))
+		_expect(float(mini.get("body_scale")) < 1.0,
+			"...and is physically smaller than the Ashspire colossus")
 
 	_finish()
+
+
+## Kill everything the encounter spawns until it opens the boss gate. Faster than
+## real time (waves spawn on a timer), so it drives _process directly rather than
+## waiting the floor out; bails after a generous frame budget so a regression
+## fails the suite instead of hanging it.
+func _drain_waves(enc: Node) -> void:
+	enc.set_process(false)   # hand-drive it, so the boss is never spawned behind our back
+	for i: int in 4000:
+		if int(enc.call("phase")) >= 3:   # Encounter.Phase.BOSS
+			await process_frame
+			return
+		for e: Node in root.get_tree().get_nodes_in_group("enemy"):
+			e.free()   # free(), not queue_free(): the gate re-reads the group NOW
+		enc.call("_process", 0.5)
+		if int(enc.call("phase")) >= 3:
+			await process_frame
+			return
+		await process_frame
+	_expect(false, "the encounter reached its boss phase within the frame budget")
 
 
 func _finish() -> void:

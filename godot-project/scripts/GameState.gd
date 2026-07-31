@@ -487,11 +487,12 @@ static func synthesize_floor_def(floor: int) -> FloorDef:
 ## F6 sandbox room. Authored towers supply their own LayoutDefs.
 static func default_layout() -> LayoutDef:
 	var l := LayoutDef.new()
+	# Crate + pickup points, re-laid for the one-screen 960x480 room (1.3).
 	l.crate_positions = [
-		Vector2(300, 180), Vector2(900, 180), Vector2(280, 520),
-		Vector2(920, 500), Vector2(600, 140), Vector2(770, 470),
+		Vector2(240, 130), Vector2(720, 130), Vector2(225, 365),
+		Vector2(735, 350), Vector2(480, 100), Vector2(615, 330),
 	]
-	l.weapon_pickups = [Vector2(560, 200)]
+	l.weapon_pickups = [Vector2(450, 145)]
 	return l
 
 
@@ -539,21 +540,48 @@ static func parse_climber_save(raw: Dictionary) -> Dictionary:
 # The Ashspire — the default tower, built in code (a maker-authored
 # data/towers/ashspire.tres wins if present). Five TYPED floors so each plays
 # and reads differently: combat -> combat -> elite -> combat -> boss.
+#
+# THE FLOOR SHAPE (1.1/1.2): each floor is an ordered list of escalating WAVES
+# and then a guardian. Wave counts climb with depth (3 -> 3 -> 4 -> 4 -> 5), and
+# inside a floor each wave brings more bodies at a higher concurrent cap. The
+# `enemy_budget` field is kept in sync with the wave totals so anything still
+# reading the flat number (and the synthesized-wave fallback) agrees.
 # ======================================================================
 static func build_default_tower() -> TowerDef:
 	var t := TowerDef.new()
 	t.id = "ashspire"
 	t.display_name = "The Ashspire"
 	t.theme = _theme("surface", Color(0.20, 0.28, 0.22))
+	var surface: Color = Color(0.20, 0.28, 0.22)
+	var under: Color = Color(0.16, 0.13, 0.20)
+	var sky: Color = Color(0.22, 0.26, 0.40)
 	t.floors = [
-		# type, budget, cap, brute%, hp×, theme, layout
-		_make_floor(FloorDef.FloorType.COMBAT, 5, 3, 0.30, 1.0, _theme("surface", Color(0.20, 0.28, 0.22)), default_layout()),
-		_make_floor(FloorDef.FloorType.COMBAT, 6, 4, 0.35, 1.1, _theme("surface", Color(0.20, 0.28, 0.22)), default_layout()),
-		_make_floor(FloorDef.FloorType.ELITE, 4, 3, 0.55, 1.3, _theme("underground", Color(0.16, 0.13, 0.20)), _elite_layout()),
-		_make_floor(FloorDef.FloorType.COMBAT, 8, 4, 0.45, 1.3, _theme("underground", Color(0.16, 0.13, 0.20)), default_layout()),
-		_make_floor(FloorDef.FloorType.BOSS, 6, 4, 0.70, 1.6, _theme("sky", Color(0.22, 0.26, 0.40)), _boss_layout()),
+		# type, brute%, hp×, theme, layout, waves — budget is derived from the waves
+		_make_floor(FloorDef.FloorType.COMBAT, 0.30, 1.0, _theme("surface", surface), default_layout(),
+			_waves([[2, 2], [3, 3], [4, 3]])),
+		_make_floor(FloorDef.FloorType.COMBAT, 0.35, 1.1, _theme("surface", surface), default_layout(),
+			_waves([[3, 3], [4, 3], [5, 4]])),
+		_make_floor(FloorDef.FloorType.ELITE, 0.55, 1.3, _theme("underground", under), _elite_layout(),
+			_waves([[2, 2], [3, 3], [3, 3], [4, 4]])),
+		_make_floor(FloorDef.FloorType.COMBAT, 0.45, 1.3, _theme("underground", under), default_layout(),
+			_waves([[3, 3], [4, 4], [5, 4], [5, 5]])),
+		_make_floor(FloorDef.FloorType.BOSS, 0.70, 1.6, _theme("sky", sky), _boss_layout(),
+			_waves([[2, 2], [3, 3], [4, 4], [4, 4], [5, 5]])),
 	]
 	return t
+
+
+## Build a wave list from [budget, concurrent_cap] pairs. Difficulty (brute mix,
+## HP) is inherited from the floor unless a wave overrides it, so the authored
+## table stays about PACING, which is the thing that has to be tuned by feel.
+static func _waves(rows: Array) -> Array[WaveDef]:
+	var out: Array[WaveDef] = []
+	for row: Array in rows:
+		var w := WaveDef.new()
+		w.enemy_budget = int(row[0])
+		w.concurrent_cap = int(row[1])
+		out.append(w)
+	return out
 
 
 static func _theme(name: String, tint: Color) -> EnvTheme:
@@ -563,10 +591,20 @@ static func _theme(name: String, tint: Color) -> EnvTheme:
 	return e
 
 
-static func _make_floor(type: int, budget: int, cap: int, brute: float, hp: float, theme: EnvTheme, layout: LayoutDef) -> FloorDef:
+static func _make_floor(type: int, brute: float, hp: float, theme: EnvTheme, layout: LayoutDef, waves: Array[WaveDef]) -> FloorDef:
 	var f := FloorDef.new()
 	f.floor_type = type
-	f.enemy_budget = budget
+	f.waves = waves
+	# Keep the legacy flat fields consistent with the authored waves: the budget
+	# is the sum, the cap is the toughest wave's. Anything that still reads them
+	# (and Encounter.synthesize_waves, if the wave list is ever cleared) then sees
+	# the same floor, rather than a stale pre-waves number.
+	var total: int = 0
+	var cap: int = 1
+	for w: WaveDef in waves:
+		total += maxi(w.enemy_budget, 0)
+		cap = maxi(cap, w.concurrent_cap)
+	f.enemy_budget = total
 	f.concurrent_cap = cap
 	f.brute_chance = brute
 	f.hp_multiplier = hp
@@ -578,8 +616,8 @@ static func _make_floor(type: int, budget: int, cap: int, brute: float, hp: floa
 ## Elite: a more open room (fewer crates) so the tankier fight has space.
 static func _elite_layout() -> LayoutDef:
 	var l := LayoutDef.new()
-	l.crate_positions = [Vector2(300, 180), Vector2(920, 500)]
-	l.weapon_pickups = [Vector2(560, 200)]
+	l.crate_positions = [Vector2(240, 130), Vector2(735, 350)]
+	l.weapon_pickups = [Vector2(450, 145)]
 	return l
 
 

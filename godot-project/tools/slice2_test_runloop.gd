@@ -196,8 +196,28 @@ func _test_tower_authoring(GS: GDScript) -> void:
 	_expect(int(t.floors[0].floor_type) == 0, "floor 1 is COMBAT")
 	_expect(int(t.floors[2].floor_type) == 1, "floor 3 is ELITE")
 	_expect(int(t.floors[4].floor_type) == 2, "floor 5 is BOSS")
-	_expect(int(t.floors[0].enemy_budget) == 5, "floor 1 budget 5")
-	_expect(int(t.floors[4].enemy_budget) == 6, "boss floor budget 6")
+	# THE TOWER shape (1.1): every floor is 3-5 escalating waves, and the flat
+	# enemy_budget field is kept as the SUM of those waves so anything still
+	# reading it — including Encounter's synthesized-wave fallback — agrees.
+	for i in range(t.floors.size()):
+		var waves: Array = t.floors[i].waves
+		_expect(waves.size() >= 3 and waves.size() <= 5,
+			"floor %d has 3-5 waves (got %d)" % [i + 1, waves.size()])
+		var total: int = 0
+		var prev: int = 0
+		var monotonic: bool = true
+		for w in waves:
+			total += int(w.enemy_budget)
+			if int(w.enemy_budget) < prev:
+				monotonic = false
+			prev = int(w.enemy_budget)
+		_expect(monotonic, "floor %d waves never shrink (they escalate)" % (i + 1))
+		_expect(int(t.floors[i].enemy_budget) == total,
+			"floor %d enemy_budget (%d) is the sum of its waves (%d)"
+				% [i + 1, int(t.floors[i].enemy_budget), total])
+	# Deeper floors are longer fights.
+	_expect((t.floors[4].waves as Array).size() > (t.floors[0].waves as Array).size(),
+		"the summit floor runs more waves than floor 1")
 	for i in range(t.floors.size()):
 		_expect(t.floors[i].theme != null, "floor %d has a theme" % (i + 1))
 		_expect(t.floors[i].layout != null, "floor %d has a layout" % (i + 1))

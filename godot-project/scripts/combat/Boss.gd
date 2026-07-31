@@ -21,6 +21,23 @@ const INTRO_TIME: float = 2.6
 const ADD_CAP: int = 3
 const PHASE_CD: Dictionary = {BPhase.P1: 2.4, BPhase.P2: 1.7, BPhase.P3: 1.1}
 
+## BEAM TELEGRAPH (1.6). The beam used to be the one attack with no tell — a
+## 1400 px/s bolt out of a still silhouette, which breaks the floor's own
+## "every attack is dodgeable because you saw it coming" grammar. Now it lays a
+## LANE along the snapshot aim first, exactly like the charger's dash lane, and
+## fires when the lane expires. The aim is frozen at telegraph time, so walking
+## out of the lane is the dodge.
+const BEAM_WINDUP: float = 0.55
+const BEAM_LANE_LENGTH: float = 900.0
+const BEAM_LANE_WIDTH: float = 40.0
+const BEAM_ACCENT: Color = Color(0.7, 0.4, 1.0, 1.0)
+
+## Guardian size as a fraction of the full Ashspire colossus. Encounter sets this
+## pre-_ready from the floor's boss scale: 1.0 on a BOSS floor, smaller for the
+## mini-guardian that now caps every other floor. Scales the rig + the crown, not
+## the collision box (which stays a clean rectangle either way).
+@export var body_scale: float = 1.0
+
 var _bphase: int = BPhase.INTRO
 var _attack_cd: float = 0.0
 var _intro_timer: float = INTRO_TIME
@@ -32,9 +49,10 @@ var _summoned: Array = []
 
 
 func _ready() -> void:
-	super._ready()   # hp, _hero, joins "enemy", tiny CharacterBars
+	super._ready()   # hp, _hero, joins "enemy" + "mortal", tiny CharacterBars
+	body_scale = clampf(body_scale, 0.3, 1.0)
 	if is_instance_valid(rig):
-		rig.set("height", RIG_HEIGHT)
+		rig.set("height", RIG_HEIGHT * body_scale)
 		rig.set_tint(STONE_TINT)
 		rig.class_preset("brawler")
 		rig.set_equipment("head", "crown")            # a guardian-king crown on the colossus
@@ -42,7 +60,7 @@ func _ready() -> void:
 		rig.set_aura_tier(2)
 	_adorn = BossAdornment.new()
 	add_child(_adorn)
-	_adorn.configure(RIG_HEIGHT)
+	_adorn.configure(RIG_HEIGHT * body_scale)
 	_adorn.set_intensity(0.35)
 	_build_bar()
 	_play_intro()
@@ -85,7 +103,7 @@ func _physics_process(delta: float) -> void:
 func _boss_touch() -> void:
 	if not is_instance_valid(_hero) or _touch_cooldown > 0.0:
 		return
-	if global_position.distance_to(_hero.global_position) < RIG_HEIGHT * 0.55:
+	if global_position.distance_to(_hero.global_position) < RIG_HEIGHT * body_scale * 0.55:
 		if _hero.has_method("take_damage"):
 			_hero.take_damage(touch_damage)
 			_touch_cooldown = 0.8
@@ -232,7 +250,7 @@ func _attack_duration(id: String) -> float:
 	match id:
 		"slam": return 1.0
 		"pillars": return 1.1
-		"beam": return 0.9
+		"beam": return BEAM_WINDUP + 0.9   # the tell is part of the attack
 		"rays": return 1.0
 		"summon": return 1.0
 		"meteor": return 1.1
@@ -280,11 +298,36 @@ func _atk_pillars() -> void:
 			p.erupt(pt, Color(0.8, 0.55, 0.28), 66.0, 30))
 
 
+## THE TELL. Snapshot the aim, lay a charge LANE from the guardian along it, and
+## only fire when the lane expires. Same grammar as every other boss attack (and
+## as the charger's dash): the shape you can see is the shape that will hurt, and
+## it is on screen long enough to step out of. `no_resolve` keeps this off
+## Enemy._on_telegraph_fired, whose archetype switch would run a brute strike.
 func _atk_beam() -> void:
 	if not is_instance_valid(_hero):
 		return
 	var dir: Vector2 = (_hero.global_position - global_position).normalized()
 	dir = Vector2(dir.x, dir.y * 0.35).normalized()   # flatten toward horizontal
+	if dir == Vector2.ZERO:
+		dir = Vector2.RIGHT
+	var tele: Telegraph = _emit_telegraph({
+		"style": Telegraph.Style.MUZZLE, "pos": global_position,
+		"accent": BEAM_ACCENT, "windup": BEAM_WINDUP,
+		"line": true, "length": BEAM_LANE_LENGTH, "width": BEAM_LANE_WIDTH,
+		"angle": dir.angle(), "aim": dir, "reach": BEAM_LANE_LENGTH,
+		"no_resolve": true,
+	})
+	_spawn_caster_signal(16.0, BEAM_WINDUP)
+	if tele == null:
+		_fire_beam(dir)
+		return
+	tele.fired.connect(func() -> void:
+		_free_caster_signal()
+		if is_instance_valid(self) and _bphase != BPhase.DEAD:
+			_fire_beam(dir))
+
+
+func _fire_beam(dir: Vector2) -> void:
 	var origin: Vector2 = rig.get_weapon_tip() if is_instance_valid(rig) else global_position
 	var beam := BeamSpell.new()
 	beam.target_group = "hero"
@@ -318,9 +361,14 @@ func _atk_rays() -> void:
 			d.strike(pt, Color(1.0, 0.5, 0.2), 70.0, 40, "fire"))
 
 
+## Adds are capped TWICE: by the guardian's own ADD_CAP (this fight should not
+## become an add fight) and by the floor's live-entity budget, which the boss
+## does not own and must ask about. Before 1.4 this bypassed the encounter cap
+## entirely, so a summoning boss could push the floor past its ceiling.
 func _atk_summon() -> void:
 	_prune_summoned()
 	var n: int = mini(2, ADD_CAP - _summoned.size())
+	n = mini(n, _spawn_headroom())
 	if n <= 0:
 		return
 	var chaser: Dictionary = ARCHETYPE_DEFAULTS[Archetype.CHASER]
