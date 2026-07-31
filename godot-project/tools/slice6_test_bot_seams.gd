@@ -476,7 +476,16 @@ func _test_faction_melee_follows_the_faction() -> void:
 	a.call("_on_melee_hit_frame")
 	_expect(_hp_of(b) < before, "a swing lands on the hostile hero")
 
-	# Same team, on its own patch of world: the scan cannot even see them.
+	# ⚠ THE TEAM-MATE HALF CHANGED WHEN FRIENDLY FIRE LANDED, and it changed into the
+	# more interesting assertion. It used to say "the scan cannot even see them"; the
+	# spec now says friendly fire is the social engine of the whole game, so a swing
+	# aimed at your team-mate MUST land. What must NOT change is the assist: the melee
+	# auto-target is the game aiming FOR you, and a game that silently redirects your
+	# fist onto the person beside you is not friendly fire, it is betrayal. So the two
+	# halves now pull in opposite directions ON PURPOSE, and that is the sanity rule:
+	#
+	#   arc  (you pointed at them)  -> lands
+	#   auto-target (you did not)   -> never reaches for a team-mate
 	var away: Vector2 = _plot(5)
 	var c: CharacterBody2D = _make_hero(away)
 	var mate: CharacterBody2D = _make_hero(away + Vector2(24.0, 0.0))
@@ -487,7 +496,21 @@ func _test_faction_melee_follows_the_faction() -> void:
 		"the auto-target does NOT lock onto a team-mate")
 	var mate_before: int = _hp_of(mate)
 	c.call("_on_melee_hit_frame")
-	_expect(_hp_of(mate) == mate_before, "and a swing cannot hit them")
+	_expect(_hp_of(mate) < mate_before,
+		"FRIENDLY FIRE: a swing you aimed at a team-mate DOES land on them")
+
+	# ...and the assist's refusal is not just "nothing was in range": put a team-mate
+	# BEHIND the swinger, outside the arc, where only an auto-target could reach them.
+	var behind_home: Vector2 = _plot(6)
+	var d: CharacterBody2D = _make_hero(behind_home)
+	var mate_behind: CharacterBody2D = _make_hero(behind_home + Vector2(-24.0, 0.0))
+	d.set_faction(&"f6_a", &"f6_b")
+	mate_behind.set_faction(&"f6_a", &"f6_b")
+	d.set("facing", Vector2.RIGHT)
+	var behind_before: int = _hp_of(mate_behind)
+	d.call("_on_melee_hit_frame")
+	_expect(_hp_of(mate_behind) == behind_before,
+		"a team-mate BEHIND you is never dragged into the swing by the auto-target")
 	_completes("faction_melee_follows_the_faction")
 
 
@@ -503,18 +526,41 @@ func _test_spellcaster_defaults_to_enemy() -> void:
 	spell.damage = 10
 	spell.effect = "arcane"
 
+	# ⚠ UPDATED WHEN FRIENDLY FIRE LANDED, deliberately and not because it failed.
+	# `_stamp` no longer writes the caller's faction verbatim: it writes
+	# `SpellCaster.damage_group(faction)`, which is the shared `mortal` group while
+	# friendly fire is on. So there are now TWO contracts to pin, and the old one is
+	# still a contract — turning friendly fire off must restore faction-strict
+	# targeting exactly, or the switch is decorative and a bisect through it proves
+	# nothing.
+	var was_ff: bool = SpellCaster.friendly_fire
+
+	# --- friendly fire ON (the shipping default): everyone with a body is fair game.
+	SpellCaster.friendly_fire = true
 	var ok: bool = SpellCaster.cast(spell, arena, Vector2.ZERO, Vector2(300.0, 0.0),
 		Color.WHITE, "arcane")
 	_expect(ok, "a BEAM still dispatches with no target group given")
-	_expect(_group_of_last_spectacle(arena) == "enemy",
-		"a spectacle built with no explicit group still targets `enemy` (got %s)"
+	_expect(_group_of_last_spectacle(arena) == String(SpellCaster.MORTAL_GROUP),
+		"friendly fire on -> a spectacle targets `mortal` whatever faction cast it (got %s)"
+		% [_group_of_last_spectacle(arena)])
+	SpellCaster.cast(spell, arena, Vector2.ZERO, Vector2(300.0, 0.0), Color.WHITE,
+		"arcane", null, &"team_b")
+	_expect(_group_of_last_spectacle(arena) == String(SpellCaster.MORTAL_GROUP),
+		"...and an explicit faction is widened too, not honoured (got %s)"
 		% [_group_of_last_spectacle(arena)])
 
+	# --- friendly fire OFF: byte-identical to the pre-friendly-fire behaviour.
+	SpellCaster.friendly_fire = false
+	SpellCaster.cast(spell, arena, Vector2.ZERO, Vector2(300.0, 0.0), Color.WHITE, "arcane")
+	_expect(_group_of_last_spectacle(arena) == "enemy",
+		"friendly fire off -> no explicit group still means `enemy` (got %s)"
+		% [_group_of_last_spectacle(arena)])
 	SpellCaster.cast(spell, arena, Vector2.ZERO, Vector2(300.0, 0.0), Color.WHITE,
 		"arcane", null, &"team_b")
 	_expect(_group_of_last_spectacle(arena) == "team_b",
-		"...and an explicit group is forwarded to the spectacle (got %s)"
+		"...and an explicit faction is forwarded verbatim (got %s)"
 		% [_group_of_last_spectacle(arena)])
+	SpellCaster.friendly_fire = was_ff
 	_completes("spellcaster_defaults_to_enemy")
 
 
@@ -541,9 +587,23 @@ func _test_spellcaster_forwards_both_spellings() -> void:
 	root.add_child(stub)
 	var spell := SpellDef.new()
 	spell.kind = SpellDef.Kind.BEAM
+	# Friendly fire forced OFF for this one: what is under test here is that BOTH
+	# SPELLINGS are written, and pinning it against the verbatim faction keeps the
+	# assertion about the two names rather than about the group policy (which the
+	# test above owns). Both halves would pass under either setting; this one just
+	# says what it means.
+	var was_ff: bool = SpellCaster.friendly_fire
+	SpellCaster.friendly_fire = false
 	SpellCaster._stamp(stub, 0, spell, null, &"team_b")
 	_expect(stub.target_group == "team_b", "the public spelling is stamped")
 	_expect(stub._target_group == "team_b", "the private spelling is stamped too")
+	SpellCaster.friendly_fire = true
+	SpellCaster._stamp(stub, 0, spell, null, &"team_b")
+	_expect(stub.target_group == String(SpellCaster.MORTAL_GROUP),
+		"...and friendly fire widens BOTH, not just the public one (public)")
+	_expect(stub._target_group == String(SpellCaster.MORTAL_GROUP),
+		"...and friendly fire widens BOTH, not just the public one (private)")
+	SpellCaster.friendly_fire = was_ff
 	_completes("spellcaster_forwards_both_spellings")
 
 

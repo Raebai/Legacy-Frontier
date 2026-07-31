@@ -88,6 +88,15 @@ var _detonated: bool = false
 ## Elemental ailment (Elements.Element) applied to enemies the nova hits. -1=none.
 var element_id: int = -1
 
+## WHO CAST THIS. `SpellCaster._stamp` has always written this name onto every
+## spectacle it builds, but this file never declared it — and `set()` on an
+## undeclared property is a silent no-op, so the write went nowhere. That cost
+## nothing while a hero's spells scanned `"enemy"` (the caster was never in that
+## group) and became a SELF-KILL the moment friendly fire pointed them at the
+## shared `"mortal"` group. Declaring it is what arms `SpellTargets.hostiles()` /
+## `SpellTargets.owner_of()`, which is where the exclusion is now enforced.
+var caster_node: Node = null
+
 
 ## Public entry: converge on `target`, dealing `damage` over `radius`.
 func converge(
@@ -132,7 +141,8 @@ func _detonate() -> void:
 	# straight DOWN through the floor, into whatever is standing in the room
 	# underneath. `filter_reachable` (inside `SpellTargets`) is what stops that.
 	for enemy: Node in SpellTargets.in_radius(
-			at, _radius, get_tree().get_nodes_in_group(target_group), [], self):
+			at, _radius, get_tree().get_nodes_in_group(target_group),
+			[caster_node], self):
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(_damage)
 		if element_id >= 0 and enemy.has_method("apply_status"):

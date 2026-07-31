@@ -382,7 +382,9 @@ func shatter() -> void:
 ## respected — the reach contract in both of its forms.
 func _shatter_aoe(centre: Vector2) -> void:
 	var in_range: Array = []
-	for e: Node in get_tree().get_nodes_in_group(target_group):
+	# hostiles(), not a bare group scan: under friendly fire the scanned group
+	# contains the ward's own caster, who is inside this ring by construction.
+	for e: Node in SpellTargets.hostiles(self, target_group):
 		if e is Node2D and is_instance_valid(e) \
 				and shatter_contains(_base, (e as Node2D).global_position):
 			in_range.append(e)

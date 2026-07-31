@@ -57,6 +57,15 @@ var _color: Color = Color(1.0, 0.95, 0.4, 1.0)
 var _points: PackedVector2Array = PackedVector2Array()
 var _elapsed: float = -1.0
 
+## WHO CAST THIS. `SpellCaster._stamp` has always written this name onto every
+## spectacle it builds, but this file never declared it — and `set()` on an
+## undeclared property is a silent no-op, so the write went nowhere. That cost
+## nothing while a hero's spells scanned `"enemy"` (the caster was never in that
+## group) and became a SELF-KILL the moment friendly fire pointed them at the
+## shared `"mortal"` group. Declaring it is what arms `SpellTargets.hostiles()` /
+## `SpellTargets.owner_of()`, which is where the exclusion is now enforced.
+var caster_node: Node = null
+
 
 ## Fire the chain from `origin` toward `aim`, hopping up to `max_hops` enemies.
 func chain(
@@ -65,8 +74,10 @@ func chain(
 ) -> void:
 	_color = color
 	var d: Vector2 = aim.normalized() if aim != Vector2.ZERO else Vector2.RIGHT
+	# hostiles(): the first link reaches from the caster's own staff tip, so under
+	# friendly fire an unexcluded caster is always the nearest valid hop.
 	var links: Array = build_chain(origin, d, FIRST_REACH, hop_range, max_hops,
-		get_tree().get_nodes_in_group(target_group))
+		SpellTargets.hostiles(self, target_group))
 	_points = PackedVector2Array([origin])
 	if links.is_empty():
 		_whiff(origin, d)

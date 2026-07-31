@@ -125,6 +125,15 @@ var _crack_angles: PackedFloat32Array = PackedFloat32Array()
 var _crack_lens: PackedFloat32Array = PackedFloat32Array()
 var _slab_jitter: PackedFloat32Array = PackedFloat32Array()
 
+## WHO CAST THIS. `SpellCaster._stamp` has always written this name onto every
+## spectacle it builds, but this file never declared it — and `set()` on an
+## undeclared property is a silent no-op, so the write went nowhere. That cost
+## nothing while a hero's spells scanned `"enemy"` (the caster was never in that
+## group) and became a SELF-KILL the moment friendly fire pointed them at the
+## shared `"mortal"` group. Declaring it is what arms `SpellTargets.hostiles()` /
+## `SpellTargets.owner_of()`, which is where the exclusion is now enforced.
+var caster_node: Node = null
+
 
 ## Public entry: smite the single point `target` with a pillar dealing `damage`
 ## over `radius`. Colour tints the spectacle; `effect` picks its character.
@@ -238,9 +247,10 @@ func _erupt_stone() -> void:
 	# rubble hump at its foot, instead of one `_radius` ball at the base that was
 	# both wider than the drawn rock at ground level and blind to everything above
 	# knee height on a 300 px tower.
+	# hostiles(): the column is placed by aim and CAN be placed on your own feet.
 	for enemy: Node in _column_targets(
 			STONE_HEIGHT, _radius * STONE_COLUMN_FACTOR, _radius * STONE_BASE_FACTOR,
-			get_tree().get_nodes_in_group(target_group)):
+			SpellTargets.hostiles(self, target_group)):
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(_damage)
 		if element_id >= 0 and enemy.has_method("apply_status"):
@@ -290,7 +300,7 @@ func _smite() -> void:
 	# floor into the level below. See COLUMN_HALF_FACTOR.
 	for enemy: Node in _column_targets(
 			SKY_HEIGHT, _radius * COLUMN_HALF_FACTOR, _radius,
-			get_tree().get_nodes_in_group(target_group)):
+			SpellTargets.hostiles(self, target_group)):
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(_damage)
 		if element_id >= 0 and enemy.has_method("apply_status"):

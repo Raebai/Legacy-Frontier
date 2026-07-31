@@ -127,6 +127,15 @@ var _lifetime: float = 0.0
 ## Each: {base, hw, h, tilt, seed, step, erupt_at, tell_at, hit: Dictionary}
 var _spikes: Array = []
 
+## WHO CAST THIS. `SpellCaster._stamp` has always written this name onto every
+## spectacle it builds, but this file never declared it — and `set()` on an
+## undeclared property is a silent no-op, so the write went nowhere. That cost
+## nothing while a hero's spells scanned `"enemy"` (the caster was never in that
+## group) and became a SELF-KILL the moment friendly fire pointed them at the
+## shared `"mortal"` group. Declaring it is what arms `SpellTargets.hostiles()` /
+## `SpellTargets.owner_of()`, which is where the exclusion is now enforced.
+var caster_node: Node = null
+
 
 # ---- pure geometry (headless-testable, no physics, no autoloads) -----------
 
@@ -361,7 +370,9 @@ func _strike(sp: Dictionary, h: float) -> void:
 	var base: Vector2 = sp["base"]
 	var hw: float = sp["hw"]
 	var hit: Dictionary = sp["hit"]
-	for enemy: Node in targets_in_spike(base, hw, h, get_tree().get_nodes_in_group(target_group)):
+	# hostiles(): spike 0 erupts under the caster's own feet.
+	for enemy: Node in targets_in_spike(base, hw, h,
+			SpellTargets.hostiles(self, target_group)):
 		var key: int = enemy.get_instance_id()
 		if hit.has(key):
 			continue

@@ -96,6 +96,15 @@ var _has_chain: bool = false
 ## Elemental ailment (Elements.Element) applied to struck enemies — LIGHTNING.
 var element_id: int = Elements.Element.LIGHTNING
 
+## WHO CAST THIS. `SpellCaster._stamp` has always written this name onto every
+## spectacle it builds, but this file never declared it — and `set()` on an
+## undeclared property is a silent no-op, so the write went nowhere. That cost
+## nothing while a hero's spells scanned `"enemy"` (the caster was never in that
+## group) and became a SELF-KILL the moment friendly fire pointed them at the
+## shared `"mortal"` group. Declaring it is what arms `SpellTargets.hostiles()` /
+## `SpellTargets.owner_of()`, which is where the exclusion is now enforced.
+var caster_node: Node = null
+
 
 ## Public entry: charge at `origin`, then rip a lightning lance of length/width
 ## along `dir` for `damage`. Colour tints the arc (defaults to the lightning
@@ -143,7 +152,10 @@ func _process(delta: float) -> void:
 func _discharge() -> void:
 	_fired = true
 	var half: float = _damage_half()
-	var struck: Array = targets_on_line(_origin, _dir, _length, half, get_tree().get_nodes_in_group(target_group))
+	# hostiles(): the lance's origin IS the caster, so an unexcluded caster is on
+	# its corridor at t=0 every single cast.
+	var struck: Array = targets_on_line(_origin, _dir, _length, half,
+		SpellTargets.hostiles(self, target_group))
 	for enemy: Node in struck:
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(_damage)
@@ -192,7 +204,7 @@ func _resolve_chain(already_hit: Array) -> void:
 	_chain_to = tip + fork_dir * CHAIN_RANGE
 	_has_chain = true
 	for e: Node in targets_on_line(tip, fork_dir, CHAIN_RANGE, FORK_CORRIDOR,
-			get_tree().get_nodes_in_group(target_group)):
+			SpellTargets.hostiles(self, target_group)):
 		if e in already_hit or not is_instance_valid(e):
 			continue
 		if e.has_method("take_damage"):

@@ -132,6 +132,82 @@ const EPS: float = 0.00001
 ## is precisely how the two-schemes bug started.
 
 
+# --------------------------------------------------------------- SELF-EXCLUSION
+## ⚠ READ THIS BEFORE WRITING A SPECTACLE'S DAMAGE SCAN. Until friendly fire landed,
+## "a spell cannot hit its own caster" was true BY CONSTRUCTION and nobody had to
+## think about it: a hero's spells scanned `"enemy"`, and a hero is not in `"enemy"`.
+## Friendly fire deletes that guarantee at a stroke — `SpellCaster._stamp` now writes
+## the shared `"mortal"` group, and the caster is standing right in the middle of it,
+## usually ON the blast centre because most effects originate at their own feet.
+##
+## An audit of all 23 spectacles found 18 whose faction scan had no caster exclusion
+## at all, because it had never needed one. Rather than trust 18 hand-written skip
+## lists (and every future one), the rule is enforced in TWO places, both here:
+##
+##   1. `hostiles(ctx, group)` — the ONE call a spectacle's faction scan should make
+##      instead of `get_tree().get_nodes_in_group(target_group)`. It answers the
+##      group MINUS the spectacle's own caster, so a scan that never thinks about
+##      self-exclusion still gets it.
+##   2. `_pool()` implicitly skips `owner_of(ctx)` for every selector that is handed
+##      a `ctx`. That covers the spectacles that already route through `in_radius` /
+##      `on_line` / `in_cone` / `nearest` but pass an EMPTY skip list (EnergyNova,
+##      MeteorSigil and StarConvergence all did), without touching their call sites.
+##
+## Neither layer can be forgotten by accident and both are no-ops when there is no
+## caster, which is exactly the headless / capture-tool case.
+
+## The caster a spell spectacle belongs to, or null.
+##
+## DUCK-TYPED ACROSS FOUR NAMES, because this codebase genuinely uses four and
+## normalising them would be a bigger change than this one is worth:
+##   `caster_node`  — what `SpellCaster._stamp` writes; the majority.
+##   `_caster`      — BlinkStrike, DrainTether.
+##   `_owner`       — RiftDagger (the anchor's thrower).
+##   `caster`       — Spell (the basic bolt).
+## Read in that order, first non-null wins. A node that declares none of them (a
+## Hero passing itself as `ctx`, a bare test stub) answers null, which makes every
+## caller below a no-op — the conservative direction.
+static func owner_of(ctx: Object) -> Object:
+	if ctx == null or not is_instance_valid(ctx):
+		return null
+	for field: StringName in [&"caster_node", &"_caster", &"_owner", &"caster"]:
+		var v: Variant = ctx.get(field)
+		if v != null and v is Object and is_instance_valid(v as Object):
+			return v as Object
+	return null
+
+
+## Everyone in `group`, minus the spectacle's own caster. THE replacement for a bare
+## `get_tree().get_nodes_in_group(target_group)` inside any effect that deals damage.
+##
+## `ctx` is the spectacle itself (`self` at every call site), used only to ask
+## `owner_of()` who threw it and to reach the tree. Returns the raw group unchanged
+## when there is no caster or no tree, so adopting it can never REMOVE a target that
+## the old bare scan would have found — the change is subtractive by exactly one
+## node, the one that must never be there.
+##
+## Deliberately does NOT filter for liveness or position: the selectors below already
+## do that via `alive()`, and several spectacles hand the result to their own
+## hand-rolled geometry which expects the raw list shape.
+static func hostiles(ctx: Node, group: StringName) -> Array:
+	if ctx == null or not is_instance_valid(ctx) or not ctx.is_inside_tree():
+		return []
+	var tree: SceneTree = ctx.get_tree()
+	if tree == null:
+		return []
+	var nodes: Array = tree.get_nodes_in_group(group)
+	var self_node: Object = owner_of(ctx)
+	if self_node == null:
+		return nodes
+	var out: Array = []
+	var blocked: int = self_node.get_instance_id()
+	for n: Variant in nodes:
+		if n is Object and (n as Object).get_instance_id() == blocked:
+			continue
+		out.append(n)
+	return out
+
+
 # ------------------------------------------------------------ the silhouette seam
 
 ## Distance from world point `p` to `target`'s REAL body, or `INF` if there is no
@@ -225,7 +301,7 @@ static func hits(target: Object, p: Vector2, reach: float = 0.0) -> bool:
 static func in_radius(center: Vector2, radius: float, nodes: Array,
 		skip: Array = [], ctx: Node = null, require_los: bool = true) -> Array:
 	var out: Array = []
-	for n: Node in _pool(nodes, skip):
+	for n: Node in _pool(nodes, skip, ctx):
 		if hits(n, center, radius):
 			out.append(n)
 	return _reachable(center, out, skip, ctx, require_los)
@@ -253,7 +329,7 @@ static func on_line(origin: Vector2, dir: Vector2, length: float, half_width: fl
 	var d: Vector2 = dir.normalized() if dir.length_squared() > EPS else Vector2.RIGHT
 	var tip: Vector2 = origin + d * maxf(length, 0.0)
 	var out: Array = []
-	for n: Node in _pool(nodes, skip):
+	for n: Node in _pool(nodes, skip, ctx):
 		if _touches_segment(n, origin, tip, half_width):
 			out.append(n)
 	# LOS from the MUZZLE, not from the tip: a beam is blocked by what stands between
@@ -286,7 +362,7 @@ static func in_cone(apex: Vector2, facing: Vector2, reach: float, min_dot: float
 		require_los: bool = true) -> Array:
 	var f: Vector2 = facing.normalized() if facing.length_squared() > EPS else Vector2.RIGHT
 	var out: Array = []
-	for n: Node in _pool(nodes, skip):
+	for n: Node in _pool(nodes, skip, ctx):
 		if not hits(n, apex, reach):
 			continue
 		var toward: Vector2 = (n as Node2D).global_position - apex
@@ -373,14 +449,26 @@ static func alive(nodes: Array) -> Array:
 
 # ------------------------------------------------------------------- internals
 
-## `alive(nodes)` minus everything in `skip`. Identity is by instance id rather than
-## by `in`, so a `skip` entry that was freed between the caller building it and this
-## running cannot throw.
-static func _pool(nodes: Array, skip: Array) -> Array:
+## `alive(nodes)` minus everything in `skip`, AND minus `ctx`'s own caster. Identity
+## is by instance id rather than by `in`, so a `skip` entry that was freed between
+## the caller building it and this running cannot throw.
+##
+## THE `ctx` HALF IS THE FRIENDLY-FIRE BACKSTOP (see SELF-EXCLUSION above). Three
+## spectacles — EnergyNova, MeteorSigil, StarConvergence — call the selectors with a
+## literal empty skip list, which was harmless while a hero's spells scanned
+## `"enemy"` and became a self-kill the moment they scanned `"mortal"`. Deriving the
+## caster from `ctx` fixes all three (and every future call site that forgets)
+## without editing any of them, because `ctx` was ALREADY being passed for the
+## line-of-sight rays. A `ctx` with no caster — a Hero passing itself, a test stub —
+## contributes nothing, so this is a no-op everywhere it is not needed.
+static func _pool(nodes: Array, skip: Array, ctx: Object = null) -> Array:
 	var blocked: Dictionary = {}
 	for s: Variant in skip:
 		if s != null and is_instance_valid(s) and s is Object:
 			blocked[(s as Object).get_instance_id()] = true
+	var implicit: Object = owner_of(ctx)
+	if implicit != null:
+		blocked[implicit.get_instance_id()] = true
 	if blocked.is_empty():
 		return alive(nodes)
 	var out: Array = []

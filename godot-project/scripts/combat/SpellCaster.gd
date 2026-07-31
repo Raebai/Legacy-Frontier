@@ -31,6 +31,50 @@ const WARD_PATH: String = "res://scripts/combat/AegisWard.gd"
 const ARC_PATH: String = "res://scripts/combat/HorizonArc.gd"
 
 
+# ------------------------------------------------------------- FRIENDLY FIRE
+## THE SHARED GROUP EVERY DAMAGEABLE FIGHTER JOINS. Heroes join it in `Hero._ready`
+## (on TOP of `hero` and any faction group — nothing is removed, because a lot of
+## code scans those); Enemy/Boss join it on their side.
+##
+## WHY A GROUP AND NOT A FLAG. Every spell spectacle in this codebase resolves its
+## victims with exactly one call — `get_nodes_in_group(target_group)` — and that
+## string is written in exactly one place, `_stamp()` below. So "friendly fire" is
+## a policy change at ONE function rather than an edit to 21 dispatch arms and ~23
+## spectacle scripts: point the stamp at a group that contains everybody and the
+## spectacles change behaviour without changing a line.
+##
+## ⚠ DESTRUCTIBLES ARE DELIBERATELY *NOT* IN THIS GROUP, and that is a correction to
+## the plan rather than an oversight. Every spectacle that scans `target_group` for
+## fighters ALSO scans the `"destructible"` literal separately, right underneath, for
+## crates. Putting crates in `mortal` too would make both scans find the same crate
+## and every spell in the game would deal DOUBLE damage to cover. Cover is already
+## faction-blind (it is a literal in every spectacle, hit by everyone), so it gains
+## nothing from joining and loses correctness by doing so. `mortal` means FIGHTER.
+const MORTAL_GROUP: StringName = &"mortal"
+
+## Is friendly fire live? Per the mobile spec this is ON and stays on — it is the
+## social engine of the whole game, not an option. It exists as a `static var`
+## rather than a `const` for exactly two reasons: a headless test needs to assert
+## the OLD faction-strict behaviour is still expressible (otherwise the test would
+## have nothing to compare against), and a bisect needs a one-line off switch. It is
+## NOT a gameplay setting and nothing in the UI writes it.
+static var friendly_fire: bool = true
+
+## The group an attack should actually scan, given the attacker's FACTION.
+##
+## Faction (`Hero.hostile_group`) stays the truth about who is on whose side — bots
+## steer by it, `Spell._damage_hero` reasons about it, and "two bots on one team"
+## is only expressible with it. What this does is separate that question ("who is my
+## enemy") from the narrower one every damage scan actually asks ("who may this
+## effect touch"), which under friendly fire is *everyone with a body*.
+##
+## Idempotent: `damage_group(MORTAL_GROUP) == MORTAL_GROUP`, so a caller that has
+## already converted (Hero passes `attack_group()` into `cast()`) is not punished for
+## it and the conversion can safely happen at more than one layer.
+static func damage_group(faction: StringName) -> StringName:
+	return MORTAL_GROUP if friendly_fire else faction
+
+
 ## Stamp the four pieces of IDENTITY every spectacle is entitled to, in ONE place:
 ## what it is made of, how much it WEIGHS in a clash, WHOSE it is, and WHO it is
 ## allowed to hurt.
@@ -70,13 +114,26 @@ const ARC_PATH: String = "res://scripts/combat/HorizonArc.gd"
 ## which those four flip themselves on a deflect. `set()` on a property a
 ## spectacle has not declared is a silent no-op (the same fact the stamps above
 ## rely on), so writing both is safe and neither name is lost.
+##
+## FRIENDLY FIRE ENTERS HERE, and only here. The group written is not the caller's
+## faction but `damage_group(faction)` — the shared `mortal` group while friendly
+## fire is on. That single substitution is the whole of the feature on the spell
+## side: every spectacle keeps scanning `target_group` exactly as it always did and
+## simply finds more bodies in it, including the caster's own teammates.
+##
+## The caster's OWN body is in that group too, which is what makes the per-spectacle
+## self-exclusion audit load-bearing rather than paranoid — see
+## `SpellTargets.hostiles()` / `SpellTargets.owner_of()`, which is where the
+## exclusion is enforced now that "the caster is not in the group I scan" has
+## stopped being true by construction.
 static func _stamp(node: Node, elem: int, spell: SpellDef, caster: Node,
 		target_group: StringName = &"enemy") -> void:
+	var group: StringName = damage_group(target_group)
 	node.set("element_id", elem)                  # elemental ailment applied on hit
 	node.set("spell_tier", SpellTier.of(spell))   # SpellTier.Tier = its reaction WEIGHT
 	node.set("caster_node", caster)               # the ownership predicate's whole input
-	node.set("target_group", String(target_group))    # WHO it is allowed to hurt
-	node.set("_target_group", String(target_group))   # ...under its other spelling
+	node.set("target_group", String(group))       # WHO it is allowed to hurt
+	node.set("_target_group", String(group))      # ...under its other spelling
 
 
 ## Cast `spell` from `caster_pos` toward `target_pos`, parented under `arena`.

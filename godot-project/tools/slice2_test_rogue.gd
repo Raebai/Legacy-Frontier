@@ -137,6 +137,10 @@ func _test_dash_strike_dedupe() -> void:
 	var target := _StubEnemy.new()
 	root.add_child(target)
 	target.add_to_group("enemy")
+	# ...and `mortal`, the shared damageable-fighter group every hero attack scans
+	# now that friendly fire is on. A real `Enemy` joins both; a stub that joined only
+	# `enemy` would be invisible to every hero spell and swing in the game.
+	target.add_to_group(SpellCaster.MORTAL_GROUP)
 	target.global_position = Vector2(1030, 1000)  # ~30px, inside dash_strike_range 42
 	hero._dash_hit.clear()
 	hero._dash_strike_sweep()

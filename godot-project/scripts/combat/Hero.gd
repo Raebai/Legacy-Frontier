@@ -495,6 +495,24 @@ func set_faction(team: StringName, hostile: StringName) -> void:
 		add_to_group(team)
 
 
+## THE GROUP THIS HERO'S ATTACKS ACTUALLY SCAN — `hostile_group` with friendly fire
+## folded in. Every damage sweep in this file goes through this; nothing else does.
+##
+## ⚠ THE SPLIT MATTERS, and collapsing it would be the obvious wrong shortcut.
+## `hostile_group` is FACTION — "whose side am I not on". It is read by `BotBrain`
+## through `bot_body_state()`, by `Spell._damage_hero`'s permission ladder, and it is
+## the only way "two bots on one team" is expressible at all. Overwrite it with
+## `mortal` and every bot in the game immediately treats its own teammates as the
+## enemy it should be walking toward.
+##
+## What an ATTACK asks is the narrower question — "who may this blow touch" — and
+## under friendly fire the answer is *everyone with a body*. So the faction stays put
+## and the attack scans widen. One consequence worth stating out loud because it is
+## the entire feature: your teammate is in this group, and the spec wants them there.
+func attack_group() -> StringName:
+	return SpellCaster.damage_group(hostile_group)
+
+
 ## SELECT A KIT SPELL BY INDEX — the seam that makes a bot able to use its whole
 ## kit at all.
 ##
@@ -647,6 +665,16 @@ func _tune(key: String, fallback: float) -> float:
 
 func _ready() -> void:
 	add_to_group("hero")
+	# FRIENDLY FIRE, the hero half. `mortal` is the shared "I am a damageable
+	# fighter" group every spell scans once friendly fire is on (see
+	# SpellCaster.MORTAL_GROUP); Enemy/Boss join it from their side.
+	#
+	# ADDED, never swapped. `hero` is identity and is scanned by ~40 places — the
+	# camera's framing, the encounter's party-wipe check, enemy target selection,
+	# Arena's spawn logic. Removing it to "clean up" would silently break all of
+	# them, which is exactly the group-drift trap this codebase has been bitten by
+	# twice already ("hero" the tower group vs "player" the old hub group).
+	add_to_group(SpellCaster.MORTAL_GROUP)
 	# Team membership, when a spawner set one before add_child(). The permanent
 	# `hero` group above is identity ("I am a hero"); this one is allegiance, and a
 	# hero with no team simply never joins a second group — which is single player.
@@ -1869,7 +1897,7 @@ func _dash_strike_sweep() -> void:
 	# too generous the knob is `dash_strike_range` in CLASS_CONFIG or
 	# `Enemy.HIT_MARGIN_FACTOR`, never both, and never a third margin added here.
 	for enemy: Node in SpellTargets.in_radius(global_position, rng,
-			get_tree().get_nodes_in_group(hostile_group), [self], self):
+			get_tree().get_nodes_in_group(attack_group()), [self], self):
 		if enemy in _dash_hit:
 			continue
 		_dash_hit.append(enemy)
@@ -1975,7 +2003,7 @@ func _uppercut() -> void:
 	const UPPERCUT_REACH: float = 70.0
 	const UPPERCUT_DOT: float = -0.2
 	for enemy: Node in SpellTargets.in_cone(global_position, Vector2(face_x, 0.0),
-			UPPERCUT_REACH, UPPERCUT_DOT, get_tree().get_nodes_in_group(hostile_group),
+			UPPERCUT_REACH, UPPERCUT_DOT, get_tree().get_nodes_in_group(attack_group()),
 			[self], self):
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(18)
@@ -2129,7 +2157,7 @@ func _primary_bolt() -> void:
 		# it also opens the hero collision layer on the projectile: a
 		# hero-hostile bolt that never gets that mask bit passes clean through
 		# its target with damage code that looks perfectly correct.
-		spell.call("set_hostile_group", hostile_group)
+		spell.call("set_hostile_group", attack_group())
 		# Caster is set for EVERY class's bolt (not just heal-flavoured ones) so the
 		# friendly-fire guard in Spell.gd can always exclude the caster from their
 		# own bolt — MAGE/STORMCALLER/ROGUE bolts were previously spawning with
@@ -2202,7 +2230,7 @@ func _primary_frost_cone() -> void:
 	# head bug in a primary attack: a frost cone aimed at head height resolved
 	# against an origin ~10 px lower and simply did not connect.
 	for enemy: Node in SpellTargets.in_cone(global_position, _aim_dir, CONE_RANGE,
-			CONE_COS, get_tree().get_nodes_in_group(hostile_group), [self], self):
+			CONE_COS, get_tree().get_nodes_in_group(attack_group()), [self], self):
 		var to: Vector2 = (enemy as Node2D).global_position - global_position
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(CONE_DAMAGE)
@@ -2294,7 +2322,7 @@ func _fire_punch() -> void:
 	var blast: Node2D = BLAST_SCENE.instantiate()
 	get_parent().add_child(blast)
 	blast.call("configure", {
-		"target_group": String(hostile_group), "damage": 30, "radius": 66.0,
+		"target_group": String(attack_group()), "damage": 30, "radius": 66.0,
 		"knockback": 430.0, "element_id": _element,
 	})
 	blast.set("caster_node", self)  # unowned = inert in the reaction layer (see _blast)
@@ -2315,7 +2343,7 @@ func _ground_slam() -> void:
 	var blast: Node2D = BLAST_SCENE.instantiate()
 	get_parent().add_child(blast)
 	blast.call("configure", {
-		"target_group": String(hostile_group), "damage": 34, "radius": 98.0,
+		"target_group": String(attack_group()), "damage": 34, "radius": 98.0,
 		"knockback": 380.0, "element_id": _element,
 	})
 	blast.set("caster_node", self)  # unowned = inert in the reaction layer (see _blast)
@@ -2354,8 +2382,8 @@ func _spawn_nova() -> void:
 ## spectacle has not declared is a silent no-op, so a spectacle that hard-codes
 ## its target group today simply starts obeying this the day it grows the field.
 func _stamp_faction(node: Node) -> void:
-	node.set("target_group", String(hostile_group))
-	node.set("_target_group", String(hostile_group))
+	node.set("target_group", String(attack_group()))
+	node.set("_target_group", String(attack_group()))
 
 
 ## Cursor target for a placed Q, clamped to BLAST_MAX_RANGE so it stays a skill-shot.
@@ -2586,7 +2614,7 @@ func _unsheathe_cut(banked: int) -> void:
 	var dir: Vector2 = _aim_dir.normalized() if _aim_dir != Vector2.ZERO else facing
 	rig.set_aim(dir)
 	rig.play(CharacterRig.State.PUNCH)
-	var pool: Array = get_tree().get_nodes_in_group(hostile_group)
+	var pool: Array = get_tree().get_nodes_in_group(attack_group())
 	pool.append_array(get_tree().get_nodes_in_group("destructible"))
 	# Silhouette-aware, line-of-sight filtered — the same selector every spell now
 	# uses, so the cut cannot reach a body through a wall and cannot pass through a
@@ -2832,6 +2860,17 @@ func _update_flaming_fist(delta: float) -> void:
 ## body it finds: the scan is the caster's faction now, so a bot-driven hero
 ## auto-targets the hero it is fighting instead of ignoring it and hunting for
 ## monsters that are not in this arena.
+##
+## ⚠ THIS SCAN DELIBERATELY STAYS ON `hostile_group`, NOT `attack_group()`, and that
+## asymmetry is the whole answer to "friendly fire must not turn the melee
+## auto-target into a teammate-killer". The arc sweep in `_on_melee_hit_frame`
+## widened to `mortal` — you CAN punch your friend, and under this spec you should
+## be able to — but the auto-target is the game aiming FOR you, and a game that
+## silently redirects your fist onto the person standing next to you is not friendly
+## fire, it is a bug that feels like betrayal. So: aim at your teammate and you hit
+## them; do not aim at them and nothing reaches for them on your behalf. True
+## hostiles keep the free hit exactly as before, which is what the existing
+## regression test pins.
 func _nearest_enemy_in_melee_range() -> Node2D:
 	# Nearest measured to the SILHOUETTE, so a tall enemy whose head is closer than a
 	# short enemy's origin wins — which is what the eye expects, and which is what
@@ -2870,7 +2909,7 @@ func _on_melee_hit_frame() -> void:
 	# `MELEE_RANGE` / the per-class `melee_range` OR `Enemy.HIT_MARGIN_FACTOR` —
 	# never both, and never a third margin at this call site.
 	var enemies_in_arc: Array = SpellTargets.in_cone(global_position, facing,
-		_melee_range, _melee_arc_dot, get_tree().get_nodes_in_group(hostile_group),
+		_melee_range, _melee_arc_dot, get_tree().get_nodes_in_group(attack_group()),
 		[self], self)
 	# The auto-target is PRESERVED deliberately, not reintroduced: it predates this
 	# change, `slice_test_selfdamage.gd` asserts it explicitly (an enemy directly

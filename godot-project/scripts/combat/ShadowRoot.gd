@@ -318,7 +318,8 @@ func _process(delta: float) -> void:
 func _snap() -> void:
 	_snapped = true
 	var caught_nodes: Array = []
-	for e: Node in SpellTargets.alive(get_tree().get_nodes_in_group(target_group)):
+	# hostiles(): the tendrils erupt from the caster's own feet.
+	for e: Node in SpellTargets.alive(SpellTargets.hostiles(self, target_group)):
 		var n: Node2D = e as Node2D
 		if absf(n.global_position.x - _lock.x) > _catch_r + SpellTargets.hit_margin(n):
 			continue  # stepped off the mark during the surge — dodged

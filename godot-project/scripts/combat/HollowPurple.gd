@@ -81,6 +81,17 @@ var _lance_w: float = 60.0
 var _radius: float = 190.0
 var _damage: int = 150
 var _groups: Array[String] = []
+## BOTH parent beams' casters. Unlike every other spectacle in the game this one has
+## no single owner — it is a FUSION — so self-exclusion is a list rather than a
+## `caster_node`, and `SpellTargets.owner_of()` deliberately cannot answer for it.
+##
+## It matters most in the SELF-COMBO row, which is the headline case: the circle
+## opens `SELF_COMBO_OFFSET` in front of its own caster and the annihilation sphere
+## is `_radius` (>= 120) wide, so with friendly fire pointing both beams at the
+## shared `mortal` group, fusing two of your own beams would erase YOU. The
+## cross-caster row is spared for the same reason both duellists survive their own
+## clash: you are not killed by the collision of your power with someone else's.
+var _casters: Array = []
 
 var _core: Color = Color(1.7, 1.7, 1.7)     # the summed, renormalised light
 var _body: Color = Color(0.8, 0.6, 1.0)     # the same sum at display range
@@ -110,6 +121,7 @@ func begin(point: Vector2, axis: Vector2, a: Dictionary, b: Dictionary, rule: Di
 	_radius = maxf(float(rule.get("radius", 190.0)), 120.0)
 	_damage = maxi(int((int(a["damage"]) + int(b["damage"])) * DAMAGE_SCALE), int(rule.get("damage", 0)))
 	_groups = _target_groups(String(a["group"]), String(b["group"]))
+	_casters = _collect_casters(a, b)
 	_compute_colour(int(a["element"]), int(b["element"]))
 	_lance_len = maxf(
 		(a["from"] as Vector2).distance_to(a["to"] as Vector2),
@@ -154,6 +166,19 @@ func _target_groups(ga: String, gb: String) -> Array[String]:
 	for g: String in [ga, gb, "destructible"]:
 		if g != "" and not out.has(g):
 			out.append(g)
+	return out
+
+
+## Whoever threw the two beams, deduped. Read through `SpellTargets.owner_of`, which
+## already knows all four spellings this codebase uses for "the caster".
+## `ReactionOutcomes._beam_data` puts the live beam node under `"node"`, so this is
+## available for both rows without changing that contract.
+func _collect_casters(a: Dictionary, b: Dictionary) -> Array:
+	var out: Array = []
+	for d: Dictionary in [a, b]:
+		var owner_node: Object = SpellTargets.owner_of(d.get("node") as Object)
+		if owner_node != null and not out.has(owner_node):
+			out.append(owner_node)
 	return out
 
 
@@ -255,6 +280,13 @@ func _apply_damage() -> void:
 	var half: float = _lance_w * 0.6
 	var origin: Vector2 = _p - _axis * back
 	var hit: Dictionary = {}
+	# Pre-seeding the dedupe map with both casters is the cheapest possible
+	# self-exclusion here and reuses machinery this loop already has: `_hurt()` skips
+	# anything already in `hit`, so a caster is "already hit" before the scan starts
+	# and can be reached by neither the radial pass nor the lance corridor.
+	for c: Object in _casters:
+		if c != null and is_instance_valid(c):
+			hit[c.get_instance_id()] = true
 	for group: String in _groups:
 		var nodes: Array = get_tree().get_nodes_in_group(group)
 		# Radial: everything inside the annihilation sphere.

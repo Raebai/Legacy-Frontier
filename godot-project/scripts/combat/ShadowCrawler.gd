@@ -352,7 +352,8 @@ func _travel(delta: float) -> void:
 ## allowed on top of `_catch_x`. `alive()` also drops anything that died earlier in
 ## this same frame, which used to be able to eat a whole snap beat.
 func _catch() -> Node2D:
-	for e: Node in SpellTargets.alive(get_tree().get_nodes_in_group(_target_group)):
+	# hostiles(): the crawler erupts from the caster's own feet.
+	for e: Node in SpellTargets.alive(SpellTargets.hostiles(self, _target_group)):
 		var n: Node2D = e as Node2D
 		if caught_by(_head, n.global_position, _catch_x + SpellTargets.hit_margin(n)):
 			return n

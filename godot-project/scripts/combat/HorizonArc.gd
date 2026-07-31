@@ -265,7 +265,9 @@ func centre() -> Vector2:
 func _sweep_damage() -> void:
 	if not is_inside_tree():
 		return
-	var pool: Array = get_tree().get_nodes_in_group(_target_group)
+	# Already skipped the caster in the selector below; hostiles() also keeps them
+	# out of the COARSE pass, so the cut cannot pick its own swordsman up at all.
+	var pool: Array = SpellTargets.hostiles(self, _target_group)
 	pool.append_array(get_tree().get_nodes_in_group("destructible"))
 	var coarse: Array = SpellTargets.in_radius(centre(), _coarse_radius(), pool,
 		[caster_node], self)

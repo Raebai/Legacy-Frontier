@@ -113,6 +113,10 @@ func _make_enemy(pos: Vector2) -> StubEnemy:
 	root.add_child(enemy)
 	enemy.global_position = pos
 	enemy.add_to_group("enemy")
+	# ...and `mortal`, the shared damageable-fighter group every hero attack scans
+	# now that friendly fire is on. A real `Enemy` joins both; a stub that joined only
+	# `enemy` would be invisible to every hero spell and swing in the game.
+	enemy.add_to_group(SpellCaster.MORTAL_GROUP)
 	return enemy
 
 

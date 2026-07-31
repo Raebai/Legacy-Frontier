@@ -30,6 +30,10 @@ func _process(_d: float) -> bool:
 		hero.configure_class(cls)
 		var e := StubEnemy.new()
 		e.add_to_group("enemy")
+		# ...and `mortal`, the shared damageable-fighter group every hero attack scans
+		# now that friendly fire is on. A real `Enemy` joins both; a stub that joined only
+		# `enemy` would be invisible to every hero spell and swing in the game.
+		e.add_to_group(SpellCaster.MORTAL_GROUP)
 		e.global_position = hero.global_position + Vector2(38.0, 0.0)  # in front, close
 		root.add_child(e)
 		hero.set("_aim_dir", Vector2.RIGHT)

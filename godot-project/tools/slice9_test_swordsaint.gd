@@ -273,10 +273,12 @@ func _test_unsheathe_pays_the_bank() -> void:
 	hero.set("facing", Vector2.RIGHT)
 	var front := RigStub.new()
 	front.add_to_group("enemy")
+	front.add_to_group(SpellCaster.MORTAL_GROUP)  # see the note in slice1_test_nova.gd
 	front.global_position = Vector2(70.0, 0.0)
 	root.add_child(front)
 	var behind := RigStub.new()
 	behind.add_to_group("enemy")
+	behind.add_to_group(SpellCaster.MORTAL_GROUP)  # see the note in slice1_test_nova.gd
 	behind.global_position = Vector2(-70.0, 0.0)
 	root.add_child(behind)
 	hero.call("_unsheathe_cut", 60)
@@ -521,10 +523,12 @@ func _test_melee_measures_the_silhouette() -> void:
 	var reach: float = float(hero._melee_range)
 	var near := RigStub.new()
 	near.add_to_group("enemy")
+	near.add_to_group(SpellCaster.MORTAL_GROUP)  # see the note in slice1_test_nova.gd
 	near.global_position = Vector2(30.0, 0.0)
 	root.add_child(near)
 	var far := RigStub.new()
 	far.add_to_group("enemy")
+	far.add_to_group(SpellCaster.MORTAL_GROUP)  # see the note in slice1_test_nova.gd
 	far.global_position = Vector2(56.0, 30.0)   # origin 63.5 px away — outside `reach`
 	root.add_child(far)
 	_expect(hero.global_position.distance_to(far.global_position) > reach,
@@ -538,6 +542,7 @@ func _test_melee_measures_the_silhouette() -> void:
 	# ...and nothing behind you is swept in, so the arc predicate is still honest.
 	var back := RigStub.new()
 	back.add_to_group("enemy")
+	back.add_to_group(SpellCaster.MORTAL_GROUP)  # see the note in slice1_test_nova.gd
 	back.global_position = Vector2(-400.0, 0.0)
 	root.add_child(back)
 	near.hits.clear()

@@ -33,6 +33,15 @@ var _dmg: int = 24
 var _orbs: Array = []   # each: {origin, dir, perp, delay, phase, alive, pos, spin}
 var _elapsed: float = 0.0
 
+## WHO CAST THIS. `SpellCaster._stamp` has always written this name onto every
+## spectacle it builds, but this file never declared it — and `set()` on an
+## undeclared property is a silent no-op, so the write went nowhere. That cost
+## nothing while a hero's spells scanned `"enemy"` (the caster was never in that
+## group) and became a SELF-KILL the moment friendly fire pointed them at the
+## shared `"mortal"` group. Declaring it is what arms `SpellTargets.hostiles()` /
+## `SpellTargets.owner_of()`, which is where the exclusion is now enforced.
+var caster_node: Node = null
+
 
 func launch(origin: Vector2, aim: Vector2, color: Color, count: int = 5, damage: int = 24, _effect: String = "arcane") -> void:
 	_color = color
@@ -107,8 +116,11 @@ func _pop(orb: Dictionary, e: Node) -> void:
 func _target_within(p: Vector2, r: float) -> Node:
 	# The hostile faction, then the always-neutral destructibles — cover belongs to
 	# nobody, so it stays a literal rather than following the caster.
+	# hostiles(): an orb's first frame is AT the caster's hand. (Passing the
+	# destructible literal through the same call is harmless — a caster is not a
+	# crate, so nothing is removed from that pass.)
 	for group: String in [target_group, "destructible"]:
-		for e: Node in get_tree().get_nodes_in_group(group):
+		for e: Node in SpellTargets.hostiles(self, group):
 			if e is Node2D and is_instance_valid(e) and p.distance_to((e as Node2D).global_position) <= r:
 				return e
 	return null

@@ -79,6 +79,15 @@ var _shockwave_elapsed: float = -1.0  # < 0 means not yet fired.
 ## Element index (Elements.Element) applied as an ailment to enemies in radius.
 var element_id: int = -1
 
+## WHO CAST THIS. `SpellCaster._stamp` has always written this name onto every
+## spectacle it builds, but this file never declared it — and `set()` on an
+## undeclared property is a silent no-op, so the write went nowhere. That cost
+## nothing while a hero's spells scanned `"enemy"` (the caster was never in that
+## group) and became a SELF-KILL the moment friendly fire pointed them at the
+## shared `"mortal"` group. Declaring it is what arms `SpellTargets.hostiles()` /
+## `SpellTargets.owner_of()`, which is where the exclusion is now enforced.
+var caster_node: Node = null
+
 
 ## Public entry: place the nova on the caster and fire IMMEDIATELY.
 func activate_at(pos: Vector2) -> void:
@@ -144,7 +153,8 @@ func activate_at(pos: Vector2) -> void:
 func _apply_nova_damage() -> void:
 	var here: Vector2 = global_position
 	for enemy: Node in SpellTargets.in_radius(
-			here, NOVA_RADIUS, get_tree().get_nodes_in_group(target_group), [], self):
+			here, NOVA_RADIUS, get_tree().get_nodes_in_group(target_group),
+			[caster_node], self):
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(NOVA_DAMAGE)
 		if element_id >= 0 and enemy.has_method("apply_status"):

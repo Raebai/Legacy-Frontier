@@ -274,7 +274,14 @@ func _spawn_echo(at: Vector2, dir: Vector2, damage: int) -> void:
 	e.dir = dir
 	e.damage = damage
 	e.colour = _colour
-	e.target_group = return_group
+	# FRIENDLY FIRE. The echo is a spell being SENT BACK, so it obeys the same policy
+	# every cast spectacle does — `damage_group()` widens it to `mortal` while friendly
+	# fire is on, which is what makes "he parried it into his own teammate" possible.
+	e.target_group = SpellCaster.damage_group(return_group)
+	# ...and the guard's own body is excluded, because that group now contains them.
+	# The echo leaves at arm's length pointing away, so this is belt-and-braces today
+	# and load-bearing the moment anything gives the echo a lifetime or an arc.
+	e.caster_node = get_parent()
 	host.add_child(e)
 	e.global_position = at
 
@@ -318,6 +325,9 @@ class Echo extends Node2D:
 	var damage: int = 8
 	var colour: Color = Color(0.72, 0.55, 1.0)
 	var target_group: StringName = &"enemy"
+	## The guarding body, so a friendly-fire-widened `target_group` cannot make the
+	## echo turn round into the person who just parried. See SpellTargets.owner_of().
+	var caster_node: Node = null
 	var _travelled: float = 0.0
 	var _dead: bool = false
 
@@ -363,7 +373,7 @@ class Echo extends Node2D:
 		var tree: SceneTree = get_tree()
 		if tree == null:
 			return false
-		for t: Node in tree.get_nodes_in_group(target_group):
+		for t: Node in SpellTargets.hostiles(self, target_group):
 			if not (t is Node2D) or not is_instance_valid(t):
 				continue
 			if global_position.distance_to((t as Node2D).global_position) > HIT_RADIUS:

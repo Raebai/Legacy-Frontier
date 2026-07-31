@@ -359,7 +359,10 @@ func _impact_mark(tip: Vector2) -> void:
 ## (within half-width) takes damage; enemies are shoved along the beam.
 func _apply_beam_damage() -> void:
 	var half: float = _width * 0.5 + 8.0  # a little forgiveness on the width
-	for enemy: Node in targets_on_beam(_origin, _dir, _length, half, get_tree().get_nodes_in_group(target_group)):
+	# hostiles(): the beam LEAVES the caster's staff tip, so under friendly fire the
+	# caster is the first body standing on its own corridor.
+	for enemy: Node in targets_on_beam(_origin, _dir, _length, half,
+			SpellTargets.hostiles(self, target_group)):
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(_damage)
 		if element_id >= 0 and enemy.has_method("apply_status"):

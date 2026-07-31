@@ -266,7 +266,8 @@ func _bodies_in_field(group: String, r: float) -> Array:
 	if r <= 0.0:
 		return []
 	var shortlist: Array = []
-	for n: Node in get_tree().get_nodes_in_group(group):
+	# hostiles(): a caster standing in their own squall must not freeze themselves.
+	for n: Node in SpellTargets.hostiles(self, group):
 		if not n is Node2D or not is_instance_valid(n):
 			continue
 		if _catches(n as Node2D, r):
@@ -370,7 +371,7 @@ func _update_rime(delta: float) -> void:
 		for n: Node in _bodies_in_field(target_group, r):
 			caught[n.get_instance_id()] = true
 	var seen: Dictionary = {}
-	for e: Node in get_tree().get_nodes_in_group(target_group):
+	for e: Node in SpellTargets.hostiles(self, target_group):
 		if not e is Node2D or not is_instance_valid(e):
 			continue
 		var n: Node2D = e as Node2D

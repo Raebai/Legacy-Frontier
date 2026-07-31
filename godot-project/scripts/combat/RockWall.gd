@@ -612,7 +612,9 @@ func _is_smashable(n: Node) -> bool:
 ## up-and-out launch. One hit per enemy per slide (no per-frame damage ticks).
 func _plow_enemies() -> void:
 	var hw: float = WALL_SIZE.x * 0.5 + PLOW_PAD
-	for e: Node in get_tree().get_nodes_in_group(target_group):
+	# hostiles(): the shover stands directly behind the wall they just punched, i.e.
+	# inside the plow band from the first frame of the slide.
+	for e: Node in SpellTargets.hostiles(self, target_group):
 		if not e is Node2D or not is_instance_valid(e):
 			continue
 		var p: Vector2 = (e as Node2D).global_position

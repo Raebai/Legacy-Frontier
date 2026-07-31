@@ -322,7 +322,9 @@ func shatter() -> void:
 	# without the exclude the wall would shield the arena from its own shards.
 	var skip: Array[RID] = SpellWorld.rids([_body])
 	var in_range: Array = []
-	for e: Node in get_tree().get_nodes_in_group(target_group):
+	# hostiles(): the wall stands at arm's length, so its shatter ring covers the
+	# caster the moment friendly fire puts them in the scanned group.
+	for e: Node in SpellTargets.hostiles(self, target_group):
 		if e is Node2D and is_instance_valid(e) \
 				and shatter_contains(_shatter_center, (e as Node2D).global_position):
 			in_range.append(e)
@@ -358,7 +360,7 @@ func shatter() -> void:
 ## pixels wider than the collider, and the only thing that could sit between the
 ## wall and something touching it is the wall itself.
 func _chill_touching() -> void:
-	for e: Node in get_tree().get_nodes_in_group(target_group):
+	for e: Node in SpellTargets.hostiles(self, target_group):
 		if not e is Node2D or not is_instance_valid(e):
 			continue
 		if not chill_contains(_floor_base, (e as Node2D).global_position):

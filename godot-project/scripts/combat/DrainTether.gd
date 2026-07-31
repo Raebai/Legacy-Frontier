@@ -354,8 +354,11 @@ func _travel(delta: float) -> void:
 	if bool(probe["hit"]):
 		_crack(probe["position"] as Vector2)
 		return
+	# hostiles(): the hook's first frame is AT the caster's hand, so without the
+	# exclusion a friendly-fire tether bites its own thrower and then drains them to
+	# heal them — an unloseable tug-of-war that does nothing but look broken.
 	var caught: Node2D = first_caught(_prev, _head, CATCH_R,
-		get_tree().get_nodes_in_group(_target_group))
+		SpellTargets.hostiles(self, _target_group))
 	if caught != null:
 		_bite(caught)
 		return

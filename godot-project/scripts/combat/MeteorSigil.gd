@@ -675,7 +675,8 @@ func _apply_damage(at: Vector2) -> void:
 	# side of a wall no longer reaches through it, and a strike no longer damages
 	# METEOR_IMPACT_RADIUS straight down through the floor.
 	for enemy: Node in SpellTargets.in_radius(
-			at, METEOR_IMPACT_RADIUS, get_tree().get_nodes_in_group(target_group), [], self):
+			at, METEOR_IMPACT_RADIUS, get_tree().get_nodes_in_group(target_group),
+			[caster_node], self):
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(_damage)
 		if element_id >= 0 and enemy.has_method("apply_status"):
