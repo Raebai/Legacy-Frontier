@@ -357,20 +357,36 @@ func _report() -> void:
 	# THE PRIMARY RESULT. Deterministic for a given seed, and therefore the only
 	# numbers here that can be compared between two runs on a machine somebody else
 	# is also using. `granted` below `requested` is the VFX budget doing its job.
-	var v: Dictionary = CombatVfx.work_stats()
-	var d: Dictionary = DebrisChunk.work_stats()
-	var s: Dictionary = ScorchDecal.work_stats()
-	print("[stress] WORK particles  %d bursts, %d requested -> %d emitted (%.0f%% cut)"
-		% [v["bursts"], v["requested"], v["granted"], _cut_pct(v["requested"], v["granted"])])
-	print("[stress] WORK debris     %d requested -> %d made (%.0f%% cut)"
-		% [d["requested"], d["granted"], _cut_pct(d["requested"], d["granted"])])
-	print("[stress] WORK decals     %d spawned, %d skipped over budget"
-		% [s["spawned"], s["skipped"]])
+	# Guarded rather than called straight, so this harness still runs against a
+	# build WITHOUT the budget in it. That is not defensiveness for its own sake:
+	# the only honest before/after is the same measuring tool on both sides, and a
+	# hard reference to `work_stats` would make the tool refuse to measure the
+	# "before" it exists to compare against.
+	_print_work("particles", CombatVfx, "requested", "granted", false)
+	_print_work("debris", DebrisChunk, "requested", "granted", false)
+	# Decals are skip-or-spawn, so the two keys SUM to the demand rather than the
+	# second being a reduced form of the first.
+	_print_work("decals", ScorchDecal, "spawned", "skipped", true)
 	if _ablate != "":
 		print("[stress] ⚠ ABLATED '%s' — this is a MEASUREMENT run, not a build" % _ablate)
 	print("[stress] --------------------------------------------------")
 	print("[stress] REMINDER: dummy renderer. This is CPU only — the GPU cost")
 	print("[stress] that decides the phone's frame rate is not in these numbers.")
+
+
+## One WORK line, or a note that this build has no counter to read.
+static func _print_work(label: String, cls: Object, a: String, b: String,
+		keys_sum: bool) -> void:
+	if cls == null or not cls.has_method(&"work_stats"):
+		print("[stress] WORK %-10s (not instrumented in this build)" % label)
+		return
+	var s: Dictionary = cls.call(&"work_stats")
+	var av: int = int(s[a])
+	var bv: int = int(s[b])
+	var demand: int = (av + bv) if keys_sum else av
+	var done: int = av if keys_sum else bv
+	print("[stress] WORK %-10s %s %d, %s %d  (%.0f%% of demand cut)"
+		% [label, a, av, b, bv, _cut_pct(demand, done)])
 
 
 static func _cut_pct(requested: int, granted: int) -> float:

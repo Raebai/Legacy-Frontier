@@ -76,10 +76,50 @@ extends Node
 ## crossing nobody can perceive, for a third of the pair tests.
 const TICK_HZ: float = 30.0
 const TICK_PERIOD: float = 1.0 / TICK_HZ
-## Hard cap on tracked reactants. 12 live effects is already far past realistic
-## concurrency (1-4); the cap exists so a pathological barrage cannot turn the
-## pair loop into a frame-time cliff. Worst case is 12*11/2 = 66 pair tests.
+## Hard cap on tracked REACTANTS.
+##
+## ⚠ THIS IS NOT THE VFX BUDGET AND NEVER WAS — see the census below. It bounds the
+## pair loop (12*11/2 = 66 tests) and nothing else. A 13th spell still spawns, still
+## deals damage, still draws; it just stops being able to clash. That is a correct
+## and deliberate degradation for REACTIONS, and it was being read as if it were a
+## limit on how much spectacle can be alive at once. It is not, and until the census
+## below there was no such limit anywhere in the game.
 const MAX_LIVE: int = 12
+
+# ------------------------------------------------------- THE LIVE-VFX BUDGET
+## THE SPEC'S NUMBER: at most 8 spell effects alive at once.
+##
+## MEASURED JUSTIFICATION, on this desktop at the 25-entity ceiling
+## (tools/stress_mobile_entities.gd ++casting=1, sweeping the cast rate):
+##
+##   concurrent spectacles   0     1      4      9     19
+##   CPU per frame          8.7  14.2   20.9   32.3   34.3  ms
+##
+## That is roughly +2.6 ms of CPU for every spell effect on screen, on a machine
+## 3-5x faster than the target phone, and before a single pixel is drawn. It was
+## the largest single cost driver in the frame and it had no ceiling at all: the
+## number of live spectacles was whatever the players' thumbs produced.
+##
+## LOW gets a tighter budget than HIGH. Not for looks — because the measurement
+## says the cost is CPU-side and the quality dial currently only gates GPU work
+## (screen-reading shaders, mote counts), so on the phone LOW was saving nothing
+## on the axis that is actually over budget.
+const SPECTACLE_BUDGET_HIGH: int = 8
+const SPECTACLE_BUDGET_LOW: int = 5
+
+## HOW A SPECTACLE IS RECOGNISED, and why this exact property.
+##
+## `SpellCaster._stamp()` writes `element_id` onto every spectacle its 21 dispatch
+## arms build, and 32 scripts declare it — every spell effect in the game including
+## the enemy/boss projectiles, which count against what is ON SCREEN just as much as
+## the hero's do. `get()` on a property a node has not declared returns null, so this
+## test is exactly "a node the spell layer built" with no group to maintain, no
+## registration to forget, and no edit to any of the 32 scripts.
+##
+## The alternative was voluntary registration, which is what the reaction registry
+## uses — and only 14 of the spectacles ever adopted it. A budget that half the
+## spells opt out of is not a budget.
+const SPECTACLE_MARK: StringName = &"element_id"
 ## A meteor barrage inside a void zone must not fire eleven reactions in one
 ## tick. Excess pairs are simply retried next tick.
 const MAX_REACTIONS_PER_TICK: int = 2
@@ -110,10 +150,30 @@ var _accum: float = 0.0
 ## Global one-shot: only one annihilation on screen at a time.
 var _hollow_purple: Node = null
 
+## THE CENSUS. Every live spell spectacle, newest last. Deliberately UNTYPED — it
+## holds nodes that are routinely freed out from under it, and assigning an
+## already-freed instance into a typed `Node` local raises "Trying to assign
+## invalid previously freed instance", which in GDScript ABORTS THE ENCLOSING
+## FUNCTION and returns its zero. The sweep would then quietly stop cleaning up on
+## exactly the entries it exists to remove, and the budget would ratchet shut and
+## put the whole game in permanent austerity. Same trap, same fix, as
+## `DamageNumber._pool` and `CombatVfx._acquire`.
+var _spectacles: Array = []
+## Sweep once per frame, not once per asker. The cosmetic services below query this
+## several times in a busy frame (every burst, every impact frame, every decal) and
+## an unswept O(n) walk per query is precisely the shape of thing this file exists
+## to stop adding.
+var _census_frame: int = -1
+var _census_count: int = 0
+
 
 func _ready() -> void:
 	for r: Dictionary in ReactionTable.rules():
 		_buckets[ReactionTable.bucket_key(int(r["form_a"]), int(r["form_b"]))] = true
+	# One global hook instead of 32 edits. `node_added` fires for every node in the
+	# tree, so the callback below is written to reject a non-spectacle in a single
+	# property read — see `_on_node_added`.
+	get_tree().node_added.connect(_on_node_added)
 
 
 func _process(delta: float) -> void:
@@ -165,6 +225,127 @@ func unregister(node: Node) -> void:
 
 func live_count() -> int:
 	return _live.size()
+
+
+# ------------------------------------------------------ the live-VFX budget
+## Every node added anywhere in the tree passes through here, so the first line is
+## the whole performance story: one `get()` on a property a non-spectacle has not
+## declared, which answers null and returns. Damage numbers, particle emitters, rig
+## limbs and UI all die on that read.
+func _on_node_added(node: Node) -> void:
+	if node.get(SPECTACLE_MARK) == null:
+		return
+	_spectacles.append(node)
+	# INVALIDATE THE PER-FRAME CACHE. Without this, several spells arriving inside a
+	# single frame — a boss opening a phase, a co-op peer rebuilding a remote cast,
+	# a Roulette that re-enters `cast` — are all invisible to every budget query made
+	# later in that same frame, because the first query cached the count from before
+	# any of them existed. Caching is for repeat askers, not for hiding new arrivals.
+	_census_frame = -1
+
+
+## Live spell spectacles right now. Swept (dead entries dropped) at most once per
+## frame; repeat callers in the same frame get the cached answer.
+func spectacle_count() -> int:
+	var f: int = Engine.get_process_frames()
+	if f == _census_frame:
+		return _census_count
+	for i: int in range(_spectacles.size() - 1, -1, -1):
+		# Variant first — see the ⚠ on `_spectacles`.
+		var raw: Variant = _spectacles[i]
+		if raw == null or not is_instance_valid(raw):
+			_spectacles.remove_at(i)
+	_census_frame = f
+	_census_count = _spectacles.size()
+	return _census_count
+
+
+## How many spell effects may be alive before the cosmetics start giving way.
+func vfx_budget() -> int:
+	return SPECTACLE_BUDGET_LOW if TuningConfig.quality_is_low() else SPECTACLE_BUDGET_HIGH
+
+
+## THE ONE THING THE REST OF THE COMBAT LAYER ASKS. 1.0 = spend freely. Below 1.0 =
+## the screen is already carrying its budget of spell effects, so anything OPTIONAL
+## should cost proportionally less.
+##
+## ⚠ WHAT "OVER BUDGET" DOES **NOT** MEAN, and this is the design decision:
+##
+##   IT NEVER DROPS A SPELL. Not the 9th, not the 20th. A spell that does not spawn
+##   is a spell that does not damage, and in co-op every peer rebuilds every spell
+##   locally — so a peer that silently skipped one would show a teammate dying to
+##   nothing. Worse, this game is about reading a telegraph and dodging it: an
+##   invisible spell that still hits you is the least fair thing it could possibly
+##   do. Culling the OLDEST live spell was considered for the same reason and
+##   rejected for the same reason — the oldest effect on screen is usually the zone
+##   somebody is currently standing out of.
+##
+##   IT NEVER TOUCHES DAMAGE, HITBOXES, KNOCKBACK, HIT-STOP OR TELEGRAPH TIMING.
+##   Those are gameplay and several of them are hand-tuned feel numbers.
+##
+## What it does instead is make the SHARED GARNISH cheaper: fewer particles in a
+## burst, a local impact ring instead of a full-screen plate, no extra debris or
+## scorch. Every spell still spawns, still draws its own geometry, still reads.
+## The screen gets busier and slightly plainer at exactly the moment it is already
+## too busy to notice — which is the cheapest possible thing to lose.
+##
+## FOUR STEPS, NOT A CONTINUOUS RAMP, and the steps are the point rather than a
+## rounding convenience. `CombatVfx` keys its emitter pool on the particle COUNT —
+## a recycled emitter given a different count reallocates its GPU buffer, which is
+## the exact cost the pool exists to avoid — so a smoothly varying scale factor
+## would mint a fresh pool bucket per burst and quietly turn the pool back into an
+## allocator. Four levels means at most four buckets per call site.
+##
+## The first version of this ramped by 0.12 per spell over and then let CombatVfx
+## round to quarters. At one spell over that gave 0.88, which rounds to 4/4, which
+## is no cut at all — so the budget measurably did nothing in the most common
+## over-budget case (measured: 3-5% of particles cut when the harness sat at 9 live
+## against a budget of 8). Quantising HERE instead means one spell over is a real
+## 25% trim and the caller cannot round it away.
+func austerity() -> float:
+	var over: int = spectacle_count() - vfx_budget()
+	if over <= 0:
+		return 1.0
+	if over <= 2:
+		return 0.75
+	if over <= 5:
+		return 0.5
+	return 0.25
+
+
+## True while the screen is at or past its spell-effect budget. The boolean form,
+## for callers whose choice is on/off rather than a scale (a decal either spawns or
+## it does not).
+func over_vfx_budget() -> bool:
+	return spectacle_count() > vfx_budget()
+
+
+## Static convenience so the cosmetic helpers — which are all `RefCounted` statics
+## with no node to reach the tree from — can ask without each hand-rolling the
+## autoload lookup.
+##
+## ⚠ MAY NOT NAME THE AUTOLOAD DIRECTLY. Naming `SpellReactor` inside a STATIC
+## function is a compile error that takes the whole dependency chain down with a
+## misleading "missing method" message (the trap documented on
+## `TuningConfig.quality_is_low` and `SpellDeflect._sfx`). The tree lookup is the
+## house idiom, and it also means this answers 1.0 under `--script`, where autoloads
+## are never registered — so a headless suite sees no austerity and stays
+## deterministic.
+static func vfx_austerity() -> float:
+	var tree: SceneTree = Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return 1.0
+	var r: Node = tree.root.get_node_or_null(^"/root/SpellReactor")
+	return 1.0 if r == null else float(r.call(&"austerity"))
+
+
+## Static form of `over_vfx_budget`. Same autoload caveat as above.
+static func vfx_over_budget() -> bool:
+	var tree: SceneTree = Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return false
+	var r: Node = tree.root.get_node_or_null(^"/root/SpellReactor")
+	return false if r == null else bool(r.call(&"over_vfx_budget"))
 
 
 ## True while an annihilation owns the screen. Outcomes that must be globally

@@ -23,6 +23,8 @@ const FADE_OUT: float = 1.6  # seconds of alpha ramp before a lifetime'd decal f
 
 var _crack_lines: Array[PackedVector2Array] = []
 var _age: float = 0.0
+## Counted in `_alive`? Keeps `_exit_tree` from double-decrementing.
+var _counted: bool = false
 
 
 ## Instantiate a decal under `parent` at world `pos`. Null-safe: silently
@@ -34,6 +36,14 @@ static func spawn(
 ) -> void:
 	if parent == null or not parent.is_inside_tree():
 		return
+	# A scorch mark is scenery. It carries no gameplay information at all — nothing
+	# reads the floor to decide anything — and it is spawned per impact, so a meteor
+	# barrage lays down a dozen while the screen is already at its effect budget.
+	# First thing to skip, and skipping it costs the player nothing they can act on.
+	if SpellReactorNode.vfx_over_budget():
+		_skipped += 1
+		return
+	_spawned += 1
 	var decal: ScorchDecal = ScorchDecal.new()
 	decal.radius = decal_radius
 	decal.kind = decal_kind
@@ -42,7 +52,8 @@ static func spawn(
 	decal.z_index = -1
 	parent.add_child(decal)
 	decal.global_position = pos
-	_enforce_cap(parent.get_tree())
+	if _alive > MAX_DECALS:
+		_enforce_cap(parent.get_tree())
 
 
 ## Fade-and-free for lifetime'd decals (no-op for persistent ones).
@@ -56,8 +67,40 @@ func _process(delta: float) -> void:
 		modulate.a = clampf((lifetime - _age) / FADE_OUT, 0.0, 1.0)
 
 
+## Live decals, O(1). See the note on `_enforce_cap` for why this exists.
+static var _alive: int = 0
+## Deterministic work counters — see the header on `CombatVfx.work_stats` for why
+## the harness measures counts rather than milliseconds.
+static var _spawned: int = 0
+static var _skipped: int = 0
+
+
+## Diagnostics + tests.
+static func alive_count() -> int:
+	return _alive
+
+
+static func work_stats() -> Dictionary:
+	return {"spawned": _spawned, "skipped": _skipped}
+
+
+## Test hook / arena teardown.
+static func reset_count() -> void:
+	_alive = 0
+	_spawned = 0
+	_skipped = 0
+
+
 ## Cheap safety against unbounded growth over a long session: past MAX_DECALS
 ## live decals, free the oldest (group order follows add order).
+##
+## ⚠ THIS USED TO RUN ON EVERY SINGLE DECAL SPAWN, and it is a group walk that
+## allocates TWICE — once for `get_nodes_in_group`'s array and again for the typed
+## `alive` array built from it. A meteor barrage or a nova lays down decals in
+## bursts, so the arena's busiest moments paid an O(n) allocating scan per mark to
+## discover, almost every time, that it was nowhere near the cap. It is now gated
+## behind an O(1) counter and runs only when the cap can actually have been passed,
+## which in a normal fight is never. Same fix as `DamageNumber` and `DebrisChunk`.
 static func _enforce_cap(tree: SceneTree) -> void:
 	if tree == null:
 		return
@@ -72,9 +115,20 @@ static func _enforce_cap(tree: SceneTree) -> void:
 
 func _ready() -> void:
 	add_to_group(GROUP_NAME)
+	_alive += 1
+	_counted = true
 	if kind == "crack":
 		_generate_cracks()
 	queue_redraw()
+
+
+## Counter safety net — a decal freed with its arena still has to give its slot
+## back, or `_alive` ratchets up and every spawn starts paying for the group walk
+## the counter exists to avoid.
+func _exit_tree() -> void:
+	if _counted:
+		_counted = false
+		_alive = maxi(_alive - 1, 0)
 
 
 ## Pre-bake the jagged crack geometry once so _draw() stays deterministic.

@@ -51,6 +51,32 @@ static var _free: Dictionary = {}          # amount:int -> Array[GPUParticles2D]
 const MAX_POOLED_PER_AMOUNT: int = 12
 static var _pooled_total: int = 0
 
+# ------------------------------------------------------------------ work counters
+## Particles ASKED FOR versus particles actually EMITTED, cumulative.
+##
+## These exist because wall-clock on a dev machine is not a usable regression
+## metric: the same 38-cast scripted run was timed at 38 ms and 57 ms twenty
+## minutes apart, purely from background load, which is far wider than any
+## optimisation worth making. Counters are DETERMINISTIC — the same seeded run
+## produces the same numbers on a loaded machine and an idle one — so they are what
+## `tools/slice_test_perf_budget.gd` asserts against and what the stress harness
+## reports as its primary result. Time is reported alongside, as a sanity check
+## rather than as the measurement.
+static var _requested: int = 0
+static var _granted: int = 0
+static var _bursts: int = 0
+
+
+## (bursts, particles requested, particles granted) since boot / last reset.
+static func work_stats() -> Dictionary:
+	return {"bursts": _bursts, "requested": _requested, "granted": _granted}
+
+
+static func reset_work_stats() -> void:
+	_requested = 0
+	_granted = 0
+	_bursts = 0
+
 
 static func additive_mat() -> CanvasItemMaterial:
 	if _add_mat != null:
@@ -103,6 +129,7 @@ static func spawn_burst(
 ) -> GPUParticles2D:
 	if parent == null or not parent.is_inside_tree():
 		return null
+	amount = _budgeted(amount)
 	var burst: GPUParticles2D = _acquire(parent, amount)
 	burst.lifetime = lifetime
 	# Additive is per-call-site, so a recycled emitter must be told BOTH ways —
@@ -118,6 +145,28 @@ static func spawn_burst(
 	burst.emitting = true
 	parent.get_tree().create_timer(lifetime + 0.3).timeout.connect(_recycle.bind(burst, amount))
 	return burst
+
+
+## The particle count this burst is actually allowed, given how much spell effect
+## is already alive (see SpellReactorNode.austerity). The burst ALWAYS fires — a hit
+## with no spark reads as a hit that did not land — it just fires thinner.
+##
+## ⚠ QUANTISED, and that is not tidiness. `amount` is the POOL'S BUCKET KEY: assigning
+## a different amount to a recycled emitter reallocates its GPU buffer, which is the
+## exact cost the pool exists to avoid. A continuous scale factor would mint a new
+## bucket for almost every burst and quietly turn the pool back into an allocator.
+## Four steps means at most four buckets per call site, and step 4 returns the
+## original integer unchanged so the common (in-budget) case is byte-identical.
+static func _budgeted(amount: int) -> int:
+	_bursts += 1
+	_requested += amount
+	var step: int = int(round(SpellReactorNode.vfx_austerity() * 4.0))
+	if step >= 4:
+		_granted += amount
+		return amount
+	var out: int = maxi(4, (amount * step) / 4)
+	_granted += out
+	return out
 
 
 ## A burst emitter ready to be configured: a retired one from the matching

@@ -58,6 +58,10 @@ var _lifetime: float = 1.0
 var _pending_launch: Vector2 = Vector2.ZERO
 var _pending_spin: float = 0.0
 var _launched: bool = false
+## Is this chunk currently counted in `_alive`? Keeps `_exit_tree` from
+## decrementing a chunk that was never counted (never entered the tree) or
+## decrementing the same chunk twice on a re-parent.
+var _counted: bool = false
 
 
 ## Spawn up to `count` physics rubble chunks under `parent` at world `pos`,
@@ -76,8 +80,16 @@ static func spawn_burst(
 ) -> void:
 	if parent == null or not parent.is_inside_tree():
 		return
-	var headroom: int = MAX_LIVE_CHUNKS - _live_count(parent.get_tree())
+	var headroom: int = MAX_LIVE_CHUNKS - _alive
+	# Rubble is pure garnish — it has no hitbox that matters, tells the player
+	# nothing, and multiplies with every effect on screen. It is therefore the first
+	# thing to thin when the arena is already carrying its budget of spell effects.
+	# Thinned, never cancelled: a shattered crate that produces no rubble at all
+	# reads as a bug rather than as a busy screen.
+	_requested += count
+	count = int(round(float(count) * SpellReactorNode.vfx_austerity()))
 	var to_spawn: int = clampi(count, 0, maxi(headroom, 0))
+	_granted += to_spawn
 	for i: int in to_spawn:
 		var chunk: DebrisChunk = DebrisChunk.new()
 		chunk.chunk_color = _vary_color(base_color)
@@ -99,15 +111,41 @@ static func spawn_burst(
 		chunk._pending_spin = randf_range(-SPIN_MAX, SPIN_MAX)
 
 
-## Live (not-yet-freed) chunk count across the whole tree, for the global cap.
-static func _live_count(tree: SceneTree) -> int:
-	if tree == null:
-		return 0
-	var live: int = 0
-	for chunk: Node in tree.get_nodes_in_group(GROUP_NAME):
-		if is_instance_valid(chunk) and not chunk.is_queued_for_deletion():
-			live += 1
-	return live
+## Live chunks, O(1).
+##
+## ⚠ THIS USED TO BE A GROUP WALK. `_live_count` called
+## `get_nodes_in_group(GROUP_NAME)` — which ALLOCATES a fresh Array of every chunk
+## in the world — and then filtered it, once per burst, to compute a number the
+## class can simply keep. Every shattered crate, every rock spell and every heavy
+## landing paid for it, and the answer was already knowable. Exactly the shape of
+## the `DamageNumber` group-scan that was removed for the same reason.
+##
+## The one thing a counter must get right that the walk got right for free is
+## staying accurate when chunks die WITHOUT being individually accounted for —
+## which is what a floor teardown does to all of them at once. `_exit_tree` is the
+## guard; without it the counter ratchets up, hits MAX_LIVE_CHUNKS, and rubble
+## silently stops appearing for the rest of the session.
+static var _alive: int = 0
+## Deterministic work counters — chunks ASKED FOR versus chunks actually made. See
+## the header on `CombatVfx.work_stats` for why the harness counts rather than times.
+static var _requested: int = 0
+static var _granted: int = 0
+
+
+## Diagnostics + tests.
+static func alive_count() -> int:
+	return _alive
+
+
+static func work_stats() -> Dictionary:
+	return {"requested": _requested, "granted": _granted}
+
+
+## Test hook / arena teardown: forget the count. Mirrors DamageNumber.reset_pool().
+static func reset_count() -> void:
+	_alive = 0
+	_requested = 0
+	_granted = 0
 
 
 ## Slight per-chunk tint variance so a burst reads as many stones, not clones.
@@ -120,6 +158,8 @@ static func _vary_color(base_color: Color) -> Color:
 
 func _ready() -> void:
 	add_to_group(GROUP_NAME)
+	_alive += 1
+	_counted = true
 	collision_layer = CHUNK_LAYER
 	collision_mask = CHUNK_MASK
 	gravity_scale = 1.0
@@ -154,6 +194,16 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 
 
 ## Age out: fly + settle for _lifetime, fade over FADE_TIME, then free.
+## The counter's safety net — see the header on `_alive`. A chunk that leaves the
+## tree without being counted out (its arena was torn down mid-fight) must give its
+## slot back, or the cap ratchets shut permanently. Guarded by `_counted` so a chunk
+## cannot decrement twice.
+func _exit_tree() -> void:
+	if _counted:
+		_counted = false
+		_alive = maxi(_alive - 1, 0)
+
+
 func _process(delta: float) -> void:
 	_age += delta
 	if _age >= _lifetime + FADE_TIME:
