@@ -20,15 +20,24 @@ extends Area2D
 ##   4. A TIER CROWN — three rotating shards for a Tier 3 and one ring for a Tier 2.
 ##      Shelf at a glance, from further away than the name can be read.
 ##
-## ══ CO-OP, HONESTLY ════════════════════════════════════════════════════════════
-## Both peers spawn this from the same seeded roll (`SpellDrops`) so it is the same
-## spell in the same place on both screens with no message passing. COLLECTION is
-## resolved locally: whoever touches it first on THIS peer takes it. Hero positions
-## are replicated, so the two peers agree in almost every case — but a genuine
-## photo-finish can be scored differently on each screen, and there is no way to
-## close that from inside this file. `collect_by(hero)` is public precisely so the
-## networking layer can drive it from one authoritative decision when it is ready.
-## Flagged in the handoff rather than papered over.
+## ══ CO-OP — THE RACE NOW HAS ONE FINISH LINE ═══════════════════════════════════
+## Both peers spawn this from the same seeded roll (`SpellDrops`), so it is the
+## same spell in the same place on both screens with no message passing. That half
+## was always solid. COLLECTION used to resolve locally — whoever touched it first
+## on THIS peer took it — which meant a genuine photo finish could hand the spell to
+## BOTH players, or to different players on the two phones.
+##
+## It is now one decision. The peer that OWNS the colliding hero reports the
+## overlap; the host awards the pickup exactly once; every peer applies that award
+## through `collect_by`. Nothing here scores anything.
+##
+## ⚠ ONLY THE OWNING PEER REPORTS. A remote hero is a puppet whose position this
+## peer did not integrate, so its overlap is a stale echo — reporting it would let
+## lag decide the race. The owner's own view of where it is standing is the only
+## honest input, and the host's ordering is the only honest tiebreak.
+##
+## Singleplayer takes none of this: `Net.is_active()` is false and the body-entered
+## handler calls `collect_by` directly, exactly as it always did.
 
 ## Which spell this is. An ID and not a SpellDef, because a Resource sitting on a
 ## scene is shared mutable state between every hero who ever touches it — the
@@ -49,12 +58,22 @@ const TIER3_GOLD: Color = Color(1.5, 1.15, 0.45)
 
 var _phase: float = 0.0
 var _consumed: bool = false
+## Co-op only: this peer has already asked the host for this pickup. Stops a body
+## that keeps overlapping from firing a request per contact while the award flies.
+var _reported: bool = false
 var _spell: SpellDef = null
 var _color: Color = Color(0.8, 0.7, 1.0)
 var _tier3: bool = false
 
 
+## Joined so `Net` can find this pickup from a position key without a NodePath —
+## crates and pickups are built per-peer, not spawned, so their auto-names differ
+## between the two phones. See `Net.pos_key`.
+const PICKUP_GROUP: StringName = &"spell_pickup"
+
+
 func _ready() -> void:
+	add_to_group(PICKUP_GROUP)
 	body_entered.connect(_on_body_entered)
 	_resolve()
 
@@ -85,11 +104,21 @@ func _process(delta: float) -> void:
 
 
 func _on_body_entered(body: Node2D) -> void:
-	if _consumed or _spell == null:
+	if _consumed or _spell == null or _reported:
 		return
 	if not body.is_in_group("hero"):
 		return
-	collect_by(body)
+	var net: Node = get_node_or_null(^"/root/Net")
+	if net == null or not net.has_method(&"is_active") or not bool(net.call(&"is_active")):
+		collect_by(body)   # singleplayer: unchanged, no round trip
+		return
+	var owner_peer: int = body.get_multiplayer_authority()
+	if owner_peer != int(net.call(&"my_id")):
+		return   # a puppet's overlap is a stale echo — its own peer will report it
+	# Latched so a body that keeps overlapping (or re-enters while the award is in
+	# flight) cannot spam the host with the same request.
+	_reported = true
+	net.call(&"request_pickup", self, owner_peer)
 
 
 ## PUBLIC so the networking layer can drive collection from one authoritative

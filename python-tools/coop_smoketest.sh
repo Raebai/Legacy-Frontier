@@ -1,7 +1,25 @@
 #!/usr/bin/env bash
-# Co-op loopback smoke test: launch a headless host + client, confirm they connect
-# and BOTH enter the arena with 2 heroes. Run from the repo root.
+# Co-op loopback smoke test: launch a headless host + client and check that the two
+# processes actually AGREE about the world. Run from the repo root.
 #   bash python-tools/coop_smoketest.sh
+#
+# This is the only thing in the repo that can prove convergence. A single SceneTree
+# has one MultiplayerAPI, so a --script suite can be a host or a client but never
+# both, and "the other phone agrees" is unobservable from inside one. Every claim
+# below needs two processes:
+#   heroes / enemies  — the party and the host-authoritative mobs exist on both
+#   enemy_twins       — a client SEES the tell and the bolt that can hit it
+#   HERO_SPELLS       — your friend's magic is visible (the friendly-fire social loop)
+#   BOSS_FX           — the climax of the floor renders on both screens
+#   floor_sync        — the client follows the host up the tower
+#   COVER             — a crate an ENEMY broke is broken on both phones. Enemy attack
+#                       twins are visual_only, so this used to be host-only: you took
+#                       cover behind something your teammate could not see.
+#   PICKUP            — the drop race is scored ONCE. Collection used to resolve
+#                       locally, so a photo finish could award the same spell twice.
+#
+# The `[NET] VERDICT ... => PASS` line printed by the CLIENT is the answer; the rows
+# above it are for reading when it says FAIL.
 set -u
 G="./godot-engine/Godot_v4.6.2-stable_win64_console.exe"
 OUT="${TMPDIR:-/tmp}"
@@ -10,11 +28,16 @@ HP=$!
 sleep 3
 "$G" --headless --path godot-project -- --client 127.0.0.1 > "$OUT/coop_client.log" 2>&1 &
 CP=$!
-sleep 10
+sleep 12
 kill "$HP" "$CP" 2>/dev/null
 wait 2>/dev/null
 echo "=== HOST ===";   grep "\[NET\]" "$OUT/coop_host.log"
 echo "=== CLIENT ==="; grep "\[NET\]" "$OUT/coop_client.log"
-echo "PASS if host sees a peer (total=2), both print heroes=2, the client's floor"
-echo "follows the host to 2, AND the client's twins=2 (proves the attack-visual"
-echo "tell/bolt RPC path delivers over the wire — a client sees what can hit it)."
+echo "=== RESULT ==="
+if grep -q "VERDICT.*=> PASS" "$OUT/coop_client.log"; then
+	grep "VERDICT" "$OUT/coop_client.log"
+	exit 0
+fi
+echo "FAIL — the client's verdict line (or the client itself) is missing:"
+grep "VERDICT" "$OUT/coop_client.log" || echo "  no VERDICT printed at all"
+exit 1

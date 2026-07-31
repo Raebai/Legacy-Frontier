@@ -58,13 +58,65 @@ func _process(delta: float) -> void:
 		queue_redraw()
 
 
+## ⚠ IN CO-OP THE HOST IS THE ONLY PEER THAT MAY BREAK A CRATE. In single player
+## `Net.is_active()` is false and every line below is the code that always ran —
+## byte-identical, no branch taken.
+##
+## WHY. Cover destroyed by an ENEMY existed on one phone only. A hero's spell is
+## rebuilt on the other peer as a twin, and although that twin's fighter scan is
+## pointed at a dead group, every spectacle scans the "destructible" literal as a
+## second, un-stamped pass — so hero-sourced prop damage already converged. Enemy
+## attack twins are explicitly `visual_only`, so the client watched the blast and
+## the crate stayed standing. You then take cover behind a crate your teammate
+## cannot see, which is a fairness bug, not a cosmetic one.
+##
+## The fix is one writer rather than teeth on the enemy twins (which would
+## double-apply the moment an enemy hit a hero — the exact thing the twins exist to
+## avoid). The host sees EVERY damage source: enemies natively, heroes through the
+## twin it builds of the client's cast. So it decides, and broadcasts ABSOLUTE hp.
+##
+## THE CLIENT STILL FLINCHES. It applies the hit locally for instant feedback —
+## absolute hp is what makes that safe, because the host's number overwrites rather
+## than compounds — but it is FLOORED AT 1. A crate must never shatter twice, and a
+## client that guessed wrong about a kill has no way to put the cover back.
 func take_damage(amount: int) -> void:
 	if hp <= 0:
 		return  # already shattering this frame
+	var net: Node = get_node_or_null(^"/root/Net")
+	var coop: bool = net != null and net.has_method(&"is_active") and bool(net.call(&"is_active"))
+	if coop and not bool(net.call(&"is_host")):
+		hp = maxi(hp - amount, 1)   # predicted, never fatal — the host owns the kill
+		_hit_feedback()
+		return
 	hp = max(hp - amount, 0)
 	if hp == 0:
+		# Broadcast BEFORE shattering: `_shatter` frees the node, and `broadcast_prop_state`
+		# needs it in the tree to read the position that identifies it on the wire.
+		if coop:
+			net.call(&"broadcast_prop_state", self, 0, true)
 		_shatter()
 		return
+	_hit_feedback()
+	if coop:
+		net.call(&"broadcast_prop_state", self, hp, false)
+
+
+## The host's verdict, applied verbatim. Absolute hp, so a client that predicted a
+## few hits of its own is corrected rather than compounded.
+func net_apply_prop_state(hp_now: int, shattered: bool) -> void:
+	if hp <= 0:
+		return
+	hp = maxi(hp_now, 0)
+	if shattered or hp <= 0:
+		hp = 0
+		_shatter()
+		return
+	_hit_feedback()
+
+
+## The non-lethal hit read: brief lighten + a tiny jolt. Split out so the local,
+## predicted and host-applied paths cannot drift into three different flinches.
+func _hit_feedback() -> void:
 	_flash_timer = HIT_FLASH_TIME
 	_nudge = Vector2.from_angle(randf() * TAU) * HIT_NUDGE
 	queue_redraw()

@@ -52,6 +52,10 @@ var _twins_built: int = 0
 var _spell_twins: int = 0
 ## Count of BOSS spectacle/phase twins built from the host's broadcasts.
 var _boss_twins: int = 0
+## Count of PROP states this peer has taken from the host (cover convergence).
+var _prop_syncs: int = 0
+## Count of PICKUPS this peer has resolved from the host's single award decision.
+var _pickups_awarded: int = 0
 ## True once the party has entered the tower. Late joiners are refused after this —
 ## a hero spawned mid-floor has no encounter budget, no floor state and no way to
 ## catch up, so the honest answer is "the session is closed", not a broken puppet.
@@ -149,6 +153,7 @@ func leave() -> void:
 		multiplayer.multiplayer_peer.close()
 	multiplayer.multiplayer_peer = null
 	peer_class.clear()
+	_pickup_awarded.clear()
 	_arena_ready.clear()
 	_party_ready_sent = false
 	_run_started = false
@@ -432,11 +437,16 @@ func _do_host_fall() -> void:
 
 # ---- host -> client rebroadcast of the run-spine signals (host-only; SP no-ops) ---
 func _on_gs_floor_advanced(floor: int) -> void:
+	# The floor's props are freed and rebuilt, so the award ledger must not survive:
+	# positions are re-used across floors and a stale key would silently refuse the
+	# NEXT floor's pickup to everyone.
+	_pickup_awarded.clear()
 	if is_host():
 		_client_floor.rpc(floor, false)
 
 
 func _on_gs_fell(floor: int) -> void:
+	_pickup_awarded.clear()
 	if is_host():
 		_client_floor.rpc(floor, true)
 
@@ -746,6 +756,144 @@ func _node_at(path: String) -> Node:
 	return get_node_or_null(NodePath(path))
 
 
+# ============================================ DETERMINISTIC ENTITY KEYS
+## ⚠ CRATES AND PICKUPS CANNOT USE `get_path()`, AND THE BOSS PATH TRICK ABOVE IS
+## THE WRONG PRECEDENT FOR THEM.
+##
+## `_client_boss_phase` sends a NodePath because bosses come through a
+## `MultiplayerSpawner`, which makes the host name authoritative on every peer.
+## Crates and the floor's spell pickup do not: every peer builds its OWN from the
+## same `LayoutDef` and the same seeded roll (`FloorBuilder` / `SpellDrops`), with
+## no name set. Godot then auto-names them `@DestructibleProp@N` off a per-process
+## counter — and by the time a floor is built the two peers have instanced
+## different numbers of nodes (spell twins, spectacles, particles), so the SAME
+## crate has a DIFFERENT name on the two phones. A path would resolve to null, or
+## worse, to the wrong crate.
+##
+## What is identical across peers is where the thing STANDS: both built it at the
+## same world point from the same data, and neither crates nor pickups ever move.
+## So the wire key is the rounded position, and the receiver matches the nearest
+## member of the group. Same idea as the seeded roll itself — derive identity from
+## state both peers already share rather than paying a packet to agree on it.
+const KEY_TOLERANCE: float = 6.0
+
+
+## The wire identity of a static, deterministically-placed world object.
+static func pos_key(n: Node2D) -> Vector2i:
+	if n == null:
+		return Vector2i.ZERO
+	return Vector2i(roundi(n.global_position.x), roundi(n.global_position.y))
+
+
+## The member of `group` standing at `key`, or null. Null is a NORMAL answer: the
+## receiver may have already freed that crate, or be mid-floor-change.
+func _find_at(group: StringName, key: Vector2i) -> Node:
+	if not is_inside_tree():
+		return null
+	var want := Vector2(float(key.x), float(key.y))
+	var best: Node = null
+	var best_d: float = KEY_TOLERANCE * KEY_TOLERANCE
+	for n: Node in get_tree().get_nodes_in_group(group):
+		if not is_instance_valid(n) or n.is_queued_for_deletion() or not (n is Node2D):
+			continue
+		var d: float = (n as Node2D).global_position.distance_squared_to(want)
+		if d <= best_d:
+			best_d = d
+			best = n
+	return best
+
+
+# ================================================= COVER (host-authoritative props)
+## ENEMY-BROKEN COVER USED TO EXIST ON ONE PHONE ONLY, and that is a fairness bug
+## rather than a cosmetic one: you take cover behind a crate your teammate cannot
+## see, and they wonder why their bolt stopped in mid-air.
+##
+## The asymmetry is specific. HERO prop damage already converged for free: a hero's
+## spell is rebuilt on the other peer as a twin, and although the twin's fighter
+## scan is pointed at the dead `GHOST_GROUP`, every spectacle scans the
+## `"destructible"` literal as a SECOND, un-stamped pass — so both peers apply the
+## same damage to their own copy of the crate. ENEMY attacks have no such twin with
+## teeth: `_client_blast` / `_spawn_projectile_twin` are explicitly `visual_only`,
+## so the client watches the blast and the crate simply does not break.
+##
+## Rather than give enemy twins damage back (which would double-apply the moment an
+## enemy hit a hero, the exact bug the twins exist to avoid), cover becomes
+## HOST-AUTHORITATIVE: the host is the one peer that sees every damage source —
+## enemies natively, and heroes through the twin it builds of the client's cast — so
+## it can be the single writer. It broadcasts ABSOLUTE hp, not a delta, which is
+## what lets the client keep applying its own hits locally for instant feedback
+## without the two ever compounding. See `DestructibleProp.take_damage`.
+func broadcast_prop_state(prop: Node2D, hp_now: int, shattered: bool) -> void:
+	if is_host() and prop != null and prop.is_inside_tree():
+		_client_prop_state.rpc(pos_key(prop), hp_now, shattered)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _client_prop_state(key: Vector2i, hp_now: int, shattered: bool) -> void:
+	var prop: Node = _find_at(&"destructible", key)
+	if prop == null or not prop.has_method(&"net_apply_prop_state"):
+		return
+	_prop_syncs += 1
+	prop.call(&"net_apply_prop_state", hp_now, shattered)
+
+
+# ================================================ PICKUP RACE (one award, one owner)
+## THE PHOTO FINISH. Both peers spawn the same seeded pickup in the same place —
+## that half was always solid — but COLLECTION resolved locally on whichever peer
+## saw the overlap, so two heroes arriving in the same tick could each be given the
+## spell on their own screen, or the two screens could disagree about who got it.
+## The spec's "visible and contested, both players can race for them" needs a race
+## with ONE finish line.
+##
+## So: the owning peer REPORTS its overlap (only for a hero it actually drives — a
+## puppet's overlap is a stale echo of a position this peer did not integrate), the
+## host DECIDES, once, and the award is applied on every peer through
+## `SpellPickup.collect_by`. First request to reach the host wins; every later
+## request for the same pickup is dropped on the floor rather than raced.
+##
+## `call_local` on the award is deliberate: the host runs the identical code path
+## its client does, so there is no second implementation of "apply a pickup" that
+## could drift from the first.
+var _pickup_awarded: Dictionary = {}   # host only: pos_key -> peer id
+
+
+## Called by `SpellPickup` on the peer that owns the colliding hero.
+func request_pickup(pickup: Node2D, peer_id: int) -> void:
+	if not is_active() or pickup == null or not pickup.is_inside_tree():
+		return
+	if is_host():
+		_host_award_pickup(pos_key(pickup), peer_id)
+	else:
+		_req_pickup.rpc_id(1, pos_key(pickup))
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _req_pickup(key: Vector2i) -> void:
+	if is_host():
+		_host_award_pickup(key, multiplayer.get_remote_sender_id())
+
+
+func _host_award_pickup(key: Vector2i, peer_id: int) -> void:
+	if _pickup_awarded.has(key):
+		return   # already decided — a photo finish resolves once, for everyone
+	_pickup_awarded[key] = peer_id
+	_client_pickup.rpc(key, peer_id)
+
+
+@rpc("authority", "call_local", "reliable")
+func _client_pickup(key: Vector2i, peer_id: int) -> void:
+	var pickup: Node = _find_at(&"spell_pickup", key)
+	var hero: Node = hero_for_peer(peer_id)
+	# Both nulls are normal answers, not errors: this peer may already have freed the
+	# pickup, or be mid-floor-change. The one lossy case is a winner who DROPPED
+	# between the award and its arrival — this peer then keeps a pickup nobody can
+	# take until the floor rebuilds. Narrow enough to name rather than machine around.
+	if pickup == null or hero == null or not pickup.has_method(&"collect_by"):
+		return
+	if bool(pickup.call(&"collect_by", hero)):
+		_pickups_awarded += 1
+
+
 # ========================================================== STATUS ROUTER
 ## Elemental ailments on the victim's own authority, exactly like damage.
 ##
@@ -830,6 +978,10 @@ func stop_discovery() -> void:
 
 
 ## Hosts heard from within BEACON_TTL: [{ip, port, name}], freshest first.
+##
+## ⚠ THE PAYLOAD SHAPE IS A CONTRACT. `Lobby`'s Join screen consumes exactly
+## `{ip, port, name}` and takes the PORT off the beacon rather than assuming
+## `DEFAULT_PORT`. Do not narrow these keys.
 func discovered_hosts() -> Array:
 	var now: float = float(Time.get_ticks_msec()) / 1000.0
 	var out: Array = []
@@ -842,6 +994,21 @@ func discovered_hosts() -> Array:
 	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return float(_found[a["ip"]]["seen"]) > float(_found[b["ip"]]["seen"]))
 	return out
+
+
+## Drop every host we have not heard from in BEACON_TTL. Returns true if the list
+## actually changed, so the caller emits `hosts_changed` exactly once per pump.
+## PUBLIC-ish (used by the discovery test) but pumped from `_process`, which is the
+## only place that runs while a listener is up.
+func _reap_expired_hosts() -> bool:
+	var now: float = float(Time.get_ticks_msec()) / 1000.0
+	var dead: Array[String] = []
+	for ip: String in _found.keys():
+		if now - float((_found[ip] as Dictionary).get("seen", 0.0)) > BEACON_TTL:
+			dead.append(ip)
+	for ip: String in dead:
+		_found.erase(ip)
+	return not dead.is_empty()
 
 
 func _default_host_name() -> String:
@@ -865,7 +1032,14 @@ func _process(delta: float) -> void:
 			_beacon.put_packet(JSON.stringify(payload).to_utf8_buffer())
 	if _listener == null:
 		return
-	var changed: bool = false
+	# A HOST THAT WALKS AWAY MUST ALSO CHANGE THE LIST. `hosts_changed` used to fire
+	# only on an ARRIVAL (or on a session filling up); a host that closed the game or
+	# left wifi range was reaped silently inside `discovered_hosts()`, so a
+	# signal-only consumer kept a dead button on screen forever and tapping it was a
+	# guaranteed failed join. The Lobby was covering that with a 1 Hz poll — an
+	# autoload's correctness patched from a UI script. Reaping HERE, and emitting,
+	# lets that poll be deleted.
+	var changed: bool = _reap_expired_hosts()
 	while _listener.get_available_packet_count() > 0:
 		var raw: PackedByteArray = _listener.get_packet()
 		var ip: String = _listener.get_packet_ip()
@@ -971,6 +1145,30 @@ func _cli_fire_every_broadcast() -> void:
 	broadcast_boss_fx("ray", {"pos": Vector2(500, 320), "col": Color(1, 0.5, 0.2),
 		"r": 70.0, "fx": "fire", "el": 0})
 	broadcast_boss_fx("nova", {"pos": Vector2(500, 320)})
+	# 4. COVER. An ENEMY-sourced crate break — the path that used to diverge, because
+	#    enemy attack twins are visual_only and never touched the client's crate. The
+	#    host applies + broadcasts absolute hp; the client should converge without
+	#    ever having seen a blast.
+	var crate: Node = _cli_first(&"destructible")
+	if crate != null and crate.has_method(&"take_damage"):
+		crate.call(&"take_damage", 9999)
+	# 5. THE PICKUP RACE, from the far side: the host awards the floor drop to the
+	#    CLIENT's hero. That is the exact shape of a photo finish the client won, and
+	#    it is the case that used to be scored differently on each screen.
+	var pick: Node = _cli_first(&"spell_pickup")
+	var other: int = 0
+	for p in multiplayer.get_peers():
+		other = int(p)
+		break
+	if pick != null and other != 0:
+		request_pickup(pick as Node2D, other)
+
+
+func _cli_first(group: StringName) -> Node:
+	for n: Node in get_tree().get_nodes_in_group(group):
+		if is_instance_valid(n) and not n.is_queued_for_deletion():
+			return n
+	return null
 
 
 func _cli_join(ip: String) -> void:
@@ -1005,11 +1203,16 @@ func _cli_verdict() -> void:
 	var spells_ok: bool = _spell_twins >= 2
 	var boss_ok: bool = _boss_twins >= 2
 	var floor_ok: bool = _cli_floor_end > _cli_floor_start
-	var all_ok: bool = heroes_ok and enemies_ok and twins_ok and spells_ok and boss_ok and floor_ok
+	# COVER + PICKUP: both are "the two screens agree", which only a second process
+	# can prove — a single-process suite can assert the routing but never the wire.
+	var cover_ok: bool = _prop_syncs >= 1
+	var pickup_ok: bool = _pickups_awarded >= 1
+	var all_ok: bool = (heroes_ok and enemies_ok and twins_ok and spells_ok and boss_ok
+		and floor_ok and cover_ok and pickup_ok)
 	print(("[NET] VERDICT heroes=%s enemies=%s enemy_twins=%s HERO_SPELLS=%s BOSS_FX=%s "
-		+ "floor_sync=%s => %s") % [
+		+ "floor_sync=%s COVER=%s PICKUP=%s => %s") % [
 		_ok(heroes_ok), _ok(enemies_ok), _ok(twins_ok), _ok(spells_ok), _ok(boss_ok),
-		_ok(floor_ok), "PASS" if all_ok else "FAIL"])
+		_ok(floor_ok), _ok(cover_ok), _ok(pickup_ok), "PASS" if all_ok else "FAIL"])
 
 
 func _ok(b: bool) -> String:
@@ -1034,6 +1237,8 @@ func _cli_count(who: String) -> void:
 			var p: Vector2 = (e as Node2D).global_position
 			sample = "(%d,%d)" % [int(round(p.x)), int(round(p.y))]
 	print(("[NET] %s heroes=%d(peak %d) enemies=%d host_owned=%d first_enemy_pos=%s "
-		+ "floor=%d twins=%d spell_twins=%d boss_twins=%d") % [
+		+ "floor=%d twins=%d spell_twins=%d boss_twins=%d prop_syncs=%d pickups=%d "
+		+ "crates=%d") % [
 		who, heroes, _cli_peak_heroes, enemies, host_owned, sample, _cli_floor(),
-		_twins_built, _spell_twins, _boss_twins])
+		_twins_built, _spell_twins, _boss_twins, _prop_syncs, _pickups_awarded,
+		get_tree().get_nodes_in_group(&"destructible").size()])
