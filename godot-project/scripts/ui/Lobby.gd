@@ -52,6 +52,24 @@ const ACCENT_FALLBACK: Color = Color(0.55, 0.9, 1.0)
 const BUTTON_H: float = 30.0
 const PANEL_W: float = 292.0
 
+## FIXED height of the discovered-host list, in base units. This is the whole
+## reason a variable-length list cannot break the layout: the ScrollContainer
+## reports a minimum height of zero on its scrolling axis, so this constant — not
+## the number of hosts on the network — decides how tall the join screen is. One
+## host or nine, the panel measures the same.
+const HOST_LIST_H: float = 104.0
+## A discovered host is a tap target like any other.
+const HOST_ROW_H: float = 32.0
+
+## How often the host list is re-read while the join screen is open.
+##
+## `Net.hosts_changed` fires when a host APPEARS or when a full session drops
+## off — but a host that simply walks away expires by TTL inside
+## `discovered_hosts()`, with no signal. Signal-only would therefore leave a dead
+## button on screen forever, and tapping it is a guaranteed failed join. So the
+## signal drives the fast path and this poll sweeps the corpses.
+const HOST_POLL: float = 1.0
+
 var _net: Node = null
 var _selected_class: int = 0
 var _status: Label = null
@@ -62,10 +80,22 @@ var _ip_edit: LineEdit = null
 var _start_btn: Button = null
 var _paper: Control = null
 var _credits: Control = null
-## The button column. Held so the suite can assert the whole panel still fits the
-## 640×360 base viewport — the thing that silently breaks the first time somebody
-## adds one more row.
+## The main menu column. Held so the suite can assert the whole panel still fits
+## the 640×360 base viewport — the thing that silently breaks the first time
+## somebody adds one more row.
 var _col: VBoxContainer = null
+
+# ── the join screen ─────────────────────────────────────────────────────────
+## A SEPARATE column that swaps in for `_col`, rather than more rows appended to
+## it. That is a layout decision, not a navigation one: the host list is
+## variable-length, and the only way to promise it can never push the panel past
+## 360 px is to give it a screen whose height does not depend on it.
+var _join_col: VBoxContainer = null
+var _host_list: VBoxContainer = null
+var _host_scroll: ScrollContainer = null
+var _join_status: Label = null
+var _searching: bool = false
+var _poll_t: float = 0.0
 
 
 func _ready() -> void:
@@ -84,13 +114,35 @@ func _ready() -> void:
 	_build_ui()
 	_apply_class_tint()
 
+	# Only LAN discovery needs a frame pump, and it is off until the join screen
+	# opens (Net does the same thing for the same reason).
+	set_process(false)
+
 	if _net != null:
 		_net.lobby_changed.connect(_refresh)
 		_net.server_started.connect(_refresh)
-		_net.join_ok.connect(func() -> void: _status.text = "connected — waiting for the host")
-		_net.join_failed.connect(func() -> void: _status.text = "no answer. check the address.")
+		_net.join_ok.connect(_on_join_ok)
+		_net.join_failed.connect(_on_join_failed)
 	_refresh()
 	_music_town()
+
+
+## Leaving the scene entirely must not leave a UDP socket bound and a per-frame
+## pump running on the Net autoload — the autoload outlives this scene, so a
+## missed teardown here leaks for the rest of the session.
+func _exit_tree() -> void:
+	_stop_discovery()
+
+
+func _on_join_ok() -> void:
+	# We are in a session now; there is nothing left to discover, and holding the
+	# listener open would keep pumping Net every frame through the whole run.
+	_stop_discovery()
+	_say("connected — waiting for the host")
+
+
+func _on_join_failed() -> void:
+	_say("no answer. check the address, or pick a game above.")
 
 
 # ══════════════════════════════════════════════════════════════════════ UI
@@ -145,20 +197,7 @@ func _build_ui() -> void:
 	right.add_child(play)
 
 	right.add_child(_button("Host Co-op", _host, 14))
-
-	var join_row := HBoxContainer.new()
-	join_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	join_row.add_theme_constant_override("separation", 6)
-	_ip_edit = LineEdit.new()
-	_ip_edit.text = "127.0.0.1"
-	_ip_edit.placeholder_text = "host address"
-	_ip_edit.custom_minimum_size = Vector2(PANEL_W - 96.0, BUTTON_H)
-	_ip_edit.add_theme_font_size_override("font_size", 13)
-	join_row.add_child(_ip_edit)
-	var join_btn := _button("Join", _join, 14)
-	join_btn.custom_minimum_size = Vector2(88, BUTTON_H)
-	join_row.add_child(join_btn)
-	right.add_child(join_row)
+	right.add_child(_button("Join a Game", _open_join, 14))
 
 	_start_btn = _button("Start Run", _start_run, 15)
 	_start_btn.visible = false
@@ -176,6 +215,83 @@ func _build_ui() -> void:
 	_peers_label.add_theme_font_size_override("font_size", 10)
 	_peers_label.add_theme_color_override("font_color", Color(0.6, 0.85, 0.7))
 	right.add_child(_peers_label)
+
+	_build_join_screen(margin)
+
+
+## THE JOIN SCREEN — "two phones in one room", which is the spec's whole
+## multiplayer picture and is emphatically not "type an IP address".
+##
+## `Net` already does the hard half: `host()` starts a UDP broadcast beacon
+## automatically, and a full session stops listing itself so a discovered host is
+## never a guaranteed-failed join. This is the last mile — turning that list into
+## something a thumb can hit.
+##
+## The manual address field SURVIVES, deliberately. Broadcast is blocked on a lot
+## of hotel, campus and guest wifi, and when discovery finds nothing a typed
+## address is the difference between "co-op is broken" and "co-op needs one more
+## tap".
+func _build_join_screen(parent: Control) -> void:
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.size_flags_horizontal = Control.SIZE_SHRINK_END
+	col.custom_minimum_size = Vector2(PANEL_W, 0)
+	col.add_theme_constant_override("separation", 4)
+	col.visible = false
+	parent.add_child(col)
+	_join_col = col
+
+	var head := Label.new()
+	head.text = "FIND A GAME"
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	head.add_theme_font_size_override("font_size", 20)
+	head.add_theme_color_override("font_color", CHALK)
+	col.add_child(head)
+
+	_join_status = Label.new()
+	_join_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_join_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_join_status.add_theme_font_size_override("font_size", 10)
+	_join_status.add_theme_color_override("font_color", GRAPHITE)
+	col.add_child(_join_status)
+
+	# THE BOUND. A ScrollContainer reports zero minimum size on whatever axis it
+	# scrolls, so the panel's height is this constant and nothing else — nine
+	# hosts measure exactly the same as one. Without it, the list is the one
+	# control on this screen whose size is decided by the local network.
+	_host_scroll = ScrollContainer.new()
+	_host_scroll.custom_minimum_size = Vector2(PANEL_W, HOST_LIST_H)
+	_host_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_host_scroll.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	col.add_child(_host_scroll)
+
+	_host_list = VBoxContainer.new()
+	_host_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_host_list.add_theme_constant_override("separation", 3)
+	_host_scroll.add_child(_host_list)
+
+	var or_line := Label.new()
+	or_line.text = "or type the host's address"
+	or_line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	or_line.add_theme_font_size_override("font_size", 9)
+	or_line.add_theme_color_override("font_color", GRAPHITE)
+	col.add_child(or_line)
+
+	var manual := HBoxContainer.new()
+	manual.alignment = BoxContainer.ALIGNMENT_CENTER
+	manual.add_theme_constant_override("separation", 6)
+	_ip_edit = LineEdit.new()
+	_ip_edit.text = "127.0.0.1"
+	_ip_edit.placeholder_text = "host address"
+	_ip_edit.custom_minimum_size = Vector2(PANEL_W - 96.0, BUTTON_H)
+	_ip_edit.add_theme_font_size_override("font_size", 13)
+	manual.add_child(_ip_edit)
+	var join_btn := _button("Join", _join, 14)
+	join_btn.custom_minimum_size = Vector2(88, BUTTON_H)
+	manual.add_child(join_btn)
+	col.add_child(manual)
+
+	col.add_child(_button("Back", _close_join, 12))
 
 
 # ══════════════════════════════════════════════════════════════════ actions
@@ -217,31 +333,181 @@ func _apply_class_tint() -> void:
 func _play_solo() -> void:
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs == null or not gs.has_method("enter_run"):
-		_status.text = "the tower is missing. (GameState unavailable)"
+		_say("the tower is missing. (GameState unavailable)")
 		return
+	# We are about to leave this scene. `_exit_tree` catches it too, but doing it
+	# here means the socket is closed BEFORE the arena starts loading rather than
+	# during it.
+	_stop_discovery()
 	gs.set("selected_class", _selected_class)
-	_status.text = "climbing..."
+	_say("climbing...")
 	gs.call("enter_run")
 
 
 func _host() -> void:
 	if _net == null:
 		return
+	# You cannot listen for other people's games while running your own; Net.host()
+	# starts the beacon that advertises THIS session instead.
+	_stop_discovery()
 	var err: int = _net.host(_selected_class)
 	if err == OK:
-		_status.text = "hosting on port %d — they Join your address" % _net.DEFAULT_PORT
+		# The beacon is automatic (Net.host starts it), so the other phone should
+		# simply see this machine in its list — the address is the fallback.
+		_say("hosting — they should see you under Join a Game")
 	else:
-		_status.text = "host failed (err %d) — port in use?" % err
+		_say("host failed (err %d) — port in use?" % err)
 
 
 func _join() -> void:
 	if _net == null:
 		return
 	var err: int = _net.join(_ip_edit.text.strip_edges(), _selected_class)
-	_status.text = ("reaching %s..." % _ip_edit.text) if err == OK else "join error %d" % err
+	_say(("reaching %s..." % _ip_edit.text) if err == OK else ("join error %d" % err))
+
+
+# ═════════════════════════════════════════════════════════════ LAN discovery
+## Enter the join screen and start listening for beacons.
+func _open_join() -> void:
+	if _join_col == null:
+		return
+	_col.visible = false
+	_join_col.visible = true
+	_start_discovery()
+	_redraw_hosts()
+
+
+## Leave it, and stop listening. Discovery holds a bound UDP socket and a per-frame
+## pump on `Net`; leaving it running because the player wandered back to the title
+## is exactly the kind of thing that quietly costs battery on a phone.
+func _close_join() -> void:
+	_stop_discovery()
+	if _join_col != null:
+		_join_col.visible = false
+	if _col != null:
+		_col.visible = true
+
+
+func _start_discovery() -> void:
+	if _net == null or _searching:
+		return
+	if not _net.has_method("start_discovery"):
+		_join_status.text = "this build has no LAN discovery — type the address below."
+		return
+	var err: int = int(_net.call("start_discovery"))
+	if err != OK:
+		# Broadcast is blocked on plenty of guest wifi, and the listen port can
+		# already be taken. Say so plainly and point at the fallback rather than
+		# leaving an empty list that reads as "nobody is playing".
+		_searching = false
+		_join_status.text = "can't search this network (err %d) — type the address below." % err
+		return
+	_searching = true
+	_poll_t = HOST_POLL
+	if _net.has_signal(&"hosts_changed") and not _net.is_connected(&"hosts_changed", _redraw_hosts):
+		_net.connect(&"hosts_changed", _redraw_hosts)
+	set_process(true)
+
+
+func _stop_discovery() -> void:
+	if _net == null:
+		return
+	if _net.has_signal(&"hosts_changed") and _net.is_connected(&"hosts_changed", _redraw_hosts):
+		_net.disconnect(&"hosts_changed", _redraw_hosts)
+	if _searching and _net.has_method("stop_discovery"):
+		_net.call("stop_discovery")
+	_searching = false
+	set_process(false)
+
+
+## The sweep the signal cannot do. `Net.hosts_changed` fires on arrival and when a
+## full session drops off, but a host that simply leaves expires by TTL inside
+## `discovered_hosts()` and emits nothing — so a signal-only list keeps a dead
+## button on screen indefinitely, and tapping it is a guaranteed failed join.
+func _process(delta: float) -> void:
+	if not _searching:
+		set_process(false)
+		return
+	_poll_t -= delta
+	if _poll_t <= 0.0:
+		_poll_t = HOST_POLL
+		_redraw_hosts()
+
+
+## Rebuild the list. Cheap (at most a handful of rows, at most once a second) and
+## far simpler than diffing, which for a two-player game would be more code than
+## the feature.
+func _redraw_hosts(_a = null) -> void:
+	if _host_list == null:
+		return
+	for child: Node in _host_list.get_children():
+		# Removed BEFORE freeing: queue_free defers to the end of the frame, so a
+		# row left parented would still be measured by the layout pass that runs
+		# in between and the list would flicker one row taller.
+		_host_list.remove_child(child)
+		child.queue_free()
+	var hosts: Array = []
+	if _net != null and _net.has_method("discovered_hosts"):
+		hosts = _net.call("discovered_hosts")
+	if hosts.is_empty():
+		if _searching:
+			_join_status.text = "looking for games on this wifi..."
+		return
+	_join_status.text = "%d game%s nearby — tap to join" % [hosts.size(), "" if hosts.size() == 1 else "s"]
+	for entry: Dictionary in hosts:
+		_host_list.add_child(_host_row(entry))
+
+
+## One discovered host, as a thumb-sized button.
+func _host_row(entry: Dictionary) -> Button:
+	var ip: String = String(entry.get("ip", ""))
+	var port: int = int(entry.get("port", _default_port()))
+	var host_name: String = String(entry.get("name", ip))
+	var b := Button.new()
+	b.text = "▸  %s" % host_name
+	# The address is the tie-breaker when two machines share a name, which on a
+	# home network is not unusual. Small, secondary, always present.
+	b.tooltip_text = "%s:%d" % [ip, port]
+	b.custom_minimum_size = Vector2(PANEL_W - 16.0, HOST_ROW_H)
+	b.add_theme_font_size_override("font_size", 14)
+	b.focus_mode = Control.FOCUS_NONE
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.clip_text = true
+	b.pressed.connect(_join_discovered.bind(ip, port, host_name))
+	return b
+
+
+## The port comes from the BEACON, not from a constant here: the host advertises
+## the port it is actually listening on, and hardcoding `DEFAULT_PORT` would break
+## the moment anyone hosts on a second port to test two sessions on one machine.
+func _join_discovered(ip: String, port: int, host_name: String) -> void:
+	if _net == null or not _net.has_method("join"):
+		return
+	var err: int = int(_net.call("join", ip, _selected_class, port))
+	_say(("joining %s..." % host_name) if err == OK
+		else ("could not reach %s (err %d)" % [host_name, err]))
+
+
+func _default_port() -> int:
+	if _net != null:
+		var p: Variant = _net.get("DEFAULT_PORT")
+		if p != null and (p is int):
+			return int(p)
+	return 24565
+
+
+## One line of feedback, written to whichever screen is actually in front of the
+## player. Without this, a join started from the discovery list reports into the
+## title screen's status label, which is hidden at the time.
+func _say(text: String) -> void:
+	if _join_col != null and _join_col.visible and _join_status != null:
+		_join_status.text = text
+	if _status != null:
+		_status.text = text
 
 
 func _start_run() -> void:
+	_stop_discovery()
 	if _net != null and _net.has_method("start_coop_run"):
 		_net.start_coop_run()   # Net broadcasts the scene change + run state to all peers
 

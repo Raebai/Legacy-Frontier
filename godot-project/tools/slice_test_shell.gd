@@ -34,6 +34,10 @@ const TESTS: Array[String] = [
 	"the_hub_is_parked_not_deleted",
 	"lobby_fits_the_base_viewport",
 	"tap_targets_are_thumb_sized",
+	"discovery_starts_and_stops_with_the_join_screen",
+	"discovered_hosts_become_buttons",
+	"a_crowded_network_cannot_break_the_layout",
+	"manual_address_survives_as_the_fallback",
 	"credits_carry_the_required_attribution",
 	"credits_screen_renders_it",
 	"credits_flag_the_unsettled_licences",
@@ -70,6 +74,10 @@ func _init() -> void:
 	await _test_play_solo_starts_a_run()
 	await _test_lobby_fits_the_base_viewport()
 	_test_tap_targets_are_thumb_sized()
+	await _test_discovery_starts_and_stops_with_the_join_screen()
+	await _test_discovered_hosts_become_buttons()
+	await _test_a_crowded_network_cannot_break_the_layout()
+	_test_manual_address_survives_as_the_fallback()
 	await _test_credits_screen_renders_it()
 	_test_credits_flag_the_unsettled_licences()
 	for t: String in TESTS:
@@ -263,6 +271,174 @@ func _test_tap_targets_are_thumb_sized() -> void:
 
 
 # ---------------------------------------------------------------------------
+# LAN discovery — "two phones in one room"
+# ---------------------------------------------------------------------------
+#
+# `Net` owns the protocol (a UDP broadcast beacon started automatically by
+# `host()`, a listener, a TTL, and `hosts_changed`). This is the LAST MILE: the
+# list has to appear, be tappable, tear down when you leave, and — the part that
+# is easy to get wrong — never be allowed to decide how tall the panel is.
+#
+# Driven against a stub `Net` rather than a real socket, because a suite that
+# needs a second machine on the same wifi is a suite nobody runs.
+
+## Swap the lobby's Net for a recorder. The lobby reads `_net` on every call, so
+## this is a clean seam; the connections made to the real autoload in `_ready`
+## are left alone and are harmless.
+func _with_stub_net() -> _NetStub:
+	var lobby: Control = _get_lobby()
+	var stub := _NetStub.new()
+	stub.name = "NetStub"
+	root.add_child(stub)
+	lobby.set("_net", stub)
+	return stub
+
+
+func _test_discovery_starts_and_stops_with_the_join_screen() -> void:
+	var lobby: Control = _get_lobby()
+	var stub: _NetStub = _with_stub_net()
+	lobby.call("_open_join")
+	await process_frame
+	_expect(stub.started == 1, "opening the join screen starts discovery (got %d)" % stub.started)
+	_expect(stub.is_connected(&"hosts_changed", Callable(lobby, "_redraw_hosts")),
+		"and listens for the host list changing")
+	_expect(bool((lobby.get("_join_col") as Control).visible), "the join screen is showing")
+	_expect(not bool((lobby.get("_col") as Control).visible), "and the title screen is not")
+
+	lobby.call("_close_join")
+	await process_frame
+	# A bound UDP socket and a per-frame pump on an autoload that outlives this
+	# scene is exactly the sort of leak that only shows up as battery drain.
+	_expect(stub.stopped >= 1, "leaving it stops discovery (got %d)" % stub.stopped)
+	_expect(not stub.is_connected(&"hosts_changed", Callable(lobby, "_redraw_hosts")),
+		"and disconnects the signal")
+	_expect(bool((lobby.get("_col") as Control).visible), "the title screen is back")
+
+	# Every other way out of the lobby must tear it down too.
+	lobby.call("_open_join")
+	await process_frame
+	var before: int = stub.stopped
+	lobby.call("_on_join_ok")
+	_expect(stub.stopped > before, "a successful join stops discovery")
+	_completes("discovery_starts_and_stops_with_the_join_screen")
+
+
+func _test_discovered_hosts_become_buttons() -> void:
+	var lobby: Control = _get_lobby()
+	var stub: _NetStub = _with_stub_net()
+	stub.hosts = [
+		{"ip": "192.168.1.44", "port": 24565, "name": "RAAED-PHONE"},
+		{"ip": "192.168.1.9", "port": 24999, "name": "OTHER-PHONE"},
+	]
+	lobby.call("_open_join")
+	stub.hosts_changed.emit()
+	await process_frame
+
+	var rows: Array = []
+	_walk(lobby.get("_host_list"), rows, "Button")
+	_expect(rows.size() == 2, "both hosts drew a button (got %d)" % rows.size())
+	var joined: String = ""
+	for b: Button in rows:
+		joined += b.text + " | "
+		_expect(b.custom_minimum_size.y >= MIN_TAP_H,
+			"a host row is thumb-sized (got %.0f)" % b.custom_minimum_size.y)
+		_expect(b.focus_mode == Control.FOCUS_NONE, "a host row takes no focus ring")
+	_expect(joined.contains("RAAED-PHONE"), "the host's NAME is what you tap (got %s)" % joined)
+
+	# Tapping one must join THAT host, at THAT port. The port comes off the
+	# beacon, not off a constant — hardcoding DEFAULT_PORT breaks the moment
+	# anyone hosts on a second port, which is how you test two sessions on one
+	# machine.
+	lobby.set("_selected_class", 5)
+	(rows[1] as Button).pressed.emit()
+	_expect(stub.join_ip == "192.168.1.9", "tapping a host joins that host (got '%s')" % stub.join_ip)
+	_expect(stub.join_port == 24999, "at the port it advertised (got %d)" % stub.join_port)
+	_expect(stub.join_class == 5, "carrying the picked class (got %d)" % stub.join_class)
+
+	# A host that walks away expires by TTL with NO signal, so the list must also
+	# be swept. Without the poll it would leave a dead button whose only possible
+	# outcome is a failed join.
+	stub.hosts = []
+	lobby.set("_poll_t", 0.0)
+	lobby.call("_process", 0.2)
+	await process_frame
+	var after: Array = []
+	_walk(lobby.get("_host_list"), after, "Button")
+	_expect(after.is_empty(), "a host that left is swept off the list (got %d rows)" % after.size())
+	lobby.call("_close_join")
+	_completes("discovered_hosts_become_buttons")
+
+
+func _test_a_crowded_network_cannot_break_the_layout() -> void:
+	# THE LAYOUT PROMISE. The host list is the one control on this screen whose
+	# length is decided by other people's machines. It lives in a ScrollContainer
+	# with a fixed minimum height, so nine hosts must measure exactly the same as
+	# one — this asserts that rather than trusting it.
+	var lobby: Control = _get_lobby()
+	var stub: _NetStub = _with_stub_net()
+	stub.hosts = []
+	lobby.call("_open_join")
+	await process_frame
+	await process_frame
+	var join_col: Control = lobby.get("_join_col")
+	var empty_h: float = join_col.get_combined_minimum_size().y
+	_expect(empty_h <= BASE_H, "the empty join screen fits 360 px (needs %.0f)" % empty_h)
+
+	var many: Array = []
+	for i in 9:
+		many.append({"ip": "10.0.0.%d" % i, "port": 24565, "name": "A VERY LONG HOST NAME %d" % i})
+	stub.hosts = many
+	stub.hosts_changed.emit()
+	await process_frame
+	await process_frame
+	# NOT VACUOUS: prove the nine rows are really parented at the moment the panel
+	# is measured. Without this the equality below would pass just as happily if
+	# the list had quietly failed to draw anything at all.
+	var drawn: Array = []
+	_walk(lobby.get("_host_list"), drawn, "Button")
+	_expect(drawn.size() == 9,
+		"all nine hosts are on screen while this is measured (got %d)" % drawn.size())
+	var full_h: float = join_col.get_combined_minimum_size().y
+	_expect(full_h <= BASE_H,
+		"NINE hosts still fit 360 px of height (needs %.0f)" % full_h)
+	_expect(is_equal_approx(full_h, empty_h),
+		"the panel height does not depend on how many games are nearby (%.0f vs %.0f)"
+			% [empty_h, full_h])
+	_expect(join_col.get_combined_minimum_size().x <= BASE_W,
+		"and a long host name does not widen it past 640 px")
+	lobby.call("_close_join")
+	_completes("a_crowded_network_cannot_break_the_layout")
+
+
+func _test_manual_address_survives_as_the_fallback() -> void:
+	# Broadcast is blocked on plenty of guest wifi. A typed address is the
+	# difference between "co-op is broken" and "co-op needs one more tap", so it
+	# must never be dropped as redundant once discovery works.
+	var lobby: Control = _get_lobby()
+	var stub: _NetStub = _with_stub_net()
+	var ip_edit: Variant = lobby.get("_ip_edit")
+	_expect(ip_edit != null, "the manual address field still exists")
+	(ip_edit as LineEdit).text = "10.1.2.3"
+	lobby.set("_selected_class", 2)
+	lobby.call("_join")
+	_expect(stub.join_ip == "10.1.2.3", "typing an address still joins it (got '%s')" % stub.join_ip)
+	_expect(stub.join_class == 2, "carrying the picked class")
+
+	# And when the network refuses to be searched at all, the player is told to
+	# use it rather than left staring at an empty list that reads as "nobody is
+	# playing".
+	stub.start_result = ERR_CANT_CREATE
+	stub.started = 0
+	lobby.call("_close_join")
+	lobby.call("_open_join")
+	var msg: String = String((lobby.get("_join_status") as Label).text)
+	_expect(msg.to_lower().contains("address"),
+		"a network that cannot be searched points at the fallback (said: '%s')" % msg)
+	lobby.call("_close_join")
+	_completes("manual_address_survives_as_the_fallback")
+
+
+# ---------------------------------------------------------------------------
 # The licence
 # ---------------------------------------------------------------------------
 
@@ -332,6 +508,57 @@ func _test_credits_flag_the_unsettled_licences() -> void:
 	_expect(warns.to_lower().contains("music"),
 		"the undocumented music provenance is flagged (warns: %s)" % warns)
 	_completes("credits_flag_the_unsettled_licences")
+
+
+## Stands in for the Net autoload. Only the surface the join screen touches —
+## deliberately duck-typed the same way the lobby reaches for it, so this cannot
+## drift into testing a fantasy API. Real discovery needs a second machine on the
+## same wifi, and a suite that needs that is a suite nobody runs.
+class _NetStub:
+	extends Node
+	signal hosts_changed
+	signal lobby_changed
+	signal server_started
+	signal join_ok
+	signal join_failed
+
+	const DEFAULT_PORT: int = 24565
+
+	var hosts: Array = []
+	var started: int = 0
+	var stopped: int = 0
+	var start_result: int = OK
+	var join_ip: String = ""
+	var join_class: int = -1
+	var join_port: int = -1
+
+	func start_discovery() -> int:
+		if start_result == OK:
+			started += 1
+		return start_result
+
+	func stop_discovery() -> void:
+		stopped += 1
+
+	func discovered_hosts() -> Array:
+		return hosts
+
+	func join(ip: String = DEFAULT_PORT_IP, my_class: int = 0, port: int = DEFAULT_PORT) -> int:
+		join_ip = ip
+		join_class = my_class
+		join_port = port
+		return OK
+
+	const DEFAULT_PORT_IP: String = "127.0.0.1"
+
+	func is_host() -> bool:
+		return false
+
+	func is_active() -> bool:
+		return false
+
+	func peers() -> Array:
+		return []
 
 
 ## Stands in for the GameState autoload so the button press can be OBSERVED

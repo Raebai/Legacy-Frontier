@@ -17,6 +17,9 @@ shell (Play Solo), the lobby, the credits screen, and the music-size question.
   AI-NPC hub. **Ollama is not involved anywhere; nothing was listening on 11434
   during verification.**
 - **Credits** opens over the lobby (not a scene change, so hosting survives it).
+- **Join a Game** opens the LAN screen: games on your wifi appear by name within
+  a second or so, and you tap one. To try it, run two copies — F5 on one, press
+  **Host Co-op**; F5 on the other, press **Join a Game**.
 - Class cycling retints the title and the pencil.
 
 In a run you should hear characters *talk* — pitched vowel gibberish, one voice
@@ -150,8 +153,8 @@ cannot quietly bin it.
 
 ## 4. The lobby
 
-Keeps Play Solo / Host Co-op / Join by IP / class pick / peer list / Start Run.
-Added: Credits.
+Keeps Play Solo / Host Co-op / Join / class pick / peer list / Start Run.
+Added: Credits, and the LAN join screen below.
 
 - Fits the **640×360 base viewport in landscape**, measured in the worst case
   (hosting, with the extra "Start Run" row showing). The suite fails if a future
@@ -159,6 +162,51 @@ Added: Credits.
 - Every tap target ≥ 30 px in base units and takes no focus ring.
 - The class picker derives from `ClassInfo.count()`, never a literal (a hardcoded
   `% 8` once made the 9th class silently unreachable).
+
+### 4a. LAN discovery — "two phones in one room"
+
+`Net` owns the protocol (the co-op agent's work): `Net.host()` starts a UDP
+broadcast beacon automatically, a full session stops advertising itself, and
+hosts expire on a TTL. The Lobby is the last mile.
+
+**"Join a Game" is now a screen, not a text field.** Opening it calls
+`Net.start_discovery()`; each `{ip, port, name}` from `Net.discovered_hosts()`
+draws as a 32 px button showing the host's *name*; tapping it calls
+`Net.join(ip, class, port)`. Leaving calls `Net.stop_discovery()` — as does a
+successful join, starting a run, hosting, and `_exit_tree`, because a bound UDP
+socket plus a per-frame pump on an autoload that outlives the scene is a leak
+that only ever shows up as battery drain.
+
+**The port comes off the beacon, not a constant.** Hardcoding `DEFAULT_PORT`
+would break the moment anyone hosts on a second port — which is exactly how you
+test two sessions on one machine.
+
+**The manual address field survives** as the fallback. Broadcast is blocked on a
+lot of guest wifi; when `start_discovery()` returns an error the screen says so
+and points at the field, rather than showing an empty list that reads as "nobody
+is playing".
+
+> **A gap in the Net API I had to cover on this side:** `hosts_changed` fires
+> when a host *appears* and when a full session drops off, but a host that simply
+> walks away expires by TTL inside `discovered_hosts()` and emits **nothing**. A
+> signal-only list therefore keeps a dead button on screen forever, and tapping
+> it is a guaranteed failed join. The signal drives the fast path; a 1 Hz poll
+> sweeps the corpses. If `Net` ever emits on expiry, `Lobby._process` can go.
+
+**The layout guarantee.** The host list is the one control on that screen whose
+length is decided by other people's machines, so it lives in a `ScrollContainer`
+with a fixed 104 px minimum — a ScrollContainer reports zero minimum on its
+scrolling axis, so *nine* hosts measure exactly the same as one. The suite
+asserts that, and asserts all nine rows are really parented at the moment it
+measures, so the equality cannot pass vacuously. **Negative control run:**
+disabling the vertical scroll made nine hosts demand 447 px and the suite went
+red — the guard is real.
+
+**Verified against real sockets, not only the stub.** A throwaway probe on this
+machine: `start_discovery()` bound (`err=0`) and the listener heard a live
+beacon, returning `[{ip: "192.168.1.117", port: 24565, name: "PROBE-HOST"}]` —
+exactly the shape the UI consumes. Two actual phones on one wifi is still
+unproven and still needs the maker.
 
 ---
 
@@ -237,7 +285,7 @@ sentinel, so an aborted test fails BY ABSENCE):
 |---|---|
 | `tools/slice_test_gibberish.gd` | banks are real roster keys, identity is stable and spreads, `plan()` is pure, intonation lands, `speak()` adds no second pool, per-speaker rate limit |
 | `tools/slice_test_bark.gd` | line table obeys the house voice, every event has a mood, `say()` never blocks, one bubble per speaker, cooldown, unknown events are silent, the director installs once and survives an empty world |
-| `tools/slice_test_shell.gd` | Play Solo really calls `enter_run()` (observed with a stub, not grepped), no hub/Ollama on the boot path, hub parked-not-deleted, fits 640×360 worst case, thumb-sized targets, the Pepper line is rendered |
+| `tools/slice_test_shell.gd` | Play Solo really calls `enter_run()` (observed with a stub, not grepped), no hub/Ollama on the boot path, hub parked-not-deleted, fits 640×360 worst case, thumb-sized targets, the Pepper line is rendered, **LAN discovery starts/stops with the join screen, hosts become tappable buttons at the advertised port, a nine-host network cannot change the panel height, and the manual address survives** |
 | `tools/slice_test_music.gd` | every mood has a playlist and a resting volume, every track resolves, ogg-over-mp3 preference and its rollback, the compressor and the playlist agree |
 
 **Still true, and worth repeating: every feel number here is reasoning, not
