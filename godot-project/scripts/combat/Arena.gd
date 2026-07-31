@@ -11,7 +11,12 @@ const EXIT_PORTAL_SCRIPT: Script = preload("res://scripts/combat/ExitPortal.gd")
 const ENCOUNTER_SCRIPT: Script = preload("res://scripts/combat/Encounter.gd")
 const TARGET_ENEMY_COUNT: int = 5   # sandbox steady-state
 const SANDBOX_SPAWN_INTERVAL: float = 1.2
-const DEFAULT_EXIT_POINT: Vector2 = Vector2(600, 130)
+const DEFAULT_EXIT_POINT: Vector2 = Vector2(480, 110)
+## Wall collider thickness, matching Arena.tscn's authored value.
+const WALL_THICKNESS: float = 16.0
+## Where a hero stands when no floor layout says otherwise (sandbox / boss rush).
+## Kept in step with LayoutDef.hero_start.
+const DEFAULT_HERO_START: Vector2 = Vector2(480, 300)
 
 var _gs: Node = null
 var _net: Node = null   # cached /root/Net (co-op); null / inactive in SP
@@ -27,6 +32,9 @@ var _floor_banner: Label = null
 var _pause_menu: PauseMenu = null
 var _spawn_timer: float = 0.0
 var _wipe_handled: bool = false   # co-op: debounce the party-wipe -> fall to once per floor
+## Which wall shapes have already been un-shared from the .tscn sub-resource
+## (see _set_wall) — duplicate once, then mutate in place every floor after.
+var _resized_walls: Dictionary = {}
 
 ## ------------------------------------------------------------- BOSS RUSH
 ## STRAIGHT TO THE ASHSPIRE GUARDIAN, no climb. The boss sits on floor 5, so the
@@ -86,8 +94,11 @@ func _ready() -> void:
 			net.net_floor_cleared.connect(_spawn_exit_portals)
 		_setup_floor(_gs.current_floor())
 	else:
-		# Sandbox: the legacy default room + an endless trickle (below).
-		FloorBuilder.build_props(_room, GameState.synthesize_floor_def(1).layout)
+		# Sandbox: the default room (sized from its own layout, same as a real
+		# floor) + an endless trickle (below).
+		var sandbox_layout: LayoutDef = GameState.synthesize_floor_def(1).layout
+		_apply_room_size(sandbox_layout.room_size)
+		FloorBuilder.build_props(_room, sandbox_layout)
 		var music: Node = get_node_or_null("/root/Music")
 		# BOSS RUSH: the guardian, alone, right now. Consume the flag on the way in
 		# so a later F6 sandbox is a sandbox again.
@@ -129,6 +140,7 @@ func _process(delta: float) -> void:
 func _setup_floor(floor: int) -> void:
 	_current_floor_def = _gs.floor_def_for(floor)
 	_apply_floor_music()
+	_apply_room_size(_layout_room_size())
 	_rebuild_room()
 	_clear_portal()
 	var theme: EnvTheme = _resolve_theme()
@@ -139,13 +151,14 @@ func _setup_floor(floor: int) -> void:
 	_encounter.run_floor(_current_floor_def)
 
 
-## Boss floors frame the whole arena (couch-brawler fit-all) so the giant
-## Guardian is fully in shot; other floors follow the hero normally.
+## ONE SCREEN (1.3). THE TOWER is a one-screen arena brawler, so fit-all framing
+## is the DEFAULT on every floor, not a boss-floor special case. Paired with
+## room sizes that fit inside the framing zoom (see _apply_room_size), the whole
+## floor is on screen at once and nobody fights off-camera.
 func _apply_floor_camera() -> void:
-	var is_boss: bool = _current_floor_def != null and _current_floor_def.floor_type == FloorDef.FloorType.BOSS
 	for cam: Node in get_tree().get_nodes_in_group("combat_camera"):
 		if cam.has_method("set_frame_all"):
-			cam.set_frame_all(is_boss)
+			cam.set_frame_all(true)
 
 
 ## Boss floors get the boss bed; everything else the adventure bed. Fires on
@@ -168,6 +181,58 @@ func _resolve_theme() -> EnvTheme:
 	if _gs.active_tower != null:
 		return _gs.active_tower.theme
 	return null
+
+
+## The active floor's room_size, falling back to the LayoutDef default.
+func _layout_room_size() -> Vector2:
+	if _current_floor_def != null and _current_floor_def.layout != null:
+		return _current_floor_def.layout.room_size
+	return LayoutDef.new().room_size
+
+
+## LayoutDef.room_size ACTUALLY DRIVES THE GEOMETRY (1.3). Until now Arena.tscn
+## hard-coded a 1200x680 box — a Floor ColorRect plus four wall colliders — and
+## `room_size` was read in exactly one place, to position a portal. Now the floor
+## rect and all four walls are rebuilt from the floor's data, so a floor can be
+## the size its layout says it is (and stay inside one screen at the framing
+## zoom: 640x360 viewport / FRAME_ZOOM_MIN 0.5 minus FRAME_PAD ~= 980x500 max).
+##
+## Wall shapes are DUPLICATED on first use: they arrive as .tscn sub-resources,
+## and mutating a shared resource in place would leak this floor's size into
+## every other scene that loads the same one.
+func _apply_room_size(size: Vector2) -> void:
+	var w: float = maxf(size.x, WALL_THICKNESS * 4.0)
+	var h: float = maxf(size.y, WALL_THICKNESS * 4.0)
+	var floor_rect: ColorRect = get_node_or_null("Floor") as ColorRect
+	if floor_rect != null:
+		floor_rect.offset_left = 0.0
+		floor_rect.offset_top = 0.0
+		floor_rect.offset_right = w
+		floor_rect.offset_bottom = h
+		floor_rect.size = Vector2(w, h)
+	var walls: Node = get_node_or_null("Walls")
+	if walls == null:
+		return
+	_set_wall(walls, "WallTop", Vector2(w * 0.5, 0.0), Vector2(w, WALL_THICKNESS))
+	_set_wall(walls, "WallBottom", Vector2(w * 0.5, h), Vector2(w, WALL_THICKNESS))
+	_set_wall(walls, "WallLeft", Vector2(0.0, h * 0.5), Vector2(WALL_THICKNESS, h))
+	_set_wall(walls, "WallRight", Vector2(w, h * 0.5), Vector2(WALL_THICKNESS, h))
+
+
+func _set_wall(walls: Node, wall_name: String, pos: Vector2, size: Vector2) -> void:
+	var cs: CollisionShape2D = walls.get_node_or_null(wall_name) as CollisionShape2D
+	if cs == null:
+		return
+	cs.position = pos
+	var shape: RectangleShape2D = cs.shape as RectangleShape2D
+	if shape == null:
+		shape = RectangleShape2D.new()
+		cs.shape = shape
+	elif not _resized_walls.has(wall_name):
+		shape = shape.duplicate() as RectangleShape2D
+		cs.shape = shape
+	_resized_walls[wall_name] = true
+	shape.size = size
 
 
 ## Fresh room each floor: free the old props, build the new floor's props.
@@ -296,7 +361,7 @@ func _check_party_wipe() -> void:
 ## start. Position syncs from the owner, so each peer reviving its own hero brings the
 ## whole party back up. Called on a fall (party wipe) and on a floor advance.
 func _revive_local_heroes() -> void:
-	var start: Vector2 = Vector2(600, 340)
+	var start: Vector2 = DEFAULT_HERO_START
 	if _current_floor_def != null and _current_floor_def.layout != null:
 		start = _current_floor_def.layout.hero_start
 	var i: int = 0
@@ -330,7 +395,7 @@ func _revive_hero() -> void:
 		hero.set("hp", full)
 		if hero.has_signal("health_changed"):
 			hero.emit_signal("health_changed", full, full)
-	var start: Vector2 = Vector2(600, 340)
+	var start: Vector2 = DEFAULT_HERO_START
 	if _current_floor_def != null and _current_floor_def.layout != null:
 		start = _current_floor_def.layout.hero_start
 	hero.global_position = start
@@ -399,7 +464,7 @@ func _setup_heroes() -> void:
 			get_tree().create_timer(0.6).timeout.connect(_spawn_all_heroes)
 	else:
 		var h: Node = load("res://scenes/combat/Hero.tscn").instantiate()
-		(h as Node2D).position = Vector2(600.0, 340.0)
+		(h as Node2D).position = DEFAULT_HERO_START
 		_heroes_root.add_child(h)
 
 
@@ -409,7 +474,7 @@ func _spawn_all_heroes() -> void:
 		return
 	var i: int = 0
 	for pid in net.peers():
-		var pos: Vector2 = Vector2(600.0, 340.0) + Vector2(60.0 * float(i), 0.0)
+		var pos: Vector2 = DEFAULT_HERO_START + Vector2(60.0 * float(i), 0.0)
 		_hero_spawner.spawn({"peer": int(pid), "cls": int(net.class_of(pid)), "x": pos.x, "y": pos.y})
 		i += 1
 
@@ -443,10 +508,22 @@ func _spawn_enemy_net(data: Dictionary) -> Node:
 	return e
 
 
+## The floor's Encounter — the live-entity budget authority. Enemies reach it
+## through their parent (the Arena) to ask for spawn headroom; null in scenes
+## that have no encounter.
+func encounter() -> Encounter:
+	return _encounter
+
+
 ## Route a runtime-spawned enemy (summoner minions, boss adds) through the same
 ## replicated path in co-op, or straight into the arena in SP. Called by enemies via
 ## get_parent().spawn_extra_enemy(...) — get_parent() is the Arena.
 func spawn_extra_enemy(data: Dictionary) -> Node:
+	# THE HARD CHOKE POINT for the 25-entity cap (1.4). Summoner minions and boss
+	# adds both land here, so even a caller that forgets to ask can_spawn() first
+	# cannot push the floor past its ceiling.
+	if _encounter != null and not _encounter.can_spawn(1):
+		return null
 	if _enemy_spawner != null:
 		return _enemy_spawner.spawn(data)
 	var e: CharacterBody2D = _encounter.build_enemy_from_data(data)
