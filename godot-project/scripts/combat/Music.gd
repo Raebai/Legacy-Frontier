@@ -12,6 +12,24 @@ enum Mood { TOWN, ADVENTURE, BOSS }
 ## Each mood is a PLAYLIST of resource paths. The first entry is the default;
 ## `cycle_track()` steps through them (skipping any missing file). Drop new tracks
 ## in and add their path here — that's the only wiring needed.
+##
+## ── SIZE, WHICH IS THE BIGGEST SINGLE WIN LEFT IN THE BUILD ────────────────
+## These six MP3s are **36.4 MB of a ~45 MB shipping audio payload — about 81%
+## of it** — at 320/256/192 kbps, which is streaming-service quality for a
+## phone game that mixes the bed 20-28 dB down under the SFX. Re-encoding them
+## to ~96-112 kbps Ogg Vorbis saves roughly 17-20 MB, i.e. around 40% of the
+## whole build. (For contrast, the 187 SFX cost 4.0 MB total, because Godot 4.6
+## imports WAV as QOA.)
+##
+## The paths below are DELIBERATELY LEFT AS `.mp3`. `_preferred_path()` prefers a
+## same-named `.ogg` sitting beside each one, so the re-encode is a pure asset
+## operation: drop the six `.ogg` files in and the game picks them up with no
+## code change, and deleting them falls straight back to the MP3s. That is the
+## cheapest possible rollback for a lossy-on-lossy conversion nobody has heard.
+##
+## `python-tools/compress_music.py` does the conversion (and refuses to run
+## without ffmpeg rather than pretending). **It has NOT been run in this repo:
+## ffmpeg is not installed on this machine.**
 const PLAYLISTS: Dictionary = {
 	Mood.TOWN: [
 		"res://assets/audio/music/hub_ambience.wav",
@@ -126,13 +144,27 @@ func cycle_track() -> String:
 	return _track_display_name(playlist[next])
 
 
+## Prefer a same-named `.ogg` beside a listed `.mp3`, so shrinking the music is a
+## pure asset drop with no code edit and a one-file-delete rollback. Static +
+## pure, so the suite can assert the rule without an audio device or a tree.
+##
+## Only mp3 -> ogg, deliberately: this is a size lever, and going the other way
+## (or rewriting `.wav`, which is already imported as QOA and costs almost
+## nothing) would just be a footgun.
+static func _preferred_path(path: String) -> String:
+	if path.get_extension().to_lower() != "mp3":
+		return path
+	var ogg: String = path.get_basename() + ".ogg"
+	return ogg if ResourceLoader.exists(ogg) else path
+
+
 ## Load + loop-configure a stream by (mood, index), cached. Returns null if the
 ## file is missing (e.g. boss_theme.mp3 not supplied) — callers handle the fallback.
 func _resolve_stream(mood: int, idx: int) -> AudioStream:
 	var playlist: Array = PLAYLISTS[mood]
 	if idx < 0 or idx >= playlist.size():
 		return null
-	var path: String = playlist[idx]
+	var path: String = _preferred_path(playlist[idx])
 	if _streams.has(path):
 		return _streams[path]
 	if not ResourceLoader.exists(path):
