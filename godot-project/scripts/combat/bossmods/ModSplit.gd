@@ -82,6 +82,12 @@ func _on_defeated() -> void:
 	# frame — the arbiter would refuse it anyway, and asking was the bug the last
 	# time somebody stacked two. Shake and a sound carry the beat.
 	Juice.epic_moment({"strength": 1.2, "shake": 16.0, "sfx": "charge_up"})
+	# CO-OP. The two COPIES already replicate — `Arena.spawn_extra_enemy` puts them
+	# through the MultiplayerSpawner, so both peers build them from this same
+	# dictionary and neither needs telling. What was host-only is the BEAT that
+	# explains them: without it a client watches a boss die and two new bodies appear
+	# in silence.
+	bfx("beat", {"pos": at, "str": 1.2, "shake": 16.0, "sfx": "charge_up"})
 	for i: int in 2:
 		var side: float = -1.0 if i == 0 else 1.0
 		_spawn_copy(at + Vector2(side * SPREAD, -6.0), phase)

@@ -83,9 +83,15 @@ func _open_field(at: Vector2, radius: float) -> void:
 	# un-owned one is inert in the whole reaction system (see BossModRider).
 	stamp_hostile(z, Elements.Element.SHADOW, SpellTier.Tier.HEAVY)
 	host.add_child(z)
-	z.call("open", at, BossModifier.tint_for(BossModifier.VOID_TOUCHED),
-		radius, TICK_DAMAGE, "shadow", LIFETIME)
+	var tint: Color = BossModifier.tint_for(BossModifier.VOID_TOUCHED)
+	z.call("open", at, tint, radius, TICK_DAMAGE, "shadow", LIFETIME)
 	_zones.append(z)
+	# CO-OP. The field is a host-only spawn, and it is NO-GO GROUND — the modifier's
+	# whole mechanic is that the arena visibly shrinks. A client that could not see
+	# the rot would be standing in damage it was never shown, which is the exact
+	# fairness failure the twin system exists to prevent.
+	bfx("zone", {"pos": at, "col": tint, "r": radius, "fx": "shadow",
+		"life": LIFETIME, "el": Elements.Element.SHADOW})
 
 
 func _prune() -> void:

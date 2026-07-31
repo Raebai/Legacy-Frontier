@@ -189,11 +189,17 @@ func _begin_mirror() -> void:
 	if boss.has_method("_spawn_caster_signal"):
 		boss.call("_spawn_caster_signal", 18.0, TELL)
 
+	var tell_r: float = TELL_RADIUS[clampi(_spell_tier, 0, 2)]
 	_circle = MagicCircle.new()
 	host.add_child(_circle)
 	_circle.global_position = muzzle
-	_circle.appear(col, TELL_RADIUS[clampi(_spell_tier, 0, 2)], 0.22)
+	_circle.appear(col, tell_r, 0.22)
 	_circle.set_signature(elem, _spell_tier)
+	# CO-OP: THE TELL IS THE POINT. The sigil says "the boss is about to do YOUR
+	# thing", which is the read that lets a player who has cast that spell already
+	# know how long it takes and how it is dodged. Host-only, so it is broadcast.
+	bfx("circle", {"pos": muzzle, "col": col, "r": tell_r, "grow": 0.22,
+		"el": elem, "tier": _spell_tier, "hold": TELL})
 
 	get_tree().create_timer(TELL).timeout.connect(_fire)
 
@@ -225,4 +231,12 @@ func _fire() -> void:
 	MagicCircle.offer(_circle, boss)
 	_circle = null
 	SpellCaster.cast(_spell, host, origin, h.global_position, col, _spell.effect, boss, &"hero")
+	# CO-OP: THE ANSWER. The nastiest modifier in the set throwing your own ult back
+	# at you is unplayable if it is invisible on your screen. The twin is rebuilt on
+	# the client through the SAME `SpellCaster.cast` dispatcher — identical geometry,
+	# element and clash weight — pointed at the group nobody is in. `sid` travels
+	# rather than the SpellDef because a Resource is not RPC payload, and every peer
+	# can look the id back up in `SpellLibrary`.
+	bfx("spell", {"sid": _spell.id, "pos": origin, "pt": h.global_position,
+		"col": col, "fx": _spell.effect, "el": elem})
 	Juice.shake_camera(4.0)

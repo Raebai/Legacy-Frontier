@@ -73,8 +73,30 @@ func _tick(_delta: float) -> void:
 	# the boss's own `_unbusy_after` would otherwise clear the flag out from under
 	# us and the "statue" would take a swing.
 	set_boss_busy(true)
-	if int(boss.get("hp")) < _watch_hp:
+	_check_wake()
+
+
+## CO-OP: NO BROADCAST, DELIBERATELY — and this is the one rider where that is the
+## interesting answer rather than an omission.
+##
+## Everything Patient does to the picture already runs on every peer: `_setup` washes
+## the body out and `_on_phase` re-washes it, and neither is authority-gated. The one
+## thing that was host-only was the WAKE, because it lived inside `_tick`. But the
+## trigger for the wake is `hp` dropping, and `hp` is in the enemy synchronizer's
+## replication set — so BOTH peers can already compute the same answer from state
+## they both hold. Sending a packet to tell a client something it can derive is the
+## thing the crate/pickup note in `Net.gd` argues against, so the check simply moved
+## to `_tick_visual`, which runs everywhere.
+##
+## Called from both hooks (visual first) and guarded by `_dormant`, so the host runs
+## it twice a frame and wakes exactly once.
+func _check_wake() -> void:
+	if _dormant and int(boss.get("hp")) < _watch_hp:
 		_wake()
+
+
+func _tick_visual(_delta: float) -> void:
+	_check_wake()
 
 
 func _wake() -> void:

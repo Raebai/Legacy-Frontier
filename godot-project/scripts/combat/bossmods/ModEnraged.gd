@@ -21,6 +21,14 @@ extends BossModRider
 ## have already pushed the boss into P2 at 80%, so the condition is false and there
 ## is no double transition. The gates do not need disabling — they need beating,
 ## and this beats them.
+##
+## ── CO-OP: THIS RIDER BROADCASTS NOTHING, AND THAT IS CORRECT ────────────────
+## Both halves already cross. The DRESSING (`_setup` + `_on_phase`) is not
+## authority-gated, so it runs on every peer — and `phase_changed` fires on a client
+## too, because `Boss.net_apply_phase` emits it. The EARLY GATES go out on the wire
+## for free as well: `_tick` calls `boss._enter_phase(...)`, which begins with
+## `Net.broadcast_boss_phase`. Adding a broadcast here would draw the escalation
+## twice on the client. See the table on `BossModRider.bfx`.
 
 ## Extra cooldown drain per second, on top of the boss's own 1.0. 0.5 -> 1.5x.
 ## Deliberately not larger: past about 1.6x the Illuminator's long committed casts

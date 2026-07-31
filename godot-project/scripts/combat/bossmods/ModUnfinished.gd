@@ -94,6 +94,17 @@ func _begin_redraw() -> void:
 		r.call("flash_color", Color(1.5, 1.5, 1.5), 0.14)
 	Juice.shake_camera(3.0)
 
+	# CO-OP. The boss's new POSITION replicates on its own (the enemy synchronizer
+	# streams `position`), so what a client is missing is not the move — it is the
+	# WARNING. Without the mark the body simply blinks across the room, and the one
+	# play this modifier offers ("step off the mark") does not exist on that screen.
+	bfx("circle", {"pos": dest, "col": tint, "r": MARK_RADIUS, "grow": 0.16,
+		"el": Elements.Element.ARCANE, "tier": SpellTier.Tier.HEAVY,
+		"hold": TELL, "ground": true})
+	bfx("burst", {"pos": boss_pos() + Vector2(0.0, -20.0),
+		"col": Color(tint.r, tint.g, tint.b, 0.9), "n": 20, "life": 0.45,
+		"v0": 60.0, "v1": 190.0, "s0": 0.8, "s1": 2.2})
+
 	get_tree().create_timer(TELL).timeout.connect(func() -> void: _land(dest))
 
 
@@ -113,4 +124,9 @@ func _land(dest: Vector2) -> void:
 		CombatVfx.spawn_burst(host, dest + Vector2(0.0, -20.0),
 			Color(1.3, 1.3, 1.25, 0.95), Color(tint.r, tint.g, tint.b, 0.0),
 			24, 0.4, 80.0, 240.0, 0.7, 2.0, 0.0, 0.0, true)
+		bfx("burst", {"pos": dest + Vector2(0.0, -20.0),
+			"col": Color(1.3, 1.3, 1.25, 0.95),
+			"col2": Color(tint.r, tint.g, tint.b, 0.0), "n": 24, "life": 0.4,
+			"v0": 80.0, "v1": 240.0, "s0": 0.7, "s1": 2.0})
 	Juice.shake_camera(5.0)
+	bfx("beat", {"pos": dest, "str": 0.9, "shake": 5.0, "sfx": "charge_up"})

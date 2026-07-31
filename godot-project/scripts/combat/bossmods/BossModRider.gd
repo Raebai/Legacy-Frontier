@@ -140,6 +140,33 @@ func boss_pos() -> Vector2:
 	return (boss as Node2D).global_position if boss is Node2D else Vector2.ZERO
 
 
+## CO-OP: hand every client a damage-free twin of something this rider just built.
+##
+## ⚠ WHICH RIDERS NEED THIS, AND WHICH MUST NOT USE IT. Riders tick on every peer,
+## so a lot of a modifier already converges for free and broadcasting it would draw
+## it TWICE on the client. The rule is: broadcast what only the HOST built.
+##
+##   ENRAGED      nothing. Its dressing is `_setup`/`_on_phase`, which run on every
+##                peer, and its early phase gates go out through
+##                `Boss._enter_phase` -> `Net.broadcast_boss_phase` already.
+##   PATIENT      nothing. Its wash runs everywhere, and the WAKE is derived from
+##                `hp`, which the enemy synchronizer replicates — so both peers can
+##                compute it. See the visual/authority split in ModPatient.
+##   SPLIT        the beat only. The copies go through `Arena.spawn_extra_enemy`,
+##                i.e. the MultiplayerSpawner, so the bodies already replicate.
+##   UNFINISHED   the mark and the puffs. The destination POSITION replicates, so
+##                without the mark a client sees an unannounced teleport — and "step
+##                off the mark" is the entire play against this modifier.
+##   VOID-TOUCHED the fields. Host-only spawns, and they are no-go ground.
+##   MIRRORED     the tell and the answer. Both are host-only spawns.
+##
+## Routed through the boss's own `_bfx`, which is host-gated inside — so this is a
+## no-op in single player and on a client, and there is exactly one mechanism.
+func bfx(kind: String, data: Dictionary) -> void:
+	if boss != null and is_instance_valid(boss) and boss.has_method("_bfx"):
+		boss.call("_bfx", kind, data)
+
+
 ## Stamp a spectacle so it hurts heroes and is OWNED by the boss.
 ##
 ## ⚠ THE OWNERSHIP LINE IS LOAD-BEARING, NOT BOOKKEEPING. The reaction layer asks a
