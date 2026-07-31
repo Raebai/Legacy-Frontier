@@ -282,6 +282,25 @@ func _test_no_bare_group_scans() -> void:
 		# documented, so the pattern appears in their prose and in `hostiles()`'s own
 		# implementation — which is the one place it is supposed to appear.
 		"SpellCaster.gd": true, "SpellTargets.gd": true,
+		# ── THE DROP ECONOMY (Tier 2 / Tier 3). These five scan bare ON PURPOSE, and
+		# each one is a spec requirement rather than a forgotten skip list. They are
+		# named individually, with the reason, exactly as this table asks.
+		#   GravityFlip   — "inverts gravity 5s, CASTER INCLUDED". A flip with a hole
+		#                   in it where the caster stands is not the spell.
+		#   Chronostasis  — "your teammate is frozen too", and so is the caster: it
+		#                   stops time in a PLACE, not for a side.
+		#   Equinox       — levels "you, your friend, and the thing you are fighting".
+		#                   Excluding the caster would make it a heal with extra steps.
+		#   VoidCollapse  — the PULL is bare (a singularity that politely refuses to
+		#                   tug its own summoner hands the spell a free safe spot at
+		#                   its worst moment). Its DAMAGE query does route through
+		#                   `SpellTargets.hostiles`.
+		#   Petrify       — the bare scan is in `_launch`, which is looking for
+		#                   somebody to throw the statue AWAY from. It is a direction
+		#                   query, not a damage query; the damage goes through
+		#                   `hostiles` on both the sweep and the shatter.
+		"GravityFlip.gd": true, "Chronostasis.gd": true, "Equinox.gd": true,
+		"VoidCollapse.gd": true, "Petrify.gd": true,
 	}
 	var dir: DirAccess = DirAccess.open(COMBAT_DIR)
 	_expect(dir != null, "the combat script directory is readable for the source sweep")
@@ -353,11 +372,29 @@ func _test_spell_hits_the_other_hero() -> void:
 ## Every spell in the library, thrown by a real Hero, at a real target, with a canary
 ## sitting on the caster's own position. See the header for why the canary is what
 ## makes this mean anything.
+## Spells that MAY move their own caster's health, because doing so is what the
+## spell is. Named individually — the rule "no spell hits its own caster" stays in
+## force for every one of the other twenty-eight, and an accident is still a
+## failure; this is the short list of deliberate exceptions the drop economy added.
+##   blood_pact   — "a damage buff that DRAINS YOUR OWN HP" is the whole spell. It
+##                  is also the only reason the buff is allowed to be as big as it
+##                  is, and you can die to it.
+##   equinox      — drags every living thing to the room's mean, the caster with
+##                  them. It is a leveller; a leveller with an exception is a heal.
+##   chronostasis — freezes a place, not a side. The caster inside their own ring
+##                  is frozen, so anything already banked against them pays out.
+const SELF_AFFECTING: Dictionary = {
+	"blood_pact": true, "equinox": true, "chronostasis": true,
+}
+
+
 func _test_sweep_no_self_damage() -> void:
 	var proven: Array[String] = []
 	var unproven: Array[String] = []
 	var slot: int = 0
 	for spell: SpellDef in SpellLibrary.build_all():
+		if SELF_AFFECTING.has(spell.id):
+			continue
 		slot += 1
 		var here: Vector2 = Vector2(-100000.0 - float(slot) * 4000.0, 0.0)
 		var arena := Node2D.new()
