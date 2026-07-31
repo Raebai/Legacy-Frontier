@@ -94,21 +94,41 @@ const RIG_FALLBACK_HEIGHT: float = 31.0
 ## an enemy, it only makes it as tall as it is drawn.
 const HURTBOX_WIDTH_FALLBACK_FACTOR: float = 0.65
 
+# ─────────────────────────────── AGGRESSION ──────────────────────────────────
+# THE RULE FOR EVERY NUMBER BELOW: shorten the DEAD time, never the TELL.
+# "So much going on" means enemies commit rather than loiter, so cooldowns and
+# recovery windows are tight — but every windup constant is untouched, because
+# the windup IS the fair-play contract and a tell you cannot read is not
+# difficulty, it is a cheat. Recovery also no longer roots an enemy in place
+# (see _process_recover): a body standing still after its swing is dead air with
+# legs, and a floor full of them is a floor where nothing is happening.
+
 # Telegraphed heavy attack tuning (brute archetype).
 const ATTACK_RANGE: float = 78.0  # start winding up inside this distance
 const ATTACK_WINDUP: float = 0.6  # seconds of tell before the strike lands
 const ATTACK_RADIUS: float = 40.0  # danger-circle radius
 const ATTACK_DAMAGE: int = 22
-const ATTACK_COOLDOWN: float = 1.4  # seconds from strike until the next windup
+const ATTACK_COOLDOWN: float = 1.0  # was 1.4 — a brute that swings every 2s is scenery
 const ATTACK_LUNGE: float = 180.0  # impulse toward the circle on a landed hit
-const ATTACK_RECOVER_TIME: float = 0.3  # post-strike pause before re-chasing
+const ATTACK_RECOVER_TIME: float = 0.16  # was 0.3 — and it now RE-APPROACHES, not roots
+## Fraction of move_speed an enemy walks back in during RECOVER. Not 1.0: the
+## recovery still reads as a stagger, it just closes ground instead of posing.
+const RECOVER_DRIVE: float = 0.45
 
 # Ranged CASTER archetype: kites in a band, telegraphs, fires a dodgeable bolt.
-const CASTER_RANGE_MIN: float = 180.0  # back away if the hero is closer than this
-const CASTER_RANGE_MAX: float = 320.0  # close in if farther than this; fire in-band
+# Band pulled IN (was 180..320) — in a 960px-wide room a caster parked at 320
+# spends the fight as a dot at the far wall. It is a threat, not a sniper.
+const CASTER_RANGE_MIN: float = 150.0  # back away if the hero is closer than this
+const CASTER_RANGE_MAX: float = 275.0  # close in if farther than this; fire in-band
 const CASTER_WINDUP: float = 0.7
-const CASTER_COOLDOWN: float = 1.9
+const CASTER_COOLDOWN: float = 1.45  # was 1.9
 const CASTER_TELE_RADIUS: float = 18.0  # small "charging" tell on the caster itself
+## Kiters used to stand PERFECTLY STILL whenever they were in-band and on
+## cooldown — the single most "polite queue" behaviour in the roster. They now
+## drift along the band at this fraction of move_speed, reversing every
+## KITE_STRAFE_PERIOD seconds, so a backline reads as circling for an angle.
+const KITE_STRAFE_DRIVE: float = 0.45
+const KITE_STRAFE_PERIOD: float = 0.9
 
 # CHARGER archetype: telegraphs a lane at the hero, then rockets down it.
 const CHARGE_RANGE: float = 260.0  # start the windup inside this distance
@@ -119,14 +139,14 @@ const CHARGE_DAMAGE: int = 24
 const CHARGE_LEN: float = 300.0  # telegraph lane length
 const CHARGE_WIDTH: float = 34.0
 const CHARGE_HIT_RADIUS: float = 26.0
-const CHARGE_COOLDOWN: float = 1.6
+const CHARGE_COOLDOWN: float = 1.25  # was 1.6
 
 # SUMMONER archetype: kites like the caster, telegraphs on itself, then calls
 # in SUMMON_COUNT weak chaser minions. The tell is the window to burst it down.
-const SUMMONER_RANGE_MIN: float = 180.0  # same kite band as the caster
-const SUMMONER_RANGE_MAX: float = 320.0
+const SUMMONER_RANGE_MIN: float = 150.0  # same kite band as the caster
+const SUMMONER_RANGE_MAX: float = 275.0
 const SUMMON_WINDUP: float = 0.8
-const SUMMON_COOLDOWN: float = 4.0
+const SUMMON_COOLDOWN: float = 3.4  # was 4.0
 const SUMMON_COUNT: int = 2
 const SUMMON_MAX_ALIVE: int = 4  # hard cap on concurrent minions — no infinite swarm
 const SUMMON_MINION_HP: int = 18
@@ -143,8 +163,8 @@ const ASSASSIN_LUNGE_SPEED: float = 620.0
 const ASSASSIN_LUNGE_TIME: float = 0.22
 const ASSASSIN_DAMAGE: int = 14
 const ASSASSIN_HIT_RADIUS: float = 24.0
-const ASSASSIN_COOLDOWN: float = 1.1
-const ASSASSIN_RETREAT_TIME: float = 0.8    # disengage window after each strike
+const ASSASSIN_COOLDOWN: float = 0.95       # was 1.1
+const ASSASSIN_RETREAT_TIME: float = 0.6    # was 0.8 — disengage, don't emigrate
 const ASSASSIN_JITTER_INTERVAL: float = 0.28  # re-roll the feint this often
 const ASSASSIN_JITTER_CHANCE: float = 0.4     # odds a roll reverses the approach
 
@@ -160,10 +180,10 @@ const BOMB_KNOCKBACK: float = 320.0     # shove on a caught hero (if supported)
 # MAGE archetype: kites like the caster but instead of a bolt it telegraphs a
 # ground AoE at the marked spot (a parameterized BlastSpell aimed at the hero).
 # The tell is a big danger ZONE — dodge OUT of the circle. Elemental (rolled).
-const MAGE_RANGE_MIN: float = 210.0   # kite band, a touch longer than the caster
-const MAGE_RANGE_MAX: float = 380.0
+const MAGE_RANGE_MIN: float = 170.0   # kite band, a touch longer than the caster
+const MAGE_RANGE_MAX: float = 300.0   # was 380 — over a third of the room away
 const MAGE_WINDUP: float = 0.85       # generous — it's a big AoE
-const MAGE_COOLDOWN: float = 2.6
+const MAGE_COOLDOWN: float = 2.1      # was 2.6
 const MAGE_AOE_RADIUS: float = 70.0
 const MAGE_AOE_DAMAGE: int = 20
 const MAGE_AOE_KNOCKBACK: float = 260.0
@@ -180,6 +200,23 @@ const LEAP_CLEARANCE: float = 46.0     # arc apex clears the target height by th
 const LEAP_COOLDOWN: float = 1.5
 const LEAP_MAX_SPEED: float = 900.0    # cap the horizontal launch (no rail-gun leaps)
 const LEAP_MAX_AIR_TIME: float = 1.6   # safety timeout out of the LEAPING state
+
+# POUNCE. The leap above solves a VERTICAL problem — reaching a hero on a ~170px
+# ledge — and the tower arena is a flat 960x480 room with no such ledges, so on
+# every floor of the actual game that whole system is unreachable code. The
+# ballistic solver is the useful half and it works just as well sideways: a
+# grounded CHASER or ASSASSIN that has fallen behind now springs the gap instead
+# of jogging across the room in a straight line. It reuses compute_leap_velocity
+# and the LEAPING state verbatim (mid-air touch damage included), so a pounce is
+# already replicated, already animated and already interruptible.
+## Only the two archetypes whose fantasy is "it gets to you". A pouncing BRUTE
+## would undermine the readable slow-heavy silhouette; a pouncing BOMBER would
+## turn a dodgeable fuse into a homing missile.
+const POUNCE_ARCHETYPES: Array[int] = [0, 5]   # CHASER, ASSASSIN
+const POUNCE_MIN_DIST: float = 210.0   # closer than this and it can just run at you
+const POUNCE_MAX_DIST: float = 430.0   # farther and the arc is silly / unreadable
+const POUNCE_COOLDOWN: float = 2.4     # per-enemy, so a pack does not all spring at once
+const POUNCE_CHANCE: float = 0.5       # coin-flip per opportunity: pressure, not a metronome
 
 enum AttackState { CHASE, WINDUP, RECOVER, CHARGING, LEAPING }
 enum Archetype { CHASER, BRUTE, CASTER, CHARGER, SUMMONER, ASSASSIN, BOMBER, MAGE }
@@ -260,6 +297,8 @@ var _minions: Array = []                    # live summoned minions, pruned for 
 var _status: StatusComponent = null         # elemental ailments (burn/chill/shock/...)
 var _speed_scale: float = 1.0               # movement slow from chill/freeze/shock
 var _bolt_element: int = -1                 # caster: rolled element tint for its bolt
+var _strafe_timer: float = 0.0              # kiters: time until the drift reverses
+var _strafe_sign: float = 1.0               # kiters: current in-band drift direction
 var _passive_home: Vector2 = Vector2.ZERO   # passive: fixed spot it respawns to
 
 # Difficulty (GameState.enemy_difficulty): scales stats + unlocks smart evasion.
@@ -583,6 +622,12 @@ func _try_chase_jump() -> void:
 	if _wants_leap():
 		_start_leap()
 		return
+	# ...and on a FLAT floor (which is every floor of the tower) the same solver
+	# becomes the gap-closing pounce. Rolled, not guaranteed, so a pack arrives
+	# staggered rather than as a synchronised volley of jumping men.
+	if _wants_pounce() and randf() < POUNCE_CHANCE:
+		_start_pounce()
+		return
 	if _jump_cd > 0.0:
 		return
 	# is_on_wall(), not get_slide_collision_count(): standing on the floor IS a
@@ -622,11 +667,35 @@ func compute_leap_velocity(from: Vector2, to: Vector2) -> Vector2:
 	return Vector2(vx, vy)
 
 
+## Pure "should we POUNCE?" decision (floor check excluded, like _wants_leap, so
+## headless tests can drive it): the right archetype, off cooldown, and the hero
+## is far enough away on x that closing on foot would be a long boring jog — but
+## not so far the arc stops reading. Deliberately does NOT require height: this is
+## the flat-room half of the leap system.
+func _wants_pounce() -> bool:
+	if _leap_cd > 0.0 or not is_instance_valid(_hero):
+		return false
+	if not POUNCE_ARCHETYPES.has(archetype):
+		return false
+	var dx: float = absf(_hero.global_position.x - global_position.x)
+	return dx > POUNCE_MIN_DIST and dx < POUNCE_MAX_DIST
+
+
+## Commit to a gap-closing pounce. Same ballistic launch + LEAPING state as a
+## ledge leap, on its own (longer) cooldown so it stays a punctuation mark.
+func _start_pounce() -> void:
+	_launch_leap(POUNCE_COOLDOWN)
+
+
 ## Commit to a leap: launch, enter LEAPING (owns movement until landing/timeout).
 func _start_leap() -> void:
+	_launch_leap(LEAP_COOLDOWN)
+
+
+func _launch_leap(cooldown: float) -> void:
 	_attack_state = AttackState.LEAPING
 	_leap_timer = LEAP_MAX_AIR_TIME
-	_leap_cd = LEAP_COOLDOWN
+	_leap_cd = cooldown
 	velocity = compute_leap_velocity(global_position, _hero.global_position)
 	rig.flash()  # a quick "it's springing at you" tell
 
@@ -976,15 +1045,46 @@ func _process_windup(delta: float) -> void:
 	rig.set_facing(_hero.global_position - global_position)
 
 
-## RECOVER: brief post-strike pause, then back to the chase.
+## RECOVER: the brief post-strike stagger — but WALKING BACK IN, not rooted.
+## Rooting here was the single largest source of dead time in the roster: with a
+## 1.4s cooldown on top, a brute spent most of a fight standing still looking at
+## you. It now closes at RECOVER_DRIVE of its speed, so the stagger still reads
+## (it is slower than a chase) while the pressure never lets up.
+## Kiters (caster / mage / summoner) recover BACKWARDS — retreating out of reach
+## is their whole grammar, and shoving them forward would delete the archetype.
 func _process_recover(delta: float) -> void:
-	velocity.x = _knockback.x
+	var drive: float = 0.0
+	if is_instance_valid(_hero):
+		var dir_x: float = signf(_hero.global_position.x - global_position.x)
+		if _is_kiter():
+			dir_x = -dir_x
+		drive = dir_x * move_speed * _speed_scale * RECOVER_DRIVE
+	velocity.x = drive + _knockback.x
 	_apply_gravity(delta)
 	move_and_slide()
-	rig.play(CharacterRig.State.IDLE)
+	rig.play(CharacterRig.State.RUN if absf(drive) > 1.0 else CharacterRig.State.IDLE)
+	if is_instance_valid(_hero):
+		rig.set_facing(_hero.global_position - global_position)
 	_recover_timer -= delta
 	if _recover_timer <= 0.0:
 		_attack_state = AttackState.CHASE
+
+
+## The back-line archetypes: they hold a range band instead of closing.
+func _is_kiter() -> bool:
+	return archetype == Archetype.CASTER or archetype == Archetype.MAGE \
+			or archetype == Archetype.SUMMONER
+
+
+## In-band drift for a kiter that has nothing to do this frame. Returns a signed
+## fraction of move_speed, reversing every KITE_STRAFE_PERIOD seconds so the
+## backline circles for an angle instead of standing at parade rest.
+func _kite_strafe(delta: float) -> float:
+	_strafe_timer -= delta
+	if _strafe_timer <= 0.0:
+		_strafe_timer = KITE_STRAFE_PERIOD
+		_strafe_sign = -_strafe_sign
+	return _strafe_sign * KITE_STRAFE_DRIVE
 
 
 ## True only on the co-op HOST (the only peer whose AI reaches an attack windup:
@@ -1090,6 +1190,8 @@ func _caster_chase(delta: float) -> void:
 		move_x = -signf(to_hero.x)                # too close — back away
 	elif dist_x > CASTER_RANGE_MAX:
 		move_x = signf(to_hero.x)                 # too far — close in
+	else:
+		move_x = _kite_strafe(delta)              # in-band: circle, never freeze
 	velocity.x = move_x * move_speed * _speed_scale + _knockback.x
 	_apply_gravity(delta)
 	move_and_slide()
@@ -1155,6 +1257,8 @@ func _mage_chase(delta: float) -> void:
 		move_x = -signf(to_hero.x)                # too close — back away
 	elif dist_x > MAGE_RANGE_MAX:
 		move_x = signf(to_hero.x)                 # too far — close in
+	else:
+		move_x = _kite_strafe(delta)              # in-band: circle, never freeze
 	velocity.x = move_x * move_speed * _speed_scale + _knockback.x
 	_apply_gravity(delta)
 	move_and_slide()
@@ -1286,6 +1390,8 @@ func _summoner_chase(delta: float) -> void:
 		move_x = -signf(to_hero.x)                # too close — back away
 	elif dist_x > SUMMONER_RANGE_MAX:
 		move_x = signf(to_hero.x)                 # too far — close in
+	else:
+		move_x = _kite_strafe(delta)              # in-band: circle, never freeze
 	velocity.x = move_x * move_speed * _speed_scale + _knockback.x
 	_apply_gravity(delta)
 	move_and_slide()
@@ -1649,6 +1755,7 @@ func _die() -> void:
 		return
 	_grant_kill_power()
 	_notify_run_kill()
+	_notify_hype_kill()
 	_spawn_death_burst()
 	_spawn_corpse()
 	Sfx.play("enemy_death")
@@ -1706,6 +1813,19 @@ func _grant_kill_power() -> void:
 	var r: Node = get_node_or_null("/root/Rank")
 	if r != null and r.has_method("add_power"):
 		r.call("add_power", 3)  # matches Rank.KILL_POWER
+
+
+## Feed the MOMENT-TO-MOMENT reward loop: kill chains, multi-kills, the shout.
+## Found by GROUP, not by autoload — Hype is built per-arena so a streak can never
+## survive a scene change, and a scene with no Hype (the spike playgrounds, every
+## headless suite) simply gets nothing.
+func _notify_hype_kill() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var h: Node = tree.get_first_node_in_group(&"hype")
+	if h != null and h.has_method("notify_kill"):
+		h.call("notify_kill", global_position, tint)
 
 
 ## Count the kill toward the active run's outcome record (guarded — no-op in

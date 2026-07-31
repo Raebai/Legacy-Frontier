@@ -28,6 +28,8 @@ const TESTS: Array[String] = [
 	"leap_decision",
 	"leap_velocity_reaches_ledge",
 	"mage_windup_and_aoe",
+	"pounce_closes_a_flat_gap",
+	"recover_walks_back_in",
 ]
 
 var _fails: int = 0
@@ -59,6 +61,8 @@ func _process(_delta: float) -> bool:
 	_test_leap_decision()
 	_test_leap_velocity_reaches_ledge()
 	_test_mage_windup_and_aoe()
+	_test_pounce_closes_a_flat_gap()
+	_test_recover_walks_back_in()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -310,3 +314,93 @@ func _test_mage_windup_and_aoe() -> void:
 	)
 	_teardown(ctx)
 	_completes("mage_windup_and_aoe")
+
+
+# ══════════════════════════════════════════════════════════════ AGGRESSION
+## THE POUNCE. The leap system solves a VERTICAL problem — reaching a hero on a
+## ~170px ledge — and the tower arena is a flat 960x480 room with no ledges, so
+## on every floor of the actual game that solver was unreachable code. The same
+## ballistic launch closes a horizontal gap, which is what turns a chaser that has
+## fallen behind from a jogging silhouette into a threat that commits.
+func _test_pounce_closes_a_flat_gap() -> void:
+	var c: Dictionary = _consts()
+	var arch: Dictionary = c["Archetype"] as Dictionary
+	# Hero 300px away on a FLAT floor (same y) — no height for _wants_leap to use.
+	var ctx: Dictionary = _setup(int(arch["CHASER"]), Vector2(300, 0), Vector2.ZERO)
+	var enemy: CharacterBody2D = ctx["enemy"]
+	var hero: StubHero = ctx["hero"]
+	enemy.set("_leap_cd", 0.0)
+	_expect(not enemy._wants_leap(), "a FLAT room never triggers the ledge leap (that was the bug)")
+	_expect(enemy._wants_pounce(), "...but a chaser left behind on the flat DOES pounce")
+
+	hero.global_position = Vector2(80, 0)
+	_expect(not enemy._wants_pounce(), "close enough to just run at you -> no pounce")
+	hero.global_position = Vector2(900, 0)
+	_expect(not enemy._wants_pounce(), "absurdly far -> no pounce (the arc stops reading)")
+	hero.global_position = Vector2(300, 0)
+	enemy.set("_leap_cd", 1.0)
+	_expect(not enemy._wants_pounce(), "pounce cooldown running -> no pounce")
+	_teardown(ctx)
+
+	# ...and it is archetype-gated: a BRUTE springing across the room would throw
+	# away the readable slow-heavy silhouette its whole telegraph depends on.
+	var ctx2: Dictionary = _setup(int(arch["BRUTE"]), Vector2(300, 0), Vector2.ZERO)
+	var brute: CharacterBody2D = ctx2["enemy"]
+	brute.set("_leap_cd", 0.0)
+	_expect(not brute._wants_pounce(), "a BRUTE does not pounce")
+	_teardown(ctx2)
+
+	# The launch itself carries toward the target rather than straight up.
+	var ctx3: Dictionary = _setup(int(arch["ASSASSIN"]), Vector2(300, 0), Vector2.ZERO)
+	var assassin: CharacterBody2D = ctx3["enemy"]
+	assassin.set("_leap_cd", 0.0)
+	_expect(assassin._wants_pounce(), "an ASSASSIN pounces too")
+	var v: Vector2 = assassin.compute_leap_velocity(Vector2.ZERO, Vector2(300.0, 0.0))
+	_expect(v.x > 0.0, "the pounce carries toward a hero on the right")
+	_expect(v.y < 0.0, "...on an arc, not a slide")
+	_teardown(ctx3)
+	_completes("pounce_closes_a_flat_gap")
+
+
+## RECOVER used to ROOT an enemy in place. With a cooldown on top, a brute spent
+## most of a fight standing still looking at you — dead air with legs, and a room
+## full of them is a room where nothing is happening. Recovery now closes ground
+## (slower than a chase, so the stagger still reads), while a KITER recovers
+## BACKWARDS because retreating out of reach is its entire grammar.
+func _test_recover_walks_back_in() -> void:
+	var c: Dictionary = _consts()
+	var arch: Dictionary = c["Archetype"] as Dictionary
+	var states: Dictionary = c["AttackState"] as Dictionary
+	_expect(float(c["RECOVER_DRIVE"]) > 0.0, "recovery has a drive at all")
+	_expect(float(c["RECOVER_DRIVE"]) < 1.0, "...but slower than a chase, so it still reads as a stagger")
+
+	# Melee: hero to the RIGHT, so recovery drives right (toward it).
+	var ctx: Dictionary = _setup(int(arch["BRUTE"]), Vector2(300, 0), Vector2.ZERO)
+	var brute: CharacterBody2D = ctx["enemy"]
+	brute.set("_attack_state", int(states["RECOVER"]))
+	brute.set("_recover_timer", 1.0)
+	brute._process_recover(TICK)
+	_expect(brute.velocity.x > 0.0,
+		"a recovering brute walks BACK IN toward the hero (got %.1f)" % brute.velocity.x)
+	_teardown(ctx)
+
+	# Kiter: hero to the RIGHT, so recovery drives LEFT (away).
+	var ctx2: Dictionary = _setup(int(arch["CASTER"]), Vector2(300, 0), Vector2.ZERO)
+	var caster: CharacterBody2D = ctx2["enemy"]
+	caster.set("_attack_state", int(states["RECOVER"]))
+	caster.set("_recover_timer", 1.0)
+	caster._process_recover(TICK)
+	_expect(caster.velocity.x < 0.0,
+		"a recovering CASTER backs off instead (got %.1f)" % caster.velocity.x)
+	_teardown(ctx2)
+
+	# The kite strafe: in-band with nothing to do, a kiter drifts rather than
+	# standing at parade rest — and the drift reverses, so it circles.
+	var ctx3: Dictionary = _setup(int(arch["MAGE"]), Vector2(240, 0), Vector2.ZERO)
+	var mage: CharacterBody2D = ctx3["enemy"]
+	var first: float = mage._kite_strafe(0.01)
+	_expect(absf(first) > 0.0, "an in-band kiter drifts instead of freezing")
+	var flipped: float = mage._kite_strafe(float(c["KITE_STRAFE_PERIOD"]) + 0.01)
+	_expect(signf(flipped) != signf(first), "...and the drift reverses, so it circles for an angle")
+	_teardown(ctx3)
+	_completes("recover_walks_back_in")
