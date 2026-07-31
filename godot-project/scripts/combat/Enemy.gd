@@ -1878,9 +1878,27 @@ func _net_apply_knockback(impulse: Vector2) -> void:
 	apply_knockback(impulse)
 
 
+## Elemental ailments land on the victim's authority too, for the same reason damage
+## does: `StatusComponent` ticks its own DoT through `take_damage`, so applying a
+## burn on a client-side puppet would run a whole second damage-over-time on the
+## wrong peer. Routed by `Net.deal_status`.
+@rpc("any_peer", "call_remote", "reliable")
+func _net_apply_status(element: int, can_chain: bool = true) -> void:
+	apply_status(element, can_chain)
+
+
 ## Co-op: stand up a MultiplayerSynchronizer that streams this enemy's transform +
 ## hp from the host (authority) to every client. Built in code (no .tscn surgery),
 ## mirroring Hero._setup_net_sync. No-op in SP.
+##
+## The two rates are duplicated from `Hero` rather than imported because `Hero.gd`
+## declares no `class_name` (it is instanced from a .tscn), and reaching it by
+## `load()` from a hot path to read two floats would be worse than restating them.
+## They must stay in step — see the comment in `_setup_enemy_net`.
+const NET_TRANSFORM_HZ: float = 30.0
+const NET_STATE_HZ: float = 10.0
+
+
 func _setup_enemy_net() -> void:
 	if _net == null or not _net.is_active():
 		return
@@ -1893,6 +1911,13 @@ func _setup_enemy_net() -> void:
 	sync.name = "NetSync"
 	sync.root_path = NodePath("..")
 	sync.replication_config = cfg
+	# BANDWIDTH. A floor can hold 25 of these; at the physics rate that is 1500
+	# transform packets a second on phone wifi, for motion nobody can resolve at
+	# that granularity. 30 Hz halves it. Same number as the hero's, deliberately —
+	# an enemy that updated on a different clock to the hero chasing it would read
+	# as stuttering relative to them even though both were smooth in isolation.
+	sync.replication_interval = 1.0 / NET_TRANSFORM_HZ
+	sync.delta_interval = 1.0 / NET_STATE_HZ
 	add_child(sync)
 	sync.set_multiplayer_authority(get_multiplayer_authority())
 

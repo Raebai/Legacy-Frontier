@@ -387,11 +387,20 @@ func _check_party_wipe() -> void:
 	if _wipe_handled or not _run_mode:
 		return
 	var heroes: Array = get_tree().get_nodes_in_group("hero")
-	if heroes.is_empty():
-		return
+	var live: int = 0
 	for h: Node in heroes:
+		# ⚠ A DEPARTED PEER'S HERO MUST NOT BLOCK THE WIPE. `Net` frees it on
+		# disconnect now, but `queue_free` lands at the end of the frame and the node
+		# is still in the group until then — one tick of a frozen, never-downed puppet
+		# is enough to hold the party in a fight nobody can lose or win. Skipping the
+		# dying node is what keeps a dropped phone from soft-locking the run.
+		if not is_instance_valid(h) or h.is_queued_for_deletion():
+			continue
+		live += 1
 		if not (h.has_method("is_downed") and h.is_downed()):
 			return   # someone's still standing — no wipe
+	if live == 0:
+		return
 	_wipe_handled = true
 	_net.request_fall()   # host -> GameState.fall() -> fell broadcast -> revive all
 
@@ -496,11 +505,17 @@ func _setup_heroes() -> void:
 		add_child(_hero_spawner)
 		_hero_spawner.spawn_path = _heroes_root.get_path()
 		_hero_spawner.spawn_function = Callable(self, "_spawn_hero_net")
-		if net.is_host():
-			# Defer so every client's Arena + spawner is ready to receive the
-			# replicated hero spawns (avoids the "spawned before the client loaded"
-			# race). LAN-scale simple; a ready-handshake is the robust follow-up.
-			get_tree().create_timer(0.6).timeout.connect(_spawn_all_heroes)
+		# THE READY HANDSHAKE, replacing the bare 0.6 s timer this used to be (whose
+		# own comment admitted a handshake was the correct fix). A timer is a guess
+		# about how long another phone takes to load a scene: too short and the spawn
+		# arrives before the client's spawner exists and the hero is simply never
+		# created there; too long and everyone stares at an empty room. Each peer's
+		# Arena reports in from its own _ready and the host spawns when the party is
+		# actually assembled — with a 4 s fallback inside Net so one silent peer
+		# cannot hang the others.
+		if net.is_host() and not net.party_ready.is_connected(_spawn_all_heroes):
+			net.party_ready.connect(_spawn_all_heroes)
+		net.notify_arena_ready()
 	else:
 		var h: Node = load("res://scenes/combat/Hero.tscn").instantiate()
 		(h as Node2D).position = DEFAULT_HERO_START
