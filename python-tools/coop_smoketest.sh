@@ -11,6 +11,16 @@
 #   enemy_twins       — a client SEES the tell and the bolt that can hit it
 #   HERO_SPELLS       — your friend's magic is visible (the friendly-fire social loop)
 #   BOSS_FX           — the climax of the floor renders on both screens
+#   BOSS_ROSTER       — a NEW-roster boss (not just the Ashspire Guardian) is visible.
+#                       BOSS_FX went green on the Guardian alone while the Scribble,
+#                       the Cartographer and the Illuminator shipped with zero network
+#                       references — so on most floors a client watched a boss attack
+#                       invisibly. This asks for a `circle` twin, which only
+#                       TowerBoss.summon_circle can produce.
+#   BOSS_MODS         — a modifier RIDER is visible. Asks for a `zone` twin, which only
+#                       ModVoidTouched can produce. Riders attach deterministically on
+#                       both peers (the seeded roll travels in the spawn dict), but the
+#                       ongoing visuals were host-only.
 #   floor_sync        — the client follows the host up the tower
 #   COVER             — a crate an ENEMY broke is broken on both phones. Enemy attack
 #                       twins are visual_only, so this used to be host-only: you took
@@ -35,9 +45,9 @@ echo "=== HOST ===";   grep "\[NET\]" "$OUT/coop_host.log"
 echo "=== CLIENT ==="; grep "\[NET\]" "$OUT/coop_client.log"
 echo "=== RESULT ==="
 if grep -q "VERDICT.*=> PASS" "$OUT/coop_client.log"; then
-	grep "VERDICT" "$OUT/coop_client.log"
+	grep -E "VERDICT|boss_fx_kinds" "$OUT/coop_client.log"
 	exit 0
 fi
 echo "FAIL — the client's verdict line (or the client itself) is missing:"
-grep "VERDICT" "$OUT/coop_client.log" || echo "  no VERDICT printed at all"
+grep -E "VERDICT|boss_fx_kinds" "$OUT/coop_client.log" || echo "  no VERDICT printed at all"
 exit 1
