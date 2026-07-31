@@ -9,8 +9,42 @@ extends Control
 
 signal resume_requested
 signal exit_requested
+## The on-screen PAUSE affordance was tapped. Hosts already wire `ui_cancel` to
+## `open()`; they wire this to the same call and the menu stops being keyboard-only.
+signal pause_requested
 
 const CONTROLS_TEXT: String = "A / D   Move          W / Up   Jump\nSpace   Dash          LMB   Cast\nF   Melee          RMB   Parry / Block\nR   Blink          Q   AoE          T   Nova\nG   Ultimate          V   Cycle spell\nTab   Class          X   Element          C   Colour\nEsc   Pause"
+
+## -- the on-screen pause button (mobile) -------------------------------------
+## ⚠ WITHOUT THIS THE SETTINGS MENU IS UNREACHABLE ON A PHONE. Every host opens the
+## pause menu on `ui_cancel` and nothing else, and a phone has no Esc key — so volume,
+## screen shake, hit-stop, aim assist and the graphics toggle were all keyboard-only
+## on the one platform this game is being built for.
+##
+## Top-RIGHT, deliberately: the left thumb owns the move stick and the right thumb the
+## three spell buttons, both near the bottom of the screen, so the top corners are the
+## only real estate a thumb is never resting on. Right rather than left because a
+## right-handed grip reaches it without crossing the aim stick.
+const PAUSE_BTN_SIZE: Vector2 = Vector2(44.0, 44.0)
+## Margin from the screen corner. Generous enough to clear a rounded corner and a
+## notch cutout, which is the failure mode you only find on hardware.
+const PAUSE_BTN_MARGIN: float = 10.0
+## Resting transparency. Visible enough to find, faint enough not to sit in the middle
+## of the fight. UNTESTED ON A DEVICE — every number in this block is reasoning.
+const PAUSE_BTN_ALPHA: float = 0.55
+
+## The layer the button draws on. Above the game, comfortably below the pause
+## overlay's own contents, which are drawn by this Control at whatever layer the host
+## put it on.
+const PAUSE_BTN_LAYER: int = 50
+
+var _pause_layer: CanvasLayer = null
+## Set for exactly one frame while the pause BUTTON's synthesized `ui_cancel` is in
+## flight, so this node's own handler does not read its own event as "resume" and
+## close the menu the same frame the host opened it. See `_on_pause_pressed`.
+var _synth_cancel: bool = false
+var _pause_btn: Button = null
+var _quality_btn: Button = null
 
 var _main_col: VBoxContainer = null
 var _settings_col: VBoxContainer = null
@@ -42,16 +76,104 @@ func build(exit_label: String = "Exit to Hub") -> void:
 	add_child(dim)
 	_build_main()
 	_build_settings()
+	_build_pause_button()
+
+
+## The on-screen PAUSE affordance.
+##
+## ⚠ IT LIVES ON A `CanvasLayer`, AND THAT IS THE WHOLE TRICK RATHER THAN A STYLE
+## CHOICE. This node is a Control that spends almost all of its life `visible = false`
+## (that is what "the pause menu is closed" means) with `MOUSE_FILTER_STOP`, so it can
+## host neither a visible child nor a clickable one: a Control child of a hidden
+## Control is hidden, and making the parent visible instead would put a full-rect
+## click-eater over the game. `CanvasLayer` is NOT a CanvasItem, so a parent Control's
+## `visible` does not propagate into it — the button draws and takes taps while the
+## menu around it is closed, and nothing else on screen is blocked.
+##
+## `PROCESS_MODE_ALWAYS` is inherited from this node, which is what lets it keep
+## receiving input while the tree is paused.
+func _build_pause_button() -> void:
+	_pause_layer = CanvasLayer.new()
+	_pause_layer.layer = PAUSE_BTN_LAYER
+	add_child(_pause_layer)
+	var holder := Control.new()
+	holder.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE  # only the button itself eats taps
+	_pause_layer.add_child(holder)
+	_pause_btn = Button.new()
+	_pause_btn.text = "II"
+	_pause_btn.tooltip_text = "Pause"
+	_pause_btn.custom_minimum_size = PAUSE_BTN_SIZE
+	_pause_btn.add_theme_font_size_override("font_size", 18)
+	_pause_btn.modulate = Color(1.0, 1.0, 1.0, PAUSE_BTN_ALPHA)
+	# Pinned to the top-right corner by anchors, so it lands in the same place on a
+	# phone, a tablet and a resized desktop window without anyone computing a position.
+	_pause_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_pause_btn.offset_left = -(PAUSE_BTN_SIZE.x + PAUSE_BTN_MARGIN)
+	_pause_btn.offset_top = PAUSE_BTN_MARGIN
+	_pause_btn.offset_right = -PAUSE_BTN_MARGIN
+	_pause_btn.offset_bottom = PAUSE_BTN_MARGIN + PAUSE_BTN_SIZE.y
+	_pause_btn.pressed.connect(_on_pause_pressed)
+	holder.add_child(_pause_btn)
+
+
+## Tapped. TWO ROUTES, and the fallback is the one that matters today.
+##
+## If a host has connected `pause_requested`, that wins — an explicit wire is always
+## better than a guess, and a host that wants to save the run or duck the music before
+## opening needs somewhere to do it.
+##
+## OTHERWISE THE BUTTON SYNTHESIZES `ui_cancel`, the action every existing host already
+## listens for. That is deliberate rather than lazy: `Arena.gd` and `VersusArena.gd`
+## both open the menu on `ui_cancel` and nothing else, they are owned elsewhere, and a
+## signal nobody has connected yet is a pause button that does not pause. Emitting the
+## key they are already waiting for makes the button work in every scene that has a
+## menu at all, with zero edits outside this file, and it keeps ONE pause path rather
+## than a second one that can drift from the Esc path.
+##
+## `_synth_cancel` is why the menu does not open and instantly close: the synthesized
+## event also reaches this node's own `_unhandled_input`, which treats `ui_cancel` as
+## "resume". The flag makes exactly one such event pass through untouched.
+func _on_pause_pressed() -> void:
+	if pause_requested.get_connections().size() > 0:
+		pause_requested.emit()
+		return
+	_synth_cancel = true
+	var ev := InputEventAction.new()
+	ev.action = &"ui_cancel"
+	ev.pressed = true
+	Input.parse_input_event(ev)
+	# Cleared on the next frame rather than immediately: input is dispatched
+	# asynchronously, so clearing it here would clear it before the event arrives.
+	await get_tree().process_frame
+	_synth_cancel = false
+
+
+## Show or hide the on-screen pause button. Hosts that have no business showing one —
+## a menu scene, a cutscene, a run that has already ended — turn it off; nothing else
+## needs to care, because it defaults to on.
+func set_pause_button_visible(v: bool) -> void:
+	if _pause_layer != null:
+		_pause_layer.visible = v
 
 
 func open() -> void:
 	visible = true
 	_main_center.visible = true
 	_settings_center.visible = false
+	# Refreshed on every open rather than only when tapped: `graphics_quality` is also
+	# reachable from the inspector and from Remote, so a label written once at build
+	# time would start lying the moment anyone touched it there.
+	if _quality_btn != null:
+		_quality_btn.text = _quality_label()
+	if _pause_layer != null:
+		_pause_layer.visible = false  # the menu has its own Resume row
 
 
 func close() -> void:
 	visible = false
+	if _pause_layer != null:
+		_pause_layer.visible = true
 
 
 func _build_main() -> void:
@@ -206,6 +328,45 @@ func _build_settings() -> void:
 	hs_btn.toggled.connect(_on_hit_stop_toggled)
 	_settings_col.add_child(hs_btn)
 
+	# AIM ASSIST. Ships at 0 and 0 is inert — see SpellTargets.assist_aim, which
+	# returns the aim it was given before it scans anything at that strength. The
+	# slider exists so the spectrum the mobile spec asks for HAS a home without
+	# reversing the maker's locked no-auto-aim decision, and so the question can be
+	# answered by hand instead of by argument. It bends an aim you already chose by at
+	# most SpellTargets.ASSIST_MAX_DEGREES; it never picks a target.
+	var aim_label := Label.new()
+	aim_label.text = "Aim Assist  (0 = off)"
+	aim_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_settings_col.add_child(aim_label)
+	var aim_slider := HSlider.new()
+	aim_slider.min_value = 0.0
+	aim_slider.max_value = 1.0
+	aim_slider.step = 0.05
+	aim_slider.custom_minimum_size = Vector2(240, 20)
+	aim_slider.value = _current_aim_assist()
+	aim_slider.value_changed.connect(_on_aim_assist_changed)
+	_settings_col.add_child(aim_slider)
+
+	# GRAPHICS QUALITY. Three states rather than a checkbox because AUTO (the shipping
+	# default: LOW on a mobile export, HIGH everywhere else) is a real answer and not
+	# the absence of one. The reason it belongs in the player-facing menu rather than
+	# staying an inspector field: forcing LOW on a desktop renders the PHONE'S PICTURE
+	# without a phone, and no APK has ever been built — so this is currently the only
+	# way to look at what the mobile build will look like.
+	_quality_btn = _menu_button(_quality_label(), _on_quality_pressed)
+	_quality_btn.custom_minimum_size = Vector2(240, 30)
+	_quality_btn.add_theme_font_size_override("font_size", 14)
+	_settings_col.add_child(_quality_btn)
+
+	# PERFORMANCE OVERLAY. Lives next to the quality toggle because the two are one
+	# workflow: flip to LOW, watch the frame time. Silently absent when the Perf
+	# autoload is not registered (a headless run, or a build that excluded it).
+	if _perf_overlay() != null:
+		_settings_col.add_child(_menu_button("Performance Overlay", func() -> void:
+			var p: Node = _perf_overlay()
+			if p != null and p.has_method("toggle"):
+				p.call("toggle")))
+
 	# Controls reference.
 	var ctrl_title := Label.new()
 	ctrl_title.text = "Controls"
@@ -251,6 +412,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not visible:
 		return
 	if event.is_action_pressed("ui_cancel"):
+		# Our own pause button's synthesized event, arriving after the host already
+		# used it to open us. Swallow it once instead of treating it as a resume.
+		if _synth_cancel:
+			_synth_cancel = false
+			get_viewport().set_input_as_handled()
+			return
 		resume_requested.emit()
 		get_viewport().set_input_as_handled()
 
@@ -334,6 +501,59 @@ func _on_shake_changed(v: float) -> void:
 	var cfg: Object = _tuning_cfg()
 	if cfg != null:
 		cfg.set("shake_scale", v)
+
+
+# ------------------------------------------------------------------ aim assist
+func _current_aim_assist() -> float:
+	var cfg: Object = _tuning_cfg()
+	if cfg != null:
+		var v: Variant = cfg.get("aim_assist")
+		if v != null:
+			return clampf(float(v), 0.0, 1.0)
+	return 0.0
+
+
+## Slider → Tuning.cfg.aim_assist, which `SpellTargets.assist_strength` reads live on
+## the frame the aim is resolved, so dragging it changes the feel without a restart.
+func _on_aim_assist_changed(v: float) -> void:
+	var cfg: Object = _tuning_cfg()
+	if cfg != null:
+		cfg.set("aim_assist", v)
+
+
+# ------------------------------------------------------------ graphics quality
+## AUTO -> HIGH -> LOW -> AUTO. A cycling button rather than three radio rows: the
+## panel is already scrolled to reach its bottom on a 720p window, and a setting with
+## three states and one label costs one row instead of four.
+func _on_quality_pressed() -> void:
+	var cfg: Object = _tuning_cfg()
+	if cfg == null:
+		return
+	var v: Variant = cfg.get("graphics_quality")
+	var cur: int = TuningConfig.Quality.AUTO if v == null else int(v)
+	cfg.set("graphics_quality", (cur + 1) % 3)
+	if _quality_btn != null:
+		_quality_btn.text = _quality_label()
+
+
+## The label says what the setting IS *and*, for AUTO, what it currently RESOLVES to —
+## because "Auto" alone leaves the one question the maker actually has ("am I looking
+## at the phone's picture right now?") unanswered on the screen that is supposed to
+## answer it.
+func _quality_label() -> String:
+	var cfg: Object = _tuning_cfg()
+	var v: Variant = cfg.get("graphics_quality") if cfg != null else null
+	var cur: int = TuningConfig.Quality.AUTO if v == null else int(v)
+	match cur:
+		TuningConfig.Quality.HIGH:
+			return "Graphics: HIGH"
+		TuningConfig.Quality.LOW:
+			return "Graphics: LOW  (phone preview)"
+	return "Graphics: AUTO  (%s)" % ("low" if TuningConfig.quality_is_low() else "high")
+
+
+func _perf_overlay() -> Node:
+	return get_node_or_null(^"/root/Perf")
 
 
 func _current_hit_stop() -> bool:

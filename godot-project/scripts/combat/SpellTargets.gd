@@ -208,6 +208,94 @@ static func hostiles(ctx: Node, group: StringName) -> Array:
 	return out
 
 
+# ------------------------------------------------------------------- AIM ASSIST
+## THE HARD CEILING, in degrees, on how far a full-strength assist may bend an aim.
+##
+## ⚠ THIS CONSTANT IS THE ENTIRE DIFFERENCE BETWEEN ASSIST AND AUTO-AIM, and the
+## no-auto-aim rule is LOCKED (there is a regression test asserting the old
+## `Targeting` helper stays deleted). Small enough that the shot always goes roughly
+## where you pointed — it tidies up the last degree or two of a hurried thumb — and
+## far too small to acquire anyone you were not already aimed at. Raising it past a
+## handful of degrees turns this into the thing the maker deleted, whatever the
+## variable is still called.
+const ASSIST_MAX_DEGREES: float = 6.0
+## How far out the assist looks. Beyond this a target is not "the thing you were
+## aiming at", it is a different plan.
+const ASSIST_RANGE: float = 700.0
+
+
+## `dir`, bent up to `strength * ASSIST_MAX_DEGREES` toward the nearest target that is
+## ALREADY inside that cone. Returns `dir` untouched at strength 0.
+##
+## ⚠ INERT AT ZERO, BY CONSTRUCTION AND NOT BY COINCIDENCE. The first line returns
+## before anything is scanned, measured or allocated, so with the shipping default
+## (`TuningConfig.aim_assist = 0.0`) this function is a single float comparison and
+## behaviour is byte-identical to a build with no assist in it. That is the promise
+## the setting is shipped on.
+##
+## WHAT IT IS NOT: it never picks a target, never redirects a shot onto someone you
+## were not pointed at, and never fires anything. It is a bend applied to an aim you
+## already chose, and only toward a body that was inside `ASSIST_MAX_DEGREES` of that
+## aim to begin with — so a miss by a mile stays a miss by a mile.
+##
+## `nodes` should be the caster's HOSTILE faction, never `mortal`: the same rule the
+## melee auto-target follows. Friendly fire means you CAN hit your team-mate, and it
+## must never mean the game quietly steers you into one.
+static func assist_aim(from: Vector2, dir: Vector2, nodes: Array, strength: float,
+		skip: Array = [], ctx: Node = null) -> Vector2:
+	if strength <= 0.0 or dir.length_squared() <= EPS:
+		return dir
+	var s: float = clampf(strength, 0.0, 1.0)
+	# ⚠ THE SEARCH CONE DOES NOT SCALE WITH STRENGTH — only the BEND does, below. The
+	# obvious alternative (a cone that narrows as the slider comes down) makes the
+	# setting a threshold rather than a dial: at 0.5 a target 3.6 deg away would fall
+	# outside a 3 deg cone and get NO help at all, while one at 2 deg would get its aim
+	# snapped fully onto it. Same slider, two completely different behaviours, decided
+	# by a number the player cannot see. Fixed cone + scaled bend means the dial means
+	# one thing everywhere: "how much of the remaining error do you want tidied up".
+	var cone: float = deg_to_rad(ASSIST_MAX_DEGREES)
+	var aim: Vector2 = dir.normalized()
+	var best: Node2D = null
+	var best_angle: float = cone
+	# Line of sight OFF: this is an AIM helper, not a damage query. Culling a target
+	# for cover here would make the assist flicker on and off as someone walked behind
+	# a crate, which reads as the stick fighting you.
+	for n: Node in _pool(nodes, skip, ctx):
+		# Aimed at the drawn HEAD, not the node origin — the origin sits ~10 px below
+		# the head you are actually pointing at, which is the same off-by-a-body-part
+		# that `body_distance` exists to fix.
+		var to: Vector2 = aim_point(n) - from
+		var d: float = to.length()
+		if d < 1.0 or d > ASSIST_RANGE:
+			continue
+		var angle: float = absf(aim.angle_to(to.normalized()))
+		if angle < best_angle:
+			best_angle = angle
+			best = n as Node2D
+	if best == null:
+		return dir
+	# Rotate TOWARD the target by `s` of the way there. `best_angle` is already inside
+	# the cone, so the bend can never exceed ASSIST_MAX_DEGREES: full strength lands
+	# the aim exactly on the target, half strength lands it halfway, and the slider is
+	# a real spectrum rather than an on/off snap.
+	return aim.rotated(aim.angle_to(aim_point(best) - from) * s)
+
+
+## The live assist strength from the Tuning autoload, or 0.0 when there is none.
+##
+## Read through the autoload rather than cached so the slider applies live, and
+## defaulting to 0.0 means a headless `--script` harness (where autoloads are absent)
+## and an older `data/tuning.tres` with no such field both get the inert path.
+static func assist_strength(ctx: Node) -> float:
+	if ctx == null or not ctx.is_inside_tree():
+		return 0.0
+	var t: Node = ctx.get_tree().root.get_node_or_null(^"/root/Tuning")
+	if t == null or t.get(&"cfg") == null:
+		return 0.0
+	var v: Variant = (t.get(&"cfg") as Object).get(&"aim_assist")
+	return 0.0 if v == null else clampf(float(v), 0.0, 1.0)
+
+
 # ------------------------------------------------------------ the silhouette seam
 
 ## Distance from world point `p` to `target`'s REAL body, or `INF` if there is no

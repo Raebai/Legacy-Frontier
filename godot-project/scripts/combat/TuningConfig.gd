@@ -47,6 +47,25 @@ extends Resource
 @export var knockback_mult: float = 1.0
 @export var pct_per_damage: float = 0.8  # SANDBOX Smash model (GameState.ringout_mode): % gained per point of incoming damage. Single source of truth for Hero + Enemy so they can't silently diverge on retune; ~0.8 keeps a typical 12-28 dmg hit in the single-to-low-double-digit % range
 @export var hit_stop_enabled: bool = true  # accessibility: off = no time-freeze on hits
+## AIM ASSIST STRENGTH, 0..1. **DEFAULTS TO 0, AND 0 IS LITERALLY INERT** — at zero
+## `SpellTargets.assist_aim()` returns the aim it was given, unchanged, before it
+## looks at a single target. Nothing is computed, nothing is scanned, and behaviour is
+## byte-identical to a build with no assist code in it at all.
+##
+## ⚠ THIS IS NOT AUTO-AIM AND MUST NOT BECOME IT. The no-auto-aim rule is locked, with
+## a regression test asserting the old `Targeting` helper stays deleted
+## (`tools/slice0_test_targeting.gd`). Nothing here selects a target for you or
+## redirects a shot onto someone: it BENDS an aim you already chose, by at most
+## `SpellTargets.ASSIST_MAX_DEGREES` at full strength, and only toward a target that
+## is already inside that narrow cone. Aim at nobody and it does nothing; aim near
+## someone and it tidies up the last couple of degrees. Raise the cap and it stops
+## being assist — the cap is the whole distinction.
+##
+## It exists because the spec asks for a soft-lock spectrum. Shipping the SLIDER at 0
+## gives the spectrum a home without reversing the locked decision, and lets the maker
+## find out by hand whether any of it is wanted before anything is committed to.
+## UNTESTED FEEL: nobody has played with this above 0.
+@export_range(0.0, 1.0, 0.05) var aim_assist: float = 0.0
 
 @export_group("Graphics")
 ## THE MOBILE DIAL. Everything expensive enough to matter on a phone asks

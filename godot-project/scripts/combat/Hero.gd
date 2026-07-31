@@ -1069,6 +1069,11 @@ func _physics_process(delta: float) -> void:
 			var to_mouse: Vector2 = get_global_mouse_position() - global_position
 			if to_mouse.length() > 1.0:
 				_aim_dir = to_mouse.normalized()
+	# AIM ASSIST, applied ONCE at the source. Bending here rather than per-cast
+	# means the rig's aim arm, the melee arc, the camera peek and every spell all
+	# agree — what you SEE the figure pointing at is where the shot goes. Inert at
+	# the shipping default of 0 (see SpellTargets.assist_aim).
+	_apply_aim_assist()
 	facing = _aim_dir
 	# Feed groundedness to the rig so a limp (hold-DOWN) ragdoll clamps to the floor
 	# instead of drooping through it. Set every frame; cheap.
@@ -2996,6 +3001,30 @@ func _update_flaming_fist(delta: float) -> void:
 ## them; do not aim at them and nothing reaches for them on your behalf. True
 ## hostiles keep the free hit exactly as before, which is what the existing
 ## regression test pins.
+## AIM ASSIST — the maker's LOCKED no-auto-aim rule, honoured with a dial on it.
+##
+## ⚠ DEFAULT 0, AND 0 IS INERT. `SpellTargets.assist_strength` reads the live Tuning
+## value and answers 0.0 when there is no autoload, no field, or the slider is down —
+## and `assist_aim` returns its argument untouched before it scans anything at that
+## strength. So the shipping build behaves exactly as a build with none of this in it,
+## which is the condition the slider is shipped under. `tools/slice0_test_targeting.gd`
+## keeps asserting the deleted `Targeting` helper stays deleted, and nothing here
+## brings it back: there is no target SELECTION, no lock, no fire-at-what-I-picked.
+##
+## SCANS THE FACTION, NEVER `mortal`. Same rule as the melee auto-target, for the same
+## reason: friendly fire means you CAN hit your team-mate, and it must never mean the
+## game quietly steers your shot into one.
+##
+## Skips itself for the same reason every spell does — the caster is in its own
+## hostile group the moment two heroes are on opposite factions.
+func _apply_aim_assist() -> void:
+	var strength: float = SpellTargets.assist_strength(self)
+	if strength <= 0.0:
+		return
+	_aim_dir = SpellTargets.assist_aim(global_position, _aim_dir,
+		get_tree().get_nodes_in_group(hostile_group), strength, [self], self)
+
+
 func _nearest_enemy_in_melee_range() -> Node2D:
 	# Nearest measured to the SILHOUETTE, so a tall enemy whose head is closer than a
 	# short enemy's origin wins — which is what the eye expects, and which is what
