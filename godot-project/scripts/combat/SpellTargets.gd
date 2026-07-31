@@ -199,13 +199,20 @@ static func hostiles(ctx: Node, group: StringName) -> Array:
 	var self_node: Object = owner_of(ctx)
 	if self_node == null:
 		return nodes
-	var out: Array = []
+	# ⚠ MUTATED IN PLACE, deliberately. This used to build a SECOND array and copy
+	# every element into it in order to drop exactly one node. `get_nodes_in_group`
+	# already hands back a freshly built array that nobody else holds a reference to,
+	# so the copy bought nothing and cost an allocation plus a full walk — on a path
+	# that runs once per frame per live zone/field spectacle, and now finds EVERY
+	# fighter rather than one faction because friendly fire scans the shared `mortal`
+	# group. Under friendly fire the caster is always present, so the old version
+	# allocated on every single call.
 	var blocked: int = self_node.get_instance_id()
-	for n: Variant in nodes:
+	for i: int in range(nodes.size() - 1, -1, -1):
+		var n: Variant = nodes[i]
 		if n is Object and (n as Object).get_instance_id() == blocked:
-			continue
-		out.append(n)
-	return out
+			nodes.remove_at(i)
+	return nodes
 
 
 # ------------------------------------------------------------------- AIM ASSIST
@@ -524,15 +531,24 @@ static func sorted_by_distance(point: Vector2, nodes: Array) -> Array:
 static func alive(nodes: Array) -> Array:
 	var out: Array = []
 	for n: Variant in nodes:
-		if n == null or not is_instance_valid(n):
-			continue
-		var node: Node = n as Node
-		if node == null or node.is_queued_for_deletion():
-			continue
-		if not (n is Node2D):
-			continue  # every selector here needs a world position to test against
-		out.append(n)
+		if _is_alive(n):
+			out.append(n)
 	return out
+
+
+## The liveness predicate itself, factored out so `alive()` and `_pool()` cannot
+## drift apart. `_pool` used to call `alive()` and then filter ITS result into a
+## third array; sharing the predicate is what lets it do both in one pass without
+## restating the rule (and a restated rule is how the `is_queued_for_deletion` half
+## would eventually get lost from one of the two copies).
+static func _is_alive(n: Variant) -> bool:
+	if n == null or not is_instance_valid(n):
+		return false
+	var node: Node = n as Node
+	if node == null or node.is_queued_for_deletion():
+		return false
+	# Every selector here needs a world position to test against.
+	return n is Node2D
 
 
 # ------------------------------------------------------------------- internals
@@ -559,10 +575,18 @@ static func _pool(nodes: Array, skip: Array, ctx: Object = null) -> Array:
 		blocked[implicit.get_instance_id()] = true
 	if blocked.is_empty():
 		return alive(nodes)
+	# ONE pass, one array. This used to call `alive(nodes)` — which allocates and
+	# fills an array — and then walk THAT into a second array to apply the block
+	# list, so every selector call on a spectacle with a caster allocated twice and
+	# walked the group twice. Every spectacle has a caster now (`SpellCaster._stamp`
+	# stamps all 21 arms), so that was the common path, not the rare one.
 	var out: Array = []
-	for n: Node in alive(nodes):
-		if not blocked.has(n.get_instance_id()):
-			out.append(n)
+	for n: Variant in nodes:
+		if not _is_alive(n):
+			continue
+		if blocked.has((n as Object).get_instance_id()):
+			continue
+		out.append(n)
 	return out
 
 
