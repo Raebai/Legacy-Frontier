@@ -144,7 +144,10 @@ func _test_forced_builds_buttons() -> void:
 		if c is Button:
 			buttons += 1
 	_expect(pad.visible, "forced pad is visible")
-	_expect(buttons >= 6, "pad built the thumb buttons (got %d)" % buttons)
+	# Three spells + dash + jump + parry. Deliberately an EQUALITY: the point of the
+	# consolidation pass was that a phone is not a keyboard, so a layer that quietly
+	# grew back to eight buttons should fail here rather than pass a `>=`.
+	_expect(buttons == 6, "pad built the six thumb buttons (got %d)" % buttons)
 	pad.queue_free()
 	_completes("forced_builds_buttons")
 
@@ -153,6 +156,17 @@ func _test_forced_builds_buttons() -> void:
 ## something actually polls. The JUMP button shipped pressing "move_up" while
 ## Hero polls "jump", so touch jump was dead on a device — and the old test still
 ## passed, because counting buttons never checks what they are wired to.
+##
+## ⚠ THE REQUIRED LIST CHANGED, DELIBERATELY, with the three-spell-button pass. It
+## used to demand `cast` and `melee` as buttons. Neither is one any more:
+##   * `cast` (the primary) moved onto the AIM STICK — pushing it past
+##     AIM_FIRE_THRESHOLD holds the action, which `_test_aim_stick_fires` pins. The
+##     verb is still reachable with one thumb; it just is not a button.
+##   * `melee` lost its touch affordance outright. For the melee classes the primary
+##     IS the swing (Hero._cast dispatches per class), so nobody is left unable to
+##     hit anything — see the consolidation note in TouchControls' header.
+## What replaced them is the thing the spec actually asked for: one button per kit
+## slot, so the required list now names all three by number.
 func _test_buttons_drive_real_actions() -> void:
 	var pad := _pad()
 	var seen: Array[String] = []
@@ -166,7 +180,7 @@ func _test_buttons_drive_real_actions() -> void:
 		_expect(InputMap.has_action(action),
 			"touch button '%s' drives a real action '%s'" % [(c as Button).text, action])
 	# The verbs a phone player cannot play without.
-	for required: String in ["jump", "cast", "dash", "melee", "parry"]:
+	for required: String in ["jump", "dash", "parry", "spell_1", "spell_2", "spell_3"]:
 		_expect(seen.has(required), "touch pad exposes '%s'" % required)
 	pad.queue_free()
 	_completes("buttons_drive_real_actions")
