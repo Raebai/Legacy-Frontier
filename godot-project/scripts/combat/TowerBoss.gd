@@ -31,9 +31,11 @@ var _mark: BossSigilMark = null
 
 ## Per-boss identity. Subclasses override these; the defaults are the Guardian's so
 ## a subclass that overrides nothing is still a legal, working boss.
-func boss_title() -> String: return "THE ASHSPIRE GUARDIAN"
+##
+## `boss_title()` and `boss_accent()` are NOT restated here — they now live on
+## `Boss` itself, because the bar and the intro card need to be able to ask any
+## boss (the Guardian included) rather than only a `TowerBoss`.
 func boss_artist() -> String: return "charcoal on stone"
-func boss_accent() -> Color: return Color(1.0, 0.55, 0.2)
 func boss_tint() -> Color: return STONE_TINT
 func boss_rig_height() -> float: return RIG_HEIGHT
 func boss_preset() -> String: return "brawler"
@@ -101,15 +103,11 @@ func _apply_identity() -> void:
 		for slot: String in boss_equipment():
 			rig.set_equipment(slot, String(boss_equipment()[slot]))
 		rig.set_tint(boss_tint())
-	# The bar's name is a const on BossBar (which this pass may not edit), but the
-	# label it built is an ordinary member — so the roster renames it here rather
-	# than every boss shipping its own health bar.
-	if _bar != null and is_instance_valid(_bar):
-		var lbl: Variant = _bar.get("_name_label")
-		if lbl is Label:
-			(lbl as Label).text = boss_title()
-			(lbl as Label).add_theme_color_override("font_color", boss_accent().lerp(Color.WHITE, 0.35))
-
+	# THE BAR IS NO LONGER RENAMED FROM OUT HERE. `Boss._build_bar` calls
+	# `BossBar.setup(self, boss_title(), boss_accent())` and those are virtual, so
+	# the bar is built with this boss's identity in the first place. The old
+	# rewrite-the-label-afterwards workaround (and its dependence on a private
+	# `_name_label`) is gone; see the note on `BossBar.setup`.
 
 
 # ---------------------------------------------------------------------- phases
@@ -277,14 +275,21 @@ func summon_circle(at: Vector2, element: int, tier: int, radius: float, hold: fl
 	var host: Node = get_parent()
 	if host == null or not host.is_inside_tree():
 		return null
+	var grow: float = minf(0.26, maxf(hold * 0.4, 0.08))
 	var c := MagicCircle.new()
 	host.add_child(c)
 	c.global_position = at
-	c.appear(boss_accent(), radius, minf(0.26, maxf(hold * 0.4, 0.08)))
+	c.appear(boss_accent(), radius, grow)
 	c.set_signature(element, tier)
 	if ground:
 		c.set_ground(0.34)
 	c.hold(hold, 0.22)
+	# CO-OP. The sigil is a FAIRNESS signal on this roster, not decoration — it is
+	# how the compass states its radius and how the Final Page states its size — so
+	# the twin goes out from the one place every boss opens a circle. `_bfx` is
+	# host-gated inside, so this is a no-op in single player.
+	_bfx("circle", {"pos": at, "col": boss_accent(), "r": radius, "grow": grow,
+		"el": element, "tier": tier, "hold": hold, "ground": ground})
 	return c
 
 

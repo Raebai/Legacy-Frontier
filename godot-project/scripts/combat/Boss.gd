@@ -48,6 +48,19 @@ var _bar: BossBar = null
 var _summoned: Array = []
 
 
+## WHO THIS BOSS IS. Declared on the base rather than on `TowerBoss` so that
+## `BossBar` and the intro card can ask ANY boss what it is called and what colour it
+## writes itself in — including this one. Before this, the bar carried a
+## `const NAME_TEXT = "THE ASHSPIRE GUARDIAN"` and the roster rewrote the label after
+## construction; see `BossBar.setup` for why that was a trap rather than a default.
+func boss_title() -> String:
+	return "THE ASHSPIRE GUARDIAN"
+
+
+func boss_accent() -> Color:
+	return Color(1.0, 0.55, 0.2)
+
+
 func _ready() -> void:
 	super._ready()   # hp, _hero, joins "enemy" + "mortal", tiny CharacterBars
 	body_scale = clampf(body_scale, 0.3, 1.0)
@@ -480,7 +493,9 @@ func _build_bar() -> void:
 	add_child(_bar_layer)
 	_bar = BossBar.new()
 	_bar_layer.add_child(_bar)
-	_bar.setup(self)
+	# Virtual dispatch: a subclass's title/accent are in place from the first frame,
+	# so the bar never briefly shows the wrong boss's name.
+	_bar.setup(self, boss_title(), boss_accent())
 
 
 func _play_intro() -> void:
@@ -491,9 +506,9 @@ func _play_intro() -> void:
 	card.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	card.offset_top = 120.0
 	card.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	card.text = "THE ASHSPIRE GUARDIAN"
+	card.text = boss_title()
 	card.add_theme_font_size_override("font_size", 36)
-	card.add_theme_color_override("font_color", Color(1.0, 0.55, 0.2))
+	card.add_theme_color_override("font_color", boss_accent())
 	card.add_theme_color_override("font_outline_color", Color(0.05, 0.02, 0.03, 0.95))
 	card.add_theme_constant_override("outline_size", 7)
 	card.modulate.a = 0.0
