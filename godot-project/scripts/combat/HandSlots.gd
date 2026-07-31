@@ -197,3 +197,79 @@ func is_ready(index: int) -> bool:
 
 func current_ready() -> bool:
 	return is_ready(selected)
+
+
+# ---- picked-up spells (the drop economy) -------------------------------------
+## THE HAND DOES NOT GROW. A picked-up Tier 2 or Tier 3 spell REPLACES one of the
+## three you are carrying; it is never a fourth button.
+##
+## That is not a simplification, it is forced, and it is the single most important
+## design constraint in the drop economy. `SpellTier.SLOT_COUNT` is 3 because the
+## right thumb has three buttons on a phone — the whole control scheme is built on
+## it. `Hero.spell_button_state(slot)` is only ever asked for slots 0..2,
+## `TouchControls` draws three pads, `_tick_ready_pulse` sizes its arrays to three.
+## A fourth entry would be a spell the player owns, can see in no HUD, and cannot
+## press. So the drop takes a seat rather than adding one.
+##
+## And it is better design than the alternative. "Pick this up and lose something"
+## is a decision every single time; "pick this up and have more" is a reward you
+## take without thinking. The spec asked for pickups that are contested and
+## decision-shaped, and a cost is what makes them so.
+##
+## WHERE THE DISPLACED SPELL GOES: nowhere here. `SpellGrant` remembers it and puts
+## it back when the charges run out or the floor ends. This class only ever does
+## the surgery it is asked for, and stays pure data with no tree access.
+
+## Hand index of the `nth` SPELL in the carousel, or -1.
+##
+## Derived rather than assumed. `Hero` builds its hand as `rebuild([], _signatures)`
+## so today the answer is always `nth + 1` (FISTS at 0) — but `rebuild` accepts
+## weapons, and the day a weapon lands in the carousel that arithmetic silently
+## starts pointing at a sword. Counting the spells is the version that cannot drift.
+func spell_slot_index(nth: int) -> int:
+	if nth < 0:
+		return -1
+	var seen: int = 0
+	for i: int in slots.size():
+		if int(slots[i].get("kind", Kind.FISTS)) != Kind.SPELL:
+			continue
+		if seen == nth:
+			return i
+		seen += 1
+	return -1
+
+
+## Swap the `nth` spell in the carousel for `spell`. Returns false for an index
+## with no spell in it, which is how a caller learns the hand is smaller than it
+## expected rather than by writing past the end.
+##
+## The new slot lands READY with a cleared cooldown, deliberately: you just picked
+## the thing up off the floor, and inheriting the timer of the spell it displaced
+## would mean a drop that arrives dark for eight seconds for reasons nothing on
+## screen explains.
+func replace_spell(nth: int, spell: Variant) -> bool:
+	if spell == null:
+		return false
+	var i: int = spell_slot_index(nth)
+	if i < 0:
+		return false
+	slots[i] = {"kind": Kind.SPELL, "id": String(spell.get("id")),
+		"name": String(spell.get("display_name")), "cooldown": 0.0,
+		"cooldown_total": 0.0, "ready": true, "spell": spell}
+	return true
+
+
+## Which spell sits in the `nth` carousel spell slot, or null.
+func spell_at(nth: int) -> Variant:
+	var i: int = spell_slot_index(nth)
+	return null if i < 0 else slots[i].get("spell")
+
+
+## How many SPELL slots the hand has. `slots.size()` counts fists (and any weapon),
+## so it is never the answer to "how many spells am I carrying".
+func spell_count() -> int:
+	var n: int = 0
+	for s: Dictionary in slots:
+		if int(s.get("kind", Kind.FISTS)) == Kind.SPELL:
+			n += 1
+	return n
