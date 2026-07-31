@@ -816,6 +816,12 @@ func _deflect(bolt: Node2D) -> void:
 
 func _ready() -> void:
 	add_to_group("enemy")
+	# FRIENDLY FIRE (1.5). `mortal` is the faction-BLIND group: every damageable
+	# body joins it IN ADDITION to its faction group, and SpellCaster._stamp()
+	# writes "mortal" as the target group when friendly fire is on. That makes a
+	# spell hit everything alive with ZERO spectacle edits. `enemy` stays — a lot
+	# of code (the clear gate, the camera framing, every bot scan) scans it.
+	add_to_group(&"mortal")
 	_net = get_node_or_null("/root/Net")
 	_apply_archetype_defaults()
 	_apply_difficulty()
@@ -1002,6 +1008,11 @@ func _emit_telegraph(cfg: Dictionary) -> Telegraph:
 	var radius: float = float(cfg.get("radius", ATTACK_RADIUS))
 	var windup: float = float(cfg.get("windup", ATTACK_WINDUP))
 	var is_line: bool = bool(cfg.get("line", false))
+	# `no_resolve`: the caller resolves the attack itself off Telegraph.fired
+	# instead of going through _on_telegraph_fired's ARCHETYPE switch. The Boss
+	# needs this — it is an Enemy subclass with archetype BRUTE, so the default
+	# wiring would answer its beam tell with a brute ground strike.
+	var no_resolve: bool = bool(cfg.get("no_resolve", false))
 	var aim: Vector2 = cfg.get("aim", Vector2.RIGHT)
 	var reach: float = float(cfg.get("reach", 120.0))
 	var length: float = float(cfg.get("length", 0.0))
@@ -1018,7 +1029,8 @@ func _emit_telegraph(cfg: Dictionary) -> Telegraph:
 	tele.style = style_v
 	tele.aim_dir = aim
 	tele.reach = reach
-	tele.fired.connect(_on_telegraph_fired)
+	if not no_resolve:
+		tele.fired.connect(_on_telegraph_fired)
 	if is_line:
 		tele.start_line(length, width, angle, windup)
 	else:
@@ -1303,8 +1315,12 @@ func _start_summon_windup() -> void:
 ## Scene load()ed at runtime, not preload: Enemy.tscn references this very
 ## script, so a preload here would be a cyclic resource dependency.
 func _spawn_minions() -> void:
-	# Never exceed the concurrent cap: only fill the remaining room.
+	# TWO caps, and the second one is the point of 1.4: the summoner's own
+	# SUMMON_MAX_ALIVE (no infinite swarm from one caster) AND the floor's live
+	# entity budget, which the Encounter owns and this node must ASK about.
+	# Before 1.4 minions bypassed the encounter cap entirely.
 	var to_spawn: int = mini(SUMMON_COUNT, maxi(SUMMON_MAX_ALIVE - _live_minion_count(), 0))
+	to_spawn = mini(to_spawn, _spawn_headroom())
 	var chaser: Dictionary = ARCHETYPE_DEFAULTS[Archetype.CHASER]
 	var lit: Color = Color(tint.r, tint.g, tint.b, 1.0).lightened(0.35)  # reads as spawn
 	for i in to_spawn:
@@ -1320,6 +1336,19 @@ func _spawn_minions() -> void:
 	_attack_state = AttackState.RECOVER
 	_recover_timer = ATTACK_RECOVER_TIME
 	_attack_cooldown = SUMMON_COOLDOWN
+
+
+## THE FLOOR'S LIVE-ENTITY BUDGET, asked of the Encounter through the Arena.
+## Returns a huge number outside a floor (F6 sandbox, headless helper tests) so
+## those paths behave exactly as they did before the cap existed.
+func _spawn_headroom() -> int:
+	var parent: Node = get_parent()
+	if parent == null or not parent.has_method("encounter"):
+		return 0x7FFFFFFF
+	var enc: Node = parent.call("encounter")
+	if enc == null or not enc.has_method("spawn_headroom"):
+		return 0x7FFFFFFF
+	return int(enc.call("spawn_headroom"))
 
 
 ## Spawn a runtime enemy (summoner minion / boss add) through the Arena so it goes

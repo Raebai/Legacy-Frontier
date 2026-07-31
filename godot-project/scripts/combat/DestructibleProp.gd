@@ -40,6 +40,10 @@ var _nudge: Vector2 = Vector2.ZERO
 
 func _ready() -> void:
 	add_to_group("destructible")
+	# FRIENDLY FIRE (1.5): the faction-blind group every damageable body joins, so
+	# a spell stamped with target_group "mortal" breaks crates too, with no
+	# spectacle edits. "destructible" stays — the existing scans depend on it.
+	add_to_group(&"mortal")
 	hp = max_hp
 	queue_redraw()
 
@@ -69,6 +73,7 @@ func take_damage(amount: int) -> void:
 ## radius queries (blast) don't re-hit a dead crate.
 func _shatter() -> void:
 	remove_from_group("destructible")
+	remove_from_group(&"mortal")   # same-frame radius queries must not re-hit a dead crate
 	_spawn_debris_burst()
 	_spawn_debris_chunks()
 	ScorchDecal.spawn(
