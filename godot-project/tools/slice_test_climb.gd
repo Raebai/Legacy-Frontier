@@ -78,10 +78,11 @@ func _completes(test_name: String) -> void:
 
 
 func _test_fall_floor(GS: GDScript) -> void:
-	_expect(int(GS.fall_floor(5)) == 3, "fall from 5 -> 3")
-	_expect(int(GS.fall_floor(3)) == 1, "fall from 3 -> 1")
-	_expect(int(GS.fall_floor(2)) == 1, "fall from 2 clamps to 1")
-	_expect(int(GS.fall_floor(1)) == 1, "fall from 1 stays 1")
+	# THE TOWER spec: a fall costs ONE floor, never more.
+	_expect(int(GS.fall_floor(5)) == 4, "fall from 5 -> 4")
+	_expect(int(GS.fall_floor(3)) == 2, "fall from 3 -> 2")
+	_expect(int(GS.fall_floor(2)) == 1, "fall from 2 -> 1")
+	_expect(int(GS.fall_floor(1)) == 1, "fall from 1 clamps to 1")
 	_completes("fall_floor")
 
 
@@ -173,7 +174,7 @@ func _test_climber_disk_roundtrip(GS: GDScript) -> void:
 	_completes("climber_disk_roundtrip")
 
 
-## fall() on a live run drops 2 floors, ticks the fall counter, and emits `fell`
+## fall() on a live run drops ONE floor, ticks the fall counter, and emits `fell`
 ## with the dropped floor. Driven on a bare instance (no scene) — _change_scene
 ## is guarded on get_tree()==null so it no-ops off-tree.
 func _test_fall_transition(GS: GDScript) -> void:
@@ -185,9 +186,9 @@ func _test_fall_transition(GS: GDScript) -> void:
 	var seen: Array = []
 	gs.fell.connect(func(nf: int) -> void: seen.append(nf))
 	gs.fall()
-	_expect(gs._floor == 3, "fall drops 2 floors (5 -> 3)")
+	_expect(gs._floor == 4, "fall drops one floor (5 -> 4)")
 	_expect(gs._falls == 2, "fall increments the fall counter")
-	_expect(seen.size() == 1 and int(seen[0]) == 3, "fell emitted with the dropped floor")
+	_expect(seen.size() == 1 and int(seen[0]) == 4, "fell emitted with the dropped floor")
 	# A fall in the SANDBOX (no active run) is a no-op.
 	var gs2: Node = GS.new()
 	gs2._run_active = false

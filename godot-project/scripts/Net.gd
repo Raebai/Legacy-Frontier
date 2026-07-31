@@ -16,7 +16,10 @@ signal net_floor_cleared   # host cleared the floor -> clients spawn the exit po
 
 const DEFAULT_PORT: int = 24565
 const DEFAULT_IP: String = "127.0.0.1"
-const MAX_PLAYERS: int = 4
+## THE TOWER spec caps a session at 2 players. This is a hard design cap, not a
+## placeholder: the 25-entity budget, the one-screen arena and the friendly-fire
+## social loop are all balanced around exactly two thumbs in one room.
+const MAX_PLAYERS: int = 2
 
 ## peer_id -> selected class int (0..7). Host owns the table; clients push their
 ## pick and the host rebroadcasts the whole thing.

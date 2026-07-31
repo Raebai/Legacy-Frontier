@@ -495,9 +495,12 @@ static func default_layout() -> LayoutDef:
 	return l
 
 
-## Failing a floor drops you 2 floors but never below 1. Pure so it tests headlessly.
+## Failing a floor drops you ONE floor, never below 1. Pure so it tests headlessly.
+## Spec: "Dying drops you one floor, not to the bottom." A wipe should take 20
+## seconds and get a laugh — two floors of lost ground is a punishment, one is a
+## shrug, and the shrug is what keeps people pressing on.
 static func fall_floor(current: int) -> int:
-	return maxi(current - 2, 1)
+	return maxi(current - 1, 1)
 
 
 ## The on-disk climber record. All fields clamped to their floors; highest is

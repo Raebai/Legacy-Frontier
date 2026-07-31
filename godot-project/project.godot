@@ -16,7 +16,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 config/name="Legacy Frontier"
 config/description="2D pixel-art top-down RPG with persistent AI NPCs and a living world. Tier 1 / v0.0 — the seed."
-run/main_scene="res://scenes/spike/SpellPlayground.tscn"
+run/main_scene="res://scenes/ui/Lobby.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 
 [audio]
@@ -44,6 +44,8 @@ window/size/viewport_height=360
 window/size/window_width_override=1366
 window/size/window_height_override=768
 window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/handheld/orientation="landscape"
 
 [editor_plugins]
 
