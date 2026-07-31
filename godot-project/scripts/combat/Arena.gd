@@ -23,6 +23,7 @@ var _net: Node = null   # cached /root/Net (co-op); null / inactive in SP
 var _run_mode: bool = false
 var _current_floor_def: FloorDef = null
 var _encounter: Encounter = null
+var _hype: Hype = null            # the moment-to-moment reward loop (streaks, shouts)
 var _room: Node2D = null
 var _atmo: Atmosphere = null
 var _portal: ExitPortal = null
@@ -71,6 +72,14 @@ func _ready() -> void:
 	_encounter = ENCOUNTER_SCRIPT.new()
 	add_child(_encounter)
 	_encounter.cleared.connect(_on_floor_cleared)
+	# THE REWARD LOOP. Built before anything can die, and in BOTH modes: the F6
+	# sandbox is where combat feel gets judged, so the streak/multi-kill feedback
+	# has to be there too or the sandbox lies about how the game feels.
+	_hype = Hype.new()
+	add_child(_hype)
+	_encounter.wave_started.connect(_on_wave_started)
+	_encounter.wave_cleared.connect(_on_wave_cleared)
+	_encounter.boss_spawned.connect(_on_boss_spawned)
 	_build_ability_bar()
 	_build_pause_overlay()
 	_setup_heroes()
@@ -240,6 +249,36 @@ func _rebuild_room() -> void:
 	for child in _room.get_children():
 		child.queue_free()
 	FloorBuilder.build_props(_room, _current_floor_def.layout)
+
+
+# ------------------------------------------------------------------ wave beats
+## THE PACING BEATS, routed from Encounter to the reward loop. These fire on every
+## peer (Encounter emits them host-side; a co-op client's Encounter is idle, so
+## clients currently see the shouts only for their own... which is the honest
+## limitation to fix alongside the rest of the co-op replication work).
+func _on_wave_started(index: int, total: int) -> void:
+	if _hype != null:
+		_hype.wave_opened(index, total)
+
+
+func _on_wave_cleared(index: int, total: int) -> void:
+	if _hype != null:
+		_hype.wave_beaten(index, total)
+
+
+func _on_boss_spawned() -> void:
+	# Music FIRST, then the shout. A mood change resets the combat-intensity lift
+	# (a new room should not arrive still shouting from the last one), so calling
+	# these the other way round would have the boss bed immediately undo the
+	# intensity the guardian's arrival just asked for.
+	# The guardian gets that bed on EVERY floor now that every floor ends on one —
+	# previously only a BOSS-typed floor ever heard it, which meant four of the
+	# five guardians arrived to adventure music.
+	var music: Node = get_node_or_null("/root/Music")
+	if music != null and music.has_method("play_boss"):
+		music.play_boss()
+	if _hype != null:
+		_hype.guardian_arrived()
 
 
 ## Host: the floor's fight is done -> open the exit portal(s), then (co-op) tell the

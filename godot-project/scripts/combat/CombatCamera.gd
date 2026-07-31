@@ -20,7 +20,17 @@ const ZOOM_MAX: float = 2.6
 const FRAME_VIEWPORT: Vector2 = Vector2(640.0, 360.0)
 const FRAME_PAD: Vector2 = Vector2(300.0, 220.0)  # breathing room around the group
 const FRAME_ZOOM_MIN: float = 0.5  # allow pulling well back to keep everyone in view
-const FRAME_SPEED: float = 3.5     # ease rate toward the framed centroid/zoom
+const FRAME_SPEED: float = 3.5     # ease rate toward the framed centroid (position)
+# ASYMMETRIC ZOOM EASE — the framing camera as a PRESSURE instrument.
+# Waves now open with a vanguard that lands as a GROUP, so the framed box can
+# double in one frame. At a single symmetric 3.5 rate the camera spent the first
+# half-second of every wave catching up, with the arrivals clipping the edge of
+# the screen exactly when you most needed to see them. Widening is therefore
+# urgent and tightening is lazy: the room OPENS to receive a wave, and closes
+# back slowly as you thin it out, so the frame never breathes in and out around a
+# straggler wandering across the arena.
+const FRAME_ZOOM_SPEED_OUT: float = 7.0
+const FRAME_ZOOM_SPEED_IN: float = 2.0
 # How far the framed center leans from the HERO (0) toward the geometric centroid
 # of all fighters (1). 0.55 keeps the player weighted-center while bots still pull.
 const HERO_FRAME_BIAS: float = 0.55
@@ -209,9 +219,11 @@ func _frame_group_update(delta: float) -> void:
 			count += 1
 	var ease: float = minf(FRAME_SPEED * delta, 1.0)
 	if count <= 1:
-		# Only the hero left — ease back to the resting default.
+		# Only the hero left — ease back to the resting default. Tightening is the
+		# LAZY direction, so this uses the slow rate: an emptied room settles in
+		# rather than snapping shut the instant the last body drops.
 		_frame_offset = _frame_offset.lerp(Vector2.ZERO, ease)
-		_zoom_base = _zoom_base.lerp(DEFAULT_ZOOM, ease)
+		_zoom_base = _zoom_base.lerp(DEFAULT_ZOOM, minf(FRAME_ZOOM_SPEED_IN * delta, 1.0))
 		return
 	# Bias the framed center toward the HERO (maker: "keep the PLAYER the focus").
 	# The bots still pull the frame + drive the auto-zoom, but the hero is weighted
@@ -222,7 +234,10 @@ func _frame_group_update(delta: float) -> void:
 	var fit: float = minf(FRAME_VIEWPORT.x / maxf(span.x, 1.0), FRAME_VIEWPORT.y / maxf(span.y, 1.0))
 	fit = clampf(fit, FRAME_ZOOM_MIN, ZOOM_MAX)
 	_frame_offset = _frame_offset.lerp(centroid - hero_pos, ease)
-	_zoom_base = _zoom_base.lerp(Vector2(fit, fit), ease)
+	# A LOWER zoom is a WIDER view, so "fit < base" means the group just grew and
+	# the camera has to open up NOW; the other direction can take its time.
+	var zoom_rate: float = FRAME_ZOOM_SPEED_OUT if fit < _zoom_base.x else FRAME_ZOOM_SPEED_IN
+	_zoom_base = _zoom_base.lerp(Vector2(fit, fit), minf(zoom_rate * delta, 1.0))
 
 
 func _process(delta: float) -> void:

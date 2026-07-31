@@ -42,11 +42,29 @@ const FADE_IN_TIME: float = 1.5
 const CYCLE_FADE_TIME: float = 0.8
 const DUCK_RECOVER_TIME: float = 0.45
 
+## INTENSITY. One bed, no stems, so "the music escalates as the wave peaks" is
+## bought with the only honest lever available: the bed leans FORWARD in the mix
+## as the fight heats up (Hype drives this off the kill chain + the wave index)
+## and settles back when the room does. Deliberately modest — this is meant to be
+## felt, not noticed, and a bed that swings 10 dB just sounds broken.
+const INTENSITY_MAX_DB: float = 5.0
+## Seconds to ease onto a new intensity. Slower than a duck: a duck is a punch,
+## this is a tide.
+const INTENSITY_RAMP: float = 0.9
+## The wave-clear flourish: dip out of the way for a beat, then swell back past
+## resting before settling. Reads as the score answering you.
+const FLOURISH_DIP_DB: float = 5.0
+const FLOURISH_SWELL_DB: float = 3.0
+
 var _player: AudioStreamPlayer
 var _mood: int = Mood.ADVENTURE
 var _track_index: Dictionary = {Mood.TOWN: 0, Mood.ADVENTURE: 0, Mood.BOSS: 0}
 var _streams: Dictionary = {}          # path -> loaded (looping) AudioStream, or null if missing
 var _base_db: float = BASE_VOLUME_DB
+## Current combat-intensity lift in dB, on TOP of _base_db. Every resting-volume
+## target in this file goes through _rest_db() so a duck, a mood change or a track
+## cycle can never silently discard it.
+var _intensity_db: float = 0.0
 var _volume_tween: Tween
 var _toast_layer: CanvasLayer
 var _toast_label: Label
@@ -75,6 +93,12 @@ func play_mood(mood: int) -> void:
 	var stream: AudioStream = _resolve_stream(mood, int(_track_index.get(mood, 0)))
 	if stream == null:
 		return
+	# A mood change is a change of PLACE (hub / floor / guardian), so whatever
+	# combat intensity the last room worked itself into does not travel with you.
+	# Hype re-establishes it on the next wave; without this the town bed would
+	# arrive still shouting from the floor you just left.
+	if mood != _mood:
+		_intensity_db = 0.0
 	_mood = mood
 	_base_db = float(MOOD_VOLUME_DB.get(mood, BASE_VOLUME_DB))
 	if _player.playing and _player.stream == stream:
@@ -135,7 +159,7 @@ func _swap_to(stream: AudioStream, fade: float) -> void:
 	_player.volume_db = SILENT_DB
 	_player.play()
 	_volume_tween = get_tree().create_tween()
-	_volume_tween.tween_property(_player, "volume_db", _base_db, fade)
+	_volume_tween.tween_property(_player, "volume_db", _rest_db(), fade)
 
 
 func _track_display_name(path: String) -> String:
@@ -159,7 +183,44 @@ func set_volume_db(db: float) -> void:
 	if _player == null:
 		return
 	_kill_volume_tween()
-	_player.volume_db = db
+	_player.volume_db = _rest_db()
+
+
+## The volume the bed rests at RIGHT NOW: the mood's resting level plus whatever
+## combat intensity is currently asking for. Everything that returns the player to
+## "normal" targets this, never _base_db directly.
+func _rest_db() -> float:
+	return _base_db + _intensity_db
+
+
+## COMBAT INTENSITY, 0 (the room is calm) .. 1 (the wave is peaking). Driven by
+## Hype off the kill chain and the wave index. Idempotent-ish: re-setting the same
+## value re-arms the ramp, which is harmless and keeps the call site dumb.
+func set_intensity(t: float) -> void:
+	var db: float = clampf(t, 0.0, 1.0) * INTENSITY_MAX_DB
+	if is_equal_approx(db, _intensity_db):
+		return
+	_intensity_db = db
+	if _player == null or not _player.playing:
+		return
+	_kill_volume_tween()
+	_volume_tween = get_tree().create_tween()
+	_volume_tween.tween_property(_player, "volume_db", _rest_db(), INTENSITY_RAMP)
+
+
+## The wave-clear answer: get out of the way for a beat so the flourish SFX lands
+## clean, then swell up past resting and settle. One tween, so it composes with
+## whatever intensity is set rather than fighting it.
+func flourish() -> void:
+	if _player == null or not _player.playing:
+		return
+	_kill_volume_tween()
+	var rest: float = _rest_db()
+	_player.volume_db = rest - FLOURISH_DIP_DB
+	_volume_tween = get_tree().create_tween()
+	_volume_tween.tween_interval(0.18)
+	_volume_tween.tween_property(_player, "volume_db", rest + FLOURISH_SWELL_DB, 0.25)
+	_volume_tween.tween_property(_player, "volume_db", rest, 0.8)
 
 
 ## Briefly drop the bed by `amount_db`, hold, then ramp back to base. The blast
@@ -168,10 +229,10 @@ func duck(amount_db: float = 8.0, hold: float = 0.35) -> void:
 	if _player == null or not _player.playing:
 		return
 	_kill_volume_tween()
-	_player.volume_db = _base_db - amount_db
+	_player.volume_db = _rest_db() - amount_db
 	_volume_tween = get_tree().create_tween()
 	_volume_tween.tween_interval(hold)
-	_volume_tween.tween_property(_player, "volume_db", _base_db, DUCK_RECOVER_TIME)
+	_volume_tween.tween_property(_player, "volume_db", _rest_db(), DUCK_RECOVER_TIME)
 
 
 ## Stop the bed. Idempotent.
