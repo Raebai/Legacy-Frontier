@@ -30,6 +30,46 @@ const DAGGER_PATH: String = "res://scripts/combat/RiftDagger.gd"
 const WARD_PATH: String = "res://scripts/combat/AegisWard.gd"
 const ARC_PATH: String = "res://scripts/combat/HorizonArc.gd"
 
+# ------------------------------------------------------- THE DROP ECONOMY ARMS
+## `SpellDef.Kind.HEX` and `.CATACLYSM` are the Tier 2 / Tier 3 pickup kinds, and
+## unlike every kind above them they do NOT map one-to-one onto a spectacle. Ten
+## drop spells share two arms and fork on the spell's ID through these tables.
+##
+## WHY, when every other kind here gets its own arm: a new `Kind` is not one edit,
+## it is SIX — this dispatcher plus `ReactionTable.form_for_kind`,
+## `CastStyle.for_spell`, `LoadoutBar._draw_glyph` and `BotBrain._effective_range`,
+## none of which error on a kind they do not know. Ten new kinds would have been
+## fifty places where nothing happens and nothing complains, in four files owned by
+## other agents. Two kinds is two.
+##
+## The precedent is already here: the ZONE arm forks Shadow Root off Blizzard on
+## the effect string and the METEOR arm forks Glacial Spine the same way. This is
+## that, keyed by id instead — which is strictly more precise, because an id is
+## unique and an effect string is shared by every spell of an element.
+##
+## A drop id with no entry falls through to `return false`, exactly like an unbuilt
+## kind: a safe no-op, never a crash.
+const HEX_SCRIPTS: Dictionary = {
+	"petrify": "res://scripts/combat/Petrify.gd",
+	"gravity_flip": "res://scripts/combat/GravityFlip.gd",
+	"blood_pact": "res://scripts/combat/BloodPact.gd",
+	"mirror_image": "res://scripts/combat/MirrorImage.gd",
+}
+const CATACLYSM_SCRIPTS: Dictionary = {
+	"the_void": "res://scripts/combat/VoidCollapse.gd",
+	"chronostasis": "res://scripts/combat/Chronostasis.gd",
+	"equinox": "res://scripts/combat/Equinox.gd",
+	# `roulette` is deliberately ABSENT: it has no spectacle of its own. It rolls
+	# one of the three above and re-enters `cast`. See `_roll_roulette`.
+}
+## What Roulette may roll, and how often it opens on the CASTER instead of on the
+## aim. The self-cast chance is the whole reason the spell is a gamble rather than
+## a free Tier 3 — with it at 0 there would be no reason ever to hold anything else.
+## UNTESTED GUESS: 1-in-4. Frequent enough to be a real fear, rare enough that the
+## spell is still worth casting.
+const ROULETTE_POOL: Array[String] = ["the_void", "chronostasis", "equinox"]
+const ROULETTE_SELF_CHANCE: float = 0.25
+
 
 # ------------------------------------------------------------- FRIENDLY FIRE
 ## THE SHARED GROUP EVERY DAMAGEABLE FIGHTER JOINS. Heroes join it in `Hero._ready`
@@ -157,7 +197,59 @@ static func _stamp(node: Node, elem: int, spell: SpellDef, caster: Node,
 ## does not change by one branch. A caller only passes something else when it
 ## deliberately wants a different faction, which today means a bot-driven hero
 ## (see `Hero.hostile_group`).
+## ⚠ THIS IS A WRAPPER. The 21-arm dispatch moved to `_dispatch` below, byte for
+## byte, and this function is now the THREE THINGS THAT MUST HAPPEN AROUND EVERY
+## CAST IN THE GAME rather than around some of them. All three come from the drop
+## economy, and every one of them would have been a bug if bolted onto individual
+## arms:
+##
+##   BEFORE — BLOOD PACT. `BloodPact.multiplier_for` is asked once, here, and the
+##            spell is dispatched as a boosted DUPLICATE. Doing it per-arm would
+##            have meant twenty-one chances to forget; doing it in place on the
+##            SpellDef would have left the hero permanently buffed, because a
+##            SpellDef is a Resource the hero keeps.
+##   AFTER  — CHARGES. A Tier 3 boss drop has 1-2 uses. The charge is spent HERE,
+##            on a cast that actually produced a spectacle, so a cast that fizzled
+##            on a bad kind does not cost the player their only Void.
+##   AFTER  — MIRROR IMAGE. A live clone repeats what its owner cast. Listening at
+##            this one seam is what makes the clone work for heroes, bots and any
+##            future co-op peer without any of them knowing clones exist.
+##
+## Signature, defaults and return value are unchanged, so every existing caller,
+## capture script and test is byte-identical.
 static func cast(
+	spell: SpellDef, arena: Node, caster_pos: Vector2, target_pos: Vector2,
+	fallback_color: Color, effect: String = "", caster: Node = null,
+	target_group: StringName = &"enemy"
+) -> bool:
+	if spell == null or arena == null or not arena.is_inside_tree():
+		return false
+	var thrown: SpellDef = _blood_pacted(spell, caster, arena)
+	if not _dispatch(thrown, arena, caster_pos, target_pos, fallback_color,
+			effect, caster, target_group):
+		return false
+	# The ORIGINAL is what the charge is spent against and what the clone repeats —
+	# never the boosted duplicate, which is a throwaway with the same id but a lie
+	# for a damage number.
+	SpellGrant.consume_charge(caster, spell)
+	MirrorImage.echo(caster, spell, target_pos, spell.resolve_color(fallback_color),
+		effect if effect != "" else spell.effect, arena)
+	return true
+
+
+## The spell as it should actually be thrown, given any Blood Pact its caster is
+## under. Returns `spell` UNCHANGED when there is no pact, so the common path
+## allocates nothing.
+static func _blood_pacted(spell: SpellDef, caster: Node, ctx: Node) -> SpellDef:
+	var mult: float = BloodPact.multiplier_for(caster, ctx)
+	if mult <= 1.0 or spell.damage <= 0:
+		return spell
+	var boosted: SpellDef = spell.duplicate() as SpellDef
+	boosted.damage = int(round(float(spell.damage) * mult))
+	return boosted
+
+
+static func _dispatch(
 	spell: SpellDef, arena: Node, caster_pos: Vector2, target_pos: Vector2,
 	fallback_color: Color, effect: String = "", caster: Node = null,
 	target_group: StringName = &"enemy"
@@ -414,9 +506,77 @@ static func cast(
 			_stamp(wd, elem, spell, caster, target_group)
 			wd.call("raise_ward", caster_pos, aim.normalized(), col, fx)
 			return true
+		SpellDef.Kind.HEX:
+			# TIER 2 FLOOR PICKUP. One arm, four spells, forked on id (see
+			# HEX_SCRIPTS). Every one of them takes the same entry function so the
+			# arm never has to know which it built:
+			#     hex(caster, origin, target, spell, color, fx)
+			# `target` is clamped to reach here — the hex that places itself
+			# (Petrify) wants that, and the ones that ignore position entirely
+			# (Blood Pact, Mirror Image) are free to discard it.
+			var hx_path: String = String(HEX_SCRIPTS.get(spell.id, ""))
+			if hx_path == "":
+				return false
+			var hto: Vector2 = aim
+			if spell.reach > 0.0 and hto.length() > spell.reach:
+				hto = hto.normalized() * spell.reach
+			var hx: Node2D = (load(hx_path) as GDScript).new()
+			arena.add_child(hx)
+			_stamp(hx, elem, spell, caster, target_group)
+			hx.call("hex", caster, caster_pos, caster_pos + hto, spell, col, fx)
+			return true
+		SpellDef.Kind.CATACLYSM:
+			# TIER 3 BOSS DROP. Roulette has no spectacle of its own — it rolls one
+			# of the others and re-enters, which is why it is handled before the
+			# table lookup rather than being a row in it.
+			if spell.id == "roulette":
+				return _roll_roulette(spell, arena, caster_pos, target_pos,
+					fallback_color, effect, caster, target_group)
+			var ct_path: String = String(CATACLYSM_SCRIPTS.get(spell.id, ""))
+			if ct_path == "":
+				return false
+			var kto: Vector2 = aim
+			if spell.reach > 0.0 and kto.length() > spell.reach:
+				kto = kto.normalized() * spell.reach
+			var ct: Node2D = (load(ct_path) as GDScript).new()
+			arena.add_child(ct)
+			_stamp(ct, elem, spell, caster, target_group)
+			ct.call("cataclysm", caster, caster_pos, caster_pos + kto, spell, col, fx)
+			Juice.zoom_pull_camera(0.24, 1.0, 0.24, 0.8)  # a boss drop reveals the room
+			return true
 		_:
 			# Any unbuilt kind: safe no-op until its scene exists.
 			return false
+
+
+## ROULETTE. Rolls one of the three built Tier 3 workings and casts it, sometimes
+## centred on the CASTER instead of on the aim.
+##
+## The rolled spell keeps its OWN stats — Roulette is not a cheap copy of The Void,
+## it IS The Void when it rolls The Void, at full damage and full radius. What
+## Roulette costs you instead is control: a quarter of the time it opens under your
+## feet, and neither the roll nor the target is shown before it commits.
+##
+## Re-enters `_dispatch`, NOT `cast`: going back through the wrapper would spend a
+## second charge and hand the mirror a second echo for one press.
+static func _roll_roulette(
+	spell: SpellDef, arena: Node, caster_pos: Vector2, target_pos: Vector2,
+	fallback_color: Color, effect: String, caster: Node, target_group: StringName
+) -> bool:
+	var rolled_id: String = ROULETTE_POOL[randi() % ROULETTE_POOL.size()]
+	var rolled: SpellDef = SpellLibrary.drop_by_id(rolled_id)
+	if rolled == null:
+		return false
+	# The roll is announced by the SPECTACLE that arrives, not by a label — you
+	# find out what you got the way everyone else in the room does.
+	var at: Vector2 = target_pos
+	if randf() < ROULETTE_SELF_CHANCE:
+		# ...on YOU. Nudged off the caster's exact feet so the aim vector inside the
+		# spectacle is never zero (a zero aim degrades to Vector2.RIGHT and would
+		# quietly place the working to the caster's right instead of on them).
+		at = caster_pos + Vector2(0.0, -1.0)
+	return _dispatch(rolled, arena, caster_pos, at, fallback_color, effect,
+		caster, target_group)
 
 
 ## Elemental ailment index (Elements.Element) a signature applies on hit: the
