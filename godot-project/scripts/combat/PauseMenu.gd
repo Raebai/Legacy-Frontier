@@ -13,7 +13,11 @@ signal exit_requested
 ## `open()`; they wire this to the same call and the menu stops being keyboard-only.
 signal pause_requested
 
-const CONTROLS_TEXT: String = "A / D   Move          W / Up   Jump\nSpace   Dash          LMB   Cast\nF   Melee          RMB   Parry / Block\nR   Blink          Q   AoE          T   Nova\nG   Ultimate          V   Cycle spell\nTab   Class          X   Element          C   Colour\nEsc   Pause"
+## ⚠ THE ONE PLACE THE SCHEME IS WRITTEN IN PROSE, so it drifts silently the moment a
+## binding moves. `1 / 2 / 3` are the three SPELL BUTTONS (`spell_1..3`) — the scheme
+## the whole right thumb is built around; `G` throws whichever of them is selected and
+## is what a bot pulls; `V` only moves that selection.
+const CONTROLS_TEXT: String = "A / D   Move          W / Up   Jump\nSpace   Dash          LMB   Cast\n1 / 2 / 3   Spells          RMB   Parry / Block\nF   Melee          R   Blink          Q   AoE          T   Nova\nG   Cast selected spell          V   Change selection\nTab   Class          X   Element          C   Colour\nEsc / the II button   Pause"
 
 ## -- the on-screen pause button (mobile) -------------------------------------
 ## ⚠ WITHOUT THIS THE SETTINGS MENU IS UNREACHABLE ON A PHONE. Every host opens the
@@ -39,10 +43,6 @@ const PAUSE_BTN_ALPHA: float = 0.55
 const PAUSE_BTN_LAYER: int = 50
 
 var _pause_layer: CanvasLayer = null
-## Set for exactly one frame while the pause BUTTON's synthesized `ui_cancel` is in
-## flight, so this node's own handler does not read its own event as "resume" and
-## close the menu the same frame the host opened it. See `_on_pause_pressed`.
-var _synth_cancel: bool = false
 var _pause_btn: Button = null
 var _quality_btn: Button = null
 
@@ -105,7 +105,20 @@ func _build_pause_button() -> void:
 	_pause_btn.tooltip_text = "Pause"
 	_pause_btn.custom_minimum_size = PAUSE_BTN_SIZE
 	_pause_btn.add_theme_font_size_override("font_size", 18)
+	_pause_btn.focus_mode = Control.FOCUS_NONE
 	_pause_btn.modulate = Color(1.0, 1.0, 1.0, PAUSE_BTN_ALPHA)
+	# Styled to match the touch pad's buttons rather than left on the default theme:
+	# on a phone this is the ONLY chrome outside the two thumb clusters, and a stock
+	# grey rectangle in the corner reads as debug UI rather than as an affordance.
+	# It also gets a real PRESS state, because a tap you cannot see land feels broken.
+	for state: String in ["normal", "hover", "pressed", "focus"]:
+		var sb := StyleBoxFlat.new()
+		var down: bool = state == "pressed"
+		sb.bg_color = Color(0.2, 0.24, 0.34, 0.55 + (0.3 if down else 0.0))
+		sb.set_corner_radius_all(int(PAUSE_BTN_SIZE.x * 0.35))
+		sb.border_color = Color(0.9, 0.96, 1.0, 0.85) if down else Color(0.8, 0.88, 1.0, 0.5)
+		sb.set_border_width_all(3 if down else 2)
+		_pause_btn.add_theme_stylebox_override(state, sb)
 	# Pinned to the top-right corner by anchors, so it lands in the same place on a
 	# phone, a tablet and a resized desktop window without anyone computing a position.
 	_pause_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
@@ -117,36 +130,39 @@ func _build_pause_button() -> void:
 	holder.add_child(_pause_btn)
 
 
-## Tapped. TWO ROUTES, and the fallback is the one that matters today.
+## Tapped. TWO ROUTES, and the fallback is now a real one rather than a stopgap.
 ##
 ## If a host has connected `pause_requested`, that wins — an explicit wire is always
 ## better than a guess, and a host that wants to save the run or duck the music before
 ## opening needs somewhere to do it.
 ##
-## OTHERWISE THE BUTTON SYNTHESIZES `ui_cancel`, the action every existing host already
-## listens for. That is deliberate rather than lazy: `Arena.gd` and `VersusArena.gd`
-## both open the menu on `ui_cancel` and nothing else, they are owned elsewhere, and a
-## signal nobody has connected yet is a pause button that does not pause. Emitting the
-## key they are already waiting for makes the button work in every scene that has a
-## menu at all, with zero edits outside this file, and it keeps ONE pause path rather
-## than a second one that can drift from the Esc path.
+## OTHERWISE THIS BUTTON PAUSES THE GAME ITSELF: `get_tree().paused = true` + `open()`,
+## which is verbatim what `Arena._set_paused(true)` and `VersusArena._set_paused(true)`
+## do. RESUMING still goes out through `resume_requested`, so the host stays the owner
+## of un-pausing and nothing about the Esc path moves.
 ##
-## `_synth_cancel` is why the menu does not open and instantly close: the synthesized
-## event also reaches this node's own `_unhandled_input`, which treats `ui_cancel` as
-## "resume". The flag makes exactly one such event pass through untouched.
+## ⚠ IT USED TO SYNTHESIZE `ui_cancel` through `Input.parse_input_event`, and that was
+## a stopgap with three real problems, not merely an inelegant one:
+##   1. Input is PROCESS-GLOBAL. A synthesized action reaches every listener in the
+##      tree — the class picker, the loadout screen, the conversation bar all treat
+##      `ui_cancel` as "close me". Tapping PAUSE fired all of them.
+##   2. It needed `_synth_cancel`, a one-frame flag racing an asynchronously dispatched
+##      event, to stop this node reading its OWN synthetic press as "resume" and
+##      closing the menu on the frame it opened. A timing flag guarding a timing bug.
+##   3. It only worked at all because two hosts happened to listen for that exact
+##      action. A third host, or a host that later moved to a dedicated `pause`
+##      action, would have had a pause button that silently did nothing.
+## Calling the pause directly has none of those failure modes and is the same two
+## lines the hosts run.
 func _on_pause_pressed() -> void:
 	if pause_requested.get_connections().size() > 0:
 		pause_requested.emit()
 		return
-	_synth_cancel = true
-	var ev := InputEventAction.new()
-	ev.action = &"ui_cancel"
-	ev.pressed = true
-	Input.parse_input_event(ev)
-	# Cleared on the next frame rather than immediately: input is dispatched
-	# asynchronously, so clearing it here would clear it before the event arrives.
-	await get_tree().process_frame
-	_synth_cancel = false
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	tree.paused = true
+	open()
 
 
 ## Show or hide the on-screen pause button. Hosts that have no business showing one —
@@ -412,12 +428,6 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not visible:
 		return
 	if event.is_action_pressed("ui_cancel"):
-		# Our own pause button's synthesized event, arriving after the host already
-		# used it to open us. Swallow it once instead of treating it as a resume.
-		if _synth_cancel:
-			_synth_cancel = false
-			get_viewport().set_input_as_handled()
-			return
 		resume_requested.emit()
 		get_viewport().set_input_as_handled()
 
