@@ -31,8 +31,25 @@ const WEAPON_TINT: Color = Color(0.78, 0.82, 0.95)
 ## The selected slot lifts slightly. Movement reads faster than a colour change
 ## when your eyes are on the fight rather than the bar.
 const SELECTED_LIFT: float = 3.0
+## READY-FLASH — the "you can act NOW" beat, thrown once as a slot comes back.
+## Matches `AbilityBar`'s so the two bars read as one system.
+const READY_FLASH_COLOR: Color = Color(0.6, 0.95, 1.0)
+const READY_FLASH_TIME: float = 0.38
+const READY_FLASH_GROW: float = 7.0
+## Key hint drawn on the spell slots. The Nth spell in the carousel is `spell_N`, so
+## the bar can name the button that reaches it instead of leaving the player to guess.
+const KEY_FONT_SIZE: int = 9
+const KEY_TEXT_COLOR: Color = Color(0.95, 0.96, 1.0, 0.9)
 
 var slots: HandSlots = null
+## Per-slot flash timers + the ready-edge latch behind them.
+##
+## Latched HERE, unlike `AbilityBar` — which takes its pulse from the hero — because
+## this bar renders a `HandSlots` model handed to it directly (the spike playground's),
+## with no hero contract behind it and no second reader of that same model to disagree
+## with. One owner either way; it is just a different owner.
+var _flash: Array[float] = []
+var _was_ready: Array[bool] = []
 
 
 func _ready() -> void:
@@ -47,8 +64,28 @@ func _ready() -> void:
 		vp.size_changed.connect(func() -> void: size = vp.get_visible_rect().size)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	_tick_flashes(delta)
 	queue_redraw()
+
+
+## Age the flashes and catch the not-ready -> ready edge on every slot.
+func _tick_flashes(delta: float) -> void:
+	var n: int = 0 if slots == null else slots.slots.size()
+	if _flash.size() != n:
+		_flash.resize(n)
+		_was_ready.resize(n)
+		for i: int in n:
+			_flash[i] = 0.0
+			# Seeded from the LIVE state: seeding "ready" would make every slot that
+			# happened to be recovering when the bar appeared flash once for nothing.
+			_was_ready[i] = slots.is_ready(i)
+	for i: int in n:
+		_flash[i] = maxf(_flash[i] - delta, 0.0)
+		var now: bool = slots.is_ready(i)
+		if now and not _was_ready[i]:
+			_flash[i] = READY_FLASH_TIME
+		_was_ready[i] = now
 
 
 ## Top-left corner of slot `i`, in this control's space.
@@ -87,6 +124,8 @@ func _draw() -> void:
 	if slots == null or slots.slots.is_empty():
 		return
 	var count: int = slots.slots.size()
+	var font: Font = ThemeDB.fallback_font
+	var spell_n: int = 0
 	for i in count:
 		var entry: Dictionary = slots.slots[i]
 		var pos: Vector2 = _slot_pos(i, count)
@@ -97,16 +136,41 @@ func _draw() -> void:
 		# Cooldown veil sweeps DOWNWARD as it recovers, so a nearly-ready slot is
 		# nearly clear. Reading "how much is left" from a shrinking veil is faster
 		# than reading a number mid-fight.
+		#
+		# ⚠ `cooldown_total` IS THE DENOMINATOR, AND NOTHING USED TO WRITE IT. The old
+		# `.get("cooldown_total", cd)` fallback quietly made total == remaining, so the
+		# fraction was 1.0 on every frame: the veil sat at FULL height for the whole
+		# cooldown and then vanished. The bar was never broken — it was being handed a
+		# number nobody had ever set. `HandSlots.start_cooldown` writes it now, so the
+		# fallback is dead code; it is kept, warns, and draws a full veil, because a
+		# slot on cooldown with no recorded duration is a real bug and reading "not yet"
+		# is the safe wrong answer.
 		var cd: float = float(entry.get("cooldown", 0.0))
 		if cd > 0.0:
-			var total: float = maxf(float(entry.get("cooldown_total", cd)), 0.001)
-			var frac: float = clampf(cd / total, 0.0, 1.0)
+			var total: float = float(entry.get("cooldown_total", 0.0))
+			if total <= 0.0:
+				push_warning("LoadoutBar: slot %d is on cooldown with no cooldown_total" % i)
+				total = cd
+			var frac: float = clampf(cd / maxf(total, 0.001), 0.0, 1.0)
 			draw_rect(Rect2(pos, Vector2(SLOT, SLOT * frac)), COOLDOWN_VEIL, true)
 		draw_rect(box, BORDER_SELECTED if is_sel else BORDER, false, 2.0 if is_sel else 1.0)
 		if is_sel:
 			# A soft outer glow so the selected slot survives a busy background.
 			draw_rect(box.grow(2.0), Color(BORDER_SELECTED.r, BORDER_SELECTED.g,
 				BORDER_SELECTED.b, 0.35), false, 1.0)
+		# The key that reaches this slot. Spells are numbered in carousel order, which
+		# IS the kit-slot order Hero binds `spell_1..3` to.
+		if int(entry.get("kind", HandSlots.Kind.FISTS)) == HandSlots.Kind.SPELL:
+			spell_n += 1
+			draw_string(font, pos + Vector2(3.0, float(KEY_FONT_SIZE) + 1.0), str(spell_n),
+				HORIZONTAL_ALIGNMENT_LEFT, -1, KEY_FONT_SIZE, KEY_TEXT_COLOR)
+		# ...and the flare when it came back. Outside every other branch so a slot that
+		# is re-cast within the flash window still gets to finish flashing.
+		var flash: float = 0.0 if i >= _flash.size() else _flash[i] / READY_FLASH_TIME
+		if flash > 0.0:
+			draw_rect(box.grow(READY_FLASH_GROW * (1.0 - flash)),
+				Color(READY_FLASH_COLOR.r, READY_FLASH_COLOR.g, READY_FLASH_COLOR.b, flash),
+				false, 2.0)
 
 
 ## Procedural icon per slot. Shape comes from what the thing DOES (its kind) and

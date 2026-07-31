@@ -48,6 +48,22 @@ const DISABLED_ALPHA: float = 0.32
 const SELECTED_COLOR: Color = Color(1.0, 0.94, 0.72, 0.95)
 const SELECTED_GROW: float = 2.5
 const SELECTED_WIDTH: float = 1.5
+## THE READY-FLASH: "you can act NOW", said once, at the moment it becomes true.
+##
+## The resting `READY_GLOW` answers "is this usable" for a player who LOOKS at the bar.
+## It cannot answer "it just came back" for a player who is looking at the fight, which
+## is every player — a static border has no event in it. So a slot that transitions to
+## ready throws a frame that expands OUTWARD and fades: motion, which peripheral vision
+## is built to catch, in the cool accent the bar already uses for readiness.
+##
+## The EDGE is detected by the hero (`Hero._tick_ready_pulse`) and arrives here as a
+## 1 -> 0 `pulse` in the slot dictionary. Deliberately not latched here: this bar is
+## rebuilt from a poll every frame and is not even in the tree in some scenes, so a
+## HUD-side latch would miss edges that happened while it was away, and a second HUD
+## reading the same hero would keep its own private, differently-wrong copy.
+const READY_FLASH_COLOR: Color = Color(0.6, 0.95, 1.0)
+const READY_FLASH_GROW: float = 9.0
+const READY_FLASH_WIDTH: float = 2.5
 
 ## Snapshot of the hero's slot dictionaries, refreshed once per frame in
 ## _process and consumed by _draw. Empty = draw nothing (no hero this scene).
@@ -64,7 +80,31 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
+## THE HOTBAR STANDS DOWN WHEN THE TOUCH PAD IS LIVE.
+##
+## Not a preference — the two collide. This bar is nine slots centred across the bottom
+## of the screen; the pad's spell arc and DASH sit in the bottom-right corner, and at
+## 640x360 base their rectangles physically overlap (measured in a capture, not
+## reasoned about). Worse, most of what the bar draws — Q, R, T, LMB — names verbs a
+## thumb cannot reach at all under the three-button scheme, so the overlap was buying
+## the phone player a cooldown readout for buttons they do not have.
+##
+## The pad carries its own veils and ready-flashes on every button it DOES show, from
+## the same `Hero` publishers this bar reads, so nothing is lost on that platform.
+##
+## Gated on a live pad rather than on `DisplayServer.is_touchscreen_available()`,
+## because a touchscreen laptop played with a keyboard must keep its hotbar — and
+## `TouchControls` only joins the group when it has actually shown itself.
+func _touch_pad_live() -> bool:
+	return get_tree().get_first_node_in_group(TouchControls.PAD_GROUP) != null
+
+
 func _process(_delta: float) -> void:
+	if _touch_pad_live():
+		_slots = []
+		_class_name = ""
+		queue_redraw()
+		return
 	# Poll-don't-push: cooldown timers tick every frame anyway, so a per-frame
 	# read of the hero contract is simpler than plumbing signals for 6 slots.
 	var hero: Node = get_tree().get_first_node_in_group("hero")
@@ -228,6 +268,15 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
 		# Ready: a brighter accent border so the eye reads "usable" without
 		# the slot shouting. Disabled slots never glow.
 		draw_rect(rect, READY_GLOW_COLOR, false, READY_GLOW_WIDTH)
+	# The flash rides OVER the cooldown branch rather than inside the `elif`: a slot
+	# that recovers and is re-cast within READY_PULSE_TIME is back on cooldown when
+	# this runs, and swallowing its flash would silence exactly the fastest, most
+	# satisfying rotation the player can pull off.
+	var pulse: float = clampf(float(slot.get("pulse", 0.0)), 0.0, 1.0)
+	if pulse > 0.0 and enabled:
+		draw_rect(rect.grow(READY_FLASH_GROW * (1.0 - pulse)),
+			Color(READY_FLASH_COLOR.r, READY_FLASH_COLOR.g, READY_FLASH_COLOR.b, pulse),
+			false, READY_FLASH_WIDTH)
 
 
 ## Return `color` with its alpha scaled by `factor` — the one-line dimming
