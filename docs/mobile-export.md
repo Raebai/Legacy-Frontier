@@ -300,6 +300,18 @@ which nothing here uses. Harmless hygiene, not a win; don't count it as one.
 and `SpellPlaygroundController.gd:87` overrides it to 120 — pinning the shipping
 value makes that leak visible instead of silent. The rig sub-steps at 1/480 off
 `_physics_process`, so **lowering this is a feel change, not a free saving.**
+
+> **The rig sub-step was investigated as a performance lever on 2026-07-31 and
+> deliberately left alone.** `CharacterRig` runs two springs at 1/480 s, i.e. 8
+> sub-steps per body per physics frame, which at 25 bodies looks like a lot of
+> integration. It is not where the time is: ablating the entire rig tick — springs,
+> limb sim, gait and all — across the whole 25-body crowd moved a ~35 ms frame by
+> **~1.4 ms (4%)**, and the sub-step loop is only a fraction of that. Scaling the
+> sub-step rate by distance or under load could therefore recover well under a
+> millisecond, in exchange for putting a hand-tuned landing (the spring numbers
+> are the spike's, and the sub-stepping is explicitly *"NOT AN OPTIMISATION
+> DETAIL — IT IS THE LANDING"*) onto a variable integration budget that would make
+> the feel depend on how busy the screen is. Bad trade. Not done.
 `max_physics_steps_per_frame` (default 8) is the other mobile-relevant knob — a
 lower value makes a hitching phone slow down rather than spiral — but it is
 untested here and changes gameplay timing, so it is left alone and noted.
@@ -405,11 +417,60 @@ real 960 px room so collision density is representative.
 **Scaling is sub-linear** — 3.1× the entities costs 1.7× the physics — so there
 is no O(n²) hiding in the crowd. That is the good news.
 
-**The sober read:** 7.09 ms of CPU at the ceiling, on a desktop, with the GPU
-contributing nothing. A three-year-old mid-range Android core is roughly 3–5×
-slower single-threaded, which puts the same frame at **~21–35 ms of CPU before a
-single pixel is drawn** — at or past the 30 fps budget on CPU alone. Treat 25
-concurrent entities as a number that must be *measured* on device, not assumed.
+> ⚠ **THE 7.09 FIGURE ABOVE IS A FLOOR, NOT A CEILING, AND WAS READ AS A CEILING
+> FOR A WHILE.** That run measured a crowd *walking*. Nothing in it ever cast
+> anything, so the magic-circle sigils now on all 22 spells, the spell-vs-spell
+> reaction sweep, the impact-frame arbiter, the element ailments and every
+> particle burst contributed exactly zero to it. The table is kept because the
+> sub-linear scaling result is still valid — it is the crowd's own cost — but it
+> is not the frame.
+
+### With spells actually being cast (`++casting=1`), 2026-07-31
+
+Same 25 entities, the real roster cycled through the real dispatcher:
+
+| concurrent spell effects | CPU per frame |
+|---|---|
+| 0 | 8.7 ms |
+| 1 | 14.2 ms |
+| 4 | 20.9 ms |
+| 9 | 32.3 ms |
+| 19 | 34.3 ms |
+
+**Roughly +2.6 ms of desktop CPU per live spell effect**, and until the VFX
+budget landed nothing capped the count. This is the largest single cost driver
+in the frame — far larger than the rig (~1.4 ms for all 25 figures), the enemy
+AI, or the reaction sweep (~0.9 ms), all three of which measure within noise of
+each other by ablation.
+
+**The sober read:** ~30 ms of CPU at the spec's own 8-effect ceiling, on a
+desktop, with the GPU contributing nothing. A three-year-old mid-range Android
+core is roughly 3–5× slower single-threaded, which puts that frame at **~90–150
+ms before a single pixel is drawn.** The 25-entity crowd is not the problem; the
+spells on top of it are. Treat both as numbers that must be *measured* on device.
+
+> **Two harness bugs found and fixed on 2026-07-31, both of which made earlier
+> numbers untrustworthy:**
+>
+> - **`++quality=low` had never once forced LOW.** It ran inside `_initialize()`,
+>   where the root is not yet the active tree, so the `Tuning` lookup printed
+>   "Can't use get_node() with absolute paths from outside the active scene tree",
+>   returned null, and the null-guard meant to make it safe under `--script`
+>   swallowed the failure. Every "LOW" figure the harness printed was a HIGH run
+>   wearing a LOW label. It now runs on the first physics tick and prints what it
+>   resolved to.
+> - **Runs were not deterministic.** Spells draw from the global RNG and the crowd
+>   was being killed off mid-run, so the second half of a measurement was a
+>   different experiment from the first, and two runs of the same command
+>   disagreed by 40%. `++seed` and `++immortal` fix both; the cast count is now
+>   identical run to run.
+>
+> **Wall-clock on this machine still is not trustworthy to better than ~±30%.**
+> Identical seeded 37-cast runs timed 33 ms and 57 ms twenty minutes apart purely
+> from background load. That is why the harness now also prints deterministic
+> WORK counters (particles requested vs emitted, debris requested vs made, decals
+> spawned vs skipped) and why `tools/slice_test_perf_budget.gd` asserts against
+> those rather than against times.
 
 > ⚠ Headless runs the **dummy renderer**. Every number above is CPU. The GPU
 > cost — which is what actually decides whether this holds 30 fps on a tile GPU —
@@ -435,14 +496,29 @@ In order. Each is a smaller loss than the one after it.
    ambient motes 40→16. **Set `graphics_quality = LOW` on the desktop to see the
    phone's picture without a phone** — that is the whole reason it is a dial and
    not an `OS.has_feature` check.
+
+   Since 2026-07-31 LOW is also a **CPU/content** lever, not only a shader gate:
+   it carries a tighter live-spell-VFX budget (5 concurrent effects against
+   HIGH's 8), which measurably thins particles ~26%, debris ~27% and scorch
+   decals ~80% on a crowded screen. That mattered because everything LOW gated
+   before was GPU-side, while the measured problem at the ceiling is ~30 ms of
+   *CPU* before anything is drawn — LOW was saving nothing on the axis that was
+   actually over budget.
 2. **`viewport/hdr_2d.mobile=false`** in `[rendering]`. Halves colour-buffer
    bandwidth. Costs the bloom; retune `combat_glow.tres`'s `glow_hdr_threshold`
    below 1.0 with `background_mode = Canvas` to get some of it back.
 3. **`anti_aliasing/quality/msaa_2d.mobile=0`.** The rig's lines will crawl. Try
    this only after 2.
-4. **Lower the live-entity ceiling** below 25 in `Encounter`. A gameplay change,
-   and the one most likely to be *felt*; make it deliberately.
-5. **`renderer/rendering_method.mobile="gl_compatibility"`.** Last resort — it
+4. **Lower the live-SPELL-VFX budget** below 8 in
+   `SpellReactorNode.SPECTACLE_BUDGET_HIGH` / `_LOW`. Measured at ~2.6 ms of
+   desktop CPU per concurrent effect, this is the steepest lever on the list and
+   it degrades gracefully by design — the garnish thins, no spell is ever dropped
+   or hidden. Try it before touching the entity ceiling below.
+5. **Lower the live-entity ceiling** below 25 in `Encounter`. A gameplay change,
+   and the one most likely to be *felt*; make it deliberately. Note the crowd is
+   the *smaller* half of the cost: 25 entities alone are 8.7 ms, the spells on
+   top of them are the other ~22 ms.
+6. **`renderer/rendering_method.mobile="gl_compatibility"`.** Last resort — it
    removes `hdr_2d` and MSAA outright (§4), so it is a different-looking game.
 
 ---
@@ -457,5 +533,21 @@ In order. Each is a smaller loss than the one after it.
   `TouchControls.gd:41-43` self-documents its numbers as untested guesses.
 - **The perf overlay's thermal read is a method, not a result.** Nobody has held
   the phone for ten minutes yet.
+- **The frame is over budget on CPU alone, at the spec's own ceiling.** ~30 ms
+  desktop with 8 concurrent spell effects and 25 entities → ~90–150 ms on the
+  target device. The VFX budget bounds the *worst* case (it was unbounded), but
+  it does not make the in-budget case cheap. The remaining cost is inside the
+  spell spectacles' own `_process` / `_physics_process` / `_draw`, spread thinly
+  across ~32 scripts rather than concentrated anywhere ablation can find. Nobody
+  has profiled *inside* a spectacle yet; `tools/stress_spell_cost.gd` casts one
+  spell id at a time and is the tool for it, but its per-spell deltas are still
+  noisy with cross-contamination from lingering zones and DoTs (settle window
+  needs to exceed the longest spell lifetime, currently it does not).
+- **The pooling question is answered for the shared services and open for the
+  spectacles.** `Sfx` (32 voices), `DamageNumber` and `CombatVfx` are real pools.
+  Spell spectacles are still `.new()` + `add_child()` per cast, and co-op doubles
+  that because every peer rebuilds them — but they are 32 scripts in another
+  agent's ownership, and the measurement says their per-frame cost dominates
+  their allocation cost, so pooling them is not obviously the first move.
 - **Music re-encoding** (§5) is the largest single size win and is not done.
 - **`max_physics_steps_per_frame`** is untuned for mobile (§4).
