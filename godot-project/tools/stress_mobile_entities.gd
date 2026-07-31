@@ -42,11 +42,37 @@ const ARCHETYPES: Array[int] = [0, 1, 2, 3]
 ## far more than 25 strung across 1800px would. Measuring the loose version would
 ## flatter the crowd the game actually builds.
 const ROOM_WIDTH: float = 960.0
+## Casts per second when `++casting=1`. 4 Hz keeps roughly 4-8 spectacles alive at
+## once given typical spell lifetimes (0.3-1.6 s) — i.e. it sits ON the spec's
+## 8-active-VFX ceiling rather than politely under it, which is the only rate that
+## tells us anything about the ceiling.
+const DEFAULT_CAST_HZ: float = 4.0
 
 var _arena: SimArena = null
 var _entities: int = DEFAULT_ENTITIES
 var _seconds: float = DEFAULT_SECONDS
 var _force_low: bool = false
+## Cast real spells from the crowd. OFF by default so the historical baseline in
+## docs/mobile-export.md stays reproducible with the same command line.
+var _casting: bool = false
+var _cast_hz: float = DEFAULT_CAST_HZ
+## Ablation switch — see `_apply_ablation`. Measurement only; never a shipping path.
+var _ablate: String = ""
+## Cast ONE spell id over and over instead of cycling the roster. This is the
+## attribution mode: the mixed roster tells you the frame is expensive, and only
+## a per-spell sweep tells you WHICH spell to go and look at.
+var _only_spell: String = ""
+var _seed: int = 20260731
+## Keep the crowd alive for the whole run. Without it the spells kill the crowd,
+## the population halves halfway through, and the second half of the measurement is
+## a different experiment from the first — which is most of why two runs of the same
+## command used to disagree.
+var _immortal: bool = false
+var _hero: Node = null
+var _spells: Array = []
+var _spell_i: int = 0
+var _cast_accum: float = 0.0
+var _casts: int = 0
 var _spawn_delay: int = 2
 var _spawned: bool = false
 var _frames: int = 0
@@ -60,20 +86,31 @@ var _warm: int = 0
 var _phys_ms: PackedFloat64Array = PackedFloat64Array()
 var _proc_ms: PackedFloat64Array = PackedFloat64Array()
 var _done: bool = false
+## Peak concurrent spell spectacles seen during the measured window — the number
+## the spec's 8-active-VFX ceiling is about. Counted the same way the shipping
+## census counts, so the harness and the cap cannot disagree.
+var _peak_spectacles: int = 0
+var _peak_nodes: int = 0
+
+
+## Enemy HP when `++immortal=1`. See `_spawn_crowd`.
+const IMMORTAL_HP: int = 100000000
 
 
 func _initialize() -> void:
 	_parse_args()
-	print("[stress] entities=%d seconds=%.1f quality=%s"
-		% [_entities, _seconds, "LOW(forced)" if _force_low else "auto"])
-	if _force_low:
-		# Exercises the mobile code paths (thinned motes, no screen-reading
-		# shaders) on a desktop run. Cosmetic under the dummy renderer, but it
-		# also flips the branches those decisions live in, so a crash in the LOW
-		# path shows up here rather than on the phone.
-		var t: Node = root.get_node_or_null(^"/root/Tuning")
-		if t != null and t.get(&"cfg") != null:
-			t.cfg.set(&"graphics_quality", TuningConfig.Quality.LOW)
+	# DETERMINISM, and it is not optional for a tool that exists to compare two
+	# builds. Spells are full of `randf()` — spread arcs, debris jitter, crack
+	# geometry, meteor scatter — all drawn from the GLOBAL RNG, so two runs of the
+	# same command took different paths through the frame and the harness reported a
+	# +-40% spread. A 15% improvement is invisible inside that, which means an
+	# unseeded run cannot answer the only question this tool is for.
+	seed(_seed)
+	print("[stress] entities=%d seconds=%.1f quality=%s casting=%s seed=%d%s%s"
+		% [_entities, _seconds, "LOW(forced)" if _force_low else "auto",
+			("%.1fHz" % _cast_hz) if _casting else "off", _seed,
+			" immortal" if _immortal else "",
+			("" if _ablate == "" else " ABLATE=" + _ablate)])
 	_arena = SimArena.new()
 	root.add_child(_arena)
 
@@ -88,6 +125,7 @@ func _physics_process(delta: float) -> bool:
 	if _spawn_delay > 0:
 		_spawn_delay -= 1
 		if _spawn_delay == 0:
+			_force_quality()
 			_spawn_crowd()
 		return false
 	if not _spawned:
@@ -97,16 +135,42 @@ func _physics_process(delta: float) -> bool:
 	else:
 		_phys_ms.append(Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
 		_proc_ms.append(Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0)
+		_peak_nodes = maxi(_peak_nodes,
+			int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)))
 	_frames += 1
 	# Keep the pools genuinely exercised: a crowd that never takes a hit never
 	# spawns a damage number, and the pooling work would go unmeasured.
 	if _frames % 3 == 0:
 		_churn()
+	if _casting:
+		_drive_casts(delta)
 	if float(_frames) * delta >= _seconds:
 		_report()
 		_done = true
 		quit(0)
 	return false
+
+
+## Force the cheap picture, exercising the mobile branches (thinned motes, no
+## screen-reading shaders, the tighter VFX budget) on a desktop run.
+##
+## ⚠ THIS RUNS FROM `_physics_process`, NOT `_initialize`, AND THAT IS A BUG FIX.
+## It used to sit in `_initialize`, where the SceneTree root is not yet the active
+## tree — so `get_node_or_null("/root/Tuning")` printed "Can't use get_node() with
+## absolute paths from outside the active scene tree", returned null, and the
+## function quietly did nothing. `++quality=low` therefore never once forced LOW,
+## and every "LOW" figure this harness has ever printed was a HIGH run wearing a
+## LOW label. Silent because the null was handled gracefully — the guard that was
+## supposed to make it safe under `--script` is what hid the failure.
+func _force_quality() -> void:
+	if not _force_low:
+		return
+	var t: Node = root.get_node_or_null(^"/root/Tuning")
+	if t == null or t.get(&"cfg") == null:
+		print("[stress] ⚠ could not reach the Tuning autoload — LOW NOT APPLIED")
+		return
+	t.cfg.set(&"graphics_quality", TuningConfig.Quality.LOW)
+	print("[stress] quality forced LOW (quality_is_low=%s)" % TuningConfig.quality_is_low())
 
 
 func _spawn_crowd() -> void:
@@ -117,10 +181,120 @@ func _spawn_crowd() -> void:
 	var foes: int = maxi(_entities - 1, 0)
 	for i: int in foes:
 		var x: float = -half + fmod(float(i) * 137.0, ROOM_WIDTH)
-		_arena.spawn_enemy(ARCHETYPES[i % ARCHETYPES.size()], x)
+		if _immortal:
+			_arena.spawn_enemy(ARCHETYPES[i % ARCHETYPES.size()], x, IMMORTAL_HP)
+		else:
+			_arena.spawn_enemy(ARCHETYPES[i % ARCHETYPES.size()], x)
 	_spawned = true
 	print("[stress] spawned %d entities (live count reports %d)"
 		% [_entities, PerfOverlay.live_entity_count()])
+	if _casting:
+		_arm_casting()
+	_apply_ablation()
+
+
+# --------------------------------------------------------------------- casting
+## THE REASON THIS HARNESS WAS EXTENDED. The original measured a CROWD: 25 bodies
+## walking, colliding and thinking. It never cast a single spell, so every system
+## added since — the magic-circle sigil that now opens on all 22 spells, the
+## spell-vs-spell reaction sweep, the impact-frame arbiter, the particle bursts,
+## the element ailments, the damage numbers those produce — contributed exactly
+## nothing to the number in docs/mobile-export.md.
+##
+## That number was therefore a floor, not a ceiling, and it was being read as a
+## ceiling. Casting is what makes it honest.
+func _arm_casting() -> void:
+	_hero = _arena.get_node_or_null(^"Hero") as Node
+	for c: Node in _arena.get_children():
+		if c is CharacterBody2D and c.is_in_group(&"hero"):
+			_hero = c
+			break
+	# Every spell in the game, cycled, so no single cheap kind flatters the run.
+	# `build_all` is the full roster including the Tier 2 / Tier 3 drop spells.
+	_spells = SpellLibrary.build_all()
+	if _only_spell != "":
+		var one: Array = []
+		for s: SpellDef in _spells:
+			if s.id == _only_spell:
+				one.append(s)
+		if one.is_empty():
+			print("[stress] no spell with id '%s' — casting the full roster" % _only_spell)
+		else:
+			_spells = one
+	print("[stress] casting armed: %d spells%s, %.1f Hz, caster=%s"
+		% [_spells.size(), "" if _only_spell == "" else " (only '%s')" % _only_spell,
+			_cast_hz, "hero" if _hero != null else "NONE"])
+
+
+func _drive_casts(delta: float) -> void:
+	if _spells.is_empty() or _hero == null or not is_instance_valid(_hero):
+		return
+	_cast_accum += delta
+	var period: float = 1.0 / maxf(_cast_hz, 0.01)
+	while _cast_accum >= period:
+		_cast_accum -= period
+		var spell: SpellDef = _spells[_spell_i % _spells.size()]
+		_spell_i += 1
+		# Aim across the room, cycling so shots land in different places and the
+		# reaction sweep sees genuinely crossing pairs rather than a stacked column.
+		var half: float = ROOM_WIDTH * 0.5
+		var tx: float = -half + fmod(float(_spell_i) * 211.0, ROOM_WIDTH)
+		var origin: Vector2 = (_hero as Node2D).global_position
+		SpellCaster.cast(spell, _arena, origin,
+			Vector2(tx, SimArena.FLOOR_Y - 50.0), Color(0.6, 0.8, 1.0),
+			spell.effect, _hero, &"mortal")
+		_casts += 1
+	_peak_spectacles = maxi(_peak_spectacles, _count_spectacles())
+
+
+## Live spell spectacles under the arena. Counted by the property `SpellCaster`
+## stamps onto every one of its 21 dispatch arms — `get()` on a property a node
+## has not declared returns null, so this is exactly "a node built by the spell
+## dispatcher" and nothing else.
+func _count_spectacles() -> int:
+	var n: int = 0
+	for c: Node in _arena.get_children():
+		if c.get(&"spell_tier") != null and c.get(&"caster_node") != null:
+			n += 1
+	return n
+
+
+# ------------------------------------------------------------------- ablation
+## MEASUREMENT ONLY — never a shipping path, and every mode here changes FEEL.
+## The point is to answer "where does the frame actually go" by subtraction,
+## because GDScript has no sampling profiler under `--script` and optimising from
+## reasoning is how you spend a day making something 2% faster.
+func _apply_ablation() -> void:
+	match _ablate:
+		"":
+			return
+		"rig":
+			# Stop the character rigs ticking. Isolates the two body springs +
+			# limb sim + gait across the whole crowd. The figures freeze mid-pose;
+			# this tells us the rig's share of the frame and NOTHING about feel.
+			var n: int = 0
+			for body: Node in _arena.get_children():
+				var rig: Node = body.get(&"rig") as Node
+				if rig != null and is_instance_valid(rig):
+					rig.set_physics_process(false)
+					n += 1
+			print("[stress] ABLATED rig: %d rigs stopped ticking" % n)
+		"reactor":
+			# Stop the 30 Hz spell-vs-spell pair sweep.
+			var r: Node = root.get_node_or_null(^"/root/SpellReactor")
+			if r != null:
+				r.set_process(false)
+				print("[stress] ABLATED reactor: pair sweep off")
+		"ai":
+			# Stop enemy brains. Isolates archetype AI + steering from physics.
+			var n2: int = 0
+			for body: Node in _arena.get_children():
+				if body is CharacterBody2D and body.is_in_group(&"enemy"):
+					body.set_physics_process(false)
+					n2 += 1
+			print("[stress] ABLATED ai: %d enemies stopped ticking" % n2)
+		_:
+			print("[stress] unknown ablation '%s' — running unmodified" % _ablate)
 
 
 ## Drive the two pools at a combat-plausible rate so their cost is inside the
@@ -172,11 +346,52 @@ func _report() -> void:
 	print("[stress] pools         dmg alive %d pooled %d | vfx pooled %d"
 		% [DamageNumber.alive_count(), DamageNumber.pooled_count(),
 			CombatVfx.pooled_count()])
-	print("[stress] nodes         %d" % int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)))
+	print("[stress] nodes         %d (peak %d)"
+		% [int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)), _peak_nodes])
 	print("[stress] 2d bodies     %d" % int(Performance.get_monitor(Performance.PHYSICS_2D_ACTIVE_OBJECTS)))
+	if _casting:
+		print("[stress] casts         %d  |  PEAK LIVE SPECTACLES %d  (budget %d)"
+			% [_casts, _peak_spectacles, _vfx_budget()])
+		print("[stress] reactor       tracked %d (MAX_LIVE %d)  reactions fired %d"
+			% [_reactor_live(), SpellReactorNode.MAX_LIVE, _reactor_fired()])
+	# THE PRIMARY RESULT. Deterministic for a given seed, and therefore the only
+	# numbers here that can be compared between two runs on a machine somebody else
+	# is also using. `granted` below `requested` is the VFX budget doing its job.
+	var v: Dictionary = CombatVfx.work_stats()
+	var d: Dictionary = DebrisChunk.work_stats()
+	var s: Dictionary = ScorchDecal.work_stats()
+	print("[stress] WORK particles  %d bursts, %d requested -> %d emitted (%.0f%% cut)"
+		% [v["bursts"], v["requested"], v["granted"], _cut_pct(v["requested"], v["granted"])])
+	print("[stress] WORK debris     %d requested -> %d made (%.0f%% cut)"
+		% [d["requested"], d["granted"], _cut_pct(d["requested"], d["granted"])])
+	print("[stress] WORK decals     %d spawned, %d skipped over budget"
+		% [s["spawned"], s["skipped"]])
+	if _ablate != "":
+		print("[stress] ⚠ ABLATED '%s' — this is a MEASUREMENT run, not a build" % _ablate)
 	print("[stress] --------------------------------------------------")
 	print("[stress] REMINDER: dummy renderer. This is CPU only — the GPU cost")
 	print("[stress] that decides the phone's frame rate is not in these numbers.")
+
+
+static func _cut_pct(requested: int, granted: int) -> float:
+	if requested <= 0:
+		return 0.0
+	return 100.0 * (1.0 - float(granted) / float(requested))
+
+
+func _vfx_budget() -> int:
+	var r: Node = root.get_node_or_null(^"/root/SpellReactor")
+	return 0 if r == null else int(r.call(&"vfx_budget"))
+
+
+func _reactor_live() -> int:
+	var r: Node = root.get_node_or_null(^"/root/SpellReactor")
+	return 0 if r == null else int(r.call(&"live_count"))
+
+
+func _reactor_fired() -> int:
+	var r: Node = root.get_node_or_null(^"/root/SpellReactor")
+	return 0 if r == null else int(r.get(&"fired_count"))
 
 
 func _parse_args() -> void:
@@ -200,3 +415,15 @@ func _parse_args() -> void:
 				_seconds = clampf(float(v), 1.0, 300.0)
 			"quality":
 				_force_low = v.to_lower() == "low"
+			"casting":
+				_casting = v != "0" and v.to_lower() != "false"
+			"cast_hz":
+				_cast_hz = clampf(float(v), 0.1, 60.0)
+			"ablate":
+				_ablate = v.to_lower()
+			"spell":
+				_only_spell = v
+			"seed":
+				_seed = int(v)
+			"immortal":
+				_immortal = v != "0" and v.to_lower() != "false"
