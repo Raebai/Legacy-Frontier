@@ -65,6 +65,10 @@ func flurry(origin: Vector2, aim: Vector2, color: Color, damage: int = 18, count
 		_hit_at.append(LIFE * (0.1 + 0.8 * float(i) / float(_count)))
 	global_position = Vector2.ZERO
 	_elapsed = 0.0
+	# The blade gate the crescents come through — edge-on down the aim, so the flurry
+	# reads as being DRAWN from a sigil rather than as a stack of loose slashes. Held
+	# to the last scheduled cut plus a beat, so the gate closes after the flurry does.
+	SpellSigil.open(self, origin, color, 1.0, true, _dir, false, 0.15, LIFE * 0.95)
 	Juice.hit_stop(0.05)
 	Juice.shake_camera(5.0)
 	Sfx.play("melee_swing", 0.0, 0.05)

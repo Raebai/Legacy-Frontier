@@ -190,6 +190,12 @@ func sweep(origin: Vector2, aim: Vector2, colour: Color, travel: float = TRAVEL,
 	global_position = Vector2.ZERO
 	add_to_group("deflectable_spell")
 	_register_reaction()
+	# THE DRAW GATE. Edge-on across the sweep line at the hilt, so the crescent is
+	# visibly UNSHEATHED through a sigil rather than conjured in front of the caster
+	# — which is the same idea CastStyle.UNSHEATHE encodes in the body language, and
+	# the two have to agree or the wall looks unrelated to the arm that threw it.
+	# Held for a beat past the draw; the crescent then travels on alone.
+	SpellSigil.open(self, origin, colour, 1.0, true, _dir, false, 0.15, 0.55)
 	_sfx("melee_swing", 1.0, -0.25)
 	_shake(7.0)
 	queue_redraw()

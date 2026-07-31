@@ -87,11 +87,35 @@ var element_id: int = -1
 ## shared `"mortal"` group. Declaring it is what arms `SpellTargets.hostiles()` /
 ## `SpellTargets.owner_of()`, which is where the exclusion is now enforced.
 var caster_node: Node = null
+## The shelf this nova sits on. `SpellCaster._stamp` writes it onto every spectacle
+## it builds, but `set()` on an undeclared property is a silent no-op — so until this
+## line existed the write went nowhere and the summoning sigil could not tell a jab
+## from a finisher.
+var spell_tier: int = SpellTier.DEFAULT_WEIGHT
+
+
+## The colour the SUMMONING SIGIL draws in. The nova's own rings are a hardcoded
+## pale blue and stay that way — that shockwave is the spell's identity and it is
+## not an elemental recolour — but the sigil is the CASTER'S mark rather than the
+## blast's, so it takes the element when there is one and falls back to the nova's
+## own blue when the nova was cast by something that never declared an element.
+func _sigil_color() -> Color:
+	return Elements.color(element_id) if element_id >= 0 else Color(0.6, 0.9, 1.0)
 
 
 ## Public entry: place the nova on the caster and fire IMMEDIATELY.
 func activate_at(pos: Vector2) -> void:
 	global_position = pos
+	# A GROUND sigil, because a nova is a placed spell — it happens where the caster
+	# is standing, not somewhere they are pointing. Laid flat so it reads as the
+	# floor answering, which is the same visual grammar the walls and wards use and
+	# the opposite of the edge-on gates the projected spells fire through.
+	#
+	# ⚠ Unlike almost every other spectacle in this codebase, this node is NOT parked
+	# at the arena origin — `global_position` really is the nova's centre — so world
+	# space and this node's own position happen to coincide here. Do not copy this
+	# line into a spectacle that draws in world coordinates.
+	SpellSigil.open(self, pos, _sigil_color(), 1.1, false, Vector2.RIGHT, true, 0.14, 0.34)
 	_apply_nova_damage()
 	_spawn_nova_burst()
 	# Scrape the FLOOR beneath the caster only — NEVER the sky (the maker's ask).

@@ -140,6 +140,12 @@ var target_group: String = "enemy"
 var element_id: int = Elements.Element.HOLY
 ## Who raised it. Set by the caster before raise_ward(), same as BeamSpell's.
 var caster_node: Node = null
+## The shelf the stamp says this ward sits on. Distinct from `reaction_weight()`,
+## which degrades with the ward's remaining charges — this is the spell's SHELF and
+## it never changes, so it is what the summoning sigil draws from. Declared because
+## `set()` on an undeclared property is a silent no-op and the stamp was going
+## nowhere.
+var spell_tier: int = SpellTier.DEFAULT_WEIGHT
 
 ## The ward's foot, in WORLD space. Everything is built from this.
 var _base: Vector2 = Vector2.ZERO
@@ -186,6 +192,10 @@ func raise_ward(from: Vector2, aim: Vector2, colour: Color = GOLD_FILL,
 	CombatVfx.spawn_burst(get_parent(), _base, Color(1.0, 0.97, 0.8, 0.9),
 		Color(0.9, 0.8, 0.4, 0.0), 20, 0.5, 40.0, 150.0, 0.8, 2.4, 0.0, 0.0, true,
 		Vector2.UP, 40.0)
+	# The consecration mark the gate stands up out of. A ward is the most PLACED
+	# spell in the game — the whole point is that it occupies a spot — so the flat
+	# ground sigil is doing real work here, not decoration: it is where the ward is.
+	SpellSigil.open(self, _base, colour, 1.0, false, Vector2.RIGHT, true, 0.14, 0.7)
 	Sfx.play("ward_raise", -2.0, 0.04)
 	# Join the reaction system NOW, during the rise. reaction_active() keeps the
 	# ward inert until it has actually come up, exactly as a beam registers during

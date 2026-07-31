@@ -153,6 +153,10 @@ func raise_wall(
 	CombatVfx.spawn_burst(get_parent(), _floor_base, Color(0.75, 0.92, 1.0, 0.9),
 		Color(0.4, 0.65, 1.0, 0.0), 18, 0.5, 50.0, 160.0, 0.8, 2.4, 0.0, 0.0, true)
 	_chill_touching()
+	# The frost sigil the shards grow out of — laid flat, like the rock wall's, so
+	# the two walls read as the same KIND of answer in two different materials.
+	SpellSigil.open(self, _floor_base, color, WALL_SIZE.x / SpellSigil.RADIUS_HEAVY,
+		false, Vector2.RIGHT, true, 0.14, 0.62)
 	Juice.shake_camera(3.5)  # a chime of a cast, not the rock wall's ground-slam
 	Sfx.play("ice", -3.0, 0.08)
 	# Join the reaction system. Unlike BeamSpell (which registers during a charge

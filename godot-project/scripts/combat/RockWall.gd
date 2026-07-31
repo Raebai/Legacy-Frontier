@@ -171,6 +171,13 @@ func raise_wall(
 		Color(0.4, 0.28, 0.15, 0.0), 20, 0.5, 80.0, 220.0, 1.5, 4.0)
 	ScorchDecal.spawn(get_parent(), _floor_base, WALL_SIZE.x * 0.7, "crack",
 		Color(0.5, 0.36, 0.22, 0.5), 6.0)
+	# THE SUMMONING MARK IN THE FLOOR. A wall is a placed spell, so the sigil lies
+	# DOWN at its base rather than standing as a gate — the read is "the ground here
+	# is about to answer", and it is on screen before the slabs finish rising. Scaled
+	# off the wall's own footprint, not off the spell's cost: the mark has to be as
+	# wide as the thing coming out of it or the two look unrelated.
+	SpellSigil.open(self, _floor_base, color, WALL_SIZE.x / SpellSigil.RADIUS_HEAVY,
+		false, Vector2.RIGHT, true, 0.14, 0.62)
 	Juice.shake_camera(7.0)
 	Sfx.play("earth", -4.0, 0.08)
 	# Join the reaction system. Unlike BeamSpell (which registers during a charge it

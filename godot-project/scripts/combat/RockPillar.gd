@@ -172,6 +172,12 @@ func erupt(
 	_elapsed = 0.0
 	for i in BLOCKS:
 		_jitter.append(randf_range(-0.28, 0.28))
+	# THE MARK ON THE GROUND THE FANG COMES OUT OF. Laid flat at the resolved floor
+	# point — NOT at the aim point, which is a cursor position and is in mid-air as
+	# often as not. Sized off the fang's own width so the mark and the stone match,
+	# and held through the charge so it is the telegraph and not an afterthought.
+	SpellSigil.open(self, _ground, color, maxf(_half_width * 2.4, 26.0) / SpellSigil.RADIUS_HEAVY,
+		false, Vector2.RIGHT, true, 0.14, 0.5)
 	Sfx.play("earth", -3.0, 0.08)
 	Juice.shake_camera(3.0)
 	# Join the reaction system. Registering during the CHARGE is correct and

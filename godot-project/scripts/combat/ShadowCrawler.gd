@@ -159,6 +159,11 @@ func crawl(
 		Color(0.16, 0.04, 0.24, 0.9), Color(0.05, 0.0, 0.1, 0.0),
 		14, 0.4, 70.0, 200.0, 0.8, 1.9, 0.0, 0.0, false,
 		Vector2(_dir_sign, -0.15), 26.0)
+	# THE PEEL-OFF MARK, flat on the floor at the caster's feet. Ground rather than a
+	# gate for the same reason the eruption spells are: the crawler leaves the FLOOR,
+	# and a sigil standing in the air would say it left the hand. Short hold — it is
+	# the departure, and the crawler is already running.
+	SpellSigil.open(self, _head, color, 1.0, false, Vector2.RIGHT, true, 0.14, 0.40)
 	Juice.shake_camera(3.0)
 	Sfx.play("cast", -6.0, 0.06, 0.82)   # pitched DOWN — it comes from under you
 	# Join the reaction system. PROJECTILE: this is the one shadow spell whose

@@ -84,6 +84,15 @@ var element_id: int = Elements.Element.SHADOW
 ## ult only connects with the opening sliver of a parry window. Middle shelf when
 ## nobody sets it, which is how every un-adopted spectacle already behaves.
 var spell_tier: int = SpellTier.DEFAULT_WEIGHT
+## WHO CAST THIS, under the name `SpellCaster._stamp` writes. Deliberately a second
+## handle on the same node `_owner` already holds: `_owner` arrives as a positional
+## ARGUMENT to `throw_dagger` (behaviour — whose recall this answers), while this is
+## the uniform IDENTITY property every spectacle in the codebase publishes. The two
+## mechanisms are documented on the TETHER arm of `SpellCaster.cast`, and until this
+## line existed the stamp's write went nowhere (`set()` on an undeclared property is
+## a silent no-op), which left the summoning sigil unable to find the caster's live
+## wind-up circle to adopt.
+var caster_node: Node = null
 
 var _owner: Node = null
 var _color: Color = Color(0.6, 0.35, 0.95)
@@ -138,6 +147,11 @@ func throw_dagger(
 	_state = State.FLYING
 	add_to_group("rift_anchor")
 	add_to_group("deflectable_spell")
+	# The rift the blade leaves through — an edge-on gate at the throwing hand,
+	# pointed down the flight line. Brief: a dagger is out of the hand fast (see
+	# CastStyle.THROW, 0.20 s), and a gate that outlasted the throw would look like
+	# a portal the blade forgot to come back through.
+	SpellSigil.open(self, from, color, 1.0, true, _dir, false, 0.15, 0.32)
 	Sfx.play("melee_swing", -3.0, 0.15)
 	# Join the reaction system. A thrown blade is the archetypal PROJECTILE form;
 	# reaction_active() keeps it inert once it has planted itself, so a stuck anchor

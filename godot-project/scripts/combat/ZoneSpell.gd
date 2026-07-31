@@ -120,6 +120,10 @@ var element_id: int = Elements.Element.SHADOW
 ## not pass a caster to the ZONE arm today, so this stays null and the field is
 ## "unowned" — correct, and it starts working the moment that arm sets it.
 var caster_node: Node = null
+## The shelf this field sits on. `SpellCaster._stamp` writes it onto every spectacle
+## it builds, but `set()` on an undeclared property is a silent no-op — so until this
+## line existed the write went nowhere.
+var spell_tier: int = SpellTier.DEFAULT_WEIGHT
 
 var _at: Vector2 = Vector2.ZERO
 var _color: Color = Color(0.6, 0.3, 0.9)
@@ -168,6 +172,13 @@ func open(
 		CombatVfx.spawn_burst(get_parent(), _at + Vector2(-_wind * _radius * 0.5, -46.0),
 			Color(0.98, 1.05, 1.2, 0.9), Color(0.7, 0.85, 1.0, 0.0),
 			18, 0.55, 260.0, 460.0, 0.5, 1.4, 0.0, 0.0, true, Vector2(_wind, -0.08), 22.0)
+	# THE FIELD'S SUMMONING MARK, flat on the floor and scaled to the footprint the
+	# field actually damages. Held for the field's opening beat only: a mark that
+	# stayed lit for the whole 4.5 s lifetime would compete with the weather it
+	# summoned, and the sigil's job here is to say the field ARRIVED, not to be the
+	# field. `_at` is world space — global_position is (0, 0) on this node.
+	SpellSigil.open(self, _at, color, maxf(_radius, 30.0) / SpellSigil.RADIUS_HEAVY,
+		false, Vector2.RIGHT, true, 0.14, 0.75)
 	Juice.shake_camera(4.0)
 	Sfx.play("cast", -3.0, 0.12)
 	# First bite lands exactly when the footprint finishes easing open, so the

@@ -65,6 +65,10 @@ var _elapsed: float = -1.0
 ## shared `"mortal"` group. Declaring it is what arms `SpellTargets.hostiles()` /
 ## `SpellTargets.owner_of()`, which is where the exclusion is now enforced.
 var caster_node: Node = null
+## The shelf this bolt sits on — see the note on `caster_node`; the stamp wrote it
+## and this file did not declare it, so it went nowhere. The summoning sigil reads it
+## to decide how elaborate the summon is.
+var spell_tier: int = SpellTier.DEFAULT_WEIGHT
 
 
 ## Fire the chain from `origin` toward `aim`, hopping up to `max_hops` enemies.
@@ -96,6 +100,9 @@ func chain(
 		dmg *= FALLOFF
 	_elapsed = 0.0
 	global_position = Vector2.ZERO  # drawn in world coords
+	# The bolt leaves through a gate at the staff tip. `origin` is world space —
+	# global_position is (0, 0) here and is NOT where this effect is.
+	SpellSigil.open(self, origin, color, 1.0, true, d, false, 0.15, 0.30)
 	# Node-flash bursts at each strike point + juice.
 	CombatVfx.spawn_burst(get_parent(), origin, CORE_COLOR, Color(color.r, color.g, color.b, 0.0),
 		12, 0.3, 60.0, 160.0, 0.6, 1.6, 0.0, 0.0, true)

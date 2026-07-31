@@ -135,6 +135,10 @@ var _spikes: Array = []
 ## shared `"mortal"` group. Declaring it is what arms `SpellTargets.hostiles()` /
 ## `SpellTargets.owner_of()`, which is where the exclusion is now enforced.
 var caster_node: Node = null
+## The shelf this crest sits on. `SpellCaster._stamp` writes it onto every spectacle
+## it builds, but `set()` on an undeclared property is a silent no-op — so until this
+## line existed the write went nowhere.
+var spell_tier: int = SpellTier.DEFAULT_WEIGHT
 
 
 # ---- pure geometry (headless-testable, no physics, no autoloads) -----------
@@ -203,6 +207,12 @@ func erupt(
 		get_parent(), _origin + Vector2(0.0, -6.0), Color(0.78, 0.94, 1.05, 0.7),
 		Color(0.55, 0.8, 1.0, 0.0), 12, ORIGIN_TELL, 20.0, 60.0, 0.8, 2.0, 2.0, 4.0, true
 	)
+	# THE FROST MARK the crest erupts from, flat on the resolved floor point and lit
+	# for the ORIGIN_TELL — which makes the sigil literally the dodge window, not a
+	# decoration laid over one. Held to the end of the tell plus a beat so it is
+	# still there as the first spike breaks the ground.
+	SpellSigil.open(self, _origin, color, 1.0, false, Vector2.RIGHT, true, 0.14,
+		ORIGIN_TELL + 0.30)
 	Sfx.play("charge_up", -5.0, 0.05, 1.25)  # pitched UP — glassy, not boomy
 	Juice.shake_camera(2.0)
 	queue_redraw()

@@ -143,6 +143,12 @@ var element_id: int = Elements.Element.SHADOW
 ## connects with the opening sliver of a guard window. Left at the middle shelf
 ## when nobody sets it, which is exactly how every un-adopted spectacle behaves.
 var spell_tier: int = SpellTier.DEFAULT_WEIGHT
+## WHO CAST THIS, under the name `SpellCaster._stamp` writes. A second handle on the
+## node `_caster` already holds — that one arrives as a positional argument to
+## `strike()` because the blink has to MOVE it (behaviour), this one is the uniform
+## identity property. Declared so the stamp's write lands somewhere: without it the
+## summoning sigil cannot look up the caster's live wind-up circle to adopt.
+var caster_node: Node = null
 
 var _from: Vector2 = Vector2.ZERO
 var _to: Vector2 = Vector2.ZERO
@@ -190,6 +196,15 @@ func strike(
 	# two events don't blur into one indistinct thump.
 	Juice.shake_camera(4.0)
 	Sfx.play("blink", 0.0, 0.08)
+	# TWO sigils, and the pair is the whole read: a gate at the DEPARTURE point and a
+	# gate at the ARRIVAL point, both edge-on along the path travelled. A shadow-step
+	# is the one spell whose subject is the distance between two places, so a single
+	# circle at either end would only tell half of it. The arrival one is the louder
+	# of the two (full radius, longer hold) because that is where the cut lands.
+	var path: Vector2 = (_to - _from)
+	var axis: Vector2 = path.normalized() if path.length_squared() > 0.0001 else Vector2.RIGHT
+	SpellSigil.open(self, _from, _color, 0.7, true, axis, false, 0.15, 0.26)
+	SpellSigil.open(self, _to, _color, 1.0, true, axis, false, 0.15, 0.46)
 	_arm_telegraph()
 	_elapsed = 0.0
 	# Join the reaction system. Registering during the TELL is correct and matches

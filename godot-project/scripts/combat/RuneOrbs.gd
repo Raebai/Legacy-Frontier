@@ -41,6 +41,11 @@ var _elapsed: float = 0.0
 ## shared `"mortal"` group. Declaring it is what arms `SpellTargets.hostiles()` /
 ## `SpellTargets.owner_of()`, which is where the exclusion is now enforced.
 var caster_node: Node = null
+## The shelf this volley sits on. Declared for the same reason `caster_node` above
+## is: `SpellCaster._stamp` has always written it and `set()` on an undeclared
+## property is a silent no-op, so the write went nowhere and the summoning sigil
+## had no way to know whether it was drawing a jab or a finisher.
+var spell_tier: int = SpellTier.DEFAULT_WEIGHT
 
 
 func launch(origin: Vector2, aim: Vector2, color: Color, count: int = 5, damage: int = 24, _effect: String = "arcane") -> void:
@@ -62,6 +67,12 @@ func launch(origin: Vector2, aim: Vector2, color: Color, count: int = 5, damage:
 			"spin": float(i) * 1.3,
 		})
 	global_position = Vector2.ZERO
+	# THE VOLLEY GATE. The orbs stream out THROUGH a sigil rather than appearing at
+	# the weapon tip, so the fan reads as being summoned rather than spawned. Edge-on
+	# along the aim because the orbs have a direction of travel; held just past the
+	# last orb's stagger so the gate closes behind the volley instead of with it.
+	SpellSigil.open(self, origin, color, 1.0, true, base, false, 0.16,
+		float(count) * STAGGER + 0.34)
 	Sfx.play("cast", 1.0, 0.05)
 	queue_redraw()
 

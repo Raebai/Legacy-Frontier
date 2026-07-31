@@ -125,6 +125,16 @@ const CASTER_ADOPT_R: float = 140.0
 enum State { COIL, LASH, DRAIN, RECOIL, DEAD }
 
 var element_id: int = Elements.Element.SHADOW
+## The clash shelf this spell fights at (SpellTier.Tier). `SpellCaster._stamp` writes
+## it onto every spectacle it builds, but `set()` on an undeclared property is a
+## silent no-op, so until this line existed the write went nowhere and the summoning
+## sigil could not tell a jab from a finisher.
+var spell_tier: int = SpellTier.DEFAULT_WEIGHT
+## WHO CAST THIS, under the name the stamp writes. A second handle on the node
+## `_caster` already holds — that one arrives as a positional argument to `tether()`
+## because the drain has to HEAL it (behaviour), this one is the uniform identity
+## property, and it is what lets the sigil find the caster's live wind-up circle.
+var caster_node: Node = null
 
 var _origin: Vector2 = Vector2.ZERO   # where the cast happened (cable root fallback)
 var _dir: Vector2 = Vector2.RIGHT
@@ -184,6 +194,10 @@ func tether(
 	CombatVfx.spawn_burst(get_parent(), _hand(),
 		Color(0.16, 0.04, 0.24, 0.9), Color(0.05, 0.0, 0.1, 0.0),
 		10, 0.3, 40.0, 120.0, 0.7, 1.7, 0.0, 0.0, false, -_dir, 45.0)
+	# The coil gate at the hand, edge-on down the aim — the whip is thrown THROUGH
+	# it. Held past the COIL state so the sigil is the wind-up the opponent reads and
+	# is still lit as the lash leaves, rather than closing before the spell happens.
+	SpellSigil.open(self, _hand(), _color, 1.0, true, _dir, false, 0.15, 0.55)
 	Sfx.play("cast", -4.0, 0.08, 0.85)  # pitched DOWN — this is a wind-up, not a release
 	queue_redraw()
 

@@ -104,6 +104,11 @@ var element_id: int = Elements.Element.LIGHTNING
 ## shared `"mortal"` group. Declaring it is what arms `SpellTargets.hostiles()` /
 ## `SpellTargets.owner_of()`, which is where the exclusion is now enforced.
 var caster_node: Node = null
+## The shelf this lance sits on. `SpellCaster._stamp` writes it onto every spectacle
+## it builds, but `set()` on an undeclared property is a silent no-op — so until this
+## line existed the write went nowhere and the summoning sigil could not tell a jab
+## from a finisher.
+var spell_tier: int = SpellTier.DEFAULT_WEIGHT
 
 
 ## Public entry: charge at `origin`, then rip a lightning lance of length/width
@@ -131,6 +136,12 @@ func rush(
 		get_parent(), _origin, Color(1.0, 1.0, 0.85, 0.95), Color(_color.r, _color.g, _color.b, 0.0),
 		20, CHARGE_TIME * 0.9, 60.0, 150.0, 0.6, 1.6, 2.5, 5.0, true
 	)
+	# THE LANCE GATE, edge-on at the fist and pointed down the corridor the lance is
+	# about to rip along. It is the telegraph for CHARGE_TIME and then the thing the
+	# lance bursts through, which is exactly what "the circle IS the wind-up" means:
+	# held a hair past the discharge so the gate is still there when the bolt leaves.
+	SpellSigil.open(self, _origin, _color, 1.0, true, _dir, false, 0.15,
+		CHARGE_TIME + 0.18)
 	Sfx.play("charge_up", 1.0, 0.04)  # chidori charge — epic power-up before the strike
 	queue_redraw()
 

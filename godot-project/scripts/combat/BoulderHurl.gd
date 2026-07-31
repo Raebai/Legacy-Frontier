@@ -154,6 +154,12 @@ func hurl(
 		Color(0.4, 0.28, 0.15, 0.0), 14, 0.4, 60.0, 180.0, 1.4, 3.5)
 	ScorchDecal.spawn(get_parent(), Vector2(_pos.x, _ground_y), BOULDER_R * 1.3, "crack",
 		Color(0.5, 0.36, 0.22, 0.6), 7.0)  # the HOLE left in the ground
+	# THE RIP MARK. Flat on the ground the rock is torn out of, not a gate in the
+	# air: earth's whole tell in this game is that it comes from the floor and has no
+	# light of its own, so a standing sigil would fight the family's identity. Short
+	# hold — the mark is the hole opening, and the rock is gone a moment later.
+	SpellSigil.open(self, Vector2(_pos.x, _ground_y), color, 0.9,
+		false, Vector2.RIGHT, true, 0.14, 0.42)
 	Juice.shake_camera(3.0)
 	Sfx.play("earth", -4.0, 0.08)
 	# Deflect path #1 (the reflect() half): a thing that physically travels can be

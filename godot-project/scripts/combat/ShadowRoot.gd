@@ -173,6 +173,11 @@ func erupt(
 		Color(0.16, 0.04, 0.24, 0.9), Color(0.05, 0.0, 0.1, 0.0),
 		12, 0.4, 60.0, 160.0, 0.8, 1.8, 0.0, 0.0, false,
 		Vector2(dir_sign, -0.4), 40.0)
+	# THE ERUPTION MARK. Laid flat at the caster's feet, because this is the one
+	# shadow spell that comes out of the FLOOR rather than out of the hand — the
+	# ground sigil is the visual promise that the tendrils are about to race along
+	# it. Held for the surge so the mark is still lit while the veins are running.
+	SpellSigil.open(self, _origin, color, 0.95, false, Vector2.RIGHT, true, 0.14, 0.55)
 	Juice.shake_camera(3.0)
 	Sfx.play("cast", -4.0, 0.1)
 	# Join the reaction system. FIELD rather than BEAM or PROJECTILE: what another
