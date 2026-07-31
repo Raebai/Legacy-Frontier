@@ -35,6 +35,11 @@ const TESTS: Array[String] = [
 	"rest_floor_has_no_boss",
 	"entity_cap_math",
 	"cap_gates_wave_spawning",
+	"pacing_math",
+	"vanguard_lands_together",
+	"waves_overlap_so_the_room_is_never_empty",
+	"wave_cleared_fires_once_per_wave",
+	"roster_forces_the_archetype_mix",
 ]
 
 var _fails: int = 0
@@ -48,7 +53,10 @@ const GS_PATH: String = "res://scripts/GameState.gd"
 ## silently comparing against a stale literal.
 const PHASE_IDLE: int = 0
 const PHASE_WAVES: int = 1
-const PHASE_BREAK: int = 2
+## Was PHASE_BREAK — a silent 1.5s pause between waves. It is now the SURGE: a
+## short LOUD beat that the previous wave's stragglers usually fight you through.
+## Same ordinal; renamed here so the assertions read as what they now mean.
+const PHASE_SURGE: int = 2
 const PHASE_BOSS: int = 3
 const PHASE_DONE: int = 4
 
@@ -69,6 +77,11 @@ func _process(_delta: float) -> bool:
 	_test_rest_floor_has_no_boss()
 	_test_entity_cap_math()
 	_test_cap_gates_wave_spawning()
+	_test_pacing_math()
+	_test_vanguard_lands_together()
+	_test_waves_overlap_so_the_room_is_never_empty()
+	_test_wave_cleared_fires_once_per_wave()
+	_test_roster_forces_the_archetype_mix()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -294,12 +307,12 @@ func _test_break_between_waves() -> void:
 			e.free()
 		enc.call("_process", 0.05)
 		guard += 1
-	_expect(int(enc.call("phase")) == PHASE_BREAK,
+	_expect(int(enc.call("phase")) == PHASE_SURGE,
 		"a cleared wave hands off to the BREAK, not straight to the next wave")
 	_expect(int(enc.call("current_wave")) == 0, "the break still belongs to the wave that just ended")
 	# Not long enough — still waiting.
 	enc.call("_process", 0.5)
-	_expect(int(enc.call("phase")) == PHASE_BREAK, "the break is a real wait, not one frame")
+	_expect(int(enc.call("phase")) == PHASE_SURGE, "the break is a real wait, not one frame")
 	# Long enough — wave 1 opens.
 	enc.call("_process", 1.2)
 	_expect(int(enc.call("phase")) == PHASE_WAVES, "the break ends and the next wave starts")
@@ -460,3 +473,152 @@ func _test_cap_gates_wave_spawning() -> void:
 		e.free()
 	_clear_arena(arena)
 	_completes("cap_gates_wave_spawning")
+
+
+# ═══════════════════════════════════════════════════════════════════ PACING
+# The first cut of waves ran "spawn -> wait for an EMPTY room -> pause 1.5s".
+# Both halves of that are dead air, which is the opposite of what a floor is for.
+# The four tests below are the contract for the fix: waves LAND (vanguard), waves
+# OVERLAP (handoff while stragglers live), the win is ANNOUNCED (wave_cleared),
+# and difficulty is COMPOSITION (roster), never a quiet HP multiplier.
+
+## The two derived pacing numbers, pure. A wave that opens with one body
+## trickling in is a lull, and a handoff that waits for zero is dead air — so
+## vanguard has a floor of 2 and handoff a floor of 1.
+func _test_pacing_math() -> void:
+	var enc_script: GDScript = load(ENCOUNTER_PATH) as GDScript
+	for cap: int in range(1, 9):
+		var v: int = int(enc_script.vanguard_for_cap(cap))
+		var h: int = int(enc_script.handoff_for_cap(cap))
+		_expect(v >= 2, "cap %d opens with at least 2 bodies at once (got %d)" % [cap, v])
+		_expect(v <= maxi(cap, 2), "cap %d's vanguard does not exceed the cap (got %d)" % [cap, v])
+		_expect(h >= 1, "cap %d hands off with at least one straggler up (got %d)" % [cap, h])
+		_expect(h <= 3, "cap %d's handoff stays a TAIL, not half the wave (got %d)" % [cap, h])
+	_expect(int(enc_script.vanguard_for_cap(6)) > int(enc_script.vanguard_for_cap(2)),
+		"a bigger wave lands with a bigger opening group")
+	# WaveDef's inherit rule: < 0 derives, and 0 is a MEANINGFUL authored value
+	# ("clear the room properly first"), so it must survive.
+	var w := WaveDef.new()
+	_expect(w.resolved_vanguard(3) == 3, "an unset vanguard derives from the cap")
+	_expect(w.resolved_handoff(2) == 2, "an unset handoff derives from the cap")
+	w.vanguard = 5
+	w.handoff_alive = 0
+	_expect(w.resolved_vanguard(3) == 5, "an authored vanguard wins")
+	_expect(w.resolved_handoff(2) == 0, "an authored handoff of ZERO is honoured, not treated as unset")
+	_completes("pacing_math")
+
+
+## THE DRAW-IN. A wave opens with a GROUP landing in one tick — not one body
+## every SPAWN_INTERVAL. The spawn interval here is deliberately huge, so
+## anything that arrives in the first tick can only have come from the vanguard.
+func _test_vanguard_lands_together() -> void:
+	var fx: Array = _make_encounter()
+	var arena: Node = fx[0]
+	var enc: Node = fx[1]
+	var enc_script: GDScript = load(ENCOUNTER_PATH) as GDScript
+	var fd: FloorDef = _floor_with([[8, 5]])
+	fd.waves[0].spawn_interval = 30.0    # the trickle cannot possibly contribute
+	enc.call("run_floor", fd)
+	enc.call("_process", 0.05)
+	var landed: int = get_nodes_in_group("enemy").size()
+	var want: int = int(enc_script.vanguard_for_cap(5))
+	_expect(landed == want,
+		"the wave OPENS with %d bodies at once (got %d)" % [want, landed])
+	# ...and it does not keep bursting: the rest is the trickle it was authored as.
+	enc.call("_process", 0.05)
+	_expect(get_nodes_in_group("enemy").size() == landed,
+		"the vanguard fires ONCE, then the wave trickles")
+	for e: Node in get_nodes_in_group("enemy"):
+		e.free()
+	_clear_arena(arena)
+	_completes("vanguard_lands_together")
+
+
+## THE OVERLAP — the whole point of the pacing pass. A wave hands off while its
+## last bodies are still alive, so the next wave's vanguard arrives on top of a
+## fight in progress. If this ever regresses to "wait for an empty room", the
+## floor gets its dead air back and this fails.
+func _test_waves_overlap_so_the_room_is_never_empty() -> void:
+	var fx: Array = _make_encounter()
+	var arena: Node = fx[0]
+	var enc: Node = fx[1]
+	var fd: FloorDef = _floor_with([[6, 4], [6, 4]])
+	fd.wave_break = 0.2
+	enc.call("run_floor", fd)
+	# Spawn wave 0 out without killing anything: it fills to its cap and stalls.
+	var guard: int = 0
+	while get_nodes_in_group("enemy").size() < 4 and guard < 200:
+		enc.call("_process", 0.1)
+		guard += 1
+	# Kill down towards the tail, checking the handoff fires BEFORE the room empties.
+	var handed_off_with_alive: int = -1
+	guard = 0
+	while int(enc.call("phase")) == PHASE_WAVES and guard < 400:
+		enc.call("_process", 0.1)
+		var live: Array = get_nodes_in_group("enemy")
+		if int(enc.call("phase")) != PHASE_WAVES:
+			handed_off_with_alive = live.size()
+			break
+		if live.size() > 0:
+			live[0].free()
+		guard += 1
+	_expect(int(enc.call("phase")) == PHASE_SURGE, "the beaten wave handed off to the SURGE")
+	_expect(handed_off_with_alive > 0,
+		"the handoff happened with the wave's last bodies STILL ALIVE (got %d)" % handed_off_with_alive)
+	# ...and the next wave opens on top of them.
+	enc.call("_process", 0.5)
+	_expect(int(enc.call("current_wave")) == 1, "the next wave opened")
+	_expect(get_nodes_in_group("enemy").size() >= handed_off_with_alive,
+		"the stragglers are still in the room when wave 2 lands on you")
+	for e: Node in get_nodes_in_group("enemy"):
+		e.free()
+	_clear_arena(arena)
+	_completes("waves_overlap_so_the_room_is_never_empty")
+
+
+## THE REWARD BEAT. Every wave — including the last one, just before the
+## guardian — announces itself as beaten exactly once. Hype hangs the shout, the
+## camera punch, the music swell and the banked rank power off this signal, so a
+## missing or doubled emit is a visibly broken floor.
+func _test_wave_cleared_fires_once_per_wave() -> void:
+	var fx: Array = _make_encounter()
+	var arena: Node = fx[0]
+	var enc: Node = fx[1]
+	var beaten: Array = []
+	enc.connect("wave_cleared", func(idx: int, total: int) -> void: beaten.append([idx, total]))
+	enc.call("run_floor", _floor_with([[2, 3], [3, 3], [4, 4]]))
+	_tick(enc, 80)
+	var indices: Array = []
+	for row: Array in beaten:
+		indices.append(int(row[0]))
+	_expect(indices == [0, 1, 2],
+		"every wave announced itself beaten, in order, once (got %s)" % str(indices))
+	_expect(beaten.size() > 0 and int(beaten[0][1]) == 3, "the signal carries the floor's wave count")
+	_clear_arena(arena)
+	_completes("wave_cleared_fires_once_per_wave")
+
+
+## DIFFICULTY IS COMPOSITION. A wave that names its roster gets EXACTLY those
+## archetypes — this is the lever that replaces HP scaling, so if the roster were
+## quietly ignored the floors would silently flatten back into the same soup.
+func _test_roster_forces_the_archetype_mix() -> void:
+	var fx: Array = _make_encounter()
+	var arena: Node = fx[0]
+	var enc: Node = fx[1]
+	var fd: FloorDef = _floor_with([[12, 12]])
+	fd.brute_chance = 1.0    # the weighted roll would happily hand back other kinds
+	var roster: Array[int] = [3, 7]   # CHARGER, MAGE
+	fd.waves[0].archetypes = roster
+	enc.call("run_floor", fd)
+	_tick(enc, 30, 0.5, false)
+	var seen: Dictionary = {}
+	for e: Node in get_nodes_in_group("enemy"):
+		seen[int(e.get("archetype"))] = true
+	_expect(seen.size() > 0, "the roster wave actually spawned something")
+	for kind: int in seen:
+		_expect(roster.has(kind),
+			"a rostered wave spawned only its own archetypes (saw %d)" % kind)
+	for e: Node in get_nodes_in_group("enemy"):
+		e.free()
+	_clear_arena(arena)
+	_completes("roster_forces_the_archetype_mix")

@@ -11,18 +11,34 @@ enum FloorType { COMBAT, ELITE, BOSS, REST, PVP }
 @export var enemy_budget: int = 4       # total enemies this floor; 0 = REST (no combat)
 @export var concurrent_cap: int = 3     # max alive at once
 @export var brute_chance: float = 0.35  # biases the archetype roll toward brutes
-@export var hp_multiplier: float = 1.0  # depth HP scaling
+## TRASH HP scaling. HELD AT 1.0 BY POLICY on every authored floor — per the spec,
+## "higher floors add modifiers, not HP. HP scaling makes fights longer, not
+## harder, and long is the enemy of chaos on a phone." Depth escalates through the
+## archetype MIX (`WaveDef.archetypes`, `brute_chance`) and through wave shape.
+## The field survives because the guardian still wants a depth curve — see
+## `boss_hp_multiplier` — and because a one-off floor may want a deliberate lie.
+@export var hp_multiplier: float = 1.0
 ## THE FLOOR'S SHAPE: 3-5 escalating waves, then the boss. Leave EMPTY and
 ## Encounter synthesizes a wave list from `enemy_budget` / `concurrent_cap`
 ## (Encounter.synthesize_waves), so a FloorDef authored before waves existed —
 ## or a synthesized fallback floor — still plays as a wave fight.
 @export var waves: Array[WaveDef] = []
-## The quiet beat between a cleared wave and the next one, in seconds.
-@export var wave_break: float = 1.5
+## THE SURGE BEAT between one wave handing off and the next opening, in seconds.
+## Deliberately SHORT: this is a loud reward flourish (the room reacts, the next
+## wave is already visibly being drawn in) with the previous wave's last bodies
+## usually still alive through it — not silence. Kept under the old `wave_break`
+## name because the FloorDef data + the wave tests both address it by that name.
+@export var wave_break: float = 0.85
 ## Boss HP as a fraction of the guardian's full strength. <= 0 derives it from
 ## floor_type (Encounter.boss_scale_for_type): a COMBAT floor gets a lean
 ## mini-guardian, ELITE a bigger one, BOSS the colossus at full size.
 @export var boss_scale: float = 0.0
+## GUARDIAN HP depth curve, applied ONLY to the floor's boss. This is where the
+## depth-HP ramp lives now that trash HP is pinned at 1.0: a longer fight is
+## legitimate for the one big committed duel that ends a floor, and illegitimate
+## for the twelve bodies you are supposed to be shredding. <= 0 falls back to
+## `hp_multiplier` so a pre-existing FloorDef scales its boss exactly as before.
+@export var boss_hp_multiplier: float = 0.0
 ## Environment + layout (null = inherit the tower default, resolved at build).
 @export var theme: EnvTheme = null
 @export var layout: LayoutDef = null

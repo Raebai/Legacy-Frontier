@@ -1,11 +1,30 @@
 class_name Encounter
 extends Node
 ## The floor's fight: THE TOWER shape is 3-5 escalating WAVES, then the floor's
-## boss. A wave spawns its whole budget under its own concurrent cap; when the
-## budget is spent AND the room is empty, a quiet beat passes and the next
-## (harder) wave starts. Clearing the LAST wave summons the boss — on every
-## floor, not just BOSS-typed ones — and the floor is `cleared` only when the
-## boss is dead.
+## boss. Clearing the LAST wave summons the boss — on every floor, not just
+## BOSS-typed ones — and the floor is `cleared` only when the boss is dead.
+##
+## ── PACING: THERE IS NO QUIET BEAT ──────────────────────────────────────────
+## The first cut of waves ran "spawn budget -> wait for an EMPTY room -> pause
+## 1.5s -> next wave". Both halves of that are dead air, and dead air is the exact
+## opposite of the brief ("action packed like there is so much going on to be done
+## always, like endorphin chasing"). Three changes, all in _tick_wave:
+##
+##   1. VANGUARD. A wave OPENS with a group landing at once, not a 0.55s trickle.
+##      The lore is that an unseen hand DRAWS each floor and its mobs live, so
+##      bodies appearing from nothing is diegetic — spawning gets to be showy and
+##      aggressive rather than apologetic.
+##   2. OVERLAP. A wave hands off once it is down to its last `handoff_alive`
+##      bodies, not once the room is empty. The next wave's vanguard therefore
+##      drops in while you are still finishing the stragglers, so the pressure
+##      curve never returns to zero between waves.
+##   3. SURGE, not BREAK. What used to be a silent 1.5s pause is now a short
+##      (~0.85s) LOUD beat: `wave_cleared` fires the reward flourish (Hype),
+##      `wave_started` fires the announce + camera pull, and the leftovers from
+##      the previous wave are usually still swinging at you through all of it.
+##
+## Escalation is authored as the MIX (WaveDef.archetypes), never as HP — see
+## FloorDef.hp_multiplier for why.
 ##
 ## Owns the weighted archetype roll + stats, spawn-point selection, and (1.4) the
 ## LIVE ENTITY BUDGET: it is the single authority on how many bodies may exist,
@@ -20,18 +39,30 @@ signal cleared
 ## A wave began: 0-based index + the floor's total wave count. For the HUD /
 ## announcer beat, and what the headless wave tests assert against.
 signal wave_started(index: int, total: int)
+## A wave has been BEATEN (its budget is spent and it is down to its last
+## stragglers). THE REWARD BEAT — clearing a wave has to feel like winning
+## something, not like a timer expiring. Fires once per wave, including the last
+## one just before the guardian is called in.
+signal wave_cleared(index: int, total: int)
 ## The last wave is down and the floor's guardian has arrived.
 signal boss_spawned
 
 const ENEMY_SCENE: PackedScene = preload("res://scenes/combat/Enemy.tscn")
 const BOSS_SCENE: PackedScene = preload("res://scenes/combat/Boss.tscn")
 const SPAWN_TRIES: int = 20
-const SPAWN_INTERVAL: float = 0.55
+## Seconds between the trickle spawns that follow a wave's vanguard. Tightened
+## from 0.55: at the old rate a 5-enemy wave took nearly 3 seconds just to finish
+## arriving, which reads as the room filling up rather than as a wave hitting.
+const SPAWN_INTERVAL: float = 0.35
 
 # BOSS floor: one big GOLD guardian (BRUTE base — telegraphed heavy swing),
 # hp scaled by the floor's hp_multiplier. A handful of adds trickle alongside;
 # the floor clears only when the guardian AND every add are dead.
-const BOSS_BASE_HP: int = 520
+## Guardian HP at full scale. Raised 520 -> 640 during the pacing measurement
+## pass: the guardian is the one fight on a floor where a long committed duel is
+## the DESIGN rather than a symptom, and at 520 the floor-1 mini-guardian was a
+## ~7-second speed bump between the last wave and the exit portal.
+const BOSS_BASE_HP: int = 640
 const BOSS_HEIGHT: float = 42.0       # rig height (visual size); collision stays clean
 const BOSS_TOUCH_DAMAGE: int = 26
 const BOSS_MOVE_SPEED: float = 66.0
@@ -46,14 +77,27 @@ const MAX_LIVE_ENTITIES: int = 25
 
 ## Default wave shape when a FloorDef predates waves (or is synthesized).
 const SYNTH_WAVE_COUNT: int = 3
-const DEFAULT_WAVE_BREAK: float = 1.5
+## THE SURGE BEAT (was DEFAULT_WAVE_BREAK 1.5). Short and loud, not silent — see
+## the PACING block at the top. Long enough to read the wave-clear flourish and
+## the next wave's announce, short enough that you never put the phone down.
+const DEFAULT_SURGE: float = 0.85
+## OVERLAP. A wave is "beaten" once it is down to this fraction of its concurrent
+## cap, so the next wave's vanguard lands while its last bodies are still up.
+const HANDOFF_ALIVE_FRACTION: float = 0.4
+const HANDOFF_ALIVE_MAX: int = 3
+## THE DRAW-IN. Fraction of a wave's concurrent cap that arrives AT ONCE when the
+## wave opens (the rest trickles at SPAWN_INTERVAL). 0.6 means a cap-5 wave slams
+## three bodies down the instant it starts.
+const VANGUARD_CAP_FRACTION: float = 0.6
 ## Safety valve: if the boss never materializes (a spawner hiccup in co-op), do
 ## not soft-lock the floor — clear it after this long with nothing alive.
 const BOSS_ARRIVAL_GRACE: float = 4.0
 
 ## Where the fight is in its life. WAVES = spawning/killing the current wave,
-## BREAK = the beat between waves, BOSS = the guardian is up.
-enum Phase { IDLE, WAVES, BREAK, BOSS, DONE }
+## SURGE = the short LOUD beat between waves (stragglers usually still alive
+## through it), BOSS = the guardian is up. SURGE keeps ordinal 2, where the old
+## silent BREAK sat.
+enum Phase { IDLE, WAVES, SURGE, BOSS, DONE }
 
 # Spawn area (from the floor's LayoutDef; defaults match the legacy arena rect).
 var _rect_min: Vector2 = Vector2(80, 80)
@@ -62,9 +106,10 @@ var _min_dist: float = 160.0
 # Floor-level knobs (waves inherit from these unless they override).
 var _brute: float = 0.35
 var _hp: float = 1.0
+var _boss_hp: float = 1.0
 var _boss_scale: float = 1.0
 var _spawns_boss: bool = true
-var _wave_break: float = DEFAULT_WAVE_BREAK
+var _wave_break: float = DEFAULT_SURGE
 # Wave state.
 var _waves: Array[WaveDef] = []
 var _wave_index: int = -1
@@ -74,6 +119,12 @@ var _wave_cap: int = 3
 var _wave_brute: float = 0.35
 var _wave_hp: float = 1.0
 var _wave_interval: float = SPAWN_INTERVAL
+## Bodies still owed by the opening VANGUARD (they land in one tick, together).
+var _wave_burst: int = 0
+## Alive-count at or below which this wave hands off to the next (the overlap).
+var _wave_handoff: int = 0
+## This wave's archetype roster ([] = the floor's weighted roll over all eight).
+var _wave_roster: Array[int] = []
 var _timer: float = 0.0
 var _break_timer: float = 0.0
 var _phase: int = Phase.IDLE
@@ -123,6 +174,7 @@ func run_floor(floor_def: FloorDef) -> void:
 		configure(layout.spawn_rect_min, layout.spawn_rect_max, layout.min_spawn_dist_from_hero)
 	_brute = floor_def.brute_chance
 	_hp = floor_def.hp_multiplier
+	_boss_hp = resolved_boss_hp(floor_def)
 	_boss_scale = resolved_boss_scale(floor_def)
 	_wave_break = maxf(floor_def.wave_break, 0.0)
 	_waves = resolved_waves(floor_def)
@@ -178,7 +230,10 @@ func _process(delta: float) -> void:
 	match _phase:
 		Phase.WAVES:
 			_tick_wave(delta, alive)
-		Phase.BREAK:
+		Phase.SURGE:
+			# NOT a pause. The previous wave's last bodies are usually still up and
+			# fighting through this whole beat — it exists to let the flourish and
+			# the next wave's announce land, not to give anyone a rest.
 			_break_timer -= delta
 			if _break_timer <= 0.0:
 				_start_wave(_wave_index + 1)
@@ -186,32 +241,54 @@ func _process(delta: float) -> void:
 			_tick_boss(delta, alive)
 
 
-## Spawn this wave's budget under its own cap + interval; when the budget is
-## spent AND the room is empty, hand off to the break (or the boss).
+## Spawn this wave: the VANGUARD lands in one tick, the remainder trickles under
+## the concurrent cap. The wave then hands off once it is down to its last
+## `_wave_handoff` bodies — NOT once the room is empty (see the PACING block).
 func _tick_wave(delta: float, alive: int) -> void:
 	if _wave_spawned < _wave_budget:
 		_timer -= delta
-		if _timer <= 0.0 and alive < _wave_cap and can_spawn(1):
+		if _timer > 0.0:
+			return
+		if _wave_burst > 0:
+			# THE DRAW-IN. One tick, a group of bodies, all at once. Each still asks
+			# the 25-entity budget individually, so the burst can never be the thing
+			# that breaks the cap — it just refuses to finish if the room is full.
+			while _wave_burst > 0 and _wave_spawned < _wave_budget \
+					and alive < _wave_cap and can_spawn(1):
+				spawn(_wave_brute, _wave_hp, _wave_roster)
+				_wave_spawned += 1
+				_wave_burst -= 1
+				alive += 1
+			_wave_burst = 0        # whatever the cap swallowed falls back to the trickle
 			_timer = _wave_interval
-			spawn(_wave_brute, _wave_hp)
+			return
+		if alive < _wave_cap and can_spawn(1):
+			_timer = _wave_interval
+			spawn(_wave_brute, _wave_hp, _wave_roster)
 			_wave_spawned += 1
 		return
-	if alive > 0:
+	if alive > _wave_handoff:
 		return
-	# Wave down. Next wave after a beat, or the guardian if that was the last.
+	# Wave BEATEN. Fire the reward beat, then hand straight on: the next wave (or
+	# the guardian) arrives while these last bodies are still swinging.
+	wave_cleared.emit(_wave_index, _waves.size())
 	if _wave_index + 1 < _waves.size():
-		_phase = Phase.BREAK
+		_phase = Phase.SURGE
 		_break_timer = _wave_break
 	else:
 		_begin_boss()
 
 
-## The floor ends when the guardian dies. _boss_seen guards the frame(s) between
-## asking for the boss and it actually existing (the co-op spawner is not
-## same-frame); BOSS_ARRIVAL_GRACE is the anti-soft-lock valve if it never comes.
+## The floor ends when the guardian AND every last straggler is dead.
+## `_boss_seen` is set by the guardian ACTUALLY BEING THERE (it is the only enemy
+## exposing current_phase) rather than by "something is alive" — with overlapping
+## waves the boss now arrives on top of stragglers, and the old reading would have
+## let their deaths satisfy the gate for a boss that never spawned.
+## BOSS_ARRIVAL_GRACE is the anti-soft-lock valve if it genuinely never comes.
 func _tick_boss(delta: float, alive: int) -> void:
-	if alive > 0:
+	if _boss_present():
 		_boss_seen = true
+	if alive > 0:
 		return
 	if _boss_seen:
 		_finish()
@@ -220,6 +297,18 @@ func _tick_boss(delta: float, alive: int) -> void:
 	if _boss_grace <= 0.0:
 		push_warning("Encounter: floor boss never arrived — clearing to avoid a soft-lock")
 		_finish()
+
+
+## Is the floor's guardian standing in the room? `current_phase` is the Boss's
+## own signature method — no other enemy has it, and it needs no class reference.
+func _boss_present() -> bool:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return false
+	for e: Node in tree.get_nodes_in_group("enemy"):
+		if e.has_method("current_phase"):
+			return true
+	return false
 
 
 func _start_wave(index: int) -> void:
@@ -234,6 +323,16 @@ func _start_wave(index: int) -> void:
 	_wave_brute = w.resolved_brute(_brute)
 	_wave_hp = w.resolved_hp(_hp)
 	_wave_interval = maxf(w.resolved_interval(SPAWN_INTERVAL), 0.05)
+	_wave_roster = w.archetypes
+	# Clamped BELOW the budget, never to it: a 1-enemy wave whose handoff was also 1
+	# would be "beaten" the instant it spawned, and the floor would sprint through
+	# its own wave list without anyone fighting anything.
+	_wave_handoff = clampi(w.resolved_handoff(handoff_for_cap(_wave_cap)), 0, maxi(_wave_budget - 1, 0))
+	# The burst is armed here but SPAWNED IN _tick_wave, gated on `_timer`. That is
+	# load-bearing for co-op: run_floor sets _timer = COOP_SPAWN_DELAY after opening
+	# wave 0 so late-loading clients' EnemySpawner exists, and a vanguard that fired
+	# here would sail straight past that hold.
+	_wave_burst = clampi(w.resolved_vanguard(vanguard_for_cap(_wave_cap)), 0, _wave_budget)
 	_timer = 0.0
 	_phase = Phase.WAVES
 	wave_started.emit(index, _waves.size())
@@ -249,7 +348,9 @@ func _begin_boss() -> void:
 	_phase = Phase.BOSS
 	_boss_seen = false
 	_boss_grace = BOSS_ARRIVAL_GRACE
-	spawn_boss(_hp * _boss_scale, _boss_scale)
+	# _boss_hp, not the trash multiplier: depth HP scaling now lives on the
+	# guardian alone (FloorDef.boss_hp_multiplier).
+	spawn_boss(_boss_hp * _boss_scale, _boss_scale)
 	boss_spawned.emit()
 
 
@@ -287,9 +388,34 @@ static func synthesize_waves(budget: int, cap: int, brute: float) -> Array[WaveD
 		w.enemy_budget = shares[i]
 		# Pressure ramps across the floor: the opener breathes, the last wave bites.
 		w.concurrent_cap = maxi(cap - 1 + i, 2)
+		# The synthesized fallback escalates the MIX, not the HP (which stays at
+		# the floor's inherit default): more bodies, then a nastier weighting.
 		w.brute_chance = clampf(brute + 0.08 * float(i), 0.0, 1.0)
 		out.append(w)
 	return out
+
+
+## How many of a wave's bodies land AT ONCE when it opens. Never zero: a wave that
+## opens with one enemy trickling in is not a wave, it is a lull.
+static func vanguard_for_cap(cap: int) -> int:
+	return maxi(int(round(float(maxi(cap, 1)) * VANGUARD_CAP_FRACTION)), 2)
+
+
+## Alive-count at or below which a wave hands off to the next one — the overlap
+## that keeps pressure from ever hitting zero between waves.
+static func handoff_for_cap(cap: int) -> int:
+	return clampi(int(round(float(maxi(cap, 1)) * HANDOFF_ALIVE_FRACTION)), 1, HANDOFF_ALIVE_MAX)
+
+
+## The floor's GUARDIAN hp multiplier: the authored boss curve, falling back to
+## the legacy `hp_multiplier` so a FloorDef written before the split scales its
+## boss exactly as it always did.
+static func resolved_boss_hp(floor_def: FloorDef) -> float:
+	if floor_def == null:
+		return 1.0
+	if floor_def.boss_hp_multiplier > 0.0:
+		return floor_def.boss_hp_multiplier
+	return floor_def.hp_multiplier
 
 
 ## Largest-remainder split of `total` across `count` escalating shares (weights
@@ -424,9 +550,19 @@ func spawn_boss(hp_mult: float, body_scale: float = 1.0) -> Node:
 
 ## The guardian stands well to one side of the hero (toward centre) so the
 ## colossus reads as its own giant silhouette, not stacked on the player.
+##
+## ⚠ THE get_tree() GUARD IS THE WHOLE POINT OF THIS COMMENT. spawn_boss() is
+## reachable from a caller that has not added this Encounter to a tree yet (the
+## boss-rush path and headless harnesses both do it during _initialize). An
+## unguarded get_tree() there does not return null — it ERRORS, which ABORTS the
+## enclosing function and hands the caller a zero Vector2, so the guardian
+## silently spawned at (0,0) in the corner of the room and nothing said a word.
 func _boss_spawn_position() -> Vector2:
 	var center := Vector2((_rect_min.x + _rect_max.x) * 0.5, (_rect_min.y + _rect_max.y) * 0.5)
-	var heroes: Array[Node] = get_tree().get_nodes_in_group("hero")
+	var tree: SceneTree = get_tree() if is_inside_tree() else null
+	if tree == null:
+		return Vector2(clampf(center.x + 300.0, _rect_min.x, _rect_max.x), center.y)
+	var heroes: Array[Node] = tree.get_nodes_in_group("hero")
 	if heroes.size() > 0 and heroes[0] is Node2D:
 		var hx: float = (heroes[0] as Node2D).global_position.x
 		var bx: float = hx + (300.0 if hx < center.x else -300.0)
@@ -434,9 +570,12 @@ func _boss_spawn_position() -> Vector2:
 	return Vector2(clampf(center.x + 300.0, _rect_min.x, _rect_max.x), center.y)
 
 
-## Spawn one enemy of a weighted-random archetype into the arena.
-func spawn(brute_chance: float, hp_mult: float) -> void:
-	var kind: int = _roll_archetype(brute_chance)
+## Spawn one enemy into the arena. `roster` (a wave's authored archetype list)
+## replaces the weighted roll when it is non-empty — THE difficulty dial, so a
+## wave can be "two chargers and a mage" rather than "the same soup, tankier".
+## Defaulted so the F6 sandbox's spawn(0.5, 1.0) is byte-identical to before.
+func spawn(brute_chance: float, hp_mult: float, roster: Array[int] = []) -> void:
+	var kind: int = _roll_archetype(brute_chance, roster)
 	var s: Dictionary = _archetype_stats(kind, hp_mult)
 	var pos: Vector2 = _pick_spawn_position()
 	_emit_enemy({
@@ -489,7 +628,12 @@ func build_enemy_from_data(data: Dictionary) -> CharacterBody2D:
 ## brute_chance — the FloorDef's floor-difficulty knob — so deeper floors get
 ## nastier and more varied. Insertion order is deterministic (GDScript dicts keep
 ## it), so the accumulate-until-r walk is stable.
-func _roll_archetype(brute_chance: float) -> int:
+func _roll_archetype(brute_chance: float, roster: Array[int] = []) -> int:
+	# An authored wave roster wins outright: this is how a floor escalates by
+	# COMPOSITION (wave 4 = "charger + charger + mage, at once") instead of by
+	# quietly multiplying everyone's HP.
+	if not roster.is_empty():
+		return int(roster[randi() % roster.size()])
 	var weights: Dictionary = {
 		0: 0.30,                          # CHASER — fast weak backbone
 		1: 0.14 + 0.24 * brute_chance,    # BRUTE — telegraphed heavy

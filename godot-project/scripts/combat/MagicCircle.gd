@@ -85,6 +85,89 @@ const PULSE_RINGS: int = 3
 const GROW_TIME_DEFAULT: float = 0.3
 const EDGE_TICKS: int = 12
 
+
+# ======================== SIGNATURE: WHICH SPELL IS THIS? ====================
+## THE CIRCLE IS THE TELEGRAPH. The spec's rule for big spells is that they must be
+## "loud, committal, answerable", and the only thing the opponent can read during a
+## windup is the sigil hanging over the caster's head. So the sigil has to answer two
+## questions at a glance, before the spell exists:
+##
+##   WHAT ELEMENT?  -> the GLYPH BAND. Eight hand-drawn rim vocabularies (flame
+##                     tongues / crystal facets / zigzags / hooked tendrils / runes /
+##                     stone slabs / radiant rays / swirls). Colour alone is not
+##                     enough: fire-orange and earth-amber are neighbours, holy-gold
+##                     and lightning-yellow are neighbours, and at 360 px on a phone
+##                     two warm rings are the same ring. SHAPE separates them.
+##
+##   HOW BIG?       -> the TIER LADDER. A QUICK jab opens a thin single ring; a HEAVY
+##                     adds the inner mechanism (spokes + hexagram); an ULT adds an
+##                     outer summoning ring and a counter-rotating second glyph band.
+##                     Same rule the impact frames and the clash weights already use
+##                     (SpellTier), never a fourth scale that could disagree.
+##
+## Both default to "not told" and DEGRADE, they do not fail: an unset element draws
+## the original generic runic ticks, and an unset tier is inferred from radius. That
+## is what lets Hero's windup sigil — opened by a file this pass may not touch — pick
+## up its element for free (see `_infer_element`) without a single edit over there.
+
+## Glyph counts per tier. Deliberately coprime-ish with SPOKES/TICKS so the bands
+## never phase-lock into a single fat spoke as they counter-rotate.
+const GLYPHS_QUICK: int = 6
+const GLYPHS_HEAVY: int = 10
+const GLYPHS_ULT: int = 14
+
+## Radius bands used to GUESS a tier when nobody said (Hero's windup sigil sizes
+## itself from the spell's cost: ~17 px for a cheap jab up to ~34 px for an ult, and
+## spectacle muzzle sigils are bigger still). A guess, explicitly — every spectacle
+## that goes through `SpellSigil` states its tier outright and never lands here.
+const TIER_RADIUS_QUICK: float = 21.0
+const TIER_RADIUS_HEAVY: float = 30.0
+
+## How close a colour must sit to an element's signature colour to be recognised as
+## that element (squared CHROMA distance — see `_chroma`).
+##
+## MEASURED, not guessed, and it sits between two hard numbers:
+##   FLOOR  — the worst drift any legitimate element colour suffers is FIRE lifted to
+##            `Elements.emissive`, at 0.028. Anything at or below that would start
+##            rejecting the game's own HDR cores.
+##   CEILING— a neutral grey normalises to chroma (1,1,1) and its nearest element is
+##            HOLY at 0.165. At the first-pass value of 0.30 that matched, so every
+##            washed-out or near-white effect in the game was quietly labelled HOLY
+##            and drew radiant-ray glyphs. That was a real mislabel, caught by
+##            tools/slice_test_sigil.gd rather than by eye.
+## 0.075 clears the drift with ~2.7x headroom and rejects grey with ~2.2x margin.
+## A colour outside it is not guessed at: it falls through to `-1` and the sigil draws
+## the generic runic ticks, which is the honest answer for "this is nobody's element".
+const ELEMENT_MATCH_TOLERANCE: float = 0.075
+
+
+# ---------------------------------------------------------------- CHARGE / SNAP
+## THE GATHER AND THE RELEASE, which is the half of "casting is a process" the sigil
+## was not carrying. Before this the ring simply grew in and then span at a constant
+## look for the whole windup, so a 0.5 s channel and a 0.18 s flick were visually the
+## same event at different lengths — nothing accumulated, and the moment of release
+## was marked only by the circle starting to travel.
+##
+## Now: a gather ring contracts inward and the glyph band LIGHTS UP ONE GLYPH AT A
+## TIME as the charge fills, so how far through the windup a caster is can be counted
+## off the rim. At release the whole band is lit and `snap()` fires a hard flare that
+## recoils the ring outward and decays — attack, sustain, release, with no frame where
+## anything appears or vanishes instantly.
+##
+## Self-driving on purpose: `_charge` advances by itself from the moment the sigil
+## appears, and `snap()` is fired from `_begin_handoff` (adoption IS the release).
+## That means every existing caster gets the gather and the snap without one edit at a
+## call site, including the ones this pass is not allowed to touch.
+## How long the gather takes, as a multiple of the sigil's grow time. >1 so the band
+## is still filling after the ring has finished materialising — the growth is the
+## sigil arriving, the fill is the power arriving, and they must not be the same beat.
+const CHARGE_TIME_FACTOR: float = 2.2
+const CHARGE_TIME_MIN: float = 0.22
+## Seconds the release flare takes to fall back to nothing.
+const SNAP_DECAY: float = 0.28
+## How far the ring recoils outward at full snap, as a fraction of radius.
+const SNAP_RECOIL: float = 0.16
+
 ## ---- hand-off tuning -------------------------------------------------------
 ## UNTESTED GUESSES, every one: these are reasoning about how a ritual should
 ## flow, not numbers anybody has felt yet. Kept together so a playtest can retune
@@ -125,6 +208,66 @@ var _vanish_elapsed: float = 0.0
 ## Orientation: face-on disc (default) or an edge-on gate aligned to an axis.
 var _edge_on: bool = false
 var _edge_thick: float = 0.15  # x-extent of the edge-on lens as a fraction of radius
+## THE THIRD ORIENTATION: a face-on sigil SQUASHED so it lies on the floor.
+##
+## A placed spell (a field, a ward, an erupting pillar) and a projected one (a bolt,
+## a beam) must not summon out of the same picture — the spec's read is that a
+## GROUND circle tells you where the ground is about to do something and a mid-air
+## circle tells you where a thing is about to come FROM. The squash is the whole
+## difference and it costs nothing: the node's own y-scale, so every arc, glyph and
+## mote foreshortens together and the drawing needs no second code path.
+##
+## Kept as a target rather than applied once because the hand-off interpolates
+## `scale`, and a ground sigil adopted from an upright windup must SETTLE onto the
+## floor over the glide rather than snap flat on the frame it is claimed.
+var _base_scale: Vector2 = Vector2.ONE
+
+# ---- signature (see the SIGNATURE block above) ------------------------------
+## Elements.Element, or -1 for "not told" -> generic runic ticks.
+var _element: int = -1
+## SpellTier.Tier, or -1 for "not told" -> inferred from radius at draw time.
+var _tier: int = -1
+## Set once anybody calls set_signature(), so an inference never overwrites a
+## deliberate answer (and a re-`appear()` on a recycled node cannot un-tell it).
+var _sig_explicit: bool = false
+
+# ---- charge / snap ----------------------------------------------------------
+var _charge: float = 0.0        # 0..1 gather, advances on its own from appear()
+var _charge_time: float = CHARGE_TIME_MIN
+var _snap: float = 0.0          # 1 -> 0 release flare
+var _handed_off: bool = false   # released; the gather is finished, stop advancing it
+
+# ---- level of detail --------------------------------------------------------
+## MOBILE BUDGET. The face-on draw is the single most segment-hungry CanvasItem in
+## the game — the full stack is ~600 line segments per circle per frame, and a busy
+## fight can hold four of them (two windups + two muzzle gates). Cheap on a desktop
+## GPU, not cheap on a tile GPU that re-transforms every vertex.
+##
+## Sampled ONCE, when the sigil opens, rather than per frame: the quality dial walks
+## the scene tree to find the Tuning autoload, and doing that inside `_draw` would
+## put a node lookup on the hottest path in the renderer. A sigil lives well under a
+## second, so a mid-life quality change simply applies to the next cast.
+##
+## LOW drops the emanating pulse rings entirely (three full arcs, the purest
+## decoration in the drawing), drops the ULT's inner square and the rim's white
+## highlight ring, halves every arc's segment count, and thins the motes. What it
+## deliberately KEEPS at full strength is the GLYPH BAND and the CHARGE FILL — those
+## are the READ, and the point of the mobile picture is that it stays readable and
+## fun rather than pretty. Counting the primitives an ULT face-on sigil issues, that
+## is roughly 900 line segments down to roughly 375: a ~2.4x cut, and no new draw
+## call, no new material, no screen-texture fetch at any quality.
+## (A primitive COUNT, not a profiler measurement — nobody has run this on a phone.)
+var _low: bool = false
+## Sampled yet? The probe walks the scene tree, and `SceneTree.root` is not a legal
+## `get_node` base until the tree is ACTIVE — a capture tool that builds its world in
+## `_initialize` (which several in tools/ do) would otherwise take an engine error on
+## every sigil it opened. Deferring to the first `_draw` sidesteps that entirely: by
+## the time anything renders, the tree is always live.
+var _low_sampled: bool = false
+
+# ---- self-timed bloom-out (see `hold`) --------------------------------------
+var _hold_left: float = -1.0
+var _hold_fade: float = 0.26
 
 # ---- hand-off state (see the seam doc at the top) ---------------------------
 ## Circles currently OFFERED for adoption: caster instance_id -> MagicCircle.
@@ -175,6 +318,114 @@ func appear(circle_color: Color, circle_radius: float, grow_time: float = GROW_T
 	_growing = true
 	_alpha = 0.0
 	_scale = 0.35
+	_charge = 0.0
+	_snap = 0.0
+	_handed_off = false
+	_charge_time = maxf(_grow_time * CHARGE_TIME_FACTOR, CHARGE_TIME_MIN)
+	_low_sampled = false
+	# THE FREE UPGRADE. A caster that never heard of the signature API still passes a
+	# colour, and a colour is very nearly an element already — so recognise it. This
+	# is what gives Hero's windup sigil a fire band when the hero is casting fire,
+	# from a file this pass does not touch. Unrecognised colours stay at -1 and draw
+	# the original generic runes, so nothing regresses to a wrong answer.
+	if not _sig_explicit:
+		_element = _infer_element(circle_color)
+	queue_redraw()
+
+
+## Tell the sigil WHICH SPELL it belongs to. `element` is an `Elements.Element`
+## (or -1 for none), `tier` a `SpellTier.Tier` (or -1 to keep inferring from
+## radius). Overrides colour inference permanently for this instance — an explicit
+## answer must survive the re-colour a hand-off performs.
+func set_signature(element: int, tier: int = -1) -> void:
+	_element = element
+	_tier = tier
+	_sig_explicit = true
+	queue_redraw()
+
+
+## The tier this sigil is drawing at, resolved. Public so a spectacle can ask what
+## it is going to get before it decides on a radius, and so a headless test can
+## assert the ladder without rendering a frame.
+func effective_tier() -> int:
+	if _tier >= 0:
+		return _tier
+	if radius < TIER_RADIUS_QUICK:
+		return SpellTier.Tier.QUICK
+	if radius < TIER_RADIUS_HEAVY:
+		return SpellTier.Tier.HEAVY
+	return SpellTier.Tier.ULT
+
+
+## Glyphs in the rim band for the resolved tier — the tier ladder's whole visible
+## expression on the rim, and what makes "this is an ult" countable rather than
+## merely brighter.
+func glyph_count() -> int:
+	match effective_tier():
+		SpellTier.Tier.ULT:
+			return GLYPHS_ULT
+		SpellTier.Tier.HEAVY:
+			return GLYPHS_HEAVY
+	return GLYPHS_QUICK
+
+
+## Nearest `Elements.Element` to `c`, or -1 when nothing is close enough. Compares
+## HUE-NORMALISED colour: the same element arrives at wildly different brightnesses
+## across the codebase (`Elements.color` for telegraphs, `Elements.emissive` — up to
+## 1.9 per channel — for cores, plus per-spell tints), so raw RGB distance would
+## match almost nothing. Normalising by the brightest channel throws the intensity
+## away and compares the chroma, which is the part that identifies the element.
+static func _infer_element(c: Color) -> int:
+	var best: int = -1
+	var best_d: float = ELEMENT_MATCH_TOLERANCE
+	var want: Vector3 = _chroma(c)
+	for e: int in Elements.count():
+		var d: float = want.distance_squared_to(_chroma(Elements.color(e)))
+		if d < best_d:
+			best_d = d
+			best = e
+	return best
+
+
+## A colour reduced to its chroma: divided through by its brightest channel, so
+## Color(1.0, 0.45, 0.15) and Color(1.9, 0.86, 0.29) are the same point.
+static func _chroma(c: Color) -> Vector3:
+	var peak: float = maxf(c.r, maxf(c.g, c.b))
+	if peak <= 0.001:
+		return Vector3.ZERO
+	return Vector3(c.r / peak, c.g / peak, c.b / peak)
+
+
+## Bloom out on a timer instead of waiting to be told. THE ANTI-POP: most spell
+## spectacles are short-lived nodes that `queue_free()` themselves, and a sigil
+## parented to one disappears on the frame its parent does — an instant vanish at
+## full opacity, which is exactly the kind of hard cut this pass exists to remove.
+## Giving the sigil its own shorter life means it always leaves by blooming.
+##
+## `seconds` counts from now and runs on unscaled `_process` delta like everything
+## else here; a later call replaces an earlier one rather than stacking.
+func hold(seconds: float, fade: float = 0.26) -> void:
+	_hold_left = maxf(seconds, 0.0)
+	_hold_fade = maxf(fade, 0.01)
+
+
+## Lay this sigil DOWN on the floor. `squash` is the y-scale it settles to — ~0.34
+## reads as a circle inscribed on the ground under a side-on camera, 1.0 stands it
+## back up. See `_base_scale` for why this is a target and not an assignment.
+func set_ground(squash: float = 0.34) -> void:
+	_base_scale = Vector2(1.0, clampf(squash, 0.05, 1.0))
+	if not _ho_active:
+		scale = _base_scale
+	queue_redraw()
+
+
+## Fire the RELEASE flare. Called automatically at adoption (adoption is the moment
+## the spell fires), and available to any spectacle that wants to punctuate a beat
+## on a sigil it already owns. `strength` scales the recoil and the flash.
+func snap(strength: float = 1.0) -> void:
+	_snap = clampf(strength, 0.0, 1.5)
+	_charge = 1.0
+	_handed_off = true
 	queue_redraw()
 
 
@@ -330,6 +581,16 @@ func _begin_handoff(
 	_vanishing = false
 	_alpha = 1.0
 	_scale = 1.0
+	# ADOPTION IS THE RELEASE. The spell exists as of this instant, so the gather is
+	# complete and the flare fires here rather than at some later "the beam actually
+	# left" moment — a sigil that snapped after the projectile had already gone would
+	# read as a second, unrelated event.
+	snap(1.0)
+	# A hand-off re-tints the sigil to the spell's colour. If nobody stated the
+	# element outright, re-read it from the colour the spell is arriving with — the
+	# spectacle's tint is a better answer than the caster's was.
+	if not _sig_explicit:
+		_element = _infer_element(new_color)
 	_ho_active = true
 	_ho_elapsed = 0.0
 	_ho_time = maxf(travel_time, 0.001)
@@ -381,7 +642,7 @@ func _process_handoff(delta: float) -> void:
 	var t: float = clampf(_ho_elapsed / _ho_time, 0.0, 1.0)
 	var e: float = ease(t, HANDOFF_EASE)
 	global_position = _ho_from_pos.lerp(_ho_to_pos, e)
-	scale = _ho_from_scale.lerp(Vector2.ONE, e)
+	scale = _ho_from_scale.lerp(_base_scale, e)
 	radius = lerpf(_ho_from_radius, _ho_to_radius, e)
 	color = _ho_from_color.lerp(_ho_to_color, e)
 	_edge_thick = lerpf(_ho_from_thick, _ho_to_thick, e)
@@ -426,16 +687,42 @@ func _process(delta: float) -> void:
 	# offer, so anything still pending after OFFER_TTL_MS is never coming.
 	if _offered_at_ms != 0 and Time.get_ticks_msec() - _offered_at_ms > OFFER_TTL_MS:
 		_expire_offer(_offer_caster_id)
+	# THE GATHER, advancing on its own. Stops at the release so the band stays lit
+	# under the flare instead of continuing to fill something already spent.
+	if not _handed_off and not _vanishing:
+		_charge = minf(_charge + delta / _charge_time, 1.0)
+	# THE RELEASE, falling back to nothing. Never cut off — a snap that ended on a
+	# hard frame would undo the whole reason this exists.
+	if _snap > 0.0:
+		_snap = maxf(_snap - delta / SNAP_DECAY, 0.0)
+	if _hold_left >= 0.0 and not _vanishing:
+		_hold_left -= delta
+		if _hold_left <= 0.0:
+			_hold_left = -1.0
+			vanish(_hold_fade)
 	if _growing:
 		_alpha = minf(_alpha + delta / _grow_time, 1.0)
-		_scale = lerpf(0.35, 1.08, ease(_alpha, 0.4))
+		var e: float = ease(_alpha, 0.4)
+		# SMOOTH. This used to be `lerpf(0.35, 1.08, ...)` followed by a hard
+		# `_scale = 1.0` on the frame the growth completed — a 7% snap-down on one
+		# frame, at full opacity, on every single cast in the game. It read as a
+		# flicker, and it was the most-repeated pop in the whole VFX layer.
+		#
+		# The replacement is C0-continuous at both ends BY CONSTRUCTION: the first
+		# term is 0.35 at e=0 and exactly 1.0 at e=1, and the overshoot term is a
+		# half-sine that is zero at both ends. So the ring still punches past its
+		# target (peaking ~1.03 around e=0.8, which is the life in it) and then
+		# SETTLES into 1.0 rather than being yanked there.
+		_scale = 1.0 - 0.65 * pow(1.0 - e, 1.8) + 0.11 * sin(PI * e)
 		if _alpha >= 1.0:
 			_scale = 1.0
 			_growing = false
 	if _vanishing:
 		_vanish_elapsed += delta
 		var v: float = clampf(_vanish_elapsed / _vanish_time, 0.0, 1.0)
-		_alpha = 1.0 - v
+		# Hold bright, then fall away fast — a bloom, not a dimmer. Linear alpha made
+		# every dismissal read as the sigil being switched off half-way through.
+		_alpha = 1.0 - v * v
 		_scale = lerpf(1.0, 1.5, ease(v, 0.6))
 		if v >= 1.0:
 			queue_free()
@@ -446,6 +733,9 @@ func _process(delta: float) -> void:
 func _draw() -> void:
 	if _alpha <= 0.01:
 		return
+	if not _low_sampled:
+		_low_sampled = true
+		_low = TuningConfig.quality_is_low()
 	if _edge_on:
 		_draw_edge()
 	else:
@@ -465,41 +755,79 @@ func _draw_edge() -> void:
 	var soft: Color = Color(c.r, c.g, c.b, 0.5 * a)
 	var white: Color = Color(1.7, 1.7, 1.8, a)  # HDR aperture/core blooms
 	var breath: float = 1.0 + 0.04 * sin(_phase * 4.0)
+	var tier: int = effective_tier()
 
 	# Emanating edge-on ripples, expanding along the gate.
-	for i: int in PULSE_RINGS:
-		var t: float = fposmod(_phase * 0.55 + float(i) / float(PULSE_RINGS), 1.0)
-		var k: float = 0.75 + t * 0.9
-		draw_polyline(_ellipse_pts(ex * k, R * k, 48), Color(c.r, c.g, c.b, (1.0 - t) * 0.2 * a), 2.0, true)
+	if not _low:
+		for i: int in PULSE_RINGS:
+			var t: float = fposmod(_phase * 0.55 + float(i) / float(PULSE_RINGS), 1.0)
+			var k: float = 0.75 + t * 0.9
+			draw_polyline(_ellipse_pts(ex * k, R * k, _seg(48)), Color(c.r, c.g, c.b, (1.0 - t) * 0.2 * a), 2.0, true)
+
+	# The ULT summoning band, edge-on: a second gate standing outside the first. Same
+	# "an ult changes the OUTLINE" rule as the face-on draw.
+	if tier >= SpellTier.Tier.ULT:
+		draw_polyline(_ellipse_pts(ex * 1.5, R * 1.18, _seg(48)), Color(c.r, c.g, c.b, 0.4 * a), 2.0, true)
 
 	# Nested edge-on rings.
-	draw_polyline(_ellipse_pts(ex * breath, R * breath, 56), ring, 3.0, true)
-	draw_polyline(_ellipse_pts(ex * 0.72 * breath, R * 0.72 * breath, 48), soft, 2.0, true)
-	draw_polyline(_ellipse_pts(ex * 0.46, R * 0.46, 40), soft, 1.5, true)
+	draw_polyline(_ellipse_pts(ex * breath, R * breath, _seg(56)), ring, 3.0, true)
+	draw_polyline(_ellipse_pts(ex * 0.72 * breath, R * 0.72 * breath, _seg(48)), soft, 2.0, true)
+	if tier >= SpellTier.Tier.HEAVY:
+		draw_polyline(_ellipse_pts(ex * 0.46, R * 0.46, _seg(40)), soft, 1.5, true)
 
 	# Rim glyphs orbiting the edge-on ring — foreshortened, brighter at the front.
-	for i: int in MOTES:
-		var th: float = _phase * 1.6 + TAU * float(i) / float(MOTES)
+	var motes: int = MOTES if not _low else 3
+	for i: int in motes:
+		var th: float = _phase * 1.6 + TAU * float(i) / float(motes)
 		var pos: Vector2 = Vector2(ex * cos(th), R * 0.94 * sin(th))
 		var depth: float = 0.45 + 0.55 * (0.5 + 0.5 * cos(th))  # front (cos>0) bigger/brighter
 		var ma: float = clampf(0.35 + 0.5 * depth, 0.12, 1.0) * a
 		draw_circle(pos, maxf(2.0, R * 0.03) * depth, Color(c.r, c.g, c.b, ma * 0.5), true, -1.0, true)
 		draw_circle(pos, maxf(1.2, R * 0.02) * depth, Color(1.0, 1.0, 1.0, ma), true, -1.0, true)
 
-	# Runic ticks around the rim, extending outward, sliding with the spin.
-	for i: int in EDGE_TICKS:
-		var th2: float = _phase * 1.6 + TAU * float(i) / float(EDGE_TICKS)
-		var p0: Vector2 = Vector2(ex * cos(th2), R * sin(th2))
-		var p1: Vector2 = Vector2(ex * 1.7 * cos(th2), R * 1.07 * sin(th2))
-		draw_line(p0, p1, Color(c.r, c.g, c.b, 0.4 * a), 1.5, true)
+	# THE ELEMENT BAND, foreshortened onto the gate's rim. Same glyphs as the face-on
+	# sigil and the same progressive lighting, so a beam's muzzle gate and the windup
+	# circle it was adopted FROM are recognisably the same ritual seen from two
+	# angles — which is the entire premise of the hand-off.
+	var gn: int = glyph_count()
+	for i: int in gn:
+		var f: float = float(i) / float(gn)
+		var th2: float = _phase * 1.6 + TAU * f
+		var at: Vector2 = Vector2(ex * 1.25 * cos(th2), R * 1.02 * sin(th2))
+		var depth2: float = 0.45 + 0.55 * (0.5 + 0.5 * cos(th2))
+		var on: bool = f <= _charge + 0.0001
+		var gcol: Color = Color(c.r * 1.35, c.g * 1.35, c.b * 1.35, 0.9 * a * depth2) if on \
+			else Color(c.r, c.g, c.b, 0.28 * a * depth2)
+		if _element < 0:
+			# Unset element: the original plain radial tick, unchanged.
+			draw_line(Vector2(ex * cos(th2), R * sin(th2)),
+				Vector2(ex * 1.7 * cos(th2), R * 1.07 * sin(th2)), gcol, 1.5, true)
+		else:
+			# `sin(th2)` is the position ALONG the gate, so the outward normal at that
+			# point is straight up or down the gate — not radial. Using the radial angle
+			# here would have every glyph pointing at the centre of a lens it is sitting
+			# on the edge of, which reads as debris rather than inscription.
+			_draw_glyph(at, PI * 0.5 if sin(th2) >= 0.0 else -PI * 0.5,
+				maxf(R * 0.20, 3.0) * depth2, gcol, on)
 
-	# Central APERTURE — the bright slit the beam bursts from (pulses).
-	var pulse: float = 0.8 + 0.2 * sin(_phase * 8.0)
+	# Central APERTURE — the bright slit the beam bursts from (pulses, and swells with
+	# the gather so the gate is visibly loading before it fires).
+	var pulse: float = (0.8 + 0.2 * sin(_phase * 8.0)) * (1.0 + 0.35 * _charge + 0.7 * _snap)
 	draw_line(Vector2(0.0, -R * 0.62), Vector2(0.0, R * 0.62), Color(c.r, c.g, c.b, 0.55 * a), maxf(3.0, ex * 1.3) * pulse, true)
 	draw_line(Vector2(0.0, -R * 0.5), Vector2(0.0, R * 0.5), white, maxf(1.5, ex * 0.5) * pulse, true)
 	# Hot core.
 	draw_circle(Vector2.ZERO, R * 0.12 * pulse, Color(c.r, c.g, c.b, 0.3 * a), true, -1.0, true)
 	draw_circle(Vector2.ZERO, R * 0.07 * pulse, white, true, -1.0, true)
+
+	# The release flare, as an expanding GATE rather than a circle.
+	if _snap > 0.001:
+		var k2: float = 1.0 - _snap
+		var fs: float = 1.0 + 0.7 * ease(k2, 0.4)
+		var fa: float = _snap * _snap * a
+		draw_polyline(_ellipse_pts(ex * fs, R * fs, _seg(48)),
+			Color(c.r, c.g, c.b, 0.85 * fa), 3.0 + 5.0 * _snap, true)
+		draw_polyline(_ellipse_pts(ex * fs, R * fs, _seg(48)),
+			Color(1.6, 1.6, 1.7, 0.6 * fa), 1.5 + 2.0 * _snap, true)
 
 
 ## A closed ellipse polyline with x half-extent `ex`, y half-extent `ey`.
@@ -512,57 +840,245 @@ func _ellipse_pts(ex: float, ey: float, n: int) -> PackedVector2Array:
 
 
 # ------------------------------------------------------------ FACE-ON (portals)
+## Drawn as FOUR readable layers, outermost first, each gated by the tier ladder so
+## a QUICK jab and an ULT are different DRAWINGS rather than the same drawing at
+## different sizes:
+##   1. summoning ring   (ULT only)   the outer band that says "this is the big one"
+##   2. the rim          (all tiers)  main ring + dashed ring + the ELEMENT GLYPH BAND
+##   3. the mechanism    (HEAVY+)     counter-rotating spokes, hexagram, square
+##   4. the heart        (all tiers)  gather ring, motes, core, release flare
 func _draw_face() -> void:
 	var a: float = _alpha
 	var c: Color = color
 	var s: float = _scale
-	var R: float = radius * s
+	var tier: int = effective_tier()
+	var heavy: bool = tier >= SpellTier.Tier.HEAVY
+	var ult: bool = tier >= SpellTier.Tier.ULT
+	# The release RECOIL: the whole rim kicks outward on the snap and eases back in
+	# as the flare decays, so the moment of firing is felt in the ring itself and not
+	# only in the flash laid over it.
+	var recoil: float = 1.0 + SNAP_RECOIL * _snap
+	var R: float = radius * s * recoil
 	var ring: Color = Color(c.r, c.g, c.b, 0.9 * a)
 	var soft: Color = Color(c.r, c.g, c.b, 0.5 * a)
 	var white: Color = Color(1.7, 1.7, 1.8, a)  # HDR aperture/core blooms
 	var breath: float = 1.0 + 0.03 * sin(_phase * 4.0)
+	var seg: int = _seg(84)
 
-	for i: int in PULSE_RINGS:
-		var t: float = fposmod(_phase * 0.55 + float(i) / float(PULSE_RINGS), 1.0)
-		var rr: float = R * (0.75 + t * 0.9)
-		draw_arc(Vector2.ZERO, rr, 0.0, TAU, 60, Color(c.r, c.g, c.b, (1.0 - t) * 0.22 * a), 2.0, true)
+	# --- 1. pulse rings + the ULT summoning band ----------------------------
+	if not _low:
+		for i: int in PULSE_RINGS:
+			var t: float = fposmod(_phase * 0.55 + float(i) / float(PULSE_RINGS), 1.0)
+			var rr: float = R * (0.75 + t * 0.9)
+			draw_arc(Vector2.ZERO, rr, 0.0, TAU, _seg(60), Color(c.r, c.g, c.b, (1.0 - t) * 0.22 * a), 2.0, true)
+	if ult:
+		# A second, WIDER ring outside the main one, spinning the other way. This is
+		# the single clearest "an ult is being cast" read available before the spell
+		# exists, because it changes the sigil's OUTLINE rather than its brightness —
+		# and an outline survives a busy screen where brightness does not.
+		draw_arc(Vector2.ZERO, R * 1.20, 0.0, TAU, _seg(72), Color(c.r, c.g, c.b, 0.42 * a), 2.0, true)
+		draw_set_transform(Vector2.ZERO, -_phase * SPIN_SPEED * 0.45, Vector2.ONE)
+		_draw_dashed_ring(radius * s * recoil * 1.13, _seg(DASH_SEGMENTS), 0.32,
+			Color(c.r, c.g, c.b, 0.5 * a), 2.5)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-	draw_set_transform(Vector2.ZERO, _phase * SPIN_SPEED, Vector2(s, s) * breath)
-	draw_arc(Vector2.ZERO, radius, 0.0, TAU, 84, ring, 3.5, true)
-	draw_arc(Vector2.ZERO, radius * 0.965, 0.0, TAU, 84, Color(1, 1, 1, 0.2 * a), 1.5, true)
-	_draw_dashed_ring(radius * 0.88, DASH_SEGMENTS, 0.55, Color(c.r, c.g, c.b, 0.75 * a), 3.0)
-	for i: int in TICKS:
-		var dirv: Vector2 = Vector2.from_angle(TAU * float(i) / float(TICKS))
-		draw_line(dirv * radius * 0.76, dirv * radius * 0.94, Color(c.r, c.g, c.b, 0.5 * a), 1.5, true)
+	# --- 2. the rim: main ring, dashed ring, ELEMENT GLYPH BAND -------------
+	draw_set_transform(Vector2.ZERO, _phase * SPIN_SPEED, Vector2(s, s) * breath * recoil)
+	draw_arc(Vector2.ZERO, radius, 0.0, TAU, seg, ring, 3.5, true)
+	if not _low:
+		draw_arc(Vector2.ZERO, radius * 0.965, 0.0, TAU, seg, Color(1, 1, 1, 0.2 * a), 1.5, true)
+	_draw_dashed_ring(radius * 0.88, _seg(DASH_SEGMENTS), 0.55, Color(c.r, c.g, c.b, 0.75 * a), 3.0)
+	_draw_glyph_band(radius * 0.76, glyph_count(), a, c)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-	draw_set_transform(Vector2.ZERO, -_phase * SPIN_SPEED * 0.7, Vector2(s, s) * breath)
-	draw_arc(Vector2.ZERO, radius * 0.64, 0.0, TAU, 60, soft, 2.0, true)
-	for i: int in SPOKES:
-		var sd: Vector2 = Vector2.from_angle(TAU * float(i) / float(SPOKES))
-		draw_line(sd * radius * 0.34, sd * radius * 0.6, Color(c.r, c.g, c.b, 0.4 * a), 1.5, true)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	# --- 3. the mechanism: only spells that cost you get moving parts -------
+	if heavy:
+		draw_set_transform(Vector2.ZERO, -_phase * SPIN_SPEED * 0.7, Vector2(s, s) * breath)
+		draw_arc(Vector2.ZERO, radius * 0.64, 0.0, TAU, _seg(60), soft, 2.0, true)
+		for i: int in SPOKES:
+			var sd: Vector2 = Vector2.from_angle(TAU * float(i) / float(SPOKES))
+			draw_line(sd * radius * 0.34, sd * radius * 0.6, Color(c.r, c.g, c.b, 0.4 * a), 1.5, true)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-	draw_set_transform(Vector2.ZERO, _phase * SPIN_SPEED * 0.35, Vector2(s, s))
-	_draw_star(radius * 0.55, 3, 0.0, ring)
-	_draw_star(radius * 0.55, 3, PI / 3.0, ring)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		draw_set_transform(Vector2.ZERO, _phase * SPIN_SPEED * 0.35, Vector2(s, s))
+		_draw_star(radius * 0.55, 3, 0.0, ring)
+		_draw_star(radius * 0.55, 3, PI / 3.0, ring)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-	draw_set_transform(Vector2.ZERO, -_phase * SPIN_SPEED * 0.5, Vector2(s, s))
-	_draw_star(radius * 0.4, 4, PI / 4.0, soft)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	if ult and not _low:
+		draw_set_transform(Vector2.ZERO, -_phase * SPIN_SPEED * 0.5, Vector2(s, s))
+		_draw_star(radius * 0.4, 4, PI / 4.0, soft)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-	for i: int in MOTES:
-		var ang: float = _phase * 1.5 + TAU * float(i) / float(MOTES)
+	# --- 4. the heart: gather ring, motes, core, release flare --------------
+	_draw_gather_ring(R, a, c)
+
+	var motes: int = MOTES if not _low else 3
+	for i: int in motes:
+		var ang: float = _phase * 1.5 + TAU * float(i) / float(motes)
 		var pos: Vector2 = Vector2.from_angle(ang) * R * 0.72
 		var ma: float = clampf(0.55 + 0.35 * sin(_phase * 5.0 + float(i) * 1.6), 0.15, 1.0) * a
 		draw_circle(pos, maxf(2.0, radius * 0.03), Color(c.r, c.g, c.b, ma * 0.4), true, -1.0, true)
 		draw_circle(pos, maxf(1.2, radius * 0.018), Color(1, 1, 1, ma), true, -1.0, true)
 
+	# The core swells with the gather so the middle of the sigil is filling too, not
+	# only the rim — a ring that lights up around a dead centre reads as a dial.
 	var pulse: float = 0.82 + 0.18 * sin(_phase * 7.5)
-	draw_circle(Vector2.ZERO, radius * 0.22 * s * pulse, Color(c.r, c.g, c.b, 0.28 * a), true, -1.0, true)
-	draw_arc(Vector2.ZERO, radius * 0.15 * s, 0.0, TAU, 28, ring, 2.0, true)
-	draw_circle(Vector2.ZERO, radius * 0.09 * s * pulse, white, true, -1.0, true)
+	var swell: float = 1.0 + 0.55 * _charge + 0.9 * _snap
+	draw_circle(Vector2.ZERO, radius * 0.22 * s * pulse * swell, Color(c.r, c.g, c.b, 0.28 * a), true, -1.0, true)
+	draw_arc(Vector2.ZERO, radius * 0.15 * s * swell, 0.0, TAU, _seg(28), ring, 2.0, true)
+	draw_circle(Vector2.ZERO, radius * 0.09 * s * pulse * swell, white, true, -1.0, true)
+
+	_draw_snap_flare(R, a, c)
+
+
+# ------------------------------------------------------- shared sigil furniture
+## Arc segment count for this sigil's level of detail. One place so a future
+## quality tier is a change to this function and nothing else.
+func _seg(full: int) -> int:
+	return maxi(full / 2, 12) if _low else full
+
+
+## THE GATHER RING — a ring OUTSIDE the sigil that contracts inward as the charge
+## fills and lands exactly on the rim at full. It is the clearest possible statement
+## of "something is coming and it is nearly here", and it costs one arc.
+##
+## Drawn only while charging: at full charge it has arrived and would be a second
+## ring sitting on top of the main one.
+func _draw_gather_ring(R: float, a: float, c: Color) -> void:
+	if _charge >= 0.999 or R <= 0.0:
+		return
+	var k: float = ease(_charge, 0.55)
+	var gr: float = R * lerpf(1.62, 1.0, k)
+	# Brightens as it closes, so the last frames before release are the brightest.
+	var ga: float = (0.18 + 0.55 * k) * a
+	draw_arc(Vector2.ZERO, gr, 0.0, TAU, _seg(52), Color(c.r, c.g, c.b, ga), 2.0 + 1.5 * k, true)
+
+
+## THE RELEASE FLARE — a hard bright ring thrown outward from the rim, fading as it
+## goes. Fires on `snap()`, decays over SNAP_DECAY, and is the only thing in this
+## drawing that is allowed to be near-white: the ritual has ended and the spell has
+## started, and that transition earns one flash.
+func _draw_snap_flare(R: float, a: float, c: Color) -> void:
+	if _snap <= 0.001:
+		return
+	var k: float = 1.0 - _snap            # 0 at the instant of release -> 1 when spent
+	var fr: float = R * (1.0 + 0.75 * ease(k, 0.4))
+	var fa: float = _snap * _snap * a     # squared: slams, then gets out of the way
+	draw_arc(Vector2.ZERO, fr, 0.0, TAU, _seg(60), Color(c.r, c.g, c.b, 0.85 * fa), 3.0 + 5.0 * _snap, true)
+	draw_arc(Vector2.ZERO, fr, 0.0, TAU, _seg(60), Color(1.6, 1.6, 1.7, 0.6 * fa), 1.5 + 2.0 * _snap, true)
+
+
+## THE ELEMENT GLYPH BAND. `n` marks around radius `r`, each oriented outward, each
+## LIT progressively as the charge fills — so the windup can be counted off the rim
+## rather than merely watched. Unlit glyphs stay drawn but dim, which is what makes
+## the fill legible: a band that spawned its glyphs one at a time would read as the
+## sigil still being built.
+##
+## An unset element (-1) falls back to the original plain radial ticks, so a caller
+## that never heard of this is byte-for-byte unchanged.
+func _draw_glyph_band(r: float, n: int, a: float, c: Color) -> void:
+	if _element < 0:
+		for i: int in (TICKS if not _low else 10):
+			var dirv: Vector2 = Vector2.from_angle(TAU * float(i) / float(TICKS if not _low else 10))
+			draw_line(dirv * r, dirv * r * 1.24, Color(c.r, c.g, c.b, 0.5 * a), 1.5, true)
+		return
+	var size: float = maxf(r * 0.26, 3.0)
+	var dim := Color(c.r, c.g, c.b, 0.30 * a)
+	var lit := Color(c.r * 1.35, c.g * 1.35, c.b * 1.35, 0.95 * a)
+	for i: int in n:
+		var f: float = float(i) / float(n)
+		var ang: float = TAU * f
+		var at: Vector2 = Vector2.from_angle(ang) * r
+		# `<=` on the fraction rather than `<` so the LAST glyph lights at full charge
+		# — an off-by-one here means the band never completes and the release always
+		# looks a beat early.
+		var on: bool = f <= _charge + 0.0001
+		_draw_glyph(at, ang, size, lit if on else dim, on)
+
+
+## One element mark, centred at `at`, pointing along `ang` (outward from the sigil).
+## Every shape is authored in a local frame where +x is OUTWARD and +y is tangential,
+## then rotated — so a glyph is designed once and works at any point on any ring,
+## face-on or foreshortened on an edge-on rim.
+func _draw_glyph(at: Vector2, ang: float, size: float, col: Color, lit: bool) -> void:
+	var ux: Vector2 = Vector2.from_angle(ang)      # outward
+	var uy: Vector2 = ux.orthogonal()              # tangential
+	var w: float = 1.6 if lit else 1.2
+	match _element:
+		Elements.Element.FIRE:
+			# A flame TONGUE: a tapered curl leaning off the tangent. Fire is the only
+			# element in the set whose glyph is asymmetric, which is what stops it
+			# reading as earth's slab when both are drawn in warm amber.
+			var f := PackedVector2Array([
+				at - ux * size * 0.45 + uy * size * 0.34,
+				at + ux * size * 0.05 + uy * size * 0.16,
+				at + ux * size * 0.95 + uy * size * 0.10,
+				at + ux * size * 0.20 - uy * size * 0.22,
+				at - ux * size * 0.45 - uy * size * 0.30,
+			])
+			draw_polyline(f, col, w, true)
+		Elements.Element.ICE:
+			# A crystal FACET — a hard four-sided diamond. Closed and straight-edged,
+			# the opposite of fire's open curl.
+			var d := PackedVector2Array([
+				at + ux * size * 0.9, at + uy * size * 0.4,
+				at - ux * size * 0.5, at - uy * size * 0.4, at + ux * size * 0.9,
+			])
+			draw_polyline(d, col, w, true)
+			if lit:
+				draw_line(at - ux * size * 0.5, at + ux * size * 0.9, col, 1.0, true)
+		Elements.Element.LIGHTNING:
+			# A BOLT: two hard doglegs. Reads at a glance even at 3 px because the
+			# direction reversals survive downsampling where a smooth curve does not.
+			draw_polyline(PackedVector2Array([
+				at - ux * size * 0.55 + uy * size * 0.30,
+				at + ux * size * 0.10 + uy * size * 0.02,
+				at - ux * size * 0.10 - uy * size * 0.06,
+				at + ux * size * 0.90 - uy * size * 0.34,
+			]), col, w + 0.4, true)
+		Elements.Element.SHADOW:
+			# A hooked TENDRIL — a curl that turns back on itself. Shadow's whole
+			# visual language in this game is "reaching", so the glyph reaches.
+			var t := PackedVector2Array()
+			for k: int in 6:
+				var tt: float = float(k) / 5.0
+				t.append(at + ux * size * (tt * 1.0 - 0.5) + uy * size * 0.42 * sin(tt * PI * 1.25))
+			draw_polyline(t, col, w, true)
+		Elements.Element.EARTH:
+			# A stone SLAB, filled. The only solid glyph in the set: earth is the one
+			# element that has never had a light of its own, and a filled shape is how
+			# that reads without giving it one.
+			var q := PackedVector2Array([
+				at - ux * size * 0.42 + uy * size * 0.34,
+				at + ux * size * 0.72 + uy * size * 0.22,
+				at + ux * size * 0.72 - uy * size * 0.26,
+				at - ux * size * 0.42 - uy * size * 0.32,
+			])
+			draw_colored_polygon(q, Color(col.r, col.g, col.b, col.a * 0.75))
+			draw_polyline(q + PackedVector2Array([q[0]]), col, 1.0, true)
+		Elements.Element.HOLY:
+			# A radiant RAY with a crossbar — the one glyph with a hard right angle in
+			# it, so holy never collapses into lightning's yellow at small sizes.
+			draw_line(at - ux * size * 0.5, at + ux * size * 0.95, col, w + 0.3, true)
+			draw_line(at + ux * size * 0.15 + uy * size * 0.40,
+				at + ux * size * 0.15 - uy * size * 0.40, col, w, true)
+		Elements.Element.WIND:
+			# A comma SWIRL: a spiral arc that tightens outward.
+			var s2 := PackedVector2Array()
+			for k: int in 7:
+				var tt2: float = float(k) / 6.0
+				var rr: float = size * (0.85 - 0.62 * tt2)
+				var aa: float = tt2 * TAU * 0.72
+				s2.append(at + (ux * cos(aa) + uy * sin(aa)) * rr)
+			draw_polyline(s2, col, w, true)
+		_:
+			# ARCANE (and anything new): a three-stroke RUNE — a stem with two bars.
+			draw_line(at - ux * size * 0.45, at + ux * size * 0.9, col, w, true)
+			draw_line(at + ux * size * 0.10 + uy * size * 0.34,
+				at + ux * size * 0.42 - uy * size * 0.10, col, w * 0.8, true)
+			draw_line(at - ux * size * 0.18 + uy * size * 0.30,
+				at + ux * size * 0.12 - uy * size * 0.12, col, w * 0.8, true)
 
 
 func _draw_dashed_ring(r: float, count: int, fill: float, col: Color, width: float) -> void:

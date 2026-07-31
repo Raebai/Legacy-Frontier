@@ -474,7 +474,13 @@ static func synthesize_floor_def(floor: int) -> FloorDef:
 	fd.enemy_budget = floor_enemy_budget(floor)
 	fd.concurrent_cap = floor_concurrent_cap(floor)
 	fd.brute_chance = floor_brute_chance(floor)
-	fd.hp_multiplier = 1.0 + 0.15 * float(maxi(floor - 1, 0))
+	# TRASH HP DOES NOT SCALE WITH DEPTH (spec: "higher floors add modifiers, not
+	# HP"). The synthesized fallback follows the same policy as the authored tower:
+	# depth rides on brute_chance (the archetype mix) and on the guardian's own
+	# curve below. The old `1.0 + 0.15 * (floor - 1)` only made identical fights
+	# take longer, which is the specific failure the rule exists to prevent.
+	fd.hp_multiplier = 1.0
+	fd.boss_hp_multiplier = floor_boss_hp_multiplier(floor)
 	var theme := EnvTheme.new()
 	theme.name = floor_theme(floor)
 	theme.wash_tint = floor_theme_tint(floor)
@@ -546,7 +552,29 @@ static func parse_climber_save(raw: Dictionary) -> Dictionary:
 # inside a floor each wave brings more bodies at a higher concurrent cap. The
 # `enemy_budget` field is kept in sync with the wave totals so anything still
 # reading the flat number (and the synthesized-wave fallback) agrees.
+#
+# ESCALATION IS THE MIX, NOT THE HP. Every floor below runs hp_multiplier 1.0.
+# The spec is explicit — "higher floors add modifiers, not HP. HP scaling makes
+# fights longer, not harder, and long is the enemy of chaos on a phone" — so the
+# curve is carried by the third column of each wave: WHO shows up. The axis
+# varies deliberately rather than only going up: more bodies -> a first telegraph
+# -> a lane threat -> a ranged threat you cannot ignore -> two threats at once ->
+# the whole roster. Depth HP scaling survives on the GUARDIAN alone
+# (boss_hp_multiplier), where a longer committed duel is the point.
+#
+# Archetype ids (Enemy.Archetype): 0 CHASER · 1 BRUTE · 2 CASTER · 3 CHARGER
+#                                  4 SUMMONER · 5 ASSASSIN · 6 BOMBER · 7 MAGE
 # ======================================================================
+const A_CHASER: int = 0
+const A_BRUTE: int = 1
+const A_CASTER: int = 2
+const A_CHARGER: int = 3
+const A_SUMMONER: int = 4
+const A_ASSASSIN: int = 5
+const A_BOMBER: int = 6
+const A_MAGE: int = 7
+
+
 static func build_default_tower() -> TowerDef:
 	var t := TowerDef.new()
 	t.id = "ashspire"
@@ -556,30 +584,66 @@ static func build_default_tower() -> TowerDef:
 	var under: Color = Color(0.16, 0.13, 0.20)
 	var sky: Color = Color(0.22, 0.26, 0.40)
 	t.floors = [
-		# type, brute%, hp×, theme, layout, waves — budget is derived from the waves
+		# type, brute%, boss hp×, theme, layout, waves [budget, cap, roster]
+		# --- 1 · SURFACE. Learn to swing. Bodies first, then the first tell. ---
 		_make_floor(FloorDef.FloorType.COMBAT, 0.30, 1.0, _theme("surface", surface), default_layout(),
-			_waves([[2, 2], [3, 3], [4, 3]])),
-		_make_floor(FloorDef.FloorType.COMBAT, 0.35, 1.1, _theme("surface", surface), default_layout(),
-			_waves([[3, 3], [4, 3], [5, 4]])),
+			_waves([
+				[7, 4, [A_CHASER]],                            # pure pressure, nothing to read
+				[9, 5, [A_CHASER, A_CHASER, A_BRUTE]],         # the first telegraph
+				[11, 5, [A_CHASER, A_BRUTE, A_CHARGER]],       # ...and the first lane to dodge
+			])),
+		# --- 2 · SURFACE. Range enters: you can no longer only look forward. ---
+		_make_floor(FloorDef.FloorType.COMBAT, 0.35, 1.15, _theme("surface", surface), default_layout(),
+			_waves([
+				[8, 4, [A_CHASER, A_CHARGER]],
+				[10, 5, [A_CHASER, A_CASTER, A_BRUTE]],        # something shooting from the back
+				[13, 6, [A_CHASER, A_CHARGER, A_CASTER, A_BRUTE]],
+			])),
+		# --- 3 · ELITE, UNDERGROUND. Fewer bodies, meaner ones. TANKIER is an
+		#     archetype (BRUTE), never a multiplier. Ends on two threats at once. ---
 		_make_floor(FloorDef.FloorType.ELITE, 0.55, 1.3, _theme("underground", under), _elite_layout(),
-			_waves([[2, 2], [3, 3], [3, 3], [4, 4]])),
-		_make_floor(FloorDef.FloorType.COMBAT, 0.45, 1.3, _theme("underground", under), default_layout(),
-			_waves([[3, 3], [4, 4], [5, 4], [5, 5]])),
+			_waves([
+				[6, 4, [A_BRUTE, A_CHASER]],
+				[8, 5, [A_BRUTE, A_CHARGER, A_ASSASSIN]],      # fast + heavy in the same breath
+				[9, 5, [A_ASSASSIN, A_ASSASSIN, A_MAGE]],      # zoned while being harried
+				[11, 6, [A_BRUTE, A_CHARGER, A_MAGE, A_SUMMONER]],
+			])),
+		# --- 4 · UNDERGROUND. The swarm floor: volume plus area denial. ---
+		_make_floor(FloorDef.FloorType.COMBAT, 0.45, 1.45, _theme("underground", under), default_layout(),
+			_waves([
+				[9, 5, [A_CHASER, A_ASSASSIN]],
+				[11, 6, [A_CHASER, A_CHARGER, A_BOMBER]],      # the floor starts denying you space
+				[12, 6, [A_BRUTE, A_CASTER, A_MAGE]],
+				[14, 7, [A_CHASER, A_CHARGER, A_ASSASSIN, A_BOMBER, A_MAGE]],
+			])),
+		# --- 5 · SKY. Everything the tower has, then the colossus. ---
 		_make_floor(FloorDef.FloorType.BOSS, 0.70, 1.6, _theme("sky", sky), _boss_layout(),
-			_waves([[2, 2], [3, 3], [4, 4], [4, 4], [5, 5]])),
+			_waves([
+				[8, 5, [A_CHASER, A_CHARGER]],
+				[10, 6, [A_BRUTE, A_CASTER, A_ASSASSIN]],
+				[12, 6, [A_CHARGER, A_MAGE, A_BOMBER]],
+				[13, 7, [A_BRUTE, A_ASSASSIN, A_MAGE, A_SUMMONER]],
+				[15, 7, [A_CHASER, A_BRUTE, A_CHARGER, A_ASSASSIN, A_BOMBER, A_MAGE]],
+			])),
 	]
 	return t
 
 
-## Build a wave list from [budget, concurrent_cap] pairs. Difficulty (brute mix,
-## HP) is inherited from the floor unless a wave overrides it, so the authored
-## table stays about PACING, which is the thing that has to be tuned by feel.
+## Build a wave list from [budget, concurrent_cap] or [budget, cap, archetypes]
+## rows. HP is left inheriting the floor's (1.0) on purpose — the authored table
+## is about PACING and COMPOSITION, which are the things that have to be tuned by
+## feel; a wave that wants to be harder says so by naming nastier archetypes.
 static func _waves(rows: Array) -> Array[WaveDef]:
 	var out: Array[WaveDef] = []
 	for row: Array in rows:
 		var w := WaveDef.new()
 		w.enemy_budget = int(row[0])
 		w.concurrent_cap = int(row[1])
+		if row.size() > 2:
+			var roster: Array[int] = []
+			for a in (row[2] as Array):
+				roster.append(int(a))
+			w.archetypes = roster
 		out.append(w)
 	return out
 
@@ -591,7 +655,10 @@ static func _theme(name: String, tint: Color) -> EnvTheme:
 	return e
 
 
-static func _make_floor(type: int, brute: float, hp: float, theme: EnvTheme, layout: LayoutDef, waves: Array[WaveDef]) -> FloorDef:
+## `boss_hp` is the GUARDIAN's depth multiplier. Trash HP is pinned at 1.0 on
+## every authored floor by policy (see the header block) — depth is carried by
+## the archetype mix, not by making the same fight take longer.
+static func _make_floor(type: int, brute: float, boss_hp: float, theme: EnvTheme, layout: LayoutDef, waves: Array[WaveDef]) -> FloorDef:
 	var f := FloorDef.new()
 	f.floor_type = type
 	f.waves = waves
@@ -607,7 +674,8 @@ static func _make_floor(type: int, brute: float, hp: float, theme: EnvTheme, lay
 	f.enemy_budget = total
 	f.concurrent_cap = cap
 	f.brute_chance = brute
-	f.hp_multiplier = hp
+	f.hp_multiplier = 1.0        # POLICY: trash HP never scales with depth
+	f.boss_hp_multiplier = boss_hp
 	f.theme = theme
 	f.layout = layout
 	return f
@@ -641,8 +709,15 @@ static func floor_concurrent_cap(floor: int) -> int:
 
 
 ## Brute-mix probability for a floor — deeper floors lean tankier/telegraphed.
+## THIS is the depth dial now that trash HP is flat: it reweights WHO spawns.
 static func floor_brute_chance(floor: int) -> float:
 	return clampf(0.35 + 0.1 * float(floor - 1), 0.35, 0.75)
+
+
+## The GUARDIAN's depth HP curve — the one place a longer fight is legitimate,
+## because it is one big committed duel rather than twelve bodies to shred.
+static func floor_boss_hp_multiplier(floor: int) -> float:
+	return 1.0 + 0.15 * float(maxi(floor - 1, 0))
 
 
 ## Terraria-flavoured layer theme per floor band (surface -> underground -> sky).

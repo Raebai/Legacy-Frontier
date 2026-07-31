@@ -180,11 +180,20 @@ func _test_floor_def_synthesis(GS: GDScript) -> void:
 			"floor %d theme name matches math" % floor)
 		_expect(fd.theme.wash_tint == GS.floor_theme_tint(floor),
 			"floor %d theme tint matches math" % floor)
-	# hp_multiplier: 1.0 at floor 1, ramps with depth.
-	_expect(is_equal_approx(float(GS.synthesize_floor_def(1).hp_multiplier), 1.0),
-		"floor 1 hp_multiplier is 1.0")
-	_expect(float(GS.synthesize_floor_def(5).hp_multiplier) > 1.0,
-		"deeper floor hp_multiplier ramps")
+	# TRASH HP IS FLAT AT EVERY DEPTH. This assertion was inverted deliberately:
+	# it used to demand `synthesize_floor_def(5).hp_multiplier > 1.0`, which is the
+	# exact thing the spec forbids — "higher floors add modifiers, not HP. HP
+	# scaling makes fights longer, not harder, and long is the enemy of chaos on a
+	# phone." Depth now rides on brute_chance (asserted above) and on the
+	# GUARDIAN's own curve (asserted below), where a longer committed duel is the
+	# point rather than an accident.
+	for floor in [1, 3, 5]:
+		_expect(is_equal_approx(float(GS.synthesize_floor_def(floor).hp_multiplier), 1.0),
+			"floor %d trash hp_multiplier stays 1.0 (depth is the MIX, not HP)" % floor)
+	_expect(is_equal_approx(float(GS.synthesize_floor_def(1).boss_hp_multiplier), 1.0),
+		"floor 1 guardian is unscaled")
+	_expect(float(GS.synthesize_floor_def(5).boss_hp_multiplier) > 1.0,
+		"the GUARDIAN's hp curve is where depth scaling survives")
 	_completes("floor_def_synthesis")
 
 
@@ -226,6 +235,21 @@ func _test_tower_authoring(GS: GDScript) -> void:
 	_expect((t.floors[0].layout.crate_positions as Array).size() == 6, "floor 1 has 6 crates")
 	# Deeper floors lean brutier.
 	_expect(float(t.floors[4].brute_chance) > float(t.floors[0].brute_chance), "brute mix ramps with depth")
+	# ESCALATION IS THE MIX, NOT THE HP. Every authored floor runs trash at 1.0 and
+	# names WHO shows up per wave; the depth curve lives on the guardian alone. If
+	# someone reaches for an hp_multiplier to make a floor harder, this fails.
+	var rosters: int = 0
+	for i in range(t.floors.size()):
+		_expect(is_equal_approx(float(t.floors[i].hp_multiplier), 1.0),
+			"floor %d trash hp_multiplier is 1.0 (escalate the MIX, not the HP)" % (i + 1))
+		for w in (t.floors[i].waves as Array):
+			if not (w.archetypes as Array).is_empty():
+				rosters += 1
+	_expect(rosters == int(t.floors[0].waves.size() + t.floors[1].waves.size()
+			+ t.floors[2].waves.size() + t.floors[3].waves.size() + t.floors[4].waves.size()),
+		"every authored wave names its own archetype roster (got %d)" % rosters)
+	_expect(float(t.floors[4].boss_hp_multiplier) > float(t.floors[0].boss_hp_multiplier),
+		"the guardian's hp curve ramps with depth")
 	_completes("tower_authoring")
 
 
