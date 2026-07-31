@@ -42,5 +42,22 @@ enum FloorType { COMBAT, ELITE, BOSS, REST, PVP }
 ## Environment + layout (null = inherit the tower default, resolved at build).
 @export var theme: EnvTheme = null
 @export var layout: LayoutDef = null
+## THIS FLOOR'S DEPTH IN THE TOWER (1-based). 0 = "not told", in which case
+## Encounter falls back to the live GameState floor and then to 1.
+##
+## It exists because DEPTH IS THE MODIFIER DIAL. The spec's rule is "higher floors
+## add modifiers, not HP", and a modifier count has to be computed from something —
+## but `Encounter.run_floor(floor_def)` is handed a FloorDef and nothing else, so
+## until now the encounter genuinely did not know which floor it was building. An
+## authored field is better than an autoload lookup for the same reason every other
+## floor rule lives here: it travels with the data, so a headless test can build
+## "floor 7" without a run being active.
+@export var depth: int = 0
 ## Loose escape hatch for per-floor rules (e.g. "no_crates", "boss_gate").
+##
+## TWO TAGS ARE READ BY THE BOSS ROSTER (BossRoster.parse_tags):
+##   "boss:<id>"  — pin this floor's boss instead of rolling one ("boss:illuminator")
+##   "mod:<id>"   — force a modifier onto it ("mod:mirrored"); stacks with the roll
+##   "no_mods"    — this floor's guardian rides clean, whatever its depth says
+## Anything else is ignored, so the field stays the loose escape hatch it was.
 @export var special_tags: Array[String] = []

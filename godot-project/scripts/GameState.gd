@@ -120,8 +120,25 @@ func _load_or_build_tower() -> TowerDef:
 	if ResourceLoader.exists(TOWER_PATH):
 		var t: Resource = load(TOWER_PATH)
 		if t is TowerDef:
-			return t
+			return stamp_depths(t as TowerDef)
 	return build_default_tower()
+
+
+## Write each floor's 1-based index into `FloorDef.depth`.
+##
+## Depth is what the boss roster reads to decide HOW MANY MODIFIERS a floor's
+## guardian carries — the spec's "higher floors add modifiers, not HP" — and
+## `Encounter.run_floor` is handed a FloorDef and nothing else, so the number has to
+## be ON the data. Stamped rather than authored so a hand-written .tres cannot get
+## it wrong, and only when it is unset, so a deliberately-lying floor survives.
+static func stamp_depths(t: TowerDef) -> TowerDef:
+	if t == null:
+		return t
+	for i: int in t.floors.size():
+		var f: FloorDef = t.floors[i]
+		if f != null and f.depth <= 0:
+			f.depth = i + 1
+	return t
 
 
 ## Total floors in the active tower (or the legacy const when none is set).
@@ -471,6 +488,7 @@ func floor_def_for(floor: int) -> FloorDef:
 static func synthesize_floor_def(floor: int) -> FloorDef:
 	var fd := FloorDef.new()
 	fd.floor_type = FloorDef.FloorType.COMBAT
+	fd.depth = maxi(floor, 1)   # the boss roster's modifier dial — see FloorDef.depth
 	fd.enemy_budget = floor_enemy_budget(floor)
 	fd.concurrent_cap = floor_concurrent_cap(floor)
 	fd.brute_chance = floor_brute_chance(floor)
@@ -626,7 +644,7 @@ static func build_default_tower() -> TowerDef:
 				[15, 7, [A_CHASER, A_BRUTE, A_CHARGER, A_ASSASSIN, A_BOMBER, A_MAGE]],
 			])),
 	]
-	return t
+	return stamp_depths(t)
 
 
 ## Build a wave list from [budget, concurrent_cap] or [budget, cap, archetypes]
