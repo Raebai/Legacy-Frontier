@@ -35,6 +35,7 @@ const TESTS: Array[String] = [
 
 ## Hero.HeroClass ids used by the scenarios below, named so a reader does not have
 ## to decode integers three tests deep.
+const ARCANIST: int = 0
 const BRAWLER: int = 2
 const STORMCALLER: int = 6
 
@@ -64,8 +65,8 @@ func _process(_delta: float) -> bool:
 	if _fails > 0:
 		printerr("BotBrain tests: %d FAILED" % _fails)
 		quit(1)
-	else:
-		print("BotBrain tests: all PASS")
+		return true
+	print("BotBrain tests: all PASS")
 	quit(0)
 	return true
 
@@ -163,12 +164,29 @@ func _test_role_selection() -> void:
 		"neutral board -> damage line (got slot %d)" % _argmax(neutral))
 
 	# 2. The foe is CHARGING me -> zone them. Control's whole term is `closing`.
-	var closing_bb: Dictionary = _bb({"foe_vel": Vector2(-320.0, 0.0)})
+	#
+	# ⚠ ASKED OF THE ARCANIST, NOT THE BRAWLER (the fixture default), and the switch is
+	# the point rather than a workaround. With a three-button hand each class carries
+	# ONE utility spell chosen from control / answer / payoff, so "zone them" is only a
+	# question you can ask of a class that actually brought a zone. The Arcanist is the
+	# ranged zoner and carries the Blizzard field; the Brawler carries the Rock Wall,
+	# which is an ANSWER and which the range gate correctly refuses at 200 px — you do
+	# not drop a wall three body-lengths away. Asking the Brawler to zone would be
+	# asserting that the scorer should ignore what the class is holding.
+	var zoner_neutral: Array = BotBrain.score_slots(_bb({"class_id": ARCANIST}),
+		prof, _mem(), 0.0, 0.0, 99.0)
+	var closing_bb: Dictionary = _bb({"class_id": ARCANIST, "foe_vel": Vector2(-320.0, 0.0)})
 	var closing: Array = BotBrain.score_slots(closing_bb, prof, _mem(), 0.0, 0.4, 99.0)
-	_expect(_argmax(closing) == BotBrain.ROLE_CONTROL,
-		"closing foe -> control/zoning (got slot %d)" % _argmax(closing))
-	_expect(float(closing[BotBrain.ROLE_CONTROL]) > float(neutral[BotBrain.ROLE_CONTROL]),
+	_expect(_argmax(closing) == BotBrain.ROLE_UTILITY,
+		"closing foe -> the zoner's control slot (got slot %d)" % _argmax(closing))
+	_expect(float(closing[BotBrain.ROLE_UTILITY]) > float(zoner_neutral[BotBrain.ROLE_UTILITY]),
 		"control scores higher against a closing foe than a stationary one")
+	# ...and the SCORER IS FOLLOWING THE AUTHORED ROLE, not the slot number: the same
+	# slot index on the Brawler holds an escape, so a closing foe must NOT make it the
+	# top pick the way it does for the zoner.
+	_expect(String(BotIntent.role_for(ARCANIST, BotBrain.ROLE_UTILITY)) == "control"
+			and String(BotIntent.role_for(BRAWLER, BotBrain.ROLE_UTILITY)) == "answer",
+		"the two classes really do put different roles in the same slot")
 
 	# 3. Hurt, and something is in my face -> the get-out.
 	var cornered_bb: Dictionary = _bb({"self_hp_frac": 0.15, "foe_pos": Vector2(60.0, 0.0)})
@@ -317,7 +335,12 @@ func _test_uses_the_whole_kit() -> void:
 	# Straight from the class kit, so a retune over there moves this test with it
 	# rather than leaving it asserting against numbers that no longer exist.
 	var spells: Array = SpellLibrary.build_for_class(BRAWLER)
-	var cds: Array = [0.0, 0.0, 0.0, 0.0, 0.0]
+	# Sized from the hand, not a literal: the kit shrank from five spells to three
+	# when the control scheme became three thumb buttons, and a hardcoded five here
+	# would tick timers for slots the class no longer has.
+	var cds: Array = []
+	for _s: int in BotIntent.SLOT_COUNT:
+		cds.append(0.0)
 	var used: Dictionary = {}
 	var casts: int = 0
 	var t: float = 0.0
@@ -345,12 +368,22 @@ func _test_uses_the_whole_kit() -> void:
 			casts += 1
 			cds[slot] = float((spells[slot] as SpellDef).cooldown)
 	_expect(casts >= 12, "the bot keeps casting through a neutral fight (%d casts)" % casts)
-	_expect(used.size() >= 4,
-		"it uses at least four of its five slots, not one (used %d)" % used.size())
+	# ⚠ THE NUMBER MOVED BECAUSE THE HAND DID, AND THE ASSERTION GOT STRONGER, NOT
+	# WEAKER. This used to read "at least four of its five slots". The hand is three
+	# spells now (three thumb buttons), so the same demand — "do not lean on one line"
+	# — is now EVERY slot, with no spare to skip. Written against SLOT_COUNT so the
+	# next control-scheme change moves it rather than silently relaxing it.
+	_expect(used.size() >= BotIntent.SLOT_COUNT,
+		"it uses ALL %d of its slots, not one (used %d)"
+			% [BotIntent.SLOT_COUNT, used.size()])
 	var most: int = 0
 	for k: Variant in used.keys():
 		most = maxi(most, int(used[k]))
-	_expect(float(most) / float(maxi(casts, 1)) <= 0.45,
+	# The share a single slot may take. Perfectly even across three slots is 0.33, so
+	# this leaves real headroom for a bot that legitimately favours its damage line
+	# while still failing a bot that has collapsed onto one button. The old ceiling was
+	# 0.45 against FIVE slots (even share 0.20) — proportionally far looser than this.
+	_expect(float(most) / float(maxi(casts, 1)) <= 0.55,
 		"no single slot dominates its casting (worst was %d/%d)" % [most, casts])
 	_completed["uses_the_whole_kit"] = true
 
@@ -380,8 +413,14 @@ func _test_combo() -> void:
 	with_field["fields"] = [{"element": Elements.Element.ICE,
 		"pos": Vector2(200.0, 0.0), "radius": 135.0, "mine": true}]
 	var cashing: Array = BotBrain.score_slots(with_field, plays, _mem(), 0.0, 0.0, 99.0)
-	_expect(float(cashing[BotBrain.ROLE_PAYOFF]) > float(aware[BotBrain.ROLE_PAYOFF]),
-		"a live ice field raises the lightning payoff (supercharge)")
+	# ⚠ THE PAYOFF IS THE ULT NOW. With three buttons the Stormcaller carries damage /
+	# control / ult, so the LIGHTNING spell the ice field is being laid for is Tempest
+	# (BEAM + LIGHTNING) in the last slot — which is exactly what SpellLibrary's kit
+	# note has always said this control pick was for: "this kit sets up its own ult
+	# with its control slot". The old assertion pointed at slot 3 (Thunderclap), which
+	# is now this class's drop-pool reserve.
+	_expect(float(cashing[BotBrain.ROLE_ULT]) > float(aware[BotBrain.ROLE_ULT]),
+		"a live ice field raises the lightning ULT the field was laid for (supercharge)")
 
 	# AVOIDANCE — ReactionTable's `ground_out` consumes a lightning beam against an
 	# earth wall, so firing the line into one must be actively penalised rather than

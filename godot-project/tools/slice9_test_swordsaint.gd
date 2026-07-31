@@ -572,15 +572,18 @@ func _test_swordsaint_kit() -> void:
 		_completes("swordsaint_kit")
 		return
 	var loadout: Array = SpellLibrary.build_for_class(idx)
-	_expect(loadout.size() == 5, "4 spells + 1 ult (got %d)" % loadout.size())
-	if loadout.size() != 5:
+	# THREE, not five: the right thumb has three buttons. The two roles this class
+	# authors but does not carry are its share of the Tier 2 / Tier 3 drop pool.
+	_expect(loadout.size() == SpellTier.SLOT_COUNT,
+		"the hand is %d spells (got %d)" % [SpellTier.SLOT_COUNT, loadout.size()])
+	if loadout.size() != SpellTier.SLOT_COUNT:
 		_completes("swordsaint_kit")
 		return
 	_expect(String(loadout[0].id) == "blade_flurry",
 		"the damage line is the BLADE — a class whose damage is the path of the "
 		+ "weapon must not open on a bolt")
-	# Slot index IS the role, and only slot 4 may hold an ult.
-	for i: int in 5:
+	# Only the LAST slot may hold an ult.
+	for i: int in SpellTier.SLOT_COUNT:
 		var is_ult: bool = SpellTier.of(loadout[i]) == SpellTier.Tier.ULT
 		_expect(is_ult == SpellTier.slot_accepts_ult(i),
 			"slot %d (%s) sits on the right shelf" % [i, loadout[i].id])
@@ -611,10 +614,11 @@ func _test_cards_do_not_lie() -> void:
 			continue
 		var claimed: String = blurb.substr(marker + 4).strip_edges()
 		var loadout: Array = SpellLibrary.build_for_class(cls)
-		_expect(loadout.size() == 5, "class %d has a 5-slot kit to check against" % cls)
-		if loadout.size() != 5:
+		_expect(loadout.size() == SpellTier.SLOT_COUNT,
+			"class %d has a full hand to check against" % cls)
+		if loadout.size() != SpellTier.SLOT_COUNT:
 			continue
-		var real: String = String(loadout[4].display_name)
+		var real: String = String(loadout[SpellTier.ULT_SLOT].display_name)
 		_expect(real.begins_with(claimed),
 			"class %d's card promises ult '%s' but it equips '%s'" % [cls, claimed, real])
 	_completes("cards_do_not_lie")

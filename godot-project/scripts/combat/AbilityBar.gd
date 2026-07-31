@@ -42,6 +42,12 @@ const COOLDOWN_OVERLAY_COLOR: Color = Color(0.0, 0.0, 0.0, 0.6)
 ## Whole-slot alpha multiplier when an ability is class-disabled (e.g. the
 ## mage's Parry slot) — present but visibly "not yours".
 const DISABLED_ALPHA: float = 0.32
+## The "this is the one the cast key throws" frame, drawn OUTSIDE the slot so the
+## cooldown wipe cannot cover it. Warm, to read as a selection rather than as another
+## readiness state — READY_GLOW_COLOR already owns the cool end.
+const SELECTED_COLOR: Color = Color(1.0, 0.94, 0.72, 0.95)
+const SELECTED_GROW: float = 2.5
+const SELECTED_WIDTH: float = 1.5
 
 ## Snapshot of the hero's slot dictionaries, refreshed once per frame in
 ## _process and consumed by _draw. Empty = draw nothing (no hero this scene).
@@ -86,9 +92,16 @@ func _process(_delta: float) -> void:
 ## name properly. When Hero.gd learns the same rule this becomes a no-op that
 ## computes the identical string — it is not a race, both sides agree.
 ##
-## Only the slot keyed "G" is touched, and only when it is not showing the Rift
-## Dagger's transient "RECALL" state, so a future reordering of the hotbar cannot
-## make this repair the wrong slot.
+## Only the SELECTED spell slot is touched, and only when it is not showing the Rift
+## Dagger's transient "RECALL" state, so a reordering of the hotbar cannot make this
+## repair the wrong slot.
+##
+## ⚠ TARGETED BY `selected`, NOT BY THE KEY LABEL "G". The bar now draws three spell
+## slots rather than one cycled one, and the key label is a fact about the BINDINGS
+## (the cast key on the selected slot, the cycle key on the others) — so keying the
+## repair off "G" would silently start repairing whichever slot happened to hold the
+## cast binding after a control-scheme change. `current_signature()` describes the
+## selected slot and nothing else, so `selected` is the only honest match.
 func _repair_signature_label(hero: Node) -> void:
 	if _slots.is_empty() or not hero.has_method("current_signature"):
 		return
@@ -99,7 +112,7 @@ func _repair_signature_label(hero: Node) -> void:
 		if not _slots[i] is Dictionary:
 			continue
 		var slot: Dictionary = _slots[i]
-		if String(slot.get("key", "")) != "G" or String(slot.get("name", "")) == "RECALL":
+		if not bool(slot.get("selected", false)) or String(slot.get("name", "")) == "RECALL":
 			continue
 		slot["name"] = short_spell_name(sig.display_name)
 		return
@@ -165,6 +178,14 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
 	# Panel + resting border.
 	draw_rect(rect, _with_alpha(PANEL_COLOR, alpha))
 	draw_rect(rect, _with_alpha(BORDER_COLOR, alpha), false, BORDER_WIDTH)
+	# The three spell slots are all live and all show their own cooldown, so the bar
+	# also has to say WHICH one the cast key throws right now. A lifted outer frame
+	# rather than a colour change: movement reads faster than hue when your eyes are on
+	# the fight (the same reasoning as LoadoutBar's SELECTED_LIFT), and it survives the
+	# cooldown wipe drawn on top of the slot below.
+	if bool(slot.get("selected", false)):
+		draw_rect(rect.grow(SELECTED_GROW), _with_alpha(SELECTED_COLOR, alpha),
+			false, SELECTED_WIDTH)
 
 	# Key label: top-left, small + bright — the "which finger" read.
 	draw_string(

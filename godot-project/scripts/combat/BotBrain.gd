@@ -86,17 +86,38 @@ extends RefCounted
 ##   "mem": Memory            see the note on Memory below.
 
 # ---------------------------------------------------------------- slot roles
-## SLOT INDEX IS THE ROLE, for every class, guaranteed. SpellLibrary.ROLE_ORDER is
-## ["damage", "control", "answer", "payoff", "ult"] and build_for_class emits the
-## kit in exactly that order, so slot 0 is ALWAYS the damage line and slot 4 is
-## ALWAYS the ult — no lookup, no class id needed for the core scorer. That single
-## guarantee is what lets this brain reason about a kit it has never seen.
+## SLOT INDEX STILL CARRIES A ROLE MEANING, but a weaker one than it used to, and the
+## difference is worth reading before touching the scorer.
+##
+## It used to be exact: kits were five spells emitted in `SpellLibrary.ROLE_ORDER`, so
+## slot 1 was ALWAYS "control" for every class in the game. Kits are now three spells
+## (the right thumb has three buttons), and which three a class carries is chosen per
+## class from its fantasy — so slot 1 is "control" for the Arcanist, "answer" for the
+## Brawler and "payoff" for the Shadowblade.
+##
+## What SURVIVES, and what the scorer actually relies on:
+##   slot 0            — ALWAYS the damage line. Every class carries it.
+##   slot SLOT_COUNT-1 — ALWAYS the ult. Every class carries it, and
+##                       `SpellTier.slot_accepts_ult` enforces the shelf.
+##   the middle slot   — the class's ONE non-damage, non-ult tool, whichever of
+##                       control / answer / payoff its fantasy names.
+## So "reach for my utility spell" is still a fixed index; "reach for my WALL
+## specifically" is not, and never was reliable anyway — the control role answers with
+## an ice wall, a shadow root or a rock pillar depending on the class. A brain that
+## wants the exact role asks `SpellLibrary.slot_roles_for_class(class_id)`; the facts
+## table below already carries the per-spell properties that made the role a proxy for.
 const ROLE_DAMAGE: int = 0
-const ROLE_CONTROL: int = 1
-const ROLE_ANSWER: int = 2
-const ROLE_PAYOFF: int = 3
-const ROLE_ULT: int = 4
-const SLOT_COUNT: int = 5
+## The single utility slot. The three old aliases all point at it because a class
+## carries exactly ONE of control / answer / payoff, so "give me my control spell" and
+## "give me my answer" are now the same question with the same honest answer.
+const ROLE_UTILITY: int = 1
+const ROLE_CONTROL: int = ROLE_UTILITY
+const ROLE_ANSWER: int = ROLE_UTILITY
+const ROLE_PAYOFF: int = ROLE_UTILITY
+const ROLE_ULT: int = BotIntent.SLOT_ULT
+## Derived, never a literal: the hand size is owned by `SpellTier.SLOT_COUNT` and a
+## second copy of it here is exactly how the two would drift.
+const SLOT_COUNT: int = BotIntent.SLOT_COUNT
 
 ## EXTRA COOLDOWN INDICES, past the five castable slots. The body seam publishes a
 ## longer `cooldowns` array than the brain strictly needs: after the five slots it
@@ -930,28 +951,40 @@ static func score_slots(bb: Dictionary, profile: Dictionary, m: Memory, now: flo
 			safety = lerpf(0.55, 1.0, clampf(risk, 0.0, 1.0))
 
 		# --- role weight: the situational half of the score.
+		#
+		# ⚠ MATCHED ON THE ROLE, NOT ON THE SLOT INDEX, and that changed when the hand
+		# shrank to three buttons. Slot index used to BE the role for every class, so
+		# `match i:` was exact. Now each class carries its damage line, its ult, and
+		# ONE utility spell chosen from control / answer / payoff — so slot 1 is
+		# zoning for the Arcanist and an escape for the Brawler, and matching on the
+		# index would have scored every class's utility slot with whichever arm
+		# happened to be written first. (It did, briefly: with the three role
+		# constants aliased to the same index, GDScript's `match` silently took the
+		# CONTROL arm for every class and the ANSWER and PAYOFF arms became dead code
+		# that nothing reported.) `_kit_facts` carries the authored role per slot, so
+		# the honest question is cheap to ask.
 		var role: float = 0.0
-		match i:
-			ROLE_DAMAGE:
+		match String(f.get("role", "")):
+			"damage":
 				# The reliable line, and the default answer to "nothing special is
 				# happening". Devalued under pressure — when things are landing on
 				# you the answer slot should be winning, not this.
 				role = (0.50 + 0.15 * aggr) * (0.60 + 0.40 * (1.0 - pressure))
-			ROLE_CONTROL:
+			"control":
 				# Zoning is worth most against a foe who is COMING TO YOU: a field
 				# dropped on empty floor is a field nobody has to walk through. That
 				# is the whole term — the base is deliberately under the damage line
 				# so a bot does not zone at a foe who is standing still.
 				role = 0.35 + 0.30 * closing
-			ROLE_ANSWER:
+			"answer":
 				# The get-out. Scales with BOTH how hurt and how pressed we are, so a
 				# healthy bot keeps its escape and a cornered one spends it.
 				role = 0.20 + 0.80 * maxf(pressure, 1.0 - hp)
-			ROLE_PAYOFF:
+			"payoff":
 				# The biggest non-ult hit, and the one you set up for: worth spending
 				# only when the foe is committed and I am not the one under pressure.
 				role = 0.55 * clampf(0.30 + 0.45 * closing + 0.20 * (1.0 - pressure), 0.0, 1.0)
-			ROLE_ULT:
+			"ult":
 				# WILL IT LAND? A finisher against a hurt foe, a punish against a
 				# closing one, and worth much less thrown at a healthy foe who is
 				# keeping their distance. This is what stops the ult being dumped into
@@ -1165,6 +1198,7 @@ static func _kit_facts(class_id: int) -> Array:
 	if _kit_cache.has(class_id):
 		return _kit_cache[class_id]
 	var spells: Array = SpellLibrary.build_for_class(class_id)
+	var roles: Array = SpellLibrary.slot_roles_for_class(class_id)
 	var out: Array = []
 	for i: int in range(SLOT_COUNT):
 		if i >= spells.size():
@@ -1174,6 +1208,10 @@ static func _kit_facts(class_id: int) -> Array:
 		var form: int = ReactionTable.form_for_kind(s.kind)
 		out.append({
 			"id": s.id,
+			# WHICH ROLE THIS CLASS PUT HERE. The situational scorer matches on this
+			# rather than on the slot index, because with a three-spell hand the
+			# middle slot is control / answer / payoff depending on the class.
+			"role": String(roles[i]) if i < roles.size() else "",
 			"element": s.element,
 			"kind": s.kind,
 			"cast_time": s.cast_time,
@@ -1240,14 +1278,20 @@ static func _is_placed(kind: int) -> bool:
 ## bot still fights — it just cannot reason about elements (so combos are inert) or
 ## about channels (so nothing is gated as a channel), and its ranges are the
 ## role's typical shape rather than its actual spell's.
+## Stand-in facts for a slot with no real spell behind it (an unknown class, or a
+## hand that came up short). The role names are the DEFAULT three-button layout —
+## damage, one utility spell, the ult — which is what a class with no authored
+## `SLOT_ROLES` row falls back to in `SpellLibrary.slot_roles_for_class`.
 static func _default_facts(role: int) -> Dictionary:
-	var ranges: Array[float] = [520.0, 300.0, 260.0, 320.0, 640.0]
-	var costs: Array[float] = [45.0, 55.0, 46.0, 52.0, 72.0]
+	const ROLE_NAMES: Array[String] = ["damage", "control", "ult"]
+	var ranges: Array[float] = [520.0, 300.0, 640.0]
+	var costs: Array[float] = [45.0, 55.0, 72.0]
+	var idx: int = clampi(role, 0, ROLE_NAMES.size() - 1)
 	return {
-		"id": "", "element": -1, "kind": SpellDef.Kind.BEAM,
-		"cast_time": 0.0, "mp_cost": costs[clampi(role, 0, 4)],
-		"tier": SpellTier.Tier.HEAVY, "range": ranges[clampi(role, 0, 4)],
-		"makes_field": role == ROLE_CONTROL, "is_beam": false,
+		"id": "", "element": -1, "kind": SpellDef.Kind.BEAM, "role": ROLE_NAMES[idx],
+		"cast_time": 0.0, "mp_cost": costs[idx],
+		"tier": SpellTier.Tier.HEAVY, "range": ranges[idx],
+		"makes_field": ROLE_NAMES[idx] == "control", "is_beam": false,
 		"close_ok": true,
 	}
 

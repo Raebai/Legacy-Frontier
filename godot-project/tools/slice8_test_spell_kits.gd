@@ -141,20 +141,45 @@ func _test_element_typing() -> void:
 ## DERIVED from cast time / cooldown / MP, so this is what stops a retune from
 ## quietly promoting a spell-slot pick into an ult (or demoting an ult into a jab)
 ## without anyone noticing until a playtest.
+## ⚠ THE HAND IS THREE SPELLS NOW, not five. The right thumb has three buttons, so
+## three is how many a class can hold; the other two authored roles are not deleted,
+## they become that class's share of the Tier 2 / Tier 3 drop pool
+## (`SpellLibrary.reserve_for_class`). Everything below is written against
+## `SpellTier.SLOT_COUNT` rather than a literal so the next change to the control
+## scheme moves one constant and this suite follows it.
 func _test_kit_shape() -> void:
 	for cls: int in range(ClassInfo.count()):
 		var kit: Array = SpellLibrary.build_for_class(cls)
-		_expect(kit.size() == 5,
-			"class %d kit is exactly 4 spells + 1 ult (got %d)" % [cls, kit.size()])
-		if kit.size() != 5:
+		_expect(kit.size() == SpellTier.SLOT_COUNT,
+			"class %d holds exactly %d spells (got %d)"
+				% [cls, SpellTier.SLOT_COUNT, kit.size()])
+		if kit.size() != SpellTier.SLOT_COUNT:
 			continue
-		for i: int in 5:
+		for i: int in SpellTier.SLOT_COUNT:
 			var tier: int = SpellTier.of(kit[i])
 			var is_ult: bool = tier == SpellTier.Tier.ULT
 			_expect(is_ult == SpellTier.slot_accepts_ult(i),
 				"class %d slot %d holds a %s and slot_accepts_ult is %s (%s)" % [
 					cls, i, SpellTier.display_name(tier),
 					SpellTier.slot_accepts_ult(i), kit[i].id])
+		# The carried roles have to be roles the class actually authored, or the hand
+		# silently comes up short — `build_for_class` drops an unresolvable slot rather
+		# than crashing mid-configure, which is the right runtime behaviour and exactly
+		# the failure a test has to be the one to notice.
+		var authored: Dictionary = SpellLibrary.kit_for_class(cls)
+		var carried: Array = SpellLibrary.slot_roles_for_class(cls)
+		_expect(carried.size() == SpellTier.SLOT_COUNT,
+			"class %d names %d carried roles" % [cls, SpellTier.SLOT_COUNT])
+		for role: String in carried:
+			_expect(authored.has(role),
+				"class %d carries the '%s' role and its CLASS_KITS row authors it" % [cls, role])
+		_expect(carried[carried.size() - 1] == "ult",
+			"class %d's LAST carried slot is the ult (got '%s')"
+				% [cls, carried[carried.size() - 1]])
+		# ...and nothing is lost: carried + reserve == the whole authored kit.
+		_expect(carried.size() + SpellLibrary.reserve_for_class(cls).size()
+				== SpellLibrary.ROLE_ORDER.size(),
+			"class %d's carried hand plus its drop-pool reserve is the whole authored kit" % cls)
 	_completes("kit_shape")
 
 

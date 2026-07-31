@@ -126,7 +126,21 @@ static func filter(spells: Array, tier: int) -> Array:
 	return out
 
 
-## The tier a given loadout slot accepts. Slots 0-3 are the four spell slots and
-## take anything that is not an ult; slot 4 is the ult slot.
+## HOW MANY SPELL BUTTONS A HAND HAS. Three, because the right thumb has three
+## buttons — that is the mobile control scheme the whole spec is built around, and a
+## kit with more entries than the hand has buttons is a kit the player cannot reach.
+##
+## Was five (four spell slots + an ult). The extra two were not deleted content:
+## `SpellLibrary.CLASS_KITS` still authors all five roles per class, and the two a
+## class does not carry become the Tier 2 / Tier 3 pickup pool that later phases drop
+## mid-floor. The number that changed is how many you HOLD, not how many exist.
+const SLOT_COUNT: int = 3
+## The ult always sits in the LAST slot. Derived rather than written as a literal so
+## the two constants cannot drift apart — one edit moves the whole scheme.
+const ULT_SLOT: int = SLOT_COUNT - 1
+
+
+## The tier a given loadout slot accepts: everything before the last slot takes
+## anything that is not an ult; the last slot is the ult slot.
 static func slot_accepts_ult(slot_index: int) -> bool:
-	return slot_index >= 4
+	return slot_index >= ULT_SLOT

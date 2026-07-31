@@ -2786,10 +2786,7 @@ func ability_hud_state() -> Array:
 		{"name": "Blink", "key": "R", "remaining": _blink_cooldown_timer, "total": float(_cfg["blink_cd"]), "enabled": true},
 		{"name": "Nova", "key": "T", "remaining": _nova_cooldown_timer, "total": NOVA_COOLDOWN, "enabled": bool(_cfg["has_nova"])},
 		_defense_hud_slot(),
-		# Signature ultimate — name updates as you cycle the loadout (V). Dimmed
-		# when mana can't cover the cast; the floating MP bar shows the fill.
-		_signature_hud_slot(),
-	]
+	] + _signature_hud_slots()
 
 
 ## The defensive slot, which is two different verbs behind one button.
@@ -2856,25 +2853,61 @@ func start_signature_cooldown(seconds: float) -> void:
 ## second binding — so the bar shows RECALL, ready, for as long as the press
 ## would recall. AbilityBar renders from this dictionary alone, so nothing on the
 ## UI side needs to know the spell has two beats.
-func _signature_hud_slot() -> Dictionary:
-	var sig: SpellDef = current_signature()
+## THE THREE SPELL BUTTONS, one hotbar slot each.
+##
+## The bar used to show ONE signature slot whose name changed as you cycled (V), which
+## made the kit's other spells invisible: you could not see that your ult was ready
+## while your damage line recovered, because there was nothing on screen for it and —
+## before per-slot cooldowns — no separate number to show anyway. Three slots is the
+## control scheme drawn honestly.
+##
+## KEY LABELS ARE THE TRUTH ABOUT THE BINDINGS, not an aspiration. There is still one
+## `ultimate` action and one `cycle_signature` action, so the SELECTED slot is labelled
+## with the cast key and the others with the cycle key. When the touch layer grows
+## three real buttons (and the desktop map three real keys) this is the one place that
+## changes. Publishing "1 / 2 / 3" today would be the class cards advertising spells
+## nobody equips, all over again.
+func _signature_hud_slots() -> Array:
+	var out: Array = []
+	for i: int in SpellTier.SLOT_COUNT:
+		out.append(_signature_hud_slot(i))
+	return out
+
+
+## Hotbar slot for signature `i`: short name, the key that reaches it, its OWN
+## cooldown wipe.
+##
+## With a live rift anchor out, the slot changes MEANING rather than gaining a second
+## binding — so it shows RECALL, ready, for as long as the press would recall.
+## AbilityBar renders from this dictionary alone, so nothing on the UI side needs to
+## know the spell has two beats.
+func _signature_hud_slot(i: int = -1) -> Dictionary:
+	var idx: int = _signature_index if i < 0 else i
+	var selected: bool = idx == _signature_index
+	# The cast key on the slot you would actually cast; the cycle key on the rest.
+	var key: String = "G" if selected else "V"
+	var sig: SpellDef = signature_at(idx)
 	if sig == null:
-		return {"name": "Ult", "key": "G", "remaining": 0.0, "total": 0.0, "enabled": false}
-	if sig.kind == SpellDef.Kind.THROWN_ANCHOR \
-			and (load(RIFT_DAGGER_PATH) as GDScript).find_anchor(get_tree(), self) != null:
-		return {"name": "RECALL", "key": "G", "remaining": 0.0, "total": 0.01, "enabled": true}
+		# An empty slot is DRAWN, dimmed, rather than skipped: a hand with a hole in it
+		# is information (this class carries two spells, or a pickup slot is open), and
+		# a bar that silently shrinks makes the remaining buttons move under the thumb.
+		return {"name": "--", "key": key, "remaining": 0.0, "total": 0.0,
+			"enabled": false, "selected": selected}
+	if sig.kind == SpellDef.Kind.THROWN_ANCHOR 			and (load(RIFT_DAGGER_PATH) as GDScript).find_anchor(get_tree(), self) != null:
+		return {"name": "RECALL", "key": key, "remaining": 0.0, "total": 0.01,
+			"enabled": true, "selected": selected}
 	# Not split(" ")[0]: the IP rename made zoltraak "The Ordinary Spell", so the
 	# ability bar proudly read **The**. short_spell_name() drops leading articles
 	# and takes the first real word.
-	var short_name: String = AbilityBar.short_spell_name(sig.display_name)
 	return {
-		"name": short_name, "key": "G",
-		"remaining": signature_cooldown(_signature_index),
+		"name": AbilityBar.short_spell_name(sig.display_name), "key": key,
+		"remaining": signature_cooldown(idx),
 		"total": maxf(sig.cooldown, 0.01),
 		# Was `mp >= sig.mp_cost`. With the mana gate gone, "enabled" means the slot
 		# exists and is yours — the cooldown wipe above is what says "not yet", and a
 		# slot that was BOTH dimmed and wiped said the same thing twice.
 		"enabled": true,
+		"selected": selected,
 	}
 
 

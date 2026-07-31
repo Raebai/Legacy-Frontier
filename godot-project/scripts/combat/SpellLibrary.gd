@@ -155,30 +155,125 @@ const CLASS_KITS: Array[Dictionary] = [
 ]
 
 
-## The role -> spell-id map for a class, or {} for an unknown id. Public so the
-## tests can assert the SHAPE of a kit (four roles + an ult, all distinct) without
-## re-deriving the roles from the built SpellDefs, which would only prove the
-## tests and the table agree with each other.
+# ------------------------------------------------------------- WHAT YOU HOLD
+## WHICH THREE OF A CLASS'S FIVE AUTHORED ROLES IT ACTUALLY CARRIES, in slot order.
+##
+## The right thumb has THREE buttons. That is the mobile control scheme the spec is
+## built around, so three is the number of spells a hand can hold — a fourth entry is
+## a spell the player cannot reach.
+##
+## ⚠ THE OTHER TWO ROLES ARE NOT DELETED, and that is the point of splitting this
+## table out rather than cutting `CLASS_KITS` down. `CLASS_KITS` stays the authored
+## POOL — five roles per class, every rationale intact — and this says which three of
+## them you start with. The two you do not start with are exactly the shape the Tier 2
+## floor pickups and Tier 3 boss drops need in a later phase: real, tuned, role-tagged
+## spells with a class already attached to them. Trimming the pool instead would have
+## thrown that away to save a table.
+##
+## RULES THIS TABLE MUST OBEY (all pinned by tools/slice8_test_spell_kits.gd):
+##   * exactly `SpellTier.SLOT_COUNT` entries per class;
+##   * the LAST entry is the ult slot and must hold an ULT-shelf spell;
+##   * every earlier entry must hold a NON-ult spell;
+##   * a role named here must exist in that class's `CLASS_KITS` row.
+##
+## HOW THE THREE WERE CHOSEN — the class's fantasy, read off `ClassInfo.CLASSES`,
+## rather than a uniform "keep damage/control/ult" rule. Every class keeps its DAMAGE
+## line (the thing you throw all fight) and its ULT (the finisher); the middle slot is
+## whichever of control / answer / payoff that class's one-line fantasy actually names.
+## Zoners keep the field; assassins and duelists keep the way IN; tanks and the cleric
+## keep sustain; the brawler keeps the wall whose second beat is a punch.
+const SLOT_ROLES: Array[Array] = [
+	# 0 ARCANIST — "ranged arcane zoner". A zoner without a zone is just a caster.
+	["damage", "control", "ult"],
+	# 1 SHADOWBLADE — "in-and-out assassin". Shadow Step IS the in and the out, and in
+	# this kit it is the payoff (85 in a 64 px burst, the biggest non-ult hit in the
+	# tree) — so the assassin's burst and its mobility are the same button.
+	["damage", "payoff", "ult"],
+	# 2 BRAWLER — "pure-melee knockout, no magic". Rock Wall is its answer for a reason
+	# no other class has: the wall's second beat is a PUNCH, so the defensive spell is
+	# also a brawler verb. Nothing else in its kit is as on-fantasy.
+	["damage", "answer", "ult"],
+	# 3 JUGGERNAUT — "unbreakable siege tank". A tank's defensive answer is not dying,
+	# and the tether is the only sustain in the pool.
+	["damage", "answer", "ult"],
+	# 4 CLERIC — "radiant lifesteal bruiser". The tether is the class fantasy stated
+	# out loud; dropping it would leave a lifesteal class with no lifesteal.
+	["damage", "answer", "ult"],
+	# 5 CRYOMANCER — "ice CONTROL caster". The field is the control tool; the wall is a
+	# stop, which is a different job and the one that moves to the pickup pool.
+	["damage", "control", "ult"],
+	# 6 STORMCALLER — the one class where the fantasy loses to the kit's own authored
+	# rationale, deliberately. "Hyper-mobile chain caster" argues for the blink, and
+	# blink is already carried by two other classes — but the CLASS_KITS row above
+	# exists to explain that Blizzard is not filler here: a LIGHTNING beam fired
+	# through an ICE field is ReactionTable's `supercharge`, so this is the only kit
+	# in the game that sets up its OWN ult with its own utility slot. Trading the one
+	# self-combo in the roster for a third copy of Shadow Step is a bad trade.
+	["damage", "control", "ult"],
+	# 7 WARLOCK — "dark attrition hexer". Drain to live, root to hold. The off-school
+	# ice wall was always the odd pick in this kit and is the natural one to shed.
+	["damage", "control", "ult"],
+	# 8 SWORDSAINT — "guard-and-punish duelist". Its real defensive verb is not in this
+	# table at all (RMB is a held BLADE guard that banks a parry into a cut), so the
+	# kit's whole job is getting INTO range: for a duelist the get-out is IN.
+	["damage", "answer", "ult"],
+]
+
+
+## The role -> spell-id map for a class, or {} for an unknown id. THE FULL AUTHORED
+## POOL — all five roles — not the three the class carries. Public so the tests can
+## assert the SHAPE of a kit without re-deriving the roles from the built SpellDefs,
+## which would only prove the tests and the table agree with each other.
 static func kit_for_class(class_id: int) -> Dictionary:
 	if class_id < 0 or class_id >= CLASS_KITS.size():
 		return {}
 	return CLASS_KITS[class_id]
 
 
-## Each class's curated kit: four spells then the ult, in ROLE_ORDER, so slot
-## index is the hero's V-cycle index AND the loadout-bar slot. Fresh instances
-## every call. Class ids match Hero.HeroClass; unknown ids fall back to the full
-## cycle so a new class never boots spell-less.
+## The three roles a class CARRIES, in slot order. Falls back to the first
+## `SpellTier.SLOT_COUNT` entries of `ROLE_ORDER` for a class with no row, so a new
+## class added to `CLASS_KITS` without a `SLOT_ROLES` row still boots with a sane
+## hand instead of nothing.
+static func slot_roles_for_class(class_id: int) -> Array:
+	if class_id < 0 or class_id >= SLOT_ROLES.size():
+		return ROLE_ORDER.slice(0, SpellTier.SLOT_COUNT)
+	return SLOT_ROLES[class_id]
+
+
+## Each class's hand: `SpellTier.SLOT_COUNT` spells in slot order, ult last, so slot
+## index is the hero's V-cycle index AND the loadout-bar slot. Fresh instances every
+## call. Class ids match Hero.HeroClass; unknown ids fall back to the full cycle so a
+## new class never boots spell-less.
 static func build_for_class(class_id: int) -> Array:
 	var kit: Dictionary = kit_for_class(class_id)
 	if kit.is_empty():
 		return build()
 	var by_id: Dictionary = _spell_by_id()
 	var out: Array = []
-	for role: String in ROLE_ORDER:
+	for role: String in slot_roles_for_class(class_id):
 		var s: Variant = by_id.get(String(kit.get(role, "")))
 		# A typo'd id drops that slot rather than crashing the hero mid-configure;
 		# the kit test is what turns it into a loud failure at build time.
+		if s != null:
+			out.append(s)
+	return out
+
+
+## Every spell a class AUTHORS but does not carry — its share of the Tier 2 / Tier 3
+## drop pool. Nothing consumes this yet; it exists so the pool is derived from the one
+## table rather than hand-listed somewhere else the moment pickups land, which is
+## exactly how the class cards drifted out of sync with the kits last time.
+static func reserve_for_class(class_id: int) -> Array:
+	var kit: Dictionary = kit_for_class(class_id)
+	if kit.is_empty():
+		return []
+	var carried: Array = slot_roles_for_class(class_id)
+	var by_id: Dictionary = _spell_by_id()
+	var out: Array = []
+	for role: String in ROLE_ORDER:
+		if carried.has(role):
+			continue
+		var s: Variant = by_id.get(String(kit.get(role, "")))
 		if s != null:
 			out.append(s)
 	return out

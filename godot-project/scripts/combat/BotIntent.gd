@@ -90,33 +90,49 @@ const KEYS: Array[StringName] = [
 ## every brain at the wrong system: no MP costs, no roles, no elements, and none
 ## of the reaction combos, which all live in the kit.
 const NONE: int = -1
-const SLOT_DAMAGE: int = 0    # ROLE_ORDER[0] — the bread-and-butter damage spell
-const SLOT_CONTROL: int = 1   # ROLE_ORDER[1] — walls, roots, zones
-const SLOT_ANSWER: int = 2    # ROLE_ORDER[2] — the reactive/defensive pick
-const SLOT_PAYOFF: int = 3    # ROLE_ORDER[3] — the big committed play
-const SLOT_ULT: int = 4       # ROLE_ORDER[4] — the signature ultimate
-const SLOT_COUNT: int = 5
+const SLOT_DAMAGE: int = 0    # every class carries its damage line here
+## The ONE utility slot. Kits are three spells now (the right thumb has three
+## buttons) and each class carries exactly one of control / answer / payoff, chosen
+## from its fantasy — so these three names are three ways of asking for the same slot,
+## and they are kept as aliases rather than deleted because a brain asking for "my
+## control spell" is still asking a meaningful question with a correct answer.
+## For the exact role a class put here, see `SpellLibrary.slot_roles_for_class`.
+const SLOT_UTILITY: int = 1
+const SLOT_CONTROL: int = SLOT_UTILITY
+const SLOT_ANSWER: int = SLOT_UTILITY
+const SLOT_PAYOFF: int = SLOT_UTILITY
+## Derived from the hand size so the ult is the LAST slot by construction. Owned by
+## `SpellTier.SLOT_COUNT` — one edit moves the whole control scheme.
+const SLOT_COUNT: int = SpellTier.SLOT_COUNT
+const SLOT_ULT: int = SpellTier.ULT_SLOT
 
-## Human-readable role per slot, in `SpellLibrary.ROLE_ORDER`. Handy for debug
-## overlays and for asserting the two orders have not drifted apart.
-const SLOT_ROLES: Array[String] = ["damage", "control", "answer", "payoff", "ult"]
+
+## The role a class actually put in `slot`, or "" for an out-of-range slot. Replaces
+## the old flat `SLOT_ROLES` constant, which could only be right while every class
+## laid its kit out identically.
+static func role_for(class_id: int, slot: int) -> String:
+	var roles: Array = SpellLibrary.slot_roles_for_class(class_id)
+	return String(roles[slot]) if slot >= 0 and slot < roles.size() else ""
 
 # ---- indices into blackboard["cooldowns"] -----------------------------------
-## 0..4 are the kit slots above, so `cooldowns[intent.cast_slot]` is always the
-## right number and always in bounds — the point of one shared numbering.
+## The first `SLOT_COUNT` entries are the kit slots above, so
+## `cooldowns[intent.cast_slot]` is always the right number and always in bounds —
+## the point of one shared numbering. Everything after them is offset FROM
+## `SLOT_COUNT` rather than written as a literal, so shrinking the hand cannot leave
+## the ability cooldowns pointing at stale indices.
 ##
-## ⚠ The five kit entries all read the SAME timer. The signature bank is a single
-## shared cooldown on this body, so picking a different role does not dodge it;
-## what varies per slot is MP affordability, published separately as
-## `slot_affordable`.
-const CD_PRIMARY: int = 5   # the `fire` key
-const CD_DASH: int = 6
-const CD_GUARD: int = 7     # the `guard` key: parry wipe, or a held ring's re-arm
-const CD_BLAST: int = 8     # the ABILITY_* keys
-const CD_BLINK: int = 9
-const CD_NOVA: int = 10
-const CD_SWING: int = 11    # the `swing` key
-const CD_COUNT: int = 12
+## The kit entries are now genuinely per-slot. They used to all read the SAME timer —
+## the hero ran one shared signature bank — so a brain choosing a different role was
+## not dodging a cooldown, whatever these indices implied. `Hero._hand` (HandSlots)
+## owns them individually now, and `slot_affordable` reports "exists and is ready".
+const CD_PRIMARY: int = SLOT_COUNT       # the `fire` key
+const CD_DASH: int = SLOT_COUNT + 1
+const CD_GUARD: int = SLOT_COUNT + 2     # the `guard` key: parry wipe, or a held ring's re-arm
+const CD_BLAST: int = SLOT_COUNT + 3     # the ABILITY_* keys
+const CD_BLINK: int = SLOT_COUNT + 4
+const CD_NOVA: int = SLOT_COUNT + 5
+const CD_SWING: int = SLOT_COUNT + 6     # the `swing` key
+const CD_COUNT: int = SLOT_COUNT + 7
 
 
 ## The do-nothing intent. Every key present at its "no" value, so a brain that

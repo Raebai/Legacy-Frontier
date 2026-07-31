@@ -257,26 +257,46 @@ func _test_intent_is_sanitized() -> void:
 	_completes("intent_is_sanitized")
 
 
-## THE CONTRACT THAT LETS A BRAIN REASON ABOUT A CLASS IT HAS NEVER SEEN:
-## `cast_slot` i IS `SpellLibrary.ROLE_ORDER[i]` IS `Hero._signatures[i]`, for
-## every class. Asserted against the real library rather than restated, so the two
-## orders cannot quietly drift apart — which is exactly what happened once already
-## (an earlier revision numbered Q/R/T here and silently pointed brains at a
-## different system entirely).
+## THE CONTRACT THAT LETS A BRAIN REASON ABOUT A CLASS IT HAS NEVER SEEN. It got
+## WEAKER when the hand shrank to three buttons, and the weakening is the thing worth
+## pinning precisely.
+##
+## It used to be exact — `cast_slot` i IS `ROLE_ORDER[i]` for every class — because
+## kits were five spells emitted in role order. Kits are three now and which three a
+## class carries is chosen from its fantasy, so slot 1 is "control" for the Arcanist
+## and "answer" for the Brawler. What survives is the part the scorer actually leans
+## on: slot 0 is always the damage line, the last slot is always the ult, and the
+## middle slot is always the class's one utility tool.
+##
+## Asserted against the real library rather than restated, so the two cannot quietly
+## drift apart — which is exactly what happened once already (an earlier revision
+## numbered Q/R/T here and silently pointed brains at a different system entirely).
 func _test_kit_slots_match_the_spell_library() -> void:
-	_expect(BotIntent.SLOT_COUNT == SpellLibrary.ROLE_ORDER.size(),
-		"the kit has exactly as many slots as there are roles")
-	for i: int in BotIntent.SLOT_COUNT:
-		_expect(BotIntent.SLOT_ROLES[i] == SpellLibrary.ROLE_ORDER[i],
-			"slot %d is role `%s` (library says `%s`)"
-			% [i, BotIntent.SLOT_ROLES[i], SpellLibrary.ROLE_ORDER[i]])
+	_expect(BotIntent.SLOT_COUNT == SpellTier.SLOT_COUNT,
+		"the intent's slot count IS the hand size (owned by SpellTier.SLOT_COUNT)")
 	_expect(BotIntent.SLOT_ULT == BotIntent.SLOT_COUNT - 1, "the ult is the last slot")
-	# Every shipped class must actually FILL the kit, or a brain asking for its
-	# control spell on that class gets nothing.
-	for cls: int in 8:
+	_expect(BotIntent.SLOT_DAMAGE == 0, "the damage line is always slot 0")
+	# The three legacy role aliases now all name the ONE utility slot, because a class
+	# carries exactly one of control / answer / payoff.
+	_expect(BotIntent.SLOT_CONTROL == BotIntent.SLOT_UTILITY
+			and BotIntent.SLOT_ANSWER == BotIntent.SLOT_UTILITY
+			and BotIntent.SLOT_PAYOFF == BotIntent.SLOT_UTILITY,
+		"control / answer / payoff all resolve to the single utility slot")
+	# Every shipped class must actually FILL the hand, or a brain asking for its
+	# utility spell on that class gets nothing.
+	for cls: int in ClassInfo.count():
 		var kit: Array = SpellLibrary.build_for_class(cls)
 		_expect(kit.size() == BotIntent.SLOT_COUNT,
 			"class %d builds all %d kit slots (got %d)" % [cls, BotIntent.SLOT_COUNT, kit.size()])
+		# ...and the per-slot role the class actually chose is reportable, which is
+		# what replaces the old flat SLOT_ROLES constant.
+		_expect(BotIntent.role_for(cls, 0) == "damage",
+			"class %d's slot 0 is its damage role" % cls)
+		_expect(BotIntent.role_for(cls, BotIntent.SLOT_ULT) == "ult",
+			"class %d's last slot is its ult role" % cls)
+		var mid: String = BotIntent.role_for(cls, BotIntent.SLOT_UTILITY)
+		_expect(["control", "answer", "payoff"].has(mid),
+			"class %d's utility slot holds one of control/answer/payoff (got '%s')" % [cls, mid])
 	_completes("kit_slots_match_the_spell_library")
 
 
