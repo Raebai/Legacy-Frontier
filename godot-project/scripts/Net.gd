@@ -52,6 +52,15 @@ var _twins_built: int = 0
 var _spell_twins: int = 0
 ## Count of BOSS spectacle/phase twins built from the host's broadcasts.
 var _boss_twins: int = 0
+## Which boss-fx KINDS this peer has actually built, e.g. {"beam": 3, "zone": 1}.
+##
+## ⚠ A BARE COUNT CANNOT PROVE THE THING THAT WAS BROKEN. `_boss_twins` went up on
+## the Ashspire Guardian alone, and the Guardian was the ONE boss already wired — so
+## a green `boss_twins=7` said nothing about whether the Scribble, the Cartographer,
+## the Illuminator or any modifier rider crossed the wire. The smoke test asserts on
+## this breakdown instead, which is the difference between "a boss broadcast arrived"
+## and "the boss you are actually fighting on floor 3 is visible".
+var _boss_fx_kinds: Dictionary = {}
 ## Count of PROP states this peer has taken from the host (cover convergence).
 var _prop_syncs: int = 0
 ## Count of PICKUPS this peer has resolved from the host's single award decision.
@@ -663,6 +672,20 @@ func hero_for_peer(peer_id: int) -> Node:
 ##
 ## The tells already crossed (the Boss builds them through `Enemy._emit_telegraph`,
 ## which broadcasts). What did not was everything AFTER the tell.
+##
+## ⚠ THE ROSTER GREW AND THIS DID NOT — THE GAP THIS BLOCK NOW CLOSES. The arms
+## below were written against the Ashspire Guardian's seven spectacles, and then
+## three more bosses (Scribble / Cartographer / Illuminator) and six modifier riders
+## landed with ZERO network references between them. On every floor that draws a new
+## artist — which is most of them — a client watched a boss attack invisibly.
+##
+## So the arm list is no longer "the Guardian's moveset". It is the VOCABULARY every
+## boss and every rider composes out of: the seven spell shapes, plus the summoning
+## sigil (`circle`), the ground rot (`zone`), the shadow scrawl (`root`), the erase /
+## redraw puff (`burst`), the streak flash (`dash`), the screen beat (`beat`) and the
+## mirrored player spell (`spell`). A new boss that builds its moveset out of these
+## replicates for free; one that invents a new shape adds one arm here, and the
+## smoke test's kind breakdown is what catches it if it does not.
 func broadcast_boss_fx(kind: String, data: Dictionary) -> void:
 	if is_host():
 		_client_boss_fx.rpc(kind, data)
@@ -674,6 +697,7 @@ func _client_boss_fx(kind: String, data: Dictionary) -> void:
 	if scene == null:
 		return
 	_boss_twins += 1
+	_boss_fx_kinds[kind] = int(_boss_fx_kinds.get(kind, 0)) + 1
 	var pos: Vector2 = data.get("pos", Vector2.ZERO)
 	var col: Color = data.get("col", Color(1.0, 0.55, 0.2))
 	var fx: String = String(data.get("fx", "fire"))
@@ -729,6 +753,102 @@ func _client_boss_fx(kind: String, data: Dictionary) -> void:
 		"crater":
 			GroundCrater.spawn(scene, pos, float(data.get("r", 64.0)), true)
 			Juice.on_hit({"shake": 15.0, "sfx": "blast", "hitstop": 0.09})
+		# ---- the roster's shared vocabulary (Scribble / Cartographer / Illuminator
+		#      and the six modifier riders all compose out of these) ----------------
+		"root":
+			# The Scribble's scrawl across the floor. `erupt` parks the node at the
+			# arena origin and draws from `pos` — see the standing note that a
+			# spectacle's own global_position is NOT where the effect is.
+			var rt := ShadowRoot.new()
+			rt.set("target_group", String(GHOST_GROUP))
+			rt.set("_target_group", String(GHOST_GROUP))
+			rt.set("caster_node", caster)
+			rt.set("element_id", int(data.get("el", -1)))
+			scene.add_child(rt)
+			rt.erupt(pos, data.get("aim", Vector2.RIGHT), col, float(data.get("r", 74.0)), 0, fx)
+		"zone":
+			# VOID-TOUCHED's rot field. Damage-free, but it must still LOOK like a
+			# no-go area or the client is being evicted from ground it cannot see.
+			var z := ZoneSpell.new()
+			z.target_group = String(GHOST_GROUP)
+			z.set("_target_group", String(GHOST_GROUP))
+			z.caster_node = caster
+			z.element_id = int(data.get("el", -1))
+			scene.add_child(z)
+			z.open(pos, col, float(data.get("r", 62.0)), 0, fx, float(data.get("life", 8.5)))
+		"circle":
+			# THE SUMMONING SIGIL, and on the new roster it is a FAIRNESS signal, not
+			# decoration: the Cartographer's compass ring states its radius with one,
+			# the Illuminator's Final Page states its size with one, MIRRORED announces
+			# whose spell is coming back, and UNFINISHED's redraw mark IS the play
+			# against it ("step off the mark"). A client without these is being asked
+			# to dodge things it was never told about.
+			var mc := MagicCircle.new()
+			scene.add_child(mc)
+			mc.global_position = pos
+			mc.appear(col, float(data.get("r", 60.0)), float(data.get("grow", 0.2)))
+			mc.set_signature(int(data.get("el", -1)), int(data.get("tier", -1)))
+			if bool(data.get("ground", false)):
+				mc.set_ground(0.34)
+			mc.hold(float(data.get("hold", 0.6)), 0.22)
+		"burst":
+			CombatVfx.spawn_burst(scene, pos, col, data.get("col2", Color(col.r, col.g, col.b, 0.0)),
+				int(data.get("n", 20)), float(data.get("life", 0.42)),
+				float(data.get("v0", 60.0)), float(data.get("v1", 200.0)),
+				float(data.get("s0", 0.8)), float(data.get("s1", 2.2)),
+				0.0, 0.0, true)
+		"dash":
+			# The Scribble's streak. The BODY crosses the room for free (position is
+			# replicated), so this is only the flash + the shake that sell it as a
+			# launch rather than a teleport.
+			if caster != null:
+				var rg: Node = caster.get_node_or_null("Rig")
+				if rg != null:
+					rg.call("play", CharacterRig.State.DASH)
+					rg.call("flash_color", Color(1.5, 1.2, 1.2), 0.12)
+			Juice.shake_camera(float(data.get("shake", 5.5)))
+		"beat":
+			# One screen beat. Used for the moments that are host-side `Juice` calls
+			# with no spectacle of their own: SPLIT's detonation, UNFINISHED's landing,
+			# the Illuminator's Final Page climax.
+			var opts: Dictionary = {
+				"strength": float(data.get("str", 1.0)),
+				"shake": float(data.get("shake", 10.0)),
+				"sfx": String(data.get("sfx", "charge_up")),
+			}
+			if bool(data.get("frame", false)):
+				opts["frame"] = true
+				opts["at"] = pos
+				opts["style"] = int(data.get("style", ImpactFrame.Style.SILHOUETTE))
+			Juice.epic_moment(opts)
+			if data.has("zoom"):
+				Juice.zoom_pull_camera(float(data["zoom"]), float(data.get("zhold", 0.5)))
+		"spell":
+			# MIRRORED's answer: the player's own spell, thrown back. Rebuilt through
+			# the same `SpellCaster.cast` dispatcher the host used — same geometry,
+			# same element, same weight — and disarmed the one way that matters, by
+			# pointing its victim scan at the group nobody is in.
+			_spawn_mirrored_twin(scene, data, pos, col, caster)
+
+
+## The MIRRORED rider's answer, rebuilt on this peer.
+##
+## ⚠ `friendly_fire` IS PARKED FOR THE DURATION, exactly as `Hero.net_replay_action`
+## parks it. Under the friendly-fire rule `SpellCaster._stamp` REWRITES the target
+## group to the everyone-group, which would put the teeth straight back into a
+## spectacle whose entire disarming is the group it scans. Same trap, same fix.
+func _spawn_mirrored_twin(scene: Node, data: Dictionary, at: Vector2, col: Color, caster: Node) -> void:
+	var sid: String = String(data.get("sid", ""))
+	if sid == "":
+		return
+	var spell: SpellDef = SpellLibrary._spell_by_id().get(sid) as SpellDef
+	if spell == null:
+		return
+	var prev_ff: bool = SpellCaster.friendly_fire
+	SpellCaster.friendly_fire = false
+	SpellCaster.cast(spell, scene, at, data.get("pt", at + Vector2.RIGHT * 200.0),
+		col, String(data.get("fx", spell.effect)), caster, GHOST_GROUP)
+	SpellCaster.friendly_fire = prev_ff
 
 
 ## Phase escalation — the retint, the aura tier, the adornment, the epic beat. Host
@@ -1141,10 +1261,14 @@ func _cli_fire_every_broadcast() -> void:
 	broadcast_hero_action("pr", {"aim": Vector2.RIGHT, "pt": Vector2(600, 300), "el": 0})
 	broadcast_hero_action("cf", {"sid": "frostpiercer", "aim": Vector2.RIGHT,
 		"pt": Vector2(700, 300), "el": 1, "sky": false, "sp": 0})
-	# 3. BOSS spectacle (Boss.gd shipped with no broadcasts at all).
+	# 3. BOSS spectacle (Boss.gd shipped with no broadcasts at all). These two are
+	#    hand-fired and deliberately stay GUARDIAN-ONLY kinds — the roster and the
+	#    modifier are proven separately, by real code, in `_cli_fire_roster()`.
 	broadcast_boss_fx("ray", {"pos": Vector2(500, 320), "col": Color(1, 0.5, 0.2),
 		"r": 70.0, "fx": "fire", "el": 0})
 	broadcast_boss_fx("nova", {"pos": Vector2(500, 320)})
+	# 3b. THE ROSTER + A MODIFIER, driven for real.
+	_cli_fire_roster()
 	# 4. COVER. An ENEMY-sourced crate break — the path that used to diverge, because
 	#    enemy attack twins are visual_only and never touched the client's crate. The
 	#    host applies + broadcasts absolute hp; the client should converge without
@@ -1162,6 +1286,79 @@ func _cli_fire_every_broadcast() -> void:
 		break
 	if pick != null and other != 0:
 		request_pickup(pick as Node2D, other)
+
+
+## A REAL NEW BOSS AND A REAL MODIFIER, DRIVEN THROUGH THEIR OWN CODE.
+##
+## ⚠ WHY THIS IS NOT ANOTHER PAIR OF HAND-FIRED `broadcast_boss_fx` CALLS. The gap
+## this test exists to catch was never "the boss-fx wire is broken" — that wire
+## worked. It was that three new bosses and six modifier riders were written with
+## ZERO calls into it, so on most floors a client watched a boss attack invisibly.
+## A hand-fired packet proves the postbox works while saying nothing about whether
+## anybody posted a letter. So this spawns the CARTOGRAPHER carrying VOID-TOUCHED,
+## through `Encounter.spawn_boss` (the same path the floor uses, so the body itself
+## replicates through the MultiplayerSpawner), and then makes it fight.
+##
+## The verdict asserts on the KIND breakdown, not the count:
+##   `circle` can only come from `TowerBoss.summon_circle` — no Guardian attack
+##            opens one, so its arrival proves a new-roster boss cast something.
+##   `zone`   can only come from `ModVoidTouched._open_field` — so its arrival
+##            proves a modifier rider crossed the wire.
+## Neither is reachable from the hand-fired pair above, which is the point.
+func _cli_fire_roster() -> void:
+	var scene: Node = get_tree().current_scene
+	if scene == null or not scene.has_method("encounter"):
+		print("[NET] roster: no Arena/Encounter — skipped")
+		return
+	var enc: Node = scene.call("encounter")
+	if enc == null or not enc.has_method("spawn_boss"):
+		print("[NET] roster: no Encounter — skipped")
+		return
+	enc.call("spawn_boss", 1.0, 1.0,
+		BossRoster.CARTOGRAPHER, [BossModifier.VOID_TOUCHED], 4242)
+	# ⚠ THE RETURN VALUE IS NULL IN CO-OP AND THAT IS NOT A FAILURE.
+	# `Encounter._emit_enemy` hands the dict to the MultiplayerSpawner and returns
+	# null on the replicated path (the spawner owns the node), returning the body
+	# only on the single-player direct path. Reading it as "the spawn was refused"
+	# skipped the whole roster leg of this test on its first run. So the boss is
+	# found in the tree by the rider it is carrying, which is the thing we are here
+	# to look for anyway.
+	print("[NET] roster: spawned %s + [%s]" % [BossRoster.CARTOGRAPHER, BossModifier.VOID_TOUCHED])
+	# The body needs its own `_ready` (rig, bar, riders' first frame) before it can
+	# be told to fight, so the drive is deferred by a frame rather than run inline.
+	(func() -> void: _cli_drive_boss(_cli_find_modded_boss())).call_deferred()
+
+
+## The live boss carrying the void-touched rider, or null.
+func _cli_find_modded_boss() -> Node:
+	for e: Node in get_tree().get_nodes_in_group("enemy"):
+		if not is_instance_valid(e) or e.is_queued_for_deletion():
+			continue
+		if e.get_node_or_null("Mod_" + BossModifier.VOID_TOUCHED) != null:
+			return e
+	return null
+
+
+## Make the spawned boss do the things a player would see it do. Attacks are invoked
+## directly rather than waited for: the boss opens on a 2.6 s intro and then picks at
+## its own cadence, which is longer than this test's whole life.
+func _cli_drive_boss(boss: Node) -> void:
+	if boss == null or not is_instance_valid(boss) or not boss.is_inside_tree():
+		print("[NET] roster: the modded boss never reached the tree")
+		return
+	print("[NET] roster: driving %s" % String(boss.call("boss_title")))
+	boss.call("_enter_phase", 2)
+	# COMPASS opens a summoning circle (-> "circle") and strikes a ring of marks
+	# (-> "ray"); LATTICE raises a grid of columns (-> "pillar").
+	boss.call("_run_attack", "compass")
+	boss.call("_run_attack", "lattice")
+	# The modifier's ground. `_tick` is the rider's host-only hook; handing it a fat
+	# delta expires its own interval immediately instead of waiting 4 s for it.
+	var rider: Node = boss.get_node_or_null("Mod_" + BossModifier.VOID_TOUCHED)
+	if rider != null and rider.has_method("_tick"):
+		rider.call("_tick", 9.0)
+	else:
+		print("[NET] roster: void-touched rider MISSING on the spawned boss")
 
 
 func _cli_first(group: StringName) -> Node:
@@ -1207,12 +1404,30 @@ func _cli_verdict() -> void:
 	# can prove — a single-process suite can assert the routing but never the wire.
 	var cover_ok: bool = _prop_syncs >= 1
 	var pickup_ok: bool = _pickups_awarded >= 1
+	# THE ROSTER AND THE MODIFIERS. `BOSS_FX` above went green for a year on the
+	# Ashspire Guardian alone while three other bosses and six riders broadcast
+	# nothing at all — so a count is not enough. These two ask for kinds that ONLY a
+	# new-roster boss and a modifier rider can produce. See `_cli_fire_roster`.
+	var roster_ok: bool = int(_boss_fx_kinds.get("circle", 0)) >= 1
+	var mods_ok: bool = int(_boss_fx_kinds.get("zone", 0)) >= 1
 	var all_ok: bool = (heroes_ok and enemies_ok and twins_ok and spells_ok and boss_ok
-		and floor_ok and cover_ok and pickup_ok)
+		and floor_ok and cover_ok and pickup_ok and roster_ok and mods_ok)
 	print(("[NET] VERDICT heroes=%s enemies=%s enemy_twins=%s HERO_SPELLS=%s BOSS_FX=%s "
-		+ "floor_sync=%s COVER=%s PICKUP=%s => %s") % [
+		+ "BOSS_ROSTER=%s BOSS_MODS=%s floor_sync=%s COVER=%s PICKUP=%s => %s") % [
 		_ok(heroes_ok), _ok(enemies_ok), _ok(twins_ok), _ok(spells_ok), _ok(boss_ok),
+		_ok(roster_ok), _ok(mods_ok),
 		_ok(floor_ok), _ok(cover_ok), _ok(pickup_ok), "PASS" if all_ok else "FAIL"])
+	print("[NET] boss_twins=%d boss_fx_kinds=%s" % [_boss_twins, _cli_kinds()])
+
+
+## The boss-fx kind breakdown as one sorted, greppable string.
+func _cli_kinds() -> String:
+	var keys: Array = _boss_fx_kinds.keys()
+	keys.sort()
+	var parts: PackedStringArray = PackedStringArray()
+	for k in keys:
+		parts.append("%s:%d" % [String(k), int(_boss_fx_kinds[k])])
+	return "[" + ",".join(parts) + "]"
 
 
 func _ok(b: bool) -> String:
@@ -1237,8 +1452,8 @@ func _cli_count(who: String) -> void:
 			var p: Vector2 = (e as Node2D).global_position
 			sample = "(%d,%d)" % [int(round(p.x)), int(round(p.y))]
 	print(("[NET] %s heroes=%d(peak %d) enemies=%d host_owned=%d first_enemy_pos=%s "
-		+ "floor=%d twins=%d spell_twins=%d boss_twins=%d prop_syncs=%d pickups=%d "
-		+ "crates=%d") % [
+		+ "floor=%d twins=%d spell_twins=%d boss_twins=%d boss_fx=%s prop_syncs=%d "
+		+ "pickups=%d crates=%d") % [
 		who, heroes, _cli_peak_heroes, enemies, host_owned, sample, _cli_floor(),
-		_twins_built, _spell_twins, _boss_twins, _prop_syncs, _pickups_awarded,
-		get_tree().get_nodes_in_group(&"destructible").size()])
+		_twins_built, _spell_twins, _boss_twins, _cli_kinds(), _prop_syncs,
+		_pickups_awarded, get_tree().get_nodes_in_group(&"destructible").size()])

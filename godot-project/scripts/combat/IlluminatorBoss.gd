@@ -157,7 +157,12 @@ func _atk_verdict() -> void:
 			var d: Node = spawn_spectacle("res://scripts/combat/DivineRay.gd",
 				Elements.Element.HOLY, SpellTier.Tier.HEAVY)
 			if d != null:
-				d.call("strike", at, GOLD, VERDICT_RADIUS, VERDICT_DAMAGE, "holy"))
+				d.call("strike", at, GOLD, VERDICT_RADIUS, VERDICT_DAMAGE, "holy")
+			# The column TEACHES ITS OWN ANSWER while it walks — the second strike
+			# tells you where the third will be. That lesson has to be legible on both
+			# screens or the client is only ever guessing where it marches next.
+			_bfx("ray", {"pos": at, "col": GOLD, "r": VERDICT_RADIUS, "fx": "holy",
+				"el": Elements.Element.HOLY}))
 	Juice.zoom_pull_camera(0.15, 0.9)
 
 
@@ -192,6 +197,8 @@ func _gild_beam(dir: Vector2) -> void:
 	if beam == null:
 		return
 	beam.call("fire", origin, dir, GOLD, GILD_LEN, GILD_WIDTH, GILD_DAMAGE, "holy")
+	_bfx("beam", {"pos": origin, "dir": dir, "col": GOLD, "len": GILD_LEN,
+		"w": GILD_WIDTH, "fx": "holy", "el": Elements.Element.HOLY})
 	Juice.shake_camera(6.0)
 
 
@@ -206,6 +213,8 @@ func _atk_psalm() -> void:
 		Elements.Element.HOLY, SpellTier.Tier.ULT)
 	if m != null:
 		m.call("rain", at, GOLD, PSALM_RADIUS, PSALM_DAMAGE, PSALM_COUNT, "holy")
+	_bfx("meteor", {"pos": at, "col": GOLD, "r": PSALM_RADIUS, "n": PSALM_COUNT,
+		"fx": "holy", "el": Elements.Element.HOLY})
 	Juice.zoom_pull_camera(0.18, 0.7)
 
 
@@ -257,5 +266,10 @@ func _atk_final_page() -> void:
 			s.call("converge", centre, GOLD, PAGE_RADIUS, PAGE_DAMAGE, "holy")
 		# The one full-screen mark this boss spends per cast, and only on this cast.
 		Juice.epic_moment({"strength": 1.35, "shake": 19.0, "sfx": "cannon"})
-		Juice.tier_frame(SpellTier.Tier.ULT, centre, Elements.Element.HOLY))
+		Juice.tier_frame(SpellTier.Tier.ULT, centre, Elements.Element.HOLY)
+		# THE RAREST THING IN THE BOSS KIT, and until now the half of the party that
+		# was not hosting never saw it happen at all.
+		_bfx("convergence", {"pos": centre, "col": GOLD, "r": PAGE_RADIUS,
+			"fx": "holy", "el": Elements.Element.HOLY})
+		_bfx("beat", {"pos": centre, "str": 1.35, "shake": 19.0, "sfx": "cannon"}))
 	Juice.zoom_pull_camera(0.22, PAGE_WINDUP + 0.6, 0.2, 0.7)

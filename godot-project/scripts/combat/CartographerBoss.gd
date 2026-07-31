@@ -153,6 +153,8 @@ func _ink_line(dir: Vector2) -> void:
 	if beam == null:
 		return
 	beam.call("fire", origin, dir, DRAFT, RULE_LEN, RULE_WIDTH, RULE_DAMAGE, "arcane")
+	_bfx("beam", {"pos": origin, "dir": dir, "col": DRAFT, "len": RULE_LEN,
+		"w": RULE_WIDTH, "fx": "arcane", "el": Elements.Element.ARCANE})
 	Juice.shake_camera(5.0)
 
 
@@ -176,7 +178,12 @@ func _atk_compass() -> void:
 			var d: Node = spawn_spectacle("res://scripts/combat/DivineRay.gd",
 				Elements.Element.HOLY, SpellTier.Tier.HEAVY)
 			if d != null:
-				d.call("strike", at, DRAFT, COMPASS_MARK_RADIUS, COMPASS_DAMAGE, "holy"))
+				d.call("strike", at, DRAFT, COMPASS_MARK_RADIUS, COMPASS_DAMAGE, "holy")
+			# THE ANNULUS IS THE WHOLE ATTACK. A client that could not see the ring
+			# would have no way to find its safe radius — the one thing this boss is
+			# remembered for would be invisible on half the phones in the room.
+			_bfx("ray", {"pos": at, "col": DRAFT, "r": COMPASS_MARK_RADIUS,
+				"fx": "holy", "el": Elements.Element.HOLY}))
 	Juice.zoom_pull_camera(0.13, 0.55)
 
 
@@ -201,7 +208,11 @@ func _atk_lattice() -> void:
 				Elements.Element.EARTH, SpellTier.Tier.HEAVY)
 			if p != null:
 				p.call("erupt", Vector2(x, base.y), DRAFT.lerp(INK, 0.35),
-					LATTICE_RADIUS, LATTICE_DAMAGE, "earth"))
+					LATTICE_RADIUS, LATTICE_DAMAGE, "earth")
+			# The GAPS between the columns are the mechanic, so the columns have to
+			# exist on both screens or one player is standing in a cell they cannot see.
+			_bfx("pillar", {"pos": Vector2(x, base.y), "col": DRAFT.lerp(INK, 0.35),
+				"r": LATTICE_RADIUS}))
 
 
 ## PROJECTION. A bombardment plotted onto your last known coordinate — the
@@ -215,6 +226,8 @@ func _atk_projection() -> void:
 		Elements.Element.ARCANE, SpellTier.Tier.ULT)
 	if m != null:
 		m.call("rain", at, DRAFT, 155.0, 20, 11, "arcane")
+	_bfx("meteor", {"pos": at, "col": DRAFT, "r": 155.0, "n": 11, "fx": "arcane",
+		"el": Elements.Element.ARCANE})
 	Juice.zoom_pull_camera(0.16, 0.5)
 
 
@@ -231,10 +244,16 @@ func _atk_redraw() -> void:
 		away = 1.0
 	var off: float = REDRAW_OFFSETS[randi() % REDRAW_OFFSETS.size()]
 	var dest := Vector2(_hero.global_position.x + absf(off) * away, global_position.y)
+	# The mark itself crosses through `summon_circle`. The two puffs are the erase
+	# and the arrival, and the boss's new POSITION crosses for free (replicated), so
+	# a client without them sees the body jump with no punctuation either side.
 	summon_circle(dest, Elements.Element.ARCANE, SpellTier.Tier.HEAVY, 56.0, REDRAW_TELL, true)
 	CombatVfx.spawn_burst(get_parent(), global_position + Vector2(0.0, -26.0),
 		Color(DRAFT.r, DRAFT.g, DRAFT.b, 0.9), Color(DRAFT.r, DRAFT.g, DRAFT.b, 0.0),
 		16, 0.4, 50.0, 150.0, 0.8, 2.0, 0.0, 0.0, true)
+	_bfx("burst", {"pos": global_position + Vector2(0.0, -26.0),
+		"col": Color(DRAFT.r, DRAFT.g, DRAFT.b, 0.9), "n": 16, "life": 0.4,
+		"v0": 50.0, "v1": 150.0, "s0": 0.8, "s1": 2.0})
 	get_tree().create_timer(REDRAW_TELL).timeout.connect(func() -> void:
 		if not is_instance_valid(self) or _bphase == BPhase.DEAD:
 			return
@@ -242,4 +261,8 @@ func _atk_redraw() -> void:
 		CombatVfx.spawn_burst(get_parent(), dest + Vector2(0.0, -26.0),
 			Color(1.2, 1.3, 1.35, 0.95), Color(DRAFT.r, DRAFT.g, DRAFT.b, 0.0),
 			20, 0.38, 70.0, 200.0, 0.7, 2.0, 0.0, 0.0, true)
+		_bfx("burst", {"pos": dest + Vector2(0.0, -26.0),
+			"col": Color(1.2, 1.3, 1.35, 0.95),
+			"col2": Color(DRAFT.r, DRAFT.g, DRAFT.b, 0.0), "n": 20, "life": 0.38,
+			"v0": 70.0, "v1": 200.0, "s0": 0.7, "s1": 2.0})
 		Juice.shake_camera(4.0))

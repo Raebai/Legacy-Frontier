@@ -181,7 +181,12 @@ func _atk_scratch() -> void:
 		Elements.Element.SHADOW, SpellTier.Tier.HEAVY)
 	if n == null:
 		return
-	n.call("erupt", global_position, aim, GRAPHITE.lerp(CRAYON, 0.35), 74.0, 26, "shadow")
+	var scrawl_col: Color = GRAPHITE.lerp(CRAYON, 0.35)
+	n.call("erupt", global_position, aim, scrawl_col, 74.0, 26, "shadow")
+	# Co-op twin — same shape as the Guardian's `_atk_beam`/`_atk_rays`: build the
+	# real thing, then hand the client a damage-free copy of it.
+	_bfx("root", {"pos": global_position, "aim": aim, "col": scrawl_col, "r": 74.0,
+		"fx": "shadow", "el": Elements.Element.SHADOW})
 	Juice.shake_camera(4.0)
 
 
@@ -195,6 +200,7 @@ func _atk_tantrum() -> void:
 	n.set("element_id", Elements.Element.EARTH)
 	get_parent().add_child(n)
 	n.call("activate_at", global_position)
+	_bfx("nova", {"pos": global_position})
 	Juice.on_hit({"shake": 9.0, "sfx": "blast", "hitstop": 0.05})
 
 
@@ -219,6 +225,10 @@ func _launch(dir: Vector2) -> void:
 		rig.play(CharacterRig.State.DASH)
 		rig.flash_color(Color(1.5, 1.2, 1.2), 0.12)
 	Juice.shake_camera(5.5)
+	# Co-op: the BODY crossing the room is free — position is replicated by the
+	# enemy synchronizer — so the twin carries only the flash and the shake that
+	# make it read as a launch rather than as a teleport.
+	_bfx("dash", {"shake": 5.5})
 
 
 func _physics_process(delta: float) -> void:
