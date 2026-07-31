@@ -64,6 +64,18 @@ const SELECTED_WIDTH: float = 1.5
 const READY_FLASH_COLOR: Color = Color(0.6, 0.95, 1.0)
 const READY_FLASH_GROW: float = 9.0
 const READY_FLASH_WIDTH: float = 2.5
+## ── TIER 3 CHARGE PIPS ───────────────────────────────────────────────────────
+## A picked-up spell has a COUNT, and "picking one up is a decision" only holds if
+## the count is visible BEFORE you spend it. Pips rather than a number because the
+## counts are 1–2 and a row of dots is read without focusing; gold because that is
+## what the pickup was wearing on the floor (`SpellPickup.TIER3_GOLD`), so they say
+## "the spell you found" rather than "another timer".
+const PIP_COLOR: Color = Color(1.0, 0.86, 0.42, 0.95)
+const PIP_RADIUS: float = 2.6
+const PIP_GAP: float = 7.0
+const PIP_INSET: Vector2 = Vector2(5.0, 6.0)
+const PIP_MAX_DOTS: int = 4
+const PIP_FONT_SIZE: int = 10
 
 ## Snapshot of the hero's slot dictionaries, refreshed once per frame in
 ## _process and consumed by _draw. Empty = draw nothing (no hero this scene).
@@ -115,7 +127,27 @@ func _process(_delta: float) -> void:
 		_slots = hero.ability_hud_state()
 		_class_name = String(hero.call("class_display_name")) if hero.has_method("class_display_name") else ""
 		_repair_signature_label(hero)
+		_stamp_charges(hero)
 	queue_redraw()
+
+
+## Fold each signature slot's remaining charges into the slot dictionary, so
+## `_draw_slot` stays a pure function of one dictionary and never has to reach back
+## for a hero it was not handed.
+##
+## The signature slots are the LAST `SpellTier.SLOT_COUNT` entries of
+## `ability_hud_state()` (it is a fixed prefix of six ability rows plus the
+## signatures — see Hero.ability_hud_state). Keyed off the END of the array rather
+## than off absolute indices so adding an ability row above cannot silently start
+## stamping charges onto Dash.
+func _stamp_charges(hero: Node) -> void:
+	var first: int = _slots.size() - SpellTier.SLOT_COUNT
+	if first < 0:
+		return
+	for i: int in SpellTier.SLOT_COUNT:
+		if not _slots[first + i] is Dictionary:
+			continue
+		(_slots[first + i] as Dictionary)["charges"] = SpellGrant.charges_in_slot(hero, i)
 
 
 ## THE BIG BEAM'S NAME. `Hero._signature_hud_slot()` shortens the equipped
@@ -277,6 +309,27 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
 		draw_rect(rect.grow(READY_FLASH_GROW * (1.0 - pulse)),
 			Color(READY_FLASH_COLOR.r, READY_FLASH_COLOR.g, READY_FLASH_COLOR.b, pulse),
 			false, READY_FLASH_WIDTH)
+	# LAST, over everything: the count has to survive the cooldown wipe. "Two left"
+	# is exactly the fact you need while the slot is recovering and you are deciding
+	# whether to spend the next one here or save it for the guardian.
+	_draw_charges(rect, int(slot.get("charges", -1)), font, alpha)
+
+
+## `charges` < 0 means "not a granted drop" and draws nothing — the pips are a fact
+## about a PICKUP, and a count on every class spell would bury the one that runs out.
+func _draw_charges(rect: Rect2, charges: int, font: Font, alpha: float) -> void:
+	if charges < 0:
+		return
+	var col: Color = _with_alpha(PIP_COLOR, alpha)
+	if charges > PIP_MAX_DOTS:
+		draw_string(font, rect.position + Vector2(rect.size.x - 18.0, float(PIP_FONT_SIZE) + 3.0),
+			"x%d" % charges, HORIZONTAL_ALIGNMENT_LEFT, -1, PIP_FONT_SIZE, col)
+		return
+	# Top-RIGHT: the key label owns the top-left and the ability name the bottom edge.
+	var y: float = rect.position.y + PIP_INSET.y
+	for i: int in charges:
+		draw_circle(Vector2(rect.end.x - PIP_INSET.x - float(i) * PIP_GAP, y),
+			PIP_RADIUS, col, true, -1.0, true)
 
 
 ## Return `color` with its alpha scaled by `factor` — the one-line dimming

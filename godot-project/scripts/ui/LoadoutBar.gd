@@ -41,7 +41,35 @@ const READY_FLASH_GROW: float = 7.0
 const KEY_FONT_SIZE: int = 9
 const KEY_TEXT_COLOR: Color = Color(0.95, 0.96, 1.0, 0.9)
 
+## ── TIER 3 CHARGE PIPS ───────────────────────────────────────────────────────
+## A picked-up spell has a COUNT, and the spec's "picking one up is a decision"
+## only holds if you can see that count BEFORE you spend it. Without this, a Tier 3
+## with one use left is indistinguishable from one with two — you commit your last
+## charge on a trash mob and discover the cost afterwards, which turns a decision
+## into a surprise.
+##
+## Drawn as PIPS, not a number, because the counts are tiny (1–2) and a row of dots
+## is read at a glance without focusing — the same reason ammo counters in shooters
+## go to pips at low magazine sizes. Above 4 it degrades to `xN` rather than a row
+## of dots nobody can count under pressure.
+##
+## GOLD on purpose: `SpellPickup.TIER3_GOLD` is the colour the thing was wearing on
+## the floor, so the pips say "the spell you found" and not "a new cooldown".
+const PIP_COLOR: Color = Color(1.0, 0.86, 0.42, 0.95)
+const PIP_RADIUS: float = 2.1
+const PIP_GAP: float = 5.4
+const PIP_INSET: Vector2 = Vector2(4.0, 4.5)
+const PIP_MAX_DOTS: int = 4
+const PIP_FONT_SIZE: int = 9
+
 var slots: HandSlots = null
+## The hero whose GRANTS this bar reports. Optional: the spike playground hands this
+## bar a `HandSlots` with no hero behind it at all, and a bar with no hero simply
+## draws no pips rather than guessing.
+##
+## Resolved by MATCHING THE HAND, never by taking the first hero in the group — in
+## co-op there are two heroes and the wrong one's charges would be a confident lie.
+var hero: Node = null
 ## Per-slot flash timers + the ready-edge latch behind them.
 ##
 ## Latched HERE, unlike `AbilityBar` — which takes its pulse from the hero — because
@@ -164,6 +192,9 @@ func _draw() -> void:
 			spell_n += 1
 			draw_string(font, pos + Vector2(3.0, float(KEY_FONT_SIZE) + 1.0), str(spell_n),
 				HORIZONTAL_ALIGNMENT_LEFT, -1, KEY_FONT_SIZE, KEY_TEXT_COLOR)
+			# `spell_n - 1` IS the grant ledger's `nth`: both count SPELL slots only,
+			# skipping fists and any weapon (see HandSlots.spell_slot_index).
+			_draw_charges(box, SpellGrant.charges_in_slot(_owner_hero(), spell_n - 1), font)
 		# ...and the flare when it came back. Outside every other branch so a slot that
 		# is re-cast within the flash window still gets to finish flashing.
 		var flash: float = 0.0 if i >= _flash.size() else _flash[i] / READY_FLASH_TIME
@@ -171,6 +202,45 @@ func _draw() -> void:
 			draw_rect(box.grow(READY_FLASH_GROW * (1.0 - flash)),
 				Color(READY_FLASH_COLOR.r, READY_FLASH_COLOR.g, READY_FLASH_COLOR.b, flash),
 				false, 2.0)
+
+
+## The hero behind `slots`, or null. Cached, and re-derived the moment the cached
+## one dies — heroes are respawned on death and on every floor change, and a stale
+## handle here would draw the pips of a corpse.
+##
+## Reaches `_hand` by name, the same private `SpellGrant._current_spell` already
+## depends on; `tools/slice_test_drops.gd` asserts that name still exists on a real
+## Hero and fails loudly the day it is renamed.
+func _owner_hero() -> Node:
+	if hero != null and is_instance_valid(hero) and not hero.is_queued_for_deletion():
+		return hero
+	hero = null
+	if slots == null or not is_inside_tree():
+		return null
+	for h: Node in get_tree().get_nodes_in_group("hero"):
+		if is_instance_valid(h) and h.get(&"_hand") == slots:
+			hero = h
+			break
+	return hero
+
+
+## `charges` < 0 means "not a granted drop" and draws nothing at all — the pips are
+## a fact about a PICKUP, and putting a count on every class spell would make the
+## one thing that actually runs out invisible again.
+func _draw_charges(box: Rect2, charges: int, font: Font) -> void:
+	if charges < 0:
+		return
+	if charges > PIP_MAX_DOTS:
+		draw_string(font, box.position + Vector2(box.size.x - 16.0, float(PIP_FONT_SIZE) + 2.0),
+			"x%d" % charges, HORIZONTAL_ALIGNMENT_LEFT, -1, PIP_FONT_SIZE, PIP_COLOR)
+		return
+	# Right-aligned along the top edge so the pips never sit on the key hint (top
+	# LEFT) and never on the cooldown veil's leading edge (which sweeps up from the
+	# bottom) — the three readouts share a 34 px square and must not overlap.
+	var y: float = box.position.y + PIP_INSET.y
+	for i: int in charges:
+		var x: float = box.end.x - PIP_INSET.x - float(i) * PIP_GAP
+		draw_circle(Vector2(x, y), PIP_RADIUS, PIP_COLOR, true, -1.0, true)
 
 
 ## Procedural icon per slot. Shape comes from what the thing DOES (its kind) and

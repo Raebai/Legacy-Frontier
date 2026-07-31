@@ -25,6 +25,10 @@ extends CanvasLayer
 ##                 on an arc swept around the bottom-right corner, with DASH in the
 ##                 corner itself; they consume their own taps, so a tap on a button
 ##                 never spawns a stick under it.
+##   CENTRE      — the dead band between the two zones, normally empty. The only
+##                 thing that ever appears there is the CONTEXTUAL HANDOFF PAD,
+##                 which exists exactly while a teammate is in range and you are
+##                 holding something to give (see the HANDOFF_* block).
 ##   (Class / element / signature swapping is set in the hub, not mid-fight — ~14
 ##   keyboard actions won't fit two thumbs, so combat is consolidated to these.)
 ##
@@ -141,6 +145,61 @@ const READY_FLASH_COLOR: Color = Color(0.65, 0.95, 1.0)
 ## Resting rim of a spell button that is ready to throw, vs one that is not.
 const RIM_READY: Color = Color(0.72, 0.92, 1.0, 0.85)
 const RIM_COOLING: Color = Color(0.5, 0.53, 0.62, 0.5)
+## --- Tier 3 charge pips on a spell pad ---
+## A picked-up spell has 1–2 uses and then evaporates back into your class ult. On a
+## phone this pad is the ONLY readout there is (the desktop hotbar stands down when
+## the pad is live), so without these the count is invisible and "picking one up is a
+## decision" becomes a surprise mid-fight. Gold, because that is what the pickup was
+## wearing on the floor (`SpellPickup.TIER3_GOLD`).
+const PIP_COLOR: Color = Color(1.0, 0.86, 0.42, 0.98)
+const PIP_RADIUS: float = 3.2
+const PIP_GAP: float = 8.5
+const PIP_INSET: Vector2 = Vector2(9.0, 9.0)
+const PIP_MAX_DOTS: int = 4
+
+## --- the contextual HANDOFF pad ---
+## ⚠ WHY THIS IS NOT A SEVENTH THUMB BUTTON. The right thumb already carries three
+## spell pads plus DASH on one arc, and the consolidation pass that got the layout
+## there deliberately COST four verbs (blast/blink/nova/melee) rather than let the pad
+## grow back into a keyboard. A permanent handoff button would spend that hard-won
+## corner on a verb that is useful for perhaps two seconds a floor — and it would sit
+## under the thumb that is aiming, so its most likely press is an accidental one.
+##
+## But the mechanic cannot be unreachable either: the spec says build it because it
+## produces both the generous play and the betrayal.
+##
+## So the pad is CONTEXTUAL and lives in the CENTRE DEAD BAND — the strip between
+## LEFT_ZONE_FRAC and RIGHT_ZONE_FRAC that exists precisely so no stick ever spawns
+## there. Three things fall out of that choice:
+##   * It costs the fight layout nothing. When there is no offer it does not exist,
+##     and the band goes back to being dead.
+##   * Its APPEARANCE is the prompt. `SpellHandoff` already draws "[E] give X" above
+##     the receiver; the pad appearing at the same instant is the same signal in the
+##     place your thumb can act on, so a phone player learns the mechanic the first
+##     time they stand next to a teammate.
+##   * Either thumb can take it. A handoff is a lull — you both stopped fighting —
+##     so neither thumb is committed, and the centre is the one place both can reach.
+## It consumes its own taps (like the buttons do), so it can be wider than the band
+## without a near-miss spawning a stick underneath it.
+const HANDOFF_SIZE: Vector2 = Vector2(112.0, 34.0)
+## Up from the bottom edge. Clear of the screen edge, well inboard of both thumbs.
+const HANDOFF_LIFT: float = 30.0
+const HANDOFF_BG: Color = Color(0.13, 0.11, 0.06, 0.72)
+const HANDOFF_RIM: Color = Color(1.0, 0.95, 0.7, 0.9)
+const HANDOFF_TEXT: Color = Color(1.0, 0.97, 0.85, 0.98)
+const HANDOFF_FONT_SIZE: int = 11
+## The action the pad presses. Deliberately the SAME action `SpellHandoff` polls on
+## the keyboard, so there is one path into the transfer and not a touch-only copy of
+## it that can drift.
+const HANDOFF_ACTION: String = "talk"
+## ⚠ THE GROUP NAME IS A LITERAL, NOT `SpellHandoff.HANDOFF_GROUP`, and that is not
+## laziness. Naming the class here would drag `SpellHandoff` — and through it
+## `Juice`, `CombatVfx` and the drop economy — into this file's compile graph, and
+## `tools/slice_test_touch.gd` runs under `--script`, where autoloads do not exist
+## and one autoload identifier anywhere in that chain fails the WHOLE chain to
+## compile. This layer already duck-types `Hero` for the same reason.
+## `tools/slice_test_handoff_pad.gd` asserts the two constants still agree.
+const HANDOFF_GROUP: StringName = &"spell_handoff"
 
 ## Actions each stick owns. Kept as lists so a stick can release exactly its own
 ## actions on lift-off without stomping the other thumb's state.
@@ -156,6 +215,12 @@ var _veils: Array[SpellVeil] = []
 ## ...and just the three spell ones, in kit-slot order.
 var _spell_buttons: Array[Button] = []
 var _spell_veils: Array[SpellVeil] = []
+## The contextual handoff pad. Deliberately NOT a `Button` and deliberately NOT in
+## `_buttons`: it carries no cooldown veil, it is not part of the thumb arcs, and it
+## must not read as the persistent button set growing back — which is a rule
+## `tools/slice_test_touch.gd` pins with an equality on the Button count, and which
+## this pad honours in substance and not merely in letter.
+var _handoff: HandoffPad = null
 ## Which stick the desktop-preview mouse is currently driving (null = none).
 var _mouse_stick: Stick = null
 ## Every action this layer is currently holding down, so each press/release is
@@ -402,6 +467,80 @@ static func spell_button_offset(i: int) -> Vector2:
 func _build_buttons() -> void:
 	for row: Dictionary in _button_layout():
 		_add_button(row)
+	_build_handoff_pad()
+
+
+## Built once, hidden, and shown only while `SpellHandoff.can_hand_over()` is true.
+## Built up front rather than instanced on demand because allocating a Control the
+## first frame a teammate walks into range is a hitch at exactly the moment the
+## player is being asked to react.
+func _build_handoff_pad() -> void:
+	_handoff = HandoffPad.new()
+	_handoff.visible = false
+	# Bottom-CENTRE: anchored to the middle of the screen so it lands in the dead band
+	# at every resolution, rather than at a pixel that is central only at 640x360.
+	_handoff.anchor_left = 0.5
+	_handoff.anchor_right = 0.5
+	_handoff.anchor_top = 1.0
+	_handoff.anchor_bottom = 1.0
+	_handoff.offset_left = -HANDOFF_SIZE.x * 0.5
+	_handoff.offset_right = HANDOFF_SIZE.x * 0.5
+	_handoff.offset_top = -HANDOFF_LIFT - HANDOFF_SIZE.y
+	_handoff.offset_bottom = -HANDOFF_LIFT
+	# STOP, not PASS: the pad eats its own tap so a near-miss on the narrow dead band
+	# cannot also spawn a thumb stick under the finger that just gave a spell away.
+	_handoff.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(_handoff)
+
+
+## The live `SpellHandoff` for this floor, or null. Found by group so neither file
+## imports the other and a floor without the drop economy simply has no pad.
+func _handoff_node() -> Node:
+	return get_tree().get_first_node_in_group(HANDOFF_GROUP)
+
+
+## Show/hide + relabel the contextual pad from the SAME state the in-world prompt is
+## drawn from, so the two can never disagree about whether an offer exists.
+func _sync_handoff() -> void:
+	if _handoff == null:
+		return
+	var node: Node = _handoff_node()
+	var live: bool = node != null and node.has_method(&"can_hand_over") \
+		and bool(node.call(&"can_hand_over"))
+	if not live:
+		if _handoff.visible:
+			_handoff.release()   # hidden mid-press must not leave `talk` held down
+			_handoff.visible = false
+		return
+	_handoff.label = String(node.call(&"offer_label")) if node.has_method(&"offer_label") else ""
+	_handoff.visible = true
+
+
+## Is the contextual handoff pad on screen right now, and what is it offering?
+## Public so a test can assert the affordance without reading a member that a
+## refactor could rename out from under it.
+func handoff_visible() -> bool:
+	return _handoff != null and _handoff.visible
+
+
+func handoff_label() -> String:
+	return "" if _handoff == null else _handoff.label
+
+
+## Repaint every readout now instead of on the next frame. Public so a headless test
+## can pump the pad deterministically — `_process` is the only other caller.
+func refresh() -> void:
+	_sync_buttons()
+
+
+## What the spell pad for kit slot `nth` is currently DRAWING as its charge count:
+## a remaining Tier 3 count, or -1 for "no pips". Public so a test can assert the
+## readout the player sees rather than re-deriving it from the ledger and proving
+## only that the ledger agrees with itself.
+func spell_pad_charges(nth: int) -> int:
+	if nth < 0 or nth >= _spell_veils.size():
+		return -1
+	return _spell_veils[nth].charges
 
 
 func _add_button(row: Dictionary) -> void:
@@ -475,6 +614,7 @@ func _add_button(row: Dictionary) -> void:
 ## this pad, the hotbar and the loadout bar cannot disagree about whether a button is
 ## ready — and neither of them depends on a slot's POSITION in some other array.
 func _sync_buttons() -> void:
+	_sync_handoff()
 	if _buttons.is_empty():
 		return
 	var hero: Node = get_tree().get_first_node_in_group("hero")
@@ -488,16 +628,22 @@ func _sync_buttons() -> void:
 			veil.frac = 0.0
 			veil.flash = 0.0
 			veil.slot_ready = true
+			veil.charges = -1
 			veil.queue_redraw()
 			continue
 		var st: Dictionary
 		if btn.has_meta("spell_slot"):
-			st = hero.call("spell_button_state", int(btn.get_meta("spell_slot")))
+			var nth: int = int(btn.get_meta("spell_slot"))
+			st = hero.call("spell_button_state", nth)
 			# The number stays the button's label (a thumb finds a shape, not a word),
 			# but the SPELL's name rides the tooltip so a desktop preview can read it.
 			btn.tooltip_text = String(st.get("name", ""))
 			btn.disabled = not bool(st.get("filled", true))
+			# HOW MANY LEFT. Only a granted drop answers >= 0; a class spell reports
+			# -1 and draws nothing, which is what keeps the count meaningful.
+			veil.charges = SpellGrant.charges_in_slot(hero, nth)
 		else:
+			veil.charges = -1
 			st = hero.call("touch_button_state", StringName(String(btn.get_meta("action", ""))))
 		var total: float = float(st.get("total", 0.0))
 		veil.frac = 0.0 if total <= 0.0 else clampf(float(st.get("remaining", 0.0)) / total, 0.0, 1.0)
@@ -513,6 +659,8 @@ class SpellVeil extends Control:
 	var frac: float = 0.0    # 1 = just cast, 0 = fully recovered
 	var flash: float = 0.0   # 1 -> 0 across the ready-flash
 	var slot_ready: bool = true
+	## Remaining Tier 3 charges, or -1 for "not a granted drop, draw nothing".
+	var charges: int = -1
 
 	func _draw() -> void:
 		var r: float = size.x * 0.5
@@ -531,6 +679,104 @@ class SpellVeil extends Control:
 			var grow: float = (1.0 - flash) * 7.0
 			var f: Color = TouchControls.READY_FLASH_COLOR
 			draw_arc(c, r + grow, 0.0, TAU, 28, Color(f.r, f.g, f.b, flash), 2.5, true)
+		_draw_charges()
+
+	## HOW MANY USES ARE LEFT, drawn LAST so the cooldown wipe cannot hide it — "one
+	## charge left" is exactly the fact you need while the button is still recovering
+	## and you are deciding whether to spend it here or save it for the guardian.
+	##
+	## Inside the rim, along the TOP of the round pad, where the wipe (which fills from
+	## the bottom) reaches last. Bigger and further apart than the desktop bars': this
+	## is a 60 px circle being read at arm's length with a thumb near it.
+	func _draw_charges() -> void:
+		if charges < 0:
+			return
+		if charges > TouchControls.PIP_MAX_DOTS:
+			var font: Font = ThemeDB.fallback_font
+			if font != null:
+				draw_string(font, Vector2(size.x - 22.0, 16.0), "x%d" % charges,
+					HORIZONTAL_ALIGNMENT_LEFT, -1.0, 12, TouchControls.PIP_COLOR)
+			return
+		# Centred as a row so 1 and 2 charges both read as a deliberate count rather
+		# than as a smudge drifting in from one corner.
+		var span: float = float(charges - 1) * TouchControls.PIP_GAP
+		var y: float = TouchControls.PIP_INSET.y
+		for i: int in charges:
+			draw_circle(Vector2(size.x * 0.5 - span * 0.5 + float(i) * TouchControls.PIP_GAP, y),
+				TouchControls.PIP_RADIUS, TouchControls.PIP_COLOR, true, -1.0, true)
+
+
+## THE CONTEXTUAL HANDOFF PAD — "give Meteor Storm", in the centre dead band, and
+## only while there is something to give. See the HANDOFF_* constants for why this is
+## contextual and centred rather than a seventh thumb button.
+##
+## It presses the same `talk` action the keyboard handoff uses rather than calling
+## `SpellHandoff.try_local_handoff()` directly. That is the point: one input path, so
+## a change to when a handoff is legal cannot land on the keyboard and miss the phone.
+## The press is edge-guarded and released on hide, because a pad that vanishes
+## mid-press (the teammate walked away) must not leave `talk` held forever.
+class HandoffPad extends Control:
+	var label: String = ""
+	var _held: bool = false
+	var _phase: float = 0.0
+
+	func _ready() -> void:
+		set_process(true)
+
+	func _process(delta: float) -> void:
+		_phase += delta
+		if visible:
+			queue_redraw()
+
+	func _gui_input(event: InputEvent) -> void:
+		var pressed: bool = false
+		var is_press_event: bool = false
+		if event is InputEventScreenTouch:
+			is_press_event = true
+			pressed = (event as InputEventScreenTouch).pressed
+		elif event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+			is_press_event = true
+			pressed = (event as InputEventMouseButton).pressed
+		if not is_press_event:
+			return
+		accept_event()   # consumed here so no thumb stick spawns under the tap
+		if pressed:
+			press()
+		else:
+			release()
+
+	## Public so a headless test can drive the affordance the way a thumb does,
+	## through the real action, rather than by calling the transfer directly.
+	func press() -> void:
+		if _held:
+			return
+		_held = true
+		Input.action_press(HANDOFF_ACTION)
+
+	func release() -> void:
+		if not _held:
+			return
+		_held = false
+		Input.action_release(HANDOFF_ACTION)
+
+	func _draw() -> void:
+		var box := Rect2(Vector2.ZERO, size)
+		# Pulses in step with SpellHandoff's in-world prompt (same 4.0 rate), so the
+		# thing above your teammate's head and the thing under your thumb breathe
+		# together and read as one offer rather than two notifications.
+		var pulse: float = 0.5 + 0.5 * sin(_phase * 4.0)
+		draw_rect(box, TouchControls.HANDOFF_BG, true)
+		draw_rect(box, Color(TouchControls.HANDOFF_RIM.r, TouchControls.HANDOFF_RIM.g,
+			TouchControls.HANDOFF_RIM.b, 0.45 + 0.45 * pulse), false, 2.0 if _held else 1.5)
+		var font: Font = ThemeDB.fallback_font
+		if font == null:
+			return
+		# The SPELL'S NAME, not "handoff": what you are about to lose is the decision,
+		# and a generic verb would make the betrayal thoughtless instead of chosen.
+		var text: String = "GIVE" if label == "" else "GIVE %s" % label.to_upper()
+		draw_string(font, Vector2(0.0, size.y * 0.5 + float(TouchControls.HANDOFF_FONT_SIZE) * 0.38),
+			text, HORIZONTAL_ALIGNMENT_CENTER, size.x, TouchControls.HANDOFF_FONT_SIZE,
+			TouchControls.HANDOFF_TEXT)
 
 
 ## A round translucent Control (a stick base/knob, or the aim home ring), drawn via a

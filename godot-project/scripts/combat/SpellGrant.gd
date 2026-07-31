@@ -156,6 +156,28 @@ static func charges_left(hero: Object, spell_id: String) -> int:
 	return 0
 
 
+## The same answer keyed by CAROUSEL SLOT rather than by spell id — what every HUD
+## actually has in hand. Returns -1 for "no granted drop in that slot", which reads
+## as "nothing to draw" rather than as "zero charges left" (a real 0 never persists:
+## `consume_charge` revokes the moment it hits zero).
+##
+## Exists because the bars know a slot INDEX and not an id: `Hero.spell_button_state`
+## and `ability_hud_state` are both slot-keyed, and asking them to dig a SpellDef out
+## so they could call `charges_left` would have every HUD reaching into the hand.
+static func charges_in_slot(hero: Object, nth: int) -> int:
+	var n: Node = hero as Node
+	if n == null or not is_instance_valid(n) or not n.has_meta(META_KEY):
+		return -1
+	var slots: Dictionary = (n.get_meta(META_KEY) as Dictionary)["slots"]
+	if not slots.has(nth):
+		return -1
+	var spell: SpellDef = (slots[nth] as Dictionary)["drop"]
+	# A kit spell handed over (or an unlimited drop) has no count to show.
+	if spell == null or spell.charges < 0:
+		return -1
+	return int((slots[nth] as Dictionary)["charges"])
+
+
 ## The granted drop `hero` is currently holding, or {} — `{"nth": int, "spell":
 ## SpellDef, "charges": int}`. The most recently picked-up one wins, which is what
 ## "hand over what you just found" should mean.
