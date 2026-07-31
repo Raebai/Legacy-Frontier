@@ -2221,6 +2221,23 @@ func _end_channel(handoff: bool = false) -> void:
 ## Returns false for a slot this class does not carry, rather than clamping — a
 ## button that reaches nothing must read as "nothing happened", never as a plausible
 ## wrong spell fired on your behalf (the same rule as `bot_select_signature`).
+## Take a picked-up or handed-over spell into slot `nth`. THE PUBLIC HOOK
+## `SpellGrant._install` looks for first.
+##
+## SpellGrant works without this — it falls back to reaching into `_signatures`
+## and `_hand` directly, guarded by a test that goes red if either is renamed.
+## That fallback is a tripwire, not a design. This is the door it should be using,
+## so the drop system stops depending on two private member names staying put.
+##
+## Both halves are written and they are NOT redundant: `_signatures` is what
+## `cast_signature_slot` reads to decide WHAT to cast, `_hand` owns the per-slot
+## cooldown and is what the loadout bar draws. Writing one and not the other gives
+## you a bar showing a spell that casts something else — this codebase already has
+## a scar from exactly that two-sources-of-truth shape.
+func receive_spell(spell: SpellDef, nth: int) -> bool:
+	return SpellGrant.install(_signatures, _hand, spell, nth)
+
+
 func cast_signature_slot(idx: int) -> bool:
 	if idx < 0 or idx >= _signatures.size():
 		return false
