@@ -40,10 +40,12 @@ var _nudge: Vector2 = Vector2.ZERO
 
 func _ready() -> void:
 	add_to_group("destructible")
-	# FRIENDLY FIRE (1.5): the faction-blind group every damageable body joins, so
-	# a spell stamped with target_group "mortal" breaks crates too, with no
-	# spectacle edits. "destructible" stays — the existing scans depend on it.
-	add_to_group(&"mortal")
+	# NOT in `mortal`, deliberately — see slice_test_mortal_group.
+	# `mortal` exists to make FACTIONS blind to each other. Cover was never
+	# factioned: every spectacle scans its stamped target_group for fighters AND
+	# the "destructible" literal for crates, as two separate passes
+	# (BlastSpell.gd:232 + :251, BeamSpell.gd:365 + :372, and ~20 more). A crate
+	# in both groups is found by both passes and takes every hit TWICE.
 	hp = max_hp
 	queue_redraw()
 

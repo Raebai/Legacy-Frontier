@@ -6,11 +6,19 @@
 # `get_nodes_in_group(target_group)` scan then hits everything alive with zero
 # spectacle edits. That only works if every damageable body is IN that group.
 #
-# So this suite asserts the half owned here: Enemy, Boss and DestructibleProp all
-# join `mortal` — and, just as important, that they did NOT stop being in the
-# groups everything else scans. `enemy` drives the floor clear gate, the camera
-# framing and every bot scan; `destructible` drives the crate scans. Swapping
-# instead of adding would be a silent, wide break, so both halves are pinned.
+# So this suite asserts the half owned here: Enemy and Boss join `mortal` — and,
+# just as important, that they did NOT stop being in the groups everything else
+# scans. `enemy` drives the floor clear gate, the camera framing and every bot
+# scan. Swapping instead of adding would be a silent, wide break, so both halves
+# are pinned.
+#
+# CRATES ARE THE EXCEPTION, and it is the interesting one. `mortal` exists to
+# make FACTIONS blind to each other. Cover was never factioned: every spectacle
+# scans its stamped target_group for fighters AND the "destructible" literal for
+# crates, as two separate passes (BlastSpell.gd:232 + :251, BeamSpell.gd:365 +
+# :372, and ~20 more). Put a crate in both groups and both passes find it, so it
+# eats every hit TWICE. It cost nothing to add and would have quietly halved the
+# life of all cover, which is why it is pinned here as a NEGATIVE assertion.
 extends SceneTree
 
 # ── Vacuous-pass armour (see tools/slice_test_loadout.gd for the full write-up) ──
@@ -22,9 +30,9 @@ extends SceneTree
 const TESTS: Array[String] = [
 	"enemy_is_mortal_and_still_enemy",
 	"boss_is_mortal_and_still_enemy",
-	"crate_is_mortal_and_still_destructible",
-	"shattered_crate_leaves_mortal",
-	"a_mortal_scan_finds_all_three",
+	"crate_is_destructible_but_NOT_mortal",
+	"shattered_crate_leaves_destructible",
+	"a_mortal_scan_finds_the_fighters_only",
 ]
 
 var _fails: int = 0
@@ -50,9 +58,9 @@ func _run() -> void:
 	await process_frame
 	_test_enemy_is_mortal_and_still_enemy()
 	_test_boss_is_mortal_and_still_enemy()
-	_test_crate_is_mortal_and_still_destructible()
-	_test_shattered_crate_leaves_mortal()
-	_test_a_mortal_scan_finds_all_three()
+	_test_crate_is_destructible_but_NOT_mortal()
+	_test_shattered_crate_leaves_destructible()
+	_test_a_mortal_scan_finds_the_fighters_only()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -100,40 +108,44 @@ func _test_boss_is_mortal_and_still_enemy() -> void:
 	_completes("boss_is_mortal_and_still_enemy")
 
 
-func _test_crate_is_mortal_and_still_destructible() -> void:
+## Cover is already faction-blind and is found by its OWN scan. Adding it to
+## `mortal` puts it in the path of both scans, so it takes double damage from
+## every spell in the game. This assertion is the guard against re-adding it.
+func _test_crate_is_destructible_but_NOT_mortal() -> void:
 	var c: Node = _spawn(CRATE_SCENE)
-	_expect(c.is_in_group(MORTAL), "a crate joins `mortal` (friendly fire breaks cover)")
-	_expect(c.is_in_group("destructible"), "...and is STILL in `destructible`")
+	_expect(c.is_in_group("destructible"), "a crate is in `destructible` (its own scan finds it)")
+	_expect(not c.is_in_group(MORTAL),
+		"a crate is NOT in `mortal` — both scans would find it and halve all cover")
 	c.free()
-	_completes("crate_is_mortal_and_still_destructible")
+	_completes("crate_is_destructible_but_NOT_mortal")
 
 
-## A dead crate must leave BOTH groups in the same breath. A blast scans its
-## radius once per group; if `mortal` kept a shattered crate, a single blast
-## would hit the same dead crate twice.
-func _test_shattered_crate_leaves_mortal() -> void:
+## A dead crate must leave its group in the same breath it shatters, or the
+## second scan of the same blast hits a corpse.
+func _test_shattered_crate_leaves_destructible() -> void:
 	var c: Node = _spawn(CRATE_SCENE)
 	c.call("take_damage", 5)
-	_expect(c.is_in_group(MORTAL), "a damaged-but-alive crate stays mortal")
+	_expect(c.is_in_group("destructible"), "a damaged-but-alive crate stays destructible")
+	_expect(not c.is_in_group(MORTAL), "...and never gains `mortal` by being hit")
 	c.call("take_damage", 9999)
 	_expect(not c.is_in_group("destructible"), "a shattered crate leaves `destructible`")
-	_expect(not c.is_in_group(MORTAL), "a shattered crate leaves `mortal` too (no same-frame re-hit)")
-	_completes("shattered_crate_leaves_mortal")
+	_completes("shattered_crate_leaves_destructible")
 
 
-## THE WHOLE POINT, as a spectacle would see it: one group scan, everything
-## damageable in the room, whichever faction it belongs to.
-func _test_a_mortal_scan_finds_all_three() -> void:
-	var bodies: Array[Node] = [_spawn(ENEMY_SCENE), _spawn(BOSS_SCENE), _spawn(CRATE_SCENE)]
+## THE WHOLE POINT, as a spectacle would see it: one group scan, every FIGHTER
+## in the room, whichever faction it belongs to — and no cover, because cover
+## has its own pass.
+func _test_a_mortal_scan_finds_the_fighters_only() -> void:
+	var fighters: Array[Node] = [_spawn(ENEMY_SCENE), _spawn(BOSS_SCENE)]
+	var crate: Node = _spawn(CRATE_SCENE)
 	var found: Array = get_nodes_in_group(MORTAL)
-	for b: Node in bodies:
+	for b: Node in fighters:
 		_expect(found.has(b), "a `mortal` scan finds %s" % b.get_class())
-	_expect(found.size() >= 3,
-		"one scan reaches every damageable body in the room (got %d)" % found.size())
-	# Each of them answers to damage, which is what makes membership meaningful
-	# rather than decorative.
-	for b: Node in bodies:
+	_expect(not found.has(crate), "a `mortal` scan does NOT also find the crate")
+	# Membership is meaningful rather than decorative only if they answer to damage.
+	for b: Node in fighters:
 		_expect(b.has_method("take_damage"), "%s in `mortal` can actually take damage" % b.get_class())
-	for b: Node in bodies:
+	for b: Node in fighters:
 		b.free()
-	_completes("a_mortal_scan_finds_all_three")
+	crate.free()
+	_completes("a_mortal_scan_finds_the_fighters_only")
