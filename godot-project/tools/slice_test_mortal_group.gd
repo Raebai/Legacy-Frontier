@@ -1,0 +1,139 @@
+# Run: godot --headless --path godot-project --script tools/slice_test_mortal_group.gd
+# FRIENDLY FIRE, THIS SIDE OF THE CONTRACT (Phase 1.5).
+#
+# Friendly fire is implemented by stamping ONE target group: SpellCaster._stamp()
+# writes `mortal` instead of a faction name, and every spectacle's existing
+# `get_nodes_in_group(target_group)` scan then hits everything alive with zero
+# spectacle edits. That only works if every damageable body is IN that group.
+#
+# So this suite asserts the half owned here: Enemy, Boss and DestructibleProp all
+# join `mortal` — and, just as important, that they did NOT stop being in the
+# groups everything else scans. `enemy` drives the floor clear gate, the camera
+# framing and every bot scan; `destructible` drives the crate scans. Swapping
+# instead of adding would be a silent, wide break, so both halves are pinned.
+extends SceneTree
+
+# ── Vacuous-pass armour (see tools/slice_test_loadout.gd for the full write-up) ──
+# Failures accumulate on the MEMBER `_fails`, and every test's last line records
+# that it reached the end, so a test that aborts part-way fails BY ABSENCE.
+
+## Every test that must run to completion. A name missing from `_completed`
+## at the end means that test aborted part-way and fails the suite.
+const TESTS: Array[String] = [
+	"enemy_is_mortal_and_still_enemy",
+	"boss_is_mortal_and_still_enemy",
+	"crate_is_mortal_and_still_destructible",
+	"shattered_crate_leaves_mortal",
+	"a_mortal_scan_finds_all_three",
+]
+
+var _fails: int = 0
+var _completed: Dictionary = {}
+
+const ENEMY_SCENE: String = "res://scenes/combat/Enemy.tscn"
+const BOSS_SCENE: String = "res://scenes/combat/Boss.tscn"
+const CRATE_SCENE: String = "res://scenes/combat/DestructibleProp.tscn"
+## The faction-blind group. A StringName here because that is what add_to_group
+## was handed — get_nodes_in_group accepts either, but naming it once is the point.
+const MORTAL: StringName = &"mortal"
+
+var _arena: Node2D = null
+
+
+func _initialize() -> void:
+	_arena = Node2D.new()
+	root.add_child(_arena)
+	_run()
+
+
+func _run() -> void:
+	await process_frame
+	_test_enemy_is_mortal_and_still_enemy()
+	_test_boss_is_mortal_and_still_enemy()
+	_test_crate_is_mortal_and_still_destructible()
+	_test_shattered_crate_leaves_mortal()
+	_test_a_mortal_scan_finds_all_three()
+	for t: String in TESTS:
+		_expect(_completed.has(t),
+			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
+	if _fails > 0:
+		printerr("Mortal-group tests: %d FAILED" % _fails)
+		quit(1)
+	else:
+		print("Mortal-group tests: all PASS")
+		quit(0)
+
+
+## Accumulates onto the MEMBER `_fails`, never a return value.
+func _expect(cond: bool, msg: String) -> void:
+	if not cond:
+		printerr("FAIL: ", msg)
+		_fails += 1
+
+
+## Last line of every test: "I reached the end." See TESTS.
+func _completes(test_name: String) -> void:
+	_completed[test_name] = true
+
+
+func _spawn(path: String) -> Node:
+	var n: Node = (load(path) as PackedScene).instantiate()
+	_arena.add_child(n)
+	return n
+
+
+func _test_enemy_is_mortal_and_still_enemy() -> void:
+	var e: Node = _spawn(ENEMY_SCENE)
+	_expect(e.is_in_group(MORTAL), "a spawned enemy joins `mortal`")
+	_expect(e.is_in_group("enemy"), "...and is STILL in `enemy` (the clear gate reads it)")
+	e.free()
+	_completes("enemy_is_mortal_and_still_enemy")
+
+
+## The Boss inherits the group join through super._ready() rather than repeating
+## it — which is exactly the kind of thing that silently stops happening.
+func _test_boss_is_mortal_and_still_enemy() -> void:
+	var b: Node = _spawn(BOSS_SCENE)
+	_expect(b.is_in_group(MORTAL), "the guardian joins `mortal` (via Enemy._ready)")
+	_expect(b.is_in_group("enemy"), "...and is STILL in `enemy`")
+	b.free()
+	_completes("boss_is_mortal_and_still_enemy")
+
+
+func _test_crate_is_mortal_and_still_destructible() -> void:
+	var c: Node = _spawn(CRATE_SCENE)
+	_expect(c.is_in_group(MORTAL), "a crate joins `mortal` (friendly fire breaks cover)")
+	_expect(c.is_in_group("destructible"), "...and is STILL in `destructible`")
+	c.free()
+	_completes("crate_is_mortal_and_still_destructible")
+
+
+## A dead crate must leave BOTH groups in the same breath. A blast scans its
+## radius once per group; if `mortal` kept a shattered crate, a single blast
+## would hit the same dead crate twice.
+func _test_shattered_crate_leaves_mortal() -> void:
+	var c: Node = _spawn(CRATE_SCENE)
+	c.call("take_damage", 5)
+	_expect(c.is_in_group(MORTAL), "a damaged-but-alive crate stays mortal")
+	c.call("take_damage", 9999)
+	_expect(not c.is_in_group("destructible"), "a shattered crate leaves `destructible`")
+	_expect(not c.is_in_group(MORTAL), "a shattered crate leaves `mortal` too (no same-frame re-hit)")
+	_completes("shattered_crate_leaves_mortal")
+
+
+## THE WHOLE POINT, as a spectacle would see it: one group scan, everything
+## damageable in the room, whichever faction it belongs to.
+func _test_a_mortal_scan_finds_all_three() -> void:
+	var bodies: Array[Node] = [_spawn(ENEMY_SCENE), _spawn(BOSS_SCENE), _spawn(CRATE_SCENE)]
+	var found: Array = get_nodes_in_group(MORTAL)
+	for b: Node in bodies:
+		_expect(found.has(b), "a `mortal` scan finds %s" % b.get_class())
+	_expect(found.size() >= 3,
+		"one scan reaches every damageable body in the room (got %d)" % found.size())
+	# Each of them answers to damage, which is what makes membership meaningful
+	# rather than decorative.
+	for b: Node in bodies:
+		_expect(b.has_method("take_damage"), "%s in `mortal` can actually take damage" % b.get_class())
+	for b: Node in bodies:
+		b.free()
+	_completes("a_mortal_scan_finds_all_three")
