@@ -15,6 +15,37 @@ extends Node2D
 ## rendering/viewport/hdr_2d=true. Tune params in the .tres.
 const GLOW_ENV_PATH: String = "res://scenes/combat/combat_glow.tres"
 
+# ------------------------------------------------- ambient motes: the WARM-UP
+## THE ARENA-ENTRY STALL, and why `preprocess` is now zero everywhere below.
+##
+## A drifting dust field has a chicken-and-egg problem: emission is continuous, so
+## at t=0 no particles exist and the sky is empty for the first several seconds.
+## `GPUParticles2D.preprocess` fixes that by simulating N seconds of the system
+## before the first frame is shown — but it does it SYNCHRONOUSLY, by dispatching
+## the particle compute shader `preprocess * fixed_fps` times inside the load
+## frame. At the old `preprocess = 9.0` with the default 30 fixed_fps that is 270
+## dispatches, twice (build_wash and _build_motes each own an emitter), in the one
+## frame the arena opens. On a phone that is a multi-hundred-millisecond hitch at
+## EVERY floor transition — the most-repeated moment in a tower climber.
+##
+## The fix keeps the look and moves the cost off the load frame: emit normally,
+## but run the emitter FAST for a moment and then ease it back to real time. The
+## same nine seconds of simulation happens, spread across ~90 render frames at a
+## couple of dispatches each instead of 270 in one. `fixed_fps` also drops to 12,
+## which is plenty for dust that moves at 3-14 px/s and cuts the ongoing per-frame
+## simulation cost by 2.5x forever, not just during the warm-up.
+const MOTE_WARMUP_SECONDS: float = 9.0   # simulated seconds the field needs to look full
+const MOTE_WARMUP_REAL: float = 1.5      # real seconds we are willing to spend getting there
+const MOTE_FIXED_FPS: int = 12           # dust does not need a 30 Hz simulation
+## Mobile trims the field itself as well as the warm-up. These are small
+## alpha-blended quads, and overdraw is the thing tile GPUs are worst at.
+const MOTE_AMOUNT_WASH: int = 40
+const MOTE_AMOUNT_WORLD: int = 48
+const MOTE_AMOUNT_LOW: int = 16
+
+var _warming: Array[GPUParticles2D] = []
+var _warm_left: float = 0.0
+
 var _bounds: Rect2 = Rect2(0, 0, 1200, 760)
 var _sky_top: Color = Color(0.10, 0.13, 0.28)
 var _sky_bottom: Color = Color(0.42, 0.60, 0.82)
@@ -91,9 +122,8 @@ func build_wash(tint: Color, accent: Color) -> void:
 	layer.add_child(vr)
 	# Drifting ambient motes across the screen (accent dust).
 	var motes := GPUParticles2D.new()
-	motes.amount = 40
+	motes.amount = _mote_amount(MOTE_AMOUNT_WASH)
 	motes.lifetime = 9.0
-	motes.preprocess = 9.0
 	motes.position = Vector2(320, 180)  # viewport centre (640x360)
 	var mat := ParticleProcessMaterial.new()
 	mat.particle_flag_disable_z = true
@@ -115,6 +145,7 @@ func build_wash(tint: Color, accent: Color) -> void:
 	mat.color_ramp = ramp_tex
 	motes.process_material = mat
 	layer.add_child(motes)
+	_begin_warmup(motes)
 
 
 # ------------------------------------------------------------------------ sky
@@ -142,9 +173,8 @@ func _build_sky() -> void:
 # --------------------------------------------------------------- ambient motes
 func _build_motes() -> void:
 	var motes := GPUParticles2D.new()
-	motes.amount = 48
+	motes.amount = _mote_amount(MOTE_AMOUNT_WORLD)
 	motes.lifetime = 9.0
-	motes.preprocess = 9.0  # already spread across the sky when the scene opens
 	motes.position = _bounds.position + _bounds.size * 0.5
 	motes.z_index = -21
 	motes.z_as_relative = false
@@ -169,6 +199,40 @@ func _build_motes() -> void:
 	mat.color_ramp = ramp_tex
 	motes.process_material = mat
 	add_child(motes)
+	_begin_warmup(motes)
+
+
+# ------------------------------------------------------- the warm-up mechanism
+## How many motes to emit. See MOTE_AMOUNT_LOW.
+func _mote_amount(full: int) -> int:
+	return MOTE_AMOUNT_LOW if TuningConfig.quality_is_low() else full
+
+
+## Enrol an emitter in the spread-over-frames warm-up described at the top of the
+## file. Explicitly zeroes `preprocess` rather than merely not setting it, because
+## that zero IS the fix and a future edit that re-adds a preprocess value should
+## have to delete this line to do it.
+func _begin_warmup(p: GPUParticles2D) -> void:
+	p.preprocess = 0.0
+	p.fixed_fps = MOTE_FIXED_FPS
+	p.speed_scale = MOTE_WARMUP_SECONDS / MOTE_WARMUP_REAL
+	_warming.append(p)
+	_warm_left = MOTE_WARMUP_REAL
+	set_process(true)
+
+
+func _process(delta: float) -> void:
+	if _warm_left <= 0.0:
+		return
+	_warm_left -= delta
+	if _warm_left > 0.0:
+		return
+	# Done: hand the field back to real time and stop paying for _process at all.
+	for p: GPUParticles2D in _warming:
+		if is_instance_valid(p):
+			p.speed_scale = 1.0
+	_warming.clear()
+	set_process(false)
 
 
 # -------------------------------------------------------------------- vignette
