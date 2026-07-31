@@ -94,6 +94,18 @@ const CHAIN_DAMAGE_FACTOR: float = 0.5
 ## simply "the group my attacks scan", and two bots on the same side share a
 ## group that neither of them is hostile to.
 var hostile_group: StringName = &"enemy"
+## CO-OP COSMETIC TWIN. A bolt rebuilt on another peer to show you what your
+## teammate just fired: it flies, trails, bursts and DIES on the same things the
+## real one does, but hurts no fighter — the real bolt's damage is already resolving
+## on its own peer through the victim-authority router, and a second live bolt would
+## simply double it.
+##
+## ⚠ COVER IS THE DELIBERATE EXCEPTION. A twin still breaks crates. That is not an
+## oversight, it is what stops the two phones' cover geometry from diverging: every
+## peer now sees every hero attack, so every peer applies the same damage to its own
+## copy of the crate and they converge. Excluding destructibles here would restore
+## exactly the divergence this replication work exists to fix.
+var visual_only: bool = false
 var _dir: Vector2 = Vector2.RIGHT
 var _traveled: float = 0.0
 var _age: float = 0.0
@@ -412,6 +424,16 @@ func _try_damage(node: Node) -> void:
 	# which is precisely how catching one turns it back on its thrower.
 	if node == caster:
 		return
+	# The cosmetic twin's whole contract, in one place: it STOPS where the real bolt
+	# stopped (so the picture matches) and deals nothing. Cover falls through to the
+	# real branches below — see `visual_only`'s docs for why that is on purpose.
+	if visual_only and not node.is_in_group("destructible"):
+		if node.is_in_group("hero") or node.is_in_group(SpellCaster.MORTAL_GROUP) \
+				or node.is_in_group("enemy") or node is StaticBody2D:
+			_dead = true
+			_spawn_impact_burst()
+			queue_free()
+		return
 	# ⚠ THE HERO TEST COMES FIRST, and the reorder is behaviour-preserving because
 	# `hero` and `enemy` are disjoint groups: an enemy still falls straight through
 	# to the faction branch below and takes the identical path it always did.
@@ -506,6 +528,17 @@ func _damage_hero(node: Node) -> void:
 		_dead = true
 		netmgr.deal_damage(node, damage)
 		netmgr.deal_knockback(node, _dir * 240.0)
+		# ⚠ THE AILMENT USED TO BE DROPPED HERE, and only here. The branch below
+		# applies it; this one did not, so in a live co-op session — the ONLY place
+		# hero-on-hero bolts fly in the first place — burning, chilling and shocking
+		# your teammate did literally nothing. Elemental friendly fire did not exist,
+		# silently, because both branches otherwise looked complete.
+		#
+		# Routed rather than called directly for the same reason the damage above is:
+		# `StatusComponent` ticks a damage-over-time through its owner's
+		# `take_damage`, so applying it on a puppet would run the DoT on the wrong peer.
+		if element_id >= 0:
+			netmgr.deal_status(node, element_id)
 		Juice.on_hit({"sfx": "spell_impact", "hitstop": 0.045, "shake": 6.0, "dir": _dir, "kick": 5.0})
 		_spawn_impact_burst()
 		queue_free()

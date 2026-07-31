@@ -420,6 +420,52 @@ var facing: Vector2 = Vector2.RIGHT
 ## net_class at -1 and _net.is_active() false, so nothing below changes SP.
 var net_class: int = -1
 var _net: Node = null
+
+# ---------------------------------------------------- co-op replicated visual state
+## THE SYNC SET, published by the owner and read by every puppet. Before this, a
+## teammate slid around in a run cycle no matter what they were doing, remote HP bars
+## misread whenever two classes had different max_hp, and nothing about aim, element,
+## guard or casting crossed the wire at all. These are plain public vars because a
+## `MultiplayerSynchronizer` replicates PROPERTIES — see `_setup_net_sync`.
+##
+## `net_anim` is the rig State the owner is actually playing (cast, swing, dash,
+## parry-hurt, wall-slide, air), not a guess reconstructed from velocity.
+var net_anim: int = 0
+## Where the owner is pointing. Drives the puppet's aim arm and weapon, so a
+## teammate visibly tracks a target instead of staring down their movement vector.
+var net_aim: Vector2 = Vector2.RIGHT
+## The owner's ACTIVE element — a teammate who cycles to fire should visibly change
+## colour on your screen, and every replayed cast is tinted from it.
+var net_element: int = Elements.Element.ARCANE
+## Bitfield of the states that have no rig State of their own. Cheaper and far less
+## churn-prone than five more synced booleans.
+const NET_F_GUARD: int = 1 << 0
+const NET_F_PARRY: int = 1 << 1
+const NET_F_CASTING: int = 1 << 2     # channel or summon windup — the levitating commit
+const NET_F_DASH: int = 1 << 3
+const NET_F_LIMP: int = 1 << 4        # hold-DOWN ragdoll flop
+var net_flags: int = 0
+## Edge-detect for the flag bits above, so a one-shot visual (the parry shell) fires
+## once on the transition rather than every frame the bit is set.
+var _remote_flags: int = 0
+var _remote_element: int = -1
+
+## THE DEAD GROUP a puppet's attacks scan. See `attack_group()` and `Net.GHOST_GROUP`.
+const NET_GHOST_GROUP: StringName = &"none"
+## True only for the duration of one replayed action (see `net_replay_action`).
+## Scoped, unlike `_is_net_puppet()`: it exists so `_aim_point()` can answer with the
+## ORIGINATING player's cursor instead of ours, and so `_melee` can skip declaring a
+## clash on behalf of a body it does not own.
+var _replaying: bool = false
+var _replay_point: Vector2 = Vector2.ZERO
+## Puppet-side windup clock — grows the replayed cast sigil (see `_remote_visual`).
+var _remote_cast_elapsed: float = 0.0
+var _remote_cast_total: float = 0.0
+## Elemental ailment component, created on the first status a hero actually takes.
+## Mirrors `Enemy._status`; null until then, so nothing costs anything until you
+## are set on fire.
+var _status: StatusComponent = null
+
 var _aim_dir: Vector2 = Vector2.RIGHT
 var _move_dir: Vector2 = Vector2.RIGHT
 var is_dashing: bool = false
@@ -592,8 +638,29 @@ func set_faction(team: StringName, hostile: StringName) -> void:
 ## under friendly fire the answer is *everyone with a body*. So the faction stays put
 ## and the attack scans widen. One consequence worth stating out loud because it is
 ## the entire feature: your teammate is in this group, and the spec wants them there.
+##
+## ⚠ THE CO-OP CLAUSE IS PERSISTENT, NOT SCOPED, AND THAT IS THE WHOLE POINT. A
+## remote hero on this screen is a COSMETIC copy: the real one is being played on
+## another phone, and its damage already resolves there through the victim-authority
+## router. Everything this puppet throws must therefore find nobody, or every hit in
+## a co-op game would land twice.
+##
+## It is answered here rather than by a flag around the replay call because half of a
+## hero's damage resolves LATER than the call that started it — `_on_melee_hit_frame`
+## fires off the rig's own `hit_frame` signal, frames after the swing was replayed. A
+## transient flag would have covered the spells and silently missed the fists.
 func attack_group() -> StringName:
+	if _is_net_puppet():
+		return NET_GHOST_GROUP
 	return SpellCaster.damage_group(hostile_group)
+
+
+## True when this node is another player's hero being drawn on our screen. Every
+## co-op gate in this file that must distinguish "I drive this body" from "I only
+## draw it" asks this, so the OfflineMultiplayerPeer exclusion in `Net.is_active()`
+## is honoured in exactly one place.
+func _is_net_puppet() -> bool:
+	return _net != null and _net.is_active() and not is_multiplayer_authority()
 
 
 ## SELECT A KIT SPELL BY INDEX — the seam that makes a bot able to use its whole
@@ -746,6 +813,11 @@ func _vector(nx: StringName, px: StringName, ny: StringName, py: StringName) -> 
 ## target) need real ground coordinates, and only the controller knows how far
 ## down the aim the bot meant.
 func _aim_point() -> Vector2:
+	# CO-OP REPLAY: a remote peer's cast carries the point its OWNER aimed at. A
+	# puppet has no cursor and no brain, so without this every placed spell in the
+	# replayed copy would land wherever THIS player's mouse happens to be.
+	if _replaying:
+		return _replay_point
 	return controller.aim_point(global_position) if controller != null \
 		else get_global_mouse_position()
 
@@ -1303,7 +1375,9 @@ func _physics_process(delta: float) -> void:
 
 	# Horizontal: accel toward input, friction to a stop. The wall-jump lockout
 	# briefly preserves the kick-off so it can't be cancelled back into the wall.
-	var spd: float = _tune("hero_speed", SPEED) * _gear_speed_mult  # gear: hood = fleet-footed
+	# gear: hood = fleet-footed. `_status_speed_mult` is the ailment half — a chilled
+	# or shocked hero moves like one now that heroes can actually catch ailments.
+	var spd: float = _tune("hero_speed", SPEED) * _gear_speed_mult * _status_speed_mult()
 	if _wall_jump_lock <= 0.0:
 		if move_x != 0.0:
 			var accel: float = GROUND_ACCEL if is_on_floor() else _tune("move_air_accel", AIR_ACCEL)
@@ -1434,6 +1508,11 @@ func _latch_buffer(entry: String, window: float, from_hold: bool) -> void:
 ## would read the same intent two, three, four times and hand bots extra presses.
 ## `controller != null` is the same seam test every input call in this file uses.
 func _process(_delta: float) -> void:
+	# Publish FIRST, above every early return. A downed hero and a bot-driven hero
+	# both still have to be drawn correctly on the other phone — the returns below
+	# are about reading INPUT, which is a different question.
+	if _net != null and _net.is_active() and is_multiplayer_authority():
+		_publish_net_state()
 	if controller != null or downed:
 		return
 	if _net != null and _net.is_active() and not is_multiplayer_authority():
@@ -1761,6 +1840,11 @@ func _cast_signature() -> void:
 	# Big spectacles LEVITATE + channel for cast_time, THEN fire — they carry their
 	# own float ceremony already.
 	if spell.cast_time > 0.0:
+		# CO-OP: announce the WINDUP, not just the eruption. The ceremony is the tell
+		# — it is the window the other player has to get out of the way, or to decide
+		# to stand in it — so a teammate who only ever saw the payoff would be being
+		# hit by a spell that had no telegraph on their screen.
+		_net_send("cb", {"sid": spell.id, "sky": sky, "ch": true, "w": spell.cast_time})
 		_begin_channel(spell, sky)
 		return
 	# Every OTHER signature now blooms an epic SUMMON windup (spell circle + committed
@@ -1771,6 +1855,8 @@ func _cast_signature() -> void:
 		special = SUMMON_RUSH
 	elif spell.kind == SpellDef.Kind.BLINK_STRIKE:
 		special = SUMMON_BLINK
+	_net_send("cb", {"sid": spell.id, "sky": sky, "sp": special,
+		"w": SignatureRite.windup_for(spell)})
 	_begin_summon(spell, sky, special)
 
 
@@ -1906,6 +1992,10 @@ func _finish_summon() -> void:
 		# leaving a ring hanging over a cast that never happened.
 		_discard_cast_sigil()
 		return
+	# CO-OP: the eruption itself. Sent SEPARATELY from the windup rather than letting
+	# each peer run its own timer, because a windup can be shattered mid-flight — a
+	# puppet that fired on its own clock would throw spells that never happened.
+	_net_send("cf", {"sid": spell.id, "sky": sky, "sp": special, "aim": aim, "pt": target})
 	match special:
 		SUMMON_RUSH:
 			# Thunderclap / rush: LUNGE forward as the lance rips out.
@@ -1914,13 +2004,13 @@ func _finish_summon() -> void:
 			rig.cast_gesture(CharacterRig.GestureKind.FLICK, 0.9, _element)
 			if aim.x != 0.0:
 				velocity.x = signf(aim.x) * 360.0
-			SpellCaster.cast(spell, get_parent(), rig.get_weapon_tip(), target, _element_color, spell.effect, self, hostile_group)
+			SpellCaster.cast(spell, get_parent(), rig.get_weapon_tip(), target, _element_color, spell.effect, self, attack_group())
 		SUMMON_BLINK:
 			# Shadow-step: TELEPORT to the marked point mid-slash. The displacement
 			# itself lives in blink_to() below, which SpellCaster calls back into —
 			# so blink now goes through the same data->dispatch seam as every other
 			# spell instead of being hand-rolled here.
-			SpellCaster.cast(spell, get_parent(), global_position, target, _element_color, spell.effect, self, hostile_group)
+			SpellCaster.cast(spell, get_parent(), global_position, target, _element_color, spell.effect, self, attack_group())
 			rig.flash_color(BLINK_ARRIVAL_FLASH_COLOR, BLINK_ARRIVAL_FLASH_TIME)
 			rig.play(CharacterRig.State.CAST)
 		_:
@@ -1930,7 +2020,7 @@ func _finish_summon() -> void:
 			# `self` is passed on the plain path too now: a deferred-resolution
 			# spell (Rift Dagger) needs to know whose anchor it is, and the arg is
 			# ignored by every kind that doesn't move or own the caster.
-			SpellCaster.cast(spell, get_parent(), origin, target, _element_color, spell.effect, self, hostile_group)
+			SpellCaster.cast(spell, get_parent(), origin, target, _element_color, spell.effect, self, attack_group())
 			_self_recoil(110.0)  # the ultimate shoves you back
 	_notify_element_used()
 	# THE PAYOFF — the crescendo after the anticipation. Blink already flashes, so
@@ -1969,6 +2059,7 @@ func _end_summon(handoff: bool = false) -> void:
 ## already spent, like the channel). Lighter feedback than the channel interrupt.
 func _cancel_summon() -> void:
 	var pos: Vector2 = global_position
+	_net_send("cx")   # co-op: shatter the windup on every other screen too
 	_end_summon()
 	# The name goes with the cast. A card left hanging over a shattered windup reads
 	# as "the ult went off" at the exact moment the player needs to know it did not.
@@ -2054,13 +2145,14 @@ func _finish_channel() -> void:
 	if spell == null:
 		_discard_cast_sigil()  # nothing will spawn, so nothing can adopt it
 		return
+	_net_send("cf", {"sid": spell.id, "sky": _channel_sky, "pt": _channel_target})
 	rig.set_aim(Vector2.UP if _channel_sky else _aim_dir)
 	rig.play(CharacterRig.State.CAST)
 	var origin: Vector2 = global_position if _channel_sky else rig.get_weapon_tip()
 	# `self` is the key MagicCircle.adopt_or_open() looks the pending offer up by, so
 	# BeamSpell continues THIS sigil rather than opening a second one at the muzzle.
 	# Kinds that don't want a caster ignore the argument.
-	SpellCaster.cast(spell, get_parent(), origin, _channel_target, _element_color, spell.effect, self, hostile_group)
+	SpellCaster.cast(spell, get_parent(), origin, _channel_target, _element_color, spell.effect, self, attack_group())
 	_notify_element_used()
 	_self_recoil(90.0)
 	# The biggest beat in the game — the full synchronized epic payoff (the channeled
@@ -2076,6 +2168,7 @@ func _finish_channel() -> void:
 func _cancel_channel() -> void:
 	if not _channeling:
 		return
+	_net_send("cx")   # co-op: shatter the windup on every other screen too
 	var burst_pos: Vector2 = global_position
 	if _cast_sigil != null and is_instance_valid(_cast_sigil):
 		burst_pos = _cast_sigil.global_position
@@ -2327,6 +2420,7 @@ func _start_dash() -> void:
 		_dash_dir = Vector2(signf(facing.x), 0.0) if facing.x != 0.0 else Vector2.RIGHT
 	_ghost_timer = 0.0  # first afterimage lands this frame
 	_dash_hit.clear()
+	_net_send("ds", {"dir": _dash_dir})
 
 
 ## Shadow blink: instant teleport BLINK_DISTANCE along the MOVEMENT direction,
@@ -2369,6 +2463,7 @@ func _blink() -> void:
 	rig.flash_color(BLINK_ARRIVAL_FLASH_COLOR, BLINK_ARRIVAL_FLASH_TIME)
 	rig.play(CharacterRig.State.CAST)
 	Sfx.play("blink", 0.0, 0.1)  # dedicated synth "vwip" teleport sound
+	_net_send("bl", {"to": dest})
 
 
 ## BRAWLER uppercut (R) — a rising launcher: the hero hops and everything in a
@@ -2377,6 +2472,7 @@ func _uppercut() -> void:
 	if _blink_cooldown_timer > 0.0:
 		return
 	_blink_cooldown_timer = maxf(_cfg["blink_cd"], 1.1)
+	_net_send("uc")
 	rig.set_facing(_aim_dir)
 	rig.play(CharacterRig.State.KICK)
 	velocity.y = -320.0  # the hero rises with the uppercut
@@ -2500,6 +2596,11 @@ func _blink_shape() -> Shape2D:
 ## flags (plain / heal / drain / chain / burst). This is the core "classes feel
 ## different, not just different spells" fix.
 func _cast() -> void:
+	# CO-OP: the LMB primary is the highest-traffic thing a hero does, and it was
+	# entirely invisible to the other player — enemies simply lost HP for no reason.
+	# Broadcast at the DISPATCHER rather than in each of the four variants below, so
+	# a fifth primary can never be added without crossing the wire.
+	_net_send("pr")
 	match String(_cfg.get("primary", "bolt")):
 		"melee_combo":
 			_primary_melee_combo()
@@ -2551,6 +2652,10 @@ func _primary_bolt() -> void:
 		# own bolt — MAGE/STORMCALLER/ROGUE bolts were previously spawning with
 		# caster == null and could hit their own thrower.
 		spell.set("caster", self)
+		# CO-OP: a puppet's bolt is a PICTURE of someone else's shot. It flies, trails
+		# and bursts identically and hurts no fighter — the real one is already
+		# resolving on its owner's peer. See Spell.visual_only.
+		spell.set("visual_only", _is_net_puppet())
 		# ...and its WEIGHT. Without this the bolt reports SpellTier.DEFAULT_WEIGHT
 		# (HEAVY), so a free, spammable primary would trade evenly in a clash against
 		# a committed heavy spell, and would be read as HEAVY by the deflect window
@@ -2652,6 +2757,9 @@ func heal(amount: int) -> void:
 ## hero's ACTIVE element (so a Brawler who cycles to Ice throws an ice-punch).
 func _blast() -> void:
 	_blast_cooldown_timer = _cfg["blast_cd"]
+	# CO-OP: same reasoning as `_cast` — broadcast at the dispatcher so all eight
+	# per-class Q spectacles replicate without eight separate edits.
+	_net_send("q")
 	_self_recoil(80.0)  # the giant blast kicks the caster back
 	match String(_cfg["aoe"]):
 		"nova":
@@ -2747,6 +2855,7 @@ func _nova() -> void:
 	if _nova_cooldown_timer > 0.0:
 		return
 	_nova_cooldown_timer = NOVA_COOLDOWN
+	_net_send("nv")
 	_spawn_nova()
 
 
@@ -2858,6 +2967,7 @@ func _try_parry_start() -> void:
 		return
 	_parry_window_timer = _parry_window_len
 	_parry_cooldown_timer = PARRY_COOLDOWN
+	_net_send("py")
 	# The Stick-Fight block: a white curved shield SHELL thrown up in the aim
 	# direction (the tell), plus an arm-raise. No omni flash/burst.
 	rig.set_aim(_aim_dir)
@@ -3244,6 +3354,7 @@ func equip_weapon(kind: String) -> void:
 
 func _melee() -> void:
 	_melee_cooldown_timer = _melee_cd
+	_net_send("ml")
 	if _melee_kick_next:
 		rig.play(CharacterRig.State.KICK)
 	else:
@@ -3267,7 +3378,12 @@ func _melee() -> void:
 	# every punch in the game for the clash window (~90 ms of latency on every
 	# swing) to pay for a rare event. Declaring here decides the clash while both
 	# fighters are still in wind-up, at zero cost to the ones that never clash.
-	MeleeClash.declare(self, _aim_dir, _melee_range, _melee_damage)
+	#
+	# NOT on a replayed puppet swing: a clash is a DECISION about who wins an
+	# exchange, and it has to be made on the peer that owns the swing. Declaring it
+	# here as well would let a cosmetic copy cancel a real blow on this screen only.
+	if not _replaying:
+		MeleeClash.declare(self, _aim_dir, _melee_range, _melee_damage)
 
 
 ## Drive the persistent flaming fist: decay the timer, feed the rig the current
@@ -3411,8 +3527,17 @@ func _on_melee_hit_frame() -> void:
 	# fight was hero-vs-enemy, and a hole the moment factions let two heroes fight.
 	# The blade guard could already catch them (it scans "deflectable_spell"), so
 	# the punch-parry was the odd one out rather than the rule.
-	var bolts: Array = get_tree().get_nodes_in_group("enemy_projectile")
-	bolts.append_array(get_tree().get_nodes_in_group("player_spell"))
+	#
+	# ⚠ NOT ON A PUPPET, and this one is easy to miss because the swat has no damage
+	# number attached to it. `consume()` DELETES a projectile. A remote copy of
+	# someone else's swing eating a live local bolt would remove that bolt on this
+	# screen and nowhere else — the two phones would stop agreeing about what is in
+	# the air, which is the same class of divergence as double damage and harder to
+	# see. The real swing already resolves on its owner's peer.
+	var bolts: Array = []
+	if not _is_net_puppet():
+		bolts = get_tree().get_nodes_in_group("enemy_projectile")
+		bolts.append_array(get_tree().get_nodes_in_group("player_spell"))
 	for proj: Node in SpellTargets.in_cone(global_position, facing, _melee_range,
 			_melee_arc_dot, bolts, [self], self, false):
 		# Never swat your own shot out of the air on the follow-through.
@@ -3666,6 +3791,11 @@ func revive() -> void:
 	_ragdolling = false
 	_knockback = Vector2.ZERO
 	velocity = Vector2.ZERO
+	# A revive clears elemental ailments too — coming back up still burning is not a
+	# revive, and the party has no way to cleanse.
+	if _status != null and is_instance_valid(_status):
+		_status.queue_free()
+	_status = null
 	# CLEAR A HELD BLADE GUARD. `_physics_process` returns early while downed, so a
 	# player who was holding guard when they went down never gets their RELEASE seen
 	# — and a ring left `held` blocks attacking and rooting FOREVER after the revive.
@@ -3695,9 +3825,28 @@ func _setup_net_role() -> void:
 
 ## A MultiplayerSynchronizer that streams this hero's transform + state from its
 ## owner to every peer. Built in code (no .tscn surgery).
+## ⚠ THE SYNC SET IS THE FEATURE, not bookkeeping. What was here before —
+## position / velocity / facing / hp / net_class / downed — left a teammate as a
+## sliding run cycle with a lying health bar: `max_hp` was absent (so a remote bar
+## read a Juggernaut's 140 hp against the local class's denominator), and aim,
+## element, casting, guard/parry and dash state crossed no wire at all.
+##
+## BANDWIDTH. Everything used to stream at the physics rate, which on phone wifi is
+## 60 packets a second per body for values nobody can perceive at that resolution.
+## The transform block now runs at 30 Hz (`replication_interval`) and the
+## on-change block is batched at 10 Hz (`delta_interval`); the on-change properties
+## are only sent when they actually change, so the anim/flag/element fields cost
+## nothing while a hero stands still. 30 Hz is a deliberate floor rather than the
+## lowest number that "looks fine" — at DASH_SPEED a body covers ~30 px per tick,
+## and coarser than that starts to read as teleporting rather than moving.
+const NET_TRANSFORM_HZ: float = 30.0
+const NET_STATE_HZ: float = 10.0
+
+
 func _setup_net_sync() -> void:
 	var cfg := SceneReplicationConfig.new()
-	for p: String in [":position", ":velocity", ":facing", ":hp", ":net_class", ":downed"]:
+	for p: String in [":position", ":velocity", ":facing", ":hp", ":max_hp", ":net_class",
+			":downed", ":net_anim", ":net_aim", ":net_element", ":net_flags"]:
 		cfg.add_property(NodePath(p))
 	cfg.property_set_replication_mode(NodePath(":position"), SceneReplicationConfig.REPLICATION_MODE_ALWAYS)
 	cfg.property_set_replication_mode(NodePath(":velocity"), SceneReplicationConfig.REPLICATION_MODE_ALWAYS)
@@ -3705,22 +3854,90 @@ func _setup_net_sync() -> void:
 	sync.name = "NetSync"
 	sync.root_path = NodePath("..")   # relative to this Hero
 	sync.replication_config = cfg
+	sync.replication_interval = 1.0 / NET_TRANSFORM_HZ
+	sync.delta_interval = 1.0 / NET_STATE_HZ
 	add_child(sync)
 	sync.set_multiplayer_authority(get_multiplayer_authority())
 
 
-## Remote heroes animate from replicated velocity/facing; no input, no physics.
-func _remote_visual(_delta: float) -> void:
+## Publish what this body is DOING so every other screen can draw it. Called from
+## `_process` on the owner only. Reads the rig rather than reconstructing state from
+## velocity: the rig already knows whether it is mid-swing, mid-cast or gripping a
+## wall, and guessing that from a velocity vector is exactly what made teammates
+## look like they were permanently jogging.
+func _publish_net_state() -> void:
+	net_aim = _aim_dir
+	net_element = _element
+	if is_instance_valid(rig):
+		net_anim = int(rig.state)
+	var f: int = 0
+	if _guard != null and _guard.blocks_attack():
+		f |= NET_F_GUARD
+	if _parry_window_timer > 0.0:
+		f |= NET_F_PARRY
+	if _channeling or _summoning:
+		f |= NET_F_CASTING
+	if is_dashing:
+		f |= NET_F_DASH
+	if _ragdolling:
+		f |= NET_F_LIMP
+	net_flags = f
+
+
+## Remote heroes animate from the replicated state set. No input, no physics, no
+## damage — everything here is drawing.
+func _remote_visual(delta: float) -> void:
 	if not is_instance_valid(rig):
 		return
+	if net_element != _remote_element:
+		_remote_element = net_element
+		_element = net_element
+		_element_color = Elements.color(net_element)
+		rig.set_aura(_element_color, 0.5)
+	rig.set_body_velocity(velocity)
+	rig.set_aim(net_aim)
 	if downed:
 		rig.set_limp(1.0)
 		rig.play(CharacterRig.State.HURT)
 		return
-	rig.set_limp(0.0)
-	rig.set_body_velocity(velocity)
-	rig.set_facing(facing)
-	rig.play(CharacterRig.State.RUN if absf(velocity.x) > 8.0 else CharacterRig.State.IDLE)
+	# The hold-DOWN flop is a sustained limp, not a state — it has no rig State of
+	# its own, which is why it rides a flag.
+	rig.set_limp(1.0 if (net_flags & NET_F_LIMP) != 0 else 0.0)
+	rig.set_grounded(is_on_floor())
+	# Edge-triggered one-shots. The parry SHELL is a timed visual the rig plays out
+	# on its own, so re-issuing it every frame the bit is set would freeze it open.
+	var rising: int = net_flags & ~_remote_flags
+	if (rising & NET_F_PARRY) != 0 or (rising & NET_F_GUARD) != 0:
+		rig.set_parry(net_aim, PARRY_SHIELD_TIME)
+	_remote_flags = net_flags
+	# A levitating cast dangles its legs and holds a committed pose; the summon sigil
+	# it opened has to be carried and grown here, because `_process_summon` (which
+	# does that for the owner) lives behind the authority gate in `_physics_process`.
+	if (net_flags & NET_F_CASTING) != 0:
+		rig.set_airborne(true)
+		_tick_remote_cast_sigil(delta)
+	else:
+		rig.set_airborne(0.0)
+	# Facing: while striking, the body turns to the aim (same rule the owner uses);
+	# otherwise it follows travel, so a teammate backpedalling reads as backpedalling.
+	if rig.is_striking() or (net_flags & NET_F_CASTING) != 0:
+		rig.set_facing(net_aim)
+	else:
+		rig.set_facing(facing)
+	rig.play(net_anim as CharacterRig.State)
+
+
+## Grow + carry the puppet's cast sigil during a replayed windup. Mirrors the
+## owner-side growth in `_process_summon` / `_process_channel` without any of the
+## physics those functions also own.
+func _tick_remote_cast_sigil(delta: float) -> void:
+	if _cast_sigil == null or not is_instance_valid(_cast_sigil):
+		return
+	_remote_cast_elapsed += delta
+	_cast_sigil.global_position = _cast_sigil_pos()
+	var total: float = maxf(_remote_cast_total, 0.001)
+	var prog: float = clampf(_remote_cast_elapsed / total, 0.0, 1.0)
+	_cast_sigil.scale = Vector2.ONE * (0.55 + 0.7 * prog)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -3731,6 +3948,203 @@ func _net_take_damage(amount: int, _tint: Color = Color(1, 1, 1, 0)) -> void:
 @rpc("any_peer", "call_remote", "reliable")
 func _net_apply_knockback(impulse: Vector2) -> void:
 	apply_knockback(impulse)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _net_apply_status(element: int, can_chain: bool = true) -> void:
+	apply_status(element, can_chain)
+
+
+# ==================================================== HERO SPELL REPLICATION
+## Broadcast one thing this hero just did. No-op in single player, on a puppet, and
+## for a bot (a bot-driven hero in the versus sandbox is not a networked player).
+##
+## The payload keys are deliberately terse — these go out on every cast, and on a
+## phone the difference between `"aim"` and `"aim_direction"` is real traffic.
+func _net_send(kind: String, data: Dictionary = {}) -> void:
+	if _net == null or not _net.is_active() or not is_multiplayer_authority():
+		return
+	if not data.has("aim"):
+		data["aim"] = _aim_dir
+	if not data.has("pt"):
+		data["pt"] = _aim_point()
+	data["el"] = _element
+	_net.broadcast_hero_action(kind, data)
+
+
+## REBUILD another player's action on this screen.
+##
+## ⚠ THE FRIENDLY-FIRE TOGGLE IS LOAD-BEARING AND IT IS NOT A HACK. `attack_group()`
+## already answers `NET_GHOST_GROUP` for a puppet — but `SpellCaster._stamp` does not
+## write what it is given, it writes `damage_group(...)`, which folds EVERY group to
+## `mortal` while friendly fire is on. So the ghost group would be erased on its way
+## into the spectacle. Turning the substitution off for the duration of the rebuild
+## is what lets the dead group survive `_stamp`, and it is the documented one-line
+## switch on that static rather than a new concept.
+##
+## Synchronous throughout: `SpellCaster.cast` builds and fires inside this call, so
+## the toggle is never observable by another cast.
+## ⚠ RETURNS BOOL, AND THAT IS A TEST AFFORDANCE RATHER THAN AN API NICETY. A dead
+## property read ABORTS the enclosing function in GDScript and hands the caller back
+## the type's zero — the exact failure mode that once left 64 suites green while
+## testing nothing. So this reports whether it reached the end, `Net` counts only the
+## true answers, and a replay that aborts half-way makes the smoke test fail BY
+## ABSENCE instead of quietly reporting a spell it never actually drew.
+func net_replay_action(kind: String, data: Dictionary) -> bool:
+	if is_multiplayer_authority() or downed or not is_instance_valid(rig):
+		return false
+	var prev_ff: bool = SpellCaster.friendly_fire
+	SpellCaster.friendly_fire = false
+	_replaying = true
+	_replay_point = data.get("pt", global_position)
+	_aim_dir = data.get("aim", _aim_dir)
+	facing = _aim_dir
+	_element = int(data.get("el", _element))
+	_element_color = Elements.color(_element)
+	_net_dispatch_replay(kind, data)
+	_replaying = false
+	SpellCaster.friendly_fire = prev_ff
+	return true
+
+
+func _net_dispatch_replay(kind: String, data: Dictionary) -> void:
+	match kind:
+		"cb":   # signature windup began (the summoning ceremony + the DECLARE card)
+			_replay_cast_begin(data)
+		"cx":   # windup interrupted — shatter the sigil, no spell
+			if _channeling:
+				_cancel_channel()
+			elif _summoning:
+				_cancel_summon()
+			_remote_cast_total = 0.0
+		"cf":   # the eruption
+			_replay_cast_fire(data)
+		"pr":
+			_cast()
+		"q":
+			_blast()
+		"nv":
+			_spawn_nova()
+		"ml":
+			_melee()
+		"uc":
+			_uppercut()
+		"py":
+			_try_parry_start()
+		"ds":
+			_replay_dash(data.get("dir", _aim_dir))
+		"bl":
+			_replay_blink(data.get("to", global_position))
+
+
+## The windup. `_begin_summon` / `_begin_channel` do exactly the right things for a
+## puppet — pose, gesture, sigil, declare card, charge-up sfx — and the only parts
+## they own that a puppet must not run are the per-frame lift and the fire, both of
+## which live in `_process_summon` / `_process_channel` behind the authority gate.
+func _replay_cast_begin(data: Dictionary) -> void:
+	var spell: SpellDef = _net_spell(String(data.get("sid", "")))
+	if spell == null:
+		return
+	_remote_cast_elapsed = 0.0
+	_remote_cast_total = float(data.get("w", 0.4))
+	if bool(data.get("ch", false)):
+		_begin_channel(spell, bool(data.get("sky", false)))
+	else:
+		_begin_summon(spell, bool(data.get("sky", false)), int(data.get("sp", SUMMON_NORMAL)))
+
+
+## The eruption. Routed through the SAME `_finish_*` the owner used, so the puppet
+## gets the identical spectacle, recoil animation, epic beat and sigil handoff —
+## disarmed only by the ghost group.
+func _replay_cast_fire(data: Dictionary) -> void:
+	var spell: SpellDef = _net_spell(String(data.get("sid", "")))
+	if spell == null:
+		return
+	_remote_cast_total = 0.0
+	var sky: bool = bool(data.get("sky", false))
+	var target: Vector2 = data.get("pt", global_position + _aim_dir * 200.0)
+	if _channeling:
+		_channel_spell = spell
+		_channel_sky = sky
+		_channel_target = target
+		_finish_channel()
+		return
+	# A packet that arrives without its windup (loss, or a peer that joined between
+	# the two) still fires: `_finish_summon` reads only these fields.
+	_summoning = true
+	_summon_spell = spell
+	_summon_sky = sky
+	_summon_special = int(data.get("sp", SUMMON_NORMAL))
+	_summon_aim = _aim_dir
+	_summon_target = target
+	_finish_summon()
+
+
+## Resolve a spell id. The puppet's own kit first (it is already built from the
+## synced class and costs nothing), then the whole tree — a peer whose class table
+## has not landed yet must still be able to draw the spell it just saw thrown.
+func _net_spell(sid: String) -> SpellDef:
+	if sid == "":
+		return null
+	for s: SpellDef in _signatures:
+		if s != null and s.id == sid:
+			return s
+	var v: Variant = SpellLibrary._spell_by_id().get(sid)
+	return v as SpellDef if v != null else null
+
+
+## A dash on someone else's screen is the afterimage trail, not the displacement —
+## position comes from the synchronizer, so moving the body here would fight it.
+func _replay_dash(dir: Vector2) -> void:
+	var d: Vector2 = dir.normalized() if dir != Vector2.ZERO else facing
+	rig.set_facing(d)
+	rig.play(CharacterRig.State.DASH)
+	for i: int in 3:
+		rig.spawn_ghost(get_parent(), GHOST_COLOR, d)
+	Sfx.play("dash", -4.0, 0.06)
+
+
+## The blink's two poofs, drawn at the ends the owner actually used. The teleport
+## itself arrives via the synchronizer; what does not arrive is the READ — without
+## the shadow at the origin and the flash at the destination a teammate simply
+## vanishes and reappears, which looks like a dropped packet rather than a spell.
+func _replay_blink(dest: Vector2) -> void:
+	var origin: Vector2 = global_position
+	rig.spawn_ghost(get_parent(), BLINK_SHADOW_COLOR, Vector2.ZERO, Vector2.ZERO, 0.35)
+	CombatVfx.spawn_burst(get_parent(), origin, BLINK_BURST_START, BLINK_BURST_END,
+		18, 0.35, 40.0, 110.0, 1.5, 3.0)
+	CombatVfx.spawn_burst(get_parent(), dest, BLINK_BURST_START, BLINK_BURST_END,
+		24, 0.4, 60.0, 140.0, 1.5, 3.5)
+	rig.flash_color(BLINK_ARRIVAL_FLASH_COLOR, BLINK_ARRIVAL_FLASH_TIME)
+	rig.play(CharacterRig.State.CAST)
+	Sfx.play("blink", 0.0, 0.1)
+
+
+# ------------------------------------------------------------ elemental ailments
+## HEROES CAN BE BURNED NOW. Every spell in the game carries an element and calls
+## `apply_status` on what it hits — but only `Enemy` ever implemented it, so the
+## `has_method` guard at each of those ~20 call sites silently answered false for a
+## hero and the ailment evaporated. With friendly fire on, that is the difference
+## between setting your teammate on fire and doing nothing visible at all.
+##
+## Reuses `StatusComponent` verbatim (it drives itself off `get_parent()`'s
+## `take_damage` + transform, both of which a Hero has). The only thing this file
+## has to do is READ the slow it produces — see `_status_speed_mult`.
+func apply_status(element: int, can_chain: bool = true) -> void:
+	if downed or element < 0:
+		return
+	if _status == null or not is_instance_valid(_status):
+		_status = StatusComponent.new()
+		add_child(_status)
+	_status.apply(element, can_chain)
+
+
+## Movement multiplier from any active ailment (chill/freeze/shock/stagger). 1.0
+## when nothing is on you, which is the overwhelmingly common case.
+func _status_speed_mult() -> float:
+	if _status == null or not is_instance_valid(_status):
+		return 1.0
+	return _status.slow_factor()
 
 
 ## Record the element behind an actual thrown ability into the run outcome

@@ -13,9 +13,22 @@ signal join_ok
 signal join_failed
 signal lobby_changed
 signal net_floor_cleared   # host cleared the floor -> clients spawn the exit portal(s)
+signal party_ready         # every peer's Arena has reported in -> safe to spawn heroes
+signal hosts_changed       # LAN discovery: the visible-host list changed
 
 const DEFAULT_PORT: int = 24565
 const DEFAULT_IP: String = "127.0.0.1"
+
+## THE GROUP NOBODY IS EVER IN. Every cosmetic "twin" this file builds — a remote
+## hero's spell, a boss beam a client must see — is pointed at this group so its
+## damage scan finds zero bodies. `Boss._die` already used the same trick for its
+## visual-only finisher, so this is that precedent named rather than a new idea.
+##
+## ⚠ WHY A DEAD GROUP AND NOT A `visual_only` FLAG. Twenty-three spectacle scripts
+## resolve victims through exactly one call, `get_nodes_in_group(target_group)`.
+## Pointing that string at an empty group disarms all of them without editing any of
+## them. A flag would have to be declared, read and respected by every one.
+const GHOST_GROUP: StringName = &"none"
 ## THE TOWER spec caps a session at 2 players. This is a hard design cap, not a
 ## placeholder: the 25-entity budget, the one-screen arena and the friendly-fire
 ## social loop are all balanced around exactly two thumbs in one room.
@@ -33,9 +46,24 @@ var _pending_advance: bool = false
 ## only; the host builds real nodes, never twins). Surfaced by the loopback smoke
 ## test to prove the tell/bolt RPC path delivers over the wire.
 var _twins_built: int = 0
+## Count of HERO-SPELL twins this peer has built from another peer's cast broadcast.
+## Separate from `_twins_built` (host->client enemy visuals) because they prove
+## different wires: enemy twins flow host->client, spell twins flow peer->peer.
+var _spell_twins: int = 0
+## Count of BOSS spectacle/phase twins built from the host's broadcasts.
+var _boss_twins: int = 0
+## True once the party has entered the tower. Late joiners are refused after this —
+## a hero spawned mid-floor has no encounter budget, no floor state and no way to
+## catch up, so the honest answer is "the session is closed", not a broken puppet.
+var _run_started: bool = false
+## Spawn handshake: peer_id -> true once that peer's Arena has finished _ready and is
+## able to RECEIVE replicated hero spawns. Replaces the 0.6 s guess in Arena.
+var _arena_ready: Dictionary = {}
+var _party_ready_sent: bool = false
 
 
 func _ready() -> void:
+	set_process(false)   # only the LAN beacon/discovery needs a frame pump
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 	multiplayer.connected_to_server.connect(_on_connected_ok)
@@ -93,6 +121,14 @@ func host(my_class: int, port: int = DEFAULT_PORT) -> int:
 		return err
 	multiplayer.multiplayer_peer = peer
 	peer_class = {1: my_class}
+	_arena_ready.clear()
+	_party_ready_sent = false
+	_run_started = false
+	# ADVERTISE ON THE LAN the moment we start hosting. Done here rather than left to
+	# the Lobby so the host half of discovery cannot be forgotten: "two phones in one
+	# room" only works if the host is findable without anyone reading an IP aloud.
+	# It stops itself when the run starts (the session is closed by then).
+	start_beacon()
 	server_started.emit()
 	lobby_changed.emit()
 	return OK
@@ -113,6 +149,11 @@ func leave() -> void:
 		multiplayer.multiplayer_peer.close()
 	multiplayer.multiplayer_peer = null
 	peer_class.clear()
+	_arena_ready.clear()
+	_party_ready_sent = false
+	_run_started = false
+	stop_beacon()
+	stop_discovery()
 	lobby_changed.emit()
 
 
@@ -134,15 +175,108 @@ func class_of(peer_id: int) -> int:
 
 
 # ------------------------------------------------------------- signal handlers
+## LATE JOINS ARE REFUSED, and both clauses are real failure modes rather than
+## paranoia. `create_server(port, MAX_PLAYERS - 1)` caps CONCURRENT peers but says
+## nothing about a third phone arriving the instant one drops, and nothing at all
+## about someone joining ten floors into a climb — that peer gets a hero with no
+## floor state, no encounter budget and no way to catch up, i.e. a puppet that
+## permanently blocks `_check_party_wipe`. Refusing is the honest answer.
 func _on_peer_connected(id: int) -> void:
+	if is_host():
+		var reason: String = ""
+		if multiplayer.get_peers().size() + 1 > MAX_PLAYERS:
+			reason = "session full"
+		elif _run_started:
+			reason = "run in progress"
+		if reason != "":
+			print("[NET] refusing peer %d (%s)" % [id, reason])
+			_join_refused.rpc_id(id, reason)
+			# Deferred: disconnecting inside the connected callback tears the ENet
+			# peer down while the connection event is still being dispatched.
+			(func() -> void:
+				var p: MultiplayerPeer = multiplayer.multiplayer_peer
+				if p is ENetMultiplayerPeer:
+					(p as ENetMultiplayerPeer).disconnect_peer(id)).call_deferred()
+			return
 	player_connected.emit(id)
 	lobby_changed.emit()
 
 
+@rpc("authority", "call_remote", "reliable")
+func _join_refused(reason: String) -> void:
+	print("[NET] join refused: %s" % reason)
+	join_failed.emit()
+
+
+## A PHONE DROPPED. Erasing the class row was never enough: the departed peer's Hero
+## node stays in the tree on every REMAINING peer as a frozen puppet — it still
+## answers `get_nodes_in_group("hero")`, it is not `downed`, and so
+## `Arena._check_party_wipe` waits forever for a body that will never go down. That
+## is a soft-locked run, which is the worst outcome a dropped connection can have.
 func _on_peer_disconnected(id: int) -> void:
 	peer_class.erase(id)
+	_arena_ready.erase(id)
+	_free_peer_hero(id)
 	player_disconnected.emit(id)
 	lobby_changed.emit()
+
+
+## Free the hero owned by `peer_id` on THIS peer. Runs on every remaining peer
+## (`peer_disconnected` is local to each), so the host's spawner despawn and this
+## are belt-and-braces rather than a race — `queue_free` twice is a no-op.
+func _free_peer_hero(peer_id: int) -> void:
+	if not is_inside_tree():
+		return
+	for h: Node in get_tree().get_nodes_in_group("hero"):
+		if not is_instance_valid(h) or h.is_queued_for_deletion():
+			continue
+		if h.get_multiplayer_authority() == peer_id:
+			h.queue_free()
+
+
+# ---------------------------------------------------------- SPAWN HANDSHAKE
+## Every peer's Arena calls this from its own `_ready`. The host spawns the party
+## only once every peer has reported in, replacing `Arena`'s bare 0.6 s timer (whose
+## own comment admitted a handshake was the right fix). A 4 s fallback still fires so
+## one silent peer can never hang the whole party at a black screen.
+func notify_arena_ready() -> void:
+	if not is_active():
+		return
+	if is_host():
+		_arena_ready[1] = true
+		_check_party_ready()
+		get_tree().create_timer(4.0).timeout.connect(_force_party_ready)
+	else:
+		_arena_ready_rpc.rpc_id(1)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _arena_ready_rpc() -> void:
+	if not is_host():
+		return
+	_arena_ready[multiplayer.get_remote_sender_id()] = true
+	_check_party_ready()
+
+
+func _check_party_ready() -> void:
+	if _party_ready_sent or not is_host():
+		return
+	for pid in peers():
+		if not _arena_ready.has(int(pid)):
+			return
+	_party_ready_sent = true
+	party_ready.emit()
+
+
+## The handshake's safety valve: if a peer never reports (crashed loading, dropped
+## mid-scene-change), spawn anyway rather than leaving everyone staring at an
+## empty arena. Prints so the smoke test can tell a handshake from a timeout.
+func _force_party_ready() -> void:
+	if _party_ready_sent or not is_host():
+		return
+	print("[NET] handshake timed out — spawning party anyway")
+	_party_ready_sent = true
+	party_ready.emit()
 
 
 func _on_connected_ok() -> void:
@@ -180,13 +314,21 @@ func _sync_class_table(table: Dictionary) -> void:
 # ============================================================ co-op run entry
 ## Host broadcasts "everyone into the tower". Sets the shared run state on every
 ## peer (host owns floor progression + climber.json thereafter) then loads Arena.
-func start_coop_run() -> void:
+## `floor_override` exists for the headless two-process test and nothing else: the
+## maker's live climber save sits on the LAST floor, where "advance" means CONQUER
+## and tears the session down — so the smoke test could never observe a floor step
+## actually crossing the wire. Defaulting to -1 keeps every real caller unchanged.
+func start_coop_run(floor_override: int = -1) -> void:
 	if not is_host():
 		return
 	var floor: int = 1
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs != null and gs.has_method("current_floor"):
 		floor = int(gs.current_floor())
+	if floor_override > 0:
+		floor = floor_override
+	_run_started = true
+	stop_beacon()   # the session is closed; stop advertising it on the LAN
 	_enter_coop_run.rpc(floor)
 	_enter_coop_run(floor)
 
@@ -438,7 +580,10 @@ func broadcast_burst(pos: Vector2, c1: Color, c2: Color) -> void:
 		_client_burst.rpc(pos, c1, c2)
 
 
-@rpc("authority", "call_remote", "reliable")
+## BANDWIDTH: this one is PURE decoration (the bomber's puff). A dropped packet
+## costs a puff nobody can act on, so it goes unreliable — unlike the telegraph and
+## the projectile above, which are fairness signals and stay reliable on purpose.
+@rpc("authority", "call_remote", "unreliable")
 func _client_burst(pos: Vector2, c1: Color, c2: Color) -> void:
 	var scene: Node = get_tree().current_scene
 	if scene != null:
@@ -446,9 +591,332 @@ func _client_burst(pos: Vector2, c1: Color, c2: Color) -> void:
 		CombatVfx.spawn_burst(scene, pos, c1, c2, 36, 0.45, 120.0, 260.0, 1.5, 4.0, 40.0, 90.0)
 
 
+# ================================================= HERO SPELL REPLICATION
+## THE HEADLINE. `SpellCaster` is deliberately net-blind and stays that way: it is a
+## pure builder, and putting a wire inside it would mean every future spectacle had
+## to think about networking. Instead the CAST SITE broadcasts — `Hero` is the only
+## thing that knows a cast happened, and it knows everything about it — and every
+## other peer rebuilds the same spectacle locally through the same dispatcher.
+##
+## ⚠ WHY THE REBUILT COPY CANNOT DAMAGE. Damage already resolves on the VICTIM's
+## authority (`Hero.take_damage` / `Enemy.take_damage` forward to their owner), so a
+## second live spectacle on a second peer would not desync hp — it would DOUBLE it.
+## The twin is therefore disarmed at the only seam that matters: its `target_group`
+## is `GHOST_GROUP`, a group with no members. See `Hero.attack_group()` for the
+## persistent half of that rule (a puppet's melee resolves asynchronously, long
+## after this call returns, so a transient flag would not have covered it).
+##
+## Broadcast is peer->peer (`any_peer`) rather than host-authoritative, because a
+## hero is owned by its own player: the host has no more idea that a client cast a
+## spell than the client does that the host did.
+##
+## RELIABLE ON PURPOSE. A dropped cast is INVISIBLE MAGIC — your friend's Void
+## deleting you out of nowhere is precisely the moment this whole feature exists to
+## make legible. This is the one place bandwidth loses the argument.
+func broadcast_hero_action(kind: String, data: Dictionary) -> void:
+	if is_active():
+		_client_hero_action.rpc(kind, data)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _client_hero_action(kind: String, data: Dictionary) -> void:
+	var hero: Node = hero_for_peer(multiplayer.get_remote_sender_id())
+	if hero == null or not hero.has_method("net_replay_action"):
+		return
+	# Counted on the ANSWER, not on the attempt. `net_replay_action` returns false
+	# both when it declines and when it aborts on a moved member, so the smoke test's
+	# `spell_twins` measures spectacles actually BUILT rather than packets received.
+	if bool(hero.call("net_replay_action", kind, data)):
+		_spell_twins += 1
+
+
+## The live Hero owned by `peer_id`, or null. Identity across peers is the AUTHORITY,
+## not the node name: `Arena._spawn_hero_net` names them `Hero_<peer>` but the
+## authority is what every other co-op path already keys on, so this stays true even
+## if the spawner renames.
+func hero_for_peer(peer_id: int) -> Node:
+	if not is_inside_tree():
+		return null
+	for h: Node in get_tree().get_nodes_in_group("hero"):
+		if not is_instance_valid(h) or h.is_queued_for_deletion():
+			continue
+		if h.get_multiplayer_authority() == peer_id:
+			return h
+	return null
+
+
+# ===================================================== BOSS SPECTACLE REPLICATION
+## `Boss.gd` shipped with ZERO broadcasts: its beam, meteors, pillars, rays, nova and
+## every phase escalation rendered host-side only. Half the party could not see the
+## climax of the floor — and worse, could not see the thing about to hit them, which
+## breaks the boss's own "the shape you can see is the shape that will hurt" grammar.
+##
+## The tells already crossed (the Boss builds them through `Enemy._emit_telegraph`,
+## which broadcasts). What did not was everything AFTER the tell.
+func broadcast_boss_fx(kind: String, data: Dictionary) -> void:
+	if is_host():
+		_client_boss_fx.rpc(kind, data)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _client_boss_fx(kind: String, data: Dictionary) -> void:
+	var scene: Node = get_tree().current_scene
+	if scene == null:
+		return
+	_boss_twins += 1
+	var pos: Vector2 = data.get("pos", Vector2.ZERO)
+	var col: Color = data.get("col", Color(1.0, 0.55, 0.2))
+	var fx: String = String(data.get("fx", "fire"))
+	var caster: Node = _node_at(String(data.get("src", "")))
+	match kind:
+		"beam":
+			var beam := BeamSpell.new()
+			beam.target_group = String(GHOST_GROUP)
+			beam.element_id = int(data.get("el", -1))
+			beam.caster_node = caster
+			scene.add_child(beam)
+			beam.fire(pos, data.get("dir", Vector2.RIGHT), col,
+				float(data.get("len", 1400.0)), float(data.get("w", 34.0)), 0, fx)
+		"pillar":
+			var p := RockPillar.new()
+			p.target_group = String(GHOST_GROUP)
+			p.set("caster_node", caster)
+			scene.add_child(p)
+			p.erupt(pos, col, float(data.get("r", 66.0)), 0)
+		"ray":
+			var d := DivineRay.new()
+			d.target_group = String(GHOST_GROUP)
+			d.set("caster_node", caster)
+			scene.add_child(d)
+			d.strike(pos, col, float(data.get("r", 70.0)), 0, fx)
+		"meteor":
+			var m := MeteorSigil.new()
+			m.target_group = String(GHOST_GROUP)
+			m.set("caster_node", caster)
+			scene.add_child(m)
+			m.rain(pos, col, float(data.get("r", 170.0)), 0, int(data.get("n", 12)), fx)
+			Juice.zoom_pull_camera(0.16, 0.5)
+		"convergence":
+			var s := StarConvergence.new()
+			s.target_group = String(GHOST_GROUP)
+			s.set("caster_node", caster)
+			scene.add_child(s)
+			s.converge(pos, col, float(data.get("r", 170.0)), 0, fx)
+		"nova":
+			var n: Node = load("res://scenes/combat/EnergyNova.tscn").instantiate()
+			n.set("target_group", String(GHOST_GROUP))
+			n.set("caster_node", caster)
+			scene.add_child(n)
+			n.call("activate_at", pos)
+		"slam":
+			var b := BlastSpell.new()
+			scene.add_child(b)
+			b.configure({"visual_only": true, "target_group": String(GHOST_GROUP),
+				"radius": float(data.get("r", 100.0)), "windup": float(data.get("windup", 0.7)),
+				"element_id": int(data.get("el", -1))})
+			b.set("caster_node", caster)
+			b.detonate_at(pos)
+		"crater":
+			GroundCrater.spawn(scene, pos, float(data.get("r", 64.0)), true)
+			Juice.on_hit({"shake": 15.0, "sfx": "blast", "hitstop": 0.09})
+
+
+## Phase escalation — the retint, the aura tier, the adornment, the epic beat. Host
+## only advances phases (`Boss.take_damage` forwards a puppet hit before any phase
+## logic), so without this a client watched a boss that never visibly escalated.
+func broadcast_boss_phase(boss: Node, phase: int) -> void:
+	if is_host() and boss != null and boss.is_inside_tree():
+		_client_boss_phase.rpc(String(boss.get_path()), phase)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _client_boss_phase(path: String, phase: int) -> void:
+	var boss: Node = _node_at(path)
+	if boss != null and boss.has_method("net_apply_phase"):
+		_boss_twins += 1
+		boss.call("net_apply_phase", phase)
+
+
+## Resolve an absolute node path sent by another peer. Host and clients build the
+## same nodes through the same MultiplayerSpawner, so paths match — but a node can
+## die between send and receive, so null is a normal answer, not an error.
+func _node_at(path: String) -> Node:
+	if path == "" or not is_inside_tree():
+		return null
+	return get_node_or_null(NodePath(path))
+
+
+# ========================================================== STATUS ROUTER
+## Elemental ailments on the victim's own authority, exactly like damage.
+##
+## THE BUG THIS FIXES: `Spell._damage_hero` applied `apply_status` ONLY on its
+## non-session branch. In a live co-op game the session branch called
+## `deal_damage`/`deal_knockback` and skipped the ailment entirely, so burning,
+## chilling and shocking a teammate did nothing at all — elemental friendly fire
+## did not exist. It failed silently and in the direction that still looks correct.
+func deal_status(target: Node, element: int, can_chain: bool = true) -> void:
+	if target == null or not is_instance_valid(target) or element < 0:
+		return
+	if not target.has_method("apply_status"):
+		return
+	if not is_active() or target.get_multiplayer_authority() == multiplayer.get_unique_id():
+		target.call("apply_status", element, can_chain)
+	else:
+		target.rpc_id(target.get_multiplayer_authority(), &"_net_apply_status", element, can_chain)
+
+
+# ======================================================= LAN AUTO-DISCOVERY
+## "Two phones in one room" is the spec's whole picture, and typing an IP address is
+## not that. A host advertises itself with a UDP broadcast beacon; a joining phone
+## listens and shows each host as a button. Manual IP entry stays as the fallback for
+## networks that block broadcast (some hotel/campus wifi does).
+##
+## ⚠ UI IS NOT WIRED HERE. `Lobby.gd` belongs to another workstream, so this file
+## exposes the API only: `start_beacon()` / `start_discovery()` / `discovered_hosts()`
+## / the `hosts_changed` signal. See the handoff note for the four lines the Lobby needs.
+const BEACON_PORT: int = 24566
+const BEACON_MAGIC: String = "TOWERLAN"
+const BEACON_INTERVAL: float = 1.0
+## A host that has not been heard from for this long drops off the list. Three missed
+## beacons — long enough to ride out a wifi hiccup, short enough that a host who quit
+## does not linger as a dead button.
+const BEACON_TTL: float = 3.5
+
+var _beacon: PacketPeerUDP = null
+var _listener: PacketPeerUDP = null
+var _beacon_timer: float = 0.0
+var _beacon_name: String = ""
+var _found: Dictionary = {}   # ip -> {"name": String, "port": int, "seen": float}
+
+
+## Host side: start advertising this session on the local network.
+func start_beacon(host_name: String = "") -> void:
+	stop_beacon()
+	_beacon_name = host_name if host_name != "" else _default_host_name()
+	_beacon = PacketPeerUDP.new()
+	_beacon.set_broadcast_enabled(true)
+	_beacon.set_dest_address("255.255.255.255", BEACON_PORT)
+	_beacon_timer = 0.0
+	_pump_enabled()
+
+
+func stop_beacon() -> void:
+	if _beacon != null:
+		_beacon.close()
+	_beacon = null
+	_pump_enabled()
+
+
+## Client side: start listening for hosts. `discovered_hosts()` is the read side.
+func start_discovery() -> int:
+	stop_discovery()
+	_listener = PacketPeerUDP.new()
+	_listener.set_broadcast_enabled(true)
+	var err: int = _listener.bind(BEACON_PORT)
+	if err != OK:
+		_listener = null
+		return err
+	_found.clear()
+	_pump_enabled()
+	return OK
+
+
+func stop_discovery() -> void:
+	if _listener != null:
+		_listener.close()
+	_listener = null
+	_found.clear()
+	_pump_enabled()
+
+
+## Hosts heard from within BEACON_TTL: [{ip, port, name}], freshest first.
+func discovered_hosts() -> Array:
+	var now: float = float(Time.get_ticks_msec()) / 1000.0
+	var out: Array = []
+	for ip: String in _found.keys():
+		var row: Dictionary = _found[ip]
+		if now - float(row.get("seen", 0.0)) > BEACON_TTL:
+			continue
+		out.append({"ip": ip, "port": int(row.get("port", DEFAULT_PORT)),
+			"name": String(row.get("name", ip))})
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(_found[a["ip"]]["seen"]) > float(_found[b["ip"]]["seen"]))
+	return out
+
+
+func _default_host_name() -> String:
+	var n: String = OS.get_environment("COMPUTERNAME")
+	if n == "":
+		n = OS.get_environment("HOSTNAME")
+	return n if n != "" else "THE TOWER"
+
+
+func _pump_enabled() -> void:
+	set_process(_beacon != null or _listener != null)
+
+
+func _process(delta: float) -> void:
+	if _beacon != null:
+		_beacon_timer -= delta
+		if _beacon_timer <= 0.0:
+			_beacon_timer = BEACON_INTERVAL
+			var payload: Dictionary = {"m": BEACON_MAGIC, "port": DEFAULT_PORT,
+				"name": _beacon_name, "players": peers().size(), "max": MAX_PLAYERS}
+			_beacon.put_packet(JSON.stringify(payload).to_utf8_buffer())
+	if _listener == null:
+		return
+	var changed: bool = false
+	while _listener.get_available_packet_count() > 0:
+		var raw: PackedByteArray = _listener.get_packet()
+		var ip: String = _listener.get_packet_ip()
+		var parsed: Variant = JSON.parse_string(raw.get_string_from_utf8())
+		if not (parsed is Dictionary):
+			continue
+		var d: Dictionary = parsed
+		if String(d.get("m", "")) != BEACON_MAGIC:
+			continue
+		# A FULL SESSION IS NOT A BUTTON. The host refuses late joins anyway
+		# (`_on_peer_connected`), so listing one would only offer a guaranteed failure.
+		if int(d.get("players", 1)) >= int(d.get("max", MAX_PLAYERS)):
+			if _found.erase(ip):
+				changed = true
+			continue
+		if not _found.has(ip):
+			changed = true
+		_found[ip] = {"name": String(d.get("name", ip)), "port": int(d.get("port", DEFAULT_PORT)),
+			"seen": float(Time.get_ticks_msec()) / 1000.0}
+	if changed:
+		hosts_changed.emit()
+
+
 # --------------------------------------------------- headless two-instance test
-## `-- --server` hosts; `-- --client [ip]` joins loopback. Prints [NET] lines the
-## PowerShell two-process test greps for. Deferred so the tree is ready.
+## `-- --server` hosts; `-- --client [ip]` joins loopback. Prints `[NET]` lines that
+## `python-tools/coop_smoketest.sh` greps. Deferred so the tree is ready.
+##
+## ⚠ THE TIMING IS THE TEST. The old schedule sampled the client FOUR seconds after
+## it connected — one second after the host had already advanced the floor. On the
+## maker's live climber save that advance is off the LAST floor, i.e. a conquer,
+## which ends the run and tears the session down, so the client was always counted
+## after its heroes had gone home. It has been printing `heroes=0` for that reason
+## and not because anything was broken, which is the worst kind of green.
+##
+## Now: the client is sampled while the floor is LIVE, the run is forced to floor 1
+## so "advance" is a real climb step rather than a victory, and both peers track
+## PEAK counts so a sample landing on the wrong side of a scene change cannot lie.
+const CLI_START_DELAY: float = 1.0     # peer connected -> enter the tower
+const CLI_HOST_SAMPLE: float = 2.0     # ...-> host counts + fires every broadcast
+const CLI_CLIENT_SAMPLE: float = 3.2   # join -> client counts (floor still live)
+const CLI_ADVANCE_AT: float = 4.2      # ...-> host advances the party a floor
+const CLI_FINAL_SAMPLE: float = 6.2    # ...-> both count again + client's verdict
+
+## Peak observations, so a sample that lands after a scene change cannot erase what
+## was true a moment earlier.
+var _cli_peak_heroes: int = 0
+var _cli_peak_enemies: int = 0
+var _cli_floor_start: int = -1
+var _cli_floor_end: int = -1
+
+
 func _maybe_cli_autostart() -> void:
 	var args: PackedStringArray = OS.get_cmdline_user_args()
 	if args.has("--server"):
@@ -461,45 +929,99 @@ func _maybe_cli_autostart() -> void:
 		call_deferred("_cli_join", ip)
 
 
+func _cli_after(t: float, fn: Callable) -> void:
+	get_tree().create_timer(t).timeout.connect(fn)
+
+
 func _cli_host() -> void:
 	player_connected.connect(func(id: int) -> void:
 		print("[NET] host sees peer %d, total=%d" % [id, multiplayer.get_peers().size() + 1])
-		get_tree().create_timer(1.0).timeout.connect(func() -> void:
-			start_coop_run()
-			get_tree().create_timer(2.0).timeout.connect(func() -> void:
+		_cli_after(CLI_START_DELAY, func() -> void:
+			start_coop_run(1)   # floor 1 -> the advance below is a real climb step
+			_cli_after(CLI_HOST_SAMPLE, func() -> void:
 				_cli_count("host")
-				# Prove ATTACK-VISUAL replication end-to-end: broadcast one tell + one
-				# bolt twin over the wire (host builds none locally; the client should
-				# build both -> its _twins_built rises to 2, reported by _cli_count).
-				broadcast_telegraph({
-					"style": 0, "pos": Vector2(400, 300), "accent": Color(1, 0.2, 0.15),
-					"radius": 40.0, "windup": 0.6, "line": false,
-				})
-				broadcast_projectile({"pos": Vector2(400, 300), "dir": Vector2.RIGHT, "element": 0})
-				# Prove the floor-advance broadcast: arm the debounce (simulate a clear)
-				# + advance the party, then re-report so the client's floor should follow.
-				_pending_advance = true
-				_do_host_advance()
-				get_tree().create_timer(2.0).timeout.connect(_cli_count.bind("host2")))))
+				_cli_floor_start = _cli_floor()
+				_cli_fire_every_broadcast()
+				_cli_after(CLI_ADVANCE_AT - CLI_HOST_SAMPLE, func() -> void:
+					# Arm the debounce (simulate a clear) then advance the party.
+					_pending_advance = true
+					_do_host_advance()
+					_cli_after(CLI_FINAL_SAMPLE - CLI_ADVANCE_AT,
+						func() -> void: _cli_count("host2"))))))
 	var err: int = host(0)
 	print("[NET] host start err=%d id=%d" % [err, my_id()])
+
+
+## Every wire this file owns, fired once, so the client's counters prove each one
+## delivered rather than proving one of them did.
+func _cli_fire_every_broadcast() -> void:
+	# 1. Enemy attack visuals (the pre-existing pair).
+	broadcast_telegraph({
+		"style": 0, "pos": Vector2(400, 300), "accent": Color(1, 0.2, 0.15),
+		"radius": 40.0, "windup": 0.6, "line": false,
+	})
+	broadcast_projectile({"pos": Vector2(400, 300), "dir": Vector2.RIGHT, "element": 0})
+	# 2. HERO SPELLS — the headline. A primary and a signature eruption. The client
+	#    should resolve the sender's hero, rebuild both through SpellCaster against
+	#    the dead GHOST_GROUP, and report spell_twins=2.
+	broadcast_hero_action("pr", {"aim": Vector2.RIGHT, "pt": Vector2(600, 300), "el": 0})
+	broadcast_hero_action("cf", {"sid": "frostpiercer", "aim": Vector2.RIGHT,
+		"pt": Vector2(700, 300), "el": 1, "sky": false, "sp": 0})
+	# 3. BOSS spectacle (Boss.gd shipped with no broadcasts at all).
+	broadcast_boss_fx("ray", {"pos": Vector2(500, 320), "col": Color(1, 0.5, 0.2),
+		"r": 70.0, "fx": "fire", "el": 0})
+	broadcast_boss_fx("nova", {"pos": Vector2(500, 320)})
 
 
 func _cli_join(ip: String) -> void:
 	join_ok.connect(func() -> void:
 		print("[NET] client connected, my_id=%d" % multiplayer.get_unique_id())
-		get_tree().create_timer(4.0).timeout.connect(func() -> void:
+		_cli_after(CLI_CLIENT_SAMPLE, func() -> void:
 			_cli_count("client")
-			get_tree().create_timer(2.0).timeout.connect(_cli_count.bind("client2"))))
+			_cli_floor_start = _cli_floor()
+			_cli_after(CLI_FINAL_SAMPLE - CLI_CLIENT_SAMPLE, func() -> void:
+				_cli_count("client2")
+				_cli_floor_end = _cli_floor()
+				_cli_verdict())))
 	join_failed.connect(func() -> void: print("[NET] client FAILED"))
 	var err: int = join(ip, 0)
 	print("[NET] client join err=%d" % err)
+
+
+func _cli_floor() -> int:
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and gs.has_method("current_floor"):
+		return int(gs.current_floor())
+	return -1
+
+
+## ONE GREPPABLE LINE that says whether co-op actually worked, instead of five rows
+## a human has to cross-reference. Printed by the CLIENT, because the client is the
+## peer every one of these features exists for.
+func _cli_verdict() -> void:
+	var heroes_ok: bool = _cli_peak_heroes >= 2
+	var enemies_ok: bool = _cli_peak_enemies >= 1
+	var twins_ok: bool = _twins_built >= 2
+	var spells_ok: bool = _spell_twins >= 2
+	var boss_ok: bool = _boss_twins >= 2
+	var floor_ok: bool = _cli_floor_end > _cli_floor_start
+	var all_ok: bool = heroes_ok and enemies_ok and twins_ok and spells_ok and boss_ok and floor_ok
+	print(("[NET] VERDICT heroes=%s enemies=%s enemy_twins=%s HERO_SPELLS=%s BOSS_FX=%s "
+		+ "floor_sync=%s => %s") % [
+		_ok(heroes_ok), _ok(enemies_ok), _ok(twins_ok), _ok(spells_ok), _ok(boss_ok),
+		_ok(floor_ok), "PASS" if all_ok else "FAIL"])
+
+
+func _ok(b: bool) -> String:
+	return "OK" if b else "NO"
 
 
 func _cli_count(who: String) -> void:
 	var heroes: int = get_tree().get_nodes_in_group("hero").size()
 	var enemy_nodes: Array = get_tree().get_nodes_in_group("enemy")
 	var enemies: int = enemy_nodes.size()
+	_cli_peak_heroes = maxi(_cli_peak_heroes, heroes)
+	_cli_peak_enemies = maxi(_cli_peak_enemies, enemies)
 	# Prove the enemies are HOST-authoritative (authority==1) and that the client's
 	# copies track the host's transform: print the count owned by peer 1 + the first
 	# enemy's rounded position. Host + client rows should show the SAME position.
@@ -511,8 +1033,7 @@ func _cli_count(who: String) -> void:
 		if sample == "-" and e is Node2D:
 			var p: Vector2 = (e as Node2D).global_position
 			sample = "(%d,%d)" % [int(round(p.x)), int(round(p.y))]
-	var floor: int = -1
-	var gs: Node = get_node_or_null("/root/GameState")
-	if gs != null and gs.has_method("current_floor"):
-		floor = int(gs.current_floor())
-	print("[NET] %s heroes=%d enemies=%d host_owned=%d first_enemy_pos=%s floor=%d twins=%d" % [who, heroes, enemies, host_owned, sample, floor, _twins_built])
+	print(("[NET] %s heroes=%d(peak %d) enemies=%d host_owned=%d first_enemy_pos=%s "
+		+ "floor=%d twins=%d spell_twins=%d boss_twins=%d") % [
+		who, heroes, _cli_peak_heroes, enemies, host_owned, sample, _cli_floor(),
+		_twins_built, _spell_twins, _boss_twins])
