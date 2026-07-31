@@ -488,6 +488,41 @@ const STREAMS: Dictionary = {
 		preload("res://assets/audio/sfx/rx_blocked_2.ogg"),
 	],
 
+	# =============================================================== VOICE
+	# GIBBERISH. Four vowel banks, four variants each — the whole spoken
+	# vocabulary of the game. Synthesised from scratch by
+	# `python-tools/generate_gibberish_voices.py` (no pack, no licence, no
+	# localisation), and re-pitched per character at playback by
+	# `Gibberish.gd` + `speak()` below. Sixteen assets, unlimited voices.
+	#
+	# These are fired ONLY through `speak()`, never by a gameplay call site
+	# guessing a key — the bank a character uses is part of its identity, and
+	# picking one by hand would give two different fighters the same mouth.
+	"voice_a": [
+		preload("res://assets/audio/voice/gib_a_1.wav"),
+		preload("res://assets/audio/voice/gib_a_2.wav"),
+		preload("res://assets/audio/voice/gib_a_3.wav"),
+		preload("res://assets/audio/voice/gib_a_4.wav"),
+	],
+	"voice_e": [
+		preload("res://assets/audio/voice/gib_e_1.wav"),
+		preload("res://assets/audio/voice/gib_e_2.wav"),
+		preload("res://assets/audio/voice/gib_e_3.wav"),
+		preload("res://assets/audio/voice/gib_e_4.wav"),
+	],
+	"voice_i": [
+		preload("res://assets/audio/voice/gib_i_1.wav"),
+		preload("res://assets/audio/voice/gib_i_2.wav"),
+		preload("res://assets/audio/voice/gib_i_3.wav"),
+		preload("res://assets/audio/voice/gib_i_4.wav"),
+	],
+	"voice_u": [
+		preload("res://assets/audio/voice/gib_u_1.wav"),
+		preload("res://assets/audio/voice/gib_u_2.wav"),
+		preload("res://assets/audio/voice/gib_u_3.wav"),
+		preload("res://assets/audio/voice/gib_u_4.wav"),
+	],
+
 	# ============================================================== BODIES
 	# REMAPPED. `enemy_death` and `hero_hurt` were synth placeholders; there is a
 	# dedicated creature-vocalisation pack and a 45-file body-damage folder here.
@@ -819,6 +854,16 @@ const PROFILE: Dictionary = {
 	"rx_banish": {"w": Weight.HEAVY, "trim": 1.0, "sub": 0.5, "tail": 0.6},
 	"rx_blocked": {"w": Weight.QUICK, "trim": 1.0, "sub": 0.2},
 
+	# --- VOICE. A voice is CHARACTER, not an impact: it must never fight the
+	# spell that just went off, and a three-syllable line fires three of these
+	# inside a fifth of a second, so they are layer-free for exactly the reason
+	# footsteps are. Graded one notch above the TICK floor because dialogue that
+	# cannot be heard over a fight is not dialogue.
+	"voice_a": {"w": Weight.TICK, "trim": 4.0},
+	"voice_e": {"w": Weight.TICK, "trim": 4.0},
+	"voice_i": {"w": Weight.TICK, "trim": 3.0},
+	"voice_u": {"w": Weight.TICK, "trim": 4.5},
+
 	# --- BODIES.
 	"enemy_death": {"w": Weight.HEAVY, "trim": -1.0, "sub": 0.3},
 	"enemy_death_big": {"w": Weight.ULT, "trim": -2.0, "sub": 0.8, "tail": 0.7},
@@ -901,15 +946,49 @@ const SFX_BUS: StringName = &"SFX"
 ## of them mid-clash is not.
 const POOL_SIZE: int = 32
 
+## One speaker may not start a new utterance inside this window — see `speak()`.
+## Roughly the length of the longest single syllable, so a yelp always finishes.
+const VOICE_MIN_INTERVAL_MS: int = 140
+## Extra per-syllable pitch wobble on top of the deterministic one `Gibberish`
+## already bakes in. Small: the identity is in the plan, this is just breath.
+const VOICE_PITCH_JITTER: float = 0.02
+
 var _players: Array[AudioStreamPlayer] = []
 var _next: int = 0
 var _last_variant: Dictionary = {}  # key -> last index played, to avoid immediate repeats
+var _last_spoke: Dictionary = {}    # voice seed -> Time.get_ticks_msec() of last utterance
+
+
+## Frames to keep looking for a real scene before giving up on installing the
+## VoiceDirector. Autoloads are ready BEFORE the main scene exists, so this
+## cannot happen in `_ready`. Under `--script` there is never a current scene, so
+## this simply expires and the headless suites never see a director at all.
+const DIRECTOR_SPAWN_FRAMES: int = 180
+
+var _director_frames: int = 0
 
 
 func _ready() -> void:
 	# Keep SFX audible while hit-stop slows the game clock.
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_ensure_pool()
+	set_process(true)
+
+
+## The ONLY thing this _process does is install the voice/bark observer once the
+## game has a scene, then switch itself off. Note it adds the director to the
+## tree ROOT, never as a child of this node: `Sfx`'s children are its voice pool
+## and exactly its voice pool (tools/slice_test_sfx_roster.gd asserts the count),
+## and a stray non-AudioStreamPlayer child there would be a real bug, not just a
+## red test.
+func _process(_delta: float) -> void:
+	_director_frames += 1
+	var tree: SceneTree = get_tree()
+	if tree != null and tree.current_scene != null:
+		VoiceDirector.ensure(tree)
+		set_process(false)
+	elif _director_frames >= DIRECTOR_SPAWN_FRAMES:
+		set_process(false)
 
 
 ## Build the voice pool. Idempotent, and called from _emit_now as well as _ready:
@@ -987,6 +1066,61 @@ func play(
 		var music: Node = get_tree().root.get_node_or_null(^"Music")
 		if music != null and music.has_method(&"duck"):
 			music.call(&"duck", duck_db, WEIGHT_DUCK_HOLD)
+
+
+# ===========================================================================
+# THE VOICE — gibberish, Animal Crossing style
+# ===========================================================================
+## Speak a short run of gibberish syllables in ONE character's voice.
+##
+## `voice_seed` is any stable integer for the speaker — `Gibberish.seed_for(name)`
+## or `Gibberish.voice_of(node)["seed"]`. The same seed always produces the same
+## bank, pitch band and cadence, so a fighter sounds like itself for the whole
+## climb with nothing stored and nothing replicated.
+##
+## THIS ADDS NO SECOND AUDIO POOL. Every syllable goes through `_emit`, i.e. the
+## same 32-voice round-robin everything else uses. A voice is by far the cheapest
+## thing in the roster (TICK weight, no sub/tail/crack layers), so a room of
+## chattering mobs costs a handful of pool slots, not a mixer.
+##
+## Deliberately fire-and-forget: it never awaits, never blocks, and returns the
+## utterance's duration in seconds so a caller can hold a speech bubble up for
+## exactly as long as the mouth is moving.
+func speak(
+	voice_seed: int,
+	mood: int = 0,
+	syllables: int = 0,
+	volume_db: float = 0.0,
+	delay: float = 0.0
+) -> float:
+	var v: Dictionary = Gibberish.voice(voice_seed)
+	var plan: Array = Gibberish.plan(v, mood, syllables)
+	if plan.is_empty():
+		return 0.0
+	# One speaker cannot talk over itself. Without this, a fighter taking three
+	# hits in a fifth of a second stacks three yelps into a single smeared noise
+	# — the classic "why does the hurt sound break when it matters most".
+	var now: int = Time.get_ticks_msec()
+	var last: int = int(_last_spoke.get(voice_seed, -100000))
+	if now - last < VOICE_MIN_INTERVAL_MS:
+		return 0.0
+	_last_spoke[voice_seed] = now
+	for entry: Dictionary in plan:
+		_emit(
+			String(entry["key"]),
+			volume_db + float(entry["db"]),
+			VOICE_PITCH_JITTER,
+			float(entry["pitch"]),
+			delay + float(entry["delay"])
+		)
+	return Gibberish.plan_duration(plan)
+
+
+## Same, for anything with a name: the usual call site (`Sfx.speak_for(enemy,
+## Gibberish.Mood.HURT)`) does not have to know what a seed is.
+func speak_for(who: Object, mood: int = 0, syllables: int = 0, volume_db: float = 0.0) -> float:
+	var v: Dictionary = Gibberish.voice_of(who)
+	return speak(int(v["seed"]), mood, syllables, volume_db)
 
 
 ## Fire ONE stream. Returns false (and warns) for an unknown key so `play` can
