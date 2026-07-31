@@ -17,10 +17,12 @@ extends Node2D
 ## hub's `talk` binding is unused in the arena), and the actual transfer is a public
 ## call any other input path can drive.
 ##
-## ⚠ MOBILE. `talk` has no touch button. `TouchControls` is owned elsewhere, so on a
-## phone this mechanic is currently UNREACHABLE. The fix is one pad calling
-## `try_local_handoff()`; it is in the handoff notes and it is a real gap, not a
-## deferral dressed up as one.
+## MOBILE — CLOSED. `talk` had no touch button, so on a phone this mechanic was
+## unreachable. `TouchControls` now draws a CONTEXTUAL handoff pad: it does not
+## exist until `can_hand_over()` is true, and it presses the same `talk` action, so
+## there is exactly one path into the transfer on every platform. This node
+## publishes the query (`can_hand_over` / `offer_label`) and joins `HANDOFF_GROUP`
+## so the pad can find it without either file importing the other.
 ##
 ## ══ THE PROMPT IS THE FEATURE ══════════════════════════════════════════════════
 ## Half of what makes a handoff a social moment is your teammate SEEING that you
@@ -37,6 +39,10 @@ const HANDOFF_ACTION: StringName = &"talk"
 const RANGE: float = 74.0
 ## Seconds the "handed over" flash lasts.
 const FLASH_TIME: float = 0.9
+## Joined so the touch pad can ask "is a handoff live right now" without importing
+## this class or walking the tree for it. One node per floor (`FloorBuilder` parks
+## it), so `get_first_node_in_group` is the whole lookup.
+const HANDOFF_GROUP: StringName = &"spell_handoff"
 
 var _giver: Node2D = null
 var _taker: Node2D = null
@@ -44,6 +50,28 @@ var _flash: float = 0.0
 var _flash_at: Vector2 = Vector2.ZERO
 var _flash_name: String = ""
 var _phase: float = 0.0
+
+
+func _ready() -> void:
+	add_to_group(HANDOFF_GROUP)
+
+
+## Is there a live offer this instant — a local player, a teammate inside RANGE,
+## and something in hand to give? The touch pad's whole existence is this boolean,
+## and it is the SAME state `_draw` renders the in-world prompt from, so the pad and
+## the prompt can never disagree about whether the button should be there.
+func can_hand_over() -> bool:
+	return _giver != null and _taker != null and not SpellGrant.held(_giver).is_empty()
+
+
+## The spell that would move, for the pad's label. "" when there is no offer.
+func offer_label() -> String:
+	if _giver == null:
+		return ""
+	var have: Dictionary = SpellGrant.held(_giver)
+	if have.is_empty():
+		return ""
+	return (have["spell"] as SpellDef).display_name
 
 
 func _process(delta: float) -> void:
@@ -110,12 +138,30 @@ func _resolve_pair() -> void:
 		_taker = null
 
 
-## Is this hero the one at the keyboard? Duck-typed against the two facts the rest
-## of the codebase uses for the same question: a bot-driven hero publishes a bot
-## controller, and in co-op a hero is driven by its multiplayer authority. A hero
-## that answers neither (single player) is the local player by elimination.
+## Is this hero the one at the keyboard? A bot-driven hero carries an input source;
+## in co-op a hero is driven by its multiplayer authority. A hero that answers
+## neither (single player) is the local player by elimination.
+##
+## ⚠ THIS WAS BROKEN AND SILENTLY TOOK THE WHOLE MECHANIC WITH IT. The original read
+## `bool(h.get(&"bot_driven")) or h.get(&"_bot") != null` — and NEITHER of those
+## members exists anywhere in this codebase. `get()` on an absent property returns a
+## null Variant, `bool(null)` is not a legal conversion, and an illegal conversion
+## ABORTS the enclosing function and returns the type's zero. So this answered
+## `false` for every hero, `_resolve_pair` never found a giver, and the handoff has
+## never once been possible in the real game. Nothing errored where anyone would
+## look; it just quietly did nothing.
+##
+## It survived a headless suite because the suite's hero STUB declared the members
+## the real Hero does not — a fixture more generous than reality, which is the
+## specific way a duck-typed seam gets to lie. `tools/slice_test_handoff_pad.gd` now
+## asserts this name against a real `Hero.tscn`, so the day it moves, it fails loudly.
+##
+## The real marker is `Hero.controller`: null on the human path, a `BotController`
+## on a bot. Read into a Variant first, because the whole bug above was a cast
+## applied to a null.
 func _is_local_player(h: Node) -> bool:
-	if bool(h.get(&"bot_driven")) or h.get(&"_bot") != null:
+	var driver: Variant = h.get(&"controller")
+	if driver != null:
 		return false
 	var net: Node = get_node_or_null(^"/root/Net")
 	if net != null and net.has_method(&"is_active") and bool(net.call(&"is_active")):
