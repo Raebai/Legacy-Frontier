@@ -43,7 +43,18 @@ const BIG_SIZE: int = 26
 static var _alive: int = 0
 ## Retired instances available for reuse. Still children of their arena, hidden
 ## and not processing. Never larger than MAX_ALIVE.
-static var _pool: Array[DamageNumber] = []
+##
+## ⚠ DELIBERATELY UNTYPED, and this cost a real bug. As `Array[DamageNumber]`,
+## reading an element whose node had already been freed — which is the NORMAL
+## state of this pool the moment a floor is torn down — raises "Trying to assign
+## invalid previously freed instance" on the typed assignment. In GDScript a
+## runtime error ABORTS THE ENCLOSING FUNCTION and returns the type's zero, so
+## `_take` would have handed `spawn()` a null and crashed on the next line, and
+## `reset_pool` would have stopped half-way through cleaning up. Every read below
+## therefore goes through a Variant and an `is_instance_valid` check BEFORE any
+## cast. Caught by tools/slice_test_mobile_config.gd, which teardown-tests the
+## pool on purpose.
+static var _pool: Array = []
 
 var _text: String = ""
 var _color: Color = Color(1.0, 1.0, 1.0)
@@ -98,9 +109,10 @@ static func spawn(parent: Node, world_pos: Vector2, amount: int, color: Color = 
 ## self-purges within a single floor's worth of hits.
 static func _take(parent: Node) -> DamageNumber:
 	while not _pool.is_empty():
-		var candidate: DamageNumber = _pool.pop_back()
-		if not is_instance_valid(candidate):
+		var raw: Variant = _pool.pop_back()   # Variant first — see the _pool note
+		if not is_instance_valid(raw):
 			continue  # went down with its arena
+		var candidate: DamageNumber = raw
 		if candidate.is_inside_tree() and candidate.get_parent() == parent:
 			return candidate
 		candidate.queue_free()
@@ -138,9 +150,9 @@ func _exit_tree() -> void:
 ## Test hook + arena teardown: forget the pool entirely. Mirrors
 ## ImpactFrame.reset_arbiter(). Not called in normal play.
 static func reset_pool() -> void:
-	for d: DamageNumber in _pool:
-		if is_instance_valid(d):
-			d.queue_free()
+	for raw: Variant in _pool:
+		if is_instance_valid(raw):
+			(raw as DamageNumber).queue_free()
 	_pool.clear()
 	_alive = 0
 

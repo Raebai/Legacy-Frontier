@@ -36,6 +36,7 @@ ClassSelect="*res://scripts/ClassSelect.gd"
 Loadout="*res://scripts/Loadout.gd"
 Net="*res://scripts/Net.gd"
 SpellReactor="*res://scripts/combat/SpellReactor.gd"
+Perf="*res://scripts/combat/PerfOverlay.gd"
 
 [display]
 
@@ -184,8 +185,15 @@ cycle_music={
 ]
 }
 
+[physics]
+
+common/physics_ticks_per_second=60
+
 [rendering]
 
 textures/default_filters/anisotropic_filtering_level=0
 viewport/hdr_2d=true
 anti_aliasing/quality/msaa_2d=3
+anti_aliasing/quality/msaa_2d.mobile=1
+renderer/rendering_method="forward_plus"
+renderer/rendering_method.mobile="mobile"

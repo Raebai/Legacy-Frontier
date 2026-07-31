@@ -132,10 +132,16 @@ static func spawn_burst(
 static func _acquire(parent: Node, amount: int) -> GPUParticles2D:
 	var bucket: Array = _free.get(amount, [])
 	while not bucket.is_empty():
-		var candidate: GPUParticles2D = bucket.pop_back()
+		# ⚠ Variant FIRST. Assigning an already-freed node straight into a typed
+		# local raises "Trying to assign invalid previously freed instance", and a
+		# runtime error in GDScript ABORTS THE ENCLOSING FUNCTION — so this would
+		# have returned null to spawn_burst the first time an arena was torn down
+		# with emitters still banked. See the matching note on DamageNumber._pool.
+		var raw: Variant = bucket.pop_back()
 		_pooled_total = maxi(_pooled_total - 1, 0)
-		if not is_instance_valid(candidate):
+		if not is_instance_valid(raw):
 			continue  # went down with the arena that owned it
+		var candidate: GPUParticles2D = raw
 		if candidate.is_inside_tree() and candidate.get_parent() == parent:
 			parent.move_child(candidate, -1)
 			return candidate
@@ -161,6 +167,9 @@ static func _recycle(burst: GPUParticles2D, amount: int) -> void:
 		burst.queue_free()
 		return
 	var bucket: Array = _free.get(amount, [])
+	if bucket.has(burst):
+		return  # already banked — banking twice would hand the same emitter to two
+		        # concurrent bursts, which reads as one of them silently not firing
 	if bucket.size() >= MAX_POOLED_PER_AMOUNT:
 		burst.queue_free()
 		return
@@ -173,9 +182,9 @@ static func _recycle(burst: GPUParticles2D, amount: int) -> void:
 ## DamageNumber.reset_pool() / ImpactFrame.reset_arbiter().
 static func reset_pool() -> void:
 	for amount: int in _free.keys():
-		for b: GPUParticles2D in _free[amount]:
-			if is_instance_valid(b):
-				b.queue_free()
+		for raw: Variant in _free[amount]:
+			if is_instance_valid(raw):
+				(raw as GPUParticles2D).queue_free()
 	_free.clear()
 	_pooled_total = 0
 

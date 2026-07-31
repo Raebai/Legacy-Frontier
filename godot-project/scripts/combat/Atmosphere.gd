@@ -43,10 +43,27 @@ const MOTE_AMOUNT_WASH: int = 40
 const MOTE_AMOUNT_WORLD: int = 48
 const MOTE_AMOUNT_LOW: int = 16
 
-var _warming: Array[GPUParticles2D] = []
+## Untyped for the same reason DamageNumber._pool is: `build_wash` frees the
+## previous floor's emitters and re-enrols new ones, so this array routinely holds
+## a freed node, and reading one into a TYPED local raises an error that aborts
+## the enclosing function.
+var _warming: Array = []
 var _warm_left: float = 0.0
 
-var _bounds: Rect2 = Rect2(0, 0, 1200, 760)
+## Fallback extent for the world-skyline mode, used only until `build()` is
+## handed the caller's real bounds. Derived from LayoutDef's room_size rather
+## than written as a literal: it used to read Rect2(0, 0, 1200, 760), which was
+## the arena size at the time and silently became wrong the moment the default
+## room shrank to 960x480 and started being driven by `LayoutDef.room_size`
+## (Arena._apply_room_size). A default that tracks the real default cannot go
+## stale again.
+##
+## ⚠ This does NOT affect the tower arena. That one uses `build_wash()`, which is
+## SCREEN-space — its motes live on a CanvasLayer and are sized to the 640x360
+## base viewport, so they are correct at any room size and must not be "fixed"
+## into world coordinates. `build()` (the world skyline) is VersusArena's path,
+## and it passes explicit bounds.
+var _bounds: Rect2 = Rect2(Vector2.ZERO, LayoutDef.new().room_size)
 var _sky_top: Color = Color(0.10, 0.13, 0.28)
 var _sky_bottom: Color = Color(0.42, 0.60, 0.82)
 var _sil_far: Color = Color(0.20, 0.24, 0.40)
@@ -228,9 +245,9 @@ func _process(delta: float) -> void:
 	if _warm_left > 0.0:
 		return
 	# Done: hand the field back to real time and stop paying for _process at all.
-	for p: GPUParticles2D in _warming:
-		if is_instance_valid(p):
-			p.speed_scale = 1.0
+	for raw: Variant in _warming:
+		if is_instance_valid(raw):
+			(raw as GPUParticles2D).speed_scale = 1.0
 	_warming.clear()
 	set_process(false)
 

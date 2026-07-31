@@ -2,10 +2,21 @@
 .godot/
 *.import
 export.cfg
-export_presets.cfg
 build/
 *.tmp
 .import/
+
+# export_presets.cfg is deliberately TRACKED (it was ignored until Phase 6).
+# It is real, shared project config now — the Android preset's exclude list is
+# the only thing keeping the MCP dev bridge, the spike sandboxes and 327 tools
+# scripts out of the shipping APK, and that must not be a per-machine setting
+# somebody silently lacks. Godot writes keystore paths and passwords to the
+# SEPARATE export_credentials.cfg, which stays ignored below — but this file is
+# still worth a glance before committing, because a "signing" field that ends up
+# here is a leaked credential in a public repo.
+export_credentials.cfg
+*.keystore
+*.jks
 
 # --- Python ---
 __pycache__/
