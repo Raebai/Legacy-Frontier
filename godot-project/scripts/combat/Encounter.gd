@@ -131,6 +131,13 @@ var _phase: int = Phase.IDLE
 var _running: bool = false
 var _boss_seen: bool = false
 var _boss_grace: float = 0.0
+# --- boss roster + modifiers (see the ROSTER block above spawn_boss) ---
+var _depth: int = 0
+var _forced_boss: String = ""
+var _forced_mods: Array[String] = []
+var _allow_mods: bool = false
+## The last roll, kept for logging / capture tooling. {"boss","mods","seed","depth"}.
+var _boss_roll: Dictionary = {}
 
 ## Co-op: enemies are HOST-authoritative. In a session the host builds every enemy
 ## through Arena's MultiplayerSpawner (so spawns + despawns replicate to clients);
@@ -180,6 +187,17 @@ func run_floor(floor_def: FloorDef) -> void:
 	_waves = resolved_waves(floor_def)
 	_spawns_boss = floor_def.floor_type != FloorDef.FloorType.REST \
 		and not floor_def.special_tags.has("no_boss")
+	# WHICH ARTIST DREW THIS FLOOR, and what rides along. Resolved here rather than
+	# at spawn time so an authored floor's pins are read once, with the FloorDef in
+	# hand, instead of being re-parsed inside the spawn path.
+	_depth = _resolve_depth(floor_def)
+	var pins: Dictionary = BossRoster.parse_tags(floor_def.special_tags)
+	_forced_boss = String(pins["boss"])
+	_forced_mods = []
+	for m in (pins["mods"] as Array):
+		_forced_mods.append(String(m))
+	_allow_mods = bool(pins["allow_mods"]) and _modifiers_enabled()
+	_boss_roll = {}
 	_wave_index = -1
 	_boss_seen = false
 	_boss_grace = 0.0
@@ -348,10 +366,69 @@ func _begin_boss() -> void:
 	_phase = Phase.BOSS
 	_boss_seen = false
 	_boss_grace = BOSS_ARRIVAL_GRACE
+	# THE ROLL HAPPENS EXACTLY HERE AND NOWHERE ELSE, and this line is only reached
+	# on the HOST (a co-op client returns out of run_floor before it ever starts a
+	# wave). Everything downstream is pure construction from the dictionary the roll
+	# produces, which is what keeps the two phones fighting the same boss — see the
+	# CO-OP block in BossRoster.gd.
+	_boss_roll = BossRoster.roll(_depth, randi(), _forced_boss, _forced_mods, _allow_mods)
 	# _boss_hp, not the trash multiplier: depth HP scaling now lives on the
 	# guardian alone (FloorDef.boss_hp_multiplier).
-	spawn_boss(_boss_hp * _boss_scale, _boss_scale)
+	spawn_boss(_boss_hp * _boss_scale, _boss_scale,
+		String(_boss_roll["boss"]), _boss_roll["mods"], int(_boss_roll["seed"]))
 	boss_spawned.emit()
+
+
+## THIS FLOOR'S DEPTH. The authored field wins; a floor that does not carry one
+## (a hand-built FloorDef, an older authored .tres) falls back to the live run, and
+## finally to 1 — which yields zero modifiers, i.e. exactly the pre-roster boss.
+func _resolve_depth(floor_def: FloorDef) -> int:
+	if floor_def != null and floor_def.depth > 0:
+		return floor_def.depth
+	var gs: Node = _autoload("GameState")
+	if gs != null and gs.has_method("current_floor"):
+		return maxi(int(gs.call("current_floor")), 1)
+	return 1
+
+
+## ⚠ NOT `get_node_or_null("/root/GameState")`. An absolute path from a node that is
+## not inside the ACTIVE scene tree does not return null — it raises an engine error,
+## which ABORTS THE ENCLOSING FUNCTION and hands the caller the return type's zero
+## value with nothing said. Encounter is reachable from harnesses that build their
+## world in `_initialize` (there is no current scene at that point), and this exact
+## shape has already cost this codebase one silent bug: `_boss_spawn_position`'s
+## unguarded `get_tree()` used to abort and spawn the guardian at (0, 0).
+##
+## Going through `tree.root` makes it a RELATIVE lookup, which is legal from
+## anywhere, and the is_inside_tree guard covers the genuinely-detached case.
+func _autoload(node_name: String) -> Node:
+	if not is_inside_tree():
+		return null
+	var tree: SceneTree = get_tree()
+	if tree == null or tree.root == null:
+		return null
+	return tree.root.get_node_or_null(node_name)
+
+
+## MODIFIERS ARE A CLIMB FEATURE. They ride only when a real run is in progress —
+## the F6 combat sandbox, the boss-rush path and every headless harness get the
+## plain, unmodified boss.
+##
+## That is a design call, not a convenience: the sandbox exists to measure FEEL, and
+## a boss that teleports, splits or plays dead depending on an unseeded roll makes
+## the sandbox useless for exactly the thing it is for. It also keeps the roster
+## honest under test — a suite that spawns a floor gets a deterministic fight.
+func _modifiers_enabled() -> bool:
+	var gs: Node = _autoload("GameState")
+	if gs == null or not gs.has_method("is_run_active"):
+		return false
+	return bool(gs.call("is_run_active"))
+
+
+## The roll that produced the floor's current guardian, or {} before one is spawned.
+## Read by capture tooling and by the headless roster suite.
+func boss_roll() -> Dictionary:
+	return _boss_roll
 
 
 func _finish() -> void:
@@ -535,13 +612,37 @@ func _live_enemy_count() -> int:
 ## `body_scale` shrinks the colossus for a non-BOSS floor's mini-guardian (1.0 is
 ## the full Ashspire Guardian). It rides in the spawn data, so co-op peers build
 ## the same size from the same dict.
-func spawn_boss(hp_mult: float, body_scale: float = 1.0) -> Node:
+## ── THE ROSTER RIDES IN THE SPAWN DICTIONARY ─────────────────────────────────
+## `boss_id` names which of BossRoster's four artists drew this floor, and `mods`
+## lists the modifiers riding it. BOTH TRAVEL IN THE DICT ON PURPOSE. The roll they
+## came from happened once, on the host, in `_begin_boss`; from here down there is
+## no randomness at all, so `build_enemy_from_data` stays what
+## tools/slice_test_coop.gd locks it as — pure construction that produces a
+## byte-identical boss on every peer from identical data.
+##
+## Defaulted so every pre-roster caller is unchanged: `spawn_boss(1.4)` from the
+## boss-rush path still builds the plain Ashspire Guardian with no modifiers.
+##
+## The per-boss `hp_scale` applied here is IDENTITY, not depth difficulty — a
+## scribble is a short violent fight and an illuminator is a long one. The depth
+## curve is `hp_mult`, which arrives from FloorDef.boss_hp_multiplier and is not
+## touched. See the warning on BossRoster.ENTRIES.
+func spawn_boss(hp_mult: float, body_scale: float = 1.0,
+		boss_id: String = BossRoster.GUARDIAN, mods: Array = [], roll_seed: int = 0) -> Node:
 	var pos: Vector2 = _boss_spawn_position()
 	var s: float = clampf(body_scale, 0.3, 1.0)
+	var bid: String = boss_id if BossRoster.has(boss_id) else BossRoster.GUARDIAN
+	var mod_ids: Array[String] = []
+	for m in mods:
+		mod_ids.append(String(m))
 	return _emit_enemy({
 		"boss": true,
-		"hp": int(round(BOSS_BASE_HP * hp_mult)),   # set pre-_ready so defaults don't override
-		"spd": BOSS_MOVE_SPEED,
+		"bid": bid,
+		"mods": mod_ids,
+		"bseed": roll_seed,                          # replay handle; construction ignores it
+		# set pre-_ready so Enemy._apply_archetype_defaults leaves the explicit values
+		"hp": maxi(int(round(BOSS_BASE_HP * hp_mult * BossRoster.hp_scale(bid))), 1),
+		"spd": BOSS_MOVE_SPEED * BossRoster.speed_scale(bid),
 		"touch": maxi(int(round(BOSS_TOUCH_DAMAGE * lerpf(0.6, 1.0, s))), 1),
 		"bscale": s,
 		"x": pos.x, "y": pos.y,
@@ -604,13 +705,33 @@ func _emit_enemy(data: Dictionary) -> Node:
 func build_enemy_from_data(data: Dictionary) -> CharacterBody2D:
 	var e: CharacterBody2D
 	if bool(data.get("boss", false)):
-		e = BOSS_SCENE.instantiate()   # Boss._ready installs rig height/tint/aura + bar + intro
+		# WHICH ARTIST. Absent on legacy/hand-written spawn dicts -> the Ashspire
+		# Guardian, so every pre-roster caller builds byte-identically to before.
+		e = _boss_scene(String(data.get("bid", BossRoster.GUARDIAN))).instantiate()
 		e.max_hp = int(data["hp"])
 		e.move_speed = float(data["spd"])
 		e.touch_damage = int(data["touch"])
 		# Absent on legacy/hand-written spawn dicts -> 1.0 = the full colossus, so
 		# every pre-waves caller builds byte-identically to before.
 		e.body_scale = float(data.get("bscale", 1.0))
+		# MODIFIERS ARE ATTACHED HERE — before the boss enters the tree, and on
+		# EVERY peer, because this function is the one construction path both the
+		# single-player add_child and the co-op MultiplayerSpawner run through.
+		# Riders defer their own setup to their first _process, so pre-tree is safe
+		# (see BossModifier.gd). Attaching after add_child would work in SP and
+		# silently not happen in co-op, where the add_child lives in Arena.gd.
+		var mods: Array = data.get("mods", [])
+		if not mods.is_empty():
+			BossModifier.attach(e, mods, data)
+		# A boss body that is NOT this floor's headline act (today: a Split copy)
+		# gives up its top bar and its name card, and starts already fighting.
+		if bool(data.get("quiet", false)):
+			var q_gs: GDScript = load("res://scripts/combat/bossmods/BossQuiet.gd") as GDScript
+			if q_gs != null:
+				var q: Node = q_gs.new()
+				q.name = "Quiet"
+				q.set("target_phase", int(data.get("qphase", 1)))
+				e.add_child(q)
 	else:
 		e = ENEMY_SCENE.instantiate()
 		e.archetype = int(data["arch"])
@@ -621,6 +742,28 @@ func build_enemy_from_data(data: Dictionary) -> CharacterBody2D:
 		e.uses_telegraphed_attack = bool(data["tele"])
 	e.position = Vector2(float(data["x"]), float(data["y"]))
 	return e
+
+
+## PackedScene for a roster id, cached. Loaded at RUNTIME rather than preloaded:
+## four `preload`s at the top of this file would drag four boss scripts and their
+## whole spell chains into the dependency graph of every harness that so much as
+## touches Encounter — the trap documented at the top of tools/slice_test_boss.gd,
+## where pulling Boss in early boot resolves its spells before the Sfx autoload
+## exists. The default Guardian keeps its preload because it always had one.
+static var _boss_scene_cache: Dictionary = {}
+
+
+func _boss_scene(boss_id: String) -> PackedScene:
+	if boss_id == BossRoster.GUARDIAN:
+		return BOSS_SCENE
+	if _boss_scene_cache.has(boss_id):
+		return _boss_scene_cache[boss_id] as PackedScene
+	var ps: PackedScene = load(BossRoster.scene_path(boss_id)) as PackedScene
+	if ps == null:
+		push_warning("Encounter: no scene for boss '%s' — falling back to the Guardian" % boss_id)
+		ps = BOSS_SCENE
+	_boss_scene_cache[boss_id] = ps
+	return ps
 
 
 ## Weighted roll over ALL EIGHT archetypes. Chaser is the backbone; the tankier /
