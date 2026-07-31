@@ -325,13 +325,48 @@ var hp: int = 100
 ## onto this damage_pct, and knockback scales with it (higher % = you fly farther).
 ## Reset to 0 on a ring-out respawn (VersusArena._respawn). Tower mode ignores it.
 var damage_pct: float = 0.0
+## ⚠ MANA NO LONGER GATES ANYTHING. Per the mobile spec — "Cooldowns, not mana. Mana
+## makes people hoard and play safe, which is the opposite of what this game wants" —
+## `_cast_signature` no longer checks or spends it. The pool is still tracked and still
+## regenerates (so it reads full, and so `mana_changed` keeps its subscribers), but
+## nothing can run out of it and no cast is ever refused for it.
+##
+## WHY THE FIELDS SURVIVE RATHER THAN BEING DELETED. `SpellDef.mp_cost` is read by two
+## systems that have nothing to do with resource management: `SpellTier.of()` uses it
+## as one of three shelf thresholds (>= 70 forces ULT), which is ALSO the reaction
+## clash weight and the loadout slot rule; and the cast/channel sigils scale their
+## radius by it, so the tell of a big spell is literally sized from its cost. Deleting
+## the field would silently reshelve spells and shrink their telegraphs — an expensive
+## change to save a float per hero.
+##
+## There is no mana UI to hide: `CharacterBars.configure(show_mp)` defaults to false
+## and no caller has ever passed true, so the bar has never been drawn.
 @export var max_mp: int = 100
 var mp: float = 100.0
 ## Equipped SIGNATURE loadout (SpellLibrary) — the spell tree the player cycles
 ## (V) and unleashes (Ultimate key), MP-gated with a per-spell cooldown.
 var _signatures: Array = []
 var _signature_index: int = 0
-var _signature_cd_timer: float = 0.0
+
+## PER-SLOT COOLDOWNS, owned by `HandSlots`.
+##
+## This used to be a single `_signature_cd_timer` float: ONE bank shared by the whole
+## kit, so throwing a 1.2 s jab locked your 9 s ult for 1.2 s and — much worse —
+## throwing the ult locked every other spell in the kit for nine seconds. With three
+## spell buttons on the right thumb that is not a balance quirk, it is the buttons not
+## working: two of the three are dark most of the fight for reasons the player cannot
+## see, because the bar was showing three cooldowns that were secretly one number.
+##
+## `HandSlots` already implemented real per-slot cooldowns (`start_cooldown` / `tick`
+## / `is_ready`), fully headless-tested, and was used by nothing but the spike
+## playground and `LoadoutBar`. This is that code finally being called by the shipped
+## hero rather than a second implementation of it.
+##
+## ⚠ THE INDEX OFFSET. `HandSlots` always keeps FISTS at index 0 so a player can never
+## end up with no melee option, so signature slot `i` lives at hand index `i + 1`.
+## Never index `_hand` with a signature index directly — go through `_hand_slot()`.
+var _hand: HandSlots = HandSlots.new()
+const HAND_SPELL_OFFSET: int = 1
 ## Twin-stick: `facing`/`_aim_dir` track the CURSOR (drive casts, melee arc, cast
 ## pose, camera peek); `_move_dir` tracks WASD (drives dash + blink dodge). They
 ## are decoupled so you can run one way while aiming/casting another (strafe).
@@ -561,11 +596,15 @@ func bot_body_state() -> Dictionary:
 	var cds: Array[float] = []
 	for _i: int in BotIntent.CD_COUNT:
 		cds.append(0.0)
-	# The five kit slots share ONE cooldown bank — picking a different role does
-	# not dodge it. Published per-slot anyway so `cooldowns[cast_slot]` is always
-	# the right question to ask, whatever the numbering grows into later.
+	# PER-SLOT, and now genuinely so. This used to publish the single shared bank
+	# under every slot index — the shape was already right ("ask cooldowns[cast_slot]")
+	# and the numbers were a lie, so a brain that reasoned about which slot to reach
+	# for was reasoning about one timer wearing five hats.
+	#
+	# Slots past the kit's size report 0.0 (ready). `slot_affordable` below is what
+	# actually tells a brain those slots hold nothing, and it is the stricter answer.
 	for slot: int in BotIntent.SLOT_COUNT:
-		cds[slot] = _signature_cd_timer
+		cds[slot] = signature_cooldown(slot)
 	cds[BotIntent.CD_PRIMARY] = _cast_cooldown_timer
 	cds[BotIntent.CD_DASH] = _dash_cooldown_timer
 	cds[BotIntent.CD_BLAST] = _blast_cooldown_timer
@@ -579,13 +618,23 @@ func bot_body_state() -> Dictionary:
 	if _guard != null:
 		cds[BotIntent.CD_GUARD] = 0.0 if _guard.is_ready() else _guard.rearm_time()
 	# Per-kit-slot facts a brain cannot derive from `class_id` alone because they
-	# move at runtime: can I pay for it, and does it commit me to an interruptible
-	# levitating channel (`cast_time > 0`) that any landed hit shatters.
+	# move at runtime: can I actually throw this right now, and does it commit me to
+	# an interruptible levitating channel (`cast_time > 0`) that any landed hit
+	# shatters.
+	#
+	# ⚠ `slot_affordable` KEPT ITS NAME AND CHANGED ITS MEANING, deliberately. Mana no
+	# longer gates a cast (see `_cast_signature`), so `mp >= mp_cost` was about to
+	# become permanently true and the field would have quietly stopped carrying any
+	# information at all — a blackboard key that always says yes is worse than no key,
+	# because a brain keeps consulting it. It now means "this slot exists AND is off
+	# cooldown", which is the question the old field was a proxy for, and it is the
+	# answer that also stops a bot reaching for a slot its class does not have now
+	# that kits are three spells and `BotIntent.SLOT_COUNT` is still five.
 	var affordable: Array[bool] = []
 	var cast_times: Array[float] = []
 	for slot: int in BotIntent.SLOT_COUNT:
 		var s: SpellDef = signature_at(slot)
-		affordable.append(s != null and mp >= float(s.mp_cost))
+		affordable.append(s != null and signature_ready(slot))
 		cast_times.append(s.cast_time if s != null else 0.0)
 	return {
 		"self_id": get_instance_id(),
@@ -950,7 +999,9 @@ func _physics_process(delta: float) -> void:
 	# after every cast.
 	if _guard != null:
 		_guard.tick(delta)
-	_signature_cd_timer = maxf(_signature_cd_timer - delta, 0.0)
+	# Every kit slot recovers independently, and they all recover WHILE you are
+	# committed to something else — same reasoning as the guard ring above.
+	_hand.tick(delta)
 	_wall_jump_lock = maxf(_wall_jump_lock - delta, 0.0)
 	_knockback = _knockback.move_toward(Vector2.ZERO, KNOCKBACK_DECAY * delta)
 	_update_flaming_fist(delta)
@@ -1355,7 +1406,11 @@ func configure_class(cls: int) -> void:
 		_apply_element()
 	_signatures = SpellLibrary.build_for_class(cls)
 	_signature_index = 0
-	_signature_cd_timer = 0.0
+	# Rebuild the cooldown bank FROM the new kit, which also clears every timer. A
+	# per-slot bank makes this load-bearing in a way the old single float was not: a
+	# leftover timer would otherwise lock a slot of a class the player has never cast
+	# with, and Tab swaps classes live.
+	_hand.rebuild([], _signatures)
 	if not _signatures.is_empty():
 		signature_changed.emit(_signatures[_signature_index].display_name)
 	# Snapshot the fully-tuned class base (post equip_weapon) so gear mults scale from
@@ -1471,30 +1526,36 @@ func current_class_name() -> String:
 	return CLASS_NAMES[_hero_class] if _hero_class < CLASS_NAMES.size() else "Class"
 
 
-## Unleash the equipped SIGNATURE spectacle toward the aim, if off cooldown and
-## MP allows. Consumes the SpellDef's mp_cost; SpellCaster picks the spectacle
-## (magic-circle beam / divine ray / ...). Not buffered — a deliberate press.
+## Unleash the equipped SIGNATURE spectacle toward the aim, if THAT SLOT is off
+## cooldown. SpellCaster picks the spectacle (magic-circle beam / divine ray / ...).
+## Not buffered — a deliberate press.
+##
+## ⚠ NO MANA GATE. Deleted deliberately, per the spec: "Cooldowns, not mana. Mana
+## makes people hoard and play safe, which is the opposite of what this game wants."
+## A pool you can run dry teaches you to stop pressing buttons, and a co-op brawler
+## whose social engine is friendly fire needs people pressing buttons. `mp_cost`
+## SURVIVES on `SpellDef` and is still read — `SpellTier.of()` uses it as one of its
+## three shelf thresholds, and the cast/channel sigils scale their radius by it — so
+## deleting the field would silently reshelve spells and shrink their tells. It costs
+## nothing to keep; it just no longer stops a cast.
 func _cast_signature() -> void:
 	if _signatures.is_empty():
 		return
 	var spell: SpellDef = _signatures[_signature_index]
 	# Second beat of a THROWN_ANCHOR: with a dagger already out, this press means
-	# RECALL, and it must be free. This branch has to sit ABOVE both gates below —
-	# the cooldown is running from the throw, and charging mana again would bill
-	# the player twice for one cast.
+	# RECALL, and it must be free. This branch has to sit ABOVE the gate below —
+	# the cooldown is running from the throw.
 	if spell.kind == SpellDef.Kind.THROWN_ANCHOR \
 			and (load(RIFT_DAGGER_PATH) as GDScript).try_recall(get_tree(), self):
 		return
-	if _signature_cd_timer > 0.0:
-		return
-	if mp < float(spell.mp_cost):
-		# Not enough mana: a soft fizzle cue, no cast, no cooldown burned.
+	var slot: int = _hand_slot(_signature_index)
+	if not _hand.is_ready(slot):
+		# THIS slot is still recovering. A different slot may well be ready, which is
+		# the entire point of the per-slot bank.
 		rig.flash_color(Color(0.5, 0.5, 0.6), 0.08)
 		Sfx.play("melee_swing", -14.0, 0.0)
 		return
-	mp -= float(spell.mp_cost)
-	mana_changed.emit(mp, max_mp)
-	_signature_cd_timer = spell.cooldown
+	_hand.start_cooldown(slot, spell.cooldown)
 	# Sky spells (meteor / divine row) raise the staff UP and place from the hero;
 	# beams emanate FROM the staff tip toward the aim.
 	var sky: bool = spell.kind == SpellDef.Kind.METEOR or spell.kind == SpellDef.Kind.DIVINE_RAY \
@@ -1872,11 +1933,28 @@ func current_signature() -> SpellDef:
 	return _signatures[_signature_index]
 
 
+## Hand index of signature slot `i`. See `_hand`'s note: FISTS permanently occupies
+## hand index 0, so the kit starts one along. Never do this arithmetic inline.
+func _hand_slot(sig_index: int) -> int:
+	return sig_index + HAND_SPELL_OFFSET
+
+
+## Seconds left on signature slot `i` — the per-slot replacement for reading the old
+## shared `_signature_cd_timer`. Public so the HUD, the bots and the tests all ask the
+## same question of the same owner instead of three of them keeping their own copy.
+func signature_cooldown(sig_index: int) -> float:
+	return _hand.cooldown(_hand_slot(sig_index))
+
+
+func signature_ready(sig_index: int) -> bool:
+	return _hand.is_ready(_hand_slot(sig_index))
+
+
 func signature_cooldown_ratio() -> float:
 	var s: SpellDef = current_signature()
 	if s == null or s.cooldown <= 0.0:
 		return 0.0
-	return clampf(_signature_cd_timer / s.cooldown, 0.0, 1.0)
+	return clampf(signature_cooldown(_signature_index) / s.cooldown, 0.0, 1.0)
 
 
 ## Rogue dash-strike: every enemy/crate the dash passes within range takes melee
@@ -2753,12 +2831,22 @@ func class_display_name() -> String:
 	return CLASS_NAMES[_hero_class] if _hero_class < CLASS_NAMES.size() else "Class"
 
 
-## Start the signature cooldown from OUTSIDE. A deferred-resolution spell (the
-## Rift Dagger) only "completes" when its anchor resolves or expires, so it — not
-## _cast_signature — decides when the timer starts. maxf, never assign: it must
-## not be able to SHORTEN a timer that is already running.
+## Start the CURRENTLY SELECTED signature's cooldown from OUTSIDE. A
+## deferred-resolution spell (the Rift Dagger) only "completes" when its anchor
+## resolves or expires, so it — not _cast_signature — decides when the timer starts.
+## Never allowed to SHORTEN a running timer, which is why the maxf survives the move
+## to a per-slot bank: `HandSlots.start_cooldown` assigns, so the guard has to live
+## on this side of it.
+##
+## ⚠ Charges the SELECTED slot, which is the honest reading of the old shared bank
+## and is right for its one caller — the dagger resolves while you still hold it. A
+## spell that could resolve after you had switched away would need the slot INDEX
+## plumbed through it; nothing does that today, and guessing which slot to bill would
+## be worse than not offering it.
 func start_signature_cooldown(seconds: float) -> void:
-	_signature_cd_timer = maxf(_signature_cd_timer, seconds)
+	var slot: int = _hand_slot(_signature_index)
+	if seconds > _hand.cooldown(slot):
+		_hand.start_cooldown(slot, seconds)
 
 
 ## Hotbar slot for the equipped signature: short name (first word of the spell),
@@ -2781,8 +2869,12 @@ func _signature_hud_slot() -> Dictionary:
 	var short_name: String = AbilityBar.short_spell_name(sig.display_name)
 	return {
 		"name": short_name, "key": "G",
-		"remaining": _signature_cd_timer, "total": maxf(sig.cooldown, 0.01),
-		"enabled": mp >= float(sig.mp_cost),
+		"remaining": signature_cooldown(_signature_index),
+		"total": maxf(sig.cooldown, 0.01),
+		# Was `mp >= sig.mp_cost`. With the mana gate gone, "enabled" means the slot
+		# exists and is yours — the cooldown wipe above is what says "not yet", and a
+		# slot that was BOTH dimmed and wiped said the same thing twice.
+		"enabled": true,
 	}
 
 
@@ -3191,7 +3283,7 @@ func revive() -> void:
 	_blink_cooldown_timer = 0.0
 	_nova_cooldown_timer = 0.0
 	_parry_cooldown_timer = 0.0
-	_signature_cd_timer = 0.0
+	_hand.clear_cooldowns()  # every kit slot, not one shared bank
 	if _channeling:
 		_cancel_channel()
 	if _summoning:

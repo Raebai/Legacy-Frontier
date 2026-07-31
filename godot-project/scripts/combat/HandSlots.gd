@@ -136,10 +136,19 @@ func spell() -> Variant:
 
 # ---- cooldowns (the bar draws these as the League-style sweep) --------------
 
+## Put slot `index` on cooldown for `seconds`.
+##
+## `cooldown_total` is recorded alongside the remaining time because the League-style
+## sweep needs BOTH to draw a fraction, and `LoadoutBar` was already reading it —
+## `float(entry.get("cooldown_total", cd))`. Nothing ever wrote it, so that fallback
+## made total == remaining, the fraction was 1.0 on every frame, and the veil sat at
+## full height for the whole cooldown and then vanished. The bar was not broken; it
+## was being handed a number nobody had ever set.
 func start_cooldown(index: int, seconds: float) -> void:
 	if index < 0 or index >= slots.size():
 		return
 	slots[index]["cooldown"] = seconds
+	slots[index]["cooldown_total"] = maxf(seconds, 0.001)
 	slots[index]["ready"] = seconds <= 0.0
 
 
@@ -148,6 +157,33 @@ func tick(delta: float) -> void:
 		if float(s.get("cooldown", 0.0)) > 0.0:
 			s["cooldown"] = maxf(float(s["cooldown"]) - delta, 0.0)
 			s["ready"] = float(s["cooldown"]) <= 0.0
+
+
+## Seconds left on slot `index`, or 0.0 for an out-of-range one. An out-of-range slot
+## reads READY rather than blocked, matching `is_ready`'s "an index nobody owns cannot
+## be the reason a press failed" — a cooldown is a fact about a slot that exists.
+func cooldown(index: int) -> float:
+	if index < 0 or index >= slots.size():
+		return 0.0
+	return float(slots[index].get("cooldown", 0.0))
+
+
+## What that cooldown started at — the denominator of the sweep.
+func cooldown_total(index: int) -> float:
+	if index < 0 or index >= slots.size():
+		return 0.0
+	return float(slots[index].get("cooldown_total", 0.0))
+
+
+## Put every slot back to ready. For a class swap or a respawn, where a leftover
+## timer from the PREVIOUS kit would otherwise lock a spell the player has never
+## cast — the exact bug a shared bank could not have, and the first one a per-slot
+## bank invites.
+func clear_cooldowns() -> void:
+	for s: Dictionary in slots:
+		s["cooldown"] = 0.0
+		s["cooldown_total"] = 0.0
+		s["ready"] = true
 
 
 ## A slot on cooldown is still SELECTABLE — you can scroll onto it and see the
