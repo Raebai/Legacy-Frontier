@@ -177,9 +177,39 @@ func current_phase() -> int:
 		_: return 0
 
 
+## PHASE ESCALATION, and in co-op it has to CROSS. `take_damage` forwards a puppet
+## hit to the host before any phase logic runs, which is correct — but it means a
+## client's guardian never re-tinted, never grew its aura, never played the enrage
+## beat. Half the party watched a boss that visibly never changed. The broadcast
+## goes out first so the two screens escalate together.
 func _enter_phase(p: int) -> void:
+	if _net != null and _net.is_host():
+		_net.broadcast_boss_phase(self, p)
+	_apply_phase(p, true)
+	emit_signal("phase_changed", current_phase())
+
+
+## Client side of the same escalation, driven by the host's broadcast. Same LOOK,
+## none of the fight logic — see the `authoritative` flag below for exactly what a
+## client must not do.
+func net_apply_phase(p: int) -> void:
+	_apply_phase(p, false)
+	emit_signal("phase_changed", current_phase())
+
+
+## ⚠ ONE FUNCTION, NOT TWO, and that is the point. The obvious shape here is a
+## client-side copy of the escalation — and a copy is precisely how the two drift:
+## the next person to retint P3 edits one of them, the boss looks different on the
+## two phones, and nothing errors. So the host path and the client path are the same
+## code, and `authoritative` names the only difference.
+##
+## What a client must NOT do: spawn the enrage adds (enemies are host-owned, and a
+## client minting its own would put bodies on one screen that exist on neither peer's
+## authority), or drive the attack clock (only the host chooses attacks at all).
+func _apply_phase(p: int, authoritative: bool) -> void:
 	_bphase = p
-	_attack_cd = float(PHASE_CD.get(p, 2.0)) * 0.6
+	if authoritative:
+		_attack_cd = float(PHASE_CD.get(p, 2.0)) * 0.6
 	match p:
 		BPhase.P1:
 			if _adorn != null: _adorn.set_intensity(0.35)
@@ -194,7 +224,8 @@ func _enter_phase(p: int) -> void:
 				rig.set_aura_tier(3)
 				rig.flash_color(Color(1.4, 1.3, 1.2), 0.18)
 			Juice.epic_moment({"strength": 1.1, "shake": 12.0, "sfx": "charge_up"})
-			_atk_summon()   # open the enrage with adds
+			if authoritative:
+				_atk_summon()   # open the enrage with adds
 		BPhase.P3:
 			if _adorn != null: _adorn.set_intensity(1.0)
 			if is_instance_valid(rig):
@@ -208,7 +239,14 @@ func _enter_phase(p: int) -> void:
 			Juice.epic_moment({"strength": 1.2, "shake": 14.0, "sfx": "cannon",
 				"frame": true, "at": global_position,
 				"style": ImpactFrame.Style.SILHOUETTE})
-	emit_signal("phase_changed", current_phase())
+
+
+## Broadcast one spectacle to every client as a DAMAGE-FREE twin. Host-gated inside
+## `Net.broadcast_boss_fx`, so this is a no-op in single player and on a client.
+func _bfx(kind: String, data: Dictionary) -> void:
+	if _net != null and _net.is_host():
+		data["src"] = String(get_path())
+		_net.broadcast_boss_fx(kind, data)
 
 
 # ------------------------------------------------------------ attack selection
@@ -276,8 +314,12 @@ func _atk_slam() -> void:
 	b.set("caster_node", self)
 	b.configure({"target_group": "hero", "damage": 28, "radius": 100, "knockback": 360, "windup": 0.7, "element_id": Elements.Element.EARTH})
 	b.detonate_at(center)   # runs its own ZONE telegraph windup (the dodge tell)
+	# Co-op: the slam's own windup IS the dodge tell, so the twin carries it too —
+	# a client that only got the crater would be told about the attack after it hit.
+	_bfx("slam", {"pos": center, "r": 100.0, "windup": 0.7, "el": Elements.Element.EARTH})
 	get_tree().create_timer(0.7).timeout.connect(func() -> void:
 		GroundCrater.spawn(get_parent(), center, 64.0, true)
+		_bfx("crater", {"pos": center, "r": 64.0})
 		Juice.on_hit({"shake": 15.0, "sfx": "blast", "hitstop": 0.09}))
 
 
@@ -295,7 +337,8 @@ func _atk_pillars() -> void:
 			p.target_group = "hero"
 			p.set("caster_node", self)   # caster identity — see _atk_beam
 			get_parent().add_child(p)
-			p.erupt(pt, Color(0.8, 0.55, 0.28), 66.0, 30))
+			p.erupt(pt, Color(0.8, 0.55, 0.28), 66.0, 30)
+			_bfx("pillar", {"pos": pt, "col": Color(0.8, 0.55, 0.28), "r": 66.0}))
 
 
 ## THE TELL. Snapshot the aim, lay a charge LANE from the guardian along it, and
@@ -342,6 +385,8 @@ func _fire_beam(dir: Vector2) -> void:
 	beam.caster_node = self
 	get_parent().add_child(beam)
 	beam.fire(origin, dir, Color(0.7, 0.4, 1.0), 1400.0, 34.0, 34, "arcane")
+	_bfx("beam", {"pos": origin, "dir": dir, "col": Color(0.7, 0.4, 1.0),
+		"len": 1400.0, "w": 34.0, "fx": "arcane", "el": Elements.Element.ARCANE})
 
 
 func _atk_rays() -> void:
@@ -358,7 +403,9 @@ func _atk_rays() -> void:
 			d.target_group = "hero"
 			d.set("caster_node", self)   # caster identity — see _atk_beam
 			get_parent().add_child(d)
-			d.strike(pt, Color(1.0, 0.5, 0.2), 70.0, 40, "fire"))
+			d.strike(pt, Color(1.0, 0.5, 0.2), 70.0, 40, "fire")
+			_bfx("ray", {"pos": pt, "col": Color(1.0, 0.5, 0.2), "r": 70.0, "fx": "fire",
+				"el": Elements.Element.FIRE}))
 
 
 ## Adds are capped TWICE: by the guardian's own ADD_CAP (this fight should not
@@ -400,6 +447,8 @@ func _atk_meteor() -> void:
 	m.set("caster_node", self)   # caster identity — see _atk_beam
 	get_parent().add_child(m)
 	m.rain(_hero.global_position, Color(1.0, 0.55, 0.2), 170.0, 22, 12, "fire")
+	_bfx("meteor", {"pos": _hero.global_position, "col": Color(1.0, 0.55, 0.2),
+		"r": 170.0, "n": 12, "fx": "fire", "el": Elements.Element.FIRE})
 	Juice.zoom_pull_camera(0.16, 0.5)
 
 
@@ -411,6 +460,8 @@ func _atk_convergence() -> void:
 	s.set("caster_node", self)   # caster identity — see _atk_beam
 	get_parent().add_child(s)
 	s.converge(_hero.global_position, Color(1.0, 0.4, 0.15), 170.0, 110, "fire")
+	_bfx("convergence", {"pos": _hero.global_position, "col": Color(1.0, 0.4, 0.15),
+		"r": 170.0, "fx": "fire", "el": Elements.Element.FIRE})
 
 
 func _atk_nova() -> void:
@@ -419,6 +470,7 @@ func _atk_nova() -> void:
 	n.set("caster_node", self)   # caster identity — see _atk_beam
 	get_parent().add_child(n)
 	n.activate_at(global_position)
+	_bfx("nova", {"pos": global_position})
 
 
 # ------------------------------------------------------------------ boss HUD
