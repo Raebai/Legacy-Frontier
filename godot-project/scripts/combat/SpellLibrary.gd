@@ -323,7 +323,349 @@ static func build_all() -> Array:
 		_rock_wall(), _ice_wall(), _aegis_ward(),
 		# NEW DELIVERY SHAPES (floor traveller + thrown anchor)
 		_creeping_shade(), _rift_dagger(),
-	]
+		# THE DROP ECONOMY — never in a class kit, only ever picked up. Included
+		# here so the audit sandbox can review them and so the element/effect
+		# invariant test covers them like everything else.
+	] + build_tier2() + build_tier3()
+
+
+# ================================================================ THE DROP ECONOMY
+## TIER 2 (floor pickups) and TIER 3 (boss drops). Read the header of
+## `SpellDrops.gd` for how scarce each of these is and why scarcity is the whole
+## balance model; this file only says what they DO.
+##
+## ⚠ NONE OF THESE MAY EVER ENTER `CLASS_KITS`. That is the spec's one hard rule
+## about them — "never in the starting kit" — and it is pinned by
+## `tools/slice_test_drops.gd`, which fails if any drop id is reachable from
+## `build_for_class` on any class.
+##
+## SHELF / CLASH WEIGHT IS CHOSEN, NOT INHERITED. `SpellTier.of()` derives the shelf
+## from cast time / cooldown / MP and that shelf IS the reaction weight, so these
+## numbers decide what happens when a drop meets a spell head-on:
+##   * Tier 2 mostly lands on HEAVY — it trades with a class HEAVY and LOSES to a
+##     class ULT. A floor pickup is not supposed to win clashes; it is supposed to
+##     be an EVENT. Meteor Storm is the deliberate exception (a 1.2 s channelled
+##     bombardment is an ult by every measure the derivation uses, and pretending
+##     otherwise would be the kind of lie the derivation exists to prevent).
+##   * Tier 3 is ULT on every axis, so a boss drop eats anything below it.
+## There is deliberately NO fourth shelf. Appending one to `SpellTier.Tier` would
+## be legal (only the ORDER is load-bearing) but `Juice.tier_frame` and friends
+## `match` on the three that exist and would silently draw nothing for a fourth —
+## in files owned elsewhere.
+
+
+## The six Tier 2 floor pickups, fresh instances (Resources are reference types).
+static func build_tier2() -> Array:
+	return [_arc_of_fools(), _meteor_storm(), _petrify(), _gravity_flip(),
+		_blood_pact(), _mirror_image()]
+
+
+## The four Tier 3 boss drops, fresh instances. Every one of them carries CHARGES.
+static func build_tier3() -> Array:
+	return [_the_void(), _chronostasis(), _equinox(), _roulette()]
+
+
+## Every drop id, for the "no drop is ever in a starting kit" guard and for the
+## pickup entity's label lookup. Order matches build_tier2() + build_tier3().
+static func drop_ids() -> Array[String]:
+	var out: Array[String] = []
+	for s: SpellDef in (build_tier2() + build_tier3()):
+		out.append(s.id)
+	return out
+
+
+## Look a drop up by id, or null. Used by the pickup entity (which persists an id,
+## never a SpellDef — a Resource on a scene is shared mutable state) and by handoff.
+static func drop_by_id(id: String) -> SpellDef:
+	for s: SpellDef in (build_tier2() + build_tier3()):
+		if s.id == id:
+			return s
+	return null
+
+
+# ------------------------------------------------------------------- TIER 2
+
+## ARC OF FOOLS — the spec's Chain Lightning. REUSED, NOT REBUILT: same
+## `SpellDef.Kind.CHAIN`, same `ChainBolt` spectacle, retuned to a floor-pickup
+## shelf (six links instead of five, 300 px hop range instead of 240, 62 damage
+## instead of 46, on a 6 s cooldown instead of 3).
+##
+## ⚠ THE HONEST VERSION OF "IT ARCS TO YOUR TEAMMATE, ALWAYS". It does not
+## literally seek your friend — `ChainBolt.build_chain` hops to the NEAREST
+## unvisited body in the shared `mortal` group, and under friendly fire your
+## teammate is in that group. In a two-player fight standing anywhere near each
+## other, the nearest body to whatever you just hit is very often them. So the
+## spec's promise lands as a consequence of the hop rule rather than as a special
+## case, and the description says the true thing rather than the tidy thing. The
+## widened 300 px hop range is what makes it reliable enough to read as a rule.
+static func _arc_of_fools() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "arc_of_fools"
+	s.display_name = "Arc of Fools"
+	s.description = "A bolt that will not be told whose side it is on. It leaps "\
+		+ "six times to whatever body is nearest — and in a crowded room the "\
+		+ "nearest body is usually the one you came in with."
+	s.kind = SpellDef.Kind.CHAIN
+	s.element = Elements.Element.LIGHTNING
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.LIGHTNING)
+	s.mp_cost = 58
+	s.cooldown = 6.0
+	s.damage = 62
+	s.count = 6        # hops
+	s.reach = 300.0    # hop range — wider than the class chain's 240
+	s.cast_time = 0.5  # HEAVY: a real tell, not an instant
+	return s
+
+
+## METEOR STORM — the spec's Meteor. REUSED, NOT REBUILT: `SpellDef.Kind.METEOR`
+## and the existing `MeteorSigil` spectacle, retuned from the Arcanist's 11-rock
+## 140 px ult into a 16-rock 210 px floor-shaker with a 1.2 s channel.
+##
+## The spec asks for "long telegraph, large radius, escapable if they notice", and
+## all three are one number each: cast_time is the channel you can see across the
+## room, radius is the footprint, and `MeteorSigil` staggers its rocks over the
+## fall so standing at the edge and walking out is a real answer.
+static func _meteor_storm() -> SpellDef:
+	var s := _meteor("meteor_storm", "Meteor Storm",
+		"A sigil the width of the room opens overhead and the sky comes down in "\
+		+ "pieces. You will hear it start. Whether you move is up to you.",
+		Elements.Element.FIRE, 78, 9.0, 30, 210.0, 16)
+	s.reach = 340.0
+	s.cast_time = 1.2  # ULT shelf, deliberately — see the section header
+	return s
+
+
+## PETRIFY — turn a body to stone, then throw it. The spec's "turns a mob into a
+## throwable statue — works on teammates", and the second half is the whole joke:
+## the spell scans the shared `mortal` group like everything else, so your friend
+## is a perfectly good rock.
+##
+## `radius` is the catch footprint at the aimed point; `length` is how long the
+## stone lasts if nobody touches it. Damage is 0 ON THE CAST — a statue takes no
+## damage while it is stone (`Petrify.gd` swallows it) and the whole payout is
+## `Petrify.THROW_DAMAGE` when someone hits it hard enough to launch it.
+static func _petrify() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "petrify"
+	s.display_name = "Petrify"
+	s.description = "Stone crawls up the first thing it reaches and stops it "\
+		+ "mid-stride. It cannot be hurt while it is a statue. It can be THROWN."
+	s.kind = SpellDef.Kind.HEX
+	s.element = Elements.Element.EARTH
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.EARTH)
+	s.mp_cost = 60
+	s.cooldown = 6.5
+	s.damage = 0       # the payout is the THROW, not the casting
+	s.radius = 92.0    # catch footprint
+	s.reach = 300.0
+	s.length = 4.5     # how long the stone holds
+	s.cast_time = 0.55
+	return s
+
+
+## GRAVITY FLIP — invert gravity for everyone, caster included. The spec is
+## explicit about the last three words and they are the entire design: this is not
+## a debuff you aim, it is a rule you change, and you are standing inside it.
+##
+## `length` is the duration. There is no `radius` because there is no edge —
+## reaching for the arena wall to get out from under it would make this a zone,
+## and a zone is a completely different (and much safer) spell.
+static func _gravity_flip() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "gravity_flip"
+	s.display_name = "Gravity Flip"
+	s.description = "Up stops meaning up. Everything with feet leaves the floor — "\
+		+ "yours included — until it wears off and the room comes down at once."
+	s.kind = SpellDef.Kind.HEX
+	s.element = Elements.Element.WIND
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.WIND)
+	s.mp_cost = 62
+	s.cooldown = 6.8
+	s.damage = 0
+	s.length = 5.0     # seconds inverted — the spec's number
+	s.cast_time = 0.45
+	return s
+
+
+## BLOOD PACT — a damage buff that bills you in HP. The spec's shape exactly: the
+## cost is not MP and not a cooldown, it is the resource you need to survive.
+##
+## `radius` carries the MULTIPLIER (1.75x) and `count` the HP DRAINED PER SECOND,
+## which is the field-doubling this codebase already does everywhere (ZONE reuses
+## `length` as a lifetime, THROWN_ANCHOR reuses it as an anchor timer). Both are
+## read in exactly one place, `BloodPact.gd`, and named there.
+##
+## ⚠ IT BUFFS SPELLS, NOT PUNCHES. The multiplier is applied in `SpellCaster.cast`,
+## which is the one seam every spell goes through and the only one this agent owns.
+## Melee damage lives on Hero and is untouched. That is a real limitation, not a
+## design choice, and it is written on the spell: "everything you CAST".
+static func _blood_pact() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "blood_pact"
+	s.display_name = "Blood Pact"
+	s.description = "Open a vein and everything you CAST hits far harder for a "\
+		+ "while. The bleeding does not stop because the fight is going badly."
+	s.kind = SpellDef.Kind.HEX
+	s.element = Elements.Element.SHADOW
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.SHADOW)
+	s.mp_cost = 34          # cheap in MP on purpose — the price is paid in blood
+	s.cooldown = 12.0
+	s.damage = 0
+	s.length = 8.0          # seconds of pact
+	s.radius = 1.75         # OUTGOING SPELL DAMAGE MULTIPLIER (see BloodPact.gd)
+	s.count = 5             # HP drained per second
+	s.cast_time = 0.4
+	return s
+
+
+## MIRROR IMAGE — a clone that repeats your casts on a delay, WITH friendly fire.
+##
+## THE IMPLEMENTATION IS NOT INPUT RECORDING, and the difference matters. Reading
+## the hero's input would need a hook inside `Hero.gd`; instead the clone listens
+## at `SpellCaster.cast()` — the one seam every spell in the game already passes
+## through — and re-casts what it heard, `reach` seconds later, from where the
+## clone is standing. So it mimics the thing the player actually did rather than
+## an approximation of the buttons they pressed, it works for bots and future
+## co-op peers for free, and it needs no edit to a file this agent does not own.
+##
+## `length` is the clone's lifetime, `reach` its echo delay in seconds.
+static func _mirror_image() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "mirror_image"
+	s.display_name = "Mirror Image"
+	s.description = "A second you, one beat behind, casting everything you cast "\
+		+ "from where it happens to be standing. It is not on anybody's side."
+	s.kind = SpellDef.Kind.HEX
+	s.element = Elements.Element.ARCANE
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.ARCANE)
+	s.mp_cost = 66
+	s.cooldown = 6.9
+	s.damage = 0
+	s.length = 9.0     # clone lifetime
+	s.reach = 1.0      # echo delay, seconds
+	s.cast_time = 0.6
+	return s
+
+
+# ------------------------------------------------------------------- TIER 3
+## All four are ULT on every axis of `SpellTier.of()` — a long channel, a long
+## cooldown and a high MP cost — so a boss drop outweighs everything in the game
+## in a clash. All four carry CHARGES, so the cooldown is the SECOND limit and the
+## charge count is the first. When the last charge is spent the drop evaporates and
+## your class ult comes back (see `SpellGrant.consume_charge`).
+
+## THE VOID — a collapsing singularity that deletes what is inside it, allies
+## included. The plainest of the four, and deliberately so: it is the one you can
+## explain to somebody in one sentence, which is what makes the other three feel
+## like gambles by comparison.
+static func _the_void() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "the_void"
+	s.display_name = "The Void"
+	s.description = "A point of nothing opens where you mark, drags the room "\
+		+ "into itself, and closes. Whatever it closed on is not there any more."
+	s.kind = SpellDef.Kind.CATACLYSM
+	s.element = Elements.Element.SHADOW
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.SHADOW)
+	s.mp_cost = 90
+	s.cooldown = 24.0
+	s.damage = 260
+	s.radius = 185.0
+	s.reach = 320.0
+	s.cast_time = 1.5
+	s.charges = 1
+	return s
+
+
+## CHRONOSTASIS — freeze a radius for 3 s; everything dealt to a frozen body is
+## BANKED and lands at once when time restarts. Your teammate is frozen too, which
+## is the decision: the freeze is also a 3 s immunity, so catching your friend in
+## it either saves them or wastes the only window you had.
+##
+## `length` is the freeze duration; `radius` the footprint.
+static func _chronostasis() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "chronostasis"
+	s.display_name = "Chronostasis"
+	s.description = "Three seconds stop inside the ring. Nothing moves, nothing "\
+		+ "lands — and then all of it lands in the same instant. Your friend "\
+		+ "is in there too."
+	s.kind = SpellDef.Kind.CATACLYSM
+	s.element = Elements.Element.ICE
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.ICE)
+	s.mp_cost = 90
+	s.cooldown = 26.0
+	s.damage = 0       # the banked total IS the damage
+	s.radius = 235.0
+	s.reach = 300.0
+	s.length = 3.0     # the spec's three seconds
+	s.cast_time = 1.4
+	s.charges = 1
+	return s
+
+
+## EQUINOX — THE SWAP FOR REWIND. Every living thing in the room, friend and foe,
+## is dragged to the SAME share of its own health. The full verdict is in this
+## agent's report and in `tools/rewind_spike.gd`; the short version is that a
+## 4-second state rewind across two peers is not a spell, it is a netcode
+## architecture, and half of one is worse than none.
+##
+## It keeps everything Rewind was FOR. It is catastrophic (it can hand a guardian
+## a third of its bar back). It is decision-shaped (cast it dying and you live;
+## cast it while your teammate is healthy and you have just mugged them). And it
+## can absolutely lose you the floor. What it is not is a time machine.
+##
+## Mechanically it is the cleanest of the four in co-op, which is the other half of
+## why it won: it moves HP and nothing else, and HP already has an
+## authority-correct route in this codebase.
+static func _equinox() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "equinox"
+	s.display_name = "Equinox"
+	s.description = "The scales come level. Every living thing in the room — you, "\
+		+ "your friend, the thing you are fighting — is dragged to the same "\
+		+ "fraction of itself. Somebody always loses by it."
+	s.kind = SpellDef.Kind.CATACLYSM
+	s.element = Elements.Element.HOLY
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.HOLY)
+	s.mp_cost = 88
+	s.cooldown = 24.0
+	s.damage = 0       # it moves HP toward a mean; it does not deal damage
+	s.radius = 900.0   # the whole room — there is no standing outside it
+	s.cast_time = 1.6
+	s.charges = 1
+	return s
+
+
+## ROULETTE — one of the other three, chosen at random, and sometimes centred on
+## YOU instead of on your aim. Two charges, because a gamble you take once is a
+## decision and a gamble you take twice is a habit.
+static func _roulette() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "roulette"
+	s.display_name = "Roulette"
+	s.description = "One of the great workings, and you do not get to say which. "\
+		+ "Sometimes it does not open where you pointed. It opens on you."
+	s.kind = SpellDef.Kind.CATACLYSM
+	s.element = Elements.Element.ARCANE
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.ARCANE)
+	s.mp_cost = 70
+	s.cooldown = 18.0
+	s.damage = 0       # inherited from whatever it rolls
+	s.radius = 200.0
+	s.reach = 300.0
+	s.cast_time = 1.0
+	s.charges = 2
+	return s
 
 
 # ------------------------------------------------------------- named signatures

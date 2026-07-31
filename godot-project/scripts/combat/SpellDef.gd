@@ -13,7 +13,21 @@ extends Resource
 ## built (see docs/v2.0-spell-system-design.md); SpellCaster falls back safely.
 ## APPEND new kinds only (never insert) — kinds are referenced by ordinal in the
 ## code library; inserting would renumber BOULDER/PILLAR/WALL and break their arms.
-enum Kind { BEAM, DIVINE_RAY, NOVA, METEOR, CONVERGENCE, RUSH, BOULDER, PILLAR, WALL, ICE_WALL, CHAIN, ZONE, MISSILES, BLINK_STRIKE, TETHER, FLURRY, CRAWLER, THROWN_ANCHOR, WARD, ARC }
+## HEX and CATACLYSM are the DROP-ECONOMY kinds and they are deliberately two
+## kinds rather than eight. Every new Kind costs FIVE silent defaults elsewhere —
+## `ReactionTable.form_for_kind` (falls through to IMPACT), `CastStyle.for_spell`,
+## `LoadoutBar._draw_glyph`, `BotBrain._effective_range` and `SpellCaster`'s own
+## dispatch — none of which error when a kind is missing. Eight new behaviours
+## would have meant forty places where nothing happens and nothing complains, in
+## files owned by other agents. So the ten Tier 2 / Tier 3 spells fork inside ONE
+## arm each, off `SpellDrops.HEX_SCRIPTS` / `CATACLYSM_SCRIPTS` — the same shape
+## the ZONE arm already uses to fork Shadow Root off Blizzard, and the METEOR arm
+## to fork Glacial Spine, only keyed by id instead of by effect string.
+##   HEX       — Tier 2 floor pickups whose behaviour is a STATE change on bodies
+##               (petrify / gravity_flip / blood_pact / mirror_image). Chain
+##               Lightning and Meteor are NOT here: they reuse CHAIN and METEOR.
+##   CATACLYSM — Tier 3 boss drops. One shelf, one arm, four rituals.
+enum Kind { BEAM, DIVINE_RAY, NOVA, METEOR, CONVERGENCE, RUSH, BOULDER, PILLAR, WALL, ICE_WALL, CHAIN, ZONE, MISSILES, BLINK_STRIKE, TETHER, FLURRY, CRAWLER, THROWN_ANCHOR, WARD, ARC, HEX, CATACLYSM }
 
 @export var id: String = ""
 @export var display_name: String = ""
@@ -41,6 +55,19 @@ enum Kind { BEAM, DIVINE_RAY, NOVA, METEOR, CONVERGENCE, RUSH, BOULDER, PILLAR, 
 ## Float-channel windup (seconds). >0 = the caster LEVITATES + channels for this
 ## long before the spell fires (interruptible by a hit). 0 = instant cast.
 @export var cast_time: float = 0.0
+## HOW MANY TIMES A PICKED-UP SPELL MAY BE CAST BEFORE IT IS GONE. -1 = unlimited,
+## which is what every spell in a class kit is and therefore the default: nothing
+## that existed before the drop economy changes by one branch.
+##
+## Only Tier 3 boss drops set this (1, or 2 for Roulette). It lives on the DEF and
+## not on the grant record because the number is a property of the spell — Roulette
+## gets two rolls because Roulette is a gamble, not because of who picked it up —
+## and because a `.tres`-authored drop then declares its own charges with no code.
+##
+## The counter itself is per-HERO and lives on `HandSlots` (a SpellDef instance is
+## shared by nobody, but it IS rebuilt fresh on every `SpellLibrary` call, so a
+## count stored here would reset every time anything asked the library a question).
+@export var charges: int = -1
 
 
 ## Resolve the tint for a cast: an explicit colour override, else the element
