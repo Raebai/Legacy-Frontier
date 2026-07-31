@@ -28,6 +28,29 @@ static var _add_mat: CanvasItemMaterial = null
 ## sites use constant tunings, so the cache stays small and never invalidates.
 static var _mat_cache: Dictionary = {}
 
+# ------------------------------------------------------------------ burst POOL
+## Retired bursts, ready to fire again. `GPUParticles2D.new()` is not an ordinary
+## node allocation: constructing one asks the RenderingServer for a particle RID
+## and a GPU buffer sized to `amount`, and freeing one hands both back. There are
+## 140 `spawn_burst` call sites and the busy ones fire several times a second
+## each, so on a phone this was a steady drip of GPU allocator traffic in the
+## middle of combat.
+##
+## KEYED BY `amount`, which is the whole reason this works. Assigning a different
+## `amount` to a recycled emitter REALLOCATES the GPU buffer, so a pool that
+## handed a 20-particle emitter to a call wanting 60 would pay the allocation it
+## was built to avoid. Call sites use constant tunings (the same property the
+## material cache above relies on), so the buckets stay few and stable.
+##
+## Note what is NOT pooled: the per-burst `SceneTreeTimer`. It is a small
+## RefCounted next to a GPU buffer, and it is DETERMINISTIC — it fires under the
+## dummy renderer in headless tests, where particle simulation does not run and
+## the `finished` signal therefore cannot be relied on to return anything to the
+## pool. Trading a guaranteed reaper for a marginal saving is not a good trade.
+static var _free: Dictionary = {}          # amount:int -> Array[GPUParticles2D]
+const MAX_POOLED_PER_AMOUNT: int = 12
+static var _pooled_total: int = 0
+
 
 static func additive_mat() -> CanvasItemMaterial:
 	if _add_mat != null:
@@ -80,24 +103,86 @@ static func spawn_burst(
 ) -> GPUParticles2D:
 	if parent == null or not parent.is_inside_tree():
 		return null
+	var burst: GPUParticles2D = _acquire(parent, amount)
+	burst.lifetime = lifetime
+	# Additive is per-call-site, so a recycled emitter must be told BOTH ways —
+	# clearing it matters as much as setting it, or a debris puff inherits the
+	# white-hot blend from whatever spark burst last used this slot.
+	burst.material = additive_mat() if additive else null
+	burst.process_material = _process_mat(
+		color_start, color_end, velocity_min, velocity_max,
+		scale_min, scale_max, damping_min, damping_max, dir, spread_deg)
+	burst.global_position = pos
+	burst.visible = true
+	burst.restart()
+	burst.emitting = true
+	parent.get_tree().create_timer(lifetime + 0.3).timeout.connect(_recycle.bind(burst, amount))
+	return burst
+
+
+## A burst emitter ready to be configured: a retired one from the matching
+## `amount` bucket, otherwise a fresh node.
+##
+## A recycled emitter is moved to the END of the parent's child list. Bursts do
+## not set a z_index — they rely on being the most recently added child to draw
+## OVER the fight — so a reused node sitting at its old tree index would slide
+## behind everything spawned since it was retired. That is the one behavioural
+## difference between a fresh node and a recycled one, and this is where it is
+## paid back.
+static func _acquire(parent: Node, amount: int) -> GPUParticles2D:
+	var bucket: Array = _free.get(amount, [])
+	while not bucket.is_empty():
+		var candidate: GPUParticles2D = bucket.pop_back()
+		_pooled_total = maxi(_pooled_total - 1, 0)
+		if not is_instance_valid(candidate):
+			continue  # went down with the arena that owned it
+		if candidate.is_inside_tree() and candidate.get_parent() == parent:
+			parent.move_child(candidate, -1)
+			return candidate
+		candidate.queue_free()  # belongs to a floor we have already left
 	var burst := GPUParticles2D.new()
 	burst.emitting = false
 	burst.one_shot = true
 	burst.explosiveness = 1.0
-	burst.amount = amount
-	burst.lifetime = lifetime
-	burst.texture = _soft_dot()  # glowing round dots, not hard squares
-	if additive:
-		burst.material = additive_mat()  # energy motes build to white-hot
-	burst.process_material = _process_mat(
-		color_start, color_end, velocity_min, velocity_max,
-		scale_min, scale_max, damping_min, damping_max, dir, spread_deg)
+	burst.amount = amount          # sizes the GPU buffer — never reassigned after this
+	burst.texture = _soft_dot()    # glowing round dots, not hard squares
 	parent.add_child(burst)
-	burst.global_position = pos
-	burst.restart()
-	burst.emitting = true
-	parent.get_tree().create_timer(lifetime + 0.3).timeout.connect(burst.queue_free)
 	return burst
+
+
+## Timer callback: the burst has finished playing. Park it rather than free it.
+## Hidden and not emitting, so a parked emitter costs nothing to have around.
+static func _recycle(burst: GPUParticles2D, amount: int) -> void:
+	if not is_instance_valid(burst):
+		return
+	burst.emitting = false
+	burst.visible = false
+	if not burst.is_inside_tree() or _pooled_total >= MAX_POOLED_PER_AMOUNT * 8:
+		burst.queue_free()
+		return
+	var bucket: Array = _free.get(amount, [])
+	if bucket.size() >= MAX_POOLED_PER_AMOUNT:
+		burst.queue_free()
+		return
+	bucket.append(burst)
+	_free[amount] = bucket
+	_pooled_total += 1
+
+
+## Test hook + arena teardown: drop every parked emitter. Mirrors
+## DamageNumber.reset_pool() / ImpactFrame.reset_arbiter().
+static func reset_pool() -> void:
+	for amount: int in _free.keys():
+		for b: GPUParticles2D in _free[amount]:
+			if is_instance_valid(b):
+				b.queue_free()
+	_free.clear()
+	_pooled_total = 0
+
+
+## Diagnostics (the perf overlay reads this): parked emitters across all buckets.
+static func pooled_count() -> int:
+	return _pooled_total
 
 
 ## Cached ParticleProcessMaterial for a tuning tuple (see _mat_cache docs).
