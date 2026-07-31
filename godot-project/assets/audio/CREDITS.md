@@ -146,6 +146,45 @@ re-litigated later.
 few remaining clips from scratch (no third-party material): `blink.wav`,
 `ding.wav`, `holy.wav`. Fully owned, no licence obligation.
 
+### 3a. Gibberish voices — `assets/audio/voice/`
+
+`python-tools/generate_gibberish_voices.py` synthesises the game's entire spoken
+vocabulary: 16 clips (4 vowel banks × 4 variants, ~110 ms each, 22050 Hz mono,
+80 KB total). Each is a glottal pulse train through two formant resonators — no
+recording, no pack, no sample source of any kind.
+
+**Fully owned. No licence obligation, and nothing to localise** — which is
+half the reason the spec asked for gibberish rather than VO. Per-character
+identity comes from re-pitching these at playback (`scripts/combat/Gibberish.gd`
++ `Sfx.speak()`), so 16 assets cover unlimited voices.
+
 ## 4. Music
 
-`assets/audio/music/` was not touched by this pass and is not covered here.
+⚠ **`assets/audio/music/` is still not covered here.** Six MP3s ship — `arcadia`,
+`lord_of_the_land`, `for_tomorrow`, `unexplored_moon`, `combat_theme`,
+`boss_theme` — and **no provenance or licence is recorded anywhere in this
+repo**. That is a real pre-existing gap, not an oversight of this file: nothing
+in the history says where they came from or what terms they arrived under.
+
+> **Action for the maker:** record the source and licence of each of the six
+> tracks here before any public build. Until then, treat the music folder as
+> licence-unconfirmed, exactly like the TomMusic pack in §1b.
+
+The in-game credits screen (`scenes/ui/Credits.tscn`, reachable from the Lobby)
+names both gaps out loud under "UNSETTLED", so they cannot be forgotten between
+now and a store submission.
+
+### Size note (not a licence matter)
+
+Those six MP3s are **36.4 MB of a ~45 MB shipping audio payload, about 81% of
+it**, at 320/256/192 kbps. The 187 SFX are 4.0 MB combined, because Godot 4.6
+imports WAV as QOA. `python-tools/compress_music.py` re-encodes the six to
+~96–112 kbps Ogg Vorbis for a saving of roughly 17–20 MB, and `Music.gd` picks up
+a same-named `.ogg` automatically with no code change. **It has not been run:
+ffmpeg is not installed on this machine.**
+
+## 5. Where the attribution actually appears
+
+The obligation in §1c is discharged by the in-game **credits screen**
+(`scripts/ui/Credits.gd`), opened from the Lobby. The exact line is pinned by
+`tools/slice_test_shell.gd`, so a future layout tidy cannot silently drop it.
