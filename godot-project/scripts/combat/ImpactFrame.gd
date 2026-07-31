@@ -254,6 +254,13 @@ func _exit_tree() -> void:
 ## `Juice` can build it through a loaded GDScript with no static typing.
 func configure(cfg: Dictionary) -> void:
 	_style = int(cfg.get("style", Style.BLOWOUT))
+	# Belt-and-braces for the mobile downgrade: `decide()` already remapped on the
+	# normal path, but the capture tool and any future direct caller reach
+	# `configure()` without passing through the arbiter, and the next line is what
+	# decides whether a screen-reading plate gets built. Idempotent — remapping an
+	# already-remapped style is a no-op.
+	if TuningConfig.quality_is_low():
+		_style = downgrade_for_quality(_style)
 	_strength = clampf(float(cfg.get("strength", 1.0)), 0.25, 1.6)
 	_duration = maxf(float(cfg.get("duration", default_duration(_style))), 0.02)
 	_tint = cfg.get("tint", Color(1.0, 1.0, 1.0))
@@ -331,6 +338,16 @@ static func decide(req: Dictionary, now_ms: int = -1) -> Dictionary:
 	var style: int = int(req.get("style", Style.BLOWOUT))
 	var strength: float = clampf(float(req.get("strength", 1.0)), 0.25, 1.6)
 	var duration: float = maxf(float(req.get("duration", default_duration(style))), 0.02)
+	# MOBILE DOWNGRADE, applied before budgeting for the same reason the
+	# accessibility one is: the cheaper mark must also be BUDGETED as the cheaper
+	# mark. Deliberately keeps the ORIGINAL duration (computed above) rather than
+	# adopting the substitute style's — INVERT is 0.07 s precisely because a
+	# negative "outstays its welcome fastest", and inheriting COLOR_FIELD's 0.15 s
+	# would double the length of the shortest mark in the vocabulary.
+	var low: bool = bool(req["low_quality"]) if req.has("low_quality") \
+		else TuningConfig.quality_is_low()
+	if low:
+		style = downgrade_for_quality(style)
 	# ACCESSIBILITY DOWNGRADE, applied before any budgeting so the cheaper mark
 	# is also budgeted as the cheaper mark. Note this DOWNGRADES rather than
 	# denies: the beat still happens, it just stops being a full-screen flash.
@@ -443,6 +460,33 @@ static func reset_arbiter() -> void:
 	_last_local_ms = -100000
 	_history.clear()
 	_local_history.clear()
+
+
+## MOBILE: the two styles that read the rendered frame back become the one
+## full-screen mark that does not.
+##
+## INVERT and SILHOUETTE are implemented as `hint_screen_texture` shader plates
+## (see SHADER_INVERT / SHADER_SILHOUETTE) because neither effect is expressible
+## as paint — a negative needs `1 - dst`, and the black cut is a luminance
+## THRESHOLD of the real frame, not a black rectangle (that distinction has its
+## own rendered-and-looked-at note on SHADER_SILHOUETTE). On a tile GPU a screen
+## fetch is a framebuffer resolve, and the arbiter permits up to
+## MAX_FRAME_SECONDS_PER_SECOND (0.45) of full-screen mark per second — so during
+## a heavy fight nearly half of all seconds would carry one. That is the second
+## largest avoidable renderer cost after post_process.gdshader.
+##
+## COLOR_FIELD is the substitute because it is the only other FULL-SCREEN mark
+## (so the tier ladder still means what it says — an ult does not silently become
+## a jab's little ring) and it is pure `draw_*` calls. It is an honest loss: the
+## black cut's whole premise is that it silhouettes a readable SHAPE, and a
+## colour wash does that less well. It is the right loss to take, because the
+## alternative — dropping the plate but keeping `_draw_silhouette` — renders
+## bright wedges over an un-darkened world, which does not read as a downgrade,
+## it reads as a bug.
+static func downgrade_for_quality(style: int) -> int:
+	if style == Style.INVERT or style == Style.SILHOUETTE:
+		return Style.COLOR_FIELD
+	return style
 
 
 ## Accessibility option: full-screen flashes downgrade to the localized ring.

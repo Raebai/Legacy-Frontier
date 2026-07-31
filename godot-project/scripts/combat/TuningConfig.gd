@@ -49,7 +49,19 @@ extends Resource
 @export var hit_stop_enabled: bool = true  # accessibility: off = no time-freeze on hits
 
 @export_group("Graphics")
-@export var post_process_enabled: bool = true  # the reactive screen-space grade ("the look"); off = raw render (low-end / accessibility)
+## THE MOBILE DIAL. Everything expensive enough to matter on a phone asks
+## `TuningConfig.quality_is_low()` rather than testing the platform itself, so
+## there is exactly one place to flip and — critically — the maker can PREVIEW
+## the phone's picture on the desktop by setting this to LOW. That preview matters
+## more than usual here: no APK has ever been built, so LOW on desktop is the only
+## way to see what the phone build will look like before one exists.
+##   AUTO — LOW on an Android/iOS export, HIGH everywhere else. The shipping default.
+##   HIGH — force the full picture (a mobile player on a flagship may want this).
+##   LOW  — force the cheap picture (desktop preview, or a struggling phone).
+enum Quality { AUTO, HIGH, LOW }
+@export var graphics_quality: Quality = Quality.AUTO
+
+@export var post_process_enabled: bool = true  # the reactive screen-space grade ("the look"); off = raw render (low-end / accessibility). AND-ed with quality_is_low() — see PostProcess._enabled()
 ## PHOTOSENSITIVITY option. On = every full-screen impact frame (the white
 ## blow-out, the black silhouette cut, the colour field, the negative, the
 ## cut-in) DOWNGRADES to ImpactFrame.Style.LOCAL — a small, low-contrast ring
@@ -59,3 +71,50 @@ extends Resource
 ## Note this is the OPT-IN softening: a hard flash-rate ceiling
 ## (ImpactFrame.MAX_FULLSCREEN_FLASHES_PER_SECOND) applies to everyone either way.
 @export var reduce_flashing: bool = false
+
+
+# ------------------------------------------------------------ the quality probe
+## Is the cheap picture in force? Read this, never `OS.has_feature("mobile")`
+## directly, so the desktop LOW preview works everywhere the phone build does.
+##
+## ⚠ STATIC, and therefore it may NOT name the `Tuning` autoload. Naming an
+## autoload inside a static function is a COMPILE error in GDScript that takes the
+## whole dependency chain down with a misleading "missing method" message — the
+## trap is documented on ImpactFrame.reduce_flashing() and SpellDeflect._sfx().
+## The tree lookup below is the house idiom. It also means this answers correctly
+## under `--script`, where autoloads are never registered: no Tuning -> AUTO ->
+## desktop -> HIGH, which is exactly what the headless suites should see.
+static func quality_is_low() -> bool:
+	match _quality_setting():
+		Quality.HIGH:
+			return false
+		Quality.LOW:
+			return true
+	# AUTO. `mobile` is the feature tag Godot sets on Android + iOS exports.
+	return OS.has_feature("mobile")
+
+
+## Raw enum value from the live config, defaulting to AUTO when there is no
+## Tuning autoload (headless `--script`) or no `graphics_quality` field (an older
+## data/tuning.tres — every field here is override-only by design).
+static func _quality_setting() -> int:
+	var tree: SceneTree = Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return Quality.AUTO
+	var t: Node = tree.root.get_node_or_null(^"/root/Tuning")
+	if t == null or t.get(&"cfg") == null:
+		return Quality.AUTO
+	var v: Variant = t.cfg.get(&"graphics_quality")
+	return Quality.AUTO if v == null else int(v)
+
+
+## May a full-screen SHADER that reads back the rendered frame run right now?
+##
+## On a tile-based mobile GPU a `hint_screen_texture` fetch is not a texture read,
+## it is a framebuffer RESOLVE — the tile is flushed to main memory and loaded
+## back — and it costs the same whether one pixel or every pixel samples it. The
+## game has three such shaders (post_process.gdshader plus ImpactFrame's INVERT
+## and SILHOUETTE plates) and they can all be live in the same frame during a big
+## fight. That is the single largest avoidable cost in the renderer on a phone.
+static func screen_shaders_allowed() -> bool:
+	return not quality_is_low()

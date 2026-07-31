@@ -103,6 +103,18 @@ func _apply_theme(tint: Color) -> void:
 
 
 func _enabled() -> bool:
+	# MOBILE: off by default, and this is the biggest single renderer saving in the
+	# game. post_process.gdshader does 3 `hint_screen_texture` fetches — one of them
+	# `filter_linear_mipmap`, which forces a full mipmap CHAIN to be generated from
+	# the framebuffer every frame — plus ~5 transcendentals and 3 `pow` per pixel.
+	# On a tile GPU the mipmap generation alone is a per-frame resolve + downsample
+	# pyramid over the whole screen. Hidden = genuinely zero cost (see _process),
+	# so this gate is the whole optimisation.
+	#
+	# A mobile player on a strong phone can still have it: set graphics_quality to
+	# HIGH. That is why this is a quality dial and not an `OS.has_feature` test.
+	if not TuningConfig.screen_shaders_allowed():
+		return false
 	var t: Node = get_node_or_null(^"/root/Tuning")
 	if t != null and t.get(&"cfg") != null:
 		var v: Variant = t.cfg.get(&"post_process_enabled")
