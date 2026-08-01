@@ -88,7 +88,6 @@ func _ready() -> void:
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs != null:
 		gs.floor_advanced.connect(_on_gs_floor_advanced)
-		gs.fell.connect(_on_gs_fell)
 		gs.run_ended.connect(_on_gs_run_ended)
 	_maybe_cli_autostart()
 
@@ -420,28 +419,95 @@ func _do_host_return() -> void:
 		gs.return_to_hub()
 
 
-## Party wipe (Task 4): a hero requests the host to drop the party a floor. Client ->
-## ask the host; host -> fall (drops 2, rebuilds, revives everyone via the fell sync).
-func request_fall() -> void:
+## PARTY WIPE = GAME OVER. Every hero is a ghost, so the run ends for everyone.
+##
+## Replaces `request_fall` verbatim in shape (client asks, host decides) and only in
+## outcome: the maker's 2026-08-01 rule is "if you all die then the game is over",
+## not "drop a floor". The host's `GameState.game_over()` ends the run, which fires
+## `run_ended` -> `_on_gs_run_ended` -> the session is torn down and every client
+## bounces home on its own.
+func request_party_wipe() -> void:
 	if not is_active():
 		return
 	if is_host():
-		_do_host_fall()
+		_do_host_wipe()
 	else:
-		_req_fall.rpc_id(1)
+		_req_wipe.rpc_id(1)
 
 
 @rpc("any_peer", "call_remote", "reliable")
-func _req_fall() -> void:
+func _req_wipe() -> void:
 	if is_host():
-		_do_host_fall()
+		_do_host_wipe()
 
 
-func _do_host_fall() -> void:
-	_pending_advance = false   # a fall supersedes any pending advance
+func _do_host_wipe() -> void:
+	_pending_advance = false   # a wipe supersedes any pending advance
 	var gs: Node = get_node_or_null("/root/GameState")
-	if gs != null and gs.has_method("fall"):
-		gs.fall()
+	if gs != null and gs.has_method("game_over"):
+		gs.game_over()
+
+
+# ============================================================= REVIVE (one award)
+## PICKING A TEAMMATE UP, DECIDED ONCE. Modelled on the pickup race directly above:
+## the peer that ran the channel REPORTS, the host DECIDES, and the award comes back
+## as a `call_local` RPC so the host runs the byte-identical code path its client
+## does. There is no second implementation of "apply a revive" that could drift.
+##
+## ⚠ WHY IT NEEDS A DECIDER AT ALL when a hero is already owned by its own peer. Both
+## players can be channelling the same ghost, and either of them can finish on the
+## same tick — and `Revive.apply` is not idempotent in the way that matters: two
+## awards means two `_revives_applied`, two bursts, two dings, and (once anything
+## charges for a revive) two payments for one body. `_host_award_revive` refuses the
+## second one by asking the live hero whether it is still down, which is a question
+## only the host's copy is entitled to answer.
+##
+## The KEY on the wire is the ghost's PEER ID, not a node path or a position: heroes
+## come through a `MultiplayerSpawner` but `hero_for_peer` already keys identity on
+## the multiplayer authority everywhere else in this file, and that is the one
+## identifier both phones are guaranteed to agree on.
+## Count of revives THIS peer has applied from the host's award. Surfaced by the
+## loopback smoke test — a revive is the one thing in this feature that cannot be
+## proven from inside a single process.
+var _revives_applied: int = 0
+
+
+## Called by `Revive._complete()` on the peer that finished the channel.
+func request_revive(ghost: Node) -> void:
+	if not is_active() or ghost == null or not is_instance_valid(ghost):
+		return
+	var pid: int = ghost.get_multiplayer_authority()
+	if is_host():
+		_host_award_revive(pid)
+	else:
+		_req_revive.rpc_id(1, pid)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _req_revive(peer_id: int) -> void:
+	if is_host():
+		_host_award_revive(peer_id)
+
+
+func _host_award_revive(peer_id: int) -> void:
+	var hero: Node = hero_for_peer(peer_id)
+	# Both refusals are NORMAL answers rather than errors: the hero may have been
+	# freed (its player dropped), or a second channel may have finished a tick after
+	# the first — a photo finish resolves once, for everyone.
+	if hero == null or not hero.has_method(&"is_downed") or not bool(hero.call(&"is_downed")):
+		return
+	_client_revive.rpc(peer_id)
+
+
+@rpc("authority", "call_local", "reliable")
+func _client_revive(peer_id: int) -> void:
+	var hero: Node = hero_for_peer(peer_id)
+	if hero == null:
+		return
+	# `Revive.apply` plays the FX on EVERY peer and mutates state only on the ghost's
+	# owner — see its header for why the authority test lives inside rather than here.
+	if Revive.apply(hero):
+		_revives_applied += 1
 
 
 # ---- host -> client rebroadcast of the run-spine signals (host-only; SP no-ops) ---
@@ -451,13 +517,7 @@ func _on_gs_floor_advanced(floor: int) -> void:
 	# NEXT floor's pickup to everyone.
 	_pickup_awarded.clear()
 	if is_host():
-		_client_floor.rpc(floor, false)
-
-
-func _on_gs_fell(floor: int) -> void:
-	_pickup_awarded.clear()
-	if is_host():
-		_client_floor.rpc(floor, true)
+		_client_floor.rpc(floor)
 
 
 func _on_gs_run_ended(_outcome: Dictionary) -> void:
@@ -469,10 +529,10 @@ func _on_gs_run_ended(_outcome: Dictionary) -> void:
 
 
 @rpc("authority", "call_remote", "reliable")
-func _client_floor(floor: int, is_fall: bool) -> void:
+func _client_floor(floor: int) -> void:
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs != null and gs.has_method("net_set_floor"):
-		gs.net_set_floor(floor, is_fall)
+		gs.net_set_floor(floor)
 
 
 # =========================================================== DAMAGE ROUTER
@@ -1201,7 +1261,22 @@ const CLI_START_DELAY: float = 1.0     # peer connected -> enter the tower
 const CLI_HOST_SAMPLE: float = 2.0     # ...-> host counts + fires every broadcast
 const CLI_CLIENT_SAMPLE: float = 3.2   # join -> client counts (floor still live)
 const CLI_ADVANCE_AT: float = 4.2      # ...-> host advances the party a floor
-const CLI_FINAL_SAMPLE: float = 6.2    # ...-> both count again + client's verdict
+## THE REVIVE LEG, and its ORDERING is as much the test as its code is.
+## The client puts its OWN hero down, waits for that flag to reach the host through
+## the synchronizer, and only then asks for a revive — because the host's refusal
+## check (`_host_award_revive`) reads the REPLICATED `downed`. A request that overtook
+## its own state change would be refused for exactly the right reason at exactly the
+## wrong time, and would read as a broken wire.
+##
+## ⚠ THE GAP AROUND `CLI_ADVANCE_AT` IS DELIBERATE. A floor advance stands the party's
+## ghosts back up (`Arena._revive_local_heroes`), so a down that lands near it can be
+## silently un-done between the two beats. These sit well clear of it — and
+## `_cli_ask_revive` re-downs defensively anyway, because the two peers' clocks start
+## from different events (`player_connected` on the host, `join_ok` on the client) and
+## a test that depends on their exact skew is a test that goes green by luck.
+const CLI_DOWN_AT: float = 6.2         # ...-> the client's hero becomes a ghost
+const CLI_REVIVE_AT: float = 7.1       # ...-> the client asks the host to pick it up
+const CLI_FINAL_SAMPLE: float = 8.0    # ...-> both count again + client's verdict
 
 ## Peak observations, so a sample that lands after a scene change cannot erase what
 ## was true a moment earlier.
@@ -1374,6 +1449,8 @@ func _cli_join(ip: String) -> void:
 		_cli_after(CLI_CLIENT_SAMPLE, func() -> void:
 			_cli_count("client")
 			_cli_floor_start = _cli_floor()
+			_cli_after(CLI_DOWN_AT - CLI_CLIENT_SAMPLE, _cli_down_self)
+			_cli_after(CLI_REVIVE_AT - CLI_CLIENT_SAMPLE, _cli_ask_revive)
 			_cli_after(CLI_FINAL_SAMPLE - CLI_CLIENT_SAMPLE, func() -> void:
 				_cli_count("client2")
 				_cli_floor_end = _cli_floor()
@@ -1381,6 +1458,43 @@ func _cli_join(ip: String) -> void:
 	join_failed.connect(func() -> void: print("[NET] client FAILED"))
 	var err: int = join(ip, 0)
 	print("[NET] client join err=%d" % err)
+
+
+## GHOST FORM, ON THE WIRE. The client kills its own hero the way the game does, so
+## the `downed` flag it publishes is the real one rather than a poked field.
+func _cli_down_self() -> void:
+	var mine: Node = hero_for_peer(multiplayer.get_unique_id())
+	if mine == null or not mine.has_method(&"_enter_downed"):
+		print("[NET] revive: no local hero to down — leg skipped")
+		return
+	mine.call(&"_enter_downed")
+	print("[NET] revive: client hero is a ghost (downed=%s)" % [mine.get(&"downed")])
+
+
+## …and then asks to be picked up. THE ONLY THING THAT CAN PROVE A REVIVE CROSSES THE
+## WIRE. A single SceneTree has one MultiplayerAPI, so a `--script` suite can assert
+## the routing and never the delivery: whether the host actually saw this peer's
+## ghost, decided once, and replayed the identical apply on both screens is a
+## two-process question. `_revives_applied` is the answer, counted on the client.
+func _cli_ask_revive() -> void:
+	var mine: Node = hero_for_peer(multiplayer.get_unique_id())
+	if mine == null:
+		print("[NET] revive: local hero gone before the request")
+		return
+	# SELF-HEALING, NOT SLOPPY. If the host's floor advance stood us back up between
+	# the two beats, asking now would be refused because the hero is alive — a green
+	# `REVIVE=NO` for a reason that has nothing to do with the wire. Go down again and
+	# give the flag a tick to reach the host, so the leg always tests what it claims.
+	if mine.has_method(&"is_downed") and not bool(mine.call(&"is_downed")):
+		print("[NET] revive: hero was stood back up (floor advance) — re-downing")
+		mine.call(&"_enter_downed")
+		_cli_after(0.6, func() -> void:
+			if is_instance_valid(mine):
+				print("[NET] revive: client requests a revive (downed=%s)" % [mine.get(&"downed")])
+				request_revive(mine))
+		return
+	print("[NET] revive: client requests a revive (downed=%s)" % [mine.get(&"downed")])
+	request_revive(mine)
 
 
 func _cli_floor() -> int:
@@ -1410,13 +1524,18 @@ func _cli_verdict() -> void:
 	# new-roster boss and a modifier rider can produce. See `_cli_fire_roster`.
 	var roster_ok: bool = int(_boss_fx_kinds.get("circle", 0)) >= 1
 	var mods_ok: bool = int(_boss_fx_kinds.get("zone", 0)) >= 1
+	# REVIVE: this peer went down, asked the host to pick it up, and the host's single
+	# award came back and was applied here. A ghost that cannot be revived across the
+	# wire is a run that ends the first time anybody dies in co-op.
+	var revive_ok: bool = _revives_applied >= 1
 	var all_ok: bool = (heroes_ok and enemies_ok and twins_ok and spells_ok and boss_ok
-		and floor_ok and cover_ok and pickup_ok and roster_ok and mods_ok)
+		and floor_ok and cover_ok and pickup_ok and roster_ok and mods_ok and revive_ok)
 	print(("[NET] VERDICT heroes=%s enemies=%s enemy_twins=%s HERO_SPELLS=%s BOSS_FX=%s "
-		+ "BOSS_ROSTER=%s BOSS_MODS=%s floor_sync=%s COVER=%s PICKUP=%s => %s") % [
+		+ "BOSS_ROSTER=%s BOSS_MODS=%s floor_sync=%s COVER=%s PICKUP=%s REVIVE=%s => %s") % [
 		_ok(heroes_ok), _ok(enemies_ok), _ok(twins_ok), _ok(spells_ok), _ok(boss_ok),
 		_ok(roster_ok), _ok(mods_ok),
-		_ok(floor_ok), _ok(cover_ok), _ok(pickup_ok), "PASS" if all_ok else "FAIL"])
+		_ok(floor_ok), _ok(cover_ok), _ok(pickup_ok), _ok(revive_ok),
+		"PASS" if all_ok else "FAIL"])
 	print("[NET] boss_twins=%d boss_fx_kinds=%s" % [_boss_twins, _cli_kinds()])
 
 
@@ -1453,7 +1572,9 @@ func _cli_count(who: String) -> void:
 			sample = "(%d,%d)" % [int(round(p.x)), int(round(p.y))]
 	print(("[NET] %s heroes=%d(peak %d) enemies=%d host_owned=%d first_enemy_pos=%s "
 		+ "floor=%d twins=%d spell_twins=%d boss_twins=%d boss_fx=%s prop_syncs=%d "
-		+ "pickups=%d crates=%d") % [
+		+ "pickups=%d revives=%d ghosts=%d crates=%d") % [
 		who, heroes, _cli_peak_heroes, enemies, host_owned, sample, _cli_floor(),
 		_twins_built, _spell_twins, _boss_twins, _cli_kinds(), _prop_syncs,
-		_pickups_awarded, get_tree().get_nodes_in_group(&"destructible").size()])
+		_pickups_awarded, _revives_applied,
+		get_tree().get_nodes_in_group(&"ghost").size(),
+		get_tree().get_nodes_in_group(&"destructible").size()])

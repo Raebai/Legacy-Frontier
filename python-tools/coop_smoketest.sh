@@ -27,6 +27,13 @@
 #                       cover behind something your teammate could not see.
 #   PICKUP            — the drop race is scored ONCE. Collection used to resolve
 #                       locally, so a photo finish could award the same spell twice.
+#   REVIVE            — a GHOST can be picked up across the wire. The client downs its
+#                       own hero, waits for `downed` to replicate, asks the host, and
+#                       the host's single award comes back and is applied here. Under
+#                       the 2026-08-01 death rule ("a life in ghost form until your
+#                       teammate revives you") this is the only exit from being dead —
+#                       if it does not cross, a co-op run ends the first time anybody
+#                       dies, and no single-process suite can tell you that.
 #
 # The `[NET] VERDICT ... => PASS` line printed by the CLIENT is the answer; the rows
 # above it are for reading when it says FAIL.
@@ -38,7 +45,10 @@ HP=$!
 sleep 3
 "$G" --headless --path godot-project -- --client 127.0.0.1 > "$OUT/coop_client.log" 2>&1 &
 CP=$!
-sleep 12
+# Long enough for the CLIENT's whole schedule (Net.CLI_FINAL_SAMPLE is 8.0 s after
+# join_ok, and the revive leg can re-down + retry inside that). Trim this and the
+# verdict line simply never gets printed, which the RESULT block below reads as FAIL.
+sleep 14
 kill "$HP" "$CP" 2>/dev/null
 wait 2>/dev/null
 echo "=== HOST ===";   grep "\[NET\]" "$OUT/coop_host.log"
