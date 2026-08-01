@@ -9,6 +9,42 @@ possible. We build ON this stack, not beside it.** Every step below is written a
 *reuse / rewire / policy-flip* wherever that is honestly possible, and flags the
 handful of places where it genuinely is not.
 
+> ## ⚠ RULE CHANGE — 2026-08-01: DEATH COSTS A LIFE, NOT A FLOOR
+>
+> The maker replaced the death rule, verbatim:
+>
+> > "dying cost is a life in ghost form until your teammate revives you;
+> >  if you all die then the game is over"
+>
+> This **supersedes** the old rule everywhere it appears below (Phase 0.4 "fall depth
+> `2 → 1`", and Part 3 decision 5 "Fall depth"). Dying no longer moves you down the
+> tower **at all**.
+>
+> **What now happens**
+> - A death puts you in **GHOST FORM** — `Hero.downed` + `GhostForm`: drifting,
+>   untargetable, unable to attack, still yours to steer.
+> - A **teammate revives you**: proximity + a ~2 s hold on the existing `talk` action
+>   (`Revive`), bringing you back at `DeathRules.REVIVE_HP_FRACTION`, never full.
+> - **All ghosts = GAME OVER.** `Arena._check_party_wipe` shows the card and the run
+>   ends (`GameState.game_over()`). Same code path in co-op and solo.
+>
+> **What was deleted with the old rule** — `GameState.fall()`, the `fell` signal,
+> `GameState.fall_floor()`, `Arena._on_fell` / `_flash_fall` / `_revive_hero` /
+> `_clear_enemies`, and `Net.request_fall`. `VoiceDirector`'s "fall" bark connects
+> through a `has_signal` guard, so it simply stops firing rather than breaking.
+>
+> **The two policy dials live in `scripts/combat/DeathRules.gd`, and nowhere else:**
+>
+> | Decision | Ships as | The alternative |
+> |---|---|---|
+> | **Solo death** (no teammate to revive you) | `SOLO_SELF_REVIVE_CHARGES = 0` — the run ends immediately | Set it to `1` for one free comeback per run (a SECOND WIND: a beat as a ghost, then back up). Wired, not aspirational. |
+> | **What game over costs the climb** | `RESET_CLIMB_ON_GAME_OVER = false` — the run ends, you go to the hub, `_falls` ticks and the town clocks it, and you re-enter on the floor you died on | `true` resets the climb to floor 1 — the harsher roguelite reading |
+>
+> Both are pinned by `tools/slice_test_climb.gd` and `tools/slice_test_ghost_revive.gd`,
+> which fail loudly if either is flipped — so a policy change has to be made twice, on
+> purpose. `python-tools/coop_smoketest.sh` carries a `REVIVE` column, because a revive
+> crossing the wire is the one part of this that no single-process suite can prove.
+
 **Headline:** roughly **75% of the spec is already built.** The combat feel, the
 spell system, the boss, the co-op spine, the touch controls, the floor loop, the
 audio roster — all exist and are headless-tested. What is missing is mostly
@@ -40,7 +76,7 @@ The two largest single risks are **not** gameplay features. They are:
 | Mobs reuse the player controller | `BotController`/`BotBrain`/`BotIntent` already drive real `Hero` bodies in `VersusArena` | Already solved — see the decision note below. |
 | Local co-op, host-authoritative | `Net.gd` — ENet, 2 `MultiplayerSpawner`s, 2 `MultiplayerSynchronizer`s, victim-authority damage routing, 2-process smoke test | `MAX_PLAYERS: 4 → 2` (`Net.gd:19`). |
 | Two thumbs, landscape, floating sticks | `TouchControls.gd` — twin-stick, 8 buttons, 12 headless tests, gated on `is_touchscreen_available()` | Trim 8 buttons → 3 spells + dash. Wire into the real boot path. |
-| Floor state machine + ascend/descend | `Arena.gd` + `Encounter.gd` + `GameState` (persistent floor, portals, fall-on-death) | Fall depth `2 → 1` (`GameState.gd:500`). |
+| Floor state machine + ascend/descend | `Arena.gd` + `Encounter.gd` + `GameState` (persistent floor, portals) | ~~Fall depth `2 → 1`~~ — **superseded**, see the rule change at the top. Death is ghost form + revive; a party wipe ends the run. |
 | Barks over a character's head | `SpeechBubble.gd` (137 lines) | Reuse verbatim. It outlives the NPC stack that spawned it. |
 | Authored floor redraw at phase change | `Boss._enter_phase()` already retints, escalates aura, fires `epic_moment` | Extend the same hook. No new system. |
 | Audio | `Sfx.gd` — 248 keys, 230 files, **a real 32-voice pool**; `Music.gd` — 3 moods, 7 tracks, crossfade + ducking | Reuse. Needs a mix pass by ear, not code. |
@@ -145,9 +181,11 @@ they are already built and placed per floor. Keep them — but note they are
 currently **per-peer** (`Hero.gd:1887` breaks props with no authority guard), so
 cover geometry diverges between the two phones. That needs one guard.
 
-**5. Fall depth.** Spec says drop one floor; code drops two (`GameState.gd:500`).
-One-constant change, but it is a real difficulty decision — flagging so it is
-deliberate.
+**5. ~~Fall depth.~~ — SETTLED AND REPLACED (2026-08-01).**
+This asked whether a death should drop one floor or two. The maker answered a
+different question instead: a death drops you **no** floors, it costs you a **life**.
+See the rule-change block at the top of this document, and `DeathRules.gd` for the
+two dials that are left.
 
 ---
 
@@ -168,7 +206,10 @@ untestable end-to-end until this is fixed.
 0.2 Remove `MCPRuntime` from `[autoload]` (`project.godot:28`) behind a dev flag.
     It is a WebSocket dev bridge that would ship into the APK.
 0.3 `Net.gd:19` — `MAX_PLAYERS: 4 → 2`.
-0.4 `GameState.gd:500` — fall depth `2 → 1`.
+0.4 ~~fall depth `2 → 1`~~ — **DONE differently.** Superseded by the 2026-08-01 death
+    rule (top of this document): ghost form + teammate revive, party wipe = game over.
+    `GameState.fall()` / `fell` / `fall_floor()` are deleted; the policy lives in
+    `scripts/combat/DeathRules.gd`.
 0.5 Add `display/window/handheld/orientation="landscape"` and
     `window/stretch/aspect="expand"` (currently both absent; phones will rotate
     and letterbox).
