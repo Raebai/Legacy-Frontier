@@ -68,6 +68,16 @@ const STAT_W: float = 250.0
 ## sound cannot disagree about which run this was.
 enum Outcome { CONQUERED, WIPED, WALKED }
 
+## ⚠ THE TWO SCENE PATHS ARE RESTATED HERE RATHER THAN READ OFF THE RUN SPINE.
+## `GameState` has no `class_name` — it resolves only as an AUTOLOAD, and autoloads
+## are NOT registered under `--script`. Naming it as a bare identifier anywhere in
+## this file would make the whole script fail to compile inside the capture tool and
+## the headless suites, and it would surface as an unrelated missing method somewhere
+## else entirely. The live node is still asked FIRST at every call site (`_to_title`,
+## `_to_hub`); these are the fallbacks for when there is no autoload to ask.
+const TITLE_PATH: String = "res://scenes/ui/Lobby.tscn"
+const HUB_PATH: String = "res://scenes/Main.tscn"
+
 const HEADLINES: Dictionary = {
 	Outcome.CONQUERED: "THE TOWER IS DRAWN",
 	Outcome.WIPED: "RUBBED OUT",
@@ -244,7 +254,7 @@ func _build_ui() -> void:
 ## phone's own loopback, so the button could only ever offer a mute village. It is
 ## therefore hidden on a touch build rather than shown-and-broken.
 func _hub_is_offerable() -> bool:
-	if not ResourceLoader.exists(GameState.HUB_SCENE):
+	if not ResourceLoader.exists(HUB_PATH):
 		return false
 	return not DisplayServer.is_touchscreen_available()
 
@@ -297,7 +307,7 @@ func _to_title() -> void:
 	if _gs != null and _gs.has_method("go_to_title"):
 		_gs.call("go_to_title")
 		return
-	get_tree().change_scene_to_file(GameState.TITLE_SCENE)
+	get_tree().change_scene_to_file(TITLE_PATH)
 
 
 func _to_hub() -> void:
@@ -410,8 +420,11 @@ class _Page:
 			var wobble: float = lerpf(5.0, 0.8, t)
 			var half_w: float = lerpf(size.x * 0.115, size.x * 0.045, t)
 			var col: Color = accent if reached else RunSummary.GRAPHITE
-			col.a = 0.95 if reached else 0.20
-			var width: float = 2.2 if reached else 1.0
+			# The unreached floors have to be VISIBLE to do their job — "how much of
+			# the tower is still above you" is the whole point of the picture, and at
+			# 0.20 alpha on near-black paper they were simply not there.
+			col.a = 0.95 if reached else 0.34
+			var width: float = 2.2 if reached else 1.1
 			var fy: float = base_y - floor_h * float(i)
 			_scribble_box(
 				Vector2(base_x - half_w, fy - floor_h * 0.86),
