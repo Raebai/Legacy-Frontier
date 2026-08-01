@@ -42,9 +42,35 @@ const PAUSE_BTN_ALPHA: float = 0.55
 ## put it on.
 const PAUSE_BTN_LAYER: int = 50
 
+## -- the director (debug review rig) -----------------------------------------
+## ⚠ TWO INDEPENDENT SHIP GATES, AND THE FIRST ONE IS THE REAL ONE.
+##
+##   1. THE SCRIPT IS NOT IN AN EXPORTED BUILD. It lives under `res://tools/`,
+##      which `export_presets.cfg` excludes from the pack, so `ResourceLoader.
+##      exists()` answers false on a phone and no row is ever built. This is the
+##      gate that cannot be forgotten, because it is not a decision made at
+##      runtime — the bytes are absent.
+##   2. `OS.is_debug_build()` — false in a release export. Belt to the braces,
+##      and the thing that keeps the director out of a *debug* APK sideloaded
+##      onto someone else's phone even if the exclude list is ever edited.
+##
+## `tools/release_gate_dev_bridge.gd` asserts BOTH: that the preset still
+## excludes `res://tools/*`, and that this file still carries the
+## `OS.is_debug_build()` guard and does not `preload` the director (a preload
+## would drag an excluded script into the pack and break the export outright).
+##
+## Reached by `load()` + duck typing rather than a typed reference, exactly like
+## `VersusArena._probe_begin` reaches its probe: a hard reference to a file that
+## is deliberately absent half the time is a compile error waiting for an export.
+const DIRECTOR_SCRIPT: String = "res://tools/director/Director.gd"
+## One director per scene, however many PauseMenus a host builds — two would
+## double every hotkey (F1 open + F1 close on the same press).
+const DIRECTOR_GROUP: StringName = &"director"
+
 var _pause_layer: CanvasLayer = null
 var _pause_btn: Button = null
 var _quality_btn: Button = null
+var _director: Node = null
 
 var _main_col: VBoxContainer = null
 var _settings_col: VBoxContainer = null
@@ -77,6 +103,83 @@ func build(exit_label: String = "Exit to Hub") -> void:
 	_build_main()
 	_build_settings()
 	_build_pause_button()
+	_build_director()
+
+
+# ------------------------------------------------------------------ director
+## Is the debug review rig available in THIS build? See the DIRECTOR_SCRIPT
+## block above for why there are two conditions and why the first one is the one
+## that matters.
+##
+## ⚠ DO NOT "SIMPLIFY" THIS BY DROPPING `OS.is_debug_build()`. A debug APK is a
+## real thing this project intends to sideload (docs/mobile-export.md §1.5), and
+## the file-presence check alone would let the director onto that phone the day
+## somebody edits the exclude list for an unrelated reason.
+static func director_available() -> bool:
+	if not OS.is_debug_build():
+		return false
+	return ResourceLoader.exists(DIRECTOR_SCRIPT)
+
+
+## Build the director and give it a row on the MAIN menu (not Settings): it is
+## the reason the maker opened the menu, not a preference they are adjusting.
+##
+## It goes on the main menu rather than behind F1 alone because F1 does not exist
+## on a phone — the same reason the pause BUTTON exists at all. Two routes in,
+## one of which survives having no keyboard.
+func _build_director() -> void:
+	if not director_available():
+		return
+	# ⚠ A DYING DIRECTOR MUST NOT BLOCK A NEW ONE. `queue_free()` lands at the end
+	# of the frame and the node stays in its groups until then, so a host that
+	# tears down one pause menu and builds another in the same frame would get NO
+	# director at all — the same shape as the departed-peer puppet that used to
+	# soft-lock Arena's party-wipe check.
+	var tree: SceneTree = get_tree()
+	if tree != null:
+		for d: Node in tree.get_nodes_in_group(DIRECTOR_GROUP):
+			if _is_live(d):
+				return   # a live sibling PauseMenu already built one
+	var script: Resource = load(DIRECTOR_SCRIPT)
+	if script == null:
+		return
+	# The director is a CanvasLayer for the same reason the pause button is: this
+	# node is `visible = false` whenever the menu is closed, and the director has
+	# to be usable with the menu CLOSED and the game RUNNING. A CanvasLayer is not
+	# a CanvasItem, so it does not inherit that hidden state.
+	_director = (script as GDScript).new()
+	add_child(_director)
+	_director.add_to_group(DIRECTOR_GROUP)
+	add_action("◆  DIRECTOR  (F1)", func() -> void:
+		if _director != null and _director.has_method("set_open"):
+			_director.call("set_open", true)
+		resume_requested.emit())
+
+
+## Is this node really still alive — or is it, or anything it hangs off, on its
+## way out?
+##
+## ⚠ `queue_free()` DOES NOT MARK CHILDREN. Calling it on a PauseMenu marks the
+## menu and leaves `is_queued_for_deletion()` FALSE on the director underneath
+## it, while the whole subtree is nonetheless about to vanish and the director is
+## still in its group. Checking only the node itself therefore sees a "live"
+## director that will not exist next frame, and the next PauseMenu built in that
+## window silently gets none. So the walk goes all the way up.
+static func _is_live(n: Node) -> bool:
+	if not is_instance_valid(n):
+		return false
+	var cur: Node = n
+	while cur != null:
+		if cur.is_queued_for_deletion():
+			return false
+		cur = cur.get_parent()
+	return true
+
+
+## The live director node, or null in a build that has none. Exposed so a host or
+## a test can reach it without knowing where it was parented.
+func director() -> Node:
+	return _director
 
 
 ## The on-screen PAUSE affordance.
