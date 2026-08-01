@@ -87,6 +87,24 @@ var selected_class: int = 0
 ## so the chosen weapon/head/body (and their GearAbilities) shape the run hero.
 var loadout: Dictionary = {"weapon": "", "head": "", "body": ""}
 
+## Which THREE of a class's five authored roles the player carries. class id ->
+## Array of role names. `{}` = that class uses its authored default hand.
+##
+## THE FIELD HAS TO EXIST HERE FOR THE PICK TO SURVIVE A QUIT. `SpellLibrary`
+## holds the live pick in a static, which carries across the scene change into the
+## arena but dies with the process; `hydrate_from_state`/`persist_to_state` bridge
+## it to disk and are already called by the Lobby and the Outfitter. They were
+## no-opping honestly until this line existed — deliberately, because `set()` on an
+## undeclared property is a SILENT no-op in Godot, so `persist_to_state` reads the
+## field back and returns false rather than pretending it saved.
+var spell_roles: Dictionary = {}
+
+## Body colourway index the player chose in the Outfitter. -1 = untouched, use the
+## class default. Read by `Hero._configure_class` AT SPAWN — before this existed the
+## pick was replayed onto the hero the first time the pause menu opened, so you
+## played the whole first floor as the default palette.
+var colourway: int = -1
+
 ## Player camera-zoom preference (combat). Lower = wider view. Read by
 ## CombatCamera as its resting zoom; adjustable live from the pause Settings.
 ## Default pulled back from the old tight 2.2 so more of the fight is visible.

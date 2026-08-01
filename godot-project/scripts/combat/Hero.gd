@@ -915,6 +915,16 @@ func _ready() -> void:
 		var sc: Variant = gs.get("selected_class")
 		if sc != null:
 			start_class = int(sc)
+	# The colourway the player picked in the Outfitter, applied AT SPAWN.
+	# It used to be replayed onto the hero the first time the pause menu opened,
+	# so you played the whole first floor as the default palette and only became
+	# yourself after pausing. Read before configure_class so the retint below
+	# happens once, with the right colour, rather than twice.
+	if gs != null:
+		var cw: Variant = gs.get("colourway")
+		if cw != null and int(cw) >= 0:
+			_colourway = int(cw) % COLOURWAYS.size()
+			rig.set_tint(COLOURWAYS[_colourway])
 	# configure_class sets the class element, rig preset, weapon, AND the class's
 	# signature loadout (SpellLibrary.build_for_class) + emits signature_changed.
 	configure_class(start_class)  # also applies the hub Armory loadout (GameState.loadout)
