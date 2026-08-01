@@ -268,7 +268,19 @@ func _build_ui() -> void:
 	_start_btn.visible = false
 	right.add_child(_start_btn)
 
-	right.add_child(_button("Credits", _open_credits, 12))
+	# Paired into ONE row rather than stacked, because the column measures 306 of
+	# 360 px and a stacked pair would blow the budget the layout suite pins.
+	var extras := HBoxContainer.new()
+	extras.add_theme_constant_override("separation", 6)
+	right.add_child(extras)
+	# WATCH BOTS FIGHT — two AI heroes on the versus stage with the clip camera on.
+	# It is a spectator mode and a content tool at once: the maker wants bot-vs-bot
+	# fights recorded as short clips, and ClipDirector already scores the board and
+	# frames the decisive beat. Reached by path + static call for the same reason
+	# Free Play is — a bare identifier drags the versus arena's dependency chain
+	# into the title screen's compile.
+	extras.add_child(_half("Watch Bots", _watch_bots))
+	extras.add_child(_half("Credits", _open_credits))
 
 	# The status row exists anyway and is empty at boot, so it is a free place to say
 	# what the safe button is — the one sentence of onboarding this screen can afford.
@@ -463,6 +475,33 @@ func _free_play() -> void:
 		return
 	_say("warming up...")
 	script.call("enter", get_tree(), _selected_class)
+
+
+## WATCH BOTS FIGHT — two AI heroes on the versus stage, with `ClipDirector` scoring
+## the board and framing the decisive beat. Spectator mode and content tool at once.
+##
+## By path and static call for exactly the reason free play is: a bare `BotMatch`
+## identifier would drag the versus arena's dependency chain into the title screen's
+## compile, and by-path means a build without the script hides the button rather
+## than failing to load the boot scene.
+const BOT_MATCH_SCRIPT: String = "res://scripts/combat/BotMatch.gd"
+
+
+func bot_match_available() -> bool:
+	return ResourceLoader.exists(BOT_MATCH_SCRIPT)
+
+
+func _watch_bots() -> void:
+	if not bot_match_available():
+		_say("the bot arena is missing from this build.")
+		return
+	_stop_discovery()
+	var script: GDScript = load(BOT_MATCH_SCRIPT) as GDScript
+	if script == null:
+		_say("the bot arena failed to load.")
+		return
+	_say("finding a fight...")
+	script.call("enter", get_tree())
 
 
 ## THE OUTFITTER. Everything you decide before you climb: which three of your class's

@@ -33,6 +33,7 @@ Frames land in `C:\Users\Raaed\AppData\Roaming\Godot\app_userdata\Legacy Frontie
 | `bot_clip_capture` | THE CLIP ENGINE — renders a real bot-vs-bot fight to a PNG frame sequence that | script |
 | `cast_pose_capture` | Visual check for the per-spell CAST POSES (magic-overhaul rule 4). Renders the | script |
 | `cast_windup_capture` | Visual check for the SHIPPED hero's casting PROCESS (not the spike rig — see | script |
+| `ceremony_capture` | LOOK AT THE TWO CEREMONIES. A floor-1 mini-guardian and the floor-5 headline act, | script |
 | `circle_capture` | Focused showcase of the upgraded MagicCircle: a big sigil on a plain backdrop, | script |
 | `clash_capture` | Throwaway visual check for THE CLASH (scripts/combat/MeleeClash.gd): stage two | script |
 | `class_spell_demo` | Fires the NEW class spectacles in VersusArena and renders a 2x2 sheet to | script |
@@ -40,14 +41,18 @@ Frames land in `C:\Users\Raaed\AppData\Roaming\Godot\app_userdata\Legacy Frontie
 | `dash_agent_capture` | Throwaway agent-owned A/B check for the DASH visual (safe to delete). | script |
 | `debris_demo` | Deterministic debris/crater money-shot: loads the versus arena, detonates a | script |
 | `demo_capture` | Non-headless demo + screenshot harness for the stick-fight combat core. | scene |
+| `directed_clip_capture` | THE DIRECTED CLIP ENGINE — renders a bot-vs-bot fight as a PNG frame sequence | script |
 | `DirectorCapture` | PROOF THAT THE DIRECTOR ACTUALLY WORKS — drives the real thing and photographs it. | scene |
 | `drain_tether_capture` | Saves four PNGs to user:// — one per beat of the spell, because the whole point | script |
 | `drain_tether_ingame_capture` | Drain Tether, cast IN THE SPELL PLAYGROUND — the scene the maker actually plays. | script |
 | `drop_capture` | Visual verification for the DROP ECONOMY's pickup entity + the handoff prompt. | script |
+| `elite_capture` | ELITE READ CAPTURE — can you tell an elite from an ordinary body BEFORE it hits | script |
 | `enemy_gear_capture` | Enemy gear capture: render the archetype weapons on stick rigs (brute club, | script |
 | `fire_fist_capture` | Throwaway visual check for the organic flaming fist (item 3). Run with the GUI | script |
 | `floor_sim` | HOW LONG IS A FLOOR? — a headless estimator for the wave tables. | script |
 | `floorgen_capture` | LOOK AT THE ROLLS. Renders the SAME floor drawn several different ways, into real | script |
+| `freeplay_capture` | FREE PLAY, rendered — proof that the no-bots stage actually comes up: the | script |
+| `friendly_fire_capture` | python python-tools/run_capture.py friendly_fire | script |
 | `frost_field_capture` | Throwaway render check for the FROST FIELD rework — the rime meter climbing a | script |
 | `gear_capture` | Gear capture: render a row of stick-figure rigs, each with a class_preset, so the | script |
 | `ghost_revive_capture` | Render GHOST FORM and the REVIVE prompt so they can be LOOKED at instead of | script |
@@ -67,12 +72,14 @@ Frames land in `C:\Users\Raaed\AppData\Roaming\Godot\app_userdata\Legacy Frontie
 | `new_spells_capture` | Saves user://new_spells.png. Shows Ice Wall, Chain Lightning, Void Zone, Rune Orbs, | script |
 | `newshape_agent_capture` | Throwaway visual check for the two NEW delivery shapes — creeping_shade | script |
 | `nova_capture` | Task 7 (right-size spell VFX) verification aid: fires the Arcanist's T (Nova) | script |
+| `outfitter_capture` | CUSTOMISATION capture: the three screens a player now has that they did not before — | script |
 | `phase1_rig_capture` | Throwaway Phase-1 rig+feel visual check: drives the SpellPlayground figure through | script |
 | `pillar_agent_capture` | Throwaway visual check for the PILLAR identity split (judgment regression | script |
 | `postprocess_capture` | Post-process "look" capture: boot a combat arena and grab full-res frames of the | script |
 | `rig_look_capture` | Look-test for the stickman-integrate rig work. Tests cannot judge this — the whole | script |
 | `rig_ragdoll_capture` | THE RAGDOLL A/B — does the game rig now have the spike's WEIGHT? | script |
 | `roster_capture` | LOOK AT THE ROSTER. Renders every boss in BossRoster, plus a modifier showcase, | script |
+| `run_end_capture` | Render THE RUN-END CEREMONY — both endings — so the maker can LOOK at them | script |
 | `sequence_capture` | Drives scripted inputs on a combat scene and renders a 4x4 CONTACT SHEET of | script |
 | `sigil_matrix_capture` | LOOK AT THE SUMMONING CIRCLES. Renders the MagicCircle signature vocabulary as | script |
 | `spell_demo_capture` | Fires the spectacle signature spells in VersusArena and renders a 2x2 sheet to | script |
@@ -96,4 +103,4 @@ Frames land in `C:\Users\Raaed\AppData\Roaming\Godot\app_userdata\Legacy Frontie
 | `weapon_agent_capture` | Throwaway visual check for the spike rig's HELD WEAPONS (agent-owned; safe to | script |
 | `zone_agent_capture` | Throwaway render check for the ZONE-spell rework (blizzard squall + shadow | script |
 
-_69 tools._
+_76 tools._

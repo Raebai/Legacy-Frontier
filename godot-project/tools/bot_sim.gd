@@ -13,7 +13,9 @@ extends SceneTree
 ##   --dur=SECONDS              game-clock length of one match. Default 20.
 ##   --classes=0,1,5            restrict the roster. Default all 9.
 ##   --max-matches=N            stop after N matches (smoke runs).
-##   --out=user://bot_sim       report directory.
+##   --difficulty-b=0..3        tier for the SECOND fighter, to put two tiers against
+#                              each other. Defaults to the same as --difficulty.
+#   --out=user://bot_sim       report directory.
 ##
 ## WHY A FIGHT NOBODY WATCHES IS WORTH RUNNING. It is only worth running if it
 ## can tell you something is wrong, so every check lives in `BotSimProbe` as a
@@ -124,6 +126,15 @@ var _strict: bool = false
 var _slot_map: String = "role"
 ## Difficulty tier handed to BotProfile. Reaction delay and error rate only.
 var _difficulty: int = 2
+## Difficulty for the SECOND fighter, when you want an asymmetric match. -1 means
+## "the same as `--difficulty`", which is the default and the only fair pairing.
+##
+## ⚠ THIS IS THE ONLY HONEST WAY TO ASK "IS DIFFICULTY A REAL DIAL". Running the
+## whole roster at one tier tells you which CLASSES win; it tells you nothing about
+## whether an Impossible bot actually beats an Easy one, because both sides move
+## together. `--difficulty=0 --difficulty-b=3` puts the tiers against each other and
+## the win column answers the question directly.
+var _difficulty_b: int = -1
 var _profile_script: GDScript = null
 
 # ---- run state -------------------------------------------------------------
@@ -221,6 +232,7 @@ func _parse_args() -> void:
 			"max-matches": _max_matches = int(value)
 			"slotmap": _slot_map = value
 			"difficulty": _difficulty = clampi(int(value), 0, 3)
+			"difficulty-b": _difficulty_b = clampi(int(value), 0, 3)
 			"classes":
 				for part: String in value.split(",", false):
 					var id: int = int(part)
@@ -326,16 +338,27 @@ func _begin_duel(a: int, b: int) -> void:
 	# assignment otherwise.
 	_make_hostile(hero_a, &"hero")
 	_make_hostile(hero_b, &"hero")
-	_register(hero_a, CLASS_NAMES[a], a, true, 0)
+	_register(hero_a, _labelled(CLASS_NAMES[a], 0), a, true, 0)
 	# With no per-instance seam, `Input` drives BOTH heroes identically, which is
 	# not a fight — it is one hero mirrored. So the second hero becomes a standing
 	# target instead. That still answers the question this mode exists to ask:
 	# does hero A's whole kit do ANY damage to hero B? Today it does not, and that
 	# is the faction bug this harness was built to catch.
 	var b_driven: bool = _seam == "controller"
-	_register(hero_b, CLASS_NAMES[b], b, b_driven, 1)
+	# The label carries the TIER when the two sides differ, so the balance table
+	# reports "ARCANIST@Easy" against "ARCANIST@Impossible" instead of merging both
+	# into one row and averaging the dial away.
+	_register(hero_b, _labelled(CLASS_NAMES[b], 1), b, b_driven, 1)
 	if not b_driven:
 		hero_b.set_physics_process(false)   # stand still; take_damage still lands
+
+
+## Class name, plus the tier when the two sides are on different ones.
+func _labelled(name: String, side: int) -> String:
+	if _difficulty_b < 0:
+		return name
+	var tier: int = _difficulty_b if side == 1 else _difficulty
+	return "%s@%s" % [name, BotProfile.TIERS[clampi(tier, 0, 3)]["name"]]
 
 
 func _begin_vs_enemy(a: int) -> void:
@@ -570,11 +593,15 @@ func _observe_bot_intent(rec: Dictionary, ctrl: Object) -> void:
 func _profile_for(_rec: Dictionary) -> Dictionary:
 	if _profile_script == null:
 		return {}
+	# Side 1 may run a different tier — see `_difficulty_b`.
+	var tier: int = _difficulty
+	if _difficulty_b >= 0 and int(_rec.get("side", 0)) == 1:
+		tier = _difficulty_b
 	# `of(tier)` is BotProfile's own accessor; the alternates are checked so a
 	# rename upstream degrades to defaults instead of throwing every frame.
 	for method: String in ["of", "get_profile", "for_tier"]:
 		if _profile_script.has_method(method):
-			return _profile_script.call(method, _difficulty)
+			return _profile_script.call(method, tier)
 	return {}
 
 

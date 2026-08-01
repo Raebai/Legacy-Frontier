@@ -39,7 +39,7 @@ extends Node2D
 ##
 ## Usable three ways, all of them through the same object: attached to a live
 ## `VersusArena` in showcase mode (the watchable bot-match scene), driven by
-## `tools/bot_clip_director.gd` for a rendered frame sequence, or ticked manually by
+## `tools/directed_clip_capture.gd` for a rendered frame sequence, or ticked manually by
 ## a headless test.
 
 ## How long a damage event keeps counting toward heat. About one exchange.
@@ -64,9 +64,16 @@ const COOL_THRESHOLD: float = 0.14
 
 ## Framing. MARGIN is the slack around everything being framed, so a beam or a
 ## meteor column has room to land INSIDE the shot.
-const FRAME_MARGIN: float = 460.0
-const ZOOM_MIN: float = 0.58
-const ZOOM_MAX: float = 1.35
+## ⚠ THESE ARE MEASURED AGAINST THE BASE VIEWPORT (683 px wide), NOT THE WINDOW.
+## The first pass used the showcase camera's own 460 / 0.58 / 1.35 and produced a
+## frame with ONE fighter in it: at 0.58 the shot is 1178 world pixels across, and
+## two bots that had drifted 1300 apart on this 2000 px stage simply could not both
+## fit — the zoom floor, not the framing, threw one of them out. A smaller MARGIN
+## means the camera only pulls back as far as it actually has to; a lower ZOOM_MIN
+## means it CAN when it has to. Both fighters in frame beats a tighter shot of one.
+const FRAME_MARGIN: float = 300.0
+const ZOOM_MIN: float = 0.42
+const ZOOM_MAX: float = 1.15
 ## How much hotter moments punch in, as a multiplier on the solved zoom.
 const HEAT_PUNCH: float = 0.22
 ## Camera lerp rates. Position tracks faster than zoom: a snappy pan reads as
@@ -80,6 +87,11 @@ const SPELL_BIAS: float = 0.30
 ## The eye sits above the midpoint so the floor falls in the lower third instead of
 ## half the frame being underground.
 const EYE_LIFT: float = 50.0
+## How far ABOVE the floor the eye may rise. See `_lean` — a tall spectacle must not
+## be able to lift the camera off the stage.
+const VERTICAL_BAND: float = 210.0
+## Fraction of a horizontal lean that is applied vertically. See `_lean`.
+const VERTICAL_LEAN: float = 0.25
 
 ## Groups read. All of them are things drawn on screen.
 const SPELL_GROUPS: Array[StringName] = [&"player_spell", &"enemy_projectile"]
@@ -299,10 +311,10 @@ func _frame(fighters: Array[Node2D], delta: float) -> void:
 	var target: Vector2 = mid
 	var victim: Vector2 = _recent_damage_centroid()
 	if victim != Vector2.INF:
-		target = target.lerp(victim, VICTIM_BIAS)
+		target = _lean(target, victim, VICTIM_BIAS)
 	var spells: Vector2 = _spell_centroid()
 	if spells != Vector2.INF:
-		target = target.lerp(spells, SPELL_BIAS)
+		target = _lean(target, spells, SPELL_BIAS)
 
 	# Zoom from the widest separation of everything that must stay in shot, then
 	# punched in by heat.
@@ -321,9 +333,27 @@ func _frame(fighters: Array[Node2D], delta: float) -> void:
 	camera.zoom = Vector2(z, z)
 	var eye: Vector2 = Vector2(
 		clampf(target.x, stage.position.x + 340.0, stage.end.x - 340.0),
-		clampf(target.y - EYE_LIFT, ground_y - 330.0, ground_y - 30.0))
+		clampf(target.y - EYE_LIFT, ground_y - VERTICAL_BAND, ground_y - 40.0))
 	camera.global_position = camera.global_position.lerp(eye,
 		clampf(delta * POS_LERP, 0.0, 1.0))
+
+
+## Lean the framing target toward a point of interest — FULLY on x, but only
+## `VERTICAL_LEAN` of that on y.
+##
+## ⚠ THE ASYMMETRY IS THE FIX, and a symmetric lerp is what broke the first directed
+## clip. `_spell_centroid` includes tall spectacles: a Stormcaller's lightning column
+## is a node hundreds of pixels above the floor, so a full-weight vertical lean
+## dragged the eye to the top of its clamp and the fight itself ended up in the
+## bottom 7% of frame — MEASURED, from a captured frame that is almost entirely sky
+## with two fighters' heads at the very bottom edge. Horizontally the same lean is
+## exactly right: it is what puts the payoff in the middle of the picture. Fighters
+## stand on a floor; spells go up. The camera should follow them sideways and barely
+## follow them upward.
+static func _lean(from: Vector2, toward: Vector2, weight: float) -> Vector2:
+	return Vector2(
+		lerpf(from.x, toward.x, weight),
+		lerpf(from.y, toward.y, weight * VERTICAL_LEAN))
 
 
 ## Where the recent damage happened, or INF for none. INF rather than ZERO because

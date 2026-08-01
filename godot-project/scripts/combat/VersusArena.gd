@@ -98,7 +98,7 @@ static var showcase_difficulty: int = 2
 ## tracker below. OFF by default and deliberately so: the existing pair camera is
 ## what `tools/bot_clip_capture.gd` and `tools/slice3_test_versus.gd` were measured
 ## against, and silently changing the framing under them would be a regression
-## wearing an improvement's clothes. `tools/bot_clip_director.gd` and
+## wearing an improvement's clothes. `tools/directed_clip_capture.gd` and
 ## `scenes/combat/BotMatch.tscn` opt in.
 static var showcase_directed: bool = false
 ## How many HP each showcase fighter carries. A STATIC so a clip tool can shorten a

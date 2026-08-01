@@ -4,10 +4,10 @@
 # Run (GUI binary — NOT --headless; the dummy renderer draws nothing and reports
 # success, which is how blank clips get shipped):
 #   godot-engine/Godot_v4.6.2-stable_win64.exe --path godot-project \
-#       --script tools/bot_clip_director.gd -- --a=6 --b=5 --seconds=14
+#       --script tools/directed_clip_capture.gd -- --a=6 --b=5 --seconds=14
 #
 # ...or through the index, which knows to use the GUI binary:
-#   python python-tools/run_capture.py bot_clip_director
+#   python python-tools/run_capture.py directed_clip_capture
 #
 # Then encode it:
 #   python python-tools/frames_to_gif.py <the printed path> --fps 30 --width 720
