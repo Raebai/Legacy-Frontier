@@ -937,10 +937,22 @@ func _draw_face() -> void:
 
 
 # ------------------------------------------------------- shared sigil furniture
-## Roughly how many pixels of arc one polyline segment should span. 4 px is below
-## the threshold at which a straight edge is distinguishable from a curve at the
-## sizes this sigil is actually drawn — and well below it on a phone panel.
-const PX_PER_SEGMENT: float = 4.0
+## THE TESSELLATION BUDGET, stated as a VISUAL ERROR rather than as a segment
+## count or a chord length.
+##
+## A polyline circle deviates from the true circle by its sagitta — the gap at the
+## middle of each chord — and that is the only thing an eye can actually see. Fixing
+## the SEGMENT COUNT (what this file did) over-tessellates small rings absurdly and
+## under-tessellates big ones; fixing the CHORD LENGTH is better but still lets the
+## error grow as rings shrink. Fixing the SAGITTA makes every ring in the game wrong
+## by the same invisible amount, which is the correct invariant.
+##
+## 0.25 px is a quarter of one pixel at native resolution — a quarter of the width
+## of the thinnest line here, on a game that ships with MSAA on precisely because
+## its fighters are drawn as procedural lines. Doubling it to 0.5 would still be
+## sub-pixel; a quarter is chosen so that the sigil looks identical even when the
+## camera pulls in and the effective radius grows past what these numbers assume.
+const MAX_SAGITTA_PX: float = 0.25
 ## Never below this, however small the ring: a heptagon reads as a shape rather
 ## than a circle, and the sigil's job is to be recognised instantly.
 const MIN_SEGMENTS: int = 12
@@ -971,10 +983,25 @@ const MIN_SEGMENTS: int = 12
 func _seg(full: int, r: float = -1.0) -> int:
 	var n: int = full
 	if r > 0.0:
-		n = clampi(int(ceil(TAU * absf(r) / PX_PER_SEGMENT)), MIN_SEGMENTS, full)
+		n = clampi(segments_for_radius(absf(r)), MIN_SEGMENTS, full)
 	n = maxi(n / 2, 12) if _low else n
 	_work_segments += n
 	return n
+
+
+## Segments needed to keep a circle of radius `r` within `MAX_SAGITTA_PX` of round.
+##
+## From the sagitta identity for a chord subtending angle θ: s = r·(1 − cos(θ/2)),
+## so θ = 2·acos(1 − s/r) and n = TAU/θ. Exposed (and static) so
+## `tools/profile_magic_circle.gd` and any future quality tier can reason about the
+## same rule rather than re-deriving a second one that disagrees.
+static func segments_for_radius(r: float) -> int:
+	if r <= MAX_SAGITTA_PX:
+		return MIN_SEGMENTS
+	var half: float = acos(clampf(1.0 - MAX_SAGITTA_PX / r, -1.0, 1.0))
+	if half <= 0.0001:
+		return MIN_SEGMENTS
+	return int(ceil(TAU / (2.0 * half)))
 
 
 # ------------------------------------------------------------- WORK COUNTERS
@@ -1183,7 +1210,7 @@ func _draw_dashed_ring(r: float, count: int, fill: float, col: Color, width: flo
 	# under 3 px; drawing it with a fixed 6-point arc spent five segments on a stroke
 	# barely longer than the line is wide. 2 is a straight tick, which is what a dash
 	# that short already looks like.
-	var pts: int = clampi(int(ceil(r * slot * fill / PX_PER_SEGMENT)), 2, 6)
+	var pts: int = clampi(int(ceil(float(segments_for_radius(r)) * slot * fill / TAU)) + 1, 2, 6)
 	_work_dashes += count
 	_work_segments += count * maxi(pts - 1, 1)
 	for i: int in count:

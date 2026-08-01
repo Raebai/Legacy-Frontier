@@ -137,8 +137,21 @@ func _close() -> void:
 	var c: Dictionary = CONFIGS[_ci]
 	var us: float = maxf(_median(_act) - _median(_qui), 0.0) * 1000.0 \
 		/ maxf(float(_copies), 1.0)
-	_rows.append({"name": String(c["name"]), "us": us})
-	print("[sigil] %-20s %s  %8.2f us/frame" % [c["name"], "LOW " if _low else "HIGH", us])
+	# Per SIGIL per FRAME: the counters are totals over every `_draw` that ran during
+	# the A/B, so dividing by `sigils` is what makes runs of different lengths
+	# comparable.
+	var w: Dictionary = MagicCircle.work_stats()
+	var draws: float = maxf(float(w["sigils"]), 1.0)
+	_rows.append({
+		"name": String(c["name"]), "us": us,
+		"segs": float(w["segments"]) / draws,
+		"glyphs": float(w["glyphs"]) / draws,
+		"blobs": float(w["blobs"]) / draws,
+	})
+	print("[sigil] %-20s %s  segments %7.1f  glyphs %5.1f  blobs %5.1f"
+		% [c["name"], "LOW " if _low else "HIGH",
+			float(w["segments"]) / draws, float(w["glyphs"]) / draws,
+			float(w["blobs"]) / draws])
 	for n: MagicCircle in _nodes:
 		if is_instance_valid(n):
 			n.free()
