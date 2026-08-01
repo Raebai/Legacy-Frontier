@@ -10,6 +10,33 @@ extends Node2D
 
 const LIFE: float = 0.55
 
+## GLOBAL LIVE CAP, and this class had none at all.
+##
+## One of these is spawned on EVERY elemental hit — including every DoT tick — and
+## each one is a `_process` node that issues dozens of `draw_polyline` / `draw_arc`
+## / `draw_circle` calls per frame for 0.55 s. A burning crowd of 25 with a meteor
+## barrage overhead can ask for them faster than they retire, and nothing said no.
+## `DamageNumber` has had a cap for exactly this reason (and it is a far cheaper
+## node); this is that cap for the expensive one.
+##
+## Sized to be invisible in normal play — you would have to be looking at a dozen
+## simultaneous impacts before it engages — so this is a safety rail against a
+## pathological moment, not a quality setting. The quality setting is below it.
+const MAX_ALIVE_HIGH: int = 32
+const MAX_ALIVE_LOW: int = 16
+
+## Live instances, O(1) — never a group scan. Same counter discipline (and the same
+## `_exit_tree` safety net) as DamageNumber, DebrisChunk and ScorchDecal: a floor
+## torn down mid-fight frees these without releasing them, and a counter that does
+## not get its slots back ratchets shut and silently stops the element reads for the
+## rest of the session.
+static var _alive: int = 0
+## Deterministic work counters — see CombatVfx.work_stats for why the harness
+## counts rather than times.
+static var _requested: int = 0
+static var _granted: int = 0
+
+var _counted: bool = false
 var _element: int = 0
 var _size: float = 40.0
 var _phase: float = 0.0
@@ -21,6 +48,7 @@ var _seeds: PackedFloat32Array = PackedFloat32Array()
 static func spawn(parent: Node, world_pos: Vector2, element: int, size: float) -> void:
 	if parent == null or not parent.is_inside_tree():
 		return
+	_requested += 1
 	if element == Elements.Element.FIRE:
 		FlameBurst.spawn(parent, world_pos, size)  # fire = the procedural flame plume
 		# ...and a real stylized EXPLOSION on the BIGGER fire beats (blast / nova /
@@ -28,8 +56,17 @@ static func spawn(parent: Node, world_pos: Vector2, element: int, size: float) -
 		# small impacts don't spawn a swarm. Layers over the flame plume.
 		if size >= 40.0:
 			Vfx.explosion(parent, world_pos, clampf(size / 210.0, 0.17, 0.42))
+		_granted += 1
+		return
+	# ⚠ CAPPED, BUT NOT BUDGET-THINNED, and the distinction is deliberate. This node
+	# is the ELEMENT READ — the thing that tells you whether what just hit you was
+	# ice or shadow — so unlike rubble and scorch it is information, not garnish, and
+	# it is not on the austerity ramp. What it gets instead is a hard ceiling on how
+	# many can exist at once, which in normal play is never reached.
+	if _alive >= _max_alive():
 		return
 	var fx := ElementFx.new()
+	_granted += 1
 	fx._element = element
 	fx._size = size
 	parent.add_child(fx)
@@ -37,9 +74,41 @@ static func spawn(parent: Node, world_pos: Vector2, element: int, size: float) -
 	fx.z_index = 40
 
 
+## The live ceiling for the current picture. LOW halves it: the element read still
+## lands on the hits you are reacting to, there are simply fewer simultaneous ones
+## being drawn on a device that cannot afford them.
+static func _max_alive() -> int:
+	return MAX_ALIVE_LOW if TuningConfig.quality_is_low() else MAX_ALIVE_HIGH
+
+
+## Diagnostics + tests.
+static func alive_count() -> int:
+	return _alive
+
+
+static func work_stats() -> Dictionary:
+	return {"requested": _requested, "granted": _granted}
+
+
+## Test hook / arena teardown.
+static func reset_count() -> void:
+	_alive = 0
+	_requested = 0
+	_granted = 0
+
+
 func _ready() -> void:
+	_alive += 1
+	_counted = true
 	for i in 8:
 		_seeds.append(randf() * TAU)
+
+
+## Counter safety net — see the note on `_alive`.
+func _exit_tree() -> void:
+	if _counted:
+		_counted = false
+		_alive = maxi(_alive - 1, 0)
 
 
 func _process(delta: float) -> void:

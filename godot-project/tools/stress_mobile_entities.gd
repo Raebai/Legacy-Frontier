@@ -367,6 +367,7 @@ func _report() -> void:
 	# Decals are skip-or-spawn, so the two keys SUM to the demand rather than the
 	# second being a reduced form of the first.
 	_print_work("decals", ScorchDecal, "spawned", "skipped", true)
+	_print_work("elementfx", ElementFx, "requested", "granted", false)
 	if _ablate != "":
 		print("[stress] ⚠ ABLATED '%s' — this is a MEASUREMENT run, not a build" % _ablate)
 	print("[stress] --------------------------------------------------")

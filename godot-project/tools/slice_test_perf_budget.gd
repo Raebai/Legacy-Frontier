@@ -47,6 +47,7 @@ const TESTS: Array[String] = [
 	"low_quality_is_a_real_lever",
 	"garnish_caps_are_o1",
 	"garnish_counters_survive_teardown",
+	"elementfx_cap",
 ]
 
 ## SpellReactor members this suite reaches dynamically (it is an autoload, so every
@@ -88,6 +89,7 @@ func _process(_delta: float) -> bool:
 	_test_low_quality_is_a_real_lever()
 	_test_garnish_caps_are_o1()
 	_test_garnish_counters_survive_teardown()
+	_test_elementfx_cap()
 
 	for t: String in TESTS:
 		_expect(_completed.has(t),
@@ -303,6 +305,42 @@ func _test_garnish_counters_survive_teardown() -> void:
 		"decal count returned to zero after a floor teardown (got %d)"
 			% ScorchDecal.alive_count())
 	_completes("garnish_counters_survive_teardown")
+
+
+## The element read is spawned on every elemental hit INCLUDING every DoT tick, and
+## each one draws dozens of polylines and arcs per frame for 0.55 s. It had no cap
+## at all. This pins the cap, and — more importantly — pins that the cap RELEASES,
+## because a counter that only counts up ratchets shut and silently ends the element
+## reads for the rest of the session.
+##
+## Deliberately NOT asserting that the cap fires in normal play: measured at ~2.5
+## requests a second against a 25-entity crowd, so it is a rail for a pathological
+## moment (a burning crowd under a barrage), not a live limiter.
+func _test_elementfx_cap() -> void:
+	ElementFx.reset_count()
+	_expect(ElementFx.alive_count() == 0, "element-fx count resets to zero")
+	var arena := Node2D.new()
+	root.add_child(arena)
+	# Ask for far more than the ceiling. ICE rather than FIRE: the fire arm delegates
+	# to FlameBurst and returns before the capped node is ever built.
+	var want: int = ElementFx.MAX_ALIVE_HIGH * 3
+	for i: int in want:
+		ElementFx.spawn(arena, Vector2(float(i) * 8.0, 0.0), Elements.Element.ICE, 30.0)
+	_expect(ElementFx.alive_count() <= ElementFx.MAX_ALIVE_HIGH,
+		"the live cap holds: asked for %d, %d alive (ceiling %d)"
+			% [want, ElementFx.alive_count(), ElementFx.MAX_ALIVE_HIGH])
+	_expect(ElementFx.alive_count() > 0, "...and it is a cap, not an off switch")
+	var stats: Dictionary = ElementFx.work_stats()
+	_expect(int(stats["requested"]) == want,
+		"every request is counted even when refused (got %s)" % stats["requested"])
+	_expect(int(stats["granted"]) < int(stats["requested"]),
+		"the refusals are visible in the counters (%s granted of %s)"
+			% [stats["granted"], stats["requested"]])
+	arena.free()
+	_expect(ElementFx.alive_count() == 0,
+		"the count returns to zero after a floor teardown (got %d — the cap is now permanently that much closer to shut)"
+			% ElementFx.alive_count())
+	_completes("elementfx_cap")
 
 
 # --------------------------------------------------------------------- plumbing
