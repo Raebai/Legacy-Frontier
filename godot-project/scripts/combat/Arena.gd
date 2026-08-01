@@ -31,8 +31,12 @@ var _return_portal: ExitPortal = null
 const RETURN_PORTAL_COLOR: Color = Color(1.0, 0.85, 0.4)   # warm gold vs the cyan climb-exit
 var _floor_banner: Label = null
 var _pause_menu: PauseMenu = null
+var _revive: Revive = null        # the pick-your-teammate-up channel + its prompt/pad
 var _spawn_timer: float = 0.0
-var _wipe_handled: bool = false   # co-op: debounce the party-wipe -> fall to once per floor
+## Debounce: the party-wipe verdict is reached ONCE per run, on every peer.
+var _wipe_handled: bool = false
+## …and the GAME OVER card is built at most once for the life of this arena.
+var _game_over_shown: bool = false
 ## Which wall shapes have already been un-shared from the .tscn sub-resource
 ## (see _set_wall) — duplicate once, then mutate in place every floor after.
 var _resized_walls: Dictionary = {}
@@ -82,6 +86,13 @@ func _ready() -> void:
 	_encounter.boss_spawned.connect(_on_boss_spawned)
 	_build_ability_bar()
 	_build_pause_overlay()
+	# PICKING YOUR TEAMMATE UP. Parked here rather than in `FloorBuilder` (which owns
+	# the per-floor props, incl. `SpellHandoff`) because a revive has to survive a
+	# floor rebuild: it holds a live channel, and rebuilding the node under a player's
+	# thumb would silently cancel it. One per arena, for the arena's whole life.
+	_revive = Revive.new()
+	_revive.name = "Revive"
+	add_child(_revive)
 	_setup_heroes()
 	_setup_enemy_spawner()   # co-op: host-authoritative enemies replicate through this
 
@@ -93,8 +104,6 @@ func _ready() -> void:
 		_build_floor_banner()
 		if not _gs.floor_advanced.is_connected(_on_floor_advanced):
 			_gs.floor_advanced.connect(_on_floor_advanced)
-		if not _gs.fell.is_connected(_on_fell):
-			_gs.fell.connect(_on_fell)
 		# Co-op client: the host broadcasts "floor cleared" -> spawn our exit portal(s)
 		# locally so any hero can pull the party forward (the host debounces advances).
 		var net: Node = get_node_or_null("/root/Net")
@@ -132,8 +141,10 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	# Co-op: the host watches for a full party wipe -> drop the party a floor.
-	if _is_coop_host():
+	# THE RUN-ENDING VERDICT. Watched on EVERY peer (and in single player), not just
+	# the host: the card has to appear on both screens, and the host-only version was
+	# a co-op-only mechanic. Only the host actually ENDS the run — see below.
+	if _run_mode and not _wipe_handled:
 		_check_party_wipe()
 	if _run_mode or _boss_rush_active:
 		return  # Encounter drives the finite floor; a boss rush is the boss ALONE
@@ -352,25 +363,6 @@ func _on_floor_advanced(new_floor: int) -> void:
 	_wipe_handled = false
 
 
-## A fall landed us on an earlier floor: clear the current fight, rebuild the
-## dropped floor, and revive the hero. Reuses the same floor-rebuild path as a
-## normal climb — the only difference is we may have live enemies to clear.
-func _on_fell(new_floor: int) -> void:
-	_clear_portal()
-	# Co-op: only the HOST clears enemies (its despawns replicate to clients via the
-	# spawner); a client freeing puppets here would fight the spawner. SP -> clear.
-	if not _is_net_client():
-		_clear_enemies()
-	_setup_floor(new_floor)   # sets _current_floor_def to the dropped floor, respawns the fight
-	# Co-op: revive the whole party (each peer revives the hero it owns). SP: the one hero.
-	if _net != null and _net.is_active():
-		_revive_local_heroes()
-	else:
-		_revive_hero()        # after _setup_floor so hero_start reflects the new floor
-	_flash_fall(new_floor)    # a brief "YOU FELL" beat so the drop reads
-	_wipe_handled = false
-
-
 ## Co-op client (host drives the spine + enemy lifecycle). False in SP.
 func _is_net_client() -> bool:
 	return _net != null and _net.is_active() and not _net.is_host()
@@ -380,12 +372,18 @@ func _is_coop_host() -> bool:
 	return _net != null and _net.is_active() and _net.is_host()
 
 
-## Co-op: when EVERY hero is downed, the host drops the whole party a floor (a shared
-## party wipe). Debounced to once per floor — the fell rebuild revives everyone and
-## clears the flag. Runs on the host only (it owns the run spine).
+## PARTY WIPE = GAME OVER. "if you all die then the game is over" (maker, 2026-08-01).
+##
+## When every hero in the run is a ghost there is nobody left to pick anyone up, so
+## the run ends. This replaces the old behaviour (drop the party a floor and revive
+## everyone), and it is deliberately the SAME code path in single player: solo you
+## are the whole party, so your death reaches this verdict on the frame it happens —
+## which is `DeathRules.SOLO_SELF_REVIVE_CHARGES == 0`, the shipped policy.
+##
+## Runs on every peer so the GAME OVER card lands on both screens; only the host (or
+## single player) actually ends the run, because the host owns the run spine.
+## Debounced by `_wipe_handled` to exactly one verdict per run.
 func _check_party_wipe() -> void:
-	if _wipe_handled or not _run_mode:
-		return
 	var heroes: Array = get_tree().get_nodes_in_group("hero")
 	var live: int = 0
 	for h: Node in heroes:
@@ -399,15 +397,40 @@ func _check_party_wipe() -> void:
 		live += 1
 		if not (h.has_method("is_downed") and h.is_downed()):
 			return   # someone's still standing — no wipe
+		# ...and a hero mid-SECOND-WIND is a body that is already coming back on its
+		# own clock. Calling the run over it would make the self-revive charge
+		# (`DeathRules.SOLO_SELF_REVIVE_CHARGES`) unspendable the moment it mattered.
+		if h.has_method("awaiting_second_wind") and bool(h.call("awaiting_second_wind")):
+			return
 	if live == 0:
 		return
 	_wipe_handled = true
-	_net.request_fall()   # host -> GameState.fall() -> fell broadcast -> revive all
+	_show_game_over()
+	# The card holds, THEN the run ends — a wipe that cut straight to the hub would
+	# leave the player wondering what killed them. Timer runs on the process clock and
+	# ignores time_scale, so a death that lands inside a hit-stop still resolves.
+	var ender: Callable = func() -> void:
+		if _net != null and _net.is_active():
+			if _net.is_host():
+				_net.request_party_wipe()
+		elif _gs != null and _gs.has_method("game_over"):
+			_gs.game_over()
+	get_tree().create_timer(DeathRules.GAME_OVER_HOLD, true, true, true).timeout.connect(ender)
 
 
-## Co-op: revive the hero(es) THIS peer owns (authority), repositioned to the floor
-## start. Position syncs from the owner, so each peer reviving its own hero brings the
-## whole party back up. Called on a fall (party wipe) and on a floor advance.
+## THE PARTY CARRIES ITS DEAD. Clearing a floor stands your ghost back up — you did
+## not get picked up in the fight, but your friend finished it for both of you, and
+## making a ghost ride the lift as a ghost would leave them dead for the whole next
+## floor with no way back.
+##
+## Runs per-peer on the hero THIS peer owns (position syncs from the owner, so each
+## peer reviving its own hero brings the whole party back up).
+##
+## ⚠ ONLY GHOSTS ARE REVIVED, AND ONLY TO `REVIVE_HP_FRACTION`. This used to call
+## `revive()` on every local hero unconditionally, which full-healed the SURVIVOR
+## too — so the optimal play on a hurt floor was to walk into the exit at 5 hp and be
+## topped up, and dying just before it cost nothing at all. Neither of those should
+## be true under a rule whose whole weight is "you only have so many bodies".
 func _revive_local_heroes() -> void:
 	var start: Vector2 = DEFAULT_HERO_START
 	if _current_floor_def != null and _current_floor_def.layout != null:
@@ -416,58 +439,55 @@ func _revive_local_heroes() -> void:
 	for h: Node in get_tree().get_nodes_in_group("hero"):
 		if not (h is Node2D) or not h.is_multiplayer_authority():
 			continue
-		if h.has_method("revive"):
-			h.call("revive")
+		if h.has_method("is_downed") and bool(h.call("is_downed")) and h.has_method("revive"):
+			h.call("revive", DeathRules.REVIVE_HP_FRACTION)
 		(h as Node2D).global_position = start + Vector2(50.0 * float(i), 0.0)
 		i += 1
 
 
-func _clear_enemies() -> void:
-	for e in get_tree().get_nodes_in_group("enemy"):
-		e.queue_free()
+## ⚠ `_clear_enemies()` AND `_revive_hero()` ARE DELETED WITH THE FALL RULE. Both
+## existed only to service `_on_fell` — rebuild the dropped floor in place and stand
+## the single hero back up. Nothing falls any more (see `DeathRules`), so neither had
+## a caller left, and a dead helper in a file this size is a trap waiting for someone
+## to wire it back up to a rule that no longer exists.
 
 
-## Full-heal + reposition the hero to the (new) floor's start. MVP revive: HP +
-## position. The active-ragdoll rig self-recovers from the death flinch.
-func _revive_hero() -> void:
-	var heroes: Array[Node] = get_tree().get_nodes_in_group("hero")
-	if heroes.is_empty():
+## THE GAME OVER CARD. Every hero is a ghost; the run is over. Holds for
+## `DeathRules.GAME_OVER_HOLD` while the ghosts drift under it, then the run ends and
+## the hub loads (the trip home is where the town gets to clock the death).
+##
+## The second line names what it actually cost, and that line changes with the
+## policy: under the shipped rule the climb is KEPT, so it says so — a player who
+## just lost a fight needs to know immediately that they did not lose the tower.
+func _show_game_over() -> void:
+	# `_wipe_handled` is cleared by a floor advance (the normal case), so in the narrow
+	# window where a floor changes while the party is already all-ghosts the verdict can
+	# be reached twice. `game_over()` is idempotent (it guards on `_run_active`); the
+	# CARD is not, and two stacked ones would render as a smear.
+	if _game_over_shown:
 		return
-	var hero: Node2D = heroes[0] as Node2D
-	if hero == null:
-		return
-	if hero.has_method("revive"):
-		hero.call("revive")   # full clean reset: hp, cooldowns, channel/summon, ragdoll
-	else:
-		var full: int = int(hero.get("max_hp"))
-		hero.set("hp", full)
-		if hero.has_signal("health_changed"):
-			hero.emit_signal("health_changed", full, full)
-	var start: Vector2 = DEFAULT_HERO_START
-	if _current_floor_def != null and _current_floor_def.layout != null:
-		start = _current_floor_def.layout.hero_start
-	hero.global_position = start
-
-
-## A brief red "YOU FELL — dropped to Floor N" flash on a fall (fades after ~1.8s).
-func _flash_fall(new_floor: int) -> void:
+	_game_over_shown = true
 	var layer := CanvasLayer.new()
 	layer.layer = 70
 	add_child(layer)
 	var lbl := Label.new()
 	lbl.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	lbl.offset_top = 150.0
+	lbl.offset_top = 128.0
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.text = "▼  YOU FELL  ▼\ndropped to Floor %d" % new_floor
-	lbl.add_theme_font_size_override("font_size", 32)
+	lbl.text = "☠  GAME OVER  ☠\n%s" % _game_over_subtitle()
+	lbl.add_theme_font_size_override("font_size", 34)
 	lbl.add_theme_color_override("font_color", Color(0.96, 0.42, 0.36))
 	lbl.add_theme_color_override("font_outline_color", Color(0.05, 0.03, 0.05, 0.95))
 	lbl.add_theme_constant_override("outline_size", 6)
 	layer.add_child(lbl)
-	var tw := create_tween()
-	tw.tween_interval(1.2)
-	tw.tween_property(lbl, "modulate:a", 0.0, 0.6)
-	tw.tween_callback(layer.queue_free)
+	Juice.shake_camera(10.0)
+
+
+func _game_over_subtitle() -> String:
+	var floor_now: int = _gs.current_floor() if _gs != null else 1
+	if DeathRules.RESET_CLIMB_ON_GAME_OVER:
+		return "the climb begins again"
+	return "the climb holds — you return to Floor %d" % floor_now
 
 
 func _clear_portal() -> void:

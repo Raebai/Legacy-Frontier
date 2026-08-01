@@ -16,7 +16,17 @@ signal run_started
 signal run_ended(outcome: Dictionary)        # combat resolved (victory or death)
 signal floor_advanced(floor: int)            # cleared a floor, entering the next
 signal returned_to_hub(outcome: Dictionary)  # hub NPCs have ingested the run
-signal fell(new_floor: int)                  # died on a floor -> dropped, staying in the tower
+## ⚠ `fell(new_floor)` IS GONE, and so are `fall()` and `fall_floor()`.
+## They implemented the OLD death rule — die, drop a floor, keep climbing — which the
+## maker replaced on 2026-08-01: "dying cost is a life in ghost form until your
+## teammate revives you; if you all die then the game is over." Nothing falls any
+## more, so a signal announcing a fall had no honest sender left; the party running
+## out of bodies now routes to `game_over()` and out through `run_ended`. See
+## `DeathRules` for what a game over costs the climb.
+##
+## Two things read `fell` and both degrade cleanly: `VoiceDirector` connects through
+## a `has_signal` guard (its "fall" bark simply never fires again), and `Arena` used
+## to rebuild the dropped floor (that whole path is deleted with the rule).
 
 enum Mode { HUB, RUN }
 
@@ -187,20 +197,18 @@ func enter_coop_run(floor: int) -> void:
 
 
 ## Co-op CLIENT mirror: the host drives the spine, so a client applies the host's
-## floor directly (bypassing the _is_net_client guards on advance/fall) and re-emits
-## the signal that rebuilds its Arena. is_fall picks fell (rebuild + revive) vs a
-## normal floor_advanced. Host-side / SP never call this — it's the client receiver.
-func net_set_floor(floor: int, is_fall: bool) -> void:
+## floor directly (bypassing the _is_net_client guard on advance) and re-emits the
+## signal that rebuilds its Arena. Host-side / SP never call this — it's the client
+## receiver. The old `is_fall` parameter went with the fall rule (see the note on
+## the deleted `fell` signal): a floor only ever moves UP now.
+func net_set_floor(floor: int) -> void:
 	if active_tower == null:
 		active_tower = _load_or_build_tower()
 	_floor = clampi(floor, 1, total_floors())
 	_highest_floor = maxi(_highest_floor, _floor)
 	_run_active = true
 	mode = Mode.RUN
-	if is_fall:
-		fell.emit(_floor)
-	else:
-		floor_advanced.emit(_floor)
+	floor_advanced.emit(_floor)
 
 
 ## In co-op only the HOST drives the run spine (advance/fall/return + persistence);
@@ -210,18 +218,27 @@ func _is_net_client() -> bool:
 	return n != null and n.is_active() and not n.is_host()
 
 
-## Failing a floor: drop 2 floors, stay in the tower, keep everything. Ticks the
-## falls counter and emits `fell` — the Arena rebuilds the dropped floor in place
-## and revives the hero. No scene change, no hub trip.
-func fall() -> void:
+## GAME OVER — every hero is a ghost and nobody is left to pick anyone up.
+##
+## This is the replacement for `fall()`. The maker's rule ends the RUN rather than
+## moving you down the tower, so: tick the falls counter (the hub NPCs turn it into
+## "that is 4 falls now" — the town clocking your deaths is the moat, and it is the
+## only lasting cost under the shipped policy), apply the climb policy, save, and
+## bounce home with a `died` outcome.
+##
+## The outcome records the floor you DIED ON, not the floor you will resume on. They
+## are the same number under `RESET_CLIMB_ON_GAME_OVER == false`, but if that is ever
+## flipped the town must not start saying you fell on floor 1 when you fell on 4.
+func game_over() -> void:
 	if _is_net_client():
-		return                            # co-op: only the host drives falls
+		return                            # co-op: only the host drives the run spine
 	if not _run_active:
 		return                            # sandbox death: Hero handles the local reset
+	var died_on: int = _floor
 	_falls += 1
-	_floor = fall_floor(_floor)
+	_floor = DeathRules.resume_floor_after_game_over(_floor, total_floors())
 	_save_climber()
-	fell.emit(_floor)
+	end_run(true, died_on)
 
 
 ## Deliberate hub return from a cleared floor. Banks the cleared floor (resume
@@ -246,14 +263,19 @@ func abandon_to_hub() -> void:
 	end_run(false)
 
 
-## End the run (died == true on a hero death, false on a full clear) and bounce
-## back to the hub. The outcome is frozen into last_run and queued for ingest.
-func end_run(died: bool) -> void:
+## End the run (died == true on a party wipe, false on a full clear) and bounce back
+## to the hub. The outcome is frozen into last_run and queued for ingest.
+##
+## `floor_override` exists for `game_over()`, which has to move `_floor` to the
+## RESUME floor before ending the run but must record the floor you actually died on.
+## -1 (every other caller) keeps the pre-existing behaviour exactly.
+func end_run(died: bool, floor_override: int = -1) -> void:
 	if not _run_active:
 		return                        # ignore a stray Hero._die in the sandbox
 	_run_active = false
 	last_run = build_outcome(
-		_floor, _kills, _boss_killed, died,
+		(_floor if floor_override < 0 else floor_override),
+		_kills, _boss_killed, died,
 		_elements_used.keys(), _rank_tier(), _rank_title(), _falls
 	)
 	_pending_ingest = true
@@ -520,12 +542,12 @@ static func default_layout() -> LayoutDef:
 	return l
 
 
-## Failing a floor drops you ONE floor, never below 1. Pure so it tests headlessly.
-## Spec: "Dying drops you one floor, not to the bottom." A wipe should take 20
-## seconds and get a laugh — two floors of lost ground is a punishment, one is a
-## shrug, and the shrug is what keeps people pressing on.
-static func fall_floor(current: int) -> int:
-	return maxi(current - 1, 1)
+## ⚠ `fall_floor()` IS DELETED. It answered "which floor does a death drop you to",
+## and under the 2026-08-01 rule a death does not drop you to any floor — it makes
+## you a ghost. What replaced it is `DeathRules.resume_floor_after_game_over`, which
+## answers the only remaining version of that question: after the whole party is
+## dead and the run is over, where does the NEXT run start? Same shape, different
+## question, and it lives with the rest of the death policy rather than here.
 
 
 ## The on-disk climber record. All fields clamped to their floors; highest is
