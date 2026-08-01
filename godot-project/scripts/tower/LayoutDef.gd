@@ -19,3 +19,16 @@ extends Resource
 @export var exit_point: Vector2 = Vector2(480, 110)
 @export var crate_positions: Array[Vector2] = []
 @export var weapon_pickups: Array[Vector2] = []
+## THE SKYLINE. Ledges the floor is drawn with, as
+## `{"x", "y", "w", "h", "breakable"}` — x/y are the platform's CENTRE, so a ledge's
+## standing surface is `y - h * 0.5`. `breakable` picks the amber-rimmed
+## `BreakablePlatform` (shatters, then re-forms) over the permanent `RuinPlatform`.
+##
+## Dictionaries rather than a resource per ledge on purpose: this is generated data
+## (see `FloorGen`), and a plain dict compares field-for-field in a determinism test
+## with no instance identity in the way — the same reason enemy spawn data crosses
+## the co-op wire as a dict.
+##
+## EMPTY on every hand-authored layout, which is why the tower has been a bare box:
+## `RuinPlatform` / `BreakablePlatform` were built and wired only into VersusArena.
+@export var platforms: Array[Dictionary] = []

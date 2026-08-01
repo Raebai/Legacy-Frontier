@@ -27,6 +27,13 @@ const DESTRUCTIBLE_SCENE: PackedScene = preload("res://scenes/combat/Destructibl
 ## `CombatVfx`, and a `preload` here would drag all three into the compile graph of
 ## every headless suite that touches FloorBuilder — where autoloads do not exist.
 const SPELL_PICKUP_PATH: String = "res://scenes/combat/SpellPickup.tscn"
+## THE SKYLINE, for the same reason as the spell pickup above: loaded by PATH.
+## `BreakablePlatform` names `Sfx` / `Juice` / `CombatVfx` / `DebrisChunk` /
+## `ScorchDecal`, and a `preload` here would drag all of them into the compile graph
+## of every headless suite that so much as touches FloorBuilder — where autoloads do
+## not exist.
+const RUIN_PLATFORM_PATH: String = "res://scripts/combat/RuinPlatform.gd"
+const BREAKABLE_PLATFORM_PATH: String = "res://scripts/combat/BreakablePlatform.gd"
 
 
 ## Build the floor's props into `container` (typically a fresh Room node that the
@@ -34,6 +41,7 @@ const SPELL_PICKUP_PATH: String = "res://scenes/combat/SpellPickup.tscn"
 static func build_props(container: Node2D, layout: LayoutDef, floor_index: int = -1) -> void:
 	if layout == null:
 		return
+	build_platforms(container, layout)
 	for pos: Vector2 in layout.weapon_pickups:
 		var pickup: Area2D = WEAPON_PICKUP_SCENE.instantiate()
 		pickup.weapon_kind = "sword"
@@ -44,6 +52,44 @@ static func build_props(container: Node2D, layout: LayoutDef, floor_index: int =
 		container.add_child(crate)
 		crate.global_position = pos
 	build_drop_economy(container, layout, floor_index)
+
+
+## THE LEDGES. Turns `LayoutDef.platforms` into real bodies — permanent
+## `RuinPlatform`s and amber-rimmed `BreakablePlatform`s (which shatter and re-form).
+## Both are `StaticBody2D`s that already carry the "destructible" damage contract and
+## have existed since VersusArena; until now nothing in the tower ever built one, so
+## the arena was a bare box and `Enemy`'s leap system had nothing to leap onto.
+##
+## `platform_size` is set BEFORE `add_child` because both scripts build their
+## collider in `_ready`, which runs on entering the tree — setting it afterwards
+## would leave every ledge at its default size with a mismatched collider.
+static func build_platforms(container: Node2D, layout: LayoutDef) -> void:
+	if layout == null:
+		return
+	for p: Dictionary in layout.platforms:
+		var breakable: bool = bool(p.get("breakable", false))
+		var gs: GDScript = load(BREAKABLE_PLATFORM_PATH if breakable else RUIN_PLATFORM_PATH) as GDScript
+		if gs == null:
+			continue
+		var node: StaticBody2D = gs.new() as StaticBody2D
+		if node == null:
+			continue
+		node.set(&"platform_size", Vector2(
+			float(p.get("w", 190.0)), float(p.get("h", 24.0))))
+		if breakable:
+			if p.has("hp"):
+				node.set(&"max_hp", int(p["hp"]))
+			if p.has("regen"):
+				node.set(&"regen_time", float(p["regen"]))
+		container.add_child(node)
+		node.global_position = Vector2(float(p.get("x", 0.0)), float(p.get("y", 0.0)))
+		# ⚠ AFTER add_child, because `_ready` sets it. `RuinPlatform` parks itself at
+		# z -4, which is correct on the versus stage and INVISIBLE here: the tower
+		# arena's `Floor` ColorRect covers the whole room at z -2, so a ruin ledge
+		# was drawn behind the floor and the first capture pass came back showing an
+		# empty room. -1 puts every ledge in front of the floor and behind the
+		# fighters, which is where a ledge belongs.
+		node.z_index = -1
 
 
 ## The per-floor drop machinery. Split out from `build_props` so a test or a
@@ -87,11 +133,41 @@ static func _place_floor_drop(container: Node2D, layout: LayoutDef, floor_no: in
 	pickup.call(&"set_spell", id)
 
 
-## A fraction of the room resolved to a world point. Fractions rather than pixels so
-## a drop lands sensibly on any `room_size` instead of inside the wall of a small one.
+## A fraction of the room resolved to a world point, then SETTLED onto the surface
+## under it.
+##
+## ⚠ THE SETTLE IS NOT COSMETIC. `SpellDrops.DROP_ANCHOR` is (0.72, 0.42), which in a
+## 960x440 room is 247px above the floor — a Tier 2 spell hanging in mid-air, well
+## past a 112px jump, i.e. a drop the player can see and never collect. That was
+## survivable while every floor was the same bare box and could be eyeballed once;
+## with generated floors it becomes a roll-dependent lottery. So the anchor now falls
+## onto whatever is beneath it — a ledge if one is there, the ground otherwise — and
+## because `FloorGen` guarantees every ledge is reachable from the ground, a settled
+## drop is always collectable.
 static func _anchor(layout: LayoutDef, frac: Vector2) -> Vector2:
 	var size: Vector2 = layout.room_size if layout != null else Vector2(960.0, 480.0)
-	return Vector2(size.x * frac.x, size.y * frac.y)
+	return settle_onto_surface(layout, Vector2(size.x * frac.x, size.y * frac.y))
+
+
+## Drop `pt` straight down onto the nearest standing surface below it (a ledge top,
+## else the floor) and float it `clearance` above that surface. Pure — headless-tested.
+static func settle_onto_surface(layout: LayoutDef, pt: Vector2,
+		clearance: float = 26.0) -> Vector2:
+	var size: Vector2 = layout.room_size if layout != null else Vector2(960.0, 480.0)
+	# Arena.WALL_THICKNESS is 16 and the bottom wall is centred on y = room_h, so the
+	# standable floor is half a thickness above it.
+	var best: float = size.y - 8.0
+	if layout != null:
+		for p: Dictionary in layout.platforms:
+			var px: float = float(p.get("x", 0.0))
+			var pw: float = float(p.get("w", 0.0))
+			if pt.x < px - pw * 0.5 or pt.x > px + pw * 0.5:
+				continue
+			var surface: float = float(p.get("y", 0.0)) - float(p.get("h", 24.0)) * 0.5
+			# The HIGHEST surface that is still BELOW the anchor.
+			if surface >= pt.y and surface < best:
+				best = surface
+	return Vector2(pt.x, best - clearance)
 
 
 ## The floor number for the seeded roll: the explicit override, else GameState, else
