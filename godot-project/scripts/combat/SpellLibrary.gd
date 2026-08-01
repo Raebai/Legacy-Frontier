@@ -685,7 +685,7 @@ static func _ordinary_spell() -> SpellDef:
 	return _beam("ordinary_spell", "The Ordinary Spell",
 		"The first spell anyone learns, practised until it is the last one you "
 		+ "need. A sigil blooms and a lance of mana crosses the whole arena.",
-		4, 45, 3.2, 48, 1150.0, 30.0, 0.55)       # ARCANE / magenta — HEAVY
+		4, 45, 3.2, 78, 1150.0, 30.0, 0.55)       # ARCANE / magenta — HEAVY
 
 
 ## FROSTPIERCER — Cryomancer. The thinnest, longest, cheapest beam in the family,
@@ -693,7 +693,7 @@ static func _ordinary_spell() -> SpellDef:
 static func _frostpiercer() -> SpellDef:
 	return _beam("frostpiercer", "Frostpiercer",
 		"A long, thin spear of absolute cold — pierces a whole rank in a line.",
-		1, 40, 3.0, 40, 1250.0, 22.0, 0.5)        # ICE / cyan — HEAVY
+		1, 40, 3.0, 58, 1250.0, 22.0, 0.5)        # ICE / cyan — HEAVY
 
 
 ## INFERNAL LANCE — Brawler's ult. The fattest, hardest-hitting beam (width 42),
@@ -702,7 +702,7 @@ static func _frostpiercer() -> SpellDef:
 static func _infernal_lance() -> SpellDef:
 	return _beam("infernal_lance", "Infernal Lance",
 		"A fat, roaring beam of fire. Shorter reach, brutal width.",
-		0, 55, 4.0, 58, 900.0, 42.0)              # FIRE / orange — ULT
+		0, 55, 4.0, 74, 900.0, 42.0)              # FIRE / orange — ULT
 
 
 ## JUDGMENT — a single holy pillar. `_ray()` leaves `element` at the SpellDef
@@ -769,7 +769,7 @@ static func _meteor_sigil() -> SpellDef:
 	return _meteor("meteor_sigil", "Meteor Sigil",
 		"A colossal sigil opens in the sky and a barrage of meteors rains over "
 		+ "the marked ground. The isekai bombardment.",
-		0, 72, 6.0, 22, 140.0, 11)                # FIRE / orange, 11 meteors
+		0, 72, 6.0, 30, 140.0, 11)                # FIRE / orange, 11 meteors
 
 
 ## THUNDERCLAP — the Brawler's lightning lance, and the Stormcaller's payoff. A
@@ -793,7 +793,7 @@ static func _thunderclap() -> SpellDef:
 	s.effect = "lightning"
 	s.mp_cost = 50
 	s.cooldown = 3.4
-	s.damage = 62
+	s.damage = 90
 	s.length = 620.0
 	s.width = 26.0
 	return s
@@ -841,7 +841,7 @@ static func _avalanche() -> SpellDef:
 static func _tempest() -> SpellDef:
 	return _beam("tempest", "Tempest",
 		"A screaming beam of raw storm — everything on the line is shocked.",
-		Elements.Element.LIGHTNING, 48, 3.2, 50, 1200.0, 28.0)   # ULT
+		Elements.Element.LIGHTNING, 48, 3.2, 66, 1200.0, 28.0)   # ULT
 
 
 ## GLACIAL SPINE — Cryomancer. A crest of ice that erupts from the FLOOR at the
@@ -877,7 +877,7 @@ static func _frozen_comet() -> SpellDef:
 	s.cooldown = 6.0
 	# Per SPIKE, and a body is speared by one spike, not by a stack of eleven
 	# overlapping meteors — so this is the whole hit, not a share of it.
-	s.damage = 38
+	s.damage = 48
 	# Half-length of the crest, i.e. its declared extent to either side. The
 	# spectacle floors the spike count so the DRAWN and DAMAGING extent is always
 	# <= this: "the spells shouldn't be able to get out the radius" made literal.
@@ -956,7 +956,7 @@ static func _chain_lightning() -> SpellDef:
 	s.effect = "lightning"
 	s.mp_cost = 44
 	s.cooldown = 3.0
-	s.damage = 46
+	s.damage = 60
 	s.count = 5      # max hops
 	s.reach = 240.0  # hop range
 	return s

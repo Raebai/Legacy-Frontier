@@ -49,16 +49,23 @@ const SWORD_DAMAGE: int = 26
 const CAST_COOLDOWN: float = 0.35
 
 ## How many times one cast of a given Kind lands on ONE body. Everything absent is
-## 1. These are reasoned from the spectacle scripts, not measured in-engine:
-##   FLURRY  — Blade Flurry throws a fan of blades; ~2 of them cross a single body.
-##   MISSILES/METEOR — a barrage scattered over a radius; ~2 land on one target.
-##   CHAIN   — the primary bolt; the chain is what pays in a crowd, not on a boss.
-##   TETHER  — a channel that ticks for the length of the drain.
+## 1. Several spells declare `damage` PER TICK or PER PROJECTILE, so reading the
+## field alone understates them by a factor of five. Read off the spectacle scripts:
+##   TETHER   — `DrainTether.DRAIN_TIME 1.2 / TICK 0.24` = 5 ticks if never broken.
+##   ZONE     — `ZoneSpell` lives 4.5 s and ticks every 0.4 s (11 max). A boss moves
+##              at 66 px/s and the field is 135 px across, so it eats a lot of them;
+##              4 is a deliberately conservative "stood in it for 1.6 seconds".
+##   FLURRY   — `count` crescents fanned over 0.42 s; ~half cross one body.
+##   MISSILES — `count` orbs on a spread; ~2-3 of 6 land on a single target.
+##   METEOR   — a barrage over `radius`; ~3 of 10-12 land on a colossus.
+##   CHAIN    — the primary bolt only; the hops are what pay in a crowd, not on a
+##              boss, and the boss case is what this tool is for.
 const SINGLE_TARGET_HITS: Dictionary = {
-	"FLURRY": 2.0,
-	"MISSILES": 2.0,
-	"METEOR": 2.0,
-	"TETHER": 3.0,
+	"FLURRY": 3.0,
+	"MISSILES": 2.5,
+	"METEOR": 3.0,
+	"TETHER": 5.0,
+	"ZONE": 4.0,
 }
 
 var _window: float = 60.0
