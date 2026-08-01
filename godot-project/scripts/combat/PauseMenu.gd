@@ -70,6 +70,9 @@ const DIRECTOR_GROUP: StringName = &"director"
 var _pause_layer: CanvasLayer = null
 var _pause_btn: Button = null
 var _quality_btn: Button = null
+## The Appearance row. Held so `open()` can re-read the live hero — `C` cycles the
+## same palette, so a label written once at build time starts lying immediately.
+var _colour_btn: Button = null
 var _director: Node = null
 ## The friendly-fire row. Held so `open()` can re-read the live static — the director
 ## flips the SAME switch, and a label written once at build time starts lying the
@@ -291,6 +294,11 @@ func open() -> void:
 	if _quality_btn != null:
 		_quality_btn.text = _quality_label()
 	_refresh_friendly_fire()
+	# The lobby's colourway pick can only reach a hero that exists, and none did when
+	# this menu was built. First open is the first moment one reliably does.
+	_sync_colourway()
+	if _colour_btn != null:
+		_colour_btn.text = _colour_label()
 	if _pause_layer != null:
 		_pause_layer.visible = false  # the menu has its own Resume row
 
@@ -537,8 +545,78 @@ func _build_settings() -> void:
 	ctrl.add_theme_color_override("font_color", Color(0.82, 0.86, 0.95))
 	_settings_col.add_child(ctrl)
 
+	_build_appearance()
+
 	_back_btn = _menu_button("Back", _close_settings)
 	_settings_col.add_child(_back_btn)
+
+
+# ---------------------------------------------------------------- appearance
+## YOUR COLOURWAY, where a player can actually find it.
+##
+## `cycle_colourway` has been a real, bound input action (`C`) driving a real palette
+## (`Hero.COLOURWAYS`, five limb tints) for a long time, and no player would ever have
+## discovered it: it is on no HUD, in no menu, and — the part that matters for a game
+## being built for phones — **there is no `C` key on a phone**, so the whole feature
+## was unreachable on the target platform.
+##
+## It earns a row rather than being filed as vanity because of co-op. Two stick figures
+## at 640x360 on a 6-inch screen, in a game whose social engine is friendly fire, is a
+## genuine readability problem: "who did I just hit" has to be answerable at a glance.
+##
+## ⚠ HOW IT APPLIES, HONESTLY. This drives the LIVE hero by calling the same private
+## cycle the `C` binding calls, so it is exactly the behaviour that already shipped,
+## reached by thumb. What it is NOT is a choice that survives into the next run:
+## `Hero` reads no colourway at spawn, so the Outfitter's lobby-side pick
+## (`Outfitter.chosen_colourway`) can only be REPLAYED onto the hero once one exists,
+## which is what `_sync_colourway` does the first time this menu opens. The clean
+## version is one line in `Hero._ready` — read `Outfitter.chosen_colourway` next to
+## where it reads the class — and `Hero.gd` was owned elsewhere when this landed.
+func _build_appearance() -> void:
+	if Outfitter.colourways().is_empty():
+		return
+	add_setting_section("Appearance")
+	_colour_btn = add_setting_button(_colour_label(), _cycle_colour)
+
+
+## The palette entry the local hero is actually wearing, or -1 if there is no hero in
+## this scene (the pause menu is built by scenes that have none).
+func _hero_colourway() -> int:
+	var hero: Node = get_tree().get_first_node_in_group("hero")
+	if hero == null:
+		return -1
+	var v: Variant = hero.get(&"_colourway")
+	return int(v) if v != null else -1
+
+
+func _colour_label() -> String:
+	var i: int = _hero_colourway()
+	if i < 0:
+		i = Outfitter.chosen_colourway
+	return "Colour:  %s" % Outfitter.colourway_name(i)
+
+
+func _cycle_colour() -> void:
+	var count: int = maxi(Outfitter.colourways().size(), 1)
+	Outfitter.chosen_colourway = (Outfitter.chosen_colourway + 1) % count
+	_sync_colourway()
+	if _colour_btn != null:
+		_colour_btn.text = _colour_label()
+
+
+## Walk the live hero's colourway around to the chosen one by calling the SAME cycle
+## the key binding calls — rather than writing `_colourway` and the rig tint directly,
+## which would be two places to keep in step with a method that already does both.
+## Bounded by the palette size, so a hero that does not answer cannot spin here.
+func _sync_colourway() -> void:
+	var hero: Node = get_tree().get_first_node_in_group("hero")
+	if hero == null or not hero.has_method("_cycle_colourway"):
+		return
+	var count: int = Outfitter.colourways().size()
+	for _i: int in count:
+		if _hero_colourway() == Outfitter.chosen_colourway:
+			return
+		hero.call("_cycle_colourway")
 
 
 func _open_settings() -> void:

@@ -56,8 +56,12 @@ extends RefCounted
 ## INTENT out — every key OPTIONAL, missing means "no":
 ##   "move": Vector2   x in [-1,1] walk; y < 0 means "wants up"
 ##   "aim":  Vector2   normalised world aim direction
-##   "fire": bool
-##   "cast_slot": int  0..3 spell slots, 4 = ult (omitted entirely = no cast)
+##   "fire": bool      the LMB primary (a bolt on six classes, fists on three)
+##   "swing": bool     the MELEE button — a different button from `fire` on every
+##                     class, and one no brain pressed until the Q/R/T pass
+##   "cast_slot": int  0..SLOT_COUNT-1; slot 0 is always the damage line and the
+##                     last slot is always the ult (omitted entirely = no cast)
+##   "ability_blast"/"ability_blink"/"ability_nova": bool   Q / R / T
 ##   "dash": bool
 ##   "guard": bool     HELD this frame
 ##   "jump": bool
@@ -80,6 +84,14 @@ extends RefCounted
 ##   "fields": Array          live ground effects: {element:int, pos, radius, mine:bool}.
 ##                            The other half of the combo layer.
 ##   "barriers": Array        live walls: {element:int, pos, radius}.
+##   "pickups": Array[Vector2] uncollected spell drops on the floor. Without them a
+##                            bot walks past every Tier 2 / Tier 3 upgrade in the run.
+##   "slot_affordable": Array[bool]  does slot i EXIST on this body and is it off
+##                            cooldown. Strictly stronger than `cooldowns[i] == 0`,
+##                            which reports a slot the class does not hold as ready.
+##   "slot_cast_time": Array[float]  the LIVE channel length per slot, which a drop
+##                            changes at runtime under the cached kit facts.
+##   "foe_guarding": bool     is their ring up RIGHT NOW (present tense only).
 ##   "dash_ready", "blink_ready", "guard_ready": bool
 ##   "guard_style": int       0 BLADE / 1 SIGIL (ParryRing.Style) — different band.
 ##   "can_parry": bool
@@ -119,19 +131,30 @@ const ROLE_ULT: int = BotIntent.SLOT_ULT
 ## second copy of it here is exactly how the two would drift.
 const SLOT_COUNT: int = BotIntent.SLOT_COUNT
 
-## EXTRA COOLDOWN INDICES, past the five castable slots. The body seam publishes a
-## longer `cooldowns` array than the brain strictly needs: after the five slots it
-## appends the primary attack, the dash and the guard, because a brain has to know
-## whether those are ready before committing to a plan — but they are NOT reachable
-## through `cast_slot` (the primary is held and the dash is an edge, so folding them
-## into the slot numbering would make one index mean two kinds of press).
+## EXTRA COOLDOWN INDICES, past the castable slots. The body seam publishes a
+## longer `cooldowns` array than the brain strictly needs: after the kit slots it
+## appends the primary attack, the dash, the guard, the three ability buttons and
+## the melee swing, because a brain has to know whether those are ready before
+## committing to a plan — but they are NOT reachable through `cast_slot` (the
+## primary is held and the dash is an edge, so folding them into the slot numbering
+## would make one index mean two kinds of press).
 ##
-## Read DEFENSIVELY and by index rather than by importing the seam's constants: the
-## boundary is a plain Dictionary on purpose, and a caller that publishes only the
-## five slots must keep working. See `_ready_flag`.
-const CD_PRIMARY_INDEX: int = 5
-const CD_DASH_INDEX: int = 6
-const CD_GUARD_INDEX: int = 7
+## ⚠ DERIVED FROM `BotIntent`, NEVER RESTATED — and this file used to restate them.
+## They were written as the literals 5 / 6 / 7 back when the hand was five spells
+## and `SLOT_COUNT + 1` happened to be 6. The hand is THREE spells now
+## (`SpellTier.SLOT_COUNT`), so the body publishes primary at 3, dash at 4 and guard
+## at 5 — and the brain was reading the GUARD timer to decide whether its fists were
+## ready, the BLAST timer to decide whether it could dash, and the BLINK timer to
+## decide whether it could parry. Every one of those reads was silently wrong for
+## every bot in the game. Aliasing the seam's own constants makes the next hand-size
+## change a no-op here instead of a second silent drift.
+const CD_PRIMARY_INDEX: int = BotIntent.CD_PRIMARY
+const CD_DASH_INDEX: int = BotIntent.CD_DASH
+const CD_GUARD_INDEX: int = BotIntent.CD_GUARD
+const CD_BLAST_INDEX: int = BotIntent.CD_BLAST
+const CD_BLINK_INDEX: int = BotIntent.CD_BLINK
+const CD_NOVA_INDEX: int = BotIntent.CD_NOVA
+const CD_SWING_INDEX: int = BotIntent.CD_SWING
 
 # ------------------------------------------------------------ body constants
 ## Mirrors of the hero's own numbers. They are COPIES on purpose: this module must
@@ -213,6 +236,78 @@ const CLASS_BAND: Array[Dictionary] = [
 	{"min": 50.0, "max": 130.0},    # SWORDSAINT— guard-and-punish, wants contact
 ]
 const DEFAULT_BAND: Dictionary = {"min": 150.0, "max": 300.0}
+
+## ---------------------------------------------------------------------------
+## THE THREE ABILITY BUTTONS (Q / R / T), per class.
+##
+## These were a whole third of the hero's offence that no bot had ever pressed. The
+## intent keys existed (`BotIntent.ABILITY_*`) and `BotController` already knew
+## which button each one is — the brain simply never emitted them, so every bot in
+## the game fought with its kit and its fists and left Q, R and T on the floor.
+##
+## Mirrors of `Hero.CLASS_CONFIG`, annotated so a retune over there is a one-line
+## find here. Three facts per class, and each one changes what the ability IS:
+##   primary  how far the LMB attack reaches. `bolt` throws a projectile across the
+##            stage; `frost_cone` is a short cone; `melee_combo` / `heavy_swing` are
+##            the fists, so they use the body's own `reach`. 0.0 means "use reach".
+##            Without this the fists gate (`_wants_fire`) held EVERY class to melee
+##            distance, so a Cryomancer at its own preferred spacing never threw a
+##            single basic attack.
+##   blink    what R does: a real teleport, or a rising UPPERCUT (Brawler,
+##            Swordsaint) which is a close-range attack and must not be used to
+##            cross the stage. "" = the class has none worth pressing.
+##   nova     does T exist at all (`has_nova`). The Shadowblade's is false.
+const CLASS_ABILITIES: Array[Dictionary] = [
+	{"primary": 620.0, "blink": "teleport", "nova": true},   # 0 ARCANIST    bolt
+	{"primary": 560.0, "blink": "teleport", "nova": false},  # 1 SHADOWBLADE bolt x3 spread
+	{"primary": 0.0,   "blink": "uppercut", "nova": true},   # 2 BRAWLER     melee_combo
+	{"primary": 0.0,   "blink": "",         "nova": true},   # 3 JUGGERNAUT  heavy_swing, no blink
+	{"primary": 600.0, "blink": "teleport", "nova": true},   # 4 CLERIC      heal-bolt
+	{"primary": 200.0, "blink": "teleport", "nova": true},   # 5 CRYOMANCER  frost_cone
+	{"primary": 620.0, "blink": "teleport", "nova": true},   # 6 STORMCALLER chain bolt
+	{"primary": 600.0, "blink": "teleport", "nova": true},   # 7 WARLOCK     drain bolt
+	{"primary": 0.0,   "blink": "uppercut", "nova": true},   # 8 SWORDSAINT  heavy_swing
+]
+const DEFAULT_ABILITIES: Dictionary = {"primary": 0.0, "blink": "teleport", "nova": true}
+
+## Q — the class AoE. Every class has one; they are all placed or self-centred
+## bursts, so the useful window is "the foe is close enough to be inside it but I
+## am not standing on top of my own detonation".
+const BLAST_MIN: float = 70.0
+const BLAST_MAX: float = 430.0
+## R-as-uppercut is a rising melee cut, so it only makes sense in contact.
+const UPPERCUT_RANGE: float = 96.0
+## R-as-teleport is used for two opposite jobs: closing a gap that is too big to
+## walk, and leaving one that is too small. Both need the foe outside comfort.
+const BLINK_CLOSE_MIN: float = 300.0
+## T — a self-centred nova. Pure "get off me".
+const NOVA_RANGE: float = 150.0
+## Minimum gap between two ability presses of ANY kind. The cooldowns already pace
+## each button; this stops all three going out on the same frame, which reads as a
+## seizure rather than as a play.
+const ABILITY_SPACING: float = 0.45
+
+## ---------------------------------------------------------------------------
+## THE DEGENERATE-FIGHT BREAKER. Two bots on the same spacing logic, both correctly
+## refusing to enter each other's band, produce a fight where nothing lands for
+## minutes — which is technically correct behaviour and completely unwatchable.
+##
+## `BotAdapt.anti_camp` already answers the pure "I have thrown nothing" case and is
+## kept as the shared rule (one definition, tested in `slice_test_botfight`). What
+## it cannot see is a fight where BOTH bots are busily attacking and NOTHING IS
+## CONNECTING — the whiff war. So the brain tracks the foe's health bar (a drawn
+## thing, so no fairness cost) and escalates when it has not moved.
+##
+## Escalation is deliberately NOT a stat change: the bot lowers its own cast
+## threshold and pulls its spacing band toward contact, i.e. it starts taking the
+## fights it was declining. It gets bolder, never stronger.
+const STAGNATION_SECONDS: float = 6.0
+## Full escalation this long after the last time anyone's health bar moved.
+const STAGNATION_FULL: float = 14.0
+## How far the band is pulled toward contact at full escalation.
+const STAGNATION_BAND_PULL: float = 0.45
+## How much of the cast threshold is forgiven at full escalation.
+const STAGNATION_THRESHOLD_CUT: float = 0.7
 
 ## ---------------------------------------------------------------------------
 ## THE COMBOS THE BOT CAN ACTUALLY EXECUTE.
@@ -321,6 +416,26 @@ class Memory extends RefCounted:
 	## auto-aim this must not become.
 	var aim_error: float = 0.0
 
+	## Q / R / T book-keeping. Same shape and same reason as `last_slot_at`: the
+	## body's cooldowns pace each button individually, this paces them against each
+	## other so three abilities never fire on one frame.
+	var last_ability_at: float = -99.0
+	var last_swing_at: float = -99.0
+
+	## THE CAMP BREAKER'S SCRATCH, moved here from `BotController.adapt_state`.
+	## It belongs on the brain side because it is a decision, not a seam concern —
+	## and because parking it on the controller meant it only existed for bots the
+	## arena happened to build with one, so a brain driven by any other seam (the
+	## sim's, a test's) silently had no liveness floor at all.
+	var camp_state: Dictionary = {}
+
+	## THE WHIFF-WAR DETECTOR. Last health total (mine + the foe's, both read off
+	## drawn bars) and when it last MOVED. Two bots politely refusing each other's
+	## spacing band is the single most common degenerate outcome in this game, and it
+	## is invisible to a per-frame scorer that is behaving perfectly correctly.
+	var last_hp_total: float = -1.0
+	var last_progress_at: float = 0.0
+
 	func _init() -> void:
 		rng.randomize()
 
@@ -354,6 +469,11 @@ static func decide(bb: Dictionary, profile: Dictionary, mem: Memory = null) -> D
 
 	var intent: Dictionary = {}
 
+	# ---- is this fight going anywhere? Sampled before anything else so every layer
+	# below can read the same escalation number. Free of fairness cost: both health
+	# bars are drawn over the fighters' heads.
+	var stagnation: float = _track_stagnation(bb, m, now)
+
 	# ---- perception: only the threats this bot is ALLOWED to have noticed yet.
 	var seen: Array = _visible_threats(bb, profile, m, now)
 	var evaluated: Array = []
@@ -376,20 +496,45 @@ static func decide(bb: Dictionary, profile: Dictionary, mem: Memory = null) -> D
 		# attacking — so a guarding frame is a guarding frame and nothing else.
 		# A dash/blink/jump frame still gets its movement from the reflex exit
 		# vector, which the steering layer must not then fight.
-		return intent
+		#
+		# Still routed through the camp breaker: a reflex CLASH is an offensive frame
+		# and has to reset the idle clock, or a bot that spent the whole fight
+		# trading blows would be told it had been camping the moment it stopped.
+		return BotAdapt.anti_camp(intent, bb, m.camp_state, now)
 
 	# ---- LAYER 2: steering. Always contributes; movement costs nothing.
-	intent["move"] = _steer(bb, profile, m, evaluated, pressure)
+	intent["move"] = _steer(bb, profile, m, evaluated, pressure, stagnation)
 
 	# ---- LAYER 3: utility. Rate-limited and latched — see CAST_LATCH.
-	var slot: int = _pick_slot(bb, profile, m, now, pressure, soonest)
+	var slot: int = _pick_slot(bb, profile, m, now, pressure, soonest, stagnation)
 	if slot >= 0:
 		intent["cast_slot"] = slot
 		_note_cast(bb, m, slot, now)
-	elif _wants_fire(bb, profile, m, now, evaluated):
-		intent["fire"] = true
-		m.last_fire_at = now
-	return intent
+	else:
+		# ---- LAYER 3b: the three ABILITY buttons. Deliberately BELOW the kit and
+		# only reached when the scorer declined — Q/R/T are free (no mana, no role,
+		# no reaction identity) so letting them compete with the kit on score would
+		# have a bot spamming its cheap AoE instead of ever throwing its ult.
+		var ability: StringName = _pick_ability(bb, profile, m, now, pressure)
+		if ability != &"":
+			intent[ability] = true
+			m.last_ability_at = now
+		elif _wants_swing(bb, m, now):
+			# ---- LAYER 3c: the melee SWING. A separate button from `fire` on every
+			# class (on a caster `fire` throws a bolt and this punches), and no brain
+			# had ever pressed it. It is what makes a bot that has closed the distance
+			# look like it MEANT to.
+			intent["swing"] = true
+			m.last_swing_at = now
+		elif _wants_fire(bb, profile, m, now, evaluated):
+			intent["fire"] = true
+			m.last_fire_at = now
+
+	# ---- LIVENESS FLOOR. The shared "I have thrown nothing at all for a while and I
+	# am standing outside every kit's range" rule, applied HERE rather than on the
+	# controller so it holds for every seam that drives this brain. `BotAdapt` owns
+	# the rule so there is exactly one definition of camping.
+	return BotAdapt.anti_camp(intent, bb, m.camp_state, now)
 
 
 # =========================================================================
@@ -517,6 +662,42 @@ static func _pressure(evaluated: Array, me: Vector2, foe: Vector2, reach: float)
 	if me.distance_to(foe) <= reach * 1.35:
 		p += 0.5
 	return clampf(p, 0.0, 1.0)
+
+
+## HOW STUCK IS THIS FIGHT, 0..1. Zero while damage is being exchanged; ramps to
+## one after STAGNATION_FULL seconds in which neither health bar moved.
+##
+## This is the answer to the failure mode a per-frame utility scorer cannot see:
+## two bots BOTH behaving correctly — holding their class band, declining casts that
+## score under threshold, dodging what they should — and producing a three-minute
+## fight in which nothing ever connects. Every individual decision is right and the
+## match is unwatchable.
+##
+## ⚠ IT ESCALATES BOLDNESS, NEVER POWER. The number is consumed in exactly two
+## places: `_band` pulls the preferred spacing toward contact, and `_pick_slot`
+## forgives part of the cast threshold. The bot starts taking fights it was
+## declining. No stat moves, no cooldown shortens, and nothing here is visible to
+## the other bot — so a stalled mirror match resolves because both sides get braver,
+## which is also what two stalled humans would do.
+##
+## Health totals are read off the two drawn bars, so there is no fairness cost.
+static func _track_stagnation(bb: Dictionary, m: Memory, now: float) -> float:
+	var total: float = float(bb.get("self_hp_frac", 1.0)) + float(bb.get("foe_hp_frac", 1.0))
+	if m.last_hp_total < 0.0:
+		m.last_hp_total = total
+		m.last_progress_at = now
+		return 0.0
+	# A ROUND RESET REFILLS BOTH BARS, so the total can RISE. Any movement at all —
+	# up or down — means something happened, and the clock restarts either way.
+	if absf(total - m.last_hp_total) > 0.001:
+		m.last_hp_total = total
+		m.last_progress_at = now
+		return 0.0
+	var idle: float = now - m.last_progress_at
+	if idle <= STAGNATION_SECONDS:
+		return 0.0
+	return clampf((idle - STAGNATION_SECONDS)
+		/ maxf(STAGNATION_FULL - STAGNATION_SECONDS, 0.001), 0.0, 1.0)
 
 
 ## Seconds until the NEXT thing lands, or a large number when the board is clear.
@@ -769,7 +950,7 @@ static func _clash_worthwhile(bb: Dictionary, profile: Dictionary, m: Memory,
 ## axis, which is the right shape for a side-on platformer: the vertical half of the
 ## decision is a jump, not a Y velocity.
 static func _steer(bb: Dictionary, profile: Dictionary, _m: Memory, evaluated: Array,
-		pressure: float) -> Vector2:
+		pressure: float, stagnation: float) -> Vector2:
 	var me: Vector2 = bb.get("self_pos", Vector2.ZERO)
 	var foe: Vector2 = bb.get("foe_pos", Vector2.ZERO)
 	var dist: float = me.distance_to(foe)
@@ -777,7 +958,16 @@ static func _steer(bb: Dictionary, profile: Dictionary, _m: Memory, evaluated: A
 	if toward == 0.0:
 		toward = 1.0
 
-	var band: Dictionary = _band(bb, profile)
+	# A LOOSE SPELL ON THE FLOOR IS WORTH WALKING FOR. Tier 2 floor drops and Tier 3
+	# boss drops are the whole reason the kit changes mid-run, and a bot that walks
+	# past them fights the fight it started with while the human upgrades. Only taken
+	# when the board is quiet and the pickup is genuinely mine to take — diving
+	# through a live telegraph for a spell is a worse play than not having it.
+	var grab: float = _pickup_pull(bb, me, foe, pressure)
+	if grab != 0.0:
+		return Vector2(grab, 0.0)
+
+	var band: Dictionary = _band(bb, profile, stagnation)
 	var lo: float = float(band["min"])
 	var hi: float = float(band["max"])
 	var centre: float = (lo + hi) * 0.5
@@ -815,6 +1005,11 @@ static func _steer(bb: Dictionary, profile: Dictionary, _m: Memory, evaluated: A
 	# still: a stationary target is the easiest thing in the game to telegraph onto.
 	if want == 0.0 and pressure > 0.7:
 		want = -toward
+	# ...and in a fight that has gone nowhere, drift TOWARD instead. A held stance is
+	# only a stance while the fight is happening; once it has stalled, standing in it
+	# IS the stall.
+	elif want == 0.0 and stagnation > 0.35 and dist > lo:
+		want = toward
 
 	# A vertical exit that the reflex layer did not take (it was not urgent enough to
 	# preempt) still deserves a jump — the ledge geometry is the same either way.
@@ -831,7 +1026,8 @@ static func _steer(bb: Dictionary, profile: Dictionary, _m: Memory, evaluated: A
 
 ## The class's spacing band, pulled toward contact by aggression. One table plus one
 ## scalar rather than a band per class per difficulty.
-static func _band(bb: Dictionary, profile: Dictionary) -> Dictionary:
+static func _band(bb: Dictionary, profile: Dictionary,
+		stagnation: float = 0.0) -> Dictionary:
 	var cid: int = int(bb.get("class_id", -1))
 	var b: Dictionary = DEFAULT_BAND
 	if cid >= 0 and cid < CLASS_BAND.size():
@@ -840,7 +1036,53 @@ static func _band(bb: Dictionary, profile: Dictionary) -> Dictionary:
 	# 0.5 aggression = the authored band. 1.0 pulls it 30% closer, 0.0 pushes it 30%
 	# further out — the same class, played by two different temperaments.
 	var scale: float = lerpf(1.3, 0.7, clampf(aggr, 0.0, 1.0))
+	# ...and a fight that has stopped producing damage pulls it further in still. Two
+	# ranged classes each correctly holding a 340 px band never meet; one of them has
+	# to blink first, and after ten seconds of nothing they both do.
+	scale *= lerpf(1.0, 1.0 - STAGNATION_BAND_PULL, clampf(stagnation, 0.0, 1.0))
 	return {"min": float(b["min"]) * scale, "max": float(b["max"]) * scale}
+
+
+## Walk toward a loose spell? Returns -1 / 0 / +1 on the walk axis.
+##
+## Gated hard, because a bot that beelines for every pickup is a bot that can be
+## kited into a pit by anyone who notices:
+##   · nothing may be pressing (`pressure`), because leaving a live telegraph to
+##     collect a spell is how you die holding it;
+##   · the pickup must be genuinely CLOSER TO ME than to the foe, so two bots never
+##     both commit to the same one and meet awkwardly on top of it;
+##   · it must be within PICKUP_INTEREST, so a bot never crosses the whole stage.
+##
+## Perception cost: none beyond what a player pays. A `SpellPickup` is a drawn,
+## glowing object sitting on the floor — the most visible thing in the arena.
+const PICKUP_INTEREST: float = 520.0
+const PICKUP_CONTEST_MARGIN: float = 0.85
+
+
+static func _pickup_pull(bb: Dictionary, me: Vector2, foe: Vector2,
+		pressure: float) -> float:
+	if pressure > 0.25:
+		return 0.0
+	var best: Vector2 = Vector2.ZERO
+	var best_d: float = PICKUP_INTEREST
+	for p: Variant in bb.get("pickups", []):
+		if typeof(p) != TYPE_VECTOR2:
+			continue
+		var at: Vector2 = p
+		var d: float = me.distance_to(at)
+		if d >= best_d:
+			continue
+		# Contested? Then it is not mine and walking at it is walking at the foe.
+		if at.distance_to(foe) * PICKUP_CONTEST_MARGIN <= d:
+			continue
+		best_d = d
+		best = at
+	if best == Vector2.ZERO:
+		return 0.0
+	# Close enough that the pickup area will collect it — stop steering and fight.
+	if absf(best.x - me.x) < 26.0:
+		return 0.0
+	return signf(best.x - me.x)
 
 
 ## Is a barrier sitting on the line between me and the foe? Approximate on purpose —
@@ -871,7 +1113,7 @@ static func _cover_between(bb: Dictionary, me: Vector2, foe: Vector2) -> bool:
 ## and latched in between, so the expensive pass runs a handful of times a second
 ## and the bot actually finishes the cast it started.
 static func _pick_slot(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
-		pressure: float, soonest: float) -> int:
+		pressure: float, soonest: float, stagnation: float = 0.0) -> int:
 	if now < m.latched_until:
 		return -1     # already spent this decision; the press was emitted on the frame it was made
 	if now < m.next_decision_at:
@@ -885,12 +1127,107 @@ static func _pick_slot(bb: Dictionary, profile: Dictionary, m: Memory, now: floa
 
 	var scores: Array = score_slots(bb, profile, m, now, pressure, soonest)
 	var best: int = -1
-	var best_score: float = CAST_THRESHOLD
+	# A stalled fight forgives part of the threshold: the bot starts spending
+	# cooldowns it was holding for a better moment that is demonstrably not coming.
+	var best_score: float = CAST_THRESHOLD * lerpf(1.0, 1.0 - STAGNATION_THRESHOLD_CUT,
+		clampf(stagnation, 0.0, 1.0))
 	for i: int in range(scores.size()):
 		if float(scores[i]) > best_score:
 			best_score = float(scores[i])
 			best = i
 	return best
+
+
+# =========================================================================
+# LAYER 3b — THE ABILITY BUTTONS (Q / R / T)
+# =========================================================================
+
+## Which of the three class abilities to press this frame, or `&""`.
+##
+## THESE ARE NOT KIT SLOTS and they are deliberately not scored against them. They
+## cost nothing (no mana, no role, no reaction identity) so a shared scorer would
+## always prefer them and the kit would stop coming out; instead they are consulted
+## only when the kit scorer has already declined, and paced against each other by
+## `ABILITY_SPACING` so all three never land in one frame.
+##
+## Each one is chosen by the SHAPE OF THE BUTTON on this class, from `CLASS_ABILITIES`:
+##   Q blast   a placed / self-centred AoE every class has. Wants the foe inside it
+##             and me not standing on the detonation.
+##   R blink   a teleport on six classes and a rising UPPERCUT on the Brawler and
+##             the Swordsaint. Pressing "blink" to cross a gap on a class whose R is
+##             an uppercut is a wasted cooldown and a lunge into nothing, which is
+##             exactly the kind of bug that reads as "the AI is stupid".
+##   T nova    a self-centred burst, and the Shadowblade simply does not have one.
+static func _pick_ability(bb: Dictionary, profile: Dictionary, m: Memory,
+		now: float, pressure: float) -> StringName:
+	if now - m.last_ability_at < ABILITY_SPACING:
+		return &""
+	var cid: int = int(bb.get("class_id", -1))
+	var kit: Dictionary = DEFAULT_ABILITIES
+	if cid >= 0 and cid < CLASS_ABILITIES.size():
+		kit = CLASS_ABILITIES[cid]
+	var me: Vector2 = bb.get("self_pos", Vector2.ZERO)
+	var foe: Vector2 = bb.get("foe_pos", Vector2.ZERO)
+	if int(bb.get("foe_id", 0)) == 0:
+		return &""
+	var dist: float = me.distance_to(foe)
+	var aggr: float = BotProfile.get_f(profile, "aggression")
+
+	# --- T: the panic burst. Highest priority of the three because it is the only
+	# one that answers "there is a body on top of me" without spending a dash.
+	if bool(kit.get("nova", true)) and dist <= NOVA_RANGE \
+			and _cd_ready(bb, CD_NOVA_INDEX) and pressure > 0.35:
+		return BotIntent.ABILITY_NOVA
+
+	# --- R: two opposite jobs on one button, decided by what R IS on this class.
+	var blink_kind: String = String(kit.get("blink", ""))
+	if blink_kind != "" and _cd_ready(bb, CD_BLINK_INDEX):
+		if blink_kind == "uppercut":
+			# A rising cut. Contact only, and only when this bot wants the trade.
+			if dist <= UPPERCUT_RANGE and aggr >= 0.45:
+				return BotIntent.ABILITY_BLINK
+		else:
+			# A teleport. Close a gap too big to walk when the bot is committed, or
+			# leave one that has become too small while it is being pressed.
+			if dist >= BLINK_CLOSE_MIN and aggr >= 0.5 and pressure < 0.4:
+				return BotIntent.ABILITY_BLINK
+			if pressure > 0.6 and dist <= float(bb.get("reach", 58.0)) * 1.6:
+				return BotIntent.ABILITY_BLINK
+
+	# --- Q: the class AoE. The workhorse, and the reason it is last is that it is
+	# the one with the widest usable window — checking it first would starve the
+	# other two.
+	if _cd_ready(bb, CD_BLAST_INDEX) and dist >= BLAST_MIN and dist <= BLAST_MAX:
+		return BotIntent.ABILITY_BLAST
+	return &""
+
+
+## Is the extra cooldown at `index` reported ready? Absent / short array reads as
+## NOT ready — the pessimistic answer, matching `_caps`. Assuming ready is a cheat
+## by omission, and for the ability buttons it would show up as a bot mashing Q.
+static func _cd_ready(bb: Dictionary, index: int) -> bool:
+	var cds: Array = bb.get("cooldowns", [])
+	if index >= cds.size():
+		return false
+	return float(cds[index]) <= 0.0
+
+
+## The melee SWING — a different button from `fire` on every class, and one no
+## brain had ever pressed. Only in contact, only off cooldown.
+static func _wants_swing(bb: Dictionary, m: Memory, now: float) -> bool:
+	if now - m.last_swing_at < MELEE_COOLDOWN:
+		return false
+	if not _cd_ready(bb, CD_SWING_INDEX):
+		return false
+	var me: Vector2 = bb.get("self_pos", Vector2.ZERO)
+	var foe: Vector2 = bb.get("foe_pos", Vector2.ZERO)
+	if int(bb.get("foe_id", 0)) == 0:
+		return false
+	# NEVER SWING INTO A RAISED GUARD. MeleeClash's locked rule pays the guard, so
+	# this is the read that separates a bot from a training dummy.
+	if bool(bb.get("foe_guarding", false)):
+		return false
+	return me.distance_to(foe) <= float(bb.get("reach", 58.0)) * 1.05
 
 
 ## Every slot scored. Public so the tests can assert the SHAPE of a decision — that
@@ -932,7 +1269,20 @@ static func score_slots(bb: Dictionary, profile: Dictionary, m: Memory, now: flo
 			continue
 		if i >= cooldowns.size():
 			continue
+		# ⚠ DOES THIS SLOT EXIST ON THIS BODY RIGHT NOW? `cooldowns` reports 0.0 for
+		# a slot the class does not hold, which reads as READY, so a hand that came up
+		# short scored an empty button as its best play. `slot_affordable` is the
+		# body's own answer to "this slot exists AND is off cooldown" and is also what
+		# tracks a Tier 2 / Tier 3 DROP replacing a slot mid-fight — a bot that
+		# ignores it goes on scoring the spell it used to have. Absent key = trust the
+		# cooldown array, so a minimal blackboard still works.
+		var affordable: Array = bb.get("slot_affordable", [])
+		if i < affordable.size() and not bool(affordable[i]):
+			continue
 		var f: Dictionary = facts[i] if i < facts.size() else _default_facts(i)
+		# The mana gate is VESTIGIAL — `Hero._cast_signature` no longer spends or
+		# checks mana — but it is kept as a cheap guard for any future body that does,
+		# and it costs nothing while `self_mp_frac` sits at 1.0.
 		if mp * 100.0 < float(f["mp_cost"]):
 			continue
 		var range_fit: float = _range_fit(dist, float(f["range"]), bool(f["close_ok"]))
@@ -944,6 +1294,13 @@ static func score_slots(bb: Dictionary, profile: Dictionary, m: Memory, now: flo
 		# a spell thrown away. `risk` only decides how much CLEAR AIR past the cast
 		# time the bot insists on — never whether the rule applies.
 		var ct: float = float(f["cast_time"])
+		# Taken from the LIVE body wherever it publishes one. `_kit_facts` is cached
+		# per class for the process (correctly — minting SpellDefs per frame is pure
+		# garbage), but a Tier 2 / Tier 3 DROP replaces a slot's spell at runtime, so a
+		# cached cast_time can describe a spell this hero no longer holds.
+		var live_ct: Array = bb.get("slot_cast_time", [])
+		if i < live_ct.size():
+			ct = float(live_ct[i])
 		var safety: float = 1.0
 		if ct > 0.01:
 			if soonest < ct + CHANNEL_MARGIN:
@@ -1142,14 +1499,37 @@ static func _note_cast(bb: Dictionary, m: Memory, slot: int, now: float) -> void
 ## acts when a spell is off cooldown reads as idle between casts, and the fists are
 ## what keep pressure on in the gaps. Rate-limited to the body's own melee cooldown
 ## so it is not spamming a button the body would ignore anyway.
+## ⚠ THE RANGE GATE USED TO BE `reach * 1.1` FOR EVERY CLASS, and that was a whole
+## missing verb. `reach` is `Hero._melee_range` — about 58-96 px — but LMB is a
+## THROWN BOLT on five of the nine classes and a frost cone on a sixth. So a
+## Cryomancer standing in its own authored 200-360 px band could never satisfy this
+## test, and therefore never fired a single basic attack in its life: it walked to
+## its stance and waited for a cooldown. Combined with the stale `CD_PRIMARY_INDEX`
+## above (which read the GUARD timer), the ranged half of the roster had no basic
+## attack at all.
+##
+## `CLASS_ABILITIES[cid].primary` carries the real reach per class, 0.0 meaning "it
+## is the fists, so use the body's own `reach`".
 static func _wants_fire(bb: Dictionary, _profile: Dictionary, m: Memory, now: float,
 		_evaluated: Array) -> bool:
 	if not _ready_flag(bb, "fire_ready", CD_PRIMARY_INDEX,
 			now - m.last_fire_at >= MELEE_COOLDOWN):
 		return false
+	if int(bb.get("foe_id", 0)) == 0:
+		return false
 	var me: Vector2 = bb.get("self_pos", Vector2.ZERO)
 	var foe: Vector2 = bb.get("foe_pos", Vector2.ZERO)
-	return me.distance_to(foe) <= float(bb.get("reach", 58.0)) * 1.1
+	return me.distance_to(foe) <= _primary_range(bb)
+
+
+## How far this class's LMB actually reaches. See CLASS_ABILITIES.
+static func _primary_range(bb: Dictionary) -> float:
+	var reach: float = float(bb.get("reach", 58.0)) * 1.1
+	var cid: int = int(bb.get("class_id", -1))
+	if cid < 0 or cid >= CLASS_ABILITIES.size():
+		return reach
+	var declared: float = float(CLASS_ABILITIES[cid].get("primary", 0.0))
+	return reach if declared <= 0.0 else declared
 
 
 # =========================================================================

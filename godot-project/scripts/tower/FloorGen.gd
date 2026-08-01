@@ -138,6 +138,9 @@ const SHAPES: Array[String] = [SHAPE_OPEN, SHAPE_STAIRS, SHAPE_GALLERY, SHAPE_PI
 ## pins without disturbing them.
 const TAG_SHAPE: String = "gen:"
 const TAG_SEED: String = "genseed:"
+## The generator's own floor-affix stamp. Mirrors `EliteRoster.TAG_GEN_AFFIX`;
+## an AUTHORED pin uses `aff:` and is never stripped (see `_stamp_tags`).
+const TAG_GEN_AFFIX: String = "genaff:"
 
 ## ── THE ARCHETYPE MIX: SWAP WITHIN A THREAT CLASS, NEVER ACROSS ──────────────
 ## This is the whole "differently interesting, not randomly harder" rule made
@@ -155,6 +158,59 @@ const CLASS_ODD: Array[int] = [4, 6]         # summoner, bomber — threat multi
 const SWAP_CHANCE: float = 0.45
 ## Odds a wave gains one extra entry, drawn from a class ALREADY in that wave.
 const WIDEN_CHANCE: float = 0.30
+
+## ── WAVE CHARACTER: a wave should be a SENTENCE, not a soup ──────────────────
+## `WaveDef.archetypes` is rolled UNIFORMLY by `Encounter._roll_archetype`, so a
+## roster of [brute, charger, mage, summoner] produces roughly one of each — and
+## four waves built that way are four helpings of the same soup. Nothing in a floor
+## is memorable because nothing in it is ABOUT anything.
+##
+## The fix costs no new field and no new system: duplicates in the roster array ARE
+## weights. So a wave picks ONE of the classes it already carries and leans on it
+## until that class is most of what arrives — an all-assassin rush, a caster line
+## behind a brute wall, a bomber floor with two heavies holding you still.
+##
+## ⚠ IT ONLY EVER ADDS COPIES OF WHAT IS ALREADY THERE. Every authored pressure
+## survives (the wall still has its mage; the rush still has its brute), and no wave
+## can gain a threat class it was not built to carry — the band rule
+## `_test_the_mix_stays_inside_its_threat_band` enforces, and the reason this is a
+## re-weighting rather than the more obvious "collapse the roster to one archetype".
+const CHARACTER_CHANCE: float = 0.42
+## The lead class stops growing once it is this much of the roster. Above ~0.7 the
+## other entries stop appearing at all, which is a collapse by another name.
+const CHARACTER_DOMINANCE: float = 0.65
+## A roster is a weighting table, not a wave: more entries than this buys no extra
+## resolution and just makes the data unreadable in a bug report.
+const CHARACTER_MAX_ROSTER: int = 9
+
+## ── FLOOR AFFIXES: BUILT, AND SHIPPED OFF ────────────────────────────────────
+## A floor affix is one `EliteModifier` rule riding EVERY body on the floor — "the
+## ink never dried" and every enemy bursts when it dies; "pressed too hard into the
+## page" and nothing you hit gets shoved. It is a genuinely large amount of
+## per-climb character for almost no code, because the rider machinery already
+## exists for elites and `Encounter` already reads the ids off `special_tags`.
+##
+## **IT IS OFF, AND THE DESIGN SPEC IS WHY.** `docs/THE-TOWER-mobile-plan.md` lists
+## floor modifiers as out for v1. The maker has overridden several spec items since,
+## so this may well be wanted — but "may well be" is not a decision, and shipping a
+## floor-wide behaviour change ON by default is not a thing to guess about. The
+## mechanism is complete and one line from live; the call is the maker's.
+##
+## ⚠ IF IT IS TURNED ON, IT MUST BE TURNED ON EVERYWHERE. This is a plain static, so
+## it does not travel over the network: two peers with different values would derive
+## different floors from the same seed and the party would desync. It is safe as a
+## compile-time constant-in-practice and as a test toggle; it is NOT safe as a
+## per-player setting.
+static var floor_affixes_enabled: bool = false
+## No affix on the first floor, for the same reason it gets no elites and no boss
+## modifiers: the tower teaches before it edits.
+const FLOOR_AFFIX_MIN_DEPTH: int = 2
+const FLOOR_AFFIX_CHANCE: float = 0.30
+## Hardcoded rather than read from `EliteRoster.FLOOR_AFFIX_POOL`, for the same
+## reason MAX_ROOM is hardcoded at the top of this file: FloorGen must drag no
+## combat script into a headless harness's compile graph.
+## `tools/slice_test_elites.gd` fails if these two lists ever disagree.
+const FLOOR_AFFIX_POOL: Array[String] = ["quickened", "inked", "volatile"]
 ## Odds a wave gets an explicit opening burst instead of the cap-derived default.
 const VANGUARD_CHANCE: float = 0.35
 ## Odds a wave gets an explicit spawn interval.
@@ -225,7 +281,8 @@ static func vary_floor(f: FloorDef, depth: int, tower_id: String, seed_value: in
 	if not out.waves.is_empty():
 		out.enemy_budget = total
 		out.concurrent_cap = cap
-	out.special_tags = _stamp_tags(f.special_tags, shape, int(rng.seed))
+	out.special_tags = _stamp_tags(f.special_tags, shape, int(rng.seed),
+		_roll_floor_affix(rng, depth, int(out.floor_type)))
 	return out
 
 
@@ -728,7 +785,69 @@ static func _vary_roster(rng: RandomNumberGenerator, roster: Array[int]) -> Arra
 		var pick: int = out[rng.randi_range(0, out.size() - 1)]
 		var cls2: Array[int] = threat_class(pick)
 		out.append(cls2[rng.randi_range(0, cls2.size() - 1)])
+	if out.size() >= 2 and rng.randf() < CHARACTER_CHANCE:
+		out = give_character(rng, out)
 	return out
+
+
+## THE CHARACTER PASS. Lean a wave on ONE of the classes it already carries, by
+## repeating that class's entries until it dominates the (uniform) spawn roll.
+##
+## Public + pure so `tools/slice_test_wavechar.gd` can walk it directly; the header
+## block above CHARACTER_CHANCE has the design argument. A single-class wave is
+## returned untouched — it is already the most characterful thing a wave can be.
+static func give_character(rng: RandomNumberGenerator, roster: Array[int]) -> Array[int]:
+	var out: Array[int] = []
+	for a: int in roster:
+		out.append(a)
+	if out.size() < 2:
+		return out
+	# Group the entries by class. GDScript dictionaries preserve insertion order, so
+	# the key list below is derived from the roster's own order and not from a hash —
+	# which is what keeps this deterministic across machines.
+	var members: Dictionary = {}
+	for a2: int in out:
+		var key: int = threat_class(a2)[0]
+		if not members.has(key):
+			members[key] = [] as Array[int]
+		(members[key] as Array).append(a2)
+	var keys: Array = members.keys()
+	if keys.size() < 2:
+		return out          # already a one-note wave
+	var lead: int = int(keys[rng.randi_range(0, keys.size() - 1)])
+	var pool: Array = members[lead]
+	var guard: int = 0
+	while out.size() < CHARACTER_MAX_ROSTER and guard < CHARACTER_MAX_ROSTER:
+		guard += 1
+		if float(_count_in_class(out, lead)) / float(out.size()) >= CHARACTER_DOMINANCE:
+			break
+		out.append(int(pool[rng.randi_range(0, pool.size() - 1)]))
+	return out
+
+
+static func _count_in_class(roster: Array[int], class_key: int) -> int:
+	var n: int = 0
+	for a: int in roster:
+		if threat_class(a)[0] == class_key:
+			n += 1
+	return n
+
+
+## Which floor-wide rule (if any) rides this floor. Returns "" unless
+## `floor_affixes_enabled` has been turned on — see the block above it for why that
+## is the default and what turning it on commits a party to.
+static func _roll_floor_affix(rng: RandomNumberGenerator, depth: int, floor_type: int) -> String:
+	if not floor_affixes_enabled:
+		return ""
+	if depth < FLOOR_AFFIX_MIN_DEPTH:
+		return ""
+	# A BOSS floor is the tower's one clean statement: the colossus, its own
+	# modifiers, and nothing else editing the room around it.
+	if floor_type == FloorDef.FloorType.BOSS:
+		return ""
+	if rng.randf() >= FLOOR_AFFIX_CHANCE:
+		return ""
+	return FLOOR_AFFIX_POOL[rng.randi_range(0, FLOOR_AFFIX_POOL.size() - 1)]
 
 
 ## Which threat class an archetype belongs to. The generator may only ever swap
@@ -783,14 +902,23 @@ static func _jitter_theme(rng: RandomNumberGenerator, src: EnvTheme) -> EnvTheme
 
 ## Re-stamp the roll onto `special_tags`, preserving every authored pin and never
 ## growing the array when applied twice.
-static func _stamp_tags(tags: Array[String], shape: String, used_seed: int) -> Array[String]:
+##
+## ⚠ THE GENERATOR OWNS `genaff:` AND MUST NOT TOUCH `aff:`. An authored floor pins a
+## rule with `aff:<id>`, which is a statement by a designer and survives every
+## redraw; `genaff:<id>` is this file's own stamp and is stripped and rewritten each
+## time, exactly like `gen:` and `genseed:`. Stripping both prefixes here would have
+## quietly deleted authored pins on the second `apply()`.
+static func _stamp_tags(tags: Array[String], shape: String, used_seed: int,
+		affix: String = "") -> Array[String]:
 	var out: Array[String] = []
 	for t: String in tags:
-		if t.begins_with(TAG_SHAPE) or t.begins_with(TAG_SEED):
+		if t.begins_with(TAG_SHAPE) or t.begins_with(TAG_SEED) or t.begins_with(TAG_GEN_AFFIX):
 			continue
 		out.append(t)
 	out.append(TAG_SHAPE + shape)
 	out.append(TAG_SEED + str(used_seed))
+	if affix != "":
+		out.append(TAG_GEN_AFFIX + affix)
 	return out
 
 

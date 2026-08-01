@@ -26,6 +26,21 @@ extends Node
 ## Escalation is authored as the MIX (WaveDef.archetypes), never as HP — see
 ## FloorDef.hp_multiplier for why.
 ##
+## ── ELITES (the third escalation axis, and the only one that has a NAME) ─────
+## A floor also carries an ELITE BUDGET: one or two bodies in the whole climb-floor
+## that arrive glowing, with a word over their head, carrying an `EliteModifier` affix
+## that rewrites what they do. Same rider pattern the boss modifiers use, same
+## host-rolls-once-and-the-result-travels determinism, and the same hard rule —
+## behaviour, never HP.
+##
+## Three functions own it, and nothing else in this file knows about it:
+##   run_floor()    reads the budget for the depth (EliteRoster.budget) and the
+##                  floor's `no_elites` / `aff:` pins.
+##   _roll_elite()  spends that budget across the floor's spawns. Host-only.
+##   build_enemy_from_data()  attaches whatever the dictionary says. Every peer.
+## `spawn()` outside a floor run (the F6 sandbox) sees a budget of 0 and is
+## byte-identical to what it was before elites existed.
+##
 ## Owns the weighted archetype roll + stats, spawn-point selection, and (1.4) the
 ## LIVE ENTITY BUDGET: it is the single authority on how many bodies may exist,
 ## so summoner minions and boss adds ask it via can_spawn() instead of each
@@ -141,6 +156,23 @@ var _forced_mods: Array[String] = []
 var _allow_mods: bool = false
 ## The last roll, kept for logging / capture tooling. {"boss","mods","seed","depth"}.
 var _boss_roll: Dictionary = {}
+# --- elites + floor affixes (see the ELITE BUDGET block above _roll_elite) ---
+## Elites still owed by this floor. Spent by `_roll_elite` with remaining-over-
+## remaining pressure, so the budget always lands exactly and never twice.
+var _elite_left: int = 0
+## How many bodies this floor will spawn in total, and how many it has. The two
+## halves of that pressure. Set once in run_floor; a floor whose waves are empty
+## leaves them at 0, which switches elites off — which is also what keeps the F6
+## sandbox (`spawn()` without `run_floor`) exactly as it was.
+var _floor_spawn_total: int = 0
+var _floor_spawned: int = 0
+## A rule riding EVERY body on this floor, from an authored `aff:` pin or (when the
+## generator flag is on) a `genaff:` stamp. Empty on every floor by default.
+var _floor_affixes: Array[String] = []
+## Every elite this floor actually produced: [{"arch": int, "affixes": [...]}].
+## Read by tooling and by the headless suite — an elite feature whose test cannot
+## see whether elites APPEARED is a test of nothing.
+var _elite_log: Array[Dictionary] = []
 
 ## Co-op: enemies are HOST-authoritative. In a session the host builds every enemy
 ## through Arena's MultiplayerSpawner (so spawns + despawns replicate to clients);
@@ -202,6 +234,20 @@ func run_floor(floor_def: FloorDef) -> void:
 		_forced_mods.append(String(m))
 	_allow_mods = bool(pins["allow_mods"]) and _modifiers_enabled()
 	_boss_roll = {}
+	# ELITES. The budget is resolved here, with the FloorDef in hand, for the same
+	# reason the boss pins are: it is read once from the data rather than re-derived
+	# inside the spawn path. `_floor_spawn_total` is the denominator of the spend
+	# pressure — see the block above `_roll_elite`.
+	_floor_spawn_total = 0
+	for w: WaveDef in _waves:
+		_floor_spawn_total += maxi(w.enemy_budget, 0)
+	_floor_spawned = 0
+	_elite_log = []
+	_floor_affixes = EliteRoster.parse_floor_affixes(floor_def.special_tags)
+	_elite_left = 0
+	if EliteRoster.elites_allowed(floor_def.special_tags):
+		_elite_left = mini(EliteRoster.budget(_depth), _floor_spawn_total)
+	_announce_floor_affixes()
 	_wave_index = -1
 	_boss_seen = false
 	_boss_grace = 0.0
@@ -375,7 +421,24 @@ func _begin_boss() -> void:
 	# wave). Everything downstream is pure construction from the dictionary the roll
 	# produces, which is what keeps the two phones fighting the same boss — see the
 	# CO-OP block in BossRoster.gd.
-	_boss_roll = BossRoster.roll(_depth, randi(), _forced_boss, _forced_mods, _allow_mods)
+	# ⚠ THIS USED TO BE `randi()`, AND THAT WAS WRONG TWICE OVER.
+	#
+	# Co-op was never at risk — the roll is host-only and the result travels in the
+	# spawn dict — but everything ELSE about a climb is one seeded expression: the
+	# room (FloorGen), the loot (SpellDrops), the elites (EliteRoster) all derive
+	# from the climb seed, so "the hand drew this tower" was true of every part of a
+	# floor except the thing standing at the end of it.
+	#
+	# It also made `slice_test_boss` genuinely flaky — floor 1 drew SCRIBBLE
+	# (hp_scale 0.66 -> 338 hp) or the GUARDIAN (1.0 -> 512) on a coin flip, against
+	# an assertion of < 400. That failed 5 runs in 6 and had been read as another
+	# agent's breakage more than once.
+	#
+	# Mixed with depth so the five floors of one climb still draw five different
+	# guardians; two climbs draw two different towers.
+	_boss_roll = BossRoster.roll(
+		_depth, FloorGen.mix_seed(FloorGen.last_seed, _depth * 2654435761),
+		_forced_boss, _forced_mods, _allow_mods)
 	# _boss_hp, not the trash multiplier: depth HP scaling now lives on the
 	# guardian alone (FloorDef.boss_hp_multiplier).
 	# HP fraction and BODY fraction are two arguments now, not one number passed
@@ -735,11 +798,94 @@ func spawn(brute_chance: float, hp_mult: float, roster: Array[int] = []) -> void
 	var kind: int = _roll_archetype(brute_chance, roster)
 	var s: Dictionary = _archetype_stats(kind, hp_mult)
 	var pos: Vector2 = _pick_spawn_position()
-	_emit_enemy({
+	var data: Dictionary = {
 		"boss": false, "arch": kind,
 		"hp": s["hp"], "spd": s["spd"], "touch": s["touch"], "tint": s["tint"], "tele": s["tele"],
 		"x": pos.x, "y": pos.y,
-	})
+	}
+	# THE ELITE ROLL, and the ONLY place it happens. This line is reached on the host
+	# alone (a co-op client returns out of _process before any wave ticks), so the
+	# result travels in the dictionary and `build_enemy_from_data` stays pure
+	# construction — the exact shape BossRoster documents and slice_test_coop locks.
+	var elite: Array[String] = _roll_elite(kind)
+	if not elite.is_empty():
+		data["elite"] = elite
+	if not _floor_affixes.is_empty():
+		data["aff"] = _floor_affixes.duplicate()
+	_floor_spawned += 1
+	_emit_enemy(data)
+
+
+## ══ THE ELITE BUDGET ══════════════════════════════════════════════════════════
+## Whether THIS body is one of the floor's one or two named elites.
+##
+## The spend rule is `remaining elites / remaining spawns`, which is worth stating
+## plainly because it is the whole design:
+##
+##   * it never front-loads — an elite is as likely in wave 1 as in the last wave;
+##   * it never overshoots — the budget is decremented, so two is two;
+##   * and it ALWAYS lands. By the last body of the floor the probability is 1, so a
+##     floor with a budget of 2 produces exactly 2. That determinism is what makes
+##     "elites actually appear" an assertable invariant instead of a hope, and an
+##     invariant that is trivially true of an empty result is not an invariant.
+##
+## `randf()`/`randi()` here are the same host-only pattern `_roll_archetype` and
+## `_begin_boss` already use — the roll runs once, on the host, and its OUTPUT is
+## what crosses the wire. Nothing downstream of `_emit_enemy` is random.
+##
+## Returns [] in the F6 sandbox and in any harness that calls `spawn()` without
+## `run_floor()`, because `_elite_left` is 0 there. That is deliberate: the sandbox
+## exists to measure FEEL, and a body that dodges, blinks or detonates depending on
+## an unseeded roll makes it useless for exactly the thing it is for.
+func _roll_elite(kind: int) -> Array[String]:
+	var out: Array[String] = []
+	if _elite_left <= 0:
+		return out
+	var remaining: int = maxi(_floor_spawn_total - _floor_spawned, 1)
+	if randf() > float(_elite_left) / float(remaining):
+		return out
+	var r: Dictionary = EliteRoster.roll(_depth, randi(), kind)
+	var picked: Array = r["affixes"]
+	if picked.is_empty():
+		return out                      # nothing legal for this archetype: ordinary body
+	for a in picked:
+		out.append(String(a))
+	_elite_left -= 1
+	_elite_log.append({"arch": kind, "affixes": out.duplicate()})
+	return out
+
+
+## Say once, at the top of the floor, that a rule is riding every body in it. A
+## floor affix dresses no individual body (that would be a light show, not a read),
+## so this card is the ONLY thing standing between the feature and "the enemies are
+## behaving oddly and nothing said why". No-ops on every floor by default, because
+## `_floor_affixes` is empty unless a floor was authored with an `aff:` pin or
+## `FloorGen.floor_affixes_enabled` was turned on.
+func _announce_floor_affixes() -> void:
+	if _floor_affixes.is_empty() or not is_inside_tree():
+		return
+	var gs: GDScript = load("res://scripts/combat/FloorAffixHud.gd") as GDScript
+	if gs == null:
+		return
+	var hud: Node = gs.new()
+	hud.name = "FloorAffixHud"
+	hud.set("affix_ids", _floor_affixes.duplicate())
+	add_child(hud)
+
+
+## Every elite this floor produced, in spawn order. Tooling + tests only.
+func elite_log() -> Array[Dictionary]:
+	return _elite_log
+
+
+## Elites this floor has not yet spent. Tooling + tests only.
+func elites_remaining() -> int:
+	return _elite_left
+
+
+## The rule riding every body on this floor ([] on every floor by default).
+func floor_affixes() -> Array[String]:
+	return _floor_affixes
 
 
 ## The one place an enemy enters the world: co-op host -> through the MultiplayerSpawner
@@ -796,6 +942,22 @@ func build_enemy_from_data(data: Dictionary) -> CharacterBody2D:
 		e.touch_damage = int(data["touch"])
 		e.tint = data["tint"]
 		e.uses_telegraphed_attack = bool(data["tele"])
+		# ELITE AFFIXES ARE ATTACHED HERE — before the body enters the tree, and on
+		# EVERY peer, because this function is the one construction path both the
+		# single-player add_child and the co-op MultiplayerSpawner run through. Same
+		# reasoning as the boss modifiers eight lines up: riders defer their own setup
+		# to their first _process, so pre-tree is safe, and attaching after add_child
+		# would work in SP and silently not happen in co-op (where the add_child lives
+		# in Arena.gd). Purely READS the dictionary — no roll happens here.
+		var elite: Array = data.get("elite", [])
+		if not elite.is_empty():
+			EliteModifier.attach(e, elite, data, true)
+		# ...and the floor-wide rule, if the floor has one. Undressed on purpose: a
+		# room where every body glows is a light show, not a read. See
+		# EliteModifier.attach's `dressed` argument.
+		var aff: Array = data.get("aff", [])
+		if not aff.is_empty():
+			EliteModifier.attach(e, aff, data, false)
 	e.position = Vector2(float(data["x"]), float(data["y"]))
 	return e
 

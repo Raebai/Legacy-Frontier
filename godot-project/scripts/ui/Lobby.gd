@@ -80,6 +80,11 @@ var _ip_edit: LineEdit = null
 var _start_btn: Button = null
 var _paper: Control = null
 var _credits: Control = null
+var _free_btn: Button = null
+## THE OUTFITTER — choose your three / armory / colourway. An OVERLAY like the
+## credits, not a scene change: the player is often mid-lobby with a peer connected,
+## and dressing your hero must not drop them.
+var _outfitter: Control = null
 ## The main menu column. Held so the suite can assert the whole panel still fits
 ## the 640×360 base viewport — the thing that silently breaks the first time
 ## somebody adds one more row.
@@ -125,6 +130,15 @@ func _ready() -> void:
 		_net.join_failed.connect(_on_join_failed)
 	_refresh()
 	_music_town()
+
+	# A saved hand, if there is one to restore. No-op until `GameState.spell_roles`
+	# exists — see the handoff note on `SpellLibrary.hydrate_from_state`.
+	SpellLibrary.hydrate_from_state(get_node_or_null("/root/GameState"))
+	_apply_class_tint()
+	if _free_btn != null:
+		_free_btn.visible = free_play_available()
+	# One sentence of onboarding, in a row that exists anyway and is empty at boot.
+	_say("new here? Free Play has no enemies — just try your three spells.")
 
 	# ⚠ PAY THE SPELL-SCRIPT COMPILE HERE, WHERE NOBODY IS FIGHTING.
 	# `SpellCaster` reaches its 22 spectacle scripts by `load()` on a PATH rather
@@ -223,8 +237,32 @@ func _build_ui() -> void:
 	play.add_theme_color_override("font_color", CHALK)
 	right.add_child(play)
 
-	right.add_child(_button("Host Co-op", _host, 14))
-	right.add_child(_button("Join a Game", _open_join, 14))
+	# ── PREPARE: the safe room, and everything you decide before you climb ──
+	#
+	# ⚠ HEIGHT IS THE BINDING CONSTRAINT ON THIS SCREEN, not space on the page. The
+	# column measured 306 px of a 360 px viewport before these existed, with 20 px of
+	# margin and a hidden "Start Run" row that appears when you host — so there was
+	# room for ONE more full-width row and this needed TWO. Pairing the four secondary
+	# actions into two HBox rows costs exactly what the two stacked rows they replace
+	# cost, so the panel is the same height it was and `slice_test_shell`'s 360 px
+	# bound is untouched. Both halves still clear MIN_TAP.
+	var prep := HBoxContainer.new()
+	prep.add_theme_constant_override("separation", 6)
+	right.add_child(prep)
+	# FREE PLAY sits FIRST, immediately under CLIMB, because it is this game's only
+	# onboarding surface: today a new player goes straight from a nine-way class
+	# cycler into floor 1 with three buttons nobody has explained. A stage with no
+	# enemies is where you find out what your thumb does.
+	_free_btn = _half("Free Play", _free_play)
+	_free_btn.tooltip_text = "no enemies — just try your spells"
+	prep.add_child(_free_btn)
+	prep.add_child(_half("Loadout", _open_outfitter))
+
+	var coop := HBoxContainer.new()
+	coop.add_theme_constant_override("separation", 6)
+	right.add_child(coop)
+	coop.add_child(_half("Host Co-op", _host))
+	coop.add_child(_half("Join a Game", _open_join))
 
 	_start_btn = _button("Start Run", _start_run, 15)
 	_start_btn.visible = false
@@ -232,6 +270,8 @@ func _build_ui() -> void:
 
 	right.add_child(_button("Credits", _open_credits, 12))
 
+	# The status row exists anyway and is empty at boot, so it is a free place to say
+	# what the safe button is — the one sentence of onboarding this screen can afford.
 	_status = Label.new()
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_status.add_theme_font_size_override("font_size", 10)
@@ -346,10 +386,30 @@ func _apply_class_tint() -> void:
 		# "Start Run" row also showing, and the two-line blurb was the row that
 		# pushed it over. The kit is the useful half — it is what you are about to
 		# play with; the fantasy tagline is flavour you can read on the class card.
-		_class_kit.text = String(info.get("kit", ""))
+		#
+		# And it is now the LIVE hand rather than the authored blurb, because the hand
+		# is a choice: `ClassInfo.kit` is a fixed sentence and the Outfitter can change
+		# what you actually carry, so reading the class card here would start lying the
+		# first time anybody used the Loadout button. Falls back to the blurb for a
+		# class the spell library has no kit for.
+		_class_kit.text = _hand_line(i)
 	if _paper != null:
 		_paper.set("accent", accent)
 		_paper.queue_redraw()
+
+
+## The three spells this class is CARRYING right now, as one line. Derived from the
+## same call the hero makes (`SpellLibrary.build_for_class`), so what the title screen
+## says you are about to play with is what you are about to play with.
+func _hand_line(class_id: int) -> String:
+	var names: Array = []
+	for spell: Variant in SpellLibrary.build_for_class(class_id):
+		if spell != null:
+			names.append(String((spell as SpellDef).display_name))
+	if names.is_empty():
+		var info: Dictionary = ClassInfo.CLASSES[class_id] if class_id < ClassInfo.CLASSES.size() else {}
+		return String(info.get("kit", ""))
+	return "  ·  ".join(names)
 
 
 ## THE ENTRY POINT. `GameState.enter_run()` owns the persistent climb — it
@@ -369,6 +429,62 @@ func _play_solo() -> void:
 	gs.set("selected_class", _selected_class)
 	_say("climbing...")
 	gs.call("enter_run")
+
+
+## FREE PLAY — the stage, you, and nothing else. No enemies, no waves, no run, no way
+## to lose; move, jump, dash, throw all three spells, break the cover, fall off the
+## rim and come straight back.
+##
+## Reached by PATH and a static call rather than the bare `FreePlay` identifier, for
+## the reason that file documents about itself: it is one hop from the versus arena
+## and its dependency chain, and a hard reference here would drag that whole chain
+## into the compile of the boot scene. The by-path form also means a build without the
+## script simply hides the button instead of failing to load the title screen.
+const FREE_PLAY_SCRIPT: String = "res://scripts/combat/FreePlay.gd"
+
+
+func free_play_available() -> bool:
+	return ResourceLoader.exists(FREE_PLAY_SCRIPT)
+
+
+func _free_play() -> void:
+	if not free_play_available():
+		_say("free play is missing from this build.")
+		return
+	_stop_discovery()
+	# The same class you picked on this screen, and recorded where everything else
+	# reads it from — so walking out of free play into a run keeps your choice.
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null:
+		gs.set("selected_class", _selected_class)
+	var script: GDScript = load(FREE_PLAY_SCRIPT) as GDScript
+	if script == null:
+		_say("free play failed to load.")
+		return
+	_say("warming up...")
+	script.call("enter", get_tree(), _selected_class)
+
+
+## THE OUTFITTER. Everything you decide before you climb: which three of your class's
+## five spells you carry, the armory, and your colourway. An overlay, aimed at the
+## class currently selected on this screen.
+func _open_outfitter() -> void:
+	if _outfitter != null and is_instance_valid(_outfitter):
+		return
+	_outfitter = Outfitter.new()
+	add_child(_outfitter)
+	_outfitter.call("set_class", _selected_class)
+	if _outfitter.has_signal(&"closed"):
+		_outfitter.connect(&"closed", _on_outfitter_closed)
+
+
+func _on_outfitter_closed() -> void:
+	if _outfitter != null and is_instance_valid(_outfitter):
+		_outfitter.queue_free()
+	_outfitter = null
+	# The kit line under the class button is a summary of the hand, and the hand may
+	# have just changed underneath it.
+	_apply_class_tint()
 
 
 func _host() -> void:
@@ -576,6 +692,15 @@ func _button(text: String, cb: Callable, font_size: int = 14) -> Button:
 	b.add_theme_font_size_override("font_size", font_size)
 	b.focus_mode = Control.FOCUS_NONE   # a stray focus ring on a phone reads as a bug
 	b.pressed.connect(cb)
+	return b
+
+
+## Half a row. Two of these in an HBox occupy exactly the height of one full-width
+## button, which is the entire reason four secondary actions fit where two did.
+func _half(text: String, cb: Callable) -> Button:
+	var b: Button = _button(text, cb, 13)
+	b.custom_minimum_size = Vector2(PANEL_W * 0.5 - 3.0, BUTTON_H)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	return b
 
 

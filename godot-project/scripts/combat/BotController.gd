@@ -169,6 +169,15 @@ func tick(body: Object, now: float) -> Dictionary:
 	var raw: Variant = null
 	if brain != null and brain.has_method(&"decide"):
 		_ensure_memory()
+		# BELT AND BRACES: park the memory in the blackboard as well as passing it.
+		# `BotBrain._resolve_memory` checks the explicit argument, then `bb["mem"]`,
+		# then installs a fresh one — and only the first two survive a blackboard
+		# that is rebuilt every frame, which this one is. A brain whose `decide`
+		# takes two arguments (a stub, a test double, a future alternative) therefore
+		# gets a PERSISTENT memory here rather than the amnesiac degradation, and the
+		# arity detection below stops being load-bearing for correctness.
+		if memory != null:
+			blackboard["mem"] = memory
 		# A three-argument brain gets its per-bot memory; a two-argument one still
 		# works (and is simply duller, having no reaction clock or latches to keep).
 		# The arity is measured from the brain itself rather than assumed, so a
@@ -186,8 +195,15 @@ func tick(body: Object, now: float) -> Dictionary:
 	# LIVENESS, not learning: refuse to settle into a no-damage stalemate. Applied
 	# unconditionally (an empty record does not switch it off) because it answers a
 	# measured behavioural gap, not a player habit — see BotAdapt.anti_camp.
-	if raw is Dictionary:
-		raw = BotAdapt.anti_camp(raw as Dictionary, blackboard, adapt_state, now)
+	# ⚠ THE CAMP BREAKER MOVED INTO THE BRAIN — `BotBrain.decide`, backed by
+	# `Memory.camp_state`. It was called from here, and here was the wrong place:
+	# this is the INPUT SEAM, and "refuse to settle into a no-damage stalemate" is a
+	# decision. Living on the controller meant it only existed for bots that were
+	# built with one, so a brain driven by the sim's own seam or by a test had no
+	# liveness floor at all — which is exactly where the stalemates were being
+	# measured. `BotAdapt.anti_camp` remains the single definition of the rule; only
+	# the call site changed. `adapt_state` is kept as a field so an external driver
+	# that still wants to apply the rule itself can, and reads empty otherwise.
 	_track_aim_range(blackboard)
 	var out: Dictionary = drive(raw)
 	_apply_signature_choice(body, out)
@@ -222,7 +238,24 @@ func _apply_signature_choice(body: Object, i: Dictionary) -> void:
 func _ensure_memory() -> void:
 	if memory != null or brain == null:
 		return
-	var sc: Script = brain.get_script() as Script
+	# ⚠ `brain` IS USUALLY THE SCRIPT ITSELF, NOT AN INSTANCE — and this function
+	# assumed the opposite, which silently disabled the entire reflex layer.
+	#
+	# Every caller in the game does `ctrl.set("brain", load("res://.../BotBrain.gd"))`
+	# and relies on `decide` being STATIC. For that object, `get_script()` returns
+	# null (a GDScript has no script of its own), so the lookup bailed, `memory`
+	# stayed null, and every bot fell back to the "install a fresh Memory in the
+	# blackboard" path — into a blackboard that `build_blackboard` rebuilds from
+	# scratch every frame. So the bot got a brand-new memory sixty times a second:
+	# `reactions` had never seen any threat, `visible()` was false for everything,
+	# and NO bot in the game ever dodged, jumped or parried. MEASURED: 36 sim
+	# matches across the whole roster reported zero dash, zero guard and zero jump
+	# presses. It also re-scored the ability layer every frame instead of once per
+	# `profile.period`, which is why slot usage was far more concentrated than the
+	# recency term should ever allow.
+	var sc: Script = brain as Script
+	if sc == null:
+		sc = brain.get_script() as Script
 	if sc == null:
 		return
 	var consts: Dictionary = sc.get_script_constant_map()
@@ -423,6 +456,12 @@ static func build_blackboard(body: Object, now: float) -> Dictionary:
 	# vector straight into a ring-out pit, which reads as the bot killing itself
 	# rather than as a missing blackboard key.
 	bb["hazards"] = perceive_hazards(tree)
+	# LOOSE SPELLS ON THE FLOOR. Tier 2 floor drops and Tier 3 boss drops are the
+	# whole reason a kit changes mid-run, and a bot that cannot see them fights the
+	# rest of the floor with the loadout it walked in with while the human upgrades.
+	# A `SpellPickup` is a drawn, glowing, stationary object — the most visible thing
+	# in the arena — so this costs nothing against the fairness rule.
+	bb["pickups"] = perceive_pickups(tree)
 	var elemental: Dictionary = perceive_elemental(tree)
 	# .get() with a default, not ["..."]. A missing key on a Dictionary is a hard
 	# error in GDScript, and an error here ABORTS blackboard construction — the bot
@@ -611,6 +650,33 @@ static func perceive_hazards(tree: SceneTree) -> Array[Rect2]:
 			continue
 		var half: Vector2 = (size as Vector2) * 0.5
 		out.append(Rect2((h as Node2D).global_position - half, size as Vector2))
+	return out
+
+
+## World positions of every uncollected spell pickup, as plain Vector2s.
+##
+## Reported as bare positions rather than as records because the brain's only
+## question is "is there something worth walking to, and where" — WHICH spell it is
+## is not knowable by looking at it in this game (the pickup draws a generic sigil),
+## so publishing an id would hand the bot information a player does not have.
+##
+## Group name comes from `SpellPickup.PICKUP_GROUP` (`&"spell_pickup"`), read as a
+## literal here for the same no-extra-compile-chain-edge reason as SPELL_SPEED.
+static func perceive_pickups(tree: SceneTree) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for p: Node in tree.get_nodes_in_group(&"spell_pickup"):
+		if not is_instance_valid(p) or not (p is Node2D):
+			continue
+		# A pickup already claimed this frame is still in the tree for a beat while it
+		# plays its collect flourish; walking at it is walking at nothing.
+		# Tested as `is bool` rather than `bool(...)`: `Object.get` returns NULL for a
+		# property that does not exist and `bool(null)` is a hard "nonexistent
+		# constructor" error that ABORTS the enclosing function — the same trap
+		# `_nearest_in_group` documents for `downed`.
+		var taken: Variant = p.get(&"_consumed")
+		if taken is bool and taken:
+			continue
+		out.append((p as Node2D).global_position)
 	return out
 
 

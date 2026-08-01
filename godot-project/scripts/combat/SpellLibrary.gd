@@ -230,14 +230,198 @@ static func kit_for_class(class_id: int) -> Dictionary:
 	return CLASS_KITS[class_id]
 
 
-## The three roles a class CARRIES, in slot order. Falls back to the first
-## `SpellTier.SLOT_COUNT` entries of `ROLE_ORDER` for a class with no row, so a new
-## class added to `CLASS_KITS` without a `SLOT_ROLES` row still boots with a sane
-## hand instead of nothing.
-static func slot_roles_for_class(class_id: int) -> Array:
+## The AUTHORED three for a class — the table above, untouched by any player choice.
+## Falls back to the first `SpellTier.SLOT_COUNT` entries of `ROLE_ORDER` for a class
+## with no row, so a new class added to `CLASS_KITS` without a `SLOT_ROLES` row still
+## boots with a sane hand instead of nothing.
+static func default_slot_roles_for_class(class_id: int) -> Array:
 	if class_id < 0 or class_id >= SLOT_ROLES.size():
 		return ROLE_ORDER.slice(0, SpellTier.SLOT_COUNT)
-	return SLOT_ROLES[class_id]
+	return (SLOT_ROLES[class_id] as Array).duplicate()
+
+
+# ═════════════════════════════════════════════════════════ CHOOSE YOUR THREE
+## THE PLAYER'S PICK, and the whole reason `SLOT_ROLES` was split out from
+## `CLASS_KITS` in the first place.
+##
+## `CLASS_KITS` authors FIVE roles per class. The hand holds THREE. Until now the
+## table above decided which three, for everybody, forever — so nine classes shipped
+## as nine fixed hands and the class-select screen was a blind cycler with nothing to
+## decide. The other two roles were already reachable as Tier 2 / Tier 3 drops
+## (`reserve_for_class`), so the substrate for a choice existed and nobody could make
+## one.
+##
+## This is that choice, and it costs no new content: 4 non-ult roles choose 2 = SIX
+## hands per class, 54 across the roster, every one of them a real, tuned, already-
+## balanced spell in a slot the player picked.
+##
+## WHY A STATIC AND NOT AN AUTOLOAD. `Hero._configure_class` already funnels every
+## hero — local, remote puppet, bot, sparring dummy, headless fixture — through
+## `build_for_class`, which asks `slot_roles_for_class`. Answering that question
+## differently is therefore the ENTIRE feature: no Hero edit, no HUD edit (`AbilityBar`
+## polls the hero, and the hero polls this), no new plumbing. A static on a
+## `class_name`d script outlives a `change_scene_to_file`, which is exactly the
+## lifetime a lobby choice needs.
+##
+## ⚠ IT DOES NOT SURVIVE QUITTING THE APP. That needs one field on `GameState` and
+## `hydrate_from_state` / `persist_to_state` below — written, tested, and waiting for
+## the property to exist. See the handoff note on those two functions.
+##
+## ⚠ AND IT IS KEYED BY CLASS, WHICH IS A CO-OP CAVEAT. The host builds the joiner's
+## puppet by class id, so a puppet is dressed in whatever THIS machine chose for that
+## class. Cosmetically wrong on the host's screen if both players run the same class
+## with different picks; damage is unaffected (it routes victim-authority). Fixing it
+## properly means the pick riding the join handshake, which is `Net`'s to carry.
+static var _chosen_roles: Dictionary = {}
+
+
+## The three roles a class CARRIES, in slot order — the player's pick if they made
+## one, else the authored default. This is the single question `build_for_class`
+## asks, so it is deliberately cheap: everything is validated at `set_slot_roles`
+## time, never here.
+static func slot_roles_for_class(class_id: int) -> Array:
+	var chosen: Variant = _chosen_roles.get(class_id)
+	if chosen is Array and (chosen as Array).size() == SpellTier.SLOT_COUNT:
+		return (chosen as Array).duplicate()
+	return default_slot_roles_for_class(class_id)
+
+
+## Has the player overridden this class's hand?
+static func has_custom_slot_roles(class_id: int) -> bool:
+	return _chosen_roles.has(class_id)
+
+
+## The ROLE that holds this class's ult — the fixed last slot. Derived from the kit's
+## real tiers rather than assumed to be the role literally named "ult", so a class
+## whose ult moves house does not silently ship a hand with no finisher.
+static func ult_role_for_class(class_id: int) -> String:
+	var kit: Dictionary = kit_for_class(class_id)
+	if kit.is_empty():
+		return "ult"
+	var by_id: Dictionary = _spell_by_id()
+	for role: String in ROLE_ORDER:
+		var s: Variant = by_id.get(String(kit.get(role, "")))
+		if s != null and SpellTier.of(s) == SpellTier.Tier.ULT:
+			return role
+	return "ult"
+
+
+## The roles a player may CHOOSE BETWEEN for the two open slots: every role in this
+## class's kit that resolves to a real, non-ult spell. In `ROLE_ORDER` order so the
+## picker never reshuffles under the thumb.
+static func choosable_roles_for_class(class_id: int) -> Array:
+	var kit: Dictionary = kit_for_class(class_id)
+	if kit.is_empty():
+		return []
+	var by_id: Dictionary = _spell_by_id()
+	var out: Array = []
+	for role: String in ROLE_ORDER:
+		var s: Variant = by_id.get(String(kit.get(role, "")))
+		if s != null and SpellTier.of(s) != SpellTier.Tier.ULT:
+			out.append(role)
+	return out
+
+
+## The SpellDef a class's role resolves to, or null. Fresh instance (build_all mints
+## new Resources every call), so a picker holding one cannot mutate a live hero's kit.
+static func spell_for_role(class_id: int, role: String) -> SpellDef:
+	var kit: Dictionary = kit_for_class(class_id)
+	if kit.is_empty():
+		return null
+	return _spell_by_id().get(String(kit.get(role, ""))) as SpellDef
+
+
+## Why `roles` is NOT a legal hand for `class_id`, or "" if it is. The same four rules
+## `tools/slice8_test_spell_kits.gd` pins on the authored table, applied to the
+## player's pick — so a hand a player can build is a hand the tests would have
+## accepted, and an illegal one is refused at the tap rather than discovered as an
+## empty button in the middle of floor 3.
+static func validate_slot_roles(class_id: int, roles: Array) -> String:
+	var kit: Dictionary = kit_for_class(class_id)
+	if kit.is_empty():
+		return "no kit for class %d" % class_id
+	if roles.size() != SpellTier.SLOT_COUNT:
+		return "a hand holds exactly %d spells (got %d)" % [SpellTier.SLOT_COUNT, roles.size()]
+	var seen: Dictionary = {}
+	var by_id: Dictionary = _spell_by_id()
+	for i: int in roles.size():
+		var role: String = String(roles[i])
+		if not kit.has(role):
+			return "%s is not a role this class authors" % role
+		if seen.has(role):
+			return "%s is in the hand twice" % role
+		seen[role] = true
+		var s: Variant = by_id.get(String(kit.get(role, "")))
+		if s == null:
+			return "%s resolves to no spell" % role
+		var is_ult: bool = SpellTier.of(s) == SpellTier.Tier.ULT
+		if SpellTier.slot_accepts_ult(i):
+			if not is_ult:
+				return "the last slot is the ult slot"
+		elif is_ult:
+			return "an ult cannot sit in slot %d" % (i + 1)
+	return ""
+
+
+## Set a class's hand. Refuses an illegal one outright (returns false and changes
+## nothing) — a half-applied hand is worse than no choice at all.
+static func set_slot_roles(class_id: int, roles: Array) -> bool:
+	if validate_slot_roles(class_id, roles) != "":
+		return false
+	var stored: Array = []
+	for r: Variant in roles:
+		stored.append(String(r))
+	_chosen_roles[class_id] = stored
+	return true
+
+
+## Back to the authored hand for one class, or (no argument) for the whole roster.
+static func clear_slot_roles(class_id: int = -1) -> void:
+	if class_id < 0:
+		_chosen_roles.clear()
+	else:
+		_chosen_roles.erase(class_id)
+
+
+## ── the save hook, and the one piece of this that is not yet wired ──────────
+## `GameState` is where a choice that must outlive the process belongs (it already
+## carries `selected_class` and `loadout` for exactly this reason), but adding a field
+## to it was out of scope for the change that added this table. Both directions are
+## written and covered; both no-op cleanly while the property is absent, and start
+## working the moment it exists.
+##
+## THE WIRING LEFT: `var spell_roles: Dictionary = {}` on `GameState`, saved and
+## loaded with `loadout`; then `hydrate_from_state($GameState)` once at boot and
+## `persist_to_state($GameState)` after a pick. Nothing else changes.
+##
+## ⚠ `Object.set()` on an UNDECLARED property is a silent no-op in GDScript, so
+## `persist_to_state` proves the property exists by reading it back rather than
+## trusting the write — otherwise a missing field reads as a successful save.
+const STATE_PROPERTY: StringName = &"spell_roles"
+
+
+static func hydrate_from_state(state: Object) -> bool:
+	if state == null:
+		return false
+	var raw: Variant = state.get(STATE_PROPERTY)
+	if not (raw is Dictionary):
+		return false
+	var applied: bool = false
+	for key: Variant in (raw as Dictionary):
+		var roles: Variant = (raw as Dictionary)[key]
+		# Keys arrive as floats out of JSON — the standing int/float trap.
+		if roles is Array and set_slot_roles(int(key), roles as Array):
+			applied = true
+	return applied
+
+
+static func persist_to_state(state: Object) -> bool:
+	if state == null:
+		return false
+	if not (state.get(STATE_PROPERTY) is Dictionary):
+		return false   # the field does not exist yet; see the handoff note above
+	state.set(STATE_PROPERTY, _chosen_roles.duplicate(true))
+	return state.get(STATE_PROPERTY) is Dictionary
 
 
 ## Each class's hand: `SpellTier.SLOT_COUNT` spells in slot order, ult last, so slot

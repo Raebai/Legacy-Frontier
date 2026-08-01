@@ -94,6 +94,84 @@ const RESPAWN_POOF_END: Color = Color(0.75, 0.85, 1.0, 0.0)
 static var showcase_a: int = -1        # Hero.HeroClass, or -1 for the normal arena
 static var showcase_b: int = -1
 static var showcase_difficulty: int = 2
+## Hand the showcase camera to `ClipDirector` instead of the plain pair-framing
+## tracker below. OFF by default and deliberately so: the existing pair camera is
+## what `tools/bot_clip_capture.gd` and `tools/slice3_test_versus.gd` were measured
+## against, and silently changing the framing under them would be a regression
+## wearing an improvement's clothes. `tools/bot_clip_director.gd` and
+## `scenes/combat/BotMatch.tscn` opt in.
+static var showcase_directed: bool = false
+## How many HP each showcase fighter carries. A STATIC so a clip tool can shorten a
+## bout (fights that end are clips; fights that do not are footage) without editing
+## the constant every other mode reads.
+static var showcase_hp_override: int = 0
+## Leave the Smash damage-% + ring-out model ON for a showcase? TRUE is the stage's
+## own model and the shipped behaviour.
+##
+## A clip tool turns it OFF, and the reason is measured rather than aesthetic: under
+## the ring-out model a hit accumulates `damage_pct` instead of draining HP, so two
+## bot heroes fought for 65 game-seconds at 219% and 642% accumulated damage without
+## either one ever going down — which produces a clip with no ending. A clip needs a
+## DECISIVE fight; HP death is the model that reliably provides one.
+static var showcase_ringout: bool = true
+
+## --------------------------------------------------------------- FREE PLAY
+## FREE PLAY — the stage, you, and NOTHING ELSE.
+##
+## The maker's ask, verbatim: *"we need the ability for players to choose to just do
+## no bots and play on the stage as well"*. No enemies, no waves, no timer, no run,
+## no stocks. You drop in and you move, dash, jump, cast all three spells, throw the
+## ult, blink, nova, parry, break the cover, ride the terraces, and find out how the
+## thing feels.
+##
+## IT IS ALSO THE ONBOARDING SURFACE. The audit's fourth finding is that this game
+## has ZERO onboarding — a player's first contact with the controls is a floor of
+## enemies. A room where nothing can kill you is where you learn the verbs, so free
+## play prints its controls on the wall and keeps a live hint line.
+##
+## ⚠ NOT A DEBUG MODE, and it must not become one. `tools/director/Director.gd` (F1)
+## already does class-switching and spell-granting far better than this ever will,
+## and free play deliberately does NOT duplicate it — it OFFERS it (the pause menu
+## has a Director row when the tools script is present) and otherwise stands alone,
+## because the director is gated out of release builds and free play is a SHIPPING
+## feature.
+##
+## Everything reconfigurable without a restart: class (live, via `configure_class`),
+## a training dummy to hit, ring-out on/off, and the stage rebuilt from scratch. The
+## whole point of this mode is to change one thing and immediately feel it, and a
+## scene reload between every comparison would make that impossible.
+static var free_play: bool = false
+## How many practice dummies to stand up. 0 = a genuinely empty stage.
+static var free_dummies: int = 0
+## Where the free-play hero lands: middle of the main ground, room either side.
+const FREE_SPAWN: Vector2 = Vector2(700.0, 716.0)
+## Free play gives the hero back its OWN camera (the pair-framing camera exists to
+## keep two fighters in shot; with one fighter it is just a worse follow cam).
+const FREE_HP: int = 400
+## Practice dummies stand here, spaced along the ground so one of them is always in
+## reach of the terraces and one is out in the open.
+const FREE_DUMMY_POINTS: Array[Vector2] = [
+	Vector2(1050.0, 716.0), Vector2(430.0, 716.0), Vector2(1420.0, 626.0),
+]
+## A dummy is a hero body with no controller, no faction hostility and a big HP
+## pool: something to hit that hits back with nothing. Deliberately a HERO and not
+## an `Enemy` — the point is to feel your own spells land on a body the same size
+## and shape as the one you will fight, and `Enemy` brings AI, telegraphs and a
+## death spectacle that belong to the tower, not to a practice range.
+const FREE_DUMMY_HP: int = 9999
+## Free play's fixed framing. Close enough to read the rig's wind-up (this is where
+## the maker judges feel) and wide enough to see a terrace, a cover block and where
+## the next platform is.
+##
+## ⚠ MEASURED AGAINST THE BASE VIEWPORT, NOT THE WINDOW. This project's stretch
+## settings give a base viewport of 683x384, so a zoom of 1.0 shows 683 world pixels
+## — a third of this 2000 px stage, with the hero's feet under the hotbar. The first
+## pass used 1.05 for exactly the "reads the rig clearly" reason and produced a shot
+## in which the ground was off the bottom edge. 0.55 shows ~1240 px of stage.
+const FREE_ZOOM: float = 0.55
+## How far above the hero the eye sits, so the floor falls in the lower third
+## instead of the frame being half underground.
+const FREE_EYE_LIFT: float = 90.0
 
 ## -------------------------------------------------------------------- DUEL
 ## DUEL MODE — the maker, with their own hands, against ONE bot hero.
@@ -241,6 +319,10 @@ var _banner: Label = null
 var _pause_menu: PauseMenu = null
 ## Showcase-only pair-framing camera; see _build_showcase_camera.
 var _show_cam: Camera2D = null
+## The clip camera operator, when `showcase_directed` asked for one. Null otherwise,
+## and every call site is guarded — a showcase without a director is the shipped
+## behaviour, not a degraded one.
+var _clip: ClipDirector = null
 ## Pair-camera framing knobs, so the same tracker serves the wide clip framing
 ## and the tighter played-duel framing without a second copy of the code.
 var _cam_margin: float = SHOWCASE_FRAME_MARGIN
@@ -284,7 +366,7 @@ func _ready() -> void:
 	# back off, so it never leaks into a run. See GameState.ringout_mode.
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs != null:
-		gs.set("ringout_mode", true)
+		gs.set("ringout_mode", showcase_ringout or not _is_showcase())
 	# Switch the music bed back to combat (the hub swaps it to the calm ambience).
 	var music: Node = get_node_or_null("/root/Music")
 	if music != null and music.has_method("play_combat"):
@@ -306,6 +388,13 @@ func _process(delta: float) -> void:
 	_grace = maxf(_grace - delta, 0.0)
 	for entry: Dictionary in _registry.values():
 		entry["invuln"] = maxf(float(entry["invuln"]) - delta, 0.0)
+	# FREE PLAY ends nothing and polls nothing. There is no opponent to beat, no
+	# round to win and no roster to sweep — the whole mode is "the stage stays up".
+	# Falling in a pit is handled by `_on_fighter_fell` (respawn, forever).
+	if _is_free():
+		_update_free_camera(delta)
+		_update_hud()
+		return
 	if _is_duel():
 		_duel_clock += delta
 		_update_showcase_camera(delta)
@@ -361,6 +450,13 @@ func _on_fighter_fell(body: Node) -> void:
 		return
 	var entry: Dictionary = _registry[id]
 	if float(entry["invuln"]) > 0.0:
+		return
+	# FREE PLAY NEVER COSTS A STOCK. Falling off the rim is one of the things you
+	# came here to try; the answer is a poof and a respawn, not an elimination
+	# screen. Burning the stock anyway would end the sandbox after three curious
+	# jumps.
+	if _is_free():
+		_respawn(body as Node2D, entry)
 		return
 	entry["stocks"] = int(entry["stocks"]) - 1
 	if int(entry["stocks"]) > 0:
@@ -468,7 +564,8 @@ func _poll_showcase_end() -> void:
 ## arrival poof. Shared by the knockdown reset and by the stock-out restock, so
 ## "a new round starts" means exactly one thing.
 func _reset_round_bodies() -> void:
-	var full_hp: int = DUEL_HP if _is_duel() else SHOWCASE_HP
+	var showcase_hp: int = showcase_hp_override if showcase_hp_override > 0 else SHOWCASE_HP
+	var full_hp: int = DUEL_HP if _is_duel() else showcase_hp
 	for entry: Dictionary in _registry.values():
 		var node: Node = entry["node"]
 		if not is_instance_valid(node) or node.is_queued_for_deletion():
@@ -627,6 +724,8 @@ func _build_blast_zones() -> void:
 func _spawn_fighters() -> void:
 	if _is_showcase():
 		_spawn_showcase()
+	elif _is_free():
+		_spawn_free()
 	else:
 		_spawn_duel()
 
@@ -649,6 +748,12 @@ func _spawn_showcase() -> void:
 	# owns the viewport, because a camera that follows one fighter loses the other
 	# the moment the fight spreads out.
 	_build_showcase_camera()
+	# ...unless a clip tool asked for a real camera operator, in which case the
+	# director takes the same camera and frames the ACTION rather than the pair.
+	if showcase_directed:
+		_clip = ClipDirector.new()
+		add_child(_clip)
+		_clip.bind(_show_cam, Rect2(Vector2.ZERO, STAGE_SIZE), GROUND_TOP)
 	# Face them at each other on frame one so the opening reads as a duel rather
 	# than as two bots noticing each other.
 	if a != null and b != null:
@@ -659,16 +764,17 @@ func _spawn_showcase() -> void:
 ## One showcase fighter: class, faction, bot brain, camera, registry entry.
 func _spawn_showcase_fighter(scene: PackedScene, class_id: int, at: Vector2,
 		keep_camera: bool) -> CharacterBody2D:
+	var hp: int = showcase_hp_override if showcase_hp_override > 0 else SHOWCASE_HP
 	var hero: CharacterBody2D = scene.instantiate()
 	hero.set("net_class", class_id)   # read by Hero._ready, before configure_class
-	hero.max_hp = SHOWCASE_HP
+	hero.max_hp = hp
 	hero.position = at
 	add_child(hero)
 	hero.process_mode = Node.PROCESS_MODE_PAUSABLE
 	if hero.has_method("configure_class"):
 		hero.configure_class(class_id)
-	hero.set("max_hp", SHOWCASE_HP)
-	hero.set("hp", SHOWCASE_HP)
+	hero.set("max_hp", hp)
+	hero.set("hp", hp)
 	if hero.has_method("set_hostile"):
 		hero.call("set_hostile", &"hero")
 	else:
@@ -689,7 +795,155 @@ func _spawn_showcase_fighter(scene: PackedScene, class_id: int, at: Vector2,
 ## capture tool has set the two showcase classes. The five-bot practice arena
 ## that used to be the default was removed at maker request.
 func _is_duel() -> bool:
-	return not _is_showcase()
+	return not _is_showcase() and not _is_free()
+
+
+## True while this scene is running as FREE PLAY — one hero, no opposition.
+## Showcase wins if both were somehow set, because a capture tool asking for a
+## two-bot clip and getting an empty room is the worse failure.
+func _is_free() -> bool:
+	return free_play and not _is_showcase()
+
+
+## The clip camera operator, for a capture tool that wants to know when the fight
+## caught and when somebody went down. Null unless `showcase_directed` was set.
+func clip_director() -> ClipDirector:
+	return _clip
+
+
+## The free-play hero, for `FreePlay.gd`. Null in every other mode.
+func free_hero() -> CharacterBody2D:
+	return _p1 as CharacterBody2D if _is_free() else null
+
+
+## The pause menu this arena built, so the free-play layer can hang its own rows on
+## it instead of standing up a second overlay that fights the first for Esc.
+func pause_menu() -> PauseMenu:
+	return _pause_menu
+
+
+## Stand up / tear down practice dummies at runtime. Free play only — everything
+## else on this stage is a real fight and a dummy in it would be a bug.
+func set_dummy_count(n: int) -> void:
+	if not _is_free():
+		return
+	free_dummies = clampi(n, 0, FREE_DUMMY_POINTS.size())
+	_rebuild_dummies()
+
+
+func dummy_count() -> int:
+	return free_dummies
+
+
+## Everything back to frame one WITHOUT a scene reload: hero healed, 0%, back on
+## its spawn, dummies restored, cover and breakable platforms rebuilt.
+##
+## A reload would also work and is two lines shorter. It is the wrong call: free
+## play exists so the maker can change one thing and feel the difference
+## immediately, and a reload throws away the class they just switched to, the
+## dummies they just placed and the second and a half it takes to get back in.
+func reset_free_stage() -> void:
+	if not _is_free():
+		return
+	for child: Node in get_children():
+		if child is DestructibleTerrain or child is BreakablePlatform:
+			child.queue_free()
+	_build_cover()
+	_build_breakable_platforms()
+	if _p1 != null and is_instance_valid(_p1):
+		_p1.set("hp", FREE_HP)
+		if _p1.get("damage_pct") != null:
+			_p1.set("damage_pct", 0.0)
+		if _p1.has_signal("health_changed"):
+			_p1.emit_signal("health_changed", FREE_HP, FREE_HP)
+		(_p1 as Node2D).global_position = FREE_SPAWN
+	_rebuild_dummies()
+
+
+## FREE PLAY spawn: one hero, its own camera, no opponent, no faction to be
+## hostile to. Registered like every other fighter so the ring-out plumbing keeps
+## working — but with a stock count nothing can exhaust (see `_on_fighter_fell`).
+func _spawn_free() -> void:
+	var hero_scene: PackedScene = load(HERO_SCENE_PATH)
+	_p1 = hero_scene.instantiate()
+	_p1.position = FREE_SPAWN
+	_p1.max_hp = FREE_HP
+	add_child(_p1)
+	_p1.process_mode = Node.PROCESS_MODE_PAUSABLE
+	_p1.set("max_hp", FREE_HP)
+	_p1.set("hp", FREE_HP)
+	# A faction of its own with nothing hostile in it. Free play has no opponent, and
+	# leaving the default `enemy` hostility on would make the hero's own auto-target
+	# reads point at a group that does not exist on this stage.
+	_p1.call("set_faction", &"free_player", &"free_dummy")
+	_p1.set("facing", Vector2.RIGHT)
+	_register_fighter(_p1, _p1.global_position, 999)
+	# ⚠ THE HERO'S OWN CAMERA IS TURNED OFF HERE, and the first version of this mode
+	# did not do that. `Hero.tscn`'s Camera2D carries LIMITS tuned for the tower's
+	# 1200x680 arena; this stage is 2000x1000, so the camera clamped itself into the
+	# top-left corner and every captured frame came back as empty sky with the
+	# hotbar floating over it. MEASURED, not assumed — `tools/freeplay_capture.gd`
+	# shot exactly that. The arena's own camera has the right clamps for the right
+	# stage, so free play borrows it and simply follows one body instead of two.
+	for child: Node in _p1.get_children():
+		if child is Camera2D:
+			(child as Camera2D).enabled = false
+	_build_showcase_camera()
+	_show_cam.zoom = Vector2(FREE_ZOOM, FREE_ZOOM)
+	# ⚠ THE CAMERA'S OWN POSITION SMOOTHING IS OFF IN FREE PLAY, and leaving it on is
+	# what made the first capture unreadable. `_update_free_camera` already lerps, so
+	# with `position_smoothing_enabled` the transform is lagged TWICE — the rendered
+	# eye trails the solved eye by a large fraction of a second, which on a 2000 px
+	# stage is hundreds of pixels of drift and a shot that never quite catches up
+	# with the hero. One smoother, not two.
+	_show_cam.position_smoothing_enabled = false
+	_show_cam.global_position = Vector2(FREE_SPAWN.x, GROUND_TOP - FREE_EYE_LIFT)
+	_rebuild_dummies()
+
+
+## Follow the one hero. Same clamps as the pair camera (so the eye can never drift
+## off the rock into empty sky) but a fixed zoom, because there is no second fighter
+## whose separation would justify changing it.
+func _update_free_camera(delta: float) -> void:
+	if _show_cam == null or _p1 == null or not is_instance_valid(_p1):
+		return
+	var at: Vector2 = (_p1 as Node2D).global_position
+	var eye: Vector2 = Vector2(
+		clampf(at.x, 340.0, STAGE_SIZE.x - 340.0),
+		clampf(at.y - FREE_EYE_LIFT, GROUND_TOP - 330.0, GROUND_TOP - 30.0))
+	_show_cam.global_position = _show_cam.global_position.lerp(eye,
+		clampf(delta * 6.0, 0.0, 1.0))
+
+
+## Rebuild the practice dummies to match `free_dummies`. Cheap and idempotent —
+## it frees whatever is there and stands up the requested number, so the count
+## button can be pressed as fast as the maker likes.
+func _rebuild_dummies() -> void:
+	for d: Node in get_tree().get_nodes_in_group(&"free_dummy"):
+		if is_instance_valid(d):
+			_registry.erase(d.get_instance_id())
+			d.queue_free()
+	if free_dummies <= 0:
+		return
+	var hero_scene: PackedScene = load(HERO_SCENE_PATH)
+	for i: int in mini(free_dummies, FREE_DUMMY_POINTS.size()):
+		var d: CharacterBody2D = hero_scene.instantiate()
+		d.max_hp = FREE_DUMMY_HP
+		d.position = FREE_DUMMY_POINTS[i]
+		add_child(d)
+		d.process_mode = Node.PROCESS_MODE_PAUSABLE
+		d.set("max_hp", FREE_DUMMY_HP)
+		d.set("hp", FREE_DUMMY_HP)
+		# On the team the player is hostile to, and hostile to NOBODY: it can be hit
+		# and it never hits back. No controller, so `Hero._pressed` falls through to
+		# the real `Input` — which would make every dummy mirror the player's own
+		# buttons. Physics off is what stops that, and it is why a dummy stands still
+		# instead of walking in lockstep with you.
+		d.call("set_faction", &"free_dummy", &"nobody")
+		d.set("facing", Vector2.LEFT)
+		d.add_to_group(&"free_dummy")
+		d.set_physics_process(false)
+		_register_fighter(d, d.global_position, 999)
 
 
 ## THE MAKER'S FIGHT. Two heroes: A has no controller (so `Hero._pressed` falls
@@ -985,7 +1239,40 @@ func _build_hud() -> void:
 		_build_showcase_banner(layer)
 		_build_pause_overlay(layer)
 		return
+	if _is_free():
+		_build_free_hud(layer)
+		return
 	_build_duel_hud(layer)
+
+
+## FREE PLAY's chrome: your hotbar, the touch pad, the pause menu, and a banner the
+## `FreePlay` layer writes into. Everything ELSE that belongs to free play — the
+## controls card, the class picker, the dummy count — is built by `FreePlay.gd`, so
+## this file stays the STAGE and that one stays the MODE.
+func _build_free_hud(layer: CanvasLayer) -> void:
+	layer.add_child(AbilityBar.new())
+	_banner = Label.new()
+	_banner.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_banner.offset_top = 64.0
+	_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_banner.add_theme_font_size_override("font_size", 26)
+	_banner.add_theme_color_override("font_color", Color(1.0, 0.95, 0.8))
+	_banner.add_theme_color_override("font_outline_color", Color(0.08, 0.05, 0.12, 0.95))
+	_banner.add_theme_constant_override("outline_size", 8)
+	_banner.visible = false
+	layer.add_child(_banner)
+	_build_pause_overlay(layer)
+	add_child(TouchControls.new())
+
+
+## Flash a line across the top of a free-play session — "ARCANIST", "stage reset".
+## Public because `FreePlay.gd` is the thing with something to say.
+func flash_banner(text: String, seconds: float = 1.2) -> void:
+	if _banner == null:
+		return
+	_banner.text = text
+	_banner.visible = true
+	get_tree().create_timer(seconds).timeout.connect(_hide_banner)
 
 
 ## The only HUD a showcase keeps: the match-over banner, and a small corner card
@@ -1042,6 +1329,11 @@ func _build_showcase_camera() -> void:
 ## Track the pair. Called every frame from _process.
 func _update_showcase_camera(delta: float) -> void:
 	if _show_cam == null:
+		return
+	# The director owns the camera when there is one. Two things writing the same
+	# transform in the same frame is a fight the director always half-loses, and the
+	# result is a camera that judders between two framings.
+	if _clip != null:
 		return
 	var pts: Array[Vector2] = []
 	for entry: Dictionary in _registry.values():

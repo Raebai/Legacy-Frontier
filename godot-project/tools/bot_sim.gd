@@ -60,10 +60,26 @@ const VS_ENEMY_ARCHETYPES: Array[int] = [2, 3]
 ## handing back a zero value that reads as "nothing wrong". So the list is checked
 ## by name once per run and a miss is filed as its own loud anomaly rather than
 ## quietly disabling half the detectors.
+##
+## ⚠ `_signature_cd_timer` USED TO BE ON THIS LIST AND NO LONGER EXISTS. The hero
+## ran one shared signature cooldown bank; per-slot cooldowns moved to `HandSlots`
+## (`Hero._hand`) and the bank was deleted. The list was not updated, so every match
+## filed `harness_probe_missing`, `probe_ok` went false for every fighter, and that
+## flag gates the whole signature-attempt sampler — which is why the same runs ALSO
+## reported `no_castable_signature` and `never_spent_mana` for all nine classes. The
+## bots were fine. Twenty-four of the twenty-four "errors" in that report were this
+## one stale string. Cooldowns are read through the PUBLIC accessors now
+## (`signature_cooldown` / `signature_ready`), which cannot go stale silently.
 const HERO_PROBE_MEMBERS: Array[String] = [
-	"hp", "max_hp", "mp", "max_mp", "_signature_cd_timer", "_signature_index",
+	"hp", "max_hp", "mp", "max_mp", "_signature_index",
 	"_cast_cooldown_timer", "_blast_cooldown_timer", "_blink_cooldown_timer",
-	"_nova_cooldown_timer", "_dash_cooldown_timer",
+	"_nova_cooldown_timer", "_dash_cooldown_timer", "_melee_cooldown_timer",
+]
+## ...and the public METHODS this harness leans on. Same reasoning, different
+## namespace: a renamed method aborts the caller exactly as a renamed member does.
+const HERO_PROBE_METHODS: Array[String] = [
+	"signature_cooldown", "signature_ready", "current_signature",
+	"bot_select_signature", "bot_body_state",
 ]
 
 ## Every action the driver may hold. Released in bulk between matches so no press
@@ -365,6 +381,8 @@ func _register(node: CharacterBody2D, label: String, class_id: int, driven: bool
 		# honest answer to "does the bot use its whole 4+1 kit", because it is
 		# taken straight off the published intent with no gate in front of it.
 		"slot_presses": {},
+		## verb -> frames the brain held it. See `_observe_bot_intent`.
+		"verb_presses": {},
 		"last_attempt_t": -99.0, "last_slot_press_t": -99.0,
 		"pending": {},               # {"id": String, "frames": int}
 		"probe_ok": true,
@@ -421,6 +439,9 @@ func _check_probe(node: Object, label: String) -> bool:
 	for name: String in HERO_PROBE_MEMBERS:
 		if not present.has(name):
 			missing.append(name)
+	for name: String in HERO_PROBE_METHODS:
+		if not node.has_method(name):
+			missing.append("%s()" % name)
 	if missing.is_empty():
 		return true
 	_file(BotSimProbe.SEV_ERROR, "harness_probe_missing",
@@ -515,11 +536,27 @@ func _observe_bot_intent(rec: Dictionary, ctrl: Object) -> void:
 		# way the attempt counter does or a 0.22 s latch is 13 identical rows.
 		if _elapsed - float(rec.get("last_slot_press_t", -99.0)) >= ATTEMPT_MIN_GAP:
 			rec["last_slot_press_t"] = _elapsed
-			_note_signature_attempt(rec)
+			# ⚠ THE SLOT COMES FROM THE INTENT, not from `Hero._signature_index`.
+			# Reading the hero's own index here was a RACE: the controller applies
+			# `bot_select_signature` and the body consumes the press inside the same
+			# physics frame, so by the time this ran the selection could already have
+			# moved on and the slot's cooldown could already be ticking — which made
+			# `signature_ready()` false and the attempt silently un-recorded. That is
+			# what produced nine `no_castable_signature` rows for bots the histogram
+			# shows using all three slots.
+			_note_signature_attempt(rec, slot)
+	# WHICH VERBS, not just how many. "Does the bot use its whole kit" is a question
+	# about the ABILITY buttons and the melee swing as much as about the three kit
+	# slots — and those three were never counted here, which is part of why nobody
+	# noticed the brain had never pressed one. `verb_presses` is the histogram that
+	# makes a missing verb visible in the summary instead of only in play.
 	var held: int = 0
-	for key: String in ["fire", "dash", "guard", "jump"]:
+	for key: String in ["fire", "swing", "dash", "guard", "jump",
+			"ability_blast", "ability_blink", "ability_nova"]:
 		if bool(i.get(key, false)):
 			held += 1
+			var verbs: Dictionary = rec["verb_presses"]
+			verbs[key] = int(verbs.get(key, 0)) + 1
 	if i.has("cast_slot") and int(i["cast_slot"]) >= 0:
 		held += 1
 	rec["presses"] = int(rec["presses"]) + held
@@ -632,17 +669,30 @@ func _blackboard(rec: Dictionary, foe: Node2D) -> Dictionary:
 ## hero — `_signature_cd_timer` — so the honest answer is the same value five
 ## times. Under `controller` (what BotController.SLOT_ACTIONS actually presses)
 ## the five are Q / R / T / melee / G, which do have five separate timers.
+## ⚠ THE "ONE SHARED TIMER" NOTE ABOVE IS HISTORY. `HandSlots` owns a real cooldown
+## per slot now, so the honest answer under `role` is genuinely per-slot — and the
+## hand is THREE spells (`SpellTier.SLOT_COUNT`), not five. The whole array is
+## delegated to the body's own `bot_body_state()` where possible, which is what the
+## shipped `BotController` reads: two harnesses deriving the same array two different
+## ways is exactly how they drift.
 func _slot_cooldowns(node: CharacterBody2D) -> Array:
+	if _slot_map != "controller" and node.has_method("bot_body_state"):
+		var own: Dictionary = node.call("bot_body_state")
+		var cds: Variant = own.get("cooldowns")
+		if cds is Array:
+			return cds as Array
 	if _slot_map == "controller":
 		return [
 			float(node.get("_blast_cooldown_timer")),
 			float(node.get("_blink_cooldown_timer")),
 			float(node.get("_nova_cooldown_timer")),
 			float(node.get("_melee_cooldown_timer")),
-			float(node.get("_signature_cd_timer")),
+			float(node.call("signature_cooldown", 0)),
 		]
-	var sig: float = float(node.get("_signature_cd_timer"))
-	return [sig, sig, sig, sig, sig]
+	var out: Array = []
+	for i: int in 3:
+		out.append(float(node.call("signature_cooldown", i)))
+	return out
 
 
 ## Threats this body could see drawn on screen: live projectiles and live
@@ -743,7 +793,10 @@ func _apply_intent(rec: Dictionary, intent: Dictionary) -> void:
 	# the gate was genuinely open. An attempt made into a running cooldown proves
 	# nothing about whether the spell works.
 	if bool(intent.get("ultimate", false)):
-		_note_signature_attempt(rec)
+		# The FALLBACK driver's path (no shipped BotController). It presses `ultimate`
+		# against whatever the hero currently has selected, so `_signature_index` IS
+		# the right slot here — unlike the shipped path, where the intent carries it.
+		_note_signature_attempt(rec, int((rec["node"] as Node).get("_signature_index")))
 	var ctrl: RefCounted = rec["ctrl"]
 	if ctrl != null:
 		var inner: RefCounted = rec["inner"]
@@ -831,21 +884,30 @@ func _release_all_actions() -> void:
 ## `_cast_signature` sets `_signature_cd_timer = spell.cooldown` and deducts the
 ## mana the instant it commits, so an attempt made while the cooldown is at zero
 ## and mana covers the cost either fires on the next frame or is a defect.
-func _note_signature_attempt(rec: Dictionary) -> void:
+func _note_signature_attempt(rec: Dictionary, slot: int) -> void:
 	if not bool(rec["is_hero"]) or not bool(rec["probe_ok"]):
 		return
 	var node: CharacterBody2D = rec["node"]
-	if not node.has_method("current_signature"):
+	if not node.has_method("signature_at"):
 		return
-	var spell: Object = node.call("current_signature")
+	var spell: Object = node.call("signature_at", slot)
 	if spell == null:
-		return
+		return    # the class does not hold that slot; nothing was asked for
 	var id: String = String(spell.get("id"))
-	var cd: float = float(node.get("_signature_cd_timer"))
-	var mp: float = float(node.get("mp"))
-	var cost: float = float(spell.get("mp_cost"))
-	if cd > 0.0 or mp < cost:
-		return    # the gate was shut; this press proves nothing either way
+	# THE PER-SLOT COOLDOWN, through the public accessor. There is no shared bank any
+	# more (`HandSlots` owns one timer per slot), and the mana gate is gone from
+	# `Hero._cast_signature` entirely — so "the gate was open" now means exactly one
+	# thing: this slot's own timer is at zero.
+	#
+	# Checked against the PREVIOUS frame's reading rather than this one, because the
+	# body may already have consumed the press: a cooldown that is ticking RIGHT NOW
+	# on the slot we just asked for is a FIRE, not a shut gate. `_resolve` below is
+	# what tells the two apart; here we only refuse when the slot was on cooldown and
+	# STAYS on cooldown, which is the genuinely uninformative case.
+	var already: float = float(node.call("signature_cooldown", slot))
+	var spell_cd: float = float(spell.get("cooldown"))
+	if already > 0.0 and already < spell_cd - 0.05:
+		return    # mid-cooldown from an earlier cast; this press proves nothing
 	# ONE ATTEMPT PER GAP, not one per frame. Without this a spell that never
 	# fires accumulates an attempt on all 60 frames of every second — the count
 	# stops meaning "how many times a player would have tried" and the report
@@ -869,7 +931,9 @@ func _note_signature_attempt(rec: Dictionary) -> void:
 		blockers.append("guarding")
 	var seen: Dictionary = rec["sig_blockers"]
 	seen[id] = blockers if blockers.is_empty() else blockers
-	rec["pending"] = {"id": id, "frames": 6}
+	# The SLOT travels with the attempt: resolution asks that slot's own timer, and
+	# the bot may have re-selected by the time the answer arrives.
+	rec["pending"] = {"id": id, "slot": slot, "frames": 6}
 
 
 ## Resolve last frame's attempt. A commit is unmistakable: the cooldown timer went
@@ -880,7 +944,10 @@ func _resolve_signature_attempt(rec: Dictionary) -> void:
 	if pending.is_empty():
 		return
 	var node: CharacterBody2D = rec["node"]
-	if float(node.get("_signature_cd_timer")) > 0.0:
+	# A commit is unmistakable: THAT SLOT's own timer went positive. Reads the public
+	# accessor, because the shared `_signature_cd_timer` bank this used to poll no
+	# longer exists (see HERO_PROBE_MEMBERS).
+	if float(node.call("signature_cooldown", int(pending.get("slot", 0)))) > 0.0:
 		var fires: Dictionary = rec["sig_fires"]
 		var id: String = String(pending["id"])
 		fires[id] = int(fires.get(id, 0)) + 1
@@ -1094,20 +1161,35 @@ func _end_match(reason: String) -> void:
 			"match exceeded %.0fs of real time — something is not advancing"
 				% (_duration * WALL_CLOCK_FACTOR))
 
+	var result: Dictionary = _judge(reason)
 	var summary: Dictionary = {
 		"index": _match_index, "pairing": _pairing_label(),
 		"seed": _master_seed + _match_index * 7919,
 		"mode": String(_queue[_match_index]["kind"]),
 		"elapsed": snappedf(_elapsed, 0.01), "reason": reason,
 		"total_damage": total_damage, "seam": _seam, "fighters": [],
+		# WHO WON, and by what. Without this the sim could tell you a fight was
+		# ANOMALOUS but never whether it was BALANCED — and "is difficulty a real
+		# dial, is any class a free win" is the question the maker actually asks.
+		"winner": result.get("winner", ""),
+		"loser": result.get("loser", ""),
+		"outcome": result.get("outcome", "draw"),
 	}
 	for rec: Dictionary in _fighters:
 		if bool(rec["is_hero"]) and bool(rec["driven"]):
 			_check_spell_reachability(rec)
-			if BotSimProbe.never_spent_mana(float(rec["mp_spent"]), _elapsed):
-				_file(BotSimProbe.SEV_ERROR, "never_spent_mana",
-					"%s spent no mana at all — every cast it tried fizzled"
-						% rec["label"])
+			# ⚠ `never_spent_mana` IS GONE, and deleting it was the fix rather than
+			# retuning it. `Hero._cast_signature` no longer checks or deducts mana at
+			# all (the mana gate was removed when kits went to three buttons), so mana
+			# is now a bar that only ever regenerates — and a detector whose predicate
+			# is permanently true fires on every match forever and buries the real
+			# findings under itself. The QUESTION it was asking is still worth asking,
+			# so it is asked honestly: did this bot commit any kit slot at all?
+			var hist: Dictionary = rec["slot_presses"]
+			if hist.is_empty() and _elapsed >= 8.0:
+				_file(BotSimProbe.SEV_ERROR, "never_cast_kit",
+					"%s committed no kit slot in %.1fs — the scorer never cleared threshold"
+						% [rec["label"], _elapsed])
 		summary["fighters"].append({
 			"label": rec["label"], "class_id": rec["class_id"],
 			"driven": rec["driven"], "hp": rec["hp_last"], "max_hp": rec["max_hp"],
@@ -1115,14 +1197,17 @@ func _end_match(reason: String) -> void:
 			"mp_spent": snappedf(float(rec["mp_spent"]), 0.1),
 			"died_at": rec["died_at"],
 			"sig_attempts": rec["sig_attempts"], "sig_fires": rec["sig_fires"],
+			"verb_presses": rec["verb_presses"],
 			# The kit-coverage answer: how many slots this bot actually committed,
 			# and how often each. A histogram with one key is a bot fighting with
 			# one spell; five keys is a bot playing its kit.
 			"slot_presses": rec["slot_presses"],
 		})
 	_matches.append(summary)
-	print("[sim] END   match=%d pairing=%s reason=%s elapsed=%.1fs damage=%d"
-		% [_match_index, _pairing_label(), reason, _elapsed, total_damage])
+	print("[sim] END   match=%d pairing=%s reason=%s elapsed=%.1fs damage=%d winner=%s (%s)"
+		% [_match_index, _pairing_label(), reason, _elapsed, total_damage,
+			summary["winner"] if String(summary["winner"]) != "" else "-",
+			summary["outcome"]])
 
 	for rec: Dictionary in _fighters:
 		if bool(rec["is_hero"]) and rec["ctrl"] != null and _alive(rec):
@@ -1153,9 +1238,56 @@ func _check_spell_reachability(rec: Dictionary) -> void:
 					"blockers": blockers, "slot_map": _slot_map})
 	# A hero whose kit produced NO attempts at all never even reached the ask —
 	# an empty signature list, or a class whose loadout failed to build.
-	if attempts.is_empty() and _elapsed >= 8.0:
+	# ⚠ CROSS-CHECKED AGAINST THE HONEST HISTOGRAM. `sig_attempts` is a GATED count
+	# (it only records asks made with the slot off cooldown), so an empty one is
+	# ambiguous: it means either "this hero has no kit" or "the harness's accounting
+	# lost the race with the body". `slot_presses` is ungated — it is what the brain
+	# committed, straight off the published intent — so a non-empty histogram proves
+	# the kit was reachable and this row would be a false positive.
+	if attempts.is_empty() and (rec["slot_presses"] as Dictionary).is_empty() \
+			and _elapsed >= 8.0:
 		_file(BotSimProbe.SEV_ERROR, "no_castable_signature",
 			"%s never had a castable signature in %.1fs" % [rec["label"], _elapsed])
+
+
+## WHO WON. Two ways to win, and the distinction is worth carrying:
+##   "kill"   — somebody hit zero. Unambiguous.
+##   "points" — the clock ran out and one fighter is meaningfully healthier. This is
+##              the honest reading of a timeout: a bot that spent twenty seconds at
+##              90% against one at 30% won that fight, and calling it a draw would
+##              hide every balance signal in a run where nothing quite finishes.
+##   "draw"   — the clock ran out inside the margin, or the match aborted on the
+##              wall clock (in which case nothing measured is trustworthy anyway).
+##
+## `HP_MARGIN` is a fraction of max HP, not points, so it means the same thing to a
+## 100 HP sim fighter and a 320 HP showcase one.
+const HP_MARGIN: float = 0.12
+
+
+func _judge(reason: String) -> Dictionary:
+	if reason == "wall_timeout":
+		return {"outcome": "draw"}
+	var best: Dictionary = {}
+	var worst: Dictionary = {}
+	var best_frac: float = -1.0
+	var worst_frac: float = 2.0
+	for rec: Dictionary in _fighters:
+		if not bool(rec["is_hero"]):
+			continue
+		var frac: float = float(rec["hp_last"]) / maxf(float(rec["max_hp"]), 1.0)
+		if frac > best_frac:
+			best_frac = frac
+			best = rec
+		if frac < worst_frac:
+			worst_frac = frac
+			worst = rec
+	if best.is_empty() or worst.is_empty() or best == worst:
+		return {"outcome": "draw"}
+	if worst_frac <= 0.0:
+		return {"winner": best["label"], "loser": worst["label"], "outcome": "kill"}
+	if best_frac - worst_frac >= HP_MARGIN:
+		return {"winner": best["label"], "loser": worst["label"], "outcome": "points"}
+	return {"outcome": "draw"}
 
 
 func _pairing_label() -> String:
@@ -1225,6 +1357,7 @@ func _finish_run() -> void:
 		"seam": _seam, "brain": "BotBrain" if _brain != null else "builtin",
 		"classes": _classes, "matches": _matches, "anomalies": _anomalies,
 		"summary": BotSimProbe.summarize(_anomalies),
+		"balance": _balance_report(),
 		"godot": Engine.get_version_info().get("string", ""),
 	}
 	_write(_out_dir.path_join(stamp + ".json"), JSON.stringify(payload, "  "))
@@ -1234,6 +1367,99 @@ func _finish_run() -> void:
 	_write(_out_dir.path_join(stamp + ".csv"), "\n".join(rows) + "\n")
 	_print_summary(payload)
 	quit(1 if (_strict and int(payload["summary"]["errors"]) > 0) else 0)
+
+
+## ============================================================== the balance report
+## THE NUMBERS THE MAKER ASKED FOR, and the reason this harness stopped being only a
+## crash-finder: a win-rate spread per class and a slot-usage distribution per class.
+##
+## An anomaly list tells you the game is BROKEN. Neither of these tells you that —
+## they tell you whether it is any GOOD. A class that wins 90% of its matches is not
+## an error and will never file one; a class whose bot spends 95% of its casts on
+## slot 0 is not an error either, and is exactly the "leans on its damage line"
+## complaint that has to be measured rather than eyeballed.
+##
+## SPREAD, not just the mean: the worst and best win rates in the roster and the gap
+## between them is the one number that says whether difficulty is a dial or a coin.
+func _balance_report() -> Dictionary:
+	var per_class: Dictionary = {}   # class name -> {matches, wins, losses, draws, slots{}, verbs{}}
+	for m: Dictionary in _matches:
+		var winner: String = String(m.get("winner", ""))
+		var loser: String = String(m.get("loser", ""))
+		for f: Variant in m.get("fighters", []):
+			if not (f is Dictionary):
+				continue
+			var fr: Dictionary = f
+			if not bool(fr.get("driven", false)):
+				continue
+			var label: String = String(fr.get("label", "?"))
+			if not per_class.has(label):
+				per_class[label] = {"matches": 0, "wins": 0, "losses": 0, "draws": 0,
+					"slots": {}, "verbs": {}, "damage_taken": 0}
+			var row: Dictionary = per_class[label]
+			row["matches"] = int(row["matches"]) + 1
+			row["damage_taken"] = int(row["damage_taken"]) + int(fr.get("damage_taken", 0))
+			if label == winner:
+				row["wins"] = int(row["wins"]) + 1
+			elif label == loser:
+				row["losses"] = int(row["losses"]) + 1
+			else:
+				row["draws"] = int(row["draws"]) + 1
+			_merge_counts(row["slots"], fr.get("slot_presses", {}))
+			_merge_counts(row["verbs"], fr.get("verb_presses", {}))
+	# Roster-wide spread. Classes with no decided match are excluded from the spread
+	# (a 0/0 record is not a 0% win rate) but stay in the table, because "this class
+	# never resolved a single fight" is itself the finding.
+	var rates: Array[float] = []
+	for label: String in per_class.keys():
+		var row: Dictionary = per_class[label]
+		var decided: int = int(row["wins"]) + int(row["losses"])
+		row["decided"] = decided
+		row["win_rate"] = -1.0 if decided == 0 else snappedf(float(row["wins"]) / float(decided), 0.001)
+		# The kit-coverage number, in one figure: what fraction of this bot's casts
+		# went to its single most-used slot. 1.0 = it fought with one spell.
+		row["top_slot_share"] = snappedf(_top_share(row["slots"]), 0.001)
+		row["slots_used"] = (row["slots"] as Dictionary).size()
+		if decided > 0:
+			rates.append(float(row["win_rate"]))
+	rates.sort()
+	var spread: Dictionary = {"classes_rated": rates.size()}
+	if not rates.is_empty():
+		spread["min"] = rates[0]
+		spread["max"] = rates[rates.size() - 1]
+		spread["gap"] = snappedf(rates[rates.size() - 1] - rates[0], 0.001)
+	return {"per_class": per_class, "spread": spread,
+		"draws": _count_outcome("draw"), "kills": _count_outcome("kill"),
+		"points": _count_outcome("points")}
+
+
+func _count_outcome(kind: String) -> int:
+	var n: int = 0
+	for m: Dictionary in _matches:
+		if String(m.get("outcome", "")) == kind:
+			n += 1
+	return n
+
+
+func _merge_counts(into: Dictionary, from: Variant) -> void:
+	if not (from is Dictionary):
+		return
+	for k: Variant in (from as Dictionary).keys():
+		var key: String = str(k)
+		into[key] = int(into.get(key, 0)) + int((from as Dictionary)[k])
+
+
+## Fraction of all presses that went to the single most-used entry. 0.0 for an empty
+## histogram — a bot that never cast has no concentration, and reporting 1.0 would
+## make "never used its kit" look identical to "used one spell".
+func _top_share(hist: Dictionary) -> float:
+	var total: int = 0
+	var top: int = 0
+	for k: Variant in hist.keys():
+		var n: int = int(hist[k])
+		total += n
+		top = maxi(top, n)
+	return 0.0 if total <= 0 else float(top) / float(total)
 
 
 func _write(path: String, text: String) -> void:
@@ -1258,5 +1484,64 @@ func _print_summary(payload: Dictionary) -> void:
 	names.sort()
 	for k: String in names:
 		print("   %-26s %d" % [k, kinds[k]])
+	_print_balance(payload.get("balance", {}))
 	print("REPLAY ANY FINDING WITH:  --seed=%d --mode=%s --dur=%.0f" % [_master_seed, _mode, _duration])
 	print("=======================================================================")
+
+
+## The balance table. Printed rather than only written, because a number in a JSON
+## file nobody opens is a number nobody has.
+##
+## Columns:
+##   W-L-D      decided wins, decided losses, draws
+##   win%       wins / decided. "-" when nothing this class fought was decided.
+##   slots      how many DISTINCT kit slots this bot ever committed (out of 3)
+##   top-slot   share of its casts that went to its single favourite slot. This is
+##              the "leans on its damage line" measurement: 1.00 means one spell.
+##   verbs      which of the eight non-kit buttons it ever pressed. A verb missing
+##              from every row is a verb the brain cannot reach.
+func _print_balance(balance: Dictionary) -> void:
+	var per_class: Dictionary = balance.get("per_class", {})
+	if per_class.is_empty():
+		return
+	print("\n--- BALANCE -----------------------------------------------------------")
+	print("outcomes: %d kill / %d points / %d draw"
+		% [balance.get("kills", 0), balance.get("points", 0), balance.get("draws", 0)])
+	print("%-13s %-9s %6s %6s %9s   %s" % ["class", "W-L-D", "win%", "slots", "top-slot", "verbs"])
+	var names: Array = per_class.keys()
+	names.sort()
+	for label: String in names:
+		var row: Dictionary = per_class[label]
+		var rate: float = float(row.get("win_rate", -1.0))
+		print("%-13s %-9s %6s %6s %9.2f   %s" % [
+			label,
+			"%d-%d-%d" % [row.get("wins", 0), row.get("losses", 0), row.get("draws", 0)],
+			"-" if rate < 0.0 else "%.0f%%" % (rate * 100.0),
+			"%d/3" % int(row.get("slots_used", 0)),
+			float(row.get("top_slot_share", 0.0)),
+			_verb_line(row.get("verbs", {})),
+		])
+	var spread: Dictionary = balance.get("spread", {})
+	if spread.has("gap"):
+		print("win-rate spread: %.0f%% .. %.0f%%  (gap %.0f pts over %d rated classes)"
+			% [float(spread["min"]) * 100.0, float(spread["max"]) * 100.0,
+				float(spread["gap"]) * 100.0, int(spread["classes_rated"])])
+
+
+## The eight non-kit verbs as a compact presence line. Short names so the table
+## stays one line per class; a lower-case letter means the brain never pressed it.
+const VERB_KEYS: Array[String] = [
+	"fire", "swing", "dash", "guard", "jump",
+	"ability_blast", "ability_blink", "ability_nova",
+]
+const VERB_TAGS: Array[String] = ["fire", "swing", "dash", "guard", "jump", "Q", "R", "T"]
+
+
+func _verb_line(verbs: Variant) -> String:
+	if not (verbs is Dictionary):
+		return ""
+	var parts: PackedStringArray = PackedStringArray()
+	for i: int in VERB_KEYS.size():
+		var n: int = int((verbs as Dictionary).get(VERB_KEYS[i], 0))
+		parts.append(VERB_TAGS[i] if n > 0 else "·")
+	return " ".join(parts)

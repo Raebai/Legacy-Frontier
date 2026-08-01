@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/combat/BotMatch.gd" id="1_botmatch"]
+
+[node name="BotMatch" type="Node2D"]
+script = ExtResource("1_botmatch")
