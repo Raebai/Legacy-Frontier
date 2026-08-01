@@ -35,6 +35,24 @@ const WALL_JUMP_PUSH: float = 300.0    # launch away from the wall (> SPEED)
 const WALL_JUMP_UP: float = -460.0     # up kick — a diagonal arc, not a rocket
 const WALL_JUMP_LOCKOUT: float = 0.15  # brief horizontal-input lock after the kick
 const SLIDE_JUMP_BOOST: float = 1.25   # extra push jumping straight out of a slide
+## ------------------------------------------------------------------ GHOST FORM
+## Dying costs a LIFE, not a floor (see `DeathRules`). A downed hero becomes a
+## ghost: it still steers, it cannot hit and cannot be hit, and it stays that way
+## until a teammate picks it up. These are the numbers of being dead.
+##
+## Drift is SLOWER than a living hero on purpose. Being a ghost has to feel like
+## being outside the fight looking in — full speed with no consequences would make
+## it the more comfortable state to be in.
+const GHOST_SPEED: float = 155.0
+const GHOST_ACCEL: float = 900.0
+## HAUNT — the ghost's one verb. Zero damage, pure shove. It exists so the downed
+## player can buy their rescuer the ~2 seconds the revive channel costs; see the
+## header of `GhostForm.gd` for why a ghost that could kill would be a ghost you
+## would rather be. All three numbers are UNTESTED FEEL GUESSES.
+const GHOST_HAUNT_RADIUS: float = 120.0
+const GHOST_HAUNT_FORCE: float = 420.0
+const GHOST_HAUNT_COOLDOWN: float = 3.0
+
 const CAST_COOLDOWN: float = 0.35
 const MELEE_COOLDOWN: float = 0.34
 const MELEE_DAMAGE: int = 14
@@ -558,12 +576,28 @@ var _colourway: int = 0
 ## every ability works by tapping a button — no pixel-precise aiming (mobile-first).
 var touch_input: bool = false
 
-## Co-op: a died hero is DOWNED (ragdoll, no input, damage-immune) instead of
-## instantly reviving — enemies ignore it and the party stays in the fight. When
-## EVERY hero is downed the host drops the party a floor (revives all). Synced so
-## the host + peers can read each hero's state. SP never sets this (Hero._die keeps
-## the old fall/reset). Public for the MultiplayerSynchronizer property path.
+## THE DEATH RULE (maker, 2026-08-01): "dying cost is a life in ghost form until
+## your teammate revives you; if you all die then the game is over."
+##
+## `downed` == "this hero is a GHOST": out of the fight, immune, no attacks, but
+## still steering its own body (see `_process_downed`). It is set in a RUN in single
+## player as well as in co-op — the two paths are the same one now, and
+## `Arena._check_party_wipe` is the single place that decides the run is over.
+## The standalone sandbox (F6 / the duel) still just resets to full, so the feel toy
+## never stops. Public for the MultiplayerSynchronizer property path.
 var downed: bool = false
+## Self-revive charges left this run — `DeathRules.SOLO_SELF_REVIVE_CHARGES`, which
+## ships at 0. At 1+ a death spends one and schedules a SECOND WIND instead of
+## waiting for a teammate. See `DeathRules` for the argument.
+var _self_revive_left: int = 0
+## Counting down to a second wind; 0 = not pending. `Arena._check_party_wipe` refuses
+## to call the run while this is running, or the charge would never get to fire.
+var _second_wind_timer: float = 0.0
+## HAUNT recovery, ticked only while a ghost.
+var _ghost_haunt_cd: float = 0.0
+## Puppet-side edge detector for the replicated `downed` flag, so a remote hero
+## grows and sheds its ghost form on the other phone too.
+var _ghost_shown: bool = false
 
 @onready var rig: CharacterRig = $Rig
 var _tuning: Node = null  # cached /root/Tuning (null in headless tests -> fallbacks)
@@ -849,6 +883,7 @@ func _verify_spell_actions() -> void:
 
 func _ready() -> void:
 	_verify_spell_actions()
+	_self_revive_left = maxi(DeathRules.SOLO_SELF_REVIVE_CHARGES, 0)
 	add_to_group("hero")
 	# FRIENDLY FIRE, the hero half. `mortal` is the shared "I am a damageable
 	# fighter" group every spell scans once friendly fire is on (see
@@ -3735,63 +3770,145 @@ func take_damage(amount: int) -> void:
 
 
 func _die() -> void:
-	# In a run: a death is a FALL — drop 2 floors but stay in the tower (GameState
-	# ticks the fall counter + saves; the Arena rebuilds the dropped floor in place
-	# and revives us). In the standalone sandbox: just reset to full so the feel
-	# loop never stops.
-	# Co-op: go DOWNED (out of the fight, not gone). The Arena host watches for a full
-	# party wipe -> drops the party a floor + revives everyone; a floor advance also
-	# revives the downed. The owner drives its own downed state; it syncs to the others.
-	if _net != null and _net.is_active():
-		_enter_downed()
-		return
+	# THE DEATH RULE (maker, 2026-08-01): "dying cost is a life in ghost form until
+	# your teammate revives you; if you all die then the game is over." So a death
+	# NEVER moves you down the tower any more — it takes you out of the fight.
+	#
+	# ONE PATH FOR CO-OP AND SOLO, which is the point: whether or not a session is up,
+	# a death inside a run drops you into GHOST FORM, and `Arena._check_party_wipe` is
+	# the single place that notices the party has run out of bodies and ends the run.
+	# In solo that verdict lands the same frame (you are the whole party), which is
+	# exactly the shipped `DeathRules.SOLO_SELF_REVIVE_CHARGES == 0` policy.
+	#
+	# Outside a run — the F6 feel sandbox, the 1v1 duel — a death still just resets to
+	# full, so the feel toy never stops.
 	var gs: Node = get_node_or_null("/root/GameState")
-	if gs != null and gs.is_run_active():
-		gs.fall()
+	var in_run: bool = gs != null and gs.is_run_active()
+	if in_run or (_net != null and _net.is_active()):
+		_enter_downed()
 		return
 	hp = max_hp
 	health_changed.emit(hp, max_hp)
 
 
-## Co-op: fall limp and drop out of the fight (immune, no input). hp stays 0. Cancels
-## any in-flight channel/summon so nothing fires from a corpse.
+## Become a GHOST: out of the fight, immune, untargetable, but still yours to steer.
+## hp stays 0. Cancels any in-flight channel/summon so nothing fires from a corpse.
+##
+## `GhostForm.enter` does the state surgery (leave the target groups, zero the
+## collision layer, fade the rig) and owns the look; everything here is the BEAT —
+## the flop, the sound, and the second-wind bookkeeping. Idempotent, because both the
+## local death path and the replicated-flag path can reach it.
 func _enter_downed() -> void:
+	if downed:
+		return
 	downed = true
 	velocity = Vector2.ZERO
 	_knockback = Vector2.ZERO
+	_ghost_haunt_cd = 0.0
 	if _channeling:
 		_cancel_channel()
 	if _summoning:
 		_cancel_summon()
+	GhostForm.enter(self)
 	if is_instance_valid(rig):
 		rig.set_limp(1.0)
 		rig.apply_impulse(Vector2(-facing.x, -0.6), 260.0)  # a death flop
 		rig.play(CharacterRig.State.HURT)
 	Sfx.play("hero_hurt", 0.0, 0.1)
+	# SECOND WIND — only ever live if the maker has turned the solo charge on. See
+	# `DeathRules.SOLO_SELF_REVIVE_CHARGES`; it ships at 0, so this is dead by default.
+	if _self_revive_left > 0:
+		_self_revive_left -= 1
+		_second_wind_timer = DeathRules.SECOND_WIND_DELAY
 
 
-## Downed physics: just slump — gravity + friction to a stop, limp rig, no abilities.
+## GHOST PHYSICS. Not a slump — a DRIFT. No gravity, no friction to a halt, full
+## twin-stick steering at `GHOST_SPEED`, and `collision_layer == 0` (set by
+## `GhostForm.enter`) so the body passes through everything except the arena walls
+## its mask still respects.
+##
+## ⚠ THIS IS THE ANSWER TO "WHAT DOES A DOWNED PLAYER DO FOR 40 SECONDS". They fly to
+## their teammate — the revive needs the two of you in the same place and the ghost is
+## the one who can cross the room without dying — and then they HAUNT to blow the pack
+## off the person picking them up. Both players are working. See `GhostForm.gd`.
 func _process_downed(delta: float) -> void:
-	velocity.x = move_toward(velocity.x, 0.0, GROUND_FRICTION * delta)
-	if is_on_floor() and velocity.y >= 0.0:
-		velocity.y = 0.0
-	else:
-		velocity.y = minf(velocity.y + GRAVITY_FALL * delta, MAX_FALL)
+	_ghost_haunt_cd = maxf(_ghost_haunt_cd - delta, 0.0)
+	if _second_wind_timer > 0.0:
+		_second_wind_timer -= delta
+		if _second_wind_timer <= 0.0:
+			revive(DeathRules.REVIVE_HP_FRACTION)
+			return
+	var dir: Vector2 = _vector(&"move_left", &"move_right", &"move_up", &"move_down")
+	velocity = velocity.move_toward(dir * GHOST_SPEED, GHOST_ACCEL * delta)
 	move_and_slide()
+	if dir.x != 0.0:
+		facing = Vector2(signf(dir.x), 0.0)
 	if is_instance_valid(rig):
 		rig.set_body_velocity(velocity)
+		rig.set_facing(facing)
+		rig.set_airborne(1.0)   # a ghost never stands on anything
 		rig.play(CharacterRig.State.HURT)
+	if _ghost_haunt_cd <= 0.0 and _just(SPELL_ACTIONS[0]):
+		_ghost_haunt()
+
+
+## HAUNT — the ghost's one verb. A chalk gust that deals NO damage and shoves every
+## enemy in `GHOST_HAUNT_RADIUS` directly away. It is how a dead player buys their
+## rescuer the seconds the revive channel costs.
+##
+## Knockback goes through `Net.deal_knockback`, so it lands on each enemy's own
+## authority (the host) exactly like every other force in the game — a client ghost
+## shoving a host-owned enemy is the router's normal case, not a special one. The
+## GUST is broadcast separately because the shove would otherwise be invisible magic
+## on the other phone: bodies flying apart with nothing on screen that did it.
+func _ghost_haunt() -> void:
+	_ghost_haunt_cd = GHOST_HAUNT_COOLDOWN
+	GhostForm.gust_on(self, GHOST_HAUNT_RADIUS)
+	var live_net: bool = _net != null and _net.is_active()
+	for e: Node in get_tree().get_nodes_in_group("enemy"):
+		if not is_instance_valid(e) or e.is_queued_for_deletion() or not (e is Node2D):
+			continue
+		var to: Vector2 = (e as Node2D).global_position - global_position
+		var d: float = to.length()
+		if d > GHOST_HAUNT_RADIUS:
+			continue
+		var push: Vector2 = (to / maxf(d, 0.001)) * GHOST_HAUNT_FORCE
+		if live_net:
+			_net.deal_knockback(e, push)
+		elif e.has_method("apply_knockback"):
+			e.apply_knockback(push)
+	Sfx.play("dash", -6.0, 0.08)
+	_net_send("gh", {})
 
 
 func is_downed() -> bool:
 	return downed
 
 
-## Full clean reset after a FALL (Arena calls this on the fell-respawn) so you
-## resume upright — not mid-channel, on-cooldown, knocked-back, or ragdolling.
-func revive() -> void:
+## The same answer as `is_downed`, named for the thing the player sees. Read by
+## `Revive` and by the party-wipe verdict.
+func is_ghost() -> bool:
+	return downed
+
+
+## True while a SECOND WIND charge is resolving. `Arena._check_party_wipe` waits for
+## this rather than calling the run over a body that is already coming back.
+func awaiting_second_wind() -> bool:
+	return _second_wind_timer > 0.0
+
+
+## Come back up. `hp_fraction` is 1.0 for the party-carries-you cases (a floor
+## advance) and `DeathRules.REVIVE_HP_FRACTION` for a teammate's revive — coming back
+## at full would make dying a free heal, which is the one thing that would break the
+## rule. Also a full clean reset so you resume upright: not mid-channel, not
+## on-cooldown, not knocked-back, not ragdolling, not still on fire.
+func revive(hp_fraction: float = 1.0) -> void:
 	downed = false
-	hp = max_hp
+	_second_wind_timer = 0.0
+	_ghost_haunt_cd = 0.0
+	_ghost_shown = false
+	GhostForm.exit(self)
+	hp = maxi(1, int(round(float(max_hp) * clampf(hp_fraction, 0.05, 1.0))))
 	health_changed.emit(hp, max_hp)
 	_dash_cooldown_timer = 0.0
 	_cast_cooldown_timer = 0.0
@@ -3906,6 +4023,17 @@ func _publish_net_state() -> void:
 func _remote_visual(delta: float) -> void:
 	if not is_instance_valid(rig):
 		return
+	# GHOST FORM ON THE OTHER PHONE. `downed` replicates; the ghost's LOOK does not,
+	# so the flag is edge-detected here and the same `GhostForm` the owner wears is
+	# grown and shed on the puppet. Without this a downed teammate is just a teammate
+	# who stopped moving — and "is my friend dead or lagging" is not a question a
+	# co-op game gets to leave open.
+	if downed != _ghost_shown:
+		_ghost_shown = downed
+		if downed:
+			GhostForm.enter(self)
+		else:
+			GhostForm.exit(self)
 	if net_element != _remote_element:
 		_remote_element = net_element
 		_element = net_element
@@ -3914,7 +4042,11 @@ func _remote_visual(delta: float) -> void:
 	rig.set_body_velocity(velocity)
 	rig.set_aim(net_aim)
 	if downed:
+		# A drifting ghost, not a corpse: it is still being steered on its own phone,
+		# so the puppet reads the synced velocity and stays loose and airborne.
 		rig.set_limp(1.0)
+		rig.set_airborne(1.0)
+		rig.set_facing(facing)
 		rig.play(CharacterRig.State.HURT)
 		return
 	# The hold-DOWN flop is a sustained limp, not a state — it has no rig State of
@@ -4008,7 +4140,12 @@ func _net_send(kind: String, data: Dictionary = {}) -> void:
 ## true answers, and a replay that aborts half-way makes the smoke test fail BY
 ## ABSENCE instead of quietly reporting a spell it never actually drew.
 func net_replay_action(kind: String, data: Dictionary) -> bool:
-	if is_multiplayer_authority() or downed or not is_instance_valid(rig):
+	if is_multiplayer_authority() or not is_instance_valid(rig):
+		return false
+	# A ghost cannot cast — but it CAN haunt, and the gust is the one thing a downed
+	# teammate does that the living player has to be able to see. So `gh` is the sole
+	# kind allowed through the downed gate.
+	if downed and kind != "gh":
 		return false
 	var prev_ff: bool = SpellCaster.friendly_fire
 	SpellCaster.friendly_fire = false
@@ -4052,6 +4189,9 @@ func _net_dispatch_replay(kind: String, data: Dictionary) -> void:
 			_replay_dash(data.get("dir", _aim_dir))
 		"bl":
 			_replay_blink(data.get("to", global_position))
+		"gh":   # a ghost's HAUNT gust — the shove already crossed via the knockback
+			# router, so all that is missing on this screen is the thing that did it.
+			GhostForm.gust_on(self, GHOST_HAUNT_RADIUS)
 
 
 ## The windup. `_begin_summon` / `_begin_channel` do exactly the right things for a
