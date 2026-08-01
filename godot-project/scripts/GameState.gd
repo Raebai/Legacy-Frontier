@@ -126,12 +126,23 @@ func enter_run() -> void:
 
 ## Prefer a maker-authored tower .tres if one exists; otherwise build the default
 ## Ashspire in code. Same data shapes either way.
+##
+## `FloorGen.apply` is the LAST step, and it is deliberately here rather than
+## inside `build_default_tower()`: eight tools and suites call that static
+## directly and assert on the authored numbers (`slice2_test_runloop` pins floor
+## 1 at exactly 6 crates), so re-rolling in there would make the authored tower
+## untestable. Here, the authored table stays the thing that is asserted and the
+## generator is the thing that expresses it.
+##
+## The hand never draws the same room twice — FloorGen keeps each floor's
+## IDENTITY (type, depth, wave count, total bodies, boss curve) and redraws its
+## EXPRESSION (room proportion, ledge skyline, cover, spawns, pickups, mix).
 func _load_or_build_tower() -> TowerDef:
 	if ResourceLoader.exists(TOWER_PATH):
 		var t: Resource = load(TOWER_PATH)
 		if t is TowerDef:
-			return stamp_depths(t as TowerDef)
-	return build_default_tower()
+			return FloorGen.apply(stamp_depths(t as TowerDef))
+	return FloorGen.apply(build_default_tower())
 
 
 ## Write each floor's 1-based index into `FloorDef.depth`.
