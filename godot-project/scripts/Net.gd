@@ -302,9 +302,13 @@ func _on_connected_fail() -> void:
 	join_failed.emit()
 
 
+## THE HOST QUIT. This used to drop the client into the parked v0.0 AI-NPC town —
+## a scene that needs a local Ollama server and cannot work on a phone — with no
+## route out of it. The title screen is the boot scene and the one place a player
+## can start something else from.
 func _on_server_disconnected() -> void:
 	leave()
-	get_tree().change_scene_to_file("res://scenes/Main.tscn")
+	get_tree().change_scene_to_file(GameState.TITLE_SCENE)
 
 
 # --------------------------------------------------------- class table (RPC)
@@ -540,6 +544,27 @@ func _client_floor(floor: int) -> void:
 func deal_damage(target: Node, amount: int, tint: Color = Color(1, 1, 1, 0)) -> void:
 	if target == null or not is_instance_valid(target) or not target.has_method("take_damage"):
 		return
+	# ══════════════════════════════════════════════════════ FRIENDLY FIRE
+	# ⚠ THIS IS THE ONLY PLACE IN THE CODEBASE WHERE HERO-ON-HERO DAMAGE IS
+	# IDENTIFIABLE, and it is identifiable by construction rather than by guessing:
+	#
+	#   * `Spell.tscn` is instanced by `Hero` and nothing else (`Hero.gd:241`);
+	#   * `Spell._damage_hero` is the ONLY caller of this router;
+	#   * so a HERO arriving here is a hero's bolt landing on a hero.
+	#
+	# `Hero.take_damage(amount)` carries no attacker, so nothing downstream of the hit
+	# can say who threw it — which is why friendly fire, the spec's whole social
+	# engine, shipped with no acknowledgement anywhere in the game.
+	#
+	# TWO THINGS HAPPEN HERE, and the first one is why the player-facing dial is not
+	# a lie. Turning friendly fire off re-points every SPECTACLE at a faction group,
+	# but `Spell._damage_hero` permits a hero hit through its own clause
+	# (`session and hostile_group == &"enemy"`) which never consults that static — so
+	# "off" used to mean "off, except for the attack every class throws constantly".
+	if is_active() and amount > 0 and target.is_in_group(&"hero"):
+		if FriendlyFire.blocks_bolt():
+			return                      # the dial is off: the bolt passes through
+		_announce_friendly_fire(target, amount)
 	if not is_active():
 		_local_damage(target, amount, tint)
 		return
@@ -559,6 +584,36 @@ func deal_knockback(target: Node, impulse: Vector2) -> void:
 		target.apply_knockback(impulse)
 	else:
 		target.rpc_id(target.get_multiplayer_authority(), &"_net_apply_knockback", impulse)
+
+
+## Tell BOTH screens. The router runs on the ATTACKER's peer (the victim's copy gets
+## a `_net_take_damage` RPC on `Hero`, which this file does not own), so without a
+## broadcast the read would land only on the screen of the person who did it — i.e.
+## on everyone except the person entitled to know.
+##
+## The attacker is `FriendlyFire.other_hero`: exact, not heuristic, and only because
+## `MAX_PLAYERS == 2` is a hard design cap. A party of three would return null there
+## and the toast fires without a name rather than blaming the wrong friend.
+func _announce_friendly_fire(victim: Node, amount: int) -> void:
+	var attacker: Node = FriendlyFire.other_hero(get_tree(), victim)
+	_client_friendly_fire.rpc(
+		victim.get_multiplayer_authority(),
+		attacker.get_multiplayer_authority() if attacker != null else 0,
+		amount)
+
+
+## Count of friendly-fire READS this peer has rendered. Surfaced by the loopback
+## smoke test: whether your friend's mistake is legible on YOUR screen is a
+## two-process question, exactly like the revive.
+var _friendly_hits: int = 0
+
+
+@rpc("any_peer", "call_local", "reliable")
+func _client_friendly_fire(victim_peer: int, attacker_peer: int, amount: int) -> void:
+	var victim: Node = hero_for_peer(victim_peer)
+	var attacker: Node = hero_for_peer(attacker_peer) if attacker_peer != 0 else null
+	if FriendlyFire.report(victim, attacker, amount):
+		_friendly_hits += 1
 
 
 func _local_damage(target: Node, amount: int, tint: Color) -> void:
@@ -1361,6 +1416,13 @@ func _cli_fire_every_broadcast() -> void:
 		break
 	if pick != null and other != 0:
 		request_pickup(pick as Node2D, other)
+	# 6. FRIENDLY FIRE — the spec's social engine, and the one beat that is worthless
+	#    if it only renders on the screen of the person who caused it. The host hits
+	#    the CLIENT's hero through the real router; the client should see the toast,
+	#    the gold burst and the two lines, and report friendly_hits>=1.
+	var mate: Node = hero_for_peer(other) if other != 0 else null
+	if mate != null:
+		deal_damage(mate, 6)
 
 
 ## A REAL NEW BOSS AND A REAL MODIFIER, DRIVEN THROUGH THEIR OWN CODE.
@@ -1528,13 +1590,21 @@ func _cli_verdict() -> void:
 	# award came back and was applied here. A ghost that cannot be revived across the
 	# wire is a run that ends the first time anybody dies in co-op.
 	var revive_ok: bool = _revives_applied >= 1
+	# FRIENDLY_FIRE: the host hit THIS peer's hero and this peer rendered the read.
+	# The damage always crossed (it routes on the victim's authority); what could not
+	# be proven from inside one process is whether the victim is ever TOLD. A friendly
+	# hit that reads exactly like an enemy hit is the whole reason the mechanic landed
+	# as a tax rather than as a joke.
+	var ff_ok: bool = _friendly_hits >= 1
 	var all_ok: bool = (heroes_ok and enemies_ok and twins_ok and spells_ok and boss_ok
-		and floor_ok and cover_ok and pickup_ok and roster_ok and mods_ok and revive_ok)
+		and floor_ok and cover_ok and pickup_ok and roster_ok and mods_ok and revive_ok
+		and ff_ok)
 	print(("[NET] VERDICT heroes=%s enemies=%s enemy_twins=%s HERO_SPELLS=%s BOSS_FX=%s "
-		+ "BOSS_ROSTER=%s BOSS_MODS=%s floor_sync=%s COVER=%s PICKUP=%s REVIVE=%s => %s") % [
+		+ "BOSS_ROSTER=%s BOSS_MODS=%s floor_sync=%s COVER=%s PICKUP=%s REVIVE=%s "
+		+ "FRIENDLY_FIRE=%s => %s") % [
 		_ok(heroes_ok), _ok(enemies_ok), _ok(twins_ok), _ok(spells_ok), _ok(boss_ok),
 		_ok(roster_ok), _ok(mods_ok),
-		_ok(floor_ok), _ok(cover_ok), _ok(pickup_ok), _ok(revive_ok),
+		_ok(floor_ok), _ok(cover_ok), _ok(pickup_ok), _ok(revive_ok), _ok(ff_ok),
 		"PASS" if all_ok else "FAIL"])
 	print("[NET] boss_twins=%d boss_fx_kinds=%s" % [_boss_twins, _cli_kinds()])
 
@@ -1572,9 +1642,9 @@ func _cli_count(who: String) -> void:
 			sample = "(%d,%d)" % [int(round(p.x)), int(round(p.y))]
 	print(("[NET] %s heroes=%d(peak %d) enemies=%d host_owned=%d first_enemy_pos=%s "
 		+ "floor=%d twins=%d spell_twins=%d boss_twins=%d boss_fx=%s prop_syncs=%d "
-		+ "pickups=%d revives=%d ghosts=%d crates=%d") % [
+		+ "pickups=%d revives=%d friendly_hits=%d ghosts=%d crates=%d") % [
 		who, heroes, _cli_peak_heroes, enemies, host_owned, sample, _cli_floor(),
 		_twins_built, _spell_twins, _boss_twins, _cli_kinds(), _prop_syncs,
-		_pickups_awarded, _revives_applied,
+		_pickups_awarded, _revives_applied, _friendly_hits,
 		get_tree().get_nodes_in_group(&"ghost").size(),
 		get_tree().get_nodes_in_group(&"destructible").size()])

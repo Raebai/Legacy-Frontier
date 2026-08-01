@@ -126,6 +126,20 @@ func _ready() -> void:
 	_refresh()
 	_music_town()
 
+	# ⚠ PAY THE SPELL-SCRIPT COMPILE HERE, WHERE NOBODY IS FIGHTING.
+	# `SpellCaster` reaches its 22 spectacle scripts by `load()` on a PATH rather
+	# than `preload` — deliberately, so headless tooling can drive the dispatcher
+	# without dragging autoload-referencing scenes into a compile. The cost is that
+	# the FIRST time a player throws each spell, that script compiles DURING THE
+	# CAST: worst first cast measured at 126 ms on desktop and 1411 ms summed across
+	# the roster, which on a 3-5x slower phone is a 130-630 ms freeze landing
+	# repeatedly through the first minute of play. After warming: worst 3.1 ms.
+	#
+	# THE TITLE SCREEN IS THE RIGHT PLACE because it is the one moment the player is
+	# idle by design — the ~718 ms is spent while they read a class name, not while
+	# they dodge. It is idempotent, so the arena calling it again costs nothing.
+	SpellCaster.warm()
+
 
 ## Leaving the scene entirely must not leave a UDP socket bound and a per-frame
 ## pump running on the Net autoload — the autoload outlives this scene, so a
@@ -179,6 +193,19 @@ func _build_ui() -> void:
 	sub.add_theme_font_size_override("font_size", 12)
 	sub.add_theme_color_override("font_color", GRAPHITE)
 	right.add_child(sub)
+
+	# ⚠ THE SIGNPOST. Friendly fire is this game's social engine and it was announced
+	# NOWHERE — not on the title screen, not on the class card, not in settings. The
+	# two games that ship it and keep their reception both say so up front (Magicka 2
+	# lists it as a feature; Frozenbyte publicly called NOT advertising it in Nine
+	# Parchments "a clear mistake on their part"). Four words, on the first screen
+	# anybody sees, so it is a promise rather than a surprise.
+	var ff := Label.new()
+	ff.text = "friendly fire is always on"
+	ff.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ff.add_theme_font_size_override("font_size", 9)
+	ff.add_theme_color_override("font_color", FriendlyFire.TEAM_TINT)
+	right.add_child(ff)
 
 	# ── class ──
 	_class_btn = _button("", _cycle_class, 15)

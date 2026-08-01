@@ -71,6 +71,11 @@ var _pause_layer: CanvasLayer = null
 var _pause_btn: Button = null
 var _quality_btn: Button = null
 var _director: Node = null
+## The friendly-fire row. Held so `open()` can re-read the live static — the director
+## flips the SAME switch, and a label written once at build time starts lying the
+## moment anything else touches it.
+var _ff_check: CheckButton = null
+var _ff_note: Label = null
 
 var _main_col: VBoxContainer = null
 var _settings_col: VBoxContainer = null
@@ -285,6 +290,7 @@ func open() -> void:
 	# time would start lying the moment anyone touched it there.
 	if _quality_btn != null:
 		_quality_btn.text = _quality_label()
+	_refresh_friendly_fire()
 	if _pause_layer != null:
 		_pause_layer.visible = false  # the menu has its own Resume row
 
@@ -466,6 +472,38 @@ func _build_settings() -> void:
 	aim_slider.value_changed.connect(_on_aim_assist_changed)
 	_settings_col.add_child(aim_slider)
 
+	# ═══════════════════════════════════════════════════════════════ FRIENDLY FIRE
+	# ⚠ THE PLAYER HAD NO SWITCH FOR THE MECHANIC THE GAME IS BUILT AROUND.
+	# `SpellCaster.friendly_fire` shipped as a static bool with no settings row at
+	# all: the DIRECTOR could flip it (a debug rig excluded from the export), and a
+	# player could not. Effectively nobody in this genre ships flat-on friendly fire
+	# without a dial — L4D2 scales it 0/.1/.3/.5 by difficulty, Deep Rock .10 -> .70
+	# by hazard, Nine Parchments offers invert or a 50-50 split, and The Spell Brigade
+	# makes disabling it COST a modifier slot. It is available everywhere; it is just
+	# never free and never hidden.
+	#
+	# THIS SHIPS ON/OFF AND NOT A SCALE, DELIBERATELY. A graded multiplier has to live
+	# where the damage is applied — `SpellTargets.hurt()`, which this workstream does
+	# not own — and a dial that scaled only the basic bolt while every AoE stayed at
+	# 100% would be worse than no dial. See the FriendlyFire header for the one-line
+	# seam that unlocks the graded version.
+	var ff_btn := CheckButton.new()
+	ff_btn.text = "Friendly Fire"
+	ff_btn.tooltip_text = ("ON: your spells hit your teammate. It is the point.
+"
+		+ "off: spells pass through each other — and through the crossfire jokes.")
+	ff_btn.button_pressed = FriendlyFire.enabled()
+	ff_btn.toggled.connect(_on_friendly_fire_toggled)
+	_settings_col.add_child(ff_btn)
+	_ff_check = ff_btn
+	_ff_note = Label.new()
+	_ff_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_ff_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_ff_note.custom_minimum_size = Vector2(240, 0)
+	_ff_note.add_theme_font_size_override("font_size", 12)
+	_settings_col.add_child(_ff_note)
+	_refresh_friendly_fire()
+
 	# GRAPHICS QUALITY. Three states rather than a checkbox because AUTO (the shipping
 	# default: LOW on a mobile export, HIGH everywhere else) is a real answer and not
 	# the absence of one. The reason it belongs in the player-facing menu rather than
@@ -632,6 +670,34 @@ func _on_aim_assist_changed(v: float) -> void:
 	var cfg: Object = _tuning_cfg()
 	if cfg != null:
 		cfg.set("aim_assist", v)
+
+
+# ------------------------------------------------------------- friendly fire
+## ⚠ WRITES `FriendlyFire.set_enabled`, WHICH WRITES `SpellCaster.friendly_fire` —
+## the one static the whole mechanic hangs off. It is NOT mirrored into a local bool
+## here: the director's VIEW tab toggles the same static, and two mirrors of one
+## switch is how a player ends up turning friendly fire "off" and still deleting
+## their friend.
+func _on_friendly_fire_toggled(on: bool) -> void:
+	FriendlyFire.set_enabled(on)
+	_refresh_friendly_fire()
+
+
+func _refresh_friendly_fire() -> void:
+	var on: bool = FriendlyFire.enabled()
+	if _ff_check != null:
+		_ff_check.set_pressed_no_signal(on)
+	if _ff_note == null:
+		return
+	# The note is the SIGNPOST as much as the setting is. Magicka 2 puts "friendly
+	# fire is always on" in its own Steam feature list; Frozenbyte publicly conceded
+	# that Nine Parchments' friendly fire "was not well represented in trailers and
+	# descriptions, which was a clear mistake". If it is the engine, it has to be
+	# stated somewhere the player will actually meet it.
+	_ff_note.text = ("your spells hit your friend. that is the game."
+		if on else "spells pass through your friend.")
+	_ff_note.add_theme_color_override("font_color",
+		FriendlyFire.TEAM_TINT if on else Color(0.66, 0.70, 0.80))
 
 
 # ------------------------------------------------------------ graphics quality

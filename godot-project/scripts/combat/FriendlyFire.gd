@@ -228,7 +228,11 @@ static func _tally(tree: SceneTree, amount: int) -> void:
 ## THE THING THAT MAKES IT UNMISTAKABLE. One line, screen-space, gold, gone in a
 ## second and a half.
 static func _toast(tree: SceneTree, amount: int) -> void:
-	var host: Node = tree.current_scene
+	# `current_scene` is the right home in game (the toast dies with the arena), but it
+	# is NULL in a `--script` capture tool and during a scene change — and a read that
+	# silently does nothing in the one context built to LOOK at it is a read nobody can
+	# review. Fall back to the tree root.
+	var host: Node = tree.current_scene if tree.current_scene != null else tree.root
 	if host == null:
 		return
 	for old: Node in tree.get_nodes_in_group(TOAST_GROUP):
