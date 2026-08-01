@@ -29,6 +29,15 @@ var _atmo: Atmosphere = null
 var _portal: ExitPortal = null
 var _return_portal: ExitPortal = null
 const RETURN_PORTAL_COLOR: Color = Color(1.0, 0.85, 0.4)   # warm gold vs the cyan climb-exit
+## Where the LEAVE portal stands on this floor, kept so the confirm can put it back.
+var _return_pt: Vector2 = Vector2.ZERO
+## True between "keep climbing" and the portal actually returning — see `_cancel_leave`.
+var _return_pending: bool = false
+## The leave confirmation overlay, or null.
+var _confirm_layer: CanvasLayer = null
+## How far a hero must step off the leave portal before it is allowed back. Comfortably
+## wider than `ExitPortal.RADIUS` (30) so re-arming can never happen under a thumb.
+const RETURN_REARM_RADIUS: float = 74.0
 var _floor_banner: Label = null
 var _pause_menu: PauseMenu = null
 var _revive: Revive = null        # the pick-your-teammate-up channel + its prompt/pad
@@ -146,6 +155,11 @@ func _process(delta: float) -> void:
 	# a co-op-only mechanic. Only the host actually ENDS the run — see below.
 	if _run_mode and not _wipe_handled:
 		_check_party_wipe()
+	# Put the LEAVE portal back once the hero who declined has stepped off it. Doing
+	# this on contact instead would re-fire the confirm on the same frame it closed.
+	if _return_pending and not is_instance_valid(_return_portal) and not _hero_near_return_point():
+		_return_pending = false
+		_build_return_portal()
 	if _run_mode or _boss_rush_active:
 		return  # Encounter drives the finite floor; a boss rush is the boss ALONE
 	# Sandbox trickle: keep ~TARGET_ENEMY_COUNT alive forever.
@@ -323,24 +337,146 @@ func _spawn_exit_portals() -> void:
 		var return_pt: Vector2 = Vector2(exit_pt.x, 520.0)
 		if layout != null:
 			return_pt = Vector2(layout.hero_start.x, layout.room_size.y - 120.0)
-		_return_portal = EXIT_PORTAL_SCRIPT.new() as ExitPortal
-		_return_portal.portal_label = "RETURN TO TOWN"
-		_return_portal.ring_color = RETURN_PORTAL_COLOR
-		_return_portal.trigger_group = "hero"
-		add_child(_return_portal)
-		_return_portal.global_position = return_pt
-		_return_portal.taken.connect(_on_return_taken)
+		_return_pt = return_pt
+		_return_pending = false
+		_build_return_portal()
 
 
+## The LEAVE portal, built on its own so the confirm below can put it back.
+##
+## ⚠ ITS LABEL USED TO SAY "RETURN TO TOWN". Two portals with OPPOSITE CONSEQUENCES
+## spawn together on every non-final cleared floor — a cyan one that continues the
+## climb and a gold one that ENDS THE RUN FOR THE WHOLE PARTY — and the gold one was
+## named after a place that is no longer on the critical path. "LEAVE THE TOWER"
+## says what it costs.
+func _build_return_portal() -> void:
+	if is_instance_valid(_return_portal):
+		return
+	_return_portal = EXIT_PORTAL_SCRIPT.new() as ExitPortal
+	_return_portal.portal_label = "LEAVE THE TOWER"
+	_return_portal.ring_color = RETURN_PORTAL_COLOR
+	_return_portal.trigger_group = "hero"
+	add_child(_return_portal)
+	_return_portal.global_position = _return_pt
+	_return_portal.taken.connect(_on_return_taken)
+
+
+## ⚠ THE RUN-ENDING PORTAL ASKS FIRST, AND IT IS THE ONLY ONE THAT DOES.
+##
+## Both portals used to fire on contact with no confirmation, so a player who walked
+## the wrong way lost the session — on a phone, with a virtual stick, seconds after a
+## fight, and in co-op for BOTH of them. The climb portal stays instant, because
+## taking that one by accident costs nothing you were not already doing.
+##
+## Deliberately NOT `get_tree().paused`: pause is local, so in co-op it would freeze
+## one player while the other kept moving. The floor is already cleared, so there is
+## nothing left to freeze for.
 func _on_return_taken() -> void:
+	if is_instance_valid(_return_portal):
+		if _return_portal.taken.is_connected(_on_return_taken):
+			_return_portal.taken.disconnect(_on_return_taken)
+		_return_portal.queue_free()
+	_return_portal = null
+	# A floor change (or leaving) must not leave a confirm hanging over the next fight,
+	# nor a pending re-arm that would spawn a leave portal into a live floor.
+	_return_pending = false
+	_close_confirm()
+	_show_leave_confirm()
+
+
+## The confirm. Two thumb-sized targets, and a line that names what leaving actually
+## costs — which under the persistent climb is far less than a player fears, so
+## saying so plainly is the honest thing rather than a scare screen.
+func _show_leave_confirm() -> void:
+	if is_instance_valid(_confirm_layer):
+		return
+	_confirm_layer = CanvasLayer.new()
+	_confirm_layer.layer = 80          # above the HUD (60), below the pause menu (90)
+	add_child(_confirm_layer)
+	var root := Control.new()
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_STOP   # eat taps meant for the buttons
+	_confirm_layer.add_child(root)
+	var dim := ColorRect.new()
+	dim.color = Color(0.03, 0.03, 0.06, 0.66)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(dim)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.add_child(center)
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 6)
+	center.add_child(col)
+	var head := Label.new()
+	head.text = "LEAVE THE TOWER?"
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	head.add_theme_font_size_override("font_size", 22)
+	head.add_theme_color_override("font_color", RETURN_PORTAL_COLOR)
+	col.add_child(head)
+	var note := Label.new()
+	note.text = "the run ends here%s.
+your climb is banked — floor %d is waiting." % [
+		("  ·  for both of you" if _is_coop() else ""),
+		mini(_gs.current_floor() + 1, _gs.total_floors()),
+	]
+	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	note.add_theme_font_size_override("font_size", 11)
+	note.add_theme_color_override("font_color", Color(0.72, 0.74, 0.82))
+	col.add_child(note)
+	col.add_child(_confirm_button("Keep climbing", _cancel_leave, Color(0.88, 0.94, 1.0)))
+	col.add_child(_confirm_button("Leave", _confirm_leave, RETURN_PORTAL_COLOR))
+
+
+func _confirm_button(text: String, cb: Callable, tint: Color) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.custom_minimum_size = Vector2(196, 32)
+	b.add_theme_font_size_override("font_size", 15)
+	b.add_theme_color_override("font_color", tint)
+	b.focus_mode = Control.FOCUS_NONE
+	b.pressed.connect(cb)
+	return b
+
+
+func _close_confirm() -> void:
+	if is_instance_valid(_confirm_layer):
+		_confirm_layer.queue_free()
+	_confirm_layer = null
+
+
+## Said no. The portal comes BACK — but NOT while a hero is still standing on it, or
+## `ExitPortal`'s per-frame overlap poll would re-fire the instant it armed and the
+## confirm would loop forever. `_process` puts it back once everyone has stepped clear.
+func _cancel_leave() -> void:
+	_close_confirm()
+	_return_pending = _run_mode
+
+
+func _confirm_leave() -> void:
+	_close_confirm()
+	_return_pending = false
 	_clear_portal()
 	# Co-op: the host owns the run spine -> ask it to return the party (ends the run
-	# for everyone). SP: return straight to the hub.
+	# for everyone). SP: end the run directly.
 	var net: Node = get_node_or_null("/root/Net")
 	if net != null and net.is_active():
 		net.request_return()
 	else:
 		_gs.return_to_hub()
+
+
+func _is_coop() -> bool:
+	return _net != null and _net.is_active() and _net.peers().size() > 1
+
+
+## Is any hero still inside the leave portal's footprint?
+func _hero_near_return_point() -> bool:
+	for h: Node in get_tree().get_nodes_in_group("hero"):
+		if h is Node2D and is_instance_valid(h) 				and (h as Node2D).global_position.distance_to(_return_pt) < RETURN_REARM_RADIUS:
+			return true
+	return false
 
 
 func _on_portal_taken() -> void:
@@ -633,7 +769,9 @@ func _build_pause_overlay() -> void:
 	add_child(layer)
 	_pause_menu = PauseMenu.new()
 	layer.add_child(_pause_menu)
-	_pause_menu.build("Exit to Town")
+	# "Town" was a place this game no longer goes. Leaving mid-floor banks nothing and
+	# lands on the run summary; leaving the sandbox lands on the title.
+	_pause_menu.build("Leave the Tower")
 	_pause_menu.resume_requested.connect(func() -> void: _set_paused(false))
 	_pause_menu.exit_requested.connect(_exit_to_hub)
 
@@ -664,9 +802,14 @@ func _set_paused(p: bool) -> void:
 func _exit_to_hub() -> void:
 	get_tree().paused = false
 	if _gs != null and _gs.is_run_active() and _gs.has_method("abandon_to_hub"):
-		_gs.abandon_to_hub()
+		_gs.abandon_to_hub()          # -> save, then the run-summary ceremony
 	else:
-		get_tree().change_scene_to_file("res://scenes/Main.tscn")
+		# NO RUN IS ACTIVE — the F6 feel sandbox, a boss rush, a free-play stage with
+		# nobody on it. There is nothing to summarise and nothing to bank, so this must
+		# NOT reach the run-end ceremony (`end_run` refuses on `_run_active` anyway);
+		# it goes to the title screen, which is the boot scene and works on a phone.
+		# It used to load the parked v0.0 AI-NPC town, which does not.
+		get_tree().change_scene_to_file(GameState.TITLE_SCENE)
 
 
 ## Another go at the guardian: re-arm the flag and rebuild this scene.
