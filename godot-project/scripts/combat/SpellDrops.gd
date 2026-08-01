@@ -37,14 +37,33 @@ extends RefCounted
 ## Co-op. Both peers build their own floor props from the same `LayoutDef` with no
 ## message passing, so an unseeded `randf()` would put a different spell in a
 ## different place on each screen — the worst kind of desync, because both players
-## can see a pickup and disagree about what it is. Seeding on the floor number makes
-## the roll a pure function of state both peers already share, and the whole problem
-## disappears without a single packet. `_rng_for` is that seed.
+## can see a pickup and disagree about what it is. Seeding makes the roll a pure
+## function of state both peers already share, and the whole problem disappears
+## without a single packet. `_rng_for` is that seed.
 ##
-## The consequence to know: the SAME floor number always rolls the SAME drop. That
-## is a feature for a persistent climb (floor 7 has a Petrify on it, and the town
-## can talk about floor 7) and it is why `SEED_SALT` exists — bump it and the whole
-## tower re-rolls.
+## ══ ...AND WHY THE SEED IS NOT JUST THE FLOOR NUMBER ANY MORE ══════════════════
+## It used to be `hash(Vector3i(SEED_SALT, floor_no, channel))` and nothing else,
+## with `SEED_SALT` a compile-time constant. The fun audit named the consequence:
+## EVERY CLIMB ROLLED THE IDENTICAL DROPS ON THE IDENTICAL FLOORS, FOREVER. Combined
+## with a five-floor tower, most of the six Tier 2 signatures were not rare — they
+## were unreachable, and the two or three that did land landed every single run. A
+## scarcity dial wound that tight stops being a balance system and becomes a
+## content-deletion system.
+##
+## So the CLIMB now goes into the seed alongside the floor, and it comes from
+## `FloorGen` rather than from a second scheme of this file's own invention.
+## `FloorGen.apply()` runs once per climb out of `GameState._load_or_build_tower`
+## and records the seed it drew the tower with; reading that same number means the
+## ROOM and the LOOT are two expressions of one climb, and a party that agrees about
+## one necessarily agrees about the other. `resolve_climb_seed()` is that read, and
+## it inherits FloorGen's co-op policy whole — including the honest limitation that
+## a live co-op session PINS the seed to 0, so two phones re-roll the tower together
+## or not at all. See the header of `FloorGen.gd`.
+##
+## What is unchanged: within ONE climb the same floor still rolls the same drop
+## every time it is asked, which is what lets both peers build the floor with no
+## packet and what `tools/slice_test_drops.gd` pins. `SEED_SALT` still re-rolls the
+## whole tower when bumped.
 
 # ------------------------------------------------------------------ SOUND SEAM
 ## ⚠ WHY EVERY DROP-ECONOMY FILE PLAYS SOUND THROUGH HERE INSTEAD OF SAYING `Sfx`.
@@ -81,10 +100,20 @@ const TIER3_BOSS_CHANCE: float = 0.5
 const SIGNATURE_MIN_FLOOR: Dictionary = {
 	"meteor_storm": 3,
 	"mirror_image": 3,
-	"the_void": 1,        # Tier 3 gates are here too, for one place to look
+	# THE VOID — a 260-damage ULT-weight nuke — used to sit at 1, i.e. no depth gate
+	# at all, which made it obtainable from the floor-1 mini-guardian: a boss with
+	# 190-288 HP handing you a thing that deletes 260. A Tier 3 is supposed to be the
+	# reward for getting DEEP, and the two loudest Tier 2s are already held off the
+	# first two floors for exactly this reason.
+	"the_void": 4,
 }
 ## Change this to re-roll every floor in the tower.
 const SEED_SALT: int = 0x5F3D
+
+## THE CLIMB. 0 = "not told", in which case the seed is taken from `FloorGen` — see
+## `resolve_climb_seed()`. A plain static, like `FloorGen.climb_seed`, so a headless
+## test and a capture tool can drive it the same way.
+static var climb_seed: int = 0
 
 ## Where a floor's spell pickup is placed when the layout does not say. Fractions
 ## of the room, so it scales with `LayoutDef.room_size` instead of being a magic
@@ -114,11 +143,39 @@ static func roll_floor_drop(floor_no: int) -> String:
 
 
 ## The Tier 3 spell id this floor's guardian drops, or "" for none.
+##
+## THE LAST GUARDIAN ALWAYS PAYS. Everywhere else the 50% is the point — half the
+## floors you clear you get nothing, and that is what makes the other half mean
+## something. The tower's FINAL guardian is the one fight where that coin flip is
+## indefensible: the audit measured floor 5's boss as ~23 seconds with no reward
+## event in it at all, terminated by a 50/50 on whether the climactic fight of the
+## whole climb pays out anything. It now always does.
 static func roll_boss_drop(floor_no: int) -> String:
 	var rng: RandomNumberGenerator = _rng_for(floor_no, 2)
-	if rng.randf() > TIER3_BOSS_CHANCE:
+	if rng.randf() > TIER3_BOSS_CHANCE and not is_final_floor(floor_no):
 		return ""
 	return _pick(rng, _eligible(SpellLibrary.build_tier3(), floor_no))
+
+
+## Is this the tower's LAST floor? Asked of GameState through a guarded tree lookup
+## rather than passed in, because the one caller (`BossDropWatcher`) is owned
+## elsewhere and this needs no argument it cannot already find. Same reason and same
+## shape as `sfx()` above; a harness with no GameState answers "no", which leaves
+## every existing headless expectation exactly as it was.
+static func is_final_floor(floor_no: int) -> bool:
+	var tree: SceneTree = Engine.get_main_loop() as SceneTree
+	if tree == null or tree.root == null:
+		return false
+	var gs: Node = tree.root.get_node_or_null(^"GameState")
+	if gs == null or not gs.has_method(&"total_floors"):
+		return false
+	var total: int = int(gs.call(&"total_floors"))
+	# EQUALITY, NOT `>=`. There is no floor past the last one — `GameState` clamps
+	# the climb to `total_floors()` — so a `>=` here does not describe a deeper
+	# tower, it just hands the guarantee to every hypothetical floor number anyone
+	# ever asks about. (Which is exactly what it did: `slice_test_drops` sweeps 200
+	# floor numbers to measure the 50% boss-drop rate and measured 0.99.)
+	return total > 0 and floor_no == total
 
 
 ## THE COMMON BAND — every spell a class AUTHORS but does not carry, deduplicated
@@ -153,13 +210,48 @@ static func _pick(rng: RandomNumberGenerator, ids: Array[String]) -> String:
 	return ids[rng.randi() % ids.size()]
 
 
-## A generator seeded on the floor and a channel, so the floor roll and the boss
-## roll are independent but both reproducible. `channel` exists so that changing
-## whether a floor has a pickup does not also change what its guardian drops.
+## THE CLIMB SEED, under FloorGen's policy rather than a second one of our own:
+##   1. an explicit `SpellDrops.climb_seed` -> use it (tests, capture tools).
+##   2. `FloorGen.climb_seed`               -> the hook a future host broadcast sets.
+##   3. `FloorGen.last_seed`                -> the seed this climb's tower was ACTUALLY
+##      drawn with, recorded by `FloorGen.apply()` once per run. This is the normal
+##      path, and it is why the room and the loot vary together.
+##
+## Case 3 answers 0 in exactly two situations, both of which are correct: a live
+## co-op session (FloorGen deliberately PINS to 0 so two phones cannot disagree) and
+## a harness that never built a tower. 0 reproduces the pre-climb-seed behaviour
+## byte for byte, so neither case is a special case.
+##
+## ⚠ THERE IS NO `randi()` ANYWHERE IN THIS PATH AND THERE MUST NEVER BE. An
+## unseeded roll here puts a different spell on each screen, and the players can SEE
+## the pickup — it would read as a mystery bug, not as a desync.
+static func resolve_climb_seed() -> int:
+	if climb_seed != 0:
+		return climb_seed
+	if FloorGen.climb_seed != 0:
+		return FloorGen.climb_seed
+	return FloorGen.last_seed
+
+
+## A generator seeded on the climb, the floor and a channel, so the floor roll and
+## the boss roll are independent but both reproducible. `channel` exists so that
+## changing whether a floor has a pickup does not also change what its guardian
+## drops; the climb is mixed in FIRST, through the same avalanche `FloorGen` uses,
+## so two adjacent climbs land in unrelated parts of the stream instead of drawing
+## near-identical towers.
 static func _rng_for(floor_no: int, channel: int) -> RandomNumberGenerator:
 	var rng := RandomNumberGenerator.new()
-	rng.seed = hash(Vector3i(SEED_SALT, floor_no, channel))
+	rng.seed = hash(Vector3i(_salt_for_climb(), floor_no, channel))
 	return rng
+
+
+## SEED_SALT mixed with this climb's seed. Kept separate from `_rng_for` so a test
+## can assert that two climbs salt differently without rolling a whole tower.
+static func _salt_for_climb() -> int:
+	var s: int = resolve_climb_seed()
+	if s == 0:
+		return SEED_SALT
+	return FloorGen.mix_seed(SEED_SALT, s)
 
 
 ## Any spell id resolved to a SpellDef — drops first, then the whole library, so

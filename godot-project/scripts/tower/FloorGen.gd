@@ -828,6 +828,14 @@ static func _str_hash(s: String) -> int:
 	return h
 
 
+## The shared avalanche, public. `SpellDrops` salts its drop rolls with the climb
+## seed and must mix it the SAME way this file does — one hash for the whole climb,
+## so the room and the loot cannot end up derived from two different notions of
+## "different enough".
+static func mix_seed(a: int, b: int) -> int:
+	return _mix(a, b)
+
+
 ## Cheap 32-bit avalanche, lifted verbatim from BossRoster._mix so the two seeded
 ## rolls in the tower behave identically. Masked at every step because GDScript ints
 ## are 64-bit and an unmasked multiply drifts away from the intended mixing.
