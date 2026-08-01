@@ -157,14 +157,36 @@ static func spawn_burst(
 ## bucket for almost every burst and quietly turn the pool back into an allocator.
 ## Four steps means at most four buckets per call site, and step 4 returns the
 ## original integer unchanged so the common (in-budget) case is byte-identical.
+## What LOW takes off every burst, before crowding is even considered.
+##
+## THE GAP THIS CLOSES: austerity used to come ONLY from `vfx_austerity()`, which is
+## driven by how many spell effects are live against the budget. So on a quiet
+## screen — one spell, no crowd — LOW emitted exactly as many particles as HIGH,
+## and `graphics_quality = LOW` on the desktop showed the maker a picture the phone
+## will never draw. LOW is the only preview of the phone there is, and a preview
+## that only differs when the screen is already busy is not one.
+##
+## 0.6 rather than something braver because this is COSMETIC AUSTERITY AND NOTHING
+## ELSE: a burst is garnish laid over a hit that has already been resolved, so
+## thinning it cannot change what an attack does, where it reaches or when it lands.
+## No spell is dropped and no telegraph is quieted — those are the two things that
+## would make this a fairness change rather than a fidelity one.
+##
+## ⚠ UNTESTED BY EYE. Nobody has seen 0.6 on a screen yet. It is one constant, and
+## 1.0 restores the old behaviour exactly.
+const LOW_PARTICLE_SCALE: float = 0.6
+## Floor, matching the crowding path's: below this a burst stops reading as a burst
+## and starts reading as a bug.
+const MIN_PARTICLES: int = 4
+
+
 static func _budgeted(amount: int) -> int:
 	_bursts += 1
 	_requested += amount
 	var step: int = int(round(SpellReactorNode.vfx_austerity() * 4.0))
-	if step >= 4:
-		_granted += amount
-		return amount
-	var out: int = maxi(4, (amount * step) / 4)
+	var out: int = amount if step >= 4 else maxi(MIN_PARTICLES, (amount * step) / 4)
+	if TuningConfig.quality_is_low():
+		out = maxi(MIN_PARTICLES, int(round(float(out) * LOW_PARTICLE_SCALE)))
 	_granted += out
 	return out
 
