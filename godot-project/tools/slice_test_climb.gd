@@ -19,13 +19,14 @@ extends SceneTree
 ## Every test that must run to completion. A name missing from `_completed`
 ## at the end means that test aborted part-way and fails the suite.
 const TESTS: Array[String] = [
-	"fall_floor",
+	"resume_floor_policy",
+	"fall_rule_is_gone",
 	"climber_save_shape",
 	"parse_json_float_trap",
 	"outcome_carries_falls",
 	"fact_mentions_falls",
 	"climber_disk_roundtrip",
-	"fall_transition",
+	"game_over_transition",
 	"advance_and_bank",
 ]
 
@@ -42,13 +43,14 @@ func _process(_delta: float) -> bool:
 		return false
 	_ran = true
 	var GS: GDScript = load(GS_PATH) as GDScript
-	_test_fall_floor(GS)
+	_test_resume_floor_policy()
+	_test_fall_rule_is_gone(GS)
 	_test_climber_save_shape(GS)
 	_test_parse_json_float_trap(GS)
 	_test_outcome_carries_falls(GS)
 	_test_fact_mentions_falls(GS)
 	_test_climber_disk_roundtrip(GS)
-	_test_fall_transition(GS)
+	_test_game_over_transition(GS)
 	_test_advance_and_bank(GS)
 	for t: String in TESTS:
 		_expect(_completed.has(t),
@@ -77,13 +79,48 @@ func _completes(test_name: String) -> void:
 	_completed[test_name] = true
 
 
-func _test_fall_floor(GS: GDScript) -> void:
-	# THE TOWER spec: a fall costs ONE floor, never more.
-	_expect(int(GS.fall_floor(5)) == 4, "fall from 5 -> 4")
-	_expect(int(GS.fall_floor(3)) == 2, "fall from 3 -> 2")
-	_expect(int(GS.fall_floor(2)) == 1, "fall from 2 -> 1")
-	_expect(int(GS.fall_floor(1)) == 1, "fall from 1 clamps to 1")
-	_completes("fall_floor")
+## ⚠ THIS TEST USED TO PIN THE OPPOSITE RULE. It asserted `fall_floor(5) == 4` —
+## "dying drops you one floor" — and that rule was REPLACED by the maker on
+## 2026-08-01: "dying cost is a life in ghost form until your teammate revives you;
+## if you all die then the game is over". A death no longer moves you at all.
+##
+## So the question the old assertion answered no longer exists, and what is pinned
+## here instead is the question that replaced it: after the whole party is dead and
+## the run has ended, WHERE DOES THE NEXT RUN START? That is
+## `DeathRules.resume_floor_after_game_over`, and it is one of the two decisions the
+## maker asked to have surfaced — so the test asserts the SHIPPED POLICY explicitly
+## and names the flag, rather than asserting whatever the constant happens to say.
+## Flip `RESET_CLIMB_ON_GAME_OVER` and this test fails LOUDLY and on purpose: it is
+## a design change, and it should have to be made twice.
+func _test_resume_floor_policy() -> void:
+	_expect(DeathRules.RESET_CLIMB_ON_GAME_OVER == false,
+		"SHIPPED POLICY: a game over KEEPS the climb (RESET_CLIMB_ON_GAME_OVER == false). "
+		+ "If you meant to flip it, update this test in the same commit.")
+	# The persistent-climb policy: you come back to the floor you died on.
+	_expect(int(DeathRules.resume_floor_after_game_over(5, 5)) == 5, "wipe on 5 -> resume 5")
+	_expect(int(DeathRules.resume_floor_after_game_over(3, 5)) == 3, "wipe on 3 -> resume 3")
+	_expect(int(DeathRules.resume_floor_after_game_over(1, 5)) == 1, "wipe on 1 -> resume 1")
+	# Clamped both ends, whatever the policy, so a corrupt save cannot resume off-tower.
+	_expect(int(DeathRules.resume_floor_after_game_over(0, 5)) == 1, "floor 0 clamps up to 1")
+	_expect(int(DeathRules.resume_floor_after_game_over(9, 5)) == 5, "floor 9 clamps to the top")
+	_expect(int(DeathRules.resume_floor_after_game_over(3, 0)) == 1, "a 0-floor tower still answers 1")
+	# The OTHER surfaced decision, pinned the same way.
+	_expect(DeathRules.SOLO_SELF_REVIVE_CHARGES == 0,
+		"SHIPPED POLICY: solo death ends the run (SOLO_SELF_REVIVE_CHARGES == 0). "
+		+ "Set it to 1 for one free comeback per run — and update this test.")
+	_completes("resume_floor_policy")
+
+
+## THE OLD RULE MUST STAY GONE. `fall()` / `fell` / `fall_floor()` are deleted, and a
+## half-restored fall path is the worst possible state to be in: a death would both
+## make you a ghost AND move the party down the tower.
+func _test_fall_rule_is_gone(GS: GDScript) -> void:
+	var gs: Node = GS.new()
+	_expect(not gs.has_method("fall"), "GameState.fall() is gone (deaths no longer drop a floor)")
+	_expect(not gs.has_signal("fell"), "the `fell` signal is gone")
+	_expect(gs.has_method("game_over"), "…and game_over() is what replaced them")
+	gs.free()
+	_completes("fall_rule_is_gone")
 
 
 func _test_climber_save_shape(GS: GDScript) -> void:
@@ -174,30 +211,45 @@ func _test_climber_disk_roundtrip(GS: GDScript) -> void:
 	_completes("climber_disk_roundtrip")
 
 
-## fall() on a live run drops ONE floor, ticks the fall counter, and emits `fell`
-## with the dropped floor. Driven on a bare instance (no scene) — _change_scene
-## is guarded on get_tree()==null so it no-ops off-tree.
-func _test_fall_transition(GS: GDScript) -> void:
+## game_over() on a live run ENDS THE RUN: ticks the fall counter, applies the climb
+## policy, and emits `run_ended` with a `died` outcome that names the floor you
+## actually died on. Driven on a bare instance (no scene) — _change_scene is guarded
+## on get_tree()==null so it no-ops off-tree.
+func _test_game_over_transition(GS: GDScript) -> void:
 	var gs: Node = GS.new()
 	gs.active_tower = GS.build_default_tower()
 	gs._run_active = true
-	gs._floor = 5
+	gs._floor = 4
+	gs._highest_floor = 4   # as enter_run/advance_floor would have left it
 	gs._falls = 1
-	var seen: Array = []
-	gs.fell.connect(func(nf: int) -> void: seen.append(nf))
-	gs.fall()
-	_expect(gs._floor == 4, "fall drops one floor (5 -> 4)")
-	_expect(gs._falls == 2, "fall increments the fall counter")
-	_expect(seen.size() == 1 and int(seen[0]) == 4, "fell emitted with the dropped floor")
-	# A fall in the SANDBOX (no active run) is a no-op.
+	var ended: Array = []
+	gs.run_ended.connect(func(o: Dictionary) -> void: ended.append(o))
+	gs.game_over()
+	_expect(gs._falls == 2, "a wipe increments the fall counter — the town clocks it")
+	_expect(not gs.is_run_active(), "the run is over")
+	_expect(ended.size() == 1, "run_ended emitted exactly once")
+	if ended.size() == 1:
+		var o: Dictionary = ended[0]
+		_expect(bool(o["died"]) == true, "…as a DEATH outcome")
+		# The record names where you DIED, not where you will resume. Identical under
+		# the shipped policy; the distinction bites the day the reset flag flips.
+		_expect(int(o["floor_reached"]) == 4, "…naming the floor the party died on")
+		_expect(int(o["falls"]) == 2, "…carrying the fall count")
+	_expect(gs._floor == int(DeathRules.resume_floor_after_game_over(4, gs.total_floors())),
+		"the resume floor follows the policy, not a hard-coded number")
+	# The climb is never rolled BACKWARDS past your best, whatever the policy says.
+	_expect(gs._highest_floor >= 4, "highest floor survives a wipe")
+	# A wipe in the SANDBOX (no active run) is a no-op — an F6 death must not end
+	# a run that was never started.
 	var gs2: Node = GS.new()
 	gs2._run_active = false
 	gs2._floor = 4
-	gs2.fall()
-	_expect(gs2._floor == 4, "sandbox fall is a no-op")
+	gs2._falls = 0
+	gs2.game_over()
+	_expect(gs2._floor == 4 and gs2._falls == 0, "sandbox game_over is a no-op")
 	gs.free()
 	gs2.free()
-	_completes("fall_transition")
+	_completes("game_over_transition")
 
 
 ## advance_floor on a non-final floor banks the next floor + lifts highest.
