@@ -171,20 +171,25 @@ func _boss_touch() -> void:
 ## with this boss's own name and colour. Reimplemented rather than post-edited
 ## because the card is a local built inside the base's version and there is nothing
 ## to reach for afterwards.
+## Every number that used to be a literal in here now comes from `Boss.card_style()`,
+## so a mini-guardian's flash and a headline act's card stay one decision rather than
+## two copies that drift — see the CEREMONY block in Boss.gd.
 func _play_intro() -> void:
 	_bphase = BPhase.INTRO
-	_intro_timer = INTRO_TIME
-	Juice.zoom_pull_camera(0.2, INTRO_TIME, 0.4, 0.6)
+	_intro_timer = intro_time()
+	var s: Dictionary = card_style()
+	Juice.zoom_pull_camera(float(s["pull"]), _intro_timer,
+		float(s["pull_hold"]), float(s["pull_release"]))
 	var accent: Color = boss_accent()
 	var card := Label.new()
 	card.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	card.offset_top = 120.0
+	card.offset_top = float(s["top"])
 	card.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	card.text = boss_title()
-	card.add_theme_font_size_override("font_size", 36)
+	card.add_theme_font_size_override("font_size", int(s["size"]))
 	card.add_theme_color_override("font_color", accent)
 	card.add_theme_color_override("font_outline_color", Color(0.05, 0.02, 0.03, 0.95))
-	card.add_theme_constant_override("outline_size", 7)
+	card.add_theme_constant_override("outline_size", int(s["outline"]))
 	card.modulate.a = 0.0
 	_bar_layer.add_child(card)
 	# THE SIGNATURE LINE. One line of the artist, under the name, in the same colour
@@ -193,24 +198,25 @@ func _play_intro() -> void:
 	# drew this". Never a cutscene, never a codex — a caption.
 	var sig := Label.new()
 	sig.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	sig.offset_top = 160.0
+	sig.offset_top = float(s["sig_top"])
 	sig.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sig.text = boss_artist()
-	sig.add_theme_font_size_override("font_size", 12)
+	sig.add_theme_font_size_override("font_size", int(s["sig_size"]))
 	sig.add_theme_color_override("font_color", Color(accent.r, accent.g, accent.b, 0.75))
 	sig.add_theme_color_override("font_outline_color", Color(0.05, 0.02, 0.03, 0.9))
 	sig.add_theme_constant_override("outline_size", 5)
 	sig.modulate.a = 0.0
 	_bar_layer.add_child(sig)
+	var fade: float = float(s["fade"])
 	var tw := create_tween()
-	tw.tween_property(card, "modulate:a", 1.0, 0.5)
-	tw.parallel().tween_property(sig, "modulate:a", 1.0, 0.5)
-	tw.tween_interval(1.4)
-	tw.tween_property(card, "modulate:a", 0.0, 0.5)
-	tw.parallel().tween_property(sig, "modulate:a", 0.0, 0.5)
+	tw.tween_property(card, "modulate:a", 1.0, fade)
+	tw.parallel().tween_property(sig, "modulate:a", 1.0, fade)
+	tw.tween_interval(float(s["hold"]))
+	tw.tween_property(card, "modulate:a", 0.0, fade)
+	tw.parallel().tween_property(sig, "modulate:a", 0.0, fade)
 	tw.tween_callback(card.queue_free)
 	tw.tween_callback(sig.queue_free)
-	get_tree().create_timer(0.6).timeout.connect(_roar_intro)
+	get_tree().create_timer(float(s["roar"])).timeout.connect(_roar_intro)
 
 
 func _roar_intro() -> void:

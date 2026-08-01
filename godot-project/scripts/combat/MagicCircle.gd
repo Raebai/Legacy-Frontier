@@ -736,6 +736,7 @@ func _draw() -> void:
 	if not _low_sampled:
 		_low_sampled = true
 		_low = TuningConfig.quality_is_low()
+	_work_sigils += 1
 	if _edge_on:
 		_draw_edge()
 	else:
@@ -762,21 +763,22 @@ func _draw_edge() -> void:
 		for i: int in PULSE_RINGS:
 			var t: float = fposmod(_phase * 0.55 + float(i) / float(PULSE_RINGS), 1.0)
 			var k: float = 0.75 + t * 0.9
-			draw_polyline(_ellipse_pts(ex * k, R * k, _seg(48)), Color(c.r, c.g, c.b, (1.0 - t) * 0.2 * a), 2.0, true)
+			draw_polyline(_ellipse_pts(ex * k, R * k, _seg(48, R * k)), Color(c.r, c.g, c.b, (1.0 - t) * 0.2 * a), 2.0, true)
 
 	# The ULT summoning band, edge-on: a second gate standing outside the first. Same
 	# "an ult changes the OUTLINE" rule as the face-on draw.
 	if tier >= SpellTier.Tier.ULT:
-		draw_polyline(_ellipse_pts(ex * 1.5, R * 1.18, _seg(48)), Color(c.r, c.g, c.b, 0.4 * a), 2.0, true)
+		draw_polyline(_ellipse_pts(ex * 1.5, R * 1.18, _seg(48, R * 1.18)), Color(c.r, c.g, c.b, 0.4 * a), 2.0, true)
 
 	# Nested edge-on rings.
-	draw_polyline(_ellipse_pts(ex * breath, R * breath, _seg(56)), ring, 3.0, true)
-	draw_polyline(_ellipse_pts(ex * 0.72 * breath, R * 0.72 * breath, _seg(48)), soft, 2.0, true)
+	draw_polyline(_ellipse_pts(ex * breath, R * breath, _seg(56, R * breath)), ring, 3.0, true)
+	draw_polyline(_ellipse_pts(ex * 0.72 * breath, R * 0.72 * breath, _seg(48, R * 0.72 * breath)), soft, 2.0, true)
 	if tier >= SpellTier.Tier.HEAVY:
-		draw_polyline(_ellipse_pts(ex * 0.46, R * 0.46, _seg(40)), soft, 1.5, true)
+		draw_polyline(_ellipse_pts(ex * 0.46, R * 0.46, _seg(40, R * 0.46)), soft, 1.5, true)
 
 	# Rim glyphs orbiting the edge-on ring — foreshortened, brighter at the front.
 	var motes: int = MOTES if not _low else 3
+	_work_blobs += motes * 2 + 2          # rim motes (2 each) + the hot core pair
 	for i: int in motes:
 		var th: float = _phase * 1.6 + TAU * float(i) / float(motes)
 		var pos: Vector2 = Vector2(ex * cos(th), R * 0.94 * sin(th))
@@ -824,10 +826,11 @@ func _draw_edge() -> void:
 		var k2: float = 1.0 - _snap
 		var fs: float = 1.0 + 0.7 * ease(k2, 0.4)
 		var fa: float = _snap * _snap * a
-		draw_polyline(_ellipse_pts(ex * fs, R * fs, _seg(48)),
-			Color(c.r, c.g, c.b, 0.85 * fa), 3.0 + 5.0 * _snap, true)
-		draw_polyline(_ellipse_pts(ex * fs, R * fs, _seg(48)),
-			Color(1.6, 1.6, 1.7, 0.6 * fa), 1.5 + 2.0 * _snap, true)
+		var flare_pts: PackedVector2Array = _ellipse_pts(ex * fs, R * fs, _seg(48, R * fs))
+		# ONE point array for both passes. The bright core is the same ellipse as the
+		# body of the flare, and building it twice built identical geometry twice.
+		draw_polyline(flare_pts, Color(c.r, c.g, c.b, 0.85 * fa), 3.0 + 5.0 * _snap, true)
+		draw_polyline(flare_pts, Color(1.6, 1.6, 1.7, 0.6 * fa), 1.5 + 2.0 * _snap, true)
 
 
 ## A closed ellipse polyline with x half-extent `ex`, y half-extent `ey`.
@@ -863,22 +866,22 @@ func _draw_face() -> void:
 	var soft: Color = Color(c.r, c.g, c.b, 0.5 * a)
 	var white: Color = Color(1.7, 1.7, 1.8, a)  # HDR aperture/core blooms
 	var breath: float = 1.0 + 0.03 * sin(_phase * 4.0)
-	var seg: int = _seg(84)
+	var seg: int = _seg(84, radius * s * breath * recoil)
 
 	# --- 1. pulse rings + the ULT summoning band ----------------------------
 	if not _low:
 		for i: int in PULSE_RINGS:
 			var t: float = fposmod(_phase * 0.55 + float(i) / float(PULSE_RINGS), 1.0)
 			var rr: float = R * (0.75 + t * 0.9)
-			draw_arc(Vector2.ZERO, rr, 0.0, TAU, _seg(60), Color(c.r, c.g, c.b, (1.0 - t) * 0.22 * a), 2.0, true)
+			draw_arc(Vector2.ZERO, rr, 0.0, TAU, _seg(60, rr), Color(c.r, c.g, c.b, (1.0 - t) * 0.22 * a), 2.0, true)
 	if ult:
 		# A second, WIDER ring outside the main one, spinning the other way. This is
 		# the single clearest "an ult is being cast" read available before the spell
 		# exists, because it changes the sigil's OUTLINE rather than its brightness —
 		# and an outline survives a busy screen where brightness does not.
-		draw_arc(Vector2.ZERO, R * 1.20, 0.0, TAU, _seg(72), Color(c.r, c.g, c.b, 0.42 * a), 2.0, true)
+		draw_arc(Vector2.ZERO, R * 1.20, 0.0, TAU, _seg(72, R * 1.20), Color(c.r, c.g, c.b, 0.42 * a), 2.0, true)
 		draw_set_transform(Vector2.ZERO, -_phase * SPIN_SPEED * 0.45, Vector2.ONE)
-		_draw_dashed_ring(radius * s * recoil * 1.13, _seg(DASH_SEGMENTS), 0.32,
+		_draw_dashed_ring(radius * s * recoil * 1.13, _dashes(), 0.32,
 			Color(c.r, c.g, c.b, 0.5 * a), 2.5)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
@@ -887,14 +890,14 @@ func _draw_face() -> void:
 	draw_arc(Vector2.ZERO, radius, 0.0, TAU, seg, ring, 3.5, true)
 	if not _low:
 		draw_arc(Vector2.ZERO, radius * 0.965, 0.0, TAU, seg, Color(1, 1, 1, 0.2 * a), 1.5, true)
-	_draw_dashed_ring(radius * 0.88, _seg(DASH_SEGMENTS), 0.55, Color(c.r, c.g, c.b, 0.75 * a), 3.0)
+	_draw_dashed_ring(radius * 0.88, _dashes(), 0.55, Color(c.r, c.g, c.b, 0.75 * a), 3.0)
 	_draw_glyph_band(radius * 0.76, glyph_count(), a, c)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 	# --- 3. the mechanism: only spells that cost you get moving parts -------
 	if heavy:
 		draw_set_transform(Vector2.ZERO, -_phase * SPIN_SPEED * 0.7, Vector2(s, s) * breath)
-		draw_arc(Vector2.ZERO, radius * 0.64, 0.0, TAU, _seg(60), soft, 2.0, true)
+		draw_arc(Vector2.ZERO, radius * 0.64, 0.0, TAU, _seg(60, radius * 0.64 * s * breath), soft, 2.0, true)
 		for i: int in SPOKES:
 			var sd: Vector2 = Vector2.from_angle(TAU * float(i) / float(SPOKES))
 			draw_line(sd * radius * 0.34, sd * radius * 0.6, Color(c.r, c.g, c.b, 0.4 * a), 1.5, true)
@@ -914,6 +917,7 @@ func _draw_face() -> void:
 	_draw_gather_ring(R, a, c)
 
 	var motes: int = MOTES if not _low else 3
+	_work_blobs += motes * 2 + 2          # orbiting motes (2 each) + core fill/white
 	for i: int in motes:
 		var ang: float = _phase * 1.5 + TAU * float(i) / float(motes)
 		var pos: Vector2 = Vector2.from_angle(ang) * R * 0.72
@@ -926,17 +930,94 @@ func _draw_face() -> void:
 	var pulse: float = 0.82 + 0.18 * sin(_phase * 7.5)
 	var swell: float = 1.0 + 0.55 * _charge + 0.9 * _snap
 	draw_circle(Vector2.ZERO, radius * 0.22 * s * pulse * swell, Color(c.r, c.g, c.b, 0.28 * a), true, -1.0, true)
-	draw_arc(Vector2.ZERO, radius * 0.15 * s * swell, 0.0, TAU, _seg(28), ring, 2.0, true)
+	draw_arc(Vector2.ZERO, radius * 0.15 * s * swell, 0.0, TAU, _seg(28, radius * 0.15 * s * swell), ring, 2.0, true)
 	draw_circle(Vector2.ZERO, radius * 0.09 * s * pulse * swell, white, true, -1.0, true)
 
 	_draw_snap_flare(R, a, c)
 
 
 # ------------------------------------------------------- shared sigil furniture
+## Roughly how many pixels of arc one polyline segment should span. 4 px is below
+## the threshold at which a straight edge is distinguishable from a curve at the
+## sizes this sigil is actually drawn — and well below it on a phone panel.
+const PX_PER_SEGMENT: float = 4.0
+## Never below this, however small the ring: a heptagon reads as a shape rather
+## than a circle, and the sigil's job is to be recognised instantly.
+const MIN_SEGMENTS: int = 12
+
 ## Arc segment count for this sigil's level of detail. One place so a future
 ## quality tier is a change to this function and nothing else.
-func _seg(full: int) -> int:
-	return maxi(full / 2, 12) if _low else full
+##
+## ⚠ `r` IS THE ARC'S ACTUAL RADIUS, AND PASSING IT IS THE SINGLE BIGGEST SAVING IN
+## THIS FILE. Measured: `MagicCircle` is **87.9% of all spell-spectacle `_draw`
+## cost** in the roster (`tools/profile_spectacles.gd`) — it opens on 31 of 38
+## spells, so it is a tax on nearly every cast rather than one expensive spell.
+##
+## The cost is dominated by the NUMBER OF LINE SEGMENTS the draw commands carry,
+## and this function used to return a flat 84 (or 60, or 52) regardless of how big
+## the ring being drawn was. Hero's windup sigil sizes itself ~17-34 px, so the main
+## rim was being tessellated at **one segment every 1.5 px** — geometry nobody can
+## see at any resolution this game ships at, on the single most repeated drawing in
+## the frame.
+##
+## Scaling by circumference makes the fidelity CONSTANT instead of the segment count
+## constant, which is the correct invariant: a small sigil gets cheaper and a big one
+## is untouched (the `full` cap still applies, so an ULT's wide summoning band draws
+## exactly the geometry it always did). This is a fidelity change strictly below the
+## visible threshold, never a change to what the sigil SAYS — radius, timing, colour,
+## tier ladder, glyph count and spin are all identical. The sigil is the telegraph
+## and the telegraph is the fairness contract; it may get cheaper, it may not get
+## quieter.
+func _seg(full: int, r: float = -1.0) -> int:
+	var n: int = full
+	if r > 0.0:
+		n = clampi(int(ceil(TAU * absf(r) / PX_PER_SEGMENT)), MIN_SEGMENTS, full)
+	n = maxi(n / 2, 12) if _low else n
+	_work_segments += n
+	return n
+
+
+# ------------------------------------------------------------- WORK COUNTERS
+## Deterministic draw-work counters, in the same idiom and for the same reason as
+## `CombatVfx` / `DebrisChunk` / `ScorchDecal`: **wall-clock on this machine cannot
+## measure this.** Two identical seeded runs of the crowd harness timed 33 ms and
+## 57 ms, and at the sub-millisecond scale a single sigil lives at it is worse than
+## that — an A/B probe drawing 250 rings of 60 segments each reported a delta of
+## 0.42 µs/node, while the same probe at 200 segments reported 9.14 µs/node, which
+## is not a measurement, it is a coin toss. (The cause is that a headless frame
+## absorbs extra work into idle time until it exceeds the pacing budget, so cost is
+## invisible right up until it is not — the same trap that once had a harness
+## confidently reporting a perfect 16.67 ms.)
+##
+## Segments issued per frame is the right invariant anyway: it is what the CPU
+## builds commands for AND what the GPU rasterises, it is EXACTLY linear in the
+## thing being cut, and it is identical on every machine. A before/after on this
+## number is a fact; a before/after on milliseconds here is an opinion.
+##
+## `segments` counts polyline/arc segments, `dashes` the summoning-ring ticks,
+## `glyphs` element marks, `blobs` filled circles. `sigils` is how many `_draw`
+## bodies ran, so every figure can be read per-sigil.
+static var _work_segments: int = 0
+static var _work_dashes: int = 0
+static var _work_glyphs: int = 0
+static var _work_blobs: int = 0
+static var _work_sigils: int = 0
+
+
+static func work_stats() -> Dictionary:
+	return {
+		"segments": _work_segments, "dashes": _work_dashes,
+		"glyphs": _work_glyphs, "blobs": _work_blobs, "sigils": _work_sigils,
+	}
+
+
+## Test hook.
+static func reset_work() -> void:
+	_work_segments = 0
+	_work_dashes = 0
+	_work_glyphs = 0
+	_work_blobs = 0
+	_work_sigils = 0
 
 
 ## THE GATHER RING — a ring OUTSIDE the sigil that contracts inward as the charge
@@ -952,7 +1033,7 @@ func _draw_gather_ring(R: float, a: float, c: Color) -> void:
 	var gr: float = R * lerpf(1.62, 1.0, k)
 	# Brightens as it closes, so the last frames before release are the brightest.
 	var ga: float = (0.18 + 0.55 * k) * a
-	draw_arc(Vector2.ZERO, gr, 0.0, TAU, _seg(52), Color(c.r, c.g, c.b, ga), 2.0 + 1.5 * k, true)
+	draw_arc(Vector2.ZERO, gr, 0.0, TAU, _seg(52, gr), Color(c.r, c.g, c.b, ga), 2.0 + 1.5 * k, true)
 
 
 ## THE RELEASE FLARE — a hard bright ring thrown outward from the rim, fading as it
@@ -965,8 +1046,9 @@ func _draw_snap_flare(R: float, a: float, c: Color) -> void:
 	var k: float = 1.0 - _snap            # 0 at the instant of release -> 1 when spent
 	var fr: float = R * (1.0 + 0.75 * ease(k, 0.4))
 	var fa: float = _snap * _snap * a     # squared: slams, then gets out of the way
-	draw_arc(Vector2.ZERO, fr, 0.0, TAU, _seg(60), Color(c.r, c.g, c.b, 0.85 * fa), 3.0 + 5.0 * _snap, true)
-	draw_arc(Vector2.ZERO, fr, 0.0, TAU, _seg(60), Color(1.6, 1.6, 1.7, 0.6 * fa), 1.5 + 2.0 * _snap, true)
+	var fseg: int = _seg(60, fr)
+	draw_arc(Vector2.ZERO, fr, 0.0, TAU, fseg, Color(c.r, c.g, c.b, 0.85 * fa), 3.0 + 5.0 * _snap, true)
+	draw_arc(Vector2.ZERO, fr, 0.0, TAU, fseg, Color(1.6, 1.6, 1.7, 0.6 * fa), 1.5 + 2.0 * _snap, true)
 
 
 ## THE ELEMENT GLYPH BAND. `n` marks around radius `r`, each oriented outward, each
@@ -979,11 +1061,13 @@ func _draw_snap_flare(R: float, a: float, c: Color) -> void:
 ## that never heard of this is byte-for-byte unchanged.
 func _draw_glyph_band(r: float, n: int, a: float, c: Color) -> void:
 	if _element < 0:
+		_work_segments += (TICKS if not _low else 10)
 		for i: int in (TICKS if not _low else 10):
 			var dirv: Vector2 = Vector2.from_angle(TAU * float(i) / float(TICKS if not _low else 10))
 			draw_line(dirv * r, dirv * r * 1.24, Color(c.r, c.g, c.b, 0.5 * a), 1.5, true)
 		return
 	var size: float = maxf(r * 0.26, 3.0)
+	_work_glyphs += n
 	var dim := Color(c.r, c.g, c.b, 0.30 * a)
 	var lit := Color(c.r * 1.35, c.g * 1.35, c.b * 1.35, 0.95 * a)
 	for i: int in n:
@@ -1081,11 +1165,30 @@ func _draw_glyph(at: Vector2, ang: float, size: float, col: Color, lit: bool) ->
 				at + ux * size * 0.12 - uy * size * 0.12, col, w * 0.8, true)
 
 
+## HOW MANY DASHES the summoning ring is cut into.
+##
+## Deliberately NOT routed through `_seg(r)`: the dash count is a LOOK property —
+## it is the pattern the player reads — where the segment count is tessellation
+## nobody can see. Scaling it with radius would make a small sigil a visibly
+## different drawing rather than a cheaper one. Byte-identical to the previous
+## `_seg(DASH_SEGMENTS)` at both quality levels; only the name changed, so that the
+## radius-aware `_seg` cannot be applied here by accident later.
+func _dashes() -> int:
+	return maxi(DASH_SEGMENTS / 2, 12) if _low else DASH_SEGMENTS
+
+
 func _draw_dashed_ring(r: float, count: int, fill: float, col: Color, width: float) -> void:
 	var slot: float = TAU / float(count)
+	# Points PER DASH, from the dash's own arc length. A dash on a 17 px sigil spans
+	# under 3 px; drawing it with a fixed 6-point arc spent five segments on a stroke
+	# barely longer than the line is wide. 2 is a straight tick, which is what a dash
+	# that short already looks like.
+	var pts: int = clampi(int(ceil(r * slot * fill / PX_PER_SEGMENT)), 2, 6)
+	_work_dashes += count
+	_work_segments += count * maxi(pts - 1, 1)
 	for i: int in count:
 		var start: float = slot * float(i)
-		draw_arc(Vector2.ZERO, r, start, start + slot * fill, 6, col, width, true)
+		draw_arc(Vector2.ZERO, r, start, start + slot * fill, pts, col, width, true)
 
 
 func _draw_star(r: float, points: int, offset: float, col: Color) -> void:

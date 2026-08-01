@@ -21,6 +21,36 @@ const INTRO_TIME: float = 2.6
 const ADD_CAP: int = 3
 const PHASE_CD: Dictionary = {BPhase.P1: 2.4, BPhase.P2: 1.7, BPhase.P3: 1.1}
 
+# ══ THE CEREMONY SCALES WITH THE FIGHT ═══════════════════════════════════════
+## Every floor now ends on a guardian, and until this landed every one of them got
+## the SAME arrival: a 2.6 s title card it cannot attack through, a camera pull, a
+## full-width health bar and a name in 36 pt. The fun audit measured what that
+## ceremony was actually introducing on floor 1 — a **6 to 13 second fight**. Two
+## and a half seconds of posturing in front of six seconds of fighting is not an
+## entrance, it is an apology.
+##
+## The fix is NOT to delete the entrance. A floor-1 guardian should still land as an
+## event — it is the only thing on the floor that is not trash, and a mini-guardian
+## that simply walks on is a reskinned brute. What it must not be is a twelve-second
+## opera. So the ceremony has two settings, and which one you get is read off
+## `body_scale`, which `Encounter` already sets pre-`_ready` from the floor type and
+## already ships in the co-op spawn dictionary — so both phones agree with no new
+## field, no new packet, and no caller changing.
+##
+##   FULL  (body_scale >= FULL_CEREMONY_SCALE): the floor-5 guardian and anything
+##         else authored at near-full size. Byte-identical to what shipped.
+##   BRIEF (below): a fast name flash, a short pull, a compact bar. The beats are
+##         the same beats — you still get a name, a roar and a bar — at about a
+##         third of the running time.
+##
+## The three PHASES are untouched in both. They were invisible on floors 1-4
+## because the fight was over before the first gate; that is fixed on the HP side
+## (`Encounter.boss_hp_fraction_for_type`), which is the honest place to fix it.
+const FULL_CEREMONY_SCALE: float = 0.9
+## A mini-guardian's intro. Long enough to read a name and see it wake; short
+## enough that you are fighting before you have put the phone down.
+const BRIEF_INTRO_TIME: float = 1.0
+
 ## BEAM TELEGRAPH (1.6). The beam used to be the one attack with no tell — a
 ## 1400 px/s bolt out of a still silhouette, which breaks the floor's own
 ## "every attack is dodgeable because you saw it coming" grammar. Now it lays a
@@ -223,6 +253,14 @@ func _apply_phase(p: int, authoritative: bool) -> void:
 	_bphase = p
 	if authoritative:
 		_attack_cd = float(PHASE_CD.get(p, 2.0)) * 0.6
+	# THE BOSS FIGHT'S ONE REWARD EVENT. Hype's channels — kill streaks and
+	# multi-kills — both need a crowd, so a 1v1 guardian pays out NOTHING for its
+	# whole length (the audit measured ~23 seconds of it on floor 5). Breaking a
+	# phase is the beat a boss fight reliably produces, so it is the beat that pays.
+	# Granted on BOTH the host and the client path deliberately: rank is a local
+	# cosmetic and each peer's own player earned their own break.
+	if p == BPhase.P2 or p == BPhase.P3:
+		_grant_phase_break_power()
 	match p:
 		BPhase.P1:
 			if _adorn != null: _adorn.set_intensity(0.35)
@@ -252,6 +290,29 @@ func _apply_phase(p: int, authoritative: bool) -> void:
 			Juice.epic_moment({"strength": 1.2, "shake": 14.0, "sfx": "cannon",
 				"frame": true, "at": global_position,
 				"style": ImpactFrame.Style.SILHOUETTE})
+
+
+## ⚠ A TREE LOOKUP, NOT THE BARE `Rank` IDENTIFIER. `Rank` is an autoload and
+## `Rank.gd` declares no `class_name`, so the identifier only resolves once the
+## autoload is registered — and a `--script` harness registers none. Naming it here
+## would make this WHOLE FILE fail to compile under every headless boss suite, and a
+## `class_name` script that failed to compile still resolves to a GDScript object
+## with none of its members on it. (`Juice` above is safe for the opposite reason:
+## it has a `class_name`.) `SpellDrops.sfx` documents the same trap at length.
+##
+## The AMOUNT comes off the Rank script rather than being copied, so the boss's
+## reward and the curve it feeds can never drift apart. `preload` of a plain script
+## resource does not register or need the autoload.
+const RANK_SCRIPT: GDScript = preload("res://scripts/combat/Rank.gd")
+
+
+func _grant_phase_break_power() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null or tree.root == null:
+		return
+	var r: Node = tree.root.get_node_or_null(^"Rank")
+	if r != null and r.has_method(&"add_power"):
+		r.call(&"add_power", int(RANK_SCRIPT.get(&"PHASE_BREAK_POWER")))
 
 
 ## Broadcast one spectacle to every client as a DAMAGE-FREE twin. Host-gated inside
@@ -487,6 +548,32 @@ func _atk_nova() -> void:
 
 
 # ------------------------------------------------------------------ boss HUD
+## Is this the floor's HEADLINE act, or a mini-guardian? Read off `body_scale`, which
+## is set pre-`_ready` and travels in the co-op spawn dict — see the CEREMONY block.
+func full_ceremony() -> bool:
+	return body_scale >= FULL_CEREMONY_SCALE
+
+
+## How long the boss stands there being announced (and cannot attack).
+func intro_time() -> float:
+	return INTRO_TIME if full_ceremony() else BRIEF_INTRO_TIME
+
+
+## Name-card typography + timing, as one bag so the base intro and every subclass's
+## override read the same numbers instead of each hard-coding 36 / 0.5 / 1.4 / 0.5.
+## `hold` is the interval the card sits at full alpha; fade in/out bracket it, and
+## the three together must fit inside `intro_time()`.
+func card_style() -> Dictionary:
+	if full_ceremony():
+		return {"size": 36, "outline": 7, "top": 120.0, "sig_size": 12, "sig_top": 160.0,
+			"fade": 0.5, "hold": 1.4, "roar": 0.6, "pull": 0.2, "pull_hold": 0.4,
+			"pull_release": 0.6}
+	# A flash, not a card: smaller, higher up, and gone in under a second.
+	return {"size": 20, "outline": 5, "top": 96.0, "sig_size": 10, "sig_top": 122.0,
+		"fade": 0.22, "hold": 0.3, "roar": 0.25, "pull": 0.1, "pull_hold": 0.18,
+		"pull_release": 0.35}
+
+
 func _build_bar() -> void:
 	_bar_layer = CanvasLayer.new()
 	_bar_layer.layer = 55
@@ -494,31 +581,35 @@ func _build_bar() -> void:
 	_bar = BossBar.new()
 	_bar_layer.add_child(_bar)
 	# Virtual dispatch: a subclass's title/accent are in place from the first frame,
-	# so the bar never briefly shows the wrong boss's name.
-	_bar.setup(self, boss_title(), boss_accent())
+	# so the bar never briefly shows the wrong boss's name. A mini-guardian gets the
+	# COMPACT bar — it still needs its HP read at a glance, it just does not need
+	# two thirds of the screen width to say so.
+	_bar.setup(self, boss_title(), boss_accent(), not full_ceremony())
 
 
 func _play_intro() -> void:
 	_bphase = BPhase.INTRO
-	_intro_timer = INTRO_TIME
-	Juice.zoom_pull_camera(0.2, INTRO_TIME, 0.4, 0.6)
+	_intro_timer = intro_time()
+	var s: Dictionary = card_style()
+	Juice.zoom_pull_camera(float(s["pull"]), _intro_timer,
+		float(s["pull_hold"]), float(s["pull_release"]))
 	var card := Label.new()
 	card.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	card.offset_top = 120.0
+	card.offset_top = float(s["top"])
 	card.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	card.text = boss_title()
-	card.add_theme_font_size_override("font_size", 36)
+	card.add_theme_font_size_override("font_size", int(s["size"]))
 	card.add_theme_color_override("font_color", boss_accent())
 	card.add_theme_color_override("font_outline_color", Color(0.05, 0.02, 0.03, 0.95))
-	card.add_theme_constant_override("outline_size", 7)
+	card.add_theme_constant_override("outline_size", int(s["outline"]))
 	card.modulate.a = 0.0
 	_bar_layer.add_child(card)
 	var tw := create_tween()
-	tw.tween_property(card, "modulate:a", 1.0, 0.5)
-	tw.tween_interval(1.4)
-	tw.tween_property(card, "modulate:a", 0.0, 0.5)
+	tw.tween_property(card, "modulate:a", 1.0, float(s["fade"]))
+	tw.tween_interval(float(s["hold"]))
+	tw.tween_property(card, "modulate:a", 0.0, float(s["fade"]))
 	tw.tween_callback(card.queue_free)
-	get_tree().create_timer(0.6).timeout.connect(_roar_intro)
+	get_tree().create_timer(float(s["roar"])).timeout.connect(_roar_intro)
 
 
 func _roar_intro() -> void:

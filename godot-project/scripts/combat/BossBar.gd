@@ -15,8 +15,16 @@ const PHASE_COLORS: Array[Color] = [
 ]
 const BAR_H: float = 15.0
 const WIDTH_FRAC: float = 0.62
+## THE MINI-GUARDIAN'S BAR. A floor-1 guardian is an event, not the headline act —
+## it still needs its HP read at a glance, it does not need two thirds of a 640 px
+## screen to say so. Same bar, same notches, same colours, less real estate. See the
+## CEREMONY block in Boss.gd for why the ceremony has two settings at all.
+const COMPACT_BAR_H: float = 9.0
+const COMPACT_WIDTH_FRAC: float = 0.40
+const COMPACT_NAME_SIZE: int = 11
 
 var _boss: Node = null
+var _compact: bool = false
 var _ratio: float = 1.0
 var _shown: float = 1.0   # eased display ratio (a smooth drain)
 var _name_label: Label = null
@@ -35,9 +43,11 @@ var _accent: Color = DEFAULT_ACCENT
 ##
 ## `boss_name` empty falls back to asking the boss itself (`Boss.boss_title`), so a
 ## caller that forgets still gets the right name rather than the Guardian's.
-func setup(boss: Node, boss_name: String = "", accent: Color = DEFAULT_ACCENT) -> void:
+func setup(boss: Node, boss_name: String = "", accent: Color = DEFAULT_ACCENT,
+		compact: bool = false) -> void:
 	_boss = boss
 	_accent = accent
+	_compact = compact
 	var title: String = boss_name
 	if title == "" and boss != null and boss.has_method("boss_title"):
 		title = String(boss.call("boss_title"))
@@ -49,7 +59,8 @@ func setup(boss: Node, boss_name: String = "", accent: Color = DEFAULT_ACCENT) -
 	_name_label.text = title
 	_name_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_name_label.add_theme_font_size_override("font_size", 15)
+	_name_label.add_theme_font_size_override("font_size",
+		COMPACT_NAME_SIZE if compact else 15)
 	_name_label.add_theme_color_override("font_color", accent.lerp(Color(1, 1, 1), 0.42))
 	_name_label.add_theme_color_override("font_outline_color", Color(0.05, 0.03, 0.05, 0.95))
 	_name_label.add_theme_constant_override("outline_size", 5)
@@ -74,25 +85,41 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
+## The bar's height and width right now — the compact pair for a mini-guardian,
+## the full pair for the headline act. Public so a test can assert the two shapes
+## differ without redrawing the bar and measuring pixels.
+func bar_height() -> float:
+	return COMPACT_BAR_H if _compact else BAR_H
+
+
+func bar_width_frac() -> float:
+	return COMPACT_WIDTH_FRAC if _compact else WIDTH_FRAC
+
+
+func is_compact() -> bool:
+	return _compact
+
+
 func _draw() -> void:
 	var full_w: float = size.x
-	var bar_w: float = full_w * WIDTH_FRAC
+	var bar_h: float = bar_height()
+	var bar_w: float = full_w * bar_width_frac()
 	var x0: float = (full_w - bar_w) * 0.5
 	var y0: float = 24.0
 	# Outline + dark track.
-	draw_rect(Rect2(x0 - 2.0, y0 - 2.0, bar_w + 4.0, BAR_H + 4.0), Color(0.0, 0.0, 0.0, 0.7))
-	draw_rect(Rect2(x0, y0, bar_w, BAR_H), Color(0.08, 0.06, 0.09, 0.9))
+	draw_rect(Rect2(x0 - 2.0, y0 - 2.0, bar_w + 4.0, bar_h + 4.0), Color(0.0, 0.0, 0.0, 0.7))
+	draw_rect(Rect2(x0, y0, bar_w, bar_h), Color(0.08, 0.06, 0.09, 0.9))
 	# Trailing white "chip" (recent damage) then the phase-colored fill. The phase
 	# ladder is the Guardian's (cool -> hot as the fight escalates), pulled toward
 	# THIS boss's accent — so a cyan draughtsman does not get an ember-orange bar,
 	# and the Guardian's own bar is within a rounding error of what it always was.
 	var col: Color = PHASE_COLORS[_phase_index()].lerp(_accent, 0.55)
-	draw_rect(Rect2(x0, y0, bar_w * _shown, BAR_H), Color(0.95, 0.9, 0.85, 0.5))
-	draw_rect(Rect2(x0, y0, bar_w * _ratio, BAR_H), col)
+	draw_rect(Rect2(x0, y0, bar_w * _shown, bar_h), Color(0.95, 0.9, 0.85, 0.5))
+	draw_rect(Rect2(x0, y0, bar_w * _ratio, bar_h), col)
 	# Phase-gate notches at 66% and 33%.
 	for frac: float in [0.66, 0.33]:
 		var nx: float = x0 + bar_w * frac
-		draw_rect(Rect2(nx - 1.0, y0 - 1.0, 2.0, BAR_H + 2.0), Color(0.05, 0.03, 0.05, 0.85))
+		draw_rect(Rect2(nx - 1.0, y0 - 1.0, 2.0, bar_h + 2.0), Color(0.05, 0.03, 0.05, 0.85))
 
 
 func _phase_index() -> int:

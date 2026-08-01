@@ -87,50 +87,64 @@ func _on_rank_signal(new_tier: int, new_title: String) -> void:
 ## tier()/title() at every threshold boundary, including the clamp above the
 ## Ascendant threshold.
 func _test_tier_and_title_boundaries() -> void:
+	# ⚠ DERIVED FROM `TIER_POWER`, NOT HARDCODED — deliberately.
+	# This test used to pin the literal thresholds 6/16/32/54/84. When the curve was
+	# restretched (Rank maxed out in the first ~40 seconds of the game and then sat
+	# pinned forever, so it had stopped being a reward signal at all), every one of
+	# those literals broke at once and the suite reported eleven failures for one
+	# intentional change. The BOUNDARY SEMANTICS are what matter and they are what is
+	# asserted here: landing exactly on a threshold IS that tier, one point below is
+	# still the tier beneath, and the title tracks the tier. Retuning the curve is now
+	# a one-line change in `Rank`; breaking the semantics still fails loudly.
 	var rank: Node = _make_rank()
-	var powers: Array[int] = [0, 5, 6, 15, 16, 31, 32, 53, 54, 83, 84, 999]
-	var tiers: Array[int] = [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5]
-	var titles: Array[String] = [
-		"Nameless", "Nameless", "Climber", "Climber", "Ranked", "Ranked",
-		"Adept", "Adept", "Ranker", "Ranker", "Ascendant", "Ascendant",
-	]
-	for i: int in range(powers.size()):
-		rank.call("set_power", powers[i])
-		var got_tier: int = int(rank.call("tier"))
-		var got_title: String = String(rank.call("title"))
-		_expect(
-			got_tier == tiers[i],
-			"power %d -> tier %d (got %d)" % [powers[i], tiers[i], got_tier]
-		)
-		_expect(
-			got_title == titles[i],
-			"power %d -> title %s (got %s)" % [powers[i], titles[i], got_title]
-		)
+	var thresholds: Array = rank.get("TIER_POWER")
+	var titles: Array = rank.get("TIER_TITLE")
+	_expect(thresholds.size() >= 2, "the curve has tiers to test (got %d)" % thresholds.size())
+	_expect(thresholds.size() == titles.size(), "every tier has a title")
+	_expect(int(thresholds[0]) == 0, "tier 0 starts at power 0")
+	for i: int in range(thresholds.size()):
+		var at: int = int(thresholds[i])
+		rank.call("set_power", at)
+		_expect(int(rank.call("tier")) == i, "power %d (the threshold) IS tier %d" % [at, i])
+		_expect(String(rank.call("title")) == String(titles[i]),
+			"power %d -> title %s" % [at, String(titles[i])])
+		if i > 0:
+			rank.call("set_power", at - 1)
+			_expect(int(rank.call("tier")) == i - 1,
+				"power %d (one below) is still tier %d" % [at - 1, i - 1])
+	# Past the top threshold the tier clamps rather than running off the end.
+	var top: int = int(thresholds[thresholds.size() - 1])
+	rank.call("set_power", top * 4 + 999)
+	_expect(int(rank.call("tier")) == thresholds.size() - 1, "power past the top clamps to the top tier")
+	_expect(String(rank.call("title")) == String(titles[titles.size() - 1]), "...and keeps the top title")
 	_completes("tier_and_title_boundaries")
 
 
 ## add_power crossing a threshold flips the tier AND emits rank_changed
 ## exactly once, carrying the new tier + title.
 func _test_add_power_crossing_emits_once() -> void:
+	# Also derived from the curve — see the note in _test_tier_and_title_boundaries.
 	var rank: Node = _make_rank()
+	var thresholds: Array = rank.get("TIER_POWER")
+	var titles: Array = rank.get("TIER_TITLE")
+	var t1: int = int(thresholds[1])          # the first threshold above zero
+	var below: int = t1 - 1
 	_emissions = []
 	rank.connect("rank_changed", _on_rank_signal)
-	rank.call("set_power", 5)  # still tier 0 — must not emit
-	_expect(
-		_emissions.is_empty(), "set_power within tier 0 does not emit"
-	)
-	rank.call("add_power", 3)  # 5 -> 8, crosses the tier-1 threshold (6)
+	rank.call("set_power", below)              # still tier 0 — must not emit
+	_expect(_emissions.is_empty(), "set_power within tier 0 does not emit")
+	rank.call("add_power", 3)                  # crosses into tier 1
 	_expect(
 		_emissions.size() == 1,
-		"crossing threshold 6 emits rank_changed exactly once (got %d)" % _emissions.size()
+		"crossing threshold %d emits rank_changed exactly once (got %d)" % [t1, _emissions.size()]
 	)
 	if _emissions.size() == 1:
 		var e: Array = _emissions[0]
 		_expect(
-			int(e[0]) == 1 and String(e[1]) == "Climber",
-			"emission carries (1, Climber) (got %s)" % [e]
+			int(e[0]) == 1 and String(e[1]) == String(titles[1]),
+			"emission carries (1, %s) (got %s)" % [String(titles[1]), e]
 		)
-	_expect(int(rank.get("power")) == 8, "power accumulated to 8")
+	_expect(int(rank.get("power")) == below + 3, "power accumulated to %d" % (below + 3))
 	_completes("add_power_crossing_emits_once")
 
 
@@ -151,22 +165,27 @@ func _test_add_power_mid_tier_is_silent() -> void:
 
 ## set_power emits on any tier change (up or down), silent otherwise.
 func _test_set_power_emits_on_tier_change() -> void:
+	# Derived from the curve — see the note in _test_tier_and_title_boundaries.
 	var rank: Node = _make_rank()
+	var thresholds: Array = rank.get("TIER_POWER")
+	var titles: Array = rank.get("TIER_TITLE")
+	var top_tier: int = thresholds.size() - 1
+	var top: int = int(thresholds[top_tier])
 	_emissions = []
 	rank.connect("rank_changed", _on_rank_signal)
-	rank.call("set_power", 84)  # 0 -> tier 5 in one jump
+	rank.call("set_power", top)  # 0 -> top tier in ONE jump: still exactly one emission
 	_expect(
-		_emissions.size() == 1, "set_power(84) emits once (got %d)" % _emissions.size()
+		_emissions.size() == 1, "set_power(%d) emits once (got %d)" % [top, _emissions.size()]
 	)
 	if _emissions.size() == 1:
 		var e: Array = _emissions[0]
 		_expect(
-			int(e[0]) == 5 and String(e[1]) == "Ascendant",
-			"emission carries (5, Ascendant) (got %s)" % [e]
+			int(e[0]) == top_tier and String(e[1]) == String(titles[top_tier]),
+			"emission carries (%d, %s) (got %s)" % [top_tier, String(titles[top_tier]), e]
 		)
-	rank.call("set_power", 90)  # still tier 5 — silent
+	rank.call("set_power", top + 6)  # still the top tier — silent
 	_expect(
-		_emissions.size() == 1, "set_power within tier 5 stays silent"
+		_emissions.size() == 1, "set_power within the top tier stays silent"
 	)
 	_completes("set_power_emits_on_tier_change")
 

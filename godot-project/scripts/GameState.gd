@@ -30,7 +30,39 @@ signal returned_to_hub(outcome: Dictionary)  # hub NPCs have ingested the run
 
 enum Mode { HUB, RUN }
 
+## ═══════════════════════════════════════════════════════════════════════════════
+## WHERE A RUN ENDS. THE ONE PLACE.
+## ═══════════════════════════════════════════════════════════════════════════════
+## ⚠ `end_run` USED TO LOAD `HUB_SCENE` — AND SO DID WINNING.
+##
+## Both terminal states of the game (conquer the tower / the party wipes) walked
+## straight into `scenes/Main.tscn`: the parked v0.0 AI-NPC town, whose NPCs talk to
+## a hardcoded Ollama server at `127.0.0.1:11434`. There was no victory screen
+## anywhere in the tower, and no route back to the title from anything but the
+## credits. Under the 2026-08-01 death rule a solo death ends the run immediately,
+## so a first-time player reached that town **on their first death**, having seen
+## nothing of the game.
+##
+## THE CONFLICT, AND HOW IT IS RESOLVED. The hub route was deliberate — "the town
+## clocking your deaths is the moat" — and it directly contradicts
+## `docs/THE-TOWER-mobile-plan.md`, which records the whole LLM/NPC stack as cut
+## permanently and *cannot work on a phone at all* (loopback on a device is the
+## device's own localhost).
+##
+## Neither commitment is abandoned:
+##   * A run now ends on `SUMMARY_SCENE` — a ceremony that SHOWS the run (floor,
+##     kills, guardians, rank, falls, team damage) and then lands the player on the
+##     Lobby, which is the boot scene and works on a phone.
+##   * THE PERSISTENT CLIMB IS UNTOUCHED. `_floor`, `_highest_floor`, `_falls`,
+##     `tower_conquered` and `user://climber.json` are written exactly as before,
+##     BEFORE the ceremony; nothing about the climb needed the hub to happen.
+##   * The hub survives as an OPT-IN detour, `visit_hub()`, offered on the summary
+##     card and never on the critical path. `_pending_ingest` is still armed by
+##     every run, so the town's memory of your climb is intact the moment you walk
+##     in — it simply is not a toll gate any more.
 const HUB_SCENE: String = "res://scenes/Main.tscn"
+const SUMMARY_SCENE: String = "res://scenes/ui/RunSummary.tscn"
+const TITLE_SCENE: String = "res://scenes/ui/Lobby.tscn"
 const ARENA_SCENE: String = "res://scenes/combat/Arena.tscn"
 
 ## A run is TOTAL_FLOORS floors; the last one is the guardian floor.
@@ -93,6 +125,10 @@ var _floor: int = 1
 var _kills: int = 0
 var _boss_killed: bool = false
 var _elements_used: Dictionary = {}      # used as a String set
+## Damage the party dealt to ITSELF this run. Friendly fire is the spec's social
+## engine and the game never counted it, so nobody could ever be shown the bill.
+## `FriendlyFire.report` banks it here and the summary card reads it back.
+var _friendly_damage: int = 0
 
 
 # ---------------------------------------------------------------- transitions
@@ -118,6 +154,7 @@ func enter_run() -> void:
 	_kills = 0
 	_boss_killed = false
 	_elements_used = {}
+	_friendly_damage = 0
 	_run_active = true
 	mode = Mode.RUN
 	run_started.emit()
@@ -202,6 +239,7 @@ func enter_coop_run(floor: int) -> void:
 	_kills = 0
 	_boss_killed = false
 	_elements_used = {}
+	_friendly_damage = 0
 	_run_active = true
 	mode = Mode.RUN
 	run_started.emit()
@@ -287,13 +325,41 @@ func end_run(died: bool, floor_override: int = -1) -> void:
 	last_run = build_outcome(
 		(_floor if floor_override < 0 else floor_override),
 		_kills, _boss_killed, died,
-		_elements_used.keys(), _rank_tier(), _rank_title(), _falls
+		_elements_used.keys(), _rank_tier(), _rank_title(), _falls,
+		_friendly_damage, _highest_floor, total_floors()
 	)
 	_pending_ingest = true
 	_run_hint_unshown = true
 	mode = Mode.HUB
 	run_ended.emit(last_run)
+	# THE CEREMONY, NOT THE PARKED TOWN. See the SUMMARY_SCENE block at the top for
+	# why this line moved and what it does not cost. Falls back to the title screen
+	# rather than the hub if the card is ever missing from a build — a player who
+	# finished a run must always end up somewhere they can start another one.
+	_change_scene(SUMMARY_SCENE if ResourceLoader.exists(SUMMARY_SCENE) else TITLE_SCENE)
+
+
+## THE OPT-IN DETOUR. Walk into the parked v0.0 town, where the NPCs read the run
+## you just finished out of `_pending_ingest` and react to it.
+##
+## ⚠ NOT ON THE CRITICAL PATH, AND THAT IS THE WHOLE POINT. It needs a local Ollama
+## server on `127.0.0.1:11434`, which on a phone is the device's own loopback, so
+## anything that FORCES a player through here is broken on the target platform. The
+## summary card offers it as a button and hides that button on a build that has no
+## business showing it. Returns false when the hub is not in this build.
+func visit_hub() -> bool:
+	if not ResourceLoader.exists(HUB_SCENE):
+		return false
+	mode = Mode.HUB
 	_change_scene(HUB_SCENE)
+	return true
+
+
+## Back to the title. The game had NO route here from anything but the credits
+## screen — once a run ended, the thing you booted into was unreachable.
+func go_to_title() -> void:
+	mode = Mode.HUB
+	_change_scene(TITLE_SCENE)
 
 
 ## Called from World._ready() once the hub + its NPC children have loaded (child
@@ -387,6 +453,11 @@ func _restore_rank_power() -> void:
 func notify_kill() -> void: _kills += 1
 func notify_boss_killed() -> void: _boss_killed = true
 func notify_element_used(display_name: String) -> void: _elements_used[display_name] = true
+## Banked by `FriendlyFire.report`. The only number in the game that says what the
+## party did to itself — without it, "friendly fire is the social engine" is a claim
+## nobody can check after the fact.
+func notify_friendly_fire(amount: int) -> void: _friendly_damage += maxi(amount, 0)
+func friendly_damage() -> int: return _friendly_damage
 func is_run_active() -> bool: return _run_active
 func current_floor() -> int: return _floor
 
@@ -419,9 +490,15 @@ func _rank_title() -> String:
 # ======================================================================
 
 ## Frozen record of a finished run.
+## The three trailing fields exist for the SUMMARY CARD and are appended rather than
+## inserted so every existing 7- and 8-argument caller (and the suites that pin them)
+## is untouched. `conquered` is derived rather than stored: "you put the guardian
+## down AND walked away with it" is one question, and two call sites answering it
+## independently is how a victory screen ends up disagreeing with the save file.
 static func build_outcome(
 	floor_reached: int, kills: int, boss_killed: bool, died: bool,
-	elements: Array, rank_tier: int, rank_title: String, falls: int = 0
+	elements: Array, rank_tier: int, rank_title: String, falls: int = 0,
+	friendly_damage: int = 0, highest_floor: int = 0, total_floors_in_tower: int = 0
 ) -> Dictionary:
 	var elems: Array = []
 	for e in elements:
@@ -432,10 +509,14 @@ static func build_outcome(
 		"boss_killed": boss_killed,
 		"cleared": (not died),
 		"died": died,
+		"conquered": (boss_killed and not died),
 		"rank_tier": rank_tier,
 		"rank_title": rank_title,
 		"elements_used": elems,
 		"falls": maxi(falls, 0),
+		"friendly_damage": maxi(friendly_damage, 0),
+		"highest_floor": maxi(highest_floor, floor_reached),
+		"total_floors": maxi(total_floors_in_tower, floor_reached),
 	}
 
 

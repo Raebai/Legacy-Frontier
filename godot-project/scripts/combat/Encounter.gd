@@ -108,6 +108,9 @@ var _brute: float = 0.35
 var _hp: float = 1.0
 var _boss_hp: float = 1.0
 var _boss_scale: float = 1.0
+## Guardian HP as a fraction of the full colossus. Separate from `_boss_scale`
+## (which is now only the BODY size) — see `boss_hp_fraction_for_type`.
+var _boss_hp_fraction: float = 1.0
 var _spawns_boss: bool = true
 var _wave_break: float = DEFAULT_SURGE
 # Wave state.
@@ -183,6 +186,7 @@ func run_floor(floor_def: FloorDef) -> void:
 	_hp = floor_def.hp_multiplier
 	_boss_hp = resolved_boss_hp(floor_def)
 	_boss_scale = resolved_boss_scale(floor_def)
+	_boss_hp_fraction = resolved_boss_hp_fraction(floor_def)
 	_wave_break = maxf(floor_def.wave_break, 0.0)
 	_waves = resolved_waves(floor_def)
 	_spawns_boss = floor_def.floor_type != FloorDef.FloorType.REST \
@@ -374,7 +378,9 @@ func _begin_boss() -> void:
 	_boss_roll = BossRoster.roll(_depth, randi(), _forced_boss, _forced_mods, _allow_mods)
 	# _boss_hp, not the trash multiplier: depth HP scaling now lives on the
 	# guardian alone (FloorDef.boss_hp_multiplier).
-	spawn_boss(_boss_hp * _boss_scale, _boss_scale,
+	# HP fraction and BODY fraction are two arguments now, not one number passed
+	# twice — see `boss_hp_fraction_for_type` for why they came apart.
+	spawn_boss(_boss_hp * _boss_hp_fraction, _boss_scale,
 		String(_boss_roll["boss"]), _boss_roll["mods"], int(_boss_roll["seed"]))
 	boss_spawned.emit()
 
@@ -551,9 +557,14 @@ static func split_budget(total: int, count: int) -> Array[int]:
 	return out
 
 
-## Boss strength for a floor type, as a fraction of the full guardian. BOSS
-## floors get the colossus; everything else gets a scaled-down one so every
-## floor still ends on a fight (bosses 2-4 are a later phase).
+## Boss SIZE for a floor type, as a fraction of the full guardian. BOSS floors get
+## the colossus; everything else gets a scaled-down one so every floor still ends on
+## a fight (bosses 2-4 are a later phase).
+##
+## ⚠ THIS IS A VISUAL SCALE AND NOTHING ELSE NOW. It used to be BOTH the body size
+## and the HP fraction (`spawn_boss(_boss_hp * _boss_scale, _boss_scale)`), which
+## meant "draw it smaller" and "make it die faster" were the same decision. See
+## `boss_hp_fraction_for_type` for why they had to come apart.
 static func boss_scale_for_type(floor_type: int) -> float:
 	match floor_type:
 		FloorDef.FloorType.BOSS:
@@ -566,6 +577,39 @@ static func boss_scale_for_type(floor_type: int) -> float:
 			return 0.45
 
 
+## Boss HP for a floor type, as a fraction of the full guardian's.
+##
+## ══ WHY THIS IS NOT `boss_scale_for_type` ═════════════════════════════════════
+## The fun audit ran `tools/floor_sim.gd` and measured the mini-guardian at 6-13
+## seconds on floor 1 — and the Boss class has THREE HP-gated phases at 66% and
+## 33%, with escalating attack cadence, which in a six-second fight are both crossed
+## inside about four seconds. The best-built thing in the combat layer was invisible
+## on four floors out of five.
+##
+## The cause was one number doing two jobs. A mini-guardian should LOOK smaller —
+## it is not the Ashspire colossus and it must not pretend to be — but a body at 45%
+## size does not have to die at 45% HP. Splitting them lets the fight last long
+## enough to show its own phases while the silhouette stays honest about rank.
+##
+## THE NUMBERS ARE SIZED, NOT GUESSED: at the sim's 45 dps reference a floor-1
+## guardian goes from ~0:11 to ~0:19 and floor 4 from ~0:15 to ~0:25 — long enough
+## to reach phase 3, short enough that the whole five-floor climb stays inside the
+## ~6-7 minute run shape the audit argues for (it lands at ~6:45, up from 6:04).
+## This is the ONE place trash-vs-boss HP asymmetry is allowed: the spec's "higher
+## floors add modifiers, not HP" governs the DEPTH curve, and this is not a depth
+## curve — every floor type gets the same fraction at every depth.
+static func boss_hp_fraction_for_type(floor_type: int) -> float:
+	match floor_type:
+		FloorDef.FloorType.BOSS:
+			return 1.0
+		FloorDef.FloorType.ELITE:
+			return 0.90
+		FloorDef.FloorType.PVP:
+			return 0.85
+		_:
+			return 0.80
+
+
 ## The floor's authored boss_scale, or the floor-type default when it is <= 0.
 static func resolved_boss_scale(floor_def: FloorDef) -> float:
 	if floor_def == null:
@@ -573,6 +617,18 @@ static func resolved_boss_scale(floor_def: FloorDef) -> float:
 	if floor_def.boss_scale > 0.0:
 		return floor_def.boss_scale
 	return boss_scale_for_type(floor_def.floor_type)
+
+
+## The floor's guardian HP fraction. An AUTHORED `boss_scale` still wins — a floor
+## that deliberately says "this one is a 0.3 statue" gets a 0.3 statue in both size
+## and HP, because that author was making one statement about one fight. Only the
+## floor-TYPE default splits the two.
+static func resolved_boss_hp_fraction(floor_def: FloorDef) -> float:
+	if floor_def == null:
+		return 1.0
+	if floor_def.boss_scale > 0.0:
+		return floor_def.boss_scale
+	return boss_hp_fraction_for_type(floor_def.floor_type)
 
 
 # -------------------------------------------------------- live entity budget
