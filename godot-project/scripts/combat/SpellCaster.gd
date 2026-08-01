@@ -62,6 +62,109 @@ const CATACLYSM_SCRIPTS: Dictionary = {
 	# `roulette` is deliberately ABSENT: it has no spectacle of its own. It rolls
 	# one of the three above and re-enters `cast`. See `_roll_roulette`.
 }
+# ------------------------------------------------------------------ WARM-UP
+## Every spectacle script this dispatcher can reach, INCLUDING the ones those
+## scripts reach in turn. Used only by `warm()`.
+##
+## ⚠ THE NESTED ONES ARE NOT OPTIONAL AND ARE EASY TO MISS. `frozen_comet` measured
+## a 61 ms first cast while its own arm's script (`MeteorSigil`) was ALREADY cached
+## — because MeteorSigil forks to `IceSpikeLine` by path from inside `rain()`. The
+## same is true of ShadowRoot (forked off the ZONE arm), RigGhost (MirrorImage) and
+## the two reaction spectacles. Warming only this file's own dispatch table would
+## have left the worst offender in the roster cold and looked like it worked.
+const WARM_PATHS: PackedStringArray = [
+	BEAM_PATH, RAY_PATH, METEOR_PATH, CONVERGENCE_PATH, RUSH_PATH, NOVA_PATH,
+	BOULDER_PATH, PILLAR_PATH, WALL_PATH, ICE_WALL_PATH, CHAIN_PATH, ZONE_PATH,
+	MISSILES_PATH, TETHER_PATH, FLURRY_PATH, BLINK_PATH, SHADOW_ROOT_PATH,
+	CRAWLER_PATH, DAGGER_PATH, WARD_PATH, ARC_PATH,
+	# Tier 2 / Tier 3 drop spectacles (the HEX / CATACLYSM fork tables).
+	"res://scripts/combat/Petrify.gd",
+	"res://scripts/combat/GravityFlip.gd",
+	"res://scripts/combat/BloodPact.gd",
+	"res://scripts/combat/MirrorImage.gd",
+	"res://scripts/combat/VoidCollapse.gd",
+	"res://scripts/combat/Chronostasis.gd",
+	"res://scripts/combat/Equinox.gd",
+	# Reached BY a spectacle, not by an arm. See the warning above.
+	"res://scripts/combat/IceSpikeLine.gd",   # MeteorSigil.rain() -> glacial spine
+	"res://scripts/combat/RigGhost.gd",       # MirrorImage's doubles
+	"res://scripts/combat/HollowPurple.gd",   # beam-fusion reaction outcome
+	"res://scripts/combat/SteamCloud.gd",     # fire-meets-ice reaction outcome
+]
+
+## Has `warm()` already run this session?
+static var _warmed: bool = false
+
+## ⚠ THE WARMED RESOURCES ARE HELD, AND THAT IS THE WHOLE POINT — not a leak.
+##
+## Godot's resource cache is a cache of LIVE references, not a record of what has
+## been loaded: drop the last reference and the resource is freed and the next
+## `load()` pays full price again. `warm()` originally let its locals fall out of
+## scope, and `tools/slice_test_spell_warm.gd` caught it on the first run —
+## `EnergyNova.tscn` came back uncached immediately after being loaded, because a
+## PackedScene nothing points at does not survive the function returning. (The
+## GDScripts appeared to survive only because the engine's global script cache
+## happened to keep them, which is a different mechanism and not one to rely on.)
+##
+## Holding them is the intended end state anyway: every one of these is about to be
+## instanced repeatedly for the rest of the session.
+static var _warm_hold: Array[Resource] = []
+
+
+## Pay the first-touch script load for every spectacle NOW, so the player does not
+## pay it mid-fight.
+##
+## THE PROBLEM THIS SOLVES, measured by `tools/probe_cast_warmup.gd`: this file
+## reaches its spectacles with `load()` by PATH rather than `preload` — deliberately,
+## so headless tools can call `cast()` without early-compiling the autoload-
+## referencing scenes (see the header). A path `load()` of a script nothing has
+## touched yet PARSES AND COMPILES IT ON THE SPOT, and that is not cheap:
+##
+##   uncached first cast   44-126 ms      cached first cast   0.3-2.6 ms
+##
+## and 1411 ms across the whole roster. The evidence is not the timer but
+## `ResourceLoader.has_cached()`: every expensive row read `no`, every cheap row
+## read `YES`, and `chain_lightning` (ChainBolt, cold, 45.7 ms) versus
+## `arc_of_fools` (ChainBolt, now warm, 0.51 ms) is the same script 90x apart.
+##
+## That cost is paid ONCE PER SPELL TYPE PER SESSION, which is the worst possible
+## shape for it: it lands the FIRST time the player throws each spell — i.e. all
+## through the first minute of play — as a single-frame stall of 44-126 ms on a
+## desktop, so roughly 130-630 ms on the three-year-old mid-range Android this is
+## aimed at. That is not a hitch, it is a visible freeze, and it lands squarely on
+## the `worst`-frame number the perf overlay tells the maker to watch.
+##
+## Deliberately NOT a `preload` rewrite and NOT a per-cast cache. `preload` would
+## break the documented reason the loads are by path; a per-cast cache would fix
+## nothing, because the second cast is already fast — the first one is the problem.
+## Moving WHEN the cost is paid is the entire fix.
+##
+## Idempotent and safe to call from anywhere, including twice. Returns how many
+## scripts it actually had to load, so a caller (or a test) can see it do work the
+## first time and nothing the second.
+static func warm() -> int:
+	if _warmed:
+		return 0
+	_warmed = true
+	var loaded: int = 0
+	for p: String in WARM_PATHS:
+		# `has_cached` first so an already-warm session does no work at all, and so
+		# the return value means "scripts compiled" rather than "paths visited".
+		if ResourceLoader.has_cached(p):
+			continue
+		var res: Resource = ResourceLoader.load(p)
+		if res != null:
+			_warm_hold.append(res)
+			loaded += 1
+	return loaded
+
+
+## Test hook — lets a suite prove `warm()` is idempotent by re-arming it.
+static func reset_warm() -> void:
+	_warmed = false
+	_warm_hold.clear()
+
+
 ## What Roulette may roll, and how often it opens on the CASTER instead of on the
 ## aim. The self-cast chance is the whole reason the spell is a gamble rather than
 ## a free Tier 3 — with it at 0 there would be no reason ever to hold anything else.

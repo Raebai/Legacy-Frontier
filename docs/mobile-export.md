@@ -472,6 +472,35 @@ spells on top of it are. Treat both as numbers that must be *measured* on device
 > spawned vs skipped) and why `tools/slice_test_perf_budget.gd` asserts against
 > those rather than against times.
 
+> ⚠⚠ **EVERY NUMBER ON THIS PAGE EXCLUDES `_draw`. ALL OF IT.** Measured
+> 2026-08-01, not assumed.
+>
+> `Performance.TIME_PROCESS` and `TIME_PHYSICS_PROCESS` are what every harness here
+> reads, and **the process counter closes before the canvas draw pass**. A probe
+> with 200 nodes each issuing 200 `draw_line` calls — 40,000 draw primitives per
+> frame, confirmed running by a counter inside `_draw` itself — moved `TIME_PROCESS`
+> by **0.0000 ms**, while the wall-clock between the same two frames moved by
+> **9.2 ms**.
+>
+> So the ~30 ms at the 8-effect ceiling is `_process` + `_physics_process` +
+> physics + node churn. The entire `_draw` cost of all 32 spell spectacles — which
+> is where a procedural-vector game like this one puts most of its per-frame work —
+> **is on top of that figure, not inside it.** The frame is worse than this document
+> has ever said.
+>
+> (`_draw` *does* run under `--headless` — 21 draws in 21 frames — so it is being
+> executed and simply not counted. Do not "fix" this by assuming headless skips it.)
+>
+> ⚠ **And do not reach for wall-clock to fill the gap.** It is not merely noisy
+> here, it is *non-monotonic*: an A/B probe drawing 250 rings of 60 segments each
+> reported 0.42 µs/node, while the same probe at 200 segments reported 9.14 µs/node.
+> The cause is that a headless frame absorbs extra work into idle time until it
+> crosses the pacing budget, so cost is invisible right up until it is not — the
+> same family of trap as the harness that once confidently reported a perfect
+> 16.67 ms. **Use deterministic work counters** (`CombatVfx` / `DebrisChunk` /
+> `ScorchDecal` / `ElementFx` / now `MagicCircle` all expose `work_stats()`), which
+> is why `tools/slice_test_perf_budget.gd` asserts against counts and not times.
+>
 > ⚠ Headless runs the **dummy renderer**. Every number above is CPU. The GPU
 > cost — which is what actually decides whether this holds 30 fps on a tile GPU —
 > is not measured and cannot be measured this way. Only §1.6 answers that.
@@ -483,6 +512,48 @@ spells on top of it are. Treat both as numbers that must be *measured* on device
 > trusting any similar harness.
 
 ---
+
+## 6b. The worst frame in the game is a script load — and it is fixed
+
+Nothing above measures the single largest stall this game produces, because it
+happens once per spell type and every harness here averages it away.
+
+`SpellCaster` reaches its 25 spectacle scripts with `load()` by **path** rather
+than `preload`, deliberately, so headless tools can call `cast()` without
+early-compiling the autoload-referencing scenes (`SpellCaster.gd:8-9`). The cost
+of that design is that the **first** cast of each spell type parses and compiles
+its script on the spot. Measured by `tools/probe_cast_warmup.gd`, which times
+casts #1/#2/#3 of every spell and prints `ResourceLoader.has_cached()` beside
+each:
+
+| | rows still cold | worst first cast | Σ first casts |
+|---|---|---|---|
+| no warm-up | 18 of 38 | **126 ms** | 1411 ms |
+| after `SpellCaster.warm()` | **0** | **3.1 ms** | **16.5 ms** |
+
+The `has_cached` column is the proof rather than the timer: every expensive row
+read `no` and every cheap row read `YES`. `chain_lightning` (ChainBolt, cold)
+cost 45.7 ms; `arc_of_fools` — *the same script*, now warm — cost 0.51 ms.
+
+**On the target phone that is a 130–630 ms freeze, and it lands the first time the
+player throws each spell — i.e. all through the first minute of play.** It is the
+`worst`-frame number §1.6 tells you to watch, and averages will never show it.
+
+**`SpellCaster.warm()`** pays all of it up front: 22 scripts, ~718 ms on this
+desktop, idempotent, guarded so it runs once per session. It is a *when* fix, not
+a *what* fix — the by-path `load()` design is untouched, because headless tooling
+depends on it.
+
+> ⚠ **It still needs a call site.** `SpellCaster.warm()` is not called by anything
+> yet. It belongs wherever there is already a loading beat: the **lobby/title
+> screen** hides it completely (the player is idle and the cost is invisible), and
+> a **floor build** is the fallback. One line, no arguments.
+>
+> ⚠ **Nested loads are the part that rots.** `frozen_comet` measured a 61 ms first
+> cast while its own arm's script was already cached, because `MeteorSigil` forks
+> to `IceSpikeLine` from inside `rain()`. `tools/slice_test_spell_warm.gd`
+> cross-checks the warm list against the dispatcher's own constants and fork tables
+> so a new spectacle cannot be added without being warmed.
 
 ## 7. Levers if the device struggles
 
@@ -533,13 +604,21 @@ In order. Each is a smaller loss than the one after it.
   `TouchControls.gd:41-43` self-documents its numbers as untested guesses.
 - **The perf overlay's thermal read is a method, not a result.** Nobody has held
   the phone for ten minutes yet.
+- **Nobody has called `SpellCaster.warm()` yet** (§6b). The 44-126 ms first-cast
+  freezes are fixed in code and still live in the build until it has a call site.
 - **The frame is over budget on CPU alone, at the spec's own ceiling.** ~30 ms
   desktop with 8 concurrent spell effects and 25 entities → ~90–150 ms on the
   target device. The VFX budget bounds the *worst* case (it was unbounded), but
   it does not make the in-budget case cheap. The remaining cost is inside the
   spell spectacles' own `_process` / `_physics_process` / `_draw`, spread thinly
-  across ~32 scripts rather than concentrated anywhere ablation can find. Nobody
-  has profiled *inside* a spectacle yet; `tools/stress_spell_cost.gd` casts one
+  across ~32 scripts rather than concentrated anywhere ablation can find. That has
+  now been profiled *inside* — `tools/profile_spectacles.gd` gives per-spell and
+  per-SCRIPT attribution, and found `MagicCircle` (the sigil that opens on 31 of
+  the 38 spells) was **87.9% of all spectacle `_draw` cost**. It now tessellates to
+  a quarter-pixel sagitta budget instead of a flat segment count, which halved its
+  geometry at both quality levels with no visible change; `tools/profile_magic_circle.gd`
+  is the deterministic bench for it. Steady-state `_process` per spectacle measured
+  1-15 µs and is not worth chasing. The older per-spell tool `tools/stress_spell_cost.gd` casts one
   spell id at a time and is the tool for it, but its per-spell deltas are still
   noisy with cross-contamination from lingering zones and DoTs (settle window
   needs to exceed the longest spell lifetime, currently it does not).
