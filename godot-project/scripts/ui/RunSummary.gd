@@ -74,9 +74,10 @@ enum Outcome { CONQUERED, WIPED, WALKED }
 ## this file would make the whole script fail to compile inside the capture tool and
 ## the headless suites, and it would surface as an unrelated missing method somewhere
 ## else entirely. The live node is still asked FIRST at every call site (`_to_title`,
-## `_to_hub`); these are the fallbacks for when there is no autoload to ask.
+## these are the fallbacks for when there is no autoload to ask.
+##
+## HUB_PATH is gone with the town button — see the block where it used to be drawn.
 const TITLE_PATH: String = "res://scenes/ui/Lobby.tscn"
-const HUB_PATH: String = "res://scenes/Main.tscn"
 
 const HEADLINES: Dictionary = {
 	Outcome.CONQUERED: "THE TOWER IS DRAWN",
@@ -239,24 +240,26 @@ func _build_ui() -> void:
 	right.add_child(again)
 	right.add_child(_button("Title", _to_title, 13))
 
-	# The parked town, OPTIONAL and last. Hidden entirely where it cannot work.
-	if _hub_is_offerable():
-		var hub: Button = _button("Visit the town", _to_hub, 11)
-		hub.tooltip_text = "the old hub — needs a local Ollama server"
-		hub.add_theme_color_override("font_color", GRAPHITE)
-		right.add_child(hub)
-
-
-## Should the town button be drawn at all?
-##
-## ⚠ TWO CONDITIONS, AND THE SECOND IS THE ONE THAT MATTERS ON THE TARGET PLATFORM.
-## The hub's NPCs talk to `http://127.0.0.1:11434`; on a phone that address is the
-## phone's own loopback, so the button could only ever offer a mute village. It is
-## therefore hidden on a touch build rather than shown-and-broken.
-func _hub_is_offerable() -> bool:
-	if not ResourceLoader.exists(HUB_PATH):
-		return false
-	return not DisplayServer.is_touchscreen_available()
+	# ⚠ THE TOWN BUTTON IS GONE, ON THE MAKER'S CALL (2026-08-02), NOT BY OVERSIGHT.
+	#
+	# It used to be offered here, last and dimmed, on desktop only. The maker played
+	# the build, found the hub, and said: "the hub is really bad right now, honestly
+	# you can probably remove it, it's just another layer that doesn't add any value."
+	#
+	# That settles a conflict this file's header documents at length. The hub is the
+	# parked v0.0 AI-NPC town: the design doc cuts persistent world / NPC memory / LLM
+	# anything permanently, and the town cannot work on a phone at all, because its
+	# NPCs talk to `http://127.0.0.1:11434` and on a device that address is the
+	# device's own loopback. It was kept reachable because "the town clocks your
+	# deaths" was once the moat. It is not this game's moat any more.
+	#
+	# Nothing is lost. `Main.tscn` and the whole NPC/memory stack stay on disk and in
+	# git history; the run record is still built and `_pending_ingest` is still armed,
+	# so restoring the button is a revert, not a rebuild. There is simply no longer a
+	# door to a room with nothing in it.
+	#
+	# `_hub_is_offerable()` was deleted with the button rather than left orphaned —
+	# a predicate with no caller is the shape that gets re-wired by accident later.
 
 
 func _stat_block(accent: Color) -> Control:
@@ -308,12 +311,6 @@ func _to_title() -> void:
 		_gs.call("go_to_title")
 		return
 	get_tree().change_scene_to_file(TITLE_PATH)
-
-
-func _to_hub() -> void:
-	if _gs != null and _gs.has_method("visit_hub") and bool(_gs.call("visit_hub")):
-		return
-	_to_title()
 
 
 ## Esc / Back is the title, never the hub.
