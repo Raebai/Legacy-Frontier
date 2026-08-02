@@ -34,7 +34,15 @@ const TESTS: Array[String] = [
 const REQUIRED_PROJECT_LINES: Array[String] = [
 	'renderer/rendering_method="forward_plus"',
 	'renderer/rendering_method.mobile="mobile"',
-	"anti_aliasing/quality/msaa_2d=3",
+	# ⚠ THE DESKTOP MSAA LEVEL IS DELIBERATELY NOT PINNED HERE ANY MORE. It used to
+	# be `msaa_2d=3` (8x). A fill-cost measurement (tools/profile_fill_cost.gd, the
+	# shipping arena, RTX 4070 Laptop) priced the last doubling at 30% of the whole
+	# 1080p fill budget and 30% again at 1440p, so the level is now a TUNED DIAL with
+	# a number attached rather than a constant, and `tools/slice_test_render_budget.gd`
+	# owns its floor and ceiling (on, but not Godot's slowest option). Pinning an
+	# exact value in two suites is how one of them ends up silently wrong.
+	# What survives here is the MOBILE OVERRIDE, which is what this suite is for:
+	# the phone must keep its own cheaper level whatever desktop does.
 	"anti_aliasing/quality/msaa_2d.mobile=1",
 	"viewport/hdr_2d=true",
 	'window/handheld/orientation="landscape"',
@@ -101,10 +109,12 @@ func _test_rendering_settings() -> void:
 		_expect(text.contains(line),
 			"project.godot still carries `%s` (the editor rewrites this file — a "
 			% line + "per-platform override that vanishes fails silently on device)")
-	# 8x MSAA is the maker's deliberate desktop choice: this game draws its
-	# fighters as procedural lines and arcs, not sprites, so MSAA is doing real
-	# work here in a way it would not for pixel art. The mobile override exists
-	# to spare a tile GPU that cost, NOT to walk the desktop decision back.
+	# DESKTOP MSAA STAYS ON. That part of the original ruling is untouched and is
+	# the right call: this game draws its fighters as procedural lines and arcs, not
+	# sprites, so MSAA is doing real work here in a way it would not for pixel art.
+	# The mobile override exists to spare a tile GPU that cost, NOT to walk the
+	# desktop decision back — and neither does the 8x -> 4x change above it, which
+	# lowered the sample count and kept the technique.
 	_expect(not text.contains("anti_aliasing/quality/msaa_2d=0"),
 		"desktop MSAA was NOT quietly turned off along with the mobile override")
 	_completes("rendering_settings")

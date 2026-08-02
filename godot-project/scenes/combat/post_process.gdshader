@@ -7,7 +7,17 @@ render_mode blend_mix;
 // trauma, a shockwave ring fires on epic moments, heat-haze pulses on fire.
 // Complements (does not replace) the WorldEnvironment HDR bloom.
 
-uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
+// ⚠ `filter_linear`, NOT `filter_linear_mipmap`, AND THAT IS A PERFORMANCE FIX,
+// NOT A DOWNGRADE. `filter_linear_mipmap` makes the renderer build a full mipmap
+// CHAIN of the framebuffer every single frame. Every fetch below uses screen-space
+// UVs at 1:1, so the implicit derivatives are ~1 texel and every one of them lands
+// on LOD 0 — the pyramid was built and never read. Measured on the shipping arena
+// at 1920x1080 (tools/profile_post_variants.gd): 10% of the whole frame, for an
+// image that is bit-identical. If a future effect wants a blurred read of the
+// screen it must ask for the LOD explicitly (`textureLod`), and putting the mipmap
+// hint back is then a deliberate, priced decision rather than a default nobody
+// chose.
+uniform sampler2D screen_tex : hint_screen_texture, filter_linear;
 
 // --- Reactive (driven live by PostProcess.gd) ---
 uniform float trauma : hint_range(0.0, 1.0) = 0.0;   // camera trauma -> aberration + micro-warp
