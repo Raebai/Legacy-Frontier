@@ -87,9 +87,38 @@ const CLASS_LABELS: Array[String] = [
 ]
 const TIER_LABELS: Array[String] = ["Easy", "Normal", "Hard", "Impossible"]
 
-## Per-class tint, for the name plates. Read from `ClassInfo` rather than restated,
-## so a class recoloured on the select screen is recoloured here too.
+## ══════════════════════════════════════════════════════════ YELLOW vs BLUE
+## THE TWO CORNERS, AND THE ONLY PLACE THEY ARE WRITTEN DOWN.
+##
+## The maker's ask was literally "an intro screen like yellow vs blue", and the reason
+## that could not be honoured before is that BOTH fighters were painted from
+## `GameState.colourway` — ONE global value, shared, so a bot match was two identically
+## coloured stickmen and the audience had to track which was which by position alone.
+## `Hero.COLOURWAYS` has no yellow at all, so there was nothing to pick either.
+##
+## So the SIDE decides the colour here, not the class and not the save file: left is
+## yellow, right is blue, always, in every bout. The intro card, the name plates and
+## the bodies all read from this one array, which is what makes it impossible for the
+## card to promise a yellow fighter and the stage to draw a blue one.
+##
+## ⚠ THIS DOES NOT REPLACE THE PER-CLASS TINT ANYWHERE ELSE. `ClassInfo.color_for` is
+## still the class's colour on the select screen, in the tower and in the hub. It is
+## only in a MATCH — where the question is "which corner", not "which class" — that
+## the side wins.
+const SIDE_COLORS: Array[Color] = [
+	Color(1.00, 0.82, 0.22),   # LEFT  — chalk yellow
+	Color(0.30, 0.64, 1.00),   # RIGHT — ink blue
+]
+## Anything that is neither corner (a missing fighter, a draw).
 const FALLBACK_TINT: Color = Color(0.85, 0.88, 0.95)
+
+
+## The corner colour. Static so the intro card, the plates and the suite all ask the
+## SAME function rather than three copies of an index-into-an-array.
+static func side_color(side: int) -> Color:
+	if side < 0 or side >= SIDE_COLORS.size():
+		return FALLBACK_TINT
+	return SIDE_COLORS[side]
 
 ## WHO THEY ARE, as a multiplier on the shared HP pool. Ordered like CLASS_LABELS.
 ##
@@ -135,6 +164,60 @@ static var swap_sides: bool = false
 ## ends where the match does.
 static var auto_rematch: bool = true
 
+## ⚠ HOW LONG THE "VS" CARD HOLDS BEFORE ANYBODY MOVES — and why it is a STATIC and
+## not a const. `tools/botmatch_sim.gd` runs this exact scene over many pairings and
+## `tools/directed_clip_capture.gd` films it; a ceremony charged to every one of them
+## is throughput a sim never asked for. A tool sets this to 0 and the card is skipped
+## whole. Set to <= 0 to disable.
+##
+## It is ALSO skipped automatically when there is no real display (see `_ceremony()`),
+## so the headless suites and the sim pay nothing without having to know this knob
+## exists at all.
+static var intro_seconds: float = 1.8
+## Do the fighters talk? Same reasoning: on by default for a watch, off for anything
+## measuring throughput, and forced off with no display.
+static var taunts: bool = true
+
+## ------------------------------------------------------------------ THE INTRO CARD
+## Ink-sketchbook palette, lifted verbatim from `Lobby` / `RunSummary` so the pre-fight
+## card, the title screen and the run summary read as the same hand.
+const CARD_CHALK: Color = Color(0.93, 0.92, 0.86)
+const CARD_GRAPHITE: Color = Color(0.62, 0.63, 0.70)
+## The dim over the stage. Heavier than the result card's 0.42 — the fighters are
+## standing still behind it and the card is the only thing worth reading.
+const CARD_DIM: Color = Color(0.055, 0.052, 0.075, 0.62)
+## Typography, in the shape `Boss.card_style()` established for a big moment: one
+## oversized head, one small caption, a fat outline so it survives a busy backdrop.
+const CARD_VS_SIZE: int = 44
+const CARD_NAME_SIZE: int = 17
+const CARD_FIGHT_SIZE: int = 40
+## The colour swatch above each fighter's name — the card's promise about which body
+## is which, in the one form that needs no reading.
+const SWATCH_SIZE: Vector2 = Vector2(62.0, 9.0)
+## Fade in / fade out, bracketing the hold. Both are inside `intro_seconds`.
+const INTRO_FADE: float = 0.28
+## "FIGHT" holds this long AFTER the tree unpauses — the fight is already live under
+## it, which is the whole point: the word lands ON the first step, not before it.
+const INTRO_FIGHT_BEAT: float = 0.45
+
+## ---------------------------------------------------------------------- TAUNTS
+## Per-speaker rate limit, in REAL seconds, and it deliberately shares
+## `Bark`'s own `bark_last` meta key: a fighter that has just barked must not
+## immediately taunt over its own bubble, and one bubble per body is a hard rule
+## (`Bark.BUBBLE_NAME`). Same 3.0 s window `Bark.COOLDOWN` uses.
+const TAUNT_COOLDOWN: float = 3.0
+const TAUNT_META: StringName = &"bark_last"
+## The bubble node's name. THE SAME ONE `Bark` uses, so the two systems can never
+## stack two bubbles on one head — whoever gets there first builds it, everybody
+## after that reuses it.
+const TAUNT_BUBBLE_NAME: StringName = &"BarkBubble"
+const TAUNT_BUBBLE_SCENE: String = "res://scenes/SpeechBubble.tscn"
+## What counts as a BIG hit worth gloating about, as a fraction of the victim's own
+## max HP. Below this a taunt on every exchange is a tickertape.
+const BIG_HIT_FRACTION: float = 0.12
+## Below this fraction, the fighter says so. Once per bout per fighter.
+const LOW_HEALTH_FRACTION: float = 0.28
+
 ## ------------------------------------------------------------------ MATCH RULES
 ## Where the two fighters stand, as a distance either side of the CENTRE OF THE FIGHT
 ## FLOOR. `VersusArena`'s own showcase spawns are 520 / 1080, whose midpoint is 800 —
@@ -165,6 +248,11 @@ const RESULT_HOLD: float = 4.2
 
 enum Outcome { NONE, KO, RINGOUT, DECISION, DRAW }
 
+## The pre-fight card's own little state machine. VS holds both fighters on the card
+## with the tree PAUSED; FIGHT unpauses and lets the word land over live combat; DONE
+## is every frame after, and is also where a headless run starts.
+enum Intro { VS, FIGHT, DONE }
+
 var _arena: Node2D = null
 var _readout: Label = null
 var _labels: Dictionary = {}
@@ -188,6 +276,19 @@ var _result_card: Control = null
 var _plates: Array[Dictionary] = []
 var _clock_label: Label = null
 var _music_band: int = -1
+
+## ---- the pre-fight card -----------------------------------------------------
+var _intro_card: Control = null
+var _intro_row: Control = null
+var _intro_fight: Label = null
+var _intro_phase: int = Intro.DONE
+## REAL (unscaled) seconds the card opened. Same clock `_freeze` uses, and for the
+## same reason — the tree is paused under it, so nothing scaled can be trusted.
+var _intro_at: float = 0.0
+
+## ---- taunt book-keeping -----------------------------------------------------
+var _first_blood: bool = false
+var _said_low: Array[bool] = [false, false]
 
 
 ## The one-line hook, for a Lobby button or a dev menu:
@@ -221,6 +322,7 @@ func _ready() -> void:
 	_build_overlay()
 	_extend_pause_menu()
 	_open_bout()
+	_open_intro()
 
 
 ## ⚠ CLEAR THE SHOWCASE STATICS ON THE WAY OUT. They outlive this node, this scene
@@ -294,6 +396,28 @@ func _adopt_fighters() -> void:
 		# time; the signal does not.
 		if f.has_signal("health_changed"):
 			f.connect("health_changed", _on_health_changed.bind(side))
+	_paint_corners()
+
+
+## YELLOW ON THE LEFT, BLUE ON THE RIGHT — see the note on `SIDE_COLORS`.
+##
+## ⚠ IT HAS TO HAPPEN HERE, IN `_adopt_fighters`, and not anywhere earlier. `Hero._ready`
+## applies `GameState.colourway` to its own rig as the last thing it does, so a tint set
+## before the arena is built is simply overwritten by the save file. This runs AFTER
+## `add_child(_arena)` has returned, i.e. after both heroes are fully ready, which is
+## the first moment the colour can stick.
+##
+## `CharacterRig.flash_color()` / `flash()` temporarily replace `limb_color` on every
+## hit and restore it afterwards — that is the hit feedback doing its job, and it
+## restores to whatever `set_tint` last wrote, so it restores to the corner colour.
+func _paint_corners() -> void:
+	for side: int in _fighters.size():
+		var f: Node2D = _fighters[side]
+		if not is_instance_valid(f):
+			continue
+		var rig: Variant = f.get("rig")
+		if rig != null and (rig is Object) and (rig as Object).has_method("set_tint"):
+			(rig as Object).call("set_tint", side_color(side))
 
 
 ## HP for a class: the shared pool, scaled by who they are. Never below 40, so a
@@ -323,12 +447,135 @@ func _reseat_registry(f: Node2D) -> void:
 
 
 ## The death hook. `hp == 0` here is the fatal frame, before `Hero._die` heals it.
+##
+## It is also the only place in this scene that can see a HIT — no damage signal exists
+## and polling HP once a frame cannot tell a 4-point chip from a 40-point ult — so the
+## fight's dialogue beats are derived from the DROP between two reports of this signal.
 func _on_health_changed(hp: int, _max_hp: int, side: int) -> void:
 	if side < 0 or side > 1:
 		return
+	var before: int = _fighter_hp_now[side]
 	_fighter_hp_now[side] = hp
 	if hp <= 0 and _outcome == Outcome.NONE:
 		_decide(Outcome.KO, 1 - side)
+		return
+	_taunt_on_damage(side, before - hp)
+
+
+## The three mid-fight beats, all read off one health drop:
+##
+##   FIRST BLOOD — the first real hit of the bout. The one who LANDED it speaks.
+##   BIG HIT     — anything past `BIG_HIT_FRACTION` of the victim's bar. Also the
+##                 attacker, because a taunt is what a big hit is FOR.
+##   LOW HEALTH  — the victim, once, when the bar crosses the line. It is the only
+##                 line in the book that is not swagger.
+##
+## ⚠ THE "ATTACKER" HERE IS `1 - side`, AND THAT IS AN ASSUMPTION, NOT A FACT. This
+## stage has friendly fire, terrain and ring-out pits, so a fighter can absolutely lose
+## HP to its own meteor with the other one across the map. There is no attacker
+## attribution on `health_changed` to do better with. The failure mode is one wrongly
+## attributed gloat in a fight nobody is scoring on dialogue, which is a much smaller
+## cost than plumbing a damage-source signal through the hero for a spectator mode.
+func _taunt_on_damage(side: int, drop: int) -> void:
+	if drop <= 0:
+		return
+	var attacker: int = 1 - side
+	var frac: float = float(drop) / maxf(float(_fighter_max[side]), 1.0)
+	if not _first_blood:
+		_first_blood = true
+		_taunt(attacker, &"first_blood")
+	elif frac >= BIG_HIT_FRACTION:
+		_taunt(attacker, &"big_hit")
+	if not _said_low[side] and _hp_frac(side) <= LOW_HEALTH_FRACTION:
+		_said_low[side] = true
+		_taunt(side, &"low_health")
+
+
+# ==========================================================================
+# TAUNTS — the fighters having an opinion about the fight
+#
+# ⚠ `Bark.say()` CANNOT DO THIS, and it was checked before this was written. Bark can
+# only speak events that exist in its own fixed `LINES` table; there is no way to pass
+# it authored text. So this does what Bark itself does one layer down — parents a
+# `SpeechBubble` to the speaker and calls `say()` — and takes its WORDS from
+# `TauntBook`, which is a pure static table precisely so a suite can sweep it without
+# standing up a scene.
+#
+# ⚠ AND IT SHARES BARK'S BUBBLE AND BARK'S COOLDOWN META ON PURPOSE. One bubble per
+# body is a hard rule (two would render two lines on top of each other), and one rate
+# limit per body is why a fight is punctuated rather than narrated. If `VoiceDirector`
+# is ever bound to this stage, the two systems already interleave correctly.
+# ==========================================================================
+
+func _taunts_enabled() -> bool:
+	return taunts and _ceremony()
+
+
+## Put a taunt over a fighter's head and speak it in that fighter's voice.
+##
+## `always` skips the rate limit, for the one beat that must land no matter what the
+## speaker said ten seconds ago: the line that ends the recording.
+func _taunt(side: int, beat: StringName, always: bool = false) -> void:
+	if not _taunts_enabled():
+		return
+	if side < 0 or side >= _fighters.size():
+		return
+	var who: Node2D = _fighters[side]
+	if not is_instance_valid(who) or not who.is_inside_tree():
+		return
+	var text: String = TauntBook.line_for(beat)
+	if text.is_empty():
+		return
+	if not always and not _off_taunt_cooldown(who):
+		return
+	var bubble: Node = _bubble_for(who)
+	if bubble == null:
+		return
+	# NOT awaited. `SpeechBubble.say` yields a few frames while it shrink-to-fits, and
+	# a taunt must never be something a match tick has to wait for. Same contract
+	# `Bark.say` documents.
+	bubble.call(&"say", text, TauntBook.HOLD, 0.0)
+	# The mouth. Routed through `Bark.voice_only` rather than a raw `Sfx.speak` so the
+	# taunt uses the SAME derived voice the rest of the game gives this body, honouring
+	# any seed / band / billing meta it carries.
+	var mood: int = TauntBook.mood_for(beat)
+	Bark.voice_only(who, mood, Gibberish.syllables_for_text(text, mood))
+
+
+## Find or build this fighter's bubble. One per body, reused for its whole life —
+## `Bark._bubble_for` does exactly this, and shares the node name so the two never
+## build a second one over the first.
+##
+## ⚠ THE BUBBLE IS `PROCESS_MODE_ALWAYS`, and that is load-bearing for the KO line.
+## `SpeechBubble._process` is what positions the panel over the speaker's head, and the
+## finishing taunt is fired on the frame the match is decided — one frame before
+## `_freeze()` pauses the whole tree. A PAUSABLE bubble would be frozen before it ever
+## placed itself and the last line of the clip would render at the fighter's feet.
+func _bubble_for(who: Node2D) -> Node:
+	var existing: Node = who.get_node_or_null(NodePath(String(TAUNT_BUBBLE_NAME)))
+	if existing != null:
+		existing.process_mode = Node.PROCESS_MODE_ALWAYS
+		return existing
+	var scene: PackedScene = load(TAUNT_BUBBLE_SCENE) as PackedScene
+	if scene == null:
+		return null
+	var bubble: Node = scene.instantiate()
+	bubble.name = String(TAUNT_BUBBLE_NAME)
+	bubble.process_mode = Node.PROCESS_MODE_ALWAYS
+	who.add_child(bubble)
+	return bubble
+
+
+## Per-speaker rate limit, on the node itself rather than in a static dictionary — a
+## static map keyed by instance id would leak an entry for every body that ever
+## spawned. Same key and same window as `Bark`; see the block header.
+func _off_taunt_cooldown(who: Node) -> bool:
+	var now: float = _real_seconds()
+	var last: float = float(who.get_meta(TAUNT_META, -999.0))
+	if now - last < TAUNT_COOLDOWN:
+		return false
+	who.set_meta(TAUNT_META, now)
+	return true
 
 
 # ==========================================================================
@@ -343,11 +590,22 @@ func _open_bout() -> void:
 	_frozen = false
 	_final_hp[0] = -1
 	_final_hp[1] = -1
+	_first_blood = false
+	_said_low[0] = false
+	_said_low[1] = false
 	_play("ding", 0.0)
 
 
 func _process(delta: float) -> void:
 	_tick_readout()
+	# THE CARD OWNS THE OPENING. Nothing below runs until it clears: the clock must not
+	# start, the rim check must not fire on a fighter standing still, and the music must
+	# not climb through a still frame. `_paint_hud` still runs so the plates are already
+	# full and correct behind the dim.
+	if _intro_phase != Intro.DONE:
+		_tick_intro()
+		_paint_hud()
+		return
 	if _outcome != Outcome.NONE:
 		_tick_result(delta)
 		_paint_hud()
@@ -438,8 +696,81 @@ func _decide(outcome: int, winner: int) -> void:
 			d.call("note_ringout", at)
 		elif d.has_method("note_knockdown"):
 			d.call("note_knockdown", at, _outcome_word())
+	# THE LAST WORDS IN THE CLIP. Fired BEFORE the freeze, on a still-live frame, so the
+	# bubble is parented and placed rather than caught mid-layout by the pause. `always`
+	# because a winner who gloated ten seconds ago must still get the closing line.
+	if winner >= 0:
+		_taunt(winner, &"finisher", true)
+	_put_the_loser_down(winner)
 	_freeze()
 	_sting()
+
+
+## THE LOSER GOES DOWN, and it has to happen HERE — before `_freeze()` — because the
+## line after this pauses the tree and nothing pausable moves again.
+##
+## ⚠ THE BUG THIS FIXES. Watch a bot match end before this existed and the beaten
+## fighter is STANDING BOLT UPRIGHT, unanimated, under the word "KO", at FULL health.
+## Three separate things conspired:
+##   1. `Hero.take_damage` emits `health_changed(0, max)` and only THEN calls `_die()`.
+##   2. `_die()` outside a run (which a bot match is) heals straight back to `max_hp`
+##      and returns — the feel-sandbox behaviour, correct there, invisible here.
+##   3. `_decide` fires off that signal and pauses the tree, so even if something HAD
+##      gone limp it would have frozen mid-stand.
+## The result card therefore drew over a fighter who was, visually, fine.
+##
+## The fix is not a new animation. Per the standing rig directive it is the EXISTING
+## flop/limp machinery held at full ragdoll (`CharacterRig.collapse`), plus the one
+## thing the pause makes necessary: the loser's rig is switched to
+## `PROCESS_MODE_ALWAYS` so its `_physics_process` keeps stepping the spring sim while
+## the rest of the stage is frozen. That is what lets the body actually MELT to the
+## floor across the `FREEZE_BEAT` instead of freezing at frame one of its own fall.
+## `Juice.hit_stop` restores `Engine.time_scale` on an `ignore_time_scale` timer, so
+## the melt runs at real speed within about a tenth of a second of the kill.
+##
+## Only the LOSER is switched. The winner stays pausable and stays frozen mid-pose,
+## which is the shot: one fighter still standing, one on the floor.
+func _put_the_loser_down(winner: int) -> void:
+	if winner < 0:
+		return                      # a DRAW has no loser to drop
+	var loser: int = 1 - winner
+	if loser < 0 or loser >= _fighters.size():
+		return
+	var f: Node2D = _fighters[loser]
+	if not is_instance_valid(f):
+		return
+	var rig: Variant = f.get("rig")
+	if rig == null or not (rig is Node) or not (rig as Object).has_method("collapse"):
+		return
+	# Topple AWAY from the winner, so the body falls the way the fight pushed it.
+	var from_dir: Vector2 = Vector2.RIGHT if loser == 0 else Vector2.LEFT
+	if winner < _fighters.size() and is_instance_valid(_fighters[winner]):
+		var d: Vector2 = f.global_position - _fighters[winner].global_position
+		if d.x != 0.0:
+			from_dir = Vector2(-signf(d.x), -0.5)
+	(rig as Node).process_mode = Node.PROCESS_MODE_ALWAYS
+	# ⚠ ASSERT GROUNDEDNESS, or the body sprawls in mid-air. `CharacterRig` only drops
+	# its ride height toward `RIDE_PRONE` — the thing that actually puts a limp body ON
+	# THE FLOOR — while `_grounded` is true, and `_grounded` is fed once a frame by
+	# `Hero._physics_process`, which the pause on the next line stops forever. A fatal
+	# blow almost always pops the victim off the floor, so at the decisive frame that
+	# flag is usually FALSE and would stay false for the whole result card: a fighter
+	# going limp while hovering. Measured on a real KO before this line existed — the
+	# rig's ride offset never moved off 0.
+	if (rig as Object).has_method("set_grounded"):
+		(rig as Object).call("set_grounded", true)
+	(rig as Object).call("collapse", from_dir)
+	# ⚠ AND HIDE THE LOSER'S FLOATING HP BAR, which would otherwise sit over the body
+	# reading FULL GREEN. `Hero._die()` outside a run heals straight back to `max_hp`
+	# (the F6 feel-sandbox behaviour, correct there), and `CharacterBars` POLLS `hp`
+	# every frame — so the corpse wears a full health bar for the whole result card
+	# while the HUD name plate two feet above it correctly reads 0, because that plate
+	# reads `_final_hp` and never touches the fighter. Photographed, in
+	# `user://death_ko_04_zoom.png`, before this existed. Hiding the bar rather than
+	# forcing `hp = 0` keeps this scene from reaching into `Hero`'s death rules.
+	for c: Node in f.get_children():
+		if c is CharacterBars:
+			(c as CanvasItem).visible = false
 
 
 func _freeze() -> void:
@@ -448,7 +779,36 @@ func _freeze() -> void:
 	_frozen = true
 	if _arena != null:
 		_arena.set("_match_over", true)
+	_hold_corner_colours()
 	get_tree().paused = true
+
+
+## YELLOW STAYS YELLOW AND BLUE STAYS BLUE, right through the result card.
+##
+## ⚠ THE BUG, AND IT IS THE REASON THIS IS CALLED EVERY FRAME AND NOT ONCE.
+## `CharacterRig._flash_timer` is decremented inside `advance()`, which runs off the
+## PHYSICS clock — so on a paused tree a hit-flash NEVER expires, and `_draw` prefers
+## `_flash_color` over `limb_color`. The killing blow sets `Hero.HURT_FLASH_COLOR`
+## (1, 0.2, 0.2), the tree freezes, and the KO frame — the frame that gets RECORDED —
+## renders a fighter in flat RED with its corner colour nowhere on screen. Any trade
+## in the last fraction of a second paints the winner too, which is how BOTH fighters
+## came out red in a 1920x1080 capture while the HUD name plates — which read
+## `side_color()` directly and never touch a rig — stayed correctly yellow and blue.
+## The tint was never lost. `_paint_corners` works. The flash simply outlived it.
+##
+## EVERY FRAME because of the ORDER inside `Hero.take_damage`: it emits
+## `health_changed` FIRST (which lands here, decides the bout and pauses the tree) and
+## sets the red flash AFTERWARDS. A one-shot clear inside `_freeze` therefore fires
+## before the red exists and misses it entirely — measured, on a real KO. The call is
+## idempotent and returns immediately when nothing is flashing, so the per-frame cost
+## on a frozen stage is two method lookups.
+func _hold_corner_colours() -> void:
+	for f: Node2D in _fighters:
+		if not is_instance_valid(f):
+			continue
+		var rig: Variant = f.get("rig")
+		if rig != null and (rig is Object) and (rig as Object).has_method("clear_flash"):
+			(rig as Object).call("clear_flash")
 
 
 ## Real (unscaled) seconds. The result beat must not stretch when hit-stop drops
@@ -459,6 +819,7 @@ func _real_seconds() -> float:
 
 
 func _tick_result(_delta: float) -> void:
+	_hold_corner_colours()
 	var age: float = _real_seconds() - _decided_at
 	if _result_card != null and not _result_card.visible and age >= FREEZE_BEAT:
 		_show_result_card()
@@ -585,6 +946,7 @@ func _build_overlay() -> void:
 	_clock_label.offset_top = PLATE_TOP - 2.0
 	_clock_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_build_result_card(layer)
+	_build_intro_card(layer)
 	# The director's own opinion, over the fight it is filming. This is the thing that
 	# turns "watch two bots" into "tune the clip engine": if the heat number sits at
 	# 0.05 through an exchange, the camera opens late and the thresholds are wrong.
@@ -684,14 +1046,174 @@ func _show_result_card() -> void:
 	var sub: Label = _result_card.get_node_or_null("Sub") as Label
 	if head != null:
 		head.text = "DRAW" if _winner < 0 else "%s WINS" % _label(_fighter_class[_winner])
+		# THE WINNER'S CORNER, not the winner's class — the same yellow-or-blue the card
+		# opened on and the body has been wearing all fight. See `SIDE_COLORS`.
 		head.add_theme_color_override("font_color",
-			Color(0.92, 0.94, 1.0) if _winner < 0 else _tint(_fighter_class[_winner]))
+			Color(0.92, 0.94, 1.0) if _winner < 0 else side_color(_winner))
 	if sub != null:
 		var lhp: int = _final_hp[0] if _final_hp[0] >= 0 else _fighter_hp_now[0]
 		var rhp: int = _final_hp[1] if _final_hp[1] >= 0 else _fighter_hp_now[1]
 		sub.text = "%s  ·  %.1fs  ·  %d — %d" % [_outcome_word(), _clock, lhp, rhp]
 	_result_card.visible = true
 	_play("holy_swell", -1.0)
+
+
+# ==========================================================================
+# THE PRE-FIGHT CARD — "YELLOW vs BLUE", and then FIGHT
+#
+# Combat used to be live on frame one: the scene opened and two bots were already
+# swinging, with no statement of who they were. For a mode whose entire product is a
+# RECORDING, the first two seconds were doing nothing.
+#
+# ⚠ HOW COMBAT IS ACTUALLY GATED, because this is the part that is easy to get wrong.
+# The fighters are `PROCESS_MODE_PAUSABLE` and `VersusArena._process` early-returns on
+# `get_tree().paused`, while THIS node is `PROCESS_MODE_ALWAYS` (see `_ready`). So the
+# card simply pauses the tree and counts down on its own `_process`, exactly the way
+# `_freeze()` already holds the KO beat.
+#
+# ⚠ AND IT COUNTS ON THE UNSCALED REAL CLOCK (`_real_seconds`), never on `delta`. A
+# paused tree still delivers delta to an ALWAYS node, but `Engine.time_scale` is a
+# live knob in this project (hit-stop drives it to 0.05), so a delta-summed card would
+# stretch the moment somebody else touched the scale.
+#
+# ⚠ AND THE FADE IS DRIVEN BY HAND, not by a `Tween`. A default tween does not advance
+# on a paused tree, so the card would simply sit at alpha 0 for its whole life and the
+# fight would start behind an invisible dim. One line of `modulate.a` in `_process` is
+# both simpler and immune to it.
+# ==========================================================================
+
+## Is there anybody to show a ceremony TO? False under `--headless`, where the dummy
+## renderer draws nothing, reports success, and would happily charge every suite and
+## every sim bout ~2 s of staring at a card that does not exist.
+static func _ceremony() -> bool:
+	return DisplayServer.get_name() != "headless"
+
+
+func _intro_enabled() -> bool:
+	return intro_seconds > 0.0 and _ceremony()
+
+
+func _build_intro_card(layer: CanvasLayer) -> void:
+	_intro_card = Control.new()
+	_intro_card.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_intro_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_intro_card.visible = false
+	layer.add_child(_intro_card)
+
+	var dim := ColorRect.new()
+	dim.color = CARD_DIM
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_intro_card.add_child(dim)
+
+	# CENTRED IN THE VIEWPORT rather than at a hardcoded offset, so the card sits right
+	# at any window size — this scene is filmed at 1920x1080 and watched at whatever the
+	# window happens to be.
+	var centre := CenterContainer.new()
+	centre.set_anchors_preset(Control.PRESET_FULL_RECT)
+	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_intro_card.add_child(centre)
+
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 26)
+	centre.add_child(row)
+	_intro_row = row
+
+	row.add_child(_intro_corner(0))
+	var vs: Label = _make_label(row, CARD_VS_SIZE, CARD_CHALK)
+	vs.text = "VS"
+	vs.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(_intro_corner(1))
+
+	# The second beat, in the same card. Hidden until the tree unpauses.
+	_intro_fight = _make_label(_intro_card, CARD_FIGHT_SIZE, CARD_CHALK)
+	_intro_fight.text = "FIGHT"
+	_intro_fight.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	_intro_fight.offset_top = 128.0
+	_intro_fight.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_intro_fight.visible = false
+
+
+## One corner of the card: the side's colour, then the class it is being worn by. The
+## SWATCH is the load-bearing half — it is the only part of the card that says the same
+## thing as the body on the stage without anybody having to read a word.
+func _intro_corner(side: int) -> Control:
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 7)
+
+	var swatch := ColorRect.new()
+	swatch.color = side_color(side)
+	swatch.custom_minimum_size = SWATCH_SIZE
+	swatch.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	swatch.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(swatch)
+
+	var who: Label = _make_label(col, CARD_NAME_SIZE, side_color(side))
+	who.text = _label(_fighter_class[side] if side < _fighter_class.size() else -1)
+	who.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+
+	var tier: Label = _make_label(col, 10, CARD_GRAPHITE)
+	tier.text = _tier()
+	tier.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	return col
+
+
+## Open the card and stop the fight. A no-op (straight to DONE) when the ceremony is
+## off or there is no display — which is exactly what the sim and the suites get.
+func _open_intro() -> void:
+	if not _intro_enabled() or _intro_card == null:
+		_intro_phase = Intro.DONE
+		return
+	_intro_phase = Intro.VS
+	_intro_at = _real_seconds()
+	_intro_card.modulate.a = 0.0
+	_intro_card.visible = true
+	get_tree().paused = true
+	_play("ding", 1.0)
+
+
+func _tick_intro() -> void:
+	if _intro_card == null:
+		_intro_phase = Intro.DONE
+		return
+	var age: float = _real_seconds() - _intro_at
+	if _intro_phase == Intro.VS:
+		# Fade in, hold, fade out — all three inside `intro_seconds`, so the knob means
+		# exactly what it says and a short card degrades gracefully into a flash.
+		var fade: float = minf(INTRO_FADE, intro_seconds * 0.4)
+		var a: float = 1.0
+		if age < fade:
+			a = age / maxf(fade, 0.001)
+		elif age > intro_seconds - fade:
+			a = maxf(intro_seconds - age, 0.0) / maxf(fade, 0.001)
+		_intro_card.modulate.a = clampf(a, 0.0, 1.0)
+		if age >= intro_seconds:
+			_start_fight()
+		return
+	# FIGHT. The tree is already live under this — the word lands ON the first step.
+	var held: float = age - intro_seconds
+	_intro_card.modulate.a = clampf(1.0 - held / maxf(INTRO_FIGHT_BEAT, 0.001), 0.0, 1.0)
+	if held >= INTRO_FIGHT_BEAT:
+		_intro_phase = Intro.DONE
+		_intro_card.visible = false
+
+
+## The bell. Unpause FIRST, then swap the card to its second beat, so there is no frame
+## where "FIGHT" is on screen over a still stage.
+func _start_fight() -> void:
+	_intro_phase = Intro.FIGHT
+	get_tree().paused = false
+	if _intro_row != null:
+		_intro_row.visible = false
+	if _intro_fight != null:
+		_intro_fight.visible = true
+	_intro_card.modulate.a = 1.0
+	_play("sub_boom", -1.0)
+	# ONE of them opens the mouth, never both — two openers is a script reading rather
+	# than a fight. Which one is rolled, so a series does not always start the same way.
+	_taunt(randi() % 2, &"fight_start")
 
 
 ## Push the current numbers into the plates. Poll-don't-push (the AbilityBar idiom).
@@ -706,7 +1228,11 @@ func _paint_hud() -> void:
 		var shown: int = _final_hp[side] if _final_hp[side] >= 0 else _fighter_hp_now[side]
 		var frac: float = clampf(float(shown) / maxf(float(_fighter_max[side]), 1.0), 0.0, 1.0)
 		name_label.text = "%s   %d" % [_label(cls), maxi(shown, 0)]
-		name_label.add_theme_color_override("font_color", _tint(cls))
+		# ⚠ THE PLATE IS THE CORNER'S COLOUR, NOT THE CLASS'S. It used to read
+		# `ClassInfo.color_for(cls)`, which meant the plate and the body it belonged to
+		# could disagree — and now that the bodies are forced to yellow/blue, they
+		# always would. One source (`SIDE_COLORS`) for the card, the plate and the rig.
+		name_label.add_theme_color_override("font_color", side_color(side))
 		var vw: float = float(get_viewport().get_visible_rect().size.x)
 		name_label.size = Vector2(PLATE_W, 16.0)
 		name_label.horizontal_alignment = \
@@ -726,12 +1252,6 @@ func _hp_tint(frac: float) -> Color:
 	if frac > 0.5:
 		return HP_MID.lerp(HP_FULL, (frac - 0.5) * 2.0)
 	return HP_LOW.lerp(HP_MID, frac * 2.0)
-
-
-func _tint(class_id: int) -> Color:
-	if class_id < 0 or class_id >= ClassInfo.count():
-		return FALLBACK_TINT
-	return ClassInfo.color_for(class_id)
 
 
 ## The bar itself, drawn rather than laid out, because it drains toward the centre

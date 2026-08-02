@@ -77,6 +77,9 @@ var _start_btn: Button = null
 var _paper: Control = null
 var _credits: Control = null
 var _free_btn: Button = null
+## FIGHT A BOT. Held so the label can name the opponent you are about to get — see
+## `_refresh_duel_button`.
+var _duel_btn: Button = null
 ## THE OUTFITTER — choose your three / armory / colourway. An OVERLAY like the
 ## credits, not a scene change: the player is often mid-lobby with a peer connected,
 ## and dressing your hero must not drop them.
@@ -252,7 +255,15 @@ func _build_ui() -> void:
 	_free_btn = _half("Free Play", _free_play)
 	_free_btn.tooltip_text = "no enemies — just try your spells"
 	prep.add_child(_free_btn)
+	# FIGHT A BOT — a complete human-vs-one-bot duel has existed in `VersusArena` the
+	# whole time and had NO ROUTE FROM THIS SCREEN; `FreePlay.gd` says so in its own
+	# header. It goes in THIS row rather than a new one because the column already
+	# measures ~306 of the 360 px `slice_test_shell` pins: a third `_half()` costs the
+	# row nothing, a fourth ROW would blow the budget.
+	_duel_btn = _half("Fight a Bot", _fight_bot)
+	prep.add_child(_duel_btn)
 	prep.add_child(_half("Loadout", _open_outfitter))
+	_refresh_duel_button()
 
 	var coop := HBoxContainer.new()
 	coop.add_theme_constant_override("separation", 6)
@@ -411,6 +422,9 @@ func _apply_class_tint() -> void:
 	if _paper != null:
 		_paper.set("accent", accent)
 		_paper.queue_redraw()
+	# The duel opponent is derived from YOUR pick (it refuses to be a mirror), so the
+	# tooltip has to be re-derived every time the class cycler moves.
+	_refresh_duel_button()
 
 
 ## The three spells this class is CARRYING right now, as one line. Derived from the
@@ -505,6 +519,107 @@ func _watch_bots() -> void:
 		return
 	_say("finding a fight...")
 	script.call("enter", get_tree())
+
+
+## FIGHT A BOT — the maker, with their own hands, against ONE bot hero, on the versus
+## stage. `VersusArena`'s duel mode is a COMPLETE, shipped feature (mirrored spawns, a
+## learning bot, a difficulty tier, a rematch grace) and until now the only way to reach
+## it was to open the scene in the editor and press F6. `FreePlay.gd`'s header says so
+## outright. This is the missing button.
+##
+## By path + `load()` + static `set()`, exactly like Free Play and Watch Bots above, and
+## for the same reason: a bare `VersusArena` identifier here would compile that class —
+## and its whole autoload-touching dependency chain — at the BOOT SCREEN's parse time.
+const VERSUS_SCENE: String = "res://scenes/combat/VersusArena.tscn"
+const VERSUS_SCRIPT: String = "res://scripts/combat/VersusArena.gd"
+## The tier a duel opens on when nothing sane is already set. 1 = Normal in
+## `BotProfile.Tier`, which is `VersusArena.duel_difficulty`'s own shipped default.
+const DUEL_DEFAULT_TIER: int = 1
+
+
+func versus_available() -> bool:
+	return ResourceLoader.exists(VERSUS_SCRIPT) and ResourceLoader.exists(VERSUS_SCENE)
+
+
+## ⚠ THE DUEL IS THE ARENA'S DEFAULT MODE — BUT ONLY IF THE STATICS ARE CLEAN, AND THEY
+## ARE ROUTINELY NOT. `VersusArena._is_duel()` is literally "not a showcase", so all
+## three of these have to be put back by hand before the scene change:
+##
+##   * `showcase_a` / `showcase_b` — `BotMatch` sets them to two class ids. It does
+##     clear them in its own `_exit_tree`, but this screen must not depend on somebody
+##     else's teardown having run to hand the player the mode they asked for.
+##   * `free_play` — same story with `FreePlay`. Belt and braces, one line, and the
+##     failure it prevents (you press "Fight a Bot" and get an empty sandbox with no
+##     opponent) is silent and two scenes away from its cause.
+##
+## `duel_human` is set for completeness; it no longer decides anything (see the DUEL
+## block in `VersusArena`), but leaving one of a mode's four knobs unstated is how the
+## next person reading this concludes it is not needed.
+func _fight_bot() -> void:
+	if not versus_available():
+		_say("the duel stage is missing from this build.")
+		return
+	var script: GDScript = load(VERSUS_SCRIPT) as GDScript
+	if script == null:
+		_say("the duel stage failed to load.")
+		return
+	_stop_discovery()
+	# Your class, recorded where the hero reads it from — `VersusArena._spawn_duel`
+	# builds the human from `GameState.selected_class`, so without this you fight as
+	# whatever you last played rather than as whatever the button above says.
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null:
+		gs.set("selected_class", _selected_class)
+	script.set("showcase_a", -1)
+	script.set("showcase_b", -1)
+	script.set("free_play", false)
+	script.set("duel_human", true)
+	script.set("duel_bot_class", duel_opponent())
+	script.set("duel_difficulty", duel_tier())
+	_say("stepping up...")
+	get_tree().paused = false
+	get_tree().change_scene_to_file(VERSUS_SCENE)
+
+
+## WHO YOU FIGHT. Whatever the arena's own knob is already set to — the maker can cycle
+## it from the pause menu mid-fight ("Bot Duel → bot class") and that choice must
+## survive a trip back to the title screen — EXCEPT when it would hand you a mirror of
+## your own pick, which is the one matchup nobody wants by accident. Falls back to the
+## next class along, which is always a different one.
+func duel_opponent() -> int:
+	var n: int = maxi(ClassInfo.count(), 1)
+	var script: GDScript = load(VERSUS_SCRIPT) as GDScript
+	var current: Variant = script.get("duel_bot_class") if script != null else null
+	var bot: int = int(current) if current != null else 0
+	bot = posmod(bot, n)
+	if bot == posmod(_selected_class, n) and n > 1:
+		bot = (bot + 1) % n
+	return bot
+
+
+## ...and at what tier. Preserved the same way, sanitised into 0..3 so a knob left in a
+## bad state by a capture tool cannot follow the player into a fight.
+func duel_tier() -> int:
+	var script: GDScript = load(VERSUS_SCRIPT) as GDScript
+	var current: Variant = script.get("duel_difficulty") if script != null else null
+	if current == null:
+		return DUEL_DEFAULT_TIER
+	var tier: int = int(current)
+	return tier if tier >= 0 and tier <= 3 else DUEL_DEFAULT_TIER
+
+
+## The button names its opponent. There is no room on this screen for a fourth row and
+## no second press to spend on a cycler, so the tooltip is where the "you can change
+## this" lives — the arena's own pause menu already cycles the bot's class and tier, and
+## `duel_opponent()` preserves whatever it was left on.
+func _refresh_duel_button() -> void:
+	if _duel_btn == null:
+		return
+	_duel_btn.visible = versus_available()
+	if not _duel_btn.visible:
+		return
+	_duel_btn.tooltip_text = "1v1 against %s — Esc in the fight changes the bot + tier" \
+		% ClassInfo.name_for(duel_opponent())
 
 
 ## THE OUTFITTER. Everything you decide before you climb: which three of your class's
