@@ -30,7 +30,20 @@ extends Node2D
 const ARENA_SCENE: String = "res://scenes/combat/VersusArena.tscn"
 const ARENA_SCRIPT: String = "res://scripts/combat/VersusArena.gd"
 const BOT_MATCH_SCENE: String = "res://scenes/combat/BotMatch.tscn"
-const HUB_SCENE: String = "res://scenes/Main.tscn"
+## LEAVING GOES TO THE TITLE, NOT THE HUB.
+##
+## This used to be `res://scenes/Main.tscn` — the parked v0.0 AI-NPC town, which
+## the design doc cuts permanently and which cannot work on a phone at all (its
+## NPCs talk to a hardcoded Ollama at 127.0.0.1). The run spine was moved off it,
+## but every SANDBOX exit still pointed there, so backing out of a bot match
+## dropped you into a different game's village with nothing to do in it. The maker
+## found it immediately and asked why it was there.
+##
+## The Lobby is the boot scene, works on a phone, and is where every other exit in
+## the game now lands. The hub stays on disk and stays reachable as an opt-in
+## detour from the run-summary card; it is simply not somewhere you arrive by
+## accident.
+const HUB_SCENE: String = "res://scenes/ui/Lobby.tscn"
 
 const CLASS_LABELS: Array[String] = [
 	"ARCANIST", "SHADOWBLADE", "BRAWLER", "JUGGERNAUT", "CLERIC",
