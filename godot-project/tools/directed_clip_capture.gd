@@ -35,6 +35,13 @@
 #                      the two frames anybody actually shares.
 #   --width= --height= RENDER SIZE. Default 1920x1080. See the note below.
 #   --out=NAME         subfolder under user://clips.
+#   --chrome=1         LEAVE THE INSTRUMENTS ON. By default this tool turns CINEMATIC
+#                      MODE on (see `scripts/combat/Cinematic.gd`), which takes the
+#                      `heat 0.73 [ROLLING]` readout, the touch pause button and every
+#                      other debug overlay off the frame while KEEPING the health
+#                      plates, the clock, the result card, the damage numbers and the
+#                      taunts. Pass this when you are tuning the director and need to
+#                      see what it thought — the footage is then unpostable by design.
 #
 # ---------------------------------------------------------------------------
 # WHY THIS FILMS `BotMatch` AND NOT `VersusArena` DIRECTLY.
@@ -81,6 +88,7 @@ extends SceneTree
 
 const MATCH_SCENE: String = "res://scenes/combat/BotMatch.tscn"
 const MATCH_SCRIPT: String = "res://scripts/combat/BotMatch.gd"
+const CINEMATIC_SCRIPT: String = "res://scripts/combat/Cinematic.gd"
 
 const CLASS_NAMES: Array[String] = [
 	"ARCANIST", "SHADOWBLADE", "BRAWLER", "JUGGERNAUT", "CLERIC",
@@ -99,6 +107,10 @@ var _tail: float = 1.8
 var _out: String = "directed"
 var _width: int = 1920
 var _height: int = 1080
+## CINEMATIC BY DEFAULT — a clip is a thing to post. `--chrome=1` puts the heat
+## readout and the pause button back, which is what you want when you are tuning
+## `ClipDirector.HOT_THRESHOLD` and need to see what the director thought.
+var _cinematic: bool = true
 
 var _dir: String = ""
 var _match: Node = null
@@ -116,6 +128,7 @@ func _initialize() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(_dir))
 	_clear_dir()
 	_set_render_size()
+	_set_cinematic()
 	# Statics BEFORE the scene instantiates — `BotMatch._ready` reads them all, then
 	# sets the arena's own statics from them.
 	#
@@ -173,6 +186,36 @@ func _set_render_size() -> void:
 	root.size = want
 
 
+## TAKE THE INSTRUMENTS OFF THE SCREEN — BEFORE THE SCENE IS BUILT.
+##
+## The first clip anybody tried to post had `heat 0.73 [ROLLING]` burned into the
+## bottom-left of every frame and the touch PAUSE button burned into the top-right.
+## Both are real instruments (see `scripts/combat/Cinematic.gd`); neither belongs in a
+## marketing frame.
+##
+## ⚠ SET BEFORE `_match` INSTANTIATES, and that ordering is the whole point.
+## `Cinematic.mark()` applies the current mode the instant a node registers, so chrome
+## built under an already-on flag is born hidden — no frame where it flashes, and no
+## dependence on anybody remembering to sweep afterwards.
+##
+## ⚠ REACHED BY `load()` + `set()`, NEVER BY THE `Cinematic` IDENTIFIER, for exactly
+## the reason `_initialize` documents for `BotMatch`: a `class_name` named here is
+## compiled at THIS script's parse time, before the main loop has registered any
+## autoload. `Cinematic` itself references nothing, so naming it would in fact be safe
+## today — but it is one edit away from not being, and this file already establishes
+## the safe idiom twice.
+func _set_cinematic() -> void:
+	var script: GDScript = load(CINEMATIC_SCRIPT) as GDScript
+	if script == null:
+		print("[clip] ⚠ no Cinematic.gd — the heat readout and the pause button will "
+			+ "be burned into every frame.")
+		return
+	script.set("enabled", _cinematic)
+	if not _cinematic:
+		print("[clip] --chrome=1: the diagnostic overlays are LEFT ON. This footage is "
+			+ "for tuning the director, not for posting.")
+
+
 ## ⚠ THE DIRECTOR IS FETCHED AFTER THE FIRST FRAME, NOT IN `_initialize`.
 ##
 ## A node added while the SceneTree is still inside `_initialize` does not get its
@@ -218,6 +261,7 @@ func _parse_args() -> void:
 			"width": _width = maxi(int(value), 320)
 			"height": _height = maxi(int(value), 180)
 			"out": _out = value
+			"chrome": _cinematic = int(value) == 0
 
 
 func _name(id: int) -> String:

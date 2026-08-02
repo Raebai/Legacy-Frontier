@@ -954,6 +954,10 @@ func _build_overlay() -> void:
 	_readout.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	_readout.offset_left = 12.0
 	_readout.offset_top = -22.0
+	# ...and it is an INSTRUMENT, so it comes off the screen in cinematic mode. It is
+	# gated rather than deleted because it is the only number that says whether the
+	# director opened the shot too late. See `scripts/combat/Cinematic.gd`.
+	Cinematic.mark(_readout)
 
 
 ## One fighter's plate: a name, a class-tinted flash, and a bar that DRAINS TOWARD
@@ -1278,8 +1282,8 @@ class _PlateDraw extends Control:
 
 
 func _tick_readout() -> void:
-	if _readout == null:
-		return
+	if _readout == null or not _readout.visible:
+		return   # hidden by cinematic mode — no reason to format a string nobody sees
 	var d: Object = _director()
 	if d == null:
 		_readout.text = "%s vs %s" % [_label(_fighter_class[0]), _label(_fighter_class[1])]

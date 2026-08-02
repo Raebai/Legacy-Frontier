@@ -94,7 +94,13 @@ class Silhouette extends Node2D:
 	## `_test_stub_matches_real_enemy()`, which is exactly the assertion that caught
 	## this drift the moment the real constants moved.
 	const HEAD_R_FACTOR: float = 0.105
-	const HIP_Y_FACTOR: float = 0.1
+	## Moved 0.1 -> -0.0044 with the POSTURE pass: the rig used to draw a 0.48-height
+	## leg under a hip that only rode 0.41 above the foot, so it stood in a permanent
+	## 119-degree crouch. The hip rose to the top of a now-0.52 leg (the spike's own
+	## build) and CharacterRig.HIP_Y_FACTOR became derived — 0.5 - LEG_REACH_FACTOR *
+	## LEG_REACH_USABLE — which puts the hips a hair ABOVE the figure's mid-line,
+	## exactly where SpikeFigure's are. See tools/slice_test_rig_posture.gd.
+	const HIP_Y_FACTOR: float = 0.5 - 0.52 * 0.97
 	const MARGIN_FACTOR: float = 0.155
 
 	var height: float = RIG_H

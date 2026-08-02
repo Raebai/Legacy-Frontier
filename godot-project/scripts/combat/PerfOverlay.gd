@@ -71,12 +71,22 @@ func _ready() -> void:
 	_label.position = Vector2(12, 9)
 	_label.add_theme_font_size_override(&"font_size", 10)
 	add_child(_label)
+	# The most diagnostic thing in the project. An autoload, so it outlives every scene
+	# — which is exactly why it registers once here rather than being hunted down by
+	# whatever host happens to be filming. See `scripts/combat/Cinematic.gd`.
+	Cinematic.mark(self)
 	_sample()
 
 
 ## Show/hide the overlay. Public so a PauseMenu row can drive it without this
 ## file needing to know PauseMenu exists.
+##
+## ⚠ REFUSES WHILE CINEMATIC MODE IS ON. F3 and the three-finger tap are both global
+## and both reach this while a clip is rolling; without the guard the one key most
+## likely to be pressed by reflex would put a frame-time panel into the recording.
 func toggle() -> void:
+	if not Cinematic.shows_chrome():
+		return
 	visible = not visible
 	if visible:
 		_worst_ms = 0.0

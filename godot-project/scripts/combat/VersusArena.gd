@@ -1490,6 +1490,10 @@ func _build_duel_hud(layer: CanvasLayer) -> void:
 	_learn_label.add_theme_constant_override("outline_size", 3)
 	_learn_label.visible = duel_show_learning
 	layer.add_child(_learn_label)
+	# Both duel readouts are instruments, so cinematic mode takes them off the screen.
+	# `Cinematic.mark` stashes and restores the pre-cinematic state, so leaving the mode
+	# does NOT turn a toggle the maker had switched off back on.
+	Cinematic.mark(_learn_label)
 
 	# What the bot is doing THIS FRAME — the readable-opponent requirement. Bottom
 	# centre so it never sits over either fighter.
@@ -1503,6 +1507,7 @@ func _build_duel_hud(layer: CanvasLayer) -> void:
 	_intent_label.add_theme_constant_override("outline_size", 4)
 	_intent_label.visible = duel_show_intent
 	layer.add_child(_intent_label)
+	Cinematic.mark(_intent_label)
 
 	_banner = Label.new()
 	_banner.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -1554,7 +1559,7 @@ func _toggle_duel_learning() -> void:
 func _toggle_duel_show_learning() -> void:
 	duel_show_learning = not duel_show_learning
 	if _learn_label != null:
-		_learn_label.visible = duel_show_learning
+		_learn_label.visible = duel_show_learning and Cinematic.shows_chrome()
 	if _duel_labels.has("show"):
 		(_duel_labels["show"] as Button).text = "Show learned: %s" % ("ON" if duel_show_learning else "OFF")
 
@@ -1562,7 +1567,7 @@ func _toggle_duel_show_learning() -> void:
 func _toggle_duel_show_intent() -> void:
 	duel_show_intent = not duel_show_intent
 	if _intent_label != null:
-		_intent_label.visible = duel_show_intent
+		_intent_label.visible = duel_show_intent and Cinematic.shows_chrome()
 	if _duel_labels.has("intent"):
 		(_duel_labels["intent"] as Button).text = "Bot intent: %s" % ("ON" if duel_show_intent else "OFF")
 

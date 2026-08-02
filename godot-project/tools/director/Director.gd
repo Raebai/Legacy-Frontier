@@ -50,6 +50,7 @@
 #   SpellLibrary.build_all()
 #   Perf.toggle()
 #   Tuning.cfg.graphics_quality
+#   Cinematic.set_enabled(tree, on) -> the clean-frame gate the clip tool also sets
 #
 # ---------------------------------------------------------------------------
 # HOTKEYS (also printed in the panel, because a hotkey nobody can see is a
@@ -165,6 +166,7 @@ var _note_log: RichTextLabel = null
 
 # -- VIEW tab -----------------------------------------------------------------
 var _quality_btn: Button = null
+var _cinematic_btn: Button = null
 var _god_btn: Button = null
 var _time_btn: Button = null
 var _freeze_btn: Button = null
@@ -481,6 +483,18 @@ func _tab_view() -> Node:
 	v.add_child(_quality_btn)
 	v.add_child(_wide_button("Perf overlay  (F3)", _toggle_perf))
 	v.add_child(_note_label("Watch `worst`, not FPS — one 90 ms hitch a second still reads as 60."))
+
+	# THE CLEAN FRAME. `tools/directed_clip_capture.gd` sets this same flag for every
+	# clip, so a screenshot taken here and a frame out of the clip engine hide exactly
+	# the same things — one definition of "postable", not two that drift.
+	v.add_child(_heading("A frame you can post"))
+	v.add_child(_note_label(
+		"Hides the DIAGNOSTIC chrome — the clip director's heat readout, the touch "
+		+ "pause button, the perf overlay, the duel's bot-intent line — and keeps the "
+		+ "health plates, the clock, damage numbers and speech. Close this panel "
+		+ "(F1) before you shoot."))
+	_cinematic_btn = _wide_button("Cinematic: ?", _toggle_cinematic)
+	v.add_child(_cinematic_btn)
 
 	v.add_child(_heading("Time"))
 	v.add_child(_note_label(
@@ -884,8 +898,26 @@ func _toggle_perf() -> void:
 	if p == null or not p.has_method("toggle"):
 		_say("no Perf overlay in this build")
 		return
+	if not Cinematic.shows_chrome():
+		_say("cinematic mode is ON — the perf overlay is gated. Turn it off first.")
+		return
 	p.call("toggle")
 	_say("perf overlay toggled")
+
+
+## Flip the clean-frame gate for the WHOLE tree, live. Read back off the static rather
+## than from a local mirror, for the same reason `_toggle_friendly_fire` does: a mirror
+## starts lying the moment the clip tool, or another director, touches the real one.
+func _toggle_cinematic() -> void:
+	Cinematic.set_enabled(get_tree(), not Cinematic.enabled)
+	_refresh_cinematic_btn()
+	_say("cinematic %s" % ("ON — diagnostic chrome hidden; close this panel (F1) and shoot"
+		if Cinematic.enabled else "off — the instruments are back"))
+
+
+func _refresh_cinematic_btn() -> void:
+	if _cinematic_btn != null:
+		_cinematic_btn.text = "Cinematic: %s" % ("ON" if Cinematic.enabled else "off")
 
 
 ## Flip the shared-`mortal`-group switch. Read back from the static rather than
@@ -1159,6 +1191,7 @@ func _refresh_all() -> void:
 	_refresh_hp_btns()
 	_refresh_tab_strip()
 	_refresh_ff_btn()
+	_refresh_cinematic_btn()
 
 
 func _quality_word() -> String:

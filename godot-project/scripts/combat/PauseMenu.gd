@@ -239,6 +239,11 @@ func _build_pause_button() -> void:
 	_pause_btn.offset_bottom = PAUSE_BTN_MARGIN + PAUSE_BTN_SIZE.y
 	_pause_btn.pressed.connect(_on_pause_pressed)
 	holder.add_child(_pause_btn)
+	# A touch affordance has no business in a desktop clip: it was burned into the
+	# top-right corner of every frame of the first bot fight anybody tried to post.
+	# The LAYER is marked, not the button, because the layer is what `open()`/`close()`
+	# already drive — one owner for the visibility of this thing, not two.
+	Cinematic.mark(_pause_layer)
 
 
 ## Tapped. TWO ROUTES, and the fallback is now a real one rather than a stopgap.
@@ -281,7 +286,10 @@ func _on_pause_pressed() -> void:
 ## needs to care, because it defaults to on.
 func set_pause_button_visible(v: bool) -> void:
 	if _pause_layer != null:
-		_pause_layer.visible = v
+		# CINEMATIC MODE WINS over a host that wants the button. A group sweep alone is
+		# not enough here: this method and `close()` re-assert visibility on their own
+		# schedule and would undo the sweep a frame later.
+		_pause_layer.visible = v and Cinematic.shows_chrome()
 
 
 func open() -> void:
@@ -306,7 +314,7 @@ func open() -> void:
 func close() -> void:
 	visible = false
 	if _pause_layer != null:
-		_pause_layer.visible = true
+		_pause_layer.visible = Cinematic.shows_chrome()
 
 
 func _build_main() -> void:

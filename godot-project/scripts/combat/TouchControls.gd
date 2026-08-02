@@ -238,6 +238,11 @@ const PAD_GROUP: StringName = &"touch_pad"
 func _ready() -> void:
 	layer = 70  # above the AbilityBar (60), below Conversation (100)
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	# A thumb pad has no business in a recorded frame. Marked BEFORE the touchscreen
+	# gate below so the mark lands whichever branch is taken — and `Cinematic.mark`
+	# only ever hides, so `tools/touch_capture.gd` (which exists to photograph exactly
+	# this pad, with cinematic mode off) is untouched.
+	Cinematic.mark(self)
 	if not (force_visible or DisplayServer.is_touchscreen_available()):
 		visible = false
 		set_process(false)
