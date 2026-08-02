@@ -293,38 +293,42 @@ func _make_rig() -> Node2D:
 func _test_footstep_fires_on_the_gait() -> void:
 	var rig: Node2D = _make_rig()
 	rig.play(rig.State.RUN)
-	# Steps are now DISTANCE-driven, not cadence-driven: one plant per STEP_LENGTH of
-	# travel (leg reach * STEP_LENGTH_FACTOR), alternating feet. Asserting the count
-	# against the distance covered is the honest test of a world-locked gait, and it
-	# is what stops the sound drifting away from the visible footfall.
+	# ⚠ THIS ASSERTION HAS BEEN PINNED TO THE BUG TWICE. Read before widening it.
+	#
+	# Round one modelled "one plant per STEP_LENGTH of travel" and bracketed it +/-2;
+	# that only passed because the gait was DROPPING a quarter of its steps to frame
+	# aliasing, and it went red the moment the gait was sub-stepped.
+	# Round two widened the band to expected/3 .. expected*2 — which is so loose that it
+	# happily accepted 22 plants a second, i.e. the buzz the maker was complaining
+	# about, as "proportional to distance". A band that accepts the bug is not a test.
+	#
+	# What is actually worth pinning is the thing a person can hear and see: a footstep
+	# is a FOOTSTEP, at a rate a foot could plausibly fall. A human sprints at about 4.5
+	# steps per second; this figure covers 5.8 of its own body-heights every second at
+	# this speed, so it legitimately steps faster than that — but nowhere near twenty.
+	# The band below is therefore absolute and narrow, and the ONLY reason to move it is
+	# a deliberate decision about how the walk should look, never to make a run go green.
 	var seconds: float = 2.0
 	var vx: float = 180.0
-	var consts: Dictionary = load(RIG_SCRIPT).get_script_constant_map()
-	var leg: float = float(rig.height) * 0.4
-	var step_len: float = leg * float(consts.get("STEP_LENGTH_FACTOR"))
-	var expected: int = int((vx * seconds) / step_len)
 	var got: int = _count_plants(rig, seconds, 1.0 / 60.0, vx)
-	# ⚠ THE UPPER BOUND WAS ACCIDENTALLY CALIBRATED AGAINST A BROKEN GAIT.
-	#
-	# `expected` models ONE plant per STEP_LENGTH of travel. The rig's real geometry
-	# plants roughly every 0.8 of that, because the feet alternate — so the true count
-	# has always been higher than this model, and `expected + 2` only ever passed
-	# because the gait was DROPPING about a quarter of its steps at 60 Hz. It ran one
-	# iteration per physics frame while a step triggers every ~1.8 frames, so plants
-	# aliased against the frame grid: 29 plants at 60 Hz against 36 at 120 Hz. Fixing
-	# that (the gait is sub-stepped now, and the count is 37/38/38 at 60/120/240 Hz)
-	# turned this assertion red — the test was pinned to the bug.
-	#
-	# The model stays an approximation on purpose; the invariant worth having here is
-	# "cadence is PROPORTIONAL TO DISTANCE, not to frames", so the band brackets the
-	# geometry rather than predicting it to the step. Tick-rate independence itself is
-	# pinned properly and exactly by `slice_test_rig_tickrate`.
+	var cadence: float = float(got) / seconds
 	_expect(
-		got > expected / 3 and got <= expected * 2,
-		"running %.1fs at %.0f px/s plants feet in proportion to distance (got %d, model %d)"
-				% [seconds, vx, got, expected]
+		cadence >= 5.0 and cadence <= 15.0,
+		"a run plants feet at a rate a foot could fall: %.1f steps/s (got %d plants in %.1fs at %.0f px/s), band 5-15"
+				% [cadence, got, seconds, vx]
 	)
-	_expect(got > 0, "a run plants feet at all")
+	# And the invariant the world-locked gait exists to provide, which the old model was
+	# reaching for: plants track DISTANCE, so halving the speed must not halve the
+	# stride and keep the cadence — it must cut the plant count, not far off in half.
+	var slow_rig: Node2D = _make_rig()
+	slow_rig.play(slow_rig.State.RUN)
+	var slow: int = _count_plants(slow_rig, seconds, 1.0 / 60.0, vx * 0.5)
+	_expect(
+		slow < got and slow > 0,
+		"halving the speed takes fewer steps, not the same number of shorter ones (%d vs %d)"
+				% [slow, got]
+	)
+	slow_rig.free()
 	# And the flip side of the same contract: standing still makes no footsteps.
 	var idle_rig: Node2D = _make_rig()
 	idle_rig.play(idle_rig.State.IDLE)

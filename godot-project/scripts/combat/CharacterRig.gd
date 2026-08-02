@@ -190,40 +190,92 @@ const RUN_PHASE_RATE: float = 9.0
 ## plant, that foot swings through a lifted arc to a new plant STEP_LENGTH ahead.
 ## The contact point does not move while it bears weight, so the ground grips.
 ##
-## Everything is expressed against the figure's own LEG REACH (height * 0.4, the
-## hip->foot length _compute_pose uses) rather than raw height, so a 1.9x sparring
-## dummy and a 0.6x minion both stride in proportion. The factors reproduce
-## SpikeFigure's hand-tuned absolutes at its own 44 px leg (30 / 15 / 4.5 / 13 px).
-## The absolutes are NOT copied from SpikeFigure, deliberately. The spike stands ~86 px
-## with a 44 px leg and tops out at 300 px/s — 6.8 leg-lengths per second. This rig
-## stands 31 px with a 12.4 px leg and the hero also runs ~180-300 px/s, i.e. ~15 leg-
-## lengths per second: proportionally the game figure sprints twice as hard as the
-## spike ever did. Porting the spike's numbers verbatim made the hip outrun the planted
-## foot by two whole leg-lengths, the IK clamped, and the legs read as dragged stilts.
-## So the SHAPE of the gait is the spike's; the stride is re-derived for this figure.
-const STEP_LENGTH_FACTOR: float = 1.0    # forward plant distance / leg reach
-const STEP_TRIGGER_FACTOR: float = 0.5   # hip-ahead-of-rear-plant before it steps
-const STANCE_FACTOR: float = 0.10        # half stance width at rest
-const STEP_LIFT_FACTOR: float = 0.295    # swing-arc apex height
+## ⚠ WHAT WENT WRONG THE FIRST TWO TIMES, AND WHAT THE UNIT OF EACH NUMBER IS.
+##
+## A gait has two independent quantities and they are NOT the same kind of thing:
+##   * LENGTHS (stance width, foot lift, plant distance) scale with the figure.
+##   * TIMES (how long a leg takes to swing through) do NOT. A swing is a pendulum
+##     of flesh; a small fighter does not swing its leg six times faster because it
+##     is small, and neither does a fast one.
+## The first port treated the lengths as fractions of LEG REACH and the swing TIME as
+## a fraction of the step interval (`SWING_DUTY`, swing rate = speed / step length).
+## Both are wrong in the same direction, and together they produce the bug the maker
+## has now reported twice:
+##
+##   Deriving the swing rate from speed holds the STRIDE constant and lets the
+##   CADENCE scale linearly with speed. So the figure does not lengthen its stride
+##   when it runs — it takes the same little 9.5 px step faster and faster. MEASURED
+##   (tools/rig_gait_measure.gd): stride 0.31 body-heights at 40, 140, 210 AND
+##   300 px/s, while cadence went 4.0 -> 14.7 -> 22.0 -> 28.0 steps per second.
+##   SpikeFigure, at matched speed, does the opposite and correct thing: cadence
+##   7.3 -> 7.7 steps/s across a 43% speed change, stride 0.32 -> 0.44 heights.
+##   Twenty-two steps a second is not a stride, it is a buzz, and a buzz on
+##   world-locked feet is exactly "why are they walking on their legs".
+##
+## So the swing rate is now ABSOLUTE, in seconds, copied from SpikeFigure:2047, and
+## the STRIDE is derived from it — `step_len = speed * swing_time + reach`, i.e. plant
+## the foot where the hip WILL BE when the swing ends, plus a little forward reach.
+## The spike gets the same answer with a hardcoded 30 px only because 30 px happens to
+## be `speed * swing_time` at the one speed it was tuned at; write it out and it works
+## at every speed and every figure size, which is what this rig needs.
+##
+## Lengths are still fractions, but of HEIGHT, not of leg reach. The spike's leg is
+## 0.51 of its height and this rig's is 0.40, so matching the spike "as a fraction of
+## leg" silently shrank every length by 22% — which is how the foot lift ended up at
+## 11.8% of body height against the spike's 15.1%.
+const STEP_TRIGGER_FACTOR: float = 0.20  # rear-plant lag before it steps / height
+const STANCE_FACTOR: float = 0.052       # half stance width / height (spike 4.5/86)
+const STEP_LIFT_FACTOR: float = 0.151    # swing-arc apex / height (spike 13/86)
+## How far AHEAD of where the hip will be the swing foot plants, as a fraction of
+## height. This is the forward reach of the stride — the leg is at its straightest
+## here, and it is the single thing that makes a walk read as covering ground rather
+## than shuffling. Bounded by what the leg can actually reach (see LEG_REACH_FACTOR
+## in _compute_pose): too big and the shin visibly stretches.
+const STEP_REACH_FACTOR: float = 0.18
+## ⚠ THE LEASH ON THE TRAILING LEG, and the thing that decides how fast this figure is
+## ALLOWED to stride. A planted foot is nailed to the world, so the longer it stays
+## down the further behind the hip it ends up — and past thigh+shin it cannot be drawn
+## at all without the shin visibly stretching (a straight rubber leg trailing the body,
+## which is its own kind of wrong). So the swing time is capped: once the support foot
+## has trailed this far, the swing MUST already be finishing.
+##
+## The consequence is deliberate and is real biomechanics rather than a fudge: this
+## figure's legs are 0.40 of its height, and Hero.SPEED moves it 6.8 body-heights every
+## second. Something with legs that short going that fast cannot take longer strides —
+## it runs out of leg — so it takes FASTER ones. The stride therefore grows with speed
+## up to what the leg can span and the cadence stays flat until that ceiling, then
+## creeps. That is the correct shape; it is only the old law's UNBOUNDED cadence with a
+## FROZEN stride that read as a buzz.
+const MAX_TRAIL_FACTOR: float = 0.34
 ## Below this world speed (px/s) the figure is idle: feet stop stepping and ease
 ## back under the hips so a standing fighter SETTLES instead of marching on the spot.
 const GAIT_IDLE_SPEED: float = 14.0
-## Swing rate is DERIVED from how often a step is needed (speed / step length) rather
-## than lerped off an absolute speed range. That self-tunes: a 1.9x sparring dummy, a
-## small minion and a sprinting hero all complete the swing in the same FRACTION of
-## their own step interval, so none of them ever has a foot still in the air when the
-## next step is already due. SWING_DUTY > 1 = the foot lands before the next step
-## comes round; the clamps stop a crawl from taking a whole second per step or a blink-
-## speed slide from stepping every frame.
-const SWING_DUTY: float = 1.7
+## Swing rate in SWINGS PER SECOND — a time, so no height scaling (see above).
+## SpikeFigure:2047 lerps exactly these two between a standstill and its top speed.
 const SWING_RATE_SLOW: float = 5.0
-const SWING_RATE_FAST: float = 30.0
+const SWING_RATE_FAST: float = 9.5
+## The speed at which the swing rate reaches SWING_RATE_FAST, in BODY-HEIGHTS per
+## second, so it means the same thing to a minion and a boss. The spike's own top
+## speed is 300 px/s on an 86 px figure.
+const GAIT_FULL_SPEED_HEIGHTS: float = 300.0 / 86.0
 ## How fast idle feet ease back to the stance position (fraction per frame at 60 fps).
 const IDLE_SETTLE: float = 0.25
-## Body rise over the support leg mid-step. The hips are highest when the swinging
-## foot passes the planted one, so the bounce is a CONSEQUENCE of the stride rather
-## than a sine bolted next to it.
-const STRIDE_BOB_FACTOR: float = 0.05
+## --- LEG LENGTH, IN ONE PLACE ---
+## thigh + shin as drawn by draw_figure. It exceeds the 0.4 hip->foot rest length on
+## purpose so there is always a real knee bend, and it is the hard ceiling on how far
+## a foot can be from the hip before the shin visibly stretches. _compute_pose's ride
+## dip is derived from it, so the two must not be allowed to drift apart — hence the
+## constant rather than two more copies of 0.23 / 0.25.
+const THIGH_FACTOR: float = 0.23
+const SHIN_FACTOR: float = 0.25
+const LEG_REACH_FACTOR: float = THIGH_FACTOR + SHIN_FACTOR
+## Fraction of that reach the ride dip aims for, so a planted leg is near-straight at
+## the extremes of the stride but never dead straight (which reads as a stilt).
+const LEG_REACH_USABLE: float = 0.97
+## Ceiling on the stride dip, as a fraction of height. Without it a foot target left
+## somewhere absurd (a blink mid-swing, a rig teleported by a test) could fold the
+## figure into the floor. At the shipped stride the real dip peaks well under this.
+const MAX_STRIDE_DIP_FACTOR: float = 0.14
 ## Footstep audio. OFF by default and per-instance: this rig drives every enemy
 ## as well as the hero, and a room of eight enemies all ticking would be a
 ## cacophony — the owner opts in (see `step_sfx`). Levels are UNTESTED GUESSES;
@@ -1064,8 +1116,7 @@ func _update_gait(delta: float) -> void:
 	_prev_gx = gx
 	_prev_gx_valid = true
 
-	var leg: float = height * 0.4          # matches _compute_pose's leg_len
-	var stance: float = leg * STANCE_FACTOR
+	var stance: float = height * STANCE_FACTOR
 	# Airborne, ragdolling or frozen: no gait. Drop readiness so the next grounded
 	# frame re-seeds the plants under the body (a landing must never drag the feet
 	# back to where the jump started).
@@ -1092,43 +1143,33 @@ func _update_gait(delta: float) -> void:
 		return
 
 	var moving: bool = absf(_gait_speed) > GAIT_IDLE_SPEED
-	var step_len: float = leg * STEP_LENGTH_FACTOR
 	if moving:
-		# ⚠ SUB-STEPPED, AND THIS IS THE "HE WALKS WEIRD ON HIS LEGS" BUG.
-		#
-		# The gait was the LAST thing in the rig still running one iteration per physics
-		# frame, and it is the part with the shortest natural period, so it was the part
-		# that could least afford it. Do the arithmetic at the speed a fighter actually
-		# runs: leg = height * 0.4 = 12.4 px on a 31 px hero, so a step triggers every
-		# `leg * STEP_TRIGGER_FACTOR` = 6.2 px of travel, and at Hero.SPEED (210 px/s)
-		# that is a step every 0.03 s — under TWO physics frames at 60 Hz. The swing
-		# itself is worse: `rate` saturates at SWING_RATE_FAST, so `delta * rate` = 0.5
-		# per frame and the entire lift-arc-plant resolves in TWO samples, one of which
-		# is the apex. The whole cycle is ~3.5 frames wide.
-		#
-		# At 120 Hz — which is what BOTH spike hosts force, and therefore the only tick
-		# rate this rig's feel was ever signed off at — the same cycle is ~7 frames and
-		# reads as a stride. At the shipped 60 Hz the trigger phase aliases against the
-		# frame grid, so steps land at irregular intervals and the plants drift up to
-		# 19 px (60% of the figure's height) from where the same walk puts them at
-		# 120 Hz. MEASURED, not reasoned: tools/rig_tickrate_trace.gd, `foot0_x`.
-		# Irregular step timing on world-locked feet is precisely a limp.
-		#
-		# The fix is resolution, not retuning: NOT ONE GAIT CONSTANT CHANGES. The body
-		# travels at essentially constant velocity within a physics frame, so `gx` is
-		# linearly interpolated across the frame and the trigger fires at the world x it
-		# would have fired at on a finer clock. Sub-stepping can only move the gait
-		# TOWARD its 120 Hz behaviour, never away from it — the same argument that makes
-		# the body springs' sub-stepping safe.
-		#
-		# A step may now both COMPLETE and RE-TRIGGER inside one frame. That is correct
-		# and is exactly what happens across two frames at 120 Hz; `foot_planted` fires
-		# per plant either way, so the signal and the footstep audio stay honest.
+		# SUB-STEPPED. The gait has the shortest natural period of anything in the rig,
+		# so it is the part that can least afford one iteration per physics frame: at
+		# 60 Hz the trigger phase aliases against the frame grid, steps land at irregular
+		# intervals, and irregular timing on world-locked feet is precisely a limp.
+		# The body travels at essentially constant velocity within a frame, so `gx` is
+		# interpolated across it and the trigger fires at the world x it would have fired
+		# at on a finer clock. A step may both COMPLETE and RE-TRIGGER inside one frame;
+		# that is what happens across two frames at 120 Hz, and `foot_planted` fires once
+		# per real plant either way, so the signal and the footstep audio stay honest.
 		var walk_dir: float = signf(_gait_speed)
-		var rate: float = clampf(
-			absf(_gait_speed) / maxf(step_len, 0.001) * SWING_DUTY,
-			SWING_RATE_SLOW, SWING_RATE_FAST
-		)
+		# ABSOLUTE swing rate — a TIME, lerped by how fast this figure is going relative
+		# to its own size. See the ⚠ on SWING_RATE_SLOW for why deriving this from the
+		# step length instead is the bug the maker keeps seeing.
+		var rate: float = lerpf(SWING_RATE_SLOW, SWING_RATE_FAST, clampf(
+			absf(_gait_speed) / maxf(height * GAIT_FULL_SPEED_HEIGHTS, 0.001), 0.0, 1.0))
+		# ...but never slower than the leash allows (see MAX_TRAIL_FACTOR): the support
+		# foot must not still be down once it has trailed further than the leg can span.
+		var swing_time: float = minf(
+			1.0 / maxf(rate, 0.001),
+			height * (STEP_REACH_FACTOR + MAX_TRAIL_FACTOR)
+					/ maxf(absf(_gait_speed), 0.001))
+		rate = 1.0 / maxf(swing_time, 0.0001)
+		# Plant where the hip WILL BE when this swing ends, plus the forward reach of
+		# the stride. THE STRIDE THEREFORE GROWS WITH SPEED and the cadence does not —
+		# which is the whole difference between a run and a buzz.
+		var step_len: float = absf(_gait_speed) * swing_time + height * STEP_REACH_FACTOR
 		var steps: int = _substeps(delta)
 		var sdt: float = delta / float(steps)
 		for s: int in steps:
@@ -1136,14 +1177,12 @@ func _update_gait(delta: float) -> void:
 			if _swing_t >= 1.0:
 				# Step whichever foot is furthest BEHIND along the direction of travel.
 				var behind: int = 0 if (_plant_w[0].x - _plant_w[1].x) * walk_dir <= 0.0 else 1
-				if (gx_s - _plant_w[behind].x) * walk_dir > leg * STEP_TRIGGER_FACTOR:
+				if (gx_s - _plant_w[behind].x) * walk_dir > height * STEP_TRIGGER_FACTOR:
 					_swing_foot = behind
 					_swing_from = _plant_w[behind]
 					_swing_to = Vector2(gx_s + walk_dir * step_len, floor_w)
 					_swing_t = 0.0
 			else:
-				# Complete the swing in ~1/SWING_DUTY of the interval between steps at
-				# this speed, so the foot is always down before the next one is due.
 				_swing_t += sdt * rate
 				if _swing_t >= 1.0:
 					_swing_t = 1.0
@@ -1165,11 +1204,10 @@ func _update_gait(delta: float) -> void:
 ## _compute_pose (which must stay side-effect free; the ghost + aura call it too).
 func _gait_foot_world(i: int) -> Vector2:
 	if i == _swing_foot and _swing_t < 1.0:
-		var leg: float = height * 0.4
 		return Vector2(
 			lerpf(_swing_from.x, _swing_to.x, _swing_t),
 			lerpf(_swing_from.y, _swing_to.y, _swing_t)
-					- sin(_swing_t * PI) * leg * STEP_LIFT_FACTOR
+					- sin(_swing_t * PI) * height * STEP_LIFT_FACTOR
 		)
 	return _plant_w[i]
 
@@ -1343,9 +1381,39 @@ func _sim_pose() -> Dictionary:
 	if not _sim_ready:
 		return pose
 	var target_hand_lead: Vector2 = pose["hand_lead"]  # the aim TARGET, before sim overwrite
+	# The gait's own answer for the feet, likewise captured before the sim overwrites it.
+	var target_foot: Array[Vector2] = [pose["foot_lead"], pose["foot_off"]]
 	for key: String in SIM_JOINTS:
 		pose[key] = _sim[key]
 	pose["neck"] = _sim["head_center"] + Vector2(0.0, pose["r"])
+	# --- THE PLANT IS THE DRAWING. This is the actual anti-slide. ---
+	#
+	# ⚠ THE BUG THAT SURVIVED TWO FIXES. The world-locked gait has always been right:
+	# measured with tools/rig_gait_measure.gd, `_plant_w` holds a support foot to
+	# 0.00 px of world drift across a three-second walk. But nothing DREW it. The feet
+	# went into the spring sim like every other joint, and the spring (STIFFNESS 180,
+	# DAMPING 8 -> damping ratio ~0.3) is badly underdamped and slower than the gait it
+	# was chasing: it rings around each new plant instead of settling on it. The foot
+	# that reached the screen wandered 12.6 px at Hero.SPEED and 14.3 px at a slow amble
+	# — 41% and 46% OF THE FIGURE'S ENTIRE HEIGHT — around a plant that had not moved at
+	# all. That is the skate the world-locked gait was built to kill, reintroduced one
+	# stage further down the pipe, and it is why the rig read as an animation playing
+	# over a sliding body rather than a body standing on its feet. It also ate the
+	# stride: a commanded 3.66 px foot lift was drawn as 1.42 px, because the same
+	# spring low-passed the swing arc.
+	#
+	# So while the figure is grounded and settled, the drawn foot IS the gait's foot.
+	# The spring still runs underneath and still tracks (its target is the same plant),
+	# so handing control back is seamless: `lock` fades to 0 exactly as the figure goes
+	# loose, at the same looseness where _update_gait itself gives up (STEP_SFX_MAX_LOOSE).
+	# Ragdoll, flop, death collapse, airborne trail and hit flail are therefore untouched
+	# — at loose >= STEP_SFX_MAX_LOOSE this branch contributes nothing at all.
+	if _gait_ready and (state == State.IDLE or state == State.RUN):
+		var lock: float = 1.0 - clampf(
+			maxf(_limp, _air_loose) / STEP_SFX_MAX_LOOSE, 0.0, 1.0)
+		if lock > 0.0:
+			pose["foot_lead"] = (pose["foot_lead"] as Vector2).lerp(target_foot[0], lock)
+			pose["foot_off"] = (pose["foot_off"] as Vector2).lerp(target_foot[1], lock)
 	# Aim-snap: while twin-stick aiming (Hero), the lead hand tracks the cursor with
 	# NO spring lag in the aim states, so the visible hand points EXACTLY where the
 	# player aims instead of smearing behind it. Strikes/other states keep the sim.
@@ -2269,12 +2337,12 @@ func _compute_pose() -> Dictionary:
 			leg_off_len = leg_len * (1.0 - 0.24 * maxf(sin(sp), 0.0))
 			arm_lead = PI * 0.5 + swing * 0.7
 			arm_off = PI * 0.5 - swing * 0.7
-			# Body RISE over the support leg while the other foot passes it. The bounce is
-			# now a CONSEQUENCE of the stride rather than a second sine running alongside
-			# it, so it can never beat against the visible footfalls. (Local +y is down,
-			# hence the negative.) The leg angles above survive only as the pre-seed
-			# fallback — the world-locked plants below overwrite both feet outright.
-			bob = -sin(_swing_t * PI) * height * STRIDE_BOB_FACTOR
+			# NO stride bob is authored here any more. The body's rise and fall over the
+			# support leg now falls out of the leg geometry itself — see the ride dip in
+			# the world-locked-feet block below, where the hips drop because the legs are
+			# split and rise because they are together. A sine added on top of that would
+			# beat against it. The leg angles above survive only as the pre-seed fallback;
+			# the world-locked plants overwrite both feet outright.
 		State.DASH:
 			lean = height * 0.22
 			leg_lead = PI * 0.5 + 0.55
@@ -2353,6 +2421,39 @@ func _compute_pose() -> Dictionary:
 	if _gait_ready and (state == State.IDLE or state == State.RUN):
 		foot_lead = to_local(_gait_foot_world(0))
 		foot_off = to_local(_gait_foot_world(1))
+		# --- THE BODY RIDES ON ITS LEGS ---
+		# A leg is a fixed length. Split the feet wide and the hips MUST come down;
+		# bring them together and the body rises to its full height. Without this the
+		# hip sat at a constant height and any stride worth the name simply stretched
+		# the shin — the "sticks on rails" read, and the reason the first port had to
+		# keep the stride tiny to hide it. Deriving the dip instead means the stride can
+		# be as long as the leg allows, and the vertical bounce of the walk comes out as
+		# a CONSEQUENCE of the geometry (hips highest at mid-stance, lowest at the split)
+		# rather than a sine bolted alongside it.
+		#
+		# BOTH feet are asked, support and swing alike. They reach their extremes at the
+		# same instant — the split stance, one foot forward and one just leaving — so
+		# this is one dip per step at the widest point, not two. The swing foot stops
+		# asking for depth the moment it lifts, because its own arc raises it.
+		var reach: float = height * LEG_REACH_FACTOR * LEG_REACH_USABLE
+		var dip: float = 0.0
+		for i: int in 2:
+			var f: Vector2 = foot_lead if i == 0 else foot_off
+			var dx: float = absf(f.x - hip.x)
+			# How high above this foot the hip can be while the leg still reaches it.
+			var lift_ok: float = sqrt(maxf(reach * reach - dx * dx, 0.0))
+			dip = maxf(dip, (f.y - lift_ok) - hip.y)
+		dip = clampf(dip, 0.0, height * MAX_STRIDE_DIP_FACTOR)
+		if dip > 0.0:
+			# The WHOLE upper body drops together — head, neck, hips, shoulders and the
+			# hands hanging off them. Dropping the hip alone would stretch the torso.
+			var d := Vector2(0.0, dip)
+			head_center += d
+			neck += d
+			hip += d
+			shoulder += d
+			hand_lead += d
+			hand_off += d
 
 	# Cast-gesture overlay: additive, lead-arm-isolated, composes over locomotion.
 	# Damped out automatically when limp (the sim's stiffness is _limp-scaled).
@@ -2453,8 +2554,8 @@ static func draw_figure(
 	# ELBOW per arm with 2-bone IK so the figure BENDS like a real body instead of
 	# stiff straight sticks. Segment sums exceed the limb reach so there's always
 	# a real bend; knees bend forward (+x local), elbows bend down. ---
-	var thigh: float = fig_height * 0.23
-	var shin: float = fig_height * 0.25
+	var thigh: float = fig_height * THIGH_FACTOR
+	var shin: float = fig_height * SHIN_FACTOR
 	var upper: float = fig_height * 0.2
 	var fore: float = fig_height * 0.2
 	var knee_lead: Vector2 = _ik_joint(hip, foot_lead, thigh, shin, Vector2.RIGHT)

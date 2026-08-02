@@ -27,6 +27,7 @@ func _process(_delta: float) -> bool:
 	_ran = true
 
 	_test_gait_seeds_and_locks()
+	_test_gait_reads_as_a_stride()
 	_test_gait_steps_and_signals()
 	_test_gait_disabled_when_airborne()
 	_test_gear_hitbox_contract()
@@ -36,7 +37,7 @@ func _process(_delta: float) -> bool:
 	# Completion sentinels: a test that died half-way never sets its own flag, so a
 	# crash inside one can't be mistaken for a clean run.
 	const EXPECTED: Array[String] = [
-		"seeds_and_locks", "steps_and_signals", "airborne",
+		"seeds_and_locks", "reads_as_a_stride", "steps_and_signals", "airborne",
 		"gear_hitbox", "gear_registry", "public_surface",
 	]
 	for key: String in EXPECTED:
@@ -111,6 +112,89 @@ func _test_gait_seeds_and_locks() -> void:
 	_done["seeds_and_locks"] = true
 
 
+## ⚠ THE REGRESSION THIS FILE EXISTS TO STOP, PINNED BY ITS THREE VISIBLE SYMPTOMS.
+##
+## The maker has reported "why are they walking on their legs" twice. Both times the
+## world-locked plants themselves were fine — `_test_gait_seeds_and_locks` above was
+## green throughout — and both times the walk was still wrong, because what a person
+## SEES is none of the things that were being asserted. So assert those things:
+##
+##   CADENCE  the plants-per-second a person could count. The bug was 22 a second at
+##            Hero.SPEED: a buzz, not a stride.
+##   SLIDE    of the foot that is DRAWN, not of `_plant_w`. The plant held to 0.00 px
+##            while the spring sim that drew it wandered 12.6 px — 41% of the whole
+##            figure — around it. Reading `_gait_foot_world` here would have passed
+##            through the entire bug, which is exactly what happened.
+##   LIFT     as a fraction of BODY HEIGHT. The swing arc was commanded at 3.66 px and
+##            drawn at 1.42 px, so the foot never visibly left the floor.
+##
+## Every bound is a MINIMUM OCCURRENCE as well as a limit — "at least N plants happened
+## AND each held to within M px" — because "no bad plant was seen" is trivially true of
+## a rig that never stepped at all.
+func _test_gait_reads_as_a_stride() -> void:
+	var rig: Node2D = _make_rig()
+	var h: float = float(rig.get("height"))
+	var vx: float = 210.0            # Hero.SPEED, where the complaint lives
+	var dt: float = 1.0 / 60.0
+	var seconds: float = 3.0
+	var counter := _PlantCounter.new()
+	rig.call("play", 1)   # RUN
+	_drive(rig, 2, dt, 0.0)
+	_drive(rig, 60, dt, vx)          # a second of warm-up: transients are not the walk
+	rig.connect("foot_planted", Callable(counter, "on_plant"))
+
+	var floor_w: float = rig.global_position.y + h * 0.5
+	var max_slide: float = 0.0
+	var max_lift: float = 0.0
+	var stance_samples: int = 0
+	# Per-foot: the world x it held when it touched down, and INF while it is airborne.
+	var ref: Array[float] = [INF, INF]
+	var was_swinging: Array[bool] = [false, false]
+	for _i: int in int(seconds / dt):
+		rig.position.x += vx * dt
+		rig.call("advance", dt)
+		# THE DRAWN pose. _sim_pose is what _draw() renders; _gait_foot_world is not.
+		var pose: Dictionary = rig.call("_sim_pose")
+		var swing: int = int(rig.get("_swing_foot"))
+		var swinging: bool = float(rig.get("_swing_t")) < 1.0
+		var fw: Array[Vector2] = [
+			rig.to_global(pose["foot_lead"] as Vector2),
+			rig.to_global(pose["foot_off"] as Vector2),
+		]
+		for i: int in 2:
+			var lifting: bool = swinging and i == swing
+			if lifting:
+				max_lift = maxf(max_lift, floor_w - fw[i].y)
+				ref[i] = INF
+			elif was_swinging[i] or not is_finite(ref[i]):
+				ref[i] = fw[i].x       # touch-down: this is the plant to hold
+			else:
+				stance_samples += 1
+				max_slide = maxf(max_slide, absf(fw[i].x - ref[i]))
+			was_swinging[i] = lifting
+	rig.disconnect("foot_planted", Callable(counter, "on_plant"))
+
+	var cadence: float = float(counter.count) / seconds
+	# MINIMUM OCCURRENCE first: without these two, every bound below is vacuous.
+	_expect(counter.count >= 15,
+		"a 3 s run at %.0f px/s actually stepped (%d plants)" % [vx, counter.count])
+	_expect(stance_samples >= 60,
+		"feet actually bore weight to measure slide against (%d stance samples)" % stance_samples)
+	_expect(cadence >= 5.0 and cadence <= 16.0,
+		"cadence reads as a stride, not a buzz: %.1f steps/s (band 5-16)" % cadence)
+	# 5% of height is generous: the pre-fix rig drew 4.6% and read as shuffling, and
+	# SpikeFigure — the rig this one is a port of — sits at 15.1%.
+	_expect(max_lift >= h * 0.10,
+		"the swing foot visibly clears the floor: %.2f px = %.1f%% of height (min 10%%)"
+				% [max_lift, 100.0 * max_lift / h])
+	# The whole point of world-locked feet. The pre-fix rig drew 40.7% of height here.
+	_expect(max_slide <= h * 0.05,
+		"a foot bearing weight stays put: drew %.2f px = %.1f%% of height (max 5%%)"
+				% [max_slide, 100.0 * max_slide / h])
+	rig.free()
+	_done["reads_as_a_stride"] = true
+
+
 func _test_gait_steps_and_signals() -> void:
 	var rig: Node2D = _make_rig()
 	var counter := _PlantCounter.new()
@@ -119,9 +203,9 @@ func _test_gait_steps_and_signals() -> void:
 	_drive(rig, 2, 1.0 / 60.0, 0.0)
 	_drive(rig, 180, 1.0 / 60.0, 180.0)   # 3 s of running
 	rig.disconnect("foot_planted", Callable(counter, "on_plant"))
-	# 180 px/s over 3 s = 540 px travelled; step length is leg(12.4) * 0.68 = 8.4 px,
-	# so the figure must have taken many steps — and the count scales with DISTANCE
-	# now, not with a fixed cadence, which is the point of the port.
+	# 180 px/s over 3 s = 540 px travelled. The exact count is pinned by
+	# `_test_gait_reads_as_a_stride` above; all this one needs is that the signal fires
+	# at all and keeps firing, which is what the footstep SFX and the dust puffs hang on.
 	_expect(counter.count > 8, "running fires foot_planted repeatedly (%d plants)" % counter.count)
 
 	# Standing still: no steps at all. The old sine gait marched on the spot forever.
