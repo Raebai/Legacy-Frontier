@@ -61,6 +61,16 @@ func run(dt: float, tree_root: Node) -> Dictionary:
 	tree_root.add_child(host)
 	var rig: Node2D = (load(RIG_PATH) as GDScript).new() as Node2D
 	rig.set("height", HEIGHT)
+	# ⚠ PIN THE FLAIL PHASE. `CharacterRig._flail_seed` is randomised per INSTANCE (the
+	# spike does the same) so a room of knocked-down fighters does not churn in unison.
+	# This probe builds a SEPARATE rig for each tick rate and diffs them, so an unpinned
+	# phase means the two runs are given different inputs and the divergence it reports is
+	# the seed, not the tick rate — measured at 1.3-2.1 px of false divergence on the
+	# hand/foot channels, i.e. intermittently over the 1.2 px tolerance.
+	#
+	# This is NOT a widened tolerance. The bound is untouched; the two runs are simply
+	# made comparable, which is what the suite always meant to be measuring.
+	rig.set("_flail_seed", 0.0)
 	host.add_child(rig)
 
 	var out: Dictionary = {}

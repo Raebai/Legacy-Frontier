@@ -74,8 +74,15 @@ const PASSIVE_RESPAWN_DELAY: float = 1.0
 ## the hit disc is bigger than the skull and hits register on empty air beside it.
 ## The head TOP is unchanged (head_center = -h/2 + r), so nothing else re-derives.
 const RIG_HEAD_R_FACTOR: float = 0.105
-const RIG_HIP_Y_FACTOR: float = 0.1
-const RIG_LEG_LEN_FACTOR: float = 0.4
+## ⚠ DERIVED FROM THE RIG, NOT RE-TYPED. These two were hand-copied literals (0.1 and
+## 0.4) and they are exactly the pair that the posture pass moved — the hip rose to
+## the top of the leg and the leg grew to the spike's 0.52 of height. A hand-copied
+## mirror silently keeps the OLD skeleton, which is the "spells pass through the body"
+## bug arriving by the back door. Binding them to the constants they mirror makes that
+## class of drift impossible; slice_test_rig_posture still pins the agreement, because
+## a future edit could always reintroduce a literal here.
+const RIG_HIP_Y_FACTOR: float = CharacterRig.HIP_Y_FACTOR
+const RIG_LEG_LEN_FACTOR: float = CharacterRig.LEG_LEN_FACTOR
 ## Forgiveness ring around the silhouette for body_distance() callers, as a
 ## FRACTION of rig height so a 1.9x-scaled sparring dummy gets a proportionally
 ## bigger margin rather than the same absolute one. UNTESTED GUESS: 0.12 * 31 =

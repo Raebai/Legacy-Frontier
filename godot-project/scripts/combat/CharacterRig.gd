@@ -129,6 +129,31 @@ const STIFFNESS: float = 180.0         # STIFF — the resting/running pose SETT
 ## 0.05 == 3.0). See _step_sim: stiffness = lerpf(STIFFNESS, FULL_LIMP_STIFFNESS, _limp).
 const FULL_LIMP_STIFFNESS: float = 3.0
 const DAMPING: float = 8.0             # less = more overshoot/swing (still stable)
+## ⚠ THE DAMPING HAS TO GO SLACK WITH THE SPRING, AND IT DID NOT. THIS IS WHY A HIT
+## OOZED INSTEAD OF FLAILING.
+##
+## `DAMPING` was applied FLAT at every looseness while the stiffness dropped 60-fold
+## (STIFFNESS 180 -> FULL_LIMP_STIFFNESS 3). Damping ratio is `c / (2 * sqrt(k))`, so
+## holding `c` while `k` collapses does not merely damp the ragdoll, IT INVERTS IT:
+##
+##     grounded   k=180  c=8   -> w 13.4 rad/s, zeta 0.30   underdamped, springy
+##     full limp  k=3    c=8   -> w  1.7 rad/s, zeta 2.31   OVERDAMPED — no swing at all
+##     limp legs  k=1.5  c=8   -> w  1.2 rad/s, zeta 3.27   worse still
+##
+## A zeta above 1 cannot overshoot, so at full ragdoll every limb crept toward its
+## target on a monotone curve. That is a body sagging, not a body flailing, and it is
+## the exact opposite of what going limp is supposed to look like.
+##
+## SpikeFigure — the signed-off reference — damps its SLACK limbs at 2.0 / 2.5 / 2.2 /
+## 3.0 (`ARM_AIR_DAMP`, `FARM_AIR_DAMP`, `LEG_AIR_DAMP`, `SHIN_AIR_DAMP`) against 11
+## and 9 for the same limbs planted. Its slack zetas land at 0.19-0.22. Those constants
+## are UNIT-COMPATIBLE with this one — both sides are an exponential velocity decay
+## rate in 1/s (`vel *= exp(-c*dt)` there, `vel *= 1 - c*dt` here) — so this is a port
+## of the spike's number, not a guess: their mean is 2.4.
+##
+## Lerped by `loose` in _step_sim, so the resting/running pose keeps DAMPING exactly
+## and only a genuine flop/air/death gets the slack value.
+const LIMP_DAMPING: float = 2.5
 ## The FEET spring softer than the rest — but ONLY as the body goes limp (the
 ## post-hit HURT flail / hold-DOWN ragdoll). At rest _limp is 0, so the legs spring
 ## at FULL stiffness and plant firmly; they only go loose/flowy under a real flop.
@@ -153,6 +178,21 @@ const LIMP_EASE_SPEED: float = 5.0     # _limp eases toward _limp_target at this
 const AIR_LOOSE_FALLING: float = 0.55   # ~halfway to full limp on the way down
 const AIR_LOOSE_RISING: float = 0.42    # slightly tighter ascending (coiled leap)
 const AIR_LOOSE_EASE_SPEED: float = 9.0
+## ⚠ THE ONE THING THE SPIKE'S AIRBORNE LIMBS HAVE THAT THIS RIG HAD NOTHING FOR.
+##
+## `SpikeFigure._update_legs` / `_update_arms` add `FLAIL_NOISE` (7.0 rad/s^2 of a
+## two-sine pseudo-random churn, per limb, seeded per figure) to every slack limb. It
+## is what stops an airborne ragdoll being a smooth pendulum: real limbs judder. This
+## rig had no equivalent term at all, so a loose limb swung on a perfectly clean arc.
+##
+## Ported as a LENGTH-scaled acceleration because this rig's springs are positional
+## where the spike's are angular: 7 rad/s^2 on its ~30 px limb is ~210 px/s^2 of
+## tangential acceleration, and the two-sine sum spans +/-2, so the peak is ~420 px/s^2
+## on an 84 px figure = 5.0 heights/s^2. Halved from there because it is applied on BOTH
+## axes here rather than tangentially only. Scaled by `loose`, so a planted figure never
+## sees it, and applied to the EXTREMITIES only (hands, feet, head) — a churning hip is
+## a glitch, a churning hand is a ragdoll.
+const FLAIL_NOISE: float = 2.4
 const IMPULSE_EXTREMITY_MULT: float = 2.6  # hands/feet/head whip harder on hits
 ## Clash recoil amplitude (see clash_recoil). Louder than the ordinary knockback
 ## flop Hero.apply_knockback fires (0.2..0.7 limp, ~680 jolt) because meeting a
@@ -260,18 +300,51 @@ const SWING_RATE_FAST: float = 9.5
 const GAIT_FULL_SPEED_HEIGHTS: float = 300.0 / 86.0
 ## How fast idle feet ease back to the stance position (fraction per frame at 60 fps).
 const IDLE_SETTLE: float = 0.25
-## --- LEG LENGTH, IN ONE PLACE ---
-## thigh + shin as drawn by draw_figure. It exceeds the 0.4 hip->foot rest length on
-## purpose so there is always a real knee bend, and it is the hard ceiling on how far
-## a foot can be from the hip before the shin visibly stretches. _compute_pose's ride
-## dip is derived from it, so the two must not be allowed to drift apart — hence the
-## constant rather than two more copies of 0.23 / 0.25.
-const THIGH_FACTOR: float = 0.23
-const SHIN_FACTOR: float = 0.25
+## --- LEG LENGTH AND HIP HEIGHT, IN ONE PLACE ---
+##
+## ⚠ THIS IS WHY HE USED TO STAND IN A PERMANENT CROUCH, AND IT WAS MEASURABLE.
+##
+## `tools/rig_posture_measure.gd` reads the DRAWN idle stance off `_sim_pose` and
+## solves the same 2-bone IK `draw_figure` does. Before this pass it reported:
+##
+##     rig    hip ride 0.411 h | leg drawn 0.480 h | extension 0.856 | knee 119.2 deg
+##     spike  hip ride 0.508 h | leg drawn 0.522 h | extension 0.972 | knee 155.5 deg
+##
+## The drawn leg was 0.48 of the figure's height but the hip only rode 0.41 above the
+## foot, so ~14% of the leg had to be folded away in the knee ON EVERY SINGLE FRAME.
+## 119 degrees is not "a slight bend for life", it is a groucho squat, and it was the
+## resting pose of every fighter in the game — hero, minion, elite, boss and hub NPC.
+## The knee jutted 12.1% of the figure's height off the hip->foot line where the
+## signed-off spike juts 5.4%.
+##
+## The fix is to make the three numbers agree by CONSTRUCTION instead of by hand:
+##   * the leg is the spike's own 0.52 of height (22+22 px on its 84 px figure),
+##   * the hip rides at exactly LEG_REACH_USABLE of that leg, so the knee carries the
+##     spike's ~3% of slack and nothing more,
+##   * and the hip's y then FALLS OUT of "feet at +height/2", rather than being a
+##     second independent guess that the leg has to absorb.
+##
+## HEIGHT IS UNCHANGED. head_center is still -height/2 + r and the feet are still at
+## +height/2, so the silhouette, the camera framing and Enemy's hit model all see the
+## same extents; what moved is the hip INSIDE that silhouette (legs longer, torso
+## correspondingly shorter — the spike's own build).
+##
+## ⚠ Enemy.RIG_HIP_Y_FACTOR / RIG_LEG_LEN_FACTOR MIRROR the two derived values below,
+## and slice_test_rig_posture pins that they still agree.
+const THIGH_FACTOR: float = 0.26
+const SHIN_FACTOR: float = 0.26
 const LEG_REACH_FACTOR: float = THIGH_FACTOR + SHIN_FACTOR
 ## Fraction of that reach the ride dip aims for, so a planted leg is near-straight at
 ## the extremes of the stride but never dead straight (which reads as a stilt).
 const LEG_REACH_USABLE: float = 0.97
+## Hip-to-foot distance at rest — the height the body actually STANDS at. Derived,
+## not authored, so it can never disagree with the leg it hangs off.
+const LEG_LEN_FACTOR: float = LEG_REACH_FACTOR * LEG_REACH_USABLE
+## ...and therefore where the hip sits in the figure's own frame, given that the feet
+## rest at +height/2. Very slightly negative: a stick figure's hips are a hair above
+## its mid-line, which is exactly where SpikeFigure's are (HIP_OFF +12 under a 58.5
+## ride on an 84 px figure = -0.009 h).
+const HIP_Y_FACTOR: float = 0.5 - LEG_LEN_FACTOR
 ## Ceiling on the stride dip, as a fraction of height. Without it a foot target left
 ## somewhere absurd (a blink mid-swing, a rig teleported by a test) could fold the
 ## figure into the floor. At the shipped stride the real dip peaks well under this.
@@ -655,6 +728,11 @@ var _ground_local_y: float = INF
 var _sim: Dictionary = {}
 var _sim_vel: Dictionary = {}
 var _sim_ready: bool = false
+## Flail-noise clock and this figure's own phase offset (see FLAIL_NOISE). Randomised
+## per instance exactly as SpikeFigure seeds its own `_flail_seed`, so a room full of
+## knocked-down fighters does not churn in unison.
+var _flail_t: float = 0.0
+var _flail_seed: float = randf() * TAU
 ## Limpness 0 (fully animated) .. 1 (ragdoll: weak springs + gravity droop).
 var _limp: float = 0.0
 var _limp_target: float = 0.0
@@ -1264,7 +1342,14 @@ func _step_sim(delta: float) -> void:
 	# Lerp toward an ABSOLUTE full-limp floor (not a fraction of STIFFNESS) so the
 	# resting-pose tame (STIFFNESS 60->180) can't also tighten the post-hit flail.
 	var stiffness: float = lerpf(STIFFNESS, FULL_LIMP_STIFFNESS, loose)
-	var damp: float = clampf(1.0 - DAMPING * delta, 0.0, 1.0)
+	# The damping goes slack WITH the spring — see the ⚠ on LIMP_DAMPING. Holding it
+	# flat while the stiffness collapsed drove the full ragdoll to zeta 2.3, i.e. it
+	# could not overshoot at all, and a limb that cannot overshoot cannot flail.
+	var damp: float = clampf(1.0 - lerpf(DAMPING, LIMP_DAMPING, loose) * delta, 0.0, 1.0)
+	# Airborne/limp limb churn — the spike's FLAIL_NOISE, which this rig had no term
+	# for. Advanced on the REAL delta (not `_phase`, which `_frozen` holds) so a body
+	# knocked loose still judders while a hard-CC'd one stands rooted.
+	_flail_t += delta
 	# Limp-scale the clamp too: tight at rest (MAX_OFFSET_FACTOR), the old wide
 	# reach (FULL_LIMP_OFFSET_FACTOR) back at full ragdoll so a real flail isn't capped.
 	var max_off: float = height * lerpf(MAX_OFFSET_FACTOR, FULL_LIMP_OFFSET_FACTOR, loose)
@@ -1276,6 +1361,14 @@ func _step_sim(delta: float) -> void:
 		dv = Vector2.ZERO
 	var flip_s: float = 1.0 if scale.x >= 0.0 else -1.0
 	var trail: Vector2 = Vector2(-dv.x * flip_s, -dv.y) * BODY_TRAIL_FACTOR
+	# WORLD-down expressed in this node's LOCAL frame, for the floor clamp below.
+	# Derived from the real basis so it stays correct under the body pitch AND the
+	# facing flip, which is exactly what the old local-y clamp could not do.
+	var down_local: Vector2 = global_transform.basis_xform_inv(Vector2.DOWN)
+	if down_local.length_squared() > 0.000001:
+		down_local = down_local.normalized()
+	else:
+		down_local = Vector2.DOWN
 	# Legs spring at FULL stiffness for a planted, settled stance (no float smear);
 	# they only go loose/flowy (LOOSE_LEG_STIFFNESS) as the body goes limp — the
 	# post-hit HURT flail / hold-DOWN ragdoll — so normal walking can't drift.
@@ -1289,6 +1382,15 @@ func _step_sim(delta: float) -> void:
 		vel += Vector2(0.0, GRAVITY * loose) * delta
 		if SIM_EXTREMITIES.has(key):
 			vel += trail
+			if loose > 0.01:
+				# Two incommensurate sines per axis, offset per joint and per figure, so
+				# no two limbs (and no two fighters) churn in lockstep. Same construction
+				# as SpikeFigure's own noise, which is why it is sines and not randf():
+				# it is continuous, so it perturbs a swing instead of shaking it.
+				var ph: float = _flail_t + _flail_seed + float(SIM_EXTREMITIES.find(key)) * 1.9
+				var nx: float = sin(ph * 6.0) + sin(ph * 11.3 + _flail_seed * 3.0)
+				var ny: float = sin(ph * 7.4 + 1.1) + sin(ph * 9.7 + _flail_seed * 2.0)
+				vel += Vector2(nx, ny) * FLAIL_NOISE * height * loose * delta
 		vel *= damp
 		var pos: Vector2 = _sim[key] + vel * delta
 		var off: Vector2 = pos - target
@@ -1301,16 +1403,44 @@ func _step_sim(delta: float) -> void:
 		# limbs settle ON the floor instead of sinking below the collision box. Only
 		# grounded — a mid-air knockback ragdoll still flails freely.
 		if _grounded and loose > 0.01:
-			# The floor is asked for PER JOINT x, not as one local y: with the body
-			# spring driving the node's rotation, a single local line would cut through
-			# the ground on the downhill side of a lean and float above it on the other.
-			# Falls back to the standing foot line when there is no probe (headless).
-			var probe: float = _local_floor_y(pos.x)
-			var floor_y: float = probe if is_finite(probe) else height * 0.5 - _ride
-			if pos.y > floor_y:
-				pos.y = floor_y
-				if vel.y > 0.0:
-					vel.y = 0.0
+			# ⚠ CLAMPED IN WORLD SPACE, AND IT HAS TO BE. MEASURED.
+			#
+			# This used to ask `_local_floor_y(pos.x)` for a per-joint "floor line" and clamp
+			# the joint's LOCAL y against it. That is exact only while the body is near
+			# upright — and the one moment it matters most is the moment it is not:
+			# `_step_body`'s sprawl branch drives the pitch to PRONE_LEAN (1.42 rad, i.e. 81
+			# degrees), where the local x axis is nearly VERTICAL in world terms and "the
+			# local y of the floor at this local x" stops meaning anything. Worse, clamping
+			# local y MOVES the joint's world x, so the line it was clamped against is not
+			# the line it ends up over.
+			#
+			# MEASURED on an 84 px figure taking a knockback flop over a real floor: the
+			# lowest DRAWN joint finished 25 px UNDER the ground — 30% of the figure's
+			# height — and the looser springs ported from the spike in this same pass took
+			# that to 46 px. A body drawn half a body-height through the floor is the same
+			# defect as the duck that "clips the hero into the floor"; it was simply hiding
+			# behind a pose that never leaned far enough to expose it.
+			#
+			# Pushing the joint up to the floor in WORLD space and converting back is exact
+			# at any pitch, any facing flip and any ride offset, because it goes through the
+			# real transform in both directions.
+			if is_finite(_ground_world_y):
+				var wp: Vector2 = to_global(pos)
+				if wp.y > _ground_world_y:
+					pos = to_local(Vector2(wp.x, _ground_world_y))
+					# Kill the WORLD-downward part of the velocity, not the local-y part:
+					# under a near-horizontal body those are different directions.
+					var into: float = vel.dot(down_local)
+					if into > 0.0:
+						vel -= down_local * into
+			else:
+				# No probe (detached rig / headless suite): fall back to the figure's own
+				# standing foot line, the honest answer when the world is unknown.
+				var floor_y: float = height * 0.5 - _ride
+				if pos.y > floor_y:
+					pos.y = floor_y
+					if vel.y > 0.0:
+						vel.y = 0.0
 		_sim[key] = pos
 		_sim_vel[key] = vel
 
@@ -2273,7 +2403,9 @@ func _compute_pose() -> Dictionary:
 	var w: float = maxf(1.6, height * LIMB_W_FACTOR)
 	var r: float = maxf(2.0, height * HEAD_R_FACTOR)
 	var arm_len: float = height * 0.32
-	var leg_len: float = height * 0.4
+	# The RESTING hip->foot span. Derived from the drawn leg (see LEG_LEN_FACTOR) so a
+	# leg the figure stands on can never be shorter than the leg that is painted.
+	var leg_len: float = height * LEG_LEN_FACTOR
 	var t: float = 0.0
 	if _one_shot_active and _one_shot_duration > 0.0:
 		t = clampf(_one_shot_time / _one_shot_duration, 0.0, 1.0)
@@ -2404,7 +2536,7 @@ func _compute_pose() -> Dictionary:
 	# Skeleton joints (local space; feet at +height/2, head top at -height/2).
 	var head_center: Vector2 = Vector2(lean, -height * 0.5 + r + bob)
 	var neck: Vector2 = head_center + Vector2(0, r)
-	var hip: Vector2 = Vector2(0, height * 0.1 + bob * 0.5)
+	var hip: Vector2 = Vector2(0, height * HIP_Y_FACTOR + bob * 0.5)
 	var shoulder: Vector2 = neck.lerp(hip, 0.15)
 	var hand_lead: Vector2 = shoulder + Vector2.from_angle(arm_lead) * arm_lead_len
 	var hand_off: Vector2 = shoulder + Vector2.from_angle(arm_off) * arm_len
