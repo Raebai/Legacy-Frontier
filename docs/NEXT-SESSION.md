@@ -1,7 +1,33 @@
 # RESUME HERE — 2026-08-02 handoff
 
-Branch `stickman-integrate`. **134/134 suites green, working tree clean, nothing
+Branch `stickman-integrate`. **138/138 suites green, working tree clean, nothing
 pushed.** Everything below is committed.
+
+## LATEST SESSION (2026-08-02, five commits, ALL UNPLAYTESTED)
+
+- **`fix(rig)` — the walk, third report, real cause found.** The world-locked
+  plant was always perfect (0.00 px drift); the **drawn** foot went through the
+  body spring sim and rang 12.6 px — 41% of the figure — around it. Grounded and
+  settled, the drawn foot IS the plant now. Cadence 22→12.7/s, lift 3.1%→15.1%
+  of height, slide→0. **`slice_test_sfx_mix` had been WIDENED to accept the bug.**
+  Look: `%APPDATA%/Godot/app_userdata/Legacy Frontier/rigwalk_compare.png`.
+- **`feat(death)`** — the ragdoll was never missing; `CharacterRig` has had
+  limp/flop/prone-collapse the whole time and no death path called it. Enemies
+  get `DeathSmudge` (folded, then rubbed off the page). The KO loser was
+  standing at FULL health — `_die()` outside a run heals to `max_hp`.
+- **`feat(botmatch)`** — **"Fight a Bot" now exists on the title screen.** The
+  human-vs-bot duel was fully built and had no door to it. Plus a VS intro card,
+  yellow-vs-blue side tints, and `TauntBook` fight taunts.
+- **`feat(waves)`** — every spawn is preceded by a 0.4 s ink scrawl. "Too
+  flooded" was mostly unreadability, not count. Floor 1 wave 1 6→4.
+- **`perf(render)`** — `msaa_2d` was **8×, not 4×**; the post shader rebuilt an
+  unused mip pyramid every frame. Frame fill −37%. Four new profilers, because
+  `TIME_PROCESS` excludes `_draw` and this game draws everything.
+
+**Next up: the class rebuild.** Maker ruling — *no recolours, every class unique*
+— plus a unique movement verb each (lightning blinks instead of dashing, air
+class hops+dashes far, necromancer swaps places with a minion). Five of nine
+classes currently throw the same beam; all nine share one HP and one run speed.
 
 > **Read order for a cold start:** this file → `docs/PLAY-TONIGHT.md` (what to play
 > and what is knowingly wrong) → `docs/THE-TOWER-mobile-plan.md` (the design + the
