@@ -244,6 +244,16 @@ const TOUCH_AIM_DEADZONE: float = 0.20
 ## Hit feedback when damage actually lands (not i-framed).
 const HURT_FLASH_COLOR: Color = Color(1.0, 0.2, 0.2)
 const HURT_FLASH_TIME: float = 0.12
+## The body a downed hero leaves behind (see `_enter_downed`). Graphite, not the
+## player's colourway: the fiction is a PENCIL DRAWING being rubbed off the page, and
+## a bright coloured corpse would read as a second live fighter lying there.
+const HERO_CORPSE_COLOR: Color = Color(0.42, 0.44, 0.52, 0.95)
+## A hero death gets a slightly longer beat than a trash mob's — it is the moment the
+## run can end — but it is still a beat and not a cutscene.
+const HERO_DEATH_BEAT: float = 0.68
+## The death animation (fold + rub-out), loaded by PATH — see `Enemy._spawn_corpse`
+## for why a brand-new `class_name` must not be NAMED from a shipped script.
+const DEATH_SMUDGE_SCRIPT: String = "res://scripts/combat/DeathSmudge.gd"
 const HURT_HIT_STOP: float = 0.05
 const HURT_SHAKE: float = 7.0
 ## Weighted hitstop: melee connect sits between spell hit and enemy death.
@@ -4002,9 +4012,22 @@ func _enter_downed() -> void:
 		_cancel_summon()
 	GhostForm.enter(self)
 	if is_instance_valid(rig):
-		rig.set_limp(1.0)
-		rig.apply_impulse(Vector2(-facing.x, -0.6), 260.0)  # a death flop
-		rig.play(CharacterRig.State.HURT)
+		# THE BODY LEFT BEHIND, spawned BEFORE the collapse so it is a snapshot of the
+		# fighter as it stood, not of a heap. It folds and is RUBBED OUT — the run-end
+		# card for a death is literally titled RUBBED OUT — while the pale, translucent
+		# ghost the live body has just become drifts up out of it. That peel-apart is
+		# the whole read: a drawing being erased, and the part of you that keeps going.
+		#
+		# It is a free-standing node that self-frees on a real-time clock; it holds no
+		# reference to this hero and touches nothing the revive path reads.
+		# Loaded BY PATH, never named — see the note in `Enemy._spawn_corpse`.
+		var smudge: GDScript = load(DEATH_SMUDGE_SCRIPT) as GDScript
+		if smudge != null:
+			smudge.call("spawn", get_parent(), rig, HERO_CORPSE_COLOR,
+				Vector2(-facing.x, 0.0), Vector2.ZERO, HERO_DEATH_BEAT)
+		# ...and the body itself GOES DOWN on the real rig — the existing flop/limp
+		# machinery held at full ragdoll, not a canned pose. See `CharacterRig.collapse`.
+		rig.collapse(Vector2(-facing.x, -0.6))
 	Sfx.play("hero_hurt", 0.0, 0.1)
 	# SECOND WIND — only ever live if the maker has turned the solo charge on. See
 	# `DeathRules.SOLO_SELF_REVIVE_CHARGES`; it ships at 0, so this is dead by default.

@@ -41,7 +41,14 @@ const JUMP_COOLDOWN: float = 0.6
 const DEATH_HIT_STOP: float = 0.11  # weighted: a kill is the heaviest impact
 const DEATH_SHAKE: float = 8.0
 const DEATH_BURST_AMOUNT: int = 42  # bigger than a spell hit (20)
+## The death animation (fold + rub-out). Loaded by PATH — see `_spawn_corpse`.
+const DEATH_SMUDGE_SCRIPT: String = "res://scripts/combat/DeathSmudge.gd"
 const CORPSE_LAUNCH_SPEED: float = 240.0  # px/s the corpse silhouette flies
+## The corpse now FOLDS while it travels (see `_spawn_corpse`), and a body that is
+## both folding and flying at the old speed leaves frame before the fold reads. It
+## still gets shoved — the "body flies" reaction is the good half of the old corpse —
+## just not far enough to take the death animation with it.
+const CORPSE_LAUNCH_DAMPING: float = 0.45
 const CORPSE_FADE_TIME: float = 0.6  # corpses linger past a dash ghost (0.34)
 
 # Passive practice-dummy tuning (Task 1 sandbox): a shorter, quieter "knocked
@@ -1861,20 +1868,43 @@ func _spawn_death_burst() -> void:
 	)
 
 
-## Launched fading silhouette along the killing blow's knockback direction
-## (fallback: away from the hero) — the "body flies" read. Wind streaks
-## follow the launch so the corpse reads as flung, not teleported.
+## THE DEATH ANIMATION. The body folds into a heap along the killing blow's
+## direction and is then RUBBED OUT — see `DeathSmudge` for the fiction and the
+## real-time clock that keeps it playing through hit-stop.
+##
+## ⚠ WHY THIS IS NOT A RAGDOLL, and it is the one honest answer: `_die` calls
+## `queue_free()` four lines later, so by the time a physics ragdoll could take its
+## first step this node does not exist. The rig CANNOT go limp here because the rig is
+## going away. So the death is handed to a node that outlives the body, built from a
+## snapshot of the pose it died in. A live body that stays — a downed hero, a bot-match
+## loser — DOES ragdoll, via `CharacterRig.collapse()`.
+##
+## Before this, the corpse was a STATIC upright `RigGhost` skating sideways: a fighter
+## at attention, sliding off screen. That was the maker's complaint.
 func _spawn_corpse() -> void:
 	var launch_dir: Vector2 = _knockback.normalized()
 	if launch_dir == Vector2.ZERO and is_instance_valid(_hero):
 		launch_dir = (global_position - _hero.global_position).normalized()
 	if launch_dir == Vector2.ZERO:
 		launch_dir = Vector2.RIGHT
-	rig.spawn_ghost(
+	# Reached BY PATH, not by `class_name`. Same reason `CharacterRig.spawn_ghost`
+	# loads `RigGhost` this way: a brand-new `class_name` is not in
+	# `.godot/global_script_class_cache.cfg` until somebody re-imports the project,
+	# and until then every script that NAMES it fails to compile — which takes Hero,
+	# Enemy and everything downstream with it. A `load()` reads the file off disk and
+	# cannot care. (`--headless --import` is the documented repair, and it is also the
+	# documented way to silently delete `project.godot` settings, so: don't need it.)
+	var smudge: GDScript = load(DEATH_SMUDGE_SCRIPT) as GDScript
+	if smudge == null:
+		return
+	smudge.call("spawn",
 		get_parent(),
+		rig,
 		Color(tint.r, tint.g, tint.b, 0.85),
 		launch_dir,
-		launch_dir * CORPSE_LAUNCH_SPEED,
+		# Softer than the old silhouette launch: the body now FOLDS as it travels, and
+		# at the old speed it folded so far off-screen that the beat was never seen.
+		launch_dir * CORPSE_LAUNCH_SPEED * CORPSE_LAUNCH_DAMPING,
 		CORPSE_FADE_TIME,
 	)
 

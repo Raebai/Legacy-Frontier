@@ -161,6 +161,21 @@ const IMPULSE_EXTREMITY_MULT: float = 2.6  # hands/feet/head whip harder on hits
 const CLASH_FLOP: float = 0.62
 const CLASH_FLOP_HOLD: float = 0.20
 const CLASH_LIMB_JOLT: float = 900.0
+## Death topple (see `collapse`). Sits BETWEEN an ordinary knockback flop (~680) and
+## a clash (900): a dying body is not being punched harder than a living one, it is
+## simply not resisting, and the `set_limp(1)` that goes with this is what makes the
+## same jolt read as a topple rather than a stagger. UNTESTED GUESS — judged by eye
+## in `tools/death_collapse_capture.gd`, never by a number.
+const DEATH_TOPPLE_IMPULSE: float = 760.0
+## rad/s of torso spin a death is GUARANTEED, in the direction the body is going to
+## sprawl (see `collapse`). Sized so the ~1.42 rad fall (`PRONE_LEAN`) is most of the
+## way done inside the bot match's 0.55 s `FREEZE_BEAT`, which is the window the KO is
+## actually looked at in. UNTESTED GUESS — judged in `tools/death_capture.gd`.
+const DEATH_SPIN: float = 3.4
+## Looseness a death STARTS at, so `_step_body`'s sprawl branch (`loose > 0.35`) is
+## already engaged on the frame the body dies. See the note in `collapse` — the rest
+## of the way to full limp still eases at `LIMP_EASE_SPEED`.
+const DEATH_LIMP_SNAP: float = 0.55
 const BODY_TRAIL_FACTOR: float = 0.26  # more inertial limb-trail on launch/stop
 ## RUN arm-swing frequency. Since the WORLD-LOCKED gait (below) took over the legs
 ## this only drives the arm counter-swing and the idle breath; the legs no longer
@@ -591,6 +606,9 @@ var _sim_ready: bool = false
 ## Limpness 0 (fully animated) .. 1 (ragdoll: weak springs + gravity droop).
 var _limp: float = 0.0
 var _limp_target: float = 0.0
+## THIS BODY IS DEAD. Set only by `collapse()`, cleared by any `set_limp` below full.
+## Its one job is to stop `flash_color` repainting a corpse — see the note there.
+var _collapsed: bool = false
 ## Transient flop-on-hit: raises _limp_target for a beat then restores whatever it
 ## was before (so a hit-flop doesn't clobber a held hold-DOWN ragdoll).
 var _flop_timer: float = 0.0
@@ -1383,6 +1401,11 @@ func apply_impulse(world_dir: Vector2, strength: float) -> void:
 ## + gravity droop). Eased in advance() so death melts rather than snaps.
 func set_limp(t: float) -> void:
 	_limp_target = clampf(t, 0.0, 1.0)
+	# Anything that un-limps a body brings it back to life for drawing purposes. This
+	# is what clears the death state: `Hero.revive` already calls `set_limp(0.0)`, and
+	# the hold-DOWN duck's release does too, so no caller had to learn a new verb.
+	if _limp_target < 1.0:
+		_collapsed = false
 
 
 ## Flop-on-hit: briefly weaken the springs (raise the limp target) so the body
@@ -1580,9 +1603,126 @@ func flash(duration: float = 0.06) -> void:
 ## Flash the figure in an arbitrary color (e.g. red for hero damage), then
 ## restore the tint. `flash()` is the white default and stays the public API.
 func flash_color(color: Color, duration: float = 0.06) -> void:
+	# A COLLAPSED BODY DOES NOT FLASH. See `collapse` for the flag; the short version is
+	# that a corpse still gets hit — leftover projectiles, a lingering zone, a spectacle
+	# that outlives its caster — and each of those repaints the whole figure in
+	# `Hero.HURT_FLASH_COLOR` (1, 0.2, 0.2). On a frozen bot-match stage that is a KO
+	# frame recorded in flat RED with the corner colour nowhere on it, which is exactly
+	# the bug this pass was sent to fix, arriving by a second door. PHOTOGRAPHED at
+	# +1.60 s in `user://death_ko_04_zoom.png` after the first fix, which cleared the
+	# flash once a frame and lost the race to a spell that damages later in the same one.
+	if _collapsed:
+		return
 	_flash_color = color
 	_flash_timer = duration
 	queue_redraw()
+
+
+## END A FLASH NOW, whatever is left of it, and go back to the tint.
+##
+## ⚠ THE BUG THIS EXISTS FOR, because it is not obvious and it cost a whole capture.
+## `_flash_timer` is decremented in `advance()`, which runs off the PHYSICS clock. So
+## a flash cannot expire while the tree is paused — and `BotMatch._freeze()` pauses
+## the tree on the decisive frame and holds it under the result card. The loser takes
+## its fatal hit, `Hero.take_damage` sets `HURT_FLASH_COLOR` (1, 0.2, 0.2), the tree
+## freezes a few statements later, and the KO frame — the frame that gets RECORDED —
+## shows a fighter painted pure RED with its corner colour nowhere in sight. The tint
+## was never lost; `_draw` prefers `_flash_color` over `limb_color` and the timer that
+## should have handed it back never ticked again.
+##
+## `Engine.time_scale = 0.05` (hit-stop, which also fires on a kill) is the same bug
+## an order of magnitude smaller: a 0.12 s flash lasts 2.4 REAL seconds under it.
+##
+## Called by `BotMatch._freeze` on both fighters. Cheap, idempotent, no-op if nothing
+## is flashing.
+func clear_flash() -> void:
+	if _flash_timer <= 0.0:
+		return
+	_flash_timer = 0.0
+	queue_redraw()
+
+
+## THE DEATH BEAT ON A BODY THAT IS STILL THERE — a downed hero, the loser of a bot
+## match. Deliberately NOT a new animation system: per the standing rig directive
+## ("airborne + hits = loose/reactive ragdoll reusing the flop/limp system; true
+## physics-body ragdoll only as a last resort"), a death is the flop machinery already
+## in this file, taken to its endpoint and held there:
+##
+##   * `set_limp(1)` — full ragdoll. The springs go slack, gravity droops the limbs,
+##     and `_step_body` drops the ride height toward `RIDE_PRONE` (see
+##     `PRONE_RIDE_FACTOR`), which is what actually puts the body ON THE FLOOR rather
+##     than leaving it standing while its arms dangle.
+##   * `apply_impulse()` — the topple. Whips every simmed joint away from the killing
+##     blow and imparts the pitch that spins the torso over, so the body falls in the
+##     direction it was hit rather than folding straight down.
+##   * `play(HURT)` — the pose target underneath the springs.
+##
+## It is a HOLD, not a flop: `set_limp` is used rather than `flop()` precisely because
+## `flop()` auto-recovers to the pre-hit limp after its hold, and a dead body does not
+## get back up. `revive()` clears it with `set_limp(0)`, which is what `Hero.revive`
+## already does.
+##
+## `from_dir` is the direction the blow came FROM, in world space; ZERO is legal and
+## simply folds the body straight down.
+func collapse(from_dir: Vector2 = Vector2.ZERO, strength: float = DEATH_TOPPLE_IMPULSE) -> void:
+	set_limp(1.0)
+	# ...AFTER `set_limp`, which clears this flag on anything below full limp.
+	_collapsed = true
+	clear_flash()
+	play(State.HURT)
+	if from_dir != Vector2.ZERO:
+		apply_impulse(from_dir.normalized(), strength)
+	# ⚠ AND THEN MAKE THE TORSO SPIN THE WAY IT IS GOING TO SPRAWL ANYWAY.
+	#
+	# The measured bug this line exists for. `_step_body`'s limp branch drives the
+	# pitch toward `facing * PRONE_LEAN` — the sprawl direction is fixed by FACING, not
+	# by the blow. `apply_impulse` meanwhile adds `world_dir.x * strength *
+	# IMPULSE_TO_SPIN` to the pitch velocity, in WORLD space. So any death where the
+	# killing blow came from in front (i.e. most of them) starts the body spinning
+	# AWAY from the sprawl it is about to do, and `PITCH_GAIN_LIMP` is 0.22 —
+	# deliberately weak, so a knockdown sprawls instead of snapping — which means the
+	# spring spends most of a second cancelling the impulse before the body starts
+	# going down at all. Measured on a real bot-match KO: pitch was 0.03 rad at +0.2 s
+	# and had not passed 0.24 rad by +0.4 s, so the win card slammed in over a fighter
+	# still standing more or less upright. Exactly the maker's complaint, one layer down.
+	#
+	# `maxf` rather than an assignment: a harder blow still topples harder, it simply
+	# cannot topple BACKWARDS. Nothing about the sprawl itself is retuned — this only
+	# stops the entry from fighting it.
+	var face: float = 1.0 if scale.x >= 0.0 else -1.0
+	_pitch_vel = face * maxf(absf(_pitch_vel), DEATH_SPIN)
+	# ...and START THE BODY ALREADY LOOSE, rather than easing up from wherever it was.
+	#
+	# ⚠ THE SECOND MEASURED BUG, and it is a chain. `_step_body` only takes its sprawl
+	# branch above `loose > 0.35`; below that the body is "planted" and `cap` stays at
+	# `LEAN_CAP_GROUND` (0.5 rad), and the clamp at the end of `_step_body` does not
+	# merely pin the pitch there — it ZEROES `_pitch_vel`, deleting the spin two lines
+	# up. So the whole collapse waits on `_limp` easing past 0.35... which happens at
+	# `LIMP_EASE_SPEED` against the SCALED clock, and `Juice.hit_stop` has just dropped
+	# `Engine.time_scale` to 0.05 ON THE KILLING BLOW. Measured on a real KO: `_limp`
+	# was still 0.05 a fifth of a second after the fatal hit, the pitch had moved 0.06
+	# rad, and the result card slammed in over a fighter standing up straight. The two
+	# fixes before this one were both real and both invisible behind this.
+	#
+	# `DEATH_LIMP_SNAP` is a floor, not an assignment, and it is deliberately NOT 1.0:
+	# past the sprawl threshold the branch engages, the cap opens honestly through the
+	# existing `loose` term, and the remaining 45% still MELTS at the usual rate. So the
+	# death starts on the frame it happens and still eases rather than snapping.
+	_limp = maxf(_limp, DEATH_LIMP_SNAP)
+	_lean_cap = maxf(_lean_cap, LEAN_CAP_GROUND
+		+ (LEAN_CAP_PRONE - LEAN_CAP_GROUND) * _limp)
+	queue_redraw()
+
+
+## The pose as DRAWN this frame — the physical, spring-simmed one, not the raw
+## animation target. Handed to `DeathSmudge` so a body that is about to be freed can
+## be folded down and rubbed out from exactly the shape it died in.
+##
+## Returns the sim pose (which `_draw` itself uses); `spawn_ghost` deliberately uses
+## the target pose instead, because a dash afterimage wants the crisp intended shape
+## while a corpse wants the one that was actually on screen.
+func snapshot_pose() -> Dictionary:
+	return _sim_pose()
 
 
 ## Visual equipment overlay. slot in {"head","body","feet","weapon"};
