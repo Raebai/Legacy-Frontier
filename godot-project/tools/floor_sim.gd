@@ -191,8 +191,17 @@ func _sim_floor(fd: FloorDef, dps: float, legacy: bool) -> Dictionary:
 			e.set_physics_process(false)
 		# DEAD AIR: the wave still owes bodies (or the boss is due) and the room is
 		# empty. This is what the pacing pass exists to remove.
+		#
+		# A SPAWN MARK BEING DRAWN IS NOT DEAD AIR. Encounter now announces each
+		# trash body ~0.4s before it lands (Encounter.SPAWN_TELL_LEAD); during that
+		# lead the "enemy" group is empty but the screen is not, and the player is
+		# reading where the next body is about to stand. Counting it as silence
+		# would report anticipation as the very thing anticipation replaces.
 		var phase: int = int(enc.call("phase"))
-		if live.is_empty() and phase != 4:
+		var drawing: int = 0
+		if enc.has_method("pending_spawn_count"):
+			drawing = int(enc.call("pending_spawn_count"))
+		if live.is_empty() and drawing == 0 and phase != 4:
 			dead += _dt
 		# The player model: hurt one thing at a time, lose `switch` between kills.
 		if busy > 0.0:

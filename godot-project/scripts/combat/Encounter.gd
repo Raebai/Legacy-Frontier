@@ -65,6 +65,36 @@ signal boss_spawned
 const ENEMY_SCENE: PackedScene = preload("res://scenes/combat/Enemy.tscn")
 const BOSS_SCENE: PackedScene = preload("res://scenes/combat/Boss.tscn")
 const SPAWN_TRIES: int = 20
+
+## ══ THE SPAWN TELL ═══════════════════════════════════════════════════════════
+## Trash bodies are ANNOUNCED before they exist: a scribbled mark is drawn where
+## the body will stand, and SPAWN_TELL_LEAD seconds later the body lands in it.
+## See scripts/combat/SpawnTell.gd for why it is a scrawl and not a danger sigil.
+##
+## ⚠ THE ACCOUNTING IS THE WHOLE RISK, and it is worth stating in one line: a
+## body waiting on a tell COUNTS AS ALIVE. `_live_enemy_count()` (the wave's
+## concurrent-cap gate) and `live_entity_count()` (the 25-entity budget that
+## summoner minions and boss adds also ask) both add `_pending_tells.size()`. If
+## they did not, the cap would gate on bodies that had not landed yet, the wave
+## would keep spawning into the gap, and the tell would produce MORE bodies at
+## once than before it existed — the exact opposite of what it is for.
+##
+## The GUARDIAN is deliberately NOT telegraphed this way: it has its own arrival
+## ceremony, `_tick_boss` gates the floor's clear on it being present, and a
+## delayed guardian would put a hole in that gate for no readability gain.
+## `Arena.spawn_extra_enemy` (summoner minions, boss adds) is likewise untouched —
+## those bodies already arrive out of a telegraphed summon.
+const SPAWN_TELL_SCRIPT: GDScript = preload("res://scripts/combat/SpawnTell.gd")
+## Seconds of ink before the body. 0.4 because:
+##   * simple visual reaction is ~250ms and you need the read PLUS the act, so
+##     0.3 leaves nothing to act with;
+##   * it is longer than SPAWN_INTERVAL (0.35), so a trickle never stacks more
+##     than about two marks at once and each stays legible on its own;
+##   * it is SHORTER than every attack windup in the roster bar the assassin's
+##     (Enemy: 0.6 / 0.7 / 0.85 / 0.9), so a spawn mark can never be misread as
+##     an incoming hit you must dodge.
+## UNTESTED FEEL: nobody has played this. It is one constant, and it is here.
+const SPAWN_TELL_LEAD: float = 0.4
 ## Seconds between the trickle spawns that follow a wave's vanguard. Tightened
 ## from 0.55: at the old rate a 5-enemy wave took nearly 3 seconds just to finish
 ## arriving, which reads as the room filling up rather than as a wave hitting.
@@ -184,6 +214,12 @@ var _net_spawner: MultiplayerSpawner = null
 ## EnemySpawner are ready to receive the replicated spawns (mirrors the hero spawner).
 const COOP_SPAWN_DELAY: float = 0.7
 
+## Bodies drawn but not yet born: [{"t": seconds left, "data": spawn dict,
+## "node": the SpawnTell}]. Counted as ALIVE by both population counters — see the
+## SPAWN TELL block at the top of this file, which is the one thing about this
+## feature that can break the game rather than merely look wrong.
+var _pending_tells: Array[Dictionary] = []
+
 
 func _ready() -> void:
 	_net = get_node_or_null("/root/Net")
@@ -211,6 +247,10 @@ func configure(rect_min: Vector2, rect_max: Vector2, min_dist: float) -> void:
 ## waves -> boss sequence. A REST floor (budget 0, no waves) clears the instant
 ## it starts — nothing to fight, and no guardian either.
 func run_floor(floor_def: FloorDef) -> void:
+	# Whatever the PREVIOUS floor was still drawing does not get to land on this
+	# one. Arena._setup_floor rebuilds the room and calls straight through to here,
+	# so this is the live floor-swap path, not a defensive nicety.
+	_cancel_spawn_tells()
 	var layout: LayoutDef = floor_def.layout
 	if layout != null:
 		configure(layout.spawn_rect_min, layout.spawn_rect_max, layout.min_spawn_dist_from_hero)
@@ -275,6 +315,14 @@ func run_floor(floor_def: FloorDef) -> void:
 
 func stop() -> void:
 	_running = false
+	_cancel_spawn_tells()
+
+
+## The arena is going away (floor swap, scene change, teardown). Anything still
+## waiting on a tell must NOT land: it would be added to a parent that is on its
+## way out. Cheap and unconditional.
+func _exit_tree() -> void:
+	_cancel_spawn_tells()
 
 
 ## Which wave is running (0-based; -1 before the first). `wave_count()` is the
@@ -292,6 +340,10 @@ func phase() -> int:
 
 
 func _process(delta: float) -> void:
+	# BEFORE the running gate and before `alive` is read: a tell that came due this
+	# frame has to become a body BEFORE the wave logic counts the room, or the wave
+	# would gate on a population one body out of date.
+	_tick_spawn_tells(delta)
 	if not _running or _phase == Phase.DONE or _is_net_client():
 		return
 	var alive: int = _live_enemy_count()
@@ -698,11 +750,16 @@ static func resolved_boss_hp_fraction(floor_def: FloorDef) -> float:
 ## Everything alive that counts against MAX_LIVE_ENTITIES: the players plus every
 ## enemy body (mobs, summoner minions and boss adds all join group "enemy", so
 ## this is the whole population in one scan).
+## `_pending_tells` is part of the population ON PURPOSE — see the SPAWN TELL
+## block at the top of this file. A body being drawn is a body that is coming,
+## and every caller of this (the wave gate, summoner minions, boss adds,
+## Arena.spawn_extra_enemy) is asking "how full is the room about to be".
 func live_entity_count() -> int:
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return 0
-	return tree.get_nodes_in_group("enemy").size() + tree.get_nodes_in_group("hero").size()
+	return tree.get_nodes_in_group("enemy").size() + tree.get_nodes_in_group("hero").size() \
+		+ _pending_tells.size()
 
 
 ## Is there room for `n` more bodies? THE one question every spawner must ask.
@@ -716,11 +773,98 @@ func spawn_headroom() -> int:
 	return maxi(MAX_LIVE_ENTITIES - live_entity_count(), 0)
 
 
+## The wave's own gate (`alive < _wave_cap`, and the handoff tail). Counts bodies
+## being drawn for the same reason live_entity_count() does: if it did not, a wave
+## at its cap would keep spawning into the lead time and the room would end up
+## HOLDING MORE AT ONCE than it did before tells existed.
 func _live_enemy_count() -> int:
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return 0
-	return tree.get_nodes_in_group("enemy").size()
+	return tree.get_nodes_in_group("enemy").size() + _pending_tells.size()
+
+
+# --------------------------------------------------------------- the spawn tell
+## How many bodies are drawn but not yet born. Public because it is the honest
+## answer to "is the room empty" — floor_sim's DEAD AIR measurement asks it, since
+## a mark being drawn is anticipation, not silence.
+func pending_spawn_count() -> int:
+	return _pending_tells.size()
+
+
+## Age every mark; the ones that came due become bodies. Runs from `_process`
+## ahead of the running gate (see there).
+func _tick_spawn_tells(delta: float) -> void:
+	if _pending_tells.is_empty():
+		return
+	# A parentless / detached Encounter cannot add a body anywhere: drop the marks
+	# rather than erroring inside _emit_enemy. (Reachable from harnesses that build
+	# an Encounter outside a tree — the same trap _boss_spawn_position documents.)
+	if not is_inside_tree() or get_parent() == null:
+		_cancel_spawn_tells()
+		return
+	var still: Array[Dictionary] = []
+	var due: Array[Dictionary] = []
+	for p: Dictionary in _pending_tells:
+		p["t"] = float(p["t"]) - delta
+		if float(p["t"]) > 0.0:
+			still.append(p)
+		else:
+			due.append(p)
+	# Swapped BEFORE emitting: _emit_enemy can reach code that reads the population
+	# back (the co-op spawner, an enemy's _ready), and it must not see a body that
+	# is now counted twice — once as a pending mark and once as a live body.
+	_pending_tells = still
+	for p: Dictionary in due:
+		_free_tell(p)
+		_emit_enemy(p["data"])
+
+
+## Drop every mark without spawning its body. Floor swap, `stop()`, teardown.
+func _cancel_spawn_tells() -> void:
+	for p: Dictionary in _pending_tells:
+		_free_tell(p)
+	_pending_tells.clear()
+
+
+func _free_tell(p: Dictionary) -> void:
+	var n: Variant = p.get("node")
+	if n is Node and is_instance_valid(n):
+		(n as Node).queue_free()
+
+
+## Draw the mark, and queue the body behind it. Falls straight through to
+## `_emit_enemy` when there is no lead or no tree, so every harness that spawns
+## outside a tree behaves exactly as it did before this existed.
+func _begin_spawn(data: Dictionary) -> void:
+	if SPAWN_TELL_LEAD <= 0.0 or not is_inside_tree() or get_parent() == null:
+		_emit_enemy(data)
+		return
+	var td: Dictionary = {
+		"x": data.get("x", 0.0), "y": data.get("y", 0.0),
+		"lead": SPAWN_TELL_LEAD,
+		"tint": data.get("tint", Color(0.95, 0.5, 0.25, 1)),
+		"heft": SPAWN_TELL_SCRIPT.heft_for_archetype(int(data.get("arch", 0))),
+	}
+	# CO-OP: the mark is a CLIENT-LOCAL COSMETIC TWIN, the same shape Net already
+	# uses for enemy telegraphs and bolts (Net.broadcast_telegraph). The BODY still
+	# arrives on every peer through the MultiplayerSpawner at the moment the host
+	# emits it, so nothing about the simulation moves — a client that dropped this
+	# packet would see the old unannounced pop, which is precisely the fairness
+	# argument that makes the attack telegraphs reliable rather than unreliable.
+	if _net != null and _net.has_method("broadcast_spawn_tell"):
+		_net.call("broadcast_spawn_tell", td)
+	_pending_tells.append({"t": SPAWN_TELL_LEAD, "data": data, "node": _build_tell(td)})
+
+
+## The mark itself. Local to this peer; a co-op client builds its own from the
+## identical three lines in Net._client_spawn_tell.
+func _build_tell(td: Dictionary) -> Node:
+	var t: Node2D = SPAWN_TELL_SCRIPT.new()
+	t.position = Vector2(float(td["x"]), float(td["y"]))
+	t.call("configure", float(td["lead"]), td["tint"], float(td["heft"]))
+	get_parent().add_child(t)
+	return t
 
 
 ## Spawn the floor's GUARDIAN — a scaled-up gold BRUTE. Stats are set BEFORE
@@ -819,7 +963,10 @@ func spawn(brute_chance: float, hp_mult: float, roster: Array[int] = []) -> void
 	if not _floor_affixes.is_empty():
 		data["aff"] = _floor_affixes.duplicate()
 	_floor_spawned += 1
-	_emit_enemy(data)
+	# ANNOUNCED, not popped. The budget counters above all advance HERE, at the
+	# moment the mark is drawn, so a wave still spends exactly its authored budget
+	# and the elite roll still happens exactly once per body.
+	_begin_spawn(data)
 
 
 ## ══ THE ELITE BUDGET ══════════════════════════════════════════════════════════

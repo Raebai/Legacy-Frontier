@@ -29,6 +29,10 @@ const DEFAULT_IP: String = "127.0.0.1"
 ## Pointing that string at an empty group disarms all of them without editing any of
 ## them. A flag would have to be declared, read and respected by every one.
 const GHOST_GROUP: StringName = &"none"
+## The client-local spawn-mark twin (see broadcast_spawn_tell). Loaded by PATH
+## rather than by `class_name`: the mark is a pure `_draw` node with no global
+## class registration, so nothing here depends on the editor's class cache.
+const SPAWN_TELL_SCRIPT: GDScript = preload("res://scripts/combat/SpawnTell.gd")
 ## THE TOWER spec caps a session at 2 players. This is a hard design cap, not a
 ## placeholder: the 25-entity budget, the one-screen arena and the friendly-fire
 ## social loop are all balanced around exactly two thumbs in one room.
@@ -643,6 +647,33 @@ func _client_telegraph(data: Dictionary) -> void:
 	var scene: Node = get_tree().current_scene
 	if scene != null:
 		_spawn_telegraph_twin(scene, data)
+
+
+## THE SPAWN TELL, replicated for exactly the reason the attack tells above are:
+## enemies are host-authoritative, so a client would otherwise watch bodies pop out
+## of nothing while the host got a beat of warning. RELIABLE on purpose — a dropped
+## mark is a body that arrives unannounced, which is the whole failure this feature
+## exists to fix, so it does NOT go the unreliable route `_client_burst` takes.
+##
+## THE TWIN CARRIES NO GAMEPLAY AND CANNOT DESYNC. The host's Encounter owns the
+## WAITING (it holds the spawn data for SPAWN_TELL_LEAD and counts the unborn body
+## against its caps); the BODY still reaches every peer through the same
+## MultiplayerSpawner at the same moment as before. This packet is a picture.
+func broadcast_spawn_tell(data: Dictionary) -> void:
+	if is_host():
+		_client_spawn_tell.rpc(data)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _client_spawn_tell(data: Dictionary) -> void:
+	var scene: Node = get_tree().current_scene
+	if scene != null:
+		_twins_built += 1
+		var t: Node2D = SPAWN_TELL_SCRIPT.new()
+		t.position = Vector2(float(data.get("x", 0.0)), float(data.get("y", 0.0)))
+		t.call("configure", float(data.get("lead", 0.4)),
+			data.get("tint", Color(0.95, 0.5, 0.25, 1)), float(data.get("heft", 0.42)))
+		scene.add_child(t)
 
 
 func broadcast_projectile(data: Dictionary) -> void:

@@ -508,9 +508,14 @@ func _test_pacing_math() -> void:
 	_completes("pacing_math")
 
 
-## THE DRAW-IN. A wave opens with a GROUP landing in one tick — not one body
+## THE DRAW-IN. A wave opens with a GROUP arriving in one tick — not one body
 ## every SPAWN_INTERVAL. The spawn interval here is deliberately huge, so
 ## anything that arrives in the first tick can only have come from the vanguard.
+##
+## SINCE THE SPAWN TELL, "arriving" happens in two beats: the whole vanguard is
+## MARKED in one tick (a scribble where each body will stand), and the whole
+## vanguard LANDS in one tick SPAWN_TELL_LEAD later. Both halves are asserted —
+## the group-ness is the contract, and it now has to survive the lead.
 func _test_vanguard_lands_together() -> void:
 	var fx: Array = _make_encounter()
 	var arena: Node = fx[0]
@@ -520,14 +525,23 @@ func _test_vanguard_lands_together() -> void:
 	fd.waves[0].spawn_interval = 30.0    # the trickle cannot possibly contribute
 	enc.call("run_floor", fd)
 	enc.call("_process", 0.05)
-	var landed: int = get_nodes_in_group("enemy").size()
+	var marked: int = int(enc.call("pending_spawn_count"))
 	var want: int = int(enc_script.vanguard_for_cap(5))
-	_expect(landed == want,
-		"the wave OPENS with %d bodies at once (got %d)" % [want, landed])
+	_expect(marked == want,
+		"the wave OPENS by MARKING %d bodies at once (got %d)" % [want, marked])
+	_expect(get_nodes_in_group("enemy").size() == 0,
+		"...and nothing has landed yet: the ink comes first")
 	# ...and it does not keep bursting: the rest is the trickle it was authored as.
 	enc.call("_process", 0.05)
-	_expect(get_nodes_in_group("enemy").size() == landed,
+	_expect(int(enc.call("pending_spawn_count")) == marked,
 		"the vanguard fires ONCE, then the wave trickles")
+	# THE GROUP LANDS AS A GROUP. If the lead were applied per body the wave would
+	# dribble in over the lead instead of hitting, and the draw-in would be gone.
+	enc.call("_process", float(enc.get("SPAWN_TELL_LEAD")))
+	_expect(get_nodes_in_group("enemy").size() == want,
+		"the whole vanguard LANDS together when the lead elapses (got %d)"
+			% get_nodes_in_group("enemy").size())
+	_expect(int(enc.call("pending_spawn_count")) == 0, "...and nothing is left waiting")
 	for e: Node in get_nodes_in_group("enemy"):
 		e.free()
 	_clear_arena(arena)
@@ -551,13 +565,19 @@ func _test_waves_overlap_so_the_room_is_never_empty() -> void:
 		enc.call("_process", 0.1)
 		guard += 1
 	# Kill down towards the tail, checking the handoff fires BEFORE the room empties.
+	#
+	# PRESSURE, not bodies. Since the spawn tell, a body that has been MARKED but
+	# has not landed yet is still the wave leaning on you — you can see where it is
+	# about to stand, and Encounter counts it against the cap for exactly that
+	# reason. Measuring only `enemy` here would call a room with two marks in it
+	# empty, which is the opposite of what a player sees.
 	var handed_off_with_alive: int = -1
 	guard = 0
 	while int(enc.call("phase")) == PHASE_WAVES and guard < 400:
 		enc.call("_process", 0.1)
 		var live: Array = get_nodes_in_group("enemy")
 		if int(enc.call("phase")) != PHASE_WAVES:
-			handed_off_with_alive = live.size()
+			handed_off_with_alive = live.size() + int(enc.call("pending_spawn_count"))
 			break
 		if live.size() > 0:
 			live[0].free()
@@ -568,7 +588,8 @@ func _test_waves_overlap_so_the_room_is_never_empty() -> void:
 	# ...and the next wave opens on top of them.
 	enc.call("_process", 0.5)
 	_expect(int(enc.call("current_wave")) == 1, "the next wave opened")
-	_expect(get_nodes_in_group("enemy").size() >= handed_off_with_alive,
+	_expect(get_nodes_in_group("enemy").size() + int(enc.call("pending_spawn_count"))
+			>= handed_off_with_alive,
 		"the stragglers are still in the room when wave 2 lands on you")
 	for e: Node in get_nodes_in_group("enemy"):
 		e.free()

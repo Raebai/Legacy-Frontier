@@ -166,7 +166,11 @@ func _process(delta: float) -> void:
 	_spawn_timer -= delta
 	if _spawn_timer <= 0.0:
 		_spawn_timer = SANDBOX_SPAWN_INTERVAL
-		if get_tree().get_nodes_in_group("enemy").size() < TARGET_ENEMY_COUNT:
+		# Bodies being DRAWN count toward the steady state: a spawn mark is a body
+		# that is coming (Encounter.SPAWN_TELL_LEAD), and asking only the `enemy`
+		# group would let the sandbox order more while the ink was still wet.
+		if get_tree().get_nodes_in_group("enemy").size() \
+				+ _encounter.pending_spawn_count() < TARGET_ENEMY_COUNT:
 			_encounter.spawn(0.5, 1.0)
 
 

@@ -86,6 +86,16 @@ func _settle(n: int = 3) -> void:
 		await process_frame
 
 
+## Bodies are ANNOUNCED before they exist: `Encounter.spawn()` draws a mark and the
+## body lands `SPAWN_TELL_LEAD` later (see scripts/combat/SpawnTell.gd). A headless
+## `process_frame` carries a delta of microseconds, so WAITING for that lead would
+## take thousands of frames — the lead is handed to the encounter directly instead.
+## Call this after any direct `spawn()` poke whose BODY the assertions need.
+func _land(enc: Node) -> void:
+	if enc.has_method("pending_spawn_count"):
+		enc.call("_tick_spawn_tells", float(enc.get("SPAWN_TELL_LEAD")) + 0.01)
+
+
 func _run() -> void:
 	_arena = Node2D.new()
 	_arena.name = "Arena"
@@ -333,6 +343,7 @@ func _test_spawn_data_carries_the_affixes() -> void:
 	enc.set("_floor_spawned", 3)     # last body of the floor: the spend is certain
 	enc.set("_elite_left", 1)
 	enc.call("spawn", 0.3, 1.0, [1] as Array[int])
+	_land(enc)
 	await _settle(2)
 	var elites: Array = []
 	for c: Node in _arena.get_children():
@@ -694,6 +705,7 @@ func _test_floor_affixes_ship_off_and_wire_up_when_on() -> void:
 	_expect(str(enc.call("floor_affixes")) == str([EliteModifier.INKED]),
 		"the floor carries its rule")
 	enc.call("spawn", 0.3, 1.0, [1] as Array[int])
+	_land(enc)
 	await _settle(3)
 	var wore: int = 0
 	var dressed: int = 0

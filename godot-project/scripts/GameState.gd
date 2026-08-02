@@ -740,10 +740,17 @@ static func build_default_tower() -> TowerDef:
 		#     first-time player has not yet found the dash, and it closes its last
 		#     wave with handoff 0 so the FIRST GUARDIAN THEY EVER MEET arrives to a
 		#     clean room — a lesson you can read, not a boss fought through a crowd.
-		#     Only TWO archetypes live here; the lane (CHARGER) is floor 2's lesson. ---
+		#     Only TWO archetypes live here; the lane (CHARGER) is floor 2's lesson.
+		#
+		#     WAVE 1 IS FOUR BODIES, NOT SIX. Playtest note: "it's probably maybe a
+		#     little too flooded so maybe one or two less opponents in the start."
+		#     The cap stays 3 (so the vanguard still lands 2 at once and the room
+		#     still feels occupied) — what came off is the TAIL, so the opening wave
+		#     ends sooner instead of arriving thinner. The other half of that note is
+		#     readability, and that fix is Encounter.SPAWN_TELL_LEAD, not this row. ---
 		_make_floor(FloorDef.FloorType.COMBAT, 0.30, 1.0, _theme("surface", surface), default_layout(),
 			_waves([
-				[6, 3, [A_CHASER]],                            # pure pressure, nothing to read
+				[4, 3, [A_CHASER]],                            # pure pressure, nothing to read
 				[8, 4, [A_CHASER, A_CHASER, A_BRUTE]],         # ONE new tell: the heavy swing
 				[10, 5, [A_CHASER, A_BRUTE], 0],               # the same two, now at pressure
 			])),
