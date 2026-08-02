@@ -10,7 +10,11 @@ const STONE_COLOR: Color = Color(0.26, 0.24, 0.3)
 const GLOW_COLOR: Color = Color(1.0, 0.62, 0.3)      # warm arcane threshold glow
 const DOOR_W: float = 62.0
 const DOOR_H: float = 96.0
-const PROXIMITY_RADIUS: float = 52.0
+## ⚠ SIZED TO REACH THE SPAWN POINT. `World.PLAYER_SPAWN` is `TOWER_X - 54`, on the
+## doorstep, so the hint is up on the town's FIRST FRAME and leaving costs one key
+## press and zero steps of walking. Shrinking this re-introduces the walk this
+## whole layout exists to delete — see rule 2 at the top of `World.gd`.
+const PROXIMITY_RADIUS: float = 80.0
 
 var _hint: Label = null
 var _in_range: bool = false
@@ -95,13 +99,17 @@ func _on_body_exited(body: Node) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_action_pressed("talk") or not _in_range:
 		return
-	# Don't enter over an open class-select panel or an NPC chat.
+	# Don't enter THROUGH an open town screen — the door sits under the panels, and
+	# a stray Enter while picking a class must not start the run.
 	var sel: Node = get_node_or_null("/root/ClassSelect")
 	if sel != null and sel.has_method("is_open") and sel.is_open():
 		return
-	var conv: Node = get_node_or_null("/root/Conversation")
-	if conv != null and conv.has_method("is_input_open") and conv.is_input_open():
+	var lo: Node = get_node_or_null("/root/Loadout")
+	if lo != null and lo.has_method("is_open") and lo.is_open():
 		return
+	for o: Node in get_tree().get_nodes_in_group("town_overlay"):
+		if o is CanvasItem and (o as CanvasItem).visible:
+			return
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs != null and gs.has_method("enter_run"):
 		get_viewport().set_input_as_handled()

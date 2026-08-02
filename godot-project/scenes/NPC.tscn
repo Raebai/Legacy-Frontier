@@ -1,14 +1,21 @@
 [gd_scene load_steps=6 format=3]
 
+; ONE TOWNSPERSON. World.gd instances this once per entry in World.TOWNSFOLK and
+; swaps `data` for that person's .tres.
+;
+; The `ConsolidatorHTTP` HTTPRequest child is gone: it POSTed the NPC's whole
+; transcript to a local Ollama server for a 3B model to summarise into a memory
+; file. That stack is deleted — see the header of NPC.gd.
+
 [ext_resource type="Script" path="res://scripts/NPC.gd" id="1_npc_script"]
-[ext_resource type="Resource" path="res://data/npcs/first_npc.tres" id="2_npc_data"]
+[ext_resource type="Resource" path="res://data/npcs/doorkeeper.tres" id="2_npc_data"]
 [ext_resource type="PackedScene" path="res://scenes/SpeechBubble.tscn" id="3_speech_bubble"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_npc_body"]
 size = Vector2(16, 16)
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_npc_proximity"]
-radius = 32.0
+radius = 40.0
 
 [node name="NPC" type="StaticBody2D" groups=["npc"]]
 script = ExtResource("1_npc_script")
@@ -22,23 +29,25 @@ offset_bottom = 8.0
 color = Color(0.95, 0.5, 0.2, 1)
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, -8)
 shape = SubResource("RectangleShape2D_npc_body")
 
 [node name="ProximityArea" type="Area2D" parent="."]
+position = Vector2(0, -14)
 
 [node name="ProximityShape" type="CollisionShape2D" parent="ProximityArea"]
 shape = SubResource("CircleShape2D_npc_proximity")
 
 [node name="HintLabel" type="Label" parent="."]
 visible = false
-offset_left = -28.0
-offset_top = -32.0
-offset_right = 28.0
-offset_bottom = -16.0
+offset_left = -52.0
+offset_top = -62.0
+offset_right = 52.0
+offset_bottom = -46.0
+theme_override_colors/font_outline_color = Color(0.05, 0.05, 0.1, 0.9)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 12
 text = "[E] Talk"
 horizontal_alignment = 1
 
 [node name="SpeechBubble" parent="." instance=ExtResource("3_speech_bubble")]
-
-[node name="ConsolidatorHTTP" type="HTTPRequest" parent="."]
-timeout = 60.0

@@ -70,9 +70,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	var sel: Node = get_node_or_null("/root/ClassSelect")
 	if sel == null or sel.is_open():
 		return
-	# Don't open over an active NPC conversation.
-	var conv: Node = get_node_or_null("/root/Conversation")
-	if conv != null and conv.has_method("is_input_open") and conv.is_input_open():
+	# Don't open THROUGH another town screen. (This used to also ask the
+	# `Conversation` autoload — that whole LLM stack is deleted; see NPC.gd.)
+	var lo: Node = get_node_or_null("/root/Loadout")
+	if lo != null and lo.has_method("is_open") and lo.is_open():
 		return
+	for o: Node in get_tree().get_nodes_in_group("town_overlay"):
+		if o is CanvasItem and (o as CanvasItem).visible:
+			return
 	sel.open()
 	get_viewport().set_input_as_handled()

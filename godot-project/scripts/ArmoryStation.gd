@@ -1,85 +1,155 @@
 extends StaticBody2D
-## Armory station on the hub's second-floor loft (maker: "maybe a second floor for
-## stuff like armaments"). A weapon-rack you walk up to and press E — for now it
-## shows a short toast (gear/loadout is a later feature); the point is the hub has
-## a proper armory space. Same walk-up idiom as the NPCs / altar / tower door.
+## A TOWN STATION — a thing you walk up to and press interact on, which opens one
+## of the screens the game already had and no player could reach.
+##
+## TWO KINDS, one script, because they differ only in what they draw and which
+## screen they open:
+##
+##   * `"armory"` — a weapon rack. Opens `Loadout` (3 slots x 19 pieces with real
+##     effect bags that `Hero._aggregate_gear` already consumes). This had been
+##     built, finished, and unreachable behind a literal `if false:` in the parked
+##     hub since the day it was written.
+##   * `"spells"` — a lectern. Opens the `Outfitter`: **choose your three** of your
+##     class's five authored roles (six hands per class, 54 across the roster) plus
+##     your colourway. The only customisation in the game that changes how you fight.
+##
+## ⚠ THE STATION IS THE SCREEN. It does not open a menu that then offers the
+## armory; pressing interact on the rack IS opening the armory. That is the whole
+## defence against the town being "another layer" — see the rules at the top of
+## `World.gd`.
 
-const HINT_TEXT: String = "[E] Armory"
-const TOAST_TEXT: String = "⚒  Armory — open the loadout"
+## Set by `World._spawn_stations` before the node enters the tree.
+@export var kind: String = "armory"
+
+const PROXIMITY_RADIUS: float = 46.0
 const RACK_COLOR: Color = Color(0.32, 0.26, 0.2)
 const BLADE_COLOR: Color = Color(0.7, 0.75, 0.82)
+const LECTERN_COLOR: Color = Color(0.26, 0.22, 0.30)
+const PAGE_COLOR: Color = Color(0.90, 0.88, 0.80)
 
 var _hint: Label = null
-var _toast: Label = null
 var _in_range: bool = false
-var _toast_t: float = 0.0
 
 
 func _ready() -> void:
-	# A little weapon rack: a post with a couple of blades leaning on it.
-	var post := ColorRect.new()
-	post.color = RACK_COLOR
-	post.size = Vector2(6.0, 30.0)
-	post.position = Vector2(-3.0, -30.0)
-	add_child(post)
-	for dx: float in [-8.0, 8.0]:
-		var blade := ColorRect.new()
-		blade.color = BLADE_COLOR
-		blade.size = Vector2(3.0, 26.0)
-		blade.position = Vector2(dx, -28.0)
-		blade.rotation = 0.2 * signf(dx)
-		add_child(blade)
+	if kind == "spells":
+		_build_lectern()
+	else:
+		_build_rack()
+
 	var shape := CollisionShape2D.new()
 	var rect := RectangleShape2D.new()
 	rect.size = Vector2(26.0, 30.0)
 	shape.shape = rect
 	shape.position = Vector2(0.0, -15.0)
 	add_child(shape)
+
 	var area := Area2D.new()
 	add_child(area)
 	var area_shape := CollisionShape2D.new()
 	var circle := CircleShape2D.new()
-	circle.radius = 40.0
+	circle.radius = PROXIMITY_RADIUS
 	area_shape.shape = circle
 	area_shape.position = Vector2(0.0, -15.0)
 	area.add_child(area_shape)
 	area.body_entered.connect(func(b: Node) -> void:
-		if b.is_in_group("player"): _in_range = true; _hint.visible = true)
+		if b.is_in_group("player"):
+			_in_range = true
+			_hint.visible = true)
 	area.body_exited.connect(func(b: Node) -> void:
-		if b.is_in_group("player"): _in_range = false; _hint.visible = false)
+		if b.is_in_group("player"):
+			_in_range = false
+			_hint.visible = false)
+
 	_hint = Label.new()
-	_hint.text = HINT_TEXT
-	_hint.position = Vector2(-30.0, -54.0)
+	_hint.text = "[E] Spells" if kind == "spells" else "[E] Armory"
+	_hint.position = Vector2(-32.0, -60.0)
 	_hint.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
 	_hint.add_theme_color_override("font_outline_color", Color(0.05, 0.05, 0.1, 0.9))
 	_hint.add_theme_constant_override("outline_size", 4)
 	_hint.visible = false
 	add_child(_hint)
-	_toast = Label.new()
-	_toast.text = TOAST_TEXT
-	_toast.position = Vector2(-96.0, -80.0)
-	_toast.add_theme_color_override("font_color", Color(1.0, 0.95, 0.8))
-	_toast.add_theme_color_override("font_outline_color", Color(0.05, 0.05, 0.1, 0.95))
-	_toast.add_theme_constant_override("outline_size", 5)
-	_toast.visible = false
-	add_child(_toast)
 
 
-func _process(delta: float) -> void:
-	if _toast_t > 0.0:
-		_toast_t -= delta
-		if _toast_t <= 0.0:
-			_toast.visible = false
+## A post with a couple of blades leaning on it.
+func _build_rack() -> void:
+	var post := ColorRect.new()
+	post.color = RACK_COLOR
+	post.size = Vector2(6.0, 34.0)
+	post.position = Vector2(-3.0, -34.0)
+	add_child(post)
+	for dx: float in [-9.0, 9.0]:
+		var blade := ColorRect.new()
+		blade.color = BLADE_COLOR
+		blade.size = Vector2(3.0, 28.0)
+		blade.position = Vector2(dx, -30.0)
+		blade.rotation = 0.2 * signf(dx)
+		add_child(blade)
+
+
+## A slanted reading stand with an open page on it — the page is the only bright
+## thing at this end of the town, so it reads as "there is something here".
+func _build_lectern() -> void:
+	var stand := ColorRect.new()
+	stand.color = LECTERN_COLOR
+	stand.size = Vector2(8.0, 30.0)
+	stand.position = Vector2(-4.0, -30.0)
+	add_child(stand)
+	var desk := Polygon2D.new()
+	desk.polygon = PackedVector2Array([
+		Vector2(-16.0, -30.0), Vector2(16.0, -34.0),
+		Vector2(16.0, -28.0), Vector2(-16.0, -24.0),
+	])
+	desk.color = LECTERN_COLOR
+	add_child(desk)
+	# A soft warm wash behind the page. The lectern is the smallest silhouette in
+	# the town and on the first capture it read as a white stick; the glow is what
+	# makes it announce itself from across the street.
+	var glow := ColorRect.new()
+	glow.color = Color(1.0, 0.86, 0.55, 0.10)
+	glow.size = Vector2(56.0, 40.0)
+	glow.position = Vector2(-28.0, -56.0)
+	glow.z_index = -1
+	add_child(glow)
+	var page := Polygon2D.new()
+	page.polygon = PackedVector2Array([
+		Vector2(-16.0, -34.0), Vector2(0.0, -38.0),
+		Vector2(16.0, -42.0), Vector2(16.0, -36.0),
+		Vector2(0.0, -32.0), Vector2(-16.0, -28.0),
+	])
+	page.color = PAGE_COLOR
+	add_child(page)
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_action_pressed("talk") or not _in_range:
 		return
-	var sel: Node = get_node_or_null("/root/ClassSelect")
-	if sel != null and sel.has_method("is_open") and sel.is_open():
+	if _overlay_open():
 		return
-	# Walk up + E opens the loadout panel (gear per slot + its abilities).
+	if kind == "spells":
+		# The Outfitter is a Control and needs a CanvasLayer, so the town owns its
+		# lifetime rather than this station parenting a full-screen panel to a
+		# StaticBody2D sitting in world space.
+		var town: Node = get_tree().current_scene
+		if town != null and town.has_method("open_outfitter"):
+			town.call("open_outfitter")
+			get_viewport().set_input_as_handled()
+		return
 	var lo: Node = get_node_or_null("/root/Loadout")
 	if lo != null and lo.has_method("open"):
 		lo.call("open")
 		get_viewport().set_input_as_handled()
+
+
+## True while any other town screen is up. See the same helper on `NPC.gd`.
+func _overlay_open() -> bool:
+	var sel: Node = get_node_or_null("/root/ClassSelect")
+	if sel != null and sel.has_method("is_open") and sel.is_open():
+		return true
+	var lo: Node = get_node_or_null("/root/Loadout")
+	if lo != null and lo.has_method("is_open") and lo.is_open():
+		return true
+	for o: Node in get_tree().get_nodes_in_group("town_overlay"):
+		if o is CanvasItem and (o as CanvasItem).visible:
+			return true
+	return false

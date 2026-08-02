@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="NPCData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/NPCData.gd" id="1_npc_data"]
+
+[resource]
+script = ExtResource("1_npc_data")
+npc_id = "smith"
+npc_name = "the smith"
+display_color = Color(0.85, 0.78, 0.42, 1)
+lines = Array[String](["take something. it's drawn on.", "the rack is full.", "i sharpen lines, not blades.", "wear it or don't.", "that one came back bent."])

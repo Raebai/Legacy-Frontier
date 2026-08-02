@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="NPCData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/NPCData.gd" id="1_npc_data"]
+
+[resource]
+script = ExtResource("1_npc_data")
+npc_id = "scribe"
+npc_name = "the scribe"
+display_color = Color(0.84, 0.44, 0.58, 1)
+lines = Array[String](["five spells. you carry three.", "the other two sulk.", "pick again. paper forgives.", "i copy what the hand draws.", "some pages fight back."])

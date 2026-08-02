@@ -1,81 +1,116 @@
 extends Node2D
-## SIDE-ON 2D town hub — same look + feel as the combat arena (maker: "the lobby
-## needs to be the same style/format as the battle place, side-on all the time").
-## A ground plane under the shared Atmosphere sky (gradient + tower spires +
-## motes + vignette), cozy lantern-lit huts, a class-select STATUE, ambient NPCs
-## that PATROL and stop when you walk up to talk, and the tower entrance. Replaces
-## the old top-down two-room tilemap (the TileMapLayer is retired, kept only so the
-## existing Main.tscn node refs stay valid).
+## THE TOWN — the game's front door.
+##
+## ══ WHY IT EXISTS AGAIN, AND WHAT WOULD MAKE IT WORTHLESS ═══════════════════
+## The maker played this an hour before it was rewritten and ruled: "it's just
+## another layer that doesn't add any value." That verdict stands and this file is
+## written against it. A town you have to WALK ACROSS TO REACH A MENU is friction,
+## and on a phone it is worse than friction. Three rules follow, and every layout
+## number below is one of them:
+##
+##   1. **THE TOWN IS THE INTERFACE, NOT A LOBBY YOU WALK TO A MENU INSIDE.** The
+##      statue IS class select, the rack IS the armory, the lectern IS your three
+##      spells, the door IS the tower. There is no "open the menu" step anywhere.
+##   2. **YOU SPAWN ON THE DOORSTEP.** `PLAYER_SPAWN` is `TOWER_X - 54` — inside
+##      the door's own proximity ring. The hint is already up on the first frame,
+##      so the town costs ONE key press to leave and ZERO steps of walking. Every
+##      station is BEHIND you; you go to them because you want something, never
+##      because the route to the tower runs through them.
+##   3. **THERE IS ALWAYS A FASTER PATH.** The title screen still opens with
+##      CLIMB, which never enters the town at all. Nobody who just wants to fight
+##      is ever taken on a tour.
+##
+## ══ NO LLM, ANYWHERE ═══════════════════════════════════════════════════════
+## The v0.0 town's two anchors talked to a local Ollama server. That whole stack —
+## the `Conversation` autoload, the four-layer memory files, the consolidation
+## pipeline — is deleted. Townspeople speak in `Bark`'s voice: one line over a
+## head, then gone. See `NPC.gd`.
+##
+## Side-on, same look and feel as the arena, under the shared `Atmosphere` sky.
 
-const TOWN_WIDTH: float = 1180.0          # tighter — everything close, not spread out
-const GROUND_Y: float = 452.0            # top surface of the ground
+const TOWN_WIDTH: float = 1180.0
+const GROUND_Y: float = 452.0
 const GROUND_THICKNESS: float = 260.0
-## Spawn AT the central campfire — the cozy heart. Class altar left, tower DOOR
-## right, a raised loft (armory) up-left. Everything is close together.
-const PLAYER_SPAWN: Vector2 = Vector2(560.0, GROUND_Y - 30.0)
-const CAMPFIRE_X: float = 600.0                       # the heart of the clearing
-const CLASS_ALTAR_X: float = 400.0
-const TOWER_X: float = 880.0
-const RAEBAI_X: float = 500.0
-const MIRELLE_X: float = 720.0
-const NPC_PATROL_RANGE: float = 75.0
-## Second-floor LOFT (the armory) — a raised deck reachable by a step, up-left.
+
+## LEFT TO RIGHT, IN THE ORDER YOU MEET THEM WALKING BACK FROM THE DOOR. Ordered
+## by how often a player actually wants them: gear least, class most, and the
+## tower under your feet.
+## ⚠ THE SPREAD IS THE COST OF THE TOWN. Farthest station to the door is ~540 px,
+## which at Player.SPEED is under three seconds each way. It was 700 px on the
+## first pass and that already felt like a corridor; if this ever widens again,
+## the town is drifting back toward being the layer it was deleted for being.
+const ARMORY_X: float = 306.0        # the rack — weapon / head / body
+const ALTAR_X: float = 480.0         # the statue — which of the nine you are
+const LECTERN_X: float = 648.0       # the book — which three spells you carry
+const CAMPFIRE_X: float = 740.0      # the warm middle; nothing to press
+const TOWER_X: float = 900.0         # the door out
+
+## ON THE DOORSTEP. See rule 2 above — this is the single most important number
+## in the file. `TowerDoor.PROXIMITY_RADIUS` is sized to reach it.
+const PLAYER_SPAWN: Vector2 = Vector2(TOWER_X - 54.0, GROUND_Y)
+
+## Where the three townspeople stand, and how far they wander from it. They are
+## posted NEXT TO the thing they talk about, so a bark is a signpost as well as a
+## bit of character, and their wander ranges are small enough that they never
+## drift into a station's own hint and make two prompts fight for the same corner.
+const TOWNSFOLK: Array[Dictionary] = [
+	{"res": "res://data/npcs/smith.tres", "x": 362.0, "range": 34.0},
+	{"res": "res://data/npcs/scribe.tres", "x": 578.0, "range": 30.0},
+	{"res": "res://data/npcs/doorkeeper.tres", "x": 762.0, "range": 26.0},
+]
+
+## Decoration only — a raised deck up-left that gives the skyline some depth. It
+## used to be where the armory lived, behind a jump. Nothing a phone player needs
+## is up a platform any more.
 const LOFT_CENTER: Vector2 = Vector2(215.0, GROUND_Y - 118.0)
 const LOFT_SIZE: Vector2 = Vector2(300.0, 16.0)
-const STEP_CENTER: Vector2 = Vector2(330.0, GROUND_Y - 58.0)
+const STEP_CENTER: Vector2 = Vector2(340.0, GROUND_Y - 58.0)
 const STEP_SIZE: Vector2 = Vector2(120.0, 14.0)
+
+const GROUND_COLOR: Color = Color(0.10, 0.11, 0.13)
+const GROUND_RIM: Color = Color(0.3, 0.55, 0.42)
+const CHALK: Color = Color(0.93, 0.92, 0.86)
+const GRAPHITE: Color = Color(0.62, 0.63, 0.70)
+
 const TOWER_DOOR_SCRIPT: Script = preload("res://scripts/TowerDoor.gd")
-const ARMORY_SCRIPT: Script = preload("res://scripts/ArmoryStation.gd")
-
-const GROUND_COLOR: Color = Color(0.10, 0.11, 0.13)   # dark mossy forest floor
-const GROUND_RIM: Color = Color(0.3, 0.55, 0.42)      # faint mystic teal rim
-
-## Tower entrance + class altar sit on the ground; the mystic-forest ambience
-## (stars, trees, campfire, fireflies) is a HubAmbience node.
-const RUN_PORTAL_SCRIPT: Script = preload("res://scripts/combat/ExitPortal.gd")
+const STATION_SCRIPT: Script = preload("res://scripts/ArmoryStation.gd")
 const CLASS_ALTAR_SCRIPT: Script = preload("res://scripts/ClassAltar.gd")
 const HUB_AMBIENCE_SCRIPT: Script = preload("res://scripts/HubAmbience.gd")
+const NPC_SCENE: PackedScene = preload("res://scenes/NPC.tscn")
 
-@onready var tilemap: TileMapLayer = $TileMapLayer
+## Every tappable target in the town clears this, in base units, matching the
+## floor `Outfitter` and `Lobby` hold themselves to.
+const MIN_TAP: float = 30.0
+
+var _outfitter_layer: CanvasLayer = null
+var _outfitter: Control = null
 
 
 func _ready() -> void:
-	tilemap.visible = false  # retire the top-down grass tiles
-
-	# Returning from the combat arena, the shared Conversation autoload had its
-	# input disabled by Arena._ready — turn it back on so the hub chat works.
-	var conversation: Node = get_node_or_null("/root/Conversation")
-	if conversation != null:
-		conversation.set_process_unhandled_input(true)
-
 	_build_backdrop()
 	_build_ground()
 	_build_loft()
 	_spawn_ambience()
 	_place_player()
-	_place_npcs()
 	_spawn_tower_entrance()
 	_spawn_class_altar()
-	_spawn_class_hud()
+	_spawn_stations()
+	_spawn_townsfolk()
+	_spawn_hud()
+	_spawn_touch_pad()
 	_reflect_selected_class()
 
-	# Swap the music bed to the calm mystic-forest ambience for the lobby.
 	var music: Node = get_node_or_null("/root/Music")
 	if music != null and music.has_method("play_hub"):
 		music.play_hub()
 
-	# The moat: push the just-finished run into the hub NPCs' durable memory so
-	# Raebai/Mirelle can reference it. No-op on a cold boot (no run yet).
-	var gs: Node = get_node_or_null("/root/GameState")
-	if gs != null and gs.has_method("apply_run_to_hub_npcs"):
-		gs.apply_run_to_hub_npcs(get_tree())
+	# The bark/voice observer normally installs itself from Sfx on the first frame
+	# a scene exists; re-ensuring it is free and covers entering the town directly.
+	VoiceDirector.ensure(get_tree())
 
 
 # ------------------------------------------------------------------- environment
-## The shared epic backdrop (gradient sky + distant tower spires + motes +
-## vignette) — identical to the arena so the hub reads as the same world.
 func _build_backdrop() -> void:
-	# Mystic NIGHT palette (deep indigo -> dusky teal) so the stars + campfire pop.
 	var atmo := Atmosphere.new()
 	add_child(atmo)
 	atmo.build(Rect2(Vector2(-400.0, -320.0), Vector2(TOWN_WIDTH + 800.0, GROUND_Y + 760.0)), {
@@ -87,16 +122,12 @@ func _build_backdrop() -> void:
 	})
 
 
-## The mystic-forest ambience: starfield, tree silhouettes, central campfire,
-## fireflies + rising embers.
 func _spawn_ambience() -> void:
 	var amb: Node2D = HUB_AMBIENCE_SCRIPT.new()
 	add_child(amb)
 	amb.call("build", TOWN_WIDTH, GROUND_Y, CAMPFIRE_X)
 
 
-## A solid ground plane spanning the town (StaticBody2D layer 1 so the side-on
-## player stands + jumps on it), with a warm gradient body + a bright lit top rim.
 func _build_ground() -> void:
 	var body := StaticBody2D.new()
 	body.position = Vector2(TOWN_WIDTH * 0.5, GROUND_Y + GROUND_THICKNESS * 0.5)
@@ -120,7 +151,6 @@ func _build_ground() -> void:
 	rect.z_index = -5
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	body.add_child(rect)
-	# Bright lit top rim (the town is lantern-lit — warm, homely).
 	var rim := ColorRect.new()
 	rim.color = GROUND_RIM
 	rim.size = Vector2(shape.size.x, 4.0)
@@ -131,66 +161,11 @@ func _build_ground() -> void:
 	add_child(body)
 
 
-# --------------------------------------------------------------------- placement
-## Move the pre-instanced Player onto the ground at the spawn point + frame the
-## side-on camera to the town.
-func _place_player() -> void:
-	var player: Node = get_tree().get_first_node_in_group("player")
-	if player == null or not player is Node2D:
-		return
-	(player as Node2D).global_position = PLAYER_SPAWN
-	for c: Node in player.get_children():
-		if c is Camera2D:
-			var cam := c as Camera2D
-			cam.limit_left = 0
-			cam.limit_top = -260
-			cam.limit_right = int(TOWN_WIDTH)
-			cam.limit_bottom = int(GROUND_Y + 60.0)
-			cam.zoom = Vector2(1.2, 1.2)
-			cam.offset = Vector2(0.0, -44.0)  # look UP so the starry sky frames in
-
-
-## Place the two anchor NPCs on the ground + give them a patrol range so they
-## amble around town (and pause when you walk up — set in NPC.set_hub_patrol).
-func _place_npcs() -> void:
-	var centers: Dictionary = {"raebai": RAEBAI_X, "mirelle": MIRELLE_X}
-	for npc: Node in get_tree().get_nodes_in_group("npc"):
-		if not npc is Node2D:
-			continue
-		var id: String = ""
-		var data: Variant = npc.get("data")
-		if data != null and "npc_id" in data:
-			id = String(data.npc_id)
-		var x: float = float(centers.get(id, (npc as Node2D).global_position.x))
-		(npc as Node2D).global_position = Vector2(x, GROUND_Y)
-		if npc.has_method("set_hub_patrol"):
-			npc.call("set_hub_patrol", x, NPC_PATROL_RANGE)
-
-
-# ----------------------------------------------------------------- interactables
-## The tower DOOR — a walk-up, press-E entrance (not a walk-in circle) on the
-## ground at the right of the clearing.
-func _spawn_tower_entrance() -> void:
-	var door: StaticBody2D = TOWER_DOOR_SCRIPT.new()
-	add_child(door)
-	door.global_position = Vector2(TOWER_X, GROUND_Y)
-
-
-## Second-floor LOFT (the armory deck) + a step up to it, both solid platforms, with
-## an Armory station on top — a raised area for gear so the hub has depth.
 func _build_loft() -> void:
 	_make_platform(LOFT_CENTER, LOFT_SIZE)
 	_make_platform(STEP_CENTER, STEP_SIZE)
-	# hidden 2026-07-23 (sandbox focus): loft platform stays (still climbable),
-	# but the Armory station itself doesn't spawn while we're stripped down to
-	# the VersusArena combat sandbox (Task 1 of the Stick Fight Feel Foundation).
-	if false:
-		var armory: StaticBody2D = ARMORY_SCRIPT.new()
-		add_child(armory)
-		armory.global_position = Vector2(LOFT_CENTER.x, LOFT_CENTER.y - LOFT_SIZE.y * 0.5)
 
 
-## A solid wooden platform (dark body + a warm-lit top rim), matching the ground.
 func _make_platform(center: Vector2, size: Vector2) -> void:
 	var body := StaticBody2D.new()
 	body.position = center
@@ -214,29 +189,205 @@ func _make_platform(center: Vector2, size: Vector2) -> void:
 	add_child(body)
 
 
-## The Class Altar STATUE — walk up + E opens the ClassSelect lobby panel.
+# --------------------------------------------------------------------- placement
+func _place_player() -> void:
+	var player: Node = get_tree().get_first_node_in_group("player")
+	if player == null or not player is Node2D:
+		return
+	(player as Node2D).global_position = PLAYER_SPAWN
+	for c: Node in player.get_children():
+		if c is Camera2D:
+			var cam := c as Camera2D
+			cam.limit_left = 0
+			cam.limit_top = -260
+			cam.limit_right = int(TOWN_WIDTH)
+			cam.limit_bottom = int(GROUND_Y + 60.0)
+			cam.zoom = Vector2(1.2, 1.2)
+			cam.offset = Vector2(0.0, -44.0)
+
+
+## The three townspeople, instanced here rather than parked in `Main.tscn` so the
+## town's cast is one editable list (`TOWNSFOLK`) instead of a scene diff.
+func _spawn_townsfolk() -> void:
+	for entry: Dictionary in TOWNSFOLK:
+		var path: String = String(entry.get("res", ""))
+		if not ResourceLoader.exists(path):
+			continue
+		var npc: Node2D = NPC_SCENE.instantiate()
+		npc.set("data", load(path))
+		add_child(npc)
+		npc.global_position = Vector2(float(entry.get("x", 0.0)), GROUND_Y)
+		if npc.has_method("set_hub_patrol"):
+			npc.call("set_hub_patrol", float(entry.get("x", 0.0)), float(entry.get("range", 40.0)))
+
+
+# ----------------------------------------------------------------- the stations
+func _spawn_tower_entrance() -> void:
+	var door: StaticBody2D = TOWER_DOOR_SCRIPT.new()
+	add_child(door)
+	door.global_position = Vector2(TOWER_X, GROUND_Y)
+
+
 func _spawn_class_altar() -> void:
 	var altar: StaticBody2D = CLASS_ALTAR_SCRIPT.new()
 	add_child(altar)
-	altar.global_position = Vector2(CLASS_ALTAR_X, GROUND_Y)
+	altar.global_position = Vector2(ALTAR_X, GROUND_Y)
 
 
-## A small always-visible HUD label showing the chosen class in the hub.
-func _spawn_class_hud() -> void:
+## The RACK and the LECTERN. Both are `ArmoryStation.gd` pointed at a different
+## screen — see the header there. The rack is on the GROUND now: it used to sit on
+## the loft behind a jump, and behind `if false:`, so in practice the whole armory
+## (3 slots x 19 pieces, with live effect bags) had never been reachable in play.
+func _spawn_stations() -> void:
+	var rack: StaticBody2D = STATION_SCRIPT.new()
+	rack.set("kind", "armory")
+	add_child(rack)
+	rack.global_position = Vector2(ARMORY_X, GROUND_Y)
+
+	var lectern: StaticBody2D = STATION_SCRIPT.new()
+	lectern.set("kind", "spells")
+	add_child(lectern)
+	lectern.global_position = Vector2(LECTERN_X, GROUND_Y)
+
+
+## THE OUTFITTER, on demand. A `Control`, so it needs a `CanvasLayer` of its own to
+## sit above a `Node2D` world; grouped `town_overlay` so the player and every
+## station freeze underneath it without any of them knowing what it is.
+func open_outfitter() -> void:
+	if _outfitter != null and is_instance_valid(_outfitter):
+		return
+	if _outfitter_layer == null:
+		_outfitter_layer = CanvasLayer.new()
+		_outfitter_layer.layer = 95
+		add_child(_outfitter_layer)
+	_outfitter = Outfitter.new()
+	_outfitter.add_to_group("town_overlay")
+	_outfitter_layer.add_child(_outfitter)
+	var gs: Node = get_node_or_null("/root/GameState")
+	_outfitter.call("set_class", int(gs.get("selected_class")) if gs != null else 0)
+	if _outfitter.has_signal(&"closed"):
+		_outfitter.connect(&"closed", _on_outfitter_closed)
+
+
+func _on_outfitter_closed() -> void:
+	if _outfitter != null and is_instance_valid(_outfitter):
+		# Out of the group in the same frame it closes, so the player is not frozen
+		# for the frame between `closed` and `queue_free` landing.
+		_outfitter.remove_from_group("town_overlay")
+		_outfitter.queue_free()
+	_outfitter = null
+
+
+# ---------------------------------------------------------------------- the HUD
+## Two lines and nothing else. The top line is who you are; the bottom line is the
+## only onboarding the town gets, and it points BOTH ways on purpose — the door is
+## under your feet and the shops are behind you.
+func _spawn_hud() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 40
 	add_child(layer)
-	var label := Label.new()
-	label.add_to_group("class_hud_label")
-	label.position = Vector2(14, 10)
-	label.add_theme_font_size_override("font_size", 16)
-	label.add_theme_color_override("font_color", Color(0.95, 0.96, 1.0))
-	label.add_theme_color_override("font_outline_color", Color(0.05, 0.05, 0.1, 0.9))
-	label.add_theme_constant_override("outline_size", 4)
-	layer.add_child(label)
+
+	var who := Label.new()
+	who.add_to_group("class_hud_label")
+	who.position = Vector2(14, 10)
+	who.add_theme_font_size_override("font_size", 16)
+	who.add_theme_color_override("font_color", CHALK)
+	who.add_theme_color_override("font_outline_color", Color(0.05, 0.05, 0.1, 0.9))
+	who.add_theme_constant_override("outline_size", 4)
+	layer.add_child(who)
+
+	var guide := Label.new()
+	guide.text = "◂  walk left: gear · spells · class     ·     the tower is right here  ▸     ·     Esc: title"
+	guide.anchor_top = 1.0
+	guide.anchor_bottom = 1.0
+	guide.anchor_right = 1.0
+	guide.offset_top = -26.0
+	guide.offset_left = 14.0
+	guide.offset_right = -14.0
+	guide.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	guide.add_theme_font_size_override("font_size", 11)
+	guide.add_theme_color_override("font_color", GRAPHITE)
+	guide.add_theme_color_override("font_outline_color", Color(0.05, 0.05, 0.1, 0.9))
+	guide.add_theme_constant_override("outline_size", 3)
+	layer.add_child(guide)
 
 
-## Reflect the persisted class on hub entry: tint the player + set the HUD label.
+## A MINIMAL TOUCH PAD, and deliberately not `TouchControls`. That layer is the
+## combat one: twin sticks, a cast button and a spell row, all of which mean
+## nothing here and one of which (`cast`) would be actively wrong. The town needs
+## exactly three verbs, so it gets three pads that press the same NAMED ACTIONS a
+## keyboard does — no raw keycodes anywhere, per the mobile-input rule.
+##
+## Hidden unless the device actually has a touchscreen, so desktop is untouched.
+func _spawn_touch_pad() -> void:
+	if not DisplayServer.is_touchscreen_available():
+		return
+	var layer := CanvasLayer.new()
+	layer.layer = 70
+	add_child(layer)
+	# Walk: two wide pads in the bottom-left, thumb-sized.
+	_pad(layer, "move_left", "◂", Vector2(14.0, -14.0 - 46.0), Vector2(52.0, 46.0), false)
+	_pad(layer, "move_right", "▸", Vector2(72.0, -14.0 - 46.0), Vector2(52.0, 46.0), false)
+	# Jump and interact under the other thumb. INTERACT is the biggest thing on the
+	# screen because it is the only one that does anything in a town.
+	_pad(layer, "jump", "▲", Vector2(-14.0 - 52.0, -14.0 - 46.0), Vector2(52.0, 46.0), true)
+	_pad(layer, "talk", "E", Vector2(-14.0 - 52.0 - 74.0, -14.0 - 52.0), Vector2(68.0, 52.0), true)
+	# BACK. A touch player has no Esc key, so without this the only exit from the
+	# town on the target platform is to start a run.
+	_pad(layer, "ui_cancel", "✕", Vector2(-14.0 - 38.0, -360.0), Vector2(38.0, 32.0), true)
+
+
+## One pad, pressing one named action. `anchor_right` places it from the right edge
+## when `from_right`, so the layout survives any window the game is opened at.
+func _pad(layer: CanvasLayer, action: String, glyph: String, offset: Vector2,
+		size: Vector2, from_right: bool) -> void:
+	var b := Button.new()
+	b.text = glyph
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(maxf(size.x, MIN_TAP), maxf(size.y, MIN_TAP))
+	b.anchor_top = 1.0
+	b.anchor_bottom = 1.0
+	if from_right:
+		b.anchor_left = 1.0
+		b.anchor_right = 1.0
+	b.offset_left = offset.x
+	b.offset_right = offset.x + size.x
+	b.offset_top = offset.y
+	b.offset_bottom = offset.y + size.y
+	b.add_theme_font_size_override("font_size", 20)
+	b.modulate = Color(1.0, 1.0, 1.0, 0.62)
+	# Press/release rather than a one-shot `pressed`, so holding ◂ walks.
+	b.button_down.connect(func() -> void: Input.action_press(action, 1.0))
+	b.button_up.connect(func() -> void: Input.action_release(action))
+	# A pad that is still held when the town unloads would leave the action stuck
+	# down for the whole run underneath it.
+	b.tree_exiting.connect(func() -> void: Input.action_release(action))
+	layer.add_child(b)
+
+
+## THE WAY OUT THAT ISN'T THE TOWER. `PauseMenu` is spawned by the arena, not by
+## this scene, so without this the only exit from the town was to start a run —
+## a front door you can only leave by going upstairs is a trap, not a front door.
+## Esc / Back goes to the title, and only when no panel is up (a panel eats its own
+## ui_cancel first, so this never steals a "close this screen").
+func _unhandled_input(event: InputEvent) -> void:
+	if not event.is_action_pressed("ui_cancel"):
+		return
+	var sel: Node = get_node_or_null("/root/ClassSelect")
+	if sel != null and sel.has_method("is_open") and sel.is_open():
+		return
+	var lo: Node = get_node_or_null("/root/Loadout")
+	if lo != null and lo.has_method("is_open") and lo.is_open():
+		return
+	for o: Node in get_tree().get_nodes_in_group("town_overlay"):
+		if o is CanvasItem and (o as CanvasItem).visible:
+			return
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and gs.has_method("go_to_title"):
+		get_viewport().set_input_as_handled()
+		gs.call("go_to_title")
+
+
 func _reflect_selected_class() -> void:
 	var gs: Node = get_node_or_null("/root/GameState")
 	var idx: int = int(gs.get("selected_class")) if gs != null else 0
@@ -245,4 +396,4 @@ func _reflect_selected_class() -> void:
 		player.call("set_class_tint", ClassInfo.color_for(idx))
 	for label: Node in get_tree().get_nodes_in_group("class_hud_label"):
 		if label is Label:
-			(label as Label).text = "Class: %s" % ClassInfo.name_for(idx)
+			(label as Label).text = "%s" % ClassInfo.name_for(idx)

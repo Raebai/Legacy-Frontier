@@ -9,10 +9,17 @@
 # anyway (loopback is the device's own localhost). So:
 #
 #   * the button must reach `GameState.enter_run()` and nothing else;
-#   * the lobby must not name the hub, Ollama, or the Conversation stack;
-#   * and the hub must still EXIST, because "park, do not delete" is the
-#     instruction — `Conversation` is a bare global identifier in `Player.gd` and
-#     `NPC.gd`, so unregistering it stops `Main.tscn` loading at all.
+#   * the lobby must not name Ollama or the deleted Conversation stack;
+#   * and CLIMB must stay ABOVE the town button, so the fast path is always the
+#     first thing a thumb lands on.
+#
+# ⚠ THE HUB IS NO LONGER "PARKED". This file used to assert the opposite — that
+# `Conversation.tscn` still existed and its autoload was still registered, because
+# `Conversation` was a bare global in `Player.gd` and `NPC.gd` and unregistering it
+# stopped `Main.tscn` loading. Both references are gone and the whole LLM stack is
+# deleted; `scenes/Main.tscn` came back as THE TOWN, the game's front door. What
+# replaced that test lives in `tools/slice_test_town.gd`, which pins the deletion
+# and the town's geometry together.
 #
 # Plus the two things a title screen quietly breaks on: fitting the 640×360 base
 # viewport, and having tap targets a thumb can hit.
@@ -31,7 +38,7 @@ const TESTS: Array[String] = [
 	"lobby_scene_is_the_boot_scene",
 	"play_solo_starts_a_run",
 	"lobby_names_no_hub_and_no_ollama",
-	"the_hub_is_parked_not_deleted",
+	"climb_stays_above_the_town",
 	"lobby_fits_the_base_viewport",
 	"tap_targets_are_thumb_sized",
 	"discovery_starts_and_stops_with_the_join_screen",
@@ -66,7 +73,7 @@ var _lobby: Control = null
 func _init() -> void:
 	_test_lobby_scene_is_the_boot_scene()
 	_test_lobby_names_no_hub_and_no_ollama()
-	_test_the_hub_is_parked_not_deleted()
+	_test_climb_stays_above_the_town()
 	_test_credits_carry_the_required_attribution()
 	# The rest need a live tree: autoloads land on the first idle frame, and a
 	# Control reports no meaningful size until it has been through a layout pass.
@@ -185,34 +192,33 @@ func _test_play_solo_starts_a_run() -> void:
 func _test_lobby_names_no_hub_and_no_ollama() -> void:
 	var src: String = _code_only(LOBBY_SCRIPT)
 	_expect(not src.is_empty(), "the lobby script reads")
-	# Deliberately matched on the resource path, so the words may still appear in
-	# the comment that explains WHY the hub is parked.
-	_expect(not src.contains("change_scene_to_file(\"res://scenes/Main.tscn\")"),
-		"the lobby no longer loads the hub scene")
+	# The PORT, not the address: the co-op join field legitimately defaults to
+	# 127.0.0.1, which is two phones on a LAN and not a model server.
 	_expect(not src.contains("11434"), "the lobby names no Ollama port")
-	_expect(not src.contains("127.0.0.1:11434"), "the lobby names no Ollama server")
-	_expect(src.contains("enter_run"), "the lobby starts a run instead")
-	# And nothing on the boot path may reach the parked memory stack.
-	for sym: String in ["Conversation.", "MemoryUtils", "MemoryConsolidator", "NPCData"]:
+	_expect(not src.contains("/api/chat"), "the lobby calls no chat endpoint")
+	_expect(src.contains("enter_run"), "the lobby starts a run")
+	# And nothing on the boot path may reach the DELETED memory stack.
+	for sym: String in ["Conversation.", "MemoryUtils", "MemoryConsolidator", "EntityStats"]:
 		_expect(not src.contains(sym), "the lobby does not touch '%s'" % sym)
 	_completes("lobby_names_no_hub_and_no_ollama")
 
 
-func _test_the_hub_is_parked_not_deleted() -> void:
-	# PARK, DO NOT DELETE. `Conversation` is referenced as a BARE GLOBAL by
-	# Player.gd and NPC.gd, so unregistering the autoload stops Main.tscn loading
-	# — the excision has to be deliberate, not a side effect of this work. These
-	# assertions exist so a future tidy-up cannot quietly do it by accident.
-	for path: String in [
-		"res://scenes/Main.tscn",
-		"res://scenes/Conversation.tscn",
-		"res://scripts/NPC.gd",
-		"res://scripts/Player.gd",
-	]:
-		_expect(ResourceLoader.exists(path), "parked, not deleted: %s" % path)
-	_expect(ProjectSettings.has_setting("autoload/Conversation"),
-		"the Conversation autoload is still registered (Main.tscn will not load without it)")
-	_completes("the_hub_is_parked_not_deleted")
+## THE FAST PATH IS FIRST. The town is back and it is a good front door, but the
+## maker's verdict on the last one was "just another layer that doesn't add any
+## value" — so CLIMB must be built BEFORE the town button, and must still go
+## straight to a run. This is the assertion that catches a well-meaning reorder.
+func _test_climb_stays_above_the_town() -> void:
+	var src: String = _code_only(LOBBY_SCRIPT)
+	var climb_at: int = src.find("CLIMB")
+	var town_at: int = src.find("The Town")
+	_expect(climb_at >= 0, "the lobby has a CLIMB button")
+	_expect(town_at >= 0, "and a town button")
+	_expect(climb_at >= 0 and town_at > climb_at,
+		"CLIMB is built before the town button (climb@%d, town@%d)" % [climb_at, town_at])
+	_expect(ResourceLoader.exists("res://scenes/Main.tscn"), "the town scene exists")
+	_expect(not ResourceLoader.exists("res://scenes/Conversation.tscn"),
+		"and the LLM overlay it used to carry is deleted")
+	_completes("climb_stays_above_the_town")
 
 
 # ---------------------------------------------------------------------------

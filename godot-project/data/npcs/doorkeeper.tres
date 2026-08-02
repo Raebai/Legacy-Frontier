@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="NPCData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/NPCData.gd" id="1_npc_data"]
+
+[resource]
+script = ExtResource("1_npc_data")
+npc_id = "doorkeeper"
+npc_name = "the doorkeeper"
+display_color = Color(0.95, 0.62, 0.28, 1)
+lines = Array[String](["it goes up. that's all.", "nobody drew a way down.", "you'll come back lower.", "the door doesn't lock.", "go on then."])

@@ -10,8 +10,6 @@ const MAX_FALL: float = 1000.0
 
 @onready var speech_bubble: Node2D = $SpeechBubble
 
-# Set by RoomZone Area2Ds on body_entered. M14 broadcast earshot reads it.
-var current_room_id: String = ""
 ## The procedural stick figure that replaces the old block placeholder (maker:
 ## "everything should be in stick form"). Tinted to the chosen class.
 var _rig: CharacterRig = null
@@ -59,11 +57,15 @@ func preview_loadout(preset: String, loadout: Dictionary) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	# Frozen while a conversation input bar OR the class-select panel is open —
-	# gravity still applies so we rest on the ground, but no walking/jumping.
-	var selecting: bool = (ClassSelect != null and ClassSelect.is_open()) \
-			or (Loadout != null and Loadout.is_open())
-	if Conversation.is_input_open() or selecting:
+	# Frozen while any town screen is up — gravity still applies so we rest on the
+	# ground, but no walking or jumping underneath an open panel.
+	#
+	# ⚠ `Conversation.is_input_open()` used to be the first term here, as a BARE
+	# GLOBAL. That autoload is deleted with the rest of the LLM stack, and a bare
+	# global to a missing autoload is a parse error that stops the whole town scene
+	# loading — which is exactly why the stack was parked rather than removed
+	# before. Everything this gate asks is now asked through the tree.
+	if _screen_open():
 		velocity.x = 0.0
 		velocity.y = 0.0 if is_on_floor() else minf(velocity.y + GRAVITY * delta, MAX_FALL)
 		move_and_slide()
@@ -91,6 +93,20 @@ func _physics_process(delta: float) -> void:
 			_rig.set_facing(Vector2(move_x, 0.0))
 		else:
 			_rig.play(CharacterRig.State.IDLE)
+
+
+## True while a town panel (class altar / armory / outfitter) is up.
+func _screen_open() -> bool:
+	var sel: Node = get_node_or_null("/root/ClassSelect")
+	if sel != null and sel.has_method("is_open") and sel.is_open():
+		return true
+	var lo: Node = get_node_or_null("/root/Loadout")
+	if lo != null and lo.has_method("is_open") and lo.is_open():
+		return true
+	for o: Node in get_tree().get_nodes_in_group("town_overlay"):
+		if o is CanvasItem and (o as CanvasItem).visible:
+			return true
+	return false
 
 
 func say(text: String, fade_seconds: float = 6.0, x_offset: float = 0.0) -> void:

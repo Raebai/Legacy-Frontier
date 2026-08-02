@@ -10,22 +10,18 @@ extends Control
 ## IP / class pick / live peer list / Start Run) and changes two things that
 ## mattered:
 ##
-## 1. **"Play Solo" now starts a RUN.** It used to `change_scene_to_file` into
-##    `res://scenes/Main.tscn` — the old hub, full of AI NPCs that talk to a
-##    hardcoded local Ollama server at 127.0.0.1:11434. The spec cuts that
-##    permanently ("Out permanently: persistent world, NPC memory, LLM anything")
-##    and there is no hub in this game: you drop into a floor. So Play Solo now
-##    calls `GameState.enter_run()`, which owns the persistent climb (resume from
-##    your saved floor, never a blanket reset) and does the scene change itself.
-##    On a phone, loopback Ollama is not merely absent — it is the device's own
-##    localhost, so it could never have worked there.
+## 1. **CLIMB IS THE FIRST THING, AND IT STARTS A RUN.** It calls
+##    `GameState.enter_run()`, which owns the persistent climb (resume from your
+##    saved floor, never a blanket reset) and does the scene change itself. One
+##    press from opening the game to fighting, and that is deliberately protected:
+##    `slice_test_town` fails if anything is ever built above it.
 ##
-##    THE HUB IS PARKED, NOT DELETED. `scenes/Main.tscn`, `NPC.gd`, `Player.gd`,
-##    `Conversation.gd` and the memory stack are all still on disk and the
-##    `Conversation` autoload is still registered — it is referenced as a BARE
-##    GLOBAL by `Player.gd` and `NPC.gd`, so unregistering it stops `Main.tscn`
-##    loading at all. Nothing here reaches for any of it; the hub is simply off
-##    the critical path, and the maker can wire it back with one line.
+##    THE TOWN IS BELOW IT, AS A DETOUR. "The Town" opens `scenes/Main.tscn` —
+##    which is no longer the v0.0 AI village but the game's front door: a class
+##    statue, a spell lectern, an armory rack, three townspeople who speak in
+##    barks, and the tower door you spawn standing on. The LLM stack that used to
+##    live in there (`Conversation`, the memory pipeline, the local model server)
+##    is DELETED, not parked — see `World.gd` and `NPC.gd`.
 ##
 ## 2. **It looks like the game.** The tower is DRAWN — an unseen hand sketches
 ##    each floor, its mobs and its boss, and you are a drawing climbing toward
@@ -279,6 +275,13 @@ func _build_ui() -> void:
 	# frames the decisive beat. Reached by path + static call for the same reason
 	# Free Play is — a bare identifier drags the versus arena's dependency chain
 	# into the title screen's compile.
+	# ⚠ THE TOWN IS A DETOUR, NOT THE ROUTE. It sits three rows below CLIMB, in the
+	# secondary row, because the fast path must stay the FIRST thing a thumb lands
+	# on: nobody who wants to fight is ever taken on a tour. Going through the town
+	# costs one extra press over CLIMB and no walking at all — you spawn on the
+	# tower's doorstep and every station is behind you. See the rules at the top of
+	# `World.gd`.
+	extras.add_child(_half("The Town", _visit_town))
 	extras.add_child(_half("Watch Bots", _watch_bots))
 	extras.add_child(_half("Credits", _open_credits))
 
@@ -696,6 +699,20 @@ func _start_run() -> void:
 
 ## Credits are an OVERLAY, not a scene change: hosting a lobby and then reading
 ## the credits must not drop the peer you were waiting for.
+## THE TOWN — where you change class, pick which three spells you carry, take gear
+## off the rack, choose a colourway, and talk to the three people who live there.
+##
+## Routed through `GameState.visit_hub()` rather than a `change_scene_to_file` here,
+## because the mode flag it sets is what tells the rest of the game you are not in a
+## run. Falls back to nothing if the town is not in this build, rather than throwing
+## the player at a black screen.
+func _visit_town() -> void:
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and gs.has_method("visit_hub") and bool(gs.call("visit_hub")):
+		return
+	_say("the town isn't in this build.")
+
+
 func _open_credits() -> void:
 	if _credits != null and is_instance_valid(_credits):
 		return
