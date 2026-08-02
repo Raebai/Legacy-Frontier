@@ -90,9 +90,38 @@ const BLAST_MAX_RANGE: float = 480.0
 const BLINK_DISTANCE: float = 175.0
 ## Blink lands you THROUGH walls but never INSIDE one: probe the endpoint against
 ## solids (layer 1) and relocate to the nearest clear spot if it's blocked.
+##
+## THE RULE, stated once (maker: "can go through stuff ... just make sure you can't
+## blink into a wall"): a blink is a PHASE, not a move. The PATH is never tested —
+## no raycast, no sweep, `global_position` is assigned outright — so cover, ruins,
+## ledges and breakable platforms are all passed straight through by construction.
+## Only the RESTING SPOT is vetted, against three rules (see `_blink_spot_legal`):
+## not inside solid geometry, not over a ring-out pit, not outside the room.
+## An illegal spot SLIDES ALONG THE BLINK RAY — forward first (finish the phase,
+## come out the far side of whatever the endpoint landed in), then backward toward
+## the origin, which is legal by construction because you were just standing on it.
+## First legal point wins, so you always travel as far toward your aim as the map
+## allows. If nothing on the whole ray clears `BLINK_MIN_TRAVEL`, the press is
+## REFUSED AND REFUNDED rather than eating the cooldown for a 6-px shuffle.
 const BLINK_WALL_MASK: int = 1
 const BLINK_PROBE_STEP: float = 6.0
-const BLINK_PROBE_EXTRA: float = 60.0
+## Forward phase budget: how far PAST a blocked endpoint we keep looking for
+## daylight before giving up and sliding back. This number is the thickest thing a
+## blink may pass through when your endpoint lands inside it. Room walls are 16 px
+## (Arena.WALL_THICKNESS) and cover blocks/ruins are thicker; 96 clears any single
+## piece of the stage's geometry, which is what "goes through stuff" has to mean to
+## be worth pressing. (Was 60 — enough for a wall, not for a cover block.)
+const BLINK_PROBE_EXTRA: float = 96.0
+## The floor on a USEFUL blink. The backward slide walks all the way home in 6-px
+## steps, and its last candidate is ~1 px from where you stand — technically legal,
+## and exactly the "the button ate my cooldown and did nothing" outcome. Anything
+## shorter than this is treated as no legal destination at all: refused, refunded,
+## press again. Roughly a hero's own width, so a refused blink is unambiguous.
+const BLINK_MIN_TRAVEL: float = 24.0
+## Length of the four enclosure rays that decide whether a landing spot is still
+## INSIDE the room. Must comfortably exceed any room's diagonal (`FloorGen` tops
+## out well under this); over-long is free because the ray stops at the first hit.
+const BLINK_BOUNDS_RAY: float = 6000.0
 const BLINK_COOLDOWN: float = 1.3
 const BLINK_IFRAME: float = 0.22
 ## Share of a dash that is invulnerable, measured from its START. Below 1.0 the
@@ -1102,13 +1131,29 @@ var _cast_sigil_rise: float = CAST_CIRCLE_ABOVE
 ## adopting spectacle's business: BeamSpell.adopt_or_open() passes edge_on and the
 ## sigil FOLDS into the gate as it travels down. Setting it edge-on here produced a
 ## tall vertical lens hanging over the head that read as a bug, not a ritual.
-func _open_cast_sigil(radius: float, grow_time: float) -> void:
+## ⚠ THE CIRCLE DRAWS THE SPELL, NOT THE CASTER. It used to draw `_element_color` —
+## the hero's CLASS element — so an Arcanist charging a meteor watched a magenta
+## arcane ring for the whole 1.1 s cast and it only snapped to fire at release.
+## The maker's note was "meteor should be red and look slightly different"; the data
+## was already right (every one of the 38 spells declares a correct element, and
+## meteor is FIRE end to end) and this call site was throwing it away.
+##
+## `spell` is optional because the summon and channel paths both have it but a
+## future caller might not; passing null keeps exactly the old behaviour.
+func _open_cast_sigil(radius: float, grow_time: float, spell: SpellDef = null) -> void:
 	_discard_cast_sigil()  # a cast can be interrupted but never queued — never stack two
 	_cast_sigil_rise = CAST_CIRCLE_ABOVE + radius * CAST_CIRCLE_CLEARANCE
 	var sigil := MagicCircle.new()
 	get_parent().add_child(sigil)
 	sigil.global_position = _cast_sigil_pos()
-	sigil.appear(_element_color, radius, grow_time)
+	var tint: Color = _element_color
+	if spell != null:
+		tint = spell.resolve_color(_element_color)
+	sigil.appear(tint, radius, grow_time)
+	# The glyph band and the tier ladder — the two things that make one circle
+	# recognisable as a different spell from another at 640x360.
+	if spell != null:
+		sigil.set_signature(SpellCaster.resolve_element(spell), SpellTier.of(spell))
 	_cast_sigil = sigil
 
 
@@ -1945,7 +1990,7 @@ func _begin_summon(spell: SpellDef, sky: bool, special: int) -> void:
 	if _summon_tier != SpellTier.Tier.QUICK:
 		_open_cast_sigil(
 			CAST_SIGIL_RADIUS + CAST_SIGIL_RADIUS_PER_COST * clampf(spell.mp_cost / 90.0, 0.0, 1.0),
-			_summon_total)
+			_summon_total, spell)
 	Sfx.play("charge_up", -6.0, 0.05)
 
 
@@ -2149,7 +2194,7 @@ func _begin_channel(spell: SpellDef, sky: bool) -> void:
 	# so it matters most here that the sigil is handed over rather than dismissed.
 	_open_cast_sigil(
 		CHANNEL_SIGIL_RADIUS + CHANNEL_SIGIL_RADIUS_PER_COST * clampf(spell.mp_cost / 90.0, 0.0, 1.0),
-		spell.cast_time)
+		spell.cast_time, spell)
 	Sfx.play("charge_up", -2.0, 0.04)  # anime beam/ult power-up swell
 	# Pull the camera WIDE for the whole build-up + release so the "insane spell"
 	# reads (maker: "when these insane spells are being cast we should zoom out to
@@ -2485,11 +2530,32 @@ func _start_dash() -> void:
 	_net_send("ds", {"dir": _dash_dir})
 
 
-## Shadow blink: instant teleport BLINK_DISTANCE along the MOVEMENT direction,
-## phasing THROUGH walls (no clamp — mobile-friendly, no aim needed). Leaves a
-## dark silhouette + violet poof at the origin, another poof + bright flash at
-## the destination, and grants BLINK_IFRAME seconds of invulnerability. Buffered
-## like dash/melee/blast; only reachable from the not-dashing path.
+## Shadow blink: instant teleport BLINK_DISTANCE along the direction you are
+## FACING — full 360°, phasing THROUGH geometry. Leaves a dark silhouette + violet
+## poof at the origin, another poof + bright flash at the destination, and grants
+## BLINK_IFRAME seconds of invulnerability. Buffered like dash/melee/blast; only
+## reachable from the not-dashing path.
+##
+## ⚠ DIRECTION CHANGED (maker, mid-playtest: "blink should just be in the direction
+## it is facing ... not just side to side"). This used to read `_move_dir`, which is
+## assigned as `Vector2(signf(move_x), 0.0)` — a HORIZONTAL UNIT VECTOR, ±1 on X and
+## always 0 on Y. So the ability was structurally incapable of going anywhere but
+## left or right no matter where you pointed, while the const above this has claimed
+## "along facing" the whole time. It now reads `_aim_dir` — the same 360° vector the
+## rig visibly points at, that the melee arc swings down and that every spell is
+## thrown along, including the BLINK_STRIKE spell, which was already aim-driven. The
+## ability and the spell therefore now agree, which is the point: one blink verb.
+##
+## NOT AUTO-AIM. `_aim_dir` is raw player input (cursor / right stick / touch aim
+## pad), resolved in `_physics_process` before anything reads it. Nothing here looks
+## at where an enemy is, and the locked no-auto-aim rule is untouched — see
+## tools/slice0_test_targeting.gd.
+##
+## STILL MOBILE-FIRST (D-011). Aim is a first-class touch input, not a mouse-only
+## luxury: `_touch_aim()` routes the on-screen pad into the same `_aim_dir`. And
+## because aim PERSISTS between frames, a thumb that is only on the move stick
+## blinks along the last direction it aimed — which is also the way the figure is
+## visibly facing, so the read is honest either way.
 func _blink() -> void:
 	# Brawler can't teleport — its R is a launcher UPPERCUT that pops enemies into
 	# the air (double-jump after them to juggle).
@@ -2498,17 +2564,33 @@ func _blink() -> void:
 		return
 	if _blink_cooldown_timer > 0.0:
 		return
-	_blink_cooldown_timer = _cfg["blink_cd"]
-	_blink_iframe_timer = BLINK_IFRAME
 	var origin: Vector2 = global_position
-	# Blink along the MOVEMENT/walk direction (mobile-friendly — no aim needed),
-	# phasing THROUGH walls a fixed BLINK_DISTANCE. _move_dir persists the last
-	# walk direction, so a standing blink still fires (falls back to RIGHT).
-	var dir: Vector2 = _move_dir
+	# WHERE YOU ARE POINTING. `_move_dir` survives only as a fallback for the
+	# degenerate frame where aim has never been set (headless construction, a bot
+	# that has not aimed yet); RIGHT is the last resort so a standing blink fires.
+	var dir: Vector2 = _aim_dir
+	if dir == Vector2.ZERO:
+		dir = _move_dir
 	if dir == Vector2.ZERO:
 		dir = Vector2.RIGHT
-	# Land THROUGH walls but never INSIDE one (relocate a blocked endpoint).
+	# Phase THROUGH geometry, but never REST in it (see BLINK_WALL_MASK's note).
 	var dest: Vector2 = _safe_blink_destination(origin, origin + dir.normalized() * BLINK_DISTANCE)
+	# REFUSED -> REFUNDED. Everything above this line is free; the cooldown and the
+	# i-frames are spent BELOW it, so a blink with nowhere legal to land costs
+	# nothing and can be re-aimed and pressed again immediately. The alternative —
+	# charging 1.3 s for a body that did not move — is the failure mode that makes a
+	# mobility button feel broken rather than blocked.
+	if origin.distance_to(dest) < BLINK_MIN_TRAVEL:
+		# A quiet, dim fizzle at the feet so the press reads as REFUSED rather than
+		# as dropped input. Deliberately nothing like the arrival flash.
+		CombatVfx.spawn_burst(
+			get_parent(), origin, Color(0.3, 0.2, 0.4, 0.5), BLINK_BURST_END,
+			6, 0.2, 20.0, 55.0, 1.0, 2.0
+		)
+		Sfx.play("blink", -14.0, 0.1, 0.6)
+		return
+	_blink_cooldown_timer = _cfg["blink_cd"]
+	_blink_iframe_timer = BLINK_IFRAME
 	# Shadow-poof where we WERE: dark fading silhouette + violet burst.
 	rig.spawn_ghost(get_parent(), BLINK_SHADOW_COLOR, Vector2.ZERO, Vector2.ZERO, 0.35)
 	CombatVfx.spawn_burst(
@@ -2568,22 +2650,46 @@ func _uppercut() -> void:
 		Juice.shake_camera(5.0)
 
 
-## Blink landing safety: the endpoint may never rest INSIDE a solid. Test the
-## destination against layer-1 solids; if blocked, probe forward past a thin wall,
-## then back toward the origin, returning the first clear spot. Phasing THROUGH a
-## wall mid-blink stays fine — only the resting spot matters.
 ## SpellCaster's BLINK_STRIKE callback (duck-typed `blink_to`): vet the requested
-## landing spot, actually move, and return where we ENDED UP so the slash is drawn
-## to the real destination. Hero's own rule — never blink into a pit or a wall —
-## stays owned here rather than leaking into the generic dispatcher.
+## landing spot, actually move, and return where we ENDED UP so the blast is drawn
+## at the real destination. Hero's own rule — never blink into a pit, a wall, or out
+## of the room — stays owned here rather than leaking into the generic dispatcher.
+##
+## THE SPELL IS NOT REFUNDED WHEN THE ABILITY WOULD BE, and the split is deliberate.
+## `_blink()` is PURE MOVEMENT: a blink that cannot move has delivered nothing, so it
+## costs nothing. This spell's payload is the BLAST (see BlinkStrike's "REPOSITION +
+## PUNCTUATION" note) — a Shadow Step that cannot find room to travel still detonates
+## where you stand and still does its damage, which is a real outcome rather than a
+## swallowed button. So the travel is dropped, not the cast: below `BLINK_MIN_TRAVEL`
+## we simply do not move, and the caller draws the blast at our feet.
+##
+## CO-OP: a puppet is NOT displaced. Position on a non-authority peer comes from the
+## MultiplayerSynchronizer, so writing `global_position` here would fight it and then
+## snap back — the same rule `_replay_dash` documents for the dash. The vetted point
+## is still RETURNED, so the remote copy of the spectacle draws its (already
+## disarmed) blast where the owner is about to appear.
 func blink_to(dest: Vector2) -> Vector2:
 	var safe: Vector2 = _safe_blink_destination(global_position, dest)
+	if _is_net_puppet():
+		return safe  # replay is visual only; the synchronizer owns this body
+	if global_position.distance_to(safe) < BLINK_MIN_TRAVEL:
+		return global_position  # nowhere useful to go — blast at our feet
 	global_position = safe
 	velocity.y = 0.0
 	_blink_iframe_timer = BLINK_IFRAME
 	return safe
 
 
+## Blink landing safety. Returns the point the body may legally REST on, which is
+## `dest` in the common case and a slid-along-the-ray substitute otherwise. Returns
+## `origin` when the whole ray is illegal; callers treat "moved less than
+## BLINK_MIN_TRAVEL" as a refusal (see `_blink`), so the exact sentinel is never
+## load-bearing on its own.
+##
+## The full rule — phase the path, vet only the resting spot, slide forward then
+## backward — is written out at BLINK_WALL_MASK. The one thing worth repeating here:
+## there is deliberately NO raycast from `origin` to `dest`. A segment test would
+## report every legally-crossed wall as a block and turn the blink back into a dash.
 func _safe_blink_destination(origin: Vector2, dest: Vector2) -> Vector2:
 	var world: World2D = get_world_2d()
 	if world == null:
@@ -2602,28 +2708,79 @@ func _safe_blink_destination(origin: Vector2, dest: Vector2) -> Vector2:
 	if span.length() < 1.0:
 		return dest
 	var dir: Vector2 = span.normalized()
-	q.transform = Transform2D(0.0, dest)
-	if space.intersect_shape(q, 1).is_empty() and not _dest_in_pit(dest):
+	# Is this world walled at all? Asked ONCE, of the spot we are standing on — see
+	# `_enclosed`. An open stage answers false and the bounds rule switches itself
+	# off for the whole blink, which is why the versus terraces and the headless
+	# suites (no walls anywhere) behave exactly as they did before.
+	var bounded: bool = _enclosed(space, origin)
+	if _blink_spot_legal(space, q, dest, bounded):
 		return dest  # clear — the common case
-	# Blocked (solid OR over the void): look for daylight just PAST a thin wall first...
+	# Blocked: look for daylight just PAST whatever the endpoint landed in. This is
+	# the branch that makes "goes through stuff" true when you aim INTO cover rather
+	# than past it — you come out the far side instead of bouncing off.
 	var d: float = BLINK_PROBE_STEP
 	while d <= BLINK_PROBE_EXTRA:
 		var pf: Vector2 = dest + dir * d
-		q.transform = Transform2D(0.0, pf)
-		if space.intersect_shape(q, 1).is_empty() and not _dest_in_pit(pf):
+		if _blink_spot_legal(space, q, pf, bounded):
 			return pf
 		d += BLINK_PROBE_STEP
-	# ...else fall back toward the origin (which is on the map) — this is what
-	# "limits it to where you can actually teleport": you slide back onto solid map.
+	# ...else slide back toward the origin, which is legal by construction. Walking
+	# from the far end means we take the FURTHEST legal point, so you still travel as
+	# far as the map allows instead of being dumped next to your own feet. This is
+	# also the branch that catches "aimed through the outer wall": every candidate
+	# outside the room fails the bounds rule, and the first one that passes is the
+	# spot just inside it.
 	var max_back: float = span.length()
 	d = BLINK_PROBE_STEP
 	while d <= max_back:
 		var pb: Vector2 = dest - dir * d
-		q.transform = Transform2D(0.0, pb)
-		if space.intersect_shape(q, 1).is_empty() and not _dest_in_pit(pb):
+		if _blink_spot_legal(space, q, pb, bounded):
 			return pb
 		d += BLINK_PROBE_STEP
-	return origin  # nowhere clear — don't move
+	return origin  # nowhere legal on the entire ray — refused
+
+
+## The three rules a landing spot must satisfy, in cheapest-first order. `q` is
+## reused across candidates (only its transform changes), which is why this takes it
+## rather than building one per call.
+func _blink_spot_legal(
+	space: PhysicsDirectSpaceState2D, q: PhysicsShapeQueryParameters2D,
+	at: Vector2, bounded: bool
+) -> bool:
+	q.transform = Transform2D(0.0, at)
+	if not space.intersect_shape(q, 1).is_empty():
+		return false  # 1. never INSIDE solid geometry
+	if _dest_in_pit(at):
+		return false  # 2. never over a ring-out pit you did not choose
+	if bounded and not _enclosed(space, at):
+		return false  # 3. never OUTSIDE the room
+	return true
+
+
+## True when `at` is enclosed by geometry — a cheap stand-in for "inside the room"
+## that costs nothing to keep in sync with the room, because it asks the room itself.
+##
+## WHY NOT READ THE ROOM RECT. Arena builds its four walls from `LayoutDef.room_size`
+## and the versus stage has no walls at all, so any number Hero cached would be a
+## second source of truth that drifts the first time a floor resizes. Instead: fire
+## one ray along each axis. A point inside a closed room hits a wall in all four
+## directions; a point in the void outside it misses in at least one. That is exact
+## for the shape Arena actually builds (four full-span walls) and self-disabling
+## everywhere else — an open stage fails the test AT THE ORIGIN, and the caller then
+## skips the rule entirely rather than refusing every blink on the map.
+##
+## `hit_from_inside` is on so a point buried in a wall reports enclosed rather than
+## leaking out through its own collider; rule 1 above has already rejected it anyway.
+func _enclosed(space: PhysicsDirectSpaceState2D, at: Vector2) -> bool:
+	for dir: Vector2 in [Vector2.RIGHT, Vector2.LEFT, Vector2.UP, Vector2.DOWN]:
+		var r := PhysicsRayQueryParameters2D.create(
+			at, at + dir * BLINK_BOUNDS_RAY, BLINK_WALL_MASK)
+		r.collide_with_areas = false
+		r.hit_from_inside = true
+		r.exclude = [get_rid()]
+		if space.intersect_ray(r).is_empty():
+			return false
+	return true
 
 
 ## True if `pos` lands inside a ring-out PIT (a StageHazard in PIT mode), plus a
@@ -2940,9 +3097,33 @@ func _spawn_nova() -> void:
 ## reason and with the same safety as the stamp: `set()` on a property a
 ## spectacle has not declared is a silent no-op, so a spectacle that hard-codes
 ## its target group today simply starts obeying this the day it grows the field.
+## ⚠ THIS USED TO STAMP ONLY THE GROUP, AND THAT WAS TWO SILENT BUGS IN ONE.
+##
+## The seven Q spectacles below are hand-built here rather than going through
+## `SpellCaster._stamp`, which writes element + tier + CASTER + group on all its
+## arms. This helper wrote the group and nothing else, so `caster_node` stayed
+## null on every one of them — and `set()` on a property a node has not declared
+## is a silent no-op, so nothing ever complained.
+##
+## 1. THE MAKER'S NOVA BUG. Both of `SpellTargets`' self-exclusion layers read
+##    `caster_node`, and both correctly no-op when it is null: the skip list was
+##    `[null]` and `owner_of()` answered null. That was harmless while these
+##    scanned `"enemy"` — a hero is not in `"enemy"`. The moment friendly fire
+##    pointed the scan at `"mortal"`, the caster was a legal target standing at
+##    range zero of their own nova. Reported as nova because that is the one
+##    centred on your own feet; meteor, zone, orbs, ray and chain had it too.
+## 2. THEY WERE INERT IN THE REACTION SYSTEM. `reaction_owner()` returns null,
+##    which satisfies neither `require_owner: "same"` nor `"different"`, so these
+##    seven matched NO clash row. They could not fuse, annihilate or be overpowered
+##    by anything, and nothing errored — the exact failure mode `docs/NEXT-SESSION.md`
+##    calls "the one rule that keeps finding bugs".
+##
+## Fixed at the helper rather than at six call sites, so a spectacle added here
+## later cannot inherit the omission.
 func _stamp_faction(node: Node) -> void:
 	node.set("target_group", String(attack_group()))
 	node.set("_target_group", String(attack_group()))
+	node.set("caster_node", self)
 
 
 ## Cursor target for a placed Q, clamped to BLAST_MAX_RANGE so it stays a skill-shot.
