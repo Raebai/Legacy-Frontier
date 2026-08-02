@@ -200,7 +200,17 @@ func _play_intro() -> void:
 	sig.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	sig.offset_top = float(s["sig_top"])
 	sig.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sig.text = boss_artist()
+	# THE BILLING LINE. `boss_epithet()` is what a god is announced as; it falls back
+	# to `boss_artist()` (the material note) so a boss that has not been given one
+	# still reads exactly as it did before this landed. On a FULL ceremony it is
+	# framed, because that beat is the one the tower is allowed to spend on; a
+	# mini-guardian's brief flash stays bare, per the ceremony split.
+	var billing: String = boss_epithet()
+	if billing == "":
+		billing = boss_artist()
+	elif full_ceremony():
+		billing = "— %s —" % billing
+	sig.text = billing
 	sig.add_theme_font_size_override("font_size", int(s["sig_size"]))
 	sig.add_theme_color_override("font_color", Color(accent.r, accent.g, accent.b, 0.75))
 	sig.add_theme_color_override("font_outline_color", Color(0.05, 0.02, 0.03, 0.9))

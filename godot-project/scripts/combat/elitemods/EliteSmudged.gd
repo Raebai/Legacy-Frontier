@@ -39,8 +39,33 @@ const SIDE_OFFSET: Array[float] = [-58.0, -34.0, 34.0, 58.0]
 ## compile-time Enemy dependency into a headless harness.
 const STATE_CHASE: int = 0
 
+## THE VOICE BEAT: the smear itself.
+##
+## ⚠ IT IS DETECTED FROM THE POSITION JUMP, NOT FROM `_land`. `_land` is host-only
+## (EliteRider rule 2) and a client would watch the body blink across the room in
+## silence. A teleport is a position DISCONTINUITY, and position is the one thing
+## every peer's puppet is synced on — so both screens hear the smear off the same
+## observation with nothing broadcast. It also catches any other displacement big
+## enough to read as a blink, which is the honest reading of the affix.
+const SMEAR_JUMP: float = 110.0
+
 var _timer: float = 2.4
 var _moving: bool = false
+var _last_pos: Vector2 = Vector2.INF
+
+
+## Runs on EVERY peer — see the jump note above.
+func _tick_visual(_delta: float) -> void:
+	var here: Vector2 = enemy_pos()
+	var was: Vector2 = _last_pos
+	_last_pos = here
+	if was == Vector2.INF:
+		return
+	if was.distance_to(here) < SMEAR_JUMP:
+		return
+	# Mouth only. This fires every INTERVAL (4.6 s) at most and a bubble on every
+	# one of them would be a tickertape over a body that is already telegraphing.
+	elite_voice(Gibberish.Mood.MUTTER, 2)
 
 
 func _tick(delta: float) -> void:

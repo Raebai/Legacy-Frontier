@@ -341,6 +341,14 @@ func _tick() -> void:
 			SpellTargets.hurt(e, _tick_dmg, tint)
 		if _effect != "frost" and e.has_method("apply_status"):
 			e.apply_status(element_id)
+	# ...and the SCENERY standing in the field, on the same tick cadence. A blizzard
+	# or a pool of acid sitting on a crate for eight seconds should eat the crate.
+	#
+	# ⚠ Reuses `_catches`, which is the same footprint predicate the fighter pass
+	# uses — a zone's footprint is per-effect (a squall is not a circle), so a
+	# bounding-circle approximation would break cover outside the drawn field.
+	SpellSurfaces.in_shape(self, _at, _tick_dmg, func(p: Vector2) -> bool:
+		return footprint_contains(_effect, _at, r, p))
 	if _effect == "holy":
 		# GROUP "hero", NOT "player". This healed nobody, ever. The tower hero joins
 		# group "hero"; "player" belongs to the v0.0 overworld scene, which nothing in

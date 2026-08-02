@@ -357,7 +357,10 @@ func _test_spell_hits_the_other_hero() -> void:
 	var ok: bool = SpellCaster.cast(nova, arena, here, here + Vector2(50.0, 0.0),
 		Color.WHITE, "arcane", caster, caster.call("attack_group"))
 	_expect(ok, "the NOVA arm dispatched")
-	_advance(0.25)
+	# Long enough to clear EnergyNova.WINDUP_TIME (0.30) — the nova GATHERS now
+	# before it goes off, so a 0.25 s advance would sample it mid-telegraph and read
+	# as "friendly fire is broken". See the telegraph block in EnergyNova.gd.
+	_advance(0.45)
 
 	_expect(int(mate.get("hp")) < mate_hp,
 		"FRIENDLY FIRE: a hero's nova damages the OTHER hero (this is the whole feature)")

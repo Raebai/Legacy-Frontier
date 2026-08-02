@@ -39,6 +39,12 @@ var _nudge: Vector2 = Vector2.ZERO
 
 
 func _ready() -> void:
+	# ⚠ THIS DREW AT z 0 — the fighters' own layer — because it set no z_index, so a
+	# crate standing where a fighter stands painted over him. Same defect the maker
+	# reported on the versus stage; the crates are the tower's instance of it. One
+	# table now, in StageLayers, with a test that fails if a stage drawer is missing
+	# from it.
+	StageLayers.apply(self, StageLayers.COVER)
 	add_to_group("destructible")
 	# NOT in `mortal`, deliberately — see slice_test_mortal_group.
 	# `mortal` exists to make FACTIONS blind to each other. Cover was never

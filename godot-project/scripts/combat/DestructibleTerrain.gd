@@ -76,15 +76,26 @@ const RUBBLE_CHUNK_COUNT: int = 6
 const RUBBLE_CHUNK_SPEED: float = 260.0
 const SHATTER_SHAKE: float = 4.0
 # Per-cell shade jitter so the face reads as fitted masonry, not a flat fill.
-const CELL_SHADE_VARIANCE: float = 0.07
+# HALVED from 0.07: at the framing zoom the old jitter turned a 64 px block into a
+# grey checkerboard that read as noise and pulled the eye off the fighters. Texture
+# is for when you stop and look; the block's job in motion is to be one mass.
+const CELL_SHADE_VARIANCE: float = 0.035
 const EXPOSED_EDGE_WIDTH: float = 1.5
+## Length of the amber corner brackets. RULE 2 of the stage legend (see
+## StageLayers): a lit cap says "standable", amber says "and it breaks". Corners
+## rather than a full rim, so cover is never mistaken for a breakable LEDGE.
+const BREAK_TICK: float = 7.0
 
 @export var block_size: Vector2 = Vector2(64, 64)
 ## Higher than the old 60 so a single blast (~40) CHIPS a corner instead of near-
 ## destroying the block — cover erodes over several hits then collapses (maker:
 ## "parts break off WHERE HIT, not the entire thing").
 @export var max_hp: int = 120
-@export var base_color: Color = Color(0.42, 0.44, 0.5)  # stone-ish
+## Cooled and darkened from 0.42/0.44/0.5. At the played framing the old value made
+## the cover blocks the BRIGHTEST things on the stage after the sky — louder than the
+## fighters and louder than the ledges the player is trying to read. Cover is a mass
+## to hide behind; the lit cap added in `_draw` is what carries its readability now.
+@export var base_color: Color = Color(0.30, 0.31, 0.36)
 
 var hp: int = 60
 var _flash_timer: float = 0.0
@@ -98,6 +109,9 @@ var _intact_count: int = 0
 
 
 func _ready() -> void:
+	# ⚠ THIS DREW AT z 0 — the fighters' own layer — because it set no z_index. See
+	# StageLayers for the one table every stage drawer now reads.
+	StageLayers.apply(self, StageLayers.COVER)
 	add_to_group("destructible")
 	hp = max_hp
 	collision_layer = 5  # bits 1 + 4, see header
@@ -351,12 +365,15 @@ func _draw() -> void:
 		if _flash_timer > 0.0:
 			cell_color = cell_color.lightened(0.45)
 		draw_rect(Rect2(origin, _cell_size), cell_color)
-		# Top-row bevel keeps the chunky lit-from-above read of the old face.
+		# RULE 1 of the stage legend: EVERY upward-facing exposed cell wears the lit
+		# cap, because every one of them is a surface a fighter can land on — including
+		# the shelves left behind as the block is chewed apart. Same light as the ground
+		# crust and the ruin ledges, so "I can stand there" is one signal everywhere.
 		if row == 0 or not _cells[i - _cols]:
-			draw_rect(
-				Rect2(origin + Vector2(1.0, 1.0), Vector2(_cell_size.x - 2.0, 3.0)),
-				cell_color.lightened(0.12)
-			)
+			var cap: float = StageLayers.cap_height(_cell_size.y)
+			draw_rect(Rect2(origin, Vector2(_cell_size.x, cap)), StageLayers.CAP_CORE)
+			draw_rect(Rect2(origin, Vector2(_cell_size.x, maxf(cap * 0.45, 1.0))),
+				StageLayers.CAP_LIT)
 		# Dark lines only along EXPOSED faces: the silhouette (and every bite
 		# taken out of it) gets a crisp edge, interior seams stay soft.
 		if row == 0 or not _cells[i - _cols]:
@@ -369,6 +386,15 @@ func _draw() -> void:
 		if col == _cols - 1 or not _cells[i + 1]:
 			var right: Vector2 = origin + Vector2(_cell_size.x, 0.0)
 			draw_line(right, right + Vector2(0.0, _cell_size.y), edge_color, EXPOSED_EDGE_WIDTH)
+	# RULE 2: amber corner brackets — "this mass comes apart". Drawn on the block's
+	# own silhouette rather than per cell, so a half-eaten block still declares it.
+	if _intact_count > 0:
+		var amber: Color = StageLayers.BREAK_AMBER
+		for sx: float in [-1.0, 1.0]:
+			for sy: float in [-1.0, 1.0]:
+				var c: Vector2 = Vector2(half.x * sx, half.y * sy) + _nudge
+				draw_line(c, c - Vector2(BREAK_TICK * sx, 0.0), amber, 1.5, true)
+				draw_line(c, c - Vector2(0.0, BREAK_TICK * sy), amber, 1.5, true)
 
 
 ## One breakaway PART: a cell-sized tumbling stone slab with real gravity —
@@ -405,6 +431,10 @@ class BreakawayPart extends RigidBody2D:
 		_pending_spin = randf_range(-SPIN_MAX, SPIN_MAX)
 
 	func _ready() -> void:
+		# Debris rung, not the fighters'. A tumbling slab that crosses in FRONT of a
+		# 31 px stick figure hides it for the frames that matter most — the ones right
+		# after the hit that made the debris.
+		StageLayers.apply(self, StageLayers.DEBRIS)
 		add_to_group(DebrisChunk.GROUP_NAME)
 		collision_layer = DebrisChunk.CHUNK_LAYER
 		collision_mask = DebrisChunk.CHUNK_MASK

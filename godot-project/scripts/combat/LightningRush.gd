@@ -222,6 +222,11 @@ func _resolve_chain(already_hit: Array) -> void:
 			e.take_damage(int(round(float(_damage) * CHAIN_DAMAGE_FACTOR)))
 		if e.has_method("apply_status"):
 			e.apply_status(element_id, false)  # no further chain
+	# The fork breaks cover standing in it too. The MAIN lance already had a
+	# destructible pass; this second, shorter corridor did not, so an arc could rip
+	# past a crate at half a body's width and leave it untouched.
+	SpellSurfaces.on_line(self, tip, fork_dir, CHAIN_RANGE, FORK_CORRIDOR,
+		int(round(float(_damage) * CHAIN_DAMAGE_FACTOR)))
 
 
 ## Pure geometry (testable): nodes whose centre projects onto the segment

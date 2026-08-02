@@ -183,7 +183,7 @@ func _bind_boss(tree: SceneTree) -> void:
 		return
 	_connect_once(_boss, &"phase_changed", _on_boss_phase)
 	_connect_once(_boss, &"defeated", _on_boss_down)
-	Bark.say(_boss, &"boss_arrive", true)
+	_say_boss(&"boss_arrive")
 
 
 ## Give every new body a mouth. `tree_exiting` is a BUILT-IN Node signal, so this
@@ -241,12 +241,36 @@ func _on_boss_spawned() -> void:
 	_boss = null
 
 
-func _on_boss_phase(_phase: int) -> void:
-	Bark.say(_boss, &"boss_phase", true)
+## THE THREE BEATS A GUARDIAN GETS, and all four artists speak them differently.
+##
+## Before this, every guardian in the tower barked the same three generic rows in
+## the same voice: `Gibberish.voice_of` reads a node's NAME, and four boss scenes
+## adopted into an arena get near-identical names, so the Scribble and the
+## Illuminator were audibly the same creature saying the same words. `Boss` now
+## stamps a title-derived seed and the bottom pitch slice onto itself, and this
+## routes the line through `say_variant` so each hand speaks its own row.
+##
+## Phase 3 gets its OWN event rather than a third `boss_phase`: the last break is
+## the guardian deciding the page is expendable, and it should not share a line with
+## the first one.
+func _on_boss_phase(phase: int) -> void:
+	_say_boss(&"boss_final" if phase >= 3 else &"boss_phase")
 
 
 func _on_boss_down() -> void:
-	Bark.say(_boss, &"boss_down", true)
+	_say_boss(&"boss_down")
+
+
+## Ask the guardian which row it speaks from, duck-typed like everything else here:
+## a boss that has never heard of `bark_suffix` falls through to the generic rows
+## rather than to a broken build.
+func _say_boss(event: StringName) -> void:
+	if _boss == null or not is_instance_valid(_boss):
+		return
+	var suffix: String = ""
+	if _boss.has_method(&"bark_suffix"):
+		suffix = String(_boss.call(&"bark_suffix"))
+	Bark.say_variant(_boss, event, suffix, true)
 
 
 ## Hype has no signals (see the header), so the chain is polled. One bark per

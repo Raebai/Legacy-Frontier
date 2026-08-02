@@ -405,6 +405,10 @@ func _shatter_aoe(centre: Vector2) -> void:
 			var away: Vector2 = ((e as Node2D).global_position - centre).normalized()
 			e.call("apply_knockback", (away if away != Vector2.ZERO else Vector2.UP)
 				* SHATTER_KNOCKBACK)
+	# The collapse takes the scenery with it too — same ring, via the same predicate
+	# the fighter pass uses, so cover cannot be broken from outside the drawn circle.
+	SpellSurfaces.in_shape(self, centre, SHATTER_DAMAGE,
+		func(p: Vector2) -> bool: return shatter_contains(_base, p))
 
 
 func _exit_tree() -> void:

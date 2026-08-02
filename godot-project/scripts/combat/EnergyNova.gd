@@ -24,16 +24,43 @@ var target_group: String = "enemy"
 ##   * RESIDUE    — nearly none. A scrape that clears. Craters and scorch belong
 ##                  to the spells that fall out of the sky.
 ##
-## ⚠ NO TELEGRAPH, AND THAT IS DELIBERATE — FLAGGED, NOT FORGOTTEN. The house rule
-## is "every ability must be dodgeable, with a real telegraph and a window to
-## move". This one has neither, because it is the reactive panic button: a wind-up
-## makes it useless for the job it exists to do, and deferring its damage by even
-## one frame breaks both its i-frame-adjacent contract and `slice1_test_nova`'s
-## Hero-cooldown case. Its counterplay is SPACING — it has the smallest footprint
-## in the kit by a wide margin. The compression flash in beat 1 below is a READ (so
-## a nearby player sees which body it came out of), NOT a dodge window: it is drawn
-## in the same frame the damage already landed. Giving this a real window is a
-## design decision about what the button is for, not a tuning tweak.
+## ⚠ IT NOW HAS A TELEGRAPH. THE MAKER OVERRULED THE "NO WIND-UP" ARGUMENT, and the
+## previous version of this paragraph — which defended the instant fire at length —
+## is preserved below because the reasoning is still the counter-argument anyone
+## reopening this should have to answer.
+##
+## The playtest note, verbatim: *"nova damages ourselves and has no way of blocking
+## it as it has no charge up so we need to fix that as well."* Two defects in one
+## sentence, and only the first is a bug in the ordinary sense (see the self-
+## exclusion block on `_resolve_caster` below). The second is the design one: the
+## spec's rule for big spells is that they are *"loud, committal, answerable... there
+## is a play against it"*, and an instant self-centred 135 px burst is unanswerable
+## by construction. Not hard to answer — IMPOSSIBLE to. Nobody in the room, including
+## the caster, can act on information that arrives in the same frame as the damage.
+##
+## So the nova now GATHERS for `WINDUP_TIME` and then goes off, and the summoning
+## sigil is the telegraph: it opens at EXACTLY the damage radius (see
+## `_sigil_radius_scale`) and its glyph band fills over exactly the wind-up (see
+## `MagicCircle.set_charge_time`), so the ring on the floor is a literal, honest
+## statement of "this is the circle, and this is how long you have". That is the same
+## grammar the Cartographer's sigil already uses, which is the one boss attack the
+## spec singles out as fair.
+##
+## WHAT THAT COSTS, stated plainly rather than hidden: this is no longer a panic
+## button that can be pressed *during* an incoming hit, and it can be walked out of —
+## including by the caster, who is no longer anchored to their own blast. The
+## deliberate compensations are that the wind-up is the SHORTEST in the kit by a
+## factor of four (0.30 s against Heaven's Verdict's 1.3 s), and that the ring is
+## still the smallest footprint of the set. It remains the fastest answer available;
+## it is no longer a free one.
+##
+## THE ARGUMENT IT REPLACES, kept intact: "The house rule is 'every ability must be
+## dodgeable, with a real telegraph and a window to move'. This one has neither,
+## because it is the reactive panic button: a wind-up makes it useless for the job it
+## exists to do... Its counterplay is SPACING — it has the smallest footprint in the
+## kit by a wide margin." If a playtest says the shove has stopped doing its job,
+## that is the paragraph to restore, and `WINDUP_TIME = 0.0` is the switch that
+## restores it — every other beat below already handles a zero wind-up.
 
 const NOVA_RADIUS: float = 135.0
 ## THE DRAWN RING NOW ENDS EXACTLY ON THE DAMAGE RADIUS. Pinned at 1.0, and the
@@ -75,7 +102,33 @@ const CRACK_LIFETIME: float = 5.0  # seconds before the scrape fades away
 const DEBRIS_COUNT: int = 8
 const DEBRIS_COLOR: Color = Color(0.45, 0.55, 0.62)  # cool shattered stone
 
+## THE GATHER — the wind-up the maker asked for. See the telegraph block at the top.
+##
+## 0.30 s is chosen as the SHORTEST duration that is still a real window rather than
+## a courtesy: at the hero's run speed it is a little over a body-width of travel, so
+## someone standing at the rim of the 135 px ring can clear it and someone standing
+## on the caster's toes cannot. That asymmetry is the point — the shove still wins
+## the fight it exists to win (someone is already on top of you) and now loses the
+## one it should never have won (someone was leaving anyway).
+##
+## Set to 0.0 to restore the old instant behaviour exactly: `activate_at` detonates
+## in the same call, which is the path every headless test and capture tool that
+## predates the wind-up still needs.
+const WINDUP_TIME: float = 0.30
+## Radius the safe-line ring is drawn at during the gather, as a fraction of the
+## damage radius. PINNED AT 1.0 for the same reason `VISUAL_RADIUS_FACTOR` is: a
+## telegraph that draws a smaller circle than it damages is not a telegraph, it is a
+## trap with a decoration on it.
+const TELEGRAPH_RADIUS_FACTOR: float = 1.0
+
 var _shockwave_elapsed: float = -1.0  # < 0 means not yet fired.
+## Gather progress, in seconds. < 0 means "not gathering" — either not started, or
+## already detonated.
+var _windup_elapsed: float = -1.0
+## Where this nova will go off. Captured at `activate_at`; the blast does NOT follow
+## the caster during the gather, so walking out of your own circle is a real option.
+var _center: Vector2 = Vector2.ZERO
+var _sigil: MagicCircle = null
 ## Element index (Elements.Element) applied as an ailment to enemies in radius.
 var element_id: int = -1
 
@@ -103,9 +156,90 @@ func _sigil_color() -> Color:
 	return Elements.color(element_id) if element_id >= 0 else Color(0.6, 0.9, 1.0)
 
 
-## Public entry: place the nova on the caster and fire IMMEDIATELY.
+## How much to scale the tier's default sigil radius by so the drawn ring lands
+## exactly on `NOVA_RADIUS`. The nova's telegraph has to state a DISTANCE, not a
+## weight class, so it is the one sigil in the game sized by its own geometry rather
+## than by its shelf.
+func _sigil_radius_scale() -> float:
+	var base: float = SpellSigil.radius_for(SpellTier.weight_or_default(spell_tier))
+	if base <= 0.01:
+		return 1.0
+	return NOVA_RADIUS * TELEGRAPH_RADIUS_FACTOR / base
+
+
+## ══════════════════ WHY THE NOVA WAS KILLING ITS OWN CASTER ══════════════════
+##
+## The maker's note is *"nova damages ourselves"*, and the previous fix for it was
+## real but landed one layer too high. Reconstructed:
+##
+##   1. `SpellTargets` enforces self-exclusion twice — `hostiles()` subtracts the
+##      caster from the group, and `_pool()` implicitly skips `owner_of(ctx)`. Both
+##      read `caster_node` off the spectacle. This file declares `caster_node` and
+##      passes `[caster_node]` as the skip list, so on paper it is covered twice.
+##   2. BOTH LAYERS ARE NO-OPS WHEN `caster_node` IS NULL. That is correct and
+##      deliberate — an unowned effect (a capture tool, a reaction-spawned burst)
+##      must not have a caster invented for it.
+##   3. `SpellCaster._stamp` writes `caster_node` on every spectacle IT builds. But
+##      the hero's nova does not go through `SpellCaster`. `Hero._spawn_nova` builds
+##      it by hand and stamps only the FACTION (`Hero._stamp_faction` writes
+##      `target_group` / `_target_group`, and nothing else).
+##   4. So `caster_node` stayed null, the skip list was `[null]`, `owner_of` answered
+##      null, and both exclusion layers politely did nothing.
+##   5. Which cost nothing at all while the target group was `"enemy"` — the caster
+##      is not in `"enemy"`. The moment friendly fire pointed it at the shared
+##      `"mortal"` group, the caster was standing in the middle of a group the spell
+##      was allowed to hurt, AT range zero, and ate its own 30 damage every cast.
+##
+## THE REAL FIX IS ONE LINE IN `Hero._spawn_nova` (`nova.set("caster_node", self)`,
+## exactly as `Hero._blast` already does) and it is REPORTED rather than made here,
+## because `Hero.gd` belongs to another pass. The same omission covers the other
+## hand-built class spectacles in that file.
+##
+## THIS IS THE BACKSTOP, and it is written to be safe rather than clever. A nova is
+## SELF-CENTRED: at the instant of casting, the caster is standing on the centre,
+## within a couple of pixels. Nothing else in the game reliably is. So when nobody
+## told us who cast this, the body sitting on the blast origin at cast time is
+## adopted as the caster.
+##
+## ⚠ WHY IT RUNS AT CAST TIME AND NOT AT DETONATION. With a wind-up in place, by the
+## time the blast goes off the caster may have walked off the centre (that is the
+## whole point of the wind-up) and an ENEMY may have walked onto it. Resolving late
+## would therefore adopt the wrong body and grant an enemy immunity — the exact
+## inverse of the bug. Resolving at cast time is unambiguous.
+##
+## ⚠ AND WHY THE RADIUS IS TINY. At 6 px this can only ever mistake a body that is
+## essentially co-located with the caster for the caster. In the worst case — two
+## team-mates perfectly stacked — one team-mate is spared one nova. Compare that with
+## the failure it replaces, which is the caster killing themselves on every cast.
+## Wrong in the cheap direction, on purpose.
+const SELF_INFER_RADIUS: float = 6.0
+
+func _resolve_caster() -> void:
+	if caster_node != null and is_instance_valid(caster_node):
+		return
+	if not is_inside_tree():
+		return
+	var best: Node = null
+	var best_d: float = SELF_INFER_RADIUS
+	for n: Node in get_tree().get_nodes_in_group(target_group):
+		if n is not Node2D:
+			continue
+		var d: float = (n as Node2D).global_position.distance_to(_center)
+		if d <= best_d:
+			best_d = d
+			best = n
+	caster_node = best
+
+
+## Public entry: place the nova and START THE GATHER. It detonates `WINDUP_TIME`
+## later — or immediately, if the wind-up is zero.
+##
+## ⚠ THE CASTER IS RESOLVED HERE, AT CAST TIME, and that timing is load-bearing —
+## see `_resolve_caster`. Do not move it into `_detonate`.
 func activate_at(pos: Vector2) -> void:
 	global_position = pos
+	_center = pos
+	_resolve_caster()
 	# A GROUND sigil, because a nova is a placed spell — it happens where the caster
 	# is standing, not somewhere they are pointing. Laid flat so it reads as the
 	# floor answering, which is the same visual grammar the walls and wards use and
@@ -115,7 +249,48 @@ func activate_at(pos: Vector2) -> void:
 	# at the arena origin — `global_position` really is the nova's centre — so world
 	# space and this node's own position happen to coincide here. Do not copy this
 	# line into a spectacle that draws in world coordinates.
-	SpellSigil.open(self, pos, _sigil_color(), 1.1, false, Vector2.RIGHT, true, 0.14, 0.34)
+	#
+	# THE RADIUS IS THE MESSAGE. Scaled so the drawn ring lands on the damage radius
+	# rather than on the tier's default size, because during the gather this circle
+	# is the only information anyone in the room has about how far to walk.
+	_sigil = SpellSigil.open(
+		self, pos, _sigil_color(), _sigil_radius_scale(),
+		false, Vector2.RIGHT, true, 0.14, 0.0
+	)
+	if _sigil != null:
+		# ...and the FILL is the clock. `set_charge_time` must come after `open`,
+		# which resets it (see that function's warning).
+		_sigil.set_charge_time(maxf(WINDUP_TIME, 0.01))
+	if WINDUP_TIME <= 0.0:
+		_detonate()
+		return
+	_windup_elapsed = 0.0
+	Sfx.play("cast", 0.7, -0.25)   # the gather is audible too, not only visible
+	queue_redraw()
+
+
+## Fire NOW, cancelling any remaining gather. Idempotent — a second call is a no-op,
+## so a spectacle that is force-fired and then reaches the end of its own wind-up
+## cannot detonate twice.
+##
+## Public because the headless suites and capture tools need the old instant
+## behaviour without having to simulate 0.3 s of frames, and because a future
+## interrupt/counterspell wants exactly this shape.
+func detonate_now() -> void:
+	if _windup_elapsed < 0.0 and _shockwave_elapsed >= 0.0:
+		return
+	_detonate()
+
+
+func _detonate() -> void:
+	_windup_elapsed = -1.0
+	if _sigil != null and is_instance_valid(_sigil):
+		# The release flare on the sigil IS the moment of firing — the ritual ends
+		# and the spell starts on the same frame, which is the whole grammar the
+		# charge/snap pair exists for.
+		_sigil.snap(1.0)
+		SpellSigil.close(_sigil, 0.18)
+		_sigil = null
 	_apply_nova_damage()
 	_spawn_nova_burst()
 	# Scrape the FLOOR beneath the caster only — NEVER the sky (the maker's ask).
@@ -207,6 +382,12 @@ func _apply_nova_damage() -> void:
 
 
 func _process(delta: float) -> void:
+	if _windup_elapsed >= 0.0:
+		_windup_elapsed += delta
+		queue_redraw()
+		if _windup_elapsed >= WINDUP_TIME:
+			_detonate()
+		return
 	if _shockwave_elapsed < 0.0:
 		return
 	_shockwave_elapsed += delta
@@ -214,6 +395,9 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
+	if _windup_elapsed >= 0.0:
+		_draw_windup()
+		return
 	if _shockwave_elapsed < 0.0:
 		return
 	var t: float = clampf(_shockwave_elapsed / SHOCKWAVE_TIME, 0.0, 1.0)
@@ -245,6 +429,40 @@ func _draw() -> void:
 			Vector2(-h * 0.55, 0.0), Vector2(h * 0.55, 0.0),
 			Color(1.4, 1.7, 2.0, 0.55 * f), 2.0 * f + 1.0, true
 		)
+
+
+## THE GATHER, drawn. Three things, and every one of them is information rather
+## than decoration:
+##
+##   THE SAFE LINE — a full ellipse at exactly the damage radius, held for the whole
+##   wind-up, brightening as it fills. This is the answer to "no way of blocking it":
+##   the boundary is on the floor, from the first frame, at its true size. It is
+##   drawn as a dashed ring rather than a solid one specifically so it reads as a
+##   WARNING and cannot be mistaken for the solid shockwave that follows it.
+##
+##   THE FILL — a bright arc sweeping around that same ellipse like a clock hand.
+##   Distance is the ring; TIME is the sweep. Two separate questions, two separate
+##   marks, so neither has to be inferred from the other.
+##
+##   THE INHALE — a small ring collapsing inward at the centre. It says which body
+##   this is coming out of, which is the read the old instant version tried to buy
+##   with a one-frame compression flash that arrived too late to be read.
+func _draw_windup() -> void:
+	var t: float = clampf(_windup_elapsed / maxf(WINDUP_TIME, 0.0001), 0.0, 1.0)
+	var R: float = NOVA_RADIUS * TELEGRAPH_RADIUS_FACTOR
+	# The safe line. Alpha climbs so the last frames before the blast are the loudest.
+	var warn := Color(0.65, 0.9, 1.0, 0.30 + 0.45 * t)
+	_draw_ground_ring(R, warn, 1.5 + 1.5 * t)
+	# The clock hand, on the same ellipse.
+	var pts := PackedVector2Array()
+	var steps: int = maxi(int(ceil(28.0 * t)), 2)
+	for i: int in steps + 1:
+		var a: float = -PI * 0.5 + TAU * t * float(i) / float(steps)
+		pts.append(Vector2(cos(a) * R, sin(a) * R * GROUND_SQUASH))
+	draw_polyline(pts, Color(1.2, 1.6, 1.9, 0.85), 2.5, true)
+	# The inhale.
+	var ir: float = lerpf(R * 0.55, 4.0, ease(t, 0.6))
+	_draw_ground_ring(ir, Color(1.0, 1.4, 1.7, 0.25 + 0.5 * t), 1.5)
 
 
 ## One floor-plane ellipse centred on the caster. Godot has no ellipse-arc

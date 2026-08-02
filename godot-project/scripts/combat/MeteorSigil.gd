@@ -614,11 +614,32 @@ func _land(m: Dictionary) -> void:
 	# snapping them to the floor would delete the one family that is not a
 	# bombardment at all.
 	if _effect != "shadow":
-		var ground: Dictionary = SpellWorld.floor_below(m["to"] as Vector2, SKY_HEIGHT * 1.5, [], self)
-		if not bool(ground["hit"]):
-			return
-		# Write it back so the in-flight draw ends exactly where the impact is.
-		m["to"] = ground["position"]
+		# ⚠ THE DESCENT IS SWEPT, NOT PROBED — this is the second half of the floor
+		# fix, and it is the maker's *"same with meteor"*.
+		#
+		# The original probe cast DOWN FROM THE TARGET POINT, which answers "what is
+		# the floor under where I aimed" and is the right question on a flat stage. It
+		# is the wrong question now that `FloorGen` builds a ledge skyline: aim at a
+		# spot that sits UNDER a ledge and the probe happily reports the ground below
+		# it, so the rock is drawn falling from the sky STRAIGHT THROUGH the ledge and
+		# detonating underneath it. A solid platform stopped nothing.
+		#
+		# Sweeping the actual flight line answers the question that matches what the
+		# player watched: the meteor stops at the first solid thing it meets on its
+		# way down. On flat ground that is the same floor the probe found, so the
+		# behaviour this replaces is preserved exactly where it was already correct.
+		var fell: Dictionary = SpellWorld.first_solid(m["from"] as Vector2, m["to"] as Vector2, [], self)
+		if bool(fell["hit"]):
+			m["to"] = fell["position"]
+		else:
+			# Nothing intercepted the flight line, so fall back to the floor probe —
+			# which is also what catches a strike rolled out over a genuine pit and
+			# skips it rather than detonating in the void.
+			var ground: Dictionary = SpellWorld.floor_below(m["to"] as Vector2, SKY_HEIGHT * 1.5, [], self)
+			if not bool(ground["hit"]):
+				return
+			# Write it back so the in-flight draw ends exactly where the impact is.
+			m["to"] = ground["position"]
 	var at: Vector2 = m["to"]
 	_apply_damage(at)
 	match _effect:

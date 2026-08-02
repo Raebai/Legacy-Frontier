@@ -29,6 +29,34 @@ const EVADE_COOLDOWN: float = 0.85
 ## dodge is indistinguishable from cheating.
 const REACT_DELAY: float = 0.16
 
+## THE VOICE BEAT: the moment it reads your bolt.
+##
+## `Enemy._try_evade` and `_deflect` both stamp `_evade_cd = _evade_reflex` the
+## frame they commit, so a RISING EDGE on that field is exactly "it just reacted to
+## something you threw" — no new hook, no line inside Enemy.gd, and it fires for the
+## hop and the swat alike. One short rising syllable: the affix's blurb is "it was
+## drawn watching you", and a question mark is the whole character.
+##
+## ⚠ HONEST CO-OP CAVEAT: `_evade_cd` is local reflex state and is not part of the
+## puppet sync, so on a co-op CLIENT this edge never occurs and the keen body's tick
+## is silent there. It degrades to nothing rather than to a wrong noise. Closing it
+## properly needs a broadcast, i.e. one line in `Net.gd` — see the handoff.
+const READ_COOLDOWN: float = 3.2
+
+var _was_ready: bool = true
+var _read_cd: float = 0.0
+
+
+## Runs on every peer; only ever true on the one running the reflex.
+func _tick_visual(delta: float) -> void:
+	_read_cd = maxf(_read_cd - delta, 0.0)
+	var cd: float = float(enemy.get("_evade_cd"))
+	var ready: bool = cd <= 0.0
+	if _was_ready and not ready and _read_cd <= 0.0:
+		if elite_voice(Gibberish.Mood.QUESTION, 1):
+			_read_cd = READ_COOLDOWN
+	_was_ready = ready
+
 
 func _setup() -> void:
 	# AFTER Enemy._apply_difficulty, which writes all four of these outright from the

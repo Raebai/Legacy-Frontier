@@ -71,6 +71,42 @@ var caster_node: Node = null
 var spell_tier: int = SpellTier.DEFAULT_WEIGHT
 
 
+## How far off the drawn arc cover has to be to survive it. Small on purpose: the arc
+## is a LINE, and the whole point of chain lightning is that it goes around things
+## rather than through them. A generous radius here would turn a precision spell into
+## a room-clearer for scenery only, which is the worst of both.
+const ARC_COVER_REACH: float = 26.0
+
+
+## Break the cover the finished arc actually passes through.
+##
+## ⚠ RUN ONCE, AFTER the link loop, and deduped BY INSTANCE — not inside the loop.
+## Two adjacent hops are often within `ARC_COVER_REACH` of the same crate, so a
+## per-link pass would hit it twice (or four times on a four-hop chain) at full
+## damage. That is precisely the double-hit failure `SpellSurfaces` TRAP 1 records
+## from the crates-in-`mortal` attempt, arriving by a different road.
+##
+## Damage is the chain's BASE, undecayed: `FALLOFF` models the arc losing interest in
+## a body it has already jumped off, and a crate is not a link in the chain.
+func _shock_cover(damage: float) -> void:
+	if _points.size() < 2 or not is_inside_tree():
+		return
+	var seen: Dictionary = {}
+	for prop: Node in get_tree().get_nodes_in_group(&"destructible"):
+		if prop is not Node2D or not is_instance_valid(prop):
+			continue
+		var at: Vector2 = (prop as Node2D).global_position
+		for i: int in _points.size() - 1:
+			if SpellGeometry.point_segment_distance(at, _points[i], _points[i + 1]) > ARC_COVER_REACH:
+				continue
+			var id: int = prop.get_instance_id()
+			if seen.has(id):
+				break
+			seen[id] = true
+			SpellSurfaces.hurt(prop, int(round(damage)), _points[i])
+			break
+
+
 ## Fire the chain from `origin` toward `aim`, hopping up to `max_hops` enemies.
 func chain(
 	origin: Vector2, aim: Vector2, color: Color,
@@ -98,6 +134,7 @@ func chain(
 		if e.has_method("apply_knockback"):
 			e.apply_knockback(d * 110.0)
 		dmg *= FALLOFF
+	_shock_cover(float(damage))
 	_elapsed = 0.0
 	global_position = Vector2.ZERO  # drawn in world coords
 	# The bolt leaves through a gate at the staff tip. `origin` is world space —

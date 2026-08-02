@@ -38,7 +38,21 @@ const FIZZ_FRACTION: float = 0.55
 const FIZZ_SLOW: float = 0.70   # seconds between pulses at the top of the band
 const FIZZ_FAST: float = 0.16   # ...and at the bottom
 
+## THE VOICE BEATS, and there are two of them because the affix has two states.
+##   1. CROSSING INTO THE BAND — one line, with a bubble, ALWAYS. It is the same
+##      information the pulse carries and the pulse is easy to miss in a busy room;
+##      "finish it somewhere else" is a real play and it deserves words. Once.
+##   2. INSIDE THE BAND — a rising whimper. The pulse rate reaches one every 160 ms
+##      near death, which is a strobe, not a voice, so the mouth is decimated onto
+##      its own gap and that gap SHORTENS the same way the pulse does. The rate is
+##      the countdown, heard rather than seen.
+## Both ride `hp`, which is synced, so they happen on every peer for free.
+const FIZZ_VOICE_SLOW: float = 1.7
+const FIZZ_VOICE_FAST: float = 0.75
+
 var _fizz: float = 0.0
+var _fizz_voice: float = 0.0
+var _warned: bool = false
 var _armed: bool = false
 
 
@@ -57,6 +71,14 @@ func _tick_visual(delta: float) -> void:
 	var frac: float = clampf(float(enemy.get("hp")) / float(mx), 0.0, 1.0)
 	if frac > FIZZ_FRACTION:
 		return
+	if not _warned:
+		_warned = true
+		elite_bark(&"elite_volatile_fizz", true)
+	else:
+		_fizz_voice -= delta
+		if _fizz_voice <= 0.0:
+			_fizz_voice = lerpf(FIZZ_VOICE_FAST, FIZZ_VOICE_SLOW, frac / FIZZ_FRACTION)
+			elite_voice(Gibberish.Mood.HURT, 1)
 	_fizz -= delta
 	if _fizz > 0.0:
 		return

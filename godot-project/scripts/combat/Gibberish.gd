@@ -132,6 +132,48 @@ static func voice(seed: int) -> Dictionary:
 	}
 
 
+## THE PITCH SLICE A CLASS OF BODY IS ALLOWED TO LIVE IN.
+##
+## `voice()` spreads a seed across all six bands, which is right for trash — a wave
+## of scribbles SHOULD be a chorus of unrelated mouths. It is wrong for anything
+## with billing: a guardian that rolled band 5 is a mosquito, and one unlucky roll
+## makes the god of the floor sound like the thing it just ate. So a caller with a
+## STATION in the world pins a slice and takes its identity from inside it.
+##
+## Everything else about the voice (bank, cadence, jitter, wobble) is unchanged, so
+## two bosses in the same slice still sound like different people — they are simply
+## both LOW. The band is re-drawn with a fourth salt rather than folded off the
+## first draw, so `voice_in_bands(s, 0, 2)` is not a coarser `voice(s)`.
+const BAND_BOSS: Vector2i = Vector2i(0, 2)    ## 0.72 – 0.95. Slow, big, underneath.
+const BAND_ELITE: Vector2i = Vector2i(1, 3)   ## 0.84 – 1.08. Heavier than the wave.
+
+
+static func voice_in_bands(seed: int, lo: int, hi: int) -> Dictionary:
+	var v: Dictionary = voice(seed)
+	var a: int = clampi(mini(lo, hi), 0, PITCH_BANDS.size() - 1)
+	var b: int = clampi(maxi(lo, hi), 0, PITCH_BANDS.size() - 1)
+	var span: int = b - a + 1
+	v["pitch"] = PITCH_BANDS[a + (_mix(absi(seed), 0x27D4EB2F) % span)]
+	return v
+
+
+## Fold several stable ints into ONE seed, decorrelated.
+##
+## ⚠ THIS EXISTS BECAUSE THE OBVIOUS VERSION IS THE BUG THIS FILE ALREADY HAD ONCE.
+## `a + b`, `a ^ b` or `a * 31 + b` all leave neighbouring inputs neighbouring, and
+## the things callers fold together here — two spawn coordinates a few pixels apart,
+## an archetype index, a floor number — are neighbours by construction. Each part
+## goes through a full avalanche with its own position salt before it is combined,
+## so "the elite at x=700" and "the elite at x=701" are unrelated voices rather than
+## adjacent ones.
+static func seed_combine(parts: Array) -> int:
+	var h: int = 0x811C9DC5
+	for i in parts.size():
+		var p: int = int(parts[i])
+		h = _mix(h ^ _mix(p, 0x9E3779B1 + i * 0x6D2B79F5), 0x85EBCA77)
+	return h & 0x7FFFFFFF
+
+
 ## Convenience: the voice of a live node, from its name. Takes an Object rather
 ## than Node so a test stub (a RefCounted with a `name`) works without dragging
 ## the scene tree in — the same reason Patience.gd types its npc as Object.

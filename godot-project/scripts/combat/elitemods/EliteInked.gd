@@ -25,6 +25,40 @@ extends EliteRider
 ## Fraction of the remaining knockback impulse that survives each frame.
 const RESIDUE: float = 0.12
 
+## THE VOICE BEAT: an unimpressed grunt when a REAL hit lands and it stays put.
+##
+## ⚠ IT WATCHES HP, NOT `_knockback`, AND THAT IS A CO-OP DECISION. The damping
+## above lives in `_tick`, which is host-only (EliteRider rule 2), so a grunt hung
+## off it would exist on one phone. `hp` is synced to every peer, so a client's
+## puppet sees the same drop and grunts on its own screen with nothing broadcast.
+## It is also the better read: the line the player should hear is "that landed and
+## it did not care", which is a damage event, not an impulse event.
+const GRUNT_DAMAGE_FRACTION: float = 0.08   ## of max hp — a chip tick says nothing
+const GRUNT_COOLDOWN: float = 4.0
+
+var _last_hp: int = -1
+var _grunt_cd: float = 0.0
+
+
+## Runs on EVERY peer — see the hp note above.
+func _tick_visual(delta: float) -> void:
+	_grunt_cd = maxf(_grunt_cd - delta, 0.0)
+	var now_hp: int = int(enemy.get("hp"))
+	var mx: int = int(enemy.get("max_hp"))
+	if _last_hp < 0 or mx <= 0:
+		_last_hp = now_hp
+		return
+	var lost: int = _last_hp - now_hp
+	_last_hp = now_hp
+	if lost <= 0 or float(lost) / float(mx) < GRUNT_DAMAGE_FRACTION:
+		return
+	if _grunt_cd > 0.0:
+		return
+	# MUTTER, not HURT. The affix's whole promise is that the blow bought you
+	# nothing; a yelp would say the opposite of what the body just did.
+	if elite_voice(Gibberish.Mood.MUTTER, 1):
+		_grunt_cd = GRUNT_COOLDOWN
+
 
 func _tick(_delta: float) -> void:
 	# `_knockback` is the decaying horizontal channel Enemy integrates into

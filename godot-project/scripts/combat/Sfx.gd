@@ -1093,7 +1093,26 @@ func speak(
 	volume_db: float = 0.0,
 	delay: float = 0.0
 ) -> float:
-	var v: Dictionary = Gibberish.voice(voice_seed)
+	return speak_voice(Gibberish.voice(voice_seed), mood, syllables, volume_db, delay)
+
+
+## Same, from an ALREADY-BUILT voice dict.
+##
+## This is the real body of `speak()`, split out for the one case the seed-only
+## form cannot express: a speaker whose pitch band is pinned rather than rolled.
+## `Gibberish.voice_in_bands` exists because a guardian that rolled the top band
+## sounds like the thing it just ate, and a caller holding that dict has nowhere to
+## put it if the only entry point takes an integer. Everything else — the
+## per-speaker interval floor, the pool, the fire-and-forget contract — is
+## identical, and `speak()` is now literally one line of this.
+func speak_voice(
+	v: Dictionary,
+	mood: int = 0,
+	syllables: int = 0,
+	volume_db: float = 0.0,
+	delay: float = 0.0
+) -> float:
+	var voice_seed: int = int(v.get("seed", 0))
 	var plan: Array = Gibberish.plan(v, mood, syllables)
 	if plan.is_empty():
 		return 0.0
@@ -1119,8 +1138,7 @@ func speak(
 ## Same, for anything with a name: the usual call site (`Sfx.speak_for(enemy,
 ## Gibberish.Mood.HURT)`) does not have to know what a seed is.
 func speak_for(who: Object, mood: int = 0, syllables: int = 0, volume_db: float = 0.0) -> float:
-	var v: Dictionary = Gibberish.voice_of(who)
-	return speak(int(v["seed"]), mood, syllables, volume_db)
+	return speak_voice(Gibberish.voice_of(who), mood, syllables, volume_db)
 
 
 ## Fire ONE stream. Returns false (and warns) for an unknown key so `play` can

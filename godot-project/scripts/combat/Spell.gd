@@ -80,6 +80,9 @@ var caster: Node = null
 var chain_count: int = 0
 const CHAIN_RANGE: float = 200.0
 const CHAIN_DAMAGE_FACTOR: float = 0.5
+## How close cover has to be to a chain HOP to be caught in it. Small: the arc lands
+## on a body, and this is the splash off that landing, not a second search radius.
+const CHAIN_COVER_REACH: float = 30.0
 ## WHOSE SIDE THIS BOLT IS ON — the group it is allowed to damage.
 ##
 ## Damage routing in this file used to be group-HARDWIRED: the `enemy` branch was
@@ -602,6 +605,10 @@ func _do_chain(first: Node) -> void:
 			best.take_damage(arc_dmg)
 		if element_id >= 0 and best.has_method("apply_status"):
 			best.apply_status(element_id, false)
+		# Cover at the hop takes the arc too. The bolt's DIRECT hit already damaged
+		# destructibles (`_try_damage`); only the chain arm was blind to them, so a
+		# bolt that landed on a body and then jumped left the second crate standing.
+		SpellSurfaces.in_radius(self, best.global_position, CHAIN_COVER_REACH, arc_dmg)
 		var col: Color = _element_color if _has_element_color else Color(1.0, 0.95, 0.4)
 		# Staged on the victim's HEAD, not their origin: `aim_point` is the drawn
 		# head when there is one, so the arc lands on the body rather than in the

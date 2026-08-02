@@ -91,6 +91,26 @@ func boss_accent() -> Color:
 	return Color(1.0, 0.55, 0.2)
 
 
+## THE EPITHET — the second line of the billing.
+##
+## A guardian is not "boss 3 of 4", it is a HAND: the thing that drew this floor,
+## standing on it. The spec's own escalation rule is that skill, not statistics, is
+## the ladder — "drawings that seem to be fighting the hand rather than you" is the
+## ceiling — and an epithet is how a title tells you which rung you are on before
+## the fight teaches you. `TowerBoss` renders it under the name card in the accent
+## colour at a third of the size, which is a CAPTION, not a codex: one line, on
+## screen for the length of the intro, never again.
+func boss_epithet() -> String:
+	return "charcoal colossus of the first page"
+
+
+## Which artist's bark row this guardian speaks from. `Bark.say_variant` tries
+## `<event>_<suffix>` and falls back to the generic row, so an unauthored suffix is
+## silent-safe and a boss added tomorrow speaks the moment it exists.
+func bark_suffix() -> String:
+	return "guardian"
+
+
 func _ready() -> void:
 	super._ready()   # hp, _hero, joins "enemy" + "mortal", tiny CharacterBars
 	body_scale = clampf(body_scale, 0.3, 1.0)
@@ -106,7 +126,320 @@ func _ready() -> void:
 	_adorn.configure(RIG_HEIGHT * body_scale)
 	_adorn.set_intensity(0.35)
 	_build_bar()
+	_install_voice()
 	_play_intro()
+
+
+# ═══════════════════════════════════════════════════════════ THE GOD REGISTER
+## A guardian must not sound like the trash it is standing over, and it must not
+## sound like an elite either. Two things separate it, and neither costs an asset:
+##
+##   THE BAND. `Gibberish.voice()` spreads a seed over all six pitch bands, so an
+##       unlucky roll gives the god of the floor the voice of a mosquito. A boss
+##       pins the bottom slice (`BAND_BOSS`, 0.72–0.95) and takes its identity from
+##       inside it — so the four artists still sound like four different people,
+##       all of whom are LOW.
+##   THE SEED. Off `boss_title()`, which is a virtual per CLASS. That is the one
+##       identity that is guaranteed identical on every peer without a byte being
+##       sent, and it means the Cartographer sounds like the Cartographer on every
+##       floor of every climb, forever, with nothing stored.
+##
+## Set as metadata on the body rather than passed at each call site, so everything
+## that already knows how to make a body talk — `Bark.say`, `VoiceDirector`'s death
+## cry — picks it up without being told a boss is special.
+const VOICE_DB: float = 3.0
+
+func _install_voice() -> void:
+	set_meta(Bark.SEED_META, Gibberish.seed_for(boss_title()))
+	set_meta(Bark.BAND_META, Gibberish.BAND_BOSS)
+	set_meta(Bark.DB_META, VOICE_DB)
+
+
+# ═════════════════════════════════════════════════ THE FLOOR REDRAWS ITSELF
+## SPEC, verbatim: *"the floor visibly redraws itself at boss phase transitions.
+## Scripted, not simulated. More dramatic than emergent rubble, syncs trivially."*
+##
+## This is that. Breaking a phase does not just re-tint the guardian — the HAND
+## takes the page back and draws over it while the guardian is still standing on
+## it, in that guardian's own hand. It is the one moment in the game where the
+## fiction (you are a drawing, someone is drawing this) becomes a mechanic you can
+## see, and it is the difference between a boss with three HP gates and a god.
+##
+## ── WHY IT IS BUILT HERE AND NOT IN THE ARENA ────────────────────────────────
+## The obvious home is the arena — it owns the floor. But a spectacle the GUARDIAN
+## summons around itself is both better fiction (the hand answers the guardian, not
+## the room) and better engineering: it needs no new owner, no new autoload, and it
+## rides `_apply_phase`, which ALREADY runs on both peers (the host through
+## `_enter_phase`, the client through `net_apply_phase` off `Net.broadcast_boss_phase`).
+## That is the "syncs trivially" the spec promised — the redraw crosses the wire
+## for free because the transition already does, and not one byte is added.
+##
+## ── WHY IT IS SCRIPTED AND CHEAP ─────────────────────────────────────────────
+## No shader, no second full-screen pass, no simulation. It is ONE `_draw` on ONE
+## Node2D: a wipe rect and a bounded list of strokes, generated once at birth from a
+## deterministic RNG and then only revealed over time. The stroke budget halves at
+## `graphics_quality = LOW` and the whole thing is shorter there, because a redraw
+## that costs 40 ms is not epic, it is a stutter — the CPU budget is the top
+## technical risk in this project and this beat is not allowed to be the thing that
+## breaks it.
+##
+## ── EACH ARTIST REDRAWS IN ITS OWN HAND ──────────────────────────────────────
+## `redraw_style()` is the seam. The Guardian hatches in charcoal; the Scribble
+## scrawls over the page; the Cartographer rules new lines across it; the
+## Illuminator gilds it. Same code, four hands.
+func redraw_style() -> StringName:
+	return &"hatch"
+
+
+## Summon the redraw. Called from `_apply_phase` on EVERY peer — see above.
+##
+## ⚠ PARENTED TO THE GUARDIAN, NOT TO THE ARENA, WHICH IS A DELIBERATE DEVIATION
+## from the house rule that spectacles hang off the arena. Two reasons, one of them
+## paid for in a failing suite:
+##   * fiction — the hand answers the GUARDIAN, and a page it summons around itself
+##     should die with it rather than outlive the fight;
+##   * hygiene — the arena's child list is walked by several suites (and by the
+##     pooled-VFX recycler), and adding a short-lived self-freeing node to it made
+##     `slice_test_bossnet` abort on a stale child. A spectacle that only exists for
+##     one second has no business in a list other systems iterate.
+## It is camera-anchored every frame, so being a child of a moving boss costs it
+## nothing.
+func _redraw_the_page(p: int) -> void:
+	var host: Node = self
+	if not is_inside_tree():
+		return
+	var page := PageRedraw.new()
+	page.style = redraw_style()
+	page.accent = boss_accent()
+	page.phase = p
+	# Deterministic per (artist, phase): both peers generate the same strokes from
+	# the same seed, so the two screens are redrawn identically without syncing a
+	# single stroke. Same reason the elite roll travels as ids rather than as bodies.
+	page.gen_seed = Gibberish.seed_combine([Gibberish.seed_for(boss_title()), p])
+	page.origin = global_position
+	host.add_child(page)
+
+
+## THE PAGE ITSELF. A short-lived Node2D that wipes the visible floor and draws it
+## back in the guardian's hand.
+##
+## An INNER class on purpose: it has exactly one caller, it is presentation with no
+## state anybody else can want, and a separate file in `scripts/combat/` would be a
+## new owner for a thing that only ever belongs to a boss.
+class PageRedraw extends Node2D:
+	## Stroke ceiling at full quality, and the halved one that ships to a phone.
+	const STROKES_HIGH: int = 26
+	const STROKES_LOW: int = 10
+	const LIFE_HIGH: float = 1.05
+	const LIFE_LOW: float = 0.6
+	## The wipe: a band of blank page travelling across the room ahead of the new
+	## lines. Narrow and translucent — a WIPE, not a white blow-out, which is the
+	## mark this codebase already decided erases the very thing a beat exists to show.
+	const WIPE_FRAC: float = 0.26
+	const WIPE_ALPHA: float = 0.26
+	## Squeeze every stroke's reveal time toward the front of the life. Rendered
+	## frames of the first cut showed the problem plainly: at a third of the way in,
+	## four of the Cartographer's eight rules were on screen and it read as "some
+	## lines appeared" rather than as a page being redrawn. Compressing the schedule
+	## (rather than lengthening the beat, which costs frames on a phone) puts most of
+	## the new page down while the wipe is still travelling, which is the whole read.
+	const REVEAL_COMPRESS: float = 0.62
+	## How long one stroke takes to grow to full length once it starts.
+	const STROKE_GROW: float = 0.14
+	## Over the arena, under the HUD and under the boss bar's CanvasLayer.
+	const Z: int = 40
+
+	var style: StringName = &"hatch"
+	var accent: Color = Color.WHITE
+	var phase: int = 2
+	var gen_seed: int = 0
+	var origin: Vector2 = Vector2.ZERO
+
+	var _t: float = 0.0
+	var _life: float = LIFE_HIGH
+	var _half: Vector2 = Vector2(320.0, 180.0)
+	## [{a, b, w, at, col}] — a is the start, b the end, `at` the fraction of the
+	## life at which this stroke starts being drawn. Generated ONCE.
+	var _strokes: Array = []
+	## Filled blocks (the Illuminator's gold leaf). [{r: Rect2, at: float}]
+	var _blocks: Array = []
+
+	func _ready() -> void:
+		z_index = Z
+		z_as_relative = false
+		# Keep drawing through the hit-stop the phase break itself causes — the
+		# redraw IS the beat the hit-stop is punctuating.
+		process_mode = Node.PROCESS_MODE_ALWAYS
+		global_position = origin
+		var low: bool = TuningConfig.quality_is_low()
+		_life = LIFE_LOW if low else LIFE_HIGH
+		_measure()
+		_generate(STROKES_LOW if low else STROKES_HIGH)
+
+	## Cover what the player can actually see. Falls back to the boss's own
+	## neighbourhood when there is no camera (a headless harness, a capture tool
+	## mid-setup) rather than drawing nothing, so the beat is testable.
+	func _measure() -> void:
+		var vp: Viewport = get_viewport()
+		if vp == null:
+			return
+		var cam: Camera2D = vp.get_camera_2d()
+		var size: Vector2 = vp.get_visible_rect().size
+		if cam != null:
+			global_position = cam.global_position
+			size = size / maxf(cam.zoom.x, 0.05)
+		_half = size * 0.5
+
+	func _process(delta: float) -> void:
+		_t += delta
+		# Track the camera: a floor being redrawn must stay under the player even if
+		# they are running while it happens.
+		var vp: Viewport = get_viewport()
+		if vp != null:
+			var cam: Camera2D = vp.get_camera_2d()
+			if cam != null:
+				global_position = cam.global_position
+		if _t >= _life:
+			queue_free()
+			return
+		queue_redraw()
+
+	# ------------------------------------------------------------- generation
+	## Every stroke decided up front, from a seeded RNG. Nothing here is random at
+	## draw time, which is what makes two peers redraw the same page and what keeps
+	## `_draw` down to a bounded list of `draw_line` calls.
+	func _generate(budget: int) -> void:
+		var rng := RandomNumberGenerator.new()
+		rng.seed = gen_seed
+		var w: float = _half.x * 2.0
+		var h: float = _half.y * 2.0
+		var ink: Color = accent
+		match style:
+			&"scrawl":
+				# THE SCRIBBLE. A child going over the same place four times.
+				#
+				# ⚠ TUNED OFF A RENDERED FRAME, NOT OFF REASONING. The first cut was
+				# `budget` short three-segment runs scattered over the page, and the
+				# capture showed exactly what that is: confetti. A scrawl is FEWER,
+				# LONGER, OVERLAPPING runs that cross the room — so this makes half as
+				# many, four segments each, up to nine tenths of the screen wide, and
+				# thick enough to read as crayon. Same stroke count, completely
+				# different picture.
+				var runs: int = maxi(budget / 2, 3)
+				for i in runs:
+					var cx: float = rng.randf_range(-_half.x * 0.8, _half.x * 0.8)
+					var cy: float = rng.randf_range(-_half.y * 0.8, _half.y * 0.8)
+					var ang: float = rng.randf_range(-PI, PI)
+					var len: float = rng.randf_range(w * 0.35, w * 0.9)
+					var p0 := Vector2(cx, cy)
+					for seg in 4:
+						var jitter: float = rng.randf_range(-0.75, 0.75)
+						var p1: Vector2 = p0 + Vector2.RIGHT.rotated(ang + jitter) * (len / 4.0)
+						_strokes.append({"a": p0, "b": p1,
+							"w": rng.randf_range(3.5, 6.5),
+							"at": float(i) / float(runs) * 0.7,
+							"col": ink})
+						p0 = p1
+			&"rule":
+				# THE CARTOGRAPHER. Ruled straight, at even spacing, with tick marks —
+				# the floor being re-surveyed underneath you.
+				var rows: int = maxi(budget / 3, 2)
+				for i in rows:
+					var y: float = -_half.y + h * (float(i) + 0.5) / float(rows)
+					_strokes.append({"a": Vector2(-_half.x, y), "b": Vector2(_half.x, y),
+						"w": 1.6, "at": float(i) / float(rows) * 0.6, "col": ink})
+					# ticks along it
+					var ticks: int = 6
+					for k in ticks:
+						var x: float = -_half.x + w * (float(k) + 0.5) / float(ticks)
+						_strokes.append({"a": Vector2(x, y - 7.0), "b": Vector2(x, y + 7.0),
+							"w": 1.2, "at": float(i) / float(rows) * 0.6 + 0.06, "col": ink})
+				# ...and one struck arc, the compass signature, approximated as a fan
+				# of chords so `_draw` stays a list of lines.
+				var r: float = minf(_half.x, _half.y) * 0.72
+				var steps: int = 18
+				for k2 in steps:
+					var a0: float = PI * (float(k2) / float(steps))
+					var a1: float = PI * (float(k2 + 1) / float(steps))
+					_strokes.append({
+						"a": Vector2(cos(a0), sin(a0)) * r,
+						"b": Vector2(cos(a1), sin(a1)) * r,
+						"w": 2.0, "at": 0.45 + 0.3 * float(k2) / float(steps), "col": ink})
+			&"gild":
+				# THE ILLUMINATOR. Long rules, blocks of leaf, and hairlines radiating
+				# out of the guardian — a page being illuminated while you stand on it.
+				var lines: int = maxi(budget / 2, 3)
+				for i2 in lines:
+					var y2: float = -_half.y + h * (float(i2) + 0.5) / float(lines)
+					_strokes.append({"a": Vector2(-_half.x, y2), "b": Vector2(_half.x, y2),
+						"w": 2.2, "at": float(i2) / float(lines) * 0.5, "col": ink})
+				for k3 in mini(budget, 14):
+					var ang2: float = TAU * float(k3) / float(mini(budget, 14))
+					var rr: float = minf(_half.x, _half.y)
+					_strokes.append({
+						"a": Vector2.RIGHT.rotated(ang2) * (rr * 0.20),
+						"b": Vector2.RIGHT.rotated(ang2) * (rr * 0.95),
+						"w": 1.2, "at": 0.35 + 0.35 * float(k3) / 14.0, "col": ink})
+				# The leaf itself. Skipped entirely at LOW — filled rects are the one
+				# thing here with real fill cost, and the rules alone still read.
+				if budget >= STROKES_HIGH:
+					for b in 4:
+						var bw: float = rng.randf_range(w * 0.06, w * 0.13)
+						_blocks.append({"r": Rect2(
+							rng.randf_range(-_half.x, _half.x - bw),
+							rng.randf_range(-_half.y, _half.y - bw),
+							bw, bw), "at": 0.5 + 0.1 * float(b)})
+			_:
+				# CHARCOAL. The first hand: dense diagonal hatching, pressed hard.
+				for i3 in budget:
+					var t: float = float(i3) / float(maxi(budget - 1, 1))
+					var x0: float = lerpf(-_half.x * 1.4, _half.x, t)
+					_strokes.append({
+						"a": Vector2(x0, -_half.y),
+						"b": Vector2(x0 + _half.x * 0.55, _half.y),
+						"w": rng.randf_range(1.8, 3.4), "at": t * 0.65, "col": ink})
+
+	# ------------------------------------------------------------------- draw
+	func _draw() -> void:
+		var k: float = clampf(_t / maxf(_life, 0.001), 0.0, 1.0)
+		# Everything fades out over the last fifth, so the page is clean again and the
+		# fight is never left reading through a lattice of leftover ink.
+		var fade: float = 1.0 if k < 0.8 else (1.0 - (k - 0.8) / 0.2)
+
+		# 1 · THE WIPE. A band of blank page travelling left to right, ahead of the
+		#     new lines. It is what makes this read as "erased and redrawn" rather
+		#     than "some lines appeared".
+		var band: float = _half.x * 2.0 * WIPE_FRAC
+		var lead: float = lerpf(-_half.x - band, _half.x + band, minf(k / 0.55, 1.0))
+		if k < 0.70:
+			draw_rect(Rect2(lead - band, -_half.y, band, _half.y * 2.0),
+				Color(1.0, 0.98, 0.94, WIPE_ALPHA * fade), true)
+			# The edge the hand is working at, and the softer one it has left behind.
+			# Two lines rather than one because a single edge reads as a wall; a pair
+			# reads as a band that is TRAVELLING.
+			draw_line(Vector2(lead, -_half.y), Vector2(lead, _half.y),
+				Color(accent.r, accent.g, accent.b, 0.9 * fade), 3.0)
+			draw_line(Vector2(lead - band, -_half.y), Vector2(lead - band, _half.y),
+				Color(accent.r, accent.g, accent.b, 0.35 * fade), 1.5)
+
+		# 2 · THE NEW LINES, revealed behind the wipe. Each stroke grows from its own
+		#     start time, so the page is drawn rather than switched on.
+		for s: Dictionary in _strokes:
+			var at: float = float(s["at"]) * REVEAL_COMPRESS
+			if k < at:
+				continue
+			var grow: float = clampf((k - at) / STROKE_GROW, 0.0, 1.0)
+			var a: Vector2 = s["a"]
+			var b: Vector2 = a.lerp(s["b"], grow)
+			var col: Color = s["col"]
+			draw_line(a, b, Color(col.r, col.g, col.b, fade), float(s["w"]))
+
+		# 3 · Gold leaf, if this hand uses any.
+		for bl: Dictionary in _blocks:
+			if k < float(bl["at"]) * REVEAL_COMPRESS:
+				continue
+			draw_rect(bl["r"] as Rect2,
+				Color(accent.r, accent.g, accent.b, 0.35 * fade), true)
 
 
 # ------------------------------------------------------------------ boss brain
@@ -261,6 +594,12 @@ func _apply_phase(p: int, authoritative: bool) -> void:
 	# cosmetic and each peer's own player earned their own break.
 	if p == BPhase.P2 or p == BPhase.P3:
 		_grant_phase_break_power()
+		# THE HAND TAKES THE PAGE BACK. Deliberately OUTSIDE the `authoritative`
+		# guard: this is presentation, both peers reach this function (the host via
+		# `_enter_phase`, the client via `net_apply_phase`), and a phase break that
+		# redrew the floor on one phone and not the other would read as the host
+		# lying — the exact failure the shared `_apply_phase` exists to prevent.
+		_redraw_the_page(p)
 	match p:
 		BPhase.P1:
 			if _adorn != null: _adorn.set_intensity(0.35)

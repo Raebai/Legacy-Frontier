@@ -15,8 +15,11 @@ extends StaticBody2D
 @export var base_color: Color = Color(0.20, 0.22, 0.29)
 
 const REFORM_WARNING_TIME: float = 1.0
-const RIM_H: float = 4.0
-const BREAK_EDGE_COLOR: Color = Color(0.85, 0.55, 0.15)  # amber = "this one breaks"
+## ⚠ AMBER IS RULE 2 OF THE STAGE LEGEND (see StageLayers): a lit cap says "you can
+## land here", and amber says "and it breaks". Both come from StageLayers so this
+## ledge and a permanent one are the same shape in different paint — which is the
+## only way the difference between them is learnable at 31 px.
+const BREAK_EDGE_COLOR: Color = StageLayers.BREAK_AMBER
 const HIT_FLASH_TIME: float = 0.09
 const HIT_NUDGE: float = 2.0
 const REFORM_POOF_START: Color = Color(0.75, 0.85, 1.0, 0.9)
@@ -31,6 +34,9 @@ var _collider: CollisionShape2D = null
 
 
 func _ready() -> void:
+	# ⚠ THE BUG THE MAKER PLAYED INTO. This drawer set no z_index at all, so it sat
+	# at 0 — the fighters' own layer — and drew among them. See StageLayers.
+	StageLayers.apply(self, StageLayers.PLATFORM)
 	add_to_group("destructible")
 	add_to_group("breakable_platform")
 	hp = max_hp
@@ -114,6 +120,23 @@ func _draw() -> void:
 			draw_rect(Rect2(-half, platform_size), Color(BREAK_EDGE_COLOR.r, BREAK_EDGE_COLOR.g, BREAK_EDGE_COLOR.b, 0.4 * a), false, 2.0)
 		return
 	var half2: Vector2 = platform_size * 0.5
+	var o: Vector2 = -half2 + _nudge
+	var w: float = platform_size.x
+	var h: float = platform_size.y
+	var cap: float = StageLayers.cap_height(h)
 	var body_col: Color = base_color.lightened(0.45) if _flash_timer > 0.0 else base_color
-	draw_rect(Rect2(-half2 + _nudge, platform_size), body_col)
-	draw_rect(Rect2(-half2 + _nudge, Vector2(platform_size.x, RIM_H)), BREAK_EDGE_COLOR)  # amber rim
+	# Body + a dark underside so the silhouette detaches from the floor wash.
+	draw_rect(Rect2(o, platform_size), body_col)
+	draw_rect(Rect2(o + Vector2(0.0, h - cap * 0.6), Vector2(w, cap * 0.6)),
+		StageLayers.UNDERSIDE)
+	# RULE 1 + RULE 2: the lit cap says "land here", in amber because it breaks.
+	draw_rect(Rect2(o, Vector2(w, cap)), StageLayers.BREAK_AMBER_DIM)
+	draw_rect(Rect2(o, Vector2(w, maxf(cap * 0.45, 1.5))), BREAK_EDGE_COLOR)
+	# Fracture hairlines across the body — "fragile" said quietly, under the cap, so
+	# it never competes with the cap for the eye.
+	var seams: int = maxi(2, int(w / 40.0))
+	for s in range(1, seams):
+		var sx: float = o.x + w * float(s) / float(seams)
+		draw_line(Vector2(sx, o.y + cap), Vector2(sx + 3.0, o.y + h - 1.0),
+			StageLayers.BREAK_AMBER_DIM, 1.0, true)
+	draw_rect(Rect2(o, platform_size), StageLayers.EDGE_DARK, false, 1.0)

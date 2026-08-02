@@ -75,6 +75,12 @@ const REDRAW_OFFSETS: Array[float] = [-300.0, -230.0, 230.0, 300.0]
 
 func boss_title() -> String: return "THE CARTOGRAPHER"
 func boss_artist() -> String: return "compass and ruler, ink on graph paper"
+## THE BILLING. It did not draw a monster — it drew the floor, and you are standing
+## on its work. The epithet says the threat out loud before the first straightedge.
+func boss_epithet() -> String: return "WHO RULED THE FLOOR YOU STAND ON"
+func bark_suffix() -> String: return "cartographer"
+## Its redraw is a re-survey: new rules across the page, ticked and struck.
+func redraw_style() -> StringName: return &"rule"
 func boss_accent() -> Color: return DRAFT
 func boss_tint() -> Color: return INK
 func boss_rig_height() -> float: return RIG_H

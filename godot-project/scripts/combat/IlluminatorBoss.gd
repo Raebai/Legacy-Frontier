@@ -82,6 +82,13 @@ const PAGE_DAMAGE: int = 120
 
 func boss_title() -> String: return "THE ILLUMINATOR"
 func boss_artist() -> String: return "gold leaf on vellum"
+## THE BILLING. The deep-floor end of the ladder: a hand that has done this to
+## climbers before and is taking its time about this one.
+func boss_epithet() -> String: return "GILDED, AND IT HAS DONE THIS BEFORE"
+func bark_suffix() -> String: return "illuminator"
+## It does not erase the page. It ILLUMINATES it — rules, leaf, and light thrown
+## out of itself while you stand in the middle of the composition.
+func redraw_style() -> StringName: return &"gild"
 func boss_accent() -> Color: return GOLD
 func boss_tint() -> Color: return VELLUM
 func boss_rig_height() -> float: return RIG_H

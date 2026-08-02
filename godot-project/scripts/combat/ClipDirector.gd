@@ -72,10 +72,31 @@ const COOL_THRESHOLD: float = 0.14
 ## means the camera only pulls back as far as it actually has to; a lower ZOOM_MIN
 ## means it CAN when it has to. Both fighters in frame beats a tighter shot of one.
 const FRAME_MARGIN: float = 300.0
+## ...and the slack a HOT moment is allowed to shrink that to. See `_frame`.
+const FRAME_MARGIN_HOT: float = 170.0
+## The same two numbers on y. Smaller, because a 31 px stick figure needs far less
+## headroom than two fighters need shoulder room, and because the eye is already
+## lifted (EYE_LIFT) to put the floor in the lower third.
+const FRAME_MARGIN_V: float = 200.0
+const FRAME_MARGIN_V_HOT: float = 120.0
 const ZOOM_MIN: float = 0.42
 const ZOOM_MAX: float = 1.15
-## How much hotter moments punch in, as a multiplier on the solved zoom.
-const HEAT_PUNCH: float = 0.22
+## ⚠ HEAT NO LONGER MULTIPLIES THE SOLVED ZOOM, and that is the maker's note.
+##
+## *"the camera needs to follow it cinematically so the audience can see it all all
+## the time"*. The old model solved a zoom that fit the pair and then multiplied it
+## by `1 + HEAT_PUNCH * heat` — i.e. the hotter the moment, the further past the
+## containing zoom it punched, so the single most watchable seconds of every fight
+## were the ones most likely to throw a fighter out of shot. Containment is a HARD
+## CONSTRAINT now: heat shrinks the MARGIN (FRAME_MARGIN -> FRAME_MARGIN_HOT), which
+## tightens the shot without ever crossing the line where somebody leaves it. Heat
+## drives the tightness; it does not choose the subject and it cannot overrule the
+## rule that both fighters are visible.
+const KO_HOLD: float = 2.2
+## How hard the shot leans onto the fighter who just went down, for KO_HOLD seconds
+## after the decisive beat. Higher than VICTIM_BIAS because by then there is only one
+## thing in the picture worth looking at.
+const KO_BIAS: float = 0.55
 ## Camera lerp rates. Position tracks faster than zoom: a snappy pan reads as
 ## camera work, a snappy zoom reads as a bug.
 const POS_LERP: float = 7.0
@@ -120,6 +141,9 @@ var _pct_last: Dictionary = {}         # instance_id -> float (the ring-out accu
 ## When a fighter was last knocked off the stage. A ring-out is a decisive beat and
 ## a clip may end on one exactly as it may end on a knockdown.
 var _ringout_at: float = -1.0
+## Where the decisive beat happened, for the KO framing lean. INF until there is one
+## (see `_recent_damage_centroid` for why INF and not ZERO).
+var _decisive_pos: Vector2 = Vector2.INF
 var _damage_events: Array[Dictionary] = []   # {"at": float, "pos": Vector2, "amount": int}
 var _peak_heat: float = 0.0
 var _peak_at: float = 0.0
@@ -224,6 +248,7 @@ func _sample_damage(fighters: Array[Node2D]) -> void:
 				# Reset to zero after real accumulation: that is a respawn, and a
 				# respawn on this stage means a RING-OUT.
 				_ringout_at = _clock
+				_decisive_pos = f.global_position
 				_note("ringout", "a fighter was knocked off the stage")
 		_pct_last[id] = pct
 	while not _damage_events.is_empty() \
@@ -271,14 +296,49 @@ const RINGOUT_PCT_FLOOR: float = 25.0
 
 
 ## Latch the first knockdown. A clip should end shortly after one, not keep rolling.
+##
+## ⚠ THIS POLL CANNOT SEE THE ONE THAT MATTERS, and that is why `note_knockdown`
+## exists beside it. `Hero._die()` outside a run does `hp = max_hp` IN THE SAME CALL
+## as the fatal hit — so a fighter's HP never rests at or below zero for a single
+## frame, and a once-per-frame poll of `hp` therefore never fires on this stage. It
+## is kept because it is correct wherever a corpse does stay down (and because it is
+## free), but the authority on "somebody went down" is whoever holds the
+## `health_changed` signal, which reports `hp == 0` BEFORE `_die` heals it back.
 func _check_knockdown(fighters: Array[Node2D]) -> void:
 	if _knockdown_at >= 0.0:
 		return
 	for f: Node2D in fighters:
 		if int(f.get("hp")) <= 0:
 			_knockdown_at = _clock
+			_decisive_pos = f.global_position
 			_note("ko", "a fighter went down")
 			return
+
+
+## A decisive beat, reported by something that can actually see it. Latches exactly
+## like the poll above — first one wins, and it never clears, because a tool reads it
+## once a frame and must not miss the beat because a body was freed or healed.
+##
+## `at` is where it happened, for the KO framing lean; omit it and the camera simply
+## does not lean.
+func note_knockdown(at: Vector2 = Vector2.INF, detail: String = "a fighter went down") -> void:
+	if _knockdown_at >= 0.0:
+		return
+	_knockdown_at = _clock
+	if at != Vector2.INF:
+		_decisive_pos = at
+	_note("ko", detail)
+
+
+## The same, for a fighter that went off the rim rather than down. Separate only so
+## the clip manifest can say which of the two ended the fight.
+func note_ringout(at: Vector2 = Vector2.INF) -> void:
+	if _ringout_at >= 0.0:
+		return
+	_ringout_at = _clock
+	if at != Vector2.INF:
+		_decisive_pos = at
+	_note("ringout", "a fighter was knocked off the stage")
 
 
 func _note(kind: String, detail: String) -> void:
@@ -315,27 +375,53 @@ func _frame(fighters: Array[Node2D], delta: float) -> void:
 	var spells: Vector2 = _spell_centroid()
 	if spells != Vector2.INF:
 		target = _lean(target, spells, SPELL_BIAS)
+	# ...and hard onto the loser for the beat after a decisive hit. This is the
+	# payoff frame; there is nothing else in the picture worth looking at.
+	var ko_age: float = seconds_since_knockdown()
+	if _decisive_pos != Vector2.INF and ko_age >= 0.0 and ko_age <= KO_HOLD:
+		target = _lean(target, _decisive_pos, KO_BIAS)
 
-	# Zoom from the widest separation of everything that must stay in shot, then
-	# punched in by heat.
-	var spread: float = 0.0
-	for p: Vector2 in pts:
-		spread = maxf(spread, absf(p.x - mid.x) * 2.0)
-	var view_w: float = 1280.0
-	var vp: Viewport = get_viewport()
-	if vp != null:
-		view_w = maxf(float(vp.get_visible_rect().size.x), 1.0)
-	var want: float = clampf(view_w / maxf(spread + FRAME_MARGIN, 1.0), ZOOM_MIN, ZOOM_MAX)
-	want *= 1.0 + HEAT_PUNCH * _heat
-	want = clampf(want, ZOOM_MIN, ZOOM_MAX)
-
-	var z: float = lerpf(camera.zoom.x, want, clampf(delta * ZOOM_LERP, 0.0, 1.0))
-	camera.zoom = Vector2(z, z)
+	# THE EYE FIRST, then a zoom that is solved FROM it. Solving the zoom off the
+	# pair's midpoint (as the first pass did) is subtly wrong whenever the target has
+	# leaned away from that midpoint or been clamped to the stage: the shot is then
+	# centred somewhere the zoom was never computed for, and the far fighter is
+	# outside it. Clamp first, fit second, and the two can never disagree.
 	var eye: Vector2 = Vector2(
 		clampf(target.x, stage.position.x + 340.0, stage.end.x - 340.0),
 		clampf(target.y - EYE_LIFT, ground_y - VERTICAL_BAND, ground_y - 40.0))
+
+	var want: float = _fit_zoom(pts, eye)
+	var z: float = lerpf(camera.zoom.x, want, clampf(delta * ZOOM_LERP, 0.0, 1.0))
+	camera.zoom = Vector2(z, z)
 	camera.global_position = camera.global_position.lerp(eye,
 		clampf(delta * POS_LERP, 0.0, 1.0))
+
+
+## THE HARD CONSTRAINT: the widest zoom that still contains every fighter, seen
+## from `eye`, with slack that a hot moment is allowed to shrink.
+##
+## Public and pure so a test can assert the rule directly rather than inferring it
+## from a rendered frame — see `tools/slice7_test_clipframing.gd`, which is the
+## assertion behind the maker's *"so the audience can see it all all the time"*.
+func _fit_zoom(pts: Array[Vector2], eye: Vector2) -> float:
+	var view: Vector2 = Vector2(1280.0, 720.0)
+	var vp: Viewport = get_viewport()
+	if vp != null:
+		view = Vector2(vp.get_visible_rect().size)
+	view.x = maxf(view.x, 1.0)
+	view.y = maxf(view.y, 1.0)
+	# Heat tightens by eating the slack, NEVER by punching past containment.
+	var slack_x: float = lerpf(FRAME_MARGIN, FRAME_MARGIN_HOT, clampf(_heat, 0.0, 1.0))
+	var slack_y: float = lerpf(FRAME_MARGIN_V, FRAME_MARGIN_V_HOT, clampf(_heat, 0.0, 1.0))
+	var need_x: float = 0.0
+	var need_y: float = 0.0
+	for p: Vector2 in pts:
+		need_x = maxf(need_x, absf(p.x - eye.x))
+		need_y = maxf(need_y, absf(p.y - eye.y))
+	var fit: float = minf(
+		view.x / maxf(need_x * 2.0 + slack_x, 1.0),
+		view.y / maxf(need_y * 2.0 + slack_y, 1.0))
+	return clampf(fit, ZOOM_MIN, ZOOM_MAX)
 
 
 ## Lean the framing target toward a point of interest — FULLY on x, but only

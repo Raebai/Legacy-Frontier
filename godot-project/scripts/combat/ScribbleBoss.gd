@@ -68,6 +68,14 @@ var _dash_active: float = 0.0
 
 func boss_title() -> String: return "THE SCRIBBLE"
 func boss_artist() -> String: return "a child, blunt pencil, lined paper"
+## THE BILLING. An epithet, not a description — the first hand that ever held the
+## pencil, and it never learned to stop. Rendered under the name card by
+## `TowerBoss._play_intro`; on floors 1-3 the whole ceremony is the brief one, so
+## this is a flash, which is correct for a thing this crude.
+func boss_epithet() -> String: return "THE FIRST HAND, PRESSED TO TEARING"
+func bark_suffix() -> String: return "scribble"
+## It does not redraw the floor so much as go over it again, angrier.
+func redraw_style() -> StringName: return &"scrawl"
 func boss_accent() -> Color: return CRAYON
 func boss_tint() -> Color: return GRAPHITE
 func boss_rig_height() -> float: return RIG_H

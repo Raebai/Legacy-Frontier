@@ -239,6 +239,13 @@ func _apply_room_size(size: Vector2) -> void:
 	var h: float = maxf(size.y, WALL_THICKNESS * 4.0)
 	var floor_rect: ColorRect = get_node_or_null("Floor") as ColorRect
 	if floor_rect != null:
+		# ⚠ THE ROOM WASH IS A BACKDROP, NOT A LAYER IN THE STAGE. It sat at z -2 in
+		# the .tscn, which is IN FRONT of where a ruin ledge parks itself (-4) — so
+		# `FloorBuilder` had to shove every tower ledge to -1 to be visible at all,
+		# and the tower ended up with a second, contradictory z scheme. Parking the
+		# wash at BACKDROP puts it behind the whole stage ladder, so the tower and the
+		# versus stage now order themselves identically. See StageLayers.
+		StageLayers.apply(floor_rect, StageLayers.BACKDROP)
 		floor_rect.offset_left = 0.0
 		floor_rect.offset_top = 0.0
 		floor_rect.offset_right = w
@@ -797,8 +804,10 @@ func _set_paused(p: bool) -> void:
 			_pause_menu.close()
 
 
-## Leave the tower back to the hub. Mid-floor in a run -> abandon (no bank, resume
-## here next time). Sandbox (no active run) -> straight to Main.tscn.
+## Leave the tower. Mid-floor in a run -> abandon (no bank, resume here next time),
+## which routes through the run-summary card. Sandbox (no active run, i.e. the F6
+## developer entry) -> the TITLE screen. NOT the parked v0.0 hub: see the note on
+## the else branch, and `FreePlay._exit_to_hub`.
 func _exit_to_hub() -> void:
 	get_tree().paused = false
 	if _gs != null and _gs.is_run_active() and _gs.has_method("abandon_to_hub"):

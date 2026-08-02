@@ -29,7 +29,16 @@ const CD_MULT: float = 1.35
 const GHOST_INTERVAL: float = 0.085
 const GHOST_MIN_SPEED: float = 55.0
 
+## THE VOICE BEAT: a gabble while it is actually running. Its whole affix is that it
+## arrives sooner than the archetype taught you, so the sound it makes is the sound
+## of something that will not stop moving. Gated on a sustained sprint rather than
+## on a single fast frame — a body clipping a crate should not chirp.
+const SPRINT_TO_SPEAK: float = 0.5
+const SPEAK_COOLDOWN: float = 5.5
+
 var _ghost_timer: float = 0.0
+var _sprint_t: float = 0.0
+var _speak_cd: float = 0.0
 
 
 func _setup() -> void:
@@ -47,6 +56,18 @@ func _tick_visual(delta: float) -> void:
 	if r == null or not is_instance_valid(r):
 		return
 	var v: Vector2 = enemy.get("velocity")
+	# THE VOICE RIDES `velocity`, WHICH IS WHY IT WORKS IN CO-OP. Everything in
+	# `_tick` is host-only (see EliteRider rule 2), but velocity is part of the
+	# puppet sync — so a client's copy of this body runs the same check off the same
+	# numbers and speaks on its own screen with nothing broadcast.
+	_speak_cd = maxf(_speak_cd - delta, 0.0)
+	if absf(v.x) >= GHOST_MIN_SPEED:
+		_sprint_t += delta
+		if _sprint_t >= SPRINT_TO_SPEAK and _speak_cd <= 0.0:
+			if elite_voice(Gibberish.Mood.LAUGH, 2):
+				_speak_cd = SPEAK_COOLDOWN
+	else:
+		_sprint_t = 0.0
 	if absf(v.x) < GHOST_MIN_SPEED:
 		return
 	_ghost_timer -= delta

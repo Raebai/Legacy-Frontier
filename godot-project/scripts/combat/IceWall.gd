@@ -341,6 +341,11 @@ func shatter() -> void:
 		if e.has_method("apply_knockback"):
 			var away: Vector2 = (p - _shatter_center).normalized()
 			e.apply_knockback((away if away != Vector2.ZERO else Vector2.UP) * SHATTER_KNOCKBACK)
+	# ...and the SCENERY. A wall of ice bursting apart at head height should take the
+	# crate next to it with it. Reuses `shatter_contains` rather than a bounding
+	# circle so the drawn ring, the fighter ring and the cover ring are the same ring.
+	SpellSurfaces.in_shape(self, _shatter_center, SHATTER_DAMAGE,
+		func(p2: Vector2) -> bool: return shatter_contains(_shatter_center, p2))
 	var bolts: Array = []
 	for proj: Node in get_tree().get_nodes_in_group("enemy_projectile"):
 		if proj is Node2D and shatter_contains(_shatter_center, (proj as Node2D).global_position):

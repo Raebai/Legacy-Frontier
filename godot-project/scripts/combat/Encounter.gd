@@ -802,6 +802,12 @@ func spawn(brute_chance: float, hp_mult: float, roster: Array[int] = []) -> void
 		"boss": false, "arch": kind,
 		"hp": s["hp"], "spd": s["spd"], "touch": s["touch"], "tint": s["tint"], "tele": s["tele"],
 		"x": pos.x, "y": pos.y,
+		# WHICH FLOOR THIS BODY BELONGS TO. Host-computed and carried in the dict
+		# rather than read off an autoload inside the enemy, for the same reason the
+		# elite roll is: `build_enemy_from_data` must stay pure construction so two
+		# peers handed the same dict build the same body. 0 on the F6 sandbox path
+		# (`spawn()` without `run_floor()`), which imposes no restriction at all.
+		"depth": _depth,
 	}
 	# THE ELITE ROLL, and the ONLY place it happens. This line is reached on the host
 	# alone (a co-op client returns out of _process before any wave ticks), so the
@@ -942,6 +948,10 @@ func build_enemy_from_data(data: Dictionary) -> CharacterBody2D:
 		e.touch_damage = int(data["touch"])
 		e.tint = data["tint"]
 		e.uses_telegraphed_attack = bool(data["tele"])
+		# Absent on legacy / hand-written spawn dicts -> 0 = "not told", which
+		# imposes no depth restriction, so every pre-existing caller builds
+		# byte-identically to before. See Enemy.POUNCE_MIN_DEPTH.
+		e.floor_depth = int(data.get("depth", 0))
 		# ELITE AFFIXES ARE ATTACHED HERE — before the body enters the tree, and on
 		# EVERY peer, because this function is the one construction path both the
 		# single-player add_child and the co-op MultiplayerSpawner run through. Same

@@ -262,6 +262,12 @@ func _fly(delta: float) -> void:
 		SpellTargets.hurt(n, THROW_DAMAGE, Color(STONE_LIT.r, STONE_LIT.g, STONE_LIT.b, 1.0))
 		if n.has_method("apply_knockback"):
 			n.apply_knockback(_vel.normalized() * 340.0)
+	# A body turned to stone and hurled across the room is a PROJECTILE, and the most
+	# obvious thing a thrown boulder does is demolish what it lands on. Swept along
+	# the same segment as the fighter pass so the statue cannot pass through a crate
+	# it visibly ploughs into.
+	SpellSurfaces.on_line(self, from, _vel.normalized(),
+		from.distance_to(to) + STATUE_HALF_WIDTH, STATUE_HALF_WIDTH, THROW_DAMAGE)
 	if _flight >= THROW_TIME:
 		_shatter()
 
@@ -277,6 +283,9 @@ func _shatter() -> void:
 			continue
 		SpellTargets.hurt(n, int(THROW_DAMAGE * 0.5),
 			Color(STONE_LIT.r, STONE_LIT.g, STONE_LIT.b, 1.0))
+	# The statue coming apart shatters nearby cover at the same half damage the
+	# splash deals to bodies.
+	SpellSurfaces.in_radius(self, at, SHATTER_RADIUS, int(THROW_DAMAGE * 0.5))
 	DebrisChunk.spawn_burst(get_parent(), at, Color(0.46, 0.44, 0.48), 22, Vector2.UP, 320.0)
 	CombatVfx.spawn_burst(get_parent(), at, Color(0.8, 0.78, 0.82, 0.9),
 		Color(0.32, 0.3, 0.34, 0.0), 20, 0.5, 90.0, 260.0, 1.4, 4.0)

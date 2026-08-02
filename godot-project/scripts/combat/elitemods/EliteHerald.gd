@@ -85,6 +85,20 @@ func _call_out() -> void:
 		if r2 != null and is_instance_valid(r2):
 			r2.call("flash_color", Color(col.r * 1.5 + 0.2, col.g * 1.5 + 0.2, col.b * 1.5 + 0.2), 0.22)
 	_surge_left = SURGE_TIME
+	# THE HOWL. This is the one elite line that is a MECHANIC rather than colour, so
+	# it is `always` — never sampled — and it carries a bubble: it is the answer to
+	# "why did everything speed up" and, in co-op, the cheapest shout-at-your-friend
+	# moment in the game. The room-wide gap in EliteRider is what stops a second
+	# herald talking over it.
+	#
+	# ⚠ HOST-ONLY, AND SAY SO. `_call_out` is reached from `_tick`, which
+	# `EliteRider._process` gates on authority — so on a co-op CLIENT the surge is
+	# felt (the bodies really are faster there) but not heard. The other five affixes
+	# hang their voices off synced state (hp, velocity, position) precisely to avoid
+	# this; the herald's trigger has no synced twin, and closing it properly is one
+	# `broadcast_voice` line in `Net.gd`, which is another agent's file. Flagged in
+	# the handoff rather than papered over with a clock that would drift.
+	elite_bark(&"elite_herald_call", true)
 	# The herald's own tell: a hard pulse of its colour, so the answer to "why did
 	# everything speed up" is on screen at the moment it happens.
 	var r: Node = rig()

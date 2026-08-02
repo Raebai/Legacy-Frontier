@@ -94,8 +94,7 @@ func build(bounds: Rect2, palette: Dictionary = {}) -> void:
 	_sil_far = palette.get("silhouette_far", _sil_far)
 	_sil_near = palette.get("silhouette_near", _sil_near)
 	_accent = palette.get("accent", _accent)
-	z_index = -22
-	z_as_relative = false
+	StageLayers.apply(self, StageLayers.SKYLINE)
 	_build_sky()
 	_build_motes()
 	_build_vignette()
@@ -181,8 +180,7 @@ func _build_sky() -> void:
 	rect.stretch_mode = TextureRect.STRETCH_SCALE
 	rect.position = _bounds.position
 	rect.size = _bounds.size
-	rect.z_index = -30
-	rect.z_as_relative = false
+	StageLayers.apply(rect, StageLayers.SKY)
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(rect)
 
@@ -193,8 +191,7 @@ func _build_motes() -> void:
 	motes.amount = _mote_amount(MOTE_AMOUNT_WORLD)
 	motes.lifetime = 9.0
 	motes.position = _bounds.position + _bounds.size * 0.5
-	motes.z_index = -21
-	motes.z_as_relative = false
+	StageLayers.apply(motes, StageLayers.MOTES)
 	var mat := ParticleProcessMaterial.new()
 	mat.particle_flag_disable_z = true
 	mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
@@ -277,10 +274,55 @@ func _build_vignette() -> void:
 
 
 # ---------------------------------------------------------------- spire skyline
+## ⚠ THE "BLUE LINES". The maker played the versus stage and reported, verbatim:
+## *"the blue lines mean I cant see anything they should be in the background of the
+## map"*. These spires were them.
+##
+## Two things made a BACKGROUND element the loudest thing on screen. They were drawn
+## in their palette colour at alpha 0.9 / 1.0, so at the played framing the near row
+## sat at HIGHER contrast against the graded sky than the ledges did — and their
+## colour is blue-grey, which is the hero's own hue. A row of tall blue bars, in the
+## player's colour, standing exactly in the airspace he is trying to read platforms
+## in. Nothing was wrong with the z-order; they were simply too PRESENT.
+##
+## The fix is atmospheric perspective as a rule rather than as a palette choice:
+## every row is pushed toward the horizon colour by `StageLayers.haze` and drawn
+## translucent, so distance is structural and a future theme cannot undo it by
+## picking a punchy silhouette. The near row also loses height — it used to reach
+## 150 px up, well into the jumping space.
+## ⚠ HAZE TOWARD THE SKY AT THE SPIRE'S OWN HEIGHT, not toward `_sky_bottom`. The
+## first pass at this fix lerped toward the gradient's bottom endpoint, which on the
+## versus stage is a pale warm horizon colour several hundred pixels BELOW the
+## skyline — so the spires came out LIGHTER than the sky they stood against and
+## turned from blue bars into pale pickets. Rendered and looked at. Sampling the
+## gradient at the baseline is what makes "recedes" true rather than hoped.
+const HAZE_FAR: float = 0.86     # all but dissolved into the sky
+const HAZE_NEAR: float = 0.70
+const ALPHA_FAR: float = 0.5
+const ALPHA_NEAR: float = 0.66
+## ...and land just UNDER the sky's value afterwards. A distant mass that is lighter
+## than the air in front of it reads as foreground, whichever hue it is.
+const HAZE_DARKEN: float = 0.12
+
+
 func _draw() -> void:
 	var horizon: float = _bounds.position.y + _bounds.size.y * 0.60
-	_draw_spires(horizon + 26.0, _sil_far, 90.0, 30.0, 22.0, 0.9)
-	_draw_spires(horizon + 58.0, _sil_near, 150.0, 42.0, 30.0, 1.0)
+	_draw_spires(horizon + 26.0, _recede(_sil_far, horizon + 26.0, HAZE_FAR),
+		66.0, 30.0, 22.0, ALPHA_FAR)
+	_draw_spires(horizon + 58.0, _recede(_sil_near, horizon + 58.0, HAZE_NEAR),
+		104.0, 42.0, 30.0, ALPHA_NEAR)
+
+
+## The sky gradient's colour at world y — the same lerp `_build_sky`'s texture bakes.
+func _sky_at(y: float) -> Color:
+	if _bounds.size.y <= 0.0:
+		return _sky_bottom
+	return _sky_top.lerp(_sky_bottom,
+		clampf((y - _bounds.position.y) / _bounds.size.y, 0.0, 1.0))
+
+
+func _recede(col: Color, at_y: float, amount: float) -> Color:
+	return StageLayers.haze(col, _sky_at(at_y), amount).darkened(HAZE_DARKEN)
 
 
 ## A row of distant tower spires (rect body + pointed cap) across the bounds

@@ -735,18 +735,24 @@ static func build_default_tower() -> TowerDef:
 	var sky: Color = Color(0.22, 0.26, 0.40)
 	t.floors = [
 		# type, brute%, boss hp×, theme, layout, waves [budget, cap, roster]
-		# --- 1 · SURFACE. Learn to swing. Bodies first, then the first tell. ---
+		# --- 1 · SURFACE. THE TEACHING FLOOR: ONE new tell per wave, and never two
+		#     new things at once. It opens at cap THREE (not four) because a
+		#     first-time player has not yet found the dash, and it closes its last
+		#     wave with handoff 0 so the FIRST GUARDIAN THEY EVER MEET arrives to a
+		#     clean room — a lesson you can read, not a boss fought through a crowd.
+		#     Only TWO archetypes live here; the lane (CHARGER) is floor 2's lesson. ---
 		_make_floor(FloorDef.FloorType.COMBAT, 0.30, 1.0, _theme("surface", surface), default_layout(),
 			_waves([
-				[7, 4, [A_CHASER]],                            # pure pressure, nothing to read
-				[9, 5, [A_CHASER, A_CHASER, A_BRUTE]],         # the first telegraph
-				[11, 5, [A_CHASER, A_BRUTE, A_CHARGER]],       # ...and the first lane to dodge
+				[6, 3, [A_CHASER]],                            # pure pressure, nothing to read
+				[8, 4, [A_CHASER, A_CHASER, A_BRUTE]],         # ONE new tell: the heavy swing
+				[10, 5, [A_CHASER, A_BRUTE], 0],               # the same two, now at pressure
 			])),
-		# --- 2 · SURFACE. Range enters: you can no longer only look forward. ---
+		# --- 2 · SURFACE. Two lessons, one per wave: the LANE, then RANGE — and only
+		#     the last wave asks for both at once. ---
 		_make_floor(FloorDef.FloorType.COMBAT, 0.35, 1.15, _theme("surface", surface), default_layout(),
 			_waves([
-				[8, 4, [A_CHASER, A_CHARGER]],
-				[10, 5, [A_CHASER, A_CASTER, A_BRUTE]],        # something shooting from the back
+				[7, 4, [A_CHASER, A_CHARGER]],                 # ONE new tell: the lane to dodge
+				[10, 5, [A_CHASER, A_CHASER, A_CASTER]],       # something shooting from the back
 				[13, 6, [A_CHASER, A_CHARGER, A_CASTER, A_BRUTE]],
 			])),
 		# --- 3 · ELITE, UNDERGROUND. Fewer bodies, meaner ones. TANKIER is an
@@ -779,10 +785,17 @@ static func build_default_tower() -> TowerDef:
 	return stamp_depths(t)
 
 
-## Build a wave list from [budget, concurrent_cap] or [budget, cap, archetypes]
-## rows. HP is left inheriting the floor's (1.0) on purpose — the authored table
-## is about PACING and COMPOSITION, which are the things that have to be tuned by
-## feel; a wave that wants to be harder says so by naming nastier archetypes.
+## Build a wave list from [budget, concurrent_cap], [budget, cap, archetypes] or
+## [budget, cap, archetypes, handoff_alive] rows. HP is left inheriting the
+## floor's (1.0) on purpose — the authored table is about PACING and COMPOSITION,
+## which are the things that have to be tuned by feel; a wave that wants to be
+## harder says so by naming nastier archetypes.
+##
+## The 4th column is the OVERLAP, and it exists for exactly one row today: floor
+## 1's last wave sets it to 0 so the tower's first guardian arrives to an empty
+## room. Everywhere else it is left at -1 (derive from the cap), because the
+## overlap is what keeps a floor's pressure from ever hitting zero and undoing it
+## wholesale would put the dead air back.
 static func _waves(rows: Array) -> Array[WaveDef]:
 	var out: Array[WaveDef] = []
 	for row: Array in rows:
@@ -794,6 +807,8 @@ static func _waves(rows: Array) -> Array[WaveDef]:
 			for a in (row[2] as Array):
 				roster.append(int(a))
 			w.archetypes = roster
+		if row.size() > 3:
+			w.handoff_alive = int(row[3])
 		out.append(w)
 	return out
 

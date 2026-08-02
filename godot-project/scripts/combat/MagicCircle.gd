@@ -110,6 +110,28 @@ const EDGE_TICKS: int = 12
 ## is what lets Hero's windup sigil — opened by a file this pass may not touch — pick
 ## up its element for free (see `_infer_element`) without a single edit over there.
 
+##   WHICH SPELL?   -> the MOTIF. One figure drawn in the sigil's inner court, keyed
+##                     off the spectacle rather than off its element or its cost. The
+##                     maker's note is that "meteor should look slightly different",
+##                     and colour cannot carry that: every arcane spell in the roster
+##                     is the same violet, so eleven of them opened the SAME circle.
+##                     The motif is the axis that separates a meteor from a beam from
+##                     a wall while all three are still purple ults.
+##
+##                     Deliberately a SHAPE LANGUAGE and not thirty-eight bespoke
+##                     drawings: thirteen figures (descent / lance / barrier /
+##                     eruption / orbit / pulse / snare / blade / ward / void /
+##                     spiral / summon) cover the whole roster, because what a player
+##                     needs to read is what the spell is ABOUT TO DO — something
+##                     falls here, a line you cannot cross, this ring expands — not
+##                     which of four wall spells it was. `SpellSigil` owns the
+##                     spell -> motif table; this file only knows how to draw one.
+##
+##                     Drawn in the INNER COURT (0.30-0.62 R), between the core and
+##                     the mechanism ring, so it never fights the element band on the
+##                     rim. Both reads survive together: the rim still says FIRE, the
+##                     middle now says FALLING.
+
 ## Glyph counts per tier. Deliberately coprime-ish with SPOKES/TICKS so the bands
 ## never phase-lock into a single fat spoke as they counter-rotate.
 const GLYPHS_QUICK: int = 6
@@ -139,6 +161,36 @@ const TIER_RADIUS_HEAVY: float = 30.0
 ## A colour outside it is not guessed at: it falls through to `-1` and the sigil draws
 ## the generic runic ticks, which is the honest answer for "this is nobody's element".
 const ELEMENT_MATCH_TOLERANCE: float = 0.075
+
+## WHAT THE SPELL IS ABOUT TO DO, as one figure. See the MOTIF paragraph above.
+##
+## The vocabulary is chosen by CONSEQUENCE, not by spell name — that is what keeps it
+## to thirteen entries instead of thirty-eight, and it is also what makes it useful:
+## two different wall spells SHOULD open the same figure, because the thing you need
+## to know about both of them is identical. Anything genuinely new that does not fit
+## takes NONE and simply loses this one read; it never guesses.
+enum Motif {
+	NONE,      ## not told — draws nothing, exactly as before this existed
+	DESCENT,   ## something falls onto this spot   (meteor, convergence, call-lightning)
+	LANCE,     ## it goes THAT way, in a line      (beams, rays, bolts, rushes)
+	BARRIER,   ## a line you cannot cross          (walls of any material)
+	ERUPTION,  ## the ground comes UP here         (pillars, spikes, slams, boulders)
+	ORBIT,     ## satellites that seek             (rune orbs, homing shards, missiles)
+	PULSE,     ## a ring leaves this centre        (nova, shockwave, expanding fields)
+	SNARE,     ## it reaches out and holds         (root, tether, chain, crawler)
+	BLADE,     ## a cut lands                      (flurry, arc, blink strike, dagger)
+	WARD,      ## a volume is claimed              (aegis, zone, consecrate)
+	VOID,      ## it pulls in and unmakes          (collapse, hollow purple, petrify)
+	SPIRAL,    ## the rules bend                   (chronostasis, gravity, equinox, roulette)
+	SUMMON,    ## another body arrives             (mirror image, blood pact)
+}
+
+## Inner-court band the motif is drawn in, as fractions of `radius`. Bounded ABOVE by
+## the HEAVY mechanism ring at 0.64 and BELOW by the core's swell (0.22 x up to 1.55
+## at full charge = 0.34), so the figure has a lane of its own at every tier and does
+## not collide with either even at maximum gather.
+const MOTIF_INNER: float = 0.30
+const MOTIF_OUTER: float = 0.62
 
 
 # ---------------------------------------------------------------- CHARGE / SNAP
@@ -230,6 +282,9 @@ var _tier: int = -1
 ## Set once anybody calls set_signature(), so an inference never overwrites a
 ## deliberate answer (and a re-`appear()` on a recycled node cannot un-tell it).
 var _sig_explicit: bool = false
+## The spell figure in the inner court. `Motif.NONE` draws nothing, so every caller
+## that never heard of this is byte-for-byte unchanged.
+var _motif: int = Motif.NONE
 
 # ---- charge / snap ----------------------------------------------------------
 var _charge: float = 0.0        # 0..1 gather, advances on its own from appear()
@@ -342,6 +397,37 @@ func set_signature(element: int, tier: int = -1) -> void:
 	_tier = tier
 	_sig_explicit = true
 	queue_redraw()
+
+
+## Tell the sigil WHAT THE SPELL DOES — the third signature axis, alongside element
+## and tier. A `Motif` value; `Motif.NONE` clears it. Survives a hand-off re-colour
+## for the same reason `set_signature` does: a stated answer is the last word.
+func set_motif(motif: int) -> void:
+	_motif = motif if motif > Motif.NONE and motif <= Motif.SUMMON else Motif.NONE
+	queue_redraw()
+
+
+## The motif this sigil is drawing. Public so a headless test can assert the third
+## axis without rendering a frame — same reason `effective_tier()` is public.
+func motif() -> int:
+	return _motif
+
+
+## Make the glyph band fill over EXACTLY `seconds` instead of the default derived
+## from the grow time.
+##
+## Exists because the fill is a PROMISE: the band lighting one glyph at a time is
+## how an opponent counts how long they have left, so a sigil whose band is half lit
+## when the spell fires has lied to them. The default (`grow x 2.2`) is right for a
+## sigil handed off at the end of a caster's windup, and wrong for a spectacle that
+## holds its own gather for a duration only it knows — `EnergyNova` is the first, and
+## any future charge-then-release spell is the next. Clamped above `CHARGE_TIME_MIN`
+## so a zero can never produce a divide-by-zero in `_process`.
+##
+## ⚠ CALL IT AFTER `SpellSigil.open()`. `appear()` recomputes `_charge_time` from the
+## grow time, so a call made before the sigil is opened is silently discarded.
+func set_charge_time(seconds: float) -> void:
+	_charge_time = maxf(seconds, 0.01)
 
 
 ## The tier this sigil is drawing at, resolved. Public so a spectacle can ask what
@@ -895,23 +981,52 @@ func _draw_face() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 	# --- 3. the mechanism: only spells that cost you get moving parts -------
+	#
+	# ⚠ THE MECHANISM YIELDS TO THE MOTIF, and this is the one place the three
+	# signature axes actually compete for pixels. The hexagram sits at 0.55 R and the
+	# spokes span 0.34-0.60 — dead centre of the motif's lane. Rendered together the
+	# first time, a DESCENT sigil and a motif-less one were indistinguishable: the
+	# six-pointed star is a much louder shape than three chevrons and it simply won.
+	#
+	# So when a spell has something to SAY, the generic furniture gets out of its way:
+	# the hexagram is dropped and the spokes retract to a short collar at the rim.
+	# Nothing is lost by it — the hexagram never carried information. "This is a
+	# HEAVY" is already said, twice, by the mechanism ring being present at all and by
+	# the glyph count on the band. The star was texture, and the motif is meaning.
+	#
+	# A sigil with NO motif is byte-identical to before, which is what keeps this a
+	# strictly-additive change for the ~7 spectacles the table does not cover and for
+	# every hand-opened circle in the game.
+	var yields_to_motif: bool = _motif != Motif.NONE
 	if heavy:
 		draw_set_transform(Vector2.ZERO, -_phase * SPIN_SPEED * 0.7, Vector2(s, s) * breath)
 		draw_arc(Vector2.ZERO, radius * 0.64, 0.0, TAU, _seg(60, radius * 0.64 * s * breath), soft, 2.0, true)
+		var spoke_in: float = radius * (0.56 if yields_to_motif else 0.34)
 		for i: int in SPOKES:
 			var sd: Vector2 = Vector2.from_angle(TAU * float(i) / float(SPOKES))
-			draw_line(sd * radius * 0.34, sd * radius * 0.6, Color(c.r, c.g, c.b, 0.4 * a), 1.5, true)
+			draw_line(sd * spoke_in, sd * radius * 0.63, Color(c.r, c.g, c.b, 0.4 * a), 1.5, true)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-		draw_set_transform(Vector2.ZERO, _phase * SPIN_SPEED * 0.35, Vector2(s, s))
-		_draw_star(radius * 0.55, 3, 0.0, ring)
-		_draw_star(radius * 0.55, 3, PI / 3.0, ring)
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		if not yields_to_motif:
+			draw_set_transform(Vector2.ZERO, _phase * SPIN_SPEED * 0.35, Vector2(s, s))
+			_draw_star(radius * 0.55, 3, 0.0, ring)
+			_draw_star(radius * 0.55, 3, PI / 3.0, ring)
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-	if ult and not _low:
+	# The ULT's four-point star lands at 0.4 R, also inside the motif's lane — same
+	# ruling, same reason.
+	if ult and not _low and not yields_to_motif:
 		draw_set_transform(Vector2.ZERO, -_phase * SPIN_SPEED * 0.5, Vector2(s, s))
 		_draw_star(radius * 0.4, 4, PI / 4.0, soft)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+	# --- 3b. THE MOTIF: which spell is this? --------------------------------
+	# Drawn in the sigil's UNROTATED frame on purpose. Everything above this spins,
+	# and a figure that means "that way" or "a line across here" is destroyed by
+	# spin — a rotating arrow points everywhere. The still figure inside moving
+	# rings is also the strongest possible contrast: the eye goes to the one thing
+	# holding position.
+	_draw_motif(radius * s * breath, a, c)
 
 	# --- 4. the heart: gather ring, motes, core, release flare --------------
 	_draw_gather_ring(R, a, c)
@@ -1076,6 +1191,168 @@ func _draw_snap_flare(R: float, a: float, c: Color) -> void:
 	var fseg: int = _seg(60, fr)
 	draw_arc(Vector2.ZERO, fr, 0.0, TAU, fseg, Color(c.r, c.g, c.b, 0.85 * fa), 3.0 + 5.0 * _snap, true)
 	draw_arc(Vector2.ZERO, fr, 0.0, TAU, fseg, Color(1.6, 1.6, 1.7, 0.6 * fa), 1.5 + 2.0 * _snap, true)
+
+
+## THE SPELL MOTIF — one still figure in the inner court saying what is about to
+## happen. `R` is the sigil's live outer radius (already scaled and breathing).
+##
+## THE THREE RULES EVERY FIGURE HERE OBEYS, because they are what make thirteen
+## drawings a language rather than thirteen doodles:
+##   1. IT LIVES IN THE LANE. Every stroke sits between MOTIF_INNER and MOTIF_OUTER,
+##      so it cannot collide with the core's charge swell or the mechanism ring.
+##   2. IT DOES NOT SPIN. The caller draws this outside the rotating transforms.
+##   3. IT RESOLVES WITH THE GATHER. Alpha ramps with `_charge`, so the figure fades
+##      IN as the spell locks in — the motif is part of the wind-up's information,
+##      not a label stuck on the front of it.
+##
+## ⚠ SURVIVES `graphics_quality = LOW` AT FULL STRENGTH, deliberately, and that is
+## the same split the glyph band and the charge fill already get: LOW halves the
+## DECORATION (pulse rings, the inner white liner, the ult's 4-point star) and keeps
+## everything that carries a READ. The motif is the read. What LOW does drop is the
+## second-order detail inside a figure — the guide rails on LANCE, the end-caps on
+## BARRIER — which is texture, not meaning.
+##
+## Budget: every figure below is <= ~34 line segments, against ~200-400 for the rings
+## and band it sits inside. It is drawn once per sigil per frame with no arcs wider
+## than a third of a turn, so it does not interact with the sagitta tessellation
+## budget (`MAX_SAGITTA_PX`) that a previous pass bought 55% of this file's cost with.
+func _draw_motif(R: float, a: float, c: Color) -> void:
+	if _motif == Motif.NONE or R <= 4.0:
+		return
+	# The figure resolves as the spell locks in: 45% -> 100% across the gather, then
+	# rides the release flare up. A motif at flat opacity reads as a decal.
+	var ma: float = a * (0.45 + 0.55 * _charge) * (1.0 + 0.6 * _snap)
+	var col := Color(c.r * 1.25, c.g * 1.25, c.b * 1.25, clampf(0.9 * ma, 0.0, 1.0))
+	var lo: float = R * MOTIF_INNER
+	var hi: float = R * MOTIF_OUTER
+	var w: float = 2.0
+	_work_glyphs += 1
+	match _motif:
+		Motif.DESCENT:
+			# Three chevrons pointing INWARD at the centre, plus a small cross on the
+			# spot. The unambiguous "it lands HERE" figure — the same read the game's
+			# ground markers already use, so it needs no learning.
+			_work_segments += 8
+			for i: int in 3:
+				var d: Vector2 = Vector2.from_angle(-PI / 2.0 + TAU * float(i) / 3.0)
+				var t: Vector2 = d.orthogonal()
+				var tip: Vector2 = d * lo
+				var back: Vector2 = d * hi
+				draw_polyline(PackedVector2Array([
+					back + t * R * 0.14, tip, back - t * R * 0.14,
+				]), col, w, true)
+			var x: float = R * 0.12
+			draw_line(Vector2(-x, 0.0), Vector2(x, 0.0), col, w * 0.7, true)
+			draw_line(Vector2(0.0, -x), Vector2(0.0, x), col, w * 0.7, true)
+		Motif.LANCE:
+			# A barbed shaft along local +x. The one figure with a HEADING, and the
+			# reason the motif is drawn unspun: this is the arrow that says which way
+			# the beam leaves. (Edge-on gates get their direction from the gate
+			# itself and never reach this code — see `_draw_edge`.)
+			_work_segments += 6
+			draw_line(Vector2(-hi, 0.0), Vector2(hi, 0.0), col, w + 0.4, true)
+			draw_polyline(PackedVector2Array([
+				Vector2(hi * 0.55, -R * 0.13), Vector2(hi, 0.0), Vector2(hi * 0.55, R * 0.13),
+			]), col, w, true)
+			if not _low:
+				var g: float = R * 0.20
+				draw_line(Vector2(-hi * 0.7, -g), Vector2(hi * 0.2, -g), col, 1.0, true)
+				draw_line(Vector2(-hi * 0.7, g), Vector2(hi * 0.2, g), col, 1.0, true)
+		Motif.BARRIER:
+			# One hard chord straight across, with end-caps. Reads as a fence at any
+			# size, and is the only figure in the set that is a single straight line —
+			# which is what makes it unmistakable next to LANCE's barbed shaft.
+			_work_segments += 3
+			draw_line(Vector2(-hi, 0.0), Vector2(hi, 0.0), col, w + 1.4, true)
+			if not _low:
+				var e: float = R * 0.16
+				draw_line(Vector2(-hi, -e), Vector2(-hi, e), col, w, true)
+				draw_line(Vector2(hi, -e), Vector2(hi, e), col, w, true)
+		Motif.ERUPTION:
+			# Five spikes driving OUTWARD from the inner ring. The exact inverse of
+			# DESCENT, and the pairing is intentional: the two most common big-spell
+			# consequences in the roster are "it falls on you" and "it comes up under
+			# you", and they must never be confused with each other.
+			_work_segments += 15
+			for i: int in 5:
+				var d2: Vector2 = Vector2.from_angle(-PI / 2.0 + TAU * float(i) / 5.0)
+				var t2: Vector2 = d2.orthogonal()
+				draw_polyline(PackedVector2Array([
+					d2 * lo + t2 * R * 0.10, d2 * hi, d2 * lo - t2 * R * 0.10,
+				]), col, w, true)
+		Motif.ORBIT:
+			# A thin track with three bodies on it. Says "these seek you" — the read a
+			# homing spell needs and a placed one must not have.
+			var mid: float = (lo + hi) * 0.5
+			draw_arc(Vector2.ZERO, mid, 0.0, TAU, _seg(40, mid), Color(col.r, col.g, col.b, col.a * 0.45), 1.0, true)
+			_work_blobs += 3
+			for i: int in 3:
+				var p: Vector2 = Vector2.from_angle(_phase * 1.9 + TAU * float(i) / 3.0) * mid
+				draw_circle(p, maxf(1.8, R * 0.05), col, true, -1.0, true)
+		Motif.PULSE:
+			# Three concentric arcs, each cut open at a different angle so they read
+			# as a wave leaving rather than as three more rings. This is the figure
+			# that lets a nova state its own radius (see `EnergyNova`).
+			for i: int in 3:
+				var rr2: float = lerpf(lo, hi, float(i) / 2.0)
+				var off: float = float(i) * 0.7
+				draw_arc(Vector2.ZERO, rr2, off, off + TAU * 0.78, _seg(30, rr2),
+					Color(col.r, col.g, col.b, col.a * (1.0 - 0.22 * float(i))), w, true)
+		Motif.SNARE:
+			# Three hooks that curl back on themselves. Shares shadow's "reaching"
+			# language on purpose — but at the CENTRE, where it means the spell grabs,
+			# not merely that it is shadow-flavoured.
+			_work_segments += 18
+			for i: int in 3:
+				var base: float = TAU * float(i) / 3.0
+				var pts := PackedVector2Array()
+				for k: int in 7:
+					var tt: float = float(k) / 6.0
+					var rr3: float = lerpf(lo, hi, tt)
+					pts.append(Vector2.from_angle(base + tt * 1.5) * rr3)
+				draw_polyline(pts, col, w, true)
+		Motif.BLADE:
+			# Two crossed cuts with tapered tails. Short, hard, asymmetric — a slash
+			# rather than an X, which is why the two strokes are not the same length.
+			_work_segments += 4
+			var d3: Vector2 = Vector2.from_angle(-0.55)
+			var d4: Vector2 = Vector2.from_angle(0.75)
+			draw_line(-d3 * hi, d3 * hi, col, w + 0.8, true)
+			draw_line(-d4 * hi * 0.72, d4 * hi * 0.72, Color(col.r, col.g, col.b, col.a * 0.7), w, true)
+		Motif.WARD:
+			# A closed hexagon. The only closed convex figure in the set, and closure
+			# IS the meaning: this volume is claimed and held.
+			_work_segments += 6
+			var hex := PackedVector2Array()
+			for i: int in 7:
+				hex.append(Vector2.from_angle(TAU * float(i % 6) / 6.0) * hi * 0.88)
+			draw_polyline(hex, col, w, true)
+		Motif.VOID:
+			# The one INVERTED figure: a hole punched in the sigil with a bright lip.
+			# Everything else here adds light to the middle; this takes it away, which
+			# is the only way "it unmakes things" can be said in a drawing made of
+			# glowing lines.
+			_work_blobs += 1
+			draw_circle(Vector2.ZERO, hi * 0.8, Color(0.0, 0.0, 0.0, 0.55 * a), true, -1.0, true)
+			draw_arc(Vector2.ZERO, hi * 0.8, 0.0, TAU, _seg(40, hi * 0.8), col, w + 0.6, true)
+		Motif.SPIRAL:
+			# One arm winding out. Reserved for the spells that change the RULES
+			# rather than deal damage — time, gravity, chance — so an unfamiliar
+			# spiral is at least a reliable "something strange is about to happen".
+			var sp := PackedVector2Array()
+			var steps: int = 10 if _low else 16
+			_work_segments += steps
+			for k2: int in steps + 1:
+				var tt2: float = float(k2) / float(steps)
+				sp.append(Vector2.from_angle(_phase * 0.5 + tt2 * TAU * 0.9) * lerpf(lo * 0.6, hi, tt2))
+			draw_polyline(sp, col, w, true)
+		Motif.SUMMON:
+			# Triangle inscribed in a ring — the oldest conjuration mark there is, and
+			# used here for exactly that: another body is about to be standing there.
+			_work_segments += 3
+			_draw_star(hi * 0.9, 3, 0.0, col)
+			draw_arc(Vector2.ZERO, lo * 0.8, 0.0, TAU, _seg(24, lo * 0.8),
+				Color(col.r, col.g, col.b, col.a * 0.5), 1.0, true)
 
 
 ## THE ELEMENT GLYPH BAND. `n` marks around radius `r`, each oriented outward, each

@@ -217,6 +217,18 @@ const POUNCE_MIN_DIST: float = 210.0   # closer than this and it can just run at
 const POUNCE_MAX_DIST: float = 430.0   # farther and the arc is silly / unreadable
 const POUNCE_COOLDOWN: float = 2.4     # per-enemy, so a pack does not all spring at once
 const POUNCE_CHANCE: float = 0.5       # coin-flip per opportunity: pressure, not a metronome
+## THE POUNCE IS A FLOOR-2 VERB. The chase itself is untouched at every depth —
+## a chaser still runs at you at 140 and never loiters, which is the "chase like
+## hell" the maker asked to keep. What waits one floor is the SPRING: a body that
+## crosses 400 px of room in an arc is the single hardest thing to answer before
+## you have found the dash, and floor 1 is the only place in the game where that
+## is true of the player. From floor 2 it is exactly as aggressive as it was.
+const POUNCE_MIN_DEPTH: int = 2
+## Which floor of the climb this body was spawned on. 0 = "not told" (the F6
+## sandbox, VersusArena, every headless harness) and imposes NO restriction, so
+## those paths behave byte-identically to before. Set from the replicated spawn
+## dict, so host + client agree.
+var floor_depth: int = 0
 
 enum AttackState { CHASE, WINDUP, RECOVER, CHARGING, LEAPING }
 enum Archetype { CHASER, BRUTE, CASTER, CHARGER, SUMMONER, ASSASSIN, BOMBER, MAGE }
@@ -676,6 +688,9 @@ func _wants_pounce() -> bool:
 	if _leap_cd > 0.0 or not is_instance_valid(_hero):
 		return false
 	if not POUNCE_ARCHETYPES.has(archetype):
+		return false
+	# The teaching floor gets the chase, not the spring. See POUNCE_MIN_DEPTH.
+	if floor_depth > 0 and floor_depth < POUNCE_MIN_DEPTH:
 		return false
 	var dx: float = absf(_hero.global_position.x - global_position.x)
 	return dx > POUNCE_MIN_DIST and dx < POUNCE_MAX_DIST

@@ -28,6 +28,11 @@ var _reported: Dictionary = {}
 
 
 func _ready() -> void:
+	# ⚠ THIS DREW AT z 0 — AMONG THE FIGHTERS. A blast zone on the versus stage is
+	# 360x1800 px of near-black, so on any stage where a pit sits inside the play
+	# area it painted over everything at the fighters' own layer. A pit is a hole IN
+	# the ground, so it belongs one rung under the ledges. See StageLayers.
+	StageLayers.apply(self, StageLayers.HAZARD)
 	var cs := CollisionShape2D.new()
 	var rect := RectangleShape2D.new()
 	rect.size = zone_size
@@ -99,17 +104,30 @@ func _draw() -> void:
 		_draw_slope(r)
 
 
-## Dark void with nested-inset "falloff" and a thin danger border.
+## RULE 3 OF THE STAGE LEGEND (see StageLayers): near-black inside a hard red LIP,
+## and nothing else on the stage is allowed to look like this. The lip is drawn
+## thickest along the TOP edge, because that is the line the player crosses — a pit
+## announces itself at the moment you are deciding whether to jump, not once you are
+## already inside it.
 func _draw_pit(r: Rect2) -> void:
-	draw_rect(r, Color(0.05, 0.03, 0.08, 0.8), true)
+	draw_rect(r, StageLayers.VOID, true)
 	var inset: float = minf(zone_size.x, zone_size.y) * 0.14
-	var inner: Rect2 = r.grow(-inset)
-	if inner.size.x > 0.0 and inner.size.y > 0.0:
-		draw_rect(inner, Color(0.02, 0.01, 0.04, 0.9), true)
 	var core: Rect2 = r.grow(-inset * 2.2)
 	if core.size.x > 0.0 and core.size.y > 0.0:
-		draw_rect(core, Color(0.0, 0.0, 0.0, 0.96), true)
-	draw_rect(r, Color(0.85, 0.25, 0.2, 0.85), false, 1.5)
+		draw_rect(core, Color(0.0, 0.0, 0.0, 1.0), true)
+	# Warning hatch along the lip, then the lip itself.
+	var lip: float = maxf(3.0, minf(zone_size.x, zone_size.y) * 0.05)
+	var step: float = maxf(8.0, lip * 2.4)
+	var x: float = r.position.x
+	while x < r.end.x:
+		draw_line(Vector2(x, r.position.y + lip), Vector2(minf(x + lip, r.end.x), r.position.y),
+			Color(StageLayers.KILL_RED.r, StageLayers.KILL_RED.g, StageLayers.KILL_RED.b, 0.55),
+			1.5, true)
+		x += step
+	draw_rect(Rect2(r.position, Vector2(r.size.x, lip)),
+		Color(StageLayers.KILL_RED.r, StageLayers.KILL_RED.g, StageLayers.KILL_RED.b, 0.9), true)
+	draw_rect(r, Color(StageLayers.KILL_RED.r, StageLayers.KILL_RED.g,
+		StageLayers.KILL_RED.b, 0.75), false, 1.5)
 
 
 ## Translucent direction-tinted panel with chevrons pointing along slide_dir.

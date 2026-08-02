@@ -120,6 +120,22 @@ func _make_enemy(pos: Vector2) -> StubEnemy:
 	return enemy
 
 
+## Detonate every nova currently GATHERING anywhere under `root`.
+##
+## EnergyNova now winds up for `WINDUP_TIME` before it goes off (the maker asked for
+## a telegraph — see the block at the top of EnergyNova.gd). These tests assert
+## GEOMETRY, not timing, so they force the release rather than simulating 0.3 s of
+## frames: what is being pinned here is who is inside 135 px, and that answer must
+## not depend on how many frames the harness happened to run.
+##
+## The wind-up's own timing is covered where it belongs — `slice_test_friendly_fire`
+## advances real frames through it, so a nova that never detonated would fail there.
+func _fire_pending_novas() -> void:
+	for n: Node in root.get_children():
+		if n.has_method("detonate_now"):
+			n.call("detonate_now")
+
+
 func _make_prop(pos: Vector2) -> StubProp:
 	var prop: StubProp = StubProp.new()
 	root.add_child(prop)
@@ -138,6 +154,7 @@ func _test_nova_damages_and_pushes_inside_only() -> void:
 	var nova: Node2D = _make_nova()
 
 	nova.call("activate_at", center)
+	nova.call("detonate_now")   # skip the 0.30 s gather; see _fire_pending_novas
 	_expect(
 		nova.global_position == center, "activate_at places the nova at the given position"
 	)
@@ -232,6 +249,7 @@ func _test_hero_nova_cooldown_gate() -> void:
 	var nearby: StubEnemy = _make_enemy(hero.global_position + Vector2(70.0, 0.0))
 
 	hero._nova()
+	_fire_pending_novas()
 	_expect(
 		hero._nova_cooldown_timer == hero.NOVA_COOLDOWN, "nova starts its cooldown"
 	)
@@ -241,12 +259,14 @@ func _test_hero_nova_cooldown_gate() -> void:
 	)
 
 	hero._nova()  # still on cooldown — must be a no-op
+	_fire_pending_novas()
 	_expect(
 		nearby.damage_taken == 30, "second immediate nova does nothing (cooldown gate)"
 	)
 
 	hero._nova_cooldown_timer = 0.0  # simulate cooldown expiry
 	hero._nova()
+	_fire_pending_novas()
 	_expect(
 		nearby.damage_taken == 60, "nova fires again once cooldown expires"
 	)

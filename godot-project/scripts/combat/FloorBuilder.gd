@@ -83,13 +83,13 @@ static func build_platforms(container: Node2D, layout: LayoutDef) -> void:
 				node.set(&"regen_time", float(p["regen"]))
 		container.add_child(node)
 		node.global_position = Vector2(float(p.get("x", 0.0)), float(p.get("y", 0.0)))
-		# ⚠ AFTER add_child, because `_ready` sets it. `RuinPlatform` parks itself at
-		# z -4, which is correct on the versus stage and INVISIBLE here: the tower
-		# arena's `Floor` ColorRect covers the whole room at z -2, so a ruin ledge
-		# was drawn behind the floor and the first capture pass came back showing an
-		# empty room. -1 puts every ledge in front of the floor and behind the
-		# fighters, which is where a ledge belongs.
-		node.z_index = -1
+		# ⚠ NO LONGER OVERRIDDEN. This used to force every tower ledge to z -1,
+		# because the arena's `Floor` ColorRect covered the room at -2 and a ledge at
+		# its own -4 was drawn behind it. That made the tower a second, contradictory
+		# z scheme. `Arena._apply_room_size` now parks the wash at
+		# `StageLayers.BACKDROP`, so a ledge's own `StageLayers.PLATFORM` is correct
+		# here and on the versus stage alike. The assert-by-test lives in
+		# `tools/slice_test_stage_layers.gd`.
 
 
 ## The per-floor drop machinery. Split out from `build_props` so a test or a

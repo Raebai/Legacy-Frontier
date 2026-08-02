@@ -17,7 +17,11 @@ extends Node2D
 ## Palette — warm earthy rock, sun from the upper-left. Deliberately NOT slate +
 ## neon green: a lit ochre crust, muted moss (an accent, never a full rim), and
 ## cool deep rock for depth.
-const CRUST_TOP: Color = Color(0.60, 0.52, 0.36)      # sunlit earth ridge line
+## RULE 1 of the stage legend (see StageLayers): the ground's lit ridge is the SAME
+## light as a ruin ledge's cap and a cover block's top, so "you can stand on this"
+## is one signal across the whole stage instead of three near-misses.
+const CRUST_TOP: Color = StageLayers.CAP_LIT          # sunlit earth ridge line
+const CRUST_CORE: Color = StageLayers.CAP_CORE        # the shaded half of the cap
 const CRUST_BODY: Color = Color(0.45, 0.38, 0.27)     # top soil band
 const ROCK_UPPER: Color = Color(0.37, 0.35, 0.36)     # exposed rock face
 const ROCK_DEEP: Color = Color(0.22, 0.21, 0.25)      # deep shadowed rock
@@ -31,14 +35,14 @@ const BOULDER_LIT: Color = Color(0.34, 0.33, 0.34)
 
 const CRUST_H: float = 12.0        # sunlit soil band thickness
 const UPPER_H: float = 90.0        # exposed-rock band before it goes deep
-const RIM_H: float = 3.0           # bright top edge line
+const RIM_H: float = 4.0           # bright top edge line
 
 var terraces: Array[Dictionary] = []
 @export var floor_y: float = 1000.0  # how far down each shelf is drawn
 
 
 func _ready() -> void:
-	z_index = -6  # behind fighters (0) + ruin platforms (-4), in front of sky/atmo
+	StageLayers.apply(self, StageLayers.TERRAIN)  # the one z table; see StageLayers
 	queue_redraw()
 
 
@@ -111,8 +115,10 @@ func _draw_shelf(surface_y: float, x0: float, x1: float) -> void:
 		var ry: float = surface_y + 40.0 + _h(seed_x, r * 9 + 3) * (UPPER_H - 10.0)
 		var rr: float = 7.0 + _h(seed_x + r, 31) * 9.0
 		_draw_boulder(Vector2(rx, ry), rr)
-	# --- Bright sunlit rim + sparse moss + pebbles ALONG the lit top edge.
-	draw_rect(Rect2(x0, surface_y - RIM_H, w, RIM_H), CRUST_TOP, true)
+	# --- RULE 1: the lit cap along the walkable ridge — shaded band, then the lit
+	# line — plus sparse moss + pebbles on it.
+	draw_rect(Rect2(x0, surface_y - RIM_H, w, RIM_H + 2.0), CRUST_CORE, true)
+	draw_rect(Rect2(x0, surface_y - RIM_H, w, RIM_H * 0.5), CRUST_TOP, true)
 	var tufts: int = maxi(1, int(w / 90.0))
 	for tf in range(tufts):
 		var tx: float = x0 + 12.0 + (w - 24.0) * _h(seed_x + tf, 41)

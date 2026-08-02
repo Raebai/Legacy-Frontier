@@ -87,8 +87,33 @@ func _process(delta: float) -> void:
 		var age: float = _elapsed - float(orb["delay"])
 		if age <= 0.0:
 			continue  # still queued at the weapon tip
+		var prev: Vector2 = orb["pos"]
 		orb["pos"] = _orb_position(orb, age)
 		orb["spin"] = float(orb["spin"]) + delta * 8.0
+		# ⚠ THE WORLD SWEEP. THIS IS THE MAKER'S "the projectiles shouldn't go through
+		# the floor or anything", and it was the real thing — this file contained ZERO
+		# references to `SpellWorld`. An orb's position was pure arithmetic
+		# (`origin + dir * SPEED * age`) and its only collision test was a distance
+		# check against bodies and crates. Nothing ever asked what was BETWEEN one
+		# frame's position and the next, so at SPEED 430 over MAX_LIFE 1.7 an orb flew
+		# 731 px straight through floors, ledges, walls and platforms.
+		#
+		# It went unnoticed for two compounding reasons worth recording: this volley
+		# is a Cleric damage line AND the Cryomancer's Q ("Ice Shards"), so it fires
+		# constantly; and the bot-sim's `spell_below_floor` probe only watches the
+		# `"player_spell"` group, which ONLY `Spell.gd` joins — so the one spectacle
+		# that actually flew through the world was invisible to the one check that
+		# was looking for exactly that.
+		#
+		# Swept per frame from the PREVIOUS position, not point-tested at the new one:
+		# a point test at 430 px/s tunnels straight through anything thinner than
+		# 7 px at 60 fps, which is most ledges.
+		var world: Dictionary = SpellWorld.first_solid(prev, orb["pos"], [], self)
+		if bool(world["hit"]):
+			orb["pos"] = world["position"]
+			_burst(orb)          # it breaks ON the surface, not inside it
+			orb["alive"] = false
+			continue
 		var e: Node = _target_within(orb["pos"], HIT_RADIUS)
 		if e != null:
 			_pop(orb, e)
@@ -117,6 +142,14 @@ func _pop(orb: Dictionary, e: Node) -> void:
 		SpellTargets.hurt(e, _dmg, Color(_color.r, _color.g, _color.b, 1.0))
 	if e.has_method("apply_status"):
 		e.apply_status(element_id)
+	_burst(orb)
+
+
+## The pop VFX on its own, so an orb that breaks on geometry looks like an orb that
+## breaks on a body. Split out when the world sweep landed: without it, an orb
+## stopped by a wall would have vanished silently, which reads as the spell fizzling
+## rather than as it hitting something.
+func _burst(orb: Dictionary) -> void:
 	CombatVfx.spawn_burst(get_parent(), orb["pos"],
 		Color(_color.r, _color.g, _color.b, 0.95), Color(_color.r, _color.g, _color.b, 0.0),
 		10, 0.3, 50.0, 140.0, 0.6, 1.6, 0.0, 0.0, true)

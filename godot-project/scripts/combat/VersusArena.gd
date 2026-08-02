@@ -20,6 +20,10 @@ const HERO_SCENE_PATH: String = "res://scenes/combat/Hero.tscn"
 ## The tower arena — where the boss lives. Reached by PATH (see _enter_boss_fight).
 const ARENA_SCENE: String = "res://scenes/combat/Arena.tscn"
 const ARENA_SCRIPT: String = "res://scripts/combat/Arena.gd"
+## Where backing out of the sandbox lands. Mirrors `GameState.TITLE_SCENE`, written
+## as a literal for the same reason every other scene here is: this script is
+## load()ed by headless harnesses that have no autoloads registered.
+const TITLE_SCENE: String = "res://scenes/ui/Lobby.tscn"
 
 ## -- Match rules -----------------------------------------------------------
 ## A cohesive, realistic, FUN battleground (maker: "the map needs to look way
@@ -1431,16 +1435,23 @@ func _enter_boss_fight() -> void:
 	get_tree().change_scene_to_file(ARENA_SCENE)
 
 
-## Leave the versus sandbox back to the hub (Main.tscn). Unpause first so the
-## fresh scene doesn't inherit the paused tree.
+## Leave the versus sandbox to the TITLE screen. Unpause first so the fresh scene
+## doesn't inherit the paused tree.
+##
+## ⚠ IT USED TO GO TO `res://scenes/Main.tscn` — the PARKED v0.0 AI-NPC village.
+## Maker, on finding himself there: *"why is the hub still around, what do I do
+## there"*. Nothing, is the answer: it is a different game's town, its NPCs need a
+## local Ollama to speak, and arriving in it by accident is the only way anyone was
+## reaching it. The title screen is the boot scene and works on a phone. The hub is
+## still on disk and still reachable deliberately from the run-summary card.
 func _exit_to_hub() -> void:
-	# Leave the Smash model behind so the hub / a subsequent tower run is never
-	# stuck in ring-out mode (enter_run also forces this off — belt + suspenders).
+	# Leave the Smash model behind so a subsequent tower run is never stuck in
+	# ring-out mode (enter_run also forces this off — belt + suspenders).
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs != null:
 		gs.set("ringout_mode", false)
 	get_tree().paused = false
-	get_tree().change_scene_to_file("res://scenes/Main.tscn")
+	get_tree().change_scene_to_file(TITLE_SCENE)
 
 
 ## Full arena reset — reload the scene so cover, bots, stocks + the match state

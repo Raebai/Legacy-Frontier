@@ -359,6 +359,18 @@ func _snap() -> void:
 			n.apply_status(Elements.Element.EARTH)
 			n.apply_status(Elements.Element.SHADOW)
 		_victims.append({"node": n, "anchor": n.global_position})
+	# ...and the SCENERY inside the same band. Tendrils tearing up through the floor
+	# should take the crate standing on that patch of floor with them.
+	#
+	# Reuses the band test rather than a circle: the grasp is a COLUMN (wide in x,
+	# bounded in y), and a bounding circle would reach cover a body standing in the
+	# same place would not be caught by — the drawn mark would then be a lie in one
+	# direction only, which is worse than being a lie in both.
+	SpellSurfaces.in_shape(self, _lock, _damage, func(p: Vector2) -> bool:
+		if absf(p.x - _lock.x) > _catch_r:
+			return false
+		var lift2: float = _lock.y - p.y
+		return lift2 <= CATCH_HEIGHT and lift2 >= CATCH_BELOW)
 	# Dark implosion beat — heavier when something was actually caught.
 	var caught: bool = not _victims.is_empty()
 	CombatVfx.spawn_burst(get_parent(), _lock + Vector2(0.0, -10.0),

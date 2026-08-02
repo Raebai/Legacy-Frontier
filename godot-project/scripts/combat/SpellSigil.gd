@@ -71,6 +71,94 @@ const GROUND_SQUASH: float = 0.34
 const FADE: float = 0.26
 
 
+# ================== WHICH SPELL IS THIS? — THE MOTIF TABLE ==================
+## The maker's note: "make sure the magic circle being drawn is relevant to the
+## spell — meteor should be red and look slightly different — and do this for all
+## the spells."
+##
+## Element and tier were already carried (the rim glyph band and the tier ladder).
+## The axis that was missing is the SPELL, and it is the one that actually hurts:
+## eleven spells in the roster are ARCANE and every one of them opened a violet
+## HEAVY circle with arcane runes on it. Identical drawings. Adding a per-spell
+## colour would not have fixed that either, because their colour is also identical
+## and correct — arcane IS violet.
+##
+## So the third axis is SHAPE, in the same spirit as the element band: the rim says
+## "fire" without colour, and now the inner court says "something falls here"
+## without colour. `MagicCircle.Motif` is the vocabulary; this table is the mapping.
+##
+## ⚠ KEYED ON THE SPECTACLE'S SCRIPT FILE, ON PURPOSE, and this is the design
+## decision worth defending. The obvious alternative is to stamp `SpellDef.Kind`
+## onto every spectacle in `SpellCaster._stamp` and switch on that. It is a better
+## key in the abstract and it is the wrong one here:
+##   * A `Kind` only exists for a spell cast through `SpellCaster`. Bosses build
+##     spectacles by hand (`Boss.gd`, `ScribbleBoss.gd`), the net layer rebuilds
+##     them on remote peers (`Net.gd`), reactions spawn them, and the capture tools
+##     instantiate them bare. Every one of those paths has a script and none of them
+##     has a `SpellDef` — so a `Kind` key would silently drop the motif on exactly
+##     the casts the player is most often on the receiving end of.
+##   * The script IS the spectacle's identity, always present, and cannot be
+##     forgotten by a call site. That is the same argument `_stamp` and this whole
+##     file already make: derive the read from something that cannot go unwritten.
+##
+## A spectacle may override with a `sigil_motif` property (see `_motif_of`) when its
+## script is reused for two different consequences.
+##
+## ⚠ UNLISTED IS NOT A BUG — it is `Motif.NONE`, which draws nothing and leaves the
+## sigil exactly as it was before this table existed. Buffs, drops and passives
+## (`BloodPact` when it is only a multiplier, `SpellDeflect`, `GhostForm`) have no
+## consequence to state, and inventing a figure for them would be noise.
+const MOTIF_BY_SCRIPT: Dictionary = {
+	# --- something falls onto this spot -------------------------------------
+	"MeteorSigil.gd": MagicCircle.Motif.DESCENT,
+	"StarConvergence.gd": MagicCircle.Motif.DESCENT,
+	"DivineRay.gd": MagicCircle.Motif.DESCENT,   # a column arrives from ABOVE, marked
+	# --- it goes THAT way, in a line ----------------------------------------
+	"BeamSpell.gd": MagicCircle.Motif.LANCE,
+	"Spell.gd": MagicCircle.Motif.LANCE,
+	"ChainBolt.gd": MagicCircle.Motif.LANCE,
+	"LightningRush.gd": MagicCircle.Motif.LANCE,
+	"HorizonArc.gd": MagicCircle.Motif.LANCE,
+	# --- a line you cannot cross --------------------------------------------
+	"RockWall.gd": MagicCircle.Motif.BARRIER,
+	"IceWall.gd": MagicCircle.Motif.BARRIER,
+	# --- the ground comes UP here -------------------------------------------
+	"RockPillar.gd": MagicCircle.Motif.ERUPTION,
+	"IceSpikeLine.gd": MagicCircle.Motif.ERUPTION,
+	"BoulderHurl.gd": MagicCircle.Motif.ERUPTION,
+	"BlastSpell.gd": MagicCircle.Motif.ERUPTION,
+	# --- satellites that seek ------------------------------------------------
+	"RuneOrbs.gd": MagicCircle.Motif.ORBIT,
+	# --- a ring leaves this centre ------------------------------------------
+	"EnergyNova.gd": MagicCircle.Motif.PULSE,
+	"FlameBurst.gd": MagicCircle.Motif.PULSE,
+	# --- it reaches out and holds -------------------------------------------
+	"ShadowRoot.gd": MagicCircle.Motif.SNARE,
+	"DrainTether.gd": MagicCircle.Motif.SNARE,
+	"ShadowCrawler.gd": MagicCircle.Motif.SNARE,
+	# --- a cut lands ---------------------------------------------------------
+	"BladeFlurry.gd": MagicCircle.Motif.BLADE,
+	"BlinkStrike.gd": MagicCircle.Motif.BLADE,
+	"RiftDagger.gd": MagicCircle.Motif.BLADE,
+	# --- a volume is claimed -------------------------------------------------
+	"AegisWard.gd": MagicCircle.Motif.WARD,
+	"ZoneSpell.gd": MagicCircle.Motif.WARD,
+	"SigilGuard.gd": MagicCircle.Motif.WARD,
+	# --- it pulls in and unmakes --------------------------------------------
+	"VoidCollapse.gd": MagicCircle.Motif.VOID,
+	"HollowPurple.gd": MagicCircle.Motif.VOID,
+	"Petrify.gd": MagicCircle.Motif.VOID,
+	# --- the rules bend ------------------------------------------------------
+	"Chronostasis.gd": MagicCircle.Motif.SPIRAL,
+	"GravityFlip.gd": MagicCircle.Motif.SPIRAL,
+	"Equinox.gd": MagicCircle.Motif.SPIRAL,
+	# (Roulette has no spectacle of its own — it re-enters the dispatcher with a
+	#  rolled working, so it correctly inherits THAT spell's motif.)
+	# --- another body arrives ------------------------------------------------
+	"MirrorImage.gd": MagicCircle.Motif.SUMMON,
+}
+
+
 # ------------------------------------------------------------------ the entry point
 ## Summon `spectacle`'s circle at `world_pos`. Adopts the caster's live wind-up sigil
 ## when one is on offer (so the ritual is CONTINUOUS from the hand to the muzzle) and
@@ -121,6 +209,7 @@ static func open(
 	# when nobody has stated one. Setting the signature here makes the stated answer
 	# the last word, which is the only ordering that cannot be silently overridden.
 	circle.set_signature(element, tier)
+	circle.set_motif(_motif_of(spectacle))
 	if ground and not edge_on:
 		circle.set_ground(GROUND_SQUASH)
 	# BEHIND the spectacle's own drawing. A child CanvasItem draws AFTER its parent,
@@ -130,7 +219,57 @@ static func open(
 	circle.z_index = -1
 	if hold > 0.0:
 		circle.hold(hold, FADE)
+	_summon_shake(tier)
 	return circle
+
+
+# ------------------------------------------------------------- THE SUMMON SHAKE
+## The maker: *"add some slight screen shake for the bigger spells, makes it cooler
+## — very slight."* Said "slight" twice, so it is taken literally.
+##
+## THE LADDER, in camera units on the existing `Juice.shake_camera` scale (where the
+## nova's own hard clap is 14.0 and a crate shattering is ~6.0):
+##   QUICK  0.0 — NOTHING. The primary bolt fires several times a second; a rattle on
+##                every one of them is not "cooler", it is a broken suspension. The
+##                zero is the most important number in the ladder.
+##   HEAVY  1.7 — under a third of a crate breaking. Present, not reportable.
+##   ULT    3.4 — about a quarter of the nova's clap.
+##
+## ⚠ WHY IT LIVES HERE AND NOT IN THIRTY SPECTACLES. This function is already the
+## one place every spell passes through with its TIER in hand — the whole argument
+## for `SpellSigil` existing. Putting the shake anywhere else means thirty call sites
+## that can each be forgotten, and `spell_tier` is exactly the field the codebase has
+## twice found silently unwritten. One caller, one ladder, no drift.
+##
+## ⚠ IT CALLS THE EXISTING API AND OWNS NO STATE ABOUT THE CAMERA. `CombatCamera`
+## converts this to trauma, clamps trauma at 1.0, and scales the result by the
+## accessibility `shake_scale` setting. All three of those are honoured for free
+## precisely because nothing here reimplements them.
+##
+## ⚠ AND IT IS RATE-LIMITED, which is the part a naive version gets wrong. A meteor
+## barrage, a multi-orb volley or a reaction cascade can open several sigils inside a
+## few frames; without the gate those sum straight to the trauma ceiling and the ask
+## for "very slight" becomes a blur. The window is one frame's worth of slack, so a
+## genuine second cast still shakes and a single spell's own spray does not.
+const SHAKE_HEAVY: float = 1.7
+const SHAKE_ULT: float = 3.4
+const SHAKE_MIN_GAP_MS: int = 90
+static var _last_shake_ms: int = -100000
+
+static func _summon_shake(tier: int) -> void:
+	var amount: float = 0.0
+	match tier:
+		SpellTier.Tier.ULT:
+			amount = SHAKE_ULT
+		SpellTier.Tier.HEAVY:
+			amount = SHAKE_HEAVY
+		_:
+			return   # QUICK and anything unknown: silent. See the ladder above.
+	var now: int = Time.get_ticks_msec()
+	if now - _last_shake_ms < SHAKE_MIN_GAP_MS:
+		return
+	_last_shake_ms = now
+	Juice.shake_camera(amount)
 
 
 ## Radius for a shelf. Public so a spectacle can size its own geometry against the
@@ -170,6 +309,24 @@ static func _tier_of(spectacle: Node) -> int:
 	if raw == null:
 		return SpellTier.DEFAULT_WEIGHT
 	return SpellTier.weight_or_default(int(raw))
+
+
+## The motif for `spectacle`: its own stated answer if it has one, else the table,
+## else `Motif.NONE`.
+##
+## The override exists for the case the table cannot express — ONE script that is
+## genuinely two different consequences depending on how it was configured. A
+## spectacle opts in by declaring `var sigil_motif: int = MagicCircle.Motif.X`, and
+## (per the trap this codebase keeps re-learning) a spectacle that has NOT declared
+## it answers `null` from `get()` rather than erroring, which lands on the table.
+static func _motif_of(spectacle: Node) -> int:
+	var stated: Variant = spectacle.get(&"sigil_motif")
+	if stated != null and int(stated) != MagicCircle.Motif.NONE:
+		return int(stated)
+	var script: Script = spectacle.get_script() as Script
+	if script == null or script.resource_path.is_empty():
+		return MagicCircle.Motif.NONE
+	return int(MOTIF_BY_SCRIPT.get(script.resource_path.get_file(), MagicCircle.Motif.NONE))
 
 
 ## The element `spectacle` was stamped with, or -1 for "not told" — which the circle

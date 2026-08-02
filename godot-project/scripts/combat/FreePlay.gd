@@ -52,7 +52,16 @@ extends Node2D
 const ARENA_SCENE: String = "res://scenes/combat/VersusArena.tscn"
 const ARENA_SCRIPT: String = "res://scripts/combat/VersusArena.gd"
 const FREE_PLAY_SCENE: String = "res://scenes/combat/FreePlay.tscn"
-const HUB_SCENE: String = "res://scenes/Main.tscn"
+## ⚠ THE TITLE SCREEN, NOT THE HUB — and the maker's own words are why: *"why is the
+## hub still around, what do I do there"*. Backing out of free play used to load
+## `res://scenes/Main.tscn`, the PARKED v0.0 AI-NPC village: a different game, whose
+## NPCs need a local Ollama to say anything, with a class altar and a tower door and
+## nothing for a player to do. Free play is the first thing anyone opens, so its exit
+## was most people's first sight of it. The title screen is the boot scene, it works
+## on a phone, and it is where every other exit in the game now lands. The hub stays
+## on disk and stays reachable as an opt-in detour from the run-summary card; nobody
+## should simply ARRIVE there.
+const EXIT_SCENE: String = "res://scenes/ui/Lobby.tscn"
 const DIRECTOR_SCRIPT: String = "res://tools/director/Director.gd"
 ## Screen space the controls card must keep clear: the AbilityBar hotbar along the
 ## bottom, and the hint line along the top.
@@ -247,12 +256,14 @@ func _heal() -> void:
 	_say("healed")
 
 
+## Back out of free play to the TITLE screen (see EXIT_SCENE). Name kept because the
+## pause menu binds to it by name; the destination is what changed.
 func _exit_to_hub() -> void:
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs != null:
 		gs.set("ringout_mode", false)
 	get_tree().paused = false
-	get_tree().change_scene_to_file(HUB_SCENE)
+	get_tree().change_scene_to_file(EXIT_SCENE)
 
 
 # ==========================================================================

@@ -216,6 +216,45 @@ const VANGUARD_CHANCE: float = 0.35
 ## Odds a wave gets an explicit spawn interval.
 const INTERVAL_CHANCE: float = 0.50
 
+## ── THE TOWER TEACHES BEFORE IT EDITS ────────────────────────────────────────
+## The same principle FLOOR_AFFIX_MIN_DEPTH already states, applied to the WAVE
+## roll — because the generator was quietly undoing the one piece of onboarding
+## the game has.
+##
+## Floor 1 wave 1 is authored `[CHASER]` and the comment next to it says "pure
+## pressure, nothing to read": a deliberate opener that teaches movement before
+## it asks anyone to read a tell. But CHASER and ASSASSIN are classmates, so at
+## SWAP_CHANCE the very first wave of a new player's very first climb could come
+## back as an all-ASSASSIN rush — the fastest tell in the roster (0.35 s), 175
+## speed, lunging — and WIDEN/CHARACTER could stack more of them on top. The cap
+## reshape could likewise push floor 1's last wave to cap 6, and the vanguard
+## roll then lands all six in ONE TICK.
+##
+## Nothing about that is a difficulty CURVE; it is a coin-flip on whether the
+## tutorial floor is a tutorial. So the escalation knobs unlock with depth:
+##
+##   depth 1  the floor plays as authored — the room is still redrawn (shape,
+##            skyline, cover, pickups, theme) and the budget still redistributes,
+##            so a floor-1 re-roll is still a different room.
+##   depth 2  the MIX opens up: swaps + widen. Pressure caps stay as authored.
+##   depth 3+ everything, including the character pass and the slam vanguard.
+##
+## ⚠ These are depth gates on a PURE function, so both peers derive the same
+## floor from the same seed exactly as before — no desync surface.
+## Swaps + widen (a wave drawn by a different hand) unlock here.
+const MIX_MIN_DEPTH: int = 2
+## The CHARACTER pass — "lean this wave hard on one class", i.e. the all-assassin
+## rush and the caster line — is a sharper statement than a swap. It waits until
+## the player has met the whole early roster.
+const CHARACTER_MIN_DEPTH: int = 3
+## Re-cutting the pressure caps (which can raise a wave's cap above what it was
+## authored with) and rolling an explicit `vanguard = cap` slam both unlock here.
+const PRESSURE_MIN_DEPTH: int = 2
+## Floor 1 spawns FARTHER OUT. The generator's usual 150-200 px band can put a
+## body just off a beginner's shoulder; on the teaching floor everything arrives
+## with enough runway to be seen coming.
+const TEACH_SPAWN_DIST: Vector2 = Vector2(190.0, 230.0)
+
 
 # ============================================================== the entry point
 ## Redraw every floor of `t` and hand back a NEW tower. The original is never
@@ -269,7 +308,7 @@ static func vary_floor(f: FloorDef, depth: int, tower_id: String, seed_value: in
 	var shape: String = _roll_shape(rng, int(out.floor_type))
 	out.layout = generate_layout(rng, shape, int(out.floor_type), depth)
 	out.theme = _jitter_theme(rng, f.theme)
-	out.waves = vary_waves(rng, f.waves)
+	out.waves = vary_waves(rng, f.waves, depth)
 	# Keep the flat legacy fields consistent with the redrawn waves, exactly as
 	# GameState._make_floor does — anything still reading `enemy_budget` (including
 	# Encounter's synthesized-wave fallback) must see the same floor.
@@ -330,7 +369,9 @@ static func generate_layout(rng: RandomNumberGenerator, shape: String,
 	# --- spawn geometry, derived from the actual room rather than assumed.
 	l.spawn_rect_min = Vector2(70.0, 70.0)
 	l.spawn_rect_max = Vector2(w - 70.0, h - 70.0)
-	l.min_spawn_dist_from_hero = _snap(rng.randf_range(150.0, 200.0), 5.0)
+	# THE TEACHING FLOOR keeps everything at arm's length — see MIX_MIN_DEPTH.
+	var dist_band: Vector2 = TEACH_SPAWN_DIST if depth <= 1 else Vector2(150.0, 200.0)
+	l.min_spawn_dist_from_hero = _snap(rng.randf_range(dist_band.x, dist_band.y), 5.0)
 
 	# --- cover, resting on surfaces you can reach.
 	l.crate_positions = _place_crates(rng, reach, floor_type, l.hero_start, l.exit_point)
@@ -716,7 +757,11 @@ static func _place_pickups(rng: RandomNumberGenerator, reach: Array[Dictionary],
 ## Redraw the floor's fight WITHOUT changing how much fight it is. The total budget
 ## and the wave count survive exactly; what moves is the distribution across the
 ## waves, the pressure cap, the opening burst, the trickle rate and the MIX.
-static func vary_waves(rng: RandomNumberGenerator, waves: Array[WaveDef]) -> Array[WaveDef]:
+## `depth` unlocks the escalation knobs — see the MIX_MIN_DEPTH block. Defaulted
+## to a deep floor so every existing caller (and the pure-function tests) gets
+## exactly the generator it had.
+static func vary_waves(rng: RandomNumberGenerator, waves: Array[WaveDef],
+		depth: int = 99) -> Array[WaveDef]:
 	var out: Array[WaveDef] = []
 	if waves.is_empty():
 		return out
@@ -727,7 +772,11 @@ static func vary_waves(rng: RandomNumberGenerator, waves: Array[WaveDef]) -> Arr
 		budgets.append(maxi(w.enemy_budget, 1))
 		caps.append(maxi(w.concurrent_cap, 2))
 	budgets = _reshape(rng, budgets, 1)
-	caps = _reshape(rng, caps, 2)
+	# THE PRESSURE CAP IS THE ONE KNOB THAT CAN MAKE A FLOOR HARDER THAN AUTHORED
+	# (the reshape conserves the SUM, so a floor authored 3/4/5 can come back
+	# 2/4/6). On the teaching floor it stays exactly as written.
+	if depth >= PRESSURE_MIN_DEPTH:
+		caps = _reshape(rng, caps, 2)
 	for i: int in n:
 		var src: WaveDef = waves[i]
 		var w2 := WaveDef.new()
@@ -736,9 +785,11 @@ static func vary_waves(rng: RandomNumberGenerator, waves: Array[WaveDef]) -> Arr
 		w2.brute_chance = src.brute_chance
 		# NEVER TOUCHED. -1 = inherit the floor's 1.0. See the header block.
 		w2.hp_multiplier = -1.0
-		w2.archetypes = _vary_roster(rng, src.archetypes)
+		w2.archetypes = _vary_roster(rng, src.archetypes, depth)
 		w2.vanguard = -1
-		if rng.randf() < VANGUARD_CHANCE:
+		# `vanguard = cap` is the SLAM: the whole wave's worth of pressure in one
+		# tick. A fine punctuation mark deeper in; not the first thing anyone meets.
+		if depth >= PRESSURE_MIN_DEPTH and rng.randf() < VANGUARD_CHANCE:
 			w2.vanguard = clampi(w2.concurrent_cap, 2, w2.enemy_budget)
 		w2.spawn_interval = -1.0
 		if rng.randf() < INTERVAL_CHANCE:
@@ -771,9 +822,16 @@ static func _reshape(rng: RandomNumberGenerator, series: Array[int], floor_v: in
 ## The MIX. Each authored entry is either kept or redrawn as its classmate, and a
 ## wave may gain one extra body-type from a class it ALREADY carries. An empty
 ## roster (the floor's weighted roll over all eight) is left empty.
-static func _vary_roster(rng: RandomNumberGenerator, roster: Array[int]) -> Array[int]:
+static func _vary_roster(rng: RandomNumberGenerator, roster: Array[int],
+		depth: int = 99) -> Array[int]:
 	var out: Array[int] = []
 	if roster.is_empty():
+		return out
+	# THE TEACHING FLOOR IS AUTHORED, NOT ROLLED. Floor 1's opener says "chaser"
+	# and means it — a classmate swap there is an all-assassin first wave.
+	if depth < MIX_MIN_DEPTH:
+		for a0: int in roster:
+			out.append(a0)
 		return out
 	for a: int in roster:
 		var cls: Array[int] = threat_class(a)
@@ -785,7 +843,7 @@ static func _vary_roster(rng: RandomNumberGenerator, roster: Array[int]) -> Arra
 		var pick: int = out[rng.randi_range(0, out.size() - 1)]
 		var cls2: Array[int] = threat_class(pick)
 		out.append(cls2[rng.randi_range(0, cls2.size() - 1)])
-	if out.size() >= 2 and rng.randf() < CHARACTER_CHANCE:
+	if depth >= CHARACTER_MIN_DEPTH and out.size() >= 2 and rng.randf() < CHARACTER_CHANCE:
 		out = give_character(rng, out)
 	return out
 

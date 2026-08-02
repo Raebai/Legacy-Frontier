@@ -1,5 +1,5 @@
-# THE DIRECTED CLIP ENGINE — renders a bot-vs-bot fight as a PNG frame sequence
-# that starts where the fight starts, follows the action, and stops on the KO.
+# THE DIRECTED CLIP ENGINE — renders a bot-vs-bot MATCH as a PNG frame sequence that
+# starts where the fight starts, follows the action, and stops on the result.
 #
 # Run (GUI binary — NOT --headless; the dummy renderer draws nothing and reports
 # success, which is how blank clips get shipped):
@@ -23,49 +23,64 @@
 #                      difficulty one.
 #   --seconds=N        maximum length of the SAVED clip. Default 14.
 #   --fps=N            saved frames per second. Default 30 (every 2nd frame at 60).
-#   --hp=N             HP per fighter. Default 190 — lower than the 320 the showcase
-#                      normally uses, because a clip needs the fight to END.
+#   --hp=N             the shared HP pool `BotMatch.CLASS_VITALITY` scales per class.
+#                      Default 260 — measured: at 190 with two Impossible bots a bout
+#                      resolves in about six seconds, which is a highlight but not a
+#                      fight. 260 buys the approach-exchange-finish shape.
+#   --round=N          game-seconds before the bout is decided on the health bars.
 #   --patience=N       seconds to wait for the fight to catch before giving up and
 #                      rolling anyway. Default 12.
-#   --tail=N           seconds of clip after a knockdown. Default 1.6.
-#   --ringout=1        keep the stage's Smash damage-%/ring-out model. OFF by
-#                      default: under it a hit accumulates damage-% instead of
-#                      draining HP, and a measured 65-second capture ended with both
-#                      fighters past 200% and nobody down. A clip has to END.
+#   --tail=N           seconds of clip after the match is decided. Default 1.8 —
+#                      long enough to hold the freeze AND the result card, which are
+#                      the two frames anybody actually shares.
+#   --width= --height= RENDER SIZE. Default 1920x1080. See the note below.
 #   --out=NAME         subfolder under user://clips.
 #
 # ---------------------------------------------------------------------------
-# WHAT THIS DOES THAT `bot_clip_capture.gd` DOES NOT, and why both exist.
+# WHY THIS FILMS `BotMatch` AND NOT `VersusArena` DIRECTLY.
 #
-# The older tool is a FIXED capture: warm up N frames, then save every Nth for a
-# fixed count, with the arena's plain pair-framing camera. It is deterministic and
-# it is the right tool when you want a known-length sample of a known matchup.
+# It used to set the arena's showcase statics itself and film the bare exhibition
+# stage. That stage has no win condition — it is a SPARRING LOOP by design, and
+# separately its fighters could not die at all (`Hero._die` heals to full outside a
+# run; see the header of `scripts/combat/BotMatch.gd` for the full three-cause
+# diagnosis). So every clip it produced ran to its frame budget and ended wherever
+# the budget ran out, which is why `--seconds` was doing the job a KO should.
 #
-# This one is DIRECTED. `ClipDirector` scores the live board every frame — damage in
-# the last second, spells in flight, armed telegraphs, how close the fighters are —
-# and this tool uses that to decide THREE things the fixed tool cannot:
-#   · WHEN TO ROLL. Waits for `is_hot()` instead of a frame count, so the clip opens
-#     on an exchange rather than on two stick figures walking toward each other.
-#   · WHERE TO POINT. The director owns the camera and leans the framing toward the
-#     fighter who just took damage and toward the live spell geometry, so the payoff
-#     lands in the middle of the picture instead of at the edge of it.
-#   · WHEN TO STOP. Ends `--tail` seconds after the knockdown. The first capture
-#     ever run in this project shot 400 frames and spent 340 of them on a corpse.
+# `BotMatch` is where the match spine now lives: mirrored footing, per-class health,
+# health-bar plates, a decisive end, a freeze on the killing frame and a result card.
+# Filming it means the clip and the thing the maker watches from Lobby → Watch Bots
+# are THE SAME FIGHT, framed the same way, ending the same way — which was always the
+# stated point of having a watchable mode at all.
 #
-# It also writes `clip.json` beside the frames: the matchup, the settings, and the
-# director's own beat list (when it caught, peak heat and when, when the KO landed),
-# so a clip can be cut down or re-shot without re-watching it.
+# ---------------------------------------------------------------------------
+# RESOLUTION, AND WHY IT COSTS NOTHING TO RAISE IT.
+#
+# This project's design viewport is 640x360 with `stretch/mode="canvas_items"` and
+# `stretch/aspect="expand"`. That is a CONTENT scale, not a render scale: the window
+# can be any size and the game lays itself out against the same 640x360-ish box, so
+# raising the render size gives genuinely sharper frames of an IDENTICAL composition.
+# Nothing about the game's design viewport changes and no framing constant moves —
+# `ClipDirector` reads `get_visible_rect()`, which stays at the content scale.
+#
+# The default was the 1366x768 window override, i.e. whatever the GUI binary happened
+# to open, and every frame then went through a downscale to 720 in the encoder. 1920
+# wide rendered and LANCZOS-ed down to 720 is visibly cleaner than 1366 down to 720,
+# and 16:9 exactly matches 640x360 so there is NO letterboxing at either size.
+#
+# ⚠ THE REAL VIDEO CEILING IS NOT HERE. It is that ffmpeg is not installed on this
+# machine, so the only single-file output anybody can double-click is a palettised
+# GIF. See `python-tools/frames_to_gif.py`. Rendering at 1920 means the frames are
+# ready for a real encoder the day there is one.
 #
 # ⚠ NOTHING HERE HELPS A BOT. Both fighters get the same stock BotController +
-# BotBrain + BotProfile the game ships, at the same tier, seeing only what a human
-# sees. The only things this tool changes are WHO is on the stage, how much HP they
-# carry (applied to BOTH, so it is a clip-length knob and never an advantage), and
-# where the camera is. A clip of a rigged fight is worthless for finding bugs and
-# dishonest as marketing.
+# BotBrain + BotProfile the game ships, at the same tier, on mirrored footing, seeing
+# only what a human sees. The only things this tool changes are WHO is on the stage,
+# how big the shared HP pool is, and where the camera is. A clip of a rigged fight is
+# worthless for finding bugs and dishonest as marketing.
 extends SceneTree
 
-const ARENA_SCENE: String = "res://scenes/combat/VersusArena.tscn"
-const ARENA_SCRIPT: String = "res://scripts/combat/VersusArena.gd"
+const MATCH_SCENE: String = "res://scenes/combat/BotMatch.tscn"
+const MATCH_SCRIPT: String = "res://scripts/combat/BotMatch.gd"
 
 const CLASS_NAMES: Array[String] = [
 	"ARCANIST", "SHADOWBLADE", "BRAWLER", "JUGGERNAUT", "CLERIC",
@@ -77,72 +92,103 @@ var _class_b: int = 5
 var _difficulty: int = 3
 var _seconds: float = 14.0
 var _fps: int = 30
-var _hp: int = 190
+var _hp: int = 260
+var _round: float = 40.0
 var _patience: float = 12.0
-var _tail: float = 1.6
+var _tail: float = 1.8
 var _out: String = "directed"
-## Keep the stage's ring-out model? OFF by default so the fight resolves on HP.
-var _ringout: bool = false
+var _width: int = 1920
+var _height: int = 1080
 
 var _dir: String = ""
-var _arena: Node = null
+var _match: Node = null
 var _director: Object = null
 var _saved: int = 0
 var _walked: int = 0
 var _rolling: bool = false
 var _roll_started_at: float = 0.0
+var _decided_at: float = -1.0
 
 
 func _initialize() -> void:
 	_parse_args()
 	_dir = "user://clips/%s" % _out
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(_dir))
-	# Statics BEFORE the scene instantiates — `VersusArena._ready` reads them to
-	# decide which of its three modes it is building and who is in it.
+	_clear_dir()
+	_set_render_size()
+	# Statics BEFORE the scene instantiates — `BotMatch._ready` reads them all, then
+	# sets the arena's own statics from them.
 	#
-	# ⚠ REACHED BY PATH, NEVER BY `class_name`. Naming `VersusArena` here would
-	# compile it — and its whole dependency chain, which touches the `Sfx` / `Rank` /
-	# `Juice` autoloads — at THIS script's parse time, before the main loop has
-	# registered any autoload. The result is "Compile Error: Identifier not found:
-	# Sfx", a scene that silently fails to build, and a capture of an empty room.
-	# Measured, not assumed: the first run of `bot_clip_capture` did exactly that.
-	var arena_script: GDScript = load(ARENA_SCRIPT) as GDScript
-	if arena_script != null:
-		arena_script.set("free_play", false)
-		arena_script.set("showcase_a", _class_a)
-		arena_script.set("showcase_b", _class_b)
-		arena_script.set("showcase_difficulty", _difficulty)
-		arena_script.set("showcase_directed", true)
-		arena_script.set("showcase_hp_override", _hp)
-		# HP DEATH, NOT RING-OUT. See `VersusArena.showcase_ringout`: under the Smash
-		# model a hit accumulates damage-% rather than draining HP, and a measured
-		# 65-second capture ended with both fighters past 200% and neither down. A
-		# clip has to END.
-		arena_script.set("showcase_ringout", _ringout)
-	_arena = (load(ARENA_SCENE) as PackedScene).instantiate()
-	root.add_child(_arena)
-	print("[clip] %s vs %s  tier=%d  hp=%d  up to %.0fs at %d fps -> %s"
-		% [_name(_class_a), _name(_class_b), _difficulty, _hp, _seconds, _fps,
-			ProjectSettings.globalize_path(_dir)])
+	# ⚠ REACHED BY PATH, NEVER BY `class_name`. Naming `BotMatch` here would compile
+	# it — and its whole dependency chain, which touches the `Sfx` / `Rank` / `Juice`
+	# autoloads — at THIS script's parse time, before the main loop has registered any
+	# autoload. The result is "Compile Error: Identifier not found: Sfx", a scene that
+	# silently fails to build, and a capture of an empty room. Measured, not assumed:
+	# the first run of `bot_clip_capture` did exactly that.
+	var script: GDScript = load(MATCH_SCRIPT) as GDScript
+	if script != null:
+		script.set("class_a", _class_a)
+		script.set("class_b", _class_b)
+		script.set("difficulty", _difficulty)
+		script.set("fighter_hp", _hp)
+		script.set("round_seconds", _round)
+		# A clip ends where the match does. An auto-rematch would reload the scene out
+		# from under the capture and the tail would be the NEXT fight's opening.
+		script.set("auto_rematch", false)
+	_match = (load(MATCH_SCENE) as PackedScene).instantiate()
+	root.add_child(_match)
+	print("[clip] %s vs %s  tier=%d  hp=%d  %dx%d  up to %.0fs at %d fps -> %s"
+		% [_name(_class_a), _name(_class_b), _difficulty, _hp, _width, _height,
+			_seconds, _fps, ProjectSettings.globalize_path(_dir)])
 	_run()
+
+
+## ⚠ WIPE THE OLD FRAMES FIRST, and this is not tidiness.
+##
+## The encoder globs `*.png` in name order. A short run into a folder that held a
+## long one leaves the previous clip's tail behind, so a 146-frame KO encodes as a
+## 480-frame GIF whose last 334 frames are somebody else's fight. Measured — the
+## first run of this tool into an existing folder produced exactly that.
+func _clear_dir() -> void:
+	var abs: String = ProjectSettings.globalize_path(_dir)
+	var d: DirAccess = DirAccess.open(abs)
+	if d == null:
+		return
+	for f: String in d.get_files():
+		if f.ends_with(".png"):
+			d.remove(f)
+
+
+## Raise the render size without touching the design viewport. See the header.
+##
+## The window is resized AND the root viewport is told the same size, because on some
+## platforms the second does not follow the first inside the same frame — and a
+## capture that reads `root.get_texture()` at the old size silently writes the old
+## resolution while reporting the new one.
+func _set_render_size() -> void:
+	var want := Vector2i(maxi(_width, 320), maxi(_height, 180))
+	if DisplayServer.get_name() == "headless":
+		return
+	DisplayServer.window_set_size(want)
+	root.size = want
 
 
 ## ⚠ THE DIRECTOR IS FETCHED AFTER THE FIRST FRAME, NOT IN `_initialize`.
 ##
 ## A node added while the SceneTree is still inside `_initialize` does not get its
-## `_ready` synchronously — so `VersusArena._ready` has not run yet, the arena has
-## not built its fighters, its camera or its director, and `clip_director()` returns
-## null. Asking once at construction time therefore always answers "no director",
-## and the tool silently degrades to a fixed capture that rolls from frame one and
-## reports `heat 0.00` for its whole length. MEASURED, not assumed: the first run of
-## this tool did exactly that, and `tools/bot_sim.gd` carries the same note about
-## the same trap for the same reason.
+## `_ready` synchronously — so the scene has not built its fighters, its camera or its
+## director, and `clip_director()` returns null. Asking once at construction time
+## therefore always answers "no director", and the tool silently degrades to a fixed
+## capture that rolls from frame one and reports `heat 0.00` for its whole length.
+## MEASURED, not assumed: the first run of this tool did exactly that, and
+## `tools/bot_sim.gd` carries the same note about the same trap for the same reason.
 func _bind_director() -> void:
-	if _director != null or _arena == null:
+	if _director != null or _match == null:
 		return
-	if not _arena.has_method("clip_director"):
-		return
-	_director = _arena.call("clip_director")
+	for child: Node in _match.get_children():
+		if child.has_method("clip_director"):
+			_director = child.call("clip_director")
+			break
 	if _director == null:
 		print("[clip] ⚠ no ClipDirector — the arena did not build one. "
 			+ "Framing falls back to the plain pair camera and the clip will roll "
@@ -165,10 +211,12 @@ func _parse_args() -> void:
 			"difficulty": _difficulty = clampi(int(value), 0, 3)
 			"seconds": _seconds = maxf(float(value), 1.0)
 			"fps": _fps = clampi(int(value), 5, 60)
-			"hp": _hp = maxi(int(value), 20)
+			"hp": _hp = maxi(int(value), 40)
+			"round": _round = maxf(float(value), 5.0)
 			"patience": _patience = maxf(float(value), 0.0)
 			"tail": _tail = maxf(float(value), 0.0)
-			"ringout": _ringout = value != "0"
+			"width": _width = maxi(int(value), 320)
+			"height": _height = maxi(int(value), 180)
 			"out": _out = value
 
 
@@ -189,14 +237,17 @@ func _run() -> void:
 	var max_saved: int = int(_seconds * float(_fps))
 	# Hard ceiling on frames WALKED, so a fight that never catches (or a bug that
 	# freezes one) cannot hang the tool forever.
-	var max_walk: int = int((_patience + _seconds + _tail + 4.0) * 60.0)
+	var max_walk: int = int((_patience + _seconds + _tail + 8.0) * 60.0)
 	while _saved < max_saved and _walked < max_walk:
 		await process_frame
 		await RenderingServer.frame_post_draw
 		_walked += 1
 		if _walked == 2:
-			_bind_director()   # the arena's _ready has run by now — see _bind_director
+			_bind_director()   # the scene's _ready has run by now — see _bind_director
 		var now: float = float(_walked) / 60.0
+		if _decided_at < 0.0 and _match_over():
+			_decided_at = now
+			print("[clip] the match resolved at %.1fs — %s" % [now, _outcome()])
 		if not _rolling:
 			# ROLL WHEN THE FIGHT CATCHES, or when patience runs out — an unexciting
 			# clip is still better than no clip, and "it never got hot" is itself a
@@ -218,10 +269,11 @@ func _run() -> void:
 		if _saved % 30 == 0:
 			print("[clip] saved %d frames (%.1fs of clip, heat %.2f)"
 				% [_saved, float(_saved) / float(_fps), _heat()])
-		# STOP ON THE KO, plus a short tail. A clip that keeps rolling past the
-		# knockdown is mostly a still frame of a corpse.
-		if _knocked_down() and _since_ko() >= _tail:
-			print("[clip] knockdown — closing the shot")
+		# STOP ON THE RESULT, plus a tail long enough to hold the freeze and the
+		# card. A clip that keeps rolling past the ending is mostly a still frame; a
+		# clip that cuts before the card throws away its own payoff.
+		if _decided_at >= 0.0 and now - _decided_at >= _tail:
+			print("[clip] result held — closing the shot")
 			break
 	_write_manifest()
 	print("[clip] DONE — %d frames (%.1fs) in %s"
@@ -232,9 +284,9 @@ func _run() -> void:
 	quit(0)
 
 
-# ---- director questions, each guarded so a missing director degrades rather than
-# crashes. Without one the tool still works — it simply rolls from frame one and
-# runs to the frame budget, i.e. it becomes `bot_clip_capture` with a manifest.
+# ---- questions, each guarded so a missing director or scene degrades rather than
+# crashes. Without a director the tool still works — it simply rolls from frame one
+# and runs to the frame budget.
 
 func _is_hot() -> bool:
 	return _director != null and bool(_director.call("is_hot"))
@@ -244,28 +296,42 @@ func _heat() -> float:
 	return 0.0 if _director == null else float(_director.call("heat"))
 
 
-func _knocked_down() -> bool:
-	return _director != null and bool(_director.call("saw_knockdown"))
+func _match_over() -> bool:
+	if _match == null or not is_instance_valid(_match) or not _match.has_method("match_over"):
+		# Fall back to the director's own latch, which still catches a decisive beat
+		# on a stage that has no match spine.
+		return _director != null and bool(_director.call("saw_knockdown"))
+	return bool(_match.call("match_over"))
 
 
-func _since_ko() -> float:
-	return 0.0 if _director == null else float(_director.call("seconds_since_knockdown"))
+func _result() -> Dictionary:
+	if _match == null or not is_instance_valid(_match) or not _match.has_method("result"):
+		return {}
+	return _match.call("result") as Dictionary
 
 
-## The clip's own paperwork, beside its frames. What was shot, how, and what the
-## director thought happened — enough to re-shoot it or to cut it down without
+func _outcome() -> String:
+	var r: Dictionary = _result()
+	return "%s %s" % [String(r.get("outcome", "?")), String(r.get("winner", ""))]
+
+
+## The clip's own paperwork, beside its frames. What was shot, how, who won, and what
+## the director thought happened — enough to re-shoot it or to cut it down without
 ## watching it back frame by frame.
 func _write_manifest() -> void:
 	var payload: Dictionary = {
 		"matchup": "%s_vs_%s" % [_name(_class_a), _name(_class_b)],
 		"class_a": _class_a, "class_b": _class_b,
 		"difficulty": _difficulty, "hp": _hp,
+		"render": "%dx%d" % [_width, _height],
 		"fps": _fps, "frames": _saved,
 		"seconds": snappedf(float(_saved) / float(_fps), 0.01),
 		"rolled_at": snappedf(_roll_started_at, 0.01),
+		"decided_at": snappedf(_decided_at, 0.01),
+		"result": _result(),
 		"director": {} if _director == null else _director.call("report"),
-		"encode": "python python-tools/frames_to_gif.py %s --fps %d --width 720"
-			% [ProjectSettings.globalize_path(_dir), _fps],
+		"encode": "python python-tools/make_clip.py --no-shoot --a %d --b %d --out %s"
+			% [_class_a, _class_b, _out],
 		"godot": Engine.get_version_info().get("string", ""),
 	}
 	var f: FileAccess = FileAccess.open("%s/clip.json" % _dir, FileAccess.WRITE)

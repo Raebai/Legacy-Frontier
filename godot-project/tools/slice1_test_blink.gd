@@ -76,10 +76,15 @@ func _make_hero() -> CharacterBody2D:
 	return hero
 
 
+## ⚠ CONTRACT CHANGED (maker: "blink should just be in the direction it is facing
+## ... not just side to side"). This suite used to drive `_move_dir`, which is a
+## HORIZONTAL unit vector by construction — so the thing it was asserting could
+## never have gone anywhere but left or right. Blink now follows `_aim_dir`, the
+## same 360° player-aimed vector the spells use, and this test drives that.
 func _test_blink_moves_along_facing() -> void:
 	var hero: CharacterBody2D = _make_hero()
 	hero.global_position = Vector2(5000.0, 5000.0)  # open space, far from anything
-	hero._move_dir = Vector2.DOWN  # blink follows the MOVEMENT direction now
+	hero._aim_dir = Vector2.DOWN  # blink follows where you are AIMING now
 	var origin: Vector2 = hero.global_position
 
 	hero._blink()
@@ -103,7 +108,7 @@ func _test_blink_moves_along_facing() -> void:
 func _test_blink_respects_cooldown() -> void:
 	var hero: CharacterBody2D = _make_hero()
 	hero.global_position = Vector2(5000.0, 8000.0)
-	hero._move_dir = Vector2.RIGHT
+	hero._aim_dir = Vector2.RIGHT
 
 	hero._blink()
 	var after_first: Vector2 = hero.global_position
@@ -141,12 +146,15 @@ func _test_blink_iframes_block_damage_then_expire() -> void:
 func _test_blink_zero_facing_guard() -> void:
 	var hero: CharacterBody2D = _make_hero()
 	hero.global_position = Vector2(8000.0, 8000.0)
-	hero._move_dir = Vector2.ZERO  # unreachable in play, but the guard must hold
+	# Unreachable in play (aim persists), but the guard chain must hold: aim, then
+	# the last walk direction, then RIGHT.
+	hero._aim_dir = Vector2.ZERO
+	hero._move_dir = Vector2.ZERO
 	var origin: Vector2 = hero.global_position
 
 	hero._blink()
 	_expect(
 		hero.global_position.distance_to(origin + Vector2.RIGHT * hero.BLINK_DISTANCE) < 1.0,
-		"zero movement dir falls back to RIGHT"
+		"zero aim + zero movement dir falls back to RIGHT"
 	)
 	_completes("blink_zero_facing_guard")

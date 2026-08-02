@@ -134,9 +134,157 @@ const LINES: Dictionary = {
 		"not done with me.",
 		"redrawn, and worse.",
 	],
+	## PHASE THREE. Split off `boss_phase` because a third break is not a fourth
+	## quarter — it is the guardian deciding the page is expendable.
+	&"boss_final": [
+		"the page is mine now.",
+		"then we both burn.",
+		"nothing below this line.",
+	],
 	&"boss_down": [
 		"even ink runs.",
 		"crossed out.",
+	],
+
+	# ── THE FOUR ARTISTS ────────────────────────────────────────────────────
+	# Per-guardian variants of the four beats above, reached through
+	# `say_variant(who, base, boss.bark_suffix())` — an unauthored suffix simply
+	# falls back to the generic row, so a fifth boss speaks the moment it exists
+	# and gets its own voice whenever somebody writes one.
+	#
+	# The register is DEITY, not monster. Each of these is a hand that has drawn
+	# whole floors; none of them explains itself, and none of them says more than
+	# one line, because a god that monologues is a codex with extra steps.
+
+	# THE ASHSPIRE GUARDIAN — charcoal colossus, the first idea, never corrected.
+	&"boss_arrive_guardian": [
+		"i was the first shape.",
+		"stone. before anything else.",
+		"the page begins with me.",
+	],
+	&"boss_phase_guardian": [
+		"the hand presses harder.",
+		"deeper into the stone.",
+	],
+	&"boss_final_guardian": [
+		"i am the last line.",
+		"burn the page, then.",
+	],
+	&"boss_down_guardian": [
+		"back to charcoal.",
+		"smudge me, then.",
+	],
+
+	# THE SCRIBBLE — a child's hand, pressed to tearing. It is a tantrum with a body.
+	&"boss_arrive_scribble": [
+		"SCRIBBLE SCRIBBLE SCRIBBLE.",
+		"i got made ANGRY.",
+		"the hand was little.",
+	],
+	&"boss_phase_scribble": [
+		"HARDER. press HARDER.",
+		"over and over and over.",
+	],
+	&"boss_final_scribble": [
+		"TEAR THE PAPER.",
+		"scribble it ALL out.",
+	],
+	&"boss_down_scribble": [
+		"rubbed out.",
+		"aww.",
+	],
+
+	# THE CARTOGRAPHER — a draughtsman. It does not draw a monster; it draws the floor.
+	&"boss_arrive_cartographer": [
+		"you stand where i drew.",
+		"the floor is my line.",
+		"measured. plotted. mine.",
+	],
+	&"boss_phase_cartographer": [
+		"redrawing the floor.",
+		"new lines. same page.",
+	],
+	&"boss_final_cartographer": [
+		"every line at once.",
+		"the last measure.",
+	],
+	&"boss_down_cartographer": [
+		"off the plan.",
+		"my scale was wrong.",
+	],
+
+	# THE ILLUMINATOR — gold leaf on vellum, and it has done this before.
+	&"boss_arrive_illuminator": [
+		"i have done this before.",
+		"gold, on the last page.",
+		"the light was always mine.",
+	],
+	&"boss_phase_illuminator": [
+		"gilding what is left.",
+		"the page begins to shine.",
+	],
+	&"boss_final_illuminator": [
+		"the final page opens.",
+		"everything, illuminated.",
+	],
+	&"boss_down_illuminator": [
+		"the gold runs.",
+		"unfinished, after all.",
+	],
+
+	# ── THE ELITES ──────────────────────────────────────────────────────────
+	# A named body in a wave of eleven. It gets ONE line when it arrives and one
+	# more on the beat that defines it — everything else it does it does with its
+	# mouth alone (`voice_only`), because two elites narrating a floor is a
+	# tickertape and the hero's own lines are what the player is listening for.
+	#
+	# Each announce row is written so an experienced player hears WHICH affix is on
+	# the floor: the quickened one gabbles, the inked one barely moves its mouth,
+	# the keen one asks, the herald addresses the room rather than you.
+	&"elite_quickened": [
+		"drawn in a hurry.",
+		"no time. no time.",
+		"faster than the hand.",
+	],
+	&"elite_inked": [
+		"pressed in deep.",
+		"i don't move.",
+		"part of the page now.",
+	],
+	&"elite_smudged": [
+		"here. no — here.",
+		"smeared sideways.",
+		"the hand slipped.",
+	],
+	&"elite_volatile": [
+		"still wet.",
+		"not dry yet.",
+		"careful with me.",
+	],
+	&"elite_keen": [
+		"drawn watching.",
+		"i know that shape.",
+		"i see the line coming.",
+	],
+	&"elite_herald": [
+		"the page is listening.",
+		"the hand is coming.",
+		"all of you. up.",
+	],
+	## THE HOWL. The one elite line that is a MECHANIC — it is the callout that
+	## says "burn the glowing one first", and in co-op it is the cheapest possible
+	## shout-at-your-friend moment. Always fires; never sampled.
+	&"elite_herald_call": [
+		"UP. ALL OF YOU.",
+		"the hand presses harder.",
+		"faster. now.",
+	],
+	## The fizz warning, once, as it crosses into the burst band. It is a real read
+	## — "finish it somewhere else" — so it gets the bubble the pulsing alone lacks.
+	&"elite_volatile_fizz": [
+		"it's running.",
+		"too wet. too wet.",
+		"i'm coming open.",
 	],
 }
 
@@ -158,8 +306,82 @@ const MOODS: Dictionary = {
 	&"enemy_die": Gibberish.Mood.DIE,
 	&"boss_arrive": Gibberish.Mood.SHOUT,
 	&"boss_phase": Gibberish.Mood.SHOUT,
+	&"boss_final": Gibberish.Mood.SHOUT,
 	&"boss_down": Gibberish.Mood.DIE,
+
+	# The four artists. Same beats, different temperaments — the Scribble screams
+	# its whole fight, the Cartographer states things, the Illuminator is unhurried
+	# until the last page, and the Guardian is stone that has decided to speak.
+	&"boss_arrive_guardian": Gibberish.Mood.MUTTER,
+	&"boss_phase_guardian": Gibberish.Mood.SHOUT,
+	&"boss_final_guardian": Gibberish.Mood.SHOUT,
+	&"boss_down_guardian": Gibberish.Mood.DIE,
+	&"boss_arrive_scribble": Gibberish.Mood.SHOUT,
+	&"boss_phase_scribble": Gibberish.Mood.SHOUT,
+	&"boss_final_scribble": Gibberish.Mood.SHOUT,
+	&"boss_down_scribble": Gibberish.Mood.DIE,
+	&"boss_arrive_cartographer": Gibberish.Mood.TALK,
+	&"boss_phase_cartographer": Gibberish.Mood.TALK,
+	&"boss_final_cartographer": Gibberish.Mood.SHOUT,
+	&"boss_down_cartographer": Gibberish.Mood.DIE,
+	&"boss_arrive_illuminator": Gibberish.Mood.MUTTER,
+	&"boss_phase_illuminator": Gibberish.Mood.TALK,
+	&"boss_final_illuminator": Gibberish.Mood.SHOUT,
+	&"boss_down_illuminator": Gibberish.Mood.DIE,
+
+	# The elites. The mood IS the tell: a rising QUESTION is the keen one reading
+	# you, a SHOUT is the herald addressing the room, a MUTTER is the inked one
+	# refusing to be impressed.
+	&"elite_quickened": Gibberish.Mood.SHOUT,
+	&"elite_inked": Gibberish.Mood.MUTTER,
+	&"elite_smudged": Gibberish.Mood.TALK,
+	&"elite_volatile": Gibberish.Mood.SHOUT,
+	&"elite_keen": Gibberish.Mood.QUESTION,
+	&"elite_herald": Gibberish.Mood.SHOUT,
+	&"elite_herald_call": Gibberish.Mood.SHOUT,
+	&"elite_volatile_fizz": Gibberish.Mood.HURT,
 }
+
+# ═════════════════════════════════════════════════════════════ voice identity
+## Metadata a speaker may carry to override how its mouth is derived. All three
+## are OPTIONAL — a body with none of them speaks exactly as before, from its node
+## name, which is what every mob in the game does.
+##
+## ⚠ WHY A META AND NOT THE NODE NAME. `Gibberish.voice_of` reads `name`, and a
+## node's name is assigned by whichever parent adopts it — in co-op the two peers'
+## arenas do not necessarily hand the same body the same name, so a name-derived
+## voice can differ across a party. Anything with BILLING (an elite, a guardian)
+## therefore stamps a seed derived from REPLICATED data instead: the spawn
+## dictionary for an elite, the class's own title for a boss. Both are identical on
+## every peer by construction, so the same body sounds the same on both phones.
+const SEED_META: StringName = &"voice_seed"     ## int — a stable identity
+const BAND_META: StringName = &"voice_band"     ## Vector2i — a pitch slice (lo, hi)
+const DB_META: StringName = &"voice_db"         ## float — billing, in dB
+
+
+## The full voice dict for a speaker, honouring any of the three metas above.
+static func voice_of_node(who: Object) -> Dictionary:
+	if who == null:
+		return Gibberish.voice(0)
+	var seed: int = -1
+	if who is Node and (who as Node).has_meta(SEED_META):
+		seed = int((who as Node).get_meta(SEED_META))
+	if seed < 0:
+		return _banded(Gibberish.voice_of(who), who)
+	return _banded(Gibberish.voice(seed), who)
+
+
+static func _banded(v: Dictionary, who: Object) -> Dictionary:
+	if not (who is Node) or not (who as Node).has_meta(BAND_META):
+		return v
+	var band: Vector2i = (who as Node).get_meta(BAND_META) as Vector2i
+	return Gibberish.voice_in_bands(int(v.get("seed", 0)), band.x, band.y)
+
+
+static func voice_db_of(who: Object) -> float:
+	if who is Node and (who as Node).has_meta(DB_META):
+		return float((who as Node).get_meta(DB_META))
+	return 0.0
 
 
 # ══════════════════════════════════════════════════════════════════ the picker
@@ -217,14 +439,31 @@ static func say(who: Node, event: StringName, always: bool = false, roll: int = 
 	return true
 
 
+## THE SAME BARK, IN A NAMED SPEAKER'S OWN WORDS.
+##
+## Tries `<event>_<suffix>` and falls back to `<event>` when nobody has written the
+## variant. That fallback is the whole design: `VoiceDirector` asks every guardian
+## for a suffix and never has to know which of them have lines, so a boss added
+## tomorrow speaks immediately in the generic voice and gets its own the moment
+## somebody writes a row for it. An empty suffix is just `say()`.
+static func say_variant(who: Node, event: StringName, suffix: String,
+		always: bool = false, roll: int = -1) -> bool:
+	if suffix != "":
+		var special := StringName("%s_%s" % [event, suffix])
+		if LINES.has(special):
+			return say(who, special, always, roll)
+	return say(who, event, always, roll)
+
+
 ## Speak with no bubble — just the mouth. For the moments where a line would be
 ## noise but silence is worse: taking a hit, dying, swinging at nothing.
 static func voice_only(who: Node, mood: int, syllables: int = 0) -> void:
 	if who == null or not is_instance_valid(who) or not who.is_inside_tree():
 		return
 	var sfx: Node = _sfx(who)
-	if sfx != null and sfx.has_method(&"speak_for"):
-		sfx.call(&"speak_for", who, mood, syllables)
+	if sfx == null or not sfx.has_method(&"speak_voice"):
+		return
+	sfx.call(&"speak_voice", voice_of_node(who), mood, syllables, voice_db_of(who))
 
 
 # ══════════════════════════════════════════════════════════════════ internals
@@ -254,10 +493,11 @@ static func _off_cooldown(who: Node) -> bool:
 
 static func _voice(who: Node, event: StringName, text: String) -> void:
 	var sfx: Node = _sfx(who)
-	if sfx == null or not sfx.has_method(&"speak_for"):
+	if sfx == null or not sfx.has_method(&"speak_voice"):
 		return
 	var mood: int = mood_for(event)
-	sfx.call(&"speak_for", who, mood, Gibberish.syllables_for_text(text, mood))
+	sfx.call(&"speak_voice", voice_of_node(who), mood,
+		Gibberish.syllables_for_text(text, mood), voice_db_of(who))
 
 
 ## Reach the Sfx autoload through the TREE, never as a bare global identifier.
