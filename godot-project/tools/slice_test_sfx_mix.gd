@@ -304,10 +304,24 @@ func _test_footstep_fires_on_the_gait() -> void:
 	var step_len: float = leg * float(consts.get("STEP_LENGTH_FACTOR"))
 	var expected: int = int((vx * seconds) / step_len)
 	var got: int = _count_plants(rig, seconds, 1.0 / 60.0, vx)
-	# Generous band: the swing takes real time, so the stride lags the ideal spacing.
+	# ⚠ THE UPPER BOUND WAS ACCIDENTALLY CALIBRATED AGAINST A BROKEN GAIT.
+	#
+	# `expected` models ONE plant per STEP_LENGTH of travel. The rig's real geometry
+	# plants roughly every 0.8 of that, because the feet alternate — so the true count
+	# has always been higher than this model, and `expected + 2` only ever passed
+	# because the gait was DROPPING about a quarter of its steps at 60 Hz. It ran one
+	# iteration per physics frame while a step triggers every ~1.8 frames, so plants
+	# aliased against the frame grid: 29 plants at 60 Hz against 36 at 120 Hz. Fixing
+	# that (the gait is sub-stepped now, and the count is 37/38/38 at 60/120/240 Hz)
+	# turned this assertion red — the test was pinned to the bug.
+	#
+	# The model stays an approximation on purpose; the invariant worth having here is
+	# "cadence is PROPORTIONAL TO DISTANCE, not to frames", so the band brackets the
+	# geometry rather than predicting it to the step. Tick-rate independence itself is
+	# pinned properly and exactly by `slice_test_rig_tickrate`.
 	_expect(
-		got > expected / 3 and got <= expected + 2,
-		"running %.1fs at %.0f px/s plants feet in proportion to distance (got %d, ideal %d)"
+		got > expected / 3 and got <= expected * 2,
+		"running %.1fs at %.0f px/s plants feet in proportion to distance (got %d, model %d)"
 				% [seconds, vx, got, expected]
 	)
 	_expect(got > 0, "a run plants feet at all")

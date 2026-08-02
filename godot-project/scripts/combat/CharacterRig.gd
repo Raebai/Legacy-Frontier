@@ -216,6 +216,17 @@ const STRIDE_BOB_FACTOR: float = 0.05
 const STEP_SFX_DB: float = -6.0
 const STEP_SFX_PITCH_VAR: float = 0.16   # ±16% per step so a run doesn't machine-gun one tone
 const STEP_SFX_DB_VAR: float = 2.2       # ± dB per step — footfalls are never identical weight
+## THE LAST UNPORTED LINE OF THE SPIKE'S FOOTSTEP GUARD (`SpikeFigure.gd:53`).
+##
+## The pitch and dB variance above came across; the FLOOR BETWEEN STEPS did not, and
+## its comment there says exactly why it exists: "a jittery gait can't stutter-fire".
+## Without it the rig fired a step every time the gait said so, and once the gait was
+## sub-stepped back to its tuned resolution that became ~19 steps/second at a 53 ms
+## spacing — a machine-gun, and audibly wrong on the one sound the player hears most.
+##
+## It is a floor, not a rate limit: a slow walk is untouched, and only a cadence
+## faster than a human foot can fall gets swallowed.
+const STEP_SFX_MIN_GAP: float = 0.085
 ## Above this looseness the figure is ragdolling (hit flail, airborne trail, hold-
 ## DOWN flop) and has no feet under it to plant, so no step fires. Deliberately
 ## well under AIR_LOOSE_RISING (0.42) so leaving the ground silences steps at once.
@@ -404,12 +415,33 @@ const UPRIGHT_RECOVER_MAX_SPIN: float = 1.2
 ## fires (~220) leans the body a few degrees and a full clash jolt (900) topples it —
 ## the same outcomes the spike produces at its own amplitudes.
 const IMPULSE_TO_SPIN: float = 0.0055
-## Integration sub-step for the body springs, and its ceiling. 1/480 s is comfortably
-## inside the stiff ride spring's stability and accuracy band; the cap bounds the cost
-## of a single long frame (an alt-tab, a level load) to 8 iterations of ~10 float ops.
+## Integration sub-step for the body springs AND the gait, and its ceiling. 1/480 s is
+## comfortably inside the stiff ride spring's stability and accuracy band; the cap
+## bounds the cost of a single long frame (an alt-tab, a level load).
 ## See the ⚠ in _step_body for why this exists at all.
+##
+## ⚠ THE CAP WAS 8, WHICH IS EXACTLY THE 60 Hz REQUIREMENT — I.E. ZERO HEADROOM.
+##
+## The spike hosts force 120 Hz (`RigSpikeController`, `SpellPlaygroundController`), so
+## a 1/120 frame asks for 4 sub-steps and sits at half the cap. The shipped game runs 60
+## (`project.godot [physics]`), where 1/60 / (1/480) is 8 ON THE NOSE. At exactly 60 Hz
+## that still resolves to a true 1/480 s sub-step, so the springs themselves were never
+## degraded — MEASURED, see tools/rig_tickrate_trace.gd, `ride_y` converges to 0.02 px.
+## But every path that hands `advance()` something longer than 1/60 silently integrated
+## COARSER than the numbers were tuned at, with no margin at all: `Engine.time_scale`
+## above 1, any owner accumulating deltas, and every capture harness that drives the rig
+## by hand. 16 buys a full 1/30 s frame at the tuned resolution.
+##
+## And the headroom is FREE AT THE RATES WE ACTUALLY SHIP, which is the part worth
+## knowing: `delta / BODY_SUBSTEP` is exactly 8.0 at 60 Hz and exactly 4.0 at 120 Hz, so
+## `ceil` returns the same count under either ceiling and the sub-step loop runs an
+## identical number of times. Raising the cap changes NOTHING in the nominal case — it
+## only stops a long frame (1/30 s) being integrated at half resolution, where the old
+## cap silently halved it. Measured cost of the springs overall, per
+## tools/bench_rig_substep.gd at 25 rigs: 0.04-0.23 ms/frame depending on state and
+## machine load, against a 16.67 ms budget.
 const BODY_SUBSTEP: float = 1.0 / 480.0
-const BODY_MAX_SUBSTEPS: int = 8
+const BODY_MAX_SUBSTEPS: int = 16
 
 ## Master switch for the floating-capsule body springs. ON everywhere by default —
 ## this is the rig, not an effect. It exists for two reasons: the A/B capture
@@ -593,6 +625,10 @@ var _hand_fire_element: int = -1
 ## --- floating-capsule body state (see the FLOATING-CAPSULE BODY block) ---
 ## Vertical displacement of the body from its rest height, in LOCAL px, POSITIVE =
 ## sunk/compressed. Written out to the node's own `position.y` each frame.
+## Wall-clock of the last footstep sound, for STEP_SFX_MIN_GAP. Wall-clock rather
+## than an accumulated rig clock so the floor stays a real 85 ms even under a
+## hitstop's 0.05 time_scale — a freeze must not bank up a burst of steps.
+var _last_step_sfx: float = -999.0
 var _ride: float = 0.0
 var _ride_vel: float = 0.0
 ## Body lean in radians, world space. Written out to the node's own `rotation`.
@@ -753,6 +789,15 @@ func _track_body_motion(delta: float) -> void:
 	_was_airborne = airborne
 
 
+## How many sub-steps this frame is worth, at the tuned 1/480 s resolution.
+##
+## ONE budget shared by the body springs and the gait, deliberately: they are two halves
+## of the same figure and a stride that advances on a different clock from the squash is
+## how the feet stop agreeing with the hips. See the ⚠ on BODY_MAX_SUBSTEPS.
+func _substeps(delta: float) -> int:
+	return clampi(int(ceil(delta / BODY_SUBSTEP)), 1, BODY_MAX_SUBSTEPS)
+
+
 ## Length scale for everything ported from the spike: it hand-tuned its amplitudes
 ## against an ~86 px figure, and this rig draws fighters from 31 px to the Guardian's
 ## 60. Frequencies are NOT scaled (see the constants block) — only lengths.
@@ -805,7 +850,7 @@ func _step_body(delta: float) -> void:
 	# It also makes the feel FRAME-RATE INDEPENDENT, which matters beyond correctness:
 	# without it the same jump lands heavier at 30 fps than at 144 fps, and the maker
 	# would be tuning against their own monitor.
-	var steps: int = clampi(int(ceil(delta / BODY_SUBSTEP)), 1, BODY_MAX_SUBSTEPS)
+	var steps: int = _substeps(delta)
 	var sdt: float = delta / float(steps)
 	# ONE-SIDED spring + constant weight — see the ⚠ on RIDE_SAG_FACTOR. `sag` is the
 	# rest compression that exactly balances the weight, so a standing figure idles at
@@ -989,6 +1034,7 @@ func _update_gait(delta: float) -> void:
 	# stride correctly. One frame of history, guarded so a teleport/blink can't be read
 	# as a 20,000 px/s sprint.
 	var gx: float = global_position.x
+	var gx_start: float = _prev_gx if _prev_gx_valid else gx
 	if _prev_gx_valid:
 		var raw: float = (gx - _prev_gx) / delta
 		if absf(raw) < 4000.0:
@@ -996,6 +1042,7 @@ func _update_gait(delta: float) -> void:
 		else:
 			_gait_speed = 0.0
 			_gait_ready = false   # blink/teleport: re-seed the plants at the new spot
+			gx_start = gx         # nothing to interpolate across a teleport
 	_prev_gx = gx
 	_prev_gx_valid = true
 
@@ -1029,29 +1076,63 @@ func _update_gait(delta: float) -> void:
 	var moving: bool = absf(_gait_speed) > GAIT_IDLE_SPEED
 	var step_len: float = leg * STEP_LENGTH_FACTOR
 	if moving:
+		# ⚠ SUB-STEPPED, AND THIS IS THE "HE WALKS WEIRD ON HIS LEGS" BUG.
+		#
+		# The gait was the LAST thing in the rig still running one iteration per physics
+		# frame, and it is the part with the shortest natural period, so it was the part
+		# that could least afford it. Do the arithmetic at the speed a fighter actually
+		# runs: leg = height * 0.4 = 12.4 px on a 31 px hero, so a step triggers every
+		# `leg * STEP_TRIGGER_FACTOR` = 6.2 px of travel, and at Hero.SPEED (210 px/s)
+		# that is a step every 0.03 s — under TWO physics frames at 60 Hz. The swing
+		# itself is worse: `rate` saturates at SWING_RATE_FAST, so `delta * rate` = 0.5
+		# per frame and the entire lift-arc-plant resolves in TWO samples, one of which
+		# is the apex. The whole cycle is ~3.5 frames wide.
+		#
+		# At 120 Hz — which is what BOTH spike hosts force, and therefore the only tick
+		# rate this rig's feel was ever signed off at — the same cycle is ~7 frames and
+		# reads as a stride. At the shipped 60 Hz the trigger phase aliases against the
+		# frame grid, so steps land at irregular intervals and the plants drift up to
+		# 19 px (60% of the figure's height) from where the same walk puts them at
+		# 120 Hz. MEASURED, not reasoned: tools/rig_tickrate_trace.gd, `foot0_x`.
+		# Irregular step timing on world-locked feet is precisely a limp.
+		#
+		# The fix is resolution, not retuning: NOT ONE GAIT CONSTANT CHANGES. The body
+		# travels at essentially constant velocity within a physics frame, so `gx` is
+		# linearly interpolated across the frame and the trigger fires at the world x it
+		# would have fired at on a finer clock. Sub-stepping can only move the gait
+		# TOWARD its 120 Hz behaviour, never away from it — the same argument that makes
+		# the body springs' sub-stepping safe.
+		#
+		# A step may now both COMPLETE and RE-TRIGGER inside one frame. That is correct
+		# and is exactly what happens across two frames at 120 Hz; `foot_planted` fires
+		# per plant either way, so the signal and the footstep audio stay honest.
 		var walk_dir: float = signf(_gait_speed)
-		if _swing_t >= 1.0:
-			# Step whichever foot is furthest BEHIND along the direction of travel.
-			var behind: int = 0 if (_plant_w[0].x - _plant_w[1].x) * walk_dir <= 0.0 else 1
-			if (gx - _plant_w[behind].x) * walk_dir > leg * STEP_TRIGGER_FACTOR:
-				_swing_foot = behind
-				_swing_from = _plant_w[behind]
-				_swing_to = Vector2(gx + walk_dir * step_len, floor_w)
-				_swing_t = 0.0
-		else:
-			# Complete the swing in ~1/SWING_DUTY of the interval between steps at this
-			# speed, so the foot is always down before the next one is due.
-			var rate: float = clampf(
-				absf(_gait_speed) / maxf(step_len, 0.001) * SWING_DUTY,
-				SWING_RATE_SLOW, SWING_RATE_FAST
-			)
-			_swing_t += delta * rate
+		var rate: float = clampf(
+			absf(_gait_speed) / maxf(step_len, 0.001) * SWING_DUTY,
+			SWING_RATE_SLOW, SWING_RATE_FAST
+		)
+		var steps: int = _substeps(delta)
+		var sdt: float = delta / float(steps)
+		for s: int in steps:
+			var gx_s: float = lerpf(gx_start, gx, float(s + 1) / float(steps))
 			if _swing_t >= 1.0:
-				_swing_t = 1.0
-				_plant_w[_swing_foot] = _swing_to
-				foot_planted.emit()
-				if step_sfx:
-					_play_step_sfx()
+				# Step whichever foot is furthest BEHIND along the direction of travel.
+				var behind: int = 0 if (_plant_w[0].x - _plant_w[1].x) * walk_dir <= 0.0 else 1
+				if (gx_s - _plant_w[behind].x) * walk_dir > leg * STEP_TRIGGER_FACTOR:
+					_swing_foot = behind
+					_swing_from = _plant_w[behind]
+					_swing_to = Vector2(gx_s + walk_dir * step_len, floor_w)
+					_swing_t = 0.0
+			else:
+				# Complete the swing in ~1/SWING_DUTY of the interval between steps at
+				# this speed, so the foot is always down before the next one is due.
+				_swing_t += sdt * rate
+				if _swing_t >= 1.0:
+					_swing_t = 1.0
+					_plant_w[_swing_foot] = _swing_to
+					foot_planted.emit()
+					if step_sfx:
+						_play_step_sfx()
 	else:
 		# Idle: stop stepping and let the feet ease back under the hips, so a standing
 		# fighter settles into a clean stance instead of marching on the spot.
@@ -1088,6 +1169,12 @@ func _play_step_sfx() -> void:
 	# --script test harness produces.
 	if not is_inside_tree():
 		return
+	# The spike's stutter-fire floor — see STEP_SFX_MIN_GAP. Checked before the tree
+	# lookup is used but after the detached guard, so a harness still exits cheaply.
+	var now: float = float(Time.get_ticks_msec()) / 1000.0
+	if now - _last_step_sfx < STEP_SFX_MIN_GAP:
+		return
+	_last_step_sfx = now
 	var sfx: Node = get_tree().root.get_node_or_null(^"Sfx")
 	if sfx != null and sfx.has_method(&"play"):
 		sfx.call(
