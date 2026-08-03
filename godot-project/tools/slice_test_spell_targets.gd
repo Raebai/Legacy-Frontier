@@ -100,7 +100,15 @@ class Silhouette extends Node2D:
 	## build) and CharacterRig.HIP_Y_FACTOR became derived — 0.5 - LEG_REACH_FACTOR *
 	## LEG_REACH_USABLE — which puts the hips a hair ABOVE the figure's mid-line,
 	## exactly where SpikeFigure's are. See tools/slice_test_rig_posture.gd.
-	const HIP_Y_FACTOR: float = 0.5 - 0.52 * 0.97
+	## ...and moved again with the STANDING pass: `LEG_REACH_USABLE` 0.97 -> 0.998, so
+	## the body stands at very nearly its full leg length instead of 3% short. That 3%
+	## sounds like nothing and was not — a two-bone IK takes its square root, so the
+	## knee jutted 8.3% of figure height and every figure in the game stood in a
+	## half-squat. The hip therefore rides slightly higher, the drawn silhouette is
+	## slightly taller, and this hand-copy has to follow or the hit shape stops matching
+	## the drawn one. That is exactly what `_test_stub_matches_real_enemy` is for, and
+	## it caught this the moment the real constant moved.
+	const HIP_Y_FACTOR: float = 0.5 - 0.52 * 0.998
 	const MARGIN_FACTOR: float = 0.155
 
 	var height: float = RIG_H

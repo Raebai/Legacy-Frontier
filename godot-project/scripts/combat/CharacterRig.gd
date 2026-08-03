@@ -334,9 +334,25 @@ const IDLE_SETTLE: float = 0.25
 const THIGH_FACTOR: float = 0.26
 const SHIN_FACTOR: float = 0.26
 const LEG_REACH_FACTOR: float = THIGH_FACTOR + SHIN_FACTOR
-## Fraction of that reach the ride dip aims for, so a planted leg is near-straight at
-## the extremes of the stride but never dead straight (which reads as a stilt).
-const LEG_REACH_USABLE: float = 0.97
+## Fraction of that reach the body STANDS at, and the single number behind "everyone's
+## legs are bent and weird — I need them to be straight when standing".
+##
+## ⚠ A TINY SHORTFALL DRAWS A HUGE BEND, because a two-bone IK takes the SQUARE ROOT
+## of it. The knee's sideways displacement is `thigh * sqrt(1 - u^2)`, so:
+##       u = 0.97   ->  knee juts 8.3% of figure height   (MEASURED at rest)
+##       u = 0.998  ->  knee juts ~1.6%
+## At 0.97 that is a quarter of the leg's own length thrown sideways — the figure
+## stands in a permanent half-squat. "3% short" sounds like nothing and is not.
+##
+## The old value was chosen so a planted leg is "never dead straight (which reads as a
+## stilt)". That intent is kept — 0.998 is still short of the bone length, so the IK
+## never hits its singularity and the knee still has a side to bend to — but the
+## visible crouch is gone. A stickman standing still has straight legs; that is most
+## of what makes it read as a stickman at all.
+##
+## Enemy.RIG_LEG_LEN_FACTOR / RIG_HIP_Y_FACTOR are DERIVED from this (not copied), so
+## every enemy, boss and thrall in the game stands up with the same edit.
+const LEG_REACH_USABLE: float = 0.998
 ## Hip-to-foot distance at rest — the height the body actually STANDS at. Derived,
 ## not authored, so it can never disagree with the leg it hangs off.
 const LEG_LEN_FACTOR: float = LEG_REACH_FACTOR * LEG_REACH_USABLE
@@ -2435,7 +2451,20 @@ func _compute_pose() -> Dictionary:
 
 	match state:
 		State.IDLE:
-			bob = sin(_phase * 2.0) * height * 0.03
+			# ⚠ THE BREATH ONLY LIFTS — it must never press the hip DOWN.
+			#
+			# This was `sin(_phase * 2.0) * height * 0.03`, a symmetric bob, so for half
+			# of every cycle it drove the hip 3% of the figure's height BELOW its
+			# standing position. The feet are ground-locked, so that shortfall has
+			# nowhere to go but the knees, and a two-bone IK takes its SQUARE ROOT —
+			# MEASURED, the knee jutted 8.3% of figure height at rest and the figure
+			# stood in a permanent half-squat. A stick figure standing still has
+			# straight legs; that is most of what makes it read as a stickman.
+			#
+			# `-absf(sin)` keeps the same breathing rhythm and spends it entirely on the
+			# UP stroke, where a planted leg simply straightens instead of folding.
+			# Smaller too, because it no longer has to be felt through a crouch.
+			bob = -absf(sin(_phase * 2.0)) * height * 0.012
 		State.AIR:
 			# STILL no scripted jump pose (maker: "there shouldnt be like a jump pose it
 			# should be ragdoll exactly like Stick Fight"). What the TARGET now is, ported
