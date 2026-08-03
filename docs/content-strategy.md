@@ -75,7 +75,7 @@ A consistent persona/handle makes the project recognisable. Some considerations:
 
 - **Pick a handle.** Doesn't have to be the developer's real name. Could be a handle that ties to the game (`@legacyfrontier`, `@towerdev`, `@frontiergamedev`, etc.).
 - **Lean into the *journey* of building, not biography.** Audience cares about the game and the path; they don't need life story.
-- **Goldman-analyst-builds-AI-RPG is a hook**, but it can be told entirely through screen and voice. *"My day job is finance; my real obsession is this game."* No face required.
+- **finance-analyst-builds-AI-RPG is a hook**, but it can be told entirely through screen and voice. *"My day job is finance; my real obsession is this game."* No face required.
 - **Honesty about challenges.** When things break, show them. When something works, show why it almost didn't. *"Build in public"* means real, not curated.
 
 ---

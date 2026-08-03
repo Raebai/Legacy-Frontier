@@ -30,7 +30,7 @@ Until this is done, an export attempt fails with precisely:
 
 ```
 No export template found at the expected path:
-C:/Users/Raaed/AppData/Roaming/Godot/export_templates/4.6.2.stable/android_debug.apk
+C:/Users/<user>/AppData/Roaming/Godot/export_templates/4.6.2.stable/android_debug.apk
 ```
 
 ### 1.2 Install the Android SDK + JDK and point the editor at them (one-time)

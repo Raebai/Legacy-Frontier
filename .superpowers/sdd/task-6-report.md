@@ -74,7 +74,7 @@ Full sweep of every `godot-project/tools/slice*_test_*.gd`: **PASS=43 FAIL=0**.
 headless-teardown warnings, not failures.)
 
 ## GPU captures (for the controller to eyeball)
-- `C:\Users\Raaed\AppData\Roaming\Godot\app_userdata\Legacy Frontier\verify_sheet.png`
+- `C:\Users\Ari\AppData\Roaming\Godot\app_userdata\Legacy Frontier\verify_sheet.png`
   — cell [1] (top-right) is the airborne/rising frame. It SHOULD show loose, slightly
   trailing/hanging limbs on the blue hero (no stiff knee-tuck, no jog-in-air). Grounded
   cells [0]/[2]/[3] show the settled foot-planted stance + staff/parry/cast, unchanged.

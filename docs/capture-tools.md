@@ -20,7 +20,7 @@ python python-tools/run_capture.py boss --open     # ...and open the output fold
 renderer: every tool runs, every tool reports success, and every PNG is blank.
 The runner always picks the GUI build so this cannot happen by accident.
 
-Frames land in `C:\Users\Raaed\AppData\Roaming\Godot\app_userdata\Legacy Frontier`.
+Frames land in `C:\Users\Ari\AppData\Roaming\Godot\app_userdata\Legacy Frontier`.
 
 ## The tools
 

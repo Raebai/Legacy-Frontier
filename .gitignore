@@ -110,3 +110,6 @@ npm-debug.log*
 # --- Local tooling (Claude Code session data, Godot editor binary) ---
 .claude/
 godot-engine/
+
+# --- Local MCP config (machine-specific absolute paths) ---
+.mcp.json

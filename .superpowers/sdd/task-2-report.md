@@ -39,7 +39,7 @@
 
 ## GPU capture (feel judged by eye)
 - Command: `godot-engine/Godot_v4.6.2-stable_win64.exe --path godot-project --script tools/verify_feel_capture.gd`
-- Output: `C:\Users\Raaed\AppData\Roaming\Godot\app_userdata\Legacy Frontier\verify_sheet.png` (also `user://verify_sheet.png`).
+- Output: `C:\Users\Ari\AppData\Roaming\Godot\app_userdata\Legacy Frontier\verify_sheet.png` (also `user://verify_sheet.png`).
 - What it shows (confirmed by a 3× zoom-crop): **bold dark-outlined blue stick puppet** with a clear keyline; in cell [0] (idle, aim right) the **feet are planted on the terrain floor — no float**; in cell [3] (cast, aim up-right) the **lead hand VFX points up-right at the aim**; cell [2] shows the parry shield arc. No physics/query errors during the live raycast run.
 - Note: cell [1] ("jump") still shows the run-leg pose because **Hero's state SELECTION (choosing AIR on `!is_on_floor()`) is Task 6** and out of scope here — the rig now *provides* the AIR pose + `set_air_phase`, but nothing calls `play(State.AIR)` yet. This is the intended interface hand-off.
 
