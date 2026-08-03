@@ -823,7 +823,15 @@ static func _reflex(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 		# Press EARLY and hold. The perfect band opens ~0.37 s into the shrink, so
 		# a guard pressed on contact has already lost; guard_hold_until is what
 		# carries the press across the frames until the blow lands.
-		m.guard_hold_until = now + GUARD_SHRINK + GUARD_HOLD_TAIL
+		# Hold only as long as the guard is worth anything. A press-window class CANNOT
+		# extend its window by holding — the press is edge-triggered — so the flat
+		# 0.48 s hold was up to 0.32 s of standing still with no guard up. That is not
+		# merely wasted: a guarding frame issues no attack AND sets `foe_guarding` on
+		# the opponent's blackboard, so it also talks them out of swinging. Two bots
+		# politely declining to fight is the exact degenerate the stagnation breaker
+		# exists to undo.
+		m.guard_hold_until = now + float(bb.get("guard_lead", GUARD_BAND_BLADE)) \
+			+ float(bb.get("guard_tolerance", 0.0)) + GUARD_HOLD_TAIL
 	return _reflex_intent(action, dir, now, m)
 
 
@@ -868,7 +876,17 @@ static func _caps(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 	# WINDOW. We want the blow to arrive in the middle of the shrinking ring's
 	# perfect band; guard skill decides how near that middle we aim, and the
 	# remainder becomes a real mistiming that really eats the hit.
-	var band: float = GUARD_BAND_SIGIL if sigil else GUARD_BAND_BLADE
+	# ⚠ PREFER THE BODY'S OWN NUMBER — the same "read it from the seam" rule
+	# `dash_dist` already follows, and for the same reason: the consts below describe
+	# a shrinking ParryRing, and SEVEN OF NINE CLASSES HAVE NO RING AT ALL. They run a
+	# press window that opens immediately and lasts 0.16 s, so a 0.374 s lead pressed
+	# the guard and let it lapse a fifth of a second before the blow arrived. The style
+	# enum could not carry this: `guard_style` is documented as "0 BLADE / 1 SIGIL"
+	# here and as "0 = a press window, 1 = a held BLADE ring" on the body, which are
+	# opposite meanings. The consts survive as the fallback for a body that publishes
+	# nothing (an Enemy).
+	var band: float = float(bb.get("guard_lead",
+		GUARD_BAND_SIGIL if sigil else GUARD_BAND_BLADE))
 	var skill: float = BotProfile.get_f(profile, "guard")
 	var slack: float = lerpf(0.16, 0.03, clampf(skill, 0.0, 1.0))
 	var tti: float = float(threat.get("tti", 99.0))

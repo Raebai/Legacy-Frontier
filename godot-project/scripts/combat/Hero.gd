@@ -1136,6 +1136,31 @@ func bot_body_state() -> Dictionary:
 		# narrower perfect band. A brain that times a guard identically for both
 		# is wrong for one of them.
 		"guard_style": 1 if _guard != null else 0,
+		# ⚠ HOW EARLY THE GUARD MUST BE PRESSED, IN SECONDS, AND HOW FAR OFF THAT A
+		# PRESS MAY BE AND STILL CONNECT. Numbers, not a style enum — and that
+		# distinction is the whole bug this closes.
+		#
+		# The two guard shapes are not two settings of one clock. A PRESS WINDOW opens
+		# IMMEDIATELY and lasts `_parry_window_len` (0.16 s, or 0.40 s for the
+		# Juggernaut's "block"). The BLADE RING opens its perfect band ~0.33 s AFTER the
+		# press. `BotBrain` inferred the lead from `guard_style` — and read that field
+		# with the OPPOSITE meaning to the one documented here (its header says
+		# "0 BLADE / 1 SIGIL", this one says "0 = a press window"). So every
+		# press-window class was treated as a shrinking ring and pressed 0.374 s early,
+		# into a window that had lapsed 0.21 s before the blow arrived.
+		#
+		# MEASURED on real Hero scenes through the real `take_damage` path: 7 of 9
+		# classes could not convert a reflex parry at ANY difficulty tier. Across 18
+		# duels the brain committed 50 parries and landed ~3 — and 56 of 57 hits taken
+		# within 3 s of a guard press arrived with the window already shut. The only
+		# two classes that ever deflected were the Juggernaut (0.40 s window, wide
+		# enough to catch the mistimed press) and the Swordsaint (an actual ring).
+		"guard_lead": (ParryRing.SHRINK_TIME
+			* (_guard.perfect_start() + ParryRing.PERFECT_END) * 0.5) if _guard != null
+			else (_parry_window_len * 0.5),
+		"guard_tolerance": (ParryRing.SHRINK_TIME
+			* (ParryRing.PERFECT_END - _guard.perfect_start()) * 0.5) if _guard != null
+			else (_parry_window_len * 0.5),
 		"can_parry": bool(_cfg.get("can_parry", false)),
 	}
 
