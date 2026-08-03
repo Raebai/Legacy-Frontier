@@ -348,7 +348,14 @@ const HIP_Y_FACTOR: float = 0.5 - LEG_LEN_FACTOR
 ## Ceiling on the stride dip, as a fraction of height. Without it a foot target left
 ## somewhere absurd (a blink mid-swing, a rig teleported by a test) could fold the
 ## figure into the floor. At the shipped stride the real dip peaks well under this.
-const MAX_STRIDE_DIP_FACTOR: float = 0.14
+## ⚠ WAS 0.14, AND IT WAS LOAD-BEARING FOR REACH RATHER THAN A WALK BOB. The dip
+## drops head / neck / hip / shoulders so the legs can still touch their plants, and
+## with the drawn leg free to stretch it never had to recover: MEASURED mean hip
+## height 14.1-14.4 px against 15.64 standing, i.e. the figure walked permanently
+## 8-10% shorter than it stands, for as long as it kept moving. Once the drawn leg is
+## held to its own bones (see `draw_figure`) the dip stops carrying reach and can go
+## back to being a subtle bob. FEEL — the maker judges this number at F5.
+const MAX_STRIDE_DIP_FACTOR: float = 0.05
 ## Footstep audio. OFF by default and per-instance: this rig drives every enemy
 ## as well as the hero, and a room of eight enemies all ticking would be a
 ## cacophony — the owner opts in (see `step_sfx`). Levels are UNTESTED GUESSES;
@@ -2460,7 +2467,14 @@ func _compute_pose() -> Dictionary:
 			# for the free, flowy Stick-Fight walk.
 			var sp: float = _phase * RUN_PHASE_RATE
 			var swing: float = sin(sp) * 1.1
-			lean = height * 0.13
+			# ⚠ THE RUN LEAN WAS COUNTED TWICE. This shifts `head_center.x` forward by
+			# 0.13 of the figure height — 4.03 px on an 8.85 px torso, which is 24.5 deg
+			# of SPINE tilt on its own — and the node ALSO pitches by `RUN_LEAN`. The
+			# figure therefore ran bent double. `SpikeFigure` keeps its spine a rigid
+			# vertical line in torso space and puts 100% of the lean in body rotation
+			# (`RUN_LEAN` 0.16 rad = 9.2 deg); that is the architectural difference
+			# behind "not straight". FEEL — the maker judges this number at F5.
+			lean = height * 0.04
 			leg_lead = PI * 0.5 - swing
 			leg_off = PI * 0.5 + swing
 			# Lift whichever leg is swinging back (knee bends up) — both legs, opposite
@@ -2690,8 +2704,28 @@ static func draw_figure(
 	var shin: float = fig_height * SHIN_FACTOR
 	var upper: float = fig_height * 0.2
 	var fore: float = fig_height * 0.2
+	# ⚠ NEVER DRAW A LIMB LONGER THAN ITS OWN BONES. `_ik_joint` CLAMPS its reach
+	# (`d = clampf(dist, .., l1 + l2 - 0.01)`) — but the drawn shin then ran from that
+	# clamped knee to the RAW, unclamped foot, so whatever the clamp refused to solve
+	# was simply drawn as extra shin. MEASURED on the shipped build: the drawn leg
+	# reached 1.449x thigh+shin, the shin alone hit 1.9x its own length, and because
+	# the clamp had collapsed the bend to 0.28 px the knee sat on the straight line —
+	# one long straight stick with no knee in it, on 28-43% of moving frames.
+	#
+	# THAT is "the legs are not straight or look like a stickman". It is not the lean
+	# and it is not the plants: the spine angle is identical to the decimal with the
+	# gait on and off (25.6 / 28.1 / 40.3 deg across the same six shots).
+	#
+	# Re-deriving the drawn foot from the SOLVED leg is `SpikeFigure.gd:2092` verbatim,
+	# and it is the Stick Fight push-off rather than a compromise: the trailing heel
+	# lifts and the knee bends behind you instead of the leg scraping after the body.
+	# The PLANT is untouched (`_plant_w` never sees this), so nothing here reintroduces
+	# skating — measured drift of the drawn foot off its plant is <= 2.3 px in steady
+	# state, against the 12.6 px ring the last rig fix removed.
 	var knee_lead: Vector2 = _ik_joint(hip, foot_lead, thigh, shin, Vector2.RIGHT)
+	foot_lead = knee_lead + (foot_lead - knee_lead).normalized() * shin
 	var knee_off: Vector2 = _ik_joint(hip, foot_off, thigh, shin, Vector2.RIGHT)
+	foot_off = knee_off + (foot_off - knee_off).normalized() * shin
 	var elbow_lead: Vector2 = _ik_joint(shoulder, hand_lead, upper, fore, Vector2.DOWN)
 	var elbow_off: Vector2 = _ik_joint(shoulder, hand_off, upper, fore, Vector2.DOWN)
 
