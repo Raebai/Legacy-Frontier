@@ -130,7 +130,7 @@ func revive_progress() -> float:
 
 
 ## Label for the pad. Deliberately the VERB, not a name: at 640x360 with a fight on,
-## "REVIVE" is legible and "Revive Raaed" is a smear.
+## "REVIVE" is legible and "Revive Ari" is a smear.
 func revive_label() -> String:
 	return "" if not can_revive() else "REVIVE"
 

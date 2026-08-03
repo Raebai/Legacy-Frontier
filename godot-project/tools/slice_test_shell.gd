@@ -333,7 +333,7 @@ func _test_discovered_hosts_become_buttons() -> void:
 	var lobby: Control = _get_lobby()
 	var stub: _NetStub = _with_stub_net()
 	stub.hosts = [
-		{"ip": "192.168.1.44", "port": 24565, "name": "RAAED-PHONE"},
+		{"ip": "192.168.1.44", "port": 24565, "name": "ARI-PHONE"},
 		{"ip": "192.168.1.9", "port": 24999, "name": "OTHER-PHONE"},
 	]
 	lobby.call("_open_join")
@@ -349,7 +349,7 @@ func _test_discovered_hosts_become_buttons() -> void:
 		_expect(b.custom_minimum_size.y >= MIN_TAP_H,
 			"a host row is thumb-sized (got %.0f)" % b.custom_minimum_size.y)
 		_expect(b.focus_mode == Control.FOCUS_NONE, "a host row takes no focus ring")
-	_expect(joined.contains("RAAED-PHONE"), "the host's NAME is what you tap (got %s)" % joined)
+	_expect(joined.contains("ARI-PHONE"), "the host's NAME is what you tap (got %s)" % joined)
 
 	# Tapping one must join THAT host, at THAT port. The port comes off the
 	# beacon, not off a constant — hardcoding DEFAULT_PORT breaks the moment

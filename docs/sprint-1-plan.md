@@ -153,7 +153,7 @@ We are **skipping Sprint 0** entirely (decision D-026). The user is learning by 
 - *Deferred save vs. immediate:* we'll save on dialogue close to avoid disk I/O per turn. If Godot crashes mid-conversation we lose the in-flight exchange — acceptable for v0.0; tighten later.
 
 **Done when:**
-- Have a conversation with the NPC. Mention something specific (e.g., "my name is Raaed and I love tigers").
+- Have a conversation with the NPC. Mention something specific (e.g., "my name is Ari and I love tigers").
 - Close Godot.
 - Re-launch Godot. Walk back to the NPC. Open dialogue.
 - Ask: "do you remember anything about me?"

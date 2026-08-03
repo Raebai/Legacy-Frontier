@@ -181,14 +181,14 @@ Append-only decision log. Newest entries at the bottom. Format per the operating
 ## D-025 — MCP-first funding strategy
 
 - **Decision:** Self-fund through the MCP (~Tier 2). Don't pursue publishers, grants, or investors until the MCP is playable.
-- **Reason:** Pre-prototype, almost no funder will write checks. With an MCP and audience, doors open. Self-funding through Tier 2 is feasible given the user's existing income (Goldman role).
+- **Reason:** Pre-prototype, almost no funder will write checks. With an MCP and audience, doors open. Self-funding through Tier 2 is feasible given the user's existing income (day-job role).
 - **Alternatives considered:** Pursue funding from day one (rejected — wasted effort, weak position); fund only at launch (rejected — leaves money on the table during alpha); take on investor before product exists (rejected — bad terms, distraction).
 - **Status:** Locked.
 
 ## D-026 — Skip Sprint 0; learn Godot by reading the code shipped
 
 - **Decision:** Skip Sprint 0 (the tutorial-driven Godot learning runway in `roadmap.md`) entirely. Go directly from scaffolding to v0.0 implementation. The user (a Godot beginner with strong Python fluency) learns Godot concepts by reading the code Claude writes during v0.0 milestones, with concepts annotated inline in 1–2 sentence explanations as they appear. If velocity feels too high, the user pauses Claude with *"explain that"* and gets a deeper walkthrough.
-- **Reason:** The user explicitly opted to skip tutorials in favour of learning-by-doing on the real project, in service of part-time velocity and content-strategy deadlines. The Sprint 0 "Goldman analyst learning Godot" content beat is also retired by this decision (it surfaced a partial-dox concern around naming the day-job employer in public posts).
+- **Reason:** The user explicitly opted to skip tutorials in favour of learning-by-doing on the real project, in service of part-time velocity and content-strategy deadlines. The Sprint 0 "finance analyst learning Godot" content beat is also retired by this decision (it surfaced a partial-dox concern around naming the day-job employer in public posts).
 - **Alternatives considered:** Run Sprint 0 fully as written (rejected — slower; user prefers learning on the real codebase); a half-Sprint-0 of just the official "Your First 2D Game" tutorial (rejected as still slower than the chosen path; can be revisited if v0.0 milestones reveal genuine fundamentals gaps).
 - **Status:** Locked. Risk: heavier inline annotation burden on Claude during v0.0 milestones, accepted.
 - **Date locked:** 2026-05-05.

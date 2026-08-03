@@ -127,8 +127,8 @@ func _test_merge_run_fact(GS: GDScript) -> void:
 	_expect(run_marked == 1, "exactly one run-marked fact survives")
 	_expect(String(merged2[merged2.size() - 1]) == f2, "newest run fact is last")
 	# Non-run facts are preserved.
-	var with_durable: Array = GS.merge_run_fact(["name is Raaed", f1], f2, 5)
-	_expect(with_durable.has("name is Raaed"), "durable fact preserved through merge")
+	var with_durable: Array = GS.merge_run_fact(["name is Ari", f1], f2, 5)
+	_expect(with_durable.has("name is Ari"), "durable fact preserved through merge")
 	# Cap is enforced by oldest-drop.
 	var capped: Array = GS.merge_run_fact(["a", "b", "c", "d", "e"], f2, 5)
 	_expect(capped.size() == 5, "cap enforced")

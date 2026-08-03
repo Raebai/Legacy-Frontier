@@ -237,7 +237,7 @@ A core principle: **every tier ships with one or more videoable moments.** Each 
 
 | Tier | Content beat |
 |------|--------------|
-| Sprint 0 | Learning journey: *"I'm a Goldman analyst learning Godot"* |
+| Sprint 0 | Learning journey: *"I'm a finance analyst learning Godot"* |
 | 1 / v0.0 | *"My NPC remembers me — watch this"* |
 | v0.5 | *"The world is bigger now — and they talk"* |
 | 1.5 | *"First combat, first death"* |

@@ -859,6 +859,17 @@ func _test_blackboard_sees_only_drawn_threats() -> void:
 	_expect(float(circle.get("tti", -1.0)) > 0.0, "the tell publishes a live countdown")
 	_expect(BotDodge.point_in_region(live.global_position, circle["region"]),
 		"the region drops straight into BotDodge.point_in_region")
+	# ⚠ A TELL IS PARRYABLE, and saying otherwise silently deleted the defensive verb
+	# for the entire family it was built for. `_caps` ANDs `threat.parryable` into
+	# `can_parry`, so a false here makes BotDodge's parry rung unreachable — and
+	# telegraphs are exactly the non-travelling spells (beams, meteors, zones,
+	# pillars) that `SpellDeflect` exists to let a guard EAT, its own header having
+	# settled the policy as "nothing is unparryable". It holds on the enemy side too:
+	# a telegraphed enemy attack lands through `Hero.take_damage`, which returns early
+	# on `_parry_window_timer` and on a PERFECT `ParryRing`. Both damage paths honour
+	# a raised guard; only perception disagreed.
+	_expect(bool(circle.get("parryable", false)),
+		"an armed tell reports as PARRYABLE (both damage paths already honour a guard)")
 
 	# A bolt somebody ELSE threw is a threat, and reports a real travel velocity.
 	var other: CharacterBody2D = _make_hero(_plot(11) + Vector2(400.0, 0.0))
