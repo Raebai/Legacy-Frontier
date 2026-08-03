@@ -26,6 +26,7 @@ extends SceneTree
 
 const TESTS: Array[String] = [
 	"every_kit_beats_bare_fists",
+	"hex_hits_are_per_spell_not_a_flat_fudge",
 	"tiers_are_unchanged_by_the_damage_pass",
 	"tier_inputs_untouched",
 	"melee_constants_still_match_hero",
@@ -42,6 +43,51 @@ const SINGLE_TARGET_HITS: Dictionary = {
 	"FLURRY": 3.0, "MISSILES": 2.5, "METEOR": 3.0, "TETHER": 5.0, "ZONE": 4.0,
 }
 
+## ⚠ `HEX` IS NOT IN THE TABLE ABOVE AND MUST NOT BE, AND THIS IS THE WHOLE REASON
+## THIS BLOCK EXISTS.
+##
+## Every other row up there is keyed by KIND because a kind IS one spectacle: every
+## FLURRY is `BladeFlurry`, every ZONE is `ZoneSpell`. `SpellDef.Kind.HEX` is the one
+## kind that is not — it is the arm that forks on ID (`SpellCaster.HEX_SCRIPTS`), and
+## after the anti-recolour pass it carries FOURTEEN different spells: eleven class
+## signatures plus three floor pickups. A single `"HEX": n` row would be a hidden
+## fudge applied to fourteen unrelated spectacles at once — the exact thing this
+## file's own header calls out as the reason `SINGLE_TARGET_HITS` is written per-Kind
+## and reviewable rather than baked into the sim.
+##
+## It is not a hypothetical. A flat `"HEX": 3.0` — the value that happens to make
+## every class clear the floor — reports the Brawler at 88.5 dps and the Swordsaint
+## at 113.6, because it multiplies a 165-damage single-body crater and a 96-damage
+## single-body draw-cut by three. That is not a passing test, it is a broken model
+## that passes.
+##
+## So: per ID, each derived from the spectacle's own constants, exactly like the
+## per-Kind rows.
+##   thousand_cuts  — `count` (7) cuts on ONE anchored body, then a finisher worth
+##                    `ThousandCuts.FINAL_MULT` (2.4) of a cut. 7 + 2.4 = 9.4.
+##   radiant_volley — `RadiantVolley.WAVES` is [5, 7, 9] = 21 parallel lances across
+##                    a band ~68 px wide. A body squarely IN the band eats most of a
+##                    lane-width's worth; 6 is a deliberately conservative "stood in
+##                    the middle", and the edge case is genuinely 1 (that is the
+##                    spell's entire design — position is the damage dial).
+##   heavens_wrath  — `HeavensWrath.STRIKES` is 5, but each picks its own mark and a
+##                    marked body has `MARK_TELL` (0.45 s) to leave. 3 of 5 against
+##                    a target that is also trying to fight.
+##   grave_tide     — the catch hit, plus the hold's drain: `HOLD_TIME` 1.7 /
+##                    `DRAIN_EVERY` 0.35 ≈ 5 ticks of `DRAIN_PER_TICK` 6 = 30, which
+##                    against a 118 catch is a further 0.25 of a hit. 1.25.
+## Everything absent is 1.0, which is the honest answer for the single-body melee
+## hexes (Iai Slash, Crescent Step, Shockwave Stomp, Meteor Fist, Shatter, Fault
+## Line) and for the ones that deal no direct damage at all (Raise Thrall, Mirror
+## Image, Petrify, Gravity Flip, Blood Pact — see the model's stated limitation in
+## `SpellLibrary`'s DPS-floor block).
+const HEX_SINGLE_TARGET_HITS: Dictionary = {
+	"thousand_cuts": 9.4,
+	"radiant_volley": 6.0,
+	"heavens_wrath": 3.0,
+	"grave_tide": 1.25,
+}
+
 ## THE SHELF OF EVERY SHIPPED SPELL, by id. A damage pass must not move any of
 ## these — `SpellTier.of()` reads cast_time / cooldown / mp_cost and NOT damage, so
 ## if this table ever fails, someone changed a timing or a cost while believing they
@@ -53,6 +99,24 @@ const EXPECTED_TIER: Dictionary = {
 	"chain_lightning": "QUICK", "rune_orbs": "HEAVY", "blade_flurry": "QUICK",
 	"blizzard": "HEAVY", "drain_tether": "HEAVY", "void_zone": "HEAVY",
 	"blink_strike": "HEAVY", "rock_wall": "HEAVY", "frozen_comet": "ULT",
+	# THE ANTI-RECOLOUR SIGNATURES. Every one of them declares `cast_time = 0.0` — a
+	# positive cast time routes the cast through Hero's LEVITATING channel, which is
+	# wrong for a stomp, a draw-cut, a dash or a tide out of the floor, and each of
+	# them owns its own telegraph instead. So the five that must be ULT-shelf reach
+	# it through COOLDOWN and MP only, which is exactly the "any ONE of these is
+	# enough" clause in `SpellTier.of`. If one of them ever drops off the ULT shelf
+	# its class's ULT SLOT becomes illegal and `slice8_test_spell_kits` goes red — so
+	# these five rows are load-bearing twice over.
+	"thousand_cuts": "ULT", "meteor_fist": "ULT", "fault_line": "ULT",
+	"heavens_wrath": "ULT", "grave_tide": "ULT",
+	"iai_slash": "HEAVY", "crescent_step": "HEAVY", "shockwave_stomp": "HEAVY",
+	"radiant_volley": "HEAVY", "shatter": "HEAVY", "raise_thrall": "HEAVY",
+	# ...and the two spells the pass MOVED between shelves / tables, pinned so the
+	# move cannot silently undo itself:
+	#   mirror_image was a Tier 2 drop and is the Arcanist's control slot now;
+	#   aegis_ward was costed as an ULT (11 s cooldown) and equipped by nobody, and
+	#   came down to 6.8 s so the Cleric could actually hold it in a non-ult slot.
+	"mirror_image": "HEAVY", "aegis_ward": "HEAVY",
 }
 
 var _fails: int = 0
@@ -65,6 +129,7 @@ func _process(_delta: float) -> bool:
 		return false
 	_ran = true
 	_test_every_kit_beats_bare_fists()
+	_test_hex_hits_are_per_spell_not_a_flat_fudge()
 	_test_tiers_are_unchanged_by_the_damage_pass()
 	_test_tier_inputs_untouched()
 	_test_melee_constants_still_match_hero()
@@ -104,6 +169,58 @@ func _test_every_kit_beats_bare_fists() -> void:
 			"class %d's kit does %.1f single-target dps, at or above bare fists (%.1f)"
 				% [cid, dps, fists_dps])
 	_completes("every_kit_beats_bare_fists")
+
+
+## THE POSITIVE HALF OF THE HEX ROW, and the reason it exists: the assertion above
+## is satisfiable by CHEATING. Hand every HEX spell a flat multiplier and all nine
+## classes clear the floor without a single damage number being right — a flat 3.0
+## reports the Brawler at 88.5 dps for a spell that hits one body once. A test that
+## a fake fix can pass is not a test, so this pins the SHAPE of the estimate as well
+## as its effect.
+##
+## Three claims, all of which a flat row would break:
+##   1. The hex estimates are per-ID and the model really reads them (a table
+##      nothing consults is the invariant-on-an-empty-set problem).
+##   2. The single-body melee hexes score exactly ONE hit. Iai Slash, Crescent Step,
+##      Shockwave Stomp, Meteor Fist, Shatter and Fault Line each resolve one damage
+##      query against a given body per cast — read off their spectacles — so any
+##      value above 1.0 is inventing damage that does not exist.
+##   3. A hex that deals no direct damage at all contributes nothing, however many
+##      "hits" it is credited with. `raise_thrall` and `mirror_image` are the two,
+##      and their real contribution (a summon, a clone) is deliberately unmodelled —
+##      which makes the floor conservative rather than generous.
+func _test_hex_hits_are_per_spell_not_a_flat_fudge() -> void:
+	var by_id: Dictionary = {}
+	for s: SpellDef in SpellLibrary.build_all():
+		by_id[s.id] = s
+	# 1. The table is consulted at all, on a spell a class really carries.
+	var cuts: Variant = by_id.get("thousand_cuts")
+	_expect(cuts != null, "thousand_cuts exists in the library")
+	if cuts != null:
+		_expect(int(cuts.kind) == int(SpellDef.Kind.HEX), "thousand_cuts is a HEX")
+		_expect(_hits(cuts) > 1.5,
+			"the per-ID hex table is REACHED (thousand_cuts scores %.1f hits, not the 1.0 default)"
+				% _hits(cuts))
+	# 2. One body, one hit — the six that resolve a single damage query per cast.
+	for id: String in ["iai_slash", "crescent_step", "shockwave_stomp", "meteor_fist",
+			"shatter", "fault_line"]:
+		var s2: Variant = by_id.get(id)
+		_expect(s2 != null, "%s exists in the library" % id)
+		if s2 == null:
+			continue
+		_expect(is_equal_approx(_hits(s2), 1.0),
+			"%s lands ONCE on a single body (%.2f) — a flat HEX multiplier would inflate it"
+				% [id, _hits(s2)])
+	# 3. The unmodelled pair really do contribute zero, so the floor stays conservative.
+	for id2: String in ["raise_thrall", "mirror_image"]:
+		var s3: Variant = by_id.get(id2)
+		_expect(s3 != null, "%s exists in the library" % id2)
+		if s3 == null:
+			continue
+		_expect(int(s3.damage) == 0,
+			"%s deals no DIRECT damage, so the rotation scores it zero and the floor "
+				% id2 + "it clears is the conservative one")
+	_completes("hex_hits_are_per_spell_not_a_flat_fudge")
 
 
 ## The shelf of every spell, by name. See EXPECTED_TIER.
@@ -198,4 +315,9 @@ func _hits(spell: SpellDef) -> float:
 	]
 	if spell.kind < 0 or spell.kind >= names.size():
 		return 1.0
+	# HEX is the id-forked kind — fourteen spectacles behind one enum value — so it
+	# is answered per ID. See HEX_SINGLE_TARGET_HITS for why a flat row would be a
+	# fudge rather than an estimate.
+	if names[spell.kind] == "HEX":
+		return float(HEX_SINGLE_TARGET_HITS.get(spell.id, 1.0))
 	return float(SINGLE_TARGET_HITS.get(names[spell.kind], 1.0))

@@ -24,40 +24,53 @@ extends RefCounted
 ## Spell" and "Thunderclap" — are shipped; do not reintroduce the old ones here
 ## either, since these strings are read by a player on the class-select screen.
 
+##
+## ⚠ RE-DERIVED AGAIN FOR THE ANTI-RECOLOUR PASS. Every blurb below now names the
+## three spells that class ACTUALLY CARRIES (`SpellLibrary.CLASS_KITS` read through
+## `SLOT_ROLES`), because five of the nine used to advertise a beam — Umbral Lance,
+## Infernal Lance, Tempest — that has since left every kit entirely. Advertising a
+## spell nobody holds is the precise failure this header was written about, and it
+## had grown back.
 const CLASSES: Array[Dictionary] = [
-	# 0 ARCANIST — ult Meteor Sigil (was advertising a borrowed beam name it did not
-	# even equip; that was the last player-facing IP borrow outside SpellLibrary).
+	# 0 ARCANIST — carries the Ordinary Spell, MIRROR IMAGE (promoted out of the drop
+	# pool — the only self-duplication in the game) and the Meteor Sigil.
 	{"name": "Arcanist", "fantasy": "Ranged arcane zoner",
-		"kit": "LMB arcane bolt · Q ArcaneStorm · Ult Meteor Sigil", "color": Color(0.95, 0.4, 0.85)},
+		"kit": "LMB arcane bolt · The Ordinary Spell · Mirror Image · Ult Meteor Sigil", "color": Color(0.95, 0.4, 0.85)},
+	# 1 SHADOWBLADE — the Umbral Lance was a violet copy of the Arcanist's beam; the
+	# ult is THOUSAND CUTS now, and the carried middle is the Rift Dagger.
 	{"name": "Shadowblade", "fantasy": "In-and-out assassin",
-		"kit": "LMB dagger flurry · dash-strike · Ult Umbral Lance", "color": Color(0.6, 0.35, 0.9)},
-	# 2 BRAWLER — the Thunderclap is a HEAVY now and cannot sit in an ult slot, so
-	# the class's actual finisher is the Infernal Lance.
+		"kit": "LMB dagger flurry · Blade Flurry · Rift Dagger · Ult Thousand Cuts", "color": Color(0.6, 0.35, 0.9)},
+	# 2 BRAWLER — the card said "no magic" while the class threw a lightning lance
+	# and a fire beam. Both are gone: a stomp and a fist that lands like a meteor.
 	{"name": "Brawler", "fantasy": "Pure-melee knockout — no magic",
-		"kit": "LMB punch/kick combo · double-jump · uppercut · Ult Infernal Lance", "color": Color(1.0, 0.45, 0.15)},
+		"kit": "LMB punch/kick combo · Shockwave Stomp · Rock Wall · Ult Meteor Fist", "color": Color(1.0, 0.45, 0.15)},
 	{"name": "Juggernaut", "fantasy": "Unbreakable siege tank",
-		"kit": "LMB heavy hammer · BLOCK · Q Slam · Ult Colossus Pillar", "color": Color(0.78, 0.55, 0.28)},
+		"kit": "LMB heavy hammer · BLOCK · Boulder Hurl · Rock Pillar · Ult Fault Line", "color": Color(0.78, 0.55, 0.28)},
+	# 4 CLERIC — RADIANT VOLLEY is the archer signature, and the AEGIS WARD (the
+	# game's only protective spell) is finally in somebody's hand.
 	{"name": "Cleric", "fantasy": "Radiant lifesteal bruiser",
-		"kit": "LMB heal-bolt · Q Consecrate · Ult Heaven's Verdict", "color": Color(1.0, 0.93, 0.6)},
-	# 5 CRYOMANCER — Frostpiercer became the DAMAGE line (a short-channel heavy you
-	# throw all fight), so the ult is the Glacial Spine.
+		"kit": "LMB heal-bolt · Radiant Volley · Aegis Ward · Ult Heaven's Verdict", "color": Color(1.0, 0.93, 0.6)},
+	# 5 CRYOMANCER — SHATTER replaces the Frostpiercer beam, and the class's own
+	# Blizzard is its set-up (3x damage on a frozen body).
 	{"name": "Cryomancer", "fantasy": "Ice control caster",
-		"kit": "LMB frost CONE · Q IceShards · Ult Glacial Spine", "color": Color(0.5, 0.85, 1.0)},
+		"kit": "LMB frost CONE · Shatter · Blizzard · Ult Glacial Spine", "color": Color(0.5, 0.85, 1.0)},
+	# 6 STORMCALLER — inherits the Thunderclap off the Brawler, where a lightning
+	# lance contradicted that class's whole card. Its ult is a storm CELL, not a beam.
 	{"name": "Stormcaller", "fantasy": "Hyper-mobile chain caster",
-		"kit": "LMB chain bolt · fast wind-dash · Ult Tempest", "color": Color(1.0, 0.9, 0.3)},
+		"kit": "LMB chain bolt · Chain Lightning · Thunderclap · Ult Heaven's Wrath", "color": Color(1.0, 0.9, 0.3)},
+	# 7 WARLOCK — RAISE THRALL is the only summon in the game.
 	{"name": "Warlock", "fantasy": "Dark attrition hexer",
-		"kit": "LMB drain-bolt · Q CurseChain · Ult Void Barrage", "color": Color(0.6, 0.35, 0.9)},
+		"kit": "LMB drain-bolt · Drain Tether · Raise Thrall · Ult Grave Tide", "color": Color(0.6, 0.35, 0.9)},
 	# 8 SWORDSAINT — the duelist. The only class whose DEFENCE produces its OFFENCE:
 	# RMB is a held BLADE GUARD (ParryRing's shrinking ring) that banks what it turns
 	# away and pays it back as one unsheathe cut. No blink; R is a rising cut.
 	# Steel-white rather than an element tint, because the class deliberately applies
 	# no ailment — the blade is just a blade.
-	# The ult named here is the one it ACTUALLY equips. Horizon Cut is the class's
-	# authored signature and is built (HorizonArc.gd), but it needs a SpellDef.Kind
-	# and a SpellCaster arm before it can hold the slot — so the card must not promise
-	# it yet. That promise-vs-reality gap is the exact bug this file's header is about.
+	# Its damage line was `blade_flurry` — the SHADOWBLADE's spell worn by a second
+	# class. IAI SLASH and CRESCENT STEP are the duelist's own, and Horizon Cut
+	# (HorizonArc.gd) finally holds the ult slot it was authored for.
 	{"name": "Swordsaint", "fantasy": "Guard-and-punish duelist",
-		"kit": "LMB greatsword · RMB held GUARD (bank → cut) · Ult Horizon Cut", "color": Color(0.86, 0.9, 0.96)},
+		"kit": "LMB greatsword · RMB held GUARD (bank → cut) · Iai Slash · Crescent Step · Ult Horizon Cut", "color": Color(0.86, 0.9, 0.96)},
 ]
 
 

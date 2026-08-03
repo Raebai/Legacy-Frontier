@@ -80,7 +80,12 @@ func _completes(test_name: String) -> void:
 func _test_drop_data_shape() -> void:
 	var t2: Array = SpellLibrary.build_tier2()
 	var t3: Array = SpellLibrary.build_tier3()
-	_expect(t2.size() == 6, "six Tier 2 spells (got %d)" % t2.size())
+	# FIVE, not six: `mirror_image` was promoted out of the drop pool into the
+	# Arcanist's control slot by the anti-recolour pass. `build_tier2()` is the
+	# authored SIGNATURE band — the loud floor events — and every invariant in this
+	# suite is a claim about those, not about every spell a floor can produce (the
+	# pool a floor actually rolls from is this plus `SpellDrops._common_pool()`).
+	_expect(t2.size() == 5, "five Tier 2 signature spells (got %d)" % t2.size())
 	_expect(t3.size() == 4, "four Tier 3 spells (got %d)" % t3.size())
 	# Fresh instances every call. A shared Resource between two heroes is how a
 	# Blood Pact buff would end up permanent on somebody else's spell.
@@ -166,14 +171,35 @@ func _test_dispatch_registry_covers_every_drop() -> void:
 		var scr2: GDScript = load(p2) as GDScript
 		_expect(scr2 != null and _declares_method(scr2, "cataclysm"),
 			"CATACLYSM '%s' implements cataclysm()" % s.id)
-	# ...and nothing in a registry that is not a drop, which would be a spell nobody
-	# can ever reach.
+	# ...and nothing in a registry that is not a real spell, which would be an entry
+	# nobody can ever reach.
+	#
+	# ⚠ THIS USED TO SAY "IS NOT A DROP" AND CANNOT ANY MORE, because `Kind.HEX`
+	# stopped meaning "Tier 2 floor pickup". The anti-recolour pass put ELEVEN CLASS
+	# SIGNATURES on that arm — one new `SpellDef.Kind` each would have been ~55 silent
+	# defaults across five files that fall through rather than erroring — so the
+	# registry is now mostly kit spells. The invariant that actually matters is
+	# unchanged and is the one being asserted: every registry key resolves to a real
+	# SpellDef somewhere in the tree. It is only the LOOKUP that widened, from the drop
+	# table to the whole library, because the set being described genuinely grew.
 	for id: Variant in SpellCaster.HEX_SCRIPTS.keys():
-		_expect(SpellLibrary.drop_by_id(String(id)) != null,
+		_expect(SpellLibrary.by_id(String(id)) != null,
 			"HEX registry entry '%s' is a real spell" % id)
 	for id2: Variant in SpellCaster.CATACLYSM_SCRIPTS.keys():
-		_expect(SpellLibrary.drop_by_id(String(id2)) != null,
+		_expect(SpellLibrary.by_id(String(id2)) != null,
 			"CATACLYSM registry entry '%s' is a real spell" % id2)
+	# The CATACLYSM half is still drops-only, and saying so keeps the widening above
+	# from quietly becoming a licence for boss drops to leak into kits.
+	for id3: Variant in SpellCaster.CATACLYSM_SCRIPTS.keys():
+		_expect(SpellLibrary.drop_by_id(String(id3)) != null,
+			"CATACLYSM registry entry '%s' is still a Tier 3 DROP" % id3)
+	# ...and the eleven signatures really are on the HEX arm, asserted positively so
+	# the loop above cannot pass by describing an empty or shrunken registry.
+	for sig: String in ["thousand_cuts", "iai_slash", "crescent_step", "shockwave_stomp",
+			"meteor_fist", "radiant_volley", "shatter", "heavens_wrath", "fault_line",
+			"raise_thrall", "grave_tide"]:
+		_expect(SpellCaster.HEX_SCRIPTS.has(sig),
+			"class signature '%s' has a HEX dispatch entry" % sig)
 	# THE STAMP CONTRACT. `set()` on an undeclared property is a silent no-op, so a
 	# spectacle that does not DECLARE these is a spectacle `SpellCaster._stamp`
 	# writes nothing to — unowned, inert in the whole reaction system, and silent.
@@ -387,7 +413,9 @@ func _test_mirror_refuses_recursion_and_tier3() -> void:
 	var clone: Node2D = (load("res://scripts/combat/MirrorImage.gd") as GDScript).new()
 	root.add_child(clone)
 	clone.set("caster_node", owner_node)
-	MirrorImage.echo(owner_node, SpellLibrary.drop_by_id("mirror_image"),
+	# `by_id`, not `drop_by_id`: Mirror Image is the Arcanist's control slot now, not
+	# a drop, so the drop table correctly answers null for it.
+	MirrorImage.echo(owner_node, SpellLibrary.by_id("mirror_image"),
 		Vector2.ZERO, Color.WHITE, "arcane", clone)
 	_expect((clone.get("_pending") as Array).is_empty(), "a mirrored Mirror Image is dropped")
 	MirrorImage.echo(owner_node, SpellLibrary.drop_by_id("the_void"),

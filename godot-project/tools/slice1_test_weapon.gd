@@ -82,9 +82,36 @@ func _make_hero() -> CharacterBody2D:
 func _test_default_weapon_is_fists() -> void:
 	var hero: CharacterBody2D = _make_hero()
 	_expect(hero._weapon == "fists", "default weapon is fists")
-	_expect(hero._melee_damage == 14, "fists damage 14")
-	_expect(hero._melee_range == 58.0, "fists range 58")
-	_expect(hero._melee_knockback == 300.0, "fists knockback 300 (Slice 3 shove bump)")
+	# ⚠ THE FISTS ROW IS NO LONGER WHAT THE DEFAULT HERO SWINGS WITH, and the numbers
+	# below moved for a reason rather than drifted. Every class now carries its own
+	# melee profile in `CLASS_CONFIG` (five of the nine used to be byte-identical — see
+	# tools/slice_test_class_movement.gd), and `configure_class` applies those overrides
+	# ON TOP of the weapon row. So there are two separate claims here and this suite
+	# makes both, instead of conflating them into one that silently stopped being about
+	# weapons at all:
+	#
+	#   1. WEAPON_STATS["fists"] is what `equip_weapon("fists")` writes — the weapon
+	#      layer, which is what this file is for. Read FROM the table: a hand-copied
+	#      literal is not a reference, and this suite's whole job is that table.
+	#   2. The default hero (Arcanist) then swings its own class profile, which is
+	#      DIFFERENT from the fists row and must be.
+	var fists: Dictionary = hero.WEAPON_STATS["fists"]
+	hero.equip_weapon("fists")
+	_expect(hero._melee_damage == int(fists["damage"]),
+		"equip_weapon('fists') writes WEAPON_STATS damage (%d)" % int(fists["damage"]))
+	_expect(is_equal_approx(hero._melee_range, float(fists["range"])),
+		"equip_weapon('fists') writes WEAPON_STATS range (%.1f)" % float(fists["range"]))
+	_expect(is_equal_approx(hero._melee_knockback, float(fists["knockback"])),
+		"equip_weapon('fists') writes WEAPON_STATS knockback (%.1f)" % float(fists["knockback"]))
+	# ...and re-applying the class puts the ARCANIST's own staff-poke profile back over
+	# the top of it. Compared against the class row, never against a literal.
+	hero.configure_class(hero.HeroClass.MAGE)
+	var row: Dictionary = hero.CLASS_CONFIG[hero.HeroClass.MAGE]
+	_expect(hero._melee_damage == int(row["melee_damage"]),
+		"the default class swings its OWN melee damage (%d), not the fists baseline"
+			% int(row["melee_damage"]))
+	_expect(hero._melee_damage != int(fists["damage"]),
+		"the Arcanist's melee is genuinely distinct from the bare-fists row")
 	_expect(
 		hero.rig.equipment.get("weapon", "") == "staff",
 		"mage preset staff visual until a pickup swaps it"

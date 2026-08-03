@@ -181,16 +181,35 @@ func _test_signature_loadouts() -> void:
 		_expect(not loadout.is_empty(), "class %d has a signature loadout" % cls)
 		for s in loadout:
 			_expect(s is SpellDef and s.display_name != "", "class %d loadout entries are named SpellDefs" % cls)
-	# Brawler (2) opens on the Thunderclap lightning RUSH (renamed from the borrowed
-	# technique name in the IP pass — the id moved too, nothing persists spell ids).
+	# Brawler (2) opens on the SHOCKWAVE STOMP. It used to open on the Thunderclap — a
+	# LIGHTNING lance charged into the fist, on the one class whose card reads
+	# "pure-melee knockout, NO MAGIC". The anti-recolour pass moved the Thunderclap to
+	# the Stormcaller, where a lightning lance belongs, and gave this class a boot
+	# driven into the floor: no projectile, no corridor, a ridge that runs the ground.
 	var brawler: Array = SpellLibrary.build_for_class(2)
-	_expect(brawler[0].id == "thunderclap", "Brawler's damage slot is the Thunderclap")
-	_expect(int(brawler[0].kind) == int(SpellDef.Kind.RUSH), "Thunderclap is a RUSH-kind spell")
+	_expect(brawler[0].id == "shockwave_stomp", "Brawler's damage slot is the Shockwave Stomp")
+	_expect(int(brawler[0].kind) == int(SpellDef.Kind.HEX), "Shockwave Stomp is an id-forked HEX")
+	# ...and the class really has NO magic in its hand any more. Stated positively so
+	# that "the thunderclap left" cannot be satisfied by swapping in a different bolt.
+	for bs in brawler:
+		_expect(int(bs.element) != int(Elements.Element.LIGHTNING),
+			"the pure-MELEE class carries no lightning (%s)" % bs.id)
+	_expect(brawler[SpellTier.ULT_SLOT].id == "meteor_fist",
+		"Brawler's ult is the Meteor Fist, not a beam")
 	# Cleric (4) finishes on Heaven's Verdict (convergence) — the LAST slot is the ult
 	# slot, and the hand is three spells now rather than five.
 	var cleric: Array = SpellLibrary.build_for_class(4)
 	_expect(cleric[SpellTier.ULT_SLOT].id == "heavens_verdict", "Cleric's ult is Heaven's Verdict")
-	_expect(cleric[0].id == "rune_orbs" and int(cleric[0].kind) == int(SpellDef.Kind.MISSILES), "Cleric's damage line is the rune-orb fan")
+	# RADIANT VOLLEY replaced the rune-orb fan: a rack of PARALLEL lances where the
+	# band's width is fixed and position is the damage dial, rather than a spread.
+	_expect(cleric[0].id == "radiant_volley" and int(cleric[0].kind) == int(SpellDef.Kind.HEX),
+		"Cleric's damage line is the Radiant Volley")
+	_expect(int(cleric[0].element) == int(Elements.Element.HOLY),
+		"...and it is HOLY — the Cleric is the only holy caster in the roster")
+	# The AEGIS WARD, the game's only protective spell, was in NOBODY's kit. It is the
+	# Cleric's carried control slot now, which is the fix to that unreachable-spell bug.
+	_expect(cleric[BotIntent.SLOT_UTILITY].id == "aegis_ward",
+		"Cleric's utility slot is the Aegis Ward (previously equipped by no class at all)")
 	# Juggernaut (3) keeps the full earthbending kit; Rift Dagger is its one
 	# off-school pick (the tank had no way to close).
 	var jugg: Array = SpellLibrary.build_for_class(3)
@@ -198,19 +217,28 @@ func _test_signature_loadouts() -> void:
 	_expect(int(jugg[0].element) == 5, "Boulder Hurl carries the EARTH element (Stagger)")
 	# The tank CARRIES the tether (sustain — a tank's answer is not dying); the wall
 	# and the pillar are the two roles it authors but leaves to the drop pool.
-	_expect(jugg[BotIntent.SLOT_UTILITY].id == "drain_tether",
-		"Juggernaut's utility slot is the drain tether (sustain, not mobility)")
-	_expect(jugg[SpellTier.ULT_SLOT].id == "colossus_pillar", "Juggernaut's ult is the Colossus Pillar")
+	# The tank now CARRIES ITS PAYOFF, not the tether. The tether is the WARLOCK's
+	# damage line and was also the Cleric's sustain; three hands holding one spell is
+	# the duplication the anti-recolour pass exists to delete, and a siege tank
+	# erupting the floor under someone is more on-fantasy than a shadow drain.
+	_expect(jugg[BotIntent.SLOT_UTILITY].id == "rock_pillar",
+		"Juggernaut's utility slot is the Rock Pillar (its payoff, not a borrowed drain)")
+	_expect(jugg[SpellTier.ULT_SLOT].id == "fault_line",
+		"Juggernaut's ult is the Fault Line — a rupture that TRAVELS, not a fourth placed bombardment")
 	var jugg_reserve: Array = SpellLibrary.reserve_for_class(3)
 	var reserve_ids: Array[String] = []
 	for s in jugg_reserve:
 		reserve_ids.append(String(s.id))
-	_expect(reserve_ids.has("rock_wall") and reserve_ids.has("rock_pillar"),
-		"...and the earth kit it does not carry is preserved as its drop-pool reserve")
+	_expect(reserve_ids.has("rock_wall") and reserve_ids.has("drain_tether"),
+		"...and the two roles it does not carry are preserved as its drop-pool reserve")
 	# Cryomancer (5): the Frostpiercer BEAM is its damage line (short channel, HEAVY
 	# shelf), the Ice Wall its defensive answer, and the Glacial Spine its ult.
 	var cryo: Array = SpellLibrary.build_for_class(5)
-	_expect(cryo[0].id == "frostpiercer" and int(cryo[0].kind) == int(SpellDef.Kind.BEAM), "Cryomancer's damage line is the Frostpiercer beam")
+	# SHATTER replaced the Frostpiercer beam (one of five classes throwing the same
+	# corridor). It is the only spell in the game that combos with its OWN kit: 0.35x
+	# on a warm body, 3.0x on one the class's Blizzard has already frozen.
+	_expect(cryo[0].id == "shatter" and int(cryo[0].kind) == int(SpellDef.Kind.HEX),
+		"Cryomancer's damage line is Shatter")
 	# The ICE CONTROL caster carries the FIELD, not the wall: the field is the control
 	# tool the class name is about, and the wall is a stop, which is a different job.
 	_expect(cryo[BotIntent.SLOT_UTILITY].id == "blizzard",
@@ -219,7 +247,12 @@ func _test_signature_loadouts() -> void:
 	# Stormcaller (6) opens on the chain leap, not a recoloured beam.
 	var storm: Array = SpellLibrary.build_for_class(6)
 	_expect(storm[0].id == "chain_lightning" and int(storm[0].kind) == int(SpellDef.Kind.CHAIN), "Stormcaller's damage line is Chain Lightning")
-	_expect(storm[SpellTier.ULT_SLOT].id == "tempest", "Stormcaller's ult is the Tempest beam")
+	_expect(storm[SpellTier.ULT_SLOT].id == "heavens_wrath",
+		"Stormcaller's ult is Heaven's Wrath — a drifting storm CELL, not the Tempest beam")
+	# It inherited the Thunderclap from the Brawler, which is where a lightning lance
+	# always belonged.
+	_expect(storm[BotIntent.SLOT_UTILITY].id == "thunderclap",
+		"Stormcaller carries the Thunderclap (moved off the pure-melee Brawler)")
 	# Arcanist (0): The Ordinary Spell is its damage line, not a once-a-fight ult —
 	# the point of the rename was that the fantasy and the shelf now agree.
 	var arc: Array = SpellLibrary.build_for_class(0)
@@ -230,14 +263,23 @@ func _test_signature_loadouts() -> void:
 	_expect(int(shadow[0].kind) == int(SpellDef.Kind.FLURRY), "Shadowblade's damage line is the blade flurry")
 	# The assassin CARRIES its payoff in the utility slot: Shadow Step is both its
 	# biggest non-ult hit and its in-and-out, which is the class fantasy in one button.
-	_expect(shadow[BotIntent.SLOT_UTILITY].id == "blink_strike"
-			and int(shadow[BotIntent.SLOT_UTILITY].kind) == int(SpellDef.Kind.BLINK_STRIKE),
-		"Shadowblade's utility slot is the teleport-strike")
-	_expect(shadow[SpellTier.ULT_SLOT].id == "umbral_lance", "Shadowblade's ult is the Umbral Lance beam")
+	# The assassin carries the RIFT DAGGER as its get-out. Shadow Step moved to its
+	# reserve: two other classes hold it, and a class's identity must not be the tool
+	# three kits share.
+	_expect(shadow[BotIntent.SLOT_UTILITY].id == "rift_dagger"
+			and int(shadow[BotIntent.SLOT_UTILITY].kind) == int(SpellDef.Kind.THROWN_ANCHOR),
+		"Shadowblade's utility slot is the Rift Dagger")
+	_expect(shadow[SpellTier.ULT_SLOT].id == "thousand_cuts",
+		"Shadowblade's ult is Thousand Cuts — the Umbral Lance was a violet copy of the Arcanist's beam")
 	# Warlock (7): tether to sustain, Shadow Root to hold.
 	var lock: Array = SpellLibrary.build_for_class(7)
 	_expect(int(lock[0].kind) == int(SpellDef.Kind.TETHER), "Warlock's damage line is the drain tether")
-	_expect(lock[1].id == "void_zone" and int(lock[1].kind) == int(SpellDef.Kind.ZONE), "Warlock's control is the Shadow Root field")
+	# RAISE THRALL is the only summon in the game — the only kit that puts a second
+	# body on the floor. Shadow Root moved to the reserve (a root and a thrall are both
+	# "hold them there"; the thrall is the one nobody else has).
+	_expect(lock[1].id == "raise_thrall" and int(lock[1].kind) == int(SpellDef.Kind.HEX),
+		"Warlock's control is Raise Thrall, the roster's only summon")
+	_expect(lock[SpellTier.ULT_SLOT].id == "grave_tide", "Warlock's ult is the Grave Tide")
 	# Cryomancer's control slot is the Blizzard ZONE (not a meteor).
 	_expect(int(cryo[1].kind) == int(SpellDef.Kind.ZONE), "Cryomancer's control is the Blizzard field")
 	# A BEAM is either a DAMAGE line (the two short-channel HEAVY beams) or an ULT,

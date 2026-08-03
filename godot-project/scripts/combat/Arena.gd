@@ -187,6 +187,31 @@ func _setup_floor(floor: int) -> void:
 	_show_floor_banner(floor, theme)
 	_apply_floor_camera()
 	_encounter.run_floor(_current_floor_def)
+	_raise_opening_thralls()
+
+
+## "A WARLOCK SHOULD BEGIN A FLOOR WITH ONE THRALL ALREADY UP." The maker's explicit
+## ask, and the one line of it that has to live outside `RaiseThrall.gd`.
+##
+## AFTER `run_floor`, not before: the spell asks the `Encounter` whether the floor
+## has room under `MAX_LIVE_ENTITIES`, and asking before the floor's own wave exists
+## would hand the Warlock a body the budget had not accounted for.
+##
+## Reached BY PATH and called with `call()`. `RaiseThrall.gd` deliberately declares no
+## `class_name` — a brand-new one is absent from `global_script_class_cache.cfg` until
+## something re-imports, and until then every file that NAMES it fails to compile,
+## which in this file would take the whole Arena down. Same reason `SpellCaster`
+## reaches every spectacle by path.
+##
+## The function itself no-ops for every case that is not a local Warlock who actually
+## carries the spell (wrong class, client peer, no room on the floor), so this is
+## unconditional here on purpose: the decision belongs in one place and it is not
+## this one.
+func _raise_opening_thralls() -> void:
+	var scr: GDScript = load("res://scripts/combat/RaiseThrall.gd") as GDScript
+	if scr == null:
+		return
+	scr.call(&"raise_opening_thralls", self)
 
 
 ## ONE SCREEN (1.3). THE TOWER is a one-screen arena brawler, so fit-all framing

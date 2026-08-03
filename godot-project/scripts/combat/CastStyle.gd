@@ -58,6 +58,47 @@ static func for_spell(kind: int) -> int:
 			return Pose.POINT       # beams and anything new: aimed two-handed thrust
 
 
+## THE SAME QUESTION, ASKED OF A WHOLE SpellDef RATHER THAN A BARE KIND.
+##
+## `for_spell(kind)` cannot answer for `Kind.HEX`, because HEX is not a spectacle —
+## it is the arm that forks on ID (`SpellCaster.HEX_SCRIPTS`), and after the
+## anti-recolour pass eleven class signatures ride it. A draw-cut, a boot driven
+## into the floor and a dash all fell through to POINT, the aimed two-handed thrust,
+## which is the one gesture none of them are.
+##
+## Kept as a SECOND function rather than changing `for_spell`'s signature: five call
+## sites pass a bare kind (Hero twice, SignatureRite, the playground rig, two capture
+## tools) and half of them are in files this pass does not own. The bare-kind form
+## stays the primitive and this is the enriched one; anything that has the SpellDef
+## should call this.
+static func for_spell_def(spell: SpellDef) -> int:
+	if spell == null:
+		return Pose.POINT
+	if spell.kind == SpellDef.Kind.HEX:
+		match spell.id:
+			# The blade spells ARE the draw. Same reasoning as the ARC arm above.
+			"iai_slash", "crescent_step", "thousand_cuts":
+				return Pose.UNSHEATHE
+			# Driven into the ground with the whole body behind it.
+			"shockwave_stomp", "fault_line":
+				return Pose.SLAM
+			# He leaves the floor — that comes from the legs, not the hands.
+			"meteor_fist":
+				return Pose.COIL
+			# Reached UP out of the floor, so the hand goes down to the floor first.
+			"raise_thrall", "grave_tide":
+				return Pose.SWEEP
+			# Placed workings: a ritual, not a punch.
+			"shatter", "heavens_wrath", "mirror_image", "petrify", "gravity_flip":
+				return Pose.CIRCLE
+			# A rack of lances opening at the shoulder — one arm, snapped out.
+			"radiant_volley":
+				return Pose.LASH
+			"blood_pact":
+				return Pose.COIL   # pulled to the chest; the price is paid inward
+	return for_spell(spell.kind)
+
+
 ## Seconds the windup should hold for a pose. Slams and channels commit the body
 ## for longer — that commitment is the dodge window the opponent reads (rule 2),
 ## so these are balance numbers, not just animation timings.

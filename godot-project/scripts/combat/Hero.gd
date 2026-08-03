@@ -153,6 +153,182 @@ const PARRY_FLASH_COLOR: Color = Color(0.8, 1.0, 1.0)
 ## the deflect reads (the arc is the whole tell — no omni flash).
 const PARRY_SHIELD_TIME: float = 0.26
 
+# ==================================================== THE NINE MOVEMENT VERBS
+## THE MAKER'S RULING: "we cannot have any recolours — I want all the classes to be
+## different and unique and not similar at all", and specifically "the necromancer
+## should be able to swap with their minions ... the air one should be able to hop and
+## dash in the air really far ... the lightning one, instead of dashing it blinks with
+## electricity in a slightly longer distance".
+##
+## WHAT WAS WRONG. Every class moved identically. `SPEED`, `DASH_SPEED` and
+## `JUMP_VELOCITY` were global, and the entire movement identity of a nine-class roster
+## was a `dash_cd` between 0.55 and 0.90 s. Two classes swapped R for an uppercut and
+## the Brawler got a double jump; that was the whole spread. A player could not tell
+## who they were holding until they cast something.
+##
+## THE SHAPE OF THE FIX, and the one rule that constrains it: **every verb is behind
+## the SAME `dash` action**. That is not tidiness, it is the mobile spec. `TouchControls`
+## ships exactly ONE movement button (`_button_layout()`: JUMP / PARRY / DASH plus the
+## three spell slots) — `blast`, `blink` and `nova` have no touch affordance at all. A
+## verb bound to a new action would be desktop-only, which fails D-011 outright. Behind
+## the shared button it is also free for the BOTS: `BotIntent.DASH` is one key that the
+## brain already presses without knowing what a body does with it (see BotIntent's own
+## note: "the same brain drives a class whose R is a blink and a class whose R is an
+## uppercut without knowing the difference").
+##
+## Dispatch is `_cfg["move_verb"]` -> `_start_dash()`. The nine values are unique by
+## construction and `tools/slice_test_class_movement.gd` asserts that no two classes
+## resolve to the same one; the pre-change code has NO `move_verb` key at all, so that
+## assertion fails on it (all nine fall back to one string), which is the point.
+##
+## I-FRAMES ARE NOW A DECISION, NOT AN ACCIDENT. `DASH_IFRAME_FRACTION` used to apply
+## to every class. Each verb below names its own fraction and CLASS_CONFIG carries it as
+## `dash_iframe_fraction`, so "this verb dodges" and "this verb commits" is a number you
+## can read rather than a side effect of sharing one code path.
+
+## --- 0 ARCANIST: ARCANE RECALL ------------------------------------------------
+## Dash out, then press again inside the window to SNAP BACK to where you started.
+## The zoner's verb: it buys a look at a different angle and un-buys it, so the
+## Arcanist can step into a lane it has no business standing in and leave before the
+## bill arrives. The return leg is a teleport and is vetted like every other one.
+const RECALL_SPEED: float = 600.0
+const RECALL_TIME: float = 0.14
+## How long the anchor stays live. Deliberately longer than the dash cooldown so the
+## second press is a real DECISION rather than a cooldown race — and see the
+## `_recall_pending()` gate in `_try_fire_buffered`, which lets the return leg through
+## a cooldown the outbound leg just spent.
+const RECALL_WINDOW: float = 1.10
+const RECALL_IFRAME_FRACTION: float = 0.6
+const RECALL_ANCHOR_COLOR: Color = Color(0.55, 0.45, 1.0, 0.75)
+
+## --- 1 SHADOWBLADE: AIR DASH --------------------------------------------------
+## "The air one." The best air game in the roster and the only verb that IGNORES
+## GRAVITY for its whole duration: a Shadowblade dash in mid-air is a flat, long,
+## fully-aimed 360° traversal, not a hop that sags. Paired with TWO air jumps
+## (`air_jumps: 2`) it is the only class that can cross a room without touching a
+## floor. It pays for that with 78 HP — the lowest in the game.
+const AIR_DASH_SPEED: float = 700.0
+const AIR_DASH_TIME: float = 0.18
+## Airborne dashes travel FURTHER than grounded ones. Every other class in the game is
+## worse in the air; this one is better, and that inversion is the whole identity.
+const AIR_DASH_AIRBORNE_BONUS: float = 1.20
+const AIR_DASH_IFRAME_FRACTION: float = 0.8
+
+## --- 2 BRAWLER: SHOULDER CHARGE -----------------------------------------------
+## Grounded, long, and it CARRIES. No teleport anywhere in the kit: this is the "no
+## magic" class and it closes distance the honest way. What it hits is staggered — a
+## much bigger shove than the dash-strike it shares plumbing with — and the charge
+## keeps most of its speed when it ends, so a connected charge shoves you both.
+const CHARGE_SPEED: float = 520.0
+const CHARGE_TIME: float = 0.26
+## Fraction of charge speed kept on exit, plus how long ground friction is suppressed
+## so the carry survives long enough to be felt. Reuses `_wall_jump_lock`, which is
+## already the "do not fight this momentum" gate in the movement block — a second flag
+## meaning the same thing is how two of them drift apart.
+const CHARGE_EXIT_MOMENTUM: float = 0.55
+const CHARGE_MOMENTUM_LOCK: float = 0.18
+const CHARGE_STAGGER_KNOCKBACK: float = 470.0
+## NO I-FRAMES, and that is the trade. The longest travel in the roster is also the
+## most committed: a charge read early is a charge punished.
+const CHARGE_IFRAME_FRACTION: float = 0.0
+
+## --- 3 JUGGERNAUT: UNSTOPPABLE SURGE ------------------------------------------
+## Short, slow, and ARMOURED. It does not dodge — it refuses to be moved. Knockback
+## and flop are ignored for the surge AND for a tail after it, which is the part that
+## makes it different from "every dash already ignores knockback" (see
+## `apply_knockback`): the Juggernaut is the only body that stays unmovable once the
+## travel is over, so a surge into a crowd is not immediately shoved back out of it.
+const SURGE_SPEED: float = 330.0
+const SURGE_TIME: float = 0.30
+const SURGE_ARMOR_TAIL: float = 0.35
+## No i-frames — armour is not invulnerability. It eats the hit and keeps walking.
+const SURGE_IFRAME_FRACTION: float = 0.0
+
+## --- 4 CLERIC: RADIANT STEP ---------------------------------------------------
+## A dash that leaves a HEALING WAKE — pulses dropped along the path that mend any
+## ally standing in them. The only movement verb in the game that is a team action:
+## the Cleric's repositioning is worth something to somebody else, which is the whole
+## co-op reason to bring one.
+const RADIANT_STEP_SPEED: float = 560.0
+const RADIANT_STEP_TIME: float = 0.16
+const RADIANT_WAKE_INTERVAL: float = 0.05
+const RADIANT_WAKE_RADIUS: float = 70.0
+const RADIANT_WAKE_HEAL: int = 3
+const RADIANT_WAKE_COLOR: Color = Color(1.0, 0.95, 0.65, 0.85)
+const RADIANT_STEP_IFRAME_FRACTION: float = 0.6
+
+## --- 5 CRYOMANCER: ICE SLIDE --------------------------------------------------
+## A long low-friction SLIDE along the floor. Fast and by far the longest-lasting verb
+## in the roster, but you barely steer once it is going (`ICE_SLIDE_STEER` is the
+## fraction of normal ground authority you keep) and it bleeds speed instead of
+## stopping. Commit to the line or do not press it.
+const ICE_SLIDE_SPEED: float = 470.0
+const ICE_SLIDE_TIME: float = 0.55
+const ICE_SLIDE_FRICTION: float = 240.0
+## Turning authority mid-slide, as a fraction of GROUND_ACCEL. 0.0 would be a rail;
+## this is "you can lean, you cannot turn around".
+const ICE_SLIDE_STEER: float = 0.12
+const ICE_SLIDE_IFRAME_FRACTION: float = 0.25
+const ICE_SLIDE_FROST_COLOR: Color = Color(0.65, 0.9, 1.0, 0.7)
+
+## --- 6 STORMCALLER: LIGHTNING BLINK -------------------------------------------
+## "Instead of dashing it blinks with electricity in a slightly longer distance."
+## There is NO dash on this class at all: the movement button teleports. Range is
+## comfortably past both a dash's travel (~87 px) and the shadow blink on R (175 px),
+## and it goes through geometry under exactly the same landing rules — this file's
+## `_safe_blink_destination` owns where a teleport may rest, and nothing about that
+## is re-implemented here.
+const LIGHTNING_BLINK_DISTANCE: float = 260.0
+const LIGHTNING_BLINK_IFRAME: float = 0.18
+const LIGHTNING_BLINK_START: Color = Color(1.0, 0.95, 0.45, 0.95)
+const LIGHTNING_BLINK_END: Color = Color(0.45, 0.6, 1.0, 0.0)
+const LIGHTNING_BLINK_FLASH: Color = Color(1.0, 1.0, 0.7)
+
+## --- 7 WARLOCK: THRALL SWAP ---------------------------------------------------
+## Trade places with one of your own minions. The attrition class's escape is
+## something it had to BUILD first, which is the only movement verb in the game with a
+## setup cost — and the only one that can put a body where you were standing.
+##
+## ⚠ THE MINIONS ARE ANOTHER AGENT'S FILE. This codes against the published contract
+## and nothing else: group `&"thrall"`, node meta `&"thrall_owner"` pointing at the
+## Hero that raised it. Anything in the group whose owner is not us is ignored, so a
+## teammate's thralls are not a free taxi. BOTH landings go through
+## `_safe_blink_destination`.
+##
+## NO THRALL = A SHORT BLINK, NEVER A DEAD BUTTON. Degradation is stated once, here:
+## with nothing to swap with, the press becomes a `THRALL_SWAP_FALLBACK_DISTANCE`
+## teleport along the aim — same vetting, same refuse-and-refund floor. So a Warlock
+## who has not summoned yet still has a mobility button; it is simply a worse one.
+const THRALL_GROUP: StringName = &"thrall"
+const THRALL_OWNER_META: StringName = &"thrall_owner"
+## How far away a thrall may be and still be swappable. Generous — the fantasy is
+## "across the room", and the landing rules stop it being a map-wide escape anyway.
+const THRALL_SWAP_RANGE: float = 620.0
+const THRALL_SWAP_FALLBACK_DISTANCE: float = 115.0
+const THRALL_SWAP_IFRAME: float = 0.20
+const THRALL_SWAP_START: Color = Color(0.55, 0.2, 0.65, 0.9)
+const THRALL_SWAP_END: Color = Color(0.1, 0.02, 0.15, 0.0)
+
+## --- 8 SWORDSAINT: COMMITTED STEP ---------------------------------------------
+## The shortest, fastest-recovering, least forgiving travel in the roster. The guard
+## class does not get to leave — it gets to be PAID for standing still (see the
+## BLADE-GUARD block). Its step closes a gap into swing range and nothing else, and
+## its i-frame slice is small enough that dashing through an attack is a read rather
+## than a reflex.
+const COMMITTED_STEP_SPEED: float = 480.0
+const COMMITTED_STEP_TIME: float = 0.12
+const COMMITTED_STEP_IFRAME_FRACTION: float = 0.35
+
+## Verbs whose travel is BOUND TO THE GROUND PLANE: they flatten to horizontal and
+## they still fall. Pressed off a ledge they arc down instead of flying, which is what
+## separates a shoulder charge from the Shadowblade's gravity-ignoring air dash.
+## Named as data so `_verb_is_grounded` cannot drift from the list it documents.
+const GROUNDED_VERBS: Array[String] = ["charge", "surge", "ice_slide"]
+## Verbs that are TELEPORTS rather than travel: they resolve instantly inside
+## `_start_dash` and never enter the per-frame dash branch. Every one of them lands
+## through `blink_to`/`_safe_blink_destination`.
+const TELEPORT_VERBS: Array[String] = ["lightning_blink", "thrall_swap"]
+
 ## --- THE BLADE GUARD (Swordsaint) --------------------------------------------
 ## THE CLASS'S WHOLE IDENTITY IN ONE MECHANIC: it is the only class whose DEFENCE
 ## PRODUCES ITS OFFENCE. Everyone else guards to survive a beat; the Swordsaint
@@ -302,68 +478,125 @@ const CLASS_NAMES: Array[String] = [
 	"Arcanist", "Shadowblade", "Brawler", "Juggernaut",
 	"Cleric", "Cryomancer", "Stormcaller", "Warlock", "Swordsaint",
 ]
+## ⚠ `hp` AND `speed` ARE THE STAT SPINE, AND THEY DID NOT EXIST. Before this table
+## carried them there was no `hp` key at all — every class was `BASE_MAX_HP = 100` —
+## and `SPEED = 210.0` was a global const read straight out of `_physics_process`. Nine
+## classes were mechanically identical before either player cast anything, which is the
+## thing the maker's ruling is actually about.
+##
+## THE SPREAD, and why it stops where it does. HP runs 78 (Shadowblade) to 145
+## (Juggernaut) — 1.86x — and speed 165 to 240 — 1.45x. Both are chosen to be READABLE
+## in a two-second look and no wider: this is a co-op brawler, not an MMO, and a spread
+## big enough to make a class strictly correct is a spread that has removed a choice.
+## The two axes trade against each other on purpose (the fastest body is the frailest,
+## the toughest is the slowest), so no class is simply better at existing.
+##
+## HOW A PER-CLASS BASE COMPOSES WITH GEAR. `configure_class` seeds `_base_max_hp` FROM
+## THIS TABLE and `_recompute_gear_effects` scales `max_hp` off that base, idempotently
+## — so the hat multiplies the class number instead of overwriting it, and re-running a
+## loadout swap never compounds. A spawner that wants to impose its own pool (BotMatch's
+## `CLASS_VITALITY`, VersusArena's showcase HP) still writes `max_hp` AFTER
+## `configure_class` and still wins, exactly as before.
 const CLASS_CONFIG: Dictionary = {
 	HeroClass.MAGE: {  # ARCANIST — ranged arcane zoner (byte-identical to the old mage)
 		"preset": "mage", "weapon": "", "element": Elements.Element.ARCANE, "melee_element": -1,
+		"hp": 90, "speed": 205.0,
+		# Staff POKE: a caster's melee is a shove to buy space, not a trade.
+		"melee_cd": 0.36, "melee_arc_dot": 0.25, "melee_damage": 13,
+		"melee_range": 62.0, "melee_knockback": 280.0,
 		"cast_cd": CAST_COOLDOWN, "dash_cd": DASH_COOLDOWN, "blink_cd": BLINK_COOLDOWN,
 		"blast_cd": BLAST_COOLDOWN,
+		"move_verb": "recall", "dash_iframe_fraction": RECALL_IFRAME_FRACTION,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
 		"aoe": "arcane_meteor", "has_nova": true, "can_parry": true,  # Q: arcane star-fall
 	},
 	HeroClass.ROGUE: {  # SHADOWBLADE — twitchy assassin; LMB = 3-dagger flurry
 		"preset": "rogue", "weapon": "sword", "element": Elements.Element.SHADOW, "melee_element": Elements.Element.SHADOW,
+		"hp": 78, "speed": 240.0,
 		"primary": "bolt", "bolt_burst": 3, "bolt_spread": 0.13,
 		"cast_cd": 0.30, "dash_cd": 0.70, "blink_cd": 1.0,
 		"blast_cd": 2.5,
+		# THE BEST AIR GAME IN THE ROSTER: two air jumps AND a gravity-ignoring dash.
+		"air_jumps": 2,
+		"move_verb": "air_dash", "dash_iframe_fraction": AIR_DASH_IFRAME_FRACTION,
 		"throw_blade": true, "blade_damage": 9,
 		"dash_strike": true, "dash_strike_damage": 16, "dash_strike_range": 42.0,
 		"aoe": "nova", "has_nova": false, "can_parry": true,
 	},
 	HeroClass.BRAWLER: {  # PURE MELEE, no magic — punch/kick combo + double-jump + Thunderclap
 		"preset": "brawler", "weapon": "", "element": Elements.Element.FIRE, "melee_element": Elements.Element.FIRE,
+		"hp": 115, "speed": 215.0,
 		"primary": "melee_combo", "air_jumps": 1, "melee_cd": 0.20, "melee_knockback": 320.0,
 		"cast_cd": 0.22, "dash_cd": 0.70, "blink_cd": 1.1, "blast_cd": 2.2,
+		"move_verb": "charge", "dash_iframe_fraction": CHARGE_IFRAME_FRACTION,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": true, "dash_strike_damage": 20, "dash_strike_range": 44.0,
+		"dash_strike_knockback": CHARGE_STAGGER_KNOCKBACK,  # the charge STAGGERS
 		"mobility2": "uppercut", "aoe": "fist_shock", "has_nova": true, "can_parry": true,
 	},
 	HeroClass.JUGGERNAUT: {  # slow siege tank — wide heavy hammer, BLOCK, no blink
 		"preset": "juggernaut", "weapon": "sword", "element": Elements.Element.EARTH, "melee_element": Elements.Element.EARTH,
+		"hp": 145, "speed": 165.0,
 		"primary": "heavy_swing", "melee_cd": 0.55, "melee_arc_dot": 0.0, "melee_damage": 30, "melee_range": 96.0, "melee_knockback": 470.0,
 		"cast_cd": 0.40, "dash_cd": 0.90, "blink_cd": 1.4, "blast_cd": 2.6,
+		"move_verb": "surge", "dash_iframe_fraction": SURGE_IFRAME_FRACTION,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": true, "dash_strike_damage": 22, "dash_strike_range": 48.0,
 		"defense": "block", "aoe": "ground_slam", "has_nova": true, "can_parry": true,
 	},
 	HeroClass.CLERIC: {  # radiant sustain bruiser — LMB heal-bolt (lifesteal)
 		"preset": "cleric", "weapon": "staff", "element": Elements.Element.HOLY, "melee_element": Elements.Element.HOLY,
+		"hp": 110, "speed": 200.0,
 		"primary": "bolt", "bolt_heal": 4,
+		# Censer SWING: slow, wide-ish, the heaviest shove of the four staff casters.
+		"melee_cd": 0.40, "melee_arc_dot": 0.15, "melee_damage": 17,
+		"melee_range": 68.0, "melee_knockback": 340.0,
 		"cast_cd": 0.32, "dash_cd": 0.85, "blink_cd": 1.2, "blast_cd": 2.4,
+		"move_verb": "radiant_step", "dash_iframe_fraction": RADIANT_STEP_IFRAME_FRACTION,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
 		"aoe": "consecrate", "has_nova": true, "can_parry": true,  # Q: consecrated ground
 	},
 	HeroClass.CRYOMANCER: {  # ice control — LMB is a FROST CONE, not a bolt
 		"preset": "cryomancer", "weapon": "staff", "element": Elements.Element.ICE, "melee_element": Elements.Element.ICE,
+		"hp": 88, "speed": 195.0,
 		"primary": "frost_cone",
+		# Rimed JAB: little damage, wide arc, and the biggest shove of any caster —
+		# the control class's melee CONTROLS.
+		"melee_cd": 0.30, "melee_arc_dot": 0.35, "melee_damage": 11,
+		"melee_range": 56.0, "melee_knockback": 420.0,
 		"cast_cd": 0.34, "dash_cd": 0.90, "blink_cd": 1.2, "blast_cd": 2.6,
+		"move_verb": "ice_slide", "dash_iframe_fraction": ICE_SLIDE_IFRAME_FRACTION,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
 		"aoe": "ice_shards", "has_nova": true, "can_parry": true,  # Q: homing frost shards
 	},
 	HeroClass.STORMCALLER: {  # hyper-mobile chain caster — LMB arcs, fast wind-dash
 		"preset": "stormcaller", "weapon": "staff", "element": Elements.Element.LIGHTNING, "melee_element": Elements.Element.LIGHTNING,
+		"hp": 82, "speed": 230.0,
 		"primary": "bolt", "bolt_chain": 2,
+		# Crackling SWAT: the fastest, weakest, widest melee in the game — it is a
+		# panic button that buys a beat, not an attack.
+		"melee_cd": 0.24, "melee_arc_dot": 0.40, "melee_damage": 10,
+		"melee_range": 54.0, "melee_knockback": 250.0,
 		"cast_cd": 0.30, "dash_cd": 0.55, "blink_cd": 1.0, "blast_cd": 2.4,
+		# NO DASH AT ALL — the movement button teleports (LIGHTNING_BLINK_DISTANCE).
+		"move_verb": "lightning_blink", "dash_iframe_fraction": 0.0,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
 		"aoe": "call_lightning", "has_nova": true, "can_parry": true,  # Q: lightning strike column
 	},
 	HeroClass.WARLOCK: {  # dark attrition hexer — LMB drain-bolt (weaken + lifesteal)
 		"preset": "warlock", "weapon": "sword", "element": Elements.Element.SHADOW, "melee_element": Elements.Element.SHADOW,
+		"hp": 95, "speed": 190.0,
 		"primary": "bolt", "bolt_heal": 3,
+		# Scythe RAKE: the slowest, longest, most committed swing short of the
+		# Juggernaut's hammer, and the narrowest arc in the game.
+		"melee_cd": 0.46, "melee_arc_dot": 0.05, "melee_damage": 21,
+		"melee_range": 74.0, "melee_knockback": 300.0,
 		"cast_cd": 0.30, "dash_cd": 0.85, "blink_cd": 1.1, "blast_cd": 2.5,
+		"move_verb": "thrall_swap", "dash_iframe_fraction": 0.0,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
 		"aoe": "curse_chain", "has_nova": true, "can_parry": true,  # Q: leaping shadow chain
@@ -394,6 +627,7 @@ const CLASS_CONFIG: Dictionary = {
 	HeroClass.SWORDSAINT: {
 		"preset": "rogue", "weapon": "sword",
 		"element": Elements.Element.ARCANE, "melee_element": -1,  # plain steel: no ailment
+		"hp": 105, "speed": 210.0,
 		"primary": "heavy_swing",
 		# The greatsword profile, expressed as melee overrides rather than a new
 		# WEAPON_STATS row: a "greatsword" kind would have no rig texture and no
@@ -406,6 +640,10 @@ const CLASS_CONFIG: Dictionary = {
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": true, "dash_strike_damage": 24, "dash_strike_range": 52.0,
 		"mobility2": "uppercut",  # a rising cut, not a teleport
+		# The shortest travel in the roster, and the smallest i-frame slice on any
+		# verb that has one at all. The guard class is not allowed to leave.
+		"move_verb": "committed_step",
+		"dash_iframe_fraction": COMMITTED_STEP_IFRAME_FRACTION,
 		"defense": "held_guard", "aoe": "ground_slam",
 		"has_nova": false, "can_parry": true,
 	},
@@ -578,6 +816,24 @@ var _ragdolling: bool = false  # hold DOWN -> go limp + flop (the Stick-Fight ra
 var _hero_class: int = HeroClass.MAGE
 var _cfg: Dictionary = CLASS_CONFIG[HeroClass.MAGE]
 var _dash_hit: Array = []  # enemies/props already struck this dash (rogue no-multi-hit)
+# --------------------------------------------------- the nine movement verbs
+## Which verb the CURRENT travel is (set at `_start_dash`, read by the per-frame dash
+## branch). Cached rather than re-read from `_cfg` every tick so a mid-dash class
+## switch — which `_cycle_class` makes reachable with Tab — cannot change the rules of
+## a travel that is already in the air.
+var _dash_verb: String = "dash"
+## Travel speed + duration of the verb in flight. Members, not consts, because six of
+## the nine differ and the dash branch must not carry a nine-way match per tick.
+var _dash_speed: float = DASH_SPEED
+var _dash_total: float = DASH_TIME
+## ARCANIST: where the outbound leg started, and how long the return leg stays
+## available. `_recall_timer > 0.0` IS "an anchor is live" — there is no second flag.
+var _recall_anchor: Vector2 = Vector2.ZERO
+var _recall_timer: float = 0.0
+## JUGGERNAUT: seconds of post-surge armour still owed. Read by `apply_knockback`.
+var _surge_armor_timer: float = 0.0
+## CLERIC: countdown to the next healing pulse dropped along a Radiant Step.
+var _radiant_wake_timer: float = 0.0
 ## Active element (aura + ability colour). Cycled with `cycle_element` (X).
 var _element: int = Elements.Element.ARCANE
 var _element_color: Color = Color(1.0, 1.0, 1.0, 1.0)
@@ -839,6 +1095,19 @@ func bot_body_state() -> Dictionary:
 		# reaction combo for a brain that wants to look them up in SpellLibrary.
 		# Fair: it is your own character, named on your own HUD.
 		"class_id": _hero_class,
+		# WHAT MY MOVEMENT BUTTON ACTUALLY DOES. `BotBrain` carries a hand-copied
+		# `DASH_DIST = 86.8  # Hero.DASH_SPEED 620 * DASH_TIME 0.14` and its own header
+		# admits those mirrors are copies that a retune must chase by hand. Nine verbs
+		# with travels from ~58 px (surge) to 260 px (lightning blink) make that copy
+		# wrong for eight of nine classes, so the body publishes the DERIVED number and
+		# the brain prefers it — the same "read it from the seam" fix `_ready_flag`
+		# already applies to `dash_ready`.
+		"dash_dist": movement_verb_distance(),
+		# ...and whether spending it dodges anything, because two of the nine verbs
+		# have no i-frames at all and a bot answering a telegraph with one is choosing
+		# to be hit.
+		"dash_iframes": movement_verb_iframe_fraction() > 0.0,
+		"move_verb": movement_verb_name(),
 		"slot_affordable": affordable,
 		"slot_cast_time": cast_times,
 		# The defensive verb, which differs in KIND and not just in numbers: 0 = a
@@ -1229,6 +1498,11 @@ func _physics_process(delta: float) -> void:
 	_nova_cooldown_timer = maxf(_nova_cooldown_timer - delta, 0.0)
 	_parry_window_timer = maxf(_parry_window_timer - delta, 0.0)
 	_parry_cooldown_timer = maxf(_parry_cooldown_timer - delta, 0.0)
+	# The two movement-verb clocks, ticked with everything else: the Arcanist's live
+	# recall anchor (the window in which the return leg is available) and the
+	# Juggernaut's post-surge armour tail.
+	_recall_timer = maxf(_recall_timer - delta, 0.0)
+	_surge_armor_timer = maxf(_surge_armor_timer - delta, 0.0)
 	# The BLADE ring is ticked HERE, above the channel/summon early-returns, so its
 	# re-arm keeps running while the hero is committed to something else. A guard
 	# whose recovery paused whenever you were busy would silently re-arm instantly
@@ -1377,16 +1651,27 @@ func _physics_process(delta: float) -> void:
 
 	if is_dashing:
 		_dash_timer -= delta
-		velocity = _dash_dir * _tune("dash_speed", DASH_SPEED)
+		# THE SEVEN TRAVEL VERBS, one branch. `_travel_velocity` is the only thing that
+		# differs per class inside the loop — everything below it (the strike sweep,
+		# the afterimages, the exit puff, the rig feed) is shared, which is why a new
+		# verb is a case there rather than a second copy of this block.
+		velocity = _travel_velocity(delta)
 		move_and_slide()
 		if _cfg["dash_strike"]:
 			_dash_strike_sweep()  # rogue: dash deals melee damage through enemies
+		if _dash_verb == "radiant_step":
+			# CLERIC: drop healing pulses along the path (allies only).
+			_radiant_wake_timer -= delta
+			if _radiant_wake_timer <= 0.0:
+				_radiant_wake_timer = RADIANT_WAKE_INTERVAL
+				_radiant_wake_pulse()
 		_ghost_timer -= delta
 		if _ghost_timer <= 0.0:
 			_ghost_timer = GHOST_INTERVAL
-			rig.spawn_ghost(get_parent(), GHOST_COLOR, _dash_dir)
+			rig.spawn_ghost(get_parent(), _travel_ghost_color(), _dash_dir)
 		if _dash_timer <= 0.0:
 			is_dashing = false
+			_end_travel()
 			# Skid-to-a-stop dust puff — the "come down to the ground" kick-up.
 			CombatVfx.spawn_burst(
 				get_parent(), global_position,
@@ -1477,7 +1762,7 @@ func _physics_process(delta: float) -> void:
 	# briefly preserves the kick-off so it can't be cancelled back into the wall.
 	# gear: hood = fleet-footed. `_status_speed_mult` is the ailment half — a chilled
 	# or shocked hero moves like one now that heroes can actually catch ailments.
-	var spd: float = _tune("hero_speed", SPEED) * _gear_speed_mult * _status_speed_mult()
+	var spd: float = _class_speed() * _gear_speed_mult * _status_speed_mult()
 	if _wall_jump_lock <= 0.0:
 		if move_x != 0.0:
 			var accel: float = GROUND_ACCEL if is_on_floor() else _tune("move_air_accel", AIR_ACCEL)
@@ -1649,7 +1934,12 @@ func _try_fire_buffered() -> bool:
 				_clear_input_buffer()
 				_blast()
 		"dash":
-			if _dash_cooldown_timer <= 0.0:
+			# `or _recall_pending()` is the Arcanist's return leg getting through a
+			# cooldown its own outbound leg just spent. Same shape as the Rift Dagger's
+			# free RECALL beat below (`_slot_recall_pending`) and for the same reason: a
+			# recall is a SECOND DECISION, not a continuation of the first, so gating it
+			# on the first one's recovery would make the ability unpressable.
+			if _dash_cooldown_timer <= 0.0 or _recall_pending():
 				_clear_input_buffer()
 				_start_dash()
 				return true
@@ -1763,6 +2053,14 @@ func configure_class(cls: int) -> void:
 	_nova_cooldown_timer = 0.0
 	_parry_window_timer = 0.0
 	_parry_cooldown_timer = 0.0
+	# Movement-verb state, cleared for exactly the reason every other timer here is:
+	# Tab swaps classes live, and a recall anchor or a surge armour tail that survived
+	# the swap would be the previous class's ability still running on this one.
+	_recall_timer = 0.0
+	_surge_armor_timer = 0.0
+	_dash_verb = String(_cfg.get("move_verb", "dash"))
+	_dash_speed = DASH_SPEED
+	_dash_total = DASH_TIME
 	_clear_input_buffer()
 	# Per-class movement identity: air (double) jumps refill count.
 	_max_air_jumps = int(_cfg.get("air_jumps", 0))
@@ -1795,7 +2093,33 @@ func configure_class(cls: int) -> void:
 	_base_melee_damage = _melee_damage
 	_base_melee_knockback = _melee_knockback
 	_base_melee_cd = _melee_cd
-	_base_max_hp = max_hp
+	# THE CLASS'S OWN HEALTH, and the one line that makes it compose with gear instead
+	# of being clobbered by it. `_recompute_gear_effects` (called at the bottom of this
+	# function) scales `max_hp` off `_base_max_hp` idempotently — so seeding the BASE
+	# from the class table means the hat MULTIPLIES the class number and re-running a
+	# loadout swap can never compound. Seeding `max_hp` itself instead would have been
+	# the bug: the next gear recompute would scale an already-scaled value.
+	#
+	# ⚠ A SPAWNER THAT IMPOSES ITS OWN POOL STILL WINS, and must still write AFTER this
+	# call — which every one of them already does (BotMatch `_adopt_fighters`,
+	# VersusArena `_spawn_showcase_fighter`, the duel). Nothing about that ordering
+	# changed; what changed is that a hero nobody overrides is no longer 100 HP
+	# regardless of who it is.
+	#
+	# ⚠ `max_hp` IS DELIBERATELY NOT WRITTEN HERE. `_recompute_gear_effects` a few lines
+	# below is the single writer: it rescales from this base, preserves the current fill
+	# RATIO, and emits `health_changed`. Assigning `max_hp` here as well would skip the
+	# emit (the HUD would show the previous class's bar until the next damage tick) and
+	# would hand the recompute an already-scaled value to scale again.
+	#
+	# ⚠ A SPAWNER THAT IMPOSES ITS OWN POOL STILL WINS, and must still write AFTER this
+	# call — which every one of them already does (BotMatch `_adopt_fighters`,
+	# VersusArena `_spawn_showcase_fighter`, the duel). Nothing about that ordering
+	# changed; what changed is that a hero nobody overrides is no longer 100 HP
+	# regardless of who it is. Such an override does NOT re-base `_base_max_hp`, so a
+	# LATER loadout swap on an overridden body would recompute back to the class number
+	# — the same one-writer caveat the field has always had, now with a different value.
+	_base_max_hp = int(_cfg.get("hp", BASE_MAX_HP))
 	_base_element = _element  # class innate element (a non-elemental weapon reverts here)
 	_gear_override.clear()  # a fresh class = a fresh loadout base...
 	_recompute_gear_effects()
@@ -1973,7 +2297,7 @@ func _begin_summon(spell: SpellDef, sky: bool, special: int) -> void:
 	# everything: a wall gets slammed out of the ground, a bombardment gets a ritual
 	# circle, a lightning rush gets coiled into the chest. Same table the playground rig
 	# reads, so a spell looks like ITSELF regardless of who throws it.
-	_summon_pose = CastStyle.for_spell(spell.kind)
+	_summon_pose = CastStyle.for_spell_def(spell)
 	_summon_tier = SpellTier.of(spell)
 	_summon_total = SignatureRite.windup_for(spell)
 	_summon_timer = _summon_total
@@ -2196,7 +2520,7 @@ func _begin_channel(spell: SpellDef, sky: bool) -> void:
 	# reads as a slam and a beam still reads as a thrust. The channel's LENGTH stays
 	# the spell's authored cast_time — that number is already the balance-tuned dodge
 	# window, so it is never scaled by CastStyle/tier on top.
-	rig.cast_gesture(_pose_gesture(CastStyle.for_spell(spell.kind)), 1.0, _element)
+	rig.cast_gesture(_pose_gesture(CastStyle.for_spell_def(spell)), 1.0, _element)
 	# Build-up sigil that grows ABOVE the caster over the channel (maker: "the circle
 	# should sit ABOVE"), opened through the SAME seam as the summon windup. This is
 	# the path the reported duplicate-circle bug lives on — a channelled BEAM used to
@@ -2482,6 +2806,10 @@ func signature_cooldown_ratio() -> float:
 func _dash_strike_sweep() -> void:
 	var rng: float = _cfg["dash_strike_range"]
 	var dmg: int = _cfg["dash_strike_damage"]
+	# THE STAGGER. A Shoulder Charge shoves far harder than the class's own melee
+	# knockback — that is what makes it a charge rather than a dash that ticks damage.
+	# Optional key: absent -> the melee value, i.e. byte-identical to before.
+	var kb: float = float(_cfg.get("dash_strike_knockback", _melee_knockback))
 	var hit_any: bool = false
 	# SILHOUETTE, NOT ORIGIN. This used to be `distance_to(enemy.global_position)`,
 	# a zero-size point test against a node origin that sits ~10 px BELOW the drawn
@@ -2502,7 +2830,7 @@ func _dash_strike_sweep() -> void:
 		if enemy.has_method("take_damage"):
 			enemy.take_damage(dmg)
 		if enemy.has_method("apply_knockback"):
-			enemy.apply_knockback(_dash_dir * _melee_knockback)
+			enemy.apply_knockback(_dash_dir * kb)
 		hit_any = true
 	for prop: Node in SpellTargets.in_radius(global_position, rng,
 			get_tree().get_nodes_in_group("destructible"), [self], self):
@@ -2518,9 +2846,43 @@ func _dash_strike_sweep() -> void:
 		Sfx.play("melee_hit")
 
 
+## THE ONE MOVEMENT BUTTON, dispatched nine ways. Kept as `_start_dash` because it is
+## the name `_try_fire_buffered` presses, the name `tools/dash_agent_capture.gd` calls,
+## and the name the `dash` action has always mapped to — renaming it would be a rename
+## of the seam, not of a verb.
+##
+## Two of the nine (`lightning_blink`, `thrall_swap`) are TELEPORTS: they resolve
+## entirely inside this call and never set `is_dashing`, so the per-frame dash branch
+## below never sees them. The other seven are travel and share the branch, parameterised
+## by `_dash_verb` / `_dash_speed` / `_dash_total`.
 func _start_dash() -> void:
+	var verb: String = _move_verb()
+	# ARCANIST, THE RETURN LEG. Checked FIRST, before the cooldown is spent and before
+	# any of the travel setup — a live anchor turns this press into a different ability
+	# entirely, and `_try_fire_buffered` has already let it through a cooldown the
+	# outbound leg spent (see `_recall_pending`).
+	if verb == "recall" and _recall_timer > 0.0:
+		_arcane_recall_return()
+		return
+	match verb:
+		"lightning_blink":
+			_lightning_blink()
+			return
+		"thrall_swap":
+			_thrall_swap()
+			return
+	_begin_travel(verb)
+
+
+## The shared setup for the seven TRAVEL verbs. Everything that used to be inlined in
+## `_start_dash` lives here unchanged except that the speed, the duration and the
+## i-frame slice now come from the class rather than from three globals.
+func _begin_travel(verb: String) -> void:
 	is_dashing = true
-	_dash_timer = _tune("dash_time", DASH_TIME)
+	_dash_verb = verb
+	_dash_speed = _verb_speed(verb)
+	_dash_total = _verb_time(verb)
+	_dash_timer = _dash_total
 	_dash_cooldown_timer = _cfg["dash_cd"]
 	# Dash the EXACT angle of the held movement keys (true 8-way): W+D -> up-right,
 	# S+A -> down-left, D alone -> flat right. Accurate to which keys are down,
@@ -2535,9 +2897,443 @@ func _start_dash() -> void:
 		_dash_dir = _move_dir
 	else:
 		_dash_dir = Vector2(signf(facing.x), 0.0) if facing.x != 0.0 else Vector2.RIGHT
+	# GROUND-PLANE VERBS travel horizontally whatever the stick says. A shoulder charge
+	# aimed up-right is still a shoulder charge; only the Shadowblade gets to fly.
+	if _verb_is_grounded(verb):
+		var fx: float = signf(_dash_dir.x)
+		if fx == 0.0:
+			fx = signf(facing.x) if facing.x != 0.0 else 1.0
+		_dash_dir = Vector2(fx, 0.0)
 	_ghost_timer = 0.0  # first afterimage lands this frame
 	_dash_hit.clear()
-	_net_send("ds", {"dir": _dash_dir})
+	_begin_verb_extras(verb)
+	_net_send("ds", {"dir": _dash_dir, "vb": verb})
+
+
+## The per-verb one-shot that fires as travel STARTS. Everything here is additive to
+## the shared setup above; a verb with nothing to add is simply absent.
+func _begin_verb_extras(verb: String) -> void:
+	match verb:
+		"recall":
+			# Drop the anchor. The outbound leg is otherwise an ordinary dash — the
+			# ability is the option it leaves you holding.
+			_recall_anchor = global_position
+			_recall_timer = RECALL_WINDOW
+			CombatVfx.spawn_burst(
+				get_parent(), _recall_anchor, RECALL_ANCHOR_COLOR, BLINK_BURST_END,
+				10, 0.5, 10.0, 30.0, 1.0, 2.0
+			)
+		"surge":
+			# Armour is owed for the travel PLUS a tail. The tail is the whole
+			# difference from "every dash ignores knockback" (`apply_knockback`).
+			_surge_armor_timer = _dash_total + SURGE_ARMOR_TAIL
+		"radiant_step":
+			_radiant_wake_timer = 0.0  # first pulse lands on frame one
+		"ice_slide":
+			# Enter the slide at speed; the branch bleeds it from here rather than
+			# holding it flat like a dash does.
+			velocity.x = _dash_dir.x * _dash_speed
+		"charge":
+			Sfx.play("dash", 1.0, 0.05, 0.8)
+
+
+## Travel speed for a verb. `_tune("dash_speed", ...)` still scales the baseline dash so
+## the live feel knob keeps working, applied as a RATIO so a class that is deliberately
+## slower stays proportionally slower when the maker drags the slider.
+func _verb_speed(verb: String) -> float:
+	var scale: float = _tune("dash_speed", DASH_SPEED) / DASH_SPEED
+	var base: float = DASH_SPEED
+	match verb:
+		"recall":
+			base = RECALL_SPEED
+		"air_dash":
+			base = AIR_DASH_SPEED
+			if not is_on_floor():
+				base *= AIR_DASH_AIRBORNE_BONUS  # BETTER in the air, uniquely
+		"charge":
+			base = CHARGE_SPEED
+		"surge":
+			base = SURGE_SPEED
+		"radiant_step":
+			base = RADIANT_STEP_SPEED
+		"ice_slide":
+			base = ICE_SLIDE_SPEED
+		"committed_step":
+			base = COMMITTED_STEP_SPEED
+	return base * scale
+
+
+func _verb_time(verb: String) -> float:
+	var scale: float = _tune("dash_time", DASH_TIME) / DASH_TIME
+	var base: float = DASH_TIME
+	match verb:
+		"recall":
+			base = RECALL_TIME
+		"air_dash":
+			base = AIR_DASH_TIME
+		"charge":
+			base = CHARGE_TIME
+		"surge":
+			base = SURGE_TIME
+		"radiant_step":
+			base = RADIANT_STEP_TIME
+		"ice_slide":
+			base = ICE_SLIDE_TIME
+		"committed_step":
+			base = COMMITTED_STEP_TIME
+	return base * scale
+
+
+## This class's movement verb. One reader, so a class table that forgets the key
+## degrades to the old shared dash instead of crashing — and so the pre-change table
+## resolves all nine to the same string, which is what the distinctness test catches.
+func _move_verb() -> String:
+	return String(_cfg.get("move_verb", "dash"))
+
+
+func _verb_is_grounded(verb: String) -> bool:
+	return GROUNDED_VERBS.has(verb)
+
+
+## This class's WALK speed. `SPEED` used to be read straight out of the movement block
+## for all nine; it is now the fallback and the shape of the live tuning knob.
+##
+## The knob is applied as a RATIO rather than as an absolute, deliberately: dragging
+## `hero_speed` must move the whole roster together, so a Juggernaut that is 79% of the
+## baseline stays 79% of it at any setting. Reading `_tune` as an absolute (the obvious
+## version) would have collapsed all nine classes back to one number the moment the
+## maker touched the slider — i.e. it would have silently undone this entire task from
+## the tuning panel.
+func _class_speed() -> float:
+	return float(_cfg.get("speed", SPEED)) * (_tune("hero_speed", SPEED) / SPEED)
+
+
+## PUBLIC, for the bot seam and the tests: roughly how far one press of the movement
+## button carries this class. DERIVED from the verb's own numbers rather than restated
+## — `BotBrain.DASH_DIST` is a hand-copied `620 * 0.14` literal and this is exactly the
+## drift that comment warns about, so the blackboard publishes this instead.
+func movement_verb_distance() -> float:
+	var verb: String = _move_verb()
+	match verb:
+		"lightning_blink":
+			return LIGHTNING_BLINK_DISTANCE
+		"thrall_swap":
+			# Honest answer: with a thrall in reach it is arbitrarily far, so publish
+			# what a bot can COUNT on, which is the no-thrall fallback.
+			return THRALL_SWAP_FALLBACK_DISTANCE
+		"ice_slide":
+			# A slide BLEEDS speed, so speed * time overstates it by a lot. Integrate
+			# the linear decay instead: it stops early if friction wins first.
+			var t_stop: float = minf(_verb_time(verb), ICE_SLIDE_SPEED / ICE_SLIDE_FRICTION)
+			return ICE_SLIDE_SPEED * t_stop - 0.5 * ICE_SLIDE_FRICTION * t_stop * t_stop
+	return _verb_speed(verb) * _verb_time(verb)
+
+
+## PUBLIC: does one press of the movement button dodge anything? A bot that spends its
+## movement button as an i-frame answer needs to know that a Brawler charge and a
+## Juggernaut surge do not have any (see `_dash_invulnerable`).
+##
+## A TELEPORT answers 1.0 because it grants a flat post-arrival window
+## (`LIGHTNING_BLINK_IFRAME` / `THRALL_SWAP_IFRAME`) rather than a fraction of a travel
+## it does not have. The question the callers ask is "does pressing this dodge", and for
+## those two the answer is an unqualified yes.
+func movement_verb_iframe_fraction() -> float:
+	if _verb_is_teleport(_move_verb()):
+		return 1.0
+	return float(_cfg.get("dash_iframe_fraction", DASH_IFRAME_FRACTION))
+
+
+## Verbs that resolve instantly inside `_start_dash` and never enter the travel branch.
+## Reads the documented list so the list cannot drift from the dispatch it describes.
+func _verb_is_teleport(verb: String) -> bool:
+	return TELEPORT_VERBS.has(verb)
+
+
+## PUBLIC: the verb's name, for the HUD, the bots and the suites. One spelling.
+func movement_verb_name() -> String:
+	return _move_verb()
+
+
+## True while an Arcane Recall anchor is live and the return leg is therefore a FREE
+## second press. Mirrors `_slot_recall_pending`'s role for the Rift Dagger: a recall is
+## a second decision, not a continuation, so it must not be gated by the cooldown the
+## first decision spent.
+func _recall_pending() -> bool:
+	return _move_verb() == "recall" and _recall_timer > 0.0
+
+
+## ARCANIST, the return leg: snap back to the anchor. Vetted through the same landing
+## rules as every other teleport in this file — if the anchor is now inside a collapsed
+## wall, over a pit, or outside the room, `_safe_blink_destination` slides to the
+## nearest legal point on the ray, and below `BLINK_MIN_TRAVEL` we simply DASH instead
+## rather than eat the press. There is no outcome where the button does nothing.
+func _arcane_recall_return() -> void:
+	var origin: Vector2 = global_position
+	var dest: Vector2 = _safe_blink_destination(origin, _recall_anchor)
+	_recall_timer = 0.0
+	if origin.distance_to(dest) < BLINK_MIN_TRAVEL:
+		_begin_travel("recall")  # nowhere legal to return to — spend it as a dash
+		return
+	_dash_cooldown_timer = _cfg["dash_cd"]
+	_blink_iframe_timer = BLINK_IFRAME
+	rig.spawn_ghost(get_parent(), RECALL_ANCHOR_COLOR, Vector2.ZERO, Vector2.ZERO, 0.3)
+	CombatVfx.spawn_burst(get_parent(), origin, RECALL_ANCHOR_COLOR, BLINK_BURST_END,
+		16, 0.3, 40.0, 110.0, 1.5, 3.0)
+	global_position = dest
+	velocity = Vector2.ZERO  # the whole point is that you arrive as you left
+	CombatVfx.spawn_burst(get_parent(), dest, RECALL_ANCHOR_COLOR, BLINK_BURST_END,
+		22, 0.4, 60.0, 140.0, 1.5, 3.5)
+	rig.flash_color(BLINK_ARRIVAL_FLASH_COLOR, BLINK_ARRIVAL_FLASH_TIME)
+	rig.play(CharacterRig.State.CAST)
+	Sfx.play("blink", -2.0, 0.1, 1.25)
+	_net_send("rc", {"to": dest})
+
+
+## STORMCALLER: no dash on this class at all — the movement button TELEPORTS, in a
+## crackle, further than either a dash or the shadow blink on R.
+##
+## Aim, vetting, refusal and refund are the shadow blink's, verbatim, because there is
+## exactly one set of rules about where a body may rest and `_blink()` already writes
+## them down. What differs is the distance, the colour and the cooldown it charges.
+func _lightning_blink() -> void:
+	var origin: Vector2 = global_position
+	var dir: Vector2 = _aim_dir
+	if dir == Vector2.ZERO:
+		dir = _move_dir
+	if dir == Vector2.ZERO:
+		dir = Vector2.RIGHT
+	var dest: Vector2 = _safe_blink_destination(
+		origin, origin + dir.normalized() * LIGHTNING_BLINK_DISTANCE)
+	if origin.distance_to(dest) < BLINK_MIN_TRAVEL:
+		# REFUSED -> REFUNDED, same contract as `_blink`: nothing is spent above this
+		# line, so a blink with nowhere legal to land can be re-aimed and pressed again.
+		CombatVfx.spawn_burst(get_parent(), origin, Color(0.5, 0.5, 0.3, 0.5),
+			LIGHTNING_BLINK_END, 6, 0.2, 20.0, 55.0, 1.0, 2.0)
+		Sfx.play("blink", -14.0, 0.1, 1.4)
+		return
+	_dash_cooldown_timer = _cfg["dash_cd"]
+	_blink_iframe_timer = LIGHTNING_BLINK_IFRAME
+	rig.spawn_ghost(get_parent(), LIGHTNING_BLINK_START, Vector2.ZERO, Vector2.ZERO, 0.28)
+	_lightning_blink_fx(origin, dest)
+	global_position = dest
+	velocity.y = 0.0
+	rig.play(CharacterRig.State.CAST)
+	_net_send("lb", {"to": dest})
+
+
+## The crackle at both ends plus a few arc motes strung along the line, so the eye
+## reads a DISCHARGE rather than a body that skipped some frames. Shared with the
+## puppet replay so both screens draw the same thing.
+func _lightning_blink_fx(origin: Vector2, dest: Vector2) -> void:
+	CombatVfx.spawn_burst(get_parent(), origin, LIGHTNING_BLINK_START,
+		LIGHTNING_BLINK_END, 20, 0.3, 60.0, 190.0, 1.5, 3.0)
+	CombatVfx.spawn_burst(get_parent(), dest, LIGHTNING_BLINK_START,
+		LIGHTNING_BLINK_END, 26, 0.35, 80.0, 240.0, 1.5, 3.5)
+	# Three motes down the line: cheap, and it is what makes the two poofs read as
+	# ONE event instead of two unrelated sparks.
+	for i: int in 3:
+		var t: float = float(i + 1) / 4.0
+		CombatVfx.spawn_burst(get_parent(), origin.lerp(dest, t), LIGHTNING_BLINK_START,
+			LIGHTNING_BLINK_END, 5, 0.18, 30.0, 90.0, 1.0, 2.0)
+	rig.flash_color(LIGHTNING_BLINK_FLASH, BLINK_ARRIVAL_FLASH_TIME)
+	Sfx.play("blink", 1.0, 0.08, 1.5)
+
+
+## WARLOCK: trade places with one of YOUR OWN minions.
+##
+## THE CONTRACT (another agent owns the minions): group `THRALL_GROUP`, node meta
+## `THRALL_OWNER_META` -> the Hero that raised it. Anything in the group that is not
+## ours, not alive, or out of `THRALL_SWAP_RANGE` is not a candidate, so a teammate's
+## thralls are not a free taxi and a corpse is not a destination.
+##
+## BOTH landings are vetted. Ours through `_safe_blink_destination` exactly like every
+## other teleport; the thrall's through the same call from its own end. If OUR half has
+## nowhere legal to go the whole swap is refused and refunded — a half-completed swap
+## that moved the minion and not the caster is worse than no swap at all.
+##
+## NO THRALL -> a short blink along the aim (`THRALL_SWAP_FALLBACK_DISTANCE`), with the
+## same refuse-and-refund floor. The button is never dead and it never strands anyone.
+func _thrall_swap() -> void:
+	var thrall: Node2D = _nearest_thrall()
+	if thrall == null:
+		_thrall_swap_fallback()
+		return
+	var origin: Vector2 = global_position
+	var their_origin: Vector2 = thrall.global_position
+	var mine: Vector2 = _safe_blink_destination(origin, their_origin)
+	if origin.distance_to(mine) < BLINK_MIN_TRAVEL:
+		_thrall_swap_fizzle(origin)
+		return
+	# The minion's landing, vetted from ITS end toward ours. `_safe_blink_destination`
+	# probes with OUR collision shape and excludes only OUR rid, so this is an
+	# approximation of the thrall's own footprint — deliberately, because Hero must not
+	# start reaching into another agent's body for a shape. It is conservative in the
+	# direction that matters (a hero capsule is not smaller than a minion) and the
+	# fallback is the thrall simply staying put, never the thrall inside a wall.
+	var theirs: Vector2 = _safe_blink_destination(their_origin, origin)
+	if their_origin.distance_to(theirs) < BLINK_MIN_TRAVEL:
+		theirs = their_origin  # our half still happens; the minion holds its ground
+	_dash_cooldown_timer = _cfg["dash_cd"]
+	_blink_iframe_timer = THRALL_SWAP_IFRAME
+	rig.spawn_ghost(get_parent(), THRALL_SWAP_START, Vector2.ZERO, Vector2.ZERO, 0.32)
+	CombatVfx.spawn_burst(get_parent(), origin, THRALL_SWAP_START, THRALL_SWAP_END,
+		20, 0.35, 50.0, 150.0, 1.5, 3.0)
+	CombatVfx.spawn_burst(get_parent(), their_origin, THRALL_SWAP_START, THRALL_SWAP_END,
+		20, 0.35, 50.0, 150.0, 1.5, 3.0)
+	global_position = mine
+	velocity.y = 0.0
+	thrall.global_position = theirs
+	if thrall.has_method("set"):
+		thrall.set("velocity", Vector2.ZERO)  # a swapped minion does not inherit a fall
+	rig.flash_color(BLINK_ARRIVAL_FLASH_COLOR, BLINK_ARRIVAL_FLASH_TIME)
+	rig.play(CharacterRig.State.CAST)
+	Sfx.play("blink", -1.0, 0.1, 0.7)
+	_net_send("sw", {"to": mine, "th": theirs})
+
+
+## Nearest LIVING thrall of OURS inside range, or null. Duck-typed throughout: Hero has
+## no compile-time knowledge of the minion class and must not grow any.
+func _nearest_thrall() -> Node2D:
+	var best: Node2D = null
+	var best_d: float = THRALL_SWAP_RANGE
+	for n: Node in get_tree().get_nodes_in_group(THRALL_GROUP):
+		if not (n is Node2D) or not is_instance_valid(n):
+			continue
+		if n.get_meta(THRALL_OWNER_META, null) != self:
+			continue  # somebody else's minion is not our escape route
+		# A dying/dead minion is not a destination. `hp` is optional — a thrall that
+		# does not publish one is treated as alive, which is the safe default.
+		var hp_v: Variant = n.get("hp")
+		if hp_v != null and float(hp_v) <= 0.0:
+			continue
+		# ...and the same guard for `downed`, for the same reason and a worse symptom.
+		# `Object.get()` on a property a script has not DECLARED returns null, and
+		# `bool(null)` is not false — it is the runtime error "Nonexistent 'bool'
+		# constructor", which ABORTS this function on the spot and hands the caller
+		# back null. Every thrall trips it: `Thrall.gd` declares no `downed`. So the
+		# whole thrall-swap read as "no thrall in range" and silently dropped the
+		# Warlock into `_thrall_swap_fallback` every single time, with the error
+		# scrolling past in a place nobody looks.
+		#
+		# Found by `tools/bot_sim.gd` in STORMCALLER_vs_WARLOCK — i.e. only once the
+		# Warlock actually CARRIED Raise Thrall and there were minions on the floor to
+		# find. It was unreachable, and therefore invisible, before the kit change.
+		var downed_v: Variant = n.get("downed")
+		if downed_v != null and bool(downed_v):
+			continue
+		var d: float = global_position.distance_to((n as Node2D).global_position)
+		if d < best_d:
+			best_d = d
+			best = n as Node2D
+	return best
+
+
+## The no-thrall degradation, stated in code as well as in the header: a short vetted
+## blink along the aim. Refused and refunded when even that has nowhere to land.
+func _thrall_swap_fallback() -> void:
+	var origin: Vector2 = global_position
+	var dir: Vector2 = _aim_dir
+	if dir == Vector2.ZERO:
+		dir = _move_dir
+	if dir == Vector2.ZERO:
+		dir = Vector2.RIGHT
+	var dest: Vector2 = _safe_blink_destination(
+		origin, origin + dir.normalized() * THRALL_SWAP_FALLBACK_DISTANCE)
+	if origin.distance_to(dest) < BLINK_MIN_TRAVEL:
+		_thrall_swap_fizzle(origin)
+		return
+	_dash_cooldown_timer = _cfg["dash_cd"]
+	_blink_iframe_timer = THRALL_SWAP_IFRAME
+	rig.spawn_ghost(get_parent(), THRALL_SWAP_START, Vector2.ZERO, Vector2.ZERO, 0.28)
+	CombatVfx.spawn_burst(get_parent(), origin, THRALL_SWAP_START, THRALL_SWAP_END,
+		14, 0.3, 40.0, 110.0, 1.5, 3.0)
+	global_position = dest
+	velocity.y = 0.0
+	CombatVfx.spawn_burst(get_parent(), dest, THRALL_SWAP_START, THRALL_SWAP_END,
+		18, 0.35, 50.0, 130.0, 1.5, 3.0)
+	rig.play(CharacterRig.State.CAST)
+	Sfx.play("blink", -3.0, 0.1, 0.7)
+	_net_send("sw", {"to": dest, "th": origin})
+
+
+## Refused: a dim fizzle at the feet, nothing spent. Same read as `_blink`'s refusal so
+## a player learns ONE "that press was blocked" tell rather than three.
+func _thrall_swap_fizzle(at: Vector2) -> void:
+	CombatVfx.spawn_burst(get_parent(), at, Color(0.3, 0.15, 0.35, 0.5),
+		THRALL_SWAP_END, 6, 0.2, 20.0, 55.0, 1.0, 2.0)
+	Sfx.play("blink", -14.0, 0.1, 0.55)
+
+
+## CLERIC: one healing pulse dropped in the wake. Allies only — every living
+## non-downed body in the `hero` group except us — and it never touches the caster,
+## because a self-heal on a mobility button is a sustain button wearing a disguise.
+func _radiant_wake_pulse() -> void:
+	CombatVfx.spawn_burst(get_parent(), global_position, RADIANT_WAKE_COLOR,
+		Color(1.0, 0.95, 0.65, 0.0), 6, 0.35, 10.0, 40.0, 1.0, 2.5)
+	for n: Node in get_tree().get_nodes_in_group(&"hero"):
+		if n == self or not (n is Node2D) or not is_instance_valid(n):
+			continue
+		if bool(n.get("downed")):
+			continue
+		if global_position.distance_to((n as Node2D).global_position) > RADIANT_WAKE_RADIUS:
+			continue
+		if n.has_method("heal"):
+			n.call("heal", RADIANT_WAKE_HEAL)
+
+
+## THE ONE THING THAT DIFFERS PER CLASS INSIDE THE TRAVEL LOOP. Four of the seven
+## travel verbs are a flat gravity-free burst (the old dash's behaviour, which is why
+## they fall through); the three GROUNDED_VERBS keep falling, and the Cryomancer's
+## slide additionally bleeds and half-steers instead of holding its speed.
+func _travel_velocity(delta: float) -> Vector2:
+	var v: Vector2 = velocity
+	match _dash_verb:
+		"ice_slide":
+			# LOW FRICTION, POOR AUTHORITY. Speed decays linearly; the stick can lean
+			# the line but cannot turn it around inside the slide.
+			v.x = move_toward(v.x, 0.0, ICE_SLIDE_FRICTION * delta)
+			var steer_x: float = _axis(&"move_left", &"move_right")
+			if steer_x != 0.0:
+				v.x = move_toward(v.x, steer_x * _dash_speed,
+					GROUND_ACCEL * ICE_SLIDE_STEER * delta)
+			v.y = 0.0 if is_on_floor() else minf(v.y + GRAVITY_FALL * delta, MAX_FALL)
+			return v
+		"charge", "surge":
+			# Ground-plane travel: flat horizontally, but gravity still owns you, so
+			# charging off a ledge arcs down instead of flying.
+			v.x = _dash_dir.x * _dash_speed
+			v.y = 0.0 if is_on_floor() else minf(v.y + GRAVITY_FALL * delta, MAX_FALL)
+			return v
+	return _dash_dir * _dash_speed
+
+
+## Afterimage colour, per verb — the cheapest possible way to make nine verbs read as
+## nine different things at a glance. Falls back to the shared dash trail.
+func _travel_ghost_color() -> Color:
+	match _dash_verb:
+		"ice_slide":
+			return ICE_SLIDE_FROST_COLOR
+		"recall":
+			return RECALL_ANCHOR_COLOR
+		"radiant_step":
+			return RADIANT_WAKE_COLOR
+	return GHOST_COLOR
+
+
+## The frame travel ENDS. Only the two verbs whose exit is part of their identity say
+## anything here; the rest keep the old behaviour of leaving the velocity where the
+## burst left it and letting the movement block decelerate.
+func _end_travel() -> void:
+	match _dash_verb:
+		"charge":
+			# IT CARRIES. Keep a share of the charge speed and suppress ground friction
+			# for a beat — `_wall_jump_lock` is already the movement block's "do not
+			# fight this momentum" gate, so this reuses it rather than adding a second
+			# flag that means the same thing and drifts from it.
+			velocity.x = _dash_dir.x * _dash_speed * CHARGE_EXIT_MOMENTUM
+			_wall_jump_lock = maxf(_wall_jump_lock, CHARGE_MOMENTUM_LOCK)
+		"surge":
+			velocity.x = 0.0  # a siege engine stops exactly where it decided to stop
 
 
 ## Shadow blink: instant teleport BLINK_DISTANCE along the direction you are
@@ -3454,12 +4250,38 @@ func _spawn_foot_puff() -> void:
 func ability_hud_state() -> Array:
 	return [
 		{"name": "Cast", "key": "LMB", "remaining": _cast_cooldown_timer, "total": float(_cfg["cast_cd"]), "enabled": true},
-		{"name": "Dash", "key": "Spc", "remaining": _dash_cooldown_timer, "total": float(_cfg["dash_cd"]), "enabled": true},
+		{"name": _move_slot_name(), "key": "Spc", "remaining": _dash_cooldown_timer, "total": float(_cfg["dash_cd"]), "enabled": true},
 		{"name": _aoe_slot_name(), "key": "Q", "remaining": _blast_cooldown_timer, "total": float(_cfg["blast_cd"]), "enabled": true},
 		{"name": "Blink", "key": "R", "remaining": _blink_cooldown_timer, "total": float(_cfg["blink_cd"]), "enabled": true},
 		{"name": "Nova", "key": "T", "remaining": _nova_cooldown_timer, "total": NOVA_COOLDOWN, "enabled": bool(_cfg["has_nova"])},
 		_defense_hud_slot(),
 	] + _signature_hud_slots()
+
+
+## The movement slot's NAME. The bar is where a player learns that this button is not
+## the same button on the next class — a Cryomancer reading "Dash" and then sliding
+## half a room would be the HUD lying about the ability. Short enough for the slot.
+func _move_slot_name() -> String:
+	match _move_verb():
+		"recall":
+			return "Recall" if _recall_timer > 0.0 else "Step"
+		"air_dash":
+			return "Air Dash"
+		"charge":
+			return "Charge"
+		"surge":
+			return "Surge"
+		"radiant_step":
+			return "Radiant"
+		"ice_slide":
+			return "Slide"
+		"lightning_blink":
+			return "Bolt Step"
+		"thrall_swap":
+			return "Swap"
+		"committed_step":
+			return "Lunge"
+	return "Dash"
 
 
 ## The defensive slot, which is two different verbs behind one button.
@@ -3838,6 +4660,14 @@ func apply_knockback(impulse: Vector2, do_flop: bool = true) -> void:
 		return
 	if is_dashing or _blink_iframe_timer > 0.0:
 		return
+	# JUGGERNAUT, UNSTOPPABLE SURGE. Every dash already ignores knockback (the line
+	# above), so armour that only lasted the travel would be indistinguishable from
+	# everyone else's. The TAIL is the ability: for `SURGE_ARMOR_TAIL` after the surge
+	# ends the Juggernaut still cannot be moved, so a surge INTO a crowd is not
+	# immediately shoved back out of it. It is not invulnerability — the damage lands
+	# in full (`SURGE_IFRAME_FRACTION` is 0.0), the body just refuses to go anywhere.
+	if _surge_armor_timer > 0.0:
+		return
 	# THE knockback knob (TuningConfig.knockback_mult). Fallback must MATCH the
 	# exported default — 1.6 -> 1.0 with the "knockback is too much" pass, or a
 	# context without the Tuning autoload silently keeps the old launch feel.
@@ -3873,11 +4703,24 @@ func _check_wall_slam() -> void:
 
 ## True only during the opening slice of a dash. _dash_timer counts DOWN from the
 ## dash duration, so "early" is a HIGH remaining time.
+##
+## THE FRACTION IS PER CLASS NOW, and it is a decision rather than an accident of a
+## shared code path: `dash_iframe_fraction` in CLASS_CONFIG, named per verb up at the
+## MOVEMENT VERBS block. 0.0 means the verb dodges NOTHING (the Brawler's charge and
+## the Juggernaut's surge are commitments, not escapes) and that is a real number in the
+## table, not an omission. `DASH_IFRAME_FRACTION` survives only as the fallback for a
+## class that forgets the key.
+##
+## `_dash_total` — the verb's own duration — replaces the global `dash_time` read. With
+## the global the Cryomancer's 0.55 s slide would have measured its i-frame slice
+## against 0.14 s and been invulnerable for exactly none of it.
 func _dash_invulnerable() -> bool:
 	if not is_dashing:
 		return false
-	var total: float = _tune("dash_time", DASH_TIME)
-	return _dash_timer >= total * (1.0 - DASH_IFRAME_FRACTION)
+	var frac: float = float(_cfg.get("dash_iframe_fraction", DASH_IFRAME_FRACTION))
+	if frac <= 0.0:
+		return false
+	return _dash_timer >= maxf(_dash_total, 0.0001) * (1.0 - frac)
 
 
 func take_damage(amount: int) -> void:
@@ -4400,9 +5243,15 @@ func _net_dispatch_replay(kind: String, data: Dictionary) -> void:
 		"py":
 			_try_parry_start()
 		"ds":
-			_replay_dash(data.get("dir", _aim_dir))
+			_replay_dash(data.get("dir", _aim_dir), String(data.get("vb", "dash")))
 		"bl":
 			_replay_blink(data.get("to", global_position))
+		"rc":   # ARCANIST — the Arcane Recall return leg
+			_replay_recall(data.get("to", global_position))
+		"lb":   # STORMCALLER — the lightning blink's crackle at both ends
+			_lightning_blink_fx(global_position, data.get("to", global_position))
+		"sw":   # WARLOCK — the thrall swap's two poofs (see `_replay_swap`)
+			_replay_swap(data.get("to", global_position), data.get("th", global_position))
 		"gh":   # a ghost's HAUNT gust — the shove already crossed via the knockback
 			# router, so all that is missing on this screen is the thing that did it.
 			GhostForm.gust_on(self, GHOST_HAUNT_RADIUS)
@@ -4466,13 +5315,69 @@ func _net_spell(sid: String) -> SpellDef:
 
 ## A dash on someone else's screen is the afterimage trail, not the displacement —
 ## position comes from the synchronizer, so moving the body here would fight it.
-func _replay_dash(dir: Vector2) -> void:
+## CO-OP: the movement button, on somebody else's screen.
+##
+## THE RULE, and it is the one `blink_to` already writes down: a puppet is NEVER
+## DISPLACED here. Position on a non-authority peer comes from the
+## MultiplayerSynchronizer, so writing `global_position` in a replay would fight it and
+## snap back. What crosses the wire is the READ — the trail, the poofs, the crackle —
+## because without it a teammate simply teleports with no explanation, which looks like
+## a dropped packet rather than an ability.
+##
+## `vb` carries WHICH verb it was so the trail is the right colour on both screens; an
+## old peer that does not send the key falls back to the shared dash trail.
+func _replay_dash(dir: Vector2, verb: String = "dash") -> void:
 	var d: Vector2 = dir.normalized() if dir != Vector2.ZERO else facing
+	var prev: String = _dash_verb
+	_dash_verb = verb  # only so `_travel_ghost_color` reads the right one
 	rig.set_facing(d)
 	rig.play(CharacterRig.State.DASH)
+	var trail: Color = _travel_ghost_color()
+	_dash_verb = prev
 	for i: int in 3:
-		rig.spawn_ghost(get_parent(), GHOST_COLOR, d)
+		rig.spawn_ghost(get_parent(), trail, d)
 	Sfx.play("dash", -4.0, 0.06)
+
+
+## ARCANIST recall, replayed: the violet snap at both ends of the return leg.
+func _replay_recall(dest: Vector2) -> void:
+	var origin: Vector2 = global_position
+	rig.spawn_ghost(get_parent(), RECALL_ANCHOR_COLOR, Vector2.ZERO, Vector2.ZERO, 0.3)
+	CombatVfx.spawn_burst(get_parent(), origin, RECALL_ANCHOR_COLOR, BLINK_BURST_END,
+		16, 0.3, 40.0, 110.0, 1.5, 3.0)
+	CombatVfx.spawn_burst(get_parent(), dest, RECALL_ANCHOR_COLOR, BLINK_BURST_END,
+		22, 0.4, 60.0, 140.0, 1.5, 3.5)
+	rig.flash_color(BLINK_ARRIVAL_FLASH_COLOR, BLINK_ARRIVAL_FLASH_TIME)
+	rig.play(CharacterRig.State.CAST)
+	Sfx.play("blink", -2.0, 0.1, 1.25)
+
+
+## WARLOCK swap, replayed — and THE HONEST LIMIT OF THIS PASS, stated where it happens.
+##
+## The HERO half is correct on both screens: the poofs are drawn at both ends and the
+## body arrives via the synchronizer, same as every other teleport in this file. The
+## THRALL half is NOT replicated. The minion's displacement is a write to another
+## agent's node, and whether that node is host-authoritative, synchronized, or
+## client-local is a fact this file does not get to assume. Rather than guess and ship a
+## desync, the remote copy draws the second poof at the swap point and leaves the
+## minion's position to whoever owns it.
+##
+## The failure is SAFE: a teammate sees the swap happen, sees the shadow at the far end,
+## and the worst case is that the minion visibly catches up a moment later. Nothing is
+## displaced twice, nothing is stranded, and no position is written on a peer that does
+## not own it. It needs a second pass once the minion's own net role exists.
+func _replay_swap(dest: Vector2, thrall_at: Vector2) -> void:
+	var origin: Vector2 = global_position
+	rig.spawn_ghost(get_parent(), THRALL_SWAP_START, Vector2.ZERO, Vector2.ZERO, 0.32)
+	CombatVfx.spawn_burst(get_parent(), origin, THRALL_SWAP_START, THRALL_SWAP_END,
+		20, 0.35, 50.0, 150.0, 1.5, 3.0)
+	CombatVfx.spawn_burst(get_parent(), dest, THRALL_SWAP_START, THRALL_SWAP_END,
+		20, 0.35, 50.0, 150.0, 1.5, 3.0)
+	CombatVfx.spawn_burst(get_parent(), thrall_at, THRALL_SWAP_START, THRALL_SWAP_END,
+		14, 0.3, 40.0, 110.0, 1.5, 3.0)
+	rig.flash_color(BLINK_ARRIVAL_FLASH_COLOR, BLINK_ARRIVAL_FLASH_TIME)
+	rig.play(CharacterRig.State.CAST)
+	Sfx.play("blink", -1.0, 0.1, 0.7)
 
 
 ## The blink's two poofs, drawn at the ends the owner actually used. The teleport

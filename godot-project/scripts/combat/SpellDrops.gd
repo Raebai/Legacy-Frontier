@@ -20,15 +20,18 @@ extends RefCounted
 ## playtest without reading a single spell file.
 ##
 ##   * A floor has a Tier 2 pickup `TIER2_FLOOR_CHANCE` (55%) of the time.
-##   * When it does, `SIGNATURE_SHARE` (35%) of the time it is one of the six
-##     authored Tier 2 SIGNATURES, and otherwise it is a spell from the CLASS
-##     RESERVE — the real, tuned, role-tagged spells the classes author but do not
-##     carry (`SpellLibrary.reserve_for_class`). Those are the common band: a
-##     genuine upgrade, not an event.
-##   * So a SPECIFIC Tier 2 signature is about 0.55 x 0.35 / 6 ≈ 3% per floor. You
-##     will see Petrify roughly once every thirty floors. That is the intent.
-##   * `SIGNATURE_MIN_FLOOR` keeps the two loudest (Meteor Storm, Mirror Image) off
-##     the first two floors entirely, so a run does not open on its own climax.
+##   * When it does, `SIGNATURE_SHARE` (35%) of the time it is one of the five
+##     authored Tier 2 SIGNATURES, and otherwise it is a spell from the COMMON BAND —
+##     the real, tuned, role-tagged spells the classes author but do not carry
+##     (`SpellLibrary.reserve_for_class`) PLUS the ones no class authors at all any
+##     more (`SpellLibrary.unequipped_ids`, the anti-recolour pass's displaced beams
+##     and bombardments). A genuine upgrade, not an event.
+##   * So a SPECIFIC Tier 2 signature is about 0.55 x 0.35 / 5 ≈ 4% per floor. You
+##     will see Petrify roughly once every twenty-five floors. That is the intent.
+##   * `SIGNATURE_MIN_FLOOR` keeps the loudest (Meteor Storm) off the first two
+##     floors entirely, so a run does not open on its own climax. Mirror Image used
+##     to be gated with it and is no longer a drop at all — it is the Arcanist's
+##     control slot now.
 ##   * A guardian drops a Tier 3 `TIER3_BOSS_CHANCE` (50%) of the time. Half the
 ##     floors you clear, you get nothing, and that is what makes the other half
 ##     mean something.
@@ -99,7 +102,11 @@ const TIER3_BOSS_CHANCE: float = 0.5
 ## id; anything absent is available from floor 1.
 const SIGNATURE_MIN_FLOOR: Dictionary = {
 	"meteor_storm": 3,
-	"mirror_image": 3,
+	# `mirror_image` used to be gated here too. It is not a drop any more — the
+	# anti-recolour pass promoted it into the Arcanist's control slot (see
+	# `SpellLibrary.CLASS_KITS`) — so the key would gate an id nothing can roll. A
+	# dead key here is not harmless bookkeeping: `_eligible` reads it by id, so a
+	# stale entry silently claims to be protecting something.
 	# THE VOID — a 260-damage ULT-weight nuke — used to sit at 1, i.e. no depth gate
 	# at all, which made it obtainable from the floor-1 mini-guardian: a boss with
 	# 190-288 HP handing you a thing that deletes 260. A Tier 3 is supposed to be the
@@ -185,12 +192,33 @@ static func is_final_floor(floor_no: int) -> bool:
 ## roles. A previous agent reserved them for exactly this, and deriving the pool
 ## from `reserve_for_class` rather than hand-listing it is what stops the drop table
 ## drifting out of sync with the kits the way the class cards once did.
+##
+## ⚠ IT HAS A SECOND SOURCE NOW, AND THE REASON IS THE SAME REASON. The anti-recolour
+## pass displaced seven fully-tuned spells out of `CLASS_KITS` altogether —
+## `frostpiercer`, `infernal_lance`, `umbral_lance`, `tempest` (four of the five
+## beams), `colossus_pillar`, `rune_orbs` and `void_barrage` — because five classes
+## throwing one beam and four throwing one bombardment was the thing the maker ruled
+## against. A spell in no kit is reachable through `reserve_for_class` only if some
+## class still AUTHORS it, and these are authored by nobody, so without this union
+## they would be deleted content that still costs a file. `SpellLibrary.unequipped_ids`
+## derives them (and picks up `judgment` and `avalanche`, which had already gone
+## orphan before this pass and which nobody had noticed).
+##
+## They land in the COMMON band and not among the `build_tier2()` signatures on
+## purpose: the signature shelf carries balance invariants a displaced class ULT
+## would break outright ("at most two Tier 2s are ULT-shelf", "every drop has a
+## >= 0.35 s wind-up" — `rune_orbs` has no wind-up at all). The common band is where
+## "a genuine upgrade, not an event" already lives, which is exactly what a real
+## class spell you did not start with is.
 static func _common_pool() -> Array[String]:
 	var out: Array[String] = []
 	for cls: int in range(SpellLibrary.CLASS_KITS.size()):
 		for s: SpellDef in SpellLibrary.reserve_for_class(cls):
 			if not out.has(s.id):
 				out.append(s.id)
+	for id: String in SpellLibrary.unequipped_ids():
+		if not out.has(id):
+			out.append(id)
 	out.sort()   # deterministic across peers; group order is not guaranteed to be
 	return out
 

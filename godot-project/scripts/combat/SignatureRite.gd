@@ -117,7 +117,7 @@ static func windup_for(spell: SpellDef) -> float:
 		return 0.0
 	if spell.cast_time > 0.0:
 		return spell.cast_time
-	var pose: int = CastStyle.for_spell(spell.kind)
+	var pose: int = CastStyle.for_spell_def(spell)
 	var tier: int = clampi(SpellTier.of(spell), 0, TIER_WINDUP.size() - 1)
 	# The 0.02 floor is a guard, not a feel number: a zero-length windup would make
 	# the spawn ungated and turn a "process" back into an instant spawn.

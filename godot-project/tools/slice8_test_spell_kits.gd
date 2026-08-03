@@ -205,19 +205,77 @@ func _test_kit_roles_distinct() -> void:
 
 
 # --------------------------------------------------------- 3+4. the beams
-## Every beam is castable by SOMEBODY. This is the maker's "where are those cool
-## heavy attack beams" made mechanical: a beam that is in build_all() but in no
-## class kit is a beam that exists only in the review sandbox.
+## NOTHING IN THE LIBRARY IS UNREACHABLE — the invariant this test has always
+## actually been about, restated after the anti-recolour pass changed what
+## "reachable" means.
+##
+## ⚠ WHAT THIS USED TO ASSERT AND WHY IT NO LONGER CAN. It demanded that every BEAM
+## sit in some class kit, and that there be exactly five of them. Both halves were
+## proxies for the real rule — the maker's "where are those cool heavy attack beams,
+## why can I only see one or two", which was caused by three beams existing solely
+## in the review harness while the class cards advertised them.
+##
+## The anti-recolour pass then made "every beam is in a kit" the WRONG rule to hold.
+## The maker's ruling was "we cannot have any recolours — I want all the classes to
+## be different and unique", and five of nine classes throwing the same `BeamSpell`
+## down the same corridor was the single largest violation of it. Four of those five
+## beams left the kits on purpose. `ordinary_spell` is the only one still carried,
+## which is the point of it being "the first spell anyone learns".
+##
+## So the assertion is NOT deleted and NOT loosened to nothing: it is restated as
+## the invariant that actually matters and now covers EVERY SPELL IN THE LIBRARY
+## rather than only the beams. A spell is reachable if a class carries it, or a class
+## authors it (the drop reserve), or the Tier 2 / Tier 3 drop tables hold it, or it
+## is an acknowledged orphan routed into the floor-pickup common band by
+## `SpellLibrary.unequipped_ids`. Anything else is unreachable in real play, which is
+## the bug, whatever kind it is.
 func _test_beams_reachable() -> void:
 	var equipped: Array[String] = _all_equipped_ids()
+	var reachable: Dictionary = {}
+	for id: String in equipped:
+		reachable[id] = "carried"
+	for cls: int in range(ClassInfo.count()):
+		for s: SpellDef in SpellLibrary.reserve_for_class(cls):
+			if not reachable.has(s.id):
+				reachable[s.id] = "drop reserve"
+	for id2: String in SpellLibrary.drop_ids():
+		if not reachable.has(id2):
+			reachable[id2] = "tier2/tier3 drop"
+	for id3: String in SpellLibrary.unequipped_ids():
+		if not reachable.has(id3):
+			reachable[id3] = "orphan -> floor pickup pool"
+	# THE INVARIANT: no spell in the tree is unreachable, by any of those four routes.
+	for s2: SpellDef in SpellLibrary.build_all():
+		_expect(reachable.has(s2.id),
+			"'%s' is reachable in real play (carried, reserved, a drop, or in the "
+				% s2.id + "orphan pickup pool) — it exists only in the review sandbox")
+	# ...and the ORPHAN route really works, asserted positively so that "reachable"
+	# cannot be satisfied by an empty derivation. These four are the beams the pass
+	# displaced; if `unequipped_ids` ever stopped deriving them the loop above would
+	# still pass by simply never asking about them.
+	var orphans: Array[String] = SpellLibrary.unequipped_ids()
+	for id4: String in ["frostpiercer", "infernal_lance", "umbral_lance", "tempest"]:
+		_expect(orphans.has(id4),
+			"displaced beam '%s' is in the orphan pickup pool, not deleted" % id4)
+	_expect(SpellDrops._common_pool().has("tempest"),
+		"...and the orphan pool really reaches the floor-drop common band")
+	# The beam FAMILY is intact — none of the five was deleted to make the kits
+	# unique, which is the outcome the maker's ruling must not have produced.
 	var beams: int = 0
-	for s: SpellDef in SpellLibrary.build_all():
-		if int(s.kind) != int(SpellDef.Kind.BEAM):
+	var carried_beams: Array[String] = []
+	for s3: SpellDef in SpellLibrary.build_all():
+		if int(s3.kind) != int(SpellDef.Kind.BEAM):
 			continue
 		beams += 1
-		_expect(equipped.has(s.id),
-			"beam '%s' is reachable from a real class kit" % s.id)
+		if equipped.has(s3.id):
+			carried_beams.append(s3.id)
 	_expect(beams == 5, "the beam family is still five spells (got %d)" % beams)
+	# EXACTLY ONE beam is carried, and it is the Arcanist's. This is the anti-recolour
+	# rule stated where it bit hardest: a second carried beam means two classes are
+	# throwing the same spectacle again.
+	_expect(carried_beams == ["ordinary_spell"],
+		"The Ordinary Spell is the ONLY beam any class carries (got %s)"
+			% str(carried_beams))
 	_completes("beams_reachable")
 
 

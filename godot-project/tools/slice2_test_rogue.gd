@@ -97,7 +97,15 @@ func _test_mage_config_unchanged() -> void:
 	var hero: CharacterBody2D = _make_hero()
 	hero.configure_class(hero.HeroClass.MAGE)
 	_expect(String(hero.rig.equipment.get("weapon", "")) == "staff", "mage keeps staff")
-	_expect(hero._melee_damage == hero.MELEE_DAMAGE, "mage melee is fists baseline")
+	# ⚠ NO LONGER "the fists baseline". The Arcanist carries its own staff-poke profile
+	# now (five classes used to share one melee row — see
+	# tools/slice_test_class_movement.gd). What this line is really guarding is that
+	# switching AWAY from the rogue restores the mage's OWN numbers rather than leaving
+	# the sword's on it, so it compares against the class row and against the rogue.
+	_expect(hero._melee_damage == int(hero.CLASS_CONFIG[hero.HeroClass.MAGE]["melee_damage"]),
+		"mage melee is the mage's own class profile")
+	_expect(hero._melee_damage != 26,
+		"switching off the rogue drops the sword's damage (26) rather than keeping it")
 	_expect(is_equal_approx(float(hero._cfg["cast_cd"]), hero.CAST_COOLDOWN), "mage cast_cd == const")
 	_expect(is_equal_approx(float(hero._cfg["dash_cd"]), hero.DASH_COOLDOWN), "mage dash_cd == const")
 	_expect(bool(hero._cfg["dash_strike"]) == false, "mage has no dash_strike")

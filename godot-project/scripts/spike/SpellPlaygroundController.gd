@@ -412,7 +412,7 @@ func _cast() -> void:
 	# gets slammed out of the ground, a bombardment gets a ritual circle, a chidori
 	# gets coiled into the chest. The pose fires FIRST so the windup reads as the
 	# cause of the spectacle rather than a shrug alongside it.
-	var pose: int = CastStyle.for_spell(spell.kind)
+	var pose: int = CastStyle.for_spell_def(spell)
 	var aim: Vector2 = (target - origin).normalized()
 	_fig.cast(aim, pose)
 	# THE CASTING PROCESS. The spell no longer leaves the same frame you press:

@@ -211,8 +211,20 @@ func _test_role_selection() -> void:
 ## resolving inside the cast time is a spell donated to the opponent.
 func _test_channel_gate() -> void:
 	var prof: Dictionary = BotProfile.of(BotProfile.Tier.HARD)
-	var bb: Dictionary = _bb({"foe_hp_frac": 0.10, "foe_vel": Vector2(-320.0, 0.0)})
-	# Clear board: the ult (Infernal Lance, a 1.0 s channel) is the pick.
+	# THE ARCANIST, not the default Brawler. The Brawler's ult used to be the Infernal
+	# Lance, a 1.0 s levitating channel; the anti-recolour pass gave the pure-melee
+	# class the Meteor Fist instead, which declares `cast_time = 0.0` and telegraphs
+	# itself (a channel would lift a leaping brawler off the floor he jumps from). So
+	# the Brawler no longer has a channel to gate and the fixture had to move to a
+	# class that does — the Arcanist's Meteor Sigil is a 1.1 s channel.
+	var bb: Dictionary = _bb({"class_id": ARCANIST, "foe_hp_frac": 0.10,
+		"foe_vel": Vector2(-320.0, 0.0)})
+	# The fixture must actually BE a channel, or this whole test passes vacuously
+	# against a spell there was never anything to gate.
+	var ult: SpellDef = SpellLibrary.build_for_class(ARCANIST)[SpellTier.ULT_SLOT]
+	_expect(ult.cast_time > 0.5,
+		"the gate fixture really channels (%s, cast_time %.2f)" % [ult.id, ult.cast_time])
+	# Clear board: the ult (Meteor Sigil, a 1.1 s channel) is the pick.
 	var clear: Array = BotBrain.score_slots(bb, prof, _mem(), 0.0, 0.0, 99.0)
 	_expect(float(clear[BotBrain.ROLE_ULT]) > 0.0, "channelled ult is available on a clear board")
 	# Same scenario, but something lands in 0.8 s — inside cast_time + margin.
@@ -394,7 +406,27 @@ func _test_uses_the_whole_kit() -> void:
 func _test_combo() -> void:
 	var plays: Dictionary = BotProfile.with_overrides(BotProfile.Tier.HARD, {"combo": 1.0})
 	var ignores: Dictionary = BotProfile.with_overrides(BotProfile.Tier.HARD, {"combo": 0.0})
+	# ⚠ THE STORMCALLER'S *COMBO HAND*, CHOSEN EXPLICITLY — it is no longer the
+	# DEFAULT one, and that is a real consequence of the anti-recolour pass rather
+	# than a test detail. The class still AUTHORS Blizzard in its control role, but
+	# its default carried three are damage / payoff / ult (Chain Lightning,
+	# Thunderclap, Heaven's Wrath): Blizzard sat in three hands at once, which is
+	# exactly the duplication the maker ruled against, so the Stormcaller sheds it to
+	# the Cryomancer and picks up the Thunderclap off the Brawler instead.
+	#
+	# `set_slot_roles` is a real, legal, player-selectable hand (four non-ult roles
+	# choose two = six per class), so this is testing a configuration a player can
+	# actually build, not a fixture invented for the test. Restored at the end so no
+	# later suite inherits it.
+	_expect(SpellLibrary.set_slot_roles(STORMCALLER, ["damage", "control", "ult"]),
+		"the Stormcaller's combo hand (damage / control / ult) is a legal choice")
 	var bb: Dictionary = _bb({"class_id": STORMCALLER})
+	# And it really holds both halves — a field to lay and a LIGHTNING line to fire
+	# through it — or the two directions below are asserting nothing.
+	var hand: Array = SpellLibrary.build_for_class(STORMCALLER)
+	_expect(String(hand[1].id) == "blizzard", "...and that hand carries the ice field")
+	_expect(int(hand[SpellTier.ULT_SLOT].element) == int(Elements.Element.LIGHTNING),
+		"...and a LIGHTNING second half to fire through it")
 
 	# SET UP — no field on the board, but the bot holds both halves. A combo-aware
 	# bot lays the ice field ON PURPOSE; a combo-blind one throws its damage line.

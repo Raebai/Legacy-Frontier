@@ -90,9 +90,18 @@ const THICKNESS: float = 26.0
 const RISE_TIME: float = 0.22
 const RISE_ACTIVE_FRAC: float = 0.35
 ## How long it stands once risen, and how long it takes to go once its time is up.
-## UNTESTED GUESS: 4.0 s against a cooldown well over twice that keeps uptime under
-## the 45% ceiling the protection spec argues for.
-const LIFETIME: float = 4.0
+##
+## ⚠ 4.0 -> 3.0 WHEN THE WARD ENTERED THE CLERIC'S KIT. This number and the spell's
+## cooldown are ONE balance statement, not two, because the protection spec's rules
+## (docs/superpowers/specs/2026-07-27-protection-spells.md §6) are both ratios:
+## `cooldown >= 2x duration` and `uptime <= 45%`. The ward used to be costed as an
+## ULT (11 s cooldown) so that 4.0 s cleared both — but an ult-shelf ward could only
+## sit in an ult slot, and no class's ult slot was ever going to be spent on it, so
+## the game's only protective spell was equipped by nobody. It is the Cleric's
+## CONTROL pick now, which is a non-ult slot, so the cooldown came down to 6.8 s and
+## this had to come with it: 3.0 / 6.8 = 44% uptime, 6.8 >= 2 x 3.0. Moving one
+## without the other silently breaks a spec rule that nothing else here checks.
+const LIFETIME: float = 3.0
 const FADE_TIME: float = 0.25
 ## Rune plates on the face, and therefore spells it can eat. THREE is chosen so the
 ## weight ladder has one step per plate: 3 = ULT (nothing gets through), 2 = HEAVY

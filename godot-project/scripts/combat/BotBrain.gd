@@ -875,7 +875,13 @@ static func _caps(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 	var in_lead: bool = absf(tti - band) <= slack
 	return {
 		"dash_ready": dash_ready,
-		"dash_dist": DASH_DIST,
+		# ⚠ PREFER THE BODY'S OWN NUMBER. `DASH_DIST` is a hand-copied `620 * 0.14` and
+		# the movement button is now NINE different verbs whose travel runs from ~58 px
+		# (Juggernaut surge) to 260 px (Stormcaller lightning blink) — so the copy is
+		# wrong for eight of the nine classes and a bot would size every gap-close with
+		# the Arcanist's numbers. `Hero.bot_body_state` publishes the derived value;
+		# the const survives as the fallback for a body that does not (an Enemy).
+		"dash_dist": float(bb.get("dash_dist", DASH_DIST)),
 		"blink_ready": blink_ready,
 		"blink_dist": BLINK_DIST,
 		"can_parry": bool(bb.get("can_parry", true)) and bool(threat.get("parryable", true)),
@@ -885,7 +891,15 @@ static func _caps(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 		# through iff we meant it to.
 		"parry_window": 99.0 if in_lead else -1.0,
 		"grounded": bool(bb.get("on_floor", true)),
-		"allow_iframe": BotProfile.get_b(profile, "iframe"),
+		# TWO GATES, and they answer different questions. The profile one is
+		# DIFFICULTY ("is this bot allowed to make that read"); the body one is
+		# CAPABILITY ("does my movement button dodge anything at all"). The Brawler's
+		# charge and the Juggernaut's surge ship `dash_iframe_fraction: 0.0` — spending
+		# either as an i-frame answer is choosing to eat the hit, so a bot must not.
+		# Absent key -> true, which is every non-Hero body and is byte-identical to
+		# the behaviour before the nine verbs existed.
+		"allow_iframe": BotProfile.get_b(profile, "iframe")
+			and bool(bb.get("dash_iframes", true)),
 	}
 
 
@@ -1572,13 +1586,21 @@ static func _aim(bb: Dictionary, _profile: Dictionary, m: Memory, _now: float) -
 ## Cached per class for the process. build_for_class mints fresh Resources each call
 ## (correctly — they are mutable), so calling it per bot per frame would be pure
 ## garbage collection.
+## ⚠ KEYED BY THE HAND, NOT BY THE CLASS, and that is a bug fix rather than a
+## refinement. `SpellLibrary.set_slot_roles` lets the player CHOOSE which of a
+## class's five authored roles they carry — six legal hands per class — and a cache
+## keyed on `class_id` alone answered with whichever hand happened to be asked about
+## first, for the rest of the process. A bot (or the player's own puppet on a peer's
+## screen) would then steer, range and combo against spells it is not holding, with
+## nothing anywhere reporting a problem.
 static func _kit_facts(class_id: int) -> Array:
 	if class_id < 0:
 		return _generic_facts()
-	if _kit_cache.has(class_id):
-		return _kit_cache[class_id]
-	var spells: Array = SpellLibrary.build_for_class(class_id)
 	var roles: Array = SpellLibrary.slot_roles_for_class(class_id)
+	var key: String = "%d:%s" % [class_id, ",".join(PackedStringArray(roles))]
+	if _kit_cache.has(key):
+		return _kit_cache[key]
+	var spells: Array = SpellLibrary.build_for_class(class_id)
 	var out: Array = []
 	for i: int in range(SLOT_COUNT):
 		if i >= spells.size():
@@ -1604,7 +1626,7 @@ static func _kit_facts(class_id: int) -> Array:
 			"is_beam": form == ReactionTable.Form.BEAM,
 			"close_ok": not _is_placed(s.kind),
 		})
-	_kit_cache[class_id] = out
+	_kit_cache[key] = out
 	return out
 
 
@@ -1636,8 +1658,47 @@ static func _effective_range(s: SpellDef) -> float:
 			return 560.0
 		SpellDef.Kind.NOVA:
 			return maxf(s.radius, 120.0)   # self-centred: aim is ignored entirely
+		SpellDef.Kind.HEX:
+			return _hex_range(s)
 	# Everything else — the placed bombardments, CHAIN, CRAWLER, THROWN_ANCHOR —
 	# genuinely uses `reach`.
+	return s.reach if s.reach > 0.0 else 300.0
+
+
+## HEX IS FORKED ON ID, SO ITS RANGE IS TOO.
+##
+## `Kind.HEX` used to mean "one of four Tier 2 floor pickups" and reading `reach`
+## uniformly was fine. The anti-recolour pass made it the busiest kind in the game:
+## eleven class signatures ride it, SIX OF THEM CARRIED BY DEFAULT (Shockwave Stomp,
+## Radiant Volley, Shatter, Raise Thrall, Iai Slash, Crescent Step) plus five ults.
+## A bot that misreads their range does not error — it just never closes, or never
+## fires, and the class quietly cannot be used in a bot match. Bots are the recording
+## pipeline, so that is a broken class, not a cosmetic gap.
+##
+## Two exception sets, both named rather than tabulated as bare numbers, so this
+## stays a DERIVATION from each spell's own data:
+##   TRAVEL — the spell's damage runs the length of `length`, and its `reach` is a
+##            cast-placement clamp far shorter than where it actually reaches. Read
+##            `reach` here and a bot walks into melee to fire a 760 px volley.
+##   SELF   — the spell ignores the aim point entirely, so `reach` is not a range at
+##            all. `mirror_image` is the one that bites: its `reach` is 1.0 — the
+##            clone's ECHO DELAY IN SECONDS, the same field-doubling ZONE does with
+##            `length` — which reads as a ONE PIXEL range, i.e. a spell the Arcanist
+##            bot would hold and never cast. `blood_pact` and `gravity_flip` are
+##            genuinely self-centred and declare no reach at all.
+const HEX_TRAVEL_RANGE: Array[String] = ["radiant_volley", "fault_line"]
+const HEX_SELF_CAST: Array[String] = ["mirror_image", "blood_pact", "gravity_flip"]
+## How close a bot wants to be before spending a self-centred hex. Not a range —
+## there is no range — but a "the fight is happening, this is worth it" distance, in
+## the band the melee hexes occupy. UNTESTED GUESS.
+const HEX_SELF_RANGE: float = 260.0
+
+
+static func _hex_range(s: SpellDef) -> float:
+	if HEX_TRAVEL_RANGE.has(s.id):
+		return s.length if s.length > 0.0 else 700.0
+	if HEX_SELF_CAST.has(s.id):
+		return HEX_SELF_RANGE
 	return s.reach if s.reach > 0.0 else 300.0
 
 

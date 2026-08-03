@@ -579,9 +579,22 @@ func _test_swordsaint_kit() -> void:
 	if loadout.size() != SpellTier.SLOT_COUNT:
 		_completes("swordsaint_kit")
 		return
-	_expect(String(loadout[0].id) == "blade_flurry",
+	# THE DAMAGE LINE IS THE BLADE, and it is now the duelist's OWN blade. It used to
+	# be `blade_flurry`, which is the SHADOWBLADE's spell: two classes throwing one
+	# `BladeFlurry.gd`, i.e. exactly the recolour the anti-recolour pass deleted. IAI
+	# SLASH is the punish half of "guard and punish" — one committed draw-cut at 118 px
+	# with a five-second wait if it whiffs, which is the counterplay rather than a
+	# balance rounding.
+	_expect(String(loadout[0].id) == "iai_slash",
 		"the damage line is the BLADE — a class whose damage is the path of the "
 		+ "weapon must not open on a bolt")
+	_expect(int(loadout[0].kind) == int(SpellDef.Kind.HEX),
+		"the Iai Slash is an id-forked HEX, not a corridor spell")
+	# ...and the cut is SHORT. The whole reason this is not just another beam: a
+	# reach anywhere near a beam's would delete the "get into range" problem the
+	# class's entire kit exists to solve.
+	_expect(loadout[0].reach < 200.0,
+		"the draw-cut reaches %.0f px — a body and a half, not a lance" % loadout[0].reach)
 	# Only the LAST slot may hold an ult.
 	for i: int in SpellTier.SLOT_COUNT:
 		var is_ult: bool = SpellTier.of(loadout[i]) == SpellTier.Tier.ULT
@@ -591,7 +604,7 @@ func _test_swordsaint_kit() -> void:
 	var hero: CharacterBody2D = _make_hero()
 	hero.configure_class(idx)
 	_expect(String(hero._cfg.get("mobility2", "")) == "uppercut",
-		"R is a rising cut — the kit's Shadow Step is the only teleport it gets")
+		"R is a rising cut — the kit's Crescent Step is the only gap-close it gets")
 	hero.queue_free()
 	_completes("swordsaint_kit")
 

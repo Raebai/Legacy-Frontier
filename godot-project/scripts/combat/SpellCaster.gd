@@ -49,11 +49,49 @@ const ARC_PATH: String = "res://scripts/combat/HorizonArc.gd"
 ##
 ## A drop id with no entry falls through to `return false`, exactly like an unbuilt
 ## kind: a safe no-op, never a crash.
+##
+## ⚠ `HEX` NO LONGER MEANS "TIER 2 FLOOR PICKUP". It means "forked on id", and the
+## anti-recolour pass made that the majority case: ELEVEN CLASS-KIT SIGNATURES ride
+## this arm now, six of them carried by default. The maker's ruling was "we cannot
+## have any recolours — I want all the classes to be different and unique and not
+## similar at all", and five of nine classes were throwing the same `BeamSpell` down
+## the same corridor. Eleven bespoke spectacles fixed that; eleven new `Kind`s would
+## have been ~55 silent defaults across five files, so they fork here instead.
+##
+## The consequences of that are NOT free and were paid for explicitly:
+##   * `BotBrain._effective_range` has a HEX branch — without it a bot reads
+##     `mirror_image`'s `reach` (1.0, the echo DELAY in seconds) as a one-pixel range
+##     and never casts it, and reads Radiant Volley's cast range instead of its
+##     760 px travel. A class a bot cannot fight with is a class that cannot appear
+##     in a recorded clip.
+##   * `LoadoutBar._draw_glyph` has a HEX branch — otherwise six of the nine classes
+##     draw the same fallback circle on their default hand.
+##   * `CastStyle.for_spell_def` exists so a draw-cut and a stomp get their own body
+##     language rather than the POINT thrust every unknown kind falls through to.
+##   * `ReactionTable.form_for_kind` is DELIBERATELY left alone: it answers IMPACT
+##     for HEX, and all eleven register themselves as `Form.IMPACT` in their own
+##     `_ready`, so the default is already the right answer. Changing it would be
+##     churn, not a fix.
 const HEX_SCRIPTS: Dictionary = {
+	# Tier 2 floor pickups.
 	"petrify": "res://scripts/combat/Petrify.gd",
 	"gravity_flip": "res://scripts/combat/GravityFlip.gd",
 	"blood_pact": "res://scripts/combat/BloodPact.gd",
+	# CLASS-KIT SIGNATURES. `mirror_image` was a drop and is now the Arcanist's
+	# control slot; the other eleven were built for this pass. The registry is keyed
+	# by id and has never cared which shelf an id belongs to.
 	"mirror_image": "res://scripts/combat/MirrorImage.gd",
+	"thousand_cuts": "res://scripts/combat/ThousandCuts.gd",
+	"iai_slash": "res://scripts/combat/IaiSlash.gd",
+	"crescent_step": "res://scripts/combat/CrescentStep.gd",
+	"shockwave_stomp": "res://scripts/combat/ShockwaveStomp.gd",
+	"meteor_fist": "res://scripts/combat/MeteorFist.gd",
+	"radiant_volley": "res://scripts/combat/RadiantVolley.gd",
+	"shatter": "res://scripts/combat/Shatter.gd",
+	"heavens_wrath": "res://scripts/combat/HeavensWrath.gd",
+	"fault_line": "res://scripts/combat/FaultLine.gd",
+	"raise_thrall": "res://scripts/combat/RaiseThrall.gd",
+	"grave_tide": "res://scripts/combat/GraveTide.gd",
 }
 const CATACLYSM_SCRIPTS: Dictionary = {
 	"the_void": "res://scripts/combat/VoidCollapse.gd",
@@ -85,12 +123,85 @@ const WARM_PATHS: PackedStringArray = [
 	"res://scripts/combat/VoidCollapse.gd",
 	"res://scripts/combat/Chronostasis.gd",
 	"res://scripts/combat/Equinox.gd",
+	# THE ELEVEN CLASS-KIT SIGNATURES (also HEX-forked). Six of these are carried by
+	# DEFAULT, so leaving them cold would land the 44-126 ms first-cast stall inside
+	# the first minute of every run on six of the nine classes.
+	"res://scripts/combat/ThousandCuts.gd",
+	"res://scripts/combat/IaiSlash.gd",
+	"res://scripts/combat/CrescentStep.gd",
+	"res://scripts/combat/ShockwaveStomp.gd",
+	"res://scripts/combat/MeteorFist.gd",
+	"res://scripts/combat/RadiantVolley.gd",
+	"res://scripts/combat/Shatter.gd",
+	"res://scripts/combat/HeavensWrath.gd",
+	"res://scripts/combat/FaultLine.gd",
+	"res://scripts/combat/RaiseThrall.gd",
+	"res://scripts/combat/GraveTide.gd",
 	# Reached BY a spectacle, not by an arm. See the warning above.
 	"res://scripts/combat/IceSpikeLine.gd",   # MeteorSigil.rain() -> glacial spine
 	"res://scripts/combat/RigGhost.gd",       # MirrorImage's doubles
 	"res://scripts/combat/HollowPurple.gd",   # beam-fusion reaction outcome
 	"res://scripts/combat/SteamCloud.gd",     # fire-meets-ice reaction outcome
+	# ⚠ RAISE THRALL'S NESTED PAIR, and the reason the header's warning is repeated
+	# here. A sweep of the eleven new files for `load(`/`preload(` found exactly one
+	# offender and it is this spell: `RaiseThrall._spawn_thrall` load()s BOTH the
+	# thrall script AND its PackedScene by path, from inside the cast. Warming only
+	# `RaiseThrall.gd` would leave a summon paying full first-touch cost for two more
+	# resources — the same shape of miss that measured 61 ms on `frozen_comet`. The
+	# other ten name their collaborators (`BlastSpell`, `Telegraph`) as compile-time
+	# globals, which the engine resolves when their own script loads.
+	"res://scripts/combat/Thrall.gd",
+	"res://scenes/combat/Thrall.tscn",
 ]
+
+
+## WHICH SPECTACLE SCRIPT A SPELL ACTUALLY BUILDS — the dispatch table below, asked
+## as a question instead of executed.
+##
+## It exists for the anti-recolour invariant (`tools/slice_test_class_identity.gd`),
+## which has to be able to say "no two classes' carried hands share a spectacle" and
+## therefore needs the mapping without spawning anything. Two forks make that
+## genuinely non-obvious and are the reason this cannot be a plain `Kind` lookup:
+## the ZONE arm forks Shadow Root off Blizzard on `effect == "shadow"`, and the
+## METEOR arm forks the Glacial Spine off the bombardments on `effect == "frost"`.
+## Both are mirrored here.
+##
+## ⚠ THIS IS A SECOND STATEMENT OF THE DISPATCH AND IT CAN DRIFT FROM IT. The tie
+## that stops it drifting silently is in the identity suite: every path this returns
+## must also appear in `WARM_PATHS`, which is the list `warm()` really loads. A new
+## arm that forgets one of the two will fail there rather than quietly reporting a
+## stale answer. `""` for a kind with no built spectacle, exactly like the `_:` arm.
+static func spectacle_path(spell: SpellDef) -> String:
+	if spell == null:
+		return ""
+	match spell.kind:
+		SpellDef.Kind.BEAM: return BEAM_PATH
+		SpellDef.Kind.DIVINE_RAY: return RAY_PATH
+		SpellDef.Kind.METEOR:
+			# The fork MeteorSigil.rain() takes on effect=="frost" (Glacial Spine).
+			return "res://scripts/combat/IceSpikeLine.gd" if spell.effect == "frost" else METEOR_PATH
+		SpellDef.Kind.CONVERGENCE: return CONVERGENCE_PATH
+		SpellDef.Kind.RUSH: return RUSH_PATH
+		SpellDef.Kind.NOVA: return NOVA_PATH
+		SpellDef.Kind.BOULDER: return BOULDER_PATH
+		SpellDef.Kind.PILLAR: return PILLAR_PATH
+		SpellDef.Kind.WALL: return WALL_PATH
+		SpellDef.Kind.ICE_WALL: return ICE_WALL_PATH
+		SpellDef.Kind.CHAIN: return CHAIN_PATH
+		SpellDef.Kind.ZONE:
+			# The fork the ZONE arm takes on effect=="shadow" (Shadow Root).
+			return SHADOW_ROOT_PATH if spell.effect == "shadow" else ZONE_PATH
+		SpellDef.Kind.MISSILES: return MISSILES_PATH
+		SpellDef.Kind.TETHER: return TETHER_PATH
+		SpellDef.Kind.FLURRY: return FLURRY_PATH
+		SpellDef.Kind.BLINK_STRIKE: return BLINK_PATH
+		SpellDef.Kind.CRAWLER: return CRAWLER_PATH
+		SpellDef.Kind.THROWN_ANCHOR: return DAGGER_PATH
+		SpellDef.Kind.WARD: return WARD_PATH
+		SpellDef.Kind.ARC: return ARC_PATH
+		SpellDef.Kind.HEX: return String(HEX_SCRIPTS.get(spell.id, ""))
+		SpellDef.Kind.CATACLYSM: return String(CATACLYSM_SCRIPTS.get(spell.id, ""))
+	return ""
 
 ## Has `warm()` already run this session?
 static var _warmed: bool = false

@@ -68,6 +68,20 @@ const SINGLE_TARGET_HITS: Dictionary = {
 	"ZONE": 4.0,
 }
 
+## ...and the same estimate PER ID for `Kind.HEX`, which is the one kind that is not
+## one spectacle. It is the arm that forks on id, and after the anti-recolour pass it
+## carries eleven class signatures plus three floor pickups — so a flat row here would
+## be one fudge applied to fourteen unrelated spells, which is precisely what the note
+## above says this file refuses to do. Kept byte-identical to
+## `tools/slice_test_melee_economy.gd`, which is the SUITE that holds the floor these
+## numbers decide; that file carries the per-entry derivation.
+const HEX_SINGLE_TARGET_HITS: Dictionary = {
+	"thousand_cuts": 9.4,
+	"radiant_volley": 6.0,
+	"heavens_wrath": 3.0,
+	"grave_tide": 1.25,
+}
+
 var _window: float = 60.0
 var _verbose: bool = false
 var _strict: bool = false
@@ -175,6 +189,11 @@ func _sim(kit: Array, melee_damage: int) -> float:
 
 func _hits_for(tier: GDScript, spell: Variant) -> float:
 	var kind_name: String = _kind_name(int(spell.get("kind")))
+	# HEX is the one kind that is not one spectacle: it forks on ID
+	# (`SpellCaster.HEX_SCRIPTS`) and carries fourteen different spells. See
+	# HEX_SINGLE_TARGET_HITS.
+	if kind_name == "HEX":
+		return float(HEX_SINGLE_TARGET_HITS.get(String(spell.get("id")), 1.0))
 	return float(SINGLE_TARGET_HITS.get(kind_name, 1.0))
 
 

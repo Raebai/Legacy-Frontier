@@ -125,7 +125,16 @@ func _test_defaults_untouched() -> void:
 	hero.configure_class(hero.HeroClass.CRYOMANCER)  # default weapon staff_ice, element ICE
 	_require_props(hero, HERO_MEMBERS, "Hero")
 	_expect(int(hero._element) == int(Elements.Element.ICE), "cryomancer default element ICE")
-	_expect(int(hero.max_hp) == 100, "no gear -> max_hp stays 100")
+	# ⚠ NOT `== 100` ANY MORE. `CLASS_CONFIG` carries a per-class `hp` now (nine
+	# different bodies — see tools/slice_test_class_movement.gd), so a literal here
+	# would be pinning the Cryomancer's number in a suite that is about GEAR. What this
+	# line has always meant is "with nothing equipped, max_hp IS the class base" — so
+	# it asks the class base rather than restating one class's value.
+	_expect(int(hero.max_hp) == int(hero._base_max_hp),
+		"no gear -> max_hp is the class base (%d vs %d)"
+			% [int(hero.max_hp), int(hero._base_max_hp)])
+	_expect(int(hero.max_hp) != 100,
+		"the Cryomancer no longer shares the old universal 100 HP (got %d)" % int(hero.max_hp))
 	_expect(is_equal_approx(float(hero._gear_speed_mult), 1.0), "no gear -> speed x1")
 	_expect(is_equal_approx(float(hero._melee_knockback), float(hero._base_melee_knockback)),
 		"no gear -> base melee kb")
@@ -169,8 +178,14 @@ func _test_head_body_and_melee_effects() -> void:
 	hero.configure_class(hero.HeroClass.MAGE)
 	var base_kb: float = float(hero._base_melee_knockback)
 	var base_dmg: int = int(hero._base_melee_damage)
+	# DERIVED FROM THE CLASS BASE, not a literal 112. The hat is +12% of whatever this
+	# class's body is, and that is now a per-class number — the point of the assertion
+	# is that gear MULTIPLIES the class rather than replacing it.
+	var base_hp: int = int(hero._base_max_hp)
 	hero.set_loadout("head", "hat")
-	_expect(int(hero.max_hp) == 112, "hat -> max_hp 112")
+	_expect(int(hero.max_hp) == int(round(float(base_hp) * 1.12)),
+		"hat -> +12%% of the class base (%d -> %d, wanted %d)"
+			% [base_hp, int(hero.max_hp), int(round(float(base_hp) * 1.12))])
 	_expect(int(hero.hp) <= int(hero.max_hp), "hp within new max")
 	hero.set_loadout("body", "robe")
 	var guard: GuardComponent = GuardComponent.peek(hero)
@@ -179,7 +194,8 @@ func _test_head_body_and_melee_effects() -> void:
 		_expect(is_equal_approx(guard.oneshot_fraction, 0.4), "robe -> ward 0.4")
 	hero.set_loadout("head", "hood")
 	_expect(is_equal_approx(float(hero._gear_speed_mult), 1.12), "hood -> speed x1.12")
-	_expect(int(hero.max_hp) == 100, "hood replaced hat -> max_hp back to 100")
+	_expect(int(hero.max_hp) == base_hp,
+		"hood replaced hat -> max_hp back to the class base (%d)" % base_hp)
 	hero.set_loadout("weapon", "hammer")
 	_expect(is_equal_approx(float(hero._melee_knockback), base_kb * 1.4),
 		"hammer -> +40% knockback from base")

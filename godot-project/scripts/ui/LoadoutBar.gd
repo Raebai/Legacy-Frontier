@@ -292,5 +292,80 @@ func _draw_glyph(entry: Dictionary, box: Rect2) -> void:
 			for k in 3:
 				draw_circle(c + Vector2(lerpf(-r * 0.7, r * 0.7, float(k) / 2.0), 0.0),
 					r * 0.30, tint, true, -1.0, true)
+		SpellDef.Kind.HEX:
+			_draw_hex_glyph(String(spell.get("id")), c, r, tint)
 		_:
 			draw_arc(c, r * 0.85, 0.0, TAU, 16, tint, 2.2, true)
+
+
+## HEX IS FORKED ON ID, SO ITS ICON IS TOO.
+##
+## Every other arm above keys off the KIND, which works because a kind is one
+## spectacle. `Kind.HEX` is not: it is the id-forked arm (`SpellCaster.HEX_SCRIPTS`)
+## and after the anti-recolour pass it carries eleven class signatures plus three
+## floor pickups. Falling through to the `_:` circle would have drawn THE SAME BLANK
+## PUCK on the default hand of six of the nine classes — the Brawler's damage line,
+## the Cleric's, the Cryomancer's, the Swordsaint's two, the Warlock's control — on
+## the one screen whose entire job is telling the player what they are holding.
+##
+## Grouped by SILHOUETTE rather than one shape per spell: a bar slot is a 34 px
+## square, so five families that read instantly beat fourteen that do not. The
+## element tint (already resolved by the caller) is what separates spells inside a
+## family, which is the same division of labour the rest of this function uses.
+func _draw_hex_glyph(id: String, c: Vector2, r: float, tint: Color) -> void:
+	match id:
+		# BLADE — a drawn cut. The three sword spells.
+		"iai_slash", "crescent_step", "thousand_cuts":
+			draw_line(c + Vector2(-r * 0.9, r * 0.75), c + Vector2(r * 0.9, -r * 0.75),
+				tint, 2.6, true)
+			# A short backstroke so it reads as a swing rather than a beam.
+			draw_line(c + Vector2(-r * 0.55, -r * 0.15), c + Vector2(-r * 0.9, r * 0.25),
+				Color(tint.r, tint.g, tint.b, tint.a * 0.55), 1.8, true)
+		# GROUND — something that happens to the FLOOR, drawn low in the box.
+		"shockwave_stomp", "fault_line":
+			var ridge := PackedVector2Array()
+			for i in 7:
+				var t: float = float(i) / 6.0
+				ridge.append(c + Vector2(lerpf(-r, r, t),
+					r * 0.7 - (r * 0.55 if i % 2 == 1 else 0.0)))
+			draw_polyline(ridge, tint, 2.2, true)
+		# IMPACT — a crater with a mass coming down into it.
+		"meteor_fist":
+			draw_arc(c + Vector2(0.0, r * 0.55), r * 0.85, PI, TAU, 14, tint, 2.2, true)
+			draw_circle(c + Vector2(0.0, -r * 0.35), r * 0.42, tint, true, -1.0, true)
+		# VOLLEY — a parallel band, which is the whole mechanic.
+		"radiant_volley":
+			for k in 3:
+				var y: float = lerpf(-r * 0.6, r * 0.6, float(k) / 2.0)
+				draw_line(c + Vector2(-r * 0.9, y), c + Vector2(r * 0.9, y), tint, 1.8, true)
+		# SHARDS — a body coming apart.
+		"shatter":
+			for k in 5:
+				var a: float = TAU * float(k) / 5.0 - PI * 0.5
+				draw_line(c + Vector2(cos(a), sin(a)) * r * 0.30,
+					c + Vector2(cos(a), sin(a)) * r, tint, 2.0, true)
+		# BOLT — a jag out of a cloud.
+		"heavens_wrath":
+			draw_arc(c + Vector2(0.0, -r * 0.55), r * 0.6, PI, TAU, 12, tint, 2.0, true)
+			draw_polyline(PackedVector2Array([
+				c + Vector2(r * 0.18, -r * 0.35), c + Vector2(-r * 0.18, r * 0.15),
+				c + Vector2(r * 0.14, r * 0.15), c + Vector2(-r * 0.16, r)]),
+				tint, 2.2, true)
+		# HANDS — the two spells that pull bodies out of the floor.
+		"raise_thrall", "grave_tide":
+			draw_line(c + Vector2(-r, r * 0.85), c + Vector2(r, r * 0.85),
+				Color(tint.r, tint.g, tint.b, tint.a * 0.5), 1.6, true)
+			for k in 3:
+				var x: float = lerpf(-r * 0.7, r * 0.7, float(k) / 2.0)
+				draw_line(c + Vector2(x, r * 0.85), c + Vector2(x, -r * 0.45 + absf(x) * 0.4),
+					tint, 2.0, true)
+		# DOUBLE — the clone. Two of the same shape, one faded and offset.
+		"mirror_image":
+			draw_arc(c + Vector2(r * 0.28, 0.0), r * 0.62, 0.0, TAU, 14,
+				Color(tint.r, tint.g, tint.b, tint.a * 0.45), 2.0, true)
+			draw_arc(c + Vector2(-r * 0.28, 0.0), r * 0.62, 0.0, TAU, 14, tint, 2.2, true)
+		_:
+			# The remaining floor pickups (petrify / gravity_flip / blood_pact) keep
+			# the generic hex ring — they are rare, unlearned, and a mystery puck is
+			# an acceptable read for a spell you just found on the floor.
+			draw_arc(c, r * 0.85, 0.0, TAU, 6, tint, 2.2, true)

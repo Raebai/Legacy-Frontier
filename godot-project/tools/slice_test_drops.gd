@@ -85,7 +85,18 @@ func _completes(test_name: String) -> void:
 ## would make `SpellGrant` displace a spell with itself.
 func _test_drops_are_never_in_a_kit() -> void:
 	var drops: Array[String] = SpellLibrary.drop_ids()
-	_expect(drops.size() == 10, "ten drop spells exist (6 Tier 2 + 4 Tier 3), got %d" % drops.size())
+	# NINE, not ten. `mirror_image` stopped being a drop when the anti-recolour pass
+	# promoted it into the Arcanist's control slot — it is the only self-duplication in
+	# the game, which makes it an identity rather than a floor event. A spell in both
+	# places would be rollable as a pickup for the class that already starts with it,
+	# and `SpellGrant` would then displace a spell with itself.
+	_expect(drops.size() == 9, "nine drop spells exist (5 Tier 2 + 4 Tier 3), got %d" % drops.size())
+	_expect(not drops.has("mirror_image"),
+		"mirror_image is NOT a drop any more — it is the Arcanist's carried control slot")
+	_expect(SpellLibrary.drop_by_id("mirror_image") == null,
+		"...so the drop lookup answers null for it (use SpellLibrary.by_id for the tree)")
+	_expect(SpellLibrary.by_id("mirror_image") != null,
+		"...and the whole-tree lookup still finds it")
 	for cls: int in range(SpellLibrary.CLASS_KITS.size()):
 		for s: SpellDef in SpellLibrary.build_for_class(cls):
 			_expect(not drops.has(s.id),
@@ -148,8 +159,13 @@ func _test_rarity_is_actually_rare() -> void:
 	# THE FLOOR GATE. The two loudest must not open a run.
 	for f: int in [1, 2]:
 		var early: String = SpellDrops.roll_floor_drop(f)
-		_expect(early != "meteor_storm" and early != "mirror_image",
+		# `mirror_image` used to be gated here too and is no longer a drop at all, so
+		# Meteor Storm is the one remaining gated signature. The gate itself is what
+		# is being tested, not the length of the list.
+		_expect(early != "meteor_storm",
 			"floor %d cannot roll a gated signature (got '%s')" % [f, early])
+		_expect(SpellDrops.SIGNATURE_MIN_FLOOR.has("meteor_storm"),
+			"...and the gate is real rather than an accident of the roll")
 	# BOSS DROPS. Roughly half, and never nothing-at-all across a whole tower.
 	var boss: int = 0
 	for f: int in range(1, floors + 1):
@@ -170,9 +186,30 @@ func _test_common_band_is_the_class_reserve() -> void:
 			if not reserve.has(s.id):
 				reserve.append(s.id)
 	_expect(reserve.size() >= 4, "the class reserve is non-trivial (%d spells)" % reserve.size())
-	# The four the handoff notes name as explicitly reserved for the pickup pool.
-	for id: String in ["rift_dagger", "creeping_shade", "rock_pillar", "ice_wall"]:
+	# Spells a class AUTHORS but does not carry. The set moved with the anti-recolour
+	# pass — `rift_dagger` became the Shadowblade's carried get-out and `rock_pillar`
+	# the Juggernaut's carried payoff, while `blink_strike` and `drain_tether` came the
+	# other way — so these are re-derived from the current table rather than pinned to
+	# the old handoff list.
+	for id: String in ["creeping_shade", "ice_wall", "blink_strike", "drain_tether"]:
 		_expect(reserve.has(id), "'%s' is still in the reserved pickup pool" % id)
+	# THE ORPHANS. The pass displaced seven fully-tuned spells out of CLASS_KITS
+	# ENTIRELY, so `reserve_for_class` cannot see them: no class authors them any more.
+	# `SpellLibrary.unequipped_ids` is the second source that keeps them reachable, and
+	# without this assertion "nothing was deleted" is a claim with nothing behind it.
+	var orphans: Array[String] = SpellLibrary.unequipped_ids()
+	for id2: String in ["frostpiercer", "infernal_lance", "umbral_lance", "tempest",
+			"colossus_pillar", "rune_orbs", "void_barrage"]:
+		_expect(orphans.has(id2),
+			"displaced spell '%s' survives as a floor pickup rather than being deleted" % id2)
+	# ...and the two that had ALREADY gone orphan before this pass and that nobody had
+	# noticed, which is the same bug the kit table exists to prevent.
+	for id3: String in ["judgment", "avalanche"]:
+		_expect(orphans.has(id3), "long-orphaned '%s' is reachable at last" % id3)
+	var common: Array[String] = SpellDrops._common_pool()
+	for id4: String in orphans:
+		_expect(common.has(id4),
+			"orphan '%s' really reaches the floor-drop common band" % id4)
 	# Every common-band roll resolves to a real spell — a drop id that resolves to
 	# null is an invisible pickup, the one failure nobody would ever report.
 	for f: int in range(1, 120):
@@ -283,7 +320,7 @@ func _test_floor_reset_returns_the_kit() -> void:
 	var kit_ids: Array[String] = []
 	for s: SpellDef in (hero.get("_signatures") as Array):
 		kit_ids.append(s.id)
-	SpellGrant.apply(hero, SpellLibrary.drop_by_id("mirror_image"))
+	SpellGrant.apply(hero, SpellLibrary.drop_by_id("gravity_flip"))
 	SpellGrant.apply(hero, SpellLibrary.drop_by_id("petrify"))
 	SpellGrant.apply(hero, SpellLibrary.drop_by_id("chronostasis"))
 	SpellGrant.restore_all(hero)

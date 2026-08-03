@@ -82,75 +82,112 @@ const ROLE_ORDER: Array[String] = ["damage", "control", "answer", "payoff", "ult
 ##     takes the RECALL beat and never starts a summon windup. That is a fixture
 ##     bug in that test, not a fact about the spell; until it resets the anchor per
 ##     class, a second kit holding this spell turns that suite red. See the handoff.
+##
+## ══ THE ANTI-RECOLOUR PASS (this table's current shape) ═══════════════════════
+## The maker's ruling: "we cannot have any recolours — I want all the classes to be
+## different and unique and not similar at all." What that table actually looked
+## like before this pass, counted rather than felt:
+##   * FIVE of nine classes carried a `BeamSpell` (the Arcanist's, the Shadowblade's,
+##     the Brawler's, the Cryomancer's, the Stormcaller's) — one corridor, five tints.
+##   * FOUR ults were the same `MeteorSigil.rain()` call.
+##   * Blizzard sat in THREE carried hands; Drain Tether in three.
+## So the roster had nine names and roughly four things to look at.
+##
+## Eleven bespoke spectacles were built to close it (see the factory block further
+## down), and the invariant is now pinned mechanically rather than argued in a
+## comment: `tools/slice_test_class_identity.gd` fails if any two classes share a
+## carried spell id OR if any two carried hands resolve to the same spectacle
+## script. `ordinary_spell` is the ONLY beam any class still carries — that is the
+## point of it being "the first spell anyone learns".
+##
+## Three deliberate corrections are baked in and are worth naming, because each one
+## was a bug rather than a preference:
+##   * THUNDERCLAP LEFT THE BRAWLER. A LIGHTNING lance charged into the fist, on the
+##     one class whose card says "pure-melee knockout — no magic". It is the
+##     Stormcaller's payoff now, which is where it always belonged.
+##   * MIRROR IMAGE WAS PROMOTED out of the Tier 2 floor-pickup pool into the
+##     Arcanist's control slot. It is the only self-duplication in the game, which
+##     makes it an identity rather than a gimmick. It is REMOVED from `build_tier2()`
+##     in the same edit — a spell in both places exists twice and `SpellGrant` would
+##     displace it with itself.
+##   * AEGIS WARD WAS UN-ORPHANED onto the Cleric. It was in nobody's kit: exactly
+##     the unreachable-spell bug this table was introduced to prevent, and the same
+##     one the class cards used to advertise. Its cooldown/lifetime were retuned to
+##     clear the ULT shelf so it can hold a non-ult slot — see `_aegis_ward()`.
 const CLASS_KITS: Array[Dictionary] = [
 	# 0 ARCANIST — ranged arcane zoner. The Ordinary Spell is the damage line it was
-	# always described as being; the blink is the classic mage get-out; the spire is
-	# the only conjuration heavy enough to be a payoff.
-	{"damage": "ordinary_spell", "control": "blizzard", "answer": "blink_strike",
+	# always described as being. Its control is MIRROR IMAGE: a second caster that
+	# repeats what you cast, one beat behind, on nobody's side. Nothing else in the
+	# game duplicates you, which is why this is worth a kit slot rather than a drop.
+	{"damage": "ordinary_spell", "control": "mirror_image", "answer": "blink_strike",
 		"payoff": "rock_pillar", "ult": "meteor_sigil"},
-	# 1 SHADOWBLADE — in-and-out assassin. Every entry is one of its own annotated
-	# spells. Shadow Step is the PAYOFF, not the mobility: 85 in a 64 px burst is
-	# the biggest non-ult hit in the tree, and Rift Dagger is the actual get-out.
+	# 1 SHADOWBLADE — in-and-out assassin. Its ult was `umbral_lance`, a violet copy
+	# of the Arcanist's magenta beam: a stationary channelled lance on an assassin.
+	# THOUSAND CUTS is the class fantasy instead — mark one body, vanish, open it
+	# from every angle. Rift Dagger is the carried get-out; Shadow Step the reserve.
 	{"damage": "blade_flurry", "control": "creeping_shade", "answer": "rift_dagger",
-		"payoff": "blink_strike", "ult": "umbral_lance"},
-	# 2 BRAWLER — pure melee. The Rock Wall is its "answer" for a reason no other
-	# class gets: the wall's second beat is a PUNCH (the two-beat shove), so a
-	# defensive spell doubles as a brawler verb.
-	{"damage": "thunderclap", "control": "chain_lightning", "answer": "rock_wall",
-		"payoff": "boulder_hurl", "ult": "infernal_lance"},
-	# 3 JUGGERNAUT — siege tank. Its "answer" is SUSTAIN, not mobility: a tank's
-	# defensive answer is not dying, and the tether is the only sustain in the pool.
-	# Deliberately off-school, like the Warlock's wall.
+		"payoff": "blink_strike", "ult": "thousand_cuts"},
+	# 2 BRAWLER — pure melee, and it finally is. Its damage line was a LIGHTNING
+	# lance and its ult a fire beam; both are gone. SHOCKWAVE STOMP is a boot into
+	# the floor and METEOR FIST is a leap that lands fist-first. The Rock Wall stays
+	# its "answer" for the reason no other class gets: the wall's second beat is a
+	# PUNCH (the two-beat shove), so a defensive spell doubles as a brawler verb.
+	{"damage": "shockwave_stomp", "control": "chain_lightning", "answer": "rock_wall",
+		"payoff": "boulder_hurl", "ult": "meteor_fist"},
+	# 3 JUGGERNAUT — siege tank. Its ult was the fourth placed bombardment in the
+	# tree; FAULT LINE is a rupture that TRAVELS instead, which is the one shape a
+	# siege tank should own. It CARRIES the payoff (Rock Pillar) rather than the
+	# tether, because the tether is the Warlock's damage line and a tank borrowing
+	# the hexer's signature is precisely the recolour this pass exists to delete.
 	{"damage": "boulder_hurl", "control": "rock_wall", "answer": "drain_tether",
-		"payoff": "rock_pillar", "ult": "colossus_pillar"},
-	# 4 CLERIC — radiant lifesteal bruiser. The tether IS the class fantasy, so it
-	# is the "answer" (sustain) rather than the damage line, and the chain reads as
-	# a smite leaping between sinners.
-	{"damage": "rune_orbs", "control": "ice_wall", "answer": "drain_tether",
+		"payoff": "rock_pillar", "ult": "fault_line"},
+	# 4 CLERIC — radiant lifesteal bruiser, and the only HOLY caster. RADIANT VOLLEY
+	# is the maker's "archer" ask: a rack of parallel lances where position, not aim,
+	# is the damage dial. Its control is the AEGIS WARD — the game's only protective
+	# spell, and previously in nobody's kit at all.
+	{"damage": "radiant_volley", "control": "aegis_ward", "answer": "drain_tether",
 		"payoff": "chain_lightning", "ult": "heavens_verdict"},
-	# 5 CRYOMANCER — ice control. Frostpiercer to poke, field to slow, wall to stop,
-	# blink to leave — and the Glacial Spine as the ult, which is where the newly
-	# rebuilt floor-line spectacle finally becomes reachable in real play at all.
-	{"damage": "frostpiercer", "control": "blizzard", "answer": "ice_wall",
+	# 5 CRYOMANCER — ice control. SHATTER replaces the Frostpiercer beam and makes
+	# the class's own Blizzard its set-up: 0.35x on a warm body, 3.0x on a frozen
+	# one. The field to chill, the charge to cash it in, the Glacial Spine as the ult.
+	{"damage": "shatter", "control": "blizzard", "answer": "ice_wall",
 		"payoff": "blink_strike", "ult": "frozen_comet"},
-	# 6 STORMCALLER — hyper-mobile chain caster, so the blink is the on-fantasy
-	# answer. Blizzard is not filler: a LIGHTNING beam fired through an ICE field is
-	# ReactionTable's `supercharge`, so this kit sets up its own ult (Tempest, BEAM
-	# + LIGHTNING) with its control slot.
+	# 6 STORMCALLER — hyper-mobile chain caster. Its ult was Tempest, a beam; it is
+	# HEAVEN'S WRATH now, a drifting storm CELL that marks its own targets. And it
+	# inherits the THUNDERCLAP as its payoff, off the Brawler, where a lightning
+	# lance was flatly contradicting that class's "no magic" card.
 	{"damage": "chain_lightning", "control": "blizzard", "answer": "blink_strike",
-		"payoff": "thunderclap", "ult": "tempest"},
-	# 7 WARLOCK — dark attrition. Drain to live, root to hold, shade to finish. The
-	# wall is the off-school pick: nothing in the shadow school is a get-out, and a
-	# caster with no defensive answer is a caster who just dies to a gap-close.
-	{"damage": "drain_tether", "control": "void_zone", "answer": "ice_wall",
-		"payoff": "creeping_shade", "ult": "void_barrage"},
+		"payoff": "thunderclap", "ult": "heavens_wrath"},
+	# 7 WARLOCK — dark attrition. RAISE THRALL is the only summon in the game: bare
+	# ground gives one thin body, a corpse gives two good ones, so the spell rewards
+	# fighting where things have already died. GRAVE TIDE replaces `void_barrage`
+	# (the third sky bombardment) with a floor that gives way in both directions.
+	{"damage": "drain_tether", "control": "raise_thrall", "answer": "void_zone",
+		"payoff": "creeping_shade", "ult": "grave_tide"},
 	# 8 SWORDSAINT — the guard-and-punish duelist. Its real defensive verb is not in
 	# this table at all: RMB is a held BLADE guard (ParryRing's shrinking ring) that
 	# banks what it turns away and returns it as one unsheathe cut. So the kit's job
 	# is only to get it INTO range and keep it there.
 	#
-	#   damage  Blade Flurry — the blade, thrown all fight. On-fantasy and already
-	#           the closest thing in the pool to a sword.
+	#   damage  IAI SLASH — one committed draw-cut at 118 px, a body and a half. It
+	#           held `blade_flurry` before, which is the SHADOWBLADE's spell: the
+	#           duelist was wearing the assassin's damage line. Whiffing costs five
+	#           seconds, and that cost IS the counterplay.
 	#   control Rock Wall — a duelist SHAPES the floor rather than zoning with magic:
 	#           drop a wall across a ranged class's line and the fight has to happen
 	#           where it wants it. Same reasoning as the Brawler's pick.
-	#   answer  Shadow Step — for a duelist the get-out is IN, not out. This class has
-	#           no blink on R (mobility2 is an uppercut), so the gap-close lives here.
+	#   answer  CRESCENT STEP — for a duelist the get-out is IN, not out, and this is
+	#           the only mobility tool in the tree that CUTS the lane it crossed.
+	#           Shadow Step (a teleport with a burst) is a different verb and stays
+	#           the Arcanist's / Cryomancer's.
 	#   payoff  Boulder Hurl — the only non-magic heavy in the pool; he rips the floor
 	#           up and throws it.
-	#   ult     Judgment · Divine Ray — see the PLACEHOLDER note below.
-	#
-	# ⚠ THE ULT IS A PLACEHOLDER, and deliberately a useful one. The class's authored
-	# signature is HORIZON CUT — a travelling curved wall of edge that occupies a
-	# vertical BAND you choose with the aim (`scripts/combat/HorizonArc.gd`, built and
-	# covered by tools/slice9_test_swordsaint.gd). It cannot be equipped yet because a
-	# SpellDef.Kind and a SpellCaster arm have to be appended first, and both files
-	# were owned elsewhere when this landed. Judgment holds the slot in the meantime
-	# because it is ULT-tier (cast_time 1.0) AND because it was equipped by NOBODY —
-	# it existed only in build_all(), the review harness, which is exactly the
-	# unreachable-spell gap the kit table was introduced to close. Swapping this one
-	# id is the last step of the Horizon Cut handoff.
-	{"damage": "blade_flurry", "control": "rock_wall", "answer": "blink_strike",
+	#   ult     HORIZON CUT — the class's authored signature, finally equipped. It is
+	#           an `ARC`-kind travelling crescent (`scripts/combat/HorizonArc.gd`) and
+	#           the arm for it has existed since the Horizon Cut handoff shipped; this
+	#           row is the last step of that handoff, replacing the `judgment`
+	#           placeholder that used to hold the slot.
+	{"damage": "iai_slash", "control": "rock_wall", "answer": "crescent_step",
 		"payoff": "boulder_hurl", "ult": "horizon_cut"},
 ]
 
@@ -182,40 +219,60 @@ const CLASS_KITS: Array[Dictionary] = [
 ## whichever of control / answer / payoff that class's one-line fantasy actually names.
 ## Zoners keep the field; assassins and duelists keep the way IN; tanks and the cleric
 ## keep sustain; the brawler keeps the wall whose second beat is a punch.
+##
+## ⚠ THE MIDDLE SLOT IS ALSO WHERE THE ANTI-RECOLOUR RULE IS WON OR LOST. The damage
+## line and the ult are bespoke per class after the signature pass, so the only way
+## two classes can still end up looking alike is by carrying the same middle spell.
+## Every row below was re-picked with that in mind and the result is pinned by
+## `tools/slice_test_class_identity.gd`: all 27 carried ids are distinct, and no two
+## carried hands resolve to the same spectacle script.
 const SLOT_ROLES: Array[Array] = [
-	# 0 ARCANIST — "ranged arcane zoner". A zoner without a zone is just a caster.
+	# 0 ARCANIST — "ranged arcane zoner". Mirror Image is the control pick, not the
+	# Blizzard it used to carry: the field is in two other hands and the clone is in
+	# nobody's. A second caster repeating your casts one beat behind, on nobody's
+	# side, IS a zoning tool — it makes standing anywhere near you a decision.
 	["damage", "control", "ult"],
-	# 1 SHADOWBLADE — "in-and-out assassin". Shadow Step IS the in and the out, and in
-	# this kit it is the payoff (85 in a 64 px burst, the biggest non-ult hit in the
-	# tree) — so the assassin's burst and its mobility are the same button.
-	["damage", "payoff", "ult"],
+	# 1 SHADOWBLADE — "in-and-out assassin". Rift Dagger is the ANSWER and the carried
+	# middle: throw it, then tear yourself through to it. Shadow Step moves to the
+	# reserve because two other classes hold it and this class's identity should not
+	# be the tool three kits share.
+	["damage", "answer", "ult"],
 	# 2 BRAWLER — "pure-melee knockout, no magic". Rock Wall is its answer for a reason
 	# no other class has: the wall's second beat is a PUNCH, so the defensive spell is
 	# also a brawler verb. Nothing else in its kit is as on-fantasy.
 	["damage", "answer", "ult"],
-	# 3 JUGGERNAUT — "unbreakable siege tank". A tank's defensive answer is not dying,
-	# and the tether is the only sustain in the pool.
-	["damage", "answer", "ult"],
-	# 4 CLERIC — "radiant lifesteal bruiser". The tether is the class fantasy stated
-	# out loud; dropping it would leave a lifesteal class with no lifesteal.
-	["damage", "answer", "ult"],
-	# 5 CRYOMANCER — "ice CONTROL caster". The field is the control tool; the wall is a
-	# stop, which is a different job and the one that moves to the pickup pool.
+	# 3 JUGGERNAUT — "unbreakable siege tank". It carries the PAYOFF (Rock Pillar), not
+	# the tether. The tether is the WARLOCK's damage line and the Cleric's sustain
+	# already; a third hand holding it is the exact shape of duplication this pass is
+	# deleting, and a siege tank erupting the floor under someone is more on-fantasy
+	# than a shadow drain anyway. The tether stays authored, in the drop reserve.
+	["damage", "payoff", "ult"],
+	# 4 CLERIC — "radiant lifesteal bruiser". It carries the AEGIS WARD, the game's only
+	# protective spell and previously in nobody's kit at all. That is the fix to a real
+	# unreachable-spell bug, and it leaves the tether to the Warlock, whose damage line
+	# it is. The lifesteal fantasy is not lost: `CLASS_CONFIG[CLERIC].bolt_heal` means
+	# the class's PRIMARY heals, which is where a passive fantasy belongs.
 	["damage", "control", "ult"],
-	# 6 STORMCALLER — the one class where the fantasy loses to the kit's own authored
-	# rationale, deliberately. "Hyper-mobile chain caster" argues for the blink, and
-	# blink is already carried by two other classes — but the CLASS_KITS row above
-	# exists to explain that Blizzard is not filler here: a LIGHTNING beam fired
-	# through an ICE field is ReactionTable's `supercharge`, so this is the only kit
-	# in the game that sets up its OWN ult with its own utility slot. Trading the one
-	# self-combo in the roster for a third copy of Shadow Step is a bad trade.
+	# 5 CRYOMANCER — "ice CONTROL caster". The field is the control tool AND the set-up
+	# for its own damage line: Shatter pays 3.0x on a frozen body, so this kit combos
+	# with itself. The wall is a stop, a different job, and moves to the pickup pool.
 	["damage", "control", "ult"],
-	# 7 WARLOCK — "dark attrition hexer". Drain to live, root to hold. The off-school
-	# ice wall was always the odd pick in this kit and is the natural one to shed.
+	# 6 STORMCALLER — "hyper-mobile chain caster". It carries the PAYOFF now: the
+	# Thunderclap, inherited from the Brawler, which is the on-fantasy lightning lance
+	# this class should always have had. Blizzard drops to the reserve because the
+	# Cryomancer carries it and the self-combo argument that used to hold it here
+	# (a LIGHTNING beam through an ICE field) died with Tempest — this class's ult is
+	# HEAVEN'S WRATH now, a storm cell, not a beam.
+	["damage", "payoff", "ult"],
+	# 7 WARLOCK — "dark attrition hexer". Drain to live, RAISE THRALL to hold: the only
+	# summon in the game, and the only kit that puts a second body on the floor. Shadow
+	# Root moves to the reserve — a root and a thrall are both "hold them there", and
+	# the thrall is the one nobody else has.
 	["damage", "control", "ult"],
 	# 8 SWORDSAINT — "guard-and-punish duelist". Its real defensive verb is not in this
 	# table at all (RMB is a held BLADE guard that banks a parry into a cut), so the
-	# kit's whole job is getting INTO range: for a duelist the get-out is IN.
+	# kit's whole job is getting INTO range: for a duelist the get-out is IN, and
+	# Crescent Step is the only dash in the tree that cuts the lane it crossed.
 	["damage", "answer", "ult"],
 ]
 
@@ -485,7 +542,8 @@ static func build() -> Array:
 ## each one can be reviewed individually. Fresh instances each call.
 static func build_all() -> Array:
 	return [
-		# BEAMS (line lance)
+		# BEAMS (line lance). Only `ordinary_spell` is still carried by a class; the
+		# other four are floor pickups now — see `unequipped_ids()`.
 		_ordinary_spell(), _frostpiercer(), _infernal_lance(), _umbral_lance(), _tempest(),
 		# RUSH / CHAIN (lightning lances)
 		_thunderclap(), _chain_lightning(),
@@ -507,10 +565,70 @@ static func build_all() -> Array:
 		_rock_wall(), _ice_wall(), _aegis_ward(),
 		# NEW DELIVERY SHAPES (floor traveller + thrown anchor)
 		_creeping_shade(), _rift_dagger(),
+		# THE ANTI-RECOLOUR SIGNATURES — eleven bespoke spectacles, one carried by
+		# each of the nine classes (the Brawler, the Swordsaint and the Warlock carry
+		# two each). All `Kind.HEX`, forked on id in `SpellCaster.HEX_SCRIPTS`.
+		_thousand_cuts(), _iai_slash(), _crescent_step(), _shockwave_stomp(),
+		_meteor_fist(), _radiant_volley(), _shatter(), _heavens_wrath(),
+		_fault_line(), _raise_thrall(), _grave_tide(),
+		# MIRROR IMAGE — was a Tier 2 drop; PROMOTED into the Arcanist's control slot
+		# and moved out of `build_tier2()` in the same edit, so it is listed here
+		# explicitly rather than arriving via the drop block below.
+		_mirror_image(),
 		# THE DROP ECONOMY — never in a class kit, only ever picked up. Included
 		# here so the audit sandbox can review them and so the element/effect
 		# invariant test covers them like everything else.
 	] + build_tier2() + build_tier3()
+
+
+## Any spell in the tree by id, or null. The public form of `_spell_by_id`, added
+## because `drop_by_id` is no longer a complete lookup for anything that USED to be a
+## drop: Mirror Image was promoted into the Arcanist's kit, so a caller that reached
+## it through the drop table now gets null. Fresh instance, like everything else here.
+static func by_id(id: String) -> SpellDef:
+	if id == "":
+		return null
+	return _spell_by_id().get(id) as SpellDef
+
+
+## EVERY SPELL IN THE TREE THAT NO CLASS AUTHORS — the orphans.
+##
+## ⚠ THIS IS THE "NOTHING IS UNREACHABLE" DERIVATION, and it exists because the
+## anti-recolour pass displaced seven fully-tuned spells out of `CLASS_KITS`
+## (`frostpiercer`, `infernal_lance`, `umbral_lance`, `tempest`, `colossus_pillar`,
+## `rune_orbs`, `void_barrage`) and deleting them would have thrown away real content
+## to save a table. It also catches the TWO THAT WERE ALREADY ORPHANED before this
+## pass and that nobody had noticed — `judgment` and `avalanche` — which is the exact
+## class of bug the kit table was introduced to prevent and which had quietly come
+## back anyway.
+##
+## Where they go: `SpellDrops._common_pool()` unions this with `reserve_for_class`,
+## so an orphan is a TIER 2 FLOOR PICKUP in the common band. Deliberately the common
+## band and NOT `build_tier2()`, which is the six authored SIGNATURE drops and carries
+## its own balance invariants — "at most two Tier 2s sit on the ULT shelf" (a floor
+## pickup must lose a clash to a class ult) and "every drop has a >= 0.35 s wind-up".
+## Five of the seven orphans are ULT-shelf and `rune_orbs` has no cast time at all, so
+## putting them on the signature shelf would have meant widening two real balance
+## rules to accommodate bookkeeping. The common band is where "a genuine upgrade, not
+## an event" already lives, which is exactly what a displaced class spell is.
+##
+## Derived, never hand-listed — the drop table drifting out of sync with the kits is
+## the specific failure this whole file's header is about.
+static func unequipped_ids() -> Array[String]:
+	var authored: Dictionary = {}
+	for kit: Dictionary in CLASS_KITS:
+		for role: String in ROLE_ORDER:
+			authored[String(kit.get(role, ""))] = true
+	var drops: Dictionary = {}
+	for id: String in drop_ids():
+		drops[id] = true
+	var out: Array[String] = []
+	for s: SpellDef in build_all():
+		if authored.has(s.id) or drops.has(s.id) or out.has(s.id):
+			continue
+		out.append(s.id)
+	out.sort()   # deterministic across peers — the drop roll must agree on both screens
+	return out
 
 
 # ================================================================ THE DROP ECONOMY
@@ -538,10 +656,21 @@ static func build_all() -> Array:
 ## in files owned elsewhere.
 
 
-## The six Tier 2 floor pickups, fresh instances (Resources are reference types).
+## The authored Tier 2 SIGNATURE pickups, fresh instances (Resources are reference
+## types). FIVE, not six: `mirror_image` was promoted into the Arcanist's control
+## slot by the anti-recolour pass and a spell cannot be in both places — it would be
+## rollable as a drop for the class that already starts with it, which makes
+## `SpellGrant` displace a spell with itself. See `CLASS_KITS`.
+##
+## ⚠ THIS IS THE SIGNATURE BAND, NOT THE WHOLE TIER 2 POOL. The pool a floor actually
+## rolls from is this plus `SpellDrops._common_pool()` (the class reserve + the
+## orphans from `unequipped_ids()`). The distinction is load-bearing: the balance
+## invariants in `tools/slice_test_tier_spells.gd` — at most two ULT shelves, a
+## visible wind-up on every entry — are claims about THESE, the loud events, not
+## about every spell that can ever be found on a floor.
 static func build_tier2() -> Array:
 	return [_arc_of_fools(), _meteor_storm(), _petrify(), _gravity_flip(),
-		_blood_pact(), _mirror_image()]
+		_blood_pact()]
 
 
 ## The four Tier 3 boss drops, fresh instances. Every one of them carries CHARGES.
@@ -708,6 +837,14 @@ static func _blood_pact() -> SpellDef:
 
 ## MIRROR IMAGE — a clone that repeats your casts on a delay, WITH friendly fire.
 ##
+## ⚠ NO LONGER A DROP. It is the ARCANIST'S CONTROL SLOT (`CLASS_KITS[0]`), promoted
+## out of `build_tier2()` by the anti-recolour pass: it is the only self-duplication
+## in the game, which makes it an identity rather than a floor event, and the
+## Arcanist's old control pick (Blizzard) was a spell two other classes carried. It
+## still lives in `SpellCaster.HEX_SCRIPTS` — that registry is keyed by id and has
+## never cared whether an id is a drop — but `SpellLibrary.drop_by_id("mirror_image")`
+## now correctly answers NULL. Use `SpellLibrary.by_id()` for a whole-tree lookup.
+##
 ## THE IMPLEMENTATION IS NOT INPUT RECORDING, and the difference matters. Reading
 ## the hero's input would need a hook inside `Hero.gd`; instead the clone listens
 ## at `SpellCaster.cast()` — the one seam every spell in the game already passes
@@ -869,7 +1006,8 @@ static func _ordinary_spell() -> SpellDef:
 	return _beam("ordinary_spell", "The Ordinary Spell",
 		"The first spell anyone learns, practised until it is the last one you "
 		+ "need. A sigil blooms and a lance of mana crosses the whole arena.",
-		4, 45, 3.2, 78, 1150.0, 30.0, 0.55)       # ARCANE / magenta — HEAVY
+		# 78 -> 88 in the DPS-floor pass; same reason as the Meteor Sigil above.
+		4, 45, 3.2, 88, 1150.0, 30.0, 0.55)       # ARCANE / magenta — HEAVY
 
 
 ## FROSTPIERCER — Cryomancer. The thinnest, longest, cheapest beam in the family,
@@ -953,7 +1091,9 @@ static func _meteor_sigil() -> SpellDef:
 	return _meteor("meteor_sigil", "Meteor Sigil",
 		"A colossal sigil opens in the sky and a barrage of meteors rains over "
 		+ "the marked ground. The isekai bombardment.",
-		0, 72, 6.0, 30, 140.0, 11)                # FIRE / orange, 11 meteors
+		# 30 -> 36 per meteor in the DPS-floor pass: the Arcanist traded a damaging
+		# control slot (Blizzard) for Mirror Image, which deals nothing directly.
+		0, 72, 6.0, 36, 140.0, 11)                # FIRE / orange, 11 meteors
 
 
 ## THUNDERCLAP — the Brawler's lightning lance, and the Stormcaller's payoff. A
@@ -1084,11 +1224,25 @@ static func _frozen_comet() -> SpellDef:
 ## A ward authored on any other element is a ward with NO reaction rows at all: it
 ## would stand there and stop nothing, silently.
 ##
-## COSTED AS AN ULT ON PURPOSE. SpellTier derives ULT from the 11 s cooldown, so
-## this occupies the ult slot and competes with the class's finisher — protection
-## OR the big damage, never both. That is the best balance lever available (see
-## docs/superpowers/specs/2026-07-27-protection-spells.md §6) and it keeps uptime
-## at 4.0 s / 11.0 s = 36%, under the 45% ceiling protective spells are held to.
+## ⚠ RETUNED OFF THE ULT SHELF, AND THE WARD'S LIFETIME MOVED WITH IT.
+##
+## This used to be costed as an ult on purpose (11 s cooldown -> `SpellTier` derives
+## ULT) so that it would compete with the class's finisher. The problem was that it
+## was in NOBODY'S KIT: the Cleric's ult slot is Heaven's Verdict, so "competes with
+## the finisher" resolved to "is never equipped by anyone". That is the exact
+## unreachable-spell bug `CLASS_KITS` exists to prevent, and the only protective
+## spell in the game was sitting inside it.
+##
+## The anti-recolour pass puts it in the Cleric's CONTROL slot, which is a non-ult
+## slot (`SpellTier.slot_accepts_ult` is false for anything before the last), so the
+## shelf had to come down. Both rules from
+## docs/superpowers/specs/2026-07-27-protection-spells.md §6 are still satisfied and
+## they are what fixed the numbers rather than taste:
+##   * `cooldown >= 2x duration`  ->  6.8 >= 2 x 3.0 = 6.0  ✔
+##   * uptime <= 45%              ->  3.0 / 6.8 = 44%        ✔
+## `AegisWard.LIFETIME` came down 4.0 -> 3.0 in the same edit; the two numbers are
+## one balance statement and moving only the cooldown would have taken uptime to 59%.
+## Charges (3 spells eaten) and the reach are untouched.
 static func _aegis_ward() -> SpellDef:
 	var s := SpellDef.new()
 	s.id = "aegis_ward"
@@ -1100,8 +1254,8 @@ static func _aegis_ward() -> SpellDef:
 	s.element = Elements.Element.HOLY
 	s.use_element_color = true
 	s.effect = "holy"
-	s.mp_cost = 42
-	s.cooldown = 11.0
+	s.mp_cost = 46
+	s.cooldown = 6.8   # HEAVY, not ULT — see the note above
 	s.damage = 0
 	s.reach = 108.0
 	return s
@@ -1261,7 +1415,12 @@ static func _drain_tether() -> SpellDef:
 	s.effect = "shadow"
 	s.mp_cost = 46
 	s.cooldown = 3.4
-	s.damage = 11  # per tick
+	# Per tick, five ticks per cast if the cable is never broken. 11 -> 17 in the
+	# DPS-floor pass: this is the WARLOCK'S ONLY DIRECT DAMAGE now that its control slot
+	# is a summon and its ult a once-a-fight tide, and at 55 per cast the class's whole
+	# hand lost to bare fists. Deliberately the smaller half of that fix (the ult took
+	# the rest) because this spell also HEALS, so its damage number is two levers.
+	s.damage = 17
 	return s
 
 
@@ -1388,6 +1547,356 @@ static func _rock_wall() -> SpellDef:
 	s.cooldown = 5.0
 	s.damage = 0
 	s.reach = 90.0
+	return s
+
+
+# ═════════════════════════════════════════════ THE ANTI-RECOLOUR SIGNATURES
+## ELEVEN SPELLS, ELEVEN SPECTACLES, AND THE RULING THAT PRODUCED THEM.
+##
+## The maker's words were "we cannot have any recolours — I want all the classes to
+## be different and unique and not similar at all", and the table above used to fail
+## that on its face: FIVE of nine classes threw a `BeamSpell` down the same corridor
+## (ordinary_spell / frostpiercer / infernal_lance / umbral_lance / tempest), FOUR
+## ults were one `MeteorSigil.rain()` (meteor_sigil / void_barrage / avalanche /
+## frozen_comet), Blizzard sat in three carried hands and Drain Tether in three.
+## Nine classes, but far fewer than nine THINGS TO WATCH.
+##
+## These eleven are the fix. Each one is its own spectacle script and each one is
+## carried by exactly ONE class, which is what `tools/slice_test_class_identity.gd`
+## now pins directly: no two classes share a carried spell id, and no two classes'
+## carried hands resolve to the same spectacle script.
+##
+## ⚠ EVERY ONE OF THEM IS `Kind.HEX` AND THAT IS DELIBERATE, not laziness. A new
+## `SpellDef.Kind` is not one edit, it is five — this file, `SpellCaster`'s dispatch,
+## `ReactionTable.form_for_kind`, `CastStyle.for_spell`, `LoadoutBar._draw_glyph` and
+## `BotBrain._effective_range` — and four of those five fall through to a DEFAULT
+## rather than erroring. Eleven new kinds would have been fifty-odd places where
+## nothing happens and nothing complains. The HEX arm forks on ID
+## (`SpellCaster.HEX_SCRIPTS`), which is strictly more precise than a kind anyway
+## because an id is unique. The consequence is that HEX stopped meaning "a Tier 2
+## floor pickup" and now means "forked on id" — `BotBrain` and `LoadoutBar` were
+## given per-ID handling for exactly that reason.
+##
+## ⚠ AND EVERY ONE OF THEM DECLARES `cast_time = 0.0`. Not an oversight: a positive
+## cast_time routes the cast through `Hero._begin_channel`, the LEVITATING channel,
+## which is exactly wrong for a boot driven into the floor, a draw-cut, a dash or a
+## tide that comes out of the ground. They go through the SUMMON path instead, and
+## each spectacle owns its own telegraph (`Telegraph` rings, `LOCK_TELL`, `MARK_TELL`,
+## `SURGE_LEAD`, the drawn ridge lanes) — read the headers, every one states its tell
+## and its counterplay. The ULT shelf is therefore reached through COOLDOWN and MP,
+## which `SpellTier.of()` accepts as independently sufficient.
+##
+## The five melee defs below came from the handoff copies in
+## `tools/slice_test_melee_signatures.gd` (which is what that suite falls back to
+## while an id is absent from this file). Their COSTS are byte-identical; two of
+## their DAMAGE numbers moved, for the reason below, and the handoff copies moved
+## with them so the file does not lie about which numbers it is proving.
+##
+## ══ THE DPS-FLOOR PASS, AND WHY EIGHT DAMAGE NUMBERS MOVED WITH THIS TABLE ═════
+## `tools/slice_test_melee_economy.gd` pins a real design rule: EVERY CLASS'S THREE
+## SPELL BUTTONS MUST OUT-DAMAGE BARE FISTS ON A SINGLE TARGET (41.2 dps). It exists
+## because the fun audit found the dominant play for a caster was "grab the sword,
+## hold melee, cast as garnish", which is the wrong dominant strategy for a game
+## about absurd magic.
+##
+## THE NEW KIT TABLE BROKE IT FOR FIVE CLASSES, measured rather than guessed:
+##   Arcanist 45.0 -> 39.7, Brawler 42.5 -> 29.5, Cleric 52.1 -> 39.1,
+##   Cryomancer 48.7 -> 39.8, Warlock 43.7 -> 24.0.
+## The cause is structural and is the price of the anti-recolour picks: FOUR classes
+## now carry a middle slot that deals no direct damage at all (Mirror Image, Rock
+## Wall, Aegis Ward, Raise Thrall) where before only the Brawler did. A class whose
+## utility slot is free of damage has to make it back on the other two.
+##
+## So eight `damage` values moved and NOTHING ELSE DID. That is deliberate:
+## `SpellTier.of()` reads cast_time / cooldown / mp_cost and never damage, and that
+## shelf is also the reaction CLASH WEIGHT — so a "damage tune" that touched a
+## timing would have silently re-decided every spell-vs-spell interaction in the
+## game. Each moved number is annotated at its own factory with its peer comparison.
+## Post-pass: 45.9 / 44.0 / 44.0 / 44.1 / 44.7 / 44.8 / 63.8 / 44.5 / 47.5.
+##
+## ⚠ THE MODEL UNDERSTATES TWO SPELLS AND THAT IS LEFT ALONE ON PURPOSE. The
+## rotation only counts `SpellDef.damage`, so `raise_thrall` (which puts a fighting
+## body on the floor for 9-15 s) and `mirror_image` (a clone that re-casts
+## everything you cast) both score ZERO. Their real contribution is not zero, so the
+## floor above is a CONSERVATIVE one: a kit that clears it in the model clears it in
+## play. Modelling them would mean inventing a dps number for a summon, which is a
+## guess dressed as data — and it would let a genuinely weak kit pass.
+##
+## ⚠ AND NONE OF IT IS PLAYTESTED. A rotation sim is not a playtest: it says nothing
+## about whether the numbers FEEL right, whether the windup gets you killed, or
+## whether Meteor Fist at 165 is obnoxious to be hit by. These are the numbers that
+## satisfy a floor, not numbers anyone has felt.
+
+
+## THOUSAND CUTS — Shadowblade ULT. Replaces `umbral_lance`, a violet copy of the
+## Arcanist's magenta beam. Marks ONE body and opens it from `count` angles walked
+## around it: the exact inverse of Chain Lightning (one hit on many) and not the
+## same class's forward-cone Blade Flurry either. `count` is the number of cuts.
+static func _thousand_cuts() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "thousand_cuts"
+	s.display_name = "Thousand Cuts"
+	s.description = "Mark one body, step out of the world, and come back at it from "\
+		+ "every angle at once. The ring shows you exactly where it will happen — "\
+		+ "the only way out is to not be standing in it."
+	s.kind = SpellDef.Kind.HEX
+	s.element = Elements.Element.SHADOW
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.SHADOW)
+	s.mp_cost = 72       # ULT by MP and by cooldown, with no levitating channel
+	s.cooldown = 8.0
+	s.damage = 16        # per cut; the finisher is a multiple of one cut
+	s.count = 7          # cuts walked around the anchor
+	s.reach = 300.0      # how far out the mark may be placed
+	return s
+
+
+## IAI SLASH — Swordsaint DAMAGE. Replaces `blade_flurry`, which is the SHADOWBLADE's
+## spell worn by a second class. One committed draw-cut at 118 px — a body and a half
+## — and a five-second wait if it whiffs. The whiff IS the counterplay.
+static func _iai_slash() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "iai_slash"
+	s.display_name = "Iai Slash"
+	s.description = "Draw and cut in one motion. The corridor is drawn before the "\
+		+ "blade leaves the sheath, and it is barely longer than you are. Bait it "\
+		+ "and the duelist has no damage for five seconds."
+	s.kind = SpellDef.Kind.HEX
+	# ARCANE, not "no element". `Hero.CLASS_CONFIG[SWORDSAINT].melee_element` is -1
+	# because plain steel applies no ailment — but a SpellDef with element -1 makes
+	# `SpellCaster.resolve_element` GUESS and makes `SpellReactor.register` DROP the
+	# effect out of the reaction system entirely. The blade stays ailment-free by not
+	# calling apply_status, not by lying about its element.
+	s.element = Elements.Element.ARCANE
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.ARCANE)
+	s.mp_cost = 44
+	s.cooldown = 5.0     # the whiff punishment, not a balance rounding
+	s.damage = 96
+	s.reach = 118.0      # the blade's length — emphatically not a beam
+	s.width = 52.0       # corridor width at its widest
+	return s
+
+
+## CRESCENT STEP — Swordsaint ANSWER. A travelling forward dash that CUTS the lane
+## behind it, as opposed to `Hero._blink` (instant, no damage) and Shadow Step
+## (teleport, burst at the destination). For a duelist the get-out is IN.
+static func _crescent_step() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "crescent_step"
+	s.display_name = "Crescent Step"
+	s.description = "Step through the guard, cutting the whole lane you crossed. "\
+		+ "The lane is drawn at full length before you move — its width, its angle, "\
+		+ "all of it. Leave the lane, or wear the cut."
+	s.kind = SpellDef.Kind.HEX
+	s.element = Elements.Element.ARCANE
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.ARCANE)
+	s.mp_cost = 40
+	s.cooldown = 4.6
+	s.damage = 58
+	s.reach = 240.0      # lane length (the travel budget, not a cursor distance)
+	s.width = 44.0       # corridor width
+	return s
+
+
+## SHOCKWAVE STOMP — Brawler DAMAGE. Replaces `thunderclap`, a LIGHTNING lance on the
+## class whose whole card reads "pure-melee knockout — no magic". No projectile, no
+## corridor: one boot into the floor and a ridge that RUNS ALONG THE GROUND to either
+## side, so it is jumped, out-ranged, or stood across a pit from.
+static func _shockwave_stomp() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "shockwave_stomp"
+	s.display_name = "Shockwave Stomp"
+	s.description = "Drive a boot into the floor and a ridge of broken ground runs "\
+		+ "out both ways. It follows the terrain, so it stops at a ledge — and it "\
+		+ "travels, so you can see it coming. Jump it."
+	s.kind = SpellDef.Kind.HEX
+	s.element = Elements.Element.EARTH
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.EARTH)
+	s.mp_cost = 42
+	s.cooldown = 4.0
+	# 54 -> 88 in the DPS-floor pass (see `_thousand_cuts`'s block comment). 88 on a
+	# 4.0 s HEAVY sits between the Thunderclap it replaced (90 / 3.4 s) and the
+	# Swordsaint's draw-cut (96 / 5.0 s); 54 made the Brawler's DAMAGE LINE weaker than
+	# the Juggernaut's payoff, which is not what a damage line is.
+	s.damage = 88
+	s.reach = 300.0      # how far each ridge runs
+	return s
+
+
+## METEOR FIST — Brawler ULT. Replaces `infernal_lance`, the class's beam. He LEAPS
+## and comes down fist-first; the danger ring is drawn at exactly the blast radius
+## before he leaves the floor, so walking out of a circle you were shown is the
+## counterplay. Fires a `BlastSpell` on landing, carrying this def's element.
+static func _meteor_fist() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "meteor_fist"
+	s.display_name = "Meteor Fist"
+	s.description = "Leave the floor and come back down through it. The ring is "\
+		+ "drawn at the exact width of the crater before he jumps — it does not "\
+		+ "track, so walk out of it."
+	s.kind = SpellDef.Kind.HEX
+	s.element = Elements.Element.EARTH
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.EARTH)
+	s.mp_cost = 78
+	s.cooldown = 8.5
+	# 120 -> 165 in the DPS-floor pass. The longest cooldown of any class ult and the
+	# only one that has to physically land on somebody, so it carries the biggest single
+	# number (Heaven's Verdict 130 / 7.0 s, Horizon Cut 110 / 6.5 s).
+	s.damage = 165
+	s.radius = 110.0     # blast radius == the drawn ring, 1:1
+	s.reach = 260.0      # how far he may leap
+	return s
+
+
+## RADIANT VOLLEY — Cleric DAMAGE. Replaces `rune_orbs`. A RACK of holy lances fired
+## PARALLEL from an arc of origins, so the band is a fixed width and position is the
+## damage dial: stand in the middle of the band and take every lance, clip the edge
+## and take one. HOLY is load-bearing — the Cleric is the only holy caster.
+static func _radiant_volley() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "radiant_volley"
+	s.display_name = "Radiant Volley"
+	s.description = "A rack of light opens at your shoulder and looses in waves — "\
+		+ "parallel lances, a band the same width the whole way down. Stand in the "\
+		+ "middle of it and every one lands. Clip the edge and one does."
+	s.kind = SpellDef.Kind.HEX
+	s.element = Elements.Element.HOLY
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.HOLY)
+	s.mp_cost = 46
+	s.cooldown = 4.2
+	# PER LANCE — the volley's total is a positioning question. 14 -> 18 in the
+	# DPS-floor pass; a body clipping the EDGE of the band still takes only one.
+	s.damage = 18
+	s.length = 760.0     # each lance's travel budget
+	s.reach = 300.0
+	return s
+
+
+## SHATTER — Cryomancer DAMAGE. Replaces `frostpiercer`, the class's beam. A charge
+## planted on the ground that pays 0.35x on a warm body, 1.0x on a chilled one and
+## 3.0x on a frozen one — so the class's own Blizzard is its set-up, and the whole
+## spell is an argument for having chilled the target first.
+static func _shatter() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "shatter"
+	s.display_name = "Shatter"
+	s.description = "Plant a charge and let the fracture lattice spread. It barely "\
+		+ "scratches something warm. It TRIPLES on something frozen. Chill them "\
+		+ "first, or do not bother."
+	s.kind = SpellDef.Kind.HEX
+	s.element = Elements.Element.ICE
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.ICE)
+	s.mp_cost = 44
+	s.cooldown = 4.0
+	# BEFORE the state multiplier (0.35 / 1.0 / 3.0). 42 -> 62 in the DPS-floor pass —
+	# and note what that pass measures: a WARM body, i.e. 0.35x = 22. The 3.0x frozen
+	# case is a set-up the rotation model cannot express, so the floor is cleared on the
+	# spell's WORST case, which is the conservative direction.
+	s.damage = 62
+	s.radius = 104.0
+	s.reach = 300.0
+	return s
+
+
+## HEAVEN'S WRATH — Stormcaller ULT. Replaces `tempest`, the class's beam. A storm
+## CELL rather than a bolt: a cloud that drifts over a footprint and drops five
+## marked strikes, each with its own tell, so leaving a mark is always possible.
+static func _heavens_wrath() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "heavens_wrath"
+	s.display_name = "Heaven's Wrath"
+	s.description = "Open a storm cell over the ground you chose. It drifts, and it "\
+		+ "picks its targets one at a time — each strike marks the floor before it "\
+		+ "falls. Standing still under it is the mistake."
+	s.kind = SpellDef.Kind.HEX
+	s.element = Elements.Element.LIGHTNING
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.LIGHTNING)
+	s.mp_cost = 74
+	s.cooldown = 8.0
+	s.damage = 42        # per strike, five of them
+	s.radius = 210.0     # the CELL's footprint (a strike's own radius is much smaller)
+	s.reach = 320.0
+	return s
+
+
+## FAULT LINE — Juggernaut ULT. Replaces `colossus_pillar`, the fourth placed
+## bombardment. A rupture that TRAVELS along the floor from the caster, splitting
+## cover as it goes and stopping at the lip of a pit — which is the counterplay: the
+## crest can be out-run, jumped, or separated from you by a hole in the world.
+static func _fault_line() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "fault_line"
+	s.display_name = "Fault Line"
+	s.description = "Split the floor and send the crack running. It takes the "\
+		+ "ground with it, and everything standing on the seam goes up. It cannot "\
+		+ "cross a pit, and it cannot catch what is in the air."
+	s.kind = SpellDef.Kind.HEX
+	s.element = Elements.Element.EARTH
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.EARTH)
+	s.mp_cost = 76
+	s.cooldown = 8.0
+	s.damage = 105
+	s.length = 760.0     # travel budget along the floor
+	s.reach = 320.0
+	return s
+
+
+## RAISE THRALL — Warlock CONTROL. The only SUMMON in the game, which is the whole
+## point: nothing else in any kit puts a second body on the floor. Bare ground gives
+## one thin thrall; a corpse within `GRAVE_RADIUS` gives two better ones, so the
+## spell rewards fighting where things have already died. `length` is the thrall's
+## lifetime. A Warlock also starts every floor with one already up — see
+## `RaiseThrall.raise_opening_thralls`, called from `Arena._setup_floor`.
+static func _raise_thrall() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "raise_thrall"
+	s.display_name = "Raise Thrall"
+	s.description = "Reach into the floor and pull something out of it. Bare ground "\
+		+ "gives you a thin one. Where a body fell, you get two, and they last. "\
+		+ "They are on your side, and they are not on anybody else's."
+	s.kind = SpellDef.Kind.HEX
+	s.element = Elements.Element.SHADOW
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.SHADOW)
+	s.mp_cost = 58
+	s.cooldown = 6.4
+	s.damage = 0         # the thrall does the damage, not the casting
+	s.length = 9.0       # thrall lifetime (the grave case extends it itself)
+	s.reach = 300.0      # how far out a grave still counts as the one you meant
+	return s
+
+
+## GRAVE TIDE — Warlock ULT. Replaces `void_barrage`, the third sky bombardment. The
+## floor gives way in BOTH directions at once and hands come out of it; whatever the
+## front reaches is held where it stands and bled into the caster while it struggles.
+## Cleared by being in the air when the front passes — height is the whole answer.
+static func _grave_tide() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "grave_tide"
+	s.display_name = "Grave Tide"
+	s.description = "The floor of the room gives way both ways at once and the "\
+		+ "hands come up. What they reach is held where it stands and bled into "\
+		+ "you while it struggles. Be off the ground when it passes."
+	s.kind = SpellDef.Kind.HEX
+	s.element = Elements.Element.SHADOW
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.SHADOW)
+	s.mp_cost = 76
+	s.cooldown = 9.0
+	# 40 -> 130 in the DPS-floor pass. The catch hit only — the hold also drains
+	# (`GraveTide.DRAIN_PER_TICK` over `HOLD_TIME`), so the real single-target total is
+	# higher again. In band with the other ults (Heaven's Verdict 130 / 7.0 s) and
+	# cleared outright by being off the ground when the front passes.
+	s.damage = 130
+	s.reach = 520.0      # how far the front runs each way
 	return s
 
 
