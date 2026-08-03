@@ -585,6 +585,26 @@ static func perceive_threats(tree: SceneTree, here: Vector2, owner: Node) -> Arr
 		var tti: float = float(t.call(&"time_to_impact")) if t.has_method(&"time_to_impact") else 0.0
 		var id: int = t.get_instance_id()
 		seen[id] = true
+		# ⚠ A TELL IS PARRYABLE. Both branches below read `false`, and that one word
+		# deleted the defensive verb for the entire family it was built for.
+		#
+		# `BotBrain._caps` ANDs `threat.parryable` into `can_parry`, and
+		# `BotDodge.choose_response` gates its parry rung on exactly that — so a
+		# `false` here did not make a bot parry LESS, it made the rung UNREACHABLE.
+		# And telegraphs are precisely the non-travelling spells (beams, meteors,
+		# zones, pillars, walls) that `SpellDeflect` exists to let a guard EAT; that
+		# file's header settles the policy as "nothing is unparryable", and BotDodge's
+		# parry rung already carries the comment "answers melee, contact and charge
+		# hits too — so it is a legitimate reply to a charger lane". Perception was the
+		# only place that disagreed with both.
+		#
+		# It holds on the ENEMY side too, which is what makes this safe rather than
+		# optimistic: a telegraphed enemy attack lands through `Hero.take_damage`,
+		# which returns early on `_parry_window_timer` and on a PERFECT `ParryRing`.
+		# Both damage paths already honour a raised guard.
+		#
+		# MEASURED before this changed: 1 deflect across 18 duels. The guard was held
+		# for ~7% of frames and had nothing it was permitted to answer.
 		if String(shape.get("shape", "")) == "line":
 			var from: Vector2 = shape.get("from", Vector2.ZERO)
 			var to: Vector2 = shape.get("to", Vector2.ZERO)
@@ -592,14 +612,14 @@ static func perceive_threats(tree: SceneTree, here: Vector2, owner: Node) -> Arr
 			out.append({
 				"id": id, "kind": "lane", "pos": from, "vel": Vector2.ZERO,
 				"radius": 0.0, "length": seg.length(), "width": float(shape.get("width", 0.0)),
-				"angle": seg.angle(), "tti": tti, "parryable": false, "region": shape,
+				"angle": seg.angle(), "tti": tti, "parryable": true, "region": shape,
 			})
 		else:
 			out.append({
 				"id": id, "kind": "circle", "pos": shape.get("center", Vector2.ZERO),
 				"vel": Vector2.ZERO, "radius": float(shape.get("radius", 0.0)),
 				"length": 0.0, "width": 0.0, "angle": 0.0,
-				"tti": tti, "parryable": false, "region": shape,
+				"tti": tti, "parryable": true, "region": shape,
 			})
 	# Both projectile families, because who is shooting at you depends on which
 	# faction you are on: an `enemy_projectile` from a monster and a `player_spell`

@@ -4052,6 +4052,8 @@ func try_parry(proj: Node) -> bool:
 		return false
 	var dir: Vector2 = _aim_dir.normalized() if _aim_dir != Vector2.ZERO else facing
 	proj.reflect(dir, _element_color)
+	# One counter for all three deflect paths — see SpellDeflect.note_deflect.
+	SpellDeflect.note_deflect(self)
 	Sfx.play("ding", 2.0, 0.02)  # the whole payoff — a crisp, loud parry ding
 	Juice.hit_stop(0.09)
 	Juice.shake_camera(4.0)
@@ -4747,6 +4749,8 @@ func take_damage(amount: int) -> void:
 	# Perfect-parry window also BLOCKS a melee / contact / charge hit (deflect
 	# punches, not just projectiles) — the reward is the same crisp ding + flash.
 	if _parry_window_timer > 0.0:
+		# One counter for all three deflect paths — see SpellDeflect.note_deflect.
+		SpellDeflect.note_deflect(self)
 		Sfx.play("ding", 2.0, 0.02)
 		rig.flash_color(PARRY_FLASH_COLOR, 0.1)
 		rig.set_parry(_aim_dir, PARRY_SHIELD_TIME)
@@ -4767,6 +4771,8 @@ func take_damage(amount: int) -> void:
 			ParryRing.Quality.PERFECT:
 				_guard_bank = mini(_guard_bank + amount, GUARD_BANK_CAP)
 				_guard_hits += 1
+				# One counter for all three deflect paths — see SpellDeflect.note_deflect.
+				SpellDeflect.note_deflect(self)
 				Sfx.play("ding", 2.0, 0.02)
 				rig.flash_color(PARRY_FLASH_COLOR, 0.1)
 				rig.set_parry(_aim_dir, PARRY_SHIELD_TIME)

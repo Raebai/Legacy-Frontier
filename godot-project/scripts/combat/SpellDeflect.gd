@@ -101,6 +101,24 @@ static func reset_counts() -> void:
 	deflects_by_group = {}
 
 
+## Record a deflect that did NOT come through `resolve`. There are three ways a
+## raised guard turns a hit away in this game and only one of them is this file:
+##
+##   1. `resolve()` below      non-travelling spells — beams, meteors, zones, walls.
+##   2. `Hero.try_parry`       travelling things, caught and SENT BACK via `reflect()`.
+##   3. `Hero.take_damage`     melee / contact / charge, dropped by the parry window
+##                             or by a PERFECT `ParryRing`.
+##
+## Counting only (1) is how a harness reports "1 deflect in 18 matches" while bots
+## are busily parrying bolts — an understatement that reads exactly like a dead
+## feature. One counter, three call sites, so the number means "a guard turned
+## something away" rather than "one particular file ran".
+static func note_deflect(victim: Node) -> void:
+	if victim == null or not is_instance_valid(victim):
+		return
+	_count(victim)
+
+
 static func _count(victim: Node) -> void:
 	deflect_count += 1
 	# `hero` / `enemy` / `mortal` — whichever faction groups this body carries. A
