@@ -52,6 +52,27 @@ desktop.ini
 secrets/
 credentials/
 
+# --- Music (licence provenance unrecorded) ---
+# The six score tracks + the hub ambience were UNTRACKED on 2026-08-03 before the
+# repo went public: nothing in the repo recorded where they came from, and
+# docs/NEXT-SESSION.md flagged "settle before anything public".
+#
+# Nothing breaks without them. Music.gd loads by path at runtime and already
+# treats a missing file as a normal answer (see its _preferred_path header), and
+# no .tscn references them — the game simply runs silent on a fresh clone.
+# The two music test suites DO expect the files and will fail without them.
+#
+# ⚠ These blobs remain in git HISTORY. Untracking stops them shipping in new
+# clones of the tip; it does not erase them. A full purge needs a history
+# rewrite, which has not been done.
+godot-project/assets/audio/music/
+
+# --- Capture output ---
+# The 17 MB source GIF is the raw capture; clips/*_web.gif is the one the README
+# embeds (GitHub will not render an image over ~10 MB).
+clips/*.gif
+!clips/*_web.gif
+
 # --- Build outputs ---
 dist/
 out/
