@@ -505,7 +505,14 @@ func _source_declares_sync_props() -> bool:
 
 func _read(path: String) -> String:
 	var f: FileAccess = FileAccess.open(path, FileAccess.READ)
-	return f.get_as_text() if f != null else ""
+	# CRLF-NORMALISED, and this suite is worthless without it. Every assertion below
+	# greps source text with `\n`-bearing needles, and this repo's working-tree .gd
+	# files are CRLF — `core.autocrlf=true` with no `.gitattributes`, so git rewrites
+	# them through the smudge filter on every checkout. A `"if authoritative:\n\t\t\t\t..."`
+	# needle then silently finds NOTHING, and the suite reports a missing authority
+	# guard that is in fact present and correct. Same fix, same reason, as
+	# `slice_test_death.gd`.
+	return (f.get_as_text() if f != null else "").replace("\r\n", "\n")
 
 
 ## Minimal victim: implements the two duck-typed methods every damage path looks for

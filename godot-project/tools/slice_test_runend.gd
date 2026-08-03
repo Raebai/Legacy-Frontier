@@ -102,7 +102,17 @@ func _completes(test_name: String) -> void:
 
 
 func _source(path: String) -> String:
-	return FileAccess.get_file_as_string(path)
+	# CRLF-NORMALISED — see the same fix in `slice_test_death.gd` / `slice_test_netspell.gd`.
+	# This repo's working-tree .gd files are CRLF (`core.autocrlf=true`, no
+	# `.gitattributes`), so every `\n`-bearing needle below silently finds nothing.
+	#
+	# It bites this suite in a second, nastier way: `_code_only()` strips comments with
+	# `line.substr(0, hash_at)`, which removes the trailing `\r` from COMMENT lines but
+	# not from CODE lines. The mixed result made the `body.find("\nfunc ")` boundary
+	# search skip `func visit_hub` (preceded by a comment, so it ends in a bare `\n`)
+	# and overshoot by 1105 chars — swallowing `visit_hub`, which legitimately names
+	# HUB_SCENE twice, and failing `end_run` for a reference that is not in it.
+	return FileAccess.get_file_as_string(path).replace("\r\n", "\n")
 
 
 ## Source with comments stripped at the first `#` on each line. Every file involved
@@ -133,8 +143,14 @@ func _test_the_ceremony_replaces_the_hub(GS: GDScript) -> void:
 	# state of the game, victory included. Scoped to that function's own body, because
 	# `visit_hub` is ALLOWED to name the hub — that is what makes it the opt-in.
 	var body: String = src.substr(src.find("func end_run("))
-	body = body.substr(0, body.find("
-func "))
+	# ⚠ THE NEEDLE IS AN ESCAPE, NOT A LITERAL LINE BREAK. It used to be written as a
+	# real newline inside the quotes, which means the needle inherits THIS FILE'S line
+	# terminator — CRLF here — while the haystack is normalised source. `find` then
+	# returned -1, `substr(0, -1)` handed back the whole rest of the file, the slice
+	# swallowed `visit_hub` (which is ALLOWED to name HUB_SCENE), and the suite failed
+	# `end_run` for a reference that is not in it. The shipped code was correct
+	# throughout. Measured: sliced body 1105 chars vs the correct 559.
+	body = body.substr(0, body.find("\nfunc "))
 	_expect(not body.contains("HUB_SCENE"),
 		"end_run no longer walks into the parked hub")
 	_expect(body.contains("_change_scene(SUMMARY_SCENE"),
