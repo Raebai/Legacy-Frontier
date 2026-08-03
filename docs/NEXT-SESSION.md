@@ -24,10 +24,34 @@ pushed.** Everything below is committed.
   unused mip pyramid every frame. Frame fill −37%. Four new profilers, because
   `TIME_PROCESS` excludes `_draw` and this game draws everything.
 
-**Next up: the class rebuild.** Maker ruling — *no recolours, every class unique*
-— plus a unique movement verb each (lightning blinks instead of dashing, air
-class hops+dashes far, necromancer swaps places with a minion). Five of nine
-classes currently throw the same beam; all nine share one HP and one run speed.
+**The class rebuild SHIPPED** (`f584c7b`, 145/145 green). Eleven new spells; all
+27 carried slots are now distinct ids AND distinct spectacle scripts;
+`ordinary_spell` is the only beam anyone carries. Nine movement verbs and real
+per-class HP/speed/melee landed alongside it.
+
+## ▶ START HERE NEXT SESSION — bot fight quality
+
+Maker's instruction on pausing: *"make sure the bot fights are optimised,
+alongside the bots for the clips and fights, and ensure they can deflect and
+stuff."* Bot fights ARE the recording pipeline, so this is a content problem.
+
+1. **Five of nine classes' bots cast NOTHING.** Measured with a stashed-code A/B:
+   6 casting classes before the rebuild, 4 after. NOT bad range data —
+   `_effective_range` reports sane values for every new spell. It is BotBrain's
+   band scoring, which only picks spells above roughly **700 px**; the five old
+   long beams (1100–1250 px) satisfied that by accident, and 240–620 px bespoke
+   signatures exposed it. **Nine of the eleven new spells have never been cast in
+   a real bot match.**
+2. **Bots must deflect/parry.** `SpellDeflect` ("nothing is unparryable"),
+   `SigilGuard`, `GuardComponent` and a `BotProfile` guard-skill knob all exist;
+   whether bot decision-making ever reaches them is unverified. A past session
+   found the whole reflex layer dead behind a null-returning helper — verify with
+   a minimum-occurrence assertion, not "no bad deflect was seen".
+3. **`bot_sim_report.py` asks the wrong question** — it reports
+   asked-but-not-emitted, not never-asked, so it said all-clear while five
+   classes cast nothing.
+4. The VS intro card still cannot reach a clip (capture waits on
+   `ClipDirector.is_hot()`; heat is 0 while the tree is paused for the card).
 
 > **Read order for a cold start:** this file → `docs/PLAY-TONIGHT.md` (what to play
 > and what is knowingly wrong) → `docs/THE-TOWER-mobile-plan.md` (the design + the
