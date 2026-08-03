@@ -4277,6 +4277,11 @@ func _guard_deflect_sweep() -> void:
 			if global_position.distance_to(at) > GUARD_DEFLECT_REACH:
 				continue
 			proj.call("reflect", dir, _element_color)
+			# THE FOURTH DEFLECT PATH, and it was the one nothing counted. A harness
+			# that watches only `SpellDeflect.resolve` reports the Swordsaint — the
+			# class whose whole identity is turning things away — as the one that never
+			# deflects. See `SpellDeflect.note_deflect`.
+			SpellDeflect.note_deflect(self)
 			Sfx.play("ding", 2.0, 0.02)
 			Juice.hit_stop(0.09)
 			Juice.shake_camera(4.0)

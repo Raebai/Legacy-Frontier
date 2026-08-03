@@ -209,6 +209,20 @@ static func choose_response(threat: Dictionary, caps: Dictionary) -> Dictionary:
 	#
 	# This is also the airborne answer to a vertical exit: the direction cannot be
 	# expressed, but the INVULNERABILITY can, and that is the whole point of the rung.
+	# A PARRY BEATS A PURE I-FRAME WHEN NEITHER ESCAPES. The rung below fabricates
+	# `Vector2.RIGHT` whenever the exit is vertical, because a dash cannot express a
+	# vertical direction on this body — so in that case it is not a dodge at all, it is
+	# invulnerability standing still. A parry is exactly as non-escaping, costs a
+	# cooldown this body was about to spend anyway, and is the best-looking beat in the
+	# game. So on a VERTICAL exit only, parry is asked first.
+	#
+	# ⚠ SCOPED TO THE VERTICAL CASE ON PURPOSE. The lateral `dash` rung above genuinely
+	# clears the region and must keep winning; a bot that parried instead of stepping
+	# out would be trading a solved problem for a timed one. Measured before this:
+	# 64 dash_iframe latches against 50 parries in 18 duels.
+	if vertical and bool(caps.get("can_parry", false)) and bool(caps.get("parry_ready", false)) \
+			and tti <= float(caps.get("parry_window", 0.0)):
+		return {"action": "parry", "dir": dir}
 	if bool(caps.get("dash_ready", false)) and bool(caps.get("allow_iframe", false)) \
 			and tti <= IFRAME_LEAD:
 		var iframe_dir: Vector2 = dir if dir != Vector2.ZERO and not vertical else Vector2.RIGHT
