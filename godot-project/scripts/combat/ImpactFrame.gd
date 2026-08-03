@@ -187,6 +187,13 @@ const MAX_FRAME_SECONDS_PER_SECOND: float = 0.45
 ## rather than merely shrinking the same blaze.
 const LOCAL_MAX_STRENGTH: float = 0.7
 
+## Ceiling on a FULL-SCREEN mark's strength while `Cinematic.enabled` — i.e. while a
+## clip is being recorded. See the note at the `_strength` clamp in `configure()`.
+## Not a safety rule (that is the two constants above, and they are untouched); this is
+## the difference between a mark that punctuates a posted clip and one that blows the
+## frame to flat white for a single frame at 30 fps.
+const CINEMATIC_MAX_STRENGTH: float = 0.55
+
 
 # -------------------------------------------------------------- arbiter state
 ## Modelled as plain integers rather than "is the node still alive", so the whole
@@ -262,6 +269,23 @@ func configure(cfg: Dictionary) -> void:
 	if TuningConfig.quality_is_low():
 		_style = downgrade_for_quality(_style)
 	_strength = clampf(float(cfg.get("strength", 1.0)), 0.25, 1.6)
+	# ⚠ A POSTED CLIP MUST NOT STROBE. Cinematic mode already takes the instruments off
+	# the frame; this takes the flashing down with them, and ONLY there — in-game feel
+	# is byte-identical because `Cinematic.enabled` is false unless a capture set it.
+	#
+	# MEASURED on a real 137-frame clip, mean luminance sampled per frame: TWELVE frames
+	# jumped more than 45/255 from their predecessor, the worst going 69.9 -> 188.8 ->
+	# 66.9 in consecutive frames. That is a ONE-FRAME full-screen white at 30 fps — it
+	# does not read as impact, it reads as a glitch, and rapid full-screen flashing is
+	# what short-form platforms flag.
+	#
+	# This does NOT touch `MAX_FULLSCREEN_FLASHES_PER_SECOND` or the coverage budget:
+	# those are the safety rule, this file says plainly they are not feel knobs, and
+	# they stay exactly as they are. What is capped here is how BRIGHT a mark is allowed
+	# to get in a recording, which is contrast rather than rate — the same mark still
+	# fires, at the same moment, just without blowing the frame to white.
+	if _style != Style.LOCAL and Cinematic.enabled:
+		_strength = minf(_strength, CINEMATIC_MAX_STRENGTH)
 	_duration = maxf(float(cfg.get("duration", default_duration(_style))), 0.02)
 	_tint = cfg.get("tint", Color(1.0, 1.0, 1.0))
 	_lines = bool(cfg.get("lines", true))
