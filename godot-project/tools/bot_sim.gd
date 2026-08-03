@@ -312,6 +312,9 @@ func _begin_match(spec: Dictionary) -> void:
 	# A fresh dedup window per match: the same kind in a new pairing is a new
 	# finding, and the clock restarts at 0 here anyway.
 	_seen_findings.clear()
+	# Deflects are counted PER MATCH, so "which pairing never parries" is answerable
+	# rather than only "somebody parried at some point in the sweep".
+	SpellDeflect.reset_counts()
 	_arena = SimArena.new()
 	root.add_child(_arena)
 	_spawn_delay = 2       # see the note in _physics_process
@@ -1195,6 +1198,11 @@ func _end_match(reason: String) -> void:
 		"mode": String(_queue[_match_index]["kind"]),
 		"elapsed": snappedf(_elapsed, 0.01), "reason": reason,
 		"total_damage": total_damage, "seam": _seam, "fighters": [],
+		# DID ANYBODY PARRY. See the note on `SpellDeflect.deflect_count`: the whole
+		# deflect stack has existed for a long time with nothing able to say whether a
+		# bot ever reached it, and "no bad deflect was seen" is not evidence.
+		"deflects": SpellDeflect.deflect_count,
+		"deflects_by_group": SpellDeflect.deflects_by_group.duplicate(),
 		# WHO WON, and by what. Without this the sim could tell you a fight was
 		# ANOMALOUS but never whether it was BALANCED — and "is difficulty a real
 		# dial, is any class a free win" is the question the maker actually asks.
@@ -1376,6 +1384,7 @@ func _file(severity: String, kind: String, detail: String, context: Dictionary =
 func _finish_run() -> void:
 	_done = true
 	_release_all_actions()
+	_check_deflect_occurrence()
 	var stamp: String = "run_%d_%s_%s" % [_master_seed, _mode, _slot_map]
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(_out_dir))
 	var payload: Dictionary = {
@@ -1394,6 +1403,35 @@ func _finish_run() -> void:
 	_write(_out_dir.path_join(stamp + ".csv"), "\n".join(rows) + "\n")
 	_print_summary(payload)
 	quit(1 if (_strict and int(payload["summary"]["errors"]) > 0) else 0)
+
+
+## A MINIMUM-OCCURRENCE CHECK, NOT AN ABSENCE-OF-BADNESS ONE.
+##
+## Every other defensive assertion in this project has been of the form "no bad
+## deflect was seen", which is trivially satisfied by a deflect layer that never runs
+## at all — and this codebase has already shipped exactly that twice (the whole reflex
+## layer dead behind a null-returning helper; an entire ledge skyline deleted while
+## the geometry suite stayed green). Bots hold guard for a measurable share of every
+## match, so the question "does holding it ever actually turn a hit away" has a
+## floor, and a run that comes in under it is a finding.
+##
+## Deliberately a floor of ONE PER RUN rather than a rate: the honest rate depends on
+## how often a spell happens to arrive inside a 0.16 s window, which is a tuning
+## question. Zero across a whole sweep is not a tuning question.
+func _check_deflect_occurrence() -> void:
+	var total: int = 0
+	var matches_with: int = 0
+	for m: Dictionary in _matches:
+		var n: int = int(m.get("deflects", 0))
+		total += n
+		if n > 0:
+			matches_with += 1
+	if total <= 0:
+		_file(BotSimProbe.SEV_ERROR, "no_deflect_in_run",
+			"not one spell was deflected in %d matches — the guard is pressed but never turns anything away"
+				% _matches.size())
+		return
+	print("[sim] deflects: %d across %d/%d matches" % [total, matches_with, _matches.size()])
 
 
 ## ============================================================== the balance report

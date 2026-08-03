@@ -77,6 +77,43 @@ const WINDOW_ULT: float = 0.22
 ## At or below this, a successful deflect is treated as the big moment.
 const EPIC_THRESHOLD: float = 0.5
 
+## ---------------------------------------------------------------------------
+## HOW MANY DEFLECTS HAVE ACTUALLY HAPPENED. Process-wide, monotonic, free.
+##
+## ⚠ THIS EXISTS BECAUSE "THE MACHINERY IS ALL THERE" IS NOT EVIDENCE THAT IT RUNS.
+## `SigilGuard`, `GuardComponent`, the `BotProfile` guard-skill knob and this file
+## have coexisted for a long time while nothing anywhere could answer "did a bot ever
+## deflect anything". A past session found the entire reflex layer dead behind a
+## null-returning helper and every suite stayed green throughout, because an
+## invariant that is trivially true of an empty result is not an invariant.
+##
+## So the harness gets a MINIMUM-OCCURRENCE counter rather than an
+## absence-of-badness check: a bot match that produces zero deflects is a failure to
+## be reported, not a quiet pass. Keyed by victim group so "the bot deflected" and
+## "the human-side body deflected" cannot be confused for one another.
+static var deflect_count: int = 0
+static var deflects_by_group: Dictionary = {}
+
+
+## Reset the counters. For harnesses that measure one match at a time.
+static func reset_counts() -> void:
+	deflect_count = 0
+	deflects_by_group = {}
+
+
+static func _count(victim: Node) -> void:
+	deflect_count += 1
+	# `hero` / `enemy` / `mortal` — whichever faction groups this body carries. A
+	# body in none is filed under `ungrouped` rather than dropped, so the total and
+	# the breakdown always agree.
+	var filed: bool = false
+	for g: StringName in [&"hero", &"enemy"]:
+		if victim.is_in_group(g):
+			deflects_by_group[String(g)] = int(deflects_by_group.get(String(g), 0)) + 1
+			filed = true
+	if not filed:
+		deflects_by_group["ungrouped"] = int(deflects_by_group.get("ungrouped", 0)) + 1
+
 
 ## Would this hit be deflected? Pure query, no side effects — for tests, and for
 ## callers that must branch before committing to an effect.
@@ -106,6 +143,7 @@ static func resolve(victim: Node, damage: int, dir: Vector2, at: Vector2,
 		window_fraction: float = WINDOW_NORMAL) -> int:
 	if not would_deflect(victim, window_fraction):
 		return damage
+	_count(victim)
 	if victim.has_method("on_spell_deflected"):
 		victim.call("on_spell_deflected", dir)
 	# A CASTER catches it in the sigil and sends something back; everyone else
