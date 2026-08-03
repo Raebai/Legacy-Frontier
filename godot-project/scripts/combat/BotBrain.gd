@@ -224,16 +224,30 @@ const PRESSURE_HORIZON: float = 1.2
 ##
 ## Indexed by Hero.HeroClass — MAGE 0, ROGUE 1, BRAWLER 2, JUGGERNAUT 3, CLERIC 4,
 ## CRYOMANCER 5, STORMCALLER 6, WARLOCK 7, SWORDSAINT 8.
+## ⚠ FOUR OF THESE STOOD OUTSIDE THE CLASS'S OWN ATTACK RANGE. The table was authored
+## from each class's FANTASY and never cross-checked against what its primary actually
+## reaches (`CLASS_ABILITIES.primary`, or `Hero._melee_range * 1.1` when that is 0), so
+## a bot could hold a stance from which it could not hit anything and then wonder why
+## it was losing. Aggression scales the whole band by 0.91 at tier 3, which was not
+## enough to rescue it. MEASURED, band top vs primary reach, before this pass:
+##     CRYOMANCER  182-327  vs  200 (frost cone)   -> 31% win rate
+##     BRAWLER      36-100  vs   66                -> 22%
+##     SWORDSAINT   45-118  vs   95                ->  9%
+##     JUGGERNAUT   73-200  vs  106                -> 50%
+## Every band whose top already sat INSIDE its reach belonged to a class at >= 44%.
+## Three of the four fixed here are the three weakest classes in a 288-bout table.
+## FEEL: a Cryomancer that fights at 200 px instead of 360 is a different character —
+## the maker judges whether it still reads as a zoner.
 const CLASS_BAND: Array[Dictionary] = [
 	{"min": 190.0, "max": 340.0},   # ARCANIST  — caster band
 	{"min": 60.0, "max": 200.0},    # SHADOWBLADE — in and out
-	{"min": 40.0, "max": 110.0},    # BRAWLER   — contact
-	{"min": 80.0, "max": 220.0},    # JUGGERNAUT— close, but throws rocks
+	{"min": 35.0, "max": 70.0},     # BRAWLER   — contact; melee reaches 66
+	{"min": 70.0, "max": 115.0},    # JUGGERNAUT— close; heavy swing reaches 106
 	{"min": 120.0, "max": 260.0},   # CLERIC    — mid, tether range
-	{"min": 200.0, "max": 360.0},   # CRYOMANCER— longest poke in the roster
+	{"min": 120.0, "max": 210.0},   # CRYOMANCER— the frost CONE only reaches 200
 	{"min": 170.0, "max": 320.0},   # STORMCALLER
 	{"min": 150.0, "max": 300.0},   # WARLOCK   — attrition at tether range
-	{"min": 50.0, "max": 130.0},    # SWORDSAINT— guard-and-punish, wants contact
+	{"min": 45.0, "max": 95.0},     # SWORDSAINT— guard-and-punish; reaches 95
 ]
 const DEFAULT_BAND: Dictionary = {"min": 150.0, "max": 300.0}
 

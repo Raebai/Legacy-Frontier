@@ -75,9 +75,19 @@ enum Tier { EASY, NORMAL, HARD, IMPOSSIBLE }
 const TIERS: Array[Dictionary] = [
 	# EASY — reads a telegraph about as fast as a distracted player, and fumbles
 	# nearly half of them. Fights with its damage line and little else (combo 0.1).
-	{"name": "Easy", "react": 0.38, "jitter": 0.12, "p_miss": 0.45, "aim_error": 0.20,
+	#
+	# ⚠ WIDENED AT THIS END, AND ONLY THIS END. Measured across 144 mirrored duels
+	# (tier 0 vs tier 3, both spawn sides so side-bias cancels, scored on real deaths):
+	# Impossible won 56 of 92 decided duels — 61/39 — which is barely a dial at all.
+	# The obvious move is to sharpen Impossible, and it is the wrong one: at react 0.15
+	# it is ALREADY under the ~250 ms human floor, p_miss 0.03 and aim_error 0.03 rad
+	# (~1.7 deg) are effectively perfect, and pushing further buys difficulty by
+	# cheating rather than by skill. So the gap is opened downward instead — Easy gets
+	# genuinely distracted. Every number moved here is reaction delay or error rate,
+	# which is the locked fairness rule; none of them is knowledge and none is a stat.
+	{"name": "Easy", "react": 0.60, "jitter": 0.16, "p_miss": 0.62, "aim_error": 0.30,
 		"aggression": 0.35, "combo": 0.10, "risk": 0.25, "guard": 0.25,
-		"iframe": false, "period": 0.45},
+		"iframe": false, "period": 0.62},
 	# NORMAL — the honest human baseline. This is the tier every other number in the
 	# brain was reasoned against.
 	{"name": "Normal", "react": 0.30, "jitter": 0.09, "p_miss": 0.28, "aim_error": 0.12,

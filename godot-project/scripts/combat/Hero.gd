@@ -4708,20 +4708,27 @@ func _on_melee_hit_frame() -> void:
 
 ## SANDBOX Smash: the knockback multiplier at a given damage %. Pure + static so
 ## it's headless-testable: 0% -> 1.0x, 100% -> 2.0x, and it grows linearly beyond.
-## ⚠ RING-OUTS NEED A RETUNE, AND IT IS DELIBERATELY NOT DONE HERE.
+## HOW MUCH HARDER A SHOVE LAUNCHES IN THE RING-OUT SANDBOX.
 ##
-## This formula is a CONTRACT SHARED WITH `Enemy` — `slice_test_ringout` pins the exact
-## values AND asserts the two agree — so it is the wrong place to compensate for
-## anything Hero-specific. Enemy always assigned its knockback correctly and so never
-## had the amplification Hero did; multiplying only this side would silently make the
-## two bodies eject on different curves.
+## ⚠ APPLIED AT THE CALL SITE, NEVER FOLDED INTO THE CURVE BELOW. That curve is a
+## CONTRACT SHARED WITH `Enemy` — `slice_test_ringout` pins its exact outputs (0% ->
+## 1.0x, 100% -> 2.0x) AND asserts the two bodies' copies agree — so baking a gain into
+## it would either break the pin or force the suite to be widened to accept a guess.
+## Keeping it separate leaves the pinned curve untouched and the parity intact, and
+## `Enemy.RINGOUT_LAUNCH_GAIN` mirrors this value so both bodies still eject alike.
 ##
-## THE NUMBER THE MAKER NEEDS: fixing the shove integration (see `_knockback_applied`)
-## took ring-outs from 32/144 bouts to 0/144. The sandbox's win condition was tuned
-## against a knockback running 6.0x its stated value, so it now needs roughly that much
-## put back — but through `TuningConfig.knockback_mult` (live, F1 Director), which moves
-## Hero and Enemy together, or through a deliberate design pass on this curve. Guessing
-## a gain here and widening the suite to accept it would ratify the guess.
+## WHY IT IS 6.0. The sandbox's whole win condition is putting a body off the stage,
+## and it was tuned against a knockback that was being INTEGRATED as an acceleration —
+## measured at 6.0x the stated impulse at normal time scale (see `_knockback_applied`).
+## Fixing that integration made the shove honest and took ring-outs from 32/144 bouts
+## to 0/144: the mode stopped working. 6.0 restores the launch the sandbox was actually
+## built around while keeping what the fix bought — the distance no longer depends on
+## whether the hit happened to trigger hitstop, so the same shot travels the same
+## distance every time. Tower combat is untouched; this only applies in ring-out mode.
+## FEEL — the maker judges the number at F5, and this constant is the dial.
+const RINGOUT_LAUNCH_GAIN: float = 6.0
+
+
 static func ringout_knockback_scale(pct: float) -> float:
 	return 1.0 + pct / 100.0
 
@@ -4758,7 +4765,7 @@ func apply_knockback(impulse: Vector2, do_flop: bool = true) -> void:
 	# Smash sandbox: the higher THIS fighter's damage %, the farther the same hit
 	# sends them (that's how a ring-out becomes reachable). No-op in tower mode.
 	if _is_ringout_mode():
-		impulse *= ringout_knockback_scale(damage_pct)
+		impulse *= ringout_knockback_scale(damage_pct) * RINGOUT_LAUNCH_GAIN
 	_knockback = impulse
 	velocity.y += impulse.y
 	# Reel from the blow (skip while the manual hold-DOWN ragdoll owns the limp,

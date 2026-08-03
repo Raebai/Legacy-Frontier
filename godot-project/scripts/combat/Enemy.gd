@@ -556,7 +556,11 @@ func apply_knockback(impulse: Vector2, do_flop: bool = true) -> void:
 	# Smash sandbox: the higher this enemy's damage %, the farther the same hit
 	# sends it — that's what makes a ring-out reachable. No-op in tower mode.
 	if _is_ringout_mode():
-		impulse *= ringout_knockback_scale(damage_pct)
+		# MIRRORS `Hero.RINGOUT_LAUNCH_GAIN` — see the long note there. Applied at the
+		# call site rather than folded into `ringout_knockback_scale` so the curve that
+		# `slice_test_ringout` pins (and asserts both bodies agree on) stays untouched.
+		# The two must move together or one body ejects on a different curve.
+		impulse *= ringout_knockback_scale(damage_pct) * RINGOUT_LAUNCH_GAIN
 	_knockback = impulse
 	# Side-on: the VERTICAL part lands once as a real impulse into velocity.y so
 	# a hard hit pops the enemy off the ground (gravity owns y from here). Adding
@@ -573,6 +577,12 @@ func apply_knockback(impulse: Vector2, do_flop: bool = true) -> void:
 
 ## SANDBOX Smash: knockback multiplier at a given damage %. Pure + static (mirrors
 ## Hero.ringout_knockback_scale) — 0% -> 1.0x, 100% -> 2.0x, linear beyond.
+## Ring-out launch gain. MIRRORS `Hero.RINGOUT_LAUNCH_GAIN` and must move with it —
+## the two bodies have to eject on the same curve, which `slice_test_ringout` pins.
+## Kept OUT of the scale function below so that pinned contract is untouched.
+const RINGOUT_LAUNCH_GAIN: float = 6.0
+
+
 static func ringout_knockback_scale(pct: float) -> float:
 	return 1.0 + pct / 100.0
 
