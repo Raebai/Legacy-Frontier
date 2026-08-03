@@ -1820,7 +1820,14 @@ static func _heavens_wrath() -> SpellDef:
 	s.effect = _effect_for_element(Elements.Element.LIGHTNING)
 	s.mp_cost = 74
 	s.cooldown = 8.0
-	s.damage = 42        # per strike, five of them
+	s.damage = 26        # per strike, five of them
+	# ⚠ 42 -> 26 ON A TOTAL-CONNECT BASIS, not a per-strike one. Five strikes at 42
+	# is 210 damage into a roster whose max HP runs 78-145 — a one-shot kill from
+	# full health, and by a wide margin the biggest ult in the game (fault_line 105,
+	# grave_tide 130, meteor_fist 165, frozen_comet 48). MEASURED: the Stormcaller
+	# went 15-0-1 across two full-roster sweeps. 26 x 5 = 130 puts a full connect in
+	# line with the other ults while keeping what makes the spell ITS spell — five
+	# separate strikes you can be caught by more than once.
 	s.radius = 210.0     # the CELL's footprint (a strike's own radius is much smaller)
 	s.reach = 320.0
 	return s

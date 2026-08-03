@@ -548,7 +548,15 @@ const CLASS_CONFIG: Dictionary = {
 	HeroClass.CLERIC: {  # radiant sustain bruiser — LMB heal-bolt (lifesteal)
 		"preset": "cleric", "weapon": "staff", "element": Elements.Element.HOLY, "melee_element": Elements.Element.HOLY,
 		"hp": 110, "speed": 200.0,
-		"primary": "bolt", "bolt_heal": 4,
+		"primary": "bolt", "bolt_heal": 2,   # 4 -> 2: see the lifesteal note below
+		# ⚠ LIFESTEAL WAS THE UNDERCOSTED STAT IN THE GAME. Cleric and Warlock are the
+		# ONLY two classes with `bolt_heal`, they carry the two LOWEST-throughput kits
+		# in the roster (65.4 and 65.1 dmg/s, the bottom two), and they finished 1st and
+		# 2nd across 288 measured bouts — 91% and 84%. They were not out-damaging
+		# anyone; they were refusing to die. Cleric also SCALED with fight length (88%
+		# at high HP vs 69% at low), which is the signature of sustain rather than of a
+		# strong kit. Both cut to 2 rather than removed: the heal is the CLASS, and the
+		# fix is to make it a trade instead of a free win. FEEL — the maker judges at F5.
 		# Censer SWING: slow, wide-ish, the heaviest shove of the four staff casters.
 		"melee_cd": 0.40, "melee_arc_dot": 0.15, "melee_damage": 17,
 		"melee_range": 68.0, "melee_knockback": 340.0,
@@ -590,7 +598,7 @@ const CLASS_CONFIG: Dictionary = {
 	HeroClass.WARLOCK: {  # dark attrition hexer — LMB drain-bolt (weaken + lifesteal)
 		"preset": "warlock", "weapon": "sword", "element": Elements.Element.SHADOW, "melee_element": Elements.Element.SHADOW,
 		"hp": 95, "speed": 190.0,
-		"primary": "bolt", "bolt_heal": 3,
+		"primary": "bolt", "bolt_heal": 2,   # 3 -> 2: see the Cleric lifesteal note above
 		# Scythe RAKE: the slowest, longest, most committed swing short of the
 		# Juggernaut's hammer, and the narrowest arc in the game.
 		"melee_cd": 0.46, "melee_arc_dot": 0.05, "melee_damage": 21,
