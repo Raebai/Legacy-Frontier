@@ -98,9 +98,20 @@ const CLASS_NAMES: Array[String] = [
 var _class_a: int = 6
 var _class_b: int = 5
 var _difficulty: int = 3
-var _seconds: float = 14.0
+## Covers the p90 fight (25.6 s at `_hp` 500) so the budget stops truncating fights
+## that were about to end.
+var _seconds: float = 28.0
 var _fps: int = 30
-var _hp: int = 260
+## ⚠ 260 -> 500, AND THE EVIDENCE IS A TIME-TO-KILL TABLE, not a preference. At 260
+## the median bot duel lasts 8.7 s and 14% of clips are OVER before the director's
+## `is_hot()` even latches — a highlight, not a fight. Measured across 36 bouts per
+## row on the real BotMatch at tier 3:
+##     hp   p10   median   p90    under 5s   in the 8-24s window
+##    260   3.5     8.7   15.4       14%            58%
+##    500   9.7    15.7   25.6        0%            81%
+## 500 is the first row where EVERY clip has an approach, an exchange and a finish.
+## This is a CAPTURE parameter — it changes nothing about how the game plays.
+var _hp: int = 500
 var _round: float = 40.0
 var _patience: float = 12.0
 var _tail: float = 1.8
@@ -118,6 +129,15 @@ var _director: Object = null
 var _saved: int = 0
 var _walked: int = 0
 var _rolling: bool = false
+## Seconds of the VS card to keep, IN CLIP TIME. 0 restores the old behaviour.
+##
+## ⚠ A SAVED-FRAME BUDGET, NEVER REAL TIME, and that is the whole trick. The engine
+## renders ~190 fps with the tree paused behind the card, so "just roll until the intro
+## ends" saves ~170 frames of a STILL IMAGE — measured 418 rendered frames against 2.22
+## real seconds — which is a third of the clip budget, and a different length on every
+## machine.
+var _intro_clip_seconds: float = 1.2
+var _intro_saved: int = 0
 var _roll_started_at: float = 0.0
 var _decided_at: float = -1.0
 
@@ -292,7 +312,17 @@ func _run() -> void:
 		if _decided_at < 0.0 and _match_over():
 			_decided_at = now
 			print("[clip] the match resolved at %.1fs — %s" % [now, _outcome()])
-		if not _rolling:
+		# THE CARD IS THE OPENING SHOT. It can never be reached by the heat gate below —
+		# `ClipDirector` heat is structurally 0 while the tree is paused (see
+		# `BotMatch.intro_active`), so `is_hot()` first goes true AFTER the card has
+		# gone. Gated on saved frames so the opening is the same length in every clip;
+		# when the budget runs out the tool stops saving and waits for heat again, which
+		# cuts straight from the card into the exchange instead of filming the approach.
+		var in_intro: bool = _intro_active()
+		if in_intro:
+			if _intro_saved >= int(_intro_clip_seconds * float(_fps)):
+				continue
+		elif not _rolling:
 			# ROLL WHEN THE FIGHT CATCHES, or when patience runs out — an unexciting
 			# clip is still better than no clip, and "it never got hot" is itself a
 			# finding worth seeing rather than a silent empty folder.
@@ -310,6 +340,8 @@ func _run() -> void:
 			continue
 		img.save_png("%s/f%04d.png" % [_dir, _saved])
 		_saved += 1
+		if in_intro:
+			_intro_saved += 1
 		if _saved % 30 == 0:
 			print("[clip] saved %d frames (%.1fs of clip, heat %.2f)"
 				% [_saved, float(_saved) / float(_fps), _heat()])
@@ -331,6 +363,13 @@ func _run() -> void:
 # ---- questions, each guarded so a missing director or scene degrades rather than
 # crashes. Without a director the tool still works — it simply rolls from frame one
 # and runs to the frame budget.
+
+## Guarded: `_intro_phase` defaults to DONE, so on the frame or two before BotMatch's
+## `_ready` has run this reads false and the tool falls straight through to the old
+## gate. A stage with no card degrades to exactly today's behaviour.
+func _intro_active() -> bool:
+	return _match != null and is_instance_valid(_match) 		and _match.has_method("intro_active") and bool(_match.call("intro_active"))
+
 
 func _is_hot() -> bool:
 	return _director != null and bool(_director.call("is_hot"))

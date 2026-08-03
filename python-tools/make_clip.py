@@ -119,9 +119,16 @@ def main() -> int:
     ap.add_argument("--a", type=int, default=6, help="left fighter's class id (0-8)")
     ap.add_argument("--b", type=int, default=5, help="right fighter's class id (0-8)")
     ap.add_argument("--difficulty", type=int, default=3)
-    ap.add_argument("--hp", type=int, default=260,
+    # 260 -> 500: at 260 the median bot duel is 8.7s and 14% of clips are over
+    # before the director's is_hot() latches. Measured, 36 bouts per row on the
+    # real BotMatch:  hp 260 -> p10 3.5 / median 8.7 / p90 15.4, 14% under 5s;
+    #                 hp 500 -> p10 9.7 / median 15.7 / p90 25.6, 0% under 5s.
+    # 500 is the first setting where every clip has an approach, an exchange and
+    # a finish. A CAPTURE parameter only — it changes nothing about how it plays.
+    ap.add_argument("--hp", type=int, default=500,
                     help="shared HP pool; BotMatch.CLASS_VITALITY scales it per class")
-    ap.add_argument("--seconds", type=float, default=16.0, help="max clip length")
+    # 16 -> 28 so the budget covers the p90 fight instead of truncating it.
+    ap.add_argument("--seconds", type=float, default=28.0, help="max clip length")
     ap.add_argument("--fps", type=int, default=30)
     ap.add_argument("--width", type=int, default=1920, help="RENDER width")
     ap.add_argument("--height", type=int, default=1080)

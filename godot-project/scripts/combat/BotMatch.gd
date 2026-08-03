@@ -857,6 +857,19 @@ func match_over() -> bool:
 	return _outcome != Outcome.NONE
 
 
+## IS THE PRE-FIGHT CARD STILL UP.
+##
+## Public because a capture tool cannot film a card it cannot see, and `ClipDirector`
+## heat is STRUCTURALLY zero behind it: no damage (the tree is paused), no live spells,
+## no armed telegraphs, and the mirrored spawns sit `SPAWN_SPREAD * 2` = 560 px apart
+## against the director's own `CLOSE_RANGE * 2.5` = 400 px proximity cutoff — so even
+## the one term that could fire clamps to 0. MEASURED: `heat 0.000` on every rendered
+## frame of the card, and `is_hot()` first going true FOUR FRAMES AFTER it had gone.
+## A hot-gated capture therefore always starts after the intro, every time.
+func intro_active() -> bool:
+	return _intro_phase != Intro.DONE
+
+
 # ==========================================================================
 # SOUND
 #
