@@ -71,9 +71,20 @@ const COOL_THRESHOLD: float = 0.14
 ## fit — the zoom floor, not the framing, threw one of them out. A smaller MARGIN
 ## means the camera only pulls back as far as it actually has to; a lower ZOOM_MIN
 ## means it CAN when it has to. Both fighters in frame beats a tighter shot of one.
-const FRAME_MARGIN: float = 300.0
+## ⚠ 300 -> 190, BECAUSE THE FIGHTERS WERE SPECKS. Margin is pure empty space added
+## around the pair before the zoom is solved, so on this 683 px base viewport 300 px
+## of slack per side is most of the shot. Measured on a real 1920x1080 clip frame: the
+## Stormcaller drew about 90 px tall — roughly 8% of frame height — and the whole
+## procedural rig, legs included, was too small to read at all. The maker's note is
+## exactly that: the figures need to be legible in a bot-vs-bot clip.
+##
+## The containment rule above is untouched — this only stops the camera pulling back
+## further than it has to. ZOOM_MIN still lets it go wide when the pair genuinely
+## spreads, which is the case that note was written about. FEEL: the maker judges the
+## framing at F5, and these two numbers are the dial.
+const FRAME_MARGIN: float = 190.0
 ## ...and the slack a HOT moment is allowed to shrink that to. See `_frame`.
-const FRAME_MARGIN_HOT: float = 170.0
+const FRAME_MARGIN_HOT: float = 110.0
 ## The same two numbers on y. Smaller, because a 31 px stick figure needs far less
 ## headroom than two fighters need shoulder room, and because the eye is already
 ## lifted (EYE_LIFT) to put the floor in the lower third.
