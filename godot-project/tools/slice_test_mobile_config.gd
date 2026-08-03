@@ -301,6 +301,29 @@ func _test_combat_vfx_pool() -> void:
 		host, Vector2.ZERO, Color(1, 0, 0, 1), Color(1, 0, 0, 0), 44, 0.2)
 	_expect(e != d, "a different `amount` takes a fresh emitter, not a resized one")
 	_expect(e != null and e.amount == 44, "and it is sized correctly")
+
+	# THE FREED-EMITTER CASE, and the reason it is asserted here rather than trusted
+	# to the guard `_recycle` already opens with. `spawn_burst` arms a scene timer
+	# that calls `_recycle` LATER; anything that frees the emitter before it fires —
+	# an arena teardown, a scene change, the pool's own `queue_free` — makes that
+	# bound argument a freed instance. `is_instance_valid` inside the body cannot
+	# answer for it, because a TYPED parameter is converted at the CALL boundary and
+	# the conversion is what fails ("Cannot convert argument 1 from Object to
+	# Object"). The guard was unreachable for the exact case it exists for, and the
+	# whole bot sim printed that error on a loop.
+	#
+	# This asserts it the only way GDScript allows: a failed argument conversion
+	# ABORTS THE ENCLOSING FUNCTION, so the completion sentinel below never lands and
+	# the suite fails BY ABSENCE — the same armour the file header describes.
+	var doomed: GPUParticles2D = CombatVfx.spawn_burst(
+		host, Vector2.ZERO, Color(1, 1, 1, 1), Color(1, 1, 1, 0), 20, 0.2)
+	var banked_before: int = CombatVfx.pooled_count()
+	if doomed != null:
+		doomed.free()
+	CombatVfx._recycle(doomed, 20)
+	_expect(CombatVfx.pooled_count() == banked_before,
+		"recycling a freed emitter banks nothing and does not throw")
+
 	host.free()
 	CombatVfx.reset_pool()
 	_completes("combat_vfx_pool")

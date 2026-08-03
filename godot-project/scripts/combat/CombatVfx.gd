@@ -229,8 +229,19 @@ static func _acquire(parent: Node, amount: int) -> GPUParticles2D:
 
 ## Timer callback: the burst has finished playing. Park it rather than free it.
 ## Hidden and not emitting, so a parked emitter costs nothing to have around.
-static func _recycle(burst: GPUParticles2D, amount: int) -> void:
-	if not is_instance_valid(burst):
+## ⚠ `raw` IS UNTYPED, AND THAT IS THE WHOLE GUARD. This runs off a scene timer armed
+## in `spawn_burst`, so anything that frees the emitter first — an arena teardown, a
+## scene change, this pool's own `queue_free` — makes the bound argument a freed
+## instance. A TYPED parameter is converted at the CALL BOUNDARY, and that conversion
+## throws ("Cannot convert argument 1 from Object to Object") BEFORE one line of this
+## body runs: the `is_instance_valid` check below was unreachable for the exact case
+## it was written for, and every bot-sim run printed that error on a loop. Same idiom,
+## and same reason, as `BotController.perceive_elemental`'s freed-node skip.
+static func _recycle(raw: Variant, amount: int) -> void:
+	if raw == null or not is_instance_valid(raw):
+		return
+	var burst: GPUParticles2D = raw as GPUParticles2D
+	if burst == null:
 		return
 	burst.emitting = false
 	burst.visible = false
