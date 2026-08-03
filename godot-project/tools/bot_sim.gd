@@ -450,7 +450,34 @@ func _register(node: CharacterBody2D, label: String, class_id: int, driven: bool
 			# own controller IS the button state. With the shipped BotController
 			# attached there is nothing for the harness to press.
 			rec["inner"] = ctrl if _bot_controller_script == null else null
+	# ⚠ A DEATH HAS TO BE HEARD, NOT POLLED — and until this landed THIS HARNESS COULD
+	# NOT REPORT A KILL AT ALL. `Hero.take_damage` emits `health_changed(0, max)` and
+	# THEN calls `_die()`; `_die()` outside a run and outside a net session (which a sim
+	# match is, on both counts) runs `hp = max_hp` and returns. So by the time `_sample`
+	# polls `hp <= 0` the body has already been healed to full, inside the same call.
+	#
+	# The damage was always real: an ARCANIST vs BRAWLER bout at --dur=180 burned 2319
+	# damage across a combined 205 max HP — eleven full health bars — and was scored a
+	# DRAW. Every "0 kill / N points" line this harness has ever printed, and every
+	# balance number derived from `hp_last`, was ranking resurrected bodies. That is
+	# also the whole "Brawler win rate is disputed between two harnesses" disagreement.
+	#
+	# `BotMatch.gd` already documents and works around exactly this; the sim never got
+	# the same treatment. Same fix, same reason.
+	if bool(rec["is_hero"]) and node.has_signal(&"health_changed"):
+		node.health_changed.connect(_on_fighter_health.bind(rec))
 	_fighters.append(rec)
+
+
+## The real moment of death, caught off the signal before `_die()` heals it away.
+func _on_fighter_health(current: int, _maximum: int, rec: Dictionary) -> void:
+	if current > 0 or float(rec["died_at"]) >= 0.0:
+		return
+	rec["died_at"] = _elapsed
+	rec["hp_last"] = 0
+	if BotSimProbe.fast_kill(_elapsed):
+		_file(BotSimProbe.SEV_WARN, "fast_kill",
+			"%s died %.2fs into the fight" % [rec["label"], _elapsed])
 
 
 ## Confirm every dynamically-reached Hero member still exists, by name. A rename
@@ -1063,8 +1090,14 @@ func _sample(rec: Dictionary, delta: float) -> void:
 			_file(BotSimProbe.SEV_WARN, "damage_outlier",
 				"%s took %d in one sample (%.0f%% of %d max HP)"
 					% [rec["label"], drop, 100.0 * float(drop) / float(max_hp), max_hp])
+	# ⚠ ONCE DEAD, STAY DEAD. `_die()` heals the body back to `max_hp` outside a run,
+	# so polling `hp` here would resurrect the record the `health_changed` listener
+	# just wrote — and the judge would rank a corpse at full health. The signal is the
+	# authority on death; this poll only tracks the living.
+	if float(rec["died_at"]) >= 0.0:
+		return
 	rec["hp_last"] = hp
-	if hp <= 0 and float(rec["died_at"]) < 0.0:
+	if hp <= 0:
 		rec["died_at"] = _elapsed
 		if BotSimProbe.fast_kill(_elapsed):
 			_file(BotSimProbe.SEV_WARN, "fast_kill",

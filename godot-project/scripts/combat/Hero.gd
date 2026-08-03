@@ -4708,6 +4708,20 @@ func _on_melee_hit_frame() -> void:
 
 ## SANDBOX Smash: the knockback multiplier at a given damage %. Pure + static so
 ## it's headless-testable: 0% -> 1.0x, 100% -> 2.0x, and it grows linearly beyond.
+## ⚠ RING-OUTS NEED A RETUNE, AND IT IS DELIBERATELY NOT DONE HERE.
+##
+## This formula is a CONTRACT SHARED WITH `Enemy` — `slice_test_ringout` pins the exact
+## values AND asserts the two agree — so it is the wrong place to compensate for
+## anything Hero-specific. Enemy always assigned its knockback correctly and so never
+## had the amplification Hero did; multiplying only this side would silently make the
+## two bodies eject on different curves.
+##
+## THE NUMBER THE MAKER NEEDS: fixing the shove integration (see `_knockback_applied`)
+## took ring-outs from 32/144 bouts to 0/144. The sandbox's win condition was tuned
+## against a knockback running 6.0x its stated value, so it now needs roughly that much
+## put back — but through `TuningConfig.knockback_mult` (live, F1 Director), which moves
+## Hero and Enemy together, or through a deliberate design pass on this curve. Guessing
+## a gain here and widening the suite to accept it would ratify the guess.
 static func ringout_knockback_scale(pct: float) -> float:
 	return 1.0 + pct / 100.0
 
