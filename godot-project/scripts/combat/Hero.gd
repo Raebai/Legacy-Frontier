@@ -812,6 +812,27 @@ var _buffer_timer: float = 0.0
 ## leaves your hand: recall is a second PRESS, not a continuation of the first.
 var _buffer_from_hold: bool = false
 var _knockback: Vector2 = Vector2.ZERO  # shove received from an enemy hit / bomb
+## How much of `velocity.x` is knockback OFFSET rather than locomotion, as laid on
+## last frame. Taken back off before locomotion reads `velocity.x` again.
+##
+## ⚠ WITHOUT THIS THE SHOVE IS INTEGRATED AS AN ACCELERATION. `_knockback` is a
+## channel that decays at KNOCKBACK_DECAY, and it was being ADDED to `velocity.x`
+## every frame on top of a velocity that is only ever nudged toward walk speed — so
+## each frame re-added a shove the previous frame had already banked. MEASURED on a
+## flat slab with no opponent, for the 240 px/s impulse a plain bolt hit uses:
+##     ridden once, decaying:      peak  240 px/s, travel  32 px
+##     as shipped, time_scale 1.0: peak 1429 px/s, travel 219 px   (6.0x)
+##     as shipped, during hitstop: peak 7676 px/s                  (32.0x)
+## The second multiplier is the ugly one: `Juice.hit_stop` holds `time_scale` at 0.05
+## for 0.06 s on EVERY connect while the tick rate stays put, so the addition — which
+## is per-FRAME, not per-DELTA — runs ~20x as often. Launch distance therefore
+## depended on whether a hit happened to trigger hitstop, which is why the same shot
+## sent a body a different distance every time.
+##
+## `Enemy.gd:1037` and `Boss.gd:458` have always ASSIGNED (`velocity.x = chase +
+## _knockback.x`), and `Enemy.gd:562` documents this exact failure mode on the other
+## axis. Hero's `+=` was the outlier, not the pattern.
+var _knockback_applied: float = 0.0
 var _ragdolling: bool = false  # hold DOWN -> go limp + flop (the Stick-Fight ragdoll toy)
 var _hero_class: int = HeroClass.MAGE
 var _cfg: Dictionary = CLASS_CONFIG[HeroClass.MAGE]
@@ -1608,7 +1629,13 @@ func _physics_process(delta: float) -> void:
 			_ragdolling = true
 			rig.set_limp(1.0)
 			rig.apply_impulse(Vector2(0.0, 1.0), 220.0)  # a little flop-down kick
-		velocity.x = move_toward(velocity.x, 0.0, GROUND_FRICTION * delta) + _knockback.x
+		# Same offset rule as the main locomotion path — see `_knockback_applied`.
+		# The flop branch reached `move_and_slide` without ever stripping last frame's
+		# shove, so holding DOWN while knocked back integrated it exactly as the main
+		# path did.
+		_knockback_applied = _knockback.x
+		velocity.x = move_toward(velocity.x - _knockback_applied, 0.0,
+			GROUND_FRICTION * delta) + _knockback_applied
 		velocity.y = 0.0 if (is_on_floor() and velocity.y >= 0.0) else minf(velocity.y + GRAVITY_FALL * delta, MAX_FALL)
 		move_and_slide()
 		rig.play(CharacterRig.State.HURT)
@@ -1763,17 +1790,27 @@ func _physics_process(delta: float) -> void:
 	# gear: hood = fleet-footed. `_status_speed_mult` is the ailment half — a chilled
 	# or shocked hero moves like one now that heroes can actually catch ailments.
 	var spd: float = _class_speed() * _gear_speed_mult * _status_speed_mult()
+	# THE SHOVE IS AN OFFSET, NOT AN ACCELERATION — see `_knockback_applied`. Strip
+	# last frame's offset before locomotion reads this, or the decaying channel gets
+	# integrated into velocity and a 240 px/s shove peaks at 1429 (6x), or 7676 (32x)
+	# while hitstop is holding time_scale down.
+	var walk_x: float = velocity.x - _knockback_applied
+	if is_on_wall():
+		# `move_and_slide` is authoritative about a body against a wall; resurrecting
+		# the pre-collision intent would push it back through.
+		walk_x = 0.0
 	if _wall_jump_lock <= 0.0:
 		if move_x != 0.0:
 			var accel: float = GROUND_ACCEL if is_on_floor() else _tune("move_air_accel", AIR_ACCEL)
-			velocity.x = move_toward(velocity.x, move_x * spd, accel * delta)
+			walk_x = move_toward(walk_x, move_x * spd, accel * delta)
 		else:
 			var fric: float = GROUND_FRICTION if is_on_floor() else _tune("move_air_accel", AIR_ACCEL)
-			velocity.x = move_toward(velocity.x, 0.0, fric * delta)
+			walk_x = move_toward(walk_x, 0.0, fric * delta)
 	# Tiny push into the wall so move_and_slide keeps registering the slide.
 	if wall_sliding:
-		velocity.x = -wall_normal.x * WALL_STICK_PUSH
-	velocity.x += _knockback.x  # ragdoll shove from an enemy hit / bomb
+		walk_x = -wall_normal.x * WALL_STICK_PUSH
+	_knockback_applied = _knockback.x
+	velocity.x = walk_x + _knockback_applied  # ragdoll shove from an enemy hit / bomb
 	move_and_slide()
 	_check_wall_slam()  # crack a breakable we were slammed into
 	_was_wall_sliding = wall_sliding
