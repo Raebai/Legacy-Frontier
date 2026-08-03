@@ -1,58 +1,91 @@
-# RESUME HERE — 2026-08-02 handoff
+# RESUME HERE — 2026-08-03 handoff
 
-Branch `stickman-integrate`. **138/138 suites green, working tree clean, nothing
-pushed.** Everything below is committed.
+Branch `bot-fight-quality` (off `main`). **146/146 suites green, working tree clean,
+nothing pushed.** Everything below is committed.
 
-## LATEST SESSION (2026-08-02, five commits, ALL UNPLAYTESTED)
+## ▶ WHAT TO PLAY, AND WHAT TO LOOK AT
 
-- **`fix(rig)` — the walk, third report, real cause found.** The world-locked
-  plant was always perfect (0.00 px drift); the **drawn** foot went through the
-  body spring sim and rang 12.6 px — 41% of the figure — around it. Grounded and
-  settled, the drawn foot IS the plant now. Cadence 22→12.7/s, lift 3.1%→15.1%
-  of height, slide→0. **`slice_test_sfx_mix` had been WIDENED to accept the bug.**
-  Look: `%APPDATA%/Godot/app_userdata/Legacy Frontier/rigwalk_compare.png`.
-- **`feat(death)`** — the ragdoll was never missing; `CharacterRig` has had
-  limp/flop/prone-collapse the whole time and no death path called it. Enemies
-  get `DeathSmudge` (folded, then rubbed off the page). The KO loser was
-  standing at FULL health — `_die()` outside a run heals to `max_hp`.
-- **`feat(botmatch)`** — **"Fight a Bot" now exists on the title screen.** The
-  human-vs-bot duel was fully built and had no door to it. Plus a VS intro card,
-  yellow-vs-blue side tints, and `TauntBook` fight taunts.
-- **`feat(waves)`** — every spawn is preceded by a 0.4 s ink scrawl. "Too
-  flooded" was mostly unreadability, not count. Floor 1 wave 1 6→4.
-- **`perf(render)`** — `msaa_2d` was **8×, not 4×**; the post shader rebuilt an
-  unused mip pyramid every frame. Frame fill −37%. Four new profilers, because
-  `TIME_PROCESS` excludes `_draw` and this game draws everything.
+**F5 → title screen.** The two things most worth your eyes:
 
-**The class rebuild SHIPPED** (`f584c7b`, 145/145 green). Eleven new spells; all
-27 carried slots are now distinct ids AND distinct spectacle scripts;
-`ordinary_spell` is the only beam anyone carries. Nine movement verbs and real
-per-class HP/speed/melee landed alongside it.
+1. **THE LEGS.** They stand straight now, everywhere — hero, enemies, bosses, thralls,
+   townspeople. `Enemy` DERIVES its leg constants from `CharacterRig`, so it is one
+   edit and not a sweep. To look closely without squinting at a clip:
+   `godot-engine/Godot_v4.6.2-stable_win64.exe --path godot-project --script tools/rig_legs_capture.gd`
+   (GUI binary — headless writes blank PNGs). Renders standing / walking / enemy
+   presets LARGE against a ruled floor.
+2. **KNOCKBACK FEELS WEAKER, AND THAT IS THE FIX.** See the warning below.
 
-## ▶ START HERE NEXT SESSION — bot fight quality
+`python python-tools/make_clip.py --a 6 --b 5` → a clip that now opens on the VS card.
 
-Maker's instruction on pausing: *"make sure the bot fights are optimised,
-alongside the bots for the clips and fights, and ensure they can deflect and
-stuff."* Bot fights ARE the recording pipeline, so this is a content problem.
+## ⚠ TWO THINGS THAT WILL FEEL WRONG BEFORE THEY FEEL RIGHT
 
-1. **Five of nine classes' bots cast NOTHING.** Measured with a stashed-code A/B:
-   6 casting classes before the rebuild, 4 after. NOT bad range data —
-   `_effective_range` reports sane values for every new spell. It is BotBrain's
-   band scoring, which only picks spells above roughly **700 px**; the five old
-   long beams (1100–1250 px) satisfied that by accident, and 240–620 px bespoke
-   signatures exposed it. **Nine of the eleven new spells have never been cast in
-   a real bot match.**
-2. **Bots must deflect/parry.** `SpellDeflect` ("nothing is unparryable"),
-   `SigilGuard`, `GuardComponent` and a `BotProfile` guard-skill knob all exist;
-   whether bot decision-making ever reaches them is unverified. A past session
-   found the whole reflex layer dead behind a null-returning helper — verify with
-   a minimum-occurrence assertion, not "no bad deflect was seen".
-3. **`bot_sim_report.py` asks the wrong question** — it reports
-   asked-but-not-emitted, not never-asked, so it said all-clear while five
-   classes cast nothing.
-4. The VS intro card still cannot reach a clip (capture waits on
-   `ClipDirector.is_hot()`; heat is 0 while the tree is paused for the card).
+- **Hero knockback is ~7x weaker.** It was being INTEGRATED as an acceleration: 6.0x
+  the stated impulse at normal speed and **32x while hitstop held `time_scale` at
+  0.05**, so the same shot sent a body a different distance every time depending on
+  whether it triggered hitstop. `Enemy` and `Boss` always did it correctly — Hero was
+  the outlier. Travel is now identical with and without hitstop. If it feels limp,
+  the dial is `TuningConfig.knockback_mult` (live, F1 Director) and it now moves Hero
+  and Enemy TOGETHER for the first time. That dial was already cut 1.6 -> 1.0 in a
+  'knockback is too much' pass — that pass was treating this bug.
+- **Ring-out mode has its own 6.0 gain** (`Hero.RINGOUT_LAUNCH_GAIN`, mirrored on
+  `Enemy`) because the honest shove took ring-outs from 32/144 bouts to 0/144. Applied
+  at the call site so the curve `slice_test_ringout` pins stays untouched.
 
+## WHAT CHANGED THIS SESSION (11 commits)
+
+| | before | after |
+|---|---|---|
+| knee jut at rest | 8.3% of figure height | **1.6%** |
+| bot deflects / 18 duels | 3-4, in 2-3 matches | **18, in 7 matches** |
+| sim outcomes | 0 kill / 15 points / 3 draw | **18 kill / 0 / 0** |
+| sweep anomalies | 118 (61 error) | **6 (0 error)** |
+| difficulty dial (tier 0 v 3) | 61/39 | **89/11** |
+| clip length | 2.4 s, 44% a still frame | **4.6 s, opens on the VS card** |
+
+Root causes, each measured not reasoned:
+
+- **Legs.** Two causes that both sound negligible written down, because a two-bone IK
+  takes the SQUARE ROOT of a length shortfall. (a) the body stood 3% shorter than its
+  own leg bones on purpose; (b) the idle breath was SYMMETRIC, so half of every cycle
+  pressed the hip 3% BELOW standing and the ground-locked feet forced it into the
+  knees. Also fixed earlier: `draw_figure` drew the shin to the RAW foot while the IK
+  had CLAMPED the reach, so the drawn leg reached 1.449x its own bones on 28-43% of
+  moving frames.
+- **Bots never parried.** `guard_style` was documented with OPPOSITE meanings on the
+  two sides of the seam ('0 = press window' on Hero, '0 = BLADE ring' in BotBrain), so
+  7 of 9 classes pressed the guard 0.374 s early into a window that opens immediately
+  and lasts 0.16 s. The body now publishes `guard_lead` / `guard_tolerance` in seconds.
+- **The sim could never report a kill.** `_die()` heals to full outside a run, so the
+  poll read a body resurrected microseconds earlier. One bout burned 2319 damage across
+  205 max HP and scored a DRAW. Every balance number it ever printed ranked corpses.
+- **Two red suites** were CRLF line endings, not regressions. Shipped code was correct.
+
+## STILL OPEN — ranked
+
+1. **PLAYTEST.** Nothing here has been touched by hands. Everything is measured, which
+   this file's own standing judgement calls the weaker evidence.
+2. **BALANCE IS REAL AND UNTOUCHED.** 288 bouts on the honest harness: Cleric 91%,
+   Warlock 84% ... Brawler 22%, Swordsaint 9%. The two LIFESTEAL classes have the two
+   LOWEST damage kits and the two highest win rates — `bolt_heal` is the undercosted
+   stat. A design call, not a number to pick blind. (The bot SPACING half was fixed:
+   four classes stood outside their own attack range.)
+3. **Clip strobe.** Full-screen white/yellow blow-out frames; measured mean luminance
+   68 -> 146 -> 68 between consecutive 30 fps frames, six such jumps in the first
+   twenty. `ImpactFrame.MAX_FULLSCREEN_FLASHES_PER_SECOND = 2` exists and LOCAL rings
+   are counted SEPARATELY — check whether that is the hole before retuning anything.
+4. **Result card lands on live spectacle**, over taunt bubbles and a damage number.
+   `FREEZE_BEAT` 0.55 s is not long enough for the killing spectacle to finish.
+5. **Lag is unresolved.** Median 1.52 ms (660 fps), worst 13.99 ms over 11.6k frames,
+   and every hitch reported 'built that frame: nothing'. An earlier 40 ms outlier was
+   probably first-use shader compile. If it stutters in your hands, say WHEN.
+6. **CRLF flip-flop.** `core.autocrlf=true`, no `.gitattributes`, so git-written files
+   are CRLF and agent-written ones are LF — the next branch switch can redden a
+   different suite. Durable fix is `*.gd text eol=lf` + a renormalise: a ~476-file
+   diff, wants its own commit and your say-so.
+7. **Harness noise not cleaned:** `spell_below_floor` fires only past the slab edge in
+   empty space (23 rows of nothing); `damage_outlier` measures against TOWER hp, which
+   no hero-vs-hero mode ships. Also `SigilGuard` is attached to no live body anywhere —
+   the mage's magic-circle catch is dead code behind a green suite.
 > **Read order for a cold start:** this file → `docs/PLAY-TONIGHT.md` (what to play
 > and what is knowingly wrong) → `docs/THE-TOWER-mobile-plan.md` (the design + the
 > gap analysis) → `docs/audit-fun-and-competitors.md` (the ranked findings).
