@@ -2,6 +2,15 @@
 # absorbs the spell and sends it back. Proves the two things that must be true:
 # the mage runs on the SAME ParryRing clock as the swordsman (one timing model,
 # two costumes), and the stronger outcome is paid for with a strictly harder read.
+#
+# ⚠⚠ WHAT THIS SUITE DOES NOT PROVE, AND ITS GREEN LINE IMPLIES: that anything in
+# the game ever BUILDS a SigilGuard. Nothing does. Every fixture here is a 5-line
+# stub victim; no Hero, Enemy or Boss is touched, so "all PASS" is a true statement
+# about the class in isolation and says nothing about whether the feature exists.
+# `SigilGuard.of()` has zero production call sites and the mage never gets a SIGIL
+# ring. See the header of scripts/combat/SigilGuard.gd for the evidence and for
+# what wiring it would take — including the `guard_style` hazard that must be fixed
+# in the same change.
 #   Godot_v4.6.2-stable_win64_console.exe --path godot-project --headless --script tools/slice6_test_sigil_guard.gd
 extends SceneTree
 

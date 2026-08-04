@@ -1,7 +1,54 @@
-# RESUME HERE — 2026-08-03 handoff
+# RESUME HERE — 2026-08-04 handoff
 
-Branch `bot-fight-quality` (off `main`). **146/146 suites green, working tree clean,
-nothing pushed.** Everything below is committed.
+Branch `bot-fight-quality` (off `main`). **146/146 suites green, working tree clean.**
+Everything below is committed.
+
+## ▶ WHAT CHANGED ON 2026-08-04 (6 commits, all UNPLAYTESTED)
+
+A cleanup pass over this file's own open list. Three were real bugs nobody had
+pressed yet; two were the measuring tools lying again; one was dead weight.
+
+| | before | after |
+|---|---|---|
+| classes that can COUNTER a bolt in a duel | 1 of 9 | **9 of 9** |
+| co-op: breakable ledges | desynced collision geometry | host-authoritative |
+| co-op: weapon pickup | could arm a different hero per screen | one finish line |
+| `spell_below_floor` sweep rows | 23, ERROR, **deleted live spells** | **0** |
+| result card | landed on the taunt + damage number | waits for a quiet screen |
+| gear items that are unpickable | 2 | **0**, with an invariant |
+| music bed (export payload) | 36.4 MB | **15.0 MB** |
+
+1. **THE PARRY WAS UNREACHABLE IN EVERY DUEL.** `Hero.try_parry` was never
+   *called* in hero-vs-hero — not gated, absent. A hero's bolt is a `Spell` and
+   only `EnemyProjectile` ever offered the hook. It LOOKED fine because the parry
+   window still negates the hit in `take_damage`; what never happened was the
+   counter, the reward beat, or `note_deflect`. The Swordsaint was exempt (it
+   sweeps the `deflectable_spell` group directly), which is why 1 class worked and
+   hid it. **This is the one most likely to change how a fight feels.**
+2. **Co-op: `BreakablePlatform` had no authority guard**, and `_break` disables the
+   collider — so a ledge was solid ground on one screen and open air on the other,
+   with both drawing the hero at the same coordinates. Live on every generated
+   floor. `WeaponPickup` had the same shape as the crate bug: a photo finish armed
+   a different hero on each screen, permanently. Both now on the crate's pattern.
+3. **The floor probe was inventing errors AND perturbing the fight.** Past the
+   ±900 slab there is no floor to be below, but the predicate was a bare
+   y-comparison — so every overshooting bolt filed an ERROR *and got
+   `queue_free`d mid-flight*. The body-side check had already learned this and the
+   fix was never back-ported twenty lines. `damage_outlier` was also reading a
+   `max_hp` snapshot frozen before gear/mode ever set the real pool.
+4. **The result card** now waits on `_screen_is_quiet()` (taunt latch +
+   `DamageNumber`/`ElementFx` counts) with a 2.5 s ceiling, instead of a flat
+   0.55 s that could not have outlasted a 1.9 s taunt bubble.
+5. **Two gear pieces were strictly dominated** — `hat` under `helmet`, `sword`
+   under `hammer` — i.e. unpickable, not weak. Both now pay a cost.
+   `Loadout.gd`'s claim that "dagger sheds damage for speed" was **false** (its bag
+   is pure upside) and is the sentence this file was repeating.
+6. **The last executable LLM plumbing is gone** (`build_run_fact`,
+   `ingest_run_fact`, `apply_run_to_hub_npcs` and friends). All already dead at
+   runtime — `World._ready` stopped calling it and `NPC.gd` lost the interface.
+
+**Every new assertion was verified by breaking the fix and watching it go red.**
+Nothing here has been touched by hands — see THE STANDING JUDGEMENT below.
 
 ## ▶ WHAT TO PLAY, AND WHAT TO LOOK AT
 
@@ -63,7 +110,9 @@ Root causes, each measured not reasoned:
 ## STILL OPEN — ranked
 
 1. **PLAYTEST.** Nothing here has been touched by hands. Everything is measured, which
-   this file's own standing judgement calls the weaker evidence.
+   this file's own standing judgement calls the weaker evidence. **Start with a duel
+   and try to parry a bolt** — that path has never once worked for 8 of the 9
+   classes, so it is the change most likely to feel different in your hands.
 2. **BALANCE IS REAL AND UNTOUCHED.** 288 bouts on the honest harness: Cleric 91%,
    Warlock 84% ... Brawler 22%, Swordsaint 9%. The two LIFESTEAL classes have the two
    LOWEST damage kits and the two highest win rates — `bolt_heal` is the undercosted
@@ -73,8 +122,7 @@ Root causes, each measured not reasoned:
    68 -> 146 -> 68 between consecutive 30 fps frames, six such jumps in the first
    twenty. `ImpactFrame.MAX_FULLSCREEN_FLASHES_PER_SECOND = 2` exists and LOCAL rings
    are counted SEPARATELY — check whether that is the hole before retuning anything.
-4. **Result card lands on live spectacle**, over taunt bubbles and a damage number.
-   `FREEZE_BEAT` 0.55 s is not long enough for the killing spectacle to finish.
+4. ~~Result card lands on live spectacle~~ **FIXED 2026-08-04** — see above.
 5. **Lag is unresolved.** Median 1.52 ms (660 fps), worst 13.99 ms over 11.6k frames,
    and every hitch reported 'built that frame: nothing'. An earlier 40 ms outlier was
    probably first-use shader compile. If it stutters in your hands, say WHEN.
@@ -82,10 +130,18 @@ Root causes, each measured not reasoned:
    are CRLF and agent-written ones are LF — the next branch switch can redden a
    different suite. Durable fix is `*.gd text eol=lf` + a renormalise: a ~476-file
    diff, wants its own commit and your say-so.
-7. **Harness noise not cleaned:** `spell_below_floor` fires only past the slab edge in
-   empty space (23 rows of nothing); `damage_outlier` measures against TOWER hp, which
-   no hero-vs-hero mode ships. Also `SigilGuard` is attached to no live body anywhere —
-   the mage's magic-circle catch is dead code behind a green suite.
+7. ~~Harness noise: `spell_below_floor`, `damage_outlier`~~ **FIXED 2026-08-04.**
+   A 3-seed sweep now reports 17 anomalies, **0 error**, zero `spell_below_floor`.
+   ⚠ Still true: **`SigilGuard` is attached to no live body anywhere** — the mage's
+   magic-circle catch is dead code behind a green suite. NOT deleted (magic circles
+   are the signature) and NOT wired, because wiring it re-opens the `guard_style`
+   seam whose last disagreement cost a full session. Both files now say so out loud
+   with the 5-edit plan; `SigilGuard.gd`'s header is the place to start.
+   ⚠ Also still true: `damage_outlier` fires against the SIM's tower-hp pool
+   (78–145), while `BotMatch` plays at `190 x CLASS_VITALITY` and duels at 260. The
+   stale-snapshot bug is fixed; the CALIBRATION mismatch is a deliberate
+   non-change — putting the sim on the shipping pool moves every balance number and
+   wants your say-so.
 > **Read order for a cold start:** this file → `docs/PLAY-TONIGHT.md` (what to play
 > and what is knowingly wrong) → `docs/THE-TOWER-mobile-plan.md` (the design + the
 > gap analysis) → `docs/audit-fun-and-competitors.md` (the ranked findings).
@@ -202,8 +258,16 @@ A sweep taken while anything else is writing **lies** — re-run before concludi
 ## OPEN / NEXT
 
 1. **PLAYTEST.** Nothing since the last round has been touched by hands.
-2. **ffmpeg is now installed** (`winget`, 2026-08-02) but needs a **fresh shell** for
-   PATH. `make_clip.py` auto-detects it and will emit **MP4 instead of an 11 MB GIF**.
+2. ~~ffmpeg needs a fresh shell~~ **CONFIRMED ON PATH 2026-08-04.** `make_clip.py`
+   auto-detects it and will emit MP4. Also unblocked `compress_music.py`, which had
+   never run: the six tracks are now **36.4 MB -> 15.0 MB Ogg Vorbis (-21.4 MB)**.
+   ⚠ **`assets/audio/music/` is GITIGNORED** — the MP3s were never tracked, so this
+   is a local/export-only change with nothing committed, and the "45 MB payload" in
+   `assets/audio/CREDITS.md` means the EXPORTED build, not the repo.
+   ⚠ **LISTEN BEFORE DELETING THE MP3s.** Lossy-on-lossy; `Music.gd` already
+   prefers the `.ogg`. If they hold up, delete the six `.mp3` and the saving is
+   real. If not, delete the six `.ogg` and the change is gone completely.
+   Originals also backed up to the gitignored `audio-source/raw/music-originals/`.
 3. **No Android build has ever been made.** Needs export templates, JDK 17, SDK,
    keystore — all human steps in `docs/mobile-export.md`. Delete the `MCPRuntime`
    autoload before any export; `tools/release_gate_dev_bridge.gd` fails until you do.
@@ -213,16 +277,33 @@ A sweep taken while anything else is writing **lies** — re-run before concludi
 5. **Music has no recorded licence provenance.** Six tracks, nothing in the repo says
    where they came from. Settle before anything public. Pepper Sound Pack attribution
    IS on the credits screen.
-6. **Dead LLM plumbing left in `GameState.gd`**: `returned_to_hub`, `RUN_FACT_PREFIX`,
-   `KEY_FACTS_CAP`, `_pending_ingest`, `apply_run_to_hub_npcs()`, `build_run_fact()`,
-   `merge_run_fact`, `ingest_run_fact()`. Keep `HUB_SCENE`/`visit_hub()`. Stale
-   comments claiming "the hub needs a local Ollama" in `FreePlay.gd:58`,
-   `BotMatch.gd:73`, `VersusArena.gd:1444`, `Net.gd:306`, `Gibberish.gd:179`.
-7. **Balance, reported not acted on:** head/body gear are **pure upside** (each slot
-   has a strictly-best answer — a checklist, not a choice; the weapon slot trades
-   correctly). Brawler win rate is disputed between two harnesses — needs a real sweep.
-8. **Co-op gaps:** Herald/Keen elite voices are host-only; `DestructibleTerrain` /
-   `BreakablePlatform` have no authority guard (only crates do). Everything is
+6. ~~Dead LLM plumbing in `GameState.gd`~~ **DELETED 2026-08-04**, with the stale
+   "needs a local Ollama" comments rewritten. `HUB_SCENE`/`visit_hub()` kept.
+7. **Balance.** ~~head/body gear are pure upside~~ **half-fixed 2026-08-04**: the two
+   *unpickable* items now pay a cost and an invariant pins it. Still open, and a
+   design call: **17 of 19 pieces still beat the EMPTY slot for free**, so "equip
+   something" is a checklist even though "equip which" is now a real choice.
+   ⚠ **The Brawler dispute is RESOLVED — 22% is the trustworthy number.** 14%
+   (`BotMatch.gd:131`, `docs/PLAY-TONIGHT.md:78`) predates `812ca94`, the commit
+   that made the harness able to report a kill at all, so it was computed from
+   bodies `Hero._die()` had already healed to full. Both citations should be
+   corrected. Caveat: the two harnesses never scored the same game anyway — only
+   `BotMatch` has ring-outs, `CLASS_VITALITY` and draws in the denominator, so its
+   ruleset is the one that matches what a player sees.
+8. **Co-op gaps.** ~~`BreakablePlatform` has no authority guard~~ **FIXED
+   2026-08-04**, along with `WeaponPickup`'s double-award. Still open, ranked:
+   **(a)** `BossDropWatcher` places the guardian drop at `boss.global_position` on
+   BOTH peers, but a boss's position is synced with lag and `Net.KEY_TOLERANCE` is
+   only 6 px — so the host awards a drop the client's `_find_at` cannot find, and
+   the reward silently never applies there. Fails in the direction that still looks
+   correct. **(b)** Herald's howl lives in `_tick`, which is host-only — the client
+   gets the room-wide speed-up with no audible or visible cause. `EliteQuickened` is
+   the pattern to copy (ride synced state) or `broadcast_boss_fx` (host decides,
+   every peer rebuilds). **(c)** Keen reads `_evade_cd`, which is not in the puppet
+   sync set, so its bark is silent on a client. **(d)** `DestructibleTerrain` /
+   `DestructibleFloor` have the same missing guard but are LATENT — nothing in the
+   tower builds one yet. Terrain also needs `shattered` authoritative separately,
+   because it shatters on cell count, not only hp. Everything is
    **loopback-verified only — never two real machines.**
 9. **Nothing has ever touched a touchscreen.** Every touch constant is a declared guess.
 10. **Nobody has heard the audio mix.** 248 keys mined by filename/duration. Clips are

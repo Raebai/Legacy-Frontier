@@ -1,5 +1,36 @@
 class_name SigilGuard
 extends Node2D
+## ⚠⚠ NOT WIRED TO ANY LIVE BODY. NOTHING IN THE SHIPPED GAME EVER BUILDS ONE. ⚠⚠
+##
+## Read this before trusting `tools/slice6_test_sigil_guard.gd`, which is GREEN and
+## proves only that this class works IN ISOLATION — its victim is a 5-line stub, and
+## it never touches a Hero, Enemy or Boss. It cannot see that no one calls `of()`.
+##
+## The evidence, so this is not re-litigated:
+##   * `SigilGuard.of()` has ZERO production call sites. The only ones are in that
+##     test file.
+##   * The one shipped reference is `SpellDeflect.gd`'s `SigilGuard.peek(victim)`,
+##     and `peek()` is explicitly non-creating — it returns null for every body in
+##     the game, so the `absorb()` line under it has never executed at runtime.
+##   * The companion half is dead too: `ParryRing.Style.SIGIL` is never constructed.
+##     The only production `for_style` call hardcodes `Style.BLADE`.
+##   * The mage has no `"defense"` key at all, so it gets the plain press-window
+##     path. Only Juggernaut (`block`) and Swordsaint (`held_guard`) declare one.
+##
+## TO MAKE IT LIVE (roughly five edits, all in Hero.gd bar the first): give MAGE
+## `"defense": "sigil"`; build `ParryRing.for_style(Style.SIGIL)` for it; in
+## `_process_blade_guard`, summon/track/dismiss a SigilGuard alongside the ring;
+## skip the blade-specific `_unsheathe_cut` payout for it.
+##
+## ⚠ AND THE FIFTH EDIT IS THE DANGEROUS ONE. `Hero`'s published `guard_style` is
+## currently correct BY ACCIDENT: it reports `1` for "has a held ring" while
+## `BotBrain` reads that field as "0 BLADE / 1 SIGIL". Only BLADE rings exist, so
+## the two meanings cannot yet disagree. The moment a SIGIL ring exists they
+## diverge, and every bot will time the mage's guard against the BLADE band. That
+## is precisely the seam whose last disagreement had 7 of 9 classes pressing the
+## guard 0.374 s early into a 0.16 s window, and it took a full session to find.
+## Disambiguate `guard_style` IN THE SAME CHANGE, or do not start.
+##
 ## THE CASTER'S GUARD — a magic circle summoned at the right moment. Right click
 ## and a sigil opens along your aim; a spell that meets it on time is CAUGHT in
 ## the circle and SENT BACK.
