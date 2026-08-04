@@ -70,9 +70,34 @@ func _on_boss_down() -> void:
 	# Position captured NOW: by the time the delay elapses the body has been freed
 	# and `global_position` on a freed node is not a question that can be asked.
 	var at: Vector2 = global_position
-	if _boss is Node2D and is_instance_valid(_boss):
+	# ⚠ IN CO-OP THE DROP MUST NOT LAND WHERE THE BOSS DIED, because that is not a
+	# point the two peers agree on.
+	#
+	# A pickup's WIRE IDENTITY IS ITS POSITION (`Net.pos_key` -> `_find_at`, within
+	# `Net.KEY_TOLERANCE` = 6 px). Every other user of that key is a statically
+	# placed object built from shared floor data; this is the one that moves. A
+	# boss's position is synced with lag, so the two peers place the pickup at
+	# slightly different world points, the host awards a pickup at ITS key, and the
+	# client's `_find_at` returns null past 6 px — `_client_pickup` then silently
+	# returns and the guardian's reward never applies on that peer.
+	#
+	# It fails in the direction that still looks correct, which is the worst kind:
+	# the drop is visible on both screens and simply cannot be taken on one.
+	#
+	# THIS NODE'S OWN POSITION IS THE DETERMINISTIC ANCHOR — it is placed from floor
+	# data (`SpellDrops.BOSS_ANCHOR` via FloorBuilder), so it is byte-identical
+	# across peers. Solo is left EXACTLY as it was: the drop still lands on the
+	# corpse in the mode that has actually been played.
+	if _boss is Node2D and is_instance_valid(_boss) and not _coop_active():
 		at = (_boss as Node2D).global_position
 	_drop_after(at)
+
+
+## Is a live co-op session running? Guarded lookup so a headless harness with no
+## `Net` autoload answers "no" and keeps the solo placement.
+func _coop_active() -> bool:
+	var net: Node = get_node_or_null(^"/root/Net")
+	return net != null and net.has_method(&"is_active") and bool(net.call(&"is_active"))
 
 
 func _drop_after(at: Vector2) -> void:

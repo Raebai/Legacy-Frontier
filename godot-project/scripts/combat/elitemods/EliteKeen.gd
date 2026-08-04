@@ -37,10 +37,11 @@ const REACT_DELAY: float = 0.16
 ## hop and the swat alike. One short rising syllable: the affix's blurb is "it was
 ## drawn watching you", and a question mark is the whole character.
 ##
-## ⚠ HONEST CO-OP CAVEAT: `_evade_cd` is local reflex state and is not part of the
-## puppet sync, so on a co-op CLIENT this edge never occurs and the keen body's tick
-## is silent there. It degrades to nothing rather than to a wrong noise. Closing it
-## properly needs a broadcast, i.e. one line in `Net.gd` — see the handoff.
+## ⚠ CO-OP: `_evade_cd` is local reflex state and is NOT part of the puppet sync, so
+## on a client this edge can never occur — the body's read would be silent there
+## forever. It is therefore detected wherever the reflex actually runs and spoken on
+## every peer through `Net.broadcast_voice_only`. Riding a synced value would be
+## cheaper, but there isn't one that means "it just dodged".
 const READ_COOLDOWN: float = 3.2
 
 var _was_ready: bool = true
@@ -53,7 +54,7 @@ func _tick_visual(delta: float) -> void:
 	var cd: float = float(enemy.get("_evade_cd"))
 	var ready: bool = cd <= 0.0
 	if _was_ready and not ready and _read_cd <= 0.0:
-		if elite_voice(Gibberish.Mood.QUESTION, 1):
+		if elite_voice_everywhere(Gibberish.Mood.QUESTION, 1):
 			_read_cd = READ_COOLDOWN
 	_was_ready = ready
 

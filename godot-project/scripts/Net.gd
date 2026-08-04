@@ -319,7 +319,13 @@ func _on_server_disconnected() -> void:
 func _announce_class(cls: int) -> void:
 	var sender: int = multiplayer.get_remote_sender_id()
 	peer_class[sender] = cls
-	_sync_class_table.rpc(peer_class)
+	# ⚠ ONLY THE HOST REBROADCASTS. `_sync_class_table` is declared `@rpc("authority")`,
+	# so a non-host sending it is refused by Godot anyway — this is inert today
+	# because MAX_PLAYERS is 2 and there is never a third peer to receive it. It is a
+	# trap the moment that cap moves: the guard costs nothing and the error it would
+	# otherwise throw names the wrong thing.
+	if is_host():
+		_sync_class_table.rpc(peer_class)
 
 
 @rpc("authority", "reliable")
@@ -1088,6 +1094,58 @@ func _find_at(group: StringName, key: Vector2i) -> Node:
 ## it can be the single writer. It broadcasts ABSOLUTE hp, not a delta, which is
 ## what lets the client keep applying its own hits locally for instant feedback
 ## without the two ever compounding. See `DestructibleProp.take_damage`.
+# ============================================== ELITE VOICES (host-only triggers)
+## A BODY THAT ONLY THE HOST CAN HEAR SPEAK.
+##
+## Most affix voices ride SYNCED state — `EliteQuickened` speaks off `velocity`,
+## `EliteVolatile` off `hp` — so each peer runs the same check on the same numbers
+## and speaks on its own screen with nothing sent. That is the cheap, correct
+## pattern and it should stay the default.
+##
+## Two affixes have no synced twin for their trigger:
+##   * HERALD howls from `_tick`, which `EliteRider._process` gates on authority. On
+##     a client the surge is FELT — the bodies really do speed up, because
+##     `move_speed` is synced — with no audible or visible cause. That is a fairness
+##     bug, not a cosmetic one: the shout is the co-op callout the affix exists for.
+##   * KEEN reads `_evade_cd`, local reflex state that is not in the puppet sync, so
+##     its edge never fires on a client at all.
+##
+## Identity is the NodePath, which is valid here and NOT for crates: enemies come
+## through the `MultiplayerSpawner` (`Encounter.set_net_spawner`), so both peers
+## hold the same node under the same path. Statically-placed props do not, which is
+## why those use `pos_key` instead.
+##
+## The voice ITSELF is already cross-peer deterministic — `elite_voice_seed()` folds
+## the replicated spawn dict — so nothing about pitch or band needs to be sent.
+func broadcast_voice(who: Node, event: StringName) -> void:
+	if is_host() and who != null and who.is_inside_tree():
+		_client_voice.rpc(who.get_path(), event)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _client_voice(who_path: NodePath, event: StringName) -> void:
+	var who: Node = get_node_or_null(who_path)
+	# Null is a NORMAL answer: this peer may have already freed that body, or be
+	# mid-floor-change. Same contract as every other receiving arm here.
+	if who == null or not is_instance_valid(who):
+		return
+	Bark.say(who, event, true)
+
+
+## Mouth only, no bubble — the `elite_voice` half of the same problem.
+func broadcast_voice_only(who: Node, mood: int, syllables: int) -> void:
+	if is_host() and who != null and who.is_inside_tree():
+		_client_voice_only.rpc(who.get_path(), mood, syllables)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _client_voice_only(who_path: NodePath, mood: int, syllables: int) -> void:
+	var who: Node = get_node_or_null(who_path)
+	if who == null or not is_instance_valid(who):
+		return
+	Bark.voice_only(who, mood, syllables)
+
+
 func broadcast_prop_state(prop: Node2D, hp_now: int, shattered: bool) -> void:
 	if is_host() and prop != null and prop.is_inside_tree():
 		_client_prop_state.rpc(pos_key(prop), hp_now, shattered)

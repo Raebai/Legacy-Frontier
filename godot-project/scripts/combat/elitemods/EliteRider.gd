@@ -243,6 +243,27 @@ func elite_voice(mood: int, syllables: int = 0) -> bool:
 	return true
 
 
+## Speak HERE and on every other peer — for a voice whose trigger only exists on
+## the host, so no client will ever reach it on its own.
+##
+## Use this ONLY when the trigger has no synced twin. When it does — `velocity` for
+## Quickened, `hp` for Volatile — riding the synced value costs no packet and is
+## strictly better. See `Net.broadcast_voice` for why these two are the exceptions.
+func elite_bark_everywhere(event: StringName, always: bool = true) -> bool:
+	var spoke: bool = elite_bark(event, always)
+	if spoke and _net != null and _net.is_active() and _net.is_host():
+		_net.call(&"broadcast_voice", enemy, event)
+	return spoke
+
+
+## The `elite_voice` half: mouth only, on every peer.
+func elite_voice_everywhere(mood: int, syllables: int = 0) -> bool:
+	var spoke: bool = elite_voice(mood, syllables)
+	if spoke and _net != null and _net.is_active() and _net.is_host():
+		_net.call(&"broadcast_voice_only", enemy, mood, syllables)
+	return spoke
+
+
 func _can_speak() -> bool:
 	if not is_named_elite() or is_dead():
 		return false

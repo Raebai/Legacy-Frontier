@@ -91,14 +91,14 @@ func _call_out() -> void:
 	# moment in the game. The room-wide gap in EliteRider is what stops a second
 	# herald talking over it.
 	#
-	# ⚠ HOST-ONLY, AND SAY SO. `_call_out` is reached from `_tick`, which
-	# `EliteRider._process` gates on authority — so on a co-op CLIENT the surge is
-	# felt (the bodies really are faster there) but not heard. The other five affixes
-	# hang their voices off synced state (hp, velocity, position) precisely to avoid
-	# this; the herald's trigger has no synced twin, and closing it properly is one
-	# `broadcast_voice` line in `Net.gd`, which is another agent's file. Flagged in
-	# the handoff rather than papered over with a clock that would drift.
-	elite_bark(&"elite_herald_call", true)
+	# ⚠ THE HOWL HAS TO CROSS THE WIRE, and this is the one affix where it does.
+	# `_call_out` is reached from `_tick`, which `EliteRider._process` gates on
+	# authority — so a co-op CLIENT used to FEEL the surge (the bodies really are
+	# faster there, `move_speed` is synced) with no audible or visible cause. The
+	# other five affixes hang their voices off synced state (hp, velocity, position)
+	# precisely to avoid needing this; the herald's trigger has no synced twin, so
+	# the host says it out loud for everyone. See `Net.broadcast_voice`.
+	elite_bark_everywhere(&"elite_herald_call")
 	# The herald's own tell: a hard pulse of its colour, so the answer to "why did
 	# everything speed up" is on screen at the moment it happens.
 	var r: Node = rig()

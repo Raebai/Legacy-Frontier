@@ -65,14 +65,49 @@ class FloorSegment:
 	func damage_at(amount: int, _world_pos: Vector2, dir: Vector2) -> void:
 		_apply(amount, dir if dir != Vector2.ZERO else Vector2.UP)
 
+	## ⚠ HOST-AUTHORITATIVE, for the same reason `BreakablePlatform` is: `_break`
+	## disables the collider and opens a PASSABLE HOLE IN THE FLOOR. A desynced
+	## segment is solid ground on one screen and a pit on the other, while both draw
+	## the hero at the same coordinates.
+	##
+	## Enemy attack twins are `visual_only`, so enemy-sourced damage lands on the
+	## host alone and the two copies diverge on the first hit.
+	##
+	## Currently LATENT — nothing in `FloorBuilder` places one of these, so this is
+	## armour for the first floor layout that does, not a live fix. Guarded now
+	## because the pattern is fresh and a hole in the floor is the worst version of
+	## this bug to find later.
 	func _apply(amount: int, dir: Vector2) -> void:
 		if _dead:
 			return
+		var net: Node = get_node_or_null(^"/root/Net")
+		var coop: bool = net != null and net.has_method(&"is_active") and bool(net.call(&"is_active"))
+		if coop and not bool(net.call(&"is_host")):
+			hp = maxi(hp - amount, 1)   # predicted, never fatal — the host owns the hole
+			queue_redraw()
+			return
 		hp -= amount
 		if hp <= 0:
+			# Broadcast BEFORE breaking: the receiver finds this by its position in
+			# the `destructible` group, and `_break` leaves that group and frees.
+			if coop:
+				net.call(&"broadcast_prop_state", self, 0, true)
 			_break(dir)
 		else:
 			queue_redraw()  # progressive cracks
+			if coop:
+				net.call(&"broadcast_prop_state", self, hp, false)
+
+	## The host's verdict, applied verbatim. Absolute hp, so a client that predicted
+	## a few hits of its own is corrected rather than compounded.
+	func net_apply_prop_state(hp_now: int, shattered: bool) -> void:
+		if _dead:
+			return
+		hp = maxi(hp_now, 0)
+		if shattered or hp <= 0:
+			_break(Vector2.UP)
+			return
+		queue_redraw()
 
 	func _break(dir: Vector2) -> void:
 		_dead = true
