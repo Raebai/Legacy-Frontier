@@ -1,3 +1,100 @@
+# RESUME HERE — 2026-08-04 (d), PAUSED MID-PLAYTEST
+
+**ASHPIRE.** Branch `bot-fight-quality` @ `243c03d`, **pushed**, **150/150 green**,
+tree clean.
+
+The maker was playing and calling things out faster than they could be built.
+Eleven fixes landed in one batch. **All UNPLAYTESTED.**
+
+> **THE LIVE LIST IS `docs/PLAYTEST-QUEUE.md`** — every outstanding ask in the
+> maker's own words, done ones marked. Read it before this file.
+
+## ▶ WHAT TO PLAY (F5), in this order
+
+1. **Title screen** — a summoning circle scribes itself and pours elements, forever.
+   Buttons glow, lift, punch.
+2. **The Antechamber** — legs fixed, campfire music, an Archivist desk by the
+   lectern, townsfolk who teach.
+3. **Floor 1** — bigger room, no "blinds" over the fight, 36% fewer bodies, enemies
+   spawning from doorways/ground marks not mid-air, breaks between waves, a
+   readable health bar, health packs.
+4. **The ice wizard** — its primary cast now actually throws something.
+
+## ⚠ FOUR BUGS THAT WERE REAL, AND WHY THEY HID
+
+Each is a pattern, not a one-off.
+
+1. **Bent legs / "walking on their limbs."** The town used the SAME `CharacterRig`
+   as combat — it just never called `set_grounded()`, which **defaults to `true`**.
+   The rig believed it was on the floor at the top of a jump, pinned the feet down,
+   and the IK folded a leg that could not reach. *An un-fed input is not neutral.*
+2. **The "blinds" over floor 1.** `Atmosphere._draw()` painted its skyline whether
+   or not `build()` was called (a CanvasItem draws on entering the tree), and
+   **only `build()` applied the z-layer**. The guard suite missed it because it
+   scans `StaticBody2D` and Atmosphere is a `Node2D`.
+3. **The crate screamed.** It called `Sfx.play("enemy_death")` — as do five other
+   inanimate things — and that cue was a body-burst plus two creature screams.
+   *Both "weird sound" complaints were ONE cue.*
+4. **The ice projectile was never spawned.** `Shatter.hex()` took the caster
+   position as `_origin` — underscore and all — and discarded it.
+
+## ▶ NEXT THING TO BUILD
+
+**FOUR SPELL SLOTS** — asked for, not done. `SLOT_COUNT` is 3 while `SpellTier`'s
+own docstring already says "four spell slots plus a dedicated ULT slot", so the
+CONSTANT drifted from the design. Needs: `SpellTier.SLOT_COUNT` -> 4, a 4th role
+per class in `SpellLibrary.SLOT_ROLES`, a `spell_4` input action, a 4th entry in
+`Hero.SPELL_KEYS`.
+
+Then from the queue: the Antechamber as a PLACE (teleport pads with a beam of
+light, a signpost, fewer townsfolk with personality); the Archivist as a real
+clickable TREE whose branches grow as you spend; simpler class select; and the
+standing rule — "too much text and random UI pieces we dont need".
+
+## ⚠ NEEDS THE MAKER, NOT AN AGENT
+
+1. **DIFFICULTY IS FOUR LEVERS IN ONE DIRECTION AND NOBODY HAS FELT IT:** hero HP
+   x1.4, enemy damage -25% telegraphed / -40% contact, enemy speed -15%, floor 1
+   down 36% bodies, plus health packs. **It may be trivial now.**
+   - Walkover on floor 1 -> first knob back is floor 1's **wave-3 cap** (4 -> 5).
+   - **Floors 6-10 are ~25-30% softer too**, because the damage/speed cuts are
+     global while upper body counts were deliberately left alone. If the top has
+     gone soft, add BODIES up there — do not put damage back.
+   - `TuningConfig.hero_vitality_mult` is a live F1 dial **shipped at 1.0**. Two
+     agents independently proposed raising HP; both would have been x1.89.
+2. **The audio has still never been heard.** Every replacement is paper-defensible
+   only.
+3. **Music licence provenance** — all six `.mp3` carry NO ID3 tags of any kind.
+   Needs the maker's memory; blocks anything public.
+4. **`CombatCamera.FRAME_ZOOM_MIN` 0.5 -> 0.42** bought the bigger room. At full
+   fighter spread the picture is ~16% smaller. If that reads as tiny ants, walk it
+   back — and `FloorGen.MAX_ROOM` comes back with it.
+
+## TRAPS THAT COST TIME THIS SESSION
+
+- **`git checkout -- project.godot` eats uncommitted settings.** The importer
+  strips `rendering_method` / `physics_ticks_per_second`; reverting to fix that
+  also reverted the uncommitted `gui/theme/custom` line. Twice. Commit first.
+- **A test run used to write the real `climber.json`.** Guarded in `_save_climber`
+  now (the real autoload is in the tree; a bare `GameState.new()` never is). It bit
+  three times before being fixed at the source.
+- **Renaming the app moves `user://`.** "Legacy Frontier" -> "Ashpire" orphaned the
+  save, playtest notes, logs and clips. Migrated; old folder kept as backup.
+- **Parallel agents must own disjoint files.** Two still landed in `Arena.gd`
+  because the game-over card lives nowhere else. Diff before pushing.
+
+## HOW TO VERIFY
+
+```
+python python-tools/run_all_tests.py --jobs 8            # 150 suites, ~77s
+godot ... --script tools/slice_test_progression.gd       # PRINTS the XP economy
+```
+After any `--headless --import`, CHECK `project.godot` still has four keys:
+`theme/custom`, `physics_ticks_per_second`, and both `rendering_method`s.
+
+---
+---
+
 # RESUME HERE — 2026-08-04 (c)
 
 **The game is ASHPIRE.** (Maker dropped the s: it carries *aspire*, which for a
