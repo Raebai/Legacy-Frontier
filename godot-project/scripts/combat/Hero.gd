@@ -348,15 +348,28 @@ const THRALL_SWAP_END: Color = Color(0.1, 0.02, 0.15, 0.0)
 ## BLADE-GUARD block). Its step closes a gap into swing range and nothing else, and
 ## its i-frame slice is small enough that dashing through an attack is a read rather
 ## than a reflex.
+## How fast a LIMP body can drag itself. Deliberately a fraction of `SPEED` (210) —
+## about a fifth — so the flop keeps costing you almost everything it always did.
+const CRAWL_SPEED: float = 46.0
+
 const COMMITTED_STEP_SPEED: float = 480.0
 const COMMITTED_STEP_TIME: float = 0.12
 const COMMITTED_STEP_IFRAME_FRACTION: float = 0.35
 
-## Verbs whose travel is BOUND TO THE GROUND PLANE: they flatten to horizontal and
-## they still fall. Pressed off a ledge they arc down instead of flying, which is what
-## separates a shoulder charge from the Shadowblade's gravity-ignoring air dash.
-## Named as data so `_verb_is_grounded` cannot drift from the list it documents.
-const GROUNDED_VERBS: Array[String] = ["charge", "surge", "ice_slide"]
+## ⚠ EMPTY, AND DELIBERATELY STILL HERE. These are the verbs whose travel USED to be
+## bound to the ground plane: `charge`, `surge` and `ice_slide` flattened whatever you
+## held down to a pure ±X, so pressing up-right gave you a flat sideways skid.
+##
+## Maker, on the Cryomancer: "why can't cryomancer dash upwards, please fix — and
+## remove that weird dash thing it does where it goes sideways." That IS the
+## flattening; the Ice Slide is one of the three, so up-right came out as right.
+##
+## The list is kept rather than deleted along with `_verb_is_grounded`, because the
+## argument it encoded was a real one — a shoulder charge aimed at the sky is a
+## strange shoulder charge — and a future class may want it back for one verb. What
+## is not acceptable is a whole class that cannot dash upward. Put a verb back in here
+## and it flattens again; the mechanism is intact and unused.
+const GROUNDED_VERBS: Array[String] = []
 ## Verbs that are TELEPORTS rather than travel: they resolve instantly inside
 ## `_start_dash` and never enter the per-frame dash branch. Every one of them lands
 ## through `blink_to`/`_safe_blink_destination`.
@@ -1786,8 +1799,21 @@ func _physics_process(delta: float) -> void:
 		# shove, so holding DOWN while knocked back integrated it exactly as the main
 		# path did.
 		_knockback_applied = _knockback.x
-		velocity.x = move_toward(velocity.x - _knockback_applied, 0.0,
+		# ⚠ YOU CAN CRAWL. Maker: "if I am holding down and right it should be crawling
+		# on the ground in that direction — right now it doesn't crawl, it just stays
+		# down." The limp branch used to drive velocity.x toward ZERO unconditionally,
+		# so a flopped body was not merely slow, it was nailed down: holding a direction
+		# did nothing at all, which reads as the ragdoll being broken rather than as a
+		# deliberate cost.
+		#
+		# CRAWL_SPEED is a fraction of the walk, so going limp is still a real trade —
+		# you give up almost all of your speed, your abilities and your guard, and you
+		# keep just enough authority to drag yourself somewhere.
+		var crawl: float = _axis(&"move_left", &"move_right") * CRAWL_SPEED
+		velocity.x = move_toward(velocity.x - _knockback_applied, crawl,
 			GROUND_FRICTION * delta) + _knockback_applied
+		if absf(crawl) > 1.0:
+			rig.set_facing(Vector2(signf(crawl), 0.0))
 		velocity.y = 0.0 if (is_on_floor() and velocity.y >= 0.0) else minf(velocity.y + GRAVITY_FALL * delta, MAX_FALL)
 		move_and_slide()
 		rig.play(CharacterRig.State.HURT)
@@ -3655,15 +3681,26 @@ func _end_travel() -> void:
 ## BLINK_IFRAME seconds of invulnerability. Buffered like dash/melee/blast; only
 ## reachable from the not-dashing path.
 ##
-## ⚠ DIRECTION CHANGED (maker, mid-playtest: "blink should just be in the direction
-## it is facing ... not just side to side"). This used to read `_move_dir`, which is
-## assigned as `Vector2(signf(move_x), 0.0)` — a HORIZONTAL UNIT VECTOR, ±1 on X and
-## always 0 on Y. So the ability was structurally incapable of going anywhere but
-## left or right no matter where you pointed, while the const above this has claimed
-## "along facing" the whole time. It now reads `_aim_dir` — the same 360° vector the
-## rig visibly points at, that the melee arc swings down and that every spell is
-## thrown along, including the BLINK_STRIKE spell, which was already aim-driven. The
-## ability and the spell therefore now agree, which is the point: one blink verb.
+## ⚠ DIRECTION CHANGED TWICE, AND THE SECOND RULING REVERSES THE FIRST. Recorded in
+## full because the two are easy to mistake for each other.
+##
+## FIRST (maker, mid-playtest): "blink should just be in the direction it is facing
+## ... not just side to side." It read `_move_dir` then — assigned as
+## `Vector2(signf(move_x), 0.0)`, a HORIZONTAL unit vector, ±1 on X and always 0 on Y
+## — so the ability was structurally incapable of going anywhere but left or right.
+## The complaint was the FLATNESS. The fix moved it to `_aim_dir`, which is 360°.
+##
+## SECOND (maker, this playtest): "dash should not be in the way it's facing but the
+## movement on the joystick or walking, for all the characters, including Warlock's
+## blink." That is a different axis entirely, and it wins: the WHOLE ROSTER now
+## travels along the movement input, so blink and dash answer to the same thumb and a
+## player never has to hold two directions to go one way.
+##
+## Both rulings are satisfied at once, which is why this is not a revert: the source
+## is the 8-way movement VECTOR (`_vector`, including up and down), not `_move_dir`.
+## It is 360° like the aim version and it is the stick like the new ruling. Aim
+## survives only as the fallback for a frame where nothing is held, so a standing
+## blink still fires where you are pointing rather than refusing.
 ##
 ## NOT AUTO-AIM. `_aim_dir` is raw player input (cursor / right stick / touch aim
 ## pad), resolved in `_physics_process` before anything reads it. Nothing here looks
@@ -3684,10 +3721,12 @@ func _blink() -> void:
 	if _blink_cooldown_timer > 0.0:
 		return
 	var origin: Vector2 = global_position
-	# WHERE YOU ARE POINTING. `_move_dir` survives only as a fallback for the
-	# degenerate frame where aim has never been set (headless construction, a bot
-	# that has not aimed yet); RIGHT is the last resort so a standing blink fires.
-	var dir: Vector2 = _aim_dir
+	# WHERE YOU ARE MOVING — the same 8-way read `_begin_travel` uses, so the dash and
+	# the blink cannot disagree about which way "up-right" is. Aim is the fallback for
+	# a standing blink (nothing held), and RIGHT the last resort so it always fires.
+	var dir: Vector2 = _vector(&"move_left", &"move_right", &"move_up", &"move_down")
+	if dir.length() <= 0.1:
+		dir = _aim_dir
 	if dir == Vector2.ZERO:
 		dir = _move_dir
 	if dir == Vector2.ZERO:

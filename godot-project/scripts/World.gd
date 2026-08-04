@@ -507,7 +507,10 @@ func _place_player() -> void:
 			# now". At 1.2 the 640-wide base view showed 533 px of a 1180 px street, so
 			# the room was a corridor you read one object at a time; 0.85 shows 753 and
 			# the pad row, the sign and the tower can be in frame together.
-			cam.zoom = Vector2(0.85, 0.85)
+			# ...and again, 0.85 -> 0.72: "zoom out a little more generally speaking".
+			# 0.72 shows 889 px of the 1180 px street, so the pad row, the sign, the
+			# campfire and the tower are all in one frame from the spawn point.
+			cam.zoom = Vector2(0.72, 0.72)
 			cam.offset = Vector2(0.0, -54.0)
 
 
@@ -604,18 +607,17 @@ func _spawn_dummy_yard() -> void:
 		d.call("set_faction", &"town_dummy", &"nobody")
 		d.set("facing", Vector2.RIGHT)
 		d.add_to_group(&"town_dummy")
-		d.set_physics_process(false)
-		# ⚠ WITH PHYSICS OFF, NOTHING EVER TELLS THE RIG ANYTHING — and an un-fed rig is
-		# not neutral. `set_grounded` defaults to true (which is right here) but the
-		# body velocity and the state are whatever the last frame left, so the first
-		# capture came back with two of the three dummies frozen mid-stride like they
-		# were walking at you. This is the same class of bug as the town's bent legs.
+		# ⚠ A CONTROLLER THAT PRESSES NOTHING, RATHER THAN PHYSICS TURNED OFF. Maker:
+		# "make all the other stickmen in the hub the same as mine in terms of ragdoll
+		# physics." A controller-less `Hero` falls through to the GLOBAL `Input`
+		# singleton, so the yard used to walk, jump and cast in lockstep with the
+		# player; the fix for that was `set_physics_process(false)`, which also took
+		# away gravity, knockback, flinch, landing and the ragdoll — a dummy became a
+		# photograph. `IdleController` answers "no" to the six polling methods instead,
+		# so the body runs its whole normal physics and simply never chooses anything.
+		d.set("controller", IdleController.new())
 		var rig: Node = d.get_node_or_null(^"Rig")
 		if rig != null:
-			rig.call("set_body_velocity", Vector2.ZERO)
-			rig.call("set_grounded", true)
-			rig.call("set_air_phase", false, true)
-			rig.call("play", CharacterRig.State.IDLE)
 			# STRAW, not a class colour. A dummy tinted like a hero reads as a person —
 			# and in a co-op lobby, as your teammate. It has to look like a target.
 			rig.call("set_tint", DUMMY_COLOR)
@@ -716,6 +718,14 @@ func _spawn_hud() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 40
 	add_child(layer)
+
+	# ⚠ THE SPELL SLOTS BELONG HERE NOW. Maker: "the spell slots and stuff should also
+	# be visible in the hub." They were an arena-only HUD, which was right while the
+	# town was a walker with no kit; you cast in the lobby now, so a room with a dummy
+	# yard and no hotbar is a room that will not tell you what your four buttons are.
+	# `AbilityBar` polls `get_first_node_in_group("hero")` and draws nothing when there
+	# is none, so it costs exactly nothing in a scene without a fighter.
+	layer.add_child(AbilityBar.new())
 
 	var who := Label.new()
 	who.add_to_group("class_hud_label")

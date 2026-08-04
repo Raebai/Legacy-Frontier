@@ -79,7 +79,15 @@ func _test_rogue_config() -> void:
 	var hero: CharacterBody2D = _make_hero()
 	hero.configure_class(hero.HeroClass.ROGUE)
 	_expect(String(hero.rig.equipment.get("weapon", "")) == "sword", "rogue equips sword")
-	_expect(hero._melee_damage == 26, "rogue melee retuned to sword damage 26")
+	# ⚠ READ THE CLASS NUMBER, NOT THE COMPOSED ONE. `_melee_damage` is
+	# `_base_melee_damage * gear["melee_damage"]` (Hero.gd:2518), and gear is the
+	# PLAYER'S — `Loadout` is an autoload whose node is on the tree under `--script`,
+	# so this assertion was quietly reading whatever the person running the suite had
+	# equipped. It went red the first time the maker equipped a weapon while
+	# playtesting, on a tree with no code change in it at all. Same trap as the two
+	# suites that started testing the tester's `climber.json`; the fix is the same,
+	# pin the class fact and let a separate test own the gear multiplier.
+	_expect(hero._base_melee_damage == 26, "rogue melee retuned to sword damage 26")
 	_expect(is_equal_approx(float(hero._cfg["cast_cd"]), 0.30), "rogue cast_cd 0.30 (burst-flurry recover)")
 	_expect(is_equal_approx(float(hero._cfg["dash_cd"]), 0.70), "rogue dash_cd 0.70 (no dash-fly)")
 	_expect(is_equal_approx(float(hero._cfg["blink_cd"]), 1.0), "rogue blink_cd 1.0")

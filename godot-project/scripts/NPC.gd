@@ -1,6 +1,21 @@
-extends StaticBody2D
+extends CharacterBody2D
 ## A TOWNSPERSON. A stick figure that ambles the town, stops when you come close,
 ## and says ONE LINE when you press interact. That is the whole of it.
+##
+## ── IT RUNS THE PLAYER'S PHYSICS NOW ───────────────────────────────────────
+## Maker: "make all the other stickmen in the hub the same as mine in terms of
+## ragdoll walking physics and stuff."
+##
+## It used to be a `StaticBody2D` moved by writing `global_position.x` directly, with
+## a SYNTHESISED velocity handed to the rig so the limbs had something to trail. That
+## works right up until the body leaves the floor: a hop had to be hand-integrated as
+## a parabola, the rig had to be told by hand that it was airborne, and the moment
+## those two disagreed the figure curled into a ball in mid-air — which is exactly
+## what the first hop looked like.
+##
+## Now: gravity, `move_and_slide`, and the rig fed `velocity` and `is_on_floor()`, the
+## same three lines `Hero._drive_rig` uses. The amble is a velocity, the hop is an
+## impulse, and the arc is the engine's rather than this file's.
 ##
 ## ── WHAT THIS FILE USED TO BE ──────────────────────────────────────────────
 ## 300-odd lines of it were the v0.5 AI-NPC stack: a four-layer memory model
@@ -49,8 +64,13 @@ const PATROL_SPEED: float = 32.0
 ## plane and folds the knees — which is exactly the "everyone is walking on their
 ## limbs" bug the town shipped once already. Every airborne frame below feeds
 ## `set_grounded(false)` and a real vertical velocity.
-const HOP_HEIGHT: float = 20.0
-const HOP_TIME: float = 0.44
+## ⚠ AN IMPULSE, NOT A CURVE. The hop was a hand-integrated parabola that also wrote
+## the body's y directly; gravity now owns the shape, so the rig's landing detection,
+## its air-phase bias and its squash-on-touchdown all fire on their own.
+## Tuned against `Hero.GRAVITY_FALL` for an apex of roughly 22 px.
+const HOP_IMPULSE: float = 300.0
+const GRAVITY: float = 2100.0        # matches Hero.GRAVITY_FALL — one town, one weight
+const MAX_FALL: float = 900.0
 ## Seconds between hops, randomised per townsperson so two of them never bounce in
 ## lockstep — which reads as a glitch, not as two people.
 const HOP_GAP_MIN: float = 2.6
@@ -65,9 +85,6 @@ var _patrol_dir: float = 1.0
 ## hopping). Ground y is captured on the first patrol frame so the hop always lands
 ## exactly where it took off.
 var _hop_wait: float = 0.0
-var _hop_t: float = -1.0
-var _ground_y: float = 0.0
-var _ground_y_set: bool = false
 ## Index of the last line said, so the same one never lands twice running.
 var _last_line: int = -1
 
@@ -81,9 +98,11 @@ func _ready() -> void:
 		(block as CanvasItem).visible = false
 	_rig = CharacterRig.new()
 	add_child(_rig)
-	# Feet at the node origin (the rig draws its feet height*0.5 below its own
-	# origin) so the body stands ON the ground rather than sunk into it.
-	_rig.position.y = -_rig.height * 0.5
+	# ⚠ THE FOOT OFFSET IS THE RIG'S OWN JOB NOW. This line used to read
+	# `_rig.position.y = -_rig.height * 0.5`, which happened to be right for a collider
+	# whose bottom edge sits on the node origin — and would have gone silently wrong the
+	# day that collider moved. `CharacterRig._align_feet_to_body` derives it from the
+	# parent's box, which is the fix for the folded knees that shipped for months.
 	_rig.play(CharacterRig.State.IDLE)
 	if data != null:
 		_rig.set_tint(data.display_color)
@@ -109,83 +128,48 @@ func set_hub_patrol(center_x: float, patrol_range: float) -> void:
 func _physics_process(delta: float) -> void:
 	if _patrol_range <= 0.0 or _rig == null:
 		return  # not a patrolling townsperson (headless tests, for one)
-	if not _ground_y_set:
-		_ground_y = global_position.y
-		_ground_y_set = true
+
+	# ── the decision: walk, stand, or hop ────────────────────────────────────
+	var walk: float = 0.0
 	if _player_in_range:
-		# Standing still is a velocity too — without zeroing it the limbs keep the
-		# trail of the last step they took and the figure lists while it talks to you.
-		# A hop in progress is ABANDONED rather than finished: someone who stops to
-		# talk to you should be on the floor, facing you, on the next frame.
-		_land()
-		_rig.set_body_velocity(Vector2.ZERO)
-		_rig.set_grounded(true)
-		_rig.set_air_phase(false, true)
-		_rig.play(CharacterRig.State.IDLE)
-		return
-	if _tick_hop(delta):
-		return
-	var nx: float = global_position.x + _patrol_dir * PATROL_SPEED * delta
-	if nx > _patrol_center + _patrol_range:
-		_patrol_dir = -1.0
-		nx = _patrol_center + _patrol_range
-	elif nx < _patrol_center - _patrol_range:
-		_patrol_dir = 1.0
-		nx = _patrol_center - _patrol_range
-	global_position.x = nx
-	# ⚠ THE RIG HAS TO BE TOLD IT IS WALKING, NOT JUST THAT IT IS IN RUN STATE.
-	# See the long note on `Player._drive_rig`: townsfolk move by writing
-	# `global_position` directly, so `velocity` is never set and the rig's inertial
-	# channel saw a body that teleports — rigid limbs on a figure that is visibly
-	# travelling. A synthesised velocity is the honest input here, because the walk
-	# IS constant-speed by construction.
-	_rig.set_body_velocity(Vector2(_patrol_dir * PATROL_SPEED, 0.0))
-	_rig.set_grounded(true)      # townsfolk never leave the floor
-	_rig.set_air_phase(false, true)
-	_rig.play(CharacterRig.State.RUN)
-	_rig.set_facing(Vector2(_patrol_dir, 0.0))
-
-
-## Advance the hop clock and, if we are in the air, drive the whole frame. Returns
-## true when it OWNED the frame, so the caller's walk cycle does not also run and
-## fight it for the rig.
-##
-## The arc is a parabola in normalised time — `4t(1-t)` peaks at 1.0 halfway through
-## and is exactly 0 at both ends, so the figure lands on its own ground line without
-## a snap. The VERTICAL VELOCITY handed to the rig is the derivative of that same
-## curve rather than a guess, which is what makes the limbs trail correctly on the way
-## up and gather on the way down.
-func _tick_hop(delta: float) -> bool:
-	if _hop_t < 0.0:
-		_hop_wait -= delta
-		if _hop_wait > 0.0:
-			return false
-		_hop_t = 0.0
-	_hop_t += delta / HOP_TIME
-	if _hop_t >= 1.0:
-		_land()
+		# Stop and face you (maker: "show NPCs walking around but stop when you go up
+		# to them"). Standing still is a decision, not the absence of one.
 		_hop_wait = randf_range(HOP_GAP_MIN, HOP_GAP_MAX)
-		return false
-	var t: float = _hop_t
-	global_position.y = _ground_y - HOP_HEIGHT * 4.0 * t * (1.0 - t)
-	# d/dt of the arc, in px/s, negative while rising (screen y grows downward).
-	var vy: float = -HOP_HEIGHT * 4.0 * (1.0 - 2.0 * t) / HOP_TIME
-	_rig.set_body_velocity(Vector2(_patrol_dir * PATROL_SPEED * 0.5, vy))
-	_rig.set_grounded(false)
-	_rig.set_air_phase(t < 0.5, false)
-	_rig.play(CharacterRig.State.AIR)
-	return true
+	else:
+		if global_position.x > _patrol_center + _patrol_range:
+			_patrol_dir = -1.0
+		elif global_position.x < _patrol_center - _patrol_range:
+			_patrol_dir = 1.0
+		walk = _patrol_dir * PATROL_SPEED
+		# The hop only fires from the FLOOR. A timer that could fire mid-air would
+		# double-jump a townsperson, which reads as a bug even when it is brief.
+		if is_on_floor():
+			_hop_wait -= delta
+			if _hop_wait <= 0.0:
+				_hop_wait = randf_range(HOP_GAP_MIN, HOP_GAP_MAX)
+				velocity.y = -HOP_IMPULSE
 
+	# ── the physics: the same three lines the player runs ────────────────────
+	velocity.x = walk
+	velocity.y = 0.0 if (is_on_floor() and velocity.y >= 0.0) \
+		else minf(velocity.y + GRAVITY * delta, MAX_FALL)
+	move_and_slide()
 
-## Put the feet back on the floor and tell the rig so. Called both when a hop ends
-## and when one is interrupted — an un-landed rig is a rig that keeps its knees bent.
-func _land() -> void:
-	_hop_t = -1.0
-	if _ground_y_set:
-		global_position.y = _ground_y
-	if _rig != null:
-		_rig.set_grounded(true)
-		_rig.set_air_phase(false, true)
+	# ── the rig, fed the truth ───────────────────────────────────────────────
+	# ⚠ `set_grounded` DEFAULTS TO TRUE, so a rig that is never told believes it is
+	# standing even at the top of a jump — it pins the feet to the ground plane and
+	# folds a leg that cannot reach. That was the town's "everyone is walking on their
+	# limbs" bug. Fed every frame, from the body's own state, cheap.
+	_rig.set_body_velocity(velocity)
+	_rig.set_grounded(is_on_floor())
+	_rig.set_air_phase(velocity.y < 0.0, is_on_floor())
+	if not is_on_floor():
+		_rig.play(CharacterRig.State.AIR)
+	elif absf(velocity.x) > 1.0:
+		_rig.play(CharacterRig.State.RUN)
+		_rig.set_facing(Vector2(_patrol_dir, 0.0))
+	else:
+		_rig.play(CharacterRig.State.IDLE)
 
 
 func _unhandled_input(event: InputEvent) -> void:

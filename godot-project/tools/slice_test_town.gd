@@ -227,11 +227,16 @@ func _test_you_can_cast_in_the_lobby() -> void:
 	for d: Node in dummies:
 		_expect(int(d.get("max_hp")) >= 999,
 			"a dummy is effectively immortal (max_hp %d)" % int(d.get("max_hp")))
-		# ⚠ PHYSICS OFF IS WHAT MAKES IT STAND STILL. A controller-less `Hero` falls
-		# through to the real `Input` singleton, so a dummy that ticks physics mirrors
-		# every button the player presses and the yard walks at you in lockstep.
-		_expect(not d.is_physics_processing(),
-			"...and it stands still rather than mirroring the player's input")
+		# ⚠ IT HAS A CONTROLLER, AND THAT IS WHAT MAKES IT STAND STILL. A controller-less
+		# `Hero` falls through to the GLOBAL `Input` singleton, so the yard would mirror
+		# every button the player presses. This used to be asserted as
+		# `not is_physics_processing()` — which stopped the mirroring by stopping
+		# EVERYTHING, gravity and ragdoll included. The assertion has to move with the
+		# mechanism or it pins the old workaround in place.
+		_expect(d.get("controller") != null,
+			"...and it has an input source of its own rather than reading the player's")
+		_expect(d.is_physics_processing(),
+			"...while still running its own physics, so it falls, flinches and ragdolls")
 	_completes("you_can_cast_in_the_lobby")
 
 

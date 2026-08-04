@@ -17,7 +17,17 @@ size = Vector2(16, 16)
 [sub_resource type="CircleShape2D" id="CircleShape2D_npc_proximity"]
 radius = 40.0
 
-[node name="NPC" type="StaticBody2D" groups=["npc"]]
+; ⚠ A CharacterBody2D, NOT A StaticBody2D, AND ON LAYER 2. Maker: "make all the other
+; stickmen in the hub the same as mine in terms of ragdoll walking physics". A
+; townsperson used to be teleported along x by writing `global_position`, which meant
+; its rig was fed a SYNTHESISED velocity and never knew about gravity, landing or the
+; floor. It runs the same `move_and_slide` the player does now.
+;
+; Layer 2 (the fighter layer) rather than 1 matters for a measured reason: layer 1 is
+; `CharacterRig.GROUND_MASK`, so a townsperson on it is FLOOR to every rig's downward
+; probe — `probe_town_feet` caught a practice dummy reading its ground line off the
+; Warden's head, 16 px above the actual floor.
+[node name="NPC" type="CharacterBody2D" collision_layer="2" collision_mask="1" groups=["npc"]]
 script = ExtResource("1_npc_script")
 data = ExtResource("2_npc_data")
 

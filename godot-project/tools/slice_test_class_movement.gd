@@ -386,9 +386,17 @@ func _test_travel_is_measurably_different() -> void:
 	_completes("travel_is_measurably_different")
 
 
-## The ground-plane verbs (charge / surge / ice slide) flatten to horizontal whatever
-## the stick says; the Shadowblade's air dash is the one that flies. Asserted as a
-## contrast so "they are all the same again" cannot pass.
+## ⚠ THE RULING REVERSED, AND THIS TEST NOW ASSERTS THE OPPOSITE OF ITS OLD SELF.
+## `charge` / `surge` / `ice_slide` used to flatten to horizontal whatever the stick
+## said — a shoulder charge aimed at the sky is a strange shoulder charge. Maker, on
+## the Cryomancer: "why can't cryomancer dash upwards, please fix — and remove that
+## weird dash thing it does where it goes sideways." The Ice Slide was one of the
+## three, so up-right came out as a flat skid to the right.
+##
+## EVERY class travels along the movement vector now, and this is where that is
+## pinned: `Hero.GROUNDED_VERBS` is empty, and if anything ever puts a verb back into
+## it without a new ruling, this goes red rather than a class quietly losing its
+## vertical again.
 func _test_grounded_verbs_stay_on_the_ground_plane() -> void:
 	var hero: CharacterBody2D = _make_hero(0)
 	for cls: int in [BRAWLER, JUGGERNAUT, CRYOMANCER]:
@@ -399,14 +407,15 @@ func _test_grounded_verbs_stay_on_the_ground_plane() -> void:
 		hero.set("_move_dir", Vector2(0.6, -0.8).normalized())  # aimed steeply UP
 		hero.call("_start_dash")
 		var dir: Vector2 = hero.get("_dash_dir")
-		_expect(absf(dir.y) < 0.001,
-			"%s's grounded verb flattens to horizontal even when aimed up (got %s)"
+		_expect(absf(dir.y) > 0.5,
+			"%s keeps its vertical when aimed up — no verb is flattened now (got %s)"
 				% [CLASS_LABELS[cls], str(dir)])
 		var guard: int = 0
 		while bool(hero.get("is_dashing")) and guard < TRAVEL_FRAME_CAP:
 			await physics_frame
 			guard += 1
-	# The contrast: the Shadowblade keeps the angle it was given.
+	# The Shadowblade, which never flattened, is unchanged — the contrast this test
+	# used to draw is now the rule, and it is kept as a regression on the air dash.
 	hero.call("configure_class", SHADOWBLADE)
 	_park(hero)
 	await physics_frame
