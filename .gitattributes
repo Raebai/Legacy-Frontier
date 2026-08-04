@@ -1,0 +1,31 @@
+# ⚠ THE CRLF FLIP-FLOP, ENDED.
+#
+# `core.autocrlf=true` on this machine with no `.gitattributes` meant git-written
+# files landed CRLF and agent-written ones landed LF. Two suites once went red for
+# that reason alone while the shipped code was correct, and the next branch switch
+# could always redden a different one. That is a whole debugging session spent on
+# an instrument rather than on the game.
+#
+# Normalising the TEXT formats to LF in the repo makes the working tree
+# deterministic regardless of who or what wrote a file. Godot reads LF happily on
+# Windows; so does Python.
+*.gd     text eol=lf
+*.gdshader text eol=lf
+*.tres   text eol=lf
+*.tscn   text eol=lf
+*.godot  text eol=lf
+*.cfg    text eol=lf
+*.uid    text eol=lf
+*.py     text eol=lf
+*.md     text eol=lf
+*.json   text eol=lf
+*.sh     text eol=lf
+
+# Binary — never touched, never diffed as text.
+*.png binary
+*.wav binary
+*.ogg binary
+*.mp3 binary
+*.ttf binary
+*.otf binary
+*.pdf binary

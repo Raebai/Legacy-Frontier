@@ -100,11 +100,63 @@ func _process(_delta: float) -> bool:
 					"'%s' strictly dominates '%s' in slot '%s' — '%s' is unpickable"
 						% [a, b, slot, b])
 
+	# ── EVERY PLAYER PIECE MUST PAY SOMETHING ───────────────────────────────────
+	# Maker, 2026-08-04: "please do all the stuff you need to do". The standing
+	# complaint this closes is that 17 of 19 pieces beat the EMPTY slot for free, so
+	# "equip something" was a checklist even after "equip WHICH" became a real choice.
+	#
+	# A piece that is better on some axis and worse on none is not a decision, it is
+	# a chore: the correct play is always to fill the slot, and the only question left
+	# is which flavour of free. Every equippable piece is now worse than nothing on at
+	# least one axis the hero actually reads.
+	#
+	# ⚠ THE CASTER WEAPONS ARE EXEMPT, AND THAT IS NOT A LOOPHOLE. A staff grants no
+	# power at all — it OVERRIDES your element, and your class already has one. So it
+	# is a lateral trade (holy for ice) rather than a free gain, and there is no axis
+	# on which to charge it without inventing one.
+	const PAYS_NOTHING_OK: Array = ["staff", "staff_ice", "staff_storm", "staff_holy",
+		"scythe", "orb", "club", "spear", "bomb", "crown"]
+	var priced: int = 0
+	for slot2: String in SLOT_ITEMS:
+		for kind2: String in (SLOT_ITEMS[slot2] as Array):
+			if PAYS_NOTHING_OK.has(kind2):
+				continue
+			var eff: Dictionary = GearAbilities.effect(kind2)
+			var costs_something: bool = false
+			for ax2: String in AXES:
+				var neutral2: float = 1.0 if not (ax2 in ["ward", "damage_reduction"]) else 0.0
+				var v2: float = float(eff.get(ax2, neutral2))
+				if is_equal_approx(v2, neutral2):
+					continue
+				# Worse than the empty slot on this axis? `melee_cd` inverts.
+				if (v2 > neutral2) if LOWER_IS_BETTER.has(ax2) else (v2 < neutral2):
+					costs_something = true
+			failed += _expect(costs_something,
+				"'%s' is worse than the EMPTY slot somewhere - otherwise equipping it is a chore, not a choice" % kind2)
+			priced += 1
+	# ⚠ An invariant that is trivially true of an empty sweep is not an invariant.
+	# Ten player-equippable pieces across the three slots.
+	failed += _expect(priced == 10,
+		"all ten player-equippable pieces were priced (got %d)" % priced)
+
 	# Aggregation math (mirrors Hero._aggregate_gear): staff_ice + hat + robe ->
-	# element=ice, max_hp x1.12, ward=0.4, melee mults untouched.
+	# element=ice, ward=0.4, melee mults untouched — and max_hp COMPOSES.
+	#
+	# ⚠ THIS ASSERTION USED TO READ `max_hp == 1.12`, i.e. "the hat sets it", which
+	# was only ever true because every other piece in the bag left max_hp alone. Now
+	# that each piece pays a cost, the robe's -6% multiplies against the hat's +12%
+	# and the honest answer is 1.0528. Asserted as a PRODUCT of the two pieces rather
+	# than as a typed-in 1.0528, so re-tuning either number keeps this test true
+	# without anyone having to recompute it by hand.
 	var agg: Dictionary = _aggregate(["staff_ice", "hat", "robe"])
 	failed += _expect(String(agg["element"]) == "ice", "staff_ice sets element ice")
-	failed += _expect(is_equal_approx(float(agg["max_hp"]), 1.12), "hat sets max_hp x1.12")
+	var hat_hp: float = float(GearAbilities.effect("hat").get("max_hp", 1.0))
+	var robe_hp: float = float(GearAbilities.effect("robe").get("max_hp", 1.0))
+	failed += _expect(is_equal_approx(float(agg["max_hp"]), hat_hp * robe_hp),
+		"hat and robe COMPOSE on max_hp (%.4f x %.4f = %.4f, got %.4f)"
+			% [hat_hp, robe_hp, hat_hp * robe_hp, float(agg["max_hp"])])
+	failed += _expect(hat_hp * robe_hp > 1.0,
+		"...and the pair is still a net gain, or the head slot would be a trap")
 	failed += _expect(is_equal_approx(float(agg["ward"]), 0.4), "robe sets ward 0.4")
 	failed += _expect(is_equal_approx(float(agg["melee_damage"]), 1.0), "no weapon melee change here")
 	# hammer stacks melee damage + knockback.

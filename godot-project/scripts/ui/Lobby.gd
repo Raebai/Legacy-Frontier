@@ -212,7 +212,7 @@ func _build_ui() -> void:
 	_col = right
 
 	var title := Label.new()
-	title.text = "ASHSPIRE"
+	title.text = "ASHPIRE"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 34)
 	title.add_theme_color_override("font_color", CHALK)

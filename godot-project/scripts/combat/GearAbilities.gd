@@ -48,18 +48,18 @@ const ABILITIES: Dictionary = {
 	"scythe":      {"name": "Reap",         "desc": "Your spells strike as Shadow.",              "element": "shadow",    "effect": {"element": "shadow"}},
 	"orb":         {"name": "Conjure",      "desc": "Your spells strike as Arcane.",              "element": "arcane",    "effect": {"element": "arcane"}},
 	# --- martial weapons: melee profile ---
-	"sword":       {"name": "Keen Edge",    "desc": "Sharper strikes (+15% melee damage).",       "element": "",          "effect": {"melee_damage": 1.15}},
-	"dagger":      {"name": "Flurry",       "desc": "Faster, nimbler strikes.",                   "element": "",          "effect": {"melee_cd": 0.7, "speed": 1.06}},
+	"sword":       {"name": "Keen Edge",    "desc": "Sharper strikes: +15% damage, but it cuts instead of shoving (-12% knockback).", "element": "", "effect": {"melee_damage": 1.15, "melee_knockback": 0.88}},
+	"dagger":      {"name": "Flurry",       "desc": "Fast and nimble: much quicker strikes, but each one lands light (-18% damage).", "element": "", "effect": {"melee_cd": 0.7, "speed": 1.06, "melee_damage": 0.82}},
 	"hammer":      {"name": "Quake",        "desc": "Crushing blows: +20% damage and big knockback, but slower.", "element": "", "effect": {"melee_damage": 1.2, "melee_knockback": 1.4, "melee_cd": 1.15}},
 	"greatsword":  {"name": "Cleave",       "desc": "Massive strikes (+30% damage) but slower.",  "element": "",          "effect": {"melee_damage": 1.3, "melee_cd": 1.3}},
 	# --- head ---
-	"hat":         {"name": "Fortified",    "desc": "Hardier: +12% max HP.",                      "element": "",          "effect": {"max_hp": 1.12}},
-	"hood":        {"name": "Fleet",        "desc": "Fleet-footed: +12% move speed.",             "element": "",          "effect": {"speed": 1.12}},
+	"hat":         {"name": "Fortified",    "desc": "Padded: +12% max HP, and a little slower for it (-4% speed).", "element": "", "effect": {"max_hp": 1.12, "speed": 0.96}},
+	"hood":        {"name": "Fleet",        "desc": "Fleet-footed: +12% move speed, with nothing between you and a hit (-6% max HP).", "element": "", "effect": {"speed": 1.12, "max_hp": 0.94}},
 	"helmet":      {"name": "Ironclad",     "desc": "Heavy plate: +20% max HP, but it weighs on you (-6% speed).", "element": "", "effect": {"max_hp": 1.2, "speed": 0.94}},
 	# --- body ---
-	"robe":        {"name": "Warded",       "desc": "Wards the first hit each fight (-40%).",      "element": "",          "effect": {"ward": 0.4}},
-	"cape":        {"name": "Windswept",    "desc": "A billowing cape: +12% move speed.",         "element": "",          "effect": {"speed": 1.12}},
-	"armor":       {"name": "Plated",       "desc": "Plate armour: -15% damage from every hit.",  "element": "",          "effect": {"damage_reduction": 0.15}},
+	"robe":        {"name": "Warded",       "desc": "Wards the first hit each fight (-40%), but it is cloth (-6% max HP).", "element": "", "effect": {"ward": 0.4, "max_hp": 0.94}},
+	"cape":        {"name": "Windswept",    "desc": "A billowing cape: +12% move speed, and it catches on your swing (-10% melee rate).", "element": "", "effect": {"speed": 1.12, "melee_cd": 1.10}},
+	"armor":       {"name": "Plated",       "desc": "Plate armour: -15% damage from every hit, at the cost of your feet (-8% speed).", "element": "", "effect": {"damage_reduction": 0.15, "speed": 0.92}},
 	# --- enemy / boss pieces (identity only; the roster AI already drives these) ---
 	"club":        {"name": "Bludgeon",     "desc": "Heavy melee with extra knockback.",          "element": "",          "effect": {}},
 	"spear":       {"name": "Lunge",        "desc": "Long reach; a dash-thrust charge.",          "element": "",          "effect": {}},
