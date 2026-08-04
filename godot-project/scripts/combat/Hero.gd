@@ -342,18 +342,44 @@ const THRALL_SWAP_IFRAME: float = 0.20
 const THRALL_SWAP_START: Color = Color(0.55, 0.2, 0.65, 0.9)
 const THRALL_SWAP_END: Color = Color(0.1, 0.02, 0.15, 0.0)
 
-## --- 8 SWORDSAINT: COMMITTED STEP ---------------------------------------------
-## The shortest, fastest-recovering, least forgiving travel in the roster. The guard
-## class does not get to leave — it gets to be PAID for standing still (see the
-## BLADE-GUARD block). Its step closes a gap into swing range and nothing else, and
-## its i-frame slice is small enough that dashing through an attack is a read rather
-## than a reflex.
 ## How fast a LIMP body can drag itself. Deliberately a fraction of `SPEED` (210) —
 ## about a fifth — so the flop keeps costing you almost everything it always did.
 const CRAWL_SPEED: float = 46.0
 
-const COMMITTED_STEP_SPEED: float = 480.0
-const COMMITTED_STEP_TIME: float = 0.12
+## --- 8 SWORDSAINT: COMMITTED STEP ---------------------------------------------
+## ⚠ RETUNED 2026-08-05 ON A MAKER RULING, AND THE OLD REASONING IS DELETED RATHER
+## THAN LEFT TO ARGUE WITH THE NUMBERS. This block used to read: "the shortest,
+## fastest-recovering, least forgiving travel in the roster ... the guard class does
+## not get to leave." That was a coherent design and it was the wrong one for the
+## class that shipped. Maker: "swordsaint should move faster and dash longer."
+##
+## WHAT THE OLD ARGUMENT MISSED. "Does not get to leave" is a fair price for a class
+## whose defence pays — but the Swordsaint's problem was never that it left too
+## easily, it was that it could not ARRIVE. Its own spec (§6.4.1) states the
+## structural fact plainly: eight of the other nine classes can hurt it from 900 px,
+## and it carries no answer to that (Closed Ground is designed and unbuilt). At
+## 57.6 px the step closed 6% of that gap, on a 0.80 s cooldown, for a body that then
+## has to survive at 86 px reach. The commitment was real and it bought nothing.
+##
+## WHERE IT SITS NOW, read off the roster rather than picked: 106.4 px is 6th of 9 —
+## past the Cleric's Radiant Step (89.6) and the Arcanist's Phase (84), 41% short of
+## the Warlock's worst-case fallback blink (115) and 59% short of the Stormcaller's
+## teleport (260). No longer the shortest travel in the game, nowhere near a blink.
+## `tools/slice_test_class_movement.gd` pins both ends of that claim.
+##
+## WHAT IS DELIBERATELY UNCHANGED: the i-frame FRACTION. 0.35 stays, so the window
+## grows only as a side effect of the longer travel (0.042 s -> 0.0665 s) and this is
+## still the smallest dodge in the roster by a clear margin — next is the Cleric at
+## 0.096 s. The class got a way IN; it did not get a way out. That is the half of the
+## old paragraph worth keeping, and it is the only half kept.
+##
+## ⚠ THE STEP IS ALSO A DAMAGE TOOL AND THIS CHANGE BUFFS IT. `dash_strike` sweeps a
+## 52 px radius every frame of the travel, so the struck corridor is `travel + 104`:
+## 161 px before, 210 px now (+30%), over 11 physics frames instead of 7. That is a
+## real throughput increase hidden inside a mobility number, and it is stated here
+## rather than discovered later in a balance sweep.
+const COMMITTED_STEP_SPEED: float = 560.0
+const COMMITTED_STEP_TIME: float = 0.19
 const COMMITTED_STEP_IFRAME_FRACTION: float = 0.35
 
 ## ⚠ EMPTY, AND DELIBERATELY STILL HERE. These are the verbs whose travel USED to be
@@ -716,7 +742,12 @@ const CLASS_CONFIG: Dictionary = {
 	HeroClass.SWORDSAINT: {
 		"preset": "rogue", "weapon": "sword",
 		"element": Elements.Element.ARCANE, "melee_element": -1,  # plain steel: no ailment
-		"hp": 147, "speed": 210.0,  # was 105
+		# 210 -> 222 on the same 2026-08-05 ruling as COMMITTED_STEP_*. The walk was
+		# already 4th of 9, so the felt slowness was the verb — but the approach is
+		# the one part of this class's offence that is not on a cooldown, so it moves
+		# too. 222 keeps all nine speeds distinct, stays under Shadowblade's 240 and
+		# over Juggernaut's 165, and leaves the roster spread at 1.45x (cap 1.6x).
+		"hp": 147, "speed": 222.0,  # was 105, then 210
 		"primary": "heavy_swing",
 		# The greatsword profile, expressed as melee overrides rather than a new
 		# WEAPON_STATS row: a "greatsword" kind would have no rig texture and no
@@ -729,8 +760,8 @@ const CLASS_CONFIG: Dictionary = {
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": true, "dash_strike_damage": 24, "dash_strike_range": 52.0,
 		"mobility2": "uppercut",  # a rising cut, not a teleport
-		# The shortest travel in the roster, and the smallest i-frame slice on any
-		# verb that has one at all. The guard class is not allowed to leave.
+		# Retuned 2026-08-05: no longer the roster's shortest travel (106.4 px, 6th of
+		# 9), but still its smallest dodge. It gets a way IN, not a way out.
 		"move_verb": "committed_step",
 		"dash_iframe_fraction": COMMITTED_STEP_IFRAME_FRACTION,
 		"defense": "held_guard", "aoe": "ground_slam",
@@ -1211,7 +1242,7 @@ func bot_body_state() -> Dictionary:
 		# WHAT MY MOVEMENT BUTTON ACTUALLY DOES. `BotBrain` carries a hand-copied
 		# `DASH_DIST = 86.8  # Hero.DASH_SPEED 620 * DASH_TIME 0.14` and its own header
 		# admits those mirrors are copies that a retune must chase by hand. Nine verbs
-		# with travels from ~58 px (surge) to 260 px (lightning blink) make that copy
+		# with travels from ~84 px (arcane phase) to 260 px (lightning blink) make that copy
 		# wrong for eight of nine classes, so the body publishes the DERIVED number and
 		# the brain prefers it — the same "read it from the seam" fix `_ready_flag`
 		# already applies to `dash_ready`.
