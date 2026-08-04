@@ -117,6 +117,12 @@ func _ready() -> void:
 
 	_build_ui()
 	_apply_class_tint()
+	# ⚠ THE BOOT SCREEN USED TO BE SILENT. The first thing anyone ever hears, and it
+	# played nothing at all. Guarded lookup so a headless harness (which has no Music
+	# autoload and no audio device) is unaffected.
+	var music: Node = get_node_or_null("/root/Music")
+	if music != null and music.has_method("play_title"):
+		music.call("play_title")
 
 	# Only LAN discovery needs a frame pump, and it is off until the join screen
 	# opens (Net does the same thing for the same reason).
@@ -231,7 +237,15 @@ func _build_ui() -> void:
 	right.add_child(_class_kit)
 
 	# ── the one button that matters ──
-	var play := _button("CLIMB  ▸", _play_solo, 19)
+	# ⚠ TWO VERBS, NOT EIGHT BUTTONS. Maker: "there should be an Enter the tower
+	# button and a multiplayer Button… like make it way simpler and less buttons and
+	# less confusing".
+	#
+	# ENTER THE TOWER is the whole game and gets the big row. Everything else is
+	# either a way to bring a friend (the MULTIPLAYER row) or something you do before
+	# you climb (the PREPARE row) — labelled, so the screen answers "what is this
+	# group for" instead of presenting eight equal choices.
+	var play := _button("ENTER THE TOWER  ▸", _play_solo, 19)
 	play.custom_minimum_size = Vector2(PANEL_W, BUTTON_H + 8.0)
 	play.add_theme_color_override("font_color", CHALK)
 	right.add_child(play)
@@ -265,9 +279,13 @@ func _build_ui() -> void:
 	prep.add_child(_half("Loadout", _open_outfitter))
 	_refresh_duel_button()
 
+	right.add_child(_group_label("MULTIPLAYER"))
 	var coop := HBoxContainer.new()
 	coop.add_theme_constant_override("separation", 6)
 	right.add_child(coop)
+	# LOCAL and ONLINE side by side, which is the split the maker asked for. Local
+	# routes through the same host path on the loopback — one code path, and the
+	# only honest one until a second gamepad is actually wired.
 	coop.add_child(_half("Host Co-op", _host))
 	coop.add_child(_half("Join a Game", _open_join))
 
@@ -888,10 +906,32 @@ func _sfx(key: String, db: float = 0.0) -> void:
 		s.call("play", key, db)
 
 
+## ⚠ THE TITLE BED, NOT THE TOWN BED — and this function is why the title screen
+## was silent even after `Mood.TITLE` existed. `_ready` starts the title track and
+## then this ran a few lines later and replaced it with the town's, so the boot
+## screen played the ambience of a room you are not in. Falls back to the town bed
+## on a build that predates `play_title`.
 func _music_town() -> void:
 	var m: Node = get_node_or_null("/root/Music")
-	if m != null and m.has_method("play_town"):
+	if m == null:
+		return
+	if m.has_method("play_title"):
+		m.call("play_title")
+	elif m.has_method("play_town"):
 		m.call("play_town")
+
+
+## A quiet caption over a group of buttons. The title screen's problem was never
+## the NUMBER of things on it so much as that eight buttons all looked equally
+## important; naming the two groups answers "what is this for" before a thumb has
+## to guess.
+func _group_label(text: String) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.add_theme_font_size_override("font_size", 8)
+	l.add_theme_color_override("font_color", GRAPHITE)
+	return l
 
 
 # ═══════════════════════════════════════════════════════════════════ THE PAPER

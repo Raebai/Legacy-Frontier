@@ -209,12 +209,16 @@ func _test_lobby_names_no_hub_and_no_ollama() -> void:
 ## straight to a run. This is the assertion that catches a well-meaning reorder.
 func _test_climb_stays_above_the_town() -> void:
 	var src: String = _code_only(LOBBY_SCRIPT)
-	var climb_at: int = src.find("CLIMB")
+	# ⚠ MATCHES "ENTER THE TOWER", NOT "CLIMB". The label changed on 2026-08-04
+	# (maker: "there should be an Enter the tower button"), and the CLAIM this
+	# guards is unchanged: the one verb that starts the game is built before the
+	# detour to the town. Only the string moved.
+	var climb_at: int = src.find("ENTER THE TOWER")
 	var town_at: int = src.find("The Town")
-	_expect(climb_at >= 0, "the lobby has a CLIMB button")
+	_expect(climb_at >= 0, "the lobby has an ENTER THE TOWER button")
 	_expect(town_at >= 0, "and a town button")
 	_expect(climb_at >= 0 and town_at > climb_at,
-		"CLIMB is built before the town button (climb@%d, town@%d)" % [climb_at, town_at])
+		"ENTER THE TOWER is built before the town button (climb@%d, town@%d)" % [climb_at, town_at])
 	_expect(ResourceLoader.exists("res://scenes/Main.tscn"), "the town scene exists")
 	_expect(not ResourceLoader.exists("res://scenes/Conversation.tscn"),
 		"and the LLM overlay it used to carry is deleted")
@@ -268,7 +272,8 @@ func _test_tap_targets_are_thumb_sized() -> void:
 	var joined: String = " | ".join(labels)
 	for wanted: String in ["Host Co-op", "Join", "Start Run", "Credits"]:
 		_expect(joined.contains(wanted), "the lobby still has '%s' (has: %s)" % [wanted, joined])
-	_expect(joined.contains("CLIMB"), "and the one button that matters (has: %s)" % joined)
+	_expect(joined.contains("ENTER THE TOWER"),
+		"and the one button that matters (has: %s)" % joined)
 	# The class picker must be derived from the real roster, never a literal —
 	# a hardcoded `% 8` once made the 9th class silently unreachable.
 	_expect(not _code_only(LOBBY_SCRIPT).contains("% 8"), "the class picker is not a hardcoded count")

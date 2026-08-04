@@ -320,9 +320,11 @@ func _test_no_town_script_names_ollama() -> void:
 ## menu in front of it.
 func _test_the_lobby_still_leads_with_climb() -> void:
 	var src: String = _code_only(LOBBY_SCRIPT)
-	var climb_at: int = src.find("CLIMB")
+	# See the note in slice_test_shell: the label is "ENTER THE TOWER" now and the
+	# ordering claim it guards is the same one.
+	var climb_at: int = src.find("ENTER THE TOWER")
 	var town_at: int = src.find("The Town")
-	_expect(climb_at >= 0, "the lobby still has a CLIMB button")
+	_expect(climb_at >= 0, "the lobby still has an ENTER THE TOWER button")
 	_expect(town_at >= 0, "and now has a town button")
 	_expect(climb_at < town_at, "CLIMB is built BEFORE the town button — the fast path is first")
 	_expect(src.contains("_play_solo"), "CLIMB still routes to _play_solo")

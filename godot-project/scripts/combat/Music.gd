@@ -7,7 +7,7 @@ extends Node
 ## the bed keeps driving through hit-stop's Engine.time_scale slow, and a duck()
 ## so big moments (the blast) push the music down for a beat.
 
-enum Mood { TOWN, ADVENTURE, BOSS }
+enum Mood { TOWN, ADVENTURE, BOSS, TITLE }
 
 ## Each mood is a PLAYLIST of resource paths. The first entry is the default;
 ## `cycle_track()` steps through them (skipping any missing file). Drop new tracks
@@ -28,18 +28,35 @@ enum Mood { TOWN, ADVENTURE, BOSS }
 ## cheapest possible rollback for a lossy-on-lossy conversion nobody has heard.
 ##
 ## `python-tools/compress_music.py` does the conversion (and refuses to run
-## without ffmpeg rather than pretending). **It has NOT been run in this repo:
-## ffmpeg is not installed on this machine.**
+## without ffmpeg rather than pretending). **RUN 2026-08-04**: the six tracks are
+## re-encoded to ~112 kbps Ogg, 36.4 MB -> 15.0 MB. `_preferred_path()` picks the
+## `.ogg` up automatically, and deleting the six `.ogg` files reverts it entirely.
+## The `.mp3` originals are still here pending a listen.
 const PLAYLISTS: Dictionary = {
 	Mood.TOWN: [
 		"res://assets/audio/music/hub_ambience.wav",
 		"res://assets/audio/music/arcadia.mp3",
-		"res://assets/audio/music/lord_of_the_land.mp3",
 	],
 	Mood.ADVENTURE: [
 		"res://assets/audio/music/for_tomorrow.mp3",
 		"res://assets/audio/music/unexplored_moon.mp3",
 		"res://assets/audio/music/combat_theme.mp3",
+	],
+	# ⚠ THE TITLE HAD NO MUSIC AT ALL. The boot screen — the first thing anyone ever
+	# hears, and the one the maker asked to make "sexier" with "some cool music in
+	# the background" — booted in silence.
+	#
+	# ⚠ MOVED OUT OF `TOWN`, NOT DUPLICATED INTO A SECOND BED. `slice_test_music`
+	# enforces one track, one mood — a file in two playlists cross-fades with
+	# itself on a mood change. The town keeps its ambience and arcadia; the most
+	# open, most PATIENT track in the library becomes the title, which is what a
+	# held shot of a tower wants.
+	#
+	# No new audio is acquired here, deliberately: the six tracks still have NO
+	# recorded licence provenance (assets/audio/CREDITS.md §4), and a seventh
+	# unsourced file would deepen a hole that has to be filled before ship.
+	Mood.TITLE: [
+		"res://assets/audio/music/lord_of_the_land.mp3",
 	],
 	Mood.BOSS: [
 		"res://assets/audio/music/boss_theme.mp3",
@@ -52,6 +69,9 @@ const MOOD_VOLUME_DB: Dictionary = {
 	Mood.TOWN: -20.0,
 	Mood.ADVENTURE: -28.0,
 	Mood.BOSS: -24.0,
+	# Title sits between town and combat: present enough to be the thing you notice,
+	# quiet enough to talk over while you pick a class.
+	Mood.TITLE: -22.0,
 }
 
 const BASE_VOLUME_DB: float = -28.0
@@ -199,6 +219,7 @@ func _track_display_name(path: String) -> String:
 
 
 # ----------------------------------------------------- convenience + aliases
+func play_title() -> void: play_mood(Mood.TITLE)
 func play_town() -> void: play_mood(Mood.TOWN)
 func play_adventure() -> void: play_mood(Mood.ADVENTURE)
 func play_boss() -> void: play_mood(Mood.BOSS)
