@@ -1,4 +1,54 @@
-# RESUME HERE — 2026-08-04 handoff
+# RESUME HERE — 2026-08-04 (second pass)
+
+## ▶ THE TOWER REDESIGN — 4.5 of 5 phases landed
+
+Spec: **`docs/superpowers/specs/2026-08-04-tower-shape-and-feel-design.md`**.
+All UNPLAYTESTED. 146/146 green, tree clean.
+
+| phase | state |
+|---|---|
+| 1 · combat pacing + flagged bugs | ✅ |
+| 2 · climb bands + checkpoints + party scaling | ✅ |
+| 3 · PvP health/stocks + settings | ✅ |
+| 5 · floor biomes + lighting | ✅ |
+| 4 · title + **Antechamber** + music | **half** — title + music done, ROOM not built |
+
+### ⚠ WHAT IS LEFT, AND WHY IT WAS NOT HALF-BUILT
+
+**The walkable Antechamber.** Maker: *"practise and all that stuff you can do in a
+room in the lobby"*. Design is spec §3.1 — a room you enter with your actual hero,
+with four stations: **The Gate** (descend/resume), **The Armoury** (existing
+Loadout/Outfitter UI), **The Sparring Ring** (absorbs Free Play + Watch Bots), and
+**The Party Stone** (co-op only). `GameState.session_kind` (SOLO/LOCAL/ONLINE) is
+set before arrival so one scene serves all three entrances.
+
+It was not started rather than stubbed: a MENU wearing that name would ship the
+wrong thing under the right label, and the room is the whole point of the ask.
+
+**Bigger title art.** The `_Paper` backdrop already draws a tower in chalk. The
+TOG "epic" register wants scale and depth, not a different drawing.
+
+### THINGS THE PLAYTEST SHOULD ANSWER FIRST
+
+1. **Do spells still chain?** `GLOBAL_CAST_LOCKOUT` is 0.35 s and cooldowns are
+   +35% on quick/heavy. All three are live knobs on the **F1 Director**
+   (`cd_mult_quick` / `cd_mult_heavy` / `cd_mult_ult`).
+2. **Is floor 6 a wall?** Band 2 is new content and has never been fought.
+3. **Do the biomes read?** Ten floors, ten palettes, exposure 0.68–1.18.
+4. **Is a checkpoint loss too harsh?** Dying on floor 5 now costs floors 2–5.
+
+### ⚠ A GAP I SHIPPED AND THEN CAUGHT, WORTH REMEMBERING
+
+Phase 2 raised `TOTAL_FLOORS` to 10 — but `total_floors()` returns the AUTHORED
+tower's size, and Ashspire authored 5. So the constant did nothing, every floor
+mapped to checkpoint 1, and a wipe was a total reset: exactly the roguelite
+behaviour that was rejected. **Every climb test passed**, because they test the
+pure functions and never ask the tower how tall it is. Fixed in Phase 5 by
+authoring all ten floors. Integration is where this class of bug lives.
+
+---
+
+# Earlier the same day — 2026-08-04 handoff
 
 Branch `bot-fight-quality` (off `main`). **146/146 suites green, working tree clean.**
 Everything below is committed.

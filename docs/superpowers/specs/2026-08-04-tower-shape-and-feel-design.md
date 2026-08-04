@@ -185,11 +185,11 @@ hand — the maker can judge it while the rest is built.
 
 | # | phase | touches | done |
 |---|---|---|---|
-| 1 | **Flagged bugs + combat pacing** | `Hero.gd`, `SpellLibrary.gd`, `BossDropWatcher.gd`, `EliteHerald/Keen`, `DestructibleTerrain/Floor`, `Net.gd` | ☐ |
-| 2 | **Climb bands + checkpoints + party scaling** | `GameState.gd`, `DeathRules.gd`, `Encounter.gd` | ☐ |
-| 3 | **PvP rules + Settings screen** | new `Settings.tscn`, `VersusArena.gd`, `GameState.gd` | ☐ |
-| 4 | **Title + Antechamber + music** | `Lobby.gd`, new `Antechamber.tscn`, `Net.gd` | ☐ |
-| 5 | **Floor biomes + band lighting** | `EnvTheme.gd`, `GameState.floor_theme*`, `Arena._apply_theme`, `PostProcess.gd` | ☐ |
+| 1 | **Flagged bugs + combat pacing** | `Hero.gd`, `TuningConfig.gd`, `BossDropWatcher.gd`, `EliteHerald/Keen`, `DestructibleFloor`, `Net.gd` | ✅ |
+| 2 | **Climb bands + checkpoints + party scaling** | `GameState.gd`, `DeathRules.gd`, `Encounter.gd`, `Net.gd` | ✅ |
+| 3 | **PvP rules + Settings** | `PauseMenu.gd` (NOT a new scene — it already is the reusable settings panel), `VersusArena.gd`, `GameState.gd` | ✅ |
+| 4 | **Title + Antechamber + music** | `Lobby.gd`, `Music.gd` ✅ · **`Antechamber.tscn` NOT BUILT** — see §3.1; not stubbed on purpose, a menu under that name ships the wrong thing | ⚠ half |
+| 5 | **Floor biomes + band lighting** | `EnvTheme.gd`, `GameState.BIOMES`, `Arena._apply_theme` | ✅ (also grew the tower to 10 AUTHORED floors — `total_floors()` reads the authored size, so Phase 2's constant was inert without it) |
 
 ### Verification standard for every phase
 
