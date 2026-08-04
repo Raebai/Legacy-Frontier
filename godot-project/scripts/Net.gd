@@ -870,6 +870,30 @@ func hero_for_peer(peer_id: int) -> Node:
 ## mirrored player spell (`spell`). A new boss that builds its moveset out of these
 ## replicates for free; one that invents a new shape adds one arm here, and the
 ## smoke test's kind breakdown is what catches it if it does not.
+## XP EARNED BY THE PARTY, RELAYED.
+##
+## ⚠ WITHOUT THIS, A CLIENT LEVELS ONLY FROM FLOOR TRANSITIONS AND NEVER FROM
+## FIGHTING. Enemies are host-authoritative, so `Enemy._die` — and therefore
+## `notify_kill` — runs on the host and nowhere else. The client would watch bodies
+## fall and bank nothing for them, which fails in the direction that still looks
+## correct: XP would keep arriving (from clears), just far too little of it, and
+## only a side-by-side comparison of two saves would ever show it.
+##
+## Everyone in the fight earned the kill, so the grant is relayed verbatim and each
+## peer banks it into their OWN climber.json. It is not split — a co-op floor is not
+## worth less per person than a solo one, or playing together would be a tax.
+func broadcast_xp(amount: int, kind: String, where: Vector2 = Vector2.ZERO) -> void:
+	if is_host():
+		_client_xp.rpc(amount, kind, where)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _client_xp(amount: int, kind: String, where: Vector2) -> void:
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and gs.has_method("receive_net_xp"):
+		gs.call("receive_net_xp", int(amount), String(kind), where)
+
+
 func broadcast_boss_fx(kind: String, data: Dictionary) -> void:
 	if is_host():
 		_client_boss_fx.rpc(kind, data)

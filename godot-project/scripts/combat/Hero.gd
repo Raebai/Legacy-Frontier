@@ -1333,6 +1333,13 @@ func _ready() -> void:
 	# configure_class sets the class element, rig preset, weapon, AND the class's
 	# signature loadout (SpellLibrary.build_for_class) + emits signature_changed.
 	configure_class(start_class)  # also applies the hub Armory loadout (GameState.loadout)
+	# LEVELS. Applied AFTER configure_class for the same reason the colourway is read
+	# before it: `configure_class` re-seeds `_base_max_hp` from the class table and
+	# calls `_recompute_gear_effects`, so Growth applied earlier would be overwritten
+	# by the class config and the hero would spawn at level-1 stats regardless of level.
+	refresh_growth()
+	if gs != null and gs.has_signal(&"leveled_up") and not gs.is_connected(&"leveled_up", _on_leveled_up):
+		gs.connect(&"leveled_up", _on_leveled_up)
 	_setup_net_role()
 	mp = float(max_mp)
 	mana_changed.emit(mp, max_mp)
@@ -1586,15 +1593,29 @@ func _physics_process(delta: float) -> void:
 	if controller != null:
 		_bot_clock += delta
 		controller.tick(self, _bot_clock)
-	_dash_cooldown_timer = max(_dash_cooldown_timer - delta, 0.0)
-	_cast_cooldown_timer = max(_cast_cooldown_timer - delta, 0.0)
-	_melee_cooldown_timer = max(_melee_cooldown_timer - delta, 0.0)
-	_blast_cooldown_timer = max(_blast_cooldown_timer - delta, 0.0)
-	_blink_cooldown_timer = maxf(_blink_cooldown_timer - delta, 0.0)
+	# ⚠ FOCUS IS APPLIED TO COOLDOWN **RECOVERY**, NOT TO COOLDOWN LENGTH, and that
+	# is why it lands here rather than at the thirteen scattered assignment sites.
+	# The spec's word for the axis is "cooldown recovery", so recovering faster is
+	# the literal reading — and one hook on the decay covers every cooldown the class
+	# has, including any added later, instead of thirteen edits that can drift apart.
+	#
+	# `_cd_delta` is `delta` at level 1, exactly, so an unlevelled hero ticks
+	# byte-identically to before this line existed.
+	var _cd_delta: float = delta * _growth_cd_recovery
+	_dash_cooldown_timer = max(_dash_cooldown_timer - _cd_delta, 0.0)
+	_cast_cooldown_timer = max(_cast_cooldown_timer - _cd_delta, 0.0)
+	_melee_cooldown_timer = max(_melee_cooldown_timer - _cd_delta, 0.0)
+	_blast_cooldown_timer = max(_blast_cooldown_timer - _cd_delta, 0.0)
+	_blink_cooldown_timer = maxf(_blink_cooldown_timer - _cd_delta, 0.0)
+	_nova_cooldown_timer = maxf(_nova_cooldown_timer - _cd_delta, 0.0)
+	_parry_cooldown_timer = maxf(_parry_cooldown_timer - _cd_delta, 0.0)
+	# ⚠ THE TWO WINDOWS TICK AT REAL TIME, NOT AT FOCUS SPEED. An i-frame window and
+	# a parry window are how long a DEFENCE LASTS — accelerating them would make a
+	# levelled hero's dodge and parry SHORTER, i.e. FOCUS would make you worse at the
+	# two things the game is hardest on. They are not cooldowns and must not ride the
+	# cooldown dial.
 	_blink_iframe_timer = maxf(_blink_iframe_timer - delta, 0.0)
-	_nova_cooldown_timer = maxf(_nova_cooldown_timer - delta, 0.0)
 	_parry_window_timer = maxf(_parry_window_timer - delta, 0.0)
-	_parry_cooldown_timer = maxf(_parry_cooldown_timer - delta, 0.0)
 	# The two movement-verb clocks, ticked with everything else: the Arcanist's live
 	# recall anchor (the window in which the return leg is available) and the
 	# Juggernaut's post-surge armour tail.
@@ -2292,11 +2313,92 @@ func _apply_gamestate_loadout(gs: Node) -> void:
 
 ## Aggregate the equipped gear's effect bags (weapon/head/body) into one modifier
 ## set. Mults multiply, ward takes the strongest, an elemental weapon wins the element.
+## ══ LEVEL GROWTH ═════════════════════════════════════════════════════════════
+## The five axes, resolved once per class-config / level-up and then composed
+## through the SAME aggregate gear already flows through — so there is one place
+## that answers "how strong is this hero", not two that can disagree.
+##
+## ⚠ ALL FIVE ARE THE IDENTITY AT LEVEL 1. `Progression.stat_mult(1, …) == 1.0` is
+## pinned by its own suite, so an unlevelled hero is byte-identical to the hero
+## that existed before levelling shipped — which is what keeps CLASS_CONFIG's
+## hp/speed table, BotMatch's CLASS_VITALITY and the 288-bout balance sweep
+## meaningful instead of silently obsolete.
+var _growth_cd_recovery: float = 1.0     # FOCUS — see the decay block in _physics_process
+var _growth_damage_mult: float = 1.0     # POWER — melee via gear aggregate, spells via SpellCaster
+var _growth_ward: float = 0.0            # WARD  — a REDUCTION, folded into GuardComponent
+
+
+## Re-read Growth from the run's power level. Called on class config and whenever
+## `GameState.leveled_up` fires, so a level gained mid-floor is felt immediately
+## rather than at the next scene load.
+##
+## ⚠ READS `power_level()`, NOT `level()`. In co-op that is the party cap — the
+## whole point of the rule is that it lands here, on the stat block, and nowhere
+## near the spell tree.
+func refresh_growth() -> void:
+	var lvl: int = 1
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and gs.has_method("power_level"):
+		lvl = int(gs.call("power_level"))
+	_growth_cd_recovery = Progression.stat_mult(lvl, _hero_class, Progression.Axis.FOCUS)
+	_growth_damage_mult = Progression.stat_mult(lvl, _hero_class, Progression.Axis.POWER)
+	_growth_ward = Progression.ward_reduction(lvl, _hero_class)
+	_recompute_gear_effects()
+
+
+## PUBLIC, for `SpellCaster`: how much harder this caster's spells hit. Melee is
+## already scaled through the gear aggregate; a spell's damage lives on a shared
+## `SpellDef` resource and cannot be pre-scaled without mutating the catalog, so it
+## is applied per-cast at the one place a cast already duplicates its def.
+func growth_damage_mult() -> float:
+	return _growth_damage_mult
+
+
+## A LEVEL LANDED. Re-read the stats, then play the beat.
+##
+## ⚠ ONLY ON THE HERO YOU ARE PLAYING. `GameState` is per-peer, so in co-op every
+## peer's own `leveled_up` fires locally — but the arena holds one Hero PER PLAYER,
+## and without the authority gate a client would watch the burst fire on its own
+## hero AND on the puppet standing next to it, i.e. the level-up would look like it
+## happened to both of you.
+##
+## ⚠ THE STAT REFRESH IS NOT GATED. A puppet's stat block still has to track its
+## owner's, or a client's damage numbers against a levelled teammate would be
+## computed off level-1 values.
+func _on_leveled_up(new_level: int) -> void:
+	refresh_growth()
+	if _net != null and _net.is_active() and not is_multiplayer_authority():
+		return
+	if not is_inside_tree():
+		return
+	LevelUpBurst.play(get_parent(), self, new_level, ClassInfo.color_for(_hero_class))
+
+
 func _aggregate_gear() -> Dictionary:
 	var out: Dictionary = {
 		"melee_damage": 1.0, "melee_knockback": 1.0, "melee_cd": 1.0,
 		"max_hp": 1.0, "speed": 1.0, "ward": 0.0, "damage_reduction": 0.0, "element": -1,
 	}
+	# GROWTH COMPOSES WITH GEAR, MULTIPLICATIVELY, BEFORE ANY ITEM IS READ. Seeding
+	# the aggregate rather than adding a second pass downstream means every consumer
+	# of `_recompute_gear_effects` — max hp, melee damage, speed, mitigation — picks
+	# levels up for free and none of them needs to know levels exist.
+	var lvl: int = 1
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and gs.has_method("power_level"):
+		lvl = int(gs.call("power_level"))
+	out["max_hp"] = Progression.stat_mult(lvl, _hero_class, Progression.Axis.VITALITY)
+	out["speed"] = Progression.stat_mult(lvl, _hero_class, Progression.Axis.SWIFTNESS)
+	out["melee_damage"] = Progression.stat_mult(lvl, _hero_class, Progression.Axis.POWER)
+	# FOCUS shortens the melee swing's own gate as well as riding the decay dial —
+	# melee_cd is a DURATION here, so faster recovery means a smaller number.
+	out["melee_cd"] = 1.0 / maxf(Progression.stat_mult(lvl, _hero_class, Progression.Axis.FOCUS), 0.01)
+	# ⚠ WARD IS DELIBERATELY **NOT** SEEDED HERE. The gear loop below combines
+	# `damage_reduction` with `maxf`, not multiplication — it takes the single best
+	# piece rather than stacking them. Seeding Growth into it would mean a level-30
+	# Juggernaut's 21.8% simply SWALLOWS a 15% gear piece, so the armour you equipped
+	# would silently stop doing anything the moment you out-levelled it.
+	# Growth's WARD is composed as its own layer in `_recompute_gear_effects`.
 	for slot: String in ["weapon", "head", "body"]:
 		var kind: String = String(_gear_override.get(slot, ""))  # only player CHOICES grant abilities
 		if kind == "":
@@ -2332,7 +2434,13 @@ func _recompute_gear_effects() -> void:
 	# Gear mitigation lives on the shared guard, not in local fields, so ward
 	# spells and armour resolve through ONE path instead of two that disagree.
 	# Re-applying also re-arms the one-shot robe: a fresh loadout = a fresh ward.
-	GuardComponent.of(self).set_gear(float(g["damage_reduction"]), float(g["ward"]))
+	# GEAR MITIGATION + LEVEL WARD, combined the only way two reductions may be:
+	# multiplicatively on what GETS THROUGH, `1 - (1-a)(1-b)`. Adding them reaches
+	# 100% and makes a hero immortal; taking the max means one of the two is wasted.
+	# This form stacks honestly and can never reach 1.0 while either input is under it.
+	var gear_dr: float = clampf(float(g["damage_reduction"]), 0.0, 0.95)
+	var combined_dr: float = 1.0 - (1.0 - gear_dr) * (1.0 - clampf(_growth_ward, 0.0, 0.95))
+	GuardComponent.of(self).set_gear(combined_dr, float(g["ward"]))
 	# Element follows the WEAPON: an elemental weapon (staff_ice, scythe, ...) sets it;
 	# a non-elemental weapon reverts to the class's innate element (never sticks).
 	var ge: int = int(g["element"])

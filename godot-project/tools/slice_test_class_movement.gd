@@ -52,6 +52,7 @@ const TESTS: Array[String] = [
 	"stat_table_has_no_duplicates",
 	"class_hp_composes_with_gear",
 	"melee_profiles_are_all_distinct",
+	"level_growth_actually_moves_the_stats",
 ]
 
 ## Hero members reached DYNAMICALLY (Hero.gd has no class_name, so every `hero.max_hp`
@@ -131,7 +132,35 @@ func _process(_delta: float) -> bool:
 	return false
 
 
+## ⚠ PIN THE CLIMBER AT LEVEL 1, OR THIS SUITE TESTS THE TESTER'S SAVE FILE.
+##
+## Hero stats compose LEVEL GROWTH (`Progression`) on top of the class table, and
+## `GameState._ready` loads the real `user://climber.json` — whose node IS on the
+## tree under `--script`, even though the autoload IDENTIFIER is not. So on any
+## machine whose owner has actually played, every stat below silently drifts by
+## their level.
+##
+## This cost a debugging cycle when it first bit: the suite went red with
+## "max_hp == its own base (148 vs 145)" on a save carrying 123 xp, i.e. a level-2
+## Juggernaut. The dangerous half is not the red — it is that the suite would have
+## gone GREEN again the moment the save was reset, so a genuine class-table
+## regression could hide behind whatever level the tester happened to be.
+##
+## The CLASS TABLE is what is under test here, so the level is pinned to the one
+## value at which growth is exactly the identity. Growth's own behaviour is
+## asserted separately, by `_test_level_growth_actually_moves_the_stats` below and
+## by `tools/slice_test_progression.gd`.
+func _pin_level_one() -> void:
+	var gs: Node = root.get_node_or_null(^"GameState")
+	if gs == null:
+		return
+	gs.set("_xp", 0)
+	if gs.has_method("clear_party_level"):
+		gs.call("clear_party_level")
+
+
 func _run() -> void:
+	_pin_level_one()
 	_build_floor()
 	await physics_frame
 	await physics_frame
@@ -147,6 +176,7 @@ func _run() -> void:
 	await _test_stat_table_has_no_duplicates()
 	await _test_class_hp_composes_with_gear()
 	await _test_melee_profiles_are_all_distinct()
+	await _test_level_growth_actually_moves_the_stats()
 
 	for t: String in TESTS:
 		_expect(_completed.has(t),
@@ -781,3 +811,68 @@ func _in_solid(p: Vector2) -> bool:
 	q.collide_with_areas = false
 	q.transform = Transform2D(0.0, p)
 	return not space.intersect_shape(q, 1).is_empty()
+
+
+## THE POSITIVE COUNTERPART TO `_pin_level_one`. Pinning the level everywhere would
+## make growth invisible to this suite, and "no class stat ever changed" is trivially
+## satisfied by growth that does nothing at all — the same vacuous-invariant trap
+## that let three bugs delete an entire ledge skyline behind a green geometry suite.
+##
+## So: raise the climber to a real level, rebuild a hero, and require the stats to
+## have MOVED — in the direction that class's own Growth row says they should, and
+## nowhere else.
+func _test_level_growth_actually_moves_the_stats() -> void:
+	var gs: Node = root.get_node_or_null(^"GameState")
+	if gs == null:
+		_expect(false, "GameState is on the tree (growth cannot be tested without it)")
+		return  # deliberately NOT completed
+	# A level-1 Juggernaut, measured.
+	gs.set("_xp", 0)
+	var lo: CharacterBody2D = _make_hero(JUGGERNAUT)
+	await physics_frame
+	var hp_low: int = int(lo.get("max_hp"))
+	var dmg_low: int = int(lo.get("_melee_damage"))
+	var lo_melee_cd: float = float(lo.get("_melee_cd"))
+	# CAPTURED BEFORE THE BODY IS FREED, and before the level moves. Re-deriving the
+	# level-1 speed later by building another hero would read it AT THE NEW LEVEL, and
+	# since the Juggernaut's SWIFTNESS is 0 the comparison would come out equal for the
+	# wrong reason — a vacuous pass dressed as a real one.
+	var spd_low: float = float(lo.call("_class_speed"))
+	var base_low: int = int(lo.get("_base_max_hp"))
+	lo.queue_free()
+	await physics_frame
+
+	# THE SAME CLASS, TEN LEVELS UP. Driven through the real XP curve rather than by
+	# writing a level, so this also proves `level_for_xp` and the Hero read agree.
+	gs.set("_xp", Progression.total_xp_for_level(10))
+	_expect(int(gs.call("level")) == 10, "the climber is actually level 10 (got %d)" % int(gs.call("level")))
+	_expect(int(gs.call("power_level")) == 10, "...and solo power level follows it")
+	var hi: CharacterBody2D = _make_hero(JUGGERNAUT)
+	await physics_frame
+	# The Juggernaut's row is VIT 4 / POW 2 / FOC 1 / SWI 0 / WARD 3.
+	_expect(int(hi.get("max_hp")) > hp_low,
+		"VITALITY 4 raises the Juggernaut's max hp by level 10 (%d -> %d)" % [hp_low, int(hi.get("max_hp"))])
+	_expect(int(hi.get("_melee_damage")) > dmg_low,
+		"POWER 2 raises its melee damage (%d -> %d)" % [dmg_low, int(hi.get("_melee_damage"))])
+	# FOCUS 1 shortens the melee gate. A DURATION, so growth makes it SMALLER — the one
+	# axis whose direction is inverted, and therefore the one most likely to be wired
+	# the wrong way round without anybody noticing.
+	_expect(float(hi.get("_melee_cd")) < float(lo_melee_cd),
+		"FOCUS 1 shortens the melee cooldown (%.4f -> %.4f)" % [lo_melee_cd, float(hi.get("_melee_cd"))])
+	# ⚠ SWIFTNESS 0 MEANS 0. A class with a zero in the table must NOT drift. This is
+	# what proves growth is read PER AXIS from that class's row, rather than applied as
+	# one blanket multiplier that merely looks right on the axes that are non-zero.
+	_expect(is_equal_approx(float(hi.call("_class_speed")), spd_low),
+		"SWIFTNESS 0 means the Juggernaut never gets quicker, at any level (%.2f vs %.2f)"
+		% [float(hi.call("_class_speed")), spd_low])
+	# THE BASE IS UNTOUCHED. Growth scales FROM the class table and must never re-base
+	# it, or the next recompute compounds — the exact trap `class_hp_composes_with_gear`
+	# exists to pin, now re-asserted with a second multiplier in the chain.
+	_expect(int(hi.get("_base_max_hp")) == base_low,
+		"the class BASE is unchanged by levelling (%d vs %d) — growth scaled max_hp, it did not re-base it"
+		% [int(hi.get("_base_max_hp")), base_low])
+	hi.queue_free()
+	await physics_frame
+	# Leave the tree at level 1 for anything that runs after this.
+	gs.set("_xp", 0)
+	_completes("level_growth_actually_moves_the_stats")

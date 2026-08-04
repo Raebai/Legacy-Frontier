@@ -451,11 +451,27 @@ static func cast(
 	return true
 
 
-## The spell as it should actually be thrown, given any Blood Pact its caster is
-## under. Returns `spell` UNCHANGED when there is no pact, so the common path
-## allocates nothing.
+## The spell as it should actually be thrown, given every multiplier its caster is
+## under: a Blood Pact, and the caster's POWER growth from levelling. Returns
+## `spell` UNCHANGED when both are neutral, so the common path allocates nothing.
+##
+## ⚠ THIS IS THE ONLY PLACE A SPELL'S DAMAGE MAY BE SCALED PER-CAST. A `SpellDef`
+## is a SHARED RESOURCE out of the catalog — the same object every caster of that
+## spell reads — so scaling it in place would permanently buff the spell for
+## enemies, bots and the other player too, compounding once per cast. Duplicating
+## first is not a nicety; it is the whole reason this function exists.
+##
+## Melee is NOT scaled here: it composes through Hero's gear aggregate, which owns
+## `_base_melee_damage`. Two paths because there are genuinely two bases, not
+## because the rule differs.
 static func _blood_pacted(spell: SpellDef, caster: Node, ctx: Node) -> SpellDef:
 	var mult: float = BloodPact.multiplier_for(caster, ctx)
+	# LEVEL GROWTH. Asked of the caster rather than looked up from GameState, so an
+	# enemy, a thrall, a bot and a mirror image — none of which level — are all
+	# untouched by simply not answering, and a co-op puppet reports its OWN owner's
+	# power rather than the local player's.
+	if caster != null and is_instance_valid(caster) and caster.has_method("growth_damage_mult"):
+		mult *= maxf(float(caster.call("growth_damage_mult")), 0.01)
 	if mult <= 1.0 or spell.damage <= 0:
 		return spell
 	var boosted: SpellDef = spell.duplicate() as SpellDef

@@ -66,6 +66,7 @@ func _process(_delta: float) -> bool:
 	if _ran:
 		return false
 	_ran = true
+	_pin_level_one()
 	_test_defaults_untouched()
 	_test_weapon_sets_and_reverts_element()
 	_test_head_body_and_melee_effects()
@@ -96,6 +97,26 @@ func _expect(cond: bool, msg: String) -> void:
 ## Last line of every test: "I reached the end." See TESTS.
 func _completes(test_name: String) -> void:
 	_completed[test_name] = true
+
+
+## ⚠ PIN THE CLIMBER AT LEVEL 1, OR THIS SUITE TESTS THE TESTER'S SAVE FILE.
+##
+## Every gear multiplier below is asserted against the class base, and Hero now
+## composes LEVEL GROWTH on top of that base through the SAME aggregate. GameState
+## loads the real `user://climber.json` and its node IS on the tree under `--script`
+## (the autoload IDENTIFIER is not — that is the trap that hides this), so on a
+## machine whose owner has played, "no gear -> speed x1" is false through no fault
+## of the gear code.
+##
+## Growth's own behaviour is asserted by `tools/slice_test_progression.gd` and by
+## `slice_test_class_movement`'s `level_growth_actually_moves_the_stats`.
+func _pin_level_one() -> void:
+	var gs: Node = root.get_node_or_null(^"GameState")
+	if gs == null:
+		return
+	gs.set("_xp", 0)
+	if gs.has_method("clear_party_level"):
+		gs.call("clear_party_level")
 
 
 func _make_hero() -> CharacterBody2D:

@@ -14,6 +14,14 @@ extends Node
 signal run_started
 signal run_ended(outcome: Dictionary)        # combat resolved (victory or death)
 signal floor_advanced(floor: int)            # cleared a floor, entering the next
+## XP landed. `kind` is "kill" / "guardian" / "clear" — the level-up spectacle and
+## the floating number both read it, and it is what lets a guardian pay louder than
+## a trash mob without either of them knowing the other exists.
+signal xp_gained(amount: int, kind: String, where: Vector2)
+## A LEVEL. The one progression beat the player is shown, and the reason
+## `LevelUpBurst` exists. Emitted AFTER the new level is banked, so a listener that
+## asks `level()` in the handler gets the level it is celebrating.
+signal leveled_up(new_level: int)
 ## ⚠ `fell(new_floor)` IS GONE, and so are `fall()` and `fall_floor()`.
 ## They implemented the OLD death rule — die, drop a floor, keep climbing — which the
 ## maker replaced on 2026-08-01: "dying cost is a life in ghost form until your
@@ -69,7 +77,19 @@ const ARENA_SCENE: String = "res://scenes/combat/Arena.tscn"
 const TOTAL_FLOORS: int = 10
 
 ## Climber save schema version (bump + migrate if the shape changes).
-const CLIMBER_SAVE_VERSION: int = 1
+##
+## ⚠ 1 -> 2 ON 2026-08-04 adds the levelling record: `xp`, `unlocked_nodes`,
+## `unlocked_classes`. THE MIGRATION IS A LOSSLESS WRAP and needs no branch — every
+## field is read through `.get(key, default)`, so a v1 save simply arrives with no
+## XP, no tree and the six starting classes, which is exactly right for a climber
+## who has never levelled. Same principle as D-044.
+##
+## ⚠ AND IT DELIBERATELY DOES NOT BRANCH ON THE VERSION NUMBER. The M9 bug was a
+## version check that misread `2` as `2.0` (JSON gives floats), decided a valid save
+## needed migrating, and destroyed it. A parser that never asks the version cannot
+## make that mistake. The number is stamped for humans and for a future shape change
+## that genuinely cannot be defaulted.
+const CLIMBER_SAVE_VERSION: int = 2
 ## Where the persistent climber lives (highest/current floor, falls, conquered, rank).
 const CLIMBER_PATH: String = "user://climber.json"
 
@@ -157,6 +177,43 @@ var _falls: int = 0                  # cumulative falls (deaths); the town clock
 var tower_conquered: bool = false    # cleared the guardian at least once this save
 var _saved_rank_power: int = 0       # Rank.power snapshot, applied to /root/Rank on enter_run
 
+## ══ THE LEVELLING RECORD ══════════════════════════════════════════════════════
+## LIFETIME XP, and the ONLY number stored. Level is derived from it
+## (`Progression.level_for_xp`), and Growth is derived from level + class. Nothing
+## downstream is persisted, so a retune of the curve updates every existing save
+## for free and no two stored numbers can ever disagree about the same climber.
+##
+## ⚠ NEVER RESET. Maker's ruling, 2026-08-04: levelling persists across climbs,
+## deaths and tower conquests — "the one thing that is yours regardless of how the
+## run went". `Rank` is the per-climb channel and stays that way.
+var _xp: int = 0
+
+## Spell-tree nodes bought, by id. Skill points SPENT are derived by summing these
+## nodes' costs; points EARNED are `level - 1`. Neither is stored, for the same
+## reason Growth is not: a stored balance can drift from the thing it is a balance of.
+var unlocked_nodes: Array[String] = []
+
+## Locked classes earned (Stormcaller / Warlock / Swordsaint). The six starters are
+## not listed — `Progression.is_class_unlocked` knows them, so this array holds only
+## what was actually won and a fresh save is legitimately empty.
+var unlocked_classes: Array[int] = []
+
+## ⚠ THE PARTY'S POWER LEVEL, FROZEN FOR THE RUN. -1 = solo / not resolved, i.e.
+## use your own level. Set once when the party enters the tower, alongside
+## `party_start_floor`, and never recomputed mid-run — recomputing live means a
+## friend joining mid-fight silently drops your max hp out from under your current
+## hp. See `Progression.party_growth_level` for why the cap exists at all.
+var _party_level: int = -1
+
+## THE FLOOR IS THE UNIT OF XP, AND THIS IS WHAT MAKES THAT TRUE IN CODE.
+##
+## A floor's kill share is a PURSE, drawn down one body at a time and never
+## refilled. Without it, anything that spawns extra bodies mid-floor — a SUMMONER's
+## minions, a boss's adds, the Warlock's own thralls — would mint XP the floor was
+## never worth, and "stand on floor 1 next to a summoner" would be the best farm in
+## the game. With it, that play yields exactly nothing extra.
+var _floor_kill_purse: int = 0
+
 var mode: int = Mode.HUB
 var last_run: Dictionary = {}            # {} until the first run ends
 
@@ -198,6 +255,8 @@ func enter_run() -> void:
 	_friendly_damage = 0
 	_run_active = true
 	mode = Mode.RUN
+	clear_party_level()      # a solo run plays at your own level, always
+	_open_floor_purse()
 	run_started.emit()
 	_change_scene(ARENA_SCENE)
 
@@ -254,6 +313,10 @@ func advance_floor() -> void:
 		return                            # co-op: only the host advances the party
 	if not _run_active:
 		return
+	# THE CLEAR SHARE, paid for taking the exit — banked BEFORE the floor number
+	# moves, or the last floor of the tower would pay at the price of a floor that
+	# does not exist.
+	grant_xp(Progression.clear_xp(_floor), "clear")
 	if _floor >= total_floors():
 		_boss_killed = true               # cleared the guardian floor
 		tower_conquered = true
@@ -263,6 +326,7 @@ func advance_floor() -> void:
 		return
 	_floor += 1
 	_highest_floor = maxi(_highest_floor, _floor)
+	_open_floor_purse()                   # a new floor, a new purse
 	_save_climber()
 	floor_advanced.emit(_floor)
 
@@ -309,6 +373,7 @@ func enter_coop_run(floor: int) -> void:
 	_friendly_damage = 0
 	_run_active = true
 	mode = Mode.RUN
+	_open_floor_purse()
 	run_started.emit()
 
 
@@ -324,6 +389,10 @@ func net_set_floor(floor: int) -> void:
 	_highest_floor = maxi(_highest_floor, _floor)
 	_run_active = true
 	mode = Mode.RUN
+	# The client opens its OWN purse for the new floor. It never draws from it (kills
+	# resolve host-side and arrive as relayed grants), but a client that later
+	# becomes the authority for anything must not be sitting on an empty one.
+	_open_floor_purse()
 	floor_advanced.emit(_floor)
 
 
@@ -363,6 +432,10 @@ func game_over() -> void:
 func return_to_hub() -> void:
 	if not _run_active:
 		return
+	# Walking out of a floor you CLEARED pays the same clear share taking the exit
+	# does — the two are the same event with different destinations, and paying only
+	# one of them would make "go home" quietly cost you a fifth of the floor.
+	grant_xp(Progression.clear_xp(_floor), "clear")
 	if _floor < total_floors():
 		_floor += 1
 		_highest_floor = maxi(_highest_floor, _floor)
@@ -437,7 +510,8 @@ func _change_scene(path: String) -> void:
 ## mid-write can't corrupt an existing climber.
 func _save_climber(path: String = CLIMBER_PATH) -> void:
 	var payload: Dictionary = build_climber_save(
-		_floor, _highest_floor, _falls, tower_conquered, _live_rank_power()
+		_floor, _highest_floor, _falls, tower_conquered, _live_rank_power(),
+		_xp, unlocked_nodes, unlocked_classes
 	)
 	var tmp_path: String = path + ".tmp"
 	var f: FileAccess = FileAccess.open(tmp_path, FileAccess.WRITE)
@@ -475,6 +549,9 @@ func _load_climber(path: String = CLIMBER_PATH) -> void:
 	_falls = int(state["falls"])
 	tower_conquered = bool(state["tower_conquered"])
 	_saved_rank_power = int(state["rank_power"])
+	_xp = int(state["xp"])
+	unlocked_nodes = state["unlocked_nodes"]
+	unlocked_classes = state["unlocked_classes"]
 
 
 ## The live rank power to persist. Reads /root/Rank when present (combat), else
@@ -498,8 +575,140 @@ func _restore_rank_power() -> void:
 		r.set_power(_saved_rank_power)
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# XP — THE ONE PLACE IT ENTERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+## Current level, derived from lifetime XP. Never stored.
+func level() -> int:
+	return Progression.level_for_xp(_xp)
+
+
+func xp() -> int:
+	return _xp
+
+
+## XP banked into the current level, and what the next one costs — the two numbers
+## a progress bar needs, both derived so the bar can never disagree with the level.
+func xp_into_level() -> int:
+	return Progression.xp_into_level(_xp)
+
+
+func xp_for_next_level() -> int:
+	return Progression.xp_to_next(level())
+
+
+## The level a HERO is built at. Solo: your own. Co-op: the party cap, frozen at
+## entry. This is the single accessor every stat consumer reads, so there is exactly
+## one answer to "how strong am I right now".
+func power_level() -> int:
+	if _party_level > 0:
+		return mini(_party_level, level())
+	return level()
+
+
+## Resolve the party's power level and FREEZE it for the run. Called with every
+## member's level at the moment the party enters the tower — the same moment
+## `party_start_floor` resolves where they start.
+func set_party_levels(levels: Array) -> void:
+	_party_level = Progression.party_growth_level(levels) if not levels.is_empty() else -1
+
+
+## Solo, or a run that never resolved a party: clear the cap.
+func clear_party_level() -> void:
+	_party_level = -1
+
+
+## THE ONE PLACE XP IS BANKED. Everything else routes here.
+##
+## Returns the number of levels gained (0 normally), so a caller can react without
+## having to diff `level()` around the call itself.
+##
+## ⚠ THE LEVEL IS RE-DERIVED, NOT INCREMENTED. Adding XP and separately bumping a
+## stored level is two sources of truth for one fact; deriving both sides from `_xp`
+## means a level-up cannot be missed, double-counted, or awarded twice by a retry.
+func grant_xp(amount: int, kind: String = "kill", where: Vector2 = Vector2.ZERO) -> int:
+	var n: int = maxi(amount, 0)
+	if n <= 0:
+		return 0
+	var before: int = Progression.level_for_xp(_xp)
+	_xp += n
+	var after: int = Progression.level_for_xp(_xp)
+	xp_gained.emit(n, kind, where)
+	# Co-op: the host is the only peer that runs enemy death, so it is the only peer
+	# that can see a kill happen. Everyone in the fight earned it, so the host relays
+	# the grant and every peer banks it into their OWN save.
+	if _is_net_host():
+		var net: Node = get_node_or_null("/root/Net")
+		if net != null and net.has_method("broadcast_xp"):
+			net.call("broadcast_xp", n, kind, where)
+	for l: int in range(before + 1, after + 1):
+		leveled_up.emit(l)
+	return maxi(after - before, 0)
+
+
+## Co-op CLIENT receiver. Banks the host's relayed grant WITHOUT re-broadcasting —
+## the guard is `_is_net_host()` inside `grant_xp`, and a client is not the host, so
+## this could safely call straight through. It goes through the same function on
+## purpose: one banking path means a client and a host can never level differently.
+func receive_net_xp(amount: int, kind: String, where: Vector2 = Vector2.ZERO) -> void:
+	grant_xp(amount, kind, where)
+
+
+func _is_net_host() -> bool:
+	var n: Node = get_node_or_null("/root/Net")
+	return n != null and n.is_active() and n.is_host()
+
+
+## Open the floor's kill purse. Called at every floor entry — see `_floor_kill_purse`.
+func _open_floor_purse() -> void:
+	_floor_kill_purse = int(round(Progression.floor_xp_value(_floor) * Progression.KILL_SHARE))
+
+
+## How many bodies this floor authored — the denominator the per-enemy XP is derived
+## against. Sums the authored waves, falling back to the flat field for a floor that
+## has none (the synthesized fallback, and the F6 sandbox).
+func _floor_body_count() -> int:
+	var fd: FloorDef = floor_def_for(_floor)
+	if fd == null:
+		return 1
+	var total: int = 0
+	for w: WaveDef in fd.waves:
+		total += maxi(w.enemy_budget, 0)
+	return maxi(total if total > 0 else fd.enemy_budget, 1)
+
+
 # --------------------------------------------------- live-run notifications
-func notify_kill() -> void: _kills += 1
+## A villain fell. Pays from the floor's purse and never past it.
+func notify_kill(where: Vector2 = Vector2.ZERO) -> void:
+	_kills += 1
+	if not _run_active:
+		return
+	var per: int = Progression.enemy_xp(_floor, _floor_body_count())
+	# The purse can hand out less than a full body's worth on the last one, which is
+	# correct: the floor pays what it is worth and then it is empty.
+	var pay: int = mini(per, maxi(_floor_kill_purse, 0))
+	if pay <= 0:
+		return
+	_floor_kill_purse -= pay
+	grant_xp(pay, "kill", where)
+
+
+## THE GUARDIAN FELL. The biggest single XP event on a floor, and paid OUTSIDE the
+## kill purse because it is not one of the floor's bodies — it is what the floor was
+## built toward.
+##
+## ⚠ THIS ALSO CLOSES A LATENT GAP. `notify_boss_killed` existed and was called by
+## NOBODY: `_boss_killed` was only ever set inside `advance_floor` when clearing the
+## LAST floor, so a guardian felled on floors 1-9 was never recorded in the outcome
+## at all. `Boss` now routes its death here.
+func notify_guardian_killed(where: Vector2 = Vector2.ZERO) -> void:
+	_boss_killed = true
+	if not _run_active:
+		return
+	grant_xp(Progression.guardian_xp(_floor), "guardian", where)
+
+
 func notify_boss_killed() -> void: _boss_killed = true
 func notify_element_used(display_name: String) -> void: _elements_used[display_name] = true
 ## Banked by `FriendlyFire.report`. The only number in the game that says what the
@@ -613,8 +822,21 @@ static func default_layout() -> LayoutDef:
 
 ## The on-disk climber record. All fields clamped to their floors; highest is
 ## never below current. Static + pure -> headless-testable.
-static func build_climber_save(current_floor: int, highest_floor: int, falls: int, tower_conquered: bool, rank_power: int) -> Dictionary:
+## The three levelling fields are APPENDED with defaults rather than inserted, so
+## every existing 5-argument caller (and the suites that pin them) is untouched.
+static func build_climber_save(current_floor: int, highest_floor: int, falls: int, tower_conquered: bool, rank_power: int,
+		xp: int = 0, unlocked_nodes: Array = [], unlocked_classes: Array = []) -> Dictionary:
 	var current: int = maxi(current_floor, 1)
+	var nodes: Array = []
+	for n in unlocked_nodes:
+		var id: String = str(n)
+		if id != "" and not nodes.has(id):
+			nodes.append(id)
+	var classes: Array = []
+	for c in unlocked_classes:
+		var ci: int = int(c)
+		if not classes.has(ci):
+			classes.append(ci)
 	return {
 		"version": CLIMBER_SAVE_VERSION,
 		"current_floor": current,
@@ -622,6 +844,9 @@ static func build_climber_save(current_floor: int, highest_floor: int, falls: in
 		"falls": maxi(falls, 0),
 		"tower_conquered": tower_conquered,
 		"rank_power": maxi(rank_power, 0),
+		"xp": maxi(xp, 0),
+		"unlocked_nodes": nodes,
+		"unlocked_classes": classes,
 	}
 
 
@@ -634,12 +859,32 @@ static func parse_climber_save(raw: Dictionary) -> Dictionary:
 	var falls: int = maxi(int(raw.get("falls", 0)), 0)
 	var conquered: bool = bool(raw.get("tower_conquered", false))
 	var rank_power: int = maxi(int(raw.get("rank_power", 0)), 0)
+	# THE v1 -> v2 MIGRATION, and it is these three lines. A save written before
+	# levelling existed has none of these keys, so it arrives as a level-1 climber
+	# with the six starting classes — which is exactly what it is.
+	var xp: int = maxi(int(raw.get("xp", 0)), 0)
+	var nodes: Array[String] = []
+	for n in (raw.get("unlocked_nodes", []) as Array):
+		var id: String = str(n)
+		if id != "" and not nodes.has(id):
+			nodes.append(id)
+	# ⚠ int() ON EVERY ELEMENT. JSON.parse_string gives `6.0`, not `6`, and an array
+	# of floats compared with `==` against an int class id matches NOTHING — an
+	# unlocked class would silently re-lock on every load. The M9 trap, in a list.
+	var classes: Array[int] = []
+	for c in (raw.get("unlocked_classes", []) as Array):
+		var ci: int = int(c)
+		if not classes.has(ci):
+			classes.append(ci)
 	return {
 		"current_floor": current,
 		"highest_floor": highest,
 		"falls": falls,
 		"tower_conquered": conquered,
 		"rank_power": rank_power,
+		"xp": xp,
+		"unlocked_nodes": nodes,
+		"unlocked_classes": classes,
 	}
 
 

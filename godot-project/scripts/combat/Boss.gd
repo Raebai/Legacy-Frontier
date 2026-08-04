@@ -543,6 +543,23 @@ func _die() -> void:
 	super._die()
 
 
+## THE GUARDIAN'S XP, and the reason `Enemy._notify_run_kill` is virtual at all.
+##
+## A guardian dying used to file as one more trash kill: it would have drawn one
+## body's worth from the floor's kill purse, i.e. the climax of the floor would have
+## paid roughly what a chaser pays. It is now the floor's single biggest XP event,
+## paid OUTSIDE the purse, because it is not one of the floor's bodies.
+##
+## This also closes a gap that predates XP entirely: `GameState.notify_boss_killed`
+## existed and was called by nobody, so `_boss_killed` was only ever set when
+## clearing the LAST floor. A guardian felled on floors 1-9 went unrecorded in the
+## run outcome. It is recorded now.
+func _notify_run_kill() -> void:
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and gs.is_run_active():
+		gs.notify_guardian_killed(global_position)
+
+
 # -------------------------------------------------------------------- phases
 func current_phase() -> int:
 	match _bphase:

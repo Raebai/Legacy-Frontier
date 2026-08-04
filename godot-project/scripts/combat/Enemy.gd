@@ -1869,10 +1869,15 @@ func _notify_hype_kill() -> void:
 
 ## Count the kill toward the active run's outcome record (guarded — no-op in
 ## the standalone sandbox where no run is active).
+## ⚠ OVERRIDDEN BY `Boss`, which routes to `notify_guardian_killed` instead. A
+## guardian is not one of the floor's bodies and must not be paid out of the floor's
+## kill purse — it is what the floor was built toward, and it pays its own share.
 func _notify_run_kill() -> void:
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs != null and gs.is_run_active():
-		gs.notify_kill()
+		# The position rides along so the XP number can float off the body that
+		# dropped it rather than off the HUD. Ignored by the outcome record.
+		gs.notify_kill(global_position)
 
 
 ## Tint-colored particle pop, noticeably bigger than a spell impact.
