@@ -32,26 +32,56 @@ const TOWN_WIDTH: float = 1180.0
 const GROUND_Y: float = 452.0
 const GROUND_THICKNESS: float = 260.0
 
-## LEFT TO RIGHT, IN THE ORDER YOU MEET THEM WALKING BACK FROM THE DOOR. Ordered
-## by how often a player actually wants them: gear least, class most, and the
-## tower under your feet.
-## ⚠ THE SPREAD IS THE COST OF THE TOWN. Farthest station to the door is ~540 px,
-## which at Player.SPEED is under three seconds each way. It was 700 px on the
-## first pass and that already felt like a corridor; if this ever widens again,
-## the town is drifting back toward being the layer it was deleted for being.
-const ARMORY_X: float = 306.0        # the rack — weapon / head / body
-const ALTAR_X: float = 480.0         # the statue — which of the nine you are
-const LECTERN_X: float = 648.0       # the book — which three spells you carry
-## THE ARCHIVIST'S DESK — which spells you may carry AT ALL (the tree).
+## ══ THE PAD ROW ═════════════════════════════════════════════════════════════
+## Maker: "make the spacing of where the teleport pads are better and in a certain
+## location". They were scattered at 306 / 480 / 590 / 648 — three different gaps,
+## one of which (58) was tight enough that two hints fought for the same corner.
 ##
-## ⚠ NEXT TO THE LECTERN, NOT ACROSS THE ROOM, because the two are one thought:
-## the tree decides your options and the lectern picks three of them, so a player
-## who has just learned a spell should be able to bind it without a walk. 58 px
-## apart is far enough that their proximity hints never fight for the same corner
-## (see the note on TOWNSFOLK wander ranges) and close enough to read as one desk.
-const ARCHIVIST_X: float = 590.0
-const CAMPFIRE_X: float = 740.0      # the warm middle; nothing to press
-const SPARRING_X: float = 180.0      # the chalk ring — free play, no stakes
+## They are ONE EVENLY SPACED ROW now, all on the same side of the campfire, so the
+## row itself is the thing you read: four discs, one stride apart, in the order you
+## want them. `PAD_STEP` is the only number — write a fifth pad and it lands in the
+## row rather than wherever somebody thought looked right.
+##
+## ⚠ THE STEP IS NOT A LOOK, IT IS THE PROXIMITY RING. `ArmoryStation.PROXIMITY_RADIUS`
+## is 46, so two pads closer than 92 px put two "[E] ..." hints on screen at once and
+## the player cannot tell which one the key will press. 100 clears it with room to
+## spare and still reads as a row rather than as four separate places.
+const PAD_FIRST_X: float = 360.0
+const PAD_STEP: float = 100.0
+const ARMORY_X: float = PAD_FIRST_X                    # ⚔ gear
+const ALTAR_X: float = PAD_FIRST_X + PAD_STEP          # ◆ which of the nine you are
+const LECTERN_X: float = PAD_FIRST_X + PAD_STEP * 2.0  # ✦ which spells you carry
+## THE ARCHIVIST'S DESK — which spells you may carry AT ALL (the tree). Next to the
+## lectern, because the two are one thought: the tree decides your options and the
+## lectern picks from them, so a player who has just learned a spell binds it without
+## a walk.
+const ARCHIVIST_X: float = PAD_FIRST_X + PAD_STEP * 3.0
+const CAMPFIRE_X: float = 745.0      # the warm middle; nothing to press
+
+## ══ THE DUMMY YARD ═══════════════════════════════════════════════════════════
+## Maker: "you should be able to cast spells and stuff within the lobby instead of a
+## training ground — just have standing immortal test dummies on one side of the hub
+## area."
+##
+## So the sparring PAD is gone. It was a teleport out of the room to `FreePlay`, which
+## is a whole second scene with its own stage, its own camera and its own control card
+## — an entire mode to answer "what does this spell look like". You cast where you are
+## standing now, and the things you cast at are three bodies at the far end.
+##
+## ⚠ THEY ARE HERO BODIES, NOT PROPS, and that is the whole reason this works: a
+## `Hero` with 9999 HP on a faction nothing is hostile to is already the shipped
+## practice dummy (`VersusArena._rebuild_dummies`), so every spell, reaction, element
+## and impact frame in the game treats it exactly as it treats a real target. A drawn
+## scarecrow would have been a lie you could not hit.
+const DUMMY_FIRST_X: float = 120.0
+const DUMMY_STEP: float = 66.0
+const DUMMY_COUNT: int = 3
+## Nothing in the town can hurt anything, but the number still has to be big enough
+## that a full ult does not visibly move the bar — that is what "immortal" reads as.
+const DUMMY_HP: int = 9999
+## Straw. Deliberately outside every class colourway in `ClassInfo`, so a dummy can
+## never be mistaken for a fighter — least of all for your teammate.
+const DUMMY_COLOR: Color = Color(0.66, 0.58, 0.38)
 ## The party stone stands between the campfire and the door, so the last thing you
 ## pass on the way out is the answer to "is my friend actually here".
 const PARTY_X: float = 820.0
@@ -66,24 +96,52 @@ const PLAYER_SPAWN: Vector2 = Vector2(TOWER_X - 54.0, GROUND_Y)
 ## bit of character, and their wander ranges are small enough that they never
 ## drift into a station's own hint and make two prompts fight for the same corner.
 ##
-## ⚠ EACH ONE NOW HAS A JOB (spec §7). They were flavour; they are the town's
-## teaching layer. The Quartermaster says what a gear slot TRADES AWAY, the
-## Archivist says how the tree is priced, the Warden teaches the three mechanics
-## that are invisible until they kill you, and the Doorkeeper reads your climb back
-## to you — floor, best, falls, level — through `NPC._fill`.
+## ⚠ TWO, NOT FOUR. Maker, walking the room: "townsfolk need PERSONALITY — have them
+## jump around. Fewer of them." Four people in a room this size is a crowd you walk
+## through; two is a place with somebody in it.
 ##
-## That last one is the deleted AI-NPC stack's actual job, and it turns out it never
-## needed a language model. It needed four numbers and a token in a string.
+## WHICH TWO, AND WHY THE OTHER TWO WENT. Each one had a job (spec §7) and only two of
+## those jobs survive the pads. The Quartermaster said what a gear slot TRADES AWAY and
+## the Scribe said how the tree is priced — both are SIGNPOSTING, and signposting is
+## exactly what the teleport pads and the signboard now do with a picture instead of a
+## paragraph. What no pad can say is kept:
+##
+##   * the WARDEN teaches the three mechanics that are invisible until they kill you —
+##     a thing you cannot learn from a glyph on the floor;
+##   * the DOORKEEPER reads your climb back to you (floor, best, falls, level, through
+##     `NPC._fill`). That is the deleted AI-NPC stack's actual job, and it turns out it
+##     never needed a language model. It needed four numbers and a token in a string.
+##
+## The two lost `.tres` files are NOT deleted — a townsperson is one line in this table,
+## so putting either back costs one line and no content.
 const TOWNSFOLK: Array[Dictionary] = [
-	{"res": "res://data/npcs/warden.tres", "x": 232.0, "range": 26.0},   # the sparring ring
-	{"res": "res://data/npcs/smith.tres", "x": 362.0, "range": 34.0},    # the rack
-	{"res": "res://data/npcs/scribe.tres", "x": 550.0, "range": 24.0},   # the Archivist's desk
-	{"res": "res://data/npcs/doorkeeper.tres", "x": 762.0, "range": 26.0},  # the door
+	{"res": "res://data/npcs/warden.tres", "x": 232.0, "range": 30.0},   # the sparring pad
+	{"res": "res://data/npcs/doorkeeper.tres", "x": 762.0, "range": 30.0},  # the door
 ]
 
 ## Decoration only — a raised deck up-left that gives the skyline some depth. It
 ## used to be where the armory lived, behind a jump. Nothing a phone player needs
 ## is up a platform any more.
+## ── THE SIGNBOARD ────────────────────────────────────────────────────────────
+## Maker: "a SIGN in the background, part of the map, telling you where to go."
+##
+## ⚠ IT REPLACED A SENTENCE, IT DID NOT ADD TO ONE. The town used to carry a line of
+## HUD text along the bottom of the screen — "walk left: gear · spells · class · the
+## tower is right here · Esc: title" — which is thirteen words of chrome floating over
+## a room that could simply contain a sign. The board is IN the world, it is where a
+## sign would actually be (between you and the shops, facing the door you spawn on),
+## and the HUD line is gone. Same information, no chrome, and it obeys the standing
+## rule: remove the words, keep the picture.
+## ⚠ 852 PUT IT BEHIND THE TOWER DOOR. Judged from `town_capture`, not from the
+## number: the door's silhouette is ~80 px wide at x=900 and it ate the whole right
+## arm, so the sign said "◂ stations" and nothing else. 700 sits it between the last
+## pad and the campfire, still inside the frame you spawn looking at (the town camera
+## is zoom 1.2, so spawn sees x≈579..1113).
+const SIGN_X: float = 770.0
+const SIGN_TOP: float = GROUND_Y - 128.0
+const SIGN_POST: Color = Color(0.29, 0.22, 0.16)
+const SIGN_BOARD: Color = Color(0.42, 0.32, 0.22)
+
 const LOFT_CENTER: Vector2 = Vector2(215.0, GROUND_Y - 118.0)
 const LOFT_SIZE: Vector2 = Vector2(300.0, 16.0)
 const STEP_CENTER: Vector2 = Vector2(340.0, GROUND_Y - 58.0)
@@ -96,9 +154,14 @@ const GRAPHITE: Color = Color(0.62, 0.63, 0.70)
 
 const TOWER_DOOR_SCRIPT: Script = preload("res://scripts/TowerDoor.gd")
 const STATION_SCRIPT: Script = preload("res://scripts/ArmoryStation.gd")
-const CLASS_ALTAR_SCRIPT: Script = preload("res://scripts/ClassAltar.gd")
 const HUB_AMBIENCE_SCRIPT: Script = preload("res://scripts/HubAmbience.gd")
 const NPC_SCENE: PackedScene = preload("res://scenes/NPC.tscn")
+## ⚠ REACHED BY PATH, NEVER PRELOADED. `Hero.tscn` drags the whole combat dependency
+## chain — SpellCaster, every spectacle, the bot stack — and a `preload` here would
+## compile all of it at THIS script's parse time, which is the trap every capture tool
+## in this project documents. `load()` at spawn time pays the same cost once, later,
+## on a frame where the player is already looking at a loading screen.
+const HERO_SCENE: String = "res://scenes/combat/Hero.tscn"
 
 ## Every tappable target in the town clears this, in base units, matching the
 ## floor `Outfitter` and `Lobby` hold themselves to.
@@ -113,6 +176,7 @@ func _ready() -> void:
 	_build_backdrop()
 	_build_ground()
 	_build_loft()
+	_build_signboard()
 	_spawn_ambience()
 	_place_player()
 	# AFTER `_place_player`, so the peer bodies are laid out relative to a doorstep
@@ -120,8 +184,8 @@ func _ready() -> void:
 	# happened to park it.
 	_setup_peer_bodies()
 	_spawn_tower_entrance()
-	_spawn_class_altar()
 	_spawn_stations()
+	_spawn_dummy_yard()
 	_spawn_townsfolk()
 	_spawn_hud()
 	_spawn_touch_pad()
@@ -191,6 +255,51 @@ func _build_ground() -> void:
 func _build_loft() -> void:
 	_make_platform(LOFT_CENTER, LOFT_SIZE)
 	_make_platform(STEP_CENTER, STEP_SIZE)
+
+
+## A two-armed signpost: one arm pointing back at the pads, one at the door.
+##
+## ⚠ NO COLLISION. It is scenery you read, not a thing you bump into — the room's
+## whole complaint was that it made you walk around objects.
+func _build_signboard() -> void:
+	var post := ColorRect.new()
+	post.color = SIGN_POST
+	post.size = Vector2(5.0, GROUND_Y - SIGN_TOP)
+	post.position = Vector2(SIGN_X - 2.5, SIGN_TOP)
+	post.z_index = -3
+	post.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(post)
+	# LEFT arm: what is behind you. RIGHT arm: the way out. The arrow is part of the
+	# string so the plank and the direction can never disagree.
+	_sign_arm("◂  ⚔  ✦  ❖  ◎", -1.0, SIGN_TOP + 8.0)
+	_sign_arm("THE TOWER  ▸", 1.0, SIGN_TOP + 34.0)
+
+
+## One plank, hanging off the post on `side`. The label is drawn on the plank rather
+## than beside it so the two move together at any window size.
+func _sign_arm(text: String, side: float, y: float) -> void:
+	# ⚠ 92 REACHED UNDER THE TOWER DOOR. The door's silhouette runs from about x=853
+	# to x=1020 (measured off `town_capture`, not off the constant — it is drawn wider
+	# than its origin), so the right arm has to end before 850.
+	var width: float = 72.0
+	var plank := ColorRect.new()
+	plank.color = SIGN_BOARD
+	plank.size = Vector2(width, 20.0)
+	plank.position = Vector2(SIGN_X + (0.0 if side > 0.0 else -width), y)
+	plank.z_index = -3
+	plank.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(plank)
+	var label := Label.new()
+	label.text = text
+	label.size = Vector2(width, 20.0)
+	label.position = plank.position
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 11)
+	label.add_theme_color_override("font_color", CHALK)
+	label.z_index = -2
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(label)
 
 
 func _make_platform(center: Vector2, size: Vector2) -> void:
@@ -304,8 +413,48 @@ func _spawn_peer_body(data: Dictionary) -> Node:
 	return p
 
 
+## ══ THE BODY YOU DRIVE IN THE TOWN IS A HERO ════════════════════════════════
+## Maker: "you should be able to cast spells and stuff within the lobby."
+##
+## It used to be `Player.tscn` — a walker with move, jump, dash and an interact key
+## and no combat verbs at all, which is why casting needed a whole second scene to
+## teleport out to. A `Hero` is the same body the tower runs, so the lobby gets every
+## spell, the ult, blink, nova, parry and melee for free, and — the part that matters
+## more — they behave IDENTICALLY here and there, because they are not a second
+## implementation.
+##
+## ⚠ IT JOINS THE "player" GROUP, WHICH IT IS NOT NORMALLY IN. Every station's
+## proximity check, the tower door, the peer-body guard and this function all resolve
+## the local body through `get_first_node_in_group("player")`. `Hero.tscn` ships in
+## group "hero" only, so without this line the town would build correctly and nothing
+## in it would react to you.
+##
+## ⚠ AND ITS FACTION IS SET, which is not cosmetic. A `Hero` defaults to hostile
+## toward "enemy", a group with nothing in it here — its auto-target reads would point
+## at an empty set and the dummy yard would be unhittable. Player and dummies are put
+## on teams that are hostile to each other and to nothing else.
+func _spawn_hero_body() -> Node2D:
+	var packed: PackedScene = load(HERO_SCENE)
+	if packed == null:
+		return null
+	var hero: Node = packed.instantiate()
+	add_child(hero)
+	(hero as Node2D).global_position = PLAYER_SPAWN
+	hero.add_to_group("player")
+	hero.call("set_faction", &"town_player", &"town_dummy")
+	hero.set("facing", Vector2.LEFT)
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and hero.has_method("configure_class"):
+		hero.call("configure_class", int(gs.get("selected_class")))
+	return hero as Node2D
+
+
 func _place_player() -> void:
+	# `Main.tscn` no longer parks a body — the town mints its own, because the body it
+	# wants is a combat one and a scene file cannot set a faction or a group at spawn.
 	var player: Node = get_tree().get_first_node_in_group("player")
+	if player == null:
+		player = _spawn_hero_body()
 	if player == null or not player is Node2D:
 		return
 	(player as Node2D).global_position = PLAYER_SPAWN
@@ -320,8 +469,8 @@ func _place_player() -> void:
 			cam.offset = Vector2(0.0, -44.0)
 
 
-## The three townspeople, instanced here rather than parked in `Main.tscn` so the
-## town's cast is one editable list (`TOWNSFOLK`) instead of a scene diff.
+## The townspeople, instanced here rather than parked in `Main.tscn` so the town's
+## cast is one editable list (`TOWNSFOLK`) instead of a scene diff.
 func _spawn_townsfolk() -> void:
 	for entry: Dictionary in TOWNSFOLK:
 		var path: String = String(entry.get("res", ""))
@@ -342,17 +491,21 @@ func _spawn_tower_entrance() -> void:
 	door.global_position = Vector2(TOWER_X, GROUND_Y)
 
 
-func _spawn_class_altar() -> void:
-	var altar: StaticBody2D = CLASS_ALTAR_SCRIPT.new()
-	add_child(altar)
-	altar.global_position = Vector2(ALTAR_X, GROUND_Y)
-
-
 ## The RACK and the LECTERN. Both are `ArmoryStation.gd` pointed at a different
 ## screen — see the header there. The rack is on the GROUND now: it used to sit on
 ## the loft behind a jump, and behind `if false:`, so in practice the whole armory
 ## (3 slots x 19 pieces, with live effect bags) had never been reachable in play.
 func _spawn_stations() -> void:
+	# ⚠ THE CLASS ALTAR IS A STATION NOW, not its own script. `ClassAltar.gd` was a
+	# fourth hand-written copy of walk-up-and-press-E with its own hint, its own
+	# proximity ring and its own overlay guard — and the maker's ruling was that ALL
+	# the stations become pads, so keeping a separate one meant maintaining two
+	# answers to the same question. Its statue survives; see `_build_statue`.
+	var altar: StaticBody2D = STATION_SCRIPT.new()
+	altar.set("kind", "class")
+	add_child(altar)
+	altar.global_position = Vector2(ALTAR_X, GROUND_Y)
+
 	var rack: StaticBody2D = STATION_SCRIPT.new()
 	rack.set("kind", "armory")
 	add_child(rack)
@@ -368,15 +521,6 @@ func _spawn_stations() -> void:
 	add_child(archivist)
 	archivist.global_position = Vector2(ARCHIVIST_X, GROUND_Y)
 
-	# THE SPARRING RING. Free play was a button on the TITLE screen, which is the one
-	# place a player is not yet curious about what their thumbs do. In the room it is
-	# something you walk past, at the FAR END from the door, so nobody heading for
-	# the tower is ever detoured through it.
-	var ring: StaticBody2D = STATION_SCRIPT.new()
-	ring.set("kind", "sparring")
-	add_child(ring)
-	ring.global_position = Vector2(SPARRING_X, GROUND_Y)
-
 	# ⚠ THE PARTY STONE ONLY EXISTS IN A PARTY. A station that says "nobody here" to
 	# a solo player is a dead object teaching them the room has broken parts — and
 	# this room already had to answer the maker asking "what do I do there".
@@ -385,6 +529,58 @@ func _spawn_stations() -> void:
 		stone.set("kind", "party")
 		add_child(stone)
 		stone.global_position = Vector2(PARTY_X, GROUND_Y)
+
+
+## THE DUMMY YARD. Three immortal hero bodies at the far end from the door, facing
+## the room, standing still.
+##
+## ⚠ PHYSICS OFF, AND IT IS NOT AN OPTIMISATION. A `Hero` with no controller falls
+## through to the real `Input` singleton in `Hero._pressed` — so a dummy with physics
+## running mirrors every button the player presses and the yard walks at you in
+## lockstep. `set_physics_process(false)` is what makes it stand there. Same trap,
+## same fix, as `VersusArena._rebuild_dummies`, and it is worth knowing that the
+## symptom is "the dummies are copying me", not "the dummies are broken".
+func _spawn_dummy_yard() -> void:
+	var hero_scene: PackedScene = load(HERO_SCENE)
+	if hero_scene == null:
+		return
+	for i: int in DUMMY_COUNT:
+		var d: Node = hero_scene.instantiate()
+		add_child(d)
+		(d as Node2D).global_position = Vector2(DUMMY_FIRST_X + DUMMY_STEP * float(i), GROUND_Y)
+		d.set("max_hp", DUMMY_HP)
+		d.set("hp", DUMMY_HP)
+		# On a team the player is hostile to, hostile to nobody: hittable, never hits
+		# back. The player's own faction is set to match in `_place_player`.
+		d.call("set_faction", &"town_dummy", &"nobody")
+		d.set("facing", Vector2.RIGHT)
+		d.add_to_group(&"town_dummy")
+		d.set_physics_process(false)
+		# ⚠ WITH PHYSICS OFF, NOTHING EVER TELLS THE RIG ANYTHING — and an un-fed rig is
+		# not neutral. `set_grounded` defaults to true (which is right here) but the
+		# body velocity and the state are whatever the last frame left, so the first
+		# capture came back with two of the three dummies frozen mid-stride like they
+		# were walking at you. This is the same class of bug as the town's bent legs.
+		var rig: Node = d.get_node_or_null(^"Rig")
+		if rig != null:
+			rig.call("set_body_velocity", Vector2.ZERO)
+			rig.call("set_grounded", true)
+			rig.call("set_air_phase", false, true)
+			rig.call("play", CharacterRig.State.IDLE)
+			# STRAW, not a class colour. A dummy tinted like a hero reads as a person —
+			# and in a co-op lobby, as your teammate. It has to look like a target.
+			rig.call("set_tint", DUMMY_COLOR)
+		for c: Node in d.get_children():
+			# Its camera would fight the player's for the viewport — `Hero.tscn` carries
+			# one and only disables it in a networked session.
+			if c is Camera2D:
+				(c as Camera2D).enabled = false
+			# ⚠ AND ITS HEALTH BAR GOES. A full bar over something that cannot lose
+			# health is a readout with one possible value, and three of them across the
+			# yard is the "random UI pieces we don't need" the maker keeps cutting. The
+			# damage NUMBERS still fly, which is the feedback a practice target is for.
+			if c is CharacterBars:
+				(c as CanvasItem).visible = false
 
 
 ## Is this a co-op visit? Reads `GameState.session_kind`, which the title screen
@@ -455,9 +651,8 @@ func _on_outfitter_closed() -> void:
 
 
 # ---------------------------------------------------------------------- the HUD
-## Two lines and nothing else. The top line is who you are; the bottom line is the
-## only onboarding the town gets, and it points BOTH ways on purpose — the door is
-## under your feet and the shops are behind you.
+## ONE line. Who you are. Everything else the town has to say, the town says with
+## objects — see `_build_signboard`.
 func _spawn_hud() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 40
@@ -472,20 +667,13 @@ func _spawn_hud() -> void:
 	who.add_theme_constant_override("outline_size", 4)
 	layer.add_child(who)
 
-	var guide := Label.new()
-	guide.text = "◂  walk left: gear · spells · class     ·     the tower is right here  ▸     ·     Esc: title"
-	guide.anchor_top = 1.0
-	guide.anchor_bottom = 1.0
-	guide.anchor_right = 1.0
-	guide.offset_top = -26.0
-	guide.offset_left = 14.0
-	guide.offset_right = -14.0
-	guide.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	guide.add_theme_font_size_override("font_size", 11)
-	guide.add_theme_color_override("font_color", GRAPHITE)
-	guide.add_theme_color_override("font_outline_color", Color(0.05, 0.05, 0.1, 0.9))
-	guide.add_theme_constant_override("outline_size", 3)
-	layer.add_child(guide)
+	# ⚠ THE GUIDE LINE IS GONE, ON PURPOSE. It read "walk left: gear · spells · class ·
+	# the tower is right here · Esc: title" — thirteen words of chrome describing a room
+	# the player is standing in. `_build_signboard` says the same thing with two arrows,
+	# in the world, where a sign belongs. The maker's standing rule: "this game has too
+	# much text and too many random UI pieces — every screen should be cut, not added
+	# to." One line of class name is what is left, and it is the one fact the room
+	# itself cannot show you.
 
 
 ## A MINIMAL TOUCH PAD, and deliberately not `TouchControls`. That layer is the

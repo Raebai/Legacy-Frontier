@@ -31,14 +31,13 @@ const NPC_SCRIPT: String = "res://scripts/NPC.gd"
 const PLAYER_SCRIPT: String = "res://scripts/Player.gd"
 const STATION_SCRIPT: String = "res://scripts/ArmoryStation.gd"
 const DOOR_SCRIPT: String = "res://scripts/TowerDoor.gd"
-const ALTAR_SCRIPT: String = "res://scripts/ClassAltar.gd"
 const LOBBY_SCRIPT: String = "res://scripts/ui/Lobby.gd"
 
 ## Every town-side script that a player's input can reach. All of them are grepped
 ## for the LLM stack.
 const TOWN_SCRIPTS: Array[String] = [
 	WORLD_SCRIPT, NPC_SCRIPT, PLAYER_SCRIPT, STATION_SCRIPT,
-	DOOR_SCRIPT, ALTAR_SCRIPT, LOBBY_SCRIPT,
+	DOOR_SCRIPT, LOBBY_SCRIPT,
 	"res://scripts/NPCData.gd",
 ]
 
@@ -57,7 +56,8 @@ const DELETED: Array[String] = [
 ]
 
 const TESTS: Array[String] = [
-	"town_scene_builds", "spawn_is_on_the_doorstep", "three_stations_answer",
+	"town_scene_builds", "spawn_is_on_the_doorstep", "you_can_cast_in_the_lobby",
+	"three_stations_answer",
 	"townsfolk_speak_without_an_llm", "the_llm_stack_is_deleted",
 	"no_town_script_names_ollama", "the_lobby_still_leads_with_climb",
 	"tap_targets_clear_the_floor",
@@ -89,6 +89,7 @@ func _process(_delta: float) -> bool:
 func _run() -> void:
 	_test_town_scene_builds()
 	_test_spawn_is_on_the_doorstep()
+	_test_you_can_cast_in_the_lobby()
 	_test_three_stations_answer()
 	_test_townsfolk_speak_without_an_llm()
 	_test_the_llm_stack_is_deleted()
@@ -200,6 +201,40 @@ func _test_spawn_is_on_the_doorstep() -> void:
 	_completes("spawn_is_on_the_doorstep")
 
 
+## ══ YOU CAN CAST IN THE LOBBY ═══════════════════════════════════════════════
+## Maker: "you should be able to cast spells and stuff within the lobby instead of a
+## training ground — just have standing immortal test dummies on one side."
+##
+## Three separate claims, and all three are load-bearing:
+##   1. the body you drive is a COMBAT body (it has a spell kit at all);
+##   2. the dummies exist, and are on a faction the player is hostile to — without
+##      that they are scenery you cannot hit, which looks identical;
+##   3. they cannot die, which is what "immortal" means and what stops the yard
+##      emptying itself the first time somebody throws an ult.
+func _test_you_can_cast_in_the_lobby() -> void:
+	var town: Node = _get_town()
+	if town == null:
+		return
+	var body: Node = town.get_tree().get_first_node_in_group("player")
+	_expect(body != null, "the town has a body in the `player` group")
+	if body == null:
+		_completes("you_can_cast_in_the_lobby")
+		return
+	_expect(body.has_method("configure_class") and body.has_method("ability_hud_state"),
+		"...and it is a combat body, so it can cast")
+	var dummies: Array = town.get_tree().get_nodes_in_group(&"town_dummy")
+	_expect(dummies.size() >= 1, "the dummy yard is standing (got %d)" % dummies.size())
+	for d: Node in dummies:
+		_expect(int(d.get("max_hp")) >= 999,
+			"a dummy is effectively immortal (max_hp %d)" % int(d.get("max_hp")))
+		# ⚠ PHYSICS OFF IS WHAT MAKES IT STAND STILL. A controller-less `Hero` falls
+		# through to the real `Input` singleton, so a dummy that ticks physics mirrors
+		# every button the player presses and the yard walks at you in lockstep.
+		_expect(not d.is_physics_processing(),
+			"...and it stands still rather than mirroring the player's input")
+	_completes("you_can_cast_in_the_lobby")
+
+
 ## The three stations exist in the built town, and each names the screen it opens.
 ## A station whose screen went missing is a walk to a dead end.
 func _test_three_stations_answer() -> void:
@@ -210,32 +245,51 @@ func _test_three_stations_answer() -> void:
 	_find(town, DOOR_SCRIPT, doors)
 	_expect(doors.size() == 1, "exactly one tower door (got %d)" % doors.size())
 
-	var altars: Array = []
-	_find(town, ALTAR_SCRIPT, altars)
-	_expect(altars.size() == 1, "exactly one class altar (got %d)" % altars.size())
+	# ⚠ THE CLASS ALTAR IS A STATION KIND NOW, not its own script. `ClassAltar.gd` was
+	# a fourth hand-written copy of walk-up-and-press-E and it was absorbed into
+	# `ArmoryStation` when every station became a teleport pad — so it is asserted
+	# below, by kind, with the rest of the row.
 
 	var stations: Array = []
 	_find(town, STATION_SCRIPT, stations)
-	# FOUR STATIONS IN A SOLO VISIT: the rack, the lectern, the Archivist's desk and
-	# the sparring ring. The PARTY STONE is the fifth and is co-op-only — `World._session_is_party()`
-	# keeps it out of a solo room, because a station that answers "nobody here" to a
-	# lone player is a dead object teaching them the room has broken parts.
+	# FOUR PADS IN A SOLO VISIT: gear, class, spells, the Archivist. The PARTY STONE is
+	# the fifth and is co-op-only — `World._session_is_party()` keeps it out of a solo
+	# room, because a station that answers "nobody here" to a lone player is a dead
+	# object teaching them the room has broken parts.
 	#
-	# Asserted by KIND rather than by count alone, so adding a station cannot
-	# silently replace one: a count-only check passes just as happily on the wrong
-	# three.
+	# ⚠ THE SPARRING PAD IS GONE, DELIBERATELY. It teleported you out to `FreePlay`, a
+	# whole second scene, to answer "what does this spell look like". The maker's
+	# ruling: "you should be able to cast spells and stuff within the lobby instead of
+	# a training ground — just have standing immortal test dummies on one side."
+	# `_test_the_dummy_yard_is_castable_at` below is that ruling, asserted.
+	#
+	# Asserted by KIND rather than by count alone, so adding a station cannot silently
+	# replace one: a count-only check passes just as happily on the wrong four.
 	var station_kinds: Dictionary = {}
 	for st: Node in stations:
 		station_kinds[String(st.get("kind"))] = true
 	_expect(stations.size() == 4,
-		"four stations in a solo room: rack, lectern, Archivist, sparring ring (got %d)"
+		"four pads in a solo room: gear, class, spells, Archivist (got %d)"
 		% stations.size())
-	_expect(station_kinds.has("armory"), "the rack is there")
-	_expect(station_kinds.has("spells"), "the lectern is there")
-	_expect(station_kinds.has("tree"), "the Archivist's desk is there (the spell tree)")
-	_expect(station_kinds.has("sparring"), "the sparring ring is there")
+	_expect(station_kinds.has("armory"), "the gear pad is there")
+	_expect(station_kinds.has("class"), "the class pad is there")
+	_expect(station_kinds.has("spells"), "the spell pad is there")
+	_expect(station_kinds.has("tree"), "the Archivist's pad is there (the spell tree)")
 	_expect(not station_kinds.has("party"),
 		"...and the party stone is NOT, because this is a solo visit")
+	# ⚠ THE ROW IS EVENLY SPACED AND THE GAP CLEARS THE PROXIMITY RING. Two pads closer
+	# together than 2 x PROXIMITY_RADIUS put two "[E] ..." hints on screen at once and
+	# the player cannot tell which one the key presses. This was real: the lectern and
+	# the Archivist stood 58 px apart.
+	var xs: Array[float] = []
+	for st2: Node in stations:
+		xs.append((st2 as Node2D).global_position.x)
+	xs.sort()
+	var ring: float = float(load(STATION_SCRIPT).get("PROXIMITY_RADIUS"))
+	for i: int in range(1, xs.size()):
+		_expect(xs[i] - xs[i - 1] >= ring * 2.0,
+			"pads %d and %d are %.0f px apart, which is inside the %.0f px hint ring"
+				% [i - 1, i, xs[i] - xs[i - 1], ring * 2.0])
 	var kinds: Array = []
 	for s: Node in stations:
 		kinds.append(String(s.get("kind")))
@@ -245,7 +299,8 @@ func _test_three_stations_answer() -> void:
 	# THE STATION IS THE SCREEN. Each one must reach a real destination.
 	_expect(load(DOOR_SCRIPT) != null and _code_only(DOOR_SCRIPT).contains("enter_run"),
 		"the door starts a run")
-	_expect(_code_only(ALTAR_SCRIPT).contains("ClassSelect"), "the altar opens class select")
+	_expect(_code_only(STATION_SCRIPT).contains("ClassSelect"),
+		"the class pad opens class select")
 	var station_src: String = _code_only(STATION_SCRIPT)
 	_expect(station_src.contains("/root/Loadout"), "the rack opens the armory")
 	_expect(station_src.contains("open_outfitter"), "the lectern opens the outfitter")
@@ -267,7 +322,14 @@ func _test_townsfolk_speak_without_an_llm() -> void:
 		return
 	var folk: Array = []
 	_find(town, NPC_SCRIPT, folk)
-	_expect(folk.size() >= 3, "the town has its three people in it (got %d)" % folk.size())
+	# ⚠ TWO, NOT THREE, AND THE COUNT IS PINNED TO THE TABLE. The maker asked for
+	# "fewer of them", so the number is a decision that can move; what must never drift
+	# is the table and the room disagreeing, which a `>=` cannot catch — it would stay
+	# green if a `.tres` path went stale and a townsperson silently stopped spawning.
+	_expect(folk.size() == town.get("TOWNSFOLK").size(),
+		"every townsperson in the table is really in the room (%d of %d)"
+			% [folk.size(), town.get("TOWNSFOLK").size()])
+	_expect(folk.size() >= 1, "...and the room is not empty (got %d)" % folk.size())
 	var seen_ids: Dictionary = {}
 	for n: Node in folk:
 		var d: Resource = n.get("data") as Resource
