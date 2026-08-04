@@ -22,6 +22,23 @@ extends RefCounted
 ## effect keys: element (str) | melee_damage/melee_knockback/melee_cd/max_hp/speed
 ## (float mults) | ward (float 0..1, first-hit reduction). {} = no hero effect
 ## (enemy/boss pieces — their "ability" is the roster AI behaviour they already drive).
+## ⚠ NO ITEM MAY STRICTLY DOMINATE ANOTHER IN THE SAME SLOT. Two did, and a
+## strictly-dominated item is not "weak" — it is UNPICKABLE. There was no hero, no
+## class and no situation in which it was the right answer, so it was dead content
+## wearing an icon:
+##   * `hat` (+12% hp) vs `helmet` (+20% hp) — better on one axis, tied on every
+##     other. `helmet` now pays -6% speed, so hat is the light option and helmet is
+##     the heavy one.
+##   * `sword` (+15% dmg) vs `hammer` (+20% dmg, +40% knockback) — the hammer was
+##     better on two axes and worse on none. It now pays +15% swing cooldown, which
+##     is the same currency `greatsword` already pays in.
+## `slice_test_gear.gd` asserts the no-dominance rule directly, per slot.
+##
+## STILL OPEN, AND A DESIGN CALL RATHER THAN A DEFECT: 17 of 19 pieces still
+## strictly dominate the EMPTY slot. Only `greatsword` and now `helmet`/`hammer`
+## pay for anything, so "equip something" remains a checklist even though "equip
+## WHICH" is now a real choice. Closing that means giving most of the roster a real
+## cost, which changes how every class plays and wants the maker's hands on it.
 const ABILITIES: Dictionary = {
 	# --- caster weapons: your weapon defines your ELEMENT (the flagship gear ability) ---
 	"staff":       {"name": "Arcane Focus", "desc": "Your spells strike as Arcane.",              "element": "arcane",    "effect": {"element": "arcane"}},
@@ -33,12 +50,12 @@ const ABILITIES: Dictionary = {
 	# --- martial weapons: melee profile ---
 	"sword":       {"name": "Keen Edge",    "desc": "Sharper strikes (+15% melee damage).",       "element": "",          "effect": {"melee_damage": 1.15}},
 	"dagger":      {"name": "Flurry",       "desc": "Faster, nimbler strikes.",                   "element": "",          "effect": {"melee_cd": 0.7, "speed": 1.06}},
-	"hammer":      {"name": "Quake",        "desc": "Crushing blows: +20% damage, big knockback.", "element": "",         "effect": {"melee_damage": 1.2, "melee_knockback": 1.4}},
+	"hammer":      {"name": "Quake",        "desc": "Crushing blows: +20% damage and big knockback, but slower.", "element": "", "effect": {"melee_damage": 1.2, "melee_knockback": 1.4, "melee_cd": 1.15}},
 	"greatsword":  {"name": "Cleave",       "desc": "Massive strikes (+30% damage) but slower.",  "element": "",          "effect": {"melee_damage": 1.3, "melee_cd": 1.3}},
 	# --- head ---
 	"hat":         {"name": "Fortified",    "desc": "Hardier: +12% max HP.",                      "element": "",          "effect": {"max_hp": 1.12}},
 	"hood":        {"name": "Fleet",        "desc": "Fleet-footed: +12% move speed.",             "element": "",          "effect": {"speed": 1.12}},
-	"helmet":      {"name": "Ironclad",     "desc": "Heavy plate: +20% max HP.",                  "element": "",          "effect": {"max_hp": 1.2}},
+	"helmet":      {"name": "Ironclad",     "desc": "Heavy plate: +20% max HP, but it weighs on you (-6% speed).", "element": "", "effect": {"max_hp": 1.2, "speed": 0.94}},
 	# --- body ---
 	"robe":        {"name": "Warded",       "desc": "Wards the first hit each fight (-40%).",      "element": "",          "effect": {"ward": 0.4}},
 	"cape":        {"name": "Windswept",    "desc": "A billowing cape: +12% move speed.",         "element": "",          "effect": {"speed": 1.12}},

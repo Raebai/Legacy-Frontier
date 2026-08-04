@@ -55,6 +55,51 @@ func _process(_delta: float) -> bool:
 		if e.has("ward"):
 			failed += _expect(float(e["ward"]) >= 0.0 and float(e["ward"]) <= 1.0, "ward 0..1 for '%s'" % kind)
 
+	# ── NO ITEM MAY STRICTLY DOMINATE ANOTHER IN THE SAME SLOT ──────────────────
+	# A dominated item is not weak, it is UNPICKABLE — better on nothing, worse on
+	# nothing, so no hero in no situation ever wants it. Two shipped that way
+	# (`hat` under `helmet`, `sword` under `hammer`) and nothing noticed, because
+	# every existing gear assertion pins individual VALUES and dominance is a
+	# relation BETWEEN values.
+	#
+	# Compares the axes as the hero actually reads them, including direction:
+	# `melee_cd` is the one axis where lower is better.
+	const SLOT_ITEMS: Dictionary = {
+		"weapon": ["sword", "dagger", "hammer", "greatsword"],
+		"head": ["hat", "hood", "helmet"],
+		"body": ["robe", "cape", "armor"],
+	}
+	const AXES: Array = ["melee_damage", "melee_knockback", "melee_cd", "max_hp",
+		"speed", "ward", "damage_reduction"]
+	const LOWER_IS_BETTER: Array = ["melee_cd"]
+	for slot: String in SLOT_ITEMS:
+		var items: Array = SLOT_ITEMS[slot]
+		# ⚠ An invariant that is trivially true of an empty list is not an invariant.
+		failed += _expect(items.size() >= 3, "slot '%s' actually has items to compare" % slot)
+		for a: String in items:
+			for b: String in items:
+				if a == b:
+					continue
+				var ea: Dictionary = GearAbilities.effect(a)
+				var eb: Dictionary = GearAbilities.effect(b)
+				var a_better_anywhere: bool = false
+				var b_better_anywhere: bool = false
+				for ax: String in AXES:
+					var neutral: float = 1.0 if not (ax in ["ward", "damage_reduction"]) else 0.0
+					var va: float = float(ea.get(ax, neutral))
+					var vb: float = float(eb.get(ax, neutral))
+					if is_equal_approx(va, vb):
+						continue
+					var a_wins: bool = (va < vb) if LOWER_IS_BETTER.has(ax) else (va > vb)
+					if a_wins:
+						a_better_anywhere = true
+					else:
+						b_better_anywhere = true
+				# `a` dominates `b` iff a is better somewhere and worse nowhere.
+				failed += _expect(not (a_better_anywhere and not b_better_anywhere),
+					"'%s' strictly dominates '%s' in slot '%s' — '%s' is unpickable"
+						% [a, b, slot, b])
+
 	# Aggregation math (mirrors Hero._aggregate_gear): staff_ice + hat + robe ->
 	# element=ice, max_hp x1.12, ward=0.4, melee mults untouched.
 	var agg: Dictionary = _aggregate(["staff_ice", "hat", "robe"])

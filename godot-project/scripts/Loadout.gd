@@ -20,14 +20,20 @@ extends CanvasLayer
 ## are not 40% tougher — `tools/slice_test_loadout.gd` pins that idempotency. It is a
 ## loadout, not a ladder.
 ##
-## The honest caveat is a BALANCE one rather than a progression one, and it is left
-## alone deliberately: the head and body pieces are pure upside against the class
-## default (+HP, +speed, ward, flat mitigation) with no matching cost, so each of
-## those two slots has a strictly-best answer. The weapon slot does not have that
-## problem — it trades (greatsword +30% damage for +30% cooldown; dagger sheds damage
-## for speed). Giving head/body the same shape is a one-line data edit in
-## `GearAbilities.gd`, but it is a balance change that wants a playtest behind it, and
-## this file's own header warns against destabilising the balanced classes on a guess.
+## The honest caveat is a BALANCE one rather than a progression one, and it is now
+## half-addressed. ⚠ THE OLD VERSION OF THIS PARAGRAPH WAS WRONG ON THE DATA: it
+## claimed "the weapon slot does not have that problem — it trades (… dagger sheds
+## damage for speed)". The dagger sheds NOTHING: its effect bag is
+## `{melee_cd 0.7, speed 1.06}`, both upside, no damage penalty anywhere. Reading
+## the table instead of the comment also turned up two items that were strictly
+## DOMINATED and therefore unpickable (`hat` by `helmet`, `sword` by `hammer`).
+## Those are fixed in `GearAbilities.gd`, which now carries the no-dominance rule.
+##
+## What remains true: nearly every piece still beats the EMPTY slot for free, so
+## "equip something" is a checklist even though "equip which" is now a genuine
+## choice. Closing that means pricing most of the roster, which changes how every
+## class plays — a balance change that wants a playtest behind it, and this file's
+## own header warns against destabilising the balanced classes on a guess.
 
 const SLOTS: Array = ["weapon", "head", "body"]
 const SLOT_LABELS: Dictionary = {"weapon": "WEAPON", "head": "HEAD", "body": "BODY"}
