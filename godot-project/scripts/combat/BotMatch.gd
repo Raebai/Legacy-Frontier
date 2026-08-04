@@ -181,7 +181,9 @@ static var taunts: bool = true
 ## Ink-sketchbook palette, lifted verbatim from `Lobby` / `RunSummary` so the pre-fight
 ## card, the title screen and the run summary read as the same hand.
 const CARD_CHALK: Color = Color(0.93, 0.92, 0.86)
-const CARD_GRAPHITE: Color = Color(0.62, 0.63, 0.70)
+## (`CARD_GRAPHITE` lived here and is gone with the tier caption it was the colour of.
+## Kept out rather than left declared: an unused half of a palette invites the next
+## edit to find a use for it, and the card is deliberately down to two lines now.)
 ## The dim over the stage. Heavier than the result card's 0.42 — the fighters are
 ## standing still behind it and the card is the only thing worth reading.
 const CARD_DIM: Color = Color(0.055, 0.052, 0.075, 0.62)
@@ -1219,9 +1221,10 @@ func _intro_corner(side: int) -> Control:
 	who.text = _label(_fighter_class[side] if side < _fighter_class.size() else -1)
 	who.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
-	var tier: Label = _make_label(col, 10, CARD_GRAPHITE)
-	tier.text = _tier()
-	tier.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# ⚠ THE TIER USED TO BE PRINTED HERE TOO — under BOTH fighters, so the VS card
+	# every clip opens on said "Impossible" twice. Cut with the clock's copy: the
+	# card exists to say WHO is fighting, and a difficulty setting stated twice is
+	# exactly the "random UI pieces we don't need" the standing rule is about.
 	return col
 
 
@@ -1310,7 +1313,13 @@ func _paint_hud() -> void:
 		draw.queue_redraw()
 	if _clock_label != null:
 		var left: float = maxf(round_seconds - _clock, 0.0)
-		_clock_label.text = "%s  %d:%02d" % [_tier(), int(left) / 60, int(left) % 60]
+		# ⚠ THE DIFFICULTY WORD IS NOT PRINTED HERE ANY MORE. Maker: "remove that
+		# impossible wording at the top of the screen." This read `Impossible  1:30`,
+		# so the loudest word on the screen named a SETTING rather than anything
+		# happening in the fight — and on a shared clip it reads as a boast about the
+		# bots rather than as information. The tier still lives where a tier belongs:
+		# the pause menu's `Difficulty:` button, which is where it is changed.
+		_clock_label.text = "%d:%02d" % [int(left) / 60, int(left) % 60]
 
 
 func _hp_tint(frac: float) -> Color:
