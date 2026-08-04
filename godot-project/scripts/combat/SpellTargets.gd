@@ -601,11 +601,44 @@ static func _pool(nodes: Array, skip: Array, ctx: Object = null) -> Array:
 ## Called AFTER the shape test, never before: the shape test is pure maths over a
 ## handful of nodes, the LOS test is a raycast each. Filtering first keeps the
 ## expensive half proportional to the number of things actually in range.
+## ⚠ THE TRACE LIFTS OFF THE SURFACE FIRST, AND WITHOUT IT EVERY GROUND-ANCHORED
+## SPELL MISSED EVERYTHING. Maker: "judgment / heaven's verdict aren't hitting the
+## hitboxes of the bots properly — make sure they are working with their equivalents
+## with other classes as well."
+##
+## MEASURED by `tools/probe_holy_hitboxes.gd`, one body standing on flat floor:
+##
+##     radius  losOFF_up  losON_at_floor  losON_up
+##         40         74           false         74
+##         70        104           false        104
+##        110        138           false        138
+##
+## Read the middle column. With line-of-sight ON, an impact point sitting exactly ON
+## the floor connected with NOTHING, at every radius — while the same query one pixel
+## higher connected exactly as far as it does with LOS disabled. The radius maths was
+## never wrong. The TRACE was starting on the floor collider's own surface, and a ray
+## that begins inside geometry reports blocked immediately.
+##
+## Which is precisely where these spells land: `DivineRay` puts its splash disc at
+## `_ground`, and `StarConvergence` snaps `_ground` to the floor with a seat raycast.
+## Both spend their whole footprint on the one point the LOS filter refuses to see out
+## of. Every other ground-anchored effect — the nova ring, the meteor footprint, the
+## pillar base — shares the anchor and therefore shared the bug, which is why this is
+## fixed at the SEAM rather than in the two spells the maker happened to notice.
+##
+## SURFACE_LIFT is small on purpose. It has to clear the contact epsilon of a body the
+## ray starts on and nothing more: big enough to escape the floor you are standing on,
+## far smaller than the thinnest floor in the game (`Arena.WALL_THICKNESS` is 16), so
+## it cannot start the trace on the far side of anything and leak damage through it.
+const SURFACE_LIFT: float = 3.0
+
+
 static func _reachable(from: Vector2, found: Array, skip: Array, ctx: Node,
 		require_los: bool) -> Array:
 	if not require_los or found.is_empty():
 		return found
-	return SpellWorld.filter_reachable(from, found, SpellWorld.rids(skip), ctx)
+	return SpellWorld.filter_reachable(
+		from + Vector2(0.0, -SURFACE_LIFT), found, SpellWorld.rids(skip), ctx)
 
 
 ## Does `target`'s body come within `half_width` (+ its own margin) of segment a->b?
