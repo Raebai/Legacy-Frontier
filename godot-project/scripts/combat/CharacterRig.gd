@@ -1536,6 +1536,21 @@ func _update_ground_probe() -> void:
 	var q := PhysicsRayQueryParameters2D.create(from_w, to_w, GROUND_MASK)
 	q.collide_with_areas = false
 	q.collide_with_bodies = true
+	# ⚠ A RIG MUST NEVER BE ABLE TO READ ITS OWN BODY AS FLOOR, and it could. The ray
+	# starts at head height and runs down THROUGH the body it belongs to, so any owner
+	# that happens to sit on `GROUND_MASK` has its own collider's top edge returned as
+	# the ground line — which puts the contact line at chest height and folds the whole
+	# leg into nothing. Measured on the townsfolk: leg length 0.09 px against a normal
+	# 16.0, because `NPC.tscn` wrote `collision_layer` as an unparsed header attribute
+	# and every one of them shipped on layer 1.
+	#
+	# That scene is fixed, but the fix belongs here as well as there: this is the third
+	# separate rig fault in this project to come from a body and its rig disagreeing
+	# about where the floor is, and excluding yourself is true regardless of what layer
+	# anything ever ships on again.
+	var owner_body := get_parent() as CollisionObject2D
+	if owner_body != null:
+		q.exclude = [owner_body.get_rid()]
 	var hit: Dictionary = space.intersect_ray(q)
 	if hit.is_empty():
 		return

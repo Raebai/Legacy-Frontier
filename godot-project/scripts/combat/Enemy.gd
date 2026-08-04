@@ -1849,8 +1849,24 @@ func apply_status(element: int, can_chain: bool = true) -> void:
 	_status.apply(element, can_chain)
 
 
+## ⚠ A HIT IS A RED FLASH AND NOTHING ELSE. Maker: "when I hit someone they have this
+## weird sphere-ish white thing on them — remove that, a hit should be a red flash,
+## that's about it."
+##
+## It was `Color(1.7, 1.7, 1.7)` — HDR ON PURPOSE, so the arena's WorldEnvironment
+## bloom would blow the figure out. What that misses is that these are STICK FIGURES:
+## the biggest solid mass on one is the filled head circle, so blowing the whole rig
+## out past 1.0 paints a bright white ball where the head is and haloes it. The "white
+## sphere" was the head, every single melee hit.
+##
+## The new colour is `Hero.HURT_FLASH_COLOR` verbatim — the hero has flashed red on
+## damage all along, so this makes the enemy match the player rather than inventing a
+## third convention. Kept at 1.0 so it cannot bloom.
+##
+## NOT CHANGED IN THE SAME PASS: `Boss._flash` and `ScribbleBoss`, which use a warmer
+## 1.4/1.3/1.2. Different bodies, and the maker named the ordinary sword hit.
 func _flash() -> void:
-	rig.flash_color(Color(1.7, 1.7, 1.7), 0.08)  # HDR white hit-pop (blooms)
+	rig.flash_color(Color(1.0, 0.2, 0.2), 0.08)
 
 
 func _die() -> void:

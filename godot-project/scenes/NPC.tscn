@@ -27,7 +27,18 @@ radius = 40.0
 ; `CharacterRig.GROUND_MASK`, so a townsperson on it is FLOOR to every rig's downward
 ; probe — `probe_town_feet` caught a practice dummy reading its ground line off the
 ; Warden's head, 16 px above the actual floor.
-[node name="NPC" type="CharacterBody2D" collision_layer="2" collision_mask="1" groups=["npc"]]
+; ⚠ AND THE LAYER MUST BE A PROPERTY LINE, NOT AN ATTRIBUTE IN THE HEADER. It was
+; written as `[node ... collision_layer="2" collision_mask="1" ...]`, where Godot's
+; scene parser SILENTLY IGNORES it — only `name`, `type`, `parent`, `groups`, `index`
+; and `instance` are header attributes. So every townsperson shipped on the DEFAULT
+; layer 1, which is exactly the `GROUND_MASK` the comment above says to stay off, and
+; each one's own rig read its own 16 px collider as the floor: measured leg length
+; 0.09 px on the Warden, 0.16 px on the Doorkeeper, against the Hero's 16.0. That is
+; the "the Warden is all messed up" report — a head, a torso, arms and no legs.
+; NPC.tscn was the only scene in the repo with this mistake.
+[node name="NPC" type="CharacterBody2D" groups=["npc"]]
+collision_layer = 2
+collision_mask = 1
 script = ExtResource("1_npc_script")
 data = ExtResource("2_npc_data")
 
