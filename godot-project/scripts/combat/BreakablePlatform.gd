@@ -68,13 +68,68 @@ func take_damage(amount: int) -> void:
 	damage_at(amount, global_position, Vector2.UP)
 
 
+## ⚠ HOST-AUTHORITATIVE, AND THIS ONE IS COLLISION GEOMETRY, NOT PAINT.
+##
+## `DestructibleProp` (the crate) was made host-authoritative because a crate that
+## broke on one phone only is a fairness bug. This platform had the identical hole
+## and a worse consequence: `_break` disables the collider, so a desynced platform
+## is SOLID GROUND ON ONE SCREEN AND OPEN AIR ON THE OTHER. Position is synced from
+## the owner, so both screens draw the hero at the same coordinates while one of
+## them is standing on nothing.
+##
+## It is live, not theoretical: `FloorGen` rolls `"breakable"` per ledge and
+## `FloorBuilder.build_platforms` instantiates them into every generated floor.
+##
+## Same shape as the crate: enemy attack twins are `visual_only`, so enemy-sourced
+## damage lands on the host alone. The host is the one peer that sees every damage
+## source, so it decides and broadcasts ABSOLUTE hp. The client still flinches for
+## feedback but is FLOORED AT 1 — it must never break a platform out from under its
+## own player, because it has no way to put the ground back.
+##
+## Reuses the crate's wire verbatim (`broadcast_prop_state` -> `destructible` group
+## -> `net_apply_prop_state`), so this needs no change in Net.gd.
+##
+## REGEN IS DELIBERATELY LEFT LOCAL. Both peers run the same `regen_time` from
+## their own break, so they reform one network latency apart rather than in
+## lockstep. That is tens of milliseconds on the LAN this ships for, it is
+## self-correcting, and paying a packet to tighten it would buy nothing a player
+## could perceive.
 func damage_at(amount: int, world_pos: Vector2, dir: Vector2) -> void:
 	if _broken:
 		return
+	var net: Node = get_node_or_null(^"/root/Net")
+	var coop: bool = net != null and net.has_method(&"is_active") and bool(net.call(&"is_active"))
+	if coop and not bool(net.call(&"is_host")):
+		hp = maxi(hp - amount, 1)   # predicted, never fatal — the host owns the break
+		_hit_feedback(world_pos)
+		return
 	hp = max(hp - amount, 0)
 	if hp == 0:
+		# Broadcast BEFORE breaking: the receiver finds this node by its position in
+		# the `destructible` group, and `_break` removes it from that group.
+		if coop:
+			net.call(&"broadcast_prop_state", self, 0, true)
 		_break(dir)
 		return
+	_hit_feedback(world_pos)
+	if coop:
+		net.call(&"broadcast_prop_state", self, hp, false)
+
+
+## The host's verdict, applied verbatim. Absolute hp, so a client that predicted a
+## few hits of its own is corrected rather than compounded.
+func net_apply_prop_state(hp_now: int, shattered: bool) -> void:
+	if _broken:
+		return
+	hp = maxi(hp_now, 0)
+	if shattered or hp <= 0:
+		hp = 0
+		_break(Vector2.UP)
+		return
+	_hit_feedback(global_position)
+
+
+func _hit_feedback(world_pos: Vector2) -> void:
 	_flash_timer = HIT_FLASH_TIME
 	_nudge = Vector2.from_angle(randf() * TAU) * HIT_NUDGE
 	CombatVfx.spawn_burst(

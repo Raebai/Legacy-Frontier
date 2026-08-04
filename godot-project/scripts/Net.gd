@@ -1147,7 +1147,14 @@ func _host_award_pickup(key: Vector2i, peer_id: int) -> void:
 
 @rpc("authority", "call_local", "reliable")
 func _client_pickup(key: Vector2i, peer_id: int) -> void:
+	# BOTH pickup families race on the same finish line. `WeaponPickup` used to run a
+	# bare local overlap test, so a photo finish handed the sword to a different hero
+	# on each screen — and its `_consumed` latch made that permanent for the floor.
+	# The award is keyed by position, and the two families never share one, so
+	# checking the second group after the first misses cannot mis-award.
 	var pickup: Node = _find_at(&"spell_pickup", key)
+	if pickup == null:
+		pickup = _find_at(&"weapon_pickup", key)
 	var hero: Node = hero_for_peer(peer_id)
 	# Both nulls are normal answers, not errors: this peer may already have freed the
 	# pickup, or be mid-floor-change. The one lossy case is a winner who DROPPED

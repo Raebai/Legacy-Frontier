@@ -43,6 +43,9 @@ const CARRY_TIME: float = 22.0
 @export var carry_time: float = 0.0
 
 var _consumed: bool = false
+## Latched once this peer has asked the host for the award, so a body that keeps
+## overlapping (or re-enters while the request is in flight) cannot spam it.
+var _reported: bool = false
 var _phase: float = 0.0
 ## Who took it, what they were carrying before, and how long they have left. The
 ## node stays alive after the pickup precisely to own this clock.
@@ -53,6 +56,8 @@ var _left: float = 0.0
 
 func _ready() -> void:
 	body_entered.connect(_on_body_entered)
+	# The wire identity for the co-op pickup race — see `_on_body_entered`.
+	add_to_group("weapon_pickup")
 
 
 func _process(delta: float) -> void:
@@ -64,11 +69,41 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
+## ⚠ ONE FINISH LINE, EXACTLY LIKE `SpellPickup`. Both peers run their own overlap
+## test, so before this a photo finish could hand the sword to a DIFFERENT hero on
+## each screen — and `_consumed` latches locally, so the disagreement was permanent
+## for that floor. `SpellPickup` already solved this; the weapon on the same floor
+## did not, purely because it was written first.
+##
+## The owning peer REPORTS (a puppet's overlap is a stale echo of a position this
+## peer never integrated), the host DECIDES once, and the award comes back through
+## `collect_by` on every peer.
 func _on_body_entered(body: Node2D) -> void:
 	if _consumed:
 		return
 	if not body.is_in_group("hero") or not body.has_method("equip_weapon"):
 		return
+	var net: Node = get_node_or_null(^"/root/Net")
+	if net == null or not net.has_method(&"is_active") or not bool(net.call(&"is_active")):
+		collect_by(body)   # singleplayer: unchanged, no round trip
+		return
+	var owner_peer: int = body.get_multiplayer_authority()
+	if owner_peer != int(net.call(&"my_id")):
+		return   # a puppet's overlap is a stale echo — its own peer will report it
+	if _reported:
+		return   # a body that keeps overlapping must not spam the host
+	_reported = true
+	net.call(&"request_pickup", self, owner_peer)
+
+
+## PUBLIC so the networking layer can drive collection from one authoritative
+## decision rather than from two independent overlap tests. Idempotent.
+## Mirrors `SpellPickup.collect_by`, including the bool return the award reads.
+func collect_by(body: Node) -> bool:
+	if _consumed:
+		return false
+	if body == null or not is_instance_valid(body) or not body.has_method("equip_weapon"):
+		return false
 	_consumed = true
 	# What they had BEFORE. Two classes are configured WITH a weapon as class
 	# identity (`Hero.configure_class` -> equip_weapon), so a blanket revert to
@@ -81,12 +116,13 @@ func _on_body_entered(body: Node2D) -> void:
 	var span: float = carry_time if carry_time != 0.0 else CARRY_TIME
 	if span < 0.0:
 		queue_free()      # permanent: there is no clock to own
-		return
+		return true
 	_holder = body
 	_left = span
 	# Stop being a pickup: no collision, no icon, just the clock.
 	monitoring = false
 	visible = false
+	return true
 
 
 ## The carry clock. Runs on this node rather than on a SceneTree timer so it pauses

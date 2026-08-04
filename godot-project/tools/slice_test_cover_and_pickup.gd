@@ -29,6 +29,9 @@
 extends SceneTree
 
 const PROP_SCENE: String = "res://scenes/combat/DestructibleProp.tscn"
+const PLATFORM_SCRIPT: String = "res://scripts/combat/BreakablePlatform.gd"
+const WEAPON_SCRIPT: String = "res://scripts/combat/WeaponPickup.gd"
+const HERO_SCENE: String = "res://scenes/combat/Hero.tscn"
 
 const TESTS: Array[String] = [
 	"singleplayer_prop_damage_is_unchanged",
@@ -42,6 +45,11 @@ const TESTS: Array[String] = [
 	"collect_by_is_idempotent",
 	"pickup_routing_is_inert_without_a_session",
 	"position_key_is_the_cross_peer_identity",
+	"platform_publishes_the_client_hook",
+	"platform_host_state_breaks_the_ground",
+	"singleplayer_platform_damage_is_unchanged",
+	"weapon_pickup_joins_the_lookup_group",
+	"weapon_collect_by_is_idempotent",
 ]
 
 var _ran: bool = false
@@ -66,6 +74,11 @@ func _process(_delta: float) -> bool:
 	_test_collect_by_is_idempotent()
 	_test_pickup_routing_is_inert_without_a_session()
 	_test_position_key_is_the_cross_peer_identity()
+	_test_platform_publishes_the_client_hook()
+	_test_platform_host_state_breaks_the_ground()
+	_test_singleplayer_platform_damage_is_unchanged()
+	_test_weapon_pickup_joins_the_lookup_group()
+	_test_weapon_collect_by_is_idempotent()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -76,6 +89,100 @@ func _process(_delta: float) -> bool:
 		print("Cover/pickup tests: all PASS")
 		quit(0)
 	return true
+
+
+# ------------------------------------------- breakable platform (collision geometry)
+## The platform is a HARDER case than the crate and had the SAME hole: `_break`
+## disables the collider, so a desynced platform is solid ground on one screen and
+## open air on the other while both draw the hero at the same coordinates.
+func _test_platform_publishes_the_client_hook() -> void:
+	var p: Node2D = _platform()
+	_expect(p.has_method(&"net_apply_prop_state"),
+		"BreakablePlatform exposes net_apply_prop_state")
+	_expect(p.is_in_group("destructible"), "…and is findable in the group Net scans")
+	_kill(p)
+	_completes("platform_publishes_the_client_hook")
+
+
+## Asserts the COLLIDER, not just hp — hp converging while the collision state did
+## not is precisely the bug that would still be invisible from a health check.
+func _test_platform_host_state_breaks_the_ground() -> void:
+	var p: Node2D = _platform()
+	p.call(&"damage_at", 5, p.global_position, Vector2.UP)   # a local prediction
+	_expect(not bool(p.get("_broken")), "a non-fatal hit does not break it")
+	p.call(&"net_apply_prop_state", 0, true)
+	_expect(bool(p.get("_broken")), "the host's shatter verdict breaks it here too")
+	var col: Node = p.get("_collider")
+	_expect(col != null and bool(col.get("disabled")),
+		"THE GROUND: the collider is actually disabled, not just the hp zeroed")
+	p.call(&"net_apply_prop_state", 50, false)
+	_expect(bool(p.get("_broken")), "…and a late state for a broken platform is ignored")
+	_kill(p)
+	_completes("platform_host_state_breaks_the_ground")
+
+
+## Singleplayer must be byte-identical — no Net node, so the guard falls straight
+## through to the original path.
+func _test_singleplayer_platform_damage_is_unchanged() -> void:
+	var p: Node2D = _platform()
+	var full: int = int(p.get("hp"))
+	p.call(&"take_damage", 10)
+	_expect(int(p.get("hp")) == full - 10, "solo: hp drops by exactly the amount")
+	p.call(&"take_damage", 10000)
+	_expect(bool(p.get("_broken")), "solo: a fatal hit still breaks it locally")
+	_kill(p)
+	_completes("singleplayer_platform_damage_is_unchanged")
+
+
+# ------------------------------------------------------- weapon pickup (the race)
+func _test_weapon_pickup_joins_the_lookup_group() -> void:
+	var w: Node2D = _weapon()
+	_expect(w.is_in_group("weapon_pickup"),
+		"WeaponPickup is findable by the group Net._client_pickup scans")
+	_expect(w.has_method(&"collect_by"),
+		"…and exposes collect_by, so ONE host decision drives every peer")
+	_kill(w)
+	_completes("weapon_pickup_joins_the_lookup_group")
+
+
+## The award may arrive twice (host `call_local` plus a re-entered overlap). The
+## second must be a no-op, or a photo finish arms two heroes.
+## A REAL Hero, not the Node2D stub the other tests use. `collect_by` gates on
+## `equip_weapon`, which the stub does not have — and a stub taught that method just
+## to satisfy this would be a fixture more generous than the shipped class, which is
+## how a green suite ends up proving nothing.
+func _test_weapon_collect_by_is_idempotent() -> void:
+	var w: Node2D = _weapon()
+	var h: CharacterBody2D = (load(HERO_SCENE) as PackedScene).instantiate()
+	root.add_child(h)
+	h.global_position = Vector2(9000, 9000)
+	w.weapon_kind = "sword"
+	_expect(bool(w.call(&"collect_by", h)), "first award is taken")
+	_expect(String(h.get("_weapon")) == "sword", "…and it actually armed the hero")
+	_expect(not bool(w.call(&"collect_by", h)), "second award is refused")
+	_kill(h)
+	_kill(w)
+	_completes("weapon_collect_by_is_idempotent")
+
+
+## ⚠ BOTH LOADED BY PATH, NEVER BY `class_name`. Writing `BreakablePlatform.new()`
+## names a global class identifier, which makes THIS script depend on it at COMPILE
+## time — and it reaches `Sfx`/`StageLayers`, autoloads that are not registered as
+## globals until the main loop is up. The failure does not report as "too early": it
+## reports as `Identifier not found: Sfx`, and it poisons the whole compile chain,
+## so the unrelated `WeaponPickup` load fails too. Same rule as PROP_SCENE above.
+func _platform(at: Vector2 = Vector2(5000, 5000)) -> Node2D:
+	var p: Node2D = (load(PLATFORM_SCRIPT) as GDScript).new()
+	root.add_child(p)
+	p.global_position = at
+	return p
+
+
+func _weapon(at: Vector2 = Vector2(8000, 8000)) -> Node2D:
+	var w: Node2D = (load(WEAPON_SCRIPT) as GDScript).new()
+	root.add_child(w)
+	w.global_position = at
+	return w
 
 
 func _expect(cond: bool, msg: String) -> void:
