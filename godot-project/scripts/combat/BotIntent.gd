@@ -91,7 +91,7 @@ const KEYS: Array[StringName] = [
 ## of the reaction combos, which all live in the kit.
 const NONE: int = -1
 const SLOT_DAMAGE: int = 0    # every class carries its damage line here
-## The ONE utility slot. Kits are three spells now (the right thumb has three
+## The ONE utility slot. Kits are `SpellTier.SLOT_COUNT` spells (the right thumb has that many
 ## buttons) and each class carries exactly one of control / answer / payoff, chosen
 ## from its fantasy — so these three names are three ways of asking for the same slot,
 ## and they are kept as aliases rather than deleted because a brain asking for "my

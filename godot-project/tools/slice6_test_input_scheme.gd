@@ -3,10 +3,11 @@
 # a half-finished rebind leaves a verb on the wrong button and nobody notices
 # until it is felt in a playtest. These pin the maker-chosen scheme:
 #   RIGHT MOUSE = deflect/parry   ·   SPACE = dash   ·   W/UP = jump (never space)
-#   1 / 2 / 3   = the three SPELL BUTTONS, one per kit slot
+#   1 / 2 / 3 / 4   = the SPELL BUTTONS, one per kit slot
 # and, just as importantly, that no two verbs fight over the same button.
 #
-# ⚠ UPDATED DELIBERATELY when the three spell buttons landed. `spell_1/2/3` join the
+# ⚠ UPDATED DELIBERATELY when the spell buttons landed, and again at the FOURTH slot
+# (`SpellTier.SLOT_COUNT` 3 -> 4). `spell_1..4` join the
 # double-binding sweep because they are the buttons the whole right thumb is built
 # around, and a stray rebind putting one of them on a key another verb already owns
 # would fire both — with "which wins" decided by polling order rather than by design.
@@ -126,7 +127,7 @@ func _test_scheme() -> void:
 func _test_no_double_bound_buttons() -> void:
 	var verbs: Array[String] = [
 		"cast", "melee", "parry", "dash", "jump", "blast", "blink", "nova", "ultimate",
-		"spell_1", "spell_2", "spell_3",
+		"spell_1", "spell_2", "spell_3", "spell_4",
 	]
 	var seen: Dictionary = {}          # binding signature -> the verb that claimed it
 	for action: String in verbs:

@@ -94,7 +94,13 @@ const HEX_SINGLE_TARGET_HITS: Dictionary = {
 ## were changing a number, and the clash table moved with it.
 const EXPECTED_TIER: Dictionary = {
 	"ordinary_spell": "HEAVY", "frostpiercer": "HEAVY", "infernal_lance": "ULT",
-	"judgment": "ULT", "heavens_verdict": "ULT", "meteor_sigil": "ULT",
+	# ⚠ `judgment` MOVED SHELF DELIBERATELY when the fourth spell slot claimed it for
+	# the Cleric: an ult may not sit in a non-ult slot, so it paid one timing to clear
+	# the shelf (a 1.0 -> 0.8 s windup, written up at `_judgment()`). `blood_pact` made
+	# the same move for the Swordsaint (12 -> 6.6 s cooldown) and is not listed here
+	# because this table only carries spells that were shipped before it existed.
+	# Every other row is still "do not touch".
+	"judgment": "HEAVY", "heavens_verdict": "ULT", "meteor_sigil": "ULT",
 	"thunderclap": "HEAVY", "umbral_lance": "ULT", "tempest": "ULT",
 	"chain_lightning": "QUICK", "rune_orbs": "HEAVY", "blade_flurry": "QUICK",
 	"blizzard": "HEAVY", "drain_tether": "HEAVY", "void_zone": "HEAVY",

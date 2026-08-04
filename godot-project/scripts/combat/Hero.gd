@@ -169,7 +169,7 @@ const PARRY_SHIELD_TIME: float = 0.26
 ## THE SHAPE OF THE FIX, and the one rule that constrains it: **every verb is behind
 ## the SAME `dash` action**. That is not tidiness, it is the mobile spec. `TouchControls`
 ## ships exactly ONE movement button (`_button_layout()`: JUMP / PARRY / DASH plus the
-## three spell slots) — `blast`, `blink` and `nova` have no touch affordance at all. A
+## the spell slots) — `blast`, `blink` and `nova` have no touch affordance at all. A
 ## verb bound to a new action would be desktop-only, which fails D-011 outright. Behind
 ## the shared button it is also free for the BOTS: `BotIntent.DASH` is one key that the
 ## brain already presses without knowing what a body does with it (see BotIntent's own
@@ -429,11 +429,11 @@ const BUFFERED_ACTIONS: Array[StringName] = [&"melee", &"dash", &"blast", &"blin
 ##
 ## Kept the same length as `SpellTier.SLOT_COUNT` by `_verify_spell_actions()` at
 ## `_ready`, so growing the hand can never leave a slot silently unreachable.
-const SPELL_ACTIONS: Array[StringName] = [&"spell_1", &"spell_2", &"spell_3"]
+const SPELL_ACTIONS: Array[StringName] = [&"spell_1", &"spell_2", &"spell_3", &"spell_4"]
 ## What the hotbar prints on each spell slot. Derived from the bindings above rather
 ## than typed in twice — the labels were wrong for exactly as long as they were a
 ## separate list from the actions.
-const SPELL_KEYS: Array[String] = ["1", "2", "3"]
+const SPELL_KEYS: Array[String] = ["1", "2", "3", "4"]
 ## Spell presses buffer LONGER than the melee/dash set. A dash is 0.14 s and eats any
 ## press made during it, so a 0.12 s buffer drops a spell queued at the START of a
 ## dash — which is precisely the moment you queue one ("dash in, then hit them").
@@ -1173,7 +1173,7 @@ func bot_body_state() -> Dictionary:
 	# because a brain keeps consulting it. It now means "this slot exists AND is off
 	# cooldown", which is the question the old field was a proxy for, and it is the
 	# answer that also stops a bot reaching for a slot its class does not have now
-	# that kits are three spells and `BotIntent.SLOT_COUNT` is still five.
+	# that kits are `SpellTier.SLOT_COUNT` spells and `BotIntent.SLOT_COUNT` is still five.
 	var affordable: Array[bool] = []
 	var cast_times: Array[float] = []
 	for slot: int in BotIntent.SLOT_COUNT:
@@ -2160,7 +2160,7 @@ func _try_fire_buffered() -> bool:
 	return false
 
 
-## The buffered half of the three spell buttons.
+## The buffered half of the spell buttons.
 ##
 ## Returns true when the cast committed to a channel/summon, because those set
 ## `velocity = Vector2.ZERO` and a committed cast pose, and the movement block below

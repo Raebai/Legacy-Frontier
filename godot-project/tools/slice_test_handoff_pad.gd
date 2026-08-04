@@ -172,17 +172,20 @@ func _clear_talk() -> void:
 
 
 # ------------------------------------------------------------------- tests
-## The consolidation rule holds: the phone still has SIX persistent thumb buttons.
-## A contextual prompt is not the button set growing back — but if this ever counts
-## seven, the affordance HAS become a permanent pad and that is a design change
-## someone should have to make deliberately.
+## The consolidation rule holds: the phone has SEVEN persistent thumb buttons —
+## `SpellTier.SLOT_COUNT` spells plus dash, jump and parry. A contextual prompt is not
+## the button set growing back, and the count is DERIVED so the pad and the hand can
+## never disagree; a literal here went stale the moment the fourth spell slot landed.
 func _test_affordance_did_not_grow_the_thumb_buttons() -> void:
 	var pad := _pad()
 	var buttons: int = 0
 	for c: Node in pad.get_children():
 		if c is Button:
 			buttons += 1
-	_expect(buttons == 6, "still six persistent thumb buttons (got %d)" % buttons)
+	var want: int = SpellTier.SLOT_COUNT + 3   # + dash, jump, parry
+	_expect(buttons == want,
+		"still %d persistent thumb buttons — the hand plus dash/jump/parry (got %d)"
+			% [want, buttons])
 	_kill(pad)
 	_completes("affordance_did_not_grow_the_thumb_buttons")
 

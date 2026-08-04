@@ -21,7 +21,7 @@ extends CanvasLayer
 ##   RIGHT THUMB — DYNAMIC aim stick (appears where you press in the right zone,
 ##                 anywhere that is not a button). Full 360 aim, and pushing past
 ##                 AIM_FIRE_THRESHOLD also holds `cast` — classic twin-stick. A dim
-##                 home ring marks the natural resting spot. THREE SPELL BUTTONS sit
+##                 home ring marks the natural resting spot. THE SPELL BUTTONS sit
 ##                 on an arc swept around the bottom-right corner, with DASH in the
 ##                 corner itself; they consume their own taps, so a tap on a button
 ##                 never spawns a stick under it.
@@ -35,7 +35,7 @@ extends CanvasLayer
 ## THE CONSOLIDATION, and what it cost. This layer used to ship EIGHT corner-anchored
 ## buttons: JUMP / CAST / DASH / Q / G / BLINK / HIT / PARRY — a keyboard drawn on a
 ## phone. The spec is "left thumb: stick; right thumb: three spell buttons", so the
-## right thumb now carries the three KIT SLOTS (`spell_1/2/3`) and nothing else but
+## right thumb now carries the KIT SLOTS (`spell_1..4`) and nothing else but
 ## dash, and the primary attack moved onto the aim stick where it was already half
 ## living (AIM_STICK_FIRES). Four verbs lost their touch affordance in the trade:
 ##   * `melee` — the primary IS the melee swing for the melee classes
@@ -109,17 +109,26 @@ const AIM_HOME_OFFSET: Vector2 = Vector2(268.0, 88.0)
 ## Where the right thumb PIVOTS, as (from the right edge, up from the bottom) in the
 ## 640x360 base space. Roughly the knuckle of a thumb on a phone held in landscape.
 const THUMB_PIVOT: Vector2 = Vector2(30.0, 26.0)
-## How far the thumb TIP sits from that pivot. The three spell buttons live on this arc.
-const SPELL_ARC_RADIUS: float = 126.0
+## How far the thumb TIP sits from that pivot. The spell buttons live on this arc.
+##
+## ⚠ 126 -> 165 WHEN THE FOURTH SLOT LANDED, and it is geometry, not taste. The
+## buttons are drawn as circles but TAPPED as axis-aligned rectangles, so the binding
+## constraint is the 30-60 degree pair, whose separation is R * (cos 60 - cos 30) =
+## 0.366 R on BOTH axes. Four 60 px buttons spread across the same quarter-circle
+## therefore need R >= 60 / 0.366 = 164. Shrinking the button instead was the other
+## way out and it is the one thing this layout may not do: 60 px at the 640-wide base
+## is the thumb target.
+const SPELL_ARC_RADIUS: float = 165.0
 ## Where on the arc, in degrees measured from "straight inboard" (toward the screen
 ## centre) round to "straight up". Spell 1 — the one you throw most — is the flattest
-## and therefore the shortest reach.
+## and therefore the shortest reach; the ULT is the top of the sweep, which is the
+## same "heaviest thing furthest from rest" ramp the desktop hotbar draws.
 ##
 ## ⚠ THESE ARE NOT FREE. Buttons are drawn as circles but TAPPED as rectangles, so two
 ## neighbours whose circles clear each other can still have overlapping hit boxes.
 ## `SPELL_ARC_ANGLES` + `SPELL_ARC_RADIUS` + `SPELL_BTN_SIZE` are checked against each
 ## other in tools/slice_test_spell_buttons.gd; retune them there, not by eye.
-const SPELL_ARC_ANGLES: Array[float] = [10.0, 50.0, 90.0]
+const SPELL_ARC_ANGLES: Array[float] = [0.0, 30.0, 60.0, 90.0]
 const SPELL_BTN_SIZE: float = 60.0
 ## DASH lives in the corner itself — under the thumb at rest, because it is the panic
 ## button and the one press that must never need a reach.
@@ -212,7 +221,7 @@ var _aim_home: Control = null
 ## Every button and its cooldown/ready overlay, in build order...
 var _buttons: Array[Button] = []
 var _veils: Array[SpellVeil] = []
-## ...and just the three spell ones, in kit-slot order.
+## ...and just the spell ones, in kit-slot order.
 var _spell_buttons: Array[Button] = []
 var _spell_veils: Array[SpellVeil] = []
 ## The contextual handoff pad. Deliberately NOT a `Button` and deliberately NOT in

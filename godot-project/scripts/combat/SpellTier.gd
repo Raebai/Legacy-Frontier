@@ -126,15 +126,25 @@ static func filter(spells: Array, tier: int) -> Array:
 	return out
 
 
-## HOW MANY SPELL BUTTONS A HAND HAS. Three, because the right thumb has three
-## buttons — that is the mobile control scheme the whole spec is built around, and a
-## kit with more entries than the hand has buttons is a kit the player cannot reach.
+## HOW MANY SPELL BUTTONS A HAND HAS. Four — three open slots plus the ult.
 ##
-## Was five (four spell slots + an ult). The extra two were not deleted content:
-## `SpellLibrary.CLASS_KITS` still authors all five roles per class, and the two a
-## class does not carry become the Tier 2 / Tier 3 pickup pool that later phases drop
-## mid-floor. The number that changed is how many you HOLD, not how many exist.
-const SLOT_COUNT: int = 3
+## ⚠ THIS CONSTANT HAD DRIFTED FROM THE DESIGN, NOT THE OTHER WAY UP. The header of
+## this very file has said "four spell slots plus a dedicated ULT slot" since it was
+## written; the number said three. The maker, watching a fight: "lets make it 4 spell
+## slots as there are 4 spells currently going on."
+##
+## Everything downstream is derived from here — `ULT_SLOT`, `BotIntent.SLOT_COUNT`
+## and its whole cooldown-index block, the hotbar's cluster split, the touch arc's
+## button count, the loadout picker's arity. The one thing that is NOT derived is
+## `SpellLibrary.SLOT_ROLES`, which authors a hand per class by name; growing this
+## number without adding a role there is caught by `tools/slice8_test_spell_kits.gd`
+## rather than discovered as an empty button on floor 3.
+##
+## The COST of the fourth slot is the pickup pool, and it is worth saying out loud:
+## `CLASS_KITS` authors five roles per class, so carrying four leaves ONE reserve
+## instead of two, and five spells that used to be floor drops are now started with.
+## You hold more and you find less.
+const SLOT_COUNT: int = 4
 ## The ult always sits in the LAST slot. Derived rather than written as a literal so
 ## the two constants cannot drift apart — one edit moves the whole scheme.
 const ULT_SLOT: int = SLOT_COUNT - 1

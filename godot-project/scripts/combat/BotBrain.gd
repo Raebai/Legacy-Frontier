@@ -102,7 +102,7 @@ extends RefCounted
 ## difference is worth reading before touching the scorer.
 ##
 ## It used to be exact: kits were five spells emitted in `SpellLibrary.ROLE_ORDER`, so
-## slot 1 was ALWAYS "control" for every class in the game. Kits are now three spells
+## slot 1 was ALWAYS "control" for every class in the game. Kits are `SLOT_COUNT` spells
 ## (the right thumb has three buttons), and which three a class carries is chosen per
 ## class from its fantasy — so slot 1 is "control" for the Arcanist, "answer" for the
 ## Brawler and "payoff" for the Shadowblade.
@@ -141,8 +141,7 @@ const SLOT_COUNT: int = BotIntent.SLOT_COUNT
 ##
 ## ⚠ DERIVED FROM `BotIntent`, NEVER RESTATED — and this file used to restate them.
 ## They were written as the literals 5 / 6 / 7 back when the hand was five spells
-## and `SLOT_COUNT + 1` happened to be 6. The hand is THREE spells now
-## (`SpellTier.SLOT_COUNT`), so the body publishes primary at 3, dash at 4 and guard
+## and `SLOT_COUNT + 1` happened to be 6. The hand is `SpellTier.SLOT_COUNT` spells, so the body publishes primary at 3, dash at 4 and guard
 ## at 5 — and the brain was reading the GUARD timer to decide whether its fists were
 ## ready, the BLAST timer to decide whether it could dash, and the BLINK timer to
 ## decide whether it could parry. Every one of those reads was silently wrong for

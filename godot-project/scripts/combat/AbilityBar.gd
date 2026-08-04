@@ -271,8 +271,8 @@ func _stamp_spell_identity(hero: Node) -> void:
 ## Dagger's transient "RECALL" state, so a reordering of the hotbar cannot make this
 ## repair the wrong slot.
 ##
-## ⚠ TARGETED BY `selected`, NOT BY THE KEY LABEL "G". The bar now draws three spell
-## slots rather than one cycled one, and the key label is a fact about the BINDINGS
+## ⚠ TARGETED BY `selected`, NOT BY THE KEY LABEL "G". The bar now draws one slot per
+## kit spell rather than one cycled one, and the key label is a fact about the BINDINGS
 ## (the cast key on the selected slot, the cycle key on the others) — so keying the
 ## repair off "G" would silently start repairing whichever slot happened to hold the
 ## cast binding after a control-scheme change. `current_signature()` describes the
@@ -434,7 +434,7 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
 		var accent: Color = slot.get("accent", EMPTY_SOCKET_COLOR)
 		_draw_socket(rect, accent, int(slot.get("tier", SpellTier.Tier.QUICK)), alpha)
 	draw_rect(rect, _with_alpha(BORDER_COLOR, alpha), false, BORDER_WIDTH)
-	# The three spell slots are all live and all show their own cooldown, so the bar
+	# The spell slots are all live and all show their own cooldown, so the bar
 	# also has to say WHICH one the cast key throws right now. A lifted outer frame
 	# rather than a colour change: movement reads faster than hue when your eyes are on
 	# the fight (the same reasoning as LoadoutBar's SELECTED_LIFT), and it survives the

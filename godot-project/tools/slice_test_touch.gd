@@ -144,10 +144,13 @@ func _test_forced_builds_buttons() -> void:
 		if c is Button:
 			buttons += 1
 	_expect(pad.visible, "forced pad is visible")
-	# Three spells + dash + jump + parry. Deliberately an EQUALITY: the point of the
-	# consolidation pass was that a phone is not a keyboard, so a layer that quietly
-	# grew back to eight buttons should fail here rather than pass a `>=`.
-	_expect(buttons == 6, "pad built the six thumb buttons (got %d)" % buttons)
+	# The hand + dash + jump + parry. Deliberately an EQUALITY: the point of the
+	# consolidation pass was that a phone is not a keyboard, so a layer that quietly grew
+	# an extra button should fail here rather than pass a `>=`. DERIVED from
+	# `SpellTier.SLOT_COUNT` rather than written as 6, because the spell buttons are the
+	# one part of this pad that is allowed to move and it just did (3 -> 4).
+	var want: int = SpellTier.SLOT_COUNT + 3
+	_expect(buttons == want, "pad built the %d thumb buttons (got %d)" % [want, buttons])
 	pad.queue_free()
 	_completes("forced_builds_buttons")
 
@@ -180,7 +183,8 @@ func _test_buttons_drive_real_actions() -> void:
 		_expect(InputMap.has_action(action),
 			"touch button '%s' drives a real action '%s'" % [(c as Button).text, action])
 	# The verbs a phone player cannot play without.
-	for required: String in ["jump", "dash", "parry", "spell_1", "spell_2", "spell_3"]:
+	for required: String in ["jump", "dash", "parry", "spell_1", "spell_2", "spell_3",
+			"spell_4"]:
 		_expect(seen.has(required), "touch pad exposes '%s'" % required)
 	pad.queue_free()
 	_completes("buttons_drive_real_actions")

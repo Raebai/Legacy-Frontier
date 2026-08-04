@@ -415,11 +415,12 @@ func _test_combo() -> void:
 	# the Cryomancer and picks up the Thunderclap off the Brawler instead.
 	#
 	# `set_slot_roles` is a real, legal, player-selectable hand (four non-ult roles
-	# choose two = six per class), so this is testing a configuration a player can
-	# actually build, not a fixture invented for the test. Restored at the end so no
-	# later suite inherits it.
-	_expect(SpellLibrary.set_slot_roles(STORMCALLER, ["damage", "control", "ult"]),
-		"the Stormcaller's combo hand (damage / control / ult) is a legal choice")
+	# choose three since the fourth slot landed = four per class), so this is testing a
+	# configuration a player can actually build, not a fixture invented for the test.
+	# Restored at the end so no later suite inherits it.
+	_expect(SpellLibrary.set_slot_roles(STORMCALLER,
+			["damage", "control", "payoff", "ult"]),
+		"the Stormcaller's combo hand (damage / control / payoff / ult) is a legal choice")
 	var bb: Dictionary = _bb({"class_id": STORMCALLER})
 	# And it really holds both halves — a field to lay and a LIGHTNING line to fire
 	# through it — or the two directions below are asserting nothing.

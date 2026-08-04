@@ -32,7 +32,7 @@ extends RefCounted
 
 ##
 ## ⚠ RE-DERIVED AGAIN FOR THE ANTI-RECOLOUR PASS. Every blurb below now names the
-## three spells that class ACTUALLY CARRIES (`SpellLibrary.CLASS_KITS` read through
+## spells that class ACTUALLY CARRIES (`SpellLibrary.CLASS_KITS` read through
 ## `SLOT_ROLES`), because five of the nine used to advertise a beam — Umbral Lance,
 ## Infernal Lance, Tempest — that has since left every kit entirely. Advertising a
 ## spell nobody holds is the precise failure this header was written about, and it

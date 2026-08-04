@@ -80,12 +80,18 @@ func _completes(test_name: String) -> void:
 func _test_drop_data_shape() -> void:
 	var t2: Array = SpellLibrary.build_tier2()
 	var t3: Array = SpellLibrary.build_tier3()
-	# FIVE, not six: `mirror_image` was promoted out of the drop pool into the
-	# Arcanist's control slot by the anti-recolour pass. `build_tier2()` is the
-	# authored SIGNATURE band — the loud floor events — and every invariant in this
-	# suite is a claim about those, not about every spell a floor can produce (the
-	# pool a floor actually rolls from is this plus `SpellDrops._common_pool()`).
-	_expect(t2.size() == 5, "five Tier 2 signature spells (got %d)" % t2.size())
+	# TWO. It was six, then five when `mirror_image` was promoted into the Arcanist's
+	# control slot, and it is two now because the FOURTH spell slot promoted three more
+	# — Petrify to the Brawler, Gravity Flip to the Juggernaut, Blood Pact to the
+	# Swordsaint. `build_tier2()` is the authored SIGNATURE band (the loud floor events),
+	# and every invariant in this suite is a claim about those, not about every spell a
+	# floor can produce (that pool is this plus `SpellDrops._common_pool()`).
+	#
+	# ⚠ THE NUMBER IS PINNED SO SHRINKING IT AGAIN IS A DECISION. Each promotion is
+	# defensible on its own and the floor pool has quietly gone from six loud events to
+	# two; a seventh class wanting a fourth slot filled from here should have to come
+	# through this line.
+	_expect(t2.size() == 2, "two Tier 2 signature spells (got %d)" % t2.size())
 	_expect(t3.size() == 4, "four Tier 3 spells (got %d)" % t3.size())
 	# Fresh instances every call. A shared Resource between two heroes is how a
 	# Blood Pact buff would end up permanent on somebody else's spell.

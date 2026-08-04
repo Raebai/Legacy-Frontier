@@ -181,12 +181,14 @@ func _test_the_starting_hand_is_free() -> void:
 
 
 ## Mastering a class and climbing the tower once should be the same size of
-## commitment. 5 natives (3 free) + 4 links = 10 points = level 11; one full climb
-## lands at level 12. If either curve moves this is where it shows.
+## commitment. 5 natives (FOUR free since `SpellTier.SLOT_COUNT` became 4) + 4 links =
+## 9 points = level 10; one full climb lands at level 12. If either curve moves this is
+## where it shows — and the fourth spell slot moved it, by one point, in the direction
+## of the tree being finishable slightly sooner than a climb.
 func _test_a_tree_is_about_one_climb() -> void:
 	for c: int in CLASS_COUNT:
 		var cost: int = SpellTree.total_cost(c)
-		_expect(cost == 10, "class %d's whole tree costs 10 points (got %d)" % [c, cost])
+		_expect(cost == 9, "class %d's whole tree costs 9 points (got %d)" % [c, cost])
 		# The level at which the last node is affordable.
 		var level_to_finish: int = cost + 1     # 1 point per level, level 1 gives none
 		_expect(level_to_finish >= 8 and level_to_finish <= 16,
@@ -210,20 +212,28 @@ func _test_you_cannot_buy_what_you_cannot_afford() -> void:
 	var free_owned: Array = SpellTree.free_nodes(0)
 	_expect(SpellTree.points_spent(free_owned) == 0,
 		"the opening hand costs nothing even if it lands in `owned`")
-	# The paid NATIVES (the two roles you do not start with) cost 1.
+	# The paid NATIVES (the ONE role you do not start with) cost 1.
 	var paid_natives: int = 0
 	for n: String in SpellTree.nodes_for_class(0):
 		if not n.ends_with(":linked") and not SpellTree.is_free(n):
 			paid_natives += 1
 			_expect(SpellTree.cost_of(n) == 1, "an unowned native costs 1 (`%s`)" % n)
-	_expect(paid_natives == 2, "a class has exactly two natives it does not start with (got %d)" % paid_natives)
+	_expect(paid_natives == 5 - SpellTier.SLOT_COUNT,
+		"a class has exactly %d natives it does not start with (got %d)"
+			% [5 - SpellTier.SLOT_COUNT, paid_natives])
 	_completes("you_cannot_buy_what_you_cannot_afford")
 
 
 ## ⚠ THE DESIGN PROMISE, ASSERTED: the tree grows your OPTIONS and never your HAND.
-## The 3-of-5 carry is the existing balance surface and `slot_accepts_ult` protects
+## The 4-of-5 carry is the existing balance surface and `slot_accepts_ult` protects
 ## it; a tree that quietly widened the hand would let a player carry five damage
 ## spells and no answer, which is not a build, it is a hole.
+##
+## ⚠ THE HAND WIDTH IS PINNED TO A LITERAL ON PURPOSE. `SpellTier.SLOT_COUNT` is read
+## everywhere else in this suite, so if it alone were used here the assertion would be
+## true of any value and this test would stop being about anything. The literal is the
+## tripwire: growing the hand again should have to come through this line, because the
+## tree's whole cost curve and the class-identity invariant both move with it.
 func _test_buying_grows_options_never_the_hand() -> void:
 	var owned: Array = []
 	var before: int = SpellTree.bindable_spells(0, owned).size()
@@ -234,8 +244,8 @@ func _test_buying_grows_options_never_the_hand() -> void:
 	_expect(after > before, "buying the tree grows what you can BIND (%d -> %d)" % [before, after])
 	_expect(after == 9, "a fully-bought Arcanist can bind nine distinct spells (got %d)" % after)
 	# THE HAND ITSELF IS UNCHANGED — still three slots, whatever is bought.
-	_expect(int(SpellTier.SLOT_COUNT) == 3, "the hand is three, and the tree does not touch it")
-	_expect(SpellTree.free_nodes(0).size() == 3, "…and the opening hand is still three")
+	_expect(int(SpellTier.SLOT_COUNT) == 4, "the hand is four, and the tree does not touch it")
+	_expect(SpellTree.free_nodes(0).size() == 4, "…and the opening hand is still four")
 	_completes("buying_grows_options_never_the_hand")
 
 

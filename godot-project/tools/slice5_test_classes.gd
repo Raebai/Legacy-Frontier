@@ -229,8 +229,13 @@ func _test_signature_loadouts() -> void:
 	var reserve_ids: Array[String] = []
 	for s in jugg_reserve:
 		reserve_ids.append(String(s.id))
-	_expect(reserve_ids.has("rock_wall") and reserve_ids.has("drain_tether"),
-		"...and the two roles it does not carry are preserved as its drop-pool reserve")
+	# ⚠ ONE ROLE, NOT TWO, SINCE THE FOURTH SPELL SLOT. The Juggernaut carries four of
+	# five now (its control role became GRAVITY FLIP, the Brawler's wall having been a
+	# borrow), so only the drain is left in the reserve.
+	_expect(reserve_ids.has("drain_tether"),
+		"...and the role it does not carry is preserved as its drop-pool reserve")
+	_expect(reserve_ids.size() == 5 - SpellTier.SLOT_COUNT,
+		"...and it is the only one (got %s)" % [reserve_ids])
 	# Cryomancer (5): the Frostpiercer BEAM is its damage line (short channel, HEAVY
 	# shelf), the Ice Wall its defensive answer, and the Glacial Spine its ult.
 	var cryo: Array = SpellLibrary.build_for_class(5)

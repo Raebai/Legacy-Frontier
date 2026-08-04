@@ -22,7 +22,7 @@ signal pause_requested
 ## its welcome card and that file is not ours; point it at `controls_text()` and this
 ## whole string can go. Until then it is the answer for a build whose InputMap has been
 ## stripped, and it WILL drift, which is exactly why nothing on screen reads it.
-const CONTROLS_TEXT: String = "A / D   Move          W / Up   Jump\nSpace   Dash          LMB   Cast\n1 / 2 / 3   Spells          RMB   Parry / Block\nF   Melee          R   Blink          Q   AoE          T   Nova\nG   Cast selected spell          V   Change selection\nTab   Class          X   Element          C   Colour\nEsc / the II button   Pause"
+const CONTROLS_TEXT: String = "A / D   Move          W / Up   Jump\nSpace   Dash          LMB   Cast\n1 / 2 / 3 / 4   Spells          RMB   Parry / Block\nF   Melee          R   Blink          Q   AoE          T   Nova\nG   Cast selected spell          V   Change selection\nTab   Class          X   Element          C   Colour\nEsc / the II button   Pause"
 
 ## The controls card as a TABLE OF ACTIONS, one inner array per printed line, each
 ## entry `[label, [action, ...]]`. No key letter appears here at all — the letters come
@@ -47,7 +47,7 @@ const CONTROL_ROWS: Array = [
 	# for what the thumb does — "ultimate" is an engine name, not a player-facing one.
 	# ⚠ ALSO THE LONGEST LINE ON THE CARD, and the panel is 320 px wide with autowrap
 	# off, so both labels are as short as they can be and still be true.
-	[["Spells", ["spell_1", "spell_2", "spell_3"]], ["Throw selected", ["ultimate"]],
+	[["Spells", ["spell_1", "spell_2", "spell_3", "spell_4"]], ["Throw selected", ["ultimate"]],
 		["Pick spell", ["cycle_signature"]]],
 	[["Blink", ["blink"]], ["AoE", ["blast"]], ["Nova", ["nova"]]],
 	[["Class", ["switch_class"]], ["Element", ["cycle_element"]],

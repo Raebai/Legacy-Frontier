@@ -15,10 +15,17 @@ extends RefCounted
 ## three. So the tree does not invent a borrowing system. **It makes a sharing that
 ## is already true VISIBLE, and puts a price on it.**
 ##
-## ⚠ IT GROWS YOUR OPTIONS, NEVER YOUR HAND. You still carry three of five roles
-## (`SpellLibrary.SLOT_ROLES`). Unlocking a node makes a spell BINDABLE, and the
-## 3-of-5 hand — the existing balance surface — is untouched. A free web would let
-## someone carry five damage spells and no answer, which is not a build, it is a hole.
+## ⚠ IT GROWS YOUR OPTIONS, NEVER YOUR HAND. You carry four of five roles
+## (`SpellLibrary.SLOT_ROLES`, `SpellTier.SLOT_COUNT`). Unlocking a node makes a spell
+## BINDABLE, and the 4-of-5 hand — the existing balance surface — is untouched. A free
+## web would let someone carry five damage spells and no answer, which is not a build,
+## it is a hole.
+##
+## ⚠ THE TREE GOT ONE POINT CHEAPER WHEN THE FOURTH SLOT LANDED, and it is arithmetic,
+## not a discount: a whole tree is (natives you do not already own) + 4 links, and you
+## now start with four of the five natives instead of three. 10 points -> 9. The five
+## roles the fourth slot RE-POINTED all link to the spell they used to hold, so nothing
+## the old table reached became unreachable — it costs 2 points now instead of 0.
 
 ## What a node costs. A native is your own class's; a link is a strategy you went
 ## and got, and it should be felt.
@@ -62,7 +69,10 @@ const TREES: Array[Dictionary] = [
 		"damage":  {"native": "ordinary_spell", "linked": "frostpiercer"},   # beam kin
 		"control": {"native": "mirror_image",   "linked": "chronostasis"},   # arcane control
 		"answer":  {"native": "blink_strike",   "linked": "rift_dagger"},    # get-out kin
-		"payoff":  {"native": "rock_pillar",    "linked": "rune_orbs"},      # arcane payoff
+		# ⚠ SWAPPED BY THE FOURTH SLOT. Arcane Missiles is the CARRIED payoff now and the
+		# Juggernaut's pillar is what you go and buy — the two changed places, and the
+		# pillar is still reachable at a link price.
+		"payoff":  {"native": "rune_orbs",      "linked": "rock_pillar"},    # arcane payoff
 		"ult":     {"native": "meteor_sigil",   "linked": ""},
 	},
 	# ── 1 SHADOWBLADE — in-and-out assassin ─────────────────────────────────────
@@ -79,7 +89,10 @@ const TREES: Array[Dictionary] = [
 	{
 		# ⚠ RE-POINTED. The doc linked this to `boulder_hurl` — its own payoff native.
 		"damage":  {"native": "shockwave_stomp", "linked": "iai_slash"},     # committed-cut kin
-		"control": {"native": "chain_lightning", "linked": "thunderclap"},   # lightning kin
+		# ⚠ RE-POINTED BY THE FOURTH SLOT. A lightning chain was the carried control on the
+		# one class whose card says "no magic"; Petrify carries it now and the chain is a
+		# thing this class can deliberately go and BUY, which is a different statement.
+		"control": {"native": "petrify",         "linked": "chain_lightning"}, # stone control
 		"answer":  {"native": "rock_wall",       "linked": "ice_wall"},      # wall archetype
 		"payoff":  {"native": "boulder_hurl",    "linked": "rock_pillar"},   # earth kin
 		"ult":     {"native": "meteor_fist",     "linked": ""},
@@ -87,16 +100,20 @@ const TREES: Array[Dictionary] = [
 	# ── 3 JUGGERNAUT — siege tank ───────────────────────────────────────────────
 	{
 		"damage":  {"native": "boulder_hurl",  "linked": "shockwave_stomp"}, # earth kin
-		"control": {"native": "rock_wall",     "linked": "petrify"},         # earth control
+		# ⚠ RE-POINTED BY THE FOURTH SLOT — the wall was the Brawler's and is a purchase now.
+		"control": {"native": "gravity_flip",  "linked": "rock_wall"},       # earth control
 		"answer":  {"native": "drain_tether",  "linked": "aegis_ward"},      # survival archetype
 		"payoff":  {"native": "rock_pillar",   "linked": "shatter"},         # detonator archetype
 		"ult":     {"native": "fault_line",    "linked": ""},
 	},
 	# ── 4 CLERIC — radiant lifesteal bruiser ────────────────────────────────────
 	{
-		"damage":  {"native": "radiant_volley",  "linked": "judgment"},      # holy beam kin
+		# ⚠ THE LINK MOVED BY THE FOURTH SLOT: `judgment` is this class's CARRIED answer
+		# now, and a node you already own is not a choice. The drain it stopped carrying
+		# takes the slot — same lifesteal archetype, and still reachable.
+		"damage":  {"native": "radiant_volley",  "linked": "drain_tether"},  # lifesteal archetype
 		"control": {"native": "aegis_ward",      "linked": "equinox"},       # holy control
-		"answer":  {"native": "drain_tether",    "linked": "blink_strike"},  # mobility archetype
+		"answer":  {"native": "judgment",        "linked": "blink_strike"},  # mobility archetype
 		# ⚠ RE-POINTED. The design doc proposed «heavens_wrath» here — which is the
 		# STORMCALLER'S ULT, so the doc's own §3 ("ults are never linked") was broken
 		# by its own mock tree. Every other holy spell is either already in this tree
@@ -143,7 +160,9 @@ const TREES: Array[Dictionary] = [
 	# ── 8 SWORDSAINT — parry duellist ───────────────────────────────────────────
 	{
 		"damage":  {"native": "iai_slash",     "linked": "blade_flurry"},    # burst kin
-		"control": {"native": "rock_wall",     "linked": "gravity_flip"},    # displacement archetype
+		# ⚠ RE-POINTED BY THE FOURTH SLOT — the wall was the Brawler's. The pact is the
+		# duelist's carried price; the wall is what it can go and buy.
+		"control": {"native": "blood_pact",    "linked": "rock_wall"},       # duellist's price
 		"answer":  {"native": "crescent_step", "linked": "rift_dagger"},     # get-out kin
 		# ⚠ RE-POINTED. The doc proposed «thousand_cuts» — the SHADOWBLADE'S ULT. Same
 		# violation as the Cleric's payoff above. `shockwave_stomp` is the doc's own

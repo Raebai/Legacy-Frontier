@@ -120,9 +120,9 @@ func _test_the_authored_hand_is_still_the_default() -> void:
 func _test_a_pick_reaches_the_hero() -> void:
 	SpellLibrary.clear_slot_roles()
 	# The Arcanist authors damage/control/answer/payoff/ult and carries
-	# damage/control/ult. Take the blink and the spire instead.
+	# damage/control/payoff/ult. Take the blink instead of the clone.
 	var before: Array = _ids(SpellLibrary.build_for_class(0))
-	var ok: bool = SpellLibrary.set_slot_roles(0, ["answer", "payoff", "ult"])
+	var ok: bool = SpellLibrary.set_slot_roles(0, ["damage", "answer", "payoff", "ult"])
 	_expect(ok, "a legal hand is accepted")
 	_expect(SpellLibrary.has_custom_slot_roles(0), "and is reported as custom")
 	var after: Array = _ids(SpellLibrary.build_for_class(0))
@@ -130,9 +130,10 @@ func _test_a_pick_reaches_the_hero() -> void:
 	_expect(after.size() == SpellTier.SLOT_COUNT,
 		"the hand is still %d spells (got %d)" % [SpellTier.SLOT_COUNT, after.size()])
 	var kit: Dictionary = SpellLibrary.kit_for_class(0)
-	_expect(after[0] == String(kit["answer"]), "slot 1 is the role that was picked for it")
-	_expect(after[1] == String(kit["payoff"]), "slot 2 is the role that was picked for it")
-	_expect(after[2] == String(kit["ult"]), "slot 3 is still the ult")
+	_expect(after[0] == String(kit["damage"]), "slot 1 is the role that was picked for it")
+	_expect(after[1] == String(kit["answer"]), "slot 2 is the role that was picked for it")
+	_expect(after[2] == String(kit["payoff"]), "slot 3 is the role that was picked for it")
+	_expect(after[SpellTier.ULT_SLOT] == String(kit["ult"]), "the last slot is still the ult")
 	# Nobody else moved.
 	_expect(SpellLibrary.slot_roles_for_class(1) == SpellLibrary.default_slot_roles_for_class(1),
 		"choosing for the Arcanist did not touch the Shadowblade")
@@ -149,12 +150,12 @@ func _test_illegal_hands_are_refused() -> void:
 	SpellLibrary.clear_slot_roles()
 	var kept: Array = SpellLibrary.slot_roles_for_class(0)
 	var bad: Array = [
-		["damage", "ult"],                        # too few
-		["damage", "control", "answer", "ult"],   # too many
-		["damage", "damage", "ult"],              # the same spell twice
-		["damage", "control", "payoff"],          # no ult in the ult slot
-		["ult", "control", "ult"],                # an ult outside the ult slot
-		["damage", "nonsense", "ult"],            # a role this class does not author
+		["damage", "control", "ult"],                        # too few
+		["damage", "control", "answer", "payoff", "ult"],    # too many
+		["damage", "damage", "answer", "ult"],               # the same spell twice
+		["damage", "control", "answer", "payoff"],           # no ult in the ult slot
+		["ult", "control", "answer", "ult"],                 # an ult outside the ult slot
+		["damage", "nonsense", "answer", "ult"],             # a role this class does not author
 	]
 	for roles: Array in bad:
 		_expect(SpellLibrary.validate_slot_roles(0, roles) != "",
@@ -162,7 +163,7 @@ func _test_illegal_hands_are_refused() -> void:
 		_expect(not SpellLibrary.set_slot_roles(0, roles), "%s is refused" % [roles])
 		_expect(SpellLibrary.slot_roles_for_class(0) == kept,
 			"...and the standing hand survived the refusal")
-	_expect(SpellLibrary.validate_slot_roles(0, ["damage", "control", "ult"]) == "",
+	_expect(SpellLibrary.validate_slot_roles(0, ["damage", "control", "answer", "ult"]) == "",
 		"a legal hand validates clean")
 	_completes("illegal_hands_are_refused")
 
@@ -186,8 +187,15 @@ func _test_the_ult_slot_is_not_a_choice() -> void:
 
 
 ## The point of the whole feature: every class must have MORE options than slots, or
-## its "choice" is a screen with nothing on it. With 4 choosable roles and 2 open
-## slots that is 6 hands per class — 54 across the roster, from zero new content.
+## its "choice" is a screen with nothing on it.
+##
+## ⚠ THE CHOICE GOT SMALLER WHEN THE FOURTH SPELL SLOT LANDED, and this test is where
+## that shows up as a number instead of a feeling. With 4 choosable roles it was
+## choose-2 = 6 hands per class, 54 across the roster; it is choose-3 = 4 per class, 36
+## across the roster. The pick is now "which one do I leave behind". That is a real
+## cost of the fourth button and it is asserted, not assumed — if it ever drops to
+## choose-4 the count goes to ONE per class and the screen stops being a decision at
+## all, which is the failure this floor is guarding.
 func _test_every_class_offers_a_real_choice() -> void:
 	var open_slots: int = SpellTier.SLOT_COUNT - 1
 	var total: int = 0
@@ -196,27 +204,44 @@ func _test_every_class_offers_a_real_choice() -> void:
 		_expect(choosable.size() > open_slots,
 			"class %d offers more than %d non-ult roles (got %d) — otherwise there is nothing to pick"
 				% [cls, open_slots, choosable.size()])
-		# n-choose-2, which is what the picker actually exposes.
-		var n: int = choosable.size()
-		total += (n * (n - 1)) / 2
+		# Every combination of `open_slots` roles, which is what the picker exposes.
+		var hands: Array = _combinations(choosable, open_slots)
+		total += hands.size()
 		# And every one of those hands must be buildable, not just countable.
-		for i: int in n:
-			for j: int in range(i + 1, n):
-				var roles: Array = [choosable[i], choosable[j], SpellLibrary.ult_role_for_class(cls)]
-				_expect(SpellLibrary.validate_slot_roles(cls, roles) == "",
-					"class %d can legally carry %s" % [cls, roles])
-	_expect(total >= 40, "the roster offers at least 40 distinct hands (got %d)" % total)
+		for hand: Variant in hands:
+			var roles: Array = (hand as Array).duplicate()
+			roles.append(SpellLibrary.ult_role_for_class(cls))
+			_expect(SpellLibrary.validate_slot_roles(cls, roles) == "",
+				"class %d can legally carry %s" % [cls, roles])
+	_expect(total >= 27, "the roster offers at least 27 distinct hands (got %d)" % total)
 	SpellLibrary.clear_slot_roles()
 	_completes("every_class_offers_a_real_choice")
 
 
-## The two roles you DON'T carry are the Tier 2 / Tier 3 drop pool
+## Every `pick`-sized combination of `pool`, order preserved. Written out rather than
+## hardcoded per arity so this suite keeps asking the real question when the hand
+## width moves again.
+static func _combinations(pool: Array, pick: int) -> Array:
+	if pick <= 0:
+		return [[]]
+	if pool.size() < pick:
+		return []
+	var out: Array = []
+	for i: int in pool.size():
+		for rest: Variant in _combinations(pool.slice(i + 1), pick - 1):
+			var one: Array = [pool[i]]
+			one.append_array(rest as Array)
+			out.append(one)
+	return out
+
+
+## The role you DON'T carry is the Tier 2 / Tier 3 drop pool
 ## (`SpellDrops` reads `reserve_for_class`). Change the hand and the pool must follow,
 ## or a spell ends up both carried and droppable.
 func _test_the_reserve_tracks_the_pick() -> void:
 	SpellLibrary.clear_slot_roles()
 	var before: Array = _ids(SpellLibrary.reserve_for_class(0))
-	_expect(SpellLibrary.set_slot_roles(0, ["answer", "payoff", "ult"]), "pick lands")
+	_expect(SpellLibrary.set_slot_roles(0, ["damage", "answer", "payoff", "ult"]), "pick lands")
 	var after: Array = _ids(SpellLibrary.reserve_for_class(0))
 	_expect(after != before, "the drop pool followed the pick (%s -> %s)" % [before, after])
 	var carried: Array = _ids(SpellLibrary.build_for_class(0))
@@ -243,14 +268,14 @@ func _test_the_save_hook_no_ops_without_the_field() -> void:
 	# ...and the moment the field exists, both directions work — including the
 	# int/float key mangling a JSON round-trip does to dictionary keys.
 	var wired := _WiredState.new()
-	_expect(SpellLibrary.set_slot_roles(0, ["answer", "payoff", "ult"]), "pick lands")
+	_expect(SpellLibrary.set_slot_roles(0, ["damage", "answer", "payoff", "ult"]), "pick lands")
 	_expect(SpellLibrary.persist_to_state(wired), "saving into a wired GameState works")
 	SpellLibrary.clear_slot_roles()
 	_expect(SpellLibrary.hydrate_from_state(wired), "and it comes back")
-	_expect(SpellLibrary.slot_roles_for_class(0) == ["answer", "payoff", "ult"],
+	_expect(SpellLibrary.slot_roles_for_class(0) == ["damage", "answer", "payoff", "ult"],
 		"exactly as it went in")
 	SpellLibrary.clear_slot_roles()
-	wired.spell_roles = {"0": ["answer", "payoff", "ult"]}   # what JSON gives back
+	wired.spell_roles = {"0": ["damage", "answer", "payoff", "ult"]}   # what JSON gives back
 	_expect(SpellLibrary.hydrate_from_state(wired), "a JSON-mangled key still restores")
 	_expect(SpellLibrary.has_custom_slot_roles(0), "...onto the right class")
 	SpellLibrary.clear_slot_roles()

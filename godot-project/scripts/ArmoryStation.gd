@@ -13,7 +13,7 @@ extends StaticBody2D
 ##     class's five authored roles (six hands per class, 54 across the roster) plus
 ##     your colourway. The only customisation in the game that changes how you fight.
 ##   * `"sparring"` — a chalk ring with adummy. Opens FREE PLAY: no enemies, no
-##     stakes, just your three spells. This is the game's only onboarding surface
+##     stakes, just your spells. This is the game's only onboarding surface
 ##     and it used to be a title-screen button, which is the one place a player is
 ##     not yet curious. In the room, it is a thing you walk past on your way to
 ##     the door.

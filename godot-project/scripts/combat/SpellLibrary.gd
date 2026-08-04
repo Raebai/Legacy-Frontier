@@ -119,8 +119,14 @@ const CLASS_KITS: Array[Dictionary] = [
 	# always described as being. Its control is MIRROR IMAGE: a second caster that
 	# repeats what you cast, one beat behind, on nobody's side. Nothing else in the
 	# game duplicates you, which is why this is worth a kit slot rather than a drop.
+	# ⚠ ITS PAYOFF WAS `rock_pillar`, THE JUGGERNAUT'S. An earth pillar was always a
+	# borrow on an arcane zoner, and the fourth slot is what made the borrow illegal
+	# rather than merely untidy: a hand of four carries every role but one, so a role
+	# two classes author is a role two classes CARRY. ARCANE MISSILES is the spell
+	# this class should always have held — it is literally named for the element on
+	# its card, and it was sitting unclaimed in the floor-pickup pool.
 	{"damage": "ordinary_spell", "control": "mirror_image", "answer": "blink_strike",
-		"payoff": "rock_pillar", "ult": "meteor_sigil"},
+		"payoff": "rune_orbs", "ult": "meteor_sigil"},
 	# 1 SHADOWBLADE — in-and-out assassin. Its ult was `umbral_lance`, a violet copy
 	# of the Arcanist's magenta beam: a stationary channelled lance on an assassin.
 	# THOUSAND CUTS is the class fantasy instead — mark one body, vanish, open it
@@ -132,20 +138,38 @@ const CLASS_KITS: Array[Dictionary] = [
 	# the floor and METEOR FIST is a leap that lands fist-first. The Rock Wall stays
 	# its "answer" for the reason no other class gets: the wall's second beat is a
 	# PUNCH (the two-beat shove), so a defensive spell doubles as a brawler verb.
-	{"damage": "shockwave_stomp", "control": "chain_lightning", "answer": "rock_wall",
+	# ⚠ ITS CONTROL WAS `chain_lightning` — a LIGHTNING chain on the one class whose
+	# card says "no magic", and the Stormcaller's damage line besides. The file already
+	# called that out as a correction owed; the fourth slot is what forced it, because
+	# an uncarried contradiction is invisible and a CARRIED one is on the hotbar.
+	# PETRIFY is the replacement because its payout is not the cast: stone crawls up a
+	# body, and the damage arrives when somebody hits it hard enough to launch it.
+	# That is a brawler verb wearing a spell's clothes — the same argument that keeps
+	# the Rock Wall here (its second beat is a punch).
+	{"damage": "shockwave_stomp", "control": "petrify", "answer": "rock_wall",
 		"payoff": "boulder_hurl", "ult": "meteor_fist"},
 	# 3 JUGGERNAUT — siege tank. Its ult was the fourth placed bombardment in the
 	# tree; FAULT LINE is a rupture that TRAVELS instead, which is the one shape a
 	# siege tank should own. It CARRIES the payoff (Rock Pillar) rather than the
 	# tether, because the tether is the Warlock's damage line and a tank borrowing
 	# the hexer's signature is precisely the recolour this pass exists to delete.
-	{"damage": "boulder_hurl", "control": "rock_wall", "answer": "drain_tether",
+	# ⚠ ITS CONTROL WAS `rock_wall`, THE BRAWLER'S. GRAVITY FLIP replaces it: it is the
+	# only spell in the tree that changes a RULE rather than aiming an effect, and
+	# "everything with feet leaves the floor — yours included — until the room comes
+	# down at once" is a siege verb. It is also the one spell whose drawback a tank can
+	# actually eat, which is what makes it this class's and not somebody else's.
+	{"damage": "boulder_hurl", "control": "gravity_flip", "answer": "drain_tether",
 		"payoff": "rock_pillar", "ult": "fault_line"},
 	# 4 CLERIC — radiant lifesteal bruiser, and the only HOLY caster. RADIANT VOLLEY
 	# is the maker's "archer" ask: a rack of parallel lances where position, not aim,
 	# is the damage dial. Its control is the AEGIS WARD — the game's only protective
 	# spell, and previously in nobody's kit at all.
-	{"damage": "radiant_volley", "control": "aegis_ward", "answer": "drain_tether",
+	# ⚠ ITS ANSWER WAS `drain_tether`, THE WARLOCK'S DAMAGE LINE — a shadow drain on the
+	# only HOLY caster, which is both a recolour and an element the class opposes.
+	# JUDGMENT is the fix and it costs nothing to author: a single pillar of holy light
+	# on the exact ground you mark, already built, already tuned, and in nobody's kit.
+	# It makes the Cleric the one class whose whole hand is one element.
+	{"damage": "radiant_volley", "control": "aegis_ward", "answer": "judgment",
 		"payoff": "chain_lightning", "ult": "heavens_verdict"},
 	# 5 CRYOMANCER — ice control. SHATTER replaces the Frostpiercer beam and makes
 	# the class's own Blizzard its set-up: 0.35x on a warm body, 3.0x on a frozen
@@ -187,25 +211,41 @@ const CLASS_KITS: Array[Dictionary] = [
 	#           the arm for it has existed since the Horizon Cut handoff shipped; this
 	#           row is the last step of that handoff, replacing the `judgment`
 	#           placeholder that used to hold the slot.
-	{"damage": "iai_slash", "control": "rock_wall", "answer": "crescent_step",
+	# ⚠ ITS CONTROL WAS `rock_wall`, THE BRAWLER'S — the "a duelist shapes the floor"
+	# argument was sound and the spell was still somebody else's. BLOOD PACT is the
+	# duelist's price instead: everything you cast hits far harder and the bleeding
+	# does not stop because the fight is going badly. Its three carried spells all
+	# route through `SpellCaster.cast`, so the multiplier actually reaches them.
+	# ⚠ ITS COOLDOWN WAS RETUNED to clear the ULT shelf — see `_blood_pact()`. Same
+	# move, same reason, as `_aegis_ward()` when the Cleric un-orphaned it.
+	{"damage": "iai_slash", "control": "blood_pact", "answer": "crescent_step",
 		"payoff": "boulder_hurl", "ult": "horizon_cut"},
 ]
 
 
 # ------------------------------------------------------------- WHAT YOU HOLD
-## WHICH THREE OF A CLASS'S FIVE AUTHORED ROLES IT ACTUALLY CARRIES, in slot order.
+## WHICH FOUR OF A CLASS'S FIVE AUTHORED ROLES IT ACTUALLY CARRIES, in slot order.
 ##
-## The right thumb has THREE buttons. That is the mobile control scheme the spec is
-## built around, so three is the number of spells a hand can hold — a fourth entry is
-## a spell the player cannot reach.
+## The right thumb has `SpellTier.SLOT_COUNT` buttons and that number is FOUR now —
+## the maker, watching a fight: "lets make it 4 spell slots as there are 4 spells
+## currently going on". A row longer than the hand is a spell the player cannot reach;
+## a row shorter is an empty button.
 ##
-## ⚠ THE OTHER TWO ROLES ARE NOT DELETED, and that is the point of splitting this
-## table out rather than cutting `CLASS_KITS` down. `CLASS_KITS` stays the authored
-## POOL — five roles per class, every rationale intact — and this says which three of
-## them you start with. The two you do not start with are exactly the shape the Tier 2
-## floor pickups and Tier 3 boss drops need in a later phase: real, tuned, role-tagged
-## spells with a class already attached to them. Trimming the pool instead would have
-## thrown that away to save a table.
+## ⚠ THE FOURTH SLOT COST FIVE RE-POINTS IN `CLASS_KITS`, AND THAT IS THE INTERESTING
+## PART. At three carried of five authored, a role two classes shared could sit
+## politely in both reserves and never be seen. At four of five it is on both hotbars.
+## So the anti-recolour invariant did not merely survive the change — it FOUND the
+## duplication the old hand was hiding: a lightning chain on the no-magic Brawler, the
+## Warlock's drain on the holy Cleric, the Brawler's wall in two other kits, the
+## Juggernaut's pillar on the Arcanist. Every one is now that class's own spell.
+##
+## ⚠ THE FIFTH ROLE IS NOT DELETED. `CLASS_KITS` stays the authored POOL and this says
+## which four of it you start with. The one you do not start with is still the shape
+## the Tier 2 / Tier 3 drops want: a real, tuned, role-tagged spell with a class
+## already attached to it. But there is now ONE reserve instead of two, and five
+## spells that used to be findable are started with — the pickup pool went from
+## fourteen entries to nine. You hold more and you find less. That is the price of the
+## fourth button, and nobody has played it yet.
 ##
 ## RULES THIS TABLE MUST OBEY (all pinned by tools/slice8_test_spell_kits.gd):
 ##   * exactly `SpellTier.SLOT_COUNT` entries per class;
@@ -213,9 +253,9 @@ const CLASS_KITS: Array[Dictionary] = [
 ##   * every earlier entry must hold a NON-ult spell;
 ##   * a role named here must exist in that class's `CLASS_KITS` row.
 ##
-## HOW THE THREE WERE CHOSEN — the class's fantasy, read off `ClassInfo.CLASSES`,
+## HOW THE FOUR WERE CHOSEN — the class's fantasy, read off `ClassInfo.CLASSES`,
 ## rather than a uniform "keep damage/control/ult" rule. Every class keeps its DAMAGE
-## line (the thing you throw all fight) and its ULT (the finisher); the middle slot is
+## line (the thing you throw all fight) and its ULT (the finisher); the middle slots are
 ## whichever of control / answer / payoff that class's one-line fantasy actually names.
 ## Zoners keep the field; assassins and duelists keep the way IN; tanks and the cleric
 ## keep sustain; the brawler keeps the wall whose second beat is a punch.
@@ -231,49 +271,69 @@ const SLOT_ROLES: Array[Array] = [
 	# Blizzard it used to carry: the field is in two other hands and the clone is in
 	# nobody's. A second caster repeating your casts one beat behind, on nobody's
 	# side, IS a zoning tool — it makes standing anywhere near you a decision.
-	["damage", "control", "ult"],
+	# The fourth is ARCANE MISSILES, its re-pointed payoff: a fan you aim, to answer
+	# the one thing a zoner cannot do with a field or a clone — put damage on a body
+	# that is already committed to walking through both.
+	["damage", "control", "payoff", "ult"],
 	# 1 SHADOWBLADE — "in-and-out assassin". Rift Dagger is the ANSWER and the carried
 	# middle: throw it, then tear yourself through to it. Shadowburst moves to the
 	# reserve because two other classes hold it and this class's identity should not
 	# be the tool three kits share.
-	["damage", "answer", "ult"],
+	# The fourth is CREEPING SHADE, the crawler it authored and never held: an assassin
+	# wants something moving toward you while it is somewhere else.
+	["damage", "answer", "control", "ult"],
 	# 2 BRAWLER — "pure-melee knockout, no magic". Rock Wall is its answer for a reason
 	# no other class has: the wall's second beat is a PUNCH, so the defensive spell is
 	# also a brawler verb. Nothing else in its kit is as on-fantasy.
-	["damage", "answer", "ult"],
+	# The fourth is PETRIFY, its re-pointed control — the other spell in this kit whose
+	# damage arrives when something gets HIT rather than when it gets cast.
+	["damage", "answer", "control", "ult"],
 	# 3 JUGGERNAUT — "unbreakable siege tank". It carries the PAYOFF (Rock Pillar), not
 	# the tether. The tether is the WARLOCK's damage line and the Cleric's sustain
 	# already; a third hand holding it is the exact shape of duplication this pass is
 	# deleting, and a siege tank erupting the floor under someone is more on-fantasy
 	# than a shadow drain anyway. The tether stays authored, in the drop reserve.
-	["damage", "payoff", "ult"],
+	# The fourth is GRAVITY FLIP, its re-pointed control: the tank is the only class
+	# that can afford to be in the air with everyone else.
+	["damage", "payoff", "control", "ult"],
 	# 4 CLERIC — "radiant lifesteal bruiser". It carries the AEGIS WARD, the game's only
 	# protective spell and previously in nobody's kit at all. That is the fix to a real
 	# unreachable-spell bug, and it leaves the tether to the Warlock, whose damage line
 	# it is. The lifesteal fantasy is not lost: `CLASS_CONFIG[CLERIC].bolt_heal` means
 	# the class's PRIMARY heals, which is where a passive fantasy belongs.
-	["damage", "control", "ult"],
+	# The fourth is JUDGMENT, its re-pointed answer, which makes this the one class
+	# whose whole hand is a single element.
+	["damage", "control", "answer", "ult"],
 	# 5 CRYOMANCER — "ice CONTROL caster". The field is the control tool AND the set-up
 	# for its own damage line: Shatter pays 3.0x on a frozen body, so this kit combos
 	# with itself. The wall is a stop, a different job, and moves to the pickup pool.
-	["damage", "control", "ult"],
+	# ⚠ THE WALL COMES BACK. At four slots the ICE WALL is carried after all — the stop
+	# and the field are different jobs and this class now has room for both, which is
+	# the clearest single case of what the fourth button bought.
+	["damage", "control", "answer", "ult"],
 	# 6 STORMCALLER — "hyper-mobile chain caster". It carries the PAYOFF now: the
 	# Thunderclap, inherited from the Brawler, which is the on-fantasy lightning lance
 	# this class should always have had. Blizzard drops to the reserve because the
 	# Cryomancer carries it and the self-combo argument that used to hold it here
 	# (a LIGHTNING beam through an ICE field) died with Tempest — this class's ult is
 	# HEAVEN'S WRATH now, a storm cell, not a beam.
-	["damage", "payoff", "ult"],
+	# The fourth is SHADOWBURST, its authored answer — this class's card says
+	# hyper-mobile and until now it carried no way out at all.
+	["damage", "payoff", "answer", "ult"],
 	# 7 WARLOCK — "dark attrition hexer". Drain to live, RAISE THRALL to hold: the only
 	# summon in the game, and the only kit that puts a second body on the floor. Shadow
 	# Root moves to the reserve — a root and a thrall are both "hold them there", and
 	# the thrall is the one nobody else has.
-	["damage", "control", "ult"],
+	# The fourth is the VOID ZONE, its authored answer: attrition wants ground the
+	# other body does not want to stand on.
+	["damage", "control", "answer", "ult"],
 	# 8 SWORDSAINT — "guard-and-punish duelist". Its real defensive verb is not in this
 	# table at all (RMB is a held BLADE guard that banks a parry into a cut), so the
 	# kit's whole job is getting INTO range: for a duelist the get-out is IN, and
 	# Crescent Rush is the only dash in the tree that cuts the lane it crossed.
-	["damage", "answer", "ult"],
+	# The fourth is the BLOOD PACT, its re-pointed control — the duelist's price, and
+	# the only spell in the game whose cost is the resource you need to survive.
+	["damage", "answer", "control", "ult"],
 ]
 
 
@@ -287,7 +347,7 @@ static func kit_for_class(class_id: int) -> Dictionary:
 	return CLASS_KITS[class_id]
 
 
-## The AUTHORED three for a class — the table above, untouched by any player choice.
+## The AUTHORED hand for a class — the table above, untouched by any player choice.
 ## Falls back to the first `SpellTier.SLOT_COUNT` entries of `ROLE_ORDER` for a class
 ## with no row, so a new class added to `CLASS_KITS` without a `SLOT_ROLES` row still
 ## boots with a sane hand instead of nothing.
@@ -297,20 +357,25 @@ static func default_slot_roles_for_class(class_id: int) -> Array:
 	return (SLOT_ROLES[class_id] as Array).duplicate()
 
 
-# ═════════════════════════════════════════════════════════ CHOOSE YOUR THREE
+# ══════════════════════════════════════════════════════════ CHOOSE YOUR HAND
 ## THE PLAYER'S PICK, and the whole reason `SLOT_ROLES` was split out from
 ## `CLASS_KITS` in the first place.
 ##
-## `CLASS_KITS` authors FIVE roles per class. The hand holds THREE. Until now the
-## table above decided which three, for everybody, forever — so nine classes shipped
-## as nine fixed hands and the class-select screen was a blind cycler with nothing to
-## decide. The other two roles were already reachable as Tier 2 / Tier 3 drops
-## (`reserve_for_class`), so the substrate for a choice existed and nobody could make
-## one.
+## `CLASS_KITS` authors FIVE roles per class. The hand holds `SpellTier.SLOT_COUNT`.
+## Until now the table above decided which, for everybody, forever — so nine classes
+## shipped as nine fixed hands and the class-select screen was a blind cycler with
+## nothing to decide. The roles left over were already reachable as Tier 2 / Tier 3
+## drops (`reserve_for_class`), so the substrate for a choice existed and nobody could
+## make one.
 ##
-## This is that choice, and it costs no new content: 4 non-ult roles choose 2 = SIX
-## hands per class, 54 across the roster, every one of them a real, tuned, already-
-## balanced spell in a slot the player picked.
+## This is that choice, and it costs no new content.
+##
+## ⚠ THE FOURTH SLOT MADE THE CHOICE SMALLER, and it is honest to say so: at three
+## carried it was 4 non-ult roles choose 2 = SIX hands per class; at four carried it is
+## choose 3 = FOUR. The pick is now "which one do I leave behind" rather than "which
+## two do I take". Nothing in this section needed an edit for that — every arity below
+## is read from `SpellTier.SLOT_COUNT` — but the class-select screen is a thinner
+## decision than it was, and the fourth button is what it was traded for.
 ##
 ## WHY A STATIC AND NOT AN AUTOLOAD. `Hero._configure_class` already funnels every
 ## hero — local, remote puppet, bot, sparring dummy, headless fixture — through
@@ -332,7 +397,7 @@ static func default_slot_roles_for_class(class_id: int) -> Array:
 static var _chosen_roles: Dictionary = {}
 
 
-## The three roles a class CARRIES, in slot order — the player's pick if they made
+## The roles a class CARRIES, in slot order — the player's pick if they made
 ## one, else the authored default. This is the single question `build_for_class`
 ## asks, so it is deliberately cheap: everything is validated at `set_slot_roles`
 ## time, never here.
@@ -363,7 +428,7 @@ static func ult_role_for_class(class_id: int) -> String:
 	return "ult"
 
 
-## The roles a player may CHOOSE BETWEEN for the two open slots: every role in this
+## The roles a player may CHOOSE BETWEEN for the open slots: every role in this
 ## class's kit that resolves to a real, non-ult spell. In `ROLE_ORDER` order so the
 ## picker never reshuffles under the thumb.
 static func choosable_roles_for_class(class_id: int) -> Array:
@@ -575,6 +640,12 @@ static func build_all() -> Array:
 		# and moved out of `build_tier2()` in the same edit, so it is listed here
 		# explicitly rather than arriving via the drop block below.
 		_mirror_image(),
+		# THE SAME PROMOTION, THREE MORE TIMES, when the FOURTH spell slot landed:
+		# Petrify to the Brawler, Gravity Flip to the Juggernaut, Blood Pact to the
+		# Swordsaint. They must be listed here or `_spell_by_id()` cannot find them and
+		# those three classes silently build a hand of three — which is exactly how
+		# `slice6_test_bot_seams` reported it before this line existed.
+		_petrify(), _gravity_flip(), _blood_pact(),
 		# THE DROP ECONOMY — never in a class kit, only ever picked up. Included
 		# here so the audit sandbox can review them and so the element/effect
 		# invariant test covers them like everything else.
@@ -668,9 +739,14 @@ static func unequipped_ids() -> Array[String]:
 ## invariants in `tools/slice_test_tier_spells.gd` — at most two ULT shelves, a
 ## visible wind-up on every entry — are claims about THESE, the loud events, not
 ## about every spell that can ever be found on a floor.
+## ⚠ THIS LIST LOST THREE ENTRIES TO THE FOURTH SPELL SLOT. `petrify`, `gravity_flip`
+## and `blood_pact` are CARRIED spells now (Brawler / Juggernaut / Swordsaint), and the
+## "no drop is ever in a starting kit" guard is not a formality — `SpellGrant` would
+## displace a spell with itself. They are not lost content, they moved shelf. What the
+## floor pool actually lost is VARIETY: two loud events here plus seven orphans from
+## `unequipped_ids()`, where it used to be five plus nine.
 static func build_tier2() -> Array:
-	return [_arc_of_fools(), _meteor_storm(), _petrify(), _gravity_flip(),
-		_blood_pact()]
+	return [_arc_of_fools(), _meteor_storm()]
 
 
 ## The four Tier 3 boss drops, fresh instances. Every one of them carries CHARGES.
@@ -826,9 +902,15 @@ static func _blood_pact() -> SpellDef:
 	s.use_element_color = true
 	s.effect = _effect_for_element(Elements.Element.SHADOW)
 	s.mp_cost = 34          # cheap in MP on purpose — the price is paid in blood
-	s.cooldown = 12.0
+	## ⚠ RETUNED OFF THE ULT SHELF, 12.0 -> 6.6, when the Swordsaint's fourth slot
+	## claimed it. `SpellTier.of()` calls anything at or past a 7 s cooldown an ULT, and
+	## an ult cannot sit in a non-ult slot — the same move `_aegis_ward()` made when the
+	## Cleric un-orphaned it, for the same reason. The pact is SHORTER to pay for the
+	## shorter wait (8.0 -> 4.5 s), so uptime falls rather than doubling: it was one
+	## window every twelve seconds and it is one window every six and a half now.
+	s.cooldown = 6.6
 	s.damage = 0
-	s.length = 8.0          # seconds of pact
+	s.length = 4.5          # seconds of pact
 	s.radius = 1.75         # OUTGOING SPELL DAMAGE MULTIPLIER (see BloodPact.gd)
 	s.count = 5             # HP drained per second
 	s.cast_time = 0.4
@@ -1115,6 +1197,17 @@ static func _judgment() -> SpellDef:
 		+ "exact ground you mark. Precise, punishing — dodge the tell or take the hit.",
 		Color(1.0, 0.92, 0.55), 40, 2.6, 95, 70.0)
 	s.element = Elements.Element.HOLY  # Radiance burn, and opposes SHADOW
+	## ⚠ RETUNED OFF THE ULT SHELF, 1.0 -> 0.8 s, when the Cleric's fourth slot claimed
+	## it. `_ray()`'s shared 1.0 windup is exactly `SpellTier.ULT_CAST_TIME`, so this
+	## spell tiered as an ULT and an ult may not sit in a non-ult slot. Only the WINDUP
+	## moved — damage, cooldown, cost and radius are untouched — because the windup is
+	## the one axis that can pay for the shelf without changing what the spell does.
+	## `colossus_pillar`, the other `_ray()`, is a floor pickup and keeps the 1.0.
+	##
+	## ⚠ IT IS STILL THE TELL, and 0.2 s shorter. "Dodge the tell or take the hit" is
+	## this spell's whole contract; if 0.8 turns out to be undodgeable in a real fight,
+	## the honest fix is a different Cleric fourth slot, not a tell nobody can beat.
+	s.cast_time = 0.8
 	return s
 
 

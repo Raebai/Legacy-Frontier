@@ -10,7 +10,7 @@
 # and passed through two spells you did not want on the way.
 #
 # WHAT IS PINNED HERE, and why each one is a thing that silently breaks:
-#   1. `spell_1/2/3` exist, are bound, and are bound to DIFFERENT buttons. An action
+#   1. `spell_1..4` exist, are bound, and are bound to DIFFERENT buttons. An action
 #      missing from the map does not error at the call site — `Input.is_action_pressed`
 #      on an unknown action just reports false forever, which on a device is
 #      indistinguishable from "the button does nothing".
@@ -53,11 +53,13 @@ var _completed: Dictionary = {}
 var _ran: bool = false
 
 const HERO_PATH: String = "res://scenes/combat/Hero.tscn"
-## Physical keycodes 1 / 2 / 3 (the number row), duplicated as literals rather than
-## loaded so this suite pulls in no dependency chain to ask a question about bindings.
+## Physical keycodes 1 / 2 / 3 / 4 (the number row), duplicated as literals rather
+## than loaded so this suite pulls in no dependency chain to ask a question about
+## bindings. One per `SpellTier.SLOT_COUNT`, checked below rather than assumed.
 const KEY_1: int = 49
 const KEY_2: int = 50
 const KEY_3: int = 51
+const KEY_4: int = 52
 
 
 func _process(_delta: float) -> bool:
@@ -121,7 +123,7 @@ func _keys_of(action: StringName) -> Array[int]:
 
 # ------------------------------------------------------------------------- 1
 func _test_actions_exist() -> void:
-	var want: Array[int] = [KEY_1, KEY_2, KEY_3]
+	var want: Array[int] = [KEY_1, KEY_2, KEY_3, KEY_4]
 	for i: int in 3:
 		var action: StringName = StringName("spell_%d" % (i + 1))
 		_expect(InputMap.has_action(action),

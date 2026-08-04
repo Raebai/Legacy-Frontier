@@ -85,12 +85,12 @@ func _completes(test_name: String) -> void:
 ## would make `SpellGrant` displace a spell with itself.
 func _test_drops_are_never_in_a_kit() -> void:
 	var drops: Array[String] = SpellLibrary.drop_ids()
-	# NINE, not ten. `mirror_image` stopped being a drop when the anti-recolour pass
-	# promoted it into the Arcanist's control slot — it is the only self-duplication in
-	# the game, which makes it an identity rather than a floor event. A spell in both
-	# places would be rollable as a pickup for the class that already starts with it,
-	# and `SpellGrant` would then displace a spell with itself.
-	_expect(drops.size() == 9, "nine drop spells exist (5 Tier 2 + 4 Tier 3), got %d" % drops.size())
+	# SIX. `mirror_image` stopped being a drop when the anti-recolour pass promoted it
+	# into the Arcanist's control slot, and `petrify` / `gravity_flip` / `blood_pact`
+	# stopped when the FOURTH spell slot claimed them for the Brawler, Juggernaut and
+	# Swordsaint. A spell in both places would be rollable as a pickup for the class that
+	# already starts with it, and `SpellGrant` would then displace a spell with itself.
+	_expect(drops.size() == 6, "six drop spells exist (2 Tier 2 + 4 Tier 3), got %d" % drops.size())
 	_expect(not drops.has("mirror_image"),
 		"mirror_image is NOT a drop any more — it is the Arcanist's carried control slot")
 	_expect(SpellLibrary.drop_by_id("mirror_image") == null,
@@ -191,21 +191,34 @@ func _test_common_band_is_the_class_reserve() -> void:
 	# the Juggernaut's carried payoff, while `blink_strike` and `drain_tether` came the
 	# other way — so these are re-derived from the current table rather than pinned to
 	# the old handoff list.
-	for id: String in ["creeping_shade", "ice_wall", "blink_strike", "drain_tether"]:
+	# ⚠ THINNER AT FOUR SLOTS. A class authors five roles and carries four, so its
+	# reserve is ONE spell, not two — `creeping_shade` and `ice_wall` are carried now
+	# (Shadowblade, Cryomancer) and only these two are still anybody's reserve.
+	for id: String in ["blink_strike", "drain_tether"]:
 		_expect(reserve.has(id), "'%s' is still in the reserved pickup pool" % id)
 	# THE ORPHANS. The pass displaced seven fully-tuned spells out of CLASS_KITS
 	# ENTIRELY, so `reserve_for_class` cannot see them: no class authors them any more.
 	# `SpellLibrary.unequipped_ids` is the second source that keeps them reachable, and
 	# without this assertion "nothing was deleted" is a claim with nothing behind it.
 	var orphans: Array[String] = SpellLibrary.unequipped_ids()
+	# `rune_orbs` and `judgment` left this list for the Arcanist's and Cleric's fourth
+	# slots; seven orphans remain.
 	for id2: String in ["frostpiercer", "infernal_lance", "umbral_lance", "tempest",
-			"colossus_pillar", "rune_orbs", "void_barrage"]:
+			"colossus_pillar", "void_barrage"]:
 		_expect(orphans.has(id2),
 			"displaced spell '%s' survives as a floor pickup rather than being deleted" % id2)
 	# ...and the two that had ALREADY gone orphan before this pass and that nobody had
 	# noticed, which is the same bug the kit table exists to prevent.
-	for id3: String in ["judgment", "avalanche"]:
+	for id3: String in ["avalanche"]:
 		_expect(orphans.has(id3), "long-orphaned '%s' is reachable at last" % id3)
+	# ...and `judgment`, orphaned for longer than anything else in the tree, is not
+	# reachable as a pickup any more because it is CARRIED: it is the Cleric's fourth
+	# slot. Asserted from the other side so the fix cannot be mistaken for the old bug.
+	_expect(not orphans.has("judgment"),
+		"'judgment' left the orphan pool by being equipped, not by being deleted")
+	_expect(SpellLibrary.slot_roles_for_class(4).has("answer")
+			and String(SpellLibrary.kit_for_class(4).get("answer", "")) == "judgment",
+		"...into the Cleric's carried hand")
 	var common: Array[String] = SpellDrops._common_pool()
 	for id4: String in orphans:
 		_expect(common.has(id4),
@@ -223,8 +236,15 @@ func _test_common_band_is_the_class_reserve() -> void:
 
 # ------------------------------------------------------------------ 2. the hand
 
-## THE HAND DOES NOT GROW. Three buttons is the whole mobile control scheme; a
-## fourth spell is a spell the player cannot press.
+## THE HAND DOES NOT GROW. The hand is `SpellTier.SLOT_COUNT` buttons wide — FOUR
+## since the maker asked for a fourth — and a pickup REPLACES, it never appends: a
+## fifth spell is a spell the player cannot press.
+##
+## ⚠ THE DROP IDS HERE MOVED. This test used to grant `petrify` and `gravity_flip`,
+## which are CARRIED spells now (Brawler, Juggernaut) and therefore no longer resolve
+## through `drop_by_id` at all. It used them silently for as long as they were drops;
+## granting a null is what the null-guard below is for, and the test would have kept
+## passing its first assertion by luck. Use ids from `build_tier2()`.
 func _test_hand_replaces_never_grows() -> void:
 	var hand := HandSlots.new()
 	var kit: Array = SpellLibrary.build_for_class(0)
@@ -232,17 +252,17 @@ func _test_hand_replaces_never_grows() -> void:
 	var before: int = hand.slots.size()
 	_expect(hand.spell_count() == SpellTier.SLOT_COUNT,
 		"a fresh hand carries SLOT_COUNT spells (got %d)" % hand.spell_count())
-	var drop: SpellDef = SpellLibrary.drop_by_id("petrify")
+	var drop: SpellDef = SpellLibrary.drop_by_id("arc_of_fools")
 	_expect(hand.replace_spell(0, drop), "a drop lands in slot 0")
 	_expect(hand.slots.size() == before, "the carousel did NOT grow (%d -> %d)"
 		% [before, hand.slots.size()])
-	_expect(String((hand.spell_at(0) as SpellDef).id) == "petrify", "slot 0 now holds the drop")
+	_expect(String((hand.spell_at(0) as SpellDef).id) == "arc_of_fools", "slot 0 now holds the drop")
 	# FISTS stays at index 0 — a hero must never be left with no melee option.
 	_expect(int(hand.slots[0]["kind"]) == HandSlots.Kind.FISTS, "fists still occupy hand index 0")
 	# The drop arrives READY. Inheriting the displaced spell's cooldown would mean a
 	# pickup that is dark for eight seconds for reasons nothing on screen explains.
 	hand.start_cooldown(hand.spell_slot_index(1), 9.0)
-	hand.replace_spell(1, SpellLibrary.drop_by_id("gravity_flip"))
+	hand.replace_spell(1, SpellLibrary.drop_by_id("meteor_storm"))
 	_expect(hand.is_ready(hand.spell_slot_index(1)), "a freshly granted slot is READY")
 	_expect(not hand.replace_spell(99, drop), "an out-of-range slot refuses rather than writing past the end")
 	_expect(not hand.replace_spell(0, null), "a null spell is refused")
@@ -254,13 +274,13 @@ func _test_hand_replaces_never_grows() -> void:
 func _test_grant_displaces_and_restores() -> void:
 	var hero: Node = _stub_hero(0)
 	var kit: Array = (hero.get("_signatures") as Array).duplicate()
-	var t2: SpellDef = SpellLibrary.drop_by_id("blood_pact")
+	var t2: SpellDef = SpellLibrary.drop_by_id("arc_of_fools")
 	var nth: int = SpellGrant.apply(hero, t2)
 	_expect(nth >= 0 and nth < SpellTier.ULT_SLOT,
 		"a Tier 2 takes a NON-ult slot (got %d)" % nth)
-	_expect(String(((hero.get("_signatures") as Array)[nth] as SpellDef).id) == "blood_pact",
+	_expect(String(((hero.get("_signatures") as Array)[nth] as SpellDef).id) == "arc_of_fools",
 		"the hero's signature list carries the drop")
-	_expect(String(((hero.get("_hand") as HandSlots).spell_at(nth) as SpellDef).id) == "blood_pact",
+	_expect(String(((hero.get("_hand") as HandSlots).spell_at(nth) as SpellDef).id) == "arc_of_fools",
 		"...and so does the hand, so the bar and the cast agree")
 	var t3: SpellDef = SpellLibrary.drop_by_id("the_void")
 	var un: int = SpellGrant.apply(hero, t3)
@@ -304,9 +324,9 @@ func _test_tier3_charges_expire_into_the_class_ult() -> void:
 	# game, so it has to be a no-op for the overwhelming majority of them.
 	var ordinary: SpellDef = SpellLibrary.build_for_class(0)[0]
 	_expect(ordinary.charges == -1, "class spells carry unlimited charges")
-	SpellGrant.apply(hero, SpellLibrary.drop_by_id("petrify"))
+	SpellGrant.apply(hero, SpellLibrary.drop_by_id("arc_of_fools"))
 	SpellGrant.consume_charge(hero, ordinary)
-	_expect(SpellGrant.charges_left(hero, "petrify") == -1,
+	_expect(SpellGrant.charges_left(hero, "arc_of_fools") == -1,
 		"consuming an unlimited spell touches nothing")
 	hero.free()
 	_completes("tier3_charges_expire_into_the_class_ult")

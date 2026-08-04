@@ -5,7 +5,7 @@ extends Node2D
 ## The maker's ask, verbatim: *"we need the ability for players to choose to just do
 ## no bots and play on the stage as well"*. This is the scene that answers it. No
 ## enemies, no waves, no timer, no run, no stocks, no way to lose. You drop onto the
-## versus stage and you play: move, jump, dash, all three spells, the ult, blink,
+## versus stage and you play: move, jump, dash, every spell, the ult, blink,
 ## nova, parry, melee, break the cover, ride the terraces, fall off the rim and come
 ## straight back.
 ##
