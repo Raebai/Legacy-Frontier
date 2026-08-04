@@ -1,3 +1,93 @@
+# RESUME HERE — 2026-08-04 (b)
+
+**The game is now called ASHSPIRE.** Title screen + app name. Already canonical:
+`data/towers/ashspire.tres` has been the tower's name all along.
+
+**Branch `bot-fight-quality`. 148/148 green, tree clean.** Two commits worked the
+whole resume queue.
+
+## ▶ WHAT TO PLAY, AND WHAT TO JUDGE
+
+**F5 → ASHSPIRE.** Four things are new and none has been touched by hands:
+
+1. **LEVELS.** Kill things → XP → a magic circle blooms at your feet and the level
+   number rises off your head. One full climb should land you at ~level 12.
+   `godot ... --script tools/slice_test_progression.gd` PRINTS the whole economy
+   if you want to argue with a number.
+2. **THE ARCHIVIST**, a new desk just left of the lectern. Spend skill points on
+   spells. Locked classes now show on the altar as "held by a guardian"; felling
+   the floor-5 or floor-10 guardian banks a PICK you spend there.
+3. **THE SHADOW SOUNDS** — the ones you called goofy. They were all mined from
+   packs literally called *Cartoon Impacts* and *Cartoon & Animation*. Re-cut from
+   "Transition Braam Slow Dark Creepy" and "Dark Industrial Ambience". **Listen and
+   tell me if they are epic yet** — nobody has heard them.
+4. **THE TOWNSFOLK TEACH NOW.** The Doorkeeper reads your climb back at you —
+   floor, best, falls, level. That is the deleted AI-NPC stack's actual job, and it
+   turned out to need four numbers and a token in a string, not a language model.
+
+## ▶ THE MATHS, IN ONE TABLE
+
+One authored growth rate; the depth curve is DERIVED from it, which is what makes
+"proportionally" literally true rather than a claim.
+
+| knob | value | |
+|---|---|---|
+| `GROWTH` | 1.22 | every level costs 22% more than the last |
+| `LEVELS_PER_FLOOR` | 1.2 | the pace target |
+| `depth_gain()` | **derived** `GROWTH^1.2` = 1.27 | each floor is worth 27% more than the one below |
+| `MAX_LEVEL` | 30 | |
+
+**The farm is dead by arithmetic, not by a ban.** One level costs 30 floor-1 bodies
+at level 1, 268 at level 12, 1,312 at level 20, 7,856 at level 29 — and floor 1
+only authors 22 bodies. Climbing instead holds a flat 1.2 levels per floor at ANY
+depth, because floor value and level cost rise together by construction.
+
+**Co-op:** Growth caps at the PARTY level (the lowest member's), frozen at tower
+entry. Spell trees and unlocked classes are never touched. The tower is
+deliberately NOT scaled to level — that makes the lower player a ghost.
+
+## ▶ WHAT I DID **NOT** DO, AND WHY
+
+1. **GEAR BALANCE — 17 of 19 pieces still beat the empty slot for free.** This is
+   the one queue item I left. The queue itself calls it "a design call", and making
+   seventeen pieces pay a cost would move every number in the 288-bout balance
+   sweep on a build nobody has playtested. **Say go and it is an afternoon.**
+2. **`SigilGuard` is still attached to nothing.** Wiring it re-opens the
+   `guard_style` seam whose last disagreement cost a full session. Its header holds
+   the 5-edit plan. Unchanged, deliberately.
+3. **CRLF renormalise** — still wants your say-so (a ~476-file diff).
+4. **Music licence provenance** — still unsettled. Still blocks anything public.
+5. **The six `.mp3`** — still waiting on you to listen to the `.ogg`.
+6. **Stormcaller 16-0** — partly defused rather than fixed: it is now a LATE
+   UNLOCK, so it is a reward instead of a beginner trap, and its Growth row is
+   deliberately denied FOCUS 4 (cooldown growth is exactly the axis that compounds
+   its win rate). The raw matchup number is untouched.
+
+## ⚠ ONE INSTRUMENT IS LYING AGAIN
+
+**`python-tools/coop_smoketest.sh` prints NO VERDICT LINE.** This file used to
+claim it does. Verified byte-identical on the stashed pre-change tree, so it is
+**pre-existing and not from this work** — but it means co-op currently has no
+green light of its own. The useful signal it still gives: `heroes=2 (peak 2)` on
+both peers, which is how I know the re-tagged handshake did not break the arena.
+
+**The teammate's body in the Antechamber is UNVERIFIED end-to-end** for that
+reason. The code is ported and the room builds; nothing has proven two bodies
+stand in it.
+
+## ⚠ A TRAP THIS WORK WALKED INTO, WORTH KEEPING
+
+**Two suites started testing the tester’s save file.** Hero stats now compose
+level Growth, and `GameState` loads the real `user://climber.json` — whose NODE is
+on the tree under `--script` even though the autoload IDENTIFIER is not. A test
+run had banked 123 xp into the save, so heroes spawned at level 2 and the
+class-stat assertions drifted. The red was the lesser half: **they would have gone
+green again on a fresh save**, hiding any real class-table regression behind
+whatever level the tester happened to be. Both suites now pin level 1, and a
+positive counterpart asserts growth actually moves the stats.
+
+---
+
 # RESUME HERE — 2026-08-04 (paused by the maker)
 
 > **THE MAKER PAUSED HERE AND ASKED FOR EVERYTHING OUTSTANDING TO BE RECORDED.**

@@ -149,17 +149,54 @@ func take_damage(amount: int) -> void:
 ## A bolt blows a visible hole exactly where it lands. At hp<=0, or when so
 ## few cells survive the block can't plausibly stand, everything left bursts
 ## off and the node frees.
+## ⚠ CO-OP AUTHORITY, and it needs ONE MORE THING than the crate and the platform.
+##
+## Same shape as both: enemy attack twins are `visual_only`, so enemy-sourced damage
+## lands on the host alone. The host is the one peer that sees every damage source,
+## so it decides and broadcasts ABSOLUTE hp; the client predicts for feedback and is
+## FLOORED AT 1, because a client that destroys cover out from under its own player
+## has no way to put it back.
+##
+## ⚠ THE EXTRA THING: THIS BLOCK CAN DIE WITHOUT ITS HP REACHING ZERO. It also
+## shatters on CELL COUNT (`_intact_count <= SHATTER_MIN_CELLS`), and cells are
+## knocked out by WHERE a hit landed. Two peers aiming a spell a few pixels apart
+## erode different cells, so hp alone cannot describe this body's life — one screen
+## would still be drawing cover the other had already blown away, at exactly the
+## coordinates a player is hiding behind. `shattered` therefore travels as its own
+## flag rather than being inferred from `hp <= 0`.
+##
+## Reuses the crate's wire verbatim (`broadcast_prop_state` -> `destructible` group
+## -> `net_apply_prop_state`), so this needs no change in Net.gd.
 func damage_at(amount: int, world_pos: Vector2, dir: Vector2) -> void:
 	if hp <= 0:
 		return  # already shattering this frame — post-death hits are no-ops
+	var net: Node = get_node_or_null(^"/root/Net")
+	var coop: bool = net != null and net.has_method(&"is_active") and bool(net.call(&"is_active"))
+	if coop and not bool(net.call(&"is_host")):
+		hp = maxi(hp - amount, 1)   # predicted, never fatal — the host owns the break
+		_knock_out_cells(amount, world_pos, dir)
+		# ⚠ AND NEVER THE CELL-COUNT SHATTER EITHER. Without this floor the client
+		# would erode its own copy to under SHATTER_MIN_CELLS and destroy the block
+		# locally, which is the whole bug wearing a different hat.
+		if _intact_count <= SHATTER_MIN_CELLS:
+			_intact_count = SHATTER_MIN_CELLS + 1
+		return
 	hp = max(hp - amount, 0)
 	if hp == 0:
+		# Broadcast BEFORE shattering: the receiver finds this node by its position in
+		# the `destructible` group, and `_shatter` takes it out of that group.
+		if coop:
+			net.call(&"broadcast_prop_state", self, 0, true)
 		_shatter(dir)
 		return
 	_knock_out_cells(amount, world_pos, dir)
 	if _intact_count <= SHATTER_MIN_CELLS:
+		if coop:
+			net.call(&"broadcast_prop_state", self, 0, true)
 		_shatter(dir)
 		return
+	if coop:
+		net.call(&"broadcast_prop_state", self, hp, false)
 	_flash_timer = HIT_FLASH_TIME
 	_nudge = Vector2.from_angle(randf() * TAU) * HIT_NUDGE
 	_spawn_chip_burst(world_pos)
@@ -170,6 +207,19 @@ func damage_at(amount: int, world_pos: Vector2, dir: Vector2) -> void:
 ## plus the dust burst + small rubble, then gone — the open space IS the
 ## reward. Leaves the group immediately so same-frame radius queries (blast)
 ## don't re-hit it.
+## The host's verdict, applied verbatim. Absolute hp, so a client that predicted a
+## few hits of its own is corrected rather than compounded — and `shattered` is
+## obeyed on its own, because this block can die on cell count with hp still
+## positive (see the ⚠ on `damage_at`).
+func net_apply_prop_state(hp_now: int, shattered: bool) -> void:
+	if hp <= 0:
+		return
+	hp = maxi(hp_now, 0)
+	if shattered or hp <= 0:
+		hp = 0
+		_shatter(Vector2.UP)
+
+
 func _shatter(dir: Vector2) -> void:
 	remove_from_group("destructible")
 	_burst_remaining_cells(dir)
