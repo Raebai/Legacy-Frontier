@@ -70,6 +70,7 @@ const DIRECTOR_GROUP: StringName = &"director"
 var _pause_layer: CanvasLayer = null
 var _pause_btn: Button = null
 var _quality_btn: Button = null
+var _pvp_btn: Button = null
 ## The Appearance row. Held so `open()` can re-read the live hero — `C` cycles the
 ## same palette, so a label written once at build time starts lying immediately.
 var _colour_btn: Button = null
@@ -301,6 +302,8 @@ func open() -> void:
 	# time would start lying the moment anyone touched it there.
 	if _quality_btn != null:
 		_quality_btn.text = _quality_label()
+	if _pvp_btn != null:
+		_pvp_btn.text = _pvp_label()
 	_refresh_friendly_fire()
 	# The lobby's colourway pick can only reach a hero that exists, and none did when
 	# this menu was built. First open is the first moment one reliably does.
@@ -530,6 +533,13 @@ func _build_settings() -> void:
 	_quality_btn.custom_minimum_size = Vector2(240, 30)
 	_quality_btn.add_theme_font_size_override("font_size", 14)
 	_settings_col.add_child(_quality_btn)
+	# HOW A PVP FIGHT IS WON. Same cycling-button shape as quality above, and for
+	# the same reason: two states and one label cost one row in a panel that is
+	# already scrolled to reach its bottom on a 720p window.
+	_pvp_btn = _menu_button(_pvp_label(), _on_pvp_pressed)
+	_pvp_btn.custom_minimum_size = Vector2(240, 30)
+	_pvp_btn.add_theme_font_size_override("font_size", 14)
+	_settings_col.add_child(_pvp_btn)
 
 	# PERFORMANCE OVERLAY. Lives next to the quality toggle because the two are one
 	# workflow: flip to LOW, watch the frame time. Silently absent when the Perf
@@ -834,3 +844,30 @@ func _on_hit_stop_toggled(on: bool) -> void:
 	var cfg: Object = _tuning_cfg()
 	if cfg != null:
 		cfg.set("hit_stop_enabled", on)
+
+
+## ⚠ HEALTH <-> STOCKS. The maker's ask, verbatim: "I like health instead for the
+## pvp (or in settings give the users the options to choose lives vs percentages)".
+##
+## Both models were ALREADY fully built in `VersusArena` — hp-drain, and the Smash
+## damage-%/ring-out model with respawns and invuln. The sandbox simply forced the
+## second one. This chooses; `GameState.pvp_rules` is the single owner.
+##
+## Takes effect on the NEXT duel rather than mid-fight: `VersusArena._ready` reads
+## it once, and switching the win condition out from under a live fight would be a
+## worse bug than the one this fixes.
+func _on_pvp_pressed() -> void:
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs == null:
+		return
+	gs.set("pvp_rules", 1 - int(gs.get("pvp_rules")))
+	if _pvp_btn != null:
+		_pvp_btn.text = _pvp_label()
+
+
+func _pvp_label() -> String:
+	var gs: Node = get_node_or_null("/root/GameState")
+	var cur: int = 0 if gs == null else int(gs.get("pvp_rules"))
+	# Named for what the player SEES happen, not the internal flag: "stocks" is the
+	# word for the mode where you are knocked off the stage and lose a life.
+	return "PvP: Health" if cur == 0 else "PvP: Stocks + %"

@@ -105,6 +105,22 @@ var colourway: int = -1
 ## Default pulled back from the old tight 2.2 so more of the fight is visible.
 var camera_zoom: float = 1.6
 
+## ⚠ HOW A PVP FIGHT IS WON — the maker's choice, exposed rather than assumed.
+##
+## Maker: "the knockback stuff is heavy but I like health instead for the pvp (or in
+## settings give the users the options to choose lives vs percentages)".
+##
+## HEALTH (0, the default): hp drains and zero is a loss. Reads like a fighting game
+## and does not depend on the knockback curve at all.
+## STOCKS (1): the Smash model — a hit accrues `damage_pct` instead of draining hp,
+## knockback scales with that %, and the only elimination is a ring-out. Both models
+## are already fully built in `VersusArena`; this only chooses between them.
+##
+## The sandbox used to force STOCKS unconditionally. It is a preference, not a
+## property of the arena, so it lives here where the settings panel can reach it.
+enum PvpRules { HEALTH, STOCKS }
+var pvp_rules: int = PvpRules.HEALTH
+
 ## Enemy difficulty (0 Easy, 1 Normal, 2 Hard, 3 Impossible). Enemy._ready scales
 ## stats + unlocks smart behaviours (dodge / deflect). Set in the practice arena.
 var enemy_difficulty: int = 1

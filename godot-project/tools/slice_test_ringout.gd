@@ -24,6 +24,7 @@ const TESTS: Array[String] = [
 	"knockback_scale_is_pure",
 	"damage_pct_accrues_and_no_hp_death",
 	"knockback_grows_with_pct",
+	"health_is_the_shipped_pvp_default",
 	"ring_out_is_the_only_elimination",
 	"hero_ring_out",
 	"hp_death_still_works_when_off",
@@ -48,6 +49,7 @@ func _process(_delta: float) -> bool:
 	_test_knockback_scale_is_pure()
 	_test_damage_pct_accrues_and_no_hp_death()
 	_test_knockback_grows_with_pct()
+	_test_health_is_the_shipped_pvp_default()
 	_test_ring_out_is_the_only_elimination()
 	_test_hero_ring_out()
 	_test_hp_death_still_works_when_off()
@@ -178,6 +180,14 @@ func _test_ring_out_is_the_only_elimination() -> void:
 	# VersusArena is a script (no .tscn) — instantiate via .new() (slice3 idiom);
 	# its _ready builds the whole match synchronously AND sets ringout_mode = true.
 	var arena_script: GDScript = load(ARENA_SCRIPT_PATH)
+	# ⚠ RING-OUT IS A PREFERENCE NOW, NOT A PROPERTY OF THE ARENA. The maker asked
+	# for HEALTH as the pvp default ("I like health instead for the pvp"), with the
+	# Smash model kept as a setting — so `VersusArena._ready` reads
+	# `GameState.pvp_rules` instead of forcing stocks on. This suite is about the
+	# ring-out MECHANIC, so it opts into that mode explicitly rather than relying on
+	# a default that has deliberately moved.
+	if _gs() != null:
+		_gs().set("pvp_rules", 1)   # PvpRules.STOCKS
 	var arena: Node2D = arena_script.new()
 	root.add_child(arena)
 	_expect(_gs() != null and bool(_gs().get("ringout_mode")),
@@ -217,6 +227,14 @@ func _test_ring_out_is_the_only_elimination() -> void:
 ## _test_ring_out_is_the_only_elimination above.
 func _test_hero_ring_out() -> void:
 	var arena_script: GDScript = load(ARENA_SCRIPT_PATH)
+	# ⚠ RING-OUT IS A PREFERENCE NOW, NOT A PROPERTY OF THE ARENA. The maker asked
+	# for HEALTH as the pvp default ("I like health instead for the pvp"), with the
+	# Smash model kept as a setting — so `VersusArena._ready` reads
+	# `GameState.pvp_rules` instead of forcing stocks on. This suite is about the
+	# ring-out MECHANIC, so it opts into that mode explicitly rather than relying on
+	# a default that has deliberately moved.
+	if _gs() != null:
+		_gs().set("pvp_rules", 1)   # PvpRules.STOCKS
 	var arena: Node2D = arena_script.new()
 	root.add_child(arena)
 	_expect(_gs() != null and bool(_gs().get("ringout_mode")),
@@ -281,3 +299,20 @@ func _test_hp_death_still_works_when_off() -> void:
 
 	hero.free()
 	_completes("hp_death_still_works_when_off")
+
+
+## SHIPPED POLICY, pinned the same way `DeathRules` pins its two forks: a PvP fight
+## is decided by HEALTH unless the player says otherwise. The maker chose this
+## ("I like health instead for the pvp"), and it is a design call rather than a
+## constant that happens to be zero — so flipping the default has to be done twice.
+func _test_health_is_the_shipped_pvp_default() -> void:
+	var GS: GDScript = load("res://scripts/GameState.gd") as GDScript
+	_expect(GS != null, "GameState.gd loads")
+	if GS == null:
+		return  # deliberately NOT completed
+	var gs: Node = GS.new()
+	_expect(int(gs.get("pvp_rules")) == 0,
+		"SHIPPED POLICY: PvP is decided by HEALTH by default (pvp_rules == HEALTH). "
+		+ "Stocks + percentage is a settings opt-in. If you meant to flip it, update this test.")
+	gs.free()
+	_completes("health_is_the_shipped_pvp_default")

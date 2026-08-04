@@ -368,9 +368,18 @@ func _ready() -> void:
 	# Smash sandbox: switch the whole scene to the damage-% + ring-out model. The
 	# tower's Arena leaves this off (hp-death clears floors); enter_run turns it
 	# back off, so it never leaks into a run. See GameState.ringout_mode.
+	# ⚠ THE PLAYER CHOOSES, and this used to be forced. A duel was ALWAYS the
+	# damage-%-and-ring-out model; the maker asked for health instead, with the
+	# Smash model kept as an option ("in settings give the users the options to
+	# choose lives vs percentages"). Both models were already built here — this is
+	# the line that stopped assuming which one you wanted.
+	#
+	# A SHOWCASE still follows its own `showcase_ringout` flag: it is a capture rig,
+	# not a fight, and its framing depends on bodies leaving the stage.
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs != null:
-		gs.set("ringout_mode", showcase_ringout or not _is_showcase())
+		var wants_stocks: bool = int(gs.get("pvp_rules")) == 1
+		gs.set("ringout_mode", showcase_ringout if _is_showcase() else wants_stocks)
 	# Switch the music bed back to combat (the hub swaps it to the calm ambience).
 	var music: Node = get_node_or_null("/root/Music")
 	if music != null and music.has_method("play_combat"):
