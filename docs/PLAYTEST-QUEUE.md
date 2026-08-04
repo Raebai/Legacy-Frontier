@@ -4,121 +4,77 @@ The maker is playing and calling things out faster than they can be built. This 
 the list, verbatim intent preserved. **Nothing here is a design question — it is
 all "make it so".**
 
-Two things are DONE and pushed; everything else is open.
+**Everything on the original list is now BUILT. None of it has been played.**
+The open section at the bottom is what is left, and it is all "needs the maker".
 
 ---
 
-## ✅ DONE (pushed, `931aa78`)
+## ✅ DONE — the room (`17e61f1`)
 
-- **The bent legs / "everyone is walking on their limbs".** Root cause: the town
-  used the same `CharacterRig` as combat but never fed it `set_grounded()`,
-  `set_body_velocity()` or `set_air_phase()`. `set_grounded` **defaults to true**,
-  so an un-fed rig thinks it is on the floor even at the top of a jump — feet
-  pinned to the ground plane, hips rising, IK folding a leg that cannot reach.
-- **Title screen:** "Nameless · Tier 0" gone (hidden outside a run AND at tier 0),
-  the stale "new here?" line gone, the chalk tower replaced by `_Sigil` — a
-  summoning circle that scribes itself and then pours elements forever — and the
-  buttons now glow, lift on hover and punch on press.
+- **1. A SIGN in the background.** A two-armed signpost, in the world, between the
+  last pad and the campfire. Its first position was measured *behind* the tower
+  door and moved — the door draws wider than its origin.
+- **2. Stations are TELEPORT PADS.** One flat disc, one colour, one glyph, a column
+  of light that fires as the screen opens and lowers you back as it closes. The
+  collision shape is gone: a pad is floor you stand on. `ClassAltar.gd` was absorbed
+  into it (its gold statue survives, standing on the class pad).
+- **3. Townsfolk: 4 → 2, and they HOP.** The two kept are the ones a pad cannot
+  replace — the Warden (mechanics that are invisible until they kill you) and the
+  Doorkeeper (reads your climb back to you).
+- **4. Campfire music.** Already shipped in the previous batch.
+- **5. More interactive.** The pads, the beams, the hopping, and the dummy yard.
+- **NEW, mid-playtest: "make the spacing better and in a certain location".** One
+  evenly spaced row, 100 px apart, derived from one constant — with a test that
+  fails if any two pads come closer than the proximity ring (the lectern and the
+  Archivist used to sit 58 px apart, so two hints fought for the same corner).
+- **NEW, mid-playtest: "you should be able to cast spells in the lobby instead of a
+  training ground — just standing immortal test dummies on one side".** The body
+  you drive in the town is a **Hero** now, so every spell works in the room. Three
+  straw 9999-HP dummies at the far end. The sparring pad is deleted.
 
----
+## ✅ DONE — the sparring room, spell names, combat (`243c03d`)
 
-## ▶ OPEN — THE ANTECHAMBER
+6, 7, 11, 12, 13, 14, 15, 16, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 31 — the
+eleven-fix batch. See that commit for the four bugs and why they hid.
 
-1. **A SIGN in the background**, part of the map, telling you where to go.
-2. **Stations should be DOORS or TELEPORT PADS**, not scattered props. Maker's
-   preferred shape: *"a teleportation pad — when you stand on it and press
-   teleport a beam of light comes up and you teleport, and then you teleport
-   down"*. Applies to ALL of them (sparring ring included). Possibly all on one
-   side so they are easier to reach.
-3. **Townsfolk need PERSONALITY** — have them jump around. **Fewer of them.**
-4. **CAMPFIRE MUSIC, adventurer vibe.** Use one of the six tracks already in
-   `assets/audio/music/` — do not source a new one.
-5. **Make the whole place far more interactive and fun.**
+## ✅ DONE — the ability bar (already built, verified this session)
 
-## ▶ OPEN — THE SPARRING RING / TRAINING ROOM
+8, 9, 10 — the bar reads in two clusters with a gap, spell slots draw as sockets
+with the spell's own colour ringing them, and the row is a strength ramp derived
+per frame from `SpellTier.of`, so the ult is always the far-right button.
 
-6. **The instructions are too long.** *"this game should be super simple"*. Cut hard.
-7. **A weird SFX plays when a box is destroyed. Remove it — and never use that
-   sound effect again anywhere.**
-8. **Ability bar layout:** parry and blink on the LEFT, then a small gap, then the
-   four spell slots.
-9. **Spell slots must LOOK like slots** — a coloured border or equivalent.
-10. **Order the slots by STRENGTH, heavy on the far right.**
+## ✅ DONE — four spell slots (`bb6842b`)
 
-## ▶ OPEN — SPELL NAMES
+- **30. FOUR SPELL SLOTS.** `SpellTier.SLOT_COUNT` 3 → 4. It found five borrowed
+  spells: at three carried of five authored, a spell two classes shared could sit in
+  both reserves unseen; at four it is on both hotbars. Every one is now that class's
+  own. Two spells paid a timing to change shelf; no damage number moved.
 
-11. **"Ordinary" is an awful name.** Rename it.
-12. **Across ALL classes: drop "step" and "cast" from spell names.**
+## ✅ DONE — the screens (`4796987`)
 
-## ▶ OPEN — COMBAT BEHAVIOUR
-
-13. **Double-space does a backwards teleport — remove it.** *"it's just a repeat of
-    blink"*. This is the Arcanist's RECALL return-leg (`_recall_timer` in
-    `Hero.gd`, `move_verb = "recall"`).
-14. **Mirror Image must cast what the player casts**, and **attack nearby mobs**
-    while it is out.
-15. **Projectiles must travel until they HIT something.** Meteors, arcane storm,
-    *"all of them"* — they currently despawn in mid-air. They should reach the
-    floor if nothing stops them, and have longer range.
-
-## ▶ OPEN — UI, GENERALLY
-
-16. **Settings: remove the HEAL button.** Replace with real settings — exit to hub,
-    brightness, controls.
-17. **The Archivist must be an ACTUAL TREE** — click a node to spend a point, and
-    the branches visibly grow as you invest. Not a list of rows.
-18. **Class select must be far simpler.**
-19. **Standing note: this game has too much text and too many random UI pieces.**
-    Every screen should be cut, not added to. Treat this as a rule, not a ticket.
+- **17. The Archivist is an ACTUAL TREE.** Trunk, five boughs, a node per shelf,
+  distance = cost. Buying thickens and extends the bough and opens buds at the tip.
+- **18. Class select is far simpler.** Nine names in their own colours, three
+  across. The fantasy line, the kit sentence and the "how to tap a button" hint
+  are gone.
+- **19. The standing rule** was applied to every screen touched, not swept
+  globally: the town's thirteen-word HUD line is deleted (the signpost says it),
+  the Archivist has one line of prose, class select has none.
 
 ---
 
-## THE RULE BEHIND MOST OF THIS
+## ▶ STILL OPEN — and all of it needs the maker, not an agent
 
-*"this game should be super simple I want it to be as such"* — said about the
-sparring instructions, but it is clearly the general bar. When in doubt on any of
-the above: remove the words, keep the picture.
-
----
-
-## ▶ OPEN — ADDED MID-PLAYTEST (second wave)
-
-20. **Mob death SFX is a "weird scrunching noise".** All the combat cues want to be
-    **more subtle and better** — this one fires every couple of seconds in a wave.
-21. **GAME OVER screen:** the text is too big, **the bots keep fighting behind it**,
-    and there is **no return-to-menu button**.
-22. **FLOOR 1 OF THE TOWER LOOKS BAD AND READS BADLY.** Verbatim: *"really bad it
-    needs to be larger, clearer to the user where it is like there are weird blinds
-    covering the front of the map that should be background and other random things
-    that all need to be optimised"*. Something is drawing in FRONT of the fight that
-    belongs behind it.
-23. **Floor 1 difficulty is a little high.**
-24. **There need to be BREAKS between stages/waves.**
-25. **Make the arena LARGER and CLEARER to fight in.**
-26. **THE GAME IS TOO HARD.** Four separate levers, all in flight together:
-    - **Hero HP is too low** — raise the `CLASS_CONFIG` table, keeping the 1.86x
-      spread between classes intact (scale it, do not compress it).
-    - **HP is not readable** — the maker cannot tell how hurt they are.
-    - **Health packs** — there should be pickups that heal.
-    - **Enemies hit too hard and there are too many of them**, on every floor, not
-      just floor 1.
-    ⚠ These four combine MULTIPLICATIVELY. Tougher player + softer enemies + fewer
-    enemies + heals is very easy to overshoot into trivial. Whoever tunes this last
-    should say so out loud rather than assume the sum is right.
-27. **The map is too small** — said twice. Overrides Arena.gd's "ONE SCREEN"
-    framing comment, which was a real decision but is now the complaint.
-28. **Opponents move too fast.**
-29. **⚠ OPPONENTS SPAWN "RANDOMLY IN THE AIR".** They should arrive from a small
-    number of legible PLACES — doorways, edges, the ground plane. The current
-    spawn is a RECT sampled anywhere inside, and a rect that includes air is
-    exactly the bug. The spawn TELL should land on the place, so the player learns
-    where things come from.
-30. **FOUR SPELL SLOTS, not three.** Maker: "lets make it 4 spell slots as there
-    are 4 spells currently going on". `SpellTier.SLOT_COUNT` is 3 and
-    `SpellLibrary.SLOT_ROLES` gives each class 3 of its 5 roles. Going to 4 means
-    each class carries 4 of 5, needs a `spell_4` input action, a 4th entry in
-    `Hero.SPELL_KEYS`, and a 4th role picked per class in SLOT_ROLES.
-    ⚠ `SpellTier`'s own docstring ALREADY says "four spell slots plus a dedicated
-    ULT slot" — the constant is what drifted from the design, not the other way up.
-31. **Ice wizard:** primary cast has no visible projectile; kit feels weak and
-    unspectacular next to the others.
+1. **PLAY IT.** Four commits, none of it touched by hands. Start at F5.
+2. **DIFFICULTY IS STILL FOUR LEVERS IN ONE DIRECTION AND NOBODY HAS FELT IT** —
+   hero HP x1.4, enemy damage −25%/−40%, enemy speed −15%, floor 1 down 36% bodies,
+   plus health packs. It may be trivial now. `TuningConfig.hero_vitality_mult` is a
+   live F1 dial shipped NEUTRAL at 1.0.
+3. **The audio has still never been heard**, and the music licence provenance is
+   still the only thing blocking anything public.
+4. **The fourth spell slot has a cost that wants a verdict:** you hold more, so you
+   find less. The floor pickup pool went 14 → 9 and the class-select pick went from
+   six hands per class to four. Both are pinned by assertions so they cannot shrink
+   further by accident, but whether the trade feels right is a play question.
+5. **Nothing has ever touched a touchscreen.** The touch arc grew to four buttons on
+   geometry alone (`R >= 60 / (cos 60 − cos 30) = 164`, so radius 126 → 165).

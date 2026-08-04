@@ -207,7 +207,13 @@ func _redraw() -> void:
 	if _title != null:
 		_title.text = "YOUR HAND — %s" % _class_display_name()
 	if _hint != null:
-		_hint.text = "five spells · three buttons · pick the two you carry"
+		# ⚠ DERIVED, BECAUSE IT WAS WRONG. This line read "five spells · three buttons ·
+		# pick the two you carry" — true until `SpellTier.SLOT_COUNT` became 4, and a
+		# hand-typed count is a fact that goes stale silently while the screen underneath
+		# it stays correct.
+		var open_slots: int = SpellTier.SLOT_COUNT - 1
+		_hint.text = "five spells · %d buttons · pick the %d you carry" % [
+			SpellTier.SLOT_COUNT, open_slots]
 	if _list == null:
 		return
 	for child: Node in _list.get_children():
@@ -297,7 +303,16 @@ func _refresh_summary() -> void:
 	for spell: Variant in SpellLibrary.build_for_class(_class_id):
 		if spell != null:
 			names.append(String((spell as SpellDef).display_name))
-	_summary.text = "1 · 2 · 3      %s" % "      ".join(names)
+	# ⚠ THE KEY ROW IS COUNTED, NOT TYPED. It was the literal "1 · 2 · 3" and the hand
+	# grew to four. `Hero.SPELL_KEYS` is the real list, but `Hero` is not a `class_name`
+	# — naming it here would not compile — and reaching it by `load()` would drag the
+	# whole combat chain into a town screen. The number row IS the labels by
+	# construction, and `tools/slice_test_spell_buttons.gd` is what pins that: it
+	# asserts `SPELL_KEYS` matches the bindings and is `SLOT_COUNT` long.
+	var keys: Array[String] = []
+	for i: int in SpellTier.SLOT_COUNT:
+		keys.append(str(i + 1))
+	_summary.text = "%s      %s" % [" · ".join(keys), "      ".join(names)]
 
 
 # ═══════════════════════════════════════════════════════════════ the armory

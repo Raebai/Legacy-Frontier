@@ -1,3 +1,70 @@
+# RESUME HERE — 2026-08-04 (e), THE QUEUE IS BUILT
+
+**ASHPIRE.** Branch `bot-fight-quality`, **150/150 green**, tree clean.
+
+Four commits worked the whole playtest queue. **ALL OF IT IS UNPLAYED.**
+
+> **`docs/PLAYTEST-QUEUE.md` is the ledger** — every ask, marked done, with what
+> was actually built. Read it before this file.
+
+## ▶ WHAT TO PLAY (F5), in this order
+
+1. **The Antechamber.** It is a different room. The stations are TELEPORT PADS in
+   one evenly spaced row — stand on one, press E, a column of light fires and you
+   go up; close the screen and you come back down. A signpost stands between the
+   last pad and the door. Two townsfolk instead of four, and they hop.
+2. **CAST IN THE LOBBY.** The body you drive in the town is a **Hero** now, not the
+   old walker — every spell, the ult, blink, nova, parry and melee work in the room,
+   and three immortal straw dummies stand at the far left to throw them at. The
+   sparring pad (which teleported you out to Free Play) is gone.
+3. **FOUR SPELL SLOTS.** `1 2 3 4`. Every class carries four of its five authored
+   roles. Five spells changed hands to keep it honest — the Brawler no longer casts
+   a lightning chain, the Cleric no longer casts the Warlock's drain.
+4. **The Archivist**, which is a tree. Spend a point and watch the branch grow.
+5. **Class select**, which is nine names.
+
+## ⚠ WHAT IS MOST LIKELY TO BE WRONG
+
+1. **The Hero in the town is a new body in an old room.** It joins the "player"
+   group and is frozen while a pad's screen is up, both of which were bugs until
+   they were handled. If something in the room stops reacting to you, that is the
+   shape of it.
+2. **DIFFICULTY, still.** Four levers moved in one direction two sessions ago and
+   nobody has felt any of them. It may be trivial.
+3. **The fourth slot's cost.** You hold more, so you find less: the floor pickup
+   pool is 14 → 9 and the class-select pick is six hands per class → four. Both are
+   pinned by assertions; whether the trade is right is a play question.
+4. **The touch arc grew on geometry alone.** Four 60 px buttons on a quarter circle
+   need radius >= 164, so it went 126 → 165. Nothing has ever touched a touchscreen.
+
+## ▶ THE NEXT THING TO BUILD
+
+Nothing on the queue. The next move is a playtest, and then whatever it produces.
+
+## HOW TO VERIFY
+
+```
+python python-tools/run_all_tests.py --jobs 8                 # 150 suites, ~80s
+godot ... --script tools/archivist_capture.gd                 # the tree, GUI binary
+godot ... --script tools/town_capture.gd                      # the room, GUI binary
+```
+After any `--headless --import`, CHECK `project.godot` still has four keys:
+`theme/custom`, `physics_ticks_per_second`, and both `rendering_method`s.
+
+## TRAPS THIS SESSION ADDED TO THE PILE
+
+- **A tree that fits on paper does not fit on a phone.** The Archivist's first
+  canvas was 324 units tall in a 640x360 base viewport, which put Close off the
+  bottom edge. Two nodes also sat 37 px apart inside a 38 px tap box. Both were
+  found by `tools/archivist_capture.gd`, neither by a test.
+- **A `kind` nothing spawns is dead code behind a live switch.** The sparring
+  station was deleted rather than left unbuilt.
+- **`root.get_window()` is null at `_initialize` under `--script`** — `root` IS the
+  window; set `root.size` directly.
+
+---
+---
+
 # RESUME HERE — 2026-08-04 (d), PAUSED MID-PLAYTEST
 
 **ASHPIRE.** Branch `bot-fight-quality` @ `243c03d`, **pushed**, **150/150 green**,
