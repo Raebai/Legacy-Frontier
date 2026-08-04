@@ -28,7 +28,13 @@ extends Resource
 
 @export_group("Camera")
 @export var lookahead_dist: float = 8.0  # px the camera peeks toward aim (was 22 — the "shake when I move")
-@export var shake_scale: float = 1.0     # global multiplier on screenshake magnitude (0 = off). Screenshake slider drives this.
+## Global multiplier on screenshake magnitude (0 = off). The Screenshake slider in
+## pause Settings drives this, so it stays adjustable without a rebuild.
+## ⚠ 1.0 -> 0.7 on the maker's "the screen shake is a little too much". Every
+## individual shake call keeps its own relative weight — a guardian slam is still
+## far heavier than a jab — which is the whole reason to turn ONE knob here rather
+## than trim the numbers at forty call sites and lose the shape.
+@export var shake_scale: float = 0.7
 
 @export_group("Combat feel")
 ## THE knockback knob. Multiplies EVERY impulse — melee, spells, blasts, guard-cut —

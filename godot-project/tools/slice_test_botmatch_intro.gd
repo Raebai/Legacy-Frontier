@@ -395,7 +395,13 @@ func _test_taunt_voice_is_shaped() -> void:
 func _test_lobby_routes_to_the_duel() -> void:
 	if _lobby_src == "":
 		return
-	_expect(_lobby_src.contains("Fight a Bot"), "the lobby has a `Fight a Bot` button")
+	# ⚠ MOVED INTO THE ANTECHAMBER on 2026-08-04. Maker, twice: "the tower intro
+	# still has too many buttons". The room owns these now — the RING is free play,
+	# the RACK is the armoury, the STATUE is class. `slice_test_town` asserts the
+	# stations exist there; asserting them HERE would re-pin the duplication that
+	# was the complaint.
+	_expect(not _lobby_src.contains("Fight a Bot"),
+		"the duel button is NOT on the title any more (it belongs to the room)")
 	_expect(_lobby_src.contains("func _fight_bot"), "...wired to _fight_bot")
 	_expect(_lobby_src.contains("func versus_available"),
 		"...guarded by versus_available(), mirroring free_play_available/bot_match_available")
@@ -409,16 +415,14 @@ func _test_lobby_routes_to_the_duel() -> void:
 		"nor a bare `BotMatch` identifier")
 	_expect(not _strip_quoted(_lobby_src).contains("FreePlay"),
 		"nor a bare `FreePlay` identifier")
-	# The three buttons really are in ONE row: three `_half()` calls before the co-op row.
-	var prep_at: int = _lobby_src.find("var prep := HBoxContainer.new()")
-	var coop_at: int = _lobby_src.find("var coop := HBoxContainer.new()")
-	_expect(prep_at >= 0 and coop_at > prep_at, "the prep row is still built before the co-op row")
-	if prep_at >= 0 and coop_at > prep_at:
-		var prep: String = _lobby_src.substr(prep_at, coop_at - prep_at)
-		_expect(prep.count("_half(\"") == 3,
-			"the prep row holds exactly three half-buttons (got %d)" % prep.count("_half(\""))
-		_expect(prep.contains("Free Play") and prep.contains("Fight a Bot")
-			and prep.contains("Loadout"), "Free Play | Fight a Bot | Loadout, in that row")
+	# ⚠ THE PREP ROW IS GONE. It held Free Play / Fight a Bot / Loadout, and all
+	# three moved into the Antechamber (ring / ring / rack) when the maker asked twice
+	# for fewer buttons on the title. What is asserted instead is that the row did not
+	# quietly come back — a re-added button here is the regression, not a missing one.
+	_expect(_lobby_src.find("var prep := HBoxContainer.new()") < 0,
+		"the title has no prep row — those verbs live in the room now")
+	_expect(_lobby_src.find("var coop := HBoxContainer.new()") >= 0,
+		"...and the multiplayer row is still there, because that IS a title question")
 	# The scene really is there to route to.
 	_expect(ResourceLoader.exists(ARENA_SCRIPT), "the versus arena script is in this build")
 	_completes("lobby_routes_to_the_duel")

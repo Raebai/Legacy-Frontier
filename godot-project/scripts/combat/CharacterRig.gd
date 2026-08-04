@@ -264,7 +264,15 @@ const RUN_PHASE_RATE: float = 9.0
 ## leg" silently shrank every length by 22% — which is how the foot lift ended up at
 ## 11.8% of body height against the spike's 15.1%.
 const STEP_TRIGGER_FACTOR: float = 0.20  # rear-plant lag before it steps / height
-const STANCE_FACTOR: float = 0.052       # half stance width / height (spike 4.5/86)
+## Half stance width / height. ⚠ 0.052 -> 0.034 on the maker's "when I stand i look
+## so weird make me stand upright".
+##
+## A wide rest stance is not just a look — it COSTS THE LEGS THEIR REACH. A planted
+## foot spends the leg's length covering hip height first (see MAX_TRAIL_FACTOR), and
+## every pixel of sideways stance eats the little that is left, which is what bends
+## the knees at rest. Narrowing the stance therefore straightens the legs and reads
+## as standing up, rather than merely moving the feet closer together.
+const STANCE_FACTOR: float = 0.034
 const STEP_LIFT_FACTOR: float = 0.151    # swing-arc apex / height (spike 13/86)
 ## How far AHEAD of where the hip will be the swing foot plants, as a fraction of
 ## height. This is the forward reach of the stride — the leg is at its straightest

@@ -384,7 +384,10 @@ func _test_the_lobby_still_fits_a_phone() -> void:
 			"lobby '%s' is at least %.0f px tall (got %.0f)"
 				% [b.text, MIN_TAP_H, b.custom_minimum_size.y])
 	var joined: String = " | ".join(labels)
-	for wanted: String in ["Free Play", "Loadout", "Host Co-op", "Join"]:
+	# Free Play and Loadout MOVED INTO THE ANTECHAMBER (the ring and the rack) when
+	# the maker asked twice for fewer title buttons. What a title screen still has to
+	# offer is the choice it exists to ask: alone, or with someone.
+	for wanted: String in ["ENTER THE TOWER", "Host Co-op", "Join"]:
 		_expect(joined.contains(wanted), "the lobby offers '%s' (has: %s)" % [wanted, joined])
 	_completes("the_lobby_still_fits_a_phone")
 
@@ -402,8 +405,13 @@ func _test_free_play_is_reachable_from_the_lobby() -> void:
 		_expect(script.get_script_method_list().any(
 			func(m: Dictionary) -> bool: return String(m.get("name", "")) == "enter"),
 			"and it offers the static `enter` the lobby calls")
-	var free_btn: Button = lobby.get("_free_btn") as Button
-	_expect(free_btn != null and free_btn.visible, "the button is on screen")
+	# ⚠ MOVED INTO THE ANTECHAMBER on 2026-08-04. Maker, twice: "the tower intro
+	# still has too many buttons". The room owns these now — the RING is free play,
+	# the RACK is the armoury, the STATUE is class. `slice_test_town` asserts the
+	# stations exist there; asserting them HERE would re-pin the duplication that
+	# was the complaint.
+	_expect(lobby.get("_free_btn") == null,
+		"free play is NOT a title button any more — it is the sparring ring")
 	# Reached by PATH, never by the bare class identifier — a hard reference from the
 	# boot scene would drag the versus arena's dependency chain into its compile.
 	var src: String = FileAccess.get_file_as_string("res://scripts/ui/Lobby.gd")

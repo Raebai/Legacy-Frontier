@@ -340,10 +340,14 @@ func _test_the_lobby_still_leads_with_climb() -> void:
 	# See the note in slice_test_shell: the label is "ENTER THE TOWER" now and the
 	# ordering claim it guards is the same one.
 	var climb_at: int = src.find("ENTER THE TOWER")
-	var town_at: int = src.find("The Town")
+	# ⚠ THE SEPARATE "The Town" BUTTON IS GONE, and its absence is the point:
+	# ENTER THE TOWER now goes to the room itself, so a second button to the same
+	# place was one of the "too many buttons" the maker named twice. The claim this
+	# block guards — the fast path is the FIRST thing on the screen and it routes
+	# through `visit_hub` — is unchanged and asserted below.
 	_expect(climb_at >= 0, "the lobby still has an ENTER THE TOWER button")
-	_expect(town_at >= 0, "and now has a town button")
-	_expect(climb_at < town_at, "CLIMB is built BEFORE the town button — the fast path is first")
+	_expect(src.find("The Town") < 0,
+		"...and no SECOND button to the same room")
 	_expect(src.contains("_play_solo"), "CLIMB still routes to _play_solo")
 	_expect(src.contains("visit_hub"), "and the town routes through GameState.visit_hub()")
 	_completes("the_lobby_still_leads_with_climb")

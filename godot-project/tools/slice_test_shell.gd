@@ -214,11 +214,14 @@ func _test_climb_stays_above_the_town() -> void:
 	# guards is unchanged: the one verb that starts the game is built before the
 	# detour to the town. Only the string moved.
 	var climb_at: int = src.find("ENTER THE TOWER")
-	var town_at: int = src.find("The Town")
+	# ⚠ THE SEPARATE "The Town" BUTTON IS GONE, and its absence is the point:
+	# ENTER THE TOWER now goes to the room itself, so a second button to the same
+	# place was one of the "too many buttons" the maker named twice. The claim this
+	# block guards — the fast path is the FIRST thing on the screen and it routes
+	# through `visit_hub` — is unchanged and asserted below.
 	_expect(climb_at >= 0, "the lobby has an ENTER THE TOWER button")
-	_expect(town_at >= 0, "and a town button")
-	_expect(climb_at >= 0 and town_at > climb_at,
-		"ENTER THE TOWER is built before the town button (climb@%d, town@%d)" % [climb_at, town_at])
+	_expect(src.find("The Town") < 0,
+		"...and no SECOND button to the same room")
 	_expect(ResourceLoader.exists("res://scenes/Main.tscn"), "the town scene exists")
 	_expect(not ResourceLoader.exists("res://scenes/Conversation.tscn"),
 		"and the LLM overlay it used to carry is deleted")

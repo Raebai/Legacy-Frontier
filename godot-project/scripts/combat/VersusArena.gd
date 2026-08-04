@@ -204,7 +204,16 @@ static var duel_bot_class: int = 0
 ## GameState.enemy_difficulty, which drives the trash-mob arena: mixing them
 ## would mean changing the practice bots' difficulty every time you retuned your
 ## sparring partner.
-static var duel_difficulty: int = 1
+## ⚠ EASY BY DEFAULT. Maker: "the bots are spamming and way too good to test with".
+## A practice partner exists to let you find out what YOUR buttons do; one that wins
+## is not a practice partner. The measured dial runs 89/11 between tier 0 and tier 3,
+## so this is a real drop and not a nudge. Raise it live in the F1 Director the
+## moment you want a fight instead of a lesson.
+##
+## (The spam itself is also addressed at the source: bots cast through
+## `Hero._cast_signature`, so `GLOBAL_CAST_LOCKOUT` now paces them exactly as it
+## paces the player.)
+static var duel_difficulty: int = 0
 ## Is the bot allowed to learn from this fight? A toggle rather than a constant
 ## because "does it feel different when it has been studying me" is exactly the
 ## comparison the maker needs to be able to make in one click.

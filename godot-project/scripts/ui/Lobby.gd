@@ -115,6 +115,11 @@ func _ready() -> void:
 	_paper.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_paper)
 
+	# THE CLASS COMES FROM THE STATUE NOW. The title has no cycler, so the last class
+	# chosen in the Antechamber is the one this screen hosts with.
+	var gs0: Node = get_node_or_null("/root/GameState")
+	if gs0 != null:
+		_selected_class = int(gs0.get("selected_class"))
 	_build_ui()
 	_apply_class_tint()
 	# ⚠ THE BOOT SCREEN USED TO BE SILENT. The first thing anyone ever hears, and it
@@ -171,6 +176,15 @@ func _on_join_ok() -> void:
 	# We are in a session now; there is nothing left to discover, and holding the
 	# listener open would keep pumping Net every frame through the whole run.
 	_stop_discovery()
+	# ⚠ WAIT IN THE ROOM, NOT ON THE TITLE SCREEN. Maker: "a teammate spawns into the
+	# antechamber with you". A client used to sit on this menu reading "waiting for
+	# the host" until the run started, so the two players never occupied the same
+	# space until they were already fighting.
+	var gsj: Node = get_node_or_null("/root/GameState")
+	if gsj != null:
+		gsj.set("session_kind", 2)   # SessionKind.ONLINE
+		if gsj.has_method("visit_hub") and bool(gsj.call("visit_hub")):
+			return
 	_say("connected — waiting for the host")
 
 
@@ -227,14 +241,8 @@ func _build_ui() -> void:
 	right.add_child(ff)
 
 	# ── class ──
-	_class_btn = _button("", _cycle_class, 15)
-	right.add_child(_class_btn)
-	_class_kit = Label.new()
-	_class_kit.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_class_kit.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_class_kit.add_theme_font_size_override("font_size", 9)
-	_class_kit.add_theme_color_override("font_color", GRAPHITE)
-	right.add_child(_class_kit)
+	# THE CLASS IS PICKED AT THE STATUE, in the room, on a body you can see. A cycler
+	# here was choosing a hero for a fight you had not walked to yet.
 
 	# ── the one button that matters ──
 	# ⚠ TWO VERBS, NOT EIGHT BUTTONS. Maker: "there should be an Enter the tower
@@ -259,26 +267,18 @@ func _build_ui() -> void:
 	# actions into two HBox rows costs exactly what the two stacked rows they replace
 	# cost, so the panel is the same height it was and `slice_test_shell`'s 360 px
 	# bound is untouched. Both halves still clear MIN_TAP.
-	var prep := HBoxContainer.new()
-	prep.add_theme_constant_override("separation", 6)
-	right.add_child(prep)
-	# FREE PLAY sits FIRST, immediately under CLIMB, because it is this game's only
-	# onboarding surface: today a new player goes straight from a nine-way class
-	# cycler into floor 1 with three buttons nobody has explained. A stage with no
-	# enemies is where you find out what your thumb does.
-	_free_btn = _half("Free Play", _free_play)
-	_free_btn.tooltip_text = "no enemies — just try your spells"
-	prep.add_child(_free_btn)
-	# FIGHT A BOT — a complete human-vs-one-bot duel has existed in `VersusArena` the
-	# whole time and had NO ROUTE FROM THIS SCREEN; `FreePlay.gd` says so in its own
-	# header. It goes in THIS row rather than a new one because the column already
-	# measures ~306 of the 360 px `slice_test_shell` pins: a third `_half()` costs the
-	# row nothing, a fourth ROW would blow the budget.
-	_duel_btn = _half("Fight a Bot", _fight_bot)
-	prep.add_child(_duel_btn)
-	prep.add_child(_half("Loadout", _open_outfitter))
-	_refresh_duel_button()
-
+	# ⚠ EVERY PREP BUTTON MOVED INTO THE ANTECHAMBER. Maker, twice: "the tower intro
+	# still has too many buttons… and again its too many buttons", plus "I want to
+	# choose my class in the antechamber".
+	#
+	# The room already owns all of it and always did — the STATUE is class select, the
+	# RACK is the armoury, the LECTERN is your three spells, the RING is free play and
+	# the DOOR is the tower. Duplicating them as buttons here meant the title screen
+	# was a menu for a room you were about to walk into anyway, and the room could
+	# never be the front door while its own contents were listed on the doorstep.
+	#
+	# What is left is the only question a title screen has to ask: alone, or with
+	# someone.
 	right.add_child(_group_label("MULTIPLAYER"))
 	var coop := HBoxContainer.new()
 	coop.add_theme_constant_override("separation", 6)
@@ -310,8 +310,6 @@ func _build_ui() -> void:
 	# costs one extra press over CLIMB and no walking at all — you spawn on the
 	# tower's doorstep and every station is behind you. See the rules at the top of
 	# `World.gd`.
-	extras.add_child(_half("The Town", _visit_town))
-	extras.add_child(_half("Watch Bots", _watch_bots))
 	extras.add_child(_half("Credits", _open_credits))
 
 	# The status row exists anyway and is empty at boot, so it is a free place to say
@@ -700,6 +698,11 @@ func _host() -> void:
 		# The beacon is automatic (Net.host starts it), so the other phone should
 		# simply see this machine in its list — the address is the fallback.
 		_say("hosting — they should see you under Join a Game")
+		# The host waits in the room as well, so the Party Stone is somewhere both
+		# players are standing rather than a thing only one of them ever sees.
+		var gsh: Node = get_node_or_null("/root/GameState")
+		if gsh != null and gsh.has_method("visit_hub"):
+			gsh.call("visit_hub")
 	else:
 		_say("host failed (err %d) — port in use?" % err)
 
