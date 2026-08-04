@@ -24,7 +24,6 @@ const TESTS: Array[String] = [
 	"climber_save_shape",
 	"parse_json_float_trap",
 	"outcome_carries_falls",
-	"fact_mentions_falls",
 	"climber_disk_roundtrip",
 	"game_over_transition",
 	"advance_and_bank",
@@ -48,7 +47,6 @@ func _process(_delta: float) -> bool:
 	_test_climber_save_shape(GS)
 	_test_parse_json_float_trap(GS)
 	_test_outcome_carries_falls(GS)
-	_test_fact_mentions_falls(GS)
 	_test_climber_disk_roundtrip(GS)
 	_test_game_over_transition(GS)
 	_test_advance_and_bank(GS)
@@ -173,15 +171,6 @@ func _test_outcome_carries_falls(GS: GDScript) -> void:
 	var o2: Dictionary = GS.build_outcome(3, 7, false, true, ["Fire"], 1, "Climber")
 	_expect(int(o2["falls"]) == 0, "outcome falls defaults to 0")
 	_completes("outcome_carries_falls")
-
-
-func _test_fact_mentions_falls(GS: GDScript) -> void:
-	var many: String = GS.build_run_fact(GS.build_outcome(3, 7, false, true, ["Fire"], 1, "Climber", 3))
-	_expect(many.contains("3 falls"), "death fact names the fall count")
-	# With 0 falls the fact is unchanged (still contains the base death text).
-	var zero: String = GS.build_run_fact(GS.build_outcome(3, 7, false, true, ["Fire"], 1, "Climber", 0))
-	_expect(zero.contains("floor 3") and not zero.contains("falls so far"), "0 falls omits the clause")
-	_completes("fact_mentions_falls")
 
 
 func _test_climber_disk_roundtrip(GS: GDScript) -> void:

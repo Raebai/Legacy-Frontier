@@ -176,7 +176,7 @@ static func seed_combine(parts: Array) -> int:
 
 ## Convenience: the voice of a live node, from its name. Takes an Object rather
 ## than Node so a test stub (a RefCounted with a `name`) works without dragging
-## the scene tree in — the same reason Patience.gd types its npc as Object.
+## the scene tree in.
 static func voice_of(who: Object) -> Dictionary:
 	if who == null:
 		return voice(0)

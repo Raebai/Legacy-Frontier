@@ -159,7 +159,7 @@ func _test_the_ceremony_replaces_the_hub(GS: GDScript) -> void:
 
 
 ## PARK, DO NOT DELETE — and do not force anybody through it either. The hub is
-## still on disk, still loadable, and still fed by `_pending_ingest`; it is simply
+## still on disk and still loadable; it is simply
 ## reachable by choice rather than by losing.
 func _test_the_hub_survives_as_an_opt_in(GS: GDScript) -> void:
 	_expect(ResourceLoader.exists(String(GS.HUB_SCENE)), "the hub scene is parked, not deleted")

@@ -1,21 +1,19 @@
 extends Node
 ## Slice 2 run-loop spine. Owns the HUB <-> RUN mode, the live-run accumulators,
-## the floor plan (pure math), the last-run outcome record, and the run-fact
-## injection that makes the hub NPCs AWARE of what happened on a run (the moat:
-## "the town remembers your runs"). Autoload "GameState".
+## the floor plan (pure math), and the last-run outcome record. Autoload
+## "GameState".
 ##
 ## Every combat-side caller reaches this through a guarded /root/GameState lookup
 ## so Arena.tscn still runs standalone (F6) as the pure feel sandbox with no
 ## GameState-driven floor structure. When a real run IS active, the same arena
 ## runs floor-by-floor.
 ##
-## The record/fact builders and the floor math are STATIC + PURE so they test
-## headlessly with no scene, no Ollama, no change_scene.
+## The record builders and the floor math are STATIC + PURE so they test
+## headlessly with no scene and no change_scene.
 
 signal run_started
 signal run_ended(outcome: Dictionary)        # combat resolved (victory or death)
 signal floor_advanced(floor: int)            # cleared a floor, entering the next
-signal returned_to_hub(outcome: Dictionary)  # hub NPCs have ingested the run
 ## ⚠ `fell(new_floor)` IS GONE, and so are `fall()` and `fall_floor()`.
 ## They implemented the OLD death rule — die, drop a floor, keep climbing — which the
 ## maker replaced on 2026-08-01: "dying cost is a life in ghost form until your
@@ -36,20 +34,13 @@ enum Mode { HUB, RUN }
 ## ⚠ `end_run` USED TO LOAD `HUB_SCENE` — AND SO DID WINNING.
 ##
 ## Both terminal states of the game (conquer the tower / the party wipes) walked
-## straight into `scenes/Main.tscn`: the parked v0.0 AI-NPC town, whose NPCs talk to
-## a hardcoded Ollama server at `127.0.0.1:11434`. There was no victory screen
-## anywhere in the tower, and no route back to the title from anything but the
-## credits. Under the 2026-08-01 death rule a solo death ends the run immediately,
-## so a first-time player reached that town **on their first death**, having seen
-## nothing of the game.
+## straight into `scenes/Main.tscn`, the parked v0.0 town. There was no victory
+## screen anywhere in the tower, and no route back to the title from anything but
+## the credits. Under the 2026-08-01 death rule a solo death ends the run
+## immediately, so a first-time player reached that town **on their first death**,
+## having seen nothing of the game.
 ##
-## THE CONFLICT, AND HOW IT IS RESOLVED. The hub route was deliberate — "the town
-## clocking your deaths is the moat" — and it directly contradicts
-## `docs/THE-TOWER-mobile-plan.md`, which records the whole LLM/NPC stack as cut
-## permanently and *cannot work on a phone at all* (loopback on a device is the
-## device's own localhost).
-##
-## Neither commitment is abandoned:
+## How it is resolved:
 ##   * A run now ends on `SUMMARY_SCENE` — a ceremony that SHOWS the run (floor,
 ##     kills, guardians, rank, falls, team damage) and then lands the player on the
 ##     Lobby, which is the boot scene and works on a phone.
@@ -57,9 +48,7 @@ enum Mode { HUB, RUN }
 ##     `tower_conquered` and `user://climber.json` are written exactly as before,
 ##     BEFORE the ceremony; nothing about the climb needed the hub to happen.
 ##   * The hub survives as an OPT-IN detour, `visit_hub()`, offered on the summary
-##     card and never on the critical path. `_pending_ingest` is still armed by
-##     every run, so the town's memory of your climb is intact the moment you walk
-##     in — it simply is not a toll gate any more.
+##     card and never on the critical path.
 const HUB_SCENE: String = "res://scenes/Main.tscn"
 const SUMMARY_SCENE: String = "res://scenes/ui/RunSummary.tscn"
 const TITLE_SCENE: String = "res://scenes/ui/Lobby.tscn"
@@ -67,11 +56,6 @@ const ARENA_SCENE: String = "res://scenes/combat/Arena.tscn"
 
 ## A run is TOTAL_FLOORS floors; the last one is the guardian floor.
 const TOTAL_FLOORS: int = 5
-## key_facts entry that carries the single most-recent run (replaced each return).
-const RUN_FACT_PREFIX: String = "just back: "
-## Must match MemoryConsolidator.MAX_KEY_FACTS_PER_ENTITY so a run fact obeys the
-## same cap the consolidation pipeline enforces.
-const KEY_FACTS_CAP: int = 5
 
 ## Climber save schema version (bump + migrate if the shape changes).
 const CLIMBER_SAVE_VERSION: int = 1
@@ -134,8 +118,6 @@ var _saved_rank_power: int = 0       # Rank.power snapshot, applied to /root/Ran
 
 var mode: int = Mode.HUB
 var last_run: Dictionary = {}            # {} until the first run ends
-var _pending_ingest: bool = false        # a finished run awaits hub-NPC ingest
-var _run_hint_unshown: bool = false      # first post-run engage still owes the punch line
 
 # --- live-run accumulators (reset each enter_run) ---
 var _run_active: bool = false
@@ -346,8 +328,6 @@ func end_run(died: bool, floor_override: int = -1) -> void:
 		_elements_used.keys(), _rank_tier(), _rank_title(), _falls,
 		_friendly_damage, _highest_floor, total_floors()
 	)
-	_pending_ingest = true
-	_run_hint_unshown = true
 	mode = Mode.HUB
 	run_ended.emit(last_run)
 	# THE CEREMONY, NOT THE PARKED TOWN. See the SUMMARY_SCENE block at the top for
@@ -357,14 +337,11 @@ func end_run(died: bool, floor_override: int = -1) -> void:
 	_change_scene(SUMMARY_SCENE if ResourceLoader.exists(SUMMARY_SCENE) else TITLE_SCENE)
 
 
-## THE OPT-IN DETOUR. Walk into the parked v0.0 town, where the NPCs read the run
-## you just finished out of `_pending_ingest` and react to it.
+## THE OPT-IN DETOUR. Walk into the parked v0.0 town.
 ##
-## ⚠ NOT ON THE CRITICAL PATH, AND THAT IS THE WHOLE POINT. It needs a local Ollama
-## server on `127.0.0.1:11434`, which on a phone is the device's own loopback, so
-## anything that FORCES a player through here is broken on the target platform. The
-## summary card offers it as a button and hides that button on a build that has no
-## business showing it. Returns false when the hub is not in this build.
+## ⚠ NOT ON THE CRITICAL PATH, AND THAT IS THE WHOLE POINT. The summary card offers
+## it as a button and hides that button on a build that has no business showing it.
+## Returns false when the hub is not in this build.
 func visit_hub() -> bool:
 	if not ResourceLoader.exists(HUB_SCENE):
 		return false
@@ -380,19 +357,6 @@ func go_to_title() -> void:
 	_change_scene(TITLE_SCENE)
 
 
-## Called from World._ready() once the hub + its NPC children have loaded (child
-## _ready fires before the parent, so NPC memory is already hydrated here). Pushes
-## the finished run into every hub NPC's durable memory, exactly once.
-func apply_run_to_hub_npcs(tree: SceneTree) -> void:
-	if not _pending_ingest or last_run.is_empty():
-		return
-	var fact: String = build_run_fact(last_run)
-	for npc in tree.get_nodes_in_group("npc"):
-		ingest_run_fact(npc, fact)
-	_pending_ingest = false
-	returned_to_hub.emit(last_run)
-
-
 func _change_scene(path: String) -> void:
 	if not is_inside_tree():
 		return
@@ -403,7 +367,7 @@ func _change_scene(path: String) -> void:
 
 # --------------------------------------------------- climber persistence (IO)
 ## Atomic save: write <path>.tmp then rename over the real file, so a crash
-## mid-write can't corrupt an existing climber. Mirrors NPC.save_memory.
+## mid-write can't corrupt an existing climber.
 func _save_climber(path: String = CLIMBER_PATH) -> void:
 	var payload: Dictionary = build_climber_save(
 		_floor, _highest_floor, _falls, tower_conquered, _live_rank_power()
@@ -480,15 +444,6 @@ func is_run_active() -> bool: return _run_active
 func current_floor() -> int: return _floor
 
 
-## One-shot punch line for the FIRST hub engage after a run — makes the opening
-## reference the run deterministically. Empty on every later call.
-func consume_callback_run_hint() -> String:
-	if last_run.is_empty() or not _run_hint_unshown:
-		return ""
-	_run_hint_unshown = false
-	return run_hint_text(last_run)
-
-
 func _rank_tier() -> int:
 	if not is_inside_tree():
 		return 0
@@ -537,74 +492,6 @@ static func build_outcome(
 		"total_floors": maxi(total_floors_in_tower, floor_reached),
 	}
 
-
-## The durable one-line memory the hub NPCs carry about the latest run.
-static func build_run_fact(run: Dictionary) -> String:
-	var floor_reached: int = int(run.get("floor_reached", 1))
-	var kills: int = int(run.get("enemies_killed", 0))
-	var falls: int = int(run.get("falls", 0))
-	var elems: Array = run.get("elements_used", [])
-	var elem_clause: String = ""
-	if elems.size() > 0:
-		elem_clause = ", wielding %s" % String(elems[0]).to_lower()
-	var fall_clause: String = ""
-	if falls > 0:
-		fall_clause = " (%d falls so far)" % falls
-	if bool(run.get("died", false)):
-		return "%sfell on floor %d after %d kills%s, came back rattled%s" % [
-			RUN_FACT_PREFIX, floor_reached, kills, elem_clause, fall_clause
-		]
-	if bool(run.get("boss_killed", false)):
-		return "%sconquered all %d floors and felled the guardian%s" % [
-			RUN_FACT_PREFIX, floor_reached, elem_clause
-		]
-	return "%swalked out of floor %d alive after %d kills%s%s" % [
-		RUN_FACT_PREFIX, floor_reached, kills, elem_clause, fall_clause
-	]
-
-
-## Human-facing punch line for the one-shot greeting addendum.
-static func run_hint_text(run: Dictionary) -> String:
-	var floor_reached: int = int(run.get("floor_reached", 1))
-	if bool(run.get("died", false)):
-		var falls: int = int(run.get("falls", 0))
-		var fall_note: String = ""
-		if falls > 1:
-			fall_note = " That is %d falls now." % falls
-		return ("The player has JUST returned from the tower — they died on floor %d.%s "
-			+ "Open by acknowledging that specifically, in your own voice — needle them "
-			+ "or console them, but reference the fall.") % [floor_reached, fall_note]
-	if bool(run.get("boss_killed", false)):
-		return ("The player has JUST returned from the tower — they cleared every floor "
-			+ "and put down the guardian. Open by reacting to THAT feat specifically, in "
-			+ "your own voice.")
-	return ("The player has JUST returned from the tower — they made it to floor %d and "
-		+ "walked out alive. Open by reacting to that specifically, in your own voice.") % floor_reached
-
-
-## Dedupe any prior run-marked fact, append the fresh one, honour the cap
-## (same oldest-drop policy as the consolidation pipeline).
-static func merge_run_fact(key_facts: Array, fact: String, cap: int) -> Array:
-	var kept: Array = []
-	for f in key_facts:
-		if not str(f).begins_with(RUN_FACT_PREFIX):
-			kept.append(f)          # preserve real durable facts
-	kept.append(fact)               # freshest run fact goes last
-	while kept.size() > cap:
-		kept.pop_front()
-	return kept
-
-
-## Write the run fact into an NPC's durable player relationship + save. `npc`
-## typed Object so a RefCounted stub can drive this in headless tests.
-static func ingest_run_fact(npc: Object, fact: String) -> void:
-	if not npc.has_method("_ensure_player_relationship"):
-		return
-	npc._ensure_player_relationship()
-	var rel: Dictionary = npc.relationships["player"]
-	rel["key_facts"] = merge_run_fact(rel.get("key_facts", []), fact, KEY_FACTS_CAP)
-	if npc.has_method("save_memory"):
-		npc.save_memory()
 
 
 ## The FloorDef for a given floor: the authored one if a tower is active, else a

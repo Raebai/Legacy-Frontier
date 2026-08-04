@@ -69,11 +69,6 @@ var _boss_rush_active: bool = false
 
 
 func _ready() -> void:
-	# Slice 0 isolation: keep the hub's Conversation autoload from stealing Enter
-	# while combat runs. (Re-enabled by World._ready on return to the hub.)
-	var conversation: Node = get_node_or_null("/root/Conversation")
-	if conversation != null:
-		conversation.set_process_unhandled_input(false)
 	# Music mood is chosen per-mode: run mode -> _setup_floor picks adventure/boss
 	# from the floor type; sandbox -> adventure (below). (The hub set the town bed.)
 

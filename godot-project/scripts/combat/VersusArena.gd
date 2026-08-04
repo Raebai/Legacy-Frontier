@@ -1438,10 +1438,10 @@ func _enter_boss_fight() -> void:
 ## Leave the versus sandbox to the TITLE screen. Unpause first so the fresh scene
 ## doesn't inherit the paused tree.
 ##
-## ⚠ IT USED TO GO TO `res://scenes/Main.tscn` — the PARKED v0.0 AI-NPC village.
+## ⚠ IT USED TO GO TO `res://scenes/Main.tscn` — the PARKED v0.0 village.
 ## Maker, on finding himself there: *"why is the hub still around, what do I do
-## there"*. Nothing, is the answer: it is a different game's town, its NPCs need a
-## local Ollama to speak, and arriving in it by accident is the only way anyone was
+## there"*. Nothing, is the answer: it is a different game's town, and arriving in
+## it by accident is the only way anyone was
 ## reaching it. The title screen is the boot scene and works on a phone. The hub is
 ## still on disk and still reachable deliberately from the run-summary card.
 func _exit_to_hub() -> void:

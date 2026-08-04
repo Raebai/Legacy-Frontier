@@ -20,10 +20,6 @@ extends SceneTree
 ## at the end means that test aborted part-way and fails the suite.
 const TESTS: Array[String] = [
 	"build_outcome",
-	"build_run_fact",
-	"run_hint_text",
-	"merge_run_fact",
-	"ingest_run_fact",
 	"floor_math",
 	"floor_def_synthesis",
 	"tower_authoring",
@@ -43,10 +39,6 @@ func _process(_delta: float) -> bool:
 	_ran = true
 	var GS: GDScript = load(GS_PATH) as GDScript
 	_test_build_outcome(GS)
-	_test_build_run_fact(GS)
-	_test_run_hint_text(GS)
-	_test_merge_run_fact(GS)
-	_test_ingest_run_fact(GS)
 	_test_floor_math(GS)
 	_test_floor_def_synthesis(GS)
 	_test_tower_authoring(GS)
@@ -90,66 +82,6 @@ func _test_build_outcome(GS: GDScript) -> void:
 	_expect(bool(o2["cleared"]) == true, "cleared true when not died")
 	_expect(bool(o2["boss_killed"]) == true, "boss_killed carried")
 	_completes("build_outcome")
-
-
-func _test_build_run_fact(GS: GDScript) -> void:
-	var died: String = GS.build_run_fact(GS.build_outcome(3, 7, false, true, ["Fire"], 1, "Climber"))
-	_expect(died.begins_with(GS.RUN_FACT_PREFIX), "died fact carries prefix")
-	_expect(died.contains("floor 3"), "died fact names the floor")
-	_expect(died.contains("fire"), "died fact lowercases element")
-	var won: String = GS.build_run_fact(GS.build_outcome(5, 40, true, false, ["Ice"], 5, "Ascendant"))
-	_expect(won.contains("guardian"), "boss fact mentions the guardian")
-	var alive: String = GS.build_run_fact(GS.build_outcome(2, 5, false, false, [], 1, "Climber"))
-	_expect(alive.contains("alive"), "cleared-but-not-boss fact reads 'alive'")
-	_expect(alive.begins_with(GS.RUN_FACT_PREFIX), "alive fact carries prefix")
-	_completes("build_run_fact")
-
-
-func _test_run_hint_text(GS: GDScript) -> void:
-	var died: String = GS.run_hint_text(GS.build_outcome(4, 9, false, true, [], 2, "Ranked"))
-	_expect(died.contains("died") and died.contains("floor 4"), "death hint is specific")
-	var won: String = GS.run_hint_text(GS.build_outcome(5, 40, true, false, [], 5, "Ascendant"))
-	_expect(won.contains("guardian"), "victory hint mentions the guardian")
-	_completes("run_hint_text")
-
-
-func _test_merge_run_fact(GS: GDScript) -> void:
-	var f1: String = GS.RUN_FACT_PREFIX + "walked out of floor 2 alive"
-	var merged: Array = GS.merge_run_fact([], f1, 5)
-	_expect(merged.size() == 1 and String(merged[0]) == f1, "append into empty")
-	# A second run fact REPLACES the first (only one run-marked entry survives).
-	var f2: String = GS.RUN_FACT_PREFIX + "fell on floor 3"
-	var merged2: Array = GS.merge_run_fact(merged, f2, 5)
-	var run_marked: int = 0
-	for f in merged2:
-		if String(f).begins_with(GS.RUN_FACT_PREFIX):
-			run_marked += 1
-	_expect(run_marked == 1, "exactly one run-marked fact survives")
-	_expect(String(merged2[merged2.size() - 1]) == f2, "newest run fact is last")
-	# Non-run facts are preserved.
-	var with_durable: Array = GS.merge_run_fact(["name is Ari", f1], f2, 5)
-	_expect(with_durable.has("name is Ari"), "durable fact preserved through merge")
-	# Cap is enforced by oldest-drop.
-	var capped: Array = GS.merge_run_fact(["a", "b", "c", "d", "e"], f2, 5)
-	_expect(capped.size() == 5, "cap enforced")
-	_expect(not capped.has("a"), "oldest dropped under cap")
-	_expect(String(capped[capped.size() - 1]) == f2, "run fact kept as newest")
-	_completes("merge_run_fact")
-
-
-func _test_ingest_run_fact(GS: GDScript) -> void:
-	var stub := _NpcStub.new()
-	GS.ingest_run_fact(stub, GS.RUN_FACT_PREFIX + "fell on floor 2")
-	_expect(stub.relationships.has("player"), "player relationship auto-created")
-	_expect(stub.saved, "save_memory called after ingest")
-	var kf: Array = stub.relationships["player"]["key_facts"]
-	_expect(kf.size() == 1, "one key fact after first ingest")
-	# A second run replaces, not appends.
-	GS.ingest_run_fact(stub, GS.RUN_FACT_PREFIX + "cleared floor 5")
-	var kf2: Array = stub.relationships["player"]["key_facts"]
-	_expect(kf2.size() == 1, "second run replaces the first (still one)")
-	_expect(String(kf2[0]).contains("floor 5"), "latest run fact wins")
-	_completes("ingest_run_fact")
 
 
 func _test_floor_math(GS: GDScript) -> void:
@@ -251,17 +183,3 @@ func _test_tower_authoring(GS: GDScript) -> void:
 	_expect(float(t.floors[4].boss_hp_multiplier) > float(t.floors[0].boss_hp_multiplier),
 		"the guardian's hp curve ramps with depth")
 	_completes("tower_authoring")
-
-
-## Minimal NPC stand-in for ingest_run_fact — mirrors NPC.gd's relationship
-## surface (relationships dict + _ensure_player_relationship + save_memory).
-class _NpcStub extends RefCounted:
-	var relationships: Dictionary = {}
-	var saved: bool = false
-
-	func _ensure_player_relationship() -> void:
-		if not relationships.has("player"):
-			relationships["player"] = {"valence": 0.0, "key_facts": []}
-
-	func save_memory() -> void:
-		saved = true

@@ -42,8 +42,7 @@ extends Control
 ## the one screen that is known to work on a phone.
 ##
 ## The parked town survives as a THIRD, OPTIONAL button — never on the critical
-## path, and hidden entirely on a build with no hub or on a touch device, because it
-## needs an Ollama server on `127.0.0.1:11434` and on a phone that is the phone.
+## path, and hidden entirely on a build with no hub or on a touch device.
 ##
 ## Built in code, house style (Lobby / ClassSelect / PauseMenu all do this), laid
 ## out for the 640x360 base viewport in LANDSCAPE with every tap target >= 30 px.
@@ -247,16 +246,13 @@ func _build_ui() -> void:
 	# you can probably remove it, it's just another layer that doesn't add any value."
 	#
 	# That settles a conflict this file's header documents at length. The hub is the
-	# parked v0.0 AI-NPC town: the design doc cuts persistent world / NPC memory / LLM
-	# anything permanently, and the town cannot work on a phone at all, because its
-	# NPCs talk to `http://127.0.0.1:11434` and on a device that address is the
-	# device's own loopback. It was kept reachable because "the town clocks your
+	# parked v0.0 town: the design doc cuts persistent world / NPC memory / LLM
+	# anything permanently. It was kept reachable because "the town clocks your
 	# deaths" was once the moat. It is not this game's moat any more.
 	#
-	# Nothing is lost. `Main.tscn` and the whole NPC/memory stack stay on disk and in
-	# git history; the run record is still built and `_pending_ingest` is still armed,
-	# so restoring the button is a revert, not a rebuild. There is simply no longer a
-	# door to a room with nothing in it.
+	# Nothing is lost. `Main.tscn` stays on disk and in git history and the run record
+	# is still built, so restoring the button is a revert, not a rebuild. There is
+	# simply no longer a door to a room with nothing in it.
 	#
 	# `_hub_is_offerable()` was deleted with the button rather than left orphaned —
 	# a predicate with no caller is the shape that gets re-wired by accident later.

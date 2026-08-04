@@ -306,8 +306,7 @@ func _on_connected_fail() -> void:
 	join_failed.emit()
 
 
-## THE HOST QUIT. This used to drop the client into the parked v0.0 AI-NPC town —
-## a scene that needs a local Ollama server and cannot work on a phone — with no
+## THE HOST QUIT. This used to drop the client into the parked v0.0 town, with no
 ## route out of it. The title screen is the boot scene and the one place a player
 ## can start something else from.
 func _on_server_disconnected() -> void:

@@ -68,9 +68,8 @@ const ARENA_SCRIPT: String = "res://scripts/combat/VersusArena.gd"
 const BOT_MATCH_SCENE: String = "res://scenes/combat/BotMatch.tscn"
 ## LEAVING GOES TO THE TITLE, NOT THE HUB.
 ##
-## This used to be `res://scenes/Main.tscn` — the parked v0.0 AI-NPC town, which
-## the design doc cuts permanently and which cannot work on a phone at all (its
-## NPCs talk to a hardcoded Ollama at 127.0.0.1). The run spine was moved off it,
+## This used to be `res://scenes/Main.tscn` — the parked v0.0 town, which the
+## design doc cuts permanently. The run spine was moved off it,
 ## but every SANDBOX exit still pointed there, so backing out of a bot match
 ## dropped you into a different game's village with nothing to do in it. The maker
 ## found it immediately and asked why it was there.

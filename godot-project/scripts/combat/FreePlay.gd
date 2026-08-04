@@ -54,9 +54,9 @@ const ARENA_SCRIPT: String = "res://scripts/combat/VersusArena.gd"
 const FREE_PLAY_SCENE: String = "res://scenes/combat/FreePlay.tscn"
 ## ⚠ THE TITLE SCREEN, NOT THE HUB — and the maker's own words are why: *"why is the
 ## hub still around, what do I do there"*. Backing out of free play used to load
-## `res://scenes/Main.tscn`, the PARKED v0.0 AI-NPC village: a different game, whose
-## NPCs need a local Ollama to say anything, with a class altar and a tower door and
-## nothing for a player to do. Free play is the first thing anyone opens, so its exit
+## `res://scenes/Main.tscn`, the PARKED v0.0 village: a different game, with a class
+## altar and a tower door and nothing for a player to do. Free play is the first
+## thing anyone opens, so its exit
 ## was most people's first sight of it. The title screen is the boot scene, it works
 ## on a phone, and it is where every other exit in the game now lands. The hub stays
 ## on disk and stays reachable as an opt-in detour from the run-summary card; nobody
