@@ -49,7 +49,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 GODOT_PROJECT = REPO_ROOT / "godot-project"
 TOOLS_DIR = GODOT_PROJECT / "tools"
 INDEX_DOC = REPO_ROOT / "docs" / "capture-tools.md"
-PROJECT_NAME = "Legacy Frontier"
+
+# ⚠ Was a hardcoded `PROJECT_NAME = "Legacy Frontier"`, which the rename to Ashpire
+# left pointing at a directory the engine had stopped writing to. Every "PNGs land
+# in ..." line this tool printed named the wrong folder. Derived now.
+from godot_paths import user_data_dir  # noqa: E402
 
 # ── Which binary ────────────────────────────────────────────────────────────
 # The GUI build, NOT the `_console` one used by run_all_tests.py. The console
@@ -75,13 +79,6 @@ NEVER = re.compile(r"(?:^|_)test_|^_|_probe(_stub)?$|_check$")
 SCENE_RE = re.compile(r"(res://tools/[\w/]+\.tscn)")
 
 
-def user_data_dir() -> Path:
-    """Where Godot writes `user://` for this project — i.e. where PNGs land."""
-    if sys.platform == "win32":
-        return Path(os.environ["APPDATA"]) / "Godot" / "app_userdata" / PROJECT_NAME
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "Godot" / "app_userdata" / PROJECT_NAME
-    return Path.home() / ".local" / "share" / "godot" / "app_userdata" / PROJECT_NAME
 
 
 class Tool:

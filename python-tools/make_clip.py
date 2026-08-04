@@ -40,11 +40,18 @@ Stdlib + Pillow only.
 from __future__ import annotations
 
 import argparse
-import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+# ⚠ DERIVED FROM project.godot, NEVER HARDCODED. This module was a `PROJECT_NAME =
+# "Legacy Frontier"` constant, and it stayed that way after the game was renamed to
+# Ashpire — so the shoot wrote frames to one directory and the encoder read a
+# DIFFERENT one that still existed from before the rename. The result was a clip of
+# a fight from weeks earlier, encoded and announced as a success. See
+# python-tools/godot_paths.py for the full account.
+from godot_paths import user_data_dir
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -55,18 +62,9 @@ GODOT_PROJECT = REPO_ROOT / "godot-project"
 # renderer: the tool runs, reports success, and writes blank PNGs. That failure looks
 # exactly like a pass. See python-tools/run_capture.py, which exists for this reason.
 GUI_BINARY = REPO_ROOT / "godot-engine" / "Godot_v4.6.2-stable_win64.exe"
-PROJECT_NAME = "Legacy Frontier"
 
 CLASSES = ["ARCANIST", "SHADOWBLADE", "BRAWLER", "JUGGERNAUT", "CLERIC",
            "CRYOMANCER", "STORMCALLER", "WARLOCK", "SWORDSAINT"]
-
-
-def user_data_dir() -> Path:
-    if sys.platform == "win32":
-        return Path(os.environ["APPDATA"]) / "Godot" / "app_userdata" / PROJECT_NAME
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "Godot" / "app_userdata" / PROJECT_NAME
-    return Path.home() / ".local" / "share" / "godot" / "app_userdata" / PROJECT_NAME
 
 
 def shoot(args: argparse.Namespace) -> Path:

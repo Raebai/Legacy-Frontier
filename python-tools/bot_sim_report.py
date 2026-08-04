@@ -3,8 +3,9 @@
 
     python python-tools/bot_sim_report.py [runs_dir] [--logs LOGDIR] [--top 15]
 
-`runs_dir` defaults to Godot's user data:
-    %APPDATA%/Godot/app_userdata/Legacy Frontier/bot_sim
+`runs_dir` defaults to Godot's user data, whose leaf is the project's
+`config/name` and is therefore DERIVED, not spelled here — see godot_paths.py:
+    %APPDATA%/Godot/app_userdata/<config/name>/bot_sim
 
 It answers:
   1. WHICH PAIRING BREAKS MOST — anomalies grouped by class matchup, so a class
@@ -30,12 +31,16 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
-DEFAULT_RUNS = Path(os.environ.get("APPDATA", "")) / "Godot" / "app_userdata" / "Legacy Frontier" / "bot_sim"
+# ⚠ Was hardcoded to "Legacy Frontier", which the rename to Ashpire left pointing at
+# a directory the engine no longer writes — so this report ranked PRE-RENAME runs
+# while looking exactly like a fresh one. Derived from project.godot now.
+from godot_paths import user_data_dir  # noqa: E402
+
+DEFAULT_RUNS = user_data_dir() / "bot_sim"
 
 BEGIN_RE = re.compile(r"\[sim\] BEGIN match=(\d+) pairing=(\S+) seed=(\d+)")
 ERROR_RE = re.compile(r"^(?:SCRIPT ERROR|ERROR|USER SCRIPT ERROR):\s*(.+)$")

@@ -24,7 +24,6 @@ sibling, so nothing is ever destroyed by a flag. Stdlib only.
 from __future__ import annotations
 
 import argparse
-import os
 import shutil
 import sys
 from datetime import datetime
@@ -36,16 +35,12 @@ if hasattr(sys.stdout, "reconfigure"):
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS = REPO_ROOT / "docs"
-PROJECT_NAME = "Legacy Frontier"
 NOTES_NAME = "playtest-notes.md"
 
-
-def user_data_dir() -> Path:
-    if sys.platform == "win32":
-        return Path(os.environ["APPDATA"]) / "Godot" / "app_userdata" / PROJECT_NAME
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "Godot" / "app_userdata" / PROJECT_NAME
-    return Path.home() / ".local" / "share" / "godot" / "app_userdata" / PROJECT_NAME
+# ⚠ Was a hardcoded `PROJECT_NAME = "Legacy Frontier"`, which the rename to Ashpire
+# left pointing at a stale directory — so this tool read the notes the maker wrote
+# BEFORE the rename and silently ignored every one written since. Derived now.
+from godot_paths import user_data_dir  # noqa: E402
 
 
 def notes_path() -> Path:
