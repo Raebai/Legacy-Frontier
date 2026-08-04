@@ -4,6 +4,36 @@
 
 ## ▶ FIRST THINGS ON RESUME (maker's live list, newest first)
 
+0. **THREE ASKS TAKEN BUT NOT STARTED — context ran out mid-investigation.** What was
+   already established about each, so the next session does not re-derive it:
+
+   a. **THE WARDEN IS "ALL MESSED UP" — make him a normal stick figure like the
+      player.** His `data/npcs/warden.tres` is CLEAN (normal name, colour, lines), so
+      this is a RIG/VISUAL fault, not data. ⚠ Almost certainly a consequence of this
+      session converting `NPC.tscn` from `StaticBody2D` to `CharacterBody2D` with real
+      gravity and `move_and_slide`. Diagnose with a capture (`tools/town_capture.gd`
+      has big leg shots at 3.4x; point one at the Warden's x) BEFORE editing — this
+      repo has been burned repeatedly by rig fixes judged at clip size.
+
+   b. **SWORDSAINT SHOULD MOVE FASTER AND DASH LONGER.** ⚠ THIS IS A DELIBERATE
+      DESIGN REVERSAL, not a tuning miss, and it must be written up as one. The class
+      has NO `speed` key at all (it falls back to the roster baseline `SPEED` 210) and
+      its verb is `COMMITTED_STEP_SPEED 480 / COMMITTED_STEP_TIME 0.12`, whose comment
+      reads: "the shortest travel in the roster, and the smallest i-frame slice on any
+      verb that has one at all. The guard class is not allowed to leave." The maker's
+      ruling wins — but replace that comment with the new reasoning rather than leaving
+      a file that argues against its own numbers.
+
+   c. **GRAVITY FLIP SHOULD LET YOU MOVE FREELY INSIDE THE GRAVITY RADIUS while it is
+      working.** ⚠ The spell's own header argues the opposite today: "there is no
+      `radius` because there is no edge — reaching for the arena wall to get out from
+      under it would make this a zone, and a zone is a completely different (and much
+      safer) spell." So the ask is genuinely a different spell, and a good one; it
+      needs a real pass, not a constant. `gravity_flip` is the JUGGERNAUT's carried
+      control role (the maker said "gravity swordsmen" — confirm which class they were
+      playing before retuning anything).
+
+
 1. **THE SWORD HIT HAS A WHITE SPHERE ON IT.** Verbatim: "the sword stuff, when I hit
    someone they have this weird sphere-ish white thing on them — remove that, a hit
    should be a red flash, that's about it." NOT YET INVESTIGATED. Start at the melee
