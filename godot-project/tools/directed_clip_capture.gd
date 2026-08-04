@@ -114,7 +114,11 @@ var _fps: int = 30
 var _hp: int = 500
 var _round: float = 40.0
 var _patience: float = 12.0
-var _tail: float = 1.8
+## ⚠ MUST OUTLAST THE RESULT CARD, which now waits for the screen to go quiet
+## (`BotMatch._screen_is_quiet`) instead of landing on a flat 0.55 s. The card can
+## take up to `RESULT_MAX_WAIT` (2.5 s) to appear, so a 1.8 s tail cut the clip
+## before the card existed — the clip would have lost the shot it ends on.
+var _tail: float = 3.4
 var _out: String = "directed"
 var _width: int = 1920
 var _height: int = 1080

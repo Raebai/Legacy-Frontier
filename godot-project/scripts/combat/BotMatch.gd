@@ -240,9 +240,17 @@ static var round_seconds: float = 50.0
 ## How close two health fractions have to be before a timeout is called a DRAW
 ## rather than a decision.
 const DRAW_MARGIN: float = 0.04
-## Real seconds the frozen KO frame holds before the result card slams in.
+## Real seconds the frozen KO frame holds before the result card MAY slam in. This
+## is a MINIMUM, not the answer — see `_screen_is_quiet`.
 const FREEZE_BEAT: float = 0.55
-## ...and how long the card holds before the next bout, when `auto_rematch` is on.
+## ...and the ceiling on that wait. A spectacle that never finishes (or a future
+## effect with a lifetime nobody re-checked here) must not be able to eat the card
+## entirely, so the quiet gate gives up at this point and shows it regardless.
+const RESULT_MAX_WAIT: float = 2.5
+## How long the card holds before the next bout, when `auto_rematch` is on. Measured
+## from when the card APPEARS, which is what this constant always claimed to mean —
+## it was previously measured from the KO, so anything that delayed the card silently
+## shortened it.
 const RESULT_HOLD: float = 4.2
 
 enum Outcome { NONE, KO, RINGOUT, DECISION, DRAW }
@@ -270,6 +278,8 @@ var _clock: float = 0.0
 var _outcome: int = Outcome.NONE
 var _winner: int = -1                 # side index, or -1 for a draw
 var _decided_at: float = -1.0         # REAL seconds (unscaled) when it was decided
+var _card_shown_at: float = 0.0       # REAL seconds the card actually appeared (0 = not yet)
+var _taunt_until: float = 0.0         # REAL seconds the newest taunt bubble clears
 var _frozen: bool = false
 var _result_card: Control = null
 var _plates: Array[Dictionary] = []
@@ -534,6 +544,10 @@ func _taunt(side: int, beat: StringName, always: bool = false) -> void:
 	# a taunt must never be something a match tick has to wait for. Same contract
 	# `Bark.say` documents.
 	bubble.call(&"say", text, TauntBook.HOLD, 0.0)
+	# The only handle anything has on a bubble's lifetime — `SpeechBubble` exposes
+	# neither a count nor a remaining-time query, and the result card needs to know
+	# when the finisher line has cleared. See `_screen_is_quiet`.
+	_taunt_until = maxf(_taunt_until, _real_seconds() + TauntBook.HOLD)
 	# The mouth. Routed through `Bark.voice_only` rather than a raw `Sfx.speak` so the
 	# taunt uses the SAME derived voice the rest of the game gives this body, honouring
 	# any seed / band / billing meta it carries.
@@ -586,6 +600,8 @@ func _open_bout() -> void:
 	_outcome = Outcome.NONE
 	_winner = -1
 	_decided_at = -1.0
+	_card_shown_at = 0.0
+	_taunt_until = 0.0
 	_frozen = false
 	_final_hp[0] = -1
 	_final_hp[1] = -1
@@ -820,10 +836,43 @@ func _real_seconds() -> float:
 func _tick_result(_delta: float) -> void:
 	_hold_corner_colours()
 	var age: float = _real_seconds() - _decided_at
-	if _result_card != null and not _result_card.visible and age >= FREEZE_BEAT:
+	if _result_card != null and not _result_card.visible \
+			and age >= FREEZE_BEAT \
+			and (_screen_is_quiet() or age >= RESULT_MAX_WAIT):
 		_show_result_card()
-	if auto_rematch and age >= RESULT_HOLD:
+		_card_shown_at = _real_seconds()
+	if auto_rematch and _card_shown_at > 0.0 \
+			and _real_seconds() - _card_shown_at >= RESULT_HOLD:
 		_reload()
+
+
+## ⚠ THE CARD USED TO LAND ON TOP OF THE KILL.
+##
+## `FREEZE_BEAT` was 0.55 s and the card came in on that alone, but the finisher
+## taunt bubble holds for `TauntBook.HOLD` (1.9 s, plus a few frames of shrink-to-fit
+## layout) and the killing blow's damage number runs 0.72 s — 0.864 s on a big hit,
+## and it is spawned onto an ALREADY-PAUSED tree, so it starts its life after the
+## freeze rather than during it. The result card therefore slammed down over a live
+## taunt and a floating number roughly every time.
+##
+## Waiting on a fixed larger constant would fix today and rot tomorrow, so this asks
+## the screen instead. `RESULT_MAX_WAIT` is the backstop.
+##
+## ⚠ `ClipDirector.is_hot()` IS NOT USABLE HERE and looks like it should be: heat is
+## structurally zero on a paused tree (no damage, no live spells, no telegraphs), so
+## it would read "quiet" instantly and this gate would do nothing. Ask the things
+## that actually have lifetimes.
+##
+## The taunt is the one that needed a new seam — `SpeechBubble` exposes no lifetime
+## query and no count, so `_taunt` latches its own expiry.
+func _screen_is_quiet() -> bool:
+	if _real_seconds() < _taunt_until:
+		return false
+	if DamageNumber.alive_count() > 0:
+		return false
+	if ElementFx.alive_count() > 0:
+		return false
+	return true
 
 
 func _outcome_word() -> String:

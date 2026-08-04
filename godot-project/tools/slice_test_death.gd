@@ -62,6 +62,7 @@ const TESTS: Array[String] = [
 	"every_enemy_death_animates",
 	"hero_death_leaves_a_body_and_stays_revivable",
 	"botmatch_puts_the_loser_down",
+	"the_card_waits_for_a_quiet_screen",
 ]
 
 var _ran: bool = false
@@ -90,6 +91,7 @@ func _process(_delta: float) -> bool:
 	_test_every_enemy_death_animates()
 	_test_hero_death_leaves_a_body_and_stays_revivable()
 	_test_botmatch_puts_the_loser_down()
+	_test_the_card_waits_for_a_quiet_screen()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -424,6 +426,38 @@ func _test_hero_death_leaves_a_body_and_stays_revivable() -> void:
 ## asserted structurally: the loser must be put down BEFORE the freeze (nothing
 ## pausable moves after it), and the corner colours must be re-asserted EVERY frame
 ## (the killing blow's red flash is set AFTER `_decide` returns).
+## THE CARD USED TO LAND ON THE KILL. `FREEZE_BEAT` (0.55 s) was the whole gate,
+## but the finisher taunt holds 1.9 s and the killing blow's damage number runs up
+## to 0.864 s — and is spawned onto an already-paused tree, so it begins AFTER the
+## freeze. The card came down over both.
+##
+## Asserts the GATE, not the constant: a test that pinned a bigger number would go
+## green and rot the moment a taunt or an effect lifetime moved.
+func _test_the_card_waits_for_a_quiet_screen() -> void:
+	var script: GDScript = load(BOTMATCH_SCRIPT) as GDScript
+	if script == null:
+		_expect(false, "BotMatch.gd loads")
+		return
+	var bm: Object = script.new()
+	_expect(bm.has_method(&"_screen_is_quiet"),
+		"BotMatch asks the screen whether it is quiet")
+	# A live taunt bubble is the long pole, and it is the one thing with no count
+	# and no lifetime query anywhere — so `_taunt` latches its own expiry.
+	bm.set("_taunt_until", bm.call(&"_real_seconds") + 5.0)
+	_expect(not bool(bm.call(&"_screen_is_quiet")),
+		"a taunt bubble still on screen is NOT quiet")
+	bm.set("_taunt_until", 0.0)
+	_expect(bool(bm.call(&"_screen_is_quiet")),
+		"…and with nothing left alive, it is")
+	# The backstop: a stuck effect must never be able to eat the card entirely.
+	_expect(float(script.get(&"RESULT_MAX_WAIT")) > float(script.get(&"FREEZE_BEAT")),
+		"the ceiling is above the minimum beat, so the gate has room to wait")
+	_expect(float(script.get(&"RESULT_MAX_WAIT")) <= 4.0,
+		"…and is still short enough that a hung effect does not strand the player")
+	bm.free()
+	_completes("the_card_waits_for_a_quiet_screen")
+
+
 func _test_botmatch_puts_the_loser_down() -> void:
 	var script: GDScript = load(BOTMATCH_SCRIPT) as GDScript
 	var scene: PackedScene = load(HERO_SCENE) as PackedScene
