@@ -190,6 +190,7 @@ func _process(delta: float) -> void:
 	# a co-op-only mechanic. Only the host actually ENDS the run — see below.
 	if _run_mode and not _wipe_handled:
 		_check_party_wipe()
+	_catch_fallen_heroes()
 	# Put the LEAVE portal back once the hero who declined has stepped off it. Doing
 	# this on contact instead would re-fire the confirm on the same frame it closed.
 	if _return_pending and not is_instance_valid(_return_portal) and not _hero_near_return_point():
@@ -585,11 +586,34 @@ func _on_portal_taken() -> void:
 		_gs.advance_floor()
 
 
+## ⚠ THE HERO MUST BE STOOD ON THE NEW FLOOR, IN SINGLE PLAYER TOO. THIS WAS THE
+## "FLOOR 2 WILL NOT LET THE PLAYER SPAWN" BLOCKER.
+##
+## The placement used to sit inside `if _net.is_active()`, framed as the co-op revive —
+## so a solo climber kept the position it held when it touched floor 1's exit while
+## floor 2's walls were rebuilt underneath it. `layout.hero_start` had exactly ONE
+## runtime reader in the project, inside that co-op-only branch.
+##
+## Why that loses the body rather than merely misplacing it: `FloorGen` rolls room
+## height in 560..620. A GROUND exit leaves the hero's 18 px box centred at `h1 - 17`,
+## and the new floor's bottom wall spans `h2 - 8 .. h2 + 8` — so when floor 2 is ~20 px
+## shorter, more of the box sits below the wall's midline, the shortest separation is
+## DOWNWARD, and depenetration ejects the hero through the underside of the world.
+##
+## MEASURED by `tools/_probe_floor2_advance.gd` over 20 real climbs: 4 lost the hero,
+## and it is deterministic rather than flaky — 4 of 4 ground exits onto a shorter room
+## failed, every ledge exit survived (a ledge exit starts high and simply falls onto
+## the new ground). Ground exits are ~55% of rolls. It was never specific to floor 2:
+## floor 2 is just the first advance that has EVER been reachable, because the climb
+## portal had no `collision_mask` and was a dead trigger until this session.
+##
+## No branch is needed. The revive half is a no-op in single player (a solo death is a
+## game over, so nobody arrives here downed), and `is_multiplayer_authority()` is true
+## with no peer — so the co-op behaviour is byte-identical.
 func _on_floor_advanced(new_floor: int) -> void:
 	_setup_floor(new_floor)
-	# Co-op: a downed hero comes back up on the next floor (the party carried them).
-	if _net != null and _net.is_active():
-		_revive_local_heroes()
+	# Also brings a downed co-op hero back up — the party carried them.
+	_place_heroes_on_floor()
 	_wipe_handled = false
 
 
@@ -662,7 +686,51 @@ func _check_party_wipe() -> void:
 ## too — so the optimal play on a hurt floor was to walk into the exit at 5 hp and be
 ## topped up, and dying just before it cost nothing at all. Neither of those should
 ## be true under a rule whose whole weight is "you only have so many bodies".
-func _revive_local_heroes() -> void:
+## How far below the room's floor a body has to be before we call it lost. Generous:
+## a knockback arc or a ring-out launch can legitimately put a hero briefly under the
+## bottom wall, and killing those would be a new bug in place of the old one. Nothing
+## that is still IN the room ever reaches this.
+const FALL_OUT_MARGIN: float = 400.0
+
+
+## ⚠ NOTHING IN THIS GAME USED TO CATCH A HERO THAT LEFT THE WORLD, AND THAT IS WHAT
+## TURNED A PLACEMENT BUG INTO A SOFT-LOCK.
+##
+## When the floor-advance bug (see `_on_floor_advanced`) ejected a hero through the
+## underside of the room, it fell for ever: there is no kill plane, so it never died,
+## never became `downed`, and `_check_party_wipe` therefore never reached a verdict
+## either. The run could not even END — no game-over card, Esc the only way out. The
+## placement bug is fixed above; this is the guard that stops the NEXT thing that puts
+## a body outside the walls from costing the player their run instead of a second.
+##
+## Deliberately routed through the ordinary death path rather than teleporting the
+## body back: falling out of the world is not a free rescue, and `_die()` already
+## carries the whole ghost/party-wipe/co-op story. A hero cannot fall out of a room it
+## is standing in, so this costs one comparison per hero per frame and nothing else.
+func _catch_fallen_heroes() -> void:
+	var limit: float = _layout_room_size().y + FALL_OUT_MARGIN
+	for h: Node in get_tree().get_nodes_in_group("hero"):
+		var body := h as Node2D
+		if body == null or not body.is_multiplayer_authority():
+			continue
+		if body.global_position.y <= limit:
+			continue
+		# Already a ghost — it has nowhere further to fall that matters, and killing a
+		# corpse twice would re-fire the wipe check.
+		if body.has_method("is_downed") and bool(body.call("is_downed")):
+			continue
+		push_warning("[arena] hero fell out of the room (y=%.0f > %.0f) — killing it so the run can resolve"
+			% [body.global_position.y, limit])
+		if body.has_method("take_damage"):
+			body.call("take_damage", 999999)
+
+
+## ⚠ RENAMED FROM `_revive_local_heroes`. The old name described the co-op half only,
+## which is exactly why its call site was gated on co-op and the single-player climb
+## lost its body — see `_on_floor_advanced`. PLACING is what this always did
+## unconditionally; reviving is the conditional extra. Naming it for the conditional
+## half is what invited the gate, so the name is now the unconditional one.
+func _place_heroes_on_floor() -> void:
 	var start: Vector2 = DEFAULT_HERO_START
 	if _current_floor_def != null and _current_floor_def.layout != null:
 		start = _current_floor_def.layout.hero_start

@@ -1512,7 +1512,7 @@ const CLI_ADVANCE_AT: float = 4.2      # ...-> host advances the party a floor
 ## wrong time, and would read as a broken wire.
 ##
 ## ⚠ THE GAP AROUND `CLI_ADVANCE_AT` IS DELIBERATE. A floor advance stands the party's
-## ghosts back up (`Arena._revive_local_heroes`), so a down that lands near it can be
+## ghosts back up (`Arena._place_heroes_on_floor`), so a down that lands near it can be
 ## silently un-done between the two beats. These sit well clear of it — and
 ## `_cli_ask_revive` re-downs defensively anyway, because the two peers' clocks start
 ## from different events (`player_connected` on the host, `join_ok` on the client) and
