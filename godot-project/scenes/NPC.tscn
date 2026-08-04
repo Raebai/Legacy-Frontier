@@ -34,6 +34,9 @@ shape = SubResource("RectangleShape2D_npc_body")
 
 [node name="ProximityArea" type="Area2D" parent="."]
 position = Vector2(0, -14)
+; MASK 1 AND 2. The town body is a Hero (collision layer 2) since casting moved into
+; the lobby; the default mask of 1 stopped seeing it, so townsfolk went silent.
+collision_mask = 3
 
 [node name="ProximityShape" type="CollisionShape2D" parent="ProximityArea"]
 shape = SubResource("CircleShape2D_npc_proximity")

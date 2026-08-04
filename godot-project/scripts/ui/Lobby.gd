@@ -236,25 +236,18 @@ func _build_ui() -> void:
 	title.add_theme_constant_override("outline_size", 6)
 	right.add_child(title)
 
-	var sub := Label.new()
-	sub.text = "someone is drawing this"
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sub.add_theme_font_size_override("font_size", 12)
-	sub.add_theme_color_override("font_color", GRAPHITE)
-	right.add_child(sub)
-
-	# ⚠ THE SIGNPOST. Friendly fire is this game's social engine and it was announced
-	# NOWHERE — not on the title screen, not on the class card, not in settings. The
-	# two games that ship it and keep their reception both say so up front (Magicka 2
-	# lists it as a feature; Frozenbyte publicly called NOT advertising it in Nine
-	# Parchments "a clear mistake on their part"). Four words, on the first screen
-	# anybody sees, so it is a promise rather than a surprise.
-	var ff := Label.new()
-	ff.text = "friendly fire is always on"
-	ff.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	ff.add_theme_font_size_override("font_size", 9)
-	ff.add_theme_color_override("font_color", FriendlyFire.TEAM_TINT)
-	right.add_child(ff)
+	# ⚠ TWO TAGLINES DELETED, AND ONE OF THEM HAD AN ARGUMENT BEHIND IT.
+	#
+	# "someone is drawing this" was a mood line under the logo. "friendly fire is
+	# always on" was a deliberate signpost — the two games that ship friendly fire and
+	# keep their reception both say so up front, and Frozenbyte publicly called NOT
+	# advertising it in Nine Parchments "a clear mistake on their part".
+	#
+	# Both are gone anyway. Maker, on the title screen: "remove the 'someone is
+	# drawing this' and 'something always on' lines, it's corny." The reasoning for
+	# the second one is preserved here rather than in the argument it lost: if
+	# friendly fire ever needs announcing again, the place for it is the moment it
+	# first hurts somebody — a bark, in the fight — not a caption on the front door.
 
 	# ── class ──
 	# THE CLASS IS PICKED AT THE STATUE, in the room, on a body you can see. A cycler

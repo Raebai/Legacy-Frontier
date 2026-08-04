@@ -209,9 +209,16 @@ func _test_body_height_registers() -> void:
 	var ctx: Dictionary = _setup()
 	var enemy: Node = ctx["enemy"]
 	var margin: float = enemy.call("hit_margin")
+	# ⚠ THE PROBES FOLLOW THE FIGURE. `y` is measured from the body origin, and the
+	# drawn spine sits `rig.position.y` above it now: `CharacterRig` aligns its FEET to
+	# the bottom edge of the parent's collider, which is the fix for legs that were
+	# permanently folded (a 20-tall box under a 31-tall rig was asking the figure to
+	# stand 5.5 px underground). Read off the live rig rather than written as -5.5, so
+	# a resized collider moves the probe and the body together.
+	var rig_dy: float = (enemy.get_node(^"Rig") as Node2D).position.y
 	for y: float in [-2.0, 0.0, 2.0]:
 		_expect(
-			float(enemy.call("body_distance", Vector2(0.0, y))) <= margin,
+			float(enemy.call("body_distance", Vector2(0.0, y + rig_dy))) <= margin,
 			"a hit on the spine at y=%.1f registers" % y
 		)
 	_teardown(ctx)

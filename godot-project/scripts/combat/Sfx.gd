@@ -60,6 +60,11 @@ extends Node
 ##  3. FLAT DYNAMICS. Every asset is peak-normalised, so without grading an
 ##     annihilation ult and a footstep arrive at the same loudness. Keys are
 ##     graded on the SpellTier vocabulary (QUICK/HEAVY/ULT, plus TICK).
+##  4. TOO LONG. The library files are LIBRARY files — a "beam" recording is a
+##     20-second electric-spell loop, an "ult" hit is a 2-second trailer boom —
+##     while the spells they voice are over in well under a second. Every cue is
+##     now CUT to fit the picture at playback — see THE LENGTH PROBLEM, below,
+##     which carries the measurements and the derivation of the cap.
 ##
 ## HEADROOM CHANGED. The SFX bus compressor was loosened (threshold -14 -> -8,
 ## ratio 4.0 -> 2.5) because it was the hard ceiling on how big anything could
@@ -697,12 +702,91 @@ const TAIL_DELAY: float = 0.06
 ## same sample at the same level twice in a row is what reads as "cheap".
 const LEVEL_JITTER_DB: float = 1.6
 
+# ---------------------------------------------------------------------------
+# THE LENGTH PROBLEM — "the sound fx are too long compared to the cast itself"
+# ---------------------------------------------------------------------------
+# The maker's report, 2026-08-04, about the big spells. It is not a mixing
+# complaint and no amount of trim fixes it: the CLIPS ARE SIMPLY LONGER THAN THE
+# SPELLS. Measured (source length / the picture it is voicing):
+#
+#   beam_storm_1.ogg   20.70 s   Tempest        0.48 s of beam after discharge
+#   thunder_1.ogg       5.27 s   Heaven's Wrath  played at pitch 0.72 => 7.3 s
+#   nova_1/2.wav        3.82 s   Energy Nova    0.26 s shockwave, node dead at 0.7 s
+#   ice_wall_1/2.ogg    2.53 s   Ice Wall       RISE_TIME 0.30 s
+#   ult_siege_1/2.wav   2.00 s   Star Convergence 0.12 hold + 0.55 fade = 0.67 s
+#   earth_pillar, ult_eruption, verdict_burn, holy_pillar, rx_annihilate,
+#   hollow_erase, ult_avalanche, ult_bombardment, avalanche, rx_overpower
+#                       2.00 s   ...every one of them, against a sub-second picture
+#   rumble_1/2.wav      2.00 s   the ROOM TAIL rides under EVERY ult (see TAIL_DB)
+#   sub_boom_1/2.wav    1.80 s   the weight layer rides under nearly everything
+#
+# ⚠ The last two are why this reads as a mix-wide problem rather than a handful
+# of bad files: even a cue whose own clip is short drags a 1.8 s sub and a 2.0 s
+# rumble behind it, so EVERY heavy event had a two-second hangover.
+#
+# THE FIX IS A CAP, NOT PER-FILE SURGERY. Trimming the assets means re-running
+# `python-tools/build_combat_sfx.py` with a new window per entry, guessing again
+# with no ears, and it would still leave the next imported clip free to be four
+# seconds long. Capping at PLAYBACK makes "no cue outlives its picture" a
+# property of the mix that new content inherits for free.
+
+## The longest AFTERMATH any big spell actually draws. DERIVED — it is the
+## largest picture-length in the ult set, read off the spells themselves:
+##
+##   BeamSpell     FIRE_TIME 0.26 + FADE_TIME 0.22          = 0.48 s
+##   StarConverge  IMPACT_HOLD 0.12 + FADE_TIME 0.55        = 0.67 s
+##   EnergyNova / BlastSpell   CLEANUP_DELAY                = 0.70 s
+##   DivineRay     PILLAR_HOLD 0.06 + FADE_TIME 0.85        = 0.91 s  <- the longest
+##
+## So by ~0.9 s after a discharge there is nothing left on screen, and anything
+## still sounding is audio with no picture. That is exactly the desync reported.
+## ⚠ If a spell is ever given a longer aftermath than DivineRay's, this number is
+## the one that has to move — it is a measurement, not a taste.
+const SPECTACLE_TAIL: float = 0.9
+
+## The cap for a DISCHARGE cue — a payoff that has to land with its picture and
+## leave with it. Also the cap for the sub/tail/crack stems, so the room's answer
+## dies just as the picture clears rather than a second later.
+const CUE_MAX_LEN: float = SPECTACLE_TAIL
+
+## The cap for a PROCESS cue — a windup / channel / gather, marked `"hold": true`
+## in PROFILE. These are the one family that is SUPPOSED to sustain: cutting a
+## charge riser at 0.9 s would leave the back half of a 1.6 s levitating channel
+## in silence, which is a worse bug than the one being fixed.
+##
+## DERIVED from SpellLibrary: the longest `cast_time` in the game is Equinox's
+## 1.6 s, and `Hero._begin_channel` runs the levitating windup for exactly that
+## long. So the windup cue fades out precisely as the discharge lands on top of
+## it — which is what a windup is for.
+## ⚠ Read it off `SpellLibrary` again if a longer channel is ever authored; a
+## windup that goes quiet mid-channel is a worse bug than the overhang this file
+## exists to cut.
+const HOLD_MAX_LEN: float = 1.6
+
+## The cut is a FADE, not a stop. A 20-second loop silenced mid-sample clicks,
+## and a click is more noticeable than the overhang was. 120 ms is long enough to
+## kill the click and short enough that the ear still hears a cue that ENDED
+## rather than one that faded away.
+## ⚠ The fade runs INSIDE the cap, not after it — total audible length is the cap.
+const CUE_FADE: float = 0.12
+
+## How far the fade drops before the voice is stopped. RELATIVE to whatever level
+## the cue was playing at, so a quiet cue and a loud one fade over the same curve
+## instead of the quiet one snapping off early. -36 dB is inaudible under a fight.
+const CUT_DROP_DB: float = -36.0
+
 ## Per-key mix profile.
 ##   w     — Weight class (drives trim, ducking, sub pitch).
 ##   trim  — extra per-key dB on top of the class trim.
 ##   sub   — strength 0..1 of the low-end weight layer (0 = none).
 ##   tail  — strength 0..1 of the room rumble.
 ##   crack — strength 0..1 of a borrowed transient, for sounds with no attack.
+##   hold  — true for a PROCESS cue (windup / channel / gather / warning) that is
+##           meant to SUSTAIN under something else. Raises its length cap from
+##           CUE_MAX_LEN to HOLD_MAX_LEN — see THE LENGTH PROBLEM above.
+##           ⚠ This is NOT the same axis as weight. `charge_ult` is HEAVY and
+##           holds; `beam_frost` is HEAVY and must not. The question is "is this
+##           a process or a payoff?", and no weight class answers it.
 ## Unlisted keys fall back to DEFAULT_PROFILE — but the test suite requires every
 ## roster key to appear here, because "it fell back to the default" is
 ## indistinguishable from "nobody decided" six months later.
@@ -710,19 +794,27 @@ const PROFILE: Dictionary = {
 	# --- CASTING. A cast is a promise, not a payoff: subs give the big ones
 	# dread, but the TAIL belongs to the discharge that follows, and putting one
 	# here would step on it.
-	"cast": {"w": Weight.QUICK},
-	"cast_fire": {"w": Weight.QUICK, "sub": 0.2},
-	"cast_ice": {"w": Weight.QUICK},
-	"cast_earth": {"w": Weight.QUICK, "sub": 0.3},
-	"cast_shadow": {"w": Weight.QUICK, "sub": 0.35},
-	"cast_holy": {"w": Weight.QUICK, "crack": 0.2},
-	"cast_storm": {"w": Weight.QUICK, "trim": -1.0},
-	"cast_arcane": {"w": Weight.QUICK},
-	"charge_up": {"w": Weight.HEAVY, "trim": -1.0, "sub": 0.45},
-	"charge_ult": {"w": Weight.HEAVY, "trim": 1.0, "sub": 0.7},
+	# EVERY key in this block HOLDS. A cast is the one thing in the roster that is
+	# supposed to still be sounding a second later — it is covering a channel the
+	# player can see (`Hero._begin_channel`), and cutting it to the discharge cap
+	# would put the back half of every big windup in silence.
+	"cast": {"w": Weight.QUICK, "hold": true},
+	"cast_fire": {"w": Weight.QUICK, "sub": 0.2, "hold": true},
+	"cast_ice": {"w": Weight.QUICK, "hold": true},
+	"cast_earth": {"w": Weight.QUICK, "sub": 0.3, "hold": true},
+	"cast_shadow": {"w": Weight.QUICK, "sub": 0.35, "hold": true},
+	"cast_holy": {"w": Weight.QUICK, "crack": 0.2, "hold": true},
+	# ⚠ cast_storm_1.ogg is TWENTY-ONE SECONDS — `electricspell2.ogg` shipped
+	# `copy=True` (byte-for-byte, no window) out of build_combat_sfx.py, and it is
+	# an ambient spell LOOP, not a one-shot. The cap makes it usable; it does not
+	# make it right. See the handoff note in THE LENGTH PROBLEM.
+	"cast_storm": {"w": Weight.QUICK, "trim": -1.0, "hold": true},
+	"cast_arcane": {"w": Weight.QUICK, "hold": true},
+	"charge_up": {"w": Weight.HEAVY, "trim": -1.0, "sub": 0.45, "hold": true},
+	"charge_ult": {"w": Weight.HEAVY, "trim": 1.0, "sub": 0.7, "hold": true},
 	# Quiet process cues. They run UNDER the cast, not next to it.
-	"sigil_form": {"w": Weight.TICK, "trim": 2.0},
-	"levitate": {"w": Weight.QUICK, "trim": -3.0, "sub": 0.3},
+	"sigil_form": {"w": Weight.TICK, "trim": 2.0, "hold": true},
+	"levitate": {"w": Weight.QUICK, "trim": -3.0, "sub": 0.3, "hold": true},
 
 	# --- BEAMS. Screen-crossing lines that are bright and mid-heavy: they need
 	# the borrowed crack to land on an exact frame and the sub to have any size.
@@ -734,6 +826,11 @@ const PROFILE: Dictionary = {
 	# Infernal Lance is the FATTEST. Everything on, wide open.
 	"beam_fire": {"w": Weight.ULT, "trim": 1.0, "sub": 0.9, "tail": 0.7, "crack": 0.45},
 	"beam_shadow": {"w": Weight.ULT, "sub": 0.75, "tail": 0.6, "crack": 0.3},
+	# ⚠ NOT a hold, despite being the worst offender in the roster. Tempest is a
+	# DISCHARGE — 0.48 s of beam after the cue fires — and beam_storm_1.ogg is
+	# 20.70 s, the same `copy=True` accident as cast_storm. The cap cuts it to
+	# 0.9 s; what it plays is the HEAD of a spell loop, which is a content
+	# question the cap cannot answer. Flagged for a re-window, not a re-grade.
 	"beam_storm": {"w": Weight.ULT, "sub": 0.6, "tail": 0.5, "crack": 0.6},
 	# Layered under a beam by its call site, so no layers of their own.
 	"beam_start": {"w": Weight.HEAVY, "trim": -2.0},
@@ -744,7 +841,9 @@ const PROFILE: Dictionary = {
 	"ice_wall": {"w": Weight.HEAVY, "sub": 0.38, "tail": 0.22},
 	"ice_spine": {"w": Weight.HEAVY, "trim": 1.0, "sub": 0.45, "tail": 0.3},
 	"ice_throw": {"w": Weight.QUICK, "sub": 0.15},
-	"frost_field": {"w": Weight.HEAVY, "sub": 0.3, "tail": 0.35},
+	# A FIELD, not a hit: ZoneSpell keeps one on the floor for `length` seconds
+	# (4.2 s for the frost zone), so its voice is allowed the process cap.
+	"frost_field": {"w": Weight.HEAVY, "sub": 0.3, "tail": 0.35, "hold": true},
 	# The rime meter filling. Fires repeatedly, so it must be the quietest thing
 	# in the roster and carry NO layers at all — a sub under every tick would
 	# turn a rising meter into a drum loop.
@@ -775,7 +874,9 @@ const PROFILE: Dictionary = {
 	"shadow_cast": {"w": Weight.QUICK, "sub": 0.4},
 	"shadow_crawl": {"w": Weight.QUICK, "trim": -2.0, "sub": 0.5},
 	"shadow_root": {"w": Weight.HEAVY, "sub": 0.45, "tail": 0.25},
-	"void_pull": {"w": Weight.HEAVY, "sub": 0.8, "tail": 0.4},
+	# A PULL is a process — Grave Tide holds one open for HOLD_TIME 1.7 s — so the
+	# suck has to keep sucking rather than stop while the bodies are still moving.
+	"void_pull": {"w": Weight.HEAVY, "sub": 0.8, "tail": 0.4, "hold": true},
 	"rift_open": {"w": Weight.QUICK, "trim": -1.0, "crack": 0.35},
 
 	# --- HOLY. Pure swells with NO transient — without a borrowed crack the ear
@@ -784,8 +885,9 @@ const PROFILE: Dictionary = {
 	"holy_swell": {"w": Weight.HEAVY, "sub": 0.35, "tail": 0.5, "crack": 0.3},
 	"holy_pillar": {"w": Weight.ULT, "trim": 1.0, "sub": 1.0, "tail": 1.0, "crack": 0.55},
 	# The thread is TENSION, not impact: quiet, no low end, and its whole job is
-	# to make the burn-down that follows land.
-	"verdict_thread": {"w": Weight.QUICK, "trim": -2.0, "crack": 0.2},
+	# to make the burn-down that follows land. It therefore HOLDS by definition —
+	# a thread that stops sounding before it burns is just a click.
+	"verdict_thread": {"w": Weight.QUICK, "trim": -2.0, "crack": 0.2, "hold": true},
 	"verdict_burn": {"w": Weight.ULT, "sub": 0.95, "tail": 1.0},
 	"ward_raise": {"w": Weight.HEAVY, "trim": -1.0, "sub": 0.3, "crack": 0.3},
 	# ABSORB is a SWALLOW. No tail, no crack: the ward has to sound like it took
@@ -808,7 +910,9 @@ const PROFILE: Dictionary = {
 	# ABSENCE. Trimmed 12 dB below its own class and stripped of every layer, but
 	# left at ULT weight so the music ducks. The ducking is the sound.
 	"ult_unmaking": {"w": Weight.ULT, "trim": -12.0},
-	"hollow_intake": {"w": Weight.HEAVY, "sub": 0.7},
+	# The INTAKE is Hollow Purple's held beat — the gather before the erasure — so
+	# it holds; `hollow_erase` on the next line is the payoff and does not.
+	"hollow_intake": {"w": Weight.HEAVY, "sub": 0.7, "hold": true},
 	"hollow_erase": {"w": Weight.ULT, "trim": 1.0, "sub": 1.0, "tail": 1.0, "crack": 0.4},
 
 	# --- DRAIN TETHER. The lash is a whip crack: it already has the sharpest
@@ -891,8 +995,10 @@ const PROFILE: Dictionary = {
 	"blink": {"w": Weight.QUICK, "sub": 0.18},
 	"crate_break": {"w": Weight.HEAVY, "trim": -2.0, "sub": 0.3},
 	"platform_break": {"w": Weight.HEAVY, "sub": 0.6, "tail": 0.4},
-	# A warning has to cut through the fight or it is not a warning.
-	"telegraph": {"w": Weight.HEAVY, "trim": 1.0, "crack": 0.3},
+	# A warning has to cut through the fight or it is not a warning — and it has to
+	# last as long as the window it is warning about, so it holds. Dodge-the-tell
+	# breaks if the tell goes quiet while the tell is still on screen.
+	"telegraph": {"w": Weight.HEAVY, "trim": 1.0, "crack": 0.3, "hold": true},
 
 	# --- STEMS, when played directly (they normally arrive via the layer path,
 	# which bypasses this table). No layers => no recursion even if something
@@ -966,6 +1072,9 @@ var _players: Array[AudioStreamPlayer] = []
 var _next: int = 0
 var _last_variant: Dictionary = {}  # key -> last index played, to avoid immediate repeats
 var _last_spoke: Dictionary = {}    # voice seed -> Time.get_ticks_msec() of last utterance
+## pool slot -> the in-flight length-cap fade on it, so the slot's next occupant
+## can kill it before it fades THEM out. See _kill_cut.
+var _cuts: Dictionary = {}
 
 
 ## Frames to keep looking for a real scene before giving up on installing the
@@ -1040,13 +1149,26 @@ func play(
 		+ WEIGHT_TRIM_DB[weight] \
 		+ float(prof.get("trim", 0.0)) \
 		+ randf_range(-LEVEL_JITTER_DB, LEVEL_JITTER_DB)
+	# How long this cue is allowed to sound before it is faded out — the fix for
+	# "the sound fx are too long compared to the cast itself". See THE LENGTH
+	# PROBLEM. A payoff gets the discharge cap; a windup gets the channel cap.
+	var max_len: float = HOLD_MAX_LEN if bool(prof.get("hold", false)) else CUE_MAX_LEN
 	# Unknown key: warn and bail BEFORE the layers, so a typo doesn't leave a
 	# disembodied sub-boom firing with nothing on top of it.
-	if not _emit(key, db, pitch_variation, pitch_base, delay):
+	if not _emit(key, db, pitch_variation, pitch_base, delay, max_len):
 		return
 
 	# --- automatic layers. These go through _emit, never play(), so a stem can
 	# never recurse into its own profile.
+	#
+	# ⚠ THE STEMS TAKE THE DISCHARGE CAP EVEN UNDER A HOLD CUE, deliberately.
+	# sub_boom is 1.8 s and rumble is 2.0 s, and they ride under nearly every
+	# heavy key in the roster — so before the cap they, not the main clips, were
+	# the reason a two-second hangover followed EVERY big hit. The sub is the
+	# hit's body and the tail is the room answering it; neither is a process, and
+	# a room that is still answering a second after the picture cleared is the
+	# exact desync being fixed. Capped here they land at CUE_MAX_LEN + their own
+	# small delay, i.e. just past the picture, which is what "a tail" means.
 	var sub: float = float(prof.get("sub", 0.0))
 	if sub > 0.0:
 		_emit(
@@ -1054,14 +1176,22 @@ func play(
 			db + SUB_DB + linear_to_db(sub),
 			0.05,
 			WEIGHT_SUB_PITCH[weight],
-			delay + SUB_DELAY
+			delay + SUB_DELAY,
+			CUE_MAX_LEN
 		)
 	var tail: float = float(prof.get("tail", 0.0))
 	if tail > 0.0:
-		_emit("rumble", db + TAIL_DB + linear_to_db(tail), 0.08, 1.0, delay + TAIL_DELAY)
+		_emit(
+			"rumble",
+			db + TAIL_DB + linear_to_db(tail),
+			0.08,
+			1.0,
+			delay + TAIL_DELAY,
+			CUE_MAX_LEN
+		)
 	var crack: float = float(prof.get("crack", 0.0))
 	if crack > 0.0:
-		_emit("crack", db + CRACK_DB + linear_to_db(crack), 0.1, 1.0, delay)
+		_emit("crack", db + CRACK_DB + linear_to_db(crack), 0.1, 1.0, delay, CUE_MAX_LEN)
 
 	var duck_db: float = WEIGHT_DUCK_DB[weight]
 	if duck_db > 0.0:
@@ -1134,12 +1264,19 @@ func speak_voice(
 		return 0.0
 	_last_spoke[voice_seed] = now
 	for entry: Dictionary in plan:
+		# ⚠ UNCAPPED (max_len 0.0), and the only caller that is. A syllable is
+		# 0.09–1.0 s of recorded mouth and its CADENCE is already the plan's job —
+		# `Gibberish` decides when the next one starts and `plan_duration` is what
+		# a speech bubble is held open for. Cutting a syllable short here would
+		# desync the mouth from the bubble to fix a length problem voices do not
+		# have (nothing in the voice bank is longer than the discharge cap anyway).
 		_emit(
 			String(entry["key"]),
 			volume_db + float(entry["db"]),
 			VOICE_PITCH_JITTER,
 			float(entry["pitch"]),
-			delay + float(entry["delay"])
+			delay + float(entry["delay"]),
+			0.0
 		)
 	return Gibberish.plan_duration(plan)
 
@@ -1152,12 +1289,16 @@ func speak_for(who: Object, mood: int = 0, syllables: int = 0, volume_db: float 
 
 ## Fire ONE stream. Returns false (and warns) for an unknown key so `play` can
 ## skip the layers. This is the only place that touches the pool.
+##
+## `max_len` is the wall-clock ceiling on how long this voice may sound before it
+## is faded out (0 = no ceiling). See THE LENGTH PROBLEM.
 func _emit(
 	key: String,
 	volume_db: float,
 	pitch_variation: float,
 	pitch_base: float,
-	delay: float
+	delay: float,
+	max_len: float = 0.0
 ) -> bool:
 	var variants: Array = STREAMS.get(key, [])
 	if variants.is_empty():
@@ -1166,16 +1307,23 @@ func _emit(
 	var stream: AudioStream = _pick_variant(key, variants)
 	var pitch: float = pitch_base * (1.0 + randf_range(-pitch_variation, pitch_variation))
 	if delay > 0.0:
-		_emit_after(stream, volume_db, pitch, delay)
+		_emit_after(stream, volume_db, pitch, delay, max_len)
 	else:
-		_emit_now(stream, volume_db, pitch)
+		_emit_now(stream, volume_db, pitch, max_len)
 	return true
 
 
-func _emit_now(stream: AudioStream, volume_db: float, pitch: float) -> void:
+func _emit_now(stream: AudioStream, volume_db: float, pitch: float, max_len: float = 0.0) -> void:
 	_ensure_pool()
-	var p: AudioStreamPlayer = _players[_next]
+	var slot: int = _next
+	var p: AudioStreamPlayer = _players[slot]
 	_next = (_next + 1) % POOL_SIZE
+	# ⚠ KILL THE PREVIOUS OCCUPANT'S FADE FIRST. The pool is a 32-slot round-robin
+	# and it wraps; without this, a cut tween still running on the slot would keep
+	# driving `volume_db` DOWN through the sound that just took the slot over, and
+	# the symptom — one sound in thirty-two arriving inaudible, at random — is
+	# about as unpleasant a bug as this file could grow.
+	_kill_cut(slot)
 	p.stream = stream
 	p.volume_db = volume_db
 	p.pitch_scale = pitch
@@ -1185,6 +1333,54 @@ func _emit_now(stream: AudioStream, volume_db: float, pitch: float) -> void:
 	# error never fires. At runtime this is an autoload and always true.
 	if is_inside_tree():
 		p.play()
+		_cut_to_fit(slot, p, stream, volume_db, pitch, max_len)
+
+
+## Fade this voice out and stop it once it has sounded for `max_len` seconds — the
+## mechanism behind THE LENGTH PROBLEM. No-ops when the clip already fits, which
+## is the common case: most of the roster is shorter than the cap and never sees a
+## tween at all.
+func _cut_to_fit(
+	slot: int,
+	p: AudioStreamPlayer,
+	stream: AudioStream,
+	level_db: float,
+	pitch: float,
+	max_len: float
+) -> void:
+	if max_len <= 0.0:
+		return
+	# ⚠ AGAINST THE AUDIBLE LENGTH, NOT THE FILE LENGTH. `pitch_scale` stretches
+	# playback, and the call sites lean on it hard for weight: Heaven's Wrath asks
+	# for `thunder` at 0.72, which turns a 5.27 s clip into 7.3 s of sound, and
+	# Hollow Purple's 0.62 turns a 2.0 s erase into 3.2 s. Comparing raw
+	# `get_length()` to the cap would let exactly the biggest, most pitched-down
+	# spells — the ones the maker reported — slip through the check.
+	var audible: float = stream.get_length() / maxf(pitch, 0.01)
+	if audible <= max_len:
+		return
+	var tw: Tween = p.create_tween()
+	# ⚠ Same reasoning as _emit_after's timer flags, and load-bearing for the same
+	# reason: hit-stop drives Engine.time_scale toward zero, and a scaled tween
+	# would stretch a 0.9 s cap into several seconds on precisely the ULT hits
+	# that TRIGGER hit-stop — i.e. it would fail on the only cues this exists for.
+	tw.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+	tw.set_ignore_time_scale(true)
+	var hold: float = maxf(max_len - CUE_FADE, 0.0)
+	if hold > 0.0:
+		tw.tween_interval(hold)
+	tw.tween_property(p, "volume_db", level_db + CUT_DROP_DB, CUE_FADE)
+	tw.tween_callback(p.stop)
+	_cuts[slot] = tw
+
+
+## Drop any in-flight cut on a pool slot. Safe to call on a slot that never had
+## one; `is_valid()` covers the tween having already finished or been freed.
+func _kill_cut(slot: int) -> void:
+	var existing: Variant = _cuts.get(slot)
+	if existing is Tween and (existing as Tween).is_valid():
+		(existing as Tween).kill()
+	_cuts.erase(slot)
 
 
 ## Deferred variant. The timer is created with process_always AND
@@ -1192,12 +1388,19 @@ func _emit_now(stream: AudioStream, volume_db: float, pitch: float) -> void:
 ## timer would stretch the 60 ms gap between an impact and its tail into a
 ## quarter of a second — the layering would fall apart exactly on the biggest
 ## hits, which are the ones that trigger hit-stop.
-func _emit_after(stream: AudioStream, volume_db: float, pitch: float, delay: float) -> void:
+func _emit_after(
+	stream: AudioStream,
+	volume_db: float,
+	pitch: float,
+	delay: float,
+	max_len: float = 0.0
+) -> void:
 	if not is_inside_tree():
-		_emit_now(stream, volume_db, pitch)  # detached (tests): no timer available
+		# detached (tests): no timer available
+		_emit_now(stream, volume_db, pitch, max_len)
 		return
 	await get_tree().create_timer(delay, true, false, true).timeout
-	_emit_now(stream, volume_db, pitch)
+	_emit_now(stream, volume_db, pitch, max_len)
 
 
 ## Pick a random variant, but avoid replaying the exact same one back-to-back

@@ -92,14 +92,12 @@ const PAD_COLORS: Dictionary = {
 	"party": Color(0.45, 0.85, 1.0),
 	"class": Color(0.95, 0.82, 0.35),
 }
-## The statue that stands on the class pad. Only this kind builds one.
-const STATUE_COLOR: Color = Color(0.95, 0.82, 0.35)
 ## The glyph over each pad. ⚠ A PICTURE, NOT A WORD, deliberately — the maker's
 ## standing rule for every screen in this game is "remove the words, keep the
 ## picture", and the hint already carries the name for anyone who walks up.
 const PAD_GLYPHS: Dictionary = {
 	"armory": "⚔", "spells": "✦", "tree": "❖", "party": "◈",
-	"class": "",
+	"class": "☗",
 }
 const GLYPH_FONT_SIZE: int = 22
 const GLYPH_LIFT: float = 58.0
@@ -125,9 +123,12 @@ func _ready() -> void:
 	_art.draw.connect(_draw_pad)
 	add_child(_art)
 
-	if kind == "class":
-		_build_statue()
-
+	# ⚠ THE CLASS PAD NO LONGER CARRIES A STATUE. Maker, in the room: "the yellow dummy
+	# should be on the far left of it all with the other 3 dummies" — they read the gold
+	# mannequin as a fourth practice dummy, which is a fair reading of "a stick figure
+	# standing still that you can walk up to". A pad that is the odd one out teaches the
+	# wrong thing about the row; every pad is now the same object with a different
+	# colour and glyph, which was the point of making them pads.
 	var glyph := Label.new()
 	glyph.text = String(PAD_GLYPHS.get(kind, "◆"))
 	glyph.position = Vector2(-14.0, -GLYPH_LIFT)
@@ -145,6 +146,14 @@ func _ready() -> void:
 
 	var area := Area2D.new()
 	add_child(area)
+	# ⚠ MASK 1 AND 2. The town body used to be `Player.tscn` (collision layer 1) and is
+	# a `Hero` now (layer 2) so you can cast in the lobby. An Area2D's default mask is
+	# 1 alone, so this ring silently stopped seeing the player the day that changed —
+	# no "[E] ..." prompt, on any pad, with nothing in the log. Watching both layers is
+	# the honest fix: this ring's job is "is the person here", not "which scene are
+	# they". Putting the hero on layer 1 instead would make it count as GROUND to every
+	# rig's floor probe.
+	area.collision_mask = 1 | 2
 	var area_shape := CollisionShape2D.new()
 	var circle := CircleShape2D.new()
 	circle.radius = PROXIMITY_RADIUS
@@ -246,29 +255,11 @@ func _tint() -> Color:
 	return PAD_COLORS.get(kind, Color(0.7, 0.75, 0.85))
 
 
-## The class pad's occupant: a gold stick figure standing on the disc, in the same
-## rig every body in the game uses rather than a drawn silhouette — so the statue is
-## literally a fighter, standing still, which is what the pad is asking you to pick.
-##
-## ⚠ IT IS TOLD IT IS GROUNDED. `CharacterRig.set_grounded` defaults to true and this
-## one never moves, so it would be right by accident; it is said out loud because the
-## town has already shipped one bug that was exactly an un-fed rig (see `NPC._land`).
-func _build_statue() -> void:
-	var statue := CharacterRig.new()
-	statue.set_tint(STATUE_COLOR)
-	statue.position.y = -statue.height * 0.5   # feet on the pad
-	statue.set_grounded(true)
-	statue.set_body_velocity(Vector2.ZERO)
-	statue.set_air_phase(false, true)
-	statue.play(CharacterRig.State.IDLE)
-	add_child(statue)
-
-
 ## The beam clock, and the trip.
 ##
 ## ⚠ THE DOWN-LEG IS DRIVEN BY THE SCREEN CLOSING, NOT BY A TIMER. `_overlay_open()`
-## is the same question the player's own freeze asks, so the player comes back down
-## on exactly the frame they get control again — a timer would either drop them early
+## is the same question the player's own freeze asks, so the player comes back down on
+## exactly the frame they get control again — a timer would either drop them early
 ## (standing frozen on the floor) or late (walking while still transparent).
 func _process(delta: float) -> void:
 	# ⚠ THE BEAM HOLDS FOR THE FIRST FRAMES BEFORE THE SCREEN IS UP. `_lift_player`
@@ -299,13 +290,12 @@ func _lift_player() -> void:
 	_lifted = p as Node2D
 	_lift_from = _lifted.global_position
 	_beam_up = true
-	# ⚠ THE BODY MUST BE FROZEN, AND THIS IS NEW. The town used to be driven by
-	# `Player`, which asked `_overlay_open()` itself and stood still while a screen was
-	# up. It is a `Hero` now — so you can cast in the lobby — and a Hero knows nothing
-	# about town overlays: left running it would keep gravity, keep reading input, and
-	# fall straight back out of the beam while the Outfitter was open, then be standing
-	# somewhere else when it closed. Freezing physics stops the fall, the walk and the
-	# casting in one line, and `_release_player` is the only place it comes back.
+	# ⚠ THE BODY MUST BE FROZEN. The town used to be driven by `Player`, which asked
+	# `_overlay_open()` itself and stood still while a screen was up. It is a `Hero`
+	# now — so you can cast in the lobby — and a Hero knows nothing about town
+	# overlays: left running it would keep gravity, keep reading input, and fall
+	# straight back out of the beam while the Outfitter was open, then be standing
+	# somewhere else when it closed.
 	_lifted.set_physics_process(false)
 
 

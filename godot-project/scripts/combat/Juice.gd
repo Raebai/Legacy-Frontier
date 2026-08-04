@@ -15,9 +15,90 @@ static func _tree() -> SceneTree:
 static var _hit_stop_gen: int = 0
 
 
+## ⚠ THE FREEZE IS SPENT ONLY WHERE IT IS EARNED — IN THE HUB IT READS AS LAG.
+##
+## Maker's report, verbatim: "it lags when I shoot at something like the dummy or an
+## NPC in the hub, that's weird please fix that". It is not lag, and it is not a frame
+## hitch. MEASURED by firing a real `Spell` at a real `town_dummy` in a headless boot
+## of `Main.tscn`: `Engine.time_scale` goes 1.000 -> 0.050 on the connect frame, holds
+## for three frames, then restores. The entire world runs at ONE TWENTIETH speed for
+## ~50 ms, on every single bolt. That is the stutter, and it is this function.
+##
+## Two things make the hub worse than the arena, and neither is a fault in the freeze
+## itself — which is why the answer is scope, not a smaller number:
+##
+##   * A HUB HIT SPENDS THE FREEZE TWICE. `Hero.take_damage` spends HURT_HIT_STOP
+##     (0.05) and then `Spell._damage_hero` spends another 0.045 through `on_hit`.
+##     The generation counter above means only the last one restores, so it is one
+##     freeze — but in the arena that double-spend is buried under an enemy that
+##     flinches away, staggers and eventually dies. Here it lands on a 9999-hp dummy
+##     that does not move, does not die, and is standing in exactly the same place for
+##     the next twenty bolts. Identical code, no payoff, so it reads as a fault.
+##
+##   * A MISS FREEZES TOO, and this one is probably the bigger half. Every wall,
+##     building and floor slab in the town is a `StaticBody2D`, and `Spell._try_damage`'s
+##     `StaticBody2D` arm spends `hit_stop(0.03)`. So bolts that hit NOTHING AT ALL
+##     still stutter the room — which is exactly what "it lags when I shoot" describes
+##     and what no amount of tuning the hit numbers would have fixed.
+##
+## Nothing below this line changes what a hit-stop COSTS. The arena's numbers, the
+## weighting between a jab and an ult, the ult's `epic_moment` beat and the impact
+## frame's freeze are all byte-identical — the only new question is whether the room
+## you are standing in gets one. Everything else a hub hit fires is untouched: the
+## screenshake, the camera kick, the white flash, the ragdoll flinch, the damage
+## numbers, the spark burst and the SFX all still land, so a bolt into a dummy still
+## reads as a hit rather than as a bolt passing through fog.
+##
+## ⚠ THIS IS A DELIBERATE DIVERGENCE, and the cost is worth stating plainly: the dummy
+## yard exists so the kit can be FELT, and the kit now feels a hair lighter there than
+## it does in the tower. If that trade ever reads wrong, do NOT delete the guard —
+## raise this scale. 0.0 = no freeze in the hub (today); 1.0 = arena-identical (i.e.
+## the bug); ~0.25 is "a hint of weight, no world freeze" if a middle ground is wanted.
+const LOBBY_HIT_STOP_SCALE: float = 0.0
+
+## Non-combat rooms, by scene path. Second half of the `in_lobby` test — see there.
+const LOBBY_SCENES: PackedStringArray = ["res://scenes/Main.tscn"]
+
+
+## Is the tree currently showing a room nobody is fighting in?
+##
+## Two INDEPENDENT signals, because each one rots in a different way and either one
+## catching it is enough:
+##   * the town's own marker group. Survives a scene rename or a re-parent, and is
+##     what actually defines "this is the hub" — `town_dummy` is added by
+##     `World._spawn_dummy_yard` and by nothing else in the project (VersusArena's
+##     practice bodies deliberately use a different group, `free_dummy`).
+##   * the scene path. Survives the dummy yard being emptied, reshaped or spawned
+##     late, which the group check alone would fail open on.
+##
+## ⚠ DELIBERATELY A DENY-LIST, not an allow-list of combat scenes, and the asymmetry
+## is the whole point. A new lobby-ish room that somebody forgets to add here merely
+## gets today's bug back — which is visible to the first person who casts in it. A new
+## ARENA forgotten in an allow-list would SILENTLY lose its hit-stop, and quietly
+## losing the arena's hard-won feel to a bookkeeping miss is the one outcome this
+## change is not allowed to risk.
+static func in_lobby() -> bool:
+	var tree: SceneTree = _tree()
+	if tree == null:
+		return false
+	if tree.get_first_node_in_group(&"town_dummy") != null:
+		return true
+	var scene: Node = tree.current_scene
+	return scene != null and LOBBY_SCENES.has(scene.scene_file_path)
+
+
 static func hit_stop(duration: float = 0.06) -> void:
 	var tree: SceneTree = _tree()
 	if tree == null or not _hit_stop_enabled():
+		return
+	# The freeze is a COMBAT verb. See LOBBY_HIT_STOP_SCALE for the measurement.
+	# Scaled rather than skipped so the middle ground is one constant away, and
+	# checked HERE rather than at the ~40 call sites because this is the only place
+	# in the project that writes `Engine.time_scale` — so one guard covers the bolt
+	# hit, the miss into a wall, the melee swing, the parry and the ult alike.
+	if in_lobby():
+		duration *= LOBBY_HIT_STOP_SCALE
+	if duration <= 0.0:
 		return
 	_hit_stop_gen += 1
 	var gen: int = _hit_stop_gen

@@ -46,7 +46,7 @@ const GROUND_THICKNESS: float = 260.0
 ## is 46, so two pads closer than 92 px put two "[E] ..." hints on screen at once and
 ## the player cannot tell which one the key will press. 100 clears it with room to
 ## spare and still reads as a row rather than as four separate places.
-const PAD_FIRST_X: float = 360.0
+const PAD_FIRST_X: float = 380.0
 const PAD_STEP: float = 100.0
 const ARMORY_X: float = PAD_FIRST_X                    # ⚔ gear
 const ALTAR_X: float = PAD_FIRST_X + PAD_STEP          # ◆ which of the nine you are
@@ -56,7 +56,7 @@ const LECTERN_X: float = PAD_FIRST_X + PAD_STEP * 2.0  # ✦ which spells you ca
 ## lectern picks from them, so a player who has just learned a spell binds it without
 ## a walk.
 const ARCHIVIST_X: float = PAD_FIRST_X + PAD_STEP * 3.0
-const CAMPFIRE_X: float = 745.0      # the warm middle; nothing to press
+const CAMPFIRE_X: float = 800.0      # the warm middle; nothing to press
 
 ## ══ THE DUMMY YARD ═══════════════════════════════════════════════════════════
 ## Maker: "you should be able to cast spells and stuff within the lobby instead of a
@@ -73,8 +73,8 @@ const CAMPFIRE_X: float = 745.0      # the warm middle; nothing to press
 ## practice dummy (`VersusArena._rebuild_dummies`), so every spell, reaction, element
 ## and impact frame in the game treats it exactly as it treats a real target. A drawn
 ## scarecrow would have been a lie you could not hit.
-const DUMMY_FIRST_X: float = 120.0
-const DUMMY_STEP: float = 66.0
+const DUMMY_FIRST_X: float = 110.0
+const DUMMY_STEP: float = 62.0
 const DUMMY_COUNT: int = 3
 ## Nothing in the town can hurt anything, but the number still has to be big enough
 ## that a full ult does not visibly move the bar — that is what "immortal" reads as.
@@ -84,12 +84,20 @@ const DUMMY_HP: int = 9999
 const DUMMY_COLOR: Color = Color(0.66, 0.58, 0.38)
 ## The party stone stands between the campfire and the door, so the last thing you
 ## pass on the way out is the answer to "is my friend actually here".
-const PARTY_X: float = 820.0
-const TOWER_X: float = 900.0         # the door out
+const PARTY_X: float = 860.0
+## ⚠ FURTHER RIGHT AND MUCH TALLER. Maker: "the tower should be way higher and further
+## out to the right slightly and just look cooler". The height is `TowerDoor`'s; this
+## is the "further right", and it also buys the shaft room to rise without the sign
+## and the campfire crowding its base.
+const TOWER_X: float = 980.0         # the way out
 
 ## ON THE DOORSTEP. See rule 2 above — this is the single most important number
 ## in the file. `TowerDoor.PROXIMITY_RADIUS` is sized to reach it.
-const PLAYER_SPAWN: Vector2 = Vector2(TOWER_X - 54.0, GROUND_Y)
+## ⚠ 54 PUT YOU INSIDE THE DOORWAY. The door is 96 px wide now and you walk INTO it to
+## descend, so spawning 54 px from its centre put the player on the threshold — a town
+## you enter and immediately leave. 104 stands you just outside it, still well inside
+## `TowerDoor.PROXIMITY_RADIUS`, so the room still costs zero steps to leave.
+const PLAYER_SPAWN: Vector2 = Vector2(TOWER_X - 104.0, GROUND_Y)
 
 ## Where the three townspeople stand, and how far they wander from it. They are
 ## posted NEXT TO the thing they talk about, so a bark is a signpost as well as a
@@ -115,8 +123,13 @@ const PLAYER_SPAWN: Vector2 = Vector2(TOWER_X - 54.0, GROUND_Y)
 ## The two lost `.tres` files are NOT deleted — a townsperson is one line in this table,
 ## so putting either back costs one line and no content.
 const TOWNSFOLK: Array[Dictionary] = [
-	{"res": "res://data/npcs/warden.tres", "x": 232.0, "range": 30.0},   # the sparring pad
-	{"res": "res://data/npcs/doorkeeper.tres", "x": 762.0, "range": 30.0},  # the door
+	# ⚠ THE WARDEN MOVED OFF THE DUMMY YARD, AND IT WAS A MEASURED BUG, not a taste
+	# call. `NPC.tscn` is a StaticBody2D on collision layer 1 — which is
+	# `CharacterRig.GROUND_MASK` — so a townsperson standing among the dummies becomes
+	# FLOOR to their downward probes. `probe_town_feet` caught the third dummy reading
+	# its ground line at 436 instead of 452: it was standing on the Warden's head.
+	{"res": "res://data/npcs/warden.tres", "x": 320.0, "range": 24.0},   # by the pads
+	{"res": "res://data/npcs/doorkeeper.tres", "x": 862.0, "range": 24.0},  # the door
 ]
 
 ## Decoration only — a raised deck up-left that gives the skyline some depth. It
@@ -137,8 +150,13 @@ const TOWNSFOLK: Array[Dictionary] = [
 ## arm, so the sign said "◂ stations" and nothing else. 700 sits it between the last
 ## pad and the campfire, still inside the frame you spawn looking at (the town camera
 ## is zoom 1.2, so spawn sees x≈579..1113).
-const SIGN_X: float = 770.0
-const SIGN_TOP: float = GROUND_Y - 128.0
+## ⚠ MOVED TO THE MIDDLE OF THE ROOM AND MADE THE TALLEST THING IN IT. Maker: "the
+## sign should be in the middle of the hub and the first thing you see". It was tucked
+## by the door at 770 — the last thing you passed rather than the first thing you saw.
+## 630 is the middle of the walkable street and sits between the third and fourth pad,
+## so its post lands in a gap rather than on a disc.
+const SIGN_X: float = 630.0
+const SIGN_TOP: float = GROUND_Y - 150.0
 const SIGN_POST: Color = Color(0.29, 0.22, 0.16)
 const SIGN_BOARD: Color = Color(0.42, 0.32, 0.22)
 
@@ -271,31 +289,42 @@ func _build_signboard() -> void:
 	add_child(post)
 	# LEFT arm: what is behind you. RIGHT arm: the way out. The arrow is part of the
 	# string so the plank and the direction can never disagree.
-	_sign_arm("◂  ⚔  ✦  ❖  ◎", -1.0, SIGN_TOP + 8.0)
-	_sign_arm("THE TOWER  ▸", 1.0, SIGN_TOP + 34.0)
+	# ⚠ THE OLD LEFT ARM LISTED A GLYPH THAT NO LONGER EXISTS (◎, the deleted sparring
+	# pad) and both arms overflowed their planks — maker: "the symbols do not fit,
+	# neither does the tower text". The planks are measured from their own strings now,
+	# so an arm cannot be narrower than what is written on it.
+	_sign_arm("◂  ⚔ ☗ ✦ ❖", -1.0, SIGN_TOP + 10.0)
+	_sign_arm("THE TOWER  ▸", 1.0, SIGN_TOP + 42.0)
 
 
 ## One plank, hanging off the post on `side`. The label is drawn on the plank rather
 ## than beside it so the two move together at any window size.
+## ⚠ THE PLANK IS MEASURED FROM THE TEXT, NOT GUESSED. Both arms were fixed-width and
+## both clipped what was written on them. `Font.get_string_size` is the only thing that
+## knows how wide a string actually is at a given size — a hand-picked width is a
+## measurement taken once, by eye, that then has to be re-taken every time a word
+## changes and never is.
 func _sign_arm(text: String, side: float, y: float) -> void:
-	# ⚠ 92 REACHED UNDER THE TOWER DOOR. The door's silhouette runs from about x=853
-	# to x=1020 (measured off `town_capture`, not off the constant — it is drawn wider
-	# than its origin), so the right arm has to end before 850.
-	var width: float = 72.0
+	const FONT_SIZE: int = 13
+	const PAD_X: float = 14.0
+	const H: float = 24.0
+	var font: Font = ThemeDB.fallback_font
+	var width: float = font.get_string_size(
+		text, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_SIZE).x + PAD_X * 2.0
 	var plank := ColorRect.new()
 	plank.color = SIGN_BOARD
-	plank.size = Vector2(width, 20.0)
+	plank.size = Vector2(width, H)
 	plank.position = Vector2(SIGN_X + (0.0 if side > 0.0 else -width), y)
 	plank.z_index = -3
 	plank.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(plank)
 	var label := Label.new()
 	label.text = text
-	label.size = Vector2(width, 20.0)
+	label.size = Vector2(width, H)
 	label.position = plank.position
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 11)
+	label.add_theme_font_size_override("font_size", FONT_SIZE)
 	label.add_theme_color_override("font_color", CHALK)
 	label.z_index = -2
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -441,6 +470,15 @@ func _spawn_hero_body() -> Node2D:
 	add_child(hero)
 	(hero as Node2D).global_position = PLAYER_SPAWN
 	hero.add_to_group("player")
+	# ⚠ IT STAYS OFF COLLISION LAYER 1, AND THAT COST A MEASUREMENT TO LEARN. The pads
+	# went silent when the town body became a Hero — `Player.tscn` is on layer 1,
+	# `Hero.tscn` is on layer 2, and every proximity ring in this room is an `Area2D`
+	# with the default mask of 1, so they all went blind. Putting the hero on layer 1
+	# fixes the prompts and breaks something worse: layer 1 is `CharacterRig.GROUND_MASK`,
+	# so every rig's downward floor probe — including the hero's own — starts finding
+	# the HERO instead of the floor. `probe_town_feet` caught it immediately: the ground
+	# line jumped from 452 to 433.93, which is exactly the top of the hero's own box.
+	# The rings are what were too narrow, so the rings are what widened.
 	hero.call("set_faction", &"town_player", &"town_dummy")
 	hero.set("facing", Vector2.LEFT)
 	var gs: Node = get_node_or_null("/root/GameState")
@@ -462,11 +500,15 @@ func _place_player() -> void:
 		if c is Camera2D:
 			var cam := c as Camera2D
 			cam.limit_left = 0
-			cam.limit_top = -260
+			cam.limit_top = -420   # the tower shaft rises ~300 px above its own arch
 			cam.limit_right = int(TOWN_WIDTH)
 			cam.limit_bottom = int(GROUND_Y + 60.0)
-			cam.zoom = Vector2(1.2, 1.2)
-			cam.offset = Vector2(0.0, -44.0)
+			# ⚠ 1.2 WAS TOO CLOSE. Maker: "zoom out, we are too close to the figure right
+			# now". At 1.2 the 640-wide base view showed 533 px of a 1180 px street, so
+			# the room was a corridor you read one object at a time; 0.85 shows 753 and
+			# the pad row, the sign and the tower can be in frame together.
+			cam.zoom = Vector2(0.85, 0.85)
+			cam.offset = Vector2(0.0, -54.0)
 
 
 ## The townspeople, instanced here rather than parked in `Main.tscn` so the town's
@@ -547,7 +589,14 @@ func _spawn_dummy_yard() -> void:
 	for i: int in DUMMY_COUNT:
 		var d: Node = hero_scene.instantiate()
 		add_child(d)
-		(d as Node2D).global_position = Vector2(DUMMY_FIRST_X + DUMMY_STEP * float(i), GROUND_Y)
+		# ⚠ NOT AT `GROUND_Y` — THAT IS THE FLOOR SURFACE, NOT WHERE A BODY RESTS ON IT.
+		# A `Hero`'s origin is the CENTRE of its collider, so parking one at the surface
+		# buries the lower half; with physics off nothing ever resolves it, and the
+		# maker's report was exactly "the dummies are stuck in the ground". Measured at
+		# 15.5 px of sink by `tools/probe_town_feet.gd`. Derived from the collider so it
+		# cannot drift if the box is ever resized.
+		(d as Node2D).global_position = Vector2(
+			DUMMY_FIRST_X + DUMMY_STEP * float(i), GROUND_Y - _body_half(d))
 		d.set("max_hp", DUMMY_HP)
 		d.set("hp", DUMMY_HP)
 		# On a team the player is hostile to, hostile to nobody: hittable, never hits
@@ -581,6 +630,16 @@ func _spawn_dummy_yard() -> void:
 			# damage NUMBERS still fly, which is the feedback a practice target is for.
 			if c is CharacterBars:
 				(c as CanvasItem).visible = false
+
+
+## Half-height of a body's own rectangle collider — how far its ORIGIN sits above the
+## floor when it is resting on one. Zero for a body with no box, which then simply
+## parks at the surface as before.
+func _body_half(body: Node) -> float:
+	for c: Node in body.get_children():
+		if c is CollisionShape2D and (c as CollisionShape2D).shape is RectangleShape2D:
+			return ((c as CollisionShape2D).shape as RectangleShape2D).size.y * 0.5
+	return 0.0
 
 
 ## Is this a co-op visit? Reads `GameState.session_kind`, which the title screen

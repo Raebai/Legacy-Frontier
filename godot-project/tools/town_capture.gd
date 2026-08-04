@@ -19,6 +19,15 @@ const SHOTS: Array[Dictionary] = [
 	{"out": "user://town_door.png", "x": 866.0, "zoom": 1.05},
 	{"out": "user://town_stations.png", "x": 400.0, "zoom": 0.72},
 	{"out": "user://town_altar.png", "x": 470.0, "zoom": 1.05},
+	# ⚠ THE LEG SHOTS, AND THEY ARE THE POINT OF THIS FILE NOW. The maker has reported
+	# "everyone's legs are still weird" three times, and every previous fix was judged
+	# at a zoom where a bent knee is four pixels. These are 3.4x — the same figure the
+	# player sees, big enough to see a joint. `y` is pulled UP to the feet rather than
+	# left at the framing height, because at this zoom the ground line is the subject.
+	{"out": "user://town_legs_player.png", "x": 876.0, "y": 430.0, "zoom": 3.4},
+	{"out": "user://town_legs_dummy.png", "x": 172.0, "y": 430.0, "zoom": 3.4},
+	{"out": "user://town_legs_statue.png", "x": 460.0, "y": 430.0, "zoom": 3.4},
+	{"out": "user://town_legs_folk.png", "x": 320.0, "y": 430.0, "zoom": 3.4},
 ]
 
 var _cam: Camera2D = null
@@ -55,7 +64,7 @@ func _all(from: Node, out: Array[Node] = []) -> Array[Node]:
 
 func _shoot() -> void:
 	for shot: Dictionary in SHOTS:
-		_cam.position = Vector2(float(shot["x"]), 330.0)
+		_cam.position = Vector2(float(shot["x"]), float(shot.get("y", 330.0)))
 		_cam.zoom = Vector2(float(shot["zoom"]), float(shot["zoom"]))
 		# Several frames: the stick rigs settle over a few physics ticks and the
 		# ambience (fireflies, campfire) needs time to have anything to draw.

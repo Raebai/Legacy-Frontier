@@ -110,17 +110,30 @@ class Silhouette extends Node2D:
 	## it caught this the moment the real constant moved.
 	const HIP_Y_FACTOR: float = 0.5 - 0.52 * 0.998
 	const MARGIN_FACTOR: float = 0.155
+	## ⚠ THE RIG NO LONGER SITS ON THE BODY'S ORIGIN, and this stub has to know it.
+	## `CharacterRig._align_feet_to_body` moves the rig so its FEET land on the bottom
+	## edge of the parent's collider — the fix for "everyone's legs are weird", which
+	## was two numbers disagreeing about where the floor is (a hero's box is 18 tall,
+	## its rig 31, so it was drawing its feet 6.5 px underground and folding the
+	## difference into its knees). `Enemy.tscn`'s box is 20, so its rig rides
+	## `10 - 31/2 = -5.5` px.
+	##
+	## Written as the RULE rather than as -5.5, so a resized collider moves the stub
+	## and the real body together. `_test_stub_matches_real_enemy` is what caught this
+	## the moment the alignment landed, which is the whole reason that test exists.
+	const ENEMY_BOX_HALF: float = 10.0
+	const FEET_OFFSET: float = ENEMY_BOX_HALF - RIG_H * 0.5
 
 	var height: float = RIG_H
 
 	func _sil() -> Dictionary:
 		var head_r: float = height * HEAD_R_FACTOR
-		var head_local := Vector2(0.0, -height * 0.5 + head_r)
+		var head_local := Vector2(0.0, -height * 0.5 + head_r + FEET_OFFSET)
 		var xf: Transform2D = global_transform
 		var s: float = absf(xf.get_scale().y)
 		return {
 			"neck": xf * (head_local + Vector2(0.0, head_r)),
-			"hip": xf * Vector2(0.0, height * HIP_Y_FACTOR),
+			"hip": xf * Vector2(0.0, height * HIP_Y_FACTOR + FEET_OFFSET),
 			"head": xf * head_local,
 			"head_r": head_r * s,
 			"scale": s,
@@ -376,8 +389,13 @@ func _test_head_height_registers() -> void:
 func _test_body_height_registers() -> void:
 	var f: Silhouette = _figure(Vector2(0.0, 4000.0))
 	await physics_frame
+	# ⚠ THE PROBES FOLLOW THE FIGURE. `dy` is measured from the body origin, and the
+	# drawn spine is `Silhouette.FEET_OFFSET` px above where it used to be — the rig is
+	# aligned to the collider's bottom edge now, which is the fix for the permanently
+	# folded knees. A probe left at the old dy is no longer "on the spine", it is on
+	# the shin, and this test would then be guarding a band the figure has left.
 	for dy: float in [-4.0, 0.0, 3.0]:
-		var at := Vector2(0.0, 4000.0 + dy)
+		var at := Vector2(0.0, 4000.0 + dy + Silhouette.FEET_OFFSET)
 		_expect(SpellTargets.in_radius(at, 1.0, [f]).size() == 1,
 			"a blast on the spine at dy=%.1f registers" % dy)
 	await _free_all([f])

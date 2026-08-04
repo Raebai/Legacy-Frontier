@@ -2118,6 +2118,69 @@ func _draw_hand_fire(pose: Dictionary) -> void:
 ## procedural AA lines are unaffected — the filter is texture-only).
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_align_feet_to_body()
+
+
+## ══ THE FIGURE'S FEET AND ITS COLLISION BOX MUST AGREE ABOUT THE FLOOR ══════
+##
+## ⚠ THIS IS THE BUG BEHIND "EVERYONE'S LEGS ARE WEIRD", AND IT WAS NEVER THE RIG.
+## The maker reported bent legs across several sessions; every previous fix tuned
+## something in this file — knee jut, breath symmetry, trail factor, the drawn-vs-
+## computed channel — and none of them stuck, because the rig was drawing correctly
+## the whole time. It was being asked to stand in the wrong place.
+##
+## MEASURED, by `tools/probe_town_feet.gd`, on a hero standing still on flat ground:
+##
+##     body 442.93   box_foot 451.93   rig_foot 458.43   ground 452.00   SINK 6.43
+##
+## `Hero.tscn`'s collider is 18 px tall, so physics rests the body with its ORIGIN
+## 9 px above the floor. This rig's `height` is 31, so it wants its feet 15.5 px
+## BELOW that origin — 6.5 px underground. `_plant_foot` then clamps them back up to
+## the real floor, and the two-bone IK eats the difference in the knees. 6.5 px of a
+## 15.5 px leg is **41% of the leg, folded away, permanently, on every frame**.
+##
+## Which is also why it looked WORSE the more the figure was doing: a shortfall goes
+## into a two-bone IK as a SQUARE ROOT, so the knee angle it produces is far larger
+## than the 6 px that caused it.
+##
+## THE FIX IS AN OFFSET, NOT A RESIZE. Growing the collider to 31 would change every
+## physical fact about a fighter — what it fits through, where it lands, how ledges
+## and doorways read — to correct a drawing. Moving the drawing costs nothing: the
+## head already sticks out above the box, and now the feet stop sticking out below it.
+##
+## AND IT IS DERIVED, NOT TYPED. Seven scenes carry a rig, each with its own collider
+## and its own height (the bosses were authored at box = height - 3, so their
+## mismatch was only ~1.5 px, which is why this never showed up on them). A per-scene
+## offset would be seven chances to forget, and the next body added would be the
+## eighth. Reading the parent's own box means a scene cannot be wrong about this.
+##
+## Opt out with `auto_align_feet = false` for a rig with no body under it — the class
+## statue in the Antechamber is one, and it already stood correctly BECAUSE it has no
+## collider and therefore no disagreement to inherit.
+@export var auto_align_feet: bool = true
+
+
+func _align_feet_to_body() -> void:
+	if not auto_align_feet:
+		return
+	var body: Node = get_parent()
+	if body == null:
+		return
+	var box_bottom: float = INF
+	for c: Node in body.get_children():
+		if not (c is CollisionShape2D):
+			continue
+		var shape: Shape2D = (c as CollisionShape2D).shape
+		if not (shape is RectangleShape2D):
+			continue
+		# The LOWEST bottom edge among the body's rectangles: a body with more than one
+		# rests on whichever reaches furthest down, which is what physics will do too.
+		var bottom: float = (c as CollisionShape2D).position.y \
+			+ (shape as RectangleShape2D).size.y * 0.5
+		box_bottom = bottom if not is_finite(box_bottom) else maxf(box_bottom, bottom)
+	if not is_finite(box_bottom):
+		return   # no box to agree with — a statue, a capture fixture, a headless stub
+	position.y = box_bottom - height * 0.5
 
 
 ## Directional parry SHIELD — a white "section of a sphere": a solid curved band
