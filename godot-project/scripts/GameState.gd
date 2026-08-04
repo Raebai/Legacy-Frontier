@@ -55,7 +55,18 @@ const TITLE_SCENE: String = "res://scenes/ui/Lobby.tscn"
 const ARENA_SCENE: String = "res://scenes/combat/Arena.tscn"
 
 ## A run is TOTAL_FLOORS floors; the last one is the guardian floor.
-const TOTAL_FLOORS: int = 5
+##
+## ⚠ 5 -> 10 ON 2026-08-04, AND THAT OVERTURNS A PRIOR RULING. The recorded call was
+## "5 floors, seeded-randomised rather than the spec's 15 + procedural". Checkpoints
+## need a tower taller than one band, so the maker was shown the conflict directly
+## and chose to build the checkpoint system while keeping the tower short — nothing
+## is playtested yet, and six-fold content growth before the combat feels good is
+## the risky move.
+##
+## THIS AND `DeathRules.CHECKPOINT_BAND` ARE THE ONLY TWO NUMBERS between here and
+## the 30-floor / 10-band shape. See
+## docs/superpowers/specs/2026-08-04-tower-shape-and-feel-design.md §1.4.
+const TOTAL_FLOORS: int = 10
 
 ## Climber save schema version (bump + migrate if the shape changes).
 const CLIMBER_SAVE_VERSION: int = 1
@@ -230,6 +241,32 @@ func advance_floor() -> void:
 ## scene on all peers) and WITHOUT persistence (the host owns climber.json). Sets
 ## the shared run state so every peer's Arena runs in run-mode + builds the same
 ## floor (the default Ashspire is code-built identically on both sides).
+## WHERE A PARTY STARTS, given every member's own saved floor.
+##
+## The lowest CHECKPOINT in the party — not the lowest floor, and not the host's.
+## That distinction is the entire co-op progression model:
+##
+##   * Two climbers in the same band already share a checkpoint, so the common case
+##     needs no negotiation at all and nobody is moved.
+##   * A climber further up re-treads only the bands they are ahead by — and a floor
+##     scaled for two is not the floor they cleared alone.
+##   * Nobody can be pulled into content past their own band, so a friend cannot
+##     boost you up the tower.
+##   * It is self-levelling: once the trailing player catches up, the party climbs in
+##     lockstep from then on.
+##
+## Pure + static so it tests headlessly and so the rule has one implementation.
+## An empty party answers 1 rather than erroring — a lobby with nobody in it still
+## has to name a floor.
+static func party_start_floor(floors: Array) -> int:
+	var best: int = -1
+	for f in floors:
+		var cp: int = DeathRules.checkpoint_for(int(f))
+		if best < 0 or cp < best:
+			best = cp
+	return maxi(best, 1)
+
+
 func enter_coop_run(floor: int) -> void:
 	ringout_mode = false                  # co-op is a tower run: HP-death, not ring-out
 	if active_tower == null:

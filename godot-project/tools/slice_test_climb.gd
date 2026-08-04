@@ -27,6 +27,8 @@ const TESTS: Array[String] = [
 	"climber_disk_roundtrip",
 	"game_over_transition",
 	"advance_and_bank",
+	"party_starts_at_the_lowest_checkpoint",
+	"party_scales_by_bodies_not_stats",
 ]
 
 var _fails: int = 0
@@ -50,6 +52,8 @@ func _process(_delta: float) -> bool:
 	_test_climber_disk_roundtrip(GS)
 	_test_game_over_transition(GS)
 	_test_advance_and_bank(GS)
+	_test_party_starts_at_the_lowest_checkpoint(GS)
+	_test_party_scales_by_bodies_not_stats()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -94,13 +98,32 @@ func _test_resume_floor_policy() -> void:
 	_expect(DeathRules.RESET_CLIMB_ON_GAME_OVER == false,
 		"SHIPPED POLICY: a game over KEEPS the climb (RESET_CLIMB_ON_GAME_OVER == false). "
 		+ "If you meant to flip it, update this test in the same commit.")
-	# The persistent-climb policy: you come back to the floor you died on.
-	_expect(int(DeathRules.resume_floor_after_game_over(5, 5)) == 5, "wipe on 5 -> resume 5")
-	_expect(int(DeathRules.resume_floor_after_game_over(3, 5)) == 3, "wipe on 3 -> resume 3")
-	_expect(int(DeathRules.resume_floor_after_game_over(1, 5)) == 1, "wipe on 1 -> resume 1")
+	# THE CHECKPOINT POLICY (2026-08-04). You come back to the START OF YOUR BAND —
+	# you lose the floors gained inside it and keep the bands you finished. Asserted
+	# against `CHECKPOINT_BAND` rather than hardcoded floor numbers, so raising the
+	# tower to 30/10 later does not silently invalidate what is being claimed.
+	var band: int = int(DeathRules.CHECKPOINT_BAND)
+	_expect(band >= 1, "the checkpoint band is a real number of floors")
+	var total: int = band * 2   # a two-band tower, whatever the band size is
+	_expect(int(DeathRules.resume_floor_after_game_over(1, total)) == 1,
+		"wipe on the first floor -> resume there")
+	_expect(int(DeathRules.resume_floor_after_game_over(band, total)) == 1,
+		"wipe at the END of band 1 -> back to the start of band 1 (the band is lost)")
+	_expect(int(DeathRules.resume_floor_after_game_over(band + 1, total)) == band + 1,
+		"wipe on the FIRST floor of band 2 -> resume there (band 1 is banked)")
+	_expect(int(DeathRules.resume_floor_after_game_over(total, total)) == band + 1,
+		"wipe at the top -> back to the last checkpoint, not to floor 1")
+	# THE CO-OP PROPERTY, and the reason this policy is worth more than a dial: two
+	# players anywhere in the same band resume at the SAME floor, so "whose climb
+	# does the party play" never has to be asked, decided or stored.
+	_expect(int(DeathRules.checkpoint_for(band)) == int(DeathRules.checkpoint_for(1)),
+		"two climbers in the same band share a checkpoint (this is what makes co-op work)")
+	_expect(int(DeathRules.checkpoint_for(band + 1)) != int(DeathRules.checkpoint_for(band)),
+		"...and crossing a band boundary is the ONLY thing that separates them")
 	# Clamped both ends, whatever the policy, so a corrupt save cannot resume off-tower.
-	_expect(int(DeathRules.resume_floor_after_game_over(0, 5)) == 1, "floor 0 clamps up to 1")
-	_expect(int(DeathRules.resume_floor_after_game_over(9, 5)) == 5, "floor 9 clamps to the top")
+	_expect(int(DeathRules.resume_floor_after_game_over(0, total)) == 1, "floor 0 clamps up to 1")
+	_expect(int(DeathRules.resume_floor_after_game_over(total + 99, total)) == band + 1,
+		"a floor past the top clamps to the tower's last checkpoint")
 	_expect(int(DeathRules.resume_floor_after_game_over(3, 0)) == 1, "a 0-floor tower still answers 1")
 	# The OTHER surfaced decision, pinned the same way.
 	_expect(DeathRules.SOLO_SELF_REVIVE_CHARGES == 0,
@@ -268,3 +291,56 @@ func _test_advance_and_bank(GS: GDScript) -> void:
 	gs.free()
 	gs2.free()
 	_completes("advance_and_bank")
+
+
+## THE CO-OP PROGRESSION MODEL, in one function. The party starts at the lowest
+## CHECKPOINT — not the lowest floor, and emphatically not the host's floor, which
+## is what `start_coop_run` used to impose on everyone.
+func _test_party_starts_at_the_lowest_checkpoint(GS: GDScript) -> void:
+	var band: int = int(DeathRules.CHECKPOINT_BAND)
+	# The common case: two climbers in the same band need no negotiation at all.
+	_expect(int(GS.party_start_floor([1, band])) == 1,
+		"same band -> both start where they already were")
+	# Across a boundary the party drops to the trailing climber's checkpoint, so
+	# nobody is pulled into content past their own band.
+	_expect(int(GS.party_start_floor([band, band + 1])) == 1,
+		"split bands -> the party starts at the TRAILING climber's checkpoint")
+	_expect(int(GS.party_start_floor([band + 1, band + 1])) == band + 1,
+		"both in band 2 -> the party starts in band 2, nobody re-treads")
+	# Order must not matter — this is a min, not a first-wins.
+	_expect(int(GS.party_start_floor([band + 1, 1])) == int(GS.party_start_floor([1, band + 1])),
+		"who joined first cannot change where the party starts")
+	# Solo is the one-element case and must be identical to the solo resume rule.
+	_expect(int(GS.party_start_floor([band + 1])) == int(DeathRules.checkpoint_for(band + 1)),
+		"a party of one is exactly the solo checkpoint rule")
+	# Degenerate inputs still name a floor rather than erroring.
+	_expect(int(GS.party_start_floor([])) == 1, "an empty party still answers floor 1")
+	_expect(int(GS.party_start_floor([0, -5])) == 1, "junk floors clamp to 1")
+	_completes("party_starts_at_the_lowest_checkpoint")
+
+
+## A second climber adds BODIES, never stats. The tower's own written policy is
+## "higher floors add modifiers, not HP", and two players against bullet sponges is
+## the least interesting version of this game. The guardian is the single exception
+## because a boss cannot be made more numerous.
+func _test_party_scales_by_bodies_not_stats() -> void:
+	var E: GDScript = load("res://scripts/combat/Encounter.gd") as GDScript
+	_expect(E != null, "Encounter.gd loads")
+	if E == null:
+		return  # deliberately NOT completed
+	# Solo is scaled by exactly nothing — the floor plays as authored.
+	_expect(is_equal_approx(float(E.party_budget_mult(1)), 1.0), "solo budget is unscaled")
+	_expect(int(E.party_budget(10, 1)) == 10, "solo budget passes through untouched")
+	_expect(int(E.party_cap(4, 1)) == 4, "solo cap passes through untouched")
+	_expect(is_equal_approx(float(E.party_boss_hp_mult(1)), 1.0), "solo guardian is unscaled")
+	# Two climbers: more bodies, and SUB-LINEAR, because a pair also splits aggro
+	# and covers each other's mistakes.
+	_expect(int(E.party_budget(10, 2)) > 10, "two climbers face more enemies")
+	_expect(int(E.party_budget(10, 2)) < 20, "...but fewer than double — a pair is worth more than 2x one")
+	_expect(int(E.party_cap(4, 2)) > int(E.party_cap(4, 1)),
+		"...and more of them at once, which is what makes it feel different")
+	_expect(float(E.party_boss_hp_mult(2)) > 1.0, "the guardian lasts longer against two")
+	# Monotonic, so a third climber can never make a floor easier.
+	_expect(int(E.party_budget(10, 3)) >= int(E.party_budget(10, 2)),
+		"a third climber never REDUCES the encounter")
+	_completes("party_scales_by_bodies_not_stats")

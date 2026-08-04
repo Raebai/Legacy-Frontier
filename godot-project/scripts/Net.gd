@@ -41,6 +41,10 @@ const MAX_PLAYERS: int = 2
 ## peer_id -> selected class int (0..7). Host owns the table; clients push their
 ## pick and the host rebroadcasts the whole thing.
 var peer_class: Dictionary = {}
+## peer id -> that player's own saved climb floor. Announced on join exactly the
+## way `peer_class` is, and read ONCE, by `start_coop_run`, to decide where the
+## party begins. Before this the host's floor was simply imposed on everyone.
+var peer_floor: Dictionary = {}
 var _pending_class: int = 0
 ## True between a floor clearing and the party advancing — the host advances ONCE
 ## per clear, whichever hero reaches the exit first (debounces two near-simultaneous
@@ -137,6 +141,7 @@ func host(my_class: int, port: int = DEFAULT_PORT) -> int:
 		return err
 	multiplayer.multiplayer_peer = peer
 	peer_class = {1: my_class}
+	peer_floor = {1: _my_climb_floor()}
 	_arena_ready.clear()
 	_party_ready_sent = false
 	_run_started = false
@@ -165,6 +170,7 @@ func leave() -> void:
 		multiplayer.multiplayer_peer.close()
 	multiplayer.multiplayer_peer = null
 	peer_class.clear()
+	peer_floor.clear()
 	_pickup_awarded.clear()
 	_arena_ready.clear()
 	_party_ready_sent = false
@@ -232,6 +238,7 @@ func _join_refused(reason: String) -> void:
 ## is a soft-locked run, which is the worst outcome a dropped connection can have.
 func _on_peer_disconnected(id: int) -> void:
 	peer_class.erase(id)
+	peer_floor.erase(id)
 	_arena_ready.erase(id)
 	_free_peer_hero(id)
 	player_disconnected.emit(id)
@@ -299,6 +306,7 @@ func _force_party_ready() -> void:
 func _on_connected_ok() -> void:
 	join_ok.emit()
 	_announce_class.rpc_id(1, _pending_class)
+	_announce_floor.rpc_id(1, _my_climb_floor())
 
 
 func _on_connected_fail() -> void:
@@ -315,6 +323,21 @@ func _on_server_disconnected() -> void:
 
 
 # --------------------------------------------------------- class table (RPC)
+## This peer's own saved climb floor, or 1 if there is no GameState to ask (a
+## harness, or a build with the autoload absent). Guarded lookup, same shape as
+## every other reach out of Net.
+func _my_climb_floor() -> int:
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and gs.has_method("current_floor"):
+		return maxi(int(gs.call("current_floor")), 1)
+	return 1
+
+
+@rpc("any_peer", "reliable")
+func _announce_floor(floor: int) -> void:
+	peer_floor[multiplayer.get_remote_sender_id()] = maxi(floor, 1)
+
+
 @rpc("any_peer", "reliable")
 func _announce_class(cls: int) -> void:
 	var sender: int = multiplayer.get_remote_sender_id()
@@ -347,10 +370,20 @@ func _sync_class_table(table: Dictionary) -> void:
 func start_coop_run(floor_override: int = -1) -> void:
 	if not is_host():
 		return
+	# ⚠ THE PARTY START IS THE LOWEST CHECKPOINT, NOT THE HOST'S FLOOR.
+	#
+	# This used to read `gs.current_floor()` and impose it on everyone, so joining a
+	# friend further up dragged you into content you had not earned — and joining a
+	# friend further down silently cost you your progress. Neither is the model the
+	# maker chose. `GameState.party_start_floor` owns the rule; see its ⚠ for why the
+	# lowest CHECKPOINT (rather than the lowest floor) is what makes it self-levelling.
 	var floor: int = 1
 	var gs: Node = get_node_or_null("/root/GameState")
-	if gs != null and gs.has_method("current_floor"):
-		floor = int(gs.current_floor())
+	if gs != null and gs.has_method("party_start_floor"):
+		peer_floor[my_id()] = _my_climb_floor()   # refresh our own before deciding
+		floor = int(gs.call("party_start_floor", peer_floor.values()))
+	elif gs != null and gs.has_method("current_floor"):
+		floor = int(gs.call("current_floor"))
 	if floor_override > 0:
 		floor = floor_override
 	_run_started = true

@@ -256,7 +256,10 @@ func run_floor(floor_def: FloorDef) -> void:
 		configure(layout.spawn_rect_min, layout.spawn_rect_max, layout.min_spawn_dist_from_hero)
 	_brute = floor_def.brute_chance
 	_hp = floor_def.hp_multiplier
-	_boss_hp = resolved_boss_hp(floor_def)
+	# The guardian is the ONE place the party adds hp rather than bodies — a boss is
+	# a single body and cannot be made more numerous, so fight length is its only
+	# dial. See the ⚠ on `party_budget_mult`.
+	_boss_hp = resolved_boss_hp(floor_def) * party_boss_hp_mult(party_size())
 	_boss_scale = resolved_boss_scale(floor_def)
 	_boss_hp_fraction = resolved_boss_hp_fraction(floor_def)
 	_wave_break = maxf(floor_def.wave_break, 0.0)
@@ -438,8 +441,11 @@ func _start_wave(index: int) -> void:
 	var w: WaveDef = _waves[index]
 	_wave_index = index
 	_wave_spawned = 0
-	_wave_budget = maxi(w.enemy_budget, 0)
-	_wave_cap = maxi(w.concurrent_cap, 1)
+	# A floor authored for one climber is a walkover for two. Scaled by BODIES, never
+	# by stats — see `party_budget_mult`.
+	var party: int = party_size()
+	_wave_budget = party_budget(maxi(w.enemy_budget, 0), party)
+	_wave_cap = party_cap(maxi(w.concurrent_cap, 1), party)
 	_wave_brute = w.resolved_brute(_brute)
 	_wave_hp = w.resolved_hp(_hp)
 	_wave_interval = maxf(w.resolved_interval(SPAWN_INTERVAL), 0.05)
@@ -614,6 +620,55 @@ static func resolved_boss_hp(floor_def: FloorDef) -> float:
 	if floor_def.boss_hp_multiplier > 0.0:
 		return floor_def.boss_hp_multiplier
 	return floor_def.hp_multiplier
+
+
+# ───────────────────────────────────────────────── party scaling (bodies, not stats)
+## ⚠ A SECOND CLIMBER SCALES THE ENCOUNTER BY COUNT, AND NEVER BY STATS.
+##
+## Two players are worth more than twice one — they focus fire, they revive, they
+## cover each other — so a floor authored for one is a walkover without this. But
+## the tower's OWN written policy is "higher floors add modifiers, not HP"
+## (`GameState.synthesize_floor_def`), and the reason generalises: making the same
+## enemy take longer to kill does not make a fight harder, it makes it duller. Two
+## players against bullet sponges is the least interesting version of this game.
+##
+## So the party adds BODIES. More things to track, more directions to be hit from,
+## more chances for the friendly fire that is always on to become the real threat.
+##
+## Sub-linear on purpose: 1.6x for two rather than 2x, because the pair also splits
+## aggro and covers each other's mistakes. The guardian gets 1.7x HP as the one
+## exception — a boss is a single body and cannot be made "more numerous", so its
+## fight length is the only dial it has.
+const PARTY_BUDGET_MULT: float = 0.6   # extra enemy budget per additional climber
+const PARTY_CAP_PER_MATE: int = 2      # extra concurrent bodies per additional climber
+const PARTY_BOSS_HP_MULT: float = 0.7  # extra guardian hp per additional climber
+
+
+static func party_budget_mult(party: int) -> float:
+	return 1.0 + PARTY_BUDGET_MULT * float(maxi(party, 1) - 1)
+
+
+static func party_budget(base: int, party: int) -> int:
+	return int(round(float(base) * party_budget_mult(party)))
+
+
+static func party_cap(base: int, party: int) -> int:
+	return base + PARTY_CAP_PER_MATE * (maxi(party, 1) - 1)
+
+
+static func party_boss_hp_mult(party: int) -> float:
+	return 1.0 + PARTY_BOSS_HP_MULT * float(maxi(party, 1) - 1)
+
+
+## How many climbers this floor is being fought by. Guarded lookup so the F6
+## sandbox, every headless harness and single-player all answer 1 and are scaled by
+## exactly nothing.
+func party_size() -> int:
+	var net: Node = get_node_or_null(^"/root/Net")
+	if net == null or not net.has_method(&"is_active") or not bool(net.call(&"is_active")):
+		return 1
+	var heroes: int = get_tree().get_nodes_in_group("hero").size()
+	return maxi(heroes, 1)
 
 
 ## Largest-remainder split of `total` across `count` escalating shares (weights

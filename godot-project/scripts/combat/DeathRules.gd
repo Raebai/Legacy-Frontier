@@ -76,13 +76,48 @@ const SECOND_WIND_DELAY: float = 1.1
 const RESET_CLIMB_ON_GAME_OVER: bool = false
 
 
+## ⚠ HOW FAR BACK A WIPE SENDS YOU — the third policy, and it sits between A and B.
+##
+## Maker, 2026-08-04: "save slots every 10 levels so if you died at 15 you can
+## restart at 10 with that friend".
+##
+## Resuming on the SAME floor (the old policy A) costs a fight and a trip home and
+## nothing else; resetting to 1 (policy B) deletes an hour. A checkpoint band is the
+## middle: you lose the floors you gained INSIDE the band, and you keep the bands
+## you finished.
+##
+## ⚠ AND IT QUIETLY SOLVES CO-OP PROGRESSION, which is why it is worth more than a
+## difficulty dial. Two players in the same band already resume at the SAME floor,
+## so "whose climb does the party play" never has to be asked, decided or stored.
+## No party save track, no host-decides-progress, no boosting. A re-tread can only
+## happen across a band boundary, which the maker has ruled acceptable.
+##
+## Set to 5 against a 10-floor tower rather than the maker's stated 10, because the
+## tower is deliberately short while the combat is unproven — see the spec at
+## docs/superpowers/specs/2026-08-04-tower-shape-and-feel-design.md §1.4. THIS
+## CONSTANT AND `GameState.TOTAL_FLOORS` ARE THE ONLY TWO NUMBERS that need to move
+## to reach the 30-floor / 10-band shape. That is the whole reason they are
+## constants and not arithmetic sprinkled through the climb.
+const CHECKPOINT_BAND: int = 5
+
+
+## The floor a climber restarts from, given where they got to. Floors 1-5 -> 1,
+## 6-10 -> 6. Pure + static: this is the band arithmetic's ONE implementation, and
+## the co-op party start reads it too.
+static func checkpoint_for(floor: int) -> int:
+	var band: int = maxi(CHECKPOINT_BAND, 1)
+	var f: int = maxi(floor, 1)
+	@warning_ignore("integer_division")
+	return ((f - 1) / band) * band + 1
+
+
 ## Which floor you resume on after a wipe. Pure + static so it tests headlessly and
 ## so the policy above has exactly one implementation.
 static func resume_floor_after_game_over(current: int, total: int) -> int:
 	var cap: int = maxi(total, 1)
 	if RESET_CLIMB_ON_GAME_OVER:
 		return 1
-	return clampi(current, 1, cap)
+	return checkpoint_for(clampi(current, 1, cap))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
