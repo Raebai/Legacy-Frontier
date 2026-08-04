@@ -12,6 +12,14 @@ extends StaticBody2D
 ##   * `"spells"` — a lectern. Opens the `Outfitter`: **choose your three** of your
 ##     class's five authored roles (six hands per class, 54 across the roster) plus
 ##     your colourway. The only customisation in the game that changes how you fight.
+##   * `"sparring"` — a chalk ring with adummy. Opens FREE PLAY: no enemies, no
+##     stakes, just your three spells. This is the game's only onboarding surface
+##     and it used to be a title-screen button, which is the one place a player is
+##     not yet curious. In the room, it is a thing you walk past on your way to
+##     the door.
+##   * `"party"` — a standing stone, and the ONLY station that is co-op-only:
+##     `World` does not spawn it in a solo session. Press it to begin the climb
+##     together (host) or to read who is here (client).
 ##
 ## ⚠ THE STATION IS THE SCREEN. It does not open a menu that then offers the
 ## armory; pressing interact on the rack IS opening the armory. That is the whole
@@ -32,10 +40,11 @@ var _in_range: bool = false
 
 
 func _ready() -> void:
-	if kind == "spells":
-		_build_lectern()
-	else:
-		_build_rack()
+	match kind:
+		"spells": _build_lectern()
+		"sparring": _build_ring()
+		"party": _build_stone()
+		_: _build_rack()
 
 	var shape := CollisionShape2D.new()
 	var rect := RectangleShape2D.new()
@@ -62,7 +71,7 @@ func _ready() -> void:
 			_hint.visible = false)
 
 	_hint = Label.new()
-	_hint.text = "[E] Spells" if kind == "spells" else "[E] Armory"
+	_hint.text = _hint_text()
 	_hint.position = Vector2(-32.0, -60.0)
 	_hint.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
 	_hint.add_theme_color_override("font_outline_color", Color(0.05, 0.05, 0.1, 0.9))
@@ -121,10 +130,106 @@ func _build_lectern() -> void:
 	add_child(page)
 
 
+## A chalk ring on the ground with a straw dummy standing in it. Drawn low and
+## wide so it reads as somewhere you STEP INTO rather than something you press —
+## the ring is the invitation, the dummy is what tells you it is for hitting.
+func _build_ring() -> void:
+	var ring := Polygon2D.new()
+	var pts := PackedVector2Array()
+	for i: int in 20:
+		var a: float = TAU * float(i) / 20.0
+		pts.append(Vector2(cos(a) * 30.0, -2.0 + sin(a) * 8.0))
+	ring.polygon = pts
+	# ⚠ 0.10 WAS INVISIBLE. Judged from `town_capture`, not from the number: at a
+	# tenth alpha over this backdrop the ring read as a smudge and the whole station
+	# looked like a second weapon rack. The ring is the part that says "step in".
+	ring.color = Color(0.85, 0.85, 0.80, 0.22)
+	ring.z_index = -1
+	add_child(ring)
+	var post := ColorRect.new()
+	post.color = RACK_COLOR
+	post.size = Vector2(5.0, 30.0)
+	post.position = Vector2(-2.5, -30.0)
+	add_child(post)
+	var torso := ColorRect.new()
+	torso.color = Color(0.62, 0.55, 0.36)   # straw
+	torso.size = Vector2(16.0, 16.0)
+	torso.position = Vector2(-8.0, -34.0)
+	add_child(torso)
+	var arms := ColorRect.new()
+	arms.color = Color(0.62, 0.55, 0.36)
+	arms.size = Vector2(30.0, 4.0)
+	arms.position = Vector2(-15.0, -30.0)
+	add_child(arms)
+	# A HEAD, so the silhouette is a FIGURE. Without it the post-and-crossbar read
+	# as the weapon rack from across the room — same brown, same height, and the
+	# player has no reason to walk over and find out which is which.
+	var head := ColorRect.new()
+	head.color = Color(0.70, 0.63, 0.44)
+	head.size = Vector2(10.0, 10.0)
+	head.position = Vector2(-5.0, -44.0)
+	add_child(head)
+
+
+## A standing stone. Tall, plain and lit — it has to read from across the room
+## because it is the thing you look for when a friend is supposed to be here.
+func _build_stone() -> void:
+	var stone := Polygon2D.new()
+	stone.polygon = PackedVector2Array([
+		Vector2(-10.0, 0.0), Vector2(-7.0, -40.0),
+		Vector2(7.0, -44.0), Vector2(11.0, 0.0),
+	])
+	stone.color = Color(0.30, 0.32, 0.38)
+	add_child(stone)
+	var glow := ColorRect.new()
+	glow.color = Color(0.55, 0.85, 1.0, 0.12)
+	glow.size = Vector2(44.0, 52.0)
+	glow.position = Vector2(-22.0, -58.0)
+	glow.z_index = -1
+	add_child(glow)
+
+
+## The hint IS the state for the party stone — it is the only station whose label
+## changes with the world rather than with the player.
+func _hint_text() -> String:
+	match kind:
+		"spells": return "[E] Spells"
+		"sparring": return "[E] Sparring ring"
+		"party":
+			var net: Node = get_node_or_null(^"/root/Net")
+			if net == null or not bool(net.call(&"is_active")):
+				return "nobody here yet"
+			if not bool(net.call(&"is_host")):
+				return "waiting for the host"
+			return "[E] Begin the climb together"
+		_: return "[E] Armory"
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_action_pressed("talk") or not _in_range:
 		return
 	if _overlay_open():
+		return
+	if kind == "sparring":
+		# Free play is reached BY PATH and by static call, exactly as the title screen
+		# reaches it: a bare identifier would drag the versus arena's whole dependency
+		# chain into a script that loads with the town.
+		var fp: GDScript = load("res://scripts/combat/FreePlay.gd") as GDScript
+		if fp != null:
+			var gs: Node = get_node_or_null(^"/root/GameState")
+			var cls: int = 0 if gs == null else int(gs.get("selected_class"))
+			get_viewport().set_input_as_handled()
+			fp.call("enter", get_tree(), cls)
+		return
+	if kind == "party":
+		# Only the HOST can start; a client pressing this is answered by the hint,
+		# which already says what it is waiting for.
+		var net: Node = get_node_or_null(^"/root/Net")
+		if net != null and bool(net.call(&"is_active")) and bool(net.call(&"is_host")):
+			get_viewport().set_input_as_handled()
+			net.call(&"start_coop_run")
+		elif _hint != null:
+			_hint.text = _hint_text()   # re-read: a friend may have joined since
 		return
 	if kind == "spells":
 		# The Outfitter is a Control and needs a CanvasLayer, so the town owns its

@@ -216,12 +216,29 @@ func _test_three_stations_answer() -> void:
 
 	var stations: Array = []
 	_find(town, STATION_SCRIPT, stations)
-	_expect(stations.size() == 2, "two stations: the rack and the lectern (got %d)" % stations.size())
+	# THREE STATIONS IN A SOLO VISIT: the rack, the lectern and the sparring ring.
+	# The PARTY STONE is the fourth and is co-op-only — `World._session_is_party()`
+	# keeps it out of a solo room, because a station that answers "nobody here" to a
+	# lone player is a dead object teaching them the room has broken parts.
+	#
+	# Asserted by KIND rather than by count alone, so adding a station cannot
+	# silently replace one: a count-only check passes just as happily on the wrong
+	# three.
+	var station_kinds: Dictionary = {}
+	for st: Node in stations:
+		station_kinds[String(st.get("kind"))] = true
+	_expect(stations.size() == 3,
+		"three stations in a solo room: rack, lectern, sparring ring (got %d)" % stations.size())
+	_expect(station_kinds.has("armory"), "the rack is there")
+	_expect(station_kinds.has("spells"), "the lectern is there")
+	_expect(station_kinds.has("sparring"), "the sparring ring is there")
+	_expect(not station_kinds.has("party"),
+		"...and the party stone is NOT, because this is a solo visit")
 	var kinds: Array = []
 	for s: Node in stations:
 		kinds.append(String(s.get("kind")))
-	_expect(kinds.has("armory"), "one of them is the armory rack (got %s)" % str(kinds))
-	_expect(kinds.has("spells"), "one of them is the spell lectern (got %s)" % str(kinds))
+	_expect(station_kinds.has("armory"), "one of them is the armory rack (got %s)" % str(kinds))
+	_expect(station_kinds.has("spells"), "one of them is the spell lectern (got %s)" % str(kinds))
 
 	# THE STATION IS THE SCREEN. Each one must reach a real destination.
 	_expect(load(DOOR_SCRIPT) != null and _code_only(DOOR_SCRIPT).contains("enter_run"),

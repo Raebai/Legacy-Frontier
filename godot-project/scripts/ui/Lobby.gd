@@ -464,9 +464,31 @@ func _hand_line(class_id: int) -> String:
 ## power, and performs the scene change into the arena itself. Reached through
 ## the tree rather than the bare `GameState` identifier so this script stays
 ## loadable in a headless harness with no autoloads registered.
+## ⚠ ENTER THE TOWER NOW LANDS IN THE ANTECHAMBER, NOT STRAIGHT IN A FIGHT.
+##
+## This deliberately supersedes the older "one press from opening the game to
+## fighting" rule that `slice_test_town` was written to protect. The maker asked
+## for the opposite in the 2026-08-04 brief: "once you enter the tower you go to
+## the lobby area where you can resume your journey".
+##
+## THE FAST PATH SURVIVES ANYWAY, and that is why this is not a real cost: the
+## Antechamber spawns you ON the tower door (`World.PLAYER_SPAWN` is 54 px from
+## it), so it is still one press to descend once you are there. The room is
+## something you may walk INTO, not something you are walked THROUGH.
 func _play_solo() -> void:
 	var gs: Node = get_node_or_null("/root/GameState")
-	if gs == null or not gs.has_method("enter_run"):
+	if gs == null:
+		_say("the tower is missing. (GameState unavailable)")
+		return
+	gs.set("session_kind", 0)   # SessionKind.SOLO
+	gs.set("selected_class", _selected_class)
+	_stop_discovery()
+	# The room is the front door. Falls back to starting the run outright on a build
+	# with no town, so a missing scene cannot strand a player on the title screen.
+	if gs.has_method("visit_hub") and bool(gs.call("visit_hub")):
+		_say("entering...")
+		return
+	if not gs.has_method("enter_run"):
 		_say("the tower is missing. (GameState unavailable)")
 		return
 	# We are about to leave this scene. `_exit_tree` catches it too, but doing it
@@ -668,6 +690,11 @@ func _host() -> void:
 	# You cannot listen for other people's games while running your own; Net.host()
 	# starts the beacon that advertises THIS session instead.
 	_stop_discovery()
+	# The room needs to know this is a party BEFORE anyone connects — see
+	# `GameState.session_kind`.
+	var gs2: Node = get_node_or_null("/root/GameState")
+	if gs2 != null:
+		gs2.set("session_kind", 2)   # SessionKind.ONLINE
 	var err: int = _net.host(_selected_class)
 	if err == OK:
 		# The beacon is automatic (Net.host starts it), so the other phone should
@@ -948,7 +975,12 @@ func _group_label(text: String) -> Label:
 class _Paper:
 	extends Control
 
-	const FLOORS: int = 11
+	## ⚠ MORE FLOORS THAN FIT ON THE PAGE, ON PURPOSE. Maker on the Tower of God
+	## look: "I like how epic it feels". The single thing that makes that tower feel
+	## endless is that you never see the top of it — so this one is drawn taller than
+	## the screen and the last floors are ABOVE the top edge, climbing out of frame.
+	## A tower with a visible roof is a building.
+	const FLOORS: int = 20
 	const REVEAL_TIME: float = 2.6
 	## Redraws per second during the reveal. The stroke wobble is re-rolled each
 	## time, so a low rate reads as a hand working rather than as a low frame rate.
@@ -993,7 +1025,8 @@ class _Paper:
 		# The tower occupies the left third, standing on the bottom edge.
 		var base_x: float = size.x * 0.22
 		var base_y: float = size.y * 0.94
-		var top_y: float = size.y * 0.08
+		# NEGATIVE — the top of the drawn tower is off the top of the page.
+		var top_y: float = -size.y * 0.55
 		var span: float = base_y - top_y
 		var floor_h: float = span / float(FLOORS)
 
@@ -1007,7 +1040,12 @@ class _Paper:
 			var wobble: float = lerpf(5.0, 0.6, t)
 			var half_w: float = lerpf(size.x * 0.115, size.x * 0.042, t)
 			var col: Color = Lobby.GRAPHITE.lerp(Lobby.CHALK, t)
-			col.a = lerpf(0.45, 1.0, t)
+			# ⚠ THE ALPHA RISES AND THEN FALLS. It used to climb to fully opaque at the
+			# top, which drew a confident roof — the exact opposite of the feeling. The
+			# hand gets steadier as it climbs (the stroke sharpens) and then the tower
+			# fades into the dark, so the eye runs out of tower before it runs out of
+			# page. That fade IS the "how tall is this" question.
+			col.a = lerpf(0.40, 1.0, minf(t / 0.55, 1.0)) * lerpf(1.0, 0.0, maxf((t - 0.55) / 0.45, 0.0))
 			var width: float = lerpf(1.0, 2.2, t)
 			var fy: float = base_y - floor_h * float(i)
 			_scribble_box(
@@ -1026,7 +1064,24 @@ class _Paper:
 		# The pencil tip: a mark of class-coloured light sitting exactly where the
 		# hand has reached. It IS the "who is holding the pencil" question, and it
 		# needs no sentence to ask it.
-		var tip_y: float = base_y - span * progress
+		# THE DARK THE TOWER GOES INTO. Banded rather than a real gradient because a
+		# ColorRect gradient would need a shader or a texture, and eight stacked
+		# translucent bands over a flat backdrop are indistinguishable at this scale
+		# and cost nothing.
+		var haze_h: float = size.y * 0.42
+		for b: int in 8:
+			var bt: float = float(b) / 7.0
+			var band := Color(Lobby.PAPER.r, Lobby.PAPER.g, Lobby.PAPER.b, 0.16)
+			draw_rect(Rect2(0.0, haze_h * bt - haze_h, size.x, haze_h * (1.0 - bt)), band)
+
+		# The pencil tip: a mark of class-coloured light sitting exactly where the
+		# hand has reached. It IS the "who is holding the pencil" question, and it
+		# needs no sentence to ask it.
+		#
+		# CLAMPED INTO VIEW, because the tower now runs off the top of the page: an
+		# unclamped tip spends the last third of the reveal drawing itself somewhere
+		# nobody can see, which reads as the animation simply stopping early.
+		var tip_y: float = maxf(base_y - span * progress, size.y * 0.06)
 		var glow: Color = accent
 		glow.a = 0.85 if progress < 1.0 else 0.35
 		draw_circle(Vector2(base_x, tip_y), 3.0, glow)

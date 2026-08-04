@@ -121,6 +121,20 @@ var camera_zoom: float = 1.6
 enum PvpRules { HEALTH, STOCKS }
 var pvp_rules: int = PvpRules.HEALTH
 
+## ⚠ WHAT KIND OF VISIT THIS IS — set by the title screen BEFORE the Antechamber
+## loads, and the reason there is one prep room instead of two.
+##
+## Maker: "there should be an Enter the tower button and a multiplayer Button…
+## once you enter the tower you go to the lobby area where you can resume your
+## journey". Both doors land in the SAME room; this is what the room reads to know
+## whether to stand the Party Stone up.
+##
+## Deliberately NOT `Net.is_active()`: you arrive in the room BEFORE a friend has
+## connected, so asking the network would say "solo" during the exact window the
+## room most needs to say "waiting". This records the INTENT of the press.
+enum SessionKind { SOLO, LOCAL, ONLINE }
+var session_kind: int = SessionKind.SOLO
+
 ## Enemy difficulty (0 Easy, 1 Normal, 2 Hard, 3 Impossible). Enemy._ready scales
 ## stats + unlocks smart behaviours (dodge / deflect). Set in the practice arena.
 var enemy_difficulty: int = 1

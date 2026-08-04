@@ -43,6 +43,10 @@ const ARMORY_X: float = 306.0        # the rack — weapon / head / body
 const ALTAR_X: float = 480.0         # the statue — which of the nine you are
 const LECTERN_X: float = 648.0       # the book — which three spells you carry
 const CAMPFIRE_X: float = 740.0      # the warm middle; nothing to press
+const SPARRING_X: float = 180.0      # the chalk ring — free play, no stakes
+## The party stone stands between the campfire and the door, so the last thing you
+## pass on the way out is the answer to "is my friend actually here".
+const PARTY_X: float = 820.0
 const TOWER_X: float = 900.0         # the door out
 
 ## ON THE DOORSTEP. See rule 2 above — this is the single most important number
@@ -248,6 +252,34 @@ func _spawn_stations() -> void:
 	lectern.set("kind", "spells")
 	add_child(lectern)
 	lectern.global_position = Vector2(LECTERN_X, GROUND_Y)
+
+	# THE SPARRING RING. Free play was a button on the TITLE screen, which is the one
+	# place a player is not yet curious about what their thumbs do. In the room it is
+	# something you walk past, at the FAR END from the door, so nobody heading for
+	# the tower is ever detoured through it.
+	var ring: StaticBody2D = STATION_SCRIPT.new()
+	ring.set("kind", "sparring")
+	add_child(ring)
+	ring.global_position = Vector2(SPARRING_X, GROUND_Y)
+
+	# ⚠ THE PARTY STONE ONLY EXISTS IN A PARTY. A station that says "nobody here" to
+	# a solo player is a dead object teaching them the room has broken parts — and
+	# this room already had to answer the maker asking "what do I do there".
+	if _session_is_party():
+		var stone: StaticBody2D = STATION_SCRIPT.new()
+		stone.set("kind", "party")
+		add_child(stone)
+		stone.global_position = Vector2(PARTY_X, GROUND_Y)
+
+
+## Is this a co-op visit? Reads `GameState.session_kind`, which the title screen
+## sets before it sends you here — so the room knows what kind of visit this is
+## without asking the network, which may not have connected yet.
+func _session_is_party() -> bool:
+	var gs: Node = get_node_or_null(^"/root/GameState")
+	if gs == null:
+		return false
+	return int(gs.get("session_kind")) != 0
 
 
 ## THE OUTFITTER, on demand. A `Control`, so it needs a `CanvasLayer` of its own to
