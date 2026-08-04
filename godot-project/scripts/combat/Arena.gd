@@ -178,7 +178,7 @@ func _setup_floor(floor: int) -> void:
 	_clear_portal()
 	var theme: EnvTheme = _resolve_theme()
 	if theme != null:
-		_apply_theme(theme.wash_tint)
+		_apply_theme(theme)
 	_show_floor_banner(floor, theme)
 	_apply_floor_camera()
 	_encounter.run_floor(_current_floor_def)
@@ -866,11 +866,22 @@ func _build_theme_layer() -> void:
 	add_child(_atmo)
 
 
-func _apply_theme(tint: Color) -> void:
+## ⚠ TAKES THE WHOLE THEME, NOT A COLOUR. It used to take a bare tint and derive the
+## highlight from it, which meant every floor was the same picture in a different
+## hue — and with only three hues authored, mostly the same hue too.
+##
+## A biome now carries its own ACCENT (so Frostmarch highlights white-blue and the
+## Emberworks highlights orange, rather than both highlighting a lighter version of
+## their own wash) and its own EXPOSURE. `lit_wash()` applies the exposure; the
+## authored hue stays readable in the table and in a diff, because `light` is a
+## treatment rather than part of the colour.
+func _apply_theme(theme: EnvTheme) -> void:
+	if theme == null:
+		return
+	var wash: Color = theme.lit_wash()
 	if _atmo != null:
-		var accent: Color = Color(tint.r, tint.g, tint.b, 1.0).lightened(0.55)
-		_atmo.build_wash(tint, accent)
-	PostProcess.set_theme(tint)  # re-tint the grade to match the floor band
+		_atmo.build_wash(wash, theme.accent())
+	PostProcess.set_theme(wash)  # re-tint the grade to match the floor
 
 
 func _build_floor_banner() -> void:

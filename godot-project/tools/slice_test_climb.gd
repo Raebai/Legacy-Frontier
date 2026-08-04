@@ -281,8 +281,12 @@ func _test_advance_and_bank(GS: GDScript) -> void:
 	var gs2: Node = GS.new()
 	gs2.active_tower = GS.build_default_tower()
 	gs2._run_active = true
-	gs2._floor = 5
-	gs2._highest_floor = 5
+	# The LAST floor, whatever the tower authors — hardcoding 5 stopped being true
+	# the moment the tower grew, and a conquer test that runs on a middle floor
+	# quietly asserts nothing.
+	var last: int = int(gs2.total_floors())
+	gs2._floor = last
+	gs2._highest_floor = last
 	var advanced2: Array = []
 	gs2.floor_advanced.connect(func(nf: int) -> void: advanced2.append(nf))
 	gs2.advance_floor()

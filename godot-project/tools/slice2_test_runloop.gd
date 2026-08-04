@@ -91,9 +91,38 @@ func _test_floor_math(GS: GDScript) -> void:
 	_expect(int(GS.floor_concurrent_cap(1)) >= 3, "cap floor >= 3")
 	_expect(int(GS.floor_concurrent_cap(9)) <= 7, "cap ceilinged at 7")
 	_expect(float(GS.floor_brute_chance(1)) < float(GS.floor_brute_chance(5)), "brute mix ramps")
-	_expect(String(GS.floor_theme(1)) == "surface", "floor 1 is surface")
-	_expect(String(GS.floor_theme(3)) == "underground", "floor 3 is underground")
-	_expect(String(GS.floor_theme(5)) == "sky", "floor 5 is sky")
+	# ⚠ EVERY FLOOR IS ITS OWN PLACE. This used to pin three theme NAMES across the
+	# whole tower (surface / underground / sky), which is exactly the sameness the
+	# maker asked to be rid of: "I want more diversity on the floors like a snow
+	# place background a sunny green one like a red room". Pinning names again
+	# would just re-freeze a different palette, so what is asserted is the
+	# PROPERTY — a floor never looks like its neighbour, and the tower is not one
+	# colour with the lights turned down.
+	var seen_names: Dictionary = {}
+	var seen_tints: Dictionary = {}
+	var dim: int = 0
+	var bright: int = 0
+	for f: int in range(1, int(GS.TOTAL_FLOORS) + 1):
+		# `floor_theme` is already typed String — wrapping it in String() is a redundant
+		# conversion the parser refuses, and it aborts the whole test rather than the line.
+		seen_names[GS.floor_theme(f)] = true
+		seen_tints[str(GS.floor_theme_tint(f))] = true
+		var env: Resource = GS.floor_env(f)
+		_expect(env != null and String(env.name) != "", "floor %d names its biome" % f)
+		if env != null:
+			if float(env.light) < 1.0:
+				dim += 1
+			else:
+				bright += 1
+	_expect(seen_names.size() == int(GS.TOTAL_FLOORS),
+		"every floor has a DISTINCT biome name (got %d for %d floors)"
+			% [seen_names.size(), int(GS.TOTAL_FLOORS)])
+	_expect(seen_tints.size() == int(GS.TOTAL_FLOORS),
+		"...and a distinct wash tint, so two floors cannot read as the same room")
+	# The register is DIM, but not uniformly — a tower that is dark everywhere has
+	# no shape. Both of these must be non-zero or the climb stops having contrast.
+	_expect(dim > 0, "some floors are underlit — dim is the register")
+	_expect(bright > 0, "...and some are not, so the dark ones read as dark")
 	_completes("floor_math")
 
 
@@ -132,7 +161,11 @@ func _test_floor_def_synthesis(GS: GDScript) -> void:
 ## The default Ashspire tower is a 5-floor typed spine ending in a BOSS.
 func _test_tower_authoring(GS: GDScript) -> void:
 	var t: Resource = GS.build_default_tower()
-	_expect(t.floors.size() == 5, "Ashspire has 5 floors")
+	# The tower must author EVERY floor the climb can reach — `total_floors()` returns
+	# the authored size, so a short tower silently shrinks the climb and collapses the
+	# checkpoint bands with it.
+	_expect(t.floors.size() == int(GS.TOTAL_FLOORS),
+		"Ashspire authors all %d floors (got %d)" % [int(GS.TOTAL_FLOORS), t.floors.size()])
 	# FloorType: COMBAT=0, ELITE=1, BOSS=2.
 	_expect(int(t.floors[0].floor_type) == 0, "floor 1 is COMBAT")
 	_expect(int(t.floors[2].floor_type) == 1, "floor 3 is ELITE")
@@ -177,9 +210,11 @@ func _test_tower_authoring(GS: GDScript) -> void:
 		for w in (t.floors[i].waves as Array):
 			if not (w.archetypes as Array).is_empty():
 				rosters += 1
-	_expect(rosters == int(t.floors[0].waves.size() + t.floors[1].waves.size()
-			+ t.floors[2].waves.size() + t.floors[3].waves.size() + t.floors[4].waves.size()),
-		"every authored wave names its own archetype roster (got %d)" % rosters)
+	var total_waves: int = 0
+	for i in range(t.floors.size()):
+		total_waves += int((t.floors[i].waves as Array).size())
+	_expect(rosters == total_waves,
+		"every authored wave names its own archetype roster (%d of %d)" % [rosters, total_waves])
 	_expect(float(t.floors[4].boss_hp_multiplier) > float(t.floors[0].boss_hp_multiplier),
 		"the guardian's hp curve ramps with depth")
 	_completes("tower_authoring")

@@ -571,10 +571,7 @@ static func synthesize_floor_def(floor: int) -> FloorDef:
 	# take longer, which is the specific failure the rule exists to prevent.
 	fd.hp_multiplier = 1.0
 	fd.boss_hp_multiplier = floor_boss_hp_multiplier(floor)
-	var theme := EnvTheme.new()
-	theme.name = floor_theme(floor)
-	theme.wash_tint = floor_theme_tint(floor)
-	fd.theme = theme
+	fd.theme = floor_env(floor)
 	fd.layout = default_layout()
 	return fd
 
@@ -669,10 +666,7 @@ static func build_default_tower() -> TowerDef:
 	var t := TowerDef.new()
 	t.id = "ashspire"
 	t.display_name = "The Ashspire"
-	t.theme = _theme("surface", Color(0.20, 0.28, 0.22))
-	var surface: Color = Color(0.20, 0.28, 0.22)
-	var under: Color = Color(0.16, 0.13, 0.20)
-	var sky: Color = Color(0.22, 0.26, 0.40)
+	t.theme = floor_env(1)
 	t.floors = [
 		# type, brute%, boss hp×, theme, layout, waves [budget, cap, roster]
 		# --- 1 · SURFACE. THE TEACHING FLOOR: ONE new tell per wave, and never two
@@ -688,7 +682,7 @@ static func build_default_tower() -> TowerDef:
 		#     still feels occupied) — what came off is the TAIL, so the opening wave
 		#     ends sooner instead of arriving thinner. The other half of that note is
 		#     readability, and that fix is Encounter.SPAWN_TELL_LEAD, not this row. ---
-		_make_floor(FloorDef.FloorType.COMBAT, 0.30, 1.0, _theme("surface", surface), default_layout(),
+		_make_floor(FloorDef.FloorType.COMBAT, 0.30, 1.0, floor_env(1), default_layout(),
 			_waves([
 				[4, 3, [A_CHASER]],                            # pure pressure, nothing to read
 				[8, 4, [A_CHASER, A_CHASER, A_BRUTE]],         # ONE new tell: the heavy swing
@@ -696,7 +690,7 @@ static func build_default_tower() -> TowerDef:
 			])),
 		# --- 2 · SURFACE. Two lessons, one per wave: the LANE, then RANGE — and only
 		#     the last wave asks for both at once. ---
-		_make_floor(FloorDef.FloorType.COMBAT, 0.35, 1.15, _theme("surface", surface), default_layout(),
+		_make_floor(FloorDef.FloorType.COMBAT, 0.35, 1.15, floor_env(2), default_layout(),
 			_waves([
 				[7, 4, [A_CHASER, A_CHARGER]],                 # ONE new tell: the lane to dodge
 				[10, 5, [A_CHASER, A_CHASER, A_CASTER]],       # something shooting from the back
@@ -704,7 +698,7 @@ static func build_default_tower() -> TowerDef:
 			])),
 		# --- 3 · ELITE, UNDERGROUND. Fewer bodies, meaner ones. TANKIER is an
 		#     archetype (BRUTE), never a multiplier. Ends on two threats at once. ---
-		_make_floor(FloorDef.FloorType.ELITE, 0.55, 1.3, _theme("underground", under), _elite_layout(),
+		_make_floor(FloorDef.FloorType.ELITE, 0.55, 1.3, floor_env(3), _elite_layout(),
 			_waves([
 				[6, 4, [A_BRUTE, A_CHASER]],
 				[8, 5, [A_BRUTE, A_CHARGER, A_ASSASSIN]],      # fast + heavy in the same breath
@@ -712,7 +706,7 @@ static func build_default_tower() -> TowerDef:
 				[11, 6, [A_BRUTE, A_CHARGER, A_MAGE, A_SUMMONER]],
 			])),
 		# --- 4 · UNDERGROUND. The swarm floor: volume plus area denial. ---
-		_make_floor(FloorDef.FloorType.COMBAT, 0.45, 1.45, _theme("underground", under), default_layout(),
+		_make_floor(FloorDef.FloorType.COMBAT, 0.45, 1.45, floor_env(4), default_layout(),
 			_waves([
 				[9, 5, [A_CHASER, A_ASSASSIN]],
 				[11, 6, [A_CHASER, A_CHARGER, A_BOMBER]],      # the floor starts denying you space
@@ -720,13 +714,67 @@ static func build_default_tower() -> TowerDef:
 				[14, 7, [A_CHASER, A_CHARGER, A_ASSASSIN, A_BOMBER, A_MAGE]],
 			])),
 		# --- 5 · SKY. Everything the tower has, then the colossus. ---
-		_make_floor(FloorDef.FloorType.BOSS, 0.70, 1.6, _theme("sky", sky), _boss_layout(),
+		_make_floor(FloorDef.FloorType.BOSS, 0.70, 1.6, floor_env(5), _boss_layout(),
 			_waves([
 				[8, 5, [A_CHASER, A_CHARGER]],
 				[10, 6, [A_BRUTE, A_CASTER, A_ASSASSIN]],
 				[12, 6, [A_CHARGER, A_MAGE, A_BOMBER]],
 				[13, 7, [A_BRUTE, A_ASSASSIN, A_MAGE, A_SUMMONER]],
 				[15, 7, [A_CHASER, A_BRUTE, A_CHARGER, A_ASSASSIN, A_BOMBER, A_MAGE]],
+			])),
+		# ══ BAND 2 ══ Checkpoint at floor 6 (DeathRules.CHECKPOINT_BAND). Floors 1-5
+		# taught the tower's whole vocabulary and floor 5 proved it; band 2 stops
+		# introducing archetypes and starts COMBINING them, which is why every roster
+		# below is drawn from what you have already been taught to read.
+		#
+		# Budgets continue the band-1 curve rather than restarting it, so crossing the
+		# checkpoint is a step up and not a fresh start.
+		# --- 6 · THE EMBERWORKS. Pressure returns, but everything now arrives in
+		#     pairs — the floor asks whether you can fight two things at once as a
+		#     baseline rather than as a climax. ---
+		_make_floor(FloorDef.FloorType.COMBAT, 0.50, 1.7, floor_env(6), default_layout(),
+			_waves([
+				[10, 5, [A_CHASER, A_BRUTE]],
+				[12, 6, [A_CHARGER, A_CASTER]],
+				[14, 6, [A_BRUTE, A_CHARGER, A_BOMBER]],
+				[15, 7, [A_CHASER, A_BRUTE, A_CASTER, A_BOMBER]],
+			])),
+		# --- 7 · GLASSWOOD. The ASSASSIN floor: fast, fragile, and always behind you.
+		#     Fewer bodies than 6 on purpose — this one is about attention, not volume. ---
+		_make_floor(FloorDef.FloorType.ELITE, 0.40, 1.8, floor_env(7), _elite_layout(),
+			_waves([
+				[9, 5, [A_ASSASSIN, A_ASSASSIN]],
+				[11, 5, [A_ASSASSIN, A_CHARGER, A_MAGE]],
+				[13, 6, [A_ASSASSIN, A_ASSASSIN, A_SUMMONER]],
+				[14, 6, [A_ASSASSIN, A_CHARGER, A_MAGE, A_SUMMONER]],
+			])),
+		# --- 8 · THE DROWNED GALLERY. Area denial: the floor takes space away from you
+		#     and the fight becomes about where you are allowed to stand. ---
+		_make_floor(FloorDef.FloorType.COMBAT, 0.50, 1.9, floor_env(8), default_layout(),
+			_waves([
+				[11, 6, [A_BOMBER, A_CHASER]],
+				[13, 6, [A_BOMBER, A_MAGE, A_BRUTE]],
+				[15, 7, [A_CASTER, A_MAGE, A_BOMBER]],
+				[16, 7, [A_BRUTE, A_BOMBER, A_MAGE, A_CHARGER]],
+			])),
+		# --- 9 · STORMREACH. The last ordinary floor, and the densest: everything the
+		#     tower has, at volume, with no new lesson to spare attention for. ---
+		_make_floor(FloorDef.FloorType.ELITE, 0.60, 2.0, floor_env(9), _elite_layout(),
+			_waves([
+				[13, 6, [A_CHASER, A_CHARGER, A_ASSASSIN]],
+				[15, 7, [A_BRUTE, A_CASTER, A_BOMBER]],
+				[16, 7, [A_ASSASSIN, A_MAGE, A_SUMMONER]],
+				[18, 8, [A_CHASER, A_BRUTE, A_CHARGER, A_ASSASSIN, A_MAGE]],
+			])),
+		# --- 10 · THE APEX. The tower's roof and its last guardian. Ends on every
+		#      archetype at once — the same shape floor 5 used, at the top of the curve. ---
+		_make_floor(FloorDef.FloorType.BOSS, 0.70, 2.4, floor_env(10), _boss_layout(),
+			_waves([
+				[12, 6, [A_CHASER, A_CHARGER]],
+				[14, 7, [A_BRUTE, A_CASTER, A_ASSASSIN]],
+				[16, 7, [A_CHARGER, A_MAGE, A_BOMBER]],
+				[17, 8, [A_BRUTE, A_ASSASSIN, A_MAGE, A_SUMMONER]],
+				[19, 8, [A_CHASER, A_BRUTE, A_CHARGER, A_ASSASSIN, A_BOMBER, A_MAGE]],
 			])),
 	]
 	return stamp_depths(t)
@@ -833,20 +881,60 @@ static func floor_boss_hp_multiplier(floor: int) -> float:
 
 
 ## Terraria-flavoured layer theme per floor band (surface -> underground -> sky).
+## ⚠ ONE BIOME PER FLOOR — the whole tower's visual identity, in one table.
+##
+## This replaced a THREE-value band lookup (surface / underground / sky) where nine
+## of ten floors shared a colour with a neighbour. Maker: "I want more diversity on
+## the floors like a snow place background a sunny green one like a red room".
+##
+## `light` is the exposure, and the register is DELIBERATELY DIM — but per-floor, not
+## uniformly. A tower that is dark everywhere has no shape; the point of Frostmarch
+## at 1.05 and the Sunken Vault at 0.68 is that the climb gets DARKER and you can
+## feel it, with a bright floor between two black ones so the descent reads. Each
+## floor keeps its own saturated hue and only the exposure moves, which is also what
+## makes a spell read as a real light source.
+##
+## Ten entries for a ten-floor tower. `floor_for_index` wraps, so a tower that grows
+## past this table repeats biomes rather than falling off the end.
+const BIOMES: Array = [
+	{"n": "Ashfall Verge",       "w": Color(0.20, 0.18, 0.19), "a": Color(0.85, 0.55, 0.35), "l": 0.86},
+	{"n": "Verdant Tier",        "w": Color(0.24, 0.34, 0.20), "a": Color(0.80, 0.95, 0.45), "l": 1.12},
+	{"n": "Frostmarch",          "w": Color(0.30, 0.36, 0.44), "a": Color(0.85, 0.95, 1.00), "l": 1.05},
+	{"n": "The Crimson Room",    "w": Color(0.28, 0.10, 0.12), "a": Color(1.00, 0.35, 0.35), "l": 0.80},
+	{"n": "The Sunken Vault",    "w": Color(0.14, 0.15, 0.22), "a": Color(0.55, 0.80, 0.90), "l": 0.68},
+	{"n": "The Emberworks",      "w": Color(0.28, 0.16, 0.10), "a": Color(1.00, 0.60, 0.25), "l": 0.92},
+	{"n": "Glasswood",           "w": Color(0.26, 0.28, 0.32), "a": Color(0.90, 0.85, 1.00), "l": 0.98},
+	{"n": "The Drowned Gallery", "w": Color(0.10, 0.24, 0.26), "a": Color(0.40, 0.90, 0.90), "l": 0.74},
+	{"n": "Stormreach",          "w": Color(0.20, 0.16, 0.32), "a": Color(0.75, 0.70, 1.00), "l": 0.84},
+	{"n": "The Apex",            "w": Color(0.30, 0.28, 0.22), "a": Color(1.00, 0.92, 0.65), "l": 1.18},
+]
+
+
+## The biome row for a floor, wrapping past the end of the table.
+static func biome_for(floor: int) -> Dictionary:
+	if BIOMES.is_empty():
+		return {"n": "surface", "w": Color(0.20, 0.28, 0.22), "a": Color(0, 0, 0, 0), "l": 1.0}
+	var i: int = (maxi(floor, 1) - 1) % BIOMES.size()
+	return BIOMES[i]
+
+
 static func floor_theme(floor: int) -> String:
-	if floor <= 2:
-		return "surface"
-	if floor <= 4:
-		return "underground"
-	return "sky"
+	return String(biome_for(floor)["n"])
 
 
 ## Ambient floor tint for the theme (drives the arena's "which layer" read).
 static func floor_theme_tint(floor: int) -> Color:
-	match floor_theme(floor):
-		"underground":
-			return Color(0.16, 0.13, 0.20)   # dim cavern
-		"sky":
-			return Color(0.22, 0.26, 0.40)   # cold high air
-		_:
-			return Color(0.20, 0.28, 0.22)   # green surface
+	return biome_for(floor)["w"]
+
+
+## The floor's full environment identity. One builder, used by both the authored
+## tower and the synthesized fallback, so a floor cannot look different depending on
+## which of the two produced it.
+static func floor_env(floor: int) -> EnvTheme:
+	var row: Dictionary = biome_for(floor)
+	var e := EnvTheme.new()
+	e.name = String(row["n"])
+	e.wash_tint = row["w"]
+	e.accent_tint = row["a"]
+	e.light = float(row["l"])
+	return e
