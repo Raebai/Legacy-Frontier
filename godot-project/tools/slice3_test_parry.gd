@@ -24,6 +24,8 @@ const TESTS: Array[String] = [
 	"no_window_takes_hit",
 	"reflected_bolt_hits_enemy",
 	"parried_dagger_severs_anchor",
+	"hero_spell_offers_the_parry",
+	"unparried_hero_spell_still_lands",
 ]
 
 var _fails: int = 0
@@ -32,6 +34,7 @@ var _completed: Dictionary = {}
 const HERO_SCENE_PATH: String = "res://scenes/combat/Hero.tscn"
 const PROJ_SCRIPT_PATH: String = "res://scripts/combat/EnemyProjectile.gd"
 const DAGGER_PATH: String = "res://scripts/combat/RiftDagger.gd"
+const SPELL_PATH: String = "res://scripts/combat/Spell.gd"
 const ROGUE: int = 1  # Hero.HeroClass.ROGUE
 const MAGE: int = 0   # Hero.HeroClass.MAGE
 
@@ -57,6 +60,8 @@ func _process(_delta: float) -> bool:
 	_test_no_window_takes_hit()
 	_test_reflected_bolt_hits_enemy()
 	_test_parried_dagger_severs_anchor()
+	_test_hero_spell_offers_the_parry()
+	_test_unparried_hero_spell_still_lands()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -98,6 +103,55 @@ func _make_proj(pos: Vector2) -> Node2D:
 	proj.global_position = pos
 	proj.launch(Vector2.RIGHT)
 	return proj
+
+
+## HERO-VS-HERO. A hero's bolt is a `Spell`, not an `EnemyProjectile`, and `Spell`
+## never offered `try_parry` — so in every duel the game ships (VersusArena /
+## BotMatch / FreePlay, all of which spawn nothing but heroes) the parry could
+## negate a hit but never turn it. Eight of nine classes could not counter a bolt.
+##
+## Asserts the COUNTER, not merely the absence of damage: "hero took no damage" was
+## already true before the fix via the take_damage negation, so a test that stopped
+## there would have passed against the bug.
+func _test_hero_spell_offers_the_parry() -> void:
+	var victim: CharacterBody2D = _make_hero(ROGUE, Vector2(6000, 6000))
+	var full_hp: int = victim.hp
+	victim._try_parry_start()
+	_expect(victim.is_parrying(), "victim's parry window opens")
+	var spell: Node2D = (load(SPELL_PATH) as GDScript).new()
+	root.add_child(spell)
+	spell.global_position = victim.global_position
+	spell.hostile_group = &"hero"
+	spell.launch(Vector2.RIGHT)
+	# Past REFLECT_GRACE (0.06 s): a bolt cannot be turned the frame it spawns, so a
+	# freshly-constructed one would refuse the reflect for a reason that has nothing
+	# to do with the hook under test. A bolt that reached a victim has flown.
+	spell._age = 1.0
+	spell._damage_hero(victim)
+	_expect(victim.hp == full_hp, "parried hero bolt deals no damage")
+	_expect(spell._reflected, "THE COUNTER: a parried hero bolt is turned back")
+	_expect(not victim.is_parrying(), "window consumed by the reflect")
+	_completes("hero_spell_offers_the_parry")
+
+
+## The other half — without a window the bolt must still connect, so the hook above
+## cannot have made heroes immune to each other.
+func _test_unparried_hero_spell_still_lands() -> void:
+	var victim: CharacterBody2D = _make_hero(ROGUE, Vector2(7000, 7000))
+	var full_hp: int = victim.hp
+	var spell: Node2D = (load(SPELL_PATH) as GDScript).new()
+	root.add_child(spell)
+	spell.global_position = victim.global_position
+	spell.hostile_group = &"hero"
+	spell.launch(Vector2.RIGHT)
+	# Past REFLECT_GRACE (0.06 s): a bolt cannot be turned the frame it spawns, so a
+	# freshly-constructed one would refuse the reflect for a reason that has nothing
+	# to do with the hook under test. A bolt that reached a victim has flown.
+	spell._age = 1.0
+	spell._damage_hero(victim)
+	_expect(not spell._reflected, "no window -> the bolt is not turned")
+	_expect(victim.hp < full_hp, "no window -> the hero takes the hit")
+	_completes("unparried_hero_spell_still_lands")
 
 
 func _test_rogue_parry_reflects() -> void:

@@ -527,6 +527,27 @@ func _damage_hero(node: Node) -> void:
 		or (session and hostile_group == &"enemy")
 	if not allowed:
 		return
+	# THE HERO-VS-HERO PARRY HOOK, AND IT HAD NEVER BEEN HERE.
+	#
+	# `EnemyProjectile._check_hit` has always offered the victim a parry before
+	# resolving damage — but an ENEMY's shot is an `EnemyProjectile` and a HERO's
+	# shot is a `Spell`, and `Spell` never asked. Every hero-only mode
+	# (VersusArena / BotMatch / FreePlay) spawns nothing but heroes, so
+	# `Hero.try_parry` — and with it the reflect, the reward beat and the deflect
+	# counter — was unreachable in every duel the game ships.
+	#
+	# The symptom was one class deep: the Swordsaint could still turn a bolt,
+	# because `_guard_deflect_sweep` scans the `deflectable_spell` group directly.
+	# The other EIGHT classes press a parry window that negates the hit
+	# (Hero.take_damage) but can never send it back. 1 of 9 could counter.
+	#
+	# `_reflected` guards a second press on an already-turned bolt, matching the
+	# reasoning in RiftDagger. `Spell.reflect()` clears `caster`, and the
+	# `_reflected` clause in the permission ladder above already lets a turned bolt
+	# hit anyone including the original thrower — so the counter lands with no
+	# group juggling.
+	if not _reflected and node.has_method("try_parry") and node.try_parry(self):
+		return
 	if session:
 		_dead = true
 		netmgr.deal_damage(node, damage)
