@@ -73,7 +73,16 @@ func _fresh_world(zoom: float, cam_at: Vector2) -> void:
 	cam.position = cam_at
 	_world.add_child(cam)
 	cam.make_current()
+	# ⚠ A PHYSICS FRAME, NOT JUST AN IDLE ONE — and this is the difference between
+	# an instrument and a liar. `CharacterRig._update_ground_probe` raycasts for the
+	# floor every frame, and the foot clamp that keeps a stride ON the ground is
+	# skipped entirely when that ray finds nothing. A StaticBody2D added during an
+	# idle frame is not in the physics space yet, so awaiting only `process_frame`
+	# meant the floor built here did not exist as far as the ray was concerned: the
+	# rig walked with clamping disabled and the capture showed feet sinking through
+	# a floor it could see but not feel.
 	await process_frame
+	await physics_frame
 
 
 func _make_rig(x: float, preset: String = "") -> Node2D:

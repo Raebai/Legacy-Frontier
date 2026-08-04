@@ -28,6 +28,7 @@ func _process(_delta: float) -> bool:
 
 	_test_gait_seeds_and_locks()
 	_test_gait_reads_as_a_stride()
+	_test_a_planted_foot_can_reach_the_ground()
 	_test_gait_steps_and_signals()
 	_test_gait_disabled_when_airborne()
 	_test_gear_hitbox_contract()
@@ -37,7 +38,7 @@ func _process(_delta: float) -> bool:
 	# Completion sentinels: a test that died half-way never sets its own flag, so a
 	# crash inside one can't be mistaken for a clean run.
 	const EXPECTED: Array[String] = [
-		"seeds_and_locks", "reads_as_a_stride", "steps_and_signals", "airborne",
+		"seeds_and_locks", "reads_as_a_stride", "foot_can_reach", "steps_and_signals", "airborne",
 		"gear_hitbox", "gear_registry", "public_surface",
 	]
 	for key: String in EXPECTED:
@@ -342,3 +343,69 @@ class _PlantCounter:
 
 	func on_plant() -> void:
 		count += 1
+
+
+## ⚠ A PLANTED FOOT MUST BE SOMEWHERE THE LEG CAN ACTUALLY REACH.
+##
+## Maker, looking at a walk capture: "why are their legs lagging in that weird way".
+## It was arithmetic. A support foot is ON THE FLOOR, so the leg spends its whole
+## standing length (LEG_LEN_FACTOR) covering the hip height before any of it is
+## available for trailing behind. The stride dip buys back at most
+## MAX_STRIDE_DIP_FACTOR. What is left is the horizontal ceiling:
+##
+##     sqrt(rest^2 - (rest - dip)^2)
+##
+## `MAX_TRAIL_FACTOR` was AUTHORED at 0.34 against a ceiling of 0.222, so at run
+## speed the leash held a foot down half again further than the leg could span. The
+## IK then straightens the leg and points it at a plant it cannot touch — a rigid
+## limb raked out behind the body. It is now DERIVED from the same three numbers.
+##
+## This asserts the RELATION, not the value: retune the leg, the stand height or the
+## dip and the ceiling moves with them, and nothing here has to be edited.
+func _test_a_planted_foot_can_reach_the_ground() -> void:
+	var rig: Node2D = _make_rig()
+	var RigT: GDScript = load(RIG_PATH) as GDScript
+	var rest: float = float(RigT.get("LEG_LEN_FACTOR"))
+	var dip: float = float(RigT.get("MAX_STRIDE_DIP_FACTOR"))
+	var ceiling: float = sqrt(maxf(rest * rest - (rest - dip) * (rest - dip), 0.0))
+	_expect(ceiling > 0.0, "the leg has SOME horizontal budget with a foot down")
+	_expect(float(RigT.get("MAX_TRAIL_FACTOR")) <= ceiling + 0.0001,
+		"the trail leash (%.3f) is inside what the leg can span (%.3f)"
+			% [float(RigT.get("MAX_TRAIL_FACTOR")), ceiling])
+	_expect(float(RigT.get("STEP_TRIGGER_FACTOR")) <= ceiling + 0.0001,
+		"...and so is the step trigger (%.3f)" % float(RigT.get("STEP_TRIGGER_FACTOR")))
+	# MEASURED, not just declared: run the thing and watch every support plant.
+	var h: float = float(rig.get("height"))
+	rig.call("play", 1)   # State.RUN
+	_drive(rig, 20, 1.0 / 60.0, 180.0)
+	var worst: float = 0.0
+	var samples: int = 0
+	for i: int in 90:
+		_drive(rig, 1, 1.0 / 60.0, 180.0)
+		var swing: int = int(rig.get("_swing_foot"))
+		var plants: Array = rig.get("_plant_w")
+		for f: int in 2:
+			if f == swing and float(rig.get("_swing_t")) < 1.0:
+				continue   # a lifted foot is allowed to be anywhere; its arc raises it
+			worst = maxf(worst, absf((plants[f] as Vector2).x - rig.position.x))
+			samples += 1
+	# An invariant that is trivially true of an empty sample set is not an invariant.
+	_expect(samples > 50, "actually sampled some support plants (got %d)" % samples)
+	# ⚠ THE MEASURED BOUND IS THE STATIC CEILING PLUS A MID-SWING ALLOWANCE, and
+	# the allowance is not fudge. The step trigger cannot fire while a foot is
+	# already swinging (`_swing_t >= 1.0` gates it), so the support foot keeps
+	# trailing for the rest of that swing. At Hero speed on a 31 px figure the rig is
+	# genuinely AT its geometric limit — which this file already says out loud:
+	# "Something with legs that short going that fast cannot take longer strides — it
+	# runs out of leg". Demanding the static ceiling here would be demanding the
+	# figure stop running.
+	#
+	# 1.25x still catches the bug this test was written for: with MAX_TRAIL_FACTOR
+	# authored at 0.34 the worst trail was past this bound, and the CONSTANT check
+	# above fails outright.
+	var allow: float = h * ceiling * 1.25
+	_expect(worst <= allow,
+		"no support foot trailed absurdly past the leg's reach (worst %.2f px, allow %.2f)"
+			% [worst, allow])
+	rig.free()
+	_done["foot_can_reach"] = true

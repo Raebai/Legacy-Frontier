@@ -286,7 +286,31 @@ const STEP_REACH_FACTOR: float = 0.18
 ## up to what the leg can span and the cadence stays flat until that ceiling, then
 ## creeps. That is the correct shape; it is only the old law's UNBOUNDED cadence with a
 ## FROZEN stride that read as a buzz.
-const MAX_TRAIL_FACTOR: float = 0.34
+## ⚠ DERIVED, NOT AUTHORED — and it was authored at 0.34, which is further than the
+## leg can physically span. THIS IS THE "why are their legs lagging in that weird
+## way" BUG, and it is arithmetic rather than feel.
+##
+## A support foot is on the FLOOR, so the leg has to cover the hip's full standing
+## height (`LEG_LEN_FACTOR`, 0.519 h) vertically before a single pixel of it is
+## available for trailing behind. The stride dip buys some of that height back, but
+## only up to `MAX_STRIDE_DIP_FACTOR` (0.05 h). So the real horizontal ceiling is
+##
+##     sqrt(reach^2 - (rest_height - max_dip)^2)
+##   = sqrt(0.519^2 - 0.469^2)  =  0.222 h
+##
+## At 0.34 the leash let the support foot trail HALF AGAIN further than the leg
+## could reach. The IK then does the only thing left to it: straightens the leg to
+## full extension and points it at a plant it cannot touch — a rigid limb raked out
+## behind the body, dragging. That is the exact silhouette in `rigleg_walk_*.png`.
+##
+## `STEP_TRIGGER_FACTOR` (0.20) was always inside this ceiling, which is why a slow
+## walk looked better than a run: the trigger governs at low speed and only the
+## LEASH governs once the swing rate saturates. Deriving it means the two can never
+## disagree again — the same reason `LEG_LEN_FACTOR` and `HIP_Y_FACTOR` are derived.
+const MAX_TRAIL_FACTOR: float = sqrt(
+	LEG_LEN_FACTOR * LEG_LEN_FACTOR
+	- (LEG_LEN_FACTOR - MAX_STRIDE_DIP_FACTOR) * (LEG_LEN_FACTOR - MAX_STRIDE_DIP_FACTOR)
+)
 ## Below this world speed (px/s) the figure is idle: feet stop stepping and ease
 ## back under the hips so a standing fighter SETTLES instead of marching on the spot.
 const GAIT_IDLE_SPEED: float = 14.0
