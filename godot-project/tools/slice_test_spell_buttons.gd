@@ -187,6 +187,9 @@ func _test_button_casts_its_own_slot() -> void:
 	_expect(int(hero.get("_signature_index")) == last,
 		"the selection followed the button that was pressed")
 	# ...and the FIRST slot still fires afterwards, on its own clock.
+	# Two casts in one frame: skip the global gap so this stays a question about
+	# WHICH SLOT the button chose, not about the pacing lockout.
+	hero.set("_cast_lockout", 0.0)
 	_expect(bool(hero.call("cast_signature_slot", 0)), "slot 0 fires next")
 	_expect(not bool(hero.call("signature_ready", 0)), "slot 0 went on its own cooldown")
 	hero.queue_free()
@@ -264,6 +267,12 @@ func _test_buffer_holds() -> void:
 		"...and the press is HELD rather than thrown away")
 	# The slot opens. The very next attempt must spend the buffer.
 	hand.clear_cooldowns()
+	# The global cast gap is cleared with the slot bank, and that is faithful
+	# rather than convenient: `GLOBAL_CAST_LOCKOUT` is 0.35 s and the shortest
+	# cooldown is 3.4 s, so in real play the gap has ALWAYS expired by the time a
+	# slot reopens. `clear_cooldowns()` teleports the bank to ready without
+	# advancing any clock, which is the only reason it would still be armed here.
+	hero.set("_cast_lockout", 0.0)
 	hero.call("_try_fire_buffered")
 	_expect(not bool(hero.call("signature_ready", 0)),
 		"the moment the slot opened, the held press fired it")
@@ -301,6 +310,12 @@ func _test_held_repeats() -> void:
 	_expect(bool(hero.get("_buffer_from_hold")), "...and is still flagged as a hold")
 	# ...and fires on recovery, which is the repeat.
 	hand.clear_cooldowns()
+	# The global cast gap is cleared with the slot bank, and that is faithful
+	# rather than convenient: `GLOBAL_CAST_LOCKOUT` is 0.35 s and the shortest
+	# cooldown is 3.4 s, so in real play the gap has ALWAYS expired by the time a
+	# slot reopens. `clear_cooldowns()` teleports the bank to ready without
+	# advancing any clock, which is the only reason it would still be armed here.
+	hero.set("_cast_lockout", 0.0)
 	hero.call("_try_fire_buffered")
 	_expect(not bool(hero.call("signature_ready", 0)),
 		"a held button re-fires the moment the slot comes back")
@@ -370,6 +385,12 @@ func _test_ready_flash() -> void:
 		"going ON cooldown does not flash")
 	# ...and back up.
 	hand.clear_cooldowns()
+	# The global cast gap is cleared with the slot bank, and that is faithful
+	# rather than convenient: `GLOBAL_CAST_LOCKOUT` is 0.35 s and the shortest
+	# cooldown is 3.4 s, so in real play the gap has ALWAYS expired by the time a
+	# slot reopens. `clear_cooldowns()` teleports the bank to ready without
+	# advancing any clock, which is the only reason it would still be armed here.
+	hero.set("_cast_lockout", 0.0)
 	hero.call("_tick_ready_pulse", 0.0)
 	_expect(float(hero.call("spell_button_state", 0)["pulse"]) > 0.9,
 		"the slot flashes on the frame it becomes ready")

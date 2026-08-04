@@ -45,6 +45,28 @@ extends Resource
 ## a 100%-damage fighter still takes 2x whatever this knob says.
 ## UNTESTED GUESS. If it now reads floaty rather than punchy, come back HERE first.
 @export var knockback_mult: float = 1.0
+## ⚠ SPELL PACING — three knobs, applied when a cooldown STARTS, never to the data.
+##
+## Maker: "maybe we change the cooldown times for all spells make them longer
+## depending on the spell as it feels a little too chaotic right now".
+##
+## THE REASON THESE ARE MULTIPLIERS AND NOT EDITED `SpellDef.cooldown` VALUES:
+## `SpellTier.of()` DERIVES a spell's tier from its cooldown — `cooldown >=
+## ULT_COOLDOWN (7.0)` reads as ULT. The heavies sit at 6.0-6.9, so scaling the
+## data by 1.35 would push every one of them over that line, turning them all into
+## ults, and `slot_accepts_ult` would then reject the hands they belong to. The
+## whole loadout system would reshuffle to buy a longer timer.
+##
+## So `Hero._cast_signature` multiplies at `start_cooldown` instead. The stored
+## cooldown — and therefore the tier, the slot rules and every pinned test — is
+## untouched, and these are live knobs on the F1 Director.
+##
+## Quick and heavy carry the increase because they are what chain into a smear.
+## Ults are already 12-26 s and are left alone; making the payoff rarer was never
+## the ask.
+@export var cd_mult_quick: float = 1.35
+@export var cd_mult_heavy: float = 1.35
+@export var cd_mult_ult: float = 1.0
 @export var pct_per_damage: float = 0.8  # SANDBOX Smash model (GameState.ringout_mode): % gained per point of incoming damage. Single source of truth for Hero + Enemy so they can't silently diverge on retune; ~0.8 keeps a typical 12-28 dmg hit in the single-to-low-double-digit % range
 @export var hit_stop_enabled: bool = true  # accessibility: off = no time-freeze on hits
 ## AIM ASSIST STRENGTH, 0..1. **DEFAULTS TO 0, AND 0 IS LITERALLY INERT** — at zero

@@ -409,6 +409,23 @@ const SPELL_BUFFER_TIME: float = 0.22
 ## How the buffer encodes a spell slot. `#` so it can never collide with a plain
 ## action name if one is ever added that starts with "spell".
 const SPELL_BUFFER_PREFIX: String = "spell#"
+## ⚠ THE GAP BETWEEN SPELLS. Maker, on the current feel: "it feels a little too
+## chaotic right now… back to back effects".
+##
+## Casting DURING a cast was never possible — a windup cannot be cancelled, and
+## `_physics_process` early-returns through `_process_channel`/`_process_summon`.
+## What produced back-to-back effects is that a press made during a windup was
+## BUFFERED and fired on the very frame the windup ended, so two spectacles landed
+## with no readable gap between them.
+##
+## Two changes answer it, and this constant is the second half: after a cast
+## resolves, every kit slot is refused for this long. Per-slot cooldowns cannot do
+## this job — they are per-slot by design, so three ready slots still chain.
+##
+## Tuned as the shortest gap that reads as two separate events rather than one
+## smear. It is deliberately SHORTER than the shortest windup, so it never becomes
+## the thing you are waiting on when playing one spell at a time.
+const GLOBAL_CAST_LOCKOUT: float = 0.35
 ## Aim-stick deadzone: how far the AIM stick (right thumb on touch, `aim_*` actions)
 ## must be pushed before it re-points the aim. Below this the last aim is HELD, so
 ## lifting the thumb to tap an ability doesn't fling the shot somewhere random.
@@ -814,6 +831,8 @@ var _melee_cd: float = MELEE_COOLDOWN     # per-class swing cadence (Brawler fas
 var _melee_arc_dot: float = MELEE_ARC_DOT # per-class arc width (Juggernaut swings wide)
 var _buffered_action: String = ""
 var _buffer_timer: float = 0.0
+## Seconds until any kit slot may be cast again. See GLOBAL_CAST_LOCKOUT.
+var _cast_lockout: float = 0.0
 ## True when the buffered entry came from a HELD button rather than a fresh press.
 ## Only the spell buttons can produce one (hold = repeat-cast), and it is what stops
 ## a held button from firing the Rift Dagger's free RECALL beat the instant the throw
@@ -1228,6 +1247,30 @@ func _tune(key: String, fallback: float) -> float:
 	return fallback
 
 
+## How much longer this spell's reuse timer runs than its authored `cooldown`.
+##
+## ⚠ APPLIED AT `start_cooldown`, NEVER TO `SpellDef.cooldown` ITSELF, and that is
+## load-bearing rather than stylistic: `SpellTier.of()` DERIVES a spell's tier from
+## its cooldown (`cooldown >= ULT_COOLDOWN`, 7.0). The heavies sit at 6.0-6.9, so
+## scaling the stored value by 1.35 would push every one of them past that line,
+## classify them all as ults, and then `slot_accepts_ult` would reject the very
+## hands they belong to. The entire loadout system would reshuffle to buy a longer
+## timer. Scaling the TIMER leaves the data, the tier and every pinned test alone.
+##
+## Quick and heavy carry the increase because they are what chain into a smear;
+## ults are already 12-26 s and making the payoff rarer was never the ask.
+func cooldown_mult_for(spell: SpellDef) -> float:
+	if spell == null:
+		return 1.0
+	match SpellTier.of(spell):
+		SpellTier.Tier.ULT:
+			return maxf(_tune("cd_mult_ult", 1.0), 0.0)
+		SpellTier.Tier.QUICK:
+			return maxf(_tune("cd_mult_quick", 1.35), 0.0)
+		_:
+			return maxf(_tune("cd_mult_heavy", 1.35), 0.0)
+
+
 ## THE THREE SPELL BUTTONS MUST COVER THE WHOLE HAND. A kit that grew to four slots
 ## with three bound actions would leave slot 4 castable only through the demoted
 ## cycle key — silently, with a hotbar that draws it and a button that never reaches
@@ -1566,6 +1609,10 @@ func _physics_process(delta: float) -> void:
 	# Every kit slot recovers independently, and they all recover WHILE you are
 	# committed to something else — same reasoning as the guard ring above.
 	_hand.tick(delta)
+	# The global gap between spells recovers on the same clock as the per-slot banks
+	# — scaled delta — so a hit-stop stretches all of them together rather than
+	# letting the lockout expire inside a freeze the cooldowns sat through.
+	_cast_lockout = maxf(_cast_lockout - delta, 0.0)
 	# ...and so does the input buffer, for the same reason: a press queued a moment
 	# before a channel started must not be sitting there when the channel ends.
 	_age_input_buffer(delta)
@@ -1912,6 +1959,20 @@ func _update_input_buffer(_delta: float) -> void:
 	for action: StringName in BUFFERED_ACTIONS:
 		if _just(action):
 			_latch_buffer(String(action), BUFFER_TIME, false)
+	# ⚠ SPELLS DO NOT QUEUE DURING A CAST — and MOVEMENT STILL DOES, which is the
+	# whole point of the split. The loop above (melee/dash/blast) is untouched.
+	#
+	# The buffer's own rationale is sound and is preserved: a press must not be
+	# "silently thrown away" at the most committed moment in the game. But applying
+	# it to SPELLS meant a press made mid-windup fired on the exact frame the windup
+	# ended, so two spectacles landed with no gap — the maker's "back to back
+	# effects". Queuing a DASH out of a cast is expressive; queuing the next spell
+	# is just holding the button down and watching.
+	#
+	# So during a windup the spell buttons stop latching. You may still dash, still
+	# swing, still blast the instant the cast lets go.
+	if _channeling or _summoning:
+		return
 	# THE THREE SPELL BUTTONS. A press latches; a HELD button re-latches once the
 	# buffer has been spent, which is what makes holding one repeat-cast the moment
 	# the slot comes back instead of sitting there doing nothing. A fresh press of a
@@ -2319,6 +2380,14 @@ func _cast_signature() -> void:
 	if spell.kind == SpellDef.Kind.THROWN_ANCHOR \
 			and (load(RIFT_DAGGER_PATH) as GDScript).try_recall(get_tree(), self):
 		return
+	# THE GLOBAL GAP. Sits BELOW the recall branch on purpose — a dagger recall is
+	# free by design and is the second half of a throw you already paid for, not a
+	# new spell. Sits ABOVE the per-slot bank because it is a different question:
+	# the bank asks "has THIS slot recovered", and three recovered slots still chain
+	# into one smear without this. See GLOBAL_CAST_LOCKOUT.
+	if _cast_lockout > 0.0:
+		rig.flash_color(Color(0.5, 0.5, 0.6), 0.08)
+		return
 	var slot: int = _hand_slot(_signature_index)
 	if not _hand.is_ready(slot):
 		# THIS slot is still recovering. A different slot may well be ready, which is
@@ -2326,7 +2395,11 @@ func _cast_signature() -> void:
 		rig.flash_color(Color(0.5, 0.5, 0.6), 0.08)
 		Sfx.play("melee_swing", -14.0, 0.0)
 		return
-	_hand.start_cooldown(slot, spell.cooldown)
+	_hand.start_cooldown(slot, spell.cooldown * cooldown_mult_for(spell))
+	# Armed at COMMIT so an instant signature (one that never opens a windup) is
+	# covered; `_end_summon`/`_end_channel` re-arm it so for everything else the gap
+	# is measured from when the effect LANDS, not from the button press.
+	_cast_lockout = GLOBAL_CAST_LOCKOUT
 	# Sky spells (meteor / divine row) raise the staff UP and place from the hero;
 	# beams emanate FROM the staff tip toward the aim.
 	var sky: bool = spell.kind == SpellDef.Kind.METEOR or spell.kind == SpellDef.Kind.DIVINE_RAY \
@@ -2537,6 +2610,11 @@ func _finish_summon() -> void:
 func _end_summon(handoff: bool = false) -> void:
 	_summoning = false
 	_summon_spell = null
+	# Re-armed so the gap runs from where the effect LANDS. `handoff` false means the
+	# windup was SHATTERED rather than spent — there is no spectacle to separate, and
+	# a player who just got hit out of a cast should be able to answer immediately.
+	# Being interrupted is the punishment; it must not also be a lockout.
+	_cast_lockout = GLOBAL_CAST_LOCKOUT if handoff else 0.0
 	if _summon_lift != 0.0:
 		global_position.y = _summon_base_y
 		_summon_lift = 0.0
@@ -2693,6 +2771,8 @@ func _cancel_channel() -> void:
 func _end_channel(handoff: bool = false) -> void:
 	_channeling = false
 	_channel_spell = null
+	# Same rule as `_end_summon`: the gap follows a spectacle, not an interruption.
+	_cast_lockout = GLOBAL_CAST_LOCKOUT if handoff else 0.0
 	if is_instance_valid(rig):
 		rig.set_airborne(false)
 	if handoff:

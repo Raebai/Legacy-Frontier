@@ -40,9 +40,15 @@ func _process(_delta: float) -> bool:
 		for i: int in sigs.size():
 			var spell = sigs[i]
 			# Reset per-cast state so mana + cooldown never block the cast.
+			# `_cast_lockout` joins that list for the same reason: this loop fires
+			# every signature of every class in ONE frame, and the global gap
+			# (Hero.GLOBAL_CAST_LOCKOUT) refuses every cast after the first. The
+			# question here is "does an instant signature open a windup", which the
+			# gap has nothing to do with.
 			hero.set("_signature_index", i)
 			hero.set("mp", float(hero.get("max_mp")))
 			hero.set("_signature_cd_timer", 0.0)
+			hero.set("_cast_lockout", 0.0)
 			hero.set("_summoning", false)
 			hero.set("_channeling", false)
 			var label: String = "class %d sig %d (kind %d)" % [cls, i, int(spell.kind)]

@@ -28,6 +28,7 @@ const TESTS: Array[String] = [
 	"mp_cost_still_drives_tier",
 	"hud_and_bots_read_the_same_bank",
 	"loadout_bar_can_draw_the_sweep",
+	"the_global_gap_refuses_every_slot",
 ]
 
 var _fails: int = 0
@@ -45,6 +46,7 @@ func _process(_delta: float) -> bool:
 	_test_slot_recovers()
 	_test_class_swap_clears()
 	_test_no_mana_gate()
+	_test_the_global_gap_refuses_every_slot()
 	_test_mp_cost_still_drives_tier()
 	_test_hud_and_bots()
 	_test_loadout_bar_sweep()
@@ -78,7 +80,17 @@ func _make_hero() -> CharacterBody2D:
 
 
 ## Select signature slot `i` and press the ultimate key's code path.
+## ⚠ CLEARS `_cast_lockout` FIRST, and every test here depends on that.
+##
+## `Hero.GLOBAL_CAST_LOCKOUT` refuses ALL slots for a moment after any cast, so a
+## suite that fires two casts in the same frame is now testing the lockout rather
+## than the thing it means to test. A player waits out that gap without noticing;
+## these tests skip it explicitly so "are the SLOTS independent" stays a question
+## about the per-slot bank.
+##
+## The lockout has its own test — `_test_the_global_gap_refuses_every_slot`.
 func _cast_slot(hero: CharacterBody2D, i: int) -> void:
+	hero.set("_cast_lockout", 0.0)
 	hero.call("bot_select_signature", i)
 	hero.call("_cast_signature")
 
@@ -126,8 +138,16 @@ func _test_slot_recovers() -> void:
 		return
 	_cast_slot(hero, 0)
 	var cd0: float = float(hero.call("signature_cooldown", 0))
-	_expect(is_equal_approx(cd0, float((kit[0] as SpellDef).cooldown)),
-		"slot 0's cooldown is that SPELL's cooldown, not a shared constant (%.2f)" % cd0)
+	# The reuse timer is the spell's own cooldown SCALED by its tier multiplier
+	# (Hero.cooldown_mult_for). The multiplier is applied here rather than to
+	# `SpellDef.cooldown` because SpellTier DERIVES the tier from that field — see
+	# the ⚠ on `cooldown_mult_for`. The claim under test is unchanged: this slot
+	# carries THIS spell's duration, not one shared constant.
+	var want0: float = float((kit[0] as SpellDef).cooldown) \
+		* float(hero.call("cooldown_mult_for", kit[0]))
+	_expect(is_equal_approx(cd0, want0),
+		"slot 0's cooldown is that SPELL's cooldown, not a shared constant (%.2f vs %.2f)"
+			% [cd0, want0])
 	var hand: HandSlots = hero.get("_hand") as HandSlots
 	_expect(hand != null, "the hero owns a HandSlots bank")
 	if hand == null:
@@ -162,6 +182,37 @@ func _test_class_swap_clears() -> void:
 
 # --------------------------------------------------------- 4+5. the mana gate
 ## Spec: "Cooldowns, not mana." Drain the pool to zero and every slot still fires.
+## THE GAP BETWEEN SPELLS — the other half of the per-slot bank, and deliberately in
+## tension with it. The bank exists so a jab does not lock the ult; the gap exists so
+## three ready slots cannot be emptied into one smear. Maker: "back to back effects".
+##
+## Note this asserts the exact thing `_test_slots_are_independent` used to prove was
+## possible IN THE SAME FRAME. Both are true now: a different slot is READY (the bank
+## did its job) and still cannot FIRE yet (the gap did its job).
+func _test_the_global_gap_refuses_every_slot() -> void:
+	var hero: CharacterBody2D = _make_hero()
+	hero.configure_class(0)
+	var kit: Array = hero.get("_signatures")
+	if kit.size() < 2:
+		hero.queue_free()
+		return  # deliberately NOT completed — the missing sentinel fails the suite
+	_cast_slot(hero, 0)
+	_expect(float(hero.get("_cast_lockout")) > 0.0, "a cast arms the global gap")
+	# Slot 1 is READY — the bank is untouched — but must not fire inside the gap.
+	_expect(hero.call("signature_ready", 1), "a different slot still reports READY")
+	hero.call("bot_select_signature", 1)
+	hero.call("_cast_signature")
+	_expect(hero.call("signature_ready", 1),
+		"THE GAP: a ready second slot does NOT fire inside the lockout")
+	# ...and once the gap elapses it fires normally, so this is a pause not a lock.
+	hero.set("_cast_lockout", 0.0)
+	hero.call("_cast_signature")
+	_expect(not hero.call("signature_ready", 1),
+		"...and the same press lands the moment the gap is over")
+	hero.queue_free()
+	_completes("the_global_gap_refuses_every_slot")
+
+
 func _test_no_mana_gate() -> void:
 	var hero: CharacterBody2D = _make_hero()
 	hero.configure_class(0)
