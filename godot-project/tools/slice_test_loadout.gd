@@ -215,8 +215,33 @@ func _test_head_body_and_melee_effects() -> void:
 		_expect(is_equal_approx(guard.oneshot_fraction, 0.4), "robe -> ward 0.4")
 	hero.set_loadout("head", "hood")
 	_expect(is_equal_approx(float(hero._gear_speed_mult), 1.12), "hood -> speed x1.12")
-	_expect(int(hero.max_hp) == base_hp,
-		"hood replaced hat -> max_hp back to the class base (%d)" % base_hp)
+	# ⚠ THE POINT OF THIS ASSERTION IS IDEMPOTENCE, NOT THE NUMBER. It exists to
+	# prove a swap RE-BASES off the class table instead of compounding on whatever
+	# the last piece left behind — and it read `== base_hp` only because `hood` used
+	# to touch nothing but speed. It pays -6% max HP now (every piece pays something
+	# as of 2026-08-04), so the honest expectation is the class base times the hood's
+	# own multiplier, and it is DERIVED from the table so a retune cannot make this
+	# test lie in either direction.
+	#
+	# The compounding bug it guards against would show as hat x hood (1.12 x 0.94)
+	# rather than hood alone, which this still catches.
+	# ⚠ THE ROBE IS STILL IN THE BODY SLOT (set eight lines up) AND IT ALSO COSTS
+	# max HP now. My first pass at this expectation forgot that and asserted the hood
+	# alone — which is the same class of mistake the assertion is guarding against,
+	# just made by the test instead of the code. The whole equipped BAG is what
+	# composes, so the whole bag is what the expectation multiplies.
+	var hood_hp: float = float(GearAbilities.effect("hood").get("max_hp", 1.0))
+	var robe_hp: float = float(GearAbilities.effect("robe").get("max_hp", 1.0))
+	var expect_hp: int = maxi(int(round(float(base_hp) * hood_hp * robe_hp)), 1)
+	_expect(int(hero.max_hp) == expect_hp,
+		"hood replaced hat -> max_hp re-based off the CLASS base, not compounded (%d, base %d)"
+			% [expect_hp, base_hp])
+	_expect(hood_hp < 1.0, "...and the hood genuinely costs max HP, or the check above is vacuous")
+	# The compounding bug this guards against would leave the HAT's +12% in the
+	# product. Asserted explicitly so the claim in the comment is actually tested.
+	var hat_hp: float = float(GearAbilities.effect("hat").get("max_hp", 1.0))
+	_expect(int(hero.max_hp) != maxi(int(round(float(base_hp) * hat_hp * hood_hp * robe_hp)), 1),
+		"...and the replaced HAT is gone from the product, not compounded into it")
 	hero.set_loadout("weapon", "hammer")
 	_expect(is_equal_approx(float(hero._melee_knockback), base_kb * 1.4),
 		"hammer -> +40% knockback from base")

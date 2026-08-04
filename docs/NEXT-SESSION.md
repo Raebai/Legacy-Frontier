@@ -1,3 +1,61 @@
+# RESUME HERE — 2026-08-04 (c)
+
+**The game is ASHPIRE.** (Maker dropped the s: it carries *aspire*, which for a
+game about climbing is the better word.)
+
+**Branch `bot-fight-quality`. 149/149 green, tree clean, working tree now LF.**
+
+## ⚠ RENAMING THE APP MOVED YOUR SAVE. IT IS MIGRATED — READ THIS ANYWAY.
+
+Godot derives `user://` from `config/name`, so "Legacy Frontier" -> "Ashpire"
+silently pointed the game at an EMPTY user directory. Your climb (floor 10, tower
+conquered), the playtest notes, `logs/`, `clips/`, `npc_memory/` and every capture
+lived in the old one.
+
+**Already done:** `climber.json`, the three playtest-notes files and the four
+durable directories were copied to
+`%APPDATA%/Godot/app_userdata/Ashpire/`. The old `Legacy Frontier/` folder is
+**left in place, untouched**, as the backup — delete it only when you are happy.
+The ~500 capture PNGs were NOT copied; they regenerate.
+
+⚠ **If the name is ever changed again, this happens again.** There is no code
+migration — writing a cross-app-directory one for a single player is not worth it,
+but forgetting the hazard is.
+
+## ▶ WHAT IS LEFT FOR THE MAKER
+
+Three things, and all three are things only you can do:
+
+1. **PLAYTEST.** Nothing below has been touched by hands.
+2. **LISTEN to the six `.ogg`** and then delete either them or the `.mp3`.
+   Durations verified identical (none truncated); how they SOUND is the open half.
+3. **MUSIC PROVENANCE.** I checked — all six `.mp3` carry **no ID3 tags at all**,
+   so the files cannot say where they came from. Needs your memory. Names are
+   distinctive ("Lord of the Land", "Unexplored Moon"); a search will likely find
+   it. This is the only thing blocking a public release.
+
+Everything else on the old queue is built.
+
+## ▶ WHAT LANDED SINCE (c)
+
+- **GEAR: all ten player pieces now pay a cost.** The dagger finally sheds the
+  damage its own description already claimed it shed — that sentence had been
+  false. "Equip something" is no longer a checklist.
+- **CRLF flip-flop ended.** `.gitattributes` + renormalise; the index was already
+  LF so this was a working-tree fix. Two suites had once gone red for this alone.
+- **`slice_test_xp_flow`** — a new END-TO-END suite. The curve was proven by pure
+  functions; this one PLAYS a floor and asserts a level arrives. It immediately
+  earned its keep by proving the anti-farm purse holds: **110 kills on a 22-body
+  floor bank exactly the floor's kill share, not five times it.**
+- **A guard that stops test runs writing the player's real save.** This bit THREE
+  times in one session — a suite drove `advance_floor()`, which saves, so
+  `climber.json` gained xp, so hero stats changed, so unrelated class-stat suites
+  went red. Fixed at `_save_climber` rather than at each call site: the real
+  autoload is in the tree, a bare `GameState.new()` never is, and a test that
+  genuinely wants the disk passes an explicit path.
+
+---
+
 # RESUME HERE — 2026-08-04 (b)
 
 **The game is now called ASHSPIRE.** Title screen + app name. Already canonical:

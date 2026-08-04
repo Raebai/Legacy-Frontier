@@ -203,3 +203,38 @@ ffmpeg is not installed on this machine.**
 The obligation in §1c is discharged by the in-game **credits screen**
 (`scripts/ui/Credits.gd`), opened from the Lobby. The exact line is pinned by
 `tools/slice_test_shell.gd`, so a future layout tidy cannot silently drop it.
+
+---
+
+## 4. MUSIC — six tracks, provenance UNRESOLVED
+
+⚠ **THIS IS THE ONE THING IN THIS FILE THAT HAS NO ANSWER, AND IT BLOCKS ANY
+PUBLIC RELEASE.** Not a licence problem yet — an unknown. It may well be fine.
+
+`arcadia` · `boss_theme` · `combat_theme` · `for_tomorrow` · `lord_of_the_land`
+· `unexplored_moon`
+
+**Checked 2026-08-04 and found nothing:** all six `.mp3` originals carry **no ID3
+tags of any kind** — no v1, no v2, no title, artist, copyright, publisher or URL.
+The files themselves cannot say where they came from, so this cannot be resolved
+by inspection. It needs the maker to recall the source.
+
+**The exact action:** name where each was downloaded (a pack? a store? a
+composer's site?) and paste the licence text here, the way §1 and §2 do. Track
+titles like "Lord of the Land" and "Unexplored Moon" are distinctive enough that
+a search on the name will very likely find the source.
+
+`assets/audio/music/` is **gitignored**, so nothing here is in the repo — the
+exposure is in the EXPORTED build, not in version control.
+
+### The `.mp3` -> `.ogg` conversion
+
+36.4 MB -> 15.0 MB, generated locally, originals backed up to the gitignored
+`audio-source/raw/music-originals/`. `Music.gd` already prefers the `.ogg`.
+
+**Verified 2026-08-04:** every `.ogg` matches its source duration to within a
+second (97.6 / 236.1 / 218.8 / 218.8 / 186.5 / 344.9 s), so none is truncated and
+none is a failed encode. What is NOT verified is how they SOUND — this is
+lossy-on-lossy. ⚠ **Listen before deleting the six `.mp3`.** If they hold up,
+delete the `.mp3` and the 21.4 MB saving is real; if not, delete the `.ogg` and
+the change is gone completely.

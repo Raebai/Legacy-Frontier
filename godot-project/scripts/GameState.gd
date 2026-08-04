@@ -409,7 +409,15 @@ func net_set_floor(floor: int) -> void:
 
 ## In co-op only the HOST drives the run spine (advance/fall/return + persistence);
 ## clients follow the host's replicated floor. True on a client in a live session.
+## The `is_inside_tree()` guard is the same one `_is_net_host` carries, and for the
+## same reason: an absolute `get_node()` from a node that is not in the tree is an
+## ERROR in Godot, not a null, and the headless suites drive a bare
+## `GameState.new()` on purpose. This one predates the levelling work — it was
+## printing four red lines into every climb-suite run, which is exactly the kind of
+## standing noise that trains people to ignore the error stream.
 func _is_net_client() -> bool:
+	if not is_inside_tree():
+		return false
 	var n: Node = get_node_or_null("/root/Net")
 	return n != null and n.is_active() and not n.is_host()
 
@@ -520,6 +528,29 @@ func _change_scene(path: String) -> void:
 ## Atomic save: write <path>.tmp then rename over the real file, so a crash
 ## mid-write can't corrupt an existing climber.
 func _save_climber(path: String = CLIMBER_PATH) -> void:
+	# ═══════════════════════════════════════════════════════════════════════════
+	# ⚠ A TEST RUN MUST NEVER WRITE THE PLAYER'S REAL SAVE. THIS IS THAT GUARD.
+	# ═══════════════════════════════════════════════════════════════════════════
+	# It bit three times in one session before it was fixed here rather than
+	# patched at each call site:
+	#
+	#   1. A suite drove `advance_floor()` on a bare `GameState.new()`. That saves,
+	#      so the maker's climber.json quietly gained 123 xp.
+	#   2. Hero stats read `power_level()`, so on the NEXT run two class-stat suites
+	#      spawned level-2 heroes and went red — for a reason that had nothing to do
+	#      with the code under test, and that would have gone green again on a fresh
+	#      save while hiding any real regression.
+	#   3. Fixing those, adding a new end-to-end suite, and running it did it AGAIN
+	#      (589 xp), reddening two different suites. At that point it is not a
+	#      mistake anyone is going to stop making; it is a missing guard.
+	#
+	# THE DISCRIMINATOR IS THE TREE. The real autoload is always inside it; a bare
+	# `GameState.new()` — which is precisely what makes the run spine testable
+	# without a scene — never is. A test that genuinely wants to prove the disk
+	# round-trip passes an EXPLICIT path (slice_test_climb does), and saying so is
+	# taken as "I know what I am doing".
+	if path == CLIMBER_PATH and not is_inside_tree():
+		return
 	var payload: Dictionary = build_climber_save(
 		_floor, _highest_floor, _falls, tower_conquered, _live_rank_power(),
 		_xp, unlocked_nodes, unlocked_classes
