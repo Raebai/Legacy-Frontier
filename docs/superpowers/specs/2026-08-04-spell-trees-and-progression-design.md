@@ -174,26 +174,91 @@ ult      [class native]
 
 ---
 
-## 5. Levelling — points buy OPTIONS, stats only season
+## 5. Levelling — ONE currency, and stats that are class character
 
-⚠ **THE TRAP TO AVOID, STATED PLAINLY.** If levels give meaningful stats, floor 1
-becomes boring and floor 20 becomes a stat check you grind for rather than climb
-to. The Tower must stay a test of play. So:
+Maker, correcting an earlier draft of this section: *"by stat points I mean points
+that can be spent in the spell tree and levelling should just improve your stats
+by certain amounts based on the class… different classes different themes
+different stat improvements but its the same number just in different things"*.
 
-| earn | on | spend on |
+That is a better model than the two-budget version this replaces, for a reason
+worth stating: **a player asked to allocate stats will look up the correct answer**
+and then it is not a choice, it is homework. Stats become class CHARACTER —
+automatic, themed, not managed — and the only thing you actually spend is
+attention on the tree.
+
+| a level gives | |
+|---|---|
+| **1 Skill Point** | the ONLY currency. Spent in the spell tree. Nothing else. |
+| **10 Growth** | automatic, distributed by your CLASS. Never chosen. |
+
+### 5.1 Every class gains exactly 10 Growth per level
+
+Same number, different things — the maker's rule, and it is what keeps nine
+classes on one power curve while still feeling nothing like each other. A class
+cannot out-level another; it can only become more itself.
+
+| axis | what it moves | per point |
 |---|---|---|
-| **1 skill point** | every level | spell-tree nodes |
-| **1 stat point** | every **3rd** level | HP / Focus (cooldown) / Swiftness |
+| **VITALITY** | max HP | +0.60% |
+| **POWER** | spell + melee damage | +0.40% |
+| **FOCUS** | cooldown recovery | +0.35% |
+| **SWIFTNESS** | move speed | +0.30% |
+| **WARD** | damage reduction | +0.25% |
 
-**Stats are capped at +25% total across the whole climb** and are freely
-respec-able at the campfire. They are seasoning, not a gate. The BIG axis is
-which spells you can bind; the small axis is how they feel.
+⚠ The per-point values are NOT equal on purpose — a point of speed is worth far
+more in a game about dodging than a point of HP, so they are priced against each
+other rather than printed the same. **Every number in this table is a first pass
+and untuned.**
 
-XP comes from **floors cleared and guardians felled**, not from kills — otherwise
-the optimal play is farming trash on floor 1, which is the opposite of a climb.
+### 5.2 The nine spreads
 
-**This slots into what already persists:** `Rank.power` and `user://climber.json`
-already survive a quit, so level/points/allocations live there with no new save.
+Each row sums to **10**. That is the invariant, and the one a test should pin.
+
+| class | VIT | POW | FOC | SWI | WARD | reads as |
+|---|---|---|---|---|---|---|
+| Arcanist | 1 | 4 | 3 | 2 | 0 | glass zoner — hits hard, recovers fast, dies fast |
+| Shadowblade | 1 | 3 | 2 | 4 | 0 | fastest thing in the tower, made of paper |
+| Brawler | 3 | 4 | 1 | 2 | 0 | walks in and hits you |
+| Juggernaut | 4 | 2 | 1 | 0 | 3 | immovable; never gets quicker |
+| Cleric | 3 | 2 | 2 | 1 | 2 | the one that is hard to kill from any angle |
+| Cryomancer | 2 | 2 | 4 | 1 | 1 | uptime — the field is always up |
+| Stormcaller | 2 | 3 | 2 | 3 | 0 | mobile combo caster |
+| Warlock | 2 | 3 | 3 | 1 | 1 | attrition; the thralls do the running |
+| Swordsaint | 2 | 3 | 2 | 2 | 1 | even, because the parry is the stat |
+
+⚠ **STORMCALLER IS DELIBERATELY NOT GIVEN FOCUS 4.** It wins 16-0 in the honest
+sim because it is the only class built end-to-end around ICE-field → LIGHTNING,
+and `BotBrain.COMBO_SETUPS` rates its setup top payoff. Cooldown growth is
+precisely the axis that would compound that. It gets mobility instead. The
+obvious "combo class → more FOCUS" read is the wrong one here, and the reason is
+measured rather than felt.
+
+### 5.3 Where it lands over a climb
+
+At roughly a level per floor plus one per guardian — **~12 levels for the current
+10-floor tower** — a class's primary axis (5/level) receives 60 points. On
+VITALITY that is **+36% HP**; on SWIFTNESS, 4/level = 48 points = **+14% speed**.
+
+That is meant to be felt and not to be a gate. ⚠ **The trap it must not become:**
+if levels are the thing that gets you up the tower, floor 1 turns into a farm and
+floor 20 into a stat check you grind for rather than climb to. If playtest shows
+the climb being solved by levelling rather than by playing, cut the per-point
+values — do NOT cut the Growth budget, because 10-per-level is what keeps the
+nine classes comparable.
+
+XP comes from **floors cleared and guardians felled, never from kills** —
+otherwise the optimal play is farming trash on floor 1, which is the exact
+opposite of a climb.
+
+### 5.4 It needs no new save
+
+`user://climber.json` and `Rank.power` already survive a quit. Level, unspent
+skill points and unlocked node ids live there. Growth is not stored at all —
+it is **derived** from `level × the class row`, so it can never disagree with the
+table, and re-reading the table after a retune updates every existing save for
+free. Same principle as `LEG_LEN_FACTOR` and `HIP_Y_FACTOR` in the rig: derived,
+not authored, so two sources cannot drift apart.
 
 ---
 
@@ -241,8 +306,9 @@ and emphatically no LLM — that stack is deleted and stays deleted.
 
 1. **Data first**: a `SpellTree` resource — per class, per role, native + linked
    node lists with costs. Pure data, headless-testable, no UI.
-2. **Levelling in `climber.json`**: level, unspent points, unlocked node ids,
-   stat allocation. Pure math, testable.
+2. **Levelling in `climber.json`**: level, unspent skill points, unlocked node
+   ids. Growth is DERIVED from `level × CLASS_GROWTH[class]`, never stored. Pure
+   math, testable, and the row-sums-to-10 invariant is one assertion.
 3. **The Archivist screen** — the tree UI at the lectern. The biggest piece.
 4. **Class unlocking** + the floor-5 guardian choice.
 5. **NPC jobs** — barks and the four teaching screens.
@@ -252,10 +318,13 @@ the right way round for a system this size.
 
 ## 9. Open questions for the maker
 
-- **Respec:** free at the campfire (my recommendation), or paid?
+- **Respec of SKILL POINTS:** free at the campfire (my recommendation), or paid?
+  (Stats need no respec — they are derived from class + level and never chosen.)
 - **Do linked nodes need their element unlocked**, or is the link enough?
 - **Cryomancer / Stormcaller / Warlock / Swordsaint ults** are marked
   `[class native]` above — I did not invent names. Their real kit ults should be
   read off `CLASS_KITS` when this is built.
 - **Does levelling reset per climb?** My assumption: no. It is the one thing that
   is yours regardless of how the run went.
+- **Are the 10 Growth per level right, or should it scale with band?** Flat is my
+  recommendation — a flat budget is what makes "level 8 Cleric" mean one thing.
