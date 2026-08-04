@@ -19,7 +19,7 @@ extends SceneTree
 
 ## Every test that must run to completion.
 const TESTS: Array[String] = [
-	"broken_positions", "bounds", "floor", "damage_outlier", "fast_kill",
+	"broken_positions", "bounds", "floor", "inside_terrain", "damage_outlier", "fast_kill",
 	"no_damage", "hp_range", "stalemate", "idle", "never_fired", "mana",
 	"records_and_csv", "summary", "arena_bounds_contain_the_stage",
 ]
@@ -27,7 +27,7 @@ const TESTS: Array[String] = [
 ## BotSimProbe members reached by name. Listed once so a relocation is named
 ## rather than merely detected.
 const PROBE_METHODS: Array[String] = [
-	"position_is_broken", "escaped_bounds", "below_floor", "damage_outlier",
+	"position_is_broken", "escaped_bounds", "below_floor", "inside_terrain", "damage_outlier",
 	"fast_kill", "no_damage_exchanged", "hp_out_of_range", "stalemate",
 	"actor_idle", "never_fired", "never_spent_mana", "anomaly", "csv_row",
 	"csv_header", "csv_cell", "summarize",
@@ -46,6 +46,7 @@ func _process(_delta: float) -> bool:
 	_test_broken_positions()
 	_test_bounds()
 	_test_floor()
+	_test_inside_terrain()
 	_test_damage_outlier()
 	_test_fast_kill()
 	_test_no_damage()
@@ -131,6 +132,34 @@ func _test_floor() -> void:
 	_expect(not BotSimProbe.below_floor(-200.0, 700.0), "high in the air is not below the floor")
 	_expect(BotSimProbe.below_floor(NAN, 700.0), "a NaN height counts as through the floor")
 	_completes("floor")
+
+
+## THE X GATE. `below_floor` is a bare y-comparison, so it calls every projectile
+## that overshoots the slab and flies on through empty air "through the floor" —
+## 23 ERROR rows of nothing, and the harness then DELETED those live projectiles.
+## `inside_terrain` is the honest predicate: past the slab edge there is no floor
+## to be below.
+func _test_inside_terrain() -> void:
+	var x0: float = -900.0
+	var x1: float = 900.0
+	# Inside the span, the y-rule is unchanged.
+	_expect(not BotSimProbe.inside_terrain(Vector2(0.0, 700.0), 700.0, x0, x1),
+		"resting exactly on the slab top is fine")
+	_expect(not BotSimProbe.inside_terrain(Vector2(0.0, 715.0), 700.0, x0, x1, 24.0),
+		"inside the tolerance is fine")
+	_expect(BotSimProbe.inside_terrain(Vector2(0.0, 760.0), 700.0, x0, x1, 24.0),
+		"inside the span and past the tolerance IS sunk into the slab")
+	# THE WHOLE POINT: the same y, past the edge, is not a floor bug.
+	_expect(not BotSimProbe.inside_terrain(Vector2(-2000.0, 760.0), 700.0, x0, x1, 24.0),
+		"the same depth PAST THE LEFT EDGE is a fall through empty air, not a bug")
+	_expect(not BotSimProbe.inside_terrain(Vector2(2000.0, 5000.0), 700.0, x0, x1, 24.0),
+		"…and however far it falls past the RIGHT edge, still not a floor bug")
+	# Edges are inclusive — a bolt exactly on the rim is still over the slab.
+	_expect(BotSimProbe.inside_terrain(Vector2(x1, 760.0), 700.0, x0, x1, 24.0),
+		"exactly on the right rim still counts as over the slab")
+	_expect(BotSimProbe.inside_terrain(Vector2(NAN, NAN), 700.0, x0, x1),
+		"a broken coordinate is never treated as valid")
+	_completes("inside_terrain")
 
 
 # ---- damage -----------------------------------------------------------------

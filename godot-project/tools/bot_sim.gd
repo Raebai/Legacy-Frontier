@@ -1076,7 +1076,15 @@ func _sample(rec: Dictionary, delta: float) -> void:
 	# Health. Sampled rather than signal-driven so it catches every path that can
 	# move HP, including ones that forget to emit `health_changed`.
 	var hp: int = int(node.get("hp"))
-	var max_hp: int = int(rec["max_hp"])
+	# ⚠ LIVE, NOT THE SNAPSHOT TAKEN AT REGISTRATION. `max_hp` is legitimately
+	# rewritten after a body is registered — `_recompute_gear_effects` scales it by
+	# the head slot, and any mode that imposes its own pool writes it directly. The
+	# frozen `rec["max_hp"]` therefore drifted from the truth, which made
+	# `hp_out_of_range` fire spuriously after a loadout change and gave
+	# `damage_outlier` the wrong denominator. Refreshed into the record so `_judge`
+	# reads the same number this check did.
+	var max_hp: int = maxi(int(node.get("max_hp")), 1)
+	rec["max_hp"] = max_hp
 	if BotSimProbe.hp_out_of_range(hp, max_hp):
 		_file(BotSimProbe.SEV_ERROR, "hp_out_of_range",
 			"%s hp=%d outside [0, %d]" % [rec["label"], hp, max_hp])
@@ -1151,11 +1159,20 @@ func _check_world_integrity() -> void:
 			_file(BotSimProbe.SEV_ERROR, "spell_nan_position",
 				"a projectile reached a non-finite position %s" % pos)
 			n.queue_free()
-		elif BotSimProbe.below_floor(pos.y, SimArena.FLOOR_Y, 24.0):
+		elif BotSimProbe.inside_terrain(pos, SimArena.FLOOR_Y,
+				SimArena.FLOOR_X0, SimArena.FLOOR_X1, 24.0):
 			_file(BotSimProbe.SEV_ERROR, "spell_below_floor",
-				"a projectile resolved below the floor at %s (floor=%.1f)"
-					% [pos, SimArena.FLOOR_Y])
+				"a projectile resolved INSIDE the slab at %s (top=%.1f, slab x=%.0f..%.0f)"
+					% [pos, SimArena.FLOOR_Y, SimArena.FLOOR_X0, SimArena.FLOOR_X1],
+				{"off_slab": false, "x": pos.x, "y": pos.y})
 			n.queue_free()
+		# ⚠ AND NO ROW, AND NO `queue_free`, PAST THE SLAB EDGE. The old predicate
+		# was a bare y-test, so a bolt that overshot the ±900 slab and flew on
+		# through empty air filed an ERROR — 23 rows of nothing, driving the
+		# `--strict` exit code and the "0 error" headline. Worse, it then DELETED
+		# the projectile, so the harness was reaching into the fight it was
+		# measuring and removing live spells mid-flight. A bolt leaving the stage
+		# is not a defect; letting it fly is also the only way the run stays honest.
 	for n: Node in get_nodes_in_group("telegraph"):
 		if not n.has_method("danger_shape"):
 			continue

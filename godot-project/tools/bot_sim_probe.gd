@@ -74,6 +74,27 @@ static func below_floor(y: float, floor_y: float, tolerance: float = 48.0) -> bo
 	return y > floor_y + tolerance
 
 
+## Inside solid ground — the honest version of `below_floor`, which takes the SPAN
+## as well as the line.
+##
+## ⚠ PAST THE EDGE OF THE SLAB THERE IS NOTHING TO BE BELOW. `below_floor` is a bare
+## y-comparison, so every projectile that overshoots the ±FLOOR_X slab and flies on
+## through empty air satisfies it. The body-side check learned this already (see the
+## `off_slab` split in `bot_sim._check_bodies`, where MEASURING it showed that every
+## single `body_below_floor` row was actually a fall past the edge). The spell-side
+## check never got the same treatment and kept filing those as ERROR.
+##
+## On the real `VersusArena` that same trajectory is a bolt leaving the stage, which
+## is not a defect at any severity.
+static func inside_terrain(pos: Vector2, floor_y: float, x0: float, x1: float,
+		tolerance: float = 24.0) -> bool:
+	if position_is_broken(pos):
+		return true       # a broken coordinate is by definition not anywhere valid
+	if pos.x < x0 or pos.x > x1:
+		return false      # no floor here to sink through
+	return pos.y > floor_y + tolerance
+
+
 # ---- damage checks ---------------------------------------------------------
 
 ## A single sample-to-sample HP drop that is an implausible share of the bar.
