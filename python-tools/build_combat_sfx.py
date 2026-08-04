@@ -71,8 +71,6 @@ ULTRA = "Cinematic Sound Design - Ultra Transitions & Impacts"
 BOOM = "Federico Soler - Effective Trailer Booms Vol. 2"
 ALARM = "Federico Soler - Effective Trailer Alarms Vol. 2"
 DDU = "David Dumais Audio - Melee Weapons Sound Effects Pack 2"
-HC4 = ("Epic Stock Media - Humanoid Creatures Vol 4 - Monstrous and Undead "
-       "Creature Vocalization Sound Sets")
 TDG = "Epic Stock Media - Tower Defense Game"
 SNLS = "Epic Stock Media - Synthesized Nature Loops and Sounds"
 SGA3 = "Epic Stock Media - Strange Game Ambient Loops 3"
@@ -81,8 +79,6 @@ CUI = "Cinematic Sound Design - User Interface"
 CSYS = "Cinematic Sound Design - System & UI Feedback Elements"
 CINT = "Cinematic Sound Design - Interface & Infographics"
 CHYB = "Cinematic Sound Design - Hybrid Game & UI Elements"
-CIMP = "Cinematic Sound Design - Cartoon Impacts"
-CAN2 = "Cinematic Sound Design - Cartoon & Animation Vol 2"
 CDRN = "Cinematic Sound Design - Sci-Fi Drones"
 CUIX = "Cinematic Sound Design - UI Interaction Elements"
 STORM = ("Epic Stock Media - Public Spaces - Storms Lakes Parks and Rural "
@@ -93,6 +89,31 @@ HDLM = "Epic Stock Media - HD Lock And Mechanism Sound Design Kit"
 # Staged inside Effects/, which is gitignored, so the SOURCES never enter the
 # repo; only the processed clips do, exactly like every local pack.
 CC0 = "_cc0_downloads"
+
+# ---------------------------------------------------------------------------
+# ⚠ BANNED SOURCES — the maker heard these in play and rejected them by name.
+# Do not re-map anything to them. The pack handles are deleted rather than left
+# defined-but-unused, so re-adding one costs a deliberate edit instead of a
+# tab-complete.
+#
+# 2026-08-04 — "the sfx when you kill a mob this weird scrunching noise and in
+# general like they need to be changed something more subtle and better", and,
+# of the crate that fires the same cue, "please remove that its so weird in fact
+# never use that sound effect again".
+#   * Pepper `BLOOD/Explode_Bod*.wav` — a WET body-burst. That is the scrunch.
+#     It was riding under `enemy_death`, which every crate, wall, floor and
+#     terrain chunk in the game also plays.
+#   * Whole pack: "Epic Stock Media - Humanoid Creatures Vol 4 - Monstrous and
+#     Undead Creature Vocalization Sound Sets" — a `Flutter Death Vocal
+#     Stuttered Long`, a `Sea Beast Creature Pain Intense Yell Long` and a
+#     `Screeching Breath Inhale Weak Squeal`. Long, wet, screamed: the exact
+#     opposite of the subtle punctuation a cue that fires every two seconds in a
+#     wave fight needs. Nothing in this file references the pack any more.
+#
+# 2026-08-04, earlier — "Cinematic Sound Design - Cartoon Impacts" and
+# "Cinematic Sound Design - Cartoon & Animation Vol 2", for the goofy SHADOW
+# cues. Same rule: a pack that says "cartoon" on the tin will sound like one.
+# ---------------------------------------------------------------------------
 
 HIGH, MED, LOW = "HIGH", "MED", "LOW"
 
@@ -477,17 +498,26 @@ MANIFEST: dict[str, list[dict]] = {
                      sure=HIGH)],
 
     # =================================================================== BODIES
-    # REMAPPED. `enemy_death` and `hero_hurt` were synth placeholders. There is a
-    # dedicated creature-vocalisation pack and a 45-file body-damage folder here.
-    "enemy_death": [S(HC4, "VOXReac_Construction Kit Male Flutter Death Vocal "
-                           "Stuttered Long 05_ESM_HC4.wav", dur=1.4, sure=HIGH),
-                    S(HC4, "CREAMnstr_Designed Sea Beast Creature Pain Intense "
-                           "Yell Long 04_ESM_HC4.wav", dur=1.4, at="peak", sure=HIGH),
-                    S(PEP, "BLOOD/Explode_Bod3.wav", dur=1.0, sure=MED)],
+    # ⚠ REMAPPED 2026-08-04 off the BANNED sources at the top of this file.
+    # `enemy_death` is the most-played cue in the game and not only for mobs:
+    # DestructibleProp (the crates), BreakablePlatform, DestructibleTerrain,
+    # DestructibleFloor, RockWall and Thrall all call it too. A creature scream
+    # is wrong for five of those six callers and, at wave cadence, wrong for the
+    # sixth. It is now a short DRY COLLAPSE — a weight dropping and settling —
+    # cut shorter than the old 1.4 s screams and pulled down 3 dB on top of the
+    # profile cut in Sfx.gd, so it punctuates instead of announcing.
+    "enemy_death": [S(PEP, "FIGHTING/body_ground2.wav", dur=0.7, db=-3.0, sure=HIGH),
+                    S(PEP, "FIGHTING/thud3.wav", dur=0.5, db=-3.0, sure=HIGH),
+                    S(PEP, "FIGHTING/body_dirt4.wav", dur=0.7, db=-3.0, sure=MED)],
+    # LEFT ALONE deliberately: this fires only from BotMatch, on a versus-stage
+    # fighter, a handful of times a match. The subtlety argument is about
+    # cadence, and this cue has none.
     "enemy_death_big": [S(PEP, "MONSTER/GiantMonster_02.wav", dur=1.6, sure=HIGH),
                         S(PEP, "MONSTER/GiantMonster_04.wav", dur=1.6, sure=HIGH)],
-    "enemy_hurt": [S(HC4, "HMNBrth_Construction Kit Male Screeching Breath Inhale "
-                          "Weak Squeal 05_ESM_HC4.wav", dur=0.9, sure=HIGH),
+    # Variant 1 was the banned `Weak Squeal`. `litepain1` is the pack's own quiet
+    # end of the same shelf, which keeps three variants (so no index shuffles)
+    # and keeps a hurt reading like a flinch rather than a scream.
+    "enemy_hurt": [S(PEP, "BLOOD/litepain1.wav", dur=0.7, db=-2.0, sure=HIGH),
                    S(PEP, "BLOOD/damage3.wav", dur=0.9, sure=HIGH),
                    S(PEP, "BLOOD/damage6.wav", dur=0.9, sure=HIGH)],
     "hero_hurt": [S(PEP, "FIGHTING/damage_h2.wav", dur=0.9, sure=HIGH),
@@ -497,8 +527,10 @@ MANIFEST: dict[str, list[dict]] = {
     "body_fall": [S(PEP, "FIGHTING/body_ground1.wav", dur=1.0, sure=HIGH),
                   S(PEP, "FIGHTING/body_fall2.wav", dur=1.0, sure=HIGH),
                   S(PEP, "FIGHTING/body_dirt2.wav", dur=1.0, sure=HIGH)],
-    "gib": [S(PEP, "BLOOD/gib.wav", dur=0.8, sure=HIGH),
-            S(PEP, "BLOOD/Explode_Bod5.wav", dur=1.0, sure=HIGH)],
+    # Variant 2 was `Explode_Bod5`, sibling of the banned scrunch. Dropped rather
+    # than replaced: nothing in the game calls `gib`, so a second variant would
+    # be a second unheard guess.
+    "gib": [S(PEP, "BLOOD/gib.wav", dur=0.8, sure=HIGH)],
 
     # ========================================================== MOVEMENT, WORLD
     "dash": [S(PEP, "FIGHTING/sfx_whoosh_lo_sh01.wav", dur=0.5, sure=HIGH),
@@ -510,8 +542,12 @@ MANIFEST: dict[str, list[dict]] = {
              S(PEP, "FOOTSTEPS/run_rock_4.wav", dur=0.3, sure=HIGH)],
     "land": [S(PEP, "FOOTSTEPS/land_rock.wav", dur=0.8, sure=HIGH),
              S(PEP, "FOOTSTEPS/land_ground.wav", dur=0.8, sure=HIGH)],
+    # ⚠ Variant 2 was Pepper `FIGHTING/body_wood1.wav`, which sits in the
+    # body_dirt / body_metal / body_leaves / body_ground family — it is a BODY
+    # landing on wood, a fleshy thump, not wood splintering. Both variants are
+    # now literal axe-into-wood recordings, so a crate can only sound like wood.
     "crate_break": [O("Chopping and Mining/chop 1.ogg", sure=MED),
-                    S(PEP, "FIGHTING/body_wood1.wav", dur=0.9, sure=MED)],
+                    O("Chopping and Mining/chop 3.ogg", sure=MED)],
     "platform_break": [O("Chopping and Mining/mine 3.ogg", sure=MED),
                        S(COLOSS, "Transition Frantic Shaker Snap.wav",
                          dur=1.4, at="peak", sure=MED)],

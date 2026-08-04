@@ -6,6 +6,10 @@ extends Control
 ## like volume and other stuff like controls"). Built in code (house style, no
 ## .tscn); process_mode ALWAYS so its buttons work while the tree is paused. The
 ## host toggles open()/close() and wires the exit action via `exit_requested`.
+##
+## EXIT already lives on the MAIN column (`_exit_btn`, labelled by the host — "Exit
+## to Hub" by default), so nothing here duplicates it into Settings. Settings owns
+## the picture, the sound and the reference card; the main column owns the verbs.
 
 signal resume_requested
 signal exit_requested
@@ -13,11 +17,85 @@ signal exit_requested
 ## `open()`; they wire this to the same call and the menu stops being keyboard-only.
 signal pause_requested
 
-## ⚠ THE ONE PLACE THE SCHEME IS WRITTEN IN PROSE, so it drifts silently the moment a
-## binding moves. `1 / 2 / 3` are the three SPELL BUTTONS (`spell_1..3`) — the scheme
-## the whole right thumb is built around; `G` throws whichever of them is selected and
-## is what a bot pulls; `V` only moves that selection.
+## ⚠ FALLBACK PROSE ONLY — `controls_text()` is what the menu actually shows, and it
+## reads the live InputMap. This const survives because `FreePlay.gd:341` prints it on
+## its welcome card and that file is not ours; point it at `controls_text()` and this
+## whole string can go. Until then it is the answer for a build whose InputMap has been
+## stripped, and it WILL drift, which is exactly why nothing on screen reads it.
 const CONTROLS_TEXT: String = "A / D   Move          W / Up   Jump\nSpace   Dash          LMB   Cast\n1 / 2 / 3   Spells          RMB   Parry / Block\nF   Melee          R   Blink          Q   AoE          T   Nova\nG   Cast selected spell          V   Change selection\nTab   Class          X   Element          C   Colour\nEsc / the II button   Pause"
+
+## The controls card as a TABLE OF ACTIONS, one inner array per printed line, each
+## entry `[label, [action, ...]]`. No key letter appears here at all — the letters come
+## out of `InputMap` at display time.
+##
+## ⚠ THIS IS THE MOBILE-FIRST REASON, not tidiness. Every input in this game is read
+## through a named action (D-011), the touch pad fires those same actions, and a rebind
+## screen would move the letters underneath a hardcoded card without touching it. The
+## prose version was a second source of truth for the binding table guarded by no test
+## at all — it happened to still be right, which is the only state that string is ever
+## observed in until the day somebody notices it is not.
+##
+## Entries carrying SEVERAL actions print one key each (`move_left` + `move_right` ->
+## "A / D"); an entry carrying ONE action prints up to two of its bindings, which is how
+## Jump keeps both "Up" and "W". Rejected: printing every binding of every action, which
+## turns Move into "A / Left / D / Right".
+const CONTROL_ROWS: Array = [
+	[["Move", ["move_left", "move_right"]], ["Jump", ["jump"]], ["Dash", ["dash"]]],
+	[["Cast", ["cast"]], ["Melee", ["melee"]], ["Parry", ["parry"]]],
+	# `ultimate` THROWS whichever of the three spell buttons is selected, and is what a
+	# bot pulls; `cycle_signature` only moves that selection and casts nothing. Labelled
+	# for what the thumb does — "ultimate" is an engine name, not a player-facing one.
+	# ⚠ ALSO THE LONGEST LINE ON THE CARD, and the panel is 320 px wide with autowrap
+	# off, so both labels are as short as they can be and still be true.
+	[["Spells", ["spell_1", "spell_2", "spell_3"]], ["Throw selected", ["ultimate"]],
+		["Pick spell", ["cycle_signature"]]],
+	[["Blink", ["blink"]], ["AoE", ["blast"]], ["Nova", ["nova"]]],
+	[["Class", ["switch_class"]], ["Element", ["cycle_element"]],
+		["Colour", ["cycle_colourway"]]],
+]
+## The last line of the card, keys-then-label like every derived line above it so the
+## eye scans one column. The key comes from `ui_cancel`; the `II` button is spelled out
+## because it is a real second route into this menu that exists in no InputMap and can
+## therefore only be asserted.
+const CONTROLS_PAUSE_LINE: String = "%s  /  the II button   Pause"
+## Gap between two entries on one line. Wide enough to read as a column break under a
+## proportional font, where no amount of padding will actually align anything.
+const CONTROLS_GAP: String = "     "
+
+## -- brightness ---------------------------------------------------------------
+## ⚠ THE SETTING THIS GAME NEEDS MOST AND HAD NO ROW FOR. Ten authored biomes, several
+## of them underground, played on a phone that is often outdoors — "I cannot see the
+## floor" is a hardware problem the graphics toggle does not touch, and no phone lets
+## you reach the OS brightness slider without leaving the fight.
+##
+## THREE STEPS AND ONE ROW, not a slider. A slider costs a caption Label plus the
+## HSlider — two rows in a panel that already scrolls to reach its bottom — for a knob
+## nobody drags twice. Same trade the Graphics row below makes, and the maker's standing
+## rule ("too much text and random UI pieces we dont need") decides it.
+const BRIGHTNESS_LABELS: PackedStringArray = ["Dim", "Normal", "Bright"]
+const BRIGHTNESS_DEFAULT: int = 1
+## How black the DIM step lays over the frame, and how much white the BRIGHT step adds.
+## Deliberately gentle: this is a legibility aid, not a grade, and it sits on top of
+## `PostProcess`'s filmic pass — a heavy lift here would flatten that to milk.
+## UNTESTED ON A DEVICE; both numbers are reasoning.
+const BRIGHTNESS_DIM_ALPHA: float = 0.28
+const BRIGHTNESS_LIFT_ALPHA: float = 0.13
+## Above the pause button, the HUD and the director. The overlay covers the pause menu
+## ITSELF on purpose: the player is looking at this panel while they cycle the row, and
+## a brightness control you cannot see working is a brightness control you do not trust.
+const BRIGHTNESS_LAYER: int = 120
+## One overlay per scene, however many PauseMenus a host builds — two would stack, and
+## `Dim` would land at twice its alpha for reasons no one could see. Same shape, and the
+## same `_is_live` walk, as DIRECTOR_GROUP below.
+const BRIGHTNESS_GROUP: StringName = &"brightness_overlay"
+## ⚠ STORED AS META ON THE SCENE-TREE ROOT, WHICH IS NOT WHERE IT BELONGS. Every other
+## picture knob here writes `Tuning.cfg`, and so should this — but `TuningConfig.gd` is
+## another file, and `Object.set()` against a property a Resource never declared fails
+## SILENTLY: the row would cycle, look right, and reset on the next scene change with
+## nothing logged. The root `Window` is the one node that outlives
+## `change_scene_to_file`, and `set_meta` needs no declaration to stick. Rejected: a
+## plain member var, which forgets every time an arena builds a fresh menu — i.e. always.
+const BRIGHTNESS_META: StringName = &"pause_menu_brightness"
 
 ## -- the on-screen pause button (mobile) -------------------------------------
 ## ⚠ WITHOUT THIS THE SETTINGS MENU IS UNREACHABLE ON A PHONE. Every host opens the
@@ -70,6 +148,12 @@ const DIRECTOR_GROUP: StringName = &"director"
 var _pause_layer: CanvasLayer = null
 var _pause_btn: Button = null
 var _quality_btn: Button = null
+## The Brightness row and the pane it tints. The rect is null in a menu that lost the
+## dedupe race (a live sibling already owns the only overlay) — every path here treats
+## that as normal, because the group sweep in `_apply_brightness` drives whichever one
+## is real rather than only our own.
+var _brightness_btn: Button = null
+var _brightness_rect: ColorRect = null
 var _pvp_btn: Button = null
 ## The Appearance row. Held so `open()` can re-read the live hero — `C` cycles the
 ## same palette, so a label written once at build time starts lying immediately.
@@ -112,6 +196,11 @@ func build(exit_label: String = "Exit to Hub") -> void:
 	_build_main()
 	_build_settings()
 	_build_pause_button()
+	_build_brightness_overlay()
+	# Re-asserted on every build, not only when the row is tapped: a scene change throws
+	# the overlay away with the old arena and stands a new one up here, so this is the
+	# moment the stored choice becomes visible again.
+	_apply_brightness()
 	_build_director()
 
 
@@ -293,6 +382,102 @@ func set_pause_button_visible(v: bool) -> void:
 		_pause_layer.visible = v and Cinematic.shows_chrome()
 
 
+# ---------------------------------------------------------------- brightness
+## The full-screen tint the Brightness row drives.
+##
+## ⚠ A `CanvasLayer`, FOR THE SAME REASON THE PAUSE BUTTON IS ONE, and it is the whole
+## trick rather than a style choice: this node is `visible = false` whenever the menu is
+## closed, and brightness has to hold while the menu is CLOSED and the game is RUNNING.
+## A CanvasLayer is not a CanvasItem, so a parent Control's `visible` never reaches it.
+##
+## ⚠ DELIBERATELY NOT `Cinematic.mark`ed. Everything else on a high layer here is chrome
+## that must leave a recorded clip; this is the player's own screen preference, it draws
+## literally nothing at the default step, and sweeping it away mid-capture would change
+## the exposure of the footage halfway through.
+func _build_brightness_overlay() -> void:
+	var tree: SceneTree = get_tree()
+	if tree != null:
+		for o: Node in tree.get_nodes_in_group(BRIGHTNESS_GROUP):
+			if _is_live(o):
+				return   # a live sibling PauseMenu already owns the one overlay
+	var layer := CanvasLayer.new()
+	layer.layer = BRIGHTNESS_LAYER
+	add_child(layer)
+	layer.add_to_group(BRIGHTNESS_GROUP)
+	_brightness_rect = ColorRect.new()
+	_brightness_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# IGNORE, not STOP. A pane over the entire screen that ate input would eat the whole
+	# game: every tap, every menu button underneath it, at every brightness step.
+	_brightness_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_brightness_rect.visible = false
+	layer.add_child(_brightness_rect)
+
+
+## Dim -> Normal -> Bright -> Dim.
+func _on_brightness_pressed() -> void:
+	_set_brightness_step((_brightness_step() + 1) % BRIGHTNESS_LABELS.size())
+	_apply_brightness()
+	if _brightness_btn != null:
+		_brightness_btn.text = _brightness_label()
+
+
+func _brightness_step() -> int:
+	var tree: SceneTree = get_tree()
+	if tree == null or not tree.root.has_meta(BRIGHTNESS_META):
+		return BRIGHTNESS_DEFAULT
+	return clampi(int(tree.root.get_meta(BRIGHTNESS_META)), 0, BRIGHTNESS_LABELS.size() - 1)
+
+
+func _set_brightness_step(step: int) -> void:
+	var tree: SceneTree = get_tree()
+	if tree != null:
+		tree.root.set_meta(BRIGHTNESS_META, step)
+
+
+## Paint EVERY live overlay, not just the one this menu happens to own. The dedupe in
+## `_build_brightness_overlay` means a second PauseMenu's `_brightness_rect` is null
+## while its Brightness row is perfectly usable — driving only `_brightness_rect` would
+## give that menu a row that cycles its label and changes nothing on screen.
+func _apply_brightness() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var step: int = _brightness_step()
+	for layer: Node in tree.get_nodes_in_group(BRIGHTNESS_GROUP):
+		for rect: Node in layer.get_children():
+			if rect is ColorRect:
+				_paint_brightness(rect as ColorRect, step)
+
+
+## DARKEN AND BRIGHTEN ARE TWO DIFFERENT OPERATIONS, which is why this is not one alpha.
+## Darkening is black over the frame — ordinary alpha blending. Brightening cannot be:
+## no alpha over any colour makes a pixel lighter than that colour. It needs ADDITIVE
+## blend, which is a `CanvasItemMaterial` and not a property of the rect. Rejected: two
+## stacked rects, one per direction, which is a second full-screen overdraw on a phone
+## to save building one material.
+func _paint_brightness(rect: ColorRect, step: int) -> void:
+	match step:
+		0:
+			rect.material = null
+			rect.color = Color(0.0, 0.0, 0.0, BRIGHTNESS_DIM_ALPHA)
+			rect.visible = true
+		2:
+			if rect.material == null or not (rect.material is CanvasItemMaterial):
+				var mat := CanvasItemMaterial.new()
+				mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+				rect.material = mat
+			rect.color = Color(1.0, 1.0, 1.0, BRIGHTNESS_LIFT_ALPHA)
+			rect.visible = true
+		_:
+			# Hidden rather than transparent: a hidden ColorRect costs no fill at all,
+			# and NORMAL is the step nearly every player leaves it on.
+			rect.visible = false
+
+
+func _brightness_label() -> String:
+	return "Brightness:  %s" % BRIGHTNESS_LABELS[_brightness_step()]
+
+
 func open() -> void:
 	visible = true
 	_main_center.visible = true
@@ -302,6 +487,11 @@ func open() -> void:
 	# time would start lying the moment anyone touched it there.
 	if _quality_btn != null:
 		_quality_btn.text = _quality_label()
+	# Re-read for the same reason: the step lives on the tree root, so a SECOND pause
+	# menu in the same scene (free play hangs its knobs on the arena's) can have moved
+	# it since this row's label was written.
+	if _brightness_btn != null:
+		_brightness_btn.text = _brightness_label()
 	if _pvp_btn != null:
 		_pvp_btn.text = _pvp_label()
 	_refresh_friendly_fire()
@@ -343,6 +533,20 @@ func _build_main() -> void:
 # ------------------------------------------------------- host-injected items
 ## Add a button to the MAIN pause menu (e.g. "Fight the Boss"). Slotted above the
 ## exit button so leaving is always the last row no matter what a host injects.
+##
+## ⚠ THIS IS A PLAYER-FACING COLUMN AND HAS NO DEBUG GATE. Everything reached through
+## here ships. The DIRECTOR row above is the only cheat in this menu and it pays for
+## itself twice over (absent from the pack AND behind `OS.is_debug_build()`) before it
+## is allowed to appear; an injected row pays nothing.
+##
+## OUTSTANDING VIOLATION at the time of writing: `FreePlay.gd:395` injects a **"Heal"**
+## row — `hp = max_hp`, `damage_pct = 0` on the live hero, ungated. It is a debug
+## affordance sitting on the pause menu of a shipping scene, and the maker has asked for
+## it gone. It cannot be removed from here: this function is handed a label and a
+## Callable and has no way to tell a cheat from a verb, and refusing rows by label would
+## be silent action-at-a-distance — a host calling `add_action` and getting nothing back.
+## The fix is deleting that one line in `FreePlay.gd`, or moving it behind that file's
+## own `FileAccess.file_exists(DIRECTOR_SCRIPT)` dev block a few lines below it.
 func add_action(text: String, cb: Callable) -> Button:
 	var b: Button = _menu_button(text, cb)
 	_main_col.add_child(b)
@@ -533,6 +737,12 @@ func _build_settings() -> void:
 	_quality_btn.custom_minimum_size = Vector2(240, 30)
 	_quality_btn.add_theme_font_size_override("font_size", 14)
 	_settings_col.add_child(_quality_btn)
+	# Directly under Graphics because the two are one question — "can I see what is
+	# happening" — asked of the renderer and then of the panel it is played on.
+	_brightness_btn = _menu_button(_brightness_label(), _on_brightness_pressed)
+	_brightness_btn.custom_minimum_size = Vector2(240, 30)
+	_brightness_btn.add_theme_font_size_override("font_size", 14)
+	_settings_col.add_child(_brightness_btn)
 	# HOW A PVP FIGHT IS WON. Same cycling-button shape as quality above, and for
 	# the same reason: two states and one label cost one row in a panel that is
 	# already scrolled to reach its bottom on a 720p window.
@@ -557,7 +767,7 @@ func _build_settings() -> void:
 	ctrl_title.add_theme_font_size_override("font_size", 18)
 	_settings_col.add_child(ctrl_title)
 	var ctrl := Label.new()
-	ctrl.text = CONTROLS_TEXT
+	ctrl.text = controls_text()
 	ctrl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	ctrl.add_theme_font_size_override("font_size", 13)
 	ctrl.add_theme_color_override("font_color", Color(0.82, 0.86, 0.95))
@@ -567,6 +777,88 @@ func _build_settings() -> void:
 
 	_back_btn = _menu_button("Back", _close_settings)
 	_settings_col.add_child(_back_btn)
+
+
+# ------------------------------------------------------------------ controls
+## The controls card, built from the LIVE InputMap rather than from prose.
+##
+## Static, so the welcome card in `FreePlay.gd` can move off `CONTROLS_TEXT` onto this
+## with a one-word edit whenever that file is next opened.
+##
+## An action the map does not carry is DROPPED rather than printed blank: a card that
+## silently loses a line when a binding is deleted is honest, and one that offers a verb
+## with no key next to it is not. If the whole map is missing — a stripped build, or a
+## test that never loaded `project.godot` — the prose fallback is better than a blank
+## panel, so that is what comes back.
+static func controls_text() -> String:
+	var lines: PackedStringArray = []
+	for row: Array in CONTROL_ROWS:
+		var entries: PackedStringArray = []
+		for entry: Array in row:
+			var keys: String = _key_hint(entry[1] as Array)
+			if keys != "":
+				entries.append("%s   %s" % [keys, entry[0]])
+		if entries.size() > 0:
+			lines.append(CONTROLS_GAP.join(entries))
+	var pause_keys: String = _key_hint(["ui_cancel"])
+	if pause_keys != "":
+		lines.append(CONTROLS_PAUSE_LINE % pause_keys)
+	if lines.is_empty():
+		return CONTROLS_TEXT
+	return "\n".join(lines)
+
+
+## The key letters for one card entry. See CONTROL_ROWS for why the number of bindings
+## printed depends on how many actions the entry names.
+static func _key_hint(actions: Array) -> String:
+	var per_action: int = 2 if actions.size() == 1 else 1
+	var out: PackedStringArray = []
+	for action: String in actions:
+		if not InputMap.has_action(action):
+			continue
+		var taken: int = 0
+		for ev: InputEvent in InputMap.action_get_events(action):
+			if taken >= per_action:
+				break
+			var label: String = _event_label(ev)
+			# Deduped because several actions legitimately share a binding — `jump` and
+			# `move_up` are both W and Up — and "Up / Up" is not a control scheme.
+			if label == "" or out.has(label):
+				continue
+			out.append(label)
+			taken += 1
+	return " / ".join(out)
+
+
+## One InputEvent as the thing printed on a key cap.
+##
+## ⚠ PHYSICAL KEYCODE FIRST. Every binding in `project.godot` is stored physically so
+## QWERTY and AZERTY players get the same layout (set in M1 and never revisited), which
+## means `keycode` is 0 on all of them and reading it would print nothing at all.
+##
+## `as_text()` is not used at all, though it would be shorter: it DECORATES. A physical
+## key comes back as "A (Physical)" and a mouse button as "Left Mouse Button" — neither
+## fits a card whose whole job is to be scanned.
+##
+## ⚠ GAMEPAD EVENTS RETURN "" ON PURPOSE, which is a real editorial call and not a gap.
+## `project.godot` binds no pad at all; the only joypad events in the map are the ones
+## Godot ships on its built-in `ui_*` actions, so printing them would put "Joypad Button
+## 1 (Bottom Action…)" on the Pause line of a game that cannot be played with a pad. The
+## day a pad is actually bound, this is the function that has to learn about it.
+static func _event_label(ev: InputEvent) -> String:
+	if ev is InputEventKey:
+		var k := ev as InputEventKey
+		var code: int = k.physical_keycode if k.physical_keycode != 0 else k.keycode
+		return OS.get_keycode_string(code) if code != 0 else ""
+	if ev is InputEventMouseButton:
+		match (ev as InputEventMouseButton).button_index:
+			MOUSE_BUTTON_LEFT:
+				return "LMB"
+			MOUSE_BUTTON_RIGHT:
+				return "RMB"
+			MOUSE_BUTTON_MIDDLE:
+				return "MMB"
+	return ""
 
 
 # ---------------------------------------------------------------- appearance

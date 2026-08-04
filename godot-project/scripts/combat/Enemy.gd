@@ -108,6 +108,43 @@ const RIG_FALLBACK_HEIGHT: float = 31.0
 ## an enemy, it only makes it as tall as it is drawn.
 const HURTBOX_WIDTH_FALLBACK_FACTOR: float = 0.65
 
+# ══ THE SOFTENING PASS (2026-08-04) ══════════════════════════════════════════
+# Maker, playtesting: "its very difficult of a game right now and there are too
+# many opponents ... the opponents should do less damage" and "the opponents move
+# too fast". Three levers exist for that and only two of them are honest:
+#
+#   * FEWER BODIES — GameState's authored wave table, tapered by depth.
+#   * SOFTER HITS + SLOWER LEGS — this file.
+#   * MORE ENEMY HP — FORBIDDEN. "Higher floors add modifiers, not HP. HP scaling
+#     makes fights longer, not harder, and long is the enemy of chaos on a phone."
+#     Not one hp number below moved, and none should on the way back through here.
+#
+# TWO RULES, applied uniformly so this is one decision rather than thirteen:
+#
+#   1. COMMITTED, TELEGRAPHED ATTACKS x0.75. These are the fair ones — you were
+#      shown a circle or a lane and you did not move — so they keep their weight
+#      relative to each other and only lose a quarter of it in absolute terms.
+#   2. CONTACT (touch) DAMAGE x0.6, i.e. cut HARDER. Touch is the only damage in
+#      the roster with NO tell: you take it for standing near a body, and with
+#      several bodies it is the chip that kills you without ever showing you why.
+#      That is the damage that reads as unfair, so that is the damage that eats
+#      the deeper cut.
+#   3. SUSTAINED MOVE SPEED x~0.85. The COMMITTED dash speeds (CHARGE_SPEED,
+#      ASSASSIN_LUNGE_SPEED) are pointedly NOT in this — a dash's reach is
+#      speed x duration and it is authored against its own windup, so slowing it
+#      would quietly shorten what the tell promised. The complaint is about
+#      enemies crossing the room at you, and that is the chase, not the pounce.
+#
+# ⚠ THE RELATIVE ORDERING IS PRESERVED EXACTLY in all three tables. A BRUTE still
+# hits hardest on contact, a BOMBER still lands the biggest blast, an ASSASSIN is
+# still the fastest thing in the room and a CHARGER still the slowest. The roster
+# teaches the player who to respect BY COMPARISON, so a rebalance that reshuffles
+# the order teaches them something false.
+#
+# ⚠ AND THE MIRROR: Encounter._archetype_stats carries a second copy of the touch
+# + speed table for the co-op spawn path, and slice_test_coop asserts the two
+# agree field-for-field. Any edit here is an edit there.
+
 # ─────────────────────────────── AGGRESSION ──────────────────────────────────
 # THE RULE FOR EVERY NUMBER BELOW: shorten the DEAD time, never the TELL.
 # "So much going on" means enemies commit rather than loiter, so cooldowns and
@@ -121,7 +158,7 @@ const HURTBOX_WIDTH_FALLBACK_FACTOR: float = 0.65
 const ATTACK_RANGE: float = 78.0  # start winding up inside this distance
 const ATTACK_WINDUP: float = 0.6  # seconds of tell before the strike lands
 const ATTACK_RADIUS: float = 40.0  # danger-circle radius
-const ATTACK_DAMAGE: int = 22
+const ATTACK_DAMAGE: int = 16   # was 22 — the softening pass, x0.75
 const ATTACK_COOLDOWN: float = 1.0  # was 1.4 — a brute that swings every 2s is scenery
 const ATTACK_LUNGE: float = 180.0  # impulse toward the circle on a landed hit
 const ATTACK_RECOVER_TIME: float = 0.16  # was 0.3 — and it now RE-APPROACHES, not roots
@@ -149,7 +186,7 @@ const CHARGE_RANGE: float = 260.0  # start the windup inside this distance
 const CHARGE_WINDUP: float = 0.7
 const CHARGE_SPEED: float = 520.0
 const CHARGE_TIME: float = 0.35  # seconds the charge lasts
-const CHARGE_DAMAGE: int = 24
+const CHARGE_DAMAGE: int = 18   # was 24 — x0.75. CHARGE_SPEED is untouched on purpose.
 const CHARGE_LEN: float = 300.0  # telegraph lane length
 const CHARGE_WIDTH: float = 34.0
 const CHARGE_HIT_RADIUS: float = 26.0
@@ -175,7 +212,7 @@ const ASSASSIN_WINDUP: float = 0.35         # the fastest tell in the roster
 const ASSASSIN_TELE_RADIUS: float = 26.0    # small strike-point circle
 const ASSASSIN_LUNGE_SPEED: float = 620.0
 const ASSASSIN_LUNGE_TIME: float = 0.22
-const ASSASSIN_DAMAGE: int = 14
+const ASSASSIN_DAMAGE: int = 10   # was 14 — x0.75, and still the lightest hit in the roster
 const ASSASSIN_HIT_RADIUS: float = 24.0
 const ASSASSIN_COOLDOWN: float = 0.95       # was 1.1
 const ASSASSIN_RETREAT_TIME: float = 0.6    # was 0.8 — disengage, don't emigrate
@@ -188,7 +225,7 @@ const ASSASSIN_JITTER_CHANCE: float = 0.4     # odds a roll reverses the approac
 const BOMB_TRIGGER_RANGE: float = 72.0  # start the fuse inside this distance
 const BOMB_WINDUP: float = 0.9          # long fuse — generous dodge window
 const BOMB_RADIUS: float = 78.0         # big danger circle
-const BOMB_DAMAGE: int = 30
+const BOMB_DAMAGE: int = 22   # was 30 — x0.75, and still the biggest hit in the roster
 const BOMB_KNOCKBACK: float = 320.0     # shove on a caught hero (if supported)
 
 # MAGE archetype: kites like the caster but instead of a bolt it telegraphs a
@@ -199,7 +236,7 @@ const MAGE_RANGE_MAX: float = 300.0   # was 380 — over a third of the room awa
 const MAGE_WINDUP: float = 0.85       # generous — it's a big AoE
 const MAGE_COOLDOWN: float = 2.1      # was 2.6
 const MAGE_AOE_RADIUS: float = 70.0
-const MAGE_AOE_DAMAGE: int = 20
+const MAGE_AOE_DAMAGE: int = 15   # was 20 — x0.75
 const MAGE_AOE_KNOCKBACK: float = 260.0
 const MAGE_BLAST_SCENE: String = "res://scenes/combat/BlastSpell.tscn"
 
@@ -252,15 +289,25 @@ enum Archetype { CHASER, BRUTE, CASTER, CHARGER, SUMMONER, ASSASSIN, BOMBER, MAG
 # Encounter.gd's stat table for the first five so both spawn paths agree.
 # Applied field-by-field in _apply_archetype_defaults ONLY where the export is
 # still at its generic script default — explicit spawner overrides always win.
+##
+## ⚠ `hp` IS FROZEN. It is the one column in this table that the difficulty passes
+## are not allowed to touch (see THE SOFTENING PASS above); `speed` and `touch` are
+## where a "too hard" note gets answered.
+##
+## ⚠ NO `touch` VALUE MAY BE 12. `_apply_archetype_defaults` uses `touch_damage == 12`
+## (the @export default) as its "the spawner did not say" sentinel, so an archetype
+## whose default happened to be 12 would make an explicit spawner override of 12
+## indistinguishable from silence. Nothing below is 12 and nothing should become 12.
 const ARCHETYPE_DEFAULTS: Dictionary = {
-	Archetype.CHASER: {"hp": 24, "speed": 140.0, "touch": 8, "tint": Color(0.95, 0.5, 0.25, 1)},   # orange
-	Archetype.BRUTE: {"hp": 70, "speed": 62.0, "touch": 18, "tint": Color(0.7, 0.25, 0.45, 1)},    # magenta
-	Archetype.CASTER: {"hp": 30, "speed": 80.0, "touch": 6, "tint": Color(0.55, 0.45, 0.95, 1)},   # indigo
-	Archetype.CHARGER: {"hp": 45, "speed": 55.0, "touch": 10, "tint": Color(0.9, 0.6, 0.2, 1)},    # amber
-	Archetype.SUMMONER: {"hp": 36, "speed": 72.0, "touch": 6, "tint": Color(0.35, 0.8, 0.55, 1)},  # jade
-	Archetype.ASSASSIN: {"hp": 20, "speed": 175.0, "touch": 8, "tint": Color(0.82, 0.86, 0.92, 1)},  # silver
-	Archetype.BOMBER: {"hp": 55, "speed": 70.0, "touch": 6, "tint": Color(0.34, 0.35, 0.4, 1)},    # charcoal
-	Archetype.MAGE: {"hp": 34, "speed": 78.0, "touch": 6, "tint": Color(0.5, 0.3, 0.85, 1)},       # deep violet
+	# hp: frozen · speed: x~0.85 (was 140/62/80/55/72/175/70/78) · touch: x0.6 (was 8/18/6/10/6/8/6/6)
+	Archetype.CHASER: {"hp": 24, "speed": 120.0, "touch": 5, "tint": Color(0.95, 0.5, 0.25, 1)},   # orange
+	Archetype.BRUTE: {"hp": 70, "speed": 52.0, "touch": 11, "tint": Color(0.7, 0.25, 0.45, 1)},    # magenta
+	Archetype.CASTER: {"hp": 30, "speed": 68.0, "touch": 4, "tint": Color(0.55, 0.45, 0.95, 1)},   # indigo
+	Archetype.CHARGER: {"hp": 45, "speed": 46.0, "touch": 6, "tint": Color(0.9, 0.6, 0.2, 1)},     # amber
+	Archetype.SUMMONER: {"hp": 36, "speed": 60.0, "touch": 4, "tint": Color(0.35, 0.8, 0.55, 1)},  # jade
+	Archetype.ASSASSIN: {"hp": 20, "speed": 148.0, "touch": 5, "tint": Color(0.82, 0.86, 0.92, 1)},  # silver
+	Archetype.BOMBER: {"hp": 55, "speed": 58.0, "touch": 4, "tint": Color(0.34, 0.35, 0.4, 1)},    # charcoal
+	Archetype.MAGE: {"hp": 34, "speed": 66.0, "touch": 4, "tint": Color(0.5, 0.3, 0.85, 1)},       # deep violet
 }
 
 ## Per-archetype pixel WEAPON (PixelLab overlay on the stick, via CharacterRig's

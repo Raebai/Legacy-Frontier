@@ -367,6 +367,20 @@ func _test_a_guardian_pays_one_class_pick_ever(GS: GDScript) -> void:
 	var unlock_floor: int = int(Progression.CLASS_UNLOCK_FLOORS[0])
 	gs._floor = unlock_floor
 	_expect(gs.pending_class_choices == 0, "a fresh climber has no picks banked")
+	# ⚠ WITH THE ROSTER OPEN THERE IS NOTHING LEFT TO GRANT, so the guardian banks
+	# nothing and the rest of this test has no subject. That is CORRECT behaviour and
+	# not a regression — `_maybe_earn_class_choice` short-circuits on an empty
+	# `choosable_classes`, which is exactly what stops it minting picks that can never
+	# be spent. The gated behaviour below is still asserted the moment the flag flips.
+	if Progression.ALL_CLASSES_UNLOCKED:
+		gs.notify_guardian_killed()
+		_expect(gs.pending_class_choices == 0,
+			"an open roster banks no guardian picks — there is nothing left to buy")
+		_expect(not gs.spend_class_choice(int(Progression.LOCKED_CLASSES[0])),
+			"…and spending is refused on an empty balance")
+		gs.free()
+		_completes("a_guardian_pays_one_class_pick_ever")
+		return
 	gs.notify_guardian_killed()
 	_expect(gs.pending_class_choices == 1, "felling the guardian banks exactly one pick")
 	# THE SAME GUARDIAN AGAIN — a re-climb, or simply a replayed death beat.

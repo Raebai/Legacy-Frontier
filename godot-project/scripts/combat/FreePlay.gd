@@ -329,21 +329,33 @@ func _build_controls_card(layer: CanvasLayer) -> void:
 	col.add_child(title)
 
 	var blurb := Label.new()
-	blurb.text = "No enemies. No timer. Nothing can end this.\nLearn the verbs, then break the scenery."
+	blurb.text = "Nothing here can kill you."
 	blurb.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	blurb.add_theme_font_size_override("font_size", 8)
 	blurb.add_theme_color_override("font_color", Color(0.72, 0.78, 0.92))
 	col.add_child(blurb)
 
+	# ⚠ THE FULL CONTROLS LIST IS DELIBERATELY NOT HERE ANY MORE.
+	#
+	# Maker: "the instructions are too long like there is too much going on this game
+	# should be super simple". This card was printing all sixteen verbs at font size 9
+	# over a room whose entire purpose is that you can safely press things and find
+	# out. A wall of key bindings is the opposite of a practice room — it is homework
+	# in front of a sandbox.
+	#
+	# What replaces it is one line naming the two things a new player cannot discover
+	# by mashing: that nothing can hurt them, and where the full list lives when they
+	# want it. `PauseMenu.controls_text()` still generates that list from the live
+	# InputMap, one Esc away.
 	var body := Label.new()
-	# Read off `PauseMenu.CONTROLS_TEXT` rather than restated, so the one card a new
-	# player reads can never drift from the one the settings menu shows.
-	body.text = PauseMenu.CONTROLS_TEXT
+	body.text = "Move, jump, and hit things.        Esc for every control."
+	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	body.add_theme_font_size_override("font_size", 9)
+	body.add_theme_color_override("font_color", Color(0.62, 0.63, 0.70))
 	col.add_child(body)
 
 	var dismiss := Button.new()
-	dismiss.text = "GOT IT  —  play  (Esc for settings)"
+	dismiss.text = "GOT IT"
 	dismiss.focus_mode = Control.FOCUS_NONE
 	dismiss.pressed.connect(_dismiss_card)
 	col.add_child(dismiss)
@@ -392,7 +404,12 @@ func _extend_pause_menu() -> void:
 	if menu == null:
 		return
 	menu.call("add_action", "Reset the stage", Callable(self, "_reset_stage"))
-	menu.call("add_action", "Heal", Callable(self, "_heal"))
+	# ⚠ "HEAL" IS GONE. Maker: "settings remove the heal button". It set
+	# `hp = max_hp` on the live hero, ungated by `OS.is_debug_build()` — a cheat
+	# sitting in a player-facing menu, one row under a real verb. `_heal` itself is
+	# kept because "Reset the stage" is the honest version of the same wish and a
+	# stage reset re-spawns you whole; nothing else calls it, so deleting the row is
+	# the whole fix.
 
 	menu.call("add_setting_section", "Free Play")
 	_class_btn = menu.call("add_setting_button", "Class: %s" % CLASS_LABELS[_class_id],

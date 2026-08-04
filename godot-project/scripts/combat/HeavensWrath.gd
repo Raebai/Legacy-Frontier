@@ -91,6 +91,20 @@ const DRIFT: float = 34.0
 ## every capture. 190 keeps the cell above head height (the bolt still has a real
 ## fall) and inside the frame.
 const CLOUD_HEIGHT: float = 190.0
+## How far DOWN the storm looks for the ground it is claiming, and for the ground
+## under each mark.
+##
+## ⚠ THE OLD NUMBERS WERE 320 (cell) AND 260 (mark) AND THEY WERE TOO SHORT. A
+## `floor_point` that finds nothing hands the point straight back unchanged, so a
+## cursor held anywhere higher than ~260 px above the floor left the mark — and
+## therefore the bolt, and therefore the damage — sitting in open air, silently.
+## That is the maker's *"hit the bottom as needed"* on a spell that already
+## believed it was floor-aware. One constant now, because two probes answering the
+## same question at two different depths is how they drift apart.
+##
+## It is still a BOUND: below it there is no floor, and the fallback is documented
+## at each call site. UNTESTED GUESS.
+const FLOOR_DROP: float = 900.0
 ## Damage radius at a mark. Deliberately much smaller than the cell: being under
 ## the storm is dangerous, being on the mark is fatal.
 const BOLT_RADIUS: float = 54.0
@@ -147,7 +161,10 @@ func hex(caster: Node, origin: Vector2, target: Vector2, spell: SpellDef,
 		_damage = maxi(spell.damage, 1)
 		if spell.radius > 0.0:
 			_radius = spell.radius
-	_cell = SpellWorld.floor_point(target, 320.0, [], self)
+	# The cell hangs over the ground under the aim. Over a pit `floor_point` returns
+	# the aim unchanged, which is the right answer for weather: the storm still
+	# forms, it just has nothing beneath it to strike.
+	_cell = SpellWorld.floor_point(target, FLOOR_DROP, [], self)
 	_ground_y = _cell.y
 	# Drift AWAY from the caster, so the storm is walking off with the ground it
 	# took rather than rolling back over its own thrower.
@@ -198,7 +215,13 @@ func _place_mark(_i: int) -> void:
 		# a target, which is exactly what makes it weather.
 		at = _cell + Vector2(_hash01(_seed + _next_mark * 53) * _radius
 			- _radius * 0.5, 0.0)
-	at = SpellWorld.floor_point(at, 260.0, [], self)
+	# Drop the mark to the floor so the bolt lands ON something. `floor_point`, not
+	# `floor_below` + a `hit` branch, and that IS the decision: on a miss the point
+	# comes back untouched, which is what we want here and nowhere else in this
+	# sweep. When the mark came from a BODY that point is the body itself, so an
+	# airborne target still gets struck rather than having its bolt cancelled —
+	# unlike a falling rock, a bolt does not need ground to arrive on.
+	at = SpellWorld.floor_point(at, FLOOR_DROP, [], self)
 	_marks.append({
 		"pos": at,
 		"land_at": _elapsed + MARK_TELL,

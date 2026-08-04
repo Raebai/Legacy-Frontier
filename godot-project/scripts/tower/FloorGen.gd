@@ -60,14 +60,46 @@ static var climb_seed: int = 0
 static var last_seed: int = 0
 
 ## ONE SCREEN. The fit-all camera can pull back to CombatCamera.FRAME_VIEWPORT
-## (640x360) / FRAME_ZOOM_MIN (0.5) minus FRAME_PAD (300, 220) => 980x500 of world.
+## (640x360) / FRAME_ZOOM_MIN minus FRAME_PAD (300, 220) — with FRAME_ZOOM_MIN at
+## 0.42 that is 1523x857 of world, and this is the biggest room that fits inside it.
 ## Hardcoded rather than loaded so this file drags no combat script into a headless
 ## harness's compile graph; `slice_test_floorgen` re-derives it from CombatCamera and
 ## fails if the two ever disagree.
-const MAX_ROOM: Vector2 = Vector2(980.0, 500.0)
+##
+## ⚠ THIS GREW, AND THE CAMERA HAD TO MOVE FOR IT TO. Maker, twice: "make the map
+## larger", then "the map is too small". The old ceiling was 980x500 and it was not a
+## FloorGen choice at all — it was `640/0.5 - 300` and nothing more, so the only way
+## to raise it was to widen what the camera can frame. `FRAME_ZOOM_MIN` went 0.5 ->
+## 0.42, which is the ONE lever that buys room without touching the close-quarters
+## picture: `FRAME_PAD` sets how tight the camera goes when two fighters are on top of
+## each other, so cutting the pad would have bought space by zooming further IN — the
+## exact opposite complaint, already on record ("a bit too zoomed in generally").
+## Lowering the zoom FLOOR only changes the widest shot. See CombatCamera for the cost.
+##
+## ⚠ THE GROWTH IS DELIBERATELY LOPSIDED. Width +24%, height +12%. This is a
+## side-on brawler: lateral space is where a fight breathes, and height is the axis
+## that turns into dead air above the top ledge (the ledge tiers are anchored to the
+## GROUND, so a taller room does not get taller architecture, it gets more sky).
+const MAX_ROOM: Vector2 = Vector2(1220.0, 560.0)
 ## ...and a floor is still an arena. A one-screen room that used half the screen
 ## would just be a smaller box, not a different room.
-const MIN_ROOM: Vector2 = Vector2(820.0, 420.0)
+##
+## ⚠ RAISED HARD, AND THAT IS THE POINT. This used to be 820x420 against a 980x500
+## ceiling, so the SMALL end of the roll was 30% less floor than the large end and a
+## player could open floor 1 into the tightest room the generator can draw — which is
+## a coin-flip on whether the complaint reproduces. Proportion still varies (1080x560
+## and 1220x500 are visibly different fights); SIZE no longer does, because small was
+## never a feature.
+const MIN_ROOM: Vector2 = Vector2(1080.0, 500.0)
+## The room width the ledge shapes below were authored against. Ledge spans are scaled
+## by `w / SHAPE_REFERENCE_W` so a bigger room gets bigger FURNITURE rather than the
+## same small furniture with more gaps between it — otherwise "larger" arrives on
+## screen as "emptier", which is a different complaint two weeks later.
+const SHAPE_REFERENCE_W: float = 980.0
+## ...but only so far. Past this the spans start tripping `_legal_platform`'s
+## "no ledge wider than 55% of the room" rule, and a ledge that cuts the room in two
+## is worse than a slightly small one.
+const SHAPE_SCALE_MAX: float = 1.30
 
 ## Arena.WALL_THICKNESS. The bottom wall is centred on y = room_h, so its top face —
 ## the ground everything stands on — is half a thickness above that.
@@ -374,7 +406,7 @@ static func generate_layout(rng: RandomNumberGenerator, shape: String,
 	l.min_spawn_dist_from_hero = _snap(rng.randf_range(dist_band.x, dist_band.y), 5.0)
 
 	# --- cover, resting on surfaces you can reach.
-	l.crate_positions = _place_crates(rng, reach, floor_type, l.hero_start, l.exit_point)
+	l.crate_positions = _place_crates(rng, reach, floor_type, l.hero_start, l.exit_point, depth)
 	l.weapon_pickups = _place_pickups(rng, reach, floor_type, l.hero_start)
 	return l
 
@@ -426,17 +458,21 @@ static func _build_platforms(rng: RandomNumberGenerator, shape: String, w: float
 			# One low island, sometimes. The boss floor usually gets nothing at all.
 			if floor_type != FloorDef.FloorType.BOSS or rng.randf() < 0.5:
 				_try_add(out, rng, w * rng.randf_range(0.38, 0.62), t1,
-					rng.randf_range(150.0, 210.0), break_chance, ground_y, top_limit, w)
+					_span(w, rng.randf_range(150.0, 210.0)), break_chance, ground_y, top_limit, w)
 		SHAPE_STAIRS:
 			# A staircase: each tread steps up AND along, and the run is short enough
 			# that consecutive treads nearly touch.
+			# ⚠ THE RUN SCALES WITH THE TREAD. These two are the same number in
+			# different clothes — the run is how far along the next tread starts, so
+			# scaling the tread without the run would overlap them and scaling the run
+			# without the tread would open a gap no jump crosses.
 			var dir: float = 1.0 if rng.randi_range(0, 1) == 0 else -1.0
 			var base_x: float = w * (0.24 if dir > 0.0 else 0.76)
-			var run: float = rng.randf_range(150.0, 190.0)
+			var run: float = _span(w, rng.randf_range(150.0, 190.0))
 			for i: int in 3:
 				var px: float = base_x + dir * run * float(i)
 				var py: float = [t1, t2, t3][i]
-				_try_add(out, rng, px, py, rng.randf_range(150.0, 190.0),
+				_try_add(out, rng, px, py, _span(w, rng.randf_range(150.0, 190.0)),
 					break_chance, ground_y, top_limit, w)
 		SHAPE_GALLERY:
 			# Two wall balconies and a middle stage, all on ONE tier — the balconies
@@ -446,15 +482,20 @@ static func _build_platforms(rng: RandomNumberGenerator, shape: String, w: float
 			# balcony's left edge at x=20, four pixels inside the wall margin, so BOTH
 			# balconies were rejected on every single roll and a "gallery" came back
 			# as one lonely slab.
-			var bw: float = rng.randf_range(190.0, 250.0)
+			# ⚠ AND THE SPANS SCALE, or a wider room silently un-designs this shape.
+			# The balconies are WALL-anchored and the stage is CENTRE-anchored, so every
+			# pixel the room gains lands in the two gaps between them. The ground still
+			# reaches all three (that is what keeps the roll legal and why nothing gets
+			# pruned), but the balcony -> stage hop the shape is ABOUT stops existing.
+			var bw: float = _span(w, rng.randf_range(190.0, 250.0))
 			_try_add(out, rng, WALL_MARGIN + bw * 0.5, t1, bw, break_chance, ground_y, top_limit, w)
 			_try_add(out, rng, w - WALL_MARGIN - bw * 0.5, t1, bw, break_chance, ground_y, top_limit, w)
-			var stage: int = _try_add(out, rng, w * 0.5, t1, rng.randf_range(170.0, 220.0),
+			var stage: int = _try_add(out, rng, w * 0.5, t1, _span(w, rng.randf_range(170.0, 220.0)),
 				break_chance, ground_y, top_limit, w)
 			# ...and sometimes a crow's nest directly over the stage.
 			if stage >= 0 and rng.randf() < 0.55:
 				_try_stack(out, rng, stage, rng.randf_range(STEP_MIN, STEP_MAX),
-					rng.randf_range(110.0, 150.0), break_chance, ground_y, top_limit, w)
+					_span(w, rng.randf_range(110.0, 150.0)), break_chance, ground_y, top_limit, w)
 		SHAPE_PILLARS:
 			# Perches, all within one step of the floor, staggered in height so the
 			# skyline is ragged rather than a shelf. One of them may carry a second
@@ -464,8 +505,11 @@ static func _build_platforms(rng: RandomNumberGenerator, shape: String, w: float
 			# room. Placing them at `w * (i + 0.5) / n` put the outer two half-off the
 			# wall on a narrow room and left the middle pair close enough to trip the
 			# separation rule — a four-perch shape reliably produced one perch.
+			# The perch COUNT is rolled before the width is scaled, so a wider room
+			# gets wider perches at the same count rather than a fifth perch — five
+			# things to stand on is a different shape, not a bigger one.
 			var n: int = rng.randi_range(3, 4)
-			var pill_w: float = rng.randf_range(110.0, 150.0)
+			var pill_w: float = _span(w, rng.randf_range(110.0, 150.0))
 			var usable: float = w - 2.0 * (WALL_MARGIN + pill_w * 0.5)
 			# ...and if the room cannot separate that many perches, it draws fewer.
 			while n > 2 and usable / float(n - 1) < pill_w + 40.0:
@@ -480,10 +524,14 @@ static func _build_platforms(rng: RandomNumberGenerator, shape: String, w: float
 					break_chance, ground_y, top_limit, w)
 				if idx >= 0 and i == raised:
 					_try_stack(out, rng, idx, rng.randf_range(STEP_MIN, STEP_MAX),
-						rng.randf_range(100.0, 140.0), break_chance, ground_y, top_limit, w)
+						_span(w, rng.randf_range(100.0, 140.0)), break_chance, ground_y, top_limit, w)
 		SHAPE_SPLIT:
 			# A broken causeway: two spans with a hole punched through the middle.
-			var span: float = rng.randf_range(200.0, 260.0)
+			# ⚠ THE SPAN SCALES, THE GAP DOES NOT. The gap is a JUMP, measured in the
+			# hero's movement budget (GAP_FLAT_MAX), and a jump does not get longer
+			# because the room did. Scaling it would put the causeway's hole past what
+			# anyone can cross on a wide roll.
+			var span: float = _span(w, rng.randf_range(200.0, 260.0))
 			var gap: float = rng.randf_range(70.0, GAP_FLAT_MAX - 20.0)
 			var left: int = _try_add(out, rng, w * 0.5 - gap * 0.5 - span * 0.5, t1, span,
 				break_chance, ground_y, top_limit, w)
@@ -491,8 +539,16 @@ static func _build_platforms(rng: RandomNumberGenerator, shape: String, w: float
 				break_chance, ground_y, top_limit, w)
 			if left >= 0 and rng.randf() < 0.6:
 				_try_stack(out, rng, left, rng.randf_range(STEP_MIN, STEP_MAX),
-					rng.randf_range(130.0, 180.0), break_chance, ground_y, top_limit, w)
+					_span(w, rng.randf_range(130.0, 180.0)), break_chance, ground_y, top_limit, w)
 	return _prune_stranded(out, w, ground_y)
+
+
+## A ledge span authored against `SHAPE_REFERENCE_W`, resized for the room actually
+## rolled. Only ever grows (clamped at 1.0 below) — a narrow room keeps the authored
+## spans, because those were tuned against the movement budget and shrinking them
+## would make every gap harder, which is a difficulty change wearing a layout costume.
+static func _span(room_w: float, base: float) -> float:
+	return base * clampf(room_w / SHAPE_REFERENCE_W, 1.0, SHAPE_SCALE_MAX)
 
 
 ## Keep a candidate ledge only if it is legal against every geometry invariant.
@@ -674,7 +730,7 @@ static func _pick_exit(rng: RandomNumberGenerator, reach: Array[Dictionary], roo
 	var gx: float = room_w * (rng.randf_range(0.66, 0.86) if hero_left else rng.randf_range(0.14, 0.34))
 	gx = clampf(gx, 60.0, room_w - 60.0)
 	if absf(gx - hero_x) < 200.0:
-		# Whichever wall is further away. MIN_ROOM.x is 820, so one of them is always
+		# Whichever wall is further away. MIN_ROOM.x is 1080, so one of them is always
 		# comfortably past the 200px separation.
 		gx = 60.0 if hero_x > room_w * 0.5 else room_w - 60.0
 	return Vector2(_snap(gx, 5.0), ground_y - 38.0)
@@ -685,9 +741,9 @@ static func _pick_exit(rng: RandomNumberGenerator, reach: Array[Dictionary], roo
 ## considered into the middle of the room; a crate that sits on a ledge or on the
 ## floor is unambiguously cover.
 static func _place_crates(rng: RandomNumberGenerator, reach: Array[Dictionary], floor_type: int,
-		hero_start: Vector2, exit_point: Vector2) -> Array[Vector2]:
+		hero_start: Vector2, exit_point: Vector2, depth: int = 99) -> Array[Vector2]:
 	var out: Array[Vector2] = []
-	var want: int = _crate_budget(rng, floor_type)
+	var want: int = _crate_budget(rng, floor_type, depth)
 	if want <= 0 or reach.is_empty():
 		return out
 	var guard: int = 0
@@ -718,7 +774,15 @@ static func _place_crates(rng: RandomNumberGenerator, reach: Array[Dictionary], 
 
 ## How much cover a floor type wants. ELITE stays open — the authored floor's note
 ## was "a more open room so the tankier fight has space" — and BOSS stays clean.
-static func _crate_budget(rng: RandomNumberGenerator, floor_type: int) -> int:
+##
+## ⚠ THE TEACHING FLOOR GETS LESS, same principle as `MIX_MIN_DEPTH` a screen up.
+## Floor 1 could roll EIGHT crates, placed in clusters of 1-3, into a one-screen room
+## — and against the maker's "super simple" bar that is confetti, not cover: eight
+## amber-ticked boxes are eight things competing with the enemies for the eye on the
+## one floor where a player is still learning which shapes matter. Depth 1 is capped
+## at a third of that, which is enough for cover to exist as a concept without the
+## room being about it.
+static func _crate_budget(rng: RandomNumberGenerator, floor_type: int, depth: int = 99) -> int:
 	match floor_type:
 		FloorDef.FloorType.BOSS:
 			return 0
@@ -727,7 +791,7 @@ static func _crate_budget(rng: RandomNumberGenerator, floor_type: int) -> int:
 		FloorDef.FloorType.REST:
 			return rng.randi_range(0, 3)
 		_:
-			return rng.randi_range(4, 8)
+			return rng.randi_range(1, 3) if depth <= 1 else rng.randi_range(4, 8)
 
 
 ## The weapon pickup(s). Placed on a reachable surface and away from the spawn, so

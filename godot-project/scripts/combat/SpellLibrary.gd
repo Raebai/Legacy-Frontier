@@ -56,7 +56,7 @@ const ROLE_ORDER: Array[String] = ["damage", "control", "answer", "payoff", "ult
 ##      build_all(), the review harness — unreachable in real play, while the
 ##      class-select cards cheerfully advertised all three.
 ##
-## Both are fixed here. The family now spans two shelves — The Ordinary Spell and
+## Both are fixed here. The family now spans two shelves — First Lance and
 ## Frostpiercer are short-channel HEAVYs that live in DAMAGE slots and get thrown
 ## all fight; Infernal Lance, Umbral Lance and Tempest keep the full channel and
 ## are their class's ULT. All five are reachable, three of them at once across the
@@ -67,13 +67,13 @@ const ROLE_ORDER: Array[String] = ["damage", "control", "answer", "payoff", "ult
 ## The non-ult pool is 16 spells across 8 classes x 4 slots, so tools are SHARED
 ## between classes on purpose (the Brawler and the Stormcaller have always shared
 ## the Thunderclap). What must stay distinct is the four roles WITHIN a kit. Note
-## a spell's role is per-KIT, not a property of the spell: Shadow Step is the
+## a spell's role is per-KIT, not a property of the spell: Shadowburst is the
 ## Arcanist's escape and the Shadowblade's finisher, which is exactly why the
 ## roles live in this table and not on SpellDef.
 ##
 ## TWO THINGS THE POOL CANNOT CURRENTLY GIVE, both content gaps rather than kit
 ## choices, and both worth fixing with new spells rather than more reshuffling:
-##   - MOBILITY is the one role every class needs and Shadow Step is the only pure
+##   - MOBILITY is the one role every class needs and Shadowburst is the only pure
 ##     mobility tool that is not somebody's signature, so it carries four kits.
 ##   - Rift Dagger stays in the SHADOWBLADE kit ONLY. Not a balance call: it is a
 ##     two-beat spell (throw, then press again to tear through to the anchor), and
@@ -115,7 +115,7 @@ const ROLE_ORDER: Array[String] = ["damage", "control", "answer", "payoff", "ult
 ##     one the class cards used to advertise. Its cooldown/lifetime were retuned to
 ##     clear the ULT shelf so it can hold a non-ult slot — see `_aegis_ward()`.
 const CLASS_KITS: Array[Dictionary] = [
-	# 0 ARCANIST — ranged arcane zoner. The Ordinary Spell is the damage line it was
+	# 0 ARCANIST — ranged arcane zoner. First Lance is the damage line it was
 	# always described as being. Its control is MIRROR IMAGE: a second caster that
 	# repeats what you cast, one beat behind, on nobody's side. Nothing else in the
 	# game duplicates you, which is why this is worth a kit slot rather than a drop.
@@ -124,7 +124,7 @@ const CLASS_KITS: Array[Dictionary] = [
 	# 1 SHADOWBLADE — in-and-out assassin. Its ult was `umbral_lance`, a violet copy
 	# of the Arcanist's magenta beam: a stationary channelled lance on an assassin.
 	# THOUSAND CUTS is the class fantasy instead — mark one body, vanish, open it
-	# from every angle. Rift Dagger is the carried get-out; Shadow Step the reserve.
+	# from every angle. Rift Dagger is the carried get-out; Shadowburst the reserve.
 	{"damage": "blade_flurry", "control": "creeping_shade", "answer": "rift_dagger",
 		"payoff": "blink_strike", "ult": "thousand_cuts"},
 	# 2 BRAWLER — pure melee, and it finally is. Its damage line was a LIGHTNING
@@ -176,9 +176,9 @@ const CLASS_KITS: Array[Dictionary] = [
 	#   control Rock Wall — a duelist SHAPES the floor rather than zoning with magic:
 	#           drop a wall across a ranged class's line and the fight has to happen
 	#           where it wants it. Same reasoning as the Brawler's pick.
-	#   answer  CRESCENT STEP — for a duelist the get-out is IN, not out, and this is
+	#   answer  CRESCENT RUSH — for a duelist the get-out is IN, not out, and this is
 	#           the only mobility tool in the tree that CUTS the lane it crossed.
-	#           Shadow Step (a teleport with a burst) is a different verb and stays
+	#           Shadowburst (a teleport with a burst) is a different verb and stays
 	#           the Arcanist's / Cryomancer's.
 	#   payoff  Boulder Hurl — the only non-magic heavy in the pool; he rips the floor
 	#           up and throws it.
@@ -233,7 +233,7 @@ const SLOT_ROLES: Array[Array] = [
 	# side, IS a zoning tool — it makes standing anywhere near you a decision.
 	["damage", "control", "ult"],
 	# 1 SHADOWBLADE — "in-and-out assassin". Rift Dagger is the ANSWER and the carried
-	# middle: throw it, then tear yourself through to it. Shadow Step moves to the
+	# middle: throw it, then tear yourself through to it. Shadowburst moves to the
 	# reserve because two other classes hold it and this class's identity should not
 	# be the tool three kits share.
 	["damage", "answer", "ult"],
@@ -272,7 +272,7 @@ const SLOT_ROLES: Array[Array] = [
 	# 8 SWORDSAINT — "guard-and-punish duelist". Its real defensive verb is not in this
 	# table at all (RMB is a held BLADE guard that banks a parry into a cut), so the
 	# kit's whole job is getting INTO range: for a duelist the get-out is IN, and
-	# Crescent Step is the only dash in the tree that cuts the lane it crossed.
+	# Crescent Rush is the only dash in the tree that cuts the lane it crossed.
 	["damage", "answer", "ult"],
 ]
 
@@ -990,20 +990,63 @@ static func _roulette() -> SpellDef:
 
 
 # ------------------------------------------------------------- named signatures
-## THE ORDINARY SPELL — Arcanist. Renamed in the IP pass: it used to carry a spell
-## name borrowed from another work, and its description cited that work outright.
-## Structure, not silhouettes. The FANTASY is untouched and is not anyone's
-## property — the most basic offensive magic there is, practised until it is the
-## only one you need. (The old name is deliberately not written here: the sweep in
-## slice8_test_spell_kits.gd scans this file's SOURCE, comments included, so that
-## a borrowed name cannot creep back in as an explanation of itself.)
+## ══ THE DISPLAY-NAME PASS, AND THE ONE THING IT DID NOT TOUCH ════════════════
+## Maker's ruling: "the ordinary is an awful name, change that — and this, I mean
+## for all classes, no need for step or cast." Three display names moved for it.
 ##
-## The rename also fixed a shelf that disagreed with the fantasy. At cast_time 1.0
+## ⚠ ONLY `display_name` MOVED. Every `id` in this file is byte-identical across
+## that pass, and that is the whole safety argument for doing it in one edit: an id
+## is the currency everywhere else in the game — `SpellCaster.HEX_SCRIPTS` forks on
+## it, `CLASS_KITS` / `SLOT_ROLES` address spells by it, `SpellGrant` and the pickup
+## entity PERSIST it, and the drop tables are derived from it. A display name is
+## read by the HUD and the class cards and by nothing that makes a decision. So
+## renaming an id to match a nicer label would have been the same edit across nine
+## files plus a save-compat break, bought for a cosmetic win.
+##
+## The three, and why each was filler rather than a name: `ordinary_spell` (the
+## maker's "awful name"), plus `blink_strike` and `crescent_step`, which both wore
+## "Step" as a trailing noun. "Step" named the MECHANIC, not the spell, which is
+## what makes a name fail the bar this game is held to — it has to read at a glance
+## on a hotbar, and a word that four other spells could equally have worn reads as
+## nothing at all.
+##
+## "Cast" was swept for in the same pass and appears in NO display name in this
+## file, so nothing was owed there. Recorded because a later reader finding no
+## "Cast" should know it was checked, not overlooked.
+
+
+## FIRST LANCE — Arcanist's damage line. TWO renames, and they are separate events.
+## The IP pass took it off a name borrowed from another work (that string is
+## deliberately still not written here — the sweep in slice8_test_spell_kits.gd
+## scans this file's SOURCE, comments included, precisely so a borrowed name cannot
+## creep back in as an explanation of itself). This pass takes it off the
+## placeholder that rename left behind. The FANTASY survives both untouched and is
+## not anyone's property: the most basic offensive magic there is, practised until
+## it is the only one you need.
+##
+## WHY "FIRST" AND NOT A GRANDER WORD. The identity IS that it is the one you learn
+## first and never stop throwing, so the adjective carries the idea and the family
+## noun says what it does — the same shape as its two shelf-mates, Infernal Lance
+## and Umbral Lance, which is honest because all three are the one `Kind.BEAM`
+## corridor.
+##
+## It also retires a HUD bug rather than dodging it. The old name led with an
+## ARTICLE; `Hero._signature_hud_slot` shortens with `split(" ")[0]`; so the maker's
+## signature beam has been labelled "The" on the hotbar, and `AbilityBar` carries a
+## whole repair path for that one string. "First Lance" shortens to "First" under
+## the naive rule AND under `AbilityBar.short_spell_name`, so the two agree without
+## the repair needing to fire at all.
+##
+## Rejected: "Arcane Bolt" — `ClassInfo.CLASSES[ARCANIST]` already calls this class's
+## LMB primary an "arcane bolt", so the card would advertise one name for two
+## different buttons. "Mana Lance" names the resource instead of the idea.
+##
+## The IP rename also fixed a shelf that disagreed with the fantasy. At cast_time 1.0
 ## this was an ULT — a "basic spell" you could throw once a fight — so it is the
 ## short-channel HEAVY of the beam family and sits in the Arcanist's DAMAGE slot,
 ## which is what "the last one you need" is supposed to mean.
 static func _ordinary_spell() -> SpellDef:
-	return _beam("ordinary_spell", "The Ordinary Spell",
+	return _beam("ordinary_spell", "First Lance",
 		"The first spell anyone learns, practised until it is the last one you "
 		+ "need. A sigil blooms and a lance of mana crosses the whole arena.",
 		# 78 -> 88 in the DPS-floor pass; same reason as the Meteor Sigil above.
@@ -1323,7 +1366,15 @@ static func _rune_orbs() -> SpellDef:
 	return s
 
 
-## SHADOW STEP — the reposition-and-punctuate blink. The description used to
+## SHADOWBURST — the reposition-and-punctuate blink. Renamed off "Shadow Step" in
+## the display-name pass (see the block above `_ordinary_spell`; the `blink_strike`
+## id is unchanged). The new name is not just a de-fillering: it is the only one of
+## the three that the CODE had already outgrown. When the travel corridor was the
+## damage, "Step" described the spell; now that BlinkStrike.gd resolves everything
+## in one radius query at the destination, the burst IS the spell and the step is
+## just how it gets there.
+##
+## The description used to
 ## promise "everything on the crossed line is cut and left WEAKENED", which was
 ## true of the old version: a 300 px damage corridor along the path travelled.
 ## BlinkStrike.gd was rewritten (maker: "it should just teleport instantly and then
@@ -1342,7 +1393,7 @@ static func _rune_orbs() -> SpellDef:
 static func _blink_strike() -> SpellDef:
 	var s := SpellDef.new()
 	s.id = "blink_strike"
-	s.display_name = "Shadow Step"
+	s.display_name = "Shadowburst"
 	s.description = "Step through shadow to the marked point — the dark you "\
 		+ "dragged with you collapses into a burst at your feet."
 	s.kind = SpellDef.Kind.BLINK_STRIKE
@@ -1678,13 +1729,23 @@ static func _iai_slash() -> SpellDef:
 	return s
 
 
-## CRESCENT STEP — Swordsaint ANSWER. A travelling forward dash that CUTS the lane
-## behind it, as opposed to `Hero._blink` (instant, no damage) and Shadow Step
+## CRESCENT RUSH — Swordsaint ANSWER. A travelling forward dash that CUTS the lane
+## behind it, as opposed to `Hero._blink` (instant, no damage) and Shadowburst
 ## (teleport, burst at the destination). For a duelist the get-out is IN.
+##
+## Renamed off "Crescent Step" in the display-name pass (the `crescent_step` id is
+## unchanged, and so is the `CrescentStep.gd` spectacle script that serves it — a
+## script rename would have been a real edit in a file this pass has no business
+## touching, for zero player-visible gain). "Crescent" is the shape it cuts and
+## "Rush" is the verb; the filler noun carried neither.
+##
+## Rejected "Crosscut", which is snappier: this class already ults with HORIZON CUT,
+## and two "Cut" names inside one five-spell kit is the naming version of the exact
+## recolour problem the table above spends two hundred lines undoing.
 static func _crescent_step() -> SpellDef:
 	var s := SpellDef.new()
 	s.id = "crescent_step"
-	s.display_name = "Crescent Step"
+	s.display_name = "Crescent Rush"
 	s.description = "Step through the guard, cutting the whole lane you crossed. "\
 		+ "The lane is drawn at full length before you move — its width, its angle, "\
 		+ "all of it. Leave the lane, or wear the cut."
@@ -1778,15 +1839,25 @@ static func _radiant_volley() -> SpellDef:
 
 
 ## SHATTER — Cryomancer DAMAGE. Replaces `frostpiercer`, the class's beam. A charge
-## planted on the ground that pays 0.35x on a warm body, 1.0x on a chilled one and
+## HURLED at the ground that pays 0.35x on a warm body, 1.0x on a chilled one and
 ## 3.0x on a frozen one — so the class's own Blizzard is its set-up, and the whole
 ## spell is an argument for having chilled the target first.
+##
+## ⚠ NO NUMBER ON THIS SPELL MOVED IN THE "ice isn't damaging" PASS, deliberately.
+## 62 x 3.0 = 186 on a frozen body already makes a landed Shatter the single
+## biggest hit in the roster (Heaven's Wrath is 130 across five strikes; this
+## class's own ult is 48 a spike), on a 4 s cooldown, on the DAMAGE slot. The spell
+## was not weak — it was ILLEGIBLE: it threw no projectile at all, and it gave the
+## player no way to tell a 22 from a 186 before it went off. Both of those are
+## fixed in `Shatter.gd`. Raising the number too would have been the wrong lever
+## twice over, and into a build where hero HP just went up 1.4x.
 static func _shatter() -> SpellDef:
 	var s := SpellDef.new()
 	s.id = "shatter"
 	s.display_name = "Shatter"
-	s.description = "Plant a charge and let the fracture lattice spread. It barely "\
-		+ "scratches something warm. It TRIPLES on something frozen. Chill them "\
+	s.description = "Hurl a frost charge at the ground and let the fracture lattice "\
+		+ "spread. It barely scratches something warm. It TRIPLES on something "\
+		+ "frozen, and the casing shards cut everything stood near it. Chill them "\
 		+ "first, or do not bother."
 	s.kind = SpellDef.Kind.HEX
 	s.element = Elements.Element.ICE

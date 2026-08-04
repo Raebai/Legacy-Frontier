@@ -186,20 +186,53 @@ const PARRY_SHIELD_TIME: float = 0.26
 ## `dash_iframe_fraction`, so "this verb dodges" and "this verb commits" is a number you
 ## can read rather than a side effect of sharing one code path.
 
-## --- 0 ARCANIST: ARCANE RECALL ------------------------------------------------
-## Dash out, then press again inside the window to SNAP BACK to where you started.
-## The zoner's verb: it buys a look at a different angle and un-buys it, so the
-## Arcanist can step into a lane it has no business standing in and leave before the
-## bill arrives. The return leg is a teleport and is vetted like every other one.
-const RECALL_SPEED: float = 600.0
-const RECALL_TIME: float = 0.14
-## How long the anchor stays live. Deliberately longer than the dash cooldown so the
-## second press is a real DECISION rather than a cooldown race — and see the
-## `_recall_pending()` gate in `_try_fire_buffered`, which lets the return leg through
-## a cooldown the outbound leg just spent.
-const RECALL_WINDOW: float = 1.10
-const RECALL_IFRAME_FRACTION: float = 0.6
-const RECALL_ANCHOR_COLOR: Color = Color(0.55, 0.45, 1.0, 0.75)
+## --- 0 ARCANIST: ARCANE PHASE --------------------------------------------------
+## Step, and be UNTOUCHABLE for the whole of it. The Arcanist does not dodge the way
+## everyone else dodges (early, then exposed on the tail) — it stops being a body at
+## all for the length of the step, leaves a violet after-image standing where it was,
+## and re-forms where it is going.
+##
+## ⚠ REMOVED 2026-08-04 — THE RETURN LEG (the "Arcane Recall" second press). This verb
+## used to drop an anchor on press one and TELEPORT YOU BACKWARDS to it on a second
+## press inside `RECALL_WINDOW`. The maker killed it on sight: *"im confused on this
+## backwards teleporting when I press space twice get rid of that its just a repeat of
+## blink we dont want that"* — and they are right, it WAS a blink. R is already a
+## vetted teleport (`_blink`), the Stormcaller's whole verb is a vetted teleport
+## (`_lightning_blink`), and a third one sharing the movement button meant the same
+## press did two unrelated things depending on hidden state you could not see. Gone
+## with it: `RECALL_WINDOW`, `_recall_anchor`, `_recall_timer`, `_recall_pending()`,
+## `_arcane_recall_return()`, the `"rc"` net beat and `_replay_recall()`. Do not
+## re-add a second beat to this button.
+##
+## WHAT KEEPS IT FROM BEING A RECOLOURED DASH — because "every class needs a unique
+## movement verb, no recolours" is a standing ruling and deleting the second beat left
+## this row at literally the baseline dash (0.6 i-frames, ~84 px). The identity moved
+## into the i-frame profile: this is the ONLY verb in the roster that is invulnerable
+## for 100% of its duration. Everything else is a read you can be punished for
+## finishing (0.8 air dash, 0.6 baseline, 0.0 for the two commitments); the phase is
+## the one press that cannot be clipped. That is the same fantasy the out-and-back was
+## reaching for — "step into a lane you have no business standing in and don't pay for
+## it" — bought with ONE press and no hidden state.
+##
+## ⚠ IT IS STILL NOT A BLINK, and the difference is legible at a glance: a blink is
+## instant, long, and vetted against geometry (you appear elsewhere); a phase is a
+## TRAVEL — you can be watched crossing, a wall stops you short, and it is the shortest
+## fully-committed step in the roster. Rejected alternatives: making the forward leg a
+## teleport (that is Stormcaller's verb, verbatim), and a cosmetic-only after-image
+## with baseline numbers (that is the recolour the ruling forbids).
+const ARCANE_PHASE_SPEED: float = 600.0
+const ARCANE_PHASE_TIME: float = 0.14
+## ⚠ THE ONLY 1.0 IN THE TABLE, and it is the class's movement identity rather than a
+## generosity — see `_dash_invulnerable`, where the fraction is measured from the START
+## of the travel. If this ever feels oppressive the dial is `dash_cd` or
+## `ARCANE_PHASE_TIME`, NOT this number: shave the fraction and the Arcanist is a
+## slightly-slower dash again, which is exactly what was just deleted.
+const ARCANE_PHASE_IFRAME_FRACTION: float = 1.0
+const ARCANE_PHASE_COLOR: Color = Color(0.55, 0.45, 1.0, 0.75)
+## How long the after-image left at the origin takes to fade. Long enough to still be
+## standing there when you arrive, so the eye reads "she left that behind" rather than
+## "a trail ghost spawned".
+const ARCANE_PHASE_ECHO_FADE: float = 0.3
 
 ## --- 1 SHADOWBLADE: AIR DASH --------------------------------------------------
 ## "The air one." The best air game in the roster and the only verb that IGNORES
@@ -501,12 +534,30 @@ const CLASS_NAMES: Array[String] = [
 ## classes were mechanically identical before either player cast anything, which is the
 ## thing the maker's ruling is actually about.
 ##
-## THE SPREAD, and why it stops where it does. HP runs 78 (Shadowblade) to 145
+## THE SPREAD, and why it stops where it does. HP runs 109 (Shadowblade) to 203
 ## (Juggernaut) — 1.86x — and speed 165 to 240 — 1.45x. Both are chosen to be READABLE
 ## in a two-second look and no wider: this is a co-op brawler, not an MMO, and a spread
 ## big enough to make a class strictly correct is a spread that has removed a choice.
 ## The two axes trade against each other on purpose (the fastest body is the frailest,
 ## the toughest is the slowest), so no class is simply better at existing.
+##
+## ⚠ EVERY `hp` BELOW WAS MULTIPLIED BY 1.4 ON 2026-08-04 AND THE SPREAD IS UNCHANGED.
+## Maker: *"the character needs more HP ... the opponents should do less damage its
+## very difficult of a game right now"*. The table used to run 78-145; it now runs
+## 109-203. A UNIFORM multiplier was chosen over nine hand-picked numbers precisely
+## because it PROVABLY preserves the thing the paragraph above defends — 203/109 is
+## still 1.86x, the ordering is untouched, and no two rows collided on the rounding.
+## Hand-tuning nine numbers to "feel right" would have quietly rewritten the roster's
+## shape while claiming to fix difficulty.
+##
+## WHY 1.4 AND NOT 1.5. Raising HP is the only difficulty lever reachable from this
+## file — enemy damage lives in `Enemy.gd` / `Encounter.gd` and is another agent's — and
+## 1.4x is a ~29% cut in effective incoming damage, which is a felt change without
+## making the early floors trivial. It does NOT stand alone: `Progression`'s VITALITY
+## axis multiplies this base by up to +87% at level 30, so a levelled climber is
+## already carrying ~2.1x the old pool. The complaint is about the EARLY game, where
+## Growth has banked nothing and this table IS the whole health bar — so the fix goes
+## here, at level 1, and the late game is deliberately not compensated further.
 ##
 ## HOW A PER-CLASS BASE COMPOSES WITH GEAR. `configure_class` seeds `_base_max_hp` FROM
 ## THIS TABLE and `_recompute_gear_effects` scales `max_hp` off that base, idempotently
@@ -517,20 +568,20 @@ const CLASS_NAMES: Array[String] = [
 const CLASS_CONFIG: Dictionary = {
 	HeroClass.MAGE: {  # ARCANIST — ranged arcane zoner (byte-identical to the old mage)
 		"preset": "mage", "weapon": "", "element": Elements.Element.ARCANE, "melee_element": -1,
-		"hp": 90, "speed": 205.0,
+		"hp": 126, "speed": 205.0,  # was 90
 		# Staff POKE: a caster's melee is a shove to buy space, not a trade.
 		"melee_cd": 0.36, "melee_arc_dot": 0.25, "melee_damage": 13,
 		"melee_range": 62.0, "melee_knockback": 280.0,
 		"cast_cd": CAST_COOLDOWN, "dash_cd": DASH_COOLDOWN, "blink_cd": BLINK_COOLDOWN,
 		"blast_cd": BLAST_COOLDOWN,
-		"move_verb": "recall", "dash_iframe_fraction": RECALL_IFRAME_FRACTION,
+		"move_verb": "arcane_phase", "dash_iframe_fraction": ARCANE_PHASE_IFRAME_FRACTION,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
 		"aoe": "arcane_meteor", "has_nova": true, "can_parry": true,  # Q: arcane star-fall
 	},
 	HeroClass.ROGUE: {  # SHADOWBLADE — twitchy assassin; LMB = 3-dagger flurry
 		"preset": "rogue", "weapon": "sword", "element": Elements.Element.SHADOW, "melee_element": Elements.Element.SHADOW,
-		"hp": 78, "speed": 240.0,
+		"hp": 109, "speed": 240.0,  # was 78 — still the frailest body in the roster
 		"primary": "bolt", "bolt_burst": 3, "bolt_spread": 0.13,
 		"cast_cd": 0.30, "dash_cd": 0.70, "blink_cd": 1.0,
 		"blast_cd": 2.5,
@@ -543,7 +594,7 @@ const CLASS_CONFIG: Dictionary = {
 	},
 	HeroClass.BRAWLER: {  # PURE MELEE, no magic — punch/kick combo + double-jump + Thunderclap
 		"preset": "brawler", "weapon": "", "element": Elements.Element.FIRE, "melee_element": Elements.Element.FIRE,
-		"hp": 115, "speed": 215.0,
+		"hp": 161, "speed": 215.0,  # was 115
 		"primary": "melee_combo", "air_jumps": 1, "melee_cd": 0.20, "melee_knockback": 320.0,
 		"cast_cd": 0.22, "dash_cd": 0.70, "blink_cd": 1.1, "blast_cd": 2.2,
 		"move_verb": "charge", "dash_iframe_fraction": CHARGE_IFRAME_FRACTION,
@@ -554,7 +605,7 @@ const CLASS_CONFIG: Dictionary = {
 	},
 	HeroClass.JUGGERNAUT: {  # slow siege tank — wide heavy hammer, BLOCK, no blink
 		"preset": "juggernaut", "weapon": "sword", "element": Elements.Element.EARTH, "melee_element": Elements.Element.EARTH,
-		"hp": 145, "speed": 165.0,
+		"hp": 203, "speed": 165.0,  # was 145 — still the toughest body in the roster
 		"primary": "heavy_swing", "melee_cd": 0.55, "melee_arc_dot": 0.0, "melee_damage": 30, "melee_range": 96.0, "melee_knockback": 470.0,
 		"cast_cd": 0.40, "dash_cd": 0.90, "blink_cd": 1.4, "blast_cd": 2.6,
 		"move_verb": "surge", "dash_iframe_fraction": SURGE_IFRAME_FRACTION,
@@ -564,7 +615,7 @@ const CLASS_CONFIG: Dictionary = {
 	},
 	HeroClass.CLERIC: {  # radiant sustain bruiser — LMB heal-bolt (lifesteal)
 		"preset": "cleric", "weapon": "staff", "element": Elements.Element.HOLY, "melee_element": Elements.Element.HOLY,
-		"hp": 110, "speed": 200.0,
+		"hp": 154, "speed": 200.0,  # was 110
 		"primary": "bolt", "bolt_heal": 2,   # 4 -> 2: see the lifesteal note below
 		# ⚠ LIFESTEAL WAS THE UNDERCOSTED STAT IN THE GAME. Cleric and Warlock are the
 		# ONLY two classes with `bolt_heal`, they carry the two LOWEST-throughput kits
@@ -585,7 +636,7 @@ const CLASS_CONFIG: Dictionary = {
 	},
 	HeroClass.CRYOMANCER: {  # ice control — LMB is a FROST CONE, not a bolt
 		"preset": "cryomancer", "weapon": "staff", "element": Elements.Element.ICE, "melee_element": Elements.Element.ICE,
-		"hp": 88, "speed": 195.0,
+		"hp": 123, "speed": 195.0,  # was 88
 		"primary": "frost_cone",
 		# Rimed JAB: little damage, wide arc, and the biggest shove of any caster —
 		# the control class's melee CONTROLS.
@@ -599,7 +650,7 @@ const CLASS_CONFIG: Dictionary = {
 	},
 	HeroClass.STORMCALLER: {  # hyper-mobile chain caster — LMB arcs, fast wind-dash
 		"preset": "stormcaller", "weapon": "staff", "element": Elements.Element.LIGHTNING, "melee_element": Elements.Element.LIGHTNING,
-		"hp": 82, "speed": 230.0,
+		"hp": 115, "speed": 230.0,  # was 82
 		"primary": "bolt", "bolt_chain": 2,
 		# Crackling SWAT: the fastest, weakest, widest melee in the game — it is a
 		# panic button that buys a beat, not an attack.
@@ -614,7 +665,7 @@ const CLASS_CONFIG: Dictionary = {
 	},
 	HeroClass.WARLOCK: {  # dark attrition hexer — LMB drain-bolt (weaken + lifesteal)
 		"preset": "warlock", "weapon": "sword", "element": Elements.Element.SHADOW, "melee_element": Elements.Element.SHADOW,
-		"hp": 95, "speed": 190.0,
+		"hp": 133, "speed": 190.0,  # was 95
 		"primary": "bolt", "bolt_heal": 2,   # 3 -> 2: see the Cleric lifesteal note above
 		# Scythe RAKE: the slowest, longest, most committed swing short of the
 		# Juggernaut's hammer, and the narrowest arc in the game.
@@ -652,7 +703,7 @@ const CLASS_CONFIG: Dictionary = {
 	HeroClass.SWORDSAINT: {
 		"preset": "rogue", "weapon": "sword",
 		"element": Elements.Element.ARCANE, "melee_element": -1,  # plain steel: no ailment
-		"hp": 105, "speed": 210.0,
+		"hp": 147, "speed": 210.0,  # was 105
 		"primary": "heavy_swing",
 		# The greatsword profile, expressed as melee overrides rather than a new
 		# WEAPON_STATS row: a "greatsword" kind would have no rig texture and no
@@ -874,10 +925,11 @@ var _dash_verb: String = "dash"
 ## the nine differ and the dash branch must not carry a nine-way match per tick.
 var _dash_speed: float = DASH_SPEED
 var _dash_total: float = DASH_TIME
-## ARCANIST: where the outbound leg started, and how long the return leg stays
-## available. `_recall_timer > 0.0` IS "an anchor is live" — there is no second flag.
-var _recall_anchor: Vector2 = Vector2.ZERO
-var _recall_timer: float = 0.0
+## ⚠ REMOVED with the recall return leg: `_recall_anchor` (where the outbound leg
+## started) and `_recall_timer` (how long the second press stayed available). The
+## Arcane Phase has NO state at all beyond the shared travel members above — that is
+## the point of the redesign, since invisible per-class state was what made one button
+## do two different things. See the ARCANE PHASE block up in the movement verbs.
 ## JUGGERNAUT: seconds of post-surge armour still owed. Read by `apply_knockback`.
 var _surge_armor_timer: float = 0.0
 ## CLERIC: countdown to the next healing pulse dropped along a Radiant Step.
@@ -1616,10 +1668,9 @@ func _physics_process(delta: float) -> void:
 	# cooldown dial.
 	_blink_iframe_timer = maxf(_blink_iframe_timer - delta, 0.0)
 	_parry_window_timer = maxf(_parry_window_timer - delta, 0.0)
-	# The two movement-verb clocks, ticked with everything else: the Arcanist's live
-	# recall anchor (the window in which the return leg is available) and the
-	# Juggernaut's post-surge armour tail.
-	_recall_timer = maxf(_recall_timer - delta, 0.0)
+	# The one movement-verb clock left, ticked with everything else: the Juggernaut's
+	# post-surge armour tail. (The Arcanist's recall-anchor window used to tick here
+	# too; the return leg it gated is gone.)
 	_surge_armor_timer = maxf(_surge_armor_timer - delta, 0.0)
 	# The BLADE ring is ticked HERE, above the channel/summon early-returns, so its
 	# re-arm keeps running while the hero is committed to something else. A guard
@@ -2086,12 +2137,13 @@ func _try_fire_buffered() -> bool:
 				_clear_input_buffer()
 				_blast()
 		"dash":
-			# `or _recall_pending()` is the Arcanist's return leg getting through a
-			# cooldown its own outbound leg just spent. Same shape as the Rift Dagger's
-			# free RECALL beat below (`_slot_recall_pending`) and for the same reason: a
-			# recall is a SECOND DECISION, not a continuation of the first, so gating it
-			# on the first one's recovery would make the ability unpressable.
-			if _dash_cooldown_timer <= 0.0 or _recall_pending():
+			# ONE GATE, FOR ALL NINE VERBS. This used to read `or _recall_pending()` —
+			# the Arcanist's return leg being waved through a cooldown its own outbound
+			# leg had just spent, on the grounds that a recall was a SECOND DECISION
+			# rather than a continuation. With the return leg deleted the movement button
+			# is one press with one cost again, and that exception would be a hole with
+			# nothing left to walk through it.
+			if _dash_cooldown_timer <= 0.0:
 				_clear_input_buffer()
 				_start_dash()
 				return true
@@ -2206,9 +2258,10 @@ func configure_class(cls: int) -> void:
 	_parry_window_timer = 0.0
 	_parry_cooldown_timer = 0.0
 	# Movement-verb state, cleared for exactly the reason every other timer here is:
-	# Tab swaps classes live, and a recall anchor or a surge armour tail that survived
-	# the swap would be the previous class's ability still running on this one.
-	_recall_timer = 0.0
+	# Tab swaps classes live, and a surge armour tail that survived the swap would be
+	# the previous class's ability still running on this one. (The recall anchor was
+	# cleared here too until the return leg was removed — the Arcane Phase carries no
+	# state across a swap because it carries none at all.)
 	_surge_armor_timer = 0.0
 	_dash_verb = String(_cfg.get("move_verb", "dash"))
 	_dash_speed = DASH_SPEED
@@ -2387,7 +2440,23 @@ func _aggregate_gear() -> Dictionary:
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs != null and gs.has_method("power_level"):
 		lvl = int(gs.call("power_level"))
-	out["max_hp"] = Progression.stat_mult(lvl, _hero_class, Progression.Axis.VITALITY)
+	# ⚠ THE SURVIVABILITY DIAL, AND IT DEFAULTS TO 1.0 ON PURPOSE.
+	#
+	# `TuningConfig.hero_vitality_mult` is live on the F1 Director, so "the character
+	# needs more HP" can be answered with a slider in front of the maker instead of a
+	# rebuild. It multiplies into the AGGREGATE, so it composes with the class table
+	# and with Growth rather than replacing either, and `_recompute_gear_effects`
+	# rescales from `_base_max_hp` and keeps the fill ratio for free.
+	#
+	# ⚠ IT IS NEUTRAL BY DEFAULT BECAUSE THE CLASS TABLE ALREADY MOVED. Two separate
+	# passes answered the same complaint in the same hour: `CLASS_CONFIG` was raised
+	# x1.4 (78-145 -> 109-203), and this knob was proposed at 1.35. Shipping both
+	# would be x1.89 — very nearly double — on top of enemy damage down 25-40%, enemy
+	# speed down 15% and floor 1 carrying 36% fewer bodies. That is four levers in one
+	# direction and it lands in "trivial", not "survivable". The table raise is the
+	# durable half; this stays a dial until the maker has played it.
+	out["max_hp"] = Progression.stat_mult(lvl, _hero_class, Progression.Axis.VITALITY) \
+		* _tune("hero_vitality_mult", 1.0)
 	out["speed"] = Progression.stat_mult(lvl, _hero_class, Progression.Axis.SWIFTNESS)
 	out["melee_damage"] = Progression.stat_mult(lvl, _hero_class, Progression.Axis.POWER)
 	# FOCUS shortens the melee swing's own gate as well as riding the decay dial —
@@ -3115,13 +3184,12 @@ func _dash_strike_sweep() -> void:
 ## by `_dash_verb` / `_dash_speed` / `_dash_total`.
 func _start_dash() -> void:
 	var verb: String = _move_verb()
-	# ARCANIST, THE RETURN LEG. Checked FIRST, before the cooldown is spent and before
-	# any of the travel setup — a live anchor turns this press into a different ability
-	# entirely, and `_try_fire_buffered` has already let it through a cooldown the
-	# outbound leg spent (see `_recall_pending`).
-	if verb == "recall" and _recall_timer > 0.0:
-		_arcane_recall_return()
-		return
+	# ⚠ NO PRESS-DEPENDENT BRANCH ABOVE THIS MATCH, AND THAT IS DELIBERATE. The
+	# Arcanist used to be checked here first — a live recall anchor turned the SAME
+	# press into a backwards teleport instead of a step, ahead of the cooldown and
+	# ahead of the travel setup. One button meaning two things depending on state the
+	# player could not see is exactly what the maker called confusing. Every verb now
+	# resolves purely from WHICH CLASS YOU ARE.
 	match verb:
 		"lightning_blink":
 			_lightning_blink()
@@ -3172,13 +3240,21 @@ func _begin_travel(verb: String) -> void:
 ## the shared setup above; a verb with nothing to add is simply absent.
 func _begin_verb_extras(verb: String) -> void:
 	match verb:
-		"recall":
-			# Drop the anchor. The outbound leg is otherwise an ordinary dash — the
-			# ability is the option it leaves you holding.
-			_recall_anchor = global_position
-			_recall_timer = RECALL_WINDOW
+		"arcane_phase":
+			# THE BODY IS LEFT BEHIND. A violet after-image STANDING at the origin (zero
+			# wind, zero launch, so it holds the pose instead of streaking like a trail
+			# ghost) plus a dissolve poof. This is the whole tell for a step you cannot
+			# be hit out of — an invulnerable travel that looked like everyone else's
+			# dash would just read as "the hit missed", and the Arcanist's one defensive
+			# trick has to be legible to the person being dodged as well.
+			#
+			# This is the ONLY thing left of the old two-beat recall: the burst used to
+			# mark where the anchor was DROPPED so you could aim your way back to it.
+			# Nothing returns here now — it marks where you stopped being.
+			rig.spawn_ghost(get_parent(), ARCANE_PHASE_COLOR, Vector2.ZERO, Vector2.ZERO,
+				ARCANE_PHASE_ECHO_FADE)
 			CombatVfx.spawn_burst(
-				get_parent(), _recall_anchor, RECALL_ANCHOR_COLOR, BLINK_BURST_END,
+				get_parent(), global_position, ARCANE_PHASE_COLOR, BLINK_BURST_END,
 				10, 0.5, 10.0, 30.0, 1.0, 2.0
 			)
 		"surge":
@@ -3202,8 +3278,8 @@ func _verb_speed(verb: String) -> float:
 	var scale: float = _tune("dash_speed", DASH_SPEED) / DASH_SPEED
 	var base: float = DASH_SPEED
 	match verb:
-		"recall":
-			base = RECALL_SPEED
+		"arcane_phase":
+			base = ARCANE_PHASE_SPEED
 		"air_dash":
 			base = AIR_DASH_SPEED
 			if not is_on_floor():
@@ -3225,8 +3301,8 @@ func _verb_time(verb: String) -> float:
 	var scale: float = _tune("dash_time", DASH_TIME) / DASH_TIME
 	var base: float = DASH_TIME
 	match verb:
-		"recall":
-			base = RECALL_TIME
+		"arcane_phase":
+			base = ARCANE_PHASE_TIME
 		"air_dash":
 			base = AIR_DASH_TIME
 		"charge":
@@ -3295,6 +3371,11 @@ func movement_verb_distance() -> float:
 ## (`LIGHTNING_BLINK_IFRAME` / `THRALL_SWAP_IFRAME`) rather than a fraction of a travel
 ## it does not have. The question the callers ask is "does pressing this dodge", and for
 ## those two the answer is an unqualified yes.
+##
+## ⚠ 1.0 NO LONGER IMPLIES "TELEPORT". The Arcanist's Arcane Phase is a TRAVEL that
+## answers 1.0 from its own class row — it really is invulnerable for its whole
+## duration. Anything reading this to infer WHICH KIND of verb it is wants
+## `_verb_is_teleport` instead.
 func movement_verb_iframe_fraction() -> float:
 	if _verb_is_teleport(_move_verb()):
 		return 1.0
@@ -3312,39 +3393,13 @@ func movement_verb_name() -> String:
 	return _move_verb()
 
 
-## True while an Arcane Recall anchor is live and the return leg is therefore a FREE
-## second press. Mirrors `_slot_recall_pending`'s role for the Rift Dagger: a recall is
-## a second decision, not a continuation, so it must not be gated by the cooldown the
-## first decision spent.
-func _recall_pending() -> bool:
-	return _move_verb() == "recall" and _recall_timer > 0.0
-
-
-## ARCANIST, the return leg: snap back to the anchor. Vetted through the same landing
-## rules as every other teleport in this file — if the anchor is now inside a collapsed
-## wall, over a pit, or outside the room, `_safe_blink_destination` slides to the
-## nearest legal point on the ray, and below `BLINK_MIN_TRAVEL` we simply DASH instead
-## rather than eat the press. There is no outcome where the button does nothing.
-func _arcane_recall_return() -> void:
-	var origin: Vector2 = global_position
-	var dest: Vector2 = _safe_blink_destination(origin, _recall_anchor)
-	_recall_timer = 0.0
-	if origin.distance_to(dest) < BLINK_MIN_TRAVEL:
-		_begin_travel("recall")  # nowhere legal to return to — spend it as a dash
-		return
-	_dash_cooldown_timer = _cfg["dash_cd"]
-	_blink_iframe_timer = BLINK_IFRAME
-	rig.spawn_ghost(get_parent(), RECALL_ANCHOR_COLOR, Vector2.ZERO, Vector2.ZERO, 0.3)
-	CombatVfx.spawn_burst(get_parent(), origin, RECALL_ANCHOR_COLOR, BLINK_BURST_END,
-		16, 0.3, 40.0, 110.0, 1.5, 3.0)
-	global_position = dest
-	velocity = Vector2.ZERO  # the whole point is that you arrive as you left
-	CombatVfx.spawn_burst(get_parent(), dest, RECALL_ANCHOR_COLOR, BLINK_BURST_END,
-		22, 0.4, 60.0, 140.0, 1.5, 3.5)
-	rig.flash_color(BLINK_ARRIVAL_FLASH_COLOR, BLINK_ARRIVAL_FLASH_TIME)
-	rig.play(CharacterRig.State.CAST)
-	Sfx.play("blink", -2.0, 0.1, 1.25)
-	_net_send("rc", {"to": dest})
+## ⚠ DELETED HERE: `_recall_pending()` and `_arcane_recall_return()` — the Arcanist's
+## backwards teleport. `_arcane_recall_return` ran the anchor through
+## `_safe_blink_destination`, charged the dash cooldown, granted `BLINK_IFRAME`, poofed
+## at both ends and sent an `"rc"` packet. In other words it was a third blink wearing
+## the movement button, which is precisely why it went (maker: *"its just a repeat of
+## blink"*). If a future Arcanist wants a repositioning tool it belongs on a SPELL SLOT
+## with its own key and its own icon, not as a hidden second meaning for Space.
 
 
 ## STORMCALLER: no dash on this class at all — the movement button TELEPORTS, in a
@@ -3571,8 +3626,8 @@ func _travel_ghost_color() -> Color:
 	match _dash_verb:
 		"ice_slide":
 			return ICE_SLIDE_FROST_COLOR
-		"recall":
-			return RECALL_ANCHOR_COLOR
+		"arcane_phase":
+			return ARCANE_PHASE_COLOR
 		"radiant_step":
 			return RADIANT_WAKE_COLOR
 	return GHOST_COLOR
@@ -4528,8 +4583,13 @@ func ability_hud_state() -> Array:
 ## half a room would be the HUD lying about the ability. Short enough for the slot.
 func _move_slot_name() -> String:
 	match _move_verb():
-		"recall":
-			return "Recall" if _recall_timer > 0.0 else "Step"
+		"arcane_phase":
+			# ONE NAME, ALWAYS. This slot used to flip between "Step" and "Recall"
+			# depending on whether an anchor was live — the HUD faithfully reporting
+			# that the button had changed meaning under the player's thumb. A label
+			# that rewrites itself mid-fight is not a fix for a confusing ability, it
+			# is the confusion given a caption.
+			return "Phase"
 		"air_dash":
 			return "Air Dash"
 		"charge":
@@ -5536,8 +5596,10 @@ func _net_dispatch_replay(kind: String, data: Dictionary) -> void:
 			_replay_dash(data.get("dir", _aim_dir), String(data.get("vb", "dash")))
 		"bl":
 			_replay_blink(data.get("to", global_position))
-		"rc":   # ARCANIST — the Arcane Recall return leg
-			_replay_recall(data.get("to", global_position))
+		# ⚠ NO "rc" CASE ANY MORE. It replayed the Arcanist's recall return leg, which
+		# no longer exists; the Arcane Phase is a TRAVEL, so it crosses the wire on the
+		# ordinary "ds" dash packet like the other six and `_replay_dash` draws its
+		# echo. An "rc" from a stale peer falls through this match harmlessly.
 		"lb":   # STORMCALLER — the lightning blink's crackle at both ends
 			_lightning_blink_fx(global_position, data.get("to", global_position))
 		"sw":   # WARLOCK — the thrall swap's two poofs (see `_replay_swap`)
@@ -5626,20 +5688,17 @@ func _replay_dash(dir: Vector2, verb: String = "dash") -> void:
 	_dash_verb = prev
 	for i: int in 3:
 		rig.spawn_ghost(get_parent(), trail, d)
+	# THE ARCANIST'S ECHO CROSSES TOO. `_begin_verb_extras` draws it for the owner; a
+	# teammate who only saw the trail would read the phase as an ordinary dash and have
+	# no idea why their hit passed through. The one verb that is invulnerable for its
+	# whole duration is the one that most needs the other screen to understand it.
+	# (This replaces `_replay_recall`, which drew the deleted return leg's two poofs.)
+	if verb == "arcane_phase":
+		rig.spawn_ghost(get_parent(), ARCANE_PHASE_COLOR, Vector2.ZERO, Vector2.ZERO,
+			ARCANE_PHASE_ECHO_FADE)
+		CombatVfx.spawn_burst(get_parent(), global_position, ARCANE_PHASE_COLOR,
+			BLINK_BURST_END, 10, 0.5, 10.0, 30.0, 1.0, 2.0)
 	Sfx.play("dash", -4.0, 0.06)
-
-
-## ARCANIST recall, replayed: the violet snap at both ends of the return leg.
-func _replay_recall(dest: Vector2) -> void:
-	var origin: Vector2 = global_position
-	rig.spawn_ghost(get_parent(), RECALL_ANCHOR_COLOR, Vector2.ZERO, Vector2.ZERO, 0.3)
-	CombatVfx.spawn_burst(get_parent(), origin, RECALL_ANCHOR_COLOR, BLINK_BURST_END,
-		16, 0.3, 40.0, 110.0, 1.5, 3.0)
-	CombatVfx.spawn_burst(get_parent(), dest, RECALL_ANCHOR_COLOR, BLINK_BURST_END,
-		22, 0.4, 60.0, 140.0, 1.5, 3.5)
-	rig.flash_color(BLINK_ARRIVAL_FLASH_COLOR, BLINK_ARRIVAL_FLASH_TIME)
-	rig.play(CharacterRig.State.CAST)
-	Sfx.play("blink", -2.0, 0.1, 1.25)
 
 
 ## WARLOCK swap, replayed — and THE HONEST LIMIT OF THIS PASS, stated where it happens.

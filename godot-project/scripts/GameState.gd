@@ -1058,6 +1058,26 @@ const A_ASSASSIN: int = 5
 const A_BOMBER: int = 6
 const A_MAGE: int = 7
 
+## ══ THE BREATH BETWEEN WAVES (early floors only) ══════════════════════════════
+## `FloorDef.wave_break` defaults to 0.85 — the SURGE beat, deliberately short and
+## loud rather than silent (see the PACING block at the top of Encounter.gd). The
+## early floors override it upward, and floors 4+ keep the tower's own relentless
+## default, because the maker's note was "the difficulty is nicer later up".
+##
+## ⚠ THIS DOES NOT REINTRODUCE DEAD AIR, and the reason is the OVERLAP, not the
+## number. The surge does not start when the room empties — it starts when the
+## wave is down to its last `handoff_alive` bodies, which are still up and still
+## swinging through the whole beat. So the break is bounded by the player's own
+## aggression: kill the stragglers fast and you have BOUGHT the quiet; leave them
+## and the next wave lands on top of a fight already in progress. A 1.8s beat is
+## about one room-crossing at hero SPEED — enough to pick a corner, not enough to
+## put the phone down.
+##
+## Floor 1's LAST wave is the one place the room genuinely empties (handoff 0, so
+## the first guardian anyone meets arrives alone) — and that transition does not
+## use this timer at all: `_tick_wave` calls `_begin_boss()` directly.
+const EARLY_WAVE_BREAKS: Array[float] = [1.8, 1.4, 1.1]
+
 
 static func build_default_tower() -> TowerDef:
 	var t := TowerDef.new()
@@ -1066,6 +1086,29 @@ static func build_default_tower() -> TowerDef:
 	t.theme = floor_env(1)
 	t.floors = [
 		# type, brute%, boss hp×, theme, layout, waves [budget, cap, roster]
+		#
+		# ══ THE EASING IS TAPERED BY DEPTH, AND THAT IS THE WHOLE DECISION ═══════
+		# Two playtest notes arrived together and they pull in opposite directions:
+		# "its very difficult ... there are too many opponents", and "of course it
+		# can get harder as we progress, this difficulty is nicer later up in the
+		# tower". Flattening the whole curve would have answered the first and
+		# thrown away the second, so instead ONE rule runs down the table:
+		#
+		#     bodies x min(1.0, 0.6 + 0.1 * (depth - 1))
+		#
+		# i.e. floor 1 x0.6, floor 2 x0.7, floor 3 x0.8, floor 4 x0.9, and floors
+		# 5-10 UNTOUCHED. The result is a STEEPER climb, not a lower one: the
+		# opening is gentle and it ramps into the density that already feels right.
+		# Concurrent caps come down with it on floors 1-3 only — the cap is what
+		# decides how many things are on screen at once, which is the half of "too
+		# many opponents" you feel rather than count.
+		#
+		# ⚠ NOT ONE HP NUMBER MOVED, and this is the prompt that most tempts it.
+		# Every floor still runs trash at 1.0: "higher floors add modifiers, not HP.
+		# HP scaling makes fights longer, not harder, and long is the enemy of chaos
+		# on a phone." Fewer bodies and (in Enemy.gd) softer, slower ones — never
+		# spongier ones.
+		#
 		# --- 1 · SURFACE. THE TEACHING FLOOR: ONE new tell per wave, and never two
 		#     new things at once. It opens at cap THREE (not four) because a
 		#     first-time player has not yet found the dash, and it closes its last
@@ -1073,43 +1116,57 @@ static func build_default_tower() -> TowerDef:
 		#     clean room — a lesson you can read, not a boss fought through a crowd.
 		#     Only TWO archetypes live here; the lane (CHARGER) is floor 2's lesson.
 		#
-		#     WAVE 1 IS FOUR BODIES, NOT SIX. Playtest note: "it's probably maybe a
-		#     little too flooded so maybe one or two less opponents in the start."
-		#     The cap stays 3 (so the vanguard still lands 2 at once and the room
-		#     still feels occupied) — what came off is the TAIL, so the opening wave
-		#     ends sooner instead of arriving thinner. The other half of that note is
-		#     readability, and that fix is Encounter.SPAWN_TELL_LEAD, not this row. ---
+		#     THIS IS THE SECOND CUT TO THIS FLOOR. The first one took wave 1 from
+		#     six bodies to four and left the caps alone ("maybe one or two less
+		#     opponents in the start"); the complaint came back, so this pass is
+		#     bigger and it takes the CAPS too — 3/4/5 became 3/3/4, so the room is
+		#     never holding more than four bodies on the floor where the player is
+		#     still learning what a tell is. 22 bodies -> 14.
+		#
+		#     Wave 1 is THREE and not the rule's 2: a pair is not a wave, and the
+		#     opener still has to read as one. ---
 		_make_floor(FloorDef.FloorType.COMBAT, 0.30, 1.0, floor_env(1), default_layout(),
 			_waves([
-				[4, 3, [A_CHASER]],                            # pure pressure, nothing to read
-				[8, 4, [A_CHASER, A_CHASER, A_BRUTE]],         # ONE new tell: the heavy swing
-				[10, 5, [A_CHASER, A_BRUTE], 0],               # the same two, now at pressure
+				[3, 3, [A_CHASER]],                            # pure pressure, nothing to read
+				[5, 3, [A_CHASER, A_CHASER, A_BRUTE]],         # ONE new tell: the heavy swing
+				[6, 4, [A_CHASER, A_BRUTE], 0],                # the same two, now at pressure
 			])),
 		# --- 2 · SURFACE. Two lessons, one per wave: the LANE, then RANGE — and only
-		#     the last wave asks for both at once. ---
+		#     the last wave asks for both at once. x0.7: 30 bodies -> 21, caps 4/5/6
+		#     -> 3/4/5 (its opener still matches floor 1's, which is the ramp). ---
 		_make_floor(FloorDef.FloorType.COMBAT, 0.35, 1.15, floor_env(2), default_layout(),
 			_waves([
-				[7, 4, [A_CHASER, A_CHARGER]],                 # ONE new tell: the lane to dodge
-				[10, 5, [A_CHASER, A_CHASER, A_CASTER]],       # something shooting from the back
-				[13, 6, [A_CHASER, A_CHARGER, A_CASTER, A_BRUTE]],
+				[5, 3, [A_CHASER, A_CHARGER]],                 # ONE new tell: the lane to dodge
+				[7, 4, [A_CHASER, A_CHASER, A_CASTER]],        # something shooting from the back
+				[9, 5, [A_CHASER, A_CHARGER, A_CASTER, A_BRUTE]],
 			])),
 		# --- 3 · ELITE, UNDERGROUND. Fewer bodies, meaner ones. TANKIER is an
-		#     archetype (BRUTE), never a multiplier. Ends on two threats at once. ---
+		#     archetype (BRUTE), never a multiplier. Ends on two threats at once.
+		#     x0.8: 34 -> 27. The caps lose one only where they were highest, so the
+		#     floor keeps its "mean, not many" identity. ---
 		_make_floor(FloorDef.FloorType.ELITE, 0.55, 1.3, floor_env(3), _elite_layout(),
 			_waves([
-				[6, 4, [A_BRUTE, A_CHASER]],
-				[8, 5, [A_BRUTE, A_CHARGER, A_ASSASSIN]],      # fast + heavy in the same breath
-				[9, 5, [A_ASSASSIN, A_ASSASSIN, A_MAGE]],      # zoned while being harried
-				[11, 6, [A_BRUTE, A_CHARGER, A_MAGE, A_SUMMONER]],
+				[5, 4, [A_BRUTE, A_CHASER]],
+				[6, 4, [A_BRUTE, A_CHARGER, A_ASSASSIN]],      # fast + heavy in the same breath
+				[7, 5, [A_ASSASSIN, A_ASSASSIN, A_MAGE]],      # zoned while being harried
+				[9, 5, [A_BRUTE, A_CHARGER, A_MAGE, A_SUMMONER]],
 			])),
-		# --- 4 · UNDERGROUND. The swarm floor: volume plus area denial. ---
+		# --- 4 · UNDERGROUND. The swarm floor: volume plus area denial. x0.9 is the
+		#     LAST rung of the taper — 46 -> 42, a nudge rather than a cut — and the
+		#     caps are left exactly as authored, because by floor 4 the player has
+		#     met every tell floors 1-3 taught and the density is the point. ---
 		_make_floor(FloorDef.FloorType.COMBAT, 0.45, 1.45, floor_env(4), default_layout(),
 			_waves([
-				[9, 5, [A_CHASER, A_ASSASSIN]],
-				[11, 6, [A_CHASER, A_CHARGER, A_BOMBER]],      # the floor starts denying you space
-				[12, 6, [A_BRUTE, A_CASTER, A_MAGE]],
-				[14, 7, [A_CHASER, A_CHARGER, A_ASSASSIN, A_BOMBER, A_MAGE]],
+				[8, 5, [A_CHASER, A_ASSASSIN]],
+				[10, 6, [A_CHASER, A_CHARGER, A_BOMBER]],      # the floor starts denying you space
+				[11, 6, [A_BRUTE, A_CASTER, A_MAGE]],
+				[13, 7, [A_CHASER, A_CHARGER, A_ASSASSIN, A_BOMBER, A_MAGE]],
 			])),
+		# ⚠ FLOORS 5-10 BELOW ARE DELIBERATELY UNTOUCHED by the easing pass. The
+		# maker's own words are that the difficulty "is nicer later up in the tower",
+		# so the top of the curve is the TARGET the early floors now ramp toward —
+		# not a thing to be dragged down with them. They still get the global damage
+		# and move-speed cuts from Enemy.gd, which is softening enough.
 		# --- 5 · SKY. Everything the tower has, then the colossus. ---
 		_make_floor(FloorDef.FloorType.BOSS, 0.70, 1.6, floor_env(5), _boss_layout(),
 			_waves([
@@ -1174,6 +1231,10 @@ static func build_default_tower() -> TowerDef:
 				[19, 8, [A_CHASER, A_BRUTE, A_CHARGER, A_ASSASSIN, A_BOMBER, A_MAGE]],
 			])),
 	]
+	# Applied here rather than through `_make_floor` because it is a property of the
+	# first few floors specifically, not of a floor TYPE — see EARLY_WAVE_BREAKS.
+	for i: int in mini(EARLY_WAVE_BREAKS.size(), t.floors.size()):
+		t.floors[i].wave_break = EARLY_WAVE_BREAKS[i]
 	return stamp_depths(t)
 
 

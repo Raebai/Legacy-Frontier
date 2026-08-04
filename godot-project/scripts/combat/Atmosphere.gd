@@ -10,6 +10,26 @@ extends Node2D
 ## z layering: sky -30, spires -22 (this node's _draw), motes -21 — all behind
 ## the platforms (-5) + fighters (0). The vignette rides its own CanvasLayer
 ## above the world but below the HUD.
+##
+## ⚠ THE "WEIRD BLINDS COVERING THE FRONT OF THE MAP". The tower's floors call
+## `build_wash()`, never `build()` — they have no world skyline, only a screen-space
+## grade. But `_draw` painted the spires ANYWAY: a CanvasItem gets one draw pass on
+## entering the tree whether or not anyone asked for it, and only `build()` ever
+## parked this node on `SKYLINE`. So every tower floor got two rows of tall
+## translucent blue-grey bars, at the DEFAULT z of 0 — the fighters' own rung —
+## standing across the whole room and extending 400 px below it. That is the maker's
+## "blinds", and it is the same bug `StageLayers` was written to close, reappearing
+## on the one stage drawer the drawer scanner cannot see (it matches `extends
+## StaticBody2D`, and this is a Node2D).
+##
+## Two independent fixes, because either alone would leave the trap armed:
+##   1. `_skyline` gates `_draw`. It defaults to FALSE and only `build()` raises it,
+##      so a bare `Atmosphere.new()` — which is exactly what the Arena makes — paints
+##      nothing at all rather than painting a skyline nobody ordered.
+##   2. `_ready` parks this node on `SKYLINE` unconditionally, so even a future draw
+##      that slips past rule 1 lands in the background where it belongs. This node is
+##      also now REGISTERED in `StageLayers.DRAWERS`, which is what makes rule 2 a
+##      build failure rather than a comment.
 
 ## Shared 2D-bloom environment (spell cores >1.0 radiate). Requires
 ## rendering/viewport/hdr_2d=true. Tune params in the .tres.
@@ -39,7 +59,15 @@ const MOTE_WARMUP_REAL: float = 1.5      # real seconds we are willing to spend 
 const MOTE_FIXED_FPS: int = 12           # dust does not need a 30 Hz simulation
 ## Mobile trims the field itself as well as the warm-up. These are small
 ## alpha-blended quads, and overdraw is the thing tile GPUs are worst at.
-const MOTE_AMOUNT_WASH: int = 40
+##
+## ⚠ THE WASH FIELD IS SMALLER THAN THE WORLD ONE, AND NOT FOR PERFORMANCE. The wash
+## emitter lives on a CanvasLayer ABOVE the world, so its motes are drawn in front of
+## the fighters — 40 of them, in the floor's ACCENT colour (floor 1's is a warm
+## orange), drifting over a fight whose enemies are also warm. On the versus stage the
+## same field sits in world space behind everything, where it is depth; here it was
+## 40 moving objects competing with the ones you have to react to. Cut to a level that
+## still reads as air and no longer reads as things.
+const MOTE_AMOUNT_WASH: int = 22
 const MOTE_AMOUNT_WORLD: int = 48
 const MOTE_AMOUNT_LOW: int = 16
 
@@ -69,6 +97,16 @@ var _sky_bottom: Color = Color(0.42, 0.60, 0.82)
 var _sil_far: Color = Color(0.20, 0.24, 0.40)
 var _sil_near: Color = Color(0.12, 0.15, 0.26)
 var _accent: Color = Color(0.7, 0.85, 1.0)
+## Does this Atmosphere own a WORLD SKYLINE? Only `build()` says yes. See the ⚠ block
+## at the top of the file — this is the gate that keeps the spires off the tower.
+var _skyline: bool = false
+
+
+## Park on the SKYLINE rung the moment this node exists, not when someone remembers
+## to call `build()`. An Atmosphere is background by definition; there is no mode in
+## which it should share a rung with a fighter.
+func _ready() -> void:
+	StageLayers.apply(self, StageLayers.SKYLINE)
 
 
 ## Add a WorldEnvironment (2D glow/bloom) under `parent` if it hasn't got one.
@@ -94,6 +132,7 @@ func build(bounds: Rect2, palette: Dictionary = {}) -> void:
 	_sil_far = palette.get("silhouette_far", _sil_far)
 	_sil_near = palette.get("silhouette_near", _sil_near)
 	_accent = palette.get("accent", _accent)
+	_skyline = true          # THE ONLY PLACE THIS IS RAISED. See the ⚠ block above.
 	StageLayers.apply(self, StageLayers.SKYLINE)
 	_build_sky()
 	_build_motes()
@@ -119,10 +158,17 @@ func build_wash(tint: Color, accent: Color) -> void:
 	flat.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(flat)
 	# Theme-tinted vignette darkening the edges for depth.
+	# ⚠ LIGHTER AND STARTING FURTHER OUT THAN IT WAS (0.55 alpha from 0.42 of the
+	# radius). Two things changed under it: the arena grew to 1220x560 and
+	# `CombatCamera.FRAME_ZOOM_MIN` dropped to 0.42 to frame it, so fighters now spend
+	# far more of the fight near the screen EDGE — which is precisely where this was
+	# crushing to near-black. It is also not the only vignette on screen; `PostProcess`
+	# lays its own filmic one over the top, and two stacked vignettes on a floor whose
+	# wash is already (0.20, 0.18, 0.19) is how a room ends up unreadable in the corners.
 	var grad := Gradient.new()
 	grad.set_color(0, Color(tint.r * 0.4, tint.g * 0.4, tint.b * 0.5, 0.0))
-	grad.set_color(1, Color(tint.r * 0.25, tint.g * 0.25, tint.b * 0.35, 0.55))
-	grad.set_offset(0, 0.42)
+	grad.set_color(1, Color(tint.r * 0.25, tint.g * 0.25, tint.b * 0.35, 0.34))
+	grad.set_offset(0, 0.56)
 	var tex := GradientTexture2D.new()
 	tex.gradient = grad
 	tex.fill = GradientTexture2D.FILL_RADIAL
@@ -155,7 +201,9 @@ func build_wash(tint: Color, accent: Color) -> void:
 	var ramp := Gradient.new()
 	ramp.set_color(0, Color(accent.r, accent.g, accent.b, 0.0))
 	ramp.set_color(1, Color(accent.r, accent.g, accent.b, 0.0))
-	ramp.add_point(0.5, Color(accent.r, accent.g, accent.b, 0.4))
+	# Dimmer peak than the world field's 0.5, for the same reason the count is lower:
+	# these are IN FRONT of the fighters. See MOTE_AMOUNT_WASH.
+	ramp.add_point(0.5, Color(accent.r, accent.g, accent.b, 0.26))
 	var ramp_tex := GradientTexture1D.new()
 	ramp_tex.gradient = ramp
 	mat.color_ramp = ramp_tex
@@ -306,6 +354,13 @@ const HAZE_DARKEN: float = 0.12
 
 
 func _draw() -> void:
+	# A wash-mode Atmosphere has no skyline to draw. Returning here rather than
+	# relying on the z-order is deliberate: the tower's room is only ~980x500, so a
+	# spire row inside it is a wall of bars whether it is in front of the fight or
+	# behind it. Not drawing them is the difference between "receded" and "absent",
+	# and absent is what a screen-space wash wants.
+	if not _skyline:
+		return
 	var horizon: float = _bounds.position.y + _bounds.size.y * 0.60
 	_draw_spires(horizon + 26.0, _recede(_sil_far, horizon + 26.0, HAZE_FAR),
 		66.0, 30.0, 22.0, ALPHA_FAR)

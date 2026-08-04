@@ -51,6 +51,10 @@ window/handheld/orientation="landscape"
 
 enabled=PackedStringArray("res://addons/auto_reload/plugin.cfg", "res://addons/godot_mcp_editor/plugin.cfg", "res://addons/godot_mcp_runtime/plugin.cfg")
 
+[gui]
+
+theme/custom="res://assets/ui/ashpire_theme.tres"
+
 [input]
 
 move_up={

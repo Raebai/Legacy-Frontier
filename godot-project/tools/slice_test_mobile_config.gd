@@ -49,6 +49,13 @@ const REQUIRED_PROJECT_LINES: Array[String] = [
 	'window/stretch/aspect="expand"',
 	'run/main_scene="res://scenes/ui/Lobby.tscn"',
 	"common/physics_ticks_per_second=60",
+	# ⚠ THE PROJECT-WIDE UI THEME, AND IT FAILS SILENTLY LIKE THE REST OF THIS LIST.
+	# Every Control in the game inherits its skin from this one line — no UI script
+	# references the theme by path, which is precisely what makes it cheap AND what
+	# makes it undetectable when it goes missing. Dropped, nothing errors: the menus
+	# just quietly render in stock Godot grey again, which is the exact complaint the
+	# theme was built to answer.
+	'theme/custom="res://assets/ui/ashpire_theme.tres"',
 ]
 
 ## Everything that must be kept OUT of the shipping pack. The MCP entries are the

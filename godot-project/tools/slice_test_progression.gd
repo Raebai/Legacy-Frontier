@@ -237,13 +237,30 @@ func _test_deep_villains_drop_more_per_body() -> void:
 	var floors: int = _floor_budgets.size()
 	if floors < 2:
 		return  # deliberately NOT completed
-	var prev: int = 0
-	for f: int in range(1, floors + 1):
-		var per: int = Progression.enemy_xp(f, _budget(f))
-		_expect(per >= prev, "floor %d villains are worth at least as much as floor %d's" % [f, f - 1])
-		prev = per
-	_expect(Progression.enemy_xp(floors, _budget(floors)) > Progression.enemy_xp(1, _budget(1)),
+	# ⚠ PER-BODY VALUE IS NOT MONOTONIC FLOOR-TO-FLOOR, AND MUST NOT BE ASSERTED AS IF
+	# IT WERE. It is a RATIO of two independently-authored curves: the floor's worth
+	# (geometric, `depth_gain`) over the floor's body count (hand-authored per wave).
+	# So a floor that deliberately sends MORE bodies than its neighbour pays less per
+	# head — which is correct, and is exactly what happened when floor 1 was thinned
+	# for being too hard while floor 2 was left alone.
+	#
+	# This asserted a strict step-by-step chain and went red on a difficulty retune
+	# that had not broken anything. What actually matters — and what the maker's line
+	# "villains in the high levels drop more" actually claims — is the SPAN: deep
+	# villains beat shallow ones, and no floor pays LESS per head than the first.
+	# ⚠ AND NOT EVEN "NO FLOOR PAYS LESS THAN FLOOR 1" SURVIVES, because the maker had
+	# floor 1 thinned from 22 bodies to 14 for being too hard. Dividing the same floor
+	# value by fewer heads pays MORE per head — so the teaching floor now out-pays its
+	# neighbours per body, entirely correctly. The claim that is actually load-bearing
+	# is the SPAN, and it is the only one asserted.
+	var first: int = Progression.enemy_xp(1, _budget(1))
+	_expect(Progression.enemy_xp(floors, _budget(floors)) > first,
 		"a villain on the top floor is strictly worth more than one on floor 1")
+	# …and the FLOOR's total worth IS strictly monotonic — that curve is pure
+	# arithmetic with no authored denominator, so it may be pinned exactly.
+	for f: int in range(1, floors):
+		_expect(Progression.floor_xp_value(f + 1) > Progression.floor_xp_value(f),
+			"floor %d is worth strictly more than floor %d" % [f + 1, f])
 	# The guardian is the biggest single XP event on its floor — it is the fight the
 	# floor is built toward, so it should pay like it.
 	for f: int in range(1, floors + 1):
@@ -431,14 +448,34 @@ func _test_class_unlocking_shape() -> void:
 	_expect(Progression.LOCKED_CLASSES.has(6),
 		"Stormcaller is a LATE unlock — that is what defuses its 16-0 as a beginner trap")
 	_expect(Progression.is_class_unlocked(0, []), "a starter is unlocked with nothing earned")
-	_expect(not Progression.is_class_unlocked(6, []), "a locked class is locked with nothing earned")
-	_expect(Progression.is_class_unlocked(6, [6]), "…and unlocked once earned")
-	_expect(Progression.is_class_unlocked(6, [6.0]),
-		"…including through a JSON float (the M9 trap: parse gives 6.0, not 6)")
-	var left: Array[int] = Progression.choosable_classes([6])
-	_expect(left.size() == 2, "two remain to pick after the first unlock")
-	_expect(not left.has(6), "…and the one already earned is not offered again")
-	_expect(Progression.choosable_classes([6, 7, 8]).is_empty(), "nothing left once all three are had")
+	# ⚠ THE ROSTER GATE IS A SURFACED DECISION, so this asserts the SHIPPED POLICY by
+	# name rather than whichever behaviour the constant happens to select. Flipping
+	# `ALL_CLASSES_UNLOCKED` fails HERE, loudly and on purpose: it is a design change
+	# and it should have to be made twice. Same idiom as `slice_test_climb`'s pins on
+	# `RESET_CLIMB_ON_GAME_OVER` and `SOLO_SELF_REVIVE_CHARGES`.
+	_expect(Progression.ALL_CLASSES_UNLOCKED == true,
+		"SHIPPED POLICY: the whole roster is open (ALL_CLASSES_UNLOCKED == true), "
+		+ "because the maker asked to playtest nine classes without grinding floor 5 "
+		+ "four times. Set it false to restore the guardian unlocks — and update this test.")
+	if Progression.ALL_CLASSES_UNLOCKED:
+		# Open roster: every class answers unlocked, and there is nothing left to pick.
+		for c: int in Progression.CLASS_GROWTH.size():
+			_expect(Progression.is_class_unlocked(c, []), "class %d is pickable with nothing earned" % c)
+		_expect(Progression.choosable_classes([]).is_empty(),
+			"a guardian has nothing left to grant while the roster is open")
+		# …and an off-the-end id is still refused, or a corrupt save picks class 47.
+		_expect(not Progression.is_class_unlocked(99, []), "an off-the-end class is still refused")
+		_expect(not Progression.is_class_unlocked(-1, []), "…and a negative one")
+	else:
+		# The DESIGNED behaviour, still asserted so it cannot rot while it is switched off.
+		_expect(not Progression.is_class_unlocked(6, []), "a locked class is locked with nothing earned")
+		_expect(Progression.is_class_unlocked(6, [6]), "…and unlocked once earned")
+		_expect(Progression.is_class_unlocked(6, [6.0]),
+			"…including through a JSON float (the M9 trap: parse gives 6.0, not 6)")
+		var left: Array[int] = Progression.choosable_classes([6])
+		_expect(left.size() == 2, "two remain to pick after the first unlock")
+		_expect(not left.has(6), "…and the one already earned is not offered again")
+		_expect(Progression.choosable_classes([6, 7, 8]).is_empty(), "nothing left once all three are had")
 	_completes("class_unlocking_shape")
 
 

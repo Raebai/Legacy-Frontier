@@ -18,8 +18,30 @@ const ZOOM_MAX: float = 2.6
 # Each frame, frame the bounding box of the hero + all live bots and auto-zoom so
 # everyone stays on screen. Base design resolution is 640x360 (project stretch).
 const FRAME_VIEWPORT: Vector2 = Vector2(640.0, 360.0)
+## ⚠ THIS IS ALSO THE TIGHTEST THE CAMERA EVER GOES. The pad is added to the FIGHTER
+## bounding box, so when two bodies are on top of each other the framing is decided
+## almost entirely by this number. Cutting it to buy a bigger arena would have bought
+## the space by zooming further IN, which is the complaint already on record ("a bit
+## too zoomed in generally") arriving from the other direction. Left alone on purpose.
 const FRAME_PAD: Vector2 = Vector2(300.0, 220.0)  # breathing room around the group
-const FRAME_ZOOM_MIN: float = 0.5  # allow pulling well back to keep everyone in view
+## How far back the framing may pull. THIS IS THE ARENA SIZE CAP, not just a camera
+## knob: the biggest room that can fit on one screen is
+## `FRAME_VIEWPORT / FRAME_ZOOM_MIN - FRAME_PAD`, and `FloorGen.MAX_ROOM` is required
+## by `slice_test_floorgen` to stay inside it.
+##
+## ⚠ 0.5 -> 0.42 BECAUSE THE MAKER SAID THE MAP WAS TOO SMALL, TWICE. At 0.5 the
+## ceiling was 980x500 and no amount of work inside FloorGen could raise it. At 0.42
+## it is 1523x857, which is what lets the tower rooms grow to 1220x560.
+##
+## WHAT IT COSTS, stated plainly rather than discovered in play: at FULL fighter
+## spread the picture is ~16% smaller than it used to be — a 31 px hero draws at
+## ~13 viewport px instead of ~15.5. It costs nothing at any other moment, because
+## this is a FLOOR on the zoom and the camera only reaches it when the group is
+## genuinely strung out across the whole room; close-quarters framing is set by
+## FRAME_PAD and ZOOM_MAX and is byte-identical to before. If the wide shot turns out
+## to read as "tiny ants", this number is the one to walk back — and the room sizes in
+## `FloorGen.MAX_ROOM` must come back with it or the arena stops fitting on one screen.
+const FRAME_ZOOM_MIN: float = 0.42
 const FRAME_SPEED: float = 3.5     # ease rate toward the framed centroid (position)
 # ASYMMETRIC ZOOM EASE — the framing camera as a PRESSURE instrument.
 # Waves now open with a vanguard that lands as a GROUP, so the framed box can

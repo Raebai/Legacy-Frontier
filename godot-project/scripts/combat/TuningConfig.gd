@@ -20,6 +20,31 @@ extends Resource
 @export var move_air_accel: float = 750.0      # air accel/decel (low = no mid-air free-steer)
 @export var move_max_fall: float = 1400.0      # terminal fall speed clamp
 
+## THE SURVIVABILITY DIAL. Multiplies every hero's max HP, composing with the class
+## table and with Growth instead of replacing either — so the SHAPE of the roster
+## (Stormcaller 109 frailest .. Juggernaut 203 toughest) is untouched and only the
+## overall generosity moves. One knob, live on the F1 Director, rather than nine
+## edited numbers in `Hero.CLASS_CONFIG` that would each have to be re-balanced
+## against each other.
+##
+## Maker: "the character needs more HP ... the game is hard right now". 1.35 takes the
+## roster to ~147..274, which is roughly one extra enemy volley of headroom per class.
+##
+## ⚠ THIS FIELD IS INERT UNTIL `Hero._aggregate_gear` READS IT. The read site lives in
+## `Hero.gd`; see the handoff note for the exact one-line patch. A knob nobody reads
+## is a silent no-op, which is precisely the failure this comment exists to prevent.
+##
+## ⚠ NOT applied to a spawner that imposes its own pool (BotMatch, VersusArena, the
+## duel) — those write `max_hp` AFTER `configure_class` and still win, so the bot
+## balance sweep is unaffected by turning this.
+## UNTESTED FEEL GUESS. If fights now drag, come back HERE before touching enemy damage.
+## ⚠ NEUTRAL BY DEFAULT. See the long note at Hero._aggregate_gear: `CLASS_CONFIG`
+## was already raised x1.4 in the same pass that proposed this at 1.35, and shipping
+## both is x1.89 on top of enemy damage -25/-40%, enemy speed -15% and floor 1 losing
+## 36% of its bodies. This stays a LIVE DIAL (F1 Director) so the maker can find the
+## number by feel, rather than a second silent multiplier stacked on the first.
+@export var hero_vitality_mult: float = 1.0
+
 @export_group("Hero feel")
 @export var hurt_hit_stop: float = 0.05  # freeze when the hero takes a hit
 @export var hurt_shake: float = 7.0      # shake when the hero takes a hit

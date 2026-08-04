@@ -6,12 +6,45 @@ extends Control
 ## contract and redraws: slot panels, key labels, cooldown wipes + timers, a
 ## ready-glow, and a dimmed read for class-disabled abilities. If no hero is
 ## in the tree (hub/menu scenes reuse this HUD), it simply draws nothing.
+##
+## The bar reads in TWO CLUSTERS separated by a gap: the body verbs (guard/parry,
+## blink, the class's movement verb, then the basic cast and Q/T) on the left, and
+## the equipped SPELL SOCKETS on the right, ramped weakest-to-heaviest so the ult is
+## always the far-right button. Neither the split nor the ramp is authored anywhere —
+## both are derived per frame from the hero's own data (`SpellTier.of`), so a retuned
+## spell or a mid-floor pickup rearranges the bar without a HUD edit.
 
 ## -- Layout -------------------------------------------------------------
-## Slot geometry: sized for a thumb-friendly read at 46px (D-011 mobile-first)
-## with a gap wide enough that the wipe on one slot never bleeds into the next.
+## ⚠ 46px is a THUMB TARGET (D-011 mobile-first), not a look. Nothing below is
+## allowed to shrink a slot to make the bar fit — the bar splits into groups and
+## re-orders, but every slot stays the same reachable size.
 const SLOT_SIZE: float = 46.0
 const SLOT_GAP: float = 6.0
+## THE BREAK BETWEEN WHAT YOU DO WITH YOUR BODY AND WHAT YOU THROW.
+##
+## The bar was one undifferentiated run of nine squares, so finding Parry mid-fight
+## meant reading names — and reading is exactly what a player has no spare attention
+## for while something is winding up at them. Two clusters with a physical gap can be
+## found by POSITION instead: the defensive/movement verbs live at the left end, the
+## spell sockets at the right, and the hand learns "left edge = get out of this".
+##
+## Three slot-gaps wide: enough that the eye reads two objects rather than one row,
+## small enough that the whole bar still centres inside the 640px base viewport
+## (9 slots + 7 gaps + this = 474px of 640).
+const GROUP_GAP: float = 18.0
+## Rank inside the LEFT cluster, lowest first. Defence, then the two ways out.
+##
+## ⚠ KEYED ON THE KEY LABEL, not on the ability NAME and not on the slot INDEX.
+## The movement slot's name is class-dependent — Hero._move_slot_name() answers with
+## eleven different words (Dash / Slide / Bolt Step / Swap / Recall / ...) — so a
+## name match would silently drop half the roster's mobility out of the cluster. An
+## absolute index is the thing this file already refuses to trust (see _stamp_charges).
+## The fixed rows' key labels are literals in `Hero.ability_hud_state`, so they are
+## the most stable fact published about a verb slot.
+const VERB_RANK: Dictionary = {"RMB": 0, "R": 1, "Spc": 2}
+## Everything the table does not name keeps its published order, after the verbs —
+## the basic cast and the class's Q/T. Any value above the ranked ones will do.
+const VERB_RANK_OTHER: int = 9
 ## Breathing room below the bar so it doesn't kiss the screen edge.
 const BOTTOM_MARGIN: float = 14.0
 ## Inset for the key label from the slot's top-left corner.
@@ -64,6 +97,34 @@ const SELECTED_WIDTH: float = 1.5
 const READY_FLASH_COLOR: Color = Color(0.6, 0.95, 1.0)
 const READY_FLASH_GROW: float = 9.0
 const READY_FLASH_WIDTH: float = 2.5
+## ── THE SPELL SOCKET ─────────────────────────────────────────────────────────
+## A spell slot was drawing identically to Dash: a dark square with a word in it.
+## So the kit — the part of the bar the player actually chose, and the only part
+## that changes between classes — was the least distinguishable thing on screen.
+##
+## A socket says three things a label cannot. The RING is the spell's own colour
+## (`SpellDef.resolve_color`, the same resolution the cast uses), so the border
+## matches what comes out of your hand — you find your fire slot by looking for
+## orange, not by reading. The CORNER BRACKETS carry the tier colour, so the shelf
+## (QUICK / HEAVY / ULT) is legible without a fourth line of text in a 46px box.
+## The faint WASH keeps the identity readable when the cooldown veil is over it.
+##
+## ⚠ ALL OF IT IS DRAWN INSIDE THE SLOT RECT. The slot's outer edge is already a
+## language — resting border, ready glow, selected frame, ready flash — and every
+## one of those means something the socket does not. The socket takes the inner lip
+## and touches none of them, so nothing that was readable before got quieter.
+const SOCKET_INSET: float = 3.0
+const SOCKET_RING_WIDTH: float = 2.0
+## The ring colour again at low alpha, filling the socket. Deliberately weak: it is
+## a tint on the panel, not a second background competing with the cooldown veil.
+const SOCKET_WASH_ALPHA: float = 0.13
+const SOCKET_CORNER_LEN: float = 8.0
+const SOCKET_CORNER_WIDTH: float = 2.0
+## An EMPTY socket is drawn, in neutral steel, rather than left as a bare panel —
+## "you have a slot here and nothing in it" is a thing worth being able to see, and
+## it is the same reason Hero draws the "--" row instead of shrinking the bar.
+const EMPTY_SOCKET_COLOR: Color = Color(0.45, 0.45, 0.55, 0.85)
+
 ## ── TIER 3 CHARGE PIPS ───────────────────────────────────────────────────────
 ## A picked-up spell has a COUNT, and "picking one up is a decision" only holds if
 ## the count is visible BEFORE you spend it. Pips rather than a number because the
@@ -128,6 +189,7 @@ func _process(_delta: float) -> void:
 		_class_name = String(hero.call("class_display_name")) if hero.has_method("class_display_name") else ""
 		_repair_signature_label(hero)
 		_stamp_charges(hero)
+		_stamp_spell_identity(hero)
 	queue_redraw()
 
 
@@ -141,13 +203,54 @@ func _process(_delta: float) -> void:
 ## than off absolute indices so adding an ability row above cannot silently start
 ## stamping charges onto Dash.
 func _stamp_charges(hero: Node) -> void:
-	var first: int = _slots.size() - SpellTier.SLOT_COUNT
+	var first: int = _spell_slot_start()
 	if first < 0:
 		return
 	for i: int in SpellTier.SLOT_COUNT:
 		if not _slots[first + i] is Dictionary:
 			continue
 		(_slots[first + i] as Dictionary)["charges"] = SpellGrant.charges_in_slot(hero, i)
+
+
+## Where the spell sockets begin in `_slots`, or -1 if the contract is too short to
+## hold them. Three readers now depend on this one rule — the charge stamp, the
+## identity stamp, and the draw-order split — so it is written once. Getting it
+## wrong by one would badge Dash as a spell and sort the bar by a tier it invented.
+func _spell_slot_start() -> int:
+	var first: int = _slots.size() - SpellTier.SLOT_COUNT
+	return first if first >= 0 else -1
+
+
+## Fold each spell slot's COLOUR and TIER into its dictionary, from the SpellDef the
+## hero already holds. Same reason as `_stamp_charges`: `_draw_slot` stays a pure
+## function of one dictionary and never reaches back for a hero it was not handed.
+##
+## The tier is DERIVED (`SpellTier.of`), never read off the name — that is the whole
+## point of SpellTier, and it is what makes the strength ordering honest: retune a
+## spell to be slower and pricier and it moves rightward along the bar on its own.
+## A null (empty) slot resolves to QUICK and therefore sorts to the light end, which
+## is where a hole in your kit belongs.
+##
+## The colour goes through `SpellDef.resolve_color` rather than straight to
+## `Elements.color`, because that is the function the SPELL uses to decide what it
+## looks like: it honours an explicit override (`_ray()` turns use_element_color off,
+## so Judgment stays gold) and only falls back to the element when the spell has not
+## said. The fallback is the same guess the cast sigil makes (SpellCaster.resolve_
+## element), so the socket and the magic circle can never disagree about a spell.
+func _stamp_spell_identity(hero: Node) -> void:
+	var first: int = _spell_slot_start()
+	if first < 0 or not hero.has_method("signature_at"):
+		return
+	for i: int in SpellTier.SLOT_COUNT:
+		if not _slots[first + i] is Dictionary:
+			continue
+		var slot: Dictionary = _slots[first + i]
+		var sig: SpellDef = hero.call("signature_at", i) as SpellDef
+		slot["tier"] = SpellTier.of(sig)
+		var accent: Color = EMPTY_SOCKET_COLOR
+		if sig != null:
+			accent = sig.resolve_color(Elements.color(SpellCaster.resolve_element(sig)))
+		slot["accent"] = accent
 
 
 ## THE BIG BEAM'S NAME. `Hero._signature_hud_slot()` shortens the equipped
@@ -209,13 +312,88 @@ static func short_spell_name(display_name: String) -> String:
 	return display_name
 
 
+## THE ORDER ON SCREEN IS NOT THE ORDER IN `_slots`, and the difference is
+## deliberate: the hero publishes its rows in the order it happens to compute them
+## (cast, move, Q, blink, T, defence, then the kit), which is an implementation
+## detail of Hero.gd, not a reading order for a player under pressure.
+##
+## ⚠ REORDERING IS DRAW-ONLY — `_slots` is never permuted. Both stamps above index
+## it POSITIONALLY against the hero (slot i's charges, slot i's SpellDef), so a
+## permuted `_slots` would start putting one spell's charges on another's socket.
+## The rows below hold references to the same dictionaries, so every stamp still
+## lands; only where they are painted changes.
+##
+## Malformed entries are dropped here rather than skipped mid-loop, so a bad row
+## leaves no hole for the eye to read as a missing ability.
+func _verb_row() -> Array:
+	var first: int = _spell_slot_start()
+	var end_i: int = first if first >= 0 else _slots.size()
+	var items: Array = []
+	var ranks: Array = []
+	for i: int in range(end_i):
+		if not _slots[i] is Dictionary:
+			continue
+		var slot: Dictionary = _slots[i]
+		items.append(slot)
+		ranks.append(int(VERB_RANK.get(String(slot.get("key", "")), VERB_RANK_OTHER)))
+	return _stable_by_rank(items, ranks)
+
+
+## The spell sockets, WEAKEST FIRST — so the bar is a strength ramp and the ult
+## always sits at the far right end, under the same finger every time whatever the
+## class. Sorted by the derived tier, so it stays true when a spell is retuned or a
+## Tier 3 pickup drops into a slot mid-floor; ties keep the slot order the keys 1/2/3
+## already imply, so two QUICK spells never swap places under the player's thumb.
+func _spell_row() -> Array:
+	var first: int = _spell_slot_start()
+	if first < 0:
+		return []
+	var items: Array = []
+	var ranks: Array = []
+	for i: int in range(first, _slots.size()):
+		if not _slots[i] is Dictionary:
+			continue
+		var slot: Dictionary = _slots[i]
+		items.append(slot)
+		ranks.append(int(slot.get("tier", SpellTier.Tier.QUICK)))
+	return _stable_by_rank(items, ranks)
+
+
+## `items` ordered by `ranks`, ties keeping their original order.
+##
+## `Array.sort_custom` is NOT stable, so the tie is broken on the original index
+## rather than left to the sort — an unstable tie here would let two equal-tier
+## spells trade places between frames, which on a hotbar is the worst possible
+## failure: the button moves out from under a press already in flight.
+static func _stable_by_rank(items: Array, ranks: Array) -> Array:
+	var order: Array = []
+	for i: int in range(items.size()):
+		order.append(i)
+	var by_rank: Callable = func(a: int, b: int) -> bool:
+		if int(ranks[a]) == int(ranks[b]):
+			return a < b
+		return int(ranks[a]) < int(ranks[b])
+	order.sort_custom(by_rank)
+	var out: Array = []
+	for i: int in order:
+		out.append(items[i])
+	return out
+
+
 func _draw() -> void:
 	if _slots.is_empty():
 		return
 	var font: Font = ThemeDB.fallback_font
 	var view: Vector2 = get_viewport_rect().size
-	var count: int = _slots.size()
-	var total_w: float = float(count) * SLOT_SIZE + float(count - 1) * SLOT_GAP
+	var verbs: Array = _verb_row()
+	var spells: Array = _spell_row()
+	var count: int = verbs.size() + spells.size()
+	if count == 0:
+		return
+	# No gap unless there is something on both sides of it — a lone group must stay
+	# centred, not sit off to one side of a break with nothing behind it.
+	var split: float = GROUP_GAP if not verbs.is_empty() and not spells.is_empty() else 0.0
+	var total_w: float = float(count) * SLOT_SIZE + float(count - 1) * SLOT_GAP + split
 	var origin_x: float = (view.x - total_w) * 0.5
 	var origin_y: float = view.y - BOTTOM_MARGIN - SLOT_SIZE
 	# Class name centered just above the hotbar (always know your class).
@@ -224,14 +402,14 @@ func _draw() -> void:
 			font, Vector2(origin_x, origin_y - 9.0), _class_name.to_upper(),
 			HORIZONTAL_ALIGNMENT_CENTER, total_w, 13, Color(0.95, 0.96, 1.0, 0.95)
 		)
-	for i: int in range(count):
-		if not _slots[i] is Dictionary:
-			continue  # malformed entry — skip rather than crash the HUD
-		var rect: Rect2 = Rect2(
-			Vector2(origin_x + float(i) * (SLOT_SIZE + SLOT_GAP), origin_y),
-			Vector2(SLOT_SIZE, SLOT_SIZE)
-		)
-		_draw_slot(rect, _slots[i], font)
+	var x: float = origin_x
+	for slot: Dictionary in verbs:
+		_draw_slot(Rect2(Vector2(x, origin_y), Vector2(SLOT_SIZE, SLOT_SIZE)), slot, font)
+		x += SLOT_SIZE + SLOT_GAP
+	x += split
+	for slot: Dictionary in spells:
+		_draw_slot(Rect2(Vector2(x, origin_y), Vector2(SLOT_SIZE, SLOT_SIZE)), slot, font)
+		x += SLOT_SIZE + SLOT_GAP
 
 
 ## Draw one hotbar slot: panel + border + key/name labels, then either the
@@ -249,6 +427,12 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
 
 	# Panel + resting border.
 	draw_rect(rect, _with_alpha(PANEL_COLOR, alpha))
+	# The socket rides between the panel and the border: it is the slot's CONTENTS,
+	# so it must sit under every mark that describes the slot's STATE. `accent` is
+	# stamped only onto spell slots, so a verb slot is drawn exactly as it always was.
+	if slot.has("accent"):
+		var accent: Color = slot.get("accent", EMPTY_SOCKET_COLOR)
+		_draw_socket(rect, accent, int(slot.get("tier", SpellTier.Tier.QUICK)), alpha)
 	draw_rect(rect, _with_alpha(BORDER_COLOR, alpha), false, BORDER_WIDTH)
 	# The three spell slots are all live and all show their own cooldown, so the bar
 	# also has to say WHICH one the cast key throws right now. A lifted outer frame
@@ -313,6 +497,33 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
 	# is exactly the fact you need while the slot is recovering and you are deciding
 	# whether to spend the next one here or save it for the guardian.
 	_draw_charges(rect, int(slot.get("charges", -1)), font, alpha)
+
+
+## The socket frame: element wash, element ring, tier corner brackets.
+##
+## Brackets rather than a full second border in the tier colour, because two closed
+## rectangles one pixel apart read as a rendering mistake at 46px — four corner marks
+## read as a mount holding something. They are also where the eye already lands when
+## it checks whether a box is full, and they are the only part of the frame that the
+## bottom-up cooldown veil cannot fully swallow: the top pair always stays lit.
+func _draw_socket(rect: Rect2, accent: Color, tier: int, alpha: float) -> void:
+	var inner: Rect2 = rect.grow(-SOCKET_INSET)
+	draw_rect(inner, _with_alpha(Color(accent.r, accent.g, accent.b, SOCKET_WASH_ALPHA), alpha))
+	draw_rect(inner, _with_alpha(accent, alpha), false, SOCKET_RING_WIDTH)
+	var tier_color: Color = _with_alpha(SpellTier.color(tier), alpha)
+	# Each entry: the corner, then the two directions its arms run inward.
+	var corners: Array = [
+		[inner.position, Vector2.RIGHT, Vector2.DOWN],
+		[Vector2(inner.end.x, inner.position.y), Vector2.LEFT, Vector2.DOWN],
+		[Vector2(inner.position.x, inner.end.y), Vector2.RIGHT, Vector2.UP],
+		[inner.end, Vector2.LEFT, Vector2.UP],
+	]
+	for c: Array in corners:
+		var at: Vector2 = c[0]
+		var arm_x: Vector2 = c[1]
+		var arm_y: Vector2 = c[2]
+		draw_line(at, at + arm_x * SOCKET_CORNER_LEN, tier_color, SOCKET_CORNER_WIDTH)
+		draw_line(at, at + arm_y * SOCKET_CORNER_LEN, tier_color, SOCKET_CORNER_WIDTH)
 
 
 ## `charges` < 0 means "not a granted drop" and draws nothing — the pips are a fact

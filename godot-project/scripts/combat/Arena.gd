@@ -11,12 +11,14 @@ const EXIT_PORTAL_SCRIPT: Script = preload("res://scripts/combat/ExitPortal.gd")
 const ENCOUNTER_SCRIPT: Script = preload("res://scripts/combat/Encounter.gd")
 const TARGET_ENEMY_COUNT: int = 5   # sandbox steady-state
 const SANDBOX_SPAWN_INTERVAL: float = 1.2
-const DEFAULT_EXIT_POINT: Vector2 = Vector2(480, 110)
+const DEFAULT_EXIT_POINT: Vector2 = Vector2(870, 512)
 ## Wall collider thickness, matching Arena.tscn's authored value.
 const WALL_THICKNESS: float = 16.0
 ## Where a hero stands when no floor layout says otherwise (sandbox / boss rush).
-## Kept in step with LayoutDef.hero_start.
-const DEFAULT_HERO_START: Vector2 = Vector2(480, 300)
+## Kept in step with LayoutDef.hero_start — both moved when the room grew (maker:
+## "the map is too small"), or heroes would spawn in the left third of a 1160-wide
+## room, mid-air, and drop.
+const DEFAULT_HERO_START: Vector2 = Vector2(390, 512)
 
 var _gs: Node = null
 var _net: Node = null   # cached /root/Net (co-op); null / inactive in SP
@@ -46,6 +48,30 @@ var _spawn_timer: float = 0.0
 var _wipe_handled: bool = false
 ## …and the GAME OVER card is built at most once for the life of this arena.
 var _game_over_shown: bool = false
+## …and exactly one of its two exits is ever taken. See `_leave_to`.
+var _exit_taken: bool = false
+
+## ── THE GAME OVER CARD ────────────────────────────────────────────────────────
+## The card's palette IS `RunSummary`'s, so the screen you die on and the screen you
+## land on read as one game rather than two. `ASH` in particular is already that
+## file's `accent_for(WIPED)` — this is the existing convention, not a new one.
+##
+## ⚠ RESTATED RATHER THAN IMPORTED, and deliberately: naming `RunSummary` here would
+## bolt a UI script's compile onto the largest scene script in the game, for four
+## colours. `RunSummary` restates its own scene paths for the same class of reason.
+## If that file's palette ever moves, these move with it.
+const CARD_PAPER: Color = Color(0.055, 0.052, 0.075)
+const CARD_ASH: Color = Color(0.96, 0.42, 0.36)
+const CARD_CHALK: Color = Color(0.93, 0.92, 0.86)
+const CARD_GRAPHITE: Color = Color(0.62, 0.63, 0.70)
+## `GameState.HUB_SCENE`, restated for the same reason (`GameState` has no
+## `class_name` — it resolves only as an autoload, so naming it would break every
+## headless tool that loads this scene). Used ONLY to decide whether to draw the
+## Antechamber button; the navigation itself still goes through `visit_hub()`.
+const HUB_SCENE_PATH: String = "res://scenes/Main.tscn"
+## How long a card nobody answers waits before clocking the death itself. Not a beat
+## the player is meant to feel — see the call site in `_check_party_wipe`.
+const IDLE_CLOCK_OUT: float = 25.0
 ## Which wall shapes have already been un-shared from the .tscn sub-resource
 ## (see _set_wall) — duplicate once, then mutate in place every floor after.
 var _resized_walls: Dictionary = {}
@@ -120,6 +146,14 @@ func _ready() -> void:
 		# floor) + an endless trickle (below).
 		var sandbox_layout: LayoutDef = GameState.synthesize_floor_def(1).layout
 		_apply_room_size(sandbox_layout.room_size)
+		# ⚠ THE SANDBOX HAS TO USE THE SAME SPAWN PLACES THE TOWER DOES, or F6 is
+		# measuring a different game. Enemies used to be sampled anywhere inside the
+		# room rect — which in a side-on gravity room meant most were born hundreds of
+		# pixels up and rained down ("the opponents should spawn from certain places
+		# not just randomly in the air"). `configure_places` replaces that with the
+		# doorways / ground marks / ledge-tops set; without this line the sandbox would
+		# silently keep the old rect sampler and the fix would look unverifiable.
+		_encounter.configure_places(sandbox_layout)
 		FloorBuilder.build_props(_room, sandbox_layout)
 		var music: Node = get_node_or_null("/root/Music")
 		# BOSS RUSH: the guardian, alone, right now. Consume the flag on the way in
@@ -275,6 +309,11 @@ func _apply_room_size(size: Vector2) -> void:
 		floor_rect.offset_right = w
 		floor_rect.offset_bottom = h
 		floor_rect.size = Vector2(w, h)
+	# THE ROOM, DRAWN. The wash above says what colour the room is; the shell says
+	# where its GROUND and its EDGES are, which until now nothing did — see RoomShell.
+	# Built here rather than in `_rebuild_room` because it is a function of the room's
+	# SIZE, not of the floor's props, and `_rebuild_room` frees everything it owns.
+	_ensure_room_shell().build(Vector2(w, h))
 	var walls: Node = get_node_or_null("Walls")
 	if walls == null:
 		return
@@ -282,6 +321,21 @@ func _apply_room_size(size: Vector2) -> void:
 	_set_wall(walls, "WallBottom", Vector2(w * 0.5, h), Vector2(w, WALL_THICKNESS))
 	_set_wall(walls, "WallLeft", Vector2(0.0, h * 0.5), Vector2(WALL_THICKNESS, h))
 	_set_wall(walls, "WallRight", Vector2(w, h * 0.5), Vector2(WALL_THICKNESS, h))
+
+
+## The room shell, created on first use. Found BY NAME rather than held on a member:
+## `_apply_room_size` is re-driven on every floor and also directly by
+## `tools/slice_test_one_screen.gd` against a freshly instantiated Arena, so a
+## find-or-create is the shape that cannot end up with two of them or with a stale
+## freed one.
+func _ensure_room_shell() -> RoomShell:
+	var shell: RoomShell = get_node_or_null("RoomShell") as RoomShell
+	if shell != null:
+		return shell
+	shell = RoomShell.new()
+	shell.name = "RoomShell"
+	add_child(shell)
+	return shell
 
 
 func _set_wall(walls: Node, wall_name: String, pos: Vector2, size: Vector2) -> void:
@@ -573,16 +627,17 @@ func _check_party_wipe() -> void:
 		return
 	_wipe_handled = true
 	_show_game_over()
-	# The card holds, THEN the run ends — a wipe that cut straight to the hub would
-	# leave the player wondering what killed them. Timer runs on the process clock and
-	# ignores time_scale, so a death that lands inside a hit-stop still resolves.
-	var ender: Callable = func() -> void:
-		if _net != null and _net.is_active():
-			if _net.is_host():
-				_net.request_party_wipe()
-		elif _gs != null and _gs.has_method("game_over"):
-			_gs.game_over()
-	get_tree().create_timer(DeathRules.GAME_OVER_HOLD, true, true, true).timeout.connect(ender)
+	# ⚠ THE RUN NO LONGER ENDS ON A TIMER. It used to: the card held for
+	# `GAME_OVER_HOLD` and then navigated for you, which is why the card could not
+	# carry a choice — anything you put on it was a race against the clock. The card
+	# owns the ending now, and `_leave_to` is the only thing that closes a run out.
+	#
+	# This timer is the one exception: a player who dies and walks away must still have
+	# the death CLOCKED. Under `RESET_CLIMB_ON_GAME_OVER == false` the falls counter is
+	# the only thing a death costs, so letting it be dodged by not answering the card
+	# would make dying free. Long enough that nobody deciding ever meets it. It runs on
+	# the process clock and ignores time_scale, so a death inside a hit-stop resolves.
+	get_tree().create_timer(IDLE_CLOCK_OUT, true, true, true).timeout.connect(_end_run_now)
 
 
 ## THE PARTY CARRIES ITS DEAD. Clearing a floor stands your ghost back up — you did
@@ -620,10 +675,10 @@ func _revive_local_heroes() -> void:
 
 
 ## THE GAME OVER CARD. Every hero is a ghost; the run is over. Holds for
-## `DeathRules.GAME_OVER_HOLD` while the ghosts drift under it, then the run ends and
-## the hub loads (the trip home is where the town gets to clock the death).
+## `DeathRules.GAME_OVER_HOLD` while the ghosts drift under it, then offers the two
+## exits and WAITS. It does not navigate for you any more.
 ##
-## The second line names what it actually cost, and that line changes with the
+## The second line names what the death actually cost, and that line changes with the
 ## policy: under the shipped rule the climb is KEPT, so it says so — a player who
 ## just lost a fight needs to know immediately that they did not lose the tower.
 func _show_game_over() -> void:
@@ -634,20 +689,188 @@ func _show_game_over() -> void:
 	if _game_over_shown:
 		return
 	_game_over_shown = true
+	_freeze_combatants()
 	var layer := CanvasLayer.new()
-	layer.layer = 70
+	# ⚠ 85, NOT 70. `TouchControls` also sits on 70, and two CanvasLayers on the same
+	# layer resolve taps by tree order — which put the thumbstick over the card's
+	# button on a phone, the one device this has to work on. 85 clears the HUD (60) and
+	# the leave-confirm (80) and still passes under the pause menu (90).
+	layer.layer = 85
+	# The card must stay alive if anything pauses the tree under it (the pause menu
+	# does exactly that), or the only way out of a finished run becomes a dead button.
+	layer.process_mode = Node.PROCESS_MODE_ALWAYS
 	add_child(layer)
-	var lbl := Label.new()
-	lbl.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	lbl.offset_top = 128.0
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.text = "☠  GAME OVER  ☠\n%s" % _game_over_subtitle()
-	lbl.add_theme_font_size_override("font_size", 34)
-	lbl.add_theme_color_override("font_color", Color(0.96, 0.42, 0.36))
-	lbl.add_theme_color_override("font_outline_color", Color(0.05, 0.03, 0.05, 0.95))
-	lbl.add_theme_constant_override("outline_size", 6)
-	layer.add_child(lbl)
+	var root := Control.new()
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_STOP  # the run is over; nothing behind it wants taps
+	layer.add_child(root)
+	var dim := ColorRect.new()
+	dim.color = Color(CARD_PAPER, 0.72)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(dim)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.add_child(center)
+	# THE CARD IS AN ACTUAL CARD. Loose text over a dim is what an engine error looks
+	# like; a bordered page is what the rest of this game looks like. One flat panel,
+	# one hairline rule in the accent — no gradient, no shadow, no icon.
+	var panel := PanelContainer.new()
+	var box := StyleBoxFlat.new()
+	box.bg_color = CARD_PAPER
+	box.border_color = CARD_ASH
+	box.set_border_width_all(1)
+	box.set_corner_radius_all(3)
+	box.content_margin_left = 26.0
+	box.content_margin_right = 26.0
+	box.content_margin_top = 16.0
+	box.content_margin_bottom = 16.0
+	panel.add_theme_stylebox_override("panel", box)
+	center.add_child(panel)
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 5)
+	panel.add_child(col)
+	var head := Label.new()
+	# ⚠ 20 px, DOWN FROM 34, AND THE SKULLS ARE GONE. At 34 on a 640x360 base viewport
+	# the headline was a third of the screen wide — it read as a shout over the fight
+	# rather than a card the fight had stopped for. The skulls said nothing the two
+	# words did not; they were decoration on a screen the maker wants plain.
+	head.text = "GAME OVER"
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	head.add_theme_font_size_override("font_size", 20)
+	head.add_theme_color_override("font_color", CARD_ASH)
+	col.add_child(head)
+	# The one line that survives the trim, because it is not flavour: it answers the
+	# question a player has the instant they die, which is whether they just lost the
+	# tower. See `_game_over_subtitle`.
+	var note := Label.new()
+	note.text = _game_over_subtitle()
+	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	note.add_theme_font_size_override("font_size", 11)
+	note.add_theme_color_override("font_color", CARD_GRAPHITE)
+	col.add_child(note)
+	# THE TWO EXITS. Held back for `GAME_OVER_HOLD` so the word lands first and so a
+	# key still held from the fight cannot choose for you, then revealed together.
+	var exits := VBoxContainer.new()
+	exits.add_theme_constant_override("separation", 4)
+	exits.visible = false
+	col.add_child(exits)
+	# ⚠ THE ANTECHAMBER IS THE PROMINENT ONE, ON THE MAKER'S CALL: after a death the
+	# thing you want is to change your class or your spells and go again, and that room
+	# is where all of it lives. `visit_hub()` is the existing route; it is offered only
+	# when the room is actually in this build, because a button that lands you nowhere
+	# is worse than no button.
+	if ResourceLoader.exists(HUB_SCENE_PATH):
+		var again: Button = _confirm_button(
+			"Return to Ashpire", _to_antechamber, CARD_CHALK)
+		again.custom_minimum_size = Vector2(196, 34)
+		exits.add_child(again)
+	# …and the quiet one. Smaller type, dimmer ink, same tap target — restraint is in
+	# the weight, never in the size of the thing your thumb has to find.
+	var menu: Button = _confirm_button("Menu", _to_menu, CARD_GRAPHITE)
+	menu.add_theme_font_size_override("font_size", 13)
+	exits.add_child(menu)
+	var reveal: Callable = func() -> void:
+		if is_instance_valid(exits):
+			exits.visible = true
+	get_tree().create_timer(DeathRules.GAME_OVER_HOLD, true, true, true).timeout.connect(reveal)
 	Juice.shake_camera(10.0)
+
+
+## THE FIGHT STOPS WHEN THE RUN DOES.
+##
+## The card used to hang over a live battle: every hero was a ghost, so nothing was
+## left to fight, and the enemies kept charging, casting and telegraphing at corpses
+## for the whole hold. It read as a bug because it was one — the verdict had been
+## reached and the arena had not been told.
+##
+## ⚠ DELIBERATELY NOT `get_tree().paused`. Pause is the wrong instrument here for
+## three reasons, each on its own sufficient: the pause MENU can be opened over this
+## card and its Resume would silently restart the fight underneath it; pause is local,
+## so in co-op it would freeze one phone and not the other (the same reason
+## `_on_return_taken` refuses it); and the hold exists so the ghosts can drift and the
+## death spectacle can land, all of which pause would kill. Disabling the combatants
+## leaves everything that is meant to keep moving moving.
+##
+## `PROCESS_MODE_DISABLED` propagates to children, so an enemy's synchronizers, timers
+## and bound tweens stop with it. Nothing is freed — the scene change does that.
+const FROZEN_GROUPS: Array[StringName] = [
+	&"enemy",             # …and thralls/bosses, which join it via Enemy._ready
+	&"thrall",
+	&"enemy_projectile",
+	&"telegraph",         # a tell for an attack that will never come
+	&"player_spell",      # a dead hero's last cast should not go on killing for them
+	&"stage_hazard",
+]
+
+
+func _freeze_combatants() -> void:
+	# The spawner first: a wave scheduled one frame before the wipe would otherwise
+	# walk fresh enemies onto the floor AFTER everything on it had been stopped.
+	if is_instance_valid(_encounter):
+		_encounter.process_mode = Node.PROCESS_MODE_DISABLED
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	for group: StringName in FROZEN_GROUPS:
+		for n: Node in tree.get_nodes_in_group(group):
+			if is_instance_valid(n):
+				n.process_mode = Node.PROCESS_MODE_DISABLED
+
+
+## The verdict itself, reached either by the hold timer running out or by the player
+## tapping through it. Host-or-single-player only; a co-op client's run is ended for
+## it by the host (`Net.request_party_wipe` -> `_do_host_wipe`).
+func _end_run_now() -> void:
+	if _net != null and _net.is_active():
+		if _net.is_host():
+			_net.request_party_wipe()
+	elif _gs != null and _gs.has_method("game_over"):
+		_gs.game_over()
+
+
+func _to_antechamber() -> void:
+	# `visit_hub()` REPORTS rather than assumes — it returns false on a build with no
+	# Antechamber. The button is already hidden in that case, so this is the second
+	# belt: a stranded player is the one outcome that is not allowed.
+	var go: Callable = func() -> void:
+		if not bool(_gs.call("visit_hub")):
+			_gs.call("go_to_title")
+	_leave_to(go)
+
+
+func _to_menu() -> void:
+	_leave_to(func() -> void: _gs.call("go_to_title"))
+
+
+## Close the run out and go somewhere. The two card buttons are the only callers.
+##
+## ⚠ THE ORDER IS LOAD-BEARING. `_end_run_now` runs FIRST so the death is CLOCKED —
+## it ticks the falls counter, applies the climb policy and saves. Skipping it to
+## navigate faster would make either button a way to die for free, which under
+## `RESET_CLIMB_ON_GAME_OVER == false` is the only thing a death costs at all.
+##
+## `end_run` then queues the summary scene and `destination` queues the real one over
+## it. Both land in the same frame and `SceneTree.change_scene_to_file` keeps only the
+## last request, so the player arrives where they tapped. The summary is built and
+## discarded inside that one deferred flush without ever being drawn — a known and
+## accepted cost of `GameState.end_run` welding "clock the death" to "navigate", which
+## cannot be unpicked from here.
+##
+## ⚠ AND IT HAPPENS ONCE. A double-tap during the scene change would otherwise stack a
+## second pair of `change_scene_to_file` calls on a half-torn-down tree.
+func _leave_to(destination: Callable) -> void:
+	if _exit_taken or _gs == null:
+		return
+	_exit_taken = true
+	_end_run_now()
+	# A client's run is the host's to end, so leaving the session IS its exit. The host
+	# must not do this here: `Net._on_gs_run_ended` already tears the session down
+	# (deferred, so the wipe it just sent actually reaches the clients first).
+	if _is_net_client():
+		_net.leave()
+	destination.call()
 
 
 func _game_over_subtitle() -> String:
@@ -888,6 +1111,13 @@ func _apply_theme(theme: EnvTheme) -> void:
 	var wash: Color = theme.lit_wash()
 	if _atmo != null:
 		_atmo.build_wash(wash, theme.accent())
+	# THE DRAWN ROOM TAKES THE FLOOR'S HUE TOO. Without this the shell would be the
+	# same slab on all ten floors while the wash around it changed, which is the exact
+	# "every floor is the same picture in a different hue" failure EnvTheme was
+	# widened to fix. The shell keeps its own size — only the colour is pushed here.
+	var shell: RoomShell = get_node_or_null("RoomShell") as RoomShell
+	if shell != null:
+		shell.build(shell.room_size, wash)
 	PostProcess.set_theme(wash)  # re-tint the grade to match the floor
 
 

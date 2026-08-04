@@ -123,9 +123,18 @@ static func resume_floor_after_game_over(current: int, total: int) -> int:
 # ═══════════════════════════════════════════════════════════════════════════════
 # The rest: the shape of a death, not a policy fork.
 # ═══════════════════════════════════════════════════════════════════════════════
-## How long the GAME OVER card holds before the run actually ends. It is a beat,
-## not a loading screen — long enough to read the word and see who fell.
-const GAME_OVER_HOLD: float = 2.4
+## The beat between the party wiping and the GAME OVER card offering you a way out.
+##
+## ⚠ HALVED ON THE MAKER'S CALL (2026-08-04): "the death screen is too long and not
+## fun to look at". The old value was 2.4 s and the old comment defended it as "long
+## enough to read the word and see who fell" — that reasoning lost to play. At 1.2 s
+## the word still lands and the fight still visibly stops before anything moves.
+##
+## ⚠ AND IT NO LONGER GATES THE RUN ENDING, ONLY THE CARD'S BUTTONS. It used to be a
+## countdown you sat through with nothing to do; it is now the pause before the two
+## exits fade in, which also makes it the guard against a key still held from the
+## fight choosing for you. See `Arena._show_game_over`.
+const GAME_OVER_HOLD: float = 1.2
 
 ## A revive brings you back at a FRACTION of max hp, never full.
 ##

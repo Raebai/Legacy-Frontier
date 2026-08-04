@@ -61,6 +61,17 @@ const RIFT_OPEN_FRAC: float = 0.64
 ## Meteors streak in from just above the combat view (not far off-screen) so you
 ## SEE the shower coming down — readability + the "here it comes" tell.
 const SKY_HEIGHT: float = 360.0
+## ⚠ THE SAFETY BOUND ON A FALLING ROCK. `_resolve_descent` sweeps the flight line
+## continued THIS far below the plane the player aimed at, and a rock that meets
+## nothing in that span is treated as having fallen out of the world (it detonates
+## on nothing). "Keep going until it hits something" has to stop somewhere or a
+## strike over a pit becomes an unbounded ray, and this project has an entity
+## budget. 2400 is roughly three screen-heights on the one-screen floors that
+## ship — deep enough that no authored floor can hide under it, shallow enough
+## that the query is still one ray. The number it replaces was `SKY_HEIGHT * 1.5`
+## (540), which was short enough to miss the floor under a tall room and was the
+## direct cause of strikes deleting themselves in mid-air. UNTESTED GUESS.
+const MAX_DESCENT: float = 2400.0
 
 # ── THE SKY GATE: the summoning circle the bombardment pours OUT of ──────────
 # THE MAKER, LIVE, MID-PLAYTEST: "I can't see the circle for the sky attack."
@@ -216,7 +227,17 @@ var _radius: float = DEFAULT_RADIUS
 var _damage: int = DEFAULT_DAMAGE
 var _effect: String = "fire"
 var _elapsed: float = -1.0
-var _meteors: Array = []  # each: {delay, from, to, landed, seed, spin, verts}
+## Each: {delay, from, to, end, solid, landed, seed, spin, verts}.
+##
+## ⚠ `to` AND `end` ARE DIFFERENT POINTS AND BOTH ARE LOAD-BEARING. `to` is the
+## ROLLED point — where the scatter put this strike on the plane the player aimed
+## at, and therefore the number that must stay inside `_spread` (the drawn danger
+## footprint). `end` is where the rock actually STOPS, resolved by
+## `_resolve_descent`; it is the same x and usually a lower y. Everything that
+## draws or damages reads `end`; only the footprint invariant and the fire
+## sweep-order read `to`. Collapsing them back into one key is how the barrage
+## either stops in mid-air again or silently grows a wider footprint.
+var _meteors: Array = []
 ## The scatter half-extents actually used, in world px. Kept as state (rather than
 ## recomputed) because the CHARGE TELEGRAPH has to be drawn at exactly the same
 ## extent the strikes are rolled within — a per-family spread multiplier that fed
@@ -303,6 +324,9 @@ func rain(
 			"earth":
 				m["verts"] = _bake_rock(17.0, 0.4)
 				m["spin"] = randf_range(-3.4, 3.4)  # boulders tumble harder
+		# Committed BEFORE the rock is ever drawn falling, not at landing time.
+		# `_resolve_descent` explains why that ordering IS the fix.
+		_resolve_descent(m)
 		_meteors.append(m)
 	_schedule_barrage()
 	if _effect == "shadow":
@@ -511,6 +535,51 @@ func _spawn_point(to: Vector2) -> Vector2:
 	return _gate_mouth(to)
 
 
+## Where this rock ACTUALLY ends up — resolved at CAST, before it is ever drawn.
+##
+## THE MAKER: *"meteors ... need to keep going until it hit something not just
+## despawn in the air ... should have further distances and hit the bottom as
+## needed."* The rock used to be drawn falling to `to`, the rolled scatter point,
+## which sits on the plane the player AIMED at. Aim at head height — or roll a
+## point off the lip of a ledge — and the barrage visibly stopped in open air,
+## after which `_land` went hunting for a floor within 540 px and, finding none,
+## deleted the strike outright. Two separate ways to vanish mid-flight, and the
+## second one was silent.
+##
+## RESOLVED HERE RATHER THAN AT LANDING TIME, and that ordering is the actual fix.
+## `_land` already swept the flight line, but it ran at the instant of impact, so
+## the rock had ALREADY been drawn arriving at the aim plane and the explosion
+## then appeared somewhere else further down. Committing the endpoint up front is
+## what lets `_draw_*` lerp `from -> end` all the way to the thing it hits.
+##
+## ⚠ THE BOUND RUNS STRAIGHT DOWN FROM `to`, NEVER ON ALONG THE ENTRY DIAGONAL.
+## The endpoint's x therefore equals the rolled point's x, which is what stops a
+## LONGER fall from also becoming a WIDER one: `_spread` is a promise about where
+## strikes can land (it is what `_draw_charge_telegraph` draws and what
+## `tools/slice_test_meteor_gate.gd` pins), and a bound extended along the
+## diagonal would have quietly widened the barrage every time the floor sat low.
+## Rejected for exactly that reason, despite being the more physical answer.
+##
+## ⚠ AND IT IS BOUNDED — see MAX_DESCENT. "Until it hits something" must not mean
+## "forever". A rock that meets nothing in that span has fallen off the stage: it
+## keeps being drawn on its way out (better than blinking out at head height) and
+## detonates on nothing, which is the correct answer over a pit.
+##
+## SHADOW is exempt for the same reason it is exempt in `_land`: its tear opens in
+## mid-air at RIFT_HEIGHT by design, and a family whose identity is that nothing
+## falls has no business being sent looking for a floor.
+func _resolve_descent(m: Dictionary) -> void:
+	var to: Vector2 = m["to"]
+	if _effect == "shadow":
+		m["end"] = to
+		m["solid"] = true
+		return
+	var bound: Vector2 = Vector2(to.x, to.y + MAX_DESCENT)
+	var fell: Dictionary = SpellWorld.first_solid(m["from"] as Vector2, bound, [], self)
+	m["end"] = (fell["position"] as Vector2) if bool(fell["hit"]) else bound
+	m["solid"] = bool(fell["hit"])
+
+
 ## A random point in the mouth of one of the gates.
 ##
 ## ⚠ THE GATE IS PICKED AT RANDOM, NOT BY PROXIMITY, and the render is why. The
@@ -614,33 +683,32 @@ func _land(m: Dictionary) -> void:
 	# snapping them to the floor would delete the one family that is not a
 	# bombardment at all.
 	if _effect != "shadow":
-		# ⚠ THE DESCENT IS SWEPT, NOT PROBED — this is the second half of the floor
-		# fix, and it is the maker's *"same with meteor"*.
+		# ⚠ THE DESCENT IS SWEPT, NOT PROBED. The original probe cast DOWN FROM THE
+		# TARGET POINT, which answers "what is the floor under where I aimed" and is
+		# the right question on a flat stage. It is the wrong question now that
+		# `FloorGen` builds a ledge skyline: aim at a spot that sits UNDER a ledge and
+		# the probe happily reports the ground below it, so the rock was drawn falling
+		# from the sky STRAIGHT THROUGH the ledge and detonating underneath it.
 		#
-		# The original probe cast DOWN FROM THE TARGET POINT, which answers "what is
-		# the floor under where I aimed" and is the right question on a flat stage. It
-		# is the wrong question now that `FloorGen` builds a ledge skyline: aim at a
-		# spot that sits UNDER a ledge and the probe happily reports the ground below
-		# it, so the rock is drawn falling from the sky STRAIGHT THROUGH the ledge and
-		# detonating underneath it. A solid platform stopped nothing.
-		#
-		# Sweeping the actual flight line answers the question that matches what the
-		# player watched: the meteor stops at the first solid thing it meets on its
-		# way down. On flat ground that is the same floor the probe found, so the
-		# behaviour this replaces is preserved exactly where it was already correct.
-		var fell: Dictionary = SpellWorld.first_solid(m["from"] as Vector2, m["to"] as Vector2, [], self)
+		# The sweep itself now lives in `_resolve_descent` (at cast, so the DRAWN fall
+		# ends where the explosion is). What is left here is a re-check, and it is not
+		# redundant: up to ~1.6 s of barrage passes between the roll and this landing,
+		# and cover the descent was resolved against can be smashed inside that window.
+		# Re-sweeping means the rock follows the world as it is NOW, and an earlier
+		# obstacle always wins over the one committed at cast.
+		var fell: Dictionary = SpellWorld.first_solid(
+			m["from"] as Vector2, m["end"] as Vector2, [], self)
 		if bool(fell["hit"]):
-			m["to"] = fell["position"]
-		else:
-			# Nothing intercepted the flight line, so fall back to the floor probe —
-			# which is also what catches a strike rolled out over a genuine pit and
-			# skips it rather than detonating in the void.
-			var ground: Dictionary = SpellWorld.floor_below(m["to"] as Vector2, SKY_HEIGHT * 1.5, [], self)
-			if not bool(ground["hit"]):
-				return
-			# Write it back so the in-flight draw ends exactly where the impact is.
-			m["to"] = ground["position"]
-	var at: Vector2 = m["to"]
+			m["end"] = fell["position"]
+			m["solid"] = true
+		if not bool(m["solid"]):
+			# One MAX_DESCENT of empty air: this strike went over a pit or off the
+			# stage. It detonates on nothing — which is the point of the bound, and is
+			# the same call `GroundCrater` makes rather than hanging an effect in the
+			# void. Note it has already been DRAWN falling all the way out; the thing
+			# this file used to do was stop it dead at head height and delete it.
+			return
+	var at: Vector2 = m["end"]
 	_apply_damage(at)
 	match _effect:
 		"fire":
@@ -1026,7 +1094,10 @@ func _draw_charge_telegraph(tp: float) -> void:
 ## the visual volume knob moved. Everything is drawn y-squashed (MARKER_SQUASH)
 ## so markers are unmistakably floor paint, never floating UI.
 func _draw_impact_marker(m: Dictionary, u: float) -> void:
-	var at: Vector2 = m["to"]
+	# `end`, not the rolled `to`: the marker's whole job is "get out of THIS spot",
+	# so it has to sit on the ground the rock will actually reach, not on the plane
+	# the cursor happened to be at.
+	var at: Vector2 = m["end"]
 	var close_r: float = lerpf(METEOR_IMPACT_RADIUS * 1.6, METEOR_IMPACT_RADIUS, u)
 	match _effect:
 		"fire":
@@ -1099,7 +1170,7 @@ func _draw_impact_marker(m: Dictionary, u: float) -> void:
 ## tail that sheds embers. THE meteor.
 func _draw_fire_meteor(m: Dictionary, f: float) -> void:
 	var from: Vector2 = m["from"]
-	var to: Vector2 = m["to"]
+	var to: Vector2 = m["end"]
 	var pos: Vector2 = from.lerp(to, f)
 	var dir: Vector2 = (to - from).normalized()
 	var perp: Vector2 = dir.orthogonal()
@@ -1135,7 +1206,7 @@ func _draw_fire_meteor(m: Dictionary, f: float) -> void:
 ## faceted body, HDR rim + refractive core line, cold air-streaks instead of
 ## any burning tail. Reads "javelin", not "rock".
 func _draw_ice_spike(m: Dictionary, f: float) -> void:
-	var pos: Vector2 = (m["from"] as Vector2).lerp(m["to"], f)
+	var pos: Vector2 = (m["from"] as Vector2).lerp(m["end"], f)
 	var s: float = float(m["seed"])
 	var spear_len: float = 50.0
 	var w: float = 7.5
@@ -1168,11 +1239,11 @@ func _draw_ice_spike(m: Dictionary, f: float) -> void:
 ## EARTH in flight: a big dumb boulder — flat opaque rock tones, hard tumble,
 ## NO tail (a whisper of falling dust only). Mass, not energy.
 func _draw_earth_boulder(m: Dictionary, f: float) -> void:
-	var pos: Vector2 = (m["from"] as Vector2).lerp(m["to"], f)
+	var pos: Vector2 = (m["from"] as Vector2).lerp(m["end"], f)
 	var verts: PackedVector2Array = m["verts"]
 	# A dusty speed-smear behind (NOT a burning tail — displaced air + grit),
 	# so the dark mass separates from the dark sky while it falls.
-	var up: Vector2 = ((m["from"] as Vector2) - (m["to"] as Vector2)).normalized()
+	var up: Vector2 = ((m["from"] as Vector2) - (m["end"] as Vector2)).normalized()
 	draw_line(pos + up * 16.0, pos + up * 52.0, Color(0.62, 0.52, 0.38, 0.22), 9.0, true)
 	draw_line(pos + up * 16.0, pos + up * 38.0, Color(0.72, 0.6, 0.44, 0.18), 4.0, true)
 	draw_set_transform(pos, float(m["seed"]) + _elapsed * float(m["spin"]), Vector2.ONE)
@@ -1200,7 +1271,7 @@ func _draw_earth_boulder(m: Dictionary, f: float) -> void:
 ## low above the mark (violet HDR rim around a void interior, reality-cracks
 ## converging into it), then a column of void slams down to the ground.
 func _draw_shadow_rift(m: Dictionary, f: float) -> void:
-	var to: Vector2 = m["to"]
+	var to: Vector2 = m["end"]     # == the rolled point for SHADOW; see _resolve_descent
 	var rift: Vector2 = m["from"]  # = to + (0, -RIFT_HEIGHT), see _spawn_point
 	var s: float = float(m["seed"])
 	var open_f: float = clampf(f / RIFT_OPEN_FRAC, 0.0, 1.0)
@@ -1239,7 +1310,7 @@ func _draw_shadow_rift(m: Dictionary, f: float) -> void:
 ## Fallback in-flight draw (non-bespoke effects): the classic head + trail.
 func _draw_generic_meteor(m: Dictionary, f: float) -> void:
 	var from: Vector2 = m["from"]
-	var to: Vector2 = m["to"]
+	var to: Vector2 = m["end"]
 	var pos: Vector2 = from.lerp(to, f)
 	var trail: Vector2 = from.lerp(to, maxf(f - 0.38, 0.0))
 	var c: Color = _color

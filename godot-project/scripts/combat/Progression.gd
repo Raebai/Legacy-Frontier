@@ -379,7 +379,32 @@ const LOCKED_CLASSES: Array[int] = [6, 7, 8]   # Stormcaller, Warlock, Swordsain
 const CLASS_UNLOCK_FLOORS: Array[int] = [5, 10]   # …and the third on a full clear
 
 
+## ═══════════════════════════════════════════════════════════════════════════════
+## SURFACED DECISION — IS THE ROSTER GATED AT ALL?
+## ═══════════════════════════════════════════════════════════════════════════════
+## Maker, 2026-08-04, mid-playtest: "I can only see 6 classes right now for now
+## show me all the available classes".
+##
+## TRUE (shipped right now): every class is pickable immediately. The floor-5 and
+## floor-10 guardians still BANK a pick — `pending_class_choices` still increments
+## and still persists — it simply has nothing left to buy, so flipping this back
+## costs no save migration and loses no progress a player already earned.
+##
+## FALSE: the designed behaviour — six starters, and Stormcaller / Warlock /
+## Swordsaint held by guardians (spec §6). That design is not deleted and is worth
+## keeping: it defuses Stormcaller's measured 16-0 by making it a late reward
+## rather than a beginner trap, and it gives the floor-5 guardian something to be
+## FOR beyond XP.
+##
+## ⚠ THE WORD IN THE ASK IS "FOR NOW". This is open so the maker can playtest nine
+## classes without grinding to floor 5 four times, which is the correct call during
+## a balance pass and the wrong one for a shipping build. Flip it before release.
+const ALL_CLASSES_UNLOCKED: bool = true
+
+
 static func is_class_unlocked(hero_class: int, unlocked: Array) -> bool:
+	if ALL_CLASSES_UNLOCKED:
+		return hero_class >= 0 and hero_class < CLASS_GROWTH.size()
 	if STARTING_CLASSES.has(hero_class):
 		return true
 	for u in unlocked:

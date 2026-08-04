@@ -60,6 +60,13 @@ const FADE_TIME: float = 0.55       # long quiet aftermath (contrast to the snap
 ## they must enter FROM off-screen, which is what makes the arrival read as a
 ## siege rather than as a firework. UNTESTED GUESS.
 const RING_RADIUS: float = 520.0
+## How far below the aim the convergence looks for ground to seat itself on. See
+## `converge()` for why it does that at all. Deep enough to find the floor from a
+## cursor held at the top of the frame (the 640x360 base viewport plus headroom),
+## and it is a BOUND: past it there is genuinely nothing down there, and the ult
+## slams together in the air where it was aimed rather than chasing a floor three
+## screens below. UNTESTED GUESS.
+const FLOOR_DROP: float = 900.0
 const LANCE_COUNT: int = 8
 ## Fraction of its run that a lance draws as a bright streak. A SHORT streak reads
 ## as an object travelling fast; a long one reads as a static spoke being drawn.
@@ -104,7 +111,23 @@ func converge(
 	radius: float = DEFAULT_RADIUS, damage: int = DEFAULT_DAMAGE,
 	effect: String = "holy",
 ) -> void:
-	_ground = target
+	# ⚠ SEATED ON THE FLOOR, NOT ON THE CURSOR PLANE. `_ground` is the single point
+	# the lances converge on, the crater, the debris, the shock and the damage all
+	# read — and it used to be the raw aim point. Aim anywhere above the ground and
+	# the biggest hit in the game detonated in open air with the crater hanging in
+	# it: the maker's *"hit the bottom as needed"*, on a spell that never falls.
+	#
+	# Seated HERE rather than in `_detonate` on purpose: the charge telegraph and
+	# the converging lances are drawn at `_ground` for the whole 1.30 s wind-up, so
+	# resolving it late would have moved the impact away from the thing the player
+	# spent the dodge window reading.
+	#
+	# On a MISS the aim point is kept rather than the strike being skipped, and that
+	# is the deliberate difference from a falling rock (`MeteorSigil._land` drops
+	# the strike). Eight lances converging from a ring have no floor in their story;
+	# over a pit they still meet where they were sent. There is simply no crater.
+	var seat: Dictionary = SpellWorld.floor_below(target, FLOOR_DROP, [], self)
+	_ground = (seat["position"] as Vector2) if bool(seat["hit"]) else target
 	_color = color
 	_radius = radius
 	_damage = damage

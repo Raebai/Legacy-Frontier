@@ -20,6 +20,12 @@ extends RefCounted
 ## library's, which is why the blurb reads across two sources.
 ##
 ## `tools/slice8_test_spell_kits.gd` sweeps `SpellLibrary.gd` for banned IP strings.
+## ⚠ THESE KIT STRINGS ARE HAND-WRITTEN AND DO NOT FOLLOW `SpellLibrary`.
+## Renaming a spell's `display_name` does NOT reach them, so a rename silently
+## turns a class card into a lie. It happened on 2026-08-04 (The Ordinary Spell ->
+## First Lance, Crescent Step -> Crescent Rush) and was caught by hand, not by a
+## test. If you rename a spell, grep here.
+##
 ## The renames that removed the last player-facing borrowed names — "The Ordinary
 ## Spell" and "Thunderclap" — are shipped; do not reintroduce the old ones here
 ## either, since these strings are read by a player on the class-select screen.
@@ -35,7 +41,7 @@ const CLASSES: Array[Dictionary] = [
 	# 0 ARCANIST — carries the Ordinary Spell, MIRROR IMAGE (promoted out of the drop
 	# pool — the only self-duplication in the game) and the Meteor Sigil.
 	{"name": "Arcanist", "fantasy": "Ranged arcane zoner",
-		"kit": "LMB arcane bolt · The Ordinary Spell · Mirror Image · Ult Meteor Sigil", "color": Color(0.95, 0.4, 0.85)},
+		"kit": "LMB arcane bolt · First Lance · Mirror Image · Ult Meteor Sigil", "color": Color(0.95, 0.4, 0.85)},
 	# 1 SHADOWBLADE — the Umbral Lance was a violet copy of the Arcanist's beam; the
 	# ult is THOUSAND CUTS now, and the carried middle is the Rift Dagger.
 	{"name": "Shadowblade", "fantasy": "In-and-out assassin",
@@ -70,7 +76,7 @@ const CLASSES: Array[Dictionary] = [
 	# class. IAI SLASH and CRESCENT STEP are the duelist's own, and Horizon Cut
 	# (HorizonArc.gd) finally holds the ult slot it was authored for.
 	{"name": "Swordsaint", "fantasy": "Guard-and-punish duelist",
-		"kit": "LMB greatsword · RMB held GUARD (bank → cut) · Iai Slash · Crescent Step · Ult Horizon Cut", "color": Color(0.86, 0.9, 0.96)},
+		"kit": "LMB greatsword · RMB held GUARD (bank → cut) · Iai Slash · Crescent Rush · Ult Horizon Cut", "color": Color(0.86, 0.9, 0.96)},
 ]
 
 

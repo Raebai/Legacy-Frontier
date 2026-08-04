@@ -1295,9 +1295,17 @@ func _client_pickup(key: Vector2i, peer_id: int) -> void:
 	# on each screen — and its `_consumed` latch made that permanent for the floor.
 	# The award is keyed by position, and the two families never share one, so
 	# checking the second group after the first misses cannot mis-award.
+	# ⚠ ALL THREE PICKUP FAMILIES RACE ON THIS ONE FINISH LINE. The award is keyed by
+	# POSITION and no two pickups ever share one, so probing the groups in sequence
+	# cannot mis-award — a miss in the first group is simply "not that family here".
+	# `health_pickup` was added last and deliberately joined this path rather than
+	# growing a second award route: a second route is exactly how `WeaponPickup` ended
+	# up with the photo-finish bug the first two families had already fixed.
 	var pickup: Node = _find_at(&"spell_pickup", key)
 	if pickup == null:
 		pickup = _find_at(&"weapon_pickup", key)
+	if pickup == null:
+		pickup = _find_at(&"health_pickup", key)
 	var hero: Node = hero_for_peer(peer_id)
 	# Both nulls are normal answers, not errors: this peer may already have freed the
 	# pickup, or be mid-floor-change. The one lossy case is a winner who DROPPED

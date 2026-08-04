@@ -43,6 +43,42 @@ extends Node2D
 ##
 ## ⚠ ELEMENT IS DECLARED, NEVER INFERRED — see the same note on `RadiantVolley`.
 ## ICE here, so the mark opposes FIRE in the reaction table rather than guessing.
+##
+## ── THE THROW, AND WHY IT EXISTS (maker: "the cast, you can't see the projectile,
+##    I'm unsure if it even sends one out") ──────────────────────────────────────
+## He was right, and not about a colour: NOTHING WAS EVER SENT. This spell placed
+## its mark at the aim point instantly and discarded the `origin` argument the HEX
+## arm hands it, so the entire cast was a thin pale-cyan ring appearing 300 px away
+## with no line of causation back to the hand that cast it. Every other damage hand
+## in the roster puts something in the air.
+##
+## So the charge is now THROWN, and the flight is timed to be exactly the fuse —
+## `_shard_at()` is `_from -> _at` over `FUSE` seconds. That is deliberate and it is
+## the reason this is a visibility fix rather than a balance one:
+##   * the footprint ring still snaps to full radius on the cast frame, so the
+##     telegraph and its warning window are UNCHANGED (thinning or delaying a
+##     telegraph is a fairness change; this is not one),
+##   * the break still lands at `FUSE`, so no damage moved in time,
+##   * and the projectile IS the fuse timer — the thing you watch to know when it
+##     goes off is the thing flying at the mark. One read, not two.
+##
+## ── MAKING THE CONDITIONAL VISIBLE (the other half of "not as damaging") ──────
+## The 0.35 / 1.0 / 3.0 ladder was already in the code and already enormous at the
+## top (see the arithmetic on `FROZEN_MULT`). What the player could not do was TELL
+## WHICH ONE HE WAS ABOUT TO GET, so a correct 0.35x tap on a warm body read as the
+## spell being weak rather than as him having skipped its set-up.
+##
+## The fuse therefore SCANS its own footprint and states the answer:
+##   WARM    thin, small, pale — a mark that visibly is not going to do anything
+##   PRIMED  the ring thickens and warms; the rime is taking
+##   ARMED   the whole mark goes hot white, a counter-ring spins up, and a lattice
+##           tether snaps from the mark to EVERY frozen body it has claimed, each
+##           wearing a crazing casing. Plus its own sound. You know, seventeen
+##           frames early, that this one is the 3x.
+## The break then branches to match: a warm break is a tap, an armed break is a
+## white-out with casing fans off every body that came apart.
+##
+## ⚠ NO DAMAGE NUMBER MOVED. See the note on `FROZEN_MULT`.
 
 # ------------------------------------------------------------------- IDENTITY
 ## Stamped by `SpellCaster._stamp()`. All five DECLARED, because `set()` on an
@@ -71,6 +107,17 @@ const WARM_MULT: float = 0.35
 const RIMED_MULT: float = 1.0
 ## The payoff. 3x is the reason to spend a second and a half holding someone in a
 ## Blizzard, and it is why this class's control slot is not filler.
+##
+## ⚠ DO NOT RAISE THIS, OR THE BASE, TO ANSWER "ice isn't damaging". The arithmetic
+## already answers it: base 62 x 3.0 = 186 on one body, plus 22 of casing splash on
+## every neighbour. The heaviest ULT in the game is Heaven's Wrath at 130 across
+## five separate strikes; Fault Line is 105 and this class's own ult is 48 a spike.
+## A landed armed Shatter is therefore already the single biggest hit in the roster
+## and it is on a 4 s cooldown on the DAMAGE slot. The complaint was never that this
+## number is small — it is that the player could not see which rung he was on, and
+## the warm rung (62 x 0.35 = 22) is the one he kept landing. Fixing the read is the
+## fix. Inflating a number that is already top-of-roster, into a build where hero HP
+## just went up 1.4x and enemy damage is coming down, would be a second bug.
 const FROZEN_MULT: float = 3.0
 ## Rime-meter fraction at or above which a body counts as RIMED. Below this the
 ## frost has barely started and calling it cold would make the fuse meaningless.
@@ -95,6 +142,30 @@ const DEFAULT_RADIUS: float = 104.0
 const FRACTURES: int = 14
 const FRACTURES_LOW: int = 7
 
+# ------------------------------------------------------------------- THE THROW
+## Half-height of the shard's arc, as a fraction of the distance thrown. A dead
+## straight line between two points on a flattened floor reads as a static streak;
+## a shallow lob reads as an object with weight travelling THROUGH the scene.
+const ARC_RISE: float = 0.22
+## Ghosts trailed behind the shard, and the phone's count. The trail is what makes
+## a 0.28 s flight legible at all — at 1070 px/s a single quad is four smeared
+## pixels, and "I can't see the projectile" is exactly what four smeared pixels look
+## like. The ghosts are the thing the eye actually catches.
+const TRAIL: int = 7
+const TRAIL_LOW: int = 3
+## Length of the shard's body, before the flight's own stretch.
+const SHARD_LEN: float = 26.0
+
+# --------------------------------------------------------- READING THE CONDITION
+## How often the fuse re-asks its own footprint how cold it is. Not every frame:
+## the answer is drawn, not damaged with, and a body that walks in at the last
+## instant is caught by `_break`'s own query regardless. 0.05 s is five looks across
+## the fuse, which is faster than the eye resolves the state change anyway.
+const SCAN_EVERY: float = 0.05
+## What the mark is about to be worth, as the fuse currently reads it. Ordered, so
+## `maxi` composes it the same way `Cold` does.
+enum Arm { COLD_NONE, PRIMED, ARMED }
+
 # ---------------------------------------------------------------- WORK COUNTERS
 ## Deterministic tallies (see the same note on `RadiantVolley`): the suite asserts
 ## what the break DID, never how many milliseconds it took.
@@ -104,12 +175,26 @@ var shard_hits: int = 0
 var damage_dealt: int = 0
 
 var _at: Vector2 = Vector2.ZERO
+## Where the shard was thrown FROM — the `origin` the HEX arm has always passed and
+## this spell used to discard. Nothing else is needed to put a projectile in the air.
+var _from: Vector2 = Vector2.ZERO
 var _color: Color = Color(0.55, 0.85, 1.0)
 var _radius: float = DEFAULT_RADIUS
 var _base_damage: int = 42
 var _elapsed: float = 0.0
 var _broken: bool = false
 var _seed: int = 0
+
+## The fuse's live read of its own footprint. Drawn, never damaged with.
+var _arm: int = Arm.COLD_NONE
+var _scan_at: float = -1.0
+## Frozen bodies the fuse has claimed, for the tethers and casing craze. Positions
+## are re-read each frame from the live nodes, so a body sliding out is not drawn
+## still attached.
+var _marked: Array[Node2D] = []
+## Where casings ACTUALLY came apart. Written by `_break`, so the fans in
+## `_draw_break` mark real breaks and not the fuse's prediction of them.
+var _broke_at: PackedVector2Array = PackedVector2Array()
 
 
 ## Damage multiplier for a cold state. Pure, so the combo's whole balance claim is
@@ -132,7 +217,9 @@ static func damage_for(base: int, state: int) -> int:
 
 ## THE HEX ENTRY POINT. Fixed signature shared by every spell on the
 ## `SpellDef.Kind.HEX` fork — see `SpellCaster.HEX_SCRIPTS`.
-func hex(caster: Node, _origin: Vector2, target: Vector2, spell: SpellDef,
+## ⚠ `origin` LOST ITS UNDERSCORE AND THAT IS THE BUG FIX. It was `_origin` — the
+## unused-parameter convention — for as long as this spell had no projectile.
+func hex(caster: Node, origin: Vector2, target: Vector2, spell: SpellDef,
 		color: Color, _fx: String) -> void:
 	caster_node = caster if caster_node == null else caster_node
 	_color = color
@@ -146,26 +233,73 @@ func hex(caster: Node, _origin: Vector2, target: Vector2, spell: SpellDef,
 	# the aim point straight back, which is correct: the fracture still happens in
 	# the air where you pointed, it just has no floor to craze.
 	_at = SpellWorld.floor_point(target, 220.0, [], self)
+	# THE HAND. Lifted so the shard leaves a body rather than a pair of boots — a
+	# throw that starts at floor level reads as the ground spitting, not as a cast.
+	_from = origin + Vector2(0.0, -26.0)
 	# ⚠ WORLD SPACE. A spectacle parks at the arena origin, so `global_position` is
 	# (0, 0) and not where the effect is. Everything below is absolute.
 	global_position = Vector2.ZERO
-	# THE SUMMONING CIRCLE, flat on the floor and scaled to the footprint it is
-	# about to break — a placed spell's gate lies down.
+	# TWO CIRCLES, because there are two events. The ritual has to be continuous from
+	# the hand to the impact or the mark is just something that appeared.
+	#   1. The GATE at the hand, edge-on along the throw, that the shard bursts
+	#      through. `SpellSigil.open` adopts the caster's live wind-up sigil when one
+	#      is on offer, so on a player cast this is literally the same circle his
+	#      hand was already drawing. Short hold — it belongs to the throw, not to the
+	#      fuse. (BlinkStrike opens two the same way; this is the sanctioned shape.)
+	#   2. The floor circle at the mark, scaled to the footprint it is about to break.
+	var throw_axis: Vector2 = _at - _from
+	throw_axis = throw_axis.normalized() if throw_axis.length_squared() > 1.0 else Vector2.RIGHT
+	SpellSigil.open(self, _from, color, 0.55, true, throw_axis, false, 0.13, FUSE * 0.7)
 	SpellSigil.open(self, _at, color, _radius / SpellSigil.RADIUS_HEAVY,
 		false, Vector2.RIGHT, true, 0.16, FUSE + BURST_LIFE)
-	SpellDrops.sfx("ice_encase", -3.0, 0.10, 1.25)
+	# The HURL, not the encasing — `ice_encase` now belongs to the moment the mark
+	# ARMS (see `_scan`), which is the beat that actually means something.
+	SpellDrops.sfx("ice_throw", -2.0, 0.0, 1.15)
+	_scan()
 	queue_redraw()
 
 
 func _process(delta: float) -> void:
 	_elapsed += delta
-	if not _broken and _elapsed >= FUSE:
-		_broken = true
-		_break()
+	if not _broken:
+		if _elapsed - _scan_at >= SCAN_EVERY:
+			_scan()
+		if _elapsed >= FUSE:
+			_broken = true
+			_break()
 	if _elapsed >= FUSE + BURST_LIFE:
 		queue_free()
 		return
 	queue_redraw()
+
+
+## Ask the footprint what it is worth, and SAY SO. Purely presentational — `_break`
+## re-queries and scores every body itself, so a wrong answer here costs a look and
+## never a damage number.
+##
+## The state can only ever climb during a fuse. A body that is frozen at cast and
+## walks out at frame ten still LEAVES the mark armed, which is the honest reading:
+## the mark was armed, and he dodged it. Downgrading mid-fuse would flicker the
+## whole colour scheme on a body wandering along the rim.
+func _scan() -> void:
+	_scan_at = _elapsed
+	var caught: Array = SpellTargets.in_radius(_at, _radius,
+		SpellTargets.hostiles(self, StringName(target_group)), [caster_node], self)
+	var was: int = _arm
+	_marked.clear()
+	for body: Node in caught:
+		match cold_state(body):
+			Cold.FROZEN:
+				_arm = maxi(_arm, Arm.ARMED)
+				if body is Node2D:
+					_marked.append(body as Node2D)
+			Cold.RIMED:
+				_arm = maxi(_arm, Arm.PRIMED)
+	if _arm > was and _arm == Arm.ARMED:
+		# The one moment in the fuse that carries information. It gets the encasing
+		# sound this spell used to spend on its own cast frame, pitched up so it
+		# reads as a latch closing rather than as a second impact.
+		SpellDrops.sfx("ice_encase", -4.0, 0.0, 1.45)
 
 
 # ------------------------------------------------------------------- THE BREAK
@@ -185,6 +319,10 @@ func _break() -> void:
 			frozen_breaks += 1
 			if body is Node2D:
 				frozen.append(body as Node2D)
+				# Remembered as a POINT, not as a reference: the whole reason to draw
+				# a casing fan is that something came apart there, and half the time
+				# the body it came apart on is dead and freed before the fan finishes.
+				_broke_at.append((body as Node2D).global_position)
 	# The casing shards. Splash from each broken casing, once per victim across the
 	# whole detonation, so a tight cluster of frozen bodies does not multiply into
 	# a nonsense number.
@@ -258,17 +396,49 @@ func _splash(frozen: Array[Node2D], caught: Array) -> void:
 				shard_hits += 1
 
 
+## ⚠ THE TWO OUTCOMES MUST NOT SOUND OR LOOK RELATED. That is the entire readability
+## fix expressed in one function: a warm break has to land as a disappointment the
+## player can hear, so that an armed one lands as the thing he set up. The old code
+## separated them by 3 units of screenshake and 0.03 s of hitstop, which is a
+## difference the hand cannot feel and the eye cannot see — so a 22 and a 186 were
+## the same event with different numbers floating off them.
 func _burst() -> void:
+	var low: bool = TuningConfig.quality_is_low()
+	var broke: bool = frozen_breaks > 0
+	if not broke:
+		# A TAP. Small, dry, quick, no decal worth the name. If this is what he keeps
+		# getting, the spell is telling him he skipped its set-up.
+		CombatVfx.spawn_burst(get_parent(), _at,
+			Color(0.85, 1.05, 1.3, 0.8), Color(0.45, 0.72, 1.0, 0.0),
+			8 if low else 14, 0.34, 60.0, 170.0, 0.5, 1.3, 0.0, 0.0, true)
+		ScorchDecal.spawn(get_parent(), _at, _radius * 0.34, "crack",
+			Color(0.62, 0.82, 1.0, 0.26), 1.4)
+		Juice.on_hit({"dir": Vector2.UP, "shake": 2.5, "sfx": "ice_shatter",
+			"sfx_pitch": 0.34, "sfx_db": -5.0, "hitstop": 0.015})
+		return
+	# A DETONATION. The casing came apart, and every channel says so at once —
+	# particle count, decal size, shake, hitstop, and a pitch DROP rather than the
+	# rise the tap gets.
 	CombatVfx.spawn_burst(get_parent(), _at,
-		Color(1.0, 1.3, 1.65, 0.95), Color(0.45, 0.72, 1.0, 0.0),
-		26, 0.5, 90.0, 300.0, 0.6, 2.0, 0.0, 0.0, true)
-	ScorchDecal.spawn(get_parent(), _at, _radius * 0.5, "crack",
-		Color(0.62, 0.82, 1.0, 0.45), 2.4)
+		Color(1.35, 1.6, 1.95, 1.0), Color(0.45, 0.72, 1.0, 0.0),
+		18 if low else 46, 0.62, 140.0, 480.0, 0.7, 2.6, 0.0, 0.0, true)
+	ScorchDecal.spawn(get_parent(), _at, _radius * 0.9, "crack",
+		Color(0.78, 0.94, 1.0, 0.6), 3.2)
+	# One rime patch per casing, so the floor afterwards records WHERE things broke
+	# rather than only that something did. Skipped on LOW: decals are the cheapest
+	# thing to cut and the count scales with the crowd, which is the worst case.
+	if not low:
+		for p: Vector2 in _broke_at:
+			ScorchDecal.spawn(get_parent(), p, 46.0, "crack",
+				Color(0.86, 0.97, 1.0, 0.5), 2.6)
 	# `ice_shatter`, not the generic `ice` stem: the whole point of this spell is
 	# that it is Blizzard's third beat fired on demand, and the ear should agree.
-	Juice.on_hit({"dir": Vector2.UP, "shake": 4.0 + 3.0 * float(frozen_breaks > 0),
-		"sfx": "ice_shatter", "sfx_pitch": 0.08,
-		"hitstop": 0.05 if frozen_breaks > 0 else 0.02})
+	# Pitched DOWN and scaled by how many casings went, so breaking a frozen crowd is
+	# audibly a bigger event than breaking one.
+	Juice.on_hit({"dir": Vector2.UP,
+		"shake": 9.0 + 2.0 * float(mini(frozen_breaks, 3)),
+		"sfx": "ice_shatter", "sfx_pitch": -0.16, "sfx_db": 1.5,
+		"hitstop": 0.10 + 0.02 * float(mini(frozen_breaks, 2))})
 
 
 # ------------------------------------------------------- reading how cold it is
@@ -353,10 +523,18 @@ func _rime_cold(body: Node) -> int:
 
 # --------------------------------------------------------------------- THE LOOK
 ## ⚠ MUST DEGRADE AT `graphics_quality = LOW` (the phone preview, a hard rule).
-## LOW halves the fracture blades and drops the crystal dust. The FOOTPRINT RING
-## and the fuse's closing arc are drawn identically at both settings: they are the
-## tell and the hitbox's advert, and thinning a telegraph is a fairness change
-## rather than a fidelity one.
+## LOW halves the fracture blades, drops the rime spurs, the shard's facets and
+## frost flake, thins the trail from seven ghosts to three, and cuts the break's
+## splinters and casing fans entirely. `_burst` cuts its particle counts and skips
+## the per-casing decals on the same probe.
+##
+## WHAT MAY NEVER THIN, at either setting:
+##   * the FOOTPRINT RING and the fuse's closing arc — they are the tell and the
+##     hitbox's advert, and thinning a telegraph is a fairness change, not a
+##     fidelity one;
+##   * the SHARD's core and glow, and the ARMED tether and casing craze — they are
+##     the two things the maker could not see, and a fidelity setting that hides
+##     them again would be this bug shipping with a switch on it.
 func _draw() -> void:
 	var low: bool = TuningConfig.quality_is_low()
 	if not _broken:
@@ -365,48 +543,202 @@ func _draw() -> void:
 	_draw_break(low)
 
 
+## The mark's colour for its current reading. Three genuinely different tones, not
+## three alphas of one: pale-cyan-on-a-bright-floor is the exact combination that
+## disappears, so ARMED leaves the element's hue behind and goes hot white.
+func _tone() -> Color:
+	match _arm:
+		Arm.ARMED:
+			return Color(1.30, 1.62, 1.95)
+		Arm.PRIMED:
+			return Color(0.80, 1.00, 1.22)
+	return Color(0.55, 0.82, 1.00)
+
+
 func _draw_fuse(low: bool) -> void:
 	var f: float = clampf(_elapsed / FUSE, 0.0, 1.0)
+	var armed: bool = _arm == Arm.ARMED
+	var tone: Color = _tone()
+	var weight: float = 2.0 + 1.2 * float(_arm)     # 2.0 warm / 3.2 primed / 4.4 armed
 	# The footprint, flat on the floor. Same radius the damage query uses.
 	draw_set_transform(_at, 0.0, Vector2(1.0, 0.42))
 	draw_arc(Vector2.ZERO, _radius, 0.0, TAU, 40,
-		Color(0.55, 0.82, 1.0, 0.28 + 0.30 * f), 2.0, true)
+		Color(tone.r, tone.g, tone.b, 0.30 + 0.34 * f), weight, true)
+	if armed:
+		# The counter-ring. It runs the other way, which is what makes the mark read
+		# as MACHINERY winding up rather than as a bigger version of the same ring.
+		var spin: float = _elapsed * 9.0
+		for i: int in 3:
+			var o: float = spin + TAU * float(i) / 3.0
+			draw_arc(Vector2.ZERO, _radius * 0.66, o, o + 1.05, 14,
+				Color(1.5, 1.75, 2.0, 0.55 + 0.4 * f), 3.0, true)
 	# The closing arc: how much fuse is left, drawn on the floor so it cannot be
-	# mistaken for the blast itself.
+	# mistaken for the blast itself. Identical at both quality settings and at all
+	# three readings — it is the TELL, and a telegraph that varies is a fairness bug.
 	draw_arc(Vector2.ZERO, _radius * 0.86, -PI * 0.5, -PI * 0.5 + TAU * f, 40,
 		Color(1.15, 1.5, 1.85, 0.9), 3.0, true)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	# Fracture blades etching outward from the mark.
+	# Fracture blades etching outward from the mark. An armed lattice is denser and
+	# reaches the whole footprint; a warm one barely leaves the centre, which is the
+	# spell drawing its own 0.35x.
 	var blades: int = FRACTURES_LOW if low else FRACTURES
+	var span: float = 0.62 if _arm == Arm.COLD_NONE else (1.0 if armed else 0.82)
+	if armed:
+		blades = int(float(blades) * 1.5)
 	for i: int in blades:
 		var ang: float = TAU * float(i) / float(blades) + float(_seed % 31) * 0.07
-		var len: float = _radius * (0.35 + 0.65 * f) * (0.7 + 0.3 * _hash01(i * 71))
+		var length: float = _radius * span * (0.35 + 0.65 * f) * (0.7 + 0.3 * _hash01(i * 71))
 		var a: Vector2 = _at + Vector2.from_angle(ang) * (_radius * 0.12)
-		var b: Vector2 = _at + Vector2.from_angle(ang) * len
-		draw_line(a, b, Color(0.78, 0.95, 1.1, 0.35 + 0.5 * f), 1.0 + 1.6 * f, true)
-		if not low:
-			var mid: Vector2 = a.lerp(b, 0.62)
-			draw_line(mid, mid + Vector2.from_angle(ang + 0.9) * len * 0.22,
-				Color(0.9, 1.0, 1.15, 0.28 * f), 1.0, true)
+		var b: Vector2 = _at + Vector2.from_angle(ang) * length
+		draw_line(a, b, Color(tone.r + 0.2, tone.g + 0.1, tone.b, 0.35 + 0.5 * f),
+			1.0 + (2.4 if armed else 1.6) * f, true)
+		if low:
+			continue
+		var mid: Vector2 = a.lerp(b, 0.62)
+		draw_line(mid, mid + Vector2.from_angle(ang + 0.9) * length * 0.22,
+			Color(0.9, 1.0, 1.15, 0.28 * f), 1.0, true)
+		# RIME TAKING on the floor — crystal spurs budding off the lattice. Only
+		# where the ground is actually cold, so it doubles as the PRIMED read.
+		if _arm != Arm.COLD_NONE:
+			var tip: Vector2 = a.lerp(b, 0.86)
+			var out: Vector2 = Vector2.from_angle(ang + PI * 0.5) * (2.5 + 4.5 * f)
+			draw_line(tip - out, tip + out,
+				Color(tone.r, tone.g, tone.b, 0.5 * f), 1.4, true)
+	if armed:
+		_draw_marked(low, f)
+	_draw_shard(low, f)
+
+
+# ------------------------------------------------------------------- THE SHARD
+## Where the thrown charge is at fuse fraction `f`. A shallow lob rather than a
+## straight line: over a floor drawn at 0.42 vertical squash a straight segment
+## between two ground points is a horizontal streak, and a horizontal streak at
+## 1000 px/s is indistinguishable from a rendering artefact.
+func _shard_at(f: float) -> Vector2:
+	var p: Vector2 = _from.lerp(_at, f)
+	p.y -= sin(PI * clampf(f, 0.0, 1.0)) * _from.distance_to(_at) * ARC_RISE
+	return p
+
+
+func _draw_shard(low: bool, f: float) -> void:
+	var head: Vector2 = _shard_at(f)
+	var back: Vector2 = _shard_at(maxf(f - 0.07, 0.0))
+	var dir: Vector2 = head - back
+	# ⚠ THE FALLBACK IS THE THROW, NOT `Vector2.RIGHT`. On the first frames `back`
+	# and `head` are the same point, and a `RIGHT` default would spin the shard
+	# sideways for the opening quarter of a 17-frame flight — the most visible part
+	# of it, and on a leftward cast it would point the wrong way entirely.
+	var throw: Vector2 = _at - _from
+	dir = dir.normalized() if dir.length_squared() > 0.01 else (
+		throw.normalized() if throw.length_squared() > 0.01 else Vector2.RIGHT)
+	var tone: Color = _tone()
+	# The trail FIRST, so the head draws over it. Ghosts of the same shard sampled
+	# backwards along its own path — the trail is the projectile as far as the eye
+	# is concerned at this speed.
+	var ghosts: int = TRAIL_LOW if low else TRAIL
+	for i: int in range(ghosts, 0, -1):
+		var gf: float = f - 0.055 * float(i)
+		if gf <= 0.0:
+			continue
+		var g: Vector2 = _shard_at(gf)
+		var fade: float = 1.0 - float(i) / float(ghosts + 1)
+		draw_line(g - dir * SHARD_LEN * 0.4 * fade, g + dir * SHARD_LEN * 0.4 * fade,
+			Color(tone.r, tone.g, tone.b, 0.5 * fade * fade), 2.0 + 5.0 * fade, true)
+	# The shard itself: a wide cold glow with a white-hot core through it, plus two
+	# facets so it reads as a crystal rather than as a dash.
+	var tip: Vector2 = head + dir * SHARD_LEN * 0.5
+	var tail: Vector2 = head - dir * SHARD_LEN * 0.5
+	draw_line(tail, tip, Color(tone.r * 0.7, tone.g * 0.85, tone.b, 0.55), 11.0, true)
+	draw_line(tail, tip, Color(1.45, 1.7, 2.0, 0.95), 3.4, true)
+	if low:
+		return
+	var side: Vector2 = dir.orthogonal()
+	var waist: Vector2 = head.lerp(tail, 0.25)
+	draw_line(waist - side * 6.0, tip, Color(1.2, 1.5, 1.85, 0.8), 1.8, true)
+	draw_line(waist + side * 6.0, tip, Color(1.2, 1.5, 1.85, 0.8), 1.8, true)
+	# Frost flaking off the shard as it flies. Cheap, and it is what sells the thing
+	# as COLD rather than as a generic bolt recoloured blue.
+	for i: int in 4:
+		var h: float = _hash01(_seed + i * 91 + int(f * 40.0) * 13)
+		var off: Vector2 = side * (h - 0.5) * 22.0 - dir * (6.0 + 18.0 * h)
+		draw_line(head + off, head + off - dir * 5.0,
+			Color(0.9, 1.1, 1.4, 0.5 * (1.0 - h)), 1.4, true)
+
+
+## THE CLAIM. A lattice tether from the mark to every frozen body inside it, each
+## wearing a crazing casing. This is the frame that says "these ones are the 3x",
+## and it is the piece no other class in the roster has any version of.
+func _draw_marked(low: bool, f: float) -> void:
+	for idx: int in _marked.size():
+		var body: Node2D = _marked[idx]
+		if body == null or not is_instance_valid(body):
+			continue
+		var to: Vector2 = body.global_position
+		# Jagged, in three segments — a straight tether reads as a laser, and this is
+		# frost creeping along the ground to reach something.
+		var prev: Vector2 = _at
+		for s: int in 3:
+			var t: float = float(s + 1) / 3.0
+			var pt: Vector2 = _at.lerp(to, t)
+			if s < 2:
+				var jitter: float = (_hash01(idx * 53 + s * 17 + _seed) - 0.5) * 26.0
+				pt += (to - _at).orthogonal().normalized() * jitter
+			draw_line(prev, pt, Color(1.3, 1.6, 1.95, 0.35 + 0.5 * f), 1.6 + 1.8 * f, true)
+			prev = pt
+		# The casing, crazing over the body it is about to leave.
+		draw_arc(to, 20.0 + 4.0 * f, 0.0, TAU, 22,
+			Color(1.4, 1.68, 2.0, 0.4 + 0.5 * f), 2.0 + 1.5 * f, true)
+		if low:
+			continue
+		for c: int in 5:
+			var ang: float = TAU * _hash01(idx * 97 + c * 29) + f * 0.6
+			draw_line(to + Vector2.from_angle(ang) * 6.0,
+				to + Vector2.from_angle(ang) * (16.0 + 8.0 * f),
+				Color(1.2, 1.5, 1.9, 0.55 * f), 1.5, true)
 
 
 func _draw_break(low: bool) -> void:
 	var k: float = clampf((_elapsed - FUSE) / BURST_LIFE, 0.0, 1.0)
 	var alpha: float = 1.0 - k
-	# The ring leaving the centre — PULSE, the motif the sigil is stating.
+	var broke: bool = frozen_breaks > 0
 	draw_set_transform(_at, 0.0, Vector2(1.0, 0.42))
-	draw_arc(Vector2.ZERO, _radius * (0.4 + 0.9 * k), 0.0, TAU, 44,
-		Color(1.2, 1.55, 1.9, 0.85 * alpha), 4.0 * alpha + 1.0, true)
+	if broke:
+		# The WHITE-OUT. Front-loaded into the first third of the burst so it lands as
+		# a flash and not as a fog — this is the frame the 186 happens on.
+		var flash: float = clampf(1.0 - k * 3.0, 0.0, 1.0)
+		if flash > 0.0:
+			draw_circle(Vector2.ZERO, _radius * (0.5 + 0.9 * k),
+				Color(1.6, 1.8, 2.0, 0.55 * flash))
+		# Two rings at different speeds. One ring is a pulse; two is a detonation.
+		draw_arc(Vector2.ZERO, _radius * (0.4 + 1.35 * k), 0.0, TAU, 48,
+			Color(1.5, 1.75, 2.0, 0.9 * alpha), 7.0 * alpha + 1.5, true)
+		draw_arc(Vector2.ZERO, _radius * (0.2 + 0.7 * k), 0.0, TAU, 44,
+			Color(1.1, 1.45, 1.9, 0.6 * alpha), 3.0 * alpha + 1.0, true)
+	else:
+		# The TAP. Deliberately the small version of the same idea.
+		draw_arc(Vector2.ZERO, _radius * (0.3 + 0.55 * k), 0.0, TAU, 44,
+			Color(0.85, 1.05, 1.3, 0.55 * alpha), 2.5 * alpha + 1.0, true)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	if low:
+	if low or not broke:
 		return
 	# Crystal splinters thrown out of the break. Garnish — first thing to go.
-	for i: int in 12:
+	for i: int in 20:
 		var ang: float = TAU * _hash01(_seed + i * 37)
-		var d: float = _radius * (0.3 + 1.1 * k) * (0.6 + 0.5 * _hash01(i * 13 + 5))
+		var d: float = _radius * (0.3 + 1.3 * k) * (0.6 + 0.5 * _hash01(i * 13 + 5))
 		var p: Vector2 = _at + Vector2.from_angle(ang) * d
-		draw_line(p, p - Vector2.from_angle(ang) * (7.0 + 9.0 * k),
-			Color(0.95, 1.15, 1.4, 0.75 * alpha), 1.6, true)
+		draw_line(p, p - Vector2.from_angle(ang) * (9.0 + 13.0 * k),
+			Color(0.95, 1.15, 1.4, 0.8 * alpha), 2.0, true)
+	# CASING FANS. One per body that actually came apart, thrown from where it stood
+	# — so a frozen crowd breaking is visibly several separate things breaking rather
+	# than one bigger ring at the centre.
+	for b: int in _broke_at.size():
+		var at: Vector2 = _broke_at[b]
+		for s: int in 9:
+			var ang2: float = TAU * float(s) / 9.0 + _hash01(b * 61 + _seed) * TAU
+			var reach: float = 20.0 + 70.0 * k * (0.6 + 0.6 * _hash01(b * 7 + s * 3))
+			var tip: Vector2 = at + Vector2.from_angle(ang2) * reach
+			draw_line(at + Vector2.from_angle(ang2) * 8.0, tip,
+				Color(1.25, 1.55, 1.9, 0.85 * alpha), 2.4 * alpha + 0.8, true)
 
 
 static func _hash01(n: int) -> float:

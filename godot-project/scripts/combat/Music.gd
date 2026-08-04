@@ -33,12 +33,29 @@ enum Mood { TOWN, ADVENTURE, BOSS, TITLE }
 ## `.ogg` up automatically, and deleting the six `.ogg` files reverts it entirely.
 ## The `.mp3` originals are still here pending a listen.
 const PLAYLISTS: Dictionary = {
+	# ⚠ `for_tomorrow` WAS MOVED HERE FROM `ADVENTURE`, NOT COPIED. Maker, standing in
+	# the Antechamber: "I want cool like campfire music cool adventurer vibe find one
+	# of these tracks in this area and use it".
+	#
+	# It leads the playlist so it is what you actually hear on arrival — `arcadia` is
+	# a thinner, more ambient bed and was setting the room's tone by being first.
+	# "For Tomorrow" is the one track in the library that reads as the night BEFORE
+	# the journey rather than the journey itself, which is exactly what a room with a
+	# campfire and a door out is for.
+	#
+	# ⚠ MOVED RATHER THAN DUPLICATED because `slice_test_music` enforces one track,
+	# one mood — a file in two playlists cross-fades with ITSELF on a mood change.
+	# `ADVENTURE` keeps two tracks, which is still a rotation.
+	#
+	# No new audio acquired, deliberately: the six tracks still have NO recorded
+	# licence provenance (assets/audio/CREDITS.md §4) and a seventh unsourced file
+	# would deepen a hole that has to be filled before ship.
 	Mood.TOWN: [
+		"res://assets/audio/music/for_tomorrow.mp3",
 		"res://assets/audio/music/hub_ambience.wav",
 		"res://assets/audio/music/arcadia.mp3",
 	],
 	Mood.ADVENTURE: [
-		"res://assets/audio/music/for_tomorrow.mp3",
 		"res://assets/audio/music/unexplored_moon.mp3",
 		"res://assets/audio/music/combat_theme.mp3",
 	],

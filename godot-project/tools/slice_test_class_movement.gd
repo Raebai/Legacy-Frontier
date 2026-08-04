@@ -62,7 +62,7 @@ const HERO_MEMBERS: Array[String] = [
 	"hp", "max_hp", "is_dashing", "velocity", "facing",
 	"_aim_dir", "_move_dir", "_dash_cooldown_timer", "_dash_verb",
 	"_melee_cd", "_melee_damage", "_melee_range", "_melee_knockback", "_melee_arc_dot",
-	"_base_max_hp", "_recall_timer", "_surge_armor_timer",
+	"_base_max_hp", "_surge_armor_timer",   # `_recall_timer` deleted with the Arcanist recall
 ]
 const HERO_METHODS: Array[String] = [
 	"configure_class", "movement_verb_name", "movement_verb_distance",
@@ -480,7 +480,12 @@ func _test_teleport_verbs_always_land_legally() -> void:
 	await physics_frame
 	await physics_frame
 	var hero: CharacterBody2D = _make_hero(STORMCALLER)
-	for cls: int in [STORMCALLER, WARLOCK, ARCANIST]:
+	# ⚠ THE ARCANIST IS NO LONGER A TELEPORT CLASS. Its verb was RECALL — an outbound
+	# step whose SECOND press teleported you back to an anchor — and the maker had it
+	# deleted on 2026-08-04 ("get rid of that its just a repeat of blink"). Its verb
+	# is now ARCANE PHASE, a travelled step, so it belongs to the travel tests above
+	# and has no business in a legality sweep for teleports.
+	for cls: int in [STORMCALLER, WARLOCK]:
 		hero.call("configure_class", cls)
 		for sx: int in 5:
 			for sy: int in 3:
@@ -494,16 +499,10 @@ func _test_teleport_verbs_always_land_legally() -> void:
 					hero.set("_dash_cooldown_timer", 0.0)
 					hero.set("_move_dir", Vector2(cos(ang), 0.0))
 					hero.set("_aim_dir", Vector2(cos(ang), sin(ang)))
-					if cls == ARCANIST:
-						# Arm the recall so the press is the RETURN leg (the teleport
-						# half of the verb) rather than the outbound dash.
-						hero.set("_recall_anchor", at + Vector2(cos(ang), sin(ang)) * 180.0)
-						hero.set("_recall_timer", 1.0)
 					hero.call("_start_dash")
 					if bool(hero.get("is_dashing")):
-						# The Arcanist's degradation: nowhere legal to return to, so it
-						# spent the press as a dash. Legal, and not a teleport — let it
-						# finish and move on.
+						# Spent the press as a travelled dash rather than a teleport.
+						# Legal, and not this sweep's subject — let it finish, move on.
 						hero.set("is_dashing", false)
 						continue
 					var p: Vector2 = hero.global_position

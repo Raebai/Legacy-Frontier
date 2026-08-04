@@ -100,6 +100,75 @@ const SPAWN_TELL_LEAD: float = 0.4
 ## arriving, which reads as the room filling up rather than as a wave hitting.
 const SPAWN_INTERVAL: float = 0.35
 
+## ══ WHERE A BODY ARRIVES: PLACES, NOT A RECTANGLE ════════════════════════════
+## Maker, playtesting: "the opponents should spawn from certain places not just
+## randomly in the air fix that."
+##
+## They were right and it was worse than it sounds. `LayoutDef.spawn_rect` is the
+## whole room interior — `FloorGen` derives it as (70,70)..(w-70,h-70) — and the
+## old `_pick_spawn_position` sampled uniformly INSIDE it. In a side-on room with
+## gravity that means most bodies were born several hundred pixels up and rained
+## down. There is no reading of that: a mark appears in empty sky, a body drops out
+## of it, and the player learns nothing about where to point their attention.
+##
+## A floor now has a SMALL, FIXED, LEARNABLE set of arrival points, built once in
+## `configure_places` from the room the floor was actually drawn with:
+##
+##   * two DOORWAYS, one at each end of the ground plane — the "they came in
+##     through the door" read;
+##   * GROUND_MARKS evenly spaced along the ground between them, so a wave does not
+##     always pour out of the same two holes;
+##   * up to MAX_PERCHES LEDGE TOPS, offered ONLY to the backline archetypes.
+##
+## ⚠ THE PERCH IS AN ARCHETYPE PROPERTY, NOT A POSITION ROLL. A caster/summoner/mage
+## arriving on a ledge is a backline taking a firing position — legible, and it is
+## how those three already want to fight. A brute or a bomber materialising up there
+## is the original bug wearing a hat, so melee is ground-only, always. Nothing in
+## the roster flies; a body that genuinely did would be added to BACKLINE_SPAWNS's
+## neighbour rather than by widening the rect back out.
+##
+## ⚠ THE MARK LANDS ON THE PLACE. `_begin_spawn` draws the SpawnTell at the same
+## x/y the body will use, so the tell now teaches the PLACES: the same handful of
+## points scribble over and over and the player starts watching them. That was the
+## unfinished half of the earlier "it's too flooded" note — half of it was volume
+## (answered in the wave table) and half was readability, which is this.
+##
+## ⚠ `min_spawn_dist_from_hero` IS STILL HONOURED, and it matters MORE here than it
+## did with a rectangle: a fixed point cannot be nudged, so a hero standing in a
+## doorway must take that doorway out of the running rather than be landed on.
+## Graceful degradation is the same as the old sampler's — if nothing is clear, use
+## the FARTHEST place rather than refuse to spawn.
+##
+## Empty when a floor was started without a layout, and on the F6 sandbox path
+## (`spawn()` with no `run_floor()`), which falls through to the legacy rect sampler
+## byte-identically. See `_pick_spawn_position`.
+##
+## ⚠ 16.0 MIRRORS `Arena.WALL_THICKNESS`. Encounter cannot see the Arena's constant
+## from here without a load-order dependency on the scene that owns it, and the two
+## must agree or every body spawns half-buried in the floor collider.
+const WALL_THICKNESS: float = 16.0
+## How far above a standing surface a spawned body's ORIGIN sits. Matches the
+## `ground_y - 40` FloorGen uses for `hero_start`, so bodies and heroes are placed
+## by the same rule and neither starts inside the floor.
+const STAND_OFFSET: float = 40.0
+## Doorways sit this far in from the side walls — the same 70px inset the old spawn
+## rect used, so nothing arrives inside a wall collider.
+const DOOR_INSET: float = 70.0
+## Ground points BETWEEN the two doorways. Three, because the set has to stay small
+## enough to be learned: five ground places across a 960px room is one every ~200px,
+## which reads as "positions" rather than as "anywhere".
+const GROUND_MARKS: int = 3
+## Ledge tops offered to the backline, at most. Same reasoning as GROUND_MARKS.
+const MAX_PERCHES: int = 3
+## A ledge narrower than this is scenery, not a place to stand.
+const MIN_PERCH_WIDTH: float = 60.0
+## Archetypes allowed to arrive on a ledge: CASTER, SUMMONER, MAGE — the three that
+## kite and shoot. Everything else is ground-only.
+const BACKLINE_SPAWNS: Array[int] = [2, 4, 7]
+## How many places back the "don't reuse" memory reaches. 3 so a cap-3 vanguard
+## cannot stack its whole opening group on one doorway.
+const RECENT_PLACES: int = 3
+
 # BOSS floor: one big GOLD guardian (BRUTE base — telegraphed heavy swing),
 # hp scaled by the floor's hp_multiplier. A handful of adds trickle alongside;
 # the floor clears only when the guardian AND every add are dead.
@@ -220,6 +289,15 @@ const COOP_SPAWN_DELAY: float = 0.7
 ## feature that can break the game rather than merely look wrong.
 var _pending_tells: Array[Dictionary] = []
 
+## This floor's arrival points: [{"pos": Vector2, "perch": bool}]. Empty = no layout
+## was given, and the legacy rect sampler runs instead. See the PLACES block above.
+var _spawn_places: Array[Dictionary] = []
+## Indices of the last RECENT_PLACES places used, newest last.
+var _recent_places: Array[int] = []
+## The standing y of this floor's ground plane (already offset by STAND_OFFSET), or
+## <= 0 when no layout was given. Also anchors the GUARDIAN — see `_boss_spawn_position`.
+var _ground_y: float = 0.0
+
 
 func _ready() -> void:
 	_net = get_node_or_null("/root/Net")
@@ -243,6 +321,55 @@ func configure(rect_min: Vector2, rect_max: Vector2, min_dist: float) -> void:
 	_min_dist = min_dist
 
 
+## Derive this floor's ARRIVAL POINTS from the room it was drawn with. Read the
+## PLACES block near the top of this file — the short version is that a rectangle
+## containing air is not a spawn rule, and this replaces it with a handful of
+## ground-anchored points the player can learn.
+##
+## Called from `run_floor` with the FloorDef's own layout. A null / degenerate
+## layout leaves the list EMPTY, which is the switch back to the legacy sampler:
+## every caller that spawns without a floor (the F6 sandbox, VersusArena, the
+## headless harnesses) is untouched by all of this.
+func configure_places(layout: LayoutDef) -> void:
+	_spawn_places = []
+	_recent_places = []
+	_ground_y = 0.0
+	if layout == null:
+		return
+	var w: float = layout.room_size.x
+	var h: float = layout.room_size.y
+	if w <= DOOR_INSET * 2.0 or h <= 0.0:
+		return
+	_ground_y = h - WALL_THICKNESS * 0.5 - STAND_OFFSET
+	var left: float = DOOR_INSET
+	var right: float = w - DOOR_INSET
+	_spawn_places.append({"pos": Vector2(left, _ground_y), "perch": false})
+	_spawn_places.append({"pos": Vector2(right, _ground_y), "perch": false})
+	for i: int in GROUND_MARKS:
+		# Strictly BETWEEN the doorways, evenly: i+1 over marks+1 never lands on
+		# either end, so the two doors keep being the two doors.
+		var t: float = float(i + 1) / float(GROUND_MARKS + 1)
+		_spawn_places.append({"pos": Vector2(lerpf(left, right, t), _ground_y), "perch": false})
+	# LEDGE PERCHES, backline only. `platforms` is empty on every hand-authored
+	# layout (only FloorGen draws a skyline), so this simply produces nothing there
+	# and the backline arrives on the ground like everyone else.
+	var perches: int = 0
+	for p: Dictionary in layout.platforms:
+		if perches >= MAX_PERCHES:
+			break
+		if float(p.get("w", 0.0)) < MIN_PERCH_WIDTH:
+			continue
+		# x/y are the platform's CENTRE, so its standing surface is y - h*0.5.
+		var py: float = float(p.get("y", 0.0)) - float(p.get("h", 0.0)) * 0.5 - STAND_OFFSET
+		if py <= 0.0 or py >= _ground_y:
+			continue          # a "ledge" at or below the floor is not a perch
+		_spawn_places.append({
+			"pos": Vector2(clampf(float(p.get("x", 0.0)), left, right), py),
+			"perch": true,
+		})
+		perches += 1
+
+
 ## Begin a finite floor from its FloorDef: resolve its wave list, then run the
 ## waves -> boss sequence. A REST floor (budget 0, no waves) clears the instant
 ## it starts — nothing to fight, and no guardian either.
@@ -254,6 +381,9 @@ func run_floor(floor_def: FloorDef) -> void:
 	var layout: LayoutDef = floor_def.layout
 	if layout != null:
 		configure(layout.spawn_rect_min, layout.spawn_rect_max, layout.min_spawn_dist_from_hero)
+	# The rect above survives only as the fallback sampler and as the guardian's x
+	# range; WHERE A BODY ACTUALLY ARRIVES is decided here now.
+	configure_places(layout)
 	_brute = floor_def.brute_chance
 	_hp = floor_def.hp_multiplier
 	# The guardian is the ONE place the party adds hp rather than bodies — a boss is
@@ -976,17 +1106,24 @@ func spawn_boss(hp_mult: float, body_scale: float = 1.0,
 ## unguarded get_tree() there does not return null — it ERRORS, which ABORTS the
 ## enclosing function and hands the caller a zero Vector2, so the guardian
 ## silently spawned at (0,0) in the corner of the room and nothing said a word.
+##
+## ⚠ THE GUARDIAN HAD THE MID-AIR BUG TOO, and it was the most visible instance of
+## it: `center.y` is the middle of the spawn rect, i.e. half the room up, so the
+## colossus was born in the sky and fell into its own arrival ceremony. It now
+## stands on the ground plane whenever the floor gave us one. The X logic is
+## unchanged — the guardian still takes the far side of the room from the hero.
 func _boss_spawn_position() -> Vector2:
 	var center := Vector2((_rect_min.x + _rect_max.x) * 0.5, (_rect_min.y + _rect_max.y) * 0.5)
+	var y: float = _ground_y if _ground_y > 0.0 else center.y
 	var tree: SceneTree = get_tree() if is_inside_tree() else null
 	if tree == null:
-		return Vector2(clampf(center.x + 300.0, _rect_min.x, _rect_max.x), center.y)
+		return Vector2(clampf(center.x + 300.0, _rect_min.x, _rect_max.x), y)
 	var heroes: Array[Node] = tree.get_nodes_in_group("hero")
 	if heroes.size() > 0 and heroes[0] is Node2D:
 		var hx: float = (heroes[0] as Node2D).global_position.x
 		var bx: float = hx + (300.0 if hx < center.x else -300.0)
-		return Vector2(clampf(bx, _rect_min.x + 70.0, _rect_max.x - 70.0), center.y)
-	return Vector2(clampf(center.x + 300.0, _rect_min.x, _rect_max.x), center.y)
+		return Vector2(clampf(bx, _rect_min.x + 70.0, _rect_max.x - 70.0), y)
+	return Vector2(clampf(center.x + 300.0, _rect_min.x, _rect_max.x), y)
 
 
 ## Spawn one enemy into the arena. `roster` (a wave's authored archetype list)
@@ -996,7 +1133,7 @@ func _boss_spawn_position() -> Vector2:
 func spawn(brute_chance: float, hp_mult: float, roster: Array[int] = []) -> void:
 	var kind: int = _roll_archetype(brute_chance, roster)
 	var s: Dictionary = _archetype_stats(kind, hp_mult)
-	var pos: Vector2 = _pick_spawn_position()
+	var pos: Vector2 = _pick_spawn_position(kind)
 	var data: Dictionary = {
 		"boss": false, "arch": kind,
 		"hp": s["hp"], "spd": s["spd"], "touch": s["touch"], "tint": s["tint"], "tele": s["tele"],
@@ -1235,24 +1372,88 @@ func _roll_archetype(brute_chance: float, roster: Array[int] = []) -> int:
 func _archetype_stats(kind: int, hp_mult: float) -> Dictionary:
 	match kind:
 		1:  # BRUTE — slow, tanky, telegraphed heavy strike
-			return {"hp": int(round(70 * hp_mult)), "spd": 62.0, "touch": 18, "tint": Color(0.7, 0.25, 0.45, 1), "tele": true}
+			return {"hp": int(round(70 * hp_mult)), "spd": 52.0, "touch": 11, "tint": Color(0.7, 0.25, 0.45, 1), "tele": true}
 		2:  # CASTER — kites and lobs a dodgeable bolt
-			return {"hp": int(round(30 * hp_mult)), "spd": 80.0, "touch": 6, "tint": Color(0.55, 0.45, 0.95, 1), "tele": false}
+			return {"hp": int(round(30 * hp_mult)), "spd": 68.0, "touch": 4, "tint": Color(0.55, 0.45, 0.95, 1), "tele": false}
 		3:  # CHARGER — telegraphs a lane then rockets down it
-			return {"hp": int(round(45 * hp_mult)), "spd": 55.0, "touch": 10, "tint": Color(0.9, 0.6, 0.2, 1), "tele": false}
+			return {"hp": int(round(45 * hp_mult)), "spd": 46.0, "touch": 6, "tint": Color(0.9, 0.6, 0.2, 1), "tele": false}
 		4:  # SUMMONER — kites and telegraphs a minion summon; priority target
-			return {"hp": int(round(36 * hp_mult)), "spd": 72.0, "touch": 6, "tint": Color(0.35, 0.8, 0.55, 1), "tele": false}
+			return {"hp": int(round(36 * hp_mult)), "spd": 60.0, "touch": 4, "tint": Color(0.35, 0.8, 0.55, 1), "tele": false}
 		5:  # ASSASSIN — fast, fragile hit-and-run, weaving approach
-			return {"hp": int(round(20 * hp_mult)), "spd": 175.0, "touch": 8, "tint": Color(0.82, 0.86, 0.92, 1), "tele": false}
+			return {"hp": int(round(20 * hp_mult)), "spd": 148.0, "touch": 5, "tint": Color(0.82, 0.86, 0.92, 1), "tele": false}
 		6:  # BOMBER — walking bomb; roots and telegraphs the biggest blast
-			return {"hp": int(round(55 * hp_mult)), "spd": 70.0, "touch": 6, "tint": Color(0.34, 0.35, 0.4, 1), "tele": false}
+			return {"hp": int(round(55 * hp_mult)), "spd": 58.0, "touch": 4, "tint": Color(0.34, 0.35, 0.4, 1), "tele": false}
 		7:  # MAGE — kites like a caster but telegraphs a ground AoE
-			return {"hp": int(round(34 * hp_mult)), "spd": 78.0, "touch": 6, "tint": Color(0.5, 0.3, 0.85, 1), "tele": false}
+			return {"hp": int(round(34 * hp_mult)), "spd": 66.0, "touch": 4, "tint": Color(0.5, 0.3, 0.85, 1), "tele": false}
 		_:  # CHASER — fast, weak
-			return {"hp": int(round(24 * hp_mult)), "spd": 140.0, "touch": 8, "tint": Color(0.95, 0.5, 0.25, 1), "tele": false}
+			return {"hp": int(round(24 * hp_mult)), "spd": 120.0, "touch": 5, "tint": Color(0.95, 0.5, 0.25, 1), "tele": false}
 
 
-func _pick_spawn_position() -> Vector2:
+## Where this body arrives. `kind` is the archetype (see BACKLINE_SPAWNS); -1 means
+## "not said", which gets ground-only treatment — the conservative answer for any
+## caller that predates places.
+func _pick_spawn_position(kind: int = -1) -> Vector2:
+	if not _spawn_places.is_empty():
+		return _pick_spawn_place(kind)
+	return _pick_spawn_position_in_rect()
+
+
+## Choose one of the floor's arrival points. THE ORDER OF PREFERENCE IS THE DESIGN:
+##   1. clear of every hero AND not one of the last few used — a legible place, and
+##      a different one, so a vanguard fans out instead of stacking;
+##   2. clear of every hero, reused — pressure beats variety;
+##   3. the FARTHEST place — same graceful degradation the rect sampler had, because
+##      refusing to spawn would stall the wave instead of just crowding it.
+##
+## `randi()` here is the host-only pattern `_roll_archetype` and `_roll_elite` use:
+## the roll runs once on the host and the resulting POSITION crosses the wire in the
+## spawn dict, so `build_enemy_from_data` stays pure construction and both peers put
+## the body in the same place.
+func _pick_spawn_place(kind: int) -> Vector2:
+	var clear: Array[int] = []
+	var fresh: Array[int] = []
+	var farthest: int = 0
+	var farthest_d: float = -1.0
+	for i: int in _spawn_places.size():
+		if bool(_spawn_places[i]["perch"]) and not BACKLINE_SPAWNS.has(kind):
+			continue
+		var d: float = _hero_clearance(_spawn_places[i]["pos"])
+		if d > farthest_d:
+			farthest_d = d
+			farthest = i
+		if d >= _min_dist:
+			clear.append(i)
+			if not _recent_places.has(i):
+				fresh.append(i)
+	var pick: int = farthest
+	if not fresh.is_empty():
+		pick = fresh[randi() % fresh.size()]
+	elif not clear.is_empty():
+		pick = clear[randi() % clear.size()]
+	_recent_places.append(pick)
+	while _recent_places.size() > RECENT_PLACES:
+		_recent_places.remove_at(0)
+	return _spawn_places[pick]["pos"]
+
+
+## Distance to the NEAREST hero, or INF when there is nobody to be far from. Every
+## hero counts, not just the first: in co-op a doorway is only clear if it is clear
+## of both climbers.
+func _hero_clearance(pos: Vector2) -> float:
+	var tree: SceneTree = get_tree() if is_inside_tree() else null
+	if tree == null:
+		return INF
+	var best: float = INF
+	for h: Node in tree.get_nodes_in_group("hero"):
+		if h is Node2D:
+			best = minf(best, pos.distance_to((h as Node2D).global_position))
+	return best
+
+
+## THE LEGACY SAMPLER, unchanged. Reached only when a floor was started without a
+## layout and by every `spawn()` outside a floor run (the F6 sandbox), so those
+## paths behave exactly as they did before places existed.
+func _pick_spawn_position_in_rect() -> Vector2:
 	# Reject positions within _min_dist of the hero so an enemy can never spawn
 	# straight into contact-damage range.
 	var heroes: Array[Node] = get_tree().get_nodes_in_group("hero")

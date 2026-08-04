@@ -34,6 +34,26 @@ const SPELL_PICKUP_PATH: String = "res://scenes/combat/SpellPickup.tscn"
 ## not exist.
 const RUIN_PLATFORM_PATH: String = "res://scripts/combat/RuinPlatform.gd"
 const BREAKABLE_PLATFORM_PATH: String = "res://scripts/combat/BreakablePlatform.gd"
+## ⚠ BY PATH, for the same reason as the spell pickup: `HealthPickup.gd` names `Sfx`
+## and `CombatVfx`, and a `preload` here would drag both into the compile graph of
+## every headless suite that touches FloorBuilder — where autoloads do not exist.
+const HEALTH_PICKUP_PATH: String = "res://scenes/combat/HealthPickup.tscn"
+
+## WHERE THE PACKS GO WHEN NOBODY HAS SAID. Fractions of the room, settled onto
+## whatever surface is beneath them (same treatment as the floor's spell drop, and
+## for the same reason — an anchor in mid-air is a pickup you can see and never
+## collect). Two of them, on opposite sides, so healing is never on the same side of
+## the room as the fight for both players at once.
+##
+## ⚠ THIS IS A FALLBACK, NOT A DEFAULT LAYOUT. Every authoring table that produces a
+## `LayoutDef` — `GameState.default_layout` / `_elite_layout` / `_boss_layout` and
+## `FloorGen.generate_layout` — is owned elsewhere, so none of them can name
+## `health_pickups` yet. Shipping the packs behind an empty-array fallback means the
+## tower actually HAS healing on the next F5 instead of after a second agent's pass,
+## and the moment any floor authors a position this branch stops running for it.
+## Delete the `else` branch in `build_health_packs` and the tower goes back to
+## authored-only.
+const DEFAULT_HEALTH_PACKS: Array[Vector2] = [Vector2(0.18, 0.34), Vector2(0.82, 0.34)]
 
 
 ## Build the floor's props into `container` (typically a fresh Room node that the
@@ -51,7 +71,41 @@ static func build_props(container: Node2D, layout: LayoutDef, floor_index: int =
 		var crate: StaticBody2D = DESTRUCTIBLE_SCENE.instantiate()
 		container.add_child(crate)
 		crate.global_position = pos
+	build_health_packs(container, layout)
 	build_drop_economy(container, layout, floor_index)
+
+
+## THE PACKS. Authored positions win outright; an empty array falls back to
+## `DEFAULT_HEALTH_PACKS` (see the note on that constant — an empty array today means
+## "unauthored", not "none wanted").
+##
+## ⚠ THE POSITIONS ARE SETTLED, exactly like the floor's spell drop. A pack authored
+## at a raw point can hang in mid-air over a room whose ledges changed, and a health
+## pack you can see and cannot reach is worse than no pack at all when the complaint
+## being answered is "the game is hard right now".
+##
+## ⚠ BOTH PEERS BUILD THIS INDEPENDENTLY AND MUST AGREE. That is why the fallback is
+## a CONSTANT of room fractions and not a roll: `Net` identifies a pickup across the
+## wire by its rounded position (`Net.pos_key`), so two peers deriving the same point
+## from the same `LayoutDef` is the entire cross-peer handshake. Nothing random may
+## enter this function.
+static func build_health_packs(container: Node2D, layout: LayoutDef) -> void:
+	if container == null or layout == null:
+		return
+	var scene: PackedScene = load(HEALTH_PICKUP_PATH) as PackedScene
+	if scene == null:
+		return
+	var points: Array[Vector2] = []
+	if not layout.health_pickups.is_empty():
+		for pos: Vector2 in layout.health_pickups:
+			points.append(settle_onto_surface(layout, pos))
+	else:
+		for frac: Vector2 in DEFAULT_HEALTH_PACKS:
+			points.append(_anchor(layout, frac))
+	for pos: Vector2 in points:
+		var pack: Area2D = scene.instantiate()
+		container.add_child(pack)
+		pack.global_position = pos
 
 
 ## THE LEDGES. Turns `LayoutDef.platforms` into real bodies — permanent

@@ -140,7 +140,18 @@ func _shatter() -> void:
 		get_parent(), global_position, CRACK_DECAL_RADIUS, "crack", CRACK_DECAL_TINT
 	)
 	Juice.shake_camera(SHATTER_SHAKE)
-	Sfx.play("enemy_death")
+	# ⚠ A WOODEN BOX WAS PLAYING THE MONSTER DEATH CUE, and that is the whole of the
+	# maker's "this weird sound effect came when I destroyed the box".
+	#
+	# `enemy_death` was built from a wet body-burst plus two creature vocalisations
+	# out of a pack called "Monstrous and Undead Creature Vocalization Sound Sets" —
+	# so a crate died screaming. `crate_break` (axe into wood) already existed and
+	# was played by NOTHING but the weapon pickup.
+	#
+	# Five other inanimate things had the same wire (`BreakablePlatform`,
+	# `DestructibleTerrain`, `DestructibleFloor`, `RockWall`). Fixed here first
+	# because the crate is the one the maker actually hit.
+	Sfx.play("crate_break")
 	queue_free()
 
 

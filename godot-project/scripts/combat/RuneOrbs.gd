@@ -13,7 +13,29 @@ extends Node2D
 
 const SPEED: float = 430.0
 const HIT_RADIUS: float = 16.0
-const MAX_LIFE: float = 1.7
+## ⚠ THE RANGE, AND THE SAFETY BOUND — an orb flies until it meets the world, meets
+## a body, or has travelled this far, whichever comes first.
+##
+## THE MAKER: *"projectiles ... need to keep going until it hit something not just
+## despawn in the air ... should have further distances."* This volley was the
+## worst offender in the kit: the only thing ending it was a 1.7 s clock, which at
+## SPEED 430 is **731 px** — barely past mid-screen — and the clock did not even
+## call `_burst`, so a volley that reached its limit blinked out silently. Range is
+## now a DISTANCE, and running out of it resolves the orb where it stopped.
+##
+## Why a distance rather than "no limit at all": the bound is what keeps an orb
+## fired down an open corridor from becoming an entity that never resolves, and
+## this project has an entity budget. 1700 is deliberately past the width of the
+## one-screen floors that ship, so in practice a wall stops the orb first and the
+## cap is scenery. Rejected: matching `Spell.gd`'s 2600 — a bolt is one projectile,
+## this is a fan of up to six, so the leak it guards against is six times cheaper
+## to trigger. UNTESTED GUESS; this is the number to move if the Q now outranges
+## what the player can see.
+const MAX_RANGE: float = 1700.0
+## Hard backstop on the NODE, not on the flight. MAX_RANGE / SPEED is ~3.95 s, so
+## this can only fire if an orb somehow stops advancing — it exists so a wedged
+## volley still frees itself rather than living forever.
+const MAX_LIFE: float = 4.5
 const ORB_R: float = 6.0
 const FAN_SPREAD: float = 0.3   # radians between adjacent orbs in the fan
 const STAGGER: float = 0.055    # launch delay per orb — they STREAM out, not a wall
@@ -95,8 +117,10 @@ func _process(delta: float) -> void:
 		# references to `SpellWorld`. An orb's position was pure arithmetic
 		# (`origin + dir * SPEED * age`) and its only collision test was a distance
 		# check against bodies and crates. Nothing ever asked what was BETWEEN one
-		# frame's position and the next, so at SPEED 430 over MAX_LIFE 1.7 an orb flew
-		# 731 px straight through floors, ledges, walls and platforms.
+		# frame's position and the next, so at SPEED 430 over the 1.7 s clock this file
+		# used to fly on, an orb flew 731 px straight through floors, ledges, walls
+		# and platforms. (That clock is gone — see MAX_RANGE — but the sweep below is
+		# what makes a longer flight safe to give it.)
 		#
 		# It went unnoticed for two compounding reasons worth recording: this volley
 		# is a Cleric damage line AND the Cryomancer's Q ("Ice Shards"), so it fires
@@ -117,8 +141,23 @@ func _process(delta: float) -> void:
 		var e: Node = _target_within(orb["pos"], HIT_RADIUS)
 		if e != null:
 			_pop(orb, e)
+			continue
+		# END OF RANGE. Measured on the orb's OWN age, not on `_elapsed`: the fan is
+		# staggered, so a shared clock cut the outer orbs' flight short by their
+		# launch delay — the outermost of a six-orb fan got 683 px where the innermost
+		# got 731. Every orb now gets the same budget.
+		#
+		# It BURSTS rather than blinking out. `_burst` was split out precisely so "an
+		# orb stopped by a wall looks like an orb stopped by a body", and the one path
+		# that never called it was this one — which is what made a spent volley read
+		# as the spell fizzling.
+		if SPEED * age >= MAX_RANGE:
+			_burst(orb)
+			orb["alive"] = false
 	if _elapsed >= MAX_LIFE:
 		for orb in _orbs:
+			if bool(orb["alive"]):
+				_burst(orb)
 			orb["alive"] = false
 	if not any_alive:
 		queue_free()

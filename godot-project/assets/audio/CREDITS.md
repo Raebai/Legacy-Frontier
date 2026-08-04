@@ -46,7 +46,6 @@ Packs drawn on:
 | Federico Soler — Effective Trailer Booms Vol. 2 | the `sub_boom` layer stem, holy pillar, eruption, verdict burn, overpower, thunder tail |
 | Federico Soler — Effective Trailer Alarms Vol. 2 | ult charge riser, siege ult, Heaven's Verdict thread, telegraph |
 | David Dumais Audio — Melee Weapons Pack 2 | **Drain Tether's whip lash** (the single best filename match in the library), heavy swings, the metal clash, carve |
-| Epic Stock Media — Humanoid Creatures Vol 4 | enemy death and hurt vocalisations |
 | Epic Stock Media — Tower Defense Game | ice encase / ice shatter, ground out |
 | Epic Stock Media — Synthesized Nature Loops and Sounds | fire beam body, steam reaction, storm beam |
 | Epic Stock Media — Strange Game Ambient Loops 3 | the sigil forming |
@@ -68,6 +67,25 @@ Packs drawn on:
 > paper — a slow descending braam IS what a pull and a crawl are — but the
 > standing judgement on this project is that playtest beats reasoning, and audio
 > is the one channel a screenshot cannot check.
+
+> **2026-08-04 — the creature-vocalisation pack is gone too, and this one WAS
+> heard.** Maker, on breaking a crate: *"this weird sound effect came when I
+> destoryed hte box please remove that its so weird in fact never use that sound
+> effect again"*, and on mob deaths: *"this weird scrunching noise and in general
+> like they need to be changed something more subtle and better"*. Both are the
+> same cue — `enemy_death` is played by the crates, walls, floors and terrain as
+> well as by mobs — and it was built from **Humanoid Creatures Vol 4** (a
+> `Flutter Death Vocal Stuttered Long`, a `Sea Beast Creature Pain Intense Yell
+> Long`, a `Screeching Breath Inhale Weak Squeal`) layered over a Pepper
+> `BLOOD/Explode_Bod` wet body-burst — the scrunch. **No file from Humanoid
+> Creatures Vol 4 is referenced anywhere in `build_combat_sfx.py` any more, and
+> the pack is off the "drawn on" table above.** `enemy_death`, `enemy_hurt` and
+> `gib` now come from Pepper alone. The banned filenames and the reason are
+> pinned in a comment at the top of `build_combat_sfx.py` so they cannot be
+> quietly re-added.
+>
+> ⚠ **The REPLACEMENTS are unheard**, same caveat as the shadow cues above. What
+> is verifiable without ears is only that the rejected sources are gone.
 
 ### 1b. Free Fantasy SFX Pack — TomMusic
 
@@ -103,8 +121,9 @@ free pack via https://tommusic.itch.io/ and gamedevmarket.
 > the game's credits screen.** Cheap, and it satisfies the only thing asked.
 >
 > Used for: all melee swings and hits, punches, kicks, block, clash, guard break,
-> hero hurt, enemy hurt, body falls, gib, dash, whip bite/miss, footsteps,
-> landings, tether tear, shrapnel.
+> hero hurt, enemy hurt, **enemy death** (from 2026-08-04, when the creature
+> pack was banned), body falls, gib, dash, whip bite/miss, footsteps, landings,
+> tether tear, shrapnel.
 
 ---
 

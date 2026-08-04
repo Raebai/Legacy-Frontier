@@ -524,8 +524,10 @@ const STREAMS: Dictionary = {
 	],
 
 	# ============================================================== BODIES
-	# REMAPPED. `enemy_death` and `hero_hurt` were synth placeholders; there is a
-	# dedicated creature-vocalisation pack and a 45-file body-damage folder here.
+	# ⚠ `enemy_death` is NOT only a mob cue — DestructibleProp (crates),
+	# BreakablePlatform, DestructibleTerrain, DestructibleFloor, RockWall and
+	# Thrall all play it. Anything vocal here fires when a crate breaks, which is
+	# how the maker met it. Keep it wordless.
 	"enemy_death": [
 		preload("res://assets/audio/sfx/enemy_death_1.wav"),
 		preload("res://assets/audio/sfx/enemy_death_2.wav"),
@@ -551,9 +553,11 @@ const STREAMS: Dictionary = {
 		preload("res://assets/audio/sfx/body_fall_2.wav"),
 		preload("res://assets/audio/sfx/body_fall_3.wav"),
 	],
+	# One variant, not two: the second was a body-burst from the family the maker
+	# banned on 2026-08-04, and nothing calls this key, so replacing it would only
+	# have added a second unheard guess.
 	"gib": [
 		preload("res://assets/audio/sfx/gib_1.wav"),
-		preload("res://assets/audio/sfx/gib_2.wav"),
 	],
 	"spell_impact": [
 		preload("res://assets/audio/sfx/spell_impact_1.wav"),
@@ -581,7 +585,7 @@ const STREAMS: Dictionary = {
 	"blink": [preload("res://assets/audio/sfx/blink.wav")],
 	"crate_break": [
 		preload("res://assets/audio/sfx/crate_break_1.ogg"),
-		preload("res://assets/audio/sfx/crate_break_2.wav"),
+		preload("res://assets/audio/sfx/crate_break_2.ogg"),
 	],
 	"platform_break": [
 		preload("res://assets/audio/sfx/platform_break_1.ogg"),
@@ -865,7 +869,12 @@ const PROFILE: Dictionary = {
 	"voice_u": {"w": Weight.TICK, "trim": 4.5},
 
 	# --- BODIES.
-	"enemy_death": {"w": Weight.HEAVY, "trim": -1.0, "sub": 0.3},
+	# ⚠ Graded DOWN from HEAVY/-1.0 on 2026-08-04. This is the highest-cadence
+	# cue in the game — a wave death every couple of seconds, plus every crate and
+	# wall — and the maker asked for it "more subtle". HEAVY is the shelf for a
+	# real hit; a thing ceasing to exist is a full stop, not a hit. Net ~4.5 dB
+	# down here, ~3 dB more at the source clip.
+	"enemy_death": {"w": Weight.QUICK, "trim": 0.0, "sub": 0.25},
 	"enemy_death_big": {"w": Weight.ULT, "trim": -2.0, "sub": 0.8, "tail": 0.7},
 	"enemy_hurt": {"w": Weight.QUICK, "trim": -1.0, "sub": 0.15},
 	"hero_hurt": {"w": Weight.QUICK, "sub": 0.2},

@@ -19,11 +19,11 @@ extends RefCounted
 ## scenery may ever sit at 0 — that is the whole bug this table closes.
 ##
 ##   -30  SKY        the gradient backdrop
-##   -22  SKYLINE    Atmosphere's distant tower spires (hazed; see below)
+##   -22  SKYLINE    Atmosphere itself (its spire _draw; hazed, see below)
 ##   -21  MOTES      drifting ambient dust
 ##   -18  MOUNTAIN   MountainMass, the big near-background landform
 ##   -10  BACKDROP   a room's opaque floor/wall wash (the tower Arena's Floor rect)
-##    -6  TERRAIN    ArenaTerrain — the ground you start on
+##    -6  TERRAIN    ArenaTerrain / RoomShell — the ground you start on
 ##    -5  HAZARD     StageHazard — a pit is a HOLE IN the ground, so it sits in it
 ##    -4  PLATFORM   RuinPlatform / BreakablePlatform — the ledges you jump to
 ##    -3  COVER      DestructibleTerrain / DestructibleFloor / DestructibleProp
@@ -46,7 +46,19 @@ const FIGHTER: int = 0
 ## The test walks `scripts/combat/` and requires every StaticBody2D that owns a
 ## `_draw` to appear here — which is what stops a fourth drawer defaulting to 0.
 const DRAWERS: Dictionary = {
+	## ⚠ NOT FOUND BY THE SCANNER, AND THAT IS WHY IT BROKE. The scanner in
+	## `slice_test_stage_layers` matches `extends StaticBody2D` — `Atmosphere` is a
+	## Node2D, so it was invisible to the one rule that catches a drawer defaulting to
+	## z 0, and it duly defaulted to z 0. Its `_draw` painted two rows of tall spires
+	## across every tower floor, IN FRONT of the fight; the maker called them "weird
+	## blinds covering the front of the map that should be background". Listing it here
+	## makes rule 1 (a registered drawer must park where the table says) cover it.
+	"Atmosphere": SKYLINE,
 	"ArenaTerrain": TERRAIN,
+	## The tower's ground + room frame. Same rung as `ArenaTerrain` because it is the
+	## same thing for the other stage: the surface you start on. The two never coexist
+	## — the versus stage builds terraces, the tower builds a shell.
+	"RoomShell": TERRAIN,
 	"StageHazard": HAZARD,
 	"RuinPlatform": PLATFORM,
 	"BreakablePlatform": PLATFORM,

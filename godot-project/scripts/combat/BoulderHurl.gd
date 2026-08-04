@@ -42,7 +42,21 @@ extends Node2D
 const RISE_TIME: float = 0.30      # rips up out of the ground
 const HANG_TIME: float = 0.12      # hangs a beat at apex (anticipation)
 const FLIGHT_SPEED: float = 900.0
-const MAX_FLIGHT: float = 900.0    # px cap before auto-detonate
+## ⚠ THE SAFETY BOUND, AND ONLY THAT. A hurled rock should end on the thing it
+## hits — a wall, cover, a body, the far side of the room — never by running out
+## of an invisible allowance in open air. It used to be 900 px, which is roughly
+## one screen: throw across an open floor and the boulder detonated on nothing,
+## mid-flight, which is the maker's *"despawn in the air"* in its other form.
+##
+## Raised so that on the one-screen floors that ship the ARENA stops the rock and
+## this number is never reached. It is kept rather than deleted because "travel
+## until you hit something" has to terminate: `_check_flight_collision` sweeps the
+## world every frame, but a rock thrown into a gap in the geometry would otherwise
+## fly forever, and this project has an entity budget. Rejected: dropping the cap
+## and relying on an arena-bounds test — there is no shared "am I still on the
+## stage" query for spectacles, and inventing a second one here is exactly the
+## divergence `SpellWorld` exists to prevent. UNTESTED GUESS.
+const MAX_FLIGHT: float = 2200.0
 const RISE_HEIGHT: float = 46.0
 const BOULDER_R: float = 26.0
 const IMPACT_RADIUS: float = 84.0
@@ -284,6 +298,10 @@ func _process(delta: float) -> void:
 			_impact(_hit_point)
 			return
 		if _traveled >= MAX_FLIGHT:
+			# The bound, not the design. Detonating here is still the right answer —
+			# a rock that vanishes is worse than a rock that breaks — but reaching
+			# this line at all means the throw crossed MAX_FLIGHT of open air, which
+			# no shipping floor is wide enough to allow.
 			_impact(_pos)
 			return
 	queue_redraw()

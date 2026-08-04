@@ -275,8 +275,25 @@ func _test_the_climb_is_written_before_the_ceremony(GS: GDScript) -> void:
 ## is the explicit button, and it is not on any of these paths.
 func _test_nothing_on_the_critical_path_loads_the_parked_hub() -> void:
 	var arena: String = _code_only(ARENA_PATH)
-	_expect(not arena.contains("res://scenes/Main.tscn"),
-		"Arena's pause-exit no longer loads the parked hub")
+	# ⚠ THIS USED TO GREP THE WHOLE FILE FOR THE HUB PATH, and that stopped being able
+	# to tell the two cases apart the moment the death card grew a "Return to Ashpire"
+	# button (maker, 2026-08-04: "there should be a return to ashpire button when you
+	# die so you can change your class as well"). This function's own comment always
+	# allowed that — "the one that may is the explicit button" — so the assertion is
+	# narrowed to the thing it actually protects: the PAUSE-EXIT path, which must
+	# still bank nothing and land on the ceremony rather than the parked town.
+	_expect(arena.contains("_exit_to_hub"), "the pause-exit path still exists to be checked")
+	var exit_fn: String = ""
+	var at: int = arena.find("func _exit_to_hub")
+	if at >= 0:
+		var end: int = arena.find("
+func ", at + 1)
+		exit_fn = arena.substr(at, (end - at) if end > at else -1)
+	_expect(exit_fn != "", "…and its body was located")
+	_expect(not exit_fn.contains("res://scenes/Main.tscn"),
+		"Arena's PAUSE-EXIT does not load the parked hub (the death card's explicit button may)")
+	_expect(not exit_fn.contains("visit_hub"),
+		"…and does not reach it through visit_hub() either")
 	var net: String = _code_only(NET_PATH)
 	_expect(not net.contains("res://scenes/Main.tscn"),
 		"a dropped host no longer strands the client in the parked hub")
