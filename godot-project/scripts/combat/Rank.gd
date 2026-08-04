@@ -86,6 +86,15 @@ func _bind_run_start() -> void:
 		return
 	if gs.has_signal(&"run_started") and not gs.is_connected(&"run_started", begin_climb):
 		gs.connect(&"run_started", begin_climb)
+	# ⚠ AND THE VISIBILITY HAS TO BE RE-ASKED ON BOTH EDGES. `_refresh_hud` runs off
+	# `rank_changed`, which only fires when the TIER FLIPS — so entering a run at
+	# tier 0 (every run does) and leaving one at tier 0 would both change what the
+	# label should be doing while emitting nothing at all.
+	if gs.has_signal(&"run_started") and not gs.is_connected(&"run_started", _refresh_hud):
+		gs.connect(&"run_started", _refresh_hud)
+	if gs.has_signal(&"run_ended") and not gs.is_connected(&"run_ended", _on_run_ended):
+		gs.connect(&"run_ended", _on_run_ended)
+	_refresh_hud()   # and once now, for the boot frame this binds on
 
 
 ## Highest tier whose threshold this ASCENT's power meets, clamped to 0..5.
@@ -132,6 +141,11 @@ func _on_rank_changed(_new_tier: int, _new_title: String) -> void:
 	_refresh_hud()
 
 
+## `run_ended` carries the outcome dictionary; the label does not care what is in it.
+func _on_run_ended(_outcome: Dictionary) -> void:
+	_refresh_hud()
+
+
 ## Minimal HUD: one small outlined title label, top-center. Not a menu — the
 ## rank title + the aura escalation are the entire progression UI.
 func _build_hud() -> void:
@@ -149,7 +163,32 @@ func _build_hud() -> void:
 	hud.add_child(_hud_label)
 
 
+## ⚠ "NAMELESS · TIER 0" IS NOT A STATUS, IT IS A LABEL FOR NOTHING — and it was
+## being printed over the TITLE SCREEN, where there is no climb to have a rank in.
+##
+## Maker, 2026-08-04: "remove that nameless tier 0". Two conditions hide it, and
+## between them the label now only ever appears when it means something:
+##
+##   * NOT IN A RUN. `Rank` is an autoload, so its CanvasLayer outlived every scene
+##     change and sat on the title screen, the Antechamber and the summary card.
+##   * TIER 0. The bottom rung is the absence of a rank. Announcing it is the same
+##     as an empty health bar labelled "alive": it costs a line of screen and tells
+##     the player nothing they could act on.
+##
+## The first tier-up is therefore also the first time this text EXISTS, which makes
+## it an event rather than a readout — the same reason the spec keeps rank cosmetic.
 func _refresh_hud() -> void:
 	if _hud_label == null:
 		return
 	_hud_label.text = "%s · Tier %d" % [title(), tier()]
+	_hud_label.visible = tier() > 0 and _in_run()
+
+
+## Is a climb actually happening? Guarded tree lookup rather than the bare autoload
+## identifier, so a `--script` harness (which registers no autoloads) simply answers
+## false instead of taking the compile down.
+func _in_run() -> bool:
+	if not is_inside_tree():
+		return false
+	var gs: Node = get_node_or_null(^"/root/GameState")
+	return gs != null and gs.has_method(&"is_run_active") and bool(gs.call(&"is_run_active"))

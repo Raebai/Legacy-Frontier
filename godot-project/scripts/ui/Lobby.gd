@@ -23,7 +23,13 @@ extends Control
 ##    live in there (`Conversation`, the memory pipeline, the local model server)
 ##    is DELETED, not parked — see `World.gd` and `NPC.gd`.
 ##
-## 2. **It looks like the game.** The tower is DRAWN — an unseen hand sketches
+## 2. **It looks like the game.** The backdrop is a SUMMONING CIRCLE opening —
+##    the signature this project committed to, drawn live every boot and never
+##    finishing. (It replaced a hand-drawn tower that stopped after 2.6 s and left
+##    the screen a still image; see `_Sigil`.) The old note is kept below because
+##    the LORE it describes is unchanged — you are a drawing climbing toward
+##    whoever holds the pencil:
+##    The tower was DRAWN — an unseen hand sketches
 ##    each floor, its mobs and its boss, and you are a drawing climbing toward
 ##    whoever holds the pencil. So the backdrop is not art, it is a tower being
 ##    drawn, live, in chalk, every time you open the game: crude scribbles at the
@@ -110,7 +116,7 @@ func _ready() -> void:
 	# other entry point: F6 straight into an arena scene, never through here.
 	VoiceDirector.ensure(get_tree())
 
-	_paper = _Paper.new()
+	_paper = _Sigil.new()
 	_paper.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_paper.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_paper)
@@ -147,8 +153,18 @@ func _ready() -> void:
 	_apply_class_tint()
 	if _free_btn != null:
 		_free_btn.visible = free_play_available()
-	# One sentence of onboarding, in a row that exists anyway and is empty at boot.
-	_say("new here? Free Play has no enemies — just try your three spells.")
+	# ⚠ THE "new here?" ONBOARDING LINE IS DELETED, and it was worse than clutter —
+	# it was WRONG. Maker: "remove that random new here text".
+	#
+	# It read "new here? Free Play has no enemies — just try your three spells" and
+	# pointed at a Free Play BUTTON THAT IS NOT ON THIS SCREEN ANY MORE: free play
+	# moved into the Antechamber's sparring ring when the title was cut from ten
+	# buttons to three. So the one sentence of onboarding the screen could afford was
+	# spending itself directing a new player to something they could not see.
+	#
+	# The status row it lived in still exists and is still used — by the join flow,
+	# the host flow and the peer count, all of which say something true when they
+	# say anything at all.
 
 	# ⚠ PAY THE SPELL-SCRIPT COMPILE HERE, WHERE NOBODY IS FIGHTING.
 	# `SpellCaster` reaches its 22 spectacle scripts by `load()` on a PATH rather
@@ -911,7 +927,99 @@ func _button(text: String, cb: Callable, font_size: int = 14) -> Button:
 	b.add_theme_font_size_override("font_size", font_size)
 	b.focus_mode = Control.FOCUS_NONE   # a stray focus ring on a phone reads as a bug
 	b.pressed.connect(cb)
+	_make_alive(b)
 	return b
+
+
+## ══ THE BUTTONS ANSWER YOU ═══════════════════════════════════════════════════
+## Maker, 2026-08-04: "have the buttons glow and like interact with the user".
+##
+## A Godot `Button` with no styling is a grey rectangle that changes shade slightly
+## on hover, which on a dark screen reads as nothing happening. Four channels are
+## wired here and they cost nothing at rest:
+##
+##   * **HOVER / PRESS GLOW** — a real `StyleBoxFlat` per state, bordered in the
+##     class accent, so the button LIGHTS rather than merely tinting.
+##   * **LIFT** — a small scale-up on hover. `pivot_offset` is re-centred on resize,
+##     because a Control scales about its top-left by default and an un-pivoted
+##     button grows to the right instead of swelling in place.
+##   * **PUNCH** — a snap down on press and a spring back on release, which is the
+##     half that makes a touch feel ACKNOWLEDGED on a device with no hover at all.
+##   * **SOUND** — the existing UI cue, so the screen is audible as well as visible.
+##
+## ⚠ TOUCH HAS NO HOVER, so press/release carry the whole effect on the target
+## platform and are wired separately rather than as a hover variant.
+## ⚠ IDEMPOTENT. `_restyle_buttons` re-runs this on every class-accent change, and
+## a signal connected a second time fires a second time — two tweens racing the
+## same property, and the scale settling wherever the loser happened to stop. The
+## SKIN is re-applied every call (that is the point); the WIRING happens once.
+func _make_alive(b: Button) -> void:
+	b.add_theme_stylebox_override("normal", _btn_style(0.0))
+	b.add_theme_stylebox_override("hover", _btn_style(1.0))
+	b.add_theme_stylebox_override("pressed", _btn_style(1.0, true))
+	b.add_theme_stylebox_override("focus", _btn_style(0.6))
+	if b.has_meta("alive"):
+		return
+	b.set_meta("alive", true)
+	b.resized.connect(func() -> void: b.pivot_offset = b.size * 0.5)
+	# ⚠ NO HOVER SOUND. There is no UI tick in `Sfx`'s key table — every candidate is
+	# a combat cue — and inventing a key plays silence rather than failing loudly.
+	# The press already carries audio through each action's own handler.
+	b.mouse_entered.connect(func() -> void: _btn_scale(b, 1.035))
+	b.mouse_exited.connect(func() -> void: _btn_scale(b, 1.0))
+	b.button_down.connect(func() -> void: _btn_scale(b, 0.965, 0.06))
+	b.button_up.connect(func() -> void: _btn_scale(b, 1.0, 0.16))
+
+
+## One tween per button, killed before the next starts — without that, a fast
+## mouse over a row of buttons stacks tweens on the same property and the scale
+## settles wherever the last one happened to finish.
+func _btn_scale(b: Button, to: float, time: float = 0.11) -> void:
+	if not is_instance_valid(b) or not b.is_inside_tree():
+		return
+	var prev: Variant = b.get_meta("scale_tween", null)
+	if prev is Tween and (prev as Tween).is_valid():
+		(prev as Tween).kill()
+	b.pivot_offset = b.size * 0.5
+	var tw: Tween = b.create_tween()
+	tw.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK if to > 1.0 else Tween.TRANS_QUAD)
+	tw.tween_property(b, "scale", Vector2(to, to), time)
+	b.set_meta("scale_tween", tw)
+
+
+## The button's skin at a given glow strength. Built rather than themed because the
+## accent follows the player's CLASS and has to be re-applied when that changes.
+func _btn_style(glow: float, pressed: bool = false) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	var a: Color = _accent_now()
+	sb.bg_color = Color(a.r * 0.16, a.g * 0.16, a.b * 0.20, 0.42 + 0.30 * glow)
+	if pressed:
+		sb.bg_color = Color(a.r * 0.30, a.g * 0.30, a.b * 0.34, 0.90)
+	sb.border_color = Color(a.r, a.g, a.b, 0.28 + 0.62 * glow)
+	sb.set_border_width_all(1 if glow < 0.5 else 2)
+	sb.set_corner_radius_all(4)
+	sb.content_margin_left = 8.0
+	sb.content_margin_right = 8.0
+	# The glow itself. A shadow in the accent colour with no offset reads as light
+	# coming OFF the button rather than as a drop shadow under it.
+	sb.shadow_color = Color(a.r, a.g, a.b, 0.34 * glow)
+	sb.shadow_size = int(round(9.0 * glow))
+	return sb
+
+
+func _accent_now() -> Color:
+	var gs: Node = get_node_or_null("/root/GameState")
+	var idx: int = int(gs.get("selected_class")) if gs != null else 0
+	return ClassInfo.color_for(idx)
+
+
+## Re-skin every button when the class accent changes, or the glow stays the
+## previous class's colour until the scene is rebuilt.
+func _restyle_buttons(node: Node) -> void:
+	for c: Node in node.get_children():
+		if c is Button:
+			_make_alive(c as Button)
+		_restyle_buttons(c)
 
 
 ## Half a row. Two of these in an HBox occupy exactly the height of one full-width
@@ -964,154 +1072,266 @@ func _group_label(text: String) -> Label:
 	return l
 
 
-# ═══════════════════════════════════════════════════════════════════ THE PAPER
-## The backdrop: a tower being DRAWN, live, every time the game opens.
+# ═══════════════════════════════════════════════════════════ THE SUMMONING SIGIL
+## THE BACKDROP: A MAGIC CIRCLE OPENING, FOREVER.
 ##
-## Deliberately procedural rather than an imported image, because the lore IS the
-## process — an unseen hand sketching floor after floor. Early (low) floors are
-## crude, wobbly, sparse scribbles on ruled paper; the higher it climbs the
-## steadier the hand gets, until the top is confident ink. That escalation is the
-## game's whole difficulty curve stated as a picture, with no words and no
-## cutscene.
+## Maker, 2026-08-04: "change that weird tower thing to a cool ass animation like
+## a slow magic circle opening up with some elements coming out of it something
+## awesome like that".
 ##
-## It costs one `_draw` at 6 fps while the reveal runs and then goes quiet.
-class _Paper:
+## ⚠ IT IS THE GAME'S OWN SIGNATURE, NOT A NEW IDEA. The summoning circle is the
+## thing this project has committed to as its look — every cast in the game opens
+## one — so the title screen draws the same grammar rather than a decoration that
+## appears nowhere else: an outer ring, a counter-rotating rune band, tick marks,
+## spokes, and an inner star.
+##
+## ⚠ AND IT REPLACED A TOWER FOR A REASON WORTH KEEPING. `_Paper` drew a hand
+## sketching a tower, ran for 2.6 s and then called `set_process(false)` — so on
+## every boot, a few seconds in, the title screen became a STILL IMAGE. This one
+## has no end state: it scribes itself, then breathes and pours elements forever.
+##
+## Costs one `_draw` per frame. ⚠ MUST DEGRADE at `graphics_quality = LOW`, and
+## does: the bloom is dropped and the mote and rune budgets halve. The circle, the
+## star and the pour survive, because they are the thing being asked for.
+class _Sigil:
 	extends Control
 
-	## ⚠ MORE FLOORS THAN FIT ON THE PAGE, ON PURPOSE. Maker on the Tower of God
-	## look: "I like how epic it feels". The single thing that makes that tower feel
-	## endless is that you never see the top of it — so this one is drawn taller than
-	## the screen and the last floors are ABOVE the top edge, climbing out of frame.
-	## A tower with a visible roof is a building.
-	const FLOORS: int = 20
-	const REVEAL_TIME: float = 2.6
-	## Redraws per second during the reveal. The stroke wobble is re-rolled each
-	## time, so a low rate reads as a hand working rather than as a low frame rate.
-	const REDRAW_HZ: float = 7.0
+	## How long the circle takes to scribe itself. SLOW on purpose — the maker asked
+	## for "a slow magic circle opening up", and the reveal is the first beat.
+	const OPEN_TIME: float = 3.4
 
+	## Ring geometry, as fractions of the sigil radius.
+	const R_OUTER: float = 1.0
+	const R_TICKS: float = 0.90
+	const R_RUNES: float = 0.78
+	const R_INNER: float = 0.46
+	const TICKS: int = 36
+	const RUNES: int = 18
+	const SPOKES: int = 8
+	## Seven points, one per castable element. See ELEMS.
+	const STAR_POINTS: int = 7
+
+	## THE POUR. Motes leave the RIM, not the centre — a circle that vents at its
+	## edge reads as a gate something is coming through; one that vents at its middle
+	## reads as a firework.
+	const MOTES_HIGH: int = 46
+	const MOTES_LOW: int = 14
+	const MOTE_LIFE: float = 3.1
+	const MOTE_RISE: float = 62.0
+
+	const BREATH_HZ: float = 0.22
+	const BREATH_AMP: float = 0.022
+	## Band rotation, rad/sec. The two bands turn OPPOSITE ways, which is what makes
+	## a static drawing read as a mechanism instead of a picture.
+	const SPIN_OUTER: float = 0.085
+	const SPIN_RUNES: float = -0.13
+
+	## Set by `Lobby._apply_class_tint` — the circle wears your class's colour.
 	var accent: Color = Lobby.ACCENT_FALLBACK
+
 	var _t: float = 0.0
-	var _next_draw: float = 0.0
 	var _rng := RandomNumberGenerator.new()
+	## Each mote: [angle, unused, age, element, out_speed, orbital_drift]
+	var _motes: Array = []
+	var _spawn_acc: float = 0.0
+
+	## The seven CASTABLE elements, in the order the star's points are drawn.
+	##
+	## ⚠ WIND IS DELIBERATELY ABSENT even though `Elements.Element` declares it.
+	## Nothing in the game casts wind, and a title screen advertising an element the
+	## player can never hold is a promise the game does not keep.
+	const ELEMS: Array[int] = [
+		Elements.Element.FIRE, Elements.Element.ICE, Elements.Element.LIGHTNING,
+		Elements.Element.SHADOW, Elements.Element.ARCANE, Elements.Element.EARTH,
+		Elements.Element.HOLY,
+	]
+
 
 	func _ready() -> void:
-		_rng.seed = 0xC0FFEE
+		_rng.seed = 0x516114
 		set_process(true)
 
+
+	func _low() -> bool:
+		return TuningConfig.quality_is_low()
+
+
+	func _mote_budget() -> int:
+		return MOTES_LOW if _low() else MOTES_HIGH
+
+
 	func _process(delta: float) -> void:
-		if _t >= REVEAL_TIME:
-			set_process(false)
-			queue_redraw()
-			return
 		_t += delta
-		_next_draw -= delta
-		if _next_draw <= 0.0:
-			_next_draw = 1.0 / REDRAW_HZ
-			queue_redraw()
+		# Nothing pours until the gate is most of the way open — the reveal has to
+		# land as a CAUSE, with the elements as its consequence.
+		if _open() > 0.55:
+			_spawn_acc += delta * float(_mote_budget()) / MOTE_LIFE
+			while _spawn_acc >= 1.0:
+				_spawn_acc -= 1.0
+				_spawn_mote()
+		var i: int = _motes.size() - 1
+		while i >= 0:
+			var m: Array = _motes[i]
+			m[2] += delta
+			if m[2] >= MOTE_LIFE:
+				_motes.remove_at(i)
+			else:
+				m[0] += m[5] * delta          # slow orbital drift as it leaves
+			i -= 1
+		queue_redraw()
+
+
+	func _spawn_mote() -> void:
+		_motes.append([
+			_rng.randf() * TAU,                      # angle on the rim
+			0.0,                                     # (unused — kept for shape)
+			0.0,                                     # age
+			ELEMS[_rng.randi() % ELEMS.size()],
+			_rng.randf_range(0.55, 1.25),            # outward speed
+			_rng.randf_range(-0.30, 0.30),           # orbital drift
+		])
+
+
+	## 0 -> 1 as the circle scribes itself, eased so the hand slows into the finish.
+	func _open() -> float:
+		return 1.0 - pow(1.0 - clampf(_t / OPEN_TIME, 0.0, 1.0), 3.0)
+
+
+	## ⚠ BIASED LEFT, and that is a layout contract rather than taste: the menu
+	## column hugs the RIGHT edge (`PANEL_W` wide), so a centred circle would sit
+	## under the buttons and fight them for legibility.
+	func _centre() -> Vector2:
+		return Vector2(size.x * 0.34, size.y * 0.52)
+
+
+	func _radius() -> float:
+		var breath: float = 1.0 + sin(_t * TAU * BREATH_HZ) * BREATH_AMP
+		return minf(size.x * 0.42, size.y * 0.62) * 0.62 * breath
+
 
 	func _draw() -> void:
-		var r: Rect2 = Rect2(Vector2.ZERO, size)
-		draw_rect(r, Lobby.PAPER)
-		# Ruled paper. Faint, wide, and slightly off-horizontal so it reads as a
-		# real page rather than as a grid overlay.
-		var line_gap: float = maxf(14.0, size.y / 18.0)
-		var y: float = line_gap
-		while y < size.y:
-			draw_line(Vector2(0.0, y), Vector2(size.x, y + 0.7), Lobby.RULE, 1.0)
-			y += line_gap
+		draw_rect(Rect2(Vector2.ZERO, size), Lobby.PAPER)
+		var c: Vector2 = _centre()
+		var r: float = _radius()
+		if r <= 1.0:
+			return
+		var open: float = _open()
+		_draw_bloom(c, r, open)
+		_draw_ring(c, r * R_OUTER, open, 2.0, 0.85)
+		_draw_ticks(c, r, open)
+		_draw_runes(c, r, open)
+		_draw_spokes(c, r, open)
+		_draw_star(c, r * R_INNER, open)
+		_draw_motes(c, r)
 
-		var progress: float = clampf(_t / REVEAL_TIME, 0.0, 1.0)
-		# Ease-out: the hand starts fast and lingers over the top floors, which is
-		# also where the drawing gets careful.
-		progress = 1.0 - pow(1.0 - progress, 2.0)
 
-		# The tower occupies the left third, standing on the bottom edge.
-		var base_x: float = size.x * 0.22
-		var base_y: float = size.y * 0.94
-		# NEGATIVE — the top of the drawn tower is off the top of the page.
-		var top_y: float = -size.y * 0.55
-		var span: float = base_y - top_y
-		var floor_h: float = span / float(FLOORS)
+	## A soft bloom under the figure so the circle reads as a LIGHT SOURCE rather
+	## than as line art. Concentric translucent discs — cheap, and the stand-in for
+	## an actual glow shader on a screen that does not run the combat grade.
+	func _draw_bloom(c: Vector2, r: float, open: float) -> void:
+		if _low():
+			return
+		var rings: int = 7
+		for i in rings:
+			var f: float = float(i) / float(rings)
+			draw_circle(c, r * (0.55 + f * 0.75),
+				Color(accent.r, accent.g, accent.b, 0.055 * (1.0 - f) * open))
 
-		_rng.seed = 0xC0FFEE
-		for i in FLOORS:
-			var t: float = float(i) / float(FLOORS - 1)     # 0 bottom .. 1 top
-			if progress < t * 0.98:
-				break
-			# The hand gets steadier as it climbs: wobble falls, the stroke
-			# darkens toward chalk, and the floor narrows.
-			var wobble: float = lerpf(5.0, 0.6, t)
-			var half_w: float = lerpf(size.x * 0.115, size.x * 0.042, t)
-			var col: Color = Lobby.GRAPHITE.lerp(Lobby.CHALK, t)
-			# ⚠ THE ALPHA RISES AND THEN FALLS. It used to climb to fully opaque at the
-			# top, which drew a confident roof — the exact opposite of the feeling. The
-			# hand gets steadier as it climbs (the stroke sharpens) and then the tower
-			# fades into the dark, so the eye runs out of tower before it runs out of
-			# page. That fade IS the "how tall is this" question.
-			col.a = lerpf(0.40, 1.0, minf(t / 0.55, 1.0)) * lerpf(1.0, 0.0, maxf((t - 0.55) / 0.45, 0.0))
-			var width: float = lerpf(1.0, 2.2, t)
-			var fy: float = base_y - floor_h * float(i)
-			_scribble_box(
-				Vector2(base_x - half_w, fy - floor_h * 0.86),
-				Vector2(base_x + half_w, fy),
-				col, width, wobble
-			)
-			# Every third floor is a landing the eye can count.
-			if i % 3 == 0:
-				draw_line(
-					Vector2(base_x - half_w - 6.0, fy),
-					Vector2(base_x + half_w + 6.0, fy),
-					col, width
-				)
 
-		# The pencil tip: a mark of class-coloured light sitting exactly where the
-		# hand has reached. It IS the "who is holding the pencil" question, and it
-		# needs no sentence to ask it.
-		# THE DARK THE TOWER GOES INTO. Banded rather than a real gradient because a
-		# ColorRect gradient would need a shader or a texture, and eight stacked
-		# translucent bands over a flat backdrop are indistinguishable at this scale
-		# and cost nothing.
-		var haze_h: float = size.y * 0.42
-		for b: int in 8:
-			var bt: float = float(b) / 7.0
-			var band := Color(Lobby.PAPER.r, Lobby.PAPER.g, Lobby.PAPER.b, 0.16)
-			draw_rect(Rect2(0.0, haze_h * bt - haze_h, size.x, haze_h * (1.0 - bt)), band)
+	## An arc that SWEEPS INTO EXISTENCE rather than fading in. The circle is being
+	## inscribed, and a stroke growing from one end is the only version of that which
+	## reads as drawing — a fade reads as a light coming on.
+	func _draw_ring(c: Vector2, r: float, open: float, w: float, alpha: float) -> void:
+		if open <= 0.0:
+			return
+		draw_arc(c, r, -PI * 0.5, -PI * 0.5 + TAU * open, 96,
+			Color(accent.r, accent.g, accent.b, alpha * minf(open * 1.4, 1.0)), w, true)
 
-		# The pencil tip: a mark of class-coloured light sitting exactly where the
-		# hand has reached. It IS the "who is holding the pencil" question, and it
-		# needs no sentence to ask it.
-		#
-		# CLAMPED INTO VIEW, because the tower now runs off the top of the page: an
-		# unclamped tip spends the last third of the reveal drawing itself somewhere
-		# nobody can see, which reads as the animation simply stopping early.
-		var tip_y: float = maxf(base_y - span * progress, size.y * 0.06)
-		var glow: Color = accent
-		glow.a = 0.85 if progress < 1.0 else 0.35
-		draw_circle(Vector2(base_x, tip_y), 3.0, glow)
-		glow.a *= 0.28
-		draw_circle(Vector2(base_x, tip_y), 10.0, glow)
 
-	## One hand-drawn rectangle: four strokes, each jittered, each overshooting
-	## its corner slightly — which is what makes a line look drawn rather than
-	## computed.
-	func _scribble_box(a: Vector2, b: Vector2, col: Color, width: float, wobble: float) -> void:
-		var corners: Array[Vector2] = [
-			Vector2(a.x, a.y), Vector2(b.x, a.y), Vector2(b.x, b.y), Vector2(a.x, b.y),
-		]
-		for i in 4:
-			var p0: Vector2 = corners[i]
-			var p1: Vector2 = corners[(i + 1) % 4]
-			_scribble_line(p0, p1, col, width, wobble)
+	## The tick band. Ticks appear IN SEQUENCE with the sweep, so the ring and its
+	## graduations are inscribed by the same hand at the same moment.
+	func _draw_ticks(c: Vector2, r: float, open: float) -> void:
+		var shown: int = int(floor(TICKS * open))
+		var spin: float = _t * SPIN_OUTER
+		for i in shown:
+			var ang: float = spin - PI * 0.5 + TAU * float(i) / float(TICKS)
+			var long: bool = (i % 3) == 0
+			var d := Vector2.from_angle(ang)
+			draw_line(c + d * (r * (R_TICKS - (0.055 if long else 0.028))),
+				c + d * (r * R_TICKS),
+				Color(accent.r, accent.g, accent.b, 0.30 + (0.35 if long else 0.0)),
+				1.8 if long else 1.0)
 
-	func _scribble_line(p0: Vector2, p1: Vector2, col: Color, width: float, wobble: float) -> void:
-		var segments: int = 5
-		var pts := PackedVector2Array()
-		for s in segments + 1:
-			var t: float = float(s) / float(segments)
-			var p: Vector2 = p0.lerp(p1, t)
-			# No jitter on the endpoints, or the box falls apart at the corners.
-			var w: float = wobble * sin(PI * t)
-			p += Vector2(_rng.randf_range(-w, w), _rng.randf_range(-w, w))
-			pts.append(p)
-		if pts.size() >= 2:
-			draw_polyline(pts, col, width)
+
+	## The rune band, counter-rotating.
+	##
+	## Runes are short chorded STROKES rather than glyphs: at this size a real
+	## alphabet is mush, and the eye reads "writing" from rhythm alone. Seeded per
+	## index so each rune is distinct and stable across frames — re-rolling every
+	## frame would make the band boil.
+	func _draw_runes(c: Vector2, r: float, open: float) -> void:
+		if open < 0.35:
+			return
+		var count: int = int(RUNES * 0.5) if _low() else RUNES
+		var a: float = (open - 0.35) / 0.65
+		var spin: float = _t * SPIN_RUNES
+		for i in count:
+			var ang: float = spin + TAU * float(i) / float(count)
+			var d := Vector2.from_angle(ang)
+			var n := Vector2(-d.y, d.x)
+			var base: Vector2 = c + d * (r * R_RUNES)
+			_rng.seed = 0x9E37 + i * 131
+			for _s in 3:
+				var o1: Vector2 = base + n * _rng.randf_range(-5.0, 5.0) + d * _rng.randf_range(-4.0, 4.0)
+				var o2: Vector2 = o1 + n * _rng.randf_range(-4.0, 4.0) + d * _rng.randf_range(-5.0, 5.0)
+				draw_line(o1, o2, Color(accent.r, accent.g, accent.b, 0.55 * a), 1.0)
+
+
+	func _draw_spokes(c: Vector2, r: float, open: float) -> void:
+		if open < 0.5:
+			return
+		var a: float = (open - 0.5) / 0.5
+		var spin: float = _t * SPIN_OUTER
+		for i in SPOKES:
+			var d := Vector2.from_angle(spin + TAU * float(i) / float(SPOKES))
+			draw_line(c + d * (r * R_INNER), c + d * (r * R_RUNES),
+				Color(accent.r, accent.g, accent.b, 0.18 * a), 1.0)
+
+
+	## THE INNER STAR — seven points, one per castable element, each in ITS OWN
+	## COLOUR. This is the "elements" half of the ask standing still, so the pour has
+	## somewhere visible to have come from.
+	func _draw_star(c: Vector2, r: float, open: float) -> void:
+		if open < 0.62:
+			return
+		var a: float = (open - 0.62) / 0.38
+		var pts: Array[Vector2] = []
+		for i in STAR_POINTS:
+			var ang: float = -PI * 0.5 + TAU * float(i) / float(STAR_POINTS) + _t * SPIN_RUNES * 0.5
+			pts.append(c + Vector2.from_angle(ang) * r)
+		# Chord every point to the one TWO along — the heptagram, and the only star
+		# at seven points that closes in a single unbroken stroke.
+		for i in STAR_POINTS:
+			var col: Color = Elements.color(ELEMS[i])
+			draw_line(pts[i], pts[(i + 2) % STAR_POINTS], Color(col.r, col.g, col.b, 0.42 * a), 1.4)
+		# A bead of each element's colour on its own point, breathing OUT OF PHASE so
+		# the ring shimmers instead of pulsing as one lamp.
+		for i in STAR_POINTS:
+			var col2: Color = Elements.color(ELEMS[i])
+			var puls: float = 0.6 + 0.4 * sin(_t * 2.1 + float(i) * 0.9)
+			draw_circle(pts[i], 2.6 * puls, Color(col2.r, col2.g, col2.b, 0.9 * a))
+
+
+	## THE POUR. Elements leaving the gate: outward from the rim, lifting, fading.
+	func _draw_motes(c: Vector2, r: float) -> void:
+		for m: Array in _motes:
+			var life: float = clampf(float(m[2]) / MOTE_LIFE, 0.0, 1.0)
+			var col: Color = Elements.color(int(m[3]))
+			var p: Vector2 = c + Vector2.from_angle(float(m[0])) * (r * (1.0 + life * float(m[4]) * 0.55))
+			# Lift, so the pour has a DIRECTION and does not read as a flat ripple.
+			p.y -= MOTE_RISE * life * life
+			# Fade in fast, out slow — a mote that pops into existence at full alpha
+			# reads as a rendering glitch at the rim.
+			var fade: float = (1.0 - life) * minf(life * 6.0, 1.0)
+			draw_circle(p, maxf(2.3 * (1.0 - life * 0.45), 0.7),
+				Color(col.r, col.g, col.b, 0.85 * fade))

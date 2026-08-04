@@ -70,6 +70,11 @@ func _physics_process(delta: float) -> void:
 		velocity.y = 0.0 if is_on_floor() else minf(velocity.y + GRAVITY * delta, MAX_FALL)
 		move_and_slide()
 		if _rig != null:
+			# Frozen under a panel still has to tell the truth about the floor, or the
+			# figure stands on its knees behind the screen you are reading.
+			_rig.set_grounded(is_on_floor())
+			_rig.set_body_velocity(Vector2.ZERO)
+			_rig.set_air_phase(false, is_on_floor())
 			_rig.play(CharacterRig.State.IDLE)
 		return
 	# Side-on: horizontal walk, gravity, jump off the ground.
@@ -82,17 +87,48 @@ func _physics_process(delta: float) -> void:
 	else:
 		velocity.y = minf(velocity.y + GRAVITY * delta, MAX_FALL)
 	move_and_slide()
-	# Drive the stick figure: airborne pose, else run/idle facing travel.
-	if _rig != null:
-		if not is_on_floor():
-			_rig.play(CharacterRig.State.DASH)  # a taut airborne pose
-			if absf(move_x) > 0.01:
-				_rig.set_facing(Vector2(move_x, 0.0))
-		elif absf(move_x) > 0.01:
-			_rig.play(CharacterRig.State.RUN)
-			_rig.set_facing(Vector2(move_x, 0.0))
-		else:
-			_rig.play(CharacterRig.State.IDLE)
+	_drive_rig(move_x)
+
+
+## ══ THE TOWN WAS RUNNING THE RIG BLIND, AND THAT IS THE BENT-LEGS BUG ═════════
+##
+## Maker, 2026-08-04: "the movement of the characters and the stick figures are all
+## messed up… everyone is walking on their limbs".
+##
+## `CharacterRig` is the SAME rig the combat hero uses — the town was never using a
+## different or older one. What it was not doing is TELLING it anything. `Hero`
+## feeds three signals every physics frame and this file fed none of them:
+##
+##   1. `set_grounded()` — and this is the one that caused the picture. It gates the
+##      floor clamp in `_step_sim`, and it **defaults to `true`**. So a rig nobody
+##      talks to believes it is standing on the ground AT ALL TIMES — including at
+##      the top of a jump. The feet stayed pinned to the ground plane while the hips
+##      rose, the two-bone IK had to fold a leg that could not reach, and the figure
+##      walked on its knees through the air.
+##   2. `set_body_velocity()` — the inertial trail on the extremities. Without it
+##      the limbs are rigid under acceleration and the walk reads as a puppet.
+##   3. `set_air_phase()` — biases the airborne looseness (rising = coiled, falling
+##      = loose, grounded = settled). `play(State.DASH)` was standing in for a jump
+##      pose, which is a taut DASH read on a body that is actually falling.
+##
+## ⚠ THE STATE IS `AIR`, NOT `DASH`. The rig has a real airborne state that the air
+## phase above drives; DASH is a horizontal lunge and was the wrong pose being asked
+## to do a jump's job.
+func _drive_rig(move_x: float) -> void:
+	if _rig == null:
+		return
+	var grounded: bool = is_on_floor()
+	_rig.set_grounded(grounded)
+	_rig.set_body_velocity(velocity)
+	_rig.set_air_phase(velocity.y < 0.0, grounded)
+	if absf(move_x) > 0.01:
+		_rig.set_facing(Vector2(move_x, 0.0))
+	if not grounded:
+		_rig.play(CharacterRig.State.AIR)
+	elif absf(move_x) > 0.01:
+		_rig.play(CharacterRig.State.RUN)
+	else:
+		_rig.play(CharacterRig.State.IDLE)
 
 
 ## True while a town panel (class altar / armory / outfitter) is up.

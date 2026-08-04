@@ -81,6 +81,11 @@ func _physics_process(delta: float) -> void:
 	if _patrol_range <= 0.0 or _rig == null:
 		return  # not a patrolling townsperson (headless tests, for one)
 	if _player_in_range:
+		# Standing still is a velocity too — without zeroing it the limbs keep the
+		# trail of the last step they took and the figure lists while it talks to you.
+		_rig.set_body_velocity(Vector2.ZERO)
+		_rig.set_grounded(true)
+		_rig.set_air_phase(false, true)
 		_rig.play(CharacterRig.State.IDLE)
 		return
 	var nx: float = global_position.x + _patrol_dir * PATROL_SPEED * delta
@@ -91,6 +96,15 @@ func _physics_process(delta: float) -> void:
 		_patrol_dir = 1.0
 		nx = _patrol_center - _patrol_range
 	global_position.x = nx
+	# ⚠ THE RIG HAS TO BE TOLD IT IS WALKING, NOT JUST THAT IT IS IN RUN STATE.
+	# See the long note on `Player._drive_rig`: townsfolk move by writing
+	# `global_position` directly, so `velocity` is never set and the rig's inertial
+	# channel saw a body that teleports — rigid limbs on a figure that is visibly
+	# travelling. A synthesised velocity is the honest input here, because the walk
+	# IS constant-speed by construction.
+	_rig.set_body_velocity(Vector2(_patrol_dir * PATROL_SPEED, 0.0))
+	_rig.set_grounded(true)      # townsfolk never leave the floor
+	_rig.set_air_phase(false, true)
 	_rig.play(CharacterRig.State.RUN)
 	_rig.set_facing(Vector2(_patrol_dir, 0.0))
 
