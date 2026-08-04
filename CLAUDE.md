@@ -621,3 +621,24 @@ into `docs/decisions.md`. New entries appended at the bottom; old entries preser
 - **How to check state / play (next session):** read the top STATUS block of `.superpowers/sdd/progress.md`, then `git log --oneline`, then `docs/v2.0-design.md`. Play: **F5** boots the full loop (`Main.tscn`); **F6** on `scenes/combat/Arena.tscn` is the combat sandbox. Hub NPCs need Ollama + `llama3.2:3b` running. Controls in `docs/v2.0-slice2-checklist.md`.
 - **Note on the decision log:** v2.0 design decisions live in `docs/v2.0-design.md` (§20 forks, §21 Slice 2), not `docs/decisions.md` (which is frozen at v0.0–v0.5 D-001..D-045).
 - **Next steps:** maker playtests the current loop (F5), gives GO/NO-GO per `docs/v2.0-slice2-checklist.md`; then resume floors step 5 (persistent-climb spine). After: floor-5 bespoke multi-phase guardian, hub class-select UI, more run-flavour into NPC memory.
+
+### Session 15+ — THE TOWER redesign (2026-08-04)
+
+- **Date:** 2026-08-04. **Branch:** `bot-fight-quality` (pushed).
+- **⚠ READ `docs/NEXT-SESSION.md` FIRST — it is the live handoff and it carries the
+  RESUME QUEUE.** The maker paused deliberately and asked for everything
+  outstanding to be recorded; the queue's canonical copy is the
+  `project_v2_resume_queue` memory.
+- **What shipped:** a maker-approved 5-phase redesign
+  (`docs/superpowers/specs/2026-08-04-tower-shape-and-feel-design.md`) — combat
+  pacing (spells no longer chain), checkpoints + a co-op model that needs no
+  negotiation, PvP health-vs-stocks, ten authored floors with ten biomes, and a
+  title screen cut from ten buttons to three with the Antechamber as the front
+  door. Plus the flagged co-op bugs and a rig fix.
+- **Designed, not built:** spell trees, levelling and hub NPCs
+  (`docs/superpowers/specs/2026-08-04-spell-trees-and-progression-design.md`).
+  One currency (Skill Points, tree only); levelling gives 10 Growth distributed by
+  class, every class row summing to 10.
+- **Still true:** 146/146 suites green. **Nothing here has been playtested to
+  completion** — the maker was mid-playtest when they paused. Playtest beats
+  reasoning; that judgement is unchanged.

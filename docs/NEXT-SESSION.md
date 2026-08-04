@@ -1,4 +1,50 @@
-# RESUME HERE — 2026-08-04 (second pass)
+# RESUME HERE — 2026-08-04 (paused by the maker)
+
+> **THE MAKER PAUSED HERE AND ASKED FOR EVERYTHING OUTSTANDING TO BE RECORDED.**
+> When they say **"resume"**, work the ordered queue in the
+> `project_v2_resume_queue` memory. This file is its public twin — if the two ever
+> disagree, the memory is the one that was written last.
+
+**Branch `bot-fight-quality`, PUSHED to origin, 146/146 green, tree clean.**
+Nothing is uncommitted and nothing is unpushed.
+
+## ▶ THE QUEUE, WHEN THEY SAY RESUME
+
+1. **The teammate's BODY does not appear in the Antechamber** — the one
+   half-finished thing. Host and client both ROUTE there and the session is live,
+   but peer heroes are spawned by `Arena._spawn_hero_net` through a
+   `MultiplayerSpawner` + the `party_ready` handshake, and none of that machinery
+   exists in `World.gd`. Port it; verify with `python-tools/coop_smoketest.sh`.
+2. **Spell trees + levelling + hub NPCs** — designed in full, NOT built. Spec:
+   `docs/superpowers/specs/2026-08-04-spell-trees-and-progression-design.md`.
+   Build order in its §8; steps 1–2 are pure data + math and testable before any
+   pixel is drawn. Three open questions in §9 need the maker.
+3. **"Some of the VFX are goofy / weird slightly sounding"** — ⚠ ASK WHICH. 49
+   spells and ~187 sounds is too wide to guess. My prior: the HOLY cues, which use
+   a CC0 vibraphone as a stand-in and are the known-weakest mappings
+   (`assets/audio/CREDITS.md` §2).
+4. **The walk, part-open.** The swing leg does not bend at the knee. Feel call,
+   judge at F5 — `CharacterRig.gd` is hand-tuned, do not retune blind.
+5. Smaller, carried: `DestructibleTerrain` authority (latent), `SigilGuard` still
+   attached to nothing, 17 of 19 gear pieces still beat the empty slot for free,
+   Stormcaller 16-0, CRLF flip-flop, music licence provenance, and the six `.mp3`
+   that can go once the maker has LISTENED to the new `.ogg`.
+
+## ▶ WHAT THE LAST STRETCH CHANGED (after the phase table below)
+
+- **Title: 10 buttons → 3.** ENTER THE TOWER · MULTIPLAYER · Credits. Class,
+  loadout, spells and free play moved into the Antechamber, which already owned
+  them. ENTER THE TOWER now lands in the ROOM, not straight in a fight — you
+  spawn on the door, so it is still one press to descend.
+- **The Antechamber is the front door**, with a new SPARRING RING (free play) and
+  a co-op-only PARTY STONE.
+- **Three feel fixes from live play:** sparring bot to Easy, `shake_scale`
+  1.0 → 0.7, `STANCE_FACTOR` 0.052 → 0.034 ("make me stand upright").
+- **The walk:** the capture harness never stepped physics, so the ground clamp was
+  disabled and the instrument was lying; and `MAX_TRAIL_FACTOR` was authored at
+  0.34 against a geometric ceiling of 0.222. Now derived.
+
+---
 
 ## ▶ THE TOWER REDESIGN — 4.5 of 5 phases landed
 
