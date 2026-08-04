@@ -13,7 +13,17 @@ signal join_ok
 signal join_failed
 signal lobby_changed
 signal net_floor_cleared   # host cleared the floor -> clients spawn the exit portal(s)
-signal party_ready         # every peer's Arena has reported in -> safe to spawn heroes
+## Every peer has reported in for a given SCENE -> safe to spawn bodies there.
+##
+## ⚠ THE TAG IS NOT DECORATION. The handshake used to be a one-shot per session
+## (`_party_ready_sent` reset only on host/leave), which was correct while the Arena
+## was the only thing that ever used it. The moment a SECOND scene wanted the same
+## machinery — the Antechamber, where a teammate's body has to appear — the arena's
+## own handshake would silently never fire again and NOBODY would spawn in the
+## fight. Keying it by scene also removes the race: a client reporting "antechamber"
+## cannot satisfy the arena's gate, so a fast loader can no longer be wiped by a
+## slow one re-arming.
+signal party_ready(tag: String)
 signal hosts_changed       # LAN discovery: the visible-host list changed
 
 const DEFAULT_PORT: int = 24565
@@ -79,8 +89,11 @@ var _pickups_awarded: int = 0
 var _run_started: bool = false
 ## Spawn handshake: peer_id -> true once that peer's Arena has finished _ready and is
 ## able to RECEIVE replicated hero spawns. Replaces the 0.6 s guess in Arena.
+## tag -> {peer_id: true}. One independent handshake per scene that needs one.
 var _arena_ready: Dictionary = {}
-var _party_ready_sent: bool = false
+## tag -> true once that scene's party_ready has fired. Fires at most once per tag
+## per visit, and `rearm_handshake` is what makes a SECOND visit possible.
+var _party_ready_sent: Dictionary = {}
 
 
 func _ready() -> void:
@@ -143,7 +156,7 @@ func host(my_class: int, port: int = DEFAULT_PORT) -> int:
 	peer_class = {1: my_class}
 	peer_floor = {1: _my_climb_floor()}
 	_arena_ready.clear()
-	_party_ready_sent = false
+	_party_ready_sent.clear()
 	_run_started = false
 	# ADVERTISE ON THE LAN the moment we start hosting. Done here rather than left to
 	# the Lobby so the host half of discovery cannot be forgotten: "two phones in one
@@ -173,7 +186,7 @@ func leave() -> void:
 	peer_floor.clear()
 	_pickup_awarded.clear()
 	_arena_ready.clear()
-	_party_ready_sent = false
+	_party_ready_sent.clear()
 	_run_started = false
 	stop_beacon()
 	stop_discovery()
@@ -263,44 +276,59 @@ func _free_peer_hero(peer_id: int) -> void:
 ## only once every peer has reported in, replacing `Arena`'s bare 0.6 s timer (whose
 ## own comment admitted a handshake was the right fix). A 4 s fallback still fires so
 ## one silent peer can never hang the whole party at a black screen.
-func notify_arena_ready() -> void:
+## ⚠ RE-ARM BEFORE REPORTING, AND ONLY THE SCENE THAT OWNS THE TAG MAY DO IT.
+## Entering the Antechamber a second time (hub -> tower -> back) has to be able to
+## spawn bodies again, so the tag's slate is wiped when that scene loads. Every peer
+## calls this for its own scene, so a host re-arming "antechamber" can never discard
+## a client's "arena" report.
+func rearm_handshake(tag: String = "arena") -> void:
+	_arena_ready.erase(tag)
+	_party_ready_sent.erase(tag)
+
+
+func notify_arena_ready(tag: String = "arena") -> void:
 	if not is_active():
 		return
 	if is_host():
-		_arena_ready[1] = true
-		_check_party_ready()
-		get_tree().create_timer(4.0).timeout.connect(_force_party_ready)
+		var slate: Dictionary = _arena_ready.get(tag, {})
+		slate[1] = true
+		_arena_ready[tag] = slate
+		_check_party_ready(tag)
+		get_tree().create_timer(4.0).timeout.connect(_force_party_ready.bind(tag))
 	else:
-		_arena_ready_rpc.rpc_id(1)
+		_arena_ready_rpc.rpc_id(1, tag)
 
 
 @rpc("any_peer", "call_remote", "reliable")
-func _arena_ready_rpc() -> void:
+func _arena_ready_rpc(tag: String = "arena") -> void:
 	if not is_host():
 		return
-	_arena_ready[multiplayer.get_remote_sender_id()] = true
-	_check_party_ready()
+	var slate: Dictionary = _arena_ready.get(tag, {})
+	slate[multiplayer.get_remote_sender_id()] = true
+	_arena_ready[tag] = slate
+	_check_party_ready(tag)
 
 
-func _check_party_ready() -> void:
-	if _party_ready_sent or not is_host():
+func _check_party_ready(tag: String) -> void:
+	if bool(_party_ready_sent.get(tag, false)) or not is_host():
 		return
+	var slate: Dictionary = _arena_ready.get(tag, {})
 	for pid in peers():
-		if not _arena_ready.has(int(pid)):
+		if not slate.has(int(pid)):
 			return
-	_party_ready_sent = true
-	party_ready.emit()
+	_party_ready_sent[tag] = true
+	party_ready.emit(tag)
 
 
 ## The handshake's safety valve: if a peer never reports (crashed loading, dropped
 ## mid-scene-change), spawn anyway rather than leaving everyone staring at an
 ## empty arena. Prints so the smoke test can tell a handshake from a timeout.
-func _force_party_ready() -> void:
-	if _party_ready_sent or not is_host():
+func _force_party_ready(tag: String = "arena") -> void:
+	if bool(_party_ready_sent.get(tag, false)) or not is_host():
 		return
-	print("[NET] handshake timed out — spawning party anyway")
-	_party_ready_sent = true
-	party_ready.emit()
+	print("[NET] handshake timed out (%s) — spawning party anyway" % tag)
+	_party_ready_sent[tag] = true
+	party_ready.emit(tag)
 
 
 func _on_connected_ok() -> void:

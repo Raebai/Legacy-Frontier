@@ -5,6 +5,6 @@
 [resource]
 script = ExtResource("1_npc_data")
 npc_id = "scribe"
-npc_name = "the scribe"
+npc_name = "the archivist"
 display_color = Color(0.84, 0.44, 0.58, 1)
-lines = Array[String](["five spells. you carry three.", "the other two sulk.", "pick again. paper forgives.", "i copy what the hand draws.", "some pages fight back."])
+lines = Array[String](["{points} unspent. spend them.", "five spells. you carry three.", "marked ones cost double.", "your last is yours alone.", "pick again. paper forgives.", "some pages fight back."])

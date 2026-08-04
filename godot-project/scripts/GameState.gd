@@ -22,6 +22,8 @@ signal xp_gained(amount: int, kind: String, where: Vector2)
 ## `LevelUpBurst` exists. Emitted AFTER the new level is banked, so a listener that
 ## asks `level()` in the handler gets the level it is celebrating.
 signal leveled_up(new_level: int)
+## A guardian banked a CLASS PICK. The town's altar is what spends it.
+signal class_choice_earned(floor: int)
 ## ⚠ `fell(new_floor)` IS GONE, and so are `fall()` and `fall_floor()`.
 ## They implemented the OLD death rule — die, drop a floor, keep climbing — which the
 ## maker replaced on 2026-08-01: "dying cost is a life in ghost form until your
@@ -192,6 +194,15 @@ var _xp: int = 0
 ## nodes' costs; points EARNED are `level - 1`. Neither is stored, for the same
 ## reason Growth is not: a stored balance can drift from the thing it is a balance of.
 var unlocked_nodes: Array[String] = []
+
+## Guardian picks banked and not yet spent. The altar in the town turns each of
+## these into one locked class of the player's choosing.
+var pending_class_choices: int = 0
+
+## Which guardian floors have already paid out a pick. A conquered tower re-climbs
+## from floor 1, so without this the floor-5 guardian would hand out a class on
+## every lap and all three would be four laps of the easiest boss in the game.
+var _earned_choice_floors: Array[int] = []
 
 ## Locked classes earned (Stormcaller / Warlock / Swordsaint). The six starters are
 ## not listed — `Progression.is_class_unlocked` knows them, so this array holds only
@@ -552,6 +563,8 @@ func _load_climber(path: String = CLIMBER_PATH) -> void:
 	_xp = int(state["xp"])
 	unlocked_nodes = state["unlocked_nodes"]
 	unlocked_classes = state["unlocked_classes"]
+	pending_class_choices = int(state["pending_class_choices"])
+	_earned_choice_floors = state["earned_choice_floors"]
 
 
 ## The live rank power to persist. Reads /root/Rank when present (combat), else
@@ -655,7 +668,59 @@ func receive_net_xp(amount: int, kind: String, where: Vector2 = Vector2.ZERO) ->
 	grant_xp(amount, kind, where)
 
 
+## FLUSH THE CLIMBER TO DISK FROM OUTSIDE A RUN.
+##
+## Every other save happens on a floor transition, which is fine for the climb but
+## not for the two things you do in the TOWN: spending a skill point and picking an
+## unlocked class. Without this, buying a node and then quitting from the hub loses
+## the purchase — and the point is spent, because `points_spent` is derived from the
+## nodes that did not save. Public because the tree screen and the class altar are
+## legitimately outside the run spine.
+func save_progress() -> void:
+	_save_climber()
+
+
+## A locked class was earned. Idempotent, so a second grant of the same class (a
+## replayed guardian, a co-op double-award) cannot put it in the list twice and make
+## `choosable_classes` disagree with itself.
+func unlock_class(hero_class: int) -> bool:
+	if Progression.is_class_unlocked(hero_class, unlocked_classes):
+		return false
+	unlocked_classes.append(int(hero_class))
+	save_progress()
+	return true
+
+
+## SPEND a banked guardian pick on a specific locked class. Returns false — and
+## costs nothing — in every refusing case, so the altar can call it optimistically
+## and read the answer rather than having to re-derive the rules itself.
+##
+## ⚠ THE "ALREADY HELD" REFUSAL IS THE ONE THAT MATTERS. Two taps on the same card
+## before the panel redraws would otherwise burn a second pick on a class the
+## climber already owns — the pick is gone, and nothing is gained. It is the exact
+## shape of the co-op pickup double-award that was fixed earlier on this branch.
+func spend_class_choice(hero_class: int) -> bool:
+	if pending_class_choices <= 0:
+		return false
+	if not Progression.LOCKED_CLASSES.has(hero_class):
+		return false
+	if Progression.is_class_unlocked(hero_class, unlocked_classes):
+		return false
+	pending_class_choices -= 1
+	unlocked_classes.append(int(hero_class))
+	save_progress()
+	return true
+
+
+## ⚠ THE `is_inside_tree()` GUARD IS LOAD-BEARING, not defensive noise. An absolute
+## `get_node()` from a node that is not in the tree is an ERROR in Godot, not a null
+## — and the headless suites drive a bare `GameState.new()` on purpose (that is what
+## makes the run spine testable without a scene). Every other tree lookup in this
+## file already carries it; this one was added last and did not, which turned a
+## clean test into eight lines of red herring.
 func _is_net_host() -> bool:
+	if not is_inside_tree():
+		return false
 	var n: Node = get_node_or_null("/root/Net")
 	return n != null and n.is_active() and n.is_host()
 
@@ -707,6 +772,35 @@ func notify_guardian_killed(where: Vector2 = Vector2.ZERO) -> void:
 	if not _run_active:
 		return
 	grant_xp(Progression.guardian_xp(_floor), "guardian", where)
+	_maybe_earn_class_choice()
+
+
+## ⚠ THE GUARDIAN GRANTS A CHOICE, NOT A DROP.
+##
+## The maker floated "the 5th floor boss is a one time one of the 3 remaining
+## classes". A RANDOM one means the class you get is a coin flip and the correct
+## play is to farm the boss until it gives you the one you wanted. Felling the
+## guardian instead banks a PICK, which you spend at the altar in the town.
+## Deterministic, still a milestone, and the choosing is the part you remember.
+##
+## Banked rather than spent here for two reasons: a class-select screen popping up
+## mid-fight is the worst possible moment for it, and the pick has to survive the
+## walk home — including a walk home that ends in a party wipe on the next floor.
+func _maybe_earn_class_choice() -> void:
+	if not Progression.CLASS_UNLOCK_FLOORS.has(_floor):
+		return
+	if Progression.choosable_classes(unlocked_classes).is_empty():
+		return
+	# ⚠ ONE PER FLOOR, EVER. `_earned_choice_floors` is what stops a re-climb of the
+	# tower (which is the SHIPPED behaviour — a conquered tower re-climbs from floor
+	# 1) handing out the same guardian's reward on every lap. Without it, three
+	# classes would be four re-climbs of floor 5.
+	if _earned_choice_floors.has(_floor):
+		return
+	_earned_choice_floors.append(_floor)
+	pending_class_choices += 1
+	_save_climber()
+	class_choice_earned.emit(_floor)
 
 
 func notify_boss_killed() -> void: _boss_killed = true
@@ -825,7 +919,8 @@ static func default_layout() -> LayoutDef:
 ## The three levelling fields are APPENDED with defaults rather than inserted, so
 ## every existing 5-argument caller (and the suites that pin them) is untouched.
 static func build_climber_save(current_floor: int, highest_floor: int, falls: int, tower_conquered: bool, rank_power: int,
-		xp: int = 0, unlocked_nodes: Array = [], unlocked_classes: Array = []) -> Dictionary:
+		xp: int = 0, unlocked_nodes: Array = [], unlocked_classes: Array = [],
+		pending_class_choices: int = 0, earned_choice_floors: Array = []) -> Dictionary:
 	var current: int = maxi(current_floor, 1)
 	var nodes: Array = []
 	for n in unlocked_nodes:
@@ -847,6 +942,8 @@ static func build_climber_save(current_floor: int, highest_floor: int, falls: in
 		"xp": maxi(xp, 0),
 		"unlocked_nodes": nodes,
 		"unlocked_classes": classes,
+		"pending_class_choices": maxi(pending_class_choices, 0),
+		"earned_choice_floors": earned_choice_floors.duplicate(),
 	}
 
 
@@ -876,6 +973,14 @@ static func parse_climber_save(raw: Dictionary) -> Dictionary:
 		var ci: int = int(c)
 		if not classes.has(ci):
 			classes.append(ci)
+	# ⚠ int() ON EVERY ELEMENT, same trap as `unlocked_classes` above. A guardian floor
+	# that came back as 5.0 would never match `_floor`, so the re-climb guard would
+	# silently stop guarding and floor 5 would pay a class pick on every lap.
+	var earned: Array[int] = []
+	for f in (raw.get("earned_choice_floors", []) as Array):
+		var fi: int = int(f)
+		if not earned.has(fi):
+			earned.append(fi)
 	return {
 		"current_floor": current,
 		"highest_floor": highest,
@@ -885,6 +990,8 @@ static func parse_climber_save(raw: Dictionary) -> Dictionary:
 		"xp": xp,
 		"unlocked_nodes": nodes,
 		"unlocked_classes": classes,
+		"pending_class_choices": maxi(int(raw.get("pending_class_choices", 0)), 0),
+		"earned_choice_floors": earned,
 	}
 
 

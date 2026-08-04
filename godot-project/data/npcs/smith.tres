@@ -5,6 +5,6 @@
 [resource]
 script = ExtResource("1_npc_data")
 npc_id = "smith"
-npc_name = "the smith"
+npc_name = "the quartermaster"
 display_color = Color(0.85, 0.78, 0.42, 1)
-lines = Array[String](["take something. it's drawn on.", "the rack is full.", "i sharpen lines, not blades.", "wear it or don't.", "that one came back bent."])
+lines = Array[String](["everything there takes something back.", "hammer hits harder. and slower.", "helmet buys hits, not speed.", "an empty slot is a choice.", "i sharpen lines, not blades.", "that one came back bent."])

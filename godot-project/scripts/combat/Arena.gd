@@ -700,16 +700,23 @@ func _setup_heroes() -> void:
 		# Arena reports in from its own _ready and the host spawns when the party is
 		# actually assembled — with a 4 s fallback inside Net so one silent peer
 		# cannot hang the others.
+		# THE HANDSHAKE IS NOW SCENE-KEYED (see the `party_ready` note in Net.gd). The
+		# Antechamber uses the same machinery under its own tag, so this one re-arms
+		# and reports under "arena" and the two can never satisfy each other's gate.
+		net.call("rearm_handshake", "arena")
 		if net.is_host() and not net.party_ready.is_connected(_spawn_all_heroes):
 			net.party_ready.connect(_spawn_all_heroes)
-		net.notify_arena_ready()
+		net.call("notify_arena_ready", "arena")
 	else:
 		var h: Node = load("res://scenes/combat/Hero.tscn").instantiate()
 		(h as Node2D).position = DEFAULT_HERO_START
 		_heroes_root.add_child(h)
 
 
-func _spawn_all_heroes() -> void:
+func _spawn_all_heroes(tag: String = "arena") -> void:
+	# Another scene's handshake completing is not this scene's cue to spawn a party.
+	if tag != "arena":
+		return
 	var net: Node = get_node_or_null("/root/Net")
 	if net == null or not net.is_host() or _hero_spawner == null:
 		return

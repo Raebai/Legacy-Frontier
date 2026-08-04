@@ -42,6 +42,14 @@ const GROUND_THICKNESS: float = 260.0
 const ARMORY_X: float = 306.0        # the rack — weapon / head / body
 const ALTAR_X: float = 480.0         # the statue — which of the nine you are
 const LECTERN_X: float = 648.0       # the book — which three spells you carry
+## THE ARCHIVIST'S DESK — which spells you may carry AT ALL (the tree).
+##
+## ⚠ NEXT TO THE LECTERN, NOT ACROSS THE ROOM, because the two are one thought:
+## the tree decides your options and the lectern picks three of them, so a player
+## who has just learned a spell should be able to bind it without a walk. 58 px
+## apart is far enough that their proximity hints never fight for the same corner
+## (see the note on TOWNSFOLK wander ranges) and close enough to read as one desk.
+const ARCHIVIST_X: float = 590.0
 const CAMPFIRE_X: float = 740.0      # the warm middle; nothing to press
 const SPARRING_X: float = 180.0      # the chalk ring — free play, no stakes
 ## The party stone stands between the campfire and the door, so the last thing you
@@ -57,10 +65,20 @@ const PLAYER_SPAWN: Vector2 = Vector2(TOWER_X - 54.0, GROUND_Y)
 ## posted NEXT TO the thing they talk about, so a bark is a signpost as well as a
 ## bit of character, and their wander ranges are small enough that they never
 ## drift into a station's own hint and make two prompts fight for the same corner.
+##
+## ⚠ EACH ONE NOW HAS A JOB (spec §7). They were flavour; they are the town's
+## teaching layer. The Quartermaster says what a gear slot TRADES AWAY, the
+## Archivist says how the tree is priced, the Warden teaches the three mechanics
+## that are invisible until they kill you, and the Doorkeeper reads your climb back
+## to you — floor, best, falls, level — through `NPC._fill`.
+##
+## That last one is the deleted AI-NPC stack's actual job, and it turns out it never
+## needed a language model. It needed four numbers and a token in a string.
 const TOWNSFOLK: Array[Dictionary] = [
-	{"res": "res://data/npcs/smith.tres", "x": 362.0, "range": 34.0},
-	{"res": "res://data/npcs/scribe.tres", "x": 578.0, "range": 30.0},
-	{"res": "res://data/npcs/doorkeeper.tres", "x": 762.0, "range": 26.0},
+	{"res": "res://data/npcs/warden.tres", "x": 232.0, "range": 26.0},   # the sparring ring
+	{"res": "res://data/npcs/smith.tres", "x": 362.0, "range": 34.0},    # the rack
+	{"res": "res://data/npcs/scribe.tres", "x": 550.0, "range": 24.0},   # the Archivist's desk
+	{"res": "res://data/npcs/doorkeeper.tres", "x": 762.0, "range": 26.0},  # the door
 ]
 
 ## Decoration only — a raised deck up-left that gives the skyline some depth. It
@@ -88,6 +106,7 @@ const MIN_TAP: float = 30.0
 
 var _outfitter_layer: CanvasLayer = null
 var _outfitter: Control = null
+var _tree_screen: Control = null
 
 
 func _ready() -> void:
@@ -96,6 +115,10 @@ func _ready() -> void:
 	_build_loft()
 	_spawn_ambience()
 	_place_player()
+	# AFTER `_place_player`, so the peer bodies are laid out relative to a doorstep
+	# the local player is already standing on rather than to wherever Main.tscn
+	# happened to park it.
+	_setup_peer_bodies()
 	_spawn_tower_entrance()
 	_spawn_class_altar()
 	_spawn_stations()
@@ -194,6 +217,93 @@ func _make_platform(center: Vector2, size: Vector2) -> void:
 
 
 # --------------------------------------------------------------------- placement
+## ══ THE TEAMMATE'S BODY ═══════════════════════════════════════════════════════
+## Maker: "a teammate spawns into the antechamber with you".
+##
+## Host and client both ROUTE here and the session is live, but peer bodies were
+## spawned by `Arena._spawn_hero_net` through a `MultiplayerSpawner` plus the
+## `party_ready` handshake — and none of that machinery existed in this file, so the
+## room was a co-op lobby you stood in alone.
+##
+## ⚠ THIS IS A PORT, NOT A COPY. Three things differ from the Arena, and each of
+## them is the reason a straight copy would have been wrong:
+##
+##   1. **The body is `Player`, not `Hero`.** The town walker is a different scene
+##      with a different script. Spawning a `Hero` here would put a combat body with
+##      spells, cooldowns and a damage model into a room with nothing to fight.
+##   2. **The LOCAL player already exists.** `Main.tscn` parks one Player in the
+##      scene and `_place_player` moves it to the doorstep. So the spawner must
+##      create bodies for the OTHER peers only — spawning one for yourself would
+##      leave you standing inside a twin.
+##   3. **The handshake is tagged "antechamber".** See the `party_ready` note in
+##      Net.gd: sharing the arena's one-shot would have meant nobody spawns in the
+##      actual fight.
+var _peers_root: Node2D = null
+var _peer_spawner: MultiplayerSpawner = null
+
+## Far enough apart that two stick figures do not overlap at the door, near enough
+## that you can see who arrived without turning the camera.
+const PARTY_SPAWN_GAP: float = 46.0
+
+
+func _setup_peer_bodies() -> void:
+	var net: Node = get_node_or_null("/root/Net")
+	if net == null or not net.is_active():
+		return
+	_peers_root = Node2D.new()
+	_peers_root.name = "Peers"
+	add_child(_peers_root)
+
+	_peer_spawner = MultiplayerSpawner.new()
+	_peer_spawner.name = "PeerSpawner"
+	add_child(_peer_spawner)
+	_peer_spawner.spawn_path = _peers_root.get_path()
+	_peer_spawner.spawn_function = Callable(self, "_spawn_peer_body")
+
+	net.call("rearm_handshake", "antechamber")
+	if net.is_host() and not net.party_ready.is_connected(_spawn_all_peer_bodies):
+		net.party_ready.connect(_spawn_all_peer_bodies)
+	net.call("notify_arena_ready", "antechamber")
+
+
+func _spawn_all_peer_bodies(tag: String = "antechamber") -> void:
+	if tag != "antechamber":
+		return
+	var net: Node = get_node_or_null("/root/Net")
+	if net == null or not net.is_host() or _peer_spawner == null:
+		return
+	var i: int = 1
+	for pid in net.peers():
+		# ⚠ SKIP EVERY PEER THAT ALREADY HAS A BODY IN THIS ROOM — which, for the
+		# local player, is always. `Main.tscn` parks one Player in the scene; spawning
+		# a second for the same person puts you inside your own twin.
+		if int(pid) == int(net.my_id()):
+			continue
+		var x: float = PLAYER_SPAWN.x - PARTY_SPAWN_GAP * float(i)
+		_peer_spawner.spawn({"peer": int(pid), "cls": int(net.class_of(pid)), "x": x, "y": PLAYER_SPAWN.y})
+		i += 1
+
+
+## Runs on EVERY peer with identical data, so authority assignment is deterministic.
+## Props are set BEFORE the spawner adds the node, exactly as `Arena._spawn_hero_net`
+## does — a property written after `add_child` has already missed `_ready`.
+func _spawn_peer_body(data: Dictionary) -> Node:
+	var p: Node = load("res://scenes/Player.tscn").instantiate()
+	p.name = "Peer_%d" % int(data["peer"])
+	(p as Node2D).position = Vector2(float(data["x"]), float(data["y"]))
+	p.set_multiplayer_authority(int(data["peer"]))
+	# ⚠ OUT OF THE "player" GROUP. `_place_player`, every station's proximity check
+	# and the town's overlay freeze all resolve the local player through that group —
+	# `get_first_node_in_group("player")` would start returning whichever body was
+	# added most recently, so your friend walking past the lectern would open YOUR
+	# armoury. The group is local identity, not "is a person".
+	p.remove_from_group("player")
+	p.add_to_group("town_peer")
+	if p.has_method("set_class_tint"):
+		p.call("set_class_tint", ClassInfo.color_for(int(data["cls"])))
+	return p
+
+
 func _place_player() -> void:
 	var player: Node = get_tree().get_first_node_in_group("player")
 	if player == null or not player is Node2D:
@@ -253,6 +363,11 @@ func _spawn_stations() -> void:
 	add_child(lectern)
 	lectern.global_position = Vector2(LECTERN_X, GROUND_Y)
 
+	var archivist: StaticBody2D = STATION_SCRIPT.new()
+	archivist.set("kind", "tree")
+	add_child(archivist)
+	archivist.global_position = Vector2(ARCHIVIST_X, GROUND_Y)
+
 	# THE SPARRING RING. Free play was a button on the TITLE screen, which is the one
 	# place a player is not yet curious about what their thumbs do. In the room it is
 	# something you walk past, at the FAR END from the door, so nobody heading for
@@ -299,6 +414,35 @@ func open_outfitter() -> void:
 	_outfitter.call("set_class", int(gs.get("selected_class")) if gs != null else 0)
 	if _outfitter.has_signal(&"closed"):
 		_outfitter.connect(&"closed", _on_outfitter_closed)
+
+
+## THE SPELL TREE, on demand. Same lifetime rules as the Outfitter above and for the
+## same reasons — a `Control` needs a `CanvasLayer` over a `Node2D` world, and the
+## `town_overlay` group is what freezes the player and every station underneath it
+## without any of them having to know what is open.
+func open_spell_tree() -> void:
+	if _tree_screen != null and is_instance_valid(_tree_screen):
+		return
+	if _outfitter_layer == null:
+		_outfitter_layer = CanvasLayer.new()
+		_outfitter_layer.layer = 95
+		add_child(_outfitter_layer)
+	_tree_screen = SpellTreeScreen.new()
+	_tree_screen.add_to_group("town_overlay")
+	_outfitter_layer.add_child(_tree_screen)
+	var gs: Node = get_node_or_null("/root/GameState")
+	_tree_screen.call("set_class", int(gs.get("selected_class")) if gs != null else 0)
+	if _tree_screen.has_signal(&"closed"):
+		_tree_screen.connect(&"closed", _on_spell_tree_closed)
+
+
+func _on_spell_tree_closed() -> void:
+	if _tree_screen != null and is_instance_valid(_tree_screen):
+		# Out of the group in the same frame it closes, so the player is not frozen
+		# for the frame between `closed` and `queue_free` landing.
+		_tree_screen.remove_from_group("town_overlay")
+		_tree_screen.queue_free()
+	_tree_screen = null
 
 
 func _on_outfitter_closed() -> void:

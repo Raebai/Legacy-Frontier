@@ -42,6 +42,7 @@ var _in_range: bool = false
 func _ready() -> void:
 	match kind:
 		"spells": _build_lectern()
+		"tree": _build_lectern()
 		"sparring": _build_ring()
 		"party": _build_stone()
 		_: _build_rack()
@@ -194,6 +195,7 @@ func _build_stone() -> void:
 func _hint_text() -> String:
 	match kind:
 		"spells": return "[E] Spells"
+		"tree": return _tree_hint()
 		"sparring": return "[E] Sparring ring"
 		"party":
 			var net: Node = get_node_or_null(^"/root/Net")
@@ -231,6 +233,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif _hint != null:
 			_hint.text = _hint_text()   # re-read: a friend may have joined since
 		return
+	if kind == "tree":
+		# Same ownership rule as the Outfitter below: a full-screen Control cannot be
+		# parented to a StaticBody2D sitting in world space, so the town owns it.
+		var town_t: Node = get_tree().current_scene
+		if town_t != null and town_t.has_method("open_spell_tree"):
+			town_t.call("open_spell_tree")
+			get_viewport().set_input_as_handled()
+		return
 	if kind == "spells":
 		# The Outfitter is a Control and needs a CanvasLayer, so the town owns its
 		# lifetime rather than this station parenting a full-screen panel to a
@@ -258,3 +268,20 @@ func _overlay_open() -> bool:
 		if o is CanvasItem and (o as CanvasItem).visible:
 			return true
 	return false
+
+
+## ⚠ THE HINT CARRIES THE UNSPENT-POINT COUNT, and that is the only prompting the
+## tree gets. A level-up already fires a spectacle in the fight; a second nag in the
+## town would be the "you have unspent points!" badge that every RPG menu wears and
+## that this town's whole design brief exists to avoid. But a player who has never
+## opened this screen has no way to learn a point is waiting, so the station says so
+## and then says nothing else.
+func _tree_hint() -> String:
+	var gs: Node = get_node_or_null(^"/root/GameState")
+	if gs == null:
+		return "[E] The Archivist"
+	var owned: Array = gs.get("unlocked_nodes") as Array
+	var spare: int = SpellTree.points_available(int(gs.call("level")), owned)
+	if spare <= 0:
+		return "[E] The Archivist"
+	return "[E] The Archivist  ·  %d point%s" % [spare, "" if spare == 1 else "s"]

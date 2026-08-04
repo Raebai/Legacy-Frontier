@@ -9,6 +9,8 @@ extends CanvasLayer
 ## elsewhere via /root/ClassSelect so headless tests never need the autoload.
 
 const CARD_SIZE: Vector2 = Vector2(232, 92)
+## Appended to a locked card. Says WHERE the class is, not merely that it is gone.
+const LOCK_SUFFIX: String = "   [ held by a guardian ]"
 const HIGHLIGHT: Color = Color(0.55, 0.9, 1.0)
 
 var _cards: Array[Button] = []
@@ -65,6 +67,33 @@ func _build_cards(grid: GridContainer) -> void:
 		b.pressed.connect(_on_card_pressed.bind(i))
 		grid.add_child(b)
 		_cards.append(b)
+	_refresh_locks()
+
+
+## ⚠ LOCKED CLASSES ARE SHOWN, NOT HIDDEN. Three of the nine are withheld until a
+## guardian is felled (`Progression.LOCKED_CLASSES`), and the difference between a
+## card that says "a guardian holds this" and a card that is simply absent is the
+## difference between a goal and a smaller game. A player has to be able to WANT the
+## thing before they can be rewarded with it.
+##
+## Re-read on every `open()` rather than only at build time, because a class can be
+## earned between two visits to the altar — and a stale card would go on refusing a
+## class the save already says is unlocked.
+func _refresh_locks() -> void:
+	var gs: Node = get_node_or_null("/root/GameState")
+	var owned: Array = [] if gs == null else (gs.get("unlocked_classes") as Array)
+	for i: int in _cards.size():
+		var unlocked: bool = Progression.is_class_unlocked(i, owned)
+		var b: Button = _cards[i]
+		b.disabled = not unlocked
+		b.modulate.a = 1.0 if unlocked else 0.45
+		# Idempotent: `open()` re-runs this, and appending unconditionally would grow
+		# the label a little more every single time the altar is used.
+		var has_suffix: bool = b.text.ends_with(LOCK_SUFFIX)
+		if not unlocked and not has_suffix:
+			b.text += LOCK_SUFFIX
+		elif unlocked and has_suffix:
+			b.text = b.text.substr(0, b.text.length() - LOCK_SUFFIX.length())
 
 
 func is_open() -> bool:
@@ -72,6 +101,7 @@ func is_open() -> bool:
 
 
 func open() -> void:
+	_refresh_locks()
 	_refresh_highlight()
 	visible = true
 	var idx: int = _selected_class()
@@ -90,6 +120,19 @@ func _on_dim_input(event: InputEvent) -> void:
 
 func _on_card_pressed(index: int) -> void:
 	var gs: Node = get_node_or_null("/root/GameState")
+	# ⚠ RE-CHECKED, not trusted from `disabled`. A card built before a save loaded, or
+	# a keyboard/gamepad focus walk that lands on a disabled button, would otherwise
+	# hand out a class the climber has not earned — and `selected_class` persists, so
+	# it would stick.
+	if gs != null and not Progression.is_class_unlocked(index, gs.get("unlocked_classes") as Array):
+		# ...UNLESS A GUARDIAN BANKED A PICK. This is where the floor-5 reward is
+		# actually spent: pressing a locked card with a pick in hand CLAIMS that class.
+		# The altar is the right place for it — the choosing is the part you remember,
+		# and it happens somewhere you chose to walk to rather than in a pop-up over a
+		# corpse.
+		if not (gs.has_method("spend_class_choice") and bool(gs.call("spend_class_choice", index))):
+			return
+		_refresh_locks()
 	if gs != null:
 		gs.set("selected_class", index)
 	_apply_feedback(index)

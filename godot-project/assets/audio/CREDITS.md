@@ -40,9 +40,8 @@ Packs drawn on:
 | Alexander Kopeikin — 100 kHz Designed Ice | Glacial Spine, Frostpiercer, rime ticks, ice shatter, ward crack, shrapnel |
 | Alexander Kopeikin — Emotion and Magic | arcane/shadow casts, the shadow beam, levitation, drain pull, field merge |
 | Cinematic Sound Design — Colossal Impacts | Colossus Pillar, avalanche, bombardment, rubble, breach |
-| Cinematic Sound Design — Ultra Transitions & Impacts | beam start/end, siege ult, resonance, Hollow Purple erase |
-| Cinematic Sound Design — Sci-Fi Drones | rift open, the unmaking ult, the rumble stem |
-| Cinematic Sound Design — Cartoon Impacts / Cartoon & Animation Vol 2 | shadow root, shadow crawl, void pull, floor-hugging shove |
+| Cinematic Sound Design — Ultra Transitions & Impacts | beam start/end, siege ult, resonance, Hollow Purple erase, every SHADOW cue (2026-08-04) |
+| Cinematic Sound Design — Sci-Fi Drones | rift open, the unmaking ult, the rumble stem, the shadow crawl bed |
 | Cinematic Sound Design — Interface & Infographics / System & UI / UI Interaction / User Interface / Hybrid Game & UI | ward raise, ward absorb, ground out, telegraph, banish, the crack stem |
 | Federico Soler — Effective Trailer Booms Vol. 2 | the `sub_boom` layer stem, holy pillar, eruption, verdict burn, overpower, thunder tail |
 | Federico Soler — Effective Trailer Alarms Vol. 2 | ult charge riser, siege ult, Heaven's Verdict thread, telegraph |
@@ -53,6 +52,22 @@ Packs drawn on:
 | Epic Stock Media — Strange Game Ambient Loops 3 | the sigil forming |
 | Epic Stock Media — Public Spaces (Storms…) | thunder — located by peak-scanning a seven-minute storm recording |
 | CB_Sounddesign — Applicable Sounds | holy cast, ward raise, banish |
+
+> **2026-08-04 — the cartoon packs are gone.** Maker: *"some of the vfx are goofy
+> or weird slightly sounding so they need to be changed to something way more
+> epic"*, naming the SHADOW cues. Every one of them had been mined from packs
+> literally called **Cartoon Impacts** and **Cartoon & Animation Vol 2**, so
+> "goofy" was not a matter of taste — it was the source doing exactly what its
+> label says. `shadow_root`, `shadow_crawl`, `void_pull`, `rx_void_pull`,
+> `rift_open`, `hollow_intake` and `ult_shove` now come from **Ultra Transitions
+> & Impacts** ("Transition Braam Slow Dark Creepy") and **Sci-Fi Drones** ("Dark
+> Industrial Ambience"). No file from either cartoon pack is referenced anywhere
+> in `build_combat_sfx.py` any more.
+>
+> ⚠ **UNHEARD.** Nobody has listened to these. The mapping is defensible on
+> paper — a slow descending braam IS what a pull and a crawl are — but the
+> standing judgement on this project is that playtest beats reasoning, and audio
+> is the one channel a screenshot cannot check.
 
 ### 1b. Free Fantasy SFX Pack — TomMusic
 

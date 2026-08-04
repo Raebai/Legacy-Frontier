@@ -276,19 +276,21 @@ MANIFEST: dict[str, list[dict]] = {
     # Shadow Crawler comes from UNDER you -- a low tonal creep, not an impact.
     "shadow_crawl": [S(KMAG, "magic, drone, tension, spellbound, evanescence-002.wav",
                        dur=1.4, at="peak:2", sure=MED, rate=LOW_RATE),
-                     S(CIMP, "Cartoon Airy Impact Creaks.wav", dur=1.2, sure=LOW)],
-    # Shadow Root grabs and holds. Creaks plus something biting into flesh.
-    "shadow_root": [S(CIMP, "Cartoon Airy Impact Creaks.wav", dur=1.0, at="peak",
-                      sure=MED),
+                     S(CDRN, "Dark Industrial Ambience.wav", dur=1.4, at="peak",
+                       db=-3.0, sure=MED, rate=LOW_RATE)],
+    # Shadow Root grabs and holds. A slow dark braam under something biting flesh.
+    "shadow_root": [S(ULTRA, "Transition Braam Slow Dark Creepy.wav", dur=1.0,
+                      at="peak", sure=MED, rate=LOW_RATE),
                     S(PEP, "FIGHTING/ImpaleFlesh4.wav", dur=0.8, sure=MED)],
-    "void_pull": [S(CAN2, "Cartoon Transition Bass Down.wav", dur=1.6, sure=MED, rate=LOW_RATE),
+    "void_pull": [S(ULTRA, "Transition Braam Slow Dark Creepy.wav", dur=1.6, sure=MED,
+                    rate=LOW_RATE),
                   S(KMAG, "magic, energy flow, astral travel-015.wav",
                     dur=1.6, at="peak", sure=LOW, rate=LOW_RATE)],
     # A tear in space. Thin, wrong, and glitched -- deliberately not "big".
     "rift_open": [S(CDRN, "Psycho Glitched Screechy Tones Noise.wav",
                     dur=1.0, at="peak:2", sure=LOW, rate=LOW_RATE),
-                  S(CIMP, "Vibrato Impact Snap Spin Transition.wav",
-                    dur=1.0, sure=MED)],
+                  S(CDRN, "Dark Industrial Ambience.wav",
+                    dur=1.0, at="peak", db=-4.0, sure=MED, rate=LOW_RATE)],
 
     # ===================================================================== HOLY
     "holy_swell": [S(CC0, "24.wav", dur=1.8, at="peak", sure=MED),
@@ -334,7 +336,7 @@ MANIFEST: dict[str, list[dict]] = {
     # A floor-hugging shove -- a sweep that stays low, not a detonation.
     "ult_shove": [S(ULTRA, "Woosh Sweep Slide Infographics Basic.wav",
                     dur=1.2, sure=MED),
-                  S(CAN2, "Cartoon Transition Bass Down.wav", dur=1.6, at="peak",
+                  S(ULTRA, "Transition Braam Slow Dark Creepy.wav", dur=1.6, at="peak",
                     sure=MED, rate=LOW_RATE)],
     # UNMAKING. Its audio identity is ABSENCE. This is deliberately the quietest
     # entry in the roster and the mix trims it further -- see Sfx.PROFILE. It must
@@ -342,7 +344,8 @@ MANIFEST: dict[str, list[dict]] = {
     "ult_unmaking": [S(CDRN, "Psycho Glitched Screechy Tones Noise.wav",
                        dur=1.4, at="peak:4", db=-9.0, sure=LOW, rate=LOW_RATE)],
     # Hollow Purple: intake, then the erasure lance.
-    "hollow_intake": [S(CAN2, "Cartoon Transition Bass Down.wav", dur=1.8, sure=MED, rate=LOW_RATE),
+    "hollow_intake": [S(ULTRA, "Transition Braam Slow Dark Creepy.wav", dur=1.8,
+                        sure=MED, rate=LOW_RATE),
                       S(KMAG, "magic, energy flow, astral travel-015.wav",
                         dur=1.8, at="peak:2", sure=LOW, rate=LOW_RATE)],
     "hollow_erase": [S(BOOM, "EffectiveTrailer_Booms_Vol2_011.wav",
@@ -436,7 +439,7 @@ MANIFEST: dict[str, list[dict]] = {
     "rx_shrapnel": [S(KICE, "ice, surface cracking, fissure, fast, hard-003.wav",
                       dur=1.0, at="peak:2", sure=MED),
                     S(PEP, "BLOOD/gore enhancer 04.wav", dur=0.9, sure=MED)],
-    "rx_void_pull": [S(CAN2, "Cartoon Transition Bass Down.wav",
+    "rx_void_pull": [S(ULTRA, "Transition Braam Slow Dark Creepy.wav",
                        dur=1.4, at="peak", sure=MED, rate=LOW_RATE)],
     "rx_resonance": [S(ULTRA, "Impact Hit Rapid Chord Reverb.wav",
                        dur=1.8, at="peak", sure=HIGH)],

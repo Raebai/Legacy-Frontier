@@ -216,8 +216,8 @@ func _test_three_stations_answer() -> void:
 
 	var stations: Array = []
 	_find(town, STATION_SCRIPT, stations)
-	# THREE STATIONS IN A SOLO VISIT: the rack, the lectern and the sparring ring.
-	# The PARTY STONE is the fourth and is co-op-only — `World._session_is_party()`
+	# FOUR STATIONS IN A SOLO VISIT: the rack, the lectern, the Archivist's desk and
+	# the sparring ring. The PARTY STONE is the fifth and is co-op-only — `World._session_is_party()`
 	# keeps it out of a solo room, because a station that answers "nobody here" to a
 	# lone player is a dead object teaching them the room has broken parts.
 	#
@@ -227,10 +227,12 @@ func _test_three_stations_answer() -> void:
 	var station_kinds: Dictionary = {}
 	for st: Node in stations:
 		station_kinds[String(st.get("kind"))] = true
-	_expect(stations.size() == 3,
-		"three stations in a solo room: rack, lectern, sparring ring (got %d)" % stations.size())
+	_expect(stations.size() == 4,
+		"four stations in a solo room: rack, lectern, Archivist, sparring ring (got %d)"
+		% stations.size())
 	_expect(station_kinds.has("armory"), "the rack is there")
 	_expect(station_kinds.has("spells"), "the lectern is there")
+	_expect(station_kinds.has("tree"), "the Archivist's desk is there (the spell tree)")
 	_expect(station_kinds.has("sparring"), "the sparring ring is there")
 	_expect(not station_kinds.has("party"),
 		"...and the party stone is NOT, because this is a solo visit")

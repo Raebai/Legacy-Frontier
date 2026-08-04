@@ -104,6 +104,37 @@ func _unhandled_input(event: InputEvent) -> void:
 	get_viewport().set_input_as_handled()
 
 
+## ⚠ THE TOWN CLOCKING YOUR CLIMB, AND IT IS THE WHOLE POINT OF THE TOWN.
+##
+## The v0.5 AI-NPC stack existed so the town could say "that is 4 falls now". That
+## stack is deleted and stays deleted — but the FEELING it was for is the project's
+## moat, and it does not actually need a language model. It needs four numbers.
+##
+## So an authored line may carry a token, and the town fills it in:
+##   {floor} the floor you will resume on   {best} the highest you have ever reached
+##   {falls} how many times you have fallen {level} your level
+##   {points} unspent skill points
+##
+## A line with no token is untouched, which is every line the town shipped with.
+## An unknown token is left as-is rather than blanked — a visible `{oops}` in a
+## speech bubble is a bug report; a silently empty sentence is not.
+func _fill(line: String) -> String:
+	if not line.contains("{"):
+		return line
+	var gs: Node = get_node_or_null(^"/root/GameState")
+	if gs == null:
+		return line
+	var level: int = int(gs.call("level"))
+	var owned: Array = gs.get("unlocked_nodes") as Array
+	var out: String = line
+	out = out.replace("{floor}", str(int(gs.call("current_floor"))))
+	out = out.replace("{best}", str(int(gs.get("_highest_floor"))))
+	out = out.replace("{falls}", str(int(gs.get("_falls"))))
+	out = out.replace("{level}", str(level))
+	out = out.replace("{points}", str(SpellTree.points_available(level, owned)))
+	return out
+
+
 ## Say one line. Public so a capture tool can pose the town without faking input.
 ## Returns false when there is nothing to say — SYNCHRONOUS, like `Bark.say`, and
 ## for the same reason: one `await` in here turns every call site into a coroutine.
@@ -115,7 +146,7 @@ func speak() -> bool:
 		i = (i + 1) % data.lines.size()
 	_last_line = i
 	# NOT awaited — SpeechBubble.say yields a few frames while it shrink-to-fits.
-	speech_bubble.say(data.lines[i], LINE_HOLD)
+	speech_bubble.say(_fill(data.lines[i]), LINE_HOLD)
 	Bark.voice_only(self, Gibberish.Mood.TALK)
 	return true
 

@@ -29,6 +29,8 @@ const TESTS: Array[String] = [
 	"advance_and_bank",
 	"party_starts_at_the_lowest_checkpoint",
 	"party_scales_by_bodies_not_stats",
+	"a_guardian_pays_one_class_pick_ever",
+	"levelling_fields_survive_the_disk",
 ]
 
 var _fails: int = 0
@@ -54,6 +56,8 @@ func _process(_delta: float) -> bool:
 	_test_advance_and_bank(GS)
 	_test_party_starts_at_the_lowest_checkpoint(GS)
 	_test_party_scales_by_bodies_not_stats()
+	_test_a_guardian_pays_one_class_pick_ever(GS)
+	_test_levelling_fields_survive_the_disk(GS)
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -348,3 +352,77 @@ func _test_party_scales_by_bodies_not_stats() -> void:
 	_expect(int(E.party_budget(10, 3)) >= int(E.party_budget(10, 2)),
 		"a third climber never REDUCES the encounter")
 	_completes("party_scales_by_bodies_not_stats")
+
+
+## ⚠ THE RE-CLIMB EXPLOIT, PINNED. A conquered tower re-climbs from floor 1 (that is
+## the shipped behaviour in `enter_run`), so a guardian that pays a class pick every
+## time it dies would make all three locked classes four laps of the easiest boss in
+## the game. `_earned_choice_floors` is the guard and this is why it cannot be
+## dropped as "redundant with pending_class_choices" — the counter is SPENT, so it
+## cannot remember anything.
+func _test_a_guardian_pays_one_class_pick_ever(GS: GDScript) -> void:
+	var gs: Node = GS.new()
+	gs.active_tower = GS.build_default_tower()
+	gs._run_active = true
+	var unlock_floor: int = int(Progression.CLASS_UNLOCK_FLOORS[0])
+	gs._floor = unlock_floor
+	_expect(gs.pending_class_choices == 0, "a fresh climber has no picks banked")
+	gs.notify_guardian_killed()
+	_expect(gs.pending_class_choices == 1, "felling the guardian banks exactly one pick")
+	# THE SAME GUARDIAN AGAIN — a re-climb, or simply a replayed death beat.
+	gs.notify_guardian_killed()
+	_expect(gs.pending_class_choices == 1, "the SAME guardian never pays twice, however often it dies")
+	# An ordinary floor's guardian pays XP but no pick.
+	gs._floor = 2
+	gs.notify_guardian_killed()
+	_expect(gs.pending_class_choices == 1, "a non-unlock floor's guardian banks no pick")
+	# SPENDING. Only a locked class, only with a pick in hand, and never twice.
+	_expect(not gs.spend_class_choice(0), "a STARTING class cannot be claimed with a pick")
+	var locked: int = int(Progression.LOCKED_CLASSES[0])
+	_expect(gs.spend_class_choice(locked), "a locked class can be claimed")
+	_expect(gs.pending_class_choices == 0, "...and the pick is spent")
+	_expect(Progression.is_class_unlocked(locked, gs.unlocked_classes), "...and the class is unlocked")
+	_expect(not gs.spend_class_choice(int(Progression.LOCKED_CLASSES[1])),
+		"a second class cannot be claimed on an empty balance")
+	# A DOUBLE-TAP on the altar must not burn a pick on a class already held.
+	gs.pending_class_choices = 1
+	_expect(not gs.spend_class_choice(locked), "re-claiming a class already held is refused")
+	_expect(gs.pending_class_choices == 1, "...and costs nothing")
+	gs.free()
+	_completes("a_guardian_pays_one_class_pick_ever")
+
+
+## The v1 -> v2 fields round-trip through real JSON, including the float trap on
+## every list. `unlocked_classes` is the dangerous one: JSON gives 6.0, and an array
+## of floats compared against an int class id matches NOTHING — an earned class
+## would silently re-lock on every single load.
+func _test_levelling_fields_survive_the_disk(GS: GDScript) -> void:
+	var payload: Dictionary = GS.build_climber_save(4, 6, 2, true, 40,
+		1234, ["0:damage:linked", "0:payoff:native"], [6, 8], 1, [5])
+	var back: Variant = JSON.parse_string(JSON.stringify(payload))
+	_expect(typeof(back) == TYPE_DICTIONARY, "the v2 payload survives JSON")
+	var st: Dictionary = GS.parse_climber_save(back)
+	_expect(int(st["xp"]) == 1234, "xp survives")
+	_expect(typeof(st["xp"]) == TYPE_INT, "...as an int, not a float")
+	_expect((st["unlocked_nodes"] as Array).size() == 2, "both tree nodes survive")
+	_expect((st["unlocked_classes"] as Array).has(6),
+		"an unlocked class is still MATCHABLE after a JSON round trip (the 6.0 trap)")
+	_expect((st["earned_choice_floors"] as Array).has(5),
+		"an earned guardian floor is still matchable (the same trap, on the re-climb guard)")
+	_expect(int(st["pending_class_choices"]) == 1, "a banked pick survives")
+	# A v1 SAVE — none of these keys — must load as a fresh level-1 climber rather
+	# than erroring. This is the whole migration.
+	var v1: Dictionary = {"current_floor": 3, "highest_floor": 3, "falls": 1,
+		"tower_conquered": false, "rank_power": 12, "version": 1}
+	var old: Dictionary = GS.parse_climber_save(v1)
+	_expect(int(old["xp"]) == 0, "a v1 save loads at 0 xp")
+	_expect((old["unlocked_nodes"] as Array).is_empty(), "...with no tree bought")
+	_expect((old["unlocked_classes"] as Array).is_empty(), "...and no classes earned")
+	_expect(int(old["current_floor"]) == 3, "...while its climb is untouched")
+	# Duplicates are collapsed, so a save hand-edited (or double-appended by a bug)
+	# cannot make a player look like they own the same node twice and overspend.
+	var dupes: Dictionary = GS.parse_climber_save({"unlocked_nodes": ["a", "a", "b"],
+		"unlocked_classes": [7, 7]})
+	_expect((dupes["unlocked_nodes"] as Array).size() == 2, "duplicate nodes collapse")
+	_expect((dupes["unlocked_classes"] as Array).size() == 1, "duplicate classes collapse")
+	_completes("levelling_fields_survive_the_disk")
