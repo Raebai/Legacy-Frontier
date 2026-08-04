@@ -24,7 +24,11 @@
 #      drive the human's hero too. Bots keep selecting by index and pulling `ultimate`.
 #      Breaking that is invisible in single player and turns every bot into a spammer
 #      of whatever spell was selected.
-#   5. The buffer covers the spell buttons — a press two frames early still fires.
+#   5. THE BAR IS SIX THINGS. A maker ruling, not an emergent shape — see
+#      `_test_hotbar_is_six_things`. A row quietly re-added to `ability_hud_state`
+#      would look like a feature and read, to the maker, as the thing they already
+#      told us to delete coming back.
+#   6. The buffer covers the spell buttons — a press two frames early still fires.
 #   6. The touch arc's three buttons do not overlap each other's HIT BOXES. They are
 #      drawn as circles and tapped as rectangles, so "they look fine" is not the test.
 extends SceneTree
@@ -41,6 +45,7 @@ const TESTS: Array[String] = [
 	"button_casts_its_own_slot",
 	"empty_slot_button_does_nothing",
 	"hotbar_labels_are_the_real_keys",
+	"hotbar_is_six_things",
 	"buffer_holds_a_spell_press",
 	"held_button_repeats_when_ready",
 	"bot_seam_is_intact",
@@ -71,6 +76,7 @@ func _process(_delta: float) -> bool:
 	_test_button_casts_its_own_slot()
 	_test_empty_slot()
 	_test_hotbar_labels()
+	_test_hotbar_is_six_things()
 	_test_buffer_holds()
 	_test_held_repeats()
 	_test_bot_seam()
@@ -240,6 +246,64 @@ func _test_hotbar_labels() -> void:
 		+ "not the way you reach a spell"))
 	hero.queue_free()
 	_completes("hotbar_labels_are_the_real_keys")
+
+
+# ------------------------------------------------------------------------ 5b
+## THE BAR IS SIX THINGS, AND THAT IS A RULING RATHER THAN AN EMERGENT SHAPE.
+##
+## Mid-playtest the maker cut the hotbar down in one line: **"4 spells, deflect and
+## basic attack — that's all there should be to all of them."** So `ability_hud_state`
+## publishes the basic attack, the defensive verb and `SpellTier.SLOT_COUNT` sockets —
+## and the four rows that used to pad it (the movement verb on Spc, the class AoE on Q,
+## Blink on R, Nova on T) publish nothing at all.
+##
+## Pinned as an EQUALITY and by KEY LABEL, for the same reason the arc-overlap test is
+## an equality: a row added back would not error, it would simply appear, and the next
+## person to read the bar has no way to tell a feature from the thing the maker already
+## asked to have deleted. Checked on EVERY class, because the removed rows were the
+## class-dependent ones ("consecrate and the one next to it" was the Cleric's Q and the
+## Nova beside it) and a per-class regression would hide behind class 0.
+##
+## ⚠ THIS DOES NOT PIN THE VERBS AS DEAD. `blast` / `blink` / `nova` / `dash` still
+## fire on their keys — bots, the rebind menu and several harnesses drive them. What
+## is pinned is the SCREEN, which is what the maker was looking at.
+func _test_hotbar_is_six_things() -> void:
+	var hero: CharacterBody2D = _make_hero()
+	var want: int = SpellTier.SLOT_COUNT + 2   # the four sockets + deflect + dash
+	# ⚠ THE LAYOUT WAS CORRECTED AFTER THE FIRST CUT, AND THIS LIST MOVED WITH IT.
+	# Shown the six-square bar (LMB + RMB + four sockets), the maker said: "no no, it
+	# should be RMB parry, Space to dash with its cooldown on the left, then 1 2 3 4 on
+	# the right, and the 4 ultra should have that special border." So the BASIC ATTACK
+	# lost its square and DASH got one back — the left cluster is the two buttons with
+	# a cooldown worth watching, and LMB's 0.34 s square was always full.
+	# ⚠ "T" LEFT THIS LIST. Maker, after the cut: "I really like Nova and its
+	# equivalent, so make sure those spells are one of the 4 — and if not, then one of
+	# the 5, including Nova." It is published again, in the left cluster, and only on
+	# the classes whose `has_nova` is true — so the bar is 6 or 7 things, not a fixed
+	# count, and the assertion below counts the SOCKETS and the cut keys instead.
+	const GONE: Array[String] = ["LMB", "Q", "R"]
+	var classes: int = int(hero.get("CLASS_NAMES").size())
+	_expect(classes > 0, "there is at least one class to check")
+	for c: int in classes:
+		hero.configure_class(c)
+		var bar: Array = hero.call("ability_hud_state")
+		var has_nova: bool = bool(hero.get("_cfg").get("has_nova", false))
+		_expect(bar.size() == want + (1 if has_nova else 0),
+			"class %d's hotbar is deflect + dash (+ Nova) + %d sockets (got %d)"
+				% [c, SpellTier.SLOT_COUNT, bar.size()])
+		var keys: Dictionary = {}
+		for entry: Variant in bar:
+			if entry is Dictionary:
+				keys[String((entry as Dictionary).get("key", ""))] = true
+		_expect(keys.has("Spc"), "class %d still draws the DASH and its cooldown" % c)
+		_expect(keys.has("RMB"), "class %d still draws the DEFLECT" % c)
+		for k: String in GONE:
+			_expect(not keys.has(k),
+				("class %d's hotbar draws a '%s' row again — the movement verb, the class "
+				+ "AoE, Blink and Nova were cut from the bar by ruling, not by accident")
+					% [c, k])
+	hero.queue_free()
+	_completes("hotbar_is_six_things")
 
 
 # ------------------------------------------------------------------------- 6

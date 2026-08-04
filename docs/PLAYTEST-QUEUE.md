@@ -1,3 +1,62 @@
+# LIVE PLAYTEST QUEUE — 2026-08-04 (wave 2)
+
+The maker is playing and calling things out faster than they can be built. Verbatim
+intent preserved. **Nothing here is a design question — it is all "make it so".**
+
+---
+
+## ✅ DONE THIS ROUND
+
+- **THE LEGS.** Root cause found and MEASURED: a body's collider and its rig
+  disagreed about the floor (an 18 px box under a 31 px rig), so every figure drew
+  its feet 6.5 px underground and folded 41% of the leg into the knees. Every
+  previous fix missed it because the leg harness has no body under the rig.
+  `tools/probe_town_feet.gd` is the new instrument; SINK is 0.00 now.
+- **The lag when you shoot.** Hit-stop: `Engine.time_scale` → 0.05 for ~50 ms on
+  every hit AND on every miss that touched a town wall. Scoped off in the lobby.
+- **Big-spell SFX.** Tempest's cue was 20.7 s against a 0.48 s spell. Capped at a
+  derived 0.9 s.
+- **The dummies** were buried in the floor, and stood still by having physics
+  switched OFF — which also took away gravity, knockback, flinch and ragdoll. They
+  run the player's physics now via a controller that presses nothing.
+- **The townsfolk** were a StaticBody2D teleported along x with a faked velocity.
+  They are a CharacterBody2D with gravity and `move_and_slide` now — same three
+  lines the player uses.
+- **No dash is flattened.** The Cryomancer can dash upward; the sideways skid is
+  gone. Blink follows the movement stick, for every class.
+- **You can crawl** while holding down + a direction.
+- **Pads and door** answer again (the town body is a Hero on a different collision
+  layer than the rings were watching), you WALK INTO the tower, the tower is much
+  taller and further right, the sign is mid-room and fits its own text, the hotbar
+  is in the hub, camera pulled back twice, title taglines gone, class statue gone.
+
+---
+
+## ▶ OPEN — dispatched, in flight
+
+1. **THE BAR IS SIX THINGS: 4 spells + deflect + basic attack.** Remove the
+   spacebar/dash slot, the Q and T class abilities ("consecrate and the one next to
+   it"), and the R blink from the bar. Spells on the right. Blink stays a SPELL only
+   for the electric/fast classes.
+2. **Wave 1 spawns two enemies but clears after one is killed.** A miscount.
+3. **The boss gets stuck in the floor and cannot move.**
+4. **Other opponents must cast spells**, and mobs want telling apart by hats.
+5. **No spell pickups in the tower at all** (the Blizzard and anything else found
+   mid-climb). **Healing harder to find.**
+6. **After the boss dies, the way out is a PAD on the ground in the middle** with a
+   beam of light, like the hub's — not a button.
+
+## ▶ OPEN — not started, needs its own pass
+
+7. **The map should be larger and more interactive.**
+8. **More bosses and mini-bosses**, custom opponents.
+9. **The ragdoll on hold-down** still wants judging now that the legs are correct.
+10. **Inventory/menu lag** — the maker suspects blocks falling off props when a
+    spell hits them near the pads. Hit-stop is ruled out in the lobby now; if it
+    still hitches it is the debris/prop path.
+
+---
+
 # LIVE PLAYTEST QUEUE — 2026-08-04
 
 The maker is playing and calling things out faster than they can be built. This is

@@ -40,10 +40,25 @@ extends CanvasLayer
 ## living (AIM_STICK_FIRES). Four verbs lost their touch affordance in the trade:
 ##   * `melee` — the primary IS the melee swing for the melee classes
 ##     (Hero._cast dispatches per class), so a phone Brawler still punches.
-##   * `blast` / `blink` / `nova` — the class ability trio. A phone player really is
-##     short three verbs a desktop player has; that is a live design consequence and
-##     not an oversight. `_button_layout()` below is one table — putting any of them
-##     back is one row, which is why it is a table and not eight call sites.
+##   * `blast` / `blink` / `nova` — the class ability trio.
+##
+## ⚠ AND THE DESKTOP HAS NOW FOLLOWED THE PAD, which reverses what that trio cost.
+## This block used to say a phone player was "short three verbs a desktop player has";
+## with the maker's six-thing ruling ("4 spells, deflect and basic attack — that's all
+## there should be to all of them") those three are gone from the hotbar too, so the
+## pad is no longer the poorer surface — it got there first. The KEYS still fire on a
+## keyboard (see the ⚠ block on `Hero.ability_hud_state` for why they were not torn
+## out), so the honest statement is now "three verbs no HUD advertises, reachable only
+## by a key". Nothing to remove here: this layer never drew a button for any of them.
+##
+## ⚠ DASH AND JUMP STAY, THOUGH THE BAR NO LONGER DRAWS THE DASH. They are MOVEMENT,
+## and movement is the one thing the pad may not drop: a keyboard player who loses the
+## dash SQUARE still has the space bar, a thumb has nothing at all, and D-011 (mobile
+## -first, every action reachable by joystick + tap) is a project non-negotiable. The
+## ruling was about how many squares the eye has to read mid-fight, not about deleting
+## the movement verb — `Hero._move_slot_name` is still authoritative for eleven of them.
+## `_button_layout()` below is one table, so if the maker wants the corner emptier too,
+## it is one row.
 ##
 ## Every position/size below is computed from a handful of named constants (a thumb
 ## pivot, an arc radius, three angles) rather than typed in per button, so tuning the
@@ -605,9 +620,9 @@ func _add_button(row: Dictionary) -> void:
 	add_child(b)
 	# EVERY button gets a veil, not just the spell ones. DASH and PARRY are cooldown
 	# verbs too, and on a phone this pad is the ONLY cooldown readout there is — the
-	# desktop hotbar stands down when the pad is live (see `AbilityBar`), because nine
-	# slots across the bottom of the screen sat directly under the thumb cluster and
-	# most of them named verbs a thumb cannot reach.
+	# desktop hotbar stands down when the pad is live (see `AbilityBar`), because its
+	# slots sit directly under the thumb cluster. That was nine squares before the
+	# six-thing ruling and is six now; the collision is the same either way.
 	var veil := SpellVeil.new()
 	veil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	veil.mouse_filter = Control.MOUSE_FILTER_IGNORE

@@ -76,6 +76,8 @@ var _adorn: BossAdornment = null
 var _bar_layer: CanvasLayer = null
 var _bar: BossBar = null
 var _summoned: Array = []
+## The one-shot "put my feet on the floor" flag — see `_stand_on_ground`.
+var _ground_snap_pending: bool = true
 
 
 ## WHO THIS BOSS IS. Declared on the base rather than on `TowerBoss` so that
@@ -114,6 +116,9 @@ func bark_suffix() -> String:
 func _ready() -> void:
 	super._ready()   # hp, _hero, joins "enemy" + "mortal", tiny CharacterBars
 	body_scale = clampf(body_scale, 0.3, 1.0)
+	# ⚠ ORDER IS LOAD-BEARING: box, then rig, then feet, then hurtbox, then ground.
+	# Every step below reads the result of the one above it — see _fit_box_to_scale.
+	_fit_box_to_scale()
 	if is_instance_valid(rig):
 		rig.set("height", RIG_HEIGHT * body_scale)
 		rig.set_tint(STONE_TINT)
@@ -121,6 +126,8 @@ func _ready() -> void:
 		rig.set_equipment("head", "crown")            # a guardian-king crown on the colossus
 		rig.set_aura(Color(1.0, 0.45, 0.15), 0.45)   # subtle ember halo — the stone body must read
 		rig.set_aura_tier(2)
+		_realign_feet()
+	refresh_hurtbox()   # the silhouette hitbox was cut for the pre-scale rig height
 	_adorn = BossAdornment.new()
 	add_child(_adorn)
 	_adorn.configure(RIG_HEIGHT * body_scale)
@@ -449,6 +456,11 @@ func _physics_process(delta: float) -> void:
 	if _net != null and _net.is_active() and not is_multiplayer_authority():
 		_remote_enemy_visual(delta)
 		return
+	# ONCE, on the first physics frame: put the feet on the floor before gravity or
+	# the intro get a say. See _stand_on_ground for why it is not in `_ready`.
+	if _ground_snap_pending:
+		_ground_snap_pending = false
+		_stand_on_ground()
 	_touch_cooldown = max(_touch_cooldown - delta, 0.0)
 	_knockback = _knockback.move_toward(Vector2.ZERO, KNOCKBACK_DECAY * delta)
 	_apply_gravity(delta)
@@ -474,6 +486,148 @@ func _physics_process(delta: float) -> void:
 			if not _busy and _attack_cd <= 0.0:
 				_choose_attack()
 	_boss_touch()
+
+
+# ══ THE GUARDIAN AND THE FLOOR MUST AGREE ABOUT WHERE THE FLOOR IS ═══════════
+## Maker, playtesting: *"the boss needs to be able to move, it gets stuck in the
+## floor."*
+##
+## Same family as the bug `CharacterRig._align_feet_to_body` just fixed — a body and
+## the thing that draws it disagreeing about the ground — but there were THREE
+## disagreements stacked on one guardian, and only the third is cosmetic. All three
+## are measured by `tools/probe_boss_feet.gd`; the numbers below are its output on
+## the shipped 1160x560 room, whose floor collider's top face is y 552.
+##
+##   1 · BORN INSIDE THE FLOOR. `Encounter.STAND_OFFSET` (40) is how far above the
+##       ground plane a spawned body's ORIGIN goes. It is sized for a trash mob,
+##       whose box reaches 10 px below its origin. `Boss.tscn`'s box is 44x92 at
+##       (0, 6), so it reaches **52 px** down — 12 px more than the entire stand-off.
+##           spawn_y 512   box_bottom 564   ground 552   -> BURIED 12.00 px
+##       Depenetration does recover it in the clean test room, but "the guardian is
+##       born 12 px inside the floor and relies on the solver to spit it out" is not
+##       a thing to leave standing next to a report of being stuck in it.
+##
+##   2 · A BOX TWICE THE SIZE OF THE DRAWING. `body_scale` shrank the RIG and left
+##       the collider at full size, so the mini-guardian that caps floors 1-4 and
+##       6-9 is a 42.75 px figure inside a 92 px box. Its origin — which is what its
+##       spells, its adds and `_boss_touch` all measure from — sat above its own
+##       head, and the box it walked around in bore no relation to what you could
+##       see. That is the half that reads as "stuck": the visible body does not
+##       stand where the invisible one does.
+##
+##   3 · FEET ALIGNED TO THE WRONG HEIGHT. `CharacterRig._align_feet_to_body` runs
+##       in the RIG's `_ready`, which fires before this one, so it aligned against
+##       `height` 95 — the scene default — and then this function changed the height
+##       underneath it. Measured on the mini-guardian: drawn feet 525.87 against a
+##       floor at 552, i.e. **26 px in the air**.
+##
+## Fixed in that order, because each step reads the previous one's result.
+##
+## ⚠ AT `body_scale == 1.0` EVERY ONE OF THESE IS A NO-OP by construction — the box
+## is unscaled, the rig height already matches what the alignment was computed for,
+## and the ground snap moves the body by the same 12 px the solver moved it anyway.
+## The floor-5 colossus (and `tools/slice_test_boss.gd`, which fights it) is
+## unchanged.
+
+
+## Shrink the collision box with the body. A guardian drawn at 45% must be 45% of a
+## guardian to walk into, to shove and to stand on the floor with.
+##
+## ⚠ THE SHAPE IS DUPLICATED BEFORE IT IS TOUCHED. A `SubResource` in a .tscn is
+## SHARED between every instance of that scene, so resizing it in place would resize
+## every other guardian in the session — including ones already standing on a floor.
+## `Arena._set_wall` documents the same trap for the room's walls.
+func _fit_box_to_scale() -> void:
+	if is_equal_approx(body_scale, 1.0):
+		return
+	for c: Node in get_children():
+		var cs := c as CollisionShape2D
+		if cs == null or not (cs.shape is RectangleShape2D):
+			continue
+		var r: RectangleShape2D = (cs.shape as RectangleShape2D).duplicate() as RectangleShape2D
+		r.size *= body_scale
+		cs.shape = r
+		cs.position *= body_scale
+	# Whatever `CharacterRig._align_feet_to_body` decided in the rig's own `_ready`
+	# was computed against the box that existed a moment ago. It is about to be
+	# recomputed against this one — see `_realign_feet`.
+
+
+## Re-run the rig's own feet-to-box alignment now that BOTH the box and the rig's
+## height have moved.
+##
+## ⚠ IT CALLS THE RIG'S OWN FUNCTION RATHER THAN REPEATING ITS ONE LINE, and that is
+## deliberate rather than lazy. The rule ("the drawn feet sit on the lowest bottom
+## edge of the parent's collision rectangles") is written once, in CharacterRig, with
+## the long explanation of the leg-folding bug that produced it. A copy of
+## `position.y = box_bottom - height * 0.5` here would be a second source that a
+## future edit to the rig cannot reach — which is precisely the drift `Enemy`'s
+## RIG_HIP_Y_FACTOR block already refuses to allow. Guarded by `has_method` so a
+## stub rig in a harness is silently skipped.
+func _realign_feet() -> void:
+	if rig.has_method(&"_align_feet_to_body"):
+		rig.call(&"_align_feet_to_body")
+
+
+## Put the guardian's FEET on the floor it was spawned over, instead of trusting the
+## trash-mob stand-off and the depenetration solver.
+##
+## Done here rather than in `Encounter._boss_spawn_position` on purpose: only the
+## body knows how far its own box reaches (the four roster scenes each carry their
+## own), and asking the world where the floor is costs one ray and cannot go stale
+## the way a mirrored constant in Encounter would. Deterministic on both co-op peers
+## — identical body, identical room, identical ray.
+##
+## Silently does nothing when the ray finds no floor (a headless harness with no
+## walls, a boss spawned over a pit): gravity then behaves exactly as it did before.
+##
+## ⚠ RUN FROM THE FIRST PHYSICS FRAME, NOT FROM `_ready`, AND THAT IS MEASURED. In
+## `_ready` the ray found nothing whenever the room's static bodies had been added in
+## the same idle frame — the physics space has not taken them yet — and the guardian
+## silently fell the 16 px instead of being placed on the floor. One physics frame
+## later the space is live, the ray hits, and the placement is exact. (Arena builds
+## the room well before the boss spawns, so this only bit the harness; a correction
+## that works by luck of ordering is not a correction.)
+func _stand_on_ground() -> void:
+	if not is_inside_tree():
+		return
+	var space: PhysicsDirectSpaceState2D = get_world_2d().direct_space_state
+	if space == null:
+		return
+	var reach: float = RIG_HEIGHT * 2.0 + GROUND_SNAP_REACH
+	var q := PhysicsRayQueryParameters2D.create(
+		global_position - Vector2(0.0, GROUND_SNAP_LIFT),
+		global_position + Vector2(0.0, reach),
+		collision_mask)
+	q.exclude = [get_rid()]
+	q.collide_with_areas = false
+	var hit: Dictionary = space.intersect_ray(q)
+	if hit.is_empty():
+		return
+	global_position.y = float((hit["position"] as Vector2).y) - _box_bottom_offset()
+	velocity.y = 0.0
+
+
+## How far the lowest collision rectangle reaches below the body's origin — i.e.
+## where physics will rest this body. Mirrors the rule `CharacterRig` uses to find
+## the same edge, so the feet and the snap can never land on different answers.
+func _box_bottom_offset() -> float:
+	var best: float = 0.0
+	for c: Node in get_children():
+		var cs := c as CollisionShape2D
+		if cs == null or not (cs.shape is RectangleShape2D):
+			continue
+		best = maxf(best, cs.position.y + (cs.shape as RectangleShape2D).size.y * 0.5)
+	return best
+
+
+## Start the ground ray this far ABOVE the origin. The whole point is that the body
+## may already be buried, and a ray starting inside the floor collider finds nothing.
+const GROUND_SNAP_LIFT: float = 8.0
+## ...and end it this far below the deepest a guardian's box can reach, so the ray is
+## long enough to find a floor from any legal spawn height without being so long that
+## it reaches through into the next room's geometry.
+const GROUND_SNAP_REACH: float = 120.0
 
 
 func _boss_touch() -> void:

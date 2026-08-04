@@ -8,6 +8,12 @@ extends Node2D
 ## this script just wires them to the run loop + theme + banner.
 
 const EXIT_PORTAL_SCRIPT: Script = preload("res://scripts/combat/ExitPortal.gd")
+## THE WAY OUT IS A PAD ON THE GROUND. Maker: "once killing the boss, the 'leave the
+## tower' thing should be a door that spawns on the ground in the middle, or a teleport
+## pad like what we use in the hubs, except it summons a beam of light that looks like
+## you teleported." `ExitPad extends ExitPortal`, so it emits the same `taken` into the
+## same confirm and the same `return_to_hub()` — one exit, wearing the hub's grammar.
+const EXIT_PAD_SCRIPT: Script = preload("res://scripts/combat/ExitPad.gd")
 const ENCOUNTER_SCRIPT: Script = preload("res://scripts/combat/Encounter.gd")
 const TARGET_ENEMY_COUNT: int = 5   # sandbox steady-state
 const SANDBOX_SPAWN_INTERVAL: float = 1.2
@@ -419,10 +425,13 @@ func _spawn_exit_portals() -> void:
 	# non-final floor. Clearing the BOSS floor is the conquer (the climb-exit's
 	# advance path handles it), so no return portal there.
 	if _gs.current_floor() < _gs.total_floors():
-		var return_pt: Vector2 = Vector2(exit_pt.x, 520.0)
-		if layout != null:
-			return_pt = Vector2(layout.hero_start.x, layout.room_size.y - 120.0)
-		_return_pt = return_pt
+		# ON THE GROUND, IN THE MIDDLE — the maker's words, and both halves are derived
+		# rather than placed: the middle is half the authored room, and the ground is the
+		# floor's top face, which `FloorGen` computes as `h - WALL_THICKNESS * 0.5`.
+		# `_layout_room_size()` already carries the null-layout fallback, so the branch
+		# this replaces is gone rather than duplicated.
+		var room: Vector2 = _layout_room_size()
+		_return_pt = Vector2(room.x * 0.5, room.y - WALL_THICKNESS * 0.5)
 		_return_pending = false
 		_build_return_portal()
 
@@ -437,7 +446,7 @@ func _spawn_exit_portals() -> void:
 func _build_return_portal() -> void:
 	if is_instance_valid(_return_portal):
 		return
-	_return_portal = EXIT_PORTAL_SCRIPT.new() as ExitPortal
+	_return_portal = EXIT_PAD_SCRIPT.new() as ExitPortal
 	_return_portal.portal_label = "LEAVE THE TOWER"
 	_return_portal.ring_color = RETURN_PORTAL_COLOR
 	_return_portal.trigger_group = "hero"

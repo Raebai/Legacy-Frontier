@@ -49,6 +49,28 @@ extends Area2D
 ## the host's ledger and still standing on the floor — visible, and impossible to
 ## take. So the health test gates the REQUEST, and the award is unconditional.
 
+## ══ AND THEY ARE NOW HARD TO FIND (2026-08-04) ═════════════════════════════════
+## Maker's ruling from a live playtest: "the healing and stuff should be harder to
+## find." Shipped as a seeded per-site roll — 2.00 packs per floor became 0.50, and
+## the modal floor now carries no healing at all. THE NUMBER, THE BEFORE/AFTER AND
+## THE DEFENCE ALL LIVE IN ONE PLACE: `SpellDrops.HEALTH_PACK_CHANCE`. That is where
+## to turn the dial; this file only asks.
+##
+## ⚠ WHY THE PACK ROLLS FOR ITS OWN EXISTENCE INSTEAD OF THE BUILDER NOT SPAWNING IT.
+## The right home for this is `FloorBuilder.build_health_packs`, one `if` around the
+## `container.add_child(pack)`. That file is owned by another agent, so the decision
+## is made here, at the earliest moment the pack can make it — inside `_ready`,
+## before it joins the lookup group, before it is drawn, before it is asked to heal
+## anybody. When the builder is free to change, move the call and delete
+## `_roll_for_existence` entirely; `SpellDrops.roll_health_pack` is unchanged either
+## way and its test does not care who calls it.
+##
+## ⚠ AND WHY THE SITE INDEX IS COUNTED RATHER THAN PASSED. Same reason — nothing can
+## hand this node an argument. Counting live sibling packs is deterministic across
+## peers (both build the same props from the same `LayoutDef` in the same order),
+## which is the whole co-op requirement. See `_scarcity_site` for the stale-sibling
+## trap that makes the `is_queued_for_deletion` check load-bearing rather than tidy.
+
 ## Fraction of `max_hp` restored. ~a third of a bar: enough to be worth crossing a
 ## room mid-wave, not enough to undo a bad floor.
 ## UNTESTED FEEL GUESS — nobody has played this. This is the first number to turn.
@@ -83,10 +105,83 @@ var _consumed: bool = false
 var _reported: bool = false
 var _phase: float = 0.0
 
+## Does this pack have to earn its place on the floor? TRUE for anything the tower
+## builds — that is the ruling. Set FALSE, before `add_child`, by a caller that is not
+## building a tower floor and wants a pack unconditionally: the headless suite's unit
+## fixtures (which are testing the heal, the ghost guard and the co-op race, none of
+## which are questions about scarcity) and any capture tool that wants one on screen.
+##
+## ⚠ IT MUST BE SET BEFORE THE NODE ENTERS THE TREE. `_ready` is where the roll runs,
+## and `add_child` calls `_ready` synchronously — setting this afterwards is setting it
+## after the decision.
+var rolls_for_scarcity: bool = true
+
 
 func _ready() -> void:
+	if not _roll_for_existence():
+		return
 	body_entered.connect(_on_body_entered)
 	add_to_group(PICKUP_GROUP)
+
+
+## THE SCARCITY ROLL. Returns false and dismantles this pack if the floor did not earn
+## it. See `SpellDrops.HEALTH_PACK_CHANCE` for the number and the reasoning.
+##
+## The teardown is three things and all three matter:
+##   * `hide()` + `set_process(false)` FIRST — `queue_free` does not take effect until
+##     the end of the frame, and a live `_process` would give the floor one frame of a
+##     green cross flashing at the room's origin (the position is not assigned until
+##     after `add_child` returns, so the flash would not even be where the pack was
+##     going to stand);
+##   * the group join and the `body_entered` connection are SKIPPED, not undone, so
+##     `Net._client_pickup`'s group scan can never find a pack that is on its way out;
+##   * `queue_free`, so nothing has to remember it.
+func _roll_for_existence() -> bool:
+	if not rolls_for_scarcity:
+		return true
+	if SpellDrops.roll_health_pack(_resolve_floor(), _scarcity_site()):
+		return true
+	hide()
+	set_process(false)
+	queue_free()
+	return false
+
+
+## Which of the floor's pack sites this is: the number of live packs already built
+## into this parent. Deterministic across peers because both build the same props from
+## the same `LayoutDef` in the same order.
+##
+## ⚠ THE `is_queued_for_deletion` CHECK IS LOAD-BEARING, NOT HYGIENE. `Arena._rebuild_room`
+## `queue_free`s the old floor's children and then calls `FloorBuilder.build_props` INTO
+## THE SAME `Room` NODE, in the same frame — so while the new floor is being built the
+## old floor's packs are still in the child list. Counting them would push every new
+## site's index up by however many packs the last floor happened to have, which would
+## make the roll depend on the PREVIOUS floor's outcome: not wrong-looking, not
+## crashy, just quietly non-reproducible and therefore a co-op desync the moment two
+## peers rebuild a beat apart.
+func _scarcity_site() -> int:
+	var parent: Node = get_parent()
+	if parent == null:
+		return 0
+	var mine: Script = get_script()
+	var n: int = 0
+	for c: Node in parent.get_children():
+		if c == self:
+			break
+		if c.get_script() == mine and not c.is_queued_for_deletion():
+			n += 1
+	return n
+
+
+## The floor this pack is standing on. Guarded tree lookup with a fallback of 1, the
+## same shape and the same reason as `SpellDrops.is_final_floor` and
+## `FloorBuilder._resolve_floor`: a sandbox arena or a harness with no GameState still
+## rolls a floor-1 table rather than behaving like a third, undocumented mode.
+func _resolve_floor() -> int:
+	var gs: Node = get_node_or_null(^"/root/GameState")
+	if gs != null and gs.has_method(&"current_floor"):
+		return int(gs.call(&"current_floor"))
+	return 1
 
 
 func _process(delta: float) -> void:

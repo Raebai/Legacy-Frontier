@@ -49,3 +49,18 @@ func vector(_nx: StringName, _px: StringName, _ny: StringName, _py: StringName) 
 ## position, which every consumer already treats as "no opinion".
 func aim_point(from: Vector2) -> Vector2:
 	return from
+
+
+## ⚠ SEVEN METHODS, NOT SIX, AND THE SEVENTH IS NOT OPTIONAL. `Hero._physics_process`
+## calls `controller.tick(self, clock)` unconditionally on every physics frame the
+## moment `controller != null` — it is the hook a `BotController` thinks on. A stub
+## without it is not "a controller that does nothing", it is a runtime error per body
+## per frame.
+##
+## The test suite did NOT catch this: the assertions that matter here check that a
+## dummy HAS a controller and IS processing physics, both of which were true while the
+## engine logged four errors a frame. It was caught by a CAPTURE — running the real
+## scene and reading the output — which is the same lesson as the rig's feet. A green
+## suite is not a running game.
+func tick(_body: Node, _clock: float) -> void:
+	pass

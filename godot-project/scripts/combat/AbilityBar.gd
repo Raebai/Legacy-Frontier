@@ -7,12 +7,20 @@ extends Control
 ## ready-glow, and a dimmed read for class-disabled abilities. If no hero is
 ## in the tree (hub/menu scenes reuse this HUD), it simply draws nothing.
 ##
-## The bar reads in TWO CLUSTERS separated by a gap: the body verbs (guard/parry,
-## blink, the class's movement verb, then the basic cast and Q/T) on the left, and
+## The bar reads in TWO CLUSTERS separated by a gap: the body verbs on the left, and
 ## the equipped SPELL SOCKETS on the right, ramped weakest-to-heaviest so the ult is
 ## always the far-right button. Neither the split nor the ramp is authored anywhere —
 ## both are derived per frame from the hero's own data (`SpellTier.of`), so a retuned
 ## spell or a mid-floor pickup rearranges the bar without a HUD edit.
+##
+## ⚠ SIX SQUARES, BY RULING. Watching a live playtest the maker cut it: **"4 spells,
+## deflect and basic attack — that's all there should be to all of them."** So the left
+## cluster is now exactly the DEFENSIVE verb and the BASIC ATTACK, and the right is the
+## four spell sockets. The rows that used to pad the left — the class's movement verb
+## (Spc), its AoE (Q), Blink (R) and Nova (T) — are no longer published at all; see the
+## ⚠ block on `Hero.ability_hud_state`, which also explains why the KEYS still work.
+## Nothing here counts them: the split is found by counting back `SpellTier.SLOT_COUNT`
+## from the end, so this file needed no arithmetic change to obey the ruling.
 
 ## -- Layout -------------------------------------------------------------
 ## ⚠ 46px is a THUMB TARGET (D-011 mobile-first), not a look. Nothing below is
@@ -25,25 +33,31 @@ const SLOT_GAP: float = 6.0
 ## The bar was one undifferentiated run of nine squares, so finding Parry mid-fight
 ## meant reading names — and reading is exactly what a player has no spare attention
 ## for while something is winding up at them. Two clusters with a physical gap can be
-## found by POSITION instead: the defensive/movement verbs live at the left end, the
-## spell sockets at the right, and the hand learns "left edge = get out of this".
+## found by POSITION instead: the body verbs live at the left end, the spell sockets at
+## the right, and the hand learns "left edge = the thing that saves you".
 ##
 ## Three slot-gaps wide: enough that the eye reads two objects rather than one row,
-## small enough that the whole bar still centres inside the 640px base viewport
-## (9 slots + 7 gaps + this = 474px of 640).
+## small enough that the whole bar still centres inside the 640px base viewport. Since
+## the six-thing ruling that is 6 slots + 5 gaps + this = 324px of 640 — the gap got
+## cheaper, not more expensive, so nothing here needed retuning.
 const GROUP_GAP: float = 18.0
-## Rank inside the LEFT cluster, lowest first. Defence, then the two ways out.
+## Rank inside the LEFT cluster, lowest first. The DEFENSIVE verb, then the rest.
 ##
-## ⚠ KEYED ON THE KEY LABEL, not on the ability NAME and not on the slot INDEX.
-## The movement slot's name is class-dependent — Hero._move_slot_name() answers with
-## eleven different words (Dash / Slide / Bolt Step / Swap / Recall / ...) — so a
-## name match would silently drop half the roster's mobility out of the cluster. An
-## absolute index is the thing this file already refuses to trust (see _stamp_charges).
-## The fixed rows' key labels are literals in `Hero.ability_hud_state`, so they are
-## the most stable fact published about a verb slot.
-const VERB_RANK: Dictionary = {"RMB": 0, "R": 1, "Spc": 2}
-## Everything the table does not name keeps its published order, after the verbs —
-## the basic cast and the class's Q/T. Any value above the ranked ones will do.
+## ⚠ KEYED ON THE KEY LABEL, not on the ability NAME and not on the slot INDEX. The
+## defensive slot's name is class-dependent — `Hero._defense_hud_slot` answers "Guard"
+## for a held-guard class and "Parry" for a press-window one — so a name match would
+## silently drop half the roster's defence out of the cluster. An absolute index is the
+## thing this file already refuses to trust (see _stamp_charges). The fixed rows' key
+## labels are literals in `Hero.ability_hud_state`, so they are the most stable fact
+## published about a verb slot.
+##
+## ⚠ "R" AND "Spc" USED TO RANK HERE and were dropped with the six-thing ruling, not
+## lost: Blink and the movement verb are no longer published as bar rows at all, so a
+## rank for them would be a rule about slots that cannot arrive. Left as a table rather
+## than collapsed to an `if`, because putting a verb back is one row.
+const VERB_RANK: Dictionary = {"RMB": 0}
+## Everything the table does not name keeps its published order, after the defence —
+## today that is the basic attack alone. Any value above the ranked ones will do.
 const VERB_RANK_OTHER: int = 9
 ## Breathing room below the bar so it doesn't kiss the screen edge.
 const BOTTOM_MARGIN: float = 14.0
@@ -125,6 +139,23 @@ const SOCKET_CORNER_WIDTH: float = 2.0
 ## it is the same reason Hero draws the "--" row instead of shrinking the bar.
 const EMPTY_SOCKET_COLOR: Color = Color(0.45, 0.45, 0.55, 0.85)
 
+## ── THE ULT'S OWN FRAME ──────────────────────────────────────────────────────
+## Maker: "the 4 / ultra should have that special border."
+##
+## The far-right socket already differs by TIER COLOUR on its corner brackets, which
+## is a real signal and a quiet one — three shelves of bracket in three hues, read at
+## 46 px, while something is winding up at you. The ult is not one of three shelves;
+## it is the button you are saving. So it gets a frame nothing else on the bar has: a
+## full double ring, drawn OUTSIDE the slot so the cooldown veil cannot swallow it,
+## in the tier's own gold.
+##
+## ⚠ KEYED ON THE TIER, NOT ON BEING LAST. The row is sorted by `SpellTier.of` at draw
+## time, so "last" is a consequence and the tier is the cause — a retuned spell that
+## stopped being an ult would otherwise keep the crown for sitting in the right place.
+const ULT_FRAME_GROW: float = 2.0
+const ULT_FRAME_WIDTH: float = 2.0
+const ULT_FRAME_GAP: float = 2.5
+
 ## ── TIER 3 CHARGE PIPS ───────────────────────────────────────────────────────
 ## A picked-up spell has a COUNT, and "picking one up is a decision" only holds if
 ## the count is visible BEFORE you spend it. Pips rather than a number because the
@@ -155,12 +186,17 @@ func _ready() -> void:
 
 ## THE HOTBAR STANDS DOWN WHEN THE TOUCH PAD IS LIVE.
 ##
-## Not a preference — the two collide. This bar is nine slots centred across the bottom
-## of the screen; the pad's spell arc and DASH sit in the bottom-right corner, and at
-## 640x360 base their rectangles physically overlap (measured in a capture, not
-## reasoned about). Worse, most of what the bar draws — Q, R, T, LMB — names verbs a
-## thumb cannot reach at all under the three-button scheme, so the overlap was buying
-## the phone player a cooldown readout for buttons they do not have.
+## Not a preference — the two collide. The pad's spell arc and DASH sit in the
+## bottom-right corner, and at 640x360 base their rectangles physically overlap this
+## bar's (measured in a capture, not reasoned about).
+##
+## ⚠ THE SECOND HALF OF THIS ARGUMENT DIED WITH THE SIX-THING RULING and it is worth
+## saying so rather than leaving a stale claim standing. The bar used to draw Q / R / T
+## — verbs a thumb cannot reach at all under the pad's scheme — so the overlap was also
+## buying the phone player a readout for buttons they do not have. It no longer draws
+## them. What remains is purely the geometric collision: at 6 slots the bar still spans
+## x 158..482 of 640 and the first spell pad sits at x 385..445, so they are still on
+## top of each other and one of them has to yield.
 ##
 ## The pad carries its own veils and ready-flashes on every button it DOES show, from
 ## the same `Hero` publishers this bar reads, so nothing is lost on that platform.
@@ -198,10 +234,11 @@ func _process(_delta: float) -> void:
 ## for a hero it was not handed.
 ##
 ## The signature slots are the LAST `SpellTier.SLOT_COUNT` entries of
-## `ability_hud_state()` (it is a fixed prefix of six ability rows plus the
-## signatures — see Hero.ability_hud_state). Keyed off the END of the array rather
-## than off absolute indices so adding an ability row above cannot silently start
-## stamping charges onto Dash.
+## `ability_hud_state()` (a fixed prefix of ability rows, then the signatures — see
+## Hero.ability_hud_state). Keyed off the END of the array rather than off absolute
+## indices so adding or REMOVING an ability row above cannot silently start stamping
+## charges onto the wrong square — which is exactly what earned its keep when the
+## six-thing ruling cut four rows out of that prefix and this needed no edit.
 func _stamp_charges(hero: Node) -> void:
 	var first: int = _spell_slot_start()
 	if first < 0:
@@ -314,8 +351,9 @@ static func short_spell_name(display_name: String) -> String:
 
 ## THE ORDER ON SCREEN IS NOT THE ORDER IN `_slots`, and the difference is
 ## deliberate: the hero publishes its rows in the order it happens to compute them
-## (cast, move, Q, blink, T, defence, then the kit), which is an implementation
-## detail of Hero.gd, not a reading order for a player under pressure.
+## (the basic attack, then defence, then the kit), which is an implementation detail
+## of Hero.gd, not a reading order for a player under pressure — the defensive verb
+## is pulled to the left edge here so the hand can find it without reading.
 ##
 ## ⚠ REORDERING IS DRAW-ONLY — `_slots` is never permuted. Both stamps above index
 ## it POSITIONALLY against the hero (slot i's charges, slot i's SpellDef), so a
@@ -442,6 +480,13 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
 	if bool(slot.get("selected", false)):
 		draw_rect(rect.grow(SELECTED_GROW), _with_alpha(SELECTED_COLOR, alpha),
 			false, SELECTED_WIDTH)
+	# THE ULT'S DOUBLE RING — see the constants. Drawn after the resting border and
+	# outside the slot, so neither the cooldown wipe nor the socket can cover it.
+	if int(slot.get("tier", SpellTier.Tier.QUICK)) == SpellTier.Tier.ULT \
+			and slot.has("accent"):
+		var crown: Color = _with_alpha(SpellTier.color(SpellTier.Tier.ULT), alpha)
+		draw_rect(rect.grow(ULT_FRAME_GROW), crown, false, ULT_FRAME_WIDTH)
+		draw_rect(rect.grow(ULT_FRAME_GROW + ULT_FRAME_GAP), crown, false, 1.0)
 
 	# Key label: top-left, small + bright — the "which finger" read.
 	draw_string(

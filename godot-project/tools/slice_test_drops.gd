@@ -1,7 +1,16 @@
 # Run: godot --headless --path godot-project --script tools/slice_test_drops.gd
 #
 # THE DROP ECONOMY's data layer: the drop table, the grant ledger, Tier 3 charges,
-# the floor reset and the player-to-player handoff. Everything here is pure data —
+# the floor reset and the player-to-player handoff.
+#
+# ⚠ READ `_test_tower_finds_no_spells` FIRST. Since 2026-08-04 the maker's ruling is
+# that NO SPELL CAN BE FOUND IN THE TOWER, and `SpellDrops.TOWER_SPELL_DROPS` is the
+# one switch that says so. Every other test in this file opens a test-only hatch and
+# measures the TABLE underneath the switch — deliberately, because the table is what
+# comes back if the ruling is reversed and a table that rotted while switched off
+# would come back broken. None of them is evidence that a player can find a spell.
+#
+# Everything here is pure data —
 # `SpellDrops`, `SpellGrant` and `HandSlots` were all written to have no tree access
 # precisely so this suite could exist without autoloads (which `--script` does not
 # register).
@@ -22,6 +31,7 @@ const HERO_PATH: String = "res://scenes/combat/Hero.tscn"
 const HERO_GRANT_MEMBERS: Array[String] = ["_signatures", "_hand"]
 
 const TESTS: Array[String] = [
+	"tower_finds_no_spells",
 	"drops_are_never_in_a_kit",
 	"roll_is_deterministic",
 	"rarity_is_actually_rare",
@@ -43,6 +53,7 @@ func _process(_delta: float) -> bool:
 	if _ran:
 		return false
 	_ran = true
+	_test_tower_finds_no_spells()
 	_test_drops_are_never_in_a_kit()
 	_test_roll_is_deterministic()
 	_test_rarity_is_actually_rare()
@@ -76,6 +87,78 @@ func _fail(what: String) -> void:
 
 func _completes(test_name: String) -> void:
 	_completed[test_name] = true
+
+
+# ------------------------------------------------------------------ 0. the ruling
+
+## THE MAKER'S RULING, 2026-08-04, verbatim from a live playtest: "you shouldn't be
+## able to find spells in the tower so remove that blizzard and any other spells that
+## are there."
+##
+## ⚠ THIS TEST IS FIRST ON PURPOSE, and it is the only one in this suite that runs
+## with the hatch SHUT. Everything below it opens `SpellDrops.allow_drops_for_test` and
+## measures the TABLE — the odds, the gates, the common band — which is still worth
+## guarding because it is what comes back if the ruling is ever reversed. Without this
+## test sitting in front of them, a reader would find eight suites happily measuring a
+## drop economy the game does not have, and would reasonably conclude the ruling had
+## been lost in a merge.
+##
+## It also asserts the SHAPE of the ruling: a switch, not a deletion. The tables are
+## intact and one boolean brings the whole economy back.
+func _test_tower_finds_no_spells() -> void:
+	_table_shut()
+	_expect(not SpellDrops.TOWER_SPELL_DROPS,
+		"TOWER_SPELL_DROPS is off — the tower hands out no spells")
+	_expect(not SpellDrops.drops_are_findable(), "...and both rolls agree on that")
+	var leaked: Array[String] = []
+	for climb: int in range(1, 25):
+		SpellDrops.climb_seed = climb * 7919 + 3
+		for f: int in range(1, 41):
+			var floor_id: String = SpellDrops.roll_floor_drop(f)
+			var boss_id: String = SpellDrops.roll_boss_drop(f)
+			if floor_id != "":
+				leaked.append("floor %d -> %s" % [f, floor_id])
+			if boss_id != "":
+				leaked.append("guardian %d -> %s" % [f, boss_id])
+	SpellDrops.climb_seed = 0
+	_expect(leaked.is_empty(),
+		"960 floor-rolls across 24 climbs produce NOTHING (leaked: %s)"
+			% str(leaked.slice(0, 4)))
+	# THE FINAL GUARDIAN specifically, because it is the one floor that carries a
+	# GUARANTEE ("the last guardian always pays"). A guarantee is exactly the kind of
+	# thing that survives a ruling by accident.
+	var gs: Node = root.get_node_or_null(^"GameState")
+	if gs != null and gs.has_method(&"total_floors"):
+		var total: int = int(gs.call(&"total_floors"))
+		_expect(SpellDrops.is_final_floor(total),
+			"floor %d really is the guaranteed one" % total)
+		_expect(SpellDrops.roll_boss_drop(total) == "",
+			"...and even IT pays nothing while the ruling stands")
+	# A SWITCH, NOT A DELETION. The catalogue is untouched and one flip restores it.
+	_table_open()
+	_expect(SpellLibrary.build_tier2().size() > 0, "the Tier 2 table was NOT emptied")
+	_expect(SpellLibrary.build_tier3().size() > 0, "the Tier 3 table was NOT emptied")
+	_expect(not SpellDrops._common_pool().is_empty(), "the common band was NOT emptied")
+	var restored: int = 0
+	for f2: int in range(1, 200):
+		if SpellDrops.roll_floor_drop(f2) != "":
+			restored += 1
+	_expect(restored > 20,
+		"flipping the switch brings the whole economy straight back (%d/199 floors)"
+			% restored)
+	_table_shut()
+	_completes("tower_finds_no_spells")
+
+
+## Open / shut the test-only hatch that lets this suite measure the drop table while
+## the game itself finds no spells. Named rather than inlined so every table test
+## below reads as "measuring the switched-off table", which is what it is doing.
+func _table_open() -> void:
+	SpellDrops.allow_drops_for_test = true
+
+
+func _table_shut() -> void:
+	SpellDrops.allow_drops_for_test = false
 
 
 # ---------------------------------------------------------------- 1. the table
@@ -114,6 +197,7 @@ func _test_drops_are_never_in_a_kit() -> void:
 ## passing, so the roll has to be a pure function of the floor number. An unseeded
 ## roll would put a different spell in the same place on each screen.
 func _test_roll_is_deterministic() -> void:
+	_table_open()   # measuring the table, not the game — see `tower_finds_no_spells`
 	for f: int in range(1, 40):
 		var a: String = SpellDrops.roll_floor_drop(f)
 		var b: String = SpellDrops.roll_floor_drop(f)
@@ -128,6 +212,7 @@ func _test_roll_is_deterministic() -> void:
 		if SpellDrops.roll_floor_drop(f) == SpellDrops.roll_boss_drop(f):
 			same += 1
 	_expect(same < 30, "floor and boss rolls are not the same sequence (%d/39 matched)" % same)
+	_table_shut()
 	_completes("roll_is_deterministic")
 
 
@@ -135,6 +220,7 @@ func _test_roll_is_deterministic() -> void:
 ## are wide on purpose — they exist to catch a constant being fat-fingered to 1.0 or
 ## a gate accidentally excluding everything, not to pin the exact feel.
 func _test_rarity_is_actually_rare() -> void:
+	_table_open()   # measuring the table, not the game — see `tower_finds_no_spells`
 	var floors: int = 400
 	var with_drop: int = 0
 	var signature_hits: Dictionary = {}
@@ -174,12 +260,14 @@ func _test_rarity_is_actually_rare() -> void:
 	var brate: float = float(boss) / float(floors)
 	_expect(brate > 0.3 and brate < 0.7,
 		"a guardian drops a Tier 3 roughly half the time (got %.2f)" % brate)
+	_table_shut()
 	_completes("rarity_is_actually_rare")
 
 
 ## The common band must be DERIVED from the class reserve, not hand-listed. That is
 ## what stops the drop table drifting out of sync with the kits.
 func _test_common_band_is_the_class_reserve() -> void:
+	_table_open()   # measuring the table, not the game — see `tower_finds_no_spells`
 	var reserve: Array[String] = []
 	for cls: int in range(SpellLibrary.CLASS_KITS.size()):
 		for s: SpellDef in SpellLibrary.reserve_for_class(cls):
@@ -231,6 +319,7 @@ func _test_common_band_is_the_class_reserve() -> void:
 			continue
 		_expect(SpellDrops.spell_for_id(id2) != null,
 			"floor %d's drop '%s' resolves to a real SpellDef" % [f, id2])
+	_table_shut()
 	_completes("common_band_is_the_class_reserve")
 
 

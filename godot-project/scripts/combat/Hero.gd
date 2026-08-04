@@ -4604,22 +4604,83 @@ func _spawn_foot_puff() -> void:
 
 
 ## Cooldown snapshot for the AbilityBar HUD — one dict per slot, in bar order.
-## `enabled` false = the slot is dimmed (class can't use it): mage shows Nova,
-## rogue shows Parry.
+## `enabled` false = the slot is dimmed (class can't use it): rogue shows Parry.
+##
+## ⚠ SIX ROWS, AND THAT IS A RULING, NOT A REGRESSION. Watching a live playtest the
+## maker cut the bar down to it in one line: **"4 spells, deflect and basic attack —
+## that's all there should be to all of them."** So the publisher answers with exactly
+## the basic attack, the defensive verb, and `SpellTier.SLOT_COUNT` spell sockets.
+##
+## The four rows that USED to sit here — the movement verb (Spc), the class AoE (Q),
+## Blink (R) and Nova (T) — are gone from this contract and therefore from every HUD
+## that reads it. They are NOT gone from the game: the keys still fire, because
+## `blast` / `blink` / `nova` / `dash` are wired into `BotBrain`'s kit table,
+## `BotController`'s action map, `PauseMenu`'s rebind list and several harnesses, and
+## tearing the verbs out of the kit is a far wider change than the one that was asked
+## for. What the maker judged was the SCREEN — nine squares is too many to read while
+## something is winding up at you — so the screen is what changed. If the verbs should
+## stop existing as well, that is a second, deliberate pass across those files.
+##
+## Nothing below is indexed positionally by the HUD: `AbilityBar` finds the spell
+## sockets by counting BACK `SpellTier.SLOT_COUNT` from the end, so this prefix can
+## shrink again without re-teaching it.
 func ability_hud_state() -> Array:
-	return [
-		{"name": "Cast", "key": "LMB", "remaining": _cast_cooldown_timer, "total": float(_cfg["cast_cd"]), "enabled": true},
-		{"name": _move_slot_name(), "key": "Spc", "remaining": _dash_cooldown_timer, "total": float(_cfg["dash_cd"]), "enabled": true},
-		{"name": _aoe_slot_name(), "key": "Q", "remaining": _blast_cooldown_timer, "total": float(_cfg["blast_cd"]), "enabled": true},
-		{"name": "Blink", "key": "R", "remaining": _blink_cooldown_timer, "total": float(_cfg["blink_cd"]), "enabled": true},
-		{"name": "Nova", "key": "T", "remaining": _nova_cooldown_timer, "total": NOVA_COOLDOWN, "enabled": bool(_cfg["has_nova"])},
-		_defense_hud_slot(),
-	] + _signature_hud_slots()
+	# ⚠ THE LEFT CLUSTER IS PARRY THEN DASH, AND THE MAKER CORRECTED ME ONCE ON IT.
+	# The first cut of this ruling published LMB (basic attack) and RMB (parry). Shown
+	# that screen: "no no, it should be RMB parry, Space to dash with its cooldown on
+	# the left, then 1 2 3 4 on the right, and the 4 ultra should have that special
+	# border."
+	#
+	# So the BASIC ATTACK loses its square and the DASH gets one back. That reads
+	# strangely until you notice what the left cluster is FOR: it is the two buttons
+	# with a COOLDOWN you have to watch — the guard you have to re-arm and the escape
+	# you have to ration. LMB has a cooldown too, but it is 0.34 s and you press it
+	# constantly; a square that is always full teaches nothing. Dash is the one whose
+	# readiness decides whether you commit.
+	var left: Array = [_defense_hud_slot(), _move_hud_slot()]
+	# ⚠ NOVA CAME BACK, BY NAME. Maker: "I really like Nova and its equivalent, so make
+	# sure those spells are one of the 4 — and if not, then one of the 5, including
+	# Nova." It was cut with the Q/R/T rows in the six-thing pass and that was the one
+	# removal they missed.
+	#
+	# It joins the LEFT cluster rather than becoming a fifth socket, and that is the
+	# whole reason this lands as three-plus-four instead of five-on-the-right: the four
+	# sockets are the KIT — ramped weakest-to-heaviest with the ult crowned on the far
+	# right — and appending a class ability to that row would put something after the
+	# ult and break the ramp the maker specifically asked for. The left cluster is
+	# already "the buttons with a cooldown worth watching", which is exactly what Nova
+	# is. `has_nova` is false on the Shadowblade, so it publishes nothing there rather
+	# than a dead square.
+	if bool(_cfg.get("has_nova", false)):
+		left.append({
+			"name": "Nova", "key": "T",
+			"remaining": _nova_cooldown_timer, "total": float(_cfg.get("nova_cd", 6.0)),
+			"enabled": true,
+		})
+	return left + _signature_hud_slots()
+
+
+## THE DASH SQUARE — back on the bar, and it carries the class's own verb name.
+##
+## The bar is where a player learns that this button is not the same button on the
+## next class: a Cryomancer reading "Dash" and then sliding half a room would be the
+## HUD lying. `_move_slot_name()` answers with eleven different words.
+func _move_hud_slot() -> Dictionary:
+	return {
+		"name": _move_slot_name(), "key": "Spc",
+		"remaining": _dash_cooldown_timer, "total": float(_cfg["dash_cd"]),
+		"enabled": true,
+	}
 
 
 ## The movement slot's NAME. The bar is where a player learns that this button is not
 ## the same button on the next class — a Cryomancer reading "Dash" and then sliding
 ## half a room would be the HUD lying about the ability. Short enough for the slot.
+##
+## ⚠ PUBLISHED AGAIN. This left the bar with the first cut of the six-thing ruling and
+## came straight back when the maker corrected the layout — see `_move_hud_slot`.
+## Kept, not deleted, because this table IS the naming authority for eleven movement
+## verbs — re-deriving it from scratch to put the row back would be the expensive half.
 func _move_slot_name() -> String:
 	match _move_verb():
 		"arcane_phase":
@@ -4669,6 +4730,11 @@ func _defense_hud_slot() -> Dictionary:
 
 
 ## Short HUD label for the Q slot, per the class's AoE variant.
+##
+## ⚠ CURRENTLY UNPUBLISHED, same ruling as `_move_slot_name`: "consecrate and the one
+## next to it" — the Cleric's Q and the Nova beside it on the bar — were named
+## explicitly as the two rows to cut, and the whole Q row went with them. `ClassInfo`
+## still cites this function as the naming authority for a class's AoE, so it stays.
 func _aoe_slot_name() -> String:
 	match String(_cfg["aoe"]):
 		"nova": return "Whirl"

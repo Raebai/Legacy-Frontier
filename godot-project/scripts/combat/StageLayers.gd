@@ -36,6 +36,19 @@ const MOUNTAIN: int = -18
 const BACKDROP: int = -10
 const TERRAIN: int = -6
 const HAZARD: int = -5
+## ⚠ THE SAME RUNG AS `HAZARD`, DELIBERATELY, AND THE PRECEDENT IS TWO LINES ABOVE:
+## `ArenaTerrain` and `RoomShell` share `TERRAIN` because the two stages never coexist.
+## Same here. `StageHazard` (a pit) is versus-stage furniture; `FloorDecor` (the tower's
+## painted back wall) only ever exists inside a tower floor. Nothing can put one behind
+## the other because nothing ever puts them in the same room.
+##
+## ⚠ AND IT CANNOT GO ANY FURTHER BACK, which is the real reason for the sharing.
+## `RoomShell` paints the tower room's air as an OPAQUE rect on `TERRAIN` (-6), so every
+## rung behind it — BACKDROP, and the unused -9/-8/-7 — is invisible INSIDE the room.
+## -5 is the first rung a back wall can occupy and still be seen, and it is still behind
+## every ledge (-4), every crate (-3) and every fighter (0), which is all a backdrop has
+## to be. Anyone tempted to "tidy" this to -7 should draw a floor and look at it first.
+const DECOR: int = -5
 const PLATFORM: int = -4
 const COVER: int = -3
 const DEBRIS: int = -1

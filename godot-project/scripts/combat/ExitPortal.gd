@@ -23,6 +23,14 @@ var _taken: bool = false   # fire exactly once (poll + signal both guard on this
 
 
 func _ready() -> void:
+	# ⚠ MASK 1 AND 2, AND WITHOUT IT THIS PORTAL COULD NOT SEE A HERO AT ALL. Measured:
+	# a hero standing dead centre on the portal for 1.2 s produced `overlaps=0, taken=0`.
+	# `Hero.tscn` is on collision layer 2; an Area2D's default mask is bit 1 alone. This
+	# is the third place in the project to be caught by it — `ArmoryStation` and
+	# `TowerDoor` each carry a paragraph about the same trap, and the town's pads went
+	# silent the day the lobby body became a Hero. Watching both layers is the honest
+	# fix: a portal's job is "is the person standing here", not "which scene are they".
+	collision_mask = 1 | 2
 	var cs := CollisionShape2D.new()
 	var circle := CircleShape2D.new()
 	circle.radius = RADIUS

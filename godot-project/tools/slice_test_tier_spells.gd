@@ -3,6 +3,14 @@
 # THE TEN DROP SPELLS themselves — their data shape, their dispatch wiring, and the
 # arithmetic of the three that move health from outside a damage path.
 #
+# ⚠ NONE OF THEM CAN BE FOUND IN THE TOWER ANY MORE, and nothing in this file says
+# otherwise. Maker's ruling, 2026-08-04: "you shouldn't be able to find spells in the
+# tower." `SpellDrops.TOWER_SPELL_DROPS` is the switch; the CATALOGUE was deliberately
+# left standing, which is why every assertion below still holds and still matters.
+# What this suite proves is that the spells are WELL-FORMED and would work — not that
+# a player can reach one. `tools/slice_test_drops.gd::_test_tower_finds_no_spells` is
+# where the ruling itself is pinned.
+#
 # WHY THIS SUITE EXISTS AT ALL: the drop set introduces TWO new `SpellDef.Kind`s
 # that fork on the spell's ID inside a Dictionary. A typo'd id in that table is not
 # an error — `SpellCaster` falls through to `return false` and the spell silently

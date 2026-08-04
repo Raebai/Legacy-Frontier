@@ -2,6 +2,31 @@ class_name SpellDrops
 extends RefCounted
 ## THE DROP TABLE — what appears on a floor, how often, and where.
 ##
+## ══ ⚠ READ THIS FIRST: THE TOWER DROPS NO SPELLS ANY MORE (2026-08-04) ══════════
+## Maker's ruling, verbatim, from a live playtest: "you shouldn't be able to find
+## spells in the tower so remove that blizzard and any other spells that are there,
+## and the healing and stuff should be harder to find."
+##
+## So `TOWER_SPELL_DROPS` is false and BOTH rolls below return "" before they touch a
+## table. Every word of the rarity essay that follows is still TRUE OF THE TABLE and
+## still describes what happens the moment that constant is flipped back — which is
+## exactly why the tables were left standing rather than emptied:
+##
+##   * `SpellLibrary.build_tier2()` / `build_tier3()` / `unequipped_ids()` are read by
+##     four suites, by the audit sandbox and by the "no drop is ever in a starting
+##     kit" guard. Deleting entries would have broken all of them to express a
+##     decision that one boolean expresses better.
+##   * This is ONE RULING, not a design deletion. The maker may want drops back, and
+##     bringing them back must not be an archaeology exercise.
+##
+## What became inert in the tower as a result — named here rather than deleted, for
+## the same reason: `SpellPickup` (the pickup entity), `SpellGrant`'s displace /
+## restore / charge ledger, the charge pips `AbilityBar` and `LoadoutBar` draw, the
+## Tier-3 "charges expire back into your class ult" path, `SpellHandoff` (the pad
+## that lets one player pass a find to the other), and `BossDropWatcher`'s whole
+## reason for existing. All still compile, still tested, still reachable from
+## `tools/drop_capture.gd` and `tools/director/Director.gd`.
+##
 ## ══ RARITY IS THE BALANCE SYSTEM ═══════════════════════════════════════════════
 ## This file is the balance system. Not the damage numbers in `SpellLibrary`, not
 ## the cooldowns, not the clash weights — the odds in here.
@@ -94,6 +119,27 @@ static func sfx(name: String, db: float = 0.0, pitch_var: float = 0.0,
 		node.call(&"play", name, db, pitch_var, pitch)
 
 
+## ══════════════════════════════════════════════════════ THE RULING, AS ONE SWITCH
+## Can a spell be FOUND in the tower at all? The maker says no (2026-08-04 playtest);
+## see the header. One constant, guarding the two rolls, because the alternative was
+## nine deletions across a file this agent does not own.
+##
+## ⚠ THIS IS THE ONLY THING TO FLIP TO GIVE DROPS BACK. Nothing downstream was
+## deleted: flip this to `true` and the floor pickup, the guardian drop, the pickup
+## entity, the handoff pad and the charge ledger all come back exactly as they were.
+const TOWER_SPELL_DROPS: bool = false
+
+## ⚠ TEST-ONLY, AND IT IS NOT A GAME PATH. The drop TABLE — the odds, the floor
+## gates, the climb seeding, the common band — is still worth guarding: it is what
+## comes back when `TOWER_SPELL_DROPS` flips, and a table that rotted while it was
+## switched off would come back broken. So the suites that measure the table open
+## this hatch, roll, and the game never touches it.
+##
+## A static var and not a parameter on purpose: the two roll functions are called from
+## `FloorBuilder` and `BossDropWatcher`, which this agent does not own, so their
+## signatures cannot move. Same shape and same reason as `climb_seed` below.
+static var allow_drops_for_test: bool = false
+
 ## Odds. All UNTESTED GUESSES; this is the tuning surface.
 const TIER2_FLOOR_CHANCE: float = 0.55
 const SIGNATURE_SHARE: float = 0.35
@@ -137,8 +183,22 @@ const DROP_ANCHOR: Vector2 = Vector2(0.72, 0.42)
 const BOSS_ANCHOR: Vector2 = Vector2(0.5, 0.55)
 
 
+## Is the drop system allowed to produce a spell at all? The maker's ruling, asked
+## once, in one place, so both rolls answer it identically and a future reader finds
+## a DECISION rather than two suspiciously dead functions.
+static func drops_are_findable() -> bool:
+	return TOWER_SPELL_DROPS or allow_drops_for_test
+
+
 ## The Tier 2 spell id this floor carries, or "" for none.
+##
+## ⚠ THE GUARD IS AT THE TOP, BEFORE THE RNG IS EVEN DRAWN. Not because it is faster
+## — because the roll has to be untouched underneath it. Emptying the table or
+## short-circuiting halfway through would leave the odds, the floor gates and the
+## climb seeding in a state nobody could reason about when drops come back.
 static func roll_floor_drop(floor_no: int) -> String:
+	if not drops_are_findable():
+		return ""
 	var rng: RandomNumberGenerator = _rng_for(floor_no, 1)
 	if rng.randf() > TIER2_FLOOR_CHANCE:
 		return ""
@@ -157,7 +217,14 @@ static func roll_floor_drop(floor_no: int) -> String:
 ## indefensible: the audit measured floor 5's boss as ~23 seconds with no reward
 ## event in it at all, terminated by a 50/50 on whether the climactic fight of the
 ## whole climb pays out anything. It now always does.
+##
+## ⚠ ...AND THE RULING OUTRANKS EVEN THAT. "The last guardian always pays" is a rule
+## about WHICH floors pay when spells drop; it is not a licence for one spell to
+## survive a ruling that says none of them do. The final guardian pays nothing while
+## `TOWER_SPELL_DROPS` is false, and pays every time the moment it is true.
 static func roll_boss_drop(floor_no: int) -> String:
+	if not drops_are_findable():
+		return ""
 	var rng: RandomNumberGenerator = _rng_for(floor_no, 2)
 	if rng.randf() > TIER3_BOSS_CHANCE and not is_final_floor(floor_no):
 		return ""
@@ -183,6 +250,55 @@ static func is_final_floor(floor_no: int) -> bool:
 	# ever asks about. (Which is exactly what it did: `slice_test_drops` sweeps 200
 	# floor numbers to measure the 50% boss-drop rate and measured 0.99.)
 	return total > 0 and floor_no == total
+
+
+# ────────────────────────────────────────────────────────────────── HEALTH PACKS
+## Does the health-pack site `site` on floor `floor_no` actually carry a pack?
+##
+## ══ THE RULING ═════════════════════════════════════════════════════════════════
+## Maker, same playtest, same sentence: "the healing and stuff should be harder to
+## find." Not "gone" — harder to find. So the sites stay, the fallback stays, the
+## heal stays; what changes is whether a site pays out.
+##
+## ══ THE BEFORE AND AFTER, EXPLICITLY ═══════════════════════════════════════════
+## BEFORE: there was NO ROLL ANYWHERE in the health path.
+## `FloorBuilder.DEFAULT_HEALTH_PACKS` is two room-fractions, no authoring table
+## fills `LayoutDef.health_pickups`, so the fallback was the live path and every
+## floor got BOTH packs, every time:            2.00 packs per floor, 100% of floors.
+## AFTER: each of the two sites rolls independently at `HEALTH_PACK_CHANCE` = 0.25:
+##                                              0.50 packs per floor  (a 4x cut)
+##   * 56% of floors carry NO healing at all   (0.75^2)
+##   * 38% carry exactly ONE, across the room from wherever the fight is
+##   *  6% carry both
+##
+## ══ WHY 0.25 AND NOT 0.5, DEFENDED ═════════════════════════════════════════════
+## The packs arrived inside a difficulty pass that moved FIVE levers at once — hero
+## HP x1.4, enemy damage -25%/-40%, enemy speed -15%, floor 1 -36% bodies, and these.
+## The maker has since said the game got too easy in places. Of those five, the packs
+## are the only one that adds a RECOVERY RESOURCE, and guaranteed per-floor recovery
+## is what flattens attrition across a whole climb: it does not make one floor easier,
+## it makes floor 7 start at the same health as floor 1. That is the specific thing
+## being taken back.
+##
+## 0.25 is chosen so the MODAL FLOOR HAS NO HEALING (56%) — attrition is a real
+## pressure again and arriving at a guardian hurt is once more a consequence — while a
+## ten-floor climb still expects ~5 packs, so a long climb is not a slow death
+## sentence. It is one constant, and it is the first number to turn if a playtest says
+## the swing went too far: 0.35 gives 0.70 packs/floor and healing on 58% of floors.
+##
+## ⚠ NOTHING RANDOM, FOR THE SAME REASON AS THE SPELL ROLL. Both peers build their own
+## props from the same `LayoutDef` with no message passing, and a pickup's wire
+## identity is its POSITION (`Net.pos_key`). An unseeded roll here would leave a pack
+## standing on one phone and absent on the other. Seeded on the climb + the floor +
+## the site, so it is a pure function of state both peers already share.
+const HEALTH_PACK_CHANCE: float = 0.25
+
+static func roll_health_pack(floor_no: int, site: int) -> bool:
+	# Channel `3 + site`, so pack sites can never collide with the floor drop's
+	# channel 1 or the boss drop's channel 2 — and so two sites on ONE floor decide
+	# separately instead of both taking the same coin flip.
+	var rng: RandomNumberGenerator = _rng_for(floor_no, 3 + maxi(0, site))
+	return rng.randf() <= HEALTH_PACK_CHANCE
 
 
 ## THE COMMON BAND — every spell a class AUTHORS but does not carry, deduplicated

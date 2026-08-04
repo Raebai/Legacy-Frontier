@@ -25,7 +25,8 @@ extends RefCounted
 ##   * Which artist stands at the end (BossRoster does that roll, from the depth).
 ##
 ## ── WHAT IS REDRAWN ──────────────────────────────────────────────────────────
-##   room proportion · the LEDGE SKYLINE (five archetypes, permanent + breakable) ·
+##   room proportion · the LEDGE SKYLINE (seven archetypes, permanent + breakable,
+##   with per-ledge toughness and re-form timing) ·
 ##   cover count and placement · hero start + exit point · spawn rect and spacing ·
 ##   weapon pickups · per-wave budget distribution, concurrent cap, opening burst,
 ##   spawn interval · the archetype MIX (swapped WITHIN a threat class, so the band
@@ -80,7 +81,34 @@ static var last_seed: int = 0
 ## side-on brawler: lateral space is where a fight breathes, and height is the axis
 ## that turns into dead air above the top ledge (the ledge tiers are anchored to the
 ## GROUND, so a taller room does not get taller architecture, it gets more sky).
-const MAX_ROOM: Vector2 = Vector2(1220.0, 560.0)
+##
+## ⚠ THIRD ASK, AND THIS TIME THE CAMERA DID NOT MOVE. Maker: "make the map larger and
+## more interactive". The obvious lever — drop `FRAME_ZOOM_MIN` again — was REJECTED,
+## and the reason is written down rather than assumed: that constant has already been
+## spent once (0.5 -> 0.42) and its own comment states the price, ~16% smaller picture
+## at full spread, a 31 px hero drawing at ~13 viewport px. The same maker has been
+## asking to SEE THE FIGURES BETTER. Buying floor by shrinking fighters a second time
+## trades one complaint for the other, and the other one is about the thing you have
+## to read to play.
+##
+## So the growth this pass is the space that was ALREADY PAID FOR AND NOT SPENT:
+##   WIDTH  1523 (640/0.42) - 300 (FRAME_PAD.x) = 1223. We are at 1220. SATURATED —
+##          the room cannot get one useful pixel wider without shrinking fighters,
+##          and it therefore did not.
+##   HEIGHT  857 (360/0.42) - 220 (FRAME_PAD.y) = 637. We were at 560, i.e. 77 px of
+##          headroom sitting unused. 560 -> 620 takes most of it and keeps 17 px of
+##          margin. The framing camera reaches `FRAME_ZOOM_MIN` on the X axis long
+##          before the Y axis (a fight spreads sideways), so this costs ZERO fighter
+##          pixels in every case, and even in the pathological one — two fighters at
+##          the room's exact top and bottom — 620 + 220 = 840 still frames at 0.428,
+##          which is above the floor.
+##
+## THE COST IS NOT ZERO, IT IS JUST NOT PAID IN PIXELS: +11% of height is +11% of room
+## for the same enemy budget, so a floor is very slightly less dense. That is answered
+## on the other side of this file — the extra band is spent on ARCHITECTURE (the two
+## climbing shapes below, and a fourth tier for anything that stacks) and on the back
+## wall (`FloorDecor`), not on sky.
+const MAX_ROOM: Vector2 = Vector2(1220.0, 620.0)
 ## ...and a floor is still an arena. A one-screen room that used half the screen
 ## would just be a smaller box, not a different room.
 ##
@@ -90,7 +118,13 @@ const MAX_ROOM: Vector2 = Vector2(1220.0, 560.0)
 ## a coin-flip on whether the complaint reproduces. Proportion still varies (1080x560
 ## and 1220x500 are visibly different fights); SIZE no longer does, because small was
 ## never a feature.
-const MIN_ROOM: Vector2 = Vector2(1080.0, 500.0)
+##
+## ⚠ THE FLOOR RISES WITH THE CEILING, or "larger" is a coin flip again. The height cap
+## went 560 -> 620; leaving the minimum at 500 would mean a fifth of rolls still came
+## back at the OLD small end and the maker's third "make it larger" would reproduce on
+## those. 500 -> 560 keeps the same ~10% proportion spread that made a wide-low room
+## and a tall-narrow one feel like different fights.
+const MIN_ROOM: Vector2 = Vector2(1080.0, 560.0)
 ## The room width the ledge shapes below were authored against. Ledge spans are scaled
 ## by `w / SHAPE_REFERENCE_W` so a bigger room gets bigger FURNITURE rather than the
 ## same small furniture with more gaps between it — otherwise "larger" arrives on
@@ -154,15 +188,22 @@ const WALL_MARGIN: float = WALL_THICKNESS + 8.0
 ## between them is crossable.
 const SIDE_CLEARANCE: float = 12.0
 
-## THE FIVE SHAPES A FLOOR CAN BE DRAWN AS. Named so a roll is legible in
+## THE SHAPES A FLOOR CAN BE DRAWN AS. Named so a roll is legible in
 ## `special_tags` ("gen:gallery") and in a bug report.
 const SHAPE_OPEN: String = "open"       # bare runway; the fight is the room
 const SHAPE_STAIRS: String = "stairs"   # a rising staircase off one wall
 const SHAPE_GALLERY: String = "gallery" # two wall balconies + a middle island
 const SHAPE_PILLARS: String = "pillars" # scattered perches at one tier
 const SHAPE_SPLIT: String = "split"     # a broken causeway across the middle
+## ⚠ THE TWO THAT SPEND THE NEW HEIGHT. Everything above is a ONE- OR TWO-TIER shape
+## anchored to the ground, which is exactly why the old comment could say a taller room
+## "gets more sky". These two climb instead, so the band `MAX_ROOM.y` just bought is
+## architecture you stand on rather than air you look at.
+const SHAPE_SPIRE: String = "spire"     # a central column, four tiers, switchbacking
+const SHAPE_TERRACE: String = "terrace" # both walls terraced twice + a low island
 
-const SHAPES: Array[String] = [SHAPE_OPEN, SHAPE_STAIRS, SHAPE_GALLERY, SHAPE_PILLARS, SHAPE_SPLIT]
+const SHAPES: Array[String] = [SHAPE_OPEN, SHAPE_STAIRS, SHAPE_GALLERY, SHAPE_PILLARS,
+	SHAPE_SPLIT, SHAPE_SPIRE, SHAPE_TERRACE]
 
 ## Tags this file stamps onto a floor so a roll is visible + replayable. Stripped
 ## before re-stamping so applying twice cannot grow the array. BossRoster.parse_tags
@@ -406,7 +447,7 @@ static func generate_layout(rng: RandomNumberGenerator, shape: String,
 	l.min_spawn_dist_from_hero = _snap(rng.randf_range(dist_band.x, dist_band.y), 5.0)
 
 	# --- cover, resting on surfaces you can reach.
-	l.crate_positions = _place_crates(rng, reach, floor_type, l.hero_start, l.exit_point, depth)
+	l.crate_positions = _place_crates(rng, reach, floor_type, l.hero_start, l.exit_point, depth, w)
 	l.weapon_pickups = _place_pickups(rng, reach, floor_type, l.hero_start)
 	return l
 
@@ -438,6 +479,13 @@ static func _build_platforms(rng: RandomNumberGenerator, shape: String, w: float
 	var t1: float = ground_y - rng.randf_range(STEP_MIN, STEP_MAX) + PLATFORM_H * 0.5
 	var t2: float = t1 - rng.randf_range(STEP_MIN, STEP_MAX)
 	var t3: float = t2 - rng.randf_range(STEP_MIN, STEP_MAX)
+	## THE FOURTH STOREY, and it only exists in a room tall enough to hold it.
+	## `_legal_platform` would reject it anyway (rule 4, the ceiling clearance), but a
+	## rejected ledge is a shape drawn with a hole in it — SHAPE_SPIRE would come back
+	## three tiers tall on a short roll and there would be no way to tell that from a
+	## bug. Asking the room first means the shape KNOWS how tall it may climb.
+	var t4: float = t3 - rng.randf_range(STEP_MIN, STEP_MAX)
+	var tiers: int = 4 if t4 - PLATFORM_H * 0.5 >= top_limit else 3
 
 	# How much of the drawing is UNSTABLE. Deeper floors are drawn faster and looser,
 	# so more of the architecture is the kind that shatters and re-forms. Floor 1
@@ -540,6 +588,78 @@ static func _build_platforms(rng: RandomNumberGenerator, shape: String, w: float
 			if left >= 0 and rng.randf() < 0.6:
 				_try_stack(out, rng, left, rng.randf_range(STEP_MIN, STEP_MAX),
 					_span(w, rng.randf_range(130.0, 180.0)), break_chance, ground_y, top_limit, w)
+		SHAPE_SPIRE:
+			# THE CLIMB. A column near the middle of the room that switchbacks upward:
+			# each storey is stacked on the one below (so `_try_stack` guarantees the
+			# x-overlap that makes the step legal) and narrows as it rises, so the
+			# silhouette is a spire rather than a stack of identical shelves.
+			#
+			# ⚠ IT STACKS ON WHAT LANDED, NOT ON WHAT WAS ASKED FOR. `_try_add` returns
+			# -1 for a rejected candidate; carrying the index forward and bailing on -1
+			# is what stops the loop from stacking storey four onto a storey three that
+			# does not exist — the exact stranding bug the header block above records.
+			var col_x: float = w * rng.randf_range(0.34, 0.66)
+			var col_w: float = _span(w, rng.randf_range(190.0, 240.0))
+			## ⚠ THE BASE WIDTH, KEPT. `col_w` is narrowed in place by the loop below, so
+			## the landing pad — which has to clear the FIRST storey, the widest one —
+			## must be measured against this and not against whatever the top storey
+			## shrank to. Measuring against the shrunk value puts the pad inside the
+			## base's span and `_legal_platform` silently rejects it.
+			var col_base_w: float = col_w
+			var prev: int = _try_add(out, rng, col_x, t1, col_w,
+				break_chance, ground_y, top_limit, w)
+			for storey: int in range(1, tiers):
+				if prev < 0:
+					break
+				# Narrowing, but never below the width a landing needs to be catchable
+				# at speed: two hero bodies plus a margin.
+				col_w = maxf(col_w * rng.randf_range(0.76, 0.88), 110.0)
+				prev = _try_stack(out, rng, prev, rng.randf_range(STEP_MIN, STEP_MAX),
+					col_w, break_chance, ground_y, top_limit, w)
+			# ...and a landing pad off to one side, so the top of the spire is somewhere
+			# you can be CHASED to rather than a dead-end perch.
+			if rng.randf() < 0.7:
+				# ⚠ THE SIDE IS DERIVED, NOT ROLLED. A coin flip puts the pad against the
+				# near wall half the time, `_legal_platform` rejects it for poking
+				# through, and the shape quietly loses a ledge on those rolls. Sending
+				# it toward whichever half of the room is wider means it always has the
+				# room to exist in.
+				var side: float = -1.0 if col_x > w * 0.5 else 1.0
+				var pad_w: float = _span(w, rng.randf_range(130.0, 170.0))
+				# Clear of the BASE storey's span plus a quarter more, because storey two
+				# is stacked with a sideways shift of up to 0.3 of the base width and can
+				# overhang it.
+				_try_add(out, rng, col_x + side * (col_base_w * 0.75 + pad_w * 0.5
+					+ SIDE_CLEARANCE), t2, pad_w, break_chance, ground_y, top_limit, w)
+		SHAPE_TERRACE:
+			# BOTH WALLS, TWICE. The densest shape in the set and the most vertical: two
+			# stepped terraces up each wall plus a low island in the middle, which is
+			# five things to stand on, four edges to be knocked off, and a room you fight
+			# UP as much as across.
+			#
+			# ⚠ THE TERRACES SHRINK AS THEY RISE, and not for looks. A wall-anchored
+			# ledge is inset by `WALL_MARGIN`; two equal-width ones stacked would leave
+			# the upper storey with no exposed lower step to jump from on the inboard
+			# side, so the fight up the wall would be a single column of blind hops.
+			for wall: int in 2:
+				var inner: float = 1.0 if wall == 0 else -1.0
+				var lower_w: float = _span(w, rng.randf_range(200.0, 250.0))
+				var anchor: float = WALL_MARGIN + lower_w * 0.5 if wall == 0 \
+					else w - WALL_MARGIN - lower_w * 0.5
+				var low: int = _try_add(out, rng, anchor, t1, lower_w,
+					break_chance, ground_y, top_limit, w)
+				if low < 0:
+					continue
+				var upper_w: float = maxf(lower_w * rng.randf_range(0.55, 0.7), 110.0)
+				# Pushed OUTWARD (back toward its wall) by the width it lost, so the
+				# lower terrace keeps an exposed inboard lip to stand on.
+				var upper_x: float = anchor - inner * (lower_w - upper_w) * 0.35
+				_try_add(out, rng, upper_x, t2, upper_w,
+					break_chance, ground_y, top_limit, w)
+			# The island. Low, wide-ish, and the thing both walls look down on.
+			_try_add(out, rng, w * rng.randf_range(0.44, 0.56), t1,
+				_span(w, rng.randf_range(160.0, 200.0)),
+				break_chance, ground_y, top_limit, w)
 	return _prune_stranded(out, w, ground_y)
 
 
@@ -562,6 +682,21 @@ static func _try_add(out: Array[Dictionary], rng: RandomNumberGenerator, cx: flo
 		"w": _snap(pw, 10.0), "h": PLATFORM_H,
 		"breakable": rng.randf() < break_chance,
 	}
+	# ⚠ TWO KEYS `FloorBuilder` HAS ALWAYS READ AND NOTHING HAS EVER WRITTEN. It does
+	# `if p.has("hp")` / `if p.has("regen")` on every breakable ledge; the tower never
+	# supplied either, so every shattering ledge in the game had identical toughness and
+	# identical re-form timing. Rolling them is free interactivity: some ledges give way
+	# to one stray blast and come back almost at once, others take a deliberate effort to
+	# bring down and stay down long enough that the room has genuinely changed shape.
+	# Only ever set on a BREAKABLE — a permanent `RuinPlatform` reads neither, and
+	# stamping them anyway would be data that lies about what the ledge does.
+	if bool(p["breakable"]):
+		# ⚠ THE BAND IS CENTRED ON `BreakablePlatform`'s OWN DEFAULTS (max_hp 50,
+		# regen_time 6.0), not on a round number. These are DAMAGE POINTS — a "3" here
+		# would not be a tough ledge, it would be a ledge that evaporates to the first
+		# tick of anything, and the shape would be gone before anyone stood on it.
+		p["hp"] = rng.randi_range(32, 78)
+		p["regen"] = snappedf(rng.randf_range(4.5, 10.0), 0.1)
 	if not _legal_platform(p, out, ground_y, top_limit, room_w):
 		return -1
 	out.append(p)
@@ -741,9 +876,10 @@ static func _pick_exit(rng: RandomNumberGenerator, reach: Array[Dictionary], roo
 ## considered into the middle of the room; a crate that sits on a ledge or on the
 ## floor is unambiguously cover.
 static func _place_crates(rng: RandomNumberGenerator, reach: Array[Dictionary], floor_type: int,
-		hero_start: Vector2, exit_point: Vector2, depth: int = 99) -> Array[Vector2]:
+		hero_start: Vector2, exit_point: Vector2, depth: int = 99,
+		room_w: float = SHAPE_REFERENCE_W) -> Array[Vector2]:
 	var out: Array[Vector2] = []
-	var want: int = _crate_budget(rng, floor_type, depth)
+	var want: int = _crate_budget(rng, floor_type, depth, room_w)
 	if want <= 0 or reach.is_empty():
 		return out
 	var guard: int = 0
@@ -782,16 +918,26 @@ static func _place_crates(rng: RandomNumberGenerator, reach: Array[Dictionary], 
 ## one floor where a player is still learning which shapes matter. Depth 1 is capped
 ## at a third of that, which is enough for cover to exist as a concept without the
 ## room being about it.
-static func _crate_budget(rng: RandomNumberGenerator, floor_type: int, depth: int = 99) -> int:
+##
+## ⚠ AND IT SCALES WITH THE ROOM, for the same reason ledge spans do (`_span`). The
+## room grew; a fixed cover count in a bigger room is the same furniture with more gaps
+## between it, which is how "larger" arrives on screen as "emptier". The teaching floor
+## is EXEMPT — its cap is about a beginner's eye, not about square footage, and scaling
+## it would undo the confetti fix above.
+static func _crate_budget(rng: RandomNumberGenerator, floor_type: int, depth: int = 99,
+		room_w: float = SHAPE_REFERENCE_W) -> int:
+	var scale: float = clampf(room_w / SHAPE_REFERENCE_W, 1.0, SHAPE_SCALE_MAX)
 	match floor_type:
 		FloorDef.FloorType.BOSS:
 			return 0
 		FloorDef.FloorType.ELITE:
-			return rng.randi_range(2, 5)
+			return int(roundf(float(rng.randi_range(2, 5)) * scale))
 		FloorDef.FloorType.REST:
-			return rng.randi_range(0, 3)
+			return int(roundf(float(rng.randi_range(0, 3)) * scale))
 		_:
-			return rng.randi_range(1, 3) if depth <= 1 else rng.randi_range(4, 8)
+			if depth <= 1:
+				return rng.randi_range(1, 3)
+			return int(roundf(float(rng.randi_range(4, 8)) * scale))
 
 
 ## The weapon pickup(s). Placed on a reachable surface and away from the spawn, so

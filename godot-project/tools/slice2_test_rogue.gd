@@ -110,7 +110,12 @@ func _test_mage_config_unchanged() -> void:
 	# tools/slice_test_class_movement.gd). What this line is really guarding is that
 	# switching AWAY from the rogue restores the mage's OWN numbers rather than leaving
 	# the sword's on it, so it compares against the class row and against the rogue.
-	_expect(hero._melee_damage == int(hero.CLASS_CONFIG[hero.HeroClass.MAGE]["melee_damage"]),
+	# ⚠ THE CLASS NUMBER, NOT THE COMPOSED ONE. `_melee_damage` is
+	# `_base_melee_damage * gear["melee_damage"]`, and `Loadout` is an autoload whose
+	# node is on the tree under `--script` — so this was reading whatever the person
+	# running the suite had equipped, and went red the moment the maker changed gear
+	# mid-playtest on a tree with no code change in it. Third instance of this trap.
+	_expect(hero._base_melee_damage == int(hero.CLASS_CONFIG[hero.HeroClass.MAGE]["melee_damage"]),
 		"mage melee is the mage's own class profile")
 	_expect(hero._melee_damage != 26,
 		"switching off the rogue drops the sword's damage (26) rather than keeping it")

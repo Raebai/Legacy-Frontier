@@ -832,6 +832,31 @@ func _apply_archetype_gear() -> void:
 	var kind: String = ARCHETYPE_GEAR.get(archetype, "")
 	if kind != "" and is_instance_valid(rig):
 		rig.set_equipment("weapon", kind)
+	_apply_archetype_hat()
+
+
+## THE HAT — the roster's silhouette-level read. See scripts/combat/ArchetypeHat.gd
+## for why this is a separate node rather than `rig.set_equipment("head", ...)`
+## (short version: the rig's clothing system is switched off on the maker's own
+## instruction, and turning it back on would put robes and armour on everything).
+##
+## Parented to the RIG so the facing flip, the capsule ride and the body pitch all
+## arrive through the transform for free. Loaded by PATH for the same reason
+## `DEATH_SMUDGE_SCRIPT` and `MAGE_BLAST_SCENE` are: naming the class here would put
+## it in the compile graph of every harness that touches Enemy.
+const ARCHETYPE_HAT_SCRIPT: String = "res://scripts/combat/ArchetypeHat.gd"
+
+
+func _apply_archetype_hat() -> void:
+	if not is_instance_valid(rig):
+		return
+	var gs: GDScript = load(ARCHETYPE_HAT_SCRIPT) as GDScript
+	if gs == null:
+		return
+	var hat: Node2D = gs.new() as Node2D
+	hat.name = "ArchetypeHat"
+	rig.add_child(hat)
+	hat.call("configure", archetype, tint)
 
 
 ## Scale stats + unlock smart behaviours from GameState.enemy_difficulty.

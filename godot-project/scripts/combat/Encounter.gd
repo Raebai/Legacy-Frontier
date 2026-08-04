@@ -199,6 +199,40 @@ const DEFAULT_SURGE: float = 0.85
 ## cap, so the next wave's vanguard lands while its last bodies are still up.
 const HANDOFF_ALIVE_FRACTION: float = 0.4
 const HANDOFF_ALIVE_MAX: int = 3
+## ══ AND THE OVERLAP MUST BE A TAIL OF THE WAVE, NOT A THIRD OF IT ═════════════
+## Maker, playtesting: *"wave 1 spawns two enemies but only clears after one was
+## killed, that's a bug that needs to be fixed."*
+##
+## They were right, and the fault is that `HANDOFF_ALIVE_FRACTION` above is a
+## fraction of the CONCURRENT CAP — which says nothing about how big the wave is.
+## On a big wave the cap is a fraction of the budget and the overlap is what it is
+## meant to be (a couple of stragglers out of fifteen). On a SMALL wave the cap is
+## roughly the budget, so the same arithmetic declares a wave beaten with a third
+## of it — or, on the synthesized floors, HALF of it — still standing.
+##
+## MEASURED by `tools/probe_wave_gate.gd`, before this constant existed:
+##
+##     floor 1 wave 1   budget 3   cap 3   handoff 1   -> kill 2 of 3, wave clears
+##     synth  s2 w2     budget 2   cap 4   handoff 1   -> kill 1 of 2, wave clears
+##
+## and live, on the shipped floor 1: `wave 1/3 CLEARED  alive=1`.
+##
+## So the resolved handoff is additionally clamped to this fraction of the wave's
+## own BUDGET. 0.25 rather than something smaller because it is the share the big
+## authored floors already sit at (14-25% left standing, measured across floors
+## 4-10), so the waves that never had this problem keep the pacing they were tuned
+## with, and only the small ones move:
+##
+##     budget 2 -> 0    budget 3 -> 0    (must be CLEARED — a pair is not a tail)
+##     budget 5 -> 1    budget 8 -> 2    budget 15 -> 3   (unchanged)
+##
+## ⚠ THIS DOES NOT PUT THE DEAD AIR BACK, and that distinction matters because the
+## overlap exists to prevent exactly that. A wave with a handoff of 0 still hands
+## straight on the frame the room empties — `_tick_wave` fires `wave_cleared` and
+## `_start_wave`/`_begin_boss` in the same call — and floor 1's last wave has been
+## authored at handoff 0 since the tower was written. What changes is only that a
+## wave is no longer announced as beaten while most of it is alive.
+const HANDOFF_BUDGET_FRACTION: float = 0.25
 ## THE DRAW-IN. Fraction of a wave's concurrent cap that arrives AT ONCE when the
 ## wave opens (the rest trickles at SPAWN_INTERVAL). 0.6 means a cap-5 wave slams
 ## three bodies down the instant it starts.
@@ -580,10 +614,16 @@ func _start_wave(index: int) -> void:
 	_wave_hp = w.resolved_hp(_hp)
 	_wave_interval = maxf(w.resolved_interval(SPAWN_INTERVAL), 0.05)
 	_wave_roster = w.archetypes
-	# Clamped BELOW the budget, never to it: a 1-enemy wave whose handoff was also 1
-	# would be "beaten" the instant it spawned, and the floor would sprint through
-	# its own wave list without anyone fighting anything.
-	_wave_handoff = clampi(w.resolved_handoff(handoff_for_cap(_wave_cap)), 0, maxi(_wave_budget - 1, 0))
+	# Clamped by the wave's own BUDGET, not merely to budget-1. The old ceiling only
+	# protected a 1-enemy wave from being "beaten" the instant it spawned; a 2- or
+	# 3-enemy wave was still handed off with half or a third of it alive, which is
+	# the bug the maker reported. See HANDOFF_BUDGET_FRACTION for the measurements.
+	#
+	# The clamp is applied to the RESOLVED value, so an authored `handoff_alive` is
+	# bounded by it too: floor 1's authored 0 is untouched (it is already below the
+	# ceiling), but a hand-written "handoff 3" on a 4-body wave cannot reintroduce
+	# the same fault from the data side.
+	_wave_handoff = clampi(w.resolved_handoff(handoff_for_cap(_wave_cap)), 0, handoff_ceiling(_wave_budget))
 	# The burst is armed here but SPAWNED IN _tick_wave, gated on `_timer`. That is
 	# load-bearing for co-op: run_floor sets _timer = COOP_SPAWN_DELAY after opening
 	# wave 0 so late-loading clients' EnemySpawner exists, and a vanguard that fired
@@ -739,6 +779,19 @@ static func vanguard_for_cap(cap: int) -> int:
 ## that keeps pressure from ever hitting zero between waves.
 static func handoff_for_cap(cap: int) -> int:
 	return clampi(int(round(float(maxi(cap, 1)) * HANDOFF_ALIVE_FRACTION)), 1, HANDOFF_ALIVE_MAX)
+
+
+## The MOST of a wave that may still be standing when it is declared beaten. The
+## cap-derived overlap above is clamped to this — see HANDOFF_BUDGET_FRACTION for
+## the measurements and for why 0.25.
+##
+## `floor()`, not `round()`, on purpose: a budget of 3 must land on 0 (clear the
+## room) rather than on 1 (kill two of three), and rounding would give it 1.
+## Pure + static so `tools/probe_wave_gate.gd` and the headless suites can assert
+## the ceiling without running a floor.
+static func handoff_ceiling(budget: int) -> int:
+	var b: int = maxi(budget, 0)
+	return mini(int(floor(float(b) * HANDOFF_BUDGET_FRACTION)), maxi(b - 1, 0))
 
 
 ## The floor's GUARDIAN hp multiplier: the authored boss curve, falling back to

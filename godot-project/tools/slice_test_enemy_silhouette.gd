@@ -380,7 +380,12 @@ func _test_boss_inherits_the_silhouette() -> void:
 		"a hit on the Guardian's head registers"
 	)
 	_expect(
-		float(boss.call("body_distance", Vector2(0.0, -rig.height))) > float(boss.call("hit_margin")),
+		# ⚠ THE MISS PROBE FOLLOWS THE RIG TOO. `CharacterRig` aligns its feet to the
+		# collider's bottom edge now, so the whole figure — head included — sits
+		# `rig.position.y` higher than the body origin. A probe left at the old height is
+		# no longer "over the head", it is level with it.
+		float(boss.call("body_distance",
+			Vector2(0.0, -rig.height + (rig as Node2D).position.y))) > float(boss.call("hit_margin")),
 		"...and a shot sailing over the Guardian still misses"
 	)
 	_teardown(ctx)

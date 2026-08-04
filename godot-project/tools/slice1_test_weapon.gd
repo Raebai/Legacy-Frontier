@@ -107,10 +107,15 @@ func _test_default_weapon_is_fists() -> void:
 	# the top of it. Compared against the class row, never against a literal.
 	hero.configure_class(hero.HeroClass.MAGE)
 	var row: Dictionary = hero.CLASS_CONFIG[hero.HeroClass.MAGE]
-	_expect(hero._melee_damage == int(row["melee_damage"]),
+	# ⚠ THE CLASS NUMBER, NOT THE COMPOSED ONE. `_melee_damage` is
+	# `_base_melee_damage * gear["melee_damage"]`, and `Loadout` is an autoload whose
+	# node is on the tree under `--script` — so this was reading whatever the person
+	# running the suite had equipped, and went red the moment the maker changed gear
+	# mid-playtest on a tree with no code change in it. Third instance of this trap.
+	_expect(hero._base_melee_damage == int(row["melee_damage"]),
 		"the default class swings its OWN melee damage (%d), not the fists baseline"
 			% int(row["melee_damage"]))
-	_expect(hero._melee_damage != int(fists["damage"]),
+	_expect(hero._base_melee_damage != int(fists["damage"]),
 		"the Arcanist's melee is genuinely distinct from the bare-fists row")
 	_expect(
 		hero.rig.equipment.get("weapon", "") == "staff",

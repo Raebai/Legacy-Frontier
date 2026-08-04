@@ -1,6 +1,13 @@
 # Run: godot --headless --path godot-project --script tools/slice_test_health_pickup.gd
 #
-# THE HEALTH PACK, and the two ways it could quietly be wrong.
+# THE HEALTH PACK, and the three ways it could quietly be wrong.
+#
+# 0. THE SCARCITY. Maker's ruling, 2026-08-04: "the healing and stuff should be harder
+#    to find." Before it there was no roll anywhere in the health path — two packs on
+#    every floor, always. After it each site rolls at `SpellDrops.HEALTH_PACK_CHANCE`.
+#    The rate is MEASURED here (`packs_are_hard_to_find`) rather than inferred from the
+#    constant, and the seeding is pinned (`scarcity_is_seeded_not_random`) because an
+#    unseeded roll is a co-op desync the players can see.
 #
 # 1. THE PHOTO FINISH. `WeaponPickup` shipped with a bug `SpellPickup` had already
 #    fixed: both peers ran their own overlap test, so a dead heat armed a DIFFERENT
@@ -43,6 +50,8 @@ const TESTS: Array[String] = [
 	"routing_is_inert_without_a_session",
 	"layout_carries_health_positions",
 	"builder_places_a_fallback_pack",
+	"packs_are_hard_to_find",
+	"scarcity_is_seeded_not_random",
 ]
 
 var _ran: bool = false
@@ -64,6 +73,8 @@ func _process(_delta: float) -> bool:
 	_test_routing_is_inert_without_a_session()
 	_test_layout_carries_health_positions()
 	_test_builder_places_a_fallback_pack()
+	_test_packs_are_hard_to_find()
+	_test_scarcity_is_seeded_not_random()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -204,16 +215,29 @@ func _test_layout_carries_health_positions() -> void:
 ## (`GameState`, `FloorGen`) is owned elsewhere and none of them names
 ## `health_pickups` yet, so an authored-only builder would ship a tower with no
 ## healing in it and no error anywhere. Both branches are pinned.
+## ⚠ THIS TEST NO LONGER COUNTS PACKS, IT COUNTS SURVIVORS. Since the 2026-08-04
+## scarcity ruling the builder still visits every SITE; what changed is that each pack
+## rolls for its own existence in `_ready` and dismantles itself if the floor did not
+## earn it. So "the fallback ran" is measured as sites-visited, and how many stand up
+## is measured against the same roll the pack asked. Counting children alone would
+## have gone on passing while every pack on the floor quietly declined.
 func _test_builder_places_a_fallback_pack() -> void:
 	var room := Node2D.new()
 	root.add_child(room)
 	var l := LayoutDef.new()
 	FloorBuilder.build_health_packs(room, l)
-	_expect(room.get_child_count() == FloorBuilder.DEFAULT_HEALTH_PACKS.size(),
-		"an unauthored layout still gets %d packs (got %d)"
-			% [FloorBuilder.DEFAULT_HEALTH_PACKS.size(), room.get_child_count()])
+	var sites: int = FloorBuilder.DEFAULT_HEALTH_PACKS.size()
+	_expect(room.get_child_count() == sites,
+		"an unauthored layout still visits %d pack sites (got %d)"
+			% [sites, room.get_child_count()])
+	_expect(_survivors(room) == _expected_survivors(sites),
+		"…and %d of them stood up, which is what the scarcity roll allowed (got %d)"
+			% [_expected_survivors(sites), _survivors(room)])
 	for c: Node in room.get_children():
-		_expect(c.is_in_group(&"health_pickup"), "…and each one joined the lookup group")
+		# The declined ones must never join the group — `Net._client_pickup` scans it
+		# by position and a pack on its way out is a pack the host could award.
+		_expect(c.is_in_group(&"health_pickup") != c.is_queued_for_deletion(),
+			"a pack is in the lookup group if and only if it survived the roll")
 	for c: Node in room.get_children():
 		room.remove_child(c)
 		c.free()
@@ -221,15 +245,142 @@ func _test_builder_places_a_fallback_pack() -> void:
 	FloorBuilder.build_health_packs(room, l)
 	_expect(room.get_child_count() == 1,
 		"an authored layout takes over completely (got %d)" % room.get_child_count())
+	_expect(_survivors(room) == _expected_survivors(1),
+		"…and its one site obeys the same roll")
 	_kill(room)
 	_completes("builder_places_a_fallback_pack")
+
+
+# ------------------------------------------------------------------- the scarcity
+## THE RULING, 2026-08-04, verbatim from a live playtest: "the healing and stuff
+## should be harder to find."
+##
+## BEFORE there was no roll anywhere in the health path — `DEFAULT_HEALTH_PACKS` is
+## two sites, nothing authors `LayoutDef.health_pickups`, so every floor got BOTH,
+## every time: 2.00 packs per floor. AFTER, each site rolls independently at
+## `SpellDrops.HEALTH_PACK_CHANCE`. This measures the rate rather than trusting the
+## constant, because the constant being right and the roll being wired are different
+## claims and only one of them is visible by reading.
+func _test_packs_are_hard_to_find() -> void:
+	var sites: int = 2   # what the builder's fallback actually places
+	var carried: int = 0
+	var trials: int = 0
+	var bare_floors: int = 0
+	for climb: int in range(1, 61):
+		SpellDrops.climb_seed = climb * 2654435761 % 2147483647
+		for f: int in range(1, 41):
+			var here: int = 0
+			for s: int in sites:
+				trials += 1
+				if SpellDrops.roll_health_pack(f, s):
+					here += 1
+			carried += here
+			if here == 0:
+				bare_floors += 1
+	SpellDrops.climb_seed = 0
+	var rate: float = float(carried) / float(trials)
+	var per_floor: float = float(carried) / float(trials / sites)
+	var bare: float = float(bare_floors) / float(trials / sites)
+	print("  [health] %.3f per site, %.2f packs/floor, %.0f%% of floors carry none"
+		% [rate, per_floor, bare * 100.0])
+	# Wide bounds on purpose, exactly like the spell table's rarity test: this catches
+	# a constant fat-fingered to 1.0 or a channel collision that makes every site
+	# answer the same thing, not the exact feel.
+	_expect(absf(rate - SpellDrops.HEALTH_PACK_CHANCE) < 0.05,
+		"a site carries a pack about HEALTH_PACK_CHANCE of the time (%.3f vs %.2f)"
+			% [rate, SpellDrops.HEALTH_PACK_CHANCE])
+	# THE RULING, MEASURED: meaningfully rarer than the two-every-floor it replaced…
+	_expect(per_floor < 1.0,
+		"a floor averages well under one pack, down from TWO (%.2f)" % per_floor)
+	# …and the modal floor now has no healing on it at all, which is the whole point:
+	# attrition across a climb is a pressure again.
+	_expect(bare > 0.4, "most floors carry no healing at all (%.0f%%)" % (bare * 100.0))
+	# …but NOT gone. The ruling was "harder to find", and a rate that rounded to zero
+	# would be a different decision wearing this one's clothes.
+	_expect(bare < 0.85, "…and healing is still findable (%.0f%% bare)" % (bare * 100.0))
+	_completes("packs_are_hard_to_find")
+
+
+## ⚠ THE CO-OP CONTRACT. Both peers build their own props from the same `LayoutDef`
+## with no message passing, and a pickup's wire identity is its POSITION
+## (`Net.pos_key`). A `randf()` in this path would leave a pack standing on one phone
+## and absent on the other — visible, unreachable, and reading as a mystery bug rather
+## than a desync. So: same climb + same floor + same site must answer the same thing,
+## every time, and the two sites on one floor must decide SEPARATELY.
+func _test_scarcity_is_seeded_not_random() -> void:
+	SpellDrops.climb_seed = 4242
+	for f: int in range(1, 30):
+		for s: int in 2:
+			var a: bool = SpellDrops.roll_health_pack(f, s)
+			var b: bool = SpellDrops.roll_health_pack(f, s)
+			_expect(a == b, "floor %d site %d answers the same twice" % [f, s])
+	# The two sites are independent channels, not one coin flip applied twice — or a
+	# floor would only ever carry zero packs or two.
+	var split: int = 0
+	for f2: int in range(1, 200):
+		if SpellDrops.roll_health_pack(f2, 0) != SpellDrops.roll_health_pack(f2, 1):
+			split += 1
+	_expect(split > 20,
+		"the two sites decide separately (%d/199 floors carried exactly one)" % split)
+	# …and two CLIMBS differ, so the same floor is not the same lottery forever — the
+	# finding that put the climb seed into `SpellDrops` in the first place.
+	var first: Array[bool] = []
+	SpellDrops.climb_seed = 111
+	for f3: int in range(1, 30):
+		first.append(SpellDrops.roll_health_pack(f3, 0))
+	var moved: int = 0
+	SpellDrops.climb_seed = 222
+	for f4: int in range(1, 30):
+		if SpellDrops.roll_health_pack(f4, 0) != first[f4 - 1]:
+			moved += 1
+	_expect(moved > 0, "two climbs place their packs differently")
+	SpellDrops.climb_seed = 0
+	_completes("scarcity_is_seeded_not_random")
+
+
+## How many packs in `room` actually stood up. A declined pack is `queue_free`d, which
+## does not take effect until the end of the frame — so it is still a child here and
+## counting children would count it.
+func _survivors(room: Node) -> int:
+	var n: int = 0
+	for c: Node in room.get_children():
+		if not c.is_queued_for_deletion():
+			n += 1
+	return n
+
+
+## What the roll allows for `sites` sites on the floor the packs will resolve to.
+## Derived through the SAME lookup the pack makes rather than pinned to a number: the
+## harness's `GameState` carries whatever floor the last real climb reached, so a
+## hard-coded expectation here would pass or fail on the user's save file.
+func _expected_survivors(sites: int) -> int:
+	var n: int = 0
+	for s: int in sites:
+		if SpellDrops.roll_health_pack(_current_floor(), s):
+			n += 1
+	return n
+
+
+func _current_floor() -> int:
+	var gs: Node = root.get_node_or_null(^"GameState")
+	if gs != null and gs.has_method(&"current_floor"):
+		return int(gs.call(&"current_floor"))
+	return 1
 
 
 # ------------------------------------------------------------------------ fixtures
 ## A real pack from the real script. The `_ready` group join and the collision setup
 ## both matter, and a hand-built Area2D would prove neither.
+##
+## ⚠ `rolls_for_scarcity` IS TURNED OFF, AND IT MUST BE SET BEFORE `add_child`. Since
+## the 2026-08-04 ruling a pack rolls for its own existence in `_ready`, and `_ready`
+## runs inside `add_child` — so a fixture built the naive way would VANISH about three
+## times in four, at random-looking floors, and every test above would fail
+## intermittently for reasons none of them are about. Scarcity has its own two tests;
+## these fixtures are asking about the heal, the ghost guard and the co-op race.
 func _pack(at: Vector2 = Vector2(7000.0, 7000.0)) -> Node2D:
 	var p: Node2D = (load(HEALTH_SCRIPT) as GDScript).new() as Node2D
+	p.set(&"rolls_for_scarcity", false)
 	root.add_child(p)
 	p.global_position = at
 	return p

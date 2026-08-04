@@ -64,6 +64,13 @@ func _completes(test_name: String) -> void:
 
 ## Both seed statics back to "not told", so one test cannot leak into the next.
 func _reset() -> void:
+	# ⚠ THIS SUITE MEASURES THE TABLE; THE GAME FINDS NO SPELLS. Maker: "you shouldn't
+	# be able to find spells in the tower." `SpellDrops.TOWER_SPELL_DROPS` is false, so
+	# every roll returns "" before it touches the RNG — correct for the game, and it
+	# makes every assertion in here vacuous (five of them went red reporting "/, /, /").
+	# The test opts back in explicitly, so the distribution stays pinned and the ruling
+	# can be lifted later without re-deriving what it used to be.
+	SpellDrops.allow_drops_for_test = true
 	SpellDrops.climb_seed = 0
 	FloorGen.climb_seed = 0
 	FloorGen.last_seed = 0
