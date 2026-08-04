@@ -37,9 +37,16 @@ extends StaticBody2D
 ##     so it reads as one of the row rather than as the odd landmark it used to be.
 ##     This absorbed `ClassAltar.gd`, which was a fourth way of writing
 ##     walk-up-and-press-E.
-##   * `"sparring"` — opens FREE PLAY: no enemies, no stakes, just your spells. The
-##     game's only onboarding surface, and it used to be a title-screen button, which
-##     is the one place a player is not yet curious.
+##
+## ⚠ THERE IS NO `"sparring"` KIND ANY MORE. It teleported you out to `FreePlay` — a
+## whole second scene with its own stage, camera and control card — to answer "what
+## does this spell look like". The maker's ruling: "you should be able to cast spells
+## and stuff within the lobby instead of a training ground; just have standing
+## immortal test dummies on one side." `World._spawn_dummy_yard` is that, the town
+## body is a `Hero`, and this branch was deleted rather than left unspawned, because a
+## `kind` nothing builds is a fifth colour, a fifth glyph and a fifth code path that
+## the next reader has to work out is dead. `FreePlay` itself is untouched and still
+## opens on F6.
 ##   * `"party"` — the ONLY co-op-only station: `World` does not spawn it in a solo
 ##     session. Press it to begin the climb together (host) or to read who is here.
 ##
@@ -82,7 +89,6 @@ const PAD_COLORS: Dictionary = {
 	"armory": Color(0.62, 0.68, 0.78),
 	"spells": Color(0.72, 0.52, 0.95),
 	"tree": Color(1.0, 0.82, 0.42),
-	"sparring": Color(0.92, 0.42, 0.38),
 	"party": Color(0.45, 0.85, 1.0),
 	"class": Color(0.95, 0.82, 0.35),
 }
@@ -92,7 +98,7 @@ const STATUE_COLOR: Color = Color(0.95, 0.82, 0.35)
 ## standing rule for every screen in this game is "remove the words, keep the
 ## picture", and the hint already carries the name for anyone who walks up.
 const PAD_GLYPHS: Dictionary = {
-	"armory": "⚔", "spells": "✦", "tree": "❖", "sparring": "◎", "party": "◈",
+	"armory": "⚔", "spells": "✦", "tree": "❖", "party": "◈",
 	"class": "",
 }
 const GLYPH_FONT_SIZE: int = 22
@@ -308,7 +314,23 @@ func _release_player() -> void:
 		_lifted.global_position = _lift_from
 		_lifted.modulate.a = 1.0
 		_lifted.set_physics_process(true)
+		_redress(_lifted)
 	_lifted = null
+
+
+## Rebuild the body's class kit as it lands.
+##
+## ⚠ ONE PLACE, FOR EVERY PAD. The Outfitter changes which ROLES you carry, the
+## Archivist changes which spells are BINDABLE, and class select changes the class
+## itself — three screens, all of which used to be read only at `configure_class`
+## time, i.e. at spawn. Since the town body is a `Hero` you can cast with, a change
+## made on a pad has to reach the hand you walk away with, and the moment it lands is
+## the moment the trip ends. Doing it per-screen would be three chances to forget.
+func _redress(body: Node2D) -> void:
+	if not body.has_method("configure_class"):
+		return
+	var gs: Node = get_node_or_null(^"/root/GameState")
+	body.call("configure_class", 0 if gs == null else int(gs.get("selected_class")))
 
 
 ## The hint IS the state for the party stone — it is the only station whose label
@@ -317,7 +339,6 @@ func _hint_text() -> String:
 	match kind:
 		"spells": return "[E] Spells"
 		"tree": return _tree_hint()
-		"sparring": return "[E] Sparring ring"
 		"class": return "[E] Choose class"
 		"party":
 			var net: Node = get_node_or_null(^"/root/Net")
@@ -335,22 +356,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _overlay_open():
 		return
 	# ⚠ FIRED BEFORE THE BRANCH, NOT INSIDE EACH ONE. Every kind below either opens a
-	# screen or leaves the room, and both are "the pad took you somewhere" — a beam
-	# per branch is four places for one of them to be forgotten. The two that leave
-	# the scene entirely (sparring, party) never come back down, which is correct:
-	# the room they teleported you out of no longer exists.
+	# screen or leaves the room, and both are "the pad took you somewhere" — a beam per
+	# branch is four places for one of them to be forgotten. The one that leaves the
+	# scene entirely (party, which starts the co-op climb) never comes back down, which
+	# is correct: the room it teleported you out of no longer exists.
 	_lift_player()
-	if kind == "sparring":
-		# Free play is reached BY PATH and by static call, exactly as the title screen
-		# reaches it: a bare identifier would drag the versus arena's whole dependency
-		# chain into a script that loads with the town.
-		var fp: GDScript = load("res://scripts/combat/FreePlay.gd") as GDScript
-		if fp != null:
-			var gs: Node = get_node_or_null(^"/root/GameState")
-			var cls: int = 0 if gs == null else int(gs.get("selected_class"))
-			get_viewport().set_input_as_handled()
-			fp.call("enter", get_tree(), cls)
-		return
 	if kind == "party":
 		# Only the HOST can start; a client pressing this is answered by the hint,
 		# which already says what it is waiting for.
