@@ -23,7 +23,23 @@ const FRAME_VIEWPORT: Vector2 = Vector2(640.0, 360.0)
 ## almost entirely by this number. Cutting it to buy a bigger arena would have bought
 ## the space by zooming further IN, which is the complaint already on record ("a bit
 ## too zoomed in generally") arriving from the other direction. Left alone on purpose.
-const FRAME_PAD: Vector2 = Vector2(300.0, 220.0)  # breathing room around the group
+## ⚠ TIGHTENED 300x220 -> 168x140, AND IT BUYS THE ZOOM FLOOR. Maker: "the map is cool
+## but the camera should be more focussed on the player themselves, not too zoomed out."
+##
+## The arithmetic is the whole reason this is the knob and `FRAME_ZOOM_MIN` is not.
+## The biggest room that fits on one screen is `640 / zoom - FRAME_PAD.x`, and the
+## authored rooms reach 1210 px wide — so at the old pad, holding those rooms REQUIRES
+## `zoom <= 640 / (1210 + 300) = 0.424`. There was no room to zoom in at all without
+## shrinking the map, which the maker likes.
+##
+## Cutting the pad moves the constraint instead of fighting it: at 180 the same rooms
+## need only `zoom <= 640 / (1220 + 168) = 0.461`, so the widest shot comes in ~10%
+## with every floor still fitting.
+##
+## WHAT IT COSTS, plainly: at FULL fighter spread the group sits closer to the screen
+## edge — 168 px of margin instead of 300. That is the trade, and it is the honest one
+## to make here, because the alternative is a smaller map.
+const FRAME_PAD: Vector2 = Vector2(168.0, 140.0)
 ## How far back the framing may pull. THIS IS THE ARENA SIZE CAP, not just a camera
 ## knob: the biggest room that can fit on one screen is
 ## `FRAME_VIEWPORT / FRAME_ZOOM_MIN - FRAME_PAD`, and `FloorGen.MAX_ROOM` is required
@@ -41,7 +57,8 @@ const FRAME_PAD: Vector2 = Vector2(300.0, 220.0)  # breathing room around the gr
 ## FRAME_PAD and ZOOM_MAX and is byte-identical to before. If the wide shot turns out
 ## to read as "tiny ants", this number is the one to walk back — and the room sizes in
 ## `FloorGen.MAX_ROOM` must come back with it or the arena stops fitting on one screen.
-const FRAME_ZOOM_MIN: float = 0.42
+## Raised with the pad above — 0.42 -> 0.46, the tightest the authored rooms allow.
+const FRAME_ZOOM_MIN: float = 0.46
 const FRAME_SPEED: float = 3.5     # ease rate toward the framed centroid (position)
 # ASYMMETRIC ZOOM EASE — the framing camera as a PRESSURE instrument.
 # Waves now open with a vanguard that lands as a GROUP, so the framed box can
