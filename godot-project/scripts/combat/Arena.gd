@@ -1127,7 +1127,35 @@ func _apply_theme(theme: EnvTheme) -> void:
 	var shell: RoomShell = get_node_or_null("RoomShell") as RoomShell
 	if shell != null:
 		shell.build(shell.room_size, wash)
+		_apply_decor(shell.room_size, wash, theme)
 	PostProcess.set_theme(wash)  # re-tint the grade to match the floor
+
+
+## THE BACK WALL'S OWN DETAIL. Maker: "make the map just feel cooler, more like detail
+## and stuff generally."
+##
+## ⚠ THIS WAS WRITTEN AND LEFT UNWIRED. `scripts/tower/FloorDecor.gd` shipped complete
+## and connected to nothing — the pass that wrote it was cut off before this call
+## existed, so a 352-line drawing sat in the tree as dead code. Wiring it is three
+## lines because it was built to the same contract `RoomShell` uses: one `build()`,
+## idempotent, re-callable on every floor.
+##
+## It hangs off `_apply_theme` rather than off room construction on purpose. The decor
+## is a function of the BIOME, and the biome is what changes between floors while the
+## shell's geometry may not — driving it from the theme means floor 7 cannot end up
+## wearing floor 6's wall.
+##
+## ⚠ THE BIOME NAME IS THE THEME'S FILE, NOT AN INDEX. `EnvTheme` carries no display
+## name, and a floor NUMBER would give two floors that share a biome two different
+## walls. The resource path is the one stable per-biome identity that already exists.
+func _apply_decor(room: Vector2, wash: Color, theme: EnvTheme) -> void:
+	var decor: Node = get_node_or_null("FloorDecor")
+	if decor == null:
+		decor = (load("res://scripts/tower/FloorDecor.gd") as GDScript).new()
+		decor.name = "FloorDecor"
+		add_child(decor)
+	var biome: String = String(theme.resource_path).get_file().get_basename()
+	decor.call("build", room, wash, theme.accent(), biome)
 
 
 func _build_floor_banner() -> void:
