@@ -2,6 +2,25 @@
 
 **ASHPIRE.** Branch `bot-fight-quality`, **151/151 green**, tree clean, pushed.
 
+## ▶ FIRST THINGS ON RESUME (maker's live list, newest first)
+
+1. **THE SWORD HIT HAS A WHITE SPHERE ON IT.** Verbatim: "the sword stuff, when I hit
+   someone they have this weird sphere-ish white thing on them — remove that, a hit
+   should be a red flash, that's about it." NOT YET INVESTIGATED. Start at the melee
+   connect path in `Hero.gd` and at `take_damage`'s `tint` argument on `Enemy.gd`
+   (default `Color(1,1,1,0)`) — the white is likely a spawned burst or a flash tint at
+   the hit point, and the ask is to replace it with a plain red flash and nothing else.
+2. **FLOOR 2 WILL NOT LET THE PLAYER SPAWN** — the blocker. See the section below.
+3. **Ordinary enemies casting spells** — the archetype HAT is wired, the spells are not.
+4. **More bosses / mini-bosses** — not started.
+5. **Progression + floor variety** — a design conversation happened and is NOT written
+   down anywhere. The shape proposed: make the FLOOR TYPE the unit of variety (Fight /
+   Village / Exploration / Guardian) so a climb has a rhythm; cut three progression
+   currencies to two (the tree = what you can carry, levels = how hard you hit, gear
+   becomes flavour); hold the "massive online floor" and get 90% of it from a village
+   floor showing other climbers' ghosts and best depth, which needs no server
+   authority. None of this is agreed or built.
+
 ## ▶ THE ONE BLOCKER
 
 **FLOOR 2 WILL NOT LET THE PLAYER SPAWN**, reported live after killing floor 1's

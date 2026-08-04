@@ -3436,7 +3436,20 @@ func movement_verb_name() -> String:
 ## them down. What differs is the distance, the colour and the cooldown it charges.
 func _lightning_blink() -> void:
 	var origin: Vector2 = global_position
-	var dir: Vector2 = _aim_dir
+	# ⚠ THE STICK, NOT THE AIM — AND THIS ONE WAS MISSED THE FIRST TIME. Maker: "make
+	# sure that the blink when you press space is in the direction of movement, not
+	# where we are facing." The R-blink (`_blink`) was moved onto the movement vector
+	# when that ruling landed; THIS is the Stormcaller's SPACE verb, and it resolves on
+	# a different dispatch path (`TELEPORT_VERBS`, inside `_start_dash`) so it never
+	# went through `_begin_travel` where the movement read lives. It kept reading
+	# `_aim_dir` — which is exactly the "where we are facing" the maker is describing.
+	#
+	# Same order as `_blink` and `_begin_travel`, so all three answer the same thumb:
+	# the 8-way movement vector, then aim for a standing blink, then RIGHT so it always
+	# fires rather than refusing.
+	var dir: Vector2 = _vector(&"move_left", &"move_right", &"move_up", &"move_down")
+	if dir.length() <= 0.1:
+		dir = _aim_dir
 	if dir == Vector2.ZERO:
 		dir = _move_dir
 	if dir == Vector2.ZERO:
@@ -3571,7 +3584,18 @@ func _nearest_thrall() -> Node2D:
 ## blink along the aim. Refused and refunded when even that has nowhere to land.
 func _thrall_swap_fallback() -> void:
 	var origin: Vector2 = global_position
-	var dir: Vector2 = _aim_dir
+	# ⚠ THE STICK, NOT THE AIM — the last of the three, and the maker named it: "dash
+	# should not be in the way it's facing but the movement on the joystick or walking,
+	# for all the characters, INCLUDING WARLOCK'S BLINK."
+	#
+	# With a thrall alive this verb has no direction at all — it swaps two bodies, and
+	# that is the class identity. This is the no-thrall path, where it degrades to an
+	# ordinary blink, and a blink answers the movement vector like every other one.
+	# `tools/probe_dash_up.gd` had this as the ONE class of nine still travelling
+	# toward the aim.
+	var dir: Vector2 = _vector(&"move_left", &"move_right", &"move_up", &"move_down")
+	if dir.length() <= 0.1:
+		dir = _aim_dir
 	if dir == Vector2.ZERO:
 		dir = _move_dir
 	if dir == Vector2.ZERO:
