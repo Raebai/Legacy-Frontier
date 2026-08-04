@@ -1254,11 +1254,25 @@ func bot_body_state() -> Dictionary:
 		"move_verb": movement_verb_name(),
 		"slot_affordable": affordable,
 		"slot_cast_time": cast_times,
-		# The defensive verb, which differs in KIND and not just in numbers: 0 = a
-		# press window (most classes), 1 = a held BLADE ring with its own much
-		# narrower perfect band. A brain that times a guard identically for both
-		# is wrong for one of them.
-		"guard_style": 1 if _guard != null else 0,
+		# The defensive verb, which differs in KIND and not just in numbers.
+		#
+		# ⚠ THIS PUBLISHED `_guard != null` — "do I hold a ring" — WHILE BotBrain READ
+		# IT AS `ParryRing.Style` ("0 BLADE / 1 SIGIL"). The Swordsaint holds a BLADE
+		# ring, so it published 1, so the brain charged it the SIGIL re-arm (0.55 s)
+		# instead of the blade's (0.35 s) and a bot Swordsaint under-used its own
+		# signature verb by 0.2 s every guard cycle. This is the same two-meanings-one-
+		# field seam that once made 7 of 9 classes press the guard 0.374 s early; that
+		# half was closed by publishing `guard_lead`/`guard_tolerance` in seconds, and
+		# this is the half that was left.
+		#
+		# Now it publishes the ring's OWN style, with -1 for "no ring, a press window"
+		# — a value the old encoding could not express at all, because both "press
+		# window" and "BLADE ring" collapsed onto 0/1 of a two-value enum.
+		"guard_style": _guard.style if _guard != null else -1,
+		# ...and the re-arm in SECONDS, read off the ring rather than re-derived from
+		# the style by a consumer that has to know the mapping. Same rule as
+		# `dash_dist` and `guard_lead`: publish the number, not the category.
+		"guard_rearm": _guard.rearm_time() if _guard != null else PARRY_COOLDOWN,
 		# ⚠ HOW EARLY THE GUARD MUST BE PRESSED, IN SECONDS, AND HOW FAR OFF THAT A
 		# PRESS MAY BE AND STILL CONNECT. Numbers, not a style enum — and that
 		# distinction is the whole bug this closes.
@@ -5258,6 +5272,16 @@ func take_damage(amount: int) -> void:
 		Sfx.play("ding", 2.0, 0.02)
 		rig.flash_color(PARRY_FLASH_COLOR, 0.1)
 		rig.set_parry(_aim_dir, PARRY_SHIELD_TIME)
+		# ⚠ THE HIT-STOP AND THE SHAKE ARE NOT DECORATION — THEY ARE THE OTHER TWO
+		# PATHS' BEAT, AND THIS PATH WAS MISSING THEM. `try_parry` (Hero.gd:4434) and
+		# `SpellDeflect._payoff` both play ding + hit_stop(0.09) + shake(4.0); this
+		# branch played the ding alone. Since this is the CATCH-ALL path — every
+		# melee, contact, charge and every one of the spectacles that route through
+		# neither of the other two — the most COMMON deflect in the game was also the
+		# flattest, and read on camera as though nothing had happened. One deflect
+		# must feel like one deflect whichever path resolved it.
+		Juice.hit_stop(0.09)
+		Juice.shake_camera(4.0)
 		# The DEFLECT beat — anime freeze-frame localized AT the hero, biased a
 		# touch toward the attacker (aim side) so the burst reads at the clash.
 		Juice.frame({"style": ImpactFrame.Style.LOCAL, "strength": 0.7,
@@ -5280,6 +5304,10 @@ func take_damage(amount: int) -> void:
 				Sfx.play("ding", 2.0, 0.02)
 				rig.flash_color(PARRY_FLASH_COLOR, 0.1)
 				rig.set_parry(_aim_dir, PARRY_SHIELD_TIME)
+				# Same beat as every other deflect path — see the press-window branch
+				# above for why these two lines are load-bearing.
+				Juice.hit_stop(0.09)
+				Juice.shake_camera(4.0)
 				Juice.frame({"style": ImpactFrame.Style.LOCAL, "strength": 0.7,
 			"at": global_position + _aim_dir * 18.0})
 				return

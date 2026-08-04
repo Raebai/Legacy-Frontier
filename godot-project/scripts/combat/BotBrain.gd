@@ -881,8 +881,16 @@ static func _caps(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 	var dash_ready: bool = _ready_flag(bb, "dash_ready", CD_DASH_INDEX,
 		now - m.last_dash_at >= DASH_COOLDOWN)
 	var blink_ready: bool = bool(bb.get("blink_ready", now - m.last_blink_at >= BLINK_COOLDOWN))
-	var sigil: bool = int(bb.get("guard_style", 0)) == 1
-	var rearm: float = GUARD_REARM_SIGIL if sigil else GUARD_REARM_BLADE
+	# `guard_style` is a `ParryRing.Style` (0 BLADE / 1 SIGIL), or -1 for a body that
+	# runs a plain press window and holds no ring at all. It used to be published as
+	# "do I hold a ring", which made every BLADE holder look like a SIGIL — see the
+	# block at `Hero.bot_body_state`.
+	var sigil: bool = int(bb.get("guard_style", -1)) == ParryRing.Style.SIGIL
+	# ⚠ PREFER THE BODY'S OWN NUMBER, same rule as `dash_dist` and `guard_lead` below.
+	# The consts are a hand-copy of ParryRing's and survive only as the fallback for a
+	# body that publishes nothing (an Enemy).
+	var rearm: float = float(bb.get("guard_rearm",
+		GUARD_REARM_SIGIL if sigil else GUARD_REARM_BLADE))
 	var guard_ready: bool = _ready_flag(bb, "guard_ready", CD_GUARD_INDEX,
 		now - m.last_guard_at >= GUARD_SHRINK + rearm)
 	# THE GUARD IS PRESSED EARLY, SO ITS "WINDOW" IS A LEAD TIME, NOT A REACTION

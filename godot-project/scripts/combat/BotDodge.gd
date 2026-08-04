@@ -197,6 +197,31 @@ static func choose_response(threat: Dictionary, caps: Dictionary) -> Dictionary:
 	# the same escape as leaving it downward, and upward is the only one a body
 	# standing on the floor actually has.
 	var vertical: bool = absf(dir.y) >= VERTICAL_EXIT_DOT
+
+	# ⚠ AND A READY GUARD OUTRANKS THE JUMP, WHICH IS WHY THE DEFLECT EXISTED ON PAPER
+	# AND ALMOST NEVER ON SCREEN. MEASURED, 18 duels on the Hard tier: 2 deflects, in
+	# 2 matches, against 464 frames of guard held — roughly a 6% conversion. The cause
+	# was this ladder, not the guard: the vertical-exit jump above returned BEFORE the
+	# parry rung below could be asked, and a horizontal bolt between two grounded
+	# fighters yields a vertical exit EVERY frame (`tools/bot_duel_probe.gd` reports
+	# `exit=(0,±24)` and `jump=true` for the canonical duel geometry). So the parry
+	# rung was only ever reachable while AIRBORNE — i.e. almost never.
+	#
+	# This cannot degenerate into a bot that stands and guards forever, and that is
+	# structural rather than hoped-for: `parry_ready` is `guard_ready and in_lead`
+	# (`BotBrain.gd:919`), and `in_lead` is a slack-width band around THIS class's own
+	# published `guard_lead` (`:901-906`). Outside that band the rung fails and the
+	# body jumps exactly as it did before. The jump is still the answer to most bolts;
+	# the parry is now the answer to the ones it can actually read.
+	#
+	# It is ordered above the jump rather than below it because the two are not
+	# comparable on escape alone. A jump leaves the lane; a parry negates the hit,
+	# banks the counter, and is the best-looking beat in the game. When both are
+	# available in the same frame the parry is strictly the better outcome — for the
+	# fight and for anyone watching it.
+	if vertical and bool(caps.get("can_parry", false)) and bool(caps.get("parry_ready", false)) \
+			and tti <= float(caps.get("parry_window", 0.0)):
+		return {"action": "parry", "dir": dir}
 	if vertical and bool(caps.get("grounded", false)):
 		return {"action": "jump", "dir": dir}
 
@@ -209,20 +234,16 @@ static func choose_response(threat: Dictionary, caps: Dictionary) -> Dictionary:
 	#
 	# This is also the airborne answer to a vertical exit: the direction cannot be
 	# expressed, but the INVULNERABILITY can, and that is the whole point of the rung.
-	# A PARRY BEATS A PURE I-FRAME WHEN NEITHER ESCAPES. The rung below fabricates
-	# `Vector2.RIGHT` whenever the exit is vertical, because a dash cannot express a
-	# vertical direction on this body — so in that case it is not a dodge at all, it is
-	# invulnerability standing still. A parry is exactly as non-escaping, costs a
-	# cooldown this body was about to spend anyway, and is the best-looking beat in the
-	# game. So on a VERTICAL exit only, parry is asked first.
+	# (The vertical-exit PARRY rung used to sit here, below the jump. It has moved to
+	# the TOP of the ladder — see the block up there for the measurement that moved it.
+	# It is not duplicated: a vertical exit is now answered by parry-then-jump, and
+	# this position could only ever be reached when both of those had already failed.)
 	#
-	# ⚠ SCOPED TO THE VERTICAL CASE ON PURPOSE. The lateral `dash` rung above genuinely
-	# clears the region and must keep winning; a bot that parried instead of stepping
-	# out would be trading a solved problem for a timed one. Measured before this:
-	# 64 dash_iframe latches against 50 parries in 18 duels.
-	if vertical and bool(caps.get("can_parry", false)) and bool(caps.get("parry_ready", false)) \
-			and tti <= float(caps.get("parry_window", 0.0)):
-		return {"action": "parry", "dir": dir}
+	# ⚠ THE i-FRAME RUNG BELOW FABRICATES `Vector2.RIGHT` on a vertical exit, because a
+	# dash cannot express a vertical direction on this body — so in that case it is not
+	# a dodge at all, it is invulnerability standing still. That is why the parry is
+	# asked first and why it is worth asking: it is exactly as non-escaping, costs a
+	# cooldown this body was about to spend anyway, and reads.
 	if bool(caps.get("dash_ready", false)) and bool(caps.get("allow_iframe", false)) \
 			and tti <= IFRAME_LEAD:
 		var iframe_dir: Vector2 = dir if dir != Vector2.ZERO and not vertical else Vector2.RIGHT
