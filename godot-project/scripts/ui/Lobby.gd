@@ -575,6 +575,10 @@ func _watch_bots() -> void:
 	if script == null:
 		_say("the bot arena failed to load.")
 		return
+	# ROLL THE MATCHUP. This button existed to show off the roster and opened the
+	# same STORMCALLER vs CRYOMANCER every single time, because that is what the
+	# statics default to. Pressing it twice showed one fight twice.
+	script.set("random_matchup", true)
 	_say("finding a fight...")
 	script.call("enter", get_tree())
 

@@ -126,6 +126,10 @@ var _height: int = 1080
 ## readout and the pause button back, which is what you want when you are tuning
 ## `ClipDirector.HOT_THRESHOLD` and need to see what the director thought.
 var _cinematic: bool = true
+## Roll the matchup in `BotMatch` instead of using `--a`/`--b`. The chosen pair is
+## printed as `[clip] matchup A B` so the caller can name the file after the fight
+## that actually happened rather than the one it asked for.
+var _random: bool = false
 
 var _dir: String = ""
 var _match: Node = null
@@ -172,8 +176,16 @@ func _initialize() -> void:
 		# A clip ends where the match does. An auto-rematch would reload the scene out
 		# from under the capture and the tail would be the NEXT fight's opening.
 		script.set("auto_rematch", false)
+		script.set("random_matchup", _random)
 	_match = (load(MATCH_SCENE) as PackedScene).instantiate()
 	root.add_child(_match)
+	# READ THE PAIR BACK. Under `--random` the scene rolled it in its own `_ready`, so
+	# the ids this tool was given are not the fight that is about to happen — and the
+	# caller names the delivered file from them.
+	if _random and script != null:
+		_class_a = int(script.get("class_a"))
+		_class_b = int(script.get("class_b"))
+	print("[clip] matchup %d %d" % [_class_a, _class_b])
 	print("[clip] %s vs %s  tier=%d  hp=%d  %dx%d  up to %.0fs at %d fps -> %s"
 		% [_name(_class_a), _name(_class_b), _difficulty, _hp, _width, _height,
 			_seconds, _fps, ProjectSettings.globalize_path(_dir)])
@@ -286,6 +298,7 @@ func _parse_args() -> void:
 			"height": _height = maxi(int(value), 180)
 			"out": _out = value
 			"chrome": _cinematic = int(value) == 0
+			"random": _random = int(value) != 0
 
 
 func _name(id: int) -> String:

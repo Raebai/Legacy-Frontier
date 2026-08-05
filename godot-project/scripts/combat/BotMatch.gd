@@ -155,22 +155,51 @@ static func side_color(side: int) -> Color:
 ## and it is NOT the same as fixing the kits. The real Swordsaint fix is its `cast_cd`
 ## 0.45 (slowest in the roster) and `blast_cd` 3.0 (longest), both outliers in their own
 ## columns; the real Brawler fix is its kit. Those are separate work.
+## ⚠ RE-MEASURED 2026-08-05 ON A REAL ROUND-ROBIN, and the previous numbers came
+## from EIGHT HAND-PICKED PAIRINGS. 72 bouts, every unordered pair twice with the
+## sides swapped, drops OFF (a random Tier 3 swings a duel harder than any class
+## difference this is measuring). 72/72 resolved, 0 draws:
+##
+##     STORMCALLER 75%   ARCANIST  50%   SHADOWBLADE 44%
+##     WARLOCK     75%   BRAWLER   50%   CLERIC      38%
+##     JUGGERNAUT  50%   CRYOMANCER 50%  SWORDSAINT  19%
+##
+## The last pass WORKED on four of them — Cryomancer 25 -> 50, Brawler 31 -> 50,
+## Juggernaut 69 -> 50 — and OVERSHOT Cleric, 75 -> 38. Stormcaller and Warlock both
+## got worse.
+##
+## ⚠ ONLY THE OUTLIERS MOVE, AND THAT IS A STATISTICS RULE RATHER THAN CAUTION. Each
+## class played 16 bouts, so the standard error on a 50% rate is about 12 points:
+## 44% and 50% are the same number. Moving the middle of this table would be tuning
+## noise into the game and then measuring the noise again next time.
+##
+## ⚠ AND SWORDSAINT IS STILL THE THING THIS CANNOT FIX. It carries the largest
+## vitality in the table, it was given a longer dash, and it has not moved off 19%.
+## A class that needs +45% health to reach parity does not have a health problem. The
+## finding to report is that its KIT loses, and this file's own header says to report
+## that rather than paper over it — so the number below buys watchability, and it is
+## not a fix.
 const CLASS_VITALITY: Array[float] = [
-	0.98,  # ARCANIST     — ranged arcane zoner; never wants to be touched. 44%, nudged
-	0.85,  # SHADOWBLADE  — in-and-out assassin; the glass in glass cannon. 56%, left
-	1.30,  # BRAWLER      — pure melee; 31%. Everything it does requires being in range,
-	       #                so the reflex layer taxes it hardest. Its KIT is the real fix
-	1.20,  # JUGGERNAUT   — siege tank; 69%. 1.35 was the largest number here by 17%
-	0.90,  # CLERIC       — 75%: it sustains AND carried an above-average bar. Cut the
-	       #                bar, not the heal — the double-dip was the bar
-	1.10,  # CRYOMANCER   — 25%, second worst. 2nd-lowest base hp, the LOWEST melee
-	       #                damage in the game (11), and a short-range frost-cone primary
-	       #                on a caster that must therefore stand where it is punished
-	0.78,  # STORMCALLER  — hyper-mobile; 69%, and it pays for the mobility elsewhere
-	0.88,  # WARLOCK      — attrition hexer; 63%
-	1.25,  # SWORDSAINT   — 19%, worst in the roster. No blink, shortest travel, the
-	       #                slowest cast and the longest blast cooldown, and no nova:
-	       #                four taxes for one payoff
+	0.98,  # ARCANIST     50% — UNCHANGED, dead centre.
+	0.85,  # SHADOWBLADE  44% — UNCHANGED. Inside the noise band; 44 and 50 are the
+	       #               same number at n=16 and moving it would be tuning a coin.
+	1.30,  # BRAWLER      50% — UNCHANGED. Was 31%; the 1.30 did its job. Its KIT is
+	       #               still the real fix — everything it does needs to be in range.
+	1.20,  # JUGGERNAUT   50% — UNCHANGED. Was 69%; the 1.20 did its job.
+	0.98,  # CLERIC       38% — OVERSHOT, from 75%. 0.90 cut a class that sustains AND
+	       #               carried an above-average bar, and cut it past the middle.
+	       #               Back toward 1: take the bar, keep the heal.
+	1.10,  # CRYOMANCER   50% — UNCHANGED. Was 25% and second worst; the maker's "the
+	       #               ice class needs a buff", measured and landed.
+	0.68,  # STORMCALLER  75% — CUT, and it went UP from 69 under the last pass. The
+	       #               most mobile body in the game is not paying for the mobility
+	       #               anywhere else, so it pays here.
+	0.78,  # WARLOCK      75% — CUT, from 63%. Attrition wins a 22-second bout on its
+	       #               own; the shorter the fight, the less that should be true.
+	1.45,  # SWORDSAINT   19% — RAISED, and read the ⚠ above before trusting it. It was
+	       #               already carrying the largest number in this table at 1.25 and
+	       #               had a longer dash, and it did not move a single bout. This
+	       #               buys watchability. It is not a fix.
 ]
 
 ## STATICS, and they survive the scene reload every matchup change performs. A
@@ -291,6 +320,16 @@ static var round_seconds: float = 50.0
 ## ⚠ SHOWCASE ONLY. This is `BotMatch`, the bot-vs-bot scene. The played versus
 ## sandbox and the tower reach `VersusArena` without passing through here, so
 ## neither is touched.
+## ⚠ ROLL THE MATCHUP. A content engine that always shoots STORMCALLER vs CRYOMANCER
+## produces one clip nine times, and both of this scene's entry points defaulted to
+## that pair: the Lobby button and `make_clip.py`. Set before `_ready` (the statics
+## are read there) or pass `--random=1` to the capture tool.
+##
+## The two are always DIFFERENT classes — a mirror match is the one duel that cannot
+## show a matchup — and the roll happens once, in `_ready`, so both fighters and every
+## label downstream agree about who is fighting.
+static var random_matchup: bool = false
+
 static var drops: bool = true
 ## Which drop each side carries. -1 rolls. Set them to shoot a specific spell.
 static var drop_a: int = -1
@@ -369,6 +408,8 @@ static func enter(tree: SceneTree) -> void:
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	if random_matchup:
+		_roll_matchup()
 	# Statics BEFORE the scene instantiates — `VersusArena._ready` reads them all.
 	# Reached BY PATH, never by `class_name`, for the autoload-at-parse-time reason
 	# every capture tool in this project documents.
@@ -425,6 +466,22 @@ func _exit_tree() -> void:
 # ==========================================================================
 # THE FIGHTERS — footing, stats, and the only honest death signal on this stage
 # ==========================================================================
+
+## Pick two DIFFERENT classes. Writes the statics rather than a local, because
+## `_left_class` / `_right_class` / the VS card / the corner plates / the result card
+## all read them, and a roll held anywhere else would have the card naming one pair
+## and the arena building another.
+func _roll_matchup() -> void:
+	var n: int = CLASS_LABELS.size()
+	if n < 2:
+		return
+	class_a = randi() % n
+	class_b = randi() % n
+	if class_b == class_a:
+		class_b = (class_b + 1 + (randi() % (n - 1))) % n
+	print("[botmatch] rolled %s vs %s"
+		% [CLASS_LABELS[class_a], CLASS_LABELS[class_b]])
+
 
 func _left_class() -> int:
 	var a: int = clampi(class_a, 0, CLASS_LABELS.size() - 1)

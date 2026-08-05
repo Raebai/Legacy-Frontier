@@ -119,8 +119,10 @@ def shoot_movie(args: argparse.Namespace) -> tuple[Path, int, int] | None:
         f"--a={args.a}", f"--b={args.b}", f"--difficulty={args.difficulty}",
         f"--hp={args.hp}", f"--seconds={args.seconds}", f"--fps={args.fps}",
         f"--width={args.width}", f"--height={args.height}", f"--out={args.out}",
+        f"--random={1 if args.random else 0}",
     ]
-    print(f"shooting {CLASSES[args.a]} vs {CLASSES[args.b]} (with sound) ...")
+    what = "a rolled matchup" if args.random         else f"{CLASSES[args.a]} vs {CLASSES[args.b]}"
+    print(f"shooting {what} (with sound) ...")
     proc = subprocess.run(argv, capture_output=True, text=True,
                           encoding="utf-8", errors="replace", timeout=args.timeout)
     m_in, m_out = -1, -1
@@ -131,6 +133,13 @@ def shoot_movie(args: argparse.Namespace) -> tuple[Path, int, int] | None:
                 m_in = int(line.rsplit(" ", 1)[1])
             elif "movie_out" in line:
                 m_out = int(line.rsplit(" ", 1)[1])
+            elif line.startswith("[clip] matchup "):
+                # ⚠ NAME THE FILE AFTER THE FIGHT THAT HAPPENED. Under `--random` the
+                # scene rolls the pair in its own `_ready`, so `args.a`/`args.b` are
+                # the request and not the result — naming from them would file a
+                # Warlock/Cleric bout as `stormcaller_vs_cryomancer.mp4`.
+                bits = line.split()
+                args.a, args.b = int(bits[2]), int(bits[3])
     for line in (proc.stderr or "").splitlines():
         if "SCRIPT ERROR" in line or "Parse Error" in line:
             print("  ! " + line)
@@ -188,8 +197,10 @@ def shoot(args: argparse.Namespace) -> Path:
         f"--a={args.a}", f"--b={args.b}", f"--difficulty={args.difficulty}",
         f"--hp={args.hp}", f"--seconds={args.seconds}", f"--fps={args.fps}",
         f"--width={args.width}", f"--height={args.height}", f"--out={args.out}",
+        f"--random={1 if args.random else 0}",
     ]
-    print(f"shooting {CLASSES[args.a]} vs {CLASSES[args.b]} ...")
+    what = "a rolled matchup" if args.random         else f"{CLASSES[args.a]} vs {CLASSES[args.b]}"
+    print(f"shooting {what} ...")
     proc = subprocess.run(argv, capture_output=True, text=True,
                           encoding="utf-8", errors="replace", timeout=args.timeout)
     for line in (proc.stdout or "").splitlines():
@@ -230,6 +241,12 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--a", type=int, default=6, help="left fighter's class id (0-8)")
     ap.add_argument("--b", type=int, default=5, help="right fighter's class id (0-8)")
+    # ⚠ A CONTENT ENGINE THAT ALWAYS SHOOTS THE SAME PAIR MAKES ONE CLIP N TIMES.
+    # `--a 6 --b 5` is a sensible default for a repeatable shot and a terrible one
+    # for a batch: nine classes, and every clip ever produced by this tool without
+    # explicit ids has been STORMCALLER vs CRYOMANCER.
+    ap.add_argument("--random", action="store_true",
+                    help="roll the matchup (ignores --a/--b)")
     ap.add_argument("--difficulty", type=int, default=3)
     # 260 -> 500: at 260 the median bot duel is 8.7s and 14% of clips are over
     # before the director's is_hot() latches. Measured, 36 bouts per row on the
@@ -278,13 +295,15 @@ def main() -> int:
         return 2
 
     stem_dir = user_data_dir() / "clips"
-    out_mp4 = stem_dir / f"{CLASSES[args.a].lower()}_vs_{CLASSES[args.b].lower()}.mp4"
 
     # ── THE DEFAULT PATH: Godot's own Movie Maker, WITH SOUND. ──────────────────
     # Falls back to the silent frame-grab if the movie capture produces nothing
     # usable, rather than failing the run — a silent clip beats no clip.
     if not args.no_shoot and not args.silent and shutil.which("ffmpeg") is not None:
         shot = shoot_movie(args)
+        # AFTER the shoot: `shoot_movie` rewrites args.a/args.b when the matchup was
+        # rolled, so the name is the fight that happened.
+        out_mp4 = stem_dir / f"{CLASSES[args.a].lower()}_vs_{CLASSES[args.b].lower()}.mp4"
         if shot is not None:
             avi, m_in, m_out = shot
             if encode_from_movie(avi, out_mp4, args.fps, args.share_width, m_in, m_out):

@@ -46,6 +46,9 @@ const CLASS_NAMES: Array[String] = [
 ## Hand-picked, not swept. Each row is a matchup that is supposed to produce
 ## something: opposed elements (the reaction matrix's best rows), melee against
 ## ranged (the Brawler question), tank against burst (the vitality question).
+## The roster size the round-robin walks.
+const CLASS_COUNT: int = 9
+
 const PAIRINGS: Array[Vector2i] = [
 	Vector2i(6, 5),   # STORMCALLER vs CRYOMANCER — lightning into frost: supercharge
 	Vector2i(2, 0),   # BRAWLER vs ARCANIST       — pure melee against a pure zoner
@@ -57,6 +60,20 @@ const PAIRINGS: Array[Vector2i] = [
 	Vector2i(1, 6),   # SHADOWBLADE vs STORMCALLER— the two fastest bodies
 ]
 
+## ROUND-ROBIN. `PAIRINGS` is eight hand-picked matchups chosen to be INTERESTING,
+## which is exactly the wrong sample for a balance question: it asks the eight fights
+## somebody already thought were worth watching. `--roundrobin=1` runs every unordered
+## pair of the roster instead — 36 for nine classes — `--repeat` times each, with the
+## sides alternating so nothing this asymmetric stage gives away accrues to one side.
+var _roundrobin: bool = false
+var _repeat: int = 1
+## ⚠ DROPS OFF BY DEFAULT IN A SWEEP, AND THAT IS NOT A DETAIL. `BotMatch` now hands
+## each fighter a random Tier 3 — the maker's "the bots should have the cool spells" —
+## and a cataclysm swings a duel harder than any class difference this sweep exists to
+## measure. Left on, the numbers would be "class plus whatever it rolled" reported as
+## "class". `--drops=1` measures the SHOWCASE configuration, which is a legitimate
+## question and a different one.
+var _drops: bool = false
 var _pairs: int = 6
 var _round: float = 25.0
 var _difficulty: int = 3
@@ -86,6 +103,9 @@ func _parse_args() -> void:
 		var value: String = arg.substr(arg.find("=") + 1)
 		match key:
 			"pairs": _pairs = clampi(int(value), 1, PAIRINGS.size())
+			"repeat": _repeat = maxi(int(value), 1)
+			"roundrobin": _roundrobin = int(value) != 0
+			"drops": _drops = int(value) != 0
 			"round": _round = maxf(float(value), 4.0)
 			"difficulty": _difficulty = clampi(int(value), 0, 3)
 			"hp": _hp = maxi(int(value), 40)
@@ -107,8 +127,12 @@ func _run() -> void:
 		printerr("[botmatch-sim] could not load ", MATCH_SCENE)
 		quit(1)
 		return
-	for i: int in _pairs:
-		var pair: Vector2i = PAIRINGS[i]
+	script.set("drops", _drops)
+	var queue: Array[Vector2i] = _queue()
+	print("[botmatch-sim] %d bouts, roundrobin=%s drops=%s"
+		% [queue.size(), str(_roundrobin), str(_drops)])
+	for i: int in queue.size():
+		var pair: Vector2i = queue[i]
 		script.set("class_a", pair.x)
 		script.set("class_b", pair.y)
 		script.set("difficulty", _difficulty)
@@ -123,6 +147,23 @@ func _run() -> void:
 		await _one_match(scene, i)
 	_report()
 	quit(0)
+
+
+## The bouts to run. Hand-picked by default; every unordered pair under
+## `--roundrobin`, which is the only sample a per-class win rate can honestly come
+## from — a hand-picked eight answers "are these eight fights good", not "is the
+## roster balanced".
+func _queue() -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	if not _roundrobin:
+		for i: int in mini(_pairs, PAIRINGS.size()):
+			out.append(PAIRINGS[i])
+		return out
+	for a: int in CLASS_COUNT:
+		for b: int in range(a + 1, CLASS_COUNT):
+			for _r: int in _repeat:
+				out.append(Vector2i(a, b))
+	return out
 
 
 func _one_match(scene: PackedScene, index: int) -> void:
