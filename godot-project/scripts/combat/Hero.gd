@@ -847,7 +847,19 @@ const CLASS_CONFIG: Dictionary = {
 		# `get_weapon_tip` arm, so the blade would vanish and every spell would spawn
 		# out of the hero's navel. Slower and wider than the Shadowblade, shorter and
 		# far more controllable than the Juggernaut's 96 px hammer.
-		"melee_cd": 0.42, "melee_arc_dot": 0.05, "melee_damage": 26,
+		## ⚠ 26 -> 34 AND 0.42 -> 0.38. Maker: *"the brawler also has a close range but
+		## destroyed sword saint maybe the saint needs a buff dmg"*. Unlike most balance
+		## reports this one is NOT a single fight — the Swordsaint is the only class in
+		## the roster broken beyond doubt, measured at 19% and then 25% across two
+		## separate 72-bout round-robins, and unmoved by +45% health. Its own balance
+		## table says in writing that a class needing that much vitality to reach parity
+		## does not have a health problem.
+		##
+		## The Brawler comparison is the sharp end of it: 14 damage on a 0.20 s cadence
+		## is 70 DPS, against this class's 26 on 0.42 s — 62 — while ALSO being the
+		## slower body with the smaller dodge. 34 on 0.38 s is 89, which is what a
+		## committed two-handed swing on a duellist should be worth against a jab.
+		"melee_cd": 0.38, "melee_arc_dot": 0.05, "melee_damage": 34,
 		"melee_range": 86.0, "melee_knockback": 430.0,
 		## ⚠ THE TWO SLOWEST COLUMNS IN THE ROSTER, BOTH ON ONE CLASS. Maker: *"the other
 		## two abilities before that need shorter cool downs and need to be buffed they
@@ -4319,7 +4331,14 @@ func _primary_frost_cone() -> void:
 	rig.cast_gesture(CharacterRig.GestureKind.IGNITE_DROP, 0.6, _element)  # frost coats the hand
 	const CONE_RANGE: float = 118.0
 	const CONE_COS: float = 0.5  # ~60° half-angle
-	const CONE_DAMAGE: int = 12
+	## ⚠ 12 -> 19. Maker: *"cryomancer needs a buff as well the spells make sure they
+	## actually do something"* — and the arithmetic agreed before the eye did: 12 on a
+	## 0.34 s cooldown is 35 DPS against a roster mean of 56, the LOWEST primary in the
+	## game, on the class that also has to be in cone range to use it. The five bolt
+	## classes get 60 DPS at 560 px; this asks you to walk into the fight for less.
+	## 19 puts it just over the mean, which is what a short-range primary should be
+	## worth for the risk it carries.
+	const CONE_DAMAGE: int = 19
 	var hit_any: bool = false
 	# The cone is now measured against the DRAWN body and line-of-sight filtered,
 	# through the same selector every spell uses. It was the clearest instance of the

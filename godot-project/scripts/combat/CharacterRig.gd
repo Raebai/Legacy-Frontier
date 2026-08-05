@@ -206,16 +206,23 @@ const CLASH_LIMB_JOLT: float = 900.0
 ## simply not resisting, and the `set_limp(1)` that goes with this is what makes the
 ## same jolt read as a topple rather than a stagger. UNTESTED GUESS — judged by eye
 ## in `tools/death_collapse_capture.gd`, never by a number.
-const DEATH_TOPPLE_IMPULSE: float = 760.0
+## ⚠ 760 -> 1050, AND 3.4 -> 5.2 SPIN. Maker: *"the death blow should have some more
+## knockback slightly to make the kill shot more cinematic and visible"*, and *"the
+## death should be ragdoll into the floor"*. The topple was sized so a body tipped
+## over; at that weight a kill and a hard hit produced nearly the same motion, and the
+## single most important frame in a duel — the one the clip is FOR — read as a figure
+## sitting down. Harder shove, faster tumble, and `DEATH_LIMP_SNAP` up so it goes
+## loose immediately instead of toppling stiff and then relaxing.
+const DEATH_TOPPLE_IMPULSE: float = 1050.0
 ## rad/s of torso spin a death is GUARANTEED, in the direction the body is going to
 ## sprawl (see `collapse`). Sized so the ~1.42 rad fall (`PRONE_LEAN`) is most of the
 ## way done inside the bot match's 0.55 s `FREEZE_BEAT`, which is the window the KO is
 ## actually looked at in. UNTESTED GUESS — judged in `tools/death_capture.gd`.
-const DEATH_SPIN: float = 3.4
+const DEATH_SPIN: float = 5.2
 ## Looseness a death STARTS at, so `_step_body`'s sprawl branch (`loose > 0.35`) is
 ## already engaged on the frame the body dies. See the note in `collapse` — the rest
 ## of the way to full limp still eases at `LIMP_EASE_SPEED`.
-const DEATH_LIMP_SNAP: float = 0.55
+const DEATH_LIMP_SNAP: float = 0.85
 const BODY_TRAIL_FACTOR: float = 0.26  # more inertial limb-trail on launch/stop
 ## RUN arm-swing frequency. Since the WORLD-LOCKED gait (below) took over the legs
 ## this only drives the arm counter-swing and the idle breath; the legs no longer

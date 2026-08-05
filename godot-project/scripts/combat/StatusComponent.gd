@@ -11,9 +11,24 @@ extends Node2D
 ## Elements (Elements.Element): FIRE=Burn, ICE=Chill->Freeze, LIGHTNING=Shock
 ## (stun + one chain), SHADOW=Weaken (damage amp), ARCANE=Unstable (delayed pop).
 
+## ⚠ THE BURN WAS BOTH TOO MUCH DAMAGE AND TOO MANY EVENTS. Maker, watching duels:
+## *"fire dot damage please reduce"* and *"reduce the sound sfx when taking dot
+## damage"* — and those are one finding, because every tick routes through
+## `_deal_self` -> `take_damage`, i.e. the real hurt path, so each one carried a hurt
+## grunt, a flash, a hit-stop and a camera shake.
+##
+## 3 damage every 0.35 s for 2.6 s was SEVEN ticks and 21 damage — comparable to a
+## whole class primary, delivered as seven separate jolts, for a status nobody
+## consciously applied. Now 2 every 0.55 s: **five ticks and 10 damage**, so the
+## damage halves and the noise more than halves with it. A DoT should be a pressure
+## you notice, not a second attack that also makes the screen rattle.
+##
+## The tick SPACING is the half that fixes the sound. `Sfx`'s repeat governor only
+## thins hits inside 190 ms, and a burn was landing just outside that window — close
+## enough to smear, far enough to dodge the thinner.
 const BURN_DURATION: float = 2.6
-const BURN_TICK: float = 0.35
-const BURN_TICK_DMG: int = 3
+const BURN_TICK: float = 0.55
+const BURN_TICK_DMG: int = 2
 const CHILL_DURATION: float = 2.2
 const CHILL_SLOW: float = 0.5      # half move speed while chilled
 const FREEZE_DURATION: float = 0.6   # shorter — full-root freeze was oppressive ("ice is not fair")

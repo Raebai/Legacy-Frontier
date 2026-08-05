@@ -62,11 +62,18 @@ static func build_props(container: Node2D, layout: LayoutDef, floor_index: int =
 	if layout == null:
 		return
 	build_platforms(container, layout)
-	for pos: Vector2 in layout.weapon_pickups:
-		var pickup: Area2D = WEAPON_PICKUP_SCENE.instantiate()
-		pickup.weapon_kind = "sword"
-		container.add_child(pickup)
-		pickup.global_position = pos
+	# ⚠ NO SWORDS ON THE FLOOR. Maker: *"there is no need for magic types to wield a
+	# sword, the random sword drops and stuff remove"*. Every one of these was a
+	# hardcoded `"sword"` handed to whoever walked over it — so an Arcanist, a Cleric
+	# or a Cryomancer picked up a blade that its own class card says it does not carry,
+	# and `equip_weapon` duly retuned its melee around a weapon the fantasy denies.
+	#
+	# THE LAYOUT DATA IS LEFT ALONE ON PURPOSE. `layout.weapon_pickups` still carries
+	# its positions and `FloorGen` still authors them; only the spawn is gone. Those
+	# points are good "something interesting is here" spots and a later drop worth
+	# picking up (a spell, a charge, a relic) should reuse them rather than have them
+	# re-derived by whoever wants one next.
+	pass
 	for pos: Vector2 in layout.crate_positions:
 		var crate: StaticBody2D = DESTRUCTIBLE_SCENE.instantiate()
 		container.add_child(crate)

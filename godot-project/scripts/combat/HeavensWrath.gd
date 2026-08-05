@@ -90,7 +90,15 @@ const DRIFT: float = 34.0
 ## frame and behind the HUD — the storm's single biggest tell was invisible in
 ## every capture. 190 keeps the cell above head height (the bolt still has a real
 ## fall) and inside the frame.
-const CLOUD_HEIGHT: float = 190.0
+## ⚠ 190 -> 300. Maker: *"that stormcaller lightning spell the clouds shouldnt be so
+## low they should be higher"*. 190 px above the ground line put the storm at roughly
+## two body-heights — level with the upper platforms rather than over them, so the
+## bolts appeared to start beside the fighters instead of descending on them. The
+## whole read of this spell is that something ABOVE the fight is answering it.
+##
+## Only the DRAWING moves; the strike geometry is measured from the ground and is
+## untouched, so nothing about where the lightning lands or what it hits changes.
+const CLOUD_HEIGHT: float = 300.0
 ## How far DOWN the storm looks for the ground it is claiming, and for the ground
 ## under each mark.
 ##

@@ -309,7 +309,17 @@ const LOW_HEALTH_FRACTION: float = 0.28
 ## stairs than the other did the mound. Mirrored about the real centre instead.
 const FLOOR_CENTRE_X: float = 720.0     # (40 + 1400) / 2, the main walkable ground
 const SPAWN_SPREAD: float = 280.0       # same 560 px gap the showcase always used
-const SPAWN_Y: float = 716.0
+## ⚠ 716 -> 760: THEY WERE SPAWNING 64 PX IN THE AIR. Maker: *"their spawn shouldnt
+## not be in the ait like they should spawn on the ground"*. `VersusArena.GROUND_TOP`
+## is 780 and a hero's origin is the CENTRE of its collider, so a body rests at about
+## `780 - 17`. At 716 both fighters dropped four body-heights before the bell — the
+## first thing in every clip was two men falling.
+##
+## Deliberately a few px ABOVE the rest position rather than exactly on it. Landing is
+## free and invisible; starting BELOW is not, because depenetration ejects a box whose
+## midline is under the floor's — that is precisely the floor-2 blocker this project
+## already spent a session on.
+const SPAWN_Y: float = 760.0
 ## Off the rock entirely — a fall nothing recovers from. The terrain spans x 40..1965
 ## (VersusArena.TERRACES), so anything outside this is in the air over a blast zone.
 const RIM_LEFT: float = 24.0
