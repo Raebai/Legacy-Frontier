@@ -83,11 +83,13 @@ const COLLAPSE_FLOOR: float = 90.0
 ## How long we keep watching for landings. The longest fall the cap can produce is
 ## 0.50 s; the longest the room can is 0.75 s.
 const COLLAPSE_WATCH: float = 1.4
-## ⚠ THE ONE DECISION COLLAPSE DAMAGE FORCED, as a knob so it can be overturned in one
-## word. FALSE = the caster is lifted by their own well but is not billed for it.
-## "Caster included" was written about the LIFT, when this spell could not hurt anybody;
-## letting it silently become a 64-damage self-hit on a 6.8 s cooldown is a balance
-## change nobody signed off. ⚠ A CO-OP PARTNER IS **NOT** EXCLUDED — see `_end()`.
+## ⚠ NOW REDUNDANT BUT KEPT AS THE EXPLICIT STATEMENT. The maker ruled the caster out
+## of the spell entirely ("gravity spell should affect everyone except the caster"), so
+## the caster is never lifted and therefore never in `_watch` to be billed. This stays
+## FALSE and stays declared, because "the caster is not hurt by their own well" is a
+## rule worth being able to find, and flipping it alone would now do nothing — the
+## exclusion lives in `_lift_everyone`. ⚠ A CO-OP PARTNER IS STILL CAUGHT AND STILL
+## BILLED: "everyone except the caster" means everyone.
 const CASTER_EATS_COLLAPSE: bool = false
 ## The landing stun, reusing the EARTH stagger channel exactly as ShadowRoot does for
 ## its root. On an Enemy that is a hard CC; on a Hero it is a 0.32x slow for 0.70 s — a
@@ -171,15 +173,34 @@ func _physics_process(delta: float) -> void:
 	queue_redraw()
 
 
-## THE MECHANIC. Note there is STILL no `hostiles()` call and no caster exclusion here:
-## "caster included" survived the reversal and this reads the raw group deliberately.
-## It is the one effect in the drop set that is supposed to reach its own thrower, and
-## `slice_test_friendly_fire`'s EXEMPT table names this file for exactly that reason.
-## The collapse DAMAGE, which is new, does not use this scan.
+## THE MECHANIC.
+##
+## ⚠ THE CASTER IS EXCLUDED — FROM THE LIFT AS WELL AS THE COLLAPSE. Maker, 2026-08-05:
+## *"gravity spell should affect everyone except the caster."*
+##
+## This overturns the ONE piece of the old design that survived the well reversal. The
+## original spec said "inverts gravity 5s, CASTER INCLUDED", and this file scanned its
+## group bare on purpose — it was the single effect in the drop set that reached its
+## own thrower, and `slice_test_friendly_fire`'s EXEMPT table named it for exactly that.
+## That is no longer the design.
+##
+## And it is the right call for the well specifically, which is worth writing down
+## rather than just obeying: "caster included" made sense when the spell was roomwide
+## and had no edge, because there was nowhere to stand — being caught by your own flip
+## was the cost of casting it. The well is PLACED, so the Juggernaut already chooses
+## whether to be inside it; lifting the caster on top of that charges twice for one
+## decision, and it made the obvious play (drop it on the pack, stay on the rim) also
+## the only play.
+##
+## A CO-OP PARTNER IS STILL CAUGHT. "Everyone except the caster" means everyone.
 func _lift_everyone(delta: float) -> void:
 	var seen: Dictionary = {}
+	var own: Object = SpellTargets.owner_of(self)
+	var skip: int = own.get_instance_id() if own != null else 0
 	for n: Node in get_tree().get_nodes_in_group(target_group):
 		if not is_instance_valid(n) or n.is_queued_for_deletion():
+			continue
+		if n.get_instance_id() == skip:
 			continue
 		var v: Variant = n.get(&"velocity")
 		if v == null or not (v is Vector2):

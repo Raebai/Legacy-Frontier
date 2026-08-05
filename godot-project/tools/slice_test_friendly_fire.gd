@@ -285,16 +285,16 @@ func _test_no_bare_group_scans() -> void:
 		# ── THE DROP ECONOMY (Tier 2 / Tier 3). These five scan bare ON PURPOSE, and
 		# each one is a spec requirement rather than a forgotten skip list. They are
 		# named individually, with the reason, exactly as this table asks.
-		#   GravityFlip   — "inverts gravity 5s, CASTER INCLUDED". A flip with a hole
-		#                   in it where the caster stands is not the spell.
-		#                   ⚠ THIS NOW COVERS THE LIFT ONLY. The 2026-08-05 reversal
-		#                   made it the GRAVITY WELL and gave it its first real damage
-		#                   path (the landing collapse), and that half DOES skip the
-		#                   caster — via `SpellTargets.owner_of` against its own tracked
-		#                   set rather than a group scan, which is why the bare-scan
-		#                   sweep below still sees only the lift. The exemption is
-		#                   therefore narrower than it reads: the caster is lifted by
-		#                   its own well and is not billed for the landing.
+		#   GravityFlip   — ⚠ THE "CASTER INCLUDED" JUSTIFICATION IS DEAD. It read: "a
+		#                   flip with a hole in it where the caster stands is not the
+		#                   spell." Maker, 2026-08-05: *"gravity spell should affect
+		#                   everyone except the caster."* The caster is now skipped in
+		#                   `_lift_everyone` AND is never billed for the collapse.
+		#                   It stays exempt because it still scans the group by hand
+		#                   rather than through `hostiles()` — it has to, because it
+		#                   must reach a CO-OP PARTNER, and "everyone except the caster"
+		#                   is a wider set than "hostiles". That is the whole remaining
+		#                   reason, and it is a much narrower one than the original.
 		#   Chronostasis  — "your teammate is frozen too", and so is the caster: it
 		#                   stops time in a PLACE, not for a side.
 		#   Equinox       — levels "you, your friend, and the thing you are fighting".
