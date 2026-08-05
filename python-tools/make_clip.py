@@ -152,7 +152,22 @@ def main() -> int:
     ap.add_argument("--share-width", type=int, default=720, help="ENCODED width")
     ap.add_argument("--colors", type=int, default=96, help="GIF palette size")
     ap.add_argument("--out", default="directed", help="subfolder under user://clips")
-    ap.add_argument("--timeout", type=int, default=600)
+    # ⚠ 600 -> 1800, AND IT FAILED SILENTLY AT 600. `--fixed-fps 60` pins the engine's
+    # delta so the capture is correct, but it also means a full-length shoot renders
+    # every one of ~1700 engine frames at 1920x1080 rather than skipping — which is
+    # slower in WALL-CLOCK than the old (wrong) capture ever was.
+    #
+    # Measured: a Brawler-vs-Juggernaut shoot wrote 838 frames and was then killed by
+    # this timeout. `subprocess.run` raises TimeoutExpired, the traceback went to a
+    # stderr nobody was reading, and the batch simply moved on with no mp4 and no
+    # message. A capture that dies without saying so is the same failure class as the
+    # stale-directory bug above.
+    #
+    # ⚠ AND THE UNDERLYING REASON THAT FIGHT RAN LONG IS A BALANCE CHANGE: with the
+    # re-tuned CLASS_VITALITY, a Brawler (1.30) and a Juggernaut (1.20) carry 650 and
+    # 600 effective HP at `--hp 500`, and two melee classes cannot close that inside
+    # the 28 s budget. For a melee mirror, pass a lower `--hp`.
+    ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--no-shoot", action="store_true", help="re-encode existing frames")
     args = ap.parse_args()
 
