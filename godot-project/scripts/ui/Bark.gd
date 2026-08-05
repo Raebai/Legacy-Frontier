@@ -232,6 +232,48 @@ const LINES: Dictionary = {
 		"unfinished, after all.",
 	],
 
+	# THE ERASER — it does not draw, so it does not boast. Flat, incurious, and
+	# stated as WORK rather than as threat, which is what makes it unpleasant: the
+	# other four want something from you, and this one is just clearing up.
+	&"boss_arrive_eraser": [
+		"this page was a mistake.",
+		"cleaner, nearer to me.",
+		"i take it back.",
+	],
+	&"boss_phase_eraser": [
+		"less of it now.",
+		"there. and there.",
+	],
+	&"boss_final_eraser": [
+		"nothing left to stand on.",
+		"blank. as it began.",
+	],
+	&"boss_down_eraser": [
+		"...it stays, then.",
+		"i was not finished.",
+	],
+
+	# THE ETCHER — a craftsman mid-process, talking about the WORK and not about
+	# you. Every line is a step in etching, which is also the tell: when it says the
+	# plate is going in, that is the wind-up it is telling you to come and break.
+	&"boss_arrive_etcher": [
+		"the ground is laid.",
+		"i cut. the acid decides.",
+		"the acid bites deeper.",
+	],
+	&"boss_phase_etcher": [
+		"deeper into the plate.",
+		"another bath.",
+	],
+	&"boss_final_etcher": [
+		"the plate goes in whole.",
+		"let it eat everything.",
+	],
+	&"boss_down_etcher": [
+		"over-bitten.",
+		"the plate is ruined.",
+	],
+
 	# ── THE ELITES ──────────────────────────────────────────────────────────
 	# A named body in a wave of eleven. It gets ONE line when it arrives and one
 	# more on the beat that defines it — everything else it does it does with its
@@ -328,6 +370,18 @@ const MOODS: Dictionary = {
 	&"boss_phase_illuminator": Gibberish.Mood.TALK,
 	&"boss_final_illuminator": Gibberish.Mood.SHOUT,
 	&"boss_down_illuminator": Gibberish.Mood.DIE,
+	# The Eraser never raises its voice — not even at the end. It is the only artist
+	# on the roster that MUTTERs through its own final page, and that is the whole
+	# character: it is not fighting you, it is tidying.
+	&"boss_arrive_eraser": Gibberish.Mood.MUTTER,
+	&"boss_phase_eraser": Gibberish.Mood.MUTTER,
+	&"boss_final_eraser": Gibberish.Mood.TALK,
+	&"boss_down_eraser": Gibberish.Mood.DIE,
+	# The Etcher states its process, and only shouts when the plate goes in whole.
+	&"boss_arrive_etcher": Gibberish.Mood.TALK,
+	&"boss_phase_etcher": Gibberish.Mood.TALK,
+	&"boss_final_etcher": Gibberish.Mood.SHOUT,
+	&"boss_down_etcher": Gibberish.Mood.DIE,
 
 	# The elites. The mood IS the tell: a rising QUESTION is the keen one reading
 	# you, a SHOUT is the herald addressing the room, a MUTTER is the inked one

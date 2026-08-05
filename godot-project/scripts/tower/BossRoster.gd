@@ -38,11 +38,13 @@ extends RefCounted
 ## picks the scene by id, the floor window controls where it appears, and the three
 ## scalars below shape it WITHOUT touching the depth curve.
 
-## The four. `id` is what travels in spawn data — never renumber, never rename.
+## The roster. `id` is what travels in spawn data — never renumber, never rename.
 const GUARDIAN: String = "guardian"
 const SCRIBBLE: String = "scribble"
 const CARTOGRAPHER: String = "cartographer"
 const ILLUMINATOR: String = "illuminator"
+const ERASER: String = "eraser"
+const ETCHER: String = "etcher"
 
 ## THE ROSTER. One row per boss.
 ##
@@ -87,6 +89,39 @@ const ENTRIES: Array[Dictionary] = [
 		"artist": "gold leaf on vellum, and it wants you dead",
 		"min_floor": 4, "max_floor": 0,
 		"hp_scale": 1.12, "speed_scale": 0.86,
+	},
+	# ── APPENDED, AND THAT MATTERS ───────────────────────────────────────────
+	# `entry()` falls back to `ENTRIES[1]` BY INDEX, so the Guardian has to stay at
+	# index 1 forever: inserting a row above it would silently change what an
+	# unknown boss id degrades to, with nothing anywhere reporting a fault.
+	#
+	# WHY THESE TWO EXIST. Measured over 200 climbs before they were written: the
+	# eligible pool for floors 4-10 was THREE (the Scribble's window closes at 3 and
+	# nothing replaced it), a 10-floor climb saw ~3.7 of 4 artists, and the Guardian
+	# turned up ~3.3 times per climb and as many as 8. The modifiers re-skin a
+	# repeat, but the QUESTION the fight asks repeats with it.
+	{
+		"id": ERASER,
+		"scene": "res://scenes/combat/EraserBoss.tscn",
+		"name": "THE ERASER",
+		"artist": "worn rubber, and pink crumbs on the floor",
+		# Shallow: it takes the page back, and by the deep half the pages are worth
+		# keeping. Also the shallow band was the one with three artists in it.
+		"min_floor": 1, "max_floor": 6,
+		# Tanky and slow. It denies ground rather than chasing, and a fast body would
+		# turn "walk into the pocket" into "get hit on the way in".
+		"hp_scale": 0.94, "speed_scale": 0.80,
+	},
+	{
+		"id": ETCHER,
+		"scene": "res://scenes/combat/EtcherBoss.tscn",
+		"name": "THE ETCHER",
+		"artist": "needle and acid, on beaten copper",
+		# Deep: it is the boss that fixes the deep pool, and its whole fight is a
+		# breakable cast, which needs a player who already has damage to land.
+		"min_floor": 3, "max_floor": 0,
+		# The slowest body on the roster. The break has to be REACHABLE.
+		"hp_scale": 1.05, "speed_scale": 0.55,
 	},
 ]
 

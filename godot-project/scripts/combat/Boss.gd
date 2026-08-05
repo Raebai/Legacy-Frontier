@@ -439,6 +439,62 @@ class PageRedraw extends Node2D:
 							rng.randf_range(-_half.x, _half.x - bw),
 							rng.randf_range(-_half.y, _half.y - bw),
 							bw, bw), "at": 0.5 + 0.1 * float(b)})
+			&"erase":
+				# THE ERASER. It does not redraw the page — it takes strokes OFF it. So
+				# this hand is the inverse of every other one: short horizontal scrubs in
+				# the pale of BLANK PAPER rather than in ink, laid in overlapping passes
+				# the way a rubber is actually worked, each leaving the room emptier
+				# instead of fuller. One crumb in the accent at the end of every scrub.
+				var scrubs: int = maxi(budget / 2, 4)
+				var blank: Color = Color(1.0, 0.98, 0.95, 0.85)
+				for i4 in scrubs:
+					var sx: float = rng.randf_range(-_half.x * 0.85, _half.x * 0.85)
+					var sy: float = rng.randf_range(-_half.y * 0.85, _half.y * 0.85)
+					var span: float = rng.randf_range(w * 0.10, w * 0.22)
+					var at4: float = float(i4) / float(scrubs) * 0.7
+					# Three passes over the same place, each shorter. A rubber does not
+					# do it in one stroke and neither does this.
+					for pass_i in 3:
+						var shrink: float = 1.0 - 0.18 * float(pass_i)
+						var off: float = float(pass_i - 1) * 5.0
+						_strokes.append({
+							"a": Vector2(sx - span * 0.5 * shrink, sy + off),
+							"b": Vector2(sx + span * 0.5 * shrink, sy + off),
+							"w": rng.randf_range(5.0, 8.5),
+							"at": at4 + 0.04 * float(pass_i), "col": blank})
+					_strokes.append({
+						"a": Vector2(sx + span * 0.5, sy + 2.0),
+						"b": Vector2(sx + span * 0.5 + 6.0, sy + 4.0),
+						"w": 2.4, "at": at4 + 0.12, "col": ink})
+			&"etch":
+				# THE ETCHER. Not drawn — BITTEN, in two events that have to read as two.
+				# First the needle: fine parallel work in tight bands, the hatching an
+				# etcher actually cuts. Then the acid, arriving later and eating further
+				# than the needle went — long ragged diagonals crossing the bands.
+				var bands: int = maxi(budget / 6, 2)
+				for b2 in bands:
+					var by: float = -_half.y + h * (float(b2) + 0.5) / float(bands)
+					var bx: float = rng.randf_range(-_half.x * 0.6, _half.x * 0.2)
+					var bw2: float = rng.randf_range(w * 0.18, w * 0.34)
+					for n2 in 7:
+						var lx: float = bx + bw2 * (float(n2) / 6.0)
+						_strokes.append({
+							"a": Vector2(lx, by - 16.0), "b": Vector2(lx + 6.0, by + 16.0),
+							"w": 1.1,
+							"at": float(b2) / float(bands) * 0.45 + 0.05 * (float(n2) / 7.0),
+							"col": ink})
+				var bites: int = maxi(budget / 5, 3)
+				for c in bites:
+					var pb := Vector2(rng.randf_range(-_half.x, _half.x * 0.5),
+						rng.randf_range(-_half.y, _half.y * 0.5))
+					var ang3: float = rng.randf_range(0.35, 0.95)
+					for seg2 in 3:
+						var pb2: Vector2 = pb + Vector2.RIGHT.rotated(
+							ang3 + rng.randf_range(-0.3, 0.3)) * rng.randf_range(w * 0.10, w * 0.20)
+						_strokes.append({"a": pb, "b": pb2,
+							"w": rng.randf_range(2.6, 4.4),
+							"at": 0.5 + 0.35 * float(c) / float(bites), "col": ink})
+						pb = pb2
 			_:
 				# CHARCOAL. The first hand: dense diagonal hatching, pressed hard.
 				for i3 in budget:

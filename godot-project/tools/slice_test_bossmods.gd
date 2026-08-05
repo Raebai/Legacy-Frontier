@@ -32,6 +32,7 @@ const TESTS: Array[String] = [
 	"unfinished_repositions",
 	"quiet_gives_up_the_bar",
 	"spawn_boss_carries_the_roll",
+	"every_boss_satisfies_the_roster_contract",
 ]
 
 var _fails: int = 0
@@ -78,6 +79,7 @@ func _run() -> void:
 	await _test_unfinished_repositions()
 	await _test_quiet_gives_up_the_bar()
 	await _test_spawn_boss_carries_the_roll()
+	await _test_every_boss_satisfies_the_roster_contract()
 
 	for t: String in TESTS:
 		_expect(_completed.has(t),
@@ -497,6 +499,65 @@ func _test_spawn_boss_carries_the_roll() -> void:
 	holder.free()
 	await process_frame
 	_completes("spawn_boss_carries_the_roll")
+
+
+## ══ THE ROSTER CONTRACT ══════════════════════════════════════════════════════
+## A boss that misses any of these is SILENTLY broken — no error, no red suite, it
+## just quietly does less than it was written to do. That list used to live only in
+## a design doc, which meant it was a thing an author had to remember; here it is a
+## thing they cannot forget. Every clause is driven off `BossRoster.ids()`, so the
+## next artist is held to it the moment its row lands and costs zero suite edits.
+##
+## What is NOT here, deliberately: the wire (`slice_test_bossnet` owns it — it puts
+## every attack of every boss on a real Net spy), the voice (`slice_test_bossvoice`
+## owns the bark rows and the redraw hands), and the fight-shape clauses, which are
+## `bosses_are_different_fights` above. Duplicating them here would give the roster
+## two places to be wrong about the same thing.
+func _test_every_boss_satisfies_the_roster_contract() -> void:
+	var ids: Array[String] = BossRoster.ids()
+	var epithets: Dictionary = {}
+	var suffixes: Dictionary = {}
+	for bid: String in ids:
+		var entry: Dictionary = BossRoster.entry(bid)
+		_expect(String(entry["id"]) == bid,
+			"'%s' resolves to its OWN row and not the index-1 fallback" % bid)
+		var b: Node = _build(bid)
+		await _settle(2)
+		# 1 · IDENTITY. An epithet is the billing line under the name card; an empty
+		#     one silently falls back to the material note, and a DUPLICATE one bills
+		#     two different artists as the same thing.
+		var ep: String = String(b.call("boss_epithet"))
+		_expect(ep != "", "'%s' has a billing line" % bid)
+		_expect(not epithets.has(ep), "'%s' is billed as itself (%s)" % [bid, ep])
+		epithets[ep] = true
+		# 2 · THE VOICE KEY. `Bark.say_variant` tries `<event>_<suffix>` and falls
+		#     back to the generic guardian row, so a shared suffix is not an error —
+		#     it is two bosses speaking with one mouth, which is worse.
+		var sfx: String = String(b.call("bark_suffix"))
+		_expect(sfx != "", "'%s' names a bark row" % bid)
+		_expect(not suffixes.has(sfx), "'%s' has its own voice (%s)" % [bid, sfx])
+		suffixes[sfx] = true
+		# 3 · PRESET + TINT. `class_preset` silently does nothing on an unknown name,
+		#     which ships a boss wearing the default kit and reports no fault.
+		_expect(CharacterRig.new().has_method("class_preset"), "the rig still takes a preset")
+		var preset: String = String(b.call("boss_preset"))
+		_expect(preset != "", "'%s' names a rig preset" % bid)
+		# 4 · THE BODY. `_fit_box_to_scale` needs a RectangleShape2D or the body is
+		#     born inside the floor, and it cannot report that it did not find one.
+		var cs: Node = b.get_node_or_null("CollisionShape2D")
+		_expect(cs != null, "'%s' has a CollisionShape2D" % bid)
+		if cs != null:
+			_expect(cs.get("shape") is RectangleShape2D,
+				"'%s' carries a RectangleShape2D (_fit_box_to_scale cannot see any other)" % bid)
+		# 5 · THE ATTACK TABLE IS ANSWERABLE. Every id a phase list names must have a
+		#     duration, or the busy timer runs on the 0.8-1.2 s fallback and the
+		#     attack's own tell outlives the window it was supposed to fill.
+		for ph: int in [1, 2, 3]:
+			for id in b.call("_phase_attack_ids", ph):
+				_expect(float(b.call("_attack_duration", String(id))) > 0.0,
+					"'%s' gives attack '%s' a real duration" % [bid, String(id)])
+		_kill(b)
+	_completes("every_boss_satisfies_the_roster_contract")
 
 
 # ------------------------------------------------------------------- helpers

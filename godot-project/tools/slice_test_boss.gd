@@ -43,6 +43,9 @@ var _tower: Resource = null
 ## that reads it guards on null and RETURNS rather than limping on — a test with no
 ## subject must fail by absence, not pass by having nothing to check.
 var _guardian: Node = null
+## The BOSS-floor colossus's HP, captured before it is killed, so the COMBAT-floor
+## comparison at the end has something real to be smaller THAN. See that test.
+var _colossus_hp: int = 0
 
 
 func _initialize() -> void:
@@ -111,7 +114,8 @@ func _test_a_boss_floor_holds_its_guardian_behind_the_waves() -> void:
 func _test_the_guardian_is_boss_scale() -> void:
 	if _guardian == null:
 		return
-	_expect(int(_guardian.get("max_hp")) >= 400, "guardian has boss-scale HP (>= 400)")
+	_colossus_hp = int(_guardian.get("max_hp"))
+	_expect(_colossus_hp >= 400, "guardian has boss-scale HP (>= 400)")
 	_expect(int(_guardian.get("touch_damage")) >= 20, "guardian hits hard (touch >= 20)")
 	_expect(_guardian.is_in_group("enemy"), "guardian is in 'enemy' (clear gate waits for it)")
 	var rig: Node = _guardian.get_node_or_null("Rig")
@@ -190,8 +194,21 @@ func _test_a_combat_floor_gets_a_scaled_down_guardian() -> void:
 	var mini: Node = _find_boss()
 	_expect(mini != null, "a COMBAT floor DOES get a boss once its waves are down")
 	if mini != null:
-		_expect(int(mini.get("max_hp")) < 400,
-			"the COMBAT-floor guardian is scaled down (got %d hp)" % int(mini.get("max_hp")))
+		# ⚠ MEASURED AGAINST THE REAL COLOSSUS, NOT A LITERAL. This used to read
+		# `< 400`, and that number was never true of the thing it was checking: a
+		# floor-1 COMBAT guardian is BOSS_BASE_HP(640) * 0.80 = 512. The assertion
+		# only passed when the floor-1 roll happened to land on the Scribble
+		# (0.66 hp_scale -> 338), so it was a coin flip that had been green for as
+		# long as nobody rolled the other side. Adding a third artist to the shallow
+		# pool is what finally flipped it.
+		#
+		# The question worth asking is a RATIO, and it is worth asking of whatever
+		# pair rolled: the shallow pool's heaviest mini is 512 and the boss-floor
+		# pool's lightest colossus is 901, so this holds for every combination.
+		_expect(_colossus_hp > 0, "the boss-floor colossus was measured before it died")
+		_expect(int(mini.get("max_hp")) < _colossus_hp,
+			"the COMBAT-floor guardian is scaled down (%d hp vs the colossus's %d)"
+				% [int(mini.get("max_hp")), _colossus_hp])
 		_expect(float(mini.get("body_scale")) < 1.0,
 			"...and is physically smaller than the Ashspire colossus")
 	_completes("a_combat_floor_gets_a_scaled_down_guardian")
