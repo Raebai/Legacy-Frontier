@@ -45,7 +45,7 @@ const CATCH_TIME: float = 0.40
 ## HEAVY (Shadow Step's 85 is a single-body burst; this is a moving line) and well
 ## under an ult, so throwing your teammate at a brute is a real play and not a
 ## one-button kill.
-const THROW_DAMAGE: int = 70
+const THROW_DAMAGE: int = 96
 const THROW_SPEED: float = 900.0
 ## How long the statue stays in the air before it shatters on its own. It also
 ## shatters early on solid geometry.
@@ -343,6 +343,28 @@ func _draw_telegraph() -> void:
 func _draw_statue(at: Vector2) -> void:
 	var h: float = STATUE_HEIGHT
 	var w: float = STATUE_HALF_WIDTH * 0.72
+	# ══ SAY THAT IT IS HAPPENING ════════════════════════════════════════════════
+	# Maker: *"what does juggernaut petrification do it needs to be more visible"* —
+	# asked about a spell they had just cast, which is the finding. A grey figure among
+	# grey rubble on a floor full of spell light is nearly invisible, and everything
+	# that made this spell interesting (it is HELD, it is INVULNERABLE, and it can be
+	# thrown) is information the player had no way to read off the screen.
+	#
+	# Three marks, none of them a new node: a warm earth ring on the ground so the eye
+	# is sent there, a HALO on the statue itself so it separates from the terrain it
+	# is the same colour as, and a countdown arc — because "how long do I have to go
+	# and throw this" is the only question the spell actually poses, and the answer was
+	# nowhere on screen. Same shape `BloodPact` uses for its own duration, so the two
+	# held effects in the game read the same way.
+	if _phase != Phase.FLYING:
+		var beat: float = 0.5 + 0.5 * sin(_elapsed * 5.0)
+		var left: float = clampf(1.0 - _elapsed / maxf(_life, 0.001), 0.0, 1.0)
+		draw_arc(at + Vector2(0.0, 4.0), w * 1.9, 0.0, TAU, 28,
+			Color(0.85, 0.62, 0.30, 0.30 + 0.20 * beat), 2.4, true)
+		draw_arc(at + Vector2(0.0, -h * 0.5), h * 0.78, 0.0, TAU, 30,
+			Color(1.0, 0.82, 0.45, 0.16 + 0.12 * beat), 5.0, true)
+		draw_arc(at + Vector2(0.0, 4.0), w * 2.3, -PI * 0.5, -PI * 0.5 + TAU * left,
+			34, Color(1.2, 0.80, 0.35, 0.85), 2.6, true)
 	var top: float = at.y - h
 	var body := PackedVector2Array([
 		Vector2(at.x - w, at.y + 4.0), Vector2(at.x - w * 0.8, top + h * 0.30),

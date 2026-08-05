@@ -817,9 +817,19 @@ const CLASS_CONFIG: Dictionary = {
 		# far more controllable than the Juggernaut's 96 px hammer.
 		"melee_cd": 0.42, "melee_arc_dot": 0.05, "melee_damage": 26,
 		"melee_range": 86.0, "melee_knockback": 430.0,
-		"cast_cd": 0.45, "dash_cd": 0.80, "blink_cd": 1.2, "blast_cd": 3.0,
+		## ⚠ THE TWO SLOWEST COLUMNS IN THE ROSTER, BOTH ON ONE CLASS. Maker: *"the other
+		## two abilities before that need shorter cool downs and need to be buffed they
+		## dont look that coool right now or do much"*. `cast_cd` 0.45 and `blast_cd` 3.0
+		## were the longest of all nine — on the class that also had the smallest dodge —
+		## so the Swordsaint spent more of every fight waiting than any other body in the
+		## game, which is most of why it measures 19-25% on the honest harness. This is
+		## the KIT fix the balance table's own header keeps saying is the real answer,
+		## rather than another point of vitality.
+		"cast_cd": 0.34, "dash_cd": 0.72, "blink_cd": 1.0, "blast_cd": 2.2,
 		"throw_blade": false, "blade_damage": 18,
-		"dash_strike": true, "dash_strike_damage": 24, "dash_strike_range": 52.0,
+		## The rising cut is this class's only vertical answer and it hit for less than
+		## its own basic swing. 24 -> 34, and the reach comes up with it.
+		"dash_strike": true, "dash_strike_damage": 34, "dash_strike_range": 60.0,
 		"mobility2": "uppercut",  # a rising cut, not a teleport
 		# Retuned 2026-08-05: no longer the roster's shortest travel (106.4 px, 6th of
 		# 9), but still its smallest dodge. It gets a way IN, not a way out.
@@ -4257,6 +4267,13 @@ func _primary_heavy_swing() -> void:
 		velocity.x = signf(_aim_dir.x) * 190.0
 	_melee_cooldown_timer = _melee_cd
 	Sfx.play("melee_swing", 0.0, 0.12)
+	# THE CRESCENT. Maker: *"each swing of the sword basic attack should shoot out a
+	# short curved attack with low range to explain why the range is big for its basic
+	# attack"* — and that is exactly what it does: it draws the reach the melee hitbox
+	# ALREADY has. It carries no damage of its own, deliberately (see `SwingArc`), so
+	# the roster's slowest swinger does not quietly become its highest per-swing.
+	SwingArc.spawn(get_parent(), rig.get_weapon_tip(),
+		_aim_dir if _aim_dir != Vector2.ZERO else facing, _melee_range, _element_color)
 
 
 ## CRYOMANCER primary — a short-range FROST CONE (no projectile): every enemy in

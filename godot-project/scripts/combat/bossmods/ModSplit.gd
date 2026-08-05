@@ -88,9 +88,21 @@ func _on_defeated() -> void:
 	# explains them: without it a client watches a boss die and two new bodies appear
 	# in silence.
 	bfx("beat", {"pos": at, "str": 1.2, "shake": 16.0, "sfx": "charge_up"})
-	for i: int in 2:
-		var side: float = -1.0 if i == 0 else 1.0
-		_spawn_copy(at + Vector2(side * SPREAD, -6.0), phase)
+	# ⚠ ONE COPY PER FRAME. Maker: *"when i killed the boss on floor 4 i lagged a
+	# ton"* — and floor 3 upward is exactly where SPLIT becomes eligible.
+	#
+	# Each copy is a FULL boss: a scene instantiation, a `CharacterRig` built in code,
+	# a health bar, and a fresh rider per inherited modifier, each doing its own
+	# `_setup`. Two of those on the same frame as the parent's own death spectacle —
+	# the climax mark, the burst, the sound — is the single heaviest frame the game can
+	# produce, and it lands at the exact moment the player is watching a kill.
+	#
+	# Deferring the second one costs nothing anybody can perceive (the two halves are
+	# 78 px apart and appear a sixtieth of a second apart) and halves the spike. The
+	# mechanic is untouched: still two copies, still the same carve, still the same
+	# inheritance.
+	_spawn_copy(at + Vector2(-SPREAD, -6.0), phase)
+	_spawn_copy.call_deferred(at + Vector2(SPREAD, -6.0), phase)
 
 
 func _spawn_copy(at: Vector2, phase: int) -> void:

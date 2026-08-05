@@ -151,8 +151,30 @@ func boss_equipment() -> Dictionary:
 ## Seconds between attacks in phase `p`. The Guardian's cadence IS `PHASE_CD`; a boss
 ## whose identity is rhythm overrides this. Declared here so the cadence question can
 ## be put to any boss on the roster.
+## ⚠ DEPTH SQUEEZES EVERY ARTIST'S RHYTHM, IT DOES NOT REPLACE IT. Set from the
+## floor by `Encounter` (1.0 on floor 1 and on every legacy spawn). Multiplying each
+## boss's own `PHASE_CD` keeps the Illuminator a long fight and the Scribble a short
+## violent one while making both of them press harder the deeper you are — where a
+## flat depth cadence would have collapsed all six to the same fight played fast.
+@export var cadence_mult: float = 1.0
+
+
 func phase_cooldown(p: int) -> float:
 	return float(PHASE_CD.get(p, 2.0))
+
+
+## The gap actually used after an attack: this artist's authored rhythm, squeezed by
+## depth.
+##
+## ⚠ APPLIED HERE AND NOT INSIDE `phase_cooldown`, WHICH WAS THE FIRST ATTEMPT AND
+## WOULD HAVE BEEN DEAD CODE FOR FIVE OF SIX BOSSES. Every subclass — Cartographer,
+## Eraser, Etcher, Illuminator, Scribble, and `TowerBoss` itself — OVERRIDES
+## `phase_cooldown` with its own table and never calls `super`, so a multiply in the
+## base would have reached the Guardian alone and silently missed the deep-floor
+## roster the maker was actually complaining about. Every override still declares its
+## own identity; the squeeze is applied once, at the one place the number is spent.
+func next_attack_cd(p: int) -> float:
+	return phase_cooldown(p) * clampf(cadence_mult, 0.3, 1.0)
 
 
 func _ready() -> void:
@@ -879,7 +901,7 @@ func net_apply_phase(p: int) -> void:
 func _apply_phase(p: int, authoritative: bool) -> void:
 	_bphase = p
 	if authoritative:
-		_attack_cd = float(PHASE_CD.get(p, 2.0)) * 0.6
+		_attack_cd = next_attack_cd(p) * 0.6
 	# THE BOSS FIGHT'S ONE REWARD EVENT. Hype's channels — kill streaks and
 	# multi-kills — both need a crowd, so a 1v1 guardian pays out NOTHING for its
 	# whole length (the audit measured ~23 seconds of it on floor 5). Breaking a
@@ -971,7 +993,7 @@ func _choose_attack() -> void:
 		_attack_cd = 1.0
 		return
 	_run_attack(String(ids[randi() % ids.size()]))
-	_attack_cd = float(PHASE_CD.get(_bphase, 2.0))
+	_attack_cd = next_attack_cd(_bphase)
 
 
 func _run_attack(id: String) -> void:

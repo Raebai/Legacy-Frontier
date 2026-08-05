@@ -1147,6 +1147,33 @@ func _build_tell(td: Dictionary) -> Node:
 ## scribble is a short violent fight and an illuminator is a long one. The depth
 ## curve is `hp_mult`, which arrives from FloorDef.boss_hp_multiplier and is not
 ## touched. See the warning on BossRoster.ENTRIES.
+## How much quicker a boss's FEET get with depth, and where that stops.
+##
+## The ceiling is the load-bearing number, not the slope. A guardian at 66 px/s is a
+## statue you walk around; at ~112 it pressures a hero who is still faster than it, and
+## much past that it stops being dodgeable and the fight becomes a chase — which this
+## roster is not built for, because every one of its attacks is a tell you are supposed
+## to be able to step out of.
+const BOSS_DEPTH_SPEED_MAX: float = 1.70
+const BOSS_DEPTH_SPEED_PER_FLOOR: float = 0.075
+## ...and how much less it waits between attacks. A floor cannot fall below this share
+## of the artist's authored rhythm: each boss's phase cooldowns encode its identity
+## (the Illuminator is a long fight, the Scribble a short violent one) and squeezing
+## them to nothing would make all six the same fight played fast.
+const BOSS_DEPTH_CADENCE_MIN: float = 0.62
+const BOSS_DEPTH_CADENCE_PER_FLOOR: float = 0.045
+
+
+func _depth_speed_mult() -> float:
+	return minf(1.0 + BOSS_DEPTH_SPEED_PER_FLOOR * float(maxi(_depth - 1, 0)),
+		BOSS_DEPTH_SPEED_MAX)
+
+
+func _depth_cadence_mult() -> float:
+	return maxf(1.0 - BOSS_DEPTH_CADENCE_PER_FLOOR * float(maxi(_depth - 1, 0)),
+		BOSS_DEPTH_CADENCE_MIN)
+
+
 func spawn_boss(hp_mult: float, body_scale: float = 1.0,
 		boss_id: String = BossRoster.GUARDIAN, mods: Array = [], roll_seed: int = 0) -> Node:
 	var pos: Vector2 = _boss_spawn_position()
@@ -1162,7 +1189,23 @@ func spawn_boss(hp_mult: float, body_scale: float = 1.0,
 		"bseed": roll_seed,                          # replay handle; construction ignores it
 		# set pre-_ready so Enemy._apply_archetype_defaults leaves the explicit values
 		"hp": maxi(int(round(BOSS_BASE_HP * hp_mult * BossRoster.hp_scale(bid))), 1),
-		"spd": BOSS_MOVE_SPEED * BossRoster.speed_scale(bid),
+		# ⚠ DEPTH MOVES THE BODY NOW, AND IT NEVER DID. Maker, on floor 4: *"the boss
+		# wasnt that difficult it was too easy it wasny jumping moving fast its spells
+		# werent that good"*. Checked: the ONLY thing depth changed about a boss was
+		# its health (`1.0 + 0.15 * (floor - 1)`) and how many modifiers rode along.
+		# Its speed was a flat 66 px/s on every floor of the tower — against a hero
+		# who runs at 165 to 240 — and its attack cadence was per-boss and likewise
+		# depth-blind. So a deep boss was a floor-1 boss with a longer health bar,
+		# which is the definition of a fight that takes longer without being harder.
+		#
+		# Capped, because the ceiling matters more than the curve here: a boss that
+		# outruns the hero stops being dodgeable and becomes a chase, and this roster
+		# is built on reading a tell and stepping out of it.
+		"spd": BOSS_MOVE_SPEED * BossRoster.speed_scale(bid) * _depth_speed_mult(),
+		# How much faster it comes at you between attacks. Read by `Boss` and applied
+		# to every phase cooldown, so it compounds with each artist's own rhythm
+		# rather than flattening the roster to one cadence.
+		"bcad": _depth_cadence_mult(),
 		"touch": maxi(int(round(BOSS_TOUCH_DAMAGE * lerpf(0.6, 1.0, s))), 1),
 		"bscale": s,
 		"x": pos.x, "y": pos.y,
@@ -1361,6 +1404,9 @@ func build_enemy_from_data(data: Dictionary) -> CharacterBody2D:
 		# Absent on legacy/hand-written spawn dicts -> 1.0 = the full colossus, so
 		# every pre-waves caller builds byte-identically to before.
 		e.body_scale = float(data.get("bscale", 1.0))
+		# Depth aggression. Absent on legacy dicts -> 1.0, i.e. the artist's own
+		# authored rhythm, so every pre-depth caller builds byte-identically.
+		e.set("cadence_mult", float(data.get("bcad", 1.0)))
 		# MODIFIERS ARE ATTACHED HERE — before the boss enters the tree, and on
 		# EVERY peer, because this function is the one construction path both the
 		# single-player add_child and the co-op MultiplayerSpawner run through.

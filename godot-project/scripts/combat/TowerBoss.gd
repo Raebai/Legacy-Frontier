@@ -143,7 +143,7 @@ func _choose_attack() -> void:
 		_attack_cd = 1.0
 		return
 	_run_attack(String(ids[randi() % ids.size()]))
-	_attack_cd = phase_cooldown(_bphase)
+	_attack_cd = next_attack_cd(_bphase)
 
 
 func _run_attack(id: String) -> void:

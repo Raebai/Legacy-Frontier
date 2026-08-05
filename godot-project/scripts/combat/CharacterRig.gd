@@ -3427,17 +3427,53 @@ static func _draw_equipment(
 	var edge: Color = Color(0.07, 0.08, 0.13, col.a)  # dark under-edge (OUTLINE feel)
 	match equipment_slots.get("weapon", ""):
 		"sword":
-			# Blade runs out along the arm; a short crossguard sits across the grip.
-			var s_len: float = fig_height * 0.5
-			var s_base: Vector2 = hand_lead - arm_dir * (fig_height * 0.05)
-			var s_tip: Vector2 = hand_lead + arm_dir * s_len
-			item.draw_line(hand_lead - perp * r * 0.7, hand_lead + perp * r * 0.7, edge, w * 1.1)
-			item.draw_line(s_base, s_tip, edge, w * 1.5)          # dark edge under the blade
-			item.draw_line(s_base, s_tip, gear_col, w * 0.95)     # blade body
-			item.draw_line(
-				hand_lead + arm_dir * (s_len * 0.4), s_tip, gear_col.lightened(0.35), w * 0.35
-			)  # bright fuller/shine toward the tip
-			item.draw_circle(s_tip, w * 0.5, gear_col)            # rounded point
+			# ══ A KATANA, NOT A STICK WITH A CROSSBAR ═══════════════════════════
+			# Maker: *"the sword saint sword needs to look cooler"*. It was four
+			# straight lines and a dot: a bar along the arm, a bar across the grip, a
+			# highlight and a round tip — the same silhouette as the staff's shaft,
+			# and at 640x360 it read as "the figure is holding a line".
+			#
+			# The blade CURVES now, which is the whole change: a shallow arc away from
+			# the edge, a tsuba (the ring guard), a wrapped grip below the hand, and a
+			# hard chisel point instead of a circle. Same four primitives the rest of
+			# this file uses — no texture, no new node, and it scales with the rig
+			# because every offset is a fraction of `fig_height`.
+			var s_len: float = fig_height * 0.56
+			var s_base: Vector2 = hand_lead - arm_dir * (fig_height * 0.04)
+			var s_tip: Vector2 = hand_lead + arm_dir * s_len + perp * (s_len * 0.12)
+			# The spine, as three segments along a shallow curve. A polyline rather
+			# than a line is the entire difference between a katana and a ruler.
+			var spine := PackedVector2Array([
+				s_base,
+				hand_lead + arm_dir * (s_len * 0.36) + perp * (s_len * 0.026),
+				hand_lead + arm_dir * (s_len * 0.72) + perp * (s_len * 0.075),
+				s_tip,
+			])
+			item.draw_polyline(spine, edge, w * 1.55, true)        # dark edge beneath
+			item.draw_polyline(spine, gear_col, w * 0.95, true)    # the blade
+			# The hamon — the temper line a real blade carries, and the reason the
+			# curve reads at this size: it runs INSIDE the arc, so the eye gets two
+			# parallel curves instead of one thick one.
+			var hamon := PackedVector2Array([
+				hand_lead + arm_dir * (s_len * 0.30) + perp * (s_len * 0.010),
+				hand_lead + arm_dir * (s_len * 0.66) + perp * (s_len * 0.052),
+				s_tip - arm_dir * (s_len * 0.06),
+			])
+			item.draw_polyline(hamon, gear_col.lightened(0.45), w * 0.34, true)
+			# TSUBA — a ring guard, not a crossbar. Drawn as a short thick stroke
+			# across the grip plus a dot each side, which at this scale reads round.
+			item.draw_line(hand_lead - perp * r * 0.85, hand_lead + perp * r * 0.85,
+				edge, w * 1.35)
+			item.draw_circle(hand_lead - perp * r * 0.85, w * 0.42, gear_col)
+			item.draw_circle(hand_lead + perp * r * 0.85, w * 0.42, gear_col)
+			# TSUKA — the wrapped grip running back past the hand, so the sword has a
+			# handle rather than starting at the fingers.
+			item.draw_line(hand_lead, hand_lead - arm_dir * (fig_height * 0.13),
+				edge, w * 1.15)
+			# CHISEL POINT (kissaki). Two strokes converging, which reads as an angled
+			# tip where the old `draw_circle` read as a bead stuck on the end.
+			item.draw_line(s_tip, s_tip - arm_dir * (s_len * 0.12) - perp * (s_len * 0.03),
+				gear_col.lightened(0.2), w * 0.7)
 		"staff":
 			# Sleek short WAND: a thin shaft the hand grips, tipped with a small
 			# glowing crystal (a cut gem) — reads cool without dominating the figure.

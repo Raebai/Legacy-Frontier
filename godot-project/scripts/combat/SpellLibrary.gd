@@ -844,12 +844,18 @@ static func _petrify() -> SpellDef:
 	s.element = Elements.Element.EARTH
 	s.use_element_color = true
 	s.effect = _effect_for_element(Elements.Element.EARTH)
+	## ⚠ BUFFED ACROSS THE BOARD. Maker: *"what does juggernaut petrification do it
+	## needs to be more visible and buffed what it does"*. Every number here was
+	## cautious: a 92 px footprint on a 300 px reach caught almost nothing that was
+	## moving, and 4.5 s was barely long enough to cross to the statue and throw it,
+	## which is the entire payoff. The spell was a coin flip that, when it landed, gave
+	## you a short window to do the interesting part.
 	s.mp_cost = 60
-	s.cooldown = 6.5
+	s.cooldown = 5.4   # 6.5 — the siege class's control tool should come back
 	s.damage = 0       # the payout is the THROW, not the casting
-	s.radius = 92.0    # catch footprint
-	s.reach = 300.0
-	s.length = 4.5     # how long the stone holds
+	s.radius = 118.0   # 92 — a footprint a moving body can actually be inside
+	s.reach = 330.0
+	s.length = 6.0     # 4.5 — long enough to WALK to the statue and use it
 	s.cast_time = 0.55
 	return s
 
