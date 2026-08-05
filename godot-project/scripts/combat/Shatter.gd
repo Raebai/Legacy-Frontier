@@ -411,8 +411,10 @@ func _burst() -> void:
 		CombatVfx.spawn_burst(get_parent(), _at,
 			Color(0.85, 1.05, 1.3, 0.8), Color(0.45, 0.72, 1.0, 0.0),
 			8 if low else 14, 0.34, 60.0, 170.0, 0.5, 1.3, 0.0, 0.0, true)
+		# Snapped: `_at` is a frozen BODY's position, and a casing that pops in mid-air
+		# left its rime patch hanging there. See `ScorchDecal.SNAP_LIFT`.
 		ScorchDecal.spawn(get_parent(), _at, _radius * 0.34, "crack",
-			Color(0.62, 0.82, 1.0, 0.26), 1.4)
+			Color(0.62, 0.82, 1.0, 0.26), 1.4, true)
 		Juice.on_hit({"dir": Vector2.UP, "shake": 2.5, "sfx": "ice_shatter",
 			"sfx_pitch": 0.34, "sfx_db": -5.0, "hitstop": 0.015})
 		return
@@ -423,14 +425,14 @@ func _burst() -> void:
 		Color(1.35, 1.6, 1.95, 1.0), Color(0.45, 0.72, 1.0, 0.0),
 		18 if low else 46, 0.62, 140.0, 480.0, 0.7, 2.6, 0.0, 0.0, true)
 	ScorchDecal.spawn(get_parent(), _at, _radius * 0.9, "crack",
-		Color(0.78, 0.94, 1.0, 0.6), 3.2)
+		Color(0.78, 0.94, 1.0, 0.6), 3.2, true)
 	# One rime patch per casing, so the floor afterwards records WHERE things broke
 	# rather than only that something did. Skipped on LOW: decals are the cheapest
 	# thing to cut and the count scales with the crowd, which is the worst case.
 	if not low:
 		for p: Vector2 in _broke_at:
 			ScorchDecal.spawn(get_parent(), p, 46.0, "crack",
-				Color(0.86, 0.97, 1.0, 0.5), 2.6)
+				Color(0.86, 0.97, 1.0, 0.5), 2.6, true)
 	# `ice_shatter`, not the generic `ice` stem: the whole point of this spell is
 	# that it is Blizzard's third beat fired on demand, and the ear should agree.
 	# Pitched DOWN and scaled by how many casings went, so breaking a frozen crowd is

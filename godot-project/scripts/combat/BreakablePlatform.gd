@@ -145,7 +145,12 @@ func _break(dir: Vector2) -> void:
 	_collider.disabled = true
 	visible = false
 	DebrisChunk.spawn_burst(get_parent(), global_position, base_color, 10, dir, 260.0)
-	ScorchDecal.spawn(get_parent(), global_position, platform_size.x * 0.4, "crack", Color(0.2, 0.15, 0.1, 0.6))
+	# ⚠ SNAPPED. A breakable platform is BY DEFINITION a thing floating in the air, so
+	# stamping a floor crack at its own position drew a mark on nothing — the other
+	# half of the maker's *"a crack in the air"*. Now it marks the ground the debris
+	# lands on, or marks nothing at all when the platform hangs over a drop.
+	ScorchDecal.spawn(get_parent(), global_position, platform_size.x * 0.4, "crack",
+		Color(0.2, 0.15, 0.1, 0.6), 0.0, true)
 	Juice.shake_camera(4.0)
 	Sfx.play("enemy_death")
 	_regen_timer = regen_time

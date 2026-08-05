@@ -22,8 +22,21 @@ static func check(body: CharacterBody2D, knockback: Vector2) -> Vector2:
 	var dmg: int = clampi(int(knockback.length() * DAMAGE_SCALE), DAMAGE_MIN, DAMAGE_MAX)
 	var dir: Vector2 = knockback.normalized()
 	var hit_destructible: bool = false
+	# ⚠ THE CRACK USED TO BE STAMPED AT `body.global_position`, AND THAT IS "A CRACK IN
+	# THE AIR". Maker: *"when something gets destroyed it shouldnt leave like a crack in
+	# the air"*. A slam qualifies on any collision — including a body thrown SIDEWAYS
+	# into a wall, whose centre is nowhere near a surface. The tell that it was this:
+	# the `GroundCrater` one line below already raycast down and freed itself over
+	# nothing, so the frame showed a lone crack floating with no gouge beside it.
+	# The contact point is a real surface BY CONSTRUCTION — it is where the physics
+	# engine says the two bodies met — so it needs no raycast and works on a wall.
+	var mark_at: Vector2 = body.global_position
+	var have_contact: bool = false
 	for i: int in body.get_slide_collision_count():
 		var col: KinematicCollision2D = body.get_slide_collision(i)
+		if not have_contact:
+			mark_at = col.get_position()
+			have_contact = true
 		var collider: Object = col.get_collider()
 		if collider is Node and (collider as Node).is_in_group("destructible"):
 			if collider.has_method("damage_at"):
@@ -37,7 +50,7 @@ static func check(body: CharacterBody2D, knockback: Vector2) -> Vector2:
 		Color(0.72, 0.7, 0.68, 0.7), Color(0.72, 0.7, 0.68, 0.0),
 		12, 0.32, 40.0, 130.0
 	)
-	ScorchDecal.spawn(body.get_parent(), body.global_position, 15.0, "crack", Color(0.2, 0.2, 0.22, 0.5))
+	ScorchDecal.spawn(body.get_parent(), mark_at, 15.0, "crack", Color(0.2, 0.2, 0.22, 0.5))
 	GroundCrater.spawn(body.get_parent(), body.global_position, 20.0, true)  # gouge where a hard slam lands
 	Juice.shake_camera(5.0 if hit_destructible else 3.0)
 	return Vector2.ZERO

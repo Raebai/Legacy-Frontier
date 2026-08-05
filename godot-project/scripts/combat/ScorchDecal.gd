@@ -7,11 +7,32 @@ extends Node2D
 
 const GROUP_NAME: String = "floor_decal"
 const MAX_DECALS: int = 60  # session safety cap: oldest decals free past this
-const CRACK_LINE_COUNT: int = 5
-const CRACK_SEGMENTS: int = 3
+## ⚠ FIVE EVENLY-SPACED SPOKES AROUND A PERFECT DISC IS A COMPASS ROSE, NOT A CRACK.
+## Maker: *"those weird circular cracks in the floor"*. That is this — `_draw_crack`
+## was the one arm of the two decal systems that never got the ragged treatment the
+## scorch and the crater both did, and radial symmetry is what made it read as a
+## printed symbol rather than damage. Real fractures are uneven in COUNT, ANGLE,
+## REACH and WIDTH, and they branch. All four are now varied off the same
+## position-seeded hash `_ragged` uses, so a crack is stable across redraws and two
+## cracks in the same place across a replay still draw the same mark.
+const CRACK_LINE_COUNT: int = 7   # candidates; roughly a third are dropped per decal
+const CRACK_SEGMENTS: int = 4
 const CRACK_WIDTH: float = 2.0
-const CRACK_JAG: float = 0.18  # lateral jitter as a fraction of radius
+const CRACK_JAG: float = 0.30  # lateral jitter as a fraction of radius
 const FADE_OUT: float = 1.6  # seconds of alpha ramp before a lifetime'd decal frees
+
+## ⚠ A DECAL IS FLOOR DAMAGE AND IT HAD NO WAY TO CHECK THERE WAS A FLOOR.
+## Maker: *"when something gets destroyed it shouldnt leave like a crack in the air"*.
+## `GroundCrater` has raycast down and freed itself over a pit since it was written;
+## this class, which stacks on the SAME floor, never did — so a body slammed into a
+## WALL and a breakable platform shattering in mid-air both left a mark hanging in
+## space with no crater beside it (the crater at the same call site correctly vanished).
+## Opt-IN rather than default-on, because most call sites already pass a known floor
+## point and silently raycasting those would delete correctly-placed marks the first
+## time a ray started flush against the surface it was meant to find.
+const SNAP_LIFT: float = 24.0      # start the ray ABOVE the point, so a mark already
+                                   # flush with the floor still finds it
+const SNAP_MAX_DIST: float = 120.0 # ...and a mark this far above nothing is no mark
 
 @export var radius: float = 24.0
 @export var kind: String = "scorch"  # "scorch" | "crack"
@@ -35,12 +56,20 @@ var _counted: bool = false
 ## Instantiate a decal under `parent` at world `pos`. Null-safe: silently
 ## skips when the parent is gone (e.g. a blast resolving during teardown).
 ## `decal_lifetime` > 0 makes it fade + free (see the `lifetime` export).
+## `snap` seats the mark on the floor beneath `pos` and SKIPS entirely when there is
+## nothing under it — pass it wherever `pos` is a BODY's position rather than a known
+## floor point. See the `SNAP_LIFT` block.
 static func spawn(
 	parent: Node, pos: Vector2, decal_radius: float, decal_kind: String, decal_tint: Color,
-	decal_lifetime: float = 0.0,
+	decal_lifetime: float = 0.0, snap: bool = false,
 ) -> void:
 	if parent == null or not parent.is_inside_tree():
 		return
+	if snap:
+		var snapped: Variant = _floor_under(parent, pos)
+		if snapped == null:
+			return  # over a pit, or against a wall in mid-air — no floating mark
+		pos = snapped
 	# A scorch mark is scenery. It carries no gameplay information at all — nothing
 	# reads the floor to decide anything — and it is spawned per impact, so a meteor
 	# barrage lays down a dozen while the screen is already at its effect budget.
@@ -118,6 +147,30 @@ static func _enforce_cap(tree: SceneTree) -> void:
 		alive[i].queue_free()
 
 
+## The floor point under `pos`, or null when there is nothing under it within reach.
+##
+## ⚠ IGNORANCE IS NOT A PIT. When the world cannot be queried at all — a headless
+## harness with no physics space, a parent that is not a Node2D — this returns `pos`
+## unchanged rather than null, so a decal is only ever DELETED by a ray that actually
+## ran and actually found nothing. The opposite default would make every decal test in
+## the suite pass by drawing nothing.
+static func _floor_under(parent: Node, pos: Vector2) -> Variant:
+	var n2: Node2D = parent as Node2D
+	if n2 == null or not n2.is_inside_tree():
+		return pos
+	var world: World2D = n2.get_world_2d()
+	if world == null:
+		return pos
+	# Mask 1 = the ground layer, the same one `GroundCrater` and the rig's own
+	# footing probe use. Bodies live on 2/4, so a mark never seats on a fighter.
+	var q := PhysicsRayQueryParameters2D.create(
+		pos + Vector2(0.0, -SNAP_LIFT), pos + Vector2(0.0, SNAP_MAX_DIST), 1)
+	var hit: Dictionary = world.direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		return null
+	return hit["position"]
+
+
 func _ready() -> void:
 	add_to_group(GROUP_NAME)
 	_alive += 1
@@ -137,20 +190,65 @@ func _exit_tree() -> void:
 
 
 ## Pre-bake the jagged crack geometry once so _draw() stays deterministic.
+##
+## Seeded off the decal's WORLD POSITION rather than the global RNG, for the reason
+## `_ragged` gives: two cracks in the same place across a replay draw the same mark,
+## and nothing about the shape can shift under a redraw. Every axis of the old shape
+## that was REGULAR is now varied — a fracture that agrees with its neighbours on
+## angle, reach and width is a symbol, and a symbol on the floor reads as a bug.
 func _generate_cracks() -> void:
 	_crack_lines.clear()
+	_roll = int(absf(global_position.x) * 7.0 + absf(global_position.y) * 13.0)
 	for i: int in CRACK_LINE_COUNT:
-		var angle: float = TAU * float(i) / float(CRACK_LINE_COUNT) + randf_range(-0.5, 0.5)
-		var reach: float = radius * randf_range(0.6, 1.0)
+		# DROP ROUGHLY A THIRD. An uneven COUNT is most of what stops a mark reading
+		# as a compass rose, and it costs nothing to not draw a line.
+		if _next() < 0.34:
+			continue
+		# Wander far off the even spoke — most of the gap either way — so no two
+		# cracks in the arena share a silhouette.
+		var angle: float = TAU * float(i) / float(CRACK_LINE_COUNT) \
+			+ (_next() - 0.5) * (TAU / float(CRACK_LINE_COUNT)) * 1.6
+		var reach: float = radius * (0.42 + 0.58 * _next())
 		var dir: Vector2 = Vector2.from_angle(angle)
 		var lateral: Vector2 = Vector2.from_angle(angle + PI * 0.5)
 		var points: PackedVector2Array = PackedVector2Array()
 		points.append(Vector2.ZERO)
 		for s: int in CRACK_SEGMENTS:
 			var t: float = float(s + 1) / float(CRACK_SEGMENTS)
-			var jag: float = radius * CRACK_JAG * randf_range(-1.0, 1.0)
+			# Jitter GROWS along the line: a fracture is tight at the impact and
+			# wanders as it runs out, which a constant jag cannot show.
+			var jag: float = radius * CRACK_JAG * (_next() - 0.5) * 2.0 * t
 			points.append(dir * reach * t + lateral * jag)
 		_crack_lines.append(points)
+		# ...and every so often it FORKS. One branch off the midpoint is the single
+		# cheapest thing that makes a set of lines read as stone giving way rather
+		# than as spokes.
+		if _next() < 0.42:
+			var from: Vector2 = points[maxi(points.size() / 2, 1)]
+			var bdir: Vector2 = Vector2.from_angle(angle + (_next() - 0.5) * 1.3)
+			var blen: float = reach * (0.22 + 0.30 * _next())
+			_crack_lines.append(PackedVector2Array([
+				from, from + bdir * blen * 0.5, from + bdir * blen,
+			]))
+	# A mark with nothing left on it after the drops is not a mark. Guarantee one.
+	if _crack_lines.is_empty():
+		_crack_lines.append(PackedVector2Array([
+			Vector2.ZERO, Vector2.from_angle(float(_roll % 628) * 0.01) * radius * 0.8,
+		]))
+
+
+## Position-seeded 0..1 stream, advanced in place.
+##
+## ⚠ DELIBERATELY A METHOD AND NOT A LAMBDA. GDScript lambdas capture the local
+## environment BY VALUE, so a counter incremented inside one is not reliably the same
+## counter on the next call — which would have made every draw of every crack read the
+## same hash and put the compass rose straight back.
+var _roll: int = 0
+
+
+func _next() -> float:
+	_roll = (_roll * 1103515245 + 12345) & 0x7FFFFFFF
+	return float(_roll % 10007) / 10007.0
 
 
 func _draw() -> void:
@@ -196,7 +294,22 @@ func _ragged(r: float, col: Color, salt: int) -> void:
 
 
 ## Small dark impact chip at the center plus jagged radiating lines.
+##
+## ⚠ THE CHIP WAS A `draw_circle`. That is the "weird CIRCULAR crack" in the maker's
+## report, literally — a compass-drawn disc with five even spokes off it. It gets the
+## same torn polygon the scorch rings and the crater gouges already use, so the two
+## decal systems that stack on one floor now agree about what damage looks like.
 func _draw_crack() -> void:
-	draw_circle(Vector2.ZERO, radius * 0.16, tint)
+	_ragged(radius * 0.19, tint, 21)
+	# Thinner as they run out, and never all the same weight. A polyline is one width
+	# end to end, so the taper is done by drawing each segment separately — cheap at
+	# four segments, and it is the difference between a drawn line and a split.
+	var idx: int = 0
 	for line: PackedVector2Array in _crack_lines:
-		draw_polyline(line, tint, CRACK_WIDTH)
+		idx += 1
+		var n: int = line.size() - 1
+		for s: int in n:
+			var t: float = float(s) / float(maxi(n, 1))
+			var w: float = CRACK_WIDTH * (1.0 - 0.55 * t) * (0.75 + 0.25 * float(idx % 3))
+			draw_line(line[s], line[s + 1],
+				Color(tint.r, tint.g, tint.b, tint.a * (1.0 - 0.35 * t)), maxf(w, 0.6))

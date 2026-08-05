@@ -289,8 +289,10 @@ func _shatter() -> void:
 	DebrisChunk.spawn_burst(get_parent(), at, Color(0.46, 0.44, 0.48), 22, Vector2.UP, 320.0)
 	CombatVfx.spawn_burst(get_parent(), at, Color(0.8, 0.78, 0.82, 0.9),
 		Color(0.32, 0.3, 0.34, 0.0), 20, 0.5, 90.0, 260.0, 1.4, 4.0)
+	# Snapped: `at` is where the statue came apart, which is a BODY position and can be
+	# mid-air against a wall. See `ScorchDecal.SNAP_LIFT`.
 	ScorchDecal.spawn(get_parent(), at, SHATTER_RADIUS * 0.5, "crack",
-		Color(0.55, 0.52, 0.56, 0.5), 6.0)
+		Color(0.55, 0.52, 0.56, 0.5), 6.0, true)
 	Juice.on_hit({"shake": 14.0, "zoom": 0.1, "sfx": "blast", "sfx_pitch": 0.0,
 		"hitstop": 0.08})
 	_finish()
