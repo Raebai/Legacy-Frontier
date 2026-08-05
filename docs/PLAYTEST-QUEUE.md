@@ -47,15 +47,28 @@ The maker calls things out faster than they can be built. Verbatim intent preser
 
 ---
 
+## ✅ DONE SINCE (2026-08-05 c)
+
+- **"More bosses / mini-bosses."** Roster 4 → 6: **THE ERASER** (floors 1-6, eats
+  the room, the answer is to come close and stay) and **THE ETCHER** (3+, its
+  biggest cast can be INTERRUPTED, and the acid pool under its own feet is the
+  price of getting close enough to do it). Measured: distinct artists per climb
+  3.7/4 → 4.99/6, Guardian repeats 3.3 → 2.3, deep pool 3 → 4.
+- **Mini-bosses.** Not new bodies — a **wave slot**. Floors 3, 7 and 9 now spend
+  their whole elite budget inside ONE named wave instead of sprinkling it across
+  forty bodies. ⚠ It concentrates; it does not stage into an emptied room. Two
+  deliberate invariants blocked that and they are yours to revisit.
+- **"The spell slots are kinda boring"** (the rest of it). Colour and tier could
+  not separate four slots, so each socket now carries a FIGURE — the same
+  thirteen the cast circles use. 24 of 36 hands used to show a duplicate; now 0.
+- **Ordinary enemies casting spells** — landed in the previous round (`1de8f5c`).
+- **Gravity flip** — landed in the previous round; it is a WELL you move inside,
+  and the caster is excluded on your ruling.
+
 ## ▶ STILL OPEN
 
-1. **PLAY IT.** Ten commits, none of it touched by hands.
-2. **Ordinary enemies casting spells** — blueprinted in full, not built.
-3. **Gravity flip should let you move freely inside the radius.** ⚠ It is the
-   **JUGGERNAUT's** spell, not the Swordsaint's — confirm which class you were playing
-   before anyone retunes it.
-4. **More bosses / mini-bosses** — 4 bosses × 7 modifiers today.
-5. **A bigger, more interactive map.**
+1. **PLAY IT.** Twenty commits, none of it touched by hands.
+2. **A bigger, more interactive map.**
 6. **The ragdoll on hold-down** still wants judging now that the legs are correct.
 7. **Balance is a HANDICAP, not a kit fix.** Every matchup is watchable; the kits are
    still uneven. Said out loud rather than papered over.

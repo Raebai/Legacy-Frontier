@@ -1,3 +1,10 @@
+> **BUILT 2026-08-05** (`1902f09`). ⚠ Two deviations, both forced by measurement:
+> the 8 re-points live in `AbilityBar.GLYPH_OVERRIDE`, NOT in the shared table
+> (a maker ruling — three of them would make the WORLD reading worse), and NINE
+> of the "11 additions" turned out to already declare `sigil_motif`, so only two
+> were genuinely motif-less. `slice_test_spell_signature` caught two rows that
+> contradicted a declaration. Result: 0 of 36 hands carry a duplicate.
+
 # SOCKET GLYPHS — designed, rendered, NOT BUILT
 
 Status: **design verified by render, code not applied.** The ability bar's spell slots

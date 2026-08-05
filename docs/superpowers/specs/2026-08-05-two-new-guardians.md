@@ -1,3 +1,10 @@
+> **BUILT 2026-08-05** (`fd9cc77`, suites decoupled first in `78823b5`).
+> Measured after: distinct artists 3.7/4 → 4.99/6, Guardian repeats 3.3 → 2.33,
+> deep pool 3 → 4 — as projected. The 12-point contract is now a suite
+> (`every_boss_satisfies_the_roster_contract`), verified by deliberate breakage.
+> ⚠ §6's mini-boss wave slot is built too (`f881bb4`) but CONCENTRATES rather
+> than STAGES — a short inserted wave broke two deliberate invariants.
+
 # TWO NEW GUARDIANS — designed, measured, NOT BUILT
 
 Status: **design + audit complete, code not applied.** Written 2026-08-05 so the

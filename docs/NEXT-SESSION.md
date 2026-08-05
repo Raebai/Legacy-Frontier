@@ -1,3 +1,83 @@
+# RESUME HERE — 2026-08-05 (c), THE QUEUE IS EMPTY
+
+**ASHPIRE.** Branch `bot-fight-quality`, **152/152 green**, tree clean.
+**20 commits, NOT PUSHED. Still nothing has been touched by hands.**
+
+Both specs that were "designed, not built" are now built, plus the mini-boss
+wave slot. There is no unbuilt item left on the queue.
+
+## ▶ WHAT TO PLAY
+
+1. **CLIMB TO FLOOR 3, 5 AND 7.** Two new bosses are live and they roll on their
+   own — **THE ERASER** (floors 1-6) and **THE ETCHER** (3+). Nothing pins a boss,
+   so the rows went live on the first run.
+   - The Eraser: it eats the floor permanently and never erases under its own
+     feet. **The correct play is to walk toward it and stay there.** If that does
+     not read in your hands, the whole boss is wrong.
+   - The Etcher: `bath` is a 2.2 s rooted wind-up you can **BREAK** by landing
+     5.5% of its HP inside the window. Nothing else in the game can be
+     interrupted. It opens an acid pool under itself so the break costs you.
+2. **LOOK AT THE HOTBAR.** Every spell socket now has a FIGURE in it — the same
+   thirteen the cast circles use. Two things want your eye specifically:
+   **PULSE / SPIRAL / SNARE all read as "a swirl in a circle" at 46 px**, and an
+   **ULT socket** (gold ring + element ring + figure) is busy.
+3. **FLOORS 3, 7, 9** now spend their whole elite budget inside one wave instead
+   of sprinkling it. It is a concentration, not a staged entrance — see below.
+
+## ⚠ THREE THINGS TO JUDGE, NOT BUGS
+
+1. **THE ERASER MAY BE THE CARTOGRAPHER.** Both are spatial. The separation is of
+   KIND — the Cartographer's page resets between figures, the Eraser's never
+   does — and it was written down as a cut candidate before it was built. **If
+   they feel the same, the Eraser is the one to cut**, because the Cartographer
+   owns the compass annulus and nothing else teaches it.
+2. **THE ELITE WAVE CONCENTRATES, IT DOES NOT STAGE.** The design wanted a short
+   wave — one named body walking into an emptied room. That broke two deliberate
+   invariants the suite holds (budgets never shrink across a floor; exactly ONE
+   wave in the tower may hand off at 0, because the overlap IS the pacing). So
+   the flag rides an existing wave instead. Staging one needs those invariants
+   revisited, and that is your call.
+3. **8 SPELLS DRAW A DIFFERENT FIGURE ON THE BAR THAN IN THE WORLD.** Deliberate,
+   on your ruling: three of the re-points would make the world reading worse (a
+   rock pillar really does erupt). Listed and commented in
+   `AbilityBar.GLYPH_OVERRIDE`. Without them **19 of 36 hands still showed a
+   duplicate figure** — measured.
+
+## WHAT THE SUITES CAUGHT THIS SESSION (all real, none reasoned)
+
+- The `bosses_are_different_fights` test asked its question of a hand-listed
+  THREE, and the one it left out was **the Guardian** — the fallback boss and the
+  most fought body in the tower. Driving it off `BossRoster.ids()` made it abort:
+  the Guardian does not answer `boss_artist` or `phase_cooldown`, because five
+  identity virtuals lived on `TowerBoss` and the Guardian is the base.
+- `slice_test_boss` asserted a COMBAT-floor guardian is `< 400` hp. **A floor-1
+  Guardian is 512** (640 × 0.80). It had been a coin flip passing only on a
+  Scribble roll, green for as long as nobody rolled the other side.
+- Nine of the eleven "motif-less" spells the glyph spec named **already declared
+  `sigil_motif`**. Two of my rows contradicted the declaration and the suite
+  failed on exactly that.
+- `Encounter.party_size()` carried a comment promising it was guarded for
+  headless harnesses. It was not — an absolute `get_node_or_null` outside an
+  active tree ERRORS, and an error aborts before the `return 1`.
+
+## HOW TO VERIFY
+
+```
+python python-tools/run_all_tests.py --jobs 8      # 152 suites, ~80s
+godot ... --headless --script tools/_probe_boss_audit.gd   # boss variety
+```
+After any `--headless --import`, CHECK `project.godot` still has four keys:
+`theme/custom`, `physics_ticks_per_second`, and both `rendering_method`s.
+
+## MEASURED
+
+    distinct artists per 10-floor climb   ~3.7 of 4  ->  4.99 of 6
+    mean Guardian appearances per climb        ~3.3  ->  2.33
+    eligible boss pool, deep floors                3  ->  4
+    hotbar hands showing a duplicate glyph  24 of 36  ->  0 of 36
+
+---
+
 # RESUME HERE — 2026-08-05 (b), THE BIG CHANGES LANDED
 
 **ASHPIRE.** Branch `bot-fight-quality`, **152/152 green**, tree clean. 14 commits.
