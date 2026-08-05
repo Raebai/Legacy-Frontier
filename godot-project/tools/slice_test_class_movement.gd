@@ -367,8 +367,14 @@ func _test_travel_is_measurably_different() -> void:
 	# The two the maker named by hand, as an ordering claim rather than a magic number:
 	# "the lightning one ... blinks ... a slightly longer distance", and the tank is the
 	# one that gives mobility up.
-	_expect(dist[STORMCALLER] > dist[JUGGERNAUT] * 2.0,
-		"the Stormcaller's lightning blink goes much further than the Juggernaut's surge (%.1f vs %.1f)"
+	# ⚠ THE `* 2.0` IS GONE, AND IT WAS OVERRULED RATHER THAN RELAXED. Maker: *"make
+	# juggernaut better like make it be able to dash up and faster and further"*. The
+	# surge was 99 px — the shortest verb in the roster, on the slowest body in it — and
+	# is now 146. The ORDERING claim the maker actually made ("the lightning one blinks
+	# a slightly longer distance") is what survives; the doubling was this test's own
+	# reading of "the tank gives mobility up", and the tank has now been told not to.
+	_expect(dist[STORMCALLER] > dist[JUGGERNAUT],
+		"the Stormcaller's lightning blink still out-ranges the Juggernaut's surge (%.1f vs %.1f)"
 			% [dist[STORMCALLER], dist[JUGGERNAUT]])
 	_expect(dist[STORMCALLER] > dist[SWORDSAINT],
 		"the Stormcaller out-ranges the Swordsaint's committed step (%.1f vs %.1f)"

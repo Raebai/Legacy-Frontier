@@ -218,7 +218,17 @@ static var difficulty: int = 3   # the tier that plays the whole kit (combo 0.90
 ## p10 3.1 s / median 5.3 s / p90 10.9 s, with 44% ending under five seconds and 31%
 ## won with the winner still above 80% health. There is no read, no comeback and often
 ## no second exchange.
-static var fighter_hp: int = 320
+## ⚠ 320 -> 440. Maker, watching: *"give the bots more health or make their attacks
+## do lightly less damage these are quick fights"* — so both, and this is the half that
+## touches nothing outside the duel. `_apply_matchup` writes `max_hp`/`hp` AFTER
+## `configure_class`, so this number overrides `CLASS_CONFIG.hp` and
+## `TuningConfig.hero_vitality_mult` in this mode only; the tower is untouched.
+## The damage half is the Shadowblade's `blade_damage` 9 -> 6 in `Hero.CLASS_CONFIG`.
+##
+## ⚠ RAISE `round_seconds` WITH IT OR LONGER BOUTS GET CALLED ON THE HEALTH BAR
+## instead of finishing — the two are one dial in two places, and a decision on
+## points is exactly the anticlimax this change is meant to remove.
+static var fighter_hp: int = 440
 ## Which side each class starts on. Flipped on every rematch so the stage's own
 ## left/right asymmetry cannot accrue to one class over a series. See the footing
 ## note at the top of this file.
@@ -303,7 +313,10 @@ const RIM_RIGHT: float = 1980.0
 ## A STATIC rather than a const so `tools/botmatch_sim.gd` can run a shorter round
 ## without editing the number the maker watches. GAME seconds, so hit-stop stretches
 ## the wall clock but never the fight.
-static var round_seconds: float = 50.0
+## ⚠ 50 -> 75, AND IT MOVES WITH `fighter_hp`. At 440 health and a calmer cast
+## cadence a real bout can now run past fifty seconds, and a fight that ends on the
+## clock is scored on the health bar rather than won — see `_decide`'s DECISION arm.
+static var round_seconds: float = 75.0
 
 ## ══ THE BOTS CARRY A TIER 3 DROP IN A SHOWCASE DUEL ═════════════════════════
 ## Maker: *"the bots should have the cool spells when 1 vs 1"*. They did not, and
@@ -747,7 +760,13 @@ func _taunt(side: int, beat: StringName, always: bool = false) -> void:
 	var who: Node2D = _fighters[side]
 	if not is_instance_valid(who) or not who.is_inside_tree():
 		return
-	var text: String = TauntBook.line_for(beat)
+	# WHO IS OPPOSITE. Maker: "make the bots text chats interact with each other based
+	# on who they are fighting." Side 0 is `class_a` and side 1 is `class_b`, which is
+	# the same mapping `_apply_matchup` uses — read from the statics rather than from
+	# the body, because a fighter does not carry its own class id in a form this file
+	# can trust after a mid-match switch.
+	var vs: int = class_b if side == 0 else class_a
+	var text: String = TauntBook.line_for(beat, -1, vs)
 	if text.is_empty():
 		return
 	if not always and not _off_taunt_cooldown(who):
@@ -989,6 +1008,42 @@ func _put_the_loser_down(winner: int) -> void:
 	# rig's ride offset never moved off 0.
 	if (rig as Object).has_method("set_grounded"):
 		(rig as Object).call("set_grounded", true)
+	# ══ THE DEATH ITSELF, WHICH THIS MODE NEVER SHOWED ══════════════════════════
+	# Maker, watching duels: *"when one of them die it should show them dying"*.
+	# Traced: a duel fighter is a `Hero`, and `Hero._die()` gates its whole death
+	# spectacle on `GameState.is_run_active()` or a live net session. A bot match is
+	# NEITHER, so `_die` heals the body back to full and returns — `_enter_downed`,
+	# with the corpse fold and the sound, is never reached. The tower's own kill
+	# (`Enemy._die`) is unreachable for the opposite reason: a fighter is not an
+	# `Enemy`. So the loudest moment in the mode was a rig going limp, in silence,
+	# with a 0.05 s hit-stop against the tower's 0.11, and then 1.7 seconds of a
+	# completely static frame before the result card.
+	#
+	# Both halves below are the EXACT pair the tower and the in-run hero death
+	# already use — no new node type, no new animation, nothing added to
+	# `CharacterRig`. Order matters and mirrors `Hero._enter_downed`: the smudge
+	# snapshots the pose AS IT STOOD, so it must be taken BEFORE `collapse`.
+	#
+	# ⚠ BOTH SURVIVE THE PAUSE ON THE NEXT LINE. `DeathSmudge` sets
+	# `PROCESS_MODE_ALWAYS` in its own `_ready` and runs on `Time.get_ticks_msec()`
+	# precisely so it plays through hit-stop; `CombatVfx` parents to the arena, which
+	# is already `PROCESS_MODE_ALWAYS`. Neither needed plumbing here — that is the
+	# whole argument for reusing them rather than writing a duel-only death.
+	var corpse_tint: Color = Color(0.42, 0.44, 0.52, 0.95)
+	if (rig as Object).has_method("snapshot_pose"):
+		var smudge: GDScript = load("res://scripts/combat/DeathSmudge.gd") as GDScript
+		if smudge != null:
+			smudge.call("spawn", f.get_parent(), rig, corpse_tint, from_dir,
+				Vector2.ZERO, 0.68)
+	CombatVfx.spawn_burst(
+		f.get_parent(), f.global_position,
+		side_color(loser).lightened(0.3), Color(side_color(loser), 0.0),
+		42, 0.5, 110.0, 240.0, 1.5, 4.0, 40.0, 90.0)
+	# The weight of the blow. `Hero.take_damage` already spent a 0.05 s HURT hit-stop
+	# on this frame; a KILL is the heaviest impact in the game and the tower prices it
+	# at 0.11. Deliberately re-armed here rather than raising `HURT_HIT_STOP`, which
+	# would slow every ordinary hit in the tower as well.
+	Juice.hit_stop(0.11)
 	(rig as Object).call("collapse", from_dir)
 	# ⚠ AND HIDE THE LOSER'S FLOATING HP BAR, which would otherwise sit over the body
 	# reading FULL GREEN. `Hero._die()` outside a run heals straight back to `max_hp`

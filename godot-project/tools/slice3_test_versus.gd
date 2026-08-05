@@ -232,10 +232,21 @@ func _test_pause_menu_injection_order() -> void:
 	var settings: Array[String] = _button_texts(menu._settings_col)
 	_expect(not main.is_empty() and main[main.size() - 1] == "Exit",
 		"the exit button stays the LAST main-menu row, got %s" % [main])
-	_expect(not settings.is_empty() and settings[settings.size() - 1] == "Back",
-		"Back stays the LAST settings row, got %s" % [settings])
+	# ⚠ THE SETTINGS PAGE HAS TWO EXITS NOW, AND THE INVARIANT IS THE PAIR. Maker:
+	# *"pausing should have a resume button as well when I pause"* — a host that hangs
+	# its knobs here (the duel's Fighter A / Difficulty / Fighter HP rows) dropped you
+	# on this page, whose only way out was "Back" to a menu you then had to re-read to
+	# find "Resume". The claim under test never was "Back is last"; it was "an injected
+	# row cannot land below the way out", and that is now a two-row footer.
+	_expect(settings.size() >= 2
+			and settings[settings.size() - 2] == "Back"
+			and settings[settings.size() - 1] == "Resume  (Esc)",
+		"Back + Resume stay the LAST TWO settings rows, in that order, got %s" % [settings])
 	_expect(main.has("Injected Main") and settings.has("Injected Setting"),
 		"...and both injected rows are actually present")
+	# The point of the pin: the injected knob is ABOVE both exits, not between them.
+	_expect(settings.find("Injected Setting") < settings.size() - 2,
+		"an injected knob sits above the footer pair, got %s" % [settings])
 	root.remove_child(menu)
 	menu.queue_free()
 	_completes("pause_menu_injection_order")

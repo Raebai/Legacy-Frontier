@@ -271,8 +271,19 @@ const CHARGE_IFRAME_FRACTION: float = 0.0
 ## makes it different from "every dash already ignores knockback" (see
 ## `apply_knockback`): the Juggernaut is the only body that stays unmovable once the
 ## travel is over, so a surge into a crowd is not immediately shoved back out of it.
-const SURGE_SPEED: float = 330.0
-const SURGE_TIME: float = 0.30
+## ⚠ FASTER, FURTHER, AND IT GOES UP NOW. Maker: *"make juggernaut better like make it
+## be able to dash up and faster and further"*. 330 x 0.30 was 99 px of travel — the
+## shortest verb in the roster on the slowest body in it (speed 165, also the lowest),
+## so the siege class could neither reach anything nor leave anything. 430 x 0.34 is
+## 146 px, a 48% increase, and it is no longer flattened to the ground plane (see the
+## `charge`/`surge` split in `_travel_velocity`) so it takes the full 8-way direction
+## and can climb.
+##
+## The armour tail is UNCHANGED on purpose: the surge's identity is that it refuses to
+## be moved, not that it is evasive, and lengthening the unmovable window as well would
+## turn a mobility buff into a survivability one.
+const SURGE_SPEED: float = 430.0
+const SURGE_TIME: float = 0.34
 const SURGE_ARMOR_TAIL: float = 0.35
 ## No i-frames — armour is not invulnerability. It eats the hit and keeps walking.
 const SURGE_IFRAME_FRACTION: float = 0.0
@@ -627,7 +638,16 @@ const CLASS_CONFIG: Dictionary = {
 		# THE BEST AIR GAME IN THE ROSTER: two air jumps AND a gravity-ignoring dash.
 		"air_jumps": 2,
 		"move_verb": "air_dash", "dash_iframe_fraction": AIR_DASH_IFRAME_FRACTION,
-		"throw_blade": true, "blade_damage": 9,
+		# ⚠ 9 -> 6, AND IT IS THE ONLY BURST PRIMARY IN THE ROSTER. Maker: *"the default
+		# attack for the shadowclass shooting loads of different 3 in a direction is
+		# cool but the damage may make it too op right now"* — and the arithmetic agrees
+		# rather than just the eye. `bolt_burst: 3` at 9 each on a 0.30 s cooldown is
+		# 90 DPS, against a field mean of 56 and a second place (Brawler) of 70: +60%
+		# over the roster and +29% over anything else, delivered at 560 px while the
+		# two classes near it have to be in contact. At 6 it lands on 60 DPS, which is
+		# the middle of the field, and the THREE SHOTS — the thing the maker likes —
+		# are untouched.
+		"throw_blade": true, "blade_damage": 6,
 		"dash_strike": true, "dash_strike_damage": 16, "dash_strike_range": 42.0,
 		"aoe": "nova", "has_nova": false, "can_parry": true,
 	},
@@ -3755,9 +3775,16 @@ func _travel_velocity(delta: float) -> Vector2:
 					GROUND_ACCEL * ICE_SLIDE_STEER * delta)
 			v.y = 0.0 if is_on_floor() else minf(v.y + GRAVITY_FALL * delta, MAX_FALL)
 			return v
-		"charge", "surge":
+		"charge":
 			# Ground-plane travel: flat horizontally, but gravity still owns you, so
 			# charging off a ledge arcs down instead of flying.
+			#
+			# ⚠ `surge` USED TO SHARE THIS BRANCH, and that is where "the Juggernaut
+			# cannot dash up" actually lived. `GROUNDED_VERBS` is empty, so `_start_dash`
+			# already hands the surge a true 8-way `_dash_dir` including its vertical —
+			# and then this branch threw the y away and replaced it with gravity. The
+			# flattening the class comment blames was happening HERE, one layer below
+			# where anyone was looking for it.
 			v.x = _dash_dir.x * _dash_speed
 			v.y = 0.0 if is_on_floor() else minf(v.y + GRAVITY_FALL * delta, MAX_FALL)
 			return v

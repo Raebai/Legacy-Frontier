@@ -39,6 +39,7 @@ const TESTS: Array[String] = [
 	"intro_is_bounded", "intro_skips_headless", "corner_colours",
 	"plates_read_the_corner", "taunt_beats_are_complete", "taunt_line_is_deterministic",
 	"taunt_rows_are_plural", "no_unreachable_beat", "taunt_voice_is_shaped",
+	"taunts_have_no_drawing_references", "taunts_answer_the_opponent",
 	"lobby_routes_to_the_duel", "lobby_clears_the_statics", "lobby_opponent_is_never_a_mirror",
 	"live_match_is_not_slowed", "live_bodies_wear_the_corner",
 ]
@@ -93,6 +94,8 @@ func _run_all() -> void:
 	_test_taunt_rows_are_plural()
 	_test_no_unreachable_beat()
 	_test_taunt_voice_is_shaped()
+	_test_taunts_have_no_drawing_references()
+	_test_taunts_answer_the_opponent()
 	_test_lobby_routes_to_the_duel()
 	_test_lobby_clears_the_statics()
 	_test_lobby_opponent_is_never_a_mirror()
@@ -309,6 +312,57 @@ func _test_taunt_beats_are_complete() -> void:
 		_expect(beats.has(b), "the book declares the `%s` beat" % b)
 		_expect(TauntBook.line_for(b, 0) != "", "`%s` has at least one line" % b)
 	_completes("taunt_beats_are_complete")
+
+
+## ⚠ THE MAKER'S RULING, AS A SWEEP RATHER THAN A COMMENT. *"no drawing references
+## please as they make no sense"* — every line in this book used to be about paper
+## ("pencils up", "you're a doodle", "mostly eraser now"). That register belongs to
+## `Bark`, which speaks for a hero inside a page; a duel is two fighters in a ring and
+## neither of them is a drawing.
+##
+## A ruling like this decays the moment somebody adds "one more good line", so the
+## banned vocabulary lives in the book as DATA and this walks every row of both tables
+## against it. `all_lines()` is derived, never hand-listed — a hand-listed copy is
+## exactly how a new row escapes the check that exists to police it.
+func _test_taunts_have_no_drawing_references() -> void:
+	var lines: Array[String] = TauntBook.all_lines()
+	_expect(lines.size() >= 25, "the book still has a real number of lines (got %d)" % lines.size())
+	for line: String in lines:
+		var low: String = line.to_lower()
+		for banned: String in TauntBook.BANNED_WORDS:
+			# Word-ish containment: the banned list is deliberately whole words a taunt
+			# would use, and substring matching would fail "decline" on "line".
+			var padded: String = " %s " % low.replace(".", " ").replace(",", " ")
+			_expect(not padded.contains(" %s " % banned),
+				"taunt `%s` does not reach for the drawing metaphor (`%s`)" % [line, banned])
+	_completes("taunts_have_no_drawing_references")
+
+
+## ⚠ AND THEY ANSWER WHO IS OPPOSITE. Maker: *"make the bots text chats interact with
+## each other based on who they are fighting"*. Two claims, and the second is the one
+## that would rot silently:
+##   1. a beat WITH a per-class row returns that row for every one of the nine classes;
+##   2. a beat WITHOUT one still speaks, out of the generic table.
+## (2) is not padding — `VS_LINES` covers two of five beats on purpose, so a picker
+## that returned "" for the other three would mute `low_health` and `finisher`, the two
+## beats a recording most needs, and nothing else in the suite would notice.
+func _test_taunts_answer_the_opponent() -> void:
+	const CLASS_COUNT: int = 9
+	for beat: StringName in TauntBook.beats():
+		var personal: bool = TauntBook.has_vs_line(beat, 0)
+		for cid: int in CLASS_COUNT:
+			var line: String = TauntBook.line_for(beat, 0, cid)
+			_expect(line != "", "`%s` speaks when facing class %d" % [beat, cid])
+			if personal:
+				_expect(TauntBook.has_vs_line(beat, cid),
+					"`%s` has a line about class %d, not just about some of them" % [beat, cid])
+	# The two loud beats are the personal ones, and a fighter facing class 3 must not
+	# be handed class 4's line — pinned by roll so this is an identity, not a sample.
+	_expect(TauntBook.line_for(&"big_hit", 0, 3) != TauntBook.line_for(&"big_hit", 0, 4),
+		"two different opponents draw two different lines")
+	_expect(TauntBook.line_for(&"low_health", 0, 3) == TauntBook.line_for(&"low_health", 0, 4),
+		"...and a beat with no per-class row falls back to the shared one")
+	_completes("taunts_answer_the_opponent")
 
 
 ## Deterministic under a pinned roll, random under -1 — the same contract

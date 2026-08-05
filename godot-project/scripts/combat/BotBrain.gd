@@ -298,7 +298,34 @@ const NOVA_RANGE: float = 150.0
 ## Minimum gap between two ability presses of ANY kind. The cooldowns already pace
 ## each button; this stops all three going out on the same frame, which reads as a
 ## seizure rather than as a play.
-const ABILITY_SPACING: float = 0.45
+## ⚠ 0.45 -> 0.80. Maker, watching duels: *"they are lowkey spamming moves like its
+## sometimes too difficult to watch"*. At 0.45 a bot could still land three Q/R/T
+## presses inside 1.4 s ON TOP of a primary firing every 0.22-0.45 s and a kit cast
+## every 0.35 s — about 6-8 discrete actions per second per fighter, so 12-16 on
+## screen. The gap between "busy" and "unreadable" is how many of them overlap.
+const ABILITY_SPACING: float = 0.80
+
+## ⚠ THE PRIMARY HAD NO SPACING AT ALL, AND THAT IS THE SPAM THE MAKER SAW.
+##
+## `_wants_fire` was gated by the body's own `cast_cd` and by nothing else — no
+## `profile.period`, no latch, no lockout — so a bot pressed fire on the exact frame
+## its cooldown hit zero, every time, forever. The header below still says that is
+## deliberate, and it is right that a bot which only acts on cooldowns reads as idle;
+## but "never idle" was implemented as "never NOT firing", which at a 0.22 s Brawler
+## or a 0.30 s Shadowblade triple-shot is a stream, not a rhythm.
+##
+## A FLOOR, NOT A COOLDOWN. Classes slower than this are untouched — the Swordsaint
+## (0.45) and the Juggernaut (0.40) never notice it. It binds only on the fast half of
+## the roster, which is exactly where the complaint came from ("arcanist is spamming
+## its default spell"). That also keeps it from flattening the classes apart.
+##
+## ⚠ AND IT IS THE FIX FOR A REAL BUG AS WELL AS A FEEL DIAL. The three melee-primary
+## classes (Brawler, Juggernaut, Swordsaint) never set `_cast_cooldown_timer` at all —
+## `_primary_melee_combo` / `_primary_heavy_swing` write `_melee_cooldown_timer`
+## instead — so their `CD_PRIMARY` sits at 0 and the brain pressed fire EVERY SINGLE
+## FRAME into a body that silently early-returned. This floor is what stops that,
+## and it stops it without touching the player's own melee timing.
+const FIRE_SPACING: float = 0.42
 
 ## ---------------------------------------------------------------------------
 ## THE DEGENERATE-FIGHT BREAKER. Two bots on the same spacing logic, both correctly
@@ -909,7 +936,27 @@ static func _caps(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 	var band: float = float(bb.get("guard_lead",
 		GUARD_BAND_SIGIL if sigil else GUARD_BAND_BLADE))
 	var skill: float = BotProfile.get_f(profile, "guard")
-	var slack: float = lerpf(0.16, 0.03, clampf(skill, 0.0, 1.0))
+	# ⚠ SKILL NARROWS THIS WINDOW, WHICH MAKES THE BEST BOTS THE WORST AT PARRYING —
+	# and Watch Bots runs at the top tier, so the mode the maker watches had the fewest
+	# openings in the game. At guard 0.92 the half-width is 0.0404 s, about 2.4 physics
+	# frames, against a `tti` that can only step in 0.0167 s increments: the band is
+	# barely resolvable by the sampler reading it.
+	#
+	# ⚠ AND THE BODY ALREADY PUBLISHES ITS REAL TOLERANCE, WHICH NOTHING READ.
+	# `Hero.bot_body_state` sends `guard_tolerance` — 0.080 s for the seven classes that
+	# run a press window, 0.200 s for the Juggernaut's block — and `in_lead` used a
+	# skill curve instead, i.e. a window HALF the body's true one at the tier everything
+	# is measured at. Flooring at the body's own number is the same "read it from the
+	# seam" rule `dash_dist` and `guard_lead` above already follow.
+	#
+	# ⚠ THIS IS NOT THE REVERTED CROSS-CLASS CHANGE. That one added a flat global
+	# `SLACK_FLOOR` and was reverted on the maker's ruling *"do not change the deflect
+	# across all classes to fix one"*. This reads each body's OWN published number, so
+	# the Swordsaint (0.0462, narrower than tier-3 slack) is byte-identical and only the
+	# classes whose real window is wider than the curve move. A body that publishes
+	# nothing (an Enemy) keeps the curve exactly.
+	var slack: float = maxf(lerpf(0.16, 0.03, clampf(skill, 0.0, 1.0)),
+		float(bb.get("guard_tolerance", 0.0)))
 	var tti: float = float(threat.get("tti", 99.0))
 	var in_lead: bool = absf(tti - band) <= slack
 	return {
@@ -1565,6 +1612,12 @@ static func _note_cast(bb: Dictionary, m: Memory, slot: int, now: float) -> void
 ## is the fists, so use the body's own `reach`".
 static func _wants_fire(bb: Dictionary, _profile: Dictionary, m: Memory, now: float,
 		_evaluated: Array) -> bool:
+	# THE FLOOR, CHECKED BEFORE THE COOLDOWN. See `FIRE_SPACING`: the body's own
+	# cooldown was the ONLY gate, so the fast half of the roster fired in a stream and
+	# the three melee-primary classes (which never set `_cast_cooldown_timer` at all)
+	# pressed it every single frame into a silent early-return.
+	if now - m.last_fire_at < FIRE_SPACING:
+		return false
 	if not _ready_flag(bb, "fire_ready", CD_PRIMARY_INDEX,
 			now - m.last_fire_at >= MELEE_COOLDOWN):
 		return false

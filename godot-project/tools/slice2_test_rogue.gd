@@ -128,10 +128,15 @@ func _test_mage_config_unchanged() -> void:
 
 
 func _test_throw_blade_damage() -> void:
-	# Rogue blade is lighter (9, burst-flurry); mage bolt is the Spell default (18).
+	# Rogue blade is lighter (6, burst-flurry); mage bolt is the Spell default (18).
+	# ⚠ 9 -> 6 ON THE MAKER'S REPORT, and the arithmetic backed the eye: three blades
+	# at 9 on a 0.30 s cooldown is 90 DPS against a roster mean of 56 and a second
+	# place of 70. The BURST is the class and is untouched; only the per-blade number
+	# moved. Kept as an exact assertion rather than a range — this is the one primary
+	# in the game that multiplies, so a silent drift here is a silent 3x.
 	var rogue: CharacterBody2D = _make_hero()
 	rogue.configure_class(rogue.HeroClass.ROGUE)
-	_expect(_cast_and_read_damage(rogue) == 9, "rogue thrown blade deals 9 (burst)")
+	_expect(_cast_and_read_damage(rogue) == 6, "rogue thrown blade deals 6 (burst)")
 	var mage: CharacterBody2D = _make_hero()
 	mage.configure_class(mage.HeroClass.MAGE)
 	_expect(_cast_and_read_damage(mage) == 18, "mage bolt deals the default 18")

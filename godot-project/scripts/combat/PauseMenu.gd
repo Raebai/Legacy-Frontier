@@ -175,6 +175,9 @@ var _exit_label: String = "Exit to Hub"
 ## host-specific rows get added in between.
 var _exit_btn: Button = null
 var _back_btn: Button = null
+## The settings page's own Resume row. Pinned to the very bottom alongside `_back_btn`
+## so an injected knob never lands underneath the way out.
+var _resume_btn: Button = null
 ## Settings rows are scrollable: the duel knobs pushed the column past the bottom
 ## of a 720p window, and a control you cannot reach is a control you do not have.
 var _settings_scroll: ScrollContainer = null
@@ -563,8 +566,7 @@ func add_setting_button(text: String, cb: Callable) -> Button:
 	b.custom_minimum_size = Vector2(240, 30)
 	b.add_theme_font_size_override("font_size", 14)
 	_settings_col.add_child(b)
-	if _back_btn != null:
-		_settings_col.move_child(_back_btn, _settings_col.get_child_count() - 1)
+	_pin_footer()
 	return b
 
 
@@ -577,9 +579,21 @@ func add_setting_section(title: String) -> Label:
 	l.add_theme_font_size_override("font_size", 18)
 	l.add_theme_color_override("font_color", Color(1.0, 0.88, 0.62))
 	_settings_col.add_child(l)
-	if _back_btn != null:
-		_settings_col.move_child(_back_btn, _settings_col.get_child_count() - 1)
+	_pin_footer()
 	return l
+
+
+## Keep the settings page's two exits at the very bottom, in that order, however many
+## knobs a host injects above them. It used to be one line repeated in both injectors
+## and it only pinned `Back`; with a Resume row alongside it, an un-pinned second exit
+## would drift up the column as rows arrive and end up in the middle of the duel's
+## own settings.
+func _pin_footer() -> void:
+	var last: int = _settings_col.get_child_count() - 1
+	if _back_btn != null:
+		_settings_col.move_child(_back_btn, last)
+	if _resume_btn != null:
+		_settings_col.move_child(_resume_btn, last)
 
 
 func _build_settings() -> void:
@@ -777,6 +791,18 @@ func _build_settings() -> void:
 
 	_back_btn = _menu_button("Back", _close_settings)
 	_settings_col.add_child(_back_btn)
+	# ⚠ AND A WAY STRAIGHT BACK INTO THE GAME. Maker: *"pausing should have a resume
+	# button as well when I pause"*. The MAIN page has always had one — but a host that
+	# hangs its knobs here (the duel's Fighter A / Fighter B / Difficulty / Fighter HP
+	# rows all arrive through `add_setting_button`) drops you on THIS page, whose only
+	# exit was "Back" to a menu you then had to read again to find "Resume". Two
+	# presses and a page change to undo a pause you only opened to nudge a dial.
+	#
+	# It emits the SAME `resume_requested` the main row does rather than closing
+	# anything itself, so the host stays the owner of the actual unpause — see the note
+	# on that signal.
+	_resume_btn = _menu_button("Resume  (Esc)", func() -> void: resume_requested.emit())
+	_settings_col.add_child(_resume_btn)
 
 
 # ------------------------------------------------------------------ controls
