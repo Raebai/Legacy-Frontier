@@ -160,11 +160,39 @@ func _draw() -> void:
 		_draw_scorch()
 
 
-## Soft dark radial splotch: concentric translucent discs, densest at center.
+## Soft dark radial splotch: concentric translucent splotches, densest at center.
+##
+## ⚠ THESE WERE PERFECT CIRCLES, and that is the half of the "goofy" the tone pass
+## did not touch. The craters were re-toned AND torn (`GroundCrater._ragged`); the
+## scorches were only re-toned, so the smooth pale discs left on the floor were
+## these. Fire does not leave a compass-drawn disc, and three concentric perfect
+## circles read as a target painted on the ground rather than a burn. Same
+## treatment, same reason.
 func _draw_scorch() -> void:
-	draw_circle(Vector2.ZERO, radius, Color(tint.r, tint.g, tint.b, tint.a * 0.35))
-	draw_circle(Vector2.ZERO, radius * 0.66, Color(tint.r, tint.g, tint.b, tint.a * 0.6))
-	draw_circle(Vector2.ZERO, radius * 0.34, Color(tint.r, tint.g, tint.b, tint.a))
+	_ragged(radius, Color(tint.r, tint.g, tint.b, tint.a * 0.35), 0)
+	_ragged(radius * 0.66, Color(tint.r, tint.g, tint.b, tint.a * 0.6), 7)
+	_ragged(radius * 0.34, tint, 13)
+
+
+## One ring of the splotch as a torn polygon. `salt` offsets the seed so the three
+## rings are not one shape scaled, which is what makes a printed-target look.
+##
+## Deterministic in the decal's WORLD POSITION rather than in a counter, so the
+## shape is stable across redraws (a scorch that reshuffled every frame would boil)
+## and two decals in the same place across a replay draw the same mark. Copied
+## deliberately from `GroundCrater._ragged` — these two systems stack on the SAME
+## floor, and a torn crater next to a compass-drawn scorch just moves the problem.
+func _ragged(r: float, col: Color, salt: int) -> void:
+	var pts := PackedVector2Array()
+	var seed_i: int = int(absf(global_position.x) * 7.0 + absf(global_position.y) * 13.0) + salt
+	var steps: int = 14
+	for i: int in steps:
+		var a: float = TAU * float(i) / float(steps)
+		# Cheap deterministic hash -> 0..1, then a +-18% radius wobble.
+		var h: int = (seed_i * 1103515245 + i * 12345) & 0x7FFFFFFF
+		var n: float = float(h % 1000) / 1000.0
+		pts.append(Vector2.from_angle(a) * (r * (0.82 + 0.36 * n)))
+	draw_colored_polygon(pts, col)
 
 
 ## Small dark impact chip at the center plus jagged radiating lines.
