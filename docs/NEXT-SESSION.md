@@ -1,3 +1,49 @@
+# RESUME HERE — 2026-08-05 (f), A LIVE PLAYTEST SESSION
+
+**ASHPIRE.** Branch `bot-fight-quality`, **153/153 green**, tree clean.
+**47 commits, NOT PUSHED.**
+
+The maker played while I worked and called out ~20 things; all of them were actioned.
+**Nothing here has been verified by hand yet** — headless suites and rendered frames
+only.
+
+## ▶ WHAT TO PLAY
+1. **WATCH BOTS.** Almost everything landed here: pacing, the death, coloured
+   bark text with no box, a 3.2 s VS card, ten randomised biome stages, desperation
+   ults, breathing gaps, a flinch on being hit.
+2. **THE TITLE.** The circle now forms before the menu fades in, it leans toward the
+   pointer, and MULTIPLAYER is a door with the co-op rows behind it.
+3. **A TOWER RUN.** Bosses jump, get faster and press harder with depth; the leave
+   prompt has three honest answers and the climb happens in a pillar of light.
+4. **THE SWORDSAINT.** New katana, a crescent off every heavy swing, and its two
+   slowest-in-the-roster cooldowns cut.
+
+## ⚠ SIX OF THE MAKER'S REPORTS WERE CODE THAT HAD NEVER RUN
+Not tuning values — features that could not fire. The bot primary had no spacing gate
+at all; the whole airborne kit was inherited by `Boss` and never called; depth only
+ever changed a boss's HEALTH; two classes could not dash up because the vertical was
+discarded one layer BELOW the class table; "Keep climbing" was wired to cancel; the
+title's mote streak was a shared RNG being reseeded every frame. **The one-line
+complaints keep finding structural bugs. Keep making them.**
+
+## ⚠ TWO THINGS I GOT WRONG AND CORRECTED
+- I reported boss attacks as **undeflectable**. Wrong: `Hero.take_damage` is itself a
+  catch-all that fully negates them (probed live). The defect was the window being
+  spent by the FIRST hit of a 3-12 hit burst.
+- I shipped the **death glitch** — `DeathSmudge` on top of the ragdoll draws a second
+  stickman. Mine, and fixed.
+
+## ▶ WHAT IS STILL OPEN
+- **Deflect rate did not move.** 11 across 8/18 matches before AND after the slack
+  floor, same seed. Kept as a correctness fix, reported as unproven.
+- **The real blocker:** `Hero` spawns **no `Telegraph`**, so every melee swing is
+  invisible to the dodge brain. That is the next real piece of work.
+- Per-class Tier 3 drops — five new ult-weight spells, unstarted.
+- The duel-quality probe still reads 99% active / 98% spell-in-air, so the breathing
+  gaps are not visible in that metric. Your eyes decide.
+
+---
+
 # RESUME HERE — 2026-08-05 (e), THE QUEUE IS DOWN TO YOUR HANDS
 
 **ASHPIRE.** Branch `bot-fight-quality`, **152/152 green**, tree clean.
