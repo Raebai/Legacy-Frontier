@@ -48,6 +48,7 @@ const TESTS: Array[String] = [
 	"roll_is_pure_and_varies",
 	"excludes_are_respected",
 	"a_floor_spends_its_elite_budget_exactly",
+	"an_elite_wave_takes_the_whole_budget",
 	"spawn_data_carries_the_affixes",
 	"attach_dresses_an_elite_and_leaves_trash_bare",
 	"peers_build_the_same_elite_from_the_same_dict",
@@ -112,6 +113,7 @@ func _run() -> void:
 	_test_roll_is_pure_and_varies()
 	_test_excludes_are_respected()
 	_test_a_floor_spends_its_elite_budget_exactly()
+	_test_an_elite_wave_takes_the_whole_budget()
 	await _test_spawn_data_carries_the_affixes()
 	await _test_attach_dresses_an_elite_and_leaves_trash_bare()
 	_test_peers_build_the_same_elite_from_the_same_dict()
@@ -757,3 +759,82 @@ class _HeroStub extends Node2D:
 		hp = maxi(hp - amount, 0)
 	func is_downed() -> bool:
 		return hp <= 0
+
+
+## ══ THE ELITE WAVE ════════════════════════════════════════════════════════════
+## `EliteRoster` already makes an elite RARE. What it could not do is make one
+## ARRIVE: the spend is uniform across the whole floor, so the named body turns up
+## somewhere inside a wave of eleven and reads as a body with an aura rather than
+## as a moment. `WaveDef.elite_wave` re-points the denominator at one wave.
+##
+## Two halves, and the second is the one that matters:
+##   1. the flagged wave gets the WHOLE budget;
+##   2. the ordinary waves get NONE — because if waves 1-2 spend in the usual way,
+##      the wave the floor was authored around opens with nothing left to give and
+##      the feature works perfectly while being invisible.
+##
+## ⚠ THE CONTROL IS PART OF THE TEST. The same floor with the flag OFF must scatter,
+## or this is measuring an instrument that cannot fail. That is the trap this
+## codebase keeps re-learning: an assertion nothing can violate is not an assertion.
+func _test_an_elite_wave_takes_the_whole_budget() -> void:
+	var depth: int = 4
+	var want: int = EliteRoster.budget(depth)
+	_expect(want >= 2, "depth %d has a budget worth concentrating (%d)" % [depth, want])
+	var flagged_total: int = 0
+	var flagged_outside: int = 0
+	var control_outside: int = 0
+	for trial: int in 30:
+		flagged_total += _walk_floor(depth, true, 1)[0]
+		flagged_outside += _walk_floor(depth, true, 1)[1]
+		control_outside += _walk_floor(depth, false, 1)[1]
+	_expect(flagged_outside == 0,
+		"an ordinary wave never spends while the floor is holding for its elite wave (%d leaked)"
+			% flagged_outside)
+	_expect(flagged_total == want * 30,
+		"the elite wave lands the whole budget every time (%d of %d)" % [flagged_total, want * 30])
+	# THE CONTROL. Without the flag the same floor scatters, which is what makes the
+	# two assertions above mean something.
+	_expect(control_outside > 0,
+		"...and WITHOUT the flag the same floor spends outside wave 1 (%d) — if this is 0 the "
+		+ "test above is measuring nothing" % control_outside)
+	_completes("an_elite_wave_takes_the_whole_budget")
+
+
+## Drive a three-wave floor through the REAL `_start_wave` / `_roll_elite` pair and
+## report [spent_in_wave `mark`, spent_anywhere_else].
+func _walk_floor(depth: int, flag: bool, mark: int) -> Array[int]:
+	var enc: Node = _enc()
+	_arena.add_child(enc)
+	var f := FloorDef.new()
+	f.floor_type = FloorDef.FloorType.COMBAT
+	f.depth = depth
+	var list: Array[WaveDef] = []
+	for i: int in 3:
+		var w := WaveDef.new()
+		w.enemy_budget = 10
+		w.concurrent_cap = 4
+		w.elite_wave = flag and i == mark
+		list.append(w)
+	f.waves = list
+	f.enemy_budget = 30
+	enc.run_floor(f)
+	enc.stop()
+	var inside: int = 0
+	var outside: int = 0
+	var spawned: int = 0
+	for wi: int in 3:
+		enc.call("_start_wave", wi)
+		for i: int in 10:
+			enc.set("_wave_spawned", i)
+			var before: int = (enc.call("elite_log") as Array).size()
+			enc.call("_roll_elite", i % 8)
+			spawned += 1
+			enc.set("_floor_spawned", spawned)
+			var got: int = (enc.call("elite_log") as Array).size() - before
+			if wi == mark:
+				inside += got
+			else:
+				outside += got
+	enc.queue_free()
+	var out: Array[int] = [inside, outside]
+	return out

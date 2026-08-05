@@ -43,6 +43,24 @@ extends Resource
 ## (Encounter.handoff_for_cap). 0 means "wait for a genuinely empty room".
 @export var handoff_alive: int = -1
 
+## ══ THE ELITE WAVE — a named body as an EVENT rather than as a coincidence ═════
+## `EliteRoster` already makes an elite rare (a budget of 0/1/2 per floor, spent
+## with remaining-over-remaining pressure so it never front-loads and never
+## overshoots). What it cannot do is make one ARRIVE: the spend is uniform across
+## the whole floor, so the elite turns up somewhere in the middle of a wave of
+## eleven and is a body with an aura on it rather than a moment.
+##
+## Setting this concentrates the floor's WHOLE remaining elite budget into this
+## wave. Nothing else changes — same roster, same affixes, same rarity ceiling —
+## so this is a PACING knob, not a difficulty one. Author it on a short wave
+## (`enemy_budget` 2-4, `handoff_alive` 0) and the floor pauses on one named thing
+## walking in, which is the "mini-boss" the tower was said to be missing.
+##
+## ⚠ The budget still has to EXIST. A depth-1 floor has a budget of zero, so an
+## elite wave there is an ordinary short wave and stays silent about it — which is
+## correct: floor 1 is the teaching floor and it teaches one thing at a time.
+@export var elite_wave: bool = false
+
 
 ## Resolve `brute_chance` against the floor's value (the < 0 = inherit rule).
 func resolved_brute(floor_brute: float) -> float:

@@ -1148,7 +1148,10 @@ static func build_default_tower() -> TowerDef:
 			_waves([
 				[5, 4, [A_BRUTE, A_CHASER]],
 				[6, 4, [A_BRUTE, A_CHARGER, A_ASSASSIN]],      # fast + heavy in the same breath
-				[7, 5, [A_ASSASSIN, A_ASSASSIN, A_MAGE]],      # zoned while being harried
+				# THE ELITE WAVE. Floor 3's budget of 1 lands in THESE seven bodies
+				# rather than anywhere across the floor's 27 — a 4x concentration, and
+				# the wave is already the meanest mix before the finale.
+				[7, 5, [A_ASSASSIN, A_ASSASSIN, A_MAGE], -1, true],
 				[9, 5, [A_BRUTE, A_CHARGER, A_MAGE, A_SUMMONER]],
 			])),
 		# --- 4 · UNDERGROUND. The swarm floor: volume plus area denial. x0.9 is the
@@ -1199,7 +1202,7 @@ static func build_default_tower() -> TowerDef:
 			_waves([
 				[9, 5, [A_ASSASSIN, A_ASSASSIN]],
 				[11, 5, [A_ASSASSIN, A_CHARGER, A_MAGE]],
-				[13, 6, [A_ASSASSIN, A_ASSASSIN, A_SUMMONER]],
+				[13, 6, [A_ASSASSIN, A_ASSASSIN, A_SUMMONER], -1, true],  # THE ELITE WAVE
 				[14, 6, [A_ASSASSIN, A_CHARGER, A_MAGE, A_SUMMONER]],
 			])),
 		# --- 8 · THE DROWNED GALLERY. Area denial: the floor takes space away from you
@@ -1217,7 +1220,7 @@ static func build_default_tower() -> TowerDef:
 			_waves([
 				[13, 6, [A_CHASER, A_CHARGER, A_ASSASSIN]],
 				[15, 7, [A_BRUTE, A_CASTER, A_BOMBER]],
-				[16, 7, [A_ASSASSIN, A_MAGE, A_SUMMONER]],
+				[16, 7, [A_ASSASSIN, A_MAGE, A_SUMMONER], -1, true],      # THE ELITE WAVE
 				[18, 8, [A_CHASER, A_BRUTE, A_CHARGER, A_ASSASSIN, A_MAGE]],
 			])),
 		# --- 10 · THE APEX. The tower's roof and its last guardian. Ends on every
@@ -1262,6 +1265,14 @@ static func _waves(rows: Array) -> Array[WaveDef]:
 			w.archetypes = roster
 		if row.size() > 3:
 			w.handoff_alive = int(row[3])
+		# 5th column: THE ELITE WAVE. The floor's whole elite budget spends inside
+		# THIS wave instead of being sprinkled across every body on the floor — see
+		# `WaveDef.elite_wave`. It is a PACING flag on a wave that already exists,
+		# not a new wave: the tower holds two invariants that a short inserted wave
+		# would break (budgets never shrink across a floor, and exactly ONE wave in
+		# the whole tower may hand off at 0). So this concentrates, it does not stage.
+		if row.size() > 4:
+			w.elite_wave = bool(row[4])
 		out.append(w)
 	return out
 

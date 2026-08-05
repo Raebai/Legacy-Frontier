@@ -293,6 +293,10 @@ var _boss_roll: Dictionary = {}
 ## Elites still owed by this floor. Spent by `_roll_elite` with remaining-over-
 ## remaining pressure, so the budget always lands exactly and never twice.
 var _elite_left: int = 0
+## Is the wave now running the floor's ELITE WAVE? Set from `WaveDef.elite_wave`
+## in `_start_wave`. Changes only the DENOMINATOR of the spend pressure — see
+## `_roll_elite`, which is the one place the budget is ever spent.
+var _wave_is_elite: bool = false
 ## How many bodies this floor will spawn in total, and how many it has. The two
 ## halves of that pressure. Set once in run_floor; a floor whose waves are empty
 ## leaves them at 0, which switches elites off — which is also what keeps the F6
@@ -456,6 +460,7 @@ func run_floor(floor_def: FloorDef) -> void:
 		_elite_left = mini(EliteRoster.budget(_depth), _floor_spawn_total)
 	_announce_floor_affixes()
 	_wave_index = -1
+	_wave_is_elite = false
 	_boss_seen = false
 	_boss_grace = 0.0
 	_timer = 0.0
@@ -629,6 +634,10 @@ func _start_wave(index: int) -> void:
 	# wave 0 so late-loading clients' EnemySpawner exists, and a vanguard that fired
 	# here would sail straight past that hold.
 	_wave_burst = clampi(w.resolved_vanguard(vanguard_for_cap(_wave_cap)), 0, _wave_budget)
+	# THE ELITE WAVE. A flag, not a knob: it re-points the spend denominator at this
+	# wave instead of at the whole floor, so the budget that would have been sprinkled
+	# across forty bodies lands inside these few. See `_roll_elite`.
+	_wave_is_elite = w.elite_wave
 	_timer = 0.0
 	_phase = Phase.WAVES
 	wave_started.emit(index, _waves.size())
@@ -847,6 +856,16 @@ static func party_boss_hp_mult(party: int) -> float:
 ## sandbox, every headless harness and single-player all answer 1 and are scaled by
 ## exactly nothing.
 func party_size() -> int:
+	# ⚠ THE is_inside_tree() CHECK IS THE GUARD, not the `or net == null` below it.
+	# An ABSOLUTE `get_node_or_null` from a node outside the active tree does not
+	# return null — it ERRORS, and a GDScript error ABORTS the enclosing function,
+	# so execution never reaches the `return 1` this comment used to promise. The
+	# caller then gets the return type's zero (0 climbers) or, worse, aborts in turn.
+	# `spawn_boss` carries the same warning about the same trap; this function
+	# claimed the protection without having it, which is why a headless harness that
+	# called `run_floor` before the first frame silently lost `_start_wave`.
+	if not is_inside_tree():
+		return 1
 	var net: Node = get_node_or_null(^"/root/Net")
 	if net == null or not net.has_method(&"is_active") or not bool(net.call(&"is_active")):
 		return 1
@@ -1235,11 +1254,28 @@ func spawn(brute_chance: float, hp_mult: float, roster: Array[int] = []) -> void
 ## `run_floor()`, because `_elite_left` is 0 there. That is deliberate: the sandbox
 ## exists to measure FEEL, and a body that dodges, blinks or detonates depending on
 ## an unseeded roll makes it useless for exactly the thing it is for.
+## ── THE ELITE WAVE changes the DENOMINATOR and nothing else ──────────────────
+## `WaveDef.elite_wave` re-points "remaining spawns" at THIS WAVE rather than at
+## the rest of the floor. Every property above survives verbatim — the budget is
+## still decremented, still cannot overshoot, and still reaches probability 1 by
+## the wave's last body, so the same "exactly N" invariant holds and is now
+## assertable per-wave instead of only per-floor.
+##
+## ⚠ IT MUST NOT SPEND EARLY. If waves 1-2 sprinkle the budget in the ordinary
+## way, the wave the floor was authored around opens with nothing left to give —
+## the feature would work perfectly and be invisible. So once a floor declares an
+## elite wave anywhere in its list, the ordinary waves stop rolling and hold the
+## budget for it. `_floor_has_elite_wave` is read from the resolved wave list, so
+## a generated climb that dropped the flag simply behaves as it always did.
 func _roll_elite(kind: int) -> Array[String]:
 	var out: Array[String] = []
 	if _elite_left <= 0:
 		return out
 	var remaining: int = maxi(_floor_spawn_total - _floor_spawned, 1)
+	if _floor_has_elite_wave():
+		if not _wave_is_elite:
+			return out                  # held back for the wave that was authored for it
+		remaining = maxi(_wave_budget - _wave_spawned, 1)
 	if randf() > float(_elite_left) / float(remaining):
 		return out
 	var r: Dictionary = EliteRoster.roll(_depth, randi(), kind)
@@ -1251,6 +1287,17 @@ func _roll_elite(kind: int) -> Array[String]:
 	_elite_left -= 1
 	_elite_log.append({"arch": kind, "affixes": out.duplicate()})
 	return out
+
+
+## Does this floor's resolved wave list declare an elite wave at all? Asked of the
+## LIST rather than cached at run_floor time so it stays correct if the list is
+## ever re-resolved mid-floor, and so a harness that drives `_start_wave` directly
+## gets the same answer the live path does.
+func _floor_has_elite_wave() -> bool:
+	for w: WaveDef in _waves:
+		if w.elite_wave:
+			return true
+	return false
 
 
 ## Say once, at the top of the floor, that a rule is riding every body in it. A

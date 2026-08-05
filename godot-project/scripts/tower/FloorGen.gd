@@ -981,6 +981,13 @@ static func vary_waves(rng: RandomNumberGenerator, waves: Array[WaveDef],
 	for w: WaveDef in waves:
 		budgets.append(maxi(w.enemy_budget, 1))
 		caps.append(maxi(w.concurrent_cap, 2))
+	# ⚠ THE ELITE WAVE IS NOT EXEMPTED HERE, and that was tried. `_reshape`
+	# conserves the sum and then SORTS, which is what guarantees a floor's waves
+	# never shrink; holding one index out of it breaks that monotonicity outright
+	# (measured: 91 violations across the generated tower). It does not need the
+	# exemption anyway — `elite_wave` is a flag on a wave that already exists at a
+	# size the escalation chose, so varying its budget by ±1 costs the moment
+	# nothing. What must survive is the FLAG, and that is carried below.
 	budgets = _reshape(rng, budgets, 1)
 	# THE PRESSURE CAP IS THE ONE KNOB THAT CAN MAKE A FLOOR HARDER THAN AUTHORED
 	# (the reshape conserves the SUM, so a floor authored 3/4/5 can come back
@@ -1008,6 +1015,10 @@ static func vary_waves(rng: RandomNumberGenerator, waves: Array[WaveDef],
 		# can put dead air back into a floor, and dead air is the exact thing the
 		# pacing pass removed. Rhythm varies through the burst and the trickle.
 		w2.handoff_alive = src.handoff_alive
+		# CARRIED VERBATIM. A generated climb that dropped this flag would silently
+		# turn every authored elite moment back into a sprinkle — the feature would
+		# work in the fallback tower and nowhere the player actually goes.
+		w2.elite_wave = src.elite_wave
 		out.append(w2)
 	return out
 

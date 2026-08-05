@@ -660,6 +660,7 @@ func _wave_eq(a: WaveDef, b: WaveDef) -> bool:
 		and is_equal_approx(a.hp_multiplier, b.hp_multiplier) \
 		and is_equal_approx(a.spawn_interval, b.spawn_interval) \
 		and a.vanguard == b.vanguard and a.handoff_alive == b.handoff_alive \
+		and a.elite_wave == b.elite_wave \
 		and str(a.archetypes) == str(b.archetypes)
 
 
