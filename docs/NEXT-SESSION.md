@@ -1,3 +1,103 @@
+# RESUME HERE — 2026-08-05 (d), PAUSED ON THE MAKER'S INSTRUCTION
+
+**ASHPIRE.** Branch `bot-fight-quality`, **152/152 green**, tree clean.
+**34 commits, NOT PUSHED. Nothing in this session has been played by hand.**
+
+## ▶ DO THIS FIRST (the one unfinished thing)
+
+**`ScorchDecal` still draws perfect circles.** The ground-decal pass toned its
+COLOUR but not its SHAPE, so the large smooth pale discs still on the floor are it.
+`GroundCrater._ragged()` is the treatment — copy it onto
+`ScorchDecal.gd:160-161`, which are still `draw_circle`. Verify the way the crater
+fix was verified: shoot the same matchup, crop the same frame, look at it before
+and after.
+
+    python python-tools/make_clip.py --a 8 --b 2 --hp 300 --out check
+    ffmpeg -i <clips>/swordsaint_vs_brawler.mp4 -vf "select='eq(n\,150)',crop=420:180:150:210,scale=980:-1:flags=neighbor" -frames:v 1 out.png
+
+## ▶ THEN: THE THINGS WAITING ON YOUR EYES, NOT ON CODE
+
+1. **The weapon trail's ELEMENTAL case has never been seen.** It takes `aura_color`
+   when an aura is lit, so a fire fist should streak fire. The frame that verified
+   the trail had no aura up, so that path is reasoned only. Load a Brawler with the
+   fire fist. Dials: `CharacterRig.TRAIL_WIDTH_FRAC` and the 0.55 alpha.
+2. **The time-stop bubble in a real fight.** Chronostasis holds a NEGATIVE inside
+   its ring for the whole 3 s freeze, then snaps back with the payout. ⚠ The probe
+   that verified it has a BLACK background so the negative reads bright white; the
+   real arena sky is pale and will invert DARK. The look in that image is not the
+   look you will get.
+3. **The Swordsaint's draw-step.** `iai_slash` now lunges on the cut. It is the
+   fix for 19%/25% across two sweeps, and it is UNMEASURED — the sweep that would
+   price it was killed on your instruction because it was measuring the reverted
+   deflect change.
+
+## ▶ THE BIG UNBUILT ONE
+
+**Per-class Tier 3 drops.** `BotMatch.CLASS_DROP` pins one per class today, but
+there are SIX drops for NINE classes so three are shared (Juggernaut/Stormcaller,
+Shadowblade/Warlock, Cryomancer/Swordsaint). Giving every class its own means
+authoring at least three new ult-weight spells with bespoke spectacles — the
+existing four are RULE-BENDERS with their own drawing, and the class-identity
+ruling forbids making the difference a tint. **That is a session of work and it
+has not been started.**
+
+Also unbuilt, fully specced: `docs/superpowers/specs/2026-08-05-stick-customisation.md`
+(hair/accessory slots, sheathed weapons, bark text in the speaker's colour — the
+paper-doll plumbing ALREADY EXISTS, the gap is a library).
+
+## ▶ WHAT LANDED THIS SESSION
+
+- **Two new bosses** (Eraser, Etcher) — distinct artists per climb 3.7/4 → 4.99/6.
+- **Socket glyphs** — hands showing a duplicate figure 24/36 → 0/36.
+- **`WaveDef.elite_wave`** — floors 3/7/9 concentrate their elite budget.
+- **Clips**: the ult white-out, two AoE paint-blobs, and the camera framing
+  (fighters 3.6% → 10.8% of frame height). `python-tools/clip_review.py` scores a
+  delivered mp4 and is the regression test for all of it.
+- **Chronostasis time-stop bubble** — a negative bounded to its own ring, because
+  a full-screen one lies about a bounded spell's extent.
+- **Bot duels carry Tier 3 drops**, matchups are RANDOM, and the sweep harness can
+  do a real round-robin with drops off.
+- **Weapon trails**, **ground decals toned + ragged**.
+
+## ⚠ BALANCE: READ THIS BEFORE TUNING ANYTHING
+
+Two 72-bout round-robins were run. The classes I changed NOTHING about moved by up
+to 12 points between them. **At n=16 per class the noise is ±12, so only the
+extremes are signal** — eight of the nine are indistinguishable from 50%. The
+Swordsaint is the only class broken beyond doubt (19%, then 25%, and unmoved by
++16% health). Separating the middle eight needs ~4x the bouts, which is one ~40
+minute sweep — worth doing ONCE, not per tweak.
+
+    godot --headless --path godot-project --script tools/botmatch_sim.gd --         --roundrobin=1 --repeat=8 --round=22 --hp=190 --wall=70
+
+## HOW TO VERIFY
+
+```
+python python-tools/run_all_tests.py --jobs 8      # 152 suites, ~80s
+python python-tools/clip_review.py --sheet         # every clip, scored
+python python-tools/make_clip.py --random          # a rolled matchup
+```
+After any `--headless --import`, CHECK `project.godot` still has four keys:
+`theme/custom`, `physics_ticks_per_second`, and both `rendering_method`s.
+
+## TRAPS THIS SESSION ADDED
+
+- **An instrument that measures brightness cannot tell an INVERSION from a
+  blowout.** `clip_review` nearly condemned the best effect in the game; a blowout
+  is bright AND FLAT, an inversion is bright and SHARP (more detail than a normal
+  close-up).
+- **A probe that counts rendered frames as 1/60 s lies on a cheap scene.** The
+  time-stop probe rendered far above 60 fps, so "3.32 s" was about one real second.
+- **A "dead air" metric keyed on the frame's modal value** scored the very frame it
+  was calibrated on at 62.7% against a 5.5% threshold.
+- **A test registered in TESTS whose driver call never landed** — caught by the
+  by-absence armour, again.
+- **Skill that NARROWS a window makes the best bots worst at it.** Reverted on
+  instruction, but the observation stands and is why the Swordsaint fix went into
+  its spell instead.
+
+---
+
 # RESUME HERE — 2026-08-05 (c), THE QUEUE IS EMPTY
 
 **ASHPIRE.** Branch `bot-fight-quality`, **152/152 green**, tree clean.
