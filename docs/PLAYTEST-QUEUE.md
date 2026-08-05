@@ -65,9 +65,21 @@ The maker calls things out faster than they can be built. Verbatim intent preser
 - **Gravity flip** — landed in the previous round; it is a WELL you move inside,
   and the caster is excluded on your ruling.
 
+## ✅ DONE SINCE (2026-08-05 e)
+
+- **The scorches were still perfect circles.** The ground pass toned them and never
+  tore them, so the large smooth pale discs on the floor were those, not the craters.
+  Torn now, same `_ragged` treatment, verified before and after at the same crop.
+- **The elemental weapon trail, seen at last.** Confirmed taking the aura branch
+  (orange against a blue limb colour) on a fire Brawler. It is DIM on a dark floor —
+  dials named in `NEXT-SESSION.md`, and the call is yours.
+- **The time-stop bubble on the real arena.** Bounded (ratio 1.18 = `BUBBLE_SCALE`)
+  and it reads BRIGHT, not dark — **there is no pale arena sky**; all ten biome
+  washes are dark. Both of the warnings attached to this item were wrong.
+
 ## ▶ STILL OPEN
 
-1. **PLAY IT.** Twenty commits, none of it touched by hands.
+1. **PLAY IT.** Thirty-six commits, none of it touched by hands.
 2. **A bigger, more interactive map.**
 6. **The ragdoll on hold-down** still wants judging now that the legs are correct.
 7. **Balance is a HANDICAP, not a kit fix.** Every matchup is watchable; the kits are

@@ -1,3 +1,53 @@
+# RESUME HERE — 2026-08-05 (e), THE QUEUE IS DOWN TO YOUR HANDS
+
+**ASHPIRE.** Branch `bot-fight-quality`, **152/152 green**, tree clean.
+**36 commits, NOT PUSHED. Still nothing has been played by hand.**
+
+## ▶ WHAT TO PLAY
+
+1. **LOOK AT THE FLOOR.** The scorches were still perfect circles — the ground pass
+   toned them and never tore them, so the large smooth pale discs were those. They
+   are torn now, same treatment as the craters. Verified before and after at the
+   same crop the crater fix used.
+2. **FIRE FIST, AND WATCH THE HAND.** The trail's elemental branch is confirmed
+   firing (aura orange against a blue limb colour) and the ribbon is orange — but on
+   a dark floor it is DIM. If you want it louder the two dials are
+   `CharacterRig.TRAIL_WIDTH_FRAC` and the 0.55 alpha, and it is your call, not mine.
+3. **CHRONOSTASIS.** It reads BRIGHT, holds for the 3 s, and its edge is on screen.
+
+## ⚠ TWO WARNINGS IN THE SECTION BELOW ARE WRONG — measured, not argued
+
+- **"The real arena sky is pale and the negative will invert DARK."** There is no
+  pale sky. `EnvTheme.accent()` is what calls `lightened(0.55)`; the background is
+  `lit_wash()`, and **all ten biome washes are dark** (luma 0.10–0.37). So the
+  negative reads BRIGHT on every floor, and the black-background probe was
+  representative after all. Weakest floor is Frostmarch (~0.26 luma contrast);
+  floor 1 measures 0.87 inside against 0.069 outside.
+- **"The bubble may not be bounded."** It is. `bubble_radius` 0.937 against a ring of
+  0.794 is a ratio of **1.18**, which is exactly `Chronostasis.BUBBLE_SCALE`.
+
+⚠ **My own instrument said the opposite first, and confidently.** The game renders at
+**640x360** and saves a **1920x1080** PNG, so a world radius projected with camera
+zoom alone lands 3x too small — which put the probe's "outside the ring" band inside
+the bubble. Uniforms settled what pixels could not. One more for the pile.
+
+## ▶ WHAT IS LEFT, AND ITS HONEST SHAPE
+
+- **Per-class Tier 3 drops — NOT STARTED, and it is bigger than the note below says.**
+  It reads as "three shared rows", but the Brawler, Juggernaut and Stormcaller carry
+  **Tier 2** spells in `CLASS_DROP`, so nine classes with their own Tier 3 means
+  **five** new ult-weight rule-benders, not three. Each needs its own drawing (the
+  four that exist are `VoidCollapse` / `Chronostasis` / `Equinox` plus a re-roll) and
+  the class-identity ruling forbids making the difference a tint. **This is design
+  work with your taste in it, not a mechanical build — it wants a brainstorm first.**
+  ⚠ Note the ULTS are already unique per class (`SpellTree.TREES`); this is the boss-drop
+  showcase, not the class signature.
+- **The Swordsaint's draw-step is still UNMEASURED.** Pricing it is the ~40-minute
+  round-robin below and nothing cheaper, so it was not spent without you asking.
+- A bigger, more interactive map. The ragdoll on hold-down. Touch. Audio.
+
+---
+
 # RESUME HERE — 2026-08-05 (d), PAUSED ON THE MAKER'S INSTRUCTION
 
 **ASHPIRE.** Branch `bot-fight-quality`, **152/152 green**, tree clean.
