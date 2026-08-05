@@ -346,6 +346,9 @@ var _show_cam: Camera2D = null
 var _clip: ClipDirector = null
 ## Pair-camera framing knobs, so the same tracker serves the wide clip framing
 ## and the tighter played-duel framing without a second copy of the code.
+## The pair camera's own smoothed FRAMING zoom, kept separately from `_show_cam.zoom`
+## so an operator zoom punch cannot be read back next frame as a framing decision.
+var _cam_zoom_smoothed: float = SHOWCASE_ZOOM_MAX
 var _cam_margin: float = SHOWCASE_FRAME_MARGIN
 var _cam_zoom_min: float = SHOWCASE_ZOOM_MIN
 var _cam_zoom_max: float = SHOWCASE_ZOOM_MAX
@@ -839,12 +842,10 @@ func _spawn_showcase() -> void:
 	# owns the viewport, because a camera that follows one fighter loses the other
 	# the moment the fight spreads out.
 	_build_showcase_camera()
-	# ...unless a clip tool asked for a real camera operator, in which case the
-	# director takes the same camera and frames the ACTION rather than the pair.
-	if showcase_directed:
-		_clip = ClipDirector.new()
-		add_child(_clip)
-		_clip.bind(_show_cam, Rect2(Vector2.ZERO, STAGE_SIZE), GROUND_TOP)
+	# ...and a clip tool that asked for a real camera operator gets one that frames the
+	# ACTION rather than the pair. The operator is now built EITHER WAY — see
+	# `_build_camera_operator`.
+	_build_camera_operator(showcase_directed)
 	# Face them at each other on frame one so the opening reads as a duel rather
 	# than as two bots noticing each other.
 	if a != null and b != null:
@@ -876,6 +877,13 @@ func _spawn_showcase_fighter(scene: PackedScene, class_id: int, at: Vector2,
 	for child: Node in hero.get_children():
 		if child is Camera2D:
 			(child as Camera2D).enabled = false
+			# ⚠ AND IT LEAVES THE GROUP. `enabled = false` hides a camera; it does not
+			# stop `_ready` having joined `combat_camera`, nor stop `_process` running.
+			# So every `Juice.shake_camera` in a duel was being delivered to two
+			# INVISIBLE cameras, and `PostProcess`, which takes the group's FIRST
+			# member, was reading its screen-shake grade off one of them. A camera
+			# nobody is looking through must not answer for the camera group.
+			(child as Camera2D).remove_from_group("combat_camera")
 	_attach_bot(hero)
 	_register_fighter(hero, hero.global_position)
 	return hero
@@ -979,7 +987,9 @@ func _spawn_free() -> void:
 	for child: Node in _p1.get_children():
 		if child is Camera2D:
 			(child as Camera2D).enabled = false
+			(child as Camera2D).remove_from_group("combat_camera")  # see _spawn_showcase_fighter
 	_build_showcase_camera()
+	_build_camera_operator(false)
 	_show_cam.zoom = Vector2(FREE_ZOOM, FREE_ZOOM)
 	# ⚠ THE CAMERA'S OWN POSITION SMOOTHING IS OFF IN FREE PLAY, and leaving it on is
 	# what made the first capture unreadable. `_update_free_camera` already lerps, so
@@ -999,6 +1009,11 @@ func _update_free_camera(delta: float) -> void:
 	if _show_cam == null or _p1 == null or not is_instance_valid(_p1):
 		return
 	var at: Vector2 = (_p1 as Node2D).global_position
+	# Free play frames itself but still wants the hits to land on the picture — the
+	# operator lays shake and the zoom envelopes over the fixed zoom.
+	if _clip != null:
+		var fz: float = _clip.compose(FREE_ZOOM, delta)
+		_show_cam.zoom = Vector2(fz, fz)
 	var eye: Vector2 = Vector2(
 		clampf(at.x, 340.0, STAGE_SIZE.x - 340.0),
 		clampf(at.y - FREE_EYE_LIFT, GROUND_TOP - 330.0, GROUND_TOP - 30.0))
@@ -1033,6 +1048,16 @@ func _rebuild_dummies() -> void:
 		d.call("set_faction", &"free_dummy", &"nobody")
 		d.set("facing", Vector2.LEFT)
 		d.add_to_group(&"free_dummy")
+		# ⚠ A DUMMY IS A WHOLE HERO, AND A HERO CARRIES A CAMERA. Every other spawn path
+		# in this file disables the hero camera it instantiates and says why; this one
+		# never did, so each free-play dummy added an ENABLED Camera2D to the scene —
+		# fighting the pair camera for the viewport, since `_rebuild_dummies` runs after
+		# `_build_showcase_camera`'s `make_current` — and put another member in
+		# `combat_camera` for `Juice` and `PostProcess` to talk to.
+		for child: Node in d.get_children():
+			if child is Camera2D:
+				(child as Camera2D).enabled = false
+				(child as Camera2D).remove_from_group("combat_camera")
 		d.set_physics_process(false)
 		_register_fighter(d, d.global_position, 999)
 
@@ -1090,11 +1115,14 @@ func _spawn_duel() -> void:
 		for child: Node in h.get_children():
 			if child is Camera2D:
 				(child as Camera2D).enabled = false
+				(child as Camera2D).remove_from_group("combat_camera")  # see _spawn_showcase_fighter
 	_cam_margin = DUEL_FRAME_MARGIN
 	_cam_zoom_min = DUEL_ZOOM_MIN
 	_cam_zoom_max = DUEL_ZOOM_MAX
 	_build_showcase_camera()
+	_build_camera_operator(false)
 	_show_cam.zoom = Vector2(DUEL_ZOOM_MAX, DUEL_ZOOM_MAX)
+	_cam_zoom_smoothed = DUEL_ZOOM_MAX  # seed the framing state to match, or frame 1 jumps
 
 	_begin_learning()
 	_probe_begin()
@@ -1408,6 +1436,29 @@ func _class_label(id: int) -> String:
 ## for a player who is always the centre of attention. This one frames the PAIR:
 ## it sits on their midpoint and zooms to whatever keeps both inside the frame
 ## with a margin, so a duel that roams the whole stage stays readable.
+## THE CAMERA OPERATOR, built for EVERY versus mode and not just for the clip tools.
+##
+## ⚠ WITHOUT ONE, EVERY `Juice.*_camera` CALL IN THIS SCENE IS A SILENT NO-OP — no
+## shake on a hit, no punch on a kill, no pull-back on an ult — which is a large part
+## of what "the camera does not follow the fight" feels like. `Juice` walks the
+## `combat_camera` group behind `has_method` guards, the only class implementing those
+## methods is `CombatCamera` (which lives on the HERO scene), and every versus mode
+## turns both hero cameras off and frames with a bare `Camera2D` that is in no group.
+## So the group was two disabled cameras and the visible one answered to nothing.
+##
+## `frames_the_shot` is what separates the two jobs. Watch Bots / clip capture hand the
+## director the whole shot; a played duel and free play keep their own tuned framing in
+## `_update_showcase_camera` / `_update_free_camera` and take only the effects, through
+## `ClipDirector.compose`. Either way there is exactly ONE writer per channel.
+func _build_camera_operator(directed: bool) -> void:
+	if _clip != null or _show_cam == null:
+		return
+	_clip = ClipDirector.new()
+	_clip.frames_the_shot = directed
+	add_child(_clip)
+	_clip.bind(_show_cam, Rect2(Vector2.ZERO, STAGE_SIZE), GROUND_TOP)
+
+
 func _build_showcase_camera() -> void:
 	_show_cam = Camera2D.new()
 	_show_cam.zoom = Vector2(0.62, 0.62)
@@ -1421,10 +1472,12 @@ func _build_showcase_camera() -> void:
 func _update_showcase_camera(delta: float) -> void:
 	if _show_cam == null:
 		return
-	# The director owns the camera when there is one. Two things writing the same
+	# The director owns the camera when it is FRAMING. Two things writing the same
 	# transform in the same frame is a fight the director always half-loses, and the
-	# result is a camera that judders between two framings.
-	if _clip != null:
+	# result is a camera that judders between two framings. An operator-only director
+	# is not a second framer — it never touches position and only lays the shake and
+	# the zoom envelopes over the answer solved below.
+	if _clip != null and _clip.frames_the_shot:
 		return
 	var pts: Array[Vector2] = []
 	for entry: Dictionary in _registry.values():
@@ -1446,7 +1499,13 @@ func _update_showcase_camera(delta: float) -> void:
 	var view_w: float = float(get_viewport().get_visible_rect().size.x)
 	var want: float = clampf(view_w / maxf(spread + _cam_margin, 1.0),
 		_cam_zoom_min, _cam_zoom_max)
-	var z: float = lerpf(_show_cam.zoom.x, want, clampf(delta * 2.5, 0.0, 1.0))
+	# The FRAMING answer is smoothed on its own state, then the operator's transient
+	# effects are laid over it. Reading the punched zoom back as the next frame's
+	# starting point would let a zoom punch drag the actual framing in with it.
+	_cam_zoom_smoothed = lerpf(_cam_zoom_smoothed, want, clampf(delta * 2.5, 0.0, 1.0))
+	var z: float = _cam_zoom_smoothed
+	if _clip != null:
+		z = _clip.compose(z, delta)
 	_show_cam.zoom = Vector2(z, z)
 	# Bias UP from the midpoint: the fighters stand ON the ground, so centring on
 	# them puts half the frame underground. Lifting the eye puts the floor in the

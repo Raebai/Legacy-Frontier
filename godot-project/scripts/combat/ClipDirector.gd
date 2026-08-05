@@ -189,6 +189,15 @@ var stage: Rect2 = Rect2(Vector2.ZERO, Vector2(2000.0, 1000.0))
 ## as empty sky. Holding the eye within a band ABOVE THE FLOOR keeps the stage in
 ## shot however far a knockback throws somebody.
 var ground_y: float = 780.0
+## Does this director decide WHERE the shot points, or only serve the transient
+## effects over somebody else's framing?
+##
+## A played duel and free play frame themselves in `VersusArena._update_showcase_camera`
+## — that framing is tuned and is not being replaced. But those modes had the same dead
+## `combat_camera` group as Watch Bots did, so they shook and punched exactly as little.
+## Setting this false makes the director an OPERATOR ONLY: it still answers the group,
+## still runs the trauma and zoom envelopes, and hands them back through `compose`.
+var frames_the_shot: bool = true
 
 var _clock: float = 0.0
 var _heat: float = 0.0
@@ -217,10 +226,183 @@ func bind(cam: Camera2D, bounds: Rect2, floor_y: float) -> void:
 	camera = cam
 	stage = bounds
 	ground_y = floor_y
+	if cam != null:
+		_zoom_smoothed = cam.zoom.x
+		# ⚠ THE DIRECTOR DOES ITS OWN SMOOTHING, AND TWO LAGS IN SERIES IS THE BUG.
+		# Maker: *"get the camera logic to work properly focussing on the two
+		# fighting"*. `_frame` already lerps `global_position` at POS_LERP=7 toward a
+		# target that is itself a smoothed solve; Godot's built-in smoothing then lags
+		# THAT by another 4.0, so the shot trails a moving fight by enough that the
+		# fighters sit off-centre for the whole exchange. `_update_free_camera` turns
+		# it off for exactly this reason and has done since it was written.
+		#
+		# ⚠ ONLY WHEN THIS DIRECTOR IS THE ONE FRAMING. `_update_showcase_camera`
+		# assigns `global_position` OUTRIGHT with no lerp of its own and gets all of
+		# its smoothing from this flag — turning it off there would not un-lag that
+		# camera, it would make it snap to the pair midpoint every single frame.
+		if frames_the_shot:
+			cam.position_smoothing_enabled = false
+	# THE DIRECTOR IS THE CAMERA OPERATOR, so it answers to the camera group. See the
+	# `# ---- the camera OPERATOR` block for why this is the director and not the
+	# Camera2D it drives.
+	if not is_in_group(&"combat_camera"):
+		add_to_group(&"combat_camera")
 
 
 func _process(delta: float) -> void:
 	advance(delta)
+
+
+# ---- the camera OPERATOR ------------------------------------------------------
+# ⚠ EVERY `Juice.*_camera` CALL IN A BOT DUEL WAS A SILENT NO-OP, and that is most of
+# what "the camera does not follow the fight" feels like from the couch — the shot
+# never flinches, never punches in on a kill, never rattles on a hit.
+#
+# The cause was structural, not a missing `add_to_group`. `Juice` walks the
+# `combat_camera` group and calls `add_shake` / `kick` / `zoom_punch` / `zoom_pull`
+# behind `has_method` guards; the only class implementing them is `CombatCamera`,
+# which lives on the HERO scene. A bot duel builds a bare `Camera2D.new()` for its
+# pair framing and disables both hero cameras — so the group contained two disabled,
+# invisible cameras and the one being looked through was in no group at all. Adding
+# the raw camera to the group would have changed nothing: it has none of the methods.
+#
+# ⚠ AND PUTTING `CombatCamera` ON IT WOULD FIGHT THIS FILE, which is why it is not the
+# answer either. That script writes `zoom` every frame from its own `_zoom_base`, and
+# clamps it to [1.0, 2.6] — the director frames a duel between 0.49 and 1.45, so the
+# first frame would have snapped the shot to more than double its correct zoom.
+# `set_base_zoom` also persists to `GameState.camera_zoom`, i.e. it would overwrite the
+# player's saved Settings preference sixty times a second.
+#
+# So the OPERATOR answers instead of the camera. The director already owns the
+# transform and already writes it every frame, so a punch composes into its own
+# solution BY CONSTRUCTION rather than racing it — there is no second writer to
+# arbitrate with. Shake rides `offset`, which `_frame` never touches and which
+# therefore cannot feed back into the position lerp.
+
+## Shake energy, 0..1, decaying. Same trauma model + the same constants as
+## `CombatCamera`, so a hit shakes a duel by the amount it already shakes a run.
+const SHAKE_TO_TRAUMA: float = 0.085
+const TRAUMA_DECAY: float = 1.6
+const MAX_SHAKE_OFFSET: Vector2 = Vector2(18.0, 12.0)
+const NOISE_SPEED: float = 26.0
+const KICK_MAX: float = 22.0
+const KICK_RETURN_SPEED: float = 9.0
+
+var _trauma: float = 0.0
+var _noise_t: float = 0.0
+var _kick: Vector2 = Vector2.ZERO
+## The director's OWN smoothed zoom, never read back off the camera. Reading back
+## would make a punch feed into the next frame's framing solve and slowly drag the
+## whole shot in; keeping it here means punch and pull are strictly a presentation
+## layer over a framing decision they cannot influence.
+var _zoom_smoothed: float = 1.0
+var _punch_amount: float = 0.0
+var _punch_timer: float = 0.0
+var _punch_duration: float = 0.18
+var _pull_amount: float = 0.0
+var _pull_elapsed: float = 0.0
+var _pull_ein: float = 0.12
+var _pull_hold: float = 0.5
+var _pull_eout: float = 0.55
+var _pull_active: bool = false
+
+
+func add_trauma(amount: float) -> void:
+	_trauma = minf(_trauma + amount, 1.0)
+
+
+## The legacy pixel-ish API every existing call site passes (~2..12).
+func add_shake(amount: float) -> void:
+	add_trauma(amount * SHAKE_TO_TRAUMA)
+
+
+## Read by `PostProcess` so the screen-space aberration tracks the same energy as
+## the shake. Without this the grade goes flat for the whole duel.
+func trauma() -> float:
+	return _trauma
+
+
+func kick(dir: Vector2, amount: float) -> void:
+	_kick = (_kick + dir.normalized() * amount).limit_length(KICK_MAX)
+
+
+func zoom_punch(amount: float = 0.1, duration: float = 0.18) -> void:
+	if duration <= 0.0:
+		return
+	_punch_amount = amount
+	_punch_duration = duration
+	_punch_timer = duration
+
+
+func zoom_pull(amount: float = 0.16, hold: float = 0.5, ease_in: float = 0.12,
+		ease_out: float = 0.55) -> void:
+	if amount <= 0.0:
+		return
+	_pull_amount = maxf(_pull_amount, amount) if _pull_active else amount
+	_pull_ein = maxf(ease_in, 0.001)
+	_pull_hold = maxf(hold, 0.0)
+	_pull_eout = maxf(ease_out, 0.001)
+	_pull_elapsed = 0.0
+	_pull_active = true
+
+
+## Punch factor (>1 tightens) — a spike that eases straight back out.
+func _punch_factor(delta: float) -> float:
+	if _punch_timer <= 0.0:
+		return 1.0
+	_punch_timer = maxf(_punch_timer - delta, 0.0)
+	if _punch_timer <= 0.0:
+		return 1.0
+	return 1.0 + _punch_amount * (_punch_timer / _punch_duration)
+
+
+## Pull factor (<1 widens) across the ease-in / hold / ease-out envelope.
+func _pull_factor(delta: float) -> float:
+	if not _pull_active:
+		return 1.0
+	_pull_elapsed += delta
+	var total: float = _pull_ein + _pull_hold + _pull_eout
+	if _pull_elapsed >= total:
+		_pull_active = false
+		return 1.0
+	var p: float = 1.0
+	if _pull_elapsed < _pull_ein:
+		p = smoothstep(0.0, 1.0, _pull_elapsed / _pull_ein)
+	elif _pull_elapsed < _pull_ein + _pull_hold:
+		p = 1.0
+	else:
+		p = 1.0 - smoothstep(0.0, 1.0, (_pull_elapsed - _pull_ein - _pull_hold) / _pull_eout)
+	return 1.0 - _pull_amount * p
+
+
+## Lay the transient effects over a framing decision. Returns the zoom to write and
+## writes `camera.offset` itself.
+##
+## ⚠ CALL THIS EXACTLY ONCE PER FRAME AND FROM ONE PLACE. It ADVANCES the envelopes,
+## so a second caller in the same frame would run every punch at double speed. That is
+## why `_update_showcase_camera` skips itself entirely when this director is framing:
+## the two are alternatives, never a pair.
+func compose(base_zoom: float, delta: float) -> float:
+	if camera != null:
+		# Shake rides `offset` — a channel `_frame` never reads — so a rattling camera
+		# cannot feed itself back into the position lerp and drift the framing.
+		camera.offset = _shake_offset(delta)
+	return base_zoom * _punch_factor(delta) * _pull_factor(delta)
+
+
+## Trauma^2 shake plus the directional kick, as a camera OFFSET. Squared so small
+## hits barely wobble and big ones slam, and built from two incommensurate sines per
+## axis so it reads as a rumble that settles rather than per-frame static.
+func _shake_offset(delta: float) -> Vector2:
+	_noise_t += delta * NOISE_SPEED
+	_trauma = maxf(_trauma - TRAUMA_DECAY * delta, 0.0)
+	_kick = _kick.lerp(Vector2.ZERO, minf(KICK_RETURN_SPEED * delta, 1.0))
+	var shake: float = _trauma * _trauma
+	if shake <= 0.0 and _kick == Vector2.ZERO:
+		return Vector2.ZERO
+	var nx: float = sin(_noise_t) * 0.6 + sin(_noise_t * 2.7 + 1.3) * 0.4
+	var ny: float = cos(_noise_t * 1.3 + 0.9) * 0.6 + sin(_noise_t * 3.4) * 0.4
+	return _kick + Vector2(MAX_SHAKE_OFFSET.x * shake * nx, MAX_SHAKE_OFFSET.y * shake * ny)
 
 
 ## One step of the model. Split out from `_process` so a headless test can drive it
@@ -243,7 +425,8 @@ func advance(delta: float) -> void:
 		_hot_since = _clock
 		_note("hot", "the fight caught")
 	_check_knockdown(fighters)
-	_frame(fighters, delta)
+	if frames_the_shot:
+		_frame(fighters, delta)
 
 
 # ==========================================================================
@@ -467,7 +650,13 @@ func _frame(fighters: Array[Node2D], delta: float) -> void:
 	eye = relieved[0]
 	want = relieved[1]
 	_sample_zoom(want)
-	var z: float = lerpf(camera.zoom.x, want, clampf(delta * ZOOM_LERP, 0.0, 1.0))
+	# The FRAMING decision, smoothed on the director's own state. See `_zoom_smoothed`
+	# for why this is not read back off the camera.
+	_zoom_smoothed = lerpf(_zoom_smoothed, want, clampf(delta * ZOOM_LERP, 0.0, 1.0))
+	# ...then the PRESENTATION on top of it. Both factors are 1.0 whenever nothing is
+	# playing, so a settled shot is byte-identical to the framing solve and the
+	# framing suite still asserts against `camera.zoom` directly.
+	var z: float = compose(_zoom_smoothed, delta)
 	camera.zoom = Vector2(z, z)
 	camera.global_position = camera.global_position.lerp(eye,
 		clampf(delta * POS_LERP, 0.0, 1.0))
