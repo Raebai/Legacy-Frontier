@@ -71,7 +71,26 @@ var _active: bool = false
 ## Spawn a floating "-N" over `world_pos` under `parent` (the arena node). `color`
 ## tints it (element hue for DoT ticks, near-white for physical); `crit` forces
 ## the big treatment. No-op past the global cap so ticks can't flood the screen.
+## ⚠ OFF. Maker: *"you can remove the damage numbers I think they are overwhelming if
+## the health bar is above them / at the top in all combat"* — and they are right that
+## it is duplicated information: every fighter already wears a bar, and the duel puts
+## both totals across the top of the screen in the corner colours.
+##
+## A FLAG RATHER THAN A DELETION, and rather than editing the ~20 call sites. The
+## numbers are the only per-hit readout the game has, so they are genuinely useful
+## while TUNING (which hit did what, is that spell landing twice) — deleting them
+## would throw away a debugging instrument to answer a presentation note. Flip this to
+## re-arm every call site at once.
+##
+## The pool, the cap and the recycling all still work when it is on; the suite that
+## covers them sets this true, because that test is about the POOL and not about
+## whether the feature is switched on.
+static var show_numbers: bool = false
+
+
 static func spawn(parent: Node, world_pos: Vector2, amount: int, color: Color = Color(1, 1, 1), crit: bool = false) -> void:
+	if not show_numbers:
+		return
 	if parent == null or not parent.is_inside_tree() or amount <= 0:
 		return
 	if _alive >= MAX_ALIVE:

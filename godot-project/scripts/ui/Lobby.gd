@@ -146,6 +146,7 @@ func _ready() -> void:
 		_net.join_failed.connect(_on_join_failed)
 	_refresh()
 	_music_town()
+	_play_opening()
 
 	# A saved hand, if there is one to restore. No-op until `GameState.spell_roles`
 	# exists — see the handoff note on `SpellLibrary.hydrate_from_state`.
@@ -1067,6 +1068,50 @@ func _music_town() -> void:
 		m.call("play_town")
 
 
+## ══ THE OPENING ═════════════════════════════════════════════════════════════════
+## Maker: *"have like an intro animation when I open the game of maybe the magic
+## circle being formed or something"* — and *"the music on the home screen a little
+## longer"*.
+##
+## ⚠ THE ANIMATION ALREADY EXISTED AND NOBODY COULD SEE IT. `_Sigil` opens over
+## `OPEN_TIME`: the ring sweeps in as an arc, the ticks appear in sequence, the runes
+## fade past 0.35, the spokes past 0.5, the star past 0.62 and the mote pour past
+## 0.55. That IS "the magic circle being formed". It has always played — behind a menu
+## that was already fully drawn on frame one, so the eye went to the buttons and the
+## ceremony happened in the background of something else.
+##
+## So this adds no animation. It gets out of the way of the one that was there: the
+## column starts transparent and is faded in once the circle has drawn its ring and
+## found its runes. The title bed is playing under all of it, which is the other half
+## of the ask — the screen now lasts long enough to hear it.
+##
+## ⚠ NOT A SEPARATE SCENE, and that is a constraint rather than a choice: two suites
+## pin `run/main_scene` to `Lobby.tscn` by literal string, so a pre-title splash scene
+## would fail the build. Sequencing inside `_ready` is the supported shape.
+##
+## ⚠ AND IT NEVER TRAPS THE PLAYER. The column is faded with a tween on the node's
+## MODULATE only — every button keeps its own hit box, its own focus behaviour and its
+## own handler throughout, so a returning player who knows where "ENTER THE TOWER" is
+## can press it on frame one and never watch this twice. An intro that has to be sat
+## through is a worse thing than no intro.
+func _play_opening() -> void:
+	if _col == null:
+		return
+	# A headless harness has no rendering and no reason to wait; it also instantiates
+	# this scene directly to measure the column's size, and a half-faded column is
+	# still exactly the same size, so this is safe either way.
+	if DisplayServer.get_name() == "headless":
+		return
+	_col.modulate.a = 0.0
+	var t: Tween = create_tween()
+	# Held until the ring and the runes are in — `_Sigil` reveals its runes past 0.35
+	# of OPEN_TIME, and arriving with the buttons just after that reads as the circle
+	# handing over rather than as a delay.
+	t.tween_interval(_Sigil.OPEN_TIME * 0.42)
+	t.tween_property(_col, "modulate:a", 1.0, 0.55)\
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
+
 ## A quiet caption over a group of buttons. The title screen's problem was never
 ## the NUMBER of things on it so much as that eight buttons all looked equally
 ## important; naming the two groups answers "what is this for" before a thumb has
@@ -1139,6 +1184,10 @@ class _Sigil:
 
 	var _t: float = 0.0
 	var _rng := RandomNumberGenerator.new()
+	## The runes' OWN generator — see `_draw_runes`. It is reseeded to a constant every
+	## frame on purpose (a glyph that reshuffles boils); keeping that away from `_rng`
+	## is what stops the mote pour collapsing into a single streak.
+	var _rune_rng := RandomNumberGenerator.new()
 	## Each mote: [angle, unused, age, element, out_speed, orbital_drift]
 	var _motes: Array = []
 	var _spawn_acc: float = 0.0
@@ -1288,10 +1337,25 @@ class _Sigil:
 			var d := Vector2.from_angle(ang)
 			var n := Vector2(-d.y, d.x)
 			var base: Vector2 = c + d * (r * R_RUNES)
-			_rng.seed = 0x9E37 + i * 131
+			# ⚠ ITS OWN GENERATOR, AND THIS IS THE "RANDOM STREAK" BUG. Maker: *"remove
+			# that random streak coming out of the circle in the magic circle home
+			# screen its not needed and looks weird"*.
+			#
+			# The runes need a FIXED shape — a glyph that reshuffles every frame is a
+			# glyph that boils — so this loop reseeds to a constant and redraws the same
+			# scratches. But it was reseeding the SIGIL'S SHARED `_rng`, every frame, and
+			# leaving it in an identical state each time. `_spawn_mote` draws from that
+			# same generator, so every mote it ever spawned got the same rim angle, the
+			# same outward speed and the same orbital drift: a pour that was supposed to
+			# be 360 degrees came out as ONE line leaving the ring. That is the streak.
+			#
+			# Fixed rather than deleted, because the pour is the effect the streak was a
+			# broken version of. A private generator keeps the runes stable AND hands the
+			# motes back a live sequence.
+			_rune_rng.seed = 0x9E37 + i * 131
 			for _s in 3:
-				var o1: Vector2 = base + n * _rng.randf_range(-5.0, 5.0) + d * _rng.randf_range(-4.0, 4.0)
-				var o2: Vector2 = o1 + n * _rng.randf_range(-4.0, 4.0) + d * _rng.randf_range(-5.0, 5.0)
+				var o1: Vector2 = base + n * _rune_rng.randf_range(-5.0, 5.0) + d * _rune_rng.randf_range(-4.0, 4.0)
+				var o2: Vector2 = o1 + n * _rune_rng.randf_range(-4.0, 4.0) + d * _rune_rng.randf_range(-5.0, 5.0)
 				draw_line(o1, o2, Color(accent.r, accent.g, accent.b, 0.55 * a), 1.0)
 
 

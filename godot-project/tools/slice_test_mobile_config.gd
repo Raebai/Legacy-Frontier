@@ -223,6 +223,18 @@ func _numbers(host: Node) -> Array:
 
 
 func _test_damage_number_pool() -> void:
+	# ⚠ THE FEATURE IS OFF BY DEFAULT NOW (maker: the numbers are overwhelming when
+	# every fighter already wears a health bar) — but this test is about the POOL:
+	# that a spawn takes a slot, that expiry returns it, and that the cap holds. Those
+	# are recycling invariants and they must keep being covered whether or not the
+	# readout is switched on, so it is armed here and put back afterwards.
+	var was: bool = DamageNumber.show_numbers
+	DamageNumber.show_numbers = true
+	_run_damage_number_pool()
+	DamageNumber.show_numbers = was
+
+
+func _run_damage_number_pool() -> void:
 	DamageNumber.reset_pool()
 	var host := Node2D.new()
 	root.add_child(host)

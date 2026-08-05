@@ -201,7 +201,19 @@ const RECENCY_TAU: float = 2.5
 ## How long a chosen cast / dodge is held before the brain is allowed to change its
 ## mind. Re-deciding every frame is what makes bots twitch, and a cast that is
 ## re-picked mid-wind-up never comes out at all.
-const CAST_LATCH: float = 0.22
+## ⚠ 0.22 -> 0.55. Maker, after the first pacing pass: *"again slightly increase
+## their spell cooldown I think thats important"*. The previous pass gated the PRIMARY
+## (`FIRE_SPACING`) and the three ability buttons (`ABILITY_SPACING`) but left the KIT
+## untouched, so the loudest things on screen — the authored spells with the magic
+## circles — still went out as fast as `profile.period` allowed, which at the tier
+## Watch Bots runs is every 0.22 s.
+##
+## This is a MINIMUM GAP BETWEEN KIT CASTS, not a change to any spell's own cooldown:
+## the per-spell cooldowns, mana costs and the global cast lockout are all untouched
+## and still apply underneath. A bot simply no longer chains its whole kit as fast as
+## the scorer can name the next entry. It is also the dial that gives the magic
+## circles room to be SEEN, which is most of what makes them worth drawing.
+const CAST_LATCH: float = 0.55
 const DODGE_LATCH: float = 0.29        # dash 0.14 + a short lockout
 ## Distance probed when scoring "which way should I step". A step shorter than this
 ## cannot leave a telegraph footprint, so scoring it would always tie.
@@ -326,6 +338,34 @@ const ABILITY_SPACING: float = 0.80
 ## FRAME into a body that silently early-returned. This floor is what stops that,
 ## and it stops it without touching the player's own melee timing.
 const FIRE_SPACING: float = 0.42
+
+## ══ THE PAUSE, THE FLINCH, AND THE LAST STAND ═══════════════════════════════════
+## See `_note_exchange` for how these are rolled and why the ceilings are where they
+## are. All three are per-EVENT probabilities, never per-frame: a per-frame roll at
+## any of these rates fires several times a second and stops reading as a choice.
+##
+## The chances are deliberately well under half. The maker asked for fights that are
+## *"natural and randomised"* — a bot that always pauses after a trade is as
+## mechanical as one that never does, just slower.
+const BREATHE_CHANCE: float = 0.30
+const BREATHE_MIN: float = 0.45
+const BREATHE_MAX: float = 1.30
+const RECOIL_CHANCE: float = 0.55
+const RECOIL_SECONDS: float = 0.28
+
+## Below this share of health a bot may decide it is out of better ideas.
+const DESPERATE_HP: float = 0.34
+## Rolled once per decision beat while desperate, so at a 0.22 s beat the urge
+## arrives within about a second — visible, without being the same every bout.
+const DESPERATE_ULT_CHANCE: float = 0.30
+## How long the urge lasts once taken. Long enough to survive a cooldown or a range
+## problem, short enough that it is a MOMENT rather than a new personality.
+const DESPERATE_ULT_HOLD: float = 3.0
+## How much the urge forgives the cast threshold and flatters the ult's own score.
+## Every HARD gate still applies underneath — cooldown, mana, range fit, channel
+## safety — so a desperate bot cannot cast an ult it could not otherwise cast. It
+## can only stop being talked out of one.
+const DESPERATE_ULT_BONUS: float = 1.7
 
 ## ---------------------------------------------------------------------------
 ## THE DEGENERATE-FIGHT BREAKER. Two bots on the same spacing logic, both correctly
@@ -476,6 +516,31 @@ class Memory extends RefCounted:
 	var last_hp_total: float = -1.0
 	var last_progress_at: float = 0.0
 
+	## ⚠ THE SAME EVENT, SPLIT SO IT CAN SAY *WHO*. `last_hp_total` is the SUM of both
+	## bars, which is all the whiff-war detector needs — but it means the moment the
+	## brain notices "somebody just took damage" it cannot tell whether that was the
+	## foe or itself. That is why a bot has never reacted to being hit: the event was
+	## detected and thrown away one line after it was computed.
+	var last_self_hp: float = -1.0
+	var last_foe_hp: float = -1.0
+
+	## THE PAUSE. While `now < breathe_until` the bot declines to START anything — no
+	## kit cast, no ability, no swing, no primary — while still aiming, still moving,
+	## still dodging and still answering the camp breaker. It is the "empty spaces"
+	## the maker asked for, and it is what makes the next exchange read as a decision
+	## rather than as the next frame of a stream.
+	var breathe_until: float = 0.0
+
+	## Set when a bot is hit: for a short beat it gives ground. The read is "that
+	## landed", and it is the cheapest reaction movement available because `_steer`
+	## already knows how to walk away from the foe.
+	var recoil_until: float = 0.0
+
+	## Latched when a bot decides, once, that it is desperate enough to pull its ult.
+	## Latched rather than continuous so the choice COMMITS — a per-frame bonus
+	## flickers on and off across the threshold and reads as indecision.
+	var ult_urge_until: float = 0.0
+
 	func _init() -> void:
 		rng.randomize()
 
@@ -544,6 +609,23 @@ static func decide(bb: Dictionary, profile: Dictionary, mem: Memory = null) -> D
 
 	# ---- LAYER 2: steering. Always contributes; movement costs nothing.
 	intent["move"] = _steer(bb, profile, m, evaluated, pressure, stagnation)
+
+	# ---- THE FLINCH. A body that eats a hit and keeps walking forward reads as not
+	# having noticed. Overrides the steering vector only, and only for a beat, so the
+	# bot gives ground and then resumes whatever it was doing — it never overrides the
+	# reflex above it, because being shoved is not a reason to stop dodging.
+	if now < m.recoil_until:
+		var away: Vector2 = Vector2(bb.get("self_pos", Vector2.ZERO)) \
+			- Vector2(bb.get("foe_pos", Vector2.ZERO))
+		if away.x != 0.0:
+			intent["move"] = Vector2(signf(away.x), 0.0)
+
+	# ---- THE BREATH. Declines to START anything for a beat after an exchange, while
+	# aim, movement, the reflex above and the camp breaker below all keep running. It
+	# is the only path in this file that produces a deliberately empty frame, and the
+	# reason the fight can have a rhythm instead of a level.
+	if now < m.breathe_until:
+		return BotAdapt.anti_camp(intent, bb, m.camp_state, now)
 
 	# ---- LAYER 3: utility. Rate-limited and latched — see CAST_LATCH.
 	var slot: int = _pick_slot(bb, profile, m, now, pressure, soonest, stagnation)
@@ -723,6 +805,7 @@ static func _pressure(evaluated: Array, me: Vector2, foe: Vector2, reach: float)
 ## Health totals are read off the two drawn bars, so there is no fairness cost.
 static func _track_stagnation(bb: Dictionary, m: Memory, now: float) -> float:
 	var total: float = float(bb.get("self_hp_frac", 1.0)) + float(bb.get("foe_hp_frac", 1.0))
+	_note_exchange(bb, m, now)
 	if m.last_hp_total < 0.0:
 		m.last_hp_total = total
 		m.last_progress_at = now
@@ -738,6 +821,53 @@ static func _track_stagnation(bb: Dictionary, m: Memory, now: float) -> float:
 		return 0.0
 	return clampf((idle - STAGNATION_SECONDS)
 		/ maxf(STAGNATION_FULL - STAGNATION_SECONDS, 0.001), 0.0, 1.0)
+
+
+## ══ WHAT JUST HAPPENED TO ME, WHICH NOTHING USED TO ASK ═════════════════════════
+## Maker, on the duel: *"more reaction movement like make them smarter"*, *"empty
+## spaces here and there"*, and *"it becomes noise slop right now because they are
+## repeatedly getting hit"*.
+##
+## All three want the same missing thing: a bot that treats an exchange as an EVENT.
+## `_track_stagnation` computes exactly that event — its `absf(total - last) > 0.001`
+## branch is literally "somebody took damage this beat" — and then throws it away to
+## reset a clock. It also sums both bars, so it cannot say who. Splitting the sum is
+## the whole unlock, and it needs no new blackboard key: `self_hp_frac` and
+## `foe_hp_frac` have both been there all along.
+##
+## Two outcomes, both rolled ONCE per event off the existing `m.rng` (the same
+## generator the aim scatter and the whiff rolls use, so a seeded test still replays
+## exactly):
+##   BREATHE  — sometimes, after a trade, simply stop starting things for a beat.
+##   RECOIL   — when the damage was MINE, give ground briefly. That is the reaction
+##              movement; a body that eats a hit and keeps walking forward reads as
+##              not having noticed.
+##
+## ⚠ EVERY CEILING HERE IS SET BY SOMETHING ELSE'S FLOOR, and they are close together:
+## `BotAdapt.CAMP_SECONDS` is 3.0, `BotSimProbe.IDLE_SECONDS` is 5.0 (it files a
+## SEV_ERROR `actor_idle` row), and `STAGNATION_SECONDS` is 6.0 — past which the
+## degenerate-fight breaker starts cutting the very cast threshold a pause just
+## raised. A max gap of 1.6 s clears all three with room, and because a breathing bot
+## still MOVES and still AIMS, the idle probe never sees it at all.
+static func _note_exchange(bb: Dictionary, m: Memory, now: float) -> void:
+	var mine: float = float(bb.get("self_hp_frac", 1.0))
+	var theirs: float = float(bb.get("foe_hp_frac", 1.0))
+	if m.last_self_hp < 0.0:
+		m.last_self_hp = mine
+		m.last_foe_hp = theirs
+		return
+	var i_was_hit: bool = mine < m.last_self_hp - 0.001
+	var anything: bool = i_was_hit or absf(theirs - m.last_foe_hp) > 0.001
+	m.last_self_hp = mine
+	m.last_foe_hp = theirs
+	if not anything:
+		return
+	if i_was_hit and m.rng.randf() < RECOIL_CHANCE:
+		m.recoil_until = maxf(m.recoil_until, now + RECOIL_SECONDS)
+	# Never stack a pause on top of a pause: the roll only counts when the bot is not
+	# already breathing, or a long trade would compound into a bot that has stopped.
+	if now >= m.breathe_until and m.rng.randf() < BREATHE_CHANCE:
+		m.breathe_until = now + m.rng.randf_range(BREATHE_MIN, BREATHE_MAX)
 
 
 ## Seconds until the NEXT thing lands, or a large number when the board is clear.
@@ -1225,15 +1355,43 @@ static func _pick_slot(bb: Dictionary, profile: Dictionary, m: Memory, now: floa
 	var err: float = BotProfile.get_f(profile, "aim_error")
 	m.aim_error = m.rng.randf_range(-err, err)
 
+	# ══ THE LAST STAND ══════════════════════════════════════════════════════════
+	# Maker: *"use their ults if low on health like optionally of course"*. The "ult"
+	# role's own weight is keyed entirely off the FOE's health and the foe closing —
+	# `finisher = 1.15 - foe_hp` — so it fires when the bot is WINNING and has nothing
+	# at all to say about a bot that is about to die. A fighter going down swinging is
+	# the single most watchable thing a duel can produce and it could not happen.
+	#
+	# Rolled once per decision beat, then LATCHED: a continuous bonus flickers across
+	# the threshold and reads as indecision, where a latch reads as a decision. And
+	# rolled rather than triggered, because "optionally" is the whole ask — two
+	# Cryomancers at 30% should not both reliably do the same thing.
+	if float(bb.get("self_hp_frac", 1.0)) < DESPERATE_HP and now >= m.ult_urge_until \
+			and m.rng.randf() < DESPERATE_ULT_CHANCE:
+		m.ult_urge_until = now + DESPERATE_ULT_HOLD
+	var desperate: bool = now < m.ult_urge_until
+
 	var scores: Array = score_slots(bb, profile, m, now, pressure, soonest)
 	var best: int = -1
 	# A stalled fight forgives part of the threshold: the bot starts spending
 	# cooldowns it was holding for a better moment that is demonstrably not coming.
 	var best_score: float = CAST_THRESHOLD * lerpf(1.0, 1.0 - STAGNATION_THRESHOLD_CUT,
 		clampf(stagnation, 0.0, 1.0))
+	if desperate:
+		# Forgiven exactly the way stagnation forgives it directly above, rather than
+		# with a second mechanism that means the same thing.
+		best_score *= 1.0 - STAGNATION_THRESHOLD_CUT
 	for i: int in range(scores.size()):
-		if float(scores[i]) > best_score:
-			best_score = float(scores[i])
+		var s: float = float(scores[i])
+		# ⚠ THE BONUS IS A MULTIPLIER ON A SCORE, NOT A BYPASS. Every HARD gate lives
+		# inside `score_slots` and returns a flat 0 — cooldown, mana, `slot_affordable`,
+		# range fit, channel safety — and 0 times anything is still 0. So a desperate
+		# bot cannot cast an ult it could not otherwise cast; it can only stop being
+		# talked out of one it could.
+		if desperate and i == SpellTier.ULT_SLOT:
+			s *= DESPERATE_ULT_BONUS
+		if s > best_score:
+			best_score = s
 			best = i
 	return best
 

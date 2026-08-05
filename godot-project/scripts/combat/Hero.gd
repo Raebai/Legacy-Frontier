@@ -5291,8 +5291,26 @@ func apply_knockback(impulse: Vector2, do_flop: bool = true) -> void:
 	# and skip for self-recoil which passes do_flop=false).
 	if do_flop and rig != null and impulse.length() > 12.0 and not _ragdolling:
 		var mag: float = impulse.length()
-		rig.flop(clampf(mag / 800.0, 0.2, 0.7), 0.18)
-		rig.apply_impulse(impulse.normalized(), minf(mag, 800.0) * 0.85)
+		# ══ THE BODY ANSWERS THE SIZE OF THE BLOW ═══════════════════════════════
+		# Maker: *"the stick figures need to react to being hit more like knockback
+		# or equivalent depending on the hit like if its a beam from space then it
+		# should knock them down"*.
+		#
+		# The scaling was already here and it was capped where nothing could ever
+		# read as a knockdown: `clampf(mag / 800.0, 0.2, 0.7)` means a 240-impulse
+		# bolt and a 900-impulse Hollow Purple differ by 0.3 to 0.7 of a flop — a
+		# lean either way — and the two looked nearly identical. Everything in the
+		# roster from a pillar (620) upward saturated the same ceiling.
+		#
+		# The ceiling goes to a full 1.0 and the curve is widened so the range the
+		# game actually uses is spread across it: a 150-impulse flurry cut still
+		# barely rocks the figure, a 300 melee visibly staggers it, and the 600+ band
+		# — pillars, walls, ults, a ray out of the sky — goes all the way over. The
+		# limp is also held longer at the top, because a knockdown that recovers in
+		# the same 0.18 s as a graze is a stagger with a bigger number on it.
+		var weight: float = clampf((mag - 120.0) / 520.0, 0.0, 1.0)
+		rig.flop(lerpf(0.18, 1.0, weight), lerpf(0.16, 0.42, weight))
+		rig.apply_impulse(impulse.normalized(), minf(mag, 900.0) * 0.95)
 
 
 ## Firing a big spell shoves the caster back (Stick-Fight recoil = power is
@@ -5375,7 +5393,29 @@ func take_damage(amount: int) -> void:
 		# touch toward the attacker (aim side) so the burst reads at the clash.
 		Juice.frame({"style": ImpactFrame.Style.LOCAL, "strength": 0.7,
 			"at": global_position + _aim_dir * 18.0})
-		_parry_window_timer = 0.0
+		# ══ THE WINDOW SURVIVES THE BURST IT WAS OPENED FOR ═════════════════════
+		# Maker: *"how is brawler meant to kill the first boss like if they are
+		# getting up close... all the classes actually need a way to deflect the
+		# bosses attacks"*.
+		#
+		# The finding is NOT that boss attacks are unblockable — every one of them
+		# routes through this catch-all and is fully negated here, which a live probe
+		# confirms (a beam into a raised guard: 0 damage, 1 deflect counted). The
+		# defect is that this line ZEROED the window on the first hit, while the
+		# attacks that make melee range lethal all arrive in bursts: the Guardian's
+		# rays are 3, its meteor is 12, the Scribble's frenzy is 4, the Eraser's
+		# unmake is 6. A perfect read stopped ONE of them and then ate the rest, on a
+		# 0.9 s cooldown. That is why standing close reads as unsurvivable.
+		#
+		# So the window now runs its remaining time instead of being spent. It is not
+		# refreshed and it is not lengthened — `PARRY_WINDOW` is still 0.16 s and
+		# `PARRY_COOLDOWN` is still 0.9 s, both untouched, because widening either is
+		# the change that trivialises every mob and every PvP bout in the game rather
+		# than answering a boss. What it buys is exactly one burst per read.
+		#
+		# The precedent is already in this file and already argued: the Swordsaint's
+		# BLADE ring deliberately does NOT consume on a reflect. This gives the other
+		# eight classes the same property for the length of one press.
 		return
 	# THE BLADE GUARD. Resolved ABOVE ordinary mitigation because its outcome is
 	# categorical rather than a percentage: a perfect read is a total negate plus a

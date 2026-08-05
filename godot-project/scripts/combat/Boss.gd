@@ -567,12 +567,36 @@ func _physics_process(delta: float) -> void:
 	if not _busy and _bphase != BPhase.INTRO and is_instance_valid(_hero):
 		approach = signf(_hero.global_position.x - global_position.x) * move_speed
 	velocity.x = _knockback.x + approach
+	# ══ THE BOSS CAN LEAVE THE GROUND NOW ═══════════════════════════════════════
+	# Maker: *"make the stage 1 boss be able to jump"*. It could not — and the reason
+	# is that the whole airborne kit was INHERITED AND NEVER CALLED. `Enemy` already
+	# owns `_try_chase_jump` (the hop over a wall it is walking into, and the hop up to
+	# a hero standing above it), the ballistic LEAP solver, and the POUNCE; all of it
+	# is already replicated, already animated and already interruptible. Grep the boss
+	# scripts for `velocity.y` and the only hit in any of them is the ground-snap zero.
+	# So this is one call at the insertion point `Enemy._try_chase_jump` documents for
+	# itself — between gravity and `move_and_slide`.
+	#
+	# ⚠ GATED THE SAME WAY THE WALK IS. A boss mid-cast is rooted on purpose (`_busy`),
+	# the intro is a held pose, and the Etcher's breakable wind-up parks its own
+	# movement — a boss that hopped out of a rooted cast would break the one beat in
+	# the game the player is invited to interrupt.
+	if not _busy and _bphase != BPhase.INTRO and _bphase != BPhase.DEAD:
+		_try_chase_jump()
 	move_and_slide()
 	if is_instance_valid(rig):
 		if is_instance_valid(_hero):
 			rig.set_facing(Vector2(_hero.global_position.x - global_position.x, 0.0))
 		rig.set_body_velocity(velocity)
-		rig.play(CharacterRig.State.RUN if absf(velocity.x) > 8.0 else CharacterRig.State.IDLE)
+		# ⚠ AND THE RIG IS TOLD, which closes a gap `CharacterRig` names in its own
+		# comments ("`Enemy` and `Boss` never call `set_grounded`"). It mattered less
+		# while a boss could never be airborne; now that it can, a body in the air
+		# drawn in its planted stance is the "legs are wrong" bug all over again.
+		rig.set_grounded(is_on_floor())
+		if not is_on_floor():
+			rig.play(CharacterRig.State.AIR)
+		else:
+			rig.play(CharacterRig.State.RUN if absf(velocity.x) > 8.0 else CharacterRig.State.IDLE)
 	match _bphase:
 		BPhase.INTRO:
 			_intro_timer -= delta
