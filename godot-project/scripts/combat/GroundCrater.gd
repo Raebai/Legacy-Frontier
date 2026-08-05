@@ -7,12 +7,32 @@ extends Node2D
 ## autoloads (draw + one raycast only), so the headless harness can load() it.
 
 const GROUP_NAME: String = "ground_crater"
-const MAX_CRATERS: int = 44        # session cap; oldest freed past this (more scarring)
+## ⚠ 44 -> 20, AND THE CAP WAS THE SMALLEST PART OF THE PROBLEM. Maker: "I don't
+## like how those cracks and spheres look on the ground... less in your face and
+## goofy". Cropped and looked at: the gouges were near-OPAQUE BLACK ELLIPSES wider
+## than a fighter is tall, with a hard bright rim, stacking into one solid dark mass
+## that sat visually ON TOP of the crates it was supposed to be under.
+##
+## Four causes, all of them here, in the order they hurt:
+##   1. `gouge_tint` alpha 0.8 of near-black, drawn as THREE stacked discs — the
+##      middle of a crater was a hole in the floor rather than a mark on it.
+##   2. the rim's lit arc was brightened x1.3 on top of a 0.95 alpha, which is what
+##      made each one read as a cartoon sticker with an outline.
+##   3. the chunks were `rim_tint` at 0.95 — opaque brown slabs, and they are the
+##      big flat rectangles in the frame.
+##   4. and 44 of them compounding turned all of the above into a floor-wide bruise.
+##
+## A crater is a STAIN AND A SHADOW, not a pit. Everything below is the same drawing
+## at a weight the eye reads as damage instead of as decoration.
+const MAX_CRATERS: int = 20        # session cap; oldest freed past this
 const SNAP_MAX_DIST: float = 260.0 # downward raycast reach to find the floor
 
 @export var radius: float = 40.0
-@export var gouge_tint: Color = Color(0.05, 0.04, 0.05, 0.8)
-@export var rim_tint: Color = Color(0.34, 0.28, 0.22, 0.95)
+## Warmer and far lighter than the old near-black: a gouge tinted toward the floor's
+## own colour reads as ground that has been hurt, where 0.05-grey reads as a hole cut
+## in the level.
+@export var gouge_tint: Color = Color(0.16, 0.13, 0.12, 0.34)
+@export var rim_tint: Color = Color(0.34, 0.28, 0.22, 0.55)
 
 var _chunks: Array[PackedVector2Array] = []
 
@@ -77,13 +97,44 @@ func _draw() -> void:
 	# Gouge: concentric dark discs squashed onto the floor plane (a flat ellipse,
 	# reading as a pit dug into the ground rather than a face-on disc).
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.5))
-	draw_circle(Vector2.ZERO, radius, Color(gouge_tint.r, gouge_tint.g, gouge_tint.b, gouge_tint.a * 0.4))
-	draw_circle(Vector2.ZERO, radius * 0.62, Color(gouge_tint.r, gouge_tint.g, gouge_tint.b, gouge_tint.a * 0.7))
-	draw_circle(Vector2.ZERO, radius * 0.3, gouge_tint)
-	# Raised broken rim: a lit upper arc + a dark lower arc (a lip pushed up).
-	draw_arc(Vector2.ZERO, radius, PI, TAU, 22, Color(rim_tint.r * 1.3, rim_tint.g * 1.3, rim_tint.b * 1.3, rim_tint.a), 2.4, true)
-	draw_arc(Vector2.ZERO, radius, 0.0, PI, 22, Color(0.12, 0.1, 0.09, rim_tint.a * 0.85), 2.0, true)
+	# THREE DISCS, BUT THEY NO LONGER COMPOUND TO OPAQUE. The old ramp ran
+	# 0.32 / 0.56 / 0.80 of a near-black; this one runs 0.10 / 0.20 / 0.34 of a warm
+	# dark, so the centre of a crater is a stain you can still see the floor through.
+	# ⚠ AND NOT A PERFECT CIRCLE, which was the rest of the "goofy". A blast does not
+	# leave a compass-drawn disc; three concentric perfect ellipses read as a target
+	# painted on the floor. Each ring is a jittered polygon instead, seeded off the
+	# crater's own position so it is stable frame to frame (a gouge that reshuffled
+	# every redraw would boil) and different from its neighbours.
+	_ragged(radius, Color(gouge_tint.r, gouge_tint.g, gouge_tint.b, gouge_tint.a * 0.30), 0)
+	_ragged(radius * 0.62, Color(gouge_tint.r, gouge_tint.g, gouge_tint.b, gouge_tint.a * 0.60), 7)
+	_ragged(radius * 0.3, gouge_tint, 13)
+	# The rim is a LIP CATCHING LIGHT, not an outline. The x1.3 brightening is gone —
+	# that highlight is most of what made these read as stickers — and both arcs are
+	# thinner and softer.
+	draw_arc(Vector2.ZERO, radius, PI, TAU, 22, Color(rim_tint.r, rim_tint.g, rim_tint.b, rim_tint.a * 0.7), 1.4, true)
+	draw_arc(Vector2.ZERO, radius, 0.0, PI, 22, Color(0.12, 0.1, 0.09, rim_tint.a * 0.5), 1.2, true)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	# Broken rock chunks seated on the rim.
+	# Chunks at the rim's own (now much lower) alpha — they were opaque slabs, and at
+	# crater sizes they are the big flat rectangles the maker was looking at.
 	for ch: PackedVector2Array in _chunks:
-		draw_colored_polygon(ch, rim_tint)
+		draw_colored_polygon(ch, Color(rim_tint.r, rim_tint.g, rim_tint.b, rim_tint.a * 0.75))
+
+
+## One ring of the gouge as a torn polygon. `salt` offsets the seed so the three
+## rings are not the same shape scaled, which would look like a printed target.
+##
+## Deterministic in the crater's WORLD POSITION rather than in a counter: two
+## craters that land in the same place across a replay draw the same scar, and the
+## shape never changes under a redraw.
+func _ragged(r: float, col: Color, salt: int) -> void:
+	var pts := PackedVector2Array()
+	var seed_i: int = int(absf(global_position.x) * 7.0 + absf(global_position.y) * 13.0) + salt
+	var steps: int = 14
+	for i: int in steps:
+		var a: float = TAU * float(i) / float(steps)
+		# Cheap deterministic hash -> 0..1, then a +-18% radius wobble.
+		var h: int = (seed_i * 1103515245 + i * 12345) & 0x7FFFFFFF
+		var n: float = float(h % 1000) / 1000.0
+		pts.append(Vector2.from_angle(a) * (r * (0.82 + 0.36 * n)))
+	draw_colored_polygon(pts, col)

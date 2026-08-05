@@ -15,7 +15,12 @@ const FADE_OUT: float = 1.6  # seconds of alpha ramp before a lifetime'd decal f
 
 @export var radius: float = 24.0
 @export var kind: String = "scorch"  # "scorch" | "crack"
-@export var tint: Color = Color(0.05, 0.03, 0.02, 0.55)
+## ⚠ LIGHTENED WITH THE CRATERS, and for the same reason — see the block on
+## `GroundCrater.MAX_CRATERS`. These two decal systems stack on the SAME floor, so
+## toning one and not the other just makes the untouched one the new loudest thing.
+## 0.05-grey at 0.55 is a black patch; this is a warm scorch you can see the ground
+## through.
+@export var tint: Color = Color(0.14, 0.10, 0.08, 0.34)
 ## 0 = persist for the session (the old accumulate-forever behaviour). > 0 =
 ## the decal holds, then fades over the last FADE_OUT seconds and frees, so
 ## meteor/nova scars "clear up over time" instead of cluttering the arena.
