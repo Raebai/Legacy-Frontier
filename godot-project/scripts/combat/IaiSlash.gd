@@ -80,6 +80,23 @@ const MUZZLE_LIFT: float = -14.0
 ## Along the cut, plus a small lift so a struck body rises off the floor rather than
 ## sliding. Big, because a committed cut that does not move the victim reads as a
 ## graze. `BladeFlurry.KNOCKBACK` is 150 for one of five cuts; this is one of one.
+## ══ THE DRAW-STEP ═══════════════════════════════════════════════════════════
+## An iai is a draw that CLOSES. This spell had no step at all — the duelist stood
+## still and swung 118 px, which is under four body-widths on the class with the
+## shortest travel in the game, on a 5-second whiff cooldown. Measured: the
+## Swordsaint is bottom of the roster in two independent 72-bout round-robins (19%,
+## then 25%) and did not move when its health was raised 16%.
+##
+## Fired as a self-impulse into `Hero`'s existing knockback field, which bleeds off
+## on its own — the same mechanism `ScribbleBoss._launch` uses, and specifically NOT
+## a second movement state machine or an override of `_physics_process` (the co-op
+## puppet guard lives there).
+##
+## ⚠ IT STEPS ON THE CUT, NOT ON THE DRAW. The 0.30 s draw is the telegraph and the
+## whole counterplay — "one sidestep or one jump clears it". Stepping during the
+## wind-up would let the duelist chase a dodge that had already been made, which is
+## the thing that makes an unreadable melee class. It moves when the blade does.
+const STEP_IMPULSE: float = 520.0
 const KNOCKBACK: float = 330.0
 const LIFT: float = 120.0
 
@@ -199,6 +216,7 @@ func advance(delta: float) -> void:
 	if _telegraph != null and is_instance_valid(_telegraph):
 		_telegraph.advance(delta)
 	if not _cut_done and _elapsed >= DRAW_TIME:
+		_draw_step()
 		_cut_done = true
 		_cut()
 	if _elapsed >= _life():
@@ -394,3 +412,19 @@ func _draw_cut() -> void:
 	# maker's rule is that nothing may land outside what was drawn.
 	draw_line(_muzzle, _muzzle + _dir * _reach,
 		Color(CORE.r, CORE.g, CORE.b, 0.55 * intensity), 1.2, true)
+
+
+## The step itself. Guarded on everything: no caster, a freed caster, or a body with
+## no knockback field simply does not move, and the cut is unchanged.
+func _draw_step() -> void:
+	if caster_node == null or not is_instance_valid(caster_node):
+		return
+	if not (caster_node is Node2D):
+		return
+	var kb: Variant = caster_node.get(&"_knockback")
+	if kb == null:
+		return
+	# ADDS to whatever is already there rather than replacing it, so a duelist that
+	# is being shoved mid-cut does not have that shove deleted by its own spell.
+	caster_node.set(&"_knockback", (kb as Vector2) + Vector2(_dir.x, 0.0).normalized()
+		* STEP_IMPULSE)
