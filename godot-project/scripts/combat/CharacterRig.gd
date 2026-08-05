@@ -2145,10 +2145,21 @@ const ST_BURN: int = 1
 const ST_CHILL: int = 2
 const ST_FREEZE: int = 4
 const ST_SHOCK: int = 8
+const ST_WEAKEN: int = 16
+const ST_UNSTABLE: int = 32
 ## Every bit, in one place, so a guard can iterate the SET rather than the plan.
 ## Iterating the plan is the vacuous form: an empty plan makes every assertion inside
 ## it trivially true, which is how this project has shipped effects drawn nowhere.
-const ST_ALL: Array[int] = [ST_BURN, ST_CHILL, ST_FREEZE, ST_SHOCK]
+const ST_ALL: Array[int] = [ST_BURN, ST_CHILL, ST_FREEZE, ST_SHOCK, ST_WEAKEN, ST_UNSTABLE]
+## WEAKEN — smoke curling OFF THE SHOULDERS. It was a pulsing 18 px disc plus four
+## orbiting dots at the body origin, i.e. the same mis-centred ring as the rest.
+const WEAKEN_WISPS_HIGH: int = 4
+const WEAKEN_WISPS_LOW: int = 2
+## UNSTABLE — a tightening ring at the CHEST that closes as the pop approaches. The
+## one ailment for which a ring is the right figure: it is a countdown, and a closing
+## circle is what a countdown looks like. It is simply drawn on the body now, at a
+## size that belongs to a 31 px figure rather than to the room.
+const UNSTABLE_R_FACTOR: float = 0.42
 
 const SHOCK_TICKS_HIGH: int = 3
 const SHOCK_TICKS_LOW: int = 1
@@ -2192,6 +2203,10 @@ static func status_plan(bits: int, _low: bool) -> Array[int]:
 		out.append(ST_CHILL)
 	if bits & ST_BURN:
 		out.append(ST_BURN)
+	if bits & ST_WEAKEN:
+		out.append(ST_WEAKEN)
+	if bits & ST_UNSTABLE:
+		out.append(ST_UNSTABLE)
 	return out
 
 
@@ -2205,6 +2220,10 @@ static func status_strokes(bit: int, low: bool) -> int:
 		ST_CHILL:
 			return RIME_TICKS_LOW if low else RIME_TICKS_HIGH - 3
 		ST_BURN:
+			return 1 if low else 2
+		ST_WEAKEN:
+			return WEAKEN_WISPS_LOW if low else WEAKEN_WISPS_HIGH
+		ST_UNSTABLE:
 			return 1 if low else 2
 	return 0
 
@@ -2222,6 +2241,10 @@ func _draw_status(pose: Dictionary) -> void:
 				_status_rime(pose, RIME_TICKS_LOW if _status_low else RIME_TICKS_HIGH - 3, false)
 			ST_BURN:
 				_status_burn(pose)
+			ST_WEAKEN:
+				_status_weaken(pose)
+			ST_UNSTABLE:
+				_status_unstable(pose)
 
 
 ## SHOCKED — small jagged ticks that JUMP between limb segments. The old version was a
@@ -2307,6 +2330,40 @@ func _status_burn(pose: Dictionary) -> void:
 		return
 	draw_flame(self, pose["head_center"] + Vector2(0.0, -r * 0.9), s * 0.75, 0.65,
 		_phase * 1.13 + 1.7)
+	_status_strokes += 1
+
+
+## WEAKENED — smoke curling off the SHOULDERS. Was a pulsing ~18 px disc plus four
+## orbiting dots at the body origin: the same mis-centred ring as the rest, and the
+## reason this one is here too rather than left visibly inconsistent.
+func _status_weaken(pose: Dictionary) -> void:
+	var n: int = WEAKEN_WISPS_LOW if _status_low else WEAKEN_WISPS_HIGH
+	var sh: Vector2 = pose["shoulder"]
+	var col := Color(0.45, 0.16, 0.55, 0.55)
+	for i: int in n:
+		var t: float = fposmod(_phase * 0.55 + float(i) * 0.31, 1.0)
+		var sway: float = sin(_phase * 2.1 + float(i) * 1.7) * height * 0.05
+		var p: Vector2 = sh + Vector2(sway, -t * height * 0.34)
+		draw_line(p, p + Vector2(sway * 0.4, -height * 0.06),
+			Color(col.r, col.g, col.b, col.a * (1.0 - t)), maxf(1.0, height * 0.028), true)
+		_status_strokes += 1
+
+
+## UNSTABLE — a ring that TIGHTENS at the chest as the pop approaches. The one ailment
+## a ring is genuinely the right figure for, because it is a countdown and that is what
+## a countdown looks like. What was wrong was only its size and where it was centred:
+## it was drawn at the body origin at up to ~20 px on a 31 px figure.
+func _status_unstable(pose: Dictionary) -> void:
+	var mid: Vector2 = (pose["neck"] + pose["hip"]) * 0.5
+	var beat: float = 0.5 + 0.5 * sin(_phase * 9.0)
+	var r: float = height * UNSTABLE_R_FACTOR * (1.0 - 0.25 * beat)
+	var col := Color(0.95, 0.4, 0.85, 0.45 + 0.35 * beat)
+	draw_arc(mid, r, 0.0, TAU, 8 if _status_low else 16, col, maxf(1.0, height * 0.03), true)
+	_status_strokes += 1
+	if _status_low:
+		return
+	draw_circle(mid, height * 0.05 * (0.6 + 0.5 * beat),
+		Color(1.0, 0.75, 0.95, 0.5 + 0.3 * beat), true, -1.0, true)
 	_status_strokes += 1
 
 

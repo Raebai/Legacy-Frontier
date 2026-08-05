@@ -275,6 +275,92 @@ const POUNCE_CHANCE: float = 0.5       # coin-flip per opportunity: pressure, no
 ## you have found the dash, and floor 1 is the only place in the game where that
 ## is true of the player. From floor 2 it is exactly as aggressive as it was.
 const POUNCE_MIN_DEPTH: int = 2
+
+## ══ ORDINARY ENEMIES CAST REAL SPELLS ═════════════════════════════════════════
+## Maker: *"other opponents must cast spells, and mobs want telling apart by hats."*
+## The hats shipped; this is the other half.
+##
+## ⚠ NOTHING ON THIS CLASS BLOCKED IT — that was MEASURED before a line was written.
+## Twenty different `SpellDef`s were cast through a bare `Enemy` via `SpellCaster`
+## and all twenty came back true, with `caster_node` set and the right element. This
+## body already publishes the whole silhouette seam `SpellTargets` duck-types
+## (`body_distance`, `hit_margin`, `head_point`, `take_damage`, `apply_knockback`) and
+## is in both `mortal` and `enemy`. So what was missing was never plumbing — it was a
+## TABLE and a re-tune.
+##
+## ⚠ AND THE RE-TUNE IS THE LOAD-BEARING PART. Library damage is authored for a HERO
+## power budget: `meteor_fist` is 165, `judgment` 95, `shockwave_stomp` 88 — against
+## this roster's single biggest hit, the bomber's 22. Handing a trash mob its library
+## number would not be "enemies cast spells", it would be "every mob one-shots you".
+##
+## ⚠ AND THE COPY MUST BE A `duplicate()`. A `SpellDef` is a SHARED CATALOG RESOURCE:
+## scaling one in place permanently buffs it for the HERO too, compounding once per
+## cast. `SpellCaster._blood_pacted` states the same rule for the same reason.
+##
+## WHICH SPELL, AND WHY EACH IS A DIFFERENT THREAT — the point is that the player must
+## answer each one DIFFERENTLY, not that five archetypes all gained a second attack:
+##
+##   CASTER    rune_orbs      its single bolt is beaten by one sidestep; a staggered
+##                            FAN is not, and the stagger between launches is the
+##                            dodge window. Answer: break the line, don't strafe it.
+##   MAGE      void_zone      stops being a second red circle: forked to Shadow Root
+##             (shadow)       on `effect == "shadow"`, so shadows race from its feet
+##                            and ROOT you — the set-up that makes every other body in
+##                            the room lethal. Answer: move before the mark converges.
+##   SUMMONER  blizzard       today it is a spawner you burst down. A denial FIELD
+##                            makes it a zoner that takes away the ground its own
+##                            minions push you onto — two problems that argue with
+##                            each other. Answer: fight on ground it has not taken.
+##   BRUTE     shockwave_stomp its zone circle says "leave this spot". A ridge running
+##                            away from it along the floor in both directions says
+##                            "get off the ground, or get away from me" — the opposite
+##                            instruction from the same body. Answer: jump, or be far.
+##   ASSASSIN  creeping_shade its threat ends at 120 px today. A ground-hugging spike
+##                            with 620 px of reach that passes under walls gives it
+##                            cross-room presence answered by a JUMP — a verb no other
+##                            enemy in the roster currently demands.
+##
+## THREE ARCHETYPES DELIBERATELY GET NOTHING, and that is a design position rather
+## than an omission — the same argument `EliteRoster.EXCLUDES` already makes:
+##   CHARGER   its whole identity is the one committed lane. A second commit-and-close
+##             verb is noise, not a read.
+##   BOMBER    it IS the spell.
+##   CHASER    the baseline you compare the other seven against, and the only bare hat.
+##
+## Keys: `id` the library spell, `dmg` the re-tuned damage, `cd` seconds between casts,
+## `windup` the tell length, `style` the Telegraph style, `band` the [min,max] x-range
+## it will cast from, and the optional `count` / `radius` / `length` overrides.
+const ARCHETYPE_SPELLS: Dictionary = {
+	Archetype.CASTER: {
+		"id": "rune_orbs", "dmg": 7, "count": 3, "cd": 5.0, "windup": 0.55,
+		"style": Telegraph.Style.MUZZLE, "band": [150.0, 320.0],
+	},
+	Archetype.MAGE: {
+		"id": "void_zone", "dmg": 12, "radius": 96.0, "length": 2.4, "cd": 6.5,
+		"windup": 0.75, "style": Telegraph.Style.ZONE, "band": [140.0, 340.0],
+	},
+	Archetype.SUMMONER: {
+		"id": "blizzard", "dmg": 4, "radius": 100.0, "length": 3.0, "cd": 7.5,
+		"windup": 0.8, "style": Telegraph.Style.ZONE, "band": [120.0, 330.0],
+	},
+	Archetype.BRUTE: {
+		"id": "shockwave_stomp", "dmg": 18, "cd": 6.0, "windup": 0.7,
+		"style": Telegraph.Style.ZONE, "band": [0.0, 190.0],
+	},
+	Archetype.ASSASSIN: {
+		"id": "creeping_shade", "dmg": 12, "cd": 6.0, "windup": 0.5,
+		"style": Telegraph.Style.DART, "band": [90.0, 420.0],
+	},
+}
+
+## ⚠ CASTING IS A FLOOR-2 VERB, exactly like the pounce above and for the same stated
+## reason: floor 1 teaches "ONE new tell per wave, and never two new things at once",
+## and `EliteRoster.budget(1)` is 0 on that rule already. A trash mob throwing a real
+## spell on the teaching floor breaks it.
+##
+## 0 means "not told" — the F6 sandbox, VersusArena and every headless harness — and
+## imposes NO restriction, so those paths can exercise this immediately.
+const SPELL_MIN_DEPTH: int = 2
 ## Which floor of the climb this body was spawned on. 0 = "not told" (the F6
 ## sandbox, VersusArena, every headless harness) and imposes NO restriction, so
 ## those paths behave byte-identically to before. Set from the replicated spawn
@@ -373,6 +459,10 @@ var _bolt_element: int = -1                 # caster: rolled element tint for it
 var _strafe_timer: float = 0.0              # kiters: time until the drift reverses
 var _strafe_sign: float = 1.0               # kiters: current in-band drift direction
 var _passive_home: Vector2 = Vector2.ZERO   # passive: fixed spot it respawns to
+## --- archetype SPELLCASTING (see the ARCHETYPE_SPELLS block) --------------------
+var _spell_cd: float = 0.0                  # seconds until this body may cast again
+var _spell_pending: bool = false            # a spell windup is on the wire, not a strike
+var _spell_def: SpellDef = null             # this body's own re-tuned copy, built once
 
 # Difficulty (GameState.enemy_difficulty): scales stats + unlocks smart evasion.
 # Easy/Normal are the shipped behaviour; Hard DODGES incoming hero bolts, and
@@ -995,6 +1085,21 @@ func _deflect(bolt: Node2D) -> void:
 
 
 func _ready() -> void:
+	# ⚠ THE SPELL STARTS ON COOLDOWN, AND THAT IS THE DIFFERENCE BETWEEN "ENEMIES CAST
+	# SPELLS" AND "ENEMIES STOPPED DOING THEIR JOB". The gate is asked BEFORE each
+	# archetype's ordinary attack, so at zero the very first opportunity always casts
+	# — and the summoner never summoned, the mage never dropped its AoE, the caster
+	# never fired a bolt. Two suites caught exactly that (`slice3_test_enemy_abilities`,
+	# `slice3_test_enemy_sideon`) and they were right: the spell is an ESCALATION on
+	# top of the archetype, not a replacement for it.
+	#
+	# Starting a full cooldown in means a body always opens with the thing it has
+	# always done, and the spell arrives once the fight has been going a while. It also
+	# keeps every existing test — all of which assert against a body's FIRST attack —
+	# byte-identical.
+	var row: Dictionary = ARCHETYPE_SPELLS.get(archetype, {})
+	if not row.is_empty():
+		_spell_cd = float(row["cd"])
 	add_to_group("enemy")
 	# FRIENDLY FIRE (1.5). `mortal` is the faction-BLIND group: every damageable
 	# body joins it IN ADDITION to its faction group, and SpellCaster._stamp()
@@ -1056,6 +1161,9 @@ func _physics_process(delta: float) -> void:
 	_touch_cooldown = max(_touch_cooldown - delta, 0.0)
 	_knockback = _knockback.move_toward(Vector2.ZERO, KNOCKBACK_DECAY * delta)
 	_attack_cooldown = maxf(_attack_cooldown - delta * _cd_speed, 0.0)  # harder = faster attacks
+	# The spell clock rides the same difficulty scale as the attack clock, so a harder
+	# tier casts more often for the same reason it strikes more often — one dial.
+	_spell_cd = maxf(_spell_cd - delta * _cd_speed, 0.0)
 	_evade_cd = maxf(_evade_cd - delta, 0.0)
 	if _smart_dodge and _attack_state == AttackState.CHASE and _try_evade(delta):
 		return  # dodged / deflected a hero bolt this frame
@@ -1130,6 +1238,9 @@ func _physics_process(delta: float) -> void:
 	_check_wall_slam()  # crater + dust if a hard hit just slammed us into a wall
 	rig.play(CharacterRig.State.RUN)
 	rig.set_facing(Vector2(signf(chase_x), 0.0))
+	if _wants_spell_cast():
+		_start_spell_windup()
+		return
 	if uses_telegraphed_attack and _attack_cooldown <= 0.0 \
 			and global_position.distance_to(_hero.global_position) <= ATTACK_RANGE:
 		_start_windup()
@@ -1279,6 +1390,13 @@ func _start_windup() -> void:
 func _on_telegraph_fired() -> void:
 	_telegraph = null  # the Telegraph fades and frees itself after firing
 	_free_caster_signal()
+	# A SPELL WINDUP RESOLVES AS A SPELL, whatever archetype opened it. Checked before
+	# the archetype switch and cleared here, so a body that casts and then strikes
+	# cannot have its next ordinary telegraph resolve as a second cast.
+	if _spell_pending:
+		_spell_pending = false
+		_cast_archetype_spell()
+		return
 	match archetype:
 		Archetype.CASTER:
 			_fire_projectile()
@@ -1315,6 +1433,9 @@ func _caster_chase(delta: float) -> void:
 	move_and_slide()
 	rig.play(CharacterRig.State.RUN if move_x != 0.0 else CharacterRig.State.IDLE)
 	rig.set_facing(to_hero)
+	if _wants_spell_cast():
+		_start_spell_windup()
+		return
 	if _attack_cooldown <= 0.0 and dist_x >= CASTER_RANGE_MIN and dist_x <= CASTER_RANGE_MAX:
 		_start_caster_windup()
 
@@ -1382,6 +1503,9 @@ func _mage_chase(delta: float) -> void:
 	move_and_slide()
 	rig.play(CharacterRig.State.RUN if move_x != 0.0 else CharacterRig.State.IDLE)
 	rig.set_facing(to_hero)
+	if _wants_spell_cast():
+		_start_spell_windup()
+		return
 	if _attack_cooldown <= 0.0 and dist_x >= MAGE_RANGE_MIN and dist_x <= MAGE_RANGE_MAX:
 		_start_mage_windup()
 
@@ -1515,6 +1639,9 @@ func _summoner_chase(delta: float) -> void:
 	move_and_slide()
 	rig.play(CharacterRig.State.RUN if move_x != 0.0 else CharacterRig.State.IDLE)
 	rig.set_facing(to_hero)
+	if _wants_spell_cast():
+		_start_spell_windup()
+		return
 	if _attack_cooldown <= 0.0 and dist_x >= SUMMONER_RANGE_MIN and dist_x <= SUMMONER_RANGE_MAX \
 			and _live_minion_count() < SUMMON_MAX_ALIVE:
 		_start_summon_windup()
@@ -1622,6 +1749,9 @@ func _assassin_chase(delta: float) -> void:
 	_check_wall_slam()
 	rig.play(CharacterRig.State.RUN)
 	rig.set_facing(to_hero)
+	if _wants_spell_cast():
+		_start_spell_windup()
+		return
 	if _retreat_timer <= 0.0 and _attack_cooldown <= 0.0 \
 			and global_position.distance_to(_hero.global_position) <= ASSASSIN_STRIKE_RANGE:
 		_start_assassin_windup()
@@ -1753,8 +1883,131 @@ func _resolve_strike(center: Vector2) -> void:
 
 ## Cancel an in-progress attack (hero freed mid-windup, or dying) without
 ## leaving a live danger circle or a dangling signal behind.
+# ------------------------------------------------------- ARCHETYPE SPELLCASTING
+## This body's own copy of its archetype's spell, built once and cached.
+##
+## ⚠ `duplicate()` FIRST, ALWAYS. `SpellLibrary.by_id` hands back the SHARED catalog
+## resource; writing `damage` on it would permanently re-tune the spell for the hero
+## as well, and compound once per cast. See the ARCHETYPE_SPELLS block.
+func archetype_spell() -> SpellDef:
+	if _spell_def != null:
+		return _spell_def
+	var row: Dictionary = ARCHETYPE_SPELLS.get(archetype, {})
+	if row.is_empty():
+		return null
+	var base: SpellDef = SpellLibrary.by_id(String(row["id"]))
+	if base == null:
+		push_warning("[enemy] archetype spell '%s' is not in the library" % String(row["id"]))
+		return null
+	var mine: SpellDef = base.duplicate() as SpellDef
+	mine.damage = int(row["dmg"])
+	if row.has("count"):
+		mine.count = int(row["count"])
+	if row.has("radius"):
+		mine.radius = float(row["radius"])
+	if row.has("length"):
+		mine.length = float(row["length"])
+	_spell_def = mine
+	return _spell_def
+
+
+## Is this body allowed to open a cast right now?
+func _wants_spell_cast() -> bool:
+	if _spell_cd > 0.0 or not is_instance_valid(_hero):
+		return false
+	# The teaching-floor gate. `floor_depth == 0` is "not told" and unrestricted.
+	if floor_depth > 0 and floor_depth < SPELL_MIN_DEPTH:
+		return false
+	var row: Dictionary = ARCHETYPE_SPELLS.get(archetype, {})
+	if row.is_empty() or archetype_spell() == null:
+		return false
+	var band: Array = row["band"]
+	var dist_x: float = absf(_hero.global_position.x - global_position.x)
+	return dist_x >= float(band[0]) and dist_x <= float(band[1])
+
+
+## Root, draw the tell, and light the on-body charge glow. Deliberately the same
+## shape as `_start_caster_windup` — one telegraph grammar, so a spell tell reads as
+## the same KIND of event as every other windup in the game rather than as a new
+## system the player has to learn separately.
+func _start_spell_windup() -> void:
+	var row: Dictionary = ARCHETYPE_SPELLS[archetype]
+	_attack_state = AttackState.WINDUP
+	_spell_pending = true
+	_aim_dir = (_hero.global_position - global_position).normalized()
+	if _aim_dir == Vector2.ZERO:
+		_aim_dir = Vector2.RIGHT
+	# Snapshot the target NOW, so a hero who moves during the tell has dodged it.
+	# That is the whole design ("dodge-the-tell") and it is why this is a snapshot
+	# rather than a live read at cast time.
+	_strike_center = _hero.global_position
+	var windup: float = float(row["windup"])
+	rig.flash()
+	_telegraph = _emit_telegraph({
+		"style": row["style"], "pos": _strike_center,
+		"radius": float(row.get("radius", 90.0)), "windup": windup,
+		"aim": _aim_dir, "reach": 130.0,
+	})
+	_spawn_caster_signal(13.0, windup)
+
+
+## The payload. Routed through `SpellCaster` rather than hand-built, so an enemy
+## spell IS the same object a hero's is: same spectacle, same reaction registration,
+## same element, same deflectability. A second, private cast path would be a second
+## thing to keep correct.
+##
+## ⚠ FRIENDLY FIRE MEANS THIS CHIPS OTHER ENEMIES. `SpellCaster.damage_group(&"hero")`
+## returns `mortal` while friendly fire is on, so an enemy's field or ridge hurts the
+## rest of the room too (minus its own caster, via `SpellTargets.owner_of`). That is
+## deliberate and is the boss's documented behaviour already — it is also real
+## mitigation for the difficulty this feature adds.
+func _cast_archetype_spell() -> void:
+	var spell: SpellDef = archetype_spell()
+	var arena: Node = get_parent()
+	if spell == null or arena == null or not arena.is_inside_tree():
+		_attack_state = AttackState.CHASE
+		return
+	var row: Dictionary = ARCHETYPE_SPELLS[archetype]
+	var origin: Vector2 = rig.get_weapon_tip() if rig.has_method(&"get_weapon_tip") else global_position
+	SpellCaster.cast(spell, arena, origin, _strike_center,
+		Elements.color(SpellCaster.resolve_element(spell)), spell.effect, self, &"hero")
+	if _coop_active():
+		_broadcast_spell(spell, origin, _strike_center)
+	_spell_cd = float(row["cd"])
+	_attack_state = AttackState.RECOVER
+	_recover_timer = ATTACK_RECOVER_TIME
+
+
+## Co-op: tell the clients to build a DAMAGE-FREE twin of this cast, so a remote
+## player sees the spell that is about to hit them.
+##
+## ⚠ `Net.broadcast_enemy_spell` DOES NOT EXIST YET, AND THAT IS STATED RATHER THAN
+## HIDDEN. `Net` has a `"spell"` arm but it is BOSS-ONLY (`broadcast_boss_fx` is
+## host-gated and keyed off a boss path), so there is no trash-mob equivalent. The
+## `has_method` guard below makes this a clean no-op today: single player is fully
+## correct, and a co-op CLIENT currently sees an enemy's tell and then its damage with
+## no spell drawn in between.
+##
+## The pattern to copy when it is wired: `Net.broadcast_boss_fx` -> `_spawn_mirrored_twin`.
+## ⚠ And note that function PARKS `SpellCaster.friendly_fire = false` around the twin
+## cast, because otherwise `_stamp` puts the teeth back into a spectacle whose whole
+## disarming is the group it scans.
+func _broadcast_spell(spell: SpellDef, origin: Vector2, target: Vector2) -> void:
+	var net: Node = get_node_or_null(^"/root/Net")
+	if net == null or not net.has_method(&"broadcast_enemy_spell"):
+		return
+	net.call(&"broadcast_enemy_spell", {
+		"id": spell.id, "dmg": spell.damage, "count": spell.count,
+		"radius": spell.radius, "length": spell.length,
+		"ox": origin.x, "oy": origin.y, "tx": target.x, "ty": target.y,
+	})
+
+
 func _abort_attack() -> void:
 	_attack_state = AttackState.CHASE
+	# A body killed or interrupted mid-tell must not leave a cast armed, or the next
+	# telegraph this body fires would resolve as a spell.
+	_spell_pending = false
 	if is_instance_valid(_telegraph):
 		if _telegraph.fired.is_connected(_on_telegraph_fired):
 			_telegraph.fired.disconnect(_on_telegraph_fired)

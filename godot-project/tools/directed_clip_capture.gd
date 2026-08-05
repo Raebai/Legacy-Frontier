@@ -339,6 +339,15 @@ func _run() -> void:
 				continue
 		if _walked % every != 0:
 			continue
+		# ⚠ WHERE THIS CLIP BEGINS IN *MOVIE* TIME. Godot's own `--write-movie` records
+		# the whole process lifetime — boot, import, scene build, the lot — so a movie
+		# is ~9 s longer than the clip inside it and needs trimming. Under
+		# `--write-movie` the engine forces `--fixed-fps`, so EVERY drawn frame is
+		# exactly `1/fps` of movie: `get_frames_drawn()` IS the movie frame index, and
+		# the trim is exact rather than estimated. Printed rather than computed by the
+		# caller because only this loop knows which frame was the first one kept.
+		if _saved == 0:
+			print("[clip] movie_in %d" % Engine.get_frames_drawn())
 		var img: Image = root.get_texture().get_image()
 		if img == null:
 			continue
@@ -368,6 +377,7 @@ func _run() -> void:
 		if _decided_at >= 0.0 and now - _decided_at >= minf(_tail, maxf(0.9, 0.35 * shot_so_far)):
 			print("[clip] result held — closing the shot")
 			break
+	print("[clip] movie_out %d" % Engine.get_frames_drawn())
 	_write_manifest()
 	print("[clip] DONE — %d frames (%.1fs) in %s"
 		% [_saved, float(_saved) / float(_fps), ProjectSettings.globalize_path(_dir)])

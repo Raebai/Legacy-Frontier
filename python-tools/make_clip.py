@@ -26,13 +26,28 @@ alternative — it emits UNCOMPRESSED AVI, about half a gigabyte for seven secon
 with nothing on the machine able to transcode it. Everything upstream of the encoder
 is already ready: the capture renders 1920x1080 PNGs.
 
-⚠ AND THE CLIP HAS NO SOUND, in any format. A PNG sequence carries no audio track, so
-every clip this project has ever produced is silent — while the game underneath it has
-a 248-key SFX roster, per-weight ducking and a music bed. Recording the game's audio
-alongside the frames is not something a frame-grab loop can do; it needs either a real
-`MovieWriter` (which is the uncompressed-AVI path) or an OS-level capture. Named here
-because "the sound effects need to be improved" cannot be judged from a clip that has
-never carried any.
+✅ THE CLIP HAS SOUND NOW, and it did not for this project's entire life. This block
+used to read "AND THE CLIP HAS NO SOUND, in any format... every clip this project has
+ever produced is silent", and it was right: a PNG sequence carries no audio track, so a
+248-key SFX roster, per-weight ducking and a music bed could not be judged from any
+clip ever shot.
+
+The default path is now Godot's own **Movie Maker** (`--write-movie`), which records a
+PCM stereo track alongside the frames. Measured on the first take: 48 kHz, 2ch, mean
+-18.1 dB / max -7.1 dB — a real mix, not an empty track.
+
+⚠ IT IS NOT A SCREEN RECORDING, AND THAT DISTINCTION IS THE WHOLE POINT.
+`--write-movie` FORCES `--fixed-fps`: the engine's delta is pinned, so every frame is
+exactly 1/fps of movie however long it actually took to draw. An OS-level screen
+grabber (OBS, ffmpeg gdigrab) captures whatever the machine managed in real time —
+about 19 fps at 1080p — which is precisely the judder this pipeline just spent a fix
+removing. Faster to set up, worse to watch.
+
+The old objection to MovieWriter recorded here ("emits UNCOMPRESSED AVI, about half a
+gigabyte for seven seconds, with nothing on the machine able to transcode it") was
+STALE ON BOTH COUNTS: the built-in writer is MJPEG rather than raw, and ffmpeg is on
+PATH now. `--silent` still runs the old frame-grab, which renders an offscreen
+1920x1080 regardless of window size.
 
 Stdlib + Pillow only.
 """
@@ -65,6 +80,86 @@ GUI_BINARY = REPO_ROOT / "godot-engine" / "Godot_v4.6.2-stable_win64.exe"
 
 CLASSES = ["ARCANIST", "SHADOWBLADE", "BRAWLER", "JUGGERNAUT", "CLERIC",
            "CRYOMANCER", "STORMCALLER", "WARLOCK", "SWORDSAINT"]
+
+
+def shoot_movie(args: argparse.Namespace) -> tuple[Path, int, int] | None:
+    """Godot's OWN Movie Maker (`--write-movie`), which is strictly better than the
+    frame-grab for the one thing the frame-grab structurally cannot do: **SOUND**.
+
+    ⚠ EVERY CLIP THIS PROJECT HAD EVER PRODUCED WAS SILENT, and this file used to say
+    so — a PNG sequence carries no audio track, so a 248-key SFX roster, per-weight
+    ducking and a music bed could not be judged from any clip ever shot. Godot's
+    built-in MJPEG-AVI writer records a PCM stereo track alongside the frames.
+    Measured on the first take: 48 kHz, 2ch, mean -18.1 dB / max -7.1 dB — a real mix,
+    not an empty track.
+
+    ⚠ AND IT IS NOT A SCREEN RECORDING. `--write-movie` FORCES `--fixed-fps`, so the
+    engine's delta is pinned and every frame is exactly 1/fps of movie no matter how
+    long it actually took to draw. An OS-level screen grabber would capture whatever
+    the machine managed in real time — which at 1080p is ~19 fps — and would put back
+    exactly the judder this pipeline just spent a fix removing.
+
+    The old objection in this file's header ("uncompressed AVI, half a gigabyte, with
+    nothing on the machine able to transcode it") is STALE on both counts: the writer
+    is MJPEG, not raw, and ffmpeg is on PATH now.
+
+    The cost is real and worth stating: it records the whole PROCESS lifetime — boot,
+    import, scene build — so a movie runs ~9 s longer than the clip inside it, and it
+    captures the WINDOW rather than an offscreen 1920x1080 viewport. The trim is exact
+    (see `movie_in`/`movie_out`), and the window is downscaled to `--share-width`
+    anyway, so neither costs anything in the delivered file.
+    """
+    avi = user_data_dir() / "clips" / f"{args.out}.avi"
+    avi.parent.mkdir(parents=True, exist_ok=True)
+    argv = [
+        str(GUI_BINARY), "--path", str(GODOT_PROJECT),
+        "--write-movie", str(avi), "--fixed-fps", str(args.fps),
+        "--resolution", f"{args.width}x{args.height}",
+        "--script", "tools/directed_clip_capture.gd", "--",
+        f"--a={args.a}", f"--b={args.b}", f"--difficulty={args.difficulty}",
+        f"--hp={args.hp}", f"--seconds={args.seconds}", f"--fps={args.fps}",
+        f"--width={args.width}", f"--height={args.height}", f"--out={args.out}",
+    ]
+    print(f"shooting {CLASSES[args.a]} vs {CLASSES[args.b]} (with sound) ...")
+    proc = subprocess.run(argv, capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", timeout=args.timeout)
+    m_in, m_out = -1, -1
+    for line in (proc.stdout or "").splitlines():
+        if line.startswith("[clip]"):
+            print("  " + line)
+            if "movie_in" in line:
+                m_in = int(line.rsplit(" ", 1)[1])
+            elif "movie_out" in line:
+                m_out = int(line.rsplit(" ", 1)[1])
+    for line in (proc.stderr or "").splitlines():
+        if "SCRIPT ERROR" in line or "Parse Error" in line:
+            print("  ! " + line)
+    if not avi.exists() or m_in < 0 or m_out <= m_in:
+        print(f"  ! movie capture produced nothing usable (in={m_in} out={m_out})")
+        return None
+    return avi, m_in, m_out
+
+
+def encode_from_movie(avi: Path, out: Path, fps: int, width: int,
+                      m_in: int, m_out: int) -> bool:
+    """Trim the recorded movie to the clip window and transcode to H.264 + AAC.
+
+    `-ss` BEFORE `-i` seeks on the input, which is fast and — because MJPEG is
+    all-intra — frame-exact here, with none of the keyframe rounding that would make
+    this approximate on an inter-coded source."""
+    ff = shutil.which("ffmpeg")
+    if ff is None:
+        return False
+    even = width - (width % 2)
+    start = m_in / float(fps)
+    dur = (m_out - m_in) / float(fps)
+    subprocess.run([
+        ff, "-y", "-ss", f"{start:.3f}", "-t", f"{dur:.3f}", "-i", str(avi),
+        "-vf", f"scale={even}:-2:flags=lanczos", "-c:v", "libx264",
+        "-preset", "slow", "-crf", "20", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "160k", str(out),
+    ], check=True)
+    return True
 
 
 def shoot(args: argparse.Namespace) -> Path:
@@ -169,6 +264,10 @@ def main() -> int:
     # the 28 s budget. For a melee mirror, pass a lower `--hp`.
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--no-shoot", action="store_true", help="re-encode existing frames")
+    ap.add_argument("--silent", action="store_true",
+                    help="use the old PNG frame-grab path (no audio, offscreen 1080p)")
+    ap.add_argument("--keep-avi", action="store_true",
+                    help="keep the intermediate movie (it is large — MJPEG, ~3MB/s)")
     args = ap.parse_args()
 
     if not GUI_BINARY.exists():
@@ -177,6 +276,24 @@ def main() -> int:
     if not (0 <= args.a < len(CLASSES)) or not (0 <= args.b < len(CLASSES)):
         print(f"error: class ids must be 0..{len(CLASSES) - 1}")
         return 2
+
+    stem_dir = user_data_dir() / "clips"
+    out_mp4 = stem_dir / f"{CLASSES[args.a].lower()}_vs_{CLASSES[args.b].lower()}.mp4"
+
+    # ── THE DEFAULT PATH: Godot's own Movie Maker, WITH SOUND. ──────────────────
+    # Falls back to the silent frame-grab if the movie capture produces nothing
+    # usable, rather than failing the run — a silent clip beats no clip.
+    if not args.no_shoot and not args.silent and shutil.which("ffmpeg") is not None:
+        shot = shoot_movie(args)
+        if shot is not None:
+            avi, m_in, m_out = shot
+            if encode_from_movie(avi, out_mp4, args.fps, args.share_width, m_in, m_out):
+                print(f"\nwrote {out_mp4}  ({out_mp4.stat().st_size / 1_048_576:.1f} MB, with audio)")
+                print("that is the file to post.")
+                if not args.keep_avi:
+                    avi.unlink(missing_ok=True)
+                return 0
+        print("  falling back to the silent frame-grab path ...")
 
     frames = user_data_dir() / "clips" / args.out
     if not args.no_shoot:

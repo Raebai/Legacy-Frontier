@@ -81,7 +81,6 @@ func apply(element: int, can_chain: bool = true) -> void:
 			_burn = BURN_DURATION        # Radiance: a radiant burn (gold flames via tint)
 		WIND:
 			_shock = SHOCK_STUN          # Gale: a brief stun (teal arcs via tint; no chain)
-	queue_redraw()
 
 
 ## Movement multiplier the Enemy applies to its chase speed: the strongest active
@@ -134,7 +133,6 @@ func _process(delta: float) -> void:
 		_unstable -= delta
 		if _unstable <= 0.0:
 			_pop_unstable()
-	queue_redraw()
 
 
 ## Damage the owning enemy (burn tick / unstable pop). Guarded so a mid-tick
@@ -206,16 +204,6 @@ func _shatter() -> void:
 		sfx.call("play", "spell_impact", -4.0, 0.15)
 
 
-# ------------------------------------------------------------------- overlay draw
-## Blend an ailment's base colour toward the causing element's tint so a reused
-## mechanic (EARTH→freeze, HOLY→burn, WIND→shock) still READS as its own element.
-## For the native element _last_color ~= the base, so the look is unchanged.
-func _ail_tint(base: Color) -> Color:
-	var t: Color = base.lerp(Color(_last_color.r, _last_color.g, _last_color.b, base.a), 0.45)
-	t.a = base.a
-	return t
-
-
 ## ⚠ BURN / CHILL / FREEZE / SHOCK ARE NO LONGER DRAWN HERE. They are drawn by
 ## `CharacterRig._draw_status`, which has the solved pose and can put a stroke on an
 ## actual limb. See the long note there for why: this node sits at the BODY origin,
@@ -226,12 +214,14 @@ func _ail_tint(base: Color) -> Color:
 ## WEAKEN and UNSTABLE are still drawn here, deliberately and temporarily: they have
 ## the same fault and the maker named neither, so they are left visibly inconsistent
 ## rather than redesigned on a guess. They are the next two to move.
-func _draw() -> void:
-	var r: float = 14.0
-	if _weaken > 0.0:
-		_draw_weaken(r)
-	if _unstable > 0.0:
-		_draw_unstable(r)
+## ⚠ THIS NODE NO LONGER DRAWS ANYTHING AT ALL. Every ailment overlay — burn, chill,
+## freeze, shock, and now weaken and unstable — is drawn by `CharacterRig._draw_status`,
+## which has the solved pose and can put a stroke on an actual limb.
+##
+## The last two moved for the same reason as the first four: this node sits at the BODY
+## origin, which `_align_feet_to_body` puts 6.5 px BELOW the middle of the figure, so a
+## ~14 px disc drawn here is a ring centred at mid-thigh that the figure stands inside.
+## Leaving two of six visibly inconsistent was a deliberate pause, not a design.
 
 
 # ---------------------------------------------------- what the rig needs to know
@@ -239,6 +229,8 @@ const B_BURN: int = 1
 const B_CHILL: int = 2
 const B_FREEZE: int = 4
 const B_SHOCK: int = 8
+const B_WEAKEN: int = 16
+const B_UNSTABLE: int = 32
 
 
 ## Which ailments are live, as `CharacterRig.ST_*` bits. FREEZE outranks CHILL: they
@@ -253,6 +245,10 @@ func status_bits() -> int:
 		b |= B_CHILL
 	if _shock > 0.0:
 		b |= B_SHOCK
+	if _weaken > 0.0:
+		b |= B_WEAKEN
+	if _unstable > 0.0:
+		b |= B_UNSTABLE
 	return b
 
 
@@ -269,17 +265,3 @@ func tint() -> Color:
 ## `CharacterRig._draw_status`, which knows where the limbs are.)
 
 
-func _draw_weaken(r: float) -> void:
-	# Dark smoky aura pulsing — the "vulnerable" read.
-	var pulse: float = 0.5 + 0.2 * sin(_phase * 4.0)
-	draw_circle(Vector2.ZERO, r * 1.3 * pulse, Color(0.35, 0.1, 0.45, 0.16))
-	for i: int in 4:
-		var ang: float = -_phase * 1.5 + TAU * float(i) / 4.0
-		draw_circle(Vector2.from_angle(ang) * r * 1.1, 3.0, Color(0.5, 0.2, 0.6, 0.3))
-
-
-func _draw_unstable(r: float) -> void:
-	# Magenta shimmer ring building toward the pop.
-	var t: float = 1.0 - clampf(_unstable / UNSTABLE_DURATION, 0.0, 1.0)
-	draw_arc(Vector2.ZERO, r * (1.0 + 0.4 * t), 0.0, TAU, 24, Color(0.95, 0.4, 0.85, 0.4 + 0.4 * t), 2.0)
-	draw_circle(Vector2.ZERO, r * 0.2 * (0.5 + t), Color(1.0, 0.7, 0.95, 0.3 + 0.4 * t))
