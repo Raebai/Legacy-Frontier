@@ -291,6 +291,22 @@ func summon_circle(at: Vector2, element: int, tier: int, radius: float, hold: fl
 	var host: Node = get_parent()
 	if host == null or not host.is_inside_tree():
 		return null
+	# ⚠ THE SIGIL IS 87.9% OF ALL SPELL-SPECTACLE `_draw` COST — measured, and stated
+	# in the header of `tools/profile_magic_circle.gd`. It declares no `element_id`, so
+	# the spectacle census never counted it, and its only throttle was the LOW-quality
+	# switch: on desktop it had no budget path at all. This is the one choke point
+	# every boss opens a circle through, which is why the guard goes here rather than
+	# at the ~40 call sites.
+	#
+	# ⚠ AND IT IS THINNED, NEVER SKIPPED. The circle is a FAIRNESS signal on this
+	# roster — it is how the compass states its radius and how the Final Page states
+	# its size — so dropping it would make a boss less readable exactly when the screen
+	# is busiest, which is the opposite of the fix. Over budget it loses the ground
+	# projection and shortens its hold; it still states its extent.
+	var over: bool = SpellReactorNode.vfx_over_budget()
+	if over:
+		ground = false
+		hold = minf(hold, 0.45)
 	var grow: float = minf(0.26, maxf(hold * 0.4, 0.08))
 	var c := MagicCircle.new()
 	host.add_child(c)

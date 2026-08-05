@@ -109,6 +109,14 @@ static var showcase_directed: bool = false
 ## bout (fights that end are clips; fights that do not are footage) without editing
 ## the constant every other mode reads.
 static var showcase_hp_override: int = 0
+## Which biome this bout is dressed in (index into `GameState.BIOMES`), or -1 to roll.
+## A static for the same reason every other knob here is one: `BotMatch` writes them
+## onto the SCRIPT before instantiating the scene, so the value is present before
+## `_ready` runs and there is no window in which a drawer sees a half-built stage.
+static var stage_biome: int = -1
+## What the roll actually landed on. Read by the suite and by anything that wants to
+## report the stage — never written from outside.
+static var stage_biome_rolled: int = 0
 ## Leave the Smash damage-% + ring-out model ON for a showcase? TRUE is the stage's
 ## own model and the shipped behaviour.
 ##
@@ -666,7 +674,68 @@ func _build_background() -> void:
 			"silhouette_near": Color(0.47, 0.50, 0.63),
 			"accent": Color(1.0, 0.98, 0.92),
 		}
+	# ══ TEN SKIES, AND NOT ONE NEW ASSET ════════════════════════════════════════
+	# Maker: *"lets randomise the map they fight in give that variety, make some
+	# awesome cooler looking maps please with cool backgrounds"*. Measured first: this
+	# stage NEVER varied — a grep for `randi|randf|seed` across this whole file
+	# returned nothing, and the only branch in the entire look was the two-way
+	# showcase palette literal above. Every clip this project has ever shot was the
+	# same dusk.
+	#
+	# The tower already owns ten authored biomes (`GameState.BIOMES`) with a wash, an
+	# accent and an exposure each, and `Atmosphere.build` ALREADY takes a palette dict
+	# — so the whole win here is feeding one into the other. No new art, no generator,
+	# no geometry change (which is where the real risk lives: the spawn symmetry, the
+	# camera's vertical band and the rim rules are all pinned to today's layout).
+	#
+	# ⚠ `GameState` IS LOADED BY PATH, NEVER NAMED. It is an autoload with no
+	# `class_name`, and the headless suites run `--script` with no autoloads at all —
+	# writing the bare identifier here is a COMPILE-TIME failure in those harnesses,
+	# not a runtime one. This file already documents that idiom for the same reason.
+	var theme: Object = _stage_theme()
+	if theme != null:
+		var wash: Color = theme.call("lit_wash")
+		var accent: Color = theme.call("accent")
+		var lift: float = 1.18 if _is_showcase() else 1.0
+		sky = {
+			# The sky is the biome's own wash opened up — dark enough to stay a sky,
+			# far enough from the ground band that the fighters have something to be
+			# silhouetted against. That contrast is the measured constraint the
+			# showcase palette above exists to satisfy, so it is preserved as a LIFT
+			# rather than replaced.
+			"sky_top": (wash * lift).lightened(0.22),
+			"sky_bottom": accent.lerp(Color(0.93, 0.90, 0.86), 0.45) * lift,
+			"silhouette_far": (wash * lift).lightened(0.44),
+			"silhouette_near": (wash * lift).lightened(0.26),
+			"accent": accent.lightened(0.35),
+		}
+		# The screen grade follows the room, exactly as it does in the tower. One line,
+		# ten grades, and it was simply never called here — this file calls
+		# `PostProcess.add` and then never tells it what colour the world is.
+		PostProcess.set_theme(wash)
 	atmo.build(Rect2(Vector2(-400, -420), STAGE_SIZE + Vector2(800, 900)), sky)
+
+
+## The biome this bout is dressed in, or null to keep the authored dusk.
+##
+## Rolled ONCE, here, never in a drawer: `FloorDecor` and `ArenaTerrain` both require
+## hashed pseudo-noise rather than an RNG inside `_draw`, because a shape that
+## reshuffles every redraw boils. Same rule `BotMatch._roll_matchup` follows.
+func _stage_theme() -> Object:
+	var gs: GDScript = load("res://scripts/GameState.gd") as GDScript
+	if gs == null:
+		return null
+	var count: int = 10
+	var rows: Variant = gs.get("BIOMES")
+	if rows is Array and not (rows as Array).is_empty():
+		count = (rows as Array).size()
+	var pick: int = stage_biome
+	if pick < 0:
+		pick = randi() % count
+	stage_biome_rolled = pick % count
+	# `floor_env` is keyed by FLOOR and wraps modulo the table, so floor = index + 1
+	# addresses a biome directly. Static and pure — no run state, no autoload instance.
+	return gs.call("floor_env", stage_biome_rolled + 1)
 
 
 ## The connected rock landscape: a permanent solid collider per terrace + ONE

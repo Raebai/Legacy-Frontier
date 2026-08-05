@@ -43,6 +43,18 @@ var _chunks: Array[PackedVector2Array] = []
 static func spawn(parent: Node, world_pos: Vector2, crater_radius: float, snap: bool = true) -> void:
 	if parent == null or not parent.is_inside_tree():
 		return
+	# ⚠ THIS HAD NO BUDGET GATE AND NO O(1) CAP, AND IT IS A BOSS-FIGHT PROBLEM.
+	# Maker: *"the third and 4th boss and probably onwards cast too much stuff at the
+	# same time it lags the whole game out"*. A crater is scenery — nothing reads the
+	# floor to decide anything — so it is exactly the thing to skip when the arena is
+	# already carrying its effect budget. `ScorchDecal.spawn` has had this guard for a
+	# while and the two systems stack on the SAME floor; only one of them was paying
+	# attention. The Illuminator's `psalm` alone asks for FOURTEEN of these inside about
+	# a second, each costing a downward raycast plus (below) an allocating group walk.
+	if SpellReactorNode.vfx_over_budget():
+		_skipped += 1
+		return
+	_spawned += 1
 	var c := GroundCrater.new()
 	c.radius = crater_radius
 	c.z_index = -1
@@ -58,7 +70,36 @@ static func spawn(parent: Node, world_pos: Vector2, crater_radius: float, snap: 
 				c.queue_free()  # over a pit — no floating crater
 				return
 			c.global_position = hit["position"]
-	_enforce_cap(parent.get_tree())
+	# ⚠ GATED BEHIND AN O(1) COUNTER, like `ScorchDecal` and `DebrisChunk` already are.
+	# This used to run on EVERY crater and it is a group walk that allocates twice —
+	# once for `get_nodes_in_group`'s array and again for the typed one built from it.
+	# So a boss barrage paid an O(n) allocating scan per mark to discover, almost every
+	# time, that it was nowhere near the cap.
+	if _alive > MAX_CRATERS:
+		_enforce_cap(parent.get_tree())
+
+
+## Live craters, O(1) — see the note at the `_enforce_cap` call site.
+static var _alive: int = 0
+## Deterministic work counters, matching `ScorchDecal.work_stats`: the harness
+## measures COUNTS rather than milliseconds, so a budget regression is a failing
+## assertion rather than a stopwatch reading that drifts with the machine.
+static var _spawned: int = 0
+static var _skipped: int = 0
+
+
+static func alive_count() -> int:
+	return _alive
+
+
+static func work_stats() -> Dictionary:
+	return {"spawned": _spawned, "skipped": _skipped}
+
+
+static func reset_count() -> void:
+	_alive = 0
+	_spawned = 0
+	_skipped = 0
 
 
 ## Cap against unbounded growth: past MAX_CRATERS, free the oldest (add order).
@@ -74,10 +115,24 @@ static func _enforce_cap(tree: SceneTree) -> void:
 		alive[i].queue_free()
 
 
+var _counted: bool = false
+
+
 func _ready() -> void:
 	add_to_group(GROUP_NAME)
+	_alive += 1
+	_counted = true
 	_bake_chunks()
 	queue_redraw()
+
+
+## Counter safety net — a crater freed with its arena still has to give its slot back,
+## or `_alive` ratchets up and every spawn starts paying for the group walk the counter
+## exists to avoid. Same shape as `ScorchDecal._exit_tree`.
+func _exit_tree() -> void:
+	if _counted:
+		_counted = false
+		_alive = maxi(_alive - 1, 0)
 
 
 ## Pre-bake the broken edge-chunk quads once so _draw stays deterministic. Chunk

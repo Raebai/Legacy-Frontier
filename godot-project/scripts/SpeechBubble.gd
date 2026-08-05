@@ -33,6 +33,36 @@ func _ready() -> void:
 	thinking_timer.timeout.connect(_on_thinking_tick)
 
 
+## ══ BARE MODE: THE WORDS WITHOUT THE BOX ════════════════════════════════════════
+## Maker, on the duel: *"remove that speec boxes and make the text size smaller in
+## the bot fights"*. Two bordered panels floating over a fight are two more rectangles
+## competing with a screen that already carries health bars, damage numbers and a
+## clock — and in a clip they read as UI pasted over the action rather than as someone
+## speaking.
+##
+## ⚠ APPLIED AT RUNTIME, NOT IN THE `.tscn`, BECAUSE THIS SCENE IS SHARED. The hub
+## townsfolk use the same bubble, standing still, against a calm street, where the
+## panel is doing useful work — and the maker's note was explicitly *"in the bot
+## fights"*. Editing the scene file would have quietly restyled the town to answer a
+## note about the arena.
+##
+## The text stays readable without the panel because the label already carries a
+## 3 px near-black outline; that outline was always what made it legible, and the box
+## behind it was belt and braces.
+func set_bare(font_size: int = 9) -> void:
+	var empty := StyleBoxEmpty.new()
+	panel.add_theme_stylebox_override(&"panel", empty)
+	for k: StringName in [&"normal_font_size", &"bold_font_size", &"italics_font_size",
+			&"bold_italics_font_size", &"mono_font_size"]:
+		label.add_theme_font_size_override(k, font_size)
+	# ⚠ ALL FIVE, or a BBCode `[b]`/`[i]` run renders at the old size next to shrunk
+	# normal text — the same trap the bubble's last font change documented.
+	var margin: MarginContainer = panel.get_node_or_null(^"Margin") as MarginContainer
+	if margin != null:
+		for k2: StringName in [&"margin_left", &"margin_top", &"margin_right", &"margin_bottom"]:
+			margin.add_theme_constant_override(k2, 1)
+
+
 func _process(_delta: float) -> void:
 	if not visible:
 		return

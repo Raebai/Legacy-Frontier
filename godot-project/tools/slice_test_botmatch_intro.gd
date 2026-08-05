@@ -197,7 +197,13 @@ func _test_intro_is_bounded() -> void:
 	# A lower bound too: an "intro" of 0.2 s is a flicker nobody can read, and it would
 	# pass a naive "is it small" check while failing the feature.
 	_expect(secs >= 0.8, "the card holds long enough to read (got %.2fs)" % secs)
-	_expect(secs <= 3.0, "...and is not a cutscene (got %.2fs)" % secs)
+	# ⚠ 3.0 -> 4.0 ON THE MAKER'S ASK: *"before the fight starts I need some time to
+	# show x vs z on the screen as the stick figures stand there like a couple
+	# seconds"*. The ceiling is still here and still means what it meant — the card
+	# must not become a cutscene the sweep tools pay for on every bout — it is just no
+	# longer tighter than the couple of seconds that were asked for. At 3.2 s, minus a
+	# 0.28 s fade each end and the 0.45 s FIGHT beat, the readable hold is ~2.2 s.
+	_expect(secs <= 4.0, "...and is not a cutscene (got %.2fs)" % secs)
 	# SKIPPABLE. A tool sets this to 0 and the card is gone whole.
 	_match.set("intro_seconds", 0.0)
 	_expect(is_zero_approx(float(_match.get("intro_seconds"))),

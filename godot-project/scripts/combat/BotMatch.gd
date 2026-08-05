@@ -247,7 +247,15 @@ static var auto_rematch: bool = true
 ## It is ALSO skipped automatically when there is no real display (see `_ceremony()`),
 ## so the headless suites and the sim pay nothing without having to know this knob
 ## exists at all.
-static var intro_seconds: float = 1.8
+## ⚠ 1.8 -> 3.2. Maker: *"before the fight starts I need some time to show x vs z on
+## the screen as the stick figures stand there like a couple seconds"*. The card was
+## already there and already held both fighters with the tree paused — it was simply
+## too short to read two class names, register the two bodies, and land the word
+## FIGHT. At 1.8 s, minus a 0.28 s fade each end and the 0.45 s FIGHT beat, the
+## readable hold was under a second. This gives it the couple of seconds asked for.
+##
+## It is the FIRST thing in every clip, so it is also the thumbnail.
+static var intro_seconds: float = 3.2
 ## Do the fighters talk? Same reasoning: on by default for a watch, off for anything
 ## measuring throughput, and forced off with no display.
 static var taunts: bool = true
@@ -823,6 +831,13 @@ func _bubble_for(who: Node2D) -> Node:
 	bubble.name = String(TAUNT_BUBBLE_NAME)
 	bubble.process_mode = Node.PROCESS_MODE_ALWAYS
 	who.add_child(bubble)
+	# No box, smaller type — the duel's own register. See `SpeechBubble.set_bare` for
+	# why this is applied here rather than in the shared scene: the hub townsfolk use
+	# the same bubble and the panel earns its place there.
+	# ⚠ AFTER `add_child`, not before: the overrides go through `@onready` node
+	# references that do not exist until the bubble is in the tree.
+	if bubble.has_method("set_bare"):
+		bubble.call("set_bare", 9)
 	return bubble
 
 
