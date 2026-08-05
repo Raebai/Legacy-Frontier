@@ -20,7 +20,14 @@ const GRAVITY: float = 1500.0          # rise gravity (floaty apex)
 const GRAVITY_FALL: float = 2100.0     # heavier coming down (weighty landing)
 const MAX_FALL: float = 1000.0
 const JUMP_VELOCITY: float = -580.0  # slightly higher jump (maker feedback)
-const DOUBLE_JUMP_VELOCITY: float = -470.0
+## ⚠ -470 -> -415. Maker: *"the dash distance and jump height for shadowblade is too
+## much so any classes that have that as well please reduce slightly"*. This constant
+## is read at exactly ONE site — the `_air_jumps > 0` branch — so it is already scoped
+## to precisely the classes that have the extra air: the Shadowblade (2 air jumps) and
+## the Brawler (1). The GROUND jump (`JUMP_VELOCITY`) is deliberately untouched, since
+## lowering that would shorten every class's jump in the tower to answer a note about
+## two of them.
+const DOUBLE_JUMP_VELOCITY: float = -415.0
 const MAX_AIR_JUMPS: int = 0  # no mid-air double-jump — wall-jump is the air move
 const COYOTE_TIME: float = 0.10      # jump slightly after leaving a ledge
 const JUMP_BUFFER_TIME: float = 0.10 # jump queued slightly before landing
@@ -240,7 +247,13 @@ const ARCANE_PHASE_ECHO_FADE: float = 0.3
 ## fully-aimed 360° traversal, not a hop that sags. Paired with TWO air jumps
 ## (`air_jumps: 2`) it is the only class that can cross a room without touching a
 ## floor. It pays for that with 78 HP — the lowest in the game.
-const AIR_DASH_SPEED: float = 700.0
+## ⚠ 700 -> 615. Same note: *"the dash distance ... for shadowblade is too much"*.
+## 700 x 0.18 was 126 px, and 151 px in the air once `AIR_DASH_AIRBORNE_BONUS` is
+## applied — the longest travel in the roster on the fastest body in it (speed 240),
+## which is what let it leave any exchange it did not like. 615 gives 111 / 133 px.
+## The TIME is left alone on purpose: shortening it would make the dash snappier as
+## well as shorter, and the note was about distance.
+const AIR_DASH_SPEED: float = 615.0
 const AIR_DASH_TIME: float = 0.18
 ## Airborne dashes travel FURTHER than grounded ones. Every other class in the game is
 ## worse in the air; this one is better, and that inversion is the whole identity.

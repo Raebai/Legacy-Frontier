@@ -702,6 +702,31 @@ const TAIL_DELAY: float = 0.06
 ## same sample at the same level twice in a row is what reads as "cheap".
 const LEVEL_JITTER_DB: float = 1.6
 
+## ══ THE KEYS THAT ACTUALLY REPEAT ═══════════════════════════════════════════════
+## Only these five go through the repeat governor in `play()`. They are the ones a
+## duel fires several times a second: the melee connect, the bolt connect, the hurt
+## grunt, the reward ring and the swing itself.
+##
+## ⚠ `enemy_death` IS DELIBERATELY NOT HERE. It is also fired by `DestructibleProp`,
+## `BreakablePlatform`, `DestructibleTerrain`, `DestructibleFloor`, `RockWall` and
+## `Thrall` — so governing it would swallow "that crate broke" the moment one spell
+## clears several props, which is feedback the player acts on rather than noise.
+## Same reasoning excludes `telegraph`: it is the tower's dodge-the-tell cue and it
+## has to cut through a busy fight by design.
+const REPEAT_GOVERNED: Array[String] = [
+	"melee_hit", "spell_impact", "hero_hurt", "ding", "melee_swing",
+]
+## Two hits closer together than this are one hit as far as an ear is concerned.
+const REPEAT_FLOOR_MS: int = 60
+## Inside this window a repeat is ducked and stripped of its layers.
+const REPEAT_WINDOW_MS: int = 190
+const REPEAT_TRIM_DB: float = -4.5
+
+## Last play time per governed key. Not per-emitter: the complaint is about the
+## SCREEN's total noise, and two fighters landing alternate blows produce the same
+## smear as one fighter landing two.
+var _last_play_ms: Dictionary = {}
+
 # ---------------------------------------------------------------------------
 # THE LENGTH PROBLEM — "the sound fx are too long compared to the cast itself"
 # ---------------------------------------------------------------------------
@@ -1157,9 +1182,46 @@ func play(
 	# "the sound fx are too long compared to the cast itself". See THE LENGTH
 	# PROBLEM. A payoff gets the discharge cap; a windup gets the channel cap.
 	var max_len: float = HOLD_MAX_LEN if bool(prof.get("hold", false)) else CUE_MAX_LEN
+	# ══ THE REPEAT GOVERNOR ═════════════════════════════════════════════════════
+	# Maker, watching a duel: *"it becomes noise slop right now because they are
+	# repeatedly getting hit"*. Measured: this file had NO throttle of any kind — no
+	# per-key cooldown, no same-sound-within-N-ms suppression, no concurrency cap. A
+	# busy exchange makes ~20-25 `play()` calls a second and starts ~35-40 VOICES,
+	# against a 32-slot round-robin pool, so the pool wraps about once a second and
+	# overwrites cues mid-tail with no crossfade. That is the mush.
+	#
+	# It thins rather than mutes, and only for the handful of keys that actually
+	# repeat (see `REPEAT_GOVERNED`). The first hit of a flurry lands at full weight;
+	# the ones behind it duck under it and drop their sub/tail layers, so three
+	# connects read as ONE impact with texture instead of three equal bangs — which is
+	# also what they look like on screen.
+	#
+	# ⚠ PER-KEY, NEVER A GLOBAL RATE BUDGET. `slice_test_sfx_mix` and
+	# `slice_test_sfx_roster` play the WHOLE roster inside a single frame and assert
+	# every pool slot received a stream; a global "N sounds per 100 ms" cap would
+	# suppress most of that sweep and fail both suites for the wrong reason. Each key
+	# is played once per sweep, so a per-key window never triggers there.
+	var layered: bool = true
+	if REPEAT_GOVERNED.has(key):
+		var now_ms: int = Time.get_ticks_msec()
+		var since: int = now_ms - int(_last_play_ms.get(key, -100000))
+		if since < REPEAT_FLOOR_MS:
+			# Physically indistinguishable from the one before it — two sources landing
+			# on the same frame. Mirrors `CharacterRig.STEP_SFX_MIN_GAP`, which is the
+			# same guard already written for footsteps.
+			return
+		if since < REPEAT_WINDOW_MS:
+			# Inside the flurry: duck it and strip the layers. Skipping the layers is
+			# the bigger win of the two — it takes a three-connect trade from about
+			# eighteen voices to eight.
+			db += REPEAT_TRIM_DB
+			layered = false
+		_last_play_ms[key] = now_ms
 	# Unknown key: warn and bail BEFORE the layers, so a typo doesn't leave a
 	# disembodied sub-boom firing with nothing on top of it.
 	if not _emit(key, db, pitch_variation, pitch_base, delay, max_len):
+		return
+	if not layered:
 		return
 
 	# --- automatic layers. These go through _emit, never play(), so a stem can

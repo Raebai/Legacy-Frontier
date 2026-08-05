@@ -769,6 +769,19 @@ func _taunt(side: int, beat: StringName, always: bool = false) -> void:
 	var text: String = TauntBook.line_for(beat, -1, vs)
 	if text.is_empty():
 		return
+	# ⚠ THE LINE WEARS THE SPEAKER'S OWN COLOUR. Maker: *"make the text in the colour
+	# of the stickman"*. With two bubbles on screen and both of them white, the only
+	# way to tell who just spoke was to trace the tail back to a body — which in a clip
+	# is a beat the viewer does not have. The corner colour is already the identity
+	# everything else in this mode reads (`side_color`, the plates, the rig tint), so
+	# the bubble joins it rather than inventing a third scheme.
+	#
+	# LIGHTENED FOR THE PANEL IT SITS ON. The bubble backing is near-black, and the
+	# blue corner at its authored value is a legibility problem against it while the
+	# yellow is not — so both go through the same lift rather than hand-picking one.
+	# `to_html(false)` drops alpha, which BBCode's `[color=#rrggbb]` does not take.
+	var ink: Color = side_color(side).lightened(0.25)
+	text = "[color=#%s]%s[/color]" % [ink.to_html(false), text]
 	if not always and not _off_taunt_cooldown(who):
 		return
 	var bubble: Node = _bubble_for(who)
@@ -1029,22 +1042,29 @@ func _put_the_loser_down(winner: int) -> void:
 	# precisely so it plays through hit-stop; `CombatVfx` parents to the arena, which
 	# is already `PROCESS_MODE_ALWAYS`. Neither needed plumbing here — that is the
 	# whole argument for reusing them rather than writing a duel-only death.
-	var corpse_tint: Color = Color(0.42, 0.44, 0.52, 0.95)
-	if (rig as Object).has_method("snapshot_pose"):
-		var smudge: GDScript = load("res://scripts/combat/DeathSmudge.gd") as GDScript
-		if smudge != null:
-			smudge.call("spawn", f.get_parent(), rig, corpse_tint, from_dir,
-				Vector2.ZERO, 0.68)
+	# ⚠ NO `DeathSmudge` HERE, AND THAT WAS A REAL BUG I SHIPPED. Maker: *"when they
+	# die they bug out and glitch"*. A smudge is a SNAPSHOT of the rig that folds into
+	# a heap and is rubbed out — `Enemy._die` uses it INSTEAD of a ragdoll, because it
+	# `queue_free`s the body on the same frame, and `Hero._enter_downed` uses it while
+	# the real body leaves for `GhostForm`. A bot-match loser does NEITHER: it stays on
+	# stage and ragdolls. Adding a smudge on top drew a SECOND stickman over the first,
+	# folding one way while the body toppled another. Two figures, one death.
+	#
+	# The ragdoll IS the dying here, so what this beat needs is weight around it, not a
+	# second corpse.
 	CombatVfx.spawn_burst(
 		f.get_parent(), f.global_position,
 		side_color(loser).lightened(0.3), Color(side_color(loser), 0.0),
 		42, 0.5, 110.0, 240.0, 1.5, 4.0, 40.0, 90.0)
-	# The weight of the blow. `Hero.take_damage` already spent a 0.05 s HURT hit-stop
-	# on this frame; a KILL is the heaviest impact in the game and the tower prices it
-	# at 0.11. Deliberately re-armed here rather than raising `HURT_HIT_STOP`, which
-	# would slow every ordinary hit in the tower as well.
-	Juice.hit_stop(0.11)
 	(rig as Object).call("collapse", from_dir)
+	# ⚠ DEFERRED, OR IT IS SILENTLY THROWN AWAY. A kill is the heaviest impact in the
+	# game and the tower prices it at 0.11 s against the 0.05 s of an ordinary hurt.
+	# But this runs INSIDE `Hero.take_damage`, which fires its own `Juice.hit_stop(0.05)`
+	# a few lines later — and `hit_stop` bumps a generation counter that cancels the
+	# previous restore, so the LAST caller wins. Called straight, the heavier freeze was
+	# overwritten by the lighter one on the same frame and the kill felt like a graze.
+	# Deferring puts it after `take_damage` has finished having its say.
+	Juice.hit_stop.call_deferred(0.11)
 	# ⚠ AND HIDE THE LOSER'S FLOATING HP BAR, which would otherwise sit over the body
 	# reading FULL GREEN. `Hero._die()` outside a run heals straight back to `max_hp`
 	# (the F6 feel-sandbox behaviour, correct there), and `CharacterBars` POLLS `hp`
