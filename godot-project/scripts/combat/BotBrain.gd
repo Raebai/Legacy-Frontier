@@ -1295,7 +1295,7 @@ static func _wants_swing(bb: Dictionary, m: Memory, now: float) -> bool:
 static func score_slots(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 		pressure: float, soonest: float) -> Array:
 	var cooldowns: Array = bb.get("cooldowns", [])
-	var facts: Array = _kit_facts(int(bb.get("class_id", -1)))
+	var facts: Array = facts_for(int(bb.get("self_id", 0)), int(bb.get("class_id", -1)))
 	var me: Vector2 = bb.get("self_pos", Vector2.ZERO)
 	var foe: Vector2 = bb.get("foe_pos", Vector2.ZERO)
 	var foe_vel: Vector2 = bb.get("foe_vel", Vector2.ZERO)
@@ -1542,7 +1542,7 @@ static func _note_cast(bb: Dictionary, m: Memory, slot: int, now: float) -> void
 	m.last_slot_at[slot] = now
 	m.latched_slot = slot
 	m.latched_until = now + CAST_LATCH
-	var facts: Array = _kit_facts(int(bb.get("class_id", -1)))
+	var facts: Array = facts_for(int(bb.get("self_id", 0)), int(bb.get("class_id", -1)))
 	if slot < facts.size() and bool(facts[slot]["is_beam"]):
 		m.last_beam_element = int(facts[slot]["element"])
 		m.last_beam_at = now
@@ -1632,6 +1632,56 @@ static func _aim(bb: Dictionary, _profile: Dictionary, m: Memory, _now: float) -
 ## first, for the rest of the process. A bot (or the player's own puppet on a peer's
 ## screen) would then steer, range and combo against spells it is not holding, with
 ## nothing anywhere reporting a problem.
+## ══ WHAT THE BODY IS ACTUALLY HOLDING ═══════════════════════════════════════
+## `_kit_facts` answers from the CLASS KIT. That is right for a class's own hand and
+## wrong the moment a Tier 2 / Tier 3 drop displaces a slot: the bot goes on scoring
+## the spell it USED to have — that spell's range, form, cast time and role — and so
+## it casts a 235 px ring at whatever distance the displaced spell wanted. The
+## `slot_affordable` note in `score_slots` already flags this as the gap it can only
+## half-close: that flag says the slot EXISTS, never what is in it.
+##
+## Keyed by `self_id`, which is the body's instance id and is already on the
+## blackboard. Per BODY rather than per class because two bots in one duel hold
+## different drops — the exact case a class-keyed cache got wrong before.
+##
+## ⚠ AN OVERLAY, NOT A CACHE ENTRY. Writing a drop into `_kit_cache` would poison
+## the shared facts of every other body of that class for the life of the process.
+static var _drop_facts: Dictionary = {}
+
+
+## Tell the brain that `body` now holds `spell` in slot `nth`. Idempotent.
+static func note_drop(body: Object, nth: int, spell: SpellDef) -> void:
+	if body == null or not is_instance_valid(body) or spell == null:
+		return
+	if nth < 0 or nth >= SLOT_COUNT:
+		return
+	var id: int = body.get_instance_id()
+	if not _drop_facts.has(id):
+		_drop_facts[id] = {}
+	(_drop_facts[id] as Dictionary)[nth] = _facts_of(spell, "drop")
+
+
+## Forget a body's drops, so this table cannot grow for the life of the process off
+## instance ids whose bodies are long gone. `BotMatch` calls it on teardown.
+static func forget_drops(body: Object) -> void:
+	if body != null:
+		_drop_facts.erase(body.get_instance_id())
+
+
+## The class kit for `class_id`, with anything body `self_id` picked up laid on top.
+static func facts_for(self_id: int, class_id: int) -> Array:
+	var base: Array = _kit_facts(class_id)
+	var over: Variant = _drop_facts.get(self_id)
+	if over == null or (over as Dictionary).is_empty():
+		return base
+	var out: Array = base.duplicate()
+	for nth: Variant in (over as Dictionary):
+		var i: int = int(nth)
+		if i >= 0 and i < out.size():
+			out[i] = (over as Dictionary)[nth]
+	return out
+
+
 static func _kit_facts(class_id: int) -> Array:
 	if class_id < 0:
 		return _generic_facts()
@@ -1645,28 +1695,36 @@ static func _kit_facts(class_id: int) -> Array:
 		if i >= spells.size():
 			out.append(_default_facts(i))
 			continue
-		var s: SpellDef = spells[i]
-		var form: int = ReactionTable.form_for_kind(s.kind)
-		out.append({
-			"id": s.id,
-			# WHICH ROLE THIS CLASS PUT HERE. The situational scorer matches on this
-			# rather than on the slot index, because with a three-spell hand the
-			# middle slot is control / answer / payoff depending on the class.
-			"role": String(roles[i]) if i < roles.size() else "",
-			"element": s.element,
-			"kind": s.kind,
-			"cast_time": s.cast_time,
-			"mp_cost": float(s.mp_cost),
-			"tier": SpellTier.of(s),
-			"range": _effective_range(s),
-			# A FIELD or a BARRIER is a thing that stays on the floor, which is what
-			# the combo layer means by "sets one up".
-			"makes_field": form == ReactionTable.Form.FIELD or form == ReactionTable.Form.BARRIER,
-			"is_beam": form == ReactionTable.Form.BEAM,
-			"close_ok": not _is_placed(s.kind),
-		})
+		out.append(_facts_of(spells[i], String(roles[i]) if i < roles.size() else ""))
 	_kit_cache[key] = out
 	return out
+
+
+## ONE SPELL, reduced to what the scorer needs. Extracted so a DROP is described in
+## exactly the same terms as a kit spell — two drifting descriptions of the same
+## thing is how a bot ends up steering against a spell nobody is holding.
+static func _facts_of(s: SpellDef, role: String) -> Dictionary:
+	var form: int = ReactionTable.form_for_kind(s.kind)
+	return {
+		"id": s.id,
+		# WHICH ROLE THIS CLASS PUT HERE. The situational scorer matches on this
+		# rather than on the slot index, because with a three-spell hand the middle
+		# slot is control / answer / payoff depending on the class. A DROP reports
+		# "drop", which matches no situational row — correct, because it is scored on
+		# its tier and its range rather than on a role it was never authored for.
+		"role": role,
+		"element": s.element,
+		"kind": s.kind,
+		"cast_time": s.cast_time,
+		"mp_cost": float(s.mp_cost),
+		"tier": SpellTier.of(s),
+		"range": _effective_range(s),
+		# A FIELD or a BARRIER is a thing that stays on the floor, which is what the
+		# combo layer means by "sets one up".
+		"makes_field": form == ReactionTable.Form.FIELD or form == ReactionTable.Form.BARRIER,
+		"is_beam": form == ReactionTable.Form.BEAM,
+		"close_ok": not _is_placed(s.kind),
+	}
 
 
 ## HOW FAR THIS SPELL ACTUALLY WORKS — and the one place `SpellDef.reach` must not

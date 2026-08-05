@@ -275,6 +275,26 @@ const RIM_RIGHT: float = 1980.0
 ## without editing the number the maker watches. GAME seconds, so hit-stop stretches
 ## the wall clock but never the fight.
 static var round_seconds: float = 50.0
+
+## ══ THE BOTS CARRY A TIER 3 DROP IN A SHOWCASE DUEL ═════════════════════════
+## Maker: *"the bots should have the cool spells when 1 vs 1"*. They did not, and
+## the reason was structural rather than an oversight: `build_tier3()` — the void,
+## chronostasis, equinox, roulette — are BOSS DROPS, found on a floor mid-run. A
+## duel has no floor, so a bot duel could only ever show nine class kits, and the
+## four loudest things in the game were unreachable in the one mode whose entire
+## job is to produce footage.
+##
+## Granted through `SpellGrant.apply`, which is the real pickup path: it displaces a
+## slot, remembers what it displaced, and carries the drop's own CHARGES — so a
+## Chronostasis is a one-shot showpiece, not a spam button.
+##
+## ⚠ SHOWCASE ONLY. This is `BotMatch`, the bot-vs-bot scene. The played versus
+## sandbox and the tower reach `VersusArena` without passing through here, so
+## neither is touched.
+static var drops: bool = true
+## Which drop each side carries. -1 rolls. Set them to shoot a specific spell.
+static var drop_a: int = -1
+static var drop_b: int = -1
 ## How close two health fractions have to be before a timeout is called a DRAW
 ## rather than a decision.
 const DRAW_MARGIN: float = 0.04
@@ -304,6 +324,8 @@ var _labels: Dictionary = {}
 
 ## ---- the two fighters, in side order (0 = left, 1 = right) -----------------
 var _fighters: Array[Node2D] = []
+## Which `build_tier3()` index each side was handed, so the two differ.
+var _granted_index: Array[int] = [-1, -1]
 var _fighter_class: Array[int] = [-1, -1]
 var _fighter_max: Array[int] = [1, 1]
 var _fighter_hp_now: Array[int] = [1, 1]
@@ -384,6 +406,11 @@ func _exit_tree() -> void:
 	var tree: SceneTree = get_tree()
 	if tree != null:
 		tree.paused = false
+	# The brain's drop overlay is keyed by instance id on a STATIC, so it outlives
+	# this scene exactly the way the showcase statics below do. Unforgotten ids would
+	# accumulate for the life of the process.
+	for f: Node2D in _fighters:
+		BotBrain.forget_drops(f)
 	_set_rank_hud(true)   # the autoload outlives this scene; see _hide_duplicate_chrome
 	var arena_script: GDScript = load(ARENA_SCRIPT) as GDScript
 	if arena_script == null:
@@ -453,7 +480,41 @@ func _adopt_fighters() -> void:
 		# `_put_the_loser_down` used to hide only the loser's, which is why this went
 		# unnoticed: the corpse was tidy and the winner wore a health bar for a hat.
 		_hide_floating_bars(f)
+		_grant_showcase_drop(f, side)
 	_paint_corners()
+
+
+## Hand this fighter its showpiece. See the `drops` block above for why a duel has
+## to be TOLD to do this — there is no floor here to find one on.
+##
+## The two sides are given DIFFERENT drops wherever possible, because the point is a
+## clip: two bots opening the same Chronostasis is one spell shown twice.
+func _grant_showcase_drop(f: Node2D, side: int) -> void:
+	if not drops:
+		return
+	var pool: Array = SpellLibrary.build_tier3()
+	if pool.is_empty():
+		return
+	var want: int = drop_a if side == 0 else drop_b
+	if want < 0:
+		want = randi() % pool.size()
+		if side == 1 and pool.size() > 1 and want == _granted_index[0]:
+			want = (want + 1) % pool.size()
+	want = clampi(want, 0, pool.size() - 1)
+	_granted_index[side] = want
+	var spell: SpellDef = pool[want]
+	var nth: int = SpellGrant.apply(f, spell)
+	if nth < 0:
+		push_warning("[botmatch] side %d could not take '%s'" % [side, spell.id])
+		return
+	# ⚠ AND THE BRAIN IS TOLD, which is the half that makes it actually get CAST.
+	# `BotBrain._kit_facts` scores a slot from the CLASS KIT, so without this the bot
+	# goes on scoring the spell the drop replaced — its range, its form, its timing —
+	# and casts a 235 px ring at whatever distance the displaced spell wanted. The
+	# comment on `slot_affordable` in that file already worries about exactly this.
+	BotBrain.note_drop(f, nth, spell)
+	print("[botmatch] side %d carries %s in slot %d (%d charge(s))"
+		% [side, spell.id, nth, spell.charges])
 
 
 ## Every `CharacterBars` under a fighter, off. Found by TYPE rather than by node name:

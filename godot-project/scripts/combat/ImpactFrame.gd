@@ -218,6 +218,10 @@ const CINEMATIC_CORE_SCALE: float = 0.40
 ## Modelled as plain integers rather than "is the node still alive", so the whole
 ## decision is a pure function of (request, now) and can be tested headlessly
 ## with an injected clock and no scene tree at all.
+## How many sustained bubbles are live. A COUNT rather than a bool because two
+## Chronostasis rings can overlap in co-op and the second one ending must not
+## un-suppress while the first is still holding.
+static var _bubbles_live: int = 0
 static var _active_until_ms: int = -1
 static var _active_strength: float = 0.0
 static var _active_is_local: bool = false
@@ -277,7 +281,14 @@ func _ready() -> void:
 	_build_screen_plate()
 
 
+## Set only by `sustained_bubble`, so an ordinary mark can never decrement the count.
+var _counts_as_bubble: bool = false
+
+
 func _exit_tree() -> void:
+	if _counts_as_bubble:
+		_counts_as_bubble = false
+		_bubbles_live = maxi(_bubbles_live - 1, 0)
 	# Only clear the arbiter's model if WE are still the frame it is modelling —
 	# a superseded frame is freed AFTER its replacement has already registered,
 	# so an unguarded clear here would wipe the newcomer's slot and let the very
@@ -422,6 +433,8 @@ static func sustained_bubble(parent: Node, at: Vector2, radius: float,
 	if reduce_flashing():
 		return null
 	var f := ImpactFrame.new()
+	f._counts_as_bubble = true
+	_bubbles_live += 1
 	parent.add_child(f)
 	f.configure({
 		"style": Style.INVERT, "strength": strength,
@@ -487,6 +500,19 @@ static func decide(req: Dictionary, now_ms: int = -1) -> Dictionary:
 		style = Style.LOCAL
 		strength = minf(strength, LOCAL_MAX_STRENGTH)
 		duration = minf(duration, DURATION_LOCAL)
+	# ⚠ YOU CANNOT INVERT AN ALREADY-INVERTED WORLD, and the picture proves it.
+	# Caught on a delivered frame: a Chronostasis bubble was holding while an
+	# EnergyNova fired its own 0.07 s full-screen INVERT, so the whole screen went
+	# negative AND the bubble inverted again inside it — leaving the frozen volume as
+	# the only NORMAL-looking part of the picture. That is the meaning backwards: the
+	# bubble exists to mark which part of the world has stopped.
+	#
+	# A sustained bubble therefore owns the wrongness for its duration. Dropped
+	# rather than downgraded, because every substitute is also a full-screen wash
+	# over a screen that is already saying something.
+	if _bubbles_live > 0 and style == Style.INVERT:
+		return {"granted": false, "style": style, "strength": strength,
+			"duration": duration, "supersede": false, "reason": "bubble_owns_the_screen"}
 	var out: Dictionary = {
 		"granted": false, "style": style, "strength": strength,
 		"duration": duration, "supersede": false, "reason": "",
@@ -588,6 +614,7 @@ static func reset_arbiter() -> void:
 	_active_node = null
 	_last_fullscreen_ms = -100000
 	_last_local_ms = -100000
+	_bubbles_live = 0
 	_history.clear()
 	_local_history.clear()
 
