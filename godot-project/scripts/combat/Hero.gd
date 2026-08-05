@@ -936,6 +936,30 @@ var _jump_buffer: float = 0.0
 var _air_jumps: int = 0
 var _max_air_jumps: int = 0  # per-class air jumps (Brawler double-jumps); set in configure_class
 var _was_on_floor: bool = true  # for the landing-dust transition edge
+
+## HOW MANY GRAVITY WELLS THIS BODY IS INSIDE. A COUNTER, not a bool, and that is
+## load-bearing: two overlapping wells (two Juggernauts, or one re-cast over its own
+## tail) would each clear a bool on the way out, and the first exit would strip a grant
+## the second field still owns.
+##
+## While it is > 0 the hero steers with GROUND-grade authority despite being airborne.
+## That is the whole of "move freely inside the gravity radius" on this side — every
+## other verb already worked while lifted, because `GravityFlip` only ever writes
+## `velocity.y`. What losing the floor cost was 44% of the steering (AIR_ACCEL 1450 vs
+## GROUND_ACCEL 2600), and this is that back.
+##
+## ⚠ IT DOES NOT GIVE BACK THE JUMP. `is_on_floor()` is still false inside a well, so no
+## jump, no wall-jump, no landing. That is correct: the well is supposed to take the
+## floor away. It gives back CONTROL, not ground.
+var grav_fields: int = 0
+
+
+func enter_grav_field() -> void:
+	grav_fields += 1
+
+
+func exit_grav_field() -> void:
+	grav_fields = maxi(grav_fields - 1, 0)
 var _weapon: String = "fists"
 var _melee_damage: int = MELEE_DAMAGE
 var _melee_range: float = MELEE_RANGE
@@ -2043,11 +2067,16 @@ func _physics_process(delta: float) -> void:
 		# the pre-collision intent would push it back through.
 		walk_x = 0.0
 	if _wall_jump_lock <= 0.0:
+		# `grav_fields > 0` reads as GROUNDED for STEERING ONLY — see the counter on
+		# `grav_fields`. Deliberately NOT folded into `is_on_floor()`: everything else
+		# that branch drives (jump, coyote refill, landing dust, the rig's grounded
+		# pose) must keep answering "no floor", because there is no floor.
+		var planted: bool = is_on_floor() or grav_fields > 0
 		if move_x != 0.0:
-			var accel: float = GROUND_ACCEL if is_on_floor() else _tune("move_air_accel", AIR_ACCEL)
+			var accel: float = GROUND_ACCEL if planted else _tune("move_air_accel", AIR_ACCEL)
 			walk_x = move_toward(walk_x, move_x * spd, accel * delta)
 		else:
-			var fric: float = GROUND_FRICTION if is_on_floor() else _tune("move_air_accel", AIR_ACCEL)
+			var fric: float = GROUND_FRICTION if planted else _tune("move_air_accel", AIR_ACCEL)
 			walk_x = move_toward(walk_x, 0.0, fric * delta)
 	# Tiny push into the wall so move_and_slide keeps registering the slide.
 	if wall_sliding:

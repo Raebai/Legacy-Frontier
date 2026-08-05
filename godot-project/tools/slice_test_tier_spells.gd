@@ -379,9 +379,62 @@ func _test_gravity_flip_overpowers_real_gravity() -> void:
 	root.add_child(plain)
 	plain.add_to_group("mortal_test")
 	flip.call("_lift_everyone", 1.0 / 60.0)
+
+	# ══ THE RADIUS EXISTS, AND EVERYTHING ABOVE THIS LINE WAS BLIND TO IT ═════════
+	# ⚠ EVERY ASSERTION ABOVE PASSES VACUOUSLY ON THE QUESTION OF REACH. `_StubBody`
+	# sits at (0,0) and a bare `GravityFlip.new()` has `_anchor` (0,0), so the distance
+	# is 0 — inside ANY radius, at any hysteresis, forever. When this spell had no edge
+	# that was fine; now that it does, the old test would go on printing PASS against a
+	# well that still lifted the entire room. This is the assertion that catches that,
+	# and it is the whole reason the 2026-08-05 reversal is testable at all.
+	var out: Node2D = _StubBody.new()
+	root.add_child(out)
+	out.add_to_group("mortal_test")
+	out.global_position = Vector2(flip.get("_radius") + 140.0, 0.0)
+	out.velocity = Vector2(0.0, 400.0)   # falling, well outside the rim
+	for i2: int in 10:
+		flip.call("_lift_everyone", 1.0 / 60.0)
+	_expect(is_equal_approx(out.velocity.y, 400.0),
+		"a body OUTSIDE the well is untouched (%.1f, expected 400)" % out.velocity.y)
+
+	# ...and the HYSTERESIS: caught at `_radius`, released only past `EXIT_MARGIN`, so a
+	# body pacing the rim cannot flicker between ground- and air-grade steering once a
+	# frame. A single-threshold implementation fails the second half of this.
+	var rim: Node2D = _StubBody.new()
+	root.add_child(rim)
+	rim.add_to_group("mortal_test")
+	rim.global_position = Vector2(float(flip.get("_radius")) - 1.0, 0.0)
+	rim.velocity = Vector2(0.0, 400.0)
+	flip.call("_lift_everyone", 1.0 / 60.0)
+	_expect(rim.velocity.y < 400.0, "a body just inside the rim IS caught")
+	rim.global_position = Vector2(float(flip.get("_radius")) + GravityFlip.EXIT_MARGIN * 0.5, 0.0)
+	rim.velocity = Vector2(0.0, 400.0)
+	flip.call("_lift_everyone", 1.0 / 60.0)
+	_expect(rim.velocity.y < 400.0,
+		"...and is STILL held inside the exit margin (%.1f)" % rim.velocity.y)
+	rim.global_position = Vector2(float(flip.get("_radius")) + GravityFlip.EXIT_MARGIN + 8.0, 0.0)
+	rim.velocity = Vector2(0.0, 400.0)
+	flip.call("_lift_everyone", 1.0 / 60.0)
+	_expect(is_equal_approx(rim.velocity.y, 400.0),
+		"...and is RELEASED past it (%.1f, expected 400)" % rim.velocity.y)
+
+	# THE BILL SCALES, and the free rung is real. `COLLAPSE_FLOOR` is the whole skill
+	# expression — a body that spent the five seconds getting low pays nothing.
+	var hurt: Node2D = _StubBody.new()
+	root.add_child(hurt)
+	flip.set("_damage", 100)
+	flip.call("_land", hurt, GravityFlip.COLLAPSE_FLOOR - 10.0)
+	_expect(hurt.damage_log.is_empty(), "a short drop costs nothing (the free rung)")
+	flip.call("_land", hurt, GravityFlip.CEILING_LIFT)
+	_expect(hurt.damage_log.size() == 1 and int(hurt.damage_log[0]) == 100,
+		"a full-height drop bills the whole authored damage (%s)" % str(hurt.damage_log))
+
 	flip.free()
 	body.free()
 	plain.free()
+	out.free()
+	rim.free()
+	hurt.free()
 	_completes("gravity_flip_overpowers_real_gravity")
 
 

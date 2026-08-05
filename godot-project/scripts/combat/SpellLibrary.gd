@@ -873,7 +873,14 @@ static func _gravity_flip() -> SpellDef:
 	s.effect = _effect_for_element(Elements.Element.WIND)
 	s.mp_cost = 62
 	s.cooldown = 6.8
-	s.damage = 0
+	# ⚠ THESE THREE FIELDS ARE THE REVERSAL. `radius` was 90 (the class default) and
+	# NEVER READ; `reach` was the placement clamp SpellCaster has always computed and
+	# the spectacle has always thrown away; `damage` was 0 on a spell whose header
+	# promised "the pile-up is the payoff". All three are untested balance guesses.
+	s.damage = 64      # collapse damage AT THE CAP; scales to 0 under a 90 px fall
+	s.radius = 320.0   # the well's real footprint — READ now, not defaulted
+	s.reach = 300.0    # placement clamp, just under the radius: the drop is a
+	                   # commitment, not a snipe
 	s.length = 5.0     # seconds inverted — the spec's number
 	s.cast_time = 0.45
 	return s

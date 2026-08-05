@@ -1726,7 +1726,12 @@ static func _effective_range(s: SpellDef) -> float:
 ##            bot would hold and never cast. `blood_pact` and `gravity_flip` are
 ##            genuinely self-centred and declare no reach at all.
 const HEX_TRAVEL_RANGE: Array[String] = ["radiant_volley", "fault_line"]
-const HEX_SELF_CAST: Array[String] = ["mirror_image", "blood_pact", "gravity_flip"]
+## ⚠ `gravity_flip` WAS IN THIS LIST AND IS NOT ANY MORE (2026-08-05). It became the
+## GRAVITY WELL — a PLACED cylinder with a real radius (320) and a real reach (300) —
+## so it now has a range to reason about, and reading `HEX_SELF_RANGE` would have had
+## the Juggernaut bot walk to 260 px and drop the well on its own feet every time. It
+## falls through to `s.reach` with everything else that is placed.
+const HEX_SELF_CAST: Array[String] = ["mirror_image", "blood_pact"]
 ## How close a bot wants to be before spending a self-centred hex. Not a range —
 ## there is no range — but a "the fight is happening, this is worth it" distance, in
 ## the band the melee hexes occupy. UNTESTED GUESS.
