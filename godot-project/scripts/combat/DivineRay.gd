@@ -64,7 +64,12 @@ const FADE_TIME: float = 0.85
 const SKY_HEIGHT: float = 560.0   # how far above the ground the column starts
 const DEFAULT_RADIUS: float = 70.0
 const DEFAULT_DAMAGE: int = 95
-const KNOCKBACK: float = 210.0   # was 320.0 — maker: spell knockback was way too much
+## ⚠ RETIRED — the shove is now derived from the spell's own damage and shelf via
+## `SpellTier.push_for_spectacle`. Kept only as the record of what it used to be:
+## every one of these sat BELOW `SlamPhysics.MIN_SLAM_SPEED` (250), so no spell in
+## the game could throw a body hard enough to crack what it hit. Do not tune this
+## number — nothing reads it. The band is in `SpellTier`.
+const RETIRED_KNOCKBACK: float = 210.0
 ## Half-width of the DAMAGING column, as a fraction of `_radius`.
 ##
 ## THE MISMATCH THIS FIXES: damage was a plain circle of `_radius` around the
@@ -257,7 +262,9 @@ func _erupt_stone() -> void:
 			enemy.apply_status(element_id)
 		if enemy.has_method("apply_knockback"):
 			var away: Vector2 = ((enemy as Node2D).global_position - at).normalized()
-			enemy.apply_knockback((away if away != Vector2.ZERO else Vector2.UP) * KNOCKBACK)
+			enemy.apply_knockback((away if away != Vector2.ZERO else Vector2.UP)
+				* SpellTier.push_for_spectacle(float(_damage),
+					SpellTier.PUSH_TIER[SpellTier.Tier.ULT]))
 	for prop: Node in _column_targets(
 			STONE_HEIGHT, _radius * STONE_COLUMN_FACTOR, _radius * STONE_BASE_FACTOR,
 			get_tree().get_nodes_in_group("destructible")):
@@ -307,7 +314,9 @@ func _smite() -> void:
 			enemy.apply_status(element_id)
 		if enemy.has_method("apply_knockback"):
 			var away: Vector2 = ((enemy as Node2D).global_position - at).normalized()
-			enemy.apply_knockback((away if away != Vector2.ZERO else Vector2.UP) * KNOCKBACK)
+			enemy.apply_knockback((away if away != Vector2.ZERO else Vector2.UP)
+				* SpellTier.push_for_spectacle(float(_damage),
+					SpellTier.PUSH_TIER[SpellTier.Tier.ULT]))
 	for prop: Node in _column_targets(
 			SKY_HEIGHT, _radius * COLUMN_HALF_FACTOR, _radius,
 			get_tree().get_nodes_in_group("destructible")):

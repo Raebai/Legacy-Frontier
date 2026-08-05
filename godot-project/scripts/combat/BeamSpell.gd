@@ -36,7 +36,12 @@ const FADE_TIME: float = 0.22     # beam + circle dissolve
 const DEFAULT_LENGTH: float = 1100.0
 const DEFAULT_WIDTH: float = 30.0
 const DEFAULT_DAMAGE: int = 46
-const KNOCKBACK: float = 235.0   # was 360.0 — maker: spell knockback was way too much
+## ⚠ RETIRED — the shove is now derived from the spell's own damage and shelf via
+## `SpellTier.push_for_spectacle`. Kept only as the record of what it used to be:
+## every one of these sat BELOW `SlamPhysics.MIN_SLAM_SPEED` (250), so no spell in
+## the game could throw a body hard enough to crack what it hit. Do not tune this
+## number — nothing reads it. The band is in `SpellTier`.
+const RETIRED_KNOCKBACK: float = 235.0
 const CIRCLE_RADIUS_FACTOR: float = 3.3  # muzzle sigil radius = width * this (grand)
 ## How long an ADOPTED cast sigil takes to travel from where the caster's windup
 ## hung it (over their head, for the big spells) down to this beam's muzzle.
@@ -368,7 +373,8 @@ func _apply_beam_damage() -> void:
 		if element_id >= 0 and enemy.has_method("apply_status"):
 			enemy.apply_status(element_id)
 		if enemy.has_method("apply_knockback"):
-			enemy.apply_knockback(_dir * KNOCKBACK)
+			enemy.apply_knockback(_dir * SpellTier.push_for_spectacle(
+				float(_damage), SpellTier.PUSH_TIER[SpellTier.Tier.HEAVY]))
 	for prop: Node in targets_on_beam(_origin, _dir, _length, half, get_tree().get_nodes_in_group("destructible")):
 		if prop.has_method("take_damage"):
 			prop.take_damage(_damage)

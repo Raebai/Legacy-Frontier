@@ -61,7 +61,12 @@ const RISE_HEIGHT: float = 46.0
 const BOULDER_R: float = 26.0
 const IMPACT_RADIUS: float = 84.0
 const DEFAULT_DAMAGE: int = 52
-const KNOCKBACK: float = 300.0   # was 460.0 — maker: spell knockback was way too much     # HEAVY (above Nova's 420)
+## ⚠ RETIRED — the shove is now derived from the spell's own damage and shelf via
+## `SpellTier.push_for_spectacle`. Kept only as the record of what it used to be:
+## every one of these sat BELOW `SlamPhysics.MIN_SLAM_SPEED` (250), so no spell in
+## the game could throw a body hard enough to crack what it hit. Do not tune this
+## number — nothing reads it. The band is in `SpellTier`.
+const RETIRED_KNOCKBACK: float = 300.0
 const CLEANUP_DELAY: float = 0.8
 const DEBRIS_COUNT: int = 16
 const SHOCKWAVE_TIME: float = 0.28
@@ -411,7 +416,8 @@ func _apply_impact_damage(at: Vector2) -> void:
 		if element_id >= 0 and enemy.has_method("apply_status"):
 			enemy.apply_status(element_id)
 		if enemy.has_method("apply_knockback"):
-			enemy.apply_knockback(away * KNOCKBACK)
+			enemy.apply_knockback(away * SpellTier.push_for_spectacle(
+				float(dealt), SpellTier.PUSH_TIER[SpellTier.Tier.HEAVY]))
 	for prop: Node in SpellTargets.in_radius(at, _radius,
 			get_tree().get_nodes_in_group("destructible"), skip, self):
 		_smash(prop, at)

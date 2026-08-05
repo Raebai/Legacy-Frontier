@@ -118,7 +118,12 @@ const FLOOR_DROP: float = 900.0
 const BOLT_RADIUS: float = 54.0
 ## How long one bolt stays drawn.
 const BOLT_FLASH: float = 0.14
-const KNOCKBACK: float = 190.0
+## ⚠ RETIRED — the shove is now derived from the spell's own damage and shelf via
+## `SpellTier.push_for_spectacle`. Kept only as the record of what it used to be:
+## every one of these sat BELOW `SlamPhysics.MIN_SLAM_SPEED` (250), so no spell in
+## the game could throw a body hard enough to crack what it hit. Do not tune this
+## number — nothing reads it. The band is in `SpellTier`.
+const RETIRED_KNOCKBACK: float = 190.0
 const DEFAULT_DAMAGE: int = 42
 ## Cloud lobes drawn, and the cheap count that ships to the phone.
 const LOBES: int = 11
@@ -258,7 +263,8 @@ func _strike(at: Vector2) -> void:
 		if element_id >= 0 and body.has_method("apply_status"):
 			body.apply_status(element_id)
 		if body.has_method("apply_knockback"):
-			body.call("apply_knockback", Vector2(0.0, 1.0) * KNOCKBACK)
+			body.call("apply_knockback", Vector2(0.0, 1.0) * SpellTier.push_for_spectacle(
+				float(dealt), SpellTier.PUSH_TIER[SpellTier.Tier.ULT]))
 		bodies_struck += 1
 	for prop: Node in SpellTargets.in_radius(at, BOLT_RADIUS,
 			SpellTargets.hostiles(self, &"destructible"), [caster_node], self):

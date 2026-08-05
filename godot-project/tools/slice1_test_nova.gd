@@ -5,6 +5,8 @@
 # scenes are load()ed at runtime, never preload()ed.
 extends SceneTree
 
+const NOVA_SCRIPT_PATH: String = "res://scripts/combat/EnergyNova.gd"
+
 # ── Vacuous-pass armour (see tools/slice_test_loadout.gd for the full write-up) ──
 # A dead member read (a field that was renamed or moved) is NOT a test failure in
 # GDScript: it logs a runtime error, ABORTS the enclosing function, and hands the
@@ -168,8 +170,8 @@ func _test_nova_damages_and_pushes_inside_only() -> void:
 		% inside.last_knockback
 	)
 	_expect(
-		absf(inside.last_knockback.length() - nova.NOVA_KNOCKBACK) < 0.01,
-		"knockback magnitude is NOVA_KNOCKBACK"
+		absf(inside.last_knockback.length() - _expected_push()) < 0.01,
+		"knockback magnitude is the derived spectacle push"
 	)
 	_expect(outside.damage_taken == 0, "enemy outside NOVA_RADIUS takes no damage")
 	_expect(
@@ -209,8 +211,8 @@ func _test_nova_center_overlap_knockback_fallback() -> void:
 		"enemy overlapping the center still gets pushed (RIGHT fallback)"
 	)
 	_expect(
-		absf(overlapped.last_knockback.length() - nova.NOVA_KNOCKBACK) < 0.01,
-		"fallback knockback keeps full NOVA_KNOCKBACK magnitude"
+		absf(overlapped.last_knockback.length() - _expected_push()) < 0.01,
+		"fallback knockback keeps the full derived magnitude"
 	)
 	_completes("nova_center_overlap_knockback_fallback")
 
@@ -271,3 +273,22 @@ func _test_hero_nova_cooldown_gate() -> void:
 		nearby.damage_taken == 60, "nova fires again once cooldown expires"
 	)
 	_completes("hero_nova_cooldown_gate")
+
+
+## ⚠ ASSERTED AGAINST THE RULE, NOT AGAINST A CONSTANT. This used to read
+## `nova.NOVA_KNOCKBACK`, and when the shove moved to `SpellTier.push_for_spectacle`
+## the constant went away and BOTH tests aborted mid-run — caught by the by-absence
+## armour rather than reported as a cheerful pass. Reading the derivation instead means
+## the assertion follows a retune instead of pinning the nova to one number forever,
+## while still failing loudly if the nova stops shoving at its own published rate.
+##
+## ⚠ AND THE DAMAGE COMES OFF THE LOADED SCRIPT, NOT OFF `EnergyNova.NOVA_DAMAGE`.
+## Naming the class in source makes the compiler resolve `EnergyNova.gd` as a compile
+## -time dependency of THIS file, and that script reaches for the `Sfx` autoload, which
+## does not exist while a `--script` main loop is still compiling. The whole suite then
+## fails to load with `Identifier not found: Sfx` and every test in it reports as
+## aborted — which is exactly the trap the header of this file already warns about.
+func _expected_push() -> float:
+	var nova_script: GDScript = load(NOVA_SCRIPT_PATH) as GDScript
+	var dmg: float = float(nova_script.get_script_constant_map()["NOVA_DAMAGE"])
+	return SpellTier.push_for_spectacle(dmg, SpellTier.PUSH_TIER[SpellTier.Tier.HEAVY])

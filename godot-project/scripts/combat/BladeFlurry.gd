@@ -18,7 +18,12 @@ extends Node2D
 const RANGE: float = 100.0
 const ARC_DOT: float = 0.15      # forward cone (dot(dir, to_enemy) >= this)
 const LIFE: float = 0.42
-const KNOCKBACK: float = 150.0
+## ⚠ RETIRED — the shove is now derived from the spell's own damage and shelf via
+## `SpellTier.push_for_spectacle`. Kept only as the record of what it used to be:
+## every one of these sat BELOW `SlamPhysics.MIN_SLAM_SPEED` (250), so no spell in
+## the game could throw a body hard enough to crack what it hit. Do not tune this
+## number — nothing reads it. The band is in `SpellTier`.
+const RETIRED_KNOCKBACK: float = 150.0
 const SLASH_VISIBLE: float = 0.18
 const SLASH_SPAN: float = 0.60   # half-angle of a crescent, radians
 const SLASH_THICKNESS: float = 15.0
@@ -105,7 +110,7 @@ func _slash() -> void:
 		if e.has_method("apply_status"):
 			e.apply_status(element_id)
 		if e.has_method("apply_knockback"):
-			e.apply_knockback(_dir * KNOCKBACK)
+			e.apply_knockback(_dir * SpellTier.push_for_spectacle(float(_dmg)))
 	# Crates are swept in a full RADIUS rather than the arc, exactly as before —
 	# a flurry this close chews the cover around it, and narrowing that to the cone
 	# would be a behaviour change smuggled into a targeting fix.

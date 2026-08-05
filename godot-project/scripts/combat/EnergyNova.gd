@@ -82,7 +82,12 @@ const NOVA_RADIUS: float = 135.0
 ## nova smaller on screen is to lower NOVA_RADIUS, which moves both together.
 const VISUAL_RADIUS_FACTOR: float = 1.0
 const NOVA_DAMAGE: int = 30
-const NOVA_KNOCKBACK: float = 275.0   # was 420.0 — maker: spell knockback was way too much
+## ⚠ RETIRED — the shove is now derived from the spell's own damage and shelf via
+## `SpellTier.push_for_spectacle`. Kept only as the record of what it used to be:
+## every one of these sat BELOW `SlamPhysics.MIN_SLAM_SPEED` (250), so no spell in
+## the game could throw a body hard enough to crack what it hit. Do not tune this
+## number — nothing reads it. The band is in `SpellTier`.
+const RETIRED_NOVA_KNOCKBACK: float = 275.0
 const SHOCKWAVE_TIME: float = 0.26   # the whole event; shortest in the ult set
 const CLEANUP_DELAY: float = 0.7
 ## Ground-plane squash for the shockwave ellipse. The arena is SIDE-VIEW, so a
@@ -362,7 +367,8 @@ func _apply_nova_damage() -> void:
 			var away: Vector2 = ((enemy as Node2D).global_position - here).normalized()
 			if away == Vector2.ZERO:
 				away = Vector2.RIGHT
-			enemy.apply_knockback(away * NOVA_KNOCKBACK)
+			enemy.apply_knockback(away * SpellTier.push_for_spectacle(
+				float(NOVA_DAMAGE), SpellTier.PUSH_TIER[SpellTier.Tier.HEAVY]))
 	# Crates around the caster shatter too (no knockback — they're static).
 	for prop: Node in SpellTargets.in_radius(
 			here, NOVA_RADIUS, get_tree().get_nodes_in_group("destructible"), [], self):

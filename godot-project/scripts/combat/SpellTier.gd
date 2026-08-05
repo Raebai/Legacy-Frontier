@@ -211,3 +211,60 @@ static func push_for(spell: SpellDef) -> float:
 static func push_for_damage(damage: float, tier_mult: float = 1.0) -> float:
 	return clampf((PUSH_BASE + PUSH_PER_DAMAGE * maxf(damage, 0.0)) * tier_mult,
 		PUSH_MIN, PUSH_MAX)
+
+
+# ══ AND HOW HARD A *SPECTACLE* SHOVES ═══════════════════════════════════════════
+## Maker: *"the effect of the spell isnt tangible like a spell should have some
+## knockback and stuff not crazy amounts but a decent amount"*.
+##
+## ⚠ THE SAME MAKER PREVIOUSLY SAID THE OPPOSITE, AND BOTH NOTES ARE RIGHT. Half the
+## spectacles in the game carry a comment reading *"was 360.0 — maker: spell knockback
+## was way too much"*. Taking the new note as "put it back" would just walk into the
+## old one from the other side, and taking `push_for_damage` as-is would be far worse:
+## it is LINEAR in damage and anchored on an 18-damage bolt, so `DivineRay` at 95
+## damage solves to 1185 and clamps at the 900 ceiling — four and a half times what was
+## already rejected as too much.
+##
+## SO WHAT ACTUALLY CHANGED IS NOT THE DISTANCE, IT IS WHETHER THE WORLD ANSWERS.
+## MEASURED across every spectacle that shoves: `BeamSpell` 235, `DivineRay` 210,
+## `CrescentStep` 190, `HeavensWrath` 190, `BladeFlurry` 150 — and
+## `SlamPhysics.MIN_SLAM_SPEED` is **250**. Every one of them was cut to below the
+## threshold at which a thrown body can crack the thing it hits, which silently
+## deleted the crater, the wall break, the debris and the shake from the entire
+## spell roster. That is what "not tangible" is: a spell that moves a body through
+## empty air and nothing in the world reacts to it.
+##
+## Hence a FLOOR at the slam threshold and a CEILING under the value already rejected.
+## Knockback here is a decaying velocity channel, so distance goes as roughly
+## `I^2 / 1800` px: this band is 39 px to 70 px of travel, against 25-30 px today and
+## the 72 px that was called too much. Every spell moves you further AND — the part
+## that matters — every spell can now break something with your body.
+## ⚠ RAISING THESE RAISES RING-OUT RISK. `body_escaped_bounds` was already noted at 2
+## in the duel sim; if fighters start leaving the stage, this band is why.
+const PUSH_SPECTACLE_MIN: float = 265.0   # just clear of SlamPhysics.MIN_SLAM_SPEED
+const PUSH_SPECTACLE_MAX: float = 355.0   # under the 360 that was rejected
+## Sub-linear in damage, because the channel is quadratic in DISTANCE: a hit worth five
+## times as much must not travel twenty-five times as far. `push_for_damage`'s linear
+## term cannot be reused here for exactly that reason — at `DivineRay`'s 95 damage it
+## solves to 1185.
+##
+## ⚠ FITTED TO THE BAND, NOT PICKED. The first pass reused `PUSH_BASE` with a large
+## coefficient and every single spectacle in the game clamped to the ceiling — the
+## formula discriminated nothing and the "derived" tier ordering was decorative. These
+## two solve `sqrt(damage) * tier_mult` onto the band across the roster's real spread,
+## from the lightest quick cut (`BladeFlurry`, 18 damage) to the heaviest ult
+## (`DivineRay`, 95 at the ULT multiplier). Measured result across the eight spells
+## routed through it: 267 / 288 / 300 / 303 / 304 / 315 / 355 / 355 — a real ladder
+## rather than eight copies of the ceiling.
+const PUSH_SPECTACLE_BASE: float = 237.5
+const PUSH_PER_ROOT_DAMAGE: float = 7.1
+
+
+## The shove a big drawn spell should carry. Same shape as `push_for_damage` — derived
+## from what the spell already declares, never from a new authored field — but on the
+## band above, so a spectacle is always heavy enough for the world to answer it and
+## never heavy enough to read as a launcher.
+static func push_for_spectacle(damage: float, tier_mult: float = 1.0) -> float:
+	return clampf(
+		PUSH_SPECTACLE_BASE + PUSH_PER_ROOT_DAMAGE * sqrt(maxf(damage, 0.0)) * tier_mult,
+		PUSH_SPECTACLE_MIN, PUSH_SPECTACLE_MAX)
