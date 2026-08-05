@@ -23,6 +23,7 @@ const TESTS: Array[String] = [
 	"motif_table_keys_are_real_scripts",
 	"motif_resolves_for_every_listed_spectacle",
 	"motif_defaults_to_none_and_clamps",
+	"sigil_motif_and_the_table_agree",
 	"nova_windup_defers_its_damage",
 	"hero_nova_never_damages_its_own_caster",
 ]
@@ -53,6 +54,7 @@ func _process(_delta: float) -> bool:
 	_ran = true
 	_test_motif_table_keys_are_real_scripts()
 	_test_motif_resolves_for_every_listed_spectacle()
+	_test_sigil_motif_and_the_table_agree()
 	_test_motif_defaults_to_none_and_clamps()
 	_test_nova_windup_defers_its_damage()
 	_test_hero_nova_never_damages_its_own_caster()
@@ -231,3 +233,54 @@ func _make_body(pos: Vector2, groups: Array) -> StubBody:
 	for g: String in groups:
 		b.add_to_group(g)
 	return b
+
+
+## ⚠ THE SPLIT-BRAIN GUARD. A spectacle may state its own figure by declaring
+## `var sigil_motif`, and `_motif_of` honours that over the table — which is right,
+## because the declaration lives next to the thing it describes.
+##
+## But `AbilityBar.glyph_for` is STATIC. It answers from a `SpellDef` with nothing
+## instantiated, so it can only read the TABLE. If the two disagree, the same spell
+## draws one figure when you cast it and a different one on the bar you cast it
+## from — and nothing errors, because both halves are individually fine.
+##
+## That is not hypothetical: the first cut of the class-signature rows contradicted
+## two declarations (ThousandCuts, FaultLine) and the sibling test above is what
+## caught it. This makes it structural instead of lucky.
+##
+## The hotbar is still ALLOWED to differ, via `AbilityBar.GLYPH_OVERRIDE` — that is
+## a deliberate, listed, commented decision per spell. What is banned is the two
+## silently drifting apart.
+func _test_sigil_motif_and_the_table_agree() -> void:
+	var dir: DirAccess = DirAccess.open("res://scripts/combat")
+	_expect(dir != null, "the spectacle directory is readable")
+	if dir == null:
+		return
+	var checked: int = 0
+	var wrong: Array[String] = []
+	for file: String in dir.get_files():
+		if not file.ends_with(".gd"):
+			continue
+		var script: GDScript = load("res://scripts/combat/%s" % file) as GDScript
+		if script == null:
+			continue
+		var probe: Object = script.new()
+		if probe is not Node:
+			if probe is RefCounted:
+				continue
+			continue
+		var stated: Variant = (probe as Node).get(&"sigil_motif")
+		(probe as Node).free()
+		if stated == null or int(stated) == MagicCircle.Motif.NONE:
+			continue
+		checked += 1
+		var row: Variant = SpellSigil.MOTIF_BY_SCRIPT.get(file)
+		if row == null:
+			wrong.append("%s declares %d but has NO table row (the bar would draw nothing)"
+				% [file, int(stated)])
+		elif int(row) != int(stated):
+			wrong.append("%s declares %d, table says %d" % [file, int(stated), int(row)])
+	_expect(checked >= 5,
+		"spectacles that state their own figure were found (%d — zero would pass vacuously)" % checked)
+	_expect(wrong.is_empty(), "every declared sigil_motif matches its table row (wrong: %s)" % str(wrong))
+	_completes("sigil_motif_and_the_table_agree")

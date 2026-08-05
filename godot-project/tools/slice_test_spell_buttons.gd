@@ -51,6 +51,8 @@ const TESTS: Array[String] = [
 	"bot_seam_is_intact",
 	"ready_flash_fires_on_the_edge",
 	"touch_arc_has_no_overlapping_hitboxes",
+	"socket_glyphs_are_distinct_in_every_hand",
+	"every_kind_maps_to_a_motif",
 ]
 
 var _fails: int = 0
@@ -82,6 +84,8 @@ func _process(_delta: float) -> bool:
 	_test_bot_seam()
 	_test_ready_flash()
 	_test_touch_arc()
+	_test_socket_glyphs_are_distinct()
+	_test_every_kind_maps_to_a_motif()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -507,3 +511,80 @@ func _test_touch_arc() -> void:
 		_expect(not dash.intersects(rects[i]),
 			"DASH does not overlap spell button %d" % i)
 	_completes("touch_arc_has_no_overlapping_hitboxes")
+
+
+## ══ THE SOCKET GLYPH — this assertion IS the maker's complaint ═══════════════
+## "visually the spell slots are kinda boring." Colour cannot carry it (a class
+## whose spells share an element shows four of the same colour) and tier cannot
+## (three weights across four slots), so the FIGURE is what tells them apart. If
+## two slots in a hand wear the same figure, that hand is back where it started.
+##
+## ⚠ EVERY REACHABLE HAND, NOT THE DEFAULT ONE. The player leaves one non-ult role
+## behind at class-select, so each class has C(4,3) = 4 hands. The first version of
+## the glyph map passed on all nine DEFAULT hands and collided on six of the others.
+##
+## ⚠ `_spell_by_id()`, NOT `build()`. `build()` omits the HEX-forked class
+## signatures, which produced an EMPTY hand for eight of nine classes — and an
+## empty hand has nothing to compare, so it passes. Hence the two size assertions
+## before any comparison: a harness that cannot fail is not a harness.
+func _test_socket_glyphs_are_distinct() -> void:
+	var by_id: Dictionary = SpellLibrary._spell_by_id()
+	_expect(by_id.size() >= 40,
+		"the spell pool is real (%d spells — an empty pool would pass vacuously)" % by_id.size())
+	var hands_checked: int = 0
+	for c: int in SpellLibrary.CLASS_KITS.size():
+		var kit: Dictionary = SpellLibrary.kit_for_class(c)
+		var non_ult: Array[String] = []
+		for role: String in SpellLibrary.ROLE_ORDER:
+			if role != "ult" and kit.has(role):
+				non_ult.append(role)
+		for drop: int in non_ult.size():
+			var roles: Array[String] = []
+			for i: int in non_ult.size():
+				if i != drop:
+					roles.append(non_ult[i])
+			roles.append("ult")
+			var seen: Dictionary = {}
+			var built: int = 0
+			for role: String in roles:
+				var sig: SpellDef = by_id.get(String(kit.get(role, ""))) as SpellDef
+				if sig == null:
+					continue
+				built += 1
+				var g: int = AbilityBar.glyph_for(sig)
+				_expect(g != MagicCircle.Motif.NONE,
+					"class %d slot '%s' (%s) wears a figure — NONE draws NOTHING, which is the flat socket back"
+						% [c, role, sig.id])
+				_expect(not seen.has(g),
+					"class %d without '%s': '%s' does not repeat '%s's figure (%d)"
+						% [c, non_ult[drop], sig.id, String(seen.get(g, "")), g])
+				seen[g] = sig.id
+			_expect(built >= 3,
+				"class %d without '%s' built a real hand (%d spells)" % [c, non_ult[drop], built])
+			hands_checked += 1
+	_expect(hands_checked >= 30,
+		"every reachable hand was checked (%d — nine classes give 36)" % hands_checked)
+	_completes("socket_glyphs_are_distinct_in_every_hand")
+
+
+## The fallback must cover the WHOLE enum. Iterating the TABLE would only prove the
+## table agrees with itself; iterating the ENUM is what catches a Kind added
+## tomorrow, which would otherwise resolve to NONE and draw nothing at all.
+func _test_every_kind_maps_to_a_motif() -> void:
+	var kinds: Dictionary = SpellDef.Kind
+	_expect(kinds.size() >= 22, "the Kind enum is real (%d kinds)" % kinds.size())
+	for name: String in kinds:
+		var k: int = int(kinds[name])
+		_expect(AbilityBar.MOTIF_BY_KIND.has(k),
+			"SpellDef.Kind.%s has a fallback figure (a missing row resolves to NONE, silently)" % name)
+	# GEOMETRY. `draw_motif` keeps every stroke inside MOTIF_OUTER of the radius it
+	# is given, so the figure must clear the ULT's gold ring — otherwise the socket
+	# reads as one candy-striped smear, which is the exact fault the old corner
+	# brackets were deleted for.
+	var reach: float = AbilityBar.GLYPH_RADIUS * MagicCircle.MOTIF_OUTER
+	var ult_ring: float = AbilityBar.SOCKET_RADIUS * AbilityBar.ULT_OUTER_R
+	_expect(reach < AbilityBar.SOCKET_RADIUS,
+		"the figure stays inside the tier ring (%.1f px vs %.1f)" % [reach, AbilityBar.SOCKET_RADIUS])
+	_expect(reach < ult_ring,
+		"the figure clears the ULT's gold ring (%.1f px vs %.1f)" % [reach, ult_ring])
+	_completes("every_kind_maps_to_a_motif")

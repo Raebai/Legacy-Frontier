@@ -1096,11 +1096,18 @@ const MIN_SEGMENTS: int = 12
 ## and the telegraph is the fairness contract; it may get cheaper, it may not get
 ## quieter.
 func _seg(full: int, r: float = -1.0) -> int:
+	return seg_of(full, r, _low, true)
+
+
+## The segment rule, asked without an instance. `count_work` is what keeps the
+## profile honest: see `draw_motif`.
+static func seg_of(full: int, r: float, low: bool, count_work: bool) -> int:
 	var n: int = full
 	if r > 0.0:
 		n = clampi(segments_for_radius(absf(r)), MIN_SEGMENTS, full)
-	n = maxi(n / 2, 12) if _low else n
-	_work_segments += n
+	n = maxi(n / 2, 12) if low else n
+	if count_work:
+		_work_segments += n
 	return n
 
 
@@ -1216,79 +1223,102 @@ func _draw_snap_flare(R: float, a: float, c: Color) -> void:
 ## and band it sits inside. It is drawn once per sigil per frame with no arcs wider
 ## than a third of a turn, so it does not interact with the sagitta tessellation
 ## budget (`MAX_SAGITTA_PX`) that a previous pass bought 55% of this file's cost with.
+## THE INSTANCE SIDE. Computes the alpha ramp that only a live sigil has — the
+## figure resolving as the spell locks in (45% -> 100% across the gather, riding
+## the release flare up); a motif at flat opacity reads as a decal. The DRAWING is
+## `draw_motif` below, so the world cast circle and the hotbar socket are literally
+## one figure and cannot drift apart.
 func _draw_motif(R: float, a: float, c: Color) -> void:
 	if _motif == Motif.NONE or R <= 4.0:
 		return
-	# The figure resolves as the spell locks in: 45% -> 100% across the gather, then
-	# rides the release flare up. A motif at flat opacity reads as a decal.
 	var ma: float = a * (0.45 + 0.55 * _charge) * (1.0 + 0.6 * _snap)
 	var col := Color(c.r * 1.25, c.g * 1.25, c.b * 1.25, clampf(0.9 * ma, 0.0, 1.0))
+	draw_motif(self, _motif, R, col, 2.0, _phase, _low, a, true)
+
+
+## THE FIGURE ITSELF, on any canvas. Extracted from the instance method above so
+## `AbilityBar` can stamp the same thirteen drawings into a 46 px socket — the same
+## argument `SpellSigil` and `SpellDef.resolve_color` already make: one statement of
+## a thing the player is being asked to LEARN, not two that agree until they stop.
+##
+## Everything the arms used to read off the instance is a parameter now: `phase`
+## (ORBIT's bodies, SPIRAL's winding), `low` (the second-order detail LOW drops),
+## and `shade_alpha` for VOID's black fill, which is the one place a figure wants
+## the sigil's own alpha rather than the brightened colour.
+##
+## ⚠ `count_work` EXISTS SO THE PROFILE STAYS HONEST. `_work_*` are statics and
+## `tools/profile_magic_circle.gd` reads them to reason about sigil cost. Four HUD
+## sockets redrawing every frame would be counted as sigil work and the profile
+## would silently inflate — a measurement that lies is worse than none.
+static func draw_motif(ci: CanvasItem, motif: int, R: float, col: Color, w: float,
+		phase: float, low: bool, shade_alpha: float, count_work: bool) -> void:
+	if motif == Motif.NONE or R <= 4.0:
+		return
 	var lo: float = R * MOTIF_INNER
 	var hi: float = R * MOTIF_OUTER
-	var w: float = 2.0
-	_work_glyphs += 1
-	match _motif:
+	if count_work: _work_glyphs += 1
+	match motif:
 		Motif.DESCENT:
 			# Three chevrons pointing INWARD at the centre, plus a small cross on the
 			# spot. The unambiguous "it lands HERE" figure — the same read the game's
 			# ground markers already use, so it needs no learning.
-			_work_segments += 8
+			if count_work: _work_segments += 8
 			for i: int in 3:
 				var d: Vector2 = Vector2.from_angle(-PI / 2.0 + TAU * float(i) / 3.0)
 				var t: Vector2 = d.orthogonal()
 				var tip: Vector2 = d * lo
 				var back: Vector2 = d * hi
-				draw_polyline(PackedVector2Array([
+				ci.draw_polyline(PackedVector2Array([
 					back + t * R * 0.14, tip, back - t * R * 0.14,
 				]), col, w, true)
 			var x: float = R * 0.12
-			draw_line(Vector2(-x, 0.0), Vector2(x, 0.0), col, w * 0.7, true)
-			draw_line(Vector2(0.0, -x), Vector2(0.0, x), col, w * 0.7, true)
+			ci.draw_line(Vector2(-x, 0.0), Vector2(x, 0.0), col, w * 0.7, true)
+			ci.draw_line(Vector2(0.0, -x), Vector2(0.0, x), col, w * 0.7, true)
 		Motif.LANCE:
 			# A barbed shaft along local +x. The one figure with a HEADING, and the
 			# reason the motif is drawn unspun: this is the arrow that says which way
 			# the beam leaves. (Edge-on gates get their direction from the gate
 			# itself and never reach this code — see `_draw_edge`.)
-			_work_segments += 6
-			draw_line(Vector2(-hi, 0.0), Vector2(hi, 0.0), col, w + 0.4, true)
-			draw_polyline(PackedVector2Array([
+			if count_work: _work_segments += 6
+			ci.draw_line(Vector2(-hi, 0.0), Vector2(hi, 0.0), col, w + 0.4, true)
+			ci.draw_polyline(PackedVector2Array([
 				Vector2(hi * 0.55, -R * 0.13), Vector2(hi, 0.0), Vector2(hi * 0.55, R * 0.13),
 			]), col, w, true)
-			if not _low:
+			if not low:
 				var g: float = R * 0.20
-				draw_line(Vector2(-hi * 0.7, -g), Vector2(hi * 0.2, -g), col, 1.0, true)
-				draw_line(Vector2(-hi * 0.7, g), Vector2(hi * 0.2, g), col, 1.0, true)
+				ci.draw_line(Vector2(-hi * 0.7, -g), Vector2(hi * 0.2, -g), col, 1.0, true)
+				ci.draw_line(Vector2(-hi * 0.7, g), Vector2(hi * 0.2, g), col, 1.0, true)
 		Motif.BARRIER:
 			# One hard chord straight across, with end-caps. Reads as a fence at any
 			# size, and is the only figure in the set that is a single straight line —
 			# which is what makes it unmistakable next to LANCE's barbed shaft.
-			_work_segments += 3
-			draw_line(Vector2(-hi, 0.0), Vector2(hi, 0.0), col, w + 1.4, true)
-			if not _low:
+			if count_work: _work_segments += 3
+			ci.draw_line(Vector2(-hi, 0.0), Vector2(hi, 0.0), col, w + 1.4, true)
+			if not low:
 				var e: float = R * 0.16
-				draw_line(Vector2(-hi, -e), Vector2(-hi, e), col, w, true)
-				draw_line(Vector2(hi, -e), Vector2(hi, e), col, w, true)
+				ci.draw_line(Vector2(-hi, -e), Vector2(-hi, e), col, w, true)
+				ci.draw_line(Vector2(hi, -e), Vector2(hi, e), col, w, true)
 		Motif.ERUPTION:
 			# Five spikes driving OUTWARD from the inner ring. The exact inverse of
 			# DESCENT, and the pairing is intentional: the two most common big-spell
 			# consequences in the roster are "it falls on you" and "it comes up under
 			# you", and they must never be confused with each other.
-			_work_segments += 15
+			if count_work: _work_segments += 15
 			for i: int in 5:
 				var d2: Vector2 = Vector2.from_angle(-PI / 2.0 + TAU * float(i) / 5.0)
 				var t2: Vector2 = d2.orthogonal()
-				draw_polyline(PackedVector2Array([
+				ci.draw_polyline(PackedVector2Array([
 					d2 * lo + t2 * R * 0.10, d2 * hi, d2 * lo - t2 * R * 0.10,
 				]), col, w, true)
 		Motif.ORBIT:
 			# A thin track with three bodies on it. Says "these seek you" — the read a
 			# homing spell needs and a placed one must not have.
 			var mid: float = (lo + hi) * 0.5
-			draw_arc(Vector2.ZERO, mid, 0.0, TAU, _seg(40, mid), Color(col.r, col.g, col.b, col.a * 0.45), 1.0, true)
-			_work_blobs += 3
+			ci.draw_arc(Vector2.ZERO, mid, 0.0, TAU, seg_of(40, mid, low, count_work), Color(col.r, col.g, col.b, col.a * 0.45), 1.0, true)
+			if count_work: _work_blobs += 3
 			for i: int in 3:
-				var p: Vector2 = Vector2.from_angle(_phase * 1.9 + TAU * float(i) / 3.0) * mid
-				draw_circle(p, maxf(1.8, R * 0.05), col, true, -1.0, true)
+				var p: Vector2 = Vector2.from_angle(phase * 1.9 + TAU * float(i) / 3.0) * mid
+				ci.draw_circle(p, maxf(1.8, R * 0.05), col, true, -1.0, true)
 		Motif.PULSE:
 			# Three concentric arcs, each cut open at a different angle so they read
 			# as a wave leaving rather than as three more rings. This is the figure
@@ -1296,13 +1326,13 @@ func _draw_motif(R: float, a: float, c: Color) -> void:
 			for i: int in 3:
 				var rr2: float = lerpf(lo, hi, float(i) / 2.0)
 				var off: float = float(i) * 0.7
-				draw_arc(Vector2.ZERO, rr2, off, off + TAU * 0.78, _seg(30, rr2),
+				ci.draw_arc(Vector2.ZERO, rr2, off, off + TAU * 0.78, seg_of(30, rr2, low, count_work),
 					Color(col.r, col.g, col.b, col.a * (1.0 - 0.22 * float(i))), w, true)
 		Motif.SNARE:
 			# Three hooks that curl back on themselves. Shares shadow's "reaching"
 			# language on purpose — but at the CENTRE, where it means the spell grabs,
 			# not merely that it is shadow-flavoured.
-			_work_segments += 18
+			if count_work: _work_segments += 18
 			for i: int in 3:
 				var base: float = TAU * float(i) / 3.0
 				var pts := PackedVector2Array()
@@ -1310,48 +1340,48 @@ func _draw_motif(R: float, a: float, c: Color) -> void:
 					var tt: float = float(k) / 6.0
 					var rr3: float = lerpf(lo, hi, tt)
 					pts.append(Vector2.from_angle(base + tt * 1.5) * rr3)
-				draw_polyline(pts, col, w, true)
+				ci.draw_polyline(pts, col, w, true)
 		Motif.BLADE:
 			# Two crossed cuts with tapered tails. Short, hard, asymmetric — a slash
 			# rather than an X, which is why the two strokes are not the same length.
-			_work_segments += 4
+			if count_work: _work_segments += 4
 			var d3: Vector2 = Vector2.from_angle(-0.55)
 			var d4: Vector2 = Vector2.from_angle(0.75)
-			draw_line(-d3 * hi, d3 * hi, col, w + 0.8, true)
-			draw_line(-d4 * hi * 0.72, d4 * hi * 0.72, Color(col.r, col.g, col.b, col.a * 0.7), w, true)
+			ci.draw_line(-d3 * hi, d3 * hi, col, w + 0.8, true)
+			ci.draw_line(-d4 * hi * 0.72, d4 * hi * 0.72, Color(col.r, col.g, col.b, col.a * 0.7), w, true)
 		Motif.WARD:
 			# A closed hexagon. The only closed convex figure in the set, and closure
 			# IS the meaning: this volume is claimed and held.
-			_work_segments += 6
+			if count_work: _work_segments += 6
 			var hex := PackedVector2Array()
 			for i: int in 7:
 				hex.append(Vector2.from_angle(TAU * float(i % 6) / 6.0) * hi * 0.88)
-			draw_polyline(hex, col, w, true)
+			ci.draw_polyline(hex, col, w, true)
 		Motif.VOID:
 			# The one INVERTED figure: a hole punched in the sigil with a bright lip.
 			# Everything else here adds light to the middle; this takes it away, which
 			# is the only way "it unmakes things" can be said in a drawing made of
 			# glowing lines.
-			_work_blobs += 1
-			draw_circle(Vector2.ZERO, hi * 0.8, Color(0.0, 0.0, 0.0, 0.55 * a), true, -1.0, true)
-			draw_arc(Vector2.ZERO, hi * 0.8, 0.0, TAU, _seg(40, hi * 0.8), col, w + 0.6, true)
+			if count_work: _work_blobs += 1
+			ci.draw_circle(Vector2.ZERO, hi * 0.8, Color(0.0, 0.0, 0.0, 0.55 * shade_alpha), true, -1.0, true)
+			ci.draw_arc(Vector2.ZERO, hi * 0.8, 0.0, TAU, seg_of(40, hi * 0.8, low, count_work), col, w + 0.6, true)
 		Motif.SPIRAL:
 			# One arm winding out. Reserved for the spells that change the RULES
 			# rather than deal damage — time, gravity, chance — so an unfamiliar
 			# spiral is at least a reliable "something strange is about to happen".
 			var sp := PackedVector2Array()
-			var steps: int = 10 if _low else 16
-			_work_segments += steps
+			var steps: int = 10 if low else 16
+			if count_work: _work_segments += steps
 			for k2: int in steps + 1:
 				var tt2: float = float(k2) / float(steps)
-				sp.append(Vector2.from_angle(_phase * 0.5 + tt2 * TAU * 0.9) * lerpf(lo * 0.6, hi, tt2))
-			draw_polyline(sp, col, w, true)
+				sp.append(Vector2.from_angle(phase * 0.5 + tt2 * TAU * 0.9) * lerpf(lo * 0.6, hi, tt2))
+			ci.draw_polyline(sp, col, w, true)
 		Motif.SUMMON:
 			# Triangle inscribed in a ring — the oldest conjuration mark there is, and
 			# used here for exactly that: another body is about to be standing there.
-			_work_segments += 3
-			_draw_star(hi * 0.9, 3, 0.0, col)
-			draw_arc(Vector2.ZERO, lo * 0.8, 0.0, TAU, _seg(24, lo * 0.8),
+			if count_work: _work_segments += 3
+			draw_star_on(ci, hi * 0.9, 3, 0.0, col)
+			ci.draw_arc(Vector2.ZERO, lo * 0.8, 0.0, TAU, seg_of(24, lo * 0.8, low, count_work),
 				Color(col.r, col.g, col.b, col.a * 0.5), 1.0, true)
 
 
@@ -1496,8 +1526,14 @@ func _draw_dashed_ring(r: float, count: int, fill: float, col: Color, width: flo
 
 
 func _draw_star(r: float, points: int, offset: float, col: Color) -> void:
+	draw_star_on(self, r, points, offset, col)
+
+
+## The star, on any canvas. See `draw_motif` for why the bodies of these live in
+## statics with the instance methods as one-line delegates.
+static func draw_star_on(ci: CanvasItem, r: float, points: int, offset: float, col: Color) -> void:
 	var pts: PackedVector2Array = PackedVector2Array()
 	for i: int in points:
 		pts.append(Vector2.from_angle(offset - PI / 2.0 + TAU * float(i) / float(points)) * r)
 	pts.append(pts[0])
-	draw_polyline(pts, col, 2.0, true)
+	ci.draw_polyline(pts, col, 2.0, true)

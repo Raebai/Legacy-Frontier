@@ -152,6 +152,36 @@ const MOTIF_BY_SCRIPT: Dictionary = {
 	"Chronostasis.gd": MagicCircle.Motif.SPIRAL,
 	"GravityFlip.gd": MagicCircle.Motif.SPIRAL,
 	"Equinox.gd": MagicCircle.Motif.SPIRAL,
+	# ── THE CLASS SIGNATURES ─────────────────────────────────────────────────
+	# ⚠ NINE OF THESE ELEVEN ARE NOT NEW INFORMATION — they are this table catching
+	# up with what the spectacle already says about itself. `_motif_of` checks a
+	# declared `var sigil_motif` FIRST, and nine of the class signatures use that
+	# sanctioned route (it exists because those files are owned by another agent).
+	# So in the WORLD they were already correct, and adding a row changes nothing.
+	#
+	# It has to be here anyway, because `AbilityBar.glyph_for` is STATIC: it asks
+	# for a figure from a `SpellDef`, with no spectacle instantiated and therefore
+	# no instance property to read. Without a row the hotbar would draw NONE — a
+	# blank socket — for the most characterful spell each class owns.
+	#
+	# ⚠ A ROW THAT DISAGREES WITH THE DECLARATION IS A SPLIT BRAIN: the world would
+	# draw one figure and the bar another, for the same spell. The first cut of this
+	# block did exactly that on two rows and `slice_test_spell_signature` caught it;
+	# `sigil_motif_and_the_table_agree` now makes it impossible.
+	#
+	# The two genuine additions are RaiseThrall and GraveTide, which declare nothing
+	# and so really did open a motif-less circle. A `NONE` draws nothing at all.
+	"ThousandCuts.gd": MagicCircle.Motif.BLADE,      # declared
+	"IaiSlash.gd": MagicCircle.Motif.BLADE,          # declared
+	"CrescentStep.gd": MagicCircle.Motif.LANCE,      # declared
+	"ShockwaveStomp.gd": MagicCircle.Motif.PULSE,    # declared
+	"MeteorFist.gd": MagicCircle.Motif.DESCENT,      # declared
+	"RadiantVolley.gd": MagicCircle.Motif.LANCE,     # declared
+	"Shatter.gd": MagicCircle.Motif.PULSE,           # declared
+	"HeavensWrath.gd": MagicCircle.Motif.DESCENT,    # declared
+	"FaultLine.gd": MagicCircle.Motif.ERUPTION,      # declared
+	"RaiseThrall.gd": MagicCircle.Motif.SUMMON,      # NEW — another body will stand there
+	"GraveTide.gd": MagicCircle.Motif.PULSE,         # NEW — it goes out from you
 	# (Roulette has no spectacle of its own — it re-enters the dispatcher with a
 	#  rolled working, so it correctly inherits THAT spell's motif.)
 	# --- another body arrives ------------------------------------------------

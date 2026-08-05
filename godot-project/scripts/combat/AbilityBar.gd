@@ -285,6 +285,102 @@ func _stamp_spell_identity(hero: Node) -> void:
 		if sig != null:
 			accent = sig.resolve_color(Elements.color(SpellCaster.resolve_element(sig)))
 		slot["accent"] = accent
+		slot["glyph"] = glyph_for(sig)
+
+
+# ══ THE SOCKET GLYPH — the THIRD axis, after colour and tier ═══════════════════
+## A class whose spells share an element showed four sockets of the same colour,
+## and tier only separates three weights across four slots. The figure inside is
+## what tells them apart, and it is the SAME thirteen drawings the cast circle
+## uses (`MagicCircle.draw_motif`), so it costs the player nothing to learn.
+##
+## ⚠ THE OBVIOUS IMPLEMENTATION IS THE WRONG ONE, AND IT WAS BUILT TO FIND OUT.
+## Keying the glyph on `SpellDef.Kind` was rendered across all nine classes and
+## EIGHT OF NINE had a duplicated figure — the Shadowblade drew three identical
+## BLADE circles. That is not a bug in the table: `MagicCircle.Motif` is keyed by
+## CONSEQUENCE on purpose ("two different wall spells SHOULD open the same
+## figure"), which is exactly right for a cast circle and exactly wrong for a
+## hotbar, whose entire job is telling four spells apart. So the primary key is
+## the SPECTACLE.
+##
+## Measured over all 36 reachable hands (a class has C(4,3)=4 hands, because the
+## player leaves one non-ult role behind at class-select — the DEFAULT hand alone
+## would have reported a much rosier number):
+##
+##     live table only                24 of 36 hands carry a duplicate
+##     + the 11 SpellSigil additions  19 of 36
+##     + these 8 overrides             0 of 36
+##
+## ⚠ WHY THE OVERRIDES LIVE HERE AND NOT IN `SpellSigil.MOTIF_BY_SCRIPT`. Three of
+## the eight would make the WORLD cast circle less accurate — a rock pillar really
+## does erupt, a shadow root really does snare, a convergence really does descend.
+## The two tables answer different questions, so they are allowed to differ: the
+## world says WHAT WILL HAPPEN, the hotbar says WHICH SPELL THIS IS. What is NOT
+## duplicated is the drawing — that is one static, and it cannot drift.
+const GLYPH_OVERRIDE: Dictionary = {
+	"RiftDagger.gd": MagicCircle.Motif.LANCE,        # world: BLADE. it is THROWN
+	"ChainBolt.gd": MagicCircle.Motif.SNARE,         # world: LANCE. a chain holds
+	"DrainTether.gd": MagicCircle.Motif.VOID,        # world: SNARE. it unmakes
+	"BlinkStrike.gd": MagicCircle.Motif.SPIRAL,      # world: BLADE. the rules bend
+	"HorizonArc.gd": MagicCircle.Motif.PULSE,        # world: LANCE. it sweeps out
+	# The three that would DEGRADE the world reading, so they stay hotbar-local.
+	"RockPillar.gd": MagicCircle.Motif.BARRIER,      # world stays ERUPTION
+	"ShadowRoot.gd": MagicCircle.Motif.WARD,         # world stays SNARE
+	"StarConvergence.gd": MagicCircle.Motif.ORBIT,   # world stays DESCENT
+	# Two ULTs that collide with their OWN class's basic spell. Both of these are
+	# spectacles that declare their world figure themselves (`sigil_motif`), and
+	# both declarations are right for the world — a thousand cuts IS a blade, a
+	# fault line DOES come up out of the ground. But on a Shadowblade's bar the
+	# blade figure is already taken by `blade_flurry`, and on a Juggernaut's the
+	# eruption is already taken by `boulder_hurl`. So the bar states the OTHER true
+	# thing about each: what makes them different from their neighbour.
+	"ThousandCuts.gd": MagicCircle.Motif.PULSE,      # world BLADE. it opens you from every angle
+	"FaultLine.gd": MagicCircle.Motif.LANCE,         # world ERUPTION. it TRAVELS
+}
+
+## FALLBACK ONLY, and it must cover every `Kind`. `SpellCaster.spectacle_path`
+## returns `EnergyNova.tscn` for NOVA — a `.tscn`, which the script-keyed table
+## cannot hold — so without this row a nova resolves to `NONE`, and a `NONE` draws
+## NOTHING, which looks exactly like the flat socket this whole pass replaced.
+const MOTIF_BY_KIND: Dictionary = {
+	SpellDef.Kind.BEAM: MagicCircle.Motif.LANCE,
+	SpellDef.Kind.DIVINE_RAY: MagicCircle.Motif.DESCENT,
+	SpellDef.Kind.NOVA: MagicCircle.Motif.PULSE,
+	SpellDef.Kind.METEOR: MagicCircle.Motif.DESCENT,
+	SpellDef.Kind.CONVERGENCE: MagicCircle.Motif.DESCENT,
+	SpellDef.Kind.RUSH: MagicCircle.Motif.LANCE,
+	SpellDef.Kind.BOULDER: MagicCircle.Motif.ERUPTION,
+	SpellDef.Kind.PILLAR: MagicCircle.Motif.ERUPTION,
+	SpellDef.Kind.WALL: MagicCircle.Motif.BARRIER,
+	SpellDef.Kind.ICE_WALL: MagicCircle.Motif.BARRIER,
+	SpellDef.Kind.CHAIN: MagicCircle.Motif.LANCE,
+	SpellDef.Kind.ZONE: MagicCircle.Motif.WARD,
+	SpellDef.Kind.MISSILES: MagicCircle.Motif.ORBIT,
+	SpellDef.Kind.BLINK_STRIKE: MagicCircle.Motif.BLADE,
+	SpellDef.Kind.TETHER: MagicCircle.Motif.SNARE,
+	SpellDef.Kind.FLURRY: MagicCircle.Motif.BLADE,
+	SpellDef.Kind.CRAWLER: MagicCircle.Motif.SNARE,
+	SpellDef.Kind.THROWN_ANCHOR: MagicCircle.Motif.BLADE,
+	SpellDef.Kind.WARD: MagicCircle.Motif.WARD,
+	SpellDef.Kind.ARC: MagicCircle.Motif.LANCE,
+	SpellDef.Kind.HEX: MagicCircle.Motif.SPIRAL,
+	SpellDef.Kind.CATACLYSM: MagicCircle.Motif.VOID,
+}
+
+## Which figure this spell wears on the bar. Static and pure, so the guard suite
+## can ask it about every class's every hand without building a HUD.
+static func glyph_for(sig: SpellDef) -> int:
+	if sig == null:
+		return MagicCircle.Motif.NONE
+	var file: String = SpellCaster.spectacle_path(sig).get_file()
+	if not file.is_empty():
+		var over: int = int(GLYPH_OVERRIDE.get(file, MagicCircle.Motif.NONE))
+		if over != MagicCircle.Motif.NONE:
+			return over
+		var shared: int = int(SpellSigil.MOTIF_BY_SCRIPT.get(file, MagicCircle.Motif.NONE))
+		if shared != MagicCircle.Motif.NONE:
+			return shared
+	return int(MOTIF_BY_KIND.get(sig.kind, MagicCircle.Motif.NONE))
 
 
 ## THE BIG BEAM'S NAME. `Hero._signature_hud_slot()` shortens the equipped
@@ -470,7 +566,8 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
 	if is_spell:
 		var accent: Color = slot.get("accent", EMPTY_SOCKET_COLOR)
 		_draw_socket(rect, accent, int(slot.get("tier", SpellTier.Tier.QUICK)), alpha,
-			cd_frac, clampf(float(slot.get("pulse", 0.0)), 0.0, 1.0))
+			cd_frac, clampf(float(slot.get("pulse", 0.0)), 0.0, 1.0),
+			int(slot.get("glyph", MagicCircle.Motif.NONE)))
 	draw_rect(rect, _with_alpha(BORDER_COLOR, alpha), false, BORDER_WIDTH)
 	# The spell slots are all live and all show their own cooldown, so the bar
 	# also has to say WHICH one the cast key throws right now. A lifted outer frame
@@ -600,10 +697,16 @@ const ULT_OUTER_R: float = 1.18
 const SOCKET_SPIN: float = 0.35                   # rad/s at rest
 ## How hard a cast kicks the ring outward. The same `pulse` the ready-flash rides.
 const SOCKET_PUNCH: float = 0.35
+## The glyph sits just OUTSIDE the ring's radius as a fraction, because
+## `MagicCircle.draw_motif` keeps every stroke inside its own MOTIF_OUTER (0.62) —
+## so 1.16 puts the figure at ~0.72 of the socket, filling the middle that the
+## dashed ring leaves empty without touching the ULT's gold ring at 1.18.
+const GLYPH_RADIUS: float = SOCKET_RADIUS * 1.16
+const GLYPH_WIDTH: float = 1.8
 
 
 func _draw_socket(rect: Rect2, accent: Color, tier: int, alpha: float,
-		frac: float = 0.0, pulse: float = 0.0) -> void:
+		frac: float = 0.0, pulse: float = 0.0, glyph: int = MagicCircle.Motif.NONE) -> void:
 	var c: Vector2 = rect.get_center()
 	var low: bool = TuningConfig.quality_is_low()
 	# LOW freezes the spin rather than dropping the ring: the ring is the READ, the
@@ -628,6 +731,20 @@ func _draw_socket(rect: Rect2, accent: Color, tier: int, alpha: float,
 		# the old double rectangle had on a fire ult, where gold sat on orange.
 		_ring(c, r * ULT_OUTER_R, 3, 0.5, -phase * 0.5, TAU,
 			_with_alpha(SpellTier.color(SpellTier.Tier.ULT), 0.75 * alpha), 2.0, not low)
+	# ⚠ DRAWN UNROTATED, WHICH IS THE WHOLE REASON IT IS A SEPARATE TRANSFORM FROM
+	# THE RING. LANCE means "that way" and a spinning arrow points everywhere; the
+	# world sigil makes exactly the same ruling for exactly the same reason (see the
+	# rules block on `MagicCircle.draw_motif`). The ring keeps turning around it.
+	#
+	# `count_work` is FALSE: `_work_*` are MagicCircle's own statics and the profile
+	# reads them to reason about sigil cost. Four HUD sockets redrawing every frame
+	# would be counted as sigil work and silently inflate it.
+	if glyph != MagicCircle.Motif.NONE:
+		var gcol := Color(accent.r * 1.25, accent.g * 1.25, accent.b * 1.25, 0.95 * alpha)
+		draw_set_transform(c, 0.0, Vector2.ONE)
+		MagicCircle.draw_motif(self, glyph, GLYPH_RADIUS, gcol, GLYPH_WIDTH,
+			phase, low, 0.95 * alpha, false)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 ## One dashed ring as a single `draw_multiline`. `sweep` < TAU draws a partial ring
