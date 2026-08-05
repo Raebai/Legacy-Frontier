@@ -287,6 +287,14 @@ func _test_no_bare_group_scans() -> void:
 		# named individually, with the reason, exactly as this table asks.
 		#   GravityFlip   — "inverts gravity 5s, CASTER INCLUDED". A flip with a hole
 		#                   in it where the caster stands is not the spell.
+		#                   ⚠ THIS NOW COVERS THE LIFT ONLY. The 2026-08-05 reversal
+		#                   made it the GRAVITY WELL and gave it its first real damage
+		#                   path (the landing collapse), and that half DOES skip the
+		#                   caster — via `SpellTargets.owner_of` against its own tracked
+		#                   set rather than a group scan, which is why the bare-scan
+		#                   sweep below still sees only the lift. The exemption is
+		#                   therefore narrower than it reads: the caster is lifted by
+		#                   its own well and is not billed for the landing.
 		#   Chronostasis  — "your teammate is frozen too", and so is the caster: it
 		#                   stops time in a PLACE, not for a side.
 		#   Equinox       — levels "you, your friend, and the thing you are fighting".
