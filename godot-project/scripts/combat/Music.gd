@@ -121,6 +121,9 @@ var _base_db: float = BASE_VOLUME_DB
 ## cycle can never silently discard it.
 var _intensity_db: float = 0.0
 var _volume_tween: Tween
+## stream -> where it had got to when we last swapped off it. See `_swap_to`: without
+## this the title theme restarts at 0:00 on every return to the front door.
+var _resume_at: Dictionary = {}
 var _toast_layer: CanvasLayer
 var _toast_label: Label
 var _toast_tween: Tween
@@ -222,11 +225,30 @@ func _resolve_stream(mood: int, idx: int) -> AudioStream:
 
 
 ## Fade the player onto a new stream (kills any in-flight volume tween first).
+##
+## ⚠ IT REMEMBERS WHERE IT WAS. Maker: *"the music on the home screen a little
+## longer"*. The title bed is a ~2:51 looping track, so it never runs out — but every
+## return to the title restarted it at 0:00, which is why it always felt like the same
+## opening bar and never like a piece of music. `play_mood` only early-returns when
+## the SAME stream is already playing, and coming back from the town it is not.
+##
+## So each mood keeps its playhead and resumes from it. That is the whole change: the
+## title theme now continues from wherever it got to, and a session that bounces
+## between the front door and the hub hears the track through instead of hearing its
+## first fifteen seconds five times.
+##
+## Guarded against a stale position past the end of a shorter track — `seek` beyond
+## the length is undefined and would silently play nothing.
 func _swap_to(stream: AudioStream, fade: float) -> void:
 	_kill_volume_tween()
+	if _player.stream != null and _player.playing:
+		_resume_at[_player.stream] = _player.get_playback_position()
 	_player.stream = stream
 	_player.volume_db = SILENT_DB
 	_player.play()
+	var mark: float = float(_resume_at.get(stream, 0.0))
+	if mark > 0.1 and mark < stream.get_length() - 0.5:
+		_player.seek(mark)
 	_volume_tween = get_tree().create_tween()
 	_volume_tween.tween_property(_player, "volume_db", _rest_db(), fade)
 

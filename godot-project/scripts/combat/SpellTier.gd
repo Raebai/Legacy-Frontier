@@ -154,3 +154,60 @@ const ULT_SLOT: int = SLOT_COUNT - 1
 ## anything that is not an ult; the last slot is the ult slot.
 static func slot_accepts_ult(slot_index: int) -> bool:
 	return slot_index >= ULT_SLOT
+
+
+# ══ HOW HARD A SPELL SHOVES ═════════════════════════════════════════════════════
+## Maker: *"I want slight knockback like small amounts based on these spells"*.
+##
+## ⚠ `SpellDef` HAS NO KNOCKBACK FIELD AND DELIBERATELY DOES NOT GET ONE. Adding an
+## `@export` push to a `.tres`-authorable Resource means re-authoring every spell in
+## the catalog and shipping a DEFAULT that silently overrides thirty hand-tuned
+## constants the moment anything reads it. The shelf and the damage are already
+## authored on every spell, and between them they say everything a shove needs to
+## know: how committed the cast was, and how hard it landed.
+##
+## Calibrated against the real curve rather than by taste. Knockback in this project
+## is a decaying velocity channel, not an impulse — `Hero.apply_knockback` bleeds it
+## at `KNOCKBACK_DECAY` — so the DISTANCE travelled goes as roughly `I^2 / 1800` px.
+## That is why these numbers look large for "slight": 140 is about 11 px, 267 about
+## 40 px, 400 about 89 px. A quick bolt nudges, a heavy staggers, an ult moves you.
+##
+## ⚠ AND EVERY VALUE STAYS ABOVE TWO FLOORS THAT ARE NOT ARBITRARY. Under 12 the rig
+## skips its flop entirely and the hit stops reading as a hit; under
+## `SlamPhysics.MIN_SLAM_SPEED` (250) a body can no longer crack a wall it is thrown
+## into, which would silently delete the tower's crater and wall-break reactions.
+## ⚠ ANCHORED SO THE ORDINARY BOLT DOES NOT CHANGE. The plain bolt is 18 damage and
+## has always shoved at ~250, and the maker's OTHER note on this is that bodies should
+## react to being hit MORE — so a formula that quietly halved the most common hit in
+## the game would be answering one request by breaking the other. `95 + 8.6 * 18` is
+## 250: today's number, derived instead of hardcoded. Everything else moves around it.
+const PUSH_BASE: float = 95.0
+const PUSH_PER_DAMAGE: float = 8.6
+## Indexed by `Tier` — a committed cast shoves harder than a jab of the same damage.
+const PUSH_TIER: Array[float] = [1.0, 1.30, 1.70]
+## Floors and ceilings, and neither is arbitrary. Below ~12 the rig skips its flop and
+## the hit stops reading; the real floor is set higher so even the lightest spell
+## still visibly moves a body. The ceiling keeps a high-damage ult from out-shoving
+## `HollowPurple` (900), which is the authored loudest push in the game.
+const PUSH_MIN: float = 120.0
+const PUSH_MAX: float = 900.0
+
+
+## The shove a spell should carry, in the same px/s units `apply_knockback` takes.
+## Null-safe: an unknown spell falls back to the base nudge rather than to zero, so a
+## caller that loses its `SpellDef` degrades to "a small push" and not to "no hit".
+static func push_for(spell: SpellDef) -> float:
+	if spell == null:
+		return PUSH_BASE
+	var t: int = of(spell)
+	var mult: float = PUSH_TIER[t] if t >= 0 and t < PUSH_TIER.size() else 1.0
+	return push_for_damage(float(spell.damage), mult)
+
+
+## The same curve for anything that knows its damage but not its `SpellDef` — the
+## bolt entity being the case that matters, since it carries an `@export damage` and
+## no definition. One formula, so a bolt and its own catalog entry cannot disagree
+## about how hard the same hit shoves.
+static func push_for_damage(damage: float, tier_mult: float = 1.0) -> float:
+	return clampf((PUSH_BASE + PUSH_PER_DAMAGE * maxf(damage, 0.0)) * tier_mult,
+		PUSH_MIN, PUSH_MAX)

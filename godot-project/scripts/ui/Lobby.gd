@@ -80,6 +80,10 @@ var _class_btn: Button = null
 var _class_kit: Label = null
 var _ip_edit: LineEdit = null
 var _start_btn: Button = null
+## The co-op rows, collapsed behind the MULTIPLAYER door. Lives inside `_col` so it
+## inherits the opening fade; hidden children cost a `Container` no height, so the
+## front page is shorter with it than the flat menu was.
+var _coop_panel: VBoxContainer = null
 var _paper: Control = null
 var _credits: Control = null
 var _free_btn: Button = null
@@ -289,10 +293,39 @@ func _build_ui() -> void:
 	#
 	# What is left is the only question a title screen has to ask: alone, or with
 	# someone.
-	right.add_child(_group_label("MULTIPLAYER"))
+	# ══ THREE DOORS, AND THE REST BEHIND ONE OF THEM ════════════════════════════
+	# Maker: *"just enter the tower or multiplayer and then credits below"*. The
+	# screen used to present ENTER THE TOWER, a MULTIPLAYER caption, Host Co-op, Join
+	# a Game, a conditional Start Run, Watch Bots and Credits — seven things, four of
+	# which only matter once you have already decided to play with someone.
+	#
+	# So MULTIPLAYER becomes a DOOR rather than a caption, and the three co-op rows
+	# move behind it. Every one of them still exists, still carries its own label and
+	# still works; they are one press further away and off the front page.
+	#
+	# ⚠ COLLAPSED, NOT DELETED, AND THAT IS A HARD CONSTRAINT RATHER THAN CAUTION.
+	# Four suites assert the literal strings "Host Co-op", "Join", "Start Run" and
+	# "Credits" are present among the lobby's buttons, and one asserts the source
+	# still builds `var coop := HBoxContainer.new()`. Deleting any of them fails the
+	# build. The suites' walker recurses the whole tree and does not check visibility,
+	# so a hidden panel satisfies them honestly — the actions ARE all still reachable,
+	# which is what those assertions are actually protecting.
+	var mp := _button("MULTIPLAYER  ▸", _toggle_coop, 16)
+	mp.custom_minimum_size = Vector2(PANEL_W, BUTTON_H)
+	right.add_child(mp)
+
+	# The panel itself. Inside `_col` so it inherits the column's fade-in, and hidden
+	# at boot — a `Container` excludes non-visible children from its minimum size, so
+	# the collapsed screen is SHORTER than it was and the 360 px viewport bound the
+	# layout suite pins gets easier rather than tighter.
+	_coop_panel = VBoxContainer.new()
+	_coop_panel.add_theme_constant_override("separation", 3)
+	_coop_panel.visible = false
+	right.add_child(_coop_panel)
+	_coop_panel.add_child(_group_label("MULTIPLAYER"))
 	var coop := HBoxContainer.new()
 	coop.add_theme_constant_override("separation", 6)
-	right.add_child(coop)
+	_coop_panel.add_child(coop)
 	# LOCAL and ONLINE side by side, which is the split the maker asked for. Local
 	# routes through the same host path on the loopback — one code path, and the
 	# only honest one until a second gamepad is actually wired.
@@ -301,7 +334,8 @@ func _build_ui() -> void:
 
 	_start_btn = _button("Start Run", _start_run, 15)
 	_start_btn.visible = false
-	right.add_child(_start_btn)
+	_coop_panel.add_child(_start_btn)
+	_coop_panel.add_child(_button("Back", _toggle_coop, 14))
 
 	# Paired into ONE row rather than stacked, because the column measures 306 of
 	# 360 px and a stacked pair would blow the budget the layout suite pins.
@@ -1068,6 +1102,19 @@ func _music_town() -> void:
 		m.call("play_town")
 
 
+## Open or close the co-op rows. Deliberately a TOGGLE on one member rather than a
+## screen swap like `_open_join`: the join screen replaces the column because it hosts
+## a live discovery list and a text field, whereas this is three rows that belong to
+## the same page and should feel like the page growing, not like navigating.
+func _toggle_coop() -> void:
+	if _coop_panel == null:
+		return
+	_coop_panel.visible = not _coop_panel.visible
+	# Hosting state can have changed while it was closed — `Start Run` only exists
+	# once you are actually a host, and `_refresh` is the single owner of that rule.
+	_refresh()
+
+
 ## ══ THE OPENING ═════════════════════════════════════════════════════════════════
 ## Maker: *"have like an intro animation when I open the game of maybe the magic
 ## circle being formed or something"* — and *"the music on the home screen a little
@@ -1188,6 +1235,11 @@ class _Sigil:
 	## frame on purpose (a glyph that reshuffles boils); keeping that away from `_rng`
 	## is what stops the mote pour collapsing into a single streak.
 	var _rune_rng := RandomNumberGenerator.new()
+	## How far the figure leans toward the pointer, and how fast it gets there.
+	## Bounded: an unbounded follow is the circle chasing the cursor, not a backdrop.
+	const LEAN_MAX: float = 16.0
+	const LEAN_EASE: float = 3.2
+	var _lean: Vector2 = Vector2.ZERO
 	## Each mote: [angle, unused, age, element, out_speed, orbital_drift]
 	var _motes: Array = []
 	var _spawn_acc: float = 0.0
@@ -1219,6 +1271,17 @@ class _Sigil:
 
 	func _process(delta: float) -> void:
 		_t += delta
+		# THE LEAN. Eased rather than snapped, so a flicked cursor does not make the
+		# backdrop twitch; `LEAN_EASE` is per-second so it is frame-rate independent.
+		var want: Vector2 = Vector2.ZERO
+		var vp: Viewport = get_viewport()
+		if vp != null and size.x > 1.0 and size.y > 1.0:
+			var m: Vector2 = vp.get_mouse_position()
+			# Only inside the window — an un-focused window reports a stale position
+			# that would park the lean at a corner.
+			if Rect2(Vector2.ZERO, size).has_point(m):
+				want = ((m / size) - Vector2(0.5, 0.5)) * (LEAN_MAX * 2.0)
+		_lean = _lean.lerp(want, clampf(LEAN_EASE * delta, 0.0, 1.0))
 		# Nothing pours until the gate is most of the way open — the reveal has to
 		# land as a CAUSE, with the elements as its consequence.
 		if _open() > 0.55:
@@ -1257,8 +1320,21 @@ class _Sigil:
 	## ⚠ BIASED LEFT, and that is a layout contract rather than taste: the menu
 	## column hugs the RIGHT edge (`PANEL_W` wide), so a centred circle would sit
 	## under the buttons and fight them for legibility.
+	## ══ IT LOOKS AT YOU ═════════════════════════════════════════════════════════
+	## Maker: *"make the background of the home screen something cool and
+	## interactive"*. The sigil was a fixed drawing on a flat fill — beautiful and
+	## completely inert, the same picture whatever anyone did.
+	##
+	## The cheapest honest interactivity is PARALLAX: the whole figure leans a little
+	## toward the pointer, so the circle reads as a thing suspended in front of the
+	## page rather than printed on it. It costs one lerp and no new nodes, it works
+	## identically under a finger on a phone, and — unlike anything that MOVES the
+	## menu — it cannot make a button harder to press.
+	##
+	## Bounded hard at `LEAN_MAX` px. An unbounded follow turns into the circle
+	## chasing the cursor around the screen, which is a toy rather than a backdrop.
 	func _centre() -> Vector2:
-		return Vector2(size.x * 0.34, size.y * 0.52)
+		return Vector2(size.x * 0.34, size.y * 0.52) + _lean
 
 
 	func _radius() -> float:

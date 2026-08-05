@@ -481,6 +481,22 @@ static func _is_ghost(collider: Object) -> bool:
 ## keeps every branch that asks a real question of the node it hit — a hurtbox, a
 ## hero, a destructible — and loses only the one that assumes anything static is a
 ## wall. `tools/slice_test_hub_shoot.gd` holds it.
+## How hard THIS bolt shoves, from its own damage. Maker: *"I want slight knockback
+## like small amounts based on these spells"*.
+##
+## It used to be two flat literals — 260 against an enemy and 240 against a hero —
+## so a Shadowblade's 6-damage flurry blade and a 46-damage heavy hit moved a body by
+## exactly the same amount, and the shove said nothing about what had landed. The
+## curve lives in `SpellTier` so a bolt and its own catalog entry cannot disagree, and
+## it is anchored to leave the ordinary 18-damage bolt at the number it always had.
+##
+## The two literals differing by 20 was not a rule, incidentally — nothing documents
+## why a hero should be shoved less than an enemy by the same bolt, and unifying them
+## on the spell's own damage is the more honest answer.
+func _push() -> float:
+	return SpellTier.push_for_damage(float(damage))
+
+
 func _on_area_hit(area: Area2D) -> void:
 	_try_damage(area.get_parent(), true)
 
@@ -537,7 +553,7 @@ func _try_damage(node: Node, from_area: bool = false) -> void:
 		_punctuate()
 		_spawn_impact_burst()
 		if node.has_method("apply_knockback"):
-			node.apply_knockback(_dir * 260.0)
+			node.apply_knockback(_dir * _push())
 		queue_free()
 	elif node.is_in_group("destructible") and node.has_method("take_damage"):
 		# Props take spell damage too. Prefer damage_at so parts break off exactly
@@ -627,7 +643,7 @@ func _damage_hero(node: Node) -> void:
 	if session:
 		_dead = true
 		netmgr.deal_damage(node, damage)
-		netmgr.deal_knockback(node, _dir * 240.0)
+		netmgr.deal_knockback(node, _dir * _push())
 		# ⚠ THE AILMENT USED TO BE DROPPED HERE, and only here. The branch below
 		# applies it; this one did not, so in a live co-op session — the ONLY place
 		# hero-on-hero bolts fly in the first place — burning, chilling and shocking
@@ -648,7 +664,7 @@ func _damage_hero(node: Node) -> void:
 		if element_id >= 0 and node.has_method("apply_status"):
 			node.apply_status(element_id)
 		if node.has_method("apply_knockback"):
-			node.apply_knockback(_dir * 240.0)
+			node.apply_knockback(_dir * _push())
 		Juice.on_hit({"sfx": "spell_impact", "hitstop": 0.045, "shake": 6.0, "dir": _dir, "kick": 5.0})
 		_punctuate()
 		_spawn_impact_burst()
