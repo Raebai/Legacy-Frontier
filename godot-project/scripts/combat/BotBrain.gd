@@ -170,6 +170,11 @@ const MELEE_COOLDOWN: float = 0.34     # Hero.MELEE_COOLDOWN
 ## The brain must press EARLY, timed so the blow arrives inside the band; these
 ## are the two moments to aim impact at.
 const GUARD_SHRINK: float = 0.42       # ParryRing.SHRINK_TIME
+## The narrowest parry band that survives the sampler. The reflex layer runs once a
+## physics frame, so `tti` steps ~0.0167 s; a half-width under this is fewer than
+## five frames of chance and rounds down to "the bot did not parry". See `_caps`.
+const SLACK_FLOOR: float = 0.075
+
 const GUARD_BAND_BLADE: float = 0.374  # midpoint of PERFECT_START 0.78 .. 1.0
 const GUARD_BAND_SIGIL: float = 0.392  # midpoint of SIGIL_PERFECT_START 0.865 .. 1.0
 const GUARD_REARM_BLADE: float = 0.35  # ParryRing.REARM_TIME
@@ -909,7 +914,28 @@ static func _caps(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 	var band: float = float(bb.get("guard_lead",
 		GUARD_BAND_SIGIL if sigil else GUARD_BAND_BLADE))
 	var skill: float = BotProfile.get_f(profile, "guard")
-	var slack: float = lerpf(0.16, 0.03, clampf(skill, 0.0, 1.0))
+	# ⚠ SKILL USED TO SHRINK THIS TO 0.03, WHICH IS BACKWARDS FOR THE ONE CLASS BUILT
+	# ON THE PARRY. `slack` is not how well the bot parries — it is how wide the
+	# window is in which it is ALLOWED to try. Narrowing it with skill means the
+	# highest difficulty gets the FEWEST attempts, and difficulty 3 is what every
+	# sweep, every clip and every bot match runs at.
+	#
+	# The arithmetic: the reflex layer samples per physics frame, so `tti` steps by
+	# about 1/60 s. A +-0.03 band is 0.06 s wide — 3.6 frames — and a threat has to
+	# be VISIBLE (its reaction delay already elapsed) for the whole of it. At +-0.16
+	# it is 19 frames. So the shipped ladder handed the Swordsaint a fifth of the
+	# openings at the tier it is measured at.
+	#
+	# MEASURED CONTEXT: the Swordsaint is bottom of the roster in two independent
+	# 72-bout round-robins (19%, then 25%), and it did not move when its health was
+	# raised 16% — so the losing thing is not its bar.
+	#
+	# ⚠ AND THE FLOOR IS THE FIX, NOT A BIGGER NUMBER. Skill should buy ACCURACY —
+	# pressing nearer the ideal lead — not opportunity. `SLACK_FLOOR` keeps the band
+	# resolvable at the frame rate the sampler actually runs at; a skilled bot still
+	# gets a tighter band than a clumsy one, it just no longer gets one narrower than
+	# the thing that reads it.
+	var slack: float = maxf(lerpf(0.16, 0.03, clampf(skill, 0.0, 1.0)), SLACK_FLOOR)
 	var tti: float = float(threat.get("tti", 99.0))
 	var in_lead: bool = absf(tti - band) <= slack
 	return {
