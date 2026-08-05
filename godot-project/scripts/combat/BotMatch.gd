@@ -334,6 +334,41 @@ static var drops: bool = true
 ## Which drop each side carries. -1 rolls. Set them to shoot a specific spell.
 static var drop_a: int = -1
 static var drop_b: int = -1
+
+## ══ EACH CLASS'S SIGNATURE DROP ═════════════════════════════════════════════
+## Maker: "give all the classes their tier 3 drop spells". A RANDOM roll meant a
+## Swordsaint might open Equinox in one clip and Roulette in the next, so the clip
+## showed the DROP and not the class — which is the opposite of what a per-class
+## showcase is for.
+##
+## ⚠ THIS IS A MAPPING, NOT THE FEATURE ASKED FOR, AND THE DIFFERENCE IS REAL.
+## There are SIX drops (`drop_ids()`: arc_of_fools, meteor_storm, the_void,
+## chronostasis, equinox, roulette) and NINE classes, so three of these rows are
+## shared. Giving every class one of its OWN means authoring three-plus new
+## ult-weight spells, each with a bespoke spectacle — the existing four are
+## rule-benders with their own drawing, not element recolours, and
+## [[project_v2_class_identity_mandate]] rules out making the difference a tint.
+## That build has not been done and this is not it.
+##
+## FOUR OF THESE ARE THE SPELL-TREE SPEC'S OWN LINKS
+## (`docs/superpowers/specs/2026-08-04-spell-trees-and-progression-design.md` §4):
+## Cleric→equinox, Warlock→the_void, Warlock→arc_of_fools, Arcanist→chronostasis.
+## ⚠ I MOVED CHRONOSTASIS TO THE CRYOMANCER and the reason is checkable rather than
+## taste: the spell's own `element` is ICE and its whole mechanic is freezing. The
+## spec reaches it from the Arcanist as an "arcane control" TREE LINK, which is a
+## different claim from whose signature it is.
+const CLASS_DROP: Array[String] = [
+	"roulette",      # 0 ARCANIST    — a dispatcher re-roll is the most arcane thing here
+	"the_void",      # 1 SHADOWBLADE — shadow, and it pulls in and unmakes
+	"arc_of_fools",  # 2 BRAWLER     — chaos, close, and it does not ask permission
+	"meteor_storm",  # 3 JUGGERNAUT  — siege bombardment on the siege class
+	"equinox",       # 4 CLERIC      — the spec's link
+	"chronostasis",  # 5 CRYOMANCER  — ICE element, and the mechanic IS freezing
+	"meteor_storm",  # 6 STORMCALLER — SHARED with the Juggernaut. Sky bombardment
+	"the_void",      # 7 WARLOCK     — the spec's link. SHARED with the Shadowblade
+	"chronostasis",  # 8 SWORDSAINT  — SHARED. A parry duellist stopping time is the
+	                 #   fantasy, and it is the class that most needs a window
+]
 ## How close two health fractions have to be before a timeout is called a DRAW
 ## rather than a decision.
 const DRAW_MARGIN: float = 0.04
@@ -553,13 +588,16 @@ func _grant_showcase_drop(f: Node2D, side: int) -> void:
 	if pool.is_empty():
 		return
 	var want: int = drop_a if side == 0 else drop_b
-	if want < 0:
-		want = randi() % pool.size()
-		if side == 1 and pool.size() > 1 and want == _granted_index[0]:
-			want = (want + 1) % pool.size()
-	want = clampi(want, 0, pool.size() - 1)
-	_granted_index[side] = want
-	var spell: SpellDef = pool[want]
+	var spell: SpellDef = null
+	if want >= 0:
+		spell = pool[clampi(want, 0, pool.size() - 1)]
+	else:
+		# THE CLASS'S OWN, not a roll. See CLASS_DROP.
+		var cls: int = _fighter_class[side]
+		var id: String = CLASS_DROP[cls] if cls >= 0 and cls < CLASS_DROP.size() else ""
+		spell = SpellLibrary.drop_by_id(id)
+		if spell == null:
+			spell = pool[randi() % pool.size()]
 	var nth: int = SpellGrant.apply(f, spell)
 	if nth < 0:
 		push_warning("[botmatch] side %d could not take '%s'" % [side, spell.id])
