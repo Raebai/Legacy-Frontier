@@ -8,9 +8,41 @@
 # `is Boss` or `boss.method()` directly — so this test script does NOT compile-time
 # depend on Boss.gd. That matters: referencing Boss at this script's compile time
 # would pull its whole spell chain into early boot, before the Sfx autoload exists.
+#
+# ── VACUOUS-PASS ARMOUR (retrofitted; this suite was the worst one lacking it) ──
+# A dead member read is NOT a test failure in GDScript: it logs a runtime error,
+# ABORTS the enclosing function, and hands the caller the return type's zero value.
+# This file used to be ONE long `_run()`, which made that failure mode maximally
+# bad — an abort half way through skipped `_finish()` itself, so the suite never
+# reached a verdict at all. And it is the only suite that walks the REAL
+# Encounter -> boss spawn path, so it is the one most able to pass without testing.
+#
+# The fix is the house idiom: one named function per test, each recording that it
+# reached its own last line, and a sweep at the end that fails BY ABSENCE. An
+# aborted sub-test now returns to `_run()`, which carries on and still reports.
 extends SceneTree
 
+## Every test that must run to completion.
+const TESTS: Array[String] = [
+	"a_boss_floor_holds_its_guardian_behind_the_waves",
+	"the_guardian_is_boss_scale",
+	"phases_are_hp_gated",
+	"every_phase_has_a_real_attack_set",
+	"a_hero_spectacle_does_not_hurt_the_boss",
+	"death_opens_the_clear_gate",
+	"a_combat_floor_gets_a_scaled_down_guardian",
+]
+
 var _failed: int = 0
+var _completed: Dictionary = {}
+
+var _arena: Node2D = null
+var _enc_script: GDScript = null
+var _tower: Resource = null
+## The guardian spawned by the first test and consumed by the next five. Every test
+## that reads it guards on null and RETURNS rather than limping on — a test with no
+## subject must fail by absence, not pass by having nothing to check.
+var _guardian: Node = null
 
 
 func _initialize() -> void:
@@ -23,6 +55,11 @@ func _expect(cond: bool, msg: String) -> void:
 		_failed += 1
 
 
+## Last line of every test: "I reached the end." See TESTS.
+func _completes(test_name: String) -> void:
+	_completed[test_name] = true
+
+
 func _find_boss() -> Node:
 	for e in root.get_tree().get_nodes_in_group("enemy"):
 		if e.has_method("current_phase"):   # only the Boss exposes this
@@ -31,78 +68,122 @@ func _find_boss() -> Node:
 
 
 func _run() -> void:
-	var gs_script: GDScript = load("res://scripts/GameState.gd") as GDScript
-	var enc_script: GDScript = load("res://scripts/combat/Encounter.gd") as GDScript
-	var tower: Resource = gs_script.build_default_tower()
-	var boss_def: Resource = tower.floors[4]
-	_expect(int(boss_def.floor_type) == 2, "Ashspire floor 5 is BOSS (type 2)")
+	_enc_script = load("res://scripts/combat/Encounter.gd") as GDScript
+	_tower = (load("res://scripts/GameState.gd") as GDScript).build_default_tower()
+	_arena = Node2D.new()
+	root.add_child(_arena)
 
-	var arena := Node2D.new()
-	root.add_child(arena)
-	var enc: Node = enc_script.new()
-	arena.add_child(enc)
-	# 1.2: the guardian arrives AFTER the last wave, not at the door. Run the
-	# floor's wave list down to nothing so the boss gate opens.
+	await _test_a_boss_floor_holds_its_guardian_behind_the_waves()
+	await _test_the_guardian_is_boss_scale()
+	await _test_phases_are_hp_gated()
+	await _test_every_phase_has_a_real_attack_set()
+	await _test_a_hero_spectacle_does_not_hurt_the_boss()
+	await _test_death_opens_the_clear_gate()
+	await _test_a_combat_floor_gets_a_scaled_down_guardian()
+
+	for t: String in TESTS:
+		_expect(_completed.has(t),
+			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
+	if _failed > 0:
+		printerr("Boss tests: %d FAILED" % _failed)
+		quit(1)
+	else:
+		print("Boss tests: all PASS")
+		quit(0)
+
+
+# --------------------------------------------------------------------- the tests
+## 1.2: the guardian arrives AFTER the last wave, not at the door.
+func _test_a_boss_floor_holds_its_guardian_behind_the_waves() -> void:
+	var boss_def: Resource = _tower.floors[4]
+	_expect(int(boss_def.floor_type) == 2, "Ashspire floor 5 is BOSS (type 2)")
+	var enc: Node = _enc_script.new()
+	_arena.add_child(enc)
 	enc.run_floor(boss_def)
 	await process_frame
 	_expect(_find_boss() == null, "no guardian while waves are still running")
 	await _drain_waves(enc)
+	_guardian = _find_boss()
+	_expect(_guardian != null, "boss floor spawned a Boss")
+	_completes("a_boss_floor_holds_its_guardian_behind_the_waves")
 
-	var guardian: Node = _find_boss()
-	_expect(guardian != null, "boss floor spawned a Boss")
-	if guardian == null:
-		_finish()
+
+func _test_the_guardian_is_boss_scale() -> void:
+	if _guardian == null:
 		return
-	_expect(int(guardian.get("max_hp")) >= 400, "guardian has boss-scale HP (>= 400)")
-	_expect(int(guardian.get("touch_damage")) >= 20, "guardian hits hard (touch >= 20)")
-	_expect(guardian.is_in_group("enemy"), "guardian is in 'enemy' (clear gate waits for it)")
-	var rig: Node = guardian.get_node_or_null("Rig")
-	_expect(rig != null and float(rig.get("height")) > 60.0, "guardian rig is a colossus (height > 60)")
+	_expect(int(_guardian.get("max_hp")) >= 400, "guardian has boss-scale HP (>= 400)")
+	_expect(int(_guardian.get("touch_damage")) >= 20, "guardian hits hard (touch >= 20)")
+	_expect(_guardian.is_in_group("enemy"), "guardian is in 'enemy' (clear gate waits for it)")
+	var rig: Node = _guardian.get_node_or_null("Rig")
+	_expect(rig != null and float(rig.get("height")) > 60.0,
+		"guardian rig is a colossus (height > 60)")
+	_completes("the_guardian_is_boss_scale")
 
-	# --- phases: start in INTRO, then HP-gated P1 -> P2 -> P3 ---
-	_expect(int(guardian.call("current_phase")) == 0, "guardian starts in INTRO (phase 0)")
+
+## Start in INTRO, then HP-gated P1 -> P2 -> P3, with the signal on each crossing.
+func _test_phases_are_hp_gated() -> void:
+	if _guardian == null:
+		return
+	_expect(int(_guardian.call("current_phase")) == 0, "guardian starts in INTRO (phase 0)")
 	var seen_phases: Array = []
-	guardian.connect("phase_changed", func(p: int) -> void: seen_phases.append(p))
-	guardian.call("_enter_phase", 1)   # skip the 2.6s intro timer for the test
-	_expect(int(guardian.call("current_phase")) == 1, "entered P1")
-	var mx: int = int(guardian.get("max_hp"))
-	guardian.call("take_damage", int(mx * 0.4))
-	_expect(int(guardian.call("current_phase")) == 2, "crossing 66% HP -> P2")
-	guardian.call("take_damage", int(mx * 0.4))
-	_expect(int(guardian.call("current_phase")) == 3, "crossing 33% HP -> P3")
+	_guardian.connect("phase_changed", func(p: int) -> void: seen_phases.append(p))
+	_guardian.call("_enter_phase", 1)   # skip the 2.6s intro timer for the test
+	_expect(int(_guardian.call("current_phase")) == 1, "entered P1")
+	var mx: int = int(_guardian.get("max_hp"))
+	_guardian.call("take_damage", int(mx * 0.4))
+	_expect(int(_guardian.call("current_phase")) == 2, "crossing 66% HP -> P2")
+	_guardian.call("take_damage", int(mx * 0.4))
+	_expect(int(_guardian.call("current_phase")) == 3, "crossing 33% HP -> P3")
 	_expect(seen_phases.has(2) and seen_phases.has(3), "phase_changed fired for P2 + P3")
+	_completes("phases_are_hp_gated")
 
-	# --- each phase has a real attack set ---
+
+func _test_every_phase_has_a_real_attack_set() -> void:
+	if _guardian == null:
+		return
 	for ph: int in [1, 2, 3]:
-		_expect((guardian.call("_phase_attack_ids", ph) as Array).size() >= 2, "phase %d has >= 2 attacks" % ph)
+		_expect((_guardian.call("_phase_attack_ids", ph) as Array).size() >= 2,
+			"phase %d has >= 2 attacks" % ph)
+	_completes("every_phase_has_a_real_attack_set")
 
-	# --- spectacle retargeting: a hero-targeted blast hurts a "hero", not the boss ---
+
+## A hero-targeted blast hurts a "hero", not the boss that is standing in it.
+func _test_a_hero_spectacle_does_not_hurt_the_boss() -> void:
+	if _guardian == null:
+		return
 	var stub := _HeroStub.new()
 	stub.add_to_group("hero")
-	arena.add_child(stub)
+	_arena.add_child(stub)
 	stub.global_position = Vector2(400, 300)
-	var boss_hp_before: int = int(guardian.get("hp"))
+	var boss_hp_before: int = int(_guardian.get("hp"))
 	var blast: Node = load("res://scenes/combat/BlastSpell.tscn").instantiate()
-	arena.add_child(blast)
+	_arena.add_child(blast)
 	blast.configure({"target_group": "hero", "damage": 25, "radius": 90, "knockback": 0, "windup": 0.01})
 	blast.detonate_now(Vector2(400, 300))
 	await process_frame
 	_expect(stub.hp < 100, "hero-targeted blast damaged the hero stub")
-	_expect(int(guardian.get("hp")) == boss_hp_before, "hero-targeted blast did NOT damage the boss")
+	_expect(int(_guardian.get("hp")) == boss_hp_before, "hero-targeted blast did NOT damage the boss")
+	_completes("a_hero_spectacle_does_not_hurt_the_boss")
 
-	# --- death -> defeated + leaves "enemy" -> floor can clear ---
+
+func _test_death_opens_the_clear_gate() -> void:
+	if _guardian == null:
+		return
 	var was_defeated: Array = [false]
-	guardian.connect("defeated", func() -> void: was_defeated[0] = true)
-	guardian.call("take_damage", int(guardian.get("hp")) + 10)
+	_guardian.connect("defeated", func() -> void: was_defeated[0] = true)
+	_guardian.call("take_damage", int(_guardian.get("hp")) + 10)
 	await process_frame
 	await process_frame
 	_expect(was_defeated[0], "boss emitted 'defeated' on death")
 	_expect(_find_boss() == null, "dead boss left the 'enemy' group (clear gate satisfied)")
+	_completes("death_opens_the_clear_gate")
 
-	# --- 1.2: a COMBAT floor also ends on a guardian, scaled DOWN ---
-	var enc2: Node = enc_script.new()
-	arena.add_child(enc2)
-	enc2.run_floor(tower.floors[0])
+
+## 1.2: a COMBAT floor also ends on a guardian, scaled DOWN.
+func _test_a_combat_floor_gets_a_scaled_down_guardian() -> void:
+	var enc2: Node = _enc_script.new()
+	_arena.add_child(enc2)
+	enc2.run_floor(_tower.floors[0])
 	await process_frame
 	_expect(_find_boss() == null, "a COMBAT floor holds its guardian back behind the waves")
 	await _drain_waves(enc2)
@@ -113,10 +194,10 @@ func _run() -> void:
 			"the COMBAT-floor guardian is scaled down (got %d hp)" % int(mini.get("max_hp")))
 		_expect(float(mini.get("body_scale")) < 1.0,
 			"...and is physically smaller than the Ashspire colossus")
+	_completes("a_combat_floor_gets_a_scaled_down_guardian")
 
-	_finish()
 
-
+# ------------------------------------------------------------------- utilities
 ## Kill everything the encounter spawns until it opens the boss gate. Faster than
 ## real time (waves spawn on a timer), so it drives _process directly rather than
 ## waiting the floor out; bails after a generous frame budget so a regression
@@ -135,15 +216,6 @@ func _drain_waves(enc: Node) -> void:
 			return
 		await process_frame
 	_expect(false, "the encounter reached its boss phase within the frame budget")
-
-
-func _finish() -> void:
-	if _failed > 0:
-		printerr("Boss tests: %d FAILED" % _failed)
-		quit(1)
-	else:
-		print("Boss tests: all PASS")
-		quit(0)
 
 
 ## Minimal hero stand-in: a Node2D in group "hero" with hp + take_damage.

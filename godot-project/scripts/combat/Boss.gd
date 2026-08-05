@@ -113,6 +113,48 @@ func bark_suffix() -> String:
 	return "guardian"
 
 
+## ── THE REST OF THE IDENTITY, LIFTED OFF `TowerBoss` ─────────────────────────
+## These five used to exist ONLY on `TowerBoss`, which meant the Ashspire Guardian —
+## the fallback boss, and the most frequently fought body in the tower — could not be
+## asked what it looks like or how fast it swings. That was invisible until
+## `slice_test_bossmods` was driven off `BossRoster.ids()` instead of a hand-listed
+## three: the Guardian had quietly been left out of the one test that asks whether
+## the roster's bosses are actually different fights.
+##
+## Same argument as `boss_title` above, one rung further: the questions the roster
+## asks must be answerable by EVERY boss, or the answers only cover the ones that
+## happened to be listed. The values below are the Guardian's own, moved rather than
+## invented — `_ready` now reads them instead of the literals it used to carry, so
+## there is exactly one statement of each.
+func boss_artist() -> String:
+	return "charcoal on stone"
+
+
+func boss_rig_height() -> float:
+	return RIG_HEIGHT
+
+
+func boss_tint() -> Color:
+	return STONE_TINT
+
+
+func boss_preset() -> String:
+	return "brawler"
+
+
+## A guardian-king crown on the colossus. `TowerBoss` overrides this to nothing —
+## the other artists wear their own mark instead.
+func boss_equipment() -> Dictionary:
+	return {"head": "crown"}
+
+
+## Seconds between attacks in phase `p`. The Guardian's cadence IS `PHASE_CD`; a boss
+## whose identity is rhythm overrides this. Declared here so the cadence question can
+## be put to any boss on the roster.
+func phase_cooldown(p: int) -> float:
+	return float(PHASE_CD.get(p, 2.0))
+
+
 func _ready() -> void:
 	super._ready()   # hp, _hero, joins "enemy" + "mortal", tiny CharacterBars
 	body_scale = clampf(body_scale, 0.3, 1.0)
@@ -120,17 +162,18 @@ func _ready() -> void:
 	# Every step below reads the result of the one above it — see _fit_box_to_scale.
 	_fit_box_to_scale()
 	if is_instance_valid(rig):
-		rig.set("height", RIG_HEIGHT * body_scale)
-		rig.set_tint(STONE_TINT)
-		rig.class_preset("brawler")
-		rig.set_equipment("head", "crown")            # a guardian-king crown on the colossus
+		rig.set("height", boss_rig_height() * body_scale)
+		rig.set_tint(boss_tint())
+		rig.class_preset(boss_preset())
+		for slot: String in boss_equipment():
+			rig.set_equipment(slot, String(boss_equipment()[slot]))
 		rig.set_aura(Color(1.0, 0.45, 0.15), 0.45)   # subtle ember halo — the stone body must read
 		rig.set_aura_tier(2)
 		_realign_feet()
 	refresh_hurtbox()   # the silhouette hitbox was cut for the pre-scale rig height
 	_adorn = BossAdornment.new()
 	add_child(_adorn)
-	_adorn.configure(RIG_HEIGHT * body_scale)
+	_adorn.configure(boss_rig_height() * body_scale)
 	_adorn.set_intensity(0.35)
 	_build_bar()
 	_install_voice()

@@ -47,6 +47,20 @@ const SCRIBBLE: String = "scribble"
 const CARTOGRAPHER: String = "cartographer"
 const ILLUMINATOR: String = "illuminator"
 
+
+## Every artist that is NOT the base Ashspire Guardian — i.e. every `TowerBoss`
+## subclass on the roster. Read off `BossRoster` rather than listed here, so a boss
+## added tomorrow is covered by this suite the moment its row lands. The Guardian is
+## excluded because it has its own dedicated test above (it is the base class, and
+## the question there is "did the roster break the original", not "does the new one
+## broadcast").
+func _new_boss_ids() -> Array[String]:
+	var out: Array[String] = []
+	for bid: String in BossRoster.ids():
+		if bid != GUARDIAN:
+			out.append(bid)
+	return out
+
 ## Longest a single attack may take to put something on the wire. Lane-telegraphed
 ## attacks (the streak, the ruled line, the gilding sweep) only fire when their tell
 ## expires, and that tell is up to 0.75 s — plus the frenzy, which staggers four
@@ -255,7 +269,7 @@ func _test_guardian_still_broadcasts() -> void:
 ## on the wire. Driven off `_phase_attack_ids`, so an attack added tomorrow is covered
 ## the moment it joins a phase list.
 func _test_every_new_boss_attack_broadcasts() -> void:
-	for bid: String in [SCRIBBLE, CARTOGRAPHER, ILLUMINATOR]:
+	for bid: String in _new_boss_ids():
 		var probe: Node = _build(bid)
 		await _settle(2)
 		var ids: Array[String] = _all_attack_ids(probe)
@@ -483,7 +497,7 @@ func _sample_data(kind: String) -> Dictionary:
 ## to know to do it again.
 func _test_the_bar_carries_the_bosss_own_name() -> void:
 	var seen: Dictionary = {}
-	for bid: String in [GUARDIAN, SCRIBBLE, CARTOGRAPHER, ILLUMINATOR]:
+	for bid: String in BossRoster.ids():
 		var b: Node = _build(bid)
 		await _settle(2)
 		var bar: Node = b.get("_bar")

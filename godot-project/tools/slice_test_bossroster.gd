@@ -86,7 +86,12 @@ func _completes(test_name: String) -> void:
 # ------------------------------------------------------------------ the tables
 func _test_roster_table_is_sane() -> void:
 	var ids: Array[String] = BossRoster.ids()
-	_expect(ids.size() == 4, "the roster is FOUR hand-built bosses (got %d)" % ids.size())
+	# A LOWER BOUND, NOT A COUNT. This used to read `== 4`, which meant every new
+	# artist cost a suite edit — and a suite that has to be edited to accept correct
+	# work is a suite that gets edited without being read. The thing worth asserting
+	# is that the roster is HAND-BUILT (a real table, every row complete and unique,
+	# see the loop below), not that it has stopped growing.
+	_expect(ids.size() >= 4, "the roster still has its four founding bosses (got %d)" % ids.size())
 	var seen: Dictionary = {}
 	for e: Dictionary in BossRoster.ENTRIES:
 		var id: String = String(e["id"])

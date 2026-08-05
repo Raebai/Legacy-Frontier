@@ -59,7 +59,11 @@ const GUARDIAN: String = "guardian"
 const SCRIBBLE: String = "scribble"
 const CARTOGRAPHER: String = "cartographer"
 const ILLUMINATOR: String = "illuminator"
-const ALL_BOSSES: Array[String] = [GUARDIAN, SCRIBBLE, CARTOGRAPHER, ILLUMINATOR]
+## THE WHOLE ROSTER, read off the table rather than restated here. It was a four-entry
+## `const`, which meant a fifth artist could ship with no voice at all and this suite —
+## the one whose entire job is "every boss has a mouth" — would pass. A `const` cannot
+## call a function in GDScript, so this is a member initialised at instantiation.
+var ALL_BOSSES: Array[String] = BossRoster.ids()
 
 ## The four beats a guardian is given. Every one of them must resolve to a real row
 ## for every artist — through the variant if it has one, through the generic row if

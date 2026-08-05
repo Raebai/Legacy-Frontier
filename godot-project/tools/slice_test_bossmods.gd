@@ -187,7 +187,11 @@ func _test_bid_picks_the_artist() -> void:
 ## generated ones" if they actually fight differently — so this asserts the things
 ## that make a fight different rather than the things that make a sprite different.
 func _test_bosses_are_different_fights() -> void:
-	var ids: Array[String] = [BossRoster.SCRIBBLE, BossRoster.CARTOGRAPHER, BossRoster.ILLUMINATOR]
+	# THE WHOLE ROSTER, read off the table. This used to be a hand-listed three, which
+	# meant a new artist was never asked the question this test exists to ask — and the
+	# two size assertions below were literals that had to be bumped by hand, which is
+	# how a suite gets edited to accept work instead of judging it.
+	var ids: Array[String] = BossRoster.ids()
 	var titles: Dictionary = {}
 	var heights: Dictionary = {}
 	var movesets: Dictionary = {}
@@ -219,13 +223,17 @@ func _test_bosses_are_different_fights() -> void:
 		_expect(float(b.call("phase_cooldown", 3)) < float(b.call("phase_cooldown", 1)),
 			"'%s' tightens its cadence with its phases" % bid)
 		_kill(b)
-	_expect(heights.size() == 3, "the three artists draw bodies of three different sizes")
+	_expect(heights.size() == ids.size(),
+		"every artist draws a body of its own size (%d distinct across %d bosses)"
+			% [heights.size(), ids.size()])
 	# No shared attack id across the roster: a moveset that overlapped would mean two
 	# bosses doing the same thing under different names.
 	var owners: Dictionary = {}
 	for id in movesets:
 		owners[String(movesets[id])] = true
-	_expect(owners.size() == 3, "each attack id belongs to exactly one artist")
+	_expect(owners.size() == ids.size(),
+		"each attack id belongs to exactly one artist (%d owners across %d bosses)"
+			% [owners.size(), ids.size()])
 	# The Scribble is the pressure boss and the Illuminator is the committed one —
 	# their cadences must be at opposite ends, or the rhythms are not distinct.
 	_expect(float(cadences[BossRoster.SCRIBBLE]) != float(cadences[BossRoster.ILLUMINATOR]),
