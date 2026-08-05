@@ -23,7 +23,12 @@ const TESTS: Array[String] = [
 	"chill_then_freeze_slows",
 	"weaken_amplifies",
 	"shock_slows",
+	"every_ailment_is_drawn",
+	"low_quality_is_a_strict_subset",
+	"status_bits_report_what_is_live",
 ]
+
+const RigScript: GDScript = preload("res://scripts/combat/CharacterRig.gd")
 
 var _fails: int = 0
 var _completed: Dictionary = {}
@@ -49,6 +54,9 @@ func _process(_delta: float) -> bool:
 	_test_chill_then_freeze_slows()
 	_test_weaken_amplifies()
 	_test_shock_slows()
+	_test_every_ailment_is_drawn()
+	_test_low_quality_is_a_strict_subset()
+	_test_status_bits_report_what_is_live()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -140,3 +148,70 @@ func _test_shock_slows() -> void:
 	root.remove_child(ctx["enemy"])
 	ctx["enemy"].free()
 	_completes("shock_slows")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# THE DRAWN HALF. Added when the ailment overlays moved from `StatusComponent`
+# (which drew them at the BODY origin — 6.5 px below the middle of the figure, so
+# every effect was a ring the figure stood inside) to `CharacterRig._draw_status`,
+# which has the solved pose.
+#
+# ⚠ NONE OF THIS WAS GUARDED BEFORE. The four tests above assert `slow_factor()`,
+# `damage_mult()` and DoT damage — mechanics only. Nothing in the repo would have
+# noticed if all six `_draw_*` functions had been deleted, which is precisely how
+# this project has shipped effects that were drawn nowhere while a suite stayed
+# green. A `_draw` cannot be asserted headlessly, so the PLAN is made pure and the
+# plan is what gets pinned.
+
+## Every ailment the maker named draws SOMETHING, at both quality levels.
+##
+## ⚠ IT ITERATES `ST_ALL`, NOT THE PLAN. Looping over what the plan returned is the
+## vacuous form — an empty plan makes every assertion inside it trivially true,
+## which is the exact shape of bug this armour exists to catch.
+func _test_every_ailment_is_drawn() -> void:
+	for bit: int in RigScript.ST_ALL:
+		_expect(not RigScript.status_plan(bit, false).is_empty(),
+			"status bit %d draws at least one stroke at HIGH" % bit)
+		_expect(RigScript.status_strokes(bit, false) > 0,
+			"status bit %d has a non-zero stroke count at HIGH" % bit)
+		_expect(not RigScript.status_plan(bit, true).is_empty(),
+			"status bit %d STILL draws something at LOW" % bit)
+		_expect(RigScript.status_strokes(bit, true) > 0,
+			"status bit %d still costs strokes at LOW" % bit)
+	_completes("every_ailment_is_drawn")
+
+
+## LOW may never draw a stroke kind HIGH does not, and may never be MORE work.
+## Degradation that adds a shape is not degradation, it is a second art style.
+func _test_low_quality_is_a_strict_subset() -> void:
+	for bit: int in RigScript.ST_ALL:
+		for s: int in RigScript.status_plan(bit, true):
+			_expect(RigScript.status_plan(bit, false).has(s),
+				"LOW draws stroke %d that HIGH does not (bit %d)" % [s, bit])
+		_expect(RigScript.status_strokes(bit, true)
+				<= RigScript.status_strokes(bit, false),
+			"LOW is never more work than HIGH (bit %d)" % bit)
+	_completes("low_quality_is_a_strict_subset")
+
+
+## The seam itself: what the body publishes must match what is actually ticking.
+## FREEZE outranks CHILL because they are two rungs of one fuse — drawing both
+## would say "cold" twice.
+func _test_status_bits_report_what_is_live() -> void:
+	var ctx: Dictionary = _make()
+	var status: Node2D = ctx["status"]
+	_expect(int(status.call("status_bits")) == 0, "a clean body publishes no ailment")
+
+	status.apply(StatusScript.FIRE)
+	_expect(int(status.call("status_bits")) & RigScript.ST_BURN != 0, "burning publishes BURN")
+
+	status.apply(StatusScript.ICE)
+	_expect(int(status.call("status_bits")) & RigScript.ST_CHILL != 0, "one ice hit publishes CHILL")
+	status.apply(StatusScript.ICE)   # a second ice hit on a chilled body FREEZES it
+	var bits: int = int(status.call("status_bits"))
+	_expect(bits & RigScript.ST_FREEZE != 0, "a second ice hit publishes FREEZE")
+	_expect(bits & RigScript.ST_CHILL == 0, "FREEZE outranks CHILL — never both at once")
+
+	root.remove_child(ctx["enemy"])
+	ctx["enemy"].free()
+	_completes("status_bits_report_what_is_live")

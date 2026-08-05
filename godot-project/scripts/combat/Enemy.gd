@@ -1067,8 +1067,15 @@ func _physics_process(delta: float) -> void:
 	# It also FREEZES the rig's locomotion cycle so the body reads as rooted under
 	# the ice instead of jogging in place.
 	var hard_cc: bool = _status != null and is_instance_valid(_status) and _status.is_hard_cc()
+	var has_status: bool = _status != null and is_instance_valid(_status)
 	if is_instance_valid(rig):
 		rig.set_frozen(hard_cc)
+		# ...and WHAT the ailment is, so the rig can draw it on the limbs. The overlay
+		# used to be drawn by the StatusComponent itself, at the body origin, which
+		# sits 6.5 px below the middle of the figure — see CharacterRig._draw_status.
+		rig.set_status(
+			_status.status_bits() if has_status else 0,
+			_status.tint() if has_status else Color.WHITE)
 	if hard_cc:
 		_attack_cooldown = maxf(_attack_cooldown, 0.05)
 	if not is_instance_valid(_hero):

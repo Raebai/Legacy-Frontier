@@ -216,65 +216,57 @@ func _ail_tint(base: Color) -> Color:
 	return t
 
 
+## ⚠ BURN / CHILL / FREEZE / SHOCK ARE NO LONGER DRAWN HERE. They are drawn by
+## `CharacterRig._draw_status`, which has the solved pose and can put a stroke on an
+## actual limb. See the long note there for why: this node sits at the BODY origin,
+## which `_align_feet_to_body` puts 6.5 px below the middle of the figure, so a 14 px
+## disc drawn here is a ring centred at mid-thigh that the figure stands inside — the
+## maker's "that large circle thing", and not a size-tuning problem.
+##
+## WEAKEN and UNSTABLE are still drawn here, deliberately and temporarily: they have
+## the same fault and the maker named neither, so they are left visibly inconsistent
+## rather than redesigned on a guess. They are the next two to move.
 func _draw() -> void:
 	var r: float = 14.0
-	if _freeze > 0.0:
-		_draw_freeze(r)
-	elif _chill > 0.0:
-		_draw_chill(r)
-	if _burn > 0.0:
-		_draw_burn(r)
-	if _shock > 0.0:
-		_draw_shock(r)
 	if _weaken > 0.0:
 		_draw_weaken(r)
 	if _unstable > 0.0:
 		_draw_unstable(r)
 
 
-func _draw_burn(_r: float) -> void:
-	# Realistic organic flames licking off the body (maker: "the fire effect is so
-	# corny; make it more like fire" + subtle on the enemy). Two small offset flames
-	# via the shared CharacterRig.draw_flame so the burn coat matches the hero's fire.
-	# HOLY-radiance reuses this burn mechanic; its gold tint is carried by the
-	# glow-on-tick pulse (Enemy.take_damage), so keeping the flame fire-hued is fine.
-	CharacterRig.draw_flame(self, Vector2(-4.0, 2.0), 7.0, 0.85, _phase)
-	CharacterRig.draw_flame(self, Vector2(5.0, 3.0), 5.5, 0.7, _phase * 1.13 + 1.7)
+# ---------------------------------------------------- what the rig needs to know
+const B_BURN: int = 1
+const B_CHILL: int = 2
+const B_FREEZE: int = 4
+const B_SHOCK: int = 8
 
 
-func _draw_chill(r: float) -> void:
-	# Cyan frost sheen + a few crystal spikes.
-	draw_circle(Vector2.ZERO, r * 1.05, Color(0.6, 0.9, 1.0, 0.14))
-	for i: int in 6:
-		var ang: float = TAU * float(i) / 6.0 + 0.2 * sin(_phase * 2.0)
-		var base: Vector2 = Vector2.from_angle(ang) * r * 0.7
-		var tip: Vector2 = Vector2.from_angle(ang) * r * 1.2
-		draw_line(base, tip, Color(0.7, 0.92, 1.0, 0.7), 2.0)
+## Which ailments are live, as `CharacterRig.ST_*` bits. FREEZE outranks CHILL: they
+## are two rungs of one fuse, and drawing both would say "cold" twice.
+func status_bits() -> int:
+	var b: int = 0
+	if _burn > 0.0:
+		b |= B_BURN
+	if _freeze > 0.0:
+		b |= B_FREEZE
+	elif _chill > 0.0:
+		b |= B_CHILL
+	if _shock > 0.0:
+		b |= B_SHOCK
+	return b
 
 
-func _draw_freeze(r: float) -> void:
-	# A solid ice block: faceted cyan polygon over the body, bright rim.
-	var pts := PackedVector2Array([
-		Vector2(-r, -r * 1.2), Vector2(r * 0.9, -r * 1.1), Vector2(r * 1.1, r * 0.8),
-		Vector2(-r * 0.8, r * 1.2), Vector2(-r * 1.15, -r * 0.2),
-	])
-	draw_colored_polygon(pts, _ail_tint(Color(0.55, 0.85, 1.0, 0.4)))
-	draw_polyline(pts + PackedVector2Array([pts[0]]), _ail_tint(Color(0.85, 0.97, 1.0, 0.9)), 2.0)
-	# Internal facet lines.
-	draw_line(Vector2(-r, -r * 1.2), Vector2(r * 0.3, r), Color(1, 1, 1, 0.35), 1.0)
-	draw_line(Vector2(r * 0.9, -r * 1.1), Vector2(-r * 0.4, r * 0.6), Color(1, 1, 1, 0.3), 1.0)
+## The colour of whatever caused the current ailment, so a reused mechanic
+## (EARTH->freeze, HOLY->burn, WIND->shock) still reads as its own element.
+func tint() -> Color:
+	return _last_color
 
 
-func _draw_shock(r: float) -> void:
-	# Jagged yellow arcs crackling around the body (redrawn each frame = flicker).
-	for i: int in 3:
-		var a0: float = _phase * 20.0 + float(i) * 2.0
-		var pts := PackedVector2Array()
-		for k: int in 5:
-			var ang: float = a0 + float(k) * 0.5
-			var rad: float = r * (0.8 + 0.5 * float((k + i) % 2))
-			pts.append(Vector2.from_angle(ang) * rad)
-		draw_polyline(pts, _ail_tint(Color(1.0, 0.95, 0.4, 0.85)), 1.5)
+## (`_draw_burn`, `_draw_chill`, `_draw_freeze` and `_draw_shock` lived here. They are
+## DELETED rather than left unreferenced: an overlay nothing calls is dead code behind
+## a live switch, and this project already ruled on that when it deleted the sparring
+## station rather than leave it unbuilt. The drawings themselves moved to
+## `CharacterRig._draw_status`, which knows where the limbs are.)
 
 
 func _draw_weaken(r: float) -> void:

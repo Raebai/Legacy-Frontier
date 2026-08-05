@@ -2031,6 +2031,8 @@ func _physics_process(delta: float) -> void:
 	# gear: hood = fleet-footed. `_status_speed_mult` is the ailment half — a chilled
 	# or shocked hero moves like one now that heroes can actually catch ailments.
 	var spd: float = _class_speed() * _gear_speed_mult * _status_speed_mult()
+	# ...and the same ailment, published to the rig so it is DRAWN as well as felt.
+	_push_status_to_rig()
 	# THE SHOVE IS AN OFFSET, NOT AN ACCELERATION — see `_knockback_applied`. Strip
 	# last frame's offset before locomotion reads this, or the decaying channel gets
 	# integrated into velocity and a 240 px/s shove peaks at 1429 (6x), or 7676 (32x)
@@ -5976,6 +5978,22 @@ func _status_speed_mult() -> float:
 	if _status == null or not is_instance_valid(_status):
 		return 1.0
 	return _status.slow_factor()
+
+
+## Publish the live ailment to the rig so it can draw it ON the limbs.
+##
+## ⚠ THE HERO NEVER DID THIS AT ALL. `Enemy` pushed `set_frozen` every frame; the Hero
+## pushed nothing, so a burning or frozen PLAYER got only whatever the StatusComponent
+## drew for itself — which was the mis-centred overlay this change deletes. Called from
+## `_physics_process` so the coat tracks the pose rather than the last time an ailment
+## was applied.
+func _push_status_to_rig() -> void:
+	if not is_instance_valid(rig) or not rig.has_method(&"set_status"):
+		return
+	var live: bool = _status != null and is_instance_valid(_status)
+	rig.set_status(
+		_status.status_bits() if live else 0,
+		_status.tint() if live else Color.WHITE)
 
 
 ## Record the element behind an actual thrown ability into the run outcome

@@ -2118,6 +2118,196 @@ func _draw() -> void:
 	_draw_parry_shield(pose)
 	_draw_cast_gesture_vfx(pose)
 	_draw_hand_fire(pose)
+	_draw_status(pose)
+
+
+# ---------------------------------------------------------------- status coat
+## ⚠ ELEMENTAL AILMENTS ARE DRAWN HERE NOW, AND THE MOVE IS THE WHOLE FIX.
+##
+## Maker: "the lightning effect should be little lightning particles on the user, not
+## that large circle thing. Same with the frozen and burnt effects — smaller, more
+## subtle, but still obvious."
+##
+## They were drawn by `StatusComponent`, a bare Node2D added as a child of the BODY —
+## and the body's origin is not the middle of the figure. `_align_feet_to_body` offsets
+## the rig by `box_bottom - height*0.5` = -6.5, so the rig spans body-space y in
+## [-22, +9] while every overlay was a ~14 px-radius disc centred on (0, 0). That is a
+## ring centred at mid-thigh, spanning [-18, +18]: it punched ~9 px through the floor
+## and never reached the head. The figure stood INSIDE its own status effect. That is
+## the "large circle thing", and it was never a size-tuning problem.
+##
+## Here the pose is already solved for this frame, so a stroke can be put ON a limb.
+## `StatusComponent` keeps every mechanic (timers, DoT, chain, shatter, slow) and just
+## publishes what is active; the rig owns what that looks like. It also costs one
+## fewer CanvasItem per afflicted body — the old component called `queue_redraw()` at
+## 60 Hz for the rest of the body's life, because nothing ever freed it.
+const ST_BURN: int = 1
+const ST_CHILL: int = 2
+const ST_FREEZE: int = 4
+const ST_SHOCK: int = 8
+## Every bit, in one place, so a guard can iterate the SET rather than the plan.
+## Iterating the plan is the vacuous form: an empty plan makes every assertion inside
+## it trivially true, which is how this project has shipped effects drawn nowhere.
+const ST_ALL: Array[int] = [ST_BURN, ST_CHILL, ST_FREEZE, ST_SHOCK]
+
+const SHOCK_TICKS_HIGH: int = 3
+const SHOCK_TICKS_LOW: int = 1
+## How fast the ticks re-pick a limb. Fast enough to crackle, not so fast it strobes.
+const SHOCK_SKITTER_HZ: float = 14.0
+const SHOCK_TICK_LEN: float = 0.16      # of figure height -> ~5 px on a 31 px rig
+const RIME_TICKS_HIGH: int = 6
+const RIME_TICKS_LOW: int = 3
+const RIME_TICK_LEN: float = 0.085
+## HIGH only — the drifting shards that say "frozen" rather than merely "cold".
+const SHARDS_HIGH: int = 3
+## Flame size as a multiple of limb width. `_draw_hand_fire` uses 1.7 for a fist;
+## a body coat wants to be smaller than the signature flaming punch, not bigger.
+const FLAME_SIZE_FACTOR: float = 1.3
+## The bound the old overlay broke: nothing a status draws may leave the figure's box.
+const STATUS_MAX_EXTENT: float = 0.55   # of height, from the rig origin
+
+var _status_bits: int = 0
+var _status_tint: Color = Color.WHITE
+var _status_low: bool = false
+## Deterministic work counter. Wall-clock cannot measure sub-millisecond draw work
+## here (it is non-monotonic by 20x), so the guard asserts strokes, not milliseconds.
+var _status_strokes: int = 0
+
+
+## Pushed every frame by the body, beside `set_frozen`.
+func set_status(bits: int, tint: Color) -> void:
+	_status_bits = bits
+	_status_tint = tint
+
+
+## PURE — no tree, no renderer, no instance state — so "it draws something" and "LOW is
+## a strict subset" are assertable headless. Same shape as `SpawnTell.stroke_plan`.
+static func status_plan(bits: int, _low: bool) -> Array[int]:
+	var out: Array[int] = []
+	if bits & ST_SHOCK:
+		out.append(ST_SHOCK)
+	if bits & ST_FREEZE:
+		out.append(ST_FREEZE)
+	elif bits & ST_CHILL:
+		out.append(ST_CHILL)
+	if bits & ST_BURN:
+		out.append(ST_BURN)
+	return out
+
+
+## How many strokes one bit is worth. LOW must never exceed HIGH — pinned by a test.
+static func status_strokes(bit: int, low: bool) -> int:
+	match bit:
+		ST_SHOCK:
+			return (SHOCK_TICKS_LOW if low else SHOCK_TICKS_HIGH) * 2
+		ST_FREEZE:
+			return (RIME_TICKS_LOW if low else RIME_TICKS_HIGH) + (0 if low else SHARDS_HIGH)
+		ST_CHILL:
+			return RIME_TICKS_LOW if low else RIME_TICKS_HIGH - 3
+		ST_BURN:
+			return 1 if low else 2
+	return 0
+
+
+func _draw_status(pose: Dictionary) -> void:
+	if _status_bits == 0:
+		return
+	for bit: int in status_plan(_status_bits, _status_low):
+		match bit:
+			ST_SHOCK:
+				_status_shock(pose)
+			ST_FREEZE:
+				_status_rime(pose, RIME_TICKS_LOW if _status_low else RIME_TICKS_HIGH, true)
+			ST_CHILL:
+				_status_rime(pose, RIME_TICKS_LOW if _status_low else RIME_TICKS_HIGH - 3, false)
+			ST_BURN:
+				_status_burn(pose)
+
+
+## SHOCKED — small jagged ticks that JUMP between limb segments. The old version was a
+## spinning ~36 px star centred below the hips (three polylines at radius 11-18, phase
+## x 20 rad/s), which is why it read as an orbiting ring rather than as electricity on
+## a person. These are ~5 px arcs actually touching a limb, re-picked 14x a second so
+## they crackle instead of rotating.
+func _status_shock(pose: Dictionary) -> void:
+	var segs: Array = [
+		[pose["shoulder"], pose["hand_lead"]], [pose["shoulder"], pose["hand_off"]],
+		[pose["hip"], pose["foot_lead"]], [pose["hip"], pose["foot_off"]],
+		[pose["hip"], pose["neck"]], [pose["neck"], pose["head_center"]],
+	]
+	var n: int = SHOCK_TICKS_LOW if _status_low else SHOCK_TICKS_HIGH
+	var step: int = int(_phase * SHOCK_SKITTER_HZ)
+	var col := Color(_status_tint.r, _status_tint.g, _status_tint.b, 0.95)
+	var core: Color = Elements.emissive(Elements.Element.LIGHTNING)
+	core.a = 0.9
+	var len_px: float = height * SHOCK_TICK_LEN
+	var jag: float = height * 0.035
+	for i: int in n:
+		var s: Array = segs[(step * 7 + i * 13) % segs.size()]
+		var a: Vector2 = s[0]
+		var b: Vector2 = s[1]
+		var t: float = float((step * 11 + i * 29) % 100) * 0.01
+		var at: Vector2 = a.lerp(b, t)
+		var along: Vector2 = (b - a).normalized()
+		var perp: Vector2 = along.orthogonal()
+		var pts := PackedVector2Array()
+		for k: int in 4:
+			var kt: float = float(k) / 3.0
+			pts.append(at + along * (kt - 0.5) * len_px
+				+ perp * (jag if k % 2 == 0 else -jag))
+		draw_polyline(pts, col, maxf(1.0, height * 0.032), true)
+		draw_polyline(pts, core, maxf(0.6, height * 0.016), true)
+		_status_strokes += 2
+
+
+## FROZEN / CHILLED — thin rime ticks across the limbs, plus (frozen, HIGH only) a few
+## shards sliding off. The old freeze was a ~32x34 px translucent quad LARGER THAN THE
+## WHOLE FIGURE, laid over it, so you could not read the pose under the ice.
+func _status_rime(pose: Dictionary, ticks: int, with_shards: bool) -> void:
+	var pairs: Array = [
+		[pose["shoulder"], pose["hand_lead"]], [pose["shoulder"], pose["hand_off"]],
+		[pose["hip"], pose["foot_lead"]], [pose["hip"], pose["foot_off"]],
+		[pose["neck"], pose["hip"]], [pose["head_center"], pose["neck"]],
+	]
+	var rime: Color = Color(0.82, 0.96, 1.0, 0.85).lerp(
+		Color(_status_tint.r, _status_tint.g, _status_tint.b, 0.85), 0.35)
+	var seg_len: float = height * RIME_TICK_LEN
+	for i: int in mini(ticks, pairs.size()):
+		var a: Vector2 = pairs[i][0]
+		var b: Vector2 = pairs[i][1]
+		var mid: Vector2 = a.lerp(b, 0.45 + 0.1 * sin(_phase * 1.7 + float(i)))
+		var perp: Vector2 = (b - a).normalized().orthogonal()
+		draw_line(mid - perp * seg_len * 0.3, mid + perp * seg_len, rime,
+			maxf(1.0, height * 0.03), true)
+		_status_strokes += 1
+	if not with_shards or _status_low:
+		return
+	for i: int in SHARDS_HIGH:
+		var fall: float = fposmod(_phase * 0.9 + float(i) * 0.37, 1.0)
+		var p: Vector2 = pose["hip"] + Vector2(
+			(float(i) - 1.0) * height * 0.14, -height * 0.15 + fall * height * 0.5)
+		var sz: float = height * 0.045
+		draw_colored_polygon(PackedVector2Array([
+			p + Vector2(0.0, -sz), p + Vector2(sz * 0.7, sz * 0.5),
+			p + Vector2(-sz * 0.6, sz * 0.6),
+		]), Color(0.88, 0.98, 1.0, 0.75 * (1.0 - fall)))
+		_status_strokes += 1
+
+
+## BURNING — the same organic flame as the flaming fist, at a smaller on-character
+## scale, moved to the SHOULDER and the HEAD. It was two size-7.0/5.5 flames anchored
+## BELOW the body origin, i.e. at the knees, and their HDR core plus the arena glow
+## pass turned the entire frame white-yellow with the figure a black silhouette.
+func _status_burn(pose: Dictionary) -> void:
+	var s: float = float(pose["w"]) * FLAME_SIZE_FACTOR
+	var r: float = float(pose["r"])
+	draw_flame(self, pose["shoulder"] + Vector2(0.0, -r * 0.2), s, 0.8, _phase)
+	_status_strokes += 1
+	if _status_low:
+		return
+	draw_flame(self, pose["head_center"] + Vector2(0.0, -r * 0.9), s * 0.75, 0.65,
+		_phase * 1.13 + 1.7)
+	_status_strokes += 1
 
 
 ## Persistent flaming fist: while a fire charge is active (set_hand_fire after a
@@ -2134,6 +2324,10 @@ func _draw_hand_fire(pose: Dictionary) -> void:
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_align_feet_to_body()
+	# Read ONCE, like `SpawnTell` does — this is consulted inside `_draw`, and a
+	# settings lookup per stroke per body per frame is exactly the kind of cost that
+	# `Performance.TIME_PROCESS` would not report.
+	_status_low = TuningConfig.quality_is_low()
 
 
 ## ══ THE FIGURE'S FEET AND ITS COLLISION BOX MUST AGREE ABOUT THE FLOOR ══════
@@ -2452,7 +2646,13 @@ static func draw_flame(item: CanvasItem, p: Vector2, size: float, strength: floa
 			mid.lerp(tip, 0.2) + Vector2(-iw * 0.5, 0.0),
 		]), Color(1.15, 0.55, 0.12, 0.8 * strength))
 	# White-hot core (HDR > 1 so the bloom pass lifts it).
-	item.draw_circle(p + Vector2(0.0, size * 0.05), size * 0.42, Color(1.7, 1.1, 0.5, 0.9 * strength), true, -1.0, true)
+	#
+	# ⚠ 1.7 -> 1.35. At 1.7 this core cleared the arena's glow threshold hard enough
+	# that a BURNING body washed the entire frame white-yellow and reduced the figure
+	# to a black silhouette — measured on a capture four frames into a burn. It reads
+	# as a bug rather than as fire. Still HDR, so it still blooms and still looks hot;
+	# it simply no longer takes the whole screen with it. Geometry is untouched.
+	item.draw_circle(p + Vector2(0.0, size * 0.05), size * 0.42, Color(1.35, 0.9, 0.45, 0.9 * strength), true, -1.0, true)
 	# Rising embers that drift up + fade.
 	for i: int in 3:
 		var span: float = size * 3.2

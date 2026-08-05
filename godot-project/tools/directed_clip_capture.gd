@@ -352,7 +352,20 @@ func _run() -> void:
 		# STOP ON THE RESULT, plus a tail long enough to hold the freeze and the
 		# card. A clip that keeps rolling past the ending is mostly a still frame; a
 		# clip that cuts before the card throws away its own payoff.
-		if _decided_at >= 0.0 and now - _decided_at >= _tail:
+		# ⚠ AND THE TAIL IS PROPORTIONAL, because a FIXED one is charged to whatever
+		# length the fight happened to be. `_tail` is 3.4 s so it can outlast a result
+		# card that may take 2.5 s to appear — but the median bot duel is ~5 s, so a
+		# flat 3.4 s tail was over HALF the clip held on a frozen frame. Measured on a
+		# delivered clip: the last 83 of 151 frames — 2.77 s of a 5.07 s clip — were one
+		# unchanging still.
+		#
+		# So it holds the shorter of "as long as the card needs" and "a third of what we
+		# have already shot". A long fight still gets the full 3.4 s; a 4-second blowout
+		# gets ~1.3 s, which is a beat rather than a stall. `_saved / _fps` is clip
+		# seconds so far, which is the right denominator: it is what the viewer has
+		# actually been given.
+		var shot_so_far: float = float(_saved) / float(_fps)
+		if _decided_at >= 0.0 and now - _decided_at >= minf(_tail, maxf(0.9, 0.35 * shot_so_far)):
 			print("[clip] result held — closing the shot")
 			break
 	_write_manifest()
