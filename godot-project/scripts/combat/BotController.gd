@@ -581,8 +581,27 @@ static func perceive_threats(tree: SceneTree, here: Vector2, owner: Node) -> Arr
 			continue
 		if not t.has_method(&"danger_shape"):
 			continue
+		# ⚠ NOT MY OWN TELL. There was no owner filter here at all, and until now that
+		# was harmless only by accident: the sole class that spawned telegraphs was
+		# `Enemy`, and enemies run their own private dodge scan (which DOES filter, by
+		# `tg.source.is_in_group("enemy")`) rather than this one. The moment `Hero`
+		# starts publishing tells for its swings, a bot-driven hero perceives its own
+		# wind-up as incoming danger and dodges away from its own punch — every frame,
+		# forever, because the tell follows the swing.
+		#
+		# Filtered by IDENTITY, not by faction. A team-mate's blast genuinely is worth
+		# dodging in this game (friendly fire is always on), so the rule is only ever
+		# "the thing I am doing myself is not a surprise to me" — the same principle the
+		# projectile arm below already applies to a bot's own bolt.
+		if owner != null and t.get(&"source") == owner:
+			continue
 		var shape: Dictionary = t.call(&"danger_shape")
 		var tti: float = float(t.call(&"time_to_impact")) if t.has_method(&"time_to_impact") else 0.0
+		# The TOTAL warning this tell ever gave, carried alongside what is left of it.
+		# `BotBrain._caps` collapses a class's guard band onto this when the tell is
+		# shorter than the band — without it the whole contact half of the roster is
+		# unparryable by arithmetic. 0.0 means "not published", and is left alone.
+		var lead: float = float(t.call(&"windup")) if t.has_method(&"windup") else 0.0
 		var id: int = t.get_instance_id()
 		seen[id] = true
 		# ⚠ A TELL IS PARRYABLE. Both branches below read `false`, and that one word
@@ -612,14 +631,15 @@ static func perceive_threats(tree: SceneTree, here: Vector2, owner: Node) -> Arr
 			out.append({
 				"id": id, "kind": "lane", "pos": from, "vel": Vector2.ZERO,
 				"radius": 0.0, "length": seg.length(), "width": float(shape.get("width", 0.0)),
-				"angle": seg.angle(), "tti": tti, "parryable": true, "region": shape,
+				"angle": seg.angle(), "tti": tti, "lead": lead,
+				"parryable": true, "region": shape,
 			})
 		else:
 			out.append({
 				"id": id, "kind": "circle", "pos": shape.get("center", Vector2.ZERO),
 				"vel": Vector2.ZERO, "radius": float(shape.get("radius", 0.0)),
 				"length": 0.0, "width": 0.0, "angle": 0.0,
-				"tti": tti, "parryable": true, "region": shape,
+				"tti": tti, "lead": lead, "parryable": true, "region": shape,
 			})
 	# Both projectile families, because who is shooting at you depends on which
 	# faction you are on: an `enemy_projectile` from a monster and a `player_spell`

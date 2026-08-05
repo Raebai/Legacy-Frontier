@@ -123,6 +123,17 @@ func time_to_impact() -> float:
 	return _windup - _elapsed
 
 
+## The TOTAL warning this tell ever gave, as opposed to what is left of it.
+##
+## A dodging brain needs both. `time_to_impact` answers "how long have I got"; this
+## answers "how much was I ever going to get", which is what a guard band has to be
+## measured against — see `BotBrain._caps`. A hero melee swing tells for 0.077 s, and a
+## class whose preferred guard lead is 0.37 s can never satisfy a band it cannot reach,
+## on any frame, however well it reacts.
+func windup() -> float:
+	return _windup
+
+
 ## Still worth dodging: running and not yet fired.
 func is_armed() -> bool:
 	return _running and not _has_fired

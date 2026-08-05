@@ -92,7 +92,12 @@ const BLAST_RADIUS: float = 64.0
 ## Radial shove out of the burst. Was 300 directional (along the old dash); pulled
 ## down slightly because a radial push catches everything around you, not just what
 ## you ran through. BlastSpell uses 340, RiftDagger's arrival 260.
-const BLAST_KNOCKBACK: float = 280.0
+## ⚠ RETIRED — the shove is now derived from the spell's own damage and shelf via
+## `SpellTier.push_for_spectacle`. Kept only as the record of what it used to be:
+## every one of these sat BELOW `SlamPhysics.MIN_SLAM_SPEED` (250), so no spell in
+## the game could throw a body hard enough to crack what it hit. Do not tune this
+## number — nothing reads it. The band is in `SpellTier`.
+const RETIRED_BLAST_KNOCKBACK: float = 280.0
 
 ## How long the detonation flash is drawn after it resolves. Must exceed
 ## Telegraph.FADE_TIME (0.15) so the ring's own fade isn't cut off mid-frame.
@@ -282,6 +287,10 @@ func _deflect_window() -> float:
 func _arm_telegraph() -> void:
 	_telegraph = Telegraph.new()
 	add_child(_telegraph)
+	# ⚠ STAMPED, so `BotController.perceive_threats` can tell whose tell this is.
+	# An unstamped hero telegraph is indistinguishable from an enemy one, which
+	# makes a bot-driven caster dodge its own spell for the whole wind-up.
+	_telegraph.source = caster_node as Node2D
 	# Our parent transform is the identity (we park at the origin), so a plain
 	# position IS the world position — but set global_position anyway so this keeps
 	# working if a spectacle is ever parented somewhere offset.
@@ -422,7 +431,9 @@ func _detonate() -> void:
 			# degenerate case (something standing exactly on the centre) is shoved UP
 			# so it still reacts instead of silently taking a zero-length impulse.
 			var away: Vector2 = ((e as Node2D).global_position - _to).normalized()
-			e.call("apply_knockback", (away if away != Vector2.ZERO else Vector2.UP) * BLAST_KNOCKBACK)
+			e.call("apply_knockback", (away if away != Vector2.ZERO else Vector2.UP)
+				* SpellTier.push_for_spectacle(float(dealt),
+					SpellTier.PUSH_TIER[SpellTier.Tier.HEAVY]))
 	for prop: Node in SpellTargets.in_radius(_to, BLAST_RADIUS,
 			get_tree().get_nodes_in_group("destructible"), skip, self):
 		# Chip the blast-FACING side where the prop is available for it, so cover

@@ -221,6 +221,12 @@ const STEER_PROBE: float = 90.0
 ## Deadband on the spacing band, as a fraction of it. Without one the bot oscillates
 ## across the ideal distance forever, which reads as a stutter rather than a stance.
 const BAND_DEADZONE: float = 0.16
+## Minimum seconds a steering answer holds before it may REVERSE. Sits between
+## DODGE_LATCH (0.29) and nothing, because a walk should commit for less time than a
+## dodge does — long enough that a trade-heavy exchange cannot make the bot alternate
+## at the hit rate, short enough that it never reads as ignoring you.
+## UNTESTED GUESS on the exact value; the SHAPE is what the fix rests on.
+const STEER_MIN_DWELL: float = 0.24
 ## Two of the caster's own spells fusing (ReactionTable's hollow_purple, the
 ## headline self-combo) needs the second beam thrown inside this window.
 const FUSION_WINDOW: float = 1.1
@@ -536,6 +542,15 @@ class Memory extends RefCounted:
 	## already knows how to walk away from the foe.
 	var recoil_until: float = 0.0
 
+	## ⚠ THE WALK LATCH — the one latch this brain never had. +1 closing, -1 backing
+	## off, 0 holding, plus the earliest time that answer may change. Every other latch
+	## in this file is on a CAST or a DODGE; the steering layer re-decided from scratch
+	## every physics frame with no memory at all, which is the "back and forward".
+	## Stored as an INTENT rather than a world direction because two fighters cross
+	## sides constantly — see the Schmitt-trigger block in `_steer`.
+	var steer_intent: int = 0
+	var steer_until: float = 0.0
+
 	## Latched when a bot decides, once, that it is desperate enough to pull its ult.
 	## Latched rather than continuous so the choice COMMITS — a per-frame bonus
 	## flickers on and off across the threshold and reads as indecision.
@@ -608,7 +623,7 @@ static func decide(bb: Dictionary, profile: Dictionary, mem: Memory = null) -> D
 		return BotAdapt.anti_camp(intent, bb, m.camp_state, now)
 
 	# ---- LAYER 2: steering. Always contributes; movement costs nothing.
-	intent["move"] = _steer(bb, profile, m, evaluated, pressure, stagnation)
+	intent["move"] = _steer(bb, profile, m, evaluated, pressure, stagnation, now)
 
 	# ---- THE FLINCH. A body that eats a hit and keeps walking forward reads as not
 	# having noticed. Overrides the steering vector only, and only for a beat, so the
@@ -709,6 +724,8 @@ static func _normalise(t: Dictionary) -> Dictionary:
 	var out: Dictionary = {
 		"id": int(t.get("id", 0)),
 		"tti": float(t.get("tti", t.get("time_to_impact", 0.0))),
+		# Total warning the tell ever gave; 0.0 = not published. See `_caps`.
+		"lead": float(t.get("lead", 0.0)),
 		"damage": int(t.get("damage", 0)),
 		# Unknown parryability is treated as PARRYABLE: guessing "no" would make the
 		# bot never guard against anything a caller forgot to annotate, which is a
@@ -763,6 +780,7 @@ static func _evaluate(me: Vector2, my_vel: Vector2, t: Dictionary) -> Dictionary
 				float(t["tti"]))
 	r["id"] = t["id"]
 	r["parryable"] = t["parryable"]
+	r["lead"] = t["lead"]
 	r["damage"] = t["damage"]
 	r["form"] = t["form"]
 	r["pos"] = t["pos"]
@@ -1087,6 +1105,25 @@ static func _caps(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 	# nothing (an Enemy) keeps the curve exactly.
 	var slack: float = maxf(lerpf(0.16, 0.03, clampf(skill, 0.0, 1.0)),
 		float(bb.get("guard_tolerance", 0.0)))
+	# ⚠ A GUARD BAND LONGER THAN THE WHOLE TELL IS A BAND THAT CAN NEVER BE MET, and
+	# that is the second half of the maker's *"not much deflecting"*.
+	#
+	# `band` is the class's own preferred lead — around 0.37 s for a ring guard — and
+	# `in_lead` asks for `tti` to land inside `slack` of it. A hero MELEE swing tells for
+	# `ONE_SHOT_DURATIONS * HIT_FRAME_FRACTION`, i.e. 0.077 s for a punch and 0.091 s for
+	# a kick, so `tti` STARTS at 0.077 and only falls: `|tti - 0.37|` is never once
+	# smaller than a 0.08 slack, on any frame, for any class. The parry rung was
+	# unreachable for the entire contact half of the roster by arithmetic, before any
+	# question of skill or timing arose.
+	#
+	# So the band collapses onto the threat's OWN total lead when that lead is shorter.
+	# It is the honest reading of what a guard band means — "how far ahead of the hit I
+	# like to commit" cannot exceed how much warning the attack ever gave — and it can
+	# only ever make a band TIGHTER, so no threat that was parryable before becomes
+	# harder. Threats that publish no lead (every projectile) are untouched.
+	var lead: float = float(threat.get("lead", 0.0))
+	if lead > 0.0:
+		band = minf(band, lead)
 	var tti: float = float(threat.get("tti", 99.0))
 	var in_lead: bool = absf(tti - band) <= slack
 	return {
@@ -1179,8 +1216,8 @@ static func _clash_worthwhile(bb: Dictionary, profile: Dictionary, m: Memory,
 ## every footprint and pit on the board. This is context steering flattened to one
 ## axis, which is the right shape for a side-on platformer: the vertical half of the
 ## decision is a jump, not a Y velocity.
-static func _steer(bb: Dictionary, profile: Dictionary, _m: Memory, evaluated: Array,
-		pressure: float, stagnation: float) -> Vector2:
+static func _steer(bb: Dictionary, profile: Dictionary, m: Memory, evaluated: Array,
+		pressure: float, stagnation: float, now: float = 0.0) -> Vector2:
 	var me: Vector2 = bb.get("self_pos", Vector2.ZERO)
 	var foe: Vector2 = bb.get("foe_pos", Vector2.ZERO)
 	var dist: float = me.distance_to(foe)
@@ -1203,13 +1240,54 @@ static func _steer(bb: Dictionary, profile: Dictionary, _m: Memory, evaluated: A
 	var centre: float = (lo + hi) * 0.5
 	var width: float = maxf(hi - lo, 1.0)
 
-	var want: float = 0.0
+	# ⚠ A DEADBAND IS NOT HYSTERESIS, AND THIS IS THE "BACK AND FORWARD".
+	#
+	# Maker: *"the movement is weird like sometimes the guy is just going back and
+	# forward"*. The comment this replaces claimed the deadband was what stopped that.
+	# It is not, and it cannot be: `BAND_DEADZONE` widens the band by a fixed 16% and is
+	# perfectly SYMMETRIC with no memory of the previous frame, so crossing the outer
+	# edge gives full-speed `+toward` and crossing the inner edge gives full-speed
+	# `-toward` on the very next physics frame, forever. The `Memory` object was even
+	# passed in as `_m` — underscored, i.e. deliberately unread — and nothing anywhere
+	# in the brain remembered which way this bot was already walking. Every latch in the
+	# file (CAST_LATCH, DODGE_LATCH, latched_slot) is on the CAST or the DODGE; the walk
+	# had none.
+	#
+	# So this is a Schmitt trigger instead: TRIGGER at the band edge, RELEASE at the
+	# band CENTRE. Having decided to close, the bot keeps closing until it reaches the
+	# middle of its own band rather than stopping the instant it clips the edge — which
+	# is what makes the approach read as a decision and puts a whole half-band of travel
+	# between one reversal and the next.
+	var intent: int = 0
 	if dist > hi + width * BAND_DEADZONE:
-		want = toward                    # too far — close in
+		intent = 1                       # too far — close in
 	elif dist < lo - width * BAND_DEADZONE:
-		want = -toward                   # too close — back off
-	# Inside the band the bot HOLDS. A deadband is what turns "oscillates across the
-	# ideal distance forever" into a stance you can read.
+		intent = -1                      # too close — back off
+	elif m != null and m.steer_intent != 0:
+		# Inside the band, but still travelling: hold the committed direction until the
+		# centre. Stored as an INTENT (closing / backing off) rather than as a world
+		# direction on purpose — two fighters swap sides constantly, and a remembered
+		# `+x` would read as "back off" the moment they crossed.
+		if m.steer_intent > 0 and dist > centre:
+			intent = 1
+		elif m.steer_intent < 0 and dist < centre:
+			intent = -1
+
+	# ...and a floor on how often the answer may CHANGE AT ALL. The trigger above fixes
+	# the band edges; it does nothing about the other two reversal sources measured in
+	# this file — the recoil flinch (55% per hit, 0.28 s of forced retreat, then instant
+	# resumption) and two bots' bands interacting. A minimum dwell costs at most
+	# STEER_MIN_DWELL of stale walking and is the difference between a stance and a
+	# stutter.
+	if m != null:
+		if intent != 0 and m.steer_intent != 0 and intent != m.steer_intent \
+				and now < m.steer_until:
+			intent = m.steer_intent
+		if intent != m.steer_intent:
+			m.steer_intent = intent
+			m.steer_until = now + STEER_MIN_DWELL
+
+	var want: float = float(intent) * toward
 
 	# COVER. A wall between me and the foe is worth standing behind when I am hurt,
 	# so the urge to cross it is damped rather than vetoed — vetoed would leave a
@@ -1222,14 +1300,39 @@ static func _steer(bb: Dictionary, profile: Dictionary, _m: Memory, evaluated: A
 	# the live footprints, and take the best. Reusing the dodge module's scorer here
 	# is deliberate: "never walk into a pit" and "never dodge into a pit" must be the
 	# same rule or the bot will learn to stroll into the one it just dived out of.
-	var probe: Vector2 = Vector2(want, 0.0) * STEER_PROBE
+	var probe: Vector2 = Vector2(signf(want), 0.0) * STEER_PROBE
 	if probe != Vector2.ZERO:
-		var options: Array[Vector2] = [probe, -probe]
-		var vetted: Vector2 = _safest(bb, me, options, {})
-		# ZERO here means BOTH directions land somewhere lethal, so the answer is
-		# "hold this spot" — walking off a ledge to maintain a spacing band is not a
-		# spacing band worth maintaining.
-		want = signf(vetted.x) if absf(vetted.x) > 0.01 else 0.0
+		# ⚠ ASKED AS A VETO, NOT AS A CHOICE — AND THAT IS THE THIRD REVERSAL SOURCE.
+		#
+		# This used to hand `_safest` BOTH steps at once (`[probe, -probe]`) and take
+		# whichever scored better. Those two vectors are the same LENGTH, so whenever any
+		# live telegraph or pit is on the board the ranking between them is decided by a
+		# margin that a moving threat footprint flips from one frame to the next — and
+		# `want` flipped with it, with nothing damping it. It also explains the maker's
+		# *"SOMETIMES"*: with a clean board `_safest` short-circuits to `candidates[0]`
+		# and the direction survives, so the stutter only appears once the fight has
+		# things in the air.
+		#
+		# Scoring ONE option answers "is the way I want to go lethal", which is the
+		# question actually being asked. The alternative is only consulted when the
+		# answer is yes, so safety still has the last word and the tie cannot exist.
+		if _safest(bb, me, [probe] as Array[Vector2], {}) == Vector2.ZERO:
+			# ⚠ THE ANSWER IS HOLD, NOT REVERSE — and the difference was MEASURED, not
+			# reasoned. Reversing on a veto scored mean 0.85 / worst 2.92 reversals per
+			# second against the old form's 1.18 / 1.58: better on average and visibly
+			# WORSE at the extreme, because a footprint sweeping on and off the wanted
+			# side toggles the veto and the bot pumps back and forth in place. Holding
+			# scores below both.
+			#
+			# It is also the more honest division of labour. Steering owns SPACING; the
+			# reflex ladder above it owns getting out of the way, with dashes, jumps and
+			# blinks that actually clear a region. A spacing rule that answers danger by
+			# walking the other way is doing the dodge layer's job badly, and standing
+			# still for a beat has never once read as a stutter.
+			want = 0.0
+			if m != null and m.steer_intent != 0:
+				m.steer_intent = 0
+				m.steer_until = now + STEER_MIN_DWELL
 
 	# Under real pressure with nowhere useful to be, drift AWAY rather than stand
 	# still: a stationary target is the easiest thing in the game to telegraph onto.

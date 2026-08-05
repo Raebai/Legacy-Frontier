@@ -267,6 +267,10 @@ func _life() -> float:
 func _arm_telegraph() -> void:
 	_telegraph = Telegraph.new()
 	add_child(_telegraph)
+	# ⚠ STAMPED, so `BotController.perceive_threats` can tell whose tell this is.
+	# An unstamped hero telegraph is indistinguishable from an enemy one, which
+	# makes a bot-driven caster dodge its own spell for the whole wind-up.
+	_telegraph.source = caster_node as Node2D
 	# Our own transform is the identity (we park at the origin), but set the GLOBAL
 	# position anyway so this keeps working if a spectacle is ever parented somewhere
 	# offset. The Telegraph is the one child here that is a real positioned node.

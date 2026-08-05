@@ -90,7 +90,12 @@ const CORRIDOR_PAD: float = 4.0
 ## Lateral shove: bodies are pushed OFF the line rather than down it. A dash-cut that
 ## dragged its victims along would pile them at the far end and make the second half
 ## of the lane hit nothing.
-const KNOCKBACK: float = 190.0
+## ⚠ RETIRED — the shove is now derived from the spell's own damage and shelf via
+## `SpellTier.push_for_spectacle`. Kept only as the record of what it used to be:
+## every one of these sat BELOW `SlamPhysics.MIN_SLAM_SPEED` (250), so no spell in
+## the game could throw a body hard enough to crack what it hit. Do not tune this
+## number — nothing reads it. The band is in `SpellTier`.
+const RETIRED_KNOCKBACK: float = 190.0
 const LIFT: float = 90.0
 
 # ---------------------------------------------------------------- the picture
@@ -198,6 +203,10 @@ func _life() -> float:
 func _arm_telegraph() -> void:
 	_telegraph = Telegraph.new()
 	add_child(_telegraph)
+	# ⚠ STAMPED, so `BotController.perceive_threats` can tell whose tell this is.
+	# An unstamped hero telegraph is indistinguishable from an enemy one, which
+	# makes a bot-driven caster dodge its own spell for the whole wind-up.
+	_telegraph.source = caster_node as Node2D
 	_telegraph.global_position = _origin
 	_telegraph.accent = TELL_ACCENT
 	_telegraph.style = Telegraph.Style.LANE
@@ -308,7 +317,10 @@ func _sweep(from: Vector2, to: Vector2) -> void:
 			var side: float = signf(n.dot((e as Node2D).global_position - at))
 			if side == 0.0:
 				side = 1.0
-			e.call("apply_knockback", n * side * KNOCKBACK + Vector2.UP * LIFT)
+			# The LIFT is left alone — a vertical pop is a separate feel from a shove,
+			# and it is what makes this read as a step THROUGH rather than a push.
+			e.call("apply_knockback",
+				n * side * SpellTier.push_for_spectacle(float(dealt)) + Vector2.UP * LIFT)
 	for prop: Node in SpellTargets.on_line(from + lift, d, dist, _half,
 			get_tree().get_nodes_in_group("destructible"), [caster_node], self):
 		var pid: int = (prop as Object).get_instance_id()

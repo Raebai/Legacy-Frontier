@@ -235,6 +235,10 @@ func _arm_telegraphs() -> void:
 	for sign_x: float in [1.0, -1.0]:
 		var t := Telegraph.new()
 		add_child(t)
+		# ⚠ STAMPED, so `BotController.perceive_threats` can tell whose tell this is.
+		# An unstamped hero telegraph is indistinguishable from an enemy one, which
+		# makes a bot-driven caster dodge its own spell for the whole wind-up.
+		t.source = caster_node as Node2D
 		t.global_position = _foot
 		t.accent = TELL_ACCENT
 		t.style = Telegraph.Style.LANE

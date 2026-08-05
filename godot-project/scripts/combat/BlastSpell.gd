@@ -106,6 +106,10 @@ func detonate_at(pos: Vector2) -> void:
 	_join_reaction()
 	var telegraph := Telegraph.new()
 	add_child(telegraph)
+	# ⚠ STAMPED, so `BotController.perceive_threats` can tell whose tell this is.
+	# An unstamped hero telegraph is indistinguishable from an enemy one, which
+	# makes a bot-driven caster dodge its own spell for the whole wind-up.
+	telegraph.source = caster_node as Node2D
 	telegraph.fired.connect(_detonate)
 	telegraph.start(radius, windup)
 

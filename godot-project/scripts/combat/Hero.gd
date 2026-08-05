@@ -4318,6 +4318,14 @@ func _primary_heavy_swing() -> void:
 	# the roster's slowest swinger does not quietly become its highest per-swing.
 	SwingArc.spawn(get_parent(), rig.get_weapon_tip(),
 		_aim_dir if _aim_dir != Vector2.ZERO else facing, _melee_range, _element_color)
+	# ⚠ AND THE TELL — this path never calls `_melee`, so it was missed by the clash
+	# declaration AND by the tell that goes with it. `SwingArc` above is explicitly NOT
+	# one: its own header says it is explanatory garnish, it joins no group, and it is
+	# dropped entirely when the arena is over its vfx budget. It is also spawned AT the
+	# swing, so it has never offered a single frame of lead. This is the Juggernaut's
+	# missing tell, and it is the reason a heavy hammer blow arrived unannounced.
+	if not _replaying:
+		_publish_swing_tell(CharacterRig.State.PUNCH)
 
 
 ## CRYOMANCER primary — a short-range FROST CONE (no projectile): every enemy in
@@ -5134,6 +5142,95 @@ func _melee() -> void:
 	# here as well would let a cosmetic copy cancel a real blow on this screen only.
 	if not _replaying:
 		MeleeClash.declare(self, _aim_dir, _melee_range, _melee_damage)
+		# The flip above already advanced the flag, so the state JUST played is the
+		# opposite of what it now says.
+		_publish_swing_tell(CharacterRig.State.PUNCH if _melee_kick_next
+			else CharacterRig.State.KICK)
+
+
+# ══ THE HERO'S OWN TELLS ════════════════════════════════════════════════════════
+## ⚠ `Hero` PUBLISHED NO `Telegraph` AT ALL, AND THAT ONE ABSENCE IS THREE OF THE
+## MAKER'S REPORTS AT ONCE.
+##
+## `BotController.perceive_threats` builds its entire threat picture from the
+## `telegraph` group plus projectiles already in flight. Only `Enemy` and a handful of
+## spell spectacles ever joined that group — so in a hero-versus-hero fight the three
+## CONTACT classes (Brawler, Juggernaut, Swordsaint) generated **zero** threat
+## descriptors between them. `BotBrain._reflex` therefore returned empty on every
+## single frame of every melee exchange, which means the dodge ladder was never
+## entered, which means the parry rung underneath it was never reached. That reads
+## from the couch as *"not much deflecting"*, as *"the bots aren't smart"*, and as
+## *"the Juggernaut's punches have no tell"* — one gap wearing three costumes.
+##
+## ⚠ AND IT COSTS THE PLAYER NOTHING, because the window already existed. Damage does
+## not land on the press: `_melee` plays the rig animation and the hit arrives on
+## `rig.hit_frame`, `HIT_FRAME_FRACTION` (0.35) of the way through a 0.22 s PUNCH or a
+## 0.26 s KICK. This publishes exactly that interval, so the tell is a description of
+## the swing that was already happening rather than a delay added to it. Nothing about
+## the feel of the button changes.
+const SWING_TELL_HEAVY_DAMAGE: int = 20
+## How much of the swing's reach the tell's circle is centred at, and its radius as a
+## fraction of that reach. Between them they cover the cone `_on_melee_hit_frame`
+## actually queries without claiming the ground behind the swinger.
+const SWING_TELL_CENTRE: float = 0.55
+const SWING_TELL_RADIUS: float = 0.55
+
+
+## Seconds from a swing's COMMIT to the frame it deals damage — the rig's own timing,
+## derived rather than restated, so retuning the animation retunes the tell with it.
+## Takes the state EXPLICITLY: `_melee` flips `_melee_kick_next` before it declares, and
+## `_primary_heavy_swing` never touches the flag at all, so reading it here would give
+## the wrong answer for two of the three callers.
+func _swing_tell_windup(state: int) -> float:
+	var dur: float = float(CharacterRig.ONE_SHOT_DURATIONS.get(state, 0.22))
+	return maxf(dur * CharacterRig.HIT_FRAME_FRACTION, 0.02)
+
+
+## Publish the swing as a danger the dodge layer can see and the eye can read.
+func _publish_swing_tell(state: int = CharacterRig.State.PUNCH) -> void:
+	var aim: Vector2 = _aim_dir if _aim_dir != Vector2.ZERO else facing
+	if aim == Vector2.ZERO:
+		aim = Vector2.RIGHT
+	aim = aim.normalized()
+	# A heavy, committed swing gets the full ground ring; a fast jab gets the light
+	# crosshair. Both are perceived identically — the weight is purely what the eye
+	# gets, so a Brawler on a 0.20 s cadence does not strobe a danger ring at you.
+	var heavy: bool = _melee_damage >= SWING_TELL_HEAVY_DAMAGE
+	_emit_hero_telegraph({
+		"pos": global_position + aim * _melee_range * SWING_TELL_CENTRE,
+		"radius": _melee_range * SWING_TELL_RADIUS,
+		"windup": _swing_tell_windup(state),
+		"style": Telegraph.Style.ZONE if heavy else Telegraph.Style.DART,
+		"aim": aim,
+		"reach": _melee_range,
+	})
+
+
+## Build one of this hero's tells. Mirrors `Enemy._emit_telegraph`: a SIBLING in the
+## arena rather than a child, so the mark stays where the danger is even if the
+## swinger gets knocked across the room mid-wind-up.
+##
+## ⚠ `source` IS ALWAYS STAMPED, and it is load-bearing. `perceive_threats` skips a
+## telegraph whose `source` is the perceiving body — without it a bot-driven hero
+## reads its own wind-up as incoming danger and dodges away from its own punch on
+## every frame it swings.
+func _emit_hero_telegraph(cfg: Dictionary) -> Telegraph:
+	var parent: Node = get_parent()
+	if parent == null:
+		return null
+	var tele := Telegraph.new()
+	parent.add_child(tele)
+	tele.global_position = cfg.get("pos", global_position)
+	tele.source = self
+	tele.accent = _element_color
+	tele.style = cfg.get("style", Telegraph.Style.ZONE)
+	tele.aim_dir = cfg.get("aim", Vector2.RIGHT)
+	tele.reach = float(cfg.get("reach", 120.0))
+	# NOTHING IS CONNECTED TO `fired`. The swing resolves on its own clock through
+	# `rig.hit_frame`; this node is a DESCRIPTION of that swing, not a second timer
+	# that could drift from it or a second place damage could come from.
+	tele.start(float(cfg.get("radius", 40.0)), float(cfg.get("windup", 0.1)))
+	return tele
 
 
 ## Drive the persistent flaming fist: decay the timer, feed the rig the current
