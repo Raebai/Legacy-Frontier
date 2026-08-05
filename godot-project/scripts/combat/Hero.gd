@@ -11,7 +11,7 @@ const SPEED: float = 210.0
 ## spammable. Costs + cooldowns live per-spell on the SpellDef.
 const MP_REGEN: float = 20.0  # mp/sec
 const DASH_SPEED: float = 620.0
-const DASH_TIME: float = 0.14
+const DASH_TIME: float = 0.18
 const DASH_COOLDOWN: float = 0.9  # was 0.55 — chained diagonal dashes let you "fly"
 ## Side-on platformer physics (Stick-Fight feel): asymmetric gravity (floaty
 ## apex, weighty landing), snappy accel + friction, WALL-SLIDE + WALL-JUMP so you
@@ -228,7 +228,7 @@ const PARRY_SHIELD_TIME: float = 0.26
 ## teleport (that is Stormcaller's verb, verbatim), and a cosmetic-only after-image
 ## with baseline numbers (that is the recolour the ruling forbids).
 const ARCANE_PHASE_SPEED: float = 600.0
-const ARCANE_PHASE_TIME: float = 0.14
+const ARCANE_PHASE_TIME: float = 0.19
 ## ⚠ THE ONLY 1.0 IN THE TABLE, and it is the class's movement identity rather than a
 ## generosity — see `_dash_invulnerable`, where the fraction is measured from the START
 ## of the travel. If this ever feels oppressive the dial is `dash_cd` or
@@ -265,18 +265,50 @@ const AIR_DASH_IFRAME_FRACTION: float = 0.8
 ## magic" class and it closes distance the honest way. What it hits is staggered — a
 ## much bigger shove than the dash-strike it shares plumbing with — and the charge
 ## keeps most of its speed when it ends, so a connected charge shoves you both.
-## ⚠ 520 -> 610, AND IT CLIMBS NOW. Maker: *"brawler dash needs to be stronger the
-## brwoler should be able to dash up as well just like the sword saint"*. 520 x 0.26
-## was 135 px on the class whose entire job is closing distance, and — like the
-## Juggernaut's surge before it — the charge was flattened to the ground plane one
-## layer below the class table, in `_travel_velocity`. Both halves of the note were
-## the same fault. 610 x 0.28 is 171 px.
+## ══ THE DASH BASELINE, AND THE FOUR EXCEPTIONS TO IT ════════════════════════════
+## Maker's ruling: *"the dashes should all mostly be the same distance and strength
+## across the classes except some classes have certain exceptions"* — after *"brawler
+## dash is too long now"*, which it was: I had taken it to 171 px, the longest travel
+## in the game, answering "make it stronger" with distance alone.
+##
+## So travel is now ~110 px for everybody, and the SPEED of each verb is what still
+## differs — a charge is a fast shove and a surge is a slow shoulder, and they cover
+## the same ground. That is the honest reading of "same distance and strength": the
+## distance is shared, the CHARACTER is not.
+##
+##   arcane phase   114      air dash       111  (+20% AIRBORNE — the exception)
+##   generic dash   112      charge         110
+##   radiant step   112      ice slide      a decaying steerable slide, not a dash
+##   surge          129      committed step  95
+##
+## THE FOUR EXCEPTIONS, each one a rule the class already had:
+##   SHADOWBLADE — the only body in the game that is BETTER in the air. Grounded it
+##                 is baseline; airborne it keeps `AIR_DASH_AIRBORNE_BONUS`. The
+##                 exception is a CONDITION, not a bigger number.
+##   SWORDSAINT  — deliberately the smallest dodge in the roster. Its own note says
+##                 it gets a way IN, not a way out, and that is still true at 95.
+##   JUGGERNAUT  — modestly longer, because the maker asked for it directly two
+##                 rounds ago and because it is the slowest body in the game: equal
+##                 travel on a 165 px/s walker is less reach than on a 240 px/s one.
+##   STORMCALLER / WARLOCK — teleports. Not travel at all, so not measured here.
+##
+## ⚠ THE SUITE USED TO ASSERT THE OPPOSITE and had to be inverted, not loosened —
+## `slice_test_class_movement` demanded at least 7 of 9 classes travel a VISIBLY
+## DIFFERENT distance. That was a fair reading of the old "nine distinct verbs" goal
+## and it is not what the maker wants now, so it now pins the cluster and the named
+## exceptions instead. A test that contradicts a live ruling is the ruling's problem
+## only until somebody writes it down.
+##
+## ⚠ 520 -> 610 SPEED IS KEPT. The other half of *"brawler dash needs to be
+## stronger"* was that it could not dash UP, which was a flattening in
+## `_travel_velocity` one layer below this table, and that fix stands. What is undone
+## here is only the distance.
 ##
 ## The exit momentum is UNCHANGED: a charge that carries is the Brawler's identity
 ## ("a connected charge shoves you both"), and scaling the carry with the speed would
 ## have turned a stronger opener into a body that cannot stop.
 const CHARGE_SPEED: float = 610.0
-const CHARGE_TIME: float = 0.28
+const CHARGE_TIME: float = 0.18
 ## Fraction of charge speed kept on exit, plus how long ground friction is suppressed
 ## so the carry survives long enough to be felt. Reuses `_wall_jump_lock`, which is
 ## already the "do not fight this momentum" gate in the movement block — a second flag
@@ -306,7 +338,7 @@ const CHARGE_IFRAME_FRACTION: float = 0.0
 ## be moved, not that it is evasive, and lengthening the unmovable window as well would
 ## turn a mobility buff into a survivability one.
 const SURGE_SPEED: float = 430.0
-const SURGE_TIME: float = 0.34
+const SURGE_TIME: float = 0.38
 const SURGE_ARMOR_TAIL: float = 0.35
 ## No i-frames — armour is not invulnerability. It eats the hit and keeps walking.
 const SURGE_IFRAME_FRACTION: float = 0.0
@@ -317,7 +349,7 @@ const SURGE_IFRAME_FRACTION: float = 0.0
 ## the Cleric's repositioning is worth something to somebody else, which is the whole
 ## co-op reason to bring one.
 const RADIANT_STEP_SPEED: float = 560.0
-const RADIANT_STEP_TIME: float = 0.16
+const RADIANT_STEP_TIME: float = 0.20
 const RADIANT_WAKE_INTERVAL: float = 0.05
 const RADIANT_WAKE_RADIUS: float = 70.0
 const RADIANT_WAKE_HEAL: int = 3
@@ -413,7 +445,7 @@ const CRAWL_SPEED: float = 46.0
 ## real throughput increase hidden inside a mobility number, and it is stated here
 ## rather than discovered later in a balance sweep.
 const COMMITTED_STEP_SPEED: float = 560.0
-const COMMITTED_STEP_TIME: float = 0.19
+const COMMITTED_STEP_TIME: float = 0.17
 const COMMITTED_STEP_IFRAME_FRACTION: float = 0.35
 
 ## ⚠ EMPTY, AND DELIBERATELY STILL HERE. These are the verbs whose travel USED to be

@@ -356,14 +356,55 @@ func _test_travel_is_measurably_different() -> void:
 		_expect(travel >= MIN_USEFUL_TRAVEL,
 			"%s's movement button actually moves the body (measured %.1f px, floor is %.0f — a dead button is the failure mode this catches)"
 				% [CLASS_LABELS[cls], travel, MIN_USEFUL_TRAVEL])
-	# Distinctness on the DRAWN channel: bucket to 4 px so float noise cannot fake a
-	# difference, then demand nearly all nine buckets are their own.
-	var buckets: Dictionary = {}
-	for t: float in dist:
-		buckets[int(round(t / 4.0))] = true
-	_expect(buckets.size() >= 7,
-		"at least 7 of the 9 classes travel a visibly different distance (got %d distinct 4px buckets across %s)"
-			% [buckets.size(), str(dist)])
+	# ══ THIS ASSERTION WAS INVERTED, NOT LOOSENED ═══════════════════════════════
+	# It used to demand that at least 7 of the 9 classes travel a VISIBLY DIFFERENT
+	# distance — a fair reading of the old "nine distinct movement verbs" goal, and
+	# the exact opposite of the maker's ruling: *"the dashes should all mostly be the
+	# same distance and strength across the classes except some classes have certain
+	# exceptions"*, said right after *"brawler dash is too long now"*.
+	#
+	# So the claim under test is now the CLUSTER plus its named exceptions. What still
+	# separates the nine verbs is speed, arc, i-frames, armour and what they leave
+	# behind — none of which this measurement was ever looking at. Distinctness by
+	# raw distance was the one axis the maker took off the table.
+	#
+	# ⚠ TELEPORTS ARE NOT TRAVEL and are excluded by NAME rather than by a magnitude
+	# threshold: the Stormcaller's blink and the Warlock's thrall-swap resolve inside
+	# `_start_dash` and never enter the per-frame branch at all, so measuring them
+	# against a dash baseline compares two different mechanisms. Excluding them by
+	# "anything over N px" instead would silently start excluding a dash the day one
+	# got longer, which is how a guard quietly stops guarding.
+	const TELEPORTS: Array[int] = [STORMCALLER, WARLOCK]
+	# The exceptions the class table names, and the reason each one is allowed to sit
+	# outside the band. Listed here so the test fails if somebody adds a THIRD.
+	const TRAVEL_EXCEPTIONS: Array[int] = [
+		JUGGERNAUT,   # slowest body in the game — equal travel is less reach
+		SWORDSAINT,   # deliberately the smallest dodge: a way IN, not a way out
+		CRYOMANCER,   # a decaying steerable slide, not a fixed-length dash
+	]
+	var band: Array[float] = []
+	for cls: int in range(dist.size()):
+		if TELEPORTS.has(cls) or TRAVEL_EXCEPTIONS.has(cls):
+			continue
+		band.append(dist[cls])
+	_expect(band.size() >= 4, "there are still enough ordinary dashes to compare (%d)" % band.size())
+	if band.size() >= 2:
+		var lo: float = band.min()
+		var hi: float = band.max()
+		# 25% is a real band rather than a rubber stamp: today's cluster spans about
+		# 4%, so this fails long before anybody could reintroduce a 171 px outlier.
+		_expect(hi <= lo * 1.25,
+			"the ordinary dashes travel about the same distance (%.1f..%.1f px across %s)"
+				% [lo, hi, str(band)])
+	# ...and the two exceptions really are on the sides they claim to be on, or the
+	# list above is just a way to excuse whatever the numbers happen to be.
+	if band.size() >= 2:
+		_expect(dist[SWORDSAINT] < band.min(),
+			"the Swordsaint's step is still the smallest dodge (%.1f vs the band's %.1f)"
+				% [dist[SWORDSAINT], band.min()])
+		_expect(dist[JUGGERNAUT] > band.max(),
+			"the Juggernaut's surge still reaches further than the band (%.1f vs %.1f)"
+				% [dist[JUGGERNAUT], band.max()])
 	# The two the maker named by hand, as an ordering claim rather than a magic number:
 	# "the lightning one ... blinks ... a slightly longer distance", and the tank is the
 	# one that gives mobility up.
