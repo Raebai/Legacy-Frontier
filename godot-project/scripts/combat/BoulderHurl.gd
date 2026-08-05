@@ -523,4 +523,7 @@ func _draw_shockwave() -> void:
 	draw_arc(_pos, r, 0.0, TAU, 48, Color(0.85, 0.6, 0.3, 0.9 * alpha), lerpf(9.0, 2.0, t), true)
 	if t < 0.4:
 		var flash: float = 1.0 - t / 0.4
-		draw_circle(_pos, _radius * flash, Color(1.3, 1.0, 0.6, 0.35 * flash), true, -1.0, true)
+		# Capped like `BlastSpell`'s — see the block there. A full-radius HDR fill is a
+		# flat disc over everything standing in the blast, not a flash.
+		draw_circle(_pos, _radius * flash * 0.52,
+			Color(1.2, 0.95, 0.6, 0.26 * flash), true, -1.0, true)

@@ -303,7 +303,20 @@ func _draw() -> void:
 	# and collapses inward, so the very first frame states the true extent.
 	if t < 0.4:
 		var flash: float = 1.0 - t / 0.4
-		draw_circle(Vector2.ZERO, radius * flash, Color(1.7, 1.45, 0.9, 0.35 * flash), true, -1.0, true)
+		# ⚠ CAPPED AT 0.52 OF THE RADIUS, and that is the third time this project has
+		# fixed this exact shape: an HDR fill scaled by a whole effect radius reads as
+		# a flat opaque disc once bloom has it, not as a flash. (The other two: the
+		# sword hit's white sphere on `Enemy._flash`, and the burn status washing the
+		# entire frame.) A full-radius fill covered the fighters standing either side
+		# of the blast — measured on a delivered clip frame at 41% of the picture
+		# above luma 200, with two of these overlapping.
+		#
+		# The two arcs above already state the true extent, which is the part that has
+		# to be honest; this is the heat inside it, and heat does not need to reach the
+		# edge to read. Alpha down with it, because a smaller disc at the same alpha is
+		# still a disc.
+		draw_circle(Vector2.ZERO, radius * flash * 0.52,
+			Color(1.5, 1.3, 0.85, 0.26 * flash), true, -1.0, true)
 
 
 ## The shared burst builder, scaled way up for the centerpiece.

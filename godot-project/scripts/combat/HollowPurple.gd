@@ -525,9 +525,21 @@ func _draw_discharge(k: float) -> void:
 	var amp: float = clampf(1.0 - maxf(k - 0.32, 0.0) / 0.68, 0.0, 1.0)
 	amp = amp * amp * (3.0 - 2.0 * amp)
 	var perp: Vector2 = _axis.orthogonal()
-	# Opening flash.
+	# Opening flash. ⚠ IT KEEPS ITS PUNCH AND LOSES ITS MIDDLE. As written this went
+	# to a 340 px near-white disc at (1.9, 1.9, 1.9) — on a 683 px viewport that is
+	# wider than the screen, and the alpha only reaches zero at the very end, so the
+	# WHOLE expansion was a white blob with the lance and both fighters inside it.
+	# Same fault as `BlastSpell`'s flash and the two before it: an HDR fill scaled by
+	# an effect's full reach.
+	#
+	# The fix keeps frame one — 52 px at near-full alpha IS the crack of the thing
+	# opening — and takes the tail off: a squared fade means it is gone by the time it
+	# would have been big, and the reach is capped where the lance's own rims take
+	# over the read.
 	if burst < 1.0:
-		draw_circle(_p, lerpf(52.0, 340.0, burst), Color(1.9, 1.9, 1.9, 0.95 * (1.0 - burst)), true, -1.0, true)
+		var fade: float = (1.0 - burst) * (1.0 - burst)
+		draw_circle(_p, lerpf(52.0, 168.0, burst),
+			Color(1.6, 1.55, 1.7, 0.9 * fade), true, -1.0, true)
 	# THE LANCE. An ERASURE with blazing rims, not a glowing bar: a tapered
 	# silhouette (widest at the circle, a point at each end), a near-black
 	# interior, and the light living on its edges.

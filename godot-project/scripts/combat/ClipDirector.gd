@@ -98,7 +98,32 @@ const FRAME_MARGIN_HOT: float = 70.0
 ## lifted (EYE_LIFT) to put the floor in the lower third.
 const FRAME_MARGIN_V: float = 130.0
 const FRAME_MARGIN_V_HOT: float = 85.0
-const ZOOM_MIN: float = 0.42
+## ⚠ 0.42 -> 0.49, AND THE FLOOR IS NOT WHERE THE FIX IS. Read to the end.
+##
+## Three previous passes attacked "the fighters are specks" by cutting FRAME_MARGIN
+## (300 -> 190 -> 110) and raising ZOOM_MAX. None of them could work, because the
+## binding constraint was never the margin: `_fit_zoom` solves containment and then
+## clamps to THIS, so whenever the pair separates far enough the solved fit falls to
+## the floor and the floor is where the shot sits. The margin only matters above it.
+##
+## The arithmetic, on this project's 640x360 base viewport with a ~31 px rig:
+##
+##     zoom   rig on screen   share of frame height
+##     0.42       13 px              3.6%       <- measured on a delivered frame,
+##     0.49       15 px              4.2%          and I could not find the fighters
+##     0.66       20 px              5.7%
+##
+## ⚠ IT IS 0.49 AND NOT MORE, AND THE SUITE IS WHY. 0.75 was tried first and
+## `a_hot_exchange_stays_in_frame` failed it honestly: a 900 px exchange with the
+## victim lean applied needs 0.50 to keep the far fighter, so a 0.75 floor throws
+## somebody out of the most watchable moment of the fight. Containment and legibility
+## are in genuine conflict at these separations and no single constant resolves it —
+## which is what `_relieve_the_lean` below is for, and it is where the real gain is.
+const ZOOM_MIN: float = 0.49
+## The zoom under which a rig stops being a figure and becomes a mark. Not a clamp —
+## a TRIGGER: below this the camera gives up its leans to buy the shot back. See
+## `_relieve_the_lean`.
+const LEGIBLE_ZOOM: float = 0.72
 ## ⚠ THE CEILING, AND IT IS THE REAL REASON THE FIGHTERS READ SMALL. Cutting
 ## FRAME_MARGIN alone could not make a close duel bigger: once the solved fit passes
 ## this number the camera stops punching in, so at 1.15 two fighters standing near
@@ -425,10 +450,52 @@ func _frame(fighters: Array[Node2D], delta: float) -> void:
 		clampf(target.y - EYE_LIFT, ground_y - VERTICAL_BAND, ground_y - 40.0))
 
 	var want: float = _fit_zoom(pts, eye)
+	# ⚠ THE LEANS ARE A LUXURY, AND THIS IS WHERE THEY ARE BILLED FOR IT.
+	#
+	# Every lean above (victim, spell, KO) moves the eye OFF the pair's midpoint, and
+	# an off-centre eye has to cover a bigger half-width to keep everybody in — so the
+	# containment solve answers with a wider shot, and the fighters get smaller. On a
+	# 900 px hot exchange the victim lean alone costs 0.66 -> 0.50 of zoom, which is a
+	# quarter off the size of both figures, spent on WHERE the picture is centred.
+	#
+	# That is a good trade when there is room and a bad one when there is not. So
+	# below `LEGIBLE_ZOOM` the leans are given back: re-solve from the plain midpoint
+	# and take whichever eye frames bigger. It can only ever tighten the shot, and
+	# containment stays exact because the fit is re-solved AT the eye actually used —
+	# the same "clamp first, fit second" rule the block above rests on.
+	var relieved: Array = _relieve_the_lean(pts, mid, eye, want)
+	eye = relieved[0]
+	want = relieved[1]
+	_sample_zoom(want)
 	var z: float = lerpf(camera.zoom.x, want, clampf(delta * ZOOM_LERP, 0.0, 1.0))
 	camera.zoom = Vector2(z, z)
 	camera.global_position = camera.global_position.lerp(eye,
 		clampf(delta * POS_LERP, 0.0, 1.0))
+
+
+## Give the leans back when the shot has gone illegible. Returns [eye, zoom].
+##
+## PUBLIC AND PURE-ISH so the suite can put the two eyes side by side rather than
+## inferring the rule from a settled camera: the assertion worth making is "the
+## returned zoom is never smaller than the leaned one", which is what makes this
+## safe to run on every frame.
+func _relieve_the_lean(pts: Array[Vector2], mid: Vector2, eye: Vector2,
+		want: float) -> Array:
+	if want >= LEGIBLE_ZOOM:
+		return [eye, want]
+	var plain: Vector2 = Vector2(
+		clampf(mid.x, stage.position.x + 340.0, stage.end.x - 340.0),
+		clampf(mid.y - EYE_LIFT, ground_y - VERTICAL_BAND, ground_y - 40.0))
+	var plain_fit: float = _fit_zoom(pts, plain)
+	if plain_fit <= want:
+		return [eye, want]
+	# Only travel as far off the lean as the legibility actually needed. A full snap
+	# to the midpoint every time the shot tightens reads as the camera flinching;
+	# this keeps some of the lean whenever some of it was affordable.
+	var t: float = clampf((LEGIBLE_ZOOM - want) / maxf(LEGIBLE_ZOOM - ZOOM_MIN, 0.001),
+		0.0, 1.0)
+	var blended: Vector2 = eye.lerp(plain, t)
+	return [blended, _fit_zoom(pts, blended)]
 
 
 ## THE HARD CONSTRAINT: the widest zoom that still contains every fighter, seen
@@ -550,6 +617,42 @@ func clock() -> float:
 
 
 ## The machine-readable story of the fight, for a clip manifest.
+## ⚠ THE ONE MEASURE OF "ARE THE FIGHTERS BIG ENOUGH TO SEE" THAT IS NOT A PROXY.
+##
+## `python-tools/clip_review.py` scores a delivered mp4 and can count a blowout
+## honestly, because a bloomed fill IS a luminance fact. It CANNOT count this one:
+## pixels cannot tell a fighter from a crate, so a wide empty shot full of background
+## furniture scores as busy. Its first attempt at this metric passed the very frame
+## it had been calibrated on.
+##
+## The camera knows exactly. `zoom * RIG_WORLD_PX / viewport_height` is the share of
+## the picture a fighter occupies, so it goes in the clip's own paperwork and the
+## pixel tool is demoted to corroboration.
+const RIG_WORLD_PX: float = 31.0
+
+var _zoom_lo: float = 99.0
+var _zoom_hi: float = 0.0
+var _zoom_sum: float = 0.0
+var _zoom_n: int = 0
+
+
+func _sample_zoom(z: float) -> void:
+	_zoom_lo = minf(_zoom_lo, z)
+	_zoom_hi = maxf(_zoom_hi, z)
+	_zoom_sum += z
+	_zoom_n += 1
+
+
+## What share of frame height a fighter fills at `z`. The number the maker is
+## actually judging when they say the figures are too small.
+func subject_share(z: float) -> float:
+	var vh: float = 360.0
+	var vp: Viewport = get_viewport()
+	if vp != null:
+		vh = maxf(float(vp.get_visible_rect().size.y), 1.0)
+	return z * RIG_WORLD_PX / vh
+
+
 func report() -> Dictionary:
 	return {
 		"duration": snappedf(_clock, 0.01),
@@ -560,4 +663,10 @@ func report() -> Dictionary:
 		"ringout_at": snappedf(_ringout_at, 0.01),
 		"decisive_at": snappedf(_decisive_at(), 0.01),
 		"beats": _beats,
+		"zoom_min": snappedf(_zoom_lo if _zoom_n > 0 else 0.0, 0.001),
+		"zoom_max": snappedf(_zoom_hi, 0.001),
+		"zoom_mean": snappedf(_zoom_sum / maxf(float(_zoom_n), 1.0), 0.001),
+		"subject_share_min": snappedf(subject_share(_zoom_lo if _zoom_n > 0 else 0.0), 0.0001),
+		"subject_share_mean": snappedf(
+			subject_share(_zoom_sum / maxf(float(_zoom_n), 1.0)), 0.0001),
 	}

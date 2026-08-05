@@ -204,6 +204,14 @@ const LOCAL_MAX_STRENGTH: float = 0.7
 ## 0.55 the overlap compounds to ~0.40 alpha of a super-white over the convergence
 ## point, and the post-process tone curve and bloom then lift it further.
 const CINEMATIC_MAX_STRENGTH: float = 0.25
+## ...and the two that `CINEMATIC_MAX_STRENGTH` alone could not save, because
+## COLOR_FIELD compounds SIX overlapping HDR discs on top of a whole-screen rect and
+## a single strength cap scales each of them, not the stack. Measured on a delivered
+## ULT frame: 68% of the picture above luma 200, both fighters inside it. See
+## `_draw_color_field`. These are RECORDING-ONLY: live play is untouched, because at
+## 60+ fps the blowout is one imperceptible frame and it is the concussion.
+const CINEMATIC_FIELD_SCALE: float = 0.45
+const CINEMATIC_CORE_SCALE: float = 0.40
 
 
 # -------------------------------------------------------------- arbiter state
@@ -740,7 +748,25 @@ func _draw_silhouette(u: float, vp: Vector2, c: Vector2) -> void:
 func _draw_color_field(u: float, vp: Vector2, c: Vector2) -> void:
 	var diag: float = vp.length()
 	var k: float = 1.0 - pow(u, 1.7)
-	var field := Color(_tint.r, _tint.g, _tint.b, 0.62 * k * _strength)
+	# ⚠ THE SAME SPLIT `_draw_blowout` MAKES, AND FOR THE SAME MEASURED REASON.
+	# `CINEMATIC_MAX_STRENGTH` already caps a full-screen mark at 0.25 while
+	# recording, and it is NOT ENOUGH here: this style lays a whole-screen tint rect
+	# AND six HDR discs at `tint * 1.6 + 0.35` out to a third of the diagonal, and
+	# six overlapping discs compound. Measured on a delivered clip — an ULT frame of
+	# `stormcaller_vs_cryomancer` ran **68% of the picture above luma 200**, with the
+	# health bars reading in their own complement because everything had gone past
+	# white. Both fighters are inside that.
+	#
+	# Live, at 60+ fps, it is 0.15 s of the element taking the screen and it is the
+	# beat. In a clip at 30 fps it is four or five frames of a hole. So while
+	# recording the FIELD stays (it is the element's colour, which is the read) at a
+	# fraction, and the super-white core lift comes off entirely — the rings below
+	# still expand out of the hit, so the beat keeps its shape and loses its blowout.
+	var recording: bool = Cinematic.enabled
+	var field_a: float = 0.62 * k * _strength
+	if recording:
+		field_a *= CINEMATIC_FIELD_SCALE
+	var field := Color(_tint.r, _tint.g, _tint.b, field_a)
 	_rect.draw_rect(Rect2(Vector2.ZERO, vp), field)
 	# Darkened corners: four fat edge bands, cheaper than a real vignette and
 	# graphic enough at this duration that nobody will read it as a gradient.
@@ -751,11 +777,17 @@ func _draw_color_field(u: float, vp: Vector2, c: Vector2) -> void:
 	# The hot core, expanding out of the hit.
 	var rings: int = 6
 	var peak: float = diag * 0.20 * (0.6 + 1.1 * u)
+	# THE CORE. `+ 0.35` on every channel is a super-white lift on top of an already
+	# HDR tint, and six of these overlap at `c`. That additive term is what pushes the
+	# centre past the tone curve; while recording it comes off and the core is the
+	# element's own colour, brightened but not whitened.
+	var lift: float = 0.0 if recording else 0.35
+	var core_a: float = 0.16 * k * _strength * (CINEMATIC_CORE_SCALE if recording else 1.0)
 	for i in rings:
 		var t: float = float(i) / float(rings - 1)
 		_rect.draw_circle(c, peak * (1.0 - t * 0.85),
-			Color(_tint.r * 1.6 + 0.35, _tint.g * 1.6 + 0.35, _tint.b * 1.6 + 0.35,
-				0.16 * k * _strength), true, -1.0, true)
+			Color(_tint.r * 1.6 + lift, _tint.g * 1.6 + lift, _tint.b * 1.6 + lift,
+				core_a), true, -1.0, true)
 
 
 ## NEGATIVE. The inversion itself is done by the shader on `_screen_plate`; all
