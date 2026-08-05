@@ -561,6 +561,15 @@ const RIDE_ACCEL_MAX: float = 15000.0
 ## reads as sinking too far on F5, THIS is the constant, and 0.30 is the tested
 ## alternative.
 const PRONE_RIDE_FACTOR: float = 47.5 / 86.0
+## THE HARD CEILING ON THE SPRAWL, as a fraction of figure height. See the block at
+## the `ride_target` clamp in `_step_body`.
+##
+## The standing origin sits `height * 0.5` above the floor (the drawn feet rest at
+## local +height*0.5, and `_align_feet_to_body` seats them on the collider bottom), so
+## `0.5` is the exact point at which the origin reaches the ground. Half a limb width
+## is held back off it, because a body lying on the floor rests on the OUTSIDE of its
+## limbs, not on their centre-line.
+const PRONE_RIDE_MAX: float = 0.5 - LIMB_W_FACTOR * 0.5
 ## Lean TARGETS per regime, radians (SpikeFigure._support, verbatim).
 const RUN_LEAN: float = 0.16
 const AIR_LEAN: float = 0.68
@@ -1043,6 +1052,21 @@ func _step_body(delta: float) -> void:
 	var ride_target: float = 0.0
 	if _grounded and not airborne:
 		ride_target = PRONE_RIDE_FACTOR * height * clampf(_limp, 0.0, 1.0)
+		# ⚠ AND NEVER PAST THE FLOOR. Maker: *"most the time the characters die and
+		# glitch into the floor"*. MEASURED with `tools/rig_death_floor_probe.gd`, which
+		# reproduces the duel KO exactly: the settled ride was 17.12 px on a 31 px
+		# figure, and the standing origin sits only `height * 0.5` = 15.5 px above the
+		# floor — so the sprawl drove the rig's ORIGIN 1.6 px UNDERGROUND. The joint
+		# clamp below then caught every joint at once and pinned three of the seven to
+		# the same line, which is what "glitch into the floor" looks like: not a body
+		# sinking through, a body PANCAKED flat onto the floor with its head buried.
+		#
+		# The cap is derived rather than a smaller taste value, so no future `height`
+		# and no future `PRONE_RIDE_FACTOR` can put the origin under the ground again.
+		# `PRONE_RIDE_FACTOR` is left as the authored intent; it simply cannot be
+		# honoured past the geometry, and its own header already flagged it as
+		# *"FLAGGED, NOT TUNED"*.
+		ride_target = minf(ride_target, PRONE_RIDE_MAX * height)
 	# Frozen (hard CC): rooted under the ice — hold the body still rather than letting
 	# it keep swaying, but keep the spring live so the shatter still knocks it.
 	if _frozen:
@@ -1486,10 +1510,20 @@ func _step_sim(delta: float) -> void:
 			# Pushing the joint up to the floor in WORLD space and converting back is exact
 			# at any pitch, any facing flip and any ride offset, because it goes through the
 			# real transform in both directions.
+			# ⚠ CLAMPED BY WHAT IS DRAWN, NOT BY THE JOINT CENTRE. A joint pushed to
+			# exactly the floor line still buries HALF of whatever hangs off it — and on
+			# a stick figure the head is the biggest mass there is, so a `head_center`
+			# resting on the ground puts a full head-radius of black under it. Measured
+			# on a settled duel corpse: the lowest DRAWN edge was 2.19 px below the floor
+			# while every joint read a clean 0.00, which is precisely the class of miss
+			# this project has now made four times — reading the computed channel and
+			# calling the drawn one verified.
+			var drawn: float = _drawn_half(key)
 			if is_finite(_ground_world_y):
+				var limit: float = _ground_world_y - drawn
 				var wp: Vector2 = to_global(pos)
-				if wp.y > _ground_world_y:
-					pos = to_local(Vector2(wp.x, _ground_world_y))
+				if wp.y > limit:
+					pos = to_local(Vector2(wp.x, limit))
 					# Kill the WORLD-downward part of the velocity, not the local-y part:
 					# under a near-horizontal body those are different directions.
 					var into: float = vel.dot(down_local)
@@ -1498,7 +1532,7 @@ func _step_sim(delta: float) -> void:
 			else:
 				# No probe (detached rig / headless suite): fall back to the figure's own
 				# standing foot line, the honest answer when the world is unknown.
-				var floor_y: float = height * 0.5 - _ride
+				var floor_y: float = height * 0.5 - _ride - drawn
 				if pos.y > floor_y:
 					pos.y = floor_y
 					if vel.y > 0.0:
@@ -1583,6 +1617,16 @@ func _plant_foot(local_foot: Vector2, ground_local_y: float) -> Vector2:
 ## torso stay connected. r + w pass through. draw_figure's 2-bone IK then bends
 ## knees/elbows from the simmed hip/shoulder/hand/foot for free. Falls back to
 ## the raw animation pose until the sim is seeded.
+## How far BELOW a sim joint's centre the figure is actually drawn — a head radius at
+## the head, half a limb width everywhere else. The floor clamp holds this much back
+## off the ground so nothing the eye can see ends up under it. Mirrors the two factors
+## `_draw` derives its own stroke widths from, and must move with them.
+func _drawn_half(key: String) -> float:
+	if key == "head_center":
+		return maxf(2.0, height * HEAD_R_FACTOR)
+	return maxf(1.6, height * LIMB_W_FACTOR) * 0.5
+
+
 func _sim_pose() -> Dictionary:
 	var pose: Dictionary = _compute_pose()
 	if not _sim_ready:
