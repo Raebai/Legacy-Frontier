@@ -465,15 +465,31 @@ static func _is_ghost(collider: Object) -> bool:
 	return n != null and n.is_queued_for_deletion()
 
 
+## ⚠ AN AREA IS A TRIGGER, NOT GEOMETRY, AND THAT DISTINCTION HAD BEEN LOST HERE.
+## This routes `area.get_parent()` into the same funnel a real body hit uses, so any
+## Area2D whose parent happens to be a `StaticBody2D` fell through to the "a wall
+## stopped the bolt" branch — hitstop, camera shake, an impact burst and a spray of
+## rubble, off a PROXIMITY RING that exists only to raise a `[E] Talk` prompt.
+##
+## The hub is full of them (every townsperson, every pad, the tower door), which is
+## the maker's report: *"it lags when I try shoot an NPC or the teleportation rings
+## in the hub, probably because you are treating them like items"* — an exactly
+## right diagnosis. Measured in the town, holding the trigger: mean frame time
+## 30.76 ms with a 659.93 ms worst frame, 91 of 240 frames over budget.
+##
+## Solid geometry is a BODY and arrives through `body_entered`. So the area path
+## keeps every branch that asks a real question of the node it hit — a hurtbox, a
+## hero, a destructible — and loses only the one that assumes anything static is a
+## wall. `tools/slice_test_hub_shoot.gd` holds it.
 func _on_area_hit(area: Area2D) -> void:
-	_try_damage(area.get_parent())
+	_try_damage(area.get_parent(), true)
 
 
 func _on_hit(body: Node) -> void:
 	_try_damage(body)
 
 
-func _try_damage(node: Node) -> void:
+func _try_damage(node: Node, from_area: bool = false) -> void:
 	if _dead or node == null:
 		return
 	# Defensive backstop: a bolt must never damage its own caster, regardless of
@@ -537,9 +553,12 @@ func _try_damage(node: Node) -> void:
 		_spawn_impact_burst()
 		DebrisChunk.spawn_burst(get_parent(), global_position, Color(0.4, 0.4, 0.45), 4, _dir, 200.0)
 		queue_free()
-	elif node is StaticBody2D:
+	elif node is StaticBody2D and not from_area:
 		# A platform/wall stops the bolt — small explosion + stone chips fly off
 		# the surface in the bolt's travel direction (the "spells hit the floor").
+		# ⚠ `not from_area`: see `_on_area_hit`. A wall is a body and reaches this
+		# through `body_entered`; reaching it through a trigger ring means detonating
+		# on a prompt.
 		_dead = true
 		Sfx.play("spell_impact")
 		Juice.hit_stop(0.03)

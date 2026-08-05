@@ -178,7 +178,20 @@ func _ready() -> void:
 	shape.size = Vector2.ONE * _size * 0.7  # a touch inside the drawn silhouette
 	var collider: CollisionShape2D = CollisionShape2D.new()
 	collider.shape = shape
-	add_child(collider)
+	# ⚠ DEFERRED, AND IT IS THE SECOND HALF OF THE HUB LAG. `spawn_burst` is called
+	# from inside `Spell._try_damage`, which runs inside a `body_entered`/`area_entered`
+	# callback — i.e. while the physics server is flushing queries. Attaching a shape
+	# there is illegal, and Godot answers with `Can't change this state while flushing
+	# queries` PER SHAPE PROPERTY, each carrying a formatted GDScript backtrace. A
+	# five-chunk burst is a wall of them, and printing stack traces is what actually
+	# ate the frame — the rubble itself is nearly free.
+	#
+	# Deferring the SHAPE rather than the whole spawn keeps `global_position` exact:
+	# the chunk is in the tree when the caller sets it, which a deferred `add_child`
+	# would not guarantee. The cost is that a chunk has no collider for one frame,
+	# during which it is a body falling through air. On cosmetic rubble that is
+	# invisible; the error spam was not.
+	add_child.call_deferred(collider)
 	queue_redraw()
 
 
