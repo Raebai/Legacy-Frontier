@@ -1,87 +1,107 @@
-# LIVE PLAYTEST QUEUE — 2026-08-05 (wave 3)
+# LIVE PLAYTEST QUEUE — 2026-08-05 (wave 4)
 
-The maker calls things out faster than they can be built. Verbatim intent preserved.
-**Nothing here is a design question — it is all "make it so".**
+Written mid-playtest at the maker's request so a CLEARED session can resume on it.
+Verbatim intent preserved. **Everything under "OPEN" is unstarted.**
 
-> Read `docs/NEXT-SESSION.md` for the root causes and the measurements.
-
----
-
-## ✅ DONE THIS ROUND
-
-- **"The deflect and that logic implemented as intended."** MEASURED 2 → 13 deflects
-  across 18 duels. `BotDodge` answered a vertical dodge-exit with a JUMP and returned
-  before the parry rung below it — and a horizontal bolt between two grounded fighters
-  yields a vertical exit *every frame*, so parry was only reachable while airborne.
-  Plus: the two most common deflect paths played the ding with no hitstop or camera
-  kick, and `guard_style` meant two different things across the seam.
-- **"Bots deflect here and there, dash away as needed."** Same fix. The parry only wins
-  inside each class's own timing band, so the body still jumps for everything else.
-- **1v1 BOT MATCHES READY TO SHARE.** The clip pipeline had two silent lies — it was
-  encoding frames from **before the app rename**, and it played at **~3x fast-forward**.
-  Plus the strobe that blanked both fighters, the 6%-of-frame-height framing, the
-  2.8-seconds-of-frozen-still tail, and the winner's health bar sitting on the winner.
-- **"Remove that impossible wording at the top of the screen."** Gone from the clock,
-  and from the VS card where it appeared twice.
-- **"Two defaults hit each other → fizzle out."** Head-on bolts now pop each other.
-  Guarded by a `require_head_on` predicate so ranged mirror matches stay winnable.
-- **"Brawler punching a spell."** `Spell.gd` was the ONLY projectile in the game
-  without `consume()` — a fist could smash a hurled boulder and phase through a bolt.
-- **"The ice class needs a buff."** Independently confirmed: Cryomancer measured **25%**
-  over 72 bouts, second worst. HP 123 → 152.
-- **"Lightning should be little particles on the user, not that large circle thing;
-  same with frozen and burnt."** They were discs drawn at the BODY origin, which sits
-  at mid-thigh — a ring the figure stood *inside*. Now drawn by the rig, on the limbs.
-- **"The spell slots are kinda boring."** Seven flat black rectangles under a screen
-  full of rotating magic circles. Now dashed circles that turn, cooldown = the ring
-  closing, no numerals.
-- **"The sword hit has a white sphere on it."** HDR white flash blooming a stick
-  figure's head circle. Now a red flash, matching the hero.
-- **"The Warden is all messed up."** An ignored `.tscn` header attribute put every
-  townsperson on the rig's own ground mask. Legs measured **0.09 px**.
-- **"Swordsaint should move faster and dash longer."** Travel 57.6 → 106.4 px.
-- **FLOOR 2** — the blocker. Fixed, plus the missing kill plane that turned it from a
-  hiccup into an unrecoverable soft-lock.
-- **There was no in-game route to a bot fight at all** — `Lobby._watch_bots` had zero
-  callers. The button is back.
+> Branch `bot-fight-quality`, 153/153 green. Read `docs/NEXT-SESSION.md` for the
+> session's root-cause notes; this file is only the ask-list.
 
 ---
 
-## ✅ DONE SINCE (2026-08-05 c)
+## ▶ OPEN — do these
 
-- **"More bosses / mini-bosses."** Roster 4 → 6: **THE ERASER** (floors 1-6, eats
-  the room, the answer is to come close and stay) and **THE ETCHER** (3+, its
-  biggest cast can be INTERRUPTED, and the acid pool under its own feet is the
-  price of getting close enough to do it). Measured: distinct artists per climb
-  3.7/4 → 4.99/6, Guardian repeats 3.3 → 2.3, deep pool 3 → 4.
-- **Mini-bosses.** Not new bodies — a **wave slot**. Floors 3, 7 and 9 now spend
-  their whole elite budget inside ONE named wave instead of sprinkling it across
-  forty bodies. ⚠ It concentrates; it does not stage into an emptied room. Two
-  deliberate invariants blocked that and they are yours to revisit.
-- **"The spell slots are kinda boring"** (the rest of it). Colour and tier could
-  not separate four slots, so each socket now carries a FIGURE — the same
-  thirteen the cast circles use. 24 of 36 hands used to show a duplicate; now 0.
-- **Ordinary enemies casting spells** — landed in the previous round (`1de8f5c`).
-- **Gravity flip** — landed in the previous round; it is a WELL you move inside,
-  and the caster is excluded on your ruling.
+### 1. Destruction leaves marks that read as bugs
+> *"when something gets destroyed it shouldnt leave like a crack in the air or those
+> weird circular cracks in the floor"*
 
-## ✅ DONE SINCE (2026-08-05 e)
+Two distinct artefacts. The **crack in the air** is almost certainly a decal or a
+crack spawned at an impact point with no floor under it (`ScorchDecal` has no
+ground-snap; `GroundCrater` DOES raycast and frees itself over a pit — compare the
+two). The **circular cracks in the floor** are `ScorchDecal`'s `kind == "crack"` arm,
+which draws a small chip plus radiating lines and was never given the ragged
+treatment the scorch and the crater both got.
+Start at `ScorchDecal._draw_crack` and every `ScorchDecal.spawn(... "crack" ...)`
+call site.
 
-- **The scorches were still perfect circles.** The ground pass toned them and never
-  tore them, so the large smooth pale discs on the floor were those, not the craters.
-  Torn now, same `_ragged` treatment, verified before and after at the same crop.
-- **The elemental weapon trail, seen at last.** Confirmed taking the aura branch
-  (orange against a blue limb colour) on a fire Brawler. It is DIM on a dark floor —
-  dials named in `NEXT-SESSION.md`, and the call is yours.
-- **The time-stop bubble on the real arena.** Bounded (ratio 1.18 = `BUBBLE_SCALE`)
-  and it reads BRIGHT, not dark — **there is no pale arena sky**; all ten biome
-  washes are dark. Both of the warnings attached to this item were wrong.
+### 2. The camera does not follow the fight
+> *"get the camera logic to work properly focussing on the two fighting please"*
 
-## ▶ STILL OPEN
+`ClipDirector` frames Watch Bots (`_frame`, `_fit_zoom`, `_relieve_the_lean`).
+⚠ Known and relevant: **the duel camera is not in the `combat_camera` group**, so
+every `Juice.shake_camera` / `zoom_punch_camera` / `zoom_pull_camera` call is a
+silent no-op in this mode. That is a one-line add in `VersusArena` — but note
+`ClipDirector._frame` WRITES `camera.zoom` and `global_position` every frame, so a
+zoom punch will be fought unless the director's KO branch gets a zoom term too.
 
-1. **PLAY IT.** Thirty-six commits, none of it touched by hands.
-2. **A bigger, more interactive map.**
-6. **The ragdoll on hold-down** still wants judging now that the legs are correct.
-7. **Balance is a HANDICAP, not a kit fix.** Every matchup is watchable; the kits are
-   still uneven. Said out loud rather than papered over.
-8. **Nothing has ever touched a touchscreen**, and the audio has still never been heard.
+### 3. Bodies die and glitch into the floor
+> *"most the time the characters die and glitch into the floor"*
+
+Related to the death work already done. `BotMatch._put_the_loser_down` force-asserts
+`rig.set_grounded(true)` and the rig drops its ride height toward
+`PRONE_RIDE_FACTOR`; the topple impulse was just raised to 1050. Suspect the ride
+drop plus the new impulse now pushes the drawn figure BELOW the floor line. The rig
+draws relative to the body origin and the body is PAUSABLE (frozen at the KO), so
+nothing corrects it. Look at `CharacterRig` ride/prone handling against `GROUND_TOP`.
+
+### 4. Bots oscillate
+> *"the movement is weird like sometimes the guy is just going back and forward"*
+
+`BotBrain._steer` has a deadband on the spacing band specifically to stop this
+(`STEER_DEADBAND`), so either it is too narrow or two bots' bands are interacting.
+Reproduce with `tools/bot_duel_probe.gd`, which prints the per-frame intent.
+
+### 5. Spells do not feel tangible
+> *"the effect of the spell isnt tangible like a spell should have some knockback and
+> stuff not crazy amounts but a decent amount"*
+
+The bolt path is DONE — `SpellTier.push_for_damage` scales the shove off the spell's
+own damage. What is untouched is every other spectacle: `BeamSpell`, `DivineRay`,
+`EnergyNova`, `ZoneSpell`, `MeteorSigil`, `StarConvergence` etc. all carry their own
+hand-tuned constants. Route them through the same helper.
+⚠ Floors that matter: under ~12 impulse the rig skips its flop entirely; under
+`SlamPhysics.MIN_SLAM_SPEED` (250) a body can no longer crack a wall it is thrown
+into, which silently deletes the tower's crater and wall-break reactions.
+
+### 6. Make it cinematic, make the bots smarter
+> *"they are spamming spells which is fine but make it more cinematic and the bots
+> smarter"*
+
+Pacing work already landed (`FIRE_SPACING`, `ABILITY_SPACING` 0.80, `CAST_LATCH`
+0.55, breathing gaps, desperation ults, a flinch on being hit). The maker has seen
+some of it. Next honest lever is **the telegraph gap** — see below.
+
+### 7. Warlock ⚠ MEASURED EVIDENCE CONTRADICTS THE REPORT
+> *"warlock also needs a buff it got destroyed by the cleric"*
+
+**Do not tune this on one fight.** The last real 72-bout round-robin measured
+WARLOCK at **75%** — joint highest in the roster — and CLERIC at 38%. At n=16 per
+class the noise is ±12 points, and a single observed bout is n=1. The honest answer
+is a sweep, not a number change:
+
+    godot --headless --path godot-project --script tools/botmatch_sim.gd -- \
+      --roundrobin=1 --repeat=8 --round=22 --hp=190 --wall=70
+
+Raise it with the maker before touching `CLASS_VITALITY` or the Warlock's kit.
+
+---
+
+## ⚠ THE BIGGEST UNFIXED THING (not yet reported by the maker, but it is the cause)
+
+**`Hero` spawns no `Telegraph` at all.** Every melee swing, uppercut, frost cone and
+Q/R/T is therefore invisible to `BotBrain`'s dodge layer — the three contact classes
+fight each other producing ZERO threat descriptors, so the reflex ladder returns
+empty every frame and the parry rung is never even entered. This is simultaneously:
+"not much deflecting", "the bots aren't smart", and "the Juggernaut's punches have no
+tell". It is the single highest-leverage change left in the bot stack.
+
+---
+
+## ✅ DONE IN WAVE 4 (all committed, none playtested)
+
+Spawn on the ground (was 64 px in the air) · heavier death topple + faster spin +
+immediate limp · burn 21 damage over 7 ticks -> 10 over 5 (fixes the DoT damage AND
+the DoT sound, which were one cause) · no more sword drops for casters (layout data
+deliberately kept) · storm clouds 190 -> 300 px · Cryomancer cone 12 -> 19 (was the
+lowest primary in the game) · Swordsaint 26/0.42 -> 34/0.38 (the one class broken
+beyond doubt: 19% then 25% over two sweeps) · dash distances normalised to ~110 px
+with four named exceptions, and the suite that asserted the OPPOSITE was inverted.
