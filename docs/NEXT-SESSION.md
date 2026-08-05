@@ -1,3 +1,66 @@
+# RESUME HERE — 2026-08-06 (g), THE WAVE-4 QUEUE IS EMPTY
+
+**ASHPIRE.** Branch `bot-fight-quality`, **155/155 green**, tree clean.
+
+**⚠ READ `docs/PLAYTEST-QUEUE.md` — it is the live ask-list and it is now a
+WHAT-TO-PLAY list rather than a what-to-fix list.** All seven of wave 4's open
+asks are actioned; one of them was actioned by *declining* it with a
+measurement. **Nothing in this wave has been played by hand.**
+
+## ▶ THE FIVE THINGS THAT CHANGED
+
+1. **The duel camera has an operator.** Every `Juice.*_camera` call in a versus
+   mode was a silent no-op — the `combat_camera` group held two *disabled*
+   hero cameras and the camera being looked through was in no group. Adding it
+   to the group would have fixed nothing (a raw `Camera2D` has none of the
+   methods) and putting `CombatCamera` on it would have fought the director and
+   overwritten the player's saved zoom preference sixty times a second. The
+   `ClipDirector` answers instead. It also stopped smoothing the shot twice.
+2. **`Hero` published no `Telegraph` at all** — the item the last handoff called
+   THE BIGGEST UNFIXED THING, and it was. The three contact classes produced
+   zero threat descriptors against each other, so the dodge ladder was never
+   entered and the parry rung never reached. Plus: the parry band could never be
+   met by a melee tell *by arithmetic*, and there was no owner filter, so the
+   first hero tell in the game would have made its own caster dodge it.
+3. **The death was a pancake, not a sink.** The suspicion in the last handoff
+   was half right. Measured with a probe that reproduces the duel KO exactly.
+4. **Five of eight spells could not crack a wall with a thrown body.** That, not
+   the distance, is what "not tangible" was.
+5. **The walk had no latch.** Every latch in the brain is on the cast or the
+   dodge; `_steer` re-decided from scratch every frame and its `Memory` argument
+   was underscored, i.e. deliberately unread.
+
+## ⚠ THE WARLOCK ASK WAS DECLINED, WITH 288 BOUTS BEHIND IT
+
+`WARLOCK vs CLERIC` — the exact matchup that prompted it — is **5-3 to the
+Warlock**, and the Warlock is **joint-top of the roster at 75%**. The real
+floor is the **Shadowblade at 27%**, with Brawler and Juggernaut at 33%. Full
+table in the queue file. The Swordsaint fix is confirmed at 4× sample:
+19% → 25% → **50%**.
+
+⚠ **And the bottom three are the three contact classes — the ones whose attacks
+nobody could see until this wave.** Making those attacks dodgeable and
+parryable points them *further* down. Do not buff on the pre-change table.
+
+## ▶ WHAT IS STILL OPEN
+
+- **Four hero attacks are still genuinely untelegraphed** — frost cone,
+  uppercut, fire punch, ground slam. All four deal damage *synchronously on the
+  press*, so there is no honest bot window without deferring damage, and that
+  changes how the button feels. It is a playtest call, not a reasoning one.
+- Per-class Tier 3 drops (five ult-weight spells) — unstarted, wants a
+  brainstorm.
+- `2026-08-05-stick-customisation.md` — specced, unbuilt.
+
+## THE STANDING JUDGEMENT, UNCHANGED
+
+Every feel number in this wave is a probe reading, not a feel. Four of the five
+fixes above were one-line complaints from ~40 minutes of play that turned out to
+be **code that never ran** — the fifth pattern in a row. Playtest beats
+reasoning. Ship things the maker can press.
+
+---
+
 # RESUME HERE — 2026-08-05 (f), A LIVE PLAYTEST SESSION
 
 **ASHPIRE.** Branch `bot-fight-quality`, **153/153 green**, tree clean.
