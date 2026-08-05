@@ -1809,7 +1809,13 @@ func set_parry(dir: Vector2, duration: float) -> void:
 ## spells emanate FROM the weapon rather than the body centre. Reads the current
 ## pose (so during a CAST it points at the aim); `to_global` handles the L/R flip.
 func get_weapon_tip() -> Vector2:
-	var pose: Dictionary = _compute_pose()
+	return _tip_from_pose(_compute_pose())
+
+
+## The same answer from a pose you ALREADY have. `_draw` solves the pose once a
+## frame; the weapon trail needs the tip every frame, and calling `get_weapon_tip()`
+## from there would solve it a second time per rig per frame for no new information.
+func _tip_from_pose(pose: Dictionary) -> Vector2:
 	var shoulder: Vector2 = pose["shoulder"]
 	var hand: Vector2 = pose["hand_lead"]
 	var arm_dir: Vector2 = hand - shoulder
@@ -2096,6 +2102,72 @@ func spawn_ghost(
 	ghost.z_index = 0
 
 
+# ══ THE WEAPON TRAIL ═════════════════════════════════════════════════════════
+## Maker: "if someone's using fire fist or the sword has an aura around them to have
+## like a trailing effect... the small stuff that makes this game so epic".
+##
+## A ribbon of where the lead weapon has BEEN, tapering and fading. `get_weapon_tip`
+## already answers "where is the blade point / staff crystal / fist", including the
+## empty hand — so a Brawler's fire fist trails with no special case.
+##
+## ⚠ SAMPLED IN WORLD SPACE AND DRAWN IN LOCAL. A trail held in local coordinates
+## travels WITH the body, which is not a trail — it is a decal stuck to the hand. The
+## samples are `to_global`, the draw converts back with `to_local`, and the L/R flip
+## rides along for free in both.
+##
+## ⚠ AND IT ONLY EMITS WHILE THE TIP IS ACTUALLY SWEEPING (`TRAIL_MIN_SPEED`). A
+## figure standing still would otherwise smear a permanent smudge across its own
+## hand, which is how a trail stops reading as motion and starts reading as a bug.
+const TRAIL_SAMPLES: int = 10
+const TRAIL_SAMPLES_LOW: int = 5
+const TRAIL_LIFE: float = 0.17
+## Local units per second the tip must move before a sample is kept.
+const TRAIL_MIN_SPEED: float = 210.0
+## Half-width at the newest end, as a fraction of rig height. Tapers to nothing.
+const TRAIL_WIDTH_FRAC: float = 0.055
+
+## [{pos: Vector2 (GLOBAL), at: float}] newest last.
+var _trail: Array[Dictionary] = []
+var _trail_last: Vector2 = Vector2.INF
+var _trail_clock: float = 0.0
+
+
+## Sample the tip and draw what is left of the ribbon. Called from `_draw` with the
+## pose it already solved, BEFORE the figure is drawn, so the trail sits behind it.
+func _draw_weapon_trail(pose: Dictionary) -> void:
+	var delta_hint: float = maxf(get_process_delta_time(), 0.0001)
+	_trail_clock += delta_hint
+	var cap: int = TRAIL_SAMPLES_LOW if TuningConfig.quality_is_low() else TRAIL_SAMPLES
+	var tip: Vector2 = _tip_from_pose(pose)
+	if _trail_last != Vector2.INF:
+		var moved: float = tip.distance_to(_trail_last)
+		if moved >= TRAIL_MIN_SPEED * maxf(delta_hint, 0.001):
+			_trail.append({"pos": tip, "at": _trail_clock})
+	_trail_last = tip
+	while _trail.size() > cap:
+		_trail.remove_at(0)
+	# Age out. Done here rather than on a timer so a rig that stops being drawn
+	# (off screen, pooled) does not keep a stale ribbon alive.
+	while not _trail.is_empty() and _trail_clock - float(_trail[0]["at"]) > TRAIL_LIFE:
+		_trail.remove_at(0)
+	if _trail.size() < 2:
+		return
+	# THE COLOUR IS THE AURA WHEN THERE IS ONE. That is what makes an elemental
+	# weapon trail elemental — a fire fist streaks fire, an ice staff streaks frost —
+	# without this file needing to know a single element name.
+	var tint: Color = aura_color if aura_strength > 0.0 else limb_color
+	var w: float = height * TRAIL_WIDTH_FRAC
+	for i: int in range(_trail.size() - 1):
+		var a: Vector2 = to_local(_trail[i]["pos"])
+		var b: Vector2 = to_local(_trail[i + 1]["pos"])
+		# Newest segment is widest and brightest; the tail thins to nothing.
+		var k: float = float(i + 1) / float(_trail.size() - 1)
+		var age: float = clampf(1.0 - (_trail_clock - float(_trail[i]["at"])) / TRAIL_LIFE,
+			0.0, 1.0)
+		draw_line(a, b, Color(tint.r, tint.g, tint.b, 0.55 * k * age),
+			maxf(w * k, 0.8), true)
+
+
 func _draw() -> void:
 	var col: Color = _flash_color if _flash_timer > 0.0 else limb_color
 	if _airborne > 0.01:
@@ -2111,6 +2183,9 @@ func _draw() -> void:
 	if lift != Vector2.ZERO or pop_scale != Vector2.ONE:
 		draw_set_transform(lift, 0.0, pop_scale)
 	var pose: Dictionary = _sim_pose()  # draw the PHYSICAL body, not the raw target
+	# BEHIND THE FIGURE, and from the pose the limbs are about to be drawn from — a
+	# trail solved off the TARGET pose leaves a hand that is not where the hand is.
+	_draw_weapon_trail(pose)
 	# One pass, one drawing: draw_figure now substitutes geared parts for default
 	# parts internally, so there is no second overlay layer to keep in sync.
 	draw_figure(self, pose, col, equipment, height, OUTLINE_COLOR)
