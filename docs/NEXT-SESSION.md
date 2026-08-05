@@ -1,3 +1,45 @@
+# RESUME HERE — 2026-08-05 (b), THE BIG CHANGES LANDED
+
+**ASHPIRE.** Branch `bot-fight-quality`, **152/152 green**, tree clean. 14 commits.
+**All of it UNPLAYTESTED.**
+
+## ▶ THREE THINGS THAT ARE NEW SINCE THE SECTION BELOW
+
+1. **CLIPS HAVE SOUND.** Every clip this project ever made was silent — a PNG
+   sequence has no audio track. The default path is now Godot's own Movie Maker
+   (`--write-movie`): 48 kHz stereo, measured mean -18.1 dB. ⚠ It is NOT a screen
+   recording — `--write-movie` FORCES `--fixed-fps`, so it stays frame-exact. An
+   OS-level grabber would capture ~19 fps at 1080p and put the judder back.
+   `--silent` keeps the old frame-grab.
+
+2. **ORDINARY ENEMIES CAST SPELLS.** Five archetypes, each answered differently.
+   ⚠ Gated to floor 2+, and the spell STARTS ON COOLDOWN — two suites caught that
+   the gate was replacing each archetype's own attack rather than adding to it.
+   ⚠ Co-op CLIENTS do not see them yet: `Net`'s spell arm is boss-only, so the
+   broadcast is a clean no-op behind a `has_method` guard.
+
+3. **GRAVITY FLIP IS A WELL YOU CAN MOVE INSIDE.** ⚠ It is the JUGGERNAUT's spell —
+   the Swordsaint carries `blood_pact` and there is no path by which it holds gravity
+   flip. Built for the Juggernaut; say if "gravity swordsmen" meant otherwise.
+   Measured justification: the old version spent **76% of its duration with everyone
+   pinned motionless against the ceiling**. It also dealt ZERO damage — the header
+   promised a payoff that was never implemented. Now: a real radius, ground-grade
+   steering inside it, and a landing collapse scaled by fall height.
+   ⚠ TWO EDGES FOR YOUR EYE: the caster is not billed (one word to flip), but a
+   **co-op partner IS** and cannot cheaply not be.
+
+## ▶ WHAT IS STILL NOT BUILT (both fully specced)
+
+- **Socket glyphs** — `docs/superpowers/specs/2026-08-05-socket-glyphs.md`.
+  ⚠ Carries the finding that keying on `SpellDef.Kind` duplicates the glyph in
+  **8 of 9 classes**; key on the spectacle instead.
+- **Two new guardians** — `docs/superpowers/specs/2026-08-05-two-new-guardians.md`.
+  ⚠ Carries the 12-point contract a boss must satisfy, and the measurement that
+  a 10-floor climb sees ~3.7 of 4 artists with floors 4-10 drawing from THREE.
+  Fix the four suites that hardcode the boss count FIRST.
+
+---
+
 # RESUME HERE — 2026-08-05, PAUSED AFTER A LONG BUILD
 
 **ASHPIRE.** Branch `bot-fight-quality`, **152/152 green**, tree clean.
