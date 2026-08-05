@@ -66,7 +66,23 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # blowout lasts a handful of frames out of 625, which is 1.6%. It only has to happen
 # ONCE to be the thing a viewer remembers.
 BLOWOUT_LUMA = 200          # 0-255; a bloomed HDR fill lands well above this
-BLOWOUT_SHARE = 0.22        # ...over this share of ONE frame = the picture is gone
+BLOWOUT_SHARE = 0.22        # ...over this share of ONE frame
+
+# ⚠ AND BRIGHTNESS ALONE IS NOT THE FAULT — THIS TOOL NEARLY DELETED THE BEST
+# EFFECT IN THE GAME. `ImpactFrame.Style.INVERT` is a true screen negative: a dark
+# scene becomes a bright one, so it scores 0.688 bright and trips every brightness
+# gate ever written. It is not a blowout. It is the picture, intact, made wrong —
+# the maker's words on seeing it were "it looks like time has stopped".
+#
+# What actually separates them is DETAIL, measured on three frames judged by eye:
+#     old white-out    bright 0.286   detail 0.139   <- flat; both fighters gone
+#     the inversion    bright 0.688   detail 0.189   <- MORE detail than a close-up
+#     normal close-up  bright 0.000   detail 0.153
+#
+# So a blowout is bright AND FLAT. An inversion is bright and sharp, and is left
+# alone. Getting this wrong is the exact failure this file's header warns about:
+# an instrument that measures an intention rather than the artefact.
+BLOWOUT_FLAT_MAX = 0.15     # detail at or under this, while bright, = the picture is gone
 
 # ⚠ THE FIRST VERSION OF THIS METRIC WAS WRONG AND SAID SO CONFIDENTLY. It counted
 # pixels differing from the frame's modal value, which on a two-tone picture is
@@ -122,15 +138,17 @@ def score(mp4: Path) -> dict | None:
             n = float(len(px))
             # BLOWOUT — share of the frame that is bloomed-bright.
             bright = sum(1 for v in px if v >= BLOWOUT_LUMA) / n
-            if bright >= BLOWOUT_SHARE:
-                blowout += 1
-            if bright > worst_blow[0]:
-                worst_blow = (bright, i)
             # INK — share of the frame that differs from the frame's own mode. The
             # mode is the background (sky/ground gradient); everything the viewer is
             # actually looking at is the deviation from it.
             edges = list(im.filter(ImageFilter.FIND_EDGES).getdata())
             detail = sum(1 for v in edges if v >= EDGE_LUMA) / n
+            # BRIGHT **AND FLAT**. See the CALIBRATION block: bright-and-sharp is the
+            # INVERT frame, which is a feature.
+            if bright >= BLOWOUT_SHARE and detail <= BLOWOUT_FLAT_MAX:
+                blowout += 1
+                if bright > worst_blow[0]:
+                    worst_blow = (bright, i)
             if detail < DETAIL_MIN:
                 dead += 1
             if detail < worst_dead[0]:

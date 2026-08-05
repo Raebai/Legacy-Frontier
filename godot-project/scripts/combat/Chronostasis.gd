@@ -43,6 +43,11 @@ const RING_COLOR: Color = Color(0.72, 0.92, 1.0)
 const RIM_COLOR: Color = Color(1.4, 1.7, 2.0)
 ## How long the pay-out flash lasts after the freeze breaks.
 const PAYOUT_TIME: float = 0.35
+## How far past the damage ring the stopped-time bubble reaches. Slightly wider on
+## purpose: the ring is the promise about DAMAGE, and the edge of a frozen volume
+## reading a little outside it is the difference between "a disc on the floor" and
+## "a pocket of the world". Not so much wider that it lies about the hitbox.
+const BUBBLE_SCALE: float = 1.18
 
 var _center: Vector2 = Vector2.ZERO
 var _radius: float = 235.0
@@ -53,6 +58,10 @@ var _paid: bool = false
 ## One row per caught body: {node, pos, hp (last seen), banked (int)}.
 var _held: Array[Dictionary] = []
 var _seed: int = 0
+## THE STOPPED WORLD ITSELF. A negative held for the whole freeze, bounded to this
+## spell's own ring — so what the screen says and what the hitbox does are the same
+## claim. Freed on payout, which is what makes colour SNAP back rather than fade.
+var _bubble: ImpactFrame = null
 
 
 func cataclysm(caster: Node, _origin: Vector2, target: Vector2, spell: SpellDef,
@@ -74,6 +83,25 @@ func cataclysm(caster: Node, _origin: Vector2, target: Vector2, spell: SpellDef,
 	SpellDrops.sfx("ice_encase", -2.0, 0.05, 0.7)
 	Juice.zoom_pull_camera(0.24, _life * 0.6, 0.2, 0.8)
 	Juice.shake_camera(7.0)
+	# ── TIME STOPS, AND THE PICTURE SAYS SO ──────────────────────────────────
+	# The maker, on seeing a negative frame in a clip: *"it looks like time has
+	# stopped"*. It was a 0.07 s shadow-family hit-mark and it was not this spell —
+	# which is the whole joke, because THIS is the spell that actually stops time
+	# and it had no screen language at all: a shake, a sound, and a drawn ring.
+	#
+	# So the read becomes literal. The world inside the ring goes negative and HOLDS
+	# for the freeze, then snaps back with the payout. A negative is the right
+	# vocabulary rather than a colour wash for the same reason `ImpactFrame` gives:
+	# the picture stays perfectly readable while reading as deeply wrong — which is
+	# exactly what a frozen world should look like, and it means you can still SEE
+	# the bodies you have caught and the damage stacking on them.
+	#
+	# ⚠ A BUBBLE, NOT THE SCREEN, and it is a fairness rule before it is a look. This
+	# spell freezes `_radius`; a full-screen negative would tell a tower floor that
+	# everything had stopped when most of the room had not. `hold` is the whole life,
+	# so it never fades — `_pay_out` frees it.
+	_bubble = ImpactFrame.sustained_bubble(get_parent(), _center, _radius * BUBBLE_SCALE,
+		_life + PAYOUT_TIME, _life)
 	queue_redraw()
 
 
@@ -124,6 +152,11 @@ func _hold() -> void:
 ## Time restarts and the whole ledger arrives at once.
 func _pay_out() -> void:
 	_paid = true
+	# TIME RESTARTS. The negative comes off in the same instant the banked damage
+	# lands, so colour returning IS the payout — one beat, not two.
+	if _bubble != null and is_instance_valid(_bubble):
+		_bubble.queue_free()
+	_bubble = null
 	var tint := Color(RIM_COLOR.r, RIM_COLOR.g, RIM_COLOR.b, 1.0)
 	var total: int = 0
 	for row: Dictionary in _held:

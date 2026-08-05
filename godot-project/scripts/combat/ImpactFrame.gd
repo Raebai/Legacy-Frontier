@@ -240,6 +240,16 @@ var _duration: float = DURATION_BLOWOUT
 var _tint: Color = Color(1.0, 1.0, 1.0)
 var _lines: bool = true
 var _rect: Control = null
+## BUBBLE STATE. `_bubble_at` is a WORLD position and `_bubble_r` a WORLD radius,
+## converted to screen every frame — the camera moves during a three-second freeze,
+## and a bubble pinned to screen coordinates would slide off the thing it froze.
+## `_bubble_r <= 0` means "whole screen", which is every existing caller.
+var _bubble_at: Vector2 = Vector2.ZERO
+var _bubble_r: float = -1.0
+## How long the negative HOLDS at full strength before it starts leaving. 0 keeps
+## the original shape (a snap-off from frame one), which is what a 0.07 s hit-mark
+## wants. A time-stop wants the opposite: hold for the freeze, then snap back.
+var _hold: float = 0.0
 var _screen_plate: ColorRect = null
 ## World-space hit position the mark is built around. Vector2.INF = no position
 ## supplied -> viewport centre (the legacy behaviour, and still correct for a
@@ -286,8 +296,11 @@ func configure(cfg: Dictionary) -> void:
 	# decides whether a screen-reading plate gets built. Idempotent — remapping an
 	# already-remapped style is a no-op.
 	if TuningConfig.quality_is_low():
-		_style = downgrade_for_quality(_style)
+		_style = downgrade_for_quality(_style, float(cfg.get("bubble_radius", -1.0)) > 0.0)
 	_strength = clampf(float(cfg.get("strength", 1.0)), 0.25, 1.6)
+	_bubble_at = cfg.get("bubble_at", Vector2.ZERO)
+	_bubble_r = float(cfg.get("bubble_radius", -1.0))
+	_hold = maxf(float(cfg.get("hold", 0.0)), 0.0)
 	# ⚠ A POSTED CLIP MUST NOT STROBE. Cinematic mode already takes the instruments off
 	# the frame; this takes the flashing down with them, and ONLY there — in-game feel
 	# is byte-identical because `Cinematic.enabled` is false unless a capture set it.
@@ -338,10 +351,84 @@ func apply_beat(t: float) -> void:
 		# the whole "the world stopped" beat).
 		var u: float = clampf(_t / _duration, 0.0, 1.0)
 		var k: float = 1.0 - pow(u, 2.4) if _style == Style.SILHOUETTE else (1.0 - u) * 1.6
-		(_screen_plate.material as ShaderMaterial).set_shader_parameter(
-			&"amount", clampf(k, 0.0, 1.0) * clampf(_strength, 0.0, 1.0))
+		# A HELD negative is a different curve from a hit-mark's. `_hold` seconds at
+		# full, then the snap. Without this a three-second frame is a three-second
+		# FADE, which reads as a colour grade — the note above says exactly that about
+		# the negative, and it is the whole reason the hit-mark version is 0.07 s.
+		if _hold > 0.0:
+			k = 1.0 if _t <= _hold else 1.0 - clampf(
+				(_t - _hold) / maxf(_duration - _hold, 0.001), 0.0, 1.0)
+		var mat: ShaderMaterial = _screen_plate.material as ShaderMaterial
+		mat.set_shader_parameter(&"amount", clampf(k, 0.0, 1.0) * clampf(_strength, 0.0, 1.0))
+		_push_bubble(mat)
 	if _rect != null:
 		_rect.queue_redraw()
+
+
+## Project the world-space bubble onto the screen, every frame. Silent no-op when
+## no bubble was asked for, which is the whole existing roster.
+##
+## ⚠ CANVAS-ITEM UV, NOT PIXELS. The shader compares in SCREEN_UV, so the radius has
+## to be divided by the viewport WIDTH after the aspect correction the shader applies
+## on x — get that wrong and the bubble is a circle of the wrong size that still
+## looks plausible, which is the hardest kind of wrong to notice.
+func _push_bubble(mat: ShaderMaterial) -> void:
+	if _bubble_r <= 0.0:
+		mat.set_shader_parameter(&"bubble_radius", -1.0)
+		return
+	var vp: Viewport = get_viewport()
+	if vp == null:
+		return
+	var size: Vector2 = Vector2(vp.get_visible_rect().size)
+	if size.x < 1.0 or size.y < 1.0:
+		return
+	var cam: Camera2D = vp.get_camera_2d()
+	var zoom: float = 1.0
+	var centre: Vector2 = _bubble_at
+	if cam != null:
+		zoom = maxf(cam.zoom.x, 0.001)
+		centre = (_bubble_at - cam.get_screen_center_position()) * zoom + size * 0.5
+	var aspect: float = size.x / size.y
+	mat.set_shader_parameter(&"aspect", aspect)
+	mat.set_shader_parameter(&"bubble_centre", centre / size)
+	# The shader measures distance with x scaled by aspect, i.e. in units of viewport
+	# HEIGHT. So the radius is normalised by height too.
+	mat.set_shader_parameter(&"bubble_radius", (_bubble_r * zoom) / size.y)
+
+
+## ══ A SUSTAINED FIELD, WHICH IS NOT A PUNCTUATION MARK ══════════════════════
+## Chronostasis stops time for three seconds. The obvious implementation — ask the
+## arbiter for a three-second INVERT — is wrong three times over, and the arbiter is
+## right each time:
+##   * `MAX_FRAME_SECONDS_PER_SECOND` is 0.45. A 3 s mark blows a budget whose whole
+##     purpose is to stop the screen being a mark for most of a fight.
+##   * one frame is active at a time, so it would silence every other beat for three
+##     seconds — including the payout, which is the spell's own climax.
+##   * and it is a category error. The arbiter exists to stop STROBING. A negative
+##     that comes on and stays on is the opposite of a strobe; it is a state.
+##
+## So a sustained field goes around the arbiter, deliberately and in one place, and
+## it is a BUBBLE rather than a screen (the maker's ruling — see SHADER_INVERT):
+## a bounded spell must not claim the whole picture, because the drawn extent is the
+## promise the hitbox has to keep.
+##
+## The caller owns the returned node and frees it. Returns null if there is no tree,
+## or under reduce-flashing, where a three-second negative is exactly the thing that
+## setting exists to refuse.
+static func sustained_bubble(parent: Node, at: Vector2, radius: float,
+		seconds: float, hold: float, strength: float = 1.0) -> ImpactFrame:
+	if parent == null or not parent.is_inside_tree() or radius <= 0.0:
+		return null
+	if reduce_flashing():
+		return null
+	var f := ImpactFrame.new()
+	parent.add_child(f)
+	f.configure({
+		"style": Style.INVERT, "strength": strength,
+		"duration": maxf(seconds, 0.05), "hold": maxf(hold, 0.0),
+		"bubble_at": at, "bubble_radius": radius,
+	})
+	return f
 
 
 static func default_duration(style: int) -> float:
@@ -526,7 +613,22 @@ static func reset_arbiter() -> void:
 ## alternative — dropping the plate but keeping `_draw_silhouette` — renders
 ## bright wedges over an un-darkened world, which does not read as a downgrade,
 ## it reads as a bug.
-static func downgrade_for_quality(style: int) -> int:
+## ⚠ `is_bubble` IS THE CARVE-OUT, AND IT IS THE MAKER'S SECOND RULING. The cost
+## argued above is a FULL-SCREEN screen-fetch every frame of the mark. A bubble is
+## the same fetch over a fraction of the fragments, and — more to the point — the
+## negative IS the effect for a time-stop, so degrading it to a colour wash on a
+## phone does not make the spell cheaper, it deletes it. The maker's bar is that
+## everything degrades at LOW, not that anything disappears.
+##
+## ⚠ WHAT IS NOT CLAIMED: that this was profiled. Wall-clock on this machine cannot
+## resolve a single shader plate (this project has an A/B probe that reported
+## 0.42 us/node and 9.14 us/node for the same work), so the honest statement is that
+## the fragment count is strictly smaller and the fetch is unchanged. If a phone
+## says otherwise, the bubble radius is the dial and this carve-out is the first
+## thing to take back.
+static func downgrade_for_quality(style: int, is_bubble: bool = false) -> int:
+	if is_bubble:
+		return style
 	if style == Style.INVERT or style == Style.SILHOUETTE:
 		return Style.COLOR_FIELD
 	return style
@@ -573,12 +675,38 @@ static func spawn(decision: Dictionary, at: Vector2, tint: Color, lines: bool) -
 # ==================================================================== rendering
 ## The NEGATIVE. No CanvasItemMaterial blend mode computes 1-dst (SUB gives
 ## dst-src, which just goes black), so this needs the rendered frame back.
+## ⚠ THE BUBBLE IS THE MAKER'S RULING AND IT IS A FAIRNESS FIX, NOT A LOOK.
+##
+## *"for the larger tower these sort of full screen spells will need to be a large
+## bubble instead"* — and that is right for a reason bigger than taste. A negative
+## that takes the WHOLE SCREEN says "everything stopped". In a duel that happens to
+## be true. On a tower floor, where the spell freezes a 235 px ring and there are
+## other bodies, another player and most of the room outside it, the screen would be
+## claiming an extent the hitbox does not have. This file's siblings already treat
+## the drawn extent as the promise (`BlastSpell`'s arcs "state the true extent",
+## `MagicCircle` states its radius) — a full-screen mark for a bounded spell breaks
+## exactly that contract.
+##
+## `bubble_radius <= 0` keeps the old whole-screen behaviour byte-for-byte, so every
+## existing caller is untouched and only a spell that ASKS for a bubble gets one.
+## `d.x *= aspect` keeps it a circle rather than an ellipse, because SCREEN_UV is
+## 0..1 on both axes regardless of the window's shape.
 const SHADER_INVERT: String = """shader_type canvas_item;
 uniform float amount : hint_range(0.0, 1.0) = 1.0;
+uniform vec2 bubble_centre = vec2(0.5, 0.5);
+uniform float bubble_radius = -1.0;
+uniform float bubble_edge = 0.05;
+uniform float aspect = 1.7777;
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear;
 void fragment() {
 	vec3 s = texture(screen_tex, SCREEN_UV).rgb;
-	COLOR = vec4(mix(s, vec3(1.0) - s, amount), 1.0);
+	float a = amount;
+	if (bubble_radius > 0.0) {
+		vec2 d = SCREEN_UV - bubble_centre;
+		d.x *= aspect;
+		a *= 1.0 - smoothstep(bubble_radius - bubble_edge, bubble_radius, length(d));
+	}
+	COLOR = vec4(mix(s, vec3(1.0) - s, a), 1.0);
 }
 """
 
