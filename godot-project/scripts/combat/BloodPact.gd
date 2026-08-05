@@ -52,6 +52,48 @@ var _drain_per_second: float = 5.0
 var _owed: float = 0.0
 var _drip: float = 0.0
 var _color: Color = RING_COLOR
+## Seconds between settlements. See `_physics_process`: the pact used to bill five
+## times a second through the real hurt path, i.e. forty flashes, hit-stops and
+## camera shakes across one cast.
+const BILL_INTERVAL: float = 0.8
+var _bill: float = 0.0
+## The aura this body wore before the pact borrowed it. See `_light_the_aura`.
+var _had_aura: bool = false
+var _prev_aura: Color = Color.WHITE
+var _prev_aura_strength: float = 0.0
+var _prev_aura_tier: int = 0
+
+## How high above the body the mark floats, and how big it is drawn.
+const KANJI_LIFT: float = 62.0
+const KANJI_SIZE: float = 15.0
+
+## ══ WHAT THE PACT IS FOR ════════════════════════════════════════════════════════
+## Maker: *"what is the benefit of the pact it needs to like make the stick man super
+## saiyan deflect most attacks for the next 5 seconds so it can get up close and
+## personal move faster and do more damage give it like a super siyan aura"*.
+##
+## It used to be a SPELL-DAMAGE multiplier and nothing else — which is a strange thing
+## to hand the one class in the roster built around a sword, and it read as nothing at
+## all: you cast it, a ring appeared at your feet, and your numbers were quietly bigger
+## somewhere off screen. Three additions turn it into a state you can SEE and a reason
+## to walk forward:
+##
+##   WARD    — most of what lands on you is shrugged off. This is the "get up close
+##             and personal" half; without it the drain plus the approach is simply a
+##             faster death, and the Swordsaint's whole problem is closing distance.
+##   SPEED   — you move like you mean it.
+##   AURA    — the rig's existing rank aura, forced to its top tier in gold. Reusing
+##             `set_aura` rather than inventing a second glow means it composes with
+##             everything already drawn on the figure and degrades on LOW quality for
+##             free.
+##
+## ⚠ THE DRAIN IS UNCHANGED AND STILL KILLS. Every one of these makes the pact
+## stronger, so the price has to stay real — it is still billed through `take_damage`
+## and it can still finish you. A super mode you cannot lose is a cooldown, not a
+## decision.
+const PACT_WARD: float = 0.62          # share of incoming damage refused
+const PACT_SPEED_MULT: float = 1.32
+const AURA_COLOR: Color = Color(1.0, 0.86, 0.25)
 
 
 func hex(caster: Node, _origin: Vector2, _target: Vector2, spell: SpellDef,
@@ -67,8 +109,44 @@ func hex(caster: Node, _origin: Vector2, _target: Vector2, spell: SpellDef,
 	add_to_group(PACT_GROUP)
 	SpellSigil.open(self, _caster_pos(), RING_COLOR, 0.9, false, Vector2.RIGHT, true, 0.1, 0.4)
 	SpellDrops.sfx("cast_shadow", -3.0, 0.1, 0.62)
-	Juice.shake_camera(4.0)
+	# ⚠ NO CAMERA SHAKE. Maker: *"it shakes the screen too much"*. This was one call
+	# at cast — but see `_physics_process`: the real offender was the DRAIN, and
+	# removing this as well means the pact opens on its sound and its sigil rather
+	# than on a jolt. A buff you put on yourself should not read like being hit.
+	_light_the_aura(true)
 	queue_redraw()
+
+
+## The gold. Reuses the rig's own rank aura at its top tier rather than adding a
+## second glow system, so it composes with the element tint, the status VFX and the
+## weapon trail already on the figure — and it degrades on LOW quality for free,
+## because that gate is inside `CharacterRig` and not here.
+##
+## ⚠ THE PREVIOUS AURA IS PUT BACK. The aura is not the pact's property, it is the
+## HERO's (element colour, rank tier), so this borrows it and returns it. Leaving a
+## gold tier-5 aura on a body after its pact expired would be a permanent visual lie
+## about a buff that had ended.
+func _light_the_aura(on: bool) -> void:
+	var rig: Variant = null
+	if caster_node != null and is_instance_valid(caster_node):
+		rig = caster_node.get(&"rig")
+	if rig == null or not is_instance_valid(rig as Object):
+		return
+	var r: Object = rig as Object
+	if on:
+		if not r.has_method("set_aura"):
+			return
+		_prev_aura = r.get(&"aura_color")
+		_prev_aura_strength = float(r.get(&"aura_strength"))
+		_prev_aura_tier = int(r.get(&"aura_tier"))
+		_had_aura = true
+		r.call("set_aura", AURA_COLOR, 1.0)
+		if r.has_method("set_aura_tier"):
+			r.call("set_aura_tier", 5)
+	elif _had_aura and r.has_method("set_aura"):
+		r.call("set_aura", _prev_aura, _prev_aura_strength)
+		if r.has_method("set_aura_tier"):
+			r.call("set_aura_tier", _prev_aura_tier)
 
 
 ## The multiplier every spell cast by `caster` is scaled by, or 1.0. Largest live
@@ -97,17 +175,50 @@ static func multiplier_for(caster: Object, ctx: Node) -> float:
 	return best
 
 
+## Is this body inside a live pact? One group scan, same shape and same per-caster
+## matching as `multiplier_for`, so the two can never disagree about who is pacted.
+static func is_pacted(caster: Object, ctx: Node) -> bool:
+	return multiplier_for(caster, ctx) > 1.0
+
+
+## The share of incoming damage a pacted body refuses, or 0.0. Kept here rather than
+## on `Hero` so the number lives with the spell that grants it — a ward the victim
+## owns is a ward nobody can find when they are reading the spell.
+static func ward_for(caster: Object, ctx: Node) -> float:
+	return PACT_WARD if is_pacted(caster, ctx) else 0.0
+
+
+## The movement multiplier a pacted body carries, or 1.0.
+static func speed_mult(caster: Object, ctx: Node) -> float:
+	return PACT_SPEED_MULT if is_pacted(caster, ctx) else 1.0
+
+
 func _physics_process(delta: float) -> void:
 	_elapsed += delta
 	if not _caster_ok() or _elapsed >= _life:
 		_end()
 		return
 	_owed += _drain_per_second * delta
-	if _owed >= 1.0:
+	# ══ THE DRAIN BILLS IN BEATS, NOT IN DROPLETS ═══════════════════════════════
+	# Maker: *"it shakes the screen too much"*. The cast shake was one call; THIS was
+	# forty. At 5 HP/s the old `_owed >= 1.0` test paid a whole point about five times
+	# a second, and every payment went through `take_damage` — which is the real hurt
+	# path, so each one fired a hurt flash, a hit-stop AND a camera shake. An eight
+	# second pact was forty jolts, and the player had done nothing but buff themselves.
+	#
+	# Same total cost, an eighth of the events: it now settles up once a beat. That
+	# also reads BETTER — a heartbeat you can count, which is what the drip cadence was
+	# always trying to say, rather than a continuous rattle.
+	#
+	# ⚠ STILL THROUGH `take_damage`, and that is not negotiable: the pact must be able
+	# to KILL you, and only the real path runs the death. Bypassing it to make the
+	# screen calmer would quietly remove the entire reason the buff is allowed to be
+	# this large.
+	_bill += delta
+	if _bill >= BILL_INTERVAL and _owed >= 1.0:
+		_bill = 0.0
 		var pay: int = int(floorf(_owed))
 		_owed -= float(pay)
-		# Through the real damage path: the pact must be able to kill you, and only
-		# `take_damage` runs the death.
 		SpellTargets.hurt(caster_node, pay, RING_COLOR)
 	_drip += delta
 	if _drip >= DRIP_INTERVAL:
@@ -129,8 +240,13 @@ func _caster_pos() -> Vector2:
 
 
 func _end() -> void:
+	# ⚠ THE GROUP LEAVES FIRST. `ward_for` / `speed_mult` / `multiplier_for` all read
+	# membership, and `queue_free` does not take effect until the end of the frame —
+	# so freeing without removing would leave the body warded and fast for one more
+	# frame after the pact it is reading has ended.
 	if is_in_group(PACT_GROUP):
 		remove_from_group(PACT_GROUP)
+	_light_the_aura(false)
 	queue_free()
 
 
@@ -151,3 +267,43 @@ func _draw() -> void:
 	var left: float = clampf(1.0 - _elapsed / _life, 0.0, 1.0)
 	draw_arc(at + Vector2(0.0, 4.0), RING_RADIUS + 7.0, -PI * 0.5,
 		-PI * 0.5 + TAU * left, 40, Color(1.5, 0.35, 0.4, 0.9), 3.0, true)
+	_draw_kanji(at + Vector2(0.0, -KANJI_LIFT), beat)
+
+
+## ══ 血 — "BLOOD", OVER THE HEAD, FOR AS LONG AS THE PACT HOLDS ══════════════════
+## Maker: *"add like a japanese kanji above the character whilst the ability is on"*.
+##
+## ⚠ DRAWN AS STROKES, NOT AS TEXT, AND THAT IS A CORRECTNESS POINT RATHER THAN A
+## STYLE ONE. `ThemeDB.fallback_font` is Open Sans, which carries no CJK coverage at
+## all — `draw_string("血")` renders an empty box (or nothing) and would have looked
+## like a bug on every machine that does not happen to have a fallback installed.
+## Vector strokes always render, they scale with the figure, and they match how every
+## other glyph in this game is already drawn (the sigil's runes, the cast circles'
+## motifs, the hotbar's figures).
+##
+## The character is 皿 (a dish) under a single top stroke — a vessel holding blood.
+## Six strokes, in writing order, which is why they are listed the way they are.
+func _draw_kanji(top: Vector2, beat: float) -> void:
+	var w: float = KANJI_SIZE
+	var h: float = KANJI_SIZE * 1.15
+	# Brightens on the same heartbeat as the ring, so the mark and the drain read as
+	# one system rather than two effects that happen to be on at the same time.
+	var col := Color(1.35, 0.28, 0.32, 0.72 + 0.22 * beat)
+	var th: float = maxf(w * 0.11, 1.4)
+	var l: float = top.x - w * 0.5
+	var r: float = top.x + w * 0.5
+	var y0: float = top.y
+	var y1: float = top.y + h
+	# 1 — the lone stroke on top, leaning left, that turns 皿 into 血.
+	draw_line(Vector2(top.x - w * 0.10, y0), Vector2(top.x - w * 0.30, y0 + h * 0.16), col, th, true)
+	# 2 — the lid.
+	draw_line(Vector2(l, y0 + h * 0.22), Vector2(r, y0 + h * 0.22), col, th, true)
+	# 3, 4 — the two walls of the vessel, tapering inward the way the character does.
+	draw_line(Vector2(l + w * 0.08, y0 + h * 0.22), Vector2(l + w * 0.14, y1 - h * 0.14), col, th, true)
+	draw_line(Vector2(r - w * 0.08, y0 + h * 0.22), Vector2(r - w * 0.14, y1 - h * 0.14), col, th, true)
+	# 5, 6 — the two uprights inside it.
+	draw_line(Vector2(top.x - w * 0.16, y0 + h * 0.30), Vector2(top.x - w * 0.16, y1 - h * 0.16), col, th, true)
+	draw_line(Vector2(top.x + w * 0.16, y0 + h * 0.30), Vector2(top.x + w * 0.16, y1 - h * 0.16), col, th, true)
+	# 7 — the base the whole character stands on, drawn heavier: it is the stroke the
+	# eye reads first at this size and it is what stops the glyph looking like a fence.
+	draw_line(Vector2(l - w * 0.06, y1), Vector2(r + w * 0.06, y1), col, th * 1.25, true)

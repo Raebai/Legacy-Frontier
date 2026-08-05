@@ -265,8 +265,18 @@ const AIR_DASH_IFRAME_FRACTION: float = 0.8
 ## magic" class and it closes distance the honest way. What it hits is staggered — a
 ## much bigger shove than the dash-strike it shares plumbing with — and the charge
 ## keeps most of its speed when it ends, so a connected charge shoves you both.
-const CHARGE_SPEED: float = 520.0
-const CHARGE_TIME: float = 0.26
+## ⚠ 520 -> 610, AND IT CLIMBS NOW. Maker: *"brawler dash needs to be stronger the
+## brwoler should be able to dash up as well just like the sword saint"*. 520 x 0.26
+## was 135 px on the class whose entire job is closing distance, and — like the
+## Juggernaut's surge before it — the charge was flattened to the ground plane one
+## layer below the class table, in `_travel_velocity`. Both halves of the note were
+## the same fault. 610 x 0.28 is 171 px.
+##
+## The exit momentum is UNCHANGED: a charge that carries is the Brawler's identity
+## ("a connected charge shoves you both"), and scaling the carry with the speed would
+## have turned a stronger opener into a body that cannot stop.
+const CHARGE_SPEED: float = 610.0
+const CHARGE_TIME: float = 0.28
 ## Fraction of charge speed kept on exit, plus how long ground friction is suppressed
 ## so the carry survives long enough to be felt. Reuses `_wall_jump_lock`, which is
 ## already the "do not fight this momentum" gate in the movement block — a second flag
@@ -3492,7 +3502,13 @@ func _verb_is_grounded(verb: String) -> bool:
 ## maker touched the slider — i.e. it would have silently undone this entire task from
 ## the tuning panel.
 func _class_speed() -> float:
-	return float(_cfg.get("speed", SPEED)) * (_tune("hero_speed", SPEED) / SPEED)
+	# THE PACT MOVES YOU. Maker: a pacted body should *"move faster and do more
+	# damage"* and be able to *"get up close and personal"*. Multiplied here rather
+	# than written into `_cfg` so it is temporary by construction — when the pact
+	# leaves its group the multiplier is 1.0 again on the very next frame, with
+	# nothing to restore and nothing that can leak.
+	return float(_cfg.get("speed", SPEED)) * (_tune("hero_speed", SPEED) / SPEED) \
+		* BloodPact.speed_mult(self, self)
 
 
 ## PUBLIC, for the bot seam and the tests: roughly how far one press of the movement
@@ -3788,16 +3804,19 @@ func _travel_velocity(delta: float) -> Vector2:
 					GROUND_ACCEL * ICE_SLIDE_STEER * delta)
 			v.y = 0.0 if is_on_floor() else minf(v.y + GRAVITY_FALL * delta, MAX_FALL)
 			return v
-		"charge":
-			# Ground-plane travel: flat horizontally, but gravity still owns you, so
-			# charging off a ledge arcs down instead of flying.
-			#
-			# ⚠ `surge` USED TO SHARE THIS BRANCH, and that is where "the Juggernaut
-			# cannot dash up" actually lived. `GROUNDED_VERBS` is empty, so `_start_dash`
-			# already hands the surge a true 8-way `_dash_dir` including its vertical —
-			# and then this branch threw the y away and replaced it with gravity. The
-			# flattening the class comment blames was happening HERE, one layer below
-			# where anyone was looking for it.
+		# ⚠ THIS BRANCH IS NOW EMPTY OF CLASSES, and both departures were the same bug.
+		# `surge` (Juggernaut) and then `charge` (Brawler) each sat here having their
+		# vertical thrown away and replaced with gravity — `GROUNDED_VERBS` is empty, so
+		# `_start_dash` was already handing both of them a true 8-way `_dash_dir`, and
+		# the flattening the class comments blame was happening HERE, one layer below
+		# where anyone was looking for it. Maker, twice: *"make juggernaut... be able to
+		# dash up"*, then *"the brawler should be able to dash up as well just like the
+		# sword saint"*.
+		#
+		# Kept rather than deleted: it is the honest home for a future verb that really
+		# is meant to be ground-locked, and the note above is the argument for why one
+		# would be. Nothing routes here today.
+		"ground_locked_verb_placeholder":
 			v.x = _dash_dir.x * _dash_speed
 			v.y = 0.0 if is_on_floor() else minf(v.y + GRAVITY_FALL * delta, MAX_FALL)
 			return v
@@ -5368,6 +5387,23 @@ func take_damage(amount: int) -> void:
 	# rather than a panic button, and a late dash still gets punished.
 	if _dash_invulnerable():
 		return
+	# ══ THE PACT SHRUGS IT OFF ══════════════════════════════════════════════════
+	# Maker: a pacted body should *"deflect most attacks for the next 5 seconds so it
+	# can get up close and personal"*.
+	#
+	# A REDUCTION, not an immunity, and the difference is the whole design: the pact
+	# is still draining you through this same function, so a body that took literally
+	# nothing could stand in a boss's lap forever and lose only to its own bleed —
+	# which is a timer, not a fight. At this ward the approach is survivable and a bad
+	# approach still kills you.
+	#
+	# Applied above mitigation and below the i-frames, so it compounds with gear and
+	# growth ward rather than replacing them, and so a dash or a blink still beats it
+	# outright — a free window should always beat a paid one. Floored at 1 so a hit is
+	# never silently erased; being untouchable is the i-frames' job, not the ward's.
+	var pact_ward: float = BloodPact.ward_for(self, self)
+	if pact_ward > 0.0:
+		amount = maxi(int(round(float(amount) * (1.0 - pact_ward))), 1)
 	# Blink grants a brief post-teleport i-frame window (BLINK_IFRAME).
 	if _blink_iframe_timer > 0.0:
 		return

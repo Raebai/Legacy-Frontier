@@ -902,8 +902,14 @@ static func _blood_pact() -> SpellDef:
 	var s := SpellDef.new()
 	s.id = "blood_pact"
 	s.display_name = "Blood Pact"
-	s.description = "Open a vein and everything you CAST hits far harder for a "\
-		+ "while. The bleeding does not stop because the fight is going badly."
+	# ⚠ THE DESCRIPTION NOW NAMES ALL FOUR THINGS IT DOES. Maker: *"what is the benefit
+	# of the pact"* — asked while holding it, which is the answer: the card said only
+	# "everything you cast hits harder", so the ward, the speed and the aura would have
+	# been invisible even after they existed. A buff nobody can read is a buff nobody
+	# casts on purpose.
+	s.description = "Open a vein. For five seconds most of what hits you is "\
+		+ "shrugged off, you move faster, and everything you cast lands harder. "\
+		+ "The bleeding does not stop because the fight is going badly."
 	s.kind = SpellDef.Kind.HEX
 	s.element = Elements.Element.SHADOW
 	s.use_element_color = true
@@ -917,7 +923,11 @@ static func _blood_pact() -> SpellDef:
 	## window every twelve seconds and it is one window every six and a half now.
 	s.cooldown = 6.6
 	s.damage = 0
-	s.length = 4.5          # seconds of pact
+	## ⚠ 4.5 -> 5.0, TO MATCH THE ASK LITERALLY. Maker: *"deflect most attacks for the
+	## next 5 seconds"*. Half a second, and it buys the promise on the card being the
+	## promise in the code — a player counting five and losing their ward at four and a
+	## half reads it as the buff failing, not as a tuning value.
+	s.length = 5.0          # seconds of pact
 	s.radius = 1.75         # OUTGOING SPELL DAMAGE MULTIPLIER (see BloodPact.gd)
 	s.count = 5             # HP drained per second
 	s.cast_time = 0.4
