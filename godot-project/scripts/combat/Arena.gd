@@ -520,7 +520,26 @@ your climb is banked — floor %d is waiting." % [
 	note.add_theme_font_size_override("font_size", 11)
 	note.add_theme_color_override("font_color", Color(0.72, 0.74, 0.82))
 	col.add_child(note)
-	col.add_child(_confirm_button("Keep climbing", _cancel_leave, Color(0.88, 0.94, 1.0)))
+	# ══ THREE ANSWERS, AND ONE OF THEM WAS LYING ════════════════════════════════
+	# Maker: *"the keep climbing button does nothing, it needs to be reworded as stay
+	# in the floor, and it should be BELOW the keep climbing button which should make
+	# the player get that beam of light onto it and spawn it into the next floor via a
+	# beam of light as well"*.
+	#
+	# They are right that it did nothing: "Keep climbing" was wired to `_cancel_leave`,
+	# i.e. it closed the dialog and left you standing exactly where you were. It was
+	# named for the INTENT ("I don't want to leave") while doing the OPPOSITE of what
+	# its words say — the one thing a button must never do. Anyone who pressed it
+	# expecting to go up got a closed dialog and no floor.
+	#
+	# So the honest split is three: climb, stay, leave. `Keep climbing` now actually
+	# advances, through the SAME path the exit portal uses (`_on_portal_taken`) so
+	# co-op still routes its request through the host and single player still advances
+	# directly — one climb path, not a second one that can drift from it.
+	col.add_child(_confirm_button("Keep climbing  ▸", _climb_from_prompt,
+		Color(0.85, 0.95, 0.7)))
+	col.add_child(_confirm_button("Stay on the floor", _cancel_leave,
+		Color(0.88, 0.94, 1.0)))
 	col.add_child(_confirm_button("Leave", _confirm_leave, RETURN_PORTAL_COLOR))
 
 
@@ -547,6 +566,56 @@ func _close_confirm() -> void:
 func _cancel_leave() -> void:
 	_close_confirm()
 	_return_pending = _run_mode
+
+
+## Climb, from the leave prompt. Maker: the button that says "keep climbing" must
+## actually climb.
+##
+## ⚠ ROUTED THROUGH `_on_portal_taken`, NOT THROUGH `advance_floor` DIRECTLY. That
+## function already owns the whole decision — debounce, the co-op `request_advance` so
+## the HOST advances the party rather than one peer wandering off alone, and the
+## single-player direct call. Calling `_gs.advance_floor()` from here would have been
+## a second climb path, and in a live session it would have advanced only the peer who
+## pressed the button.
+func _climb_from_prompt() -> void:
+	_close_confirm()
+	_return_pending = false
+	_ascend_beam()
+	_on_portal_taken()
+
+
+## ══ THE PILLAR OF LIGHT ═════════════════════════════════════════════════════════
+## Maker: *"which should make the player get that beam of light onto it and spawn it
+## into the next floor via a beam of light as well"*.
+##
+## Drawn on the hero at the moment of departure AND, via `_on_floor_advanced`, on
+## arrival — so the climb reads as one motion with a beginning and an end rather than
+## as a screen that swapped. Both ends use the same call, deliberately: the shape you
+## leave in is the shape you arrive in.
+##
+## Reuses `CombatVfx` (already pooled, already budgeted, already quality-gated) plus
+## the same `MagicCircle` ground ring the game uses for every other "something
+## happened here" — a bespoke beam node would be a new spectacle to maintain and to
+## thin, for one moment that lasts under a second.
+func _ascend_beam() -> void:
+	for h: Node in get_tree().get_nodes_in_group("hero"):
+		if not (h is Node2D) or not is_instance_valid(h):
+			continue
+		var at: Vector2 = (h as Node2D).global_position
+		# The column: motes launched hard UPWARD with almost no spread, which is what
+		# makes a rising shaft instead of a puff. Bright warm-white so it reads against
+		# every one of the ten biome washes.
+		CombatVfx.spawn_burst(self, at + Vector2(0.0, 6.0),
+			Color(1.9, 1.85, 1.4, 1.0), Color(1.0, 0.92, 0.55, 0.0),
+			34, 0.85, 240.0, 460.0, 1.4, 3.2, 4.0, 10.0)
+		# ...and the disc it stands on, so the beam has a floor to come out of.
+		var ring := MagicCircle.new()
+		add_child(ring)
+		ring.global_position = at
+		ring.appear(Color(1.0, 0.94, 0.62), 52.0, 0.14)
+		ring.set_ground(0.5)
+		ring.hold(0.55, 0.3)
+		Sfx.play("holy_swell", -4.0, 0.06)
 
 
 func _confirm_leave() -> void:
@@ -614,6 +683,13 @@ func _on_floor_advanced(new_floor: int) -> void:
 	_setup_floor(new_floor)
 	# Also brings a downed co-op hero back up — the party carried them.
 	_place_heroes_on_floor()
+	# ...and they ARRIVE in the same pillar of light they left in. AFTER placement,
+	# not before: the beam is drawn at each hero's position, and before
+	# `_place_heroes_on_floor` that is still their position on the floor below.
+	# It fires for every route onto a floor — the prompt, the exit portal and a co-op
+	# host advancing the party — because the arrival is the same event whichever of
+	# them caused it.
+	_ascend_beam()
 	_wipe_handled = false
 
 
