@@ -601,6 +601,13 @@ func _note(kind: String, detail: String) -> void:
 ## the middle of the picture".
 func _frame(fighters: Array[Node2D], delta: float) -> void:
 	if camera == null or fighters.is_empty():
+		# ⚠ STILL BLEED THE EFFECTS. `compose` is what decays the trauma and closes the
+		# zoom envelopes, so returning outright here leaves a camera that was shaking
+		# when the last fighter left the scan frozen at whatever offset it happened to
+		# hold — permanently, because nothing else writes that channel.
+		if camera != null:
+			var held: float = compose(_zoom_smoothed, delta)
+			camera.zoom = Vector2(held, held)
 		return
 	var pts: Array[Vector2] = []
 	for f: Node2D in fighters:
