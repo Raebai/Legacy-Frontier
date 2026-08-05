@@ -127,13 +127,9 @@ const READY_FLASH_WIDTH: float = 2.5
 ## language — resting border, ready glow, selected frame, ready flash — and every
 ## one of those means something the socket does not. The socket takes the inner lip
 ## and touches none of them, so nothing that was readable before got quieter.
-const SOCKET_INSET: float = 3.0
-const SOCKET_RING_WIDTH: float = 2.0
 ## The ring colour again at low alpha, filling the socket. Deliberately weak: it is
 ## a tint on the panel, not a second background competing with the cooldown veil.
 const SOCKET_WASH_ALPHA: float = 0.13
-const SOCKET_CORNER_LEN: float = 8.0
-const SOCKET_CORNER_WIDTH: float = 2.0
 ## An EMPTY socket is drawn, in neutral steel, rather than left as a bare panel —
 ## "you have a slot here and nothing in it" is a thing worth being able to see, and
 ## it is the same reason Hero draws the "--" row instead of shrinking the bar.
@@ -152,9 +148,10 @@ const EMPTY_SOCKET_COLOR: Color = Color(0.45, 0.45, 0.55, 0.85)
 ## ⚠ KEYED ON THE TIER, NOT ON BEING LAST. The row is sorted by `SpellTier.of` at draw
 ## time, so "last" is a consequence and the tier is the cause — a retuned spell that
 ## stopped being an ult would otherwise keep the crown for sitting in the right place.
-const ULT_FRAME_GROW: float = 2.0
-const ULT_FRAME_WIDTH: float = 2.0
-const ULT_FRAME_GAP: float = 2.5
+## (`ULT_FRAME_GROW` / `_WIDTH` / `_GAP` lived here and are gone with the rectangle
+## they sized. The crown is a counter-rotating gold RING now — see `_draw_socket`.
+## Deleted rather than left declared: an unused constant invites the next edit to
+## find a use for it.)
 
 ## ── TIER 3 CHARGE PIPS ───────────────────────────────────────────────────────
 ## A picked-up spell has a COUNT, and "picking one up is a decision" only holds if
@@ -468,9 +465,12 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
 	# The socket rides between the panel and the border: it is the slot's CONTENTS,
 	# so it must sit under every mark that describes the slot's STATE. `accent` is
 	# stamped only onto spell slots, so a verb slot is drawn exactly as it always was.
-	if slot.has("accent"):
+	var is_spell: bool = slot.has("accent")
+	var cd_frac: float = clampf(remaining / total, 0.0, 1.0) if (remaining > 0.0 and total > 0.0) else 0.0
+	if is_spell:
 		var accent: Color = slot.get("accent", EMPTY_SOCKET_COLOR)
-		_draw_socket(rect, accent, int(slot.get("tier", SpellTier.Tier.QUICK)), alpha)
+		_draw_socket(rect, accent, int(slot.get("tier", SpellTier.Tier.QUICK)), alpha,
+			cd_frac, clampf(float(slot.get("pulse", 0.0)), 0.0, 1.0))
 	draw_rect(rect, _with_alpha(BORDER_COLOR, alpha), false, BORDER_WIDTH)
 	# The spell slots are all live and all show their own cooldown, so the bar
 	# also has to say WHICH one the cast key throws right now. A lifted outer frame
@@ -480,13 +480,10 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
 	if bool(slot.get("selected", false)):
 		draw_rect(rect.grow(SELECTED_GROW), _with_alpha(SELECTED_COLOR, alpha),
 			false, SELECTED_WIDTH)
-	# THE ULT'S DOUBLE RING — see the constants. Drawn after the resting border and
-	# outside the slot, so neither the cooldown wipe nor the socket can cover it.
-	if int(slot.get("tier", SpellTier.Tier.QUICK)) == SpellTier.Tier.ULT \
-			and slot.has("accent"):
-		var crown: Color = _with_alpha(SpellTier.color(SpellTier.Tier.ULT), alpha)
-		draw_rect(rect.grow(ULT_FRAME_GROW), crown, false, ULT_FRAME_WIDTH)
-		draw_rect(rect.grow(ULT_FRAME_GROW + ULT_FRAME_GAP), crown, false, 1.0)
+	# (The ULT's double RECTANGLE lived here. It is the gold counter-rotating outer
+	# RING inside `_draw_socket` now — the same "this one is special" job drawn in the
+	# grammar the rest of the socket speaks, and gold-OUTSIDE/element-inside rather
+	# than gold-on-orange, which was at its least visible on a fire ult.)
 
 	# Key label: top-left, small + bright — the "which finger" read.
 	draw_string(
@@ -497,20 +494,31 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
 		_with_alpha(KEY_TEXT_COLOR, alpha)
 	)
 	# Ability name: bottom, tiny + dim — identification, not the focal point.
-	draw_string(
-		font,
-		Vector2(rect.position.x, rect.end.y - NAME_BOTTOM_PADDING),
-		ability_name,
-		HORIZONTAL_ALIGNMENT_CENTER, int(rect.size.x), NAME_FONT_SIZE,
-		_with_alpha(NAME_TEXT_COLOR, alpha)
-	)
+	#
+	# ⚠ SPELL SLOTS NO LONGER CARRY IT. At true phone pixels these were barely legible
+	# grey-on-black AND the socket ring crossed them, so 8 px of every slot was spent
+	# on something unreadable under pressure. The verb slots keep theirs (they name a
+	# class verb you cannot infer from a shape); the spell sockets are told apart by
+	# colour, ring weight and the ult's crown. A text REDUCTION, per the standing rule.
+	if not is_spell:
+		draw_string(
+			font,
+			Vector2(rect.position.x, rect.end.y - NAME_BOTTOM_PADDING),
+			ability_name,
+			HORIZONTAL_ALIGNMENT_CENTER, int(rect.size.x), NAME_FONT_SIZE,
+			_with_alpha(NAME_TEXT_COLOR, alpha)
+		)
 
 	var on_cooldown: bool = remaining > 0.0 and total > 0.0
-	if on_cooldown:
+	# ⚠ A SPELL SOCKET SHOWS ITS COOLDOWN AS ITS RING CLOSING (see `_draw_socket`), so
+	# it gets neither the black wipe nor the numeral on top of it. Only the VERB slots
+	# keep them: they are squares with no ring to close, and theirs are the cooldowns
+	# you actually weave against. Four running "%.1f" timers were the loudest thing on
+	# the whole HUD and they broke the standing no-more-text rule.
+	if on_cooldown and not is_spell:
 		# Bottom-up wipe: overlay height shrinks with remaining/total, so the
 		# slot visibly "fills back up" as it cools — legible at a glance.
-		var frac: float = clampf(remaining / total, 0.0, 1.0)
-		var wipe_h: float = rect.size.y * frac
+		var wipe_h: float = rect.size.y * cd_frac
 		var wipe: Rect2 = Rect2(
 			Vector2(rect.position.x, rect.end.y - wipe_h),
 			Vector2(rect.size.x, wipe_h)
@@ -525,7 +533,7 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
 			HORIZONTAL_ALIGNMENT_CENTER, int(rect.size.x), TIMER_FONT_SIZE,
 			_with_alpha(TIMER_TEXT_COLOR, alpha)
 		)
-	elif enabled:
+	elif not on_cooldown and enabled:
 		# Ready: a brighter accent border so the eye reads "usable" without
 		# the slot shouting. Disabled slots never glow.
 		draw_rect(rect, READY_GLOW_COLOR, false, READY_GLOW_WIDTH)
@@ -551,24 +559,93 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
 ## read as a mount holding something. They are also where the eye already lands when
 ## it checks whether a box is full, and they are the only part of the frame that the
 ## bottom-up cooldown veil cannot fully swallow: the top pair always stays lit.
-func _draw_socket(rect: Rect2, accent: Color, tier: int, alpha: float) -> void:
-	var inner: Rect2 = rect.grow(-SOCKET_INSET)
-	draw_rect(inner, _with_alpha(Color(accent.r, accent.g, accent.b, SOCKET_WASH_ALPHA), alpha))
-	draw_rect(inner, _with_alpha(accent, alpha), false, SOCKET_RING_WIDTH)
-	var tier_color: Color = _with_alpha(SpellTier.color(tier), alpha)
-	# Each entry: the corner, then the two directions its arms run inward.
-	var corners: Array = [
-		[inner.position, Vector2.RIGHT, Vector2.DOWN],
-		[Vector2(inner.end.x, inner.position.y), Vector2.LEFT, Vector2.DOWN],
-		[Vector2(inner.position.x, inner.end.y), Vector2.RIGHT, Vector2.UP],
-		[inner.end, Vector2.LEFT, Vector2.UP],
-	]
-	for c: Array in corners:
-		var at: Vector2 = c[0]
-		var arm_x: Vector2 = c[1]
-		var arm_y: Vector2 = c[2]
-		draw_line(at, at + arm_x * SOCKET_CORNER_LEN, tier_color, SOCKET_CORNER_WIDTH)
-		draw_line(at, at + arm_y * SOCKET_CORNER_LEN, tier_color, SOCKET_CORNER_WIDTH)
+## ══ THE SOCKET IS A MAGIC CIRCLE ═══════════════════════════════════════════════
+## Maker: "visually the spell slots are kinda boring — they could be made more game
+## like and fun to see."
+##
+## They were right, and a capture is what settles it: above the bar the game draws a
+## beam with a white core, a rotating rune circle, a cast portal, bloom and chromatic
+## aberration; below it sat SEVEN FLAT BLACK RECTANGLES with 1 px outlines. The bar
+## was the only element on screen with no curve, no motion and no depth — it read like
+## a debug overlay pasted onto the game.
+##
+## Four faults, in the order they hurt:
+##   1. Seven identical squares. Silhouette carried zero information.
+##   2. ~55% of every slot was dead black in the middle. That void IS the boring.
+##   3. The accent ring and the tier's corner brackets sat 0-2 px apart, so at real
+##      size they read as one candy-striped border rather than a mount holding
+##      something.
+##   4. Nothing moved. In a game whose signature is rotating summoning circles.
+##
+## So the socket becomes a small dashed circle that turns — the bar quoting the thing
+## the maker likes most in the game (`MagicCircle` / `SpellSigil`). The left cluster
+## keeps its squares (body verbs), the right cluster becomes rings (spells), so the
+## two-cluster split the maker drew is now carried by SHAPE and not only by the gap.
+##
+## ⚠ ONE `draw_multiline` FOR THE WHOLE RING, AND THAT CHOICE IS WHAT MAKES IT
+## AFFORDABLE. Measured on this machine: 16 dashes as one `draw_multiline` costs
+## ~24 us; the same 16 dashes as 16 `draw_arc` calls costs ~298 us — 12x. A naive
+## per-dash socket would have been ruinous at seven slots a frame.
+##
+## Tier is carried by WEIGHT (fewer, fatter dashes = heavier), not by count. A mock
+## rendered the other way round first and it read inverted: many fine dashes look
+## busy, not strong.
+const TIER_DASHES: Array[int] = [12, 8, 5]        # QUICK, HEAVY, ULT
+const TIER_DUTY: Array[float] = [0.30, 0.45, 0.55]
+const TIER_RING_WIDTH: Array[float] = [1.6, 2.2, 2.8]
+## Socket radius, and how far the ULT's second ring sits outside it. 1.18 rather than
+## anything larger because past that it pokes outside the 46 px slot box.
+const SOCKET_RADIUS: float = 16.0
+const ULT_OUTER_R: float = 1.18
+const SOCKET_SPIN: float = 0.35                   # rad/s at rest
+## How hard a cast kicks the ring outward. The same `pulse` the ready-flash rides.
+const SOCKET_PUNCH: float = 0.35
+
+
+func _draw_socket(rect: Rect2, accent: Color, tier: int, alpha: float,
+		frac: float = 0.0, pulse: float = 0.0) -> void:
+	var c: Vector2 = rect.get_center()
+	var low: bool = TuningConfig.quality_is_low()
+	# LOW freezes the spin rather than dropping the ring: the ring is the READ, the
+	# motion is the texture. Same ruling MagicCircle already makes for its motif.
+	var phase: float = 0.0 if low else float(Time.get_ticks_msec()) * 0.001
+	var t: int = clampi(tier, 0, TIER_DASHES.size() - 1)
+	# A faint wash so the middle is not a hole, but well under the ring.
+	draw_circle(c, SOCKET_RADIUS,
+		_with_alpha(Color(accent.r, accent.g, accent.b, SOCKET_WASH_ALPHA), alpha), true, -1.0, not low)
+	# THE CAST PUNCH: on the frame the spell fires, the ring kicks out and spins up.
+	var r: float = SOCKET_RADIUS * (1.0 + SOCKET_PUNCH * pulse)
+	var spin: float = phase * SOCKET_SPIN + pulse * 6.0
+	# ⚠ THE COOLDOWN IS THE RING CLOSING, and it replaces BOTH the black bottom-up
+	# wipe and the "%.1f" numeral that sat on top of it. Four running timers were the
+	# loudest thing on the HUD and they broke the standing no-more-text rule; a circle
+	# that visibly COMPLETES as the spell returns says the same thing without a word.
+	_ring(c, r, TIER_DASHES[t], TIER_DUTY[t], spin, TAU * (1.0 - clampf(frac, 0.0, 1.0)),
+		_with_alpha(accent, alpha), TIER_RING_WIDTH[t], not low)
+	if tier == SpellTier.Tier.ULT:
+		# The ULT is visibly HUNGRIER: a second ring outside, turning the other way, in
+		# the tier's gold. Gold OUTSIDE and the element inside also stops the hue clash
+		# the old double rectangle had on a fire ult, where gold sat on orange.
+		_ring(c, r * ULT_OUTER_R, 3, 0.5, -phase * 0.5, TAU,
+			_with_alpha(SpellTier.color(SpellTier.Tier.ULT), 0.75 * alpha), 2.0, not low)
+
+
+## One dashed ring as a single `draw_multiline`. `sweep` < TAU draws a partial ring
+## from 12 o'clock, which is how the cooldown reads.
+func _ring(c: Vector2, r: float, n: int, duty: float, rot: float, sweep: float,
+		col: Color, w: float, aa: bool) -> void:
+	if sweep <= 0.0 or n <= 0 or r <= 0.0:
+		return
+	var pts := PackedVector2Array()
+	var step: float = TAU / float(n)
+	var a: float = 0.0
+	while a < sweep:
+		var a0: float = -PI * 0.5 + rot + a
+		pts.append(c + Vector2.from_angle(a0) * r)
+		pts.append(c + Vector2.from_angle(a0 + minf(step * duty, sweep - a)) * r)
+		a += step
+	if pts.size() >= 2:
+		draw_multiline(pts, col, w, aa)
 
 
 ## `charges` < 0 means "not a granted drop" and draws nothing — the pips are a fact

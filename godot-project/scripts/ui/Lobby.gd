@@ -319,6 +319,17 @@ func _build_ui() -> void:
 	# costs one extra press over CLIMB and no walking at all — you spawn on the
 	# tower's doorstep and every station is behind you. See the rules at the top of
 	# `World.gd`.
+	# ⚠ THIS BUTTON WAS DELETED AND `_watch_bots` WAS LEFT WITH ZERO CALLERS. The
+	# twelve lines of comment above survived the cut, so the file went on describing a
+	# feature nothing could reach: there has been NO in-game route to a bot fight at
+	# all. `scenes/combat/BotMatch.tscn` is referenced only by `tools/` and the test
+	# suites, and the note claiming free play "moved into the Antechamber's sparring
+	# ring" is also stale — `ArmoryStation` deleted the `"sparring"` kind and `World`
+	# builds no such station.
+	#
+	# It goes back because the maker's stated goal for this mode is to record duels to
+	# share, and a content tool nobody can open from the game is a command-line script.
+	extras.add_child(_half("Watch Bots", _watch_bots))
 	extras.add_child(_half("Credits", _open_credits))
 
 	# The status row exists anyway and is empty at boot, so it is a free place to say
