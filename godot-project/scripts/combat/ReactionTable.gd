@@ -26,6 +26,16 @@ extends RefCounted
 ## lingering field, not which of five lances it is.
 enum Form { BEAM, BARRIER, FIELD, PROJECTILE, IMPACT, AURA }
 
+## How opposed two headings must be for a `require_head_on` row to fire: the dot of
+## the two normalised directions must be AT OR BELOW this. -0.6 is about 127 degrees
+## of opposition, i.e. genuinely oncoming rather than merely converging.
+##
+## THE DIAL. Toward -1.0 means "only a dead-centre collision counts" (rarer, cleaner);
+## toward 0.0 means "anything not travelling together counts" (commoner, and at 0.0 it
+## is the unguarded row that makes ranged mirror matches unwinnable). This is a FEEL
+## number and it has not been played yet.
+const HEAD_ON_DOT: float = -0.6
+
 ## Elements that annihilate rather than merely mix. One row keyed on
 ## `require_opposed` then covers fire/ice, lightning/earth, shadow/holy and
 ## arcane/wind without four near-identical entries.
@@ -114,6 +124,8 @@ static func _rule(outcome: String, form_a: int, form_b: int, opts: Dictionary = 
 		"require_same": opts.get("require_same", false),
 		"require_owner": opts.get("require_owner", "any"),
 		"require_weight": opts.get("require_weight", "any"),
+		# Both effects must be travelling INTO each other. See HEAD_ON_DOT.
+		"require_head_on": opts.get("require_head_on", false),
 		"priority": opts.get("priority", 0),
 		"consumes_a": opts.get("consumes_a", false),
 		"consumes_b": opts.get("consumes_b", false),
@@ -216,6 +228,32 @@ static func rules() -> Array:
 		_rule("mutual_annihilation", Form.BEAM, Form.BEAM, {
 			"require_weight": "equal", "require_owner": "different", "priority": 55,
 			"consumes_a": true, "consumes_b": true, "radius": 150.0, "damage": 30,
+		}),
+		# TWO BOLTS MEETING HEAD-ON POP EACH OTHER. Maker: "if two defaults hit each
+		# other they can potentially fizzle out."
+		#
+		# The same sentence the row above already tells for BEAMS, told for the shape
+		# players actually throw all day. The bolt has implemented the full participant
+		# contract the whole time — it registers on its first physics frame and answers
+		# all seven methods — so nothing was missing except a row for its own bucket:
+		# every authored PROJECTILE rule paired it with a BARRIER, so the pair died at
+		# the reactor's sparse-matrix gate before any geometry ran.
+		#
+		# ⚠ `require_head_on` IS WHAT MAKES THIS SHIPPABLE. Cast cooldowns run 0.22-0.45 s,
+		# so a ranged duel is two people throwing 2-4 bolts a second down a shared lane.
+		# A bare PROJECTILE x PROJECTILE row would make ranged MIRROR MATCHES
+		# unwinnable — every shot meets a shot, nobody lands anything, and the answer
+		# becomes "stop shooting". It would also cancel two co-op teammates spraying the
+		# same corridor, which friendly fire already makes a common picture. Requiring
+		# genuine opposition means shooting AT each other cancels while shooting PAST
+		# each other, ALONGSIDE a teammate, or AT anything heavier all still land.
+		#
+		# `damage: 0` on purpose — two cancelled jabs are a pop, not a splash. Priority
+		# one under the beam twin so the ladder reads in weight order.
+		_rule("bolt_fizzle", Form.PROJECTILE, Form.PROJECTILE, {
+			"require_weight": "equal", "require_owner": "different",
+			"require_head_on": true, "priority": 54,
+			"consumes_a": true, "consumes_b": true, "radius": 46.0, "damage": 0,
 		}),
 		# ...and the whole point of weight mattering: a heavier spell does NOT
 		# trade with a lighter one. It eats it and keeps going. An ult that could
@@ -546,7 +584,9 @@ static func rules() -> Array:
 ## read consumes_a/consumes_b through consumes_caller() rather than directly.
 static func match_rule(form_a: int, element_a: int, form_b: int, element_b: int,
 		owner_rel: String = "", weight_a: int = SpellTier.WEIGHT_UNKNOWN,
-		weight_b: int = SpellTier.WEIGHT_UNKNOWN) -> Dictionary:
+		weight_b: int = SpellTier.WEIGHT_UNKNOWN,
+		heading_a: Vector2 = Vector2.ZERO,
+		heading_b: Vector2 = Vector2.ZERO) -> Dictionary:
 	var key: int = bucket_key(form_a, form_b)
 	var best: Dictionary = {}
 	for r: Dictionary in rules():
@@ -554,10 +594,10 @@ static func match_rule(form_a: int, element_a: int, form_b: int, element_b: int,
 			continue
 		var swapped: bool = false
 		if _sides_match(r, form_a, element_a, form_b, element_b, owner_rel,
-				weight_a, weight_b):
+				weight_a, weight_b, heading_a, heading_b):
 			swapped = false
 		elif _sides_match(r, form_b, element_b, form_a, element_a, owner_rel,
-				weight_b, weight_a):
+				weight_b, weight_a, heading_b, heading_a):
 			swapped = true
 		else:
 			continue
@@ -586,9 +626,21 @@ static func consumes_caller(rule: Dictionary, caller_side: int) -> bool:
 static func _sides_match(r: Dictionary, form_a: int, element_a: int,
 		form_b: int, element_b: int, owner_rel: String = "",
 		weight_a: int = SpellTier.WEIGHT_UNKNOWN,
-		weight_b: int = SpellTier.WEIGHT_UNKNOWN) -> bool:
+		weight_b: int = SpellTier.WEIGHT_UNKNOWN,
+		heading_a: Vector2 = Vector2.ZERO,
+		heading_b: Vector2 = Vector2.ZERO) -> bool:
 	if int(r["form_a"]) != form_a or int(r["form_b"]) != form_b:
 		return false
+	# HEAD-ON, and it is the predicate that keeps `bolt_fizzle` from firing on every
+	# parallel exchange. Two bolts crossing at 70 degrees do not read as a collision;
+	# two nose-to-nose do. Fails CLOSED when a heading is missing, on the same
+	# reasoning `require_weight` does below: an effect that cannot say which way it is
+	# going has not earned a row that is about which way it is going.
+	if bool(r.get("require_head_on", false)):
+		if heading_a == Vector2.ZERO or heading_b == Vector2.ZERO:
+			return false
+		if heading_a.normalized().dot(heading_b.normalized()) > HEAD_ON_DOT:
+			return false
 	var need_owner: String = String(r.get("require_owner", "any"))
 	# "unowned" satisfies neither "same" nor "different" — without two known
 	# casters there is no relationship to require.

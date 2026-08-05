@@ -413,7 +413,8 @@ func resolve_now() -> int:
 			var rel: String = _owner_relation(a["node"], b["node"])
 			var rule: Dictionary = ReactionTable.match_rule(
 				int(a["form"]), int(a["element"]), int(b["form"]), int(b["element"]),
-					rel, int(a["weight"]), int(b["weight"]))
+					rel, int(a["weight"]), int(b["weight"]),
+					_heading_of(a["node"]), _heading_of(b["node"]))
 			if rule.is_empty():
 				continue
 			# Stage 4 — one crossing fires once.
@@ -465,15 +466,38 @@ func _fire(rule: Dictionary, a: Dictionary, b: Dictionary,
 ## that has not adopted reaction_weight() is not broken, it is average — and
 ## every un-adopted spectacle is average TOGETHER, which is why adding this
 ## changed nothing about how today's beams meet each other.
+## Which way an effect is travelling, or ZERO for anything that does not travel.
+## OPTIONAL on the participant contract: only rows carrying `require_head_on` read it,
+## and those fail closed on a ZERO heading — so a wall, a field or a beam simply
+## cannot match them, which is the correct answer for something that has no heading.
+static func _heading_of(n: Node) -> Vector2:
+	if n == null or not is_instance_valid(n) or not n.has_method(&"reaction_heading"):
+		return Vector2.ZERO
+	return n.call(&"reaction_heading") as Vector2
+
+
 static func _weight_of(n: Node) -> int:
 	if n != null and is_instance_valid(n) and n.has_method(&"reaction_weight"):
 		return SpellTier.weight_or_default(int(n.call(&"reaction_weight")))
 	return SpellTier.DEFAULT_WEIGHT
 
 
+## ⚠ THE RETURNED OWNER NEEDS ITS OWN VALIDITY CHECK, NOT JUST `n`. A spectacle
+## routinely outlives the body that cast it — the caster dies to the very exchange the
+## effect is still resolving — so `reaction_owner()` hands back a freed instance, and
+## `as Node` on a freed object is a hard `SCRIPT ERROR: Trying to cast a freed object`.
+## MEASURED at 20 occurrences across 10 bouts, firing every duel from
+## `_process -> resolve_now -> _owner_relation -> _owner_of`.
+##
+## A dead caster is correctly "unowned": `_owner_relation` already treats a null owner
+## as the unowned case, which is the right answer — a rule that asks for SAME or
+## DIFFERENT casters cannot meaningfully match a caster that no longer exists.
 static func _owner_of(n: Node) -> Node:
-	if n != null and is_instance_valid(n) and n.has_method(&"reaction_owner"):
-		return n.call(&"reaction_owner") as Node
+	if n == null or not is_instance_valid(n) or not n.has_method(&"reaction_owner"):
+		return null
+	var o: Variant = n.call(&"reaction_owner")
+	if o is Node and is_instance_valid(o as Node):
+		return o as Node
 	return null
 
 

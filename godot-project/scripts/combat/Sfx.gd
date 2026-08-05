@@ -1035,6 +1035,10 @@ const REACTION_SOUND: Dictionary = {
 	"beam_resonance": "rx_resonance",
 	"carve": "rx_carve",
 	"mutual_annihilation": "rx_annihilate",
+	# Two bolts popping each other. Shares `rx_overpower` rather than the annihilate
+	# pair on purpose: this fires several times a duel, and the annihilate cue is the
+	# beam clash's voice — spending it here would flatten the loud one.
+	"bolt_fizzle": "rx_overpower",
 	"breach": "rx_breach",
 	"ward_absorb": "rx_ward_absorb",
 	"overpower": "rx_overpower",

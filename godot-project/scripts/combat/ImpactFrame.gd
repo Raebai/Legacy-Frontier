@@ -192,7 +192,18 @@ const LOCAL_MAX_STRENGTH: float = 0.7
 ## Not a safety rule (that is the two constants above, and they are untouched); this is
 ## the difference between a mark that punctuates a posted clip and one that blows the
 ## frame to flat white for a single frame at 30 fps.
-const CINEMATIC_MAX_STRENGTH: float = 0.55
+##
+## ⚠ 0.55 WAS NOT ENOUGH AND THAT IS MEASURED, NOT SUSPECTED. Mean luminance per
+## frame on a delivered clip (240x135 downsample) still ran 53 -> 135 -> 53 between
+## consecutive 30 fps frames — structurally identical to the 68 -> 146 -> 68 that this
+## constant was introduced to fix. Looking at the frames: the whole screen washes to
+## near-white and BOTH FIGHTERS DISAPPEAR for a frame.
+##
+## The arithmetic is in `_draw_blowout`: a full-screen rect at `0.10 * flash_a` PLUS
+## seven concentric HDR circles at `0.13 * flash_a` each, all in `(1.4, 1.4, 1.5)`. At
+## 0.55 the overlap compounds to ~0.40 alpha of a super-white over the convergence
+## point, and the post-process tone curve and bloom then lift it further.
+const CINEMATIC_MAX_STRENGTH: float = 0.25
 
 
 # -------------------------------------------------------------- arbiter state
@@ -656,7 +667,17 @@ func _draw_blowout(u: float, vp: Vector2, c: Vector2) -> void:
 	if u < 0.35:
 		var flash_a: float = (1.0 - u / 0.35) * _strength
 		# A weak whole-screen lift keeps the "the world went white" concussion...
-		_rect.draw_rect(Rect2(Vector2.ZERO, vp), Color(1.4, 1.4, 1.5, 0.10 * flash_a))
+		#
+		# ⚠ ...EXCEPT WHILE RECORDING, WHERE IT IS THE HALF THAT RUINS THE FRAME. The
+		# rings below sit ON the blast and stay readable — you can see what exploded and
+		# you can see the fighters either side of it. This rect lifts EVERYTHING,
+		# including both bodies, and it is what turns a punctuation mark into a frame of
+		# flat white with nobody in it. Live, at full strength and 60+ fps, it is one
+		# imperceptible frame and it is the concussion; in a clip it is 1.7 frames at
+		# 30 fps and it is a hole. So the concussion is dropped for the recording and
+		# the legible part is kept.
+		if not Cinematic.enabled:
+			_rect.draw_rect(Rect2(Vector2.ZERO, vp), Color(1.4, 1.4, 1.5, 0.10 * flash_a))
 		# ...while the blowout itself sits ON the blast and expands with it.
 		var rings: int = 7
 		var peak: float = diag * 0.23 * (0.75 + 0.85 * u)

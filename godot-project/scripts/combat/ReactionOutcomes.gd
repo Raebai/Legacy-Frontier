@@ -196,8 +196,15 @@ static func apply(outcome: String, ctx: Dictionary) -> bool:
 		# a louder version of the same one. See the ANNIHILATE_* block.
 		"mutual_annihilation":
 			return _annihilate(ctx)
+		# ⚠ `bolt_fizzle` IS ROUTED HERE AND DELIBERATELY *NOT* TO `_annihilate`. That
+		# function's own header justifies its ult-sized beat by RARITY — two beams
+		# meeting is a headline event. Two bolts meeting is the highest-traffic
+		# collision in the game, several times a duel, so giving it the loudest
+		# spectacle in the file would spend the beam clash's currency on small change.
+		# `_contest` spends both sides and stages a scaled two-element burst, which is
+		# the right size for a pop.
 		"overpower", "breach", "barrier_blocks", \
-		"ground_out", "shatter_ward":
+		"ground_out", "shatter_ward", "bolt_fizzle":
 			return _contest(ctx)
 		"beam_resonance":
 			return _resonance(ctx)

@@ -675,7 +675,25 @@ const CLASS_CONFIG: Dictionary = {
 	},
 	HeroClass.CRYOMANCER: {  # ice control — LMB is a FROST CONE, not a bolt
 		"preset": "cryomancer", "weapon": "staff", "element": Elements.Element.ICE, "melee_element": Elements.Element.ICE,
-		"hp": 123, "speed": 195.0,  # was 88
+		# ⚠ 123 -> 152 ON A MAKER RULING BACKED BY MEASUREMENT. Maker: "the ice class
+		# needs a buff." A 72-bout sweep (all 36 pairings, both side orders) put the
+		# Cryomancer at 25% — second worst in the roster, and a finding nobody had
+		# flagged before.
+		#
+		# THE BUFF IS HEALTH, AND DELIBERATELY NOT DAMAGE. `Shatter`'s own header
+		# already argues the damage case out and is right: base 62 x FROZEN_MULT 3.0 is
+		# 186 on one body, which is the single biggest hit in the roster, on the DAMAGE
+		# slot, on a 4 s cooldown. This class's ceiling is not the problem.
+		#
+		# What the sweep actually shows is a class that DIES WHILE SETTING UP. Its kit
+		# combos with itself — Blizzard to chill, Shatter to cash it in — so its damage
+		# costs two casts and a global lockout before anything lands, and it pays for
+		# that wait with the roster's 2nd-lowest health, its LOWEST melee damage (11),
+		# and a short-range `frost_cone` primary that puts a caster inside the range it
+		# is least able to survive. 152 is the number `BotMatch.CLASS_VITALITY` 1.10
+		# previews (the two tables agree to within 0.1 across all nine rows, which is
+		# what makes a bot match a faithful preview of a class change).
+		"hp": 152, "speed": 195.0,  # was 88, then 123
 		"primary": "frost_cone",
 		# Rimed JAB: little damage, wide arc, and the biggest shove of any caster —
 		# the control class's melee CONTROLS.

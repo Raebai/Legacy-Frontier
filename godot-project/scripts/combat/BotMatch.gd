@@ -132,16 +132,45 @@ static func side_color(side: int) -> Color:
 ## fix for that is its KIT, not its health bar, and that is another agent's file. The
 ## 1.15 here is what its own class card already promises ("knockout" bruiser) and it
 ## is applied before any fight is run, not tuned until it wins.
+##
+## ⚠ RE-TUNED 2026-08-05 AGAINST A REAL 72-BOUT SWEEP — every one of the 36 pairings,
+## both side orders, 72/72 resolved by KO, zero draws. Measured win rates BEFORE:
+##
+##     CLERIC 75%  JUGGERNAUT 69%  STORMCALLER 69%  WARLOCK 63%  SHADOWBLADE 56%
+##     ARCANIST 44%  BRAWLER 31%  CRYOMANCER 25%  SWORDSAINT 19%
+##
+## — a 56-point spread, which means two thirds of matchups are decided by the pairing
+## rather than by the fight. For a mode whose whole product is a watchable duel that is
+## the defect, not a curiosity.
+##
+## Two things the sweep settled that had been argued from stale numbers:
+##   · THE `bolt_heal` HYPOTHESIS WAS RIGHT AND IS ALREADY ACTIONED. Cleric 4->2 and
+##     Warlock 3->2 are in the tree, and the pair fell 91->75 and 84->63. Lifesteal is
+##     no longer the top offender, so do NOT cut the heal again — the heal is the class.
+##   · CRYOMANCER AT 25% IS A NEW FINDING NOBODY HAD FLAGGED, and it is the maker's
+##     "the ice class needs a buff" independently confirmed by measurement.
+##
+## ⚠ AND THIS IS A HANDICAP, WHICH THIS FILE ELSEWHERE SAYS TO REPORT RATHER THAN PAPER
+## OVER. Stated plainly: it makes every matchup watchable without touching the tower,
+## and it is NOT the same as fixing the kits. The real Swordsaint fix is its `cast_cd`
+## 0.45 (slowest in the roster) and `blast_cd` 3.0 (longest), both outliers in their own
+## columns; the real Brawler fix is its kit. Those are separate work.
 const CLASS_VITALITY: Array[float] = [
-	0.90,  # ARCANIST     — ranged arcane zoner; never wants to be touched
-	0.85,  # SHADOWBLADE  — in-and-out assassin; the glass in glass cannon
-	1.15,  # BRAWLER      — pure melee, no magic; has to cross the stage to exist
-	1.35,  # JUGGERNAUT   — unbreakable siege tank; the whole fantasy is not dying
-	1.05,  # CLERIC       — radiant bruiser, and already sustains through lifesteal
-	0.92,  # CRYOMANCER   — control caster; wins on spacing, not on absorbing
-	0.88,  # STORMCALLER  — hyper-mobile; pays for the mobility
-	0.95,  # WARLOCK      — attrition hexer; wins long fights, not short trades
-	1.00,  # SWORDSAINT   — the duelist baseline; guard-and-punish, no ailment
+	0.98,  # ARCANIST     — ranged arcane zoner; never wants to be touched. 44%, nudged
+	0.85,  # SHADOWBLADE  — in-and-out assassin; the glass in glass cannon. 56%, left
+	1.30,  # BRAWLER      — pure melee; 31%. Everything it does requires being in range,
+	       #                so the reflex layer taxes it hardest. Its KIT is the real fix
+	1.20,  # JUGGERNAUT   — siege tank; 69%. 1.35 was the largest number here by 17%
+	0.90,  # CLERIC       — 75%: it sustains AND carried an above-average bar. Cut the
+	       #                bar, not the heal — the double-dip was the bar
+	1.10,  # CRYOMANCER   — 25%, second worst. 2nd-lowest base hp, the LOWEST melee
+	       #                damage in the game (11), and a short-range frost-cone primary
+	       #                on a caster that must therefore stand where it is punished
+	0.78,  # STORMCALLER  — hyper-mobile; 69%, and it pays for the mobility elsewhere
+	0.88,  # WARLOCK      — attrition hexer; 63%
+	1.25,  # SWORDSAINT   — 19%, worst in the roster. No blink, shortest travel, the
+	       #                slowest cast and the longest blast cooldown, and no nova:
+	       #                four taxes for one payoff
 ]
 
 ## STATICS, and they survive the scene reload every matchup change performs. A
@@ -151,9 +180,16 @@ const CLASS_VITALITY: Array[float] = [
 static var class_a: int = 6      # STORMCALLER
 static var class_b: int = 5      # CRYOMANCER
 static var difficulty: int = 3   # the tier that plays the whole kit (combo 0.90)
-## Lower than the showcase's own 320 on purpose: a clip needs the fight to END.
 ## Scaled per fighter by CLASS_VITALITY.
-static var fighter_hp: int = 190
+##
+## ⚠ 190 -> 320, MATCHING `VersusArena.SHOWCASE_HP`. The old value's reasoning ("a clip
+## needs the fight to END") was right about clips and wrong about this mode: a CAPTURE
+## already overrides it (`make_clip.py --hp 500`), so 190 only ever governed the fight a
+## HUMAN opens — and at 190 that fight is a demolition. MEASURED across 72 bouts:
+## p10 3.1 s / median 5.3 s / p90 10.9 s, with 44% ending under five seconds and 31%
+## won with the winner still above 80% health. There is no read, no comeback and often
+## no second exchange.
+static var fighter_hp: int = 320
 ## Which side each class starts on. Flipped on every rematch so the stage's own
 ## left/right asymmetry cannot accrue to one class over a series. See the footing
 ## note at the top of this file.
@@ -407,7 +443,28 @@ func _adopt_fighters() -> void:
 		# time; the signal does not.
 		if f.has_signal("health_changed"):
 			f.connect("health_changed", _on_health_changed.bind(side))
+		# ⚠ THE FLOATING BAR IS HIDDEN ON BOTH FIGHTERS FOR THE WHOLE MATCH. This mode
+		# already has screen-space plates reading `STORMCALLER 418` in each corner, so
+		# the over-the-head bar is the same number said twice — and on a 65 px stick
+		# figure the bar plus its MP strip is PHYSICALLY LARGER THAN THE TORSO. On the
+		# result frame it sits squarely on top of the winner, which is the one shot this
+		# mode exists to produce.
+		#
+		# `_put_the_loser_down` used to hide only the loser's, which is why this went
+		# unnoticed: the corpse was tidy and the winner wore a health bar for a hat.
+		_hide_floating_bars(f)
 	_paint_corners()
+
+
+## Every `CharacterBars` under a fighter, off. Found by TYPE rather than by node name:
+## `Hero` builds its bars in code (`Hero.gd`), so there is no authored name to rely on
+## — the same trap that made `probe_town_feet` silently skip every NPC.
+func _hide_floating_bars(f: Node) -> void:
+	if f == null:
+		return
+	for c: Node in f.get_children():
+		if c is CharacterBars:
+			(c as CharacterBars).visible = false
 
 
 ## YELLOW ON THE LEFT, BLUE ON THE RIGHT — see the note on `SIDE_COLORS`.

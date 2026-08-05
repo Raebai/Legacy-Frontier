@@ -70,6 +70,25 @@ CLASSES = ["ARCANIST", "SHADOWBLADE", "BRAWLER", "JUGGERNAUT", "CLERIC",
 def shoot(args: argparse.Namespace) -> Path:
     argv = [
         str(GUI_BINARY), "--path", str(GODOT_PROJECT),
+        # ⚠ WITHOUT THIS THE CLIP PLAYS AT ~3x FAST-FORWARD, AND NOTHING SAYS SO.
+        #
+        # `directed_clip_capture.gd` decides which rendered frames to save with
+        # `every = round(60 / fps)` — i.e. it ASSUMES the renderer delivers 60 fps and
+        # that saving every 2nd frame gives 30 fps of game time. At 1920x1080 it does
+        # not: the capture renders ~19 fps while physics still runs at 60 Hz, so every
+        # 2nd saved frame samples the game at ~9.7 Hz and is then replayed at 30.
+        #
+        # MEASURED, by timestamping the same KO with two clocks out of `clip.json`
+        # (the director's `knockdown_at` in game seconds vs the tool's own
+        # frames-walked/60):  2.63x, 2.67x, and 3.09x on an unloaded machine. A 17.5 s
+        # Brawler-vs-Juggernaut fight was delivered as a 7.4 s clip.
+        #
+        # `--fixed-fps 60` pins the engine's delta to 1/60 regardless of how long a
+        # frame actually took to draw, which is exactly what an offline frame-grab
+        # wants. Verified after: ratio 0.83x (hit-stop now correctly reads as slow-mo
+        # rather than being eaten), and the share of near-identical still frames fell
+        # from 60% to 8% on its own.
+        "--fixed-fps", "60",
         "--script", "tools/directed_clip_capture.gd", "--",
         f"--a={args.a}", f"--b={args.b}", f"--difficulty={args.difficulty}",
         f"--hp={args.hp}", f"--seconds={args.seconds}", f"--fps={args.fps}",

@@ -82,16 +82,39 @@ const COOL_THRESHOLD: float = 0.14
 ## further than it has to. ZOOM_MIN still lets it go wide when the pair genuinely
 ## spreads, which is the case that note was written about. FEEL: the maker judges the
 ## framing at F5, and these two numbers are the dial.
-const FRAME_MARGIN: float = 190.0
+##
+## ⚠ 190/200 PUT THE FIGHTERS AT ~6% OF FRAME HEIGHT. Measured on a 1:1 crop of a
+## 1920x1080 delivered frame: a rig reads ~65 px tall. At that size two stick figures
+## are two identically-shaped lines told apart only by colour, and the screen-space
+## chromatic aberration (0.7 at idle) sits on limbs 2-3 px wide, so a real fraction of
+## each figure IS colour fringe. The margin is pure slack — the containment rule in
+## `_fit_zoom` still guarantees both fighters stay in shot — so cutting it costs
+## nothing but empty sky.
+const FRAME_MARGIN: float = 110.0
 ## ...and the slack a HOT moment is allowed to shrink that to. See `_frame`.
-const FRAME_MARGIN_HOT: float = 110.0
+const FRAME_MARGIN_HOT: float = 70.0
 ## The same two numbers on y. Smaller, because a 31 px stick figure needs far less
 ## headroom than two fighters need shoulder room, and because the eye is already
 ## lifted (EYE_LIFT) to put the floor in the lower third.
-const FRAME_MARGIN_V: float = 200.0
-const FRAME_MARGIN_V_HOT: float = 120.0
+const FRAME_MARGIN_V: float = 130.0
+const FRAME_MARGIN_V_HOT: float = 85.0
 const ZOOM_MIN: float = 0.42
-const ZOOM_MAX: float = 1.15
+## ⚠ THE CEILING, AND IT IS THE REAL REASON THE FIGHTERS READ SMALL. Cutting
+## FRAME_MARGIN alone could not make a close duel bigger: once the solved fit passes
+## this number the camera stops punching in, so at 1.15 two fighters standing near
+## each other were framed exactly as loosely as two fighters standing apart.
+##
+## `slice7_test_clipframing` caught that directly and is the reason this moved: with
+## the tighter margins BOTH the cold and the hot shot clamped to 1.15, so "a hot
+## moment is a TIGHTER shot" became false — the suite was measuring the ceiling, not
+## the framing.
+##
+## Raising it is SAFE BY CONSTRUCTION rather than by judgement: `_fit_zoom` solves the
+## containment first and only then clamps, so this can never crop a fighter out. It
+## binds solely on pairs that are already close together — which is exactly the case
+## where the picture was too wide. At 1.45 the visible world is ~441 units across
+## against a 1160-unit room, so there is no edge to reveal.
+const ZOOM_MAX: float = 1.45
 ## ⚠ HEAT NO LONGER MULTIPLIES THE SOLVED ZOOM, and that is the maker's note.
 ##
 ## *"the camera needs to follow it cinematically so the audience can see it all all

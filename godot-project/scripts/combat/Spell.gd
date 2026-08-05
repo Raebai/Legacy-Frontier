@@ -286,10 +286,39 @@ func reflect(new_dir: Vector2, color: Color) -> void:
 
 # --- reaction contract (see SpellReactor) ------------------------------------
 
-## The bolt's drawn extent at the bolt's real position (see the ⚠ in the class
-## docs about why reading the transform is legitimate here and nowhere else).
+## Where this bolt was at the end of the previous physics frame, so the reaction
+## shape can be the segment TRAVELLED rather than a 6 px dot. `Vector2.INF` means
+## "no previous frame yet" — the bolt has existed for less than a tick.
+var _prev_pos: Vector2 = Vector2.INF
+
+
+## The bolt's swept extent since last frame (see the ⚠ in the class docs about why
+## reading the transform is legitimate here and nowhere else).
+##
+## ⚠ IT IS SWEPT, NOT A POINT, AND THAT IS THE DIFFERENCE BETWEEN A FEATURE AND AN
+## INTERMITTENT ONE. `SpellReactor` polls at 30 Hz. Two bolts closing head-on close
+## 2 x 460 px/s = 30.7 px per reactor tick, against an overlap window of only 24 px
+## for two 6 px circles — so the pair can be on either side of each other on
+## consecutive polls and never once overlap.
+##
+## MEASURED (`tools/_probe_spell_clash.gd` case E), 200 sub-frame phase offsets:
+##     60 Hz, point shapes   200/200 detected
+##     30 Hz, point shapes   157/200 detected   <-- 1 crossing in 5 MISSED
+##     30 Hz, swept capsule  200/200 detected
+## An intermittent clash is worse than none: the player cannot learn a rule that
+## only fires four times in five. This is the same anti-tunnelling reasoning
+## `_resolve_segment` already applies to the physics query, applied to reactions.
 func reaction_shape() -> Dictionary:
-	return SpellGeometry.circle(global_position, BOLT_RADIUS)
+	if _prev_pos == Vector2.INF:
+		return SpellGeometry.circle(global_position, BOLT_RADIUS)
+	return SpellGeometry.capsule(_prev_pos, global_position, BOLT_RADIUS * 2.0)
+
+
+## Which way this bolt is travelling. OPTIONAL on the participant contract — read by
+## `SpellReactor` only for rows that ask for `require_head_on`, so an effect without
+## a heading simply cannot match those rows (and no other rule notices).
+func reaction_heading() -> Vector2:
+	return _dir
 
 
 ## A bolt has no telegraph phase — it is dangerous the moment it exists — so the
@@ -333,6 +362,30 @@ func fizzle() -> void:
 	queue_free()
 
 
+## SWATTED OUT OF THE AIR BY A MELEE SWING. Maker: "brawler punching a spell, that
+## sort of stuff."
+##
+## ⚠ THE WHOLE MECHANIC ALREADY EXISTED AND THIS FILE WAS THE ONE HOLE IN IT.
+## `Hero._on_melee_hit_frame` has always swept the `player_spell` and
+## `enemy_projectile` groups inside the melee cone, skipped anything you cast
+## yourself, and called `consume()` on what it found. `EnemyProjectile`, `BoulderHurl`,
+## `RiftDagger`, `ShadowCrawler`, `HorizonArc` and `DrainTether` all answer that call.
+## The ordinary bolt — the single most-thrown thing in the game, and the obvious thing
+## anyone would try to punch — was the only projectile that did not implement the
+## method, so the sweep found it, tested `has_method("consume")`, and walked past.
+##
+## A fist could therefore smash a hurled boulder and phase clean through a bolt.
+##
+## Aliased to `fizzle()` rather than to `reaction_consume()` on purpose: a swatted bolt
+## is a HIT, and it keeps its impact burst. `reaction_consume` is the "eaten, no beat"
+## path, which is the wrong read for a punch that connected.
+##
+## Every class gets this, not just the Brawler — but it matters most there: it is the
+## one class with no ranged answer at all, so being kited had no counter.
+func consume() -> void:
+	fizzle()
+
+
 func _physics_process(delta: float) -> void:
 	_age += delta
 	if not _registered:
@@ -346,6 +399,10 @@ func _physics_process(delta: float) -> void:
 	var prev: Vector2 = global_position
 	global_position += _dir * SPEED * delta
 	_traveled += SPEED * delta
+	# The segment just travelled, kept for `reaction_shape` so a 30 Hz reactor tick
+	# cannot step two closing bolts straight past each other. Written BEFORE the
+	# hit test below can return, so it is never a frame stale.
+	_prev_pos = prev
 	if _resolve_segment(prev):
 		return  # hit a wall / cover / enemy along the path — no pass-through
 	if _traveled >= MAX_TRAVEL:
