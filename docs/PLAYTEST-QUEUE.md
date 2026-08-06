@@ -122,17 +122,38 @@ attacks dodgeable and parryable should have pushed them further down. A second
 **NOTHING REACHES 2σ, so read none of it as settled.** The honest summary is
 that the roster shape barely moved and the top three are unchanged.
 
-The one row worth a thought is the **Juggernaut, +15 points and the only mover
-above 1.5σ**. If it is real, the mechanism is specific and checkable: the
-Juggernaut publishes `guard_tolerance` **0.200** — a block, against every other
-class's 0.080 press window — so it is the class that gains most from melee
-becoming parryable at all. The class built around blocking finally gets to
-block. Worth watching in your hands before believing the number.
+### ⚠ AND A THIRD SWEEP RETRACTED MY EXPLANATION OF THE SECOND
 
-The other row is the **Cryomancer, -11 points**, which puts it in the bottom
-three for the first time. Consistent with the frost cone being the one primary
-still left untelegraphed (see WHAT IS STILL OPEN): every other class gained a
-new defensive option this wave and it gained nothing. 1.3σ, so also not settled.
+    class          wave4     wave5    wave5b     5b-5   sigma
+    CLERIC        48 (75%)  50 (78%)  52 (81%)     +2     0.4
+    STORMCALLER   47 (73%)  43 (67%)  44 (69%)     +1     0.2
+    WARLOCK       48 (75%)  47 (73%)  40 (62%)     -7     1.3
+    SWORDSAINT    32 (50%)  32 (50%)  38 (59%)     +6     1.1
+    ARCANIST      29 (45%)  30 (47%)  26 (41%)     -4     0.7
+    BRAWLER       21 (33%)  19 (30%)  25 (39%)     +6     1.1
+    JUGGERNAUT    21 (33%)  31 (48%)  22 (34%)     -9     1.6
+    SHADOWBLADE   17 (27%)  18 (28%)  21 (33%)     +3     0.6
+    CRYOMANCER    25 (39%)  18 (28%)  20 (31%)     +2     0.4
+
+    roster spread (top-bottom):  48 pts -> 50 -> 50
+
+**I said the Juggernaut's +15 in wave 5 was probably real and offered a
+mechanism for it — that it publishes a `guard_tolerance` of 0.200 against
+everyone else's 0.080, so it gains most from melee becoming parryable. The next
+288 bouts took it straight back to 34%. That was noise, and my explanation for
+it was a story fitted to one sample.** Nothing at 1.8σ should have been narrated
+that confidently, and this is the second time this project has caught a
+confident reading of an under-powered measurement.
+
+Two things the data does support, weakly:
+
+- **The Brawler and the Swordsaint did not get weaker** (+6 each) across the
+  wave that made their hidden melee coupling explicit. That is the one thing the
+  damage-neutral fix needed to show, and it shows it.
+- **The Cryomancer is low across two independent samples now** — 39% → 28% →
+  31%. Two agreeing samples is the most persistent signal in the whole table,
+  and the frost cone is the one primary that gained nothing defensively while
+  everything around it did. Still not 2σ. Still your eyes, not the number.
 
 Also confirmed at 4× sample: **the Swordsaint fix worked** — 19%, then 25%,
 now **50%**, and unmoved by this wave.

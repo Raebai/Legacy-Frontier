@@ -38,14 +38,19 @@ floor is the **Shadowblade at 27%**, with Brawler and Juggernaut at 33%. Full
 table in the queue file. The Swordsaint fix is confirmed at 4× sample:
 19% → 25% → **50%**.
 
-⚠ **I predicted the contact classes would drop further once their attacks became
-dodgeable. A second 288-bout sweep says they did not.** Nothing in the
-before/after reaches 2σ; the roster shape barely moved. The only row above 1.5σ
-is the **Juggernaut, +15**, and if it is real the mechanism is that it publishes
-`guard_tolerance` 0.200 against everyone else's 0.080 — so it is the class that
-gains most from melee becoming parryable at all. The **Cryomancer fell 11** into
-the bottom three, consistent with the frost cone being the one primary still
-untelegraphed. Full table in the queue file. **Do not buff on either table.**
+⚠ **THREE 288-BOUT SWEEPS NOW, AND THE THIRD RETRACTED MY READING OF THE SECOND.**
+I predicted the contact classes would drop once their attacks became dodgeable;
+they did not. Then I called the Juggernaut's +15 "probably real" and gave it a
+mechanism (its `guard_tolerance` of 0.200 vs everyone else's 0.080). **The next
+288 bouts put it straight back to 34%. It was noise and my explanation was a
+story fitted to one sample** — nothing at 1.8σ deserved that confidence.
+
+What the data does weakly support: the **Brawler and Swordsaint did not get
+weaker** across the wave that made their hidden melee coupling explicit (the one
+thing the damage-neutral fix needed to show), and the **Cryomancer is low across
+two independent samples** (39 → 28 → 31), the most persistent signal in the
+table. Roster spread is 50 points in all three sweeps. Full table in the queue
+file. **Do not buff on any of these tables.**
 
 ## ▶ WAVE 5b — the one thing wave 5 left open, plus what probing it found
 
