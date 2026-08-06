@@ -1,7 +1,45 @@
 # LIVE PLAYTEST QUEUE — 2026-08-06 (wave 5)
 
-All seven of wave 4's OPEN asks are **actioned**. Branch `bot-fight-quality`,
-**155/155 green**, tree clean. **None of it has been played by hand.**
+All seven of wave 4's OPEN asks are **actioned**, and so is the one thing wave 5
+left open. Branch `bot-fight-quality`, **155/155 green**, tree clean.
+**None of it has been played by hand.**
+
+---
+
+## ⚠ 0. FOUR ABILITIES WERE SECRETLY PUNCHING YOU — read this one first
+
+Not on anybody's list; found by probing. `Hero._ready` connects `rig.hit_frame`
+to the melee handler once, the rig emits that signal for **every** punch or kick
+animation, and the handler never asked whether a swing had been declared. So four
+things that play a strike pose for how it *looks* each landed an extra,
+undeclared, full-damage melee hit — none paying melee's cooldown, none documented:
+
+    Brawler uppercut       [18, 16]   the 16 is a free swing
+    Brawler fire punch     [30, 16]
+    Swordsaint unsheathe   [72, 37]   a THIRD of the move
+    Thunderclap — a SPELL that also punched
+
+**The fix is damage-neutral where it mattered.** You are near the bottom of the
+roster on the Brawler and at exactly 50% on the Swordsaint; a bookkeeping fix
+must not silently nerf either. All three now add `_melee_damage` explicitly and
+every total is unchanged — 16 / 34 / 46 / 19 / 109. Thunderclap is *not*
+compensated: a spell should deal its authored damage.
+
+**What to feel for:** nothing should hit softer. If the Brawler or Swordsaint
+suddenly feels weak, this is the first place to look.
+
+---
+
+## ⚠ 0b. AND THE LAST FOUR UNDODGEABLE ATTACKS NOW TELL
+
+The frost cone, uppercut, fire punch and ground slam all resolved *synchronously
+with the button* — while each was already playing a wind-up animation. The
+picture said "winding up" and the damage had already happened.
+
+**`Hero.ABILITY_TELL_LEAD` = 0.10 s is the one knob, and this is the change in
+the whole wave most likely to need reverting.** It is the only one that alters
+how a button FEELS. Set it to `0.0` and all four resolve on the press again,
+tells intact. One line.
 
 > Wave 4's ask-list is preserved at the bottom for the record. The measurements
 > below are all from headless probes and sweeps — your eyes still decide.
@@ -113,16 +151,21 @@ and is still under the ceiling. If a bot still paces, that number is why.
 
 ## ▶ WHAT IS STILL OPEN
 
-- **Four hero attacks remain genuinely untelegraphed** — the frost cone,
-  the uppercut, the fire punch and the ground slam all deal damage
-  **synchronously on the press**. There is no honest way to give a bot a
-  window there without deferring the damage, which changes how the button
-  feels, and that is a playtest decision, not a reasoning one. The nova is
-  deliberately instant and its header says so.
-- **Per-class Tier 3 drops** — five new ult-weight spells, unstarted, wants a
-  brainstorm first (see the 2026-08-05 (e) section of `NEXT-SESSION.md`).
-- `docs/superpowers/specs/2026-08-05-stick-customisation.md` — fully specced,
-  unbuilt.
+- **Per-class Tier 3 drops** — five new ult-weight spells. Deliberately NOT
+  started: the class-identity ruling forbids making the difference a tint, so
+  each needs its own rule-bending spectacle, and that is design work with your
+  taste in it. **It wants a brainstorm, not a build.**
+- **Stick customisation** —
+  `docs/superpowers/specs/2026-08-05-stick-customisation.md`. Re-read this wave:
+  its own "cheapest real win" (§3, dialogue in the speaker's colour) **already
+  shipped in wave 4** for the duel. What is left — a hair slot, non-robe
+  clothing, accessories, a sheathed katana — all needs **PixelLab art**, which
+  costs your API credits and is your aesthetic call. Not something to ship
+  without you.
+- **The Swordsaint's unsheathe cut has no anticipatory tell**, deliberately. It
+  is a *reactive* punish that fires when you spend a banked guard; a wind-up on
+  a counter-attack is arguably wrong. Say if you want one anyway.
+- The nova stays instant — its own header says so and you did not name it.
 
 ---
 

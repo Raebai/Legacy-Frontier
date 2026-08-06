@@ -47,15 +47,33 @@ gains most from melee becoming parryable at all. The **Cryomancer fell 11** into
 the bottom three, consistent with the frost cone being the one primary still
 untelegraphed. Full table in the queue file. **Do not buff on either table.**
 
-## ▶ WHAT IS STILL OPEN
+## ▶ WAVE 5b — the one thing wave 5 left open, plus what probing it found
 
-- **Four hero attacks are still genuinely untelegraphed** — frost cone,
-  uppercut, fire punch, ground slam. All four deal damage *synchronously on the
-  press*, so there is no honest bot window without deferring damage, and that
-  changes how the button feels. It is a playtest call, not a reasoning one.
-- Per-class Tier 3 drops (five ult-weight spells) — unstarted, wants a
-  brainstorm.
-- `2026-08-05-stick-customisation.md` — specced, unbuilt.
+**The four untelegraphed attacks are done.** Frost cone, uppercut, fire punch
+and ground slam each resolved synchronously with the button *while already
+playing a wind-up animation*. `Hero.ABILITY_TELL_LEAD` (0.10 s) is the single
+knob and **the most likely thing in the wave to need reverting** — set it to 0.0
+and all four resolve on the press again, tells intact.
+
+⚠ **AND PROBING THEM FOUND A BUG NOBODY HAD REPORTED.** `rig.hit_frame` is
+emitted for every punch/kick animation and the melee handler never asked whether
+a swing had been declared, so four things that play a strike pose for FLAVOUR
+each landed a free undeclared melee hit: the uppercut, the fire punch, the
+Swordsaint's unsheathe cut, and **Thunderclap — a spell**. None paid melee's
+cooldown. The fix is damage-neutral (16/34/46/19/109 unchanged); Thunderclap is
+not compensated because a spell should deal its authored damage. Audited: the
+coupling was isolated to `Hero`, nothing else connects that signal.
+
+## ▶ WHAT IS STILL OPEN — and why I did not just build it
+
+- **Per-class Tier 3 drops** — five ult-weight spells. The class-identity ruling
+  forbids making the difference a tint, so each needs its own rule-bending
+  spectacle. **Design work with your taste in it; it wants a brainstorm.**
+- **Stick customisation** — its own "cheapest real win" (dialogue in the
+  speaker's colour) already shipped in wave 4. What remains needs **PixelLab
+  art**, which spends your API credits and is your aesthetic call.
+- The Swordsaint's unsheathe cut has no anticipatory tell, deliberately — it is
+  a reactive punish, and a wind-up on a counter-attack is arguably wrong.
 
 ## THE STANDING JUDGEMENT, UNCHANGED
 
