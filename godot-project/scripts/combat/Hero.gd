@@ -5358,6 +5358,15 @@ func _emit_hero_telegraph(cfg: Dictionary) -> Telegraph:
 ## A REPLAYED PUPPET still resolves, but its tell leaves the perception group the frame
 ## it is born: a cosmetic copy of somebody else's swing must not put a second threat on
 ## this peer's board for a swing already represented by the original.
+##
+## ⚠ AND ITS DAMAGE IS ALREADY SAFE — CHECKED, NOT ASSUMED. `net_replay` clears
+## `_replaying` synchronously, so a deferred hit resolves OUTSIDE the replay guard and a
+## flag-scoped defence would miss it entirely. It does not matter, because the defence
+## is not a flag: `attack_group()` returns `NET_GHOST_GROUP` for a puppet PERSISTENTLY,
+## and its own header says it is written that way precisely because "half of a hero's
+## damage resolves LATER than the call that started it". Both `_resolve_*` helpers go
+## through it, so a puppet's deferred ability finds nobody, exactly as its fists already
+## did.
 func _telegraphed_ability(cfg: Dictionary, resolve: Callable) -> void:
 	if ABILITY_TELL_LEAD <= 0.0:
 		resolve.call()   # the documented revert path: instant, exactly as before
