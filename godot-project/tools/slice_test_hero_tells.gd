@@ -19,7 +19,10 @@ const TESTS: Array[String] = [
 	"a_caster_does_not_perceive_its_own_tell",
 	"a_short_tell_can_reach_the_parry_rung",
 	"a_long_tell_still_uses_the_class_band",
+	"a_real_hero_ability_tells_the_foe_and_not_itself",
 ]
+
+const HERO_SCENE_PATH: String = "res://scenes/combat/Hero.tscn"
 
 var _failures: Array[String] = []
 var _ran: Dictionary = {}
@@ -46,6 +49,7 @@ func _run() -> void:
 	_test_a_caster_does_not_perceive_its_own_tell()
 	_test_a_short_tell_can_reach_the_parry_rung()
 	_test_a_long_tell_still_uses_the_class_band()
+	_test_a_real_hero_ability_tells_the_foe_and_not_itself()
 	for name: String in TESTS:
 		if not _ran.has(name):
 			_failures.append("test `%s` is registered but was never called" % name)
@@ -168,6 +172,61 @@ func _test_a_long_tell_still_uses_the_class_band() -> void:
 		"a 0.90 s tell with 0.90 s still to run is NOT in the guard lead — the band "
 		+ "collapse must never widen the window, only tighten it")
 	_completes("a_long_tell_still_uses_the_class_band")
+
+
+## END TO END, ON A REAL `Hero`, FOR THE FOUR ABILITIES THAT USED TO HIT ON THE PRESS.
+##
+## The unit tests above use bare `Telegraph`s, so they prove the perception CONTRACT
+## and nothing about whether the game actually honours it. These four abilities each
+## reach the tell by a different route — two through `BlastSpell.detonate_at`, two
+## through `Hero._telegraphed_ability` — and only one of those four paths stamps
+## `source` in code this file can see. A route that forgot the stamp would make its own
+## caster dodge its own ability for the whole lead, every time, forever.
+func _test_a_real_hero_ability_tells_the_foe_and_not_itself() -> void:
+	for row: Array in [[2, "_uppercut"], [2, "_fire_punch"], [5, "_primary_frost_cone"],
+			[3, "_ground_slam"]]:
+		var cls: int = row[0]
+		var call_name: String = row[1]
+		var hero: CharacterBody2D = (load(HERO_SCENE_PATH) as PackedScene).instantiate()
+		root.add_child(hero)
+		hero.global_position = Vector2(float(cls) * 4000.0, 0.0)  # each pair far from the rest
+		if hero.has_method("configure_class"):
+			hero.call("configure_class", cls)
+		hero.set("facing", Vector2.RIGHT)
+		hero.set("_aim_dir", Vector2.RIGHT)
+		var foe: Node2D = Node2D.new()
+		root.add_child(foe)
+		foe.global_position = hero.global_position + Vector2(40.0, 0.0)
+		# ⚠ SCOPED TO THE TELLS THIS CALL CREATES. `perceive_threats` applies NO distance
+		# cull — deliberately, a telegraph anywhere on the stage is a telegraph — so a
+		# naive count here also counts every tell the PREVIOUS iterations left alive,
+		# and the first version of this test read 3 / 4 / 5 / 6 and blamed the code.
+		# Moving the fighters apart does not help; only identity does.
+		var before: Dictionary = {}
+		for t: Node in get_nodes_in_group(&"telegraph"):
+			before[t.get_instance_id()] = true
+		hero.call(call_name)
+		var by_foe: int = _fresh(
+			BotController.perceive_threats(self, foe.global_position, foe), before)
+		var by_self: int = _fresh(
+			BotController.perceive_threats(self, hero.global_position, hero), before)
+		_expect(by_foe >= 1, "%s publishes a tell the foe can see (saw %d)" % [call_name, by_foe])
+		_expect(by_self == 0,
+			"%s does NOT make its own caster dodge it (caster saw %d)" % [call_name, by_self])
+		hero.queue_free()
+		foe.queue_free()
+		for t: Node in get_nodes_in_group(&"telegraph"):
+			t.free()   # immediate, so the next row starts from a clean board
+	_completes("a_real_hero_ability_tells_the_foe_and_not_itself")
+
+
+## How many of `seen` were created since the `before` snapshot.
+func _fresh(seen: Array, before: Dictionary) -> int:
+	var n: int = 0
+	for d: Dictionary in seen:
+		if not before.has(int(d.get("id", 0))):
+			n += 1
+	return n
 
 
 func _bb() -> Dictionary:
