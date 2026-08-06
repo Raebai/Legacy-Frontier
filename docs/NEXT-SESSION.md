@@ -38,9 +38,14 @@ floor is the **Shadowblade at 27%**, with Brawler and Juggernaut at 33%. Full
 table in the queue file. The Swordsaint fix is confirmed at 4× sample:
 19% → 25% → **50%**.
 
-⚠ **And the bottom three are the three contact classes — the ones whose attacks
-nobody could see until this wave.** Making those attacks dodgeable and
-parryable points them *further* down. Do not buff on the pre-change table.
+⚠ **I predicted the contact classes would drop further once their attacks became
+dodgeable. A second 288-bout sweep says they did not.** Nothing in the
+before/after reaches 2σ; the roster shape barely moved. The only row above 1.5σ
+is the **Juggernaut, +15**, and if it is real the mechanism is that it publishes
+`guard_tolerance` 0.200 against everyone else's 0.080 — so it is the class that
+gains most from melee becoming parryable at all. The **Cryomancer fell 11** into
+the bottom three, consistent with the frost cone being the one primary still
+untelegraphed. Full table in the queue file. **Do not buff on either table.**
 
 ## ▶ WHAT IS STILL OPEN
 

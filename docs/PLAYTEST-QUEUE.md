@@ -63,15 +63,41 @@ And in **the exact matchup you watched**, `WARLOCK vs CLERIC` is **5-3 to the
 Warlock (62%)**. It is joint-top of the roster. The bout you saw is the 38%.
 Nothing was changed. Say the word and I will.
 
-### THE REAL BALANCE PROBLEM IS THE CONTACT CLASSES
-The bottom three — Shadowblade 27%, Brawler 33%, Juggernaut 33% — are the
-three classes whose attacks nobody could see. **And I have just made those
-attacks dodgeable and parryable**, which points them further down. A re-run
-sweep is in this session's report; treat any contact-class buff as waiting on
-your eyes rather than on the number.
+### ⚠ I PREDICTED THE CONTACT CLASSES WOULD DROP. THEY DID NOT — RE-MEASURED
+
+Before this wave the bottom three were Shadowblade 27%, Brawler 33% and
+Juggernaut 33% — the three classes whose attacks nobody could see. Making those
+attacks dodgeable and parryable should have pushed them further down. A second
+288-bout sweep against the changed code says otherwise:
+
+    class          before     after    delta   sigma
+    CRYOMANCER    25 (39%)  18 (28%)     -7     1.3
+    STORMCALLER   47 (73%)  43 (67%)     -4     0.8
+    BRAWLER       21 (33%)  19 (30%)     -2     0.4
+    WARLOCK       48 (75%)  47 (73%)     -1     0.2
+    SWORDSAINT    32 (50%)  32 (50%)     +0     0.0
+    ARCANIST      29 (45%)  30 (47%)     +1     0.2
+    SHADOWBLADE   17 (27%)  18 (28%)     +1     0.2
+    CLERIC        48 (75%)  50 (78%)     +2     0.4
+    JUGGERNAUT    21 (33%)  31 (48%)    +10     1.8
+
+**NOTHING REACHES 2σ, so read none of it as settled.** The honest summary is
+that the roster shape barely moved and the top three are unchanged.
+
+The one row worth a thought is the **Juggernaut, +15 points and the only mover
+above 1.5σ**. If it is real, the mechanism is specific and checkable: the
+Juggernaut publishes `guard_tolerance` **0.200** — a block, against every other
+class's 0.080 press window — so it is the class that gains most from melee
+becoming parryable at all. The class built around blocking finally gets to
+block. Worth watching in your hands before believing the number.
+
+The other row is the **Cryomancer, -11 points**, which puts it in the bottom
+three for the first time. Consistent with the frost cone being the one primary
+still left untelegraphed (see WHAT IS STILL OPEN): every other class gained a
+new defensive option this wave and it gained nothing. 1.3σ, so also not settled.
 
 Also confirmed at 4× sample: **the Swordsaint fix worked** — 19%, then 25%,
-now **50%**.
+now **50%**, and unmoved by this wave.
 
 ### THE BOT STUTTER FIX HAS AN HONEST REGRESSION
 Reversals per second, with a control run for every claim:
