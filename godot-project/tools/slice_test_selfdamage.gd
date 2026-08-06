@@ -185,10 +185,17 @@ func _test_melee_autotargets_nearest_enemy() -> void:
 	enemy.add_to_group("enemy")
 	enemy.global_position = Vector2(-20.0, 0.0)  # within _melee_range, opposite the cursor
 	root.add_child(enemy)
+	# ⚠ DECLARE THE SWING. `_on_melee_hit_frame` now refuses to land unless a swing
+	# was actually declared — the rig fires `hit_frame` for ANY punch or kick, and
+	# four abilities played one without meaning to swing (see the block at the top
+	# of that function). Driving the handler directly is a harness shortcut, so the
+	# harness has to open the window the real path opens.
+	hero.set("_swing_window", hero.SWING_WINDOW)
 	hero.call("_on_melee_hit_frame")
 	_expect(enemy.hit_count > 0, "melee auto-targets the nearest enemy even when the cursor isn't aimed at them")
 	# Control: with no enemy at all in range, nothing should hit or crash.
 	enemy.global_position = Vector2(500.0, 500.0)  # out of _melee_range
+	hero.set("_swing_window", hero.SWING_WINDOW)
 	hero.call("_on_melee_hit_frame")
 	_expect(enemy.hit_count == 1, "no false hit once the enemy leaves melee range")
 	hero.queue_free()

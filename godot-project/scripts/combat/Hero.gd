@@ -1062,6 +1062,20 @@ var _melee_damage: int = MELEE_DAMAGE
 var _melee_range: float = MELEE_RANGE
 var _melee_knockback: float = MELEE_KNOCKBACK
 var _melee_cd: float = MELEE_COOLDOWN     # per-class swing cadence (Brawler fast, Juggernaut slow)
+## Seconds a DECLARED swing still has to reach its own hit frame. Gates
+## `_on_melee_hit_frame`, which the rig fires for any PUNCH/KICK animation — see the
+## block at the top of that function for the four things that played one without
+## meaning to swing.
+##
+## A self-expiring WINDOW rather than a bare flag on purpose: a swing interrupted
+## before its hit frame (a HURT one-shot cutting in) would leave a flag raised, and the
+## next animation to fire — quite possibly one of the four — would spend it. A window
+## closes on its own.
+var _swing_window: float = 0.0
+## How long that window stays open. The longest strike one-shot is the 0.26 s KICK and
+## its hit frame lands at 0.35 of that; this is comfortably past it while still being
+## far shorter than any ability cooldown.
+const SWING_WINDOW: float = 0.30
 var _melee_arc_dot: float = MELEE_ARC_DOT # per-class arc width (Juggernaut swings wide)
 var _buffered_action: String = ""
 var _buffer_timer: float = 0.0
@@ -1854,6 +1868,11 @@ func _physics_process(delta: float) -> void:
 	_dash_cooldown_timer = max(_dash_cooldown_timer - _cd_delta, 0.0)
 	_cast_cooldown_timer = max(_cast_cooldown_timer - _cd_delta, 0.0)
 	_melee_cooldown_timer = max(_melee_cooldown_timer - _cd_delta, 0.0)
+	# ⚠ REAL TIME, NOT FOCUS-SCALED. This is the window a DECLARED swing has to reach
+	# its own hit frame, and that frame is emitted by the rig's animation clock — which
+	# does not know about cooldown-recovery growth. Ticking it at `_cd_delta` would let
+	# a levelled hero's window expire before the animation it belongs to.
+	_swing_window = maxf(_swing_window - delta, 0.0)
 	_blast_cooldown_timer = max(_blast_cooldown_timer - _cd_delta, 0.0)
 	_blink_cooldown_timer = maxf(_blink_cooldown_timer - _cd_delta, 0.0)
 	_nova_cooldown_timer = maxf(_nova_cooldown_timer - _cd_delta, 0.0)
@@ -4010,6 +4029,23 @@ func _uppercut() -> void:
 	rig.play(CharacterRig.State.KICK)
 	velocity.y = -320.0  # the hero rises with the uppercut
 	var face_x: float = signf(_aim_dir.x) if _aim_dir.x != 0.0 else 1.0
+	# ⚠ TELEGRAPHED. The launcher resolved on the press frame while the rig was still
+	# playing a KICK — the leap read as a wind-up the damage had already skipped — and
+	# it left `BotDodge` nothing to perceive. The hero still rises immediately; only
+	# the connect waits, which is also how a real uppercut reads. `ABILITY_TELL_LEAD`
+	# is the one knob; 0.0 restores the press-frame hit.
+	_telegraphed_ability({
+		"pos": global_position + Vector2(face_x * 24.0, -10.0),
+		"radius": UPPERCUT_REACH * 0.6,
+		"windup": ABILITY_TELL_LEAD,
+		"style": Telegraph.Style.DART,
+		"aim": Vector2(face_x, -0.5), "reach": UPPERCUT_REACH,
+	}, _resolve_uppercut.bind(face_x))
+
+
+## The uppercut's actual hit. `face_x` is passed in rather than re-read, so turning
+## during the lead cannot re-aim a launcher that has already committed.
+func _resolve_uppercut(face_x: float) -> void:
 	var hit_any: bool = false
 	# A launcher is the one melee move whose whole point is VERTICAL, so an
 	# origin-point test was the worst possible fit: it measured to a spot below the
@@ -4017,13 +4053,19 @@ func _uppercut() -> void:
 	# now, in a wedge that is the forward half plus a small overlap behind — which is
 	# what the old `signf(to.x) != face_x and absf(to.x) > 10.0` clause was
 	# approximating for a body standing directly on top of you.
-	const UPPERCUT_REACH: float = 70.0
-	const UPPERCUT_DOT: float = -0.2
 	for enemy: Node in SpellTargets.in_cone(global_position, Vector2(face_x, 0.0),
 			UPPERCUT_REACH, UPPERCUT_DOT, get_tree().get_nodes_in_group(attack_group()),
 			[self], self):
 		if enemy.has_method("take_damage"):
-			enemy.take_damage(18)
+			# ⚠ 18 + `_melee_damage`, AND THAT IS NOT A BUFF — it is the same total this
+			# move has always dealt, made visible. The KICK animation used to land a
+			# free undeclared melee hit on top of the 18 (measured: [18, 16] against a
+			# recorder), and gating that off would have quietly cut a bottom-of-the-
+			# roster class's launcher by nearly half. Reading `_melee_damage` rather
+			# than the literal 34 keeps it tracking the class it belongs to.
+			# ⚠ ONE EDGE MOVES: the free hit used melee's own cone, so a body inside
+			# melee reach but outside this wedge used to take 16 and now takes nothing.
+			enemy.take_damage(18 + _melee_damage)
 		if enemy.has_method("apply_knockback"):
 			enemy.apply_knockback(Vector2(face_x * 120.0, -470.0))  # POP up + slight away
 		if enemy.has_method("apply_status"):
@@ -4302,6 +4344,9 @@ func _primary_heavy_swing() -> void:
 		return
 	rig.set_facing(_aim_dir)
 	rig.play(CharacterRig.State.PUNCH)
+	# This path never calls `_melee`, and its damage IS the rig hit frame — so it has
+	# to declare the swing itself or it would stop dealing any. See _on_melee_hit_frame.
+	_swing_window = SWING_WINDOW
 	# Smaller wind-up (maker: "make the charge up for the heavys just slightly smaller").
 	rig.cast_gesture(CharacterRig.GestureKind.STOMP, 0.4, _element)
 	# STEP INTO the swing so the heavy actually closes + CONNECTS (maker: the heavy
@@ -4347,23 +4392,42 @@ func _primary_frost_cone() -> void:
 	## 19 puts it just over the mean, which is what a short-range primary should be
 	## worth for the risk it carries.
 	const CONE_DAMAGE: int = 19
+	# ⚠ TELEGRAPHED, AND THIS WAS THE ONLY HITSCAN PRIMARY IN THE GAME WITH NOTHING TO
+	# PERCEIVE. It resolved in the same synchronous call as the press while the rig was
+	# still playing a CAST and coating the hand in frost — so the picture promised a
+	# wind-up that the damage had already skipped, and `BotDodge` had no object to read.
+	# The lead is `ABILITY_TELL_LEAD`; set that to 0.0 to restore the press-frame hit.
+	_telegraphed_ability({
+		"pos": global_position + _aim_dir.normalized() * CONE_RANGE * 0.5,
+		"radius": CONE_RANGE * 0.5,
+		"windup": ABILITY_TELL_LEAD,
+		"style": Telegraph.Style.MUZZLE,
+		"aim": _aim_dir, "reach": CONE_RANGE,
+	}, _resolve_frost_cone.bind(_aim_dir, CONE_RANGE, CONE_COS, CONE_DAMAGE))
+
+
+## The frost cone's actual hit, split out so the tell above owns the timing. Takes the
+## aim as an ARGUMENT rather than reading `_aim_dir`: the cone is fixed at the press,
+## exactly like a telegraph lane, so spinning during the lead cannot re-point it.
+func _resolve_frost_cone(aim: Vector2, cone_range: float, cone_cos: float,
+		cone_damage: int) -> void:
 	var hit_any: bool = false
 	# The cone is now measured against the DRAWN body and line-of-sight filtered,
 	# through the same selector every spell uses. It was the clearest instance of the
 	# head bug in a primary attack: a frost cone aimed at head height resolved
 	# against an origin ~10 px lower and simply did not connect.
-	for enemy: Node in SpellTargets.in_cone(global_position, _aim_dir, CONE_RANGE,
-			CONE_COS, get_tree().get_nodes_in_group(attack_group()), [self], self):
+	for enemy: Node in SpellTargets.in_cone(global_position, aim, cone_range,
+			cone_cos, get_tree().get_nodes_in_group(attack_group()), [self], self):
 		var to: Vector2 = (enemy as Node2D).global_position - global_position
 		if enemy.has_method("take_damage"):
-			enemy.take_damage(CONE_DAMAGE)
+			enemy.take_damage(cone_damage)
 		if enemy.has_method("apply_status"):
 			enemy.apply_status(_element)
 		if enemy.has_method("apply_knockback"):
 			enemy.apply_knockback(to.normalized() * 160.0)
 		hit_any = true
 	# Frost fan VFX along the aim.
-	var fan_at: Vector2 = global_position + _aim_dir * CONE_RANGE * 0.55
+	var fan_at: Vector2 = global_position + aim * cone_range * 0.55
 	CombatVfx.spawn_burst(
 		get_parent(), fan_at, Color(0.85, 0.97, 1.0, 0.9), Color(0.5, 0.8, 1.0, 0.0),
 		20, 0.32, 120.0, 260.0, 0.6, 1.8
@@ -4448,11 +4512,20 @@ func _fire_punch() -> void:
 	var blast: Node2D = BLAST_SCENE.instantiate()
 	get_parent().add_child(blast)
 	blast.call("configure", {
-		"target_group": String(attack_group()), "damage": 30, "radius": 66.0,
-		"knockback": 430.0, "element_id": _element,
+		# ⚠ 30 + `_melee_damage`, AND THAT IS NOT A BUFF. The PUNCH animation this
+		# plays for flavour used to land a free undeclared melee hit on top of the
+		# blast (measured: [30, 16] against a recorder). Same total, now in one number.
+		"target_group": String(attack_group()), "damage": 30 + _melee_damage,
+		"radius": 66.0, "knockback": 430.0, "element_id": _element,
+		"windup": ABILITY_TELL_LEAD,
 	})
 	blast.set("caster_node", self)  # unowned = inert in the reaction layer (see _blast)
-	blast.call("detonate_now", center)
+	# ⚠ `detonate_at`, NOT `detonate_now`. The header of `detonate_now` reserves it for
+	# callers that "already ran their own tell, or are a melee-range punch whose own
+	# ANIMATION is the tell" — and an animation is exactly the thing a dodging brain
+	# cannot see. This is the same tested telegraphed path the placed giant blast uses,
+	# so it costs no new code and brings a drawn danger ring with it.
+	blast.call("detonate_at", center)
 	# The PUNCH beat, graded off the shared tier ladder rather than a bare 0.8 — a
 	# punch is a physical concussion, so it lands on BLOWOUT, and it now reads as
 	# lighter than an ult instead of matching one. Localized on the blast, because
@@ -4471,9 +4544,12 @@ func _ground_slam() -> void:
 	blast.call("configure", {
 		"target_group": String(attack_group()), "damage": 34, "radius": 98.0,
 		"knockback": 380.0, "element_id": _element,
+		"windup": ABILITY_TELL_LEAD,
 	})
 	blast.set("caster_node", self)  # unowned = inert in the reaction layer (see _blast)
-	blast.call("detonate_now", global_position)
+	# Telegraphed, for the reason given on the fire punch. This one is the Juggernaut's,
+	# and "the Juggernaut's punches have no tell" is on the maker's own list.
+	blast.call("detonate_at", global_position)
 
 
 ## Energy nova: instant self-centered shockwave. No telegraph — the panic
@@ -4764,7 +4840,13 @@ func _release_blade_guard() -> void:
 ## means you must still be pointed at the thing you blocked. It is aimed with
 ## `_aim_dir`, so it is a real aim decision and never an auto-target.
 func _unsheathe_cut(banked: int) -> void:
-	var dmg: int = int(round(float(banked) * GUARD_RETURN_MULT))
+	# ⚠ + `_melee_damage`, AND THAT IS NOT A BUFF. The PUNCH this plays for the draw
+	# used to land a free undeclared melee hit on top of the cut — measured [72, 37]
+	# against a recorder, i.e. a THIRD of the move. Same total, now in one number, on a
+	# class sitting at exactly 50% that must not be nerfed by a bookkeeping fix.
+	# ⚠ ONE EDGE MOVES: the free hit used melee's cone and this cut is a LINE, so a body
+	# beside the line but inside melee reach used to take the 37 and now takes nothing.
+	var dmg: int = int(round(float(banked) * GUARD_RETURN_MULT)) + _melee_damage
 	var dir: Vector2 = _aim_dir.normalized() if _aim_dir != Vector2.ZERO else facing
 	rig.set_aim(dir)
 	rig.play(CharacterRig.State.PUNCH)
@@ -5112,6 +5194,7 @@ func equip_weapon(kind: String) -> void:
 
 func _melee() -> void:
 	_melee_cooldown_timer = _melee_cd
+	_swing_window = SWING_WINDOW  # this one really is a swing; see _on_melee_hit_frame
 	_net_send("ml")
 	if _melee_kick_next:
 		rig.play(CharacterRig.State.KICK)
@@ -5175,6 +5258,33 @@ const SWING_TELL_HEAVY_DAMAGE: int = 20
 const SWING_TELL_CENTRE: float = 0.55
 const SWING_TELL_RADIUS: float = 0.55
 
+## ══ THE ONE KNOB FOR THE FOUR ABILITIES THAT USED TO HIT ON THE PRESS ══════════
+## Seconds of warning the frost cone, the uppercut, the fire punch and the ground
+## slam give before they land.
+##
+## ⚠ THESE FOUR DEALT DAMAGE SYNCHRONOUSLY WITH THE BUTTON, and each of them was
+## ALREADY PLAYING A WIND-UP ANIMATION while doing it — a CAST, a KICK, a PUNCH, a
+## STOMP gesture. So the picture on screen said "winding up" and the damage had
+## already happened. This does not add a delay so much as make the damage agree with
+## the animation that was always there.
+##
+## It also closes the last hole in the locked *"everything must be dodgeable"* rule
+## (see `CrescentStep`'s header) and is what lets `BotDodge` see them at all — a
+## hitscan cone that resolves on the press frame leaves nothing to perceive.
+##
+## ⚠ THIS IS THE CHANGE IN THIS WAVE MOST LIKELY TO NEED REVERTING, because it is the
+## only one that alters how a button FEELS and it has not been played. **Set it to 0.0
+## and all four resolve on the press again** — one line, and the tells stay.
+## UNTESTED GUESS at 0.10: shorter than the melee tell's own 0.077 s would be
+## pointless, and much longer starts reading as input lag on a primary.
+const ABILITY_TELL_LEAD: float = 0.10
+
+## The launcher's wedge: the forward half plus a small overlap behind, so a body
+## standing directly on top of you is still popped. Promoted out of `_uppercut`'s body
+## when the hit was split from the tell — both halves read them now.
+const UPPERCUT_REACH: float = 70.0
+const UPPERCUT_DOT: float = -0.2
+
 
 ## Seconds from a swing's COMMIT to the frame it deals damage — the rig's own timing,
 ## derived rather than restated, so retuning the animation retunes the tell with it.
@@ -5231,6 +5341,38 @@ func _emit_hero_telegraph(cfg: Dictionary) -> Telegraph:
 	# that could drift from it or a second place damage could come from.
 	tele.start(float(cfg.get("radius", 40.0)), float(cfg.get("windup", 0.1)))
 	return tele
+
+
+## Publish an ability's tell, wait out its lead, then resolve it.
+##
+## ⚠ THE TELEGRAPH IS THE CLOCK — deliberately, and not a `SceneTreeTimer`.
+##
+## A `Telegraph` is a NODE, so a headless test can step it with `advance(delta)` the
+## way `MeteorFist` already drives its own. A `SceneTreeTimer` can only be advanced by
+## real frames, and this project's suites drive combat by calling `rig.advance(0.02)`
+## in a tight synchronous loop with no frames passing at all — so a timer-based lead
+## would simply never elapse under test, and the first version of this did exactly that
+## (`test_class_attacks` caught it: the Cryomancer's cone stopped landing entirely).
+## It is also the same pattern `BlastSpell.detonate_at` has always used.
+##
+## A REPLAYED PUPPET still resolves, but its tell leaves the perception group the frame
+## it is born: a cosmetic copy of somebody else's swing must not put a second threat on
+## this peer's board for a swing already represented by the original.
+func _telegraphed_ability(cfg: Dictionary, resolve: Callable) -> void:
+	if ABILITY_TELL_LEAD <= 0.0:
+		resolve.call()   # the documented revert path: instant, exactly as before
+		return
+	var tele: Telegraph = _emit_hero_telegraph(cfg)
+	if tele == null:
+		resolve.call()   # no arena to hang a tell on; the hit still has to happen
+		return
+	if _replaying:
+		tele.remove_from_group(Telegraph.GROUP)
+	# A body that died or left the arena during the lead must not resolve into a
+	# freed tree, so the guard rides with the callable rather than the caller.
+	tele.fired.connect(func() -> void:
+		if is_instance_valid(self) and is_inside_tree():
+			resolve.call())
 
 
 ## Drive the persistent flaming fist: decay the timer, feed the rig the current
@@ -5310,6 +5452,31 @@ func _nearest_enemy_in_melee_range() -> Node2D:
 
 
 func _on_melee_hit_frame() -> void:
+	# ══ ONLY A DECLARED SWING LANDS ═════════════════════════════════════════════
+	# ⚠ THIS HANDLER USED TO FIRE FOR ANY PUNCH OR KICK ANIMATION IN THE GAME, and
+	# four things play one WITHOUT being a melee swing. MEASURED against a recorder
+	# with `tools/hero_hitframe_probe.gd`:
+	#
+	#   Brawler uppercut   -> [18, 16]   the 16 is a free melee swing
+	#   Brawler fire punch -> [30, 16]   likewise
+	#
+	# `rig.hit_frame` is emitted for every PUNCH/KICK one-shot, `_ready` connects this
+	# handler to it once, and the only early-out was the clash check. So the uppercut
+	# (KICK, for the launcher pose), the fire punch (PUNCH, so the fist ignites), the
+	# Swordsaint's `_unsheathe_cut` (PUNCH) and **Thunderclap — a SPELL** (PUNCH, for
+	# the lunge) each landed an extra, undeclared, full-damage melee hit. None of them
+	# consumed `_melee_cooldown_timer`, so none of them paid melee's cadence for it,
+	# and nothing anywhere documented that it happened.
+	#
+	# Nobody designs "casting Thunderclap also punches". The animation was chosen for
+	# how it LOOKS and quietly bought a hitbox.
+	#
+	# ⚠ AND THE FIX IS DAMAGE-NEUTRAL WHERE IT MATTERED — see `_uppercut` and
+	# `_fire_punch`, which now add `_melee_damage` to their own numbers explicitly. The
+	# Brawler is near the bottom of the roster and this must not be a silent nerf to it.
+	if _swing_window <= 0.0:
+		return
+	_swing_window = 0.0
 	# The swing was spent meeting another blow head-on, so it must NOT also land.
 	# A clash that still dealt its damage would read as "we both hit each other"
 	# rather than "our blows cancelled", and the whole beat is the cancellation.

@@ -458,6 +458,12 @@ func _test_melee_teammate_rules() -> void:
 	_expect(a.call("_nearest_enemy_in_melee_range") == null,
 		"the melee auto-target refuses to lock onto a team-mate (it scans the FACTION)")
 	var before: int = int(mate.get("hp"))
+	# ⚠ DECLARE THE SWING. `_on_melee_hit_frame` now refuses to land unless a swing
+	# was actually declared — the rig fires `hit_frame` for ANY punch or kick, and
+	# four abilities played one without meaning to swing (see the block at the top
+	# of that function). Driving the handler directly is a harness shortcut, so the
+	# harness has to open the window the real path opens.
+	a.set("_swing_window", a.SWING_WINDOW)
 	a.call("_on_melee_hit_frame")
 	_expect(int(mate.get("hp")) < before,
 		"...but a swing you AIMED at them lands — that is the feature working")
@@ -471,6 +477,7 @@ func _test_melee_teammate_rules() -> void:
 	b.set("facing", Vector2.RIGHT)
 	b.set("_aim_dir", Vector2.RIGHT)
 	var back_before: int = int(mate_back.get("hp"))
+	b.set("_swing_window", b.SWING_WINDOW)
 	b.call("_on_melee_hit_frame")
 	_expect(int(mate_back.get("hp")) == back_before,
 		"a team-mate BEHIND you is never dragged into the swing")

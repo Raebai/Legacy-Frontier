@@ -493,6 +493,11 @@ func _test_faction_melee_follows_the_faction() -> void:
 	_expect(a.call("_nearest_enemy_in_melee_range") == b,
 		"the melee auto-target finds a HOSTILE hero (it is faction-scanned now)")
 	var before: int = _hp_of(b)
+	# ⚠ DECLARE THE SWING. `_on_melee_hit_frame` refuses to land unless one was
+	# actually declared — the rig fires `hit_frame` for ANY punch or kick, and four
+	# abilities played one without meaning to swing. Driving the handler directly is
+	# a harness shortcut, so the harness opens the window the real path opens.
+	a.set("_swing_window", a.SWING_WINDOW)
 	a.call("_on_melee_hit_frame")
 	_expect(_hp_of(b) < before, "a swing lands on the hostile hero")
 
@@ -515,6 +520,7 @@ func _test_faction_melee_follows_the_faction() -> void:
 	_expect(c.call("_nearest_enemy_in_melee_range") == null,
 		"the auto-target does NOT lock onto a team-mate")
 	var mate_before: int = _hp_of(mate)
+	c.set("_swing_window", c.SWING_WINDOW)
 	c.call("_on_melee_hit_frame")
 	_expect(_hp_of(mate) < mate_before,
 		"FRIENDLY FIRE: a swing you aimed at a team-mate DOES land on them")
@@ -528,6 +534,7 @@ func _test_faction_melee_follows_the_faction() -> void:
 	mate_behind.set_faction(&"f6_a", &"f6_b")
 	d.set("facing", Vector2.RIGHT)
 	var behind_before: int = _hp_of(mate_behind)
+	d.set("_swing_window", d.SWING_WINDOW)
 	d.call("_on_melee_hit_frame")
 	_expect(_hp_of(mate_behind) == behind_before,
 		"a team-mate BEHIND you is never dragged into the swing by the auto-target")

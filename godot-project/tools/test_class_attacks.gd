@@ -41,9 +41,20 @@ func _process(_d: float) -> bool:
 		hero.call("_cast")
 		# Advance the rig so a melee PUNCH fires its hit_frame synchronously (emit ->
 		# _on_melee_hit_frame runs inline; no real frame needed).
+		#
+		# ⚠ AND ADVANCE THE TELLS TOO, or a telegraphed primary never resolves here.
+		# The Cryomancer's frost cone used to hit on the press frame; it now waits out
+		# `Hero.ABILITY_TELL_LEAD` on a `Telegraph`, and a Telegraph is a NODE with its
+		# own clock. This loop passes NO real frames — that is the whole point of the
+		# synchronous style — so anything driven by frames simply never elapses. This
+		# test caught exactly that and is the reason the lead is hung on a Telegraph
+		# rather than on a `SceneTreeTimer`, which a test cannot step at all.
 		var rig: Node = hero.get_node("Rig")
 		for i in 24:
 			rig.call("advance", 0.02)
+			for tell: Node in get_nodes_in_group(&"telegraph"):
+				if is_instance_valid(tell) and tell.has_method("advance"):
+					tell.call("advance", 0.02)
 		# Bolt classes fire a Spell projectile synchronously in _cast (it flies later).
 		var projectile_fired: bool = not get_nodes_in_group("player_spell").is_empty()
 		var landed: bool = e.hp < 100

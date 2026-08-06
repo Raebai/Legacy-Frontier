@@ -282,7 +282,10 @@ func _test_unsheathe_pays_the_bank() -> void:
 	behind.global_position = Vector2(-70.0, 0.0)
 	root.add_child(behind)
 	hero.call("_unsheathe_cut", 60)
-	var expected: int = int(round(60.0 * float(hero.GUARD_RETURN_MULT)))
+	# ⚠ + `_melee_damage`. The draw's PUNCH animation used to land a free undeclared
+	# melee hit on top of the cut (measured [72, 37]); that coupling is gone and the
+	# value is folded into the cut explicitly, so the move deals what it always did.
+	var expected: int = int(round(60.0 * float(hero.GUARD_RETURN_MULT))) 		+ int(hero.get("_melee_damage"))
 	_expect(front.hits.size() == 1, "the cut lands on what you are pointed at")
 	if front.hits.size() == 1:
 		_expect(front.hits[0] == expected,
@@ -535,6 +538,11 @@ func _test_melee_measures_the_silhouette() -> void:
 		"the far stub's ORIGIN really is out of melee range (the old test would miss it)")
 	_expect(SpellTargets.body_distance(far, hero.global_position) <= reach,
 		"...while its DRAWN BODY reaches inside — this is the whole bug")
+	# ⚠ DECLARE THE SWING. `_on_melee_hit_frame` now refuses to land unless one was
+	# actually declared — the rig fires `hit_frame` for ANY punch or kick, and four
+	# abilities played one without meaning to swing. Driving the handler directly is a
+	# harness shortcut, so the harness opens the window the real path opens.
+	hero.set("_swing_window", hero.SWING_WINDOW)
 	hero.call("_on_melee_hit_frame")
 	_expect(not near.hits.is_empty(), "the swing lands on the near enemy")
 	_expect(not far.hits.is_empty(),
