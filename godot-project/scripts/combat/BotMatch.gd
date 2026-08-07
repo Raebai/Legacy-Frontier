@@ -115,9 +115,56 @@ const FALLBACK_TINT: Color = Color(0.85, 0.88, 0.95)
 ## The corner colour. Static so the intro card, the plates and the suite all ask the
 ## SAME function rather than three copies of an index-into-an-array.
 static func side_color(side: int) -> Color:
+	# ══ THE CLASS WINS WHEN THE CLASSES CAN BE TOLD APART ═══════════════════
+	# Maker: *"can we like make the stick fighters colours relvant to their class
+	# cleric yellow warlock purple etc."*.
+	#
+	# `ClassInfo.color_for` has always held exactly that — Cleric pale gold, Warlock
+	# violet, Cryomancer ice blue — and this file overrode it with a corner palette
+	# because of the problem stated above: `GameState.colourway` painted BOTH fighters
+	# one shared colour, so the audience had nothing to track. Corner colours fixed
+	# that by throwing the class away, which is a different loss.
+	#
+	# ⚠ AND THE FALLBACK IS NOT ABOUT MIRROR MATCHES ONLY. The Shadowblade and the
+	# Warlock are the SAME violet in `ClassInfo` — `Color(0.6, 0.35, 0.9)` twice — so
+	# "same class" would not have caught the worst case. `_resolve_side_tints`
+	# measures the actual colour distance and hands the bout back to yellow-vs-blue
+	# whenever the two classes are not separable, which covers mirror matches for free.
+	#
+	# ⚠ AND IT IS STILL ONE FUNCTION. The intro card, the corner plates, the result
+	# card and the bodies all read this, which is what makes it impossible for the
+	# card to promise one colour and the stage to draw another. Resolving the class
+	# tint HERE rather than at each of those call sites is what keeps that true.
+	if side >= 0 and side < side_tint.size():
+		return side_tint[side]
 	if side < 0 or side >= SIDE_COLORS.size():
 		return FALLBACK_TINT
 	return SIDE_COLORS[side]
+
+
+## Below this RGB distance two class colours are the same colour to an audience, and
+## the bout falls back to the corner palette. The Shadowblade/Warlock pair sits at
+## exactly 0.0, so this is not a hypothetical.
+const MIN_CLASS_SEPARATION: float = 0.30
+
+## Resolved per bout by `_resolve_side_tints`. EMPTY means "use the corner palette".
+##
+## A static for the same reason every other knob in this file is one: the intro card
+## and the suite reach `side_color` without an instance. Cleared in `_exit_tree`,
+## because a static outlives the scene and a stale pair would repaint the next bout.
+static var side_tint: Array[Color] = []
+
+
+## Pick the two body colours for this bout: the classes' own, unless they are too
+## close to tell apart. See `side_color`.
+func _resolve_side_tints() -> void:
+	side_tint = []
+	var a: Color = ClassInfo.color_for(_fighter_class[0])
+	var b: Color = ClassInfo.color_for(_fighter_class[1])
+	var d: float = Vector3(a.r - b.r, a.g - b.g, a.b - b.b).length()
+	if d < MIN_CLASS_SEPARATION:
+		return   # indistinguishable — yellow vs blue, and the corner is the read
+	side_tint = [a, b]
 
 ## WHO THEY ARE, as a multiplier on the shared HP pool. Ordered like CLASS_LABELS.
 ##
@@ -536,6 +583,9 @@ func _exit_tree() -> void:
 	for f: Node2D in _fighters:
 		BotBrain.forget_drops(f)
 	_set_rank_hud(true)   # the autoload outlives this scene; see _hide_duplicate_chrome
+	# A static outlives the scene: a stale pair would repaint the next bout's fighters
+	# in the last one's classes. Same reason the showcase statics below are cleared.
+	side_tint = []
 	var arena_script: GDScript = load(ARENA_SCRIPT) as GDScript
 	if arena_script == null:
 		return
@@ -594,6 +644,9 @@ func _adopt_fighters() -> void:
 		return
 	_fighter_class[0] = _left_class()
 	_fighter_class[1] = _right_class()
+	# Before anything paints: the card, the plates and the bodies all read
+	# `side_color`, so the tints have to be settled before any of them ask.
+	_resolve_side_tints()
 	for side: int in 2:
 		var f: Node2D = _fighters[side]
 		var hp: int = _vital_hp(_fighter_class[side])

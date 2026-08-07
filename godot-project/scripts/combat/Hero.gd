@@ -2972,6 +2972,13 @@ func _cast_signature() -> void:
 		Sfx.play("melee_swing", -14.0, 0.0)
 		return
 	_hand.start_cooldown(slot, spell.cooldown * cooldown_mult_for(spell))
+	# ══ THE SPELL SAYS ITS OWN NAME ════════════════════════════════════════════
+	# Maker: *"some spells dont show the words when they are being cast"*. Tiered off
+	# `SpellTier.of` so a spell cannot lie about how important its own announcement is
+	# — QUICK stays silent, HEAVY gets a small rising label, an ULT gets the banner.
+	# The full argument (including why this is NOT a speech bubble, which is what was
+	# proposed) is in `CastName`'s header.
+	CastName.announce(get_parent(), self, spell, _element_color)
 	# Armed at COMMIT so an instant signature (one that never opens a windup) is
 	# covered; `_end_summon`/`_end_channel` re-arm it so for everything else the gap
 	# is measured from when the effect LANDS, not from the button press.

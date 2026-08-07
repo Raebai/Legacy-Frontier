@@ -353,8 +353,26 @@ func reaction_absorb(at: Vector2) -> void:
 		return
 	_charges -= 1
 	_flash = 1.0
-	CombatVfx.spawn_burst(get_parent(), at, Color(1.0, 0.98, 0.85, 0.95),
-		Color(0.9, 0.8, 0.4, 0.0), 22, 0.4, 80.0, 240.0, 0.9, 2.6, 0.0, 0.0, true)
+	# ══ IT HAS TO BE OBVIOUS THAT IT JUST ATE SOMETHING ════════════════════════
+	# Maker: *"aegic ward no idea what it does so it needs improvement"*.
+	#
+	# The ward already counted its plates and already burst particles here, and it
+	# still read as nothing — because a particle puff is what EVERYTHING in this game
+	# does, and because the pane itself is deliberately translucent (you have to see
+	# the fight through your own cover). So the one moment that explains the entire
+	# spell — a spell hits the gate and DIES — went by at the same volume as a crate
+	# breaking.
+	#
+	# A deflect-weight beat instead: the freeze that says "that mattered", a ring
+	# expanding off the point of impact, and the ding the parry uses. Deliberately
+	# borrowed from `SpellDeflect` rather than invented — a ward eating a spell and a
+	# guard turning one away are the same event to a player, and they should sound
+	# like it.
+	CombatVfx.spawn_burst(get_parent(), at, Color(1.6, 1.5, 1.1, 1.0),
+		Color(0.9, 0.8, 0.4, 0.0), 30, 0.42, 90.0, 300.0, 1.0, 3.0, 0.0, 0.0, true)
+	Sfx.play("ding", 1.0, 0.02)
+	Juice.hit_stop(0.10)
+	Juice.frame({"style": ImpactFrame.Style.LOCAL, "strength": 0.62, "at": at})
 	if _charges <= 0:
 		# The last plate went. The gate falls on the very hit that broke it, which
 		# is the moment the whole "countable budget" read pays off.
@@ -508,11 +526,16 @@ func _draw() -> void:
 	# THE PANE. Deliberately translucent: you have to be able to see the fight
 	# through your own cover, or the ward hides the very thing it is protecting you
 	# from. Read through, not read over.
-	draw_line(_base, top, Color(GOLD_FILL.r, GOLD_FILL.g, GOLD_FILL.b, 0.13 * alpha),
+	# ⚠ ALPHAS RAISED, AND THE "read through, not read over" RULE IS UNCHANGED. At
+	# 0.13 / 0.17 / 0.22 the pane was see-through to the point of being unnoticeable —
+	# the maker's *"no idea what it does"* is partly just this. Roughly doubled, which
+	# is still well under half opacity: you can read the fight through it, you simply
+	# cannot miss that it is there.
+	draw_line(_base, top, Color(GOLD_FILL.r, GOLD_FILL.g, GOLD_FILL.b, 0.24 * alpha),
 		THICKNESS * 1.9 * bulge, true)
-	draw_line(_base, top, Color(GOLD_FILL.r, GOLD_FILL.g, GOLD_FILL.b, 0.17 * alpha),
+	draw_line(_base, top, Color(GOLD_FILL.r, GOLD_FILL.g, GOLD_FILL.b, 0.32 * alpha),
 		THICKNESS * bulge, true)
-	draw_line(_base, top, Color(GOLD_EDGE.r, GOLD_EDGE.g, GOLD_EDGE.b, 0.22 * alpha),
+	draw_line(_base, top, Color(GOLD_EDGE.r, GOLD_EDGE.g, GOLD_EDGE.b, 0.42 * alpha),
 		THICKNESS * 0.35, true)
 	# HDR rails down each edge — the gate's outline is where the brightness lives,
 	# so it stays legible at phone scale even when the fill is nearly invisible.
