@@ -694,7 +694,7 @@ const CLASS_NAMES: Array[String] = [
 ## `configure_class` and still wins, exactly as before.
 const CLASS_CONFIG: Dictionary = {
 	HeroClass.MAGE: {  # ARCANIST — ranged arcane zoner (byte-identical to the old mage)
-		"preset": "mage", "weapon": "", "element": Elements.Element.ARCANE, "melee_element": -1,
+		"preset": "mage", "weapon": "", "weapon_look": "staff", "element": Elements.Element.ARCANE, "melee_element": -1,
 		"hp": 126, "speed": 205.0,  # was 90
 		# Staff POKE: a caster's melee is a shove to buy space, not a trade.
 		"melee_cd": 0.36, "melee_arc_dot": 0.25, "melee_damage": 13,
@@ -758,7 +758,7 @@ const CLASS_CONFIG: Dictionary = {
 		"mobility2": "uppercut", "aoe": "fist_shock", "has_nova": true, "can_parry": true,
 	},
 	HeroClass.JUGGERNAUT: {  # slow siege tank — wide heavy hammer, BLOCK, no blink
-		"preset": "juggernaut", "weapon": "sword", "element": Elements.Element.EARTH, "melee_element": Elements.Element.EARTH,
+		"preset": "juggernaut", "weapon": "sword", "weapon_look": "hammer", "element": Elements.Element.EARTH, "melee_element": Elements.Element.EARTH,
 		"hp": 203, "speed": 165.0,  # was 145 — still the toughest body in the roster
 		"primary": "heavy_swing", "melee_cd": 0.55, "melee_arc_dot": 0.0, "melee_damage": 30, "melee_range": 96.0, "melee_knockback": 470.0,
 		"cast_cd": 0.40, "dash_cd": 0.90, "blink_cd": 1.4, "blast_cd": 2.6,
@@ -768,7 +768,7 @@ const CLASS_CONFIG: Dictionary = {
 		"defense": "block", "aoe": "ground_slam", "has_nova": true, "can_parry": true,
 	},
 	HeroClass.CLERIC: {  # radiant sustain bruiser — LMB heal-bolt (lifesteal)
-		"preset": "cleric", "weapon": "staff", "element": Elements.Element.HOLY, "melee_element": Elements.Element.HOLY,
+		"preset": "cleric", "weapon": "staff", "weapon_look": "staff_holy", "element": Elements.Element.HOLY, "melee_element": Elements.Element.HOLY,
 		"hp": 154, "speed": 200.0,  # was 110
 		"primary": "bolt", "bolt_heal": 2,   # 4 -> 2: see the lifesteal note below
 		# ⚠ LIFESTEAL WAS THE UNDERCOSTED STAT IN THE GAME. Cleric and Warlock are the
@@ -789,7 +789,7 @@ const CLASS_CONFIG: Dictionary = {
 		"aoe": "consecrate", "has_nova": true, "can_parry": true,  # Q: consecrated ground
 	},
 	HeroClass.CRYOMANCER: {  # ice control — LMB is a FROST CONE, not a bolt
-		"preset": "cryomancer", "weapon": "staff", "element": Elements.Element.ICE, "melee_element": Elements.Element.ICE,
+		"preset": "cryomancer", "weapon": "staff", "weapon_look": "staff_ice", "element": Elements.Element.ICE, "melee_element": Elements.Element.ICE,
 		# ⚠ 123 -> 152 ON A MAKER RULING BACKED BY MEASUREMENT. Maker: "the ice class
 		# needs a buff." A 72-bout sweep (all 36 pairings, both side orders) put the
 		# Cryomancer at 25% — second worst in the roster, and a finding nobody had
@@ -821,7 +821,7 @@ const CLASS_CONFIG: Dictionary = {
 		"aoe": "ice_shards", "has_nova": true, "can_parry": true,  # Q: homing frost shards
 	},
 	HeroClass.STORMCALLER: {  # hyper-mobile chain caster — LMB arcs, fast wind-dash
-		"preset": "stormcaller", "weapon": "staff", "element": Elements.Element.LIGHTNING, "melee_element": Elements.Element.LIGHTNING,
+		"preset": "stormcaller", "weapon": "staff", "weapon_look": "staff_storm", "element": Elements.Element.LIGHTNING, "melee_element": Elements.Element.LIGHTNING,
 		"hp": 115, "speed": 230.0,  # was 82
 		"primary": "bolt", "bolt_chain": 2,
 		# Crackling SWAT: the fastest, weakest, widest melee in the game — it is a
@@ -836,7 +836,7 @@ const CLASS_CONFIG: Dictionary = {
 		"aoe": "call_lightning", "has_nova": true, "can_parry": true,  # Q: lightning strike column
 	},
 	HeroClass.WARLOCK: {  # dark attrition hexer — LMB drain-bolt (weaken + lifesteal)
-		"preset": "warlock", "weapon": "sword", "element": Elements.Element.SHADOW, "melee_element": Elements.Element.SHADOW,
+		"preset": "warlock", "weapon": "sword", "weapon_look": "scythe", "element": Elements.Element.SHADOW, "melee_element": Elements.Element.SHADOW,
 		"hp": 133, "speed": 190.0,  # was 95
 		"primary": "bolt", "bolt_heal": 2,   # 3 -> 2: see the Cleric lifesteal note above
 		# Scythe RAKE: the slowest, longest, most committed swing short of the
@@ -2618,6 +2618,27 @@ func configure_class(cls: int) -> void:
 		_melee_damage = MELEE_DAMAGE
 		_melee_range = MELEE_RANGE
 		_melee_knockback = MELEE_KNOCKBACK
+	# ══ WHAT THE CLASS CARRIES, AS OPPOSED TO WHAT IT HITS WITH ════════════════
+	# Maker: *"why does warlock have a blade it should look like a staff ... a
+	# warlokc looking staff"*, *"why does juggernaut havea sword give them something
+	# else to make it clear its a juggernaut"*, *"the cryomancer staff should also
+	# look different"*.
+	#
+	# ⚠ AND `class_preset` ALREADY GOT ALL THREE RIGHT. The presets author a scythe
+	# for the Warlock, a hammer for the Juggernaut and `staff_ice` for the Cryomancer
+	# — and then `equip_weapon(_cfg["weapon"])` on the line above overwrote every one
+	# of them, because that key names the STATS ROW (`WEAPON_STATS`, which holds
+	# exactly "fists" and "sword") and `equip_weapon` pushes that same string at the
+	# rig. So five of nine classes were handed a generic sword or a fists fallback and
+	# the authored silhouettes never reached the screen.
+	#
+	# ⚠ TWO KEYS, DELIBERATELY. `weapon` stays the stats row and `weapon_look` is
+	# cosmetic ONLY, so giving the Juggernaut its hammer cannot silently retune its
+	# melee — `WEAPON_STATS` has no "hammer" row, so naming it in `weapon` would have
+	# dropped the class to fists damage. Applied last so it wins over both branches.
+	var look: String = String(_cfg.get("weapon_look", ""))
+	if look != "":
+		rig.set_equipment("weapon", look)
 	# Per-class melee tuning (cadence + arc width + optional stat overrides) so a
 	# Brawler jabs fast/narrow and a Juggernaut swings slow/wide/hard.
 	_melee_cd = float(_cfg.get("melee_cd", MELEE_COOLDOWN))
@@ -5568,8 +5589,15 @@ func _publish_swing_tell(state: int = CharacterRig.State.PUNCH) -> void:
 ## crescent of air off a blade, a fist off everything else. Read off the WEAPON the
 ## class already declares rather than off a class id, so a future class that picks up
 ## a katana gets the right tell without a second table to keep in sync.
+## ⚠ READS THE LOOK, NOT THE STATS ROW. The tell is a PICTURE — a thin air-curve off
+## an edge — so it has to agree with the weapon the player can see. Now that
+## `weapon_look` exists, the Juggernaut keeps sword STATS while carrying a hammer, and
+## a hammer must not draw a blade's crescent.
 func _blade_tell_weapon() -> bool:
-	match String(_cfg.get("weapon", "")):
+	var kind: String = String(_cfg.get("weapon_look", ""))
+	if kind == "":
+		kind = String(_cfg.get("weapon", ""))
+	match kind:
 		"sword", "greatsword", "dagger", "scythe", "spear":
 			return true
 	return false

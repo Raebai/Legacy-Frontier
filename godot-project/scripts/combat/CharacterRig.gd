@@ -3667,10 +3667,30 @@ static func _draw_equipment(
 			# handle rather than starting at the fingers.
 			item.draw_line(hand_lead, hand_lead - arm_dir * (fig_height * 0.13),
 				edge, w * 1.15)
-			# CHISEL POINT (kissaki). Two strokes converging, which reads as an angled
-			# tip where the old `draw_circle` read as a bead stuck on the end.
-			item.draw_line(s_tip, s_tip - arm_dir * (s_len * 0.12) - perp * (s_len * 0.03),
-				gear_col.lightened(0.2), w * 0.7)
+			# ══ AND IT ACTUALLY COMES TO A POINT NOW ═══════════════════════════
+			# Maker: *"the blade doesnt look like a blade it needs a sharp top"*.
+			#
+			# The kissaki was ONE angled stroke laid over the end of a
+			# constant-width polyline. A polyline has square caps, so what was drawn
+			# was a blunt bar with a whisker off the corner — at 640x360 the eye
+			# reads the cap, not the whisker.
+			#
+			# A point has to be a POLYGON: the last stretch of blade tapers from full
+			# width down to nothing at the tip. Same trick as the crescent tell in
+			# `Telegraph._draw_crescent`, and for the same reason — a constant-width
+			# stroke can never look sharp, however many strokes you put on it.
+			var pt_base: Vector2 = hand_lead + arm_dir * (s_len * 0.74) \
+				+ perp * (s_len * 0.078)
+			var pt_perp: Vector2 = (s_tip - pt_base).normalized().orthogonal()
+			item.draw_colored_polygon(PackedVector2Array([
+				pt_base + pt_perp * (w * 0.78),
+				s_tip,
+				pt_base - pt_perp * (w * 0.78),
+			]), gear_col)
+			# The lit edge running INTO the point, so the taper is read as a bevel
+			# rather than as a triangle glued on.
+			item.draw_line(pt_base - pt_perp * (w * 0.30), s_tip,
+				gear_col.lightened(0.5), w * 0.34, true)
 		"staff":
 			# Sleek short WAND: a thin shaft the hand grips, tipped with a small
 			# glowing crystal (a cut gem) — reads cool without dominating the figure.
@@ -3743,12 +3763,63 @@ static func _draw_equipment(
 			item.draw_line(b_c + Vector2(0.0, -r * 0.78), b_c + Vector2(r * 0.4, -r * 1.8), gear_col, w * 0.4)
 			item.draw_circle(b_c + Vector2(r * 0.4, -r * 1.8), w * 0.55, Color(1.0, 0.75, 0.3, col.a))
 		"staff_ice", "staff_storm", "staff_holy":
-			# Same wand silhouette as "staff" — only the crystal changes colour, because
-			# the element is the gameplay read and the shape is the class read.
-			_draw_wand(
-				item, hand_lead, arm_dir, fig_height, w, gear_col, edge, col,
-				STAFF_GEM_TINT.get(equipment_slots.get("weapon", ""), gear_col) as Color
-			)
+			# ══ FOUR CASTERS WERE HOLDING THE SAME WAND ════════════════════════
+			# Maker: *"the cryomancer staff should also look different"*.
+			#
+			# This used to be one `_draw_wand` call for all three, with only the gem
+			# TINT differing — and its comment argued that "the element is the
+			# gameplay read and the shape is the class read". But the shape WAS the
+			# same shape, so there was no class read: an Arcanist, a Cleric, a
+			# Cryomancer and a Stormcaller were four identical sticks in four colours,
+			# and at 640x360 a colour you have to compare against another colour is
+			# not a read at all.
+			#
+			# The shaft stays shared — it is the staff family — and the HEAD is where
+			# each one becomes itself. All three are the same four primitives the rest
+			# of this file uses, and every offset is a fraction of `fig_height` so
+			# they scale with the rig.
+			var wk: String = String(equipment_slots.get("weapon", ""))
+			var gem: Color = STAFF_GEM_TINT.get(wk, gear_col) as Color
+			var wl: float = fig_height * 0.42
+			var wb: Vector2 = hand_lead - arm_dir * (fig_height * 0.08)
+			var wt: Vector2 = hand_lead + arm_dir * wl
+			item.draw_line(wb, wt, edge, w * 1.0)
+			item.draw_line(wb, wt, gear_col, w * 0.55)
+			match wk:
+				"staff_ice":
+					# A SHARD CLUSTER. Three splinters of different lengths fanning off
+					# the tip — jagged where the others are round or symmetrical, which
+					# is the whole point: ice is the broken silhouette.
+					for k: int in 3:
+						var lean: float = (float(k) - 1.0) * 0.55
+						var shard: Vector2 = wt + (arm_dir.rotated(lean)) \
+							* (fig_height * (0.16 - 0.035 * absf(lean)))
+						item.draw_colored_polygon(PackedVector2Array([
+							wt + perp * (w * 0.5), shard, wt - perp * (w * 0.5),
+						]), gem)
+					item.draw_circle(wt, w * 0.55, gem.lightened(0.45))
+				"staff_storm":
+					# A FORK. Two prongs and an arc of charge strung between them —
+					# the only head in the family with a GAP in it, so it reads from
+					# its negative space.
+					var pr: float = fig_height * 0.13
+					for sgn: float in [-1.0, 1.0]:
+						item.draw_line(wt, wt + (arm_dir * 0.75 + perp * sgn * 0.6)
+							.normalized() * pr, gem, w * 0.5, true)
+					item.draw_arc(wt + arm_dir * (pr * 0.72), pr * 0.62,
+						perp.angle() - 0.9, perp.angle() + 0.9, 10,
+						gem.lightened(0.5), w * 0.32, true)
+				_:
+					# HOLY — a sun disc with a halo ring. Closed and symmetrical, the
+					# opposite of the ice shards in every way that reads at a glance.
+					item.draw_arc(wt, fig_height * 0.10, 0.0, TAU, 18,
+						gem, w * 0.42, true)
+					item.draw_circle(wt, w * 0.85, gem.lightened(0.55))
+					for k: int in 4:
+						var a: float = TAU * float(k) / 4.0 + PI * 0.25
+						item.draw_line(wt + Vector2.from_angle(a) * (fig_height * 0.10),
+							wt + Vector2.from_angle(a) * (fig_height * 0.145),
+							gem, w * 0.3, true)
 		"orb":
 			# A floating orb hovering just past the grip, with a soft halo.
 			var o_c: Vector2 = hand_lead + arm_dir * (fig_height * 0.14)
@@ -3769,7 +3840,14 @@ static func _draw_blade(
 	item.draw_line(base, tip, edge, thick * 1.5)
 	item.draw_line(base, tip, gear_col, thick)
 	item.draw_line(grip + dir * (blade_len * 0.4), tip, gear_col.lightened(0.35), thick * 0.35)
-	item.draw_circle(tip, thick * 0.5, gear_col)
+	# A POINT, not a bead. `draw_circle(tip, ...)` put a round cap on the end of a
+	# constant-width bar, which is the exact silhouette the maker read as "doesn't
+	# look like a blade". The last fifth tapers to nothing instead. See the katana arm
+	# in `_draw_held` for the same fix stated at length.
+	var p_base: Vector2 = grip + dir * (blade_len * 0.80)
+	item.draw_colored_polygon(PackedVector2Array([
+		p_base + perp * (thick * 0.62), tip, p_base - perp * (thick * 0.62),
+	]), gear_col)
 	# Silence the unused-parameter warning without dropping the alpha contract:
 	# every colour above already carries col.a through gear_col/edge.
 	if col.a < 0.0:
