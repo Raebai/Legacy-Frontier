@@ -383,6 +383,14 @@ const BREATHE_MAX: float = 1.30
 const RECOIL_CHANCE: float = 0.55
 const RECOIL_SECONDS: float = 0.28
 
+## How long a bot may press INTO a wall before turning around stops being enough and
+## it jumps instead. See `_unwall`.
+##
+## Short, and that is the point: `Hero` zeroes the walk against a wall, so every one
+## of these frames is a frame the bot spent going nowhere while somebody shot at it.
+## Long enough that brushing a riser mid-approach does not make it hop.
+const WALL_STUCK_SECONDS: float = 0.45
+
 ## Below this share of health a bot may decide it is out of better ideas.
 const DESPERATE_HP: float = 0.34
 ## Rolled once per decision beat while desperate, so at a 0.22 s beat the urge
@@ -498,6 +506,11 @@ class Memory extends RefCounted:
 	var reactions: BotDodge.Reactions = BotDodge.Reactions.new()
 	## Deterministic under test: set `rng.seed` and the same fight replays exactly.
 	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
+
+	## When this body first started pressing INTO a wall it is touching, or -1 while it
+	## is not. See `_unwall` — the clock is what separates "brushed a wall" from
+	## "wedged in a corner", and only the second one earns a jump.
+	var wall_since: float = -1.0
 
 	var next_decision_at: float = -1.0
 	var latched_slot: int = -1
@@ -658,6 +671,10 @@ static func decide(bb: Dictionary, profile: Dictionary, mem: Memory = null) -> D
 			- Vector2(bb.get("foe_pos", Vector2.ZERO))
 		if away.x != 0.0:
 			intent["move"] = Vector2(signf(away.x), 0.0)
+
+	# ---- THE WALL. Applied AFTER every writer of `intent["move"]` above, which is the
+	# whole point: see `_unwall`.
+	_unwall(intent, bb, m, now)
 
 	# ---- THE BREATH. Declines to START anything for a beat after an exchange, while
 	# aim, movement, the reflex above and the camp breaker below all keep running. It
@@ -845,6 +862,55 @@ static func _pressure(evaluated: Array, me: Vector2, foe: Vector2, reach: float)
 ## which is also what two stalled humans would do.
 ##
 ## Health totals are read off the two drawn bars, so there is no fairness cost.
+## ══ NOBODY WALKS INTO A WALL FOREVER ═══════════════════════════════════════════
+## Maker, watching Watch Bots: *"these guys get stuck in the corner of a wall then
+## destroyed"*.
+##
+## THE MECHANISM, in three parts, none of which is a steering bug on its own:
+##
+##   1. This file had no terrain awareness AT ALL — no raycast, no whisker, no
+##      surface list. `_safest` reads pits and telegraphs; the blackboard carried
+##      nothing solid. So the brain could not tell "blocked" from "walking".
+##   2. FOUR independent paths write a backwards direction and NONE of them asks what
+##      is behind: the band's `intent = -1` back-off, the under-pressure drift, the
+##      stagnation drift, and the recoil flinch — which fires on 55% of hits taken, so
+##      being cornered actively re-arms the thing that put you there.
+##   3. `Hero` zeroes the walk against a wall (`is_on_wall()` -> `walk_x = 0.0`) and
+##      cannot step up: three of the versus stage's four risers are 90 px against a
+##      jump that apexes at 112 and a documented COMFORTABLE step of 86
+##      (`FloorGen.STEP_MAX`). So the bot pressed full deflection into a face, went
+##      nowhere, and never learned anything.
+##
+## THE GUARD SITS AFTER EVERY WRITER, deliberately. Putting it inside `_steer` would
+## have missed the recoil flinch — the one most likely to start the wedge — and would
+## miss the next path somebody adds. One guard, applied last, cannot be bypassed by a
+## new opinion about where to walk.
+##
+## Two rungs:
+##   * PUSHING INTO A WALL is turned around. Not vetoed to zero: standing still in a
+##     corner is the exact failure being fixed.
+##   * STILL AGAINST IT after `WALL_STUCK_SECONDS` means turning around is not enough
+##     — the way out of a corner is up. A jump is requested, which is the only verb
+##     `Hero` has that clears a riser, and which this file otherwise emits ONLY as a
+##     dodge answer (`BotDodge.VERTICAL_EXIT_DOT`), i.e. never for terrain.
+static func _unwall(intent: Dictionary, bb: Dictionary, m: Memory, now: float) -> void:
+	var move: Vector2 = intent.get("move", Vector2.ZERO)
+	var wall_dir: float = float(bb.get("wall_dir", 0.0))
+	if not bool(bb.get("on_wall", false)) or wall_dir == 0.0:
+		m.wall_since = -1.0
+		return
+	# Not pressing into it — brushing past, or already leaving. Nothing to do, and no
+	# clock: a bot that walks ALONG a wall is not stuck against it.
+	if move.x == 0.0 or signf(move.x) != wall_dir:
+		m.wall_since = -1.0
+		return
+	if m.wall_since < 0.0:
+		m.wall_since = now
+	intent["move"] = Vector2(-wall_dir, move.y)
+	if now - m.wall_since >= WALL_STUCK_SECONDS:
+		intent["jump"] = true
+
+
 static func _track_stagnation(bb: Dictionary, m: Memory, now: float) -> float:
 	var total: float = float(bb.get("self_hp_frac", 1.0)) + float(bb.get("foe_hp_frac", 1.0))
 	_note_exchange(bb, m, now)

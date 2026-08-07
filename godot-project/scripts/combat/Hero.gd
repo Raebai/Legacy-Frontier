@@ -1456,6 +1456,24 @@ func bot_body_state() -> Dictionary:
 		"self_hp_frac": clampf(float(hp) / float(maxi(max_hp, 1)), 0.0, 1.0),
 		"self_mp_frac": clampf(mp / float(maxi(max_mp, 1)), 0.0, 1.0),
 		"on_floor": is_on_floor(),
+		# ══ THE BOTS COULD NOT SEE WALLS ════════════════════════════════════
+		# Maker, watching Watch Bots: *"these guys get stuck in the corner of a wall
+		# then destroyed"*.
+		#
+		# `BotBrain` had NO terrain awareness of any kind — no raycast, no whisker, no
+		# surface list. The blackboard carried pits and telegraphs and nothing solid,
+		# so every "walk backwards" path in the brain (the band's back-off, the
+		# under-pressure drift, the 55%-per-hit recoil flinch) reversed blind into
+		# whatever was behind it. `move_and_slide` then zeroed the walk every frame
+		# and the bot never noticed it had stopped moving.
+		#
+		# ⚠ `is_on_wall_only()`, NOT `is_on_wall()`. A body standing on the ground
+		# with its shoulder against a riser reports both; what the brain needs to know
+		# is "the thing I am pressed against is a WALL", and the normal is what tells
+		# it which way is out. Published as a sign rather than a vector because every
+		# consumer is a left/right decision on a side-on stage.
+		"on_wall": is_on_wall(),
+		"wall_dir": -signf(get_wall_normal().x) if is_on_wall() else 0.0,
 		"facing": signf(facing.x),
 		"reach": _melee_range,
 		"cooldowns": cds,

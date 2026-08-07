@@ -23,7 +23,20 @@ const WALK_SPEED: float = 240.0
 ## A slot goes on this long a cooldown after a cast, so the scorer has to reach for
 ## something else in between rather than leaning on one slot forever.
 const FAKE_COOLDOWN: float = 4.0
-const SLOTS: int = 3
+## ⚠ WAS A HARDCODED 3, AND THE HAND IS 4. Every kit's slot 3 is its ULT, so this
+## probe never offered the ult to the brain (it builds `slot_affordable` and the
+## cooldown array over this range), never counted an ult cast, and computed its
+## headline "0 of 27 kit slots NEVER asked for" over 9 classes x 3 -- silently
+## excluding every ultimate in the game from a report whose entire job is finding
+## slots nobody reaches for.
+##
+## Found while answering the maker's *"I havent seen many ults in these stick
+## battles"*: the instrument said 3/3 slots used for all nine classes, which reads
+## as a clean bill of health and was a blind spot.
+##
+## DERIVED now, never a literal, so shrinking or growing the hand cannot leave this
+## measuring a different game than the one that ships.
+const SLOTS: int = BotIntent.SLOT_COUNT
 
 
 class Fighter extends RefCounted:

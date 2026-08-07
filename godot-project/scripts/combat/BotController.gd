@@ -417,6 +417,10 @@ static func build_blackboard(body: Object, now: float) -> Dictionary:
 		"self_pos": Vector2.ZERO, "self_vel": Vector2.ZERO,
 		"self_hp_frac": 1.0, "self_mp_frac": 1.0,
 		"on_floor": true, "facing": 1.0,
+		# Defaults for a body that publishes no wall state (a stub, a dummy, an
+		# `Enemy`): NOT against anything. Fails OPEN deliberately — a brain that
+		# believed it was walled in by default would refuse to walk at all.
+		"on_wall": false, "wall_dir": 0.0,
 		"self_id": 0,
 		"foe_pos": Vector2.ZERO, "foe_vel": Vector2.ZERO,
 		"foe_hp_frac": 0.0, "foe_facing": 0.0, "foe_id": 0,
