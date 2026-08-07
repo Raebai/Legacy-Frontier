@@ -2099,6 +2099,11 @@ func class_preset(preset_name: String) -> void:
 			set_equipment("body", "robe")
 			set_equipment("head", "hat")
 			set_equipment("weapon", "staff_storm")
+		"swordsaint":  # the saya is the class: an iai is a draw, so it must be sheathed
+			set_equipment("body", "")
+			set_equipment("head", "")
+			set_equipment("weapon", "sword")
+			set_equipment("sheath", "saya")
 		"warlock":  # hooded hexer with a scythe
 			set_equipment("body", "robe")
 			set_equipment("head", "hood")
@@ -3307,8 +3312,89 @@ static func draw_figure(
 
 	_draw_equipment(
 		item, equipment_slots, col, w, r, fig_height,
-		head_center, shoulder, hand_lead, foot_lead, foot_off
+		head_center, shoulder, hand_lead, foot_lead, foot_off, neck, hip
 	)
+	# ⚠ ADORNMENTS ARE DRAWN LAST AND ARE **NOT** GATED BY `draw_clothing`.
+	#
+	# That flag exists to keep robes and great-helms off the roster ("a stickman in a
+	# cuirass is a little armoured man"). Hair, shades and a hip sheath are the exact
+	# opposite case: they are the three things the maker's own reference uses to tell
+	# four identical silhouettes apart, and none of them replaces a body part — they
+	# only ever ADD outside the head disc, so the hitbox contract `_draw_head` states
+	# is untouched. See `_draw_adornments`.
+	_draw_adornments(item, equipment_slots, col, w, r, head_center, neck)
+
+
+## HAIR AND FACE PIECES — the two slots the rig never had.
+##
+## ⚠ THESE ADD, THEY DO NOT REPLACE, which is the opposite rule to `_draw_head`.
+## Head GEAR substitutes for the skull because a helmet IS the head; hair sits on top
+## of one. The hitbox contract is therefore satisfied by construction: the mandated
+## disc of radius `r` has already been drawn by the time this runs and nothing here
+## touches it — every stroke is outside it or on its upper edge.
+##
+## ⚠ AND NOTHING HERE IS IN `GEAR_KINDS`, deliberately. That registry obliges every
+## entry to carry a `GearAbilities` stat bag and to survive the no-strict-dominance
+## sweep, which is the correct bar for a weapon and an absurd one for a pair of
+## sunglasses. `set_equipment` accepts any slot string, so these cost no API at all —
+## `"sandals"` has been drawn this way for as long as it has existed.
+##
+## Colour: hair takes a LIGHTENED body colour rather than its own field. The maker's
+## reference wants a specific hair colour per character (white on the navy figure) and
+## that wants a `hair_color` on the rig — one export plus one parameter through
+## `draw_figure`. Left out here so this ships as pure drawing; it is the obvious next
+## edit and this is the note that says so.
+static func _draw_adornments(item: CanvasItem, equipment_slots: Dictionary, col: Color,
+		w: float, r: float, c: Vector2, neck: Vector2) -> void:
+	var up: Vector2 = (c - neck)
+	if up.length() < 0.001:
+		up = Vector2.UP
+	up = up.normalized()
+	var side: Vector2 = up.orthogonal().normalized()
+	var hair_col: Color = Color(col.r, col.g, col.b, col.a).lightened(0.5)
+	var keyline := Color(0.07, 0.08, 0.13, col.a)
+	match String(equipment_slots.get("hair", "")):
+		"spiky":
+			# Three shards off the crown, leaning back off the lead side.
+			for i: int in 3:
+				var f: float = -0.55 + 0.55 * float(i)
+				var base: Vector2 = c + up * r * 0.72 + side * r * f
+				var tipv: Vector2 = base + (up * 1.55 + side * (f * 0.7 - 0.45)).normalized() * r * 1.5
+				item.draw_colored_polygon(PackedVector2Array([
+					base + side * r * 0.30, base - side * r * 0.30, tipv,
+				]), hair_col)
+		"long":
+			# A mass falling behind the shoulders — drawn on the OFF side so it never
+			# covers the face the figure is aiming with.
+			var fall: Vector2 = c - side * r * 0.55 - up * r * 0.1
+			item.draw_colored_polygon(PackedVector2Array([
+				c + up * r * 0.85 + side * r * 0.5,
+				c + up * r * 0.9 - side * r * 1.15,
+				fall - side * r * 1.05 - up * r * 2.6,
+				fall + side * r * 0.15 - up * r * 2.4,
+			]), hair_col)
+			item.draw_arc(c, r * 1.04, 0.0, TAU, 18, hair_col, w * 0.45)
+		"mop":
+			# A rounded cap with a fringe — the softest of the three, and the one that
+			# still reads when the figure is upside down in a ragdoll.
+			item.draw_arc(c + up * r * 0.18, r * 1.12, 0.0, TAU, 22, hair_col, w * 1.1)
+			item.draw_line(c + up * r * 0.55 - side * r * 0.9,
+				c + up * r * 0.15 - side * r * 1.15, hair_col, w * 0.8)
+			item.draw_line(c + up * r * 0.55 + side * r * 0.9,
+				c + up * r * 0.15 + side * r * 1.15, hair_col, w * 0.8)
+	match String(equipment_slots.get("face", "")):
+		"shades":
+			# A dark bar across the eye line with a bridge. At 640x360 a stick head is
+			# ~7 px across, so this is two lenses and a link and nothing else — any
+			# more detail collapses into a smudge.
+			var eye: Vector2 = c + up * r * 0.12
+			item.draw_line(eye - side * r * 0.95, eye + side * r * 0.95, keyline, w * 1.05)
+			item.draw_line(eye - side * r * 0.62, eye - side * r * 0.30,
+				keyline.lightened(0.28), w * 0.55)
+		"visor":
+			# One unbroken band — a helm slit rather than glasses.
+			item.draw_line(c + up * r * 0.28 - side * r, c + up * r * 0.05 + side * r,
+				keyline, w * 1.25)
 
 
 ## THE HEAD — geared or bare. Head gear does not sit ON the head, it IS the head:
@@ -3454,8 +3540,51 @@ static func _draw_equipment(
 	hand_lead: Vector2,
 	foot_lead: Vector2,
 	foot_off: Vector2,
+	neck: Vector2 = Vector2.ZERO,
+	hip: Vector2 = Vector2.ZERO,
 ) -> void:
 	var gear_col: Color = col.lightened(0.25)
+	# THE SHEATH — a saya on the hip, drawn whether or not the blade is in hand.
+	#
+	# ⚠ IT IS A SEPARATE SLOT FROM `weapon`, NOT A KIND OF WEAPON, and that is the
+	# whole point: a sheathed blade and a drawn blade are different states of the same
+	# character and a class that draws its sword should be able to show both. The spec
+	# calls this out as "most of the katana read, and what makes an iai an iai".
+	#
+	# Anchored off the (neck -> hip) spine rather than off the node's own axes, which
+	# is the idiom `_draw_torso`'s robe uses: it stays correct under the body pitch and
+	# under the facing flip for free, because both already live in the parent transform.
+	var sheath: String = String(equipment_slots.get("sheath", ""))
+	if sheath != "" and hip != Vector2.ZERO:
+		var down: Vector2 = hip - neck
+		if down.length() < 0.001:
+			down = Vector2.DOWN
+		down = down.normalized()
+		var side: Vector2 = down.orthogonal().normalized()
+		# On the OFF hip (-side, i.e. behind the lead shoulder) and raked back, so it
+		# never crosses the arm that is doing the swinging.
+		var mouth: Vector2 = hip - side * r * 0.55 - down * r * 0.15
+		var axis: Vector2 = (down * 0.55 - side * 0.83).normalized()
+		var s_len: float = fig_height * (0.46 if sheath == "saya" else 0.34)
+		var tip: Vector2 = mouth + axis * s_len
+		var perp: Vector2 = axis.orthogonal()
+		var hw: float = w * 0.62
+		var edge2: Color = Color(0.07, 0.08, 0.13, col.a)
+		# A tapered body, not a line — a saya is thicker at the mouth than the tip.
+		item.draw_colored_polygon(PackedVector2Array([
+			mouth + perp * hw * 1.25, mouth - perp * hw * 1.25,
+			tip - perp * hw * 0.55, tip + perp * hw * 0.55,
+		]), edge2)
+		item.draw_colored_polygon(PackedVector2Array([
+			mouth + perp * hw * 0.85, mouth - perp * hw * 0.85,
+			tip - perp * hw * 0.30, tip + perp * hw * 0.30,
+		]), col.darkened(0.35))
+		# The KOIGUCHI — a bright collar at the mouth. It is the one detail that
+		# reads at 640x360 and the thing that says "this opens".
+		item.draw_line(mouth + perp * hw * 1.3, mouth - perp * hw * 1.3,
+			gear_col.lightened(0.35), w * 0.5)
+		# The obi cord back to the hip, so the sheath is WORN and not floating.
+		item.draw_line(mouth, hip, gear_col, w * 0.4)
 	# NOTE: the head slot is NOT handled here any more — head gear replaces the head
 	# itself (see _draw_head), so drawing it a second time here would put the sticker
 	# back on top of the body part it is supposed to BE.
