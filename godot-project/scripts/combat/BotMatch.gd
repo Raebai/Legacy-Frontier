@@ -388,17 +388,27 @@ static var drop_b: int = -1
 ## taste: the spell's own `element` is ICE and its whole mechanic is freezing. The
 ## spec reaches it from the Arcanist as an "arcane control" TREE LINK, which is a
 ## different claim from whose signature it is.
+## ⚠ NINE CLASSES, NINE DISTINCT DROPS — no row appears twice any more.
+##
+## This table used to pin six drops across nine classes, so three PAIRS shared, and
+## two of the six (`arc_of_fools`, `meteor_storm`) were Tier 2 spells standing in for
+## a Tier 3 that did not exist. That is the recolour problem in its purest form: two
+## classes reaching the same boss reward and being handed the same spell.
+##
+## The five new ones each bend a different RULE of the game rather than carrying a
+## bigger number — see the block on `SpellLibrary.build_tier3()`. `arc_of_fools` and
+## `meteor_storm` stay in the Tier 2 pool; they are simply no longer anybody's
+## signature reward.
 const CLASS_DROP: Array[String] = [
 	"roulette",      # 0 ARCANIST    — a dispatcher re-roll is the most arcane thing here
-	"the_void",      # 1 SHADOWBLADE — shadow, and it pulls in and unmakes
-	"arc_of_fools",  # 2 BRAWLER     — chaos, close, and it does not ask permission
-	"meteor_storm",  # 3 JUGGERNAUT  — siege bombardment on the siege class
+	"severance",     # 1 SHADOWBLADE — mark, wait, execute. Damage read off the victim
+	"teardown",      # 2 BRAWLER     — no magic: the room IS the weapon
+	"siegeworks",    # 3 JUGGERNAUT  — the ground obeys, and it takes the room away
 	"equinox",       # 4 CLERIC      — the spec's link
 	"chronostasis",  # 5 CRYOMANCER  — ICE element, and the mechanic IS freezing
-	"meteor_storm",  # 6 STORMCALLER — SHARED with the Juggernaut. Sky bombardment
-	"the_void",      # 7 WARLOCK     — the spec's link. SHARED with the Shadowblade
-	"chronostasis",  # 8 SWORDSAINT  — SHARED. A parry duellist stopping time is the
-	                 #   fantasy, and it is the class that most needs a window
+	"the_circuit",   # 6 STORMCALLER — it stops choosing a direction. No radius at all
+	"the_void",      # 7 WARLOCK     — the spec's link. Now unshared
+	"zanshin",       # 8 SWORDSAINT  — one cut, worth more for everyone who walked in
 ]
 ## How close two health fractions have to be before a timeout is called a DRAW
 ## rather than a decision.

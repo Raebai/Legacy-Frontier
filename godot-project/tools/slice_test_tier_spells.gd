@@ -100,7 +100,8 @@ func _test_drop_data_shape() -> void:
 	# two; a seventh class wanting a fourth slot filled from here should have to come
 	# through this line.
 	_expect(t2.size() == 2, "two Tier 2 signature spells (got %d)" % t2.size())
-	_expect(t3.size() == 4, "four Tier 3 spells (got %d)" % t3.size())
+	# 4 -> 9: every class now has its OWN boss drop. See SpellLibrary.build_tier3().
+	_expect(t3.size() == 9, "nine Tier 3 spells, one per class (got %d)" % t3.size())
 	# Fresh instances every call. A shared Resource between two heroes is how a
 	# Blood Pact buff would end up permanent on somebody else's spell.
 	_expect(SpellLibrary.build_tier2()[0] != t2[0], "build_tier2 mints fresh instances")

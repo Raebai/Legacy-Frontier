@@ -173,7 +173,7 @@ func _test_drops_are_never_in_a_kit() -> void:
 	# stopped when the FOURTH spell slot claimed them for the Brawler, Juggernaut and
 	# Swordsaint. A spell in both places would be rollable as a pickup for the class that
 	# already starts with it, and `SpellGrant` would then displace a spell with itself.
-	_expect(drops.size() == 6, "six drop spells exist (2 Tier 2 + 4 Tier 3), got %d" % drops.size())
+	_expect(drops.size() == 11, "eleven drop spells exist (2 Tier 2 + 9 Tier 3), got %d" % drops.size())
 	_expect(not drops.has("mirror_image"),
 		"mirror_image is NOT a drop any more — it is the Arcanist's carried control slot")
 	_expect(SpellLibrary.drop_by_id("mirror_image") == null,

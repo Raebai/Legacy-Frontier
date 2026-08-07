@@ -2071,6 +2071,19 @@ static func _effective_range(s: SpellDef) -> float:
 			return maxf(s.radius, 120.0)   # self-centred: aim is ignored entirely
 		SpellDef.Kind.HEX:
 			return _hex_range(s)
+		SpellDef.Kind.CATACLYSM:
+			# ⚠ THERE WAS NO ARM HERE EITHER, and one Tier 3 pays for it directly:
+			# `equinox` declares `reach = 0`, so the fallback below sized a spell that
+			# levels the whole room as a 300 px poke. A bot that misreads range does
+			# not error — it never closes, or never fires — and bots are the clip
+			# pipeline, so it reads as "the spell is broken".
+			#
+			# `the_circuit` has NO radius by design and is the one spell in the game
+			# with genuinely unlimited range; it is given the stage's own width rather
+			# than INF so the scorer's distance terms stay finite and comparable.
+			if s.id == "the_circuit":
+				return 2000.0
+			return maxf(s.reach, s.radius) if maxf(s.reach, s.radius) > 0.0 else 400.0
 	# Everything else — the placed bombardments, CHAIN, CRAWLER, THROWN_ANCHOR —
 	# genuinely uses `reach`.
 	return s.reach if s.reach > 0.0 else 300.0

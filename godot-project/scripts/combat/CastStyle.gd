@@ -96,6 +96,23 @@ static func for_spell_def(spell: SpellDef) -> int:
 				return Pose.LASH
 			"blood_pact":
 				return Pose.COIL   # pulled to the chest; the price is paid inward
+	# ⚠ THERE WAS NO CATACLYSM ARM AT ALL, so every Tier 3 boss drop in the game fell
+	# through to `for_spell(kind)` and was thrown with POINT — the aimed two-handed
+	# thrust. A ritual that stops time was being chucked like a dart. Nothing errored;
+	# it just looked wrong, on the nine loudest spells in the roster.
+	if spell.kind == SpellDef.Kind.CATACLYSM:
+		match spell.id:
+			# Driven into the FLOOR — both of these are the ground answering.
+			"teardown", "siegeworks":
+				return Pose.SLAM
+			# The blade drops. Same reasoning as the HEX blade arm above.
+			"zanshin", "severance":
+				return Pose.UNSHEATHE
+			# It leaves the hand and goes everywhere; one arm, snapped out.
+			"the_circuit":
+				return Pose.LASH
+		# The placed workings — void, chronostasis, equinox, roulette — are rituals.
+		return Pose.CIRCLE
 	return for_spell(spell.kind)
 
 

@@ -97,6 +97,14 @@ const CATACLYSM_SCRIPTS: Dictionary = {
 	"the_void": "res://scripts/combat/VoidCollapse.gd",
 	"chronostasis": "res://scripts/combat/Chronostasis.gd",
 	"equinox": "res://scripts/combat/Equinox.gd",
+	# The five per-class drops. A missing row here does NOT error: `cast` returns
+	# false after the MP, the cooldown, the wind-up animation and a CHARGE have all
+	# been spent, and nothing appears. Guarded by `slice_test_tier_spells`.
+	"severance": "res://scripts/combat/Severance.gd",
+	"zanshin": "res://scripts/combat/Zanshin.gd",
+	"teardown": "res://scripts/combat/Teardown.gd",
+	"siegeworks": "res://scripts/combat/Siegeworks.gd",
+	"the_circuit": "res://scripts/combat/TheCircuit.gd",
 	# `roulette` is deliberately ABSENT: it has no spectacle of its own. It rolls
 	# one of the three above and re-enters `cast`. See `_roll_roulette`.
 }
@@ -123,6 +131,11 @@ const WARM_PATHS: PackedStringArray = [
 	"res://scripts/combat/VoidCollapse.gd",
 	"res://scripts/combat/Chronostasis.gd",
 	"res://scripts/combat/Equinox.gd",
+	"res://scripts/combat/Severance.gd",
+	"res://scripts/combat/Zanshin.gd",
+	"res://scripts/combat/Teardown.gd",
+	"res://scripts/combat/Siegeworks.gd",
+	"res://scripts/combat/TheCircuit.gd",
 	# THE ELEVEN CLASS-KIT SIGNATURES (also HEX-forked). Six of these are carried by
 	# DEFAULT, so leaving them cold would land the 44-126 ms first-cast stall inside
 	# the first minute of every run on six of the nine classes.

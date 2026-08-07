@@ -152,6 +152,11 @@ const MOTIF_BY_SCRIPT: Dictionary = {
 	"Chronostasis.gd": MagicCircle.Motif.SPIRAL,
 	"GravityFlip.gd": MagicCircle.Motif.SPIRAL,
 	"Equinox.gd": MagicCircle.Motif.SPIRAL,
+	"Siegeworks.gd": MagicCircle.Motif.SPIRAL,   # the arena itself stops being fixed
+	"TheCircuit.gd": MagicCircle.Motif.SPIRAL,   # range stops existing
+	"Teardown.gd": MagicCircle.Motif.ERUPTION,   # the ground comes UP, then leaves
+	"Severance.gd": MagicCircle.Motif.BLADE,     # a cut lands, on everyone marked
+	"Zanshin.gd": MagicCircle.Motif.BLADE,       # one cut, and it is the whole spell
 	# ── THE CLASS SIGNATURES ─────────────────────────────────────────────────
 	# ⚠ NINE OF THESE ELEVEN ARE NOT NEW INFORMATION — they are this table catching
 	# up with what the spectacle already says about itself. `_motif_of` checks a

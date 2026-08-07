@@ -749,9 +749,139 @@ static func build_tier2() -> Array:
 	return [_arc_of_fools(), _meteor_storm()]
 
 
-## The four Tier 3 boss drops, fresh instances. Every one of them carries CHARGES.
+## The Tier 3 boss drops, fresh instances. Every one of them carries CHARGES.
+##
+## ⚠ NINE CLASSES, NINE DROPS, AND THAT IS THE POINT. There were four here, pinned
+## across nine classes by `BotMatch.CLASS_DROP`, so three pairs shared — and the
+## class-identity ruling ("we cannot have any recolours") forbids the obvious fix of
+## re-tinting one. Each of the five added below bends a DIFFERENT RULE of the game
+## rather than carrying a bigger number, because a Tier 3 that is only a large hit is
+## a Tier 2 with a long cooldown.
+##
+##   severance    the only damage in the game read off the VICTIM (missing health)
+##   zanshin      the only area spell that gets STRONGER with more bodies in it
+##   teardown     the only spell whose damage comes from the ARENA, not from itself
+##   siegeworks   the only spell that takes the room away instead of filling it
+##   the_circuit  the only one with NO RADIUS — answered by tempo, not by position
 static func build_tier3() -> Array:
-	return [_the_void(), _chronostasis(), _equinox(), _roulette()]
+	return [_the_void(), _chronostasis(), _equinox(), _roulette(),
+		_severance(), _zanshin(), _teardown(), _siegeworks(), _the_circuit()]
+
+
+## SEVERANCE — the Shadowblade's. Marks a ring, waits, then executes: each victim
+## priced off ITS OWN missing health. See `Severance.gd` for why it is missing and
+## not current health.
+static func _severance() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "severance"
+	s.display_name = "Severance"
+	s.description = "Everything in the ring is marked and then, a breath later, "\
+		+ "cut. The cut is gentle with the healthy and merciless with the hurt."
+	s.kind = SpellDef.Kind.CATACLYSM
+	s.element = Elements.Element.SHADOW
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.SHADOW)
+	s.mp_cost = 85
+	s.cooldown = 22.0
+	s.damage = 210      # the CEILING, paid only against a body on its last pixel
+	s.radius = 210.0
+	s.reach = 300.0
+	s.length = 2.4      # the window between the mark and the cut
+	s.cast_time = 1.2
+	s.charges = 1
+	return s
+
+
+## ZANSHIN — the Swordsaint's. A stance that tallies everyone who enters, then one
+## cut worth more per body. The base damage is deliberately the lowest of the five.
+static func _zanshin() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "zanshin"
+	s.display_name = "Zanshin"
+	s.description = "A stance, held. Everyone who steps inside the ring is counted, "\
+		+ "and the single cut at the end is worth more for every one of them."
+	s.kind = SpellDef.Kind.CATACLYSM
+	s.element = Elements.Element.ARCANE
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.ARCANE)
+	s.mp_cost = 80
+	s.cooldown = 20.0
+	s.damage = 120      # per body, BEFORE the per-extra multiplier
+	s.radius = 240.0
+	s.reach = 280.0
+	s.length = 2.6      # the stance
+	s.cast_time = 1.0
+	s.charges = 1
+	return s
+
+
+## TEARDOWN — the Brawler's. Rips the cover out of the ring and throws it. Its
+## damage is a function of how much cover there was.
+static func _teardown() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "teardown"
+	s.display_name = "Teardown"
+	s.description = "Every piece of cover in reach is torn out of the floor and "\
+		+ "thrown outward. An empty room has nothing to throw."
+	s.kind = SpellDef.Kind.CATACLYSM
+	s.element = Elements.Element.EARTH
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.EARTH)
+	s.mp_cost = 80
+	s.cooldown = 21.0
+	s.damage = 0        # ⚠ ZERO ON PURPOSE — `Teardown` prices itself off the arena
+	s.radius = 200.0
+	s.reach = 300.0
+	s.cast_time = 1.1
+	s.charges = 1
+	return s
+
+
+## SIEGEWORKS — the Juggernaut's. Two stone faces rise and walk inward, shrinking
+## the arena for `length` seconds.
+static func _siegeworks() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "siegeworks"
+	s.display_name = "Siegeworks"
+	s.description = "Two walls rise at the edges of the ground and begin to close. "\
+		+ "Leaving is free at the start and impossible at the end."
+	s.kind = SpellDef.Kind.CATACLYSM
+	s.element = Elements.Element.EARTH
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.EARTH)
+	s.mp_cost = 90
+	s.cooldown = 26.0
+	s.damage = 90       # per CONTACT with a face, not per frame
+	s.radius = 300.0
+	s.reach = 260.0
+	s.length = 3.2      # how long the room stays taken
+	s.cast_time = 1.4
+	s.charges = 1
+	return s
+
+
+## THE CIRCUIT — the Stormcaller's. No radius at all: it arcs through every hostile
+## on the stage in turn. `reach` is authored anyway so the bot brain can size it —
+## see the CATACLYSM arm of `BotBrain._effective_range`.
+static func _the_circuit() -> SpellDef:
+	var s := SpellDef.new()
+	s.id = "the_circuit"
+	s.display_name = "The Circuit"
+	s.description = "The storm stops choosing a direction. It arcs to every living "\
+		+ "thing on the floor in turn, nearest first, and distance is no answer."
+	s.kind = SpellDef.Kind.CATACLYSM
+	s.element = Elements.Element.LIGHTNING
+	s.use_element_color = true
+	s.effect = _effect_for_element(Elements.Element.LIGHTNING)
+	s.mp_cost = 95
+	s.cooldown = 25.0
+	s.damage = 150      # per link, with NO falloff down the chain
+	s.radius = 0.0      # ⚠ genuinely none. The absence is the spell.
+	s.reach = 420.0
+	s.length = 1.4      # the whole circuit walks in this long
+	s.cast_time = 1.2
+	s.charges = 1
+	return s
 
 
 ## Every drop id, for the "no drop is ever in a starting kit" guard and for the
