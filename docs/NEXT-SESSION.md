@@ -26,7 +26,7 @@ Then **fight a Cleric and a Warlock** — both were retuned, and both were measu
 |---|---|
 | **Deflect** | The guard is a PLANE. Square → still back at the sender; angled → skids off at twice the angle. A real beat too: a longer freeze (the caught spell visibly stops) and a spark cone down the exit so you can see where it went. Horizon Cut sweeps things aside as it travels. |
 | **Death** | `Hero._die` healed to full outside a run, AND a flop taken in the 0.4 s before the fatal blow un-limped the corpse afterwards. Two faults, one symptom. Killing blows now launch. |
-| **Swordsaint** | Background circle gone (it was the arcane cast gesture; suppressed for plain steel only). Curve is a tapered blade with three trailing ghosts. Connecting swings get a black `SILHOUETTE` frame + edge spray. |
+| **Swordsaint** | Background circle gone (it was the arcane cast gesture; suppressed for plain steel only). Curve is a tapered blade with three trailing ghosts. Connecting swings get a `LOCAL` frame + edge spray (it was SILHOUETTE, which is FULL-SCREEN and would have spent the whole 2/sec budget on the commonest event in the fight, starving the ults). |
 | **Blood Pact** | 5→3 HP/s, 5→6 s, **and it buffs your sword now**. The gold aura could never survive its own duration. |
 | **Gravity well** | The **caster** can no longer staircase out on dashes. First fix keyed on the wrong refcount — the maker caught it. |
 | **Petrify** | Statues cannot act at all. The stone slab and its cracks are gone; the body itself freezes and frosts. |
@@ -40,10 +40,12 @@ Then **fight a Cleric and a Warlock** — both were retuned, and both were measu
 
 1. **The deflect angle** is a feel change on top of a documented decision.
    `SpellDeflect.return_dir` → return `n` unconditionally and it is back to aim-direct.
-2. **Blood Pact buffing melee is UNMEASURED.** The sweep predates it. Swordsaint was
-   53% before.
-3. **Four spell durations/cooldowns moved** (judgment, raise_thrall, mirror_image,
-   petrify) and the sweep predates all four.
+2. **Blood Pact buffing melee.** The Swordsaint went 53% -> 65% across the two sweeps
+   — but that is 1.2 sigma, so no mechanism is claimed. It is the first row to
+   re-price on a bigger sample.
+3. **Nine spell numbers moved** — four duty-cycle fixes (judgment, raise_thrall,
+   mirror_image, petrify) and the Shadowblade's three. All are inside
+   `slice_test_spell_budget`'s ceilings, none is confirmed by hand.
 
 ## ▶ THE NUMBERS — AND WHAT THEY DO AND DO NOT SUPPORT
 
@@ -93,20 +95,24 @@ but it is the first thing to re-price if a bigger sample confirms it.
   often as anything else.
 * **`Tuning.cfg.shake_scale` was read by one camera of two.**
 * **I then blamed the channel gate for the missing ults and was wrong.** Counted it
-  with real bodies: **0 of 242 channelled casts refused.** The gate is innocent. The
+  with real bodies: **0 of 242, then 5 of 1291 (0.4%) at a bigger sample.** The gate
+  is innocent. The
   likeliest remaining explanation is that ults were not LEGIBLE as ults — which the
   new `CastName` banner now fixes. Play it and see.
 
 ## ▶ WHAT IS STILL OPEN
 
-* **The Shadowblade at 23%** — the floor of the roster, unaddressed, and now the
-  best-evidenced balance problem in the game.
-* **The bot melee swing has no spacing dial** — 2.85/s for the Brawler and Swordsaint,
-  45% of their actions. Deliberately left alone: the body gates real damage at
-  `melee_cd`, so a brain-side floor above it cuts melee DPS on the two classes least
-  able to take it. Wants the next sweep.
+* **The CRYOMANCER is now nominally lowest at 29%** — but that is a -0.8 sigma move
+  from 36%, i.e. noise. Do not chase it without a bigger sample.
 * **`aegis_ward`'s own duty-cycle rule is stricter than the one enforced** (50% vs the
-  100% in `slice_test_spell_budget`). Tightening it would retune half the catalogue.
+  100% in `slice_test_spell_budget`). Tightening it would retune half the catalogue on
+  an unmeasured hunch, so the weaker form is deliberate.
+* **CLOSED, and worth knowing why.** The Shadowblade (23%) was fixed in the KIT, not
+  the body — `slice_test_class_movement` asserts it is the designed frailest body in
+  the roster and refused an HP buff. And "the bot melee swing has no spacing dial"
+  turned out to be a HARNESS ARTIFACT: `slice_test_bot_rhythm` never set CD_SWING, so
+  the brain was measured pressing at its own floor with nothing answering. Real rate
+  is 2.15/s, not 2.85/s. No dial needed.
 
 ## HOW TO VERIFY
 ```
