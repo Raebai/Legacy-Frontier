@@ -113,7 +113,11 @@ var _radius: float = RADIUS
 var _exit_radius: float = RADIUS + EXIT_MARGIN
 var _damage: int = 0
 var _seed: int = 0
-## instance_id -> Node2D. Every id in here has had `enter_grav_field()` called once.
+## Which of the held ids is the CASTER — it gets the zone fact but never the lift or
+## the control grant, so its release must not decrement a count it never incremented.
+var _caster_ids: Dictionary = {}
+## instance_id -> Node2D. Every id in here has had `enter_grav_zone()` called once,
+## and `enter_grav_field()` too unless it is in `_caster_ids`.
 var _held: Dictionary = {}
 var _collapsing: bool = false
 var _collapse_t: float = 0.0
@@ -200,8 +204,20 @@ func _lift_everyone(delta: float) -> void:
 	for n: Node in get_tree().get_nodes_in_group(target_group):
 		if not is_instance_valid(n) or n.is_queued_for_deletion():
 			continue
-		if n.get_instance_id() == skip:
-			continue
+		# ⚠ THE CASTER IS NO LONGER SKIPPED OUTRIGHT — it is skipped from the LIFT and
+		# from the control grant, which is the policy above, but it is still tracked as
+		# being INSIDE THE WELL. Maker, correcting me: *"no as in the caster of gravity
+		# well can fly in the gravity well area"*.
+		#
+		# My first fix keyed the no-upward-dash rule on `Hero.grav_fields`, which is
+		# incremented by `_capture` — and this `continue` meant the caster never
+		# reached `_capture`, so the caster's count stayed at zero and the rule never
+		# applied to the one body that was actually flying. Exactly the wrong half.
+		#
+		# The zone count below is a SEPARATE, weaker fact: "you are standing in a
+		# gravity well", with none of the ground-accel steering `grav_fields` grants.
+		# It changes nothing about who gets lifted and nothing about who can steer.
+		var is_caster: bool = n.get_instance_id() == skip
 		var v: Variant = n.get(&"velocity")
 		if v == null or not (v is Vector2):
 			continue   # not a moving body — nothing to invert
@@ -218,7 +234,11 @@ func _lift_everyone(delta: float) -> void:
 			continue
 		if not was_held:
 			_held[id] = body
-			_capture(body)
+			if is_caster:
+				_caster_ids[id] = true
+			_capture(body, is_caster)
+		if is_caster:
+			continue   # no lift for the caster — that policy is unchanged
 		var vel: Vector2 = v as Vector2
 		# THE CAP. Both the acceleration and the terminal speed taper across
 		# SETTLE_BAND, so a body reaches the lid and hovers under it. Without the taper
@@ -253,14 +273,35 @@ func _inside(pos: Vector2, already: bool) -> bool:
 ## `Enemy` does not, and neither does a test stub — all three correct. An enemy has no
 ## air-accel penalty to lift (it is driven by its AI, not a stick), so there is nothing
 ## to give it, and saying so is better than pretending the grant is universal.
-func _capture(body: Node2D) -> void:
-	if body.has_method(&"enter_grav_field"):
+## TWO FACTS, NOT ONE, and the caster gets only the weaker of them.
+##
+##   `enter_grav_field` — "you are being held up by this, and you may steer as if
+##                        planted". Lift plus ground-grade air control. NOT the caster.
+##   `enter_grav_zone`  — "you are standing inside a gravity well". Nothing else.
+##                        Everyone, caster included, and it is what stops a body
+##                        staircasing out on dashes. See `Hero.grav_zones`.
+##
+## They were one call, which is why the maker's *"the caster of gravity well can fly
+## in the gravity well area"* survived the first fix: the caster was excluded from
+## `_capture` entirely, so the no-upward-dash rule keyed on `grav_fields` never
+## applied to the one body that was flying.
+func _capture(body: Node2D, caster: bool) -> void:
+	if body.has_method(&"enter_grav_zone"):
+		body.call(&"enter_grav_zone")
+	if not caster and body.has_method(&"enter_grav_field"):
 		body.call(&"enter_grav_field")
 
 
 func _release(body: Node2D) -> void:
-	if body.has_method(&"exit_grav_field"):
+	if body.has_method(&"exit_grav_zone"):
+		body.call(&"exit_grav_zone")
+	# ⚠ ONLY IF IT WAS GRANTED. `Hero.exit_grav_field` floors at zero, so an unmatched
+	# release looks harmless on its own — but with TWO overlapping wells it would
+	# decrement a count this well never incremented and free a body the OTHER well is
+	# still holding. Tracked rather than clamped, for that reason.
+	if not _caster_ids.has(body.get_instance_id()) and body.has_method(&"exit_grav_field"):
 		body.call(&"exit_grav_field")
+	_caster_ids.erase(body.get_instance_id())
 
 
 ## Gravity comes back and the bill arrives.

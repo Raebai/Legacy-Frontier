@@ -1089,10 +1089,31 @@ var _was_on_floor: bool = true  # for the landing-dust transition edge
 ## jump, no wall-jump, no landing. That is correct: the well is supposed to take the
 ## floor away. It gives back CONTROL, not ground.
 var grav_fields: int = 0
+## How many gravity wells this body is STANDING IN, lifted or not. See
+## `enter_grav_zone` — the caster of a well is in the zone but not in the field.
+var grav_zones: int = 0
 
 
 func enter_grav_field() -> void:
 	grav_fields += 1
+
+
+## ══ STANDING IN A WELL, WHOEVER YOU ARE ════════════════════════════════════
+## The weaker of the two gravity-well facts. `grav_fields` means "this well is
+## holding me up and I may steer as if planted"; `grav_zones` means only "I am inside
+## one". The caster is excluded from the first — that is `GravityFlip`'s deliberate
+## policy, it already paid for the well by placing it — but not from the second.
+##
+## Maker, correcting my first attempt: *"no as in the caster of gravity well can fly
+## in the gravity well area"*. That fix keyed the no-upward-dash rule on
+## `grav_fields`, which the caster never has, so it protected everyone except the
+## body that was flying.
+func enter_grav_zone() -> void:
+	grav_zones += 1
+
+
+func exit_grav_zone() -> void:
+	grav_zones = maxi(grav_zones - 1, 0)
 
 
 func exit_grav_field() -> void:
@@ -3609,7 +3630,11 @@ func _begin_travel(verb: String) -> void:
 	# something, and in free fall there is nothing under you to push off. Any class,
 	# any verb — the Swordsaint is only the loudest case (0.72 s dash + an uppercut +
 	# a six-hop Crescent Step).
-	if grav_fields > 0 and _dash_dir.y < 0.0:
+	# ⚠ `grav_zones`, NOT `grav_fields`. The caster of a well is deliberately excluded
+	# from the field (no lift, no steering grant) and so had a `grav_fields` of zero —
+	# which meant the first version of this rule protected everybody except the one
+	# body the maker reported flying. See `enter_grav_zone`.
+	if grav_zones > 0 and _dash_dir.y < 0.0:
 		_dash_dir = Vector2(_dash_dir.x, 0.0)
 		if _dash_dir.x == 0.0:
 			_dash_dir = Vector2(signf(facing.x) if facing.x != 0.0 else 1.0, 0.0)

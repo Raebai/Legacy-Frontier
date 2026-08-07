@@ -65,6 +65,14 @@ const STONE_BODY: Color = Color(0.42, 0.40, 0.44)
 const STONE_LIT: Color = Color(0.68, 0.66, 0.70)
 const STONE_CRACK: Color = Color(0.16, 0.14, 0.18)
 const STATUE_HEIGHT: float = 34.0
+## The frost the held body wears instead of a stone slab — see `_freeze_rig`. Cool
+## and pale so it separates from the warm earth ring on the ground beneath it; a
+## grey-on-grey tint would put the body back into the terrain it is standing on,
+## which is the exact complaint the ring was added for.
+const FROST_TINT: Color = Color(0.72, 0.86, 1.0)
+## How often the tint is re-applied. Slower than its own fade, on purpose: the frost
+## breathes instead of sitting flat.
+const FROST_REFRESH: float = 0.22
 
 enum Phase { TELEGRAPH, STONE, FLYING, DONE }
 
@@ -83,7 +91,12 @@ var _flight: float = 0.0
 ## Bodies already hurt by THIS throw, by instance id — a statue passing through a
 ## brute must not tick it every frame.
 var _struck: Dictionary = {}
+## ⚠ NO LONGER DRAWS ANYTHING. The fracture lines it seeded are gone — see
+## `_draw_statue`. Kept because `_shatter` still rolls debris off a per-cast seed and
+## a rename here is a wider edit than it is worth.
 var _crack_seed: int = 0
+## Countdown to the next frost re-tint while held. See `_tint_rig`.
+var _frost_tick: float = 0.0
 ## Where the statue is held. INF = not pinned yet (the first pin latches it).
 var _pin_at: Vector2 = Vector2.INF
 
@@ -152,6 +165,7 @@ func _catch() -> void:
 	_phase = Phase.STONE
 	_elapsed = 0.0
 	_set_locked(true)   # a statue does not fight — see `_set_locked`
+	_freeze_rig(true)
 	if _victim.has_method("apply_status"):
 		_victim.apply_status(element_id, false)   # the EARTH stagger, for the tint
 	DebrisChunk.spawn_burst(get_parent(), _victim.global_position,
@@ -188,6 +202,12 @@ func _pin() -> void:
 	if _pin_at == Vector2.INF:
 		_pin_at = _victim.global_position
 	_victim.global_position = _pin_at
+	# Keep the frost alive — see `_tint_rig` for why it is a refresh rather than a
+	# persistent channel.
+	_frost_tick -= get_physics_process_delta_time()
+	if _frost_tick <= 0.0:
+		_frost_tick = FROST_REFRESH
+		_tint_rig()
 
 
 ## Deterministic 0..1 hash — the same idiom as `BeamSpell._hash01` / `ChainBolt`.
@@ -316,7 +336,47 @@ func _finish() -> void:
 	# lock released on only some paths is a body that can never act again, and the
 	# statue is gone by then so nothing on screen would explain it.
 	_set_locked(false)
+	_freeze_rig(false)
 	queue_free()
+
+
+## ══ THE BODY IS THE STATUE ═════════════════════════════════════════════════
+## Maker: *"remove the x on the petrified bodies and stuff like just keep them
+## grounded and frozen effect"*.
+##
+## What was drawn: a blocky stone SLAB over the top of the rig, plus three
+## deterministic fracture lines across it. Those crossing cracks are the "x", and the
+## slab is why they were needed at all — a drawn shape that replaces the fighter has
+## to look like something, so it grew a silhouette, a rim light, a halo and a crack
+## pattern, none of which is the fighter you were watching a moment ago.
+##
+## THE BODY IS ALREADY THE RIGHT SHAPE. `CharacterRig.set_frozen` exists, `Enemy`
+## already uses it for hard CC, and it holds the locomotion phase so the figure stops
+## dead mid-stride instead of standing to attention. Freeze it, frost it, leave it on
+## the floor. The information the slab was carrying — that this is timed and can be
+## thrown — is the GROUND RING and the COUNTDOWN ARC, and those stay.
+func _freeze_rig(on: bool) -> void:
+	if _victim == null or not is_instance_valid(_victim):
+		return
+	var r: Variant = _victim.get(&"rig")
+	if r == null or not (r is Object) or not (r as Object).has_method(&"set_frozen"):
+		return
+	(r as Object).call("set_frozen", on)
+	if not on:
+		return
+	_tint_rig()
+
+
+## Re-applied on a slow tick because `flash_color` is a decaying one-shot — there is
+## no persistent tint channel on the rig, and adding one for a six-second spell would
+## be a bigger change than the spell is worth. The refresh is slower than the fade so
+## the frost visibly BREATHES rather than sitting flat, which reads as ice.
+func _tint_rig() -> void:
+	if _victim == null or not is_instance_valid(_victim):
+		return
+	var r: Variant = _victim.get(&"rig")
+	if r != null and (r is Object) and (r as Object).has_method(&"flash_color"):
+		(r as Object).call("flash_color", FROST_TINT, FROST_REFRESH * 1.4)
 
 
 ## Statues do not fight. Maker: *"when the class is perftified it cant cast any spells
@@ -382,31 +442,38 @@ func _draw_statue(at: Vector2) -> void:
 	# and throw this" is the only question the spell actually poses, and the answer was
 	# nowhere on screen. Same shape `BloodPact` uses for its own duration, so the two
 	# held effects in the game read the same way.
-	if _phase != Phase.FLYING:
-		var beat: float = 0.5 + 0.5 * sin(_elapsed * 5.0)
-		var left: float = clampf(1.0 - _elapsed / maxf(_life, 0.001), 0.0, 1.0)
-		draw_arc(at + Vector2(0.0, 4.0), w * 1.9, 0.0, TAU, 28,
-			Color(0.85, 0.62, 0.30, 0.30 + 0.20 * beat), 2.4, true)
-		draw_arc(at + Vector2(0.0, -h * 0.5), h * 0.78, 0.0, TAU, 30,
-			Color(1.0, 0.82, 0.45, 0.16 + 0.12 * beat), 5.0, true)
-		draw_arc(at + Vector2(0.0, 4.0), w * 2.3, -PI * 0.5, -PI * 0.5 + TAU * left,
-			34, Color(1.2, 0.80, 0.35, 0.85), 2.6, true)
-	var top: float = at.y - h
-	var body := PackedVector2Array([
-		Vector2(at.x - w, at.y + 4.0), Vector2(at.x - w * 0.8, top + h * 0.30),
-		Vector2(at.x - w * 0.55, top), Vector2(at.x + w * 0.55, top),
-		Vector2(at.x + w * 0.8, top + h * 0.30), Vector2(at.x + w, at.y + 4.0)])
-	draw_colored_polygon(body, STONE_BODY)
-	draw_polyline(body, Color(STONE_LIT.r, STONE_LIT.g, STONE_LIT.b, 0.9), 2.0, true)
-	# Fracture lines. Deterministic from a per-cast seed so the cracks do not crawl
-	# frame to frame — a statue that shimmers reads as a bug, not as stone.
-	for i: int in 3:
-		var f: float = _hash01(_crack_seed + i * 733)
-		var g: float = _hash01(_crack_seed + i * 977 + 17)
-		draw_line(Vector2(at.x - w + w * 2.0 * f, top + h * 0.15),
-			Vector2(at.x - w + w * 2.0 * g, at.y),
-			Color(STONE_CRACK.r, STONE_CRACK.g, STONE_CRACK.b, 0.85), 1.6, true)
-	# A dust plume trailing a thrown statue so the throw reads as travel.
+	# ══ NO SLAB, NO CRACKS ═════════════════════════════════════════════════════
+	# Maker: *"remove the x on the petrified bodies and stuff like just keep them
+	# grounded and frozen effect"*.
+	#
+	# What used to be here: a blocky stone POLYGON drawn over the top of the rig, a rim
+	# light around it, a halo, and three deterministic fracture lines across its face.
+	# Those crossing cracks are the "x" — and the slab is why they existed at all. A
+	# drawn shape that replaces the fighter has to look like something, so it grew a
+	# silhouette and a crack pattern, and none of it is the fighter you were watching
+	# a second earlier.
+	#
+	# The body is already the right shape. `_freeze_rig` holds the rig's locomotion
+	# phase (so the figure stops dead mid-stride rather than standing to attention)
+	# and frosts it. Everything below is GROUND MARKS only.
 	if _phase == Phase.FLYING:
+		# A frost plume behind a thrown body, so the throw still reads as travel.
 		var back: Vector2 = at - _vel.normalized() * 22.0
-		draw_line(at, back, Color(0.75, 0.72, 0.76, 0.45), 8.0, true)
+		draw_line(at, back, Color(FROST_TINT.r, FROST_TINT.g, FROST_TINT.b, 0.45),
+			8.0, true)
+		return
+	# THE TWO MARKS THAT CARRY INFORMATION, and the reason they survive the cut. The
+	# ring answers "look here" — this spell was reported invisible once already — and
+	# the arc answers the only question the spell actually poses: how long do I have
+	# to go and throw this. Same shape `BloodPact` uses for its duration, so the two
+	# held effects in the game read the same way.
+	var beat: float = 0.5 + 0.5 * sin(_elapsed * 5.0)
+	var left: float = clampf(1.0 - _elapsed / maxf(_life, 0.001), 0.0, 1.0)
+	draw_arc(at + Vector2(0.0, 4.0), w * 1.9, 0.0, TAU, 28,
+		Color(0.85, 0.62, 0.30, 0.30 + 0.20 * beat), 2.4, true)
+	draw_arc(at + Vector2(0.0, 4.0), w * 2.3, -PI * 0.5, -PI * 0.5 + TAU * left,
+		34, Color(1.2, 0.80, 0.35, 0.85), 2.6, true)
+	# A cold shimmer AT THE FEET rather than a halo around the head: it says "frozen
+	# in place" and, unlike the halo, it cannot be mistaken for the body's own aura.
+	draw_arc(at + Vector2(0.0, 2.0), w * (1.15 + 0.10 * beat), PI, TAU, 20,
+		Color(FROST_TINT.r, FROST_TINT.g, FROST_TINT.b, 0.34 + 0.16 * beat), 2.0, true)

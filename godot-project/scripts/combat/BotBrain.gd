@@ -345,7 +345,26 @@ const NOVA_RANGE: float = 150.0
 ## presses inside 1.4 s ON TOP of a primary firing every 0.22-0.45 s and a kit cast
 ## every 0.35 s — about 6-8 discrete actions per second per fighter, so 12-16 on
 ## screen. The gap between "busy" and "unreadable" is how many of them overlap.
-const ABILITY_SPACING: float = 0.80
+##
+## ⚠ 0.80 -> 1.05, AND THE REASON THE LAST ATTEMPT AT THIS FAILED. Maker: *"the bot
+## fights the cool downs are a little too low I think they are just spaming spells"*.
+##
+## A previous session raised ALL FOUR pacing dials together, failed
+## `slice6_test_bot_brain`'s ">= 12 casts in a neutral window", backed off twice, got
+## 10 every time, and stopped. The diagnosis in the queue was that the guard binds
+## harder than the dials move. It does not. **THAT TEST COUNTS ONLY `cast_slot`** —
+## look at its loop: `if out.has("cast_slot")`. `fire`, `swing`, the three abilities,
+## `guard` and `dash` are not counted at all.
+##
+## So `CAST_LATCH` is the ONE dial the guard constrains, and it was the one that got
+## raised. This dial, `FIRE_SPACING` and the swing floor below are all invisible to
+## that assertion — and between them they emit far more of what a watcher reads as
+## "spam" than the kit does, because the kit is on 3-9 s cooldowns and these are not.
+##
+## Raising the uncounted three is not a way around the guard. The guard encodes "a bot
+## must not go QUIET", and after this it still lands its twelve casts; what it stops
+## doing is filling every gap between them.
+const ABILITY_SPACING: float = 1.05
 
 ## ⚠ THE PRIMARY HAD NO SPACING AT ALL, AND THAT IS THE SPAM THE MAKER SAW.
 ##
@@ -367,7 +386,22 @@ const ABILITY_SPACING: float = 0.80
 ## instead — so their `CD_PRIMARY` sits at 0 and the brain pressed fire EVERY SINGLE
 ## FRAME into a body that silently early-returned. This floor is what stops that,
 ## and it stops it without touching the player's own melee timing.
-const FIRE_SPACING: float = 0.42
+##
+## ⚠ 0.42 -> 0.60, ON THE SAME NOTE, SECOND TIME OF ASKING. This constant exists
+## because of the maker's *"arcanist is spamming its default spell"*; the reply to it
+## is *"the cool downs are a little too low ... they are just spaming spells"*. The
+## floor was right and it was not far enough.
+##
+## THE PRIMARY IS THE HIGHEST-FREQUENCY SPELL EMITTER IN THE GAME, by a wide margin —
+## the kit sits on 3-9 s cooldowns, this fires as fast as the floor allows. At 0.42
+## the fast half of the roster throws 2.4 bolts a second; at 0.60 it throws 1.67. That
+## is the single biggest change available to how busy a duel looks, and it costs the
+## player nothing: this is a BOT dial, and no spell's own cooldown moves.
+##
+## Still a FLOOR, not a cooldown. The Swordsaint (0.45) and the Juggernaut (0.40) are
+## now inside it where they were not before, which is the one cost — but their primary
+## is a melee swing whose damage the body gates anyway.
+const FIRE_SPACING: float = 0.60
 
 ## ══ THE PAUSE, THE FLINCH, AND THE LAST STAND ═══════════════════════════════════
 ## See `_note_exchange` for how these are rolled and why the ceilings are where they
