@@ -1043,9 +1043,10 @@ static func _blood_pact() -> SpellDef:
 	# "everything you cast hits harder", so the ward, the speed and the aura would have
 	# been invisible even after they existed. A buff nobody can read is a buff nobody
 	# casts on purpose.
-	s.description = "Open a vein. For five seconds most of what hits you is "\
-		+ "shrugged off, you move faster, and everything you cast lands harder. "\
-		+ "The bleeding does not stop because the fight is going badly."
+	s.description = "Open a vein. For six seconds most of what hits you is "\
+		+ "shrugged off, you move faster, and everything you cast — and everything "\
+		+ "you cut — lands harder. The bleeding does not stop because the fight is "\
+		+ "going badly."
 	s.kind = SpellDef.Kind.HEX
 	s.element = Elements.Element.SHADOW
 	s.use_element_color = true
@@ -1063,9 +1064,21 @@ static func _blood_pact() -> SpellDef:
 	## next 5 seconds"*. Half a second, and it buys the promise on the card being the
 	## promise in the code — a player counting five and losing their ward at four and a
 	## half reads it as the buff failing, not as a tuning value.
-	s.length = 5.0          # seconds of pact
+	## ⚠ 5.0 -> 6.0. Maker: *"it needs to have a long effect on the sword person"*.
+	## Deliberately NOT the 8-10 s that ask sounds like: the cooldown cannot cross 7.0
+	## without `SpellTier.of` re-shelving this as an ULT and ejecting it from the
+	## Swordsaint's control slot (`slice_test_melee_economy` asserts exactly that), so a
+	## longer pact buys uptime it cannot pay for. Six seconds against a 6.6 s cooldown
+	## is already a pact you can hold almost continuously — the real limiter is the
+	## blood, and that is the number the maker was actually complaining about.
+	s.length = 6.0          # seconds of pact
 	s.radius = 1.75         # OUTGOING SPELL DAMAGE MULTIPLIER (see BloodPact.gd)
-	s.count = 5             # HP drained per second
+	## ⚠ 5 -> 3. Maker: *"the blood pact takes up too much damage"*. It was 5 HP/s for
+	## 5 s = 25 of a Swordsaint's 147 max, 17% of the bar, billed in six visible lumps
+	## that each flash and shake because the pact routes through the real `take_damage`
+	## (which it must — the pact has to be able to kill you). Now 3 HP/s over 6 s = 18,
+	## i.e. a longer pact for less blood, which is both halves of the ask.
+	s.count = 3             # HP drained per second
 	s.cast_time = 0.4
 	return s
 

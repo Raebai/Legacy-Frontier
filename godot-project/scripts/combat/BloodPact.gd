@@ -15,10 +15,18 @@ extends Node2D
 ##                path. YOU CAN DIE TO YOUR OWN PACT. That is deliberate and it is
 ##                the only reason the buff is allowed to be as large as it is.
 ##
-## ⚠ IT DOES NOT BUFF MELEE, and the spell's own description says so. Melee damage
-## is resolved inside `Hero`, which this agent does not own; there is no seam to
-## multiply it through without an edit there. If that ever changes, the hook is one
-## line in `Hero._primary_melee_combo` calling the same `multiplier_for(self)`.
+## ✔ IT BUFFS MELEE NOW. This block used to read *"IT DOES NOT BUFF MELEE ... if that
+## ever changes, the hook is one line in `Hero` calling the same
+## `multiplier_for(self)`"*. That line exists: `Hero._on_melee_hit_frame` scales
+## `_melee_damage` by `multiplier_for(self, self)` before it is dealt.
+##
+## It was the single most valuable thing the pact was missing, because the pact is the
+## SWORDSAINT's control slot and a damage buff that skipped the sword was a buff the
+## class could barely spend. Maker: *"the blood pact needs to be buffed"*.
+##
+## Scoped to the hit-frame path deliberately: the uppercut, the fire punch and the
+## unsheathe cut add `_melee_damage` to their own authored numbers and are not the
+## primary the pact is meant to make dangerous.
 ##
 ## ⚠ THE PACT IS PER-CASTER, NOT GLOBAL. `multiplier_for` matches on the caster
 ## instance, so a hero drinking their own pact does not buff their teammate's

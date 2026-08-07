@@ -19,6 +19,11 @@ const DASH_COOLDOWN: float = 0.9  # was 0.55 — chained diagonal dashes let you
 const GRAVITY: float = 1500.0          # rise gravity (floaty apex)
 const GRAVITY_FALL: float = 2100.0     # heavier coming down (weighty landing)
 const MAX_FALL: float = 1000.0
+## The rise rail. See the gravity block in `_physics_process`: `minf` bounded only the
+## falling side, so nothing anywhere capped upward speed. Deliberately generous —
+## above a 740 jump and above any knockback the game throws — because this exists to
+## stop a runaway, not to shape a feel.
+const MAX_RISE: float = 1400.0
 const JUMP_VELOCITY: float = -580.0  # slightly higher jump (maker feedback)
 ## ⚠ -470 -> -415. Maker: *"the dash distance and jump height for shadowblade is too
 ## much so any classes that have that as well please reduce slightly"*. This constant
@@ -590,6 +595,11 @@ const DEATH_SMUDGE_SCRIPT: String = "res://scripts/combat/DeathSmudge.gd"
 ## that it stays on the fight floor rather than clearing the stage. `SPAWN_SPREAD` is
 ## 280 px, so this crosses about half the opening gap before it lands.
 const DEATH_LAUNCH_SPEED: float = 430.0
+## The edge spray on a blade that connects — see `_blade_connect_payoff`. Count is
+## modest and the spread is TIGHT on purpose: a wide fan is an explosion, and this
+## has to read as a cut travelling down a lane.
+const BLADE_SPARK_COUNT: int = 16
+const BLADE_SPARK_SPREAD: float = 34.0
 ## How fast a landed corpse stops sliding. Deliberately slow: the skid is the second
 ## half of the beat, and a body that stops dead on contact reads as hitting glue.
 const DEATH_SLIDE_DRAG: float = 620.0
@@ -2190,6 +2200,13 @@ func _physics_process(delta: float) -> void:
 	else:
 		var g: float = _tune("move_gravity_rise", GRAVITY) if velocity.y < 0.0 else _tune("move_gravity_fall", GRAVITY_FALL)
 		velocity.y = minf(velocity.y + g * delta, _tune("move_max_fall", MAX_FALL))
+		# ⚠ AND A CEILING ON RISE, which this block never had. `minf` bounds only the
+		# falling side, so there was no bound at all on the way up — a gravity well
+		# pushing -520 plus anything that adds to it could accumulate without limit.
+		# Not a tuning value: it is a rail, set well above the biggest legitimate
+		# launch (a 740 jump, a heavy knockback) so nothing real is clipped and a
+		# runaway is still bounded. Mirrors `move_max_fall` exactly.
+		velocity.y = maxf(velocity.y, -_tune("move_max_rise", MAX_RISE))
 		if wall_sliding:
 			velocity.y = minf(velocity.y, WALL_SLIDE_MAX_FALL)
 	# Variable jump height: releasing jump while rising cuts the ascent short.
@@ -2497,13 +2514,26 @@ func _cycle_element() -> void:
 ## change IS the feedback); _element_color feeds every subsequent cast.
 func _apply_element() -> void:
 	_element_color = Elements.color(_element)
-	rig.set_aura(_element_color, AURA_STRENGTH)
+	# ⚠ NOT WHILE THE PACT IS LIT. Maker: *"it needs to have a long effect on the sword
+	# person like give them an aura"* — and the pact HAS lit a gold aura since it
+	# shipped; it just could not survive its own duration. `BloodPact._light_the_aura`
+	# borrows the rig's aura and hands it back when the pact ends, so an element cycle
+	# mid-pact wiped the gold AND left the pact's `_prev_aura` snapshot holding a stale
+	# colour that it then restored on expiry. Two bugs from one unconditional write.
+	#
+	# `_element_color` still updates above, so every subsequent cast is the new
+	# element. Only the DRAWN aura defers, and only while a pact is running.
+	if not BloodPact.is_pacted(self, self):
+		rig.set_aura(_element_color, AURA_STRENGTH)
 
 
 ## Rank-up: the aura escalates a tier (more layers/motes/ring) plus a quick
 ## element-coloured pop on the figure. No menus — this IS the feedback.
 func _on_rank_changed(new_tier: int, _title: String) -> void:
-	rig.set_aura_tier(new_tier)
+	# Same reason as `_apply_element` above: the pact holds tier 5 for its duration and
+	# a rank-up mid-pact would drop the gold back to the rank's own tier.
+	if not BloodPact.is_pacted(self, self):
+		rig.set_aura_tier(new_tier)
 	rig.flash_color(_element_color, 0.18)
 
 
@@ -3519,6 +3549,33 @@ func _begin_travel(verb: String) -> void:
 		if fx == 0.0:
 			fx = signf(facing.x) if facing.x != 0.0 else 1.0
 		_dash_dir = Vector2(fx, 0.0)
+	# ══ AND YOU CANNOT STAIRCASE OUT OF A GRAVITY WELL ═════════════════════════
+	# Maker: *"the sword saint can fly in its gravity zone whilst the gravity zone is
+	# on it just holds up and will start flying"*.
+	#
+	# The well is not the bug — its own rise is clamped to `MAX_RISE` and tapers to
+	# nothing at the lid. THE DASH IS. `_physics_process`'s dash branch returns BEFORE
+	# the gravity block, `_travel_velocity` ends in a bare `return _dash_dir *
+	# _dash_speed`, and `_start_dash` has no `is_on_floor()` gate and no air budget. So
+	# a dash is 0.17 s of gravity-free travel that overwrites whatever the well wrote —
+	# 560 * 0.17 = 95 px of pure climb per press.
+	#
+	# Under normal gravity that is not flight: the fall during the 0.72 s cooldown
+	# costs far more than 95 px. Inside a well there is no fall to pay it back, so
+	# every press is net gain — and 95 px clears `GravityFlip.CATCH_ABOVE` (64), which
+	# RELEASES the body above the lid instead of holding it. `Hero.gd`'s own
+	# `DASH_COOLDOWN` comment already records this failure mode once:
+	# *"was 0.55 — chained diagonal dashes let you 'fly'"*.
+	#
+	# The rule: in a well you may dash sideways and down, never up. A dash pushes off
+	# something, and in free fall there is nothing under you to push off. Any class,
+	# any verb — the Swordsaint is only the loudest case (0.72 s dash + an uppercut +
+	# a six-hop Crescent Step).
+	if grav_fields > 0 and _dash_dir.y < 0.0:
+		_dash_dir = Vector2(_dash_dir.x, 0.0)
+		if _dash_dir.x == 0.0:
+			_dash_dir = Vector2(signf(facing.x) if facing.x != 0.0 else 1.0, 0.0)
+		_dash_dir = _dash_dir.normalized()
 	_ghost_timer = 0.0  # first afterimage lands this frame
 	_dash_hit.clear()
 	_begin_verb_extras(verb)
@@ -4401,7 +4458,23 @@ func _primary_heavy_swing() -> void:
 	# to declare the swing itself or it would stop dealing any. See _on_melee_hit_frame.
 	_swing_window = SWING_WINDOW
 	# Smaller wind-up (maker: "make the charge up for the heavys just slightly smaller").
-	rig.cast_gesture(CharacterRig.GestureKind.STOMP, 0.4, _element)
+	#
+	# ⚠ THE GESTURE ELEMENT IS THE MELEE'S, NOT THE CLASS'S. Maker: *"the sword saint
+	# shows the sword curve already which is good make it look more epic and remov
+	# ethat background circle when I attack"*.
+	#
+	# The circle was this call. `_element` for a Swordsaint is ARCANE, and
+	# `CharacterRig._vfx_arcane` draws a full 360 deg `draw_arc` plus a spinning
+	# triangle and a filled disc at the sword hand for the whole 0.24 s gesture — a
+	# magic circle behind every single sword swing. The Swordsaint already declares
+	# `melee_element: -1` ("plain steel applies no ailment"), and
+	# `_draw_cast_gesture_vfx` early-outs on `_gesture_element < 0`, so reading the
+	# MELEE's element here suppresses it for steel and for steel alone.
+	#
+	# The Juggernaut shares this primary and declares `melee_element: EARTH`, so its
+	# stone-fist gesture is untouched. Every cast path still passes `_element`.
+	rig.cast_gesture(CharacterRig.GestureKind.STOMP, 0.4,
+		int(_cfg.get("melee_element", _element)))
 	# STEP INTO the swing so the heavy actually closes + CONNECTS (maker: the heavy
 	# attacks "aren't working" — they were whiffing at its short reach). The lunge +
 	# the wider reach (CLASS_CONFIG) make the hammer land instead of swinging air.
@@ -5563,6 +5636,43 @@ func _nearest_enemy_in_melee_range() -> Node2D:
 		get_tree().get_nodes_in_group(hostile_group), [self], self)
 
 
+## ══ A BLADE THAT CONNECTS SHOULD LAND LIKE ONE ═════════════════════════════
+## Maker: *"the first boss is lit but swords person needs a better effect or damagge
+## or something"*.
+##
+## ⚠ IT IS AN EFFECT ANSWER, NOT A DAMAGE ONE, and that is a measurement rather than
+## a preference: the Swordsaint read EXACTLY 50% across three 288-bout sweeps — dead
+## centre of the roster. There is nothing wrong with the numbers. What was wrong is
+## that the slowest, most committed swing in the game published no impact frame, no
+## burst and no zoom — `Juice.on_hit` fires shake / kick / zoom / sfx / hitstop and
+## never calls `frame()`. The unsheathe cut two hundred lines below already gets a
+## spark burst; the primary that a Swordsaint spends the whole fight throwing got a
+## ding.
+##
+## SILHOUETTE, not BLOWOUT, and the precedent is in this file: a white concussion
+## erases the very crescent the beat exists to show off. The cut's payoff is a
+## READABLE SHAPE, so the frame goes black behind it.
+##
+## Gated on the weapon rather than the class, so a dagger and a scythe get it too and
+## a fist deliberately does not — a punch has its own vocabulary and does not want a
+## blade's edge-spray.
+func _blade_connect_payoff() -> void:
+	if not _blade_tell_weapon():
+		return
+	var dir: Vector2 = _aim_dir.normalized() if _aim_dir != Vector2.ZERO else facing
+	var at: Vector2 = global_position + dir * (_melee_range * 0.55)
+	# The edge spray: a tight fan ALONG the cut, so the eye is thrown down the lane
+	# the blade just swept rather than pushed outward from a point.
+	CombatVfx.spawn_burst(get_parent(), at,
+		Color(1.9, 1.95, 2.1, 1.0),
+		Color(_element_color.r, _element_color.g, _element_color.b, 0.0),
+		BLADE_SPARK_COUNT, 0.28, 240.0, 620.0, 0.9, 2.6, 0.0, 0.0, true,
+		dir, BLADE_SPARK_SPREAD)
+	Juice.frame({"style": ImpactFrame.Style.SILHOUETTE, "strength": 0.85, "at": at,
+		"shake": 0.0, "zoom": 0.0, "hitstop": 0.0})
+	Juice.zoom_punch_camera(0.05, 0.14)
+
+
 func _on_melee_hit_frame() -> void:
 	# ══ ONLY A DECLARED SWING LANDS ═════════════════════════════════════════════
 	# ⚠ THIS HANDLER USED TO FIRE FOR ANY PUNCH OR KICK ANIMATION IN THE GAME, and
@@ -5628,10 +5738,29 @@ func _on_melee_hit_frame() -> void:
 	# silently deleted here.
 	if nearest_enemy != null and not enemies_in_arc.has(nearest_enemy):
 		enemies_in_arc.append(nearest_enemy)
+	# ══ THE PACT NOW BUFFS STEEL ═══════════════════════════════════════════════
+	# Maker: *"the blood pact needs to be buffed"*.
+	#
+	# `BloodPact.gd`'s own header nominates this exact hook and says why it was not
+	# taken: *"Melee damage is resolved inside `Hero`, which this agent does not own;
+	# there is no seam to multiply it through without an edit there. If that ever
+	# changes, the hook is one line."* This is that line.
+	#
+	# It matters more than any other pact number: the pact is the SWORDSAINT's control
+	# slot, and a damage buff that skipped the sword was a buff the class could barely
+	# use. You now open a vein and your blade means it.
+	#
+	# ⚠ UNMEASURED. The roster table is older than the game (six unpriced changes
+	# against one sweep) and the Swordsaint reads exactly 50% on it, so this is a
+	# deliberate buff on a class that did not need rescuing — taken because the maker
+	# asked for it twice and the spell's own file argued for it. It costs blood, it
+	# runs 6 s, and it is the first thing to re-price on the next sweep.
+	var pact: float = BloodPact.multiplier_for(self, self)
+	var melee_dmg: int = int(round(float(_melee_damage) * pact))
 	for enemy: Node in enemies_in_arc:
 		var toward: Vector2 = ((enemy as Node2D).global_position - global_position).normalized()
 		if enemy.has_method("take_damage"):
-			enemy.take_damage(_melee_damage)
+			enemy.take_damage(melee_dmg)
 		if enemy.has_method("apply_knockback"):
 			enemy.apply_knockback(toward * _melee_knockback)
 		if melee_el >= 0 and enemy.has_method("apply_status"):
@@ -5680,6 +5809,7 @@ func _on_melee_hit_frame() -> void:
 			"shake": 4.0, "dir": facing, "kick": MELEE_CAMERA_KICK,
 		})
 		Sfx.play("ding", -3.0, 0.05)  # the bright Stick-Fight "clean hit" ding
+		_blade_connect_payoff()
 	else:
 		# Every swing reads even on a MISS — a small hitstop/shake so the punch
 		# still has weight when it doesn't land (much lighter than the on-connect

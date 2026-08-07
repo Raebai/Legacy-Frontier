@@ -20,6 +20,17 @@ const FADE_TIME: float = 0.15
 ## the enemy's element so casters/chargers/assassins read distinct at a glance.
 const RING_COLOR: Color = Color(0.95, 0.16, 0.13, 0.9)
 
+## ══ THE CRESCENT'S SWEEP ═══════════════════════════════════════════════════
+## How many fading copies trail the blade of air. Three is the point where the eye
+## reads a SWEEP rather than a stack; four starts to read as separate blades. They
+## are drawn at decreasing reach, so together they trace where the edge has been.
+const CRESCENT_GHOSTS: int = 3
+## How far back each ghost sits, as a fraction of the arc's own span. Tied to the
+## span rather than to the lane so a bigger cut trails proportionally further.
+const CRESCENT_GHOST_STEP: float = 0.30
+## Alpha multiplier per ghost. Steep on purpose — a slow falloff reads as smearing.
+const CRESCENT_GHOST_FALLOFF: float = 0.45
+
 ## Geometry, depended on by the archetype tests. CIRCLE = a zone/point sigil;
 ## LINE = a charge lane. (Kept exactly — do not rename.)
 enum Shape { CIRCLE, LINE }
@@ -404,17 +415,47 @@ func _draw_crescent() -> void:
 	var c: Color = accent
 	var perp: Vector2 = dir.orthogonal()
 	var reach_now: float = _length * (0.10 + 0.90 * t)
-	var half: float = maxf(_width * 0.9, 6.0) * (0.5 + 0.5 * t)
+	# ⚠ 0.9 -> 1.5 ON THE SPAN. Maker: *"the sword curve ... is good make it look more
+	# epic"*. The curve was the right IDEA at the wrong size — a 15 px arc on an 86 px
+	# lane, i.e. a scratch. A cut should be wider than the thing that made it.
+	var half: float = maxf(_width * 1.5, 11.0) * (0.45 + 0.55 * t)
 	draw_line(Vector2.ZERO, dir * _length, Color(c.r, c.g, c.b, 0.10 * fade), 1.0, true)
-	# The arc, as a polyline bowed forward at its middle. `draw_arc` cannot do this —
-	# a constant-width band reads as a ribbon, and the taper is what makes it a cut.
-	var pts := PackedVector2Array()
-	var steps: int = 9
-	for i: int in steps + 1:
-		var f: float = float(i) / float(steps)
-		var off: float = (f - 0.5) * 2.0
-		var bow: float = (1.0 - off * off) * half * 0.55
-		pts.append(dir * (reach_now + bow) + perp * off * half)
-	draw_polyline(pts, Color(c.r, c.g, c.b, 0.8 * fade), 2.6 * fade + 0.4, true)
-	draw_polyline(pts, Color(1.0, 1.0, 1.0, 0.55 * fade), 1.1 * fade + 0.2, true)
+	# ══ THE CUT IS A TAPERED BLADE OF AIR, NOT A LINE ═════════════════════════
+	# It was two constant-width `draw_polyline`s, and a constant-width band reads as a
+	# ribbon — the comment above them already said the taper was the point, and there
+	# was no taper. Now it is a real polygon: fat through the belly, closing to nothing
+	# at both tips, which is the shape of a slash.
+	#
+	# Three ghosts trail behind it at decreasing reach and alpha, so the eye sees the
+	# edge SWEEP rather than appear. That is the whole of what "more epic" buys here —
+	# no new colours, no full-screen anything, and it costs four polygons.
+	var steps: int = 22
+	for ghost: int in CRESCENT_GHOSTS + 1:
+		var back: float = float(ghost) * CRESCENT_GHOST_STEP
+		var lead: float = reach_now - half * back
+		if lead <= 0.0:
+			continue
+		var g_fade: float = fade * pow(CRESCENT_GHOST_FALLOFF, float(ghost))
+		var g_half: float = half * (1.0 - 0.16 * float(ghost))
+		var outer := PackedVector2Array()
+		var inner := PackedVector2Array()
+		var spine := PackedVector2Array()
+		for i: int in steps + 1:
+			var off: float = (float(i) / float(steps) - 0.5) * 2.0
+			var belly: float = 1.0 - off * off          # 1 at the middle, 0 at the tips
+			var bow: float = belly * g_half * 0.9
+			var thick: float = belly * maxf(_width * 0.5, 3.5) * (0.4 + 0.6 * t)
+			var mid: Vector2 = dir * (lead + bow) + perp * off * g_half
+			spine.append(mid)
+			outer.append(mid + dir * thick)
+			inner.append(mid - dir * thick)
+		# Trailing edge back along the inside closes the blade into one shape.
+		for i: int in inner.size():
+			outer.append(inner[inner.size() - 1 - i])
+		draw_colored_polygon(outer, Color(c.r, c.g, c.b, 0.42 * g_fade))
+		# The lit edge. Only the leading ghost gets the white core — every ghost
+		# carrying it would read as four blades rather than one that moved.
+		draw_polyline(spine, Color(c.r, c.g, c.b, 0.85 * g_fade), 2.2 * g_fade + 0.4, true)
+		if ghost == 0:
+			draw_polyline(spine, Color(1.6, 1.6, 1.6, 0.7 * g_fade), 1.2 * fade + 0.3, true)
 
