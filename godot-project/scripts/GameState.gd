@@ -553,7 +553,8 @@ func _save_climber(path: String = CLIMBER_PATH) -> void:
 		return
 	var payload: Dictionary = build_climber_save(
 		_floor, _highest_floor, _falls, tower_conquered, _live_rank_power(),
-		_xp, unlocked_nodes, unlocked_classes
+		_xp, unlocked_nodes, unlocked_classes,
+		pending_class_choices, _earned_choice_floors, loadout
 	)
 	var tmp_path: String = path + ".tmp"
 	var f: FileAccess = FileAccess.open(tmp_path, FileAccess.WRITE)
@@ -596,6 +597,10 @@ func _load_climber(path: String = CLIMBER_PATH) -> void:
 	unlocked_classes = state["unlocked_classes"]
 	pending_class_choices = int(state["pending_class_choices"])
 	_earned_choice_floors = state["earned_choice_floors"]
+	# The hub's gear choice, restored. `Hero._apply_gamestate_loadout` re-reads this
+	# after every `configure_class`, so a climber walks back into the tower wearing
+	# what they picked last session rather than their class default.
+	loadout = state["loadout"]
 
 
 ## The live rank power to persist. Reads /root/Rank when present (combat), else
@@ -951,7 +956,8 @@ static func default_layout() -> LayoutDef:
 ## every existing 5-argument caller (and the suites that pin them) is untouched.
 static func build_climber_save(current_floor: int, highest_floor: int, falls: int, tower_conquered: bool, rank_power: int,
 		xp: int = 0, unlocked_nodes: Array = [], unlocked_classes: Array = [],
-		pending_class_choices: int = 0, earned_choice_floors: Array = []) -> Dictionary:
+		pending_class_choices: int = 0, earned_choice_floors: Array = [],
+		loadout: Dictionary = {}) -> Dictionary:
 	var current: int = maxi(current_floor, 1)
 	var nodes: Array = []
 	for n in unlocked_nodes:
@@ -975,7 +981,38 @@ static func build_climber_save(current_floor: int, highest_floor: int, falls: in
 		"unlocked_classes": classes,
 		"pending_class_choices": maxi(pending_class_choices, 0),
 		"earned_choice_floors": earned_choice_floors.duplicate(),
+		# ⚠ THE HUB LOADOUT IS PART OF THE CLIMBER, NOT PART OF THE RUN.
+		#
+		# Maker: *"it should be like equippable in the hub and changing the weapon"*.
+		# It already was — the Armory pad writes `GameState.loadout` and
+		# `Hero._apply_gamestate_loadout` re-applies it after every class setup — but
+		# `loadout` was a plain var that nothing ever wrote to disk. So the choice
+		# survived walking into the tower and did NOT survive quitting the game, which
+		# makes "equippable in the hub" a thing you re-do every session.
+		#
+		# Sanitised to the three real slots on the way out rather than duplicated
+		# whole: an old save, a hand-edited one, or a future slot that gets removed
+		# must not be able to put an unknown key into the rig's equipment dictionary.
+		"loadout": sanitize_loadout(loadout),
 	}
+
+
+## The three gear slots, and the only keys allowed into a save or out of one.
+const LOADOUT_SLOTS: Array[String] = ["weapon", "head", "body"]
+
+
+## A loadout dict reduced to known slots with string values. Shared by the writer
+## and the reader so a save cannot round-trip into something the rig would not
+## accept — see the note in `build_climber_save`.
+static func sanitize_loadout(raw: Variant) -> Dictionary:
+	var out: Dictionary = {}
+	if not (raw is Dictionary):
+		return out
+	for slot: String in LOADOUT_SLOTS:
+		var v: Variant = (raw as Dictionary).get(slot, "")
+		if typeof(v) == TYPE_STRING and String(v) != "":
+			out[slot] = String(v)
+	return out
 
 
 ## Parse a raw (JSON-loaded) climber dict into typed fields. JSON.parse_string
@@ -1012,6 +1049,10 @@ static func parse_climber_save(raw: Dictionary) -> Dictionary:
 		var fi: int = int(f)
 		if not earned.has(fi):
 			earned.append(fi)
+	# Absent on every save written before the hub loadout was persisted, which is
+	# exactly what an empty loadout means: the class defaults win. No migration
+	# needed and none should be added.
+	var gear: Dictionary = sanitize_loadout(raw.get("loadout", {}))
 	return {
 		"current_floor": current,
 		"highest_floor": highest,
@@ -1023,6 +1064,7 @@ static func parse_climber_save(raw: Dictionary) -> Dictionary:
 		"unlocked_classes": classes,
 		"pending_class_choices": maxi(int(raw.get("pending_class_choices", 0)), 0),
 		"earned_choice_floors": earned,
+		"loadout": gear,
 	}
 
 

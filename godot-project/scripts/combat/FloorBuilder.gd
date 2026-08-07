@@ -21,7 +21,12 @@ extends RefCounted
 ## The optional third argument exists only for tests and capture tools, which have
 ## no GameState to ask.
 
-const WEAPON_PICKUP_SCENE: PackedScene = preload("res://scenes/combat/WeaponPickup.tscn")
+## ⚠ NO `WEAPON_PICKUP_SCENE` PRELOAD ANY MORE. The spawn was removed when a
+## hardcoded `"sword"` turned out to be handed to whoever walked over it (see
+## `build_props`), but the preload stayed — so every headless suite that so much as
+## touched FloorBuilder was still dragging `WeaponPickup.tscn` into its compile
+## graph, which is the precise cost the three `## Loaded by PATH` notes below exist
+## to avoid. Weapons are chosen at the hub Armory now and nowhere else.
 const DESTRUCTIBLE_SCENE: PackedScene = preload("res://scenes/combat/DestructibleProp.tscn")
 ## Loaded by PATH, not preloaded. `SpellPickup.gd` reaches `Sfx` / `Juice` /
 ## `CombatVfx`, and a `preload` here would drag all three into the compile graph of
