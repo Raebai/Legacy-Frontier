@@ -601,6 +601,13 @@ func _adopt_fighters() -> void:
 		f.set("hp", hp)
 		_fighter_max[side] = hp
 		_fighter_hp_now[side] = hp
+		# ⚠ A SPECTATED BOUT HAS A LOSER AND MUST KEEP ONE. Maker: *"when they die in
+		# spectating they shouldnt stand up they died"*. `Hero._die` outside a run
+		# heals to full so the F6 feel toy never stops, which left this mode toppling
+		# the rig of a live, full-health body — and anything that re-drove the rig
+		# stood it back up. Set HERE rather than inferred in `Hero`, so free play, the
+		# sandbox and the human duel keep the heal they were designed around.
+		f.set("stay_dead", true)
 		# MIRRORED FOOTING. Same distance from the centre of the fight floor, same
 		# flat ground, facing each other.
 		var x: float = FLOOR_CENTRE_X + (SPAWN_SPREAD if side == 1 else -SPAWN_SPREAD)

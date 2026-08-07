@@ -918,8 +918,25 @@ func advance(delta: float) -> void:
 		_flash_timer -= delta
 	if _flop_timer > 0.0:
 		_flop_timer -= delta
-		if _flop_timer <= 0.0:
+		if _flop_timer <= 0.0 and not _collapsed:
 			_limp_target = _flop_prev_target  # recover to the pre-flop resting limp
+		elif _flop_timer <= 0.0:
+			# ⚠ A CORPSE DOES NOT RECOVER FROM A FLOP IT TOOK WHILE ALIVE. Maker:
+			# *"when they die in spectating they shouldnt stand up they died"*.
+			#
+			# The race, measured: `flop()` snapshots `_flop_prev_target` ONLY on entry,
+			# and `Hero.apply_knockback` flops for 0.16-0.42 s on every hit. So any blow
+			# landed in the ~0.4 s before the fatal one leaves a timer running with
+			# `_flop_prev_target == 0.0`. `collapse()` then sets `_limp_target = 1.0`,
+			# the stale timer expires, and THIS LINE put it straight back to 0.0 — after
+			# which the body eased upright at LIMP_EASE_SPEED, under the win card,
+			# because `_put_the_loser_down` had helpfully set the rig to
+			# PROCESS_MODE_ALWAYS so it kept ticking through the freeze.
+			#
+			# `_collapsed` already existed with exactly the right lifecycle (set by
+			# `collapse`, cleared by any `set_limp` below full). It was simply only ever
+			# read by `flash_color`.
+			_flop_prev_target = 1.0
 	if _gesture_active:
 		# Real delta, NOT gated by _frozen — a cast tell should still finish under CC.
 		_gesture_time += delta

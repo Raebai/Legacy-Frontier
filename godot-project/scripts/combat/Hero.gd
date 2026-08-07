@@ -585,6 +585,14 @@ const HERO_DEATH_BEAT: float = 0.68
 ## The death animation (fold + rub-out), loaded by PATH — see `Enemy._spawn_corpse`
 ## for why a brand-new `class_name` must not be NAMED from a shipped script.
 const DEATH_SMUDGE_SCRIPT: String = "res://scripts/combat/DeathSmudge.gd"
+## How hard a spectated killing blow throws the loser, px/s. Big enough that the body
+## clearly LEAVES — a death you have to look for is not a finish — and small enough
+## that it stays on the fight floor rather than clearing the stage. `SPAWN_SPREAD` is
+## 280 px, so this crosses about half the opening gap before it lands.
+const DEATH_LAUNCH_SPEED: float = 430.0
+## How fast a landed corpse stops sliding. Deliberately slow: the skid is the second
+## half of the beat, and a body that stops dead on contact reads as hitting glue.
+const DEATH_SLIDE_DRAG: float = 620.0
 const HURT_HIT_STOP: float = 0.05
 const HURT_SHAKE: float = 7.0
 ## Weighted hitstop: melee connect sits between spell hit and enemy death.
@@ -1196,6 +1204,27 @@ var touch_input: bool = false
 ## The standalone sandbox (F6 / the duel) still just resets to full, so the feel toy
 ## never stops. Public for the MultiplayerSynchronizer property path.
 var downed: bool = false
+
+## ══ A SPECTATED BOUT HAS A LOSER, AND IT KEEPS ONE ═════════════════════════
+## Maker, watching Watch Bots: *"when they die in spectating they shouldnt stand up
+## they died"*.
+##
+## `_die` outside a run heals straight back to `max_hp` so the F6 feel toy never
+## stops — correct for a sandbox, and it is why the duel loser was never actually
+## dead. `BotMatch._put_the_loser_down` toppled the rig separately, so the corpse was
+## a live full-health body wearing a collapsed pose, and everything that re-drives
+## the rig from a live body stood it back up again.
+##
+## `stay_dead` is the mode answer, set by whoever is STAGING the fight rather than
+## inferred here. Only `BotMatch` sets it. Free play, the F6 sandbox and the human
+## 1v1 duel are untouched and still heal — which also means
+## `VersusArena._poll_showcase_end`, which resets both bodies whenever it sees an
+## `hp <= 0`, cannot start firing in a mode that did not ask for this.
+var stay_dead: bool = false
+## Set by `_enter_defeated`. Gates `_physics_process` the way `downed` does, and for
+## the same structural reason: while the driver runs it re-asserts `set_grounded` /
+## `play()` / the limp every frame, and no amount of collapsing the rig survives that.
+var defeated: bool = false
 ## Self-revive charges left this run — `DeathRules.SOLO_SELF_REVIVE_CHARGES`, which
 ## ships at 0. At 1+ a death spends one and schedules a SECOND WIND instead of
 ## waiting for a teammate. See `DeathRules` for the argument.
@@ -1866,6 +1895,12 @@ func _physics_process(delta: float) -> void:
 	# falls or clears the floor and everyone revives.
 	if downed:
 		_process_downed(delta)
+		return
+	# ...and a SPECTATED loser, who is neither downed (there is nobody to revive them)
+	# nor alive. See `_enter_defeated`. Above the bot tick on purpose: a corpse must
+	# not think, and `controller.tick` would go on driving a dead body's brain.
+	if defeated:
+		_process_defeated(delta)
 		return
 	# BOT: decide this frame's intent before anything reads input. Above the
 	# cooldown ticks so the brain sees the same cooldowns the player's ability bar
@@ -5941,8 +5976,72 @@ func _die() -> void:
 	if in_run or (_net != null and _net.is_active()):
 		_enter_downed()
 		return
+	# ...and a SPECTATED bout is neither a run nor a sandbox: it has a loser and it
+	# must keep one. See `stay_dead`.
+	if stay_dead:
+		_enter_defeated()
+		return
 	hp = max_hp
 	health_changed.emit(hp, max_hp)
+
+
+## ══ THE KILLING BLOW THROWS YOU, THEN YOU HIT THE FLOOR ════════════════════
+## Maker: *"the final hit to kill should have some knockback so when they die they get
+## knockback and then hit the floor all ragdoll"*.
+##
+## A spectated death, in three parts:
+##
+##   1. NO REVIVE, NO GHOST, NO SMUDGE. `_enter_downed` is the run-death path and
+##      does all three; a duel wants a body on the stage, and `DeathSmudge` on a
+##      corpse that stays put is the "two figures, one death" bug BotMatch already
+##      documents. So this is a sibling of that function, not a call into it.
+##   2. A LAUNCH. `-facing` because the loser is looking at whoever just killed them,
+##      routed through `Juice.lateral_knockback` so a dead-on vertical blow still
+##      throws the body sideways instead of firing it at the ceiling.
+##   3. A COLLAPSE THAT STICKS. `rig.collapse` sets full limp and `_collapsed`, and
+##      as of this change a stale `flop` can no longer undo it.
+##
+## Then `_process_defeated` flies the body and lands it, and nothing ever re-poses it.
+func _enter_defeated() -> void:
+	if defeated:
+		return
+	defeated = true
+	# ⚠ AND IT KEEPS FALLING THROUGH THE FREEZE. `BotMatch._decide` pauses the tree
+	# within the same frame as the fatal `health_changed`, which lands BEFORE `_die`
+	# runs — so a pausable corpse would be launched and then hang in mid-air under the
+	# win card. `_put_the_loser_down` already sets the RIG to ALWAYS for the same
+	# reason; the body has to come too or only its pose animates.
+	#
+	# Safe because a defeated hero does nothing but fall: `_physics_process` early-outs
+	# into `_process_defeated` above the bot tick, the input read and every timer.
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	_knockback = Vector2.ZERO
+	if _channeling:
+		_cancel_channel()
+	if _summoning:
+		_cancel_summon()
+	var away: Vector2 = Vector2(-signf(facing.x) if facing.x != 0.0 else 1.0, -0.55)
+	velocity = Juice.lateral_knockback(away.normalized() * DEATH_LAUNCH_SPEED)
+	if is_instance_valid(rig):
+		rig.collapse(Vector2(away.x, -0.6))
+	Sfx.play("hero_hurt", 0.0, 0.1)
+
+
+## A corpse in flight. Gravity, the floor, and the two rig facts that make the flight
+## READ — nothing else.
+##
+## ⚠ IT FEEDS `set_grounded` AND `set_body_velocity` AND NOTHING ELSE. Those two are
+## what make a thrown body look thrown: the prone ride is cancelled while airborne
+## (`_step_body` zeroes it when not grounded) so the corpse sprawls in the air and
+## then settles flat the frame it lands. `play()` and `set_limp()` are exactly the
+## calls that stood it back up, and neither belongs here.
+func _process_defeated(delta: float) -> void:
+	velocity.y += GRAVITY * delta
+	velocity.x = move_toward(velocity.x, 0.0, DEATH_SLIDE_DRAG * delta)
+	move_and_slide()
+	if is_instance_valid(rig):
+		rig.set_grounded(is_on_floor())
+		rig.set_body_velocity(velocity)
 
 
 ## Become a GHOST: out of the fight, immune, untargetable, but still yours to steer.
