@@ -226,6 +226,16 @@ static func apply(outcome: String, ctx: Dictionary) -> bool:
 			return _ward_absorb(ctx)
 		"banish":
 			return _banish(ctx)
+		# The three new arms. ⚠ ADDED IN THE SAME COMMIT AS THEIR ROWS, which the
+		# header above insists on: an outcome key with no arm here is worse than no
+		# row at all, because `apply` returns true, the reactor memoizes the pair, and
+		# the two spells then pass through each other doing nothing.
+		"vaporise":
+			return _vaporise(ctx)
+		"prism_burst":
+			return _prism_burst(ctx)
+		"molten_slag":
+			return _molten_slag(ctx)
 	return true
 
 
@@ -615,6 +625,89 @@ static func _shrapnel(ctx: Dictionary) -> bool:
 ## Note it deals no damage at all, and the row authors none: turning the vision
 ## reaction into a damage reaction would delete the only non-damage answer the
 ## matrix has.
+## ══ A BOLT FLIES INTO A BEAM ═══════════════════════════════════════════════
+## The quietest of the five new reactions, and deliberately so: it fires often (every
+## caster throws bolts, four hold beams) and anything loud at that rate becomes
+## wallpaper. A hard white pop AT THE BOLT, no screen verbs at all beyond the minor
+## shake — the beam is unbroken and must go on looking unbroken.
+##
+## No damage: the bolt is gone, which is the whole outcome. A splash here would make
+## standing behind your own bolt dangerous.
+static func _vaporise(ctx: Dictionary) -> bool:
+	var b: int = _caller_side(ctx, 1)          # form_b is the PROJECTILE
+	var at: Vector2 = _shape_center(_shape_at(ctx, b), ctx.get("point", Vector2.ZERO))
+	if bool(ctx.get("spawn_effects", true)):
+		_flash(ctx, at, _rule_radius(ctx, 60.0) * 0.55, 18, 0.22)
+		Juice.shake_camera(MINOR_SHAKE * 0.5)
+		_reaction_sfx("vaporise", -3.0, 0.0)
+	_spend(ctx)
+	return true
+
+
+## ══ ...AND OPPOSED, IT SPLITS ══════════════════════════════════════════════
+## The spectacle half of the same meeting. Two colours thrown apart from one point:
+## the beam's element sprays FORWARD along the beam, the bolt's sprays BACK down the
+## line it came in on, so the picture says which came from where. That directional
+## split is the entire read, and it is what a radial burst — which is what every other
+## clash in this file does — cannot say.
+static func _prism_burst(ctx: Dictionary) -> bool:
+	var a: int = _caller_side(ctx, 0)
+	var b: int = _caller_side(ctx, 1)
+	var at: Vector2 = _shape_center(_shape_at(ctx, b), ctx.get("point", Vector2.ZERO))
+	var r: float = _rule_radius(ctx, 170.0)
+	# The beam's element carries the damage: the bolt is the thing that died.
+	var hit: int = _radial(ctx, at, r, _rule_damage(ctx), _element_at(ctx, a),
+		SHATTER_KNOCKBACK * 0.6)
+	if bool(ctx.get("spawn_effects", true)):
+		# `_travel_dir` takes the SHAPE and a point to fall back toward, not a side
+		# index — a capsule reports its own from->to, and a circle has to be told
+		# which way "away" is.
+		var beam_dir: Vector2 = _travel_dir(_shape_at(ctx, a), at)
+		var bolt_dir: Vector2 = _travel_dir(_shape_at(ctx, b), at)
+		_flash(ctx, at, r * 0.7, 34, 0.42, beam_dir, 46.0)
+		_flash(ctx, at, r * 0.7, 34, 0.42, -bolt_dir, 46.0)
+		# COLOR_FIELD, not BLOWOUT: the payoff IS two colours, and a white wash is the
+		# one frame style that erases exactly that.
+		Juice.frame({"style": ImpactFrame.Style.COLOR_FIELD, "strength": 0.9,
+			"at": at, "element": _element_at(ctx, a)})
+		Juice.hit_stop(MINOR_HITSTOP * 1.6)
+		Juice.shake_camera(MINOR_SHAKE * 1.4)
+		_reaction_sfx("prism_burst", 0.0, 0.02)
+	_spend(ctx)
+	return hit >= 0
+
+
+## ══ FIRE MELTS STONE ═══════════════════════════════════════════════════════
+## The barrier goes, and it goes DOWNWARD — a wall that is cut in half falls, a wall
+## that is melted slumps. The burst is therefore weighted along gravity rather than
+## radially, which is a one-argument difference that does most of the work of saying
+## "melted" rather than "shattered".
+##
+## The damage is the attacker's FIRE, applied where the wall was, so anyone sheltering
+## behind their own rock wall pays for having chosen it against a lance.
+static func _molten_slag(ctx: Dictionary) -> bool:
+	var a: int = _caller_side(ctx, 0)
+	var b: int = _caller_side(ctx, 1)          # form_b is the BARRIER
+	var wall: Dictionary = _shape_at(ctx, b)
+	var at: Vector2 = _shape_center(wall, ctx.get("point", Vector2.ZERO))
+	var r: float = maxf(_rule_radius(ctx, 140.0), _shape_reach(wall, 0.0))
+	var hit: int = _radial(ctx, at, r, _rule_damage(ctx), _element_at(ctx, a), 0.0)
+	if bool(ctx.get("spawn_effects", true)):
+		# Slumping, not bursting: down the screen, slow, and heavily damped so the
+		# motes settle instead of flying.
+		var host: Node = _stage_parent(ctx)
+		if host != null:
+			CombatVfx.spawn_burst(host, at,
+				Color(2.2, 1.15, 0.35, 1.0), Color(0.55, 0.18, 0.06, 0.0),
+				40, 0.75, 30.0, 130.0, 1.2, 3.4, 2.2, 3.6, true,
+				Vector2.DOWN, 62.0)
+		Juice.hit_stop(MINOR_HITSTOP)
+		Juice.shake_camera(MINOR_SHAKE)
+		_reaction_sfx("molten_slag", -2.0, 0.02)
+	_spend(ctx)
+	return hit >= 0
+
+
 static func _steam_cloud(ctx: Dictionary) -> bool:
 	var b: int = _caller_side(ctx, 1)         # the row's form_b is the FIELD
 	var fshape: Dictionary = _shape_at(ctx, b)

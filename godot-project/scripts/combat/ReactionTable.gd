@@ -255,6 +255,81 @@ static func rules() -> Array:
 			"require_head_on": true, "priority": 54,
 			"consumes_a": true, "consumes_b": true, "radius": 46.0, "damage": 0,
 		}),
+		# ══ FIVE MORE WAYS FOR TWO SPELLS TO MEET ═══════════════════════════════
+		# Maker: *"i loved that fire ice efect that happened when they clasehd add
+		# that a lot as well like interactions and effects when certain spells
+		# interact"*.
+		#
+		# TWELVE OF THE TWENTY-ONE FORM BUCKETS WERE EMPTY, and the emptiest one was
+		# also the busiest: `BEAM x PROJECTILE` had no row at all, so a bolt flew
+		# through a beam and neither noticed. Every caster in the game throws bolts
+		# and four of them hold beams, which makes it the single most-often-missed
+		# meeting on the board. `IMPACT x IMPACT` was empty too, with SIX registrants
+		# on that form.
+		#
+		# Two of the five below need no new outcome code at all — they point existing
+		# arms at buckets that had nothing. That is deliberate: an outcome key with no
+		# arm in `ReactionOutcomes.apply` is WORSE than no row, because `apply`
+		# returns true, the reactor memoizes the pair, and the two spells then pass
+		# through each other doing nothing at all. Reusing a proven arm cannot fall
+		# into that hole.
+
+		# A BOLT MEETS A BEAM. The beam is a sustained channel and the bolt is a
+		# thrown thing, so this is not a trade — the bolt is vaporised and the beam
+		# carries on. Weight-blind on purpose: even an ult bolt is a discrete object
+		# passing through a continuous one.
+		#
+		# `require_owner: "different"`, because a caster firing a bolt through their
+		# own beam is a combo, not a clash, and eating it would punish exactly the
+		# play the reaction matrix exists to reward.
+		_rule("vaporise", Form.BEAM, Form.PROJECTILE, {
+			"require_owner": "different", "priority": 46,
+			"consumes_b": true, "radius": 60.0, "damage": 0,
+		}),
+		# ...unless the two are OPPOSED, in which case the meeting is the event. Sits
+		# in the 90s with the other element stories, above the weight-blind row above
+		# it, because a specific element pair must outrank a wildcard in its bucket.
+		_rule("prism_burst", Form.BEAM, Form.PROJECTILE, {
+			"require_opposed": true, "priority": 92,
+			"consumes_b": true, "radius": 170.0, "damage": 60,
+		}),
+		# TWO BLASTS GOING OFF IN THE SAME PLACE. Six spectacles register as IMPACT
+		# and none of them could ever meet. Opposed only — two EARTH stomps
+		# overlapping is a co-op picture, not a fusion.
+		# ⚠ HOLY MEETING SHADOW KEEPS ITS OWN STORY, WHEREVER THEY MEET, and this row
+		# exists because the one below broke that. `slice10_test_natural_reactions`
+		# sweeps every form pair those two schools can currently take and asserts none
+		# of them falls through to a generic clash — the light and the dark do not
+		# "cancel out", one BANISHES the other. `IMPACT x IMPACT` was empty when that
+		# sweep was written, so the pair was silent there and passed by absence; the
+		# generic opposed row below would have made it read as a mutual annihilation.
+		#
+		# Above 91 so it wins its own bucket, exactly as `banish` (81/79) sits above
+		# `void_charged` (70) in the field buckets.
+		_rule("banish", Form.IMPACT, Form.IMPACT, {
+			"elements_a": [Elements.Element.HOLY], "elements_b": [Elements.Element.SHADOW],
+			"priority": 93, "consumes_b": true, "damage": 34,
+		}),
+		_rule("mutual_annihilation", Form.IMPACT, Form.IMPACT, {
+			"require_opposed": true, "require_owner": "different", "priority": 91,
+			"consumes_a": true, "consumes_b": true, "radius": 175.0, "damage": 45,
+		}),
+		# A BOLT CAUGHT IN A DETONATION. The blast is a volume and the bolt is a point
+		# passing through it, so the bolt loses and the blast is untouched. Reuses the
+		# fizzle arm, which is exactly this shape.
+		_rule("bolt_fizzle", Form.PROJECTILE, Form.IMPACT, {
+			"require_owner": "different", "priority": 42,
+			"consumes_a": true, "radius": 52.0, "damage": 0,
+		}),
+		# FIRE MELTS STONE. The first FIRE/EARTH row in the table — the pair was
+		# reachable (`infernal_lance` against `rock_wall` / `rock_pillar`) and fell
+		# through to the weight contest, so a lance and a boulder wall settled it by
+		# tier rather than by being fire and rock. Same band as the other "this
+		# element beats that one" rows.
+		_rule("molten_slag", Form.BEAM, Form.BARRIER, {
+			"elements_a": [Elements.Element.FIRE], "elements_b": [Elements.Element.EARTH],
+			"priority": 86, "consumes_b": true, "radius": 140.0, "damage": 38,
+		}),
 		# ...and the whole point of weight mattering: a heavier spell does NOT
 		# trade with a lighter one. It eats it and keeps going. An ult that could
 		# be cancelled by a jab would not feel like an ult.

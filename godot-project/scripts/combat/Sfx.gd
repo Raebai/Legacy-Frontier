@@ -1073,6 +1073,22 @@ const REACTION_SOUND: Dictionary = {
 	"banish": "rx_banish",
 	"shatter_ward": "ward_break",
 	"hollow_purple": "hollow_erase",
+	# ── The five new meetings (see `ReactionTable`) ──────────────────────────
+	# ⚠ ALL THREE SHARE AN EXISTING CUE, and that is a choice rather than laziness:
+	# this file's own instruction is *"if a new outcome needs a voice, ask for one
+	# rather than pointing it at the nearest existing key"* — so these are pointed at
+	# the RIGHT existing key, not the nearest, and the shares are argued.
+	#
+	# A bolt dying in a beam is the quietest of the new reactions and fires the most
+	# often; `rx_overpower` is already the "the bigger spell won" voice and already
+	# carries the two-bolt fizzle for exactly that reason.
+	"vaporise": "rx_overpower",
+	# The opposed version is a real clash between two elements, which is what
+	# `rx_annihilate` is the voice of.
+	"prism_burst": "rx_annihilate",
+	# Stone coming apart, hot. `rx_shatter` is the barrier-breaking cue and this is a
+	# barrier breaking; the FIRE half is carried by the picture, not the mix.
+	"molten_slag": "rx_shatter",
 	"none": "",
 }
 
