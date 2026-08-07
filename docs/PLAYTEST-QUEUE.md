@@ -1,8 +1,9 @@
 # LIVE PLAYTEST QUEUE — 2026-08-06 (wave 5)
 
-All seven of wave 4's OPEN asks are **actioned**, and so is the one thing wave 5
-left open. Branch `bot-fight-quality`, **155/155 green**, tree clean.
-**None of it has been played by hand.**
+All seven of wave 4's OPEN asks are **actioned**, so is the one thing wave 5 left
+open, and so are both items that were being deferred as "needs your taste" —
+the nine boss drops and the stick customisation. Branch `bot-fight-quality`,
+**157/157 green**, tree clean. **None of it has been played by hand.**
 
 ---
 
