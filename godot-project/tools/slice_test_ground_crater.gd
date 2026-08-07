@@ -4,10 +4,19 @@
 # loads + runs cleanly headless.
 extends SceneTree
 
+## ⚠ FLOOR MARKS ARE OFF BY DEFAULT NOW — maker: *"these things that stay afterwards,
+## remove all of them"*. The spawn machinery this suite exercises (the cap, the
+## budget gate, the ground-snap, the work counters) is all still real and still
+## worth guarding, so the suite turns marks on for itself rather than being deleted
+## with the feature. If they are ever brought back, this is already the contract.
+
+
 var _ran: bool = false
 
 
 func _process(_delta: float) -> bool:
+	ScorchDecal.leave_marks = true
+	GroundCrater.leave_marks = true
 	if _ran:
 		return false
 	_ran = true

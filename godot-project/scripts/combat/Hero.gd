@@ -5273,8 +5273,12 @@ const SWING_TELL_HEAVY_DAMAGE: int = 20
 ## How much of the swing's reach the tell's circle is centred at, and its radius as a
 ## fraction of that reach. Between them they cover the cone `_on_melee_hit_frame`
 ## actually queries without claiming the ground behind the swinger.
-const SWING_TELL_CENTRE: float = 0.55
-const SWING_TELL_RADIUS: float = 0.55
+## How wide the strike lane is, as a fraction of the swing's reach, and the floor
+## under it. "The size of the glove" — a fist is about a head wide, and the head is
+## `HEAD_R_FACTOR * height * 2` = ~6.5 px on a 31 px figure. Wide enough to read at
+## 640x360, narrow enough that stepping off it is genuinely the answer.
+const SWING_TELL_WIDTH: float = 0.18
+const SWING_TELL_MIN_WIDTH: float = 9.0
 
 ## ══ THE ONE KNOB FOR THE FOUR ABILITIES THAT USED TO HIT ON THE PRESS ══════════
 ## Seconds of warning the frost cone, the uppercut, the fire punch and the ground
@@ -5323,15 +5327,45 @@ func _publish_swing_tell(state: int = CharacterRig.State.PUNCH) -> void:
 	# A heavy, committed swing gets the full ground ring; a fast jab gets the light
 	# crosshair. Both are perceived identically — the weight is purely what the eye
 	# gets, so a Brawler on a 0.20 s cadence does not strobe a danger ring at you.
-	var heavy: bool = _melee_damage >= SWING_TELL_HEAVY_DAMAGE
+	# ⚠ NOT A RING ON THE FLOOR ANY MORE. Maker, playing it: *"i hate that circle
+	# thing for brawler — just show like a little fire fist or something coming out
+	# when I punch, small, the size of the glove, in the direction being punched, that
+	# can be dodged"*.
+	#
+	# The first version drew the tell as a ZONE ring / DART crosshair centred ahead of
+	# the swinger, which is the vocabulary the ENEMY archetypes use for placed ground
+	# danger. On a punch it reads as an abstract marker painted on the floor rather
+	# than as the attack itself — and a melee swing is not a place, it is a DIRECTION.
+	#
+	# So the tell is now a LINE from the fist along the aim, and the thing drawn on it
+	# is the strike: a small glove-sized fist for the punchers, a thin air-curve for
+	# the blades. Same perception contract — it still joins the `telegraph` group,
+	# still publishes `danger_shape` and `windup`, and a lane threat yields a LATERAL
+	# exit, so the honest answer is to step off the line, which is what "that can be
+	# dodged" asks for.
+	var blade: bool = _blade_tell_weapon()
 	_emit_hero_telegraph({
-		"pos": global_position + aim * _melee_range * SWING_TELL_CENTRE,
-		"radius": _melee_range * SWING_TELL_RADIUS,
+		"line": true,
+		"pos": rig.get_lead_hand_global() if rig != null else global_position,
+		"length": _melee_range,
+		"width": maxf(_melee_range * SWING_TELL_WIDTH, SWING_TELL_MIN_WIDTH),
+		"angle": aim.angle(),
 		"windup": _swing_tell_windup(state),
-		"style": Telegraph.Style.ZONE if heavy else Telegraph.Style.DART,
+		"style": Telegraph.Style.CRESCENT if blade else Telegraph.Style.FIST,
 		"aim": aim,
 		"reach": _melee_range,
 	})
+
+
+## Does this class swing steel? Drives which strike figure its tell draws — a
+## crescent of air off a blade, a fist off everything else. Read off the WEAPON the
+## class already declares rather than off a class id, so a future class that picks up
+## a katana gets the right tell without a second table to keep in sync.
+func _blade_tell_weapon() -> bool:
+	match String(_cfg.get("weapon", "")):
+		"sword", "greatsword", "dagger", "scythe", "spear":
+			return true
+	return false
 
 
 ## Build one of this hero's tells. Mirrors `Enemy._emit_telegraph`: a SIBLING in the
@@ -5357,7 +5391,11 @@ func _emit_hero_telegraph(cfg: Dictionary) -> Telegraph:
 	# NOTHING IS CONNECTED TO `fired`. The swing resolves on its own clock through
 	# `rig.hit_frame`; this node is a DESCRIPTION of that swing, not a second timer
 	# that could drift from it or a second place damage could come from.
-	tele.start(float(cfg.get("radius", 40.0)), float(cfg.get("windup", 0.1)))
+	if bool(cfg.get("line", false)):
+		tele.start_line(float(cfg.get("length", 60.0)), float(cfg.get("width", 10.0)),
+			float(cfg.get("angle", 0.0)), float(cfg.get("windup", 0.1)))
+	else:
+		tele.start(float(cfg.get("radius", 40.0)), float(cfg.get("windup", 0.1)))
 	return tele
 
 
@@ -5869,7 +5907,10 @@ func take_damage(amount: int) -> void:
 	rig.flash_color(HURT_FLASH_COLOR, HURT_FLASH_TIME)
 	rig.apply_impulse(Vector2(-facing.x, -0.7), 300.0)  # ragdoll flinch on the hit
 	Juice.hit_stop(_tune("hurt_hit_stop", HURT_HIT_STOP))
-	Juice.shake_camera(_tune("hurt_shake", HURT_SHAKE))
+	# A DoT tick is real damage on the real hurt path, but it is not a CONNECT — see
+	# `StatusComponent.dealing_dot`. Maker: "dot damage shouldnt have any screen shake".
+	if not StatusComponent.dealing_dot:
+		Juice.shake_camera(_tune("hurt_shake", HURT_SHAKE))
 	Sfx.play("hero_hurt")
 	if not ringout and hp == 0:
 		_die()

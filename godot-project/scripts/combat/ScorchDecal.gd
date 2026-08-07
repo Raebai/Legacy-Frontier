@@ -53,6 +53,25 @@ var _age: float = 0.0
 var _counted: bool = false
 
 
+## ⚠ NOTHING IS LEFT ON THE FLOOR ANY MORE. Maker, playing it: *"the meteor fist
+## circle that comes after doesnt have to be there in the map, it's weird — it should
+## just show the impact on the area hit, way more subtle and cooler effect. in fact
+## these things that stay afterwards, remove all of them"*.
+##
+## ⚠ THIS REVERSES A STATED DESIGN GOAL, and that is worth saying plainly rather than
+## quietly deleting: this file's own header argued that "the ACCUMULATION is the point
+## (the arena visibly wrecks as the fight goes on)", and `GroundCrater`'s argued the
+## same. A ruling from the maker with the game in front of them beats a design note
+## written without it. The impact still reads — `CombatVfx.spawn_burst`, the shake,
+## the hitstop and the debris all fire exactly as before; what is gone is the MARK
+## that outlived them.
+##
+## Killed at the single spawn gate rather than at the ~30 call sites, so every caller
+## keeps its intent and this is one boolean to walk back if the floor turns out to
+## look empty without them.
+static var leave_marks: bool = false
+
+
 ## Instantiate a decal under `parent` at world `pos`. Null-safe: silently
 ## skips when the parent is gone (e.g. a blast resolving during teardown).
 ## `decal_lifetime` > 0 makes it fade + free (see the `lifetime` export).
@@ -63,6 +82,8 @@ static func spawn(
 	parent: Node, pos: Vector2, decal_radius: float, decal_kind: String, decal_tint: Color,
 	decal_lifetime: float = 0.0, snap: bool = false,
 ) -> void:
+	if not leave_marks:
+		return
 	if parent == null or not parent.is_inside_tree():
 		return
 	if snap:

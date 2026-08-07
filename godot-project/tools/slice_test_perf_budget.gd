@@ -37,6 +37,13 @@
 # Never `_fails += _test_x()`. See tools/slice_test_loadout.gd.
 extends SceneTree
 
+## ⚠ FLOOR MARKS ARE OFF BY DEFAULT NOW — maker: *"these things that stay afterwards,
+## remove all of them"*. The spawn machinery this suite exercises (the cap, the
+## budget gate, the ground-snap, the work counters) is all still real and still
+## worth guarding, so the suite turns marks on for itself rather than being deleted
+## with the feature. If they are ever brought back, this is already the contract.
+
+
 ## Every test that must run to completion. Missing at the end = it aborted.
 const TESTS: Array[String] = [
 	"budget_is_the_specs_number",
@@ -69,6 +76,8 @@ var _arena: Node2D = null
 ## active scene tree" and returns null. That exact mistake is why
 ## `tools/stress_mobile_entities.gd ++quality=low` never once forced LOW.
 func _process(_delta: float) -> bool:
+	ScorchDecal.leave_marks = true
+	GroundCrater.leave_marks = true
 	if _ran:
 		return false
 	_ran = true

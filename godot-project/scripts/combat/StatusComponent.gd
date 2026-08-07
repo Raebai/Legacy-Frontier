@@ -152,6 +152,28 @@ func _process(delta: float) -> void:
 
 ## Damage the owning enemy (burn tick / unstable pop). Guarded so a mid-tick
 ## death or a detached component never crashes.
+## ⚠ TRUE ONLY WHILE A PERIODIC TICK IS LANDING. Maker: *"dot damage shouldnt have
+## any screen shake in general"*.
+##
+## Every tick routes through the real hurt path — `take_damage` — which is correct
+## (it is real damage, it can kill, it must flash and count) and is also why each one
+## carried a full on-connect camera shake. A burn is five ticks, so a status nobody
+## consciously applied rattled the screen five times. The header above already
+## records the maker asking for the same thing about the SOUND, and the fix then was
+## to space the ticks out; this removes the shake outright.
+##
+## A static flag rather than a `take_damage` parameter, deliberately: that method is
+## a duck-typed contract with TWO live signatures already (Hero takes 1 arg, Enemy
+## takes 2), calling the wrong arity THROWS and aborts the caller, and every test
+## stub in the suite implements it. A third variant is a trap. This is safe as a
+## flag precisely because the tick is SYNCHRONOUS — set, call, clear, with nothing
+## awaited in between.
+##
+## ⚠ IT COVERS THE PERIODIC TICK ONLY. The shock chain and the Unstable pop are
+## DISCRETE events — one bang each, consciously set up — and they keep their punch.
+static var dealing_dot: bool = false
+
+
 func _deal_self(amount: int) -> void:
 	var owner_e: Node = get_parent()
 	if owner_e != null and is_instance_valid(owner_e) and owner_e.has_method("take_damage"):
@@ -160,7 +182,9 @@ func _deal_self(amount: int) -> void:
 		# Adapter: Hero takes take_damage(int), Enemy takes (int, Color). The 2-arg
 		# form on a hero THROWS and aborts the enclosing function, losing the hit and
 		# everything after it. Latent until factions let these point at a hero.
+		dealing_dot = true
 		SpellTargets.hurt(owner_e, amount, Color(_last_color.r, _last_color.g, _last_color.b, 1.0))
+		dealing_dot = false
 
 
 ## Lightning hop: nearest OTHER enemy in range takes chain damage + a shock (no

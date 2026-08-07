@@ -25,7 +25,11 @@ const RING_COLOR: Color = Color(0.95, 0.16, 0.13, 0.9)
 enum Shape { CIRCLE, LINE }
 ## Visual flavour, chosen per archetype. ZONE = ground danger ring (brute + the
 ## default for the plain tests); the rest are the distinct sigils.
-enum Style { ZONE, MUZZLE, LANE, DART, GATHER, BOMB }
+## ⚠ APPEND ONLY — callers set these by name but `Enemy._emit_telegraph` passes them
+## through a Dictionary as ints, so reordering would silently repaint every archetype.
+## FIST / CRESCENT are the HERO's melee strikes: not a place on the floor, a thing
+## coming out of the hand. See `Hero._publish_swing_tell`.
+enum Style { ZONE, MUZZLE, LANE, DART, GATHER, BOMB, FIST, CRESCENT }
 
 var _radius: float = 0.0
 var _windup: float = 0.0
@@ -143,7 +147,14 @@ func _draw() -> void:
 	if _radius <= 0.0:
 		return
 	if _shape == Shape.LINE:
-		_draw_lane()
+		# The hero's melee strikes are lanes too, but they are drawn as the STRIKE
+		# rather than as a runic charge corridor — a punch is not a charger.
+		if style == Style.FIST:
+			_draw_fist()
+		elif style == Style.CRESCENT:
+			_draw_crescent()
+		else:
+			_draw_lane()
 		return
 	if _has_fired:
 		_draw_fired_circle()
@@ -340,3 +351,70 @@ func _draw_lane() -> void:
 	# Origin burst sigil at the charger.
 	draw_arc(Vector2.ZERO, hw * 1.1, 0.0, TAU, 20, Color(c.r, c.g, c.b, 0.6 + 0.3 * t), 2.0)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+# ------------------------------------------------------- FIST / CRESCENT (hero melee)
+## A SMALL GLOVE-SIZED FIST THAT TRAVELS OUT ALONG THE PUNCH.
+##
+## Maker: *"just show like a little fire fist or something coming out when I punch,
+## small, the size of the glove, in the direction being punched, that can be dodged"*.
+##
+## It is drawn at where the strike HAS REACHED, not across the whole lane, so the
+## thing on screen is the blow arriving rather than a corridor being reserved. The
+## faint line behind it is the only "where this goes" hint, and it is deliberately
+## thin — the fist is the read.
+func _draw_fist() -> void:
+	var t: float = clampf(_elapsed / _windup, 0.0, 1.0)
+	var dir: Vector2 = Vector2.from_angle(_angle)
+	var fade: float = 1.0
+	if _has_fired:
+		fade = clampf(1.0 - (_elapsed - _windup) / FADE_TIME, 0.0, 1.0)
+		t = 1.0
+	var c: Color = accent
+	var reach_now: float = _length * (0.12 + 0.88 * t)
+	var at: Vector2 = dir * reach_now
+	var rr: float = maxf(_width * 0.5, 3.0)
+	# The travel hint: where it is going, at a weight that cannot be mistaken for
+	# the strike itself.
+	draw_line(Vector2.ZERO, dir * _length, Color(c.r, c.g, c.b, 0.10 * fade), 1.0, true)
+	# A short motion streak BEHIND the fist — this is what makes it read as thrown
+	# rather than as a dot sliding along a line.
+	draw_line(at - dir * rr * 2.2, at, Color(c.r, c.g, c.b, 0.35 * fade), rr * 0.9, true)
+	# THE GLOVE. Element-tinted core with a hot centre, so a fire fist is a fire fist
+	# and an ice one is not the same picture in a different hue.
+	draw_circle(at, rr * fade, Color(c.r, c.g, c.b, 0.85 * fade))
+	draw_circle(at, rr * 0.55 * fade, Color(1.0, 1.0, 1.0, 0.7 * fade))
+	# Knuckle flare on the leading edge.
+	var perp: Vector2 = dir.orthogonal()
+	for sgn: float in [-1.0, 1.0]:
+		draw_line(at + perp * rr * 0.55 * sgn, at + dir * rr * 0.9 + perp * rr * 0.3 * sgn,
+			Color(c.r, c.g, c.b, 0.6 * fade), 1.4, true)
+
+
+## A THIN CURVE OF AIR OFF A BLADE — the same idea as the fist, cut differently.
+## Sweeps out along the lane as an arc whose belly leads, so it reads as a slash
+## leaving the sword rather than as a projectile.
+func _draw_crescent() -> void:
+	var t: float = clampf(_elapsed / _windup, 0.0, 1.0)
+	var dir: Vector2 = Vector2.from_angle(_angle)
+	var fade: float = 1.0
+	if _has_fired:
+		fade = clampf(1.0 - (_elapsed - _windup) / FADE_TIME, 0.0, 1.0)
+		t = 1.0
+	var c: Color = accent
+	var perp: Vector2 = dir.orthogonal()
+	var reach_now: float = _length * (0.10 + 0.90 * t)
+	var half: float = maxf(_width * 0.9, 6.0) * (0.5 + 0.5 * t)
+	draw_line(Vector2.ZERO, dir * _length, Color(c.r, c.g, c.b, 0.10 * fade), 1.0, true)
+	# The arc, as a polyline bowed forward at its middle. `draw_arc` cannot do this —
+	# a constant-width band reads as a ribbon, and the taper is what makes it a cut.
+	var pts := PackedVector2Array()
+	var steps: int = 9
+	for i: int in steps + 1:
+		var f: float = float(i) / float(steps)
+		var off: float = (f - 0.5) * 2.0
+		var bow: float = (1.0 - off * off) * half * 0.55
+		pts.append(dir * (reach_now + bow) + perp * off * half)
+	draw_polyline(pts, Color(c.r, c.g, c.b, 0.8 * fade), 2.6 * fade + 0.4, true)
+	draw_polyline(pts, Color(1.0, 1.0, 1.0, 0.55 * fade), 1.1 * fade + 0.2, true)
+

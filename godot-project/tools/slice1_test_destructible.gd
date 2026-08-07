@@ -5,6 +5,12 @@
 # scene and the decal script are load()ed at runtime, never preload()ed.
 extends SceneTree
 
+## ⚠ FLOOR MARKS ARE OFF BY DEFAULT NOW — maker: *"these things that stay afterwards,
+## remove all of them"*. The decal machinery this suite guards is still real; it just
+## no longer runs in play. The suite turns it on for itself rather than being deleted
+## with the feature.
+
+
 # ── Vacuous-pass armour (see tools/slice_test_loadout.gd for the full write-up) ──
 # A dead member read (a field that was renamed or moved) is NOT a test failure in
 # GDScript: it logs a runtime error, ABORTS the enclosing function, and hands the
@@ -36,6 +42,8 @@ var _ran: bool = false
 
 
 func _process(_delta: float) -> bool:
+	ScorchDecal.leave_marks = true
+	GroundCrater.leave_marks = true
 	if _ran:
 		return false
 	_ran = true

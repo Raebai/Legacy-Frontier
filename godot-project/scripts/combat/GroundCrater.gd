@@ -37,10 +37,31 @@ const SNAP_MAX_DIST: float = 260.0 # downward raycast reach to find the floor
 var _chunks: Array[PackedVector2Array] = []
 
 
+## ⚠ NOTHING IS LEFT ON THE FLOOR ANY MORE. Maker, playing it: *"the meteor fist
+## circle that comes after doesnt have to be there in the map, it's weird — it should
+## just show the impact on the area hit, way more subtle and cooler effect. in fact
+## these things that stay afterwards, remove all of them"*.
+##
+## ⚠ THIS REVERSES A STATED DESIGN GOAL, and that is worth saying plainly rather than
+## quietly deleting: this file's own header argued that "the ACCUMULATION is the point
+## (the arena visibly wrecks as the fight goes on)", and `GroundCrater`'s argued the
+## same. A ruling from the maker with the game in front of them beats a design note
+## written without it. The impact still reads — `CombatVfx.spawn_burst`, the shake,
+## the hitstop and the debris all fire exactly as before; what is gone is the MARK
+## that outlived them.
+##
+## Killed at the single spawn gate rather than at the ~30 call sites, so every caller
+## keeps its intent and this is one boolean to walk back if the floor turns out to
+## look empty without them.
+static var leave_marks: bool = false
+
+
 ## Spawn a crater under `parent` at `world_pos`. snap=true raycasts DOWN (mask 1)
 ## to seat it on the floor and SKIPS (frees itself) when nothing is below (over a
 ## pit) so craters never float. snap=false places exactly at world_pos.
 static func spawn(parent: Node, world_pos: Vector2, crater_radius: float, snap: bool = true) -> void:
+	if not leave_marks:
+		return
 	if parent == null or not parent.is_inside_tree():
 		return
 	# ⚠ THIS HAD NO BUDGET GATE AND NO O(1) CAP, AND IT IS A BOSS-FIGHT PROBLEM.
