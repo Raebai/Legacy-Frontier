@@ -1,4 +1,27 @@
-# STICK CUSTOMISATION — designed, NOT BUILT
+# STICK CUSTOMISATION — ⚠ PARTLY BUILT 2026-08-07, AND THIS SPEC WAS STALE
+
+> **READ THIS BEFORE THE REST OF THE FILE.**
+>
+> §1 and §4 below say `EQUIP_TEX` overlays PixelLab PNGs and that "a new item is a
+> PNG plus a registry row". **That registry no longer exists.** It was removed on
+> the maker's own ruling that gear must REPLACE a body part rather than sit on it,
+> and the rig has been fully procedural since. The art budget was never the blocker.
+>
+> **BUILT (2026-08-07):** the three gaps §2 names — a `hair` slot (spiky / long /
+> mop), a `face` slot (shades / visor), and a `sheath` slot (saya / scabbard) on the
+> hip. All procedural, no assets. The Swordsaint wears its saya. Guarded by
+> `tools/slice_test_adornments.gd`, which asserts the head hitbox contract across
+> every combination.
+>
+> **ALSO ALREADY DONE:** §3 calls dialogue-in-the-speaker's-colour "the cheapest
+> real win". It shipped in wave 4 — see `BotMatch._taunt`, "THE LINE WEARS THE
+> SPEAKER'S OWN COLOUR".
+>
+> **STILL OPEN:** hair takes a lightened body colour rather than its own field. The
+> reference wants white hair on a navy figure; that is one export plus one parameter
+> through `draw_figure`. Also non-robe clothing (§2's second row), untouched.
+
+# STICK CUSTOMISATION — the original spec, preserved below
 
 From the maker's reference (a Rai Lukasha stick animation, 109.7K likes): a yellow
 plain figure, a **navy-clothed figure with white hair and a sheathed katana**, and a

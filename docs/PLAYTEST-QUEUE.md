@@ -170,19 +170,55 @@ and is still under the ceiling. If a bot still paces, that number is why.
 
 ---
 
+## ▶ WAVE 5c — THE TWO DEFERRED ITEMS ARE BUILT
+
+### 6. NINE CLASSES NOW HAVE NINE DIFFERENT BOSS DROPS
+Three PAIRS used to share a Tier 3, and two of the six were Tier 2 spells standing
+in for a Tier 3 that did not exist. Five new ones, and **none is a bigger number** —
+each bends a different rule:
+
+| class | drop | the rule it bends |
+|---|---|---|
+| Shadowblade | **Severance** | the only damage read off the **victim** (missing health) |
+| Swordsaint | **Zanshin** | the only AoE that gets **stronger** with more bodies in it |
+| Brawler | **Teardown** | the only damage that comes from the **arena**, not the spell |
+| Juggernaut | **Siegeworks** | the only spell that **takes the room away** |
+| Stormcaller | **The Circuit** | the only one with **no radius** — beaten by tempo, not position |
+
+**What to feel for:** Teardown in an empty corridor is *meant* to be a near-wasted
+charge; Siegeworks' first second is *meant* to be a free exit. If either reads as a
+bug rather than a decision, say so — `BASE_DAMAGE` and the ease curve are the dials.
+
+Two things that had never existed and now do: `CastStyle` had **no CATACLYSM arm**,
+so every Tier 3 in the game was thrown with the aimed dart pose; `BotBrain` had none
+either, so a bot sized `equinox` — which levels the room — as a 300 px poke.
+
+### 7. HAIR, SHADES AND A SHEATH — and the spec was wrong about needing art
+`2026-08-05-stick-customisation.md` said a new item is "a PNG plus a registry row".
+**`EQUIP_TEX` is gone** — removed on your own ruling that gear must replace a part
+rather than sit on it — so the rig has been fully procedural for a while and this
+needed no assets at all. Three slots: `hair` (spiky/long/mop), `face`
+(shades/visor), `sheath` (saya/scabbard). **The Swordsaint wears its saya**, because
+an iai is a draw.
+
+Nothing joins `GEAR_KINDS` — that registry obliges a stat bag and a balance sweep,
+which is right for a hammer and absurd for sunglasses. The head hitbox contract is
+asserted across every combination.
+
+**Still open there:** hair takes a lightened body colour, not its own. Your
+reference wants white hair on a navy figure — one export plus one parameter.
+
+---
+
 ## ▶ WHAT IS STILL OPEN
 
-- **Per-class Tier 3 drops** — five new ult-weight spells. Deliberately NOT
-  started: the class-identity ruling forbids making the difference a tint, so
-  each needs its own rule-bending spectacle, and that is design work with your
-  taste in it. **It wants a brainstorm, not a build.**
-- **Stick customisation** —
-  `docs/superpowers/specs/2026-08-05-stick-customisation.md`. Re-read this wave:
-  its own "cheapest real win" (§3, dialogue in the speaker's colour) **already
-  shipped in wave 4** for the duel. What is left — a hair slot, non-robe
-  clothing, accessories, a sheathed katana — all needs **PixelLab art**, which
-  costs your API credits and is your aesthetic call. Not something to ship
-  without you.
+- **Hair colour** — hair derives from the body colour instead of carrying its own.
+  One export plus one parameter through `draw_figure`.
+- **Non-robe clothing** (jackets, coats, gi) — the one row of the customisation
+  spec still untouched. Procedural like the rest; no art needed.
+- **The five new drops are UNPLAYTESTED and unpriced.** No balance sweep has been
+  run with them in — and `CLASS_DROP` only feeds bot duels, so they are reachable
+  in a tower run only if `SpellDrops.TOWER_SPELL_DROPS` is flipped on.
 - **The Swordsaint's unsheathe cut has no anticipatory tell**, deliberately. It
   is a *reactive* punish that fires when you spend a banked guard; a wind-up on
   a counter-attack is arguably wrong. Say if you want one anyway.
