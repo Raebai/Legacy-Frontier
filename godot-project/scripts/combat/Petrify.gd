@@ -151,6 +151,7 @@ func _catch() -> void:
 	_hp_mark = HpWatch.hp_of(_victim)
 	_phase = Phase.STONE
 	_elapsed = 0.0
+	_set_locked(true)   # a statue does not fight — see `_set_locked`
 	if _victim.has_method("apply_status"):
 		_victim.apply_status(element_id, false)   # the EARTH stagger, for the tint
 	DebrisChunk.spawn_burst(get_parent(), _victim.global_position,
@@ -309,7 +310,30 @@ func _statue_ok() -> bool:
 
 func _finish() -> void:
 	_phase = Phase.DONE
+	# ⚠ ALWAYS RELEASE THE ACTION LOCK, on every exit. `_finish` is the single funnel
+	# — the fizzle with no victim, the timeout, the dead-statue guard and `_shatter`
+	# all end here — which is exactly why the lock is cleared here and nowhere else. A
+	# lock released on only some paths is a body that can never act again, and the
+	# statue is gone by then so nothing on screen would explain it.
+	_set_locked(false)
 	queue_free()
+
+
+## Statues do not fight. Maker: *"when the class is perftified it cant cast any spells
+## only its default attack whilst petrified"*.
+##
+## `Petrify` pinned `velocity` and `global_position` and nothing else, so a petrified
+## fighter could not WALK but could still swing, cast, dash-cancel and guard — the one
+## piece of hard CC in the game locked down the least important thing a fighter does.
+## Six seconds of "hard control" that leaves the whole kit online is not control.
+##
+## Duck-typed, like every other cross-body contract here: a body without the property
+## is simply unaffected, so `Enemy`, a dummy and a test stub need no changes.
+func _set_locked(on: bool) -> void:
+	if _victim == null or not is_instance_valid(_victim):
+		return
+	if &"petrified" in _victim:
+		_victim.set(&"petrified", on)
 
 
 # ------------------------------------------------------------------------ draw

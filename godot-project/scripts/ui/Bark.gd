@@ -42,6 +42,12 @@ const BUBBLE_SCENE: PackedScene = preload("res://scenes/SpeechBubble.tscn")
 ## second bubble on the same body would render two lines on top of each other.
 const BUBBLE_NAME: StringName = &"BarkBubble"
 
+## Type size for a fight bubble once the box is gone — see `_bubble_for`. Matches
+## what `BotMatch` chose in wave 4, deliberately: the whole point of this change is
+## that a duel taunt, an elite's line and a wave-clear shout are the same object
+## drawn the same way, and two "bare" sizes would be the drift all over again.
+const BARE_FONT_SIZE: int = 9
+
 ## How long a line stays up. Short: a bark is punctuation, not reading material.
 const HOLD: float = 1.9
 ## A single speaker cannot bark again inside this window. Without it, a kill
@@ -529,6 +535,26 @@ static func _bubble_for(who: Node2D) -> Node:
 	var bubble: Node = BUBBLE_SCENE.instantiate()
 	bubble.name = String(BUBBLE_NAME)
 	who.add_child(bubble)
+	# ══ NO BOXES IN A FIGHT ═════════════════════════════════════════════════
+	# Maker: *"none of the text should have those old speech bubbles as well now I saw
+	# a couple in some calsses fights"*.
+	#
+	# `BotMatch` went bare in wave 4 and everyone assumed that was the whole job. It
+	# was not: `SpeechBubble` is SHARED, and this function builds the bubble for
+	# `VoiceDirector` (wave_start / wave_clear / streak / low_health), for
+	# `EliteRider`, and for every relayed co-op bark — all of them still boxed.
+	#
+	# ⚠ THE LINE IS NOT "combat vs town", IT IS WHO BUILT THE BUBBLE. A bubble ADDED
+	# AT RUNTIME belongs to a fighter mid-fight and goes bare. A bubble AUTHORED as a
+	# scene child — `NPC.tscn`, `Player.tscn`, i.e. exactly the hub townsfolk whose
+	# look was tuned against the panel — never comes through here and keeps its box.
+	# That falls out of the structure rather than needing a flag, and it means a
+	# future combat speaker is bare by construction instead of by remembering.
+	#
+	# ⚠ AFTER `add_child`, not before: the overrides go through `@onready` node
+	# references that do not exist until the bubble is in the tree.
+	if bubble.has_method(&"set_bare"):
+		bubble.call(&"set_bare", BARE_FONT_SIZE)
 	return bubble
 
 

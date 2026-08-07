@@ -598,6 +598,10 @@ const DEATH_LAUNCH_SPEED: float = 430.0
 ## The edge spray on a blade that connects — see `_blade_connect_payoff`. Count is
 ## modest and the spread is TIGHT on purpose: a wide fan is an explosion, and this
 ## has to read as a cut travelling down a lane.
+## Two teleports closer together than this are ONE move — Crescent Step's six hops
+## land inside 0.22 s and must draw one streak, not six. A touch above the longest
+## multi-hop gap so nothing inside a single verb ever splits.
+const BLINK_SPARK_MERGE: float = 0.12
 const BLADE_SPARK_COUNT: int = 16
 const BLADE_SPARK_SPREAD: float = 34.0
 ## How fast a landed corpse stops sliding. Deliberately slow: the skid is the second
@@ -1215,6 +1219,12 @@ var touch_input: bool = false
 ## never stops. Public for the MultiplayerSynchronizer property path.
 var downed: bool = false
 
+## The teleport mark currently in flight for this body, and when it was made. Two
+## teleports inside `BLINK_SPARK_MERGE` are one move being drawn twice — see
+## `_blink_spark`.
+var _blink_spark_node: BlinkSpark = null
+var _blink_spark_at: float = -99.0
+
 ## ══ A SPECTATED BOUT HAS A LOSER, AND IT KEEPS ONE ═════════════════════════
 ## Maker, watching Watch Bots: *"when they die in spectating they shouldnt stand up
 ## they died"*.
@@ -1235,6 +1245,11 @@ var stay_dead: bool = false
 ## the same structural reason: while the driver runs it re-asserts `set_grounded` /
 ## `play()` / the limp every frame, and no amount of collapsing the rig survives that.
 var defeated: bool = false
+
+## Turned to stone by `Petrify`. Set and cleared by that spell alone; see
+## `_process_petrified` for why it gates the whole frame rather than individual
+## buttons, and `Petrify._finish` for why the release is funnelled through one place.
+var petrified: bool = false
 ## Self-revive charges left this run — `DeathRules.SOLO_SELF_REVIVE_CHARGES`, which
 ## ships at 0. At 1+ a death spends one and schedules a SECOND WIND instead of
 ## waiting for a teammate. See `DeathRules` for the argument.
@@ -1911,6 +1926,11 @@ func _physics_process(delta: float) -> void:
 	# not think, and `controller.tick` would go on driving a dead body's brain.
 	if defeated:
 		_process_defeated(delta)
+		return
+	# ...and a body turned to STONE. `Petrify` pins position and velocity; this is the
+	# other half — no swing, no cast, no dash, no guard. See `petrified`.
+	if petrified:
+		_process_petrified()
 		return
 	# BOT: decide this frame's intent before anything reads input. Above the
 	# cooldown ticks so the brain sees the same cooldowns the player's ability bar
@@ -3793,6 +3813,7 @@ func _lightning_blink() -> void:
 	_blink_iframe_timer = LIGHTNING_BLINK_IFRAME
 	rig.spawn_ghost(get_parent(), LIGHTNING_BLINK_START, Vector2.ZERO, Vector2.ZERO, 0.28)
 	_lightning_blink_fx(origin, dest)
+	_blink_spark(origin, dest)
 	global_position = dest
 	velocity.y = 0.0
 	rig.play(CharacterRig.State.CAST)
@@ -3858,6 +3879,10 @@ func _thrall_swap() -> void:
 		20, 0.35, 50.0, 150.0, 1.5, 3.0)
 	CombatVfx.spawn_burst(get_parent(), their_origin, THRALL_SWAP_START, THRALL_SWAP_END,
 		20, 0.35, 50.0, 150.0, 1.5, 3.0)
+	# Both halves of a swap get a star: the pair of streaks crossing is the picture
+	# that says "we traded places" rather than "two people blinked".
+	BlinkSpark.spawn(get_parent(), origin, mine, _element_color)
+	BlinkSpark.spawn(get_parent(), their_origin, theirs, _element_color)
 	global_position = mine
 	velocity.y = 0.0
 	thrall.global_position = theirs
@@ -3936,6 +3961,7 @@ func _thrall_swap_fallback() -> void:
 	rig.spawn_ghost(get_parent(), THRALL_SWAP_START, Vector2.ZERO, Vector2.ZERO, 0.28)
 	CombatVfx.spawn_burst(get_parent(), origin, THRALL_SWAP_START, THRALL_SWAP_END,
 		14, 0.3, 40.0, 110.0, 1.5, 3.0)
+	_blink_spark(origin, dest)
 	global_position = dest
 	velocity.y = 0.0
 	CombatVfx.spawn_burst(get_parent(), dest, THRALL_SWAP_START, THRALL_SWAP_END,
@@ -4115,6 +4141,7 @@ func _blink() -> void:
 		get_parent(), origin, BLINK_BURST_START, BLINK_BURST_END,
 		18, 0.35, 40.0, 110.0, 1.5, 3.0
 	)
+	_blink_spark(origin, dest)
 	global_position = dest
 	velocity.y = 0.0  # don't inherit fall speed -> no "heavy gravity" right after a blink
 	# Arrival poof: bigger burst + a quick bright flash on the rig.
@@ -4209,12 +4236,29 @@ func _resolve_uppercut(face_x: float) -> void:
 ## snap back — the same rule `_replay_dash` documents for the dash. The vetted point
 ## is still RETURNED, so the remote copy of the spectacle draws its (already
 ## disarmed) blast where the owner is about to appear.
+## Mark a teleport, merging with one already in flight rather than stacking.
+## See `BlinkSpark.extend` — Crescent Step is six `blink_to` calls in 0.22 s.
+func _blink_spark(from: Vector2, to: Vector2) -> void:
+	var now: float = float(Time.get_ticks_msec()) / 1000.0
+	if is_instance_valid(_blink_spark_node) and now - _blink_spark_at < BLINK_SPARK_MERGE:
+		_blink_spark_at = now
+		_blink_spark_node.extend(to)
+		return
+	_blink_spark_at = now
+	_blink_spark_node = BlinkSpark.spawn(get_parent(), from, to, _element_color)
+
+
 func blink_to(dest: Vector2) -> Vector2:
 	var safe: Vector2 = _safe_blink_destination(global_position, dest)
 	if _is_net_puppet():
 		return safe  # replay is visual only; the synchronizer owns this body
 	if global_position.distance_to(safe) < BLINK_MIN_TRAVEL:
 		return global_position  # nowhere useful to go — blast at our feet
+	# THE SHARED TELEPORT ENDPOINT — Crescent Step's six hops, every SpellCaster blink,
+	# anything that vets a landing spot. See `BlinkSpark` for why the existing radial
+	# bursts were not enough: they are the same primitive as a hit, so they said
+	# "something happened", never "went".
+	_blink_spark(global_position, safe)
 	global_position = safe
 	velocity.y = 0.0
 	_blink_iframe_timer = BLINK_IFRAME
@@ -6155,6 +6199,25 @@ func _enter_defeated() -> void:
 	if is_instance_valid(rig):
 		rig.collapse(Vector2(away.x, -0.6))
 	Sfx.play("hero_hurt", 0.0, 0.1)
+
+
+## ══ A STATUE DOES NOT FIGHT ════════════════════════════════════════════════
+## Maker: *"when the class is perftified it cant cast any spells only its default
+## attack whilst petrified"*.
+##
+## `Petrify` pinned `velocity` and `global_position` and nothing else, so a petrified
+## fighter could not WALK but could still swing, cast, dash-cancel and guard. The one
+## piece of hard control in the game locked down the least important thing a fighter
+## does — six seconds of "statue" with the whole kit online.
+##
+## ⚠ THIS FUNCTION IS DELIBERATELY EMPTY OF PHYSICS. `Petrify._pin` owns the body's
+## position and velocity and writes them every tick; doing anything here would be a
+## second author for the same two values, and the two would fight for the frame.
+## Cooldowns are frozen too — a statue should not be recharging.
+func _process_petrified() -> void:
+	if is_instance_valid(rig):
+		rig.set_body_velocity(Vector2.ZERO)
+		rig.play(CharacterRig.State.IDLE)
 
 
 ## A corpse in flight. Gravity, the floor, and the two rig facts that make the flight

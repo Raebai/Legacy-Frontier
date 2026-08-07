@@ -273,6 +273,12 @@ static func _bubble(who: Node2D, lines: Array[String]) -> void:
 		bubble = (packed as PackedScene).instantiate()
 		bubble.name = String(BUBBLE_NAME)
 		who.add_child(bubble)
+		# Bare, for the same reason and by the same rule as `Bark._bubble_for`: a
+		# bubble built at runtime on a fighter is a fight bubble, and no fight bubble
+		# wears the old box. See that function for why the line is drawn at who
+		# BUILT the bubble rather than at the mode.
+		if bubble.has_method(&"set_bare"):
+			bubble.call(&"set_bare", 9)
 	if not bubble.has_method(&"say"):
 		return
 	# NOT awaited, for the same reason `Bark.say` does not: `SpeechBubble.say` yields
