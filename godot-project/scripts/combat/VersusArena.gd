@@ -68,6 +68,38 @@ const BLAST_ZONES: Array[Dictionary] = [
 const P1_SPAWN: Vector2 = Vector2(320.0, 716.0)
 ## Destructible cover sitting on the main ground (64px blocks; centre = surface - 32).
 const COVER_POINTS: Array[Vector2] = [Vector2(470.0, GROUND_TOP - 32.0), Vector2(1180.0, GROUND_TOP - 32.0)]
+
+## ══ NOBODY MAY START THE FIGHT STANDING INSIDE A BLOCK ══════════════════════
+## Maker: *"when bot fight happen they start within the boxes which is a wierd bug"*.
+## They were right, and the arithmetic is exact: `COVER_POINTS[0]` is x 470 and a
+## `DestructibleTerrain` is 64 px wide, so the left block spans **438..502** — while
+## `BotMatch` mirrors its two fighters about the real floor centre at 720 +/- 280,
+## which puts the LEFT fighter at **440**. Two pixels inside the cover. The right
+## pair (spawn 1000, block 1148..1212) happened to miss, which is why only one
+## fighter ever looked wrong.
+##
+## Nothing reconciled the two because the stage authors its cover in `_ready` and
+## `BotMatch` moves the fighters AFTERWARDS — the two facts never met in one place.
+##
+## ⚠ FIXED AT THE COVER, NOT AT THE SPAWN, and deliberately. The 560 px opening gap
+## is a documented duel constant that the clips were framed around, and shoving a
+## fighter sideways would break the "MIRRORED FOOTING" the duel spends a paragraph
+## guaranteeing. A block is scenery; moving it 24 px costs nothing and keeps the
+## cover. This also survives `reset_free_stage`, which rebuilds the cover — a
+## spawn-side fix would have to be re-applied there by hand.
+##
+## Half the width of a body plus the air it wants around it. A fighter's collider is
+## ~18 px wide, so 22 leaves a visible gap rather than a touching seam.
+const SPAWN_FOOTPRINT_HALF: float = 22.0
+## The main fight floor is `TERRACES[0]`, x 40..1400. A displaced block stays on it.
+const COVER_X_MIN: float = 72.0     # 40 + half a 64 px block
+const COVER_X_MAX: float = 1368.0   # 1400 - half a 64 px block
+
+## WHERE BODIES ACTUALLY STAND, for the keep-out above. Empty means "ask the stage"
+## (see `_spawn_keepout`); `BotMatch` writes its own mirrored pair here before
+## instantiating the scene, exactly like every other showcase static, because it is
+## the only thing that knows it will re-seat the fighters at 440 / 1000.
+static var spawn_keepout_x: Array[float] = []
 ## One breakable + regenerating lane between the ground and the ruins.
 const BREAKABLE_PLATFORMS: Array[Dictionary] = [
 	{"center": Vector2(840.0, 700.0), "size": Vector2(170.0, 22.0)},
@@ -780,11 +812,48 @@ func _build_ruins() -> void:
 
 
 ## Real blocking cover that spells + melee chew through (group "destructible").
+##
+## Every block is pushed clear of wherever bodies are about to stand — see
+## `SPAWN_FOOTPRINT_HALF`. Doing it here rather than in the authoring table means the
+## overlap is IMPOSSIBLE rather than merely currently absent: `COVER_POINTS` and
+## `BotMatch.SPAWN_SPREAD` can both move again without anybody re-checking the sum.
 func _build_cover() -> void:
+	var keepout: Array[float] = _spawn_keepout()
 	for point: Vector2 in COVER_POINTS:
 		var block := DestructibleTerrain.new()
-		block.position = point
+		block.position = Vector2(
+			cover_x_clear_of(point.x, block.block_size.x, keepout), point.y)
 		add_child(block)
+
+
+## The x positions bodies will occupy on this stage, for the cover keep-out.
+## An explicit `spawn_keepout_x` wins outright; otherwise the stage answers for the
+## mode it is running in, so a capture tool that drives the showcase WITHOUT
+## `BotMatch` is protected by the same rule.
+func _spawn_keepout() -> Array[float]:
+	if not spawn_keepout_x.is_empty():
+		return spawn_keepout_x
+	if _is_showcase():
+		return [SHOWCASE_SPAWN_A.x, SHOWCASE_SPAWN_B.x]
+	if _is_free():
+		return [FREE_SPAWN.x]
+	return [P1_SPAWN.x]
+
+
+## Shove a block of width `block_w` centred at `x` off every point in `keepout`,
+## by the SHORT way each time so the stage changes as little as it can, then clamp it
+## back onto the fight floor. Pure and static — headless-tested, no scene required.
+static func cover_x_clear_of(x: float, block_w: float, keepout: Array[float]) -> float:
+	var need: float = block_w * 0.5 + SPAWN_FOOTPRINT_HALF
+	var out: float = x
+	for sx: float in keepout:
+		var gap: float = out - sx
+		if absf(gap) >= need:
+			continue
+		# A block sitting EXACTLY on a spawn has no short way; going right is
+		# arbitrary but stable, which matters because both co-op peers build this.
+		out = sx + (need if gap >= 0.0 else -need)
+	return clampf(out, COVER_X_MIN, COVER_X_MAX)
 
 
 ## Breakable + regenerating platforms you can stand/jump on and destroy.

@@ -501,6 +501,13 @@ func _ready() -> void:
 		# scene never set it, so hits piled onto `damage_pct` and HP never moved. A
 		# watch that cannot end is not a watch. HP death is the model that resolves.
 		arena_script.set("showcase_ringout", false)
+		# ⚠ TELL THE STAGE WHERE THE FIGHTERS WILL ACTUALLY STAND. `_adopt_fighters`
+		# re-seats them at 720 +/- 280 AFTER the arena has finished building, so the
+		# stage's own `SHOWCASE_SPAWN_A/B` are not where anybody ends up — and the left
+		# one, 440, lands two pixels inside the cover block authored at 470. See
+		# `VersusArena.SPAWN_FOOTPRINT_HALF`; the block moves, the footing does not.
+		arena_script.set("spawn_keepout_x", [
+			FLOOR_CENTRE_X - SPAWN_SPREAD, FLOOR_CENTRE_X + SPAWN_SPREAD])
 	_arena = (load(ARENA_SCENE) as PackedScene).instantiate()
 	add_child(_arena)
 	_adopt_fighters()
@@ -537,6 +544,9 @@ func _exit_tree() -> void:
 	arena_script.set("showcase_directed", false)
 	arena_script.set("showcase_hp_override", 0)
 	arena_script.set("showcase_ringout", true)
+	# Back to "ask the stage" — a later free-play or duel seats bodies somewhere else
+	# entirely and must not inherit this match's footing.
+	arena_script.set("spawn_keepout_x", [] as Array[float])
 
 
 # ==========================================================================
