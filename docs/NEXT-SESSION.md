@@ -1,3 +1,37 @@
+# RESUME HERE — 2026-08-07 (h), SEVEN OPEN ASKS
+
+**ASHPIRE.** Branch `bot-fight-quality`, **158/158 green**, tree clean, all pushed.
+
+## ▶ ON "RESUME" / "CONTINUE": WORK THE WAVE-6 LIST
+**Open `docs/PLAYTEST-QUEUE.md` and read the TOP block.** It carries seven asks the
+maker spoke during a live playtest, verbatim, **all unstarted**. Work them in order.
+The maker has explicitly asked that a cleared session pick this up and do all of them.
+
+Suggested order (the queue explains each):
+1. **Bot fights start inside the crates** — a real spawn bug, not feel. Start here.
+2. **Deflect should return a spell along the DEFLECT ANGLE**, not back at the thrower.
+3. **Horizon Cut should deflect everything in front of it** — same layer as 2.
+4. **Blood Pact** — costs too much, wants a lasting aura on the swordsman.
+5. **Swordsaint**: kill the background circle on attack, make the curve epic.
+6. **Swordsaint needs more punch** — ⚠ FEEL, not balance: it measures exactly 50%.
+7. **Bots spam** — ⚠ ATTEMPTED AND REVERTED, read the queue note before retrying.
+
+## ⚠ THE ONE TRAP IN THAT LIST
+The bot-spam slowdown **fails `slice6_test_bot_brain`**, which demands the bot land
+**>=12 casts** in a neutral window. Slowed, it lands 10 — and stayed at 10 across two
+backoff attempts, so the guard binds harder than the pacing dials move. That guard
+encodes "a bot must not go quiet" and the maker is asking for exactly fewer casts, so
+**loosening it is a judgement call to make with the game open**, not a test to fix.
+
+## HOW TO VERIFY
+```
+python python-tools/run_all_tests.py --jobs 6      # 158 suites, ~110s
+```
+After any `--headless --import`, CHECK `project.godot` still has four keys:
+`theme/custom`, `physics_ticks_per_second`, and both `rendering_method`s.
+
+---
+
 # RESUME HERE — 2026-08-06 (g), THE WAVE-4 QUEUE IS EMPTY
 
 **ASHPIRE.** Branch `bot-fight-quality`, **155/155 green**, tree clean.
