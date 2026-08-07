@@ -1,10 +1,10 @@
-# RESUME HERE — 2026-08-07 (h), SEVEN OPEN ASKS
+# RESUME HERE — 2026-08-07 (h), NINE OPEN ASKS
 
 **ASHPIRE.** Branch `bot-fight-quality`, **158/158 green**, tree clean, all pushed.
 
 ## ▶ ON "RESUME" / "CONTINUE": WORK THE WAVE-6 LIST
 **Open `docs/PLAYTEST-QUEUE.md` and read the TOP block.** It carries seven asks the
-maker spoke during a live playtest, verbatim, **all unstarted**. Work them in order.
+maker spoke during a live playtest, verbatim, **all nine unstarted**. Work them in order.
 The maker has explicitly asked that a cleared session pick this up and do all of them.
 
 Suggested order (the queue explains each):
@@ -15,6 +15,12 @@ Suggested order (the queue explains each):
 5. **Swordsaint**: kill the background circle on attack, make the curve epic.
 6. **Swordsaint needs more punch** — ⚠ FEEL, not balance: it measures exactly 50%.
 7. **Bots spam** — ⚠ ATTEMPTED AND REVERTED, read the queue note before retrying.
+8. **The dead stand back up when spectating** — ⚠ strong lead in the queue:
+   `Hero._die()` HEALS TO FULL outside a run, so the duel loser never actually dies.
+   It is a mode question, not a rig question.
+9. **The Cleric is OP + cooldowns should be DERIVED from damage/utility** — ⚠ this
+   one IS backed by the sweeps (75/78/81%, the only class that rises). Do not decline
+   it the way the Warlock ask was declined.
 
 ## ⚠ THE ONE TRAP IN THAT LIST
 The bot-spam slowdown **fails `slice6_test_bot_brain`**, which demands the bot land

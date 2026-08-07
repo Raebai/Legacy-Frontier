@@ -1,4 +1,4 @@
-# ▶ LIVE ASK-LIST — 2026-08-07, WAVE 6 (ALL UNSTARTED)
+# ▶ LIVE ASK-LIST — 2026-08-07, WAVE 6 (NINE ASKS, ALL UNSTARTED)
 
 Spoken during a live playtest, verbatim intent preserved. **Nothing below is built.**
 Everything above this block IS built and pushed (`ad229d0`, 158/158 green).
@@ -68,6 +68,43 @@ long-duration aura (the rig already has an aura pass — `_draw_aura`, and
 
 The cut should sweep incoming projectiles/spectacles aside as it travels, not just
 damage bodies. Pairs naturally with ask 1 — same deflect layer.
+
+### 8. THE CLERIC IS OVERPOWERED — and cooldowns should be DERIVED, not hand-set
+> *"cleric is very OP, different classes and different spells should have diffferent
+> cooldowns based on damage output usefulnness all that sort of stuff"*
+
+⚠ **THIS ONE IS BACKED BY THE MEASUREMENT, unlike the Warlock ask that was declined.**
+The Cleric read **75% / 78% / 81%** across three 288-bout sweeps — top of the roster
+in all three and the only class that RISES across them. Together with the bottom
+three that is the strongest signal in the table. Do not decline this one.
+
+The systemic half is the more interesting request: **a cooldown should be derived
+from what a spell is worth** (damage output + utility), not authored by hand per
+spell. The codebase already has the machinery pointing the other way — `SpellTier.of`
+DERIVES a spell's shelf from `cast_time` / `cooldown` / `mp_cost`, and its header
+argues that deriving means "a spell cannot lie about its tier". The ask is to invert
+that for cooldown, and the same argument applies: a spell should not be able to lie
+about its cost. ⚠ Note the circularity — if cooldown becomes derived FROM damage while
+tier is derived FROM cooldown, one of the two has to become the input. Settle that
+before writing code.
+
+Cheapest honest first step: a probe that tables every spell's damage-per-second and
+utility against its cooldown, so the outliers are visible before anything is retuned.
+
+### 9. THE DEAD STAND BACK UP WHEN SPECTATING
+> *"when they die in spectating they shouldnt stand up they died"*
+
+⚠ **STRONG LEAD, from code read this session — check this first.** `Hero._die()`
+(~`Hero.gd:5587`) branches on whether a run is active. **Outside a run — which is
+exactly the duel and Watch Bots — it does `hp = max_hp` and returns**, i.e. the loser
+is HEALED TO FULL rather than dying. Its own comment says this is so "the feel toy
+never stops". `BotMatch._put_the_loser_down` separately collapses the rig, so the two
+disagree: the rig is toppled while the body is alive and at full health, and anything
+that re-drives the rig from a live body stands it back up.
+
+The fix is a mode question, not a rig question: a SPECTATED bout has a loser and must
+keep one, so the "heal and carry on" arm needs to exclude `BotMatch`. Do not chase it
+in `CharacterRig` — the ragdoll is behaving correctly for a body that is not dead.
 
 ---
 
