@@ -130,8 +130,26 @@ func _gather() -> void:
 func _dpc(s: SpellDef) -> float:
 	if s.cooldown <= 0.001:
 		return 0.0
-	var mult: float = float(_hits.get(_kind_name(s.kind), 1.0))
+	var mult: float = float(MULTI_HIT_BY_ID.get(s.id,
+		_hits.get(_kind_name(s.kind), 1.0)))
 	return (float(s.damage) * mult) / s.cooldown
+
+
+## ⚠ PER-ID, AND IT HAS TO BE. `dps_sim.SINGLE_TARGET_HITS` is keyed by KIND, and the
+## HEX kind holds both `thousand_cuts` (SEVEN cuts, all on the one body it anchored
+## to) and `shockwave_stomp` (one hit). A kind-level number cannot describe both, so
+## the first version of this table priced the Shadowblade's ULT at 2.0 damage per
+## second of cooldown when the real figure is 18.4 — understating it SEVEN-FOLD, on
+## the very class this suite was being used to diagnose.
+##
+## ⚠ AND `SpellDef.count` CANNOT BE READ AUTOMATICALLY. It is overloaded: seven cuts
+## for `thousand_cuts`, five HOPS for `chain_lightning` — and hops land on DIFFERENT
+## bodies, so reading it blind would price a 60-damage chain at 100 dmg/s and fail the
+## build for a spell that is fine. Named explicitly, one line each, or not at all.
+const MULTI_HIT_BY_ID: Dictionary = {
+	"thousand_cuts": 7.0,    # cuts walked around one anchor
+	"heavens_wrath": 5.0,    # strikes from a cell that drifts onto one body
+}
 
 
 func _kind_name(kind: int) -> String:

@@ -731,6 +731,16 @@ const CLASS_CONFIG: Dictionary = {
 		# ⚠ AND IT IS UNPRICED. Every sweep quoted above predates BOTH this change and
 		# the class's new bespoke Tier 3 (`severance`), which is itself an unmeasured
 		# buff. Two changes, one measurement, and the measurement is older than both.
+		# ⚠ THE BODY STAYS THE FRAILEST IN THE ROSTER, AND A TEST SAYS SO. I raised
+		# this to 132 to answer the class measuring 15/64 (23%), the floor of a
+		# 288-bout round robin, and `slice_test_class_movement` failed with "the
+		# Shadowblade is the frailest body in the roster" — which is a CLASS IDENTITY
+		# claim, not an accident. The glass assassin is supposed to be glass.
+		#
+		# So the whole buff went into the KIT instead, which is also where the
+		# evidence pointed: `slice_test_spell_budget` tables this class as carrying
+		# the two weakest damage spells in the game. Glass is the design; no cannon
+		# was the bug. See `_creeping_shade` / `_rift_dagger` / `_thousand_cuts`.
 		"hp": 114, "speed": 240.0,  # was 78, then 109
 		"primary": "bolt", "bolt_burst": 3, "bolt_spread": 0.13,
 		"cast_cd": 0.30, "dash_cd": 0.70, "blink_cd": 1.0,

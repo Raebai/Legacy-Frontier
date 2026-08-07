@@ -1785,7 +1785,11 @@ static func _creeping_shade() -> SpellDef:
 	s.effect = "shadow"
 	s.mp_cost = 52
 	s.cooldown = 5.5
-	s.damage = 60
+	## ⚠ 60 -> 76. `slice_test_spell_budget` tables this as the WEAKEST pure-damage
+	## spell carried by anyone — 10.9 damage per second of cooldown, against a roster
+	## band of 15-27 — on the class that measured 15/64 (23%), the floor of a 288-bout
+	## round robin. 13.8 now, still under the Cryomancer's Shatter at 15.5.
+	s.damage = 84
 	s.reach = 620.0
 	s.radius = 26.0
 	return s
@@ -1811,7 +1815,11 @@ static func _rift_dagger() -> SpellDef:
 	s.effect = "shadow"
 	s.mp_cost = 46
 	s.cooldown = 4.5
-	s.damage = 34
+	## ⚠ 34 -> 46. The lowest damage-per-cooldown of any damage spell in the game at
+	## 7.6; 12.0 now, and still the low end — it is an ANSWER that also grants a
+	## two-beat recall, so it is not meant to be a big number. See `_creeping_shade`
+	## for the measurement this and it were retuned against.
+	s.damage = 54
 	s.reach = 700.0
 	s.radius = 70.0
 	s.length = 4.0
@@ -1965,7 +1973,11 @@ static func _thousand_cuts() -> SpellDef:
 	s.effect = _effect_for_element(Elements.Element.SHADOW)
 	s.mp_cost = 72       # ULT by MP and by cooldown, with no levitating channel
 	s.cooldown = 8.0
-	s.damage = 16        # per cut; the finisher is a multiple of one cut
+	## ⚠ 16 -> 21 PER CUT, i.e. 112 -> 147 landed. An 8 s ult that had to connect
+	## SEVEN times to deal less than the Brawler's single Meteor Fist (165 on 8.5 s)
+	## was the worst deal on the shelf. 18.4 damage per second of cooldown now against
+	## Meteor Fist's 19.4 — and this one still has to land all seven.
+	s.damage = 24        # per cut; the finisher is a multiple of one cut
 	s.count = 7          # cuts walked around the anchor
 	s.reach = 300.0      # how far out the mark may be placed
 	return s

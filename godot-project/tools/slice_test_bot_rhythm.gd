@@ -41,6 +41,9 @@ const WALK_SPEED: float = 240.0
 ## A slot goes on this long a cooldown after a cast, so the scorer reaches around its
 ## kit instead of leaning on one slot. Mirrors `bot_cast_probe`.
 const FAKE_COOLDOWN: float = 4.0
+## The slowest real `melee_cd` in `Hero.CLASS_CONFIG`. The BODY, not the brain, is
+## what actually paces a swing — see the note in `_step`.
+const MELEE_BODY_COOLDOWN: float = 0.45
 
 ## Every class in the roster, so a single loud one cannot hide behind eight calm ones.
 const CLASS_NAMES: Array[String] = [
@@ -196,6 +199,15 @@ func _step(me: Fighter, foe: Fighter, profile: Dictionary, now: float) -> void:
 	if bool(intent.get(&"swing", false)):
 		me.swings += 1
 		me.actions += 1
+		# ⚠ THE BODY GATES THE SWING AND THIS PROBE WAS NOT MODELLING IT. Every class
+		# has a `melee_cd` of 0.38-0.45 and `Hero` silently early-returns a swing
+		# inside it, but this fixture left `CD_SWING` at zero forever — so the brain
+		# was measured pressing at its own 0.34 floor with nothing answering, and the
+		# swing looked like the single biggest emitter in the game at 2.85/s.
+		#
+		# That number was used to argue for a new spacing dial the brain does not
+		# need. It was an artifact of the harness, not a property of the game.
+		me.cds[BotIntent.CD_SWING] = MELEE_BODY_COOLDOWN
 	# Move, so the pair actually close and separate rather than standing at a fixed
 	# range where half the kit is permanently out of its band.
 	var move: Vector2 = intent.get("move", Vector2.ZERO)
