@@ -1,3 +1,76 @@
+# ▶ LIVE ASK-LIST — 2026-08-07, WAVE 6 (ALL UNSTARTED)
+
+Spoken during a live playtest, verbatim intent preserved. **Nothing below is built.**
+Everything above this block IS built and pushed (`ad229d0`, 158/158 green).
+
+### 1. DEFLECT SHOULD RETURN THE SPELL ALONG THE DEFLECT ANGLE
+> *"remember deflect should send the spell back out from the deflect angle as well"*
+
+Some things already reflect, but the RETURN DIRECTION is the ask. Today a caught
+projectile goes back at whoever threw it (`BoulderHurl.reflect` — "you catch it and
+send it back at whoever threw it", `RiftDagger.reflect`, `EnemyProjectile._reflected`).
+The maker wants the guard's own ANGLE to decide where it goes, so a parry is an aim
+decision rather than an automatic return-to-sender. Start at `SpellDeflect.resolve`
+and the two `reflect()` implementations; the angle source is the defender's
+`_aim_dir` / guard facing at the moment of the parry.
+
+### 2. BOT FIGHTS START INSIDE THE BOXES
+> *"when bot fight happen they start within the boxes which is a wierd bug as wel"*
+
+Sounds like a real spawn bug, not feel — **do this one first**. Fighters are placed at
+`BotMatch.FLOOR_CENTRE_X ± SPAWN_SPREAD` (720 ± 280) and the crates come from
+`layout.crate_positions` via `FloorBuilder.build_props`. Nothing reconciles the two,
+so a crate authored near a spawn point overlaps the fighter.
+
+### 3. THE BOTS SPAM — cooldowns feel too low, want it more interactive
+> *"the bot fights the cool downs are a little too low I think they are just spaming
+> spells I want to mae it more interactive as well"*
+
+⚠ **ATTEMPTED AND REVERTED — read this before retrying.** The lever is NOT the spells'
+own cooldowns (those are the player's numbers too; slowing them nerfs every class in
+the tower to fix a spectating problem). It is the bot's self-imposed rhythm:
+`BotBrain.CAST_LATCH` (0.55), `ABILITY_SPACING` (0.80), `FIRE_SPACING` (0.42),
+`BREATHE_CHANCE/MIN/MAX`.
+
+Raising all four **fails `slice6_test_bot_brain`**, which asserts the bot lands
+**≥12 casts** across a neutral window; the slowed bot got 10, and it stayed at 10
+across two backoff attempts — so the guard binds harder than the dials move and
+something else (probably the breathe roll) dominates. **That guard encodes "a bot
+must not go quiet" and the maker is asking for exactly fewer casts, so loosening it
+is a JUDGEMENT CALL, not a test-fixing chore.** Decide the threshold with the game
+open; do not push numbers blind.
+
+### 4. SWORDSAINT — the curve is good, make it epic; kill the circle
+> *"the sword saint shows the sword curve already which is good make it look more
+> epic and remov ethat background circle when I attack"*
+
+The strike tell is now a `Telegraph.Style.CRESCENT` (a thin air-curve) — that is the
+part they like. The remaining **background circle on attack** is a separate object:
+look at `SpellSigil.open` / `MagicCircle` on the melee path, not at the telegraph.
+
+### 5. SWORDSAINT NEEDS MORE PUNCH GENERALLY
+> *"the first boss is lit but swords person needs a better effect or damagge or
+> something"*
+
+Note the class measured **exactly 50%** across three sweeps, so this is a FEEL ask,
+not a balance one. Effect first, damage second.
+
+### 6. BLOOD PACT — costs too much, wants a lasting aura
+> *"the blood pact takes up too much damage and it needs to have a long effect on the
+> sword person like give them an aura"* / *"the blood pact needs to be buffed"*
+
+`BloodPact.gd`. Two halves: cut the self-damage cost, and give the caster a visible
+long-duration aura (the rig already has an aura pass — `_draw_aura`, and
+`CharacterRig` carries `aura_color`).
+
+### 7. HORIZON CUT SHOULD DEFLECT EVERYTHING IN FRONT OF IT
+> *"horizon cut should also defelct any and everything in front of it as it sends"*
+
+The cut should sweep incoming projectiles/spectacles aside as it travels, not just
+damage bodies. Pairs naturally with ask 1 — same deflect layer.
+
+---
+
 # LIVE PLAYTEST QUEUE — 2026-08-06 (wave 5)
 
 All seven of wave 4's OPEN asks are **actioned**, so is the one thing wave 5 left
