@@ -311,6 +311,21 @@ func add_trauma(amount: float) -> void:
 	_trauma = minf(_trauma + amount, 1.0)
 
 
+## The live `Tuning` autoload's config, or the fallback when there isn't one (every
+## headless suite and capture tool). Mirrors `CombatCamera._tune` exactly — reached
+## through the tree rather than by `class_name`, because a `--script` tool compiles
+## this file before any autoload exists.
+func _tune(key: String, fallback: float) -> float:
+	var t: Node = get_node_or_null(^"/root/Tuning")
+	if t != null:
+		var cfg: Variant = t.get(&"cfg")
+		if cfg != null:
+			var v: Variant = (cfg as Object).get(key)
+			if v != null:
+				return float(v)
+	return fallback
+
+
 ## The legacy pixel-ish API every existing call site passes (~2..12).
 func add_shake(amount: float) -> void:
 	add_trauma(amount * SHAKE_TO_TRAUMA)
@@ -397,7 +412,18 @@ func _shake_offset(delta: float) -> Vector2:
 	_noise_t += delta * NOISE_SPEED
 	_trauma = maxf(_trauma - TRAUMA_DECAY * delta, 0.0)
 	_kick = _kick.lerp(Vector2.ZERO, minf(KICK_RETURN_SPEED * delta, 1.0))
-	var shake: float = _trauma * _trauma
+	# ⚠ THE ACCESSIBILITY SLIDER DID NOTHING IN A DUEL. Maker: *"im worried the screen
+	# shake may be too strong like some instagram / tiktok viewers may be
+	# uncomfortable"*. `Tuning.cfg.shake_scale` exists, defaults to 0.7 on an earlier
+	# "the screen shake is a little too much", and is wired to the Screenshake slider
+	# in the pause menu — but only `CombatCamera` ever read it. This director is the
+	# operator for EVERY versus mode (Watch Bots, the directed duel, every clip
+	# capture), so in exactly the footage that goes to an audience the setting was
+	# inert and the shake ran at 100%.
+	#
+	# Same expression as `CombatCamera._apply_camera`, deliberately, so the two
+	# operators cannot drift: one slider, one meaning, whichever camera is live.
+	var shake: float = _trauma * _trauma * _tune("shake_scale", 1.0)
 	if shake <= 0.0 and _kick == Vector2.ZERO:
 		return Vector2.ZERO
 	var nx: float = sin(_noise_t) * 0.6 + sin(_noise_t * 2.7 + 1.3) * 0.4

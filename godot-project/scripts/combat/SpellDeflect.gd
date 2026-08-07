@@ -77,6 +77,72 @@ const WINDOW_ULT: float = 0.22
 ## At or below this, a successful deflect is treated as the big moment.
 const EPIC_THRESHOLD: float = 0.5
 
+## ══ THE GUARD IS A PLANE, AND WHAT YOU CATCH COMES OFF IT ═══════════════════
+## Maker, live playtest: *"remember deflect should send the spell back out from the
+## deflect angle as well"*.
+##
+## What was there: `Hero.try_parry` and `Hero._guard_deflect_sweep` both sent the
+## caught thing straight down `_aim_dir`. That was already a deliberate choice over
+## return-to-sender (see `Hero.try_parry`'s header, which argues it at length) and it
+## is not wrong — but it is not an ANGLE. The exit direction ignored where the shot
+## came from entirely, so in a duel, where both bots aim at each other, every parry
+## looked exactly like return-to-sender and the guard's orientation meant nothing.
+##
+## What it is now: the guard is a PLANE whose normal is where you are aiming, and the
+## incoming line is mirrored about it. Two consequences, both wanted:
+##
+##   * Meet a shot SQUARE and it goes straight back at whoever sent it. The most
+##     satisfying outcome is still the most obvious input, so nothing that felt good
+##     before feels worse now.
+##   * Meet it at an angle and it skids off at TWICE that angle. Now the aim is a
+##     real decision with a real ceiling: you must read the incoming line, not just
+##     the timing.
+##
+## ⚠ THE ONE-LINE REVERT, because this is a feel change on top of a documented
+## decision and it may not survive the maker's hands: make `return_dir` return `n`
+## unconditionally and every call site is back to aim-direct.
+##
+## How square the guard must be before the mirror is worth doing. Below this the
+## guard is barely in the shot's way, the mirror would let it slide past almost
+## unchanged, and "I deflected that and nothing happened" reads as a bug — so a
+## glancing guard shoves it along the guard line instead.
+##
+## It also buys the safety property outright: the mirror's own algebra gives
+## `out.dot(n) == -incoming.dot(n)`, so gating on `incoming.dot(n) <= -MIN_FACE_DOT`
+## guarantees `out.dot(n) >= MIN_FACE_DOT`. A deflected spell can never come back
+## into the body that deflected it. Asserted in `slice_test_deflect_angle.gd`.
+const MIN_FACE_DOT: float = 0.25
+
+## ══ THE BEAT, so a deflect READS ════════════════════════════════════════════
+## Maker: *"there should be a little like break when a deflect happens so that its
+## clear what just happened ... so its more epic"*.
+##
+## The old beat was `hit_stop(0.09)` + `shake(4)` + a ding — the same weight as an
+## ordinary bolt landing. A parry is the rarest good thing a player does and it was
+## punctuated like the commonest. Three changes, in the order they matter:
+##
+##   1. A LONGER FREEZE. `Juice.hit_stop` drives `Engine.time_scale`, so the caught
+##      spell visibly STOPS in the air for the duration and then leaves along the new
+##      line. The freeze is not decoration — it is the frame that lets you see the
+##      angle change, which is the whole of what was asked for.
+##   2. A SPARK CONE ALONG THE EXIT. Radial sparks say "something happened here";
+##      a cone says "and it went THAT way". This is the half that makes the new
+##      deflect angle legible rather than merely correct.
+##   3. A ring + a zoom punch, so it lands as a beat rather than a particle.
+const DEFLECT_HITSTOP: float = 0.17
+const EPIC_HITSTOP: float = 0.30
+## ⚠ DELIBERATELY MODEST, and it went 4.0 -> 9.0 -> 6.0 inside one session. The
+## first raise was reaching for weight with the wrong tool; the maker's *"the screen
+## shake may be too strong ... instagram / tiktok viewers may be uncomfortable"*
+## landed while it was still 9.0 and it is right. The freeze and the spark cone are
+## what make a deflect READ; shake only makes it loud. Sustained, overlapping shake
+## is what reads as nausea to a viewer, and a parry is one of the most frequent good
+## things in a fight — so this one in particular must not be a slam.
+const DEFLECT_SHAKE: float = 6.0
+## How wide the exit spray is. Tight, because a wide cone reads as an explosion
+## rather than as a direction.
+const SPARK_SPREAD_DEG: float = 26.0
+
 ## ---------------------------------------------------------------------------
 ## HOW MANY DEFLECTS HAVE ACTUALLY HAPPENED. Process-wide, monotonic, free.
 ##
@@ -133,6 +199,71 @@ static func _count(victim: Node) -> void:
 		deflects_by_group["ungrouped"] = int(deflects_by_group.get("ungrouped", 0)) + 1
 
 
+## WHERE A DEFLECTED SPELL GOES. `guard_dir` is where the defender is aiming — the
+## NORMAL of the guard plane — and `incoming_dir` is the line the spell was flying
+## down. Pure, static, and the only place the answer is computed; every deflect path
+## in the game routes through here so a parry reads the same whoever did it.
+##
+## See MIN_FACE_DOT for the doctrine and the one-line revert.
+static func return_dir(guard_dir: Vector2, incoming_dir: Vector2) -> Vector2:
+	var n: Vector2 = _unit(guard_dir)
+	if n == Vector2.ZERO:
+		# No guard to speak of. Send it on rather than inventing an angle out of
+		# nothing — a zero vector here would stop the spell dead in the air.
+		var d0: Vector2 = _unit(incoming_dir)
+		return d0 if d0 != Vector2.ZERO else Vector2.RIGHT
+	var d: Vector2 = _unit(incoming_dir)
+	if d == Vector2.ZERO:
+		return n   # nothing known about the shot: the guard line is the best answer
+	var facing: float = d.dot(n)
+	# The guard is barely in the shot's way. Mirroring here would let it slide past
+	# almost unchanged, which reads as a failed deflect. Shove it along the guard.
+	if facing > -MIN_FACE_DOT:
+		return n
+	# Mirror about the plane with normal `n`. Meet it square (d == -n) and this is
+	# exactly `n` — straight back at whoever sent it.
+	var out: Vector2 = _unit(d - n * (2.0 * facing))
+	return out if out != Vector2.ZERO else n
+
+
+## The line a caught thing was travelling down, asked of the thing itself and only
+## guessed as a last resort.
+##
+## The order matters: `travel_velocity` is the live vector (a bolt that has been
+## curved or slowed reports honestly), `reaction_heading` is the clash layer's
+## published version, `_dir` is the house member every spectacle keeps, and the
+## fallback is the geometric line from the spell to the body it reached — which is
+## right for anything that got here without ever declaring a direction.
+static func incoming_dir_of(proj: Node, at: Vector2, defender_pos: Vector2) -> Vector2:
+	if proj != null and is_instance_valid(proj):
+		for m: StringName in [&"travel_velocity", &"reaction_heading"]:
+			if proj.has_method(m):
+				var v: Vector2 = proj.call(m)
+				if v.length_squared() > 0.000001:
+					return v.normalized()
+		var raw: Variant = proj.get("_dir")
+		if raw is Vector2 and (raw as Vector2).length_squared() > 0.000001:
+			return (raw as Vector2).normalized()
+	return _unit(defender_pos - at)
+
+
+## The guard plane's normal for `victim`, discovered on the body rather than passed
+## in — the same idiom `resolve` uses for `SigilGuard`, and the reason `resolve`'s
+## frozen signature did not have to grow an argument to carry the new angle.
+static func guard_dir_of(victim: Node) -> Vector2:
+	if victim == null or not is_instance_valid(victim):
+		return Vector2.ZERO
+	for key: StringName in [&"_aim_dir", &"facing"]:
+		var raw: Variant = victim.get(key)
+		if raw is Vector2 and (raw as Vector2).length_squared() > 0.000001:
+			return (raw as Vector2).normalized()
+	return Vector2.ZERO
+
+
+static func _unit(v: Vector2) -> Vector2:
+	return v.normalized() if v.length_squared() > 0.000001 else Vector2.ZERO
+
+
 ## Would this hit be deflected? Pure query, no side effects — for tests, and for
 ## callers that must branch before committing to an effect.
 static func would_deflect(victim: Node, window_fraction: float = WINDOW_NORMAL) -> bool:
@@ -174,30 +305,50 @@ static func resolve(victim: Node, damage: int, dir: Vector2, at: Vector2,
 	var sigil: SigilGuard = SigilGuard.peek(victim)
 	if sigil != null and sigil.is_armed():
 		sigil.absorb(damage, dir, at)
-	if window_fraction <= EPIC_THRESHOLD:
-		_epic_payoff(at)
-	else:
-		_payoff(at)
+	# Even a spell that cannot be sent back is turned along a LINE, and showing that
+	# line is what makes the guard's angle legible. `dir` is the incoming heading and
+	# the guard is discovered on the victim, so the sparks fly the same way here as
+	# they do on the `reflect()` path — one read, two mechanisms.
+	beat(at, return_dir(guard_dir_of(victim), dir), Color(1.0, 0.95, 0.8),
+		window_fraction <= EPIC_THRESHOLD)
 	return int(round(float(damage) * DEFLECTED_DAMAGE_MULT))
 
 
-## The ordinary parry beat, deliberately identical to the bolt parry's: players
-## must not have to learn two different readings of "I blocked that".
-static func _payoff(at: Vector2) -> void:
+## THE ONE DEFLECT BEAT. Every path that turns something away calls this and nothing
+## else: `resolve` above, `Hero.try_parry`, `Hero._guard_deflect_sweep` and
+## `HorizonArc`'s sweep. Players must not have to learn two readings of "I blocked
+## that", and before this the four sites had drifted into three different weights.
+##
+## `out_dir` is where the thing is now going. It is the argument that matters — see
+## DEFLECT_HITSTOP for why the spray is a cone and not a puff.
+static func beat(at: Vector2, out_dir: Vector2, tint: Color = Color(1.0, 0.95, 0.8),
+		epic: bool = false) -> void:
+	var dir: Vector2 = _unit(out_dir)
+	if epic:
+		_epic_payoff(at, dir, tint)
+	else:
+		_payoff(at, dir, tint)
+
+
+## The ordinary parry beat.
+static func _payoff(at: Vector2, out_dir: Vector2, tint: Color) -> void:
 	_sfx("ding", 2.0)
-	Juice.hit_stop(0.09)
-	Juice.shake_camera(4.0)
+	_sfx("blast", -6.0)   # a little body under the ding, so it lands as a HIT
+	Juice.hit_stop(DEFLECT_HITSTOP)
+	Juice.shake_camera(DEFLECT_SHAKE)
+	Juice.zoom_punch_camera(0.045, 0.16)
 	# Localized, so a deflect off to one side reads there and not at screen centre.
 	# LOCAL, deliberately: an ordinary parry is a small crisp read that happens
 	# several times a fight. Giving it a full-screen wash spends the loudest tool
 	# in the game on the quietest moment, and makes the ULT turn below indistinct.
-	Juice.frame({"style": ImpactFrame.Style.LOCAL, "strength": 0.55, "at": at})
+	Juice.frame({"style": ImpactFrame.Style.LOCAL, "strength": 0.8, "at": at})
+	_sparks(at, out_dir, tint, 22, 0.34, 260.0, 620.0)
 
 
 ## Turning an ULT is the hardest read in the game, so it gets the loudest beat in
 ## the game: the full epic crescendo (camera pull-reveal, screen ripple, heavy
 ## freeze) staged ON the clash rather than at screen centre.
-static func _epic_payoff(at: Vector2) -> void:
+static func _epic_payoff(at: Vector2, out_dir: Vector2, tint: Color) -> void:
 	_sfx("ding", 4.0)
 	_sfx("cannon", 1.0)
 	# CUT_IN — the climax mark, and the only place outside a boss death that earns
@@ -206,9 +357,32 @@ static func _epic_payoff(at: Vector2) -> void:
 	# looked identical to the easiest.
 	Juice.epic_moment({"strength": 1.35, "shake": 18.0, "frame": false, "at": at})
 	Juice.frame({"style": ImpactFrame.Style.CUT_IN, "strength": 1.4, "at": at})
+	Juice.hit_stop(EPIC_HITSTOP)
 	CombatVfx.spawn_burst(_arena(), at,
 		Color(2.2, 2.0, 1.4, 1.0), Color(1.0, 0.85, 0.4, 0.0),
 		34, 0.55, 120.0, 420.0, 1.8, 4.6, 0.0, 0.0, true)
+	_sparks(at, out_dir, tint, 40, 0.5, 360.0, 900.0)
+
+
+## THE HALF THAT ANSWERS "what just happened". A tight cone of sparks down the exit
+## line: the freeze holds the picture, the cone says which way it left. A radial puff
+## would say neither.
+##
+## Silently does nothing on a zero direction rather than firing a radial burst — a
+## deflect with no known exit should look like nothing rather than like a bomb.
+static func _sparks(at: Vector2, out_dir: Vector2, tint: Color, count: int,
+		life: float, v_min: float, v_max: float) -> void:
+	if out_dir == Vector2.ZERO:
+		return
+	var arena: Node = _arena()
+	if arena == null:
+		return
+	var hot: Color = Color(
+		minf(tint.r * 1.8 + 0.5, 3.0), minf(tint.g * 1.8 + 0.5, 3.0),
+		minf(tint.b * 1.8 + 0.5, 3.0), 1.0)
+	CombatVfx.spawn_burst(arena, at, hot, Color(tint.r, tint.g, tint.b, 0.0),
+		count, life, v_min, v_max, 1.0, 3.0, 0.0, 0.0, true,
+		out_dir, SPARK_SPREAD_DEG)
 
 
 static func _sfx(name: String, pitch: float) -> void:

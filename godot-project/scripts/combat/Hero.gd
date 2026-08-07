@@ -4749,13 +4749,22 @@ func try_parry(proj: Node) -> bool:
 		return false
 	if not is_instance_valid(proj) or not proj.has_method("reflect"):
 		return false
-	var dir: Vector2 = _aim_dir.normalized() if _aim_dir != Vector2.ZERO else facing
+	# ⚠ THE GUARD IS A PLANE NOW, not a launch tube. `_aim_dir` is its NORMAL and the
+	# incoming line is mirrored about it, so meeting a shot square still returns it to
+	# sender while an angled guard skids it away. See `SpellDeflect.MIN_FACE_DOT` for
+	# the doctrine, the safety property, and the one-line revert.
+	var guard: Vector2 = _aim_dir.normalized() if _aim_dir != Vector2.ZERO else facing
+	var at: Vector2 = (proj as Node2D).global_position if proj is Node2D else global_position
+	if proj.has_method("deflect_point"):
+		at = proj.call("deflect_point") as Vector2
+	var dir: Vector2 = SpellDeflect.return_dir(
+		guard, SpellDeflect.incoming_dir_of(proj, at, global_position))
 	proj.reflect(dir, _element_color)
 	# One counter for all three deflect paths — see SpellDeflect.note_deflect.
 	SpellDeflect.note_deflect(self)
-	Sfx.play("ding", 2.0, 0.02)  # the whole payoff — a crisp, loud parry ding
-	Juice.hit_stop(0.09)
-	Juice.shake_camera(4.0)
+	# ONE BEAT FOR EVERY DEFLECT — the freeze that lets you see it, and a spark cone
+	# down the new line that says which way it went. See `SpellDeflect.beat`.
+	SpellDeflect.beat(at, dir, _element_color)
 	# Snap the shield toward where the bolt was sent — a bright deflect flourish.
 	rig.set_parry(dir, PARRY_SHIELD_TIME)
 	rig.flash_color(PARRY_FLASH_COLOR, 0.1)
@@ -4904,7 +4913,10 @@ func _unsheathe_cut(banked: int) -> void:
 func _guard_deflect_sweep() -> void:
 	if not _guard.can_reflect():
 		return
-	var dir: Vector2 = _aim_dir.normalized() if _aim_dir != Vector2.ZERO else facing
+	# The blade is the plane; the aim is its normal. Each caught thing is mirrored
+	# about it individually, so a wall of arrows fans out along the edge instead of
+	# every one of them leaving down the same line. See `SpellDeflect.return_dir`.
+	var guard: Vector2 = _aim_dir.normalized() if _aim_dir != Vector2.ZERO else facing
 	for group: String in ["enemy_projectile", "deflectable_spell"]:
 		for proj: Node in get_tree().get_nodes_in_group(group):
 			if not is_instance_valid(proj) or not proj.has_method("reflect"):
@@ -4919,16 +4931,16 @@ func _guard_deflect_sweep() -> void:
 				at = proj.call("deflect_point") as Vector2
 			if global_position.distance_to(at) > GUARD_DEFLECT_REACH:
 				continue
+			var dir: Vector2 = SpellDeflect.return_dir(
+				guard, SpellDeflect.incoming_dir_of(proj, at, global_position))
 			proj.call("reflect", dir, _element_color)
 			# THE FOURTH DEFLECT PATH, and it was the one nothing counted. A harness
 			# that watches only `SpellDeflect.resolve` reports the Swordsaint — the
 			# class whose whole identity is turning things away — as the one that never
 			# deflects. See `SpellDeflect.note_deflect`.
 			SpellDeflect.note_deflect(self)
-			Sfx.play("ding", 2.0, 0.02)
-			Juice.hit_stop(0.09)
-			Juice.shake_camera(4.0)
-			rig.set_parry(dir, PARRY_SHIELD_TIME)
+			SpellDeflect.beat(at, dir, _element_color)
+			rig.set_parry(guard, PARRY_SHIELD_TIME)
 			rig.flash_color(PARRY_FLASH_COLOR, 0.1)
 
 
@@ -5809,23 +5821,21 @@ func take_damage(amount: int) -> void:
 	if _parry_window_timer > 0.0:
 		# One counter for all three deflect paths — see SpellDeflect.note_deflect.
 		SpellDeflect.note_deflect(self)
-		Sfx.play("ding", 2.0, 0.02)
 		rig.flash_color(PARRY_FLASH_COLOR, 0.1)
 		rig.set_parry(_aim_dir, PARRY_SHIELD_TIME)
-		# ⚠ THE HIT-STOP AND THE SHAKE ARE NOT DECORATION — THEY ARE THE OTHER TWO
-		# PATHS' BEAT, AND THIS PATH WAS MISSING THEM. `try_parry` (Hero.gd:4434) and
-		# `SpellDeflect._payoff` both play ding + hit_stop(0.09) + shake(4.0); this
-		# branch played the ding alone. Since this is the CATCH-ALL path — every
-		# melee, contact, charge and every one of the spectacles that route through
-		# neither of the other two — the most COMMON deflect in the game was also the
-		# flattest, and read on camera as though nothing had happened. One deflect
-		# must feel like one deflect whichever path resolved it.
-		Juice.hit_stop(0.09)
-		Juice.shake_camera(4.0)
-		# The DEFLECT beat — anime freeze-frame localized AT the hero, biased a
-		# touch toward the attacker (aim side) so the burst reads at the clash.
-		Juice.frame({"style": ImpactFrame.Style.LOCAL, "strength": 0.7,
-			"at": global_position + _aim_dir * 18.0})
+		# ⚠ THE BEAT IS NOT DECORATION — IT IS THE OTHER PATHS' BEAT, AND THIS PATH
+		# WAS MISSING MOST OF IT. Since this is the CATCH-ALL path — every melee,
+		# contact, charge and every spectacle that routes through neither of the other
+		# two — the most COMMON deflect in the game was also the flattest, and read on
+		# camera as though nothing had happened.
+		#
+		# It is `SpellDeflect.beat` now rather than a hand-rolled copy, because the
+		# four sites drifted into three different weights the last time they were kept
+		# in step by comment alone. A contact parry has nothing to SEND BACK, so the
+		# spark cone goes down the guard line — which is still the deflect angle, just
+		# with no incoming line to mirror about.
+		SpellDeflect.beat(global_position + _aim_dir * 18.0,
+			_aim_dir if _aim_dir != Vector2.ZERO else facing, _element_color)
 		# ══ THE WINDOW SURVIVES THE BURST IT WAS OPENED FOR ═════════════════════
 		# Maker: *"how is brawler meant to kill the first boss like if they are
 		# getting up close... all the classes actually need a way to deflect the
@@ -5863,15 +5873,12 @@ func take_damage(amount: int) -> void:
 				_guard_hits += 1
 				# One counter for all three deflect paths — see SpellDeflect.note_deflect.
 				SpellDeflect.note_deflect(self)
-				Sfx.play("ding", 2.0, 0.02)
 				rig.flash_color(PARRY_FLASH_COLOR, 0.1)
 				rig.set_parry(_aim_dir, PARRY_SHIELD_TIME)
 				# Same beat as every other deflect path — see the press-window branch
-				# above for why these two lines are load-bearing.
-				Juice.hit_stop(0.09)
-				Juice.shake_camera(4.0)
-				Juice.frame({"style": ImpactFrame.Style.LOCAL, "strength": 0.7,
-			"at": global_position + _aim_dir * 18.0})
+				# above for why this line is load-bearing.
+				SpellDeflect.beat(global_position + _aim_dir * 18.0,
+					_aim_dir if _aim_dir != Vector2.ZERO else facing, _element_color)
 				return
 			ParryRing.Quality.SUSTAIN:
 				amount = int(round(float(amount) * _guard.damage_mult()))

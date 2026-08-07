@@ -232,9 +232,11 @@ func _process(delta: float) -> void:
 	if bool(blocked.get("hit", false)):
 		_travelled = prev + float(blocked.get("distance", 0.0))
 		_sweep_damage()
+		_sweep_deflect()
 		_begin_dissipate()
 		return
 	_sweep_damage()
+	_sweep_deflect()
 	if _travelled >= _travel:
 		_begin_dissipate()
 		return
@@ -284,6 +286,53 @@ func _sweep_damage() -> void:
 			continue
 		_hit.append(n)
 		_strike(n)
+
+
+## ══ THE CUT SWEEPS EVERYTHING IN FRONT OF IT ═══════════════════════════════
+## Maker: *"horizon cut should also defelct any and everything in front of it as it
+## sends"*.
+##
+## It cut BODIES and it chewed COVER, and anything actually in flight sailed straight
+## through it — which made the one ult in the game that is visibly a wall of edge the
+## only wall that stopped nothing. `_sweep_damage` above already runs an exact band
+## test every frame, so this is the same query against the two travelling groups.
+##
+## THE ANGLE IS THE CUT'S OWN. A moving wall is a guard plane whose normal is `_dir`,
+## so this reuses `SpellDeflect.return_dir` unchanged: a bolt met head-on goes back
+## where it came from, and one crossing at an angle skids away down the edge. Same
+## arithmetic as a parry, so the two read as one verb.
+##
+## ⚠ TWO GUARDS THAT ARE NOT OPTIONAL.
+##   * `_reflected` is checked because `EnemyProjectile.reflect` has no re-entry guard
+##     of its own (every spell script does; that one does not). Without this a bolt
+##     inside the band would be re-reflected every frame for as long as the cut is on
+##     it, and its damage multiplier would compound each time.
+##   * `self` is skipped explicitly. This arc is itself in `deflectable_spell`, and a
+##     wall that deflects itself resets its own travel to zero forever.
+##
+## The deflect is filed against the SWORDSMAN, not against the arc — the arc is in
+## neither faction group, so counting it here would file every one of these under
+## `ungrouped` and make the harness's per-side deflect numbers wrong.
+func _sweep_deflect() -> void:
+	if not is_inside_tree() or _state != State.SWEEP:
+		return
+	for group: String in ["enemy_projectile", "deflectable_spell"]:
+		for p: Node in get_tree().get_nodes_in_group(group):
+			if p == self or not is_instance_valid(p) or not p.has_method("reflect"):
+				continue
+			if bool(p.get("_reflected")):
+				continue
+			var at: Vector2 = (p as Node2D).global_position if p is Node2D else Vector2.ZERO
+			if p.has_method("deflect_point"):
+				at = p.call("deflect_point") as Vector2
+			if not contains_point(_origin, _dir, _travelled, _half_height(), BOW,
+					_thickness, at):
+				continue
+			var out: Vector2 = SpellDeflect.return_dir(
+				_dir, SpellDeflect.incoming_dir_of(p, at, centre()))
+			p.call("reflect", out, _colour)
+			SpellDeflect.note_deflect(caster_node if caster_node != null else self)
+			SpellDeflect.beat(at, out, _colour)
 
 
 ## The smallest circle that certainly contains the whole drawn wall, used only to
