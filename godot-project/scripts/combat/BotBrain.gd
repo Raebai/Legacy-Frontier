@@ -257,11 +257,35 @@ const PRESSURE_HORIZON: float = 1.2
 ## the maker judges whether it still reads as a zoner.
 const CLASS_BAND: Array[Dictionary] = [
 	{"min": 190.0, "max": 340.0},   # ARCANIST  — caster band
-	{"min": 60.0, "max": 200.0},    # SHADOWBLADE — in and out
+	# ⚠ 200 -> 165, AND THIS IS WHERE THE SHADOWBLADE'S HELP ACTUALLY COMES FROM.
+	# HP was the obvious knob and it is capped at one point by a guarded invariant
+	# (the assassin must stay the frailest body), so the honest lever is letting the
+	# class REACH with the kit it has. `BladeFlurry` — its damage line — has a RANGE
+	# of 100. The old band scaled by aggression 0.80 to 49-164 and centred the bot at
+	# 107: outside the flurry, so `_range_fit` skipped the slot and the bot fell back
+	# on its bolt while standing in the open. 55-165 scales to 45-135, centre 90,
+	# which is inside the flurry with room to spare and still a WIDE band — the class
+	# is "in and out" and must keep the room to be out.
+	{"min": 55.0, "max": 165.0},    # SHADOWBLADE — in and out; the flurry reaches 100
 	{"min": 35.0, "max": 70.0},     # BRAWLER   — contact; melee reaches 66
 	{"min": 70.0, "max": 115.0},    # JUGGERNAUT— close; heavy swing reaches 106
 	{"min": 120.0, "max": 260.0},   # CLERIC    — mid, tether range
-	{"min": 120.0, "max": 210.0},   # CRYOMANCER— the frost CONE only reaches 200
+	# ⚠ THE COMMENT WAS WRONG AND THE BAND WAS BUILT ON IT. It said "the frost CONE
+	# only reaches 200"; `Hero._primary_frost_cone`'s `CONE_RANGE` is **118**. So the
+	# authored band 120-210 scaled by aggression 0.80 (x0.82) to 98-172 and PARKED THE
+	# BOT AT 135 — seventeen pixels outside the reach of its own primary attack, for
+	# the whole fight. The only class in the roster whose LMB is a short hitscan cone
+	# was the one class standing where it could not use it.
+	#
+	# That is the measurement, not a taste call: the Cryomancer read 39% / 28% / 31%
+	# across three 288-bout sweeps, bottom three in two of them. This is a BUG FIX and
+	# not a handicap — `BotMatch`'s own header forbids papering over a lopsided matchup
+	# with a thumb on the scale, and a band derived from a reach that does not exist is
+	# exactly the kind of thing it means.
+	#
+	# 80-150 scales to 66-123, centre 94: inside the cone with 24 px of margin for a
+	# target that is moving. It stays a MID band — the class is still not a brawler.
+	{"min": 80.0, "max": 150.0},    # CRYOMANCER— the frost cone reaches 118
 	{"min": 170.0, "max": 320.0},   # STORMCALLER
 	{"min": 150.0, "max": 300.0},   # WARLOCK   — attrition at tether range
 	{"min": 45.0, "max": 95.0},     # SWORDSAINT— guard-and-punish; reaches 95

@@ -686,7 +686,25 @@ const CLASS_CONFIG: Dictionary = {
 	},
 	HeroClass.ROGUE: {  # SHADOWBLADE — twitchy assassin; LMB = 3-dagger flurry
 		"preset": "rogue", "weapon": "sword", "element": Elements.Element.SHADOW, "melee_element": Elements.Element.SHADOW,
-		"hp": 109, "speed": 240.0,  # was 78 — still the frailest body in the roster
+		# ⚠ 109 -> 122 ON MEASUREMENT, and it costs the class its "frailest" title.
+		# The Shadowblade read 27% / 28% / 33% across three 288-bout sweeps — the only
+		# class in the bottom three of ALL THREE, which is the strongest signal in the
+		# whole table (nothing else agrees across more than two samples).
+		#
+		# HP rather than damage, following the Cryomancer's own precedent two rows
+		# down: a glass cannon that dies before its third exchange never gets to be a
+		# cannon, and its damage case has not been argued out the way `Shatter`'s was.
+		# ⚠ 114 AND NOT MORE, BECAUSE THE FRAILTY IS A GUARDED INVARIANT. The first
+		# pass at this put it at 122 and `slice_test_class_movement` failed on exactly
+		# the right thing: "the Shadowblade is the frailest body in the roster". That
+		# is a design ruling with a suite behind it, not an accident, and the maker
+		# asked for a slight buff — not for the assassin to stop being the squishiest
+		# thing on the floor. 114 sits one point under the Stormcaller's 115 and keeps
+		# the title. The rest of the help comes from the band below, not from meat.
+		# ⚠ AND IT IS UNPRICED. Every sweep quoted above predates BOTH this change and
+		# the class's new bespoke Tier 3 (`severance`), which is itself an unmeasured
+		# buff. Two changes, one measurement, and the measurement is older than both.
+		"hp": 114, "speed": 240.0,  # was 78, then 109
 		"primary": "bolt", "bolt_burst": 3, "bolt_spread": 0.13,
 		"cast_cd": 0.30, "dash_cd": 0.70, "blink_cd": 1.0,
 		"blast_cd": 2.5,
