@@ -425,6 +425,22 @@ const RECOIL_SECONDS: float = 0.28
 ## Long enough that brushing a riser mid-approach does not make it hop.
 const WALL_STUCK_SECONDS: float = 0.45
 
+## ── CHANNEL-GATE TELEMETRY ──────────────────────────────────────────────────
+## How many times a channelled spell was CONSIDERED, how many times the safety gate
+## refused it, and how many of those refusals were the ULT slot. Process-wide,
+## monotonic, free — the same shape and the same justification as
+## `SpellDeflect.deflect_count`. See the gate in `score_slots`.
+static var channel_chances: int = 0
+static var channel_refusals: int = 0
+static var ult_channel_refusals: int = 0
+
+
+## For a harness measuring one run at a time.
+static func reset_channel_stats() -> void:
+	channel_chances = 0
+	channel_refusals = 0
+	ult_channel_refusals = 0
+
 ## Below this share of health a bot may decide it is out of better ideas.
 const DESPERATE_HP: float = 0.34
 ## Rolled once per decision beat while desperate, so at a 0.22 s beat the urge
@@ -1788,7 +1804,30 @@ static func score_slots(bb: Dictionary, profile: Dictionary, m: Memory, now: flo
 			ct = float(live_ct[i])
 		var safety: float = 1.0
 		if ct > 0.01:
+			# ══ HOW OFTEN DOES THE GATE ACTUALLY REFUSE? ═══════════════════════
+			# Maker: *"I havent seen many ults in these stick battles"*.
+			#
+			# `bot_cast_probe` (once its own hardcoded 3-slot blind spot was fixed)
+			# shows the brain ASKING for slot 3 as often as any other — ~112 casts
+			# against ~110 for the rest, all nine classes. So the brain is not the
+			# reason. But that probe passes `"threats": []`, so `soonest` is 99 there
+			# and this line never runs; it cannot see its own suspect.
+			#
+			# Five of the nine ults have `cast_time == 0.0` and sail past. The other
+			# four — Meteor Sigil 1.1, Heaven's Verdict 1.3, Glacial Spine 1.1,
+			# Horizon Cut 1.25 — need `cast_time + 0.25` of clear air.
+			#
+			# ⚠ COUNTED, NOT GUESSED, and counted because a fix was already tried and
+			# REVERTED here: relaxing the gate below the cast time only loses the ult
+			# a different way (an interrupted channel is a donated spell, which
+			# `slice6_test_bot_brain` asserts and is right about). Process-wide and
+			# free, exactly like `SpellDeflect.deflect_count`, which exists because
+			# "the machinery is all there" was not evidence that it ran.
+			channel_chances += 1
 			if soonest < ct + CHANNEL_MARGIN:
+				channel_refusals += 1
+				if i == SpellTier.ULT_SLOT:
+					ult_channel_refusals += 1
 				continue
 			safety = lerpf(0.55, 1.0, clampf(risk, 0.0, 1.0))
 

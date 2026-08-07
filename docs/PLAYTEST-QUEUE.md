@@ -1,3 +1,28 @@
+# ▶ THE WAVE-6 QUEUE IS EMPTY — 2026-08-07
+
+All ten wave-6 asks below are **actioned**, plus sixteen more spoken during the same
+session. **166/166 green, nothing played.** See `docs/NEXT-SESSION.md` for what to
+play, the fresh 288-bout table, and the three things most likely to be wrong.
+
+Two asks were answered by DECLINING to do the obvious thing, and both are worth
+knowing before re-opening them:
+
+* **"cooldowns should be DERIVED from damage/usefulness"** — not built as a
+  derivation. `SpellTier.of` derives the SHELF from the cooldown, so deriving the
+  cooldown from damage makes damage a transitive shelf input, and eleven spells deal
+  zero damage. Built as a BUDGET that fails the build instead
+  (`slice_test_spell_budget`). It immediately caught four real outliers.
+* **"I havent seen many ults"** — I blamed the channel gate and was WRONG. Counted
+  with real bodies: 0 of 242 channelled casts refused. The brain asks for its ult as
+  often as anything else. The likeliest remaining cause is that ults were not legible
+  AS ults, which the new on-cast banner fixes.
+
+One ask was left deliberately undone: **the bot melee swing still has no spacing
+dial** (2.85/s, 45% of a Brawler's actions). The body gates real damage at `melee_cd`,
+so a brain-side floor cuts melee DPS on the two weakest classes. It wants a sweep.
+
+---
+
 # ▶ LIVE ASK-LIST — 2026-08-07, WAVE 6 (TEN ASKS, ALL UNSTARTED)
 
 Spoken during a live playtest, verbatim intent preserved. **Nothing below is built.**

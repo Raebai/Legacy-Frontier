@@ -1,664 +1,101 @@
-# RESUME HERE — 2026-08-07 (h), TEN OPEN ASKS
+# RESUME HERE — 2026-08-07 (i), THE WAVE-6 QUEUE IS EMPTY
 
-**ASHPIRE.** Branch `bot-fight-quality`, **158/158 green**, tree clean, all pushed.
+**ASHPIRE.** Branch `bot-fight-quality`, **166/166 green**, tree clean, all pushed.
 
-## ▶ ON "RESUME" / "CONTINUE": WORK THE WAVE-6 LIST
-**Open `docs/PLAYTEST-QUEUE.md` and read the TOP block.** It carries seven asks the
-maker spoke during a live playtest, verbatim, **all ten unstarted**. Work them in order.
-The maker has explicitly asked that a cleared session pick this up and do all of them.
+All ten wave-6 asks are actioned, and so are **sixteen more** the maker spoke while the
+session ran. **NONE OF IT HAS BEEN PLAYED.** Every item below is headless-verified
+only; the whole list is a WHAT-TO-PLAY list.
 
-Suggested order (the queue explains each):
-1. **Bot fights start inside the crates** — a real spawn bug, not feel. Start here.
-2. **Deflect should return a spell along the DEFLECT ANGLE**, not back at the thrower.
-3. **Horizon Cut should deflect everything in front of it** — same layer as 2.
-4. **Blood Pact** — costs too much, wants a lasting aura on the swordsman.
-5. **Swordsaint**: kill the background circle on attack, make the curve epic.
-6. **Swordsaint needs more punch** — ⚠ FEEL, not balance: it measures exactly 50%.
-7. **Bots spam** — ⚠ ATTEMPTED AND REVERTED, read the queue note before retrying.
-8. **The dead stand back up when spectating** — ⚠ strong lead in the queue:
-   `Hero._die()` HEALS TO FULL outside a run, so the duel loser never actually dies.
-   It is a mode question, not a rig question.
-9. **The Cleric is OP + cooldowns should be DERIVED from damage/utility** — ⚠ this
-   one IS backed by the sweeps (75/78/81%, the only class that rises). Do not decline
-   it the way the Warlock ask was declined.
-10. **Old boxed speech bubbles still appear in some class fights** — ⚠ NOT a
-    `BotMatch` bug; its taunts are already bare text. `SpeechBubble` is shared and
-    `Bark.say` / `VoiceDirector` / `EliteRider` still draw the box.
+## ▶ THE FASTEST WAY TO JUDGE IT
 
-## ▶ WHAT LANDED TODAY — ALL OF IT UNPLAYED BEYOND A GLANCE
+**F5 → Watch Bots.** Nine of the changes land there and four are impossible to miss:
 
-Shipped and pushed this session, in commit order. The maker saw only the tail of it
-before the session ran out, so treat every item as unverified:
+1. **Nobody starts inside a crate.** The left fighter was spawning two pixels inside
+   the cover block. Cover moves now; the 560 px mirrored footing does not.
+2. **The loser actually dies** — thrown by the killing blow, flies, lands ragdolled,
+   and stays down. Two separate faults, both fixed (see below).
+3. **The stage has three shapes**, rolled per bout. One of them removes the stage's
+   handedness entirely.
+4. **Ults say their own name across the screen.**
+
+Then **fight a Cleric and a Warlock** — both were retuned, and both were measured.
+
+## ▶ WHAT CHANGED, GROUPED
 
 | | |
 |---|---|
-| **Strike tells** | The ZONE ring / DART crosshair on contact-class swings is GONE. A punch now draws a glove-sized **fist** travelling out along the aim; a blade draws a thin **air-curve**. Picked off the weapon the class declares. Maker approved the curve on sight ("which is good") and asked for it to be more epic — that is ask 5. |
-| **DoT shake** | Periodic ticks no longer shake the screen (`StatusComponent.dealing_dot`). Discrete events — shock chain, Unstable pop — keep their punch. |
-| **Floor marks** | ALL persistent decals off at one gate (`ScorchDecal.leave_marks` / `GroundCrater.leave_marks`). ⚠ This REVERSED a stated design goal ("the accumulation is the point"); three suites now enable marks for themselves. |
-| **Hub loadout** | The Armory weapon choice now survives quitting — it rides the climber save. Tower weapon pickups were already gone; that is now pinned by a test. |
-| **Balance** | Cryomancer band 120-210 → 80-150 (it was parked 17 px OUTSIDE its own 118 px cone — a bug, not a handicap). Shadowblade HP 109 → 114 and band 60-200 → 55-165. |
-| **Nine boss drops** | Five new ult-weight rule-benders so no two classes share. Also fixed: `CastStyle` had no CATACLYSM arm (every Tier 3 thrown like a dart) and `BotBrain` had none either. |
-| **Rig slots** | Procedural `hair` / `face` / `sheath`. The spec claiming this needed PixelLab art was stale — `EQUIP_TEX` is gone and the rig is fully procedural. Swordsaint wears a saya. |
+| **Deflect** | The guard is a PLANE. Square → still back at the sender; angled → skids off at twice the angle. A real beat too: a longer freeze (the caught spell visibly stops) and a spark cone down the exit so you can see where it went. Horizon Cut sweeps things aside as it travels. |
+| **Death** | `Hero._die` healed to full outside a run, AND a flop taken in the 0.4 s before the fatal blow un-limped the corpse afterwards. Two faults, one symptom. Killing blows now launch. |
+| **Swordsaint** | Background circle gone (it was the arcane cast gesture; suppressed for plain steel only). Curve is a tapered blade with three trailing ghosts. Connecting swings get a black `SILHOUETTE` frame + edge spray. |
+| **Blood Pact** | 5→3 HP/s, 5→6 s, **and it buffs your sword now**. The gold aura could never survive its own duration. |
+| **Gravity well** | The **caster** can no longer staircase out on dashes. First fix keyed on the wrong refcount — the maker caught it. |
+| **Petrify** | Statues cannot act at all. The stone slab and its cracks are gone; the body itself freezes and frosts. |
+| **Weapons** | `class_preset` already authored a scythe / hammer / ice staff and `equip_weapon` was stomping all five. Blades come to a real point. Three casters' staves have distinct heads. |
+| **Colours** | Fighters wear their class colour, falling back to yellow-vs-blue when the two classes are not separable (Shadowblade and Warlock are literally the same violet). |
+| **Reactions** | Six new spell-vs-spell meetings, incl. the busiest empty bucket in the game (a bolt flying into a beam did nothing). |
+| **Bots** | They can see walls now — they had ZERO terrain awareness. Spell emissions cut 22%, measured. |
+| **Shake** | The accessibility slider did nothing in any versus mode. It does now; duel shake dropped ~30% on that alone. |
 
-## ⚠ THE BALANCE TABLE IS NOW OLDER THAN THE GAME
+## ⚠ THE THREE THINGS MOST LIKELY TO BE WRONG
 
-**Do not tune from the sweeps in this file.** A fourth 288-bout sweep was started to
-price the Cryomancer/Shadowblade buffs and **was deliberately killed** so it would not
-steal CPU while the maker judged feel. It never finished. So the last measured table
-predates ALL of:
+1. **The deflect angle** is a feel change on top of a documented decision.
+   `SpellDeflect.return_dir` → return `n` unconditionally and it is back to aim-direct.
+2. **Blood Pact buffing melee is UNMEASURED.** The sweep predates it. Swordsaint was
+   53% before.
+3. **Four spell durations/cooldowns moved** (judgment, raise_thrall, mirror_image,
+   petrify) and the sweep predates all four.
 
-* the Cryomancer band fix and the Shadowblade buff (the two changes it would price)
-* the five new Tier 3 drops, one of which (`severance`) is itself a Shadowblade buff
-* the melee coupling fix, the ability tell lead, and the strike tells
+## ▶ THE NUMBERS, ALL FRESH THIS SESSION
 
-That is at least six unmeasured changes against one measurement. **Re-run before
-touching a single class number** — and the Cleric ask (9) needs it too:
+**288-bout round robin**, run after the changes:
 
 ```
-godot --headless --path godot-project --script tools/botmatch_sim.gd --   --roundrobin=1 --repeat=8 --round=22 --hp=190 --wall=70      # ~50 min
+WARLOCK 49/64 (77%)   CLERIC 47 (73%)   STORMCALLER 42 (66%)
+SWORDSAINT 34 (53%)   BRAWLER 30 (47%)  ARCANIST 25 (39%)
+JUGGERNAUT 23 (36%)   CRYOMANCER 23 (36%)   SHADOWBLADE 15 (23%)
 ```
 
-## ⚠ THE ONE TRAP IN THAT LIST
-The bot-spam slowdown **fails `slice6_test_bot_brain`**, which demands the bot land
-**>=12 casts** in a neutral window. Slowed, it lands 10 — and stayed at 10 across two
-backoff attempts, so the guard binds harder than the pacing dials move. That guard
-encodes "a bot must not go quiet" and the maker is asking for exactly fewer casts, so
-**loosening it is a judgement call to make with the game open**, not a test to fix.
+The Cleric complaint is backed — but it is **second**, and the **Warlock** is above it.
+The **Shadowblade is the floor at 23%** despite last session's buff, and is now the
+clearest unaddressed problem in the roster.
 
-## HOW TO VERIFY
+Re-run before touching a class number:
 ```
-python python-tools/run_all_tests.py --jobs 6      # 158 suites, ~110s
+godot --headless --path godot-project --script tools/botmatch_sim.gd -- \
+  --roundrobin=1 --repeat=8 --round=22 --hp=190 --wall=70      # ~50 min
 ```
-After any `--headless --import`, CHECK `project.godot` still has four keys:
-`theme/custom`, `physics_ticks_per_second`, and both `rendering_method`s.
 
----
+## ⚠ TWO INSTRUMENTS WERE LYING, AND ONE OF MY OWN THEORIES WAS WRONG
 
-# RESUME HERE — 2026-08-06 (g), THE WAVE-4 QUEUE IS EMPTY
-
-**ASHPIRE.** Branch `bot-fight-quality`, **155/155 green**, tree clean.
-
-**⚠ READ `docs/PLAYTEST-QUEUE.md` — it is the live ask-list and it is now a
-WHAT-TO-PLAY list rather than a what-to-fix list.** All seven of wave 4's open
-asks are actioned; one of them was actioned by *declining* it with a
-measurement. **Nothing in this wave has been played by hand.**
-
-## ▶ THE FIVE THINGS THAT CHANGED
-
-1. **The duel camera has an operator.** Every `Juice.*_camera` call in a versus
-   mode was a silent no-op — the `combat_camera` group held two *disabled*
-   hero cameras and the camera being looked through was in no group. Adding it
-   to the group would have fixed nothing (a raw `Camera2D` has none of the
-   methods) and putting `CombatCamera` on it would have fought the director and
-   overwritten the player's saved zoom preference sixty times a second. The
-   `ClipDirector` answers instead. It also stopped smoothing the shot twice.
-2. **`Hero` published no `Telegraph` at all** — the item the last handoff called
-   THE BIGGEST UNFIXED THING, and it was. The three contact classes produced
-   zero threat descriptors against each other, so the dodge ladder was never
-   entered and the parry rung never reached. Plus: the parry band could never be
-   met by a melee tell *by arithmetic*, and there was no owner filter, so the
-   first hero tell in the game would have made its own caster dodge it.
-3. **The death was a pancake, not a sink.** The suspicion in the last handoff
-   was half right. Measured with a probe that reproduces the duel KO exactly.
-4. **Five of eight spells could not crack a wall with a thrown body.** That, not
-   the distance, is what "not tangible" was.
-5. **The walk had no latch.** Every latch in the brain is on the cast or the
-   dodge; `_steer` re-decided from scratch every frame and its `Memory` argument
-   was underscored, i.e. deliberately unread.
-
-## ⚠ THE WARLOCK ASK WAS DECLINED, WITH 288 BOUTS BEHIND IT
-
-`WARLOCK vs CLERIC` — the exact matchup that prompted it — is **5-3 to the
-Warlock**, and the Warlock is **joint-top of the roster at 75%**. The real
-floor is the **Shadowblade at 27%**, with Brawler and Juggernaut at 33%. Full
-table in the queue file. The Swordsaint fix is confirmed at 4× sample:
-19% → 25% → **50%**.
-
-⚠ **THREE 288-BOUT SWEEPS NOW, AND THE THIRD RETRACTED MY READING OF THE SECOND.**
-I predicted the contact classes would drop once their attacks became dodgeable;
-they did not. Then I called the Juggernaut's +15 "probably real" and gave it a
-mechanism (its `guard_tolerance` of 0.200 vs everyone else's 0.080). **The next
-288 bouts put it straight back to 34%. It was noise and my explanation was a
-story fitted to one sample** — nothing at 1.8σ deserved that confidence.
-
-What the data does weakly support: the **Brawler and Swordsaint did not get
-weaker** across the wave that made their hidden melee coupling explicit (the one
-thing the damage-neutral fix needed to show), and the **Cryomancer is low across
-two independent samples** (39 → 28 → 31), the most persistent signal in the
-table. Roster spread is 50 points in all three sweeps. Full table in the queue
-file. **Do not buff on any of these tables.**
-
-## ▶ WAVE 5b — the one thing wave 5 left open, plus what probing it found
-
-**The four untelegraphed attacks are done.** Frost cone, uppercut, fire punch
-and ground slam each resolved synchronously with the button *while already
-playing a wind-up animation*. `Hero.ABILITY_TELL_LEAD` (0.10 s) is the single
-knob and **the most likely thing in the wave to need reverting** — set it to 0.0
-and all four resolve on the press again, tells intact.
-
-⚠ **AND PROBING THEM FOUND A BUG NOBODY HAD REPORTED.** `rig.hit_frame` is
-emitted for every punch/kick animation and the melee handler never asked whether
-a swing had been declared, so four things that play a strike pose for FLAVOUR
-each landed a free undeclared melee hit: the uppercut, the fire punch, the
-Swordsaint's unsheathe cut, and **Thunderclap — a spell**. None paid melee's
-cooldown. The fix is damage-neutral (16/34/46/19/109 unchanged); Thunderclap is
-not compensated because a spell should deal its authored damage. Audited: the
-coupling was isolated to `Hero`, nothing else connects that signal.
-
-## ▶ WHAT IS STILL OPEN — and why I did not just build it
-
-- **Per-class Tier 3 drops** — five ult-weight spells. The class-identity ruling
-  forbids making the difference a tint, so each needs its own rule-bending
-  spectacle. **Design work with your taste in it; it wants a brainstorm.**
-- **Stick customisation** — its own "cheapest real win" (dialogue in the
-  speaker's colour) already shipped in wave 4. What remains needs **PixelLab
-  art**, which spends your API credits and is your aesthetic call.
-- The Swordsaint's unsheathe cut has no anticipatory tell, deliberately — it is
-  a reactive punish, and a wind-up on a counter-attack is arguably wrong.
-
-## THE STANDING JUDGEMENT, UNCHANGED
-
-Every feel number in this wave is a probe reading, not a feel. Four of the five
-fixes above were one-line complaints from ~40 minutes of play that turned out to
-be **code that never ran** — the fifth pattern in a row. Playtest beats
-reasoning. Ship things the maker can press.
-
----
-
-# RESUME HERE — 2026-08-05 (f), A LIVE PLAYTEST SESSION
-
-**ASHPIRE.** Branch `bot-fight-quality`, **153/153 green**, tree clean.
-**47 commits, NOT PUSHED.**
-
-The maker played while I worked and called out ~20 things; all of them were actioned.
-**Nothing here has been verified by hand yet** — headless suites and rendered frames
-only.
-
-## ▶ WHAT TO PLAY
-1. **WATCH BOTS.** Almost everything landed here: pacing, the death, coloured
-   bark text with no box, a 3.2 s VS card, ten randomised biome stages, desperation
-   ults, breathing gaps, a flinch on being hit.
-2. **THE TITLE.** The circle now forms before the menu fades in, it leans toward the
-   pointer, and MULTIPLAYER is a door with the co-op rows behind it.
-3. **A TOWER RUN.** Bosses jump, get faster and press harder with depth; the leave
-   prompt has three honest answers and the climb happens in a pillar of light.
-4. **THE SWORDSAINT.** New katana, a crescent off every heavy swing, and its two
-   slowest-in-the-roster cooldowns cut.
-
-## ⚠ SIX OF THE MAKER'S REPORTS WERE CODE THAT HAD NEVER RUN
-Not tuning values — features that could not fire. The bot primary had no spacing gate
-at all; the whole airborne kit was inherited by `Boss` and never called; depth only
-ever changed a boss's HEALTH; two classes could not dash up because the vertical was
-discarded one layer BELOW the class table; "Keep climbing" was wired to cancel; the
-title's mote streak was a shared RNG being reseeded every frame. **The one-line
-complaints keep finding structural bugs. Keep making them.**
-
-## ⚠ TWO THINGS I GOT WRONG AND CORRECTED
-- I reported boss attacks as **undeflectable**. Wrong: `Hero.take_damage` is itself a
-  catch-all that fully negates them (probed live). The defect was the window being
-  spent by the FIRST hit of a 3-12 hit burst.
-- I shipped the **death glitch** — `DeathSmudge` on top of the ragdoll draws a second
-  stickman. Mine, and fixed.
+* **`bot_cast_probe` had `const SLOTS = 3` against a 4-slot hand.** It never offered
+  slot 3 — every kit's ULT — to the brain, never counted one, and printed "0 of 27 kit
+  slots never asked for" over 9 classes × 3. Fixed; the brain asks for its ult as
+  often as anything else.
+* **`Tuning.cfg.shake_scale` was read by one camera of two.**
+* **I then blamed the channel gate for the missing ults and was wrong.** Counted it
+  with real bodies: **0 of 242 channelled casts refused.** The gate is innocent. The
+  likeliest remaining explanation is that ults were not LEGIBLE as ults — which the
+  new `CastName` banner now fixes. Play it and see.
 
 ## ▶ WHAT IS STILL OPEN
-- **Deflect rate did not move.** 11 across 8/18 matches before AND after the slack
-  floor, same seed. Kept as a correctness fix, reported as unproven.
-- **The real blocker:** `Hero` spawns **no `Telegraph`**, so every melee swing is
-  invisible to the dodge brain. That is the next real piece of work.
-- Per-class Tier 3 drops — five new ult-weight spells, unstarted.
-- The duel-quality probe still reads 99% active / 98% spell-in-air, so the breathing
-  gaps are not visible in that metric. Your eyes decide.
 
----
-
-# RESUME HERE — 2026-08-05 (e), THE QUEUE IS DOWN TO YOUR HANDS
-
-**ASHPIRE.** Branch `bot-fight-quality`, **152/152 green**, tree clean.
-**36 commits, NOT PUSHED. Still nothing has been played by hand.**
-
-## ▶ WHAT TO PLAY
-
-1. **LOOK AT THE FLOOR.** The scorches were still perfect circles — the ground pass
-   toned them and never tore them, so the large smooth pale discs were those. They
-   are torn now, same treatment as the craters. Verified before and after at the
-   same crop the crater fix used.
-2. **FIRE FIST, AND WATCH THE HAND.** The trail's elemental branch is confirmed
-   firing (aura orange against a blue limb colour) and the ribbon is orange — but on
-   a dark floor it is DIM. If you want it louder the two dials are
-   `CharacterRig.TRAIL_WIDTH_FRAC` and the 0.55 alpha, and it is your call, not mine.
-3. **CHRONOSTASIS.** It reads BRIGHT, holds for the 3 s, and its edge is on screen.
-
-## ⚠ TWO WARNINGS IN THE SECTION BELOW ARE WRONG — measured, not argued
-
-- **"The real arena sky is pale and the negative will invert DARK."** There is no
-  pale sky. `EnvTheme.accent()` is what calls `lightened(0.55)`; the background is
-  `lit_wash()`, and **all ten biome washes are dark** (luma 0.10–0.37). So the
-  negative reads BRIGHT on every floor, and the black-background probe was
-  representative after all. Weakest floor is Frostmarch (~0.26 luma contrast);
-  floor 1 measures 0.87 inside against 0.069 outside.
-- **"The bubble may not be bounded."** It is. `bubble_radius` 0.937 against a ring of
-  0.794 is a ratio of **1.18**, which is exactly `Chronostasis.BUBBLE_SCALE`.
-
-⚠ **My own instrument said the opposite first, and confidently.** The game renders at
-**640x360** and saves a **1920x1080** PNG, so a world radius projected with camera
-zoom alone lands 3x too small — which put the probe's "outside the ring" band inside
-the bubble. Uniforms settled what pixels could not. One more for the pile.
-
-## ▶ WHAT IS LEFT, AND ITS HONEST SHAPE
-
-- **Per-class Tier 3 drops — NOT STARTED, and it is bigger than the note below says.**
-  It reads as "three shared rows", but the Brawler, Juggernaut and Stormcaller carry
-  **Tier 2** spells in `CLASS_DROP`, so nine classes with their own Tier 3 means
-  **five** new ult-weight rule-benders, not three. Each needs its own drawing (the
-  four that exist are `VoidCollapse` / `Chronostasis` / `Equinox` plus a re-roll) and
-  the class-identity ruling forbids making the difference a tint. **This is design
-  work with your taste in it, not a mechanical build — it wants a brainstorm first.**
-  ⚠ Note the ULTS are already unique per class (`SpellTree.TREES`); this is the boss-drop
-  showcase, not the class signature.
-- **The Swordsaint's draw-step is still UNMEASURED.** Pricing it is the ~40-minute
-  round-robin below and nothing cheaper, so it was not spent without you asking.
-- A bigger, more interactive map. The ragdoll on hold-down. Touch. Audio.
-
----
-
-# RESUME HERE — 2026-08-05 (d), PAUSED ON THE MAKER'S INSTRUCTION
-
-**ASHPIRE.** Branch `bot-fight-quality`, **152/152 green**, tree clean.
-**34 commits, NOT PUSHED. Nothing in this session has been played by hand.**
-
-## ▶ DO THIS FIRST (the one unfinished thing)
-
-**`ScorchDecal` still draws perfect circles.** The ground-decal pass toned its
-COLOUR but not its SHAPE, so the large smooth pale discs still on the floor are it.
-`GroundCrater._ragged()` is the treatment — copy it onto
-`ScorchDecal.gd:160-161`, which are still `draw_circle`. Verify the way the crater
-fix was verified: shoot the same matchup, crop the same frame, look at it before
-and after.
-
-    python python-tools/make_clip.py --a 8 --b 2 --hp 300 --out check
-    ffmpeg -i <clips>/swordsaint_vs_brawler.mp4 -vf "select='eq(n\,150)',crop=420:180:150:210,scale=980:-1:flags=neighbor" -frames:v 1 out.png
-
-## ▶ THEN: THE THINGS WAITING ON YOUR EYES, NOT ON CODE
-
-1. **The weapon trail's ELEMENTAL case has never been seen.** It takes `aura_color`
-   when an aura is lit, so a fire fist should streak fire. The frame that verified
-   the trail had no aura up, so that path is reasoned only. Load a Brawler with the
-   fire fist. Dials: `CharacterRig.TRAIL_WIDTH_FRAC` and the 0.55 alpha.
-2. **The time-stop bubble in a real fight.** Chronostasis holds a NEGATIVE inside
-   its ring for the whole 3 s freeze, then snaps back with the payout. ⚠ The probe
-   that verified it has a BLACK background so the negative reads bright white; the
-   real arena sky is pale and will invert DARK. The look in that image is not the
-   look you will get.
-3. **The Swordsaint's draw-step.** `iai_slash` now lunges on the cut. It is the
-   fix for 19%/25% across two sweeps, and it is UNMEASURED — the sweep that would
-   price it was killed on your instruction because it was measuring the reverted
-   deflect change.
-
-## ▶ THE BIG UNBUILT ONE
-
-**Per-class Tier 3 drops.** `BotMatch.CLASS_DROP` pins one per class today, but
-there are SIX drops for NINE classes so three are shared (Juggernaut/Stormcaller,
-Shadowblade/Warlock, Cryomancer/Swordsaint). Giving every class its own means
-authoring at least three new ult-weight spells with bespoke spectacles — the
-existing four are RULE-BENDERS with their own drawing, and the class-identity
-ruling forbids making the difference a tint. **That is a session of work and it
-has not been started.**
-
-Also unbuilt, fully specced: `docs/superpowers/specs/2026-08-05-stick-customisation.md`
-(hair/accessory slots, sheathed weapons, bark text in the speaker's colour — the
-paper-doll plumbing ALREADY EXISTS, the gap is a library).
-
-## ▶ WHAT LANDED THIS SESSION
-
-- **Two new bosses** (Eraser, Etcher) — distinct artists per climb 3.7/4 → 4.99/6.
-- **Socket glyphs** — hands showing a duplicate figure 24/36 → 0/36.
-- **`WaveDef.elite_wave`** — floors 3/7/9 concentrate their elite budget.
-- **Clips**: the ult white-out, two AoE paint-blobs, and the camera framing
-  (fighters 3.6% → 10.8% of frame height). `python-tools/clip_review.py` scores a
-  delivered mp4 and is the regression test for all of it.
-- **Chronostasis time-stop bubble** — a negative bounded to its own ring, because
-  a full-screen one lies about a bounded spell's extent.
-- **Bot duels carry Tier 3 drops**, matchups are RANDOM, and the sweep harness can
-  do a real round-robin with drops off.
-- **Weapon trails**, **ground decals toned + ragged**.
-
-## ⚠ BALANCE: READ THIS BEFORE TUNING ANYTHING
-
-Two 72-bout round-robins were run. The classes I changed NOTHING about moved by up
-to 12 points between them. **At n=16 per class the noise is ±12, so only the
-extremes are signal** — eight of the nine are indistinguishable from 50%. The
-Swordsaint is the only class broken beyond doubt (19%, then 25%, and unmoved by
-+16% health). Separating the middle eight needs ~4x the bouts, which is one ~40
-minute sweep — worth doing ONCE, not per tweak.
-
-    godot --headless --path godot-project --script tools/botmatch_sim.gd --         --roundrobin=1 --repeat=8 --round=22 --hp=190 --wall=70
+* **The Shadowblade at 23%** — the floor of the roster, unaddressed, and now the
+  best-evidenced balance problem in the game.
+* **The bot melee swing has no spacing dial** — 2.85/s for the Brawler and Swordsaint,
+  45% of their actions. Deliberately left alone: the body gates real damage at
+  `melee_cd`, so a brain-side floor above it cuts melee DPS on the two classes least
+  able to take it. Wants the next sweep.
+* **`aegis_ward`'s own duty-cycle rule is stricter than the one enforced** (50% vs the
+  100% in `slice_test_spell_budget`). Tightening it would retune half the catalogue.
 
 ## HOW TO VERIFY
-
 ```
-python python-tools/run_all_tests.py --jobs 8      # 152 suites, ~80s
-python python-tools/clip_review.py --sheet         # every clip, scored
-python python-tools/make_clip.py --random          # a rolled matchup
+python python-tools/run_all_tests.py --jobs 6      # 166 suites, ~105s
 ```
 After any `--headless --import`, CHECK `project.godot` still has four keys:
 `theme/custom`, `physics_ticks_per_second`, and both `rendering_method`s.
 
-## TRAPS THIS SESSION ADDED
-
-- **An instrument that measures brightness cannot tell an INVERSION from a
-  blowout.** `clip_review` nearly condemned the best effect in the game; a blowout
-  is bright AND FLAT, an inversion is bright and SHARP (more detail than a normal
-  close-up).
-- **A probe that counts rendered frames as 1/60 s lies on a cheap scene.** The
-  time-stop probe rendered far above 60 fps, so "3.32 s" was about one real second.
-- **A "dead air" metric keyed on the frame's modal value** scored the very frame it
-  was calibrated on at 62.7% against a 5.5% threshold.
-- **A test registered in TESTS whose driver call never landed** — caught by the
-  by-absence armour, again.
-- **Skill that NARROWS a window makes the best bots worst at it.** Reverted on
-  instruction, but the observation stands and is why the Swordsaint fix went into
-  its spell instead.
-
----
-
-# RESUME HERE — 2026-08-05 (c), THE QUEUE IS EMPTY
-
-**ASHPIRE.** Branch `bot-fight-quality`, **152/152 green**, tree clean.
-**20 commits, NOT PUSHED. Still nothing has been touched by hands.**
-
-Both specs that were "designed, not built" are now built, plus the mini-boss
-wave slot. There is no unbuilt item left on the queue.
-
-## ▶ WHAT TO PLAY
-
-1. **CLIMB TO FLOOR 3, 5 AND 7.** Two new bosses are live and they roll on their
-   own — **THE ERASER** (floors 1-6) and **THE ETCHER** (3+). Nothing pins a boss,
-   so the rows went live on the first run.
-   - The Eraser: it eats the floor permanently and never erases under its own
-     feet. **The correct play is to walk toward it and stay there.** If that does
-     not read in your hands, the whole boss is wrong.
-   - The Etcher: `bath` is a 2.2 s rooted wind-up you can **BREAK** by landing
-     5.5% of its HP inside the window. Nothing else in the game can be
-     interrupted. It opens an acid pool under itself so the break costs you.
-2. **LOOK AT THE HOTBAR.** Every spell socket now has a FIGURE in it — the same
-   thirteen the cast circles use. Two things want your eye specifically:
-   **PULSE / SPIRAL / SNARE all read as "a swirl in a circle" at 46 px**, and an
-   **ULT socket** (gold ring + element ring + figure) is busy.
-3. **FLOORS 3, 7, 9** now spend their whole elite budget inside one wave instead
-   of sprinkling it. It is a concentration, not a staged entrance — see below.
-
-## ⚠ THREE THINGS TO JUDGE, NOT BUGS
-
-1. **THE ERASER MAY BE THE CARTOGRAPHER.** Both are spatial. The separation is of
-   KIND — the Cartographer's page resets between figures, the Eraser's never
-   does — and it was written down as a cut candidate before it was built. **If
-   they feel the same, the Eraser is the one to cut**, because the Cartographer
-   owns the compass annulus and nothing else teaches it.
-2. **THE ELITE WAVE CONCENTRATES, IT DOES NOT STAGE.** The design wanted a short
-   wave — one named body walking into an emptied room. That broke two deliberate
-   invariants the suite holds (budgets never shrink across a floor; exactly ONE
-   wave in the tower may hand off at 0, because the overlap IS the pacing). So
-   the flag rides an existing wave instead. Staging one needs those invariants
-   revisited, and that is your call.
-3. **8 SPELLS DRAW A DIFFERENT FIGURE ON THE BAR THAN IN THE WORLD.** Deliberate,
-   on your ruling: three of the re-points would make the world reading worse (a
-   rock pillar really does erupt). Listed and commented in
-   `AbilityBar.GLYPH_OVERRIDE`. Without them **19 of 36 hands still showed a
-   duplicate figure** — measured.
-
-## WHAT THE SUITES CAUGHT THIS SESSION (all real, none reasoned)
-
-- The `bosses_are_different_fights` test asked its question of a hand-listed
-  THREE, and the one it left out was **the Guardian** — the fallback boss and the
-  most fought body in the tower. Driving it off `BossRoster.ids()` made it abort:
-  the Guardian does not answer `boss_artist` or `phase_cooldown`, because five
-  identity virtuals lived on `TowerBoss` and the Guardian is the base.
-- `slice_test_boss` asserted a COMBAT-floor guardian is `< 400` hp. **A floor-1
-  Guardian is 512** (640 × 0.80). It had been a coin flip passing only on a
-  Scribble roll, green for as long as nobody rolled the other side.
-- Nine of the eleven "motif-less" spells the glyph spec named **already declared
-  `sigil_motif`**. Two of my rows contradicted the declaration and the suite
-  failed on exactly that.
-- `Encounter.party_size()` carried a comment promising it was guarded for
-  headless harnesses. It was not — an absolute `get_node_or_null` outside an
-  active tree ERRORS, and an error aborts before the `return 1`.
-
-## HOW TO VERIFY
-
-```
-python python-tools/run_all_tests.py --jobs 8      # 152 suites, ~80s
-godot ... --headless --script tools/_probe_boss_audit.gd   # boss variety
-```
-After any `--headless --import`, CHECK `project.godot` still has four keys:
-`theme/custom`, `physics_ticks_per_second`, and both `rendering_method`s.
-
-## MEASURED
-
-    distinct artists per 10-floor climb   ~3.7 of 4  ->  4.99 of 6
-    mean Guardian appearances per climb        ~3.3  ->  2.33
-    eligible boss pool, deep floors                3  ->  4
-    hotbar hands showing a duplicate glyph  24 of 36  ->  0 of 36
-
----
-
-# RESUME HERE — 2026-08-05 (b), THE BIG CHANGES LANDED
-
-**ASHPIRE.** Branch `bot-fight-quality`, **152/152 green**, tree clean. 14 commits.
-**All of it UNPLAYTESTED.**
-
-## ▶ THREE THINGS THAT ARE NEW SINCE THE SECTION BELOW
-
-1. **CLIPS HAVE SOUND.** Every clip this project ever made was silent — a PNG
-   sequence has no audio track. The default path is now Godot's own Movie Maker
-   (`--write-movie`): 48 kHz stereo, measured mean -18.1 dB. ⚠ It is NOT a screen
-   recording — `--write-movie` FORCES `--fixed-fps`, so it stays frame-exact. An
-   OS-level grabber would capture ~19 fps at 1080p and put the judder back.
-   `--silent` keeps the old frame-grab.
-
-2. **ORDINARY ENEMIES CAST SPELLS.** Five archetypes, each answered differently.
-   ⚠ Gated to floor 2+, and the spell STARTS ON COOLDOWN — two suites caught that
-   the gate was replacing each archetype's own attack rather than adding to it.
-   ⚠ Co-op CLIENTS do not see them yet: `Net`'s spell arm is boss-only, so the
-   broadcast is a clean no-op behind a `has_method` guard.
-
-3. **GRAVITY FLIP IS A WELL YOU CAN MOVE INSIDE.** ⚠ It is the JUGGERNAUT's spell —
-   the Swordsaint carries `blood_pact` and there is no path by which it holds gravity
-   flip. Built for the Juggernaut; say if "gravity swordsmen" meant otherwise.
-   Measured justification: the old version spent **76% of its duration with everyone
-   pinned motionless against the ceiling**. It also dealt ZERO damage — the header
-   promised a payoff that was never implemented. Now: a real radius, ground-grade
-   steering inside it, and a landing collapse scaled by fall height.
-   ⚠ TWO EDGES FOR YOUR EYE: the caster is not billed (one word to flip), but a
-   **co-op partner IS** and cannot cheaply not be.
-
-## ▶ WHAT IS STILL NOT BUILT (both fully specced)
-
-- **Socket glyphs** — `docs/superpowers/specs/2026-08-05-socket-glyphs.md`.
-  ⚠ Carries the finding that keying on `SpellDef.Kind` duplicates the glyph in
-  **8 of 9 classes**; key on the spectacle instead.
-- **Two new guardians** — `docs/superpowers/specs/2026-08-05-two-new-guardians.md`.
-  ⚠ Carries the 12-point contract a boss must satisfy, and the measurement that
-  a 10-floor climb sees ~3.7 of 4 artists with floors 4-10 drawing from THREE.
-  Fix the four suites that hardcode the boss count FIRST.
-
----
-
-# RESUME HERE — 2026-08-05, PAUSED AFTER A LONG BUILD
-
-**ASHPIRE.** Branch `bot-fight-quality`, **152/152 green**, tree clean.
-Ten commits. **Everything below is UNPLAYTESTED** — see THE STANDING JUDGEMENT.
-
----
-
-## ▶ WHAT TO DO FIRST
-
-1. **WATCH A BOT FIGHT.** `F5 → Watch Bots`. That button did not exist an hour ago
-   (`Lobby._watch_bots` had **zero callers**), so there has been no in-game route to
-   a duel at all.
-2. **WATCH THE CLIPS** in `%APPDATA%/Godot/app_userdata/Ashpire/clips/`. Shoot more
-   with `python python-tools/make_clip.py --a 6 --b 5`.
-3. **TRY TO PARRY A BOLT**, and watch a bot do it. That is the change most likely to
-   feel different in your hands.
-4. **CLIMB TO FLOOR 2.** The blocker is fixed; the rest of the tower is downstream of
-   it and has never been reachable.
-
----
-
-## ▶ THE HEADLINE: THE CLIP PIPELINE WAS LYING TWICE
-
-**1 · IT WAS ENCODING A FIGHT FROM BEFORE THE RENAME.** Godot derives `user://` from
-`config/name`, so "Legacy Frontier" → "Ashpire" moved the whole user directory — and
-four Python tools kept the old name hardcoded. Godot wrote frames to `Ashpire/clips/`
-while the encoder read `Legacy Frontier/clips/`. **Both directories exist** (the
-rename migration copied one across), so it found frames, encoded them, printed a byte
-size and "that is the file to post". Fixed at the source: `python-tools/godot_paths.py`
-parses `config/name` out of project.godot. `playtest_notes.py` was reading your
-PRE-RENAME notes and ignoring every one since; `bot_sim_report.py` was ranking
-pre-rename runs.
-
-**2 · THE CLIP PLAYED AT ~3x FAST-FORWARD.** `directed_clip_capture` picks frames with
-`every = round(60 / fps)` — it ASSUMES 60 fps of render. At 1920x1080 it renders ~19,
-so every 2nd saved frame sampled the game at ~9.7 Hz and replayed at 30. Measured by
-timestamping the same KO with two clocks out of `clip.json`: **2.63x, 2.67x, 3.09x**.
-A 17.5 s fight was delivered as a 7.4 s clip. `--fixed-fps 60` fixes it; the still-frame
-share fell **60% → 8%** on that flag alone.
-
-Also fixed on the clip path: the strobe (both fighters vanished into a white frame —
-the full-screen lift is now skipped while recording), the framing (fighters were ~6% of
-frame height; `ZOOM_MAX` 1.15 was the real limiter, not the margin), the 2.8-seconds-of-
-frozen-still tail, and the winner wearing their own health bar for the whole result card.
-
----
-
-## ▶ THE DEFLECT, WHICH IS NOW REAL
-
-    before   2 deflects across  2/18 matches
-    after   13 deflects across  7/18 matches   (same seed, same harness)
-
-The guard was never the problem — the LADDER was. `BotDodge` answered a vertical
-dodge-exit with a jump and returned **before** the parry rung underneath could be
-asked, and a horizontal bolt between two grounded fighters yields a vertical exit
-*every frame*. So parry was only reachable while airborne. It cannot degenerate into
-permanent guarding: `parry_ready` is `guard_ready AND in_lead`, a slack-width band
-around each class's own published timing.
-
-Two more: both `Hero.take_damage` deflect branches played the ding with **no hitstop
-and no camera kick**, so the most COMMON deflect in the game was the flattest; and
-`guard_style` still meant "do I hold a ring" on one side of the seam and "BLADE vs
-SIGIL" on the other, costing a bot Swordsaint 0.2 s per guard cycle.
-
----
-
-## ▶ THE FLOOR 2 BLOCKER — root cause and why it soft-locked
-
-`Arena._on_floor_advanced` rebuilt the room but only repositioned the hero inside a
-**co-op-only branch**, so a solo climber kept floor 1's position while floor 2's walls
-were built underneath it. Room heights roll 560–620; a ground exit leaves the hero's
-box centred at `h1 - 17` and the new bottom wall spans `h2 ± 8`, so a shorter floor 2
-puts more of the box below the wall's midline and depenetration ejects it DOWNWARD.
-**4 of 20 climbs, and deterministic: 4 of 4 ground exits onto a shorter room.**
-
-⚠ **And nothing in the game caught a hero that left the world.** No kill plane, so it
-never died, never became `downed`, and `_check_party_wipe` never reached a verdict —
-the run could not even END. `_catch_fallen_heroes` closes that.
-
-`tools/slice_test_floor_advance.gd` guards it and is shaped by two traps: **it must step
-physics** (the pure-geometry question finds this on 2% of rolls, the real one on 20%),
-and **it carries its own controls** (one known-good and one known-broken placement
-through the same predicate, or the suite fails on the instrument).
-
----
-
-## ▶ EVERYTHING ELSE THAT LANDED
-
-| | |
-|---|---|
-| **The Warden** | `collision_layer="2"` was written as an *attribute in the `[node]` header*, which Godot silently ignores. Every townsperson shipped on layer 1 = the rig's own ground mask, so each read its own collider as the floor. **Legs 0.09 px** against a normal 16. `probe_town_feet` could never see it — it finds rigs by the node name `Rig`, and `NPC.gd` builds its rig in code |
-| **White sphere on hits** | `Enemy._flash` used HDR `(1.7,1.7,1.7)` so bloom blew the figure out; on a stick figure the biggest mass is the head circle. Now red, matching the hero |
-| **Status effects** | were discs drawn at the BODY origin, which sits at mid-thigh — a ring the figure stood *inside*. Now drawn by the rig, which has the pose: shock is ticks that skitter along limbs, freeze is rime on the silhouette, burn licks off the shoulder and head. The burn's HDR core was washing the **entire frame** white |
-| **Ice class** | Cryomancer measured **25%**, second worst, and nobody had flagged it. HP 123 → 152. HEALTH not damage — `Shatter`'s own header already argues the damage case and is right |
-| **Bolts + punches** | a punch now swats a bolt (`Spell.gd` was the ONLY projectile lacking `consume()`), and two bolts meeting head-on pop each other |
-| **Spell slots** | were seven flat black rectangles under a screen full of rotating magic circles. Now dashed circles that turn, cooldown = the ring closing, no numerals |
-| **Swordsaint** | travel 57.6 → 106.4 px, speed 210 → 222 |
-| **"Impossible"** | cut from the clock and from the VS card, where it appeared twice |
-
----
-
-## ⚠ WHAT I DID **NOT** DO
-
-1. **ORDINARY ENEMIES CASTING SPELLS.** Not started, but there is a complete
-   implementation blueprint: the archetype table, which spell each of the five
-   casting archetypes should get and why each is a *different* threat, the exact
-   `Enemy.gd` methods to add, the co-op broadcast, and a build order. Key finding:
-   **nothing on `Enemy` blocks it** — 20 different SpellDefs were cast through a bare
-   Enemy and all 20 worked. What is missing is a per-archetype table and a re-tuned
-   **duplicate** of each SpellDef (library damage is authored for a hero budget:
-   `meteor_fist` is 165 against the mob roster's biggest hit of 22 — and you may never
-   scale a SpellDef in place, it is a shared catalog resource).
-2. **GRAVITY FLIP.** ⚠ **It is the JUGGERNAUT's spell, not the Swordsaint's** — the
-   Swordsaint carries `blood_pact` and no path exists by which it holds gravity flip.
-   The Juggernaut has a sword rig, so "gravity swordsmen" reads as the Juggernaut, but
-   **confirm before building**. Today the spell has no radius at all (it lifts every
-   body in the group at any distance) and deals **zero damage**; the redesign is a real
-   zone with free movement inside and a landing collapse as the payoff.
-3. **MORE BOSSES / MINI-BOSSES.** Roster is 4 bosses × 7 modifiers. Not started.
-4. **THE SPELL-SLOT GLYPH.** A class whose spells share an element still shows three
-   sockets of the same colour. The fix is a per-kind glyph sharing `MagicCircle`'s
-   motif vocabulary, which needs `_draw_motif` extracted to a static first.
-5. **WEAKEN and UNSTABLE** still draw the old mis-centred way. Same fault, but you
-   named neither, so they are left visibly inconsistent rather than redesigned on a
-   guess.
-
----
-
-## ⚠ THINGS THAT MIGHT BE WRONG
-
-1. **BALANCE IS A HANDICAP, NOT A KIT FIX.** `CLASS_VITALITY` was re-tuned against a
-   real 72-bout sweep (Cleric 75 … Swordsaint 19, a 56-point spread). It makes every
-   matchup watchable without touching the tower. It is not the same as fixing the
-   kits, and this file's own rules say to report that rather than paper over it.
-2. **`body_escaped_bounds` went 1 → 2** in the duel sim after these changes. It is a
-   sim-harness observation in a mode that is not the shipping duel, and I did not
-   chase it. If a fighter ever leaves the versus stage in front of you, that is this.
-3. **`damage_outlier` × 8 is the documented calibration mismatch** (the sim's tower-hp
-   pool vs `BotMatch`'s), a deliberate pre-existing non-change.
-4. **Nothing here has been touched by hands.** The clips are the only output anyone
-   has actually looked at, and I looked at frames, not motion.
-
-## HOW TO VERIFY
-
-```
-python python-tools/run_all_tests.py --jobs 8      # 152 suites, ~95s
-python python-tools/make_clip.py --a 6 --b 5       # a duel, as an mp4
-godot ... --headless --script tools/bot_sim.gd -- --mode=duel --max-matches=18 --difficulty=2
-```
-After any `--headless --import`, CHECK `project.godot` still has four keys:
-`theme/custom`, `physics_ticks_per_second`, and both `rendering_method`s.
-
-## TRAPS THIS SESSION ADDED TO THE PILE
-
-- **A `.tscn` `[node]` header silently ignores unknown attributes.** Only `name`,
-  `type`, `parent`, `groups`, `index` and `instance` are header attributes.
-  `collision_layer="2"` written there is not an error and not applied.
-- **A probe that finds nodes by NAME cannot see nodes built in code.**
-  `probe_town_feet` looked up `^"Rig"`; every NPC builds its rig with
-  `CharacterRig.new()` and was silently skipped, for as long as that probe existed.
-- **A reaction row without an outcome arm is worse than no row** — the pair memoizes
-  and then passes through.
-- **A 30 Hz reaction poll cannot see two fast projectiles cross.** Point shapes missed
-  1 crossing in 5 (measured over 200 phase offsets). Sweep the segment travelled.
-- **The by-absence armour works.** Three new tests were registered in `TESTS` and never
-  called, and the suite failed on exactly that instead of reporting a cheerful pass.
-
----
-
-## THE STANDING JUDGEMENT — repeat it, do not soften it
-
-**Every feel number in this stack is reasoning, not feel.** The maker's one-line
-complaints from ~40 minutes of live play have repeatedly found more real bugs than the
-entire suite ever has. This session alone, four of the things fixed above were reported
-by eye in a sentence each and were all real, all root-caused to something no test could
-have seen: an ignored `.tscn` attribute, an HDR colour, a co-op-gated branch, and a
-ladder ordering.
-
-**Playtest beats reasoning every time. Ship things the maker can press.**
+## NEW SUITES THIS SESSION
+`slice_test_duel_spawn`, `slice_test_deflect_angle`, `slice_test_spectated_death`,
+`slice_test_bot_walls`, `slice_test_bot_rhythm`, `slice_test_new_reactions`,
+`slice_test_stage_variants`, `slice_test_spell_budget`.

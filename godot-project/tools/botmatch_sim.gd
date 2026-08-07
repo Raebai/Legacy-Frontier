@@ -223,6 +223,17 @@ func _report() -> void:
 	print("\n[botmatch-sim] %d/%d bouts RESOLVED (%d draws)" % [resolved, _rows.size(), draws])
 	for kind: String in by_outcome:
 		print("    %-11s %d" % [kind, int(by_outcome[kind])])
+	# ⚠ WHY A GATE STAT IS IN A BALANCE REPORT. Maker: *"I havent seen many ults in
+	# these stick battles"*. `bot_cast_probe` proves the brain ASKS for its ult as
+	# often as anything else, but it passes no threats, so the channel-safety gate
+	# never runs there and the probe cannot see its own suspect. This harness has real
+	# bodies throwing real spells at each other, which makes it the only place the
+	# question can be answered. See `BotBrain.channel_chances`.
+	if BotBrain.channel_chances > 0:
+		print("  channel gate: %d/%d channelled casts refused (%.0f%%), %d of them ults"
+			% [BotBrain.channel_refusals, BotBrain.channel_chances,
+				100.0 * float(BotBrain.channel_refusals) / float(BotBrain.channel_chances),
+				BotBrain.ult_channel_refusals])
 	print("  win record:")
 	for who: String in played:
 		print("    %-12s %d/%d" % [who, int(wins.get(who, 0)), int(played[who])])
