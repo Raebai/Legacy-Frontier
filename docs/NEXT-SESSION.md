@@ -45,25 +45,45 @@ Then **fight a Cleric and a Warlock** — both were retuned, and both were measu
 3. **Four spell durations/cooldowns moved** (judgment, raise_thrall, mirror_image,
    petrify) and the sweep predates all four.
 
-## ▶ THE NUMBERS, ALL FRESH THIS SESSION
+## ▶ THE NUMBERS — AND WHAT THEY DO AND DO NOT SUPPORT
 
-**288-bout round robin**, run after the changes:
+Two round robins this session. The second was run AFTER the Cleric / Warlock /
+Shadowblade retunes.
 
+| class | 288 bouts (before) | 216 bouts (after) | delta | sigma |
+|---|---|---|---|---|
+| CLERIC | 73% | 67% | -7pp | -0.8 |
+| SWORDSAINT | 53% | 65% | +11pp | 1.2 |
+| WARLOCK | **77%** | 58% | **-18pp** | **-2.1** |
+| BRAWLER | 47% | 58% | +11pp | 1.2 |
+| STORMCALLER | 66% | 50% | -16pp | -1.7 |
+| ARCANIST | 39% | 48% | +9pp | 0.9 |
+| SHADOWBLADE | **23%** | 38% | +14pp | 1.6 |
+| JUGGERNAUT | 36% | 38% | +2pp | 0.2 |
+| CRYOMANCER | 36% | 29% | -7pp | -0.8 |
+
+**⚠ READ THE SIGMA COLUMN BEFORE ACTING ON ANY ROW.** At 48 bouts per class the
+1-sigma error on a difference is about 9.5pp, so **only the Warlock's -18pp clears
+2 sigma.** Everything else — including the Shadowblade's +14pp, which is the change I
+was trying to make — is UNDER the bar. It moved in the intended direction; that is
+encouraging, not proven.
+
+The STORMCALLER dropped 16pp with nothing about it changed, which is the clearest
+warning in the table about how noisy N=48 is.
+
+**The robust signal is the aggregate, not any row: the spread narrowed from 54 points
+(23-77) to 38 points (29-67).** That is what the four duty-cycle fixes and the
+Shadowblade kit buff were for, and it is the claim worth making.
+
+**Do not retune anything on this table.** If you want per-class certainty, run both
+sides at `--repeat=8` or more:
 ```
-WARLOCK 49/64 (77%)   CLERIC 47 (73%)   STORMCALLER 42 (66%)
-SWORDSAINT 34 (53%)   BRAWLER 30 (47%)  ARCANIST 25 (39%)
-JUGGERNAUT 23 (36%)   CRYOMANCER 23 (36%)   SHADOWBLADE 15 (23%)
+godot --headless --path godot-project --script tools/botmatch_sim.gd --   --roundrobin=1 --repeat=8 --round=22 --hp=190 --wall=70      # ~50 min
 ```
 
-The Cleric complaint is backed — but it is **second**, and the **Warlock** is above it.
-The **Shadowblade is the floor at 23%** despite last session's buff, and is now the
-clearest unaddressed problem in the roster.
-
-Re-run before touching a class number:
-```
-godot --headless --path godot-project --script tools/botmatch_sim.gd -- \
-  --roundrobin=1 --repeat=8 --round=22 --hp=190 --wall=70      # ~50 min
-```
+⚠ The **Swordsaint at +11pp** is the row to watch: it is the class that got the Blood
+Pact melee buff, and it is now second. 1.2 sigma, so no mechanism is being claimed —
+but it is the first thing to re-price if a bigger sample confirms it.
 
 ## ⚠ TWO INSTRUMENTS WERE LYING, AND ONE OF MY OWN THEORIES WAS WRONG
 
