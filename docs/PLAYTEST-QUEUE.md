@@ -1,4 +1,4 @@
-# ▶ LIVE ASK-LIST — 2026-08-07, WAVE 6 (NINE ASKS, ALL UNSTARTED)
+# ▶ LIVE ASK-LIST — 2026-08-07, WAVE 6 (TEN ASKS, ALL UNSTARTED)
 
 Spoken during a live playtest, verbatim intent preserved. **Nothing below is built.**
 Everything above this block IS built and pushed (`ad229d0`, 158/158 green).
@@ -105,6 +105,22 @@ that re-drives the rig from a live body stands it back up.
 The fix is a mode question, not a rig question: a SPECTATED bout has a loser and must
 keep one, so the "heal and carry on" arm needs to exclude `BotMatch`. Do not chase it
 in `CharacterRig` — the ragdoll is behaving correctly for a body that is not dead.
+
+### 10. OLD SPEECH BUBBLES ARE STILL SHOWING IN SOME CLASS FIGHTS
+> *"none of the text should have those old speech bubbles as well now I saw a couple
+> in some calsses fights"*
+
+The duel barks were changed to **bare coloured text with no box** in wave 4
+(`BotMatch._taunt` — "THE LINE WEARS THE SPEAKER'S OWN COLOUR"). But that is only
+`BotMatch`'s own taunt path. **`SpeechBubble` is shared**, and other speakers still
+route through it with the old boxed look: `Bark.say()` (used by `VoiceDirector` for
+wave_start / wave_clear / streak / low_health, and by `EliteRider`) and the hub NPCs.
+
+So the fix is NOT in `BotMatch` — that one is already right. Find the speakers still
+drawing the box and bring them to the same bare-text treatment, or move the box
+removal INTO `SpeechBubble` so no caller can opt back into it. ⚠ The hub NPCs
+(Raebai, Mirelle) use the same bubble and their look was tuned against the boxed
+version, so decide deliberately whether the town keeps the box or loses it too.
 
 ---
 

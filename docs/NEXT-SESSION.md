@@ -1,10 +1,10 @@
-# RESUME HERE — 2026-08-07 (h), NINE OPEN ASKS
+# RESUME HERE — 2026-08-07 (h), TEN OPEN ASKS
 
 **ASHPIRE.** Branch `bot-fight-quality`, **158/158 green**, tree clean, all pushed.
 
 ## ▶ ON "RESUME" / "CONTINUE": WORK THE WAVE-6 LIST
 **Open `docs/PLAYTEST-QUEUE.md` and read the TOP block.** It carries seven asks the
-maker spoke during a live playtest, verbatim, **all nine unstarted**. Work them in order.
+maker spoke during a live playtest, verbatim, **all ten unstarted**. Work them in order.
 The maker has explicitly asked that a cleared session pick this up and do all of them.
 
 Suggested order (the queue explains each):
@@ -21,6 +21,9 @@ Suggested order (the queue explains each):
 9. **The Cleric is OP + cooldowns should be DERIVED from damage/utility** — ⚠ this
    one IS backed by the sweeps (75/78/81%, the only class that rises). Do not decline
    it the way the Warlock ask was declined.
+10. **Old boxed speech bubbles still appear in some class fights** — ⚠ NOT a
+    `BotMatch` bug; its taunts are already bare text. `SpeechBubble` is shared and
+    `Bark.say` / `VoiceDirector` / `EliteRider` still draw the box.
 
 ## ⚠ THE ONE TRAP IN THAT LIST
 The bot-spam slowdown **fails `slice6_test_bot_brain`**, which demands the bot land
