@@ -52,6 +52,77 @@ const TERRACES: Array[Dictionary] = [
 ]
 const TERRACE_DEPTH: float = 320.0  # each collider extends this far down (solid rock)
 
+## ══ THREE STAGES, NOT ONE ══════════════════════════════════════════════════
+## Maker: *"I think the maps need some more variety as well"*.
+##
+## What varied per bout before this: the SKY. `_stage_theme` rolls a `GameState.BIOMES`
+## row and every consumer of it is `sky_top` / `sky_bottom` / `silhouette_far` /
+## `silhouette_near` / `accent` plus a `PostProcess` wash. The BIOMES table carries
+## `{name, wash, accent, light}` and is physically incapable of holding a coordinate,
+## so ten "different" stages were ten repaints of one shape.
+##
+## ⚠ AND THE SHAPE WAS ILLEGAL. Run `FloorGen.can_step` over `TERRACES` and it fails
+## THREE TIMES: the right rise's steps are 90, 90 and 90 px against that file's own
+## documented COMFORTABLE step of `STEP_MAX = 86`, derived from a 580 jump against
+## 1500 gravity. So the shipped stage has three risers a body is not meant to be able
+## to climb — which is half of *"these guys get stuck in the corner of a wall then
+## destroyed"*, since a bot pressed into an unclimbable face has nowhere to go.
+##
+## Every variant below is checked against that rule by `slice_test_stage_variants.gd`,
+## including the original, which is why the original's risers moved 90 -> 84.
+##
+## ⚠ WHAT MAY NOT VARY, AND WHY. Two facts are load-bearing far outside this file:
+##   * THE MAIN FLOOR ROW — surface 780 (`GROUND_TOP`), x 40..1400 — is identical in
+##     every variant. `BotMatch.FLOOR_CENTRE_X` is literally commented `(40 + 1400)/2`,
+##     `SPAWN_Y` is derived from `GROUND_TOP - 17`, `COVER_X_MIN/MAX` are `40 + 32` and
+##     `1400 - 32`, the camera clamps are `GROUND_TOP +/- 330/30`, and about
+##     twenty-five capture tools frame against a flat 780 floor.
+##   * THE OUTER EXTENT stays x 40..1965, because `PROBE_TERRAIN_X0/X1` are hand-copied
+##     from it and the live probe files an anomaly for any body outside.
+## Vary the furniture and the high ground; leave the fight floor and the rim alone.
+const STAGE_TERRACES: Array[Array] = [
+	# 0 — THE ORIGINAL. Ground, a left mound, and a staircase up to a right bluff.
+	# Risers 90/90/90 -> 84/84/84 so the climb is legal; the shape is unchanged.
+	[
+		{"surface_y": 780.0, "x0": 40.0,   "x1": 1400.0},
+		{"surface_y": 700.0, "x0": 40.0,   "x1": 250.0},
+		{"surface_y": 696.0, "x0": 1330.0, "x1": 1580.0},
+		{"surface_y": 612.0, "x0": 1540.0, "x1": 1760.0},
+		{"surface_y": 528.0, "x0": 1700.0, "x1": 1965.0},
+	],
+	# 1 — MIRRORED VALLEY. High ground on BOTH sides and nothing in the middle, so the
+	# fight is fought across a dip instead of uphill in one direction. The single
+	# biggest change to how a bout reads, because it removes the stage's handedness.
+	[
+		{"surface_y": 780.0, "x0": 40.0,   "x1": 1400.0},
+		{"surface_y": 696.0, "x0": 40.0,   "x1": 330.0},
+		{"surface_y": 696.0, "x0": 1330.0, "x1": 1640.0},
+		{"surface_y": 612.0, "x0": 1640.0, "x1": 1965.0},
+	],
+	# 2 — THE SHELF. One long mid-height terrace over the right half of the floor, with
+	# the far end open — a lane you can be chased along, and the only variant where the
+	# high ground is a corridor rather than a summit.
+	[
+		{"surface_y": 780.0, "x0": 40.0,   "x1": 1400.0},
+		{"surface_y": 712.0, "x0": 40.0,   "x1": 200.0},
+		{"surface_y": 700.0, "x0": 980.0,  "x1": 1560.0},
+		{"surface_y": 620.0, "x0": 1560.0, "x1": 1965.0},
+	],
+]
+## Cover, ruins and breakables, per variant — same index as `STAGE_TERRACES`. Kept
+## beside the terraces rather than rolled separately, because cover that lands under a
+## ledge on one variant and in the open on another is the difference between a stage
+## and a shuffled stage.
+const STAGE_COVER: Array[Array] = [
+	[Vector2(470.0, 748.0), Vector2(1180.0, 748.0)],
+	[Vector2(560.0, 748.0), Vector2(900.0, 748.0)],
+	[Vector2(380.0, 748.0), Vector2(1120.0, 748.0)],
+]
+## Which stage this bout is on. `-1` rolls; the suite and the capture tools pin it.
+static var stage_layout: int = -1
+## What the roll landed on. Read by the suite; never written from outside.
+static var stage_layout_rolled: int = 0
+
 ## Rooted broken-stone ruins filling the vertical space over the ground (RuinPlatform
 ## draws support struts beneath so they read connected, not floating).
 const RUINS: Array[Dictionary] = [
@@ -414,6 +485,11 @@ var _grace: float = 1.2
 
 
 func _ready() -> void:
+	# ONE STAGE ROLL PER SCENE, cleared here so the next bout gets a fresh one. Every
+	# builder below asks `active_terraces` / `active_cover` separately and they must
+	# all get the SAME answer, or the cover would be placed for one stage and the
+	# terrain built for another. See `_layout_index`.
+	_layout_rolled = false
 	# ALWAYS so Esc can toggle pause even while the tree is paused; the fighters
 	# are set PAUSABLE in _spawn_fighters so THEY still freeze.
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -779,12 +855,40 @@ func _stage_theme() -> Object:
 ## are jumpable stairs and no CharacterBody snags a seam. z-order: the terrain draws
 ## behind the fighters; the colliders carry no visual.
 func _build_terrain() -> void:
-	for t: Dictionary in TERRACES:
+	var rows: Array = active_terraces()
+	for t: Dictionary in rows:
 		_make_terrace(float(t["surface_y"]), float(t["x0"]), float(t["x1"]))
 	var terrain := ArenaTerrain.new()
-	terrain.terraces = TERRACES
+	terrain.terraces = rows
 	terrain.floor_y = STAGE_SIZE.y
 	add_child(terrain)
+
+
+## ══ WHICH STAGE THIS BOUT IS ON ════════════════════════════════════════════
+## Rolled once, on the first ask, and remembered — every builder in `_ready` asks
+## separately and they must all get the same answer or the cover would be placed for
+## one stage and the terrain built for another.
+##
+## `TERRACES` is kept as the name for variant 0 so nothing outside this file that
+## reads it (the suite, `ArenaTerrain`'s default, the probe bounds) has to change.
+static func active_terraces() -> Array:
+	return STAGE_TERRACES[_layout_index()]
+
+
+static func active_cover() -> Array:
+	return STAGE_COVER[_layout_index()]
+
+
+static func _layout_index() -> int:
+	if stage_layout >= 0:
+		stage_layout_rolled = stage_layout % STAGE_TERRACES.size()
+	elif not _layout_rolled:
+		_layout_rolled = true
+		stage_layout_rolled = randi() % STAGE_TERRACES.size()
+	return stage_layout_rolled
+
+
+static var _layout_rolled: bool = false
 
 
 ## One solid, permanent terrace collider (layer 1). The TOP edge sits exactly on
@@ -819,7 +923,7 @@ func _build_ruins() -> void:
 ## `BotMatch.SPAWN_SPREAD` can both move again without anybody re-checking the sum.
 func _build_cover() -> void:
 	var keepout: Array[float] = _spawn_keepout()
-	for point: Vector2 in COVER_POINTS:
+	for point: Vector2 in active_cover():
 		var block := DestructibleTerrain.new()
 		block.position = Vector2(
 			cover_x_clear_of(point.x, block.block_size.x, keepout), point.y)
