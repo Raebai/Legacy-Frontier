@@ -25,6 +25,39 @@ Suggested order (the queue explains each):
     `BotMatch` bug; its taunts are already bare text. `SpeechBubble` is shared and
     `Bark.say` / `VoiceDirector` / `EliteRider` still draw the box.
 
+## ▶ WHAT LANDED TODAY — ALL OF IT UNPLAYED BEYOND A GLANCE
+
+Shipped and pushed this session, in commit order. The maker saw only the tail of it
+before the session ran out, so treat every item as unverified:
+
+| | |
+|---|---|
+| **Strike tells** | The ZONE ring / DART crosshair on contact-class swings is GONE. A punch now draws a glove-sized **fist** travelling out along the aim; a blade draws a thin **air-curve**. Picked off the weapon the class declares. Maker approved the curve on sight ("which is good") and asked for it to be more epic — that is ask 5. |
+| **DoT shake** | Periodic ticks no longer shake the screen (`StatusComponent.dealing_dot`). Discrete events — shock chain, Unstable pop — keep their punch. |
+| **Floor marks** | ALL persistent decals off at one gate (`ScorchDecal.leave_marks` / `GroundCrater.leave_marks`). ⚠ This REVERSED a stated design goal ("the accumulation is the point"); three suites now enable marks for themselves. |
+| **Hub loadout** | The Armory weapon choice now survives quitting — it rides the climber save. Tower weapon pickups were already gone; that is now pinned by a test. |
+| **Balance** | Cryomancer band 120-210 → 80-150 (it was parked 17 px OUTSIDE its own 118 px cone — a bug, not a handicap). Shadowblade HP 109 → 114 and band 60-200 → 55-165. |
+| **Nine boss drops** | Five new ult-weight rule-benders so no two classes share. Also fixed: `CastStyle` had no CATACLYSM arm (every Tier 3 thrown like a dart) and `BotBrain` had none either. |
+| **Rig slots** | Procedural `hair` / `face` / `sheath`. The spec claiming this needed PixelLab art was stale — `EQUIP_TEX` is gone and the rig is fully procedural. Swordsaint wears a saya. |
+
+## ⚠ THE BALANCE TABLE IS NOW OLDER THAN THE GAME
+
+**Do not tune from the sweeps in this file.** A fourth 288-bout sweep was started to
+price the Cryomancer/Shadowblade buffs and **was deliberately killed** so it would not
+steal CPU while the maker judged feel. It never finished. So the last measured table
+predates ALL of:
+
+* the Cryomancer band fix and the Shadowblade buff (the two changes it would price)
+* the five new Tier 3 drops, one of which (`severance`) is itself a Shadowblade buff
+* the melee coupling fix, the ability tell lead, and the strike tells
+
+That is at least six unmeasured changes against one measurement. **Re-run before
+touching a single class number** — and the Cleric ask (9) needs it too:
+
+```
+godot --headless --path godot-project --script tools/botmatch_sim.gd --   --roundrobin=1 --repeat=8 --round=22 --hp=190 --wall=70      # ~50 min
+```
+
 ## ⚠ THE ONE TRAP IN THAT LIST
 The bot-spam slowdown **fails `slice6_test_bot_brain`**, which demands the bot land
 **>=12 casts** in a neutral window. Slowed, it lands 10 — and stayed at 10 across two
