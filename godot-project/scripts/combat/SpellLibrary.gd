@@ -985,7 +985,13 @@ static func _petrify() -> SpellDef:
 	s.damage = 0       # the payout is the THROW, not the casting
 	s.radius = 118.0   # 92 — a footprint a moving body can actually be inside
 	s.reach = 330.0
-	s.length = 6.0     # 4.5 — long enough to WALK to the statue and use it
+	## ⚠ 6.0 -> 5.2, ON A 5.4 s COOLDOWN. A statue that lasts LONGER than its own
+	## cooldown can be re-applied before the last one wears off, which is a permanent
+	## lock on one target — and this spell now stops the victim acting at all. See
+	## `slice_test_spell_budget`, which fails the build on any utility spell whose
+	## uptime passes 100%. Still long enough to WALK to the statue and throw it, which
+	## is the number this was originally raised from 4.5 to protect.
+	s.length = 5.2
 	s.cast_time = 0.55
 	return s
 
@@ -1115,7 +1121,11 @@ static func _mirror_image() -> SpellDef:
 	s.mp_cost = 66
 	s.cooldown = 6.9
 	s.damage = 0
-	s.length = 9.0     # clone lifetime
+	## ⚠ 9.0 -> 6.6, ON A 6.9 s COOLDOWN. A clone outliving its own cooldown means the
+	## Arcanist is never without one, so the spell stopped being a play and became a
+	## passive. The cooldown cannot go the other way: 6.9 is one tenth under
+	## `SpellTier.ULT_COOLDOWN`, and crossing it ejects this from the control slot.
+	s.length = 6.6     # clone lifetime
 	s.reach = 1.0      # echo delay, seconds
 	s.cast_time = 0.6
 	return s
@@ -1361,7 +1371,7 @@ static func _judgment() -> SpellDef:
 	var s := _ray("judgment", "Judgment · Divine Ray",
 		"A seal opens in the heavens and a SINGLE pillar of holy light smites the "
 		+ "exact ground you mark. Precise, punishing — dodge the tell or take the hit.",
-		Color(1.0, 0.92, 0.55), 40, 2.6, 95, 70.0)
+		Color(1.0, 0.92, 0.55), 40, 3.6, 95, 70.0)
 	s.element = Elements.Element.HOLY  # Radiance burn, and opposes SHADOW
 	## ⚠ RETUNED OFF THE ULT SHELF, 1.0 -> 0.8 s, when the Cleric's fourth slot claimed
 	## it. `_ray()`'s shared 1.0 windup is exactly `SpellTier.ULT_CAST_TIME`, so this
@@ -2206,7 +2216,10 @@ static func _raise_thrall() -> SpellDef:
 	s.mp_cost = 58
 	s.cooldown = 6.4
 	s.damage = 0         # the thrall does the damage, not the casting
-	s.length = 9.0       # thrall lifetime (the grave case extends it itself)
+	## ⚠ 9.0 -> 6.0, ON A 6.4 s COOLDOWN — 141% uptime, the worst duty cycle in the
+	## game, on the class that measured TOP of a 288-bout round robin at 77%. A minion
+	## that outlives its own cooldown is not a summon, it is a second permanent body.
+	s.length = 6.0       # thrall lifetime (the grave case extends it itself)
 	s.reach = 300.0      # how far out a grave still counts as the one you meant
 	return s
 
