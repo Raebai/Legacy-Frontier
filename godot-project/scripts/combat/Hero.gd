@@ -602,6 +602,11 @@ const DEATH_LAUNCH_SPEED: float = 430.0
 ## land inside 0.22 s and must draw one streak, not six. A touch above the longest
 ## multi-hop gap so nothing inside a single verb ever splits.
 const BLINK_SPARK_MERGE: float = 0.12
+## How much of the deflect beat a CONTACT parry gets. A raised guard can eat several
+## blows in under a second and each one asks for the full freeze; see
+## `SpellDeflect._payoff`. Catching a travelling spell keeps 1.0 — it is the rarer and
+## more deserving moment.
+const CONTACT_PARRY_WEIGHT: float = 0.55
 const BLADE_SPARK_COUNT: int = 16
 const BLADE_SPARK_SPREAD: float = 34.0
 ## How fast a landed corpse stops sliding. Deliberately slow: the skid is the second
@@ -5790,7 +5795,21 @@ func _blade_connect_payoff() -> void:
 		Color(_element_color.r, _element_color.g, _element_color.b, 0.0),
 		BLADE_SPARK_COUNT, 0.28, 240.0, 620.0, 0.9, 2.6, 0.0, 0.0, true,
 		dir, BLADE_SPARK_SPREAD)
-	Juice.frame({"style": ImpactFrame.Style.SILHOUETTE, "strength": 0.85, "at": at,
+	# ⚠ LOCAL, NOT SILHOUETTE — AND THE FIRST VERSION OF THIS WAS WRONG.
+	#
+	# SILHOUETTE is a FULL-SCREEN mark, and `ImpactFrame` budgets those at
+	# `MAX_FULLSCREEN_FLASHES_PER_SECOND = 2`. A Swordsaint's `melee_cd` is 0.38, so a
+	# connecting blade can ask ~2.6 times a second — which does not flood the screen
+	# (the arbiter vetoes the excess) but does something worse and quieter: it SPENDS
+	# THE WHOLE FULL-SCREEN BUDGET ON THE COMMONEST EVENT IN THE FIGHT, so the ult
+	# turn, the boss death and the reaction fusions get vetoed instead.
+	#
+	# `ImpactFrame`'s own vocabulary settles it: LOCAL is "a small crisp read that
+	# happens several times a fight" and is budgeted at 6/sec; the full-screen styles
+	# are climax marks. A melee connect happens several times a SECOND. The punch this
+	# swing was missing comes from the edge spray and the zoom, which cost no budget
+	# at all.
+	Juice.frame({"style": ImpactFrame.Style.LOCAL, "strength": 0.85, "at": at,
 		"shake": 0.0, "zoom": 0.0, "hitstop": 0.0})
 	Juice.zoom_punch_camera(0.05, 0.14)
 
@@ -6122,7 +6141,8 @@ func take_damage(amount: int) -> void:
 		# spark cone goes down the guard line — which is still the deflect angle, just
 		# with no incoming line to mirror about.
 		SpellDeflect.beat(global_position + _aim_dir * 18.0,
-			_aim_dir if _aim_dir != Vector2.ZERO else facing, _element_color)
+			_aim_dir if _aim_dir != Vector2.ZERO else facing, _element_color,
+			false, CONTACT_PARRY_WEIGHT)
 		# ══ THE WINDOW SURVIVES THE BURST IT WAS OPENED FOR ═════════════════════
 		# Maker: *"how is brawler meant to kill the first boss like if they are
 		# getting up close... all the classes actually need a way to deflect the
@@ -6165,7 +6185,8 @@ func take_damage(amount: int) -> void:
 				# Same beat as every other deflect path — see the press-window branch
 				# above for why this line is load-bearing.
 				SpellDeflect.beat(global_position + _aim_dir * 18.0,
-					_aim_dir if _aim_dir != Vector2.ZERO else facing, _element_color)
+					_aim_dir if _aim_dir != Vector2.ZERO else facing, _element_color,
+					false, CONTACT_PARRY_WEIGHT)
 				return
 			ParryRing.Quality.SUSTAIN:
 				amount = int(round(float(amount) * _guard.damage_mult()))

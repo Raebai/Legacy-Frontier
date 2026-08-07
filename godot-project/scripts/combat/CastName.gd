@@ -82,9 +82,26 @@ static func announce(parent: Node, who: Node2D, spell: SpellDef, tint: Color) ->
 			return _heavy_label(parent, who, text, tint)
 
 
+## ⚠ ONE LABEL PER CASTER AT A TIME. A bot casts its kit about once a second and three
+## of its four slots are HEAVY, so without this two fighters put roughly two labels a
+## second on screen — and consecutive ones land on the SAME point above the same head,
+## stacking into an unreadable smear rather than a name.
+##
+## The live one is freed rather than queued: the spell you just cast is the one worth
+## naming, and a queue would show names for spells that are already over.
+##
+## Tracked in `meta` on the caster, not in a static dictionary keyed by instance id —
+## a static map would leak an entry for every body that ever cast anything, which in a
+## game about endless waves is an unbounded map. Same reasoning as `Bark._off_cooldown`.
+const LABEL_META: StringName = &"cast_name_label"
+
+
 static func _heavy_label(parent: Node, who: Node2D, text: String, tint: Color) -> Node:
 	if who == null or not is_instance_valid(who):
 		return null
+	var live: Variant = who.get_meta(LABEL_META, null)
+	if live is Node and is_instance_valid(live as Node):
+		(live as Node).queue_free()
 	var n := CastName.new()
 	n._text = text
 	n._tint = tint
@@ -93,6 +110,7 @@ static func _heavy_label(parent: Node, who: Node2D, text: String, tint: Color) -
 	n.z_as_relative = false
 	parent.add_child(n)
 	n.global_position = who.global_position - Vector2(0.0, HEAVY_LIFT)
+	who.set_meta(LABEL_META, n)
 	return n
 
 

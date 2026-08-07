@@ -321,22 +321,37 @@ static func resolve(victim: Node, damage: int, dir: Vector2, at: Vector2,
 ##
 ## `out_dir` is where the thing is now going. It is the argument that matters — see
 ## DEFLECT_HITSTOP for why the spray is a cone and not a puff.
+## `weight` scales the FREEZE and the SHAKE only — never the sparks, which are the
+## readability and must look the same every time. See `_payoff` for why the contact
+## paths pass less than 1.0.
 static func beat(at: Vector2, out_dir: Vector2, tint: Color = Color(1.0, 0.95, 0.8),
-		epic: bool = false) -> void:
+		epic: bool = false, weight: float = 1.0) -> void:
 	var dir: Vector2 = _unit(out_dir)
 	if epic:
 		_epic_payoff(at, dir, tint)
 	else:
-		_payoff(at, dir, tint)
+		_payoff(at, dir, tint, clampf(weight, 0.2, 1.0))
 
 
 ## The ordinary parry beat.
-static func _payoff(at: Vector2, out_dir: Vector2, tint: Color) -> void:
+##
+## ⚠ `weight` EXISTS BECAUSE THIS FIRES ON CONTACT HITS TOO. `Hero.take_damage` routes
+## its two guard branches through here, and a raised guard can eat several blows in
+## under a second — at full weight that is `hit_stop(0.17)` re-triggering before the
+## last one has released, i.e. the game sitting at `Engine.time_scale = 0.05` for half
+## a second. `Juice.hit_stop` REPLACES rather than stacks (a generation counter), so
+## it is not unbounded, but a chain of them still reads as the game hanging, and the
+## maker has already flagged comfort as a concern for anyone watching.
+##
+## The travelling-spell parries stay at 1.0: catching a bolt is a discrete, rarer,
+## more deserving moment than blocking a punch.
+static func _payoff(at: Vector2, out_dir: Vector2, tint: Color,
+		weight: float = 1.0) -> void:
 	_sfx("ding", 2.0)
 	_sfx("blast", -6.0)   # a little body under the ding, so it lands as a HIT
-	Juice.hit_stop(DEFLECT_HITSTOP)
-	Juice.shake_camera(DEFLECT_SHAKE)
-	Juice.zoom_punch_camera(0.045, 0.16)
+	Juice.hit_stop(DEFLECT_HITSTOP * weight)
+	Juice.shake_camera(DEFLECT_SHAKE * weight)
+	Juice.zoom_punch_camera(0.045 * weight, 0.16)
 	# Localized, so a deflect off to one side reads there and not at screen centre.
 	# LOCAL, deliberately: an ordinary parry is a small crisp read that happens
 	# several times a fight. Giving it a full-screen wash spends the loudest tool
