@@ -1,8 +1,24 @@
+# ▶ 2026-08-11 — WAVE 7: ONE ASK, ACTIONED
+
+> *"they start behind the crate then break the crate and walk into them"* →
+> *"remove the crates or make them start on the platforms above"*
+
+`STAGE_COVER` is empty (emptied, not deleted). Spawns 440/1000 vs blocks 470/1180, and
+the keep-out only ever guaranteed 54 px — "not overlapping", not "out of the way".
+
+⚠ **AND THE MODE THIS FILE TELLS YOU TO PLAY WAS CRASHING.** `VersusArena._build_terrain`
+threw on every bout of every mode using the duel stage for about a week, and **166/166
+was green over it** — three suites and the runner itself all failed to notice. Fixed;
+the runner now fails any suite that emits a runtime `SCRIPT ERROR`, which caught four
+more vacuous suites. **167/167.** Full account in `docs/NEXT-SESSION.md`.
+
+---
+
 # ▶ THE WAVE-6 QUEUE IS EMPTY — 2026-08-07
 
 All ten wave-6 asks below are **actioned**, plus sixteen more spoken during the same
-session. **166/166 green, nothing played.** See `docs/NEXT-SESSION.md` for what to
-play, the fresh 288-bout table, and the three things most likely to be wrong.
+session. **Nothing below this line was ever played** — see the wave-7 block above for
+why the headline test number could not have told you that.
 
 Two asks were answered by DECLINING to do the obvious thing, and both are worth
 knowing before re-opening them:
