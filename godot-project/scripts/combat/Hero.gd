@@ -1503,11 +1503,19 @@ func bot_body_state() -> Dictionary:
 		# whatever was behind it. `move_and_slide` then zeroed the walk every frame
 		# and the bot never noticed it had stopped moving.
 		#
-		# ⚠ `is_on_wall_only()`, NOT `is_on_wall()`. A body standing on the ground
-		# with its shoulder against a riser reports both; what the brain needs to know
-		# is "the thing I am pressed against is a WALL", and the normal is what tells
-		# it which way is out. Published as a sign rather than a vector because every
-		# consumer is a left/right decision on a side-on stage.
+		# ⚠ `is_on_wall()`, AND THE COMMENT THAT USED TO SIT HERE DEMANDED THE OPPOSITE.
+		# It argued for `is_on_wall_only()` because a body standing on the ground with
+		# its shoulder against a riser "reports both". It does — and `is_on_wall_only()`
+		# is true only when the body touches a wall and NOT the floor, so taking that
+		# advice would report false for every GROUNDED bot, i.e. for every bot in a
+		# side-on brawler nearly all the time. `BotBrain._unwall` would then never fire
+		# in the one case it exists for: a cornered bot standing on the floor.
+		#
+		# The code was right and the comment was wrong. Recorded rather than deleted,
+		# because it reads persuasively and the next person will have the same thought.
+		#
+		# Published as a sign rather than a vector because every consumer is a
+		# left/right decision on a side-on stage.
 		"on_wall": is_on_wall(),
 		"wall_dir": -signf(get_wall_normal().x) if is_on_wall() else 0.0,
 		"facing": signf(facing.x),

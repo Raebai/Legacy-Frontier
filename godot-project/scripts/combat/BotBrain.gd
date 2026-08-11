@@ -1,27 +1,27 @@
-class_name BotBrain
+﻿class_name BotBrain
 extends RefCounted
-## THE BOT BRAIN — three layers of pure math over a blackboard, producing one
+## THE BOT BRAIN â€” three layers of pure math over a blackboard, producing one
 ## intent dictionary per frame. No nodes, no tree, no signals, no LLM.
 ##
 ## ---------------------------------------------------------------------------
 ## THE THREE LAYERS, AND HOW THEY COMPOSE
 ##
-##   1. REFLEX      (BotDodge)  — "is something about to hit me, and what is the
+##   1. REFLEX      (BotDodge)  â€” "is something about to hit me, and what is the
 ##                  shortest way out". Runs first and PREEMPTS: a bot that finishes
 ##                  its cast animation inside a meteor is not a bot anyone believes.
 ##                  Pure threat geometry; already its own module.
-##   2. STEERING    (_steer)    — "where do I want to stand". A spacing band per
+##   2. STEERING    (_steer)    â€” "where do I want to stand". A spacing band per
 ##                  class, blended against danger: telegraph footprints, pit rects,
 ##                  and cover. Flattened to move.x because this is a side-on
-##                  platformer — vertical intent becomes a jump, not a Y velocity.
-##   3. UTILITY     (_score_slots) — "what do I press". Every ready slot is scored
+##                  platformer â€” vertical intent becomes a jump, not a Y velocity.
+##   3. UTILITY     (_score_slots) â€” "what do I press". Every ready slot is scored
 ##                  against the situation and the best one wins, if it clears a
 ##                  threshold. This is the layer that makes the bot use its whole
 ##                  kit instead of throwing its damage line at the wall.
 ##
 ## They compose by PRIORITY, not by blending: the reflex layer can veto the other
 ## two outright (you do not cast while diving out of a blast), steering always
-## contributes movement (moving is free — it never conflicts with a cast), and the
+## contributes movement (moving is free â€” it never conflicts with a cast), and the
 ## utility layer is the only thing allowed to press a button. Guard is the one
 ## exception in the other direction: MeleeClash's locked rule is that guarding
 ## locks out attacking, so a held guard suppresses fire and cast in the same frame.
@@ -35,7 +35,7 @@ extends RefCounted
 ##
 ## ---------------------------------------------------------------------------
 ## FAIRNESS IS STRUCTURAL. The brain is handed a blackboard built from what is on
-## screen and a profile built from BotProfile — and it has NO other input. It
+## screen and a profile built from BotProfile â€” and it has NO other input. It
 ## cannot query the world, cannot read a private field, cannot see an untelegraphed
 ## attack. Difficulty is reaction delay and error rate (BotProfile), never
 ## knowledge and never stats. Aim carries a bounded error at EVERY tier because
@@ -43,7 +43,7 @@ extends RefCounted
 ##
 ## COST. This runs per bot per frame. The reflex layer is a handful of dot products
 ## over the visible threats; the expensive layer (utility, which touches the kit
-## table) is rate-limited to once per `profile.period` and LATCHED in between — so
+## table) is rate-limited to once per `profile.period` and LATCHED in between â€” so
 ## the per-frame cost in the common case is the reflex pass and a vector subtract.
 ##
 ## ---------------------------------------------------------------------------
@@ -53,11 +53,11 @@ extends RefCounted
 ##   BotBrain.decide(bb: Dictionary, profile: Dictionary, mem: Memory = null)
 ##       -> Dictionary
 ##
-## INTENT out — every key OPTIONAL, missing means "no":
+## INTENT out â€” every key OPTIONAL, missing means "no":
 ##   "move": Vector2   x in [-1,1] walk; y < 0 means "wants up"
 ##   "aim":  Vector2   normalised world aim direction
 ##   "fire": bool      the LMB primary (a bolt on six classes, fists on three)
-##   "swing": bool     the MELEE button — a different button from `fire` on every
+##   "swing": bool     the MELEE button â€” a different button from `fire` on every
 ##                     class, and one no brain pressed until the Q/R/T pass
 ##   "cast_slot": int  0..SLOT_COUNT-1; slot 0 is always the damage line and the
 ##                     last slot is always the ult (omitted entirely = no cast)
@@ -66,7 +66,7 @@ extends RefCounted
 ##   "guard": bool     HELD this frame
 ##   "jump": bool
 ##
-## BLACKBOARD in — the guaranteed minimum, all of it screen-visible:
+## BLACKBOARD in â€” the guaranteed minimum, all of it screen-visible:
 ##   "self_pos", "self_vel": Vector2; "self_hp_frac", "self_mp_frac": float
 ##   "on_floor": bool; "facing": float
 ##   "foe_pos", "foe_vel": Vector2; "foe_hp_frac", "foe_facing": float
@@ -75,7 +75,7 @@ extends RefCounted
 ##   "reach": float; "now": float
 ##
 ## ...plus these OPTIONAL enrichments. Every one of them is inert when absent, so
-## a caller that supplies only the minimum gets a working bot — a duller one.
+## a caller that supplies only the minimum gets a working bot â€” a duller one.
 ##   "class_id": int          Hero.HeroClass. Unlocks the real kit (elements, cast
 ##                            times, ranges, costs) via SpellLibrary, and with it
 ##                            the channel-safety gate and every combo set-up.
@@ -93,7 +93,7 @@ extends RefCounted
 ##                            changes at runtime under the cached kit facts.
 ##   "foe_guarding": bool     is their ring up RIGHT NOW (present tense only).
 ##   "dash_ready", "blink_ready", "guard_ready": bool
-##   "guard_style": int       0 BLADE / 1 SIGIL (ParryRing.Style) — different band.
+##   "guard_style": int       0 BLADE / 1 SIGIL (ParryRing.Style) â€” different band.
 ##   "can_parry": bool
 ##   "mem": Memory            see the note on Memory below.
 
@@ -104,17 +104,17 @@ extends RefCounted
 ## It used to be exact: kits were five spells emitted in `SpellLibrary.ROLE_ORDER`, so
 ## slot 1 was ALWAYS "control" for every class in the game. Kits are `SLOT_COUNT` spells
 ## (the right thumb has three buttons), and which three a class carries is chosen per
-## class from its fantasy — so slot 1 is "control" for the Arcanist, "answer" for the
+## class from its fantasy â€” so slot 1 is "control" for the Arcanist, "answer" for the
 ## Brawler and "payoff" for the Shadowblade.
 ##
 ## What SURVIVES, and what the scorer actually relies on:
-##   slot 0            — ALWAYS the damage line. Every class carries it.
-##   slot SLOT_COUNT-1 — ALWAYS the ult. Every class carries it, and
+##   slot 0            â€” ALWAYS the damage line. Every class carries it.
+##   slot SLOT_COUNT-1 â€” ALWAYS the ult. Every class carries it, and
 ##                       `SpellTier.slot_accepts_ult` enforces the shelf.
-##   the middle slot   — the class's ONE non-damage, non-ult tool, whichever of
+##   the middle slot   â€” the class's ONE non-damage, non-ult tool, whichever of
 ##                       control / answer / payoff its fantasy names.
 ## So "reach for my utility spell" is still a fixed index; "reach for my WALL
-## specifically" is not, and never was reliable anyway — the control role answers with
+## specifically" is not, and never was reliable anyway â€” the control role answers with
 ## an ice wall, a shadow root or a rock pillar depending on the class. A brain that
 ## wants the exact role asks `SpellLibrary.slot_roles_for_class(class_id)`; the facts
 ## table below already carries the per-spell properties that made the role a proxy for.
@@ -135,14 +135,14 @@ const SLOT_COUNT: int = BotIntent.SLOT_COUNT
 ## longer `cooldowns` array than the brain strictly needs: after the kit slots it
 ## appends the primary attack, the dash, the guard, the three ability buttons and
 ## the melee swing, because a brain has to know whether those are ready before
-## committing to a plan — but they are NOT reachable through `cast_slot` (the
+## committing to a plan â€” but they are NOT reachable through `cast_slot` (the
 ## primary is held and the dash is an edge, so folding them into the slot numbering
 ## would make one index mean two kinds of press).
 ##
-## ⚠ DERIVED FROM `BotIntent`, NEVER RESTATED — and this file used to restate them.
+## âš  DERIVED FROM `BotIntent`, NEVER RESTATED â€” and this file used to restate them.
 ## They were written as the literals 5 / 6 / 7 back when the hand was five spells
 ## and `SLOT_COUNT + 1` happened to be 6. The hand is `SpellTier.SLOT_COUNT` spells, so the body publishes primary at 3, dash at 4 and guard
-## at 5 — and the brain was reading the GUARD timer to decide whether its fists were
+## at 5 â€” and the brain was reading the GUARD timer to decide whether its fists were
 ## ready, the BLAST timer to decide whether it could dash, and the BLINK timer to
 ## decide whether it could parry. Every one of those reads was silently wrong for
 ## every bot in the game. Aliasing the seam's own constants makes the next hand-size
@@ -166,7 +166,7 @@ const BLINK_DIST: float = 175.0        # Hero.BLINK_DISTANCE
 const BLINK_COOLDOWN: float = 1.3      # Hero.BLINK_COOLDOWN
 const MELEE_COOLDOWN: float = 0.34     # Hero.MELEE_COOLDOWN
 ## ParryRing's shrinking-ring geometry. The guard is HELD, and its perfect band
-## opens LATE in the shrink — so pressing on reaction to a hit is always too late.
+## opens LATE in the shrink â€” so pressing on reaction to a hit is always too late.
 ## The brain must press EARLY, timed so the blow arrives inside the band; these
 ## are the two moments to aim impact at.
 const GUARD_SHRINK: float = 0.42       # ParryRing.SHRINK_TIME
@@ -190,7 +190,7 @@ const CAST_THRESHOLD: float = 0.20
 ## damage line forever" into "plays its kit".
 ##
 ## IT IS THE SECOND VARIETY SOURCE, NOT THE FIRST. Real cooldowns do most of this
-## work — a kit whose slots are on 3-6 s timers cannot be spammed. What this term
+## work â€” a kit whose slots are on 3-6 s timers cannot be spammed. What this term
 ## covers is the window INSIDE a cooldown where two slots are both ready and one of
 ## them was just thrown: without it the higher-scoring of the two wins every single
 ## time, measured at 21 of 24 casts on one slot in a cooldown-free scenario. 0.70 was
@@ -201,11 +201,11 @@ const RECENCY_TAU: float = 2.5
 ## How long a chosen cast / dodge is held before the brain is allowed to change its
 ## mind. Re-deciding every frame is what makes bots twitch, and a cast that is
 ## re-picked mid-wind-up never comes out at all.
-## ⚠ 0.22 -> 0.55. Maker, after the first pacing pass: *"again slightly increase
+## âš  0.22 -> 0.55. Maker, after the first pacing pass: *"again slightly increase
 ## their spell cooldown I think thats important"*. The previous pass gated the PRIMARY
 ## (`FIRE_SPACING`) and the three ability buttons (`ABILITY_SPACING`) but left the KIT
-## untouched, so the loudest things on screen — the authored spells with the magic
-## circles — still went out as fast as `profile.period` allowed, which at the tier
+## untouched, so the loudest things on screen â€” the authored spells with the magic
+## circles â€” still went out as fast as `profile.period` allowed, which at the tier
 ## Watch Bots runs is every 0.22 s.
 ##
 ## This is a MINIMUM GAP BETWEEN KIT CASTS, not a change to any spell's own cooldown:
@@ -223,7 +223,7 @@ const STEER_PROBE: float = 90.0
 const BAND_DEADZONE: float = 0.16
 ## Minimum seconds a steering answer holds before it may REVERSE. Sits between
 ## DODGE_LATCH (0.29) and nothing, because a walk should commit for less time than a
-## dodge does — long enough that a trade-heavy exchange cannot make the bot alternate
+## dodge does â€” long enough that a trade-heavy exchange cannot make the bot alternate
 ## at the hit rate, short enough that it never reads as ignoring you.
 ## UNTESTED GUESS on the exact value; the SHAPE is what the fix rests on.
 const STEER_MIN_DWELL: float = 0.24
@@ -233,15 +233,15 @@ const FUSION_WINDOW: float = 1.1
 ## A threat closer than this many seconds counts as "pressure" at full weight.
 const PRESSURE_HORIZON: float = 1.2
 
-## Preferred spacing band per Hero.HeroClass — {min, max} px from the foe. This is
+## Preferred spacing band per Hero.HeroClass â€” {min, max} px from the foe. This is
 ## the class's STANCE, and it is what makes an Arcanist read as an Arcanist: it
 ## wants to stand where its beam works and the foe's fists do not. Aggression
 ## (BotProfile) pulls the whole band toward contact, so an aggressive Arcanist
 ## fights closer than a cautious one without needing a second table.
 ##
-## Indexed by Hero.HeroClass — MAGE 0, ROGUE 1, BRAWLER 2, JUGGERNAUT 3, CLERIC 4,
+## Indexed by Hero.HeroClass â€” MAGE 0, ROGUE 1, BRAWLER 2, JUGGERNAUT 3, CLERIC 4,
 ## CRYOMANCER 5, STORMCALLER 6, WARLOCK 7, SWORDSAINT 8.
-## ⚠ FOUR OF THESE STOOD OUTSIDE THE CLASS'S OWN ATTACK RANGE. The table was authored
+## âš  FOUR OF THESE STOOD OUTSIDE THE CLASS'S OWN ATTACK RANGE. The table was authored
 ## from each class's FANTASY and never cross-checked against what its primary actually
 ## reaches (`CLASS_ABILITIES.primary`, or `Hero._melee_range * 1.1` when that is 0), so
 ## a bot could hold a stance from which it could not hit anything and then wonder why
@@ -253,42 +253,42 @@ const PRESSURE_HORIZON: float = 1.2
 ##     JUGGERNAUT   73-200  vs  106                -> 50%
 ## Every band whose top already sat INSIDE its reach belonged to a class at >= 44%.
 ## Three of the four fixed here are the three weakest classes in a 288-bout table.
-## FEEL: a Cryomancer that fights at 200 px instead of 360 is a different character —
+## FEEL: a Cryomancer that fights at 200 px instead of 360 is a different character â€”
 ## the maker judges whether it still reads as a zoner.
 const CLASS_BAND: Array[Dictionary] = [
-	{"min": 190.0, "max": 340.0},   # ARCANIST  — caster band
-	# ⚠ 200 -> 165, AND THIS IS WHERE THE SHADOWBLADE'S HELP ACTUALLY COMES FROM.
+	{"min": 190.0, "max": 340.0},   # ARCANIST  â€” caster band
+	# âš  200 -> 165, AND THIS IS WHERE THE SHADOWBLADE'S HELP ACTUALLY COMES FROM.
 	# HP was the obvious knob and it is capped at one point by a guarded invariant
 	# (the assassin must stay the frailest body), so the honest lever is letting the
-	# class REACH with the kit it has. `BladeFlurry` — its damage line — has a RANGE
+	# class REACH with the kit it has. `BladeFlurry` â€” its damage line â€” has a RANGE
 	# of 100. The old band scaled by aggression 0.80 to 49-164 and centred the bot at
 	# 107: outside the flurry, so `_range_fit` skipped the slot and the bot fell back
 	# on its bolt while standing in the open. 55-165 scales to 45-135, centre 90,
-	# which is inside the flurry with room to spare and still a WIDE band — the class
+	# which is inside the flurry with room to spare and still a WIDE band â€” the class
 	# is "in and out" and must keep the room to be out.
-	{"min": 55.0, "max": 165.0},    # SHADOWBLADE — in and out; the flurry reaches 100
-	{"min": 35.0, "max": 70.0},     # BRAWLER   — contact; melee reaches 66
-	{"min": 70.0, "max": 115.0},    # JUGGERNAUT— close; heavy swing reaches 106
-	{"min": 120.0, "max": 260.0},   # CLERIC    — mid, tether range
-	# ⚠ THE COMMENT WAS WRONG AND THE BAND WAS BUILT ON IT. It said "the frost CONE
+	{"min": 55.0, "max": 165.0},    # SHADOWBLADE â€” in and out; the flurry reaches 100
+	{"min": 35.0, "max": 70.0},     # BRAWLER   â€” contact; melee reaches 66
+	{"min": 70.0, "max": 115.0},    # JUGGERNAUTâ€” close; heavy swing reaches 106
+	{"min": 120.0, "max": 260.0},   # CLERIC    â€” mid, tether range
+	# âš  THE COMMENT WAS WRONG AND THE BAND WAS BUILT ON IT. It said "the frost CONE
 	# only reaches 200"; `Hero._primary_frost_cone`'s `CONE_RANGE` is **118**. So the
 	# authored band 120-210 scaled by aggression 0.80 (x0.82) to 98-172 and PARKED THE
-	# BOT AT 135 — seventeen pixels outside the reach of its own primary attack, for
+	# BOT AT 135 â€” seventeen pixels outside the reach of its own primary attack, for
 	# the whole fight. The only class in the roster whose LMB is a short hitscan cone
 	# was the one class standing where it could not use it.
 	#
 	# That is the measurement, not a taste call: the Cryomancer read 39% / 28% / 31%
 	# across three 288-bout sweeps, bottom three in two of them. This is a BUG FIX and
-	# not a handicap — `BotMatch`'s own header forbids papering over a lopsided matchup
+	# not a handicap â€” `BotMatch`'s own header forbids papering over a lopsided matchup
 	# with a thumb on the scale, and a band derived from a reach that does not exist is
 	# exactly the kind of thing it means.
 	#
 	# 80-150 scales to 66-123, centre 94: inside the cone with 24 px of margin for a
-	# target that is moving. It stays a MID band — the class is still not a brawler.
-	{"min": 80.0, "max": 150.0},    # CRYOMANCER— the frost cone reaches 118
+	# target that is moving. It stays a MID band â€” the class is still not a brawler.
+	{"min": 80.0, "max": 150.0},    # CRYOMANCERâ€” the frost cone reaches 118
 	{"min": 170.0, "max": 320.0},   # STORMCALLER
-	{"min": 150.0, "max": 300.0},   # WARLOCK   — attrition at tether range
-	{"min": 45.0, "max": 95.0},     # SWORDSAINT— guard-and-punish; reaches 95
+	{"min": 150.0, "max": 300.0},   # WARLOCK   â€” attrition at tether range
+	{"min": 45.0, "max": 95.0},     # SWORDSAINTâ€” guard-and-punish; reaches 95
 ]
 const DEFAULT_BAND: Dictionary = {"min": 150.0, "max": 300.0}
 
@@ -297,7 +297,7 @@ const DEFAULT_BAND: Dictionary = {"min": 150.0, "max": 300.0}
 ##
 ## These were a whole third of the hero's offence that no bot had ever pressed. The
 ## intent keys existed (`BotIntent.ABILITY_*`) and `BotController` already knew
-## which button each one is — the brain simply never emitted them, so every bot in
+## which button each one is â€” the brain simply never emitted them, so every bot in
 ## the game fought with its kit and its fists and left Q, R and T on the floor.
 ##
 ## Mirrors of `Hero.CLASS_CONFIG`, annotated so a retune over there is a one-line
@@ -325,7 +325,7 @@ const CLASS_ABILITIES: Array[Dictionary] = [
 ]
 const DEFAULT_ABILITIES: Dictionary = {"primary": 0.0, "blink": "teleport", "nova": true}
 
-## Q — the class AoE. Every class has one; they are all placed or self-centred
+## Q â€” the class AoE. Every class has one; they are all placed or self-centred
 ## bursts, so the useful window is "the foe is close enough to be inside it but I
 ## am not standing on top of my own detonation".
 const BLAST_MIN: float = 70.0
@@ -335,30 +335,30 @@ const UPPERCUT_RANGE: float = 96.0
 ## R-as-teleport is used for two opposite jobs: closing a gap that is too big to
 ## walk, and leaving one that is too small. Both need the foe outside comfort.
 const BLINK_CLOSE_MIN: float = 300.0
-## T — a self-centred nova. Pure "get off me".
+## T â€” a self-centred nova. Pure "get off me".
 const NOVA_RANGE: float = 150.0
 ## Minimum gap between two ability presses of ANY kind. The cooldowns already pace
 ## each button; this stops all three going out on the same frame, which reads as a
 ## seizure rather than as a play.
-## ⚠ 0.45 -> 0.80. Maker, watching duels: *"they are lowkey spamming moves like its
+## âš  0.45 -> 0.80. Maker, watching duels: *"they are lowkey spamming moves like its
 ## sometimes too difficult to watch"*. At 0.45 a bot could still land three Q/R/T
 ## presses inside 1.4 s ON TOP of a primary firing every 0.22-0.45 s and a kit cast
-## every 0.35 s — about 6-8 discrete actions per second per fighter, so 12-16 on
+## every 0.35 s â€” about 6-8 discrete actions per second per fighter, so 12-16 on
 ## screen. The gap between "busy" and "unreadable" is how many of them overlap.
 ##
-## ⚠ 0.80 -> 1.05, AND THE REASON THE LAST ATTEMPT AT THIS FAILED. Maker: *"the bot
+## âš  0.80 -> 1.05, AND THE REASON THE LAST ATTEMPT AT THIS FAILED. Maker: *"the bot
 ## fights the cool downs are a little too low I think they are just spaming spells"*.
 ##
 ## A previous session raised ALL FOUR pacing dials together, failed
 ## `slice6_test_bot_brain`'s ">= 12 casts in a neutral window", backed off twice, got
 ## 10 every time, and stopped. The diagnosis in the queue was that the guard binds
-## harder than the dials move. It does not. **THAT TEST COUNTS ONLY `cast_slot`** —
+## harder than the dials move. It does not. **THAT TEST COUNTS ONLY `cast_slot`** â€”
 ## look at its loop: `if out.has("cast_slot")`. `fire`, `swing`, the three abilities,
 ## `guard` and `dash` are not counted at all.
 ##
 ## So `CAST_LATCH` is the ONE dial the guard constrains, and it was the one that got
 ## raised. This dial, `FIRE_SPACING` and the swing floor below are all invisible to
-## that assertion — and between them they emit far more of what a watcher reads as
+## that assertion â€” and between them they emit far more of what a watcher reads as
 ## "spam" than the kit does, because the kit is on 3-9 s cooldowns and these are not.
 ##
 ## Raising the uncounted three is not a way around the guard. The guard encodes "a bot
@@ -366,50 +366,50 @@ const NOVA_RANGE: float = 150.0
 ## doing is filling every gap between them.
 const ABILITY_SPACING: float = 1.05
 
-## ⚠ THE PRIMARY HAD NO SPACING AT ALL, AND THAT IS THE SPAM THE MAKER SAW.
+## âš  THE PRIMARY HAD NO SPACING AT ALL, AND THAT IS THE SPAM THE MAKER SAW.
 ##
-## `_wants_fire` was gated by the body's own `cast_cd` and by nothing else — no
-## `profile.period`, no latch, no lockout — so a bot pressed fire on the exact frame
+## `_wants_fire` was gated by the body's own `cast_cd` and by nothing else â€” no
+## `profile.period`, no latch, no lockout â€” so a bot pressed fire on the exact frame
 ## its cooldown hit zero, every time, forever. The header below still says that is
 ## deliberate, and it is right that a bot which only acts on cooldowns reads as idle;
 ## but "never idle" was implemented as "never NOT firing", which at a 0.22 s Brawler
 ## or a 0.30 s Shadowblade triple-shot is a stream, not a rhythm.
 ##
-## A FLOOR, NOT A COOLDOWN. Classes slower than this are untouched — the Swordsaint
+## A FLOOR, NOT A COOLDOWN. Classes slower than this are untouched â€” the Swordsaint
 ## (0.45) and the Juggernaut (0.40) never notice it. It binds only on the fast half of
 ## the roster, which is exactly where the complaint came from ("arcanist is spamming
 ## its default spell"). That also keeps it from flattening the classes apart.
 ##
-## ⚠ AND IT IS THE FIX FOR A REAL BUG AS WELL AS A FEEL DIAL. The three melee-primary
-## classes (Brawler, Juggernaut, Swordsaint) never set `_cast_cooldown_timer` at all —
+## âš  AND IT IS THE FIX FOR A REAL BUG AS WELL AS A FEEL DIAL. The three melee-primary
+## classes (Brawler, Juggernaut, Swordsaint) never set `_cast_cooldown_timer` at all â€”
 ## `_primary_melee_combo` / `_primary_heavy_swing` write `_melee_cooldown_timer`
-## instead — so their `CD_PRIMARY` sits at 0 and the brain pressed fire EVERY SINGLE
+## instead â€” so their `CD_PRIMARY` sits at 0 and the brain pressed fire EVERY SINGLE
 ## FRAME into a body that silently early-returned. This floor is what stops that,
 ## and it stops it without touching the player's own melee timing.
 ##
-## ⚠ 0.42 -> 0.60, ON THE SAME NOTE, SECOND TIME OF ASKING. This constant exists
+## âš  0.42 -> 0.60, ON THE SAME NOTE, SECOND TIME OF ASKING. This constant exists
 ## because of the maker's *"arcanist is spamming its default spell"*; the reply to it
 ## is *"the cool downs are a little too low ... they are just spaming spells"*. The
 ## floor was right and it was not far enough.
 ##
-## THE PRIMARY IS THE HIGHEST-FREQUENCY SPELL EMITTER IN THE GAME, by a wide margin —
+## THE PRIMARY IS THE HIGHEST-FREQUENCY SPELL EMITTER IN THE GAME, by a wide margin â€”
 ## the kit sits on 3-9 s cooldowns, this fires as fast as the floor allows. At 0.42
 ## the fast half of the roster throws 2.4 bolts a second; at 0.60 it throws 1.67. That
 ## is the single biggest change available to how busy a duel looks, and it costs the
 ## player nothing: this is a BOT dial, and no spell's own cooldown moves.
 ##
 ## Still a FLOOR, not a cooldown. The Swordsaint (0.45) and the Juggernaut (0.40) are
-## now inside it where they were not before, which is the one cost — but their primary
+## now inside it where they were not before, which is the one cost â€” but their primary
 ## is a melee swing whose damage the body gates anyway.
 const FIRE_SPACING: float = 0.60
 
-## ══ THE PAUSE, THE FLINCH, AND THE LAST STAND ═══════════════════════════════════
+## â•â• THE PAUSE, THE FLINCH, AND THE LAST STAND â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 ## See `_note_exchange` for how these are rolled and why the ceilings are where they
 ## are. All three are per-EVENT probabilities, never per-frame: a per-frame roll at
 ## any of these rates fires several times a second and stops reading as a choice.
 ##
 ## The chances are deliberately well under half. The maker asked for fights that are
-## *"natural and randomised"* — a bot that always pauses after a trade is as
+## *"natural and randomised"* â€” a bot that always pauses after a trade is as
 ## mechanical as one that never does, just slower.
 const BREATHE_CHANCE: float = 0.30
 const BREATHE_MIN: float = 0.45
@@ -424,11 +424,17 @@ const RECOIL_SECONDS: float = 0.28
 ## of these frames is a frame the bot spent going nowhere while somebody shot at it.
 ## Long enough that brushing a riser mid-approach does not make it hop.
 const WALL_STUCK_SECONDS: float = 0.45
+## How long the bot must be genuinely OFF the wall before the stuck clock forgets.
+## âš  THIS IS WHAT MAKES `WALL_STUCK_SECONDS` REACHABLE AT ALL â€” see `_unwall`. Turning
+## around breaks contact for a frame or two, so an instant reset meant the clock could
+## never accumulate. Short enough that a bot which genuinely walked away is forgotten
+## well before it brushes the next riser.
+const WALL_CLEAR_GRACE: float = 0.2
 
-## ── CHANNEL-GATE TELEMETRY ──────────────────────────────────────────────────
+## â”€â”€ CHANNEL-GATE TELEMETRY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 ## How many times a channelled spell was CONSIDERED, how many times the safety gate
 ## refused it, and how many of those refusals were the ULT slot. Process-wide,
-## monotonic, free — the same shape and the same justification as
+## monotonic, free â€” the same shape and the same justification as
 ## `SpellDeflect.deflect_count`. See the gate in `score_slots`.
 static var channel_chances: int = 0
 static var channel_refusals: int = 0
@@ -444,26 +450,26 @@ static func reset_channel_stats() -> void:
 ## Below this share of health a bot may decide it is out of better ideas.
 const DESPERATE_HP: float = 0.34
 ## Rolled once per decision beat while desperate, so at a 0.22 s beat the urge
-## arrives within about a second — visible, without being the same every bout.
+## arrives within about a second â€” visible, without being the same every bout.
 const DESPERATE_ULT_CHANCE: float = 0.30
 ## How long the urge lasts once taken. Long enough to survive a cooldown or a range
 ## problem, short enough that it is a MOMENT rather than a new personality.
 const DESPERATE_ULT_HOLD: float = 3.0
 ## How much the urge forgives the cast threshold and flatters the ult's own score.
-## Every HARD gate still applies underneath — cooldown, mana, range fit, channel
-## safety — so a desperate bot cannot cast an ult it could not otherwise cast. It
+## Every HARD gate still applies underneath â€” cooldown, mana, range fit, channel
+## safety â€” so a desperate bot cannot cast an ult it could not otherwise cast. It
 ## can only stop being talked out of one.
 const DESPERATE_ULT_BONUS: float = 1.7
 
 ## ---------------------------------------------------------------------------
 ## THE DEGENERATE-FIGHT BREAKER. Two bots on the same spacing logic, both correctly
 ## refusing to enter each other's band, produce a fight where nothing lands for
-## minutes — which is technically correct behaviour and completely unwatchable.
+## minutes â€” which is technically correct behaviour and completely unwatchable.
 ##
 ## `BotAdapt.anti_camp` already answers the pure "I have thrown nothing" case and is
 ## kept as the shared rule (one definition, tested in `slice_test_botfight`). What
 ## it cannot see is a fight where BOTH bots are busily attacking and NOTHING IS
-## CONNECTING — the whiff war. So the brain tracks the foe's health bar (a drawn
+## CONNECTING â€” the whiff war. So the brain tracks the foe's health bar (a drawn
 ## thing, so no fairness cost) and escalates when it has not moved.
 ##
 ## Escalation is deliberately NOT a stat change: the bot lowers its own cast
@@ -480,13 +486,13 @@ const STAGNATION_THRESHOLD_CUT: float = 0.7
 ## ---------------------------------------------------------------------------
 ## THE COMBOS THE BOT CAN ACTUALLY EXECUTE.
 ##
-## Sourced from ReactionTable's authored rows — NOT invented here. Each entry says
+## Sourced from ReactionTable's authored rows â€” NOT invented here. Each entry says
 ## "a live field of `field` element makes an attack of `then` element much better,
 ## so both halves are worth planning". The brain uses each row in BOTH directions:
 ##
-##   CASHING IN  — a matching field is already on the board, so boost the slot whose
+##   CASHING IN  â€” a matching field is already on the board, so boost the slot whose
 ##                 element completes it. (Fire the lightning through the blizzard.)
-##   SETTING UP  — no field yet, but I hold BOTH halves and both are ready, so boost
+##   SETTING UP  â€” no field yet, but I hold BOTH halves and both are ready, so boost
 ##                 the field-maker. This is the half that produces the clip: the bot
 ##                 drops the frost field ON PURPOSE, because of what it holds next.
 ##
@@ -494,21 +500,21 @@ const STAGNATION_THRESHOLD_CUT: float = 0.7
 ## plays the matrix. The `payoff` figure is the row's own relative worth, used only
 ## to rank two available combos against each other.
 const COMBO_SETUPS: Array[Dictionary] = [
-	# supercharge — LIGHTNING through an ICE field. Spends nothing on either side,
+	# supercharge â€” LIGHTNING through an ICE field. Spends nothing on either side,
 	# which is why it is the best set-up in the game: the field keeps standing and
 	# the beam carries on. The Stormcaller kit is literally built around it
 	# (blizzard in control, Tempest in ult).
 	{"field": Elements.Element.ICE, "then": Elements.Element.LIGHTNING,
 		"name": "supercharge", "payoff": 1.0},
-	# steam_cloud — FIRE into an ICE field. Consumes the field and pays in VISION
+	# steam_cloud â€” FIRE into an ICE field. Consumes the field and pays in VISION
 	# rather than damage, so it ranks under supercharge.
 	{"field": Elements.Element.ICE, "then": Elements.Element.FIRE,
 		"name": "steam_cloud", "payoff": 0.6},
-	# banish — HOLY into a SHADOW field. Erases the field outright; the answer to a
+	# banish â€” HOLY into a SHADOW field. Erases the field outright; the answer to a
 	# Warlock parking a Shadow Root on the floor.
 	{"field": Elements.Element.SHADOW, "then": Elements.Element.HOLY,
 		"name": "banish", "payoff": 0.8},
-	# void_charged — anything detonating inside a SHADOW field inverts its knockback
+	# void_charged â€” anything detonating inside a SHADOW field inverts its knockback
 	# into a pull. Wildcard on the attacker, so `then` is -1 = any element.
 	{"field": Elements.Element.SHADOW, "then": -1,
 		"name": "void_charged", "payoff": 0.5},
@@ -518,11 +524,11 @@ const COMBO_SETUPS: Array[Dictionary] = [
 ## a wall is the whole point of having elements. `then` = the element that answers
 ## `barrier`.
 const COMBO_BARRIERS: Array[Dictionary] = [
-	# shatter_ice_barrier / shrapnel_cone — FIRE or HOLY pops an ICE wall, and so
+	# shatter_ice_barrier / shrapnel_cone â€” FIRE or HOLY pops an ICE wall, and so
 	# does any thrown thing.
 	{"barrier": Elements.Element.ICE, "then": Elements.Element.FIRE, "payoff": 0.9},
 	{"barrier": Elements.Element.ICE, "then": Elements.Element.HOLY, "payoff": 0.9},
-	# shatter_ward — SHADOW pops a HOLY ward, which is the ward's own printed counter.
+	# shatter_ward â€” SHADOW pops a HOLY ward, which is the ward's own printed counter.
 	{"barrier": Elements.Element.HOLY, "then": Elements.Element.SHADOW, "payoff": 0.8},
 ]
 
@@ -539,15 +545,15 @@ const COMBO_AVOID: Array[Dictionary] = [
 ## PER-BOT MEMORY. The brain is otherwise stateless, but three things genuinely
 ## cannot be recomputed from one frame's blackboard:
 ##
-##   · WHEN a threat was first seen — the entire reaction-delay model. Recomputing
+##   Â· WHEN a threat was first seen â€” the entire reaction-delay model. Recomputing
 ##     it per frame would mean the bot has always-just-noticed everything, i.e. no
 ##     reaction time at all, i.e. the difficulty dial silently does nothing.
-##   · WHAT it decided last — the latches that stop it twitching, and the recency
+##   Â· WHAT it decided last â€” the latches that stop it twitching, and the recency
 ##     term that stops it spamming one slot.
-##   · WHAT IT LAST THREW — the fusion window for the self-combo.
+##   Â· WHAT IT LAST THREW â€” the fusion window for the self-combo.
 ##
 ## Hand the same instance back every frame. `decide` will also accept one parked in
-## the blackboard under "mem", and will install one there if it finds neither — so
+## the blackboard under "mem", and will install one there if it finds neither â€” so
 ## a caller that reuses its blackboard dictionary gets full behaviour for free, and
 ## a caller that rebuilds it every frame degrades SAFELY (see the note in decide).
 class Memory extends RefCounted:
@@ -558,9 +564,11 @@ class Memory extends RefCounted:
 	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 	## When this body first started pressing INTO a wall it is touching, or -1 while it
-	## is not. See `_unwall` — the clock is what separates "brushed a wall" from
+	## is not. See `_unwall` â€” the clock is what separates "brushed a wall" from
 	## "wedged in a corner", and only the second one earns a jump.
 	var wall_since: float = -1.0
+	## When contact was lost, for `WALL_CLEAR_GRACE`. -1 while pressing.
+	var wall_clear_at: float = -1.0
 
 	var next_decision_at: float = -1.0
 	var latched_slot: int = -1
@@ -584,7 +592,7 @@ class Memory extends RefCounted:
 	var last_beam_element: int = -1
 	var last_beam_at: float = -99.0
 
-	## Aim scatter is sampled once per decision, not per frame — a per-frame sample
+	## Aim scatter is sampled once per decision, not per frame â€” a per-frame sample
 	## would average out to perfect aim over a beam's channel, which is exactly the
 	## auto-aim this must not become.
 	var aim_error: float = 0.0
@@ -596,7 +604,7 @@ class Memory extends RefCounted:
 	var last_swing_at: float = -99.0
 
 	## THE CAMP BREAKER'S SCRATCH, moved here from `BotController.adapt_state`.
-	## It belongs on the brain side because it is a decision, not a seam concern —
+	## It belongs on the brain side because it is a decision, not a seam concern â€”
 	## and because parking it on the controller meant it only existed for bots the
 	## arena happened to build with one, so a brain driven by any other seam (the
 	## sim's, a test's) silently had no liveness floor at all.
@@ -609,16 +617,16 @@ class Memory extends RefCounted:
 	var last_hp_total: float = -1.0
 	var last_progress_at: float = 0.0
 
-	## ⚠ THE SAME EVENT, SPLIT SO IT CAN SAY *WHO*. `last_hp_total` is the SUM of both
-	## bars, which is all the whiff-war detector needs — but it means the moment the
+	## âš  THE SAME EVENT, SPLIT SO IT CAN SAY *WHO*. `last_hp_total` is the SUM of both
+	## bars, which is all the whiff-war detector needs â€” but it means the moment the
 	## brain notices "somebody just took damage" it cannot tell whether that was the
 	## foe or itself. That is why a bot has never reacted to being hit: the event was
 	## detected and thrown away one line after it was computed.
 	var last_self_hp: float = -1.0
 	var last_foe_hp: float = -1.0
 
-	## THE PAUSE. While `now < breathe_until` the bot declines to START anything — no
-	## kit cast, no ability, no swing, no primary — while still aiming, still moving,
+	## THE PAUSE. While `now < breathe_until` the bot declines to START anything â€” no
+	## kit cast, no ability, no swing, no primary â€” while still aiming, still moving,
 	## still dodging and still answering the camp breaker. It is the "empty spaces"
 	## the maker asked for, and it is what makes the next exchange read as a decision
 	## rather than as the next frame of a stream.
@@ -629,17 +637,17 @@ class Memory extends RefCounted:
 	## already knows how to walk away from the foe.
 	var recoil_until: float = 0.0
 
-	## ⚠ THE WALK LATCH — the one latch this brain never had. +1 closing, -1 backing
+	## âš  THE WALK LATCH â€” the one latch this brain never had. +1 closing, -1 backing
 	## off, 0 holding, plus the earliest time that answer may change. Every other latch
 	## in this file is on a CAST or a DODGE; the steering layer re-decided from scratch
 	## every physics frame with no memory at all, which is the "back and forward".
 	## Stored as an INTENT rather than a world direction because two fighters cross
-	## sides constantly — see the Schmitt-trigger block in `_steer`.
+	## sides constantly â€” see the Schmitt-trigger block in `_steer`.
 	var steer_intent: int = 0
 	var steer_until: float = 0.0
 
 	## Latched when a bot decides, once, that it is desperate enough to pull its ult.
-	## Latched rather than continuous so the choice COMMITS — a per-frame bonus
+	## Latched rather than continuous so the choice COMMITS â€” a per-frame bonus
 	## flickers on and off across the threshold and reads as indecision.
 	var ult_urge_until: float = 0.0
 
@@ -648,7 +656,7 @@ class Memory extends RefCounted:
 
 
 ## Cached kit facts per class id. build_for_class mints fresh Resources on every
-## call (correctly — they are mutable), so calling it per frame per bot would be
+## call (correctly â€” they are mutable), so calling it per frame per bot would be
 ## pure garbage. The facts we derive are immutable, so one build per class for the
 ## whole process is right.
 static var _kit_cache: Dictionary = {}
@@ -664,7 +672,7 @@ static var _kit_cache: Dictionary = {}
 ## ON THE MISSING-MEMORY CASE. `mem` is optional so the 2-argument contract call
 ## works verbatim. When it is absent we look in the blackboard, and failing that
 ## install a fresh one there. If the caller rebuilds its blackboard every frame the
-## install is lost each time — and the degradation is deliberately the SAFE one: a
+## install is lost each time â€” and the degradation is deliberately the SAFE one: a
 ## brand-new Reactions has seen nothing, so the bot does not react to threats it has
 ## not had time to notice. It gets duller, never cheaper to beat itself against.
 static func decide(bb: Dictionary, profile: Dictionary, mem: Memory = null) -> Dictionary:
@@ -700,13 +708,25 @@ static func decide(bb: Dictionary, profile: Dictionary, mem: Memory = null) -> D
 		for k: String in reflex.keys():
 			intent[k] = reflex[k]
 		# Guard is HELD, and MeleeClash's locked rule is that guarding locks out
-		# attacking — so a guarding frame is a guarding frame and nothing else.
+		# attacking â€” so a guarding frame is a guarding frame and nothing else.
 		# A dash/blink/jump frame still gets its movement from the reflex exit
 		# vector, which the steering layer must not then fight.
 		#
 		# Still routed through the camp breaker: a reflex CLASH is an offensive frame
 		# and has to reset the idle clock, or a bot that spent the whole fight
 		# trading blows would be told it had been camping the moment it stopped.
+		#
+		# âš  THE WALL CLOCK RUNS ON REFLEX FRAMES TOO, or the guard below is bypassed by
+		# the one state that matters most. `_unwall`'s own header says it "sits after
+		# every writer" and "cannot be bypassed by a new opinion about where to walk" â€”
+		# but this early return skipped it entirely, so a cornered bot being HIT (the
+		# reflex layer fires on every incoming threat) never accumulated a single frame
+		# of wall time. That is precisely "stuck in the corner of a wall then destroyed":
+		# the more it was attacked, the less the anti-wedge guard ran.
+		#
+		# `turn = false` â€” a dodge or blink owns its exit vector and this must not fight
+		# it. The clock and the jump still apply, and a jump is an exit, not an argument.
+		_unwall(intent, bb, m, now, false)
 		return BotAdapt.anti_camp(intent, bb, m.camp_state, now)
 
 	# ---- LAYER 2: steering. Always contributes; movement costs nothing.
@@ -714,7 +734,7 @@ static func decide(bb: Dictionary, profile: Dictionary, mem: Memory = null) -> D
 
 	# ---- THE FLINCH. A body that eats a hit and keeps walking forward reads as not
 	# having noticed. Overrides the steering vector only, and only for a beat, so the
-	# bot gives ground and then resumes whatever it was doing — it never overrides the
+	# bot gives ground and then resumes whatever it was doing â€” it never overrides the
 	# reflex above it, because being shoved is not a reason to stop dodging.
 	if now < m.recoil_until:
 		var away: Vector2 = Vector2(bb.get("self_pos", Vector2.ZERO)) \
@@ -733,14 +753,14 @@ static func decide(bb: Dictionary, profile: Dictionary, mem: Memory = null) -> D
 	if now < m.breathe_until:
 		return BotAdapt.anti_camp(intent, bb, m.camp_state, now)
 
-	# ---- LAYER 3: utility. Rate-limited and latched — see CAST_LATCH.
+	# ---- LAYER 3: utility. Rate-limited and latched â€” see CAST_LATCH.
 	var slot: int = _pick_slot(bb, profile, m, now, pressure, soonest, stagnation)
 	if slot >= 0:
 		intent["cast_slot"] = slot
 		_note_cast(bb, m, slot, now)
 	else:
 		# ---- LAYER 3b: the three ABILITY buttons. Deliberately BELOW the kit and
-		# only reached when the scorer declined — Q/R/T are free (no mana, no role,
+		# only reached when the scorer declined â€” Q/R/T are free (no mana, no role,
 		# no reaction identity) so letting them compete with the kit on score would
 		# have a bot spamming its cheap AoE instead of ever throwing its ult.
 		var ability: StringName = _pick_ability(bb, profile, m, now, pressure)
@@ -788,7 +808,7 @@ static func _visible_threats(bb: Dictionary, profile: Dictionary, m: Memory,
 		var id: int = int(t["id"])
 		live.append(id)
 		# Two independent rolls: one jitters WHEN it is noticed, one decides whether
-		# this particular threat is fumbled. Both are taken ONCE, at first sighting —
+		# this particular threat is fumbled. Both are taken ONCE, at first sighting â€”
 		# hence the `knows` guard, without which the draws would be spent every frame
 		# and a seeded bot would stop being reproducible.
 		if not m.reactions.knows(id):
@@ -797,7 +817,7 @@ static func _visible_threats(bb: Dictionary, profile: Dictionary, m: Memory,
 		if m.reactions.visible(id, now):
 			out.append(t)
 	# A threat that no longer exists must be forgotten, or Godot recycling its
-	# instance id hands a brand-new threat an already-elapsed reveal time — a free
+	# instance id hands a brand-new threat an already-elapsed reveal time â€” a free
 	# instant reaction, and the exact shape of bug that quietly voids a fairness
 	# guarantee.
 	m.reactions.forget_missing(live)
@@ -808,8 +828,8 @@ static func _visible_threats(bb: Dictionary, profile: Dictionary, m: Memory,
 ## it, reduced to the one shape this brain reasons about.
 ##
 ## TWO SHAPES ARE ACCEPTED ON PURPOSE. The build plan's threat record uses a `kind`
-## field; Telegraph.danger_shape() — which is what the live telegraphs actually
-## publish — uses `shape` with "circle" / "line". Rather than force one caller to
+## field; Telegraph.danger_shape() â€” which is what the live telegraphs actually
+## publish â€” uses `shape` with "circle" / "line". Rather than force one caller to
 ## translate for the other (and drift), both are read here.
 static func _normalise(t: Dictionary) -> Dictionary:
 	var out: Dictionary = {
@@ -879,7 +899,7 @@ static func _evaluate(me: Vector2, my_vel: Vector2, t: Dictionary) -> Dictionary
 	return r
 
 
-## How hard this bot is being pressed, 0..1 — the term that turns the "answer" slot
+## How hard this bot is being pressed, 0..1 â€” the term that turns the "answer" slot
 ## from a mobility toy into an escape button and that talks the bot out of long
 ## channels. Counts imminent threats AND the plain fact of a foe standing inside
 ## melee reach, because a fist is a threat with no telegraph to perceive.
@@ -899,31 +919,31 @@ static func _pressure(evaluated: Array, me: Vector2, foe: Vector2, reach: float)
 ## one after STAGNATION_FULL seconds in which neither health bar moved.
 ##
 ## This is the answer to the failure mode a per-frame utility scorer cannot see:
-## two bots BOTH behaving correctly — holding their class band, declining casts that
-## score under threshold, dodging what they should — and producing a three-minute
+## two bots BOTH behaving correctly â€” holding their class band, declining casts that
+## score under threshold, dodging what they should â€” and producing a three-minute
 ## fight in which nothing ever connects. Every individual decision is right and the
 ## match is unwatchable.
 ##
-## ⚠ IT ESCALATES BOLDNESS, NEVER POWER. The number is consumed in exactly two
+## âš  IT ESCALATES BOLDNESS, NEVER POWER. The number is consumed in exactly two
 ## places: `_band` pulls the preferred spacing toward contact, and `_pick_slot`
 ## forgives part of the cast threshold. The bot starts taking fights it was
 ## declining. No stat moves, no cooldown shortens, and nothing here is visible to
-## the other bot — so a stalled mirror match resolves because both sides get braver,
+## the other bot â€” so a stalled mirror match resolves because both sides get braver,
 ## which is also what two stalled humans would do.
 ##
 ## Health totals are read off the two drawn bars, so there is no fairness cost.
-## ══ NOBODY WALKS INTO A WALL FOREVER ═══════════════════════════════════════════
+## â•â• NOBODY WALKS INTO A WALL FOREVER â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 ## Maker, watching Watch Bots: *"these guys get stuck in the corner of a wall then
 ## destroyed"*.
 ##
 ## THE MECHANISM, in three parts, none of which is a steering bug on its own:
 ##
-##   1. This file had no terrain awareness AT ALL — no raycast, no whisker, no
+##   1. This file had no terrain awareness AT ALL â€” no raycast, no whisker, no
 ##      surface list. `_safest` reads pits and telegraphs; the blackboard carried
 ##      nothing solid. So the brain could not tell "blocked" from "walking".
 ##   2. FOUR independent paths write a backwards direction and NONE of them asks what
 ##      is behind: the band's `intent = -1` back-off, the under-pressure drift, the
-##      stagnation drift, and the recoil flinch — which fires on 55% of hits taken, so
+##      stagnation drift, and the recoil flinch â€” which fires on 55% of hits taken, so
 ##      being cornered actively re-arms the thing that put you there.
 ##   3. `Hero` zeroes the walk against a wall (`is_on_wall()` -> `walk_x = 0.0`) and
 ##      cannot step up: three of the versus stage's four risers are 90 px against a
@@ -932,7 +952,7 @@ static func _pressure(evaluated: Array, me: Vector2, foe: Vector2, reach: float)
 ##      nowhere, and never learned anything.
 ##
 ## THE GUARD SITS AFTER EVERY WRITER, deliberately. Putting it inside `_steer` would
-## have missed the recoil flinch — the one most likely to start the wedge — and would
+## have missed the recoil flinch â€” the one most likely to start the wedge â€” and would
 ## miss the next path somebody adds. One guard, applied last, cannot be bypassed by a
 ## new opinion about where to walk.
 ##
@@ -940,25 +960,48 @@ static func _pressure(evaluated: Array, me: Vector2, foe: Vector2, reach: float)
 ##   * PUSHING INTO A WALL is turned around. Not vetoed to zero: standing still in a
 ##     corner is the exact failure being fixed.
 ##   * STILL AGAINST IT after `WALL_STUCK_SECONDS` means turning around is not enough
-##     — the way out of a corner is up. A jump is requested, which is the only verb
+##     â€” the way out of a corner is up. A jump is requested, which is the only verb
 ##     `Hero` has that clears a riser, and which this file otherwise emits ONLY as a
 ##     dodge answer (`BotDodge.VERTICAL_EXIT_DOT`), i.e. never for terrain.
-static func _unwall(intent: Dictionary, bb: Dictionary, m: Memory, now: float) -> void:
+static func _unwall(intent: Dictionary, bb: Dictionary, m: Memory, now: float,
+		turn: bool = true) -> void:
 	var move: Vector2 = intent.get("move", Vector2.ZERO)
 	var wall_dir: float = float(bb.get("wall_dir", 0.0))
-	if not bool(bb.get("on_wall", false)) or wall_dir == 0.0:
-		m.wall_since = -1.0
+	var against: bool = bool(bb.get("on_wall", false)) and wall_dir != 0.0
+	# Pressing INTO it, rather than brushing past or already leaving. A bot that walks
+	# ALONG a wall is not stuck against it.
+	var pressing: bool = against and move.x != 0.0 and signf(move.x) == wall_dir
+	if not pressing:
+		# âš  A GRACE, NOT AN INSTANT RESET â€” AND WITHOUT IT THE SECOND RUNG WAS DEAD CODE.
+		# Rung one turns the bot around, which BREAKS wall contact on the very next
+		# frame. The old code then cleared the clock, the steering layer (whose opinion
+		# has not changed) walked straight back into the face, and the clock restarted
+		# from zero. `now - wall_since` could therefore never reach WALL_STUCK_SECONDS,
+		# so `intent["jump"]` â€” the entire "turning around is not enough, the way out is
+		# up" half of this guard â€” never executed once in play.
+		#
+		# It passed its own suite because the suite held `on_wall` true every frame
+		# while the code under test was turning the body away: a state the fix itself
+		# prevents. See `slice_test_bot_walls`.
+		if m.wall_clear_at < 0.0:
+			m.wall_clear_at = now
+		if now - m.wall_clear_at >= WALL_CLEAR_GRACE:
+			m.wall_since = -1.0
 		return
-	# Not pressing into it — brushing past, or already leaving. Nothing to do, and no
-	# clock: a bot that walks ALONG a wall is not stuck against it.
-	if move.x == 0.0 or signf(move.x) != wall_dir:
-		m.wall_since = -1.0
-		return
+	m.wall_clear_at = -1.0
 	if m.wall_since < 0.0:
 		m.wall_since = now
-	intent["move"] = Vector2(-wall_dir, move.y)
+	# âš  THE TURN IS SUPPRESSED ON A REFLEX FRAME (see the call in `decide`): a dodge or
+	# blink already owns its exit vector and this must not fight it. The CLOCK still
+	# runs and the jump still fires, which is the half that matters when a cornered bot
+	# is being hit â€” the reflex layer returning early is exactly how it stays cornered.
+	if turn:
+		intent["move"] = Vector2(-wall_dir, move.y)
 	if now - m.wall_since >= WALL_STUCK_SECONDS:
 		intent["jump"] = true
+		# Re-arm rather than latch, or every subsequent frame against the wall requests
+		# another jump and the bot pogos instead of climbing out once.
+		m.wall_since = now
 
 
 static func _track_stagnation(bb: Dictionary, m: Memory, now: float) -> float:
@@ -968,8 +1011,8 @@ static func _track_stagnation(bb: Dictionary, m: Memory, now: float) -> float:
 		m.last_hp_total = total
 		m.last_progress_at = now
 		return 0.0
-	# A ROUND RESET REFILLS BOTH BARS, so the total can RISE. Any movement at all —
-	# up or down — means something happened, and the clock restarts either way.
+	# A ROUND RESET REFILLS BOTH BARS, so the total can RISE. Any movement at all â€”
+	# up or down â€” means something happened, and the clock restarts either way.
 	if absf(total - m.last_hp_total) > 0.001:
 		m.last_hp_total = total
 		m.last_progress_at = now
@@ -981,14 +1024,14 @@ static func _track_stagnation(bb: Dictionary, m: Memory, now: float) -> float:
 		/ maxf(STAGNATION_FULL - STAGNATION_SECONDS, 0.001), 0.0, 1.0)
 
 
-## ══ WHAT JUST HAPPENED TO ME, WHICH NOTHING USED TO ASK ═════════════════════════
+## â•â• WHAT JUST HAPPENED TO ME, WHICH NOTHING USED TO ASK â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 ## Maker, on the duel: *"more reaction movement like make them smarter"*, *"empty
 ## spaces here and there"*, and *"it becomes noise slop right now because they are
 ## repeatedly getting hit"*.
 ##
 ## All three want the same missing thing: a bot that treats an exchange as an EVENT.
-## `_track_stagnation` computes exactly that event — its `absf(total - last) > 0.001`
-## branch is literally "somebody took damage this beat" — and then throws it away to
+## `_track_stagnation` computes exactly that event â€” its `absf(total - last) > 0.001`
+## branch is literally "somebody took damage this beat" â€” and then throws it away to
 ## reset a clock. It also sums both bars, so it cannot say who. Splitting the sum is
 ## the whole unlock, and it needs no new blackboard key: `self_hp_frac` and
 ## `foe_hp_frac` have both been there all along.
@@ -996,14 +1039,14 @@ static func _track_stagnation(bb: Dictionary, m: Memory, now: float) -> float:
 ## Two outcomes, both rolled ONCE per event off the existing `m.rng` (the same
 ## generator the aim scatter and the whiff rolls use, so a seeded test still replays
 ## exactly):
-##   BREATHE  — sometimes, after a trade, simply stop starting things for a beat.
-##   RECOIL   — when the damage was MINE, give ground briefly. That is the reaction
+##   BREATHE  â€” sometimes, after a trade, simply stop starting things for a beat.
+##   RECOIL   â€” when the damage was MINE, give ground briefly. That is the reaction
 ##              movement; a body that eats a hit and keeps walking forward reads as
 ##              not having noticed.
 ##
-## ⚠ EVERY CEILING HERE IS SET BY SOMETHING ELSE'S FLOOR, and they are close together:
+## âš  EVERY CEILING HERE IS SET BY SOMETHING ELSE'S FLOOR, and they are close together:
 ## `BotAdapt.CAMP_SECONDS` is 3.0, `BotSimProbe.IDLE_SECONDS` is 5.0 (it files a
-## SEV_ERROR `actor_idle` row), and `STAGNATION_SECONDS` is 6.0 — past which the
+## SEV_ERROR `actor_idle` row), and `STAGNATION_SECONDS` is 6.0 â€” past which the
 ## degenerate-fight breaker starts cutting the very cast threshold a pause just
 ## raised. A max gap of 1.6 s clears all three with room, and because a breathing bot
 ## still MOVES and still AIMS, the idle probe never sees it at all.
@@ -1039,7 +1082,7 @@ static func _soonest_tti(evaluated: Array) -> float:
 
 
 # =========================================================================
-# LAYER 1 — THE REFLEX
+# LAYER 1 â€” THE REFLEX
 # =========================================================================
 
 ## Returns a COMPLETE intent (movement included) when the bot is answering a threat,
@@ -1073,17 +1116,17 @@ static func _reflex(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 	var me: Vector2 = bb.get("self_pos", Vector2.ZERO)
 	var need: float = float(worst.get("exit_len", 0.0))
 	# THE DEGENERATE CASE, AND WHY IT IS THE COMMON ONE. Every telegraph in this game
-	# SNAPSHOTS the target's position and plants its circle there — so at the instant
+	# SNAPSHOTS the target's position and plants its circle there â€” so at the instant
 	# it blooms, a bot standing still is exactly at the centre and there is no
 	# "shortest way out": every direction is equally long. BotDodge reports that
 	# rather than inventing a direction, and here is where it gets answered, by open
 	# ground instead of by geometry. Left untreated the ladder returns `none` and the
-	# bot stands in the blast it was told about — the single most visible way this
+	# bot stands in the blast it was told about â€” the single most visible way this
 	# whole layer could fail.
 	var candidates: Array[Vector2]
 	if bool(worst.get("degenerate", false)) or exit.length_squared() <= 0.01:
 		# Ordered AWAY FROM THE FOE first. safest_exit breaks ties by shortness and
-		# then by order, so with equal-length options this is what decides — and
+		# then by order, so with equal-length options this is what decides â€” and
 		# "when every direction is the same length, do not dive toward the person
 		# hitting you" is the right tiebreak, as well as the one that stops every
 		# bot in the game dodging left forever.
@@ -1109,7 +1152,7 @@ static func _reflex(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 	var dir: Vector2 = choice.get("dir", Vector2.ZERO)
 
 	# THE CLASH READ. Nothing in the ladder was affordable and the threat is a body
-	# in my face — so an aggressive bot answers a swing with a swing rather than
+	# in my face â€” so an aggressive bot answers a swing with a swing rather than
 	# standing there. MeleeClash resolves two blows declared in the same window by
 	# throwing both fighters apart, which is both the correct play and the single
 	# most watchable thing two bots can do to each other.
@@ -1124,15 +1167,15 @@ static func _reflex(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 		return {}
 	if action == "walk":
 		# Walking out is not an ANSWER, it is an interest override handed to the
-		# steering layer — so it must not preempt the utility layer. A bot that
+		# steering layer â€” so it must not preempt the utility layer. A bot that
 		# stopped casting because it was strafing would never cast at all.
 		return {}
 
-	# ⚠ NEVER LATCH AN ANSWER THE BODY CANNOT EXPRESS. `_reflex_intent` turns a dash
+	# âš  NEVER LATCH AN ANSWER THE BODY CANNOT EXPRESS. `_reflex_intent` turns a dash
 	# or a blink into a movement-key press, and `_flatten` has to drop any purely
 	# vertical component because there is no "walk down" on this body. If that leaves
 	# an EMPTY movement vector the press goes out with no direction, the bot burns a
-	# cooldown, and — far worse — `dodge_until` freezes the whole reflex layer for the
+	# cooldown, and â€” far worse â€” `dodge_until` freezes the whole reflex layer for the
 	# length of the latch while the bot stands in the attack. Falling through to the
 	# steering layer is strictly better than a latched no-op: at least the bot keeps
 	# walking out. Belt-and-braces behind the ladder's own ordering fix in BotDodge.
@@ -1152,7 +1195,7 @@ static func _reflex(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 		# a guard pressed on contact has already lost; guard_hold_until is what
 		# carries the press across the frames until the blow lands.
 		# Hold only as long as the guard is worth anything. A press-window class CANNOT
-		# extend its window by holding — the press is edge-triggered — so the flat
+		# extend its window by holding â€” the press is edge-triggered â€” so the flat
 		# 0.48 s hold was up to 0.32 s of standing still with no guard up. That is not
 		# merely wasted: a guarding frame issues no attack AND sets `foe_guarding` on
 		# the opponent's blackboard, so it also talks them out of swinging. Two bots
@@ -1170,7 +1213,7 @@ static func _reflex_intent(action: String, dir: Vector2, _now: float,
 		_m: Memory) -> Dictionary:
 	match action:
 		"dash", "dash_iframe":
-			# The dash fires along the MOVEMENT vector, not the aim — so the move
+			# The dash fires along the MOVEMENT vector, not the aim â€” so the move
 			# key has to be set in the same frame as the dash press or the dash goes
 			# wherever the bot happened to already be walking.
 			return {"dash": true, "move": _flatten(dir)}
@@ -1189,7 +1232,7 @@ static func _reflex_intent(action: String, dir: Vector2, _now: float,
 ##
 ## READINESS IS ASSUMED PESSIMISTICALLY. When the blackboard does not publish a
 ## cooldown we hold ourselves to the body's real one from our own last press,
-## rather than assuming ready — assuming ready is a cheat by omission and would
+## rather than assuming ready â€” assuming ready is a cheat by omission and would
 ## show up in play as a bot dashing four times a second.
 static func _caps(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 		threat: Dictionary) -> Dictionary:
@@ -1198,10 +1241,10 @@ static func _caps(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 	var blink_ready: bool = bool(bb.get("blink_ready", now - m.last_blink_at >= BLINK_COOLDOWN))
 	# `guard_style` is a `ParryRing.Style` (0 BLADE / 1 SIGIL), or -1 for a body that
 	# runs a plain press window and holds no ring at all. It used to be published as
-	# "do I hold a ring", which made every BLADE holder look like a SIGIL — see the
+	# "do I hold a ring", which made every BLADE holder look like a SIGIL â€” see the
 	# block at `Hero.bot_body_state`.
 	var sigil: bool = int(bb.get("guard_style", -1)) == ParryRing.Style.SIGIL
-	# ⚠ PREFER THE BODY'S OWN NUMBER, same rule as `dash_dist` and `guard_lead` below.
+	# âš  PREFER THE BODY'S OWN NUMBER, same rule as `dash_dist` and `guard_lead` below.
 	# The consts are a hand-copy of ParryRing's and survive only as the fallback for a
 	# body that publishes nothing (an Enemy).
 	var rearm: float = float(bb.get("guard_rearm",
@@ -1212,7 +1255,7 @@ static func _caps(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 	# WINDOW. We want the blow to arrive in the middle of the shrinking ring's
 	# perfect band; guard skill decides how near that middle we aim, and the
 	# remainder becomes a real mistiming that really eats the hit.
-	# ⚠ PREFER THE BODY'S OWN NUMBER — the same "read it from the seam" rule
+	# âš  PREFER THE BODY'S OWN NUMBER â€” the same "read it from the seam" rule
 	# `dash_dist` already follows, and for the same reason: the consts below describe
 	# a shrinking ParryRing, and SEVEN OF NINE CLASSES HAVE NO RING AT ALL. They run a
 	# press window that opens immediately and lasts 0.16 s, so a 0.374 s lead pressed
@@ -1224,20 +1267,20 @@ static func _caps(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 	var band: float = float(bb.get("guard_lead",
 		GUARD_BAND_SIGIL if sigil else GUARD_BAND_BLADE))
 	var skill: float = BotProfile.get_f(profile, "guard")
-	# ⚠ SKILL NARROWS THIS WINDOW, WHICH MAKES THE BEST BOTS THE WORST AT PARRYING —
+	# âš  SKILL NARROWS THIS WINDOW, WHICH MAKES THE BEST BOTS THE WORST AT PARRYING â€”
 	# and Watch Bots runs at the top tier, so the mode the maker watches had the fewest
 	# openings in the game. At guard 0.92 the half-width is 0.0404 s, about 2.4 physics
 	# frames, against a `tti` that can only step in 0.0167 s increments: the band is
 	# barely resolvable by the sampler reading it.
 	#
-	# ⚠ AND THE BODY ALREADY PUBLISHES ITS REAL TOLERANCE, WHICH NOTHING READ.
-	# `Hero.bot_body_state` sends `guard_tolerance` — 0.080 s for the seven classes that
-	# run a press window, 0.200 s for the Juggernaut's block — and `in_lead` used a
+	# âš  AND THE BODY ALREADY PUBLISHES ITS REAL TOLERANCE, WHICH NOTHING READ.
+	# `Hero.bot_body_state` sends `guard_tolerance` â€” 0.080 s for the seven classes that
+	# run a press window, 0.200 s for the Juggernaut's block â€” and `in_lead` used a
 	# skill curve instead, i.e. a window HALF the body's true one at the tier everything
 	# is measured at. Flooring at the body's own number is the same "read it from the
 	# seam" rule `dash_dist` and `guard_lead` above already follow.
 	#
-	# ⚠ THIS IS NOT THE REVERTED CROSS-CLASS CHANGE. That one added a flat global
+	# âš  THIS IS NOT THE REVERTED CROSS-CLASS CHANGE. That one added a flat global
 	# `SLACK_FLOOR` and was reverted on the maker's ruling *"do not change the deflect
 	# across all classes to fix one"*. This reads each body's OWN published number, so
 	# the Swordsaint (0.0462, narrower than tier-3 slack) is byte-identical and only the
@@ -1245,10 +1288,10 @@ static func _caps(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 	# nothing (an Enemy) keeps the curve exactly.
 	var slack: float = maxf(lerpf(0.16, 0.03, clampf(skill, 0.0, 1.0)),
 		float(bb.get("guard_tolerance", 0.0)))
-	# ⚠ A GUARD BAND LONGER THAN THE WHOLE TELL IS A BAND THAT CAN NEVER BE MET, and
+	# âš  A GUARD BAND LONGER THAN THE WHOLE TELL IS A BAND THAT CAN NEVER BE MET, and
 	# that is the second half of the maker's *"not much deflecting"*.
 	#
-	# `band` is the class's own preferred lead — around 0.37 s for a ring guard — and
+	# `band` is the class's own preferred lead â€” around 0.37 s for a ring guard â€” and
 	# `in_lead` asks for `tti` to land inside `slack` of it. A hero MELEE swing tells for
 	# `ONE_SHOT_DURATIONS * HIT_FRAME_FRACTION`, i.e. 0.077 s for a punch and 0.091 s for
 	# a kick, so `tti` STARTS at 0.077 and only falls: `|tti - 0.37|` is never once
@@ -1257,8 +1300,8 @@ static func _caps(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 	# question of skill or timing arose.
 	#
 	# So the band collapses onto the threat's OWN total lead when that lead is shorter.
-	# It is the honest reading of what a guard band means — "how far ahead of the hit I
-	# like to commit" cannot exceed how much warning the attack ever gave — and it can
+	# It is the honest reading of what a guard band means â€” "how far ahead of the hit I
+	# like to commit" cannot exceed how much warning the attack ever gave â€” and it can
 	# only ever make a band TIGHTER, so no threat that was parryable before becomes
 	# harder. Threats that publish no lead (every projectile) are untouched.
 	var lead: float = float(threat.get("lead", 0.0))
@@ -1268,9 +1311,9 @@ static func _caps(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 	var in_lead: bool = absf(tti - band) <= slack
 	return {
 		"dash_ready": dash_ready,
-		# ⚠ PREFER THE BODY'S OWN NUMBER. `DASH_DIST` is a hand-copied `620 * 0.14` and
+		# âš  PREFER THE BODY'S OWN NUMBER. `DASH_DIST` is a hand-copied `620 * 0.14` and
 		# the movement button is now NINE different verbs whose travel runs from ~58 px
-		# (Juggernaut surge) to 260 px (Stormcaller lightning blink) — so the copy is
+		# (Juggernaut surge) to 260 px (Stormcaller lightning blink) â€” so the copy is
 		# wrong for eight of the nine classes and a bot would size every gap-close with
 		# the Arcanist's numbers. `Hero.bot_body_state` publishes the derived value;
 		# the const survives as the fallback for a body that does not (an Enemy).
@@ -1280,14 +1323,14 @@ static func _caps(bb: Dictionary, profile: Dictionary, m: Memory, now: float,
 		"can_parry": bool(bb.get("can_parry", true)) and bool(threat.get("parryable", true)),
 		"parry_ready": guard_ready and in_lead,
 		# choose_response gates the parry rung on `tti <= parry_window`, and the lead
-		# test above has already decided the timing — so pass a value that lets it
+		# test above has already decided the timing â€” so pass a value that lets it
 		# through iff we meant it to.
 		"parry_window": 99.0 if in_lead else -1.0,
 		"grounded": bool(bb.get("on_floor", true)),
 		# TWO GATES, and they answer different questions. The profile one is
 		# DIFFICULTY ("is this bot allowed to make that read"); the body one is
 		# CAPABILITY ("does my movement button dodge anything at all"). The Brawler's
-		# charge and the Juggernaut's surge ship `dash_iframe_fraction: 0.0` — spending
+		# charge and the Juggernaut's surge ship `dash_iframe_fraction: 0.0` â€” spending
 		# either as an i-frame answer is choosing to eat the hit, so a bot must not.
 		# Absent key -> true, which is every non-Hero body and is byte-identical to
 		# the behaviour before the nine verbs existed.
@@ -1325,7 +1368,7 @@ static func _safest(bb: Dictionary, me: Vector2, candidates: Array[Vector2],
 		return first
 	var best: Vector2 = BotDodge.safest_exit(me, candidates, hazards, regions)
 	# safest_exit returns ZERO when EVERY option lands somewhere lethal. That is a
-	# real answer — "there is nowhere good" — and the caller reads it as such rather
+	# real answer â€” "there is nowhere good" â€” and the caller reads it as such rather
 	# than being handed a bad exit dressed up as a good one.
 	return best
 
@@ -1349,7 +1392,7 @@ static func _clash_worthwhile(bb: Dictionary, profile: Dictionary, m: Memory,
 
 
 # =========================================================================
-# LAYER 2 — CONTEXT STEERING
+# LAYER 2 â€” CONTEXT STEERING
 # =========================================================================
 
 ## Where to stand, as a move vector. Interest is the class's spacing band; danger is
@@ -1368,7 +1411,7 @@ static func _steer(bb: Dictionary, profile: Dictionary, m: Memory, evaluated: Ar
 	# A LOOSE SPELL ON THE FLOOR IS WORTH WALKING FOR. Tier 2 floor drops and Tier 3
 	# boss drops are the whole reason the kit changes mid-run, and a bot that walks
 	# past them fights the fight it started with while the human upgrades. Only taken
-	# when the board is quiet and the pickup is genuinely mine to take — diving
+	# when the board is quiet and the pickup is genuinely mine to take â€” diving
 	# through a live telegraph for a spell is a worse play than not having it.
 	var grab: float = _pickup_pull(bb, me, foe, pressure)
 	if grab != 0.0:
@@ -1380,7 +1423,7 @@ static func _steer(bb: Dictionary, profile: Dictionary, m: Memory, evaluated: Ar
 	var centre: float = (lo + hi) * 0.5
 	var width: float = maxf(hi - lo, 1.0)
 
-	# ⚠ A DEADBAND IS NOT HYSTERESIS, AND THIS IS THE "BACK AND FORWARD".
+	# âš  A DEADBAND IS NOT HYSTERESIS, AND THIS IS THE "BACK AND FORWARD".
 	#
 	# Maker: *"the movement is weird like sometimes the guy is just going back and
 	# forward"*. The comment this replaces claimed the deadband was what stopped that.
@@ -1388,25 +1431,25 @@ static func _steer(bb: Dictionary, profile: Dictionary, m: Memory, evaluated: Ar
 	# perfectly SYMMETRIC with no memory of the previous frame, so crossing the outer
 	# edge gives full-speed `+toward` and crossing the inner edge gives full-speed
 	# `-toward` on the very next physics frame, forever. The `Memory` object was even
-	# passed in as `_m` — underscored, i.e. deliberately unread — and nothing anywhere
+	# passed in as `_m` â€” underscored, i.e. deliberately unread â€” and nothing anywhere
 	# in the brain remembered which way this bot was already walking. Every latch in the
 	# file (CAST_LATCH, DODGE_LATCH, latched_slot) is on the CAST or the DODGE; the walk
 	# had none.
 	#
 	# So this is a Schmitt trigger instead: TRIGGER at the band edge, RELEASE at the
 	# band CENTRE. Having decided to close, the bot keeps closing until it reaches the
-	# middle of its own band rather than stopping the instant it clips the edge — which
+	# middle of its own band rather than stopping the instant it clips the edge â€” which
 	# is what makes the approach read as a decision and puts a whole half-band of travel
 	# between one reversal and the next.
 	var intent: int = 0
 	if dist > hi + width * BAND_DEADZONE:
-		intent = 1                       # too far — close in
+		intent = 1                       # too far â€” close in
 	elif dist < lo - width * BAND_DEADZONE:
-		intent = -1                      # too close — back off
+		intent = -1                      # too close â€” back off
 	elif m != null and m.steer_intent != 0:
 		# Inside the band, but still travelling: hold the committed direction until the
 		# centre. Stored as an INTENT (closing / backing off) rather than as a world
-		# direction on purpose — two fighters swap sides constantly, and a remembered
+		# direction on purpose â€” two fighters swap sides constantly, and a remembered
 		# `+x` would read as "back off" the moment they crossed.
 		if m.steer_intent > 0 and dist > centre:
 			intent = 1
@@ -1415,7 +1458,7 @@ static func _steer(bb: Dictionary, profile: Dictionary, m: Memory, evaluated: Ar
 
 	# ...and a floor on how often the answer may CHANGE AT ALL. The trigger above fixes
 	# the band edges; it does nothing about the other two reversal sources measured in
-	# this file — the recoil flinch (55% per hit, 0.28 s of forced retreat, then instant
+	# this file â€” the recoil flinch (55% per hit, 0.28 s of forced retreat, then instant
 	# resumption) and two bots' bands interacting. A minimum dwell costs at most
 	# STEER_MIN_DWELL of stale walking and is the difference between a stance and a
 	# stutter.
@@ -1430,7 +1473,7 @@ static func _steer(bb: Dictionary, profile: Dictionary, m: Memory, evaluated: Ar
 	var want: float = float(intent) * toward
 
 	# COVER. A wall between me and the foe is worth standing behind when I am hurt,
-	# so the urge to cross it is damped rather than vetoed — vetoed would leave a
+	# so the urge to cross it is damped rather than vetoed â€” vetoed would leave a
 	# low bot cowering behind a wall that is about to expire.
 	var hp: float = float(bb.get("self_hp_frac", 1.0))
 	if hp < 0.4 and _cover_between(bb, me, foe):
@@ -1442,12 +1485,12 @@ static func _steer(bb: Dictionary, profile: Dictionary, m: Memory, evaluated: Ar
 	# same rule or the bot will learn to stroll into the one it just dived out of.
 	var probe: Vector2 = Vector2(signf(want), 0.0) * STEER_PROBE
 	if probe != Vector2.ZERO:
-		# ⚠ ASKED AS A VETO, NOT AS A CHOICE — AND THAT IS THE THIRD REVERSAL SOURCE.
+		# âš  ASKED AS A VETO, NOT AS A CHOICE â€” AND THAT IS THE THIRD REVERSAL SOURCE.
 		#
 		# This used to hand `_safest` BOTH steps at once (`[probe, -probe]`) and take
 		# whichever scored better. Those two vectors are the same LENGTH, so whenever any
 		# live telegraph or pit is on the board the ranking between them is decided by a
-		# margin that a moving threat footprint flips from one frame to the next — and
+		# margin that a moving threat footprint flips from one frame to the next â€” and
 		# `want` flipped with it, with nothing damping it. It also explains the maker's
 		# *"SOMETIMES"*: with a clean board `_safest` short-circuits to `candidates[0]`
 		# and the direction survives, so the stutter only appears once the fight has
@@ -1457,7 +1500,7 @@ static func _steer(bb: Dictionary, profile: Dictionary, m: Memory, evaluated: Ar
 		# question actually being asked. The alternative is only consulted when the
 		# answer is yes, so safety still has the last word and the tie cannot exist.
 		if _safest(bb, me, [probe] as Array[Vector2], {}) == Vector2.ZERO:
-			# ⚠ THE ANSWER IS HOLD, NOT REVERSE — and the difference was MEASURED, not
+			# âš  THE ANSWER IS HOLD, NOT REVERSE â€” and the difference was MEASURED, not
 			# reasoned. Reversing on a veto scored mean 0.85 / worst 2.92 reversals per
 			# second against the old form's 1.18 / 1.58: better on average and visibly
 			# WORSE at the extreme, because a footprint sweeping on and off the wanted
@@ -1485,7 +1528,7 @@ static func _steer(bb: Dictionary, profile: Dictionary, m: Memory, evaluated: Ar
 		want = toward
 
 	# A vertical exit that the reflex layer did not take (it was not urgent enough to
-	# preempt) still deserves a jump — the ledge geometry is the same either way.
+	# preempt) still deserves a jump â€” the ledge geometry is the same either way.
 	var up: float = 0.0
 	for e: Dictionary in evaluated:
 		if not bool(e.get("threatening", false)):
@@ -1507,7 +1550,7 @@ static func _band(bb: Dictionary, profile: Dictionary,
 		b = CLASS_BAND[cid]
 	var aggr: float = BotProfile.get_f(profile, "aggression")
 	# 0.5 aggression = the authored band. 1.0 pulls it 30% closer, 0.0 pushes it 30%
-	# further out — the same class, played by two different temperaments.
+	# further out â€” the same class, played by two different temperaments.
 	var scale: float = lerpf(1.3, 0.7, clampf(aggr, 0.0, 1.0))
 	# ...and a fight that has stopped producing damage pulls it further in still. Two
 	# ranged classes each correctly holding a 340 px band never meet; one of them has
@@ -1520,14 +1563,14 @@ static func _band(bb: Dictionary, profile: Dictionary,
 ##
 ## Gated hard, because a bot that beelines for every pickup is a bot that can be
 ## kited into a pit by anyone who notices:
-##   · nothing may be pressing (`pressure`), because leaving a live telegraph to
+##   Â· nothing may be pressing (`pressure`), because leaving a live telegraph to
 ##     collect a spell is how you die holding it;
-##   · the pickup must be genuinely CLOSER TO ME than to the foe, so two bots never
+##   Â· the pickup must be genuinely CLOSER TO ME than to the foe, so two bots never
 ##     both commit to the same one and meet awkwardly on top of it;
-##   · it must be within PICKUP_INTEREST, so a bot never crosses the whole stage.
+##   Â· it must be within PICKUP_INTEREST, so a bot never crosses the whole stage.
 ##
 ## Perception cost: none beyond what a player pays. A `SpellPickup` is a drawn,
-## glowing object sitting on the floor — the most visible thing in the arena.
+## glowing object sitting on the floor â€” the most visible thing in the arena.
 const PICKUP_INTEREST: float = 520.0
 const PICKUP_CONTEST_MARGIN: float = 0.85
 
@@ -1552,13 +1595,13 @@ static func _pickup_pull(bb: Dictionary, me: Vector2, foe: Vector2,
 		best = at
 	if best == Vector2.ZERO:
 		return 0.0
-	# Close enough that the pickup area will collect it — stop steering and fight.
+	# Close enough that the pickup area will collect it â€” stop steering and fight.
 	if absf(best.x - me.x) < 26.0:
 		return 0.0
 	return signf(best.x - me.x)
 
 
-## Is a barrier sitting on the line between me and the foe? Approximate on purpose —
+## Is a barrier sitting on the line between me and the foe? Approximate on purpose â€”
 ## a point-to-segment distance against each barrier's radius. Precision here would
 ## buy nothing: the question is "is there something to hide behind", not "by how many
 ## pixels".
@@ -1579,7 +1622,7 @@ static func _cover_between(bb: Dictionary, me: Vector2, foe: Vector2) -> bool:
 
 
 # =========================================================================
-# LAYER 3 — THE UTILITY SCORER
+# LAYER 3 â€” THE UTILITY SCORER
 # =========================================================================
 
 ## Which slot to press, or -1 for none. Rate-limited to once per `profile.period`
@@ -1598,16 +1641,16 @@ static func _pick_slot(bb: Dictionary, profile: Dictionary, m: Memory, now: floa
 	var err: float = BotProfile.get_f(profile, "aim_error")
 	m.aim_error = m.rng.randf_range(-err, err)
 
-	# ══ THE LAST STAND ══════════════════════════════════════════════════════════
+	# â•â• THE LAST STAND â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 	# Maker: *"use their ults if low on health like optionally of course"*. The "ult"
-	# role's own weight is keyed entirely off the FOE's health and the foe closing —
-	# `finisher = 1.15 - foe_hp` — so it fires when the bot is WINNING and has nothing
+	# role's own weight is keyed entirely off the FOE's health and the foe closing â€”
+	# `finisher = 1.15 - foe_hp` â€” so it fires when the bot is WINNING and has nothing
 	# at all to say about a bot that is about to die. A fighter going down swinging is
 	# the single most watchable thing a duel can produce and it could not happen.
 	#
 	# Rolled once per decision beat, then LATCHED: a continuous bonus flickers across
 	# the threshold and reads as indecision, where a latch reads as a decision. And
-	# rolled rather than triggered, because "optionally" is the whole ask — two
+	# rolled rather than triggered, because "optionally" is the whole ask â€” two
 	# Cryomancers at 30% should not both reliably do the same thing.
 	if float(bb.get("self_hp_frac", 1.0)) < DESPERATE_HP and now >= m.ult_urge_until \
 			and m.rng.randf() < DESPERATE_ULT_CHANCE:
@@ -1626,9 +1669,9 @@ static func _pick_slot(bb: Dictionary, profile: Dictionary, m: Memory, now: floa
 		best_score *= 1.0 - STAGNATION_THRESHOLD_CUT
 	for i: int in range(scores.size()):
 		var s: float = float(scores[i])
-		# ⚠ THE BONUS IS A MULTIPLIER ON A SCORE, NOT A BYPASS. Every HARD gate lives
-		# inside `score_slots` and returns a flat 0 — cooldown, mana, `slot_affordable`,
-		# range fit, channel safety — and 0 times anything is still 0. So a desperate
+		# âš  THE BONUS IS A MULTIPLIER ON A SCORE, NOT A BYPASS. Every HARD gate lives
+		# inside `score_slots` and returns a flat 0 â€” cooldown, mana, `slot_affordable`,
+		# range fit, channel safety â€” and 0 times anything is still 0. So a desperate
 		# bot cannot cast an ult it could not otherwise cast; it can only stop being
 		# talked out of one it could.
 		if desperate and i == SpellTier.ULT_SLOT:
@@ -1640,7 +1683,7 @@ static func _pick_slot(bb: Dictionary, profile: Dictionary, m: Memory, now: floa
 
 
 # =========================================================================
-# LAYER 3b — THE ABILITY BUTTONS (Q / R / T)
+# LAYER 3b â€” THE ABILITY BUTTONS (Q / R / T)
 # =========================================================================
 
 ## Which of the three class abilities to press this frame, or `&""`.
@@ -1696,7 +1739,7 @@ static func _pick_ability(bb: Dictionary, profile: Dictionary, m: Memory,
 				return BotIntent.ABILITY_BLINK
 
 	# --- Q: the class AoE. The workhorse, and the reason it is last is that it is
-	# the one with the widest usable window — checking it first would starve the
+	# the one with the widest usable window â€” checking it first would starve the
 	# other two.
 	if _cd_ready(bb, CD_BLAST_INDEX) and dist >= BLAST_MIN and dist <= BLAST_MAX:
 		return BotIntent.ABILITY_BLAST
@@ -1704,7 +1747,7 @@ static func _pick_ability(bb: Dictionary, profile: Dictionary, m: Memory,
 
 
 ## Is the extra cooldown at `index` reported ready? Absent / short array reads as
-## NOT ready — the pessimistic answer, matching `_caps`. Assuming ready is a cheat
+## NOT ready â€” the pessimistic answer, matching `_caps`. Assuming ready is a cheat
 ## by omission, and for the ability buttons it would show up as a bot mashing Q.
 static func _cd_ready(bb: Dictionary, index: int) -> bool:
 	var cds: Array = bb.get("cooldowns", [])
@@ -1713,7 +1756,7 @@ static func _cd_ready(bb: Dictionary, index: int) -> bool:
 	return float(cds[index]) <= 0.0
 
 
-## The melee SWING — a different button from `fire` on every class, and one no
+## The melee SWING â€” a different button from `fire` on every class, and one no
 ## brain had ever pressed. Only in contact, only off cooldown.
 static func _wants_swing(bb: Dictionary, m: Memory, now: float) -> bool:
 	if now - m.last_swing_at < MELEE_COOLDOWN:
@@ -1731,8 +1774,8 @@ static func _wants_swing(bb: Dictionary, m: Memory, now: float) -> bool:
 	return me.distance_to(foe) <= float(bb.get("reach", 58.0)) * 1.05
 
 
-## Every slot scored. Public so the tests can assert the SHAPE of a decision — that
-## the escape outscores the ult when the bot is cornered — rather than only its
+## Every slot scored. Public so the tests can assert the SHAPE of a decision â€” that
+## the escape outscores the ult when the bot is cornered â€” rather than only its
 ## outcome, which would pass for the wrong reason as easily as the right one.
 ##
 ## IAUS-shaped: each consideration is a normalised 0..1 factor and they MULTIPLY, so
@@ -1770,19 +1813,19 @@ static func score_slots(bb: Dictionary, profile: Dictionary, m: Memory, now: flo
 			continue
 		if i >= cooldowns.size():
 			continue
-		# ⚠ DOES THIS SLOT EXIST ON THIS BODY RIGHT NOW? `cooldowns` reports 0.0 for
+		# âš  DOES THIS SLOT EXIST ON THIS BODY RIGHT NOW? `cooldowns` reports 0.0 for
 		# a slot the class does not hold, which reads as READY, so a hand that came up
 		# short scored an empty button as its best play. `slot_affordable` is the
 		# body's own answer to "this slot exists AND is off cooldown" and is also what
-		# tracks a Tier 2 / Tier 3 DROP replacing a slot mid-fight — a bot that
+		# tracks a Tier 2 / Tier 3 DROP replacing a slot mid-fight â€” a bot that
 		# ignores it goes on scoring the spell it used to have. Absent key = trust the
 		# cooldown array, so a minimal blackboard still works.
 		var affordable: Array = bb.get("slot_affordable", [])
 		if i < affordable.size() and not bool(affordable[i]):
 			continue
 		var f: Dictionary = facts[i] if i < facts.size() else _default_facts(i)
-		# The mana gate is VESTIGIAL — `Hero._cast_signature` no longer spends or
-		# checks mana — but it is kept as a cheap guard for any future body that does,
+		# The mana gate is VESTIGIAL â€” `Hero._cast_signature` no longer spends or
+		# checks mana â€” but it is kept as a cheap guard for any future body that does,
 		# and it costs nothing while `self_mp_frac` sits at 1.0.
 		if mp * 100.0 < float(f["mp_cost"]):
 			continue
@@ -1793,10 +1836,10 @@ static func score_slots(bb: Dictionary, profile: Dictionary, m: Memory, now: flo
 		# levitating channel is interrupted by ANY landed hit, so starting one with
 		# something already resolving inside the cast time is not a risky play, it is
 		# a spell thrown away. `risk` only decides how much CLEAR AIR past the cast
-		# time the bot insists on — never whether the rule applies.
+		# time the bot insists on â€” never whether the rule applies.
 		var ct: float = float(f["cast_time"])
 		# Taken from the LIVE body wherever it publishes one. `_kit_facts` is cached
-		# per class for the process (correctly — minting SpellDefs per frame is pure
+		# per class for the process (correctly â€” minting SpellDefs per frame is pure
 		# garbage), but a Tier 2 / Tier 3 DROP replaces a slot's spell at runtime, so a
 		# cached cast_time can describe a spell this hero no longer holds.
 		var live_ct: Array = bb.get("slot_cast_time", [])
@@ -1804,20 +1847,20 @@ static func score_slots(bb: Dictionary, profile: Dictionary, m: Memory, now: flo
 			ct = float(live_ct[i])
 		var safety: float = 1.0
 		if ct > 0.01:
-			# ══ HOW OFTEN DOES THE GATE ACTUALLY REFUSE? ═══════════════════════
+			# â•â• HOW OFTEN DOES THE GATE ACTUALLY REFUSE? â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 			# Maker: *"I havent seen many ults in these stick battles"*.
 			#
 			# `bot_cast_probe` (once its own hardcoded 3-slot blind spot was fixed)
-			# shows the brain ASKING for slot 3 as often as any other — ~112 casts
+			# shows the brain ASKING for slot 3 as often as any other â€” ~112 casts
 			# against ~110 for the rest, all nine classes. So the brain is not the
 			# reason. But that probe passes `"threats": []`, so `soonest` is 99 there
 			# and this line never runs; it cannot see its own suspect.
 			#
 			# Five of the nine ults have `cast_time == 0.0` and sail past. The other
-			# four — Meteor Sigil 1.1, Heaven's Verdict 1.3, Glacial Spine 1.1,
-			# Horizon Cut 1.25 — need `cast_time + 0.25` of clear air.
+			# four â€” Meteor Sigil 1.1, Heaven's Verdict 1.3, Glacial Spine 1.1,
+			# Horizon Cut 1.25 â€” need `cast_time + 0.25` of clear air.
 			#
-			# ⚠ COUNTED, NOT GUESSED, and counted because a fix was already tried and
+			# âš  COUNTED, NOT GUESSED, and counted because a fix was already tried and
 			# REVERTED here: relaxing the gate below the cast time only loses the ult
 			# a different way (an interrupted channel is a donated spell, which
 			# `slice6_test_bot_brain` asserts and is right about). Process-wide and
@@ -1833,10 +1876,10 @@ static func score_slots(bb: Dictionary, profile: Dictionary, m: Memory, now: flo
 
 		# --- role weight: the situational half of the score.
 		#
-		# ⚠ MATCHED ON THE ROLE, NOT ON THE SLOT INDEX, and that changed when the hand
+		# âš  MATCHED ON THE ROLE, NOT ON THE SLOT INDEX, and that changed when the hand
 		# shrank to three buttons. Slot index used to BE the role for every class, so
 		# `match i:` was exact. Now each class carries its damage line, its ult, and
-		# ONE utility spell chosen from control / answer / payoff — so slot 1 is
+		# ONE utility spell chosen from control / answer / payoff â€” so slot 1 is
 		# zoning for the Arcanist and an escape for the Brawler, and matching on the
 		# index would have scored every class's utility slot with whichever arm
 		# happened to be written first. (It did, briefly: with the three role
@@ -1848,13 +1891,13 @@ static func score_slots(bb: Dictionary, profile: Dictionary, m: Memory, now: flo
 		match String(f.get("role", "")):
 			"damage":
 				# The reliable line, and the default answer to "nothing special is
-				# happening". Devalued under pressure — when things are landing on
+				# happening". Devalued under pressure â€” when things are landing on
 				# you the answer slot should be winning, not this.
 				role = (0.50 + 0.15 * aggr) * (0.60 + 0.40 * (1.0 - pressure))
 			"control":
 				# Zoning is worth most against a foe who is COMING TO YOU: a field
 				# dropped on empty floor is a field nobody has to walk through. That
-				# is the whole term — the base is deliberately under the damage line
+				# is the whole term â€” the base is deliberately under the damage line
 				# so a bot does not zone at a foe who is standing still.
 				role = 0.35 + 0.30 * closing
 			"answer":
@@ -1869,7 +1912,7 @@ static func score_slots(bb: Dictionary, profile: Dictionary, m: Memory, now: flo
 				# WILL IT LAND? A finisher against a hurt foe, a punish against a
 				# closing one, and worth much less thrown at a healthy foe who is
 				# keeping their distance. This is what stops the ult being dumped into
-				# an empty arena the instant it comes off cooldown — and what makes it
+				# an empty arena the instant it comes off cooldown â€” and what makes it
 				# beat everything else in the kit when the kill is actually there.
 				var finisher: float = clampf(1.15 - foe_hp, 0.0, 1.0)
 				role = 0.95 * clampf(0.15 + 0.55 * finisher + 0.35 * closing, 0.0, 1.0)
@@ -1898,8 +1941,8 @@ static func score_slots(bb: Dictionary, profile: Dictionary, m: Memory, now: flo
 ## THE NEAR END IS SHAPE-DEPENDENT, and getting that wrong is the difference between
 ## a bot that fights and one that backs off to cast a lance it could have fired
 ## point-blank. A lance, a rush, a wall and a nova all START AT THE CASTER and are
-## perfectly good in your face. A PLACED bombardment — a meteor, a ray, a pillar, a
-## field — is a telegraphed circle you drop on the ground, so dropping it at your own
+## perfectly good in your face. A PLACED bombardment â€” a meteor, a ray, a pillar, a
+## field â€” is a telegraphed circle you drop on the ground, so dropping it at your own
 ## feet means standing in it. Only those are penalised close in (`close_ok` false).
 static func _range_fit(dist: float, usable: float, close_ok: bool) -> float:
 	if usable <= 0.0:
@@ -1918,8 +1961,8 @@ static func _range_fit(dist: float, usable: float, close_ok: bool) -> float:
 
 
 ## The combo layer, and the thing that produces the clip. Two directions:
-##   CASH IN  — the field is already down, so complete it.
-##   SET UP   — no field yet, but I hold both halves and both are ready, so lay the
+##   CASH IN  â€” the field is already down, so complete it.
+##   SET UP   â€” no field yet, but I hold both halves and both are ready, so lay the
 ##              first one BECAUSE of the second. This is the bot deciding to drop a
 ##              frost field so it can fire lightning through it, which is exactly the
 ##              behaviour that makes a bot fight look designed rather than random.
@@ -1973,7 +2016,7 @@ static func _combo_bonus(bb: Dictionary, m: Memory, now: float, slot: int,
 
 	# --- THE SELF-COMBO. Two of my OWN beams of opposing elements inside the fusion
 	# window fuse into ReactionTable's headline outcome. It is weight-blind and
-	# same-owner, so it is available in every fight to any kit holding two beams —
+	# same-owner, so it is available in every fight to any kit holding two beams â€”
 	# the biggest single thing a bot can choose to do on purpose.
 	if bool(f["is_beam"]) and m.last_beam_element >= 0 \
 			and now - m.last_beam_at <= FUSION_WINDOW \
@@ -1984,7 +2027,7 @@ static func _combo_bonus(bb: Dictionary, m: Memory, now: float, slot: int,
 
 ## The mirror image: spells that a live barrier would EAT. ReactionTable's
 ## `ground_out` consumes a lightning beam against an earth wall outright, so this is
-## a penalty rather than an absent bonus — the bot must actively avoid donating the
+## a penalty rather than an absent bonus â€” the bot must actively avoid donating the
 ## spell, not merely fail to be rewarded for it.
 static func _combo_penalty(bb: Dictionary, me: Vector2, foe: Vector2,
 		f: Dictionary) -> float:
@@ -2023,8 +2066,8 @@ static func _note_cast(bb: Dictionary, m: Memory, slot: int, now: float) -> void
 ## acts when a spell is off cooldown reads as idle between casts, and the fists are
 ## what keep pressure on in the gaps. Rate-limited to the body's own melee cooldown
 ## so it is not spamming a button the body would ignore anyway.
-## ⚠ THE RANGE GATE USED TO BE `reach * 1.1` FOR EVERY CLASS, and that was a whole
-## missing verb. `reach` is `Hero._melee_range` — about 58-96 px — but LMB is a
+## âš  THE RANGE GATE USED TO BE `reach * 1.1` FOR EVERY CLASS, and that was a whole
+## missing verb. `reach` is `Hero._melee_range` â€” about 58-96 px â€” but LMB is a
 ## THROWN BOLT on five of the nine classes and a frost cone on a sixth. So a
 ## Cryomancer standing in its own authored 200-360 px band could never satisfy this
 ## test, and therefore never fired a single basic attack in its life: it walked to
@@ -2071,7 +2114,7 @@ static func _primary_range(bb: Dictionary) -> float:
 ## THE ERROR IS THE POINT, not a concession. No-auto-aim is a locked design rule:
 ## the bot points a direction and the shot goes there whether or not anyone is
 ## standing in it. The lead makes it a competent shot; the error, sampled once per
-## decision and held, makes it a shot that can miss. Both halves are needed — lead
+## decision and held, makes it a shot that can miss. Both halves are needed â€” lead
 ## with no error is a homing missile, error with no lead is a bot that cannot hit a
 ## moving target at all.
 static func _aim(bb: Dictionary, _profile: Dictionary, m: Memory, _now: float) -> Vector2:
@@ -2100,28 +2143,28 @@ static func _aim(bb: Dictionary, _profile: Dictionary, m: Memory, _now: float) -
 ## scoring a spell that no longer exists.
 ##
 ## Cached per class for the process. build_for_class mints fresh Resources each call
-## (correctly — they are mutable), so calling it per bot per frame would be pure
+## (correctly â€” they are mutable), so calling it per bot per frame would be pure
 ## garbage collection.
-## ⚠ KEYED BY THE HAND, NOT BY THE CLASS, and that is a bug fix rather than a
+## âš  KEYED BY THE HAND, NOT BY THE CLASS, and that is a bug fix rather than a
 ## refinement. `SpellLibrary.set_slot_roles` lets the player CHOOSE which of a
-## class's five authored roles they carry — six legal hands per class — and a cache
+## class's five authored roles they carry â€” six legal hands per class â€” and a cache
 ## keyed on `class_id` alone answered with whichever hand happened to be asked about
 ## first, for the rest of the process. A bot (or the player's own puppet on a peer's
 ## screen) would then steer, range and combo against spells it is not holding, with
 ## nothing anywhere reporting a problem.
-## ══ WHAT THE BODY IS ACTUALLY HOLDING ═══════════════════════════════════════
+## â•â• WHAT THE BODY IS ACTUALLY HOLDING â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 ## `_kit_facts` answers from the CLASS KIT. That is right for a class's own hand and
 ## wrong the moment a Tier 2 / Tier 3 drop displaces a slot: the bot goes on scoring
-## the spell it USED to have — that spell's range, form, cast time and role — and so
+## the spell it USED to have â€” that spell's range, form, cast time and role â€” and so
 ## it casts a 235 px ring at whatever distance the displaced spell wanted. The
 ## `slot_affordable` note in `score_slots` already flags this as the gap it can only
 ## half-close: that flag says the slot EXISTS, never what is in it.
 ##
 ## Keyed by `self_id`, which is the body's instance id and is already on the
 ## blackboard. Per BODY rather than per class because two bots in one duel hold
-## different drops — the exact case a class-keyed cache got wrong before.
+## different drops â€” the exact case a class-keyed cache got wrong before.
 ##
-## ⚠ AN OVERLAY, NOT A CACHE ENTRY. Writing a drop into `_kit_cache` would poison
+## âš  AN OVERLAY, NOT A CACHE ENTRY. Writing a drop into `_kit_cache` would poison
 ## the shared facts of every other body of that class for the life of the process.
 static var _drop_facts: Dictionary = {}
 
@@ -2178,7 +2221,7 @@ static func _kit_facts(class_id: int) -> Array:
 
 
 ## ONE SPELL, reduced to what the scorer needs. Extracted so a DROP is described in
-## exactly the same terms as a kit spell — two drifting descriptions of the same
+## exactly the same terms as a kit spell â€” two drifting descriptions of the same
 ## thing is how a bot ends up steering against a spell nobody is holding.
 static func _facts_of(s: SpellDef, role: String) -> Dictionary:
 	var form: int = ReactionTable.form_for_kind(s.kind)
@@ -2187,7 +2230,7 @@ static func _facts_of(s: SpellDef, role: String) -> Dictionary:
 		# WHICH ROLE THIS CLASS PUT HERE. The situational scorer matches on this
 		# rather than on the slot index, because with a three-spell hand the middle
 		# slot is control / answer / payoff depending on the class. A DROP reports
-		# "drop", which matches no situational row — correct, because it is scored on
+		# "drop", which matches no situational row â€” correct, because it is scored on
 		# its tier and its range rather than on a role it was never authored for.
 		"role": role,
 		"element": s.element,
@@ -2204,12 +2247,12 @@ static func _facts_of(s: SpellDef, role: String) -> Dictionary:
 	}
 
 
-## HOW FAR THIS SPELL ACTUALLY WORKS — and the one place `SpellDef.reach` must not
+## HOW FAR THIS SPELL ACTUALLY WORKS â€” and the one place `SpellDef.reach` must not
 ## be read uniformly, because it is three different things depending on the kind:
-##   · a CAST-RANGE clamp for the placed bombardments (meteor, ray, pillar, zone,
-##     blink-strike) — the only case where "reach" means what it sounds like;
-##   · a HOP range for CHAIN, a TRAVEL BUDGET for CRAWLER / THROWN_ANCHOR / ARC;
-##   · the SIZE of the thing for WALL / ICE_WALL / WARD, where it says nothing at
+##   Â· a CAST-RANGE clamp for the placed bombardments (meteor, ray, pillar, zone,
+##     blink-strike) â€” the only case where "reach" means what it sounds like;
+##   Â· a HOP range for CHAIN, a TRAVEL BUDGET for CRAWLER / THROWN_ANCHOR / ARC;
+##   Â· the SIZE of the thing for WALL / ICE_WALL / WARD, where it says nothing at
 ##     all about range. Reading it as range there would have the bot standing 90 px
 ##     from the foe to drop a wall, which is the opposite of what a wall is for.
 ## Getting this wrong is invisible in code review and obvious in play, which is why
@@ -2235,10 +2278,10 @@ static func _effective_range(s: SpellDef) -> float:
 		SpellDef.Kind.HEX:
 			return _hex_range(s)
 		SpellDef.Kind.CATACLYSM:
-			# ⚠ THERE WAS NO ARM HERE EITHER, and one Tier 3 pays for it directly:
+			# âš  THERE WAS NO ARM HERE EITHER, and one Tier 3 pays for it directly:
 			# `equinox` declares `reach = 0`, so the fallback below sized a spell that
 			# levels the whole room as a 300 px poke. A bot that misreads range does
-			# not error — it never closes, or never fires — and bots are the clip
+			# not error â€” it never closes, or never fires â€” and bots are the clip
 			# pipeline, so it reads as "the spell is broken".
 			#
 			# `the_circuit` has NO radius by design and is the one spell in the game
@@ -2247,7 +2290,7 @@ static func _effective_range(s: SpellDef) -> float:
 			if s.id == "the_circuit":
 				return 2000.0
 			return maxf(s.reach, s.radius) if maxf(s.reach, s.radius) > 0.0 else 400.0
-	# Everything else — the placed bombardments, CHAIN, CRAWLER, THROWN_ANCHOR —
+	# Everything else â€” the placed bombardments, CHAIN, CRAWLER, THROWN_ANCHOR â€”
 	# genuinely uses `reach`.
 	return s.reach if s.reach > 0.0 else 300.0
 
@@ -2258,30 +2301,30 @@ static func _effective_range(s: SpellDef) -> float:
 ## uniformly was fine. The anti-recolour pass made it the busiest kind in the game:
 ## eleven class signatures ride it, SIX OF THEM CARRIED BY DEFAULT (Shockwave Stomp,
 ## Radiant Volley, Shatter, Raise Thrall, Iai Slash, Crescent Step) plus five ults.
-## A bot that misreads their range does not error — it just never closes, or never
+## A bot that misreads their range does not error â€” it just never closes, or never
 ## fires, and the class quietly cannot be used in a bot match. Bots are the recording
 ## pipeline, so that is a broken class, not a cosmetic gap.
 ##
 ## Two exception sets, both named rather than tabulated as bare numbers, so this
 ## stays a DERIVATION from each spell's own data:
-##   TRAVEL — the spell's damage runs the length of `length`, and its `reach` is a
+##   TRAVEL â€” the spell's damage runs the length of `length`, and its `reach` is a
 ##            cast-placement clamp far shorter than where it actually reaches. Read
 ##            `reach` here and a bot walks into melee to fire a 760 px volley.
-##   SELF   — the spell ignores the aim point entirely, so `reach` is not a range at
-##            all. `mirror_image` is the one that bites: its `reach` is 1.0 — the
+##   SELF   â€” the spell ignores the aim point entirely, so `reach` is not a range at
+##            all. `mirror_image` is the one that bites: its `reach` is 1.0 â€” the
 ##            clone's ECHO DELAY IN SECONDS, the same field-doubling ZONE does with
-##            `length` — which reads as a ONE PIXEL range, i.e. a spell the Arcanist
+##            `length` â€” which reads as a ONE PIXEL range, i.e. a spell the Arcanist
 ##            bot would hold and never cast. `blood_pact` and `gravity_flip` are
 ##            genuinely self-centred and declare no reach at all.
 const HEX_TRAVEL_RANGE: Array[String] = ["radiant_volley", "fault_line"]
-## ⚠ `gravity_flip` WAS IN THIS LIST AND IS NOT ANY MORE (2026-08-05). It became the
-## GRAVITY WELL — a PLACED cylinder with a real radius (320) and a real reach (300) —
+## âš  `gravity_flip` WAS IN THIS LIST AND IS NOT ANY MORE (2026-08-05). It became the
+## GRAVITY WELL â€” a PLACED cylinder with a real radius (320) and a real reach (300) â€”
 ## so it now has a range to reason about, and reading `HEX_SELF_RANGE` would have had
 ## the Juggernaut bot walk to 260 px and drop the well on its own feet every time. It
 ## falls through to `s.reach` with everything else that is placed.
 const HEX_SELF_CAST: Array[String] = ["mirror_image", "blood_pact"]
-## How close a bot wants to be before spending a self-centred hex. Not a range —
-## there is no range — but a "the fight is happening, this is worth it" distance, in
+## How close a bot wants to be before spending a self-centred hex. Not a range â€”
+## there is no range â€” but a "the fight is happening, this is worth it" distance, in
 ## the band the melee hexes occupy. UNTESTED GUESS.
 const HEX_SELF_RANGE: float = 260.0
 
@@ -2297,7 +2340,7 @@ static func _hex_range(s: SpellDef) -> float:
 ## Is this spell DROPPED ON A SPOT rather than fired from the hand? The distinction
 ## the near-range penalty turns on: these all plant a telegraphed footprint on the
 ## ground, so casting one at your own feet means standing in your own spell.
-## BLINK_STRIKE is placed but deliberately absent — it puts you AT the point, which
+## BLINK_STRIKE is placed but deliberately absent â€” it puts you AT the point, which
 ## is the one case where "on top of it" is the intended outcome.
 static func _is_placed(kind: int) -> bool:
 	match kind:
@@ -2308,12 +2351,12 @@ static func _is_placed(kind: int) -> bool:
 
 
 ## What the scorer assumes when the blackboard did not say which class this is. The
-## bot still fights — it just cannot reason about elements (so combos are inert) or
+## bot still fights â€” it just cannot reason about elements (so combos are inert) or
 ## about channels (so nothing is gated as a channel), and its ranges are the
 ## role's typical shape rather than its actual spell's.
 ## Stand-in facts for a slot with no real spell behind it (an unknown class, or a
-## hand that came up short). The role names are the DEFAULT three-button layout —
-## damage, one utility spell, the ult — which is what a class with no authored
+## hand that came up short). The role names are the DEFAULT three-button layout â€”
+## damage, one utility spell, the ult â€” which is what a class with no authored
 ## `SLOT_ROLES` row falls back to in `SpellLibrary.slot_roles_for_class`.
 static func _default_facts(role: int) -> Dictionary:
 	const ROLE_NAMES: Array[String] = ["damage", "control", "ult"]
@@ -2341,7 +2384,7 @@ static func _generic_facts() -> Array:
 # =========================================================================
 
 ## Is a button ready? Three sources, in order of how much they are trusted:
-##   1. an explicit boolean on the blackboard — the caller said so outright;
+##   1. an explicit boolean on the blackboard â€” the caller said so outright;
 ##   2. the extra cooldown index the body seam publishes past the five slots, if the
 ##      array is long enough to have one (see CD_*_INDEX);
 ##   3. our OWN book-keeping against the body's real cooldown constant.

@@ -553,8 +553,19 @@ func _ready() -> void:
 		# stage's own `SHOWCASE_SPAWN_A/B` are not where anybody ends up — and the left
 		# one, 440, lands two pixels inside the cover block authored at 470. See
 		# `VersusArena.SPAWN_FOOTPRINT_HALF`; the block moves, the footing does not.
-		arena_script.set("spawn_keepout_x", [
-			FLOOR_CENTRE_X - SPAWN_SPREAD, FLOOR_CENTRE_X + SPAWN_SPREAD])
+		# ⚠ TYPED, NOT A BARE LITERAL. `VersusArena.spawn_keepout_x` is `Array[float]`,
+		# and an untyped `Array` into a typed slot is the exact fault that left the duel
+		# stage with no terrain for a week ("Invalid assignment of property or key").
+		# Going through `Object.set()` rather than `=` does not make it safe — it only
+		# moves where it surfaces, which here is `_spawn_keepout()`'s typed return, so
+		# `_build_cover` would abort at its first line and cover would silently stop
+		# existing with the cause two files away.
+		#
+		# The sibling call in `_exit_tree` already casts (`[] as Array[float]`), which is
+		# the tell that somebody met this once and fixed one of the two sites.
+		var keepout: Array[float] = [
+			FLOOR_CENTRE_X - SPAWN_SPREAD, FLOOR_CENTRE_X + SPAWN_SPREAD]
+		arena_script.set("spawn_keepout_x", keepout)
 	_arena = (load(ARENA_SCENE) as PackedScene).instantiate()
 	add_child(_arena)
 	_adopt_fighters()

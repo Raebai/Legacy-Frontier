@@ -58,6 +58,8 @@ var _out: String = "clip"
 var _scene: String = "arena"
 ## Cinematic mode — see CINEMATIC_SCRIPT. On unless `--clean=0`.
 var _clean: bool = true
+## 9:16 crop for TikTok / Reels. OFF by default — see `_crop_vertical`.
+var _vertical: bool = false
 
 var _frame: int = 0
 var _saved: int = 0
@@ -126,6 +128,7 @@ func _parse_args() -> void:
 			"out": _out = value
 			"scene": _scene = value
 			"clean": _clean = value != "0"
+			"vertical": _vertical = value != "0"
 
 
 ## Walk the fight one rendered frame at a time, grabbing the viewport after the
@@ -148,6 +151,8 @@ func _run() -> void:
 		var img: Image = root.get_texture().get_image()
 		if img == null:
 			continue
+		if _vertical:
+			img = _crop_vertical(img)
 		img.save_png("%s/f%04d.png" % [_dir, _saved])
 		_saved += 1
 		# Progress on a cadence, so a long capture is visibly alive rather than a
@@ -156,3 +161,30 @@ func _run() -> void:
 			print("[clip] saved %d frames (walked %d/%d)" % [_saved, _frame, _frames])
 	print("[clip] DONE — %d frames in %s" % [_saved, ProjectSettings.globalize_path(_dir)])
 	quit(0)
+
+
+## ── 9:16 FOR TIKTOK / REELS ──────────────────────────────────────────────────
+## Maker: *"the 9:16 should be an option just like the landscape, we can post both and
+## see what lands better"*. So this is a FLAG, not a replacement — landscape stays the
+## default and the same bout can be rendered both ways for an A/B.
+##
+## ⚠ A CENTRE CROP, AND THAT IS A REAL LIMITATION RATHER THAN A DETAIL. A side-on duel
+## is horizontally wide and vertically empty; 9:16 is the opposite. Cropping a 1366-wide
+## frame to 9:16 keeps a 432 px-wide column, and the two fighters routinely stand 560 px
+## apart (`BotMatch.SPAWN_SPREAD * 2`) — so one of them will often be outside it. The
+## honest fix is a tighter game camera that keeps both bodies in the middle band, which
+## is a change to `CombatCamera`, not to a capture tool. Until that exists this is for
+## judging framing and posting tests, not for shipping every clip.
+##
+## ⚠ NEVER LETTERBOX. Black bars read as reposted horizontal content and are named in
+## the short-form research as an instant swipe. Crop, or do not go vertical.
+##
+## The crop is horizontally CENTRED and vertically FULL-HEIGHT, which keeps the HP
+## plates (top band) and the fight floor in frame rather than slicing the plates off.
+func _crop_vertical(src: Image) -> Image:
+	var h: int = src.get_height()
+	var want_w: int = int(round(float(h) * 9.0 / 16.0))
+	if want_w >= src.get_width():
+		return src        # already at least as tall as it is wide; nothing to crop
+	var x: int = int((src.get_width() - want_w) * 0.5)
+	return src.get_region(Rect2i(x, 0, want_w, h))

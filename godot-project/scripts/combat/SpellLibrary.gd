@@ -1785,10 +1785,16 @@ static func _creeping_shade() -> SpellDef:
 	s.effect = "shadow"
 	s.mp_cost = 52
 	s.cooldown = 5.5
-	## ⚠ 60 -> 76. `slice_test_spell_budget` tables this as the WEAKEST pure-damage
+	## ⚠ 60 -> 84. `slice_test_spell_budget` tables this as the WEAKEST pure-damage
 	## spell carried by anyone — 10.9 damage per second of cooldown, against a roster
 	## band of 15-27 — on the class that measured 15/64 (23%), the floor of a 288-bout
-	## round robin. 13.8 now, still under the Cryomancer's Shatter at 15.5.
+	## round robin. 15.3 now (84 / 5.5), still under the Cryomancer's Shatter at 15.5.
+	##
+	## ⚠ THIS SAID "60 -> 76 ... 13.8 now" WHILE THE CODE SHIPPED 84. The prose described
+	## an earlier iteration and was never carried forward with the value, so the only
+	## written record of WHY this number is what it is described a different number. The
+	## rationale does survive the correction — 15.3 is still under 15.5 — but that is
+	## luck rather than diligence, and it is worth knowing it was luck.
 	s.damage = 84
 	s.reach = 620.0
 	s.radius = 26.0
@@ -1815,10 +1821,15 @@ static func _rift_dagger() -> SpellDef:
 	s.effect = "shadow"
 	s.mp_cost = 46
 	s.cooldown = 4.5
-	## ⚠ 34 -> 46. The lowest damage-per-cooldown of any damage spell in the game at
-	## 7.6; 12.0 now, and still the low end — it is an ANSWER that also grants a
-	## two-beat recall, so it is not meant to be a big number. See `_creeping_shade`
-	## for the measurement this and it were retuned against.
+	## ⚠ 34 -> 54. The lowest damage-per-cooldown of any damage spell in the game at
+	## 7.6; 12.0 now (54 / 4.5), and still the low end — it is an ANSWER that also
+	## grants a two-beat recall, so it is not meant to be a big number. See
+	## `_creeping_shade` for the measurement this and it were retuned against.
+	##
+	## ⚠ THE ARROW SAID "34 -> 46" while the code shipped 54, and "12.0 now" was correct
+	## for 54 — i.e. half the sentence had been updated and half had not, which is worse
+	## than neither, because the half that agreed with the code made the whole line look
+	## checked.
 	s.damage = 54
 	s.reach = 700.0
 	s.radius = 70.0
@@ -1973,10 +1984,24 @@ static func _thousand_cuts() -> SpellDef:
 	s.effect = _effect_for_element(Elements.Element.SHADOW)
 	s.mp_cost = 72       # ULT by MP and by cooldown, with no levitating channel
 	s.cooldown = 8.0
-	## ⚠ 16 -> 21 PER CUT, i.e. 112 -> 147 landed. An 8 s ult that had to connect
-	## SEVEN times to deal less than the Brawler's single Meteor Fist (165 on 8.5 s)
-	## was the worst deal on the shelf. 18.4 damage per second of cooldown now against
-	## Meteor Fist's 19.4 — and this one still has to land all seven.
+	## ⚠ 16 -> 24 PER CUT, i.e. 112 -> 168 landed. An 8 s ult that had to connect SEVEN
+	## times to deal less than the Brawler's single Meteor Fist (165 on 8.5 s) was the
+	## worst deal on the shelf.
+	##
+	## ⚠ AND IT NOW EXCEEDS THE CEILING ITS OWN RATIONALE CITED. This comment claimed
+	## "18.4 damage per second of cooldown against Meteor Fist's 19.4" — true of 21 per
+	## cut, which is not what shipped. At 24 the real figure is 168 / 8.0 = 21.0, ABOVE
+	## the 19.4 that was the whole argument for stopping where it stopped.
+	##
+	## THE NUMBER IS DELIBERATELY LEFT ALONE. Dropping it to 21 would restore the stated
+	## logic, but that is a balance change made off a DOCUMENTATION error rather than a
+	## measurement, and the last two round robins were far too noisy to price a single
+	## class — only the Warlock's -18pp cleared 2 sigma. The mitigating clause in the
+	## original reasoning is real and unchanged: this must LAND ALL SEVEN cuts, so 21.0
+	## is a ceiling almost never collected, where Meteor Fist's 19.4 is one hit.
+	##
+	## Flagged here so the next measured sweep re-prices it deliberately instead of
+	## inheriting it. Still inside `slice_test_spell_budget`'s enforced ceilings.
 	s.damage = 24        # per cut; the finisher is a multiple of one cut
 	s.count = 7          # cuts walked around the anchor
 	s.reach = 300.0      # how far out the mark may be placed

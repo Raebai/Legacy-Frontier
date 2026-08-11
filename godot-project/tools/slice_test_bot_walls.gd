@@ -43,6 +43,7 @@ const TESTS: Array[String] = [
 	"pushing_into_a_wall_turns_around",
 	"walking_ALONG_a_wall_is_left_alone",
 	"a_wedged_bot_eventually_jumps",
+	"it_still_jumps_when_the_turn_breaks_contact",
 	"the_clock_resets_when_it_gets_free",
 	"the_guard_runs_after_the_recoil_flinch",
 	"a_body_with_no_wall_state_still_walks",
@@ -62,6 +63,7 @@ func _process(_delta: float) -> bool:
 	_test_turns_around()
 	_test_along_the_wall()
 	_test_eventually_jumps()
+	_test_jumps_through_the_bounce()
 	_test_clock_resets()
 	_test_after_the_flinch()
 	_test_fails_open()
@@ -188,13 +190,20 @@ func _test_eventually_jumps() -> void:
 	var bb: Dictionary = _bb({"on_wall": true, "wall_dir": 1.0})
 	var t: float = 0.0
 	var jumped_at: float = -1.0
+	# ⚠ MEASURED FROM THE FIRST PRESS, NOT FROM `m.wall_since`. The jump RE-ARMS the
+	# clock as it fires (otherwise the bot pogos, requesting a jump on every subsequent
+	# frame against the wall), so reading `wall_since` afterwards reports 0.00 s and
+	# this assertion accuses the guard of hopping instantly. Instrument, not behaviour.
+	var first_press: float = -1.0
 	# Press into it every frame, the way a cornered bot's band does.
 	for i: int in 40:
 		t += 0.05
 		var intent: Dictionary = {"move": Vector2.RIGHT}
 		BotBrain._unwall(intent, bb, m, t)
+		if first_press < 0.0:
+			first_press = t
 		if bool(intent.get("jump", false)) and jumped_at < 0.0:
-			jumped_at = t - m.wall_since
+			jumped_at = t - first_press
 	_expect(jumped_at >= 0.0,
 		"a bot pressed into a wall for two full seconds and never jumped — that is "
 		+ "the corner it dies in")
@@ -205,9 +214,53 @@ func _test_eventually_jumps() -> void:
 	_completed["a_wedged_bot_eventually_jumps"] = true
 
 
+# -------------------------------------------------------------------------- 5b
+## ⚠ THE TEST ABOVE PASSED WHILE THE FEATURE WAS DEAD, AND THIS IS THE ONE THAT CATCHES
+## IT. `_test_eventually_jumps` holds `on_wall: true` on EVERY frame — but rung one
+## turns the bot around, which breaks wall contact on the very next frame. So it asserts
+## the jump under a condition the fix itself prevents from ever occurring.
+##
+## In play the shape is a BOUNCE: pressed → turned away → off the wall → steering (whose
+## opinion has not changed) walks back in → pressed again. The old code cleared the
+## clock on every off-wall frame, so elapsed time never grew past a frame and
+## `intent["jump"]` was unreachable. `WALL_CLEAR_GRACE` is what bridges the bounce.
+##
+## Modelled as alternating frames, which is the fastest bounce the body can produce and
+## therefore the hardest case for the grace to survive.
+func _test_jumps_through_the_bounce() -> void:
+	var m: BotBrain.Memory = _mem()
+	var t: float = 0.0
+	var jumped: bool = false
+	var pressed_frames: int = 0
+	for i: int in 80:
+		t += 0.05
+		var touching: bool = i % 2 == 0
+		var bb: Dictionary = _bb({
+			"on_wall": touching, "wall_dir": 1.0 if touching else 0.0})
+		var intent: Dictionary = {"move": Vector2.RIGHT}
+		BotBrain._unwall(intent, bb, m, t)
+		if touching:
+			pressed_frames += 1
+		if bool(intent.get("jump", false)):
+			jumped = true
+			break
+	_expect(pressed_frames > 0, "the harness actually pressed it into a wall")
+	_expect(jumped,
+		"a bot bouncing off a wall it keeps walking back into never jumped in 4 "
+			+ "seconds — rung two of the guard is unreachable in play, which is the "
+			+ "corner it dies in")
+	_completed["it_still_jumps_when_the_turn_breaks_contact"] = true
+
+
 # --------------------------------------------------------------------------- 6
 ## And once it IS free, the clock must reset, or the next brush against anything
 ## makes it jump immediately for the rest of the bout.
+##
+## ⚠ THE RESET IS NOW GRACED, NOT INSTANT, and this assertion changed WITH the fix
+## rather than around it. A single off-wall frame must NOT clear the clock — that
+## instant reset is exactly what made rung two unreachable (see 5b). What must still
+## hold is the property this test was written for: a bot that genuinely got away is
+## forgotten, so it does not hop the moment it brushes the next riser.
 func _test_clock_resets() -> void:
 	var m: BotBrain.Memory = _mem()
 	var walled: Dictionary = _bb({"on_wall": true, "wall_dir": 1.0})
@@ -215,9 +268,18 @@ func _test_clock_resets() -> void:
 		var a: Dictionary = {"move": Vector2.RIGHT}
 		BotBrain._unwall(a, walled, m, float(i) * 0.05)
 	_expect(m.wall_since >= 0.0, "the clock never started")
+	# One free frame: the clock must SURVIVE, or the bounce clears it every time.
+	var blink: Dictionary = {"move": Vector2.RIGHT}
+	BotBrain._unwall(blink, _bb(), m, 1.0)
+	_expect(m.wall_since >= 0.0,
+		"a single off-wall frame cleared the stuck clock — that is the instant reset "
+			+ "that made the jump rung dead code")
+	# Genuinely away, for longer than the grace: now it must be forgotten.
 	var free: Dictionary = {"move": Vector2.RIGHT}
-	BotBrain._unwall(free, _bb(), m, 2.0)
-	_expect(m.wall_since < 0.0, "the wall clock survived getting free")
+	BotBrain._unwall(free, _bb(), m, 1.0 + BotBrain.WALL_CLEAR_GRACE + 0.05)
+	_expect(m.wall_since < 0.0,
+		"the wall clock survived getting genuinely free for longer than "
+			+ "WALL_CLEAR_GRACE (%.2f s)" % BotBrain.WALL_CLEAR_GRACE)
 	_completed["the_clock_resets_when_it_gets_free"] = true
 
 
