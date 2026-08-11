@@ -47,6 +47,7 @@ const TESTS: Array[String] = [
 	"cover_matches_the_variant_count",
 	"cover_sits_on_the_fight_floor",
 	"cover_never_gates_the_opening",
+	"no_terrain_swallows_a_spawn",
 	"the_roll_is_stable_within_a_bout",
 ]
 
@@ -81,6 +82,7 @@ func _process(_delta: float) -> bool:
 	_test_cover_count()
 	_test_cover_on_floor()
 	_test_cover_not_in_the_corridor()
+	_test_terrain_clear_of_spawns()
 	_test_roll_stable()
 
 	for name: String in TESTS:
@@ -286,6 +288,62 @@ func _test_cover_not_in_the_corridor() -> void:
 
 
 # --------------------------------------------------------------------------- 9
+## NO TERRACE MAY CONTAIN A SPAWN POINT. This is the check whose absence let variant 2
+## ship with the right-hand fighter buried in solid rock on ~1 bout in 3.
+##
+## ⚠ THE MISTAKE THAT MADE IT INVISIBLE: a terrace row LOOKS like a surface — it is
+## authored as `{surface_y, x0, x1}`, and every test above reasons about it as a line
+## you stand on. `_make_terrace` grows it DOWNWARD by `TERRACE_DEPTH` into a solid body.
+## So the authored table can be entirely legal as a set of surfaces (correct risers, all
+## reachable, inside the rim — variant 2 passed all four) while one of those surfaces is
+## a 320 px-deep block sitting exactly where a fighter is about to be placed.
+##
+## The cover test next door pins the same corridor. Cover got a rule and terrain did
+## not, which is the more dangerous half: a crate you can break, and rock you cannot.
+func _test_terrain_clear_of_spawns() -> void:
+	var depth: float = float(_k.get("TERRACE_DEPTH", 320.0))
+	# Every point any mode places a body at, gathered from the constants themselves so a
+	# spawn that MOVES is re-checked rather than silently escaping this test.
+	var spawns: Array[Vector2] = []
+	for key: String in ["DUEL_SPAWN_HUMAN", "DUEL_SPAWN_BOT", "SHOWCASE_SPAWN_A",
+			"SHOWCASE_SPAWN_B", "FREE_SPAWN"]:
+		var v: Variant = _k.get(key)
+		if v is Vector2:
+			spawns.append(v as Vector2)
+	# ...plus BotMatch's, which are NOT in this file: it re-seats the fighters after the
+	# arena is built, so the stage's own spawn constants are not where anybody ends up.
+	var bm: GDScript = load("res://scripts/combat/BotMatch.gd") as GDScript
+	if bm != null:
+		var bk: Dictionary = bm.get_script_constant_map()
+		var cx: float = float(bk.get("FLOOR_CENTRE_X", 720.0))
+		var spread: float = float(bk.get("SPAWN_SPREAD", 280.0))
+		var sy: float = float(bk.get("SPAWN_Y", 760.0))
+		spawns.append(Vector2(cx - spread, sy))
+		spawns.append(Vector2(cx + spread, sy))
+	_expect(not spawns.is_empty(),
+		"found at least one spawn constant to check — an empty list would make every "
+			+ "assertion below vacuously true, which is how the bug got in")
+
+	# Half a body plus the air it wants, matching SPAWN_FOOTPRINT_HALF's reasoning.
+	var pad: float = float(_k.get("SPAWN_FOOTPRINT_HALF", 22.0))
+	for i: int in _variants().size():
+		for t: Dictionary in _variants()[i]:
+			var top: float = float(t["surface_y"])
+			var x0: float = float(t["x0"]) - pad
+			var x1: float = float(t["x1"]) + pad
+			for s: Vector2 in spawns:
+				var inside: bool = s.x >= x0 and s.x <= x1 \
+					and s.y > top and s.y < top + depth
+				_expect(not inside,
+					"variant %d buries a spawn at (%.0f, %.0f) inside the terrace whose "
+						% [i, s.x, s.y] + "surface is y %.0f spanning x %.0f..%.0f — a "
+						% [top, float(t["x0"]), float(t["x1"])]
+						+ "terrace is %.0f px of SOLID ROCK below its surface, not a line"
+						% depth)
+	_completed["no_terrain_swallows_a_spawn"] = true
+
+
+# -------------------------------------------------------------------------- 10
 ## ⚠ EVERY BUILDER ASKS SEPARATELY. `_build_terrain` and `_build_cover` each call the
 ## accessor, so a roll that re-rolled per call would build the terrain for one stage
 ## and place the cover for another — and it would do it rarely enough to look like a

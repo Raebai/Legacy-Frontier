@@ -124,7 +124,9 @@ func _process(delta: float) -> void:
 
 
 func _strike(who: Variant) -> void:
-	if not (who is Node2D) or not is_instance_valid(who) \
+	# ⚠ VALIDITY BEFORE `is` — the arc walks `_links` killing bodies as it goes, so a
+	# later link being dead by the time it is reached is the mechanic, not a rare race.
+	if not is_instance_valid(who) or not (who is Node2D) \
 			or (who as Node2D).is_queued_for_deletion():
 		return
 	var n: Node2D = who as Node2D
@@ -184,7 +186,7 @@ func _draw() -> void:
 		if bool(link["hit"]):
 			continue
 		var who: Variant = link["node"]
-		if not (who is Node2D) or not is_instance_valid(who):
+		if not is_instance_valid(who) or not (who is Node2D):
 			continue
 		var at: float = float(link["at"])
 		var lead: float = clampf(1.0 - (at - _elapsed) / maxf(_life * 0.5, 0.001), 0.0, 1.0)

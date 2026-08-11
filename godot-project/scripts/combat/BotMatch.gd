@@ -1461,7 +1461,9 @@ func _set_rank_hud(shown: bool) -> void:
 	if rank == null:
 		return
 	var label: Variant = rank.get("_hud_label")
-	if label is Label and is_instance_valid(label):
+	# ⚠ VALIDITY BEFORE `is` — this Label lives in the arena scene but is held by the
+	# `Rank` AUTOLOAD, which outlives every scene change. Textbook stale reference.
+	if is_instance_valid(label) and label is Label:
 		(label as Label).visible = shown
 
 

@@ -121,7 +121,10 @@ func rig() -> Node:
 ## mechanics in this codebase already).
 func nearest_hero() -> Node2D:
 	var tree: SceneTree = get_tree()
-	if tree == null or boss == null:
+	# ⚠ `boss == null` DOES NOT CATCH A FREED BOSS — a freed Object is not null, and the
+	# `as Node2D` cast below dereferences it. Riders are usually freed with their boss,
+	# but nothing here enforces that, so check validity rather than relying on it.
+	if tree == null or not is_instance_valid(boss):
 		return null
 	var best: Node2D = null
 	var best_d: float = INF
@@ -137,6 +140,10 @@ func nearest_hero() -> Node2D:
 
 
 func boss_pos() -> Vector2:
+	# ⚠ UNGUARDED `is` ON A STORED REF — `boss` is a member that outlives nothing in
+	# particular, and `is` throws on a freed instance rather than answering false.
+	if not is_instance_valid(boss):
+		return Vector2.ZERO
 	return (boss as Node2D).global_position if boss is Node2D else Vector2.ZERO
 
 

@@ -340,7 +340,10 @@ static func owner_of(thrall: Node) -> Node:
 	if not thrall.has_meta(OWNER_META):
 		return null
 	var v: Variant = thrall.get_meta(OWNER_META)
-	if v is Node and is_instance_valid(v as Node):
+	# ⚠ VALIDITY BEFORE `is`. This helper exists so "check the meta is valid first" is
+	# written once — and the check it centralised was unreachable, because `is` throws
+	# on a freed instance before the guard runs. A thrall routinely outlives its Hero.
+	if is_instance_valid(v) and v is Node:
 		return v as Node
 	return null
 

@@ -1020,9 +1020,15 @@ func _make_alive(b: Button) -> void:
 func _btn_scale(b: Button, to: float, time: float = 0.11) -> void:
 	if not is_instance_valid(b) or not b.is_inside_tree():
 		return
-	var prev: Variant = b.get_meta("scale_tween", null)
-	if prev is Tween and (prev as Tween).is_valid():
-		(prev as Tween).kill()
+	# ⚠ `has_meta` FIRST. `get_meta(name, null)` does NOT return the default — Godot
+	# reads a null default as "no default supplied" and pushes "The object does not
+	# have any 'meta' values with the key 'scale_tween'." So every button logged an
+	# error the first time it was hovered, three of them before the title screen had
+	# finished being looked at. Same trap as `CastName._heavy_label`.
+	if b.has_meta("scale_tween"):
+		var prev: Variant = b.get_meta("scale_tween")
+		if prev is Tween and (prev as Tween).is_valid():
+			(prev as Tween).kill()
 	b.pivot_offset = b.size * 0.5
 	var tw: Tween = b.create_tween()
 	tw.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK if to > 1.0 else Tween.TRANS_QUAD)

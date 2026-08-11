@@ -242,7 +242,9 @@ func _caster_ok() -> bool:
 
 
 func _caster_pos() -> Vector2:
-	if caster_node is Node2D and is_instance_valid(caster_node):
+	# ⚠ VALIDITY BEFORE `is` — `_caster_ok()` just above gets this order right; this
+	# function was the odd one out, and the pact outlives its caster by design.
+	if is_instance_valid(caster_node) and caster_node is Node2D:
 		return (caster_node as Node2D).global_position
 	return Vector2.ZERO
 

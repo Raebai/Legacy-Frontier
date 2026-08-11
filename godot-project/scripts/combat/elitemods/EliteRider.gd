@@ -292,10 +292,18 @@ func is_authority() -> bool:
 ## An enemy at 0 hp is mid-death: `Enemy._die()` has already run and `queue_free` is
 ## pending. Riders stop ticking there so nothing fires out of a corpse.
 func is_dead() -> bool:
+	# ⚠ A FREED ENEMY IS DEAD, and `.get()` on one is a fault rather than an answer.
+	# This function's whole job is "stop ticking out of a corpse", and the most corpse-y
+	# state of all — already freed — was the one it could not survive being asked about.
+	if not is_instance_valid(enemy):
+		return true
 	return int(enemy.get("hp")) <= 0
 
 
 func enemy_pos() -> Vector2:
+	# ⚠ UNGUARDED `is` ON A STORED REF — see `is_dead`.
+	if not is_instance_valid(enemy):
+		return Vector2.ZERO
 	return (enemy as Node2D).global_position if enemy is Node2D else Vector2.ZERO
 
 

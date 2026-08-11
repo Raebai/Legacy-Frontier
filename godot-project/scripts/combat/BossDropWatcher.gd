@@ -88,7 +88,7 @@ func _on_boss_down() -> void:
 	# data (`SpellDrops.BOSS_ANCHOR` via FloorBuilder), so it is byte-identical
 	# across peers. Solo is left EXACTLY as it was: the drop still lands on the
 	# corpse in the mode that has actually been played.
-	if _boss is Node2D and is_instance_valid(_boss) and not _coop_active():
+	if is_instance_valid(_boss) and _boss is Node2D and not _coop_active():
 		at = (_boss as Node2D).global_position
 	_drop_after(at)
 

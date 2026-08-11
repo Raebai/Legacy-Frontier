@@ -440,8 +440,13 @@ func _stamp_ghost(delta: float) -> void:
 	if _ghost_accum < GHOST_INTERVAL:
 		return
 	_ghost_accum = 0.0
+	# ⚠ THE CLONE OUTLIVES ITS CASTER BY DESIGN, so `caster_node` must be checked before
+	# it is dereferenced at all — `.get()` on a freed object is its own fault, separate
+	# from the ordering one below.
+	if not is_instance_valid(caster_node):
+		return
 	var rig: Variant = caster_node.get(&"rig")
-	if rig == null or not (rig is Node2D) or not is_instance_valid(rig as Object):
+	if rig == null or not is_instance_valid(rig) or not (rig is Node2D):
 		return
 	var rig2: Node2D = rig as Node2D
 	if not rig2.has_method(&"_compute_pose"):

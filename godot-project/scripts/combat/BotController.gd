@@ -801,7 +801,7 @@ static func _facing_of(n: Node) -> float:
 	if f is Vector2:
 		return signf((f as Vector2).x)
 	var rig: Variant = n.get(&"rig")
-	if rig is Node2D and is_instance_valid(rig):
+	if is_instance_valid(rig) and rig is Node2D:
 		return signf((rig as Node2D).scale.x)
 	return 0.0
 

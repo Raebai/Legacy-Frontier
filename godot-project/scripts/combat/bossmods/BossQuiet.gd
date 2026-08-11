@@ -35,7 +35,9 @@ func _process(_delta: float) -> void:
 	if boss == null or not is_instance_valid(boss):
 		return
 	var layer: Variant = boss.get("_bar_layer")
-	if layer is Node and is_instance_valid(layer):
+	# ⚠ VALIDITY BEFORE `is` — the boss is checked above, but `_bar_layer` is a separate
+	# stored member that this very block frees, so it can already be gone.
+	if is_instance_valid(layer) and layer is Node:
 		# Takes the intro card with it: `Boss._play_intro` parents the card to this
 		# same layer, so one free() removes both.
 		(layer as Node).queue_free()

@@ -131,7 +131,9 @@ func _release() -> void:
 	var live: Array[Node2D] = []
 	for id: Variant in _marked.keys():
 		var n: Variant = _marked[id]
-		if n is Node2D and is_instance_valid(n) and not (n as Node2D).is_queued_for_deletion():
+		# ⚠ VALIDITY BEFORE `is` — `_marked` holds bodies from cast to release, and dying
+		# in between is this spell's normal case, not its edge case.
+		if is_instance_valid(n) and n is Node2D and not (n as Node2D).is_queued_for_deletion():
 			live.append(n as Node2D)
 	# ⚠ PRICED OFF THE LIVE COUNT, not off everything ever marked. A body that died
 	# during the stance already paid; counting its ghost would let you inflate the
@@ -187,7 +189,7 @@ func _draw() -> void:
 	# The gathering edge on each mark — a held breath, not a countdown ring.
 	for id: Variant in _marked.keys():
 		var b: Variant = _marked[id]
-		if not (b is Node2D) or not is_instance_valid(b):
+		if not is_instance_valid(b) or not (b is Node2D):
 			continue
 		var p: Vector2 = (b as Node2D).global_position
 		draw_line(p - perp * 16.0, p + perp * 16.0,

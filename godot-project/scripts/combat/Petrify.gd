@@ -236,7 +236,7 @@ func _launch() -> void:
 			closest = n as Node2D
 	if closest != null:
 		away = _victim.global_position - closest.global_position
-	elif caster_node is Node2D and is_instance_valid(caster_node):
+	elif is_instance_valid(caster_node) and caster_node is Node2D:
 		away = _victim.global_position - (caster_node as Node2D).global_position
 	if away.length_squared() < 1.0:
 		away = Vector2.RIGHT

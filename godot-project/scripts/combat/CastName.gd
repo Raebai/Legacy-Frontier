@@ -99,9 +99,33 @@ const LABEL_META: StringName = &"cast_name_label"
 static func _heavy_label(parent: Node, who: Node2D, text: String, tint: Color) -> Node:
 	if who == null or not is_instance_valid(who):
 		return null
-	var live: Variant = who.get_meta(LABEL_META, null)
-	if live is Node and is_instance_valid(live as Node):
-		(live as Node).queue_free()
+	# ⚠ TWO BUGS LIVED ON THESE TWO LINES, AND BOTH FIRED IN EVERY BOT FIGHT.
+	#
+	# 1. `get_meta(name, null)` DOES NOT RETURN THE DEFAULT. Godot compares the given
+	#    default against `Variant()` to decide whether one was supplied — and `null` IS
+	#    `Variant()` — so a null default is indistinguishable from no default and it
+	#    pushes "The object does not have any 'meta' values with the key ..." instead.
+	#    Every fighter's FIRST heavy cast logged that error. `has_meta` is the fix.
+	#
+	# 2. `live is Node and is_instance_valid(...)` HAS ITS GUARD ON THE WRONG SIDE.
+	#    `is` THROWS on a previously freed instance — so when `live` was dangling the
+	#    expression died on the `is`, and the `is_instance_valid` written to protect it
+	#    was unreachable by construction. That is the crash:
+	#
+	#      SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+	#
+	#    And it was guaranteed, not unlucky: the label frees ITSELF after HEAVY_LIFE
+	#    seconds while this meta key goes on pointing at it, so the second heavy cast
+	#    by any fighter hits a dead reference — about a second into every fight.
+	#
+	# `typeof(...) == TYPE_OBJECT` is safe where `is` is not: it reads the Variant's
+	# type tag without dereferencing the object.
+	if who.has_meta(LABEL_META):
+		var live: Variant = who.get_meta(LABEL_META)
+		if typeof(live) == TYPE_OBJECT and is_instance_valid(live):
+			var prev: Node = live as Node
+			if prev != null:
+				prev.queue_free()
 	var n := CastName.new()
 	n._text = text
 	n._tint = tint

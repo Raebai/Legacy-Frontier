@@ -125,7 +125,10 @@ func chain(
 	var dmg: float = float(damage)
 	var tint: Color = Color(color.r, color.g, color.b, 1.0)
 	for e: Node in links:
-		if e is Node2D and is_instance_valid(e):
+		# ⚠ VALIDITY BEFORE `is`. The scan is same-frame, but this loop DAMAGES each link
+		# as it goes — so a chain death that frees a later link makes the array stale
+		# mid-iteration. The comment below already knew damage can free things.
+		if is_instance_valid(e) and e is Node2D:
 			_points.append((e as Node2D).global_position)  # capture BEFORE damage (may free)
 		if e.has_method("take_damage"):
 			SpellTargets.hurt(e, int(round(dmg)), tint)

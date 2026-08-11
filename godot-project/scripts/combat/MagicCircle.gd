@@ -563,7 +563,8 @@ static func withdraw(caster: Node) -> void:
 static func _expire_offer(id: int) -> void:
 	var c: Variant = _offers.get(id)
 	_offers.erase(id)
-	if c is MagicCircle and is_instance_valid(c):
+	# ⚠ VALIDITY BEFORE `is` — `_offers` is a STATIC registry that outlives scenes.
+	if is_instance_valid(c) and c is MagicCircle:
 		(c as MagicCircle)._offer_caster_id = 0
 		(c as MagicCircle)._offered_at_ms = 0
 		(c as MagicCircle).vanish(OFFER_EXPIRE_FADE)
@@ -632,7 +633,8 @@ static func _take(caster: Node) -> MagicCircle:
 		return null
 	var c: Variant = _offers.get(id)
 	_offers.erase(id)
-	if not (c is MagicCircle) or not is_instance_valid(c):
+	# ⚠ VALIDITY BEFORE `is` — see `_sweep_offers`. Static registry, freed entries.
+	if not is_instance_valid(c) or not (c is MagicCircle):
 		return null
 	var circle: MagicCircle = c as MagicCircle
 	# Cleared BEFORE the reparent: reparent() fires _exit_tree, which clears the
@@ -648,7 +650,10 @@ static func _take(caster: Node) -> MagicCircle:
 static func _sweep_offers() -> void:
 	for id: Variant in _offers.keys():
 		var c: Variant = _offers[id]
-		if not (c is MagicCircle) or not is_instance_valid(c):
+		# ⚠ VALIDITY BEFORE `is`. This sweep exists SOLELY to drop registry entries whose
+		# circle has been freed, and it threw on the first freed entry instead of erasing
+		# it — the one function guaranteed to meet the case it could not survive.
+		if not is_instance_valid(c) or not (c is MagicCircle):
 			_offers.erase(id)
 
 

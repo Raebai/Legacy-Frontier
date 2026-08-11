@@ -456,7 +456,10 @@ static func _recoil(body: Node, dir: Vector2, strength: float) -> void:
 	elif body.has_method(&"hit"):
 		body.call(&"hit", dir, strength)
 	var rig: Variant = body.get(&"rig")
-	if rig is Node and is_instance_valid(rig) and rig.has_method(&"clash_recoil"):
+	# ⚠ VALIDITY BEFORE `is`. `body` is checked further up, but the `hit` /
+	# `apply_knockback` calls between there and here can KILL the body and free its rig
+	# inside this same call — so the stale reference is manufactured a few lines above.
+	if is_instance_valid(rig) and rig is Node and rig.has_method(&"clash_recoil"):
 		rig.call(&"clash_recoil", dir, clampf(strength / OVERPOWER_THROW, 0.4, 1.0))
 
 

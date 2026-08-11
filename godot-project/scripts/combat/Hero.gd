@@ -3988,7 +3988,10 @@ func _nearest_thrall() -> Node2D:
 	for n: Node in get_tree().get_nodes_in_group(THRALL_GROUP):
 		if not (n is Node2D) or not is_instance_valid(n):
 			continue
-		if n.get_meta(THRALL_OWNER_META, null) != self:
+		# ⚠ `has_meta` FIRST — `get_meta(name, null)` does not return the default and
+		# errors instead (Godot cannot tell a null default from no default). Any node
+		# in the thrall group without an owner stamp logged one per scan, per frame.
+		if not n.has_meta(THRALL_OWNER_META) or n.get_meta(THRALL_OWNER_META) != self:
 			continue  # somebody else's minion is not our escape route
 		# A dying/dead minion is not a destination. `hp` is optional — a thrall that
 		# does not publish one is treated as alive, which is the safe default.

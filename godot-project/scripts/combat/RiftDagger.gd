@@ -526,7 +526,11 @@ func _resolve_recall() -> void:
 	var dest: Vector2 = _safe_arrival(_pos + Vector2(0.0, -4.0), from)
 	if _owner != null and is_instance_valid(_owner) and _owner.has_method("blink_to"):
 		dest = _owner.call("blink_to", dest)
-	elif _owner is Node2D and is_instance_valid(_owner):
+	# ⚠ VALIDITY BEFORE `is`, AND THIS ONE IS THE WORST SHAPE OF THE FAMILY: the `if`
+	# above fails a freed `_owner` VIA its validity check, which routes execution
+	# straight into this `elif` — so the freed case is the branch guaranteed to reach
+	# the throw, not the one that escapes it.
+	elif is_instance_valid(_owner) and _owner is Node2D:
 		(_owner as Node2D).global_position = dest
 	var tint := Color(_color.r, _color.g, _color.b, 1.0)
 	var skip: Array = [_owner]
@@ -632,7 +636,9 @@ func _owner_point() -> Vector2:
 	if _owner == null or not is_instance_valid(_owner):
 		return _pos
 	var torso: Variant = _owner.get("_torso")
-	if torso is Node2D and is_instance_valid(torso):
+	# ⚠ `_owner` is checked above, but `_torso` is a separate stored member on the rig
+	# and can be freed while the rig survives. Validity before `is`.
+	if is_instance_valid(torso) and torso is Node2D:
 		return (torso as Node2D).global_position
 	if _owner is Node2D:
 		return (_owner as Node2D).global_position

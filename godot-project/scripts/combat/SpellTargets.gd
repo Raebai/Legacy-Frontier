@@ -172,7 +172,10 @@ static func owner_of(ctx: Object) -> Object:
 		return null
 	for field: StringName in [&"caster_node", &"_caster", &"_owner", &"caster"]:
 		var v: Variant = ctx.get(field)
-		if v != null and v is Object and is_instance_valid(v as Object):
+		# ⚠ VALIDITY BEFORE `is` — `is` throws on a freed instance, and `v != null` does
+		# NOT filter one out. These four fields are exactly the long-lived caster refs a
+		# spectacle outlives, and this is the owner helper the whole combat layer calls.
+		if v != null and is_instance_valid(v) and v is Object:
 			return v as Object
 	return null
 

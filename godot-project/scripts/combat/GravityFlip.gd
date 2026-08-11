@@ -254,7 +254,10 @@ func _lift_everyone(delta: float) -> void:
 		if seen.has(id):
 			continue
 		var b: Variant = _held[id]
-		if b is Node2D and is_instance_valid(b as Node2D):
+		# ⚠ VALIDITY BEFORE `is` — `is` throws on a freed instance. This branch exists
+		# for bodies that "left the group entirely (died, despawned)", i.e. the freed
+		# case, so the guard was unreachable exactly when it was needed.
+		if is_instance_valid(b) and b is Node2D:
 			_release(b as Node2D)
 		_held.erase(id)
 
@@ -325,7 +328,7 @@ func _end() -> void:
 		blocked = own.get_instance_id()
 	for id: int in _held.keys():
 		var b: Variant = _held[id]
-		if not (b is Node2D) or not is_instance_valid(b as Node2D):
+		if not is_instance_valid(b) or not (b is Node2D):
 			continue
 		var body: Node2D = b as Node2D
 		_release(body)
@@ -352,7 +355,7 @@ func _watch_landings() -> void:
 	for i: int in range(_watch.size() - 1, -1, -1):
 		var e: Dictionary = _watch[i]
 		var b: Variant = e["node"]
-		if not (b is Node2D) or not is_instance_valid(b as Node2D) \
+		if not is_instance_valid(b) or not (b is Node2D) \
 				or (b as Node2D).is_queued_for_deletion():
 			_watch.remove_at(i)
 			continue
@@ -398,7 +401,8 @@ func _land(body: Node2D, drop: float) -> void:
 func _exit_tree() -> void:
 	for id: int in _held.keys():
 		var b: Variant = _held[id]
-		if b is Node2D and is_instance_valid(b as Node2D):
+		# ⚠ VALIDITY BEFORE `is` — teardown, where held bodies are commonly already gone.
+		if is_instance_valid(b) and b is Node2D:
 			_release(b as Node2D)
 	_held.clear()
 

@@ -30,6 +30,23 @@ extends SceneTree
 const ARENA_SCENE: String = "res://scenes/combat/VersusArena.tscn"
 const ARENA_SCRIPT: String = "res://scripts/combat/VersusArena.gd"
 
+## ⚠ `--scene=botmatch` CAPTURES WHAT THE MAKER ACTUALLY WATCHES. "Watch Bots" on the
+## title screen opens `BotMatch`, which WRAPS the arena and adds its own intro card,
+## overlay, bout counter and `ClipDirector` framing. Capturing `VersusArena` alone —
+## the default, and the only thing this tool could do before — reviews a presentation
+## nobody sees, and every framing note taken from it is about the wrong picture.
+const BOT_MATCH_SCENE: String = "res://scenes/combat/BotMatch.tscn"
+
+## ⚠ CINEMATIC MODE ON BY DEFAULT HERE, unlike everywhere else in the project.
+## `Cinematic.enabled` is deliberately OFF globally because ~69 capture tools exist to
+## photograph exactly the diagnostics it hides. THIS tool is not one of them: its whole
+## stated purpose is a frame sequence someone can watch, and it was burning the clip
+## engine's own `heat 0.00 [ROLLING]` readout into the bottom-left and the touch PAUSE
+## button into the top-right of every single frame. `directed_clip_capture.gd` already
+## opts in for the same reason; this one simply never did, so every clip it has ever
+## produced carried the instruments. `--clean=0` restores the old behaviour.
+const CINEMATIC_SCRIPT: String = "res://scripts/combat/Cinematic.gd"
+
 var _class_a: int = 0
 var _class_b: int = 5
 var _frames: int = 420
@@ -37,6 +54,10 @@ var _every: int = 2
 var _warmup: int = 90
 var _difficulty: int = 2
 var _out: String = "clip"
+## "arena" (default) or "botmatch" — see BOT_MATCH_SCENE.
+var _scene: String = "arena"
+## Cinematic mode — see CINEMATIC_SCRIPT. On unless `--clean=0`.
+var _clean: bool = true
 
 var _frame: int = 0
 var _saved: int = 0
@@ -57,12 +78,28 @@ func _initialize() -> void:
 	# registered any autoload. The result is "Compile Error: Identifier not found:
 	# Sfx", a scene that silently fails to build, and a capture of an empty room.
 	# Measured, not assumed: the first run of this tool did exactly that.
+	# ⚠ BEFORE THE SCENE IS BUILT. `Cinematic.mark()` applies the current mode the
+	# instant a node registers, so a diagnostic built before this flag is set would
+	# stay visible for the whole capture. By `load()` + `set()`, never by the
+	# `Cinematic` identifier — this runs under `--script`, where naming a class that
+	# reaches an autoload is a parse-time failure and a capture of an empty room.
+	var cine: GDScript = load(CINEMATIC_SCRIPT) as GDScript
+	if cine != null:
+		cine.set("enabled", _clean)
+	else:
+		print("[clip] ⚠ no Cinematic.gd — the heat readout and pause button will show")
 	var arena_script: GDScript = load(ARENA_SCRIPT) as GDScript
 	if arena_script != null:
 		arena_script.set("showcase_a", _class_a)
 		arena_script.set("showcase_b", _class_b)
 		arena_script.set("showcase_difficulty", _difficulty)
-	root.add_child((load(ARENA_SCENE) as PackedScene).instantiate())
+	# BotMatch rolls its OWN matchup and re-seats the fighters, so --a/--b are only
+	# honoured by the bare arena. Say so rather than letting the flags look ignored.
+	if _scene == "botmatch":
+		print("[clip] scene=botmatch — it rolls its own matchup, so --a/--b are ignored")
+		root.add_child((load(BOT_MATCH_SCENE) as PackedScene).instantiate())
+	else:
+		root.add_child((load(ARENA_SCENE) as PackedScene).instantiate())
 	print("[clip] classes %d vs %d, %d frames, every %d, warmup %d -> %s"
 		% [_class_a, _class_b, _frames, _every, _warmup,
 			ProjectSettings.globalize_path(_dir)])
@@ -87,6 +124,8 @@ func _parse_args() -> void:
 			"warmup": _warmup = int(value)
 			"difficulty": _difficulty = clampi(int(value), 0, 3)
 			"out": _out = value
+			"scene": _scene = value
+			"clean": _clean = value != "0"
 
 
 ## Walk the fight one rendered frame at a time, grabbing the viewport after the

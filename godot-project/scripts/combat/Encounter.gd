@@ -1086,7 +1086,9 @@ func _cancel_spawn_tells() -> void:
 
 func _free_tell(p: Dictionary) -> void:
 	var n: Variant = p.get("node")
-	if n is Node and is_instance_valid(n):
+	# ⚠ VALIDITY BEFORE `is` — reached on floor swap / stop / teardown, precisely when
+	# the arena has already freed the tell markers this is trying to clean up.
+	if is_instance_valid(n) and n is Node:
 		(n as Node).queue_free()
 
 

@@ -329,7 +329,10 @@ func _test_thrall_joins_the_contract_groups() -> void:
 		return
 	_expect(t.is_in_group(&"thrall"), "thrall joins &\"thrall\" (the swap verb's group)")
 	_expect(t.has_meta(&"thrall_owner"), "thrall carries the &\"thrall_owner\" meta")
-	_expect(t.get_meta(&"thrall_owner", null) == owner_node,
+	# The line above already pinned that the key exists, so read it plainly — a null
+	# default is not a default at all (Godot errors instead of returning it), which is
+	# the trap `CastName._heavy_label` and `Lobby._btn_scale` were both caught in.
+	_expect(t.has_meta(&"thrall_owner") and t.get_meta(&"thrall_owner") == owner_node,
 		"the meta points at the Hero that raised it")
 	_expect(t.is_in_group(&"mortal"),
 		"thrall stays in `mortal` — friendly fire must be able to reach it")

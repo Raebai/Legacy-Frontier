@@ -121,7 +121,8 @@ func _observe() -> void:
 			continue
 		_seen[id] = true
 		var caster: Variant = n.get("caster_node")
-		if not (caster is Node) or not is_instance_valid(caster):
+		# ⚠ VALIDITY BEFORE `is` — a live spell node holding a dead caster.
+		if not is_instance_valid(caster) or not (caster is Node):
 			continue
 		if not (caster as Node).is_in_group("hero"):
 			continue

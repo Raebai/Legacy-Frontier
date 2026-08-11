@@ -496,7 +496,11 @@ static func _owner_of(n: Node) -> Node:
 	if n == null or not is_instance_valid(n) or not n.has_method(&"reaction_owner"):
 		return null
 	var o: Variant = n.call(&"reaction_owner")
-	if o is Node and is_instance_valid(o as Node):
+	# ⚠ VALIDITY BEFORE `is`. `is` THROWS on a previously freed instance, so the old
+	# `o is Node and is_instance_valid(o)` could never reach its own guard — and the
+	# block above documents that a freed owner here was MEASURED, repeatedly. Same
+	# fault as `CastName._heavy_label`.
+	if is_instance_valid(o) and o is Node:
 		return o as Node
 	return null
 

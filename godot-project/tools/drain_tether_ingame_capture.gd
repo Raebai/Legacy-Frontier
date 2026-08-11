@@ -90,7 +90,7 @@ func _caster_point() -> Vector2:
 	if fig == null:
 		return Vector2.ZERO
 	var torso: Variant = fig.get("_torso")
-	if torso is Node2D and is_instance_valid(torso):
+	if is_instance_valid(torso) and torso is Node2D:
 		return (torso as Node2D).global_position
 	return (fig as Node2D).global_position if fig is Node2D else Vector2.ZERO
 
