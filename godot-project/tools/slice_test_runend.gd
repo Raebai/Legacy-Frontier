@@ -69,11 +69,23 @@ func _init() -> void:
 	_test_nothing_on_the_critical_path_loads_the_parked_hub()
 	_test_the_leave_portal_confirms()
 	_test_friendly_fire_is_one_switch()
-	_test_the_dial_reaches_the_bolt()
 	_test_the_read_is_banked_and_shown(GS)
 	# The rest need a live tree: a Control reports no meaningful size until it has
 	# been through a layout pass.
 	await process_frame
+	# ⚠ AND THIS ONE NEEDS THE AUTOLOADS, WHICH IS A DIFFERENT REASON. It instantiates
+	# `Net.gd`, whose dependency chain reaches nine spectacle scripts that each say
+	# `Sfx.play(...)` — and autoload globals do not exist during `_init`, which runs
+	# before the main loop is up. From there the whole chain failed to compile with
+	# "Identifier not found: Sfx", `.new()` handed back null, and every assertion
+	# below it aborted — while the suite went on printing `all PASS`, because a
+	# GDScript runtime error kills only the innermost function and the runner read
+	# nothing but the summary line.
+	#
+	# One frame later the autoloads are registered and the same code works untouched.
+	# It is self-contained (it reads `Net.gd`'s source and instantiates it), so the
+	# move costs nothing.
+	_test_the_dial_reaches_the_bolt()
 	# ⚠ GROUP MEMBERSHIP IS FLUSHED AT IDLE. `add_to_group` in `_init` leaves
 	# `is_in_group()` true while `get_nodes_in_group()` still answers EMPTY, so a
 	# teammate lookup run before the first frame silently finds nobody.

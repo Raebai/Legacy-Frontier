@@ -91,6 +91,23 @@ PASS_RE = re.compile(r"^.*:\s*all PASS\b.*$", re.MULTILINE)
 FAIL_SUMMARY_RE = re.compile(r"^.*:\s*\d+\s+FAILED\b.*$", re.MULTILINE)
 FAIL_LINE_RE = re.compile(r"^.*\bFAIL:\s.*$", re.MULTILINE)
 
+# A GDScript runtime fault. The engine prints these to stderr and carries on, so a
+# suite can sail past one and still print `all PASS` — see the gate in run_suite().
+SCRIPT_ERROR_RE = re.compile(r"^\s*SCRIPT ERROR:\s*(.*)$", re.MULTILINE)
+
+# A suite containing this marker in its source is allowed to emit runtime errors,
+# because provoking one is what it tests.
+ALLOW_SCRIPT_ERRORS_MARKER = "ALLOWS_SCRIPT_ERRORS"
+
+
+def _allows_script_errors(name: str) -> bool:
+    """True if the suite declares that runtime errors are its subject matter."""
+    try:
+        src = (TOOLS_DIR / f"{name}.gd").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return ALLOW_SCRIPT_ERRORS_MARKER in src
+
 
 PASSED = "PASS"
 FAILED = "FAIL"
@@ -201,6 +218,38 @@ def run_suite(godot: Path, name: str, timeout: int) -> Result:
     pass_hit = PASS_RE.search(output)
     fail_hit = FAIL_SUMMARY_RE.search(output)
     fail_lines = [ln.strip() for ln in FAIL_LINE_RE.findall(output)]
+
+    # ── A RUNTIME SCRIPT ERROR FAILS THE SUITE, WHATEVER THE SUITE SAYS ──────────
+    #
+    # ⚠ THIS GATE EXISTS BECAUSE 166/166 WAS GREEN OVER A BROKEN STAGE FOR A WEEK.
+    # `VersusArena._build_terrain` threw on every bout of every mode using the duel
+    # stage, and `slice_test_sandbox` — which boots that exact packed scene — printed
+    # `all PASS` and exited 0 the whole time. A failed property set is not fatal in
+    # GDScript, so nothing downstream noticed, and the runner only ever read a
+    # suite's OWN summary line. The engine was reporting the fault on stderr on every
+    # single run and no one was listening.
+    #
+    # Scoped to `SCRIPT ERROR` (GDScript runtime faults) rather than the broader
+    # `ERROR:` on purpose: `ERROR:` covers benign engine chatter such as the MCP
+    # runtime failing to bind port 7777 when the editor already holds it, which says
+    # nothing about the code under test.
+    #
+    # A suite that PROVOKES a runtime error deliberately opts out by containing the
+    # marker below in its source. Opting out is a claim that the error is the point
+    # of the test — not a way to quiet a noisy suite.
+    script_errors = [ln.strip() for ln in SCRIPT_ERROR_RE.findall(output)]
+    if script_errors and not _allows_script_errors(name):
+        seen: list[str] = []
+        for line in script_errors:
+            if line not in seen:
+                seen.append(line)
+        return Result(
+            name, FAILED, took, proc.returncode,
+            f"{len(script_errors)} runtime SCRIPT ERROR(s) — suite's own line was "
+            + (pass_hit.group(0).strip() if pass_hit else "absent"),
+            [f"SCRIPT ERROR: {ln}" for ln in seen] + fail_lines,
+            output,
+        )
 
     if fail_hit:
         status, summary = FAILED, fail_hit.group(0).strip()

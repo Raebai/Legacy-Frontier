@@ -21,6 +21,7 @@ extends SceneTree
 ## at the end means that test aborted part-way and fails the suite.
 const TESTS: Array[String] = [
 	"bolt_sets_caster_for_every_class",
+	"casting_broadcasts_to_peers",
 	"try_damage_never_hits_caster",
 	"melee_autotargets_nearest_enemy",
 ]
@@ -48,13 +49,33 @@ class StubEnemy:
 
 
 ## Minimal stand-in for the /root/Net autoload: reports an active co-op session
-## without spinning up a real ENet loopback. Spell._ready() and Hero._ready()
-## only ever call is_active() on it during these tests (the self-damage guard
-## fix short-circuits before anything else on Net would be touched).
+## without spinning up a real ENet loopback.
+##
+## ⚠ THIS STUB DRIFTED, AND THE DRIFT WAS SILENT FOR AS LONG AS IT EXISTED. The
+## comment here used to claim "Hero._ready() only ever calls is_active() on it
+## during these tests". That stopped being true when `Hero._net_send` started
+## calling `broadcast_hero_action` — so every `_cast()` below threw
+##
+##   Invalid call. Nonexistent function 'broadcast_hero_action' in base 'Node (FakeNet)'
+##
+## and the suite went on printing `all PASS`, because a GDScript runtime error
+## aborts only the INNERMOST function: `_net_send` died, `_cast` carried on, and
+## every assertion after it still ran. The co-op broadcast half of casting was
+## simply not exercised.
+##
+## So the stub now MATCHES THE REAL INTERFACE (`Net.broadcast_hero_action`) and
+## records what it was handed, and `casting_broadcasts_to_peers` asserts the path
+## is live — a stub that silently absorbs an unknown call is how this hid.
 class FakeNet:
 	extends Node
+	var actions: Array[Dictionary] = []
+
 	func is_active() -> bool:
 		return true
+
+	## Mirrors `Net.broadcast_hero_action(kind, data)`.
+	func broadcast_hero_action(kind: String, data: Dictionary) -> void:
+		actions.append({"kind": kind, "data": data})
 
 
 func _process(_delta: float) -> bool:
@@ -146,6 +167,16 @@ func _test_bolt_sets_caster_for_every_class() -> void:
 		for s: Node in spells:
 			s.queue_free()
 		hero.queue_free()
+	# ⚠ THE HALF THAT WAS DEAD. With the stub missing `broadcast_hero_action`,
+	# `Hero._net_send` threw on every one of the casts above and this suite never
+	# noticed. Asserting the fake actually RECEIVED something is what turns the
+	# stub's interface drift into a failure instead of a silent no-op.
+	var fake: Node = root.get_node_or_null("/root/Net")
+	if fake != null:
+		_expect(not (fake.get("actions") as Array).is_empty(),
+			"casting in an active session broadcast at least one hero action "
+				+ "(none recorded — Hero._net_send is throwing into the void again)")
+		_completes("casting_broadcasts_to_peers")
 	_restore_net(real_net)
 	_completes("bolt_sets_caster_for_every_class")
 

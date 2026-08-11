@@ -39,6 +39,26 @@ extends SceneTree
 const HEALTH_SCRIPT: String = "res://scripts/combat/HealthPickup.gd"
 const HERO_SCENE: String = "res://scenes/combat/Hero.tscn"
 
+## ⚠ AND `FloorBuilder` BY PATH TOO, for the same reason one line up — this file
+## used to name it directly and that is precisely the poisoning the note above
+## warns about. `FloorBuilder.gd` holds
+## `const DESTRUCTIBLE_SCENE: PackedScene = preload(".../DestructibleProp.tscn")`,
+## so naming the class compiles it, which resolves the preload, which compiles
+## `DestructibleProp.gd`, which says `Sfx.play("crate_break")` — and autoload
+## globals do not exist yet at parse time. The whole chain died with
+## "Identifier not found: Sfx" BEFORE the first frame, and this suite went on
+## printing `all PASS` because the runner only read its summary line.
+const FLOOR_BUILDER_SCRIPT: String = "res://scripts/combat/FloorBuilder.gd"
+
+var _fb: GDScript = null
+
+
+## `FloorBuilder` loaded at RUNTIME, once autoload globals exist. See above.
+func _floor_builder() -> GDScript:
+	if _fb == null:
+		_fb = load(FLOOR_BUILDER_SCRIPT) as GDScript
+	return _fb
+
 const TESTS: Array[String] = [
 	"pack_joins_the_lookup_group",
 	"ghost_group_literal_matches_ghostform",
@@ -231,8 +251,9 @@ func _test_builder_places_a_fallback_pack() -> void:
 	var room := Node2D.new()
 	root.add_child(room)
 	var l := LayoutDef.new()
-	FloorBuilder.build_health_packs(room, l)
-	var sites: int = FloorBuilder.DEFAULT_HEALTH_PACKS.size()
+	_floor_builder().call("build_health_packs", room, l)
+	var sites: int = (_floor_builder().get_script_constant_map()
+		.get("DEFAULT_HEALTH_PACKS", []) as Array).size()
 	_expect(room.get_child_count() == sites,
 		"an unauthored layout still visits %d pack sites (got %d)"
 			% [sites, room.get_child_count()])
@@ -257,7 +278,7 @@ func _test_builder_places_a_fallback_pack() -> void:
 		room.remove_child(c)
 		c.free()
 	l.health_pickups = [Vector2(300.0, 120.0)]
-	FloorBuilder.build_health_packs(room, l)
+	_floor_builder().call("build_health_packs", room, l)
 	_expect(room.get_child_count() == 1,
 		"an authored layout takes over completely (got %d)" % room.get_child_count())
 	_expect(_survivors(room) == _expected_survivors(1),
