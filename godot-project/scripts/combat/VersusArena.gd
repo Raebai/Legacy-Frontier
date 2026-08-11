@@ -113,10 +113,34 @@ const STAGE_TERRACES: Array[Array] = [
 ## beside the terraces rather than rolled separately, because cover that lands under a
 ## ledge on one variant and in the open on another is the difference between a stage
 ## and a shuffled stage.
+##
+## ⚠ EMPTY ON THE MAKER'S RULING, 2026-08-11, watching a bot fight: *"they start
+## behind the crate then break the crate and walk into them"* → *"remove the crates
+## or make them start on the platforms above"*.
+##
+## THE KEEP-OUT WAS NEVER THE PROBLEM AND WIDENING IT WOULD NOT HAVE FIXED THIS.
+## `cover_x_clear_of` only guarantees `block_w * 0.5 + SPAWN_FOOTPRINT_HALF` = 54 px
+## of clearance, which is precisely "not overlapping" and nowhere near "out of the
+## way": the fighters spawn at 440 / 1000 and the blocks sat at 470 / 1180, so every
+## single bout opened with both fighters chewing through a crate before they could
+## reach each other. That is dead air at the exact moment the fight should start,
+## and it is the first thing anyone watching sees.
+##
+## The other option on the table was moving the fighters up onto the terraces. That
+## was declined as the riskier of the two: `BotMatch.SPAWN_Y`, the camera clamps,
+## `PROBE_TERRAIN_X0/X1` and ~25 capture tools are all derived from the main floor
+## row, and `slice_test_stage_variants` pins that row precisely because moving it
+## breaks them silently rather than loudly.
+##
+## ⚠ NOT DELETED — EMPTIED. The builder, the keep-out, `cover_x_clear_of` and its
+## tests all still work; re-authoring a row here brings cover straight back. If it
+## does come back, put it OUTSIDE the 440..1000 spawn corridor (the flanks or the
+## upper terraces), which is what `slice_test_stage_variants.cover_never_gates_the_
+## opening` now enforces.
 const STAGE_COVER: Array[Array] = [
-	[Vector2(470.0, 748.0), Vector2(1180.0, 748.0)],
-	[Vector2(560.0, 748.0), Vector2(900.0, 748.0)],
-	[Vector2(380.0, 748.0), Vector2(1120.0, 748.0)],
+	[],
+	[],
+	[],
 ]
 ## Which stage this bout is on. `-1` rolls; the suite and the capture tools pin it.
 static var stage_layout: int = -1
@@ -859,7 +883,17 @@ func _build_terrain() -> void:
 	for t: Dictionary in rows:
 		_make_terrace(float(t["surface_y"]), float(t["x0"]), float(t["x1"]))
 	var terrain := ArenaTerrain.new()
-	terrain.terraces = rows
+	# ⚠ `assign`, NOT `=`. `ArenaTerrain.terraces` is `Array[Dictionary]`; this used to
+	# be handed the typed const `TERRACES` and matched. `active_terraces()` indexes
+	# `STAGE_TERRACES: Array[Array]`, and GDScript cannot express
+	# `Array[Array[Dictionary]]` — so the inner arrays are UNTYPED and a plain `=`
+	# throws "Invalid assignment of property or key 'terraces'".
+	#
+	# It threw on every bout of every mode that uses this stage, and stayed invisible
+	# for a week: a failed property set is NOT fatal, so `_ready` walked straight on,
+	# built the ruins and cover and spawned both fighters, and the only casualty was
+	# the rock nobody asserted on. See `tools/slice_test_arena_builds.gd`.
+	terrain.terraces.assign(rows)
 	terrain.floor_y = STAGE_SIZE.y
 	add_child(terrain)
 

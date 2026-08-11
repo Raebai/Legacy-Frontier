@@ -46,6 +46,7 @@ const TESTS: Array[String] = [
 	"no_terrace_floats_unreachable",
 	"cover_matches_the_variant_count",
 	"cover_sits_on_the_fight_floor",
+	"cover_never_gates_the_opening",
 	"the_roll_is_stable_within_a_bout",
 ]
 
@@ -79,6 +80,7 @@ func _process(_delta: float) -> bool:
 	_test_reachable()
 	_test_cover_count()
 	_test_cover_on_floor()
+	_test_cover_not_in_the_corridor()
 	_test_roll_stable()
 
 	for name: String in TESTS:
@@ -241,6 +243,49 @@ func _test_cover_on_floor() -> void:
 
 
 # --------------------------------------------------------------------------- 8
+## COVER MAY NOT STAND BETWEEN THE FIGHTERS AT THE BELL.
+##
+## Maker, 2026-08-11, watching a bot fight: *"they start behind the crate then break
+## the crate and walk into them"*. The blocks were authored at 470 / 1180 against
+## spawns at 440 / 1000, and `cover_x_clear_of` guarantees only 54 px of clearance —
+## enough to not OVERLAP, nowhere near enough to be out of the way. So every bout
+## opened with both fighters demolishing a crate instead of fighting.
+##
+## ⚠ THIS IS CURRENTLY A GUARD, NOT A MEASUREMENT, AND THAT IS WORTH SAYING PLAINLY:
+## `STAGE_COVER` is empty by the same ruling, so every loop below runs zero times and
+## the assertion is trivially true today. It exists so that re-authoring a crate back
+## into the corridor fails the build instead of quietly restoring the dead opening —
+## the emptiness is a DECISION, and a decision no test mentions is one the next
+## session silently reverses.
+func _test_cover_not_in_the_corridor() -> void:
+	# The mirrored bot-match spawns, by path — `BotMatch.gd` names autoloads, so a
+	# `class_name` reference here would poison this file's compile. Same rule as the
+	# header. Falls back to the documented 720 +/- 280 if the file ever moves.
+	var centre: float = 720.0
+	var spread: float = 280.0
+	var bm: GDScript = load("res://scripts/combat/BotMatch.gd") as GDScript
+	if bm != null:
+		var k: Dictionary = bm.get_script_constant_map()
+		centre = float(k.get("FLOOR_CENTRE_X", centre))
+		spread = float(k.get("SPAWN_SPREAD", spread))
+	# A crate the fighters can reach before each other is a crate they will hit first.
+	# Half a 64 px block plus a body's own footprint is the bare minimum; the margin
+	# below is what "out of the way" actually means at this spawn distance.
+	var margin: float = 140.0
+	var lo: float = centre - spread
+	var hi: float = centre + spread
+	var cover: Array = _k.get("STAGE_COVER", []) as Array
+	for i: int in cover.size():
+		for pt: Vector2 in (cover[i] as Array):
+			_expect(pt.x <= lo - margin or pt.x >= hi + margin
+					or (pt.x > lo + margin and pt.x < hi - margin),
+				"variant %d puts cover at x %.0f, within %.0f px of a spawn (%.0f / "
+					% [i, pt.x, margin, lo] + "%.0f) — that is the crate both fighters "
+					% hi + "break before they ever reach each other")
+	_completed["cover_never_gates_the_opening"] = true
+
+
+# --------------------------------------------------------------------------- 9
 ## ⚠ EVERY BUILDER ASKS SEPARATELY. `_build_terrain` and `_build_cover` each call the
 ## accessor, so a roll that re-rolled per call would build the terrain for one stage
 ## and place the cover for another — and it would do it rarely enough to look like a
