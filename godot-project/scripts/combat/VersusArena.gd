@@ -1,12 +1,12 @@
-﻿class_name VersusArena
+class_name VersusArena
 extends Node2D
-## Playable versus arena (Slice 3): P1 â€” the Hero â€” vs BOT_COUNT AI bots on a
+## Playable versus arena (Slice 3): P1 — the Hero — vs BOT_COUNT AI bots on a
 ## floating platform ringed by PIT hazards, Smash/Brawlhalla-style. Knock a
 ## fighter off the platform into a pit and it rings out: -1 stock, respawn at
 ## its own spawn point with a brief invuln window, eliminated at 0 stocks.
 ## Destructible cover blocks stand on the platform; SLOPE strips just inside
 ## the left/right rims slide anyone loitering there toward the nearest pit.
-## Everything is built in _ready, in code â€” no .tscn (the Arena.gd /
+## Everything is built in _ready, in code — no .tscn (the Arena.gd /
 ## FloorBuilder programmatic-stage idiom).
 ##
 ## Ring-out flow: each PIT's fighter_fell routes to _on_fighter_fell, which
@@ -17,7 +17,7 @@ extends Node2D
 ## the same fighter from burning a second stock in the same beat.
 
 const HERO_SCENE_PATH: String = "res://scenes/combat/Hero.tscn"
-## The tower arena â€” where the boss lives. Reached by PATH (see _enter_boss_fight).
+## The tower arena — where the boss lives. Reached by PATH (see _enter_boss_fight).
 const ARENA_SCENE: String = "res://scenes/combat/Arena.tscn"
 const ARENA_SCRIPT: String = "res://scripts/combat/Arena.gd"
 ## Where backing out of the sandbox lands. Mirrors `GameState.TITLE_SCENE`, written
@@ -29,7 +29,7 @@ const TITLE_SCENE: String = "res://scenes/ui/Lobby.tscn"
 ## A cohesive, realistic, FUN battleground (maker: "the map needs to look way
 ## better, more REALISTIC and actually FUN ... platforms that feel intentional +
 ## connected to the ground, not disconnected abstract blocks"). ONE connected rock
-## landscape â€” a broad fight floor rising through jumpable stairs to a right bluff,
+## landscape — a broad fight floor rising through jumpable stairs to a right bluff,
 ## a left mound, and rooted broken-stone ruins over the middle. Everything is SOLID
 ## (no fall-through-into-the-void): ring-out only off the far L/R edges, so nobody
 ## is unfairly "sent out of the map" and the bots can't fall through and hand an
@@ -44,15 +44,15 @@ const RESPAWN_INVULN: float = 0.8
 ## so the terrain draws back-to-front; overlaps turn the risers into jumpable
 ## stairs. Each: the walkable SURFACE y + the x span.
 const TERRACES: Array[Dictionary] = [
-	{"surface_y": 780.0, "x0": 40.0,   "x1": 1400.0},  # main ground â€” the fight floor
+	{"surface_y": 780.0, "x0": 40.0,   "x1": 1400.0},  # main ground — the fight floor
 	{"surface_y": 700.0, "x0": 40.0,   "x1": 250.0},   # left mound
-	{"surface_y": 690.0, "x0": 1330.0, "x1": 1580.0},  # right rise â€” step 1
-	{"surface_y": 600.0, "x0": 1540.0, "x1": 1760.0},  # right rise â€” step 2
-	{"surface_y": 510.0, "x0": 1700.0, "x1": 1965.0},  # right bluff â€” high ground
+	{"surface_y": 690.0, "x0": 1330.0, "x1": 1580.0},  # right rise — step 1
+	{"surface_y": 600.0, "x0": 1540.0, "x1": 1760.0},  # right rise — step 2
+	{"surface_y": 510.0, "x0": 1700.0, "x1": 1965.0},  # right bluff — high ground
 ]
 const TERRACE_DEPTH: float = 320.0  # each collider extends this far down (solid rock)
 
-## â•â• THREE STAGES, NOT ONE â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+## ══ THREE STAGES, NOT ONE ══════════════════════════════════════════════════
 ## Maker: *"I think the maps need some more variety as well"*.
 ##
 ## What varied per bout before this: the SKY. `_stage_theme` rolls a `GameState.BIOMES`
@@ -61,18 +61,18 @@ const TERRACE_DEPTH: float = 320.0  # each collider extends this far down (solid
 ## `{name, wash, accent, light}` and is physically incapable of holding a coordinate,
 ## so ten "different" stages were ten repaints of one shape.
 ##
-## âš  AND THE SHAPE WAS ILLEGAL. Run `FloorGen.can_step` over `TERRACES` and it fails
+## ⚠ AND THE SHAPE WAS ILLEGAL. Run `FloorGen.can_step` over `TERRACES` and it fails
 ## THREE TIMES: the right rise's steps are 90, 90 and 90 px against that file's own
 ## documented COMFORTABLE step of `STEP_MAX = 86`, derived from a 580 jump against
 ## 1500 gravity. So the shipped stage has three risers a body is not meant to be able
-## to climb â€” which is half of *"these guys get stuck in the corner of a wall then
+## to climb — which is half of *"these guys get stuck in the corner of a wall then
 ## destroyed"*, since a bot pressed into an unclimbable face has nowhere to go.
 ##
 ## Every variant below is checked against that rule by `slice_test_stage_variants.gd`,
 ## including the original, which is why the original's risers moved 90 -> 84.
 ##
-## âš  WHAT MAY NOT VARY, AND WHY. Two facts are load-bearing far outside this file:
-##   * THE MAIN FLOOR ROW â€” surface 780 (`GROUND_TOP`), x 40..1400 â€” is identical in
+## ⚠ WHAT MAY NOT VARY, AND WHY. Two facts are load-bearing far outside this file:
+##   * THE MAIN FLOOR ROW — surface 780 (`GROUND_TOP`), x 40..1400 — is identical in
 ##     every variant. `BotMatch.FLOOR_CENTRE_X` is literally commented `(40 + 1400)/2`,
 ##     `SPAWN_Y` is derived from `GROUND_TOP - 17`, `COVER_X_MIN/MAX` are `40 + 32` and
 ##     `1400 - 32`, the camera clamps are `GROUND_TOP +/- 330/30`, and about
@@ -81,7 +81,7 @@ const TERRACE_DEPTH: float = 320.0  # each collider extends this far down (solid
 ##     from it and the live probe files an anomaly for any body outside.
 ## Vary the furniture and the high ground; leave the fight floor and the rim alone.
 const STAGE_TERRACES: Array[Array] = [
-	# 0 â€” THE ORIGINAL. Ground, a left mound, and a staircase up to a right bluff.
+	# 0 — THE ORIGINAL. Ground, a left mound, and a staircase up to a right bluff.
 	# Risers 90/90/90 -> 84/84/84 so the climb is legal; the shape is unchanged.
 	[
 		{"surface_y": 780.0, "x0": 40.0,   "x1": 1400.0},
@@ -90,7 +90,7 @@ const STAGE_TERRACES: Array[Array] = [
 		{"surface_y": 612.0, "x0": 1540.0, "x1": 1760.0},
 		{"surface_y": 528.0, "x0": 1700.0, "x1": 1965.0},
 	],
-	# 1 â€” MIRRORED VALLEY. High ground on BOTH sides and nothing in the middle, so the
+	# 1 — MIRRORED VALLEY. High ground on BOTH sides and nothing in the middle, so the
 	# fight is fought across a dip instead of uphill in one direction. The single
 	# biggest change to how a bout reads, because it removes the stage's handedness.
 	[
@@ -99,12 +99,12 @@ const STAGE_TERRACES: Array[Array] = [
 		{"surface_y": 696.0, "x0": 1330.0, "x1": 1640.0},
 		{"surface_y": 612.0, "x0": 1640.0, "x1": 1965.0},
 	],
-	# 2 â€” THE SHELF. One long mid-height terrace over the right half of the floor, with
-	# the far end open â€” a lane you can be chased along, and the only variant where the
+	# 2 — THE SHELF. One long mid-height terrace over the right half of the floor, with
+	# the far end open — a lane you can be chased along, and the only variant where the
 	# high ground is a corridor rather than a summit.
 	#
-	# âš  THE SHELF STARTED AT x 980 AND SWALLOWED THE RIGHT-HAND SPAWN. A terrace is not
-	# a surface â€” `_make_terrace` grows it DOWNWARD by `TERRACE_DEPTH` (320), so this row
+	# ⚠ THE SHELF STARTED AT x 980 AND SWALLOWED THE RIGHT-HAND SPAWN. A terrace is not
+	# a surface — `_make_terrace` grows it DOWNWARD by `TERRACE_DEPTH` (320), so this row
 	# was one solid StaticBody2D spanning x 980..1560, y 700..1020. Every mode that uses
 	# this stage puts the right fighter inside that box:
 	#
@@ -113,15 +113,13 @@ const STAGE_TERRACES: Array[Array] = [
 	#     showcase   SHOWCASE_SPAWN_B                         = (1080, 716)
 	#
 	# so on the ~1 bout in 3 that rolled variant 2, a fighter spawned in solid rock and
-	# was either shoved out sideways off its mirrored footing or left grinding against
-	# the face with `is_on_wall()` true and `walk_x` zeroed. That is the maker's "they
-	# both lag in the box", and it is NOT the crates â€” those were a separate, real
-	# complaint about the opening, fixed separately.
+	# was either shoved sideways off its mirrored footing or left grinding against the
+	# face with `is_on_wall()` true and `walk_x` zeroed. That is the maker's "they both
+	# lag in the box"; the crates were a separate complaint, fixed separately.
 	#
-	# x0 980 -> 1180 clears the furthest-right spawn (1120) by 60 px, which is a body
-	# half-width plus air. The riser from the 780 floor stays 80 (under FloorGen's
-	# comfortable 86) and the shelf still overlaps the fight floor out to 1400, so it is
-	# still the same chase corridor â€” 380 px of it instead of 580.
+	# x0 980 -> 1180 clears the furthest-right spawn (1120) by 60 px. The riser from the
+	# 780 floor stays 80 (under FloorGen's comfortable 86) and the shelf still overlaps
+	# the fight floor out to 1400, so it is the same chase corridor, 380 px of it.
 	[
 		{"surface_y": 780.0, "x0": 40.0,   "x1": 1400.0},
 		{"surface_y": 712.0, "x0": 40.0,   "x1": 200.0},
@@ -129,13 +127,13 @@ const STAGE_TERRACES: Array[Array] = [
 		{"surface_y": 620.0, "x0": 1560.0, "x1": 1965.0},
 	],
 ]
-## Cover, ruins and breakables, per variant â€” same index as `STAGE_TERRACES`. Kept
+## Cover, ruins and breakables, per variant — same index as `STAGE_TERRACES`. Kept
 ## beside the terraces rather than rolled separately, because cover that lands under a
 ## ledge on one variant and in the open on another is the difference between a stage
 ## and a shuffled stage.
 ##
-## âš  EMPTY ON THE MAKER'S RULING, 2026-08-11, watching a bot fight: *"they start
-## behind the crate then break the crate and walk into them"* â†’ *"remove the crates
+## ⚠ EMPTY ON THE MAKER'S RULING, 2026-08-11, watching a bot fight: *"they start
+## behind the crate then break the crate and walk into them"* → *"remove the crates
 ## or make them start on the platforms above"*.
 ##
 ## THE KEEP-OUT WAS NEVER THE PROBLEM AND WIDENING IT WOULD NOT HAVE FIXED THIS.
@@ -152,7 +150,7 @@ const STAGE_TERRACES: Array[Array] = [
 ## row, and `slice_test_stage_variants` pins that row precisely because moving it
 ## breaks them silently rather than loudly.
 ##
-## âš  NOT DELETED â€” EMPTIED. The builder, the keep-out, `cover_x_clear_of` and its
+## ⚠ NOT DELETED — EMPTIED. The builder, the keep-out, `cover_x_clear_of` and its
 ## tests all still work; re-authoring a row here brings cover straight back. If it
 ## does come back, put it OUTSIDE the 440..1000 spawn corridor (the flanks or the
 ## upper terraces), which is what `slice_test_stage_variants.cover_never_gates_the_
@@ -184,23 +182,23 @@ const P1_SPAWN: Vector2 = Vector2(320.0, 716.0)
 ## Destructible cover sitting on the main ground (64px blocks; centre = surface - 32).
 const COVER_POINTS: Array[Vector2] = [Vector2(470.0, GROUND_TOP - 32.0), Vector2(1180.0, GROUND_TOP - 32.0)]
 
-## â•â• NOBODY MAY START THE FIGHT STANDING INSIDE A BLOCK â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+## ══ NOBODY MAY START THE FIGHT STANDING INSIDE A BLOCK ══════════════════════
 ## Maker: *"when bot fight happen they start within the boxes which is a wierd bug"*.
 ## They were right, and the arithmetic is exact: `COVER_POINTS[0]` is x 470 and a
-## `DestructibleTerrain` is 64 px wide, so the left block spans **438..502** â€” while
+## `DestructibleTerrain` is 64 px wide, so the left block spans **438..502** — while
 ## `BotMatch` mirrors its two fighters about the real floor centre at 720 +/- 280,
 ## which puts the LEFT fighter at **440**. Two pixels inside the cover. The right
 ## pair (spawn 1000, block 1148..1212) happened to miss, which is why only one
 ## fighter ever looked wrong.
 ##
 ## Nothing reconciled the two because the stage authors its cover in `_ready` and
-## `BotMatch` moves the fighters AFTERWARDS â€” the two facts never met in one place.
+## `BotMatch` moves the fighters AFTERWARDS — the two facts never met in one place.
 ##
-## âš  FIXED AT THE COVER, NOT AT THE SPAWN, and deliberately. The 560 px opening gap
+## ⚠ FIXED AT THE COVER, NOT AT THE SPAWN, and deliberately. The 560 px opening gap
 ## is a documented duel constant that the clips were framed around, and shoving a
 ## fighter sideways would break the "MIRRORED FOOTING" the duel spends a paragraph
 ## guaranteeing. A block is scenery; moving it 24 px costs nothing and keeps the
-## cover. This also survives `reset_free_stage`, which rebuilds the cover â€” a
+## cover. This also survives `reset_free_stage`, which rebuilds the cover — a
 ## spawn-side fix would have to be re-applied there by hand.
 ##
 ## Half the width of a body plus the air it wants around it. A fighter's collider is
@@ -224,7 +222,7 @@ const RESPAWN_POOF_START: Color = Color(0.75, 0.85, 1.0, 0.9)
 const RESPAWN_POOF_END: Color = Color(0.75, 0.85, 1.0, 0.0)
 
 ## ------------------------------------------------------------------ SHOWCASE
-## SHOWCASE MODE â€” two BOT-DRIVEN HEROES fighting each other on this stage,
+## SHOWCASE MODE — two BOT-DRIVEN HEROES fighting each other on this stage,
 ## instead of P1 plus a roster of Enemy trash. Built for the clip capture
 ## (`tools/bot_clip_capture.gd`) and playable from F5 by setting the two statics
 ## before the scene loads.
@@ -234,11 +232,11 @@ const RESPAWN_POOF_END: Color = Color(0.75, 0.85, 1.0, 0.0)
 ## `banish`es SHADOW; LIGHTNING through a frost field `supercharge`s), and none of
 ## that can happen between a hero and a melee trash mob.
 ##
-## âš  NOTHING HERE HELPS A BOT. Both fighters get the same stock `BotController` +
+## ⚠ NOTHING HERE HELPS A BOT. Both fighters get the same stock `BotController` +
 ## `BotBrain` + `BotProfile` the game ships, at the same difficulty, seeing only
 ## what a human sees. A staged fight with rigged bots is worthless for finding
 ## bugs and dishonest as marketing, so the only thing this mode changes is WHO is
-## on the stage â€” never what they know or how hard they hit.
+## on the stage — never what they know or how hard they hit.
 ##
 ## Statics rather than exports: the capture tool loads this scene by path and has
 ## no instance to configure before `_ready` runs.
@@ -262,7 +260,7 @@ static var showcase_hp_override: int = 0
 ## `_ready` runs and there is no window in which a drawer sees a half-built stage.
 static var stage_biome: int = -1
 ## What the roll actually landed on. Read by the suite and by anything that wants to
-## report the stage â€” never written from outside.
+## report the stage — never written from outside.
 static var stage_biome_rolled: int = 0
 ## Leave the Smash damage-% + ring-out model ON for a showcase? TRUE is the stage's
 ## own model and the shipped behaviour.
@@ -270,12 +268,12 @@ static var stage_biome_rolled: int = 0
 ## A clip tool turns it OFF, and the reason is measured rather than aesthetic: under
 ## the ring-out model a hit accumulates `damage_pct` instead of draining HP, so two
 ## bot heroes fought for 65 game-seconds at 219% and 642% accumulated damage without
-## either one ever going down â€” which produces a clip with no ending. A clip needs a
+## either one ever going down — which produces a clip with no ending. A clip needs a
 ## DECISIVE fight; HP death is the model that reliably provides one.
 static var showcase_ringout: bool = true
 
 ## --------------------------------------------------------------- FREE PLAY
-## FREE PLAY â€” the stage, you, and NOTHING ELSE.
+## FREE PLAY — the stage, you, and NOTHING ELSE.
 ##
 ## The maker's ask, verbatim: *"we need the ability for players to choose to just do
 ## no bots and play on the stage as well"*. No enemies, no waves, no timer, no run,
@@ -284,13 +282,13 @@ static var showcase_ringout: bool = true
 ## thing feels.
 ##
 ## IT IS ALSO THE ONBOARDING SURFACE. The audit's fourth finding is that this game
-## has ZERO onboarding â€” a player's first contact with the controls is a floor of
+## has ZERO onboarding — a player's first contact with the controls is a floor of
 ## enemies. A room where nothing can kill you is where you learn the verbs, so free
 ## play prints its controls on the wall and keeps a live hint line.
 ##
-## âš  NOT A DEBUG MODE, and it must not become one. `tools/director/Director.gd` (F1)
+## ⚠ NOT A DEBUG MODE, and it must not become one. `tools/director/Director.gd` (F1)
 ## already does class-switching and spell-granting far better than this ever will,
-## and free play deliberately does NOT duplicate it â€” it OFFERS it (the pause menu
+## and free play deliberately does NOT duplicate it — it OFFERS it (the pause menu
 ## has a Director row when the tools script is present) and otherwise stands alone,
 ## because the director is gated out of release builds and free play is a SHIPPING
 ## feature.
@@ -314,7 +312,7 @@ const FREE_DUMMY_POINTS: Array[Vector2] = [
 ]
 ## A dummy is a hero body with no controller, no faction hostility and a big HP
 ## pool: something to hit that hits back with nothing. Deliberately a HERO and not
-## an `Enemy` â€” the point is to feel your own spells land on a body the same size
+## an `Enemy` — the point is to feel your own spells land on a body the same size
 ## and shape as the one you will fight, and `Enemy` brings AI, telegraphs and a
 ## death spectacle that belong to the tower, not to a practice range.
 const FREE_DUMMY_HP: int = 9999
@@ -322,9 +320,9 @@ const FREE_DUMMY_HP: int = 9999
 ## the maker judges feel) and wide enough to see a terrace, a cover block and where
 ## the next platform is.
 ##
-## âš  MEASURED AGAINST THE BASE VIEWPORT, NOT THE WINDOW. This project's stretch
+## ⚠ MEASURED AGAINST THE BASE VIEWPORT, NOT THE WINDOW. This project's stretch
 ## settings give a base viewport of 683x384, so a zoom of 1.0 shows 683 world pixels
-## â€” a third of this 2000 px stage, with the hero's feet under the hotbar. The first
+## — a third of this 2000 px stage, with the hero's feet under the hotbar. The first
 ## pass used 1.05 for exactly the "reads the rig clearly" reason and produced a shot
 ## in which the ground was off the bottom edge. 0.55 shows ~1240 px of stage.
 const FREE_ZOOM: float = 0.55
@@ -333,33 +331,33 @@ const FREE_ZOOM: float = 0.55
 const FREE_EYE_LIFT: float = 90.0
 
 ## -------------------------------------------------------------------- DUEL
-## DUEL MODE â€” the maker, with their own hands, against ONE bot hero.
+## DUEL MODE — the maker, with their own hands, against ONE bot hero.
 ##
 ## The showcase above is two bots fighting for a camera. This is the thing that
 ## was actually asked for: "I want to fight a bot, and it can learn from me, and
 ## we can find bugs together." Same stage, same bot stack, same difficulty table
-## â€” the only difference is that fighter A has no controller and therefore reads
+## — the only difference is that fighter A has no controller and therefore reads
 ## the real `Input`, exactly as it does in the tower.
 ##
 ## STATICS, and they SURVIVE A SCENE RELOAD. Every knob below (difficulty, the
 ## bot's class, whether it is learning) is changed by reloading the scene, so
-## they have to outlive the node â€” a member would reset to its default on the
+## they have to outlive the node — a member would reset to its default on the
 ## first difficulty change and the maker would never be able to leave Normal.
 ##
-## âš  THE DUEL IS NOW THE ONLY MODE. The five-bot practice arena was removed at
+## ⚠ THE DUEL IS NOW THE ONLY MODE. The five-bot practice arena was removed at
 ## maker request ("remove that group battle"), so entering this scene drops you
 ## straight into the 1v1. `duel_human` is kept because the sim/smoke tools set it,
 ## but it no longer decides anything: `_is_duel()` is simply "not a showcase".
 static var duel_human: bool = true
 ## The bot's Hero.HeroClass. The human's class is whatever they picked (Tab, or
-## GameState.selected_class), so the two are independent â€” you can fight your own
+## GameState.selected_class), so the two are independent — you can fight your own
 ## class in a mirror or bring a Brawler to a Cryomancer.
 static var duel_bot_class: int = 0
 ## Difficulty tier for the duel bot (BotProfile.Tier). Separate from
 ## GameState.enemy_difficulty, which drives the trash-mob arena: mixing them
 ## would mean changing the practice bots' difficulty every time you retuned your
 ## sparring partner.
-## âš  EASY BY DEFAULT. Maker: "the bots are spamming and way too good to test with".
+## ⚠ EASY BY DEFAULT. Maker: "the bots are spamming and way too good to test with".
 ## A practice partner exists to let you find out what YOUR buttons do; one that wins
 ## is not a practice partner. The measured dial runs 89/11 between tier 0 and tier 3,
 ## so this is a real drop and not a nudge. Raise it live in the F1 Director the
@@ -373,7 +371,7 @@ static var duel_difficulty: int = 0
 ## because "does it feel different when it has been studying me" is exactly the
 ## comparison the maker needs to be able to make in one click.
 static var duel_learning: bool = true
-## Draw the bot's current intent over its head. OFF by default â€” it is a
+## Draw the bot's current intent over its head. OFF by default — it is a
 ## debugging aid, and a permanent readout of what your opponent is about to do
 ## would wreck the fight it is meant to help you debug.
 static var duel_show_intent: bool = false
@@ -385,7 +383,7 @@ static var duel_show_learning: bool = false
 ## enough that the first exchange happens inside one camera frame.
 const DUEL_SPAWN_HUMAN: Vector2 = Vector2(560.0, 716.0)
 const DUEL_SPAWN_BOT: Vector2 = Vector2(1120.0, 716.0)
-## Both duellists are tanky enough that a fight lasts long enough to read â€” and
+## Both duellists are tanky enough that a fight lasts long enough to read — and
 ## it is applied to BOTH, so it is a match-length knob and never an advantage.
 const DUEL_HP: int = 260
 ## The pair-framing camera is tighter for a played duel than for a clip: you need
@@ -400,7 +398,7 @@ const DUEL_REMATCH_GRACE: float = 1.4
 ## How long after the bot presses a kit slot a hit on the human still counts as
 ## THAT SLOT's hit. A window rather than a signal because `Hero` publishes no
 ## took-damage signal to hang an exact attribution on (only `health_changed`,
-## which also fires on heals and respawns) â€” and because half the kit is a
+## which also fires on heals and respawns) — and because half the kit is a
 ## travelling projectile or a placed bombardment anyway, so "the damage arrives
 ## later" is the normal case, not the edge one.
 ##
@@ -425,7 +423,7 @@ const LEARN_SAVE_PERIOD: float = 20.0
 ## PLAYING THE GAME IS A BUG HUNT. The headless sim's detectors are pure
 ## predicates in `BotSimProbe`; the duel runs the same ones over the same frames
 ## the maker is playing, and writes the same machine-readable report. Loaded BY
-## PATH and guarded, the `_attach_bot` idiom â€” a missing tools script must never
+## PATH and guarded, the `_attach_bot` idiom — a missing tools script must never
 ## stop the maker from playing.
 const PROBE_SCRIPT: String = "res://tools/bot_sim_probe.gd"
 const LIVE_REPORT_DIR: String = "user://bot_sim_live"
@@ -433,11 +431,11 @@ const LIVE_REPORT_DIR: String = "user://bot_sim_live"
 ##
 ## `GROUND_TOP` is a walkable SURFACE; the terrain colliders extend TERRACE_DEPTH
 ## below it as solid rock. So "below the floor" here means below the bottom of
-## the rock â€” anything above that is either standing on a terrace or inside one,
+## the rock — anything above that is either standing on a terrace or inside one,
 ## and only the second is a bug the maker can act on.
 const PROBE_FLOOR_Y: float = GROUND_TOP + TERRACE_DEPTH
 ## ...and it only applies OVER the terrain. Off the left and right rims there is
-## deliberately nothing to stand on â€” that is the ring-out, the whole point of
+## deliberately nothing to stand on — that is the ring-out, the whole point of
 ## the stage. Reporting a legitimate knock-off as "fell through the floor" is
 ## precisely the false positive the headless run produced 329 of.
 const PROBE_TERRAIN_X0: float = 40.0
@@ -455,14 +453,14 @@ const BOT_PROFILE_SCRIPT: String = "res://scripts/combat/BotProfile.gd"
 const SHOWCASE_SPAWN_A: Vector2 = Vector2(520.0, 716.0)
 const SHOWCASE_SPAWN_B: Vector2 = Vector2(1080.0, 716.0)
 ## Showcase fighters are tankier than a stock hero so the fight lasts long enough
-## to show a kit off. Applied to BOTH equally â€” it is a clip-length knob, not an
+## to show a kit off. Applied to BOTH equally — it is a clip-length knob, not an
 ## advantage.
 const SHOWCASE_HP: int = 320
 ## Framing. MARGIN is the slack around the two fighters, so a beam or a meteor
 ## column has room to land inside the shot instead of half off it.
 ## MEASURED, NOT GUESSED. The first framing pass used a 900 px margin and allowed
 ## zoom down to 0.42, and the rendered frames showed two fighters the size of
-## commas at opposite ends of an empty stage â€” technically "both in frame", and
+## commas at opposite ends of an empty stage — technically "both in frame", and
 ## unwatchable. These numbers keep the pair large enough to read the rig, the
 ## staff and the damage percentage.
 const SHOWCASE_FRAME_MARGIN: float = 480.0
@@ -488,7 +486,7 @@ var _pause_menu: PauseMenu = null
 ## Showcase-only pair-framing camera; see _build_showcase_camera.
 var _show_cam: Camera2D = null
 ## The clip camera operator, when `showcase_directed` asked for one. Null otherwise,
-## and every call site is guarded â€” a showcase without a director is the shipped
+## and every call site is guarded — a showcase without a director is the shipped
 ## behaviour, not a degraded one.
 var _clip: ClipDirector = null
 ## Pair-camera framing knobs, so the same tracker serves the wide clip framing
@@ -540,10 +538,10 @@ func _ready() -> void:
 	# Smash sandbox: switch the whole scene to the damage-% + ring-out model. The
 	# tower's Arena leaves this off (hp-death clears floors); enter_run turns it
 	# back off, so it never leaks into a run. See GameState.ringout_mode.
-	# âš  THE PLAYER CHOOSES, and this used to be forced. A duel was ALWAYS the
+	# ⚠ THE PLAYER CHOOSES, and this used to be forced. A duel was ALWAYS the
 	# damage-%-and-ring-out model; the maker asked for health instead, with the
 	# Smash model kept as an option ("in settings give the users the options to
-	# choose lives vs percentages"). Both models were already built here â€” this is
+	# choose lives vs percentages"). Both models were already built here — this is
 	# the line that stopped assuming which one you wanted.
 	#
 	# A SHOWCASE still follows its own `showcase_ringout` flag: it is a capture rig,
@@ -574,7 +572,7 @@ func _process(delta: float) -> void:
 	for entry: Dictionary in _registry.values():
 		entry["invuln"] = maxf(float(entry["invuln"]) - delta, 0.0)
 	# FREE PLAY ends nothing and polls nothing. There is no opponent to beat, no
-	# round to win and no roster to sweep â€” the whole mode is "the stage stays up".
+	# round to win and no roster to sweep — the whole mode is "the stage stays up".
 	# Falling in a pit is handled by `_on_fighter_fell` (respawn, forever).
 	if _is_free():
 		_update_free_camera(delta)
@@ -584,7 +582,7 @@ func _process(delta: float) -> void:
 		_duel_clock += delta
 		_update_showcase_camera(delta)
 		_tick_showcase_banner()
-		# Learning and bug-hunting run on the same frames the fight does â€” they are
+		# Learning and bug-hunting run on the same frames the fight does — they are
 		# observers, and neither is allowed to change what happens.
 		_observe_duel(delta)
 		_probe_tick(delta)
@@ -593,7 +591,7 @@ func _process(delta: float) -> void:
 		# frame one and flash VICTORY over the fight. A duel ends on a knockdown.
 		_poll_showcase_end()
 	else:
-		# Showcase: two bot heroes, no "enemy" side at all â€” the bout ends when one
+		# Showcase: two bot heroes, no "enemy" side at all — the bout ends when one
 		# of the two is down, never on an enemy-roster poll.
 		_update_showcase_camera(delta)
 		_tick_showcase_banner()
@@ -651,7 +649,7 @@ func _on_fighter_fell(body: Node) -> void:
 	_update_hud()
 
 
-## Back to this fighter's own spawn point (always on the platform â€” moving it
+## Back to this fighter's own spawn point (always on the platform — moving it
 ## also clears the pit's per-body dedup), hp refilled, invuln armed so an
 ## instant re-report can't burn a second stock, plus a small arrival poof.
 func _respawn(body: Node2D, entry: Dictionary) -> void:
@@ -708,14 +706,14 @@ func _is_showcase() -> bool:
 ## Grace-gated like the normal poll so a spawn-frame transient cannot end it.
 ## A KO in showcase mode RESETS THE BOUT instead of ending the scene.
 ##
-## A clip that stops the first time somebody goes down is mostly a still frame â€”
+## A clip that stops the first time somebody goes down is mostly a still frame —
 ## the first capture ran 400 frames and spent 340 of them watching a corpse. So a
 ## showcase is a sparring loop: on a knockdown both fighters are restored, both
 ## are returned to their own spawn, and the fight starts again.
 ##
-## âš  SYMMETRICAL, DELIBERATELY. Both sides are reset identically, and neither
+## ⚠ SYMMETRICAL, DELIBERATELY. Both sides are reset identically, and neither
 ## gets health, cooldowns or knowledge the other does not. This changes how long
-## the CAMERA rolls, never who wins â€” a clip of a rigged fight would be worthless
+## the CAMERA rolls, never who wins — a clip of a rigged fight would be worthless
 ## for finding bugs and dishonest as marketing.
 func _poll_showcase_end() -> void:
 	if _grace > 0.0:
@@ -777,7 +775,7 @@ func _tick_showcase_banner() -> void:
 		_banner.visible = false
 
 
-## Latch _match_over + show the big centre banner. Idempotent â€” the first
+## Latch _match_over + show the big centre banner. Idempotent — the first
 ## outcome to land wins; everything downstream early-outs on the flag.
 func _finish_match(text: String) -> void:
 	if _match_over:
@@ -800,7 +798,7 @@ func _hide_banner() -> void:
 ## lower band for a hint of depth. Far behind everything; ignores the mouse.
 func _build_background() -> void:
 	# Epic backdrop (gradient sky + distant tower spires + drifting motes +
-	# vignette) instead of two flat ColorRects â€” see Atmosphere.gd.
+	# vignette) instead of two flat ColorRects — see Atmosphere.gd.
 	Atmosphere.add_glow(self)  # 2D bloom: pushed spell cores radiate
 	PostProcess.add(self)      # reactive screen-space grade ("the look")
 	var atmo := Atmosphere.new()
@@ -811,7 +809,7 @@ func _build_background() -> void:
 	# looming as black teeth over the fight.
 	# SHOWCASE gets a LIFTED palette. The played arena's dusk reads fine on a lit
 	# monitor with a camera close to the action; framed wide for a clip it came out
-	# near-black, with two dark stick figures on dark rock against a dark sky â€”
+	# near-black, with two dark stick figures on dark rock against a dark sky —
 	# checked by rendering it and looking. Brighter sky, warmer ground haze, and
 	# lighter spires give the fighters something to be silhouetted AGAINST.
 	var sky: Dictionary = {
@@ -829,22 +827,22 @@ func _build_background() -> void:
 			"silhouette_near": Color(0.47, 0.50, 0.63),
 			"accent": Color(1.0, 0.98, 0.92),
 		}
-	# â•â• TEN SKIES, AND NOT ONE NEW ASSET â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+	# ══ TEN SKIES, AND NOT ONE NEW ASSET ════════════════════════════════════════
 	# Maker: *"lets randomise the map they fight in give that variety, make some
 	# awesome cooler looking maps please with cool backgrounds"*. Measured first: this
-	# stage NEVER varied â€” a grep for `randi|randf|seed` across this whole file
+	# stage NEVER varied — a grep for `randi|randf|seed` across this whole file
 	# returned nothing, and the only branch in the entire look was the two-way
 	# showcase palette literal above. Every clip this project has ever shot was the
 	# same dusk.
 	#
 	# The tower already owns ten authored biomes (`GameState.BIOMES`) with a wash, an
 	# accent and an exposure each, and `Atmosphere.build` ALREADY takes a palette dict
-	# â€” so the whole win here is feeding one into the other. No new art, no generator,
+	# — so the whole win here is feeding one into the other. No new art, no generator,
 	# no geometry change (which is where the real risk lives: the spawn symmetry, the
 	# camera's vertical band and the rim rules are all pinned to today's layout).
 	#
-	# âš  `GameState` IS LOADED BY PATH, NEVER NAMED. It is an autoload with no
-	# `class_name`, and the headless suites run `--script` with no autoloads at all â€”
+	# ⚠ `GameState` IS LOADED BY PATH, NEVER NAMED. It is an autoload with no
+	# `class_name`, and the headless suites run `--script` with no autoloads at all —
 	# writing the bare identifier here is a COMPILE-TIME failure in those harnesses,
 	# not a runtime one. This file already documents that idiom for the same reason.
 	var theme: Object = _stage_theme()
@@ -853,7 +851,7 @@ func _build_background() -> void:
 		var accent: Color = theme.call("accent")
 		var lift: float = 1.18 if _is_showcase() else 1.0
 		sky = {
-			# The sky is the biome's own wash opened up â€” dark enough to stay a sky,
+			# The sky is the biome's own wash opened up — dark enough to stay a sky,
 			# far enough from the ground band that the fighters have something to be
 			# silhouetted against. That contrast is the measured constraint the
 			# showcase palette above exists to satisfy, so it is preserved as a LIFT
@@ -865,7 +863,7 @@ func _build_background() -> void:
 			"accent": accent.lightened(0.35),
 		}
 		# The screen grade follows the room, exactly as it does in the tower. One line,
-		# ten grades, and it was simply never called here â€” this file calls
+		# ten grades, and it was simply never called here — this file calls
 		# `PostProcess.add` and then never tells it what colour the world is.
 		PostProcess.set_theme(wash)
 	atmo.build(Rect2(Vector2(-400, -420), STAGE_SIZE + Vector2(800, 900)), sky)
@@ -889,7 +887,7 @@ func _stage_theme() -> Object:
 		pick = randi() % count
 	stage_biome_rolled = pick % count
 	# `floor_env` is keyed by FLOOR and wraps modulo the table, so floor = index + 1
-	# addresses a biome directly. Static and pure â€” no run state, no autoload instance.
+	# addresses a biome directly. Static and pure — no run state, no autoload instance.
 	return gs.call("floor_env", stage_biome_rolled + 1)
 
 
@@ -903,10 +901,10 @@ func _build_terrain() -> void:
 	for t: Dictionary in rows:
 		_make_terrace(float(t["surface_y"]), float(t["x0"]), float(t["x1"]))
 	var terrain := ArenaTerrain.new()
-	# âš  `assign`, NOT `=`. `ArenaTerrain.terraces` is `Array[Dictionary]`; this used to
+	# ⚠ `assign`, NOT `=`. `ArenaTerrain.terraces` is `Array[Dictionary]`; this used to
 	# be handed the typed const `TERRACES` and matched. `active_terraces()` indexes
 	# `STAGE_TERRACES: Array[Array]`, and GDScript cannot express
-	# `Array[Array[Dictionary]]` â€” so the inner arrays are UNTYPED and a plain `=`
+	# `Array[Array[Dictionary]]` — so the inner arrays are UNTYPED and a plain `=`
 	# throws "Invalid assignment of property or key 'terraces'".
 	#
 	# It threw on every bout of every mode that uses this stage, and stayed invisible
@@ -918,8 +916,8 @@ func _build_terrain() -> void:
 	add_child(terrain)
 
 
-## â•â• WHICH STAGE THIS BOUT IS ON â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-## Rolled once, on the first ask, and remembered â€” every builder in `_ready` asks
+## ══ WHICH STAGE THIS BOUT IS ON ════════════════════════════════════════════
+## Rolled once, on the first ask, and remembered — every builder in `_ready` asks
 ## separately and they must all get the same answer or the cover would be placed for
 ## one stage and the terrain built for another.
 ##
@@ -971,7 +969,7 @@ func _build_ruins() -> void:
 
 ## Real blocking cover that spells + melee chew through (group "destructible").
 ##
-## Every block is pushed clear of wherever bodies are about to stand â€” see
+## Every block is pushed clear of wherever bodies are about to stand — see
 ## `SPAWN_FOOTPRINT_HALF`. Doing it here rather than in the authoring table means the
 ## overlap is IMPOSSIBLE rather than merely currently absent: `COVER_POINTS` and
 ## `BotMatch.SPAWN_SPREAD` can both move again without anybody re-checking the sum.
@@ -1000,7 +998,7 @@ func _spawn_keepout() -> Array[float]:
 
 ## Shove a block of width `block_w` centred at `x` off every point in `keepout`,
 ## by the SHORT way each time so the stage changes as little as it can, then clamp it
-## back onto the fight floor. Pure and static â€” headless-tested, no scene required.
+## back onto the fight floor. Pure and static — headless-tested, no scene required.
 static func cover_x_clear_of(x: float, block_w: float, keepout: Array[float]) -> float:
 	var need: float = block_w * 0.5 + SPAWN_FOOTPRINT_HALF
 	var out: float = x
@@ -1038,7 +1036,7 @@ func _build_blast_zones() -> void:
 
 ## Runtime load()s, never preload: both scenes' scripts reference autoload
 ## globals (Sfx/Rank/Juice), which only register with GDScript once the main
-## loop is live â€” the headless slice-test harness load()s THIS script first,
+## loop is live — the headless slice-test harness load()s THIS script first,
 ## and a preload here would compile them too early (slice1_test_weapon idiom).
 ## Hero goes in first so each bot's _ready finds it via the "hero" group.
 ## Bot archetypes are set BEFORE add_child so Enemy._ready sees them.
@@ -1054,10 +1052,10 @@ func _spawn_fighters() -> void:
 ## SHOWCASE: two bot heroes, opposed classes, pointed at each other.
 ##
 ## The two things that make hero-vs-hero work at all, and both are easy to miss:
-##   FACTION â€” damage used to be routed by the hardwired group `"enemy"`, so two
+##   FACTION — damage used to be routed by the hardwired group `"enemy"`, so two
 ##             heroes swinging at each other did nothing whatsoever. `hostile_group`
 ##             (via `set_hostile`) is what makes the fight real.
-##   CAMERA  â€” `Hero.tscn` carries its own Camera2D. Two live cameras fight over
+##   CAMERA  — `Hero.tscn` carries its own Camera2D. Two live cameras fight over
 ##             the viewport, so exactly ONE stays enabled and is put in fit-all
 ##             mode; the second is disabled the way a co-op puppet's is.
 func _spawn_showcase() -> void:
@@ -1065,12 +1063,12 @@ func _spawn_showcase() -> void:
 	var a: CharacterBody2D = _spawn_showcase_fighter(hero_scene, showcase_a, SHOWCASE_SPAWN_A, true)
 	var b: CharacterBody2D = _spawn_showcase_fighter(hero_scene, showcase_b, SHOWCASE_SPAWN_B, false)
 	_p1 = a
-	# BOTH hero cameras are off in showcase mode â€” the pair-framing camera below
+	# BOTH hero cameras are off in showcase mode — the pair-framing camera below
 	# owns the viewport, because a camera that follows one fighter loses the other
 	# the moment the fight spreads out.
 	_build_showcase_camera()
 	# ...and a clip tool that asked for a real camera operator gets one that frames the
-	# ACTION rather than the pair. The operator is now built EITHER WAY â€” see
+	# ACTION rather than the pair. The operator is now built EITHER WAY — see
 	# `_build_camera_operator`.
 	_build_camera_operator(showcase_directed)
 	# Face them at each other on frame one so the opening reads as a duel rather
@@ -1104,7 +1102,7 @@ func _spawn_showcase_fighter(scene: PackedScene, class_id: int, at: Vector2,
 	for child: Node in hero.get_children():
 		if child is Camera2D:
 			(child as Camera2D).enabled = false
-			# âš  AND IT LEAVES THE GROUP. `enabled = false` hides a camera; it does not
+			# ⚠ AND IT LEAVES THE GROUP. `enabled = false` hides a camera; it does not
 			# stop `_ready` having joined `combat_camera`, nor stop `_process` running.
 			# So every `Juice.shake_camera` in a duel was being delivered to two
 			# INVISIBLE cameras, and `PostProcess`, which takes the group's FIRST
@@ -1117,14 +1115,14 @@ func _spawn_showcase_fighter(scene: PackedScene, class_id: int, at: Vector2,
 
 
 # ====================================================================== DUEL
-## True while this scene is running as HUMAN vs ONE BOT â€” i.e. always, unless a
+## True while this scene is running as HUMAN vs ONE BOT — i.e. always, unless a
 ## capture tool has set the two showcase classes. The five-bot practice arena
 ## that used to be the default was removed at maker request.
 func _is_duel() -> bool:
 	return not _is_showcase() and not _is_free()
 
 
-## True while this scene is running as FREE PLAY â€” one hero, no opposition.
+## True while this scene is running as FREE PLAY — one hero, no opposition.
 ## Showcase wins if both were somehow set, because a capture tool asking for a
 ## two-bot clip and getting an empty room is the worse failure.
 func _is_free() -> bool:
@@ -1148,7 +1146,7 @@ func pause_menu() -> PauseMenu:
 	return _pause_menu
 
 
-## Stand up / tear down practice dummies at runtime. Free play only â€” everything
+## Stand up / tear down practice dummies at runtime. Free play only — everything
 ## else on this stage is a real fight and a dummy in it would be a bug.
 func set_dummy_count(n: int) -> void:
 	if not _is_free():
@@ -1188,7 +1186,7 @@ func reset_free_stage() -> void:
 
 ## FREE PLAY spawn: one hero, its own camera, no opponent, no faction to be
 ## hostile to. Registered like every other fighter so the ring-out plumbing keeps
-## working â€” but with a stock count nothing can exhaust (see `_on_fighter_fell`).
+## working — but with a stock count nothing can exhaust (see `_on_fighter_fell`).
 func _spawn_free() -> void:
 	var hero_scene: PackedScene = load(HERO_SCENE_PATH)
 	_p1 = hero_scene.instantiate()
@@ -1204,11 +1202,11 @@ func _spawn_free() -> void:
 	_p1.call("set_faction", &"free_player", &"free_dummy")
 	_p1.set("facing", Vector2.RIGHT)
 	_register_fighter(_p1, _p1.global_position, 999)
-	# âš  THE HERO'S OWN CAMERA IS TURNED OFF HERE, and the first version of this mode
+	# ⚠ THE HERO'S OWN CAMERA IS TURNED OFF HERE, and the first version of this mode
 	# did not do that. `Hero.tscn`'s Camera2D carries LIMITS tuned for the tower's
 	# 1200x680 arena; this stage is 2000x1000, so the camera clamped itself into the
 	# top-left corner and every captured frame came back as empty sky with the
-	# hotbar floating over it. MEASURED, not assumed â€” `tools/freeplay_capture.gd`
+	# hotbar floating over it. MEASURED, not assumed — `tools/freeplay_capture.gd`
 	# shot exactly that. The arena's own camera has the right clamps for the right
 	# stage, so free play borrows it and simply follows one body instead of two.
 	for child: Node in _p1.get_children():
@@ -1218,9 +1216,9 @@ func _spawn_free() -> void:
 	_build_showcase_camera()
 	_build_camera_operator(false)
 	_show_cam.zoom = Vector2(FREE_ZOOM, FREE_ZOOM)
-	# âš  THE CAMERA'S OWN POSITION SMOOTHING IS OFF IN FREE PLAY, and leaving it on is
+	# ⚠ THE CAMERA'S OWN POSITION SMOOTHING IS OFF IN FREE PLAY, and leaving it on is
 	# what made the first capture unreadable. `_update_free_camera` already lerps, so
-	# with `position_smoothing_enabled` the transform is lagged TWICE â€” the rendered
+	# with `position_smoothing_enabled` the transform is lagged TWICE — the rendered
 	# eye trails the solved eye by a large fraction of a second, which on a 2000 px
 	# stage is hundreds of pixels of drift and a shot that never quite catches up
 	# with the hero. One smoother, not two.
@@ -1236,7 +1234,7 @@ func _update_free_camera(delta: float) -> void:
 	if _show_cam == null or _p1 == null or not is_instance_valid(_p1):
 		return
 	var at: Vector2 = (_p1 as Node2D).global_position
-	# Free play frames itself but still wants the hits to land on the picture â€” the
+	# Free play frames itself but still wants the hits to land on the picture — the
 	# operator lays shake and the zoom envelopes over the fixed zoom.
 	if _clip != null:
 		var fz: float = _clip.compose(FREE_ZOOM, delta)
@@ -1248,7 +1246,7 @@ func _update_free_camera(delta: float) -> void:
 		clampf(delta * 6.0, 0.0, 1.0))
 
 
-## Rebuild the practice dummies to match `free_dummies`. Cheap and idempotent â€”
+## Rebuild the practice dummies to match `free_dummies`. Cheap and idempotent —
 ## it frees whatever is there and stands up the requested number, so the count
 ## button can be pressed as fast as the maker likes.
 func _rebuild_dummies() -> void:
@@ -1269,17 +1267,17 @@ func _rebuild_dummies() -> void:
 		d.set("hp", FREE_DUMMY_HP)
 		# On the team the player is hostile to, and hostile to NOBODY: it can be hit
 		# and it never hits back. No controller, so `Hero._pressed` falls through to
-		# the real `Input` â€” which would make every dummy mirror the player's own
+		# the real `Input` — which would make every dummy mirror the player's own
 		# buttons. Physics off is what stops that, and it is why a dummy stands still
 		# instead of walking in lockstep with you.
 		d.call("set_faction", &"free_dummy", &"nobody")
 		d.set("facing", Vector2.LEFT)
 		d.add_to_group(&"free_dummy")
-		# âš  A DUMMY IS A WHOLE HERO, AND A HERO CARRIES A CAMERA. Every other spawn path
+		# ⚠ A DUMMY IS A WHOLE HERO, AND A HERO CARRIES A CAMERA. Every other spawn path
 		# in this file disables the hero camera it instantiates and says why; this one
-		# never did, so each free-play dummy added an ENABLED Camera2D to the scene â€”
+		# never did, so each free-play dummy added an ENABLED Camera2D to the scene —
 		# fighting the pair camera for the viewport, since `_rebuild_dummies` runs after
-		# `_build_showcase_camera`'s `make_current` â€” and put another member in
+		# `_build_showcase_camera`'s `make_current` — and put another member in
 		# `combat_camera` for `Juice` and `PostProcess` to talk to.
 		for child: Node in d.get_children():
 			if child is Camera2D:
@@ -1294,14 +1292,14 @@ func _rebuild_dummies() -> void:
 ## bot stack at the chosen tier.
 ##
 ## THREE THINGS MAKE THIS WORK, and each of them is a bug if forgotten:
-##   FACTION â€” damage routes through `hostile_group`. Two heroes both defaulted to
+##   FACTION — damage routes through `hostile_group`. Two heroes both defaulted to
 ##             `"enemy"` would swing at each other all day and connect with
 ##             nothing. `set_faction` puts each on a team the other is hostile to.
-##   CAMERA  â€” `Hero.tscn` carries a Camera2D, and `Hero._setup_net_role` only
+##   CAMERA  — `Hero.tscn` carries a Camera2D, and `Hero._setup_net_role` only
 ##             disables it in a NETWORKED session (it early-returns offline). So
 ##             offline, a second hero's camera fights the first for the viewport.
 ##             Both are disabled here and the arena's pair-framing camera owns it.
-##   LEARNINGâ€” the record is loaded and attached BEFORE the first tick, so the bot
+##   LEARNING— the record is loaded and attached BEFORE the first tick, so the bot
 ##             walks in already knowing what it learned last time you played.
 func _spawn_duel() -> void:
 	var hero_scene: PackedScene = load(HERO_SCENE_PATH)
@@ -1406,7 +1404,7 @@ func _forget_learning() -> void:
 
 
 # ------------------------------------------------------- duel: observation
-## WATCH THE HUMAN. Everything sampled here is read off a drawn thing â€” two
+## WATCH THE HUMAN. Everything sampled here is read off a drawn thing — two
 ## positions, whether a guard ring is up, whether the feet are on the floor, how
 ## much a health bar moved. No inputs, no cooldowns, no intent. See the fairness
 ## note at the top of `BotAdapt`.
@@ -1446,7 +1444,7 @@ func _observe_duel(delta: float) -> void:
 
 ## TAB MID-FIGHT RE-KEYS THE LEARNED RECORD.
 ##
-## The record is keyed by the HUMAN'S class on purpose â€” how you play an Arcanist
+## The record is keyed by the HUMAN'S class on purpose — how you play an Arcanist
 ## and how you play a Brawler are different problems, and one averaged record
 ## learns neither. But the maker swaps class mid-duel ("I WANT to be able to swap
 ## classes like the punch and stuff"), and without this every observation after
@@ -1489,7 +1487,7 @@ func _threat_near(at: Vector2) -> bool:
 
 
 ## Health bars, both ways. Polled rather than signal-driven because `Hero` has no
-## took-damage signal â€” only `health_changed`, which also fires on heals and on
+## took-damage signal — only `health_changed`, which also fires on heals and on
 ## the round reset, so a listener would file a respawn as a 260-point hit.
 func _observe_damage() -> void:
 	var human_hp: int = int(_p1.get("hp"))
@@ -1527,7 +1525,7 @@ func _observe_bot_casts() -> void:
 		if i is Dictionary:
 			var slot: int = int((i as Dictionary).get("cast_slot", -1))
 			# The brain latches a cast for CAST_LATCH, so the press is emitted on
-			# exactly one frame â€” but only file a NEW credit when the previous one
+			# exactly one frame — but only file a NEW credit when the previous one
 			# has resolved, or a fast rotation would overwrite an in-flight meteor.
 			if slot >= 0 and _credit.is_empty():
 				_credit = {"slot": slot, "at": _duel_clock}
@@ -1575,11 +1573,11 @@ func _register_fighter(body: Node2D, spawn: Vector2, stocks: int = STOCKS) -> vo
 ## top-left stocks readout, and the hidden match-over banner.
 func _build_hud() -> void:
 	var layer := CanvasLayer.new()
-	layer.layer = 60  # AbilityBar's home per Arena.gd â€” below Conversation (100)
+	layer.layer = 60  # AbilityBar's home per Arena.gd — below Conversation (100)
 	add_child(layer)
 	# SHOWCASE: no chrome. The ability hotbar and the touch pad belong to a PLAYED
 	# arena; in a clip they are bands of UI covering the fight and a hotbar reading
-	# out cooldowns for a hero nobody is holding. The banner is kept â€” it is the only
+	# out cooldowns for a hero nobody is holding. The banner is kept — it is the only
 	# element that says anything about the duel.
 	if _is_showcase():
 		_build_showcase_banner(layer)
@@ -1592,8 +1590,8 @@ func _build_hud() -> void:
 
 
 ## FREE PLAY's chrome: your hotbar, the touch pad, the pause menu, and a banner the
-## `FreePlay` layer writes into. Everything ELSE that belongs to free play â€” the
-## controls card, the class picker, the dummy count â€” is built by `FreePlay.gd`, so
+## `FreePlay` layer writes into. Everything ELSE that belongs to free play — the
+## controls card, the class picker, the dummy count — is built by `FreePlay.gd`, so
 ## this file stays the STAGE and that one stays the MODE.
 func _build_free_hud(layer: CanvasLayer) -> void:
 	layer.add_child(AbilityBar.new())
@@ -1611,7 +1609,7 @@ func _build_free_hud(layer: CanvasLayer) -> void:
 	add_child(TouchControls.new())
 
 
-## Flash a line across the top of a free-play session â€” "ARCANIST", "stage reset".
+## Flash a line across the top of a free-play session — "ARCANIST", "stage reset".
 ## Public because `FreePlay.gd` is the thing with something to say.
 func flash_banner(text: String, seconds: float = 1.2) -> void:
 	if _banner == null:
@@ -1655,7 +1653,7 @@ func _class_label(id: int) -> String:
 	return names[id] if id >= 0 and id < names.size() else "?"
 
 
-## THE SHOWCASE CAMERA â€” the fix for the failure mode every capture tool in this
+## THE SHOWCASE CAMERA — the fix for the failure mode every capture tool in this
 ## project has shipped at least once: the payoff landing off the edge of frame.
 ##
 ## Neither hero's own Camera2D can do this job. It follows ONE body, so the moment
@@ -1665,8 +1663,8 @@ func _class_label(id: int) -> String:
 ## with a margin, so a duel that roams the whole stage stays readable.
 ## THE CAMERA OPERATOR, built for EVERY versus mode and not just for the clip tools.
 ##
-## âš  WITHOUT ONE, EVERY `Juice.*_camera` CALL IN THIS SCENE IS A SILENT NO-OP â€” no
-## shake on a hit, no punch on a kill, no pull-back on an ult â€” which is a large part
+## ⚠ WITHOUT ONE, EVERY `Juice.*_camera` CALL IN THIS SCENE IS A SILENT NO-OP — no
+## shake on a hit, no punch on a kill, no pull-back on an ult — which is a large part
 ## of what "the camera does not follow the fight" feels like. `Juice` walks the
 ## `combat_camera` group behind `has_method` guards, the only class implementing those
 ## methods is `CombatCamera` (which lives on the HERO scene), and every versus mode
@@ -1702,7 +1700,7 @@ func _update_showcase_camera(delta: float) -> void:
 	# The director owns the camera when it is FRAMING. Two things writing the same
 	# transform in the same frame is a fight the director always half-loses, and the
 	# result is a camera that judders between two framings. An operator-only director
-	# is not a second framer â€” it never touches position and only lays the shake and
+	# is not a second framer — it never touches position and only lays the shake and
 	# the zoom envelopes over the answer solved below.
 	if _clip != null and _clip.frames_the_shot:
 		return
@@ -1739,9 +1737,9 @@ func _update_showcase_camera(delta: float) -> void:
 	# lower third and gives the sky back to the spectacle.
 	# Clamped to the stage so the camera never drifts far enough for the void under
 	# the terrain, or the space past the rim, to fill a third of the shot.
-	# âš  THE VERTICAL CLAMP IS ANCHORED TO THE GROUND, and that is the whole point.
+	# ⚠ THE VERTICAL CLAMP IS ANCHORED TO THE GROUND, and that is the whole point.
 	# The first version clamped to absolute world y and a fighter launched high
-	# dragged the eye up with it â€” 340 of the 400 captured frames came back as
+	# dragged the eye up with it — 340 of the 400 captured frames came back as
 	# empty sky with no floor and no fighters in them, which is how this was
 	# found. Holding the camera within a band ABOVE THE FLOOR means the stage is
 	# always in shot no matter how far a knockback throws somebody.
@@ -1750,7 +1748,7 @@ func _update_showcase_camera(delta: float) -> void:
 		clampf(mid.y - SHOWCASE_EYE_LIFT, GROUND_TOP - 330.0, GROUND_TOP - 30.0))
 
 
-## Hidden dim overlay with PAUSED + Resume/Reset â€” toggled by Esc. Lives on the
+## Hidden dim overlay with PAUSED + Resume/Reset — toggled by Esc. Lives on the
 ## ALWAYS HUD layer so its buttons work while the tree is paused.
 func _build_pause_overlay(layer: CanvasLayer) -> void:
 	_pause_menu = PauseMenu.new()
@@ -1764,13 +1762,13 @@ func _build_pause_overlay(layer: CanvasLayer) -> void:
 
 ## THE DUEL'S KNOBS, in the Esc menu instead of over the fight.
 ##
-## MAIN menu: the two things you want in one press â€” a rematch, and the way into
+## MAIN menu: the two things you want in one press — a rematch, and the way into
 ## the boss. SETTINGS: everything that tunes the sparring partner.
 ##
 ## The live/reload split is unchanged and deliberate: Learning and the two
 ## overlays apply on the spot (reloading to turn a debug readout on would throw
 ## away the fight you turned it on to look at), while difficulty and the bot's
-## class need a fresh bot and therefore reload the scene â€” which is why every one
+## class need a fresh bot and therefore reload the scene — which is why every one
 ## of those knobs is a STATIC.
 func _build_duel_settings() -> void:
 	_pause_menu.add_action("Fight the Boss", _enter_boss_fight)
@@ -1791,7 +1789,7 @@ func _build_duel_settings() -> void:
 
 
 ## STRAIGHT TO THE ASHSPIRE GUARDIAN. The boss otherwise costs a full four-floor
-## climb to reach, which is not a way to TEST it â€” so this drops the maker into
+## climb to reach, which is not a way to TEST it — so this drops the maker into
 ## the tower Arena with the guardian already on the stage (see Arena.boss_rush).
 ## The learned record is banked first: leaving a fight is a save point.
 func _enter_boss_fight() -> void:
@@ -1811,7 +1809,7 @@ func _enter_boss_fight() -> void:
 ## Leave the versus sandbox to the TITLE screen. Unpause first so the fresh scene
 ## doesn't inherit the paused tree.
 ##
-## âš  IT USED TO GO TO `res://scenes/Main.tscn` â€” the PARKED v0.0 village.
+## ⚠ IT USED TO GO TO `res://scenes/Main.tscn` — the PARKED v0.0 village.
 ## Maker, on finding himself there: *"why is the hub still around, what do I do
 ## there"*. Nothing, is the answer: it is a different game's town, and arriving in
 ## it by accident is the only way anyone was
@@ -1819,7 +1817,7 @@ func _enter_boss_fight() -> void:
 ## still on disk and still reachable deliberately from the run-summary card.
 func _exit_to_hub() -> void:
 	# Leave the Smash model behind so a subsequent tower run is never stuck in
-	# ring-out mode (enter_run also forces this off â€” belt + suspenders).
+	# ring-out mode (enter_run also forces this off — belt + suspenders).
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs != null:
 		gs.set("ringout_mode", false)
@@ -1827,7 +1825,7 @@ func _exit_to_hub() -> void:
 	get_tree().change_scene_to_file(TITLE_SCENE)
 
 
-## Full arena reset â€” reload the scene so cover, bots, stocks + the match state
+## Full arena reset — reload the scene so cover, bots, stocks + the match state
 ## all rebuild from scratch. Bound to the Reset Map button.
 func _reset_arena() -> void:
 	get_tree().paused = false  # don't carry the pause into the fresh scene
@@ -1836,13 +1834,13 @@ func _reset_arena() -> void:
 
 # ================================================================== DUEL HUD
 ## THE PLAY HUD IS NOW CLEAN. Everything that used to be a right-hand column of
-## buttons over the fight â€” difficulty, the bot's class, learning, the two debug
-## overlays, forget, rematch â€” moved into the Esc pause menu's Settings panel at
+## buttons over the fight — difficulty, the bot's class, learning, the two debug
+## overlays, forget, rematch — moved into the Esc pause menu's Settings panel at
 ## maker request ("all those settings should be in the settings when I press
 ## escape"). What is left on screen while you play: your hotbar, the score line,
 ## the two overlays you deliberately turned on, and the round banner.
 func _build_duel_hud(layer: CanvasLayer) -> void:
-	layer.add_child(AbilityBar.new())   # your own hotbar â€” you are playing this one
+	layer.add_child(AbilityBar.new())   # your own hotbar — you are playing this one
 
 	# Who is fighting whom, top-left, plus the live round state.
 	_stocks_label = Label.new()
@@ -1868,7 +1866,7 @@ func _build_duel_hud(layer: CanvasLayer) -> void:
 	# does NOT turn a toggle the maker had switched off back on.
 	Cinematic.mark(_learn_label)
 
-	# What the bot is doing THIS FRAME â€” the readable-opponent requirement. Bottom
+	# What the bot is doing THIS FRAME — the readable-opponent requirement. Bottom
 	# centre so it never sits over either fighter.
 	_intent_label = Label.new()
 	_intent_label.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
@@ -1921,7 +1919,7 @@ func _cycle_duel_bot_class() -> void:
 func _toggle_duel_learning() -> void:
 	duel_learning = not duel_learning
 	# Applied to the live bot immediately: handing it an EMPTY record is exactly
-	# what "off" means â€” `BotAdapt` treats an empty record as no adaptation at all,
+	# what "off" means — `BotAdapt` treats an empty record as no adaptation at all,
 	# so the bot reverts to the stock difficulty tier the same frame.
 	if _duel_ctrl != null:
 		_duel_ctrl.set("adapt", _learn_rec if duel_learning else {})
@@ -1954,7 +1952,7 @@ func _update_duel_overlays() -> void:
 		_intent_label.text = _describe_intent()
 
 
-## The bot's current intent in one readable line â€” the "show what it is doing"
+## The bot's current intent in one readable line — the "show what it is doing"
 ## requirement. Names the SLOT ROLE rather than the index, because "payoff" tells
 ## you what is about to happen and "3" does not.
 func _describe_intent() -> String:
@@ -1970,7 +1968,7 @@ func _describe_intent() -> String:
 		var spell: Variant = _duel_bot.call("signature_at", slot) if _duel_bot != null \
 			and _duel_bot.has_method("signature_at") else null
 		# `.get()` on a missing property returns null, and `String(null)` renders as
-		# "<null>" rather than throwing â€” so the name is only used when it is one.
+		# "<null>" rather than throwing — so the name is only used when it is one.
 		var pretty: Variant = spell.get("display_name") if spell != null else null
 		if pretty is String and String(pretty) != "":
 			name = "%s (%s)" % [String(pretty), name]
@@ -1998,7 +1996,7 @@ func _describe_intent() -> String:
 ## the keyboard produces the same artefact a batch run does.
 func _probe_begin() -> void:
 	if not FileAccess.file_exists(PROBE_SCRIPT):
-		return   # tools script absent â€” never a reason to stop the maker playing
+		return   # tools script absent — never a reason to stop the maker playing
 	_probe = load(PROBE_SCRIPT) as GDScript
 	_findings.clear()
 	_finding_seen.clear()
@@ -2049,9 +2047,9 @@ func _probe_body(node: Node2D) -> void:
 			"%s hp=%d outside [0, %d]" % [label, hp, mx])
 
 
-## âš  THE X GATE IS THE WHOLE POINT, and it is what the headless run was missing.
+## ⚠ THE X GATE IS THE WHOLE POINT, and it is what the headless run was missing.
 ##
-## This stage has no floor past its rims â€” that IS the ring-out, the central
+## This stage has no floor past its rims — that IS the ring-out, the central
 ## mechanic. A fighter falling off the left edge is not "falling through the
 ## floor", it is losing a stock, and reporting it as a world bug buries the real
 ## ones. So the check applies only OVER the rock, and "below" means below the
@@ -2083,7 +2081,7 @@ func _probe_stalemate() -> void:
 		_probe_hp_trail.clear()
 
 
-## ONE FINDING IS ONE ROW â€” but a per-frame detector fires per frame, so an event
+## ONE FINDING IS ONE ROW — but a per-frame detector fires per frame, so an event
 ## that lasts a second is sixty identical rows unless something collapses them.
 ## Identical kind+subject inside PROBE_DEDUP_WINDOW increments a count on the
 ## existing row instead of appending. Without this the report says "329
@@ -2142,8 +2140,8 @@ func _probe_finish() -> void:
 	print("[duel-probe] wrote %d finding(s) to %s" % [_findings.size(), LIVE_REPORT_DIR])
 
 
-## Leaving the scene by ANY route â€” the pause menu, the window close, a mode
-## switch â€” banks the learned record and the findings. `_exit_tree` rather than a
+## Leaving the scene by ANY route — the pause menu, the window close, a mode
+## switch — banks the learned record and the findings. `_exit_tree` rather than a
 ## per-button call because there are five ways out of this scene and four of them
 ## would eventually be forgotten.
 func _exit_tree() -> void:

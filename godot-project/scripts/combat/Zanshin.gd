@@ -78,7 +78,7 @@ func cataclysm(caster: Node, _origin: Vector2, target: Vector2, spell: SpellDef,
 	# that re-aimed itself at the end would make the stance a homing missile with
 	# extra steps; this way the line you will swing along is decided in front of
 	# everyone, at the start.
-	if caster is Node2D:
+	if is_instance_valid(caster) and caster is Node2D:
 		var d: Vector2 = _center - (caster as Node2D).global_position
 		if d.length() > 1.0:
 			_cut_axis = d.normalized()
@@ -140,10 +140,27 @@ func _release() -> void:
 	# cut by killing the very people it is supposed to land on.
 	var toll: int = toll_for(live.size())
 	var tint := Color(FLASH.r, FLASH.g, FLASH.b, 1.0)
-	for n: Node2D in live:
+	# ⚠ RE-VALIDATED INSIDE THE LOOP, AND THE LOOP VARIABLE IS UNTYPED ON PURPOSE.
+	# `SpellTargets.hurt` below KILLS, and a death here can free OTHER bodies still
+	# sitting in this same array — a thrall going with its owner, a chain reaction, a
+	# mirror image popping. `for n: Node2D in live` made the typed loop variable perform
+	# the cast on every iteration, so arriving at an entry that an EARLIER iteration had
+	# already killed threw
+	#
+	#     Trying to cast a free object
+	#
+	# before any guard inside the body could run. Validating at the top of the loop is
+	# useless when the cast happens in the `for` itself.
+	for n_v: Variant in live:
+		if not is_instance_valid(n_v):
+			continue
+		var n: Node2D = n_v as Node2D
+		if n == null:
+			continue
 		_cut_points.append(n.global_position)
 		SpellTargets.hurt(n, toll, tint)
-		if n.has_method("apply_status"):
+		# `hurt` may have freed it just now — this one is the ordinary case.
+		if is_instance_valid(n) and n.has_method("apply_status"):
 			n.call("apply_status", element_id)
 	for prop: Node in SpellTargets.in_radius(_center, _radius,
 			get_tree().get_nodes_in_group("destructible"), [caster_node], self):

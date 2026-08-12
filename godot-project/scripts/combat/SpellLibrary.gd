@@ -2138,7 +2138,18 @@ static func _radiant_volley() -> SpellDef:
 	s.cooldown = 4.2
 	# PER LANCE — the volley's total is a positioning question. 14 -> 18 in the
 	# DPS-floor pass; a body clipping the EDGE of the band still takes only one.
-	s.damage = 18
+	#
+	# ⚠ 18 -> 15, maker's call watching bot fights: *"nerf cleric's first spell that
+	# throws that volley three times, make it do less damage slightly"*. Unlike most
+	# hand nerfs this one has a measurement behind it rather than a hunch: the Cleric
+	# read 75% / 78% / 81% across three 288-bout sweeps — top of the roster in all three
+	# and the only class that ROSE across them.
+	#
+	# Deliberately small (-17%) and applied to the DAMAGE slot rather than the cooldown:
+	# this spell's identity is "stand in the band and eat all of it", which is a
+	# positioning question, and lengthening the cooldown would blunt the class's rhythm
+	# instead of the payoff. A body clipping the edge still takes exactly one lance.
+	s.damage = 15
 	s.length = 760.0     # each lance's travel budget
 	s.reach = 300.0
 	return s
