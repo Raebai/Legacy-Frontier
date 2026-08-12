@@ -1,9 +1,9 @@
-class_name BotMatch
+﻿class_name BotMatch
 extends Node2D
-## BOT vs BOT, WATCHABLE — and now a MATCH rather than an exhibition.
+## BOT vs BOT, WATCHABLE Ã¢â‚¬â€ and now a MATCH rather than an exhibition.
 ##
 ## The maker's note, verbatim, after watching it: *"yo the whole watch bots thing is
-## awesome — like it needs them to start equal and the camera needs to follow it
+## awesome Ã¢â‚¬â€ like it needs them to start equal and the camera needs to follow it
 ## cinematically please so the audience can see it all all the time. make sure its
 ## good like video quality and the sound effects need to be improved please. and of
 ## course they need health bars, and to move around so that they can die and the
@@ -11,7 +11,7 @@ extends Node2D
 ## damage types"*.
 ##
 ## ---------------------------------------------------------------------------
-## ⚠ WHY THE FIGHT NEVER ENDED. Three independent reasons, all of them measured by
+## Ã¢Å¡Â  WHY THE FIGHT NEVER ENDED. Three independent reasons, all of them measured by
 ## reading the code they live in, and all three had to be fixed for a bout to resolve:
 ##
 ##   1. THE RING-OUT MODEL WAS ON. `VersusArena.showcase_ringout` defaults to TRUE
@@ -20,8 +20,8 @@ extends Node2D
 ##   2. HP DEATH SELF-HEALS. Turning the ring-out model off is not enough. Outside a
 ##      run and outside a net session, `Hero._die()` runs `hp = max_hp` IN THE SAME
 ##      CALL as the fatal hit. So HP never rests at zero for even one frame, and
-##      `VersusArena._poll_showcase_end` / `ClipDirector._check_knockdown` — which
-##      both poll `hp <= 0` once a frame — can never fire. The fighters on this stage
+##      `VersusArena._poll_showcase_end` / `ClipDirector._check_knockdown` Ã¢â‚¬â€ which
+##      both poll `hp <= 0` once a frame Ã¢â‚¬â€ can never fire. The fighters on this stage
 ##      were, literally, immortal. The signal `health_changed` DOES report `hp == 0`,
 ##      because `take_damage` emits it before calling `_die`; that is the only honest
 ##      hook, and it is what this file listens to.
@@ -35,7 +35,7 @@ extends Node2D
 ## and the result beat, and `VersusArena` stays exactly the exhibition stage it is.
 ##
 ## ---------------------------------------------------------------------------
-## EQUAL FOOTING, CHARACTERFUL STATS — the two halves of the maker's ask, which pull
+## EQUAL FOOTING, CHARACTERFUL STATS Ã¢â‚¬â€ the two halves of the maker's ask, which pull
 ## against each other, resolved as:
 ##
 ##   FOOTING is mirrored and identical. Both fighters spawn the same distance from
@@ -50,16 +50,16 @@ extends Node2D
 ##   It is a multiplier on ONE shared number, so the knob stays a match-length knob:
 ##   change `fighter_hp` and every matchup scales together.
 ##
-## ⚠ AND THAT IS THE WHOLE OF IT. Nothing here touches damage, cooldowns, reaction
+## Ã¢Å¡Â  AND THAT IS THE WHOLE OF IT. Nothing here touches damage, cooldowns, reaction
 ## time, error rate or what a bot can see. Both fighters get the same stock
 ## `BotController` + `BotBrain` + `BotProfile` the game ships. If a matchup is
-## lopsided that is a BALANCE FINDING to report — `tools/botmatch_sim.gd` measures it
-## — and never something to paper over with a handicap. A clip of a rigged fight is
+## lopsided that is a BALANCE FINDING to report Ã¢â‚¬â€ `tools/botmatch_sim.gd` measures it
+## Ã¢â‚¬â€ and never something to paper over with a handicap. A clip of a rigged fight is
 ## worthless for finding bugs and dishonest as marketing.
 ##
-## ⚠ CLASS_VITALITY IS LOCAL TO THIS MODE. It is applied to the two bodies this scene
+## Ã¢Å¡Â  CLASS_VITALITY IS LOCAL TO THIS MODE. It is applied to the two bodies this scene
 ## stands up, after the arena has built them. It does not touch the tower, the duel,
-## free play or the class definitions — per-class vitality does not exist as a real
+## free play or the class definitions Ã¢â‚¬â€ per-class vitality does not exist as a real
 ## stat anywhere in this project yet, and inventing one inside a spectator mode would
 ## be the wrong place to put it.
 
@@ -68,7 +68,7 @@ const ARENA_SCRIPT: String = "res://scripts/combat/VersusArena.gd"
 const BOT_MATCH_SCENE: String = "res://scenes/combat/BotMatch.tscn"
 ## LEAVING GOES TO THE TITLE, NOT THE HUB.
 ##
-## This used to be `res://scenes/Main.tscn` — the parked v0.0 town, which the
+## This used to be `res://scenes/Main.tscn` Ã¢â‚¬â€ the parked v0.0 town, which the
 ## design doc cuts permanently. The run spine was moved off it,
 ## but every SANDBOX exit still pointed there, so backing out of a bot match
 ## dropped you into a different game's village with nothing to do in it. The maker
@@ -86,12 +86,12 @@ const CLASS_LABELS: Array[String] = [
 ]
 const TIER_LABELS: Array[String] = ["Easy", "Normal", "Hard", "Impossible"]
 
-## ══════════════════════════════════════════════════════════ YELLOW vs BLUE
+## Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â YELLOW vs BLUE
 ## THE TWO CORNERS, AND THE ONLY PLACE THEY ARE WRITTEN DOWN.
 ##
 ## The maker's ask was literally "an intro screen like yellow vs blue", and the reason
 ## that could not be honoured before is that BOTH fighters were painted from
-## `GameState.colourway` — ONE global value, shared, so a bot match was two identically
+## `GameState.colourway` Ã¢â‚¬â€ ONE global value, shared, so a bot match was two identically
 ## coloured stickmen and the audience had to track which was which by position alone.
 ## `Hero.COLOURWAYS` has no yellow at all, so there was nothing to pick either.
 ##
@@ -100,13 +100,13 @@ const TIER_LABELS: Array[String] = ["Easy", "Normal", "Hard", "Impossible"]
 ## the bodies all read from this one array, which is what makes it impossible for the
 ## card to promise a yellow fighter and the stage to draw a blue one.
 ##
-## ⚠ THIS DOES NOT REPLACE THE PER-CLASS TINT ANYWHERE ELSE. `ClassInfo.color_for` is
+## Ã¢Å¡Â  THIS DOES NOT REPLACE THE PER-CLASS TINT ANYWHERE ELSE. `ClassInfo.color_for` is
 ## still the class's colour on the select screen, in the tower and in the hub. It is
-## only in a MATCH — where the question is "which corner", not "which class" — that
+## only in a MATCH Ã¢â‚¬â€ where the question is "which corner", not "which class" Ã¢â‚¬â€ that
 ## the side wins.
 const SIDE_COLORS: Array[Color] = [
-	Color(1.00, 0.82, 0.22),   # LEFT  — chalk yellow
-	Color(0.30, 0.64, 1.00),   # RIGHT — ink blue
+	Color(1.00, 0.82, 0.22),   # LEFT  Ã¢â‚¬â€ chalk yellow
+	Color(0.30, 0.64, 1.00),   # RIGHT Ã¢â‚¬â€ ink blue
 ]
 ## Anything that is neither corner (a missing fighter, a draw).
 const FALLBACK_TINT: Color = Color(0.85, 0.88, 0.95)
@@ -115,23 +115,23 @@ const FALLBACK_TINT: Color = Color(0.85, 0.88, 0.95)
 ## The corner colour. Static so the intro card, the plates and the suite all ask the
 ## SAME function rather than three copies of an index-into-an-array.
 static func side_color(side: int) -> Color:
-	# ══ THE CLASS WINS WHEN THE CLASSES CAN BE TOLD APART ═══════════════════
+	# Ã¢â€¢ÂÃ¢â€¢Â THE CLASS WINS WHEN THE CLASSES CAN BE TOLD APART Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
 	# Maker: *"can we like make the stick fighters colours relvant to their class
 	# cleric yellow warlock purple etc."*.
 	#
-	# `ClassInfo.color_for` has always held exactly that — Cleric pale gold, Warlock
-	# violet, Cryomancer ice blue — and this file overrode it with a corner palette
+	# `ClassInfo.color_for` has always held exactly that Ã¢â‚¬â€ Cleric pale gold, Warlock
+	# violet, Cryomancer ice blue Ã¢â‚¬â€ and this file overrode it with a corner palette
 	# because of the problem stated above: `GameState.colourway` painted BOTH fighters
 	# one shared colour, so the audience had nothing to track. Corner colours fixed
 	# that by throwing the class away, which is a different loss.
 	#
-	# ⚠ AND THE FALLBACK IS NOT ABOUT MIRROR MATCHES ONLY. The Shadowblade and the
-	# Warlock are the SAME violet in `ClassInfo` — `Color(0.6, 0.35, 0.9)` twice — so
+	# Ã¢Å¡Â  AND THE FALLBACK IS NOT ABOUT MIRROR MATCHES ONLY. The Shadowblade and the
+	# Warlock are the SAME violet in `ClassInfo` Ã¢â‚¬â€ `Color(0.6, 0.35, 0.9)` twice Ã¢â‚¬â€ so
 	# "same class" would not have caught the worst case. `_resolve_side_tints`
 	# measures the actual colour distance and hands the bout back to yellow-vs-blue
 	# whenever the two classes are not separable, which covers mirror matches for free.
 	#
-	# ⚠ AND IT IS STILL ONE FUNCTION. The intro card, the corner plates, the result
+	# Ã¢Å¡Â  AND IT IS STILL ONE FUNCTION. The intro card, the corner plates, the result
 	# card and the bodies all read this, which is what makes it impossible for the
 	# card to promise one colour and the stage to draw another. Resolving the class
 	# tint HERE rather than at each of those call sites is what keeps that true.
@@ -163,46 +163,46 @@ func _resolve_side_tints() -> void:
 	var b: Color = ClassInfo.color_for(_fighter_class[1])
 	var d: float = Vector3(a.r - b.r, a.g - b.g, a.b - b.b).length()
 	if d < MIN_CLASS_SEPARATION:
-		return   # indistinguishable — yellow vs blue, and the corner is the read
+		return   # indistinguishable Ã¢â‚¬â€ yellow vs blue, and the corner is the read
 	side_tint = [a, b]
 
 ## WHO THEY ARE, as a multiplier on the shared HP pool. Ordered like CLASS_LABELS.
 ##
 ## Derived from each class's own fantasy line in `ClassInfo.CLASSES` and its kit in
-## `Hero.CLASS_CONFIG` — a tank that trades melee range for a block is supposed to
+## `Hero.CLASS_CONFIG` Ã¢â‚¬â€ a tank that trades melee range for a block is supposed to
 ## outlast a zoner that never wants to be touched, and a pure-melee class that has to
 ## cross the whole stage to do anything is supposed to survive the crossing.
 ##
-## ⚠ THE BRAWLER NUMBER IS DELIBERATE AND IT IS NOT A HANDICAP. The bot sim measures
-## the Brawler winning 14% at Normal — the pure-melee class is the one most hurt by
+## Ã¢Å¡Â  THE BRAWLER NUMBER IS DELIBERATE AND IT IS NOT A HANDICAP. The bot sim measures
+## the Brawler winning 14% at Normal Ã¢â‚¬â€ the pure-melee class is the one most hurt by
 ## the reflex layer working, because everything it does requires being in range. The
 ## fix for that is its KIT, not its health bar, and that is another agent's file. The
 ## 1.15 here is what its own class card already promises ("knockout" bruiser) and it
 ## is applied before any fight is run, not tuned until it wins.
 ##
-## ⚠ RE-TUNED 2026-08-05 AGAINST A REAL 72-BOUT SWEEP — every one of the 36 pairings,
+## Ã¢Å¡Â  RE-TUNED 2026-08-05 AGAINST A REAL 72-BOUT SWEEP Ã¢â‚¬â€ every one of the 36 pairings,
 ## both side orders, 72/72 resolved by KO, zero draws. Measured win rates BEFORE:
 ##
 ##     CLERIC 75%  JUGGERNAUT 69%  STORMCALLER 69%  WARLOCK 63%  SHADOWBLADE 56%
 ##     ARCANIST 44%  BRAWLER 31%  CRYOMANCER 25%  SWORDSAINT 19%
 ##
-## — a 56-point spread, which means two thirds of matchups are decided by the pairing
+## Ã¢â‚¬â€ a 56-point spread, which means two thirds of matchups are decided by the pairing
 ## rather than by the fight. For a mode whose whole product is a watchable duel that is
 ## the defect, not a curiosity.
 ##
 ## Two things the sweep settled that had been argued from stale numbers:
-##   · THE `bolt_heal` HYPOTHESIS WAS RIGHT AND IS ALREADY ACTIONED. Cleric 4->2 and
+##   Ã‚Â· THE `bolt_heal` HYPOTHESIS WAS RIGHT AND IS ALREADY ACTIONED. Cleric 4->2 and
 ##     Warlock 3->2 are in the tree, and the pair fell 91->75 and 84->63. Lifesteal is
-##     no longer the top offender, so do NOT cut the heal again — the heal is the class.
-##   · CRYOMANCER AT 25% IS A NEW FINDING NOBODY HAD FLAGGED, and it is the maker's
+##     no longer the top offender, so do NOT cut the heal again Ã¢â‚¬â€ the heal is the class.
+##   Ã‚Â· CRYOMANCER AT 25% IS A NEW FINDING NOBODY HAD FLAGGED, and it is the maker's
 ##     "the ice class needs a buff" independently confirmed by measurement.
 ##
-## ⚠ AND THIS IS A HANDICAP, WHICH THIS FILE ELSEWHERE SAYS TO REPORT RATHER THAN PAPER
+## Ã¢Å¡Â  AND THIS IS A HANDICAP, WHICH THIS FILE ELSEWHERE SAYS TO REPORT RATHER THAN PAPER
 ## OVER. Stated plainly: it makes every matchup watchable without touching the tower,
 ## and it is NOT the same as fixing the kits. The real Swordsaint fix is its `cast_cd`
 ## 0.45 (slowest in the roster) and `blast_cd` 3.0 (longest), both outliers in their own
 ## columns; the real Brawler fix is its kit. Those are separate work.
-## ⚠ RE-MEASURED 2026-08-05 ON A REAL ROUND-ROBIN, and the previous numbers came
+## Ã¢Å¡Â  RE-MEASURED 2026-08-05 ON A REAL ROUND-ROBIN, and the previous numbers came
 ## from EIGHT HAND-PICKED PAIRINGS. 72 bouts, every unordered pair twice with the
 ## sides swapped, drops OFF (a random Tier 3 swings a duel harder than any class
 ## difference this is measuring). 72/72 resolved, 0 draws:
@@ -211,69 +211,69 @@ func _resolve_side_tints() -> void:
 ##     WARLOCK     75%   BRAWLER   50%   CLERIC      38%
 ##     JUGGERNAUT  50%   CRYOMANCER 50%  SWORDSAINT  19%
 ##
-## The last pass WORKED on four of them — Cryomancer 25 -> 50, Brawler 31 -> 50,
-## Juggernaut 69 -> 50 — and OVERSHOT Cleric, 75 -> 38. Stormcaller and Warlock both
+## The last pass WORKED on four of them Ã¢â‚¬â€ Cryomancer 25 -> 50, Brawler 31 -> 50,
+## Juggernaut 69 -> 50 Ã¢â‚¬â€ and OVERSHOT Cleric, 75 -> 38. Stormcaller and Warlock both
 ## got worse.
 ##
-## ⚠ ONLY THE OUTLIERS MOVE, AND THAT IS A STATISTICS RULE RATHER THAN CAUTION. Each
+## Ã¢Å¡Â  ONLY THE OUTLIERS MOVE, AND THAT IS A STATISTICS RULE RATHER THAN CAUTION. Each
 ## class played 16 bouts, so the standard error on a 50% rate is about 12 points:
 ## 44% and 50% are the same number. Moving the middle of this table would be tuning
 ## noise into the game and then measuring the noise again next time.
 ##
-## ⚠ AND SWORDSAINT IS STILL THE THING THIS CANNOT FIX. It carries the largest
+## Ã¢Å¡Â  AND SWORDSAINT IS STILL THE THING THIS CANNOT FIX. It carries the largest
 ## vitality in the table, it was given a longer dash, and it has not moved off 19%.
 ## A class that needs +45% health to reach parity does not have a health problem. The
 ## finding to report is that its KIT loses, and this file's own header says to report
-## that rather than paper over it — so the number below buys watchability, and it is
+## that rather than paper over it Ã¢â‚¬â€ so the number below buys watchability, and it is
 ## not a fix.
 const CLASS_VITALITY: Array[float] = [
-	0.98,  # ARCANIST     50% — UNCHANGED, dead centre.
-	0.85,  # SHADOWBLADE  44% — UNCHANGED. Inside the noise band; 44 and 50 are the
-	       #               same number at n=16 and moving it would be tuning a coin.
-	1.30,  # BRAWLER      50% — UNCHANGED. Was 31%; the 1.30 did its job. Its KIT is
-	       #               still the real fix — everything it does needs to be in range.
-	1.20,  # JUGGERNAUT   50% — UNCHANGED. Was 69%; the 1.20 did its job.
-	0.98,  # CLERIC       38% — OVERSHOT, from 75%. 0.90 cut a class that sustains AND
-	       #               carried an above-average bar, and cut it past the middle.
-	       #               Back toward 1: take the bar, keep the heal.
-	1.10,  # CRYOMANCER   50% — UNCHANGED. Was 25% and second worst; the maker's "the
-	       #               ice class needs a buff", measured and landed.
-	0.68,  # STORMCALLER  75% — CUT, and it went UP from 69 under the last pass. The
-	       #               most mobile body in the game is not paying for the mobility
-	       #               anywhere else, so it pays here.
-	0.78,  # WARLOCK      75% — CUT, from 63%. Attrition wins a 22-second bout on its
-	       #               own; the shorter the fight, the less that should be true.
-	1.45,  # SWORDSAINT   19% — RAISED, and read the ⚠ above before trusting it. It was
-	       #               already carrying the largest number in this table at 1.25 and
-	       #               had a longer dash, and it did not move a single bout. This
-	       #               buys watchability. It is not a fix.
+	0.98,  # ARCANIST     50% Ã¢â‚¬â€ UNCHANGED, dead centre.
+	0.85,  # SHADOWBLADE  44% Ã¢â‚¬â€ UNCHANGED. Inside the noise band; 44 and 50 are the
+		   #               same number at n=16 and moving it would be tuning a coin.
+	1.30,  # BRAWLER      50% Ã¢â‚¬â€ UNCHANGED. Was 31%; the 1.30 did its job. Its KIT is
+		   #               still the real fix Ã¢â‚¬â€ everything it does needs to be in range.
+	1.20,  # JUGGERNAUT   50% Ã¢â‚¬â€ UNCHANGED. Was 69%; the 1.20 did its job.
+	0.98,  # CLERIC       38% Ã¢â‚¬â€ OVERSHOT, from 75%. 0.90 cut a class that sustains AND
+		   #               carried an above-average bar, and cut it past the middle.
+		   #               Back toward 1: take the bar, keep the heal.
+	1.10,  # CRYOMANCER   50% Ã¢â‚¬â€ UNCHANGED. Was 25% and second worst; the maker's "the
+		   #               ice class needs a buff", measured and landed.
+	0.68,  # STORMCALLER  75% Ã¢â‚¬â€ CUT, and it went UP from 69 under the last pass. The
+		   #               most mobile body in the game is not paying for the mobility
+		   #               anywhere else, so it pays here.
+	0.78,  # WARLOCK      75% Ã¢â‚¬â€ CUT, from 63%. Attrition wins a 22-second bout on its
+		   #               own; the shorter the fight, the less that should be true.
+	1.45,  # SWORDSAINT   19% Ã¢â‚¬â€ RAISED, and read the Ã¢Å¡Â  above before trusting it. It was
+		   #               already carrying the largest number in this table at 1.25 and
+		   #               had a longer dash, and it did not move a single bout. This
+		   #               buys watchability. It is not a fix.
 ]
 
 ## STATICS, and they survive the scene reload every matchup change performs. A
 ## member would reset to its default on the first change and the maker would never
-## be able to leave the opening pairing — the same reason `VersusArena`'s duel knobs
+## be able to leave the opening pairing Ã¢â‚¬â€ the same reason `VersusArena`'s duel knobs
 ## are statics.
 static var class_a: int = 6      # STORMCALLER
 static var class_b: int = 5      # CRYOMANCER
 static var difficulty: int = 3   # the tier that plays the whole kit (combo 0.90)
 ## Scaled per fighter by CLASS_VITALITY.
 ##
-## ⚠ 190 -> 320, MATCHING `VersusArena.SHOWCASE_HP`. The old value's reasoning ("a clip
+## Ã¢Å¡Â  190 -> 320, MATCHING `VersusArena.SHOWCASE_HP`. The old value's reasoning ("a clip
 ## needs the fight to END") was right about clips and wrong about this mode: a CAPTURE
 ## already overrides it (`make_clip.py --hp 500`), so 190 only ever governed the fight a
-## HUMAN opens — and at 190 that fight is a demolition. MEASURED across 72 bouts:
+## HUMAN opens Ã¢â‚¬â€ and at 190 that fight is a demolition. MEASURED across 72 bouts:
 ## p10 3.1 s / median 5.3 s / p90 10.9 s, with 44% ending under five seconds and 31%
 ## won with the winner still above 80% health. There is no read, no comeback and often
 ## no second exchange.
-## ⚠ 320 -> 440. Maker, watching: *"give the bots more health or make their attacks
-## do lightly less damage these are quick fights"* — so both, and this is the half that
+## Ã¢Å¡Â  320 -> 440. Maker, watching: *"give the bots more health or make their attacks
+## do lightly less damage these are quick fights"* Ã¢â‚¬â€ so both, and this is the half that
 ## touches nothing outside the duel. `_apply_matchup` writes `max_hp`/`hp` AFTER
 ## `configure_class`, so this number overrides `CLASS_CONFIG.hp` and
 ## `TuningConfig.hero_vitality_mult` in this mode only; the tower is untouched.
 ## The damage half is the Shadowblade's `blade_damage` 9 -> 6 in `Hero.CLASS_CONFIG`.
 ##
-## ⚠ RAISE `round_seconds` WITH IT OR LONGER BOUTS GET CALLED ON THE HEALTH BAR
-## instead of finishing — the two are one dial in two places, and a decision on
+## Ã¢Å¡Â  RAISE `round_seconds` WITH IT OR LONGER BOUTS GET CALLED ON THE HEALTH BAR
+## instead of finishing Ã¢â‚¬â€ the two are one dial in two places, and a decision on
 ## points is exactly the anticlimax this change is meant to remove.
 static var fighter_hp: int = 440
 ## Which side each class starts on. Flipped on every rematch so the stage's own
@@ -285,7 +285,7 @@ static var swap_sides: bool = false
 ## ends where the match does.
 static var auto_rematch: bool = true
 
-## ⚠ HOW LONG THE "VS" CARD HOLDS BEFORE ANYBODY MOVES — and why it is a STATIC and
+## Ã¢Å¡Â  HOW LONG THE "VS" CARD HOLDS BEFORE ANYBODY MOVES Ã¢â‚¬â€ and why it is a STATIC and
 ## not a const. `tools/botmatch_sim.gd` runs this exact scene over many pairings and
 ## `tools/directed_clip_capture.gd` films it; a ceremony charged to every one of them
 ## is throughput a sim never asked for. A tool sets this to 0 and the card is skipped
@@ -294,9 +294,9 @@ static var auto_rematch: bool = true
 ## It is ALSO skipped automatically when there is no real display (see `_ceremony()`),
 ## so the headless suites and the sim pay nothing without having to know this knob
 ## exists at all.
-## ⚠ 1.8 -> 3.2. Maker: *"before the fight starts I need some time to show x vs z on
+## Ã¢Å¡Â  1.8 -> 3.2. Maker: *"before the fight starts I need some time to show x vs z on
 ## the screen as the stick figures stand there like a couple seconds"*. The card was
-## already there and already held both fighters with the tree paused — it was simply
+## already there and already held both fighters with the tree paused Ã¢â‚¬â€ it was simply
 ## too short to read two class names, register the two bodies, and land the word
 ## FIGHT. At 1.8 s, minus a 0.28 s fade each end and the 0.45 s FIGHT beat, the
 ## readable hold was under a second. This gives it the couple of seconds asked for.
@@ -314,7 +314,7 @@ const CARD_CHALK: Color = Color(0.93, 0.92, 0.86)
 ## (`CARD_GRAPHITE` lived here and is gone with the tier caption it was the colour of.
 ## Kept out rather than left declared: an unused half of a palette invites the next
 ## edit to find a use for it, and the card is deliberately down to two lines now.)
-## The dim over the stage. Heavier than the result card's 0.42 — the fighters are
+## The dim over the stage. Heavier than the result card's 0.42 Ã¢â‚¬â€ the fighters are
 ## standing still behind it and the card is the only thing worth reading.
 const CARD_DIM: Color = Color(0.055, 0.052, 0.075, 0.62)
 ## Typography, in the shape `Boss.card_style()` established for a big moment: one
@@ -322,12 +322,12 @@ const CARD_DIM: Color = Color(0.055, 0.052, 0.075, 0.62)
 const CARD_VS_SIZE: int = 44
 const CARD_NAME_SIZE: int = 17
 const CARD_FIGHT_SIZE: int = 40
-## The colour swatch above each fighter's name — the card's promise about which body
+## The colour swatch above each fighter's name Ã¢â‚¬â€ the card's promise about which body
 ## is which, in the one form that needs no reading.
 const SWATCH_SIZE: Vector2 = Vector2(62.0, 9.0)
 ## Fade in / fade out, bracketing the hold. Both are inside `intro_seconds`.
 const INTRO_FADE: float = 0.28
-## "FIGHT" holds this long AFTER the tree unpauses — the fight is already live under
+## "FIGHT" holds this long AFTER the tree unpauses Ã¢â‚¬â€ the fight is already live under
 ## it, which is the whole point: the word lands ON the first step, not before it.
 const INTRO_FIGHT_BEAT: float = 0.45
 
@@ -339,7 +339,7 @@ const INTRO_FIGHT_BEAT: float = 0.45
 const TAUNT_COOLDOWN: float = 3.0
 const TAUNT_META: StringName = &"bark_last"
 ## The bubble node's name. THE SAME ONE `Bark` uses, so the two systems can never
-## stack two bubbles on one head — whoever gets there first builds it, everybody
+## stack two bubbles on one head Ã¢â‚¬â€ whoever gets there first builds it, everybody
 ## after that reuses it.
 const TAUNT_BUBBLE_NAME: StringName = &"BarkBubble"
 const TAUNT_BUBBLE_SCENE: String = "res://scenes/SpeechBubble.tscn"
@@ -351,23 +351,23 @@ const LOW_HEALTH_FRACTION: float = 0.28
 
 ## ------------------------------------------------------------------ MATCH RULES
 ## Where the two fighters stand, as a distance either side of the CENTRE OF THE FIGHT
-## FLOOR. `VersusArena`'s own showcase spawns are 520 / 1080, whose midpoint is 800 —
+## FLOOR. `VersusArena`'s own showcase spawns are 520 / 1080, whose midpoint is 800 Ã¢â‚¬â€
 ## 80 px right of the flat ground's actual centre, so one fighter started nearer the
 ## stairs than the other did the mound. Mirrored about the real centre instead.
 const FLOOR_CENTRE_X: float = 720.0     # (40 + 1400) / 2, the main walkable ground
 const SPAWN_SPREAD: float = 280.0       # same 560 px gap the showcase always used
-## ⚠ 716 -> 760: THEY WERE SPAWNING 64 PX IN THE AIR. Maker: *"their spawn shouldnt
+## Ã¢Å¡Â  716 -> 760: THEY WERE SPAWNING 64 PX IN THE AIR. Maker: *"their spawn shouldnt
 ## not be in the ait like they should spawn on the ground"*. `VersusArena.GROUND_TOP`
 ## is 780 and a hero's origin is the CENTRE of its collider, so a body rests at about
-## `780 - 17`. At 716 both fighters dropped four body-heights before the bell — the
+## `780 - 17`. At 716 both fighters dropped four body-heights before the bell Ã¢â‚¬â€ the
 ## first thing in every clip was two men falling.
 ##
 ## Deliberately a few px ABOVE the rest position rather than exactly on it. Landing is
 ## free and invisible; starting BELOW is not, because depenetration ejects a box whose
-## midline is under the floor's — that is precisely the floor-2 blocker this project
+## midline is under the floor's Ã¢â‚¬â€ that is precisely the floor-2 blocker this project
 ## already spent a session on.
 const SPAWN_Y: float = 760.0
-## Off the rock entirely — a fall nothing recovers from. The terrain spans x 40..1965
+## Off the rock entirely Ã¢â‚¬â€ a fall nothing recovers from. The terrain spans x 40..1965
 ## (VersusArena.TERRACES), so anything outside this is in the air over a blast zone.
 const RIM_LEFT: float = 24.0
 const RIM_RIGHT: float = 1980.0
@@ -378,33 +378,33 @@ const RIM_RIGHT: float = 1980.0
 ## A STATIC rather than a const so `tools/botmatch_sim.gd` can run a shorter round
 ## without editing the number the maker watches. GAME seconds, so hit-stop stretches
 ## the wall clock but never the fight.
-## ⚠ 50 -> 75, AND IT MOVES WITH `fighter_hp`. At 440 health and a calmer cast
+## Ã¢Å¡Â  50 -> 75, AND IT MOVES WITH `fighter_hp`. At 440 health and a calmer cast
 ## cadence a real bout can now run past fifty seconds, and a fight that ends on the
-## clock is scored on the health bar rather than won — see `_decide`'s DECISION arm.
+## clock is scored on the health bar rather than won Ã¢â‚¬â€ see `_decide`'s DECISION arm.
 static var round_seconds: float = 75.0
 
-## ══ THE BOTS CARRY A TIER 3 DROP IN A SHOWCASE DUEL ═════════════════════════
+## Ã¢â€¢ÂÃ¢â€¢Â THE BOTS CARRY A TIER 3 DROP IN A SHOWCASE DUEL Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
 ## Maker: *"the bots should have the cool spells when 1 vs 1"*. They did not, and
-## the reason was structural rather than an oversight: `build_tier3()` — the void,
-## chronostasis, equinox, roulette — are BOSS DROPS, found on a floor mid-run. A
+## the reason was structural rather than an oversight: `build_tier3()` Ã¢â‚¬â€ the void,
+## chronostasis, equinox, roulette Ã¢â‚¬â€ are BOSS DROPS, found on a floor mid-run. A
 ## duel has no floor, so a bot duel could only ever show nine class kits, and the
 ## four loudest things in the game were unreachable in the one mode whose entire
 ## job is to produce footage.
 ##
 ## Granted through `SpellGrant.apply`, which is the real pickup path: it displaces a
-## slot, remembers what it displaced, and carries the drop's own CHARGES — so a
+## slot, remembers what it displaced, and carries the drop's own CHARGES Ã¢â‚¬â€ so a
 ## Chronostasis is a one-shot showpiece, not a spam button.
 ##
-## ⚠ SHOWCASE ONLY. This is `BotMatch`, the bot-vs-bot scene. The played versus
+## Ã¢Å¡Â  SHOWCASE ONLY. This is `BotMatch`, the bot-vs-bot scene. The played versus
 ## sandbox and the tower reach `VersusArena` without passing through here, so
 ## neither is touched.
-## ⚠ ROLL THE MATCHUP. A content engine that always shoots STORMCALLER vs CRYOMANCER
+## Ã¢Å¡Â  ROLL THE MATCHUP. A content engine that always shoots STORMCALLER vs CRYOMANCER
 ## produces one clip nine times, and both of this scene's entry points defaulted to
 ## that pair: the Lobby button and `make_clip.py`. Set before `_ready` (the statics
 ## are read there) or pass `--random=1` to the capture tool.
 ##
-## The two are always DIFFERENT classes — a mirror match is the one duel that cannot
-## show a matchup — and the roll happens once, in `_ready`, so both fighters and every
+## The two are always DIFFERENT classes Ã¢â‚¬â€ a mirror match is the one duel that cannot
+## show a matchup Ã¢â‚¬â€ and the roll happens once, in `_ready`, so both fighters and every
 ## label downstream agree about who is fighting.
 static var random_matchup: bool = false
 
@@ -413,29 +413,29 @@ static var drops: bool = true
 static var drop_a: int = -1
 static var drop_b: int = -1
 
-## ══ EACH CLASS'S SIGNATURE DROP ═════════════════════════════════════════════
+## Ã¢â€¢ÂÃ¢â€¢Â EACH CLASS'S SIGNATURE DROP Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
 ## Maker: "give all the classes their tier 3 drop spells". A RANDOM roll meant a
 ## Swordsaint might open Equinox in one clip and Roulette in the next, so the clip
-## showed the DROP and not the class — which is the opposite of what a per-class
+## showed the DROP and not the class Ã¢â‚¬â€ which is the opposite of what a per-class
 ## showcase is for.
 ##
-## ⚠ THIS IS A MAPPING, NOT THE FEATURE ASKED FOR, AND THE DIFFERENCE IS REAL.
+## Ã¢Å¡Â  THIS IS A MAPPING, NOT THE FEATURE ASKED FOR, AND THE DIFFERENCE IS REAL.
 ## There are SIX drops (`drop_ids()`: arc_of_fools, meteor_storm, the_void,
 ## chronostasis, equinox, roulette) and NINE classes, so three of these rows are
 ## shared. Giving every class one of its OWN means authoring three-plus new
-## ult-weight spells, each with a bespoke spectacle — the existing four are
+## ult-weight spells, each with a bespoke spectacle Ã¢â‚¬â€ the existing four are
 ## rule-benders with their own drawing, not element recolours, and
 ## [[project_v2_class_identity_mandate]] rules out making the difference a tint.
 ## That build has not been done and this is not it.
 ##
 ## FOUR OF THESE ARE THE SPELL-TREE SPEC'S OWN LINKS
-## (`docs/superpowers/specs/2026-08-04-spell-trees-and-progression-design.md` §4):
-## Cleric→equinox, Warlock→the_void, Warlock→arc_of_fools, Arcanist→chronostasis.
-## ⚠ I MOVED CHRONOSTASIS TO THE CRYOMANCER and the reason is checkable rather than
+## (`docs/superpowers/specs/2026-08-04-spell-trees-and-progression-design.md` Ã‚Â§4):
+## ClericÃ¢â€ â€™equinox, WarlockÃ¢â€ â€™the_void, WarlockÃ¢â€ â€™arc_of_fools, ArcanistÃ¢â€ â€™chronostasis.
+## Ã¢Å¡Â  I MOVED CHRONOSTASIS TO THE CRYOMANCER and the reason is checkable rather than
 ## taste: the spell's own `element` is ICE and its whole mechanic is freezing. The
 ## spec reaches it from the Arcanist as an "arcane control" TREE LINK, which is a
 ## different claim from whose signature it is.
-## ⚠ NINE CLASSES, NINE DISTINCT DROPS — no row appears twice any more.
+## Ã¢Å¡Â  NINE CLASSES, NINE DISTINCT DROPS Ã¢â‚¬â€ no row appears twice any more.
 ##
 ## This table used to pin six drops across nine classes, so three PAIRS shared, and
 ## two of the six (`arc_of_fools`, `meteor_storm`) were Tier 2 spells standing in for
@@ -443,32 +443,32 @@ static var drop_b: int = -1
 ## classes reaching the same boss reward and being handed the same spell.
 ##
 ## The five new ones each bend a different RULE of the game rather than carrying a
-## bigger number — see the block on `SpellLibrary.build_tier3()`. `arc_of_fools` and
+## bigger number Ã¢â‚¬â€ see the block on `SpellLibrary.build_tier3()`. `arc_of_fools` and
 ## `meteor_storm` stay in the Tier 2 pool; they are simply no longer anybody's
 ## signature reward.
 const CLASS_DROP: Array[String] = [
-	"roulette",      # 0 ARCANIST    — a dispatcher re-roll is the most arcane thing here
-	"severance",     # 1 SHADOWBLADE — mark, wait, execute. Damage read off the victim
-	"teardown",      # 2 BRAWLER     — no magic: the room IS the weapon
-	"siegeworks",    # 3 JUGGERNAUT  — the ground obeys, and it takes the room away
-	"equinox",       # 4 CLERIC      — the spec's link
-	"chronostasis",  # 5 CRYOMANCER  — ICE element, and the mechanic IS freezing
-	"the_circuit",   # 6 STORMCALLER — it stops choosing a direction. No radius at all
-	"the_void",      # 7 WARLOCK     — the spec's link. Now unshared
-	"zanshin",       # 8 SWORDSAINT  — one cut, worth more for everyone who walked in
+	"roulette",      # 0 ARCANIST    Ã¢â‚¬â€ a dispatcher re-roll is the most arcane thing here
+	"severance",     # 1 SHADOWBLADE Ã¢â‚¬â€ mark, wait, execute. Damage read off the victim
+	"teardown",      # 2 BRAWLER     Ã¢â‚¬â€ no magic: the room IS the weapon
+	"siegeworks",    # 3 JUGGERNAUT  Ã¢â‚¬â€ the ground obeys, and it takes the room away
+	"equinox",       # 4 CLERIC      Ã¢â‚¬â€ the spec's link
+	"chronostasis",  # 5 CRYOMANCER  Ã¢â‚¬â€ ICE element, and the mechanic IS freezing
+	"the_circuit",   # 6 STORMCALLER Ã¢â‚¬â€ it stops choosing a direction. No radius at all
+	"the_void",      # 7 WARLOCK     Ã¢â‚¬â€ the spec's link. Now unshared
+	"zanshin",       # 8 SWORDSAINT  Ã¢â‚¬â€ one cut, worth more for everyone who walked in
 ]
 ## How close two health fractions have to be before a timeout is called a DRAW
 ## rather than a decision.
 const DRAW_MARGIN: float = 0.04
 ## Real seconds the frozen KO frame holds before the result card MAY slam in. This
-## is a MINIMUM, not the answer — see `_screen_is_quiet`.
+## is a MINIMUM, not the answer Ã¢â‚¬â€ see `_screen_is_quiet`.
 const FREEZE_BEAT: float = 0.55
 ## ...and the ceiling on that wait. A spectacle that never finishes (or a future
 ## effect with a lifetime nobody re-checked here) must not be able to eat the card
 ## entirely, so the quiet gate gives up at this point and shows it regardless.
 const RESULT_MAX_WAIT: float = 2.5
 ## How long the card holds before the next bout, when `auto_rematch` is on. Measured
-## from when the card APPEARS, which is what this constant always claimed to mean —
+## from when the card APPEARS, which is what this constant always claimed to mean Ã¢â‚¬â€
 ## it was previously measured from the KO, so anything that delayed the card silently
 ## shortened it.
 const RESULT_HOLD: float = 4.2
@@ -514,7 +514,7 @@ var _intro_row: Control = null
 var _intro_fight: Label = null
 var _intro_phase: int = Intro.DONE
 ## REAL (unscaled) seconds the card opened. Same clock `_freeze` uses, and for the
-## same reason — the tree is paused under it, so nothing scaled can be trusted.
+## same reason Ã¢â‚¬â€ the tree is paused under it, so nothing scaled can be trusted.
 var _intro_at: float = 0.0
 
 ## ---- taunt book-keeping -----------------------------------------------------
@@ -533,7 +533,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	if random_matchup:
 		_roll_matchup()
-	# Statics BEFORE the scene instantiates — `VersusArena._ready` reads them all.
+	# Statics BEFORE the scene instantiates Ã¢â‚¬â€ `VersusArena._ready` reads them all.
 	# Reached BY PATH, never by `class_name`, for the autoload-at-parse-time reason
 	# every capture tool in this project documents.
 	var arena_script: GDScript = load(ARENA_SCRIPT) as GDScript
@@ -544,19 +544,19 @@ func _ready() -> void:
 		arena_script.set("showcase_difficulty", clampi(difficulty, 0, 3))
 		arena_script.set("showcase_directed", true)
 		arena_script.set("showcase_hp_override", fighter_hp)
-		# ⚠ REASON 1 THAT FIGHTS NEVER ENDED. This static defaults to TRUE and this
+		# Ã¢Å¡Â  REASON 1 THAT FIGHTS NEVER ENDED. This static defaults to TRUE and this
 		# scene never set it, so hits piled onto `damage_pct` and HP never moved. A
 		# watch that cannot end is not a watch. HP death is the model that resolves.
 		arena_script.set("showcase_ringout", false)
-		# ⚠ TELL THE STAGE WHERE THE FIGHTERS WILL ACTUALLY STAND. `_adopt_fighters`
+		# Ã¢Å¡Â  TELL THE STAGE WHERE THE FIGHTERS WILL ACTUALLY STAND. `_adopt_fighters`
 		# re-seats them at 720 +/- 280 AFTER the arena has finished building, so the
-		# stage's own `SHOWCASE_SPAWN_A/B` are not where anybody ends up — and the left
+		# stage's own `SHOWCASE_SPAWN_A/B` are not where anybody ends up Ã¢â‚¬â€ and the left
 		# one, 440, lands two pixels inside the cover block authored at 470. See
 		# `VersusArena.SPAWN_FOOTPRINT_HALF`; the block moves, the footing does not.
-		# ⚠ TYPED, NOT A BARE LITERAL. `VersusArena.spawn_keepout_x` is `Array[float]`,
+		# Ã¢Å¡Â  TYPED, NOT A BARE LITERAL. `VersusArena.spawn_keepout_x` is `Array[float]`,
 		# and an untyped `Array` into a typed slot is the exact fault that left the duel
 		# stage with no terrain for a week ("Invalid assignment of property or key").
-		# Going through `Object.set()` rather than `=` does not make it safe — it only
+		# Going through `Object.set()` rather than `=` does not make it safe Ã¢â‚¬â€ it only
 		# moves where it surfaces, which here is `_spawn_keepout()`'s typed return, so
 		# `_build_cover` would abort at its first line and cover would silently stop
 		# existing with the cause two files away.
@@ -576,8 +576,8 @@ func _ready() -> void:
 	_open_intro()
 
 
-## ⚠ CLEAR THE SHOWCASE STATICS ON THE WAY OUT. They outlive this node, this scene
-## and the scene change that leaves it — so walking from a bot match into the versus
+## Ã¢Å¡Â  CLEAR THE SHOWCASE STATICS ON THE WAY OUT. They outlive this node, this scene
+## and the scene change that leaves it Ã¢â‚¬â€ so walking from a bot match into the versus
 ## duel would hand the duel two bots and no player, with the cause two scenes back.
 ## `showcase_ringout` is restored to its shipped TRUE for the same reason in reverse:
 ## the played sandbox is a Smash stage and is supposed to be.
@@ -605,13 +605,13 @@ func _exit_tree() -> void:
 	arena_script.set("showcase_directed", false)
 	arena_script.set("showcase_hp_override", 0)
 	arena_script.set("showcase_ringout", true)
-	# Back to "ask the stage" — a later free-play or duel seats bodies somewhere else
+	# Back to "ask the stage" Ã¢â‚¬â€ a later free-play or duel seats bodies somewhere else
 	# entirely and must not inherit this match's footing.
 	arena_script.set("spawn_keepout_x", [] as Array[float])
 
 
 # ==========================================================================
-# THE FIGHTERS — footing, stats, and the only honest death signal on this stage
+# THE FIGHTERS Ã¢â‚¬â€ footing, stats, and the only honest death signal on this stage
 # ==========================================================================
 
 ## Pick two DIFFERENT classes. Writes the statics rather than a local, because
@@ -665,10 +665,10 @@ func _adopt_fighters() -> void:
 		f.set("hp", hp)
 		_fighter_max[side] = hp
 		_fighter_hp_now[side] = hp
-		# ⚠ A SPECTATED BOUT HAS A LOSER AND MUST KEEP ONE. Maker: *"when they die in
+		# Ã¢Å¡Â  A SPECTATED BOUT HAS A LOSER AND MUST KEEP ONE. Maker: *"when they die in
 		# spectating they shouldnt stand up they died"*. `Hero._die` outside a run
 		# heals to full so the F6 feel toy never stops, which left this mode toppling
-		# the rig of a live, full-health body — and anything that re-drove the rig
+		# the rig of a live, full-health body Ã¢â‚¬â€ and anything that re-drove the rig
 		# stood it back up. Set HERE rather than inferred in `Hero`, so free play, the
 		# sandbox and the human duel keep the heal they were designed around.
 		f.set("stay_dead", true)
@@ -678,15 +678,15 @@ func _adopt_fighters() -> void:
 		f.global_position = Vector2(x, SPAWN_Y)
 		f.set("facing", Vector2.RIGHT if side == 0 else Vector2.LEFT)
 		_reseat_registry(f)
-		# ⚠ THE ONLY DEATH SIGNAL THAT WORKS HERE. See reason 2 at the top of the
+		# Ã¢Å¡Â  THE ONLY DEATH SIGNAL THAT WORKS HERE. See reason 2 at the top of the
 		# file: `Hero.take_damage` emits `health_changed(0, max)` and only THEN calls
 		# `_die`, which heals straight back to full. Polling `hp` misses it every
 		# time; the signal does not.
 		if f.has_signal("health_changed"):
 			f.connect("health_changed", _on_health_changed.bind(side))
-		# ⚠ THE FLOATING BAR IS HIDDEN ON BOTH FIGHTERS FOR THE WHOLE MATCH. This mode
+		# Ã¢Å¡Â  THE FLOATING BAR IS HIDDEN ON BOTH FIGHTERS FOR THE WHOLE MATCH. This mode
 		# already has screen-space plates reading `STORMCALLER 418` in each corner, so
-		# the over-the-head bar is the same number said twice — and on a 65 px stick
+		# the over-the-head bar is the same number said twice Ã¢â‚¬â€ and on a 65 px stick
 		# figure the bar plus its MP strip is PHYSICALLY LARGER THAN THE TORSO. On the
 		# result frame it sits squarely on top of the winner, which is the one shot this
 		# mode exists to produce.
@@ -699,7 +699,7 @@ func _adopt_fighters() -> void:
 
 
 ## Hand this fighter its showpiece. See the `drops` block above for why a duel has
-## to be TOLD to do this — there is no floor here to find one on.
+## to be TOLD to do this Ã¢â‚¬â€ there is no floor here to find one on.
 ##
 ## The two sides are given DIFFERENT drops wherever possible, because the point is a
 ## clip: two bots opening the same Chronostasis is one spell shown twice.
@@ -724,9 +724,9 @@ func _grant_showcase_drop(f: Node2D, side: int) -> void:
 	if nth < 0:
 		push_warning("[botmatch] side %d could not take '%s'" % [side, spell.id])
 		return
-	# ⚠ AND THE BRAIN IS TOLD, which is the half that makes it actually get CAST.
+	# Ã¢Å¡Â  AND THE BRAIN IS TOLD, which is the half that makes it actually get CAST.
 	# `BotBrain._kit_facts` scores a slot from the CLASS KIT, so without this the bot
-	# goes on scoring the spell the drop replaced — its range, its form, its timing —
+	# goes on scoring the spell the drop replaced Ã¢â‚¬â€ its range, its form, its timing Ã¢â‚¬â€
 	# and casts a 235 px ring at whatever distance the displaced spell wanted. The
 	# comment on `slot_affordable` in that file already worries about exactly this.
 	BotBrain.note_drop(f, nth, spell)
@@ -736,7 +736,7 @@ func _grant_showcase_drop(f: Node2D, side: int) -> void:
 
 ## Every `CharacterBars` under a fighter, off. Found by TYPE rather than by node name:
 ## `Hero` builds its bars in code (`Hero.gd`), so there is no authored name to rely on
-## — the same trap that made `probe_town_feet` silently skip every NPC.
+## Ã¢â‚¬â€ the same trap that made `probe_town_feet` silently skip every NPC.
 func _hide_floating_bars(f: Node) -> void:
 	if f == null:
 		return
@@ -745,16 +745,16 @@ func _hide_floating_bars(f: Node) -> void:
 			(c as CharacterBars).visible = false
 
 
-## YELLOW ON THE LEFT, BLUE ON THE RIGHT — see the note on `SIDE_COLORS`.
+## YELLOW ON THE LEFT, BLUE ON THE RIGHT Ã¢â‚¬â€ see the note on `SIDE_COLORS`.
 ##
-## ⚠ IT HAS TO HAPPEN HERE, IN `_adopt_fighters`, and not anywhere earlier. `Hero._ready`
+## Ã¢Å¡Â  IT HAS TO HAPPEN HERE, IN `_adopt_fighters`, and not anywhere earlier. `Hero._ready`
 ## applies `GameState.colourway` to its own rig as the last thing it does, so a tint set
 ## before the arena is built is simply overwritten by the save file. This runs AFTER
 ## `add_child(_arena)` has returned, i.e. after both heroes are fully ready, which is
 ## the first moment the colour can stick.
 ##
 ## `CharacterRig.flash_color()` / `flash()` temporarily replace `limb_color` on every
-## hit and restore it afterwards — that is the hit feedback doing its job, and it
+## hit and restore it afterwards Ã¢â‚¬â€ that is the hit feedback doing its job, and it
 ## restores to whatever `set_tint` last wrote, so it restores to the corner colour.
 func _paint_corners() -> void:
 	for side: int in _fighters.size():
@@ -794,8 +794,8 @@ func _reseat_registry(f: Node2D) -> void:
 
 ## The death hook. `hp == 0` here is the fatal frame, before `Hero._die` heals it.
 ##
-## It is also the only place in this scene that can see a HIT — no damage signal exists
-## and polling HP once a frame cannot tell a 4-point chip from a 40-point ult — so the
+## It is also the only place in this scene that can see a HIT Ã¢â‚¬â€ no damage signal exists
+## and polling HP once a frame cannot tell a 4-point chip from a 40-point ult Ã¢â‚¬â€ so the
 ## fight's dialogue beats are derived from the DROP between two reports of this signal.
 func _on_health_changed(hp: int, _max_hp: int, side: int) -> void:
 	if side < 0 or side > 1:
@@ -810,13 +810,13 @@ func _on_health_changed(hp: int, _max_hp: int, side: int) -> void:
 
 ## The three mid-fight beats, all read off one health drop:
 ##
-##   FIRST BLOOD — the first real hit of the bout. The one who LANDED it speaks.
-##   BIG HIT     — anything past `BIG_HIT_FRACTION` of the victim's bar. Also the
+##   FIRST BLOOD Ã¢â‚¬â€ the first real hit of the bout. The one who LANDED it speaks.
+##   BIG HIT     Ã¢â‚¬â€ anything past `BIG_HIT_FRACTION` of the victim's bar. Also the
 ##                 attacker, because a taunt is what a big hit is FOR.
-##   LOW HEALTH  — the victim, once, when the bar crosses the line. It is the only
+##   LOW HEALTH  Ã¢â‚¬â€ the victim, once, when the bar crosses the line. It is the only
 ##                 line in the book that is not swagger.
 ##
-## ⚠ THE "ATTACKER" HERE IS `1 - side`, AND THAT IS AN ASSUMPTION, NOT A FACT. This
+## Ã¢Å¡Â  THE "ATTACKER" HERE IS `1 - side`, AND THAT IS AN ASSUMPTION, NOT A FACT. This
 ## stage has friendly fire, terrain and ring-out pits, so a fighter can absolutely lose
 ## HP to its own meteor with the other one across the map. There is no attacker
 ## attribution on `health_changed` to do better with. The failure mode is one wrongly
@@ -838,16 +838,16 @@ func _taunt_on_damage(side: int, drop: int) -> void:
 
 
 # ==========================================================================
-# TAUNTS — the fighters having an opinion about the fight
+# TAUNTS Ã¢â‚¬â€ the fighters having an opinion about the fight
 #
-# ⚠ `Bark.say()` CANNOT DO THIS, and it was checked before this was written. Bark can
+# Ã¢Å¡Â  `Bark.say()` CANNOT DO THIS, and it was checked before this was written. Bark can
 # only speak events that exist in its own fixed `LINES` table; there is no way to pass
-# it authored text. So this does what Bark itself does one layer down — parents a
-# `SpeechBubble` to the speaker and calls `say()` — and takes its WORDS from
+# it authored text. So this does what Bark itself does one layer down Ã¢â‚¬â€ parents a
+# `SpeechBubble` to the speaker and calls `say()` Ã¢â‚¬â€ and takes its WORDS from
 # `TauntBook`, which is a pure static table precisely so a suite can sweep it without
 # standing up a scene.
 #
-# ⚠ AND IT SHARES BARK'S BUBBLE AND BARK'S COOLDOWN META ON PURPOSE. One bubble per
+# Ã¢Å¡Â  AND IT SHARES BARK'S BUBBLE AND BARK'S COOLDOWN META ON PURPOSE. One bubble per
 # body is a hard rule (two would render two lines on top of each other), and one rate
 # limit per body is why a fight is punctuated rather than narrated. If `VoiceDirector`
 # is ever bound to this stage, the two systems already interleave correctly.
@@ -871,23 +871,23 @@ func _taunt(side: int, beat: StringName, always: bool = false) -> void:
 		return
 	# WHO IS OPPOSITE. Maker: "make the bots text chats interact with each other based
 	# on who they are fighting." Side 0 is `class_a` and side 1 is `class_b`, which is
-	# the same mapping `_apply_matchup` uses — read from the statics rather than from
+	# the same mapping `_apply_matchup` uses Ã¢â‚¬â€ read from the statics rather than from
 	# the body, because a fighter does not carry its own class id in a form this file
 	# can trust after a mid-match switch.
 	var vs: int = class_b if side == 0 else class_a
 	var text: String = TauntBook.line_for(beat, -1, vs)
 	if text.is_empty():
 		return
-	# ⚠ THE LINE WEARS THE SPEAKER'S OWN COLOUR. Maker: *"make the text in the colour
+	# Ã¢Å¡Â  THE LINE WEARS THE SPEAKER'S OWN COLOUR. Maker: *"make the text in the colour
 	# of the stickman"*. With two bubbles on screen and both of them white, the only
-	# way to tell who just spoke was to trace the tail back to a body — which in a clip
+	# way to tell who just spoke was to trace the tail back to a body Ã¢â‚¬â€ which in a clip
 	# is a beat the viewer does not have. The corner colour is already the identity
 	# everything else in this mode reads (`side_color`, the plates, the rig tint), so
 	# the bubble joins it rather than inventing a third scheme.
 	#
 	# LIGHTENED FOR THE PANEL IT SITS ON. The bubble backing is near-black, and the
 	# blue corner at its authored value is a legibility problem against it while the
-	# yellow is not — so both go through the same lift rather than hand-picking one.
+	# yellow is not Ã¢â‚¬â€ so both go through the same lift rather than hand-picking one.
 	# `to_html(false)` drops alpha, which BBCode's `[color=#rrggbb]` does not take.
 	var ink: Color = side_color(side).lightened(0.25)
 	text = "[color=#%s]%s[/color]" % [ink.to_html(false), text]
@@ -900,7 +900,7 @@ func _taunt(side: int, beat: StringName, always: bool = false) -> void:
 	# a taunt must never be something a match tick has to wait for. Same contract
 	# `Bark.say` documents.
 	bubble.call(&"say", text, TauntBook.HOLD, 0.0)
-	# The only handle anything has on a bubble's lifetime — `SpeechBubble` exposes
+	# The only handle anything has on a bubble's lifetime Ã¢â‚¬â€ `SpeechBubble` exposes
 	# neither a count nor a remaining-time query, and the result card needs to know
 	# when the finisher line has cleared. See `_screen_is_quiet`.
 	_taunt_until = maxf(_taunt_until, _real_seconds() + TauntBook.HOLD)
@@ -911,13 +911,13 @@ func _taunt(side: int, beat: StringName, always: bool = false) -> void:
 	Bark.voice_only(who, mood, Gibberish.syllables_for_text(text, mood))
 
 
-## Find or build this fighter's bubble. One per body, reused for its whole life —
+## Find or build this fighter's bubble. One per body, reused for its whole life Ã¢â‚¬â€
 ## `Bark._bubble_for` does exactly this, and shares the node name so the two never
 ## build a second one over the first.
 ##
-## ⚠ THE BUBBLE IS `PROCESS_MODE_ALWAYS`, and that is load-bearing for the KO line.
+## Ã¢Å¡Â  THE BUBBLE IS `PROCESS_MODE_ALWAYS`, and that is load-bearing for the KO line.
 ## `SpeechBubble._process` is what positions the panel over the speaker's head, and the
-## finishing taunt is fired on the frame the match is decided — one frame before
+## finishing taunt is fired on the frame the match is decided Ã¢â‚¬â€ one frame before
 ## `_freeze()` pauses the whole tree. A PAUSABLE bubble would be frozen before it ever
 ## placed itself and the last line of the clip would render at the fighter's feet.
 func _bubble_for(who: Node2D) -> Node:
@@ -932,17 +932,17 @@ func _bubble_for(who: Node2D) -> Node:
 	bubble.name = String(TAUNT_BUBBLE_NAME)
 	bubble.process_mode = Node.PROCESS_MODE_ALWAYS
 	who.add_child(bubble)
-	# No box, smaller type — the duel's own register. See `SpeechBubble.set_bare` for
+	# No box, smaller type Ã¢â‚¬â€ the duel's own register. See `SpeechBubble.set_bare` for
 	# why this is applied here rather than in the shared scene: the hub townsfolk use
 	# the same bubble and the panel earns its place there.
-	# ⚠ AFTER `add_child`, not before: the overrides go through `@onready` node
+	# Ã¢Å¡Â  AFTER `add_child`, not before: the overrides go through `@onready` node
 	# references that do not exist until the bubble is in the tree.
 	if bubble.has_method("set_bare"):
 		bubble.call("set_bare", 9)
 	return bubble
 
 
-## Per-speaker rate limit, on the node itself rather than in a static dictionary — a
+## Per-speaker rate limit, on the node itself rather than in a static dictionary Ã¢â‚¬â€ a
 ## static map keyed by instance id would leak an entry for every body that ever
 ## spawned. Same key and same window as `Bark`; see the block header.
 func _off_taunt_cooldown(who: Node) -> bool:
@@ -996,7 +996,7 @@ func _process(delta: float) -> void:
 	_paint_hud()
 
 
-## Poll HP for the BARS only. It is not a death check — see reason 2 at the top.
+## Poll HP for the BARS only. It is not a death check Ã¢â‚¬â€ see reason 2 at the top.
 func _sample_fighters() -> void:
 	for side: int in _fighters.size():
 		var f: Node2D = _fighters[side]
@@ -1007,7 +1007,7 @@ func _sample_fighters() -> void:
 ## A fighter off the rock is falling into a blast zone and is not coming back.
 ##
 ## Detected by POSITION rather than by the arena's pit signal, because the pit
-## routes to `_on_fighter_fell`, which burns a stock and respawns — i.e. by the time
+## routes to `_on_fighter_fell`, which burns a stock and respawns Ã¢â‚¬â€ i.e. by the time
 ## the arena has an opinion the fighter is already back on its feet at full health,
 ## and the most watchable event this game has has been erased.
 func _check_rimout() -> void:
@@ -1047,8 +1047,8 @@ func _hp_frac(side: int) -> float:
 ## very frame the fight was won) never runs. `_match_over` is latched on the arena as
 ## well, so the reset stays dead even if something unpauses.
 ##
-## The `ClipDirector` keeps ticking through the pause — it inherits PROCESS_MODE
-## ALWAYS from the arena — so the camera settles onto the KO instead of stopping dead
+## The `ClipDirector` keeps ticking through the pause Ã¢â‚¬â€ it inherits PROCESS_MODE
+## ALWAYS from the arena Ã¢â‚¬â€ so the camera settles onto the KO instead of stopping dead
 ## with it. That settle IS the shot.
 func _decide(outcome: int, winner: int) -> void:
 	if _outcome != Outcome.NONE:
@@ -1062,7 +1062,7 @@ func _decide(outcome: int, winner: int) -> void:
 		_final_hp[1 - winner] = 0
 	elif outcome == Outcome.RINGOUT and winner >= 0:
 		_final_hp[1 - winner] = 0
-	# Tell the camera operator where to look. It cannot see this itself — see the
+	# Tell the camera operator where to look. It cannot see this itself Ã¢â‚¬â€ see the
 	# note on `ClipDirector.note_knockdown`.
 	var d: Object = _director()
 	if d != null:
@@ -1084,15 +1084,15 @@ func _decide(outcome: int, winner: int) -> void:
 	_sting()
 
 
-## THE LOSER GOES DOWN, and it has to happen HERE — before `_freeze()` — because the
+## THE LOSER GOES DOWN, and it has to happen HERE Ã¢â‚¬â€ before `_freeze()` Ã¢â‚¬â€ because the
 ## line after this pauses the tree and nothing pausable moves again.
 ##
-## ⚠ THE BUG THIS FIXES. Watch a bot match end before this existed and the beaten
+## Ã¢Å¡Â  THE BUG THIS FIXES. Watch a bot match end before this existed and the beaten
 ## fighter is STANDING BOLT UPRIGHT, unanimated, under the word "KO", at FULL health.
 ## Three separate things conspired:
 ##   1. `Hero.take_damage` emits `health_changed(0, max)` and only THEN calls `_die()`.
 ##   2. `_die()` outside a run (which a bot match is) heals straight back to `max_hp`
-##      and returns — the feel-sandbox behaviour, correct there, invisible here.
+##      and returns Ã¢â‚¬â€ the feel-sandbox behaviour, correct there, invisible here.
 ##   3. `_decide` fires off that signal and pauses the tree, so even if something HAD
 ##      gone limp it would have frozen mid-stand.
 ## The result card therefore drew over a fighter who was, visually, fine.
@@ -1127,21 +1127,21 @@ func _put_the_loser_down(winner: int) -> void:
 		if d.x != 0.0:
 			from_dir = Vector2(-signf(d.x), -0.5)
 	(rig as Node).process_mode = Node.PROCESS_MODE_ALWAYS
-	# ⚠ ASSERT GROUNDEDNESS, or the body sprawls in mid-air. `CharacterRig` only drops
-	# its ride height toward `RIDE_PRONE` — the thing that actually puts a limp body ON
-	# THE FLOOR — while `_grounded` is true, and `_grounded` is fed once a frame by
+	# Ã¢Å¡Â  ASSERT GROUNDEDNESS, or the body sprawls in mid-air. `CharacterRig` only drops
+	# its ride height toward `RIDE_PRONE` Ã¢â‚¬â€ the thing that actually puts a limp body ON
+	# THE FLOOR Ã¢â‚¬â€ while `_grounded` is true, and `_grounded` is fed once a frame by
 	# `Hero._physics_process`, which the pause on the next line stops forever. A fatal
 	# blow almost always pops the victim off the floor, so at the decisive frame that
 	# flag is usually FALSE and would stay false for the whole result card: a fighter
-	# going limp while hovering. Measured on a real KO before this line existed — the
+	# going limp while hovering. Measured on a real KO before this line existed Ã¢â‚¬â€ the
 	# rig's ride offset never moved off 0.
 	if (rig as Object).has_method("set_grounded"):
 		(rig as Object).call("set_grounded", true)
-	# ══ THE DEATH ITSELF, WHICH THIS MODE NEVER SHOWED ══════════════════════════
+	# Ã¢â€¢ÂÃ¢â€¢Â THE DEATH ITSELF, WHICH THIS MODE NEVER SHOWED Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
 	# Maker, watching duels: *"when one of them die it should show them dying"*.
 	# Traced: a duel fighter is a `Hero`, and `Hero._die()` gates its whole death
 	# spectacle on `GameState.is_run_active()` or a live net session. A bot match is
-	# NEITHER, so `_die` heals the body back to full and returns — `_enter_downed`,
+	# NEITHER, so `_die` heals the body back to full and returns Ã¢â‚¬â€ `_enter_downed`,
 	# with the corpse fold and the sound, is never reached. The tower's own kill
 	# (`Enemy._die`) is unreachable for the opposite reason: a fighter is not an
 	# `Enemy`. So the loudest moment in the mode was a rig going limp, in silence,
@@ -1149,18 +1149,18 @@ func _put_the_loser_down(winner: int) -> void:
 	# completely static frame before the result card.
 	#
 	# Both halves below are the EXACT pair the tower and the in-run hero death
-	# already use — no new node type, no new animation, nothing added to
+	# already use Ã¢â‚¬â€ no new node type, no new animation, nothing added to
 	# `CharacterRig`. Order matters and mirrors `Hero._enter_downed`: the smudge
 	# snapshots the pose AS IT STOOD, so it must be taken BEFORE `collapse`.
 	#
-	# ⚠ BOTH SURVIVE THE PAUSE ON THE NEXT LINE. `DeathSmudge` sets
+	# Ã¢Å¡Â  BOTH SURVIVE THE PAUSE ON THE NEXT LINE. `DeathSmudge` sets
 	# `PROCESS_MODE_ALWAYS` in its own `_ready` and runs on `Time.get_ticks_msec()`
 	# precisely so it plays through hit-stop; `CombatVfx` parents to the arena, which
-	# is already `PROCESS_MODE_ALWAYS`. Neither needed plumbing here — that is the
+	# is already `PROCESS_MODE_ALWAYS`. Neither needed plumbing here Ã¢â‚¬â€ that is the
 	# whole argument for reusing them rather than writing a duel-only death.
-	# ⚠ NO `DeathSmudge` HERE, AND THAT WAS A REAL BUG I SHIPPED. Maker: *"when they
+	# Ã¢Å¡Â  NO `DeathSmudge` HERE, AND THAT WAS A REAL BUG I SHIPPED. Maker: *"when they
 	# die they bug out and glitch"*. A smudge is a SNAPSHOT of the rig that folds into
-	# a heap and is rubbed out — `Enemy._die` uses it INSTEAD of a ragdoll, because it
+	# a heap and is rubbed out Ã¢â‚¬â€ `Enemy._die` uses it INSTEAD of a ragdoll, because it
 	# `queue_free`s the body on the same frame, and `Hero._enter_downed` uses it while
 	# the real body leaves for `GhostForm`. A bot-match loser does NEITHER: it stays on
 	# stage and ragdolls. Adding a smudge on top drew a SECOND stickman over the first,
@@ -1173,18 +1173,18 @@ func _put_the_loser_down(winner: int) -> void:
 		side_color(loser).lightened(0.3), Color(side_color(loser), 0.0),
 		42, 0.5, 110.0, 240.0, 1.5, 4.0, 40.0, 90.0)
 	(rig as Object).call("collapse", from_dir)
-	# ⚠ DEFERRED, OR IT IS SILENTLY THROWN AWAY. A kill is the heaviest impact in the
+	# Ã¢Å¡Â  DEFERRED, OR IT IS SILENTLY THROWN AWAY. A kill is the heaviest impact in the
 	# game and the tower prices it at 0.11 s against the 0.05 s of an ordinary hurt.
 	# But this runs INSIDE `Hero.take_damage`, which fires its own `Juice.hit_stop(0.05)`
-	# a few lines later — and `hit_stop` bumps a generation counter that cancels the
+	# a few lines later Ã¢â‚¬â€ and `hit_stop` bumps a generation counter that cancels the
 	# previous restore, so the LAST caller wins. Called straight, the heavier freeze was
 	# overwritten by the lighter one on the same frame and the kill felt like a graze.
 	# Deferring puts it after `take_damage` has finished having its say.
 	Juice.hit_stop.call_deferred(0.11)
-	# ⚠ AND HIDE THE LOSER'S FLOATING HP BAR, which would otherwise sit over the body
+	# Ã¢Å¡Â  AND HIDE THE LOSER'S FLOATING HP BAR, which would otherwise sit over the body
 	# reading FULL GREEN. `Hero._die()` outside a run heals straight back to `max_hp`
 	# (the F6 feel-sandbox behaviour, correct there), and `CharacterBars` POLLS `hp`
-	# every frame — so the corpse wears a full health bar for the whole result card
+	# every frame Ã¢â‚¬â€ so the corpse wears a full health bar for the whole result card
 	# while the HUD name plate two feet above it correctly reads 0, because that plate
 	# reads `_final_hp` and never touches the fighter. Photographed, in
 	# `user://death_ko_04_zoom.png`, before this existed. Hiding the bar rather than
@@ -1206,21 +1206,21 @@ func _freeze() -> void:
 
 ## YELLOW STAYS YELLOW AND BLUE STAYS BLUE, right through the result card.
 ##
-## ⚠ THE BUG, AND IT IS THE REASON THIS IS CALLED EVERY FRAME AND NOT ONCE.
+## Ã¢Å¡Â  THE BUG, AND IT IS THE REASON THIS IS CALLED EVERY FRAME AND NOT ONCE.
 ## `CharacterRig._flash_timer` is decremented inside `advance()`, which runs off the
-## PHYSICS clock — so on a paused tree a hit-flash NEVER expires, and `_draw` prefers
+## PHYSICS clock Ã¢â‚¬â€ so on a paused tree a hit-flash NEVER expires, and `_draw` prefers
 ## `_flash_color` over `limb_color`. The killing blow sets `Hero.HURT_FLASH_COLOR`
-## (1, 0.2, 0.2), the tree freezes, and the KO frame — the frame that gets RECORDED —
+## (1, 0.2, 0.2), the tree freezes, and the KO frame Ã¢â‚¬â€ the frame that gets RECORDED Ã¢â‚¬â€
 ## renders a fighter in flat RED with its corner colour nowhere on screen. Any trade
 ## in the last fraction of a second paints the winner too, which is how BOTH fighters
-## came out red in a 1920x1080 capture while the HUD name plates — which read
-## `side_color()` directly and never touch a rig — stayed correctly yellow and blue.
+## came out red in a 1920x1080 capture while the HUD name plates Ã¢â‚¬â€ which read
+## `side_color()` directly and never touch a rig Ã¢â‚¬â€ stayed correctly yellow and blue.
 ## The tint was never lost. `_paint_corners` works. The flash simply outlived it.
 ##
 ## EVERY FRAME because of the ORDER inside `Hero.take_damage`: it emits
 ## `health_changed` FIRST (which lands here, decides the bout and pauses the tree) and
 ## sets the red flash AFTERWARDS. A one-shot clear inside `_freeze` therefore fires
-## before the red exists and misses it entirely — measured, on a real KO. The call is
+## before the red exists and misses it entirely Ã¢â‚¬â€ measured, on a real KO. The call is
 ## idempotent and returns immediately when nothing is flashing, so the per-frame cost
 ## on a frozen stage is two method lookups.
 func _hold_corner_colours() -> void:
@@ -1233,7 +1233,7 @@ func _hold_corner_colours() -> void:
 
 
 ## Real (unscaled) seconds. The result beat must not stretch when hit-stop drops
-## `Engine.time_scale` to 0.05 on the very hit that ended the fight — which is
+## `Engine.time_scale` to 0.05 on the very hit that ended the fight Ã¢â‚¬â€ which is
 ## exactly when it would, since that hit is a kill.
 func _real_seconds() -> float:
 	return float(Time.get_ticks_msec()) / 1000.0
@@ -1252,11 +1252,11 @@ func _tick_result(_delta: float) -> void:
 		_reload()
 
 
-## ⚠ THE CARD USED TO LAND ON TOP OF THE KILL.
+## Ã¢Å¡Â  THE CARD USED TO LAND ON TOP OF THE KILL.
 ##
 ## `FREEZE_BEAT` was 0.55 s and the card came in on that alone, but the finisher
 ## taunt bubble holds for `TauntBook.HOLD` (1.9 s, plus a few frames of shrink-to-fit
-## layout) and the killing blow's damage number runs 0.72 s — 0.864 s on a big hit,
+## layout) and the killing blow's damage number runs 0.72 s Ã¢â‚¬â€ 0.864 s on a big hit,
 ## and it is spawned onto an ALREADY-PAUSED tree, so it starts its life after the
 ## freeze rather than during it. The result card therefore slammed down over a live
 ## taunt and a floating number roughly every time.
@@ -1264,12 +1264,12 @@ func _tick_result(_delta: float) -> void:
 ## Waiting on a fixed larger constant would fix today and rot tomorrow, so this asks
 ## the screen instead. `RESULT_MAX_WAIT` is the backstop.
 ##
-## ⚠ `ClipDirector.is_hot()` IS NOT USABLE HERE and looks like it should be: heat is
+## Ã¢Å¡Â  `ClipDirector.is_hot()` IS NOT USABLE HERE and looks like it should be: heat is
 ## structurally zero on a paused tree (no damage, no live spells, no telegraphs), so
 ## it would read "quiet" instantly and this gate would do nothing. Ask the things
 ## that actually have lifetimes.
 ##
-## The taunt is the one that needed a new seam — `SpeechBubble` exposes no lifetime
+## The taunt is the one that needed a new seam Ã¢â‚¬â€ `SpeechBubble` exposes no lifetime
 ## query and no count, so `_taunt` latches its own expiry.
 func _screen_is_quiet() -> bool:
 	if _real_seconds() < _taunt_until:
@@ -1316,7 +1316,7 @@ func match_over() -> bool:
 ## Public because a capture tool cannot film a card it cannot see, and `ClipDirector`
 ## heat is STRUCTURALLY zero behind it: no damage (the tree is paused), no live spells,
 ## no armed telegraphs, and the mirrored spawns sit `SPAWN_SPREAD * 2` = 560 px apart
-## against the director's own `CLOSE_RANGE * 2.5` = 400 px proximity cutoff — so even
+## against the director's own `CLOSE_RANGE * 2.5` = 400 px proximity cutoff Ã¢â‚¬â€ so even
 ## the one term that could fire clamps to 0. MEASURED: `heat 0.000` on every rendered
 ## frame of the card, and `is_hot()` first going true FOUR FRAMES AFTER it had gone.
 ## A hot-gated capture therefore always starts after the intro, every time.
@@ -1327,11 +1327,11 @@ func intro_active() -> bool:
 # ==========================================================================
 # SOUND
 #
-# ⚠ WHAT THIS FILE CAN AND CANNOT DO ABOUT THE MAKER'S "the sound effects need to be
+# Ã¢Å¡Â  WHAT THIS FILE CAN AND CANNOT DO ABOUT THE MAKER'S "the sound effects need to be
 # improved". The 248-key roster, its per-key trims, its weight classes and its
 # ducking rules all live in `Sfx.gd`, which this agent does not own. What a match
 # CAN do from here is the structural half that was simply absent: the fight had no
-# audio punctuation at all — no bell, no stinger on the decisive hit, and a music bed
+# audio punctuation at all Ã¢â‚¬â€ no bell, no stinger on the decisive hit, and a music bed
 # that sat at one level whether the fighters were circling or trading ults.
 # ==========================================================================
 
@@ -1371,19 +1371,19 @@ func _drive_music() -> void:
 func _play(key: String, db: float = 0.0, delay: float = 0.0) -> void:
 	var sfx: Node = get_node_or_null("/root/Sfx")
 	if sfx != null and sfx.has_method("play"):
-		# (key, volume_db, pitch_variation, pitch_base, delay) — the last two are
+		# (key, volume_db, pitch_variation, pitch_base, delay) Ã¢â‚¬â€ the last two are
 		# easy to transpose, and transposing them re-pitches the sample instead of
 		# spacing the beat.
 		sfx.call("play", key, db, 0.06, 1.0, delay)
 
 
 # ==========================================================================
-# THE HUD — health bars that read at 640x360 without covering the fight
+# THE HUD Ã¢â‚¬â€ health bars that read at 640x360 without covering the fight
 #
-# ⚠ `CharacterBars` IS NOT THE COMPONENT FOR THIS, and it was checked before this was
+# Ã¢Å¡Â  `CharacterBars` IS NOT THE COMPONENT FOR THIS, and it was checked before this was
 # written. It is a 30 px floating bar parented to the fighter (Hero.gd:977 and
 # Enemy.gd:919 both add one), so at the clip camera's zoom it renders about 15 screen
-# pixels wide, under the fighter's own spell glow, and it moves with the body — the
+# pixels wide, under the fighter's own spell glow, and it moves with the body Ã¢â‚¬â€ the
 # audience cannot track a number that is walking around the frame. It stays exactly
 # as it is and keeps doing its job in the tower. What a MATCH needs is a fighting
 # game's plates: fixed, screen-space, top corners, out of the fight's way. (Note in
@@ -1443,15 +1443,15 @@ func _build_plate(layer: CanvasLayer, side: int) -> Dictionary:
 	return {"name": name_label, "draw": draw}
 
 
-## ⚠ THREE HUDS WERE STACKED ON THE SAME 40 PIXELS, and the first captured frame is
+## Ã¢Å¡Â  THREE HUDS WERE STACKED ON THE SAME 40 PIXELS, and the first captured frame is
 ## how it was found: the arena's own "STORMCALLER vs CRYOMANCER" card, the `Rank`
-## autoload's "Nameless · Tier 0" title, and this file's plates and clock, all drawn
+## autoload's "Nameless Ã‚Â· Tier 0" title, and this file's plates and clock, all drawn
 ## over each other in the top strip. Unreadable, and it is the first thing an audience
 ## sees.
 ##
 ## The plates say everything the arena's card said and more, so the card goes; the
 ## rank title belongs to a RUN and this is a spectator mode, so it goes too. Both are
-## hidden at RUNTIME rather than edited out of their own files — the arena is still an
+## hidden at RUNTIME rather than edited out of their own files Ã¢â‚¬â€ the arena is still an
 ## exhibition stage when something else drives it, and `Rank`'s HUD is an autoload
 ## that outlives this scene, which is why `_exit_tree` puts it back.
 func _hide_duplicate_chrome() -> void:
@@ -1472,7 +1472,7 @@ func _set_rank_hud(shown: bool) -> void:
 	if rank == null:
 		return
 	var label: Variant = rank.get("_hud_label")
-	# ⚠ VALIDITY BEFORE `is` — this Label lives in the arena scene but is held by the
+	# Ã¢Å¡Â  VALIDITY BEFORE `is` Ã¢â‚¬â€ this Label lives in the arena scene but is held by the
 	# `Rank` AUTOLOAD, which outlives every scene change. Textbook stale reference.
 	if is_instance_valid(label) and label is Label:
 		(label as Label).visible = shown
@@ -1519,37 +1519,37 @@ func _show_result_card() -> void:
 	var sub: Label = _result_card.get_node_or_null("Sub") as Label
 	if head != null:
 		head.text = "DRAW" if _winner < 0 else "%s WINS" % _label(_fighter_class[_winner])
-		# THE WINNER'S CORNER, not the winner's class — the same yellow-or-blue the card
+		# THE WINNER'S CORNER, not the winner's class Ã¢â‚¬â€ the same yellow-or-blue the card
 		# opened on and the body has been wearing all fight. See `SIDE_COLORS`.
 		head.add_theme_color_override("font_color",
 			Color(0.92, 0.94, 1.0) if _winner < 0 else side_color(_winner))
 	if sub != null:
 		var lhp: int = _final_hp[0] if _final_hp[0] >= 0 else _fighter_hp_now[0]
 		var rhp: int = _final_hp[1] if _final_hp[1] >= 0 else _fighter_hp_now[1]
-		sub.text = "%s  ·  %.1fs  ·  %d — %d" % [_outcome_word(), _clock, lhp, rhp]
+		sub.text = "%s  Ã‚Â·  %.1fs  Ã‚Â·  %d Ã¢â‚¬â€ %d" % [_outcome_word(), _clock, lhp, rhp]
 	_result_card.visible = true
 	_play("holy_swell", -1.0)
 
 
 # ==========================================================================
-# THE PRE-FIGHT CARD — "YELLOW vs BLUE", and then FIGHT
+# THE PRE-FIGHT CARD Ã¢â‚¬â€ "YELLOW vs BLUE", and then FIGHT
 #
 # Combat used to be live on frame one: the scene opened and two bots were already
 # swinging, with no statement of who they were. For a mode whose entire product is a
 # RECORDING, the first two seconds were doing nothing.
 #
-# ⚠ HOW COMBAT IS ACTUALLY GATED, because this is the part that is easy to get wrong.
+# Ã¢Å¡Â  HOW COMBAT IS ACTUALLY GATED, because this is the part that is easy to get wrong.
 # The fighters are `PROCESS_MODE_PAUSABLE` and `VersusArena._process` early-returns on
 # `get_tree().paused`, while THIS node is `PROCESS_MODE_ALWAYS` (see `_ready`). So the
 # card simply pauses the tree and counts down on its own `_process`, exactly the way
 # `_freeze()` already holds the KO beat.
 #
-# ⚠ AND IT COUNTS ON THE UNSCALED REAL CLOCK (`_real_seconds`), never on `delta`. A
+# Ã¢Å¡Â  AND IT COUNTS ON THE UNSCALED REAL CLOCK (`_real_seconds`), never on `delta`. A
 # paused tree still delivers delta to an ALWAYS node, but `Engine.time_scale` is a
 # live knob in this project (hit-stop drives it to 0.05), so a delta-summed card would
 # stretch the moment somebody else touched the scale.
 #
-# ⚠ AND THE FADE IS DRIVEN BY HAND, not by a `Tween`. A default tween does not advance
+# Ã¢Å¡Â  AND THE FADE IS DRIVEN BY HAND, not by a `Tween`. A default tween does not advance
 # on a paused tree, so the card would simply sit at alpha 0 for its whole life and the
 # fight would start behind an invisible dim. One line of `modulate.a` in `_process` is
 # both simpler and immune to it.
@@ -1580,7 +1580,7 @@ func _build_intro_card(layer: CanvasLayer) -> void:
 	_intro_card.add_child(dim)
 
 	# CENTRED IN THE VIEWPORT rather than at a hardcoded offset, so the card sits right
-	# at any window size — this scene is filmed at 1920x1080 and watched at whatever the
+	# at any window size Ã¢â‚¬â€ this scene is filmed at 1920x1080 and watched at whatever the
 	# window happens to be.
 	var centre := CenterContainer.new()
 	centre.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1609,7 +1609,7 @@ func _build_intro_card(layer: CanvasLayer) -> void:
 
 
 ## One corner of the card: the side's colour, then the class it is being worn by. The
-## SWATCH is the load-bearing half — it is the only part of the card that says the same
+## SWATCH is the load-bearing half Ã¢â‚¬â€ it is the only part of the card that says the same
 ## thing as the body on the stage without anybody having to read a word.
 func _intro_corner(side: int) -> Control:
 	var col := VBoxContainer.new()
@@ -1627,7 +1627,7 @@ func _intro_corner(side: int) -> Control:
 	who.text = _label(_fighter_class[side] if side < _fighter_class.size() else -1)
 	who.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
-	# ⚠ THE TIER USED TO BE PRINTED HERE TOO — under BOTH fighters, so the VS card
+	# Ã¢Å¡Â  THE TIER USED TO BE PRINTED HERE TOO Ã¢â‚¬â€ under BOTH fighters, so the VS card
 	# every clip opens on said "Impossible" twice. Cut with the clock's copy: the
 	# card exists to say WHO is fighting, and a difficulty setting stated twice is
 	# exactly the "random UI pieces we don't need" the standing rule is about.
@@ -1635,7 +1635,7 @@ func _intro_corner(side: int) -> Control:
 
 
 ## Open the card and stop the fight. A no-op (straight to DONE) when the ceremony is
-## off or there is no display — which is exactly what the sim and the suites get.
+## off or there is no display Ã¢â‚¬â€ which is exactly what the sim and the suites get.
 func _open_intro() -> void:
 	if not _intro_enabled() or _intro_card == null:
 		_intro_phase = Intro.DONE
@@ -1654,7 +1654,7 @@ func _tick_intro() -> void:
 		return
 	var age: float = _real_seconds() - _intro_at
 	if _intro_phase == Intro.VS:
-		# Fade in, hold, fade out — all three inside `intro_seconds`, so the knob means
+		# Fade in, hold, fade out Ã¢â‚¬â€ all three inside `intro_seconds`, so the knob means
 		# exactly what it says and a short card degrades gracefully into a flash.
 		var fade: float = minf(INTRO_FADE, intro_seconds * 0.4)
 		var a: float = 1.0
@@ -1666,7 +1666,7 @@ func _tick_intro() -> void:
 		if age >= intro_seconds:
 			_start_fight()
 		return
-	# FIGHT. The tree is already live under this — the word lands ON the first step.
+	# FIGHT. The tree is already live under this Ã¢â‚¬â€ the word lands ON the first step.
 	var held: float = age - intro_seconds
 	_intro_card.modulate.a = clampf(1.0 - held / maxf(INTRO_FIGHT_BEAT, 0.001), 0.0, 1.0)
 	if held >= INTRO_FIGHT_BEAT:
@@ -1685,7 +1685,7 @@ func _start_fight() -> void:
 		_intro_fight.visible = true
 	_intro_card.modulate.a = 1.0
 	_play("sub_boom", -1.0)
-	# ONE of them opens the mouth, never both — two openers is a script reading rather
+	# ONE of them opens the mouth, never both Ã¢â‚¬â€ two openers is a script reading rather
 	# than a fight. Which one is rolled, so a series does not always start the same way.
 	_taunt(randi() % 2, &"fight_start")
 
@@ -1693,6 +1693,19 @@ func _start_fight() -> void:
 ## Push the current numbers into the plates. Poll-don't-push (the AbilityBar idiom).
 func _paint_hud() -> void:
 	if _plates.size() != 2:
+		return
+	# Ã¢Å¡Â  THE VIEWPORT CAN BE GONE WHILE `_process` IS STILL RUNNING, and this crashed a
+	# live session after ONE fight with
+	#
+	#     Cannot call method 'get_visible_rect' on a null value
+	#         at: BotMatch._paint_hud   <- _process
+	#
+	# `_process` keeps firing for a frame after the node leaves the tree Ã¢â‚¬â€ the result
+	# phase and the teardown between bouts are exactly that window Ã¢â‚¬â€ and `get_viewport()`
+	# answers null there. Painting a HUD for a viewport that no longer exists is never
+	# meaningful, so bail rather than invent a width: a fallback number would draw the
+	# plates in the wrong place for one frame instead of not drawing them.
+	if get_viewport() == null:
 		return
 	for side: int in 2:
 		var plate: Dictionary = _plates[side]
@@ -1702,9 +1715,9 @@ func _paint_hud() -> void:
 		var shown: int = _final_hp[side] if _final_hp[side] >= 0 else _fighter_hp_now[side]
 		var frac: float = clampf(float(shown) / maxf(float(_fighter_max[side]), 1.0), 0.0, 1.0)
 		name_label.text = "%s   %d" % [_label(cls), maxi(shown, 0)]
-		# ⚠ THE PLATE IS THE CORNER'S COLOUR, NOT THE CLASS'S. It used to read
+		# Ã¢Å¡Â  THE PLATE IS THE CORNER'S COLOUR, NOT THE CLASS'S. It used to read
 		# `ClassInfo.color_for(cls)`, which meant the plate and the body it belonged to
-		# could disagree — and now that the bodies are forced to yellow/blue, they
+		# could disagree Ã¢â‚¬â€ and now that the bodies are forced to yellow/blue, they
 		# always would. One source (`SIDE_COLORS`) for the card, the plate and the rig.
 		name_label.add_theme_color_override("font_color", side_color(side))
 		var vw: float = float(get_viewport().get_visible_rect().size.x)
@@ -1719,10 +1732,10 @@ func _paint_hud() -> void:
 		draw.queue_redraw()
 	if _clock_label != null:
 		var left: float = maxf(round_seconds - _clock, 0.0)
-		# ⚠ THE DIFFICULTY WORD IS NOT PRINTED HERE ANY MORE. Maker: "remove that
+		# Ã¢Å¡Â  THE DIFFICULTY WORD IS NOT PRINTED HERE ANY MORE. Maker: "remove that
 		# impossible wording at the top of the screen." This read `Impossible  1:30`,
 		# so the loudest word on the screen named a SETTING rather than anything
-		# happening in the fight — and on a shared clip it reads as a boast about the
+		# happening in the fight Ã¢â‚¬â€ and on a shared clip it reads as a boast about the
 		# bots rather than as information. The tier still lives where a tier belongs:
 		# the pause menu's `Difficulty:` button, which is where it is changed.
 		_clock_label.text = "%d:%02d" % [int(left) / 60, int(left) % 60]
@@ -1759,7 +1772,7 @@ class _PlateDraw extends Control:
 
 func _tick_readout() -> void:
 	if _readout == null or not _readout.visible:
-		return   # hidden by cinematic mode — no reason to format a string nobody sees
+		return   # hidden by cinematic mode Ã¢â‚¬â€ no reason to format a string nobody sees
 	var d: Object = _director()
 	if d == null:
 		_readout.text = "%s vs %s" % [_label(_fighter_class[0]), _label(_fighter_class[1])]
@@ -1790,8 +1803,8 @@ func _tier() -> String:
 #
 # Every one of them RELOADS THE SCENE, and unlike free play that is the right call
 # here: a matchup change means two different bodies with two different kits and two
-# fresh brains. There is nothing to preserve across it — no learned record, no
-# session, no position worth keeping — so a reload is the honest, simplest way to
+# fresh brains. There is nothing to preserve across it Ã¢â‚¬â€ no learned record, no
+# session, no position worth keeping Ã¢â‚¬â€ so a reload is the honest, simplest way to
 # get a clean bout, and it is why all four knobs are statics.
 # ==========================================================================
 
@@ -1820,7 +1833,7 @@ func _cycle_a() -> void:
 	class_a = (class_a + 1) % CLASS_LABELS.size()
 	if class_a == class_b:
 		# A mirror match is a legal and interesting thing to watch, but it is a
-		# DELIBERATE choice — walking into one by accident while cycling is not, and
+		# DELIBERATE choice Ã¢â‚¬â€ walking into one by accident while cycling is not, and
 		# it is the pairing most likely to produce the stalemate the brain's
 		# stagnation model exists to break.
 		class_a = (class_a + 1) % CLASS_LABELS.size()
@@ -1858,8 +1871,8 @@ func _rematch() -> void:
 	_reload()
 
 
-## SIDES SWAP ON EVERY RELOAD. This stage is not left-right symmetric — every terrace
-## and the whole bluff are on the right — so a series in which one class always
+## SIDES SWAP ON EVERY RELOAD. This stage is not left-right symmetric Ã¢â‚¬â€ every terrace
+## and the whole bluff are on the right Ã¢â‚¬â€ so a series in which one class always
 ## started on the left would be measuring the map as much as the matchup.
 func _reload() -> void:
 	swap_sides = not swap_sides

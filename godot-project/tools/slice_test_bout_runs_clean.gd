@@ -36,18 +36,38 @@ extends SceneTree
 const BOT_MATCH_SCENE: String = "res://scenes/combat/BotMatch.tscn"
 const CAST_NAME_SCRIPT: String = "res://scripts/combat/CastName.gd"
 
-## Ten game-seconds at 60 Hz. The banner bug needed barely one; ten covers several
-## casts per fighter and at least one cooldown cycle on every slot.
-const FIGHT_FRAMES: int = 600
-## Wall-clock guard so a hang fails loudly instead of eating the runner's 120 s.
-const WALL_SECONDS: float = 90.0
+## ⚠ DRIVEN BY THE WALL CLOCK, NOT BY A FRAME COUNT, and the first version of this file
+## got that wrong. A `--script` SceneTree pumps `process_frame` as fast as the CPU
+## allows and `delta` is REAL elapsed time, so 600 iterations is a fraction of a second
+## of game time, not "ten seconds at 60 Hz" as the comment here used to claim. The bout
+## never got anywhere near its own end and the suite could not have known.
+## `tools/botmatch_sim.gd` already ran on a wall-clock cap for exactly this reason.
+const WALL_SECONDS: float = 45.0
+## How long to keep pumping AFTER the bell, through the result phase and the teardown
+## into the next bout — the path that crashed.
+const FRAMES_AFTER_END: int = 90
+## Hard iteration ceiling so a stall fails loudly instead of eating the runner's 120 s.
+const MAX_FRAMES: int = 200000
 
 const TESTS: Array[String] = [
 	"the_bout_stands_up",
 	"both_fighters_are_alive_and_fighting",
 	"spells_actually_reach_the_world",
 	"the_cast_naming_path_is_exercised",
+	"the_bout_actually_ends",
+	"the_hud_survives_leaving_the_tree",
 ]
+
+## ⚠ SHORTENED SO A BOUT ACTUALLY FINISHES INSIDE THIS SUITE. `round_seconds` ships at
+## 75 and this suite walks ten seconds of frames, so before this line NO TEST IN THE
+## REPO HAD EVER SEEN A BOUT END — and the end is where the next crash was:
+##
+##     Cannot call method 'get_visible_rect' on a null value
+##         at: BotMatch._paint_hud   <- _process   (the result phase)
+##
+## One fight ran fine and the transition out of it took the game down. "It runs" and
+## "it finishes" are different claims and only the first was ever being made.
+const SHORT_ROUND: float = 4.0
 
 var _fails: int = 0
 var _completed: Dictionary = {}
@@ -63,6 +83,10 @@ func _run() -> void:
 		_expect(false, "BotMatch.tscn loads")
 		_finish()
 		return
+	# Before instantiating — `_ready` reads it. By path, never by `class_name`.
+	var bm_script: GDScript = load("res://scripts/combat/BotMatch.gd") as GDScript
+	if bm_script != null:
+		bm_script.set("round_seconds", SHORT_ROUND)
 	var match_node: Node = scene.instantiate()
 	root.add_child(match_node)
 	_expect(is_instance_valid(match_node), "the bot match stands up")
@@ -74,16 +98,38 @@ func _run() -> void:
 	var max_heroes: int = 0
 	var spells_seen: int = 0
 	var names_seen: int = 0
-	for i: int in FIGHT_FRAMES:
+	var ended: bool = false
+	var frames_after_end: int = 0
+	for i: int in MAX_FRAMES:
 		await process_frame
 		if not is_instance_valid(match_node):
 			break
 		max_heroes = maxi(max_heroes, get_nodes_in_group("hero").size())
 		spells_seen = maxi(spells_seen, get_nodes_in_group("player_spell").size())
 		names_seen += _count_cast_names(match_node)
+		# ⚠ KEEP RUNNING AFTER THE BELL. The result phase and the teardown into the next
+		# bout are a DIFFERENT code path from the fight, and they are the path that
+		# crashed. Stopping at "match_over" would have walked away one frame before the
+		# bug every single time.
+		if match_node.has_method("match_over") and bool(match_node.call("match_over")):
+			ended = true
+		if ended:
+			frames_after_end += 1
+			if frames_after_end >= FRAMES_AFTER_END:
+				break
 		if float(Time.get_ticks_msec()) / 1000.0 - started > WALL_SECONDS:
-			_expect(false, "the bout finished inside %.0f s of wall clock" % WALL_SECONDS)
 			break
+
+	_expect(ended,
+		"the bout reached its end inside %.0f s with round_seconds = %.0f — if it never "
+			% [WALL_SECONDS, SHORT_ROUND] + "ends, everything this suite says about the "
+			+ "result phase is vacuous")
+	_expect(frames_after_end >= FRAMES_AFTER_END,
+		"…and the result phase ran for %d frames afterwards (wanted %d), which is the "
+			% [frames_after_end, FRAMES_AFTER_END]
+			+ "window where _paint_hud met a null viewport")
+	if ended and frames_after_end >= FRAMES_AFTER_END:
+		_completed["the_bout_actually_ends"] = true
 
 	_expect(max_heroes >= 2,
 		"two fighters were live during the bout (saw at most %d) — with fewer than "
@@ -104,6 +150,23 @@ func _run() -> void:
 			+ "every fight, so a bout that never reaches it cannot clear it")
 	_completed["the_cast_naming_path_is_exercised"] = true
 
+	# ⚠ THE CRASH STATE, REPRODUCED DIRECTLY, because running a whole bout does NOT
+	# produce it. Verified by negative control: with the `get_viewport() == null` guard
+	# disabled, everything above still passed. `_process` keeps firing for a frame after
+	# a node leaves the tree, and `get_viewport()` answers null there — which is the
+	# teardown between bouts, not any moment inside one. So the honest test is not "play
+	# longer", it is "ask the HUD to paint while it is out of the tree", which is
+	# exactly what the engine did.
+	#
+	# There is no assertion here on purpose: a GDScript runtime error is not catchable
+	# from inside the suite. `run_all_tests.py` fails any suite that emits `SCRIPT ERROR`,
+	# so REACHING this line without one IS the pass, and the sentinel proves it was
+	# reached rather than skipped.
+	if is_instance_valid(match_node) and match_node.is_inside_tree():
+		root.remove_child(match_node)
+	if is_instance_valid(match_node) and match_node.has_method("_paint_hud"):
+		match_node.call("_paint_hud")
+		_completed["the_hud_survives_leaving_the_tree"] = true
 	if is_instance_valid(match_node):
 		match_node.queue_free()
 	_finish()
