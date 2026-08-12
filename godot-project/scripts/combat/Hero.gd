@@ -6352,6 +6352,21 @@ func _process_defeated(delta: float) -> void:
 	velocity.y += GRAVITY * delta
 	velocity.x = move_toward(velocity.x, 0.0, DEATH_SLIDE_DRAG * delta)
 	move_and_slide()
+	# ⚠ A CORPSE MUST STOP PUSHING THE MOMENT IT MEETS A WALL. Maker: *"the stick man
+	# bugged into the wall once killed at the end, that shouldn't be able to happen"*.
+	#
+	# The killing blow launches this body hard and `_enter_defeated` sets
+	# `process_mode = ALWAYS` so it keeps falling THROUGH the win freeze — deliberate,
+	# and the fix for a corpse that used to hang in mid-air under the win card. But it
+	# means this body goes on driving itself into whatever it hit while the rest of the
+	# tree is paused, and a body that keeps pressing into a face is how one ends up
+	# looking embedded in the rock.
+	#
+	# Killing the horizontal component on contact costs nothing that reads: the launch
+	# has already thrown the body, the slide is only its follow-through, and a corpse
+	# that stops dead against a wall and slumps down it is the shape you want anyway.
+	if is_on_wall():
+		velocity.x = 0.0
 	if is_instance_valid(rig):
 		rig.set_grounded(is_on_floor())
 		rig.set_body_velocity(velocity)

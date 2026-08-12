@@ -87,6 +87,10 @@ const RIP_OFFSET: float = 26.0
 ## centre out along the surface normal is also just physically right: the rock
 ## shatters against the wall, not inside it. UNTESTED GUESS.
 const IMPACT_LIFT: float = 4.0
+## The same idea as `IMPACT_LIFT`, for the CEILING probe in `_rise_height`: how far off
+## the floor the upward ray starts, so it cannot instantly report the floor it is
+## standing on. Small enough not to matter under a real ceiling.
+const PROBE_LIFT: float = 6.0
 ## A reflected boulder gets its travel budget back so it can actually reach the
 ## thrower. 1.0 = the full MAX_FLIGHT again. UNTESTED GUESS.
 const REFLECT_TRAVEL_FACTOR: float = 1.0
@@ -316,10 +320,30 @@ func _process(delta: float) -> void:
 ## above the rip point. Ripping a boulder up through a low ceiling would draw it
 ## inside the ceiling for the whole anticipation beat.
 func _rise_height() -> float:
-	var up: Vector2 = Vector2(_pos.x, _ground_y) + Vector2.UP * RISE_HEIGHT
-	var r: Dictionary = SpellWorld.first_solid(Vector2(_pos.x, _ground_y), up,
+	# ⚠ THE PROBE STARTED ON THE FLOOR AND HIT THE FLOOR. Maker: *"boulder throw keeps
+	# hitting the ground and not going anywhere"*.
+	#
+	# The rip point is `_ground_y` — a point lying EXACTLY on the floor collider — and
+	# this file already documents the consequence twenty lines up, for `IMPACT_LIFT`:
+	# "a line-of-sight ray fired from a point lying on a collider can report an instant
+	# block against that very surface". This ceiling probe was doing precisely that. It
+	# returned ~0, so the rock never rose, and a boulder at ground level flies along the
+	# ground until `_check_flight_collision` raycasts its own travel segment straight
+	# into the floor — which is the whole reported symptom, from one ray origin.
+	#
+	# Lifting the origin clear of the surface is the same fix `IMPACT_LIFT` already is;
+	# the distance is measured back from the lifted origin so a REAL low ceiling still
+	# clips the rise honestly.
+	var base: Vector2 = Vector2(_pos.x, _ground_y - PROBE_LIFT)
+	var up: Vector2 = base + Vector2.UP * RISE_HEIGHT
+	var r: Dictionary = SpellWorld.first_solid(base, up,
 		SpellWorld.rids([caster_node]), self)
-	return float(r["distance"]) if bool(r["hit"]) else RISE_HEIGHT
+	var head: float = float(r["distance"]) + PROBE_LIFT if bool(r["hit"]) else RISE_HEIGHT
+	# ⚠ AND NEVER BELOW THE ROCK'S OWN RADIUS. A rise shorter than the boulder draws it
+	# half inside the ground it was torn from and puts its flight line back into the
+	# floor. Under a genuinely low ceiling this prefers "clips the ceiling slightly" to
+	# "the spell does not work", which is the right way round.
+	return maxf(head, BOULDER_R + 2.0)
 
 
 ## Did the rock meet anything on the segment it JUST travelled?
