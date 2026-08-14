@@ -97,6 +97,11 @@ func _initialize() -> void:
 		arena_script.set("showcase_difficulty", _difficulty)
 	# BotMatch rolls its OWN matchup and re-seats the fighters, so --a/--b are only
 	# honoured by the bare arena. Say so rather than letting the flags look ignored.
+	# BEFORE the scene instantiates — see `_go_vertical`.
+	if _vertical:
+		_go_vertical()
+		print("[clip] vertical: rendering %dx%d natively (no crop)"
+			% [VERTICAL_SIZE.x, VERTICAL_SIZE.y])
 	if _scene == "botmatch":
 		print("[clip] scene=botmatch — it rolls its own matchup, so --a/--b are ignored")
 		root.add_child((load(BOT_MATCH_SCENE) as PackedScene).instantiate())
@@ -151,8 +156,7 @@ func _run() -> void:
 		var img: Image = root.get_texture().get_image()
 		if img == null:
 			continue
-		if _vertical:
-			img = _crop_vertical(img)
+		# No crop. The frame is ALREADY 9:16 when `--vertical=1` — see VERTICAL_SIZE.
 		img.save_png("%s/f%04d.png" % [_dir, _saved])
 		_saved += 1
 		# Progress on a cadence, so a long capture is visibly alive rather than a
@@ -168,23 +172,54 @@ func _run() -> void:
 ## see what lands better"*. So this is a FLAG, not a replacement — landscape stays the
 ## default and the same bout can be rendered both ways for an A/B.
 ##
-## ⚠ A CENTRE CROP, AND THAT IS A REAL LIMITATION RATHER THAN A DETAIL. A side-on duel
-## is horizontally wide and vertically empty; 9:16 is the opposite. Cropping a 1366-wide
-## frame to 9:16 keeps a 432 px-wide column, and the two fighters routinely stand 560 px
-## apart (`BotMatch.SPAWN_SPREAD * 2`) — so one of them will often be outside it. The
-## honest fix is a tighter game camera that keeps both bodies in the middle band, which
-## is a change to `CombatCamera`, not to a capture tool. Until that exists this is for
-## judging framing and posting tests, not for shipping every clip.
+## ⚠ IT USED TO BE A CENTRE CROP, AND THE CROP COULD NEVER HAVE WORKED. Kept here as a
+## record, because "render it wide and cut a column out of the middle" is the obvious
+## idea and it fails for three independent reasons at once:
+##
+##   1. THE PLATES. `BotMatch._PlateDraw._draw` anchors off its own full width —
+##      `x0 = PLATE_MARGIN` on the left, `vw - PLATE_MARGIN - PLATE_W` on the right —
+##      against a ~640-wide canvas. So the plates sit at x 14..246 and 394..626 while
+##      a centred 9:16 column of a 1366x768 frame keeps canvas x 218..421. Roughly
+##      88% of each HP bar, and the whole of each class name, fell outside the cut.
+##   2. THE FIGHTERS. They stand `SPAWN_SPREAD * 2` = 560 world px apart, and the
+##      director deliberately frames that pair to fill a 16:9 width — so it pushes
+##      them toward the left and right thirds, which are exactly the two regions a
+##      centre crop throws away. The better it framed, the more reliably the column
+##      landed in the empty gap BETWEEN them.
+##   3. It is a post-hoc pixel operation, so nothing in the game ever knew the output
+##      was vertical. No amount of tuning inside a capture tool can fix that.
+##
+## ⚠ SO THE FRAME IS RENDERED VERTICAL INSTEAD OF BEING CUT DOWN TO VERTICAL, and every
+## one of the three faults above dissolves rather than being worked around. With the
+## window at 9:16 the project's `canvas_items` + `expand` stretch keeps the canvas 640
+## wide and grows it TALL, so the plates anchor inside a 640-wide canvas exactly as
+## they were written to, and `ClipDirector` solves its zoom against the real viewport —
+## it is framing for the shot that will actually be posted rather than for a shot that
+## is about to be cut in half behind its back.
+##
+## What that trades: a side-on duel is horizontally wide and vertically empty, so a
+## vertical frame carries a lot of arena above the fighters. That is the correct
+## problem to have — it is filled with stage, not with black — and it is fixable in
+## composition (the director's vertical bias), which a crop never was.
 ##
 ## ⚠ NEVER LETTERBOX. Black bars read as reposted horizontal content and are named in
-## the short-form research as an instant swipe. Crop, or do not go vertical.
+## the short-form research as an instant swipe. Render vertical, or do not go vertical.
+const VERTICAL_SIZE: Vector2i = Vector2i(720, 1280)
+
+
+## Put the window into 9:16 BEFORE the scene is built.
 ##
-## The crop is horizontally CENTRED and vertically FULL-HEIGHT, which keeps the HP
-## plates (top band) and the fight floor in frame rather than slicing the plates off.
-func _crop_vertical(src: Image) -> Image:
-	var h: int = src.get_height()
-	var want_w: int = int(round(float(h) * 9.0 / 16.0))
-	if want_w >= src.get_width():
-		return src        # already at least as tall as it is wide; nothing to crop
-	var x: int = int((src.get_width() - want_w) * 0.5)
-	return src.get_region(Rect2i(x, 0, want_w, h))
+## ⚠ THE ORDERING IS THE POINT, and it is the same lesson `Cinematic.mark()` records:
+## a HUD laid out under the old aspect and resized afterwards has already decided where
+## its plates go. Sizing first means every Control is born into the frame it will be
+## photographed in.
+##
+## The root viewport is told the size as well as the window, because on some platforms
+## the second does not follow the first inside the same frame — and a capture that
+## reads `root.get_texture()` at the old size silently writes the old resolution while
+## reporting the new one. Same reason `directed_clip_capture._set_render_size` does it.
+func _go_vertical() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	DisplayServer.window_set_size(VERTICAL_SIZE)
+	root.size = VERTICAL_SIZE
