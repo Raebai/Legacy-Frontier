@@ -1,99 +1,98 @@
 # RESUME HERE — 2026-08-14
 
-**ASHPIRE.** Branch `bot-fight-quality`, **b01bbd8**, **171/171 green**, committed, NOT PUSHED.
+**ASHPIRE.** Branch `bot-fight-quality`, **8b551c9**, **171/171 green**, pushed, clean.
 
-Seven commits this session. Everything below is committed and headless-verified.
-**None of it has been played.** Two things were verified by LOOKING at rendered
-frames (the weather and the vertical clip); the rest is measured or tested.
+Fourteen commits. Everything below is committed, headless-verified and **unplayed
+since it was fixed** — except where it says "verified by looking", which means a real
+frame was rendered and examined.
 
-## ▶ THE ONE THAT MATTERS MOST
+## ▶ THE THREE THAT CHANGE THE MOST
 
-**All ten biome walls were dead code and every test in the repo was green over it.**
+**1. Every fight ended pressed against a wall because a bot could only jump 36 px.**
+`Hero` has variable jump height (`Hero.gd:2295` halves upward velocity the frame jump
+is RELEASED while rising). The brain emits `jump` for ONE frame and `drive()` rebuilds
+the held set every tick, so the release landed on frame two of every jump a bot ever
+made: apex ≈ 35.6 px against a human's 105.3. Every terrace riser is 68–84 and every
+tower ledge ≥ 72, so **no bot could climb any surface in any stage.** Fixed in the
+hands (`BotController._hold_the_jump`, 18 frames) not the brain. Second half:
+`BotBrain._unwall` jumped while steering AWAY from the wall — it now steers into it.
 
-`FloorDecor._draw_motif` is a ten-arm match on the biome NAME — Ashfall's broken
-gantry, Verdant's canopy and hanging roots, Frostmarch's icicles, the Crimson
-banners, the Vault's niches, Emberworks' furnace mouths, Glasswood's leaning panes,
-the Drowned Gallery's waterline, Stormreach's masts, the Apex's stars. All authored,
-all shipped, **none ever drawn.**
+**2. All ten biome walls were dead code and 170 tests were green over it.**
+`Arena._apply_decor` keyed `FloorDecor` on `theme.resource_path`, which is set only by
+the loader, and no `EnvTheme` is ever loaded. Every floor fell through to the generic
+arcade wall. The climb looked like one room re-tinted ten times because it was.
 
-`Arena._apply_decor` keyed it on `theme.resource_path`. That is set by the LOADER,
-and no `EnvTheme` is ever loaded — every one is built in code and there is not a
-single theme `.tres` on disk. So the key was `""` on every floor of every run and
-all ten fell through to the generic arcade wall. **The climb looked like one room
-re-tinted ten times because that is what it was.**
+**3. Two ledges were authored above the jump ceiling.** Ground 780, jump clears 105.3;
+`RUINS[0]` surfaced at 661 (a 119 px rise). Brawler was the only class that could
+touch it, and only by spending its air jump — which is why it read as a Brawler
+problem. Re-authored as a climb inside `FloorGen.STEP_MAX`.
 
-Second fault beside it: `FloorGen._jitter_theme` copied `name` + `wash_tint` and
-stopped, resetting `light` on every generated floor. That is the "dim lights as you
-climb" dial; the authored spread runs 0.68 → 1.18, and flattening it to 1.0 meant
-the deeper you went, the less the tower changed.
+## ▶ ALSO SHIPPED
 
-`slice_test_biome_walls` guards the AGREEMENT between the two files, so a rename on
-either side is a red build. Negative-controlled.
+| what | verified |
+|---|---|
+| Ten biomes get their own **weather** (ash/leaves/snow/embers/bubbles/rain/glint/starfall) | rendered + looked at |
+| Weather costs **+1 draw call, 2.22% screen fill** worst case; budget pinned at 6% | measured, negative-controlled |
+| Three floors open onto a **moving sunset / living eclipse** (`SkyVista`) | rendered + looked at |
+| Three of nine **ults ended on the wrong screen or none** | `slice_test_ult_punctuation`, negative-controlled |
+| Vertical clips render **9:16 natively** and the camera **follows the action** | rendered + looked at |
+| **Falling out of the world** — hub soft-lock, tower enemies, i-frame-proof kill | tests |
+| Dead bodies stopped **stretching** (DoT knockback on a corpse) | reasoned from the maker's own diagnosis |
+| **Stacked ult titles** — new replaces old | tests |
+| Arcanist's **clone no longer spawns in a wall** | tests |
+| Bigger hitboxes: boulder 84→118, void 185→250, crawler 26→38, pillar 66→88 | ⚠ feel change, unmeasured |
+| **Blink starts on cooldown** so nobody opens by teleporting into your face | tests |
+| **VO word bank** — 11 clips cover all 72 matchups | maker listened |
 
-## ▶ WHAT ELSE SHIPPED
+## ▶ STILL OPEN — MAKER FEEDBACK NOT YET BUILT
 
-| what | where | verified how |
-|---|---|---|
-| **Ten biomes, ten weathers** — ash, leaves, snow, embers, bubbles, rain, glint, starfall | `EnvTheme.weather`, `GameState.BIOMES.wx`, `Atmosphere.build_weather` | rendered + looked at, `tools/weather_capture.gd` |
-| **Weather costs +1 draw call, +104 primitives, 2.22% screen fill** worst case | `tools/weather_perf_probe.gd` | measured; budget pinned at 6% and negative-controlled |
-| **Three of nine ults ended on the wrong screen or none** | HeavensWrath, FaultLine, GraveTide | `slice_test_ult_punctuation`, negative-controlled |
-| **Vertical clips render 9:16 natively** instead of cropping a column | `tools/bot_clip_capture.gd` | rendered + looked at |
-| **Portrait camera framing** — own margin, ceiling and ground line | `VersusArena._update_showcase_camera` | rendered + looked at |
-| **VO word bank** — 11 clips cover all 72 matchups | `python-tools/vo_bank.py`, `content/vo/` | assembled and listened to by the maker |
+1. **Bots barely use dash, and never to recover.** Maker: *"if they are being sent up
+   in the air they can dash to get back"*. `BotDodge` only reaches dash as a threat
+   response; there is no air-recovery rung at all.
+2. **Necromancer summons should go and attack.** `Thrall` / `RaiseThrall`.
+3. **Knockback missing entirely on 13 damaging spells** — audited and listed:
+   `ZoneSpell` (incl. the 34-damage shatter payoff), `ShadowRoot`, `DrainTether`,
+   `RuneOrbs`, `GraveTide`, `VoidCollapse`, `Chronostasis`, `Equinox`, `Severance`,
+   `Zanshin`, `GravityFlip`, plus partial paths in `LightningRush` (chain arc),
+   `Shatter` (splash), `RiftDagger` (impale), `HorizonArc` (destructibles).
+   ⚠ `SpellDef` has NO knockback field and deliberately does not get one
+   (`SpellTier.gd:162`) — the shove is derived via `push_for_spectacle`. Use that.
+4. **Bots cannot perceive 36 of the spectacles.** Threats enter through ONE door,
+   `BotController.perceive_threats`, which scans only group `telegraph` (armed) and
+   groups `enemy_projectile` / `player_spell`. Beams, meteors, zones, walls, chains,
+   tethers and every CATACLYSM are invisible — a bot literally stands in them.
+   `EnergyNova`'s own header argues it must be dodgeable; it never joins the group.
+   Also: `BotBrain._safest` drops LANE telegraphs when picking a dodge destination
+   (they publish `radius: 0.0` and no top-level `shape`), so a bot can dodge INTO one.
 
-## ⚠ TWO INSTRUMENTS LIED THIS SESSION, BOTH CAUGHT BEFORE THEY DID DAMAGE
+## ⚠ TWO REAL BUGS FOUND AND DELIBERATELY NOT FIXED
 
-**The ult suite's first run reported three failures and all three were the suite.**
-Grave Tide matched `Juice.impact_frame` inside the COMMENT explaining it no longer
-calls it. Horizon Arc reaches Juice through a node lookup rather than the global.
-Meteor Fist delegates its whole payoff to `BlastSpell`, where the frame lives. Every
-one was checked against the source before being called a bug.
+* **`FloorGen`'s reachability budget is calibrated to DEAD CONSTANTS.** It derives its
+  gaps from "JUMP_VELOCITY 580 against GRAVITY 1500", but `TuningConfig` overrides both
+  at runtime (740 / 2600). `GAP_UP_MAX` is 110 against an actual 83.6 px reachable far
+  edge; `GAP_FLAT_MAX` is 170 against 115.4 px of travel. So `can_step` certifies
+  surfaces as connected that nobody can reach, and `_prune_stranded` trusts the same
+  wrong numbers. **This affects human players too.** Separate blast radius.
+* **`VersusArena` has no y-threshold catch at all** — only two side pits, leaving
+  uncovered columns at x 0..40 and 1965..2020 and its entire vertical extent.
 
-**The perf probe's first two metrics were garbage.** `TIME_PROCESS` read 53.488 ms
-for five rows then 10.780 for the rest — a warm-up staircase. `TIME_FPS` in a
-`--script` loop read 1.000, then 2007.000. Frame time is now deliberately NOT
-reported; it is a device measurement, taken with PerfOverlay (F3) on the phone.
+## ⚠ PROCESS LESSONS FROM THIS SESSION
 
-## ▶ STILL OPEN
-
-* **The vertical shot's remaining fault is DIRECTION, not aspect.** Two fighters
-  spawn 560 world px apart; holding both in a 720px frame caps zoom at 1.28. A
-  two-shot of a fully separated pair cannot be large in 9:16 — geometry, not tuning.
-  The lever is `ClipDirector`: follow the action and let a distant fighter leave
-  frame, the way a two-shot does in any other medium.
-* **Sunset and eclipse** are NOT built. Weather is precipitation; those are sky
-  treatments, and the tower rooms are interiors with no sky — that work belongs in
-  `FloorDecor`'s back wall, not in `Atmosphere`.
-* **The spell audit's remaining list** (measured, not guessed): `ElementFx` — the
-  eight hand-drawn per-element bursts — is reached by 5 spells out of 54;
-  `chain_lightning` and `arc_of_fools` are visually identical (same script, same
-  element, same circle, same frame); `Kind.NOVA` is fully built, has its own
-  spectacle, impact frame and 14.0 shake, and NO SpellDef anywhere targets it;
-  `horizon_cut` fires zero particle bursts.
-* **The content programme** — researched, not built. Highest leverage: sim many
-  bouts, score the ENDING SHAPE, publish only the good ones.
-* **Blotato** ($29/mo, REST + MCP, TikTok+IG, comment reply) is the recommended
-  posting tool. Two things to prove inside the free trial before paying: that a
-  TikTok post lands PUBLIC, and that comment-reply works over the API. Trustpilot
-  is contradictory on billing — pay monthly, not annual.
-
-## ⚠ NEVER DO THIS
-
-**Do not `git checkout --` a file that holds uncommitted work.** Done once this
-session to undo a deliberate test-break; it reverted the file to HEAD and wiped the
-uncommitted weather system. A backup taken a minute earlier saved it. Commit first,
-then negative-control.
-
-**Do not rewrite source files with PowerShell `Get-Content | Set-Content`.** On PS
-5.1 it reads UTF-8 as ANSI and writes the damage back with a BOM.
-
-Also: **launching the game rewrites tracked files** — check `git status` after any
-launch.
+* **Never `git checkout --` a file holding uncommitted work.** Done once to undo a
+  deliberate test-break; it reverted to HEAD and wiped the whole uncommitted weather
+  system. A backup taken a minute earlier saved it. Commit first, then negative-control.
+* **Instruments lied three times and every one was caught by verifying.** The ult
+  suite's first run reported three failures, all three of which were the suite (a
+  match inside a comment, a node-lookup spelling, an unfollowed delegate). The perf
+  probe's first two metrics were warm-up staircases. The sky capture's geometry never
+  reconciled — that one is still unexplained and the game was used as ground truth.
+* **`Sky` cannot be an enum name** — it shadows a native Godot class, and the failure
+  cascades into the whole game refusing to boot with nothing pointing at the line.
 
 ## HOW TO VERIFY
 ```
-python python-tools/run_all_tests.py --jobs 6          # 171 suites, ~100s
-python python-tools/run_capture.py weather_capture     # look at the ten biomes
+python python-tools/run_all_tests.py --jobs 6          # 171 suites, ~110s
+python python-tools/run_capture.py weather_capture     # the ten biomes
 ./godot-engine/Godot_v4.6.2-stable_win64.exe --path godot-project \
-  --script tools/weather_perf_probe.gd                 # what the air costs
+  --script tools/sky_capture.gd                        # the sunset + eclipse
 ```
