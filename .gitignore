@@ -113,3 +113,5 @@ godot-engine/
 
 # --- Local MCP config (machine-specific absolute paths) ---
 .mcp.json
+content/vo/out/
+content/vo/bank/_decode.tmp.wav
