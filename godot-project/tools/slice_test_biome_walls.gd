@@ -50,6 +50,7 @@ const TESTS: Array[String] = [
 	"code_built_themes_have_no_resource_path",
 	"floors_get_distinct_biomes",
 	"jitter_preserves_accent_and_light",
+	"every_weather_kind_has_complete_params",
 ]
 
 var _ran: bool = false
@@ -66,6 +67,7 @@ func _process(_delta: float) -> bool:
 	_test_code_built_themes_have_no_resource_path()
 	_test_floors_get_distinct_biomes()
 	_test_jitter_preserves_accent_and_light()
+	_test_every_weather_kind_has_complete_params()
 	for name: String in TESTS:
 		if not _completed.has(name):
 			_fails += 1
@@ -231,3 +233,54 @@ func _test_jitter_preserves_accent_and_light() -> void:
 	_expect(not out.wash_tint.is_equal_approx(src.wash_tint),
 		"the jitter no longer varies the wash at all")
 	_completed["jitter_preserves_accent_and_light"] = true
+
+
+# --------------------------------------------------------------------------- 6
+## THE AIR. Two failure modes, both silent until a player reaches that one floor:
+##
+##   1. A biome with no `wx` key falls back to Weather.NONE and that floor's air is
+##      simply still, which looks like a floor nobody finished rather than a bug.
+##   2. A `_weather_params` row missing a key crashes `build_weather` — but ONLY on
+##      the floor that uses that kind. A typo in the RAIN row is invisible until
+##      floor 9, which in a tower climber is a long way to walk to find a crash.
+##
+## So every kind the table can produce is built here, and every key the builder reads
+## is required to be present.
+func _test_every_weather_kind_has_complete_params() -> void:
+	var gs: GDScript = load(GAMESTATE_PATH) as GDScript
+	var atmo_script: GDScript = load("res://scripts/combat/Atmosphere.gd") as GDScript
+	_expect(gs != null and atmo_script != null, "could not load GameState / Atmosphere")
+	if gs == null or atmo_script == null:
+		_completed["every_weather_kind_has_complete_params"] = true
+		return
+	# Every key `build_weather` reads out of the row. A missing one is a crash.
+	var required: Array[String] = [
+		"dir_x", "dir_y", "spread", "grav", "vel_min", "vel_max",
+		"scale_min", "scale_max", "amount", "life", "alpha", "shape", "spin", "color",
+	]
+	var atmo: Node = atmo_script.new()
+	var kinds_seen: Dictionary = {}
+	for floor_no: int in range(1, MIN_BIOMES + 1):
+		var theme: Resource = gs.floor_env(floor_no) as Resource
+		if theme == null:
+			continue
+		var kind: int = int(theme.weather)
+		_expect(kind > 0,
+			"floor %d (%s) has no weather — its air is still while every other "
+				% [floor_no, String(theme.name)]
+			+ "floor moves, which reads as unfinished rather than as calm")
+		kinds_seen[kind] = true
+		var row: Dictionary = atmo.call("_weather_params", kind, Color.WHITE)
+		_expect(not row.is_empty(),
+			"weather kind %d (floor %d, %s) has no params row — build_weather would "
+				% [kind, floor_no, String(theme.name)] + "silently build nothing")
+		for key: String in required:
+			_expect(row.has(key),
+				"weather kind %d is missing the '%s' key — build_weather reads it and "
+					% [kind, key] + "would crash on that floor and only that floor")
+	atmo.free()
+	# The variety claim: ten floors should not all breathe the same way.
+	_expect(kinds_seen.size() >= 5,
+		"only %d distinct weather kinds across %d floors — the air is repeating"
+			% [kinds_seen.size(), MIN_BIOMES])
+	_completed["every_weather_kind_has_complete_params"] = true

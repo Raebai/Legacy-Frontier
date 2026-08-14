@@ -17,6 +17,31 @@ extends Resource
 ## Still thin on purpose: it grows (backdrop art, music, hazard props) without
 ## touching consumers.
 
+## The floor's AIR — what is falling, drifting or rising through it.
+##
+## Maker, 2026-08-14: "a beautiful sunset an eclipse falling leaves in a forest like
+## all that stuff". The back wall (`FloorDecor`) already says WHERE you are; this
+## says what the place is DOING while you fight in it, which is the half that moves.
+##
+## ⚠ THIS IS GARNISH AND IT IS ON THE AUSTERITY RAMP. `ElementFx` draws the same
+## distinction and comes down on the other side of it (`ElementFx.gd:61-65`: the
+## element read "is information, not garnish, and it is not on the austerity ramp").
+## Weather carries no information a player must react to, so it thins on LOW and may
+## vanish entirely — see `Atmosphere.WEATHER_AMOUNT_LOW`.
+enum Weather {
+	NONE,      ## still air
+	ASH,       ## grey flakes, slow, falling         — Ashfall Verge
+	LEAVES,    ## broad, tumbling, warm              — Verdant Tier
+	SNOW,      ## white, slow, wide drift            — Frostmarch
+	EMBERS,    ## small, RISING, hot                 — Crimson Room / Emberworks
+	BUBBLES,   ## round, rising, slow                — Drowned Gallery
+	RAIN,      ## fast, steep, thin                  — Stormreach
+	GLINT,     ## sparse hanging motes, pale         — Glasswood / Sunken Vault
+	STARFALL,  ## slow gold drift, sparse            — The Apex
+}
+
+@export var weather: int = Weather.NONE
+
 @export var name: String = "surface"
 ## Ambient wash — the floor's base hue. Drives `ArenaAtmosphere.build_wash` and the
 ## PostProcess grade.

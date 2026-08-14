@@ -1407,17 +1407,22 @@ static func floor_boss_hp_multiplier(floor: int) -> float:
 ##
 ## Ten entries for a ten-floor tower. `floor_for_index` wraps, so a tower that grows
 ## past this table repeats biomes rather than falling off the end.
+## `wx` is the floor's AIR (`EnvTheme.Weather`) — what falls, drifts or rises through
+## it. Paired with the hue rather than chosen freely: ash over the ash verge, leaves
+## over the green tier, embers RISING out of the two hot rooms, bubbles rising in the
+## drowned one. The two rooms that get GLINT (Sunken Vault, Glasswood) are the two
+## the register calls still and enclosed, so their air hangs rather than travels.
 const BIOMES: Array = [
-	{"n": "Ashfall Verge",       "w": Color(0.20, 0.18, 0.19), "a": Color(0.85, 0.55, 0.35), "l": 0.86},
-	{"n": "Verdant Tier",        "w": Color(0.24, 0.34, 0.20), "a": Color(0.80, 0.95, 0.45), "l": 1.12},
-	{"n": "Frostmarch",          "w": Color(0.30, 0.36, 0.44), "a": Color(0.85, 0.95, 1.00), "l": 1.05},
-	{"n": "The Crimson Room",    "w": Color(0.28, 0.10, 0.12), "a": Color(1.00, 0.35, 0.35), "l": 0.80},
-	{"n": "The Sunken Vault",    "w": Color(0.14, 0.15, 0.22), "a": Color(0.55, 0.80, 0.90), "l": 0.68},
-	{"n": "The Emberworks",      "w": Color(0.28, 0.16, 0.10), "a": Color(1.00, 0.60, 0.25), "l": 0.92},
-	{"n": "Glasswood",           "w": Color(0.26, 0.28, 0.32), "a": Color(0.90, 0.85, 1.00), "l": 0.98},
-	{"n": "The Drowned Gallery", "w": Color(0.10, 0.24, 0.26), "a": Color(0.40, 0.90, 0.90), "l": 0.74},
-	{"n": "Stormreach",          "w": Color(0.20, 0.16, 0.32), "a": Color(0.75, 0.70, 1.00), "l": 0.84},
-	{"n": "The Apex",            "w": Color(0.30, 0.28, 0.22), "a": Color(1.00, 0.92, 0.65), "l": 1.18},
+	{"n": "Ashfall Verge",       "w": Color(0.20, 0.18, 0.19), "a": Color(0.85, 0.55, 0.35), "l": 0.86, "wx": EnvTheme.Weather.ASH},
+	{"n": "Verdant Tier",        "w": Color(0.24, 0.34, 0.20), "a": Color(0.80, 0.95, 0.45), "l": 1.12, "wx": EnvTheme.Weather.LEAVES},
+	{"n": "Frostmarch",          "w": Color(0.30, 0.36, 0.44), "a": Color(0.85, 0.95, 1.00), "l": 1.05, "wx": EnvTheme.Weather.SNOW},
+	{"n": "The Crimson Room",    "w": Color(0.28, 0.10, 0.12), "a": Color(1.00, 0.35, 0.35), "l": 0.80, "wx": EnvTheme.Weather.EMBERS},
+	{"n": "The Sunken Vault",    "w": Color(0.14, 0.15, 0.22), "a": Color(0.55, 0.80, 0.90), "l": 0.68, "wx": EnvTheme.Weather.GLINT},
+	{"n": "The Emberworks",      "w": Color(0.28, 0.16, 0.10), "a": Color(1.00, 0.60, 0.25), "l": 0.92, "wx": EnvTheme.Weather.EMBERS},
+	{"n": "Glasswood",           "w": Color(0.26, 0.28, 0.32), "a": Color(0.90, 0.85, 1.00), "l": 0.98, "wx": EnvTheme.Weather.GLINT},
+	{"n": "The Drowned Gallery", "w": Color(0.10, 0.24, 0.26), "a": Color(0.40, 0.90, 0.90), "l": 0.74, "wx": EnvTheme.Weather.BUBBLES},
+	{"n": "Stormreach",          "w": Color(0.20, 0.16, 0.32), "a": Color(0.75, 0.70, 1.00), "l": 0.84, "wx": EnvTheme.Weather.RAIN},
+	{"n": "The Apex",            "w": Color(0.30, 0.28, 0.22), "a": Color(1.00, 0.92, 0.65), "l": 1.18, "wx": EnvTheme.Weather.STARFALL},
 ]
 
 
@@ -1448,4 +1453,5 @@ static func floor_env(floor: int) -> EnvTheme:
 	e.wash_tint = row["w"]
 	e.accent_tint = row["a"]
 	e.light = float(row["l"])
+	e.weather = int(row.get("wx", EnvTheme.Weather.NONE))
 	return e

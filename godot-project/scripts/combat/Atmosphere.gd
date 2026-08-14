@@ -71,6 +71,13 @@ const MOTE_AMOUNT_WASH: int = 22
 const MOTE_AMOUNT_WORLD: int = 48
 const MOTE_AMOUNT_LOW: int = 16
 
+## The hard ceiling weather takes on LOW — a cap, not a proportional trim, because
+## the weather field is BIGGER and FASTER than the dust and sits in the same place
+## (in front of the fighters). `RAIN` asks for 40 and is the reason this is a `mini`
+## rather than a scale factor: proportional thinning would still leave the densest
+## floor the densest thing on a phone.
+const WEATHER_AMOUNT_LOW: int = 10
+
 ## Untyped for the same reason DamageNumber._pool is: `build_wash` frees the
 ## previous floor's emitters and re-enrols new ones, so this array routinely holds
 ## a freed node, and reading one into a TYPED local raises an error that aborts
@@ -210,6 +217,237 @@ func build_wash(tint: Color, accent: Color) -> void:
 	motes.process_material = mat
 	layer.add_child(motes)
 	_begin_warmup(motes)
+
+
+# -------------------------------------------------------------------- weather
+## THE FLOOR'S AIR — what falls, drifts or rises through it. Ash over the ash verge,
+## leaves over the green tier, embers rising out of the hot rooms, bubbles in the
+## drowned one. `kind` is an `EnvTheme.Weather` ordinal, passed as a plain int so
+## this combat script does not pull `scripts/tower/` into its compile graph.
+##
+## ⚠ CALL IT AFTER `build_wash`, NEVER BEFORE. `build_wash` frees every child of this
+## node (`:149-150`), so weather built first is weather deleted before it draws.
+##
+## ⚠ ITS OWN CanvasLayer, AND THE NUMBER MATTERS. Layer 2 — in front of the wash tint
+## and its vignette (layer 1), behind the `PostProcess` grade (layer 8) so the floor's
+## colour treatment lands on the weather too rather than the weather sitting outside
+## the picture. Everything from 40 up is HUD.
+##
+## ⚠ IT IS GARNISH AND IT DEFERS TO THE FIGHT. This field is drawn IN FRONT of the
+## fighters, and the argument that cut the wash motes from 40 to 22 applies here with
+## more force: these are bigger and they move faster. So the counts below are already
+## the restrained version, `RAIN` — the only dense one — is the first thing cut on
+## LOW, and nothing here carries information a player must react to. `ElementFx` is
+## the opposite case and says so in its own header; the element read is not garnish
+## and is not on this ramp.
+func build_weather(kind: int, accent: Color) -> void:
+	if kind <= 0:  # EnvTheme.Weather.NONE
+		return
+	var p: Dictionary = _weather_params(kind, accent)
+	if p.is_empty():
+		return
+	var layer := CanvasLayer.new()
+	layer.name = "Weather"
+	layer.layer = 2
+	add_child(layer)
+	var fall := GPUParticles2D.new()
+	fall.amount = _weather_amount(int(p["amount"]))
+	fall.lifetime = float(p["life"])
+	# ⚠ TEXTURED, AND THAT IS WHY THE SCALES BELOW LOOK SMALL. An UNTEXTURED
+	# GPUParticles2D draws a ONE-PIXEL point, so `scale` is measured in pixels and a
+	# "scale 2.4" flake is 2.4 px — invisible. The first render of this field was a
+	# sheet of empty rooms for exactly that reason. With a `PARTICLE_PX` texture the
+	# scale is a FRACTION of that size instead, so a leaf at 0.55 is ~11 px and reads.
+	# `CombatVfx` learned the same lesson and says so in its own header: the untextured
+	# default "was the whole game's blocky confetti look".
+	match String(p["shape"]):
+		"leaf": fall.texture = _leaf_texture()
+		"streak": fall.texture = _streak_texture()
+		_: fall.texture = _dot_texture()
+	# Emitted across a box wider and taller than the 640x360 base viewport so the
+	# field is already full at the edges instead of visibly starting inside frame.
+	fall.position = Vector2(320.0, 180.0)
+	var mat := ParticleProcessMaterial.new()
+	mat.particle_flag_disable_z = true
+	mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	mat.emission_box_extents = Vector3(380.0, 240.0, 0.0)
+	mat.direction = Vector3(float(p["dir_x"]), float(p["dir_y"]), 0.0)
+	mat.spread = float(p["spread"])
+	mat.gravity = Vector3(0.0, float(p["grav"]), 0.0)
+	mat.initial_velocity_min = float(p["vel_min"])
+	mat.initial_velocity_max = float(p["vel_max"])
+	mat.scale_min = float(p["scale_min"])
+	mat.scale_max = float(p["scale_max"])
+	# TUMBLE. A leaf that falls without rotating reads as a falling seed, and a rain
+	# streak that rotates reads as debris — so the spin is per-kind and most kinds
+	# take zero. `angle` seeds the starting rotation so a field does not begin with
+	# every particle aligned.
+	var spin: float = float(p["spin"])
+	if spin > 0.0:
+		mat.angle_min = -180.0
+		mat.angle_max = 180.0
+		mat.angular_velocity_min = -spin
+		mat.angular_velocity_max = spin
+	var col: Color = p["color"]
+	var peak: float = float(p["alpha"])
+	# Fades in and out over its life so nothing pops into or out of existence at the
+	# frame edge — the same shape as the mote ramp above.
+	var ramp := Gradient.new()
+	ramp.set_color(0, Color(col.r, col.g, col.b, 0.0))
+	ramp.set_color(1, Color(col.r, col.g, col.b, 0.0))
+	ramp.add_point(0.22, Color(col.r, col.g, col.b, peak))
+	ramp.add_point(0.78, Color(col.r, col.g, col.b, peak))
+	var ramp_tex := GradientTexture1D.new()
+	ramp_tex.gradient = ramp
+	mat.color_ramp = ramp_tex
+	fall.process_material = mat
+	layer.add_child(fall)
+	# ⚠ NOT OPTIONAL. `slice_test_mobile_config` walks every GPUParticles2D under an
+	# Atmosphere and asserts preprocess == 0, fixed_fps == MOTE_FIXED_FPS and a
+	# warm-up speed_scale > 1. A `preprocess` here would re-add the multi-hundred-ms
+	# stall at every floor transition that `_begin_warmup` exists to have removed.
+	_begin_warmup(fall)
+
+
+## How many particles this field may have. Weather is the first thing to go on a
+## phone: it is in front of the fighters and it is pure garnish, so LOW takes a hard
+## cap rather than the proportional trim `_mote_amount` applies to dust.
+func _weather_amount(full: int) -> int:
+	return mini(full, WEATHER_AMOUNT_LOW) if TuningConfig.quality_is_low() else full
+
+
+## Per-kind physics + palette. Read as a table: each row is "what this air DOES".
+##
+## ⚠ EVERY VELOCITY IS SIZED FOR A 12 Hz SIMULATION (`MOTE_FIXED_FPS`). At 12 fps a
+## particle moving 140 px/s jumps ~12 px between frames and reads as a dashed line
+## rather than rain. Nothing here exceeds ~70 px/s for that reason — the fix for
+## "rain looks steppy" is a slower drop, not a faster simulation, because the fps is
+## test-pinned and the stall it prevents is worse than the stepping.
+## ⚠ `scale` IS A FRACTION OF `PARTICLE_PX` (32), NOT A PIXEL COUNT. A leaf at 0.34
+## is ~11 px; a snowflake at 0.14 is ~4.5 px. Read the comment on `fall.texture`
+## before adjusting any of these — the first version of this table was written
+## against an untextured emitter, where the same numbers meant single pixels and the
+## whole field was invisible.
+func _weather_params(kind: int, accent: Color) -> Dictionary:
+	var white := Color(0.92, 0.95, 1.0)
+	match kind:
+		1:  # ASH — grey flakes, slow, falling
+			return {"dir_x": 0.10, "dir_y": 1.0, "spread": 20.0, "grav": 6.0,
+				"vel_min": 12.0, "vel_max": 24.0, "scale_min": 0.07, "scale_max": 0.15,
+				"amount": 34, "life": 5.5, "alpha": 0.52, "shape": "dot", "spin": 0.0,
+				"color": Color(0.74, 0.72, 0.70)}
+		2:  # LEAVES — broad, tumbling, warm; the widest spread in the table
+			return {"dir_x": 0.35, "dir_y": 1.0, "spread": 42.0, "grav": 9.0,
+				"vel_min": 16.0, "vel_max": 32.0, "scale_min": 0.26, "scale_max": 0.46,
+				"amount": 30, "life": 6.0, "alpha": 0.92, "shape": "leaf", "spin": 90.0,
+				"color": accent}
+		3:  # SNOW — white, slow, wide drift
+			return {"dir_x": 0.15, "dir_y": 1.0, "spread": 30.0, "grav": 4.0,
+				"vel_min": 9.0, "vel_max": 19.0, "scale_min": 0.10, "scale_max": 0.22,
+				"amount": 42, "life": 7.5, "alpha": 0.82, "shape": "dot", "spin": 0.0,
+				"color": white}
+		4:  # EMBERS — small, RISING, hot
+			return {"dir_x": 0.05, "dir_y": -1.0, "spread": 24.0, "grav": -7.0,
+				"vel_min": 14.0, "vel_max": 28.0, "scale_min": 0.06, "scale_max": 0.13,
+				"amount": 30, "life": 4.5, "alpha": 0.90, "shape": "dot", "spin": 0.0,
+				"color": accent}
+		5:  # BUBBLES — round, rising, slow
+			return {"dir_x": 0.05, "dir_y": -1.0, "spread": 15.0, "grav": -5.0,
+				"vel_min": 8.0, "vel_max": 17.0, "scale_min": 0.11, "scale_max": 0.26,
+				"amount": 24, "life": 6.5, "alpha": 0.52, "shape": "dot", "spin": 0.0,
+				"color": accent}
+		6:  # RAIN — fast, steep, thin; the only STREAK and the densest field here
+			return {"dir_x": 0.20, "dir_y": 1.0, "spread": 7.0, "grav": 28.0,
+				"vel_min": 44.0, "vel_max": 68.0, "scale_min": 0.22, "scale_max": 0.40,
+				"amount": 52, "life": 3.0, "alpha": 0.50, "shape": "streak", "spin": 0.0,
+				"color": accent}
+		7:  # GLINT — sparse hanging motes; still, enclosed air
+			return {"dir_x": 0.10, "dir_y": -1.0, "spread": 48.0, "grav": 0.0,
+				"vel_min": 2.0, "vel_max": 7.0, "scale_min": 0.08, "scale_max": 0.18,
+				"amount": 20, "life": 9.0, "alpha": 0.54, "shape": "dot", "spin": 0.0,
+				"color": accent}
+		8:  # STARFALL — slow gold drift, sparse
+			return {"dir_x": 0.25, "dir_y": 1.0, "spread": 22.0, "grav": 2.0,
+				"vel_min": 5.0, "vel_max": 13.0, "scale_min": 0.09, "scale_max": 0.20,
+				"amount": 24, "life": 8.5, "alpha": 0.76, "shape": "dot", "spin": 0.0,
+				"color": accent}
+	return {}
+
+
+# --------------------------------------------------------- particle silhouettes
+## Edge length of the generated particle textures. Scales in `_weather_params` are
+## fractions of this, so changing it rescales every field at once.
+const PARTICLE_PX: int = 32
+
+static var _dot_tex: Texture2D = null
+static var _streak_tex: Texture2D = null
+static var _leaf_tex: Texture2D = null
+
+
+## A LEAF, and it needs its own silhouette rather than a tint on the dot.
+##
+## ⚠ THE FIRST VERSION OF THIS FIELD USED THE SOFT DOT AND READ AS FIRELIES. That is
+## not a figure of speech — a round shape with a squared alpha falloff IS a firefly,
+## and `HubAmbience` already builds actual fireflies that way. Foliage needs an
+## elongated blade with a defined EDGE: the eye reads "leaf" from the outline and
+## from the fact that it tumbles, never from its colour.
+##
+## Drawn as a pointed oval — widest at the middle, tapering to both ends — with a
+## nearly hard rim (the `smoothstep` band is ~1.5 px) so it is a shape rather than a
+## glow. Paired with `angular_velocity` at the call site; a leaf that falls without
+## rotating reads as a falling seed.
+static func _leaf_texture() -> Texture2D:
+	if _leaf_tex != null:
+		return _leaf_tex
+	var img := Image.create(PARTICLE_PX, PARTICLE_PX, false, Image.FORMAT_RGBA8)
+	var c: float = float(PARTICLE_PX) * 0.5
+	for y: int in PARTICLE_PX:
+		for x: int in PARTICLE_PX:
+			var ny: float = (float(y) - c + 0.5) / c        # -1 .. 1 along the blade
+			var nx: float = (float(x) - c + 0.5) / c        # -1 .. 1 across it
+			# Half-width at this point along the blade: a lens, zero at both tips.
+			var half: float = 0.42 * sqrt(maxf(0.0, 1.0 - ny * ny))
+			var d: float = absf(nx) - half
+			# Hard-ish edge: opaque inside, ~1.5 px of anti-aliasing at the rim.
+			var a: float = 1.0 - smoothstep(-0.03, 0.03, d)
+			img.set_pixel(x, y, Color(1, 1, 1, a))
+	_leaf_tex = ImageTexture.create_from_image(img)
+	return _leaf_tex
+
+
+## A soft round flake — falls off to nothing at the rim so it reads as a mote of
+## something rather than a sprite. Built once and shared by every field; the same
+## discipline as `CombatVfx._dot_tex`, which exists for the same reason.
+static func _dot_texture() -> Texture2D:
+	if _dot_tex != null:
+		return _dot_tex
+	var img := Image.create(PARTICLE_PX, PARTICLE_PX, false, Image.FORMAT_RGBA8)
+	var c: float = float(PARTICLE_PX) * 0.5
+	for y: int in PARTICLE_PX:
+		for x: int in PARTICLE_PX:
+			var d: float = Vector2(float(x) - c + 0.5, float(y) - c + 0.5).length() / c
+			# squared falloff: a solid middle with a soft rim, not a linear blur
+			var a: float = clampf(1.0 - d, 0.0, 1.0)
+			img.set_pixel(x, y, Color(1, 1, 1, a * a))
+	_dot_tex = ImageTexture.create_from_image(img)
+	return _dot_tex
+
+
+## A vertical streak for RAIN. A round dot falling at 68 px/s reads as hail; the
+## streak is what makes the same motion read as water. Narrow and soft-ended.
+static func _streak_texture() -> Texture2D:
+	if _streak_tex != null:
+		return _streak_tex
+	var img := Image.create(PARTICLE_PX, PARTICLE_PX, false, Image.FORMAT_RGBA8)
+	var c: float = float(PARTICLE_PX) * 0.5
+	for y: int in PARTICLE_PX:
+		for x: int in PARTICLE_PX:
+			# across: tight. along: full height, fading at both ends.
+			var ax: float = clampf(1.0 - absf(float(x) - c + 0.5) / 2.2, 0.0, 1.0)
+			var ay: float = clampf(1.0 - absf(float(y) - c + 0.5) / c, 0.0, 1.0)
+			img.set_pixel(x, y, Color(1, 1, 1, ax * ax * sqrt(ay)))
+	_streak_tex = ImageTexture.create_from_image(img)
+	return _streak_tex
 
 
 # ------------------------------------------------------------------------ sky

@@ -1264,6 +1264,10 @@ func _apply_theme(theme: EnvTheme) -> void:
 	var wash: Color = theme.lit_wash()
 	if _atmo != null:
 		_atmo.build_wash(wash, theme.accent())
+		# ⚠ STRICTLY AFTER `build_wash`, WHICH FREES EVERY CHILD OF THE ATMOSPHERE.
+		# Built before it, the floor's air would be deleted in the same frame it was
+		# made and every floor would be still.
+		_atmo.build_weather(theme.weather, theme.accent())
 	# THE DRAWN ROOM TAKES THE FLOOR'S HUE TOO. Without this the shell would be the
 	# same slab on all ten floors while the wash around it changed, which is the exact
 	# "every floor is the same picture in a different hue" failure EnvTheme was
