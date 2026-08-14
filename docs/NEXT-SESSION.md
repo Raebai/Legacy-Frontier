@@ -1,6 +1,6 @@
 # RESUME HERE — 2026-08-14
 
-**ASHPIRE.** Branch `bot-fight-quality`, **8b551c9**, **171/171 green**, pushed, clean.
+**ASHPIRE.** Branch `bot-fight-quality`, **b5daf25**, **171/171 green**, pushed, clean.
 
 Fourteen commits. Everything below is committed, headless-verified and **unplayed
 since it was fixed** — except where it says "verified by looking", which means a real
@@ -43,18 +43,28 @@ problem. Re-authored as a climb inside `FloorGen.STEP_MAX`.
 | Bigger hitboxes: boulder 84→118, void 185→250, crawler 26→38, pillar 66→88 | ⚠ feel change, unmeasured |
 | **Blink starts on cooldown** so nobody opens by teleporting into your face | tests |
 | **VO word bank** — 11 clips cover all 72 matchups | maker listened |
+| All three duel ledges **break**, left one raised to its reachable ceiling | tests |
+| Thralls attack in duels; bots stop dodging into lanes; 4 payoffs shove | tests |
 
 ## ▶ STILL OPEN — MAKER FEEDBACK NOT YET BUILT
 
 1. **Bots barely use dash, and never to recover.** Maker: *"if they are being sent up
    in the air they can dash to get back"*. `BotDodge` only reaches dash as a threat
-   response; there is no air-recovery rung at all.
-2. **Necromancer summons should go and attack.** `Thrall` / `RaiseThrall`.
-3. **Knockback missing entirely on 13 damaging spells** — audited and listed:
-   `ZoneSpell` (incl. the 34-damage shatter payoff), `ShadowRoot`, `DrainTether`,
-   `RuneOrbs`, `GraveTide`, `VoidCollapse`, `Chronostasis`, `Equinox`, `Severance`,
-   `Zanshin`, `GravityFlip`, plus partial paths in `LightningRush` (chain arc),
-   `Shatter` (splash), `RiftDagger` (impale), `HorizonArc` (destructibles).
+   response; there is no air-recovery rung at all. ⚠ Needs a new rung in
+   `BotBrain.decide` (~2400 lines) — deliberately not rushed, because that file's own
+   comments warn a wrong readiness gate "would show up in play as a bot dashing four
+   times a second". Read the control flow before adding to it.
+2. ~~Necromancer summons should go and attack.~~ **DONE** (`abbf60c`) — a bound thrall
+   scanned only the `enemy` group, and duels/bot fights have no mobs at all, so it
+   stood next to its summoner for nine seconds. Falls back to the nearest mortal foe.
+3. **Knockback still missing on 7 damaging spells.** Four fixed in `800b413`
+   (ZoneSpell's encase shatter, VoidCollapse, Chronostasis, Equinox). Still bare:
+   `ShadowRoot`, `DrainTether`, `RuneOrbs`, `Severance`, `Zanshin`, `GravityFlip`,
+   plus partial paths in `LightningRush` (chain arc), `Shatter` (splash), `RiftDagger`
+   (impale), `HorizonArc` (destructibles). ⚠ `GraveTide` is deliberately left: it
+   HOLDS its victims at anchors, so a shove would fight its own grip.
+   Each remaining one needs a direction that could not be read off the call site
+   without guessing, and a guessed direction is worse than no shove.
    ⚠ `SpellDef` has NO knockback field and deliberately does not get one
    (`SpellTier.gd:162`) — the shove is derived via `push_for_spectacle`. Use that.
 4. **Bots cannot perceive 36 of the spectacles.** Threats enter through ONE door,
@@ -62,8 +72,8 @@ problem. Re-authored as a climb inside `FloorGen.STEP_MAX`.
    groups `enemy_projectile` / `player_spell`. Beams, meteors, zones, walls, chains,
    tethers and every CATACLYSM are invisible — a bot literally stands in them.
    `EnergyNova`'s own header argues it must be dodgeable; it never joins the group.
-   Also: `BotBrain._safest` drops LANE telegraphs when picking a dodge destination
-   (they publish `radius: 0.0` and no top-level `shape`), so a bot can dodge INTO one.
+   ~~Also: `BotBrain._safest` drops LANE telegraphs~~ **DONE** (`800b413`) — it now
+   reads the ready-made `region` every threat already publishes.
 
 ## ⚠ TWO REAL BUGS FOUND AND DELIBERATELY NOT FIXED
 
