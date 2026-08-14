@@ -466,6 +466,42 @@ const SHOWCASE_HP: int = 320
 const SHOWCASE_FRAME_MARGIN: float = 480.0
 const SHOWCASE_ZOOM_MIN: float = 0.60
 const SHOWCASE_ZOOM_MAX: float = 1.25
+
+## ── PORTRAIT (9:16) ─────────────────────────────────────────────────────────
+## The three numbers above are sized for a 16:9 WIDTH and they are wrong in a tall
+## frame — not by a little. Rendered and measured at 720x1280: the solve pinned to
+## its 1.25 ceiling, and a rig that is `ClipDirector.RIG_WORLD_PX` = 31 world px
+## tall came out 39 px in a 1280-tall frame. **Three percent of frame height.** On a
+## phone that is not a fighter, it is a speck, and no amount of spectacle rescues a
+## clip whose subjects cannot be seen.
+##
+## ⚠ THE UNCOMFORTABLE ARITHMETIC, STATED PLAINLY, BECAUSE IT BOUNDS WHAT IS
+## POSSIBLE HERE. Two fighters spawn `BotMatch.SPAWN_SPREAD * 2` = 560 world px
+## apart. Holding BOTH inside a 720 px-wide frame caps zoom at 720/560 = 1.28, which
+## is the ceiling that produced the speck. **A two-shot of a fully-separated pair
+## cannot be large in 9:16.** That is geometry, not tuning, and anything claiming to
+## fix it by adjusting numbers is fixing something else.
+##
+## So these numbers buy the case that actually dominates a brawl — the pair CLOSED,
+## which is where the hits and the casts are — and let the wide moments stay wide:
+##   * the margin drops 480 -> 200. The old value reserves room for a beam or a
+##     meteor column to land inside a 16:9 width; a tall frame already has that room
+##     above the fighters, so paying for it horizontally as well is paying twice.
+##   * the ceiling rises 1.25 -> 2.0. At a closed spread of ~100 px the solve now
+##     reaches 720/300 -> clamped 2.0, and the rig reads ~62 px: still modest, but
+##     legible, and roughly double what it was.
+## At full separation the solve lands at 720/760 = 0.95 and the shot is exactly as
+## wide as it is today, which is the graceful degradation rather than a cliff.
+##
+## The real remaining lever is DIRECTION, not framing: a vertical clip should follow
+## the action and let a distant fighter leave frame, the way a two-shot in any other
+## medium does. That is `ClipDirector` work and is deliberately not attempted here.
+const SHOWCASE_FRAME_MARGIN_PORTRAIT: float = 200.0
+const SHOWCASE_ZOOM_MAX_PORTRAIT: float = 2.0
+## Where the ground line sits in a portrait frame, as a fraction of frame height.
+## 0.80 puts the floor in the bottom fifth, which is what stops the sub-floor void
+## from eating a third of the shot — see the note in `_update_showcase_camera`.
+const PORTRAIT_GROUND_AT: float = 0.80
 ## How far above the fighters the eye sits, so the floor falls in the lower third.
 ## Rendered and looked at: at 130 the horizon sat at ~95% of frame height and the
 ## fighters' feet were clipped by the bottom edge. 45 puts the floor in the lower
@@ -1721,9 +1757,18 @@ func _update_showcase_camera(delta: float) -> void:
 	# Zoom so the separation plus a generous margin spans the viewport width. The
 	# margin is what leaves room for a beam or a meteor column to land INSIDE the
 	# frame rather than half off it.
-	var view_w: float = float(get_viewport().get_visible_rect().size.x)
-	var want: float = clampf(view_w / maxf(spread + _cam_margin, 1.0),
-		_cam_zoom_min, _cam_zoom_max)
+	var view: Vector2 = get_viewport().get_visible_rect().size
+	var view_w: float = float(view.x)
+	# PORTRAIT takes its own margin and ceiling — see the block on
+	# SHOWCASE_FRAME_MARGIN_PORTRAIT for why the landscape numbers are not merely
+	# suboptimal in a tall frame but wrong. Detected from the viewport rather than
+	# from a flag so the clip tool, a phone export and a resized window all agree
+	# without anyone having to remember to set something.
+	var portrait: bool = view.y > view.x
+	var margin: float = SHOWCASE_FRAME_MARGIN_PORTRAIT if portrait else _cam_margin
+	var zoom_max: float = SHOWCASE_ZOOM_MAX_PORTRAIT if portrait else _cam_zoom_max
+	var want: float = clampf(view_w / maxf(spread + margin, 1.0),
+		_cam_zoom_min, zoom_max)
 	# The FRAMING answer is smoothed on its own state, then the operator's transient
 	# effects are laid over it. Reading the punched zoom back as the next frame's
 	# starting point would let a zoom punch drag the actual framing in with it.
@@ -1743,9 +1788,37 @@ func _update_showcase_camera(delta: float) -> void:
 	# empty sky with no floor and no fighters in them, which is how this was
 	# found. Holding the camera within a band ABOVE THE FLOOR means the stage is
 	# always in shot no matter how far a knockback throws somebody.
+	# ⚠ IN PORTRAIT THE EYE IS ANCHORED TO THE GROUND, NOT LIFTED BY A CONSTANT.
+	# `SHOWCASE_EYE_LIFT` is 45 px, which puts the floor around 60% down a 16:9 frame.
+	# In a 1280-tall frame the same 45 px left roughly 255 world px of SUB-FLOOR — the
+	# void under the terrain and the backdrop repeating beneath it — filling about a
+	# third of the shot. Measured off a real 720x1280 render, not estimated.
+	#
+	# A constant cannot fix that, because the amount of frame below the floor depends
+	# on the ZOOM, which the solve above changes every frame. So portrait solves for
+	# the camera y that puts the ground line at a fixed FRACTION of frame height:
+	#
+	#   f = (GROUND_TOP - (cam_y - half_h)) / (2 * half_h)
+	#     => cam_y = GROUND_TOP + half_h * (1 - 2f)
+	#
+	# At PORTRAIT_GROUND_AT = 0.80 and zoom 2.0 that is GROUND_TOP - 192; at zoom 0.95
+	# it is GROUND_TOP - 404. Both keep the floor low and the sky — where the sigils,
+	# the meteors and the beams live — occupying the frame instead of the basement.
+	#
+	# `minf` against the old lift so a fighter launched high still pulls the eye up:
+	# whichever wants to be HIGHER (smaller y) wins. The clamp band widens in portrait
+	# because the landscape band was sized for a 768-tall frame and would otherwise
+	# undo the solve at the wide end.
+	var eye_y: float = mid.y - SHOWCASE_EYE_LIFT
+	var floor_y: float = GROUND_TOP - 30.0
+	var ceil_y: float = GROUND_TOP - 330.0
+	if portrait:
+		var half_h: float = float(view.y) / (2.0 * maxf(z, 0.01))
+		eye_y = minf(eye_y, GROUND_TOP + half_h * (1.0 - 2.0 * PORTRAIT_GROUND_AT))
+		ceil_y = GROUND_TOP - 560.0
 	_show_cam.global_position = Vector2(
 		clampf(mid.x, 340.0, STAGE_SIZE.x - 340.0),
-		clampf(mid.y - SHOWCASE_EYE_LIFT, GROUND_TOP - 330.0, GROUND_TOP - 30.0))
+		clampf(eye_y, ceil_y, floor_y))
 
 
 ## Hidden dim overlay with PAUSED + Resume/Reset — toggled by Esc. Lives on the
