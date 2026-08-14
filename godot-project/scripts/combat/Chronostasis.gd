@@ -166,6 +166,13 @@ func _pay_out() -> void:
 			continue
 		total += owed
 		SpellTargets.hurt(n, owed, tint)
+		# The debt landing is the beat; it had no impulse behind it.
+		if is_instance_valid(n) and n.has_method("apply_knockback") and n is Node2D:
+			var out: Vector2 = ((n as Node2D).global_position - _center).normalized()
+			if out == Vector2.ZERO:
+				out = Vector2.UP
+			n.call("apply_knockback", Juice.lateral_knockback(
+				out * SpellTier.push_for_spectacle(float(owed), SpellTier.PUSH_TIER[SpellTier.Tier.ULT])))
 		var at: Vector2 = (n as Node2D).global_position
 		CombatVfx.spawn_burst(get_parent(), at, Color(1.5, 1.8, 2.2, 1.0),
 			Color(0.4, 0.7, 1.0, 0.0), 24, 0.5, 80.0, 260.0, 1.4, 4.0, 0.0, 0.0, true)

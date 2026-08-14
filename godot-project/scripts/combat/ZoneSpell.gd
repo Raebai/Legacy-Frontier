@@ -476,6 +476,13 @@ func _shatter_casing(n: Node2D) -> void:
 	var p: Vector2 = n.global_position
 	if n.has_method("take_damage"):
 		SpellTargets.hurt(n, ENCASE_SHATTER_DAMAGE, Color(0.72, 0.92, 1.0, 1.0))
+		# ⚠ THE PAYOFF MOVED NOBODY. This is the field's "sudden beat" (see the header)
+		# and it dealt 34 damage while leaving the victim standing exactly where it
+		# found them. UP-and-out rather than radial: the casing bursts around the body,
+		# so the shove comes from the ice, not from a point on the ground.
+		if n.has_method("apply_knockback"):
+			n.call("apply_knockback", Vector2.UP * SpellTier.push_for_spectacle(
+				float(ENCASE_SHATTER_DAMAGE), SpellTier.PUSH_TIER[SpellTier.Tier.HEAVY]))
 	DebrisChunk.spawn_burst(get_parent(), p, Color(0.78, 0.92, 1.0), 14, Vector2.UP, 300.0)
 	CombatVfx.spawn_burst(get_parent(), p, Color(1.2, 1.5, 1.85, 0.95),
 		Color(0.5, 0.75, 1.0, 0.0), 26, 0.5, 90.0, 300.0, 0.7, 2.2, 0.0, 0.0, true)

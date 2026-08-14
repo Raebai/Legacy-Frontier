@@ -108,6 +108,12 @@ func _level() -> void:
 		if want < cur:
 			# Downward through the real damage path, so the death/HUD plumbing runs.
 			SpellTargets.hurt(n, cur - want, Color(BEAM_COLOR.r, BEAM_COLOR.g, BEAM_COLOR.b, 1.0))
+			if is_instance_valid(n) and n.has_method("apply_knockback") and n is Node2D:
+				var off: Vector2 = ((n as Node2D).global_position - _center).normalized()
+				if off == Vector2.ZERO:
+					off = Vector2.UP
+				n.call("apply_knockback", Juice.lateral_knockback(
+					off * SpellTier.push_for_spectacle(float(cur - want), SpellTier.PUSH_TIER[SpellTier.Tier.ULT])))
 			_marks.append({"pos": (n as Node2D).global_position, "gained": false})
 		elif want > cur:
 			HpWatch.gain(n, want - cur)

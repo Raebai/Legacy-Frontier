@@ -1373,7 +1373,23 @@ static func _safest(bb: Dictionary, me: Vector2, candidates: Array[Vector2],
 		# and counting it would score every exit as landing in danger.
 		if int(d.get("id", 0)) == int(threat.get("id", -1)):
 			continue
-		if d.has("shape"):
+		# ⚠ `region` FIRST, AND WITHOUT IT A BOT DODGED STRAIGHT INTO LANES.
+		#
+		# `BotController.perceive_threats` publishes every threat with a ready-made
+		# `region` in exactly the shape `BotDodge.point_in_region` takes — that is what
+		# the key is FOR, and `BotController.danger_regions()` exists to extract it.
+		# Nothing ever called either. This function reconstructed a footprint from
+		# `shape` (which no threat record carries at top level) or from `radius`, and a
+		# LANE telegraph publishes `radius: 0.0`.
+		#
+		# So lanes fell through BOTH branches and were never counted as somewhere not
+		# to land. Circles and projectiles survived on the radius fallback, which is
+		# why this looked like it worked: the failure was invisible in exactly the case
+		# — a charger's lane, a sword arc, Crescent Rush, Iai Slash — where a sideways
+		# dodge is most likely to cross the very thing being dodged.
+		if d.has("region") and typeof(d["region"]) == TYPE_DICTIONARY:
+			regions.append(d["region"])
+		elif d.has("shape"):
 			regions.append(d)
 		elif float(d.get("radius", 0.0)) > 0.0:
 			regions.append({"shape": "circle", "center": d.get("pos", Vector2.ZERO),

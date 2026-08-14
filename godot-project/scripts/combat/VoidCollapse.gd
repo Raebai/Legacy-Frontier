@@ -107,6 +107,16 @@ func _collapse() -> void:
 	for n: Node in SpellTargets.in_radius(_center, _radius,
 			SpellTargets.hostiles(self, StringName(target_group)), [caster_node], self):
 		SpellTargets.hurt(n, _damage, tint)
+		# ⚠ THE COLLAPSE ITSELF SHOVED NOBODY. The wind-up PULLS (by writing velocity
+		# directly, which is why it never looked inert), but the moment the well closed
+		# the damage landed with no impulse at all — a cataclysm that leaves you where
+		# it found you. Radial, from the well.
+		if is_instance_valid(n) and n.has_method("apply_knockback") and n is Node2D:
+			var away: Vector2 = ((n as Node2D).global_position - _center).normalized()
+			if away == Vector2.ZERO:
+				away = Vector2.UP
+			n.call("apply_knockback", Juice.lateral_knockback(
+				away * SpellTier.push_for_spectacle(float(_damage), SpellTier.PUSH_TIER[SpellTier.Tier.ULT])))
 		if n.has_method("apply_status"):
 			n.apply_status(element_id)
 	for prop: Node in SpellTargets.in_radius(_center, _radius,
