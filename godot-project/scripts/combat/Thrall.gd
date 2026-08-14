@@ -248,6 +248,46 @@ func _nearest_hero() -> Node2D:
 		if d < best_d:
 			best_d = d
 			best = n as Node2D
+	# ⚠ IN A DUEL THERE IS NO `enemy` GROUP, SO A BOUND THRALL HAD NOTHING TO ATTACK.
+	#
+	# Maker: "the necromancer summons should also go and attack an enemy".
+	#
+	# The scan above is right in the TOWER — a bound thrall fights the mobs, which is
+	# the whole point of raising one — and it looked right everywhere because the group
+	# name is the same. But `VersusArena`, `BotMatch` and free play have no mobs at all:
+	# every fighter is a `Hero` in `MORTAL_GROUP`. So the pool came back empty, and
+	# `_retarget` assigns NULL through on purpose (see its own note), leaving the thrall
+	# standing next to its summoner doing nothing for its entire nine seconds.
+	#
+	# The fall-back only runs when the primary scan found NOBODY, so the tower is
+	# untouched: there, mobs exist and this line is never reached. It excludes the
+	# summoner and every other thrall by the same rules as above — a bound thrall must
+	# never turn on its own side, which is what `_turn_feral` is for and which this
+	# must not pre-empt.
+	if best == null and not _feral:
+		best = _nearest_mortal_foe()
+	return best
+
+
+## The opposing FIGHTER, for the modes that have no mobs. Same exclusions as the
+## primary scan plus the summoner itself — see the note in `_nearest_hero`.
+func _nearest_mortal_foe() -> Node2D:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return null
+	var best: Node2D = null
+	var best_d: float = INF
+	for n: Node in tree.get_nodes_in_group(SpellCaster.MORTAL_GROUP):
+		if not (n is Node2D) or not is_instance_valid(n) or n.is_queued_for_deletion():
+			continue
+		if n == self or n == owner_hero or n.is_in_group(GROUP):
+			continue
+		if n.has_method("is_downed") and n.call("is_downed"):
+			continue
+		var d: float = global_position.distance_squared_to((n as Node2D).global_position)
+		if d < best_d:
+			best_d = d
+			best = n as Node2D
 	return best
 
 
