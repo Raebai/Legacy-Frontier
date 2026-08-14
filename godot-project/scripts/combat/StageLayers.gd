@@ -67,6 +67,17 @@ const DRAWERS: Dictionary = {
 	## blinds covering the front of the map that should be background". Listing it here
 	## makes rule 1 (a registered drawer must park where the table says) cover it.
 	"Atmosphere": SKYLINE,
+	## Same reason as Atmosphere: a Node2D, so the scanner cannot see it, so listing
+	## it here is the only thing that makes "parks itself where the table says" a
+	## build failure rather than a comment.
+	##
+	## ⚠ IT SHARES `DECOR` WITH `FloorDecor` ON PURPOSE, and the pairing is ordered by
+	## TREE ORDER rather than by z. The sky is an OPENING cut into the wall that
+	## FloorDecor paints, so it has to land ON TOP of that wall — `Arena._apply_sky`
+	## therefore adds it after `_apply_decor`. The alternative rung, -2, is the only
+	## other visible one in a tower room and it sits in FRONT of PLATFORM and COVER,
+	## which would put the sky over the ledges and the crates.
+	"SkyVista": DECOR,
 	"ArenaTerrain": TERRAIN,
 	## The tower's ground + room frame. Same rung as `ArenaTerrain` because it is the
 	## same thing for the other stage: the surface you start on. The two never coexist

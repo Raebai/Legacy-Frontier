@@ -42,6 +42,23 @@ enum Weather {
 
 @export var weather: int = Weather.NONE
 
+## What is BEYOND this floor — the sky seen through the clerestory band `SkyVista`
+## opens in the back wall. Most floors are sealed rooms and take NONE, which costs
+## nothing at all (no node process, no draw); a tower is mostly interiors, and that
+## is exactly what makes the three floors that DO open onto a sky land.
+## ⚠ NAMED `SkyKind`, NOT `Sky`. `Sky` is a NATIVE Godot class (the 3D environment
+## resource), and an enum of that name fails to compile with "The member \"Sky\"
+## shadows a native class" — which then cascades: GameState fails to parse, the
+## autoload fails to instantiate, and the first visible symptom is the whole game
+## refusing to boot rather than anything pointing at this line.
+enum SkyKind {
+	NONE,     ## a sealed room
+	SUNSET,   ## a low sun crossing, four parallax cloud layers, light on the sill
+	ECLIPSE,  ## a black disc with a living corona, stars out in the middle of the day
+}
+
+@export var sky: int = SkyKind.NONE
+
 @export var name: String = "surface"
 ## Ambient wash — the floor's base hue. Drives `ArenaAtmosphere.build_wash` and the
 ## PostProcess grade.

@@ -1276,6 +1276,7 @@ func _apply_theme(theme: EnvTheme) -> void:
 	if shell != null:
 		shell.build(shell.room_size, wash)
 		_apply_decor(shell.room_size, wash, theme)
+		_apply_sky(shell.room_size, wash, theme)
 	PostProcess.set_theme(wash)  # re-tint the grade to match the floor
 
 
@@ -1320,6 +1321,24 @@ func _apply_decor(room: Vector2, wash: Color, theme: EnvTheme) -> void:
 		decor.name = "FloorDecor"
 		add_child(decor)
 	decor.call("build", room, wash, theme.accent(), theme.name)
+
+
+## THE SKY BEYOND THE WALL — see `SkyVista`. Three of the ten biomes open onto one;
+## the rest are sealed rooms and pay nothing for the node existing.
+##
+## ⚠ CREATED AFTER `_apply_decor`, AND THE ORDER IS THE WHOLE MECHANISM. `SkyVista`
+## and `FloorDecor` share the `DECOR` rung, because the only unclaimed visible rung in
+## a tower room is -2 and that sits in FRONT of the ledges and the crates. Two nodes on
+## one rung are ordered by TREE ORDER, so the sky must be added second to land on top
+## of the wall `FloorDecor` paints — otherwise it is drawn and then buried under an
+## opaque rect, which is indistinguishable from not drawing at all.
+func _apply_sky(room: Vector2, wash: Color, theme: EnvTheme) -> void:
+	var sky: Node = get_node_or_null("SkyVista")
+	if sky == null:
+		sky = (load("res://scripts/combat/SkyVista.gd") as GDScript).new()
+		sky.name = "SkyVista"
+		add_child(sky)
+	sky.call("build", room, wash, theme.accent(), theme.sky)
 
 
 func _build_floor_banner() -> void:
