@@ -1,73 +1,99 @@
-# RESUME HERE — 2026-08-12, FIXED FROM A LIVE PLAYTEST, NOT RE-PLAYED
+# RESUME HERE — 2026-08-14
 
-**ASHPIRE.** Branch `bot-fight-quality`, **601d135**, **169/169 green**, pushed, clean.
+**ASHPIRE.** Branch `bot-fight-quality`, **b01bbd8**, **171/171 green**, committed, NOT PUSHED.
 
-Yesterday's handoff opened by recommending the one mode that was crashing. This one
-opens by saying plainly: **everything below is fixed and pushed, and none of it has
-been played since it was fixed.**
+Seven commits this session. Everything below is committed and headless-verified.
+**None of it has been played.** Two things were verified by LOOKING at rendered
+frames (the weather and the vertical clip); the rest is measured or tested.
 
-## ▶ WHAT THE MAKER HIT, IN THE ORDER THEY HIT IT
+## ▶ THE ONE THAT MATTERS MOST
 
-| symptom | cause | confidence |
+**All ten biome walls were dead code and every test in the repo was green over it.**
+
+`FloorDecor._draw_motif` is a ten-arm match on the biome NAME — Ashfall's broken
+gantry, Verdant's canopy and hanging roots, Frostmarch's icicles, the Crimson
+banners, the Vault's niches, Emberworks' furnace mouths, Glasswood's leaning panes,
+the Drowned Gallery's waterline, Stormreach's masts, the Apex's stars. All authored,
+all shipped, **none ever drawn.**
+
+`Arena._apply_decor` keyed it on `theme.resource_path`. That is set by the LOADER,
+and no `EnvTheme` is ever loaded — every one is built in code and there is not a
+single theme `.tres` on disk. So the key was `""` on every floor of every run and
+all ten fell through to the generic arcade wall. **The climb looked like one room
+re-tinted ten times because that is what it was.**
+
+Second fault beside it: `FloorGen._jitter_theme` copied `name` + `wash_tint` and
+stopped, resetting `light` on every generated floor. That is the "dim lights as you
+climb" dial; the authored spread runs 0.68 → 1.18, and flattening it to 1.0 meant
+the deeper you went, the less the tower changed.
+
+`slice_test_biome_walls` guards the AGREEMENT between the two files, so a rename on
+either side is a red build. Negative-controlled.
+
+## ▶ WHAT ELSE SHIPPED
+
+| what | where | verified how |
 |---|---|---|
-| Watch Bots crashed instantly | `ArenaTerrain.terraces` typed `Array[Dictionary]`, handed an untyped `Array` | fixed, negative-controlled |
-| "they both lag in the box" | **variant 2's shelf spanned x 980–1560 and the right fighter spawns at 1000** — a terrace is 320 px of solid rock BELOW its surface, not a line. ~1 bout in 3 | fixed + pinned by a test |
-| crates eaten at the opening | cover authored 54 px from a spawn; the keep-out only ever promised "not overlapping" | `STAGE_COVER` emptied |
-| crashed after ONE fight | `_paint_hud` called `get_visible_rect()` on a null viewport — `_process` fires for a frame after the node leaves the tree | fixed, negative-controlled |
-| Zanshin "trying to cast a free object" | `for n: Node2D in live` — the TYPED loop variable casts every iteration, and `hurt` inside the loop frees other entries of the same array | fixed |
-| boulder "hits the ground and goes nowhere" | `_rise_height()` fired its ceiling probe from a point lying ON the floor, so it reported the floor as the ceiling and the rock never rose | fixed, confident |
-| corpse embedded in a wall | corpse keeps driving into a face through the win freeze (`process_mode = ALWAYS`) | ⚠ **reasoned, NOT reproduced** |
-| random subtext under "X WINS" | telemetry on the thumbnail frame | removed |
-| Cleric too strong | `radiant_volley` 18 → 15/lance, backed by 75/78/81% across three sweeps | done |
+| **Ten biomes, ten weathers** — ash, leaves, snow, embers, bubbles, rain, glint, starfall | `EnvTheme.weather`, `GameState.BIOMES.wx`, `Atmosphere.build_weather` | rendered + looked at, `tools/weather_capture.gd` |
+| **Weather costs +1 draw call, +104 primitives, 2.22% screen fill** worst case | `tools/weather_perf_probe.gd` | measured; budget pinned at 6% and negative-controlled |
+| **Three of nine ults ended on the wrong screen or none** | HeavensWrath, FaultLine, GraveTide | `slice_test_ult_punctuation`, negative-controlled |
+| **Vertical clips render 9:16 natively** instead of cropping a column | `tools/bot_clip_capture.gd` | rendered + looked at |
+| **Portrait camera framing** — own margin, ceiling and ground line | `VersusArena._update_showcase_camera` | rendered + looked at |
+| **VO word bank** — 11 clips cover all 72 matchups | `python-tools/vo_bank.py`, `content/vo/` | assembled and listened to by the maker |
 
-**If the corpse embeds again** it is the launch tunnelling a thin platform in a single
-step, not pressure against a face — that needs a swept move, not a velocity clamp.
+## ⚠ TWO INSTRUMENTS LIED THIS SESSION, BOTH CAUGHT BEFORE THEY DID DAMAGE
 
-## ⚠ THE LESSON THAT COST THE MOST TODAY
+**The ult suite's first run reported three failures and all three were the suite.**
+Grave Tide matched `Juice.impact_frame` inside the COMMENT explaining it no longer
+calls it. Horizon Arc reaches Juice through a node lookup rather than the global.
+Meteor Fist delegates its whole payoff to `BlastSpell`, where the frame lives. Every
+one was checked against the source before being called a bug.
 
-**166/166 was green over a duel stage that had been throwing on every bout for a week.**
-Three things hid it and they are the same mistake: the variant suite tested the
-AUTHORED table via `get_script_constant_map()`; `slice_test_sandbox` booted the real
-scene, hit the error and still printed `all PASS` (a GDScript runtime error is NOT
-fatal); and `run_all_tests.py` only ever read each suite's own summary line.
-
-`run_all_tests.py` now **fails any suite that emits a runtime `SCRIPT ERROR`**, scoped
-to that and not the broader `ERROR:`. Opt out with an `ALLOWS_SCRIPT_ERRORS` marker.
-That single gate immediately caught **four more suites passing vacuously**, one of which
-(`slice_test_spell_warm`) had failed to COMPILE and was still reporting all PASS.
-
-**Negative-control every new test.** Twice today a test passed while the thing it
-guarded was broken — including one I had just written to catch that very bug.
+**The perf probe's first two metrics were garbage.** `TIME_PROCESS` read 53.488 ms
+for five rows then 10.780 for the rest — a warm-up staircase. `TIME_FPS` in a
+`--script` loop read 1.000, then 2007.000. Frame time is now deliberately NOT
+reported; it is a device measurement, taken with PerfOverlay (F3) on the phone.
 
 ## ▶ STILL OPEN
 
-* **9:16 is a flag, not a feature.** `bot_clip_capture --vertical=1` renders exact 9:16
-  and never letterboxes, but the crop slices the class names, cuts both HP bars off and
-  often contains NEITHER fighter — the plates anchor to full width and the bodies stand
-  560 px apart. The maker wants landscape AND vertical to post both. Needs a tighter
-  `CombatCamera` two-shot plus safe-area-aware plates.
-* **The content programme** (researched, not built): a stated question burned over live
-  action in frame 1, ONE always-visible meter, event-driven audio, series numbering with
-  win/loss records, a bracket. Highest leverage: **sim many bouts, score the ENDING
-  SHAPE, publish only the good ones** — `tools/botmatch_sim.gd` already does the sim.
-* **~36 cosmetic `is`-before-`is_instance_valid` sites** remain where the operand is a
-  fresh group scan. Harmless; every STORED one is fixed.
-* **`thousand_cuts` sits above its own stated ceiling** (21.0 dmg/s vs the 19.4 its
-  comment cites). Left alone deliberately — retuning off a documentation error is not a
-  measurement. Re-price it in the next real sweep.
+* **The vertical shot's remaining fault is DIRECTION, not aspect.** Two fighters
+  spawn 560 world px apart; holding both in a 720px frame caps zoom at 1.28. A
+  two-shot of a fully separated pair cannot be large in 9:16 — geometry, not tuning.
+  The lever is `ClipDirector`: follow the action and let a distant fighter leave
+  frame, the way a two-shot does in any other medium.
+* **Sunset and eclipse** are NOT built. Weather is precipitation; those are sky
+  treatments, and the tower rooms are interiors with no sky — that work belongs in
+  `FloorDecor`'s back wall, not in `Atmosphere`.
+* **The spell audit's remaining list** (measured, not guessed): `ElementFx` — the
+  eight hand-drawn per-element bursts — is reached by 5 spells out of 54;
+  `chain_lightning` and `arc_of_fools` are visually identical (same script, same
+  element, same circle, same frame); `Kind.NOVA` is fully built, has its own
+  spectacle, impact frame and 14.0 shake, and NO SpellDef anywhere targets it;
+  `horizon_cut` fires zero particle bursts.
+* **The content programme** — researched, not built. Highest leverage: sim many
+  bouts, score the ENDING SHAPE, publish only the good ones.
+* **Blotato** ($29/mo, REST + MCP, TikTok+IG, comment reply) is the recommended
+  posting tool. Two things to prove inside the free trial before paying: that a
+  TikTok post lands PUBLIC, and that comment-reply works over the API. Trustpilot
+  is contradictory on billing — pay monthly, not annual.
 
 ## ⚠ NEVER DO THIS
 
-**Do not rewrite source files with PowerShell `Get-Content | Set-Content`.** On PS 5.1
-it reads UTF-8 as ANSI and writes the damage back with a BOM. It corrupted three files
-across three commits, was not losslessly reversible, and needed restoring from git plus
-re-applying every edit by hand. It also tripped the maker's antivirus. Use git, an
-editor tool, or Python.
+**Do not `git checkout --` a file that holds uncommitted work.** Done once this
+session to undo a deliberate test-break; it reverted the file to HEAD and wiped the
+uncommitted weather system. A backup taken a minute earlier saved it. Commit first,
+then negative-control.
 
-Also: **launching the game rewrites tracked files** — `project.godot` loses three keys,
-`Main.tscn` loses its comment block. Check `git status` after any launch.
+**Do not rewrite source files with PowerShell `Get-Content | Set-Content`.** On PS
+5.1 it reads UTF-8 as ANSI and writes the damage back with a BOM.
+
+Also: **launching the game rewrites tracked files** — check `git status` after any
+launch.
 
 ## HOW TO VERIFY
 ```
-python python-tools/run_all_tests.py --jobs 6      # 169 suites, ~135s
+python python-tools/run_all_tests.py --jobs 6          # 171 suites, ~100s
+python python-tools/run_capture.py weather_capture     # look at the ten biomes
+./godot-engine/Godot_v4.6.2-stable_win64.exe --path godot-project \
+  --script tools/weather_perf_probe.gd                 # what the air costs
 ```
