@@ -502,6 +502,47 @@ const SHOWCASE_ZOOM_MAX_PORTRAIT: float = 2.0
 ## 0.80 puts the floor in the bottom fifth, which is what stops the sub-floor void
 ## from eating a third of the shot — see the note in `_update_showcase_camera`.
 const PORTRAIT_GROUND_AT: float = 0.80
+
+## ── FOLLOWING THE ACTION ─────────────────────────────────────────────────────
+## The framing block above buys the CLOSED case and says plainly that it cannot buy
+## the open one: two fighters 560 px apart cap zoom at 720/560 = 1.28, and a rig at
+## that zoom is 3% of a 1280-tall frame. That is geometry, and no margin or ceiling
+## crosses it. **The only way out is to stop insisting on a two-shot.**
+##
+## So in portrait the camera does what a two-shot does in every other medium: it
+## holds both while they are together, and when they separate it goes with ONE of
+## them and lets the other leave frame. Nothing about that is a compromise — a
+## fighting-game clip that always contains both fighters is a wide shot, and a wide
+## shot on a phone is a shot of nothing.
+##
+## The blend is continuous, not a cut. `follow` ramps 0 -> 1 across these two
+## spreads, and both the focus point and the zoom target lerp on it, so there is no
+## frame where the shot snaps.
+const PORTRAIT_TWO_SHOT_COMFORT: float = 170.0
+const PORTRAIT_TWO_SHOT_MAX: float = 430.0
+## Where the single lands. At 2.8 the rig is ~87 px in a 1280-tall frame — under 7%,
+## which is modest for a phone but is more than double the two-shot's 3% and shows a
+## face-worth of detail. The visible world is 720/2.8 = 257 px wide, so the subject
+## keeps a body-width of context on each side rather than filling the frame.
+const PORTRAIT_FOLLOW_ZOOM: float = 2.8
+
+## ⚠ WHO THE CAMERA GOES WITH, AND WHY IT IS THE ONE BEING HIT. Interest accrues to
+## the VICTIM more than to the dealer, because the hit is what the viewer came for —
+## the impact, the knockback, the number. A camera that follows the aggressor watches
+## somebody swing at empty air just off frame.
+##
+## Both still score, though, or a duel would whip between the two on every trade.
+const PORTRAIT_INTEREST_VICTIM: float = 1.0
+const PORTRAIT_INTEREST_DEALER: float = 0.55
+## Interest bleeds off this fast, per second. Long enough that a flurry keeps the
+## camera where it is, short enough that the shot moves on when the fight does.
+const PORTRAIT_INTEREST_DECAY: float = 1.4
+## ⚠ HYSTERESIS, AND IT IS NOT OPTIONAL. Without both of these the subject changes
+## on every trade and the camera whips back and forth — which reads worse than the
+## wide shot it replaced. A challenger must beat the incumbent by a MARGIN, and the
+## incumbent gets a minimum time in the chair regardless.
+const PORTRAIT_SWITCH_MARGIN: float = 0.40
+const PORTRAIT_SUBJECT_DWELL: float = 0.90
 ## How far above the fighters the eye sits, so the floor falls in the lower third.
 ## Rendered and looked at: at 130 the horizon sat at ~95% of frame height and the
 ## fighters' feet were clipped by the bottom edge. 45 puts the floor in the lower
@@ -533,6 +574,17 @@ var _cam_zoom_smoothed: float = SHOWCASE_ZOOM_MAX
 var _cam_margin: float = SHOWCASE_FRAME_MARGIN
 var _cam_zoom_min: float = SHOWCASE_ZOOM_MIN
 var _cam_zoom_max: float = SHOWCASE_ZOOM_MAX
+
+## PORTRAIT SUBJECT TRACKING — see `_portrait_subject`. All four are dead weight in
+## landscape, where the camera never leaves the midpoint.
+## instance_id -> decaying "the fight is happening to you" score.
+var _cam_interest: Dictionary = {}
+## instance_id -> last seen HP, so a drop can be detected without a damage signal.
+var _cam_hp: Dictionary = {}
+## Who the camera is currently with, and for how long. The dwell is half the
+## hysteresis that stops the shot whipping on every trade.
+var _cam_subject_id: int = 0
+var _cam_subject_dwell: float = 0.0
 
 ## ---- duel state ----------------------------------------------------------
 var _duel_bot: CharacterBody2D = null
@@ -1730,6 +1782,85 @@ func _build_showcase_camera() -> void:
 
 
 ## Track the pair. Called every frame from _process.
+## WHO THE PORTRAIT CAMERA IS WITH. Scores every live fighter on how recently the
+## fight happened TO them, decays it, and hands back the leader — with hysteresis, so
+## the answer is stable enough to point a camera at.
+##
+## ⚠ IT IS CALLED EVERY FRAME, INCLUDING WHEN THE PAIR IS CLOSED AND NOBODY IS ASKING
+## WHO THE SUBJECT IS. That is deliberate: interest has to have been accruing BEFORE
+## the fighters separate, or the first frame of every single would pick whoever
+## happened to be first in the registry and then correct itself in front of the
+## viewer.
+##
+## Damage is inferred from HP falling rather than from a signal, because every hit
+## path in this game already ends in HP and none of them reports to the camera. That
+## also means it is immune to a new spell forgetting to tell anybody.
+func _portrait_subject(live: Array[Node2D], delta: float) -> Node2D:
+	var decay: float = maxf(0.0, 1.0 - PORTRAIT_INTEREST_DECAY * delta)
+	for key: int in _cam_interest.keys():
+		_cam_interest[key] = float(_cam_interest[key]) * decay
+
+	# Score the frame's damage. In a duel the dealer is "the other one", which is why
+	# this does not need to know who swung.
+	for n: Node2D in live:
+		var id: int = n.get_instance_id()
+		var hp: Variant = n.get("hp")
+		if hp == null:
+			continue
+		var now: float = float(hp)
+		if _cam_hp.has(id):
+			var drop: float = float(_cam_hp[id]) - now
+			if drop > 0.0:
+				_cam_interest[id] = float(_cam_interest.get(id, 0.0)) \
+					+ PORTRAIT_INTEREST_VICTIM
+				for other: Node2D in live:
+					var oid: int = other.get_instance_id()
+					if oid != id:
+						_cam_interest[oid] = float(_cam_interest.get(oid, 0.0)) \
+							+ PORTRAIT_INTEREST_DEALER
+		_cam_hp[id] = now
+
+	_cam_subject_dwell += delta
+
+	# The incumbent, if it is still alive.
+	var current: Node2D = null
+	for n: Node2D in live:
+		if n.get_instance_id() == _cam_subject_id:
+			current = n
+			break
+
+	# The challenger.
+	var best: Node2D = null
+	var best_score: float = -1.0
+	for n: Node2D in live:
+		var s: float = float(_cam_interest.get(n.get_instance_id(), 0.0))
+		if s > best_score:
+			best_score = s
+			best = n
+
+	if current == null:
+		# Nobody in the chair (first frame, or the subject died). Take the leader, or
+		# just the first live body — anything is better than null, which would drop
+		# the shot back to the midpoint mid-fight.
+		var pick: Node2D = best if best != null else live[0]
+		_cam_subject_id = pick.get_instance_id()
+		_cam_subject_dwell = 0.0
+		return pick
+
+	if best == null or best == current:
+		return current
+	# Both gates, and either alone is insufficient: the margin stops a trade from
+	# flipping the shot, the dwell stops a sustained beating from flipping it every
+	# frame once the margin is exceeded.
+	var cur_score: float = float(_cam_interest.get(_cam_subject_id, 0.0))
+	if best_score > cur_score + PORTRAIT_SWITCH_MARGIN \
+			and _cam_subject_dwell >= PORTRAIT_SUBJECT_DWELL:
+		_cam_subject_id = best.get_instance_id()
+		_cam_subject_dwell = 0.0
+		return best
+	return current
+
+
 func _update_showcase_camera(delta: float) -> void:
 	if _show_cam == null:
 		return
@@ -1741,10 +1872,12 @@ func _update_showcase_camera(delta: float) -> void:
 	if _clip != null and _clip.frames_the_shot:
 		return
 	var pts: Array[Vector2] = []
+	var live: Array[Node2D] = []
 	for entry: Dictionary in _registry.values():
 		var n: Node = entry["node"]
 		if is_instance_valid(n) and not n.is_queued_for_deletion():
 			pts.append((n as Node2D).global_position)
+			live.append(n as Node2D)
 	if pts.is_empty():
 		return
 	var mid: Vector2 = Vector2.ZERO
@@ -1769,6 +1902,23 @@ func _update_showcase_camera(delta: float) -> void:
 	var zoom_max: float = SHOWCASE_ZOOM_MAX_PORTRAIT if portrait else _cam_zoom_max
 	var want: float = clampf(view_w / maxf(spread + margin, 1.0),
 		_cam_zoom_min, zoom_max)
+	# FOLLOW THE ACTION once the pair opens up — see PORTRAIT_TWO_SHOT_COMFORT. The
+	# focus point and the zoom both lerp on one continuous weight, so the shot slides
+	# from a two-shot into a single instead of cutting.
+	var focus: Vector2 = mid
+	if portrait:
+		var follow: float = smoothstep(PORTRAIT_TWO_SHOT_COMFORT,
+			PORTRAIT_TWO_SHOT_MAX, spread)
+		if follow > 0.0:
+			var subject: Node2D = _portrait_subject(live, delta)
+			if subject != null:
+				focus = mid.lerp(subject.global_position, follow)
+				want = lerpf(want, PORTRAIT_FOLLOW_ZOOM, follow)
+		else:
+			# Still score interest while they are together, so the moment they part
+			# the camera already knows who it is going with rather than picking on
+			# the first frame it needs an answer.
+			_portrait_subject(live, delta)
 	# The FRAMING answer is smoothed on its own state, then the operator's transient
 	# effects are laid over it. Reading the punched zoom back as the next frame's
 	# starting point would let a zoom punch drag the actual framing in with it.
@@ -1809,7 +1959,9 @@ func _update_showcase_camera(delta: float) -> void:
 	# whichever wants to be HIGHER (smaller y) wins. The clamp band widens in portrait
 	# because the landscape band was sized for a 768-tall frame and would otherwise
 	# undo the solve at the wide end.
-	var eye_y: float = mid.y - SHOWCASE_EYE_LIFT
+	# `focus`, not `mid` — in portrait these diverge once the pair separates and the
+	# camera commits to a subject.
+	var eye_y: float = focus.y - SHOWCASE_EYE_LIFT
 	var floor_y: float = GROUND_TOP - 30.0
 	var ceil_y: float = GROUND_TOP - 330.0
 	if portrait:
@@ -1817,7 +1969,7 @@ func _update_showcase_camera(delta: float) -> void:
 		eye_y = minf(eye_y, GROUND_TOP + half_h * (1.0 - 2.0 * PORTRAIT_GROUND_AT))
 		ceil_y = GROUND_TOP - 560.0
 	_show_cam.global_position = Vector2(
-		clampf(mid.x, 340.0, STAGE_SIZE.x - 340.0),
+		clampf(focus.x, 340.0, STAGE_SIZE.x - 340.0),
 		clampf(eye_y, ceil_y, floor_y))
 
 
