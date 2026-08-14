@@ -1166,6 +1166,19 @@ static func _clone_floor(f: FloorDef) -> FloorDef:
 ## A fresh wash tint inside the floor's band. The hand reaches for the same colour
 ## and gets a slightly different one; the layer still reads as surface / underground
 ## / sky, but no two climbs are the same shade of it.
+## ⚠ IT JITTERS THE HUE AND MUST CARRY THE OTHER TWO FIELDS THROUGH UNCHANGED.
+## This used to copy `name` + `wash_tint` and stop, which silently dropped
+## `accent_tint` and `light` back to their defaults on every generated floor.
+##
+## `light` is the one that shows. It is the "dim lights on certain floors as you
+## climb" dial (`EnvTheme.gd:28-30`) and it is what gives the climb a shape you can
+## feel — the authored spread runs 0.68 at the Sunken Vault to 1.18 at the Apex.
+## Defaulting it to 1.0 flattened every generated floor to neutral exposure, so the
+## deeper you went the LESS the tower changed. `accent_tint` degrades more kindly
+## (transparent means "derive from the wash", `EnvTheme.accent()`), but a biome that
+## authored a highlight should keep it rather than fall back to a lightened wash.
+##
+## Only the hue is meant to wander here. Everything else is the biome's identity.
 static func _jitter_theme(rng: RandomNumberGenerator, src: EnvTheme) -> EnvTheme:
 	var out := EnvTheme.new()
 	out.name = src.name if src != null else "surface"
@@ -1176,6 +1189,9 @@ static func _jitter_theme(rng: RandomNumberGenerator, src: EnvTheme) -> EnvTheme
 		clampf(base.b + rng.randf_range(-0.03, 0.03), 0.0, 1.0),
 		base.a
 	)
+	if src != null:
+		out.accent_tint = src.accent_tint
+		out.light = src.light
 	return out
 
 

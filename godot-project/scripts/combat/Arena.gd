@@ -1289,17 +1289,33 @@ func _apply_theme(theme: EnvTheme) -> void:
 ## shell's geometry may not — driving it from the theme means floor 7 cannot end up
 ## wearing floor 6's wall.
 ##
-## ⚠ THE BIOME NAME IS THE THEME'S FILE, NOT AN INDEX. `EnvTheme` carries no display
-## name, and a floor NUMBER would give two floors that share a biome two different
-## walls. The resource path is the one stable per-biome identity that already exists.
+## ⚠ THE BIOME NAME IS `EnvTheme.name`, AND READING `resource_path` SILENTLY DELETED
+## ALL TEN WALLS. This line used to say `String(theme.resource_path).get_file()...`,
+## on the stated belief that "`EnvTheme` carries no display name". It does — field one,
+## `EnvTheme.gd:20`, populated by `GameState.floor_env()` straight out of the `BIOMES`
+## table with exactly the strings `FloorDecor._draw_motif` matches on.
+##
+## But `resource_path` is only ever set by the LOADER, and no EnvTheme is ever loaded:
+## every one is built in code (`GameState.floor_env():1446`, `FloorGen._jitter_theme`).
+## There is not one `.tres` for a theme on disk. So `resource_path` was `""` on every
+## floor of every run, `get_basename()` of `""` is `""`, no case in that ten-arm match
+## could fire, and all ten biome walls fell through to the generic `_motif_arcade`.
+##
+## Ashfall's broken gantry, Verdant's canopy and hanging roots, Frostmarch's icicles,
+## the Crimson Room's banners, the Vault's niches, Emberworks' furnace mouths,
+## Glasswood's leaning panes, the Drowned Gallery's waterline, Stormreach's masts and
+## the Apex's stars are all authored, all shipped, and NONE of them has ever been on
+## screen. The climb looked like one room re-tinted ten times because it WAS.
+##
+## A floor NUMBER is still the wrong key — two floors sharing a biome would get two
+## different walls — so the name stays the identity. It just has to be the name.
 func _apply_decor(room: Vector2, wash: Color, theme: EnvTheme) -> void:
 	var decor: Node = get_node_or_null("FloorDecor")
 	if decor == null:
 		decor = (load("res://scripts/tower/FloorDecor.gd") as GDScript).new()
 		decor.name = "FloorDecor"
 		add_child(decor)
-	var biome: String = String(theme.resource_path).get_file().get_basename()
-	decor.call("build", room, wash, theme.accent(), biome)
+	decor.call("build", room, wash, theme.accent(), theme.name)
 
 
 func _build_floor_banner() -> void:
