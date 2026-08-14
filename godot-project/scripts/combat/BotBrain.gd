@@ -998,6 +998,22 @@ static func _unwall(intent: Dictionary, bb: Dictionary, m: Memory, now: float,
 		intent["move"] = Vector2(-wall_dir, move.y)
 	if now - m.wall_since >= WALL_STUCK_SECONDS:
 		intent["jump"] = true
+		# ⚠ AND STEER INTO THE FACE, NOT AWAY FROM IT. The line above has just set the
+		# move to `-wall_dir` — turning around — and the jump was landing in the SAME
+		# frame, so the bot leapt backwards off the riser it was trying to get up. That
+		# is rung one's answer applied to rung two's problem: turning away is what you
+		# do when a wall is pointless, and going up is what you do when it is the way.
+		#
+		# Steering into the face is free while the body is still touching it —
+		# `Hero.gd:2333-2336` zeroes walk on wall contact — and takes effect the instant
+		# the jump clears the lip, which is precisely when the body needs to travel
+		# forward to land on top. So the same vector is inert during the climb and
+		# correct at the top of it.
+		#
+		# This only became reachable now that a bot's jump actually clears a ledge; at
+		# the old 36 px apex it would have leapt into the face and slid back down. See
+		# `BotController._hold_the_jump`.
+		intent["move"] = Vector2(wall_dir, move.y)
 		# Re-arm rather than latch, or every subsequent frame against the wall requests
 		# another jump and the bot pogos instead of climbing out once.
 		m.wall_since = now

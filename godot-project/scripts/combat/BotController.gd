@@ -83,6 +83,13 @@ const ENEMY_PROJECTILE_SPEED: float = 260.0
 const PROJECTILE_REGION_RADIUS: float = 6.0
 ## How far down the aim a placed spell lands when there is no foe to range off.
 ## Placed kinds clamp to their own reach anyway; this only decides the point.
+## How long the hands hold the jump, in physics frames. The rise from -740 at 2600
+## gravity lasts 740/2600 = 0.2846 s, which is 17.1 frames at 60 Hz — so 18 holds
+## through the whole ascent and releases at (or just past) the apex, where the
+## variable-height cut costs nothing. Longer would be harmless and shorter silently
+## re-introduces the very bug this exists to fix, so it is derived, not picked.
+const JUMP_HOLD_FRAMES: int = 18
+
 const DEFAULT_AIM_RANGE: float = 260.0
 const MIN_AIM_RANGE: float = 40.0
 const MAX_AIM_RANGE: float = 900.0
@@ -141,6 +148,9 @@ var effective_profile: Dictionary = {}
 ## not" and never has to model `just_pressed` itself.
 var _held: Dictionary = {}
 var _prev_held: Dictionary = {}
+## Frames of jump still to hold. See `_hold_the_jump` — without this the bot's apex
+## is 36 px against a 105 px capability, and nothing in either stage is climbable.
+var _jump_hold_left: int = 0
 ## Distance to project `aim_point()` along the aim direction. Tracked from the
 ## blackboard's foe range so a placed spell lands ON the thing the bot is pointing
 ## at rather than at an arbitrary fixed offset — the bot still chooses the
@@ -286,7 +296,48 @@ func drive(raw: Variant) -> Dictionary:
 	intent = BotIntent.sanitized(raw)
 	_prev_held = _held
 	_held = _actions_of(intent)
+	_hold_the_jump()
 	return intent
+
+
+## ══ THE BOT COULD ONLY JUMP 36 PX, AND EVERY LEDGE IN THE GAME IS TALLER ═════
+##
+## Maker: *"the straight walls are not helpful in the map these characters are not
+## smart enough to jump up these verticles"*. They are not stupid. They are physically
+## incapable, and the cause is here rather than in the brain or in the level.
+##
+## `Hero` has VARIABLE JUMP HEIGHT — `Hero.gd:2295-2296` halves upward velocity the
+## frame the jump button is RELEASED while still rising. That is a good feature for a
+## human, who holds the key. The brain, though, emits `jump` for exactly ONE frame,
+## and `drive()` rebuilds `_held` from scratch every tick, so the release landed on
+## frame two of every jump the bot ever made:
+##
+##     frame N    : velocity.y = -740          rises 740/60      = 12.3 px
+##     frame N+1  : gravity -> -696.7, released -> x0.5 -> -348.3
+##                  remaining rise = 348.3^2 / (2*2600)          = 23.3 px
+##     apex                                                      ~ 35.6 px
+##
+## A human holding the key clears 740^2 / (2*2600) = **105.3 px**. The bot cleared 36.
+## Every terrace riser in the versus stage is 68, 80 or 84 px; every tower ledge is at
+## least `FloorGen.STEP_MIN` = 72, and `GROUND_CORRIDOR` = 46 guarantees there is no
+## shorter intermediate step to use. So the bot could not climb ANY surface in ANY
+## stage, and the one thing it does when stuck — `BotBrain._unwall` — jumps while
+## steering AWAY from the wall, i.e. off the riser it needs.
+##
+## ⚠ THIS IS THE HANDS, NOT THE BRAIN, AND THAT IS WHY THE FIX IS HERE. The brain's
+## decision ("jump") is correct and complete; what was missing is that a hand holds a
+## button down. Encoding a hold in every brain call site would put an input-shaping
+## concern in the decision layer and would have to be repeated for each new one.
+##
+## Counted in FRAMES rather than seconds deliberately: this file has no clock (`drive`
+## takes no delta), and a frame count is also what makes the behaviour identical in a
+## headless suite driving a thousand ticks instantly.
+func _hold_the_jump() -> void:
+	if bool(intent.get(BotIntent.JUMP, false)):
+		_jump_hold_left = JUMP_HOLD_FRAMES
+	elif _jump_hold_left > 0:
+		_jump_hold_left -= 1
+		_held[&"jump"] = true
 
 
 ## Remember how far the foe is so `aim_point()` projects to a useful distance.
