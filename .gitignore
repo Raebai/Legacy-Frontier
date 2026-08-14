@@ -115,3 +115,4 @@ godot-engine/
 .mcp.json
 content/vo/out/
 content/vo/bank/_decode.tmp.wav
+content/vo/raw/
