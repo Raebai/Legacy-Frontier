@@ -94,6 +94,9 @@ static func announce(parent: Node, who: Node2D, spell: SpellDef, tint: Color) ->
 ## a static map would leak an entry for every body that ever cast anything, which in a
 ## game about endless waves is an unbounded map. Same reasoning as `Bark._off_cooldown`.
 const LABEL_META: StringName = &"cast_name_label"
+## The live ult banner, so the next one can replace it. A GROUP rather than a static
+## reference: the banner frees itself when its life ends, and a static would dangle.
+const ULT_GROUP: StringName = &"cast_ult_banner"
 
 
 static func _heavy_label(parent: Node, who: Node2D, text: String, tint: Color) -> Node:
@@ -144,8 +147,32 @@ static func _ult_banner(parent: Node, text: String, tint: Color) -> Node:
 	var tree: SceneTree = parent.get_tree()
 	if tree == null:
 		return null
+	# ⚠ ONE BANNER AT A TIME. THE NEW ONE REPLACES THE OLD.
+	#
+	# Maker: "dont ever let two titles come on top of each other if there is a spell
+	# title on the screen the new one should replace the old".
+	#
+	# `_heavy_label` above has deduped per fighter since the day it was written, via
+	# `LABEL_META` — but this function had no dedup of ANY kind, and it is the one that
+	# needed it most: every ult banner is centred on the same point of the screen
+	# (`vp.x * 0.5, vp.y * 0.34`), so two ults inside `ULT_LIFE` do not merely coexist,
+	# they print on top of each other and both become unreadable. In a bot fight, where
+	# two fighters trade ults, that is the common case rather than the edge one.
+	#
+	# Tracked by GROUP rather than by a static reference, because the banner frees
+	# ITSELF when its life runs out and a static would be left dangling — which is
+	# exactly the freed-instance crash documented at length in `_heavy_label`. A group
+	# drops its members automatically as they leave the tree, so there is nothing to
+	# go stale.
+	for old: Node in tree.get_nodes_in_group(ULT_GROUP):
+		if is_instance_valid(old):
+			old.queue_free()
 	var layer := CanvasLayer.new()
 	layer.layer = 90          # under the pause overlay, over the arena
+	# The LAYER carries the group, not the label: freeing the layer takes the label
+	# with it, and freeing only the label would leave an empty CanvasLayer behind on
+	# every ult for the rest of the session.
+	layer.add_to_group(ULT_GROUP)
 	var n := CastName.new()
 	n._text = text
 	n._tint = tint

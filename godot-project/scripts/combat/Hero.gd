@@ -6024,6 +6024,28 @@ func apply_knockback(impulse: Vector2, do_flop: bool = true) -> void:
 		return
 	if is_dashing or _blink_iframe_timer > 0.0:
 		return
+	# ⚠ A CORPSE IS NOT SHOVED, AND THAT IS WHY THE DEAD WENT "LONG AND WEIRD".
+	#
+	# Maker: "when they die they get really long and weird", then diagnosed it exactly
+	# — "its probably the effects of like the fire or whatever dot damage causing
+	# knockback on the dead body which is cool but can you fix that".
+	#
+	# That is what it was. A burn applied before death keeps ticking through
+	# `StatusComponent`'s DoT, every tick routes through the real hurt path, and every
+	# hit landed another `rig.apply_impulse` + `rig.flop` on a body that is already
+	# collapsed. The rig's ragdoll springs stretch under repeated impulses with no
+	# posture driver left to pull them back, so the corpse grows a limb at a time.
+	#
+	# Guarded HERE rather than in the DoT, because the DoT is not special: anything
+	# that hits a corpse — a lingering zone, a stray chain arc, a meteor landing late —
+	# does the same thing. The bug is "corpses take knockback", not "burn does".
+	#
+	# ⚠ THE DEATH LAUNCH IS UNAFFECTED and must stay that way: `_enter_defeated` throws
+	# the body by writing `velocity` directly (see the DEATH LAUNCH block), not through
+	# this function. The one big deliberate throw still lands; it is only the endless
+	# small ones afterwards that stop.
+	if downed or defeated:
+		return
 	# JUGGERNAUT, UNSTOPPABLE SURGE. Every dash already ignores knockback (the line
 	# above), so armour that only lasted the travel would be indistinguishable from
 	# everyone else's. The TAIL is the ability: for `SURGE_ARMOR_TAIL` after the surge

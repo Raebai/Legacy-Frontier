@@ -341,7 +341,40 @@ func _separated(p: Vector2) -> Vector2:
 			var face: Vector2 = f
 			if absf(face.x) > 0.01:
 				side = -signf(face.x)
-	return Vector2(here.x + side * MIN_SEPARATION, p.y)
+	# ⚠ AND THE PUSHED POINT IS THE ONE PLACE THIS FUNCTION INVENTS, SO IT IS THE ONE
+	# PLACE THAT CAN BE INSIDE A WALL.
+	#
+	# Maker: "make sure the arcanists mirror doesnt get stuck in a wall or something".
+	#
+	# The header above argues, correctly, that the DELAYED position is always safe:
+	# it is somewhere the hero genuinely stood, so it is on a floor and it is not in
+	# geometry. But the separation push is not that point — it is `here.x ± 96`, a
+	# coordinate nobody has ever occupied. Cast with your back to a riser, or in the
+	# corridor between two terraces, and the clone is placed straight into the rock.
+	#
+	# Probed rather than assumed: try the chosen side, and if the segment from the
+	# owner to it is blocked, take the other one. If BOTH are blocked — a body wedged
+	# in a gap narrower than two separations — fall back to the delayed position
+	# untouched, which is the safe point the header describes. A clone briefly
+	# overlapping its owner is a cosmetic problem; a clone inside a wall is a body
+	# that cannot be hit and cannot leave.
+	var wanted: Vector2 = Vector2(here.x + side * MIN_SEPARATION, p.y)
+	if _clear_of_world(here, wanted):
+		return wanted
+	var flipped: Vector2 = Vector2(here.x - side * MIN_SEPARATION, p.y)
+	if _clear_of_world(here, flipped):
+		return flipped
+	return p
+
+
+## Is the straight line from the owner to `to` free of solid world?
+##
+## Uses the same `SpellWorld.first_solid` seam every spectacle probes terrain with,
+## and excludes the caster so its own body is never the thing that blocks the test.
+func _clear_of_world(from: Vector2, to: Vector2) -> bool:
+	var r: Dictionary = SpellWorld.first_solid(from, to,
+		SpellWorld.rids([caster_node]), self)
+	return not bool(r.get("hit", false))
 
 
 # ------------------------------------------------------------- THE IDLE ATTACK

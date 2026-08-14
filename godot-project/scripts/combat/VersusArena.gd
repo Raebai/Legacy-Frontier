@@ -167,9 +167,36 @@ static var stage_layout_rolled: int = 0
 
 ## Rooted broken-stone ruins filling the vertical space over the ground (RuinPlatform
 ## draws support struts beneath so they read connected, not floating).
+## ⚠ BOTH OF THESE WERE AUTHORED ABOVE THE JUMP CEILING AND NOBODY COULD REACH THEM.
+## Maker, playing: "can brawler not jump the ledge whats happening?"
+##
+## The ground surface is 780 and a jump clears `740^2 / (2*2600)` = **105.3 px**
+## (`TuningConfig.jump_velocity` / `gravity_rise` — NOT the dead consts in `Hero.gd`).
+## The two ruins sat at:
+##
+##   RUINS[0]  centre 672, h 22 -> surface 661 -> rise from ground = **119 px**
+##   RUINS[1]  centre 588, h 22 -> surface 577 -> rise from the breakable = **112 px**
+##
+## Both over the ceiling. Brawler is the ONLY class that could touch the first, and
+## only by spending its air jump (`CLASS_CONFIG["air_jumps"] = 1`, +33 px) — which is
+## exactly why it looked like a Brawler problem rather than a level problem. Every
+## other class in the roster simply could not get up there, so two thirds of the
+## stage's vertical space was decoration.
+##
+## Re-authored as a CLIMB with every rise inside `FloorGen.STEP_MAX` (86), the same
+## budget the tower holds itself to and the same band as the terrace risers (68-84):
+##
+##   ground 780 -> breakable 700   rise 80,  jump straight up
+##   breakable  -> RUINS[1] 616    rise 84,  40 px horizontal gap
+##   ground 780 -> RUINS[0] 696    rise 84,  centre-left, its own way up
+##
+## The horizontal gap matters as much as the rise and is the half that is easy to get
+## wrong: a RISING jump only carries ~83.6 px forward before it drops below the
+## landing height, so the 40 px between the breakable's right edge (925) and RUINS[1]'s
+## left edge (965) is inside the budget with room to spare.
 const RUINS: Array[Dictionary] = [
-	{"center": Vector2(600.0, 672.0),  "size": Vector2(190.0, 22.0)},
-	{"center": Vector2(1050.0, 588.0), "size": Vector2(170.0, 22.0)},
+	{"center": Vector2(600.0, 707.0),  "size": Vector2(190.0, 22.0)},
+	{"center": Vector2(1050.0, 627.0), "size": Vector2(170.0, 22.0)},
 ]
 
 ## Ring-out ONLY off the far L/R edges (no void beneath the solid terrain).
@@ -214,8 +241,13 @@ const COVER_X_MAX: float = 1368.0   # 1400 - half a 64 px block
 ## the only thing that knows it will re-seat the fighters at 440 / 1000.
 static var spawn_keepout_x: Array[float] = []
 ## One breakable + regenerating lane between the ground and the ruins.
+## ⚠ 700 -> 711, i.e. surface 689 -> 700. It was a 91 px rise from the ground: under
+## the 105 px jump ceiling so a human could just make it, but OVER `FloorGen.STEP_MAX`
+## (86), which is the budget every other surface in the game is authored to. It is the
+## first rung of the climb described on RUINS above, so it is the one rung that must
+## not be marginal.
 const BREAKABLE_PLATFORMS: Array[Dictionary] = [
-	{"center": Vector2(840.0, 700.0), "size": Vector2(170.0, 22.0)},
+	{"center": Vector2(840.0, 711.0), "size": Vector2(170.0, 22.0)},
 ]
 
 const RESPAWN_POOF_START: Color = Color(0.75, 0.85, 1.0, 0.9)
