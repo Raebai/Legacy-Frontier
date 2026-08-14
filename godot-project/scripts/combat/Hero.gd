@@ -3745,7 +3745,37 @@ func _begin_verb_extras(verb: String) -> void:
 		"ice_slide":
 			# Enter the slide at speed; the branch bleeds it from here rather than
 			# holding it flat like a dash does.
-			velocity.x = _dash_dir.x * _dash_speed
+			#
+			# ⚠ AND IT NEEDS A HORIZONTAL COMPONENT OR IT DOES NOTHING AT ALL.
+			# Maker: "cryomancer dash doesnt work".
+			#
+			# This is the ONE verb that keeps only `x`. Every other verb travels along
+			# the whole of `_dash_dir`, so a vertical direction still moves the body —
+			# but the slide is a GROUND verb, it discards `y`, and `_dash_dir` is very
+			# often vertical: `_start_dash` resolves it from the held keys, then from
+			# `velocity.normalized()`, then from `_move_dir`, and each of those three
+			# yields `(0, ±1)` in ordinary play. Dash while holding only up or down, or
+			# while falling straight with no stick input, and `_dash_dir.x` is 0.
+			#
+			# `velocity.x = 0 * speed` = **the slide does not move**. It still spends
+			# the cooldown, still spends the i-frames, still plays. That is exactly
+			# "the dash doesn't work", and it is intermittent rather than total, which
+			# is why it reads as unreliable rather than broken.
+			#
+			# The facing fallback is the same one `_start_dash`'s own last rung uses
+			# (`Vector2(signf(facing.x), 0.0)`), so a slide with no usable input goes
+			# where the fighter is looking — which is what every other class's dash
+			# already does.
+			# ⚠ AND `_dash_dir` IS LEFT ALONE. The first version of this fix also wrote
+			# the resolved direction back as `Vector2(slide_x, 0.0)`, and
+			# `slice_test_class_movement` caught it immediately: "Cryomancer keeps its
+			# vertical when aimed up — no verb is flattened now". Keeping the vertical
+			# is a deliberate property of every verb; only the ENTRY SPEED is
+			# horizontal here. Fixing the entry must not quietly re-flatten the aim.
+			var slide_x: float = _dash_dir.x
+			if absf(slide_x) < 0.01:
+				slide_x = signf(facing.x) if absf(facing.x) > 0.01 else 1.0
+			velocity.x = slide_x * _dash_speed
 		"charge":
 			Sfx.play("dash", 1.0, 0.05, 0.8)
 
