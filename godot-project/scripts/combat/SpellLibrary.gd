@@ -1155,7 +1155,11 @@ static func _the_void() -> SpellDef:
 	s.mp_cost = 90
 	s.cooldown = 24.0
 	s.damage = 260
-	s.radius = 185.0
+	# ⚠ 185 -> 250. Same maker report as `boulder_hurl`. The Void draws its kill
+	# ring at `_radius` and drags from `_radius * PULL_RADIUS_SCALE`, so both the
+	# grab and the collapse grow together and the drawn ring stays honest. A Tier 3
+	# cataclysm that a body can stroll out of is not a cataclysm.
+	s.radius = 250.0
 	s.reach = 320.0
 	s.cast_time = 1.5
 	s.charges = 1
@@ -1797,7 +1801,11 @@ static func _creeping_shade() -> SpellDef:
 	## luck rather than diligence, and it is worth knowing it was luck.
 	s.damage = 84
 	s.reach = 620.0
-	s.radius = 26.0
+	# ⚠ 26 -> 38. Not in the maker's list, but 26 is the smallest damage radius in
+	# the roster by a wide margin — under one rig height (31 px) — so the crawler
+	# had to land almost exactly on a body to do anything. Raised with the other
+	# undersized reaches rather than left as the one nobody mentioned.
+	s.radius = 38.0
 	return s
 
 
@@ -1850,7 +1858,14 @@ static func _boulder_hurl() -> SpellDef:
 	s.mp_cost = 50
 	s.cooldown = 3.4
 	s.damage = 52
-	s.radius = 84.0
+	# ⚠ 84 -> 118. Maker, playing: the boulder's hitbox reads too small. The drawn
+	# ring and the damage query are the SAME number here (BoulderHurl's own header
+	# records the audit that made them agree), so this moves the whole spell rather
+	# than widening an invisible box — which is the only honest way to make a blast
+	# bigger. 118 is a 40% reach increase and matches `blizzard`'s 118, the value
+	# that file already annotates as "a footprint a moving body can actually be
+	# inside". FEEL CHANGE, NOT A MEASURED ONE — wants a playtest.
+	s.radius = 118.0
 	return s
 
 
@@ -1867,7 +1882,10 @@ static func _rock_pillar() -> SpellDef:
 	s.mp_cost = 52
 	s.cooldown = 4.0
 	s.damage = 58
-	s.radius = 66.0
+	# ⚠ 66 -> 88. A stone fang erupting under someone that misses by half a body
+	# width reads as a bug rather than as a dodge. Still the tightest of the earth
+	# spells, which is its identity against `colossus_pillar`.
+	s.radius = 88.0
 	s.reach = 280.0
 	return s
 
