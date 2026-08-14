@@ -194,10 +194,12 @@ static var stage_layout_rolled: int = 0
 ## wrong: a RISING jump only carries ~83.6 px forward before it drops below the
 ## landing height, so the 40 px between the breakable's right edge (925) and RUINS[1]'s
 ## left edge (965) is inside the budget with room to spare.
-const RUINS: Array[Dictionary] = [
-	{"center": Vector2(600.0, 707.0),  "size": Vector2(190.0, 22.0)},
-	{"center": Vector2(1050.0, 627.0), "size": Vector2(170.0, 22.0)},
-]
+## ⚠ EMPTY, AND DELIBERATELY SO. Maker: "make all three platforms destroyable".
+## All three moved into `BREAKABLE_PLATFORMS` below. Kept as a declared const rather
+## than deleted because `_build_terrain` still iterates it and a stage variant may
+## want a permanent ledge again later; an empty array is the honest way to say "there
+## are none right now" without deleting the seam.
+const RUINS: Array[Dictionary] = []
 
 ## Ring-out ONLY off the far L/R edges (no void beneath the solid terrain).
 const BLAST_ZONES: Array[Dictionary] = [
@@ -246,8 +248,29 @@ static var spawn_keepout_x: Array[float] = []
 ## (86), which is the budget every other surface in the game is authored to. It is the
 ## first rung of the climb described on RUINS above, so it is the one rung that must
 ## not be marginal.
+## ALL THREE LEDGES, AND ALL THREE BREAK. Maker: "make all three platforms
+## destroyable". A permanent ledge is a place to camp; a breakable one is a decision,
+## and it is the reason a cornered fighter can take the floor out from under whoever
+## is standing on it.
+##
+## ⚠ THE HEIGHTS ARE BOUNDED BY THE JUMP, NOT BY TASTE. Ground is 780 and a jump
+## clears `740^2 / (2*2600)` = **105.3 px**, so a surface above ~686 cannot be reached
+## from the ground at all — that is exactly how RUINS[0] came to sit at 661 and be
+## touchable only by a Brawler spending its air jump.
+##
+## Maker: "the left platform is too low". Raised 696 -> 688, a 92 px rise, which
+## leaves ~13 px of margin under the ceiling. That is as high as it goes while
+## remaining reachable in one hop: 100 would leave 5 px, and a bot that misses by 5 px
+## goes straight back to grinding against a wall. **Higher than this needs a stepping
+## stone, not a bigger number** — say so rather than quietly shipping an unreachable
+## ledge for the second time.
+##
+## The right-hand pair stay a climb: ground 780 -> 700 (80) -> 616 (84), with 40 px of
+## horizontal gap against a ~83.6 px rising-jump reach.
 const BREAKABLE_PLATFORMS: Array[Dictionary] = [
-	{"center": Vector2(840.0, 711.0), "size": Vector2(170.0, 22.0)},
+	{"center": Vector2(600.0, 699.0),  "size": Vector2(190.0, 22.0)},  # left,  rise 92
+	{"center": Vector2(840.0, 711.0),  "size": Vector2(170.0, 22.0)},  # mid,   rise 80
+	{"center": Vector2(1050.0, 627.0), "size": Vector2(170.0, 22.0)},  # right, rise 84 from mid
 ]
 
 const RESPAWN_POOF_START: Color = Color(0.75, 0.85, 1.0, 0.9)
