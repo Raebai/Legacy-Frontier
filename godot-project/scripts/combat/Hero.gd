@@ -135,6 +135,10 @@ const BLINK_MIN_TRAVEL: float = 24.0
 ## out well under this); over-long is free because the ray stops at the first hit.
 const BLINK_BOUNDS_RAY: float = 6000.0
 const BLINK_COOLDOWN: float = 1.3
+## How long blink is held down for at the START of a fight. Longer than any class
+## cooldown (1.0-1.4) so it is a real opening beat rather than a rounding difference,
+## and short enough that the verb is available well before the first trade resolves.
+const BLINK_OPENING_LOCKOUT: float = 2.5
 const BLINK_IFRAME: float = 0.22
 ## Share of a dash that is invulnerable, measured from its START. Below 1.0 the
 ## dash stops being a reactive get-out-of-jail button and becomes a commitment
@@ -2632,6 +2636,21 @@ func _cycle_colourway() -> void:
 func configure_class(cls: int) -> void:
 	_hero_class = cls
 	_cfg = CLASS_CONFIG[cls]
+	# ⚠ BLINK STARTS ON COOLDOWN. Maker: "dont let them cast teleport instantly when
+	# the fight starts start the cooldown on that spell specifically".
+	#
+	# Every cooldown timer starts at zero, i.e. READY, which is right for the ones you
+	# open a fight with. Blink is not one of those: it is a 110-260 px repositioning
+	# verb, so a bot that opens with it crosses half the gap before either fighter has
+	# read the other, and the first thing a spectator sees is a teleport into their
+	# face rather than an approach. The opening is the one moment the spacing has to be
+	# legible.
+	#
+	# Charged HERE rather than at any arena's start-of-bout, because this runs for
+	# every hero in every mode — tower, duel, showcase, free play — and a lockout that
+	# only some modes remember to apply is a lockout that is not really a rule.
+	_blink_cooldown_timer = maxf(BLINK_OPENING_LOCKOUT,
+		float(_cfg.get("blink_cd", BLINK_COOLDOWN)))
 	rig.class_preset(_cfg["preset"])
 	if String(_cfg["weapon"]) != "":
 		equip_weapon(String(_cfg["weapon"]))  # rogue: sword overlay + melee retune
