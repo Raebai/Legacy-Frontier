@@ -317,7 +317,30 @@ func _grab(n: Node2D) -> void:
 		n.apply_status(Elements.Element.EARTH)
 		n.apply_status(Elements.Element.SHADOW)
 	_victims.append({"node": n, "anchor": n.global_position, "held": 0.0})
-	Juice.impact_frame(0.35, n.global_position)
+	# ⚠ WAS `Juice.impact_frame(0.35, ...)` — THE LEGACY PRE-STYLE API, FIRED PER
+	# VICTIM. Two faults in one line. It is the white blow-out, so the Warlock's
+	# ULTIMATE ended on the same screen as every ordinary heavy attack in the game,
+	# which is exactly the sameness that made StarConvergence, EnergyNova and
+	# HollowPurple delete their frames outright. And a tide that catches five bodies
+	# asked for five of them; the arbiter refused the rest, so the request was
+	# noise, but asking five times for the wrong mark is not better than asking once.
+	#
+	# INVERT is the vocabulary's own answer for "shadow / void / reality-bending
+	# beats" — the world stays perfectly readable because it IS the same picture,
+	# while reading as deeply wrong. That is the dead coming up through the floor.
+	#
+	# It shares INVERT with `thousand_cuts`, the Shadowblade's ult, and that is
+	# accepted rather than overlooked: the two are never in one kit, the mark
+	# belongs to the ELEMENT here, and the failure the vocabulary exists to prevent
+	# was every ult sharing ONE mark regardless of element — not two shadow ults
+	# agreeing about shadow. The ladder's own COLOR_FIELD was the alternative and
+	# would have ended the Warlock on a violet wash, which is a weaker read of
+	# "something impossible just happened" than the negative.
+	#
+	# ON THE FIRST CATCH ONLY, and at ULT weight rather than the old 0.35.
+	if _victims.size() == 1:
+		Juice.tier_frame(SpellTier.Tier.ULT, n.global_position, element_id,
+			{"style": ImpactFrame.Style.INVERT})
 
 
 # ───────────────────────────────────────────────────────────────────── the grip

@@ -329,6 +329,23 @@ func _heave() -> void:
 		26, 0.6, 180.0, 420.0, 1.4, 4.0, 20.0, 70.0, false, Vector2.UP, 50.0)
 	Juice.on_hit({"dir": Vector2.UP, "shake": 10.0, "sfx": "rubble",
 		"sfx_pitch": 0.08, "hitstop": 0.05})
+	# ⚠ THE RUPTURE HAD NO IMPACT FRAME AT ALL — the other ULT that ended on
+	# nothing. Same cause as Heaven's Wrath: `epic_moment` at cast spends the
+	# camera and the freeze but takes a `frame` flag this spell never passed, so
+	# the Juggernaut's ultimate reached its heave and simply stopped.
+	#
+	# Straight off the ladder, WITHOUT a style override: an ULT carrying an element
+	# gets COLOR_FIELD, which floods the screen with earth's own ochre. That is the
+	# deliberate opposite of Heaven's Wrath's black SILHOUETTE — the two ults fixed
+	# in this pass now end on genuinely different screens, which is the entire
+	# argument in ImpactFrame's header ("a spell whose payoff is a readable SHAPE
+	# wants a BLACK frame; an elemental payoff wants its own colour").
+	#
+	# Fired at the heave, not at the cast: the seam travelling is anticipation and
+	# the ground coming up is the payoff. Camera + freeze zeroed — `on_hit` above
+	# already fired all four and a second set double-punches.
+	Juice.tier_frame(SpellTier.Tier.ULT, at, element_id,
+		{"zoom": 0.0, "shake": 0.0, "shock": 0.0, "hitstop": 0.0})
 
 
 # --------------------------------------------------------------------- THE LOOK

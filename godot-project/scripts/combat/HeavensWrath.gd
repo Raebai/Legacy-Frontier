@@ -279,6 +279,28 @@ func _strike(at: Vector2) -> void:
 	ScorchDecal.spawn(get_parent(), at, 22.0, "crack", Color(0.3, 0.35, 0.5, 0.5), 3.0)
 	Juice.on_hit({"dir": Vector2.DOWN, "shake": 6.0, "kick": 5.0,
 		"sfx": "zap", "sfx_pitch": 0.10, "hitstop": 0.035})
+	# ⚠ THE STORM HAD NO IMPACT FRAME AT ALL — an ULT that ended on nothing.
+	# `epic_moment` at cast fires the camera pull, the punch, the shake and the
+	# shock ripple, but it takes a `frame` flag and this spell never passed it, so
+	# the single loudest punctuation mark in the game skipped the Stormcaller's
+	# ultimate. `ImpactFrame`'s own header calls a frame "the cheapest way in the
+	# whole game to make a hit feel enormous".
+	#
+	# SILHOUETTE, not the elemental colour field the ladder would hand an ULT with
+	# an element. The payoff here is a BOLT — a hard, readable shape against the
+	# sky — and the vocabulary is explicit that black "makes the shape legible
+	# instead of burying it" while a colour wash erases it. Fault Line, the other
+	# ult fixed in this pass, takes COLOR_FIELD precisely so the two do not end on
+	# the same screen; that sameness is what killed the previous generation of
+	# impact frames in this codebase.
+	#
+	# ON THE FIRST BOLT ONLY. A barrage lands several strikes in well under a
+	# second; the arbiter would refuse the rest anyway, but asking once says what
+	# is meant. Camera + freeze zeroed — `on_hit` above already spent all four.
+	if bolts_fired == 1:
+		Juice.tier_frame(SpellTier.Tier.ULT, at, element_id,
+			{"style": ImpactFrame.Style.SILHOUETTE,
+			"zoom": 0.0, "shake": 0.0, "shock": 0.0, "hitstop": 0.0})
 
 
 func _end() -> void:
