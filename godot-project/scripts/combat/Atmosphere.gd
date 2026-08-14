@@ -246,6 +246,20 @@ func build_weather(kind: int, accent: Color) -> void:
 	var p: Dictionary = _weather_params(kind, accent)
 	if p.is_empty():
 		return
+	# ⚠ RELEASE THE NAME BEFORE CLAIMING IT. `build_wash` frees the previous floor's
+	# children with `queue_free()`, which is DEFERRED — the old Weather layer is still
+	# in the tree when this runs one line later. Adding a second child called "Weather"
+	# makes Godot silently rename the NEW one ("@Weather@2"), so from the second floor
+	# onward `get_node("Weather")` returned the dying layer instead of the live one.
+	#
+	# It cost nothing in the game (nothing looks the layer up by name) and it wrecked
+	# the perf probe, whose particle counts came back 34 / 0 / 42 / 0 — every other
+	# floor reading zero, which is the signature of this and not of a build failure.
+	# Renaming the corpse is one line and removes a whole class of confusion from the
+	# remote scene tree as well.
+	var stale: Node = get_node_or_null("Weather")
+	if stale != null:
+		stale.name = "WeatherStale"
 	var layer := CanvasLayer.new()
 	layer.name = "Weather"
 	layer.layer = 2

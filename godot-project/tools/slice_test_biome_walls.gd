@@ -51,6 +51,7 @@ const TESTS: Array[String] = [
 	"floors_get_distinct_biomes",
 	"jitter_preserves_accent_and_light",
 	"every_weather_kind_has_complete_params",
+	"weather_stays_within_its_fill_budget",
 ]
 
 var _ran: bool = false
@@ -68,6 +69,7 @@ func _process(_delta: float) -> bool:
 	_test_floors_get_distinct_biomes()
 	_test_jitter_preserves_accent_and_light()
 	_test_every_weather_kind_has_complete_params()
+	_test_weather_stays_within_its_fill_budget()
 	for name: String in TESTS:
 		if not _completed.has(name):
 			_fails += 1
@@ -284,3 +286,56 @@ func _test_every_weather_kind_has_complete_params() -> void:
 		"only %d distinct weather kinds across %d floors — the air is repeating"
 			% [kinds_seen.size(), MIN_BIOMES])
 	_completed["every_weather_kind_has_complete_params"] = true
+
+
+# --------------------------------------------------------------------------- 7
+## THE AIR MUST STAY CHEAP. Weather is drawn IN FRONT of the fighters on every floor
+## and the target is a phone, where alpha-blended OVERDRAW — area, not particle count
+## — is what a tile GPU pays for.
+##
+## Measured with `tools/weather_perf_probe.gd`: the worst kind (RAIN) covers 2.22% of
+## one 640x360 screen and the whole field costs ONE extra draw call. This test is what
+## keeps it there. A future edit that sets `amount: 500`, or doubles a scale because a
+## flake "looked small on my monitor", moves the fill quadratically and this goes red
+## before anyone ships it.
+##
+## ⚠ THE BUDGET IS ON FILL, NOT ON COUNT, and that distinction is the whole point.
+## Twenty big soft quads cost more than fifty small ones; a count ceiling would wave
+## the expensive case straight through.
+const MAX_FILL_PERCENT: float = 6.0
+const SCREEN_PX: float = 640.0 * 360.0
+
+
+func _test_weather_stays_within_its_fill_budget() -> void:
+	var gs: GDScript = load(GAMESTATE_PATH) as GDScript
+	var atmo_script: GDScript = load("res://scripts/combat/Atmosphere.gd") as GDScript
+	if gs == null or atmo_script == null:
+		_expect(false, "could not load GameState / Atmosphere")
+		_completed["weather_stays_within_its_fill_budget"] = true
+		return
+	var consts: Dictionary = atmo_script.get_script_constant_map()
+	var particle_px: float = float(consts.get("PARTICLE_PX", 32))
+	var low_cap: int = int(consts.get("WEATHER_AMOUNT_LOW", 10))
+	var atmo: Node = atmo_script.new()
+	var worst: float = 0.0
+	for kind: int in range(1, 9):
+		var row: Dictionary = atmo.call("_weather_params", kind, Color.WHITE)
+		if row.is_empty():
+			continue
+		var mean_scale: float = (float(row["scale_min"]) + float(row["scale_max"])) * 0.5
+		var px: float = particle_px * mean_scale
+		var fill: float = (float(row["amount"]) * px * px) / SCREEN_PX * 100.0
+		worst = maxf(worst, fill)
+		_expect(fill <= MAX_FILL_PERCENT,
+			"weather kind %d covers %.2f%% of one screen (budget %.1f%%) — it is drawn "
+				% [kind, fill, MAX_FILL_PERCENT]
+			+ "in front of the fighters, so this is overdraw a phone pays every frame")
+		# Nothing may be so large that a handful of particles blankets the screen.
+		_expect(px <= 48.0,
+			"weather kind %d draws %.1f px particles — past ~48 px these stop reading "
+				% [kind, px] + "as air and start reading as objects in the fight")
+	atmo.free()
+	_expect(low_cap <= 16,
+		"WEATHER_AMOUNT_LOW is %d — the phone cap has drifted upward" % low_cap)
+	_expect(worst > 0.0, "no weather kind produced any fill — the scan has broken")
+	_completed["weather_stays_within_its_fill_budget"] = true
