@@ -8,6 +8,29 @@ const GRAVITY: float = 1400.0
 const JUMP_VELOCITY: float = -520.0
 const MAX_FALL: float = 1000.0
 
+## ── FALLING OUT OF THE TOWN ──────────────────────────────────────────────────
+## ⚠ NOTHING CAUGHT THIS, AND IT WAS AN UNRECOVERABLE SOFT-LOCK. `World._build_ground`
+## builds ONE slab, `TOWN_WIDTH + 200` wide, and no side walls and no ceiling. Walk off
+## either end and you fall for ever: this script has no `hp`, no `take_damage` and no
+## `_die`, so nothing can resolve it, and the town camera stops at `GROUND_Y + 60` so
+## you are not even on screen while it happens. Esc was the only way out.
+##
+## The tower has had a kill plane for exactly this reason (`Arena._catch_fallen_heroes`,
+## whose own header calls the equivalent bug "what turned a placement bug into a
+## soft-lock"). The hub simply never got one.
+##
+## ⚠ AND IN A TOWN THE ANSWER IS RECOVERY, NOT DEATH. The maker's ask is "if someone
+## falls out the map they die", and that is right in a fight — but there is nothing to
+## die of here, no HP to lose and no run to end, so killing the player in the hub would
+## invent a fail state in the one place the game deliberately has none. It puts you
+## back on the doorstep instead.
+const FALL_LIMIT: float = 700.0
+
+## Where to put the player back. Captured from wherever this node started rather than
+## read from `World.PLAYER_SPAWN`, so the recovery cannot break if the town moves its
+## spawn — and so it still works in any scene that instances a hub player.
+var _home: Vector2 = Vector2.ZERO
+
 @onready var speech_bubble: Node2D = $SpeechBubble
 
 ## The procedural stick figure that replaces the old block placeholder (maker:
@@ -16,6 +39,8 @@ var _rig: CharacterRig = null
 
 
 func _ready() -> void:
+	# Where a fall puts you back. Captured before anything can move this node.
+	_home = global_position
 	# Replace the block "Visual" with a stick-figure rig (same look as combat).
 	var block: Node = get_node_or_null("Visual")
 	if block != null:
@@ -87,7 +112,23 @@ func _physics_process(delta: float) -> void:
 	else:
 		velocity.y = minf(velocity.y + GRAVITY * delta, MAX_FALL)
 	move_and_slide()
+	_catch_fall()
 	_drive_rig(move_x)
+
+
+## Put the player back on the doorstep if they have left the town downward.
+## See FALL_LIMIT for why this exists and why it recovers rather than kills.
+##
+## ⚠ THE VELOCITY MUST BE CLEARED, NOT JUST THE POSITION. A body teleported home
+## while still carrying `MAX_FALL` downward velocity is a body that arrives already
+## moving at terminal speed — it punches straight back through the slab it was put
+## on and falls again, which is a worse bug than the one being fixed and looks
+## exactly like the recovery not working.
+func _catch_fall() -> void:
+	if global_position.y <= _home.y + FALL_LIMIT:
+		return
+	global_position = _home
+	velocity = Vector2.ZERO
 
 
 ## ══ THE TOWN WAS RUNNING THE RIG BLIND, AND THAT IS THE BENT-LEGS BUG ═════════

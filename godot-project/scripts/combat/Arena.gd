@@ -797,8 +797,32 @@ func _catch_fallen_heroes() -> void:
 			continue
 		push_warning("[arena] hero fell out of the room (y=%.0f > %.0f) — killing it so the run can resolve"
 			% [body.global_position.y, limit])
-		if body.has_method("take_damage"):
+		# ⚠ NOT `take_damage(999999)`, WHICH THIS USED TO DO AND WHICH CAN BE SWALLOWED
+		# WHOLE. Dash i-frames, the blink i-frame timer and the parry window all return
+		# out of `take_damage` above the HP subtraction — so a hero who left the room
+		# mid-dash took no damage and kept falling, defeating this guard with the exact
+		# manoeuvre most likely to throw them out of the world. See
+		# `Hero.kill_out_of_world`.
+		if body.has_method("kill_out_of_world"):
+			body.call("kill_out_of_world")
+		elif body.has_method("take_damage"):
 			body.call("take_damage", 999999)
+
+	# ⚠ AND THE ENEMIES TOO. This loop read the "hero" group only, so a mob knocked
+	# through the floor fell for ever — invisible, still counted alive by the
+	# encounter, and therefore a room that can never be cleared. That is the same
+	# soft-lock as the hero case, arriving from the other side: the hero is fine and
+	# the FLOOR is unwinnable.
+	for e: Node in get_tree().get_nodes_in_group("enemy"):
+		var mob := e as Node2D
+		if mob == null or mob.is_queued_for_deletion():
+			continue
+		if mob.global_position.y <= limit:
+			continue
+		push_warning("[arena] enemy fell out of the room (y=%.0f > %.0f) — removing it so the floor can clear"
+			% [mob.global_position.y, limit])
+		if mob.has_method("take_damage"):
+			mob.call("take_damage", 999999)
 
 
 ## ⚠ RENAMED FROM `_revive_local_heroes`. The old name described the co-op half only,

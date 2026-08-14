@@ -6279,6 +6279,34 @@ func _die() -> void:
 	health_changed.emit(hp, max_hp)
 
 
+## ══ FALLING OUT OF THE WORLD KILLS YOU, AND NOTHING MAY ABSORB IT ═══════════
+##
+## ⚠ THE OUT-OF-WORLD CATCHER USED `take_damage(999999)`, AND THAT CAN BE SWALLOWED
+## WHOLE. `take_damage` carries a ladder of early returns ABOVE the HP subtraction —
+## dash i-frames, the blink i-frame timer, the parry window, non-authority forwarding
+## — and any one of them returns before `hp` is touched. So a hero who left the room
+## mid-dash, mid-blink or mid-parry took no damage at all and kept falling for ever,
+## which is precisely the soft-lock `Arena._catch_fallen_heroes` exists to prevent.
+## The guard could be defeated by the exact manoeuvre most likely to throw you out of
+## the world in the first place.
+##
+## This is the unavoidable path. It is not a damage event and deliberately does not
+## pretend to be one: leaving the world is not something you can i-frame through.
+##
+## ⚠ IT REFUSES TO ACT UNDER `ringout_mode`. There a fall is not a death — it is a
+## lost stock, and `VersusArena._on_fighter_fell` owns that story including the
+## respawn. Killing the body here would burn the stock AND the body.
+func kill_out_of_world() -> void:
+	if is_downed():
+		return
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and bool(gs.get("ringout_mode")):
+		return
+	hp = 0
+	health_changed.emit(hp, max_hp)
+	_die()
+
+
 ## ══ THE KILLING BLOW THROWS YOU, THEN YOU HIT THE FLOOR ════════════════════
 ## Maker: *"the final hit to kill should have some knockback so when they die they get
 ## knockback and then hit the floor all ragdoll"*.
