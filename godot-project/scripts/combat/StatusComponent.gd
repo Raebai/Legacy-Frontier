@@ -149,8 +149,18 @@ func _owner_is_dead() -> bool:
 	var o: Node = get_parent()
 	if o == null or not is_instance_valid(o):
 		return true
-	if o.has_method("is_downed"):
-		return bool(o.call("is_downed"))
+	# ⚠ BOTH, NOT EITHER-OR — AND THE FIRST VERSION OF THIS SHIPPED BROKEN BECAUSE IT
+	# ASKED ONLY THE FIRST QUESTION. Maker, after that build: *"you also didnt remove
+	# the dot damage on death"*.
+	#
+	# `is_downed()` is the GHOST state, and a bot-match fighter never enters it.
+	# `BotMatch` explains why at its `stay_dead` line: `Hero._die` outside a run heals
+	# straight back to full so the F6 feel toy never stops, so that mode keeps its
+	# loser dead by other means and the body is not "downed" at all. Returning
+	# `is_downed()` and stopping therefore answered "alive" for exactly the corpses
+	# the maker was watching burn.
+	if o.has_method("is_downed") and bool(o.call("is_downed")):
+		return true
 	var hp: Variant = o.get("hp")
 	return hp != null and int(hp) <= 0
 

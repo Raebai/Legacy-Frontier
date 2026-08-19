@@ -226,6 +226,36 @@ func _resolve_side_tints() -> void:
 ## finding to report is that its KIT loses, and this file's own header says to report
 ## that rather than paper over it — so the number below buys watchability, and it is
 ## not a fix.
+## ⚠ POWER, THE COMPANION TO `CLASS_VITALITY` BELOW — and the first per-class DAMAGE
+## dial this mode has had. Maker: *"shadowblade is getting cooked cna you buff it
+## please its damage"*.
+##
+## Vitality could not answer that ask. It is the HP pool, so raising it makes a class
+## survive longer without ever making it hit harder, and the Shadowblade's problem as
+## described is output. This scales `Hero._growth_damage_mult`, which is the levelling
+## system's POWER axis and is ALREADY wired through both damage paths (melee via the
+## gear aggregate, spells via SpellCaster) — so this needs no new plumbing and cannot
+## drift from how damage is actually applied.
+##
+## ⚠ LOCAL TO THIS MODE, exactly like CLASS_VITALITY. A bot showcase is a 20-second
+## bout between two full-kit fighters and nothing about it should reach the tower,
+## where the same class is levelled, geared and played by a human.
+##
+## Everything is 1.0 except the one class the maker named. Resist filling this table
+## in from win-rate noise — see the ⚠ on CLASS_VITALITY about tuning a coin at n=16.
+const CLASS_POWER: Array[float] = [
+	1.00,  # ARCANIST
+	1.30,  # SHADOWBLADE  — the ask. +30% damage, vitality left at 0.85 so it stays
+		   #                a glass knife rather than becoming a brawler.
+	1.00,  # BRAWLER
+	1.00,  # JUGGERNAUT
+	1.00,  # CLERIC
+	1.00,  # CRYOMANCER
+	1.00,  # STORMCALLER
+	1.00,  # WARLOCK
+	1.00,  # SWORDSAINT
+]
+
 const CLASS_VITALITY: Array[float] = [
 	0.98,  # ARCANIST     50% — UNCHANGED, dead centre.
 	0.85,  # SHADOWBLADE  44% — UNCHANGED. Inside the noise band; 44 and 50 are the
@@ -687,6 +717,11 @@ func _adopt_fighters() -> void:
 		var hp: int = _vital_hp(_fighter_class[side])
 		f.set("max_hp", hp)
 		f.set("hp", hp)
+		# See CLASS_POWER. Set AFTER the body is configured so it survives whatever
+		# `_apply_growth` computed for a level-1 fighter.
+		var cls: int = _fighter_class[side]
+		if cls >= 0 and cls < CLASS_POWER.size():
+			f.set("_growth_damage_mult", CLASS_POWER[cls])
 		_fighter_max[side] = hp
 		_fighter_hp_now[side] = hp
 		# ⚠ A SPECTATED BOUT HAS A LOSER AND MUST KEEP ONE. Maker: *"when they die in
@@ -1452,6 +1487,14 @@ func _build_overlay() -> void:
 	# turns "watch two bots" into "tune the clip engine": if the heat number sits at
 	# 0.05 through an exchange, the camera opens late and the thresholds are wrong.
 	_readout = _make_label(layer, 11, Color(0.86, 0.92, 1.0, 0.75))
+	# ⚠ OFF BY DEFAULT. Maker: *"remove that heat thing in the bottom left corner"*.
+	# `heat 0.73 [ROLLING]` is a DIRECTOR INSTRUMENT — it reports what the clip camera
+	# thinks of the fight — and it was only ever hidden by CINEMATIC mode, which the
+	# clip tool turns on and ordinary play does not. So the mode the maker actually
+	# watches was the one mode showing it. The node stays (the tuning overlay and the
+	# capture tools still flip it back on) and `_tick_readout` already early-returns
+	# while it is hidden, so this costs nothing per frame.
+	_readout.visible = false
 	_readout.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	_readout.offset_left = 12.0
 	_readout.offset_top = -22.0

@@ -345,8 +345,15 @@ func _test_restores_on_the_way_out() -> void:
 	if not (readout is Label):
 		_expect(false, "the readout is still reachable")
 		return
-	_expect((readout as Label).visible,
-		"leaving cinematic mode brings the heat readout back (it is GATED, not deleted)")
+	# ⚠ THE CONTRACT MOVED, ON A MAKER RULING. This used to assert that leaving
+	# cinematic mode BRINGS THE READOUT BACK — "it is GATED, not deleted". Cinematic
+	# gating is intact and still asserted below; what changed is the DEFAULT.
+	# `heat 0.73 [ROLLING]` is a director instrument, and being gated only by cinematic
+	# mode meant the one mode that showed it was ordinary play — which is the mode the
+	# maker watches. Their words: "remove that heat thing in the bottom left corner".
+	# So it is now opt-in: hidden unless something deliberately turns it on.
+	_expect(not (readout as Label).visible,
+		"the heat readout stays OFF in ordinary play (it is a director instrument)")
 	var menu: Object = _find_pause_menu()
 	if menu != null:
 		var layer: Variant = menu.get("_pause_layer")
@@ -366,6 +373,9 @@ func _test_toggle_after_build() -> void:
 	if not (readout is Label):
 		_expect(false, "the readout is still reachable")
 		return
+	# Opt in explicitly for this test — the sweep below is about whether flipping the
+	# flag on a LIVE scene reaches the readout, which needs it visible to start with.
+	(readout as Label).visible = true
 	_expect((readout as Label).visible, "precondition: the readout is showing")
 	Cinematic.set_enabled(self, true)
 	var swept: int = Cinematic.refresh(self)
