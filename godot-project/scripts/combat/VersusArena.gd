@@ -258,19 +258,35 @@ static var spawn_keepout_x: Array[float] = []
 ## from the ground at all — that is exactly how RUINS[0] came to sit at 661 and be
 ## touchable only by a Brawler spending its air jump.
 ##
-## Maker: "the left platform is too low". Raised 696 -> 688, a 92 px rise, which
-## leaves ~13 px of margin under the ceiling. That is as high as it goes while
-## remaining reachable in one hop: 100 would leave 5 px, and a bot that misses by 5 px
-## goes straight back to grinding against a wall. **Higher than this needs a stepping
-## stone, not a bigger number** — say so rather than quietly shipping an unreachable
-## ledge for the second time.
+## Maker: "the left platform is too low", then: **"left platform to match the far-right
+## height"**. It is now 616 — the same surface as the right ledge, exactly as asked.
 ##
-## The right-hand pair stay a climb: ground 780 -> 700 (80) -> 616 (84), with 40 px of
-## horizontal gap against a ~83.6 px rising-jump reach.
+## ⚠ AND IT TOOK THE STEPPING STONE THE PARAGRAPH ABOVE DEMANDED, NOT A BIGGER NUMBER.
+## 616 is a 164 px rise from the 780 ground against a 105.3 px ceiling, so as a
+## ground-reachable ledge it would have been the RUINS[0] mistake for the second time
+## — an authored surface nobody can touch. What makes it legal is that it does not
+## have to be reached from the ground: the MID platform already sits between the two
+## high ledges, so the left is climbed the same way the right always was.
+##
+## THE STAGE IS NOW SYMMETRIC, which is the actual win here. One mid platform at 700
+## feeding two ledges at 616, one either side:
+##
+##     ground 780 -> mid 700   rise 80   (both sides share this rung)
+##     mid 700 -> right 616    rise 84, gap 40   (unchanged)
+##     mid 700 -> left  616    rise 84, gap 60   (new, and the mirror of it)
+##
+## Every number checked against the live constants, not the dead ones: the ceiling is
+## `740^2 / (2*2600)` = 105.3 from `TuningConfig`, risers are under `FloorGen.STEP_MAX`
+## (86) and both gaps are under the ~83.6 px rising-jump reach. `slice_test_stage_variants`
+## now PROVES this rather than leaving it to a comment — see `breakable_platforms_are_climbable`,
+## which is the guard this table has never had and which is exactly why RUINS[0] shipped broken.
+##
+## ⚠ IF YOU MOVE THE MID PLATFORM, YOU STRAND BOTH LEDGES. It is load-bearing for the
+## whole stage now, not just the right-hand climb.
 const BREAKABLE_PLATFORMS: Array[Dictionary] = [
-	{"center": Vector2(600.0, 699.0),  "size": Vector2(190.0, 22.0)},  # left,  rise 92
-	{"center": Vector2(840.0, 711.0),  "size": Vector2(170.0, 22.0)},  # mid,   rise 80
-	{"center": Vector2(1050.0, 627.0), "size": Vector2(170.0, 22.0)},  # right, rise 84 from mid
+	{"center": Vector2(600.0, 627.0),  "size": Vector2(190.0, 22.0)},  # left,  616 — rise 84 from mid
+	{"center": Vector2(840.0, 711.0),  "size": Vector2(170.0, 22.0)},  # mid,   700 — rise 80 from ground
+	{"center": Vector2(1050.0, 627.0), "size": Vector2(170.0, 22.0)},  # right, 616 — rise 84 from mid
 ]
 
 const RESPAWN_POOF_START: Color = Color(0.75, 0.85, 1.0, 0.9)

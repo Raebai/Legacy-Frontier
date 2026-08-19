@@ -53,6 +53,7 @@ const CLIMBER: String = "user://climber.json"
 const TESTS: Array[String] = [
 	"advance_keeps_the_hero_in_the_room",
 	"instrument_controls_agree",
+	"clearing_a_floor_heals_you",
 ]
 
 var _ran: bool = false
@@ -63,6 +64,8 @@ var _had_climber: bool = false
 ## Set false by a control that reads the wrong way. Checked by its own test so the
 ## failure is reported as "the instrument is broken", not as "the game is broken".
 var _instrument_ok: bool = true
+## One row per walked climb: what the hero was cut down to, and what it arrived with.
+var _heals: Array[Dictionary] = []
 var _controls_run: int = 0
 
 
@@ -85,6 +88,7 @@ func _go() -> void:
 	_snapshot_climber()
 	await _test_advance_keeps_the_hero_in_the_room()
 	_test_instrument_controls_agree()
+	_test_clearing_a_floor_heals_you()
 	_restore_climber()
 
 	for name: String in TESTS:
@@ -128,6 +132,7 @@ func _test_advance_keeps_the_hero_in_the_room() -> void:
 			continue
 		if not bool(r.get("ok", false)):
 			lost.append(s)
+		_heals.append(r)
 	_expect(lost.is_empty(),
 		"the hero fell out of the world on climb seed(s) %s — Arena._on_floor_advanced must stand every hero on the new floor's own hero_start, in single player too" % str(lost))
 	_completes("advance_keeps_the_hero_in_the_room")
@@ -168,12 +173,26 @@ func _walk_one(gs: Node, seed_value: int) -> Dictionary:
 		e.queue_free()
 	arena.call(&"_on_floor_cleared")
 	await physics_frame
+	# ⚠ WOUND IT FIRST. Maker: *"when you pass a floor in the tower you can fully heal
+	# as entering the next floor"*. A hero that walks onto the exit at full health
+	# proves nothing about a heal, so take it to a third of its bar and let the real
+	# advance decide what it arrives with.
+	var maxhp: int = int(hero.get(&"max_hp"))
+	hero.set(&"hp", maxi(1, int(round(float(maxhp) * 0.33))))
+	var hurt: int = int(hero.get(&"hp"))
 	hero.global_position = _stance_at_exit(l1)
 	var reached: bool = false
+	# ⚠ SAMPLE THE HEAL ON THE FRAME IT ARRIVES, NOT AFTER THE SETTLE LOOP. The first
+	# version of this read hp 150 ticks later and reported 118..128 of 133 — the heal
+	# HAD fired and the new floor's enemies were already chipping it back down, and on
+	# two seeds the hero was dead (0/133) by the time it looked. That is a measurement
+	# bug that reads exactly like a broken heal.
+	var arrived_hp: int = -1
 	for _i3: int in 120:
 		await physics_frame
 		if int(gs.call(&"current_floor")) == 2:
 			reached = true
+			arrived_hp = int(hero.get(&"hp"))
 			break
 	if not reached:
 		return {"reached": false, "ok": false}
@@ -187,7 +206,8 @@ func _walk_one(gs: Node, seed_value: int) -> Dictionary:
 
 	if CONTROL_SEEDS.has(seed_value):
 		await _run_controls(hero, l2)
-	return {"reached": true, "ok": ok}
+	return {"reached": true, "ok": ok,
+		"hp": arrived_hp, "max_hp": maxhp, "hurt": hurt}
 
 
 ## One placement that MUST read green and one that MUST read red, both through
@@ -280,3 +300,29 @@ func _restore_climber() -> void:
 		if back != _climber_backup:
 			_fails += 1
 			printerr("  FAIL: climber.json did not restore byte-for-byte")
+
+
+## ══════════════════════════════════════════════════════════════════════════════
+## CLEARING A FLOOR HEALS YOU. Maker: *"when you pass a floor in the tower you can
+## fully heal as entering the next floor please"*.
+##
+## Rides the SAME genuine climb the test above walks — `enter_run`, clear the room,
+## stand on the exit, let the portal's own overlap poll fire the advance — with the
+## hero cut to a third of its bar on the way in. No shortcut: if the heal were wired
+## to some path other than the one a player actually takes, this would still be red.
+func _test_clearing_a_floor_heals_you() -> void:
+	_expect(not _heals.is_empty(),
+		"at least one climb was walked, or there is nothing to judge")
+	for r: Dictionary in _heals:
+		if not bool(r.get("reached", false)):
+			continue
+		var hurt: int = int(r.get("hurt", 0))
+		var maxhp: int = int(r.get("max_hp", 0))
+		var got: int = int(r.get("hp", 0))
+		# The control: the wound really was applied, or "arrived at full" is vacuous.
+		_expect(hurt > 0 and hurt < maxhp,
+			"the hero was actually wounded before the advance (%d/%d)" % [hurt, maxhp])
+		_expect(got == maxhp,
+			"arrived on the next floor at FULL health — went in at %d/%d, arrived %d/%d"
+				% [hurt, maxhp, got, maxhp])
+	_completes("clearing_a_floor_heals_you")

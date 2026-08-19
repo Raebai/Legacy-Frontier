@@ -750,7 +750,7 @@ const GEAR_KINDS: Array[String] = [
 	"robe", "armor",
 	# held weapons
 	"staff", "staff_ice", "staff_storm", "staff_holy", "orb",
-	"sword", "greatsword", "dagger", "hammer", "scythe", "spear", "club", "bomb",
+	"sword", "greatsword", "dagger", "dagger_shadow", "hammer", "scythe", "spear", "club", "bomb",
 ]
 ## MASTER CLOTHING SWITCH. False = helmets / hoods / hats / crowns / robes / armour /
 ## sandals are NOT DRAWN AT ALL, and every figure is a plain stick figure. Default
@@ -1939,6 +1939,7 @@ func _tip_from_pose(pose: Dictionary) -> Vector2:
 		"staff", "staff_ice", "staff_storm", "staff_holy": reach = height * 0.38
 		"greatsword": reach = height * 0.62
 		"dagger": reach = height * 0.24
+		"dagger_shadow": reach = height * 0.20   # matches the drawn length above
 		"spear": reach = height * 0.72
 		"scythe": reach = height * 0.6
 		"sword": reach = height * 0.5
@@ -3803,6 +3804,45 @@ static func _draw_equipment(
 		"dagger":
 			# The same blade language, short and quick — identifiable from outline alone.
 			_draw_blade(item, hand_lead, arm_dir, perp, fig_height * 0.26, w * 0.85, r * 0.45, gear_col, edge, col)
+		"dagger_shadow":
+			# ⚠ THE SHADOWBLADE'S OWN KNIFE. Maker: the Shadowblade's blade should be a
+			# pointy-tip DAGGER, not a sword. It was drawing the "sword" arm — the
+			# bespoke KATANA, curved spine, hamon and tsuba — because its CLASS_CONFIG
+			# says `weapon: "sword"` and it had no `weapon_look` to override it. So the
+			# assassin whose LMB is a three-dagger flurry was holding a longsword.
+			#
+			# ⚠ AND THE KATANA ARM COULD NOT SIMPLY BE EDITED: the SWORDSAINT shares
+			# this class's `preset: "rogue"` and its `weapon: "sword"`, and that katana
+			# is the duelist's whole identity. A separate kind is what keeps one class's
+			# knife out of the other class's hands.
+			#
+			# The shape, against the shared `_draw_blade`: shorter (0.20 vs 0.26 of the
+			# figure), narrower, and the point starts at 45% rather than 68% — so the
+			# taper IS most of the blade instead of a cap on the end of a bar. That long
+			# lean triangle is what reads as a stiletto at 31 px tall, where a wider
+			# short blade just reads as a stub.
+			var dg_len: float = fig_height * 0.20
+			var dg_w: float = w * 0.62
+			var dg_base: Vector2 = hand_lead - arm_dir * (dg_len * 0.16)
+			var dg_tip: Vector2 = hand_lead + arm_dir * dg_len
+			# Small angled guard — a knife has a stop, not a crossbar.
+			item.draw_line(hand_lead - perp * (r * 0.30), hand_lead + perp * (r * 0.30),
+				edge, dg_w * 0.9)
+			# The point begins early, so the body is only the first 45%.
+			var dg_pb: Vector2 = hand_lead + arm_dir * (dg_len * 0.45)
+			item.draw_line(dg_base, dg_pb, edge, dg_w * 1.55)
+			item.draw_line(dg_base, dg_pb, gear_col, dg_w)
+			# Keyline under the point first, so the tip carries the same dark edge the
+			# body has rather than reading as a lighter triangle stuck on.
+			item.draw_colored_polygon(PackedVector2Array([
+				dg_pb + perp * (dg_w * 0.98), dg_tip, dg_pb - perp * (dg_w * 0.98),
+			]), edge)
+			item.draw_colored_polygon(PackedVector2Array([
+				dg_pb + perp * (dg_w * 0.60), dg_tip, dg_pb - perp * (dg_w * 0.60),
+			]), gear_col)
+			# One lit edge running into the point — the bevel that sells a knife.
+			item.draw_line(dg_pb - perp * (dg_w * 0.26), dg_tip,
+				gear_col.lightened(0.5), dg_w * 0.34, true)
 		"spear":
 			# Long plain haft ending in a leaf point. Reach IS the read.
 			var sp_tip: Vector2 = hand_lead + arm_dir * (fig_height * 0.72)

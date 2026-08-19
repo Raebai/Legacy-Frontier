@@ -49,6 +49,7 @@ const TESTS: Array[String] = [
 	"cover_never_gates_the_opening",
 	"no_terrain_swallows_a_spawn",
 	"the_roll_is_stable_within_a_bout",
+	"breakable_platforms_are_climbable",
 ]
 
 var _ran: bool = false
@@ -79,6 +80,7 @@ func _process(_delta: float) -> bool:
 	_test_rim()
 	_test_risers()
 	_test_reachable()
+	_test_breakable_platforms_are_climbable()
 	_test_cover_count()
 	_test_cover_on_floor()
 	_test_cover_not_in_the_corridor()
@@ -365,3 +367,100 @@ func _test_roll_stable() -> void:
 			"pinning stage_layout = %d did not select variant %d" % [want, want])
 	_arena.set("stage_layout", -1)
 	_completed["the_roll_is_stable_within_a_bout"] = true
+
+
+# --------------------------------------------------------------------------- 11
+## THE THREE BREAKABLE LEDGES MUST BE REACHABLE, AND NOTHING HAS EVER CHECKED.
+##
+## `BREAKABLE_PLATFORMS` is the one platform table that does not vary per stage, and
+## it sat outside every test in this file — which is exactly how `RUINS[0]` came to be
+## authored 119 px above a 105 px jump and shipped, "touchable only by a Brawler
+## spending its air jump". The maker then asked for the LEFT ledge to match the
+## far-right one at 616, a 164 px rise from the ground, so this table now carries a
+## surface that is deliberately NOT ground-reachable and is only legal because the mid
+## platform is a rung under it. That is precisely the arrangement that needs a guard
+## rather than a comment.
+##
+## ⚠ THIS DELIBERATELY DOES NOT USE `_steps`. That helper's 110 / 170 px gap budget is
+## `FloorGen.GAP_UP_MAX` / `GAP_FLAT_MAX`, and those are calibrated to DEAD CONSTANTS —
+## they derive from "JUMP_VELOCITY 580 against GRAVITY 1500" while `TuningConfig`
+## overrides both at runtime (740 / 2600). Against the live numbers the true rising
+## reach is ~83.6 px, not 110. So this test derives its own budget from the tuning the
+## game actually runs, and will therefore fail on a ledge `_steps` would wave through.
+func _test_breakable_platforms_are_climbable() -> void:
+	var plats: Array = _k.get("BREAKABLE_PLATFORMS", []) as Array
+	_expect(plats.size() >= 3, "the three breakable ledges are still declared")
+	if plats.size() < 3:
+		return
+	var ground: float = float(_k.get("GROUND_TOP", 780.0))
+
+	# The LIVE ceiling, from the tuning the game runs — not Hero's dead consts.
+	var tune: Node = Engine.get_main_loop().root.get_node_or_null("Tuning")
+	var jump_v: float = 740.0
+	var grav: float = 2600.0
+	# `Tuning` is a plain autoload holding a `TuningConfig` resource; the read is a
+	# property get off `cfg`, the same shape `Hero._tune` uses. There is no getter
+	# method, and calling one aborts the test rather than failing it — which is what
+	# the vacuous-pass armour at the top of this file exists to catch, and did.
+	var cfg: Object = tune.get("cfg") if tune != null else null
+	if cfg != null:
+		var jv: Variant = cfg.get("move_jump_velocity")
+		var gr: Variant = cfg.get("move_gravity_rise")
+		if jv != null:
+			jump_v = absf(float(jv))
+		if gr != null:
+			grav = float(gr)
+	var ceiling: float = (jump_v * jump_v) / (2.0 * grav)
+	# Horizontal travel while still RISING, which is what a step-up actually gets.
+	var rise_reach: float = 83.6
+
+	# Surfaces + spans. A platform's `center` is its middle, so the walkable top is
+	# half its height above that — the convention the terraces do NOT use.
+	var surf: Array[float] = []
+	var x0: Array[float] = []
+	var x1: Array[float] = []
+	for p: Dictionary in plats:
+		var c: Vector2 = p["center"]
+		var sz: Vector2 = p["size"]
+		surf.append(c.y - sz.y * 0.5)
+		x0.append(c.x - sz.x * 0.5)
+		x1.append(c.x + sz.x * 0.5)
+
+	# Flood out from the ground: a platform is reachable if the ground reaches it, or
+	# if some already-reachable platform is a legal step to it.
+	var reached: Array[int] = []
+	for i: int in plats.size():
+		if ground - surf[i] <= ceiling:
+			reached.append(i)
+	var grew: bool = true
+	while grew:
+		grew = false
+		for b: int in plats.size():
+			if reached.has(b):
+				continue
+			for a: int in reached:
+				var rise: float = surf[a] - surf[b]
+				if rise <= 0.0 or rise > _step_max or rise > ceiling:
+					continue
+				var gap: float = maxf(maxf(x0[b] - x1[a], x0[a] - x1[b]), 0.0)
+				if gap <= rise_reach:
+					reached.append(b)
+					grew = true
+					break
+
+	for i: int in plats.size():
+		_expect(reached.has(i),
+			"breakable platform %d (surface %.0f, rise %.0f from ground) is reachable — "
+				% [i, surf[i], ground - surf[i]]
+			+ "either from the floor under a %.1f px ceiling or by a legal step" % ceiling)
+
+	# ...and at least one of them must be a GROUND rung, or the whole set floats away
+	# together the moment somebody retunes the jump.
+	var from_ground: int = 0
+	for i: int in plats.size():
+		if ground - surf[i] <= ceiling:
+			from_ground += 1
+	_expect(from_ground >= 1,
+		"at least one breakable ledge is reachable straight from the fight floor "
+		+ "(otherwise the climb has no first rung)")
+	_completed["breakable_platforms_are_climbable"] = true

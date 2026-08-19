@@ -722,7 +722,11 @@ const CLASS_CONFIG: Dictionary = {
 		"aoe": "arcane_meteor", "has_nova": true, "can_parry": true,  # Q: arcane star-fall
 	},
 	HeroClass.ROGUE: {  # SHADOWBLADE — twitchy assassin; LMB = 3-dagger flurry
-		"preset": "rogue", "weapon": "sword", "element": Elements.Element.SHADOW, "melee_element": Elements.Element.SHADOW,
+		# `weapon_look` is COSMETIC ONLY (see the two-key note in `_apply_class`): the
+		# stats row stays "sword" so `WEAPON_STATS` still has a row for it and the melee
+		# damage/range are untouched. Without this the class drew the bespoke KATANA and
+		# the assassin whose primary is a three-dagger flurry held a longsword.
+		"preset": "rogue", "weapon": "sword", "weapon_look": "dagger_shadow", "element": Elements.Element.SHADOW, "melee_element": Elements.Element.SHADOW,
 		# ⚠ 109 -> 122 ON MEASUREMENT, and it costs the class its "frailest" title.
 		# The Shadowblade read 27% / 28% / 33% across three 288-bout sweeps — the only
 		# class in the bottom three of ALL THREE, which is the strongest signal in the
@@ -4703,6 +4707,10 @@ func _primary_heavy_swing() -> void:
 		velocity.x = signf(_aim_dir.x) * 190.0
 	_melee_cooldown_timer = _melee_cd
 	Sfx.play("melee_swing", 0.0, 0.12)
+	# The exhale THROWN WITH the swing, layered under it rather than replacing it —
+	# this is the heavy attack that steps into its own lunge, so it is the one swing
+	# in the game with enough weight to earn a voice. See the `effort_grunt` pool.
+	Sfx.play("effort_grunt", -7.0, 0.14)
 	# THE CRESCENT. Maker: *"each swing of the sword basic attack should shoot out a
 	# short curved attack with low range to explain why the range is big for its basic
 	# attack"* — and that is exactly what it does: it draws the reach the melee hitbox
@@ -5711,7 +5719,10 @@ func _blade_tell_weapon() -> bool:
 	if kind == "":
 		kind = String(_cfg.get("weapon", ""))
 	match kind:
-		"sword", "greatsword", "dagger", "scythe", "spear":
+		# `dagger_shadow` is the Shadowblade's own knife and MUST be listed: this reads
+		# `weapon_look` FIRST, so adding a look without adding it here silently costs
+		# that class its blade-crescent tell.
+		"sword", "greatsword", "dagger", "dagger_shadow", "scythe", "spear":
 			return true
 	return false
 

@@ -840,6 +840,23 @@ func _place_heroes_on_floor() -> void:
 			continue
 		if h.has_method("is_downed") and bool(h.call("is_downed")) and h.has_method("revive"):
 			h.call("revive", DeathRules.REVIVE_HP_FRACTION)
+		# ⚠ CLEARING A FLOOR HEALS YOU. Maker: *"when you pass a floor in the tower you
+		# can fully heal as entering the next floor please"*.
+		#
+		# Applied HERE because this function is the one thing every route onto a floor
+		# goes through — the exit portal, the prompt and a co-op host advancing the
+		# party — so no arrival can miss it and there is no second copy to drift.
+		#
+		# AFTER the revive, deliberately: `revive` runs the GhostForm exit and the rest
+		# of the standing-up machinery and sets hp to REVIVE_HP_FRACTION, so topping up
+		# afterwards keeps all of that and simply finishes the job. A hero the party
+		# carried up arrives in the same shape as one that walked.
+		#
+		# `heal` is a no-op at full health and clamps to `max_hp`, so this cannot
+		# overheal and costs an untouched climber nothing but a skipped branch. It also
+		# gives the soft green flash, which is the only feedback that the heal happened.
+		if h.has_method("heal"):
+			h.call("heal", int(h.get("max_hp")))
 		(h as Node2D).global_position = start + Vector2(50.0 * float(i), 0.0)
 		i += 1
 

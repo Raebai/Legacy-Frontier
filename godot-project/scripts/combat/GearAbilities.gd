@@ -50,6 +50,13 @@ const ABILITIES: Dictionary = {
 	# --- martial weapons: melee profile ---
 	"sword":       {"name": "Keen Edge",    "desc": "Sharper strikes: +15% damage, but it cuts instead of shoving (-12% knockback).", "element": "", "effect": {"melee_damage": 1.15, "melee_knockback": 0.88}},
 	"dagger":      {"name": "Flurry",       "desc": "Fast and nimble: much quicker strikes, but each one lands light (-18% damage).", "element": "", "effect": {"melee_cd": 0.7, "speed": 1.06, "melee_damage": 0.82}},
+	# The SHADOWBLADE'S own knife. Cosmetic-only today — the class keeps `weapon:
+	# "sword"` as its stats row and names this in `weapon_look`, so nothing reads the
+	# effect below. It is here because `GEAR_KINDS` is the registry of legal kinds and
+	# a kind with no ability row is one of the silent-default holes `SpellDef`'s header
+	# warns about: if this ever becomes equippable, it behaves like the dagger it is
+	# instead of falling through to nothing. Same numbers as `dagger`, deliberately.
+	"dagger_shadow": {"name": "Flurry",     "desc": "Fast and nimble: much quicker strikes, but each one lands light (-18% damage).", "element": "", "effect": {"melee_cd": 0.7, "speed": 1.06, "melee_damage": 0.82}},
 	"hammer":      {"name": "Quake",        "desc": "Crushing blows: +20% damage and big knockback, but slower.", "element": "", "effect": {"melee_damage": 1.2, "melee_knockback": 1.4, "melee_cd": 1.15}},
 	"greatsword":  {"name": "Cleave",       "desc": "Massive strikes (+30% damage) but slower.",  "element": "",          "effect": {"melee_damage": 1.3, "melee_cd": 1.3}},
 	# --- head ---

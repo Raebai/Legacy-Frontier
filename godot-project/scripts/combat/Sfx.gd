@@ -376,6 +376,10 @@ const STREAMS: Dictionary = {
 		preload("res://assets/audio/sfx/melee_swing_2.wav"),
 		preload("res://assets/audio/sfx/melee_swing_3.wav"),
 		preload("res://assets/audio/sfx/melee_swing_4.wav"),
+		# Maker-sourced, 2026-08-19 — a quick ninja strike. This pool is the single
+		# most-played sound in the game (five call sites in `Hero` alone, including
+		# the parry), so it earns the extra variant more than anything else here.
+		preload("res://assets/audio/sfx/melee_swing_5.wav"),
 	],
 	"melee_swing_heavy": [
 		preload("res://assets/audio/sfx/melee_swing_heavy_1.wav"),
@@ -426,7 +430,19 @@ const STREAMS: Dictionary = {
 		preload("res://assets/audio/sfx/punch_1.wav"),
 		preload("res://assets/audio/sfx/punch_2.wav"),
 		preload("res://assets/audio/sfx/punch_3.wav"),
+		# Maker-sourced, 2026-08-19: a soft quick punch and a harder one with a
+		# whistle. The Brawler's whole kit is this pool, so three samples was the
+		# thinnest rotation in the fight and the most audible loop.
+		preload("res://assets/audio/sfx/punch_4.wav"),
+		preload("res://assets/audio/sfx/punch_5.wav"),
 	],
+	# A VOICED EFFORT, not an impact — the exhale a heavy swing is thrown with. Kept
+	# in its own pool rather than mixed into `melee_swing_heavy` precisely because it
+	# is a voice: dropped into a whoosh pool it would sometimes play INSTEAD of the
+	# whoosh, and a heavy hammer swing that makes only a human grunt reads as a bug.
+	# Layered over the heavy swing at its one call site instead. One sample so far —
+	# see the audit note in the commit; this wants 2-3 more before it can rotate.
+	"effort_grunt": [preload("res://assets/audio/sfx/effort_grunt_1.wav")],
 	"kick": [
 		preload("res://assets/audio/sfx/kick_1.wav"),
 		preload("res://assets/audio/sfx/kick_2.wav"),
@@ -964,6 +980,8 @@ const PROFILE: Dictionary = {
 	"guard_break": {"w": Weight.HEAVY, "trim": 1.0, "sub": 0.5, "tail": 0.3},
 	"punch": {"w": Weight.HEAVY, "trim": -1.0, "sub": 0.25},
 	"kick": {"w": Weight.HEAVY, "trim": -1.0, "sub": 0.35},
+	# Sits UNDER the swing it doubles: it is colour on another sound, not an event.
+	"effort_grunt": {"w": Weight.HEAVY, "trim": -7.0},
 	# The one QUICK sound allowed to sit forward in the mix — it is the payoff.
 	"ding": {"w": Weight.QUICK, "trim": 2.0},
 
