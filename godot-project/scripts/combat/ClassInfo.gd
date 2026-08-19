@@ -49,7 +49,7 @@ const CLASSES: Array[Dictionary] = [
 	# 2 BRAWLER — the card said "no magic" while the class threw a lightning lance
 	# and a fire beam. Both are gone: a stomp and a fist that lands like a meteor.
 	{"name": "Brawler", "fantasy": "Pure-melee knockout — no magic",
-		"kit": "LMB punch/kick combo · Shockwave Stomp · Rock Wall · Ult Meteor Fist", "color": Color(0.92, 0.16, 0.16)},
+		"kit": "LMB punch/kick combo · Shockwave Stomp · Rock Wall · Ult Meteor Fist", "color": Color(0.68, 0.09, 0.09)},
 	{"name": "Juggernaut", "fantasy": "Unbreakable siege tank",
 		"kit": "LMB heavy hammer · BLOCK · Boulder Hurl · Rock Pillar · Ult Fault Line", "color": Color(0.78, 0.55, 0.28)},
 	# 4 CLERIC — RADIANT VOLLEY is the archer signature, and the AEGIS WARD (the
@@ -63,7 +63,7 @@ const CLASSES: Array[Dictionary] = [
 	# 6 STORMCALLER — inherits the Thunderclap off the Brawler, where a lightning
 	# lance contradicted that class's whole card. Its ult is a storm CELL, not a beam.
 	{"name": "Stormcaller", "fantasy": "Hyper-mobile chain caster",
-		"kit": "LMB chain bolt · Chain Lightning · Thunderclap · Ult Heaven's Wrath", "color": Color(0.2, 0.52, 1.0)},
+		"kit": "LMB chain bolt · Chain Lightning · Thunderclap · Ult Heaven's Wrath", "color": Color(0.8, 1.0, 0.18)},
 	# 7 WARLOCK — RAISE THRALL is the only summon in the game.
 	{"name": "Warlock", "fantasy": "Dark attrition hexer",
 		"kit": "LMB drain-bolt · Drain Tether · Raise Thrall · Ult Grave Tide", "color": Color(0.6, 0.35, 0.9)},

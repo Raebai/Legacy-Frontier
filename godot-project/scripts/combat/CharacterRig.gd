@@ -99,10 +99,18 @@ const OUTLINE_MIN: float = 1.0
 ## prevent. So below this luma the line flips to a pale rim: a black fighter reads as
 ## a black figure WITH AN EDGE rather than a silhouette-shaped hole.
 ##
-## Measured against the shipped palette (Rec.709 luma): Shadowblade 0.13 flips;
-## the next darkest, the Warlock at 0.44 and the Stormcaller at 0.49, do not. Nothing
-## else in the game moves, because every other fill sits far above the threshold.
-const KEYLINE_FLIP_LUMA: float = 0.22
+## ⚠ 0.22 -> 0.18, AND THE BRAWLER IS WHY. The threshold was calibrated when the
+## darkest fill after the Shadowblade was the Warlock at 0.44 luma, so 0.22 had a huge
+## margin. The maker then asked for the Brawler to go "a darker red", which lands it at
+## 0.215 — a hair UNDER the old threshold, so the red class would have started drawing
+## with the pale rim meant for the black one. A dark red figure in a white outline is
+## not what either change was asking for.
+##
+## Measured against the shipped palette (Rec.709 luma): Shadowblade 0.13 flips; Brawler
+## 0.215 does not, with 0.035 of margin; everything else sits at 0.44 or above. If a
+## future class is authored darker than the Brawler, check this number rather than
+## assuming — it is the only thing standing between a dark fill and a white keyline.
+const KEYLINE_FLIP_LUMA: float = 0.18
 ## The pale rim the dark classes get instead. Not pure white — a cool off-white sits
 ## the edge slightly back from the fills, which are all fully saturated.
 const OUTLINE_COLOR_LIGHT: Color = Color(0.78, 0.80, 0.90, 1.0)
@@ -3730,11 +3738,31 @@ static func _draw_equipment(
 			var s_tip: Vector2 = hand_lead + arm_dir * s_len + perp * (s_len * 0.12)
 			# The spine, as three segments along a shallow curve. A polyline rather
 			# than a line is the entire difference between a katana and a ruler.
+			# ⚠ THE BODY STOPS AT THE TAPER, AND THAT IS THE WHOLE FIX. Maker:
+			# *"fix swordsaints sword please make it sharp at the end like a normal
+			# sword"*.
+			#
+			# There WAS already a point polygon on the end of this blade. It could not
+			# be seen, because the two spine polylines below ran the FULL length to
+			# `s_tip` at constant width — `w * 1.55` of dark edge and `w * 0.95` of
+			# blade — so a flat bar-end as wide as the blade sat underneath the point
+			# and won the silhouette. The triangle was decoration on a blunt stick.
+			#
+			# This is the IDENTICAL fault `_draw_blade` fixed for the sword/greatsword
+			# family, and its comment says so in as many words: "a taper triangle was
+			# already being drawn over the last fifth, but the two body lines still ran
+			# the full length to `tip` at constant width". The katana is a separate,
+			# bespoke branch, so it never got that fix.
+			#
+			# Ending the spine at the taper's base is what makes the point the actual
+			# end of the blade. The taper also starts earlier (0.74 -> 0.68 of the
+			# length) so the point is a third of the blade rather than a quarter, which
+			# is what reads as SHARP at 31 px tall.
+			var pt_base: Vector2 = hand_lead + arm_dir * (s_len * 0.68) 				+ perp * (s_len * 0.072)
 			var spine := PackedVector2Array([
-				s_base,
-				hand_lead + arm_dir * (s_len * 0.36) + perp * (s_len * 0.026),
-				hand_lead + arm_dir * (s_len * 0.72) + perp * (s_len * 0.075),
-				s_tip,
+				hand_lead,
+				hand_lead + arm_dir * (s_len * 0.34) + perp * (s_len * 0.024),
+				pt_base,
 			])
 			item.draw_polyline(spine, edge, w * 1.55, true)        # dark edge beneath
 			item.draw_polyline(spine, gear_col, w * 0.95, true)    # the blade
@@ -3742,9 +3770,9 @@ static func _draw_equipment(
 			# curve reads at this size: it runs INSIDE the arc, so the eye gets two
 			# parallel curves instead of one thick one.
 			var hamon := PackedVector2Array([
-				hand_lead + arm_dir * (s_len * 0.30) + perp * (s_len * 0.010),
-				hand_lead + arm_dir * (s_len * 0.66) + perp * (s_len * 0.052),
-				s_tip - arm_dir * (s_len * 0.06),
+				hand_lead + arm_dir * (s_len * 0.28) + perp * (s_len * 0.010),
+				hand_lead + arm_dir * (s_len * 0.52) + perp * (s_len * 0.040),
+				pt_base - arm_dir * (s_len * 0.04),
 			])
 			item.draw_polyline(hamon, gear_col.lightened(0.45), w * 0.34, true)
 			# TSUBA — a ring guard, not a crossbar. Drawn as a short thick stroke
@@ -3769,8 +3797,6 @@ static func _draw_equipment(
 			# width down to nothing at the tip. Same trick as the crescent tell in
 			# `Telegraph._draw_crescent`, and for the same reason — a constant-width
 			# stroke can never look sharp, however many strokes you put on it.
-			var pt_base: Vector2 = hand_lead + arm_dir * (s_len * 0.74) \
-				+ perp * (s_len * 0.078)
 			var pt_perp: Vector2 = (s_tip - pt_base).normalized().orthogonal()
 			item.draw_colored_polygon(PackedVector2Array([
 				pt_base + pt_perp * (w * 0.78),

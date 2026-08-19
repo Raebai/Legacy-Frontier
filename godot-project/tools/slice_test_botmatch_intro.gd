@@ -43,6 +43,7 @@ const TESTS: Array[String] = [
 	"lobby_routes_to_the_duel", "lobby_clears_the_statics", "lobby_opponent_is_never_a_mirror",
 	"live_match_is_not_slowed", "live_bodies_wear_the_corner",
 	"ink_is_readable_on_a_dark_panel", "the_opening_beat_covers_every_button",
+	"only_the_black_class_flips_its_keyline",
 ]
 
 const MATCH_SCENE: String = "res://scenes/combat/BotMatch.tscn"
@@ -92,6 +93,7 @@ func _run_all() -> void:
 	_test_plates_read_the_corner()
 	_test_ink_is_readable_on_a_dark_panel()
 	_test_the_opening_beat_covers_every_button()
+	_test_only_the_black_class_flips_its_keyline()
 	_test_taunt_beats_are_complete()
 	_test_taunt_line_is_deterministic()
 	_test_taunt_rows_are_plural()
@@ -734,3 +736,37 @@ func _test_the_opening_beat_covers_every_button() -> void:
 			"`%s` honours _cast_lockout — otherwise the opening beat and the global " % fn
 			+ "chaining floor both skip this button, which is the reported bug")
 	_completes("the_opening_beat_covers_every_button")
+
+
+## THE PALE KEYLINE BELONGS TO EXACTLY ONE CLASS, AND IT NEARLY LEAKED.
+##
+## `CharacterRig.keyline_for` inverts the figure's outline to a pale rim below
+## `KEYLINE_FLIP_LUMA`, because the Shadowblade is BLACK and a near-black keyline under
+## a near-black limb erases the silhouette. It is a fix for one class.
+##
+## Then the maker asked for the Brawler to be "a darker red", which landed it at 0.215
+## luma against a threshold of 0.22 — inside the flip by 0.005. A dark red fighter would
+## have started drawing in a white outline, and nothing would have complained. The
+## threshold moved to 0.18 and this asserts the property directly, so the next dark
+## class is a red suite rather than a surprise on screen.
+func _test_only_the_black_class_flips_its_keyline() -> void:
+	var rig: GDScript = load("res://scripts/combat/CharacterRig.gd") as GDScript
+	_expect(rig != null, "CharacterRig is loadable")
+	if rig == null:
+		return
+	var k: Dictionary = rig.get_script_constant_map()
+	var flip: float = float(k.get("KEYLINE_FLIP_LUMA", 0.0))
+	var dark: Color = Color(k.get("OUTLINE_COLOR", Color.BLACK))
+	var flipped: Array[String] = []
+	for i: int in ClassInfo.count():
+		var c: Color = ClassInfo.color_for(i)
+		if rig.keyline_for(c) != dark:
+			flipped.append(ClassInfo.name_for(i))
+		# Every class must be separable from its OWN keyline, whichever it got.
+		var kl: Color = rig.keyline_for(c)
+		_expect(Vector3(c.r - kl.r, c.g - kl.g, c.b - kl.b).length() > 0.25,
+			"%s reads against its own keyline" % ClassInfo.name_for(i))
+	_expect(flipped.size() == 1 and flipped[0] == "Shadowblade",
+		"only the BLACK class takes the pale rim (got %s, threshold %.2f)"
+			% [flipped, flip])
+	_completes("only_the_black_class_flips_its_keyline")
