@@ -86,6 +86,24 @@ CLASSES = ["ARCANIST", "SHADOWBLADE", "BRAWLER", "JUGGERNAUT", "CLERIC",
 # the director takes its own portrait framing from the viewport aspect.
 RENDER_W, RENDER_H = 1080, 1920
 
+# ── LANDSCAPE ─────────────────────────────────────────────────────────────
+# ⚠ AND LANDSCAPE IS NOT JUST A DIFFERENT NUMBER — IT IS THE FRAMING THE ENGINE
+# ALREADY HAS. Maker: *"clips must render LANDSCAPE, exactly as the bot fights look"*.
+#
+# Read the note on BAND_TOP/BAND_HEIGHT below: `ClipDirector` HAS NO PORTRAIT BRANCH.
+# In a tall viewport it frames as though it were 16:9 and spends the extra height on
+# empty sky and sub-floor — which is why the portrait path has to crop a band back
+# out and lay it over a blurred copy of itself, and why the fighters end up at ~2.6%
+# of the canvas. In 16:9 none of that applies: the director's own framing IS the
+# frame, so landscape needs no band, no blur bed and no pillarbox, and the fighters
+# are as big as the shot ever makes them.
+#
+# ⚠ IT IS A FLAG AND NOT THE NEW DEFAULT, DELIBERATELY. The maker asked for landscape
+# AND then supplied four trending TikTok audios for these clips, and TikTok is a
+# portrait platform. Those two asks point opposite ways and only they can settle it,
+# so both paths work and the default is unchanged. `--landscape` picks the other one.
+LANDSCAPE_W, LANDSCAPE_H = 1920, 1080
+
 # Where the announcer starts, in clip seconds. The VS card holds for 1.2 s of clip
 # time (`directed_clip_capture._intro_clip_seconds`), so a small offset puts the
 # names on the card and lets the question spill into the opening exchange.
@@ -283,7 +301,8 @@ def probe_duration(path: Path) -> float:
 
 # ---------------------------------------------------------------------------
 
-def shoot(a: int, b: int, hp: int, seconds: float, timeout: int) -> Path | None:
+def shoot(a: int, b: int, hp: int, seconds: float, timeout: int,
+          landscape: bool = False) -> Path | None:
     """Delegate to make_clip.py rather than re-implementing the shoot.
 
     ⚠ THE SHOOT LIVES IN EXACTLY ONE PLACE ON PURPOSE. Every trap it knows about —
@@ -291,13 +310,17 @@ def shoot(a: int, b: int, hp: int, seconds: float, timeout: int) -> Path | None:
     the user:// directory derived from project.godot instead of hardcoded — was paid
     for by a bug that shipped. A second copy of the invocation here would be a second
     place for all of them to come back."""
+    # The shoot resolution IS the orientation — the director frames off the
+    # viewport aspect, so this is what makes a landscape clip landscape rather
+    # than a portrait one letterboxed in post.
+    w, h = (LANDSCAPE_W, LANDSCAPE_H) if landscape else (RENDER_W, RENDER_H)
     argv = [sys.executable, str(TOOLS / "make_clip.py"),
             "--a", str(a), "--b", str(b),
-            "--width", str(RENDER_W), "--height", str(RENDER_H),
-            "--share-width", str(RENDER_W),
+            "--width", str(w), "--height", str(h),
+            "--share-width", str(w),
             "--hp", str(hp), "--seconds", str(seconds),
             "--out", "post_shoot", "--timeout", str(timeout)]
-    print(f"  shooting {CLASSES[a]} vs {CLASSES[b]} at {RENDER_W}x{RENDER_H} ...")
+    print(f"  shooting {CLASSES[a]} vs {CLASSES[b]} at {w}x{h} ...")
     proc = subprocess.run(argv, capture_output=True, text=True,
                           encoding="utf-8", errors="replace")
     for line in (proc.stdout or "").splitlines():
@@ -344,8 +367,27 @@ def build_music(seconds: float) -> Path:
     return dst
 
 
+def _portrait_vf(card: str) -> str:
+    """The 9:16 composition: keep the band with the fight in it, lay it over a
+    blurred and darkened copy of itself blown up to fill the frame, then hand the
+    result to the shared title card.
+
+    The blur is not decoration — it is what stops the bands reading as a broken
+    export, and it is the format every gameplay clip on the platform already uses.
+    See the BAND_TOP/BAND_HEIGHT note for why a band is needed at all: the director
+    has no portrait branch, so a tall frame is mostly sky and sub-floor."""
+    return (
+        f"[0:v]split=2[bg][fg];"
+        f"[bg]crop=iw:ih*{BAND_HEIGHT}:0:ih*{BAND_TOP},"
+        f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
+        f"gblur=sigma=42,eq=brightness=-0.20:saturation=1.20[bgb];"
+        f"[fg]crop=iw:ih*{BAND_HEIGHT}:0:ih*{BAND_TOP},scale=1080:-2[fgs];"
+        f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2[comp];"
+    ) + card
+
 def mux(clip: Path, vo: Path, music: Path | None, out: Path, dur: float,
-        music_db: float, game_db: float, vo_db: float, title: str) -> None:
+        music_db: float, game_db: float, vo_db: float, title: str,
+        landscape: bool = False) -> None:
     """Lay the three audio layers under the picture and master the result.
 
     ⚠ EVERY STREAM IS FORCED TO 48 kHz STEREO FIRST. `sidechaincompress` requires
@@ -363,20 +405,9 @@ def mux(clip: Path, vo: Path, music: Path | None, out: Path, dur: float,
     # space that frees up. The blur is not decoration — it is what stops the bands
     # reading as a broken export, and it is the format every gameplay clip on the
     # platform already uses.
-    vf = (
-        f"[0:v]split=2[bg][fg];"
-        f"[bg]crop=iw:ih*{BAND_HEIGHT}:0:ih*{BAND_TOP},"
-        f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
-        f"gblur=sigma=42,eq=brightness=-0.20:saturation=1.20[bgb];"
-        f"[fg]crop=iw:ih*{BAND_HEIGHT}:0:ih*{BAND_TOP},scale=1080:-2[fgs];"
-        f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2[comp];"
-        # ⚠ THE MATCHUP IS A CARD, NOT A WATERMARK. It used to be a permanent line
-        # along the bottom strip; maker: "lets have it show at the middle of the
-        # screen the x vs y and then dissapear after a few secodns". So it sits in
-        # the middle, over the fight, for as long as the announcer is naming the
-        # fighters, then fades and gives the picture back. `enable` gates the draw
-        # and `alpha` runs the fade, so this still costs one encode and no extra
-        # input. A slab rides the same window so the words read over a bright sky.
+    # The title card is identical in both orientations, so it is written once and
+    # appended to whichever composition ran.
+    card = (
         f"[comp]drawbox=x=0:y=(ih-200)/2:w=iw:h=200:color=black@0.45:t=fill:"
         f"enable='between(t,{T_IN},{T_OUT + T_FADE})'[slab];"
         f"[slab]drawtext=fontfile='{FONT}':text='{title}':"
@@ -385,6 +416,16 @@ def mux(clip: Path, vo: Path, music: Path | None, out: Path, dur: float,
         f"shadowcolor=black@0.85:shadowx=6:shadowy=6:"
         f"enable='between(t,{T_IN},{T_OUT + T_FADE})'[vout]"
     )
+    if landscape:
+        # NO band, NO blur bed, NO pillarbox. Everything the portrait path does
+        # below is compensation for a director that has no portrait branch; in 16:9
+        # its framing IS the frame, so the picture passes through untouched.
+        vf = (
+            f"[0:v]scale={LANDSCAPE_W}:{LANDSCAPE_H}:force_original_aspect_ratio=increase,"
+            f"crop={LANDSCAPE_W}:{LANDSCAPE_H}[comp];" + card
+        )
+    else:
+        vf = _portrait_vf(card)
     delay_ms = int(VO_AT * 1000)
 
     chains = [
@@ -487,7 +528,8 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
 
     clip = user_data_dir() / "clips" / f"{stem}.mp4"
     if not args.no_shoot or not clip.exists():
-        clip = shoot(a, b, args.hp, args.seconds, args.timeout)
+        clip = shoot(a, b, args.hp, args.seconds, args.timeout,
+                     landscape=bool(getattr(args, "landscape", False)))
         if clip is None:
             return None
     else:
@@ -565,7 +607,8 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
     music = (Path(args.music) if args.music
              else build_music(dur) if args.music_bed else None)
     out = POSTS / f"{stem}.mp4"
-    mux(clip, vo, music, out, dur, args.music_db, args.game_db, args.vo_db, title)
+    mux(clip, vo, music, out, dur, args.music_db, args.game_db, args.vo_db, title,
+        landscape=bool(getattr(args, "landscape", False)))
     print(f"  -> {out.name}  ({out.stat().st_size / 1_048_576:.1f} MB)")
     print(f"     {verify(out)}")
     return out
@@ -579,6 +622,9 @@ def main() -> int:
     ap.add_argument("--random", action="store_true", help="roll one matchup")
     ap.add_argument("--batch", type=int, default=0,
                     help="make N posts, each a different rolled matchup")
+    ap.add_argument("--landscape", action="store_true",
+                    help="render 1920x1080 with the director's own framing, instead "
+                         "of the 9:16 band-over-blur composition (see LANDSCAPE_W)")
     ap.add_argument("--hp", type=int, default=420)
     ap.add_argument("--seconds", type=float, default=24.0, help="clip length cap")
     ap.add_argument("--timeout", type=int, default=1800)

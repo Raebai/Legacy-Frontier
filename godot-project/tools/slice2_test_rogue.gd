@@ -78,7 +78,20 @@ func _make_hero() -> CharacterBody2D:
 func _test_rogue_config() -> void:
 	var hero: CharacterBody2D = _make_hero()
 	hero.configure_class(hero.HeroClass.ROGUE)
-	_expect(String(hero.rig.equipment.get("weapon", "")) == "sword", "rogue equips sword")
+	# ⚠ THE DRAWN WEAPON AND THE STATS WEAPON ARE DIFFERENT ANSWERS, DELIBERATELY.
+	# Maker: the Shadowblade's blade should be a pointy-tip DAGGER, not a sword. It was
+	# drawing the bespoke KATANA arm because `weapon: "sword"` reached the rig, so the
+	# assassin whose primary is a three-dagger flurry held a longsword. The class now
+	# also names `weapon_look: "dagger_shadow"`, which is COSMETIC ONLY and applied last.
+	#
+	# Both halves are asserted because the two-key split is the entire safety property:
+	# if `weapon_look` ever leaked into the stats row, `WEAPON_STATS` has no
+	# "dagger_shadow" entry and the class would silently drop to fists damage. The
+	# `_base_melee_damage == 26` line below is the other end of that same check.
+	_expect(String(hero.rig.equipment.get("weapon", "")) == "dagger_shadow",
+		"rogue DRAWS its own dagger, not the Swordsaint's katana")
+	_expect(String(hero._cfg.get("weapon", "")) == "sword",
+		"...while its STATS row is still sword — the look must not reach WEAPON_STATS")
 	# ⚠ READ THE CLASS NUMBER, NOT THE COMPOSED ONE. `_melee_damage` is
 	# `_base_melee_damage * gear["melee_damage"]` (Hero.gd:2518), and gear is the
 	# PLAYER'S — `Loadout` is an autoload whose node is on the tree under `--script`,
