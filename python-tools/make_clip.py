@@ -81,6 +81,68 @@ GUI_BINARY = REPO_ROOT / "godot-engine" / "Godot_v4.6.2-stable_win64.exe"
 CLASSES = ["ARCANIST", "SHADOWBLADE", "BRAWLER", "JUGGERNAUT", "CLERIC",
            "CRYOMANCER", "STORMCALLER", "WARLOCK", "SWORDSAINT"]
 
+# The engine's pinned render rate during a movie shoot, and therefore the AVI's
+# frame rate and the unit `movie_in`/`movie_out` are counted in. It is NOT the
+# director's save rate (`--fps`, default 30) and the two must never be swapped.
+MOVIE_FPS = 60
+
+
+import contextlib  # noqa: E402  (used by render_size_override below)
+
+PROJECT_FILE = GODOT_PROJECT / "project.godot"
+
+
+@contextlib.contextmanager
+def render_size_override(width: int, height: int):
+    """Force the MOVIE's output size, which NOTHING ELSE IN THIS FILE CAN DO.
+
+    ⚠ `--resolution` DOES NOT WORK, AND EVERY MOVIE-PATH CLIP THIS PROJECT HAS
+    EVER PRODUCED WAS 1366x768 NO MATTER WHAT WAS ASKED FOR. Measured, three
+    times: asking for 1920x1080, 573x1019 and 1080x1017 on the command line all
+    returned a 1366x768 AVI — which is exactly `window/size/window_*_override` in
+    project.godot. MovieWriter fixes its output dimensions at engine start from
+    that setting and never looks at the window again, so the script's own
+    `_set_render_size()` (which runs later, and DOES resize the window and the
+    root viewport) moves the game's framing without moving the recording.
+
+    That combination is the worst of both: `directed_clip_capture` detected a
+    PORTRAIT viewport and composed a portrait shot, and the recorder wrote it into
+    a LANDSCAPE frame. The delivered file was 1080x608 with the fighters at ~3% of
+    frame height, and the pipeline announced it as a success.
+
+    So the size is set where MovieWriter actually reads it. The override is
+    accepted even when the window cannot physically fit — verified by asking for
+    1080x1920 on a 1707x1019 desktop and getting a 1080x1920 movie back.
+
+    ⚠ THIS EDITS A TRACKED FILE, so it restores in a `finally` and REFUSES TO RUN
+    if project.godot already has uncommitted changes. A crash mid-shoot must not
+    leave the maker's project on a phone-shaped window, and a concurrent session
+    sharing this checkout must not have its own edit reverted underneath it.
+    """
+    original = PROJECT_FILE.read_text(encoding="utf-8")
+    if (f"window_width_override={width}\n" in original
+            and f"window_height_override={height}\n" in original):
+        yield                                  # already right; touch nothing
+        return
+    dirty = subprocess.run(["git", "diff", "--quiet", "--", str(PROJECT_FILE)],
+                           cwd=str(REPO_ROOT)).returncode != 0
+    if dirty:
+        raise SystemExit(
+            "project.godot has uncommitted changes, and this shoot needs to edit "
+            "it.\nCommit or stash them first — refusing to risk clobbering them.")
+    patched = original
+    for key, value in (("window_width_override", width),
+                       ("window_height_override", height)):
+        head, sep, tail = patched.partition(f"window/size/{key}=")
+        if not sep:
+            raise SystemExit(f"project.godot has no window/size/{key}")
+        patched = head + sep + str(value) + tail[tail.index("\n"):]
+    try:
+        PROJECT_FILE.write_text(patched, encoding="utf-8")
+        yield
+    finally:
+        PROJECT_FILE.write_text(original, encoding="utf-8")
+
 
 def shoot_movie(args: argparse.Namespace) -> tuple[Path, int, int] | None:
     """Godot's OWN Movie Maker (`--write-movie`), which is strictly better than the
@@ -113,8 +175,21 @@ def shoot_movie(args: argparse.Namespace) -> tuple[Path, int, int] | None:
     avi.parent.mkdir(parents=True, exist_ok=True)
     argv = [
         str(GUI_BINARY), "--path", str(GODOT_PROJECT),
-        "--write-movie", str(avi), "--fixed-fps", str(args.fps),
-        "--resolution", f"{args.width}x{args.height}",
+        # ⚠ 60, NOT `args.fps`, AND THE DIFFERENCE IS A FACTOR OF TWO IN EVERY
+        # DURATION THE DIRECTOR REPORTS.
+        #
+        # `directed_clip_capture` saves one frame in `round(60 / fps)` and calls
+        # `_saved / fps` the clip's length — an assumption that the engine renders
+        # 60 fps. `--fixed-fps 30` pinned it to 30 instead, so the director skipped
+        # every 2nd frame of a 30 fps stream and its clock ran at HALF real time,
+        # while MovieWriter (which records every rendered frame) wrote all of them.
+        #
+        # Measured: a shoot that reported "DONE — 356 frames (11.9s)" delivered a
+        # 24.5 s file, whose last NINE SECONDS were an empty stage — the director's
+        # 3 s result-hold spent at half speed. `--seconds` was doubled the same way.
+        # Nothing warned; the numbers in the log were self-consistent and wrong.
+        "--write-movie", str(avi), "--fixed-fps", "60",
+        # `--resolution` is INERT for the movie — see render_size_override().
         "--script", "tools/directed_clip_capture.gd", "--",
         f"--a={args.a}", f"--b={args.b}", f"--difficulty={args.difficulty}",
         f"--hp={args.hp}", f"--seconds={args.seconds}", f"--fps={args.fps}",
@@ -122,9 +197,11 @@ def shoot_movie(args: argparse.Namespace) -> tuple[Path, int, int] | None:
         f"--random={1 if args.random else 0}",
     ]
     what = "a rolled matchup" if args.random         else f"{CLASSES[args.a]} vs {CLASSES[args.b]}"
-    print(f"shooting {what} (with sound) ...")
-    proc = subprocess.run(argv, capture_output=True, text=True,
-                          encoding="utf-8", errors="replace", timeout=args.timeout)
+    print(f"shooting {what} (with sound) at {args.width}x{args.height} ...")
+    with render_size_override(args.width, args.height):
+        proc = subprocess.run(argv, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace",
+                              timeout=args.timeout)
     m_in, m_out = -1, -1
     for line in (proc.stdout or "").splitlines():
         if line.startswith("[clip]"):
@@ -306,7 +383,12 @@ def main() -> int:
         out_mp4 = stem_dir / f"{CLASSES[args.a].lower()}_vs_{CLASSES[args.b].lower()}.mp4"
         if shot is not None:
             avi, m_in, m_out = shot
-            if encode_from_movie(avi, out_mp4, args.fps, args.share_width, m_in, m_out):
+            # ⚠ MOVIE_FPS, NOT `args.fps`. `movie_in`/`movie_out` are ENGINE frame
+            # indices, and the engine is pinned to 60 (see shoot_movie). Dividing
+            # them by the director's 30 fps SAVE rate doubled both the seek and the
+            # duration, which is how a 12 s fight was trimmed to a 24.5 s file with
+            # nine seconds of nothing on the end.
+            if encode_from_movie(avi, out_mp4, MOVIE_FPS, args.share_width, m_in, m_out):
                 print(f"\nwrote {out_mp4}  ({out_mp4.stat().st_size / 1_048_576:.1f} MB, with audio)")
                 print("that is the file to post.")
                 if not args.keep_avi:
