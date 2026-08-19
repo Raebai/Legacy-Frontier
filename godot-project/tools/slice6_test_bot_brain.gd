@@ -32,6 +32,7 @@ const TESTS: Array[String] = [
 	"guard_lockout",
 	"difficulty_dial",
 	"reaches_a_foe_that_is_above_it",
+	"never_stands_perfectly_still",
 ]
 
 ## Hero.HeroClass ids used by the scenarios below, named so a reader does not have
@@ -61,6 +62,7 @@ func _process(_delta: float) -> bool:
 	_test_guard_lockout()
 	_test_difficulty_dial()
 	_test_reaches_a_foe_that_is_above_it()
+	_test_never_stands_perfectly_still()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — something it reads has moved)" % t)
@@ -619,3 +621,48 @@ func _test_reaches_a_foe_that_is_above_it() -> void:
 		"outside the alignment window it steps toward the target while rising")
 
 	_completed["reaches_a_foe_that_is_above_it"] = true
+
+
+## NOBODY IS EVER FULLY STILL. Maker: *"I dont think they should ever be fully standing
+## still"*.
+##
+## The statue was a real branch, not a dropped frame: `_steer` resolves its intent to 0
+## whenever the bot is INSIDE its spacing band with no committed direction — which is
+## the state a well-behaved bot spends most of a fight in, because holding range is what
+## the band is FOR. So the better the spacing logic worked, the more the fighter planted.
+func _test_never_stands_perfectly_still() -> void:
+	var prof: Dictionary = BotProfile.with_overrides(BotProfile.Tier.HARD,
+		{"react": 0.05, "jitter": 0.0, "p_miss": 0.0})
+	var m: BotBrain.Memory = _mem()
+	# Dead centre of the Brawler's 35..70 band, nothing threatening, nowhere to be.
+	var moved: int = 0
+	var samples: int = 40
+	for i: int in samples:
+		var out: Dictionary = BotBrain.decide(_bb({
+			"foe_id": 7, "foe_pos": Vector2(52.0, 0.0), "now": float(i) * 0.1,
+		}), prof, m)
+		if absf(out.get("move", Vector2.ZERO).x) > 0.01:
+			moved += 1
+	_expect(moved == samples,
+		"settled in its own band, the bot still shifts its weight on every frame "
+		+ "(%d of %d) — it must never plant" % [moved, samples])
+
+	# ...and the shuffle is a SHUFFLE, not a walk. If this reads full-speed the bot
+	# would drift out of the band it just worked to hold.
+	var peak: float = 0.0
+	for i: int in samples:
+		var out2: Dictionary = BotBrain.decide(_bb({
+			"foe_id": 7, "foe_pos": Vector2(52.0, 0.0), "now": float(i) * 0.1,
+		}), prof, _mem())
+		peak = maxf(peak, absf(out2.get("move", Vector2.ZERO).x))
+	_expect(peak <= BotBrain.IDLE_JOCKEY + 0.01,
+		"the settled shuffle stays under the walk (peak %.2f vs %.2f)"
+			% [peak, BotBrain.IDLE_JOCKEY])
+
+	# It must still be able to actually GO somewhere — a foe far away is a walk.
+	var far: Dictionary = BotBrain.decide(_bb({
+		"foe_id": 7, "foe_pos": Vector2(500.0, 0.0), "now": 0.0,
+	}), prof, _mem())
+	_expect(absf(far.get("move", Vector2.ZERO).x) > BotBrain.IDLE_JOCKEY,
+		"a distant foe still draws a real walk, not a shuffle")
+	_completed["never_stands_perfectly_still"] = true

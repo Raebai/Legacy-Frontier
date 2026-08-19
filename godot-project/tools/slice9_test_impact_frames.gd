@@ -88,7 +88,14 @@ func _test_min_interval() -> void:
 	var c: Dictionary = _ask(200, ImpactFrame.Style.BLOWOUT, 0.8)
 	_expect(not bool(c["granted"]), "a request inside MIN_INTERVAL is dropped")
 	_expect(String(c["reason"]) == "min_interval", "...and says why")
-	var d: Dictionary = _ask(400, ImpactFrame.Style.BLOWOUT, 0.8)
+	# ⚠ DERIVED FROM THE CONSTANT, NOT PINNED TO A NUMBER. This read `_ask(400, ...)`,
+	# which was "past MIN_INTERVAL" only while MIN_INTERVAL happened to be 0.26 s. The
+	# maker asked for less punctuation, the interval went to 0.42, and six assertions
+	# in this file failed while describing the arbiter as broken — it was doing exactly
+	# what it had been retuned to do. A feel knob that six tests hard-code is a knob
+	# nobody can turn.
+	var past: int = int(ImpactFrame.MIN_INTERVAL * 1000.0) + 60
+	var d: Dictionary = _ask(past, ImpactFrame.Style.BLOWOUT, 0.8)
 	_expect(bool(d["granted"]), "a request past MIN_INTERVAL is granted")
 	_completes("min_interval")
 
@@ -132,15 +139,18 @@ func _test_burst_cannot_strobe() -> void:
 func _test_ascending_burst() -> void:
 	ImpactFrame.reset_arbiter()
 	var starts: Array[int] = []
+	# Step scaled off MIN_INTERVAL so the burst still spans several gates when the
+	# feel knob moves — same reason as the note in `_test_min_interval`.
+	var step: int = maxi(int(ImpactFrame.MIN_INTERVAL * 1000.0) / 10, 10)
 	for i in 20:
-		var t: int = i * 25
+		var t: int = i * step
 		if bool(_ask(t, ImpactFrame.Style.BLOWOUT, 0.3 + 0.065 * float(i))["granted"]):
 			starts.append(t)
 	# Assert the property directly rather than the count: in EVERY one-second
 	# window anywhere on the timeline, no more than the ceiling started.
 	var worst: int = 0
 	for w in 30:
-		var lo: int = w * 25
+		var lo: int = w * step
 		var n: int = 0
 		for s: int in starts:
 			if s >= lo and s < lo + 1000:
@@ -157,13 +167,19 @@ func _test_ascending_burst() -> void:
 ## one real second while every individual check passed.
 func _test_sliding_window() -> void:
 	ImpactFrame.reset_arbiter()
+	# ⚠ SPACED OFF MIN_INTERVAL, so this tests the SAFETY ceiling rather than the feel
+	# gate. At the hard-coded 300 ms these requests were refused for `min_interval`
+	# before the flash-rate rule was ever consulted, and the suite then reported the
+	# safety rule as broken.
+	var gap: int = int(ImpactFrame.MIN_INTERVAL * 1000.0) + 30
 	_expect(bool(_ask(0, ImpactFrame.Style.BLOWOUT, 0.8)["granted"]), "flash 1 of the second")
-	_expect(bool(_ask(300, ImpactFrame.Style.BLOWOUT, 0.8)["granted"]), "flash 2 of the second")
-	var third: Dictionary = _ask(900, ImpactFrame.Style.BLOWOUT, 0.8)
+	_expect(bool(_ask(gap, ImpactFrame.Style.BLOWOUT, 0.8)["granted"]), "flash 2 of the second")
+	var third: Dictionary = _ask(gap * 2, ImpactFrame.Style.BLOWOUT, 0.8)
 	_expect(not bool(third["granted"]), "a third flash inside the same second is refused")
 	_expect(String(third["reason"]) == "flash_rate_ceiling", "...by the SAFETY rule, named")
-	# t=1050 is >1000ms after the first, so the first has slid out of the window.
-	_expect(bool(_ask(1050, ImpactFrame.Style.BLOWOUT, 0.8)["granted"]),
+	# Past 1000 ms from the first (so it has slid out of the window) AND past the feel
+	# gate from the second.
+	_expect(bool(_ask(maxi(1050, gap * 2 + gap), ImpactFrame.Style.BLOWOUT, 0.8)["granted"]),
 		"once the oldest flash slides out of the window, the budget frees up")
 	_completes("sliding_window")
 
@@ -175,7 +191,10 @@ func _test_sliding_window() -> void:
 func _test_frame_time_budget() -> void:
 	ImpactFrame.reset_arbiter()
 	_expect(bool(_ask(0, ImpactFrame.Style.CUT_IN, 1.4)["granted"]), "the first cut-in plays")
-	var second: Dictionary = _ask(400, ImpactFrame.Style.CUT_IN, 1.4)
+	# Past the feel gate, so the refusal below is the TIME BUDGET talking — see the
+	# note in `_test_sliding_window`.
+	var second: Dictionary = _ask(int(ImpactFrame.MIN_INTERVAL * 1000.0) + 30,
+		ImpactFrame.Style.CUT_IN, 1.4)
 	_expect(not bool(second["granted"]), "a second long frame inside the same second is refused")
 	_expect(String(second["reason"]) == "frame_time_budget", "...by the time budget, named")
 	_completes("frame_time_budget")

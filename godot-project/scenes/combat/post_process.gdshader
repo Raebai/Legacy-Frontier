@@ -27,7 +27,11 @@ uniform float shock_amp = 0.0;                        // ripple strength (decays
 
 // --- Chromatic aberration ---
 uniform float aberration_base = 0.7;     // px at idle (lens whisper)
-uniform float aberration_trauma = 4.5;   // extra px at full trauma
+// 4.5 -> 2.2: full-trauma R/B split drops 5.2 px to 2.9 px. Both this and the warp
+// below are pure functions of hit rate, so mid-fight they were pinned together.
+uniform float aberration_trauma = 2.2;   // extra px at full trauma
+// The 40 Hz screen wobble. Was a bare 0.004 literal with no gate and no dial.
+uniform float warp_amount = 0.0018;
 
 // --- Color grade ---
 uniform float grade_strength : hint_range(0.0, 1.0) = 1.0;
@@ -75,7 +79,10 @@ void fragment() {
 	}
 
 	// A whisper of trauma-driven warp so a hit feels felt even before aberration.
-	uv += from_center * trauma * 0.004 * sin(TIME * 40.0);
+	// 0.004 -> 0.0018, and promoted to a uniform. It had no gate and no dial, so a
+	// busy fight wobbled the whole screen at 40 Hz with an amplitude equal to the hit
+	// rate — on top of the aberration below, which reads the same number.
+	uv += from_center * trauma * warp_amount * sin(TIME * 40.0);
 
 	// Chromatic aberration: radial R/B split, scaling from center + with trauma.
 	float ab_px = aberration_base + aberration_trauma * trauma;

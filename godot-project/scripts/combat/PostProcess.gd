@@ -16,7 +16,11 @@ const SHADER_PATH: String = "res://scenes/combat/post_process.gdshader"
 # Reaction tuning.
 const HEAT_DECAY: float = 1.6          # heat units shed per second
 const SHOCK_DURATION: float = 0.85     # seconds a ripple lives
-const SHOCK_BASE_AMP: float = 0.012    # UV displacement at full strength
+const SHOCK_BASE_AMP: float = 0.012
+## The least screen distortion a saturated fight keeps. Not zero: the grade going
+## completely flat mid-fight would read as the effect breaking rather than as calm.
+## `austerity()` bottoms out at 0.25, so this only bites at its lowest step.
+const CLARITY_FLOOR: float = 0.35    # UV displacement at full strength
 
 var _mat: ShaderMaterial
 var _rect: ColorRect
@@ -57,9 +61,28 @@ func _process(delta: float) -> void:
 	_rect.visible = on
 	if not on:
 		return
-	# Aberration follows the camera trauma exactly (it already decays there), so a
-	# hit smears the screen for free — no hit-path call site needed.
-	_mat.set_shader_parameter(&"trauma", _camera_trauma())
+	# ══ THE PICTURE CALMS DOWN AS THE FIGHT GETS BUSY ══════════════════════════
+	# Maker: *"find a way to still make it feel a little less crowded and crazy like
+	# mid way through the fight or at least clearer to what is going on"*.
+	#
+	# ⚠ THIS WAS A COMPOUNDING LOOP AND IT RAN THE WRONG WAY. Aberration, the 40 Hz
+	# micro-warp below it in the shader, and the camera shake are all pure functions of
+	# ONE number — `CombatCamera.trauma()` — which accumulates additively per hit and
+	# clamps at 1.0. So the more was happening, the harder the screen was distorted,
+	# and mid-fight (the exact moment the maker named) all three sat pinned at maximum
+	# on top of the busiest picture. The presentation was loudest precisely when the
+	# read was hardest.
+	#
+	# ⚠ AND THE PROJECT ALREADY HAD THE ANSWER, UNPLUGGED. `SpellReactor.austerity()`
+	# returns 1.0 / 0.75 / 0.5 / 0.25 as live spectacles go over budget, and it already
+	# thins particles, debris, decals and swing arcs. The screen-space and camera layers
+	# never asked it — `PostProcess`, `CombatCamera` and `Juice` contained no call to it
+	# at all. Feeding it in here inverts the loop: a quiet exchange keeps the full
+	# grade, and a screen with five spectacles on it stops shouting over them.
+	#
+	# It scales the trauma the SHADER sees only. The camera's own trauma is untouched,
+	# so hit weight, decay and every other consumer read exactly what they did before.
+	_mat.set_shader_parameter(&"trauma", _camera_trauma() * _clarity())
 	# Heat-haze decays back to calm.
 	if _heat > 0.0:
 		_heat = maxf(_heat - HEAT_DECAY * delta, 0.0)
@@ -76,6 +99,20 @@ func _process(delta: float) -> void:
 			_shock_amp = 0.0
 			_mat.set_shader_parameter(&"shock_amp", 0.0)
 
+
+
+## How much of the screen-space distortion survives, given how much is already on
+## screen. 1.0 when the stage is calm, down to CLARITY_FLOOR when it is saturated.
+##
+## Reads the same `austerity()` the particle systems have used all along, so there is
+## one definition of "busy" rather than a second one that can disagree with it.
+## Degrades to 1.0 (no change) if the reactor autoload is absent, which is what a
+## headless suite sees.
+func _clarity() -> float:
+	var reactor: Node = get_node_or_null(^"/root/SpellReactor")
+	if reactor == null or not reactor.has_method("austerity"):
+		return 1.0
+	return maxf(float(reactor.call("austerity")), CLARITY_FLOOR)
 
 func _camera_trauma() -> float:
 	var cam: Node = get_tree().get_first_node_in_group("combat_camera")

@@ -633,7 +633,12 @@ const MELEE_HIT_STOP: float = 0.07
 ## Directional camera punch along facing when a melee connects (px).
 const MELEE_CAMERA_KICK: float = 5.0
 ## Dash afterimage cadence/tint (~4-5 ghosts across the 0.14s dash).
-const GHOST_INTERVAL: float = 0.03
+## ⚠ 0.03 -> 0.055. At 0.03 s a dash left ~11 FULL STICK-FIGURE afterimages alive at
+## once (FADE_TIME 0.34), each a complete redraw plus two wind streaks — and two bots
+## trading dashes saturated the 24-ghost cap on their own. The trail still reads as a
+## trail at 6 images; what it stops doing is putting a crowd of bodies on screen during
+## the exact move that is supposed to make a fighter easier to follow.
+const GHOST_INTERVAL: float = 0.055
 const GHOST_COLOR: Color = Color(0.6, 0.85, 1.0, 0.72)
 ## Persistent "charged mage" aura (enemies get none — hero reads as hero).
 ## Aura COLOUR comes from the active element (see _apply_element); only the
@@ -3994,7 +3999,7 @@ func _lightning_blink() -> void:
 	_dash_cooldown_timer = _cfg["dash_cd"]
 	_blink_iframe_timer = LIGHTNING_BLINK_IFRAME
 	rig.spawn_ghost(get_parent(), LIGHTNING_BLINK_START, Vector2.ZERO, Vector2.ZERO, 0.28)
-	_lightning_blink_fx(origin, dest)
+	_blink_trail_fx(origin, dest)
 	_blink_spark(origin, dest)
 	global_position = dest
 	velocity.y = 0.0
@@ -4005,18 +4010,37 @@ func _lightning_blink() -> void:
 ## The crackle at both ends plus a few arc motes strung along the line, so the eye
 ## reads a DISCHARGE rather than a body that skipped some frames. Shared with the
 ## puppet replay so both screens draw the same thing.
-func _lightning_blink_fx(origin: Vector2, dest: Vector2) -> void:
-	CombatVfx.spawn_burst(get_parent(), origin, LIGHTNING_BLINK_START,
-		LIGHTNING_BLINK_END, 20, 0.3, 60.0, 190.0, 1.5, 3.0)
-	CombatVfx.spawn_burst(get_parent(), dest, LIGHTNING_BLINK_START,
-		LIGHTNING_BLINK_END, 26, 0.35, 80.0, 240.0, 1.5, 3.5)
+## ══ EVERY BLINK GETS THE LINE, IN ITS OWN COLOUR ═══════════════════════════════
+## Maker: *"the blink line that the electric class has is nice, i want all blinks to
+## look with that line just in varying colours based on the class"*.
+##
+## This WAS `_lightning_blink_fx` and only the Stormcaller's teleport called it. The
+## other two teleport paths — the generic blink and the Warlock's thrall swap — each
+## spawned a single burst at the origin and another at the destination, in a fixed
+## violet, and nothing in between. The comment below already explains why that reads
+## badly, and it applied just as much to them: two unrelated poofs rather than one
+## journey.
+##
+## ⚠ THE COLOUR IS THE CLASS'S, NOT A PARAMETER PER CALL SITE. `_element_color` is the
+## caster's live element tint, so the Stormcaller's line stays the yellow-blue it
+## already was and every other class gets the same shape in its own hue — which is
+## exactly the ask, and it means a new class needs no new constant here. The three
+## fixed palettes this replaces (LIGHTNING_BLINK_*, BLINK_BURST_*, THRALL_SWAP_*) said
+## something about the SPELL; the element says something about WHO CAST IT, which is
+## the thing a spectator is trying to track.
+func _blink_trail_fx(origin: Vector2, dest: Vector2) -> void:
+	var head: Color = Color(_element_color.r, _element_color.g, _element_color.b, 0.95)
+	var tail: Color = Color(_element_color.r * 0.4, _element_color.g * 0.4,
+		_element_color.b * 0.55, 0.0)
+	CombatVfx.spawn_burst(get_parent(), origin, head, tail, 20, 0.3, 60.0, 190.0, 1.5, 3.0)
+	CombatVfx.spawn_burst(get_parent(), dest, head, tail, 26, 0.35, 80.0, 240.0, 1.5, 3.5)
 	# Three motes down the line: cheap, and it is what makes the two poofs read as
 	# ONE event instead of two unrelated sparks.
 	for i: int in 3:
 		var t: float = float(i + 1) / 4.0
-		CombatVfx.spawn_burst(get_parent(), origin.lerp(dest, t), LIGHTNING_BLINK_START,
-			LIGHTNING_BLINK_END, 5, 0.18, 30.0, 90.0, 1.0, 2.0)
-	rig.flash_color(LIGHTNING_BLINK_FLASH, BLINK_ARRIVAL_FLASH_TIME)
+		CombatVfx.spawn_burst(get_parent(), origin.lerp(dest, t), head, tail,
+			5, 0.18, 30.0, 90.0, 1.0, 2.0)
+	rig.flash_color(head.lightened(0.35), BLINK_ARRIVAL_FLASH_TIME)
 	Sfx.play("blink", 1.0, 0.08, 1.5)
 
 
@@ -4144,8 +4168,7 @@ func _thrall_swap_fallback() -> void:
 	_dash_cooldown_timer = _cfg["dash_cd"]
 	_blink_iframe_timer = THRALL_SWAP_IFRAME
 	rig.spawn_ghost(get_parent(), THRALL_SWAP_START, Vector2.ZERO, Vector2.ZERO, 0.28)
-	CombatVfx.spawn_burst(get_parent(), origin, THRALL_SWAP_START, THRALL_SWAP_END,
-		14, 0.3, 40.0, 110.0, 1.5, 3.0)
+	_blink_trail_fx(origin, dest)
 	_blink_spark(origin, dest)
 	global_position = dest
 	velocity.y = 0.0
@@ -4338,10 +4361,7 @@ func _blink() -> void:
 	_blink_iframe_timer = BLINK_IFRAME
 	# Shadow-poof where we WERE: dark fading silhouette + violet burst.
 	rig.spawn_ghost(get_parent(), BLINK_SHADOW_COLOR, Vector2.ZERO, Vector2.ZERO, 0.35)
-	CombatVfx.spawn_burst(
-		get_parent(), origin, BLINK_BURST_START, BLINK_BURST_END,
-		18, 0.35, 40.0, 110.0, 1.5, 3.0
-	)
+	_blink_trail_fx(origin, dest)
 	_blink_spark(origin, dest)
 	global_position = dest
 	velocity.y = 0.0  # don't inherit fall speed -> no "heavy gravity" right after a blink
@@ -6975,8 +6995,8 @@ func _net_dispatch_replay(kind: String, data: Dictionary) -> void:
 		# no longer exists; the Arcane Phase is a TRAVEL, so it crosses the wire on the
 		# ordinary "ds" dash packet like the other six and `_replay_dash` draws its
 		# echo. An "rc" from a stale peer falls through this match harmlessly.
-		"lb":   # STORMCALLER — the lightning blink's crackle at both ends
-			_lightning_blink_fx(global_position, data.get("to", global_position))
+		"lb":   # the blink LINE at both ends, in the caster's own colour
+			_blink_trail_fx(global_position, data.get("to", global_position))
 		"sw":   # WARLOCK — the thrall swap's two poofs (see `_replay_swap`)
 			_replay_swap(data.get("to", global_position), data.get("th", global_position))
 		"gh":   # a ghost's HAUNT gust — the shove already crossed via the knockback

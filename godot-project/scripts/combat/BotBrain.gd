@@ -321,6 +321,30 @@ const BAND_DEADZONE: float = 0.16
 ## dodge does — long enough that a trade-heavy exchange cannot make the bot alternate
 ## at the hit rate, short enough that it never reads as ignoring you.
 ## UNTESTED GUESS on the exact value; the SHAPE is what the fix rests on.
+
+## ══ NOBODY IS EVER FULLY STILL ═════════════════════════════════════════════════
+## Maker: *"I dont think they should ever be fully standing still"*.
+##
+## ⚠ THE STATUE IS A REAL BRANCH, NOT A DROPPED FRAME. `intent` above resolves to 0
+## whenever the bot is INSIDE its spacing band with no committed direction — which is
+## the state a well-behaved bot spends most of a fight in, because holding the correct
+## range is the whole job of the band. `want` then multiplies out to exactly 0.0 and
+## the body plants, so the better the spacing logic worked, the more the fighter stood
+## there like furniture.
+##
+## The answer is not to widen the band — that would break the spacing the band exists
+## to hold. It is to keep WEIGHT MOVING while the spacing is held: a small shuffle
+## around the spot the bot already wants to be on. It reads as a fighter jockeying and
+## it changes the held distance by only a few px either way.
+##
+## ⚠ IT GOES THROUGH THE SAME DANGER SCORER AS A REAL STEP. Applied BEFORE the pit and
+## telegraph probe below, deliberately: a shuffle that could walk a bot off a ledge
+## would be a new way to die inventing itself out of an idle animation.
+## How hard the settled shuffle pushes, as a fraction of full walk speed. Small enough
+## to read as weight shifting rather than as walking somewhere.
+const IDLE_JOCKEY: float = 0.30
+## How fast it sways, in Hz. Slow — a fighter settling, not a fighter fidgeting.
+const IDLE_JOCKEY_HZ: float = 0.55
 const STEER_MIN_DWELL: float = 0.24
 ## Two of the caster's own spells fusing (ReactionTable's hollow_purple, the
 ## headline self-combo) needs the second beam thrown inside this window.
@@ -686,6 +710,9 @@ class Memory extends RefCounted:
 	var last_dash_at: float = -99.0
 	## Last time the bot hopped to reach a foe ABOVE it. See AIR_REACH_SPACING.
 	var last_air_reach_at: float = -99.0
+	## Per-bot phase offset for the settled shuffle, so two fighters holding the same
+	## distance do not sway in lockstep like a chorus line. See IDLE_JOCKEY.
+	var jockey_phase: float = -1.0
 	var last_blink_at: float = -99.0
 	var last_guard_at: float = -99.0
 	var last_fire_at: float = -99.0
@@ -1418,6 +1445,17 @@ static func _reach_upward(intent: Dictionary, bb: Dictionary, m: Memory,
 	m.last_air_reach_at = now
 
 
+## The settled shuffle — see the IDLE_JOCKEY block. A smooth sway rather than a square
+## step, so the body eases through the turn instead of snapping between two poses, and
+## phase-offset per bot so both fighters do not rock in time with each other.
+static func _idle_jockey(m: Memory, now: float) -> float:
+	if m == null:
+		return 0.0
+	if m.jockey_phase < 0.0:
+		m.jockey_phase = m.rng.randf() * TAU
+	return IDLE_JOCKEY * sin(now * TAU * IDLE_JOCKEY_HZ + m.jockey_phase)
+
+
 static func _traverse_dash(intent: Dictionary, bb: Dictionary, m: Memory,
 		now: float) -> void:
 	if now - m.last_dash_at < DASH_TRAVEL_SPACING:
@@ -1714,6 +1752,10 @@ static func _steer(bb: Dictionary, profile: Dictionary, m: Memory, evaluated: Ar
 			m.steer_until = now + STEER_MIN_DWELL
 
 	var want: float = float(intent) * toward
+
+	# Settled inside the band — shuffle rather than plant. See IDLE_JOCKEY.
+	if is_zero_approx(want):
+		want = _idle_jockey(m, now)
 
 	# COVER. A wall between me and the foe is worth standing behind when I am hurt,
 	# so the urge to cross it is damped rather than vetoed — vetoed would leave a

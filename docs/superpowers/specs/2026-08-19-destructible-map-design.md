@@ -40,7 +40,12 @@ a ranged duel and that is a legitimate way for a fight to end.
 | Jump apex | **105.3 px** | `740² / (2·2600)` from `TuningConfig` | derived from live constants |
 | Run speed | **210 px/s** | `Hero.SPEED` | read from code |
 | Airtime, full arc | **0.569 s** | `2·740/2600` | derived |
-| **Flat-gap reach** | **≈119.5 px ≈ 7.5 chunks** | `210 × 0.569` | derived; agrees with the earlier measured ~115 |
+| **Flat-gap reach — Juggernaut** | **97.1 px = 6.1 chunks** | MEASURED 2026-08-19 | **binding constraint** |
+| Flat-gap reach — Arcanist | 127.0 px = 7.9 chunks | MEASURED | |
+| Flat-gap reach — Brawler | 132.5 px = 8.3 chunks | MEASURED | |
+| Flat-gap reach — Swordsaint | 139.7 px = 8.7 chunks | MEASURED | |
+| Flat-gap reach — Stormcaller | 147.6 px = 9.2 chunks | MEASURED | |
+| Measured apex / airtime | 111.5 px / 0.567 s | MEASURED | vs 105.3 / 0.569 derived |
 | Rising-jump forward reach | **~83.6 px** | `VersusArena.gd:194`, already relied on by shipped geometry | in-repo, load-bearing |
 | Ground dash | ~112 px | earlier research | **unverified here** |
 
@@ -51,18 +56,31 @@ difference is a denominator disagreement — 27.6% is solid-over-full-playfield-
 59.3% is solid-over-the-terrain-bounding-box (highest surface down to collider bottom).
 Both can be true; the chunk COUNT is the one that sizes the data structure, so use 2,584.
 
-**⚠ The flat-gap reach was NOT successfully measured in-engine, and slice 0 exists to fix
-that.** An attempt on 2026-08-19 to drive a real `Hero` across a real gap returned 0 px for
-all five classes tested — the probe could not drive the body through `Input.action_press`,
-and it was deleted rather than kept, because a harness that cannot reach its own key case is
-noise. The 119.5 px above is derived from live constants and happens to agree with the
-earlier measured ~115, which is why it is usable as a *planning* number. It is **not** good
-enough to be the constant the game ships, because the whole "how many chunks may a hit
-remove" rule hangs off it.
+**✅ SLICE 0 IS DONE. THE REACH IS MEASURED, AND IT CORRECTS THIS SPEC.**
+`tools/probe_gap_reach.gd` drives a real `Hero` through the real `controller` seam
+across a purpose-built flat bench and reports the widest flat gap each class clears.
+Two independent controls run first (a plain run must move the body; a held jump must
+leave the ground) so a zero can never be mistaken for a finding.
 
-**The consequence that matters:** at ~115–120 px of reach, **a hole 8 chunks wide (128 px)
-cannot be crossed by anyone, human included.** Seven chunks (112 px) is the last crossable
-width. That is exactly the case the maker has ruled acceptable.
+**The planning number was 119.5 px and the truth is a RANGE of 97–148 px**, because the
+reach is a function of run speed and the classes do not share one. The number that
+governs the design is therefore **the Juggernaut's 97.1 px — 6 chunks, not 7.5.**
+
+⚠ **This changes the rule.** The old text below said "seven chunks (112 px) is the last
+crossable width". That is true for four classes and FALSE for the Juggernaut, which
+cannot cross seven. The honest statement is: **a hole 6 chunks wide (96 px) is crossable
+by everyone; 7 strands the Juggernaut; 9+ (144 px) strands everyone but the Stormcaller;
+10 (160 px) strands the whole roster.**
+
+⚠ **SEVEN FAULTS WERE FIXED TO GET THIS NUMBER**, all recorded in the probe's own header
+so nobody pays for them twice. The two that would bite anyone writing a similar harness:
+the jump must be HELD (`Hero` has variable jump height and halves upward velocity on
+release — a one-frame press measures a third of the arc), and the takeoff height must be
+sampled AT THE LIP (a run-up that starts on the left mound measures a surface 80 px above
+where the jump actually happens). The last two faults were measurement-side: the stage's
+own platforms make a "flat gap" unmeasurable, hence the bench; and landing must be
+detected by `is_on_floor()`, because depenetration leaves the body a fraction of a pixel
+higher than it took off from and a height comparison never fires.
 
 **⚠ And `FloorGen`'s reachability budget is calibrated to DEAD CONSTANTS.** It derives its
 gaps from "JUMP_VELOCITY 580 against GRAVITY 1500" while `TuningConfig` overrides both at
@@ -182,7 +200,7 @@ Each slice is independently verifiable and independently revertable.
 > is 10 ticks while a 80 px drop takes ~15, so the body may not be `is_on_floor()` when
 > the jump is pressed. **Do not trust the derived 119.5 px until this reads a number.**
 
-- **Slice 0 — MEASURE THE REACH.** Build a probe that genuinely drives a `Hero` across a
+- **Slice 0 — MEASURE THE REACH. ✅ DONE** (`tools/probe_gap_reach.gd`). Build a probe that genuinely drives a `Hero` across a
   parameterised gap and binary-searches the widest crossable width, per class, for a flat
   jump, a rising jump and a ground dash. ⚠ The 2026-08-19 attempt failed by driving input the
   body does not read; drive the same seam `BotController` uses instead. **Nothing after this

@@ -18,7 +18,10 @@ extends RigidBody2D
 ## it under a dummy renderer.
 
 const GROUP_NAME: String = "debris_chunk"
-const MAX_LIVE_CHUNKS: int = 160  # global perf cap; more rubble on screen (was 90)
+## ⚠ 160 -> 90, back to the value the comment records it was raised FROM. This is the
+## largest object count in the game and every one is a real RigidBody2D tumbling under
+## gravity, so it is MOTION rather than just pixels.
+const MAX_LIVE_CHUNKS: int = 90  # global perf cap; more rubble on screen (was 90)
 const CHUNK_LAYER: int = 32  # layer 6 — dedicated, see header
 const CHUNK_MASK: int = 1  # platforms/walls only
 # Visual size band (px across, roughly). Wider band -> more diversified chunks
@@ -28,8 +31,11 @@ const SIZE_MAX: float = 13.0
 # Lifetime: fly + settle for LIFETIME_*, then fade out over FADE_TIME.
 # Longer settle + lingering rubble = Stick-Fight "permanence" (the world stays
 # visibly impacted after the fight moment, not wiped a second later).
-const LIFETIME_MIN: float = 2.6
-const LIFETIME_MAX: float = 4.2
+const LIFETIME_MIN: float = 1.5
+## ⚠ 2.6-4.2 -> 1.5-2.5 (+1.2 s fade). Rubble was outliving the impact that made it by
+## up to 5.4 s, so the floor mid-fight was carrying debris from exchanges the viewer had
+## already stopped thinking about. A burst still reads as a burst; it just clears.
+const LIFETIME_MAX: float = 2.5
 const FADE_TIME: float = 1.2
 # Launch shaping (spawn_burst).
 const SPEED_VARIANCE: float = 0.35  # +/- fraction of the requested speed

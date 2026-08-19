@@ -144,14 +144,20 @@ static func ladder(tier: int, element: int = -1, climax: bool = false) -> Dictio
 ## Turn it DOWN if the fight feels under-punctuated; the safety ceiling below
 ## still holds regardless of what this is set to.
 ## UNTESTED GUESS.
-const MIN_INTERVAL: float = 0.26
+## ⚠ 0.26 -> 0.42. Its own comment calls this an UNTESTED GUESS and says to turn it
+## DOWN if the fight feels under-punctuated; the maker has reported the opposite twice.
+## Every granted frame drags a shake, a zoom punch, a screen ripple AND a hitstop with
+## it, so at 0.26 that is nearly four full punctuation beats a second.
+const MIN_INTERVAL: float = 0.42
 ## The same gap for LOCAL rings, which are small and low-contrast and so may
 ## repeat far more freely.
 const MIN_LOCAL_INTERVAL: float = 0.09
 ## How many localized rings may start inside any rolling second. Not a safety
 ## limit (a small low-contrast ring is not a flash) — purely "stop it looking
 ## like confetti in a crowd fight".
-const MAX_LOCAL_PER_SECOND: int = 6
+## ⚠ 6 -> 3. This constant's own comment says it exists to "stop it looking like
+## confetti in a crowd fight", which is the reported symptom almost word for word.
+const MAX_LOCAL_PER_SECOND: int = 3
 ## A new request must beat the in-flight one by this much to supersede it, so a
 ## cluster of identical requests cannot churn the screen by replacing each other.
 const SUPERSEDE_EPSILON: float = 0.12

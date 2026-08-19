@@ -76,7 +76,12 @@ const HERO_FRAME_BIAS: float = 0.55
 
 # --- Shake tuning ---
 const MAX_OFFSET: Vector2 = Vector2(28.0, 20.0)  # px at full (1.0) trauma
-const TRAUMA_DECAY: float = 1.4  # trauma units shed per second
+## ⚠ 1.4 -> 2.2. Trauma is ADDITIVE per hit and clamps at 1.0, so during a busy
+## exchange it was pinned at the ceiling and every consumer of it — shake here,
+## aberration and the micro-warp in the shader — sat at maximum continuously. Bleeding
+## it off faster means a single heavy hit still reads at full weight while a rapid
+## sequence stops summing into one permanent shudder. One number, whole picture.
+const TRAUMA_DECAY: float = 2.2  # trauma units shed per second
 # add_shake amount -> trauma. With MAX_OFFSET above: cast (2) is barely a
 # tremble, melee (4-7) a firm bump, blast (12) a slam, and stacked hits
 # accumulate toward the full-trauma ceiling.
