@@ -247,7 +247,17 @@ const RECENCY_TAU: float = 2.5
 # FIRE_SPACING (0.60 -> 1.25) and ABILITY_SPACING (1.05 -> 2.10), the >= 12 guard is
 # untouched and still passing, and no test was loosened to land this.
 
-const CAST_LATCH: float = 0.55
+## ⚠ 0.55 -> 1.10 ON THE MAKER'S SECOND ASK, AND THIS IS THE DIAL THEY DESCRIBED.
+## *"no need to spam abilities like 3 in a 2 second window play smart"* — 0.55 s
+## permits exactly three casts in two seconds, which is the number they counted.
+## 1.10 permits two.
+##
+## `slice_test_bot_rhythm` guarded this at <= 0.60 and `slice6_test_bot_brain` demands
+## >= 12 casts in a neutral window; both are relaxed in the same commit, deliberately,
+## with the reasoning recorded at each. That guard was written to stop a change like
+## this being made CASUALLY, and it worked — the first attempt today was casual and it
+## caught it. This one is the maker asking twice, by name, for fewer casts.
+const CAST_LATCH: float = 1.10
 const DODGE_LATCH: float = 0.29        # dash 0.14 + a short lockout
 
 # ── TRAVERSAL DASH — see `_traverse_dash` ───────────────────────────────────

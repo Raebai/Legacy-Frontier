@@ -157,6 +157,9 @@ const DEFAULT_RADIUS: float = 135.0
 const DEFAULT_DAMAGE: int = 22     # per meteor — many meteors overlap
 const DEFAULT_COUNT: int = 10
 const METEOR_IMPACT_RADIUS: float = 48.0
+## How wide the rock itself is while still in the air. See `_in_flight_hit` — this is
+## the object, not its blast, so it is much tighter than the impact radius.
+const IN_FLIGHT_RADIUS: float = 26.0
 const KNOCKBACK: float = 240.0
 const SLANT: Vector2 = Vector2(110.0, 0.0)  # fire meteors streak in from the upper-right
 ## (SIGIL_VISUAL_RADIUS_FACTOR removed with the sky sigil — see `rain()`.)
@@ -634,7 +637,24 @@ func _process(delta: float) -> void:
 		return
 	_elapsed += delta
 	for m: Dictionary in _meteors:
-		if not m["landed"] and _elapsed >= CHARGE_TIME + float(m["delay"]) + _fall_time():
+		if bool(m["landed"]):
+			continue
+		# ⚠ A FALLING ROCK IS SOLID ON THE WAY DOWN. Maker: *"the spells that come from
+		# the sky ... should be able to damage as they come from the sky not just in
+		# impact ... if that spell hits a charater as its falling its still hit the
+		# character"*. Before this, `_meteors` were pure animation until their timer
+		# expired: a rock was DRAWN passing straight through a body and only the
+		# ground-level detonation ever dealt damage, so standing in the column was
+		# free and the only dangerous place was the marked spot on the floor.
+		var struck: Vector2 = _in_flight_hit(m)
+		if struck != Vector2.INF:
+			# Detonate WHERE IT STRUCK, not at the rolled ground point — reusing
+			# `_land` so the hit keeps the element's real impact behaviour rather
+			# than growing a second, quieter damage path beside it.
+			m["end"] = struck
+			_land(m)
+			continue
+		if _elapsed >= CHARGE_TIME + float(m["delay"]) + _fall_time():
 			_land(m)
 	_update_veil()
 	# The gate closes when the last rock is through it, NOT when this node dies —
@@ -758,6 +778,29 @@ func _punctuate_once(at: Vector2) -> void:
 ## Shared damage/status contract for every element; only the knockback
 ## CHARACTER differs — fire blasts away, frost pins (soft push), earth slams
 ## hardest, shadow PULLS INWARD (the implosion made mechanical).
+## Where this still-falling rock is RIGHT NOW, and whether a body is standing in it.
+## Returns the contact point, or `Vector2.INF` for "nothing hit yet".
+##
+## The position is the same `from.lerp(end, f)` the draw code uses, so the rock damages
+## exactly where it is drawn — deriving it twice from different maths is how a spell
+## ends up hitting somewhere it visibly is not.
+##
+## The in-flight radius is deliberately well under `METEOR_IMPACT_RADIUS`: the impact
+## number is a blast, this one is the ROCK, and a body has to actually be in its path.
+func _in_flight_hit(m: Dictionary) -> Vector2:
+	var start: float = CHARGE_TIME + float(m["delay"])
+	if _elapsed <= start:
+		return Vector2.INF                      # still forming; nothing is falling yet
+	var f: float = clampf((_elapsed - start) / maxf(_fall_time(), 0.001), 0.0, 1.0)
+	var pos: Vector2 = (m["from"] as Vector2).lerp(m["end"] as Vector2, f)
+	for body: Node in SpellTargets.in_radius(
+			pos, IN_FLIGHT_RADIUS, get_tree().get_nodes_in_group(target_group),
+			[caster_node], self):
+		if body != null and is_instance_valid(body):
+			return pos
+	return Vector2.INF
+
+
 func _apply_damage(at: Vector2) -> void:
 	# Silhouette-aware + line-of-sight selection (see `targets_in_radius` below for
 	# why the static stayed). Cover blocks the blast: a meteor landing on the far

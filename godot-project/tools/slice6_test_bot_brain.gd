@@ -379,7 +379,17 @@ func _test_uses_the_whole_kit() -> void:
 			used[slot] = int(used.get(slot, 0)) + 1
 			casts += 1
 			cds[slot] = float((spells[slot] as SpellDef).cooldown)
-	_expect(casts >= 12, "the bot keeps casting through a neutral fight (%d casts)" % casts)
+	# ⚠ 12 -> 5, ON THE MAKER'S RULING, and what this line guards is unchanged: a bot
+	# must never go QUIET. It was never a claim that 12 is the right number of casts —
+	# it is the floor that separates "pacing itself" from "stopped working".
+	#
+	# The maker asked twice for fewer casts and counted the fault out loud ("3 in a 2
+	# second window"), so CAST_LATCH went 0.55 -> 1.10, which roughly halves the rate
+	# by design. 5 across this 80-frame window is still unmistakably an active bot; a
+	# brain that has actually stopped returns 0-2 and still fails here. The assertions
+	# BELOW carry the quality claim and are untouched — it must still use every slot,
+	# and it must still not lean on one.
+	_expect(casts >= 5, "the bot keeps casting through a neutral fight (%d casts)" % casts)
 	# ⚠ THE NUMBER MOVED BECAUSE THE HAND DID, AND THE ASSERTION GOT STRONGER, NOT
 	# WEAKER. This used to read "at least four of its five slots". The hand is three
 	# spells now (three thumb buttons), so the same demand — "do not lean on one line"

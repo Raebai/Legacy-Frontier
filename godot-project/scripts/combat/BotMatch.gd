@@ -393,6 +393,8 @@ const RIM_RIGHT: float = 1980.0
 ## and the rock under it is solid, so nothing still in play can reach it; a real fall
 ## crosses it in about a sixth of a second.
 const RIM_BOTTOM: float = 1100.0
+## Seconds after the bell before either fighter may cast. See `_arm_opening_lockout`.
+const OPENING_LOCKOUT: float = 1.0
 ## Nobody watches a stalemate. If neither fighter has gone down by here the match is
 ## decided on the health bars, which is a real result and not a cop-out: the fighter
 ## who took less punishment over 50 seconds won the fight the audience watched.
@@ -1709,6 +1711,7 @@ func _tick_intro() -> void:
 func _start_fight() -> void:
 	_intro_phase = Intro.FIGHT
 	get_tree().paused = false
+	_arm_opening_lockout()
 	if _intro_row != null:
 		_intro_row.visible = false
 	if _intro_fight != null:
@@ -1904,3 +1907,23 @@ func _reload() -> void:
 	swap_sides = not swap_sides
 	get_tree().paused = false
 	get_tree().reload_current_scene()
+
+
+## ⚠ NOBODY OPENS THE BOUT WITH AN ABILITY. Maker: *"I want there to be a 1 second
+## cooldown as soon as the game start before like abilities can be used"*.
+##
+## Armed on the frame the tree unpauses, not on spawn: the fighters stand under a
+## PAUSED tree through the whole VS card (see `Intro`), so a lockout started earlier
+## would tick away behind the card and be gone before anyone could move.
+##
+## Reuses `Hero._cast_lockout` rather than inventing a second gate. That field already
+## means exactly this — "no kit slot may fire yet" — it is already decremented every
+## frame, already checked in `_cast_signature`, and already flashes the refusal. A
+## parallel timer would be a second thing to keep in agreement with it.
+##
+## Basic attacks and movement are deliberately untouched: the ask was abilities, and
+## a second of two fighters unable to do anything at all is a stall, not an opening.
+func _arm_opening_lockout() -> void:
+	for f: Node2D in _fighters:
+		if is_instance_valid(f):
+			f.set("_cast_lockout", OPENING_LOCKOUT)

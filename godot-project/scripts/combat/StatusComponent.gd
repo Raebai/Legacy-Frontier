@@ -129,7 +129,57 @@ func is_hard_cc() -> bool:
 	return _freeze > 0.0 or _shock > 0.0
 
 
+## ⚠ A CORPSE KEPT BURNING, AND NOTHING ANYWHERE CHECKED. Maker: *"all dot damage
+## should go away on death"*.
+##
+## This `_process` ticked burn, dealt `_deal_self` damage, fired `_shatter()` when a
+## freeze expired and `_pop_unstable()` when unstable ran out — all of it with no
+## notion of whether the body it is attached to is still alive. So a dead fighter went
+## on taking damage numbers, glow pulses and, through `SpellTargets.hurt`, KNOCKBACK.
+##
+## That last one is very likely the second half of the maker's *"in death they become
+## all elongated"*: knockback on a corpse drives the rig's spring sim while it is in
+## full ragdoll, which is exactly the state its limbs are loosest in.
+##
+## Duck-typed, because the two body types answer differently and neither should have
+## to grow an interface for this: `Hero` publishes `is_downed()`, `Enemy` carries `hp`
+## and simply stops existing. Anything that answers neither is assumed alive, which
+## keeps every headless stub and test dummy behaving exactly as before.
+func _owner_is_dead() -> bool:
+	var o: Node = get_parent()
+	if o == null or not is_instance_valid(o):
+		return true
+	if o.has_method("is_downed"):
+		return bool(o.call("is_downed"))
+	var hp: Variant = o.get("hp")
+	return hp != null and int(hp) <= 0
+
+
+## Drop every ailment. Called the moment the owner dies so nothing is left to tick,
+## and safe to call repeatedly.
+func clear_all() -> void:
+	_burn = 0.0
+	_burn_tick = 0.0
+	_chill = 0.0
+	_freeze = 0.0
+	_shock = 0.0
+	_weaken = 0.0
+	_unstable = 0.0
+	queue_redraw()
+
+
 func _process(delta: float) -> void:
+	# ⚠ BEFORE ANY TIMER MOVES. Clearing rather than merely returning matters: the
+	# ailment TINT and `status_bits()` are read by the rig and the HUD, so a corpse
+	# that kept its flags would still be drawn on fire while taking no damage.
+	# ⚠ AND `_freeze` IS ZEROED THROUGH `clear_all` RATHER THAN ALLOWED TO EXPIRE, so
+	# the `was_frozen` edge below cannot fire `_shatter()` on a body that is already
+	# dead — a corpse exploding into ice shards seconds after it fell is the same
+	# class of bug as the burn ticks, just louder.
+	if _owner_is_dead():
+		if is_active():
+			clear_all()
+		return
 	_phase += delta
 	if _burn > 0.0:
 		_burn -= delta

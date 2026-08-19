@@ -1,21 +1,6 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://ptyir4gsxgjr"]
 
-; THE TOWN. Almost everything in it is built in code by World.gd (house style), so
-; this scene is deliberately two nodes: the world script and the one body you drive.
-;
-; THE PLAYER BODY LEFT TOO, and that is the newest change: the town spawns a HERO
-; now (`World._spawn_hero_body`) so you can cast in the lobby, and a body that needs a
-; faction and a group at spawn cannot be parked in a scene file. This scene is one
-; node — the script that builds everything.
-;
-; WHAT LEFT BEFORE THAT: the TileMapLayer (a retired top-down grass grid, invisible for
-; months), two hard-coded NPC instances (the town's cast is now World.TOWNSFOLK, one
-; editable list instead of a scene diff), and three RoomZone Area2Ds. The zones wrote
-; `current_room_id` onto whoever walked through them, which existed for one thing: the
-; LLM stack's "who is in earshot of a broadcast" test. That stack is deleted, so the
-; zones and RoomZone.gd went with it rather than being left as a system with no reader.
+[ext_resource type="Script" uid="uid://bek5t33od4362" path="res://scripts/World.gd" id="2_world_script"]
 
-[ext_resource type="Script" path="res://scripts/World.gd" id="2_world_script"]
-
-[node name="Main" type="Node2D"]
+[node name="Main" type="Node2D" unique_id=1068030433]
 script = ExtResource("2_world_script")

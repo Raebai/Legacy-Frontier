@@ -407,6 +407,13 @@ const LEG_LEN_FACTOR: float = LEG_REACH_FACTOR * LEG_REACH_USABLE
 ## its mid-line, which is exactly where SpikeFigure's are (HIP_OFF +12 under a 58.5
 ## ride on an 84 px figure = -0.009 h).
 const HIP_Y_FACTOR: float = 0.5 - LEG_LEN_FACTOR
+## Rest length of the SPINE (hip -> neck) as a fraction of figure height, DERIVED from
+## the two joints' own resting factors rather than measured off a drawing, so it can
+## never disagree with where `_compute_pose` actually puts them:
+##     neck sits at  -0.5 + 2 * HEAD_R_FACTOR   (head top, plus a head diameter down)
+##     hip  sits at  HIP_Y_FACTOR
+## See `draw_figure`, which uses it to stop the torso being drawn longer than it is.
+const SPINE_FACTOR: float = HIP_Y_FACTOR + 0.5 - 2.0 * HEAD_R_FACTOR
 ## Ceiling on the stride dip, as a fraction of height. Without it a foot target left
 ## somewhere absurd (a blink mid-swing, a rig teleported by a test) could fold the
 ## figure into the floor. At the shipped stride the real dip peaks well under this.
@@ -3255,6 +3262,32 @@ static func draw_figure(
 	# ELBOW per arm with 2-bone IK so the figure BENDS like a real body instead of
 	# stiff straight sticks. Segment sums exceed the limb reach so there's always
 	# a real bend; knees bend forward (+x local), elbows bend down. ---
+	# ⚠ AND THE TORSO IS A BONE TOO — THE THIRD PLACE THIS SAME FAULT LIVED.
+	#
+	# Maker, watching a bot die: *"in death they become all elongated"*. The legs were
+	# fixed for this, then the arms; the SPINE was still unconstrained. `neck` and
+	# `hip` are both read out of the spring-simmed pose and are simmed SEPARATELY, so
+	# nothing whatsoever held the distance between them — the torso is simply drawn
+	# from one to the other however far apart the two springs have wandered.
+	#
+	# Death is where they wander furthest: `collapse()` snaps `_limp` up and opens the
+	# lean cap from LEAN_CAP_GROUND 0.5 to LEAN_CAP_PRONE 1.85, which is the loosest
+	# the whole rig ever gets. A body that also keeps taking DoT knockback after it
+	# died (see StatusComponent, fixed alongside this) gets driven harder still.
+	#
+	# Only ever SHORTENS: a compressed torso is a real pose (a crouch, a landing
+	# squash) and is left exactly as the sim produced it. `head_center` moves with the
+	# neck so the skull stays attached, and `shoulder` is re-derived from the corrected
+	# spine using `_compute_pose`'s own 0.15 lerp so the arms hang off the fixed body.
+	var spine_len: float = fig_height * SPINE_FACTOR
+	var spine: Vector2 = neck - hip
+	var spine_now: float = spine.length()
+	if spine_now > spine_len and spine_now > 0.001:
+		var fixed_neck: Vector2 = hip + spine / spine_now * spine_len
+		head_center += fixed_neck - neck
+		neck = fixed_neck
+		shoulder = neck.lerp(hip, 0.15)
+
 	var thigh: float = fig_height * THIGH_FACTOR
 	var shin: float = fig_height * SHIN_FACTOR
 	var upper: float = fig_height * 0.2
@@ -3867,14 +3900,26 @@ static func _draw_blade(
 	var base: Vector2 = grip - dir * (blade_len * 0.1)
 	var tip: Vector2 = grip + dir * blade_len
 	item.draw_line(grip - perp * guard, grip + perp * guard, edge, thick * 0.8)
-	item.draw_line(base, tip, edge, thick * 1.5)
-	item.draw_line(base, tip, gear_col, thick)
-	item.draw_line(grip + dir * (blade_len * 0.4), tip, gear_col.lightened(0.35), thick * 0.35)
-	# A POINT, not a bead. `draw_circle(tip, ...)` put a round cap on the end of a
-	# constant-width bar, which is the exact silhouette the maker read as "doesn't
-	# look like a blade". The last fifth tapers to nothing instead. See the katana arm
-	# in `_draw_held` for the same fix stated at length.
-	var p_base: Vector2 = grip + dir * (blade_len * 0.80)
+	# ⚠ THE BODY STOPS SHORT OF THE TIP, AND THAT IS THE WHOLE FIX. Maker: *"make the
+	# swordsaints sword pointy"*.
+	#
+	# A taper triangle was already being drawn over the last fifth — but the two body
+	# lines still ran the FULL length to `tip` at constant width, so a flat bar-end
+	# `thick * 1.5` wide sat under the point and won the silhouette. The triangle was
+	# decoration on a blunt stick. Ending the body at the taper's base is what makes
+	# the point the actual end of the blade.
+	#
+	# The taper is also longer now (last 20% -> last 32%), which is what reads as a
+	# SWORD rather than a chisel at 31 px tall.
+	var p_base: Vector2 = grip + dir * (blade_len * 0.68)
+	item.draw_line(base, p_base, edge, thick * 1.5)
+	item.draw_line(base, p_base, gear_col, thick)
+	item.draw_line(grip + dir * (blade_len * 0.4), p_base, gear_col.lightened(0.35), thick * 0.35)
+	# Keyline under the point, so the tip keeps the same dark edge the body has and
+	# does not read as a lighter stuck-on triangle.
+	item.draw_colored_polygon(PackedVector2Array([
+		p_base + perp * (thick * 0.95), tip, p_base - perp * (thick * 0.95),
+	]), edge)
 	item.draw_colored_polygon(PackedVector2Array([
 		p_base + perp * (thick * 0.62), tip, p_base - perp * (thick * 0.62),
 	]), gear_col)

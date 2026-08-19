@@ -275,10 +275,21 @@ func _test_dials() -> void:
 	_expect(BotBrain.ABILITY_SPACING >= 1.0,
 		"ABILITY_SPACING is back under 1.0")
 	# And the guarded one is left where the other suite needs it.
-	_expect(BotBrain.CAST_LATCH <= 0.60,
-		"CAST_LATCH has been raised past 0.60. That is the ONE pacing dial "
-		+ "`slice6_test_bot_brain`'s `>= 12 casts` assertion constrains — raising it "
-		+ "is what made the last attempt at this fail three times. Reach for "
-		+ "FIRE_SPACING / ABILITY_SPACING instead; they are invisible to that guard "
-		+ "and they emit far more of what reads as spam.")
+	# ⚠ RAISED 0.60 -> 1.20 BY MAKER RULING, and the old bound's warning is kept below
+	# because it is still true about the MECHANISM, just no longer about the intent.
+	#
+	# It read: "CAST_LATCH has been raised past 0.60. That is the ONE pacing dial
+	# `slice6_test_bot_brain`'s `>= 12 casts` assertion constrains ... reach for
+	# FIRE_SPACING / ABILITY_SPACING instead." That advice was correct and was
+	# followed first: both spacing dials were doubled and the >= 12 guard survived.
+	# The maker then watched the result and asked again, counting the fault out loud —
+	# "no need to spam abilities like 3 in a 2 second window" — and three-in-two is
+	# precisely what a 0.55 s latch allows. At that point the latch IS the dial, and
+	# no amount of spacing on the other two reaches it.
+	#
+	# The bound is kept rather than deleted so the next raise is still a decision.
+	_expect(BotBrain.CAST_LATCH <= 1.20,
+		"CAST_LATCH is past 1.20. It is the dial `slice6_test_bot_brain`'s cast-count "
+		+ "assertion constrains, so raising it means relaxing that guard too — a "
+		+ "maker-level call about how talkative a bot is, not a tuning tweak.")
 	_completed["the_dials_are_where_the_comments_say"] = true

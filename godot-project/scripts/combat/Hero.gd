@@ -1666,16 +1666,26 @@ func _tune(key: String, fallback: float) -> float:
 ##
 ## Quick and heavy carry the increase because they are what chain into a smear;
 ## ults are already 12-26 s and making the payoff rarer was never the ask.
+## ⚠ RAISED ON THE MAKER'S EXPLICIT, REPEATED ASK: *"increase cooldown geenrally on
+## abilities please"*. quick/heavy 1.35 -> 1.80, ult 1.0 -> 1.30.
+##
+## ⚠ AND THIS ONE DOES COST THE PLAYER, which is worth stating rather than burying.
+## `docs/PLAYTEST-QUEUE.md` argues these are the wrong lever for a SPECTATING problem
+## precisely because they are the player's numbers too, so slowing them nerfs every
+## class in the tower. That objection was raised once; the maker asked again anyway,
+## so it is their call and it is made here rather than quietly softened into a
+## bot-only change. All three remain live `_tune` knobs, so they can be dialled back
+## from the tuning overlay without another build.
 func cooldown_mult_for(spell: SpellDef) -> float:
 	if spell == null:
 		return 1.0
 	match SpellTier.of(spell):
 		SpellTier.Tier.ULT:
-			return maxf(_tune("cd_mult_ult", 1.0), 0.0)
+			return maxf(_tune("cd_mult_ult", 1.30), 0.0)
 		SpellTier.Tier.QUICK:
-			return maxf(_tune("cd_mult_quick", 1.35), 0.0)
+			return maxf(_tune("cd_mult_quick", 1.80), 0.0)
 		_:
-			return maxf(_tune("cd_mult_heavy", 1.35), 0.0)
+			return maxf(_tune("cd_mult_heavy", 1.80), 0.0)
 
 
 ## THE THREE SPELL BUTTONS MUST COVER THE WHOLE HAND. A kit that grew to four slots

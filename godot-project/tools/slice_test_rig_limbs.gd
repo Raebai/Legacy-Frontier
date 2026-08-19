@@ -30,11 +30,12 @@ func _initialize() -> void:
 		quit(1)
 		return
 	_over_extended_arm_is_clamped()
+	_spine_cannot_stretch()
 	_over_extended_leg_is_clamped()
 	_reachable_target_is_untouched()
 	_folded_target_does_not_explode()
 
-	var expected: int = 4
+	var expected: int = 5
 	if _completed.size() != expected:
 		print("rig-limb tests: FAIL — %d/%d tests reached their end (%s)"
 			% [_completed.size(), expected, ", ".join(_completed)])
@@ -46,6 +47,36 @@ func _initialize() -> void:
 		return
 	print("rig-limb tests: all PASS")
 	quit(0)
+
+
+## THE TORSO IS A BONE TOO. `neck` and `hip` are spring-simmed SEPARATELY, so nothing
+## held their separation and the drawn torso stretched — worst at death, where the rig
+## is loosest. Asserts the same "only ever shortens" rule `draw_figure` applies.
+func _spine_cannot_stretch() -> void:
+	var rig: GDScript = _rig
+	var h: float = float(rig.get("DEFAULT_HEIGHT"))
+	var spine_len: float = h * float(rig.get("SPINE_FACTOR"))
+	var hip := Vector2(0.0, 0.0)
+	# The springs have dragged the neck to 2.5x the spine away, sideways and up.
+	var neck := hip + Vector2(1.0, -1.0).normalized() * spine_len * 2.5
+	var raw: float = (neck - hip).length() / spine_len
+	var s: Vector2 = neck - hip
+	var drawn_neck: Vector2 = hip + s / s.length() * spine_len
+	var drawn: float = (drawn_neck - hip).length() / spine_len
+	print("  spine dragged to %.2fx -> drawn %.2fx" % [raw, drawn])
+	if raw <= 1.05:
+		print("  FAIL spine: the dragged spine was already in bounds (%.3f)" % raw)
+		_fails += 1
+	_check("spine drawn", drawn, 0.99, 1.01)
+	# ...and a COMPRESSED torso is a real pose (a crouch) and must survive untouched.
+	var squashed := hip + Vector2(0.0, -spine_len * 0.6)
+	var sq: Vector2 = squashed - hip
+	var kept: float = sq.length() / spine_len
+	if sq.length() > spine_len:
+		kept = spine_len / spine_len
+	print("  compressed spine kept at %.2fx (must not be stretched back out)" % kept)
+	_check("compressed spine kept", kept, 0.55, 0.65)
+	_completed.append("spine_cannot_stretch")
 
 
 ## Re-derive the drawn end exactly as `draw_figure` does, and hand back how long the
