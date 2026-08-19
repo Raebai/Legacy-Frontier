@@ -338,7 +338,12 @@ def shoot(a: int, b: int, hp: int, seconds: float, timeout: int,
         # ⚠ THE FIGHT JUDGES ITSELF AND THIS IS WHERE WE READ IT. `BotMatch` prints one
         # `[fight]` line per bout from `FightScore` — see that class for what "cool"
         # means and why a demolition is worth re-rolling rather than publishing.
-        if line.startswith("[fight]"):
+        # ⚠ STRIPPED FIRST. `make_clip` re-prints every forwarded line with a two-space
+        # indent, so `startswith("[fight]")` never matched and the verdict was lost at
+        # the LAST of three layers it had to survive. Same class of fault as the two
+        # already fixed below it: the gate was emitting, forwarding, and still reporting
+        # nothing.
+        if line.strip().startswith("[fight]"):
             verdict = line.strip()
             print("    " + verdict)
     shoot.last_verdict = verdict
@@ -556,7 +561,7 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
         # that as the stick men are frozen and once complete the fight starts"*. The
         # announcer used to talk over the opening exchange, which asked a viewer to
         # parse a sentence and a fight simultaneously in the first two seconds.
-        vo_probe = Path(args.vo) if getattr(args, "vo", None) else None
+        vo_probe = Path(args.vo).resolve() if getattr(args, "vo", None) else None
         intro_hold = 0.0
         if vo_probe is not None and vo_probe.exists():
             intro_hold = probe_duration(vo_probe) + INTRO_TAIL_BEAT
@@ -659,7 +664,10 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
     # will win?" from banked WORDS separated by measured silences, which is robust and
     # audibly assembled. A single full-line read is the upgrade, and it needs no code
     # beyond letting the caller hand one in.
-    vo = Path(args.vo) if getattr(args, "vo", None) else build_vo(a, b, with_tail)
+    # ⚠ RESOLVED, because ffmpeg is not run from this cwd. A relative --vo path parsed
+    # fine, measured fine, drove the intro hold fine, and then ffmpeg could not open it
+    # — after a two-minute shoot had already happened.
+    vo = Path(args.vo).resolve() if getattr(args, "vo", None) else build_vo(a, b, with_tail)
     vo_dur = probe_duration(vo)
     print(f"  clip {dur:.1f}s   voice {vo_dur:.1f}s"
           f"{' (with the question)' if with_tail else ''}")
