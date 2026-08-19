@@ -142,6 +142,35 @@ static func side_color(side: int) -> Color:
 	return SIDE_COLORS[side]
 
 
+## ⚠ THE BODY COLOUR AND THE INK ARE NOT THE SAME COLOUR ANY MORE, AND THEY CANNOT BE.
+## Every panel this mode draws on is near-black (`CARD_DIM` 0.055, `PLATE_BG` 0.05),
+## and the maker's palette now contains a class whose colour is BLACK. A Shadowblade
+## name label painted `side_color` is an unreadable label, and a Shadowblade swatch is
+## an empty hole where the swatch should be.
+##
+## So the STAGE keeps the true colour (that is the fighter, and `keyline_for` gives it
+## an edge to read against) while every UI surface asks for the same colour lifted to
+## a luma a dark panel can carry. It is the class's own hue either way — the lift only
+## moves brightness, so the Shadowblade's ink is still the dimmest, coolest of the
+## nine and still reads as "the black one".
+##
+## The taunt bubble used to do this by hand with a flat `.lightened(0.25)`, which was
+## tuned for the blue corner and does not rescue a near-black. This replaces it: one
+## function, a measured floor, and it cannot drift from what the plates use.
+const INK_MIN_LUMA: float = 0.45
+
+
+## `side_color` lifted until a near-black panel can carry it. See the note above.
+static func side_ink(side: int) -> Color:
+	var c: Color = side_color(side)
+	var l: float = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+	if l >= INK_MIN_LUMA or l >= 1.0:
+		return c
+	# lightened(t) moves luma to l + (1-l)*t, so this is the exact t that lands on the
+	# floor rather than a guess that overshoots the pale classes.
+	return c.lightened((INK_MIN_LUMA - l) / (1.0 - l))
+
+
 ## Below this RGB distance two class colours are the same colour to an audience, and
 ## the bout falls back to the corner palette. The Shadowblade/Warlock pair sits at
 ## exactly 0.0, so this is not a hypothetical.
@@ -249,8 +278,24 @@ const CLASS_POWER: Array[float] = [
 		   #                a glass knife rather than becoming a brawler.
 	1.00,  # BRAWLER
 	1.00,  # JUGGERNAUT
-	1.00,  # CLERIC
-	1.00,  # CRYOMANCER
+	0.90,  # CLERIC       — the ask, and deliberately the SMALL half of it. Maker,
+		   #                watching: *"cleric is destroying it"*. -10% damage, and
+		   #                nothing else: no vitality cut, no heal nerf.
+		   #                ⚠ THIS IS WORTH MORE THAN 10% AND THAT IS WHY IT IS ONLY 10%.
+		   #                The Cleric is a LIFESTEAL bruiser, so its damage number is
+		   #                also its sustain number — cutting output cuts the heal that
+		   #                output pays for, on both ends of the same trade. A -10% here
+		   #                lands harder than -10% on any other class in this table, and
+		   #                the ask was for a SLIGHT debuff. Do not stack a vitality cut
+		   #                on top of it without watching this one first.
+	1.20,  # CRYOMANCER   — the other half. +20% damage. The class was 25% and second
+		   #                worst, and the last pass answered that with vitality (1.10),
+		   #                which bought it survival and no threat: it lived longer and
+		   #                still could not close a bout. This is the axis that was
+		   #                missing. Its kit is control (Blizzard sets up a 3x Shatter on
+		   #                a frozen body), so damage is what its own set-up is FOR, and
+		   #                a control class that never cashes the set-up reads as broken
+		   #                rather than as slow.
 	1.00,  # STORMCALLER
 	1.00,  # WARLOCK
 	1.00,  # SWORDSAINT
@@ -948,7 +993,7 @@ func _taunt(side: int, beat: StringName, always: bool = false) -> void:
 	# blue corner at its authored value is a legibility problem against it while the
 	# yellow is not — so both go through the same lift rather than hand-picking one.
 	# `to_html(false)` drops alpha, which BBCode's `[color=#rrggbb]` does not take.
-	var ink: Color = side_color(side).lightened(0.25)
+	var ink: Color = side_ink(side)
 	text = "[color=#%s]%s[/color]" % [ink.to_html(false), text]
 	if not always and not _off_taunt_cooldown(who):
 		return
@@ -1239,7 +1284,7 @@ func _put_the_loser_down(winner: int) -> void:
 	# second corpse.
 	CombatVfx.spawn_burst(
 		f.get_parent(), f.global_position,
-		side_color(loser).lightened(0.3), Color(side_color(loser), 0.0),
+		side_ink(loser).lightened(0.3), Color(side_ink(loser), 0.0),
 		42, 0.5, 110.0, 240.0, 1.5, 4.0, 40.0, 90.0)
 	(rig as Object).call("collapse", from_dir)
 	# ⚠ DEFERRED, OR IT IS SILENTLY THROWN AWAY. A kill is the heaviest impact in the
@@ -1601,7 +1646,7 @@ func _show_result_card() -> void:
 		# THE WINNER'S CORNER, not the winner's class — the same yellow-or-blue the card
 		# opened on and the body has been wearing all fight. See `SIDE_COLORS`.
 		head.add_theme_color_override("font_color",
-			Color(0.92, 0.94, 1.0) if _winner < 0 else side_color(_winner))
+			Color(0.92, 0.94, 1.0) if _winner < 0 else side_ink(_winner))
 	_result_card.visible = true
 	_play("holy_swell", -1.0)
 
@@ -1692,13 +1737,13 @@ func _intro_corner(side: int) -> Control:
 	col.add_theme_constant_override("separation", 7)
 
 	var swatch := ColorRect.new()
-	swatch.color = side_color(side)
+	swatch.color = side_ink(side)
 	swatch.custom_minimum_size = SWATCH_SIZE
 	swatch.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	swatch.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(swatch)
 
-	var who: Label = _make_label(col, CARD_NAME_SIZE, side_color(side))
+	var who: Label = _make_label(col, CARD_NAME_SIZE, side_ink(side))
 	who.text = _label(_fighter_class[side] if side < _fighter_class.size() else -1)
 	who.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
@@ -1791,7 +1836,7 @@ func _paint_hud() -> void:
 		# `ClassInfo.color_for(cls)`, which meant the plate and the body it belonged to
 		# could disagree — and now that the bodies are forced to yellow/blue, they
 		# always would. One source (`SIDE_COLORS`) for the card, the plate and the rig.
-		name_label.add_theme_color_override("font_color", side_color(side))
+		name_label.add_theme_color_override("font_color", side_ink(side))
 		var vw: float = float(get_viewport().get_visible_rect().size.x)
 		name_label.size = Vector2(PLATE_W, 16.0)
 		name_label.horizontal_alignment = \

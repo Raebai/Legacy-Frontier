@@ -89,6 +89,7 @@ func _run_all() -> void:
 	_test_intro_skips_headless()
 	_test_corner_colours()
 	_test_plates_read_the_corner()
+	_test_ink_is_readable_on_a_dark_panel()
 	_test_taunt_beats_are_complete()
 	_test_taunt_line_is_deterministic()
 	_test_taunt_rows_are_plural()
@@ -287,8 +288,15 @@ func _test_plates_read_the_corner() -> void:
 	if paint_at < 0:
 		return
 	var paint: String = src.substr(paint_at, 1400)
-	_expect(paint.contains("side_color(side)"),
-		"the name plate is painted from side_color(side) — the same source as the card")
+	# ⚠ `side_ink` COUNTS, AND HERE IS WHY. The palette now contains a BLACK class, and
+	# every panel in this mode is near-black, so the plate paints the corner colour
+	# LIFTED to a readable luma rather than raw. That is still one source — `side_ink`
+	# calls `side_color` and only moves brightness — so the disagreement this test was
+	# written to prevent (plate says one colour, body draws another HUE) is still
+	# impossible. What is banned is reading the class palette directly, which is the
+	# thing that could actually disagree. See `side_ink`.
+	_expect(paint.contains("side_ink(side)") or paint.contains("side_color(side)"),
+		"the name plate is painted from the corner source — the same source as the card")
 	_expect(not paint.contains("ClassInfo.color_for"),
 		"...and NOT from the class palette, which would disagree with the body")
 	# The rig really is retinted, and from the same function.
@@ -297,6 +305,49 @@ func _test_plates_read_the_corner() -> void:
 	_expect(src.contains("func _paint_corners"),
 		"the retint lives in its own named step (_paint_corners)")
 	_completes("plates_read_the_corner")
+
+
+## THE INK IS READABLE AND IT IS STILL THE SAME COLOUR. `side_ink` exists because the
+## maker's palette contains a BLACK class (Shadowblade) and every panel this mode draws
+## on is near-black — a raw-black name label is an invisible name label. This asserts
+## both halves of that: the ink clears the luma floor a dark panel needs, AND it is the
+## corner's own colour rather than a second palette.
+func _test_ink_is_readable_on_a_dark_panel() -> void:
+	var floor_luma: float = float(_match.get("INK_MIN_LUMA"))
+	_expect(floor_luma > 0.0, "INK_MIN_LUMA is declared")
+	# Drive it through the real seam: force a bout between the two darkest classes so
+	# the tints are the class colours, not the yellow/blue fallback.
+	var dark: int = -1
+	for i: int in ClassInfo.count():
+		var c: Color = ClassInfo.color_for(i)
+		if _luma(c) < 0.22:
+			dark = i
+			break
+	_expect(dark >= 0, "the palette still contains a near-black class to test")
+	if dark < 0:
+		return
+	_match.set("side_tint", [ClassInfo.color_for(dark), ClassInfo.color_for(dark)] as Array[Color])
+	var raw: Color = _match.call("side_color", 0)
+	var ink: Color = _match.call("side_ink", 0)
+	_expect(_luma(raw) < floor_luma,
+		"the raw body colour really is too dark to print (luma %.3f)" % _luma(raw))
+	_expect(_luma(ink) >= floor_luma - 0.001,
+		"the ink clears the floor (luma %.3f, need %.3f)" % [_luma(ink), floor_luma])
+	# Lifted, not replaced: brightness moved, the hue ordering did not.
+	_expect(ink.r >= raw.r and ink.g >= raw.g and ink.b >= raw.b,
+		"the ink is the same colour lifted, never a different one")
+	# A colour that is ALREADY readable is returned untouched, or every pale class
+	# would wash out to the same near-white.
+	var pale: Color = Color(0.86, 0.9, 0.96)
+	_match.set("side_tint", [pale, pale] as Array[Color])
+	_expect(_match.call("side_ink", 0).is_equal_approx(pale),
+		"an already-readable colour passes through unchanged")
+	_match.set("side_tint", [] as Array[Color])
+	_completes("ink_is_readable_on_a_dark_panel")
+
+
+func _luma(c: Color) -> float:
+	return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
 
 
 # ==========================================================================

@@ -41,15 +41,15 @@ const CLASSES: Array[Dictionary] = [
 	# 0 ARCANIST — carries the Ordinary Spell, MIRROR IMAGE (promoted out of the drop
 	# pool — the only self-duplication in the game) and the Meteor Sigil.
 	{"name": "Arcanist", "fantasy": "Ranged arcane zoner",
-		"kit": "LMB arcane bolt · First Lance · Mirror Image · Ult Meteor Sigil", "color": Color(0.95, 0.4, 0.85)},
+		"kit": "LMB arcane bolt · First Lance · Mirror Image · Ult Meteor Sigil", "color": Color(1.0, 0.78, 0.28)},
 	# 1 SHADOWBLADE — the Umbral Lance was a violet copy of the Arcanist's beam; the
 	# ult is THOUSAND CUTS now, and the carried middle is the Rift Dagger.
 	{"name": "Shadowblade", "fantasy": "In-and-out assassin",
-		"kit": "LMB dagger flurry · Blade Flurry · Rift Dagger · Ult Thousand Cuts", "color": Color(0.6, 0.35, 0.9)},
+		"kit": "LMB dagger flurry · Blade Flurry · Rift Dagger · Ult Thousand Cuts", "color": Color(0.16, 0.11, 0.22)},
 	# 2 BRAWLER — the card said "no magic" while the class threw a lightning lance
 	# and a fire beam. Both are gone: a stomp and a fist that lands like a meteor.
 	{"name": "Brawler", "fantasy": "Pure-melee knockout — no magic",
-		"kit": "LMB punch/kick combo · Shockwave Stomp · Rock Wall · Ult Meteor Fist", "color": Color(1.0, 0.45, 0.15)},
+		"kit": "LMB punch/kick combo · Shockwave Stomp · Rock Wall · Ult Meteor Fist", "color": Color(0.92, 0.16, 0.16)},
 	{"name": "Juggernaut", "fantasy": "Unbreakable siege tank",
 		"kit": "LMB heavy hammer · BLOCK · Boulder Hurl · Rock Pillar · Ult Fault Line", "color": Color(0.78, 0.55, 0.28)},
 	# 4 CLERIC — RADIANT VOLLEY is the archer signature, and the AEGIS WARD (the
@@ -63,7 +63,7 @@ const CLASSES: Array[Dictionary] = [
 	# 6 STORMCALLER — inherits the Thunderclap off the Brawler, where a lightning
 	# lance contradicted that class's whole card. Its ult is a storm CELL, not a beam.
 	{"name": "Stormcaller", "fantasy": "Hyper-mobile chain caster",
-		"kit": "LMB chain bolt · Chain Lightning · Thunderclap · Ult Heaven's Wrath", "color": Color(1.0, 0.9, 0.3)},
+		"kit": "LMB chain bolt · Chain Lightning · Thunderclap · Ult Heaven's Wrath", "color": Color(0.2, 0.52, 1.0)},
 	# 7 WARLOCK — RAISE THRALL is the only summon in the game.
 	{"name": "Warlock", "fantasy": "Dark attrition hexer",
 		"kit": "LMB drain-bolt · Drain Tether · Raise Thrall · Ult Grave Tide", "color": Color(0.6, 0.35, 0.9)},

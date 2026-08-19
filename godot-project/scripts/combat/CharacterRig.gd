@@ -91,6 +91,32 @@ const OUTLINE_FACTOR: float = 0.62
 ## Absolute floor so the keyline never vanishes on a tiny rig at 640x360.
 const OUTLINE_MIN: float = 1.0
 
+## ⚠ THE KEYLINE HAS TO INVERT FOR ONE CLASS, AND ONLY ONE. `OUTLINE_COLOR` is a true
+## dark, which is the correct choice for every colour in `ClassInfo` except the
+## Shadowblade, which the maker picked as BLACK. A near-black keyline under a
+## near-black limb is not a keyline — it is the same colour twice, and the figure
+## turns back into exactly the "black blob" `OUTLINE_FACTOR` above was written to
+## prevent. So below this luma the line flips to a pale rim: a black fighter reads as
+## a black figure WITH AN EDGE rather than a silhouette-shaped hole.
+##
+## Measured against the shipped palette (Rec.709 luma): Shadowblade 0.13 flips;
+## the next darkest, the Warlock at 0.44 and the Stormcaller at 0.49, do not. Nothing
+## else in the game moves, because every other fill sits far above the threshold.
+const KEYLINE_FLIP_LUMA: float = 0.22
+## The pale rim the dark classes get instead. Not pure white — a cool off-white sits
+## the edge slightly back from the fills, which are all fully saturated.
+const OUTLINE_COLOR_LIGHT: Color = Color(0.78, 0.80, 0.90, 1.0)
+
+
+## The keyline that will actually READ under `fill`. See KEYLINE_FLIP_LUMA. Alpha is
+## carried from the fill so a fading body fades its edge with it, exactly as the flat
+## `OUTLINE_COLOR` did.
+static func keyline_for(fill: Color) -> Color:
+	var l: float = 0.2126 * fill.r + 0.7152 * fill.g + 0.0722 * fill.b
+	if l >= KEYLINE_FLIP_LUMA:
+		return OUTLINE_COLOR
+	return Color(OUTLINE_COLOR_LIGHT.r, OUTLINE_COLOR_LIGHT.g, OUTLINE_COLOR_LIGHT.b, 1.0)
+
 ## --- STICKMAN PROPORTIONS ---
 ## The maker has said twice, flatly: "the characters are not stickmen, I just want to
 ## see STICKMEN". These two numbers are why. They were 0.18 (head) and 0.16 (limb),
@@ -2279,7 +2305,7 @@ func _draw() -> void:
 	_draw_weapon_trail(pose)
 	# One pass, one drawing: draw_figure now substitutes geared parts for default
 	# parts internally, so there is no second overlay layer to keep in sync.
-	draw_figure(self, pose, col, equipment, height, OUTLINE_COLOR)
+	draw_figure(self, pose, col, equipment, height, keyline_for(col))
 	_draw_slash_arc(pose, col)
 	_draw_parry_shield(pose)
 	_draw_cast_gesture_vfx(pose)
