@@ -91,13 +91,28 @@ func _make_hero() -> CharacterBody2D:
 ## The lockout has its own test — `_test_the_global_gap_refuses_every_slot`.
 func _cast_slot(hero: CharacterBody2D, i: int) -> void:
 	hero.set("_cast_lockout", 0.0)
+	# ⚠ AND THE COMMIT STATE, for the same reason the lockout is cleared above: this
+	# helper simulates SEPARATE presses, and it does it without advancing a clock.
+	#
+	# `Hero._cast_signature` now refuses a new cast while `_channeling`/`_summoning`
+	# is live — the maker's "you cant cast a main spell whilst another spell is
+	# casting". That is a real rule and it must not be weakened. But it is not what
+	# this suite is about: the bug guarded here is the SHARED COOLDOWN BANK, where
+	# "a jab locked the ult and the ult locked the jab", and that claim is entirely
+	# about `signature_ready(i)` per slot. Leaving a windup running from the previous
+	# press would make every assertion below test the channel gate instead of the
+	# bank, which is a different guard that `slice_test_spell_buttons` already owns.
+	hero.set("_channeling", false)
+	hero.set("_summoning", false)
 	hero.call("bot_select_signature", i)
 	hero.call("_cast_signature")
 
 
 # ------------------------------------------------------- 1. THE HEADLINE BUG
-## Cast slot 0, then cast slot 1 IN THE SAME FRAME. Under the shared bank the second
+## Cast slot 0, then cast slot 1 as the next press. Under the shared bank the second
 ## press was swallowed; under a per-slot bank it fires.
+## (`_cast_slot` clears the previous windup — see its header. The two presses are
+## consecutive, not literally simultaneous, which is what the bank claim needs.)
 func _test_slots_are_independent() -> void:
 	var hero: CharacterBody2D = _make_hero()
 	hero.configure_class(0)  # ARCANIST
@@ -205,7 +220,13 @@ func _test_the_global_gap_refuses_every_slot() -> void:
 	_expect(hero.call("signature_ready", 1),
 		"THE GAP: a ready second slot does NOT fire inside the lockout")
 	# ...and once the gap elapses it fires normally, so this is a pause not a lock.
+	# ⚠ The windup from the slot-0 cast is cleared with it, for the reason in
+	# `_cast_slot`'s header: this assertion is about GLOBAL_CAST_LOCKOUT expiring, and
+	# in real play a 0.60 s gap always ends with the body already out of its commit.
+	# Leaving the channel live would make this test the channel gate's, not the gap's.
 	hero.set("_cast_lockout", 0.0)
+	hero.set("_channeling", false)
+	hero.set("_summoning", false)
 	hero.call("_cast_signature")
 	_expect(not hero.call("signature_ready", 1),
 		"...and the same press lands the moment the gap is over")

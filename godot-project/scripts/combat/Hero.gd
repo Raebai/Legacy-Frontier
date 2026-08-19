@@ -572,7 +572,13 @@ const SPELL_BUFFER_PREFIX: String = "spell#"
 ## Tuned as the shortest gap that reads as two separate events rather than one
 ## smear. It is deliberately SHORTER than the shortest windup, so it never becomes
 ## the thing you are waiting on when playing one spell at a time.
-const GLOBAL_CAST_LOCKOUT: float = 0.35
+## ⚠ 0.35 -> 0.60. Maker, watching bot fights: *"they are spamming spells too much it
+## makes it hard to follow what they are doing ... increase cooldown"*. The old value
+## was chosen as "the shortest gap that reads as two separate events", which is the
+## right target for ONE player casting deliberately and the wrong one for a spectator
+## watching two bots who always have a slot ready. 0.60 is still shorter than the
+## shortest windup, so it is never the thing a human is waiting on.
+const GLOBAL_CAST_LOCKOUT: float = 0.60
 ## Aim-stick deadzone: how far the AIM stick (right thumb on touch, `aim_*` actions)
 ## must be pushed before it re-points the aim. Below this the last aim is HELD, so
 ## lifting the thumb to tap an ability doesn't fling the shot somewhere random.
@@ -3004,6 +3010,21 @@ func _cast_signature() -> void:
 	# the bank asks "has THIS slot recovered", and three recovered slots still chain
 	# into one smear without this. See GLOBAL_CAST_LOCKOUT.
 	if _cast_lockout > 0.0:
+		rig.flash_color(Color(0.5, 0.5, 0.6), 0.08)
+		return
+	# ⚠ AND NOTHING STARTS WHILE SOMETHING IS STILL CASTING. Maker: *"lets make it
+	# such that you cant cast a main spell whilst another spell is casting"*.
+	#
+	# `GLOBAL_CAST_LOCKOUT` above could not do this job, and the reason is its own
+	# comment: it is armed at COMMIT and re-armed when the effect LANDS. So across a
+	# long channel it expires in the middle — 0.35 s into a 1.5 s windup the gate is
+	# open again and a second spell commits on top of the first. That is the chain the
+	# maker is watching: two spectacles overlapping with no readable gap, which reads
+	# as spam rather than as decisions.
+	#
+	# A windup is a COMMITMENT. While the body is levitating through a channel or
+	# holding a summon open, the answer to another cast is no.
+	if _channeling or _summoning:
 		rig.flash_color(Color(0.5, 0.5, 0.6), 0.08)
 		return
 	var slot: int = _hand_slot(_signature_index)

@@ -724,9 +724,23 @@ func _frame(fighters: Array[Node2D], delta: float) -> void:
 	# and take whichever eye frames bigger. It can only ever tighten the shot, and
 	# containment stays exact because the fit is re-solved AT the eye actually used —
 	# the same "clamp first, fit second" rule the block above rests on.
-	var relieved: Array = _relieve_the_lean(pts, mid, eye, want)
-	eye = relieved[0]
-	want = relieved[1]
+	# ⚠ NOT IN PORTRAIT. Maker: *"the camera in the clip doesnt follow the characters
+	# fighting"*, and this line is why.
+	#
+	# `_relieve_the_lean` gives the victim/spell/KO leans BACK whenever the shot has
+	# gone illegible, by re-solving from the pair's plain MIDPOINT and keeping whichever
+	# frames bigger. In landscape that is right: the shot still contains both fighters,
+	# so re-centring costs nothing and buys size.
+	#
+	# In portrait it is exactly backwards. `PORTRAIT_ZOOM_MIN` deliberately refuses to
+	# pull back far enough to hold a separated pair, so the midpoint is no longer a
+	# place either fighter is standing — it is the empty air BETWEEN them. Relieving
+	# the lean therefore walks the camera off the action and points it at that gap,
+	# which is the "doesn't follow" the maker is describing. The lean IS the follow.
+	if not is_portrait():
+		var relieved: Array = _relieve_the_lean(pts, mid, eye, want)
+		eye = relieved[0]
+		want = relieved[1]
 	_sample_zoom(want)
 	# The FRAMING decision, smoothed on the director's own state. See `_zoom_smoothed`
 	# for why this is not read back off the camera.

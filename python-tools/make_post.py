@@ -498,6 +498,40 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
     # Cut trailing dead air BEFORE anything is timed against the length — the
     # voice-over budget, the music bed and the fade all key off `dur`, and each
     # of them would otherwise be sized for seconds of empty stage.
+    # ⚠ SLOW IT DOWN, AND CONFORM TO 30 fps. Maker: "the clip speed as it feels sped
+    # up". It is NOT sped up in the encode — read off the round clock at four video
+    # timestamps, 5 s of video carries 4 s of game clock, and the shortfall is hitstop
+    # (`Juice.hit_stop` sets `Engine.time_scale = 0.05`, and `BotMatch._clock += delta`
+    # is scaled by it). Game time and movie time are 1:1. But "not sped up" and "does
+    # not READ sped up" are different claims, and only the second one matters here:
+    #
+    #   * THE CLIP IS 60 fps. Short-form is 30, and doubled temporal resolution reads
+    #     as unnaturally fast — the same effect that makes 60 fps film look wrong.
+    #     Conforming to 30 changes no timing at all, only the smoothness.
+    #   * AND THERE IS NO DELIBERATE SLOW-DOWN. A fight edit is almost never cut at
+    #     1.0x; the shot is slowed so the eye can follow it. `--speed` does that, and
+    #     it is applied to the CLIP before the announcer is laid over it so the voice
+    #     stays in sync with the picture it is describing.
+    if args.speed != 1.0 or args.fps > 0:
+        slowed = POSTS / "_cut" / f"{stem}.speed.mp4"
+        slowed.parent.mkdir(parents=True, exist_ok=True)
+        rate = ["-r", str(args.fps)] if args.fps > 0 else []
+        ff("-i", str(clip),
+           "-filter_complex",
+           f"[0:v]setpts={1.0 / args.speed:.5f}*PTS[v];"
+           # `atempo` is pitch-preserving and only accepts 0.5..2.0, which every
+           # sane --speed is inside. The game's own SFX drop in pitch if you resample
+           # instead, and a slowed roar that has also gone flat sounds broken.
+           f"[0:a]atempo={args.speed:.5f}[a]",
+           "-map", "[v]", "-map", "[a]",
+           *rate, "-c:v", "libx264", "-preset", "medium", "-crf", "18",
+           "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", str(slowed))
+        clip = slowed
+        dur = probe_duration(clip)
+        print(f"  {args.speed:.2f}x speed"
+              + (f", conformed to {args.fps} fps" if args.fps > 0 else "")
+              + f" -> {dur:.1f}s")
+
     trimmed = None
     if not args.no_trim:
         froze = last_motion(clip, dur)
@@ -560,6 +594,14 @@ def main() -> int:
                     help="never say \"who will win?\"")
     ap.add_argument("--tail", action="store_true",
                     help="always say it, however short the clip")
+    # ⚠ 0.80 IS A DELIBERATE EDIT DECISION, NOT A CORRECTION. The capture is 1:1 with
+    # game time (measured off the round clock). This slows the delivered clip so the
+    # eye can follow a fight that the maker found "hard to follow" — the same reason
+    # every fight edit on the platform is cut under 1.0x.
+    ap.add_argument("--speed", type=float, default=0.80,
+                    help="playback speed of the fight (1.0 = as captured)")
+    ap.add_argument("--fps", type=int, default=30,
+                    help="output frame rate; 0 keeps the captured 60")
     ap.add_argument("--no-trim", action="store_true",
                     help="keep the tail even if the picture has frozen")
     ap.add_argument("--hold", type=float, default=1.4,

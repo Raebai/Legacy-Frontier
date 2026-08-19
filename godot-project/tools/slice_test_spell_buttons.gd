@@ -202,6 +202,14 @@ func _test_button_casts_its_own_slot() -> void:
 	# Two casts in one frame: skip the global gap so this stays a question about
 	# WHICH SLOT the button chose, not about the pacing lockout.
 	hero.set("_cast_lockout", 0.0)
+	# ⚠ AND THE COMMIT STATE, for exactly the reason above. `Hero._cast_signature`
+	# now refuses a new cast while `_channeling`/`_summoning` is live (the maker's
+	# "you cant cast a main spell whilst another spell is casting"). A real slot
+	# reopens after 3.4 s and the longest windup is ~1.5 s, so in play the commit
+	# has ALWAYS finished by then; it is still set here only because
+	# `clear_cooldowns()` teleports the bank without advancing a clock.
+	hero.set("_channeling", false)
+	hero.set("_summoning", false)
 	_expect(bool(hero.call("cast_signature_slot", 0)), "slot 0 fires next")
 	_expect(not bool(hero.call("signature_ready", 0)), "slot 0 went on its own cooldown")
 	hero.queue_free()
@@ -343,6 +351,14 @@ func _test_buffer_holds() -> void:
 	# slot reopens. `clear_cooldowns()` teleports the bank to ready without
 	# advancing any clock, which is the only reason it would still be armed here.
 	hero.set("_cast_lockout", 0.0)
+	# ⚠ AND THE COMMIT STATE, for exactly the reason above. `Hero._cast_signature`
+	# now refuses a new cast while `_channeling`/`_summoning` is live (the maker's
+	# "you cant cast a main spell whilst another spell is casting"). A real slot
+	# reopens after 3.4 s and the longest windup is ~1.5 s, so in play the commit
+	# has ALWAYS finished by then; it is still set here only because
+	# `clear_cooldowns()` teleports the bank without advancing a clock.
+	hero.set("_channeling", false)
+	hero.set("_summoning", false)
 	hero.call("_try_fire_buffered")
 	_expect(not bool(hero.call("signature_ready", 0)),
 		"the moment the slot opened, the held press fired it")
@@ -386,6 +402,14 @@ func _test_held_repeats() -> void:
 	# slot reopens. `clear_cooldowns()` teleports the bank to ready without
 	# advancing any clock, which is the only reason it would still be armed here.
 	hero.set("_cast_lockout", 0.0)
+	# ⚠ AND THE COMMIT STATE, for exactly the reason above. `Hero._cast_signature`
+	# now refuses a new cast while `_channeling`/`_summoning` is live (the maker's
+	# "you cant cast a main spell whilst another spell is casting"). A real slot
+	# reopens after 3.4 s and the longest windup is ~1.5 s, so in play the commit
+	# has ALWAYS finished by then; it is still set here only because
+	# `clear_cooldowns()` teleports the bank without advancing a clock.
+	hero.set("_channeling", false)
+	hero.set("_summoning", false)
 	hero.call("_try_fire_buffered")
 	_expect(not bool(hero.call("signature_ready", 0)),
 		"a held button re-fires the moment the slot comes back")
@@ -461,6 +485,14 @@ func _test_ready_flash() -> void:
 	# slot reopens. `clear_cooldowns()` teleports the bank to ready without
 	# advancing any clock, which is the only reason it would still be armed here.
 	hero.set("_cast_lockout", 0.0)
+	# ⚠ AND THE COMMIT STATE, for exactly the reason above. `Hero._cast_signature`
+	# now refuses a new cast while `_channeling`/`_summoning` is live (the maker's
+	# "you cant cast a main spell whilst another spell is casting"). A real slot
+	# reopens after 3.4 s and the longest windup is ~1.5 s, so in play the commit
+	# has ALWAYS finished by then; it is still set here only because
+	# `clear_cooldowns()` teleports the bank without advancing a clock.
+	hero.set("_channeling", false)
+	hero.set("_summoning", false)
 	hero.call("_tick_ready_pulse", 0.0)
 	_expect(float(hero.call("spell_button_state", 0)["pulse"]) > 0.9,
 		"the slot flashes on the frame it becomes ready")

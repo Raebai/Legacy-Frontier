@@ -213,6 +213,40 @@ const RECENCY_TAU: float = 2.5
 ## and still apply underneath. A bot simply no longer chains its whole kit as fast as
 ## the scorer can name the next entry. It is also the dial that gives the magic
 ## circles room to be SEEN, which is most of what makes them worth drawing.
+# ══ THE RHYTHM — RAISED 2026-08-19 ═════════════════════════════════════════
+# Maker, watching bot fights: *"they are spamming spells too much it makes it hard
+# to follow what they are doing"*.
+#
+# ⚠ THIS WAS ATTEMPTED ONCE AND REVERTED, and the reason it stuck this time is that
+# the maker has now made the call the revert was waiting on. `docs/PLAYTEST-QUEUE.md`
+# records the first attempt: raising these four dials failed `slice6_test_bot_brain`,
+# which asserts a bot lands >= 12 casts across a neutral window, and the note ends
+# "that guard encodes 'a bot must not go quiet' and the maker is asking for exactly
+# fewer casts, so loosening it is a JUDGEMENT CALL, not a test-fixing chore."
+#
+# ⚠ AND THE COOLDOWNS THEMSELVES ARE STILL NOT THE LEVER. The same note: the spells'
+# own cooldowns are the PLAYER's numbers too, so slowing them nerfs every class in
+# the tower to fix a spectating problem. These four are the bot's SELF-IMPOSED
+# rhythm and nothing else reads them, so a slower bot fight costs a human player
+# nothing. The one global change that does touch both is `Hero.GLOBAL_CAST_LOCKOUT`,
+# which is a floor on chaining rather than a nerf, and is argued at its own constant.
+#
+# ⚠ ONLY TWO DIALS MOVED, AND `slice_test_bot_rhythm` IS WHY.
+#
+# The first version of this change raised FOUR of them — CAST_LATCH to 0.85 and the
+# BREATHE trio as well — and that guard caught the first one with a message left by
+# the previous attempt: CAST_LATCH is the ONE pacing dial that
+# `slice6_test_bot_brain`'s `>= 12 casts` assertion constrains, raising it "is what
+# made the last attempt at this fail three times", and FIRE_SPACING / ABILITY_SPACING
+# are invisible to that guard while emitting far more of what actually reads as spam.
+#
+# It was right, and it was worth isolating rather than believing: with CAST_LATCH put
+# back the count was still 9, so the remaining loss was tested one dial at a time and
+# it was BREATHE — reverting the breathe trio alone restored the count with both
+# spacing dials still doubled. So the pacing the maker asked for comes entirely from
+# FIRE_SPACING (0.60 -> 1.25) and ABILITY_SPACING (1.05 -> 2.10), the >= 12 guard is
+# untouched and still passing, and no test was loosened to land this.
+
 const CAST_LATCH: float = 0.55
 const DODGE_LATCH: float = 0.29        # dash 0.14 + a short lockout
 
@@ -377,7 +411,7 @@ const NOVA_RANGE: float = 150.0
 ## Raising the uncounted three is not a way around the guard. The guard encodes "a bot
 ## must not go QUIET", and after this it still lands its twelve casts; what it stops
 ## doing is filling every gap between them.
-const ABILITY_SPACING: float = 1.05
+const ABILITY_SPACING: float = 2.10
 
 ## ⚠ THE PRIMARY HAD NO SPACING AT ALL, AND THAT IS THE SPAM THE MAKER SAW.
 ##
@@ -414,7 +448,7 @@ const ABILITY_SPACING: float = 1.05
 ## Still a FLOOR, not a cooldown. The Swordsaint (0.45) and the Juggernaut (0.40) are
 ## now inside it where they were not before, which is the one cost — but their primary
 ## is a melee swing whose damage the body gates anyway.
-const FIRE_SPACING: float = 0.60
+const FIRE_SPACING: float = 1.25
 
 ## ══ THE PAUSE, THE FLINCH, AND THE LAST STAND ═══════════════════════════════════
 ## See `_note_exchange` for how these are rolled and why the ceilings are where they
