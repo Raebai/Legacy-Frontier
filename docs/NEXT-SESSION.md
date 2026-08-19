@@ -1,108 +1,82 @@
-# RESUME HERE — 2026-08-14
+# RESUME HERE — 2026-08-19
 
-**ASHPIRE.** Branch `bot-fight-quality`, **b5daf25**, **171/171 green**, pushed, clean.
+**ASHPIRE.** Branch `bot-fight-quality`, **c14f189**, **173/173 green**, pushed, clean.
 
-Fourteen commits. Everything below is committed, headless-verified and **unplayed
-since it was fixed** — except where it says "verified by looking", which means a real
-frame was rendered and examined.
+The nine asks in the resume queue are **done and pushed**. Everything below is
+committed and headless-verified and **UNPLAYTESTED** — the maker watches
+**F5 -> Lobby -> Watch Bots** and does not want rendered clips.
 
-## ▶ THE THREE THAT CHANGE THE MOST
+## WHAT TO LOOK AT, IN THE ORDER IT WILL SHOW UP
 
-**1. Every fight ended pressed against a wall because a bot could only jump 36 px.**
-`Hero` has variable jump height (`Hero.gd:2295` halves upward velocity the frame jump
-is RELEASED while rising). The brain emits `jump` for ONE frame and `drive()` rebuilds
-the held set every tick, so the release landed on frame two of every jump a bot ever
-made: apex ≈ 35.6 px against a human's 105.3. Every terrace riser is 68–84 and every
-tower ledge ≥ 72, so **no bot could climb any surface in any stage.** Fixed in the
-hands (`BotController._hold_the_jump`, 18 frames) not the brain. Second half:
-`BotBrain._unwall` jumped while steering AWAY from the wall — it now steers into it.
+1. **The colours.** Arcanist light orange · Shadowblade BLACK · Brawler red ·
+   Stormcaller light blue; bronze/gold/ice/violet/near-white unchanged. The default
+   matchup is Stormcaller vs Cryomancer, which was the risky pair — at the authored
+   light blue it would have fallen back to yellow/blue and looked unchanged, so
+   Stormcaller was pushed deep. All 36 pairs now clear the separation guard (min 0.318),
+   so **every bout should show class colours, not yellow-vs-blue.** Mirror matches still
+   fall back, correctly.
+   ⚠ Two knock-ons to judge by eye: the black fighter now draws with a PALE keyline
+   instead of the dark one (a near-black figure with a near-black outline is a blob),
+   and every UI surface paints a LIFTED version of the colour (`side_ink`) because a
+   black name on a near-black plate is not a name.
+2. **The stage is symmetric.** Left platform raised 688 -> 616 to match the far right.
+   It is deliberately NOT reachable from the ground any more (164 px vs a 105 px jump)
+   — you climb it via the mid platform, the same way the right one always worked.
+3. **The Brawler chases upward.** Petrify something in the air and it should now hop to
+   reach it instead of standing underneath punching nothing.
+4. **Shadowblade holds a dagger**, not the Swordsaint's katana.
+5. **Gravity Flip gets the big banner.** Its tier did NOT change.
+6. **Cleric -10% damage, Cryomancer +20%** (damage, not health).
+7. **Tower: clearing a floor fully heals you** on arrival at the next one.
+8. **New sounds**: two more punches, one more swing, and a vocal effort grunt layered
+   under the heavy swing.
 
-**2. All ten biome walls were dead code and 170 tests were green over it.**
-`Arena._apply_decor` keyed `FloorDecor` on `theme.resource_path`, which is set only by
-the loader, and no `EnvTheme` is ever loaded. Every floor fell through to the generic
-arcade wall. The climb looked like one room re-tinted ten times because it was.
+## ⚠ TWO DECISIONS ARE WAITING ON YOU
 
-**3. Two ledges were authored above the jump ceiling.** Ground 780, jump clears 105.3;
-`RUINS[0]` surfaced at 661 (a 119 px rise). Brawler was the only class that could
-touch it, and only by spending its air jump — which is why it read as a Brawler
-problem. Re-authored as a climb inside `FloorGen.STEP_MAX`.
+* **Clip orientation.** You asked for landscape, then sent four TikTok audios — TikTok
+  is portrait. `python python-tools/make_post.py --landscape` renders 1920x1080; the
+  DEFAULT is still 9:16. Pick one and it becomes the default.
+* **Melee across a severed stage** — blocks slice 4 of the destructible map. Three
+  classes are melee-primary and a melee bot will stand at the lip of an uncrossable gap
+  doing nothing until the clock. Four options are costed in
+  `docs/superpowers/specs/2026-08-19-destructible-map-design.md` §4.
 
-## ▶ ALSO SHIPPED
+## ⚠ ONE THING I DID NOT FIX, AND WHY
 
-| what | verified |
-|---|---|
-| Ten biomes get their own **weather** (ash/leaves/snow/embers/bubbles/rain/glint/starfall) | rendered + looked at |
-| Weather costs **+1 draw call, 2.22% screen fill** worst case; budget pinned at 6% | measured, negative-controlled |
-| Three floors open onto a **moving sunset / living eclipse** (`SkyVista`) | rendered + looked at |
-| Three of nine **ults ended on the wrong screen or none** | `slice_test_ult_punctuation`, negative-controlled |
-| Vertical clips render **9:16 natively** and the camera **follows the action** | rendered + looked at |
-| **Falling out of the world** — hub soft-lock, tower enemies, i-frame-proof kill | tests |
-| Dead bodies stopped **stretching** (DoT knockback on a corpse) | reasoned from the maker's own diagnosis |
-| **Stacked ult titles** — new replaces old | tests |
-| Arcanist's **clone no longer spawns in a wall** | tests |
-| Bigger hitboxes: boulder 84→118, void 185→250, crawler 26→38, pillar 66→88 | ⚠ feel change, unmeasured |
-| **Blink starts on cooldown** so nobody opens by teleporting into your face | tests |
-| **VO word bank** — 11 clips cover all 72 matchups | maker listened |
-| All three duel ledges **break**, left one raised to its reachable ceiling | tests |
-| Thralls attack in duels; bots stop dodging into lanes; 4 payoffs shove | tests |
+**"Corpses must still fall" did not reproduce in the bot fight.** Killing a fighter in
+mid-air measures it falling (+92 px) — `stay_dead` routes to `_enter_defeated`, which
+has its own gravity. The queue's diagnosis named `_enter_downed`, which a bot fight
+never uses. I fixed a real latent hole found by reading instead (Petrify and
+Chronostasis both pinned a victim's position without ever checking it was alive).
+**If you still see a body hang, tell me which mode** — the tower GHOST genuinely does
+not fall, and that is the revive system working as designed.
 
-## ▶ STILL OPEN — MAKER FEEDBACK NOT YET BUILT
+## SFX YOU ASKED ME TO FLAG
 
-1. **Bots barely use dash, and never to recover.** Maker: *"if they are being sent up
-   in the air they can dash to get back"*. `BotDodge` only reaches dash as a threat
-   response; there is no air-recovery rung at all. ⚠ Needs a new rung in
-   `BotBrain.decide` (~2400 lines) — deliberately not rushed, because that file's own
-   comments warn a wrong readiness gate "would show up in play as a bot dashing four
-   times a second". Read the control flow before adding to it.
-2. ~~Necromancer summons should go and attack.~~ **DONE** (`abbf60c`) — a bound thrall
-   scanned only the `enemy` group, and duels/bot fights have no mobs at all, so it
-   stood next to its summoner for nine seconds. Falls back to the nearest mortal foe.
-3. **Knockback still missing on 7 damaging spells.** Four fixed in `800b413`
-   (ZoneSpell's encase shatter, VoidCollapse, Chronostasis, Equinox). Still bare:
-   `ShadowRoot`, `DrainTether`, `RuneOrbs`, `Severance`, `Zanshin`, `GravityFlip`,
-   plus partial paths in `LightningRush` (chain arc), `Shatter` (splash), `RiftDagger`
-   (impale), `HorizonArc` (destructibles). ⚠ `GraveTide` is deliberately left: it
-   HOLDS its victims at anchors, so a shove would fight its own grip.
-   Each remaining one needs a direction that could not be read off the call site
-   without guessing, and a guessed direction is worse than no shove.
-   ⚠ `SpellDef` has NO knockback field and deliberately does not get one
-   (`SpellTier.gd:162`) — the shove is derived via `push_for_spectacle`. Use that.
-4. **Bots cannot perceive 36 of the spectacles.** Threats enter through ONE door,
-   `BotController.perceive_threats`, which scans only group `telegraph` (armed) and
-   groups `enemy_projectile` / `player_spell`. Beams, meteors, zones, walls, chains,
-   tethers and every CATACLYSM are invisible — a bot literally stands in them.
-   `EnergyNova`'s own header argues it must be dodgeable; it never joins the group.
-   ~~Also: `BotBrain._safest` drops LANE telegraphs~~ **DONE** (`800b413`) — it now
-   reads the ready-made `region` every threat already publishes.
+⚠ **Two of your four files were 24-bit WAVE_FORMAT_EXTENSIBLE and Godot silently would
+not import them.** Converted to 16-bit PCM. Send future sounds as **16-bit PCM WAV or
+OGG**.
 
-## ⚠ TWO REAL BUGS FOUND AND DELIBERATELY NOT FIXED
+Worth sourcing next:
+* `cannon` and `holy_pillar` **share one file** — the only two genuinely different
+  events wearing the same sound.
+* `effort_grunt` has **one** sample, so it repeats; 2–3 more would let it rotate.
+* No variation at all (one sample each): `beam_start`, `beam_end`, `blink`, `ding`,
+  `gib`, `holy`, `levitate`, `shadow_cast`, `ult_unmaking`, `verdict_thread`,
+  `verdict_burn`, and four `rx_*` reaction cues.
 
-* **`FloorGen`'s reachability budget is calibrated to DEAD CONSTANTS.** It derives its
-  gaps from "JUMP_VELOCITY 580 against GRAVITY 1500", but `TuningConfig` overrides both
-  at runtime (740 / 2600). `GAP_UP_MAX` is 110 against an actual 83.6 px reachable far
-  edge; `GAP_FLAT_MAX` is 170 against 115.4 px of travel. So `can_step` certifies
-  surfaces as connected that nobody can reach, and `_prune_stranded` trusts the same
-  wrong numbers. **This affects human players too.** Separate blast radius.
-* **`VersusArena` has no y-threshold catch at all** — only two side pits, leaving
-  uncovered columns at x 0..40 and 1965..2020 and its entire vertical extent.
+## ⚠ SOMETHING EDITED `ShadowRoot.gd` OUTSIDE THIS SESSION
 
-## ⚠ PROCESS LESSONS FROM THIS SESSION
-
-* **Never `git checkout --` a file holding uncommitted work.** Done once to undo a
-  deliberate test-break; it reverted to HEAD and wiped the whole uncommitted weather
-  system. A backup taken a minute earlier saved it. Commit first, then negative-control.
-* **Instruments lied three times and every one was caught by verifying.** The ult
-  suite's first run reported three failures, all three of which were the suite (a
-  match inside a comment, a node-lookup spelling, an unfollowed delegate). The perf
-  probe's first two metrics were warm-up staircases. The sky capture's geometry never
-  reconciled — that one is still unexplained and the game was used as ground truth.
-* **`Sky` cannot be an enum name** — it shadows a native Godot class, and the failure
-  cascades into the whole game refusing to boot with nothing pointing at the line.
+The full suite went red on a parse error in `ShadowRoot.gd`: `REAPPLY_EVERY` mangled to
+`REAPPLY_EdddddVERY`, and a stray `a` prepended to a line. The tree was clean at session
+start, so it arrived mid-session — an editor with the file open, or a second session.
+Diffed first (never `git checkout --` a file with uncommitted work), found only those
+two lines, repaired in place. **Worth checking nothing else has a file open on this
+checkout.**
 
 ## HOW TO VERIFY
 ```
-python python-tools/run_all_tests.py --jobs 6          # 171 suites, ~110s
-python python-tools/run_capture.py weather_capture     # the ten biomes
-./godot-engine/Godot_v4.6.2-stable_win64.exe --path godot-project \
-  --script tools/sky_capture.gd                        # the sunset + eclipse
+python python-tools/run_all_tests.py --jobs 3        # 173 suites, ~160s
 ```
+⚠ At `--jobs 3` one suite still NO-RESULTed once with an access violation and passed
+alone on retry. Re-run a lone NO-RESULT before believing it.
