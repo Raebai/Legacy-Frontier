@@ -113,6 +113,16 @@ var _fps: int = 30
 ## This is a CAPTURE parameter — it changes nothing about how the game plays.
 var _hp: int = 500
 var _round: float = 40.0
+## ⚠ HOW LONG THE FIGHTERS STAY FROZEN BEFORE THE BELL, and it exists so the voice-over
+## can FINISH first. Maker: *"make the audio way more epic and quicker so that it says
+## that as the stick men are frozen and once complete the fight starts"*.
+##
+## The announcer used to talk over the opening exchange, which meant the first thing a
+## viewer had to do was parse a fight and a sentence at once — the exact "too much going
+## on to understand" complaint, arriving in the first two seconds. Holding the stare-down
+## for the length of the line gives the words the screen to themselves and the fight a
+## clean start. 0 keeps `BotMatch.intro_seconds` as authored.
+var _intro: float = 0.0
 var _patience: float = 12.0
 ## ⚠ MUST OUTLAST THE RESULT CARD, which now waits for the screen to go quiet
 ## (`BotMatch._screen_is_quiet`) instead of landing on a flat 0.55 s. The card can
@@ -173,6 +183,8 @@ func _initialize() -> void:
 		script.set("difficulty", _difficulty)
 		script.set("fighter_hp", _hp)
 		script.set("round_seconds", _round)
+		if _intro > 0.0:
+			script.set("intro_seconds", _intro)
 		# A clip ends where the match does. An auto-rematch would reload the scene out
 		# from under the capture and the tail would be the NEXT fight's opening.
 		script.set("auto_rematch", false)
@@ -292,6 +304,7 @@ func _parse_args() -> void:
 			"fps": _fps = clampi(int(value), 5, 60)
 			"hp": _hp = maxi(int(value), 40)
 			"round": _round = maxf(float(value), 5.0)
+			"intro": _intro = maxf(float(value), 0.0)
 			"patience": _patience = maxf(float(value), 0.0)
 			"tail": _tail = maxf(float(value), 0.0)
 			"width": _width = maxi(int(value), 320)

@@ -1794,6 +1794,13 @@ func _intro_corner(side: int) -> Control:
 func _open_intro() -> void:
 	if not _intro_enabled() or _intro_card == null:
 		_intro_phase = Intro.DONE
+		# ⚠ THE FIGHT CLOCK STARTS ON BOTH PATHS OR THE QUALITY GATE IS BLIND. With no
+		# ceremony the bout is live from this instant and `_start_fight` — where the
+		# clock was set — is never reached. `FightScore.seconds` would stay 0, so every
+		# captured bout scored as "too short" and `make_post --takes N` would re-roll
+		# three good fights and keep the third anyway. That is the sim, the suites AND
+		# the clip capture, i.e. every path that is not a human watching the card.
+		_fight_began_at = _real_seconds()
 		return
 	_intro_phase = Intro.VS
 	_intro_at = _real_seconds()

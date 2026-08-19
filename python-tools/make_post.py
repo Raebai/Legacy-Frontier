@@ -110,6 +110,9 @@ LANDSCAPE_W, LANDSCAPE_H = 1920, 1080
 # time (`directed_clip_capture._intro_clip_seconds`), so a small offset puts the
 # names on the card and lets the question spill into the opening exchange.
 VO_AT = 0.12
+## Breath between the last word and the bell. Short — the point is that the fight starts
+## AS the line finishes, not after a pause.
+INTRO_TAIL_BEAT = 0.35
 
 # ⚠ IF THE LINE WOULD EAT MORE OF THE CLIP THAN THIS, DROP THE QUESTION.
 # "<A> versus <B> — who will win?" is 5.9 s at the banked pace, and the median bot
@@ -304,7 +307,7 @@ def probe_duration(path: Path) -> float:
 # ---------------------------------------------------------------------------
 
 def shoot(a: int, b: int, hp: int, seconds: float, timeout: int,
-          landscape: bool = False) -> Path | None:
+          landscape: bool = False, intro: float = 0.0) -> Path | None:
     """Delegate to make_clip.py rather than re-implementing the shoot.
 
     ⚠ THE SHOOT LIVES IN EXACTLY ONE PLACE ON PURPOSE. Every trap it knows about —
@@ -321,6 +324,9 @@ def shoot(a: int, b: int, hp: int, seconds: float, timeout: int,
             "--width", str(w), "--height", str(h),
             "--share-width", str(w),
             "--hp", str(hp), "--seconds", str(seconds),
+            # The stare-down holds for the length of the voice-over, so the line lands
+            # before the fight rather than over it — see `--intro` on make_clip.
+            "--intro", f"{intro:.2f}",
             "--out", "post_shoot", "--timeout", str(timeout)]
     print(f"  shooting {CLASSES[a]} vs {CLASSES[b]} at {w}x{h} ...")
     proc = subprocess.run(argv, capture_output=True, text=True,
@@ -417,13 +423,20 @@ def mux(clip: Path, vo: Path, music: Path | None, out: Path, dur: float,
     # platform already uses.
     # The title card is identical in both orientations, so it is written once and
     # appended to whichever composition ran.
+    # ⚠ NO SLAB BEHIND THE TITLE. Maker: *"remove that very bar behind the words"*.
+    # It was a full-width black@0.45 box, added so the words would read over a bright
+    # sky. The shadow below does that job on its own — `shadowcolor=black@0.85` with a
+    # 6 px offset gives every glyph its own backing, which is legible over anything the
+    # stage can put behind it WITHOUT laying a letterbox across the fight for two
+    # seconds. The bar was solving a real problem the wrong way round: it hid the thing
+    # the clip exists to show.
     card = (
-        f"[comp]drawbox=x=0:y=(ih-200)/2:w=iw:h=200:color=black@0.45:t=fill:"
-        f"enable='between(t,{T_IN},{T_OUT + T_FADE})'[slab];"
-        f"[slab]drawtext=fontfile='{FONT}':text='{title}':"
+        f"[comp]drawtext=fontfile='{FONT}':text='{title}':"
         f"fontcolor=white:fontsize={fit_fontsize(title)}:x=(w-text_w)/2:"
         f"y=(h-text_h)/2:alpha='{TITLE_ALPHA}':"
-        f"shadowcolor=black@0.85:shadowx=6:shadowy=6:"
+        # Heavier shadow now that it is the ONLY thing separating the words from the
+        # picture behind them.
+        f"shadowcolor=black@0.95:shadowx=7:shadowy=7:"
         f"enable='between(t,{T_IN},{T_OUT + T_FADE})'[vout]"
     )
     if landscape:
@@ -538,6 +551,17 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
 
     clip = user_data_dir() / "clips" / f"{stem}.mp4"
     if not args.no_shoot or not clip.exists():
+        # ⚠ THE VOICE-OVER IS MEASURED BEFORE THE SHOOT, because it decides how long
+        # the fighters stay frozen. Maker: *"make the audio ... quicker so that it says
+        # that as the stick men are frozen and once complete the fight starts"*. The
+        # announcer used to talk over the opening exchange, which asked a viewer to
+        # parse a sentence and a fight simultaneously in the first two seconds.
+        vo_probe = Path(args.vo) if getattr(args, "vo", None) else None
+        intro_hold = 0.0
+        if vo_probe is not None and vo_probe.exists():
+            intro_hold = probe_duration(vo_probe) + INTRO_TAIL_BEAT
+            print(f"  holding the stare-down {intro_hold:.1f}s for the voice-over")
+
         # ⚠ RE-ROLL A BORING FIGHT RATHER THAN PUBLISHING IT. Maker: *"ensure that the
         # fights recorded are cool — have a threshold for good fights vs boring ones"*.
         # Measured over 72 bouts, 44% ended under five seconds and 31% were won with the
@@ -546,7 +570,8 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
         clip = None
         for attempt in range(1, max(1, args.takes) + 1):
             clip = shoot(a, b, args.hp, args.seconds, args.timeout,
-                         landscape=not bool(getattr(args, "portrait", False)))
+                         landscape=not bool(getattr(args, "portrait", False)),
+                         intro=intro_hold)
             v = getattr(shoot, "last_verdict", "")
             if clip is None:
                 break

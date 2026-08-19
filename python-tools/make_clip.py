@@ -193,6 +193,7 @@ def shoot_movie(args: argparse.Namespace) -> tuple[Path, int, int] | None:
         "--script", "tools/directed_clip_capture.gd", "--",
         f"--a={args.a}", f"--b={args.b}", f"--difficulty={args.difficulty}",
         f"--hp={args.hp}", f"--seconds={args.seconds}", f"--fps={args.fps}",
+        f"--intro={args.intro}",
         f"--width={args.width}", f"--height={args.height}", f"--out={args.out}",
         f"--random={1 if args.random else 0}",
     ]
@@ -204,6 +205,16 @@ def shoot_movie(args: argparse.Namespace) -> tuple[Path, int, int] | None:
                               timeout=args.timeout)
     m_in, m_out = -1, -1
     for line in (proc.stdout or "").splitlines():
+        # ⚠ `[fight]` IS FORWARDED TOO, AND IT HAS TO BE. `BotMatch` prints one verdict
+        # line per bout from `FightScore` — whether the fight was worth publishing — and
+        # `make_post.py --takes N` re-rolls on it. This filter passed `[clip]` only, so
+        # the verdict was swallowed one layer down and the re-roll fell through to its
+        # "no verdict reported; keeping this take" fallback on EVERY shoot. The gate was
+        # built, wired and reported nothing, which is the quietest way for a quality
+        # gate to fail.
+        if line.startswith("[fight]"):
+            print("  " + line)
+            continue
         if line.startswith("[clip]"):
             print("  " + line)
             if "movie_in" in line:
@@ -273,6 +284,7 @@ def shoot(args: argparse.Namespace) -> Path:
         "--script", "tools/directed_clip_capture.gd", "--",
         f"--a={args.a}", f"--b={args.b}", f"--difficulty={args.difficulty}",
         f"--hp={args.hp}", f"--seconds={args.seconds}", f"--fps={args.fps}",
+        f"--intro={args.intro}",
         f"--width={args.width}", f"--height={args.height}", f"--out={args.out}",
         f"--random={1 if args.random else 0}",
     ]
@@ -281,7 +293,7 @@ def shoot(args: argparse.Namespace) -> Path:
     proc = subprocess.run(argv, capture_output=True, text=True,
                           encoding="utf-8", errors="replace", timeout=args.timeout)
     for line in (proc.stdout or "").splitlines():
-        if line.startswith("[clip]"):
+        if line.startswith("[clip]") or line.startswith("[fight]"):
             print("  " + line)
     for line in (proc.stderr or "").splitlines():
         if "SCRIPT ERROR" in line or "Parse Error" in line:
@@ -356,6 +368,9 @@ def main() -> int:
     # re-tuned CLASS_VITALITY, a Brawler (1.30) and a Juggernaut (1.20) carry 650 and
     # 600 effective HP at `--hp 500`, and two melee classes cannot close that inside
     # the 28 s budget. For a melee mirror, pass a lower `--hp`.
+    ap.add_argument("--intro", type=float, default=0.0,
+                    help="hold the frozen VS card this long before the bell, so a "
+                         "voice-over can finish before the fight starts (0 = as authored)")
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--no-shoot", action="store_true", help="re-encode existing frames")
     ap.add_argument("--silent", action="store_true",
