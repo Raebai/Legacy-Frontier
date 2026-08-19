@@ -74,6 +74,7 @@ const TESTS: Array[String] = [
 	"the_marks_are_spread",
 	"the_table_covers_every_class_ult",
 	"no_ult_uses_the_legacy_white_blowout",
+	"gravity_flip_is_announced_without_becoming_an_ult",
 ]
 
 var _ran: bool = false
@@ -90,6 +91,7 @@ func _process(_delta: float) -> bool:
 	_test_the_marks_are_spread()
 	_test_the_table_covers_every_class_ult()
 	_test_no_ult_uses_the_legacy_white_blowout()
+	_test_gravity_flip_is_announced_without_becoming_an_ult()
 	for name: String in TESTS:
 		if not _completed.has(name):
 			_fails += 1
@@ -249,3 +251,38 @@ func _test_no_ult_uses_the_legacy_white_blowout() -> void:
 			+ "blow-out — the same mark every heavy attack ends on. Use "
 			+ "`Juice.tier_frame` so it lands on the ladder and can carry its own style.")
 	_completed["no_ult_uses_the_legacy_white_blowout"] = true
+
+
+## THE BANNER WITHOUT THE TIER. Maker: *"GravityFlip needs the big ult banner"*.
+##
+## Gravity Flip inverts gravity for the whole arena for five seconds from the
+## JUGGERNAUT'S CONTROL SLOT, and it was announcing itself with the small
+## name-over-the-head label. It misses `SpellTier.Tier.ULT` by 0.2 s of cooldown and
+## 8 MP — so the tempting fix is to nudge those numbers, and that fix is a trap: the
+## tier also drives reaction weight, the `PUSH_TIER` shove multiplier, the hotbar
+## badge and `slot_accepts_ult`, whose rule is that an ult may not sit in a non-ult
+## slot. This asserts BOTH halves: it gets the banner, and its tier did not move.
+func _test_gravity_flip_is_announced_without_becoming_an_ult() -> void:
+	var spell: SpellDef = SpellLibrary.by_id("gravity_flip")
+	_expect(spell != null, "gravity_flip is still in the library")
+	if spell == null:
+		return
+	_expect(spell.announce_as_ult, "gravity_flip asks for the big banner")
+	# The trap: buying the banner with stats instead of the flag.
+	_expect(SpellTier.of(spell) != SpellTier.Tier.ULT,
+		"...and is STILL NOT tier ULT — the flag is presentation, not promotion")
+	# It sits in a control slot, and that has to stay legal.
+	var kit: Dictionary = SpellLibrary.CLASS_KITS[3]   # Juggernaut
+	_expect(String(kit.get("control", "")) == "gravity_flip",
+		"gravity_flip is still the Juggernaut's CONTROL slot")
+	_expect(String(kit.get("ult", "")) != "gravity_flip",
+		"...and has not quietly become anybody's ult")
+
+	# The flag is opt-in: nothing else in the catalog picked it up by default.
+	var flagged: Array[String] = []
+	for sp: SpellDef in SpellLibrary.build_all():
+		if sp != null and sp.announce_as_ult and SpellTier.of(sp) != SpellTier.Tier.ULT:
+			flagged.append(sp.id)
+	_expect(flagged.size() == 1 and flagged[0] == "gravity_flip",
+		"gravity_flip is the ONLY non-ult wearing the banner flag (got %s)" % [flagged])
+	_completed["gravity_flip_is_announced_without_becoming_an_ult"] = true

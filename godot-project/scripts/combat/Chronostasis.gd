@@ -136,7 +136,13 @@ func _physics_process(delta: float) -> void:
 func _hold() -> void:
 	for row: Dictionary in _held:
 		var n: Node = row["node"]
-		if n == null or not is_instance_valid(n) or n.is_queued_for_deletion():
+		# ⚠ ALIVE, not merely PRESENT -- the same hole `Petrify._statue_ok` carried. The
+		# line below writes `global_position` every tick, which is what a dead body's
+		# gravity (`Hero._process_defeated`) is trying to do at the same time, and this
+		# runs later. A body that died inside stopped time would hang in the air until the
+		# payout instead of falling. Dropping it here also stops a corpse being handed a
+		# share of the banked damage it can no longer take.
+		if not HpWatch.is_alive(n) or n.is_queued_for_deletion():
 			continue
 		var now: int = HpWatch.hp_of(n)
 		var was: int = int(row["hp"])

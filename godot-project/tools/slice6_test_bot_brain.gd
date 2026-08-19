@@ -31,6 +31,7 @@ const TESTS: Array[String] = [
 	"combo_setup_and_cash_in",
 	"guard_lockout",
 	"difficulty_dial",
+	"reaches_a_foe_that_is_above_it",
 ]
 
 ## Hero.HeroClass ids used by the scenarios below, named so a reader does not have
@@ -59,6 +60,7 @@ func _process(_delta: float) -> bool:
 	_test_combo()
 	_test_guard_lockout()
 	_test_difficulty_dial()
+	_test_reaches_a_foe_that_is_above_it()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — something it reads has moved)" % t)
@@ -556,3 +558,64 @@ func _expect(cond: bool, what: String) -> void:
 	if not cond:
 		_fails += 1
 		printerr("  FAIL: %s" % what)
+
+
+## REACHING SOMETHING ABOVE YOU. Maker: the Brawler petrifies an enemy in mid-air and
+## then cannot touch it. See the AIR_REACH_* block in BotBrain for why every rung that
+## already existed was blind to this: the brain measures 2D distance, so a statue 60 px
+## straight overhead reads as CORRECT SPACING and the bot holds position and punches
+## into a cone that rejects anything not roughly horizontal.
+func _test_reaches_a_foe_that_is_above_it() -> void:
+	var prof: Dictionary = BotProfile.with_overrides(BotProfile.Tier.HARD,
+		{"react": 0.05, "jitter": 0.0, "p_miss": 0.0})
+
+	# A foe 90 px overhead and almost aligned: this is the reported case.
+	var out: Dictionary = BotBrain.decide(_bb({
+		"foe_id": 7, "foe_pos": Vector2(8.0, -90.0), "now": 0.0,
+	}), prof, _mem())
+	_expect(bool(out.get("jump", false)),
+		"jumps to reach a foe 90 px above it (the petrified-in-the-air case)")
+
+	# ...and it does NOT slide out from under the target while rising.
+	var move: Vector2 = out.get("move", Vector2.ZERO)
+	_expect(absf(move.x) < 0.01,
+		"inside the alignment window it jumps straight up rather than shuffling")
+
+	# A foe at the same height is not a vertical problem and must not make it hop —
+	# this is the regression that would turn every bout into a jumping contest.
+	var level: Dictionary = BotBrain.decide(_bb({
+		"foe_id": 7, "foe_pos": Vector2(60.0, 0.0), "now": 0.0,
+	}), prof, _mem())
+	_expect(not bool(level.get("jump", false)), "a foe at the same height draws no hop")
+
+	# Above but far to the side is a WALK, not a jump — otherwise the bot hops at
+	# anything standing on any terrace anywhere on the map.
+	var far: Dictionary = BotBrain.decide(_bb({
+		"foe_id": 7, "foe_pos": Vector2(400.0, -90.0), "now": 0.0,
+	}), prof, _mem())
+	_expect(not bool(far.get("jump", false)), "a foe above but far to the side draws no hop")
+
+	# Airborne already: re-pressing would spend the class's air jumps instantly and
+	# cap the climb LOWER than one committed jump reaches.
+	var midair: Dictionary = BotBrain.decide(_bb({
+		"foe_id": 7, "foe_pos": Vector2(8.0, -90.0), "on_floor": false, "now": 0.0,
+	}), prof, _mem())
+	_expect(not bool(midair.get("jump", false)), "does not re-press the jump mid-arc")
+
+	# Spaced, or it vibrates under the ledge. Same memory, immediately after a hop.
+	var m: BotBrain.Memory = _mem()
+	BotBrain.decide(_bb({"foe_id": 7, "foe_pos": Vector2(8.0, -90.0), "now": 0.0}), prof, m)
+	var again: Dictionary = BotBrain.decide(_bb({
+		"foe_id": 7, "foe_pos": Vector2(8.0, -90.0), "now": 0.1,
+	}), prof, m)
+	_expect(not bool(again.get("jump", false)),
+		"one attempt, then it commits to the arc (AIR_REACH_SPACING)")
+
+	# Above and offset beyond the alignment window: step under them first.
+	var offset: Dictionary = BotBrain.decide(_bb({
+		"foe_id": 7, "foe_pos": Vector2(90.0, -90.0), "now": 0.0,
+	}), prof, _mem())
+	_expect(offset.get("move", Vector2.ZERO).x > 0.0,
+		"outside the alignment window it steps toward the target while rising")
+
+	_completed["reaches_a_foe_that_is_above_it"] = true

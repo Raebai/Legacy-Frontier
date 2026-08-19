@@ -324,8 +324,24 @@ func _shatter() -> void:
 ## Is there still a statue to be a spell about? A victim that died, despawned or
 ## left the tree ends the effect rather than leaving a pin writing to a dead node.
 func _statue_ok() -> bool:
-	return _victim != null and is_instance_valid(_victim) \
-		and not _victim.is_queued_for_deletion()
+	# ⚠ AND IT HAS TO BE ALIVE. The two lines above promised exactly that -- "a victim
+	# that died ... ends the effect" -- and then never asked. `is_instance_valid` is a
+	# question about the NODE, not about the body.
+	#
+	# It matters because `_pin` writes `global_position` every tick at process_priority
+	# 200, set deliberately last so it beats the body's own `_physics_process` -- and
+	# `Hero._process_defeated` is where a corpse's gravity lives. A statue that dies
+	# while held has its fall overwritten by the pin on the same frame, every frame, so
+	# the body hangs in the air as stone instead of dropping. Maker: *"if you die in the
+	# air then you still fall"*.
+	#
+	# ⚠ HARD TO REACH, STILL WRONG, AND I COULD NOT DRIVE IT FROM A PROBE. `_hold`
+	# RESTORES the hp of anything that hits the statue (a statue takes no damage) and
+	# spends the hit as a launch instead, which closes the ordinary route to death and is
+	# why this survived. It is not closed for damage that does not arrive as a hit, and
+	# the FLYING phase shares this guard while doing the same position writes. Releasing
+	# a corpse costs a live victim nothing, so the guard is worth having either way.
+	return HpWatch.is_alive(_victim) and not _victim.is_queued_for_deletion()
 
 
 func _finish() -> void:

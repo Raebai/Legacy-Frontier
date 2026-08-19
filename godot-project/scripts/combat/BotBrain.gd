@@ -272,6 +272,44 @@ const DASH_CLOSE_MIN: float = 260.0
 ## How fast a body has to be moving AWAY from the fight, while airborne, before the
 ## dash counts as a recovery rather than as interrupting its own arc.
 const DASH_RECOVER_SPEED: float = 60.0
+
+## ══ REACHING SOMETHING THAT IS ABOVE YOU ═══════════════════════════════════════
+## Maker: *"brawler would petrify an enemy in the air then not be able to reach them
+## ... ensure that it can jump and punch as well or dash and punch"*.
+##
+## ⚠ THE BOT WAS NOT FAILING TO ATTACK. IT WAS ATTACKING AND MISSING, FOREVER. Every
+## distance in this brain is a 2D `distance_to`, so a statue 60 px straight overhead
+## reports dist 60 — INSIDE the Brawler's 35..70 band — and `_steer` reads "correct
+## spacing, hold" and never takes a step. `_wants_swing` then passes on the same 2D
+## number (60 <= 58*1.05) and the bot presses melee. But the hit test is a radius AND
+## A FORWARD CONE (`SpellTargets.in_cone`, `MELEE_ARC_DOT` 0.3) and a hero's `facing`
+## is horizontal, so a target straight up scores dot ~0.0 and is rejected every time.
+## The bot stands under the statue punching the air until the petrify expires.
+##
+## Nothing above could have fixed it: `_steer`'s only vertical term is a dodge exit
+## from a live threat, and a statue is not a threat (it publishes no telegraph, so it
+## never enters `evaluated` at all); `_traverse_dash` early-returns whenever the x
+## separation is under DASH_CLOSE_MIN, which is exactly the overhead case; and the
+## only two writers of `intent["jump"]` in this file are a dodge and a wall-unstick.
+## `move.y` is NOT a jump either — `BotController._actions_of` maps it to `move_up`,
+## which `Hero` reads only for dash angles and aim.
+##
+## So this is a new rung with one job: get level with a foe that is above you.
+## How much higher the foe must be before this is a vertical problem at all. Under
+## this the ordinary walk-and-swing already works and a hop would just be noise.
+const AIR_REACH_MIN_RISE: float = 46.0
+## How far sideways the foe may be while this still applies. Beyond it the gap is
+## mostly horizontal, walking is the right answer and `_steer` already owns it —
+## jumping here would fire on every foe standing on any terrace on the map.
+const AIR_REACH_MAX_SPAN: float = 150.0
+## Inside this x separation the bot is aligned enough; it stops shuffling and jumps
+## straight up rather than sliding out from under the target as it rises.
+const AIR_REACH_ALIGN: float = 26.0
+## ⚠ SPACED, FOR THE REASON THIS FILE ALREADY WARNS ABOUT. Gating on readiness alone
+## "would show up in play as a bot dashing four times a second" — a jump re-armed
+## every frame the foe is overhead is the same failure with a different button, and
+## it reads as a bot vibrating under a ledge. One attempt, then commit to the arc.
+const AIR_REACH_SPACING: float = 0.75
 ## Distance probed when scoring "which way should I step". A step shorter than this
 ## cannot leave a telegraph footprint, so scoring it would always tie.
 const STEER_PROBE: float = 90.0
@@ -638,6 +676,8 @@ class Memory extends RefCounted:
 	## not, we hold ourselves to the body's real numbers rather than assuming we can
 	## dash every frame. Assuming readiness is a cheat by omission.
 	var last_dash_at: float = -99.0
+	## Last time the bot hopped to reach a foe ABOVE it. See AIR_REACH_SPACING.
+	var last_air_reach_at: float = -99.0
 	var last_blink_at: float = -99.0
 	var last_guard_at: float = -99.0
 	var last_fire_at: float = -99.0
@@ -802,6 +842,10 @@ static func decide(bb: Dictionary, profile: Dictionary, mem: Memory = null) -> D
 	# launched. Sits here because it WRITES `intent["move"]`, and the wall guard below
 	# is documented as running after every writer of it.
 	_traverse_dash(intent, bb, m, now)
+
+	# ---- UP. Reaches a foe that is ABOVE this bot rather than beside it — the case
+	# every distance in this file flattens away. See AIR_REACH_MIN_RISE.
+	_reach_upward(intent, bb, m, now)
 
 	# ---- THE WALL. Applied AFTER every writer of `intent["move"]` above, which is the
 	# whole point: see `_unwall`.
@@ -1328,6 +1372,44 @@ static func _reflex_intent(action: String, dir: Vector2, _now: float,
 ## make the bots go quiet. The dash is added to the intent and the ladder carries on.
 ##
 ## ⚠ AND IT IS SPACED BY A CLOCK, NOT BY READINESS. See `DASH_TRAVEL_SPACING`.
+## Get level with a foe that is above this bot. See the AIR_REACH_* block for why
+## nothing already in `decide` could do it.
+##
+## Writes `intent["jump"]` — NOT `move.y`, which is `move_up` and does not jump — and
+## nudges `move.x` only enough to stay under the target while rising. Deliberately
+## does nothing about the swing itself: once the bot is level, the ordinary reach and
+## cone tests pass on their own, which is the whole point of getting level.
+static func _reach_upward(intent: Dictionary, bb: Dictionary, m: Memory,
+		now: float) -> void:
+	if int(bb.get("foe_id", 0)) == 0:
+		return
+	var me: Vector2 = bb.get("self_pos", Vector2.ZERO)
+	var foe: Vector2 = bb.get("foe_pos", Vector2.ZERO)
+	# Screen space: smaller y is HIGHER, so a positive rise means the foe is above.
+	var rise: float = me.y - foe.y
+	if rise < AIR_REACH_MIN_RISE:
+		return
+	var span: float = absf(foe.x - me.x)
+	if span > AIR_REACH_MAX_SPAN:
+		return                      # mostly a walk — `_steer` owns that
+	# Stay under them on the way up. Past the alignment window the bot is close
+	# enough that another sidestep would slide it out from under the target.
+	var move: Vector2 = intent.get("move", Vector2.ZERO)
+	if span > AIR_REACH_ALIGN:
+		intent["move"] = Vector2(signf(foe.x - me.x), move.y)
+	else:
+		intent["move"] = Vector2(0.0, move.y)
+	# ⚠ FROM THE FLOOR ONLY, and spaced. `Hero` gives a class its air jumps on its own
+	# (the Brawler has one, the Shadowblade two), so re-pressing mid-arc would spend
+	# them instantly and cap the climb LOWER than a single committed jump reaches.
+	if not bool(bb.get("on_floor", false)):
+		return
+	if now - m.last_air_reach_at < AIR_REACH_SPACING:
+		return
+	intent["jump"] = true
+	m.last_air_reach_at = now
+
+
 static func _traverse_dash(intent: Dictionary, bb: Dictionary, m: Memory,
 		now: float) -> void:
 	if now - m.last_dash_at < DASH_TRAVEL_SPACING:

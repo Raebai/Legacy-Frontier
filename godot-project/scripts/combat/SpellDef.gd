@@ -70,6 +70,26 @@ enum Kind { BEAM, DIVINE_RAY, NOVA, METEOR, CONVERGENCE, RUSH, BOULDER, PILLAR, 
 @export var charges: int = -1
 
 
+## ANNOUNCE THIS ONE LIKE A FINISHER, whatever its stats say. Maker: *"GravityFlip
+## needs the big ult banner"*.
+##
+## ⚠ PRESENTATION ONLY, AND THAT IS THE ENTIRE POINT. `SpellTier.of` DERIVES the tier
+## from cast time / cooldown / MP precisely so a spell cannot lie about its tier, and
+## that derivation is load-bearing in five other places: reaction weight, the
+## `PUSH_TIER` knockback multiplier, `slot_accepts_ult` (an ult may not sit in a
+## non-ult slot), the hotbar badge colour and the ult-punctuation suite. Gravity Flip
+## is the JUGGERNAUT'S CONTROL SLOT — it misses ULT by 0.2 s of cooldown and 8 MP —
+## so nudging its numbers to buy a banner would put an ult in a control slot and
+## silently hand it a 31% bigger shove. This flag buys the banner and nothing else.
+##
+## ⚠ AND IT IS NOT THE KNOCKBACK FIELD THIS CODEBASE REFUSED. `SpellTier`'s warning is
+## about a field that would re-author the catalog and override thirty tuned constants
+## by default. This one has a single consumer (`CastName.announce`), defaults to the
+## behaviour every existing spell already has, and can change nothing but which label
+## appears. Keep it that way: if a second thing ever reads this, it is the wrong flag.
+@export var announce_as_ult: bool = false
+
+
 ## Resolve the tint for a cast: an explicit colour override, else the element
 ## colour, else the caster's current element colour (fallback).
 func resolve_color(fallback: Color) -> Color:

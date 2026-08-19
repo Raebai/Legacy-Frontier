@@ -73,6 +73,12 @@ static func announce(parent: Node, who: Node2D, spell: SpellDef, tint: Color) ->
 	var text: String = spell.display_name.strip_edges()
 	if text == "":
 		return null
+	# A spell may ask for the finisher treatment without BEING a finisher — see
+	# `SpellDef.announce_as_ult`. Checked before the tier so a spectacle that reshapes
+	# the whole arena (Gravity Flip inverts gravity for everyone, from a control slot)
+	# gets announced like one, with no part of its tier moving.
+	if spell.announce_as_ult:
+		return _ult_banner(parent, text, tint)
 	match SpellTier.of(spell):
 		SpellTier.Tier.QUICK:
 			return null                       # deliberately silent — see the header

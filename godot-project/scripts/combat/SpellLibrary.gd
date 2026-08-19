@@ -1025,6 +1025,13 @@ static func _gravity_flip() -> SpellDef:
 	                   # commitment, not a snipe
 	s.length = 5.0     # seconds inverted — the spec's number
 	s.cast_time = 0.45
+	# THE BANNER, WITHOUT THE TIER. This is a control-slot spell that turns the whole
+	# arena upside down for five seconds, and it was announcing itself with the small
+	# name-over-the-head label every ordinary heavy spell gets. It misses ULT by 0.2 s
+	# of cooldown and 8 MP, and buying the tier with those numbers would put an ult in
+	# a control slot (`SpellTier.slot_accepts_ult`) and hand it a 31% bigger shove.
+	# See `SpellDef.announce_as_ult`.
+	s.announce_as_ult = true
 	return s
 
 
