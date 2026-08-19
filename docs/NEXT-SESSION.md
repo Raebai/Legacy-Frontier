@@ -80,3 +80,54 @@ python python-tools/run_all_tests.py --jobs 3        # 173 suites, ~160s
 ```
 ⚠ At `--jobs 3` one suite still NO-RESULTed once with an access violation and passed
 alone on retry. Re-run a lone NO-RESULT before believing it.
+
+---
+
+# SESSION ADDENDUM — 2026-08-19 (late)
+
+**`853a6d4`, 173/173, pushed.** Everything below is UNPLAYTESTED.
+
+## THE BIG ONE: the picture now CALMS DOWN as the fight gets busy
+
+Aberration, a 40 Hz screen micro-warp and the camera shake were all pure functions of
+ONE number (`CombatCamera.trauma()`, additive per hit, clamped at 1.0). Mid-fight all
+three sat pinned at maximum on top of the busiest picture — the presentation was
+loudest exactly when the read was hardest. Meanwhile `SpellReactor.austerity()` had
+been thinning particles and debris all along and **`PostProcess`, `CombatCamera` and
+`Juice` never called it once.** They do now. Plus: aberration 4.5→2.2, warp 0.004→0.0018
+(and promoted from a bare literal to a uniform), trauma decay 1.4→2.2, dash ghosts
+0.03→0.055 (a dash was leaving ~11 full stick figures alive), debris 160→90 and
+2.6-4.2s→1.5-2.5s, impact frames 0.26→0.42 with local flashes 6→3/s.
+
+## ALSO IN
+* **Nobody stands still** — `_steer` planted whenever the bot was inside its spacing
+  band, which is most of a fight. `_idle_jockey` keeps weight moving. (Without it: 0 of
+  40 settled frames moved.)
+* **Every blink draws the line**, tinted per class off `_element_color`.
+* **The Swordsaint's katana comes to a point** — the taper was there, buried under a
+  full-length constant-width spine. Same fault `_draw_blade` fixed years-of-comments ago.
+* **Stormcaller lime-yellow, Brawler darker red.** Three other yellows were tried and
+  collided with the Arcanist.
+* **Opening beat covers Q/R/T** — it existed at 1.0s and the abilities ignored it.
+* **DoT stops flinching** (`State.HURT` is the arms-up pose) and is 12 dB quieter.
+* **Rock Wall stops trapping people** inside itself.
+
+## ✅ DESTRUCTIBLE MAP SLICE 0 IS MEASURED
+`tools/probe_gap_reach.gd`. Flat-gap reach is a RANGE, not one number: Juggernaut
+**97.1 px**, Arcanist 127.0, Brawler 132.5, Swordsaint 139.7, Stormcaller 147.6.
+**The binding constraint is 6 chunks, not the 7.5 the spec assumed** — a 7-chunk hole
+already strands the Juggernaut. Seven separate faults had to be fixed to read that
+number; they are all in the probe's header.
+
+**The map itself is still PAUSED before slice 1, deliberately** — it adds events to a
+fight the maker had just said was too busy. Resume when the calm-down pass has been
+played.
+
+## ⚠ STILL OPEN
+* **Melee across a severed stage** — the maker said "the melee stuff is cool", which
+  reads as approval of the recommendation (clock decides + teach the veto to reverse),
+  but it has NOT been built. Blocks slice 4.
+* **The second effort grunt never arrived** — only one new file appeared in `Effects/`.
+* **SFX still inaccurate:** `cannon` and `holy_pillar` share one file; ~15 pools have a
+  single sample. ⚠ Any new sound must be **16-bit PCM WAV or OGG** — three of the
+  maker's files so far were 24-bit EXTENSIBLE, which Godot silently refuses to import.
