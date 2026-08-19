@@ -20,7 +20,12 @@ const SHOCK_BASE_AMP: float = 0.012
 ## The least screen distortion a saturated fight keeps. Not zero: the grade going
 ## completely flat mid-fight would read as the effect breaking rather than as calm.
 ## `austerity()` bottoms out at 0.25, so this only bites at its lowest step.
-const CLARITY_FLOOR: float = 0.35    # UV displacement at full strength
+const CLARITY_FLOOR: float = 0.35
+## Concurrent spectacles at or below which the grade is untouched. The measured median
+## fight sits here, so a normal exchange looks exactly as it always did.
+const CLARITY_FULL_AT: float = 2.0
+## ...and where the grade bottoms out. Just past the measured peak of 5.
+const CLARITY_FLOOR_AT: float = 6.0    # UV displacement at full strength
 
 var _mat: ShaderMaterial
 var _rect: ColorRect
@@ -102,17 +107,32 @@ func _process(delta: float) -> void:
 
 
 ## How much of the screen-space distortion survives, given how much is already on
-## screen. 1.0 when the stage is calm, down to CLARITY_FLOOR when it is saturated.
+## screen. 1.0 when the stage is calm, down to CLARITY_FLOOR when it is busy.
 ##
-## Reads the same `austerity()` the particle systems have used all along, so there is
-## one definition of "busy" rather than a second one that can disagree with it.
-## Degrades to 1.0 (no change) if the reactor autoload is absent, which is what a
-## headless suite sees.
+## ⚠ THIS USED TO READ `austerity()` AND THAT WAS DEAD CODE. Measured over a real bot
+## fight (`tools/probe_fight_density.gd`, 100 samples): live spectacles run at a MEAN
+## OF 1.9 AND PEAK AT 5, against a VFX budget of 8. `austerity()` only leaves 1.0 once
+## the budget is EXCEEDED, so it returned 1.0 on every single sample and the calm-down
+## never engaged once. The idea was right and the signal was wrong — that budget exists
+## to protect frame rate, and a fight can be perfectly unreadable while comfortably
+## inside it.
+##
+## So this reads the census directly against its own thresholds, chosen from the
+## measurement: full grade at or below 2 concurrent spectacles (which is the median
+## fight), ramping to the floor by 6 (just past the observed peak). It now moves during
+## exactly the moments the maker described and is flat the rest of the time.
+##
+## Degrades to 1.0 if the reactor autoload is absent, which is what a headless suite
+## sees.
 func _clarity() -> float:
 	var reactor: Node = get_node_or_null(^"/root/SpellReactor")
-	if reactor == null or not reactor.has_method("austerity"):
+	if reactor == null or not reactor.has_method("spectacle_count"):
 		return 1.0
-	return maxf(float(reactor.call("austerity")), CLARITY_FLOOR)
+	var live: float = float(reactor.call("spectacle_count"))
+	if live <= CLARITY_FULL_AT:
+		return 1.0
+	var t: float = (live - CLARITY_FULL_AT) / maxf(CLARITY_FLOOR_AT - CLARITY_FULL_AT, 1.0)
+	return lerpf(1.0, CLARITY_FLOOR, clampf(t, 0.0, 1.0))
 
 func _camera_trauma() -> float:
 	var cam: Node = get_tree().get_first_node_in_group("combat_camera")

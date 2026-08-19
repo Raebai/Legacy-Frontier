@@ -325,9 +325,17 @@ def shoot(a: int, b: int, hp: int, seconds: float, timeout: int,
     print(f"  shooting {CLASSES[a]} vs {CLASSES[b]} at {w}x{h} ...")
     proc = subprocess.run(argv, capture_output=True, text=True,
                           encoding="utf-8", errors="replace")
+    verdict = ""
     for line in (proc.stdout or "").splitlines():
         if "resolved at" in line or "DONE" in line or line.startswith("wrote "):
             print("    " + line.strip())
+        # ⚠ THE FIGHT JUDGES ITSELF AND THIS IS WHERE WE READ IT. `BotMatch` prints one
+        # `[fight]` line per bout from `FightScore` — see that class for what "cool"
+        # means and why a demolition is worth re-rolling rather than publishing.
+        if line.startswith("[fight]"):
+            verdict = line.strip()
+            print("    " + verdict)
+    shoot.last_verdict = verdict
     got = user_data_dir() / "clips" / f"{CLASSES[a].lower()}_vs_{CLASSES[b].lower()}.mp4"
     if not got.exists():
         print(f"    ! no clip at {got}")
@@ -530,8 +538,31 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
 
     clip = user_data_dir() / "clips" / f"{stem}.mp4"
     if not args.no_shoot or not clip.exists():
-        clip = shoot(a, b, args.hp, args.seconds, args.timeout,
-                     landscape=not bool(getattr(args, "portrait", False)))
+        # ⚠ RE-ROLL A BORING FIGHT RATHER THAN PUBLISHING IT. Maker: *"ensure that the
+        # fights recorded are cool — have a threshold for good fights vs boring ones"*.
+        # Measured over 72 bouts, 44% ended under five seconds and 31% were won with the
+        # winner still above 80% health; those are demolitions, and a pipeline that
+        # shoots the first roll publishes them. `FightScore` is the judge.
+        clip = None
+        for attempt in range(1, max(1, args.takes) + 1):
+            clip = shoot(a, b, args.hp, args.seconds, args.timeout,
+                         landscape=not bool(getattr(args, "portrait", False)))
+            v = getattr(shoot, "last_verdict", "")
+            if clip is None:
+                break
+            if not v:
+                # No verdict line at all — an older capture path. Do not silently loop.
+                print("    (no fight verdict reported; keeping this take)")
+                break
+            if "PASS" in v.split("  ")[0]:
+                if attempt > 1:
+                    print(f"    kept take {attempt}")
+                break
+            if attempt < max(1, args.takes):
+                print(f"    re-rolling (take {attempt} rejected)")
+            else:
+                print(f"    ⚠ kept take {attempt} anyway — {args.takes} takes all "
+                      f"scored below the bar. Lower --takes or accept the matchup.")
         if clip is None:
             return None
     else:
@@ -590,13 +621,20 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
             clip, dur = trimmed, probe_duration(trimmed)
 
     with_tail = not args.no_tail
-    if with_tail and not args.tail:
+    # A supplied line is whatever length it is — there is no "who will win?" tail to
+    # drop from it, so the probe below (which BUILDS a bank line just to measure it)
+    # would be both wasted work and a decision about a file it is not describing.
+    if with_tail and not args.tail and not getattr(args, "vo", None):
         probe = build_vo(a, b, True)
         if probe_duration(probe) > dur * VO_MAX_SHARE:
             with_tail = False
             print(f"  the full line is {probe_duration(probe):.1f}s of a {dur:.1f}s "
                   f"clip — dropping \"who will win?\" (--tail to keep it)")
-    vo = build_vo(a, b, with_tail)
+    # ⚠ A SUPPLIED LINE WINS OVER THE BANK. `build_vo` stitches "<A> versus <B> — who
+    # will win?" from banked WORDS separated by measured silences, which is robust and
+    # audibly assembled. A single full-line read is the upgrade, and it needs no code
+    # beyond letting the caller hand one in.
+    vo = Path(args.vo) if getattr(args, "vo", None) else build_vo(a, b, with_tail)
     vo_dur = probe_duration(vo)
     print(f"  clip {dur:.1f}s   voice {vo_dur:.1f}s"
           f"{' (with the question)' if with_tail else ''}")
@@ -627,6 +665,14 @@ def main() -> int:
     ap.add_argument("--portrait", action="store_true",
                     help="render the 9:16 band-over-blur composition instead of the "
                          "default 1920x1080 (see LANDSCAPE_W)")
+    ap.add_argument("--vo", type=Path,
+                    help="use this WAV as the voice-over instead of the stitched word "
+                         "bank. A full LINE read (e.g. Higgsfield seed_audio) sounds "
+                         "far better than banked words joined with silences — see "
+                         "content/vo/lines/")
+    ap.add_argument("--takes", type=int, default=3,
+                    help="shoot up to this many bouts and keep the first that passes "
+                         "the FightScore bar (1 = keep whatever the first roll gives)")
     ap.add_argument("--hp", type=int, default=420)
     ap.add_argument("--seconds", type=float, default=24.0, help="clip length cap")
     ap.add_argument("--timeout", type=int, default=1800)

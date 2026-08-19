@@ -4,6 +4,12 @@ extends CharacterBody2D
 signal health_changed(current: int, maximum: int)
 signal mana_changed(current: float, maximum: int)
 signal signature_changed(display_name: String)
+## Fired the moment a signature spell actually goes off. Carries what a WATCHER needs
+## rather than what the caster needs: which spell, and whether it was the big one.
+## `BotMatch` uses it to judge whether a bout is worth publishing (see `FightScore`) —
+## a fight won with one button is a bad advert for a game about spells. Nothing in the
+## combat path reads it, so it cannot affect the fight it is describing.
+signal spell_cast(id: String, is_ult: bool)
 
 const SPEED: float = 210.0
 ## Mana (MP): gates the big SIGNATURE spectacle spells (the magic-circle beam /
@@ -3065,6 +3071,9 @@ func _cast_signature() -> void:
 	# The full argument (including why this is NOT a speech bubble, which is what was
 	# proposed) is in `CastName`'s header.
 	CastName.announce(get_parent(), self, spell, _element_color)
+	# Announced and cast are the same instant, so the watcher signal rides here rather
+	# than inventing a second place a cast can be observed from.
+	spell_cast.emit(spell.id, SpellTier.of(spell) == SpellTier.Tier.ULT)
 	# Armed at COMMIT so an instant signature (one that never opens a windup) is
 	# covered; `_end_summon`/`_end_channel` re-arm it so for everything else the gap
 	# is measured from when the effect LANDS, not from the button press.

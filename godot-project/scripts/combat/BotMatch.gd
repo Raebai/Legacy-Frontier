@@ -602,6 +602,14 @@ var _final_hp: Array[int] = [-1, -1]
 ## ---- match state ----------------------------------------------------------
 var _clock: float = 0.0
 var _outcome: int = Outcome.NONE
+## ⚠ IS THIS BOUT WORTH POSTING? Maker: *"ensure that the fights recorded are cool —
+## have a threshold for good fights vs boring ones"*. Tallied live here because this is
+## the only node that can see both fighters and the outcome; scored by `FightScore`,
+## which owns what "cool" means. A capture pipeline reads `fight_verdict` at the end and
+## re-rolls rather than publishing a demolition.
+var _score: FightScore = FightScore.new()
+## Set at the bell so the length axis measures the FIGHT, not the intro card.
+var _fight_began_at: float = -1.0
 var _winner: int = -1                 # side index, or -1 for a draw
 var _decided_at: float = -1.0         # REAL seconds (unscaled) when it was decided
 var _card_shown_at: float = 0.0       # REAL seconds the card actually appeared (0 = not yet)
@@ -793,6 +801,9 @@ func _adopt_fighters() -> void:
 		# time; the signal does not.
 		if f.has_signal("health_changed"):
 			f.connect("health_changed", _on_health_changed.bind(side))
+		# ...and what they THREW, for the same verdict. See `FightScore`.
+		if f.has_signal("spell_cast"):
+			f.connect("spell_cast", _on_spell_cast)
 		# ⚠ THE FLOATING BAR IS HIDDEN ON BOTH FIGHTERS FOR THE WHOLE MATCH. This mode
 		# already has screen-space plates reading `STORMCALLER 418` in each corner, so
 		# the over-the-head bar is the same number said twice — and on a 65 px stick
@@ -911,6 +922,10 @@ func _on_health_changed(hp: int, _max_hp: int, side: int) -> void:
 		return
 	var before: int = _fighter_hp_now[side]
 	_fighter_hp_now[side] = hp
+	# Every health report is a sample for the lead-change axis — see `FightScore`.
+	_score.record_health(
+		float(_fighter_hp_now[0]) / maxf(float(_fighter_max[0]), 1.0),
+		float(_fighter_hp_now[1]) / maxf(float(_fighter_max[1]), 1.0))
 	if hp <= 0 and _outcome == Outcome.NONE:
 		_decide(Outcome.KO, 1 - side)
 		return
@@ -1169,12 +1184,27 @@ func _hp_frac(side: int) -> float:
 ## The `ClipDirector` keeps ticking through the pause — it inherits PROCESS_MODE
 ## ALWAYS from the arena — so the camera settles onto the KO instead of stopping dead
 ## with it. That settle IS the shot.
+## The bout's quality verdict, for a capture pipeline deciding whether to keep the
+## take. See `FightScore`. Empty until the fight has been decided.
+func _on_spell_cast(id: String, is_ult: bool) -> void:
+	_score.record_spell(id, is_ult)
+
+
+func fight_verdict() -> Dictionary:
+	return _score.verdict()
+
+
 func _decide(outcome: int, winner: int) -> void:
 	if _outcome != Outcome.NONE:
 		return
 	_outcome = outcome
 	_winner = winner
 	_decided_at = _real_seconds()
+	# The bout is over: freeze the length axis and print the verdict, so a capture run
+	# has one greppable line telling it whether to keep this take.
+	if _fight_began_at >= 0.0:
+		_score.seconds = _decided_at - _fight_began_at
+	print("[fight] %s" % _score.summary())
 	_final_hp[0] = _fighter_hp_now[0]
 	_final_hp[1] = _fighter_hp_now[1]
 	if outcome == Outcome.KO and winner >= 0:
@@ -1804,6 +1834,7 @@ func _tick_intro() -> void:
 func _start_fight() -> void:
 	_intro_phase = Intro.FIGHT
 	get_tree().paused = false
+	_fight_began_at = _real_seconds()
 	_arm_opening_lockout()
 	if _intro_row != null:
 		_intro_row.visible = false

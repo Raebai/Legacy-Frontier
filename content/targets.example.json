@@ -1,0 +1,27 @@
+{
+  "_comment": [
+    "Copy to content/targets.json and fill in. targets.json is gitignored.",
+    "One entry per ACCOUNT per PLATFORM. `profile` is the aggregator profile name you",
+    "created when you connected that account.",
+    "",
+    "draft=true uploads to the app's inbox/drafts so you can add trending audio by hand",
+    "before publishing. This is the default and it is deliberate: video published",
+    "through ANY social API cannot use the platform's licensed music library.",
+    "",
+    "Two accounts on the SAME platform are auto-staggered (--stagger, default 25 min).",
+    "Posting the identical clip to several accounts at once is the pattern that trips",
+    "spam detection -- vary the caption too, that is what the per-target `caption` is for."
+  ],
+  "targets": [
+    {"profile": "main",  "platform": "tiktok",    "draft": true,
+     "caption": "Stormcaller vs Cryomancer — who wins?"},
+    {"profile": "main",  "platform": "instagram", "draft": true,
+     "caption": "Stormcaller vs Cryomancer #indiegame #gamedev"},
+    {"profile": "main",  "platform": "youtube",   "draft": true,
+     "caption": "Stormcaller vs Cryomancer"},
+    {"profile": "main",  "platform": "x",         "draft": false,
+     "caption": "Stormcaller vs Cryomancer. Every spell is dodgeable."},
+    {"profile": "alt",   "platform": "tiktok",    "draft": true,
+     "caption": "which class would you pick?"}
+  ]
+}

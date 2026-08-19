@@ -124,3 +124,6 @@ content/vo/raw/
 # `content/music/` is likewise generated: `generate_battle_music.py` IS the track.
 content/posts/
 content/music/
+
+# Social account list — profile names, never commit
+content/targets.json
