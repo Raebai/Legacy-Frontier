@@ -98,10 +98,12 @@ RENDER_W, RENDER_H = 1080, 1920
 # frame, so landscape needs no band, no blur bed and no pillarbox, and the fighters
 # are as big as the shot ever makes them.
 #
-# ⚠ IT IS A FLAG AND NOT THE NEW DEFAULT, DELIBERATELY. The maker asked for landscape
-# AND then supplied four trending TikTok audios for these clips, and TikTok is a
-# portrait platform. Those two asks point opposite ways and only they can settle it,
-# so both paths work and the default is unchanged. `--landscape` picks the other one.
+# ⚠ THIS IS NOW THE DEFAULT. It was briefly a flag, because "render landscape" and
+# "put TikTok audio on it" pointed opposite ways. Maker settled it 2026-08-19:
+# *"landscape content on tiktok and instagram is still possible and what we will be
+# doing for now"*. So landscape is the default and `--portrait` is the opt-out; the
+# 9:16 path is kept whole rather than deleted because the decision is explicitly
+# "for now".
 LANDSCAPE_W, LANDSCAPE_H = 1920, 1080
 
 # Where the announcer starts, in clip seconds. The VS card holds for 1.2 s of clip
@@ -529,7 +531,7 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
     clip = user_data_dir() / "clips" / f"{stem}.mp4"
     if not args.no_shoot or not clip.exists():
         clip = shoot(a, b, args.hp, args.seconds, args.timeout,
-                     landscape=bool(getattr(args, "landscape", False)))
+                     landscape=not bool(getattr(args, "portrait", False)))
         if clip is None:
             return None
     else:
@@ -608,7 +610,7 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
              else build_music(dur) if args.music_bed else None)
     out = POSTS / f"{stem}.mp4"
     mux(clip, vo, music, out, dur, args.music_db, args.game_db, args.vo_db, title,
-        landscape=bool(getattr(args, "landscape", False)))
+        landscape=not bool(getattr(args, "portrait", False)))
     print(f"  -> {out.name}  ({out.stat().st_size / 1_048_576:.1f} MB)")
     print(f"     {verify(out)}")
     return out
@@ -622,9 +624,9 @@ def main() -> int:
     ap.add_argument("--random", action="store_true", help="roll one matchup")
     ap.add_argument("--batch", type=int, default=0,
                     help="make N posts, each a different rolled matchup")
-    ap.add_argument("--landscape", action="store_true",
-                    help="render 1920x1080 with the director's own framing, instead "
-                         "of the 9:16 band-over-blur composition (see LANDSCAPE_W)")
+    ap.add_argument("--portrait", action="store_true",
+                    help="render the 9:16 band-over-blur composition instead of the "
+                         "default 1920x1080 (see LANDSCAPE_W)")
     ap.add_argument("--hp", type=int, default=420)
     ap.add_argument("--seconds", type=float, default=24.0, help="clip length cap")
     ap.add_argument("--timeout", type=int, default=1800)

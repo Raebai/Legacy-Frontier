@@ -42,6 +42,7 @@ const TESTS: Array[String] = [
 	"taunts_have_no_drawing_references", "taunts_answer_the_opponent",
 	"lobby_routes_to_the_duel", "lobby_clears_the_statics", "lobby_opponent_is_never_a_mirror",
 	"live_match_is_not_slowed", "live_bodies_wear_the_corner",
+	"ink_is_readable_on_a_dark_panel", "the_opening_beat_covers_every_button",
 ]
 
 const MATCH_SCENE: String = "res://scenes/combat/BotMatch.tscn"
@@ -90,6 +91,7 @@ func _run_all() -> void:
 	_test_corner_colours()
 	_test_plates_read_the_corner()
 	_test_ink_is_readable_on_a_dark_panel()
+	_test_the_opening_beat_covers_every_button()
 	_test_taunt_beats_are_complete()
 	_test_taunt_line_is_deterministic()
 	_test_taunt_rows_are_plural()
@@ -692,3 +694,43 @@ func _test_live_bodies_wear_the_corner() -> void:
 	_expect(not worn[0].is_equal_approx(worn[1]),
 		"the two fighters are NOT the same colour (the old GameState.colourway bug)")
 	_completes("live_bodies_wear_the_corner")
+
+
+## THE OPENING BEAT HAS TO COVER EVERY BUTTON, NOT HALF OF THEM.
+##
+## Maker: *"increase the time delay for the first abilities ... currently it unfreezes
+## the characters and they instantly use spells"*. The beat already existed and was
+## already a full second — `_arm_opening_lockout` sets `Hero._cast_lockout` on both
+## fighters as the bell rings. It just did not reach the abilities: `_cast_lockout` was
+## consulted in `_cast_signature` alone, so the kit went quiet while Q / R / T fired on
+## the first frame, and the delay read as broken because half the buttons ignored it.
+##
+## This asserts the SOURCE, because the alternative is standing a bot up and waiting
+## 1.8 real seconds inside a suite. The three ability entry points must each gate on
+## `_cast_lockout`, and the beat must be long enough to be seen.
+func _test_the_opening_beat_covers_every_button() -> void:
+	_expect(float(_match.get("OPENING_LOCKOUT")) >= 1.2,
+		"the opening beat is long enough to read as a pause (%.2fs)"
+			% float(_match.get("OPENING_LOCKOUT")))
+
+	var f: FileAccess = FileAccess.open("res://scripts/combat/Hero.gd", FileAccess.READ)
+	_expect(f != null, "Hero.gd is readable as source")
+	if f == null:
+		return
+	var src: String = f.get_as_text()
+	f.close()
+	# Each ability entry point, and the window of source that follows its declaration.
+	for fn: String in ["func _blink() -> void:", "func _nova() -> void:",
+			"func _uppercut() -> void:"]:
+		var at: int = src.find(fn)
+		_expect(at >= 0, "Hero still has `%s`" % fn)
+		if at < 0:
+			continue
+		# Generous, because the gate sits under a long explanatory comment in `_blink`
+		# and a 900-char window cut it off — the assertion then reported a missing
+		# guard that was present four lines further down.
+		var head: String = src.substr(at, 2400)
+		_expect(head.contains("if _cast_lockout > 0.0:"),
+			"`%s` honours _cast_lockout — otherwise the opening beat and the global " % fn
+			+ "chaining floor both skip this button, which is the reported bug")
+	_completes("the_opening_beat_covers_every_button")

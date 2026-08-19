@@ -459,7 +459,11 @@ const NOVA_RANGE: float = 150.0
 ## Raising the uncounted three is not a way around the guard. The guard encodes "a bot
 ## must not go QUIET", and after this it still lands its twelve casts; what it stops
 ## doing is filling every gap between them.
-const ABILITY_SPACING: float = 2.10
+## ⚠ 2.10 -> 3.00 ON THE MAKER'S THIRD PASS: *"increase the cooldown on the abilities
+## and ensure they dont spam them in quick succession"*, and more broadly *"there is
+## like too much going on all the time"*. Still one of the three dials the `>= 12
+## casts` guard does NOT constrain, so this is the safe place to spend the ask.
+const ABILITY_SPACING: float = 3.00
 
 ## ⚠ THE PRIMARY HAD NO SPACING AT ALL, AND THAT IS THE SPAM THE MAKER SAW.
 ##
@@ -496,7 +500,11 @@ const ABILITY_SPACING: float = 2.10
 ## Still a FLOOR, not a cooldown. The Swordsaint (0.45) and the Juggernaut (0.40) are
 ## now inside it where they were not before, which is the one cost — but their primary
 ## is a melee swing whose damage the body gates anyway.
-const FIRE_SPACING: float = 1.25
+## ⚠ 1.25 -> 1.70, same ask as ABILITY_SPACING above. The primary is the
+## highest-frequency emitter in the game, so it is the biggest single contributor to
+## "too much going on"; `slice_test_bot_rhythm` guards this at >= 0.55 and it stays
+## far clear.
+const FIRE_SPACING: float = 1.70
 
 ## ══ THE PAUSE, THE FLINCH, AND THE LAST STAND ═══════════════════════════════════
 ## See `_note_exchange` for how these are rolled and why the ceilings are where they

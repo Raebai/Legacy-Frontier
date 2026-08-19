@@ -469,7 +469,12 @@ const RIM_RIGHT: float = 1980.0
 ## crosses it in about a sixth of a second.
 const RIM_BOTTOM: float = 1100.0
 ## Seconds after the bell before either fighter may cast. See `_arm_opening_lockout`.
-const OPENING_LOCKOUT: float = 1.0
+## ⚠ 1.0 -> 1.8. The first value was not wrong so much as unreachable: `_cast_lockout`
+## was only consulted by `_cast_signature`, so Q / R / T ignored the whole beat and the
+## bell still opened with an ability. Both halves are fixed together — `Hero._blink`,
+## `_uppercut` and `_nova` now honour the same gate — and with the beat actually
+## covering every button it is worth having it long enough to read as a stare-down.
+const OPENING_LOCKOUT: float = 1.8
 ## Nobody watches a stalemate. If neither fighter has gone down by here the match is
 ## decided on the health bars, which is a real result and not a cop-out: the fighter
 ## who took less punishment over 50 seconds won the fight the audience watched.

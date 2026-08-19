@@ -590,6 +590,10 @@ const TOUCH_AIM_DEADZONE: float = 0.20
 ## Hit feedback when damage actually lands (not i-framed).
 const HURT_FLASH_COLOR: Color = Color(1.0, 0.2, 0.2)
 const HURT_FLASH_TIME: float = 0.12
+## How far under a real connect a DoT tick's hurt sound sits. Maker asked for the
+## DoT audio specifically to come down; -12 dB is about a quarter of the loudness, so
+## a burn is audible as a tick without competing with the hit that applied it.
+const DOT_TICK_SFX_DB: float = -12.0
 ## The body a downed hero leaves behind (see `_enter_downed`). Graphite, not the
 ## player's colourway: the fiction is a PENCIL DRAWING being rubbed off the page, and
 ## a bright coloured corpse would read as a second live fighter lying there.
@@ -4285,6 +4289,22 @@ func _blink() -> void:
 	if String(_cfg.get("mobility2", "blink")) == "uppercut":
 		_uppercut()
 		return
+	# ⚠ THE ABILITIES HONOUR THE CAST LOCKOUT TOO, AND THEY DID NOT USED TO.
+	# Maker: *"increase the time delay for the first abilities in the clips, as
+	# currently it unfreezes the characters and they instantly use spells"* — and the
+	# opening beat `BotMatch._arm_opening_lockout` arms was ALREADY there, at a full
+	# second. It just did not reach here: `_cast_lockout` was checked in
+	# `_cast_signature` only, so the kit slots went quiet on the bell while Q / R / T
+	# fired on the very first frame. The delay looked broken because half the buttons
+	# ignored it.
+	#
+	# ⚠ AND IT ALSO BUYS THE GLOBAL CHAINING FLOOR, WHICH IS THE POINT. Maker, more
+	# broadly: *"there is like too much going on all the time"*. `GLOBAL_CAST_LOCKOUT`
+	# exists so three recovered slots cannot chain into one smear; abilities being
+	# outside it meant a spell and an ability could still land on the same frame. They
+	# now share the one floor, so a fight has gaps in it.
+	if _cast_lockout > 0.0:
+		return
 	if _blink_cooldown_timer > 0.0:
 		return
 	var origin: Vector2 = global_position
@@ -4339,6 +4359,9 @@ func _blink() -> void:
 ## BRAWLER uppercut (R) — a rising launcher: the hero hops and everything in a
 ## short forward range is popped UP (sets up an air-juggle with the double-jump).
 func _uppercut() -> void:
+	# The Brawler's R. Same gate as the blink it replaces — see the note there.
+	if _cast_lockout > 0.0:
+		return
 	if _blink_cooldown_timer > 0.0:
 		return
 	_blink_cooldown_timer = maxf(_cfg["blink_cd"], 1.1)
@@ -4912,6 +4935,9 @@ func _ground_slam() -> void:
 ## only; the rogue's whirlwind reuses _spawn_nova through _blast.
 func _nova() -> void:
 	if not bool(_cfg["has_nova"]):
+		return
+	# Shares the cast lockout — see the long note in `_blink`.
+	if _cast_lockout > 0.0:
 		return
 	if _nova_cooldown_timer > 0.0:
 		return
@@ -6352,15 +6378,36 @@ func take_damage(amount: int) -> void:
 		hp = max(hp - amount, 0)
 	health_changed.emit(hp, max_hp)
 	DamageNumber.spawn(get_parent(), global_position + Vector2(0.0, -18.0), amount, Color(1.0, 0.35, 0.35), amount >= 18)
-	rig.play(CharacterRig.State.HURT)
+	# ══ A DoT TICK IS DAMAGE, NOT A CONNECT ════════════════════════════════════
+	# Maker: *"the dot damage animation with the figures hands up you can remove that,
+	# and the audio effect specifically from dot damage please reduce that as well"*.
+	#
+	# `State.HURT` throws BOTH ARMS UP (`arm_lead -0.5`, `arm_off PI + 0.5` in
+	# CharacterRig's pose table) — that is the "hands up" the maker is describing. It
+	# is the right read for a punch and the wrong one for a burn: a burn is five ticks,
+	# so a status nobody consciously applied threw the figure into a flinch pose five
+	# times and it never got to look like it was doing anything else.
+	#
+	# ⚠ THIS EXTENDS AN EXISTING SEAM RATHER THAN ADDING ONE. `dealing_dot` already
+	# suppressed the camera shake for exactly this reason and carries the note about
+	# why it is a static flag and not a `take_damage` parameter (that method is a
+	# duck-typed contract with two live arities and a third variant is a trap).
+	#
+	# WHAT A DoT TICK KEEPS: the damage number, the ailment-coloured flash, the hp
+	# change and the kill. Those are the readable parts — the "glow w/ tick" the
+	# StatusComponent header asks for. What it loses is the pose, the ragdoll flinch,
+	# the hitstop and most of the volume: the four things that say "you were STRUCK".
+	var is_dot: bool = StatusComponent.dealing_dot
+	if not is_dot:
+		rig.play(CharacterRig.State.HURT)
 	rig.flash_color(HURT_FLASH_COLOR, HURT_FLASH_TIME)
-	rig.apply_impulse(Vector2(-facing.x, -0.7), 300.0)  # ragdoll flinch on the hit
-	Juice.hit_stop(_tune("hurt_hit_stop", HURT_HIT_STOP))
-	# A DoT tick is real damage on the real hurt path, but it is not a CONNECT — see
-	# `StatusComponent.dealing_dot`. Maker: "dot damage shouldnt have any screen shake".
-	if not StatusComponent.dealing_dot:
+	if not is_dot:
+		rig.apply_impulse(Vector2(-facing.x, -0.7), 300.0)  # ragdoll flinch on the hit
+		Juice.hit_stop(_tune("hurt_hit_stop", HURT_HIT_STOP))
 		Juice.shake_camera(_tune("hurt_shake", HURT_SHAKE))
-	Sfx.play("hero_hurt")
+	# Well under the connect, and pitch-varied so five ticks in a row do not read as
+	# one sound stuttering.
+	Sfx.play("hero_hurt", DOT_TICK_SFX_DB if is_dot else 0.0, 0.10 if is_dot else 0.0)
 	if not ringout and hp == 0:
 		_die()
 

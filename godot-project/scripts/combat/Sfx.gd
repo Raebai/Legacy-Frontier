@@ -440,9 +440,12 @@ const STREAMS: Dictionary = {
 	# in its own pool rather than mixed into `melee_swing_heavy` precisely because it
 	# is a voice: dropped into a whoosh pool it would sometimes play INSTEAD of the
 	# whoosh, and a heavy hammer swing that makes only a human grunt reads as a bug.
-	# Layered over the heavy swing at its one call site instead. One sample so far —
-	# see the audit note in the commit; this wants 2-3 more before it can rotate.
-	"effort_grunt": [preload("res://assets/audio/sfx/effort_grunt_1.wav")],
+	# Layered over the heavy swing at its one call site instead. Two samples, so it
+	# rotates rather than repeating on every heavy swing.
+	"effort_grunt": [
+		preload("res://assets/audio/sfx/effort_grunt_1.wav"),
+		preload("res://assets/audio/sfx/effort_grunt_2.wav"),
+	],
 	"kick": [
 		preload("res://assets/audio/sfx/kick_1.wav"),
 		preload("res://assets/audio/sfx/kick_2.wav"),

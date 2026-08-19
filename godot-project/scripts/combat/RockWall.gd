@@ -38,6 +38,14 @@ extends Node2D
 
 const WALL_OFFSET: float = 90.0     # how far in front of the caster it rises
 const WALL_SIZE: Vector2 = Vector2(44.0, 124.0)  # thickness x height — CHUNKY (ice is slim)
+## Clearance left between a shoved body and the wall face. Big enough that the next
+## physics step does not immediately re-overlap and re-trigger the depenetration this
+## is avoiding. See `_eject_bodies_from_wall`.
+const EJECT_PAD: float = 13.0
+## How far BELOW the base a body still counts as caught. A fighter stands with its
+## origin above its feet, so a body on the ground at the wall's base reads a few px
+## under `_floor_base` and would otherwise be missed.
+const EJECT_FOOT_PAD: float = 20.0
 const RISE_TIME: float = 0.34       # full upheaval: last slab locks just before this
 const SLAB_RISE: float = 0.16       # one slab's pop-up time
 const SLAB_STAGGER: float = 0.055   # delay between slab launches (bottom-first)
@@ -165,6 +173,19 @@ func raise_wall(
 	_collider.shape = shape
 	_collider.position = Vector2(0.0, -WALL_SIZE.y * 0.5)  # extend UP from the base
 	_body.add_child(_collider)
+	# ⚠ AND ANYONE STANDING WHERE IT ERUPTED GETS PUSHED OUT. Maker: *"rockwall keeps
+	# freezing the opponents in the wall"*.
+	#
+	# The body above is created at FULL SIZE on this very frame (the header says so,
+	# and the reaction contract depends on it), on collision layer 1, with no regard
+	# for who was standing there. A `CharacterBody2D` that finds itself inside a
+	# `StaticBody2D` has no good way out: depenetration picks the shortest separation,
+	# which for a body near the middle of a 44 x 124 slab is sideways into the other
+	# half of the wall, and it jitters there for the wall's whole life. The victim
+	# reads as frozen INSIDE the stone, which is exactly the report.
+	#
+	# The wall is the whole point of the spell, so the wall wins and the BODY moves.
+	_eject_bodies_from_wall()
 	# The ground BREAKS as the first slab tears out — a slam, not a fade-in.
 	DebrisChunk.spawn_burst(get_parent(), _floor_base, Color(0.5, 0.38, 0.22), 8, Vector2.UP, 260.0)
 	CombatVfx.spawn_burst(get_parent(), _floor_base, Color(0.85, 0.62, 0.35, 0.8),
@@ -188,6 +209,46 @@ func raise_wall(
 	if reactor != null:
 		reactor.call(&"register", self, ReactionTable.Form.BARRIER, element_id)
 	queue_redraw()
+
+
+## Shove anything caught inside the freshly-raised slab out to the nearer face.
+##
+## Deliberately a POSITION write and not an impulse: a shove that has to be integrated
+## can be swallowed by the victim's own `move_and_slide` in the same frame it is
+## applied — and the failure mode being fixed is precisely a body that cannot resolve
+## its own overlap. Moving it clear first and then letting it keep its velocity is the
+## only version that cannot fight itself.
+##
+## Horizontal only. Lifting a victim over a 124 px wall would be a free escape from the
+## thing that just blocked them, and dropping them through the floor is worse.
+func _eject_bodies_from_wall() -> void:
+	var half_w: float = WALL_SIZE.x * 0.5
+	var top: float = _floor_base.y - WALL_SIZE.y
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	for group: StringName in [&"hero", &"enemy"]:
+		for n: Node in tree.get_nodes_in_group(group):
+			var b := n as Node2D
+			if b == null or not is_instance_valid(b):
+				continue
+			# The caster is standing WALL_OFFSET away by construction; skip it anyway
+			# so a wall raised against a wall never shoves its own summoner.
+			if b == caster_node:
+				continue
+			var p: Vector2 = b.global_position
+			if p.y < top or p.y > _floor_base.y + EJECT_FOOT_PAD:
+				continue
+			var dx: float = p.x - _floor_base.x
+			if absf(dx) > half_w + EJECT_PAD:
+				continue
+			# Out of the nearer face. `dx == 0` is a real case (a wall raised exactly
+			# on top of someone), so it needs a side rather than a zero push.
+			var side: float = signf(dx)
+			if side == 0.0:
+				side = 1.0 if _floor_base.x >= global_position.x else -1.0
+			b.global_position = Vector2(
+				_floor_base.x + side * (half_w + EJECT_PAD), p.y)
 
 
 func _exit_tree() -> void:

@@ -161,6 +161,27 @@ waits. Neither weakens the ruling. But this is a design call and it is the maker
 
 Each slice is independently verifiable and independently revertable.
 
+> **⚠ STATUS 2026-08-19 (evening): PAUSED BEFORE SLICE 1, DELIBERATELY.** The maker,
+> mid-playtest: *"there is like too much going on all the time so we need to fix that"*.
+> A destructible map ADDS events to a fight that is already too busy, so building it now
+> would push hardest in the wrong direction. It resumes after the density pass.
+>
+> **Slice 0 was attempted twice and still has no number.** Three real faults were found
+> and fixed along the way, recorded here so the next attempt does not repeat them:
+> 1. `Input.action_press` does not drive a `Hero` — it reads `Input` only when its
+>    `controller` is null. Install a scripted controller on the `controller` seam.
+> 2. That controller MUST implement `tick(body, clock)`; `Hero._physics_process` calls
+>    it at the top of the step and a missing method aborts the whole physics tick.
+> 3. `tick` must NOT age the just-pressed edge — it runs before the hero polls
+>    anything, so copying held-into-prev there makes `just_pressed` compare a set with
+>    itself and `_just(&"jump")` is never true.
+>
+> With all three fixed the CONTROL passes (holding `move_right` moves the body 122.7 px
+> in 40 ticks, i.e. ~205 px/s against `Hero.SPEED` 210) and the jump measurement still
+> reports 0.0 px for all five classes. Untested suspicion for next time: the settle loop
+> is 10 ticks while a 80 px drop takes ~15, so the body may not be `is_on_floor()` when
+> the jump is pressed. **Do not trust the derived 119.5 px until this reads a number.**
+
 - **Slice 0 — MEASURE THE REACH.** Build a probe that genuinely drives a `Hero` across a
   parameterised gap and binary-searches the widest crossable width, per class, for a flat
   jump, a rising jump and a ground dash. ⚠ The 2026-08-19 attempt failed by driving input the
