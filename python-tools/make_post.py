@@ -97,6 +97,41 @@ VO_AT = 0.12
 # halfway through the fight. `--no-tail` cuts it to ~3.9 s. Overridable both ways.
 VO_MAX_SHARE = 0.45
 
+# ── THE MATCHUP CARD ───────────────────────────────────────────────────────
+# When it arrives, how long it holds, how long it takes to leave. Sized to the
+# ANNOUNCER rather than picked: the line runs ~3.9 s without the question and ~5.9 s
+# with it, and a card that leaves while the voice is still naming the fighters reads
+# as a glitch.
+T_IN = 0.15
+T_HOLD = 3.4
+T_FADE = 0.6
+T_OUT = T_IN + T_HOLD
+# A ramp in, a hold, a ramp out — evaluated per frame by drawtext against `t`.
+TITLE_ALPHA = (
+    f"if(lt(t,{T_IN}),0,"
+    f"if(lt(t,{T_IN + 0.35}),(t-{T_IN})/0.35,"
+    f"if(lt(t,{T_OUT}),1,"
+    f"max(0,1-(t-{T_OUT})/{T_FADE}))))"
+)
+
+# ── THE VOICE ──────────────────────────────────────────────────────────────
+# ⚠ MAKER: "the voice audio needs to be wau more epic". The banked read is a clean
+# dry recording, and dry is the opposite of epic — a trailer voice is not a louder
+# voice, it is a voice in a BIG ROOM with weight underneath it. This is the cheap
+# half, applied in post to the assembled line, and it needs no re-generation:
+#   * a hall reverb, so the words have a space around them rather than sitting flat
+#     on the front of the speaker;
+#   * a shelf lift under 120 Hz for chest, and a small presence lift at 4 kHz so it
+#     still cuts through a fight on a phone speaker;
+#   * heavy compression, which is what makes a trailer read as CLOSE and inevitable.
+# ⚠ THE OTHER HALF IS THE PERFORMANCE, AND POST CANNOT FAKE IT. If this is still not
+# epic enough it wants a new bank read by a trailer voice — 11 clips, see vo_bank.py.
+VO_FX = ("highpass=f=70,"
+         "equalizer=f=110:width_type=h:width=90:g=4.5,"
+         "equalizer=f=4000:width_type=h:width=1800:g=3.0,"
+         "acompressor=threshold=0.08:ratio=6:attack=6:release=180:makeup=2.2,"
+         "aecho=0.85:0.75:70|140:0.28|0.16")
+
 # ── THE COMPOSITION ────────────────────────────────────────────────────────
 # ⚠ WHY THE NATIVE 9:16 FRAME IS CROPPED RATHER THAN SHOWN WHOLE, MEASURED off a
 # real 1080x1920 render: the fighters sit on a ground line ~56% down and about
@@ -328,8 +363,6 @@ def mux(clip: Path, vo: Path, music: Path | None, out: Path, dur: float,
     # space that frees up. The blur is not decoration — it is what stops the bands
     # reading as a broken export, and it is the format every gameplay clip on the
     # platform already uses.
-    band_h = int(1920 * BAND_HEIGHT)          # the kept band, at 1080 wide
-    pad = (1920 - band_h) // 2                # the strip freed above and below it
     vf = (
         f"[0:v]split=2[bg][fg];"
         f"[bg]crop=iw:ih*{BAND_HEIGHT}:0:ih*{BAND_TOP},"
@@ -337,20 +370,27 @@ def mux(clip: Path, vo: Path, music: Path | None, out: Path, dur: float,
         f"gblur=sigma=42,eq=brightness=-0.20:saturation=1.20[bgb];"
         f"[fg]crop=iw:ih*{BAND_HEIGHT}:0:ih*{BAND_TOP},scale=1080:-2[fgs];"
         f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2[comp];"
-        # ⚠ THE TITLE GOES IN THE BOTTOM STRIP, NOT THE TOP ONE. The health plates
-        # and the round clock live along the top edge of the game's own frame, and
-        # a title up there lands on them. The bottom strip is genuinely empty.
-        f"[comp]drawtext=fontfile='{FONT}':text='{title}':"
+        # ⚠ THE MATCHUP IS A CARD, NOT A WATERMARK. It used to be a permanent line
+        # along the bottom strip; maker: "lets have it show at the middle of the
+        # screen the x vs y and then dissapear after a few secodns". So it sits in
+        # the middle, over the fight, for as long as the announcer is naming the
+        # fighters, then fades and gives the picture back. `enable` gates the draw
+        # and `alpha` runs the fade, so this still costs one encode and no extra
+        # input. A slab rides the same window so the words read over a bright sky.
+        f"[comp]drawbox=x=0:y=(ih-200)/2:w=iw:h=200:color=black@0.45:t=fill:"
+        f"enable='between(t,{T_IN},{T_OUT + T_FADE})'[slab];"
+        f"[slab]drawtext=fontfile='{FONT}':text='{title}':"
         f"fontcolor=white:fontsize={fit_fontsize(title)}:x=(w-text_w)/2:"
-        f"y={1920 - pad // 2 - 60}:"
-        f"shadowcolor=black@0.8:shadowx=6:shadowy=6[vout]"
+        f"y=(h-text_h)/2:alpha='{TITLE_ALPHA}':"
+        f"shadowcolor=black@0.85:shadowx=6:shadowy=6:"
+        f"enable='between(t,{T_IN},{T_OUT + T_FADE})'[vout]"
     )
     delay_ms = int(VO_AT * 1000)
 
     chains = [
         # The voice: placed, padded to full length so the mix cannot end early,
         # then split for its two sidechain duties plus the audible copy.
-        f"[1:a]{fmt},volume={vo_db}dB,adelay={delay_ms}|{delay_ms},"
+        f"[1:a]{fmt},{VO_FX},volume={vo_db}dB,adelay={delay_ms}|{delay_ms},"
         f"apad=whole_dur={dur:.3f},atrim=0:{dur:.3f},asetpts=N/SR/TB,"
         f"asplit=3[vo_a][vo_b][vo_mix]",
         # The fight's own audio, ducked GENTLY — it is the product, and it steps
@@ -484,23 +524,17 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
           f"{' (with the question)' if with_tail else ''}")
 
     POSTS.mkdir(parents=True, exist_ok=True)
-    music = None if args.no_music else (Path(args.music) if args.music
-                                        else build_music(dur))
+    # ⚠ NO BED UNLESS ASKED. Maker: "remove the background audio ... I will add the
+    # audio myself". The generator and the ducking mixer both still work and
+    # `--music-bed` puts it back; the shipped file is the announcer over the fight's
+    # own audio, with the music hole deliberately left open.
+    music = (Path(args.music) if args.music
+             else build_music(dur) if args.music_bed else None)
     out = POSTS / f"{stem}.mp4"
-    nomusic = POSTS / f"{stem}.nomusic.mp4"
-
-    if music is not None:
-        mux(clip, vo, music, out, dur, args.music_db, args.game_db,
-            args.vo_db, title)
-        print(f"  -> {out.name}  ({out.stat().st_size / 1_048_576:.1f} MB)  "
-              f"post as-is")
-        print(f"     {verify(out)}")
-    mux(clip, vo, None, nomusic, dur, args.music_db, args.game_db,
-        args.vo_db, title)
-    print(f"  -> {nomusic.name}  ({nomusic.stat().st_size / 1_048_576:.1f} MB)  "
-          f"add the trending sound in the TikTok editor")
-    print(f"     {verify(nomusic)}")
-    return out if music is not None else nomusic
+    mux(clip, vo, music, out, dur, args.music_db, args.game_db, args.vo_db, title)
+    print(f"  -> {out.name}  ({out.stat().st_size / 1_048_576:.1f} MB)")
+    print(f"     {verify(out)}")
+    return out
 
 
 def main() -> int:
@@ -516,9 +550,9 @@ def main() -> int:
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--no-shoot", action="store_true",
                     help="re-cut the audio over an already-shot fight")
-    ap.add_argument("--music", help="use this audio file as the bed instead")
-    ap.add_argument("--no-music", action="store_true",
-                    help="only produce the .nomusic cut")
+    ap.add_argument("--music", help="use this audio file as the bed")
+    ap.add_argument("--music-bed", action="store_true",
+                    help="add the generated battle bed (OFF by default)")
     ap.add_argument("--music-db", type=float, default=-9.0)
     ap.add_argument("--game-db", type=float, default=0.0)
     ap.add_argument("--vo-db", type=float, default=0.0)
@@ -559,10 +593,9 @@ def main() -> int:
     made = [m for m in made if m is not None]
     print(f"\n{len(made)}/{len(pairs)} post(s) in {POSTS}")
     if made:
-        print("\nTO POST WITH THE TRENDING SOUND (the one that actually travels):")
-        print("  upload the .nomusic.mp4, tap Sounds, pick the trend, balance it")
-        print("  against the original audio. That attaches the post to the sound's")
-        print("  page — which a burned-in copy cannot do, and is the whole point.")
+        print("\nNo music bed — add the sound in the TikTok editor, which is also")
+        print("what attaches the post to that sound's page. The announcer and the")
+        print("fight's own audio are already in the file.")
     return 0 if made else 1
 
 

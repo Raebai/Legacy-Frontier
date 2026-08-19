@@ -7080,3 +7080,80 @@ func _notify_element_used() -> void:
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs != null and gs.is_run_active():
 		gs.notify_element_used(Elements.display_name(_element))
+
+
+# --------------------------------------------------------------- hit silhouette
+## ⚠ A HERO WAS A ZERO-SIZE POINT TO EVERY SPELL IN THE GAME, AND THAT IS WHY THEY
+## DID NOT REGISTER.
+##
+## Maker, watching bot fights: *"the hit boxes for these spells is so small the stick
+## figures will be sntading in the borders of the spell and it wont register"*.
+##
+## `SpellTargets` fixed exactly this in 2026 — its header opens with the maker's
+## earlier *"spells pass through heads without registering"* — by DUCK-TYPING a
+## silhouette test: a target with `body_distance` / `hit_margin` is measured against
+## its drawn body, and anything else falls back to a point test on `global_position`
+## with a margin of ZERO. That fallback is correct for crates and projectiles.
+##
+## But only `Enemy`, `Boss` and `SpikeFigure` ever implemented the contract. `Hero`
+## did not — so every hero in the game, both bot duellists AND the human player, was
+## targeted as a dimensionless dot at its origin. A figure 31 px tall standing with
+## its body across a blast's rim took nothing at all, because the only part of it
+## that existed to the spell was one point down at hip height. The head, the chest
+## and roughly 4.8 px of forgiveness that every ENEMY already got were simply absent.
+##
+## This is that contract, implemented for heroes, deriving its geometry from
+## `CharacterRig` rather than copying numbers — the same shape and the same formula
+## `Enemy.body_distance` uses, because two different silhouette tests is precisely
+## how "spells pass through heads" happened the first time.
+##
+## Limbs are excluded on purpose, matching `Enemy` and `SpikeFigure`: being clipped
+## by a flailing arm you did not control feels arbitrary. Spine + head is the honest
+## target.
+func body_distance(p: Vector2) -> float:
+	var s: Dictionary = _hit_silhouette()
+	if s.is_empty():
+		# No rig (headless stub, mid-teardown): a monotonic distance from the origin
+		# beats INF-shaped nonsense, and matches the old behaviour exactly.
+		return global_position.distance_to(p)
+	var spine_d: float = SpellGeometry.point_segment_distance(
+		p, s["neck"] as Vector2, s["hip"] as Vector2)
+	return minf(spine_d, p.distance_to(s["head"] as Vector2) - float(s["head_r"]))
+
+
+## The forgiveness ring `body_distance` is compared against, in WORLD px (node scale
+## already applied). See `CharacterRig.HIT_MARGIN_FACTOR`.
+func hit_margin() -> float:
+	var s: Dictionary = _hit_silhouette()
+	var h: float = float(rig.height) if is_instance_valid(rig) \
+		else CharacterRig.DEFAULT_HEIGHT
+	return h * CharacterRig.HIT_MARGIN_FACTOR * float(s.get("scale", 1.0))
+
+
+## World position of the drawn HEAD's centre — well above `global_position`, which
+## sits mid-body. Anything aiming at, marking, or centring an effect on a hero wants
+## this rather than the origin.
+func head_point() -> Vector2:
+	var s: Dictionary = _hit_silhouette()
+	return (s["head"] as Vector2) if not s.is_empty() else global_position
+
+
+## World-space skeleton: neck / hip / head centre / head radius / uniform scale.
+## Empty when there is no rig to measure.
+func _hit_silhouette() -> Dictionary:
+	if not is_instance_valid(rig):
+		return {}
+	var h: float = float(rig.height)
+	var head_r: float = h * CharacterRig.HEAD_R_FACTOR
+	var head_local := Vector2(0.0, -h * 0.5 + head_r)
+	var xf: Transform2D = rig.global_transform
+	# ⚠ `absf` on scale.y: facing is mirrored through scale.x, and a mirrored basis
+	# makes `get_scale()` report a NEGATIVE y. Same guard as Enemy._silhouette.
+	var s: float = absf(xf.get_scale().y)
+	return {
+		"neck": xf * (head_local + Vector2(0.0, head_r)),
+		"hip": xf * Vector2(0.0, h * CharacterRig.HIP_Y_FACTOR),
+		"head": xf * head_local,
+		"head_r": head_r * s,
+		"scale": s,
+	}

@@ -173,6 +173,51 @@ const VERTICAL_BAND: float = 210.0
 ## Fraction of a horizontal lean that is applied vertically. See `_lean`.
 const VERTICAL_LEAN: float = 0.25
 
+# ══ PORTRAIT ═══════════════════════════════════════════════════════════════
+## ⚠ THIS DIRECTOR HAD NO PORTRAIT BRANCH AT ALL, and every number above is sized
+## for a 640x360 design box. The portrait framing work in commit b01bbd8 landed on
+## `VersusArena`'s SHOWCASE camera — a different camera from the one the clip engine
+## films through — so a 9:16 clip was framed as if it were 16:9.
+##
+## MEASURED off a real 1080x1920 render: `get_visible_rect()` answers 640x1137 in
+## portrait against 640x360 in landscape. The width is identical, so `_fit_zoom`
+## solves the SAME zoom — and the extra 777 units of height are spent on sky above
+## and on the sub-floor below, the void under the terrain and the backdrop repeating
+## beneath it. About EIGHTY PERCENT of the canvas held no fight. Maker: "when in
+## verticle form for those clips all that dead space is kinda weird honestly maybe
+## better camera action and panning."
+##
+## Landscape is untouched: every constant below is reached only when the viewport is
+## actually taller than it is wide, so the framing suites keep asserting the same
+## numbers they always did.
+
+## Where the ground line sits, as a fraction of frame height. Solving for the camera
+## y that puts it there — `cam_y = ground + half_h * (1 - 2f)` — is the only thing
+## that works, because how much frame sits below the floor depends on the ZOOM, and
+## the zoom changes every frame. A constant lift (EYE_LIFT) cannot do it.
+const PORTRAIT_GROUND_AT: float = 0.72
+## The band above the floor the eye may rise into. Wider than `VERTICAL_BAND`, which
+## was sized for a 360-tall design box and would otherwise undo the solve above.
+const PORTRAIT_BAND: float = 620.0
+## ⚠ THE FLOOR ON THE ZOOM IS WHERE THE SIZE ACTUALLY COMES FROM, and it is the one
+## number here that changes what the camera DECIDES rather than where it points.
+##
+## `_fit_zoom` solves a shot containing BOTH fighters; they spawn 560 world px apart,
+## so the fit pins at ~0.95 and a rig draws ~2.6% of a 9:16 canvas — a speck on a
+## phone. Refusing to pull back past this means that when the pair separates far
+## enough, the shot STAYS legible and the distant fighter leaves frame instead. That
+## is the trade b01bbd8 named and declined to make ("a vertical clip should follow
+## the action and let a distant fighter leave frame"), and the maker has now asked
+## for exactly it. At 1.25 the shot holds both while they are within ~510 px of each
+## other, which is nearly all of the actual fighting, and a rig reads ~3.4%.
+const PORTRAIT_ZOOM_MIN: float = 1.25
+## ...and the ceiling, raised because a tall frame has room to go closer on a clinch.
+const PORTRAIT_ZOOM_MAX: float = 2.40
+## Horizontal slack in portrait. Smaller than `FRAME_MARGIN`: a tall frame already
+## has headroom above the fighters for a beam to land in, so paying for it sideways
+## as well is paying twice.
+const PORTRAIT_MARGIN: float = 60.0
+
 ## Groups read. All of them are things drawn on screen.
 const SPELL_GROUPS: Array[StringName] = [&"player_spell", &"enemy_projectile"]
 
@@ -663,7 +708,7 @@ func _frame(fighters: Array[Node2D], delta: float) -> void:
 	# outside it. Clamp first, fit second, and the two can never disagree.
 	var eye: Vector2 = Vector2(
 		clampf(target.x, stage.position.x + 340.0, stage.end.x - 340.0),
-		clampf(target.y - EYE_LIFT, ground_y - VERTICAL_BAND, ground_y - 40.0))
+		_eye_y(target.y))
 
 	var want: float = _fit_zoom(pts, eye)
 	# ⚠ THE LEANS ARE A LUXURY, AND THIS IS WHERE THEY ARE BILLED FOR IT.
@@ -707,7 +752,7 @@ func _relieve_the_lean(pts: Array[Vector2], mid: Vector2, eye: Vector2,
 		return [eye, want]
 	var plain: Vector2 = Vector2(
 		clampf(mid.x, stage.position.x + 340.0, stage.end.x - 340.0),
-		clampf(mid.y - EYE_LIFT, ground_y - VERTICAL_BAND, ground_y - 40.0))
+		_eye_y(mid.y))
 	var plain_fit: float = _fit_zoom(pts, plain)
 	if plain_fit <= want:
 		return [eye, want]
@@ -727,15 +772,12 @@ func _relieve_the_lean(pts: Array[Vector2], mid: Vector2, eye: Vector2,
 ## from a rendered frame — see `tools/slice7_test_clipframing.gd`, which is the
 ## assertion behind the maker's *"so the audience can see it all all the time"*.
 func _fit_zoom(pts: Array[Vector2], eye: Vector2) -> float:
-	var view: Vector2 = Vector2(1280.0, 720.0)
-	var vp: Viewport = get_viewport()
-	if vp != null:
-		view = Vector2(vp.get_visible_rect().size)
-	view.x = maxf(view.x, 1.0)
-	view.y = maxf(view.y, 1.0)
+	var view: Vector2 = _view()
 	# Heat tightens by eating the slack, NEVER by punching past containment.
 	var slack_x: float = lerpf(FRAME_MARGIN, FRAME_MARGIN_HOT, clampf(_heat, 0.0, 1.0))
 	var slack_y: float = lerpf(FRAME_MARGIN_V, FRAME_MARGIN_V_HOT, clampf(_heat, 0.0, 1.0))
+	if is_portrait():
+		slack_x = PORTRAIT_MARGIN
 	var need_x: float = 0.0
 	var need_y: float = 0.0
 	for p: Vector2 in pts:
@@ -744,7 +786,52 @@ func _fit_zoom(pts: Array[Vector2], eye: Vector2) -> float:
 	var fit: float = minf(
 		view.x / maxf(need_x * 2.0 + slack_x, 1.0),
 		view.y / maxf(need_y * 2.0 + slack_y, 1.0))
+	if is_portrait():
+		# ⚠ THE FLOOR HERE DELIBERATELY BREAKS CONTAINMENT, which every other line in
+		# this file works to preserve. See PORTRAIT_ZOOM_MIN: in a 9:16 frame holding
+		# both fighters costs so much zoom that neither is legible, so past a certain
+		# separation the shot stops widening and the far fighter leaves instead.
+		return clampf(fit, PORTRAIT_ZOOM_MIN, PORTRAIT_ZOOM_MAX)
 	return clampf(fit, ZOOM_MIN, ZOOM_MAX)
+
+
+## The viewport's visible rect, in the design-space units every framing constant in
+## this file is written in. 640x360 in landscape, 640x1137 at 1080x1920.
+func _view() -> Vector2:
+	var vp: Viewport = get_viewport()
+	var v: Vector2 = Vector2(1280.0, 720.0)
+	if vp != null:
+		v = Vector2(vp.get_visible_rect().size)
+	return Vector2(maxf(v.x, 1.0), maxf(v.y, 1.0))
+
+
+## True when the frame is meaningfully taller than it is wide. Read from the VIEWPORT
+## rather than from a flag, so a clip shoot, a phone export and a resized window all
+## agree without anyone remembering to set anything. The 1.15 is slack, not a guess:
+## it keeps a merely-squarish window on the landscape path it was tuned for.
+func is_portrait() -> bool:
+	var v: Vector2 = _view()
+	return v.y > v.x * 1.15
+
+
+## Where the eye sits vertically. Landscape keeps the constant lift it always had.
+##
+## ⚠ PORTRAIT SOLVES FOR THE GROUND LINE INSTEAD, because the amount of frame below
+## the floor depends on the zoom and the zoom moves every frame — so no constant can
+## hold it. Solving `f = (ground - (cam_y - half_h)) / (2*half_h)` for `cam_y` puts
+## the floor at `PORTRAIT_GROUND_AT` of frame height at ANY zoom.
+##
+## `minf` against the old lift, so a fighter launched high still pulls the eye up:
+## whichever wants to be HIGHER (smaller y) wins. The zoom used is last frame's
+## smoothed value — the true one is solved from this eye, so using it here would be
+## circular, and one frame of lag on a camera is invisible.
+func _eye_y(target_y: float) -> float:
+	var lifted: float = target_y - EYE_LIFT
+	if not is_portrait():
+		return clampf(lifted, ground_y - VERTICAL_BAND, ground_y - 40.0)
+	var half_h: float = _view().y / (2.0 * maxf(_zoom_smoothed, 0.01))
+	var anchored: float = ground_y + half_h * (1.0 - 2.0 * PORTRAIT_GROUND_AT)
+	return clampf(minf(lifted, anchored), ground_y - PORTRAIT_BAND, ground_y - 40.0)
 
 
 ## Lean the framing target toward a point of interest — FULLY on x, but only

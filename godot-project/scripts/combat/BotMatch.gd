@@ -371,6 +371,28 @@ const SPAWN_Y: float = 760.0
 ## (VersusArena.TERRACES), so anything outside this is in the air over a blast zone.
 const RIM_LEFT: float = 24.0
 const RIM_RIGHT: float = 1980.0
+## ⚠ AND THE FLOOR OF THE WORLD, WHICH NOTHING TESTED AT ALL.
+##
+## Maker, watching the clips: *"no one was killed they fell of and even when they
+## fell of it didnt register"*. `_check_rimout` read `global_position.x` and ONLY
+## `x`, so a ring-out was detected by crossing a rim SIDEWAYS. A fighter that simply
+## FELL — dropped straight down with too little horizontal speed to cross a rim —
+## was never noticed by anything: not here, because x stayed inside the rims; and not
+## by the arena either, because `BotMatch` sets `showcase_ringout = false` on purpose
+## (see reason 1 at the top of this file), so the pits that would have caught it are
+## not in the fight. The body fell for ever, its hp never moved, and the bout ran to
+## the clock and was settled on health bars — which is exactly what the clips showed.
+##
+## The gap is arithmetic, not bad luck. The terrain spans x 40..1965 and the rims sit
+## at 24 and 1980, so there are two columns of open air INSIDE the rims — x 24..40 and
+## x 1965..1980 — where falling is undetectable. Anything knocked off with real
+## sideways speed crosses a rim in a frame or two and registers, which is why this
+## looked intermittent rather than broken.
+##
+## 1100 is 320 px below the lowest walkable surface (`VersusArena.GROUND_TOP` 780)
+## and the rock under it is solid, so nothing still in play can reach it; a real fall
+## crosses it in about a sixth of a second.
+const RIM_BOTTOM: float = 1100.0
 ## Nobody watches a stalemate. If neither fighter has gone down by here the match is
 ## decided on the health bars, which is a real result and not a cop-out: the fighter
 ## who took less punishment over 50 seconds won the fight the audience watched.
@@ -1015,10 +1037,20 @@ func _check_rimout() -> void:
 		var f: Node2D = _fighters[side]
 		if not is_instance_valid(f):
 			continue
-		var x: float = f.global_position.x
-		if x < RIM_LEFT or x > RIM_RIGHT:
+		if is_off_stage(f.global_position):
 			_decide(Outcome.RINGOUT, 1 - side)
 			return
+
+
+## True when this position is off the stage for good — past a rim sideways, or below
+## the world.
+##
+## STATIC AND PURE so the rule can be asserted directly instead of inferred from a
+## bout, which is the same reason `ClipDirector._fit_zoom` is. The `y` term is not
+## redundant with the `x` ones: see `RIM_BOTTOM` for the two columns of open air
+## inside the rims where a falling body crosses neither x bound.
+static func is_off_stage(p: Vector2) -> bool:
+	return p.x < RIM_LEFT or p.x > RIM_RIGHT or p.y > RIM_BOTTOM
 
 
 ## Nobody watches a stalemate. On the clock, the healthier fighter takes it.

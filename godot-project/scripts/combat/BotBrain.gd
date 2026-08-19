@@ -215,6 +215,19 @@ const RECENCY_TAU: float = 2.5
 ## circles room to be SEEN, which is most of what makes them worth drawing.
 const CAST_LATCH: float = 0.55
 const DODGE_LATCH: float = 0.29        # dash 0.14 + a short lockout
+
+# ── TRAVERSAL DASH — see `_traverse_dash` ───────────────────────────────────
+## A floor on the gap between traversal dashes, ON TOP of the body's own cooldown.
+## The cooldown alone is not a pace: this file's own warning is that trusting
+## readiness "would show up in play as a bot dashing four times a second", and a
+## class with a fast dash would do exactly that on every approach.
+const DASH_TRAVEL_SPACING: float = 1.7
+## How far away the foe has to be before walking is the wrong answer. Below this the
+## bot is already in the fight and a dash would overshoot past them.
+const DASH_CLOSE_MIN: float = 260.0
+## How fast a body has to be moving AWAY from the fight, while airborne, before the
+## dash counts as a recovery rather than as interrupting its own arc.
+const DASH_RECOVER_SPEED: float = 60.0
 ## Distance probed when scoring "which way should I step". A step shorter than this
 ## cannot leave a telegraph footprint, so scoring it would always tie.
 const STEER_PROBE: float = 90.0
@@ -741,6 +754,11 @@ static func decide(bb: Dictionary, profile: Dictionary, mem: Memory = null) -> D
 		if away.x != 0.0:
 			intent["move"] = Vector2(signf(away.x), 0.0)
 
+	# ---- TRAVERSAL. Turns a long walk into a dash, and catches a body that has been
+	# launched. Sits here because it WRITES `intent["move"]`, and the wall guard below
+	# is documented as running after every writer of it.
+	_traverse_dash(intent, bb, m, now)
+
 	# ---- THE WALL. Applied AFTER every writer of `intent["move"]` above, which is the
 	# whole point: see `_unwall`.
 	_unwall(intent, bb, m, now)
@@ -1241,6 +1259,66 @@ static func _reflex_intent(action: String, dir: Vector2, _now: float,
 		"clash":
 			return {"fire": true, "move": _flatten(dir) * 0.4}
 	return {}
+
+
+## ⚠ THE ONLY DASH IN THIS FILE WAS A DODGE, WHICH IS WHY NOBODY EVER SAW ONE.
+##
+## Maker: *"the stick men do not use the dash function at all why is that its such a
+## cool looking function like seriously"*. They are right, and it is structural rather
+## than a tuning miss: `BotDodge.choose_response` reaches dash ONLY as an answer to a
+## perceived threat, and threats enter through the single door
+## `BotController.perceive_threats`, which scans three groups that 36 of the game's
+## spectacles never join. On a stage where little registers as a threat, the dash is
+## never pressed at all.
+##
+## So this adds the two uses a human actually gets out of it, neither of which is a
+## dodge:
+##   * CLOSING — a long approach is something a player dashes and a bot walked.
+##   * RECOVERING — launched and drifting away from the stage, a player dashes back.
+##     Maker, earlier: *"if they are being sent up in the air they can dash to get
+##     back"*.
+##
+## ⚠ IT DOES NOT END THE FRAME, and that is deliberate. An early return here would
+## cost the cast this frame was going to make, and `slice6_test_bot_brain` holds the
+## brain to >= 12 casts across a neutral window precisely so a new rung cannot quietly
+## make the bots go quiet. The dash is added to the intent and the ladder carries on.
+##
+## ⚠ AND IT IS SPACED BY A CLOCK, NOT BY READINESS. See `DASH_TRAVEL_SPACING`.
+static func _traverse_dash(intent: Dictionary, bb: Dictionary, m: Memory,
+		now: float) -> void:
+	if now - m.last_dash_at < DASH_TRAVEL_SPACING:
+		return
+	# Absent means "assume ready" for the minimum blackboard, but a body that
+	# publishes the flag is believed — same rule as `_caps`.
+	if not bool(bb.get("dash_ready", true)):
+		return
+	var self_pos: Vector2 = bb.get("self_pos", Vector2.ZERO)
+	var foe_pos: Vector2 = bb.get("foe_pos", Vector2.ZERO)
+	var toward: float = signf(foe_pos.x - self_pos.x)
+	if toward == 0.0:
+		return                      # exactly stacked: no direction to dash in
+
+	if not bool(bb.get("on_floor", true)):
+		# RECOVERING. Only when actually being carried AWAY — dashing mid-arc while
+		# already heading back would cut short a jump the bot meant to make.
+		var vel: Vector2 = bb.get("self_vel", Vector2.ZERO)
+		if signf(vel.x) == -toward and absf(vel.x) > DASH_RECOVER_SPEED:
+			intent["dash"] = true
+			intent["move"] = Vector2(toward, 0.0)
+			m.last_dash_at = now
+		return
+
+	# CLOSING. Only across a real gap, and only when the steering layer had already
+	# decided to go that way — a dash that argues with the steering is the "dashing
+	# nowhere, repeatedly" failure the latch note above warns about.
+	if absf(foe_pos.x - self_pos.x) < DASH_CLOSE_MIN:
+		return
+	var move: Vector2 = intent.get("move", Vector2.ZERO)
+	if signf(move.x) != toward:
+		return
+	intent["dash"] = true
+	intent["move"] = Vector2(toward, 0.0)
+	m.last_dash_at = now
 
 
 ## What this body can currently do, in the shape BotDodge.choose_response reads.

@@ -107,6 +107,13 @@ const OUTLINE_MIN: float = 1.0
 ## The head TOP still lands exactly at -height/2 either way (head_center = -h/2 + r),
 ## so nothing that frames off the figure's extents changes.
 const HEAD_R_FACTOR: float = 0.105
+## The forgiveness ring a spell tests against, as a fraction of figure height.
+##
+## ⚠ IT LIVES HERE BECAUSE IT IS A PROPERTY OF THE DRAWN FIGURE, not of one actor
+## type — and because it was previously known only to `Enemy`, which is how HEROES
+## ended up with no forgiveness at all. `Enemy.HIT_MARGIN_FACTOR` is the same number
+## and `tools/slice_test_hit_silhouette.gd` fails if the two ever drift apart.
+const HIT_MARGIN_FACTOR: float = 0.155
 const LIMB_W_FACTOR: float = 0.075
 ## --- Active-ragdoll spring sim: the DRAWN limbs physically lag/swing/flail
 ## toward the procedural pose (_compute_pose is the animation TARGET) instead
@@ -669,7 +676,11 @@ const BODY_MAX_SUBSTEPS: int = 16
 @export var limb_color: Color = Color(0.55, 0.75, 1.0, 1.0)
 ## Moderate size bump (was 26) so the fighter reads as a bold puppet, not a speck.
 ## Boss.tscn / capture rigs override this per-instance, so only the default fighters grow.
-@export var height: float = 31.0
+## The shipped figure height, named so the fallbacks that assume it (a headless stub
+## with no rig — see `Hero.hit_margin` and `Enemy.RIG_FALLBACK_HEIGHT`) can DERIVE it
+## instead of hand-copying 31.0 and drifting from the export below.
+const DEFAULT_HEIGHT: float = 31.0
+@export var height: float = DEFAULT_HEIGHT
 ## Soft radial glow under the figure ("charged" hero read). Strength 0
 ## disables it entirely — enemies stay bare sticks.
 @export var aura_color: Color = Color(0.4, 0.7, 1.0, 1.0)
@@ -3270,8 +3281,27 @@ static func draw_figure(
 	foot_lead = knee_lead + (foot_lead - knee_lead).normalized() * shin
 	var knee_off: Vector2 = _ik_joint(hip, foot_off, thigh, shin, Vector2.RIGHT)
 	foot_off = knee_off + (foot_off - knee_off).normalized() * shin
+	# ⚠ AND THE ARMS TOO — THE FIX ABOVE WAS APPLIED TO THE LEGS ONLY, AND THE SAME
+	# BUG WAS STILL LIVE ONE LINE LATER. `_ik_joint` clamps where it puts the ELBOW,
+	# but the forearm was then drawn from that clamped elbow to the RAW `hand_*`, so
+	# everything the clamp refused to solve was drawn as extra forearm — exactly the
+	# fault the comment above describes, on the other pair of limbs.
+	#
+	# It bites hardest where the hand target is furthest away, which is precisely the
+	# loud moments: a cast reaches for the aim point, and a hit or a flop throws the
+	# spring-driven hand out past the shoulder's reach. Maker, watching the clips:
+	# "the stick figures become all long and weird with their legs every now and
+	# then". MEASURED: a hand asked for 2x arm reach drew a forearm 3.00x its own
+	# bone; it now draws 1.00x, and a hand that was already inside reach does not
+	# move by so much as a hundredth of a pixel. See tools/slice_test_rig_limbs.gd.
+	#
+	# `hand_*` is draw-only from here (the limb, the fist dot, and the gear overlay
+	# which SHOULD follow the corrected hand), so re-deriving it is safe in the same
+	# way it was for the feet.
 	var elbow_lead: Vector2 = _ik_joint(shoulder, hand_lead, upper, fore, Vector2.DOWN)
+	hand_lead = elbow_lead + (hand_lead - elbow_lead).normalized() * fore
 	var elbow_off: Vector2 = _ik_joint(shoulder, hand_off, upper, fore, Vector2.DOWN)
+	hand_off = elbow_off + (hand_off - elbow_off).normalized() * fore
 
 	# CLOTHING IS OFF BY DEFAULT (see draw_clothing). A stickman holding a sword is
 	# still unmistakably a stickman; a stickman in a cuirass and a great-helm is a
