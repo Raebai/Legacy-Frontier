@@ -217,6 +217,9 @@ const PORTRAIT_ZOOM_MAX: float = 2.40
 ## has headroom above the fighters for a beam to land in, so paying for it sideways
 ## as well is paying twice.
 const PORTRAIT_MARGIN: float = 60.0
+## How far inside the frame edge a fighter has to be before `_hold_a_subject` calls
+## them "in shot". A body sliced by the border reads as lost, not as framed.
+const PORTRAIT_HOLD_MARGIN: float = 110.0
 
 ## Groups read. All of them are things drawn on screen.
 const SPELL_GROUPS: Array[StringName] = [&"player_spell", &"enemy_projectile"]
@@ -709,6 +712,8 @@ func _frame(fighters: Array[Node2D], delta: float) -> void:
 	var eye: Vector2 = Vector2(
 		clampf(target.x, stage.position.x + 340.0, stage.end.x - 340.0),
 		_eye_y(target.y))
+	# ⚠ AND SOMEBODY HAS TO BE IN IT. See `_hold_a_subject`.
+	eye = _hold_a_subject(eye, pts)
 
 	var want: float = _fit_zoom(pts, eye)
 	# ⚠ THE LEANS ARE A LUXURY, AND THIS IS WHERE THEY ARE BILLED FOR IT.
@@ -826,6 +831,46 @@ func _view() -> Vector2:
 func is_portrait() -> bool:
 	var v: Vector2 = _view()
 	return v.y > v.x * 1.15
+
+
+## ⚠ THE PORTRAIT SHOT CAN LOSE EVERY FIGHTER, AND IT DID.
+##
+## Rendered and looked at: six seconds into a live bout, both health bars moving, the
+## frame held an empty stretch of stage with one fighter's sigil clipping the left
+## margin and neither body on screen at all.
+##
+## Two things this file does on purpose combine into that. `PORTRAIT_ZOOM_MIN` refuses
+## to widen past 1.25, and the portrait path skips `_relieve_the_lean` — which was the
+## only thing that ever pulled the eye back onto the pair. So the eye is free to ride
+## the victim/spell leans, and `_spell_centroid` includes tall, distant spectacles: a
+## Stormcaller's lightning column is hundreds of pixels from the man who cast it. The
+## lean walks the camera onto the SPELL and the narrow frame leaves the FIGHTERS
+## outside it.
+##
+## Rather than weaken either (a wider shot is what made everyone a speck, and killing
+## the lean is what stopped it following), this is a floor under both: whatever the
+## leans decide, the eye is pulled back until at least ONE fighter is inside the
+## frame. Nothing happens while somebody is already in shot, so a well-framed
+## exchange is untouched — this only fires on the frames that had nobody in them.
+##
+## Landscape returns unchanged: containment there is exact, so this can never trigger.
+func _hold_a_subject(eye: Vector2, pts: Array[Vector2]) -> Vector2:
+	if not is_portrait() or pts.is_empty():
+		return eye
+	var half_w: float = _view().x / (2.0 * maxf(_zoom_smoothed, 0.01))
+	# Not the very edge — a fighter sliced by the frame border reads as lost too.
+	var keep: float = maxf(half_w - PORTRAIT_HOLD_MARGIN, 40.0)
+	var nearest: Vector2 = pts[0]
+	var best: float = INF
+	for p: Vector2 in pts:
+		var d: float = absf(p.x - eye.x)
+		if d <= keep:
+			return eye                       # somebody is already in shot
+		if d < best:
+			best = d
+			nearest = p
+	# Nobody. Slide the eye along x until the closest fighter is just inside.
+	return Vector2(nearest.x - signf(nearest.x - eye.x) * keep, eye.y)
 
 
 ## Where the eye sits vertically. Landscape keeps the constant lift it always had.
