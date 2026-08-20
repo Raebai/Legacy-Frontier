@@ -71,6 +71,30 @@ is the **Juggernaut at 97.1 px = 6 chunks**, not 7.5.
   file and attach the trending sound in-app; that is what puts the post on the sound's
   page, which is the reach.
 
+## ▶ THE GATE'S DATA IS A ROSTER-BALANCE SIGNAL, AND IT IS FREE
+
+Eleven scored takes across two batches, and **`leadchg` is the only discriminator**:
+
+| matchup | takes | lead changes | verdict |
+|---|---|---|---|
+| Juggernaut v Stormcaller | 1 | 4 | PASS 74.7 |
+| Stormcaller v Swordsaint | 1 | 4 | PASS 69.4 |
+| Arcanist v Shadowblade | 1 | 3 | PASS 63.6 |
+| Cryomancer v Brawler | 4 | **0, 0, 0, —** | REJECT 40.6 / 39.3 / 35.5 |
+| Shadowblade v Juggernaut | 3 | **0, 0, …** | REJECT 49.7 / 34.4 |
+| Warlock v Cleric | 1 | — | never resolved |
+
+Every PASS had **3+ lead changes**; every REJECT had **zero**. Two matchups produced no
+lead change across seven takes — the winner took the lead early and simply kept it. That
+is not a capture problem, it is the roster, and it is the same open question as the
+Stormcaller 16-0 note in [[project_v2_bot_fight_quality_todo]]. `FightScore` is now
+generating this data for free on every shoot; it is worth reading as balance telemetry
+rather than only as a keep/re-roll switch.
+
+⚠ Also note `ults 0` on **every single take**. No ultimate landed in eleven bouts. Either
+the bots never reach the ult, or the showcase cooldowns (1.6x) outlast the fight. Worth a
+look — an ult landing is the single most clippable thing the game has.
+
 ## ⚠ TRAPS PAID FOR THIS SESSION
 
 * **`Camera2D.global_position` IS THE TARGET, NOT THE PICTURE.** With smoothing on, the
