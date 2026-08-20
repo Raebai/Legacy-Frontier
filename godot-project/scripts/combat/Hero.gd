@@ -1306,6 +1306,9 @@ var _blink_spark_at: float = -99.0
 ## `VersusArena._poll_showcase_end`, which resets both bodies whenever it sees an
 ## `hp <= 0`, cannot start firing in a mode that did not ask for this.
 var stay_dead: bool = false
+## Multiplies every spell cooldown, for a SPECTATED bout only. See `cooldown_mult_for`.
+## 1.0 = untouched, which is what the tower, free play and the human duel all get.
+var showcase_cooldown_mult: float = 1.0
 ## Set by `_enter_defeated`. Gates `_physics_process` the way `downed` does, and for
 ## the same structural reason: while the driver runs it re-asserts `set_grounded` /
 ## `play()` / the limp every frame, and no amount of collapsing the rig survives that.
@@ -1698,13 +1701,29 @@ func _tune(key: String, fallback: float) -> float:
 func cooldown_mult_for(spell: SpellDef) -> float:
 	if spell == null:
 		return 1.0
+	var m: float = 1.0
 	match SpellTier.of(spell):
 		SpellTier.Tier.ULT:
-			return maxf(_tune("cd_mult_ult", 1.30), 0.0)
+			m = maxf(_tune("cd_mult_ult", 1.30), 0.0)
 		SpellTier.Tier.QUICK:
-			return maxf(_tune("cd_mult_quick", 1.80), 0.0)
+			m = maxf(_tune("cd_mult_quick", 1.80), 0.0)
 		_:
-			return maxf(_tune("cd_mult_heavy", 1.80), 0.0)
+			m = maxf(_tune("cd_mult_heavy", 1.80), 0.0)
+	# ⚠ A SPECTATED BOUT BREATHES SLOWER THAN A PLAYED ONE, and the difference is the
+	# whole point. Maker: *"for the bot fights increase cooldowns like smash bros so
+	# that the viewers can really feel the effects of the spells"*.
+	#
+	# A player feels a spell through their hands — the commit, the cost, the wait. A
+	# VIEWER has none of that and only gets what is on screen, so the effect itself has
+	# to have room to finish before the next one starts. That is the same complaint as
+	# *"too much going on"*, arriving from the audience's side rather than the
+	# player's.
+	#
+	# ⚠ AND IT IS A SEPARATE DIAL FROM THE TUNING ONES ABOVE, DELIBERATELY. Those are
+	# the PLAYER's numbers: raising them to fix a spectating problem slows the game down
+	# for everyone in the tower. This is set by whoever STAGES the fight and is 1.0
+	# everywhere else — the same contract, and for the same reason, as `stay_dead`.
+	return m * maxf(showcase_cooldown_mult, 0.05)
 
 
 ## THE THREE SPELL BUTTONS MUST COVER THE WHOLE HAND. A kit that grew to four slots

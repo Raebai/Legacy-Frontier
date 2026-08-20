@@ -272,6 +272,22 @@ func _resolve_side_tints() -> void:
 ##
 ## Everything is 1.0 except the one class the maker named. Resist filling this table
 ## in from win-rate noise — see the ⚠ on CLASS_VITALITY about tuning a coin at n=16.
+## ⚠ HOW MUCH SLOWER A WATCHED FIGHT IS THAN A PLAYED ONE. Maker: *"for the bot fights
+## increase cooldowns like smash bros so that the viewers can really feel the effects of
+## the spells"*.
+##
+## Smash is the right reference and it is worth being precise about WHY: its readability
+## does not come from fewer moves, it comes from every move having a beginning, a middle
+## and a recovery that the audience can see. A player feels that through their hands; a
+## viewer only gets what is on screen, so the effect has to finish before the next one
+## starts.
+##
+## 1.6x, and LOCAL TO THIS MODE. `Hero.cooldown_mult_for` already has three tuning dials
+## — but those are the PLAYER's numbers, and raising them to fix a spectating problem
+## would slow the tower down for everyone. Same reasoning, and the same contract, as
+## `CLASS_POWER` and `stay_dead` above.
+const SHOWCASE_COOLDOWN_MULT: float = 1.6
+
 const CLASS_POWER: Array[float] = [
 	1.00,  # ARCANIST
 	1.30,  # SHADOWBLADE  — the ask. +30% damage, vitality left at 0.85 so it stays
@@ -789,6 +805,9 @@ func _adopt_fighters() -> void:
 		# stood it back up. Set HERE rather than inferred in `Hero`, so free play, the
 		# sandbox and the human duel keep the heal they were designed around.
 		f.set("stay_dead", true)
+		# Slower than a played fight, so each spell has room to land — see
+		# `SHOWCASE_COOLDOWN_MULT` and `Hero.cooldown_mult_for`.
+		f.set("showcase_cooldown_mult", SHOWCASE_COOLDOWN_MULT)
 		# MIRRORED FOOTING. Same distance from the centre of the fight floor, same
 		# flat ground, facing each other.
 		var x: float = FLOOR_CENTRE_X + (SPAWN_SPREAD if side == 1 else -SPAWN_SPREAD)
