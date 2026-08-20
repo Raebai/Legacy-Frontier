@@ -91,9 +91,42 @@ Stormcaller 16-0 note in [[project_v2_bot_fight_quality_todo]]. `FightScore` is 
 generating this data for free on every shoot; it is worth reading as balance telemetry
 rather than only as a keep/re-roll switch.
 
-⚠ Also note `ults 0` on **every single take**. No ultimate landed in eleven bouts. Either
-the bots never reach the ult, or the showcase cooldowns (1.6x) outlast the fight. Worth a
-look — an ult landing is the single most clippable thing the game has.
+## ▶ ⚠ THE BIGGEST LEAD, LOCALISED: THE BOTS NEVER CAST THEIR TIER 3 DROP
+
+`ults 0` on **every clip take** — 14 of them. Chased it to a root cause, and the finding
+is worse than a scoring nit.
+
+`SpellGrant.TIER3_SLOT` **is** `SpellTier.ULT_SLOT`. So the showcase tier-3 drop
+(*"the bots should have the cool spells when 1 vs 1"*) does not sit alongside the ult —
+it **displaces** it. And measurably, the drop then almost never fires:
+
+```
+botmatch_sim --hp=500 --round=22 --drops=0    spells 8   ults 2-4   scores to 82.9
+botmatch_sim --hp=500 --round=22 --drops=1    spells 6   ults 0     scores 28-76
+```
+
+`--drops=1` IS the shipped showcase config, and it reproduces the clip numbers exactly
+(`spells 6`, `ults 0`). Four distinct spells per bot become three: the fourth slot — now
+the drop — is simply never cast. So a showcase bout is **strictly less spectacular than
+before the drop feature existed**: the bots lost their ultimate and did not use what
+replaced it. That is a large part of "boring".
+
+⚠ AND IT DOUBLE-COUNTS AGAINST THE CLIP. `FightScore` adds a "no ultimate landed"
+penalty to every single showcase bout — scoring the absence of something the mode
+deliberately removed — which uniformly depresses every score and makes the gate reject
+fights that were fine.
+
+Two things to settle, and both are FEEL calls so they are the maker's:
+1. Why the brain never scores the drop (charge-limited spell? the ult rung testing
+   `Tier.ULT` while a drop is `Kind.CATACLYSM`?). Start at `BotBrain.score_slots` and
+   the `DESPERATE_ULT_*` block.
+2. Whether a cataclysm cast should count as the "big moment" in `FightScore` — it
+   occupies the ult slot and IS the showpiece.
+
+⚠ AND THE HARNESS NEARLY LIED AGAIN. `botmatch_sim` defaults `--drops=0`, so the first
+comparison was against a configuration that DOES NOT SHIP, and it looked like ults were
+simply broken. Always pass `--drops=1` when reasoning about clips.
+
 
 ## ⚠ TRAPS PAID FOR THIS SESSION
 
