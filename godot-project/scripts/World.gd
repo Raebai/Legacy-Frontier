@@ -32,6 +32,31 @@ const TOWN_WIDTH: float = 1180.0
 const GROUND_Y: float = 452.0
 const GROUND_THICKNESS: float = 260.0
 
+## ══ YOU CANNOT LEAVE THE TOWN ═══════════════════════════════════════════════════
+## Maker: *"please make sure people cannot jump off the left panel in the lobby to get
+## out the map, and if they fall out to respawn at the entrance"*.
+##
+## ⚠ THE LEFT PANEL IS THE LOFT AND THE NUMBERS SAY IT IS REACHABLE. `_build_ground`
+## lays ONE slab from -100 to TOWN_WIDTH+100 and there was nothing at either end — no
+## wall, no catch, nothing. The loft (`LOFT_CENTER` 215, `LOFT_SIZE` 300) starts at
+## x 65 and sits 118 px up, so a running jump off its LEFT edge gets the full ~127 px
+## of horizontal reach PLUS the extra airtime of falling 118 px to the ground — about
+## 180 px in total, from x 65. That lands at roughly x -115, and the ground stops at
+## -100. The player is then in open space with no floor under them, falling forever.
+##
+## So: real walls at the slab's own edges, and a catch under the world in case anything
+## ever gets past them.
+const BOUND_LEFT: float = -100.0
+const BOUND_RIGHT: float = TOWN_WIDTH + 100.0
+## Thick enough that a body moving fast cannot tunnel through it in one physics step.
+const BOUND_THICKNESS: float = 48.0
+## Tall enough that no jump, and no jump off the loft, clears the top. The loft is
+## 118 px up and a jump adds ~105, so 420 is well clear of anything reachable.
+const BOUND_HEIGHT: float = 420.0
+## How far BELOW the ground a body has to be before it counts as having left the world.
+## Generous, so a body merely clipping into the floor is never teleported mid-stride.
+const FALL_OUT_MARGIN: float = 260.0
+
 ## ══ THE PAD ROW ═════════════════════════════════════════════════════════════
 ## Maker: "make the spacing of where the teleport pads are better and in a certain
 ## location". They were scattered at 306 / 480 / 590 / 648 — three different gaps,
@@ -193,6 +218,7 @@ var _tree_screen: Control = null
 func _ready() -> void:
 	_build_backdrop()
 	_build_ground()
+	_build_bounds()
 	_build_loft()
 	_build_signboard()
 	_spawn_ambience()
@@ -329,6 +355,60 @@ func _sign_arm(text: String, side: float, y: float) -> void:
 	label.z_index = -2
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(label)
+
+
+
+## Invisible walls at either end of the ground slab. See the BOUND_* block for the
+## measurement that says the loft could clear the left edge.
+##
+## ⚠ COLLISION-ONLY, and deliberately so: the town's own stated complaint was that it
+## "made you walk around objects", so these are placed at the very edge of the drawn
+## ground where nothing is, and they are invisible because a visible wall would read as
+## somewhere you were supposed to be able to go.
+func _build_bounds() -> void:
+	for x: float in [BOUND_LEFT, BOUND_RIGHT]:
+		var body := StaticBody2D.new()
+		# collision_layer 1 is what `Hero` collides with; mask 0 because a wall does
+		# not need to detect anything, it only needs to be detected.
+		body.collision_layer = 1
+		body.collision_mask = 0
+		body.position = Vector2(x, GROUND_Y - BOUND_HEIGHT * 0.5)
+		var cs := CollisionShape2D.new()
+		var shape := RectangleShape2D.new()
+		shape.size = Vector2(BOUND_THICKNESS, BOUND_HEIGHT)
+		cs.shape = shape
+		body.add_child(cs)
+		add_child(body)
+
+
+## The belt to the walls' braces: anything that ends up under the world goes back to
+## the doorstep. Maker: *"if they fall out to respawn at the entrance"*.
+##
+## ⚠ THIS IS NOT REDUNDANT WITH THE WALLS AND IT SHOULD NOT BE REMOVED IF THEY HOLD.
+## A wall stops the case we know about — the loft. A catch stops every case we do not:
+## a knockback through a seam, a spawn in the wrong place, a platform edited later that
+## reaches further than this comment's arithmetic. The tower already learned this the
+## expensive way; `Arena._catch_fallen_heroes` exists for the same reason.
+##
+## The entrance IS `PLAYER_SPAWN` — the tower doorstep you arrive on — so a fall puts
+## you back where you came in rather than somewhere new to be confused by.
+func _catch_fallen() -> void:
+	var limit: float = GROUND_Y + FALL_OUT_MARGIN
+	for n: Node in get_tree().get_nodes_in_group("player"):
+		var body := n as Node2D
+		if body == null or not is_instance_valid(body):
+			continue
+		if body.global_position.y <= limit:
+			continue
+		body.global_position = PLAYER_SPAWN
+		# Zeroed, or the body arrives at the doorstep carrying the whole fall and
+		# immediately punches back through the floor it just landed on.
+		if &"velocity" in body:
+			body.set(&"velocity", Vector2.ZERO)
+
+
+func _process(_delta: float) -> void:
+	_catch_fallen()
 
 
 func _make_platform(center: Vector2, size: Vector2) -> void:

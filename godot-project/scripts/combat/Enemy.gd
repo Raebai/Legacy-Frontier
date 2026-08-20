@@ -2071,7 +2071,7 @@ func take_damage(amount: int, tint: Color = Color(1.0, 1.0, 1.0, 0.0)) -> void:
 	# forwarded to the host, who owns the real enemy, resolves it, and syncs hp back.
 	# SP / host (authority) -> apply locally (byte-identical to before).
 	if _net != null and _net.is_active() and not is_multiplayer_authority():
-		rpc_id(get_multiplayer_authority(), &"_net_take_damage", amount, tint)
+		rpc_id(get_multiplayer_authority(), &"d_net_take_damage", amount, tint)
 		return
 	# Weaken (shadow) amplifies incoming damage.
 	var dealt: int = amount

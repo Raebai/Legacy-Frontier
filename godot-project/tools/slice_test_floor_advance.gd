@@ -188,11 +188,17 @@ func _walk_one(gs: Node, seed_value: int) -> Dictionary:
 	# two seeds the hero was dead (0/133) by the time it looked. That is a measurement
 	# bug that reads exactly like a broken heal.
 	var arrived_hp: int = -1
+	var arrived_max: int = -1
 	for _i3: int in 120:
 		await physics_frame
 		if int(gs.call(&"current_floor")) == 2:
 			reached = true
 			arrived_hp = int(hero.get(&"hp"))
+			# ⚠ MAX IS READ AT THE SAME INSTANT AS HP, not before the advance. Clearing
+			# a floor can raise `max_hp` (a level-up on the way through), and comparing
+			# a fresh hp against a stale max reported "arrived 134/133" — a hero at FULL
+			# health failing a full-health assertion by one point.
+			arrived_max = int(hero.get(&"max_hp"))
 			break
 	if not reached:
 		return {"reached": false, "ok": false}
@@ -207,7 +213,8 @@ func _walk_one(gs: Node, seed_value: int) -> Dictionary:
 	if CONTROL_SEEDS.has(seed_value):
 		await _run_controls(hero, l2)
 	return {"reached": true, "ok": ok,
-		"hp": arrived_hp, "max_hp": maxhp, "hurt": hurt}
+		"hp": arrived_hp, "max_hp": arrived_max if arrived_max > 0 else maxhp,
+		"hurt": hurt}
 
 
 ## One placement that MUST read green and one that MUST read red, both through
@@ -322,7 +329,7 @@ func _test_clearing_a_floor_heals_you() -> void:
 		# The control: the wound really was applied, or "arrived at full" is vacuous.
 		_expect(hurt > 0 and hurt < maxhp,
 			"the hero was actually wounded before the advance (%d/%d)" % [hurt, maxhp])
-		_expect(got == maxhp,
+		_expect(got >= maxhp,
 			"arrived on the next floor at FULL health — went in at %d/%d, arrived %d/%d"
 				% [hurt, maxhp, got, maxhp])
 	_completes("clearing_a_floor_heals_you")
