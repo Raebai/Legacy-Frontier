@@ -624,8 +624,6 @@ var _outcome: int = Outcome.NONE
 ## which owns what "cool" means. A capture pipeline reads `fight_verdict` at the end and
 ## re-rolls rather than publishing a demolition.
 var _score: FightScore = FightScore.new()
-## Set at the bell so the length axis measures the FIGHT, not the intro card.
-var _fight_began_at: float = -1.0
 var _winner: int = -1                 # side index, or -1 for a draw
 var _decided_at: float = -1.0         # REAL seconds (unscaled) when it was decided
 var _card_shown_at: float = 0.0       # REAL seconds the card actually appeared (0 = not yet)
@@ -1221,8 +1219,30 @@ func _decide(outcome: int, winner: int) -> void:
 	_decided_at = _real_seconds()
 	# The bout is over: freeze the length axis and print the verdict, so a capture run
 	# has one greppable line telling it whether to keep this take.
-	if _fight_began_at >= 0.0:
-		_score.seconds = _decided_at - _fight_began_at
+	# ⚠ THE FIGHT'S LENGTH IS ENGINE TIME, NOT WALL TIME, AND THE DIFFERENCE IS 22x.
+	# This read `_decided_at - _fight_began_at`, both of which come from
+	# `_real_seconds()` — `Time.get_ticks_msec()`, the WALL clock. That clock is correct
+	# for what it was built for (the result-card pacing and the taunt hold have to
+	# survive a paused tree, so they must not count `delta`), and it is completely wrong
+	# for this.
+	#
+	# Under `--write-movie` the engine forces `--fixed-fps`, so every frame advances
+	# game time by exactly 1/fps while WALL time advances by however long that frame
+	# took to render — about a second, at 1920x1080. Measured on a real shoot: a bout
+	# the clip itself reported as `resolved at 14.2s` was scored as **314.7s** and
+	# rejected for `too long (314.7s, ceiling 30.0)`.
+	#
+	# That is not a cosmetic mis-report. `CEIL_SECONDS` is 30, so EVERY take shot for a
+	# clip was guaranteed to fail the length gate, which means `--takes N` was not
+	# picking the best of N — it was rejecting all N and keeping the last one anyway.
+	# The gate has been emitting, forwarding and reporting all along; it was judging
+	# against a clock that does not exist inside a capture.
+	#
+	# `_clock` is the accumulated `delta` of the live fight — it starts when the intro
+	# clears, stops at the decision, and is already what `round_seconds` counts down
+	# and what the result dict reports as "seconds". One clock, and it is the one the
+	# audience experiences.
+	_score.seconds = _clock
 	print("[fight] %s" % _score.summary())
 	_final_hp[0] = _fighter_hp_now[0]
 	_final_hp[1] = _fighter_hp_now[1]
@@ -1812,14 +1832,14 @@ func _intro_corner(side: int) -> Control:
 ## off or there is no display — which is exactly what the sim and the suites get.
 func _open_intro() -> void:
 	if not _intro_enabled() or _intro_card == null:
+		# ⚠ THE FIGHT CLOCK HAS TO START ON BOTH PATHS OR THE QUALITY GATE IS BLIND —
+		# with no ceremony the bout is live from this instant and `_start_fight` is
+		# never reached. That used to need a second timestamp set here by hand. It does
+		# not any more: the length axis is `_clock`, which accumulates in `_process`
+		# from the moment `_intro_phase` is DONE, so BOTH paths are covered by the same
+		# line and neither can be forgotten. (The sim, the suites and the clip capture
+		# all take this branch — i.e. everything except a human watching the card.)
 		_intro_phase = Intro.DONE
-		# ⚠ THE FIGHT CLOCK STARTS ON BOTH PATHS OR THE QUALITY GATE IS BLIND. With no
-		# ceremony the bout is live from this instant and `_start_fight` — where the
-		# clock was set — is never reached. `FightScore.seconds` would stay 0, so every
-		# captured bout scored as "too short" and `make_post --takes N` would re-roll
-		# three good fights and keep the third anyway. That is the sim, the suites AND
-		# the clip capture, i.e. every path that is not a human watching the card.
-		_fight_began_at = _real_seconds()
 		return
 	_intro_phase = Intro.VS
 	_intro_at = _real_seconds()
@@ -1860,7 +1880,6 @@ func _tick_intro() -> void:
 func _start_fight() -> void:
 	_intro_phase = Intro.FIGHT
 	get_tree().paused = false
-	_fight_began_at = _real_seconds()
 	_arm_opening_lockout()
 	if _intro_row != null:
 		_intro_row.visible = false

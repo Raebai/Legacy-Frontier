@@ -1,58 +1,111 @@
-# RESUME HERE — 2026-08-20
+# RESUME HERE — 2026-08-20 (evening)
 
-**ASHPIRE.** Branch `bot-fight-quality`, **67c884e**, **175/175 green**, pushed, clean.
+**ASHPIRE.** Branch `bot-fight-quality`. **176/176 green.** Everything below is
+committed and **UNPLAYTESTED** — the maker watches **F5 → Lobby → Watch Bots**.
 
-Everything below is committed and **UNPLAYTESTED**. The maker watches
-**F5 → Lobby → Watch Bots**.
+## ▶ WHAT CHANGED THIS SESSION
 
-## ▶ THE FIVE OPEN ASKS
+Four of the five open asks are closed and MEASURED. One is deliberately not built.
 
-1. **The bot-fight camera drifts off the fighters.** It is the SHOWCASE camera
-   (`VersusArena._update_showcase_camera`, ~:1935-2044), not `CombatCamera`. ⚠ That
-   framer solves ONLY on X (`view.y` is never read in landscape) and clamps position to
-   `clampf(focus.x, 340.0, STAGE_SIZE.x - 340.0)` — that clamp is the prime suspect:
-   near a stage edge the camera stops following and the pair slide off centre.
-2. **The bottom bar still blocks fighters on the tower's ground floor.** Half-done: the
-   bar is 0.62x + left-anchored on desktop and `CombatCamera` reserves
-   `AbilityBar.occupied_height()`. If it still blocks on floor 1, look at `FRAME_PAD.y`
-   (140 → only 70 px of guaranteed margin).
-3. **Final content clips** — the maker will review before posting.
-   ⚠ **The quality gate still does not reach `make_post`.** `FightScore`/`BotMatch` emit
-   correctly; three forwarding bugs were fixed and it STILL prints "(no fight verdict
-   reported)". Debug godot → make_clip → make_post before trusting `--takes`.
-4. **Destructible map — PAUSED before slice 1**, deliberately (it adds events to a fight
-   the maker called too busy). Slice 0 IS measured: flat-gap reach is a RANGE, and the
-   binding constraint is the **Juggernaut at 97.1 px = 6 chunks**, not the 7.5 the spec
-   first assumed. Slice 4 needs the melee-across-a-gap ruling built.
-5. **SFX**: `cannon` + `holy_pillar` share a file; ~15 pools have one sample.
-   ⚠ New sounds must be **16-bit PCM WAV or OGG** — three of the maker's were 24-bit
-   EXTENSIBLE, which Godot silently refuses to import.
+1. **The bot-fight camera no longer drifts off the fighters.** Three causes, all found
+   by measuring the DRAWN channel (`tools/probe_showcase_framing.gd`):
+   * follow lag — `position_smoothing_speed` was 4.0, putting the picture a measured
+     142 px (p95) behind its own answer. Swept 4/12/18/26 against a jerk column; **18**.
+   * the x clamp was the constant `340` (the half-width at ONE zoom) anchored to
+     `STAGE_SIZE`, whose centre is 280 px right of the fight floor's. Now zoom-aware,
+     solved per frame, in one helper both cameras share.
+   * a ringed-out body flying off the map still voted on focus and zoom — one measured
+     run had somebody off screen for **55% of the fight**.
 
-## ▶ WHAT TO LOOK AT IN THIS BUILD
+   Measured: mean off-centre 31.7 → 8.4–30.9 px, clamp bites 13.6% → 0.1%.
 
-Class colours (Arcanist light orange · Shadowblade BLACK · Brawler dark red ·
-Stormcaller lime) · the fight CALMS DOWN as it gets busy instead of winding up · bots
-never stand still · every blink draws a class-tinted line · Swordsaint's katana has a
-point and draws ONE blade · Thousand Cuts 418 damage on a 10.5 s cooldown · showcase
-cooldowns 1.6x · **F11 fullscreen** (+ Pause → Settings, persists) · spell boxes 0.62x
-in the bottom-left · **you cannot walk out of the town**, and falling respawns you at the
-door · **ask the Doorkeeper to reset the tower** (confirms; keeps your best floor + falls).
+2. **The hotbar no longer covers fighters on the tower's ground floor.** The previous
+   fix had the **sign inverted** — it pushed fighters half a bar-height FURTHER under
+   the bar. Plus `Hero.tscn` carried hardcoded camera limits of `1200x680` (the box
+   `Arena.tscn` used to hardcode before `room_size` drove geometry), and Godot clamps
+   *position* then applies *offset*, while the framer expresses everything AS offset —
+   so the limits could never have worked. Limits off, room clamp moved into the
+   framer's own space, HUD lift **solved** rather than taxed. Measured across five
+   generated rooms: worst clearance **-80 px → +14.7 px**.
+
+3. **SFX**: `cannon` was playing `holy_pillar` (a 1.5 s choral swell standing in for an
+   artillery shot). Now its own sound. Six burst-firing pools that held ONE sample
+   (`blink`, `gib`, `shadow_cast`, `ding`, `beam_start`, `beam_end`) got variants.
+   The other eleven shared files are generic ALIASES and are fine — left alone.
+
+4. **The game has a name and a mark.** `ASHPIRE` (ash + spire + aspire). `GameLogo` is
+   drawn from the same primitives `MagicCircle` casts with, so the Lobby title, the app
+   icon and the social avatar are one object. `config/icon` set (never was), and a
+   `config/description` that still described the v0.0 AI-NPC game replaced.
+
+5. **`docs/content-pipeline.md`** written — `publish_clip.py` has cited it since it was
+   written and it never existed.
+
+## ▶ THE ONE ASK NOT BUILT, AND WHY
+
+**The destructible map (spec `2026-08-19-destructible-map-design.md`) is still paused.**
+Its own status block says it was paused because *"there is like too much going on all
+the time"* — it ADDS events to a fight the maker had just called too busy, and that
+density complaint has not been playtested as resolved. Building slices 1–5 now would
+also rewrite terrain collision on the versus stage **the content clips are shot on**,
+days before shooting them.
+
+Slice 0 remains DONE and measured: flat-gap reach is a RANGE, and the binding constraint
+is the **Juggernaut at 97.1 px = 6 chunks**, not 7.5.
+
+**Resume it after the maker confirms the calm-down pass reads right in play.**
+
+## ▶ CLIPS — THE STATE, HONESTLY
+
+* The pipeline works end to end. `make_post.py` produces `<a>_vs_<b>.mp4` and
+  `<a>_vs_<b>.nomusic.mp4` in `content/posts/`.
+* ⚠ **A SHOOT TAKES ~25 MINUTES PER TAKE.** Measured: ~1 rendered frame per second of
+  wall time at 1920x1080, and a 20 s clip is 1200+ frames. `--takes 2` doubles it.
+  Budget hours, not minutes, for a batch of five.
+* ⚠ **The `[fight]` verdict still needs watching.** It has to survive Godot stdout →
+  `make_clip` → `make_post` and has been swallowed at each layer at least once. If the
+  log says *"(no fight verdict reported; keeping this take)"*, `--takes` is an expensive
+  way to shoot once.
+* Upload path: Upload-Post free tier is **10 uploads/month, no card, no expiry** — a
+  batch of five costs nothing. See `docs/content-pipeline.md`. Upload the **`.nomusic`**
+  file and attach the trending sound in-app; that is what puts the post on the sound's
+  page, which is the reach.
 
 ## ⚠ TRAPS PAID FOR THIS SESSION
 
-* `_initialize()` in a SceneTree script runs **before the tree exists** — `/root/X` is
-  null. Defer a frame. One of my suites reported a missing autoload that was fine.
-* **Appending to project.godot lands you in the LAST section.** That is how the
-  `fullscreen` action ended up under `[rendering]`, silently dead, passing every source
-  grep. Ask the INPUT MAP, not the file.
-* `slice_test_render_budget` **bans 8x MSAA by name**; a linear canvas texture filter
-  **blurs the pixel-art atlas**. Both were tried and correctly reverted.
-* `AbilityBar.SLOT_SIZE` 46 is a locked **thumb** target — scale the bar, not the const.
-* A new `class_name` needs a headless `--import` before anything can reference it.
+* **`Camera2D.global_position` IS THE TARGET, NOT THE PICTURE.** With smoothing on, the
+  drawn centre is `get_screen_center_position()`. A probe reading the target reported a
+  camera that tracked perfectly while the picture lagged 142 px behind.
+* **HEADLESS HAS NO WINDOW, SO IT HAS NO ASPECT.** `DisplayServer.window_get_size()` is
+  `(0,0)` and the stretch solve falls back to a **square 640x640** viewport. Every probe
+  reading `get_visible_rect()` was silently solving for a frame 280 px taller than the
+  real one. Fix: `root.size = Vector2i(1366, 768)`, then the logical viewport is 640x360.
+* **A STALE NODE LIST IS A SILENT CONFOUND.** `Encounter` trickles waves in *during* a
+  probe, so foes captured once stand at their own spawn points and set the real bounding
+  box. This made one reading move 65 px between runs and looked exactly like a real
+  effect. Re-collect every frame.
+* **Godot clamps camera POSITION and applies OFFSET afterwards.** Any framer that works
+  through `offset` is in a different coordinate space from the limits, and they fight.
+* **Two `--import` passes** are needed after adding audio: the first parses `Sfx.gd`
+  before the new WAVs are scanned and reports "no resource loaders".
+* **A blank PNG saves successfully.** `save_png` returning OK says a file was written,
+  not that anything is in it — a null renderer produces perfectly successful empty
+  exports. `render_logo.gd` samples for non-zero alpha rather than trusting the return.
+
+## ▶ OPEN, SMALL
+
+* **"Ashpire" vs "Ashspire"** ship on the same screen, one letter apart — the game is
+  ASHPIRE, the tower is "The Ashspire". A real collision, but which one wins is the
+  maker's call and `Ashspire` is a proper noun in 50+ files including test assertions.
+  Flagged, not silently rewritten.
+* A stray `Godot_v4.6.2-stable_win64.exe` (PID from a killed shoot) resisted `taskkill`.
+  Harmless, but kill it before a big batch so it is not eating a core.
 
 ## HOW TO VERIFY
 ```
-python python-tools/run_all_tests.py --jobs 3        # 175 suites, ~175s
+python python-tools/run_all_tests.py --jobs 3        # 176 suites, ~176s
+godot --headless --path godot-project --script tools/probe_showcase_framing.gd -- 6 8
+godot --headless --path godot-project --script tools/probe_hud_occlusion.gd
 ```
 ⚠ `slice_test_sandbox` NO-RESULTs occasionally from MCP port contention. Re-run it alone
 before believing it.
