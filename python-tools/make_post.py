@@ -581,8 +581,20 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
             if clip is None:
                 break
             if not v:
-                # No verdict line at all — an older capture path. Do not silently loop.
-                print("    (no fight verdict reported; keeping this take)")
+                # ⚠ NO VERDICT MEANS THE FIGHT NEVER ENDED, AND THAT IS THE WORST TAKE
+                # OF ALL — NOT A NEUTRAL ONE. `BotMatch` prints `[fight]` from
+                # `_decide()`, so a missing line is not a broken pipe: it is a bout that
+                # ran out the `--seconds` budget with nobody knocked out. The clip then
+                # just STOPS mid-swing, with no KO and no result card — which is
+                # exactly the "boring" the gate exists to catch. Treating it as
+                # "keeping this take" published the one outcome the maker complained
+                # about. Observed on 2 of 5 shoots in a single batch.
+                if attempt < max(1, args.takes):
+                    print(f"    re-rolling (take {attempt} never resolved — no KO "
+                          f"inside {args.seconds:.0f}s)")
+                    continue
+                print(f"    ⚠ kept take {attempt} anyway — it never resolved inside "
+                      f"{args.seconds:.0f}s, so it ends mid-fight. Raise --seconds.")
                 break
             if "PASS" in v.split("  ")[0]:
                 if attempt > 1:
