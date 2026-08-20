@@ -36,6 +36,28 @@ const TITLE_SCENE: String = "res://scenes/ui/Lobby.tscn"
 ## early win. Destruction lives in the cover + craters, not the load-bearing floor.
 const STAGE_SIZE: Vector2 = Vector2(2000, 1000)
 const GROUND_TOP: float = 780.0    # y of the main walkable ground surface
+## THE PAINTED WORLD — the rect `Atmosphere` fills, and therefore the only region the
+## camera may show. Outside it there is no sky, no parallax and no rim: just the
+## viewport clear colour. `_frame_x` clamps against these, and `_build_atmosphere`
+## builds from them, so the two can never disagree again — they were two hand-written
+## copies of the same rect, and the camera's copy was `STAGE_SIZE` (which is the
+## COLLISION extent, not the painted one).
+const BACKDROP_ORIGIN: Vector2 = Vector2(-400.0, -420.0)
+const BACKDROP_GROWTH: Vector2 = Vector2(800.0, 900.0)
+const BACKDROP_X0: float = BACKDROP_ORIGIN.x
+const BACKDROP_X1: float = BACKDROP_ORIGIN.x + STAGE_SIZE.x + BACKDROP_GROWTH.x
+## THE TERRAIN RIM. Restated from this file's own load-bearing note above: the outer
+## extent of every stage variant is x 40..1965, and `PROBE_TERRAIN_X0/X1` are copies of
+## it. Past the rim the backdrop is still painted but there is no ground.
+const STAGE_RIM_X0: float = 40.0
+const STAGE_RIM_X1: float = 1965.0
+## How much past-the-rim emptiness the shot may show before the camera stops following.
+## This is the ONE knob on the trade the old constant resolved badly: hold the camera
+## in and the fighters slide to the edge of the picture (the maker's complaint), let it
+## out and the picture fills with nothing. 150 px is under a quarter of the frame at
+## every zoom the showcase reaches, and it keeps a pair pinned against the left wall at
+## roughly x=141 of 640 instead of x=38.
+const STAGE_RIM_SLACK: float = 150.0
 const STOCKS: int = 3
 const RESPAWN_INVULN: float = 0.8
 
@@ -618,6 +640,32 @@ const PORTRAIT_SUBJECT_DWELL: float = 0.90
 ## Rendered and looked at: at 130 the horizon sat at ~95% of frame height and the
 ## fighters' feet were clipped by the bottom edge. 45 puts the floor in the lower
 ## third with headroom above for a meteor column or a raised staff.
+## HOW HARD THE EYE CHASES ITS OWN ANSWER — and the LARGER half of *"the camera drifts
+## to the side"*.
+##
+## ⚠ `Camera2D.global_position` IS THE TARGET, NOT THE PICTURE. With
+## `position_smoothing_enabled` the drawn centre is `get_screen_center_position()`, and
+## at the old rate of 4.0 the two were measured **142 px apart at p95** on a 640-wide
+## logical frame — nearly half a half-frame, as pure follow lag. The framer was solving
+## correctly and the picture was arriving a quarter-second late. Reading the source
+## cannot find this, and neither can reading `global_position`: the first version of
+## the probe did exactly that, and reported a camera that tracked perfectly.
+##
+## Swept over four class pairs, reading the DRAWN channel (`probe_showcase_framing`):
+##
+##     rate   mean off-centre    p95     someone off screen   jerk
+##     4.0        31.7 px      107.9 px         3.2%          0.42
+##     12.0       17.2 px       70.2 px         3.0%          0.51
+##     18.0       13.2 px       51.2 px         2.7%          0.58
+##     26.0        9.9 px       39.9 px         1.7%          0.67
+##
+## `jerk` is the second difference of the drawn centre — the column that would catch a
+## camera buying accuracy by snapping to every twitch. It barely moves, because the
+## focus point is the midpoint of two bodies and is inherently smooth. 18 takes almost
+## all of the available gain; 26 buys a further 3 px — invisible on a 640 px frame —
+## for a 16% stiffer camera, and a stiffer camera cuts harder on the rematch teleport.
+## Still smoothed, just no longer behind the fight.
+const SHOWCASE_FOLLOW_SPEED: float = 18.0
 const SHOWCASE_EYE_LIFT: float = 45.0
 ## How long the KO banner holds before the next bout begins.
 const SHOWCASE_REMATCH_GRACE: float = 1.1
@@ -1025,7 +1073,7 @@ func _build_background() -> void:
 		# ten grades, and it was simply never called here — this file calls
 		# `PostProcess.add` and then never tells it what colour the world is.
 		PostProcess.set_theme(wash)
-	atmo.build(Rect2(Vector2(-400, -420), STAGE_SIZE + Vector2(800, 900)), sky)
+	atmo.build(Rect2(BACKDROP_ORIGIN, STAGE_SIZE + BACKDROP_GROWTH), sky)
 
 
 ## The biome this bout is dressed in, or null to keep the authored dusk.
@@ -1386,6 +1434,37 @@ func _spawn_free() -> void:
 	_rebuild_dummies()
 
 
+## WHERE THE EYE MAY SIT ON X, GIVEN HOW WIDE THE FRAME CURRENTLY IS.
+##
+## ⚠ THE OLD RULE WAS A CONSTANT AND IT IS HALF OF *"the camera drifts to the side"*.
+## Both cameras used `clampf(x, 340.0, STAGE_SIZE.x - 340.0)`. That is wrong twice:
+##
+##   * A CONSTANT CANNOT BOUND A FRAME WHOSE WIDTH CHANGES EVERY FRAME. 340 is the
+##     world half-width at zoom 0.94 — the middle of the showcase's range, so it was a
+##     reasonable single sample and not a random number. But the range is 0.47..1.32,
+##     where the half-width runs 680 down to 242 px. The rail is therefore too LOOSE
+##     when the shot is wide (it lets emptiness in) and too TIGHT when it is close (it
+##     stops following while there is still stage to show) — and the close end is the
+##     common one.
+##   * IT WAS ANCHORED TO `STAGE_SIZE`, the collision extent (2000 wide, centred on
+##     x=1000), while the fight floor is x 40..1400, centred on 720. So the band was
+##     offset ~280 px to the RIGHT of where the fight happens, and the LEFT rail bit
+##     first and hardest — measured at 13.6% of frames in `probe_showcase_framing`.
+##
+## The rule now: put the eye where it is asked, then pull it back only far enough that
+## the frame stays inside the PAINTED world. When the frame is wider than the painting
+## there is no position that satisfies that, so centre the painting instead of picking
+## an arbitrary rail — a rail would park the fight hard against one edge, which is the
+## exact complaint.
+func _frame_x(want_x: float, zoom: float, view_w: float) -> float:
+	var half_w: float = view_w / (2.0 * maxf(zoom, 0.01))
+	var lo: float = (STAGE_RIM_X0 - STAGE_RIM_SLACK) + half_w
+	var hi: float = (STAGE_RIM_X1 + STAGE_RIM_SLACK) - half_w
+	if lo >= hi:
+		return (STAGE_RIM_X0 + STAGE_RIM_X1) * 0.5
+	return clampf(want_x, lo, hi)
+
+
 ## Follow the one hero. Same clamps as the pair camera (so the eye can never drift
 ## off the rock into empty sky) but a fixed zoom, because there is no second fighter
 ## whose separation would justify changing it.
@@ -1399,7 +1478,7 @@ func _update_free_camera(delta: float) -> void:
 		var fz: float = _clip.compose(FREE_ZOOM, delta)
 		_show_cam.zoom = Vector2(fz, fz)
 	var eye: Vector2 = Vector2(
-		clampf(at.x, 340.0, STAGE_SIZE.x - 340.0),
+		_frame_x(at.x, _show_cam.zoom.x, float(get_viewport().get_visible_rect().size.x)),
 		clampf(at.y - FREE_EYE_LIFT, GROUND_TOP - 330.0, GROUND_TOP - 30.0))
 	_show_cam.global_position = _show_cam.global_position.lerp(eye,
 		clampf(delta * 6.0, 0.0, 1.0))
@@ -1847,7 +1926,7 @@ func _build_showcase_camera() -> void:
 	_show_cam = Camera2D.new()
 	_show_cam.zoom = Vector2(0.62, 0.62)
 	_show_cam.position_smoothing_enabled = true
-	_show_cam.position_smoothing_speed = 4.0
+	_show_cam.position_smoothing_speed = SHOWCASE_FOLLOW_SPEED
 	add_child(_show_cam)
 	_show_cam.make_current()
 
@@ -1944,6 +2023,17 @@ func _update_showcase_camera(delta: float) -> void:
 		return
 	var pts: Array[Vector2] = []
 	var live: Array[Node2D] = []
+	# ⚠ A BODY THAT HAS LEFT THE MAP MUST NOT OWN THE CAMERA. `showcase_ringout` is on
+	# by default, so a big enough hit launches a fighter clean off the stage — and the
+	# framer averaged its position in all the way out. One measured run framed on the
+	# midpoint between a live fighter and a body somewhere past x=5000: the pair's
+	# "midpoint" sat 1100 screen px off centre and SOMEBODY WAS OFF SCREEN FOR 55% OF
+	# THE FIGHT. Both the focus and the spread (and therefore the zoom) were being
+	# decided by a fighter nobody could see.
+	#
+	# So: frame on the bodies that are inside the painted world. If every body has left
+	# it — the instant between the last ring-out and the rematch — keep them all, so the
+	# camera still points at something rather than snapping to a default.
 	for entry: Dictionary in _registry.values():
 		var n: Node = entry["node"]
 		if is_instance_valid(n) and not n.is_queued_for_deletion():
@@ -1951,6 +2041,15 @@ func _update_showcase_camera(delta: float) -> void:
 			live.append(n as Node2D)
 	if pts.is_empty():
 		return
+	var on_map: Array[Vector2] = []
+	var on_map_live: Array[Node2D] = []
+	for i: int in pts.size():
+		if pts[i].x >= BACKDROP_X0 and pts[i].x <= BACKDROP_X1:
+			on_map.append(pts[i])
+			on_map_live.append(live[i])
+	if not on_map.is_empty():
+		pts = on_map
+		live = on_map_live
 	var mid: Vector2 = Vector2.ZERO
 	for p: Vector2 in pts:
 		mid += p
@@ -2040,7 +2139,7 @@ func _update_showcase_camera(delta: float) -> void:
 		eye_y = minf(eye_y, GROUND_TOP + half_h * (1.0 - 2.0 * PORTRAIT_GROUND_AT))
 		ceil_y = GROUND_TOP - 560.0
 	_show_cam.global_position = Vector2(
-		clampf(focus.x, 340.0, STAGE_SIZE.x - 340.0),
+		_frame_x(focus.x, z, view_w),
 		clampf(eye_y, ceil_y, floor_y))
 
 
