@@ -156,8 +156,16 @@ const STREAMS: Dictionary = {
 		preload("res://assets/audio/sfx/beam_storm_1.ogg"),
 		preload("res://assets/audio/sfx/beam_storm_2.wav"),
 	],
-	"beam_start": [preload("res://assets/audio/sfx/beam_start_1.wav")],
-	"beam_end": [preload("res://assets/audio/sfx/beam_end_1.wav")],
+	# A beam is re-cast constantly, so its two punctuation marks are the most
+	# repeated sounds either spell owns.
+	"beam_start": [
+		preload("res://assets/audio/sfx/beam_start_1.wav"),
+		preload("res://assets/audio/sfx/beam_start_2.wav"),
+	],
+	"beam_end": [
+		preload("res://assets/audio/sfx/beam_end_1.wav"),
+		preload("res://assets/audio/sfx/beam_end_2.wav"),
+	],
 
 	# ================================================================= ICE
 	"ice_wall": [
@@ -248,7 +256,11 @@ const STREAMS: Dictionary = {
 	],
 
 	# ============================================================== SHADOW
-	"shadow_cast": [preload("res://assets/audio/sfx/shadow_cast_1.wav")],
+	"shadow_cast": [
+		preload("res://assets/audio/sfx/shadow_cast_1.wav"),
+		preload("res://assets/audio/sfx/shadow_cast_2.wav"),
+		preload("res://assets/audio/sfx/shadow_cast_3.wav"),
+	],
 	"shadow_crawl": [
 		preload("res://assets/audio/sfx/shadow_crawl_1.wav"),
 		preload("res://assets/audio/sfx/shadow_crawl_2.wav"),
@@ -452,7 +464,11 @@ const STREAMS: Dictionary = {
 	],
 	# The bright Stick-Fight "clean hit" payoff. Kept separate from `parry` on
 	# purpose: `ding` is a REWARD cue, `parry` is a physical event.
-	"ding": [preload("res://assets/audio/sfx/ding.wav")],
+	"ding": [
+		preload("res://assets/audio/sfx/ding.wav"),
+		preload("res://assets/audio/sfx/ding_2.wav"),
+		preload("res://assets/audio/sfx/ding_3.wav"),
+	],
 
 	# =========================================================== REACTIONS
 	# Spell-vs-spell outcomes. These had NO sounds at all and are exactly the
@@ -580,8 +596,11 @@ const STREAMS: Dictionary = {
 	# One variant, not two: the second was a body-burst from the family the maker
 	# banned on 2026-08-04, and nothing calls this key, so replacing it would only
 	# have added a second unheard guess.
+	# Kills CLUSTER, which is precisely when a single repeated waveform is heard.
 	"gib": [
 		preload("res://assets/audio/sfx/gib_1.wav"),
+		preload("res://assets/audio/sfx/gib_2.wav"),
+		preload("res://assets/audio/sfx/gib_3.wav"),
 	],
 	"spell_impact": [
 		preload("res://assets/audio/sfx/spell_impact_1.wav"),
@@ -606,7 +625,12 @@ const STREAMS: Dictionary = {
 		preload("res://assets/audio/sfx/dash_1.wav"),
 		preload("res://assets/audio/sfx/dash_2.wav"),
 	],
-	"blink": [preload("res://assets/audio/sfx/blink.wav")],
+	# Fires on every dash of two classes, in chains.
+	"blink": [
+		preload("res://assets/audio/sfx/blink.wav"),
+		preload("res://assets/audio/sfx/blink_2.wav"),
+		preload("res://assets/audio/sfx/blink_3.wav"),
+	],
 	"crate_break": [
 		preload("res://assets/audio/sfx/crate_break_1.ogg"),
 		preload("res://assets/audio/sfx/crate_break_2.ogg"),
@@ -643,9 +667,16 @@ const STREAMS: Dictionary = {
 	],
 	# `cannon` -> holy_pillar. All three callers (DivineRay x2, StarConvergence)
 	# are pillar slams, and the old clip was a synth placeholder.
+	# ⚠ THIS WAS PLAYING `holy_pillar`. Both keys pointed at holy_pillar_1/2 — a
+	# 1.5 s rising choral swell standing in for an artillery shot, which is not a
+	# near-miss substitution, it is a different event. `cannon_*` are a crack, a
+	# fast pitch-drop body and a short dirty tail; see generate_missing_sfx.py.
+	# (The other shared files in this table are generic ALIASES of a specific
+	# sound — `beam`/`beam_arcane`, `ice`/`ice_wall`, `earth`/`earth_wall`,
+	# `footstep`/`step` — which is a different thing and is left alone.)
 	"cannon": [
-		preload("res://assets/audio/sfx/holy_pillar_1.wav"),
-		preload("res://assets/audio/sfx/holy_pillar_2.wav"),
+		preload("res://assets/audio/sfx/cannon_1.wav"),
+		preload("res://assets/audio/sfx/cannon_2.wav"),
 	],
 	# `footstep` -> step. Kept because Hero.gd and SpikeFigure.gd call this name.
 	"footstep": [
