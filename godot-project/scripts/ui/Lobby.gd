@@ -232,13 +232,17 @@ func _build_ui() -> void:
 	margin.add_child(right)
 	_col = right
 
-	var title := Label.new()
-	title.text = "ASHPIRE"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 34)
-	title.add_theme_color_override("font_color", CHALK)
-	title.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.04, 0.9))
-	title.add_theme_constant_override("outline_size", 6)
+	# ⚠ THE MARK, NOT A LABEL. The front door said the game's name in the default UI
+	# font with an outline on it — which is what every unfinished project's title
+	# screen says it with. `GameLogo` draws the sigil the game already casts with, with
+	# the tower standing in it, and it is the SAME Control the app icon and the social
+	# avatar are stamped from, so the three cannot drift apart.
+	var title := GameLogo.new()
+	title.custom_minimum_size = Vector2(PANEL_W, 112.0)
+	title.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	# The Lobby paints its own PAPER, and the logo's disc is the same colour, so the
+	# emblem would read as a hole. Shrunk slightly and left to sit on the page.
+	title.emblem_scale = 0.95
 	right.add_child(title)
 
 	# ⚠ TWO TAGLINES DELETED, AND ONE OF THEM HAD AN ARGUMENT BEHIND IT.
