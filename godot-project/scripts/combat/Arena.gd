@@ -255,9 +255,16 @@ func _raise_opening_thralls() -> void:
 ## room sizes that fit inside the framing zoom (see _apply_room_size), the whole
 ## floor is on screen at once and nobody fights off-camera.
 func _apply_floor_camera() -> void:
+	var room: Vector2 = _layout_room_size()
 	for cam: Node in get_tree().get_nodes_in_group("combat_camera"):
 		if cam.has_method("set_frame_all"):
 			cam.set_frame_all(true)
+		# ⚠ AND TELL IT HOW BIG THE ROOM IS. `Hero.tscn` carries hardcoded limits of
+		# 1200x680 — the size `Arena.tscn` used to hardcode before `room_size` drove
+		# the geometry — so without this every floor is framed against a room that
+		# stopped existing. See CombatCamera.set_room_bounds.
+		if cam.has_method("set_room_bounds"):
+			cam.call("set_room_bounds", room)
 
 
 ## Boss floors get the boss bed; everything else the adventure bed. Fires on

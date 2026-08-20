@@ -49,10 +49,95 @@ const FRAME_VIEWPORT: Vector2 = Vector2(640.0, 360.0)
 ## owns its height and publishes it; this is the fallback for a headless run where the
 ## class is not reachable.
 const HUD_RESERVE_FALLBACK: float = 69.0
+## Cap on the upward bias applied when the group is too big to fit — as a fraction of
+## the usable frame height. Without a cap, a wave spread across a full-size room would
+## walk the picture off the top instead of off the bottom, which is the same bug
+## wearing a hat.
+const OVERFLOW_LIFT_MAX: float = 0.18
+## A few px of daylight between the lowest fighter and the top edge of the hotbar.
+## With the reserve alone the tightest measured case cleared by 2.8 px — positive, but
+## a hairline, and `HERO_FRAME_BIAS` eats most of `FRAME_PAD` at large spreads because
+## it drags the framed centre back toward the hero, who is the body ON THE FLOOR.
+## A stated margin is better than a coincidence.
+const HUD_CLEARANCE: float = 8.0
 
 
 func _hud_reserve() -> float:
-	return AbilityBar.occupied_height()
+	return AbilityBar.occupied_height() + HUD_CLEARANCE
+
+
+## ══ THE ROOM THE CAMERA IS ALLOWED TO SHOW, AND THE OTHER HALF OF THE BAR BUG ═════
+## Maker, twice: *"I dont want the bottom bar blocking the characters when they are on
+## the ground floor of the tower"*.
+##
+## ⚠ `Hero.tscn` SHIPPED WITH `limit_right = 1200, limit_bottom = 680` HARDCODED, and
+## nothing ever updated them. Those are the dimensions of the box `Arena.tscn` used to
+## hardcode before `LayoutDef.room_size` started driving the geometry — a stale copy of
+## a number that moved. Every tower floor since has been framed against the wrong room.
+##
+## And the failure mode is exactly the report. Godot clamps the camera POSITION to the
+## limits and applies `offset` AFTERWARDS, so once the limit binds, the HUD reserve
+## cannot move the picture at all — it is added to a position that has already been
+## pinned. Measured on the ground floor: the camera sat 104 world px above the hero and
+## would not follow him down, which puts a fighter standing on the floor at the bottom
+## of the frame with the hotbar drawn over him. No amount of reserve fixes that,
+## because the reserve was never the thing holding the camera.
+##
+## So the limits track the real room, and the BOTTOM one is extended by the reserve
+## converted to world units at the current zoom — that band is precisely what the bar
+## covers, so the room's floor line lands on the bar's top edge instead of behind it.
+## Re-applied every frame because the conversion depends on the live zoom.
+var _room_size: Vector2 = Vector2.ZERO
+
+
+func set_room_bounds(size: Vector2) -> void:
+	_room_size = size
+	_apply_room_limits()
+
+
+## Godot's own "no limit" value. Used rather than 0 because 0 IS a meaningful limit.
+const LIMIT_OFF: int = 10000000
+
+
+## ⚠ GODOT'S LIMITS AND THIS FRAMER CANNOT BOTH OWN THE PICTURE, AND THE FRAMER WINS.
+##
+## `Camera2D` clamps POSITION and adds `offset` AFTERWARDS. `_frame_group_update`
+## expresses its entire answer — the group centre, the hero bias, the HUD lift — as
+## `offset`. So the limits were clamping the hero's raw position and the framer was
+## then dragging the centre straight back outside them: measured on the ground floor,
+## a legal position range of [290, 382] resolved to a camera centre of 277. The limits
+## were not protecting the shot, they were adding an arbitrary bias to it, and at the
+## wide end they asked for a centre at least half a view below the top AND at most half
+## a view above the bottom — an empty interval, which Godot resolves by satisfying
+## neither.
+##
+## So the engine's limits come OFF, and "stay inside the room" is solved in the same
+## place and the same coordinate space as everything else the framer decides.
+func _apply_room_limits() -> void:
+	limit_left = -LIMIT_OFF
+	limit_top = -LIMIT_OFF
+	limit_right = LIMIT_OFF
+	limit_bottom = LIMIT_OFF
+
+
+## Hold the frame inside the room — bottom edge extended by the band the hotbar hides,
+## since that band is not part of the picture anyone can see. An axis whose view is
+## WIDER than the room is skipped rather than clamped: there is nothing to protect when
+## the room does not fill the frame, and clamping anyway is what produced the empty
+## interval above.
+func _clamp_centre_to_room(centre: Vector2, z: float, view: Vector2) -> Vector2:
+	if _room_size.x <= 1.0 or _room_size.y <= 1.0:
+		return centre
+	var half: Vector2 = view / (2.0 * maxf(z, 0.01))
+	var out: Vector2 = centre
+	if _room_size.x > view.x / maxf(z, 0.01):
+		out.x = clampf(out.x, half.x, _room_size.x - half.x)
+	var bottom: float = _room_size.y + _hud_reserve() / maxf(z, 0.01)
+	if bottom > view.y / maxf(z, 0.01):
+		out.y = clampf(out.y, half.y, bottom - half.y)
+	return out
+
+
 ## ⚠ THIS IS ALSO THE TIGHTEST THE CAMERA EVER GOES. The pad is added to the FIGHTER
 ## bounding box, so when two bodies are on top of each other the framing is decided
 ## almost entirely by this number. Cutting it to buy a bigger arena would have bought
@@ -326,13 +411,39 @@ func _frame_group_update(delta: float) -> void:
 	var usable_h: float = maxf(view.y - reserve, 1.0)
 	var fit: float = minf(view.x / maxf(span.x, 1.0), usable_h / maxf(span.y, 1.0))
 	fit = clampf(fit, FRAME_ZOOM_MIN, ZOOM_MAX)
-	# ...and the OTHER half moves the camera down by half the reserve, so the group
-	# re-centres inside the visible band instead of the full frame. In world units,
-	# because `offset` is applied before zoom. Without this the picture merely shrinks
-	# and the fighters stay behind the bar.
-	var hud_shift: float = (reserve * 0.5) / maxf(fit, 0.01)
-	_frame_offset = _frame_offset.lerp(
-		centroid - hero_pos + Vector2(0.0, -hud_shift), ease)
+	# ...and the OTHER half moves the camera DOWN, so the group rises out of the bar.
+	#
+	# ⚠ THE SIGN, BECAUSE IT WAS WRONG AND IT MADE THE BUG WORSE, NOT BETTER.
+	# `Camera2D` renders about `position + offset`, so a body's screen y is
+	#
+	#     view.y * 0.5 + (body.y - cam_center.y) * zoom,  cam_center.y = centroid.y + shift
+	#
+	# A NEGATIVE shift lifts the camera, which pushes the WORLD DOWN the screen — the
+	# opposite of what a bottom reserve is for. This shipped as `-hud_shift`, against
+	# the paragraph directly above it, so the "fix" moved every fighter half a
+	# bar-height FURTHER under the bar and the maker reported the bar still blocking
+	# them.
+	#
+	# ⚠ AND IT IS SOLVED, NOT TAXED. The first version lifted by half the reserve on
+	# every frame of every fight. That is a flat 12% of the picture surrendered
+	# whether or not anybody is near the bar — and it is measurably the WRONG amount:
+	# widening it made the tightest cases worse, because `HERO_FRAME_BIAS` drags the
+	# framed centre back toward the hero, who is the body standing ON THE FLOOR, and a
+	# blanket constant cannot know that. So ask the real question instead — where does
+	# the LOWEST body actually land — and lift by exactly the shortfall, which is zero
+	# most of the time and reclaims the band the bar is not using.
+	var bar_top: float = view.y - reserve
+	var lowest: float = mx.y
+	# A body's screen y is `view.y*0.5 + (body.y - centre.y) * zoom`, so keeping the
+	# LOWEST body off the hotbar means pushing the centre DOWN by the shortfall.
+	var need: float = (lowest - centroid.y) - (bar_top - view.y * 0.5) / maxf(fit, 0.01)
+	# Capped so a wave too big to fit cannot walk the picture off the TOP instead —
+	# which is the same bug wearing a hat.
+	var lift_cap: float = (reserve + usable_h * OVERFLOW_LIFT_MAX) / maxf(fit, 0.01)
+	var hud_shift: float = clampf(need, 0.0, lift_cap)
+	var centre: Vector2 = _clamp_centre_to_room(
+		centroid + Vector2(0.0, hud_shift), fit, view)
+	_frame_offset = _frame_offset.lerp(centre - hero_pos, ease)
 	# A LOWER zoom is a WIDER view, so "fit < base" means the group just grew and
 	# the camera has to open up NOW; the other direction can take its time.
 	var zoom_rate: float = FRAME_ZOOM_SPEED_OUT if fit < _zoom_base.x else FRAME_ZOOM_SPEED_IN
@@ -381,3 +492,6 @@ func _process(delta: float) -> void:
 		var ny: float = cos(_noise_t * 1.3 + 0.9) * 0.6 + sin(_noise_t * 3.4) * 0.4
 		shake_offset = _kick_offset + Vector2(MAX_OFFSET.x * shake * nx, MAX_OFFSET.y * shake * ny)
 	offset = _lookahead + shake_offset + _frame_offset
+	# The bottom limit is a function of the zoom that was just composed, so it is
+	# refreshed here rather than once when the floor is built.
+	_apply_room_limits()
