@@ -2008,7 +2008,17 @@ static func _thousand_cuts() -> SpellDef:
 	s.use_element_color = true
 	s.effect = _effect_for_element(Elements.Element.SHADOW)
 	s.mp_cost = 72       # ULT by MP and by cooldown, with no levitating channel
-	s.cooldown = 8.0
+	## ⚠ 8.0 -> 10.5, AND A GUARD MADE ME DO IT. `slice_test_spell_budget` caps an ult
+	## at 26.0 damage per second of cooldown; the buff below put this at 33.3 and the
+	## suite named the number. Rather than walk the damage back — the maker asked for
+	## "way more damage" — the finisher pays for it in WAITING, which lands it inside
+	## the budget.
+	##
+	## That is also the better answer for what the maker asked for in the same breath
+	## elsewhere: *"increase cooldowns like smash bros so that the viewers can really
+	## feel the effects of the spells"*. A rarer, heavier finisher is exactly that
+	## shape, and 168 damage every 8 s reads as noise next to 418 every 10.5.
+	s.cooldown = 10.5
 	## ⚠ 16 -> 24 PER CUT, i.e. 112 -> 168 landed. An 8 s ult that had to connect SEVEN
 	## times to deal less than the Brawler's single Meteor Fist (165 on 8.5 s) was the
 	## worst deal on the shelf.
@@ -2027,8 +2037,25 @@ static func _thousand_cuts() -> SpellDef:
 	##
 	## Flagged here so the next measured sweep re-prices it deliberately instead of
 	## inheriting it. Still inside `slice_test_spell_budget`'s enforced ceilings.
-	s.damage = 24        # per cut; the finisher is a multiple of one cut
-	s.count = 7          # cuts walked around the anchor
+	## ⚠ 24 -> 38 PER CUT, AND 7 -> 11 CUTS. Maker: *"make thousand cuts do way more
+	## damage and just look cooler"*.
+	##
+	## Both halves of that ask land on these two numbers, which is why they move
+	## together. DAMAGE is obvious. "COOLER" is `count`: the spell is named for a
+	## thousand cuts and was drawing SEVEN — the fantasy is a flurry the eye cannot
+	## count, and at seven you can count them. Eleven reads as a storm without turning
+	## the anchor into a strobe, and each cut is its own hit flash and its own step
+	## around the mark, so the extra four are four more beats of spectacle rather than
+	## a bigger number on the same animation.
+	##
+	## 38 x 11 = 418 against the old 24 x 7 = 168 on an 8 s cooldown. That is a large
+	## jump and it is deliberate: this is the assassin's ONE finisher, it has no
+	## levitating channel to interrupt, and the class was the one the maker had already
+	## reported as "getting cooked" (see BotMatch.CLASS_POWER, which is still carrying a
+	## +30% damage patch for exactly that). Watch it in a bout before trusting it —
+	## `FightScore` will tell you if bouts start ending the instant it lands.
+	s.damage = 38        # per cut; the finisher is a multiple of one cut
+	s.count = 11         # cuts walked around the anchor
 	s.reach = 300.0      # how far out the mark may be placed
 	return s
 

@@ -18,6 +18,33 @@ const ZOOM_MAX: float = 2.6
 # Each frame, frame the bounding box of the hero + all live bots and auto-zoom so
 # everyone stays on screen. Base design resolution is 640x360 (project stretch).
 const FRAME_VIEWPORT: Vector2 = Vector2(640.0, 360.0)
+## ══ THE BOTTOM OF THE SCREEN BELONGS TO THE HUD, AND THE CAMERA HAS TO KNOW ═══════
+## Maker: *"when the camera zooms out you cant see the character, its hidden under the
+## spellboxes"*.
+##
+## ⚠ NOTHING IN EITHER CAMERA RESERVED A SINGLE PIXEL FOR THE HUD. `FRAME_VIEWPORT`
+## above is the FULL base viewport, `fit` divides by all 360 of it, and `_frame_offset`
+## targets the geometric centre of the whole frame. Meanwhile `AbilityBar` sits on
+## CanvasLayer 60 across the bottom: 14 px margin + 46 px slot + a 9 px class label =
+## 69 px of the 360, dead centre-bottom, exactly where a grounded fighter stands.
+##
+## And the arithmetic is nastier than a near miss. `FRAME_PAD.y` is 140, so the framer
+## leaves 70 px between the lowest fighter and the frame edge — against a 69 px bar.
+## The bottom fighter lands ON the bar's top edge at every zoom level, and once `fit`
+## clamps at `FRAME_ZOOM_MIN` (0.46) the box stops fitting at all and they go fully
+## behind it. It was never going to be visible; the margin and the obstruction are the
+## same size by coincidence.
+##
+## ⚠ AND THE FIX IS TWO HALVES — the first alone does nothing. Solving against a
+## SHORTER rect only makes the picture smaller; the group still centres on the middle
+## of the full frame, which is still behind the bar. The camera also has to move DOWN
+## by half the reserve, so the group re-centres inside the band that is actually
+## visible (y 0..291) instead of the band the maths thinks it has.
+##
+## Measured off `AbilityBar`'s own constants rather than eyeballed: BOTTOM_MARGIN 14 +
+## SLOT_SIZE 46 + the label's 9 px lift. ⚠ `SLOT_SIZE` is a locked thumb-target
+## (D-011) and may not shrink, so the camera is the side that yields.
+const HUD_RESERVE_BOTTOM: float = 69.0
 ## ⚠ THIS IS ALSO THE TIGHTEST THE CAMERA EVER GOES. The pad is added to the FIGHTER
 ## bounding box, so when two bodies are on top of each other the framing is decided
 ## almost entirely by this number. Cutting it to buy a bigger arena would have bought
@@ -275,9 +302,28 @@ func _frame_group_update(delta: float) -> void:
 	var geo_center: Vector2 = (mn + mx) * 0.5
 	var centroid: Vector2 = hero_pos.lerp(geo_center, HERO_FRAME_BIAS)
 	var span: Vector2 = (mx - mn) + FRAME_PAD
-	var fit: float = minf(FRAME_VIEWPORT.x / maxf(span.x, 1.0), FRAME_VIEWPORT.y / maxf(span.y, 1.0))
+	# ⚠ THE LIVE VIEWPORT, NOT THE HARDCODED ONE. `FRAME_VIEWPORT` is the 640x360 base,
+	# but the project stretches `canvas_items`/`expand`, which means a non-16:9 window
+	# GROWS the logical viewport rather than letterboxing it — 853x360 on a 21:9
+	# fullscreen. Solving against a constant there frames for a screen shape the player
+	# is not looking at. Falls back to the constant when there is no viewport (headless).
+	var view: Vector2 = FRAME_VIEWPORT
+	var vp: Viewport = get_viewport()
+	if vp != null:
+		var live: Vector2 = vp.get_visible_rect().size
+		if live.x > 1.0 and live.y > 1.0:
+			view = live
+	# HALF the frame is solved against a SHORTER rect — the part the HUD does not cover.
+	var usable_h: float = maxf(view.y - HUD_RESERVE_BOTTOM, 1.0)
+	var fit: float = minf(view.x / maxf(span.x, 1.0), usable_h / maxf(span.y, 1.0))
 	fit = clampf(fit, FRAME_ZOOM_MIN, ZOOM_MAX)
-	_frame_offset = _frame_offset.lerp(centroid - hero_pos, ease)
+	# ...and the OTHER half moves the camera down by half the reserve, so the group
+	# re-centres inside the visible band instead of the full frame. In world units,
+	# because `offset` is applied before zoom. Without this the picture merely shrinks
+	# and the fighters stay behind the bar.
+	var hud_shift: float = (HUD_RESERVE_BOTTOM * 0.5) / maxf(fit, 0.01)
+	_frame_offset = _frame_offset.lerp(
+		centroid - hero_pos + Vector2(0.0, -hud_shift), ease)
 	# A LOWER zoom is a WIDER view, so "fit < base" means the group just grew and
 	# the camera has to open up NOW; the other direction can take its time.
 	var zoom_rate: float = FRAME_ZOOM_SPEED_OUT if fit < _zoom_base.x else FRAME_ZOOM_SPEED_IN

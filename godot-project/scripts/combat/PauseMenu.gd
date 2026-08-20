@@ -153,6 +153,7 @@ var _quality_btn: Button = null
 ## that as normal, because the group sweep in `_apply_brightness` drives whichever one
 ## is real rather than only our own.
 var _brightness_btn: Button = null
+var _fullscreen_btn: Button = null
 var _brightness_rect: ColorRect = null
 var _pvp_btn: Button = null
 ## The Appearance row. Held so `open()` can re-read the live hero — `C` cycles the
@@ -757,6 +758,15 @@ func _build_settings() -> void:
 	_brightness_btn.custom_minimum_size = Vector2(240, 30)
 	_brightness_btn.add_theme_font_size_override("font_size", 14)
 	_settings_col.add_child(_brightness_btn)
+	# ⚠ FULLSCREEN GETS A ROW *AND* A KEY. Maker: *"this game needs full screen
+	# capabilities"*. F11 is the muscle memory and `Screen` owns it globally, but a
+	# setting that exists only as an unlabelled keybind is a setting most players never
+	# find — and this panel is where they will look. Same cycling-label shape as the
+	# quality and brightness rows above it.
+	_fullscreen_btn = _menu_button(_fullscreen_label(), _on_fullscreen_pressed)
+	_fullscreen_btn.custom_minimum_size = Vector2(240, 30)
+	_fullscreen_btn.add_theme_font_size_override("font_size", 14)
+	_settings_col.add_child(_fullscreen_btn)
 	# HOW A PVP FIGHT IS WON. Same cycling-button shape as quality above, and for
 	# the same reason: two states and one label cost one row in a panel that is
 	# already scrolled to reach its bottom on a 720p window.
@@ -1118,6 +1128,23 @@ func _refresh_friendly_fire() -> void:
 ## AUTO -> HIGH -> LOW -> AUTO. A cycling button rather than three radio rows: the
 ## panel is already scrolled to reach its bottom on a 720p window, and a setting with
 ## three states and one label costs one row instead of four.
+## The window mode lives on the `Screen` autoload, which also persists it — see that
+## file for why it is the only setting in the project that survives a restart.
+func _fullscreen_label() -> String:
+	var scr: Node = get_node_or_null(^"/root/Screen")
+	var on: bool = scr != null and bool(scr.call("is_fullscreen"))
+	return "Fullscreen:  %s   (F11)" % ("ON" if on else "OFF")
+
+
+func _on_fullscreen_pressed() -> void:
+	var scr: Node = get_node_or_null(^"/root/Screen")
+	if scr == null:
+		return
+	scr.call("toggle")
+	if _fullscreen_btn != null and is_instance_valid(_fullscreen_btn):
+		_fullscreen_btn.text = _fullscreen_label()
+
+
 func _on_quality_pressed() -> void:
 	var cfg: Object = _tuning_cfg()
 	if cfg == null:
