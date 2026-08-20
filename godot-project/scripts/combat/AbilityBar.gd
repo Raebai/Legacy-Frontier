@@ -61,6 +61,31 @@ const VERB_RANK: Dictionary = {"RMB": 0}
 const VERB_RANK_OTHER: int = 9
 ## Breathing room below the bar so it doesn't kiss the screen edge.
 const BOTTOM_MARGIN: float = 14.0
+
+## ══ THE BAR IS A THUMB TARGET ONLY WHERE THERE IS A THUMB ══════════════════════
+## Maker: *"the spell boxes are too big when I make it full screen, they also increase
+## in size, they should be smaller or on the side"*.
+##
+## ⚠ `SLOT_SIZE` 46 IS LOCKED AND STAYS LOCKED — but read WHY it is locked: it is a
+## THUMB TARGET (D-011, mobile-first). On a desktop nobody is touching the screen; the
+## slots are read, not pressed, and 46 px of a 360 px design height is 13% of the
+## picture spent on six squares a keyboard player never aims at.
+##
+## And it does grow in fullscreen, exactly as reported. The project stretches
+## canvas_items/expand from a 640x360 base, so a 1920x1080 screen scales everything 3x:
+## the bar goes from ~98 real px to ~138. Fullscreen shows the same picture BIGGER
+## rather than showing more of it, and the HUD is the part of that you notice.
+##
+## So the bar keeps its full thumb size wherever a touch pad can appear, and shrinks
+## where one cannot. `_touch_pad_live()` already draws NOTHING on touch devices, so this
+## scale only ever applies to the desktop case — the locked constant is untouched and
+## the mobile contract is unchanged.
+const DESKTOP_SCALE: float = 0.62
+## ...and it moves OUT OF THE MIDDLE. The maker offered "smaller or on the side" and the
+## side is worth taking on its own merits: centre-bottom is where two fighters land, and
+## it is the same real estate the camera has to reserve. Hugging the left edge frees the
+## centre of the frame for the thing the frame is about.
+const SIDE_MARGIN: float = 16.0
 ## Inset for the key label from the slot's top-left corner.
 const KEY_PADDING: Vector2 = Vector2(4.0, 3.0)
 ## Lift for the ability name off the slot's bottom edge.
@@ -201,6 +226,20 @@ func _ready() -> void:
 ## Gated on a live pad rather than on `DisplayServer.is_touchscreen_available()`,
 ## because a touchscreen laptop played with a keyboard must keep its hotbar — and
 ## `TouchControls` only joins the group when it has actually shown itself.
+## 1.0 where a thumb has to hit it, smaller where it is only read. See DESKTOP_SCALE.
+static func slot_scale() -> float:
+	return 1.0 if DisplayServer.is_touchscreen_available() else DESKTOP_SCALE
+
+
+## ⚠ HOW MUCH OF THE BOTTOM OF THE SCREEN THIS COVERS — published, because the CAMERA
+## needs it and had no way to ask. `CombatCamera` used to carry a hardcoded 69 px copy
+## of this arithmetic, which is a second definition that goes stale the moment the bar
+## is resized. It just was. One owner, one number.
+static func occupied_height() -> float:
+	var k: float = slot_scale()
+	return (BOTTOM_MARGIN + SLOT_SIZE) * k + 9.0 * k     # + the class label above it
+
+
 func _touch_pad_live() -> bool:
 	return get_tree().get_first_node_in_group(TouchControls.PAD_GROUP) != null
 
@@ -523,24 +562,29 @@ func _draw() -> void:
 		return
 	# No gap unless there is something on both sides of it — a lone group must stay
 	# centred, not sit off to one side of a break with nothing behind it.
-	var split: float = GROUP_GAP if not verbs.is_empty() and not spells.is_empty() else 0.0
-	var total_w: float = float(count) * SLOT_SIZE + float(count - 1) * SLOT_GAP + split
-	var origin_x: float = (view.x - total_w) * 0.5
-	var origin_y: float = view.y - BOTTOM_MARGIN - SLOT_SIZE
+	var k: float = slot_scale()
+	var slot_px: float = SLOT_SIZE * k
+	var split: float = (GROUP_GAP * k) if not verbs.is_empty() and not spells.is_empty() else 0.0
+	var total_w: float = float(count) * slot_px + float(count - 1) * (SLOT_GAP * k) + split
+	# Centred where it is a thumb target, tucked into the left corner where it is not —
+	# see DESKTOP_SCALE / SIDE_MARGIN.
+	var origin_x: float = (view.x - total_w) * 0.5 if is_equal_approx(k, 1.0) 		else SIDE_MARGIN
+	var origin_y: float = view.y - (BOTTOM_MARGIN * k) - slot_px
 	# Class name centered just above the hotbar (always know your class).
 	if _class_name != "":
 		draw_string(
 			font, Vector2(origin_x, origin_y - 9.0), _class_name.to_upper(),
-			HORIZONTAL_ALIGNMENT_CENTER, total_w, 13, Color(0.95, 0.96, 1.0, 0.95)
+			HORIZONTAL_ALIGNMENT_CENTER, total_w, int(round(13.0 * k)),
+			Color(0.95, 0.96, 1.0, 0.95)
 		)
 	var x: float = origin_x
 	for slot: Dictionary in verbs:
-		_draw_slot(Rect2(Vector2(x, origin_y), Vector2(SLOT_SIZE, SLOT_SIZE)), slot, font)
-		x += SLOT_SIZE + SLOT_GAP
+		_draw_slot(Rect2(Vector2(x, origin_y), Vector2(slot_px, slot_px)), slot, font)
+		x += slot_px + SLOT_GAP * k
 	x += split
 	for slot: Dictionary in spells:
-		_draw_slot(Rect2(Vector2(x, origin_y), Vector2(SLOT_SIZE, SLOT_SIZE)), slot, font)
-		x += SLOT_SIZE + SLOT_GAP
+		_draw_slot(Rect2(Vector2(x, origin_y), Vector2(slot_px, slot_px)), slot, font)
+		x += slot_px + SLOT_GAP * k
 
 
 ## Draw one hotbar slot: panel + border + key/name labels, then either the

@@ -44,7 +44,15 @@ const FRAME_VIEWPORT: Vector2 = Vector2(640.0, 360.0)
 ## Measured off `AbilityBar`'s own constants rather than eyeballed: BOTTOM_MARGIN 14 +
 ## SLOT_SIZE 46 + the label's 9 px lift. ⚠ `SLOT_SIZE` is a locked thumb-target
 ## (D-011) and may not shrink, so the camera is the side that yields.
-const HUD_RESERVE_BOTTOM: float = 69.0
+## ⚠ ASKED, NOT COPIED. This was a hardcoded 69.0 — a second copy of AbilityBar's own
+## arithmetic — and it went stale the moment the bar was rescaled for desktop. The bar
+## owns its height and publishes it; this is the fallback for a headless run where the
+## class is not reachable.
+const HUD_RESERVE_FALLBACK: float = 69.0
+
+
+func _hud_reserve() -> float:
+	return AbilityBar.occupied_height()
 ## ⚠ THIS IS ALSO THE TIGHTEST THE CAMERA EVER GOES. The pad is added to the FIGHTER
 ## bounding box, so when two bodies are on top of each other the framing is decided
 ## almost entirely by this number. Cutting it to buy a bigger arena would have bought
@@ -314,14 +322,15 @@ func _frame_group_update(delta: float) -> void:
 		if live.x > 1.0 and live.y > 1.0:
 			view = live
 	# HALF the frame is solved against a SHORTER rect — the part the HUD does not cover.
-	var usable_h: float = maxf(view.y - HUD_RESERVE_BOTTOM, 1.0)
+	var reserve: float = _hud_reserve()
+	var usable_h: float = maxf(view.y - reserve, 1.0)
 	var fit: float = minf(view.x / maxf(span.x, 1.0), usable_h / maxf(span.y, 1.0))
 	fit = clampf(fit, FRAME_ZOOM_MIN, ZOOM_MAX)
 	# ...and the OTHER half moves the camera down by half the reserve, so the group
 	# re-centres inside the visible band instead of the full frame. In world units,
 	# because `offset` is applied before zoom. Without this the picture merely shrinks
 	# and the fighters stay behind the bar.
-	var hud_shift: float = (HUD_RESERVE_BOTTOM * 0.5) / maxf(fit, 0.01)
+	var hud_shift: float = (reserve * 0.5) / maxf(fit, 0.01)
 	_frame_offset = _frame_offset.lerp(
 		centroid - hero_pos + Vector2(0.0, -hud_shift), ease)
 	# A LOWER zoom is a WIDER view, so "fit < base" means the group just grew and
