@@ -248,6 +248,32 @@ func _ready() -> void:
 	_load_climber()
 
 
+## ══ START THE CLIMB OVER ═══════════════════════════════════════════════════════
+## Maker: *"give me an option to reset the tower by speaking to one of the NPCs outside
+## of it"*.
+##
+## ⚠ THE CLIMB IS DELIBERATELY PERSISTENT AND THIS IS THE ONLY DOOR OUT OF THAT.
+## `enter_run` resumes from the saved floor and its own comment says "NEVER a blanket
+## reset to 1" — that is the whole Tower-of-God shape of the game, and a death costing
+## floors only means something if the floors are otherwise kept. So the reset is not a
+## setting, not a menu item and not a keypress: it is a thing you walk over to a person
+## and ask for, which is the friction the decision deserves.
+##
+## WHAT IT CLEARS: the floor you resume on, and the conquered flag.
+## WHAT IT KEEPS, AND WHY: `_highest_floor` and `_falls` are the town's MEMORY of you —
+## the Doorkeeper reads them back ("that is 4 falls now"), and a reset that wiped them
+## would erase the only record the town keeps. You are starting the climb again, not
+## becoming a stranger. Rank/level and the loadout are likewise untouched: this resets
+## the TOWER, which is what was asked for, not the character.
+func reset_climb() -> void:
+	_floor = 1
+	tower_conquered = false
+	# Rebuilt on the next `enter_run`, so a fresh climb is a fresh tower rather than
+	# the same rooms in the same order.
+	active_tower = null
+	_save_climber()
+
+
 func enter_run() -> void:
 	ringout_mode = false                  # a tower run is HP-death, never ring-out
 	if active_tower == null:

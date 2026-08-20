@@ -26,7 +26,15 @@ uniform vec3 shock = vec3(0.5, 0.5, 0.0);            // xy = ripple center (scre
 uniform float shock_amp = 0.0;                        // ripple strength (decays to 0)
 
 // --- Chromatic aberration ---
-uniform float aberration_base = 0.7;     // px at idle (lens whisper)
+// ⚠ 0.7 -> 0.15, AND THIS IS THE SHARPNESS FIX. Maker: *"make the graphics better and
+// sharper"*. This is the R/B split applied AT IDLE, i.e. on every frame of every scene
+// whether or not anything is happening — and a chromatic split is a RESAMPLE: the red
+// and blue channels are read from a different texel than the green. At 0.7 px that is
+// a permanent, uniform softening of the entire image, present in menus, in the town and
+// in a still frame. It is the single largest thing standing between this game and a
+// crisp picture, and it was buying an effect nobody can consciously see at rest.
+// The TRAUMA-driven split is untouched — a hit still smears the screen.
+uniform float aberration_base = 0.15;    // px at idle (barely-there lens whisper)
 // 4.5 -> 2.2: full-trauma R/B split drops 5.2 px to 2.9 px. Both this and the warp
 // below are pure functions of hit rate, so mid-fight they were pinned together.
 uniform float aberration_trauma = 2.2;   // extra px at full trauma
@@ -49,7 +57,11 @@ uniform float vignette_softness = 0.62;   // 0..1, lower = tighter dark ring
 uniform vec3 vignette_tint = vec3(0.015, 0.015, 0.04);
 
 // --- Grain ---
-uniform float grain = 0.025;
+// 0.025 -> 0.010. Grain is noise added per pixel, so it fights every hard edge in the
+// frame — and this game IS hard edges: a stick figure is a keyline. Kept non-zero
+// because a completely clean digital image reads as flat, but well under the level
+// where it costs definition.
+uniform float grain = 0.010;
 
 float hash(vec2 p) {
 	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);

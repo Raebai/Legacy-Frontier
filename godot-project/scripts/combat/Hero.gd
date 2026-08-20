@@ -4789,6 +4789,22 @@ func _primary_heavy_swing() -> void:
 	# the roster's slowest swinger does not quietly become its highest per-swing.
 	SwingArc.spawn(get_parent(), rig.get_weapon_tip(),
 		_aim_dir if _aim_dir != Vector2.ZERO else facing, _melee_range, _element_color)
+	# ⚠ AND THE TELL BELOW MUST NOT DRAW A SECOND CRESCENT. Maker: *"swordsaint is
+	# shooting two swords on its default attack, remove the slower one"*.
+	#
+	# It was not two attacks. `SwingArc` above throws one crescent AT the swing, and
+	# `_publish_swing_tell` draws another one BEFORE it — a blade class gets
+	# `Style.CRESCENT`, so the windup crescent leads and the swing crescent follows, and
+	# two curved blades travel out of the same arm a beat apart. The leading one is the
+	# "slower" one the maker is describing.
+	#
+	# ⚠ THE TELL ITSELF IS NOT REMOVED, ONLY ITS BLADE FIGURE. It joins the `telegraph`
+	# group, publishes `danger_shape` and `windup`, and is the ONLY thing that makes a
+	# committed two-handed swing dodgeable — `BotController.perceive_threats` reads that
+	# group and nothing else, so deleting the tell would make this class's heavy
+	# invisible to every bot in the game. It draws as a FIST mark instead: same line,
+	# same lead, same perception, one blade on screen.
+	_swing_tell_blade = false
 	# ⚠ AND THE TELL — this path never calls `_melee`, so it was missed by the clash
 	# declaration AND by the tell that goes with it. `SwingArc` above is explicitly NOT
 	# one: its own header says it is explanatory garnish, it joins no group, and it is
@@ -5742,6 +5758,11 @@ func _swing_tell_windup(state: int) -> float:
 
 
 ## Publish the swing as a danger the dodge layer can see and the eye can read.
+## Cleared for one tell by a path that has already drawn its own blade figure, then
+## re-armed here so it never leaks into the next swing.
+var _swing_tell_blade: bool = true
+
+
 func _publish_swing_tell(state: int = CharacterRig.State.PUNCH) -> void:
 	var aim: Vector2 = _aim_dir if _aim_dir != Vector2.ZERO else facing
 	if aim == Vector2.ZERO:
@@ -5774,10 +5795,14 @@ func _publish_swing_tell(state: int = CharacterRig.State.PUNCH) -> void:
 		"width": maxf(_melee_range * SWING_TELL_WIDTH, SWING_TELL_MIN_WIDTH),
 		"angle": aim.angle(),
 		"windup": _swing_tell_windup(state),
-		"style": Telegraph.Style.CRESCENT if blade else Telegraph.Style.FIST,
+		# `_swing_tell_blade` is cleared by any path that already threw its own crescent
+		# — see the heavy swing. One blade figure per swing.
+		"style": Telegraph.Style.CRESCENT if (blade and _swing_tell_blade)
+			else Telegraph.Style.FIST,
 		"aim": aim,
 		"reach": _melee_range,
 	})
+	_swing_tell_blade = true
 
 
 ## Does this class swing steel? Drives which strike figure its tell draws — a

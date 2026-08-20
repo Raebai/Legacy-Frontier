@@ -177,8 +177,51 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if _overlay_open():
 		return
+	# ⚠ ONE NPC CAN DO SOMETHING AS WELL AS SAY SOMETHING. Maker: *"give me an option
+	# to reset the tower by speaking to one of the NPCs outside of it"*. The DOORKEEPER
+	# is the one standing at the tower door, so it is the one that owns the door's
+	# question. Everyone else is unchanged and still just talks.
+	if _offers_reset() and _reset_armed:
+		_reset_armed = false
+		var gs: Node = get_node_or_null(^"/root/GameState")
+		if gs != null and gs.has_method("reset_climb"):
+			gs.call("reset_climb")
+			speech_bubble.say("Then it never happened. The tower is new again — "
+				+ "floor one, and the door is open.", LINE_HOLD)
+			Bark.voice_only(self, Gibberish.Mood.TALK)
+			get_viewport().set_input_as_handled()
+			return
+	if _offers_reset() and _wants_reset_prompt():
+		# ⚠ ASKED, NOT DONE. The climb is the game's persistent spine and throwing it
+		# away on a single keypress next to a body you were walking past is exactly the
+		# accident this confirm exists to prevent. A second press inside the window
+		# commits; walking away cancels it, because `_reset_armed` clears on exit.
+		_reset_armed = true
+		speech_bubble.say("Start the whole climb again? Everything you have earned "
+			+ "stays — only the tower forgets. Press again if you mean it.", LINE_HOLD)
+		Bark.voice_only(self, Gibberish.Mood.TALK)
+		get_viewport().set_input_as_handled()
+		return
 	speak()
 	get_viewport().set_input_as_handled()
+
+
+## Only the doorkeeper offers it — see the note in `_unhandled_input`.
+func _offers_reset() -> bool:
+	return data != null and String(data.npc_id) == "doorkeeper"
+
+
+## Offer the reset once the climb is actually somewhere worth resetting FROM. On floor
+## one there is nothing to undo and the prompt would just be noise on the first thing a
+## new player talks to.
+func _wants_reset_prompt() -> bool:
+	var gs: Node = get_node_or_null(^"/root/GameState")
+	if gs == null or not gs.has_method("current_floor"):
+		return false
+	return int(gs.call("current_floor")) > 1
+
+
+var _reset_armed: bool = false
 
 
 ## ⚠ THE TOWN CLOCKING YOUR CLIMB, AND IT IS THE WHOLE POINT OF THE TOWN.
@@ -257,6 +300,7 @@ func _on_body_entered(body: Node2D) -> void:
 func _on_body_exited(body: Node2D) -> void:
 	if body.is_in_group("player"):
 		_player_in_range = false
+		_reset_armed = false
 		hint_label.visible = false
 
 

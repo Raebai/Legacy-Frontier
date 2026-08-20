@@ -83,7 +83,7 @@ static func announce(parent: Node, who: Node2D, spell: SpellDef, tint: Color) ->
 		SpellTier.Tier.QUICK:
 			return null                       # deliberately silent — see the header
 		SpellTier.Tier.ULT:
-			return _ult_banner(parent, text, tint)
+				return _ult_banner(parent, text, tint)
 		_:
 			return _heavy_label(parent, who, text, tint)
 
@@ -251,16 +251,32 @@ func _draw_heavy(u: float) -> void:
 ## a bare word floating on a fight reads as a debug print.
 func _draw_ult(u: float) -> void:
 	var fade: float = 1.0 if u < 0.62 else clampf((1.0 - u) / 0.38, 0.0, 1.0)
-	# A short overshoot on the way in is what makes it land rather than appear.
+	# ⚠ THE OVERSHOOT WAS SLIDING THE TITLE SIDEWAYS, NOT SCALING IT — AND THAT IS THE
+	# "TWICE". Maker: *"all ult titles show twice please fix that and remove one of
+	# them"*.
+	#
+	# It is not announced twice: instrumenting a real bot fight prints exactly ONE
+	# `[cast] ULT` per cast, and `_ult_banner` frees any previous banner by group. The
+	# doubling is in this function. `pop` was multiplied into `half`, which is the LEFT
+	# OFFSET of a LEFT-ALIGNED string — so it never changed the letter size, it just
+	# started the whole word 22% of a half-width off-centre and slid it right over the
+	# first 0.14 of its life. A hard four-way outline sliding across itself at speed
+	# reads as a second copy of the title chasing the first.
+	#
+	# The pop is a real SCALE now, applied through the font size, and the string stays
+	# centred on the anchor for every frame of it.
 	var pop: float = 1.0 + 0.22 * maxf(1.0 - u / 0.14, 0.0)
+	var fsize: int = int(round(float(ULT_FONT) * pop))
 	var size: Vector2 = _font.get_string_size(_text, HORIZONTAL_ALIGNMENT_LEFT,
-		-1.0, ULT_FONT)
-	var half: float = size.x * 0.5 * pop
+		-1.0, fsize)
+	var half: float = size.x * 0.5
 	var at: Vector2 = Vector2(-half, 0.0)
-	for o: Vector2 in [Vector2(2, 0), Vector2(-2, 0), Vector2(0, 2), Vector2(0, -2)]:
-		draw_string(_font, at + o, _text, HORIZONTAL_ALIGNMENT_LEFT, -1.0,
-			ULT_FONT, Color(0.01, 0.01, 0.03, 0.9 * fade))
-	draw_string(_font, at, _text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, ULT_FONT,
+	# ⚠ AND THE OUTLINE IS ONE RING, NOT FOUR STAMPS. Four full copies of the string at
+	# +-2 px is four more chances to read as a duplicate the moment anything moves; a
+	# real outline is one draw with `draw_string_outline`, which follows the glyphs.
+	draw_string_outline(_font, at, _text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fsize,
+		3, Color(0.01, 0.01, 0.03, 0.9 * fade))
+	draw_string(_font, at, _text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fsize,
 		Color(_tint.r, _tint.g, _tint.b, fade))
 	# The rule, drawn from the centre outward so it opens WITH the word.
 	var rule: float = half * 1.16 * clampf(u / 0.18, 0.0, 1.0)
