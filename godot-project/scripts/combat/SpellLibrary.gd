@@ -2054,9 +2054,18 @@ static func _iai_slash() -> SpellDef:
 	s.effect = _effect_for_element(Elements.Element.ARCANE)
 	s.mp_cost = 44
 	s.cooldown = 5.0     # the whiff punishment, not a balance rounding
-	s.damage = 96
-	s.reach = 118.0      # the blade's length — emphatically not a beam
-	s.width = 52.0       # corridor width at its widest
+	## ⚠ 96 -> 128 AND 118 -> 168. Maker: *"iai slash should do more damage and go
+	## further"*. This is the Swordsaint's whole identity spell and it sits behind a
+	## 5-second whiff punishment — the cooldown comment below calls it exactly that —
+	## so a miss already costs the duelist five seconds with no damage. A committed
+	## draw-cut that is punished that hard for missing has to be worth landing.
+	##
+	## The reach stays a BLADE and not a beam: 168 px is still under the Juggernaut's
+	## boulder and nowhere near a projectile's travel, and the corridor widens with it
+	## so the shape stays a cut rather than becoming a thread nobody can aim.
+	s.damage = 128
+	s.reach = 168.0      # the blade's length — emphatically not a beam
+	s.width = 62.0       # corridor width at its widest
 	return s
 
 
