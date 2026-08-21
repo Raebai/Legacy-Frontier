@@ -240,9 +240,23 @@ func _draw_heavy(u: float) -> void:
 	var size: Vector2 = _font.get_string_size(_text, HORIZONTAL_ALIGNMENT_LEFT,
 		-1.0, HEAVY_FONT)
 	var at: Vector2 = Vector2(-size.x * 0.5, rise)
-	for o: Vector2 in [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1)]:
-		draw_string(_font, at + o, _text, HORIZONTAL_ALIGNMENT_LEFT, -1.0,
-			HEAVY_FONT, Color(0.02, 0.02, 0.04, 0.85 * fade))
+	# ⚠ ONE RING, NOT FOUR STAMPS — AND THIS IS THE OTHER HALF OF "IT SHOWS TWICE".
+	# Maker, after the ult rung was fixed: *"we are still seeing double headers for
+	# some of these spells"*. "Some" is the tell: the ULT banner was corrected to a
+	# single `draw_string_outline`, and this rung — every HEAVY spell, which is most of
+	# what a bot casts — was left stamping FOUR FULL COPIES of the string at +-1 px.
+	#
+	# Four copies of a word is four chances to read as a duplicate the moment anything
+	# moves, and this one moves on purpose: `rise` walks it up the screen for its whole
+	# life. It is also worse than the ult version was, not better, because of scale —
+	# the label is drawn at an 11 px font in a 640x360 logical viewport, and a clip is
+	# rendered at 1920x1080, so each 1 px offset lands about THREE screen pixels from
+	# the glyph it is supposed to be hugging.
+	#
+	# `draw_string_outline` is one draw that follows the glyph outlines, so there is
+	# exactly one word on screen at any size.
+	draw_string_outline(_font, at, _text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, HEAVY_FONT,
+		2, Color(0.02, 0.02, 0.04, 0.85 * fade))
 	draw_string(_font, at, _text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, HEAVY_FONT,
 		Color(_tint.r, _tint.g, _tint.b, fade))
 

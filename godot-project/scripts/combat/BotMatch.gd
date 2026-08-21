@@ -857,6 +857,43 @@ func _grant_showcase_drop(f: Node2D, side: int) -> void:
 		spell = SpellLibrary.drop_by_id(id)
 		if spell == null:
 			spell = pool[randi() % pool.size()]
+	# ⚠ AND IT HAS TO BE AFFORDABLE, OR THE SHOWCASE LOSES ITS ULTIMATE ALTOGETHER.
+	#
+	# `SpellGrant.TIER3_SLOT` IS `SpellTier.ULT_SLOT`, so the drop does not sit
+	# alongside the class ultimate — it REPLACES it. Measured across 14 clip takes and
+	# three headless bouts, slot 3 was then cast exactly ZERO times, while the same
+	# fighters with `drops` off cast their class ult 2-4 times a bout. So the feature
+	# meant to make a duel more spectacular reliably made it LESS: the bots lost an
+	# ultimate and never used what took its place.
+	#
+	# ⚠ IT IS NOT THE COOLDOWN, WHICH IS WHAT IT LOOKS LIKE. The drops carry 18-26 s
+	# against a class ult's 6.5-8.0, and with the ult multiplier that is ~52 s against
+	# a 10-25 s fight. But the slot is measurably READY on 4200 of 4200 frames, from
+	# frame 0 — a granted drop starts off cooldown, so a long timer cannot explain a
+	# spell that is never cast even once.
+	#
+	# IT IS THE MANA. The drops cost 80-95 out of a 100 pool; the class ults they
+	# replace cost 74-78; and the other three slots cost 34-62 and fire every few
+	# seconds. A bot running its rotation is essentially never near full, so 74 is
+	# reachable and 95 is not. There is no "bank your mana" rung in the brain, and a
+	# human would simply stop casting for a moment — which is the deeper fix and is
+	# NOT this one.
+	#
+	# The rule here needs no magic number, because the drop is standing in for a
+	# specific spell: IN A SHOWCASE IT COSTS WHAT THE ULT IT DISPLACED COST. That
+	# tracks any future rebalance of either side on its own, and it changes nothing
+	# for a player who finds the same drop on a floor — they can choose to bank.
+	#
+	# ⚠ DUPLICATED FIRST. `SpellDef` is a Resource and `SpellLibrary` hands out shared
+	# instances; writing `mp_cost` on the library's copy would follow the spell into the
+	# tower and onto the player's own bar.
+	var displaced: SpellDef = _current_ult_of(f)
+	if displaced != null and spell.mp_cost > displaced.mp_cost:
+		var cheaper: SpellDef = spell.duplicate() as SpellDef
+		cheaper.mp_cost = displaced.mp_cost
+		print("[botmatch] %s priced %d -> %d mp (the ult it replaces)"
+			% [spell.id, spell.mp_cost, displaced.mp_cost])
+		spell = cheaper
 	var nth: int = SpellGrant.apply(f, spell)
 	if nth < 0:
 		push_warning("[botmatch] side %d could not take '%s'" % [side, spell.id])
@@ -869,6 +906,19 @@ func _grant_showcase_drop(f: Node2D, side: int) -> void:
 	BotBrain.note_drop(f, nth, spell)
 	print("[botmatch] side %d carries %s in slot %d (%d charge(s))"
 		% [side, spell.id, nth, spell.charges])
+
+
+## The spell currently in this fighter's ult slot — i.e. the one a drop is about to
+## displace. Null when the body has no kit yet.
+func _current_ult_of(f: Node2D) -> SpellDef:
+	var sigs: Variant = f.get("_signatures")
+	if sigs == null:
+		return null
+	var arr: Array = sigs as Array
+	var nth: int = SpellTier.ULT_SLOT
+	if nth < 0 or nth >= arr.size():
+		return null
+	return arr[nth] as SpellDef
 
 
 ## Every `CharacterBars` under a fighter, off. Found by TYPE rather than by node name:
