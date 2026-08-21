@@ -1,168 +1,82 @@
-# RESUME HERE — 2026-08-20 (evening)
+# RESUME HERE — 2026-08-21
 
-**ASHPIRE.** Branch `bot-fight-quality`. **176/176 green.** Everything below is
-committed and **UNPLAYTESTED** — the maker watches **F5 → Lobby → Watch Bots**.
+**ASHPIRE.** Branch `bot-fight-quality`, **176/176 green**. The maker watches
+**F5 → Lobby → Watch Bots** and reviews the final clips before posting.
 
-## ▶ WHAT CHANGED THIS SESSION
+⚠ The canonical, always-current queue is the `project_v2_resume_queue` memory. This file
+is the same list with more room to explain it.
 
-Four of the five open asks are closed and MEASURED. One is deliberately not built.
+## ▶ OPEN — three things
 
-1. **The bot-fight camera no longer drifts off the fighters.** Three causes, all found
-   by measuring the DRAWN channel (`tools/probe_showcase_framing.gd`):
-   * follow lag — `position_smoothing_speed` was 4.0, putting the picture a measured
-     142 px (p95) behind its own answer. Swept 4/12/18/26 against a jerk column; **18**.
-   * the x clamp was the constant `340` (the half-width at ONE zoom) anchored to
-     `STAGE_SIZE`, whose centre is 280 px right of the fight floor's. Now zoom-aware,
-     solved per frame, in one helper both cameras share.
-   * a ringed-out body flying off the map still voted on focus and zoom — one measured
-     run had somebody off screen for **55% of the fight**.
+1. **RE-CUT THE FOUR OLD CLIPS.** `content/posts/` holds 9 mp4s; only
+   `juggernaut_vs_stormcaller` and `juggernaut_vs_swordsaint` are post-fix. Four older
+   gate-passing ones are worth saving — `stormcaller_vs_swordsaint`,
+   `arcanist_vs_shadowblade`, `swordsaint_vs_arcanist`, `stormcaller_vs_cryomancer` —
+   but they carry the "slash" voice bug, doubled spell names and the white title card.
+   The audio/title fixes are POST-PROCESSING: `make_post.py --no-shoot --a N --b M`
+   re-cuts one in about a minute. Only the shorter opening needs a real re-shoot.
 
-   Measured: mean off-centre 31.7 → 8.4–30.9 px, clamp bites 13.6% → 0.1%.
+2. **THE DESTRUCTIBLE MAP — paused, and the pause is still correct.** Spec
+   `docs/superpowers/specs/2026-08-19-destructible-map-design.md`. Slice 0 measured
+   (binding constraint: Juggernaut 97.1 px = 6 chunks). Slices 1-5 unbuilt. It adds
+   events to a fight the maker called *"too much going on"*, and it rewrites terrain
+   collision on the stage the clips are shot on.
 
-2. **The hotbar no longer covers fighters on the tower's ground floor.** The previous
-   fix had the **sign inverted** — it pushed fighters half a bar-height FURTHER under
-   the bar. Plus `Hero.tscn` carried hardcoded camera limits of `1200x680` (the box
-   `Arena.tscn` used to hardcode before `room_size` drove geometry), and Godot clamps
-   *position* then applies *offset*, while the framer expresses everything AS offset —
-   so the limits could never have worked. Limits off, room clamp moved into the
-   framer's own space, HUD lift **solved** rather than taxed. Measured across five
-   generated rooms: worst clearance **-80 px → +14.7 px**.
+3. **BOTS ONLY ULT IN ~40% OF BOUTS.** The drop is affordable now, but there is no
+   "bank your mana" rung in `BotBrain` — a human stops casting for a beat to afford an
+   ult and a bot never does. With `charges = 1` the ceiling is one per bout by design.
+   A feel change; wants its own pass.
 
-3. **SFX**: `cannon` was playing `holy_pillar` (a 1.5 s choral swell standing in for an
-   artillery shot). Now its own sound. Six burst-firing pools that held ONE sample
-   (`blink`, `gib`, `shadow_cast`, `ding`, `beam_start`, `beam_end`) got variants.
-   The other eleven shared files are generic ALIASES and are fine — left alone.
+Smaller: **"Ashpire" vs "Ashspire"** ship one letter apart (game vs tower). Maker's call
+which wins; `Ashspire` is a proper noun in 50+ files including test assertions.
 
-4. **The game has a name and a mark.** `ASHPIRE` (ash + spire + aspire). `GameLogo` is
-   drawn from the same primitives `MagicCircle` casts with, so the Lobby title, the app
-   icon and the social avatar are one object. `config/icon` set (never was), and a
-   `config/description` that still described the v0.0 AI-NPC game replaced.
+## ▶ WHAT WAS FIXED 2026-08-20/21
 
-5. **`docs/content-pipeline.md`** written — `publish_clip.py` has cited it since it was
-   written and it never existed.
+**The clips.** The announcer said "A, *slash*, versus, B" in all 72 lines (the TTS read a
+"/" aloud) and had a stray word before "who will win". The line talked over the fight —
+`intro_hold` came only from `--vo`, which is never passed, AND the intro was timed on the
+wall clock, which is ~20x wrong inside a render. The picture juddered from an 8:5 frame
+decimation. The quality gate rejected every take because `FightScore.seconds` was also on
+the wall clock (a 14.2 s fight scored 314.7 s). A missing verdict — a fight that never
+ended — was treated as "keep this take". The white title card duplicated the game's own
+VS card. All fixed; the bell now follows the NAMES and "who will win?" lands over the
+opening exchange.
 
-## ▶ THE ONE ASK NOT BUILT, AND WHY
+**The game.** There were TWO spell-name announcers (`SignatureRite` at windup in the
+spell's colour, `CastName` at release in the caster's class colour) — that is the
+brown/greenish double on Gravity Flip. `CastName.gd` is deleted and `SignatureRite` owns
+it, tiered: ULT gets the full-width card, everything else a small name above the caster.
+`EnemyProjectile` measured to the ORIGIN against a flat 16 px radius while the head sits
+~22 px up, so head shots registered nothing — in the TOWER. The showcase tier-3 drop cost
+80-95 MP of a 100 pool and was never cast.
 
-**The destructible map (spec `2026-08-19-destructible-map-design.md`) is still paused.**
-Its own status block says it was paused because *"there is like too much going on all
-the time"* — it ADDS events to a fight the maker had just called too busy, and that
-density complaint has not been playtested as resolved. Building slices 1–5 now would
-also rewrite terrain collision on the versus stage **the content clips are shot on**,
-days before shooting them.
+## ⚠ TRAPS — the expensive ones
 
-Slice 0 remains DONE and measured: flat-gap reach is a RANGE, and the binding constraint
-is the **Juggernaut at 97.1 px = 6 chunks**, not 7.5.
-
-**Resume it after the maker confirms the calm-down pass reads right in play.**
-
-## ▶ CLIPS — THE STATE, HONESTLY
-
-* The pipeline works end to end. `make_post.py` produces `<a>_vs_<b>.mp4` and
-  `<a>_vs_<b>.nomusic.mp4` in `content/posts/`.
-* ⚠ **A SHOOT TAKES ~25 MINUTES PER TAKE.** Measured: ~1 rendered frame per second of
-  wall time at 1920x1080, and a 20 s clip is 1200+ frames. `--takes 2` doubles it.
-  Budget hours, not minutes, for a batch of five.
-* ⚠ **The `[fight]` verdict still needs watching.** It has to survive Godot stdout →
-  `make_clip` → `make_post` and has been swallowed at each layer at least once. If the
-  log says *"(no fight verdict reported; keeping this take)"*, `--takes` is an expensive
-  way to shoot once.
-* Upload path: Upload-Post free tier is **10 uploads/month, no card, no expiry** — a
-  batch of five costs nothing. See `docs/content-pipeline.md`. Upload the **`.nomusic`**
-  file and attach the trending sound in-app; that is what puts the post on the sound's
-  page, which is the reach.
-
-## ▶ THE GATE'S DATA IS A ROSTER-BALANCE SIGNAL, AND IT IS FREE
-
-Eleven scored takes across two batches, and **`leadchg` is the only discriminator**:
-
-| matchup | takes | lead changes | verdict |
-|---|---|---|---|
-| Juggernaut v Stormcaller | 1 | 4 | PASS 74.7 |
-| Stormcaller v Swordsaint | 1 | 4 | PASS 69.4 |
-| Arcanist v Shadowblade | 1 | 3 | PASS 63.6 |
-| Cryomancer v Brawler | 4 | **0, 0, 0, —** | REJECT 40.6 / 39.3 / 35.5 |
-| Shadowblade v Juggernaut | 3 | **0, 0, …** | REJECT 49.7 / 34.4 |
-| Warlock v Cleric | 1 | — | never resolved |
-
-Every PASS had **3+ lead changes**; every REJECT had **zero**. Two matchups produced no
-lead change across seven takes — the winner took the lead early and simply kept it. That
-is not a capture problem, it is the roster, and it is the same open question as the
-Stormcaller 16-0 note in [[project_v2_bot_fight_quality_todo]]. `FightScore` is now
-generating this data for free on every shoot; it is worth reading as balance telemetry
-rather than only as a keep/re-roll switch.
-
-## ▶ ⚠ THE BIGGEST LEAD, LOCALISED: THE BOTS NEVER CAST THEIR TIER 3 DROP
-
-`ults 0` on **every clip take** — 14 of them. Chased it to a root cause, and the finding
-is worse than a scoring nit.
-
-`SpellGrant.TIER3_SLOT` **is** `SpellTier.ULT_SLOT`. So the showcase tier-3 drop
-(*"the bots should have the cool spells when 1 vs 1"*) does not sit alongside the ult —
-it **displaces** it. And measurably, the drop then almost never fires:
-
-```
-botmatch_sim --hp=500 --round=22 --drops=0    spells 8   ults 2-4   scores to 82.9
-botmatch_sim --hp=500 --round=22 --drops=1    spells 6   ults 0     scores 28-76
-```
-
-`--drops=1` IS the shipped showcase config, and it reproduces the clip numbers exactly
-(`spells 6`, `ults 0`). Four distinct spells per bot become three: the fourth slot — now
-the drop — is simply never cast. So a showcase bout is **strictly less spectacular than
-before the drop feature existed**: the bots lost their ultimate and did not use what
-replaced it. That is a large part of "boring".
-
-⚠ AND IT DOUBLE-COUNTS AGAINST THE CLIP. `FightScore` adds a "no ultimate landed"
-penalty to every single showcase bout — scoring the absence of something the mode
-deliberately removed — which uniformly depresses every score and makes the gate reject
-fights that were fine.
-
-Two things to settle, and both are FEEL calls so they are the maker's:
-1. Why the brain never scores the drop (charge-limited spell? the ult rung testing
-   `Tier.ULT` while a drop is `Kind.CATACLYSM`?). Start at `BotBrain.score_slots` and
-   the `DESPERATE_ULT_*` block.
-2. Whether a cataclysm cast should count as the "big moment" in `FightScore` — it
-   occupies the ult slot and IS the showpiece.
-
-⚠ AND THE HARNESS NEARLY LIED AGAIN. `botmatch_sim` defaults `--drops=0`, so the first
-comparison was against a configuration that DOES NOT SHIP, and it looked like ults were
-simply broken. Always pass `--drops=1` when reasoning about clips.
-
-
-## ⚠ TRAPS PAID FOR THIS SESSION
-
-* **`Camera2D.global_position` IS THE TARGET, NOT THE PICTURE.** With smoothing on, the
-  drawn centre is `get_screen_center_position()`. A probe reading the target reported a
-  camera that tracked perfectly while the picture lagged 142 px behind.
-* **HEADLESS HAS NO WINDOW, SO IT HAS NO ASPECT.** `DisplayServer.window_get_size()` is
-  `(0,0)` and the stretch solve falls back to a **square 640x640** viewport. Every probe
-  reading `get_visible_rect()` was silently solving for a frame 280 px taller than the
-  real one. Fix: `root.size = Vector2i(1366, 768)`, then the logical viewport is 640x360.
-* **A STALE NODE LIST IS A SILENT CONFOUND.** `Encounter` trickles waves in *during* a
-  probe, so foes captured once stand at their own spawn points and set the real bounding
-  box. This made one reading move 65 px between runs and looked exactly like a real
-  effect. Re-collect every frame.
-* **Godot clamps camera POSITION and applies OFFSET afterwards.** Any framer that works
-  through `offset` is in a different coordinate space from the limits, and they fight.
-* **Two `--import` passes** are needed after adding audio: the first parses `Sfx.gd`
-  before the new WAVs are scanned and reports "no resource loaders".
-* **A blank PNG saves successfully.** `save_png` returning OK says a file was written,
-  not that anything is in it — a null renderer produces perfectly successful empty
-  exports. `render_logo.gd` samples for non-zero alpha rather than trusting the return.
-
-## ▶ OPEN, SMALL
-
-* **"Ashpire" vs "Ashspire"** ship on the same screen, one letter apart — the game is
-  ASHPIRE, the tower is "The Ashspire". A real collision, but which one wins is the
-  maker's call and `Ashspire` is a proper noun in 50+ files including test assertions.
-  Flagged, not silently rewritten.
-* A stray `Godot_v4.6.2-stable_win64.exe` (PID from a killed shoot) resisted `taskkill`.
-  Harmless, but kill it before a big batch so it is not eating a core.
+* **`BotMatch` ALWAYS sets `showcase_directed = true`**, so the bot fight and every clip
+  are framed by `ClipDirector`, and `VersusArena._update_showcase_camera` returns early.
+  A probe instantiating `VersusArena` directly measures a path nobody watches — that is
+  how a camera fix landed on the wrong renderer for a whole day.
+* **`Camera2D.global_position` is the TARGET**, not the picture
+  (`get_screen_center_position()`).
+* **Headless has no window, so it has no aspect** — `get_visible_rect()` falls back to a
+  SQUARE 640x640. Set `root.size = Vector2i(1366, 768)` and wait a frame.
+* **`Time.get_ticks_msec()` is ~20x wrong inside `--write-movie`.** Count frames.
+* **Judder is invisible to a timestamp check.** The file is perfect CFR; the frames are
+  evenly spaced while the moments they sample are not. Measure frame-to-frame MOTION.
+* **`spell_cast` emits at RELEASE, the gesture plays during the WINDUP.** Sampling the
+  rig on the signal reports "no gesture" for every short-windup spell.
+* **A clip shoot REWRITES project.godot.** `git add -A` during one commits 1920x1080 as
+  the real window size — done three times now. Run
+  `python python-tools/check_window_override.py` before any push.
+* **A guard that exempts what it cannot explain is not a guard** — `vo_bank --check`
+  was written to expect the stray word.
+* **A shoot costs ~25 minutes per take.**
 
 ## HOW TO VERIFY
 ```
-python python-tools/run_all_tests.py --jobs 3        # 176 suites, ~176s
-godot --headless --path godot-project --script tools/probe_showcase_framing.gd -- 6 8
-godot --headless --path godot-project --script tools/probe_hud_occlusion.gd
+python python-tools/run_all_tests.py --jobs 3          # 176 suites, ~165s
+python python-tools/vo_bank.py --check                 # every VO part says one phrase
+python python-tools/check_window_override.py           # 1366x768 committed
+godot --headless --path godot-project --script tools/probe_cast_visuals.gd
+godot --headless --path godot-project --script tools/probe_directed_framing.gd -- 3 6
 ```
-⚠ `slice_test_sandbox` NO-RESULTs occasionally from MCP port contention. Re-run it alone
-before believing it.
