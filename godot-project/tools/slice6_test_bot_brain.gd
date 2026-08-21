@@ -27,6 +27,7 @@ const TESTS: Array[String] = [
 	"dodges_planted_telegraph",
 	"never_dodges_into_a_pit",
 	"aim_error_present_and_bounded",
+	"tier3_drop_is_wanted",
 	"uses_the_whole_kit",
 	"combo_setup_and_cash_in",
 	"guard_lockout",
@@ -57,6 +58,7 @@ func _process(_delta: float) -> bool:
 	_test_dodges_planted_telegraph()
 	_test_never_dodges_into_a_pit()
 	_test_aim_error()
+	_test_tier3_drop_is_wanted()
 	_test_uses_the_whole_kit()
 	_test_combo()
 	_test_guard_lockout()
@@ -555,6 +557,57 @@ func _test_difficulty_dial() -> void:
 
 
 # =========================================================================
+
+## A TIER-3 DROP IN THE ULT SLOT IS STILL WANTED.
+##
+## ⚠ THIS IS A REGRESSION TEST FOR A SILENT ZERO. `SpellGrant.TIER3_SLOT` IS
+## `SpellTier.ULT_SLOT`, so a showcase drop DISPLACES the ult rather than joining it,
+## and `BotBrain._facts_of` labels a drop's role `"drop"`. `score_slots` builds its
+## situational weight with `match String(f.get("role", ""))` over the five authored
+## role names — and `"drop"` matched none of them, so `role` kept its initial 0.0 and
+## the whole slot scored `0.0 * range_fit * safety`. Every hard gate said YES and the
+## slot still could not be pressed unless a combo bonus happened to carry it alone.
+##
+## Measured on the shipped showcase config before the fix: 8 bouts, 482 looks at the
+## slot, 9 of them (2%) scoring above zero, and an ultimate landing in 1 bout of 8.
+##
+## THE FIXTURE IS THE ASSERTION. The drop installed here is the class's OWN ult
+## SpellDef — same range, same cast time, same kind, same everything — so the only
+## thing that differs between the two scores below is the ROLE STRING. If a label
+## ever costs a spell its score again, this fails and says so.
+func _test_tier3_drop_is_wanted() -> void:
+	var prof: Dictionary = BotProfile.of(BotProfile.Tier.HARD)
+	var kit: Array = SpellLibrary.build_for_class(BRAWLER)
+	if kit.size() <= SpellTier.ULT_SLOT:
+		_expect(false, "the Brawler kit has no ult slot to displace")
+		return
+	var real_ult: SpellDef = kit[SpellTier.ULT_SLOT] as SpellDef
+	# The board the ult is MEANT to be wanted on — a nearly-dead foe committing —
+	# so a zero is unambiguous rather than "it just was not the moment".
+	var board: Dictionary = {"foe_hp_frac": 0.10, "foe_vel": Vector2(-320.0, 0.0)}
+	var as_kit: Array = BotBrain.score_slots(_bb(board), prof, _mem(), 0.0, 0.0, 99.0)
+
+	# Same spell, same board, now carried as a DROP on a real body id.
+	var body: RefCounted = RefCounted.new()
+	BotBrain.note_drop(body, SpellTier.ULT_SLOT, real_ult)
+	var drop_bb: Dictionary = _bb(board)
+	drop_bb["self_id"] = body.get_instance_id()
+	var as_drop: Array = BotBrain.score_slots(drop_bb, prof, _mem(), 0.0, 0.0, 99.0)
+	BotBrain.forget_drops(body)
+
+	var kit_score: float = float(as_kit[SpellTier.ULT_SLOT])
+	var drop_score: float = float(as_drop[SpellTier.ULT_SLOT])
+	_expect(kit_score > 0.0,
+		"the fixture is sound: the kit ult scores above zero on a finisher board")
+	_expect(drop_score > 0.0,
+		"a tier-3 drop in the ult slot scores above ZERO (got %.3f) — if this is 0.0 "
+		% drop_score + "its role string matched no arm in score_slots and the "
+		+ "showpiece can never be cast")
+	_expect(is_equal_approx(drop_score, kit_score),
+		"the SAME spell scores the same whether it arrived in the kit (%.3f) or as a "
+		% kit_score + "drop (%.3f) — only the role label differs" % drop_score)
+	_completed["tier3_drop_is_wanted"] = true
+
 
 func _expect(cond: bool, what: String) -> void:
 	if not cond:

@@ -567,12 +567,46 @@ static var channel_chances: int = 0
 static var channel_refusals: int = 0
 static var ult_channel_refusals: int = 0
 
+## ── ULT-SLOT TELEMETRY ──────────────────────────────────────────────────────
+## The channel counters above answered ONE suspect and cleared it: measured over a
+## real 8-bout sim, the safety gate refused 0 of 419 channelled casts and 0 ults. But
+## the ult slot still only fires in a minority of bouts (`spells 6` — three spells per
+## bot, not four — in 7 of those 8), so the reason is one of the OTHER gates, and
+## there was no way to tell which without guessing.
+##
+## So every refusal of the ult slot is counted by REASON, on the same terms as the
+## channel counters: process-wide, monotonic, and free (a handful of integer
+## increments on a path that is already branching). `ult_considered` is the
+## denominator — every time the scorer looked at the ult slot at all — so each
+## reason is readable as a share rather than as a bare count.
+##
+## ⚠ THE COUNTERS ARE NOT A DIAGNOSIS. They say which gate said no, not whether it
+## was right to. `ult_scored` (it passed every gate and got a real score) minus the
+## casts that actually happened is the "it was affordable and the bot still chose
+## something else" number, which is a FEEL question, not a bug.
+static var ult_considered: int = 0
+static var ult_gate_cooldown: int = 0
+static var ult_gate_absent: int = 0
+static var ult_gate_mana: int = 0
+static var ult_gate_range: int = 0
+static var ult_scored: int = 0
+## Decision beats where the ult had the highest score of any slot but still lost —
+## to the cast threshold, i.e. "the best idea available was not a good enough idea".
+static var ult_best_but_under_threshold: int = 0
+
 
 ## For a harness measuring one run at a time.
 static func reset_channel_stats() -> void:
 	channel_chances = 0
 	channel_refusals = 0
 	ult_channel_refusals = 0
+	ult_considered = 0
+	ult_gate_cooldown = 0
+	ult_gate_absent = 0
+	ult_gate_mana = 0
+	ult_gate_range = 0
+	ult_scored = 0
+	ult_best_but_under_threshold = 0
 
 ## Below this share of health a bot may decide it is out of better ideas.
 const DESPERATE_HP: float = 0.34
@@ -1944,6 +1978,10 @@ static func _pick_slot(bb: Dictionary, profile: Dictionary, m: Memory, now: floa
 
 	var scores: Array = score_slots(bb, profile, m, now, pressure, soonest)
 	var best: int = -1
+	# Kept alongside `best_score`, which starts AT the threshold and so cannot report
+	# what the hand actually offered when nothing cleared it.
+	var top_any: float = 0.0
+	var ult_final: float = 0.0
 	# A stalled fight forgives part of the threshold: the bot starts spending
 	# cooldowns it was holding for a better moment that is demonstrably not coming.
 	var best_score: float = CAST_THRESHOLD * lerpf(1.0, 1.0 - STAGNATION_THRESHOLD_CUT,
@@ -1961,9 +1999,20 @@ static func _pick_slot(bb: Dictionary, profile: Dictionary, m: Memory, now: floa
 		# talked out of one it could.
 		if desperate and i == SpellTier.ULT_SLOT:
 			s *= DESPERATE_ULT_BONUS
+		if i == SpellTier.ULT_SLOT:
+			ult_final = s
+		if s > top_any:
+			top_any = s
 		if s > best_score:
 			best_score = s
 			best = i
+	# The last question the counters cannot answer from inside `score_slots`: the ult
+	# passed every gate, scored highest of anything on the hand, and STILL was not
+	# pressed — because the whole hand was under the cast threshold. That is a
+	# different complaint from "a gate refused it" and wants a different fix, so it is
+	# counted apart rather than folded into the gate tally.
+	if best < 0 and ult_final > 0.0 and ult_final >= top_any:
+		ult_best_but_under_threshold += 1
 	return best
 
 
@@ -2093,10 +2142,20 @@ static func score_slots(bb: Dictionary, profile: Dictionary, m: Memory, now: flo
 	for i: int in range(SLOT_COUNT):
 		out.append(0.0)
 	for i: int in range(SLOT_COUNT):
+		# The ult is the one slot whose refusals are counted by reason — see the
+		# ULT-SLOT TELEMETRY block. `is_ult` is hoisted so each gate below stays a
+		# single branch rather than growing an index test of its own.
+		var is_ult: bool = i == SpellTier.ULT_SLOT
+		if is_ult:
+			ult_considered += 1
 		# --- hard gates. Any one of these makes the slot unavailable, full stop.
 		if i < cooldowns.size() and float(cooldowns[i]) > 0.0:
+			if is_ult:
+				ult_gate_cooldown += 1
 			continue
 		if i >= cooldowns.size():
+			if is_ult:
+				ult_gate_absent += 1
 			continue
 		# ⚠ DOES THIS SLOT EXIST ON THIS BODY RIGHT NOW? `cooldowns` reports 0.0 for
 		# a slot the class does not hold, which reads as READY, so a hand that came up
@@ -2107,15 +2166,21 @@ static func score_slots(bb: Dictionary, profile: Dictionary, m: Memory, now: flo
 		# cooldown array, so a minimal blackboard still works.
 		var affordable: Array = bb.get("slot_affordable", [])
 		if i < affordable.size() and not bool(affordable[i]):
+			if is_ult:
+				ult_gate_absent += 1
 			continue
 		var f: Dictionary = facts[i] if i < facts.size() else _default_facts(i)
 		# The mana gate is VESTIGIAL — `Hero._cast_signature` no longer spends or
 		# checks mana — but it is kept as a cheap guard for any future body that does,
 		# and it costs nothing while `self_mp_frac` sits at 1.0.
 		if mp * 100.0 < float(f["mp_cost"]):
+			if is_ult:
+				ult_gate_mana += 1
 			continue
 		var range_fit: float = _range_fit(dist, float(f["range"]), bool(f["close_ok"]))
 		if range_fit <= 0.0:
+			if is_ult:
+				ult_gate_range += 1
 			continue
 		# THE CHANNEL GATE, and the reason it is a gate rather than a weight. A
 		# levitating channel is interrupted by ANY landed hit, so starting one with
@@ -2193,12 +2258,36 @@ static func score_slots(bb: Dictionary, profile: Dictionary, m: Memory, now: flo
 				# The biggest non-ult hit, and the one you set up for: worth spending
 				# only when the foe is committed and I am not the one under pressure.
 				role = 0.55 * clampf(0.30 + 0.45 * closing + 0.20 * (1.0 - pressure), 0.0, 1.0)
-			"ult":
+			"ult", "drop":
 				# WILL IT LAND? A finisher against a hurt foe, a punish against a
 				# closing one, and worth much less thrown at a healthy foe who is
 				# keeping their distance. This is what stops the ult being dumped into
 				# an empty arena the instant it comes off cooldown — and what makes it
 				# beat everything else in the kit when the kill is actually there.
+				#
+				# ⚠ "drop" SHARES THIS ARM, AND THAT IS A BUG FIX, NOT A TUNING CHOICE.
+				# `_facts_of` reports a tier-3 drop's role as "drop" and its comment
+				# says the drop is "scored on its tier and its range rather than on a
+				# role it was never authored for". No such scoring was ever written.
+				# `role` is initialised to 0.0 and every arm here is a role string, so
+				# "drop" fell through, `score` came out `0.0 * range_fit * safety` —
+				# exactly zero — and the slot could only ever be pressed when a combo
+				# bonus happened to lift it over the threshold on its own.
+				#
+				# MEASURED, on the shipped showcase config (`botmatch_sim --drops=1`),
+				# over 8 bouts and 482 looks at the slot: mana refused 0, the channel
+				# gate refused 0, the slot was never absent, and only 9 looks (2%)
+				# scored above zero at all. The same run with `--drops=0` — the slot
+				# holding the class's real ult, so the only difference is the role
+				# string — scored 54 of the 78 looks that got past cooldown, 69%.
+				# A 29x gap with one cause.
+				#
+				# It shares the ULT's arm rather than getting a hotter one of its own
+				# because the drop DISPLACES the ult (`SpellGrant.TIER3_SLOT` IS
+				# `SpellTier.ULT_SLOT`), so "wanted about as much as the thing it
+				# replaced" is the honest default and it restores the pre-drop
+				# behaviour exactly. How much MORE a showpiece should be wanted than
+				# the ult it displaced is a feel call, and it is this line to change.
 				var finisher: float = clampf(1.15 - foe_hp, 0.0, 1.0)
 				role = 0.95 * clampf(0.15 + 0.55 * finisher + 0.35 * closing, 0.0, 1.0)
 		var score: float = role * range_fit * safety
@@ -2215,6 +2304,8 @@ static func score_slots(bb: Dictionary, profile: Dictionary, m: Memory, now: flo
 		score += _combo_bonus(bb, m, now, i, f, facts, cooldowns, mp) * combo_w
 		score -= _combo_penalty(bb, me, foe, f)
 		out[i] = maxf(score, 0.0)
+		if is_ult and out[i] > 0.0:
+			ult_scored += 1
 	return out
 
 

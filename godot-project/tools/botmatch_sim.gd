@@ -234,6 +234,24 @@ func _report() -> void:
 			% [BotBrain.channel_refusals, BotBrain.channel_chances,
 				100.0 * float(BotBrain.channel_refusals) / float(BotBrain.channel_chances),
 				BotBrain.ult_channel_refusals])
+	# ⚠ AND THE CHANNEL GATE TURNED OUT TO BE INNOCENT. Over a real 8-bout run it
+	# refused 0 of 419 casts and 0 ults, while the ult slot still fired in 1 bout of 8.
+	# So the same question is now asked of EVERY gate, by reason, and printed here
+	# because this harness is the only place with real bodies to ask it of.
+	if BotBrain.ult_considered > 0:
+		var looks: float = float(BotBrain.ult_considered)
+		print("  ult slot: %d looks -> cooldown %d (%.0f%%)  absent %d (%.0f%%)  "
+			% [BotBrain.ult_considered,
+				BotBrain.ult_gate_cooldown, 100.0 * float(BotBrain.ult_gate_cooldown) / looks,
+				BotBrain.ult_gate_absent, 100.0 * float(BotBrain.ult_gate_absent) / looks]
+			+ "mana %d  range %d (%.0f%%)  channel %d  scored %d (%.0f%%)"
+			% [BotBrain.ult_gate_mana,
+				BotBrain.ult_gate_range, 100.0 * float(BotBrain.ult_gate_range) / looks,
+				BotBrain.ult_channel_refusals,
+				BotBrain.ult_scored, 100.0 * float(BotBrain.ult_scored) / looks])
+		print("    of the beats where nothing was pressed, the ult was the best idea "
+			+ "on the hand %d time(s) and still under the threshold"
+			% BotBrain.ult_best_but_under_threshold)
 	print("  win record:")
 	for who: String in played:
 		print("    %-12s %d/%d" % [who, int(wins.get(who, 0)), int(played[who])])

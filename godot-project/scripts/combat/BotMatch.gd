@@ -879,6 +879,14 @@ func _grant_showcase_drop(f: Node2D, side: int) -> void:
 	# human would simply stop casting for a moment — which is the deeper fix and is
 	# NOT this one.
 	#
+	# ⚠ AND THE "DEEPER FIX" ABOVE WAS A WRONG LEAD — recorded rather than deleted,
+	# because it was carried into a handoff as the next thing to build. With this
+	# pricing in place the mana gate refuses the ult slot in 0 of 482 looks over a real
+	# 8-bout run (`BotBrain.ult_gate_mana`), so a banking rung would have bought
+	# nothing. What was actually holding the showpiece back was the ROLE STRING: a drop
+	# reports role `"drop"`, which matched no arm in `BotBrain.score_slots`, so it
+	# scored a flat zero no matter how affordable it was. See the "drop" arm there.
+	#
 	# The rule here needs no magic number, because the drop is standing in for a
 	# specific spell: IN A SHOWCASE IT COSTS WHAT THE ULT IT DISPLACED COST. That
 	# tracks any future rebalance of either side on its own, and it changes nothing
