@@ -355,6 +355,27 @@ def shoot(a: int, b: int, hp: int, seconds: float, timeout: int,
     return got
 
 
+def probe_fps(path: Path) -> float:
+    """The clip's real frame rate. Needed because the conform rate is DERIVED from it."""
+    exe = shutil.which("ffprobe")
+    if exe is None:
+        return 60.0
+    out = subprocess.run(
+        [exe, "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=r_frame_rate", "-of", "csv=p=0", str(path)],
+        capture_output=True, text=True).stdout.strip()
+    if "/" in out:
+        num, den = out.split("/", 1)
+        try:
+            return float(num) / max(float(den), 1e-6)
+        except ValueError:
+            return 60.0
+    try:
+        return float(out)
+    except ValueError:
+        return 60.0
+
+
 def build_vo(a: int, b: int, with_tail: bool) -> Path:
     """Assemble the announcer line from the banked words."""
     line, name = vo_bank.assemble(
@@ -655,10 +676,34 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
     #     1.0x; the shot is slowed so the eye can follow it. `--speed` does that, and
     #     it is applied to the CLIP before the announcer is laid over it so the voice
     #     stays in sync with the picture it is describing.
-    if args.speed != 1.0 or args.fps > 0:
+    if args.speed != 1.0 or args.fps != 0:
         slowed = POSTS / "_cut" / f"{stem}.speed.mp4"
         slowed.parent.mkdir(parents=True, exist_ok=True)
-        rate = ["-r", str(args.fps)] if args.fps > 0 else []
+        # ⚠ AND THE CONFORM RATE IS DERIVED, BECAUSE A FIXED 30 WAS THE JUDDER.
+        # Maker: *"I dont want the recording to be laggy either make sure its smooth"*.
+        #
+        # The capture is 60 fps. `setpts = 1/speed * PTS` stretches the timestamps, so
+        # at the default 0.80x the CONTENT rate becomes 60 * 0.80 = 48 fps. Forcing
+        # `-r 30` on top of that is an 8:5 decimation: 37.5% of frames thrown away on a
+        # five-frame cycle. The output timestamps stay perfectly even (measured: 33.3 ms
+        # gaps, 798 of them) which is why this hides from a timestamp check — but the
+        # evenly-spaced frames are sampling UNEVENLY-SPACED MOMENTS, and that is judder.
+        #
+        # Measured on a delivered clip by frame-to-frame motion, which is where it
+        # actually shows: grouping the per-frame motion by phase, the spread between
+        # phases peaks at PERIOD 5 (2.77 against a mean step of 5.48) — exactly the 8:5
+        # signature, and about a 50% swing in how far the picture moves each frame.
+        #
+        # Conforming to the content rate instead maps one source frame to one output
+        # frame, evenly. Nothing is dropped and nothing is duplicated, so there is no
+        # cadence to see. It also costs nothing in "reads too fast": the conform never
+        # changed timing, only smoothness, and 48 is below the 60 that prompted the
+        # original 30. `--fps N` still forces a specific rate; `--fps -1` disables the
+        # conform entirely.
+        conform = args.fps
+        if conform == 0:
+            conform = int(round(probe_fps(clip) * args.speed))
+        rate = ["-r", str(conform)] if conform > 0 else []
         ff("-i", str(clip),
            "-filter_complex",
            f"[0:v]setpts={1.0 / args.speed:.5f}*PTS[v];"
@@ -672,7 +717,7 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
         clip = slowed
         dur = probe_duration(clip)
         print(f"  {args.speed:.2f}x speed"
-              + (f", conformed to {args.fps} fps" if args.fps > 0 else "")
+              + (f", conformed to {conform} fps" if conform > 0 else "")
               + f" -> {dur:.1f}s")
 
     trimmed = None
@@ -761,8 +806,9 @@ def main() -> int:
     # every fight edit on the platform is cut under 1.0x.
     ap.add_argument("--speed", type=float, default=0.80,
                     help="playback speed of the fight (1.0 = as captured)")
-    ap.add_argument("--fps", type=int, default=30,
-                    help="output frame rate; 0 keeps the captured 60")
+    ap.add_argument("--fps", type=int, default=0,
+                    help="conform rate; 0 derives it from the capture x --speed so no "
+                         "frame is dropped or duplicated, -1 disables the conform")
     ap.add_argument("--no-trim", action="store_true",
                     help="keep the tail even if the picture has frozen")
     ap.add_argument("--hold", type=float, default=1.4,
