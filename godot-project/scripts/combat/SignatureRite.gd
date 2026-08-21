@@ -193,8 +193,20 @@ static func beat_at(windup: float, elapsed: float) -> int:
 ## a suppression clock — one player ulting must not silence the other's card.
 static func should_declare(tier: int, spell_id: String, last_declared: Dictionary,
 		now: float, card_live_now: bool) -> bool:
-	if tier == SpellTier.Tier.QUICK:
-		return false
+	# ⚠ EVERY SPELL NAMES ITSELF NOW. Maker: *"all of these spells need titles and
+	# stuff within the game like normal like showing next to the character or in big
+	# depending on the spell ... otherwise its confusing for the players"*.
+	#
+	# The three rules below were written for ONE presentation — a full-width card — and
+	# every one of them is a reason to show NOTHING: QUICK was silent by design, a live
+	# card silenced everybody else, and a repeat inside the window silenced you. Three
+	# ways for a cast to arrive unlabelled is exactly the confusion being reported.
+	#
+	# They still apply to the BIG card, which genuinely cannot overlap another. The
+	# small near-the-caster label has no such problem: it is per-caster and tracks the
+	# body, so two of them are two fighters, which is legible rather than a collision.
+	if tier != SpellTier.Tier.ULT:
+		return true
 	if card_live_now:
 		return false
 	if spell_id != "" and last_declared.has(spell_id):
@@ -228,10 +240,27 @@ static func announce(host: Node, text: String, colour: Color, windup: float,
 	if text.strip_edges() == "":
 		return false
 	dismiss(host)  # a caster can be interrupted, never queued — never stack two
-	var card := Card.new()
-	card.name = String(CARD_NAME)
-	card.setup(text, colour, windup, tier)
-	host.add_child(card)
+	# ⚠ TWO PRESENTATIONS, ONE OWNER. The escalation the maker asked for — "next to the
+	# character or in big depending on the spell" — used to live in a SECOND announcer
+	# (`CastName`), and two systems printing one name is what produced the brown-and-
+	# greenish double. So the tiering moved in here instead: this function is still the
+	# only thing in the game that says a spell's name, and it now decides HOW loudly.
+	#
+	#   ULT   — the full-width card, held, in the spell's colour. The finisher.
+	#   else  — a small name above the caster that rises and fades. Part of the spell,
+	#           not the character, and it tracks the body so it reads as belonging to
+	#           whoever threw it even with two fighters casting at once.
+	var node: Node = null
+	if tier == SpellTier.Tier.ULT:
+		var card := Card.new()
+		card.setup(text, colour, windup, tier)
+		node = card
+	else:
+		var small := SmallName.new()
+		small.setup(text, colour)
+		node = small
+	node.name = String(CARD_NAME)
+	host.add_child(node)
 	_play_sfx("charge_up", -6.0, 0.05)
 	return true
 
@@ -330,3 +359,70 @@ class Card:
 			_dim.color = Color(0.0, 0.0, 0.0, SignatureRite.DIM_ALPHA * a)
 		if _elapsed >= _fade_out_at + SignatureRite.CARD_FADE_OUT:
 			queue_free()
+
+
+## ── THE SMALL NAME ──────────────────────────────────────────────────────────
+## A spell name that rises off the caster and fades. Everything below the ULT shelf
+## uses this, so a bolt says what it is without a full-width banner claiming that a
+## bolt is a finisher — which is the whole point of having two presentations.
+##
+## Parented to the CASTER (not the arena) so it tracks the body: with two fighters
+## casting at once the reader can tell which name belongs to which figure. It carries
+## `CARD_NAME` like the big card does, so `dismiss()` tears either of them down without
+## needing to know which one is up.
+##
+## ⚠ NOT A SPEECH BUBBLE, and that argument is worth keeping: `Bark` enforces one
+## bubble per body and a cast label would fight the duel taunt for the same node. A
+## bubble also reads as the CHARACTER talking, and a spell name is a label on the thing
+## being thrown, not something the fighter says.
+class SmallName extends Node2D:
+	const LIFE: float = 0.62
+	## How far it drifts up over its life. Small — it is a label, not a damage number,
+	## and a long climb turns it into litter.
+	const RISE: float = 26.0
+	## Above the head, clear of the floating health bars.
+	const LIFT: float = 40.0
+	const FONT_SIZE: int = 11
+
+	var _text: String = ""
+	var _tint: Color = Color.WHITE
+	var _t: float = 0.0
+	var _font: Font = null
+
+	func setup(text: String, colour: Color) -> void:
+		_text = text
+		_tint = colour
+		position = Vector2(0.0, -LIFT)
+		z_index = 3
+		z_as_relative = false
+
+	func _ready() -> void:
+		var probe := Label.new()
+		_font = probe.get_theme_default_font()
+		probe.free()
+		# Runs through the hit-stop pause, like the big card, or a name that appears on
+		# a freeze frame hangs there for the rest of the bout.
+		process_mode = Node.PROCESS_MODE_ALWAYS
+
+	func _process(delta: float) -> void:
+		_t += delta
+		if _t >= LIFE:
+			queue_free()
+			return
+		queue_redraw()
+
+	func _draw() -> void:
+		if _font == null or _text == "":
+			return
+		var u: float = clampf(_t / LIFE, 0.0, 1.0)
+		var fade: float = 1.0 - u * u          # holds, then goes quickly
+		var size: Vector2 = _font.get_string_size(
+			_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, FONT_SIZE)
+		var at: Vector2 = Vector2(-size.x * 0.5, -RISE * u)
+		# ⚠ ONE OUTLINE RING, NEVER FOUR STAMPED COPIES. Four draws of the same word at
+		# +-1 px is four chances to read as a duplicate the moment anything moves, and
+		# this moves by design. That was the "double header" on the old heavy label.
+		draw_string_outline(_font, at, _text, HORIZONTAL_ALIGNMENT_LEFT, -1.0,
+			FONT_SIZE, 2, Color(0.02, 0.02, 0.04, 0.85 * fade))
+		draw_string(_font, at, _text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, FONT_SIZE,
+			Color(_tint.r, _tint.g, _tint.b, fade))

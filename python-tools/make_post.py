@@ -601,6 +601,8 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
     if getattr(args, "vo", None):
         vo_planned = Path(args.vo).resolve()
         planned_tail = True          # a supplied line is whatever it is
+        # A supplied line cannot be split into names + question, so it holds in full.
+        hold_source = vo_planned
     else:
         # The tail decision has to be made BEFORE the shoot, because it changes the
         # length being held for — but it normally reads the FINISHED clip, which does
@@ -615,6 +617,16 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
                 print("  the full line is too long a share of this clip — "
                       "dropping \"who will win?\" (--tail to keep it)")
         vo_planned = build_vo(a, b, planned_tail)
+        # ⚠ THE BELL FOLLOWS THE NAMES, NOT THE WHOLE LINE. Maker: *"the fight should
+        # start after the juggernaut vs stormcaller name and then it can say who will
+        # win as the fight has started"*. Holding for the FULL line meant the question
+        # was dead air over two men standing still, and the question is the one part
+        # that WANTS a fight under it — it is asking about something the viewer should
+        # already be watching. So the hold is measured from the names alone and the
+        # muxed audio still carries the tail, which then lands over the opening
+        # exchange. Built separately rather than subtracted, because the gap before the
+        # question is authored (`GAP_BEFORE_TAIL`) and guessing it here would drift.
+        hold_source = build_vo(a, b, False) if planned_tail else vo_planned
 
     if not args.no_shoot or not clip.exists():
         # ⚠ THE VOICE-OVER IS MEASURED BEFORE THE SHOOT, because it decides how long
@@ -629,8 +641,9 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
         # the announcer talked straight over the opening exchange. The maker asked for
         # this twice; the second report was *"it needs to say that as the stick men are
         # standing still and then the fight starts"*.
-        intro_hold = probe_duration(vo_planned) + INTRO_TAIL_BEAT
-        print(f"  holding the stare-down {intro_hold:.1f}s for the voice-over")
+        intro_hold = probe_duration(hold_source) + INTRO_TAIL_BEAT
+        print(f"  holding the stare-down {intro_hold:.1f}s for the names"
+              + (" (the question lands over the fight)" if planned_tail else ""))
 
         # ⚠ RE-ROLL A BORING FIGHT RATHER THAN PUBLISHING IT. Maker: *"ensure that the
         # fights recorded are cool — have a threshold for good fights vs boring ones"*.

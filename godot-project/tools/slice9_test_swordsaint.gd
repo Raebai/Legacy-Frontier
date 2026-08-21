@@ -333,9 +333,21 @@ func _test_rite_suppression_rules() -> void:
 	# Baseline: a fresh heavy signature announces.
 	_expect(SignatureRite.should_declare(SpellTier.Tier.ULT, "horizon_cut", seen, 100.0, false),
 		"a fresh ult declares")
-	# 1. never on a QUICK cast — a name card on a blink is a name card nobody reads.
-	_expect(not SignatureRite.should_declare(SpellTier.Tier.QUICK, "blink_strike", seen, 100.0, false),
-		"a QUICK signature never declares")
+	# 1. ⚠ A QUICK CAST NOW DECLARES, and this assertion was inverted on purpose.
+	# It used to read "a QUICK signature never declares", on the reasoning that a name
+	# card on a blink is a name card nobody reads. That was true of the only
+	# presentation that existed — a full-width card. The maker asked for the other one:
+	# *"all of these spells need titles ... showing next to the character or in big
+	# depending on the spell ... otherwise its confusing for the players"*. A small name
+	# above the caster costs nothing to ignore, and a cast that arrives unlabelled is
+	# the confusion being reported. The suppression rules below still guard the BIG
+	# card, which is the one that can genuinely collide.
+	_expect(SignatureRite.should_declare(SpellTier.Tier.QUICK, "blink_strike", seen, 100.0, false),
+		"a QUICK signature declares too, with the small presentation")
+	# ...and the loud one is still refused to a quick cast even while a card is live,
+	# because the rules that follow only govern the ULT shelf.
+	_expect(SignatureRite.should_declare(SpellTier.Tier.QUICK, "blink_strike", seen, 100.0, true),
+		"a QUICK signature is not silenced by another fighter's card")
 	# 2. never a repeat inside the window.
 	seen["horizon_cut"] = 100.0
 	_expect(not SignatureRite.should_declare(SpellTier.Tier.ULT, "horizon_cut", seen,
