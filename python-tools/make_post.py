@@ -524,7 +524,10 @@ def mux(clip: Path, vo: Path, music: Path | None, out: Path, dur: float,
         argv += ["-i", str(music)]
     argv += ["-filter_complex", vf + ";" + ";".join(chains),
              "-map", "[vout]", "-map", "[aout]",
-             "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+             # THE DELIVERY ENCODE — the only one a viewer sees, and the only one
+             # that should trade quality for size. `slow` over `medium` because a
+             # shoot already costs ~25 minutes; a few more seconds here is free.
+             "-c:v", "libx264", "-preset", "slow", "-crf", "18",
              "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
              "-movflags", "+faststart", str(out)]
     ff(*argv, cwd=out.parent)
@@ -712,7 +715,8 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
            # instead, and a slowed roar that has also gone flat sounds broken.
            f"[0:a]atempo={args.speed:.5f}[a]",
            "-map", "[v]", "-map", "[a]",
-           *rate, "-c:v", "libx264", "-preset", "medium", "-crf", "18",
+           # Intermediate — see the note in make_clip. Only the mux below delivers.
+           *rate, "-c:v", "libx264", "-preset", "medium", "-crf", "14",
            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", str(slowed))
         clip = slowed
         dur = probe_duration(clip)

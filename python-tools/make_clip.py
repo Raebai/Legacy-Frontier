@@ -252,8 +252,14 @@ def encode_from_movie(avi: Path, out: Path, fps: int, width: int,
     dur = (m_out - m_in) / float(fps)
     subprocess.run([
         ff, "-y", "-ss", f"{start:.3f}", "-t", f"{dur:.3f}", "-i", str(avi),
+        # ⚠ VISUALLY LOSSLESS, BECAUSE THIS FILE IS AN INTERMEDIATE.
+        # `make_post` re-encodes it twice more (the speed conform, then the delivery
+        # mux, which must re-encode because it draws the title card). Three lossy
+        # generations at crf 20/18/20 compound, and what compounding eats first is
+        # thin high-contrast lines — which is the entire art style of this game.
+        # crf 14 here costs disk on a throwaway file and nothing else.
         "-vf", f"scale={even}:-2:flags=lanczos", "-c:v", "libx264",
-        "-preset", "slow", "-crf", "20", "-pix_fmt", "yuv420p",
+        "-preset", "slow", "-crf", "14", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "160k", str(out),
     ], check=True)
     return True

@@ -683,9 +683,21 @@ func _frame(fighters: Array[Node2D], delta: float) -> void:
 			var held: float = compose(_zoom_smoothed, delta)
 			camera.zoom = Vector2(held, held)
 		return
+	# ⚠ A BODY THAT HAS LEFT THE MAP MUST NOT OWN THE SHOT. `showcase_ringout` is on,
+	# so a big enough hit launches a fighter clean off the stage — and every solve
+	# below (the midpoint, the leans, and `_fit_zoom`'s containment) would then be
+	# working to keep a body nobody can see inside the frame, which widens the shot
+	# until the fighters who ARE visible are specks. The same fault was found and fixed
+	# in `VersusArena._update_showcase_camera`; this is the copy that films the clips.
+	# If every body has left the stage, keep them all rather than framing on nothing.
 	var pts: Array[Vector2] = []
 	for f: Node2D in fighters:
-		pts.append(f.global_position)
+		var q: Vector2 = f.global_position
+		if q.x >= stage.position.x and q.x <= stage.end.x:
+			pts.append(q)
+	if pts.is_empty():
+		for f: Node2D in fighters:
+			pts.append(f.global_position)
 	var mid: Vector2 = Vector2.ZERO
 	for p: Vector2 in pts:
 		mid += p
@@ -709,9 +721,25 @@ func _frame(fighters: Array[Node2D], delta: float) -> void:
 	# leaned away from that midpoint or been clamped to the stage: the shot is then
 	# centred somewhere the zoom was never computed for, and the far fighter is
 	# outside it. Clamp first, fit second, and the two can never disagree.
-	var eye: Vector2 = Vector2(
-		clampf(target.x, stage.position.x + 340.0, stage.end.x - 340.0),
-		_eye_y(target.y))
+	# ⚠ ZOOM-AWARE, BECAUSE 340 IS A CONSTANT AND THE FRAME'S WIDTH IS NOT.
+	# This was `stage.position.x + 340.0 .. stage.end.x - 340.0`. 340 is the world
+	# half-width of the shot at ONE zoom (0.94); the director lives between ZOOM_MIN
+	# 0.49 and ZOOM_MAX 1.45, where the half-width runs 653 down to 221 px. So the rail
+	# was too loose when the shot was wide (it let the void past the rim in) and too
+	# TIGHT when it was close — and close is the common case, which is when the camera
+	# stops following and the pair slide off centre. That is the maker's *"it drifts to
+	# the side sometimes"*, and the identical constant was already fixed in
+	# `VersusArena`; this is the copy that actually frames a bot fight, since
+	# `BotMatch` always runs the director and `_update_showcase_camera` steps aside.
+	#
+	# Solved off `_zoom_smoothed` (last frame's answer) because the eye is clamped
+	# BEFORE the zoom is fitted and the two cannot both go first. `_eye_y` already
+	# takes exactly this approach in portrait, for exactly this reason.
+	var half_w: float = _view().x / (2.0 * maxf(_zoom_smoothed, 0.01))
+	var lo: float = stage.position.x + half_w
+	var hi: float = stage.end.x - half_w
+	var eye_x: float = stage.get_center().x if lo >= hi else clampf(target.x, lo, hi)
+	var eye: Vector2 = Vector2(eye_x, _eye_y(target.y))
 	# ⚠ AND SOMEBODY HAS TO BE IN IT. See `_hold_a_subject`.
 	eye = _hold_a_subject(eye, pts)
 
