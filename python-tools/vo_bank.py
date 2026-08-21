@@ -69,6 +69,8 @@ if hasattr(sys.stdout, "reconfigure"):
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BANK_DIR = REPO_ROOT / "content" / "vo" / "bank"
 OUT_DIR = REPO_ROOT / "content" / "vo" / "out"
+## The un-conditioned TTS output, kept so a part can be re-derived without a re-generation.
+RAW_DIR = REPO_ROOT / "content" / "vo" / "raw"
 
 # ⚠ ORDER AND SPELLING MUST TRACK ClassInfo.gd / Hero.CLASS_NAMES (0 Arcanist .. 8
 # Swordsaint). A name that drifts here produces a clip that says the wrong class,
@@ -182,6 +184,117 @@ def _trim_silence(samples: list[float], rate: int) -> list[float]:
     if end <= start:
         return samples  # all quiet — hand it back rather than returning nothing
     return samples[start:end]
+
+
+# ── HOW MANY WORDS IS THIS PART ACTUALLY SAYING? ────────────────────────────
+# ⚠ THIS EXISTS BECAUSE EVERY PUBLISHED CLIP SAID THE WRONG LINE FOR WEEKS.
+# `versus.wav` came back from the TTS as TWO words — it had read a "/" out loud as
+# "slash" — so the connector was literally "slash versus", and since the connector is
+# in EVERY matchup, all 72 lines said "<A>, slash, versus, <B>". Nothing caught it:
+# the file was the right name, the right length-ish, correctly trimmed and correctly
+# levelled. The maker caught it by listening to a finished post.
+#
+# A part's WORD COUNT is checkable without listening, so now it is checked. One word is
+# one run of voiced audio separated by real silence.
+def voiced_runs(samples: list[float], rate: int,
+                floor: float = 0.035, gap_ms: int = 90) -> list[tuple[float, float]]:
+    """Spans of voiced audio, in seconds. A gap longer than `gap_ms` splits a word."""
+    win = max(1, rate // 200)                       # 5 ms RMS window
+    level: list[float] = []
+    for i in range(0, len(samples) - win, win):
+        chunk = samples[i:i + win]
+        level.append((sum(x * x for x in chunk) / len(chunk)) ** 0.5)
+    if not level:
+        return []
+    peak = max(level) or 1.0
+    loud = [v > floor * peak for v in level]
+    runs: list[tuple[float, float]] = []
+    start: int | None = None
+    quiet = 0
+    need = max(1, gap_ms // 5)
+    for i, v in enumerate(loud):
+        if v:
+            if start is None:
+                start = i
+            quiet = 0
+        elif start is not None:
+            quiet += 1
+            if quiet >= need:
+                runs.append((start * win / rate, (i - quiet) * win / rate))
+                start = None
+    if start is not None:
+        runs.append((start * win / rate, len(loud) * win / rate))
+    return [(a, b) for a, b in runs if b - a > 0.045]
+
+
+# What each part is supposed to SAY, in words. Class names and the connector are one
+# word; the tail is "who will win?", which the narrator runs as two breath groups.
+EXPECTED_RUNS: dict[str, int] = {TAIL_SLUG: 2}
+
+
+def expected_runs(key: str) -> int:
+    return EXPECTED_RUNS.get(key.split(".")[0], 1)
+
+
+def cmd_check() -> int:
+    """Assert every banked part says the number of words it is supposed to."""
+    bad = 0
+    print("VO BANK CHECK")
+    print("-" * 74)
+    for path in sorted(BANK_DIR.glob("*.wav")):
+        samples, rate = wavkit.read_mono(path)
+        runs = voiced_runs(samples, rate)
+        want = expected_runs(path.stem)
+        ok = len(runs) == want
+        bad += 0 if ok else 1
+        note = "" if ok else f"   *** says {len(runs)} words, expected {want} ***"
+        print(f"  {path.stem:<24} {len(samples) / rate:5.2f}s  words={len(runs)}{note}")
+    print("-" * 74)
+    if bad:
+        print(f"{bad} part(s) wrong. Every matchup line that uses one is wrong too.")
+        print("Repair with:  python python-tools/vo_bank.py --repair <slug> --keep <n>")
+        return 1
+    print("all parts say what they should")
+    return 0
+
+
+def cmd_repair(key: str, keep: int) -> int:
+    """Re-bank one part from its raw source, keeping only voiced run `keep`.
+
+    For the case the check catches: the TTS said something extra and the intended word
+    is one of the runs. `--keep -1` takes the last, which is the usual shape (the model
+    reads a stray character BEFORE the word it was asked for).
+    """
+    src = RAW_DIR / f"{key}.wav"
+    if not src.exists():
+        print(f"  x no raw source at {src}")
+        return 1
+    samples, rate = wavkit.read_mono(src)
+    if rate != wavkit.TARGET_RATE:
+        samples = wavkit.resample(samples, rate, wavkit.TARGET_RATE)
+        rate = wavkit.TARGET_RATE
+    runs = voiced_runs(samples, rate)
+    if not runs:
+        print(f"  x {key}: no voiced audio in the raw file")
+        return 1
+    try:
+        a, b = runs[keep]
+    except IndexError:
+        print(f"  x {key}: run {keep} does not exist (found {len(runs)})")
+        return 1
+    # A hair either side so the consonant is not clipped off the front or back.
+    pad = 0.035
+    lo = max(0, int((a - pad) * rate))
+    hi = min(len(samples), int((b + pad) * rate))
+    cut = samples[lo:hi]
+    cut = _trim_silence(cut, rate)
+    cut = wavkit.fade(cut, rate, EDGE_FADE, EDGE_FADE)
+    cut = wavkit.normalise(cut, PART_PEAK)
+    dst = BANK_DIR / f"{key}.wav"
+    wavkit.write_wav16(dst, cut, rate)
+    print(f"  ok {key}: kept run {keep} of {len(runs)} "
+          f"({a:.2f}-{b:.2f}s) -> {len(cut) / rate:.2f}s")
+    return 0
 
 
 def cmd_ingest(paths: list[str]) -> int:
@@ -353,12 +466,22 @@ def main() -> int:
                     help=f"gap before 'versus' (default {GAP_BEFORE_CONNECTOR})")
     ap.add_argument("--gap2", type=float, default=GAP_AFTER_CONNECTOR,
                     help=f"gap after 'versus' (default {GAP_AFTER_CONNECTOR})")
+    ap.add_argument("--check", action="store_true",
+                    help="assert every banked part says the right number of words")
+    ap.add_argument("--repair", metavar="SLUG",
+                    help="re-bank one part from raw, keeping only one voiced run")
+    ap.add_argument("--keep", type=int, default=-1,
+                    help="which voiced run --repair keeps (default -1, the last)")
     ap.add_argument("--tail-gap", type=float, default=GAP_BEFORE_TAIL,
                     help=f"gap before the question (default {GAP_BEFORE_TAIL})")
     args = ap.parse_args()
 
     gaps = (args.gap, args.gap2, args.tail_gap)
 
+    if args.check:
+        return cmd_check()
+    if args.repair:
+        return cmd_repair(args.repair, args.keep)
     if args.plan:
         return cmd_plan()
     if args.ingest:
