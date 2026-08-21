@@ -555,17 +555,43 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
     print(f"\n{'=' * 60}\n{CLASSES[a]} vs {CLASSES[b]}\n{'=' * 60}")
 
     clip = user_data_dir() / "clips" / f"{stem}.mp4"
+
+    # ⚠ PLANNED OUTSIDE THE SHOOT BRANCH, because `--no-shoot` re-cuts an existing
+    # fight and still needs a line to mux. Building it here also means the stare-down
+    # hold and the muxed audio are the same file by construction.
+    if getattr(args, "vo", None):
+        vo_planned = Path(args.vo).resolve()
+        planned_tail = True          # a supplied line is whatever it is
+    else:
+        # The tail decision has to be made BEFORE the shoot, because it changes the
+        # length being held for — but it normally reads the FINISHED clip, which does
+        # not exist yet. Estimating from the requested seconds is conservative: the
+        # intro hold and the result beat only make the real clip longer, so this errs
+        # toward dropping the question rather than toward talking over the fight.
+        planned_tail = not args.no_tail
+        if planned_tail and not args.tail:
+            est_dur = float(args.seconds) / max(float(args.speed), 0.01)
+            if probe_duration(build_vo(a, b, True)) > est_dur * VO_MAX_SHARE:
+                planned_tail = False
+                print("  the full line is too long a share of this clip — "
+                      "dropping \"who will win?\" (--tail to keep it)")
+        vo_planned = build_vo(a, b, planned_tail)
+
     if not args.no_shoot or not clip.exists():
         # ⚠ THE VOICE-OVER IS MEASURED BEFORE THE SHOOT, because it decides how long
         # the fighters stay frozen. Maker: *"make the audio ... quicker so that it says
         # that as the stick men are frozen and once complete the fight starts"*. The
         # announcer used to talk over the opening exchange, which asked a viewer to
         # parse a sentence and a fight simultaneously in the first two seconds.
-        vo_probe = Path(args.vo).resolve() if getattr(args, "vo", None) else None
-        intro_hold = 0.0
-        if vo_probe is not None and vo_probe.exists():
-            intro_hold = probe_duration(vo_probe) + INTRO_TAIL_BEAT
-            print(f"  holding the stare-down {intro_hold:.1f}s for the voice-over")
+        # ⚠ AND IT ONLY EVER WORKED WHEN A LINE WAS HANDED IN ON THE COMMAND LINE.
+        # `intro_hold` was computed from `--vo` and from nothing else, but `make_post`
+        # BUILDS its own line from the word bank when `--vo` is absent — which is every
+        # normal invocation. So the default path measured nothing, held for 0.0s, and
+        # the announcer talked straight over the opening exchange. The maker asked for
+        # this twice; the second report was *"it needs to say that as the stick men are
+        # standing still and then the fight starts"*.
+        intro_hold = probe_duration(vo_planned) + INTRO_TAIL_BEAT
+        print(f"  holding the stare-down {intro_hold:.1f}s for the voice-over")
 
         # ⚠ RE-ROLL A BORING FIGHT RATHER THAN PUBLISHING IT. Maker: *"ensure that the
         # fights recorded are cool — have a threshold for good fights vs boring ones"*.
@@ -662,16 +688,13 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
                   f"({dur - new_dur:.1f}s of dead stage cut)")
             clip, dur = trimmed, probe_duration(trimmed)
 
-    with_tail = not args.no_tail
-    # A supplied line is whatever length it is — there is no "who will win?" tail to
-    # drop from it, so the probe below (which BUILDS a bank line just to measure it)
-    # would be both wasted work and a decision about a file it is not describing.
-    if with_tail and not args.tail and not getattr(args, "vo", None):
-        probe = build_vo(a, b, True)
-        if probe_duration(probe) > dur * VO_MAX_SHARE:
-            with_tail = False
-            print(f"  the full line is {probe_duration(probe):.1f}s of a {dur:.1f}s "
-                  f"clip — dropping \"who will win?\" (--tail to keep it)")
+    # ⚠ THE LINE IS THE ONE THE STARE-DOWN WAS HELD FOR. It was decided and built
+    # before the shoot (see the block above) precisely so that the freeze and the audio
+    # describe the same file. Re-deciding `with_tail` here against the finished duration
+    # would be the bug all over again: the fighters would stand still for a sentence
+    # that no longer exists, or start moving during one that does.
+    with_tail = planned_tail
+    vo = vo_planned
     # ⚠ A SUPPLIED LINE WINS OVER THE BANK. `build_vo` stitches "<A> versus <B> — who
     # will win?" from banked WORDS separated by measured silences, which is robust and
     # audibly assembled. A single full-line read is the upgrade, and it needs no code
@@ -679,7 +702,6 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
     # ⚠ RESOLVED, because ffmpeg is not run from this cwd. A relative --vo path parsed
     # fine, measured fine, drove the intro hold fine, and then ffmpeg could not open it
     # — after a two-minute shoot had already happened.
-    vo = Path(args.vo).resolve() if getattr(args, "vo", None) else build_vo(a, b, with_tail)
     vo_dur = probe_duration(vo)
     print(f"  clip {dur:.1f}s   voice {vo_dur:.1f}s"
           f"{' (with the question)' if with_tail else ''}")

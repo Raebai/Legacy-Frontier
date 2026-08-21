@@ -1116,6 +1116,9 @@ func _open_bout() -> void:
 
 
 func _process(delta: float) -> void:
+	# Advance the presentation clock FIRST, so every beat below reads the same value
+	# for this frame. See `_real_seconds`.
+	_shown += delta / maxf(Engine.time_scale, 0.001)
 	_tick_readout()
 	# THE CARD OWNS THE OPENING. Nothing below runs until it clears: the clock must not
 	# start, the rim check must not fire on a fighter standing still, and the music must
@@ -1420,11 +1423,33 @@ func _hold_corner_colours() -> void:
 			(rig as Object).call("clear_flash")
 
 
-## Real (unscaled) seconds. The result beat must not stretch when hit-stop drops
-## `Engine.time_scale` to 0.05 on the very hit that ended the fight — which is
-## exactly when it would, since that hit is a kill.
+## ══ THE PRESENTATION CLOCK — SECONDS AS THE VIEWER EXPERIENCES THEM ═════════
+## Every beat the audience SEES is timed off this: the stare-down card, the result
+## hold, the taunt bubble.
+##
+## It used to be `Time.get_ticks_msec()`, the wall clock, for one good reason — the
+## result beat must not stretch when hit-stop drops `Engine.time_scale` to 0.05 on the
+## very hit that ended the fight, which is exactly when it would, since that hit is a
+## kill. Unscaled was right. WALL was not.
+##
+## ⚠ THE WALL CLOCK DOES NOT EXIST INSIDE A RENDER, AND THAT BROKE THE OPENING BEAT.
+## Under `--write-movie` the engine forces `--fixed-fps`, so one frame advances the
+## MOVIE by 1/60 s while wall time advances by however long that frame took to draw —
+## about a second at 1920x1080. So a 5 s stare-down elapsed in roughly a fifth of a
+## second of finished video, and no value of `--intro` could change that. The maker
+## asked for this twice; the second time was *"it needs to say that as the stick men
+## are standing still and then the fight starts"*, and the hold had been arriving
+## 20x too short every single shoot. Same family as the `FightScore.seconds` bug.
+##
+## So: accumulate the frame delta and divide out `Engine.time_scale`. That is unscaled
+## (hit-stop still cannot stretch the result beat) AND it is measured in frames, so it
+## means the same thing live and in a capture. `PROCESS_MODE_ALWAYS` on this node is
+## what lets it keep counting through the intro's own `get_tree().paused`.
+var _shown: float = 0.0
+
+
 func _real_seconds() -> float:
-	return float(Time.get_ticks_msec()) / 1000.0
+	return _shown
 
 
 func _tick_result(_delta: float) -> void:
