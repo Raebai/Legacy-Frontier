@@ -387,7 +387,15 @@ def build_vo(a: int, b: int, with_tail: bool) -> Path:
         (vo_bank.GAP_BEFORE_CONNECTOR, vo_bank.GAP_AFTER_CONNECTOR,
          vo_bank.GAP_BEFORE_TAIL),
         with_tail)
-    dst = POSTS / "_vo" / f"{name}.wav"
+    # ⚠ THE TAIL STATE IS IN THE FILENAME, OR THE TWO BUILDS CLOBBER EACH OTHER.
+    # `assemble` names a line after the MATCHUP only, so the with-tail and names-only
+    # builds resolved to the same path — and since the hold is now measured from a
+    # names-only build made moments after the full one, the second write silently
+    # replaced the first. The delivered clip then carried the SHORT line and
+    # "who will win?" was missing from the post entirely, while the log cheerfully
+    # printed "(with the question)". Caught by reading the voice duration back: 2.2s is
+    # the names, 3.4s is the whole line.
+    dst = POSTS / "_vo" / f"{name}{'' if with_tail else '_names'}.wav"
     dst.parent.mkdir(parents=True, exist_ok=True)
     vo_bank.wavkit.write_wav16(dst, line, vo_bank.wavkit.TARGET_RATE)
     return dst
