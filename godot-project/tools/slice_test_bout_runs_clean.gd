@@ -34,7 +34,11 @@
 extends SceneTree
 
 const BOT_MATCH_SCENE: String = "res://scenes/combat/BotMatch.tscn"
-const CAST_NAME_SCRIPT: String = "res://scripts/combat/CastName.gd"
+## ⚠ RETARGETED. This counted `CastName` nodes; there were TWO systems printing a
+## spell's name (`CastName` at release in the CASTER's colour, `SignatureRite` at
+## windup in the SPELL's) and the maker was seeing both at once. `SignatureRite` is now
+## the only announcer, so this counts its card instead — same assertion, one owner.
+const CARD_NODE_NAME: StringName = SignatureRite.CARD_NAME
 
 ## ⚠ DRIVEN BY THE WALL CLOCK, NOT BY A FRAME COUNT, and the first version of this file
 ## got that wrong. A `--script` SceneTree pumps `process_frame` as fast as the CPU
@@ -178,7 +182,7 @@ func _count_cast_names(from: Node) -> int:
 	var n: int = 0
 	for child: Node in from.get_children():
 		var s: Script = child.get_script() as Script
-		if s != null and s.resource_path == CAST_NAME_SCRIPT:
+		if child.name == String(CARD_NODE_NAME):
 			n += 1
 		n += _count_cast_names(child)
 	return n

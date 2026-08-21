@@ -112,7 +112,11 @@ LANDSCAPE_W, LANDSCAPE_H = 1920, 1080
 VO_AT = 0.12
 ## Breath between the last word and the bell. Short — the point is that the fight starts
 ## AS the line finishes, not after a pause.
-INTRO_TAIL_BEAT = 0.35
+# ⚠ 0.35 -> 0.12. Maker: *"have them start a little earlier"*. This is the pause
+# between the announcer finishing and the bell. It was set when the hold did not work
+# at all (see the intro-clock fix), so it had never actually been seen; with the hold
+# landing, a third of a second of dead air after the last word reads as a stall.
+INTRO_TAIL_BEAT = 0.12
 
 # ⚠ IF THE LINE WOULD EAT MORE OF THE CLIP THAN THIS, DROP THE QUESTION.
 # "<A> versus <B> — who will win?" is 5.9 s at the banked pace, and the median bot
@@ -427,7 +431,7 @@ def _portrait_vf(card: str) -> str:
         f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2[comp];"
     ) + card
 
-def mux(clip: Path, vo: Path, music: Path | None, out: Path, dur: float,
+def mux(args_ns: argparse.Namespace, clip: Path, vo: Path, music: Path | None, out: Path, dur: float,
         music_db: float, game_db: float, vo_db: float, title: str,
         landscape: bool = False) -> None:
     """Lay the three audio layers under the picture and master the result.
@@ -456,7 +460,18 @@ def mux(clip: Path, vo: Path, music: Path | None, out: Path, dur: float,
     # stage can put behind it WITHOUT laying a letterbox across the fight for two
     # seconds. The bar was solving a real problem the wrong way round: it hid the thing
     # the clip exists to show.
-    card = (
+    # ⚠ NO TITLE CARD. Maker: *"there is no need for the double heading at the start
+    # remove the white one the game already has one"*. `BotMatch` opens every bout on
+    # its own VS card — the one the stare-down is held for — and this drew a SECOND
+    # heading in white Impact over the top of it. Two titles saying the same thing, one
+    # of them belonging to the video rather than the game.
+    #
+    # The whole drawtext is kept below rather than deleted because the sizing, the
+    # alpha ramp and the shadow were all tuned against real footage and none of that
+    # reasoning is recoverable from a blank line. `--title-card` puts it back.
+    card = f"[comp]null[vout]"
+    if getattr(args_ns, "title_card", False):
+        card = (
         f"[comp]drawtext=fontfile='{FONT}':text='{title}':"
         f"fontcolor=white:fontsize={fit_fontsize(title)}:x=(w-text_w)/2:"
         f"y=(h-text_h)/2:alpha='{TITLE_ALPHA}':"
@@ -464,7 +479,7 @@ def mux(clip: Path, vo: Path, music: Path | None, out: Path, dur: float,
         # picture behind them.
         f"shadowcolor=black@0.95:shadowx=7:shadowy=7:"
         f"enable='between(t,{T_IN},{T_OUT + T_FADE})'[vout]"
-    )
+        )
     if landscape:
         # NO band, NO blur bed, NO pillarbox. Everything the portrait path does
         # below is compensation for a director that has no portrait branch; in 16:9
@@ -763,7 +778,7 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
     music = (Path(args.music) if args.music
              else build_music(dur) if args.music_bed else None)
     out = POSTS / f"{stem}.mp4"
-    mux(clip, vo, music, out, dur, args.music_db, args.game_db, args.vo_db, title,
+    mux(args, clip, vo, music, out, dur, args.music_db, args.game_db, args.vo_db, title,
         landscape=not bool(getattr(args, "portrait", False)))
     print(f"  -> {out.name}  ({out.stat().st_size / 1_048_576:.1f} MB)")
     print(f"     {verify(out)}")
@@ -813,6 +828,9 @@ def main() -> int:
     ap.add_argument("--fps", type=int, default=0,
                     help="conform rate; 0 derives it from the capture x --speed so no "
                          "frame is dropped or duplicated, -1 disables the conform")
+    ap.add_argument("--title-card", action="store_true",
+                    help="draw the matchup title over the opening; off because the "
+                         "game already opens on its own VS card")
     ap.add_argument("--no-trim", action="store_true",
                     help="keep the tail even if the picture has frozen")
     ap.add_argument("--hold", type=float, default=1.4,

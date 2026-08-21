@@ -227,9 +227,17 @@ def voiced_runs(samples: list[float], rate: int,
     return [(a, b) for a, b in runs if b - a > 0.045]
 
 
-# What each part is supposed to SAY, in words. Class names and the connector are one
-# word; the tail is "who will win?", which the narrator runs as two breath groups.
-EXPECTED_RUNS: dict[str, int] = {TAIL_SLUG: 2}
+# What each part is supposed to SAY, in words. Every part is ONE spoken phrase.
+#
+# ⚠ THE TAIL WAS EXEMPTED HERE ON AN ASSUMPTION, AND THE ASSUMPTION WAS THE BUG.
+# `who_will_win.wav` measured two voiced runs, and rather than ask why, this table was
+# written to expect two — "the narrator runs it as two breath groups". It does not.
+# The maker heard the truth in a finished post: *"there is a word between juggernaut vs
+# stormcaller and who will win"*. Run 0 is a 0.59 s stray word, then a 0.56 s pause,
+# then the 0.89 s question. Writing the observed value into the expectation is how a
+# guard ratifies the very fault it exists to catch — the same shape as widening a test
+# until it goes green.
+EXPECTED_RUNS: dict[str, int] = {}
 
 
 def expected_runs(key: str) -> int:

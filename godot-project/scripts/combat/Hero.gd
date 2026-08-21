@@ -3083,13 +3083,29 @@ func _cast_signature() -> void:
 		Sfx.play("melee_swing", -14.0, 0.0)
 		return
 	_hand.start_cooldown(slot, spell.cooldown * cooldown_mult_for(spell))
-	# ══ THE SPELL SAYS ITS OWN NAME ════════════════════════════════════════════
-	# Maker: *"some spells dont show the words when they are being cast"*. Tiered off
-	# `SpellTier.of` so a spell cannot lie about how important its own announcement is
-	# — QUICK stays silent, HEAVY gets a small rising label, an ULT gets the banner.
-	# The full argument (including why this is NOT a speech bubble, which is what was
-	# proposed) is in `CastName`'s header.
-	CastName.announce(get_parent(), self, spell, _element_color)
+	# ══ THE SPELL SAYS ITS OWN NAME — ONCE, AND FROM ONE PLACE ════════════════
+	# Maker: *"gravity flip also has a double header a brown one and a greenish one,
+	# keep the greenish one remove the brown one and ensure that these double headers
+	# do not exist going forward at all"*.
+	#
+	# ⚠ THERE WERE TWO ANNOUNCERS AND THAT IS THE WHOLE BUG. `SignatureRite.announce`
+	# prints the name at WINDUP tinted `spell.resolve_color(...)` — the spell's own
+	# colour, the GREENISH one — and `CastName.announce` printed it again at RELEASE
+	# tinted `_element_color`, the CASTER'S CLASS colour, which on a Juggernaut is
+	# BROWN. Same word, two systems, two colours, and neither knew about the other.
+	#
+	# It was intermittent, which is why it read as "some spells": `should_declare`
+	# suppresses the card for QUICK, inside `REPEAT_WINDOW`, and whenever another card
+	# is live — so the pair only collided when the rite chose to speak.
+	#
+	# `SignatureRite` is the one that survives, and not by coin-toss. It already owns
+	# every rule this needs: `card_live()` allows exactly ONE card on screen ANYWHERE,
+	# `dismiss()` tears it down on an interrupted cast so a broken windup never leaves
+	# its name hanging, it has the repeat window, and it is tinted from the SPELL
+	# rather than the caster. `CastName` had per-caster dedup and a separate ult
+	# banner, but no global rule — two systems with one screen between them.
+	# See `SignatureRite.announce`, which now carries the tier so an ult still reads
+	# bigger than a heavy. `CastName.gd` is deleted rather than left unreachable.
 	# Announced and cast are the same instant, so the watcher signal rides here rather
 	# than inventing a second place a cast can be observed from.
 	spell_cast.emit(spell.id, SpellTier.of(spell) == SpellTier.Tier.ULT)
@@ -3182,8 +3198,13 @@ func _declare_signature(spell: SpellDef, windup: float, tier: int) -> void:
 	if not SignatureRite.should_declare(tier, spell.id, _last_declared, now,
 			SignatureRite.card_live()):
 		return
+	# ⚠ `announce_as_ult` LOST ITS ONLY CONSUMER when `CastName` was deleted, and the
+	# intent behind it has to survive the move: a spell may ask for the finisher card
+	# without BEING a finisher (Gravity Flip inverts gravity for the whole arena from a
+	# control slot). Checked here so the surviving announcer honours it.
+	var card_tier: int = SpellTier.Tier.ULT if spell.announce_as_ult else tier
 	if SignatureRite.announce(self, spell.display_name.to_upper(),
-			spell.resolve_color(_element_color), windup):
+			spell.resolve_color(_element_color), windup, card_tier):
 		_last_declared[spell.id] = now
 
 

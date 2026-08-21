@@ -85,6 +85,10 @@ const DIM_ALPHA: float = 0.16
 ## 96 rather than 120: the boss is the bigger event and the hierarchy has to hold,
 ## or a signature reads as more important than the thing that is trying to kill you.
 const CARD_FONT_SIZE: int = 28
+## An ULT reads bigger than a HEAVY. This escalation used to live in the second
+## announcer (`CastName`, now deleted); it belongs to whichever system is the only one
+## left, or the tiering the maker asked for goes with it.
+const CARD_FONT_SIZE_ULT: int = 40
 const CARD_TOP: float = 96.0
 const CARD_OUTLINE: int = 7
 const CARD_OUTLINE_COLOR: Color = Color(0.05, 0.02, 0.03, 0.95)
@@ -217,7 +221,8 @@ static func card_live() -> bool:
 ##
 ## `text` is the spell's display name, upper-cased by the caller. No subtitle, no
 ## class name, no "ULTIMATE" chrome — the name is the whole point.
-static func announce(host: Node, text: String, colour: Color, windup: float) -> bool:
+static func announce(host: Node, text: String, colour: Color, windup: float,
+		tier: int = SpellTier.Tier.HEAVY) -> bool:
 	if host == null or not is_instance_valid(host) or not host.is_inside_tree():
 		return false
 	if text.strip_edges() == "":
@@ -225,7 +230,7 @@ static func announce(host: Node, text: String, colour: Color, windup: float) -> 
 	dismiss(host)  # a caster can be interrupted, never queued — never stack two
 	var card := Card.new()
 	card.name = String(CARD_NAME)
-	card.setup(text, colour, windup)
+	card.setup(text, colour, windup, tier)
 	host.add_child(card)
 	_play_sfx("charge_up", -6.0, 0.05)
 	return true
@@ -267,7 +272,8 @@ class Card:
 	var _elapsed: float = 0.0
 	var _fade_out_at: float = 0.35
 
-	func setup(text: String, colour: Color, windup: float) -> void:
+	func setup(text: String, colour: Color, windup: float,
+			tier: int = SpellTier.Tier.HEAVY) -> void:
 		layer = SignatureRite.CARD_LAYER
 		_total = maxf(windup, SignatureRite.CARD_FADE_IN + SignatureRite.CARD_FADE_OUT)
 		# Clear the card just BEFORE the spectacle exists, so the name is gone by
@@ -287,7 +293,9 @@ class Card:
 		_label.text = text
 		# The card is tinted the SPELL's colour, never white: a declared signature
 		# is then already class-legible before a single pixel of the spell exists.
-		_label.add_theme_font_size_override(&"font_size", SignatureRite.CARD_FONT_SIZE)
+		_label.add_theme_font_size_override(&"font_size",
+			SignatureRite.CARD_FONT_SIZE_ULT if tier == SpellTier.Tier.ULT
+			else SignatureRite.CARD_FONT_SIZE)
 		_label.add_theme_color_override(&"font_color",
 			Color(colour.r, colour.g, colour.b, 1.0))
 		_label.add_theme_constant_override(&"outline_size", SignatureRite.CARD_OUTLINE)

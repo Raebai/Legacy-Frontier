@@ -178,7 +178,38 @@ func _check_hit() -> bool:
 	for target in get_tree().get_nodes_in_group(group):
 		if not target is Node2D:
 			continue
-		if global_position.distance_to((target as Node2D).global_position) > HIT_RADIUS:
+		# ⚠ THIS MEASURED TO THE ORIGIN, WHICH IS WHY BOLTS WENT THROUGH HEADS.
+		# Maker: *"some spells go through the characters head and dont register as a
+		# hit"*. `global_position` on a fighter is the middle of the body, and the
+		# drawn figure is `rig.height` (31) tall centred on it — so the top of the head
+		# is about 22 px up. Against a flat `HIT_RADIUS` of 16 that is 22 > 16: a bolt
+		# aimed at the head passes through and registers nothing, every time. The dead
+		# zone is bigger on a scaled body, which is why it was aimable on purpose.
+		#
+		# The codebase already solved this once and wrote down the lesson: `Enemy`'s
+		# HIT SILHOUETTE block says "two different silhouette tests is precisely how
+		# 'spells pass through heads' happened". `Hero` and `Enemy` both publish
+		# `body_distance` (spine segment + head circle, mirrored from the rig's own
+		# pose maths) and `hit_margin`. This was simply not asking them.
+		#
+		# ⚠ AND IT IS AN *ENEMY* PROJECTILE, so this is the tower — the real game —
+		# not the bot fights. Maker, same message: *"all these changes should also of
+		# course apply to the real game as well"*.
+		#
+		# The radius stays as the fallback for any target that publishes no
+		# silhouette (a prop, a dummy, a future body), so nothing loses its hitbox.
+		# ⚠ A UNION, NOT A SWAP, AND THE TEST SUITE IS WHY. Swapping the radius out
+		# for the silhouette made bolts HARDER to land, not easier: `hit_margin` is
+		# `height * HIT_MARGIN_FACTOR`, a few px of forgiveness around a spine that is
+		# thinner than a flat 16 px disc, so four parry tests that fire a bolt near the
+		# origin stopped connecting. Losing hits is the opposite of the report.
+		# So the bolt lands if EITHER test says it did: the old disc keeps every hit it
+		# already registered, and the silhouette ADDS the head and the feet on top.
+		var near: bool = global_position.distance_to(
+			(target as Node2D).global_position) <= HIT_RADIUS
+		if not near and target.has_method("body_distance") and target.has_method("hit_margin"):
+			near = float(target.body_distance(global_position)) 				<= float(target.hit_margin())
+		if not near:
 			continue
 		# Not reflected: the hero may parry us (it performs the reflect on us and
 		# returns true), in which case we keep flying — now toward the enemies.
