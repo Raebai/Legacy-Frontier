@@ -8,7 +8,18 @@ is the same list with more room to explain it.
 
 ## ▶ OPEN
 
-1. **THE FOUR OLD CLIPS ARE RE-CUT — but they still want a RE-SHOOT.** All nine mp4s in
+0. **PAUSED HERE (maker said "pause", 2026-08-21 ~19:55).** Repo is clean, both commits
+   landed, `project.godot` restored to 1366x768 and verified. Nothing is mid-flight.
+   **`stormcaller_vs_swordsaint` is RE-SHOT and verified** — stare-down VS card holds
+   2.8s for the names, take 1 rejected as a demolition, take 2 PASS 60.4 with **3 ults**.
+   The other three re-shoots (`arcanist_vs_shadowblade`, `swordsaint_vs_arcanist`,
+   `stormcaller_vs_cryomancer`) are NOT started — that is the resume point.
+
+   ⚠ Waiting on a shoot by grepping `tasklist` for "Godot" **never exits** — the maker's
+   own editor is open and matches. The shoot had actually finished; the watcher had not.
+   Watch the OUTPUT FILE's mtime, or the shoot's own pid, not the process name.
+
+1. **THE FOUR OLD CLIPS ARE RE-CUT — one is also RE-SHOT, three still want a re-shoot.** All nine mp4s in
    `content/posts/` now carry a clean four-word announcer line, no white title card, and
    1:1 frames (0 duplicate frames measured across all nine). What a re-cut CANNOT reach
    is baked into the render: the four old shoots have **no in-game VS card at all** —
