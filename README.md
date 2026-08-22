@@ -26,7 +26,7 @@ Friendly fire is always on, and it is the point. Your spells hit your friend as 
 - **Combat and classes.** Nine classes (Arcanist, Shadowblade, Brawler, Juggernaut, Cleric, Cryomancer, Stormcaller, Warlock, Swordsaint), each with its own HP, speed, melee and movement verb. 27 distinct carried spell slots.
 - **The stick figure rig.** A two-spring procedural rig — gait, ragdoll death, limp and prone collapse — drawn entirely in `_draw`. No sprite sheets.
 - **Waves and mobs.** Seven mob archetypes (chaser, brute, caster, charger, summoner, assassin, bomber), elite modifiers, an entity budget, and an ink-scrawl spawn tell before every body arrives.
-- **Bosses.** Four — the Ashspire Guardian, the Scribble, the Cartographer, the Illuminator — plus modifier riders that change the fight.
+- **Bosses.** Four — the Ashen Guardian, the Scribble, the Cartographer, the Illuminator — plus modifier riders that change the fight.
 - **Floors.** Five, seeded-randomised, with destructible cover.
 - **Co-op.** ENet over LAN with UDP host discovery, so two phones find each other without anyone reading an IP aloud. Host-authoritative world, client-owned heroes, damage applied on the victim's authority. Capped at two players by design.
 - **Tooling.** A headless test runner (138 suites green at last run), an in-game director for summoning any boss with any modifiers, a screenshot/capture pipeline, and a bot-vs-bot clip recorder.

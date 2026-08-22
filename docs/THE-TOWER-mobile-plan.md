@@ -72,7 +72,7 @@ The two largest single risks are **not** gameplay features. They are:
 | Tier 1 = class kits, 3 spells, short CD | `CLASS_KITS` (`SpellLibrary.gd:85-155`), 9 classes × 5 roles | Trim 5 roles → 3 buttons. Data edit. |
 | Big spells loud/committal/answerable | `SpellTier` (QUICK/HEAVY/ULT) derived from cast_time/cooldown/mp; every attack spell is deflectable; `ParryRing` | Nothing. Already the locked design. |
 | Rarity is the balance system | `SpellTier` doubles as clash weight | Reuse as the drop-rarity gate. |
-| Boss with phases + telegraphs | `Boss.gd` — Ashspire Guardian, 3 HP-gated phases, intro card, boss bar, 8 attacks | Reuse wholesale as boss #1 of 4. |
+| Boss with phases + telegraphs | `Boss.gd` — Ashen Guardian, 3 HP-gated phases, intro card, boss bar, 8 attacks | Reuse wholesale as boss #1 of 4. |
 | Mobs reuse the player controller | `BotController`/`BotBrain`/`BotIntent` already drive real `Hero` bodies in `VersusArena` | Already solved — see the decision note below. |
 | Local co-op, host-authoritative | `Net.gd` — ENet, 2 `MultiplayerSpawner`s, 2 `MultiplayerSynchronizer`s, victim-authority damage routing, 2-process smoke test | `MAX_PLAYERS: 4 → 2` (`Net.gd:19`). |
 | Two thumbs, landscape, floating sticks | `TouchControls.gd` — twin-stick, 8 buttons, 12 headless tests, gated on `is_touchscreen_available()` | Trim 8 buttons → 3 spells + dash. Wire into the real boot path. |

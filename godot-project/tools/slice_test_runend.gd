@@ -288,7 +288,7 @@ func _test_the_climb_is_written_before_the_ceremony(GS: GDScript) -> void:
 func _test_nothing_on_the_critical_path_loads_the_parked_hub() -> void:
 	var arena: String = _code_only(ARENA_PATH)
 	# ⚠ THIS USED TO GREP THE WHOLE FILE FOR THE HUB PATH, and that stopped being able
-	# to tell the two cases apart the moment the death card grew a "Return to Ashpire"
+	# to tell the two cases apart the moment the death card grew a "Return to Stickspire"
 	# button (maker, 2026-08-04: "there should be a return to ashpire button when you
 	# die so you can change your class as well"). This function's own comment always
 	# allowed that — "the one that may is the explicit button" — so the assertion is

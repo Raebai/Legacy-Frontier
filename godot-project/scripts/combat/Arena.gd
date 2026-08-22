@@ -964,7 +964,7 @@ func _show_game_over() -> void:
 	# is worse than no button.
 	if ResourceLoader.exists(HUB_SCENE_PATH):
 		var again: Button = _confirm_button(
-			"Return to Ashpire", _to_antechamber, CARD_CHALK)
+			"Return to Stickspire", _to_antechamber, CARD_CHALK)
 		again.custom_minimum_size = Vector2(196, 34)
 		exits.add_child(again)
 	# …and the quiet one. Smaller type, dimmer ink, same tap target — restraint is in

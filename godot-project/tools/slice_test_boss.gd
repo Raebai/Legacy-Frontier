@@ -1,5 +1,5 @@
 # Run: godot --headless --path godot-project --script tools/slice_test_boss.gd
-# The Ashspire Guardian: Encounter spawns a real multi-phase Boss on BOSS floors.
+# The Ashen Tower Guardian: Encounter spawns a real multi-phase Boss on BOSS floors.
 # Verifies spawn/scale/clear-gate, HP-gated phase transitions + signals, per-phase
 # attack sets, spectacle retargeting onto "hero", and death -> defeated + drops
 # out of "enemy". Uses the _initialize/await idiom.
@@ -99,7 +99,7 @@ func _run() -> void:
 ## 1.2: the guardian arrives AFTER the last wave, not at the door.
 func _test_a_boss_floor_holds_its_guardian_behind_the_waves() -> void:
 	var boss_def: Resource = _tower.floors[4]
-	_expect(int(boss_def.floor_type) == 2, "Ashspire floor 5 is BOSS (type 2)")
+	_expect(int(boss_def.floor_type) == 2, "Ashen Tower floor 5 is BOSS (type 2)")
 	var enc: Node = _enc_script.new()
 	_arena.add_child(enc)
 	enc.run_floor(boss_def)
@@ -210,7 +210,7 @@ func _test_a_combat_floor_gets_a_scaled_down_guardian() -> void:
 			"the COMBAT-floor guardian is scaled down (%d hp vs the colossus's %d)"
 				% [int(mini.get("max_hp")), _colossus_hp])
 		_expect(float(mini.get("body_scale")) < 1.0,
-			"...and is physically smaller than the Ashspire colossus")
+			"...and is physically smaller than the Ashen colossus")
 	_completes("a_combat_floor_gets_a_scaled_down_guardian")
 
 

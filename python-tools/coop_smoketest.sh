@@ -11,7 +11,7 @@
 #   enemy_twins       — a client SEES the tell and the bolt that can hit it
 #   HERO_SPELLS       — your friend's magic is visible (the friendly-fire social loop)
 #   BOSS_FX           — the climax of the floor renders on both screens
-#   BOSS_ROSTER       — a NEW-roster boss (not just the Ashspire Guardian) is visible.
+#   BOSS_ROSTER       — a NEW-roster boss (not just the Ashen Guardian) is visible.
 #                       BOSS_FX went green on the Guardian alone while the Scribble,
 #                       the Cartographer and the Illuminator shipped with zero network
 #                       references — so on most floors a client watched a boss attack

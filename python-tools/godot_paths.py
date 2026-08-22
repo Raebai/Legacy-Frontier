@@ -8,7 +8,7 @@ game was renamed "Legacy Frontier" -> "Ashpire", the *engine* immediately starte
 writing to a new directory while four Python tools kept the old name as a
 constant. The failure mode is the nastiest kind this project keeps meeting:
 
-    make_clip.py  ->  Godot writes frames to   .../Ashpire/clips/directed
+    make_clip.py  ->  Godot writes frames to   .../Stickspire/clips/directed
                   ->  the encoder reads        .../Legacy Frontier/clips/directed
 
 Both directories EXIST (the rename migration copied the old one across) and both
@@ -21,6 +21,12 @@ The rename note in docs/NEXT-SESSION.md says plainly: "If the name is ever
 changed again, this happens again. There is no code migration." This is that
 code. One parse of project.godot, and the tools follow the engine wherever it
 goes.
+
+⚠ AND IT WAS EXERCISED FOR REAL on 2026-08-22, when the game was renamed again,
+"Ashpire" -> "Stickspire". Every tool downstream of this module followed without
+a code change; the only edit needed anywhere was `_FALLBACK_NAME` below, which is
+never read while project.godot is readable. That is the whole point of the file,
+and it is now evidence rather than an intention.
 
 Stdlib only, on purpose — every consumer of this is a stdlib(+Pillow) tool and
 none of them should grow a dependency to find a folder.
@@ -39,7 +45,7 @@ GODOT_PROJECT = REPO_ROOT / "godot-project"
 # Only used if project.godot cannot be read at all. Deliberately the CURRENT name:
 # a fallback that is silently wrong is what this module exists to prevent, so if
 # this ever fires it should at least fire toward the truth as of writing.
-_FALLBACK_NAME = "Ashpire"
+_FALLBACK_NAME = "Stickspire"
 
 _NAME_RE = re.compile(r'^\s*config/name\s*=\s*"([^"]*)"', re.MULTILINE)
 

@@ -142,7 +142,7 @@ static func entry(id: String) -> Dictionary:
 	for e: Dictionary in ENTRIES:
 		if String(e["id"]) == id:
 			return e
-	return ENTRIES[1]   # the Ashspire Guardian is the fallback: it always existed
+	return ENTRIES[1]   # the Ashen Guardian is the fallback: it always existed
 
 
 static func has(id: String) -> bool:

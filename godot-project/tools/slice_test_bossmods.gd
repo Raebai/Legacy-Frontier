@@ -3,7 +3,7 @@
 # THE ROSTER AND THE MODIFIERS, WIRED UP. Where slice_test_bossroster.gd asserts the
 # table and the dice, this one spawns real bosses and asserts that:
 #   * a spawn dictionary carrying `bid` builds THAT artist, and one without it still
-#     builds the Ashspire Guardian (the co-op / legacy compatibility line);
+#     builds the Ashen Guardian (the co-op / legacy compatibility line);
 #   * the three new bosses are genuinely different fights, not one fight repainted —
 #     distinct names, sizes, cadences and movesets, with no shared attack id;
 #   * every modifier's rider attaches and does the thing its name claims.
@@ -174,7 +174,7 @@ func _test_bid_picks_the_artist() -> void:
 	await _settle(2)
 	var ls: Script = legacy.get_script() as Script
 	_expect(ls != null and ls.resource_path.ends_with("Boss.gd"),
-		"a spawn dict with NO bid still builds the Ashspire Guardian (legacy/co-op line)")
+		"a spawn dict with NO bid still builds the Ashen Guardian (legacy/co-op line)")
 	_kill(legacy)
 	# An id that is not in the roster must degrade, never crash a floor.
 	var junk: Node = _build("not_a_boss")

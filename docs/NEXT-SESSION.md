@@ -41,12 +41,65 @@ is the same list with more room to explain it.
    collision on the stage the clips are shot on. **It is gated on a maker playtest**,
    not on engineering — resume once the calm-down pass reads right in play.
 
-3. **"Ashpire" vs "Ashspire" — a maker's call, and smaller than it looked.** They are not
-   a typo of each other: **Ashpire** is the GAME (`config/name`, `GameLogo.TITLE`,
-   "Return to Ashpire"); **Ashspire** is the TOWER and its Guardian ("The Ashspire",
-   `TowerDef.display_name`, ~38 files). Two deliberate proper nouns one letter apart.
-   The only question is whether that is confusable enough to rename the tower. Never
-   silently rewritten.
+3. **THE GAME IS NAMED — done, not open.** 2026-08-22: **STICKSPIRE**, tower **The Ashen
+   Tower**, guardian **The Ashen Guardian**. The old Ashpire/Ashspire collision is gone
+   because neither word survives. See "THE RENAME" below.
+
+## ▶ SOCIAL ACCOUNTS — the setup, and the constraint that decides it
+
+Five accounts: TT `@stick.spire` + `@stickspire.arena`, IG the same two, YT `@stickspire`.
+Different clips per account (maker: volume, not mirroring) — so no duplicate-post risk.
+
+**Tool: Upload-Post**, and it is not a taste call — see `docs/content-pipeline.md`.
+Five accounts should group into TWO profiles (one account per platform per profile),
+which is the free tier's limit; confirm at signup before paying the $16/mo.
+
+⚠ **ACCOUNT TYPE DECIDES WHICH MUSIC YOU CAN USE. Get this right at registration.**
+
+| Account | Register as | Why |
+|---|---|---|
+| TikTok x2 | **Personal/Creator** | a TikTok BUSINESS account is locked to the Commercial Music Library — no trending/chart sounds, and there is NO toggle. Only way back is switching to Personal. |
+| IG flagship | **Creator** | full trending audio, but **cannot** publish via API |
+| IG arena | **Business** | publishes via API, but restricted to the Meta Sound Collection |
+| YouTube | — | ⚠ our clips are LANDSCAPE; a landscape upload is a normal video, NOT a Short. Shorts need vertical/square. Use `--portrait`. |
+
+⚠ **AUDIO CANNOT BE FULLY AUTOMATED AND TRENDING AT THE SAME TIME.** Trending sounds are
+attached IN-APP only. Baking a downloaded master into the file does NOT attach it to the
+sound page — TikTok fingerprints on upload and the outcomes are mute / takedown / region
+block / strike, while the video is filed as a new "original sound" nobody browses. The
+sound page is a REFERENCE stamped by the editor; a baked-in copy has no id.
+
+What IS fully automatable: the game's own bed (already produced per clip), and TikTok's
+**Commercial Music Library by track id at publish** (unlocks once an account is
+connected). Plan: arena accounts run hands-off; hand-attach a trending sound only on the
+flagship clips worth pushing (~30 s each).
+
+## ▶ THE RENAME — Ashpire -> STICKSPIRE (2026-08-22)
+
+Maker approved: *"Stickspire is amazing lets do it and yeah fully rename it all"*.
+
+```
+game     Ashpire        -> Stickspire      (config/name, GameLogo.TITLE, death card)
+tower    The Ashspire   -> The Ashen Tower (TowerDef, GameState, ~72 refs)
+boss     Ashspire Guardian -> Ashen Guardian
+theme    ashpire_theme.tres -> stickspire_theme.tres
+user://  .../Ashpire    -> .../Stickspire  (MOVED, 2717 entries, 3.6 GB)
+```
+
+⚠ **THE `user://` DIRECTORY WAS MOVED, NOT COPIED — deliberately.** The previous rename
+(Legacy Frontier -> Ashpire) COPIED it, and because both directories existed and both
+held a folder of the same name, `make_clip` encoded frames from before the rename and
+reported success. A move leaves no stale twin to read from by accident.
+
+✅ **And `godot_paths.py` did its job.** It derives the name from project.godot, so every
+Python tool followed with no code change; the only edit needed was `_FALLBACK_NAME`,
+which is never read while project.godot is readable. The module was written after the
+last rename went wrong — this rename is the evidence it works.
+
+The logo re-rendered: `STICK` in ember, `SPIRE` in chalk, split on the compound seam.
+`_draw_wordmark` now SIZES TO FIT rather than to a constant tuned for a 7-letter word.
+
+176/176 green after the rename.
 
 ## ▶ THE FOUR CLIPS ARE SHOT AND DELIVERED (2026-08-22)
 

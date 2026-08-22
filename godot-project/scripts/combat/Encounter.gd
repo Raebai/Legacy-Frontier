@@ -643,7 +643,7 @@ func _start_wave(index: int) -> void:
 	wave_started.emit(index, _waves.size())
 
 
-## Every floor ends on a guardian. Non-BOSS floors get the same Ashspire
+## Every floor ends on a guardian. Non-BOSS floors get the same Ashen Tower
 ## Guardian scaled down (boss_scale_for_type) — bosses 2-4 are a later phase, so
 ## a lean mini-guardian is the honest placeholder rather than no boss at all.
 func _begin_boss() -> void:
@@ -959,7 +959,7 @@ static func boss_scale_for_type(floor_type: int) -> float:
 ## on four floors out of five.
 ##
 ## The cause was one number doing two jobs. A mini-guardian should LOOK smaller —
-## it is not the Ashspire colossus and it must not pretend to be — but a body at 45%
+## it is not the Ashen colossus and it must not pretend to be — but a body at 45%
 ## size does not have to die at 45% HP. Splitting them lets the fight last long
 ## enough to show its own phases while the silhouette stays honest about rank.
 ##
@@ -1132,7 +1132,7 @@ func _build_tell(td: Dictionary) -> Node:
 ## the guardian so a caller could wire a health banner / phase logic later.
 ##
 ## `body_scale` shrinks the colossus for a non-BOSS floor's mini-guardian (1.0 is
-## the full Ashspire Guardian). It rides in the spawn data, so co-op peers build
+## the full Ashen Guardian). It rides in the spawn data, so co-op peers build
 ## the same size from the same dict.
 ## ── THE ROSTER RIDES IN THE SPAWN DICTIONARY ─────────────────────────────────
 ## `boss_id` names which of BossRoster's four artists drew this floor, and `mods`
@@ -1143,7 +1143,7 @@ func _build_tell(td: Dictionary) -> Node:
 ## byte-identical boss on every peer from identical data.
 ##
 ## Defaulted so every pre-roster caller is unchanged: `spawn_boss(1.4)` from the
-## boss-rush path still builds the plain Ashspire Guardian with no modifiers.
+## boss-rush path still builds the plain Ashen Guardian with no modifiers.
 ##
 ## The per-boss `hp_scale` applied here is IDENTITY, not depth difficulty — a
 ## scribble is a short violent fight and an illuminator is a long one. The depth
@@ -1397,7 +1397,7 @@ func _emit_enemy(data: Dictionary) -> Node:
 func build_enemy_from_data(data: Dictionary) -> CharacterBody2D:
 	var e: CharacterBody2D
 	if bool(data.get("boss", false)):
-		# WHICH ARTIST. Absent on legacy/hand-written spawn dicts -> the Ashspire
+		# WHICH ARTIST. Absent on legacy/hand-written spawn dicts -> the Ashen Tower
 		# Guardian, so every pre-roster caller builds byte-identically to before.
 		e = _boss_scene(String(data.get("bid", BossRoster.GUARDIAN))).instantiate()
 		e.max_hp = int(data["hp"])

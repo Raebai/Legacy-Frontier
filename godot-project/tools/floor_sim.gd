@@ -76,7 +76,7 @@ func _process(_delta: float) -> bool:
 	var gs: GDScript = load(GS_PATH) as GDScript
 	print("")
 	print("════════════════════════════════════════════════════════════════════")
-	print(" FLOOR DURATION ESTIMATE — The Ashspire")
+	print(" FLOOR DURATION ESTIMATE — The Ashen Tower")
 	print(" dps sweep %s · per-target overhead %.2fs · step %.3fs" % [str(_dps_list), _switch, _dt])
 	print(" A SIM IS NOT A PLAYTEST. Enemy AI is off; these are optimistic floors.")
 	print("════════════════════════════════════════════════════════════════════")

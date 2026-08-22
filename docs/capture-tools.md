@@ -20,7 +20,7 @@ python python-tools/run_capture.py boss --open     # ...and open the output fold
 renderer: every tool runs, every tool reports success, and every PNG is blank.
 The runner always picks the GUI build so this cannot happen by accident.
 
-Frames land in `C:\Users\Raaed\AppData\Roaming\Godot\app_userdata\Ashpire`.
+Frames land in `C:\Users\Raaed\AppData\Roaming\Godot\app_userdata\Stickspire`.
 
 ## The tools
 
@@ -29,7 +29,7 @@ Frames land in `C:\Users\Raaed\AppData\Roaming\Godot\app_userdata\Ashpire`.
 | `archivist_capture` | THE ARCHIVIST — the spell tree, drawn. Three frames, because the whole point of | script |
 | `arena_wide_capture` | Wide overview of the whole VersusArena stage (to see the mountain + terrain). | script |
 | `blink_aim_capture` | Shows the three things about blink that no assertion can settle: it goes where you | script |
-| `boss_capture` | Force a floor-5 (BOSS) run and render the Ashspire Guardian across its 3 phases. | script |
+| `boss_capture` | Force a floor-5 (BOSS) run and render the Ashen Guardian across its 3 phases. | script |
 | `boss_redraw_capture` | Render THE FLOOR REDRAWING ITSELF at a boss phase break — all four artists. | script |
 | `bot_clip_capture` | THE CLIP ENGINE — renders a real bot-vs-bot fight to a PNG frame sequence that | script |
 | `cast_pose_capture` | Visual check for the per-spell CAST POSES (magic-overhaul rule 4). Renders the | script |

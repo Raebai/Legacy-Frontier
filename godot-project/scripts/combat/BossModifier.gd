@@ -13,7 +13,7 @@ extends Resource
 ##
 ## ── WHY A RESOURCE PLUS A RIDER NODE ─────────────────────────────────────────
 ## A modifier has to be composable with ANY boss in the roster, including the
-## Ashspire Guardian, whose script must not be edited. So a modifier may not be a
+## Ashen Guardian, whose script must not be edited. So a modifier may not be a
 ## subclass, a mixin, or an `if` inside a boss — it has to reach in from outside.
 ##
 ## What it reaches in with is a RIDER: a plain Node parented to the boss, ticking

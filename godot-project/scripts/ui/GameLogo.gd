@@ -15,12 +15,18 @@ extends Control
 ##   * the Lobby title, live and slowly turning;
 ##   * tools/render_logo.gd, which stamps it to PNG for the icon and the socials.
 ##
-## ⚠ ONE SPELLING. The build shipped config/name = "Ashpire" alongside a tower called
-## "The Ashspire" — the same word, two ways, on the same screen. TITLE is the only place
-## the name is spelled inside a drawing; GameState and TowerDef carry the other copies.
+## ⚠ ONE SPELLING. The build once shipped config/name = "Ashpire" alongside a tower
+## called "The Ashen Tower" — the same word, two ways, on the same screen. The 2026-08-22
+## rename to STICKSPIRE settled it: the game is Stickspire, the tower is The Ashen
+## Tower, and the two no longer rhyme. TITLE is the only place the name is spelled
+## inside a drawing; GameState and TowerDef carry the other copies.
 
 ## The name. See the note above about there being exactly one of it.
-const TITLE: String = "ASHPIRE"
+const TITLE: String = "STICKSPIRE"
+## Where the warm half of the compound ends — STICK|SPIRE.
+const WORDMARK_SPLIT: int = 5
+## The share of the mark's box the wordmark may occupy before it is shrunk to fit.
+const WORDMARK_FIT: float = 0.82
 
 # ── the look, shared with the Lobby palette ─────────────────────────────────
 const PAPER: Color = Color(0.055, 0.052, 0.075)
@@ -190,12 +196,23 @@ func _draw_embers(c: Vector2, r: float, p: float) -> void:
 ## UI; a wordmark wants air between the letters, and there is no theme constant for it.
 func _draw_wordmark(centre: Vector2, box: float) -> void:
 	var font: Font = ThemeDB.fallback_font
+	# ⚠ SIZED TO FIT, NOT TO A CONSTANT. 0.175 was tuned against a SEVEN-letter
+	# wordmark; STICKSPIRE is ten, and the same constant simply ran the mark off both
+	# sides of the circle. Rather than swap one magic number for another that the next
+	# rename breaks again, measure the word and shrink until it sits inside the box.
 	var px: int = int(maxf(box * 0.175, 8.0))
 	var track: float = box * 0.030
 	var total: float = 0.0
 	for ch: String in TITLE:
 		total += font.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + track
 	total -= track
+	if total > box * WORDMARK_FIT:
+		px = int(maxf(float(px) * (box * WORDMARK_FIT) / total, 8.0))
+		track = box * 0.030 * (box * WORDMARK_FIT) / total
+		total = 0.0
+		for ch: String in TITLE:
+			total += font.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + track
+		total -= track
 	var x: float = centre.x - total * 0.5
 	for i: int in TITLE.length():
 		var ch: String = TITLE[i]
@@ -204,7 +221,8 @@ func _draw_wordmark(centre: Vector2, box: float) -> void:
 		# over a video frame, not over PAPER.
 		draw_string_outline(font, at, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, px,
 			maxi(int(box * 0.014), 2), Color(0.02, 0.02, 0.04, 0.92))
-		# ASH carries the ember; PIRE is chalk. One warm word, one cold one.
+		# STICK carries the ember; SPIRE is chalk. One warm word, one cold one — the
+		# split is the compound's own seam, so it is derived rather than a loose 3.
 		draw_string(font, at, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, px,
-			EMBER if i < 3 else CHALK)
+			EMBER if i < WORDMARK_SPLIT else CHALK)
 		x += font.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + track

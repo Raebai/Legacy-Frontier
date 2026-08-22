@@ -4,7 +4,7 @@ extends Node
 ## boss so it can rewrite that boss's behaviour from OUTSIDE it.
 ##
 ## See BossModifier.gd for why modifiers are riders rather than subclasses. The
-## short version: a modifier must compose with ANY boss including the Ashspire
+## short version: a modifier must compose with ANY boss including the Ashen Tower
 ## Guardian, whose script may not be edited, so the only legal seam is "a child node
 ## that pokes fields the boss already has".
 ##

@@ -55,7 +55,7 @@ const REQUIRED_PROJECT_LINES: Array[String] = [
 	# makes it undetectable when it goes missing. Dropped, nothing errors: the menus
 	# just quietly render in stock Godot grey again, which is the exact complaint the
 	# theme was built to answer.
-	'theme/custom="res://assets/ui/ashpire_theme.tres"',
+	'theme/custom="res://assets/ui/stickspire_theme.tres"',
 ]
 
 ## Everything that must be kept OUT of the shipping pack. The MCP entries are the

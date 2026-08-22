@@ -44,7 +44,7 @@ func _run() -> void:
 	var enc_script: GDScript = load(ENC) as GDScript
 	var gs_script: GDScript = load(GS) as GDScript
 
-	print("== STATIC: authored Ashspire tower ==")
+	print("== STATIC: authored Ashen Tower ==")
 	print("floor wave  budget  cap  vanguard  handoff  kills  left%")
 	var tower: Resource = gs_script.build_default_tower()
 	for fi: int in tower.floors.size():

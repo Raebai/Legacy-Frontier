@@ -1,6 +1,6 @@
 class_name TowerBoss
 extends Boss
-## Shared scaffolding for the bosses added alongside the Ashspire Guardian.
+## Shared scaffolding for the bosses added alongside the Ashen Guardian.
 ##
 ## ── WHY THIS EXISTS RATHER THAN THREE PARALLEL BOSS SCRIPTS ──────────────────
 ## `Boss.gd` already owns everything a boss fight needs and none of it is worth
@@ -11,7 +11,7 @@ extends Boss
 ## the second one would be the one with the bugs.
 ##
 ## So the three new artists are SUBCLASSES, and this file is the thin layer that
-## makes subclassing pleasant: it sheds the Ashspire's bespoke dressing (a molten
+## makes subclassing pleasant: it sheds the Ashen Tower's bespoke dressing (a molten
 ## stone core is wrong on ink and gold leaf), re-points the name card and the health
 ## bar at the subclass's own identity, and replaces the hard-coded attack switch
 ## with `_perform(id)`.
@@ -76,7 +76,7 @@ func _perform(_id: String) -> void:
 
 # ------------------------------------------------------------------- lifecycle
 func _ready() -> void:
-	super._ready()              # hp, rig, bar, intro (our _play_intro), Ashspire dressing
+	super._ready()              # hp, rig, bar, intro (our _play_intro), Ashen Tower dressing
 	_shed_ashspire_dressing()
 	_apply_identity()
 	_dress_phase(1)

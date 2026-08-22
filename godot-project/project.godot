@@ -14,7 +14,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 [application]
 
-config/name="Ashpire"
+config/name="Stickspire"
 config/description="Stick-figure spellfighting up an endless tower. Climb it alone or with a friend — friendly fire is always on."
 config/icon="res://assets/brand/icon.png"
 run/main_scene="res://scenes/ui/Lobby.tscn"
@@ -55,7 +55,7 @@ enabled=PackedStringArray("res://addons/auto_reload/plugin.cfg", "res://addons/g
 
 [gui]
 
-theme/custom="res://assets/ui/ashpire_theme.tres"
+theme/custom="res://assets/ui/stickspire_theme.tres"
 
 [input]
 

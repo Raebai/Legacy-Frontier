@@ -226,7 +226,7 @@ func _atk_psalm() -> void:
 
 
 ## ATTENDANTS. Also the override of the base's phase-2 opener, so entering P2
-## summons the Illuminator's own retinue rather than the Ashspire's ember adds.
+## summons the Illuminator's own retinue rather than the Ashen Tower's ember adds.
 ##
 ## Capped twice on purpose: by ADD_CAP (this must not become an add fight) and by
 ## the floor's LIVE ENTITY BUDGET, which the boss does not own and has to ask about

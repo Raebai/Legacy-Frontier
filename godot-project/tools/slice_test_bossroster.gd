@@ -105,7 +105,7 @@ func _test_roster_table_is_sane() -> void:
 		_expect(float(e["speed_scale"]) > 0.0, "roster '%s' has a positive speed_scale" % id)
 	# The Guardian must have no ceiling, or a deep floor could have NO legal boss.
 	_expect(int(BossRoster.entry(BossRoster.GUARDIAN)["max_floor"]) == 0,
-		"the Ashspire Guardian has no depth ceiling (it is the always-legal fallback)")
+		"the Ashen Guardian has no depth ceiling (it is the always-legal fallback)")
 	# An unknown id must degrade to the Guardian rather than crash a spawn.
 	_expect(BossRoster.scene_path("nonsense_id") == BossRoster.scene_path(BossRoster.GUARDIAN),
 		"an unknown boss id falls back to the Guardian")

@@ -588,7 +588,7 @@ func _test_consumed_wall_cleans_up_like_expiry() -> void:
 ## ⚠ THE REGRESSION THE WHOLE LAYER EXISTS FOR, re-asserted with a REAL WALL in the
 ## pairing. Walls park at (0, 0) and draw in world coordinates exactly like the ten
 ## spell spectacles that motivated this design, so a detector that started trusting
-## transforms would report a wall in Ashspire as touching a beam across the arena —
+## transforms would report a wall in Ashen Tower as touching a beam across the arena —
 ## and would report it for EVERY pair, at the top-left corner. This suite adds the
 ## case slice6_test_reactor.gd could not: a live participant whose (0, 0) transform
 ## is real production code rather than a stub's.

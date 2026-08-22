@@ -4,7 +4,7 @@
 #
 # ── the gap this exists to stop coming back ────────────────────────────────────
 # `Boss.gd` grew a co-op helper — `_bfx(kind, data)` — that hands every client a
-# damage-free twin of a spectacle, and the Ashspire Guardian's seven attacks were
+# damage-free twin of a spectacle, and the Ashen Guardian's seven attacks were
 # wired through it. Then three more bosses (Scribble / Cartographer / Illuminator)
 # and six modifier riders landed with ZERO network references between them. On every
 # floor drawing a new artist, which is most of them, a client watched a boss attack
@@ -48,7 +48,7 @@ const CARTOGRAPHER: String = "cartographer"
 const ILLUMINATOR: String = "illuminator"
 
 
-## Every artist that is NOT the base Ashspire Guardian — i.e. every `TowerBoss`
+## Every artist that is NOT the base Ashen Guardian — i.e. every `TowerBoss`
 ## subclass on the roster. Read off `BossRoster` rather than listed here, so a boss
 ## added tomorrow is covered by this suite the moment its row lands. The Guardian is
 ## excluded because it has its own dedicated test above (it is the base class, and

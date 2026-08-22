@@ -1,4 +1,4 @@
-# Force a floor-5 (BOSS) run and render the Ashspire Guardian across its 3 phases.
+# Force a floor-5 (BOSS) run and render the Ashen Guardian across its 3 phases.
 # MUST run with the GUI binary (dummy renderer draws black):
 #   Godot_v4.6.2-stable_win64.exe --path godot-project --script tools/boss_capture.gd
 # Outputs: user://boss_p1.png, boss_p2.png, boss_p3.png

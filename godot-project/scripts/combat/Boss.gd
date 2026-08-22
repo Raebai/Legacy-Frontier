@@ -62,7 +62,7 @@ const BEAM_LANE_LENGTH: float = 900.0
 const BEAM_LANE_WIDTH: float = 40.0
 const BEAM_ACCENT: Color = Color(0.7, 0.4, 1.0, 1.0)
 
-## Guardian size as a fraction of the full Ashspire colossus. Encounter sets this
+## Guardian size as a fraction of the full Ashen colossus. Encounter sets this
 ## pre-_ready from the floor's boss scale: 1.0 on a BOSS floor, smaller for the
 ## mini-guardian that now caps every other floor. Scales the rig + the crown, not
 ## the collision box (which stays a clean rectangle either way).
@@ -114,7 +114,7 @@ func bark_suffix() -> String:
 
 
 ## ── THE REST OF THE IDENTITY, LIFTED OFF `TowerBoss` ─────────────────────────
-## These five used to exist ONLY on `TowerBoss`, which meant the Ashspire Guardian —
+## These five used to exist ONLY on `TowerBoss`, which meant the Ashen Guardian —
 ## the fallback boss, and the most frequently fought body in the tower — could not be
 ## asked what it looks like or how fast it swings. That was invisible until
 ## `slice_test_bossmods` was driven off `BossRoster.ids()` instead of a hand-listed

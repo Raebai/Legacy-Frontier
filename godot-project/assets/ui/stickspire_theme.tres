@@ -230,7 +230,7 @@ shadow_size = 6
 [sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_scroll"]
 
 [resource]
-resource_name = "Ashpire"
+resource_name = "Stickspire"
 Button/colors/font_color = Color(0.93, 0.92, 0.86, 1)
 Button/colors/font_disabled_color = Color(0.62, 0.63, 0.7, 0.45)
 Button/colors/font_focus_color = Color(0.93, 0.92, 0.86, 1)

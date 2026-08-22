@@ -51,7 +51,7 @@ func _process(_delta: float) -> bool:
 	var base: Resource = gs.build_default_tower()
 	print("")
 	print("════════════════════════════════════════════════════════════════════")
-	print(" GENERATED FLOOR DURATION SPREAD — The Ashspire, %d climb seeds" % _rolls)
+	print(" GENERATED FLOOR DURATION SPREAD — The Ashen Tower, %d climb seeds" % _rolls)
 	print(" dps %s · per-target overhead %.2fs · step %.3fs" % [str(_dps_list), _switch, _dt])
 	print(" A SIM IS NOT A PLAYTEST. Enemy AI is off; these are optimistic floors.")
 	print("════════════════════════════════════════════════════════════════════")

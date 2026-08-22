@@ -3,7 +3,7 @@ extends Node2D
 ## THE ARTIST'S MARK — the drawn-on flourish that turns a giant stick figure into a
 ## thing that was DRAWN by somebody.
 ##
-## `BossAdornment` (the Ashspire Guardian's molten core, ember eyes and lava
+## `BossAdornment` (the Ashen Guardian's molten core, ember eyes and lava
 ## cracks) is bespoke: every colour in it is hard-coded orange, because it is a
 ## stone-and-ember colossus and nothing else. The three artists added alongside it
 ## are ink, graphite and gold leaf, and a molten heart in any of them would be

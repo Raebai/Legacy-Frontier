@@ -299,7 +299,7 @@ func enter_run() -> void:
 
 
 ## Prefer a maker-authored tower .tres if one exists; otherwise build the default
-## Ashspire in code. Same data shapes either way.
+## Ashen Tower in code. Same data shapes either way.
 ##
 ## `FloorGen.apply` is the LAST step, and it is deliberately here rather than
 ## inside `build_default_tower()`: eight tools and suites call that static
@@ -371,7 +371,7 @@ func advance_floor() -> void:
 ## Co-op: enter the tower at `floor` WITHOUT a scene change (the Net RPC changes
 ## scene on all peers) and WITHOUT persistence (the host owns climber.json). Sets
 ## the shared run state so every peer's Arena runs in run-mode + builds the same
-## floor (the default Ashspire is code-built identically on both sides).
+## floor (the default Ashen Tower is code-built identically on both sides).
 ## WHERE A PARTY STARTS, given every member's own saved floor.
 ##
 ## The lowest CHECKPOINT in the party — not the lowest floor, and not the host's.
@@ -1095,7 +1095,7 @@ static func parse_climber_save(raw: Dictionary) -> Dictionary:
 
 
 # ======================================================================
-# The Ashspire — the default tower, built in code (a maker-authored
+# The Ashen Tower — the default tower, built in code (a maker-authored
 # data/towers/ashspire.tres wins if present). Five TYPED floors so each plays
 # and reads differently: combat -> combat -> elite -> combat -> boss.
 #
@@ -1150,7 +1150,7 @@ const EARLY_WAVE_BREAKS: Array[float] = [1.8, 1.4, 1.1]
 static func build_default_tower() -> TowerDef:
 	var t := TowerDef.new()
 	t.id = "ashspire"
-	t.display_name = "The Ashspire"
+	t.display_name = "The Ashen Tower"
 	t.theme = floor_env(1)
 	t.floors = [
 		# type, brute%, boss hp×, theme, layout, waves [budget, cap, roster]

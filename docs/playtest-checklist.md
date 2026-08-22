@@ -213,7 +213,7 @@ a full moveset without dying to it.
 | # | boss | the question | verdict | note |
 |---|---|---|---|---|
 | 7.1 | The Scribble | is a short violent fight actually short and violent | | |
-| 7.2 | The Ashspire Guardian | do the three phases escalate | | |
+| 7.2 | The Ashen Tower Guardian | do the three phases escalate | | |
 | 7.3 | The Cartographer | does the slow ruler-and-compass identity land | | |
 | 7.4 | The Illuminator | does it earn being the deep-floor one | | |
 | 7.5 | Every boss attack has a tell you can act on | | |

@@ -73,7 +73,7 @@ var _boss_twins: int = 0
 ## Which boss-fx KINDS this peer has actually built, e.g. {"beam": 3, "zone": 1}.
 ##
 ## ⚠ A BARE COUNT CANNOT PROVE THE THING THAT WAS BROKEN. `_boss_twins` went up on
-## the Ashspire Guardian alone, and the Guardian was the ONE boss already wired — so
+## the Ashen Guardian alone, and the Guardian was the ONE boss already wired — so
 ## a green `boss_twins=7` said nothing about whether the Scribble, the Cartographer,
 ## the Illuminator or any modifier rider crossed the wire. The smoke test asserts on
 ## this breakdown instead, which is the difference between "a boss broadcast arrived"
@@ -886,7 +886,7 @@ func hero_for_peer(peer_id: int) -> Node:
 ## which broadcasts). What did not was everything AFTER the tell.
 ##
 ## ⚠ THE ROSTER GREW AND THIS DID NOT — THE GAP THIS BLOCK NOW CLOSES. The arms
-## below were written against the Ashspire Guardian's seven spectacles, and then
+## below were written against the Ashen Guardian's seven spectacles, and then
 ## three more bosses (Scribble / Cartographer / Illuminator) and six modifier riders
 ## landed with ZERO network references between them. On every floor that draws a new
 ## artist — which is most of them — a client watched a boss attack invisibly.
@@ -1769,7 +1769,7 @@ func _cli_verdict() -> void:
 	var cover_ok: bool = _prop_syncs >= 1
 	var pickup_ok: bool = _pickups_awarded >= 1
 	# THE ROSTER AND THE MODIFIERS. `BOSS_FX` above went green for a year on the
-	# Ashspire Guardian alone while three other bosses and six riders broadcast
+	# Ashen Guardian alone while three other bosses and six riders broadcast
 	# nothing at all — so a count is not enough. These two ask for kinds that ONLY a
 	# new-roster boss and a modifier rider can produce. See `_cli_fire_roster`.
 	var roster_ok: bool = int(_boss_fx_kinds.get("circle", 0)) >= 1

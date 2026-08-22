@@ -158,14 +158,14 @@ func _test_floor_def_synthesis(GS: GDScript) -> void:
 	_completes("floor_def_synthesis")
 
 
-## The default Ashspire tower is a 5-floor typed spine ending in a BOSS.
+## The default Ashen Tower is a 5-floor typed spine ending in a BOSS.
 func _test_tower_authoring(GS: GDScript) -> void:
 	var t: Resource = GS.build_default_tower()
 	# The tower must author EVERY floor the climb can reach — `total_floors()` returns
 	# the authored size, so a short tower silently shrinks the climb and collapses the
 	# checkpoint bands with it.
 	_expect(t.floors.size() == int(GS.TOTAL_FLOORS),
-		"Ashspire authors all %d floors (got %d)" % [int(GS.TOTAL_FLOORS), t.floors.size()])
+		"Ashen Tower authors all %d floors (got %d)" % [int(GS.TOTAL_FLOORS), t.floors.size()])
 	# FloorType: COMBAT=0, ELITE=1, BOSS=2.
 	_expect(int(t.floors[0].floor_type) == 0, "floor 1 is COMBAT")
 	_expect(int(t.floors[2].floor_type) == 1, "floor 3 is ELITE")
