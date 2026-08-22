@@ -57,6 +57,14 @@ API_BASE = "https://api.upload-post.com/api"
 UPLOAD_ENDPOINT = f"{API_BASE}/upload"
 
 # Where the key lives. NEVER hard-code it and never commit it — `.env` is gitignored.
+# ⚠ FORCE UTF-8 ON STDOUT. Windows consoles default to cp1252, and a caption is the
+# one thing here most likely to carry an em dash or an emoji — which printed as `?` in
+# the dry run. The caption SENT was always fine (the JSON is read as UTF-8 and the body
+# is encoded explicitly); it was only the preview that lied. But a preview you cannot
+# trust to show what will be posted defeats the point of having a dry run.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 ENV_KEY = "UPLOAD_POST_API_KEY"
 ENV_FILE = ROOT / ".env"
 
