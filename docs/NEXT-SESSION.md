@@ -48,6 +48,30 @@ is the same list with more room to explain it.
    The only question is whether that is confusable enough to rename the tower. Never
    silently rewritten.
 
+## ▶ THE FOUR CLIPS ARE SHOT AND DELIVERED (2026-08-22)
+
+All four carry BOTH fixes (ult scoring + the opening shot). Scores as shot:
+
+```
+arcanist_vs_shadowblade    PASS 78.2   3 ults   winner_hp  6%
+swordsaint_vs_arcanist     PASS 75.0   3 ults   winner_hp 25%   (needed --seconds 34)
+stormcaller_vs_cryomancer  PASS 70.4   2 ults   winner_hp 15%
+stormcaller_vs_swordsaint       54.7   2 ults   winner_hp 72%   ⚠ below the bar, kept
+```
+
+⚠ **`--seconds 24` IS TOO TIGHT NOW THAT ULTS LAND.** `swordsaint_vs_arcanist` ran out
+the clock and ended mid-fight — the pipeline's own worst outcome — and re-shooting the
+identical matchup at `--seconds 34` scored 75.0 and resolved in 16.8 s. Fights are
+longer and swingier now that the showpiece is being cast. **Consider raising the
+`--seconds` default from 24.** `stormcaller_vs_swordsaint` failing twice may be the same
+cause rather than a bad matchup.
+
+⚠ **THE OTHER FIVE POSTS STILL HAVE THE OLD OPENING.** `juggernaut_vs_stormcaller`,
+`juggernaut_vs_swordsaint`, `warlock_vs_cleric`, `cryomancer_vs_brawler`,
+`shadowblade_vs_juggernaut` were only RE-CUT — audio and titles only. They still open
+off-stage and still have no ults, because both fixes are baked in at SHOOT time. Each
+needs a ~25 min re-shoot. Deliberately not done: the maker judges these four first.
+
 ## ▶ FIXED 2026-08-22 — THE OPENING SHOT
 
 Maker, on the finished clips: *"why does the video always start in the random top left
