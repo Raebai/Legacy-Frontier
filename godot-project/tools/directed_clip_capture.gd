@@ -332,7 +332,33 @@ func _run() -> void:
 	# Hard ceiling on frames WALKED, so a fight that never catches (or a bug that
 	# freezes one) cannot hang the tool forever.
 	var max_walk: int = int((_patience + _seconds + _tail + 8.0) * 60.0)
-	while _saved < max_saved and _walked < max_walk:
+	# ⚠ THE BUDGET CAPS THE FIGHT, NOT THE ENDING. Maker, on a delivered clip:
+	# *"stormcaller vs cryomancer didnt finish properly"* — and it did not. The bout
+	# RESOLVED (the gate scored it PASS 70.4 with a verdict), but the clip stops on the
+	# killing frame: the loser's bar is at 0, the body is still ragdolling, a Chain
+	# Lightning is mid-flight, and then it just ends. No freeze, no result card.
+	#
+	# The cause is this `while` condition, not the tail logic below it. The tail break
+	# is written to hold the shot until the card has had its beat — but it can only fire
+	# from INSIDE the loop, and `_saved < max_saved` had already ended the loop. The
+	# fight resolved at ~21.8 s of a 24 s budget, leaving ~2.2 s when the tail wanted
+	# 3.4 s, so the budget pre-empted the payoff the clip exists to deliver.
+	#
+	# It got worse, not better, when the bots started casting their ultimate again:
+	# fights run longer, so they resolve nearer the budget, so the ending is the part
+	# that gets cut. A bigger `--seconds` alone would NOT fix this — it moves the
+	# cliff without removing it, and every long fight still lands on it.
+	#
+	# So once the match is DECIDED, the loop may overrun the budget by up to the tail
+	# allowance. A fight that never resolves is untouched: it still stops dead at the
+	# budget, which is what the quality gate's no-verdict re-roll is there to catch.
+	var tail_frames: int = int(ceil(_tail * float(_fps))) + 1
+	while _walked < max_walk:
+		if _decided_at < 0.0:
+			if _saved >= max_saved:
+				break            # never resolved inside the budget — the gate re-rolls it
+		elif _saved >= max_saved + tail_frames:
+			break                # decided, and even the tail allowance is spent
 		await process_frame
 		await RenderingServer.frame_post_draw
 		_walked += 1

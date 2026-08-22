@@ -826,7 +826,16 @@ def main() -> int:
                     help="shoot up to this many bouts and keep the first that passes "
                          "the FightScore bar (1 = keep whatever the first roll gives)")
     ap.add_argument("--hp", type=int, default=420)
-    ap.add_argument("--seconds", type=float, default=24.0, help="clip length cap")
+    # ⚠ 24 -> 32, BECAUSE THE FIGHTS GOT LONGER. This is a cap, not a target: the
+    # capture closes the shot as soon as the result card has had its beat, and dead
+    # stage on the end is trimmed after, so a short bout still yields a short clip and
+    # raising this costs those nothing. What it buys is the long ones. Once the bots
+    # started casting their ultimate again, `swordsaint_vs_arcanist` stopped resolving
+    # inside 24 s at all — it ran out the clock and ended mid-swing, which is the exact
+    # outcome the quality gate exists to reject. The identical matchup at 34 s resolved
+    # in 16.8 s and scored 75.0. A budget that causes the failure it is then blamed for
+    # is not a budget.
+    ap.add_argument("--seconds", type=float, default=32.0, help="clip length cap")
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--no-shoot", action="store_true",
                     help="re-cut the audio over an already-shot fight")
