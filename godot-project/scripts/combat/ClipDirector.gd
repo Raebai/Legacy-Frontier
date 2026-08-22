@@ -344,6 +344,24 @@ var _kick: Vector2 = Vector2.ZERO
 ## whole shot in; keeping it here means punch and pull are strictly a presentation
 ## layer over a framing decision they cannot influence.
 var _zoom_smoothed: float = 1.0
+## ⚠ HAS THE SHOT BEEN ESTABLISHED YET? Maker, on the finished clips: *"why does the
+## video always start in the random top left corner or something the camera"*.
+##
+## Both channels below EASE toward their solve — position at `POS_LERP` 7, zoom at
+## `ZOOM_LERP` 2.6 — which is right for every frame except the first one, because on
+## the first frame there is nothing behind them to ease FROM. The camera is a bare
+## `Camera2D.new()` sitting whereever it was added, and `_zoom_smoothed` is seeded in
+## `bind()` from that camera's default zoom (1.0) while a duel actually frames between
+## 0.49 and 1.45. So every clip opened on an off-stage camera at the wrong zoom and
+## spent its first ~0.5 s travelling to the fight — over the VS card, i.e. across the
+## thumbnail and the whole hook.
+##
+## A lerp cannot fix this by being faster; the fault is the STARTING VALUE, not the
+## rate. So the first framed frame ESTABLISHES the shot outright and every frame after
+## it eases exactly as before. This is the same idea as `Camera2D.reset_smoothing()`,
+## done on the director's own state because the director owns the transform
+## (`bind` turns the built-in smoothing off whenever `frames_the_shot`).
+var _established: bool = false
 var _punch_amount: float = 0.0
 var _punch_timer: float = 0.0
 var _punch_duration: float = 0.18
@@ -777,14 +795,22 @@ func _frame(fighters: Array[Node2D], delta: float) -> void:
 	_sample_zoom(want)
 	# The FRAMING decision, smoothed on the director's own state. See `_zoom_smoothed`
 	# for why this is not read back off the camera.
-	_zoom_smoothed = lerpf(_zoom_smoothed, want, clampf(delta * ZOOM_LERP, 0.0, 1.0))
+	if _established:
+		_zoom_smoothed = lerpf(_zoom_smoothed, want, clampf(delta * ZOOM_LERP, 0.0, 1.0))
+	else:
+		# See `_established`. Nothing to ease from on the opening frame.
+		_zoom_smoothed = want
 	# ...then the PRESENTATION on top of it. Both factors are 1.0 whenever nothing is
 	# playing, so a settled shot is byte-identical to the framing solve and the
 	# framing suite still asserts against `camera.zoom` directly.
 	var z: float = compose(_zoom_smoothed, delta)
 	camera.zoom = Vector2(z, z)
-	camera.global_position = camera.global_position.lerp(eye,
-		clampf(delta * POS_LERP, 0.0, 1.0))
+	if _established:
+		camera.global_position = camera.global_position.lerp(eye,
+			clampf(delta * POS_LERP, 0.0, 1.0))
+	else:
+		camera.global_position = eye
+		_established = true
 
 
 ## Give the leans back when the shot has gone illegible. Returns [eye, zoom].
