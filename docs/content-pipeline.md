@@ -134,3 +134,45 @@ to survive three layers — Godot's stdout → `make_clip.py` → `make_post.py`
 been silently swallowed at each of them at least once. When it is lost, `make_post`
 falls through to *"(no fight verdict reported; keeping this take)"* and `--takes` becomes
 an expensive way to shoot once. That fallback line is the symptom; do not ignore it.
+
+---
+
+## 7. Limits — whose, and which ones money can move
+
+Verified 2026-08-22 against the live API and the vendor's pricing.
+
+**Upload-Post's own quota is the easy one, and it is the only one $16 removes.**
+
+| Plan | Cost | Uploads | Profiles |
+|---|---|---|---|
+| Free | £0, no card, no expiry | **10 / month** | 2 |
+| Basic | **$16/mo annual**, $24 monthly | **no quota** | base + add-ons (+5 for $15/mo, +10 for $25/mo) |
+
+⚠ **AN UPLOAD IS COUNTED PER DESTINATION, NOT PER CLIP.** One clip to three accounts
+is three uploads. On the free tier that is about three clips a month, not ten.
+
+⚠ **TIKTOK IS NOT ON THE FREE PLAN.** Free API access covers Instagram, YouTube,
+LinkedIn, Facebook, X, Threads, Pinterest, Reddit and Bluesky. TikTok is paid — which
+is why the first tests run on Instagram and YouTube.
+
+**The platform limits no plan can remove:**
+
+| Platform | Limit | Consequence |
+|---|---|---|
+| **YouTube** | 10,000 API units/day; an upload costs **1,600** | **~6 videos/day** — the binding one |
+| TikTok | 6 requests/min, ~15 posts/day | comfortable at this volume |
+| Instagram | 50 posts / 24h | comfortable at this volume |
+
+**And the four operational traps:**
+
+1. **Tokens expire.** Instagram's lapse around 60 days and posts then fail. The API
+   reports `reauth_required` and `publish_clip.py --check` prints it — run the check
+   before a batch and you see it coming instead of finding an empty feed.
+2. **A draft is not a post.** Nothing is live until it is finished in the app. That is
+   the deliberate cost of being able to attach trending audio (§4).
+3. **Profile names are matched by exact string** between `targets.json` and the
+   aggregator. `--check` cross-checks them; without it a mismatch fails per-target,
+   after the upload, with an error about a profile rather than about spelling.
+4. **Duplicate content across accounts** is the real ToS risk. `publish_clip` staggers
+   same-platform targets 25 minutes and takes a per-target caption — vary the captions
+   properly rather than tweaking one word.
