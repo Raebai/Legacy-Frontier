@@ -439,6 +439,44 @@ def _portrait_vf(card: str) -> str:
         f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2[comp];"
     ) + card
 
+def ends_on_a_still(path: Path, window: float = 1.5) -> float:
+    """Mean frame-to-frame motion over the LAST `window` seconds of a finished clip.
+
+    ⚠ THE QUALITY GATE SCORES THE FIGHT, NOT THE CLIP. `FightScore` asks whether the
+    BOUT was worth watching — lead changes, ultimates, how much health the winner kept
+    — and every one of those questions can be answered YES about a fight whose ending
+    was never filmed. Maker, on a clip the gate had passed at 70.4: *"stormcaller vs
+    cryomancer didnt finish properly"*. It stopped on the killing frame, because the
+    capture's frame budget ran out before the result card had its beat.
+
+    A clip that keeps its ending closes on the result card, which is nearly a still
+    frame; a clip cut on the action closes mid-swing. So the two cases separate cleanly
+    on MOTION, and nothing else here could see the difference. Measured across four
+    delivered clips: three that held their card scored 0.21-0.84, the one that was cut
+    scored 2.96.
+
+    Returns the mean absolute frame-to-frame difference, or -1.0 if it cannot be read.
+    """
+    exe = shutil.which("ffmpeg")
+    if exe is None:
+        return -1.0
+    total = probe_duration(path)
+    if total <= window:
+        return -1.0
+    w, h = 96, 54
+    raw = subprocess.run(
+        [exe, "-v", "error", "-ss", f"{total - window:.2f}", "-i", str(path),
+         "-frames:v", "45", "-vf", f"scale={w}:{h}", "-pix_fmt", "gray",
+         "-f", "rawvideo", "-"], capture_output=True).stdout
+    size = w * h
+    frames = [raw[i * size:(i + 1) * size] for i in range(len(raw) // size)]
+    if len(frames) < 2:
+        return -1.0
+    diffs = [sum(abs(a - b) for a, b in zip(frames[i], frames[i + 1])) / size
+             for i in range(len(frames) - 1)]
+    return sum(diffs) / len(diffs)
+
+
 def mux(args_ns: argparse.Namespace, clip: Path, vo: Path, music: Path | None, out: Path, dur: float,
         music_db: float, game_db: float, vo_db: float, title: str,
         landscape: bool = False) -> None:
@@ -802,6 +840,15 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
     mux(args, clip, vo, music, out, dur, args.music_db, args.game_db, args.vo_db, title,
         landscape=not bool(getattr(args, "portrait", False)))
     print(f"  -> {out.name}  ({out.stat().st_size / 1_048_576:.1f} MB)")
+    # DID IT KEEP ITS ENDING? See `ends_on_a_still`. Reported rather than enforced:
+    # the clip is already encoded by here, and the honest thing is to say so and let
+    # the caller decide, not to silently bin a fight that may have been excellent right
+    # up to the frame it was cut on.
+    tail_motion = ends_on_a_still(out)
+    if tail_motion > 1.5:
+        print(f"     ⚠ THIS CLIP DOES NOT FINISH — it ends mid-action (tail motion "
+              f"{tail_motion:.2f}, a held result card reads under ~1.0). The capture "
+              f"budget cut the result card off. Re-shoot it with a larger --seconds.")
     print(f"     {verify(out)}")
     return out
 
