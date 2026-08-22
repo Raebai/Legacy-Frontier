@@ -151,25 +151,63 @@ def _assert_yt_safe(banner: Path) -> None:
           f"{YT_SAFE[0]}x{YT_SAFE[1]}  " + ("ok" if ok else "*** OUTSIDE THE SAFE BAND ***"))
 
 
+def _alpha_bands(src: Path) -> list[tuple[int, int]]:
+    """Rows of `src` that contain anything, grouped into contiguous bands.
+
+    ⚠ MEASURED, NOT HARDCODED, AND THAT IS A BUG FIX. The first version carried the
+    crop rectangles as literals — mark y87..721, text y883..956 — read off the wordmark
+    as it looked the day this was written. The mark was then redrawn (the cast circle
+    became the cleft tower) and those numbers silently described the wrong pixels: the
+    crop would have sliced through the new art and the failure would have looked like a
+    design choice rather than a stale constant. Reading the alpha channel costs one
+    decode and cannot go stale.
+    """
+    exe = shutil.which("ffmpeg")
+    W = H = 1024
+    raw = subprocess.run([exe, "-v", "error", "-i", str(src), "-vf",
+                          f"scale={W}:{H},format=rgba,extractplanes=a",
+                          "-pix_fmt", "gray", "-f", "rawvideo", "-"],
+                         capture_output=True).stdout
+    rows = [y for y in range(H) if max(raw[y * W:(y + 1) * W], default=0) > 40]
+    if not rows:
+        sys.exit(f"{src.name} looks empty — run tools/render_logo.gd first")
+    bands, start, prev = [], rows[0], rows[0]
+    for y in rows[1:]:
+        if y - prev > 6:
+            bands.append((start, prev))
+            start = y
+        prev = y
+    bands.append((start, prev))
+    return bands
+
+
 def build_horizontal_lockup() -> Path:
     """Mark BESIDE the wordmark, for wide canvases.
 
     `render_logo.gd` draws the mark ABOVE the text, which is right for a square and
     wrong for a 2560x1440 banner whose usable band is 423px tall. Rather than add a
     second layout to the drawing code, the two halves are cut out of the stamped
-    wordmark — their row bands are cleanly separated (mark y87-721, text y883-956,
-    both x195-828), measured off the alpha channel rather than eyeballed."""
+    wordmark — their row bands are cleanly separated, and located by measurement.
+    """
     dst = OUT / LOCKUP_H_NAME
     dst.parent.mkdir(parents=True, exist_ok=True)
-    exe = shutil.which("ffmpeg")
+    bands = _alpha_bands(LOCKUP)
+    if len(bands) < 2:
+        sys.exit(f"expected a mark band and a text band in {LOCKUP.name}, "
+                 f"found {len(bands)}")
+    (mark_y0, mark_y1), (text_y0, text_y1) = bands[0], bands[-1]
+    mark_h, text_h = mark_y1 - mark_y0 + 1, text_y1 - text_y0 + 1
+    print(f"  lockup source: mark rows {mark_y0}-{mark_y1}, "
+          f"text rows {text_y0}-{text_y1}")
+
     mark_tmp, text_tmp = OUT / "_mark.png", OUT / "_text.png"
-    ff(["-i", str(LOCKUP), "-vf", "crop=634:635:195:87", str(mark_tmp)])
-    ff(["-i", str(LOCKUP), "-vf", "crop=633:74:195:883", str(text_tmp)])
+    ff(["-i", str(LOCKUP), "-vf", f"crop=1024:{mark_h}:0:{mark_y0}", str(mark_tmp)])
+    ff(["-i", str(LOCKUP), "-vf", f"crop=1024:{text_h}:0:{text_y0}", str(text_tmp)])
     ff(["-f", "lavfi", "-i", "color=c=black@0.0:s=1900x520:r=1,format=rgba",
         "-i", str(mark_tmp), "-i", str(text_tmp),
         "-filter_complex",
         "[1:v]scale=-1:460:flags=lanczos[m];[2:v]scale=-1:108:flags=lanczos[t];"
-        "[0:v][m]overlay=40:(H-h)/2[a];[a][t]overlay=560:(H-h)/2",
+        "[0:v][m]overlay=(460-overlay_w)/2:(H-h)/2[a];[a][t]overlay=520:(H-h)/2",
         "-frames:v", "1", str(dst)])
     mark_tmp.unlink(missing_ok=True)
     text_tmp.unlink(missing_ok=True)
