@@ -48,6 +48,34 @@ is the same list with more room to explain it.
    The only question is whether that is confusable enough to rename the tower. Never
    silently rewritten.
 
+## ▶ FIXED 2026-08-22 — THE OPENING SHOT
+
+Maker, on the finished clips: *"why does the video always start in the random top left
+corner or something the camera"*. Real, and it affected EVERY clip ever shot.
+
+`ClipDirector._frame` eases both channels toward their solve — position at `POS_LERP` 7,
+zoom at `ZOOM_LERP` 2.6. Right on every frame except the first, because on the first
+there is nothing behind them to ease FROM: the camera is a bare `Camera2D` sitting where
+it was added, and `_zoom_smoothed` is seeded in `bind()` from that camera's default 1.0
+while a duel frames between 0.49 and 1.45. So every clip opened off-stage at the wrong
+zoom and spent ~0.5 s travelling to the fight — under the VS card, i.e. across the
+thumbnail and the whole hook. Measured on the drawn channel, frame 0:
+
+```
+without   638.6 px off-centre on a 640 px frame   offscreen 2/2
+with       44.7 px                                offscreen 0/2
+```
+
+A faster lerp could not have fixed it — the fault is the STARTING VALUE, not the rate.
+The first framed frame now establishes the shot outright.
+
+⚠ **`probe_directed_framing` could never have caught this** — `SETTLE = 150` discards the
+first 150 frames before measuring. New `tools/probe_opening_frame.gd` looks at the
+opening instead. ⚠ **And it under-reports the DURATION**: headless runs uncapped, so the
+first delta saturates the lerp to a full snap and an unfixed build reads settled by frame
+1. Under `--write-movie` the travel really takes ~0.5 s. Frame 0 is the honest signal;
+the rendered mp4 stays the authority.
+
 ## ▶ FIXED 2026-08-21 (evening)
 
 **THE BOTS CAST THEIR SHOWPIECE AGAIN — and the standing lead was wrong.**
