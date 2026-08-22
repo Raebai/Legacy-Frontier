@@ -55,6 +55,8 @@ ROOT = Path(__file__).resolve().parent.parent
 # the pipeline calls `publish()` and does not know who is on the other end.
 API_BASE = "https://api.upload-post.com/api"
 UPLOAD_ENDPOINT = f"{API_BASE}/upload"
+## Read-only. Lists the profiles the key can see and which platforms each has linked.
+USERS_ENDPOINT = f"{API_BASE}/uploadposts/users"
 
 # Where the key lives. NEVER hard-code it and never commit it — `.env` is gitignored.
 # ⚠ FORCE UTF-8 ON STDOUT. Windows consoles default to cp1252, and a caption is the
@@ -108,6 +110,83 @@ def load_key() -> str | None:
             if line.startswith(f"{ENV_KEY}="):
                 return line.split("=", 1)[1].strip().strip('"').strip("'")
     return None
+
+
+def fetch_profiles(key: str, timeout: int = 25) -> dict | None:
+    """Ask the aggregator what is actually connected. Sends nothing, posts nothing."""
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(USERS_ENDPOINT, method="GET",
+                                 headers={"Authorization": f"Apikey {key}"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as e:
+        print(f"  the API refused the key: HTTP {e.code}")
+        return None
+    except Exception as e:                                   # noqa: BLE001
+        print(f"  could not reach the API: {type(e).__name__}: {e}")
+        return None
+
+
+def cmd_check(targets_path: Path) -> int:
+    """What is linked, and does the targets file agree with it?
+
+    ⚠ THIS EXISTS BECAUSE A PROFILE NAME IS A STRING TYPED IN TWO PLACES. The targets
+    file names a profile; the aggregator has its own. They are matched by exact string
+    at upload time, so a mismatch does not fail loudly at the top — it fails per target,
+    after the video has been read and sent, with an error about a profile rather than
+    about your spelling. Cheaper to ask first.
+    """
+    key = load_key()
+    if not key:
+        print(f"No API key. Put {ENV_KEY}=... in {ENV_FILE.name} (it is gitignored).")
+        return 1
+    data = fetch_profiles(key)
+    if data is None:
+        return 1
+
+    profiles = data.get("profiles", []) or []
+    plan, limit = data.get("plan", "?"), data.get("limit", "?")
+    print(f"\nplan {plan}   profiles {len(profiles)}/{limit}\n")
+
+    linked: set[tuple[str, str]] = set()
+    for prof in profiles:
+        name = str(prof.get("username", ""))
+        accounts = prof.get("social_accounts", {}) or {}
+        print(f"  profile {name!r}" + ("   [BLOCKED]" if prof.get("blocked") else ""))
+        any_linked = False
+        for platform, info in accounts.items():
+            # An unconnected platform comes back as an empty string, not a missing key.
+            if not info:
+                continue
+            any_linked = True
+            handle = info.get("handle") or info.get("display_name") or "?"                 if isinstance(info, dict) else str(info)
+            reauth = isinstance(info, dict) and info.get("reauth_required")
+            print(f"      {platform:<10} {handle}" + ("   ⚠ NEEDS RE-AUTH" if reauth else ""))
+            linked.add((name, platform))
+        if not any_linked:
+            print("      (nothing linked yet)")
+
+    if not targets_path.exists():
+        print(f"\nNo targets file at {targets_path} — nothing to cross-check.")
+        return 0
+
+    targets = load_targets(targets_path)
+    print(f"\n  {targets_path.name} asks for {len(targets)} destination(s):")
+    problems = 0
+    for t in targets:
+        ok = (t.profile, t.platform) in linked
+        if not ok:
+            problems += 1
+        print(f"      {t.platform:<10} as {t.profile:<12} " +
+              ("ok" if ok else "*** NOT LINKED — this target would fail ***"))
+    if problems:
+        print(f"\n  {problems} target(s) point at something that is not connected. "
+              f"Fix the profile name or link the account before --live.")
+        return 1
+    print("\n  every target is linked. --live would post to all of them.")
+    return 0
 
 
 def trim_caption(caption: str, platform: str) -> str:
@@ -216,7 +295,8 @@ def send(payloads: list[dict], key: str, timeout: int = 300) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("clip", type=Path, help="the finished .mp4")
+    ap.add_argument("clip", type=Path, nargs="?",
+                    help="the finished .mp4 (not needed with --check)")
     ap.add_argument("--targets", type=Path, default=ROOT / "content" / "targets.json",
                     help="account list (see content/targets.example.json)")
     ap.add_argument("--caption", default="", help="caption used where a target has none")
@@ -225,10 +305,20 @@ def main() -> int:
     ap.add_argument("--publish", action="store_true",
                     help="DIRECT_POST instead of uploading as a draft. ⚠ a published "
                          "clip cannot carry a trending sound — see the module docstring")
+    ap.add_argument("--check", action="store_true",
+                    help="ask the API what is linked and cross-check the targets file; "
+                         "sends nothing")
     ap.add_argument("--live", action="store_true",
                     help="⚠ actually send. Without this it is a dry run and nothing "
                          "leaves the machine")
     args = ap.parse_args()
+
+    # --check is a read-only question about the account setup, so it runs before any
+    # of the clip handling below and needs no clip at all.
+    if args.check:
+        return cmd_check(args.targets)
+    if args.clip is None:
+        ap.error("a clip is required (or use --check)")
 
     if not args.clip.exists():
         print(f"no clip at {args.clip}")
