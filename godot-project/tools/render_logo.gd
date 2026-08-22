@@ -63,6 +63,12 @@ func _stamp(px: int, wordmark: bool, file_name: String) -> void:
 	logo.size = Vector2(px, px)
 	logo.show_wordmark = wordmark
 	logo.frozen_phase = PHASE
+	# ⚠ THE STAMP TAKES THE CLEFT; THE LOBBY KEEPS THE CIRCLE. These PNGs become the app
+	# icon and the social avatars, which platforms draw at ~100px inside a circular crop
+	# — the cast circle's ~70 elements turn to texture at that size. The Lobby draws the
+	# same Control at hundreds of pixels with nothing competing, where that density is
+	# the ceremony, so it sets nothing and gets the circle by default.
+	logo.emblem = GameLogo.Emblem.CLEFT
 	# The wordmark variant needs the emblem to give up room for the letters.
 	logo.emblem_scale = 0.92 if wordmark else 1.0
 	vp.add_child(logo)

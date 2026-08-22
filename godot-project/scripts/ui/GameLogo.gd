@@ -1,28 +1,16 @@
 class_name GameLogo
 extends Control
-## THE MARK — the tower, split, with one ember in the cleft.
+## THE MARK — a magic circle with a spire standing in it, and the wordmark under it,
+## OR the cleft tower. Two emblems, one Control. See `Emblem`.
 ##
-## ⚠ IT IS DRAWN, NOT IMPORTED, AND THAT IS THE POINT. It renders at any size because
-## nothing in it is a bitmap, and it followed the rename to STICKSPIRE without anyone
-## redrawing anything.
-##
-## ⚠ THE CAST CIRCLE USED TO BE THIS MARK, AND IT WAS THE WRONG CALL. The first version
-## was built from MagicCircle's own primitives — a 28-tick ring, a counter-rotating
-## 22-dash ring, 8 spokes, a radial hearth — on the reasoning that the cast circle is
-## the game's signature and the logo should be made of the game's vocabulary. That
-## reasoning is still true about the GAME. It was wrong about the LOGO, for a reason
-## that has nothing to do with taste: about seventy drawn elements inside a circle that
-## a platform renders at roughly a hundred pixels is not a mark, it is texture. Maker,
-## on seeing it as an avatar: *"theres too much going on in the logo"*.
-##
-## So the signature stays where it belongs — in the game, under every caster — and the
-## mark is now the other half of the identity: THE TOWER YOU CLIMB, cleft in two, with a
-## single ember burning in the gap. Three shapes. It reads at 32 px, which the ring
-## never did.
-##
-## ⚠ AND THAT IS WHY NOTHING ROTATES ANY MORE. The old spin lived entirely on the rings;
-## a tower that turns is a tower falling over. The one moving part is the ember, which
-## breathes — see PULSE.
+## ⚠ IT IS DRAWN, NOT IMPORTED, AND THAT IS THE POINT. The one thing this game has that
+## a hundred other stick-figure brawlers do not is the CAST CIRCLE: every spell opens a
+## rotating sigil under the caster, and the maker's stated bar is that those circles are
+## the signature. A logo that was a piece of imported art would be the only thing in the
+## product not made of the game's own vocabulary. This is built from the same primitives
+## MagicCircle uses — a tick ring, a counter-rotating dashed ring, spokes — so the mark
+## and the game cannot drift apart, and it renders at any size because nothing in it is
+## a bitmap.
 ##
 ## Used in two places, which is why it is a Control and not a bespoke Lobby routine:
 ##   * the Lobby title, live and slowly turning;
@@ -44,34 +32,57 @@ const WORDMARK_FIT: float = 0.82
 # ── the look, shared with the Lobby palette ─────────────────────────────────
 const PAPER: Color = Color(0.055, 0.052, 0.075)
 const CHALK: Color = Color(0.93, 0.92, 0.86)
+const GRAPHITE: Color = Color(0.62, 0.63, 0.70)
 ## Ash is not grey, it is a fire that has gone out — so the mark keeps one ember in it.
 const EMBER: Color = Color(0.98, 0.52, 0.20)
 
+const TICKS: int = 28          # matches MagicCircle.TICKS
+const DASHES: int = 22         # matches MagicCircle.DASH_SEGMENTS
+const SPOKES: int = 8          # matches MagicCircle.SPOKES
+const SPIN: float = 0.18       # a logo turns far slower than a cast circle
+
+## ── WHICH EMBLEM ──────────────────────────────────────────────────────────────────
+## ⚠ THERE ARE TWO, AND THE REASON IS A MISTAKE WORTH NOT REPEATING. The cast circle was
+## replaced outright with the cleft tower when the maker picked a simpler mark for the
+## socials — but this Control draws the LOBBY TITLE as well as the stamped PNGs, so
+## "simplify the logo" silently took the spinning sigil off the front door too. Maker:
+## *"no keep the cast circle in the lobby that was awesome ... I liked the spinning and
+## stuff"*. They were right, and the two jobs have opposite requirements:
+##
+##   CAST_CIRCLE — the front door. Big, live, turning, ~70 elements. It is on screen at
+##                 hundreds of pixels with nothing competing, and the density IS the
+##                 ceremony.
+##   CLEFT       — the avatar and the icon. Three shapes, no rotation. A platform draws
+##                 it at ~100px inside a circular crop, where density is not detail,
+##                 it is mush.
+##
+## Same palette, same wordmark, same file, so they cannot drift apart on colour or
+## spelling — which is what having one Control was always for.
+enum Emblem { CAST_CIRCLE, CLEFT }
+
+## Defaults to the circle, so the Lobby — which sets nothing — is untouched.
+@export var emblem: Emblem = Emblem.CAST_CIRCLE
+
 ## ── THE CLEFT, in fractions of the emblem radius so it scales instead of only looking
 ## right at the size it was drawn at.
-## Half-width of the tower at its base.
-##
-## ⚠ MEASURED OFF THE CHOSEN SKETCH, NOT GUESSED. 0.78 came out squat: the sketch runs
-## a half-width of 30 against a height of 78, i.e. 0.39, and 0.78 against a span of
-## 1.22r gave 0.64 — a tower nearly as wide as it is tall, which reads as a gatehouse.
-## 0.48 restores the ratio. A tower's proportions are most of what makes it read as one.
+## Half-width of the tower at its base. Measured off the chosen sketch, which runs a
+## half-width of 30 against a height of 78 — 0.39. At 0.78 it came out nearly as wide as
+## it was tall, which reads as a gatehouse rather than a spire.
 const TOWER_BASE_HW: float = 0.48
-## Half-width of the GAP. The two halves never touch — that is the whole mark.
+## Half-width of the GAP. The two halves never touch — that is the whole mark, and it is
+## a fraction of the radius so the split cannot be eaten as the mark shrinks.
 const CLEFT_HW: float = 0.13
-## Where the outer edge has narrowed to by the top, as a share of the way from the base
-## width in to the cleft.
-##
-## ⚠ THE FIRST VALUE MADE ANTENNAE. Tapering the outer edge all the way to ~1.7x the
-## cleft left each half about a tenth of a radius wide at the shoulder, so the peaks
-## came out as two thin spikes instead of a tower broken in half. Stopping at 0.42
-## keeps a shoulder roughly a third of the base width, which is what reads as masonry.
-const TOWER_TOP_TAPER: float = 0.42
 ## How many stepped floors each half drops through on its outer edge.
 const TOWER_TIERS: int = 3
+## Where the outer edge has narrowed to by the top, as a share of the way in to the
+## cleft. Tapering nearly all the way left each half a tenth of a radius wide at the
+## peak — two antennae rather than a broken tower. 0.42 keeps a shoulder about a third
+## of the base width, which is what reads as masonry.
+const TOWER_TOP_TAPER: float = 0.42
 ## The ember sitting in the cleft.
 const EMBER_R: float = 0.17
-## The ember breathes. The only animation left, and deliberately slow — this is a coal,
-## not a blinking light. A tower that turns is a tower falling over, so nothing spins.
+## The ember breathes. Slow on purpose — a coal, not a blinking light. The cleft never
+## rotates: a tower that turns is a tower falling over.
 const PULSE: float = 0.9
 
 ## Draw the wordmark under the emblem. Off for the app icon, which is square.
@@ -109,8 +120,13 @@ func _draw() -> void:
 	var c: Vector2 = Vector2(size.x * 0.5, (size.y - wordmark_h) * 0.52)
 	var p: float = _phase()
 	_draw_disc(c, r)
-	_draw_cleft_tower(c, r)
-	_draw_ember(c, r, p)
+	if emblem == Emblem.CLEFT:
+		_draw_cleft_tower(c, r)
+		_draw_ember(c, r, p)
+	else:
+		_draw_rings(c, r, p)
+		_draw_spire(c, r)
+		_draw_embers(c, r, p)
 	if show_wordmark:
 		_draw_wordmark(Vector2(size.x * 0.5, size.y - wordmark_h * 0.42), box)
 
@@ -124,12 +140,111 @@ func _draw() -> void:
 ## may as well own that circle instead of floating in a square of nothing.
 func _draw_disc(c: Vector2, r: float) -> void:
 	draw_circle(c, r * 1.03, PAPER)
-	# ⚠ AND THE DISC IS NOW FLAT. It used to carry a disc-wide radial hearth, offset down
-	# to the base of the old five-tier spire. That glow existed to give seventy thin
-	# strokes something warm to sit in. Against three solid shapes it did the opposite:
-	# it turned the near-black ground a muddy brown and pulled the eye off the cleft.
-	# The ember keeps its own tight halo (see `_draw_ember`), which is the only light
-	# the mark needs — and it comes from the thing that is actually burning.
+	# Ember light INSIDE the disc, brightest at the base of the spire where the tower
+	# is burning, not centred — a centred glow reads as a logo effect, an offset one
+	# reads as a light source.
+	# ⚠ AND THE GLOW HAS TO STAY INSIDE THE DISC. The offset hearth's widest ring
+	# reached r*1.24 from centre against a disc of r*1.03, so the overspill landed on
+	# transparency and produced the SAME dirty grey halo the disc was added to remove —
+	# just offset downward, which reads as a drop shadow nobody asked for. The cap is
+	# the geometry: OFFSET + widest radius must not exceed the disc.
+	# ⚠ THE CLEFT WANTS A FLAT GROUND. This hearth exists to give seventy thin strokes
+	# something warm to sit in; against three solid shapes it only turns the near-black
+	# disc muddy brown and pulls the eye off the split. The cleft's ember carries its own
+	# tight halo instead — light from the thing that is actually burning.
+	if emblem == Emblem.CLEFT:
+		return
+	var offset: float = 0.34
+	var hearth: Vector2 = Vector2(c.x, c.y + r * offset)
+	var widest: float = 1.03 - offset
+	# 16 steps rather than 7: at 7 the falloff was visibly BANDED into rings, which on
+	# a mark this simple is the difference between "lit" and "drawn in Paint".
+	for i: int in 16:
+		var f: float = float(i) / 15.0
+		draw_circle(hearth, r * widest * (1.0 - f * 0.72),
+			Color(EMBER.r, EMBER.g, EMBER.b, 0.018 + f * 0.026))
+
+
+func _draw_rings(c: Vector2, r: float, p: float) -> void:
+	# Outer keyline.
+	draw_arc(c, r, 0.0, TAU, 96, CHALK, maxf(r * 0.018, 1.0), true)
+	# Tick ring, turning with the clock.
+	var spin: float = p * SPIN
+	for i: int in TICKS:
+		var a: float = spin + TAU * float(i) / float(TICKS)
+		var long: bool = (i % 7) == 0
+		var inner: float = r * (0.86 if long else 0.91)
+		draw_line(c + Vector2.from_angle(a) * inner,
+			c + Vector2.from_angle(a) * (r * 0.975),
+			EMBER if long else GRAPHITE, maxf(r * 0.014, 1.0), true)
+	# Counter-rotating dashed ring — the read that says "this thing is casting".
+	var back: float = -p * SPIN * 1.6
+	for i: int in DASHES:
+		var a0: float = back + TAU * float(i) / float(DASHES)
+		draw_arc(c, r * 0.73, a0, a0 + TAU / float(DASHES) * 0.5, 8,
+			Color(CHALK.r, CHALK.g, CHALK.b, 0.75), maxf(r * 0.012, 1.0), true)
+	# Spokes, held still, so the mark has a stable skeleton under the moving parts.
+	for i: int in SPOKES:
+		var a: float = TAU * float(i) / float(SPOKES) + PI * 0.125
+		draw_line(c + Vector2.from_angle(a) * (r * 0.60),
+			c + Vector2.from_angle(a) * (r * 0.70),
+			Color(GRAPHITE.r, GRAPHITE.g, GRAPHITE.b, 0.55), maxf(r * 0.010, 1.0), true)
+	draw_arc(c, r * 0.58, 0.0, TAU, 72, Color(CHALK.r, CHALK.g, CHALK.b, 0.55),
+		maxf(r * 0.010, 1.0), true)
+
+
+## THE SPIRE — five tiers narrowing to a spike, which is the shape of the run: the
+## tower IS the game, and it is climbed, so the silhouette reads bottom-heavy and
+## points. Built from tier fractions rather than hand-placed points, so it stays
+## proportional at every size instead of only looking right at the one it was drawn at.
+func _draw_spire(c: Vector2, r: float) -> void:
+	var base_y: float = c.y + r * 0.52
+	var top_y: float = c.y - r * 0.58
+	var tiers: int = 5
+	var span: float = base_y - top_y
+	var right: Array[Vector2] = []
+	for i: int in tiers + 1:
+		var f: float = float(i) / float(tiers)
+		var y: float = base_y - span * f
+		# The half-width tapers, with a lip at each tier so it reads as stacked floors.
+		var hw: float = r * lerpf(0.44, 0.11, f)
+		right.append(Vector2(c.x + hw, y))
+		if i < tiers:
+			# A pronounced lip, so the tiers read as FLOORS rather than as a taper.
+			right.append(Vector2(c.x + hw * 1.06, y - span / float(tiers) * 0.05))
+			right.append(Vector2(c.x + hw * 0.80, y - span / float(tiers) * 0.19))
+	# The spike.
+	right.append(Vector2(c.x + r * 0.036, top_y - r * 0.12))
+	right.append(Vector2(c.x, top_y - r * 0.30))
+	# Mirrored, so the silhouette is exactly symmetrical rather than nearly.
+	var pts: PackedVector2Array = PackedVector2Array()
+	for i: int in range(right.size() - 1, -1, -1):
+		pts.append(Vector2(c.x - (right[i].x - c.x), right[i].y))
+	for v: Vector2 in right:
+		pts.append(v)
+	draw_colored_polygon(pts, CHALK)
+	# The ground the tower stands on, so it is planted instead of floating in the ring.
+	# Kept well inside the dashed ring — at 0.66 it crossed the ring and read as a
+	# strike-through rather than as ground.
+	draw_line(Vector2(c.x - r * 0.50, base_y), Vector2(c.x + r * 0.50, base_y),
+		Color(CHALK.r, CHALK.g, CHALK.b, 0.7), maxf(r * 0.016, 1.0), true)
+	# One lit window per tier — the only warm thing inside the silhouette, so the eye
+	# lands on the tower and not on the ring around it.
+	for i: int in tiers:
+		var f: float = (float(i) + 0.45) / float(tiers)
+		draw_circle(Vector2(c.x, base_y - span * f), maxf(r * 0.026, 1.0), EMBER)
+
+
+## Ash going UP, not falling — the climb again, in the particles.
+func _draw_embers(c: Vector2, r: float, p: float) -> void:
+	for i: int in 7:
+		var jitter: float = sin(float(i) * 12.9898) * 43758.5453
+		jitter -= floor(jitter)
+		var rise: float = fposmod(p * 0.22 + float(i) * 0.143, 1.0)
+		draw_circle(
+			Vector2(c.x + (jitter - 0.5) * r * 1.25, c.y + r * 0.62 - rise * r * 1.35),
+			maxf(r * 0.013, 1.0),
+			Color(EMBER.r, EMBER.g, EMBER.b, sin(rise * PI) * 0.75))
 
 
 ## THE TOWER, CLEFT. Two mirrored halves that never meet, each stepping down and out
