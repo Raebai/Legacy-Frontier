@@ -54,6 +54,7 @@ Needs ffmpeg on PATH. Stdlib + the repo's own tools.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import shutil
@@ -73,6 +74,23 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TOOLS = REPO_ROOT / "python-tools"
 POSTS = REPO_ROOT / "content" / "posts"
 MUSIC_DIR = REPO_ROOT / "content" / "music"
+# ⚠ THE BED POOL — DROP A FILE IN, IT JOINS THE SHUFFLE. No code change, no list to
+# edit. Maker: *"Ive added 6 epic tracks that you can shuffle between ... I will add to
+# the tracks list in future"*. Anything with an audio extension in here is a candidate.
+#
+# It lives under `Effects/`, which is GITIGNORED — correct, because these are licensed
+# third-party masters and do not belong in the repo. The consequence is that a fresh
+# clone has an empty pool, so `pick_bed` says so plainly rather than failing obscurely.
+BED_DIR = REPO_ROOT / "Effects" / "background-audio"
+BED_EXTS = {".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".opus"}
+## What every bed is normalised to before `--music-db` is applied on top.
+##
+## ⚠ THIS IS NOT TIDINESS, IT IS THE WHOLE FEATURE. Measured across the first six
+## tracks the integrated loudness ranged -8.5 to -16.1 LUFS — a 7.6 dB spread. On a
+## fixed `--music-db` that makes the quietest track nearly inaudible and the loudest one
+## a co-star, decided at random by whichever file the shuffle picked. Normalising first
+## is what lets "quiet" mean one thing on every clip.
+BED_TARGET_LUFS = -20.0
 
 # ⚠ THE SAME ORDER AS Hero.HeroClass / make_clip.CLASSES, WHICH IS *NOT* THE
 # ALPHABETICAL ORDER vo_bank.CLASSES uses. vo_bank is keyed by NAME, so the two
@@ -398,6 +416,71 @@ def build_vo(a: int, b: int, with_tail: bool) -> Path:
     dst = POSTS / "_vo" / f"{name}{'' if with_tail else '_names'}.wav"
     dst.parent.mkdir(parents=True, exist_ok=True)
     vo_bank.wavkit.write_wav16(dst, line, vo_bank.wavkit.TARGET_RATE)
+    return dst
+
+
+def pool_beds() -> list[Path]:
+    """Every track currently in the bed pool, in a stable order."""
+    if not BED_DIR.exists():
+        return []
+    return sorted((f for f in BED_DIR.iterdir()
+                   if f.is_file() and f.suffix.lower() in BED_EXTS),
+                  key=lambda f: f.name.lower())
+
+
+def pick_bed(stem: str) -> Path | None:
+    """Choose this matchup's bed from the pool.
+
+    ⚠ DETERMINISTIC FROM THE MATCHUP, NOT RANDOM PER RUN, and that is a workflow
+    decision rather than a purity one. `--no-shoot` re-cuts an existing fight all the
+    time — for the audio fixes, for a caption change — and a bed that reshuffled on
+    every re-cut would mean the clip you approved is not the clip you post. Seeding on
+    the stem gives a stable answer per matchup, spreads 72 matchups across the pool,
+    and reshuffles by itself when a track is added. `--music <file>` pins it outright.
+    """
+    beds = pool_beds()
+    if not beds:
+        return None
+    # Hashed rather than `hash()`: Python salts str hashing per process, so `hash()`
+    # would silently reintroduce the per-run randomness this exists to avoid.
+    digest = hashlib.sha1(stem.encode("utf-8")).digest()
+    return beds[int.from_bytes(digest[:4], "big") % len(beds)]
+
+
+def prepare_bed(track: Path, seconds: float) -> Path | None:
+    """Cut `track` to length and normalise it to `BED_TARGET_LUFS`.
+
+    ⚠ ONE PASS, AND HERE IS WHAT THAT ACTUALLY BUYS — measured on the first six tracks
+    over a 25 s cut, rather than assumed:
+
+        native    -10.8 .. -19.1 LUFS   (8.3 dB spread)
+        prepared  -17.6 .. -19.8 LUFS   (2.2 dB spread)
+
+    So it removes about three quarters of the disagreement, not all of it. Two-pass
+    would tighten the tail, and is not worth a second decode for a bed that then gets
+    attenuated 13 dB and sidechained under the voice — but 2.2 dB is the honest figure
+    and the reason to revisit this if a track ever sounds out of place.
+
+    A 1.2 s fade-in stops the bed from arriving as a step under the announcer's first
+    word; the fade-OUT is applied later in `mux`, which is the only place that knows
+    where the result card lands."""
+    exe = shutil.which("ffmpeg")
+    if exe is None:
+        return None
+    MUSIC_DIR.mkdir(parents=True, exist_ok=True)
+    dst = MUSIC_DIR / f"pool_{track.stem[:40]}_{seconds:.1f}s.wav"
+    if dst.exists() and abs(probe_duration(dst) - seconds) < 0.3:
+        return dst
+    r = subprocess.run(
+        [exe, "-v", "error", "-y", "-t", f"{seconds:.3f}", "-i", str(track),
+         "-af", f"loudnorm=I={BED_TARGET_LUFS}:TP=-2.0:LRA=11,"
+                f"afade=t=in:st=0:d=1.2,aresample=48000",
+         "-ac", "2", "-c:a", "pcm_s16le", str(dst)],
+        capture_output=True, text=True)
+    if r.returncode != 0 or not dst.exists():
+        print(f"  ⚠ could not prepare the bed from {track.name}: "
+              f"{r.stderr.strip().splitlines()[-1] if r.stderr.strip() else 'unknown'}")
+        return None
     return dst
 
 
@@ -830,12 +913,35 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
           f"{' (with the question)' if with_tail else ''}")
 
     POSTS.mkdir(parents=True, exist_ok=True)
-    # ⚠ NO BED UNLESS ASKED. Maker: "remove the background audio ... I will add the
-    # audio myself". The generator and the ducking mixer both still work and
-    # `--music-bed` puts it back; the shipped file is the announcer over the fight's
-    # own audio, with the music hole deliberately left open.
-    music = (Path(args.music) if args.music
-             else build_music(dur) if args.music_bed else None)
+    # ⚠ THE BED IS BACK ON BY DEFAULT, AND FROM A POOL. Maker, 2026-08-22: *"Ive added
+    # 6 epic tracks that you can shuffle between they are all copyright free and usable
+    # keep them in the background of the fight quietly"*. That reverses the earlier
+    # *"remove the background audio ... I will add the audio myself"*, which is why the
+    # old comment is quoted here rather than deleted — the flag it justified still
+    # exists, the default under it has moved.
+    #
+    # Order: an explicit --music wins, then --music-bed for the procedural generator,
+    # then the pool, then nothing. `--no-music` short-circuits the lot.
+    # The `.nomusic.mp4` companion still ships with the hole open for in-app trending
+    # audio — see docs/content-pipeline.md §4. This bed is for the accounts that post
+    # hands-off.
+    music = None
+    if not args.no_music:
+        if args.music:
+            music = Path(args.music)
+        elif args.music_bed:
+            music = build_music(dur)
+        else:
+            track = pick_bed(stem)
+            if track is None:
+                print(f"  no bed — {BED_DIR.relative_to(REPO_ROOT)} is empty "
+                      f"(drop audio files in and they join the shuffle)")
+            else:
+                music = prepare_bed(track, dur)
+                if music is not None:
+                    print(f"  bed: {track.stem[:52]}  "
+                          f"(normalised to {BED_TARGET_LUFS:.0f} LUFS, "
+                          f"then {args.music_db:+.0f} dB, ducked under the voice)")
     out = POSTS / f"{stem}.mp4"
     mux(args, clip, vo, music, out, dur, args.music_db, args.game_db, args.vo_db, title,
         landscape=not bool(getattr(args, "portrait", False)))
@@ -889,7 +995,15 @@ def main() -> int:
     ap.add_argument("--music", help="use this audio file as the bed")
     ap.add_argument("--music-bed", action="store_true",
                     help="add the generated battle bed (OFF by default)")
-    ap.add_argument("--music-db", type=float, default=-9.0)
+    ap.add_argument("--no-music", action="store_true",
+                    help="ship without any bed (the .nomusic companion always has none)")
+    # ⚠ -9 -> -13. Maker: *"keep it quiet ... but again keep it quiet and to the
+    # point"*, said twice in one sentence, which is not an accident. -9 was chosen for a
+    # bed that was meant to be noticed. This one sits under the fight, and the fight's
+    # own SFX roster is the product. Applied ON TOP of BED_TARGET_LUFS, so the two
+    # numbers do different jobs: the LUFS target makes every track agree, this decides
+    # how far under the fight they all sit.
+    ap.add_argument("--music-db", type=float, default=-13.0)
     ap.add_argument("--game-db", type=float, default=0.0)
     ap.add_argument("--vo-db", type=float, default=0.0)
     ap.add_argument("--no-tail", action="store_true",
