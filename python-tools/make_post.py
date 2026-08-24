@@ -34,7 +34,7 @@ THE MIX, and why each number is what it is:
 
   VOICE   sits on top, untouched. It is the hook and the first 2 seconds decide
           whether anything else gets watched.
-  MUSIC   -9 dB, and SIDECHAINED to the voice, so it steps back the moment the
+  MUSIC   -13 dB, and SIDECHAINED to the voice, so it steps back the moment the
           announcer speaks and returns on its own. The bed is also ARRANGED to be
           thin for its first two bars (see generate_battle_music.py), so the duck
           has little work to do and never sounds like a hand on a fader.
@@ -946,6 +946,29 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
     mux(args, clip, vo, music, out, dur, args.music_db, args.game_db, args.vo_db, title,
         landscape=not bool(getattr(args, "portrait", False)))
     print(f"  -> {out.name}  ({out.stat().st_size / 1_048_576:.1f} MB)")
+    # ⚠ THE COMPANION IS BUILT HERE, AND UNTIL NOW IT WAS ONLY PROMISED. The module
+    # docstring has described `<a>_vs_<b>.nomusic.mp4` as a shipped output since the
+    # bed landed, `--no-music`'s own help text refers to it as *"the .nomusic companion"*
+    # — and no line of code ever wrote one. Every flagship clip that was supposed to
+    # get a hand-attached trending sound in the TikTok editor had only the bedded file
+    # to work from, which is the one case where the bed is in the way.
+    #
+    # It is a SECOND ENCODE, not a strip: the bed is sidechained into the mix and
+    # mastered with it, so there is no music track to remove afterwards. Re-muxing from
+    # the same picture with `music=None` is the only honest way to get the hole back.
+    # That costs one more delivery encode per clip; `--no-companion` skips it, and it is
+    # skipped automatically when there was no bed to begin with (the post IS the
+    # companion then, and writing a byte-identical twin would only invite posting the
+    # wrong one).
+    companion = None
+    if music is not None and not args.no_companion:
+        companion = POSTS / f"{stem}.nomusic.mp4"
+        mux(args, clip, vo, None, companion, dur, args.music_db, args.game_db,
+            args.vo_db, title,
+            landscape=not bool(getattr(args, "portrait", False)))
+        print(f"  -> {companion.name}  "
+              f"({companion.stat().st_size / 1_048_576:.1f} MB)  "
+              f"— music hole open, for a trending sound attached in-app")
     # DID IT KEEP ITS ENDING? See `ends_on_a_still`. Reported rather than enforced:
     # the clip is already encoded by here, and the honest thing is to say so and let
     # the caller decide, not to silently bin a fight that may have been excellent right
@@ -997,6 +1020,8 @@ def main() -> int:
                     help="add the generated battle bed (OFF by default)")
     ap.add_argument("--no-music", action="store_true",
                     help="ship without any bed (the .nomusic companion always has none)")
+    ap.add_argument("--no-companion", action="store_true",
+                    help="skip the .nomusic.mp4 twin (saves one delivery encode)")
     # ⚠ -9 -> -13. Maker: *"keep it quiet ... but again keep it quiet and to the
     # point"*, said twice in one sentence, which is not an accident. -9 was chosen for a
     # bed that was meant to be noticed. This one sits under the fight, and the fight's
@@ -1055,9 +1080,19 @@ def main() -> int:
     made = [m for m in made if m is not None]
     print(f"\n{len(made)}/{len(pairs)} post(s) in {POSTS}")
     if made:
-        print("\nNo music bed — add the sound in the TikTok editor, which is also")
-        print("what attaches the post to that sound's page. The announcer and the")
-        print("fight's own audio are already in the file.")
+        # ⚠ THIS USED TO SAY "No music bed", WHICH STOPPED BEING TRUE when the pool
+        # landed and the default flipped back on. It was the last line of every run —
+        # the one place a reader would take at face value — and it described the
+        # opposite of what had just been written to disk.
+        if args.no_music:
+            print("\nNo music bed — add the sound in the TikTok editor, which is also")
+            print("what attaches the post to that sound's page. The announcer and the")
+            print("fight's own audio are already in the file.")
+        else:
+            print("\n.mp4 is postable as-is — announcer, fight, and a bed that owes")
+            print("nobody anything. Post .nomusic.mp4 instead when you want a TRENDING")
+            print("sound: attach it in the app, which is what puts the post on that")
+            print("sound's page. That reach is the only reason to do it by hand.")
     return 0 if made else 1
 
 
