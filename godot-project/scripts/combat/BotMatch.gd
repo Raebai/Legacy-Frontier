@@ -629,6 +629,20 @@ var _decided_at: float = -1.0         # REAL seconds (unscaled) when it was deci
 var _card_shown_at: float = 0.0       # REAL seconds the card actually appeared (0 = not yet)
 var _taunt_until: float = 0.0         # REAL seconds the newest taunt bubble clears
 var _frozen: bool = false
+## ── THE CALL TO ACTION ON THE RESULT FRAME. Maker: *"at the end of the fights going
+## forward as the person dies add a 'follow :)' text in the middle of the screen"*.
+##
+## Lower case and the smiley are deliberate and are NOT a placeholder to be tidied up
+## later: every other word this mode puts on screen is shouted in caps — "FIGHT",
+## "<CLASS> WINS" — so a quiet, friendly, lower-case line is the one thing on the frame
+## that sounds like a person rather than a scoreboard, which is exactly what an ask
+## should sound like.
+const FOLLOW_TEXT: String = "follow :)"
+## Smaller than the 30 the headline uses. It is the second thing to read, not the first,
+## and a CTA that outshouts the result reads as an advert bolted onto a video.
+const FOLLOW_SIZE: int = 22
+const FOLLOW_INK: Color = Color(0.98, 0.52, 0.20)   # EMBER, the brand's one warm colour
+
 var _result_card: Control = null
 var _plates: Array[Dictionary] = []
 var _clock_label: Label = null
@@ -1792,6 +1806,27 @@ func _build_result_card(layer: CanvasLayer) -> void:
 	# duplicate or a debug readout, on the one frame that is the thumbnail.
 	#
 	# `_outcome_word()` stays — the result dictionary and `ClipDirector` both read it.
+	#
+	# ⚠ THE ONE PIECE OF TEXT THAT EARNS ITS PLACE HERE IS A CALL TO ACTION, and that is
+	# not a contradiction of the note above. What got cut was TELEMETRY — an outcome word
+	# the headline already implied, and a clock and two HP totals that had been on screen
+	# the whole fight. This is the opposite: the result frame is the longest-held, least
+	# busy shot in the clip, it is where a viewer decides whether there will be another
+	# one, and nothing else on screen asks them for anything.
+	var follow := _make_label(_result_card, FOLLOW_SIZE, FOLLOW_INK)
+	follow.name = "Follow"
+	# Centred on the FRAME, not hung under the headline: the headline sits at the top and
+	# the fighters' bodies are in the lower half, so the middle band is the only place a
+	# second line can land without covering either.
+	# ⚠ `set_anchors_AND_OFFSETS_preset`, NOT `set_anchors_preset`. The anchors-only call
+	# moves the anchors and leaves the OFFSETS where they were, so the Label kept its
+	# zero size and rendered hard against the top-left corner of the frame — centred
+	# alignment inside a 0x0 box centres nothing. It shipped that way through a full
+	# 176/176 suite run and was only caught by looking at a rendered frame.
+	follow.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	follow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	follow.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	follow.text = FOLLOW_TEXT
 
 
 func _show_result_card() -> void:

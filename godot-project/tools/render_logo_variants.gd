@@ -36,11 +36,13 @@ const PX: int = 512
 const CUT: int = 3          # CHAMFER
 const PAL: int = 0          # EMBER
 const LOOKS: Array[Dictionary] = [
-	{"name": "1_plain.png", "epic": 0},
-	{"name": "2_lit.png", "epic": 1},
-	{"name": "3_rays.png", "epic": 2},
-	{"name": "4_crest.png", "epic": 3},
-	{"name": "5_works.png", "epic": 4},
+	{"name": "0_current.png", "opt": 0},
+	{"name": "1_fill.png", "opt": 1},
+	{"name": "2_tile.png", "opt": 2},
+	{"name": "3_bold.png", "opt": 3},
+	{"name": "4_mark.png", "opt": 4},
+	{"name": "5_hero.png", "opt": 5},
+	{"name": "6_stick.png", "opt": 6},
 ]
 
 
@@ -52,12 +54,12 @@ func _initialize() -> void:
 func _go() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT_DIR))
 	for job: Dictionary in LOOKS:
-		await _stamp(int(job["epic"]), String(job["name"]))
+		await _stamp(int(job["opt"]), String(job["name"]))
 	print("[variants] done — %d files in %s" % [LOOKS.size(), OUT_DIR])
 	quit()
 
 
-func _stamp(epic: int, file_name: String) -> void:
+func _stamp(opt: int, file_name: String) -> void:
 	var vp := SubViewport.new()
 	vp.size = Vector2i(PX, PX)
 	vp.transparent_bg = true
@@ -73,7 +75,8 @@ func _stamp(epic: int, file_name: String) -> void:
 	logo.cleft_look = GameLogo.CleftLook.SIGIL
 	logo.tower_cut = CUT as GameLogo.TowerCut
 	logo.palette = PAL as GameLogo.Palette
-	logo.epic = epic as GameLogo.Epic
+	logo.epic = GameLogo.Epic.PLAIN
+	logo.optimise = opt as GameLogo.Optimise
 	vp.add_child(logo)
 
 	await process_frame

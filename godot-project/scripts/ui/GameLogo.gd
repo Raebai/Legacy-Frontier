@@ -128,6 +128,55 @@ enum Palette { EMBER, ARCANE, FROST, VERDANT, GOLD, BONE }
 enum Epic { PLAIN, LIT, RAYS, CREST, WORKS }
 @export var epic: Epic = Epic.PLAIN
 
+## ── SIX OPTIMISATIONS, EACH TRACEABLE TO ONE AUDIT FINDING.
+##
+## ⚠ THE MEASUREMENT THAT DROVE ALL OF THIS. Decoded from the rendered PLAIN stamp
+## rather than eyeballed: the tower's bounding box is 168x308 on a 512 canvas, so it
+## uses **33% of the width** and its stone covers **20% of the disc**. Apple's own icon
+## guidance and every ASO writeup put the subject at about **80% of the canvas with a
+## 10% margin**. Four fifths of the icon is empty ground — on the one surface that has
+## roughly half a second to land in a grid of competitors.
+##
+##   FILL   the same drawing, scaled until it uses its frame. Nothing else changes.
+##   TILE   stop drawing a circle inside a square. iOS and Android mask icons
+##          THEMSELVES, so a self-drawn disc throws away the corners and then gets
+##          masked again. Ground goes full-bleed and the platform does the cropping.
+##   BOLD   heavier everything, so no element is below the resolve threshold at 48 px.
+##   MARK   no ground at all — silhouette only. "The best logos are recognisable from
+##          the silhouette alone"; this is the version that has to be.
+##   HERO   ONE dominant element, per Apple's "abandon detail for one dominant
+##          element": the sigil leads and the tower supports, instead of two things
+##          splitting the attention.
+##   STICK  a stick figure standing in the gap. The audit's uncomfortable finding: a
+##          tower says ARCHITECTURE, and the game is stick figures fighting with magic.
+##          The most ownable asset the product has is not currently in its mark.
+enum Optimise { NONE, FILL, TILE, BOLD, MARK, HERO, STICK }
+@export var optimise: Optimise = Optimise.NONE
+
+## Per-row multipliers over the base geometry. Empty dict = the mark as chosen.
+##   k     scale on the tower + sigil, disc unchanged
+##   dy    push the tower down, as a share of r
+##   ground  "disc" (default), "tile" (full bleed), "none"
+##   wide  multiplier on the base half-width      cleft  multiplier on the gap
+##   sig   multiplier on the sigil                stick  draw a figure in the gap
+const OPT: Array[Dictionary] = [
+	{},
+	{"k": 1.30},
+	{"k": 1.34, "ground": "tile"},
+	{"k": 1.16, "wide": 1.45, "cleft": 1.30, "sig": 1.30},
+	{"k": 1.34, "ground": "none"},
+	{"k": 0.80, "dy": 0.30, "sig": 2.30},
+	{"k": 1.22, "stick": true, "cleft": 1.25},
+]
+
+
+func _opt() -> Dictionary:
+	return OPT[optimise] as Dictionary
+
+
+func _opt_f(key: String, fallback: float) -> float:
+	return float(_opt().get(key, fallback))
+
 ## ── LIT. Windows are CUT, not drawn: they are filled with the paper colour, so at sizes
 ## where they stop resolving they blend back into the stone as a slightly lighter tower
 ## rather than turning into grey noise. Only some of them burn — a tower lit from top to
@@ -147,6 +196,9 @@ const RAY_SPREAD: float = 0.055
 const CREST_R: float = 0.94
 const CREST_TICKS: int = 24
 const CREST_INSET: float = 0.86
+## STICK — figure height and stroke, as shares of the emblem radius.
+const STICK_H: float = 0.62
+const STICK_W: float = 0.030
 
 const PALETTES: Array[Array] = [
 	# EMBER — the shipped one. Ash that has not quite gone out.
@@ -327,9 +379,25 @@ func _draw() -> void:
 	var disc_r: float = r
 	if emblem == Emblem.CLEFT and epic == Epic.CREST:
 		r *= CREST_INSET
+	# ⚠ THE TOWER SCALES, THE GROUND DOES NOT. Scaling `r` outright would grow the disc
+	# with the tower and leave the ratio — which is the whole complaint — exactly where
+	# it was. The ground keeps `disc_r`; everything drawn ON it takes `r`.
+	if emblem == Emblem.CLEFT:
+		r *= _opt_f("k", 1.0)
 	var c: Vector2 = Vector2(size.x * 0.5, (size.y - wordmark_h) * 0.52)
+	# ⚠ THE GROUND KEEPS THE ORIGINAL CENTRE. `dy` nudges the TOWER within its frame
+	# (HERO drops it so the enlarged sigil has room above); moving the disc with it would
+	# just slide the whole emblem off-centre and change nothing about the composition.
+	var gc: Vector2 = c
+	if emblem == Emblem.CLEFT:
+		c.y += disc_r * _opt_f("dy", 0.0)
 	var p: float = _phase()
-	_draw_disc(c, disc_r)
+	var ground: String = String(_opt().get("ground", "disc"))
+	if emblem != Emblem.CLEFT or ground == "disc":
+		_draw_disc(gc, disc_r)
+	elif ground == "tile":
+		# Full bleed. The platform's own mask is the only crop that reaches a viewer.
+		draw_rect(Rect2(Vector2.ZERO, size), _paper())
 	if emblem == Emblem.CLEFT:
 		# ⚠ THE GLOW GOES BEHIND THE MASONRY, THE COAL IN FRONT OF IT. Drawing the whole
 		# ember last painted 44 translucent orange rings ACROSS the chalk, which stained
@@ -347,7 +415,7 @@ func _draw() -> void:
 				_draw_rift(c, r, p)
 			CleftLook.SIGIL:
 				if epic == Epic.CREST:
-					_draw_crest(c, disc_r, p)
+					_draw_crest(gc, disc_r, p)
 				_draw_ember_glow(c, r, p)
 				_draw_cleft_tower(c, r)
 				if epic == Epic.LIT or epic == Epic.WORKS:
@@ -366,6 +434,8 @@ func _draw() -> void:
 					_draw_sigil(c, r, p)
 				else:
 					_draw_ember_core(c, r, p)
+				if bool(_opt().get("stick", false)):
+					_draw_stickman(c, r)
 			_:
 				_draw_ember_glow(c, r, p)
 				_draw_cleft_tower(c, r)
@@ -514,9 +584,9 @@ func _draw_cleft_tower(c: Vector2, r: float) -> void:
 	var base_y: float = c.y + r * TOWER_FOOT_Y
 	var top_y: float = c.y - r * TOWER_HEAD_Y
 	var span: float = base_y - top_y
-	var outer: float = r * TOWER_BASE_HW
+	var outer: float = r * TOWER_BASE_HW * _opt_f("wide", 1.0)
 	var foot_y: float = base_y - span * CLEFT_FOOT
-	var top_w: float = r * CLEFT_HW_TOP + (outer - r * CLEFT_HW_TOP) * TOWER_TOP_TAPER
+	var top_w: float = r * CLEFT_HW_TOP * _opt_f("cleft", 1.0) + (outer - r * CLEFT_HW_TOP * _opt_f("cleft", 1.0)) * TOWER_TOP_TAPER
 
 	# ⚠ ONE PROFILE, MIRRORED — NOT TWO CODE PATHS. The previous version walked the outer
 	# edge upward for the left half and downward for the right, which is two chances to
@@ -527,11 +597,11 @@ func _draw_cleft_tower(c: Vector2, r: float) -> void:
 	var pts: PackedVector2Array = PackedVector2Array()
 	for v: Vector2 in prof:
 		pts.append(Vector2(c.x - v.x, v.y))
-	pts.append(Vector2(c.x - r * CLEFT_HW_TOP, top_y))
+	pts.append(Vector2(c.x - r * CLEFT_HW_TOP * _opt_f("cleft", 1.0), top_y))
 	# Down the face of the cleft to where it runs out, then across the solid foot.
-	pts.append(Vector2(c.x - r * CLEFT_HW_FOOT, foot_y))
-	pts.append(Vector2(c.x + r * CLEFT_HW_FOOT, foot_y))
-	pts.append(Vector2(c.x + r * CLEFT_HW_TOP, top_y))
+	pts.append(Vector2(c.x - r * CLEFT_HW_FOOT * _opt_f("cleft", 1.0), foot_y))
+	pts.append(Vector2(c.x + r * CLEFT_HW_FOOT * _opt_f("cleft", 1.0), foot_y))
+	pts.append(Vector2(c.x + r * CLEFT_HW_TOP * _opt_f("cleft", 1.0), top_y))
 	for i: int in range(prof.size() - 1, -1, -1):
 		pts.append(Vector2(c.x + prof[i].x, prof[i].y))
 	draw_colored_polygon(pts, _chalk())
@@ -589,7 +659,7 @@ func _draw_ember_glow(c: Vector2, r: float, p: float) -> void:
 	# glow underneath does most of the work so the disc reads lit rather than the circle
 	# reading animated.
 	var breath: float = 0.5 + 0.5 * sin(p * PULSE)
-	var rad: float = r * EMBER_R * (0.93 + 0.07 * breath)
+	var rad: float = r * EMBER_R * _opt_f("sig", 1.0) * (0.93 + 0.07 * breath)
 	# ⚠ OUTSIDE IN, and that ordering is load-bearing. Each ring is drawn OVER the last,
 	# so painting outward would put the faintest, widest wash on top of the core and
 	# haze it; painting inward lets the alphas accumulate toward the middle, which is
@@ -612,7 +682,7 @@ func _light_centre(c: Vector2, r: float) -> Vector2:
 ## it — the halo that says "this is hot", not the light it throws into the room.
 func _draw_ember_core(c: Vector2, r: float, p: float) -> void:
 	var breath: float = 0.5 + 0.5 * sin(p * PULSE)
-	var rad: float = r * EMBER_R * (0.93 + 0.07 * breath)
+	var rad: float = r * EMBER_R * _opt_f("sig", 1.0) * (0.93 + 0.07 * breath)
 	var sc: Vector2 = _light_centre(c, r)
 	for i: int in range(CORE_STEPS, 0, -1):
 		var f: float = float(i) / float(CORE_STEPS)
@@ -632,7 +702,7 @@ func _draw_ember_core(c: Vector2, r: float, p: float) -> void:
 func _draw_sigil(c: Vector2, r: float, p: float) -> void:
 	var breath: float = 0.5 + 0.5 * sin(p * PULSE)
 	var sc: Vector2 = _light_centre(c, r)
-	var rad: float = r * EMBER_R * (0.93 + 0.07 * breath)
+	var rad: float = r * EMBER_R * _opt_f("sig", 1.0) * (0.93 + 0.07 * breath)
 	var lw: float = maxf(r * SIGIL_STROKE, 1.0)
 	draw_arc(sc, rad, 0.0, TAU, 64, _ember(), lw, true)
 	var spin: float = p * SPIN
@@ -661,10 +731,10 @@ func _draw_rift(c: Vector2, r: float, p: float) -> void:
 	# Exactly the cleft's own outline, so the light fills the gap and never spills onto
 	# the stone — the fault that made the first glow stain the chalk yellow.
 	var pts: PackedVector2Array = PackedVector2Array([
-		Vector2(c.x - r * CLEFT_HW_TOP, top_y),
-		Vector2(c.x + r * CLEFT_HW_TOP, top_y),
-		Vector2(c.x + r * CLEFT_HW_FOOT, foot_y),
-		Vector2(c.x - r * CLEFT_HW_FOOT, foot_y)])
+		Vector2(c.x - r * CLEFT_HW_TOP * _opt_f("cleft", 1.0), top_y),
+		Vector2(c.x + r * CLEFT_HW_TOP * _opt_f("cleft", 1.0), top_y),
+		Vector2(c.x + r * CLEFT_HW_FOOT * _opt_f("cleft", 1.0), foot_y),
+		Vector2(c.x - r * CLEFT_HW_FOOT * _opt_f("cleft", 1.0), foot_y)])
 	draw_colored_polygon(pts, Color(_ember().r, _ember().g, _ember().b, 0.90 + 0.10 * breath))
 
 
@@ -733,8 +803,8 @@ func _draw_stone_detail(c: Vector2, r: float) -> void:
 	var base_y: float = c.y + r * TOWER_FOOT_Y
 	var top_y: float = c.y - r * TOWER_HEAD_Y
 	var span: float = base_y - top_y
-	var outer: float = r * TOWER_BASE_HW
-	var top_w: float = r * CLEFT_HW_TOP + (outer - r * CLEFT_HW_TOP) * TOWER_TOP_TAPER
+	var outer: float = r * TOWER_BASE_HW * _opt_f("wide", 1.0)
+	var top_w: float = r * CLEFT_HW_TOP * _opt_f("cleft", 1.0) + (outer - r * CLEFT_HW_TOP * _opt_f("cleft", 1.0)) * TOWER_TOP_TAPER
 	var prof: Array[Vector2] = _side_profile(base_y, top_y, span, outer, top_w)
 	var cut: Color = _paper()
 	var slot: float = maxf(r * WINDOW_W, 1.0)
@@ -745,7 +815,7 @@ func _draw_stone_detail(c: Vector2, r: float) -> void:
 			var f: float = WINDOW_ROWS[i]
 			var y: float = base_y - span * f
 			var hw: float = _hw_at(prof, y, outer)
-			var gap: float = lerpf(r * CLEFT_HW_FOOT, r * CLEFT_HW_TOP,
+			var gap: float = lerpf(r * CLEFT_HW_FOOT * _opt_f("cleft", 1.0), r * CLEFT_HW_TOP * _opt_f("cleft", 1.0),
 				clampf((base_y - span * CLEFT_FOOT - y) / maxf(base_y - span * CLEFT_FOOT - top_y, 0.001), 0.0, 1.0))
 			# Centred in the STONE — between the cleft and the outer edge — so a window can
 			# never straddle either boundary as the tower steps in above it.
@@ -820,3 +890,33 @@ func _draw_crest(c: Vector2, r: float, p: float) -> void:
 			c + Vector2.from_angle(a) * rad,
 			_ember() if long else Color(GRAPHITE.r, GRAPHITE.g, GRAPHITE.b, 0.7),
 			lw, true)
+
+
+## STICK — the game's own subject, standing in the crack. Drawn in the PAPER colour so
+## it is a HOLE in whatever is behind it: dark against the sigil's fire, dark against the
+## chalk if it overlaps the stone. One shape that works on both grounds, which a
+## coloured figure would not.
+##
+## ⚠ THIS IS THE AUDIT'S UNCOMFORTABLE SUGGESTION AND IT IS INCLUDED FOR THAT REASON.
+## The mark is a tower, and a tower says architecture; the product is stick figures
+## fighting with magic, and the stick figure is the most ownable thing it owns. Whether
+## the identity should lead with the place or with the fighter is a brand decision, not
+## a drawing one — so it is put on the table rather than argued for.
+func _draw_stickman(c: Vector2, r: float) -> void:
+	var sc: Vector2 = _light_centre(c, r)
+	var h: float = r * STICK_H
+	var lw: float = maxf(r * STICK_W, 1.5)
+	var ink: Color = _paper()
+	var head_r: float = h * 0.17
+	var head: Vector2 = Vector2(sc.x, sc.y - h * 0.42)
+	var hip: Vector2 = Vector2(sc.x, sc.y + h * 0.12)
+	draw_circle(head, head_r, ink)
+	draw_line(Vector2(sc.x, head.y + head_r), hip, ink, lw, true)
+	# Arms out and slightly down — a fighter's guard reads at a glance; arms straight
+	# down reads as a person queueing.
+	var sh: Vector2 = Vector2(sc.x, sc.y - h * 0.16)
+	draw_line(sh, sh + Vector2(-h * 0.28, h * 0.10), ink, lw, true)
+	draw_line(sh, sh + Vector2(h * 0.28, h * 0.10), ink, lw, true)
+	# Legs planted apart, so the silhouette has a base instead of a point.
+	draw_line(hip, hip + Vector2(-h * 0.20, h * 0.32), ink, lw, true)
+	draw_line(hip, hip + Vector2(h * 0.20, h * 0.32), ink, lw, true)

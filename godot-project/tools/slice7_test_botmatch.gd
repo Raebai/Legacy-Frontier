@@ -17,7 +17,7 @@ const ARENA_SCRIPT: String = "res://scripts/combat/VersusArena.gd"
 
 const TESTS: Array[String] = [
 	"two_bots_no_player", "both_are_hostile", "director_is_bound",
-	"statics_cleared_on_exit", "matchup_is_not_a_mirror",
+	"statics_cleared_on_exit", "matchup_is_not_a_mirror", "follow_cta_is_centred",
 ]
 
 var _ran: bool = false
@@ -36,6 +36,7 @@ func _process(_delta: float) -> bool:
 	_test_both_are_hostile()
 	_test_director_is_bound()
 	_test_matchup_is_not_a_mirror()
+	_test_follow_cta_is_centred()
 	_test_statics_cleared()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
@@ -101,6 +102,49 @@ func _test_director_is_bound() -> void:
 	_expect(d.has_method("heat") and d.has_method("is_hot"),
 		"...and publishes the two questions a capture tool asks")
 	_completes("director_is_bound")
+
+
+## ⚠ THE CALL TO ACTION IS ACTUALLY IN THE MIDDLE OF THE FRAME.
+##
+## This test exists because the first version was NOT, and nothing caught it. It was
+## built with `set_anchors_preset(PRESET_FULL_RECT)`, which moves the anchors and leaves
+## the OFFSETS alone — so the Label kept a 0x0 rect and rendered hard against the
+## top-left corner, where centred alignment inside an empty box centres nothing. The
+## full suite went 176/176 green over it; the fault was only visible in a rendered
+## frame, twenty-five minutes of shoot later.
+##
+## So the assertion is on the LABEL'S RECT rather than on its alignment flags: the flags
+## were correct the whole time and said nothing about where the text landed.
+func _test_follow_cta_is_centred() -> void:
+	if _match == null:
+		_expect(false, "the bot match exists")
+		return
+	var card: Node = _find_by_name(_match, "Follow")
+	_expect(card != null, "the result card carries a Follow label")
+	var lab := card as Label
+	if lab == null:
+		return
+	_expect(lab.text.length() > 0, "...with something written on it")
+	# A full-rect Label inherits its parent's size; a zero-size one is the bug.
+	var sz: Vector2 = lab.size
+	_expect(sz.x > 100.0 and sz.y > 100.0,
+		"...sized to the frame (%.0fx%.0f), not collapsed to a corner" % [sz.x, sz.y])
+	_expect(lab.horizontal_alignment == HORIZONTAL_ALIGNMENT_CENTER
+		and lab.vertical_alignment == VERTICAL_ALIGNMENT_CENTER,
+		"...and centred within it")
+	_completes("follow_cta_is_centred")
+
+
+## Depth-first search by node name — the result card is built in code, so there is no
+## scene path to reach it by.
+func _find_by_name(root: Node, want: String) -> Node:
+	if root.name == want:
+		return root
+	for ch: Node in root.get_children():
+		var hit: Node = _find_by_name(ch, want)
+		if hit != null:
+			return hit
+	return null
 
 
 ## The two fighters are different classes. A mirror match is a legal thing to WATCH
