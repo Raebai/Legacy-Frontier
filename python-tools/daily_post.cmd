@@ -1,15 +1,23 @@
 @echo off
-REM ── THE DAILY POST, as Task Scheduler runs it.
+REM ---- THE DAILY POST, as Task Scheduler runs it. ----
 REM
-REM ⚠ A WRAPPER RATHER THAN THE COMMAND INLINE, and not for tidiness. schtasks takes the
-REM whole command as ONE quoted /TR string, so a python path with spaces plus a script
-REM path with spaces plus a redirect needs three levels of nested quoting that Windows
-REM parses differently depending on who is doing the parsing. A .cmd file has none of
-REM that problem and can be read and run by hand when it misbehaves.
+REM PURE ASCII, DELIBERATELY. The first version of this file carried the same
+REM warning glyphs and em dashes as the rest of the repo, and cmd.exe reads a .cmd
+REM in the console OEM codepage, not UTF-8. Those bytes got mangled, several REM
+REM lines stopped being REM lines, and cmd tried to EXECUTE the fragments:
+REM     'M' is not recognized as an internal or external command
+REM seven times, before stumbling on to the python line by luck. A batch file is not
+REM a source file; keep it to characters cmd cannot misread.
 REM
-REM ⚠ AND IT LOGS. An unattended post that fails silently is worse than no automation:
-REM the maker would believe clips were going out. Every run appends, so the log is the
-REM record of what this thing has actually done.
+REM A WRAPPER RATHER THAN THE COMMAND INLINE: schtasks takes the whole command as one
+REM quoted /TR string, so a python path with spaces plus a script path with spaces
+REM plus a redirect needs three levels of nested quoting that different parsers
+REM disagree about. This file has none of that and can be run by hand to debug.
+REM
+REM AND IT LOGS. An unattended post that fails silently is worse than no automation:
+REM the maker would believe clips were going out. Every run appends.
+REM
+REM Set STICKSPIRE_DAILY_DRY=1 to rehearse this exact command without uploading.
 
 setlocal
 set REPO=%~dp0..

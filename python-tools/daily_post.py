@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -121,6 +122,14 @@ def main() -> int:
                     help="actually post. Without it this is a dry run.")
     ap.add_argument("--status", action="store_true", help="show the queue and stop")
     args = ap.parse_args()
+    # ⚠ AN OFF SWITCH THE SCHEDULED COMMAND CAN SEE. The .cmd wrapper hardcodes --live,
+    # which means the exact line Task Scheduler runs cannot be rehearsed without
+    # posting — so the wrapper would only ever be proven by a real post going out, or
+    # not going out, tomorrow. This env var lets the identical command be executed end
+    # to end (paths, interpreter, logging, exit code) with the upload suppressed.
+    if os.environ.get("STICKSPIRE_DAILY_DRY", "").strip() == "1":
+        args.live = False
+        print("  [STICKSPIRE_DAILY_DRY=1 — upload suppressed for this run]")
 
     accounts = load_accounts()
     ledger = load_ledger()
