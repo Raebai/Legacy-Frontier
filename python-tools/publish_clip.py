@@ -62,6 +62,13 @@ API_BASE = "https://api.upload-post.com/api"
 UPLOAD_ENDPOINT = f"{API_BASE}/upload"
 ## Read-only. Lists the profiles the key can see and which platforms each has linked.
 USERS_ENDPOINT = f"{API_BASE}/uploadposts/users"
+## ⚠ THE VENDOR CAN HOLD A POST UNTIL A DATE, AND THAT CHANGES THE WHOLE ARCHITECTURE.
+## `scheduled_date` (ISO-8601, up to 365 days out) plus `timezone` (IANA) makes the
+## upload a DEPOSIT rather than a publish: their servers do the posting, so the machine
+## that queued it can be asleep, off, or logged out when the post goes live. A local
+## cron only ever simulated this, and simulated it badly — it needed the laptop awake,
+## plugged in, and logged on at exactly the right minute, every day, forever.
+SCHEDULE_ENDPOINT = f"{API_BASE}/uploadposts/schedule"
 
 # Where the key lives. NEVER hard-code it and never commit it — `.env` is gitignored.
 # ⚠ FORCE UTF-8 ON STDOUT. Windows consoles default to cp1252, and a caption is the
@@ -132,6 +139,40 @@ def fetch_profiles(key: str, timeout: int = 25) -> dict | None:
     except Exception as e:                                   # noqa: BLE001
         print(f"  could not reach the API: {type(e).__name__}: {e}")
         return None
+
+
+def list_scheduled(key: str, timeout: int = 25) -> list[dict]:
+    """Every post the VENDOR is holding for a future date. The only honest source of
+    truth about what will go out — a local ledger records what we asked for, not what
+    they accepted."""
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(SCHEDULE_ENDPOINT, method="GET",
+                                 headers={"Authorization": f"Apikey {key}"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode("utf-8", "replace")).get(
+                "scheduled_posts", []) or []
+    except urllib.error.HTTPError as e:
+        print(f"  could not list the schedule: HTTP {e.code} {e.read()[:200]!r}")
+        return []
+    except Exception as e:                                   # noqa: BLE001
+        print(f"  could not reach the schedule endpoint: {type(e).__name__}: {e}")
+        return []
+
+
+def cancel_scheduled(job_id: str, key: str, timeout: int = 25) -> bool:
+    """Cancel one queued job. Deletes the vendor-side asset with it."""
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(f"{SCHEDULE_ENDPOINT}/{job_id}", method="DELETE",
+                                 headers={"Authorization": f"Apikey {key}"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status == 200
+    except Exception as e:                                   # noqa: BLE001
+        print(f"  could not cancel {job_id}: {e}")
+        return False
 
 
 def cmd_check(targets_path: Path) -> int:
@@ -275,8 +316,16 @@ def load_targets(path: Path) -> list[Target]:
     return targets
 
 
-def send(payloads: list[dict], key: str, timeout: int = 300) -> int:
-    """Actually post. Only ever reached with --live; see the safety note above."""
+def send(payloads: list[dict], key: str, timeout: int = 300,
+         results: list[dict] | None = None) -> int:
+    """Actually post. Only ever reached with --live; see the safety note above.
+
+    ⚠ 202 IS A SUCCESS, NOT A SURPRISE. A scheduled upload answers `202 Accepted` with
+    a `job_id` rather than `200 OK`; treating any non-200 as a failure would have marked
+    every scheduled post as failed and re-queued the lot on the next run. `results`
+    collects the decoded body per payload so the caller can record that job_id — without
+    it a scheduled post is fire-and-forget and there is no way to list or cancel it.
+    """
     import urllib.error
     import urllib.request
 
@@ -327,7 +376,19 @@ def send(payloads: list[dict], key: str, timeout: int = 300) -> int:
             })
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:
-                print(f"  -> {p.get('platform')} as {p.get('user')}: HTTP {r.status}")
+                raw = r.read().decode("utf-8", "replace")
+                try:
+                    body = json.loads(raw)
+                except json.JSONDecodeError:
+                    body = {"raw": raw[:200]}
+                job = body.get("job_id") or ""
+                when = p.get("scheduled_date", "")
+                note = f"  scheduled {when}  job {job}" if job else ""
+                print(f"  -> {p.get('platform')} as {p.get('user')}: "
+                      f"HTTP {r.status}{note}")
+                if results is not None:
+                    results.append({"user": p.get("user"), "job_id": job,
+                                    "scheduled_date": when, "status": r.status})
         except urllib.error.HTTPError as e:
             print(f"  ! {p.get('platform')} as {p.get('user')}: HTTP {e.code} "
                   f"{e.read()[:300]!r}")

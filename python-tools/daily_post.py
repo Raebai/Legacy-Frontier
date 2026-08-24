@@ -1,9 +1,26 @@
 #!/usr/bin/env python3
-"""ONE POST PER ACCOUNT PER DAY, from the clips already on disk.
+"""ONE POST PER ACCOUNT PER DAY — QUEUED AT THE VENDOR, not run from this machine.
 
-    python python-tools/daily_post.py              # dry run — says what it WOULD post
-    python python-tools/daily_post.py --live       # actually post
-    python python-tools/daily_post.py --status     # what is queued, what has gone out
+    python python-tools/daily_post.py --schedule 7          # dry run: next 7 days
+    python python-tools/daily_post.py --schedule 7 --live   # actually queue them
+    python python-tools/daily_post.py --list                # what the VENDOR is holding
+    python python-tools/daily_post.py --cancel-all --live   # unqueue everything
+    python python-tools/daily_post.py --status              # the local ledger
+
+⚠ THE POSTING DOES NOT HAPPEN HERE, AND THAT IS THE POINT. Maker: *"I want it to just
+run every single day no need for me to login like thats the whole point of the API
+right"*. Right — and a Windows scheduled task was the wrong answer to it. That approach
+needed the laptop AWAKE, PLUGGED IN and LOGGED ON at the same minute every day forever,
+and failed silently on any morning it was not: one closed lid, one lost day, no error.
+
+`scheduled_date` makes an upload a DEPOSIT instead of a publish. The video and its
+caption go to Upload-Post now and their servers publish it on the date given, up to 365
+days out. Once a day is queued, this machine is irrelevant to it — off, asleep, logged
+out, reinstalled. Queueing a week takes one run.
+
+⚠ SO ONLY ONE MECHANISM MAY EXIST AT A TIME. A local daily task AND a vendor-side queue
+would both fire and post twice. The Windows task is deleted; if it is ever restored,
+this must not be scheduling.
 
 ⚠ IT DOES NOT SHOOT ANYTHING, AND THAT IS THE WHOLE DESIGN. The obvious build is
 "render a fresh fight each morning and post it", and it is the wrong one on this
@@ -38,7 +55,8 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -55,6 +73,12 @@ if hasattr(sys.stdout, "reconfigure"):
 
 ## Warn here. Two accounts a day means the pool empties twice as fast as it looks.
 LOW_WATER_DAYS = 3
+## ⚠ THE CLOCK IS RESOLVED HERE, NOT AT THE VENDOR. The API accepts an IANA `timezone`
+## alongside the date, but that leaves the interpretation to somebody else's code on the
+## one field where being an hour wrong is visible to an audience. Converting to a
+## UTC instant with a `Z` and sending no timezone is unambiguous — and `zoneinfo` gets
+## the BST/GMT switch right, which a fixed +1 offset would silently break in October.
+POST_TZ = "Europe/London"
 
 
 def title_of(stem: str) -> str:
@@ -105,99 +129,173 @@ def load_accounts() -> list[dict]:
     return json.loads(ACCOUNTS_FILE.read_text(encoding="utf-8"))["accounts"]
 
 
+def spoken_for(ledger: dict) -> set[str]:
+    """Every clip already public OR already sitting in the vendor's queue.
+
+    ⚠ BOTH, and the second half is the one that bites. A clip queued for Thursday has
+    not been posted yet, so a ledger that only tracked `posted` would happily queue it
+    again for Friday — and the duplicate would only surface when both went live.
+    """
+    used: set[str] = set()
+    for by_acct in ledger.get("posted", {}).values():
+        used |= set(by_acct.keys())
+    for row in ledger.get("scheduled", []):
+        used.add(row["clip"])
+    return used
+
+
 def pick(account: str, ledger: dict, taken: set[str]) -> Path | None:
-    """The next clip this account has not had, that no other account is taking today."""
-    done = set(ledger["posted"].get(account, {}).keys())
+    """The next clip nobody has posted, nobody has queued, and nobody is taking now."""
+    used = spoken_for(ledger) | taken
     for clip in pool():
-        if clip.stem in done or clip.stem in taken:
+        if clip.stem in used:
             continue
         return clip
     return None
 
 
+def slot(day_offset: int, hhmm: str) -> tuple[str, str]:
+    """(what the vendor is told, what a human reads) for a post `day_offset` days out."""
+    hh, mm = (int(x) for x in hhmm.split(":"))
+    local = (datetime.now(ZoneInfo(POST_TZ)) + timedelta(days=day_offset)).replace(
+        hour=hh, minute=mm, second=0, microsecond=0)
+    utc = local.astimezone(timezone.utc)
+    return utc.strftime("%Y-%m-%dT%H:%M:%SZ"), local.strftime("%a %d %b %H:%M %Z")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--schedule", type=int, metavar="DAYS",
+                    help="queue this many days at the vendor, starting tomorrow")
     ap.add_argument("--live", action="store_true",
-                    help="actually post. Without it this is a dry run.")
-    ap.add_argument("--status", action="store_true", help="show the queue and stop")
+                    help="actually talk to the API. Without it everything is a dry run.")
+    ap.add_argument("--status", action="store_true", help="the local ledger")
+    ap.add_argument("--list", action="store_true", help="what the VENDOR is holding")
+    ap.add_argument("--cancel-all", action="store_true",
+                    help="cancel every queued post and forget them locally")
     args = ap.parse_args()
-    # ⚠ AN OFF SWITCH THE SCHEDULED COMMAND CAN SEE. The .cmd wrapper hardcodes --live,
-    # which means the exact line Task Scheduler runs cannot be rehearsed without
-    # posting — so the wrapper would only ever be proven by a real post going out, or
-    # not going out, tomorrow. This env var lets the identical command be executed end
-    # to end (paths, interpreter, logging, exit code) with the upload suppressed.
-    if os.environ.get("STICKSPIRE_DAILY_DRY", "").strip() == "1":
-        args.live = False
-        print("  [STICKSPIRE_DAILY_DRY=1 — upload suppressed for this run]")
 
     accounts = load_accounts()
     ledger = load_ledger()
+    ledger.setdefault("scheduled", [])
     clips = pool()
 
     if args.status:
-        print(f"\n{len(clips)} clip(s) in the pool\n")
+        used = spoken_for(ledger)
+        print()
+        print(f"{len(clips)} clip(s) on disk, {len(clips) - len(used)} unspoken-for")
+        print()
         for a in accounts:
             done = ledger["posted"].get(a["profile"], {})
-            left = [c for c in clips if c.stem not in done]
-            print(f"  {a['profile']:<20} posted {len(done):>2}   "
-                  f"{len(left):>2} left  ({len(left)} day(s))")
+            queued = [r for r in ledger["scheduled"] if r["profile"] == a["profile"]]
+            print(f"  {a['profile']:<20} posted {len(done):>2}   queued {len(queued):>2}")
             for stem, when in sorted(done.items(), key=lambda kv: kv[1]):
-                print(f"      {when[:10]}  {stem}")
+                print(f"      posted    {when[:10]}  {stem}")
+            for r in sorted(queued, key=lambda r: r["when_utc"]):
+                print(f"      queued    {r['when_local']:<22}  {r['clip']}")
         return 0
 
-    key = pc.load_key() if args.live else None
-    if args.live and not key:
-        print(f"{pc.ENV_KEY} is not set. Nothing sent.")
+    key = pc.load_key()
+    if not key:
+        print(f"{pc.ENV_KEY} is not set. Nothing to do.")
         return 1
 
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    taken: set[str] = set()
-    failures = 0
-    posted_any = False
+    if args.list:
+        rows = pc.list_scheduled(key)
+        print()
+        print(f"the vendor is holding {len(rows)} scheduled post(s)")
+        print()
+        for r in sorted(rows, key=lambda r: str(r.get("scheduled_date"))):
+            title = str(r.get("title") or "").splitlines()
+            print(f"  {str(r.get('scheduled_date'))[:16]:<18} "
+                  f"{str(r.get('profile_username')):<20} "
+                  f"{','.join(r.get('platforms') or []):<11} "
+                  f"{title[0][:32] if title else ''}")
+            print(f"      job {r.get('job_id')}")
+        return 0
 
-    for i, acct in enumerate(accounts):
-        profile = acct["profile"]
-        clip = pick(profile, ledger, taken)
-        if clip is None:
-            print(f"  {profile}: NOTHING LEFT TO POST — every clip in the pool has "
-                  f"already gone out on this account. Shoot more with make_post.py.")
-            failures += 1
-            continue
-        taken.add(clip.stem)
-        caption = f"{title_of(clip.stem)}\n\n{acct['hashtags']}"
-        target = pc.Target(profile=profile, platform=acct["platform"],
-                           caption=caption, draft=bool(acct.get("draft", True)))
-        # ⚠ STAGGERED. Two accounts posting to one platform in the same second is the
-        # spam signal, not the automation itself.
-        target.scheduled_offset_min = i * int(acct.get("stagger_minutes", 0))
-        payloads = pc.build_requests(clip, [target], caption, 0)
-        mode = pc._mode_label(acct["platform"], payloads[0]["post_mode"])
-        print(f"\n  {profile}  ->  {clip.name}  ({clip.stat().st_size / 1e6:.1f} MB)")
-        print(f"      {acct['platform']}   {mode}")
-        print(f"      {caption.splitlines()[0]}")
+    if args.cancel_all:
+        rows = pc.list_scheduled(key)
+        print()
+        print(f"{len(rows)} scheduled post(s) would be cancelled")
+        for r in rows:
+            print(f"  {str(r.get('scheduled_date'))[:16]}  {r.get('profile_username')}"
+                  f"  job {r.get('job_id')}")
         if not args.live:
-            continue
-        if pc.send(payloads, key) == 0:
-            ledger["posted"].setdefault(profile, {})[clip.stem] = today
-            posted_any = True
-        else:
-            failures += 1
+            print()
+            print("DRY RUN - nothing cancelled. Add --live.")
+            return 0
+        gone = 0
+        for r in rows:
+            if pc.cancel_scheduled(str(r.get("job_id")), key):
+                gone += 1
+        ledger["scheduled"] = []
+        save_ledger(ledger)
+        print(f"cancelled {gone}/{len(rows)}; local queue cleared")
+        return 0 if gone == len(rows) else 1
 
-    if posted_any:
+    if not args.schedule:
+        print("Nothing asked for. Try --schedule 7, --status, or --list.")
+        return 1
+
+    failures = 0
+    queued_any = False
+    for day in range(1, args.schedule + 1):
+        taken: set[str] = set()
+        for acct in accounts:
+            profile = acct["profile"]
+            clip = pick(profile, ledger, taken)
+            if clip is None:
+                print()
+                print(f"  day +{day} {profile}: OUT OF CLIPS - every fight on disk is "
+                      f"already posted or already queued.")
+                failures += 1
+                continue
+            taken.add(clip.stem)
+            when_utc, when_local = slot(day, acct.get("post_time", "10:00"))
+            caption = f"{title_of(clip.stem)}\n\n{acct['hashtags']}"
+            target = pc.Target(profile=profile, platform=acct["platform"],
+                               caption=caption, draft=bool(acct.get("draft", True)))
+            payloads = pc.build_requests(clip, [target], caption, 0)
+            # The vendor holds it until this instant. Sent as UTC with a Z and no
+            # `timezone` field, so there is nothing left for either side to interpret.
+            payloads[0]["scheduled_date"] = when_utc
+            payloads[0].pop("schedule_offset_minutes", None)
+            print()
+            print(f"  {when_local:<22} {profile}")
+            print(f"      {clip.name}  ({clip.stat().st_size / 1e6:.1f} MB)")
+            print(f"      {title_of(clip.stem)}")
+            if not args.live:
+                # A dry run must still reserve the clip, or every day of the preview
+                # would show the same fight and the preview would be a lie.
+                ledger["scheduled"].append({"profile": profile, "clip": clip.stem,
+                                            "when_utc": when_utc,
+                                            "when_local": when_local, "job_id": ""})
+                continue
+            results: list[dict] = []
+            if pc.send(payloads, key, results=results) == 0:
+                ledger["scheduled"].append({
+                    "profile": profile, "clip": clip.stem, "when_utc": when_utc,
+                    "when_local": when_local,
+                    "job_id": results[0]["job_id"] if results else ""})
+                queued_any = True
+            else:
+                failures += 1
+
+    if queued_any:
         save_ledger(ledger)
 
-    # The runway warning, in days rather than in clips, because two accounts a day
-    # empties a pool twice as fast as its length suggests.
-    for acct in accounts:
-        done = ledger["posted"].get(acct["profile"], {})
-        left = len([c for c in clips if c.stem not in done])
-        if left <= LOW_WATER_DAYS:
-            print(f"\n  ⚠ {acct['profile']} has {left} day(s) of clips left. "
-                  f"Shoot more: python python-tools/make_post.py --a N --b M")
+    left = len(clips) - len(spoken_for(ledger))
+    if left <= LOW_WATER_DAYS * len(accounts):
+        print()
+        print(f"  ! {left} clip(s) left unspoken-for - about "
+              f"{left // max(len(accounts), 1)} more day(s) of queue. "
+              f"Shoot more: python python-tools/make_post.py --a N --b M")
 
     if not args.live:
-        print("\nDRY RUN — nothing was sent. Add --live to actually post.")
+        print()
+        print("DRY RUN - nothing was queued. Add --live to actually schedule.")
     return 1 if failures else 0
 
 
