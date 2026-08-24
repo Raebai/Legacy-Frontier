@@ -26,12 +26,17 @@ Unaudited direct-post is not a soft limitation: posts are forced to SELF_ONLY (p
 and capped at ~5 users per 24h. So this targets an aggregator, and defaults to
 Upload-Post — see `docs/content-pipeline.md` for the full comparison and the pricing.
 
-⚠ AND IT UPLOADS AS A DRAFT BY DEFAULT, ON PURPOSE. Video published through ANY API
-cannot use the platform's licensed music library — trending audio can only be applied
-in-app. The maker's stated workflow is *"I will add the music etc."*, which is the same
-constraint arriving from the other direction. `--publish` exists, but draft is the
-default because a clip that posts itself is a clip that can never carry a trending
-sound, and on short-form the sound is half the reach.
+⚠ IT ASKS FOR A DRAFT BY DEFAULT — AND ONLY TIKTOK HAS ONE. Video published through
+ANY API cannot use the platform's licensed music library; trending audio is attachable
+in-app only. TikTok has an INBOX for exactly this, so `MEDIA_UPLOAD` lands the video
+there for a human to finish, which is why it is the default.
+
+INSTAGRAM HAS NO DRAFT STATE AT ALL. Meta's Content Publishing API is create-a-container
+then `media_publish` — there is nowhere for an unfinished post to sit, so `post_mode` is
+ignored and the Reel goes LIVE. This file used to print "DRAFT" for Instagram regardless
+and reported two already-public posts as drafts. Maker: *"they arent drafts they have
+been posted"*. `_mode_label` now answers per platform. Treat an Instagram upload as
+irreversible, because it is.
 
 SAFETY
 ------
@@ -200,6 +205,29 @@ def trim_caption(caption: str, platform: str) -> str:
     return cut + "…"
 
 
+## ⚠ WHICH PLATFORMS ACTUALLY HAVE A DRAFT. Not a style choice — a fact about the
+## upstream APIs, and getting it wrong misreports what a --live run just did to somebody
+## else's audience.
+##
+## TikTok has an INBOX: `MEDIA_UPLOAD` lands the video in the app for a human to finish,
+## which is the whole reason this tool defaults to it. INSTAGRAM HAS NO SUCH THING —
+## Meta's Content Publishing API is create-a-container then `media_publish`, and there
+## is no draft state anywhere in it, so `post_mode` is simply ignored and the Reel goes
+## live. This tool printed "DRAFT (you add the sound in-app)" for Instagram anyway and
+## reported two posts as drafts that were already public. Maker: *"they arent drafts
+## they have been posted"*.
+DRAFT_CAPABLE: frozenset = frozenset({"tiktok"})
+
+
+def _mode_label(platform: str, post_mode: str) -> str:
+    """What will ACTUALLY happen to this upload, per platform."""
+    if post_mode != "MEDIA_UPLOAD":
+        return "PUBLISH IMMEDIATELY"
+    if platform in DRAFT_CAPABLE:
+        return "DRAFT (you finish it in-app)"
+    return "PUBLISH IMMEDIATELY (%s has no draft)" % platform
+
+
 def build_requests(clip: Path, targets: list[Target], caption: str,
                    stagger: int) -> list[dict]:
     """Turn one clip plus a target list into the exact payloads that would be sent.
@@ -360,8 +388,7 @@ def main() -> int:
     print(f"\n{args.clip.name}  ({size_mb:.1f} MB)  ->  {len(payloads)} destination(s)")
     for p in payloads:
         when = p.get("schedule_offset_minutes", 0)
-        mode = "DRAFT (you add the sound in-app)" if p["post_mode"] == "MEDIA_UPLOAD" \
-            else "PUBLISH IMMEDIATELY"
+        mode = _mode_label(p["platform"][0], p["post_mode"])
         delay = f"  +{when}min" if when else ""
         print(f"  {p['platform'][0]:<10} as {p['user']:<18} {mode}{delay}")
         print(f"             \"{p['title'][:70]}\"")

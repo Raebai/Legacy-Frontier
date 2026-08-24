@@ -127,3 +127,9 @@ content/music/
 
 # Social account list — profile names, never commit
 content/targets.json
+content/daily_accounts.json
+content/posted.json
+content/targets.flagship.json
+content/targets.arena.json
+
+content/daily_post.log
