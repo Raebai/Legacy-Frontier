@@ -1011,7 +1011,16 @@ def main() -> int:
     # outcome the quality gate exists to reject. The identical matchup at 34 s resolved
     # in 16.8 s and scored 75.0. A budget that causes the failure it is then blamed for
     # is not a budget.
-    ap.add_argument("--seconds", type=float, default=32.0, help="clip length cap")
+    # ⚠ AND IT IS A CAPTURE BUDGET, NOT A CLIP LENGTH — it used to say "clip length
+    # cap", which is the delivered number and is NOT what this bounds. `--speed` 0.80 is
+    # applied AFTER the capture, so the delivered clip is `seconds / speed` = 1.25x this.
+    # Measured: cryomancer_vs_brawler shot under this 32 s budget delivered 39.6 s, 7.6 s
+    # over the number the flag named. The one place the crossing is already handled is
+    # `est_dur` in the VO-tail decision, which divides by speed for exactly this reason —
+    # so the pipeline knew, and only the help text did not.
+    ap.add_argument("--seconds", type=float, default=32.0,
+                    help="CAPTURE budget in game-seconds; the delivered clip is this "
+                         "divided by --speed (32 -> ~40s at the default 0.80x)")
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--no-shoot", action="store_true",
                     help="re-cut the audio over an already-shot fight")
