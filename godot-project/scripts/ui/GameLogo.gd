@@ -77,14 +77,29 @@ enum Emblem { CAST_CIRCLE, CLEFT }
 ##   RIFT  — no disc at all; the CRACK ITSELF is lit, a wedge of fire in the stone.
 ##   HALO  — a full ember ring behind the tower, so the spire stands against it.
 enum CleftLook { COAL, SIGIL, RIFT, HALO }
-@export var cleft_look: CleftLook = CleftLook.COAL
+## ⚠ SIGIL IS THE DEFAULT NOW. Maker picked it out of the four: *"2 is the best"*.
+@export var cleft_look: CleftLook = CleftLook.SIGIL
+
+## ── HOW THE STONE IS CUT. Four towers under the one chosen light.
+##
+## The light is now FIXED and the stone varies, which is the opposite of the last round
+## and is the right way round for this question: the sigil has been tuned to nest inside
+## the gap between the crowns, and every cut below ends its crown at the same width, so
+## that tuning holds for all four instead of needing to be redone per shape.
+##
+##   STEPPED   three setbacks with a cornice at each — floors stacking.
+##   BATTERED  one straight batter, no floors. A monolith. Survives smallest.
+##   BUTTRESS  a wide plinth under two heavy setbacks. Fortress, not spire.
+##   CHAMFER   the crowns' outer corners cut away, so the tops read BROKEN OFF.
+enum TowerCut { STEPPED, BATTERED, BUTTRESS, CHAMFER }
+@export var tower_cut: TowerCut = TowerCut.STEPPED
 
 ## ── THE CLEFT, in fractions of the emblem radius so it scales instead of only looking
 ## right at the size it was drawn at.
 ## Half-width of the tower at its base. Measured off the chosen sketch, which runs a
 ## half-width of 30 against a height of 78 — 0.39. At 0.78 it came out nearly as wide as
 ## it was tall, which reads as a gatehouse rather than a spire.
-const TOWER_BASE_HW: float = 0.34
+const TOWER_BASE_HW: float = 0.38
 ## ⚠ THE CLEFT STOPS SHORT OF THE GROUND, AND THIS IS THE WHOLE READ OF THE MARK.
 ## It used to run the full height, which meant the two halves never touched at any
 ## point — so the silhouette was two mirrored towers with a slot between them, or a
@@ -97,7 +112,7 @@ const CLEFT_FOOT: float = 0.13
 ## because a crack is widest where it is newest and tightest where it ran out of force —
 ## a constant-width slot reads as machined, which is the opposite of riven.
 const CLEFT_HW_FOOT: float = 0.045
-const CLEFT_HW_TOP: float = 0.115
+const CLEFT_HW_TOP: float = 0.15
 ## How many stepped floors each half drops through on its outer edge.
 const TOWER_TIERS: int = 3
 ## Where the outer edge has narrowed to by the top, as a share of the way in to the
@@ -127,8 +142,18 @@ const TOWER_HEAD_Y: float = 0.78
 ## the top turns each one into a broken-off tower instead of a spike. Fraction of the
 ## tower's height that the crown occupies.
 const CROWN_H: float = 0.055
+## BATTERED — where the straight taper starts. Below this the sides are parallel, so
+## the tower has a footing rather than coming to the ground on a slope like a tent.
+const BATTER_FOOT: float = 0.10
+## BUTTRESS — the plinth's height, how far the wall steps in off it, and two setbacks.
+const BUTTRESS_PLINTH: float = 0.20
+const BUTTRESS_IN: float = 0.84
+const BUTTRESS_HEIGHTS: Array[float] = [0.44, 0.70]
+const BUTTRESS_WIDTHS: Array[float] = [0.55, 1.0]
+## CHAMFER — how far below the crown the cut starts, as a share of the tower height.
+const CHAMFER_DROP: float = 0.085
 ## The ember sitting in the cleft.
-const EMBER_R: float = 0.15
+const EMBER_R: float = 0.105
 ## ── THE GLOW. Six steps at 8.5% alpha produced six visible CONCENTRIC RINGS, which on
 ## a flat dark disc reads as a compression artifact rather than as light — it was the
 ## weakest thing in the mark. Banding is a step-count problem, so the fix is step count
@@ -152,13 +177,19 @@ const CORE_ALPHA: float = 0.055
 ## of the tower rather than in the gap — so it overlapped stone on both sides and read
 ## as a badge stuck on the front. Higher up the cleft has opened, so it sits IN the
 ## split, which is where a thing burning in a crack belongs.
-const SIGIL_Y: float = 0.30
+const SIGIL_Y: float = 0.34
 ## The small cast circle. Eight ticks and nine dashes against the Lobby circle's 28 and
 ## 22 — the same grammar at an element count that survives being 100 px wide.
 const SIGIL_TICKS: int = 8
 const SIGIL_DASHES: int = 9
 const SIGIL_STROKE: float = 0.015
 const SIGIL_CORE: float = 0.40
+## ⚠ THE EMBLEM RADIUS BELOW WHICH THE SIGIL IS NOT DRAWN AT ALL. Its thinnest stroke is
+## `r * SIGIL_STROKE` = r/67, so a stroke stops being a stroke somewhere near r = 90 px
+## — which is a ~210 px box, i.e. everything from the 180 px favicon down. Chosen from
+## that arithmetic and then confirmed by rendering: at 32 px the ring is mud, at 96 px
+## it is a sigil.
+const SIGIL_MIN_R: float = 90.0
 ## The ring the spire stands against in HALO. Thick on purpose: a hairline ring is the
 ## first thing to disappear at icon size.
 const HALO_R: float = 0.62
@@ -225,7 +256,16 @@ func _draw() -> void:
 			CleftLook.SIGIL:
 				_draw_ember_glow(c, r, p)
 				_draw_cleft_tower(c, r)
-				_draw_sigil(c, r, p)
+				# ⚠ THE SIGIL FALLS BACK TO THE COAL WHEN IT IS TOO SMALL TO BE A SIGIL.
+				# MEASURED: rendered at 32 px the ring, the ticks and the broken ring all
+				# land under one pixel each and average together into a DULL BROWN
+				# SMUDGE — strictly worse than the plain disc, because at least the disc
+				# stays bright. Detail that cannot resolve is not neutral, it is dirt.
+				# Above the threshold the ring is the mark; below it, the coal is.
+				if r >= SIGIL_MIN_R:
+					_draw_sigil(c, r, p)
+				else:
+					_draw_ember_core(c, r, p)
 			_:
 				_draw_ember_glow(c, r, p)
 				_draw_cleft_tower(c, r)
@@ -378,42 +418,68 @@ func _draw_cleft_tower(c: Vector2, r: float) -> void:
 	var foot_y: float = base_y - span * CLEFT_FOOT
 	var top_w: float = r * CLEFT_HW_TOP + (outer - r * CLEFT_HW_TOP) * TOWER_TOP_TAPER
 
+	# ⚠ ONE PROFILE, MIRRORED — NOT TWO CODE PATHS. The previous version walked the outer
+	# edge upward for the left half and downward for the right, which is two chances to
+	# get the same shape right and a mirror bug waiting to happen (it had to be MEASURED
+	# against the mark's own reflection to rule one out). Building the right-hand profile
+	# once and negating x for the left makes asymmetry unrepresentable.
+	var prof: Array[Vector2] = _side_profile(base_y, top_y, span, outer, top_w)
 	var pts: PackedVector2Array = PackedVector2Array()
-	# Up the LEFT outer edge, stepping in once per floor.
-	pts.append(Vector2(c.x - outer, base_y))
-	_outer_edge(pts, c, -1.0, base_y, span, outer, top_w, false)
-	# The crown: straight up a little, THEN lean in. That short flat is what stops the
-	# half reading as a triangle.
-	pts.append(Vector2(c.x - top_w, top_y + span * CROWN_H))
+	for v: Vector2 in prof:
+		pts.append(Vector2(c.x - v.x, v.y))
 	pts.append(Vector2(c.x - r * CLEFT_HW_TOP, top_y))
 	# Down the face of the cleft to where it runs out, then across the solid foot.
 	pts.append(Vector2(c.x - r * CLEFT_HW_FOOT, foot_y))
 	pts.append(Vector2(c.x + r * CLEFT_HW_FOOT, foot_y))
-	# Back up the far face, and down the RIGHT outer edge in reverse.
 	pts.append(Vector2(c.x + r * CLEFT_HW_TOP, top_y))
-	pts.append(Vector2(c.x + top_w, top_y + span * CROWN_H))
-	_outer_edge(pts, c, 1.0, base_y, span, outer, top_w, true)
-	pts.append(Vector2(c.x + outer, base_y))
+	for i: int in range(prof.size() - 1, -1, -1):
+		pts.append(Vector2(c.x + prof[i].x, prof[i].y))
 	draw_colored_polygon(pts, CHALK)
 
 
-## The stepped outer edge of one side. `descending` walks the same profile top-down, so
-## the right-hand side of the single loop mirrors the left without a second code path.
-func _outer_edge(pts: PackedVector2Array, c: Vector2, s: float, base_y: float,
-		span: float, outer: float, top_w: float, descending: bool) -> void:
-	var order: Array = range(TOWER_TIERS)
-	if descending:
-		order.reverse()
-	for i: int in order:
-		var y: float = base_y - span * TIER_HEIGHTS[i]
-		var w_above: float = lerpf(outer, top_w, TIER_WIDTHS[i])
-		var w_below: float = outer if i == 0 else lerpf(outer, top_w, TIER_WIDTHS[i - 1])
-		if descending:
-			pts.append(Vector2(c.x + s * w_above, y))
-			pts.append(Vector2(c.x + s * w_below, y))
-		else:
-			pts.append(Vector2(c.x + s * w_below, y))
-			pts.append(Vector2(c.x + s * w_above, y))
+## The RIGHT-hand outer edge, bottom to crown, as offsets from the centreline. Four
+## cuts of the same tower — the maker picked the SIGIL light and asked to "optimise the
+## towers", so the stone is what varies now and the light is held fixed.
+##
+## ⚠ THE CROWN ALWAYS ENDS AT `top_w`, whatever the cut does on the way up. That is what
+## keeps the gap between the crowns the same width in all four, which is what lets the
+## sigil be tuned ONCE rather than per-cut.
+func _side_profile(base_y: float, top_y: float, span: float,
+		outer: float, top_w: float) -> Array[Vector2]:
+	var out: Array[Vector2] = [Vector2(outer, base_y)]
+	match tower_cut:
+		TowerCut.BATTERED:
+			# A monolith: one straight batter from footing to crown, no floors at all.
+			# The quietest silhouette and the one that survives smallest, because there is
+			# nothing on the edge that can turn to fuzz.
+			out.append(Vector2(outer, base_y - span * BATTER_FOOT))
+		TowerCut.BUTTRESS:
+			# A fortress: a wide plinth carrying two heavy setbacks. Fewer, bolder steps
+			# than STEPPED, so each one still reads as a floor at avatar size instead of
+			# three of them merging into a taper.
+			out.append(Vector2(outer, base_y - span * BUTTRESS_PLINTH))
+			out.append(Vector2(outer * BUTTRESS_IN, base_y - span * BUTTRESS_PLINTH))
+			for i: int in BUTTRESS_HEIGHTS.size():
+				var by: float = base_y - span * BUTTRESS_HEIGHTS[i]
+				var bw: float = lerpf(outer * BUTTRESS_IN, top_w, BUTTRESS_WIDTHS[i])
+				out.append(Vector2(out[out.size() - 1].x, by))
+				out.append(Vector2(bw, by))
+		_:
+			# STEPPED and CHAMFER share the floor rhythm; they differ only at the crown.
+			for i: int in TIER_HEIGHTS.size():
+				var y: float = base_y - span * TIER_HEIGHTS[i]
+				var w_above: float = lerpf(outer, top_w, TIER_WIDTHS[i])
+				out.append(Vector2(out[out.size() - 1].x, y))
+				out.append(Vector2(w_above, y))
+	# The crown. STEPPED and BUTTRESS get a flat top; CHAMFER gets its outer corner cut
+	# away, so the tops read as BROKEN OFF rather than as finished parapets — which is
+	# the one cut that says something happened to this tower.
+	if tower_cut == TowerCut.CHAMFER:
+		out.append(Vector2(top_w, top_y + span * CHAMFER_DROP))
+	else:
+		out.append(Vector2(top_w, top_y + span * CROWN_H))
+		out.append(Vector2(top_w, top_y))
+	return out
 
 
 ## The one warm thing, and the only moving one. It sits IN the gap, so the eye is drawn
