@@ -63,6 +63,22 @@ enum Emblem { CAST_CIRCLE, CLEFT }
 ## Defaults to the circle, so the Lobby — which sets nothing — is untouched.
 @export var emblem: Emblem = Emblem.CAST_CIRCLE
 
+## ── WHAT BURNS IN THE CLEFT. Four takes on the same silhouette, for picking between.
+##
+## ⚠ THEY ALL SHARE ONE TOWER ON PURPOSE. The variation is in the LIGHT, not the stone,
+## because the stone is the part that has to survive a 32 px favicon and a circular
+## avatar crop — redrawing it four ways would mean re-solving legibility four times for
+## a decision that is really about mood. One silhouette, four things happening in the
+## gap, so whichever wins is already known to work at every size.
+##
+##   COAL  — a plain ember disc. The quietest, and the one that reads fastest at 16 px.
+##   SIGIL — a small cast circle: keyline, ticks, a counter-turning broken ring. Says
+##           what the game IS, at a tenth of the Lobby circle's element count.
+##   RIFT  — no disc at all; the CRACK ITSELF is lit, a wedge of fire in the stone.
+##   HALO  — a full ember ring behind the tower, so the spire stands against it.
+enum CleftLook { COAL, SIGIL, RIFT, HALO }
+@export var cleft_look: CleftLook = CleftLook.COAL
+
 ## ── THE CLEFT, in fractions of the emblem radius so it scales instead of only looking
 ## right at the size it was drawn at.
 ## Half-width of the tower at its base. Measured off the chosen sketch, which runs a
@@ -131,6 +147,27 @@ const GLOW_FALLOFF: float = 2.4
 const CORE_STEPS: int = 18
 const CORE_BLOOM: float = 0.38
 const CORE_ALPHA: float = 0.055
+## ⚠ HOW FAR UP THE LIGHT HANGS, as a share of the radius above the emblem centre.
+## Maker: *"put the ball higher"*. It sat dead-centre, which put it at the WIDEST part
+## of the tower rather than in the gap — so it overlapped stone on both sides and read
+## as a badge stuck on the front. Higher up the cleft has opened, so it sits IN the
+## split, which is where a thing burning in a crack belongs.
+const SIGIL_Y: float = 0.30
+## The small cast circle. Eight ticks and nine dashes against the Lobby circle's 28 and
+## 22 — the same grammar at an element count that survives being 100 px wide.
+const SIGIL_TICKS: int = 8
+const SIGIL_DASHES: int = 9
+const SIGIL_STROKE: float = 0.015
+const SIGIL_CORE: float = 0.40
+## The ring the spire stands against in HALO. Thick on purpose: a hairline ring is the
+## first thing to disappear at icon size.
+const HALO_R: float = 0.62
+const HALO_STROKE: float = 0.055
+const HALO_Y: float = 0.14
+## The bloom around the ring. Widening ARCS, so the light stays on the band.
+const HALO_GLOW_STEPS: int = 26
+const HALO_GLOW_ALPHA: float = 0.075
+const HALO_GLOW_SPREAD: float = 5.5
 ## The ember breathes. Slow on purpose — a coal, not a blinking light. The cleft never
 ## rotates: a tower that turns is a tower falling over.
 const PULSE: float = 0.9
@@ -177,9 +214,22 @@ func _draw() -> void:
 		# into a brown smear — the two things that read worst in the first stamp. Split
 		# in two, the light now comes THROUGH the crack (which is what a cleft with a
 		# fire in it should do) and the stone stays stone.
-		_draw_ember_glow(c, r, p)
-		_draw_cleft_tower(c, r)
-		_draw_ember_core(c, r, p)
+		match cleft_look:
+			CleftLook.HALO:
+				_draw_halo(c, r, p)
+				_draw_cleft_tower(c, r)
+			CleftLook.RIFT:
+				_draw_ember_glow(c, r, p)
+				_draw_cleft_tower(c, r)
+				_draw_rift(c, r, p)
+			CleftLook.SIGIL:
+				_draw_ember_glow(c, r, p)
+				_draw_cleft_tower(c, r)
+				_draw_sigil(c, r, p)
+			_:
+				_draw_ember_glow(c, r, p)
+				_draw_cleft_tower(c, r)
+				_draw_ember_core(c, r, p)
 	else:
 		_draw_rings(c, r, p)
 		_draw_spire(c, r)
@@ -379,10 +429,17 @@ func _draw_ember_glow(c: Vector2, r: float, p: float) -> void:
 	# haze it; painting inward lets the alphas accumulate toward the middle, which is
 	# what makes the centre read hot without any single ring being visible.
 	var reach: float = rad * GLOW_REACH
+	var sc: Vector2 = _light_centre(c, r)
 	for i: int in range(GLOW_STEPS, 0, -1):
 		var f: float = float(i) / float(GLOW_STEPS)      # 1 at the outer edge
 		var a: float = GLOW_ALPHA * pow(1.0 - f, GLOW_FALLOFF) * (0.75 + 0.25 * breath)
-		draw_circle(c, rad + (reach - rad) * f, Color(EMBER.r, EMBER.g, EMBER.b, a))
+		draw_circle(sc, rad + (reach - rad) * f, Color(EMBER.r, EMBER.g, EMBER.b, a))
+
+
+## Where the light hangs — up in the gap, not down at the emblem's centre. One function
+## so the glow, the coal and the sigil can never drift apart from each other.
+func _light_centre(c: Vector2, r: float) -> Vector2:
+	return Vector2(c.x, c.y - r * SIGIL_Y)
 
 
 ## The coal itself, plus a short bloom tight enough to sit ON the stone without washing
@@ -390,11 +447,80 @@ func _draw_ember_glow(c: Vector2, r: float, p: float) -> void:
 func _draw_ember_core(c: Vector2, r: float, p: float) -> void:
 	var breath: float = 0.5 + 0.5 * sin(p * PULSE)
 	var rad: float = r * EMBER_R * (0.93 + 0.07 * breath)
+	var sc: Vector2 = _light_centre(c, r)
 	for i: int in range(CORE_STEPS, 0, -1):
 		var f: float = float(i) / float(CORE_STEPS)
 		var a: float = CORE_ALPHA * pow(1.0 - f, 1.8) * (0.75 + 0.25 * breath)
-		draw_circle(c, rad * (1.0 + CORE_BLOOM * f), Color(EMBER.r, EMBER.g, EMBER.b, a))
-	draw_circle(c, rad, EMBER)
+		draw_circle(sc, rad * (1.0 + CORE_BLOOM * f), Color(EMBER.r, EMBER.g, EMBER.b, a))
+	draw_circle(sc, rad, EMBER)
+
+
+## SIGIL — the coal, ringed. Maker: *"maybe replace the ball with a magic circle"*, and
+## it is the right instinct: every spell in the game opens a rotating sigil, so a mark
+## that carries one says what the game is without a word of copy.
+##
+## ⚠ IT IS NOT `_draw_rings`. That has ~70 elements because it is drawn on the Lobby at
+## hundreds of pixels; at avatar size it turns to grey mush, which is the entire reason
+## CLEFT was split off from CAST_CIRCLE. This is the same grammar — keyline, ticks, a
+## counter-turning broken ring — at an element count that survives a circular crop.
+func _draw_sigil(c: Vector2, r: float, p: float) -> void:
+	var breath: float = 0.5 + 0.5 * sin(p * PULSE)
+	var sc: Vector2 = _light_centre(c, r)
+	var rad: float = r * EMBER_R * (0.93 + 0.07 * breath)
+	var lw: float = maxf(r * SIGIL_STROKE, 1.0)
+	draw_arc(sc, rad, 0.0, TAU, 64, EMBER, lw, true)
+	var spin: float = p * SPIN
+	for i: int in SIGIL_TICKS:
+		var a: float = spin + TAU * float(i) / float(SIGIL_TICKS)
+		var long: bool = (i % 2) == 0
+		draw_line(sc + Vector2.from_angle(a) * (rad * (1.12 if long else 1.20)),
+			sc + Vector2.from_angle(a) * (rad * 1.34), EMBER, lw, true)
+	var back: float = -p * SPIN * 1.6
+	for i: int in SIGIL_DASHES:
+		var a0: float = back + TAU * float(i) / float(SIGIL_DASHES)
+		draw_arc(sc, rad * 1.56, a0, a0 + TAU / float(SIGIL_DASHES) * 0.46, 10,
+			Color(EMBER.r, EMBER.g, EMBER.b, 0.85), lw, true)
+	draw_circle(sc, rad * SIGIL_CORE, EMBER)
+
+
+## RIFT — no disc at all. The crack itself is lit, so the fire is INSIDE the tower
+## rather than parked in front of it. The simplest of the four and the boldest: two
+## values, one shape, nothing to resolve at small size.
+func _draw_rift(c: Vector2, r: float, p: float) -> void:
+	var breath: float = 0.5 + 0.5 * sin(p * PULSE)
+	var base_y: float = c.y + r * TOWER_FOOT_Y
+	var top_y: float = c.y - r * TOWER_HEAD_Y
+	var span: float = base_y - top_y
+	var foot_y: float = base_y - span * CLEFT_FOOT
+	# Exactly the cleft's own outline, so the light fills the gap and never spills onto
+	# the stone — the fault that made the first glow stain the chalk yellow.
+	var pts: PackedVector2Array = PackedVector2Array([
+		Vector2(c.x - r * CLEFT_HW_TOP, top_y),
+		Vector2(c.x + r * CLEFT_HW_TOP, top_y),
+		Vector2(c.x + r * CLEFT_HW_FOOT, foot_y),
+		Vector2(c.x - r * CLEFT_HW_FOOT, foot_y)])
+	draw_colored_polygon(pts, Color(EMBER.r, EMBER.g, EMBER.b, 0.90 + 0.10 * breath))
+
+
+## HALO — a full ring behind the spire, so the tower is a silhouette against fire
+## instead of a shape with a light on it. Thick, because a hairline ring is the first
+## thing to vanish at icon size.
+func _draw_halo(c: Vector2, r: float, p: float) -> void:
+	var breath: float = 0.5 + 0.5 * sin(p * PULSE)
+	var hc: Vector2 = Vector2(c.x, c.y - r * HALO_Y)
+	var rad: float = r * HALO_R
+	# ⚠ A RING GLOWS AS A RING, NOT AS A DISC. Stacking filled circles put the light
+	# INSIDE the ring as well as around it, and orange at low alpha over near-black is
+	# brown — so the whole interior went muddy and the tower stood in mud rather than
+	# against fire. Widening arcs keep the light on the band where the ring actually is
+	# and leave the middle as dark as the paper.
+	var lw: float = maxf(r * HALO_STROKE, 1.5)
+	for i: int in range(HALO_GLOW_STEPS, 0, -1):
+		var f: float = float(i) / float(HALO_GLOW_STEPS)
+		var a: float = HALO_GLOW_ALPHA * pow(1.0 - f, 2.0) * (0.75 + 0.25 * breath)
+		draw_arc(hc, rad, 0.0, TAU, 96, Color(EMBER.r, EMBER.g, EMBER.b, a),
+			lw * (1.0 + HALO_GLOW_SPREAD * f), true)
+	draw_arc(hc, rad, 0.0, TAU, 96, EMBER, lw, true)
 
 
 
