@@ -1,12 +1,45 @@
-# RESUME HERE — 2026-08-21 (evening)
+# RESUME HERE — 2026-08-24
 
-**ASHPIRE.** Branch `bot-fight-quality`, **176/176 green**. The maker watches
+**STICKSPIRE.** Branch `bot-fight-quality`, **176/176 green**. The maker watches
 **F5 → Lobby → Watch Bots** and reviews the final clips before posting.
 
 ⚠ The canonical, always-current queue is the `project_v2_resume_queue` memory. This file
 is the same list with more room to explain it.
 
+## ▶ OPEN — 2026-08-24
+
+**THE BED WAS MISSING FROM EIGHT OF THE NINE POSTS, and the clock is the whole story.**
+The pool landed at 14:29 on 08-22; the newest clip before it was cut at **14:28**. One
+minute. So `stormcaller_vs_swordsaint` had a bed and the other eight did not, and nothing
+in the pipeline says so out loud — the bed is chosen and applied at CUT time, and a clip
+cut yesterday is simply a clip from before the feature. **Re-cut the four current-gen
+clips; all four now carry a bed** (three different tracks — the sha1-on-stem shuffle
+spreads them, as designed).
+
+⚠ **A `--no-shoot` re-cut is the fix for a MIX change and cannot be the fix for a PICTURE
+change.** That line divides the whole backlog: the bed, the VO, the titles and the
+loudness all re-cut in ~2 minutes from the raw; the opening shot and the ults are baked
+in at SHOOT time and cost ~25 min a take.
+
+**`.nomusic.mp4` DID NOT EXIST — it was documented, never written.** The module
+docstring listed it as a per-matchup output, `--no-music`'s help called it "the .nomusic
+companion", and content-pipeline.md §4 named it as the file to upload when you want a
+trending sound. No code path ever produced one. Built now (`3a5ff4a`), as a second encode
+rather than a strip: the bed is sidechained into the mix and mastered with it, so once
+there is a file there is no music track left to remove. Measured on
+stormcaller_vs_cryomancer — post RMS **-15.3 dB**, (post - companion) RMS **-27.5 dB**,
+i.e. 12.2 dB down, which is the bed and nothing else.
+
+**RUNNING NOW: the five stale clips are being re-shot** (`--takes 2`):
+`juggernaut_vs_stormcaller`, `juggernaut_vs_swordsaint`, `warlock_vs_cleric`,
+`cryomancer_vs_brawler`, `shadowblade_vs_juggernaut`. Up to ~4 h.
+⚠ **A shoot rewrites `window/size/window_*_override` in project.godot for its duration**
+and restores it in a `finally` — so F5 during a shoot gets the clip's window size, and a
+hard kill leaves it patched. `python python-tools/check_window_override.py` is the check.
+
 ## ▶ OPEN
+
+⚠ *Items 0 and 1 below are superseded by the block above.*
 
 0. **PAUSED HERE (maker said "pause", 2026-08-21 ~19:55).** Repo is clean, both commits
    landed, `project.godot` restored to 1366x768 and verified. Nothing is mid-flight.
