@@ -68,19 +68,69 @@ enum Emblem { CAST_CIRCLE, CLEFT }
 ## Half-width of the tower at its base. Measured off the chosen sketch, which runs a
 ## half-width of 30 against a height of 78 — 0.39. At 0.78 it came out nearly as wide as
 ## it was tall, which reads as a gatehouse rather than a spire.
-const TOWER_BASE_HW: float = 0.48
-## Half-width of the GAP. The two halves never touch — that is the whole mark, and it is
-## a fraction of the radius so the split cannot be eaten as the mark shrinks.
-const CLEFT_HW: float = 0.13
+const TOWER_BASE_HW: float = 0.34
+## ⚠ THE CLEFT STOPS SHORT OF THE GROUND, AND THIS IS THE WHOLE READ OF THE MARK.
+## It used to run the full height, which meant the two halves never touched at any
+## point — so the silhouette was two mirrored towers with a slot between them, or a
+## gatehouse, and never ONE tower that had been split. Leaving the bottom third solid
+## joins them into a single mass with a fissure driven down into it, which is the thing
+## the mark is called. Nothing else here changed the concept; this changed whether the
+## concept is legible.
+const CLEFT_FOOT: float = 0.13
+## Half-width of the GAP at the foot of the cleft and at the peak. It OPENS as it rises,
+## because a crack is widest where it is newest and tightest where it ran out of force —
+## a constant-width slot reads as machined, which is the opposite of riven.
+const CLEFT_HW_FOOT: float = 0.045
+const CLEFT_HW_TOP: float = 0.115
 ## How many stepped floors each half drops through on its outer edge.
 const TOWER_TIERS: int = 3
 ## Where the outer edge has narrowed to by the top, as a share of the way in to the
 ## cleft. Tapering nearly all the way left each half a tenth of a radius wide at the
 ## peak — two antennae rather than a broken tower. 0.42 keeps a shoulder about a third
 ## of the base width, which is what reads as masonry.
-const TOWER_TOP_TAPER: float = 0.42
+const TOWER_TOP_TAPER: float = 0.70
+## ⚠ THE SETBACKS ARE NOT EVEN THIRDS. They used to be, and evenly-spaced identical
+## steps read as a staircase glyph rather than as mass — the eye gets a repeating unit
+## and stops seeing a building. Real massing loses more width low and stacks its floors
+## closer as it climbs, so these are the heights each setback sits at as a share of the
+## tower, front-loaded, with the width easing in over the same run.
+## ⚠ `Array[float]`, not `PackedFloat32Array`: a Packed*Array CONSTRUCTOR is a call, and
+## a call is not a constant expression, so the packed spelling fails to parse as a
+## `const`. The literal array is fine and this is read once per draw.
+const TIER_HEIGHTS: Array[float] = [0.22, 0.45, 0.66]
+const TIER_WIDTHS: Array[float] = [0.62, 0.85, 1.0]
+## ⚠ HOW TALL THE TOWER STANDS IN ITS OWN DISC. It was 0.60 down / 0.62 up against a
+## half-width of 0.48 — 0.96 wide against 1.22 tall, a ratio of 0.79, which is a
+## GATEHOUSE. A spire has to be unmistakably taller than it is wide before any of the
+## detail matters, so the mass came in and the height went up.
+const TOWER_FOOT_Y: float = 0.62
+const TOWER_HEAD_Y: float = 0.78
+## ⚠ THE CROWN IS FLAT, NOT A NEEDLE. Running the outer edge straight into the cleft's
+## top corner made each half a triangle, and two inward-leaning triangles either side of
+## a dark gap read as HORNS — or, with the base attached, as a letter M. A short flat at
+## the top turns each one into a broken-off tower instead of a spike. Fraction of the
+## tower's height that the crown occupies.
+const CROWN_H: float = 0.055
 ## The ember sitting in the cleft.
-const EMBER_R: float = 0.17
+const EMBER_R: float = 0.15
+## ── THE GLOW. Six steps at 8.5% alpha produced six visible CONCENTRIC RINGS, which on
+## a flat dark disc reads as a compression artifact rather than as light — it was the
+## weakest thing in the mark. Banding is a step-count problem, so the fix is step count
+## and a falloff curve, not a different colour.
+const GLOW_STEPS: int = 44
+## How far past the coal the light reaches, as a multiple of its radius.
+const GLOW_REACH: float = 3.2
+## Per-step alpha. These COMPOSITE — 44 steps at this value stack to a strong warm core,
+## so it is far smaller than the old per-step figure rather than 1/44th of nothing.
+const GLOW_ALPHA: float = 0.052
+## Falloff exponent. Above 2 the light stays tight around the coal and fades out early,
+## which is how a coal in a slot behaves; a linear ramp washes the whole disc orange.
+const GLOW_FALLOFF: float = 2.4
+## The bloom that sits in FRONT of the stone. Deliberately small and weak next to the
+## glow behind it: this one has to survive being drawn on chalk without tinting it.
+const CORE_STEPS: int = 18
+const CORE_BLOOM: float = 0.38
+const CORE_ALPHA: float = 0.055
 ## The ember breathes. Slow on purpose — a coal, not a blinking light. The cleft never
 ## rotates: a tower that turns is a tower falling over.
 const PULSE: float = 0.9
@@ -121,8 +171,15 @@ func _draw() -> void:
 	var p: float = _phase()
 	_draw_disc(c, r)
 	if emblem == Emblem.CLEFT:
+		# ⚠ THE GLOW GOES BEHIND THE MASONRY, THE COAL IN FRONT OF IT. Drawing the whole
+		# ember last painted 44 translucent orange rings ACROSS the chalk, which stained
+		# the lower half of the tower a dirty yellow and turned the inside of the cleft
+		# into a brown smear — the two things that read worst in the first stamp. Split
+		# in two, the light now comes THROUGH the crack (which is what a cleft with a
+		# fire in it should do) and the stone stays stone.
+		_draw_ember_glow(c, r, p)
 		_draw_cleft_tower(c, r)
-		_draw_ember(c, r, p)
+		_draw_ember_core(c, r, p)
 	else:
 		_draw_rings(c, r, p)
 		_draw_spire(c, r)
@@ -258,44 +315,85 @@ func _draw_embers(c: Vector2, r: float, p: float) -> void:
 ## small sizes two shapes a pixel apart merge into one and the mark becomes an ordinary
 ## tower. `CLEFT_HW` is a fraction of the radius, so the gap scales with everything else
 ## rather than being eaten by it.
+## ⚠ ONE POLYGON, NOT TWO MIRRORED ONES. The halves now MEET below the cleft, and two
+## polygons sharing a vertical edge down the centreline would show that edge: MSAA
+## resolves each polygon's coverage separately, so both sides land ~50% at the seam and
+## composite to a visible hairline down the middle of a solid mass. Tracing the whole
+## silhouette as a single closed loop has no interior edge to betray.
 func _draw_cleft_tower(c: Vector2, r: float) -> void:
-	var base_y: float = c.y + r * 0.60
-	var top_y: float = c.y - r * 0.62
+	var base_y: float = c.y + r * TOWER_FOOT_Y
+	var top_y: float = c.y - r * TOWER_HEAD_Y
 	var span: float = base_y - top_y
-	var inner: float = r * CLEFT_HW
 	var outer: float = r * TOWER_BASE_HW
-	for side: int in 2:
-		var s: float = -1.0 if side == 0 else 1.0
-		var pts: PackedVector2Array = PackedVector2Array()
-		# Up the outer edge, stepping in once per floor.
-		pts.append(Vector2(c.x + s * outer, base_y))
-		for i: int in TOWER_TIERS:
-			var f0: float = float(i) / float(TOWER_TIERS)
-			var f1: float = float(i + 1) / float(TOWER_TIERS)
-			var top_w: float = inner + (outer - inner) * TOWER_TOP_TAPER
-			var w0: float = lerpf(outer, top_w, f0)
-			var w1: float = lerpf(outer, top_w, f1)
-			pts.append(Vector2(c.x + s * w0, base_y - span * f1 * 0.72))
-			pts.append(Vector2(c.x + s * w1, base_y - span * f1 * 0.72))
-		# The shoulder, leaning up to a peak that sits over the split.
-		pts.append(Vector2(c.x + s * inner, top_y))
-		# ...and straight back down the face of the cleft.
-		pts.append(Vector2(c.x + s * inner, base_y))
-		draw_colored_polygon(pts, CHALK)
+	var foot_y: float = base_y - span * CLEFT_FOOT
+	var top_w: float = r * CLEFT_HW_TOP + (outer - r * CLEFT_HW_TOP) * TOWER_TOP_TAPER
+
+	var pts: PackedVector2Array = PackedVector2Array()
+	# Up the LEFT outer edge, stepping in once per floor.
+	pts.append(Vector2(c.x - outer, base_y))
+	_outer_edge(pts, c, -1.0, base_y, span, outer, top_w, false)
+	# The crown: straight up a little, THEN lean in. That short flat is what stops the
+	# half reading as a triangle.
+	pts.append(Vector2(c.x - top_w, top_y + span * CROWN_H))
+	pts.append(Vector2(c.x - r * CLEFT_HW_TOP, top_y))
+	# Down the face of the cleft to where it runs out, then across the solid foot.
+	pts.append(Vector2(c.x - r * CLEFT_HW_FOOT, foot_y))
+	pts.append(Vector2(c.x + r * CLEFT_HW_FOOT, foot_y))
+	# Back up the far face, and down the RIGHT outer edge in reverse.
+	pts.append(Vector2(c.x + r * CLEFT_HW_TOP, top_y))
+	pts.append(Vector2(c.x + top_w, top_y + span * CROWN_H))
+	_outer_edge(pts, c, 1.0, base_y, span, outer, top_w, true)
+	pts.append(Vector2(c.x + outer, base_y))
+	draw_colored_polygon(pts, CHALK)
+
+
+## The stepped outer edge of one side. `descending` walks the same profile top-down, so
+## the right-hand side of the single loop mirrors the left without a second code path.
+func _outer_edge(pts: PackedVector2Array, c: Vector2, s: float, base_y: float,
+		span: float, outer: float, top_w: float, descending: bool) -> void:
+	var order: Array = range(TOWER_TIERS)
+	if descending:
+		order.reverse()
+	for i: int in order:
+		var y: float = base_y - span * TIER_HEIGHTS[i]
+		var w_above: float = lerpf(outer, top_w, TIER_WIDTHS[i])
+		var w_below: float = outer if i == 0 else lerpf(outer, top_w, TIER_WIDTHS[i - 1])
+		if descending:
+			pts.append(Vector2(c.x + s * w_above, y))
+			pts.append(Vector2(c.x + s * w_below, y))
+		else:
+			pts.append(Vector2(c.x + s * w_below, y))
+			pts.append(Vector2(c.x + s * w_above, y))
 
 
 ## The one warm thing, and the only moving one. It sits IN the gap, so the eye is drawn
 ## to the split rather than to either half.
-func _draw_ember(c: Vector2, r: float, p: float) -> void:
+func _draw_ember_glow(c: Vector2, r: float, p: float) -> void:
 	# A coal breathing, not a light blinking: the amplitude is small on purpose, and the
 	# glow underneath does most of the work so the disc reads lit rather than the circle
 	# reading animated.
 	var breath: float = 0.5 + 0.5 * sin(p * PULSE)
 	var rad: float = r * EMBER_R * (0.93 + 0.07 * breath)
-	for i: int in 6:
-		var f: float = float(i) / 5.0
-		draw_circle(c, rad * (1.0 + f * 1.25),
-			Color(EMBER.r, EMBER.g, EMBER.b, 0.085 * (1.0 - f) * (0.7 + 0.3 * breath)))
+	# ⚠ OUTSIDE IN, and that ordering is load-bearing. Each ring is drawn OVER the last,
+	# so painting outward would put the faintest, widest wash on top of the core and
+	# haze it; painting inward lets the alphas accumulate toward the middle, which is
+	# what makes the centre read hot without any single ring being visible.
+	var reach: float = rad * GLOW_REACH
+	for i: int in range(GLOW_STEPS, 0, -1):
+		var f: float = float(i) / float(GLOW_STEPS)      # 1 at the outer edge
+		var a: float = GLOW_ALPHA * pow(1.0 - f, GLOW_FALLOFF) * (0.75 + 0.25 * breath)
+		draw_circle(c, rad + (reach - rad) * f, Color(EMBER.r, EMBER.g, EMBER.b, a))
+
+
+## The coal itself, plus a short bloom tight enough to sit ON the stone without washing
+## it — the halo that says "this is hot", not the light it throws into the room.
+func _draw_ember_core(c: Vector2, r: float, p: float) -> void:
+	var breath: float = 0.5 + 0.5 * sin(p * PULSE)
+	var rad: float = r * EMBER_R * (0.93 + 0.07 * breath)
+	for i: int in range(CORE_STEPS, 0, -1):
+		var f: float = float(i) / float(CORE_STEPS)
+		var a: float = CORE_ALPHA * pow(1.0 - f, 1.8) * (0.75 + 0.25 * breath)
+		draw_circle(c, rad * (1.0 + CORE_BLOOM * f), Color(EMBER.r, EMBER.g, EMBER.b, a))
 	draw_circle(c, rad, EMBER)
 
 
