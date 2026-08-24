@@ -172,6 +172,8 @@ def main() -> int:
                     help="actually talk to the API. Without it everything is a dry run.")
     ap.add_argument("--status", action="store_true", help="the local ledger")
     ap.add_argument("--list", action="store_true", help="what the VENDOR is holding")
+    ap.add_argument("--verify", action="store_true",
+                    help="did the queued posts actually GO OUT? asks per job_id")
     ap.add_argument("--cancel-all", action="store_true",
                     help="cancel every queued post and forget them locally")
     args = ap.parse_args()
@@ -214,6 +216,51 @@ def main() -> int:
                   f"{title[0][:32] if title else ''}")
             print(f"      job {r.get('job_id')}")
         return 0
+
+    if args.verify:
+        # Everything before this point proves a deposit was TAKEN. This is the only
+        # thing that proves anything was PUBLISHED.
+        rows = [r for r in ledger["scheduled"] if r.get("job_id")]
+        if not rows:
+            print("nothing queued with a job_id to verify.")
+            return 0
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        print()
+        bad = 0
+        for r in sorted(rows, key=lambda r: r["when_utc"]):
+            st = pc.job_status(r["job_id"], key)
+            state = str(st.get("status", "?"))
+            due = r["when_utc"] <= now
+            # A job still sitting in a pre-run state AFTER its time is the failure this
+            # exists to catch — it is silent everywhere else.
+            flag = ""
+            if due and state in ("pending", "queued", "processing", "in_progress"):
+                flag = "   <-- OVERDUE, has not run"
+                bad += 1
+            elif state == "failed":
+                flag = "   <-- FAILED"
+                bad += 1
+            elif not due:
+                flag = "   (not due yet)"
+            print(f"  {r['when_local']:<22} {r['profile']:<20} {state:<12}"
+                  f"{flag}")
+            print(f"      {r['clip']}")
+            # ⚠ READ THE PLATFORM'S OWN `status`, NOT `success`. Every result carries
+            # `success: false` until it has actually run, so inferring FAIL from a
+            # falsy success marked all six queued jobs as failures — an alerting tool
+            # that cries wolf on healthy state is worse than no alerting at all.
+            for res in st.get("results", []) or []:
+                pstate = str(res.get("status", "?"))
+                mark = {"completed": "ok  ", "failed": "FAIL",
+                        "retryable": "retry"}.get(pstate, "    ")
+                detail = res.get("message") or ""
+                stamp = res.get("upload_timestamp") or ""
+                print(f"      {mark} {res.get('platform')}: {pstate}"
+                      f"{'  ' + detail if detail else ''}"
+                      f"{'  ' + stamp if stamp else ''}")
+        print()
+        print(f"{len(rows)} queued, {bad} needing attention")
+        return 1 if bad else 0
 
     if args.cancel_all:
         rows = pc.list_scheduled(key)

@@ -69,6 +69,12 @@ USERS_ENDPOINT = f"{API_BASE}/uploadposts/users"
 ## cron only ever simulated this, and simulated it badly — it needed the laptop awake,
 ## plugged in, and logged on at exactly the right minute, every day, forever.
 SCHEDULE_ENDPOINT = f"{API_BASE}/uploadposts/schedule"
+## ⚠ THE ONLY WAY TO KNOW A SCHEDULED POST ACTUALLY WENT OUT. Queueing answers 202 and
+## the vendor then holds the video for days — everything up to that point proves the
+## DEPOSIT was taken, not that anything was published. This endpoint takes the `job_id`
+## and reports per-platform outcomes once the scheduled time has passed. Without it the
+## only failure detector is a human noticing an empty feed.
+STATUS_ENDPOINT = f"{API_BASE}/uploadposts/status"
 
 # Where the key lives. NEVER hard-code it and never commit it — `.env` is gitignored.
 # ⚠ FORCE UTF-8 ON STDOUT. Windows consoles default to cp1252, and a caption is the
@@ -159,6 +165,24 @@ def list_scheduled(key: str, timeout: int = 25) -> list[dict]:
     except Exception as e:                                   # noqa: BLE001
         print(f"  could not reach the schedule endpoint: {type(e).__name__}: {e}")
         return []
+
+
+def job_status(job_id: str, key: str, timeout: int = 25) -> dict:
+    """What became of one queued job. `status` is pending/queued/processing/completed/
+    failed/not_found, with a per-platform `results` list once it has run."""
+    import urllib.error
+    import urllib.request
+    from urllib.parse import urlencode
+    url = f"{STATUS_ENDPOINT}?{urlencode({'job_id': job_id})}"
+    req = urllib.request.Request(url, method="GET",
+                                 headers={"Authorization": f"Apikey {key}"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as e:
+        return {"status": f"http_{e.code}"}
+    except Exception as e:                                   # noqa: BLE001
+        return {"status": f"unreachable ({type(e).__name__})"}
 
 
 def cancel_scheduled(job_id: str, key: str, timeout: int = 25) -> bool:
