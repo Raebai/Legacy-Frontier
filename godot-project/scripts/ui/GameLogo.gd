@@ -92,7 +92,54 @@ enum CleftLook { COAL, SIGIL, RIFT, HALO }
 ##   BUTTRESS  a wide plinth under two heavy setbacks. Fortress, not spire.
 ##   CHAMFER   the crowns' outer corners cut away, so the tops read BROKEN OFF.
 enum TowerCut { STEPPED, BATTERED, BUTTRESS, CHAMFER }
-@export var tower_cut: TowerCut = TowerCut.STEPPED
+## ⚠ CHAMFER IS THE DEFAULT NOW. Maker, round two: *"I like 4"*.
+@export var tower_cut: TowerCut = TowerCut.CHAMFER
+
+## ── COLOURWAYS. Maker picked the CHAMFER cut and asked to see it in other colours.
+##
+## ⚠ THESE OVERRIDE, THEY DO NOT REPLACE. PAPER / CHALK / EMBER stay `const` and stay
+## the defaults, because the Lobby, the wordmark and the cast circle all read them and
+## none of that should move because an avatar is being recoloured. A palette is a
+## per-INSTANCE choice; the brand's colours are still the brand's colours.
+##
+## Each row is [paper, chalk, ember] — ground, stone, fire. The ground moves as well as
+## the fire on purpose: an ember on near-black and a frost sigil on near-black are not
+## the same design, because a cold light over a warm-black ground reads as a mistake
+## rather than as a choice.
+enum Palette { EMBER, ARCANE, FROST, VERDANT, GOLD, BONE }
+@export var palette: Palette = Palette.EMBER
+
+const PALETTES: Array[Array] = [
+	# EMBER — the shipped one. Ash that has not quite gone out.
+	[Color(0.055, 0.052, 0.075), Color(0.93, 0.92, 0.86), Color(0.98, 0.52, 0.20)],
+	# ARCANE — violet fire on a blue-black ground. The most "magic" of the six.
+	[Color(0.055, 0.048, 0.090), Color(0.91, 0.90, 0.94), Color(0.68, 0.42, 1.00)],
+	# FROST — a cold star in the crack. Ground cooled to match, or it reads broken.
+	[Color(0.040, 0.058, 0.082), Color(0.90, 0.94, 0.96), Color(0.36, 0.82, 1.00)],
+	# VERDANT — witch-light. The only one that is not obviously fire, which is why it is
+	# worth seeing: it makes the tower read as cursed rather than as burning.
+	[Color(0.038, 0.058, 0.050), Color(0.90, 0.94, 0.88), Color(0.44, 0.94, 0.44)],
+	# GOLD — treasure, not combustion. Warmest stone of the six.
+	[Color(0.062, 0.052, 0.040), Color(0.96, 0.93, 0.84), Color(1.00, 0.78, 0.28)],
+	# BONE — near-monochrome, one degree of warmth. The one that would survive being
+	# printed in a single colour, which is the test the others would each fail.
+	[Color(0.050, 0.050, 0.055), Color(0.95, 0.94, 0.91), Color(0.86, 0.80, 0.70)],
+]
+
+
+## The three inks, per instance. Every drawing call below goes through these rather than
+## the consts, so a palette swap cannot miss a shape.
+func _paper() -> Color:
+	return PALETTES[palette][0] as Color
+
+
+func _chalk() -> Color:
+	return PALETTES[palette][1] as Color
+
+
+func _ember() -> Color:
+	return PALETTES[palette][2] as Color
+
 
 ## ── THE CLEFT, in fractions of the emblem radius so it scales instead of only looking
 ## right at the size it was drawn at.
@@ -286,7 +333,7 @@ func _draw() -> void:
 ## and a social avatar are both cropped to a circle by the platform anyway, so the mark
 ## may as well own that circle instead of floating in a square of nothing.
 func _draw_disc(c: Vector2, r: float) -> void:
-	draw_circle(c, r * 1.03, PAPER)
+	draw_circle(c, r * 1.03, _paper())
 	# Ember light INSIDE the disc, brightest at the base of the spire where the tower
 	# is burning, not centred — a centred glow reads as a logo effect, an offset one
 	# reads as a light source.
@@ -309,12 +356,12 @@ func _draw_disc(c: Vector2, r: float) -> void:
 	for i: int in 16:
 		var f: float = float(i) / 15.0
 		draw_circle(hearth, r * widest * (1.0 - f * 0.72),
-			Color(EMBER.r, EMBER.g, EMBER.b, 0.018 + f * 0.026))
+			Color(_ember().r, _ember().g, _ember().b, 0.018 + f * 0.026))
 
 
 func _draw_rings(c: Vector2, r: float, p: float) -> void:
 	# Outer keyline.
-	draw_arc(c, r, 0.0, TAU, 96, CHALK, maxf(r * 0.018, 1.0), true)
+	draw_arc(c, r, 0.0, TAU, 96, _chalk(), maxf(r * 0.018, 1.0), true)
 	# Tick ring, turning with the clock.
 	var spin: float = p * SPIN
 	for i: int in TICKS:
@@ -323,20 +370,20 @@ func _draw_rings(c: Vector2, r: float, p: float) -> void:
 		var inner: float = r * (0.86 if long else 0.91)
 		draw_line(c + Vector2.from_angle(a) * inner,
 			c + Vector2.from_angle(a) * (r * 0.975),
-			EMBER if long else GRAPHITE, maxf(r * 0.014, 1.0), true)
+			_ember() if long else GRAPHITE, maxf(r * 0.014, 1.0), true)
 	# Counter-rotating dashed ring — the read that says "this thing is casting".
 	var back: float = -p * SPIN * 1.6
 	for i: int in DASHES:
 		var a0: float = back + TAU * float(i) / float(DASHES)
 		draw_arc(c, r * 0.73, a0, a0 + TAU / float(DASHES) * 0.5, 8,
-			Color(CHALK.r, CHALK.g, CHALK.b, 0.75), maxf(r * 0.012, 1.0), true)
+			Color(_chalk().r, _chalk().g, _chalk().b, 0.75), maxf(r * 0.012, 1.0), true)
 	# Spokes, held still, so the mark has a stable skeleton under the moving parts.
 	for i: int in SPOKES:
 		var a: float = TAU * float(i) / float(SPOKES) + PI * 0.125
 		draw_line(c + Vector2.from_angle(a) * (r * 0.60),
 			c + Vector2.from_angle(a) * (r * 0.70),
 			Color(GRAPHITE.r, GRAPHITE.g, GRAPHITE.b, 0.55), maxf(r * 0.010, 1.0), true)
-	draw_arc(c, r * 0.58, 0.0, TAU, 72, Color(CHALK.r, CHALK.g, CHALK.b, 0.55),
+	draw_arc(c, r * 0.58, 0.0, TAU, 72, Color(_chalk().r, _chalk().g, _chalk().b, 0.55),
 		maxf(r * 0.010, 1.0), true)
 
 
@@ -369,17 +416,17 @@ func _draw_spire(c: Vector2, r: float) -> void:
 		pts.append(Vector2(c.x - (right[i].x - c.x), right[i].y))
 	for v: Vector2 in right:
 		pts.append(v)
-	draw_colored_polygon(pts, CHALK)
+	draw_colored_polygon(pts, _chalk())
 	# The ground the tower stands on, so it is planted instead of floating in the ring.
 	# Kept well inside the dashed ring — at 0.66 it crossed the ring and read as a
 	# strike-through rather than as ground.
 	draw_line(Vector2(c.x - r * 0.50, base_y), Vector2(c.x + r * 0.50, base_y),
-		Color(CHALK.r, CHALK.g, CHALK.b, 0.7), maxf(r * 0.016, 1.0), true)
+		Color(_chalk().r, _chalk().g, _chalk().b, 0.7), maxf(r * 0.016, 1.0), true)
 	# One lit window per tier — the only warm thing inside the silhouette, so the eye
 	# lands on the tower and not on the ring around it.
 	for i: int in tiers:
 		var f: float = (float(i) + 0.45) / float(tiers)
-		draw_circle(Vector2(c.x, base_y - span * f), maxf(r * 0.026, 1.0), EMBER)
+		draw_circle(Vector2(c.x, base_y - span * f), maxf(r * 0.026, 1.0), _ember())
 
 
 ## Ash going UP, not falling — the climb again, in the particles.
@@ -391,7 +438,7 @@ func _draw_embers(c: Vector2, r: float, p: float) -> void:
 		draw_circle(
 			Vector2(c.x + (jitter - 0.5) * r * 1.25, c.y + r * 0.62 - rise * r * 1.35),
 			maxf(r * 0.013, 1.0),
-			Color(EMBER.r, EMBER.g, EMBER.b, sin(rise * PI) * 0.75))
+			Color(_ember().r, _ember().g, _ember().b, sin(rise * PI) * 0.75))
 
 
 ## THE TOWER, CLEFT. Two mirrored halves that never meet, each stepping down and out
@@ -434,7 +481,7 @@ func _draw_cleft_tower(c: Vector2, r: float) -> void:
 	pts.append(Vector2(c.x + r * CLEFT_HW_TOP, top_y))
 	for i: int in range(prof.size() - 1, -1, -1):
 		pts.append(Vector2(c.x + prof[i].x, prof[i].y))
-	draw_colored_polygon(pts, CHALK)
+	draw_colored_polygon(pts, _chalk())
 
 
 ## The RIGHT-hand outer edge, bottom to crown, as offsets from the centreline. Four
@@ -499,7 +546,7 @@ func _draw_ember_glow(c: Vector2, r: float, p: float) -> void:
 	for i: int in range(GLOW_STEPS, 0, -1):
 		var f: float = float(i) / float(GLOW_STEPS)      # 1 at the outer edge
 		var a: float = GLOW_ALPHA * pow(1.0 - f, GLOW_FALLOFF) * (0.75 + 0.25 * breath)
-		draw_circle(sc, rad + (reach - rad) * f, Color(EMBER.r, EMBER.g, EMBER.b, a))
+		draw_circle(sc, rad + (reach - rad) * f, Color(_ember().r, _ember().g, _ember().b, a))
 
 
 ## Where the light hangs — up in the gap, not down at the emblem's centre. One function
@@ -517,8 +564,8 @@ func _draw_ember_core(c: Vector2, r: float, p: float) -> void:
 	for i: int in range(CORE_STEPS, 0, -1):
 		var f: float = float(i) / float(CORE_STEPS)
 		var a: float = CORE_ALPHA * pow(1.0 - f, 1.8) * (0.75 + 0.25 * breath)
-		draw_circle(sc, rad * (1.0 + CORE_BLOOM * f), Color(EMBER.r, EMBER.g, EMBER.b, a))
-	draw_circle(sc, rad, EMBER)
+		draw_circle(sc, rad * (1.0 + CORE_BLOOM * f), Color(_ember().r, _ember().g, _ember().b, a))
+	draw_circle(sc, rad, _ember())
 
 
 ## SIGIL — the coal, ringed. Maker: *"maybe replace the ball with a magic circle"*, and
@@ -534,19 +581,19 @@ func _draw_sigil(c: Vector2, r: float, p: float) -> void:
 	var sc: Vector2 = _light_centre(c, r)
 	var rad: float = r * EMBER_R * (0.93 + 0.07 * breath)
 	var lw: float = maxf(r * SIGIL_STROKE, 1.0)
-	draw_arc(sc, rad, 0.0, TAU, 64, EMBER, lw, true)
+	draw_arc(sc, rad, 0.0, TAU, 64, _ember(), lw, true)
 	var spin: float = p * SPIN
 	for i: int in SIGIL_TICKS:
 		var a: float = spin + TAU * float(i) / float(SIGIL_TICKS)
 		var long: bool = (i % 2) == 0
 		draw_line(sc + Vector2.from_angle(a) * (rad * (1.12 if long else 1.20)),
-			sc + Vector2.from_angle(a) * (rad * 1.34), EMBER, lw, true)
+			sc + Vector2.from_angle(a) * (rad * 1.34), _ember(), lw, true)
 	var back: float = -p * SPIN * 1.6
 	for i: int in SIGIL_DASHES:
 		var a0: float = back + TAU * float(i) / float(SIGIL_DASHES)
 		draw_arc(sc, rad * 1.56, a0, a0 + TAU / float(SIGIL_DASHES) * 0.46, 10,
-			Color(EMBER.r, EMBER.g, EMBER.b, 0.85), lw, true)
-	draw_circle(sc, rad * SIGIL_CORE, EMBER)
+			Color(_ember().r, _ember().g, _ember().b, 0.85), lw, true)
+	draw_circle(sc, rad * SIGIL_CORE, _ember())
 
 
 ## RIFT — no disc at all. The crack itself is lit, so the fire is INSIDE the tower
@@ -565,7 +612,7 @@ func _draw_rift(c: Vector2, r: float, p: float) -> void:
 		Vector2(c.x + r * CLEFT_HW_TOP, top_y),
 		Vector2(c.x + r * CLEFT_HW_FOOT, foot_y),
 		Vector2(c.x - r * CLEFT_HW_FOOT, foot_y)])
-	draw_colored_polygon(pts, Color(EMBER.r, EMBER.g, EMBER.b, 0.90 + 0.10 * breath))
+	draw_colored_polygon(pts, Color(_ember().r, _ember().g, _ember().b, 0.90 + 0.10 * breath))
 
 
 ## HALO — a full ring behind the spire, so the tower is a silhouette against fire
@@ -584,9 +631,9 @@ func _draw_halo(c: Vector2, r: float, p: float) -> void:
 	for i: int in range(HALO_GLOW_STEPS, 0, -1):
 		var f: float = float(i) / float(HALO_GLOW_STEPS)
 		var a: float = HALO_GLOW_ALPHA * pow(1.0 - f, 2.0) * (0.75 + 0.25 * breath)
-		draw_arc(hc, rad, 0.0, TAU, 96, Color(EMBER.r, EMBER.g, EMBER.b, a),
+		draw_arc(hc, rad, 0.0, TAU, 96, Color(_ember().r, _ember().g, _ember().b, a),
 			lw * (1.0 + HALO_GLOW_SPREAD * f), true)
-	draw_arc(hc, rad, 0.0, TAU, 96, EMBER, lw, true)
+	draw_arc(hc, rad, 0.0, TAU, 96, _ember(), lw, true)
 
 
 
@@ -622,5 +669,5 @@ func _draw_wordmark(centre: Vector2, box: float) -> void:
 		# STICK carries the ember; SPIRE is chalk. One warm word, one cold one — the
 		# split is the compound's own seam, so it is derived rather than a loose 3.
 		draw_string(font, at, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, px,
-			EMBER if i < WORDMARK_SPLIT else CHALK)
+			_ember() if i < WORDMARK_SPLIT else _chalk())
 		x += font.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + track

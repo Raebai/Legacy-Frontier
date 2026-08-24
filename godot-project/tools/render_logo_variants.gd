@@ -26,11 +26,18 @@ const PX: int = 512
 ## ⚠ THE LIGHT IS FIXED AT SIGIL AND THE STONE VARIES. Round one varied the light and
 ## the maker picked SIGIL; round two asks "optimise the towers", so holding the winner
 ## fixed is the only way the next comparison is about the thing being compared.
+## ⚠ ROUND THREE: THE SHAPE IS SETTLED AND ONLY THE COLOUR VARIES. Maker picked the
+## SIGIL light, then the CHAMFER cut — *"I like 4 now show me different colourways"*.
+## Each round holds the previous winners fixed, which is the only way a comparison is
+## about the thing being compared.
+const CUT: int = 3          # CHAMFER
 const LOOKS: Array[Dictionary] = [
-	{"name": "1_stepped.png", "cut": 0},
-	{"name": "2_battered.png", "cut": 1},
-	{"name": "3_buttress.png", "cut": 2},
-	{"name": "4_chamfer.png", "cut": 3},
+	{"name": "1_ember.png", "pal": 0},
+	{"name": "2_arcane.png", "pal": 1},
+	{"name": "3_frost.png", "pal": 2},
+	{"name": "4_verdant.png", "pal": 3},
+	{"name": "5_gold.png", "pal": 4},
+	{"name": "6_bone.png", "pal": 5},
 ]
 
 
@@ -42,12 +49,12 @@ func _initialize() -> void:
 func _go() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT_DIR))
 	for job: Dictionary in LOOKS:
-		await _stamp(int(job["cut"]), String(job["name"]))
+		await _stamp(int(job["pal"]), String(job["name"]))
 	print("[variants] done — %d files in %s" % [LOOKS.size(), OUT_DIR])
 	quit()
 
 
-func _stamp(cut: int, file_name: String) -> void:
+func _stamp(pal: int, file_name: String) -> void:
 	var vp := SubViewport.new()
 	vp.size = Vector2i(PX, PX)
 	vp.transparent_bg = true
@@ -61,7 +68,8 @@ func _stamp(cut: int, file_name: String) -> void:
 	logo.frozen_phase = PHASE
 	logo.emblem = GameLogo.Emblem.CLEFT
 	logo.cleft_look = GameLogo.CleftLook.SIGIL
-	logo.tower_cut = cut as GameLogo.TowerCut
+	logo.tower_cut = CUT as GameLogo.TowerCut
+	logo.palette = pal as GameLogo.Palette
 	vp.add_child(logo)
 
 	await process_frame
