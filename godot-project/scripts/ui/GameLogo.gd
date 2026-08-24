@@ -109,6 +109,45 @@ enum TowerCut { STEPPED, BATTERED, BUTTRESS, CHAMFER }
 enum Palette { EMBER, ARCANE, FROST, VERDANT, GOLD, BONE }
 @export var palette: Palette = Palette.EMBER
 
+## ── HOW MUCH CEREMONY. Maker: *"can we make that logo more epic somehow ... the tower
+## within it needs some detail or something or just some changes idk"*.
+##
+## ⚠ "EPIC" IS FOUR DIFFERENT ASKS AND THEY PULL AGAINST EACH OTHER, which is why this
+## is an enum and not a pile of extras switched on together. More DETAIL makes the stone
+## real but costs legibility at icon size; more DRAMA (rays, sparks) makes the frame
+## exciting but competes with the sigil the maker already chose; more CEREMONY (a crest
+## ring) makes it an emblem but shrinks the tower inside its own disc. Each row commits
+## to one of those and is judged against the others.
+##
+##   PLAIN  the mark as chosen. The control.
+##   LIT    windows cut into the stone, a few of them burning, courses and a plinth.
+##   RAYS   light breaking out of the crack. The sigil stops sitting in the gap and
+##          starts doing something to the tower.
+##   CREST  a ringed border with ticks — the mark becomes a seal rather than a picture.
+##   WORKS  lit stone, rays and rising sparks together.
+enum Epic { PLAIN, LIT, RAYS, CREST, WORKS }
+@export var epic: Epic = Epic.PLAIN
+
+## ── LIT. Windows are CUT, not drawn: they are filled with the paper colour, so at sizes
+## where they stop resolving they blend back into the stone as a slightly lighter tower
+## rather than turning into grey noise. Only some of them burn — a tower lit from top to
+## bottom is an office block.
+const WINDOW_ROWS: Array[float] = [0.30, 0.45, 0.60, 0.75]
+const WINDOW_LIT: Array[int] = [1, 3]
+const WINDOW_W: float = 0.035
+const WINDOW_H: float = 0.055
+const PLINTH_H: float = 0.055
+## ── RAYS. Long up the crack, short across it — light escaping a fissure goes where the
+## fissure lets it, and a symmetrical starburst would read as a sticker.
+const RAY_COUNT: int = 14
+const RAY_LEN: float = 0.62
+const RAY_ALPHA: float = 0.16
+const RAY_SPREAD: float = 0.055
+## ── CREST. Sits just inside the disc; the tower shrinks to make room for it.
+const CREST_R: float = 0.94
+const CREST_TICKS: int = 24
+const CREST_INSET: float = 0.86
+
 const PALETTES: Array[Array] = [
 	# EMBER — the shipped one. Ash that has not quite gone out.
 	[Color(0.055, 0.052, 0.075), Color(0.93, 0.92, 0.86), Color(0.98, 0.52, 0.20)],
@@ -282,9 +321,15 @@ func _draw() -> void:
 	if box <= 8.0:
 		return
 	var r: float = box * 0.5 * 0.86 * emblem_scale
+	# ⚠ THE CREST NEEDS ROOM IT CAN ONLY TAKE FROM THE TOWER. Drawing a border ring at
+	# the disc's edge over an unchanged emblem put the ring THROUGH the crowns. The
+	# border is the outer boundary, so everything inside steps in to meet it.
+	var disc_r: float = r
+	if emblem == Emblem.CLEFT and epic == Epic.CREST:
+		r *= CREST_INSET
 	var c: Vector2 = Vector2(size.x * 0.5, (size.y - wordmark_h) * 0.52)
 	var p: float = _phase()
-	_draw_disc(c, r)
+	_draw_disc(c, disc_r)
 	if emblem == Emblem.CLEFT:
 		# ⚠ THE GLOW GOES BEHIND THE MASONRY, THE COAL IN FRONT OF IT. Drawing the whole
 		# ember last painted 44 translucent orange rings ACROSS the chalk, which stained
@@ -301,8 +346,16 @@ func _draw() -> void:
 				_draw_cleft_tower(c, r)
 				_draw_rift(c, r, p)
 			CleftLook.SIGIL:
+				if epic == Epic.CREST:
+					_draw_crest(c, disc_r, p)
 				_draw_ember_glow(c, r, p)
 				_draw_cleft_tower(c, r)
+				if epic == Epic.LIT or epic == Epic.WORKS:
+					_draw_stone_detail(c, r)
+				if epic == Epic.RAYS or epic == Epic.WORKS:
+					_draw_rays(c, r, p)
+				if epic == Epic.WORKS:
+					_draw_sparks(c, r, p)
 				# ⚠ THE SIGIL FALLS BACK TO THE COAL WHEN IT IS TOO SMALL TO BE A SIGIL.
 				# MEASURED: rendered at 32 px the ring, the ticks and the broken ring all
 				# land under one pixel each and average together into a DULL BROWN
@@ -671,3 +724,99 @@ func _draw_wordmark(centre: Vector2, box: float) -> void:
 		draw_string(font, at, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, px,
 			_ember() if i < WORDMARK_SPLIT else _chalk())
 		x += font.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + track
+
+
+## LIT — the stone given floors, openings and a footing. Everything here is CUT out of
+## the silhouette in the paper colour except the burning windows, so the detail degrades
+## to "slightly lighter tower" rather than to noise when it stops resolving.
+func _draw_stone_detail(c: Vector2, r: float) -> void:
+	var base_y: float = c.y + r * TOWER_FOOT_Y
+	var top_y: float = c.y - r * TOWER_HEAD_Y
+	var span: float = base_y - top_y
+	var outer: float = r * TOWER_BASE_HW
+	var top_w: float = r * CLEFT_HW_TOP + (outer - r * CLEFT_HW_TOP) * TOWER_TOP_TAPER
+	var prof: Array[Vector2] = _side_profile(base_y, top_y, span, outer, top_w)
+	var cut: Color = _paper()
+	var slot: float = maxf(r * WINDOW_W, 1.0)
+	var wh: float = span * WINDOW_H
+	for side: int in 2:
+		var sgn: float = -1.0 if side == 0 else 1.0
+		for i: int in WINDOW_ROWS.size():
+			var f: float = WINDOW_ROWS[i]
+			var y: float = base_y - span * f
+			var hw: float = _hw_at(prof, y, outer)
+			var gap: float = lerpf(r * CLEFT_HW_FOOT, r * CLEFT_HW_TOP,
+				clampf((base_y - span * CLEFT_FOOT - y) / maxf(base_y - span * CLEFT_FOOT - top_y, 0.001), 0.0, 1.0))
+			# Centred in the STONE — between the cleft and the outer edge — so a window can
+			# never straddle either boundary as the tower steps in above it.
+			var cx: float = c.x + sgn * (gap + hw) * 0.5
+			draw_rect(Rect2(cx - slot * 0.5, y - wh * 0.5, slot, wh), cut)
+			if WINDOW_LIT.has(i):
+				draw_rect(Rect2(cx - slot * 0.5, y - wh * 0.30, slot, wh * 0.60), _ember())
+	# String courses under each setback, so the steps read as floors stacking rather than
+	# as a jagged outline.
+	var t: float = maxf(r * 0.014, 1.0)
+	for i: int in TIER_HEIGHTS.size():
+		var y: float = base_y - span * TIER_HEIGHTS[i] + t * 1.2
+		var hw: float = _hw_at(prof, y, outer)
+		draw_rect(Rect2(c.x - hw, y, hw * 2.0, t), cut)
+	# The footing.
+	draw_rect(Rect2(c.x - outer, base_y - span * PLINTH_H, outer * 2.0, t), cut)
+
+
+## Half-width of the stone at world-y `y`, read off the profile staircase.
+func _hw_at(prof: Array[Vector2], y: float, fallback: float) -> float:
+	var w: float = fallback
+	for v: Vector2 in prof:
+		if v.y >= y:
+			w = v.x
+	return w
+
+
+## RAYS — light breaking out of the crack. Long up the fissure and short across it,
+## because light escaping a fissure goes where the fissure lets it; an even starburst
+## would read as a sticker laid on top of the tower.
+func _draw_rays(c: Vector2, r: float, p: float) -> void:
+	var breath: float = 0.5 + 0.5 * sin(p * PULSE)
+	var sc: Vector2 = _light_centre(c, r)
+	for i: int in RAY_COUNT:
+		var a: float = TAU * float(i) / float(RAY_COUNT) + p * SPIN * 0.5
+		var dir: Vector2 = Vector2.from_angle(a)
+		# 1 straight up, 0 straight across. The crack runs vertically, so that is where
+		# the light is allowed to travel.
+		var along: float = absf(dir.y)
+		var len: float = r * RAY_LEN * (0.22 + 0.78 * pow(along, 2.0)) * (0.9 + 0.1 * breath)
+		var wide: float = r * RAY_SPREAD
+		var perp: Vector2 = Vector2(-dir.y, dir.x) * wide
+		draw_colored_polygon(PackedVector2Array([sc + perp, sc - perp, sc + dir * len]),
+			Color(_ember().r, _ember().g, _ember().b, RAY_ALPHA * (0.7 + 0.3 * breath)))
+
+
+## Sparks going UP, because the climb is the game. Same trick the cast circle uses.
+func _draw_sparks(c: Vector2, r: float, p: float) -> void:
+	for i: int in 9:
+		var jitter: float = sin(float(i) * 12.9898) * 43758.5453
+		jitter -= floor(jitter)
+		var rise: float = fposmod(p * 0.20 + float(i) * 0.111, 1.0)
+		draw_circle(
+			Vector2(c.x + (jitter - 0.5) * r * 0.55,
+				_light_centre(c, r).y + r * 0.30 - rise * r * 0.95),
+			maxf(r * 0.011, 1.0),
+			Color(_ember().r, _ember().g, _ember().b, sin(rise * PI) * 0.65))
+
+
+## CREST — a ringed border with ticks, so the mark reads as a SEAL rather than as a
+## picture of a tower. The quietest way to add ceremony, because it adds nothing inside
+## the silhouette and so cannot muddy it.
+func _draw_crest(c: Vector2, r: float, p: float) -> void:
+	var rad: float = r * CREST_R
+	var lw: float = maxf(r * 0.012, 1.0)
+	draw_arc(c, rad, 0.0, TAU, 128,
+		Color(_chalk().r, _chalk().g, _chalk().b, 0.55), lw, true)
+	for i: int in CREST_TICKS:
+		var a: float = TAU * float(i) / float(CREST_TICKS) + p * SPIN * 0.25
+		var long: bool = (i % 6) == 0
+		draw_line(c + Vector2.from_angle(a) * (rad * (0.945 if long else 0.965)),
+			c + Vector2.from_angle(a) * rad,
+			_ember() if long else Color(GRAPHITE.r, GRAPHITE.g, GRAPHITE.b, 0.7),
+			lw, true)

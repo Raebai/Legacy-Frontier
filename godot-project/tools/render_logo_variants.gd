@@ -30,14 +30,17 @@ const PX: int = 512
 ## SIGIL light, then the CHAMFER cut — *"I like 4 now show me different colourways"*.
 ## Each round holds the previous winners fixed, which is the only way a comparison is
 ## about the thing being compared.
+## ⚠ ROUND FOUR: SIGIL, CHAMFER and EMBER are all settled — *"Yeah I like ember can we
+## make that logo more epic somehow"* — so the only variable left is how much ceremony
+## is laid over a mark whose shape and colour are already chosen.
 const CUT: int = 3          # CHAMFER
+const PAL: int = 0          # EMBER
 const LOOKS: Array[Dictionary] = [
-	{"name": "1_ember.png", "pal": 0},
-	{"name": "2_arcane.png", "pal": 1},
-	{"name": "3_frost.png", "pal": 2},
-	{"name": "4_verdant.png", "pal": 3},
-	{"name": "5_gold.png", "pal": 4},
-	{"name": "6_bone.png", "pal": 5},
+	{"name": "1_plain.png", "epic": 0},
+	{"name": "2_lit.png", "epic": 1},
+	{"name": "3_rays.png", "epic": 2},
+	{"name": "4_crest.png", "epic": 3},
+	{"name": "5_works.png", "epic": 4},
 ]
 
 
@@ -49,12 +52,12 @@ func _initialize() -> void:
 func _go() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT_DIR))
 	for job: Dictionary in LOOKS:
-		await _stamp(int(job["pal"]), String(job["name"]))
+		await _stamp(int(job["epic"]), String(job["name"]))
 	print("[variants] done — %d files in %s" % [LOOKS.size(), OUT_DIR])
 	quit()
 
 
-func _stamp(pal: int, file_name: String) -> void:
+func _stamp(epic: int, file_name: String) -> void:
 	var vp := SubViewport.new()
 	vp.size = Vector2i(PX, PX)
 	vp.transparent_bg = true
@@ -69,7 +72,8 @@ func _stamp(pal: int, file_name: String) -> void:
 	logo.emblem = GameLogo.Emblem.CLEFT
 	logo.cleft_look = GameLogo.CleftLook.SIGIL
 	logo.tower_cut = CUT as GameLogo.TowerCut
-	logo.palette = pal as GameLogo.Palette
+	logo.palette = PAL as GameLogo.Palette
+	logo.epic = epic as GameLogo.Epic
 	vp.add_child(logo)
 
 	await process_frame
