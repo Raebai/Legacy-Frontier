@@ -419,13 +419,46 @@ def build_vo(a: int, b: int, with_tail: bool) -> Path:
     return dst
 
 
+## ⚠ A PIN NARROWS THE POOL TO A CHOSEN FEW. Drop a `PINNED.txt` next to the tracks
+## listing one filename per line and only those are used; delete it and the whole folder
+## shuffles again. It lives WITH the audio (a gitignored folder) rather than in the repo
+## because it is a local content decision about local files, and a pin naming a track
+## nobody else has would only confuse a fresh clone.
+##
+## ⚠ AND IT REPORTS A NAME IT CANNOT FIND RATHER THAN SILENTLY FALLING BACK. A typo in a
+## pin would otherwise look identical to "the pin is working" — the shuffle would just
+## carry on using everything, and the first sign would be the wrong music on a finished
+## clip twenty-five minutes later.
+BED_PIN = "PINNED.txt"
+
+
 def pool_beds() -> list[Path]:
-    """Every track currently in the bed pool, in a stable order."""
+    """Every track eligible as a bed, in a stable order. A pin narrows it."""
     if not BED_DIR.exists():
         return []
-    return sorted((f for f in BED_DIR.iterdir()
-                   if f.is_file() and f.suffix.lower() in BED_EXTS),
-                  key=lambda f: f.name.lower())
+    everything = sorted((f for f in BED_DIR.iterdir()
+                         if f.is_file() and f.suffix.lower() in BED_EXTS),
+                        key=lambda f: f.name.lower())
+    pin = BED_DIR / BED_PIN
+    if not pin.exists():
+        return everything
+    wanted: list[str] = []
+    for line in pin.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            wanted.append(line)
+    by_name = {f.name: f for f in everything}
+    chosen: list[Path] = []
+    for name in wanted:
+        if name in by_name:
+            chosen.append(by_name[name])
+        else:
+            print(f"  ⚠ {BED_PIN} names {name!r}, which is not in "
+                  f"{BED_DIR.name} — skipping it")
+    if not chosen:
+        print(f"  ⚠ {BED_PIN} matched nothing; falling back to the whole pool")
+        return everything
+    return chosen
 
 
 def pick_bed(stem: str) -> Path | None:
