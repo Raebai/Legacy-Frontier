@@ -262,8 +262,26 @@ def send(payloads: list[dict], key: str, timeout: int = 300) -> int:
         # multipart, hand-rolled to keep this dependency-free like the rest of the tools
         boundary = "----lfclip" + os.urandom(8).hex()
         parts: list[bytes] = []
+        # ⚠ A LIST BECOMES REPEATED `name[]` FIELDS, NOT A JSON STRING. This is the
+        # difference between a post and an HTTP 400, and it cost the first real upload:
+        # `json.dumps(["instagram"])` put the literal text `["instagram"]` into a field
+        # called `platform`, and the API answered *"At least one platform is required in
+        # form data"* — which is true, because it never saw one. Their documented shape
+        # is `-F 'platform[]=tiktok'`, once per platform.
+        #
+        # ⚠ AND THE DRY RUN COULD NOT HAVE CAUGHT IT. `build_requests` is pure and is
+        # shared with the preview, so the preview was honest about WHAT was being sent
+        # and silent about HOW — the encoding lives only on this path, which --live is
+        # the first thing to execute. A preview that stops short of the wire format is
+        # not a preview of the request.
         for k, v in p.items():
-            val = json.dumps(v) if isinstance(v, (list, dict)) else str(v)
+            if isinstance(v, (list, tuple)):
+                for item in v:
+                    parts.append(
+                        f"--{boundary}\r\nContent-Disposition: form-data; "
+                        f"name=\"{k}[]\"\r\n\r\n{item}\r\n".encode("utf-8"))
+                continue
+            val = json.dumps(v) if isinstance(v, dict) else str(v)
             parts.append(
                 f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n"
                 f"{val}\r\n".encode("utf-8"))
