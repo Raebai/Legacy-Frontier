@@ -151,7 +151,12 @@ enum Epic { PLAIN, LIT, RAYS, CREST, WORKS }
 ##          tower says ARCHITECTURE, and the game is stick figures fighting with magic.
 ##          The most ownable asset the product has is not currently in its mark.
 enum Optimise { NONE, FILL, TILE, BOLD, MARK, HERO, STICK }
-@export var optimise: Optimise = Optimise.NONE
+## ⚠ FILL IS THE DEFAULT NOW — the audit's finding applied, and the maker's call:
+## *"1 please lets just go with that one finalise"*. Subject width goes 33% -> 43% of
+## the canvas against a ~80% guideline; the shape, the cut, the colour and the sigil are
+## all exactly what was already chosen. This is the one change that costs nothing in
+## design and buys the most in the only place the icon is ever seen small.
+@export var optimise: Optimise = Optimise.FILL
 
 ## Per-row multipliers over the base geometry. Empty dict = the mark as chosen.
 ##   k     scale on the tower + sigil, disc unchanged
