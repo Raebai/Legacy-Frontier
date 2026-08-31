@@ -284,7 +284,8 @@ h2{font-family:var(--display); font-weight:400; text-transform:uppercase;
        color:var(--dim); margin:1.1rem 0 0; text-transform:uppercase}
 
 /* ── closing CTA ─────────────────────────────────────────────────────────── */
-.end{background:var(--stone); border-top:var(--rule); border-bottom:var(--rule)}
+.end{background:var(--stone); border-top:var(--rule); border-bottom:var(--rule);
+     scroll-margin-top:64px}
 .end h2{max-width:16ch}
 
 /* ── footer ──────────────────────────────────────────────────────────────── */
@@ -324,6 +325,11 @@ footer p{margin:.35rem 0; max-width:60ch}
   .join{flex-direction:column}
   .join button{width:100%}
 }
+
+/* Lenis owns the scroll when it is running, and CSS smooth-scroll fights it —
+   the two together produce a visible double-ease on every anchor jump. */
+html.lenis{scroll-behavior:auto}
+html.lenis,html.lenis body{height:auto}
 
 @media (prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
@@ -494,12 +500,41 @@ footer p{margin:.35rem 0; max-width:60ch}
   </div>
 </footer>
 
+<!-- ⚠ THE ONLY THIRD-PARTY CODE ON THIS PAGE, AND IT IS SERVED FROM THIS ORIGIN.
+     Vendored rather than pulled from a CDN: a marketing page should not hand every
+     visitor's IP to a third party, or acquire a dependency that can 404, change
+     under it, or be blocked. 13 KB, pinned at 1.1.18. Delete this line and the
+     block that uses it and the page still works exactly as it does now. -->
+<script src="assets/lenis.min.js"></script>
 <script>
 /* All of this is enhancement. The page reads, and the form submits, with every
    line of it removed — see the note on the form's `action` attribute. */
 (function () {
   'use strict';
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ── inertial scroll ───────────────────────────────────────────────────── */
+  /* ⚠ POINTER-COARSE DEVICES KEEP THE NATIVE SCROLL, DELIBERATELY. Phones already
+     have momentum scrolling that is tuned by the OS and better than anything a
+     library does, and smooth-scroll libraries on touch are where the complaints
+     about "scroll hijacking" actually come from. This is a mouse-wheel affordance
+     only, off entirely under reduced-motion. */
+  var SCROLL_OFFSET = 64;                 /* the height of the fixed bar */
+  if (!reduce && window.Lenis && window.matchMedia('(pointer:fine)').matches) {
+    var lenis = new window.Lenis({ lerp: 0.11, smoothWheel: true, syncTouch: false });
+    (function raf(t) { lenis.raf(t); requestAnimationFrame(raf); })();
+    /* Anchors have to go through Lenis too, or `#join` jumps instantly while the
+       rest of the page eases, which reads as a broken link rather than a choice. */
+    Array.prototype.forEach.call(document.querySelectorAll('a[href^="#"]'),
+      function (a) {
+        a.addEventListener('click', function (e) {
+          var target = document.querySelector(a.getAttribute('href'));
+          if (!target) { return; }
+          e.preventDefault();
+          lenis.scrollTo(target, { offset: -SCROLL_OFFSET });
+        });
+      });
+  }
 
   /* ── the entrance ──────────────────────────────────────────────────────── */
   var started = false;
