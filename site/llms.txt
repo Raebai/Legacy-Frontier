@@ -1,0 +1,27 @@
+# STICKSPIRE
+
+> A stick-figure spell brawler about climbing a tower that keeps taking floors
+> back. Nine classes, each with a signature spell and its own way of moving.
+> Co-op or alone, friendly fire always on. Built for phones, in Godot, by one
+> person. In development; not yet released.
+
+## Facts
+
+- Genre: 2D top-down spell brawler / tower climb
+- Platform: mobile first
+- Engine: Godot
+- Status: in development, unreleased. A new fight is posted daily.
+- Progression: the climb is persistent. Falling costs floors, not progress.
+
+## Links
+
+- [Wishlist](https://stickspire.pages.dev/#join): the mailing list. Two emails
+  ever, one when it is playable and one at launch.
+- [Instagram](https://www.instagram.com/stick.spire/): daily fights
+- [TikTok](https://www.tiktok.com/@stick.spire): daily fights
+
+## Notes
+
+There are no reviews or press quotes for this game, and none should be inferred
+or generated. The figures shown on the site are read directly from the posting
+accounts and carry the date they were read.

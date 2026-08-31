@@ -28,7 +28,15 @@
   # 'unsafe-inline' is present because the page's CSS and JS are deliberately inline
   # (one request, no build step); it weakens script-src but not the two directives
   # above, which are the ones protecting the visitor's address.
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; media-src 'self'; connect-src https://app.kit.com; form-action https://app.kit.com; base-uri 'none'; frame-ancestors 'none'
+  #
+  # ⚠ `connect-src` NEEDS 'self' EXPLICITLY. A directive does not inherit from
+  # default-src, it REPLACES it — so listing only app.kit.com blocked every
+  # same-origin fetch the page could ever make. Found by Lighthouse failing its
+  # robots.txt check with "CSP violation" rather than with anything about robots,
+  # which is a reminder that a policy this narrow fails silently and somewhere
+  # else. 'self' is this origin, which serves nothing but static files, so it
+  # cannot be an exfiltration target; form-action stays pinned to Kit alone.
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; media-src 'self'; connect-src 'self' https://app.kit.com; form-action https://app.kit.com; base-uri 'none'; frame-ancestors 'none'
 
 /assets/*
   # Safe to pin for a year because every asset that can change is requested with a

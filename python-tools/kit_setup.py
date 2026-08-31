@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -93,19 +94,24 @@ def wire(form_id: int) -> int:
         print(f"no page at {PAGE}")
         return 1
     html = PAGE.read_text(encoding="utf-8")
-    hits = html.count(PLACEHOLDER)
+    # ⚠ ONLY INSIDE AN action="" ATTRIBUTE. A blanket string replace also rewrote the
+    # placeholder where it appeared in JavaScript as the sentinel the guard looked
+    # for, which disabled the form permanently the moment it was wired. Anchoring on
+    # the attribute means this tool can only ever change a destination, never code.
+    attr = re.compile(r'(action="https://app\.kit\.com/forms/)' +
+                      re.escape(PLACEHOLDER) + r'(/subscriptions")')
+    hits = len(attr.findall(html))
     if not hits:
         current = "already wired" if "app.kit.com/forms/" in html else "not found"
         print(f"  the placeholder is not in the page ({current}).")
         if "app.kit.com/forms/" in html:
-            import re
             for match in sorted(set(re.findall(r"app\.kit\.com/forms/(\d+)/", html))):
                 print(f"  the page currently posts to form {match}")
             print("  to change it, edit site/index.html by hand — this script only "
                   "fills a placeholder,\n  so it can never silently repoint a live "
                   "signup form at a different list.")
         return 1
-    PAGE.write_text(html.replace(PLACEHOLDER, str(form_id)), encoding="utf-8")
+    PAGE.write_text(attr.sub(rf"\g<1>{form_id}\g<2>", html), encoding="utf-8")
     print(f"  wired {hits} form(s) to {PUBLIC_FORM_ACTION.format(id=form_id)}")
     print(f"  rewrote {PAGE.relative_to(ROOT)}")
     return 0

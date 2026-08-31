@@ -379,12 +379,12 @@ html.lenis,html.lenis body{height:auto}
     </h1>
 
     <p class="lede">
-      A stick-figure spell brawler. Nine classes, no two of them alike.
-      Fight up it alone or bring one friend — <b>friendly fire is always on</b>.
+      A stick-figure spell brawler. Nine classes, no two alike. Alone or with
+      one friend, and <b>friendly fire is always on</b>.
     </p>
 
     <form class="join" id="join-form" method="post"
-          action="https://app.kit.com/forms/REPLACE_WITH_KIT_FORM_ID/subscriptions">
+          action="https://app.kit.com/forms/9866820/subscriptions">
       <label class="hp" aria-hidden="true">Leave empty
         <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
       <label class="hp" for="email">Email address</label>
@@ -408,13 +408,11 @@ html.lenis,html.lenis body{height:auto}
         <h2>Floors are<br>authored, not<br>shuffled</h2>
       </div>
       <div>
-        <p>Ten of them, each its own biome, each with something in it that has been
-        waiting. You learn a floor instead of rerolling it.</p>
+        <p>Ten floors, ten biomes, each with something in it that has been waiting.
+        You learn a floor instead of rerolling it.</p>
         <p><b>Falling costs ground, not progress.</b> Nothing resets. You keep what you
-        found and give back the floors you took, and the town downstairs keeps count of
-        how often.</p>
-        <p>It is built for a phone and honest about that: one screen per floor, two
-        players, nothing between you and the fight.</p>
+        found and give back the floors you took.</p>
+        <p>Built for a phone: one screen per floor, two players, nothing in the way.</p>
       </div>
     </div>
   </section>
@@ -455,11 +453,11 @@ html.lenis,html.lenis body{height:auto}
            date underneath — so the numbers cannot quietly drift into fiction. -->
       <dl class="facts">
         <div><dt>Shown this month</dt>
-          <dd data-fact="reach">6,836<small>Times a fight was put in front of somebody on Instagram, this month.</small></dd></div>
+          <dd data-fact="reach">6,836<small>Times a fight was shown on Instagram this month.</small></dd></div>
         <div><dt>Fights cut</dt>
-          <dd data-fact="clips">17<small>Finished, scored, kept. Roughly one bout in three is thrown away.</small></dd></div>
+          <dd data-fact="clips">17<small>Roughly one bout in three is thrown away.</small></dd></div>
         <div><dt>Posted so far</dt>
-          <dd data-fact="posts">8<small>Every one delivered. None failed.</small></dd></div>
+          <dd data-fact="posts">8<small>All delivered. None failed.</small></dd></div>
         <div><dt>People making it</dt>
           <dd data-fact="people">1<small>Evenings and weekends, in Godot.</small></dd></div>
       </dl>
@@ -471,11 +469,10 @@ html.lenis,html.lenis body{height:auto}
     <div class="inner">
       <p class="eyebrow">The list</p>
       <h2>Hear it from me,<br>not from an algorithm</h2>
-      <p class="lede">Instagram decides whether you are shown the next fight. This
-      doesn't. <b>Two emails, ever</b> — one when there is something you can play, one
-      when it launches. Unsubscribe in a click.</p>
+      <p class="lede">Instagram decides whether you see the next fight. This doesn't.
+      <b>Two emails, ever:</b> one when it's playable, one when it launches.</p>
       <form class="join" id="join-form-2" method="post"
-            action="https://app.kit.com/forms/REPLACE_WITH_KIT_FORM_ID/subscriptions">
+            action="https://app.kit.com/forms/9866820/subscriptions">
         <label class="hp" aria-hidden="true">Leave empty
           <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
         <label class="hp" for="email2">Email address</label>
@@ -594,7 +591,14 @@ html.lenis,html.lenis body{height:auto}
        cannot store: the visitor believes they signed up either way, and the
        failure stays invisible until somebody thinks to open a dashboard that has
        been empty for a month. */
-    if (endpoint.indexOf('REPLACE_WITH_KIT_FORM_ID') !== -1) {
+    /* ⚠ THE GUARD TESTS FOR A REAL FORM ID, NOT FOR THE ABSENCE OF A SENTINEL.
+       It used to check `indexOf('REPLACE_WITH_KIT_FORM_ID')` — and the wiring step
+       replaced EVERY occurrence of that string, including this one, so after wiring
+       the test became `indexOf('9866820')` against an endpoint containing 9866820:
+       true forever, form disabled forever. A placeholder must never be both the
+       value and the sentinel that detects it. Asking "is there a numeric form id
+       here" cannot be broken by the thing that fills the id in. */
+    if (!/^https:\/\/app\.kit\.com\/forms\/\d+\/subscriptions$/.test(endpoint)) {
       /* ⚠ THE VISITOR AND THE MAKER NEED DIFFERENT MESSAGES, and this said the
          maker's out loud on a public page: a stranger was being shown a path to a
          file in a private repo. What they need is a way to keep in touch; the
