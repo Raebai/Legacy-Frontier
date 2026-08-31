@@ -71,7 +71,7 @@ $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
     -StartWhenAvailable `
-    -ExecutionTimeLimit (New-TimeSpan -Hours 2) `
+    -ExecutionTimeLimit (New-TimeSpan -Hours 6) `
     -MultipleInstances IgnoreNew
 
 if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {

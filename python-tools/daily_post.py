@@ -362,6 +362,27 @@ def covers(rows: list[dict], wanted: list[str]) -> bool:
     return bool(wanted) and set(wanted) <= got
 
 
+def is_vertical(path: Path) -> bool | None:
+    """Is this file taller than it is wide? None if ffprobe cannot say.
+
+    ⚠ THIS IS WHAT DECIDES SHORTS, AND NOTHING ELSE DOES. YouTube classifies an
+    upload as a Short at ingest from its ASPECT and DURATION - square or taller, and
+    three minutes or less. There is no API flag for it, and no amount of "#Shorts" in
+    the title changes the decision. So the only way to guarantee a Short is to refuse
+    to send a file that is not one, which is what the caller does with this.
+    """
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height", "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True, timeout=30)
+        w, h = (int(x) for x in out.stdout.strip().split(",")[:2])
+        return h >= w
+    except Exception:                                        # noqa: BLE001
+        return None
+
+
 def linked_platforms(key: str) -> dict[str, set[str]]:
     """{profile: {platform, ...}} for everything actually connected right now."""
     data = pc.fetch_profiles(key) or {}
@@ -415,7 +436,8 @@ def reconcile(ledger: dict, key: str, verbose: bool = True) -> int:
 
 def runway(accounts: list[dict], ledger: dict) -> tuple[int, float]:
     """(clips not spoken for, days of posting those cover)."""
-    left = len(pool()) - len(spoken_for(ledger))
+    used = spoken_for(ledger)
+    left = len([c for c in pool() if c.stem not in used])
     # Only entries that PICK a clip consume the pool. A rider (`same_clip_as`) reuses
     # one, so counting it here understates the runway and would send the maker off to
     # shoot fights that are not actually needed.
@@ -510,6 +532,14 @@ def cmd_topup(days: int, accounts: list[dict], ledger: dict, key: str,
                     print(f"\n  {when} {profile}: no {send_clip.name} yet - skipping. "
                           f"Build them with python python-tools/make_portrait.py")
                     continue
+
+            if "youtube" in acct["platforms"] and is_vertical(send_clip) is False:
+                print()
+                print(f"  {when} {profile}: {send_clip.name} is LANDSCAPE. "
+                      f"YouTube files that as a normal video, not a Short. "
+                      f"Refusing to send it.")
+                failures += 1
+                continue
 
             tags, hhmm, vidx = variant_for(acct, when, weights)
             when_utc, when_local = slot(when, hhmm)
