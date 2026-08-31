@@ -1,0 +1,32 @@
+# Cloudflare Pages reads this file at deploy time. It is not served to anyone.
+#
+# ⚠ RULES ARE ADDITIVE AND LATER ONES WIN, so the order matters: the catch-all sets
+# the defaults and /assets/* then overrides only the caching.
+
+/*
+  # The HTML must never be cached hard. It carries the ?v= numbers that bust the
+  # asset cache, so a stale index.html pins a visitor to old media forever — the
+  # one file that must always be revalidated.
+  Cache-Control: public, max-age=0, must-revalidate
+
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+  Permissions-Policy: geolocation=(), microphone=(), camera=(), interest-cohort=()
+
+  # ⚠ `form-action` AND `connect-src` ARE THE LOAD-BEARING DIRECTIVES HERE, and they
+  # are why this is worth having on a static page at all: they pin the signup to Kit
+  # and nowhere else, so no injected script can quietly repoint the email form at
+  # somebody else's endpoint. If the wishlist ever stops working after a deploy,
+  # THIS LINE IS THE FIRST SUSPECT — check the browser console for a CSP violation
+  # before touching the JavaScript.
+  # 'unsafe-inline' is present because the page's CSS and JS are deliberately inline
+  # (one request, no build step); it weakens script-src but not the two directives
+  # above, which are the ones protecting the visitor's address.
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; media-src 'self'; connect-src https://app.kit.com; form-action https://app.kit.com; base-uri 'none'; frame-ancestors 'none'
+
+/assets/*
+  # Safe to pin for a year because every asset that can change is requested with a
+  # ?v= query, and the browser caches on the full URL. Bump the ?v= in index.html
+  # when you replace a file in place.
+  Cache-Control: public, max-age=31536000, immutable

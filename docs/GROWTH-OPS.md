@@ -162,39 +162,56 @@ confirmation. That is what people get after signing up.
 
 ## 5. Put the site online (10 minutes)
 
-The whole site is `site/` — one HTML file and five assets, **628 KB**, no build
-step, no framework, scoring **100 / 100 / 100** on Lighthouse accessibility, best
-practices and SEO on mobile.
+The whole site is `site/` — one HTML file and nine files in total, **645 KB**, no build
+step and no framework.
 
-1. Sign in at **<https://dash.cloudflare.com>** → Workers & Pages → Create →
-   Pages → **Upload assets**.  (Sign-up: <https://dash.cloudflare.com/sign-up>)
+**Sign up (free, no card): <https://dash.cloudflare.com/sign-up>**
+
+### Option A — drag and drop, no terminal
+
+1. **<https://dash.cloudflare.com>** → Workers & Pages → Create → Pages →
+   **Upload assets**
 2. Project name `stickspire`. Drag the **`site` folder** in. Deploy.
 3. You now have **`https://stickspire.pages.dev`**. That is the bio link.
 
-To update it later, drag the folder in again — or, once you want it automated:
+### Option B — one command, and I can run it after the first time
 
+    npx wrangler login                  # opens a browser once, you approve
     npx wrangler pages deploy site --project-name stickspire
 
-**When you buy a domain:** Cloudflare Registrar sells at cost (~£9/yr for `.com`, no
-first-year-cheap-then-triple pricing). Add it under the Pages project → Custom domains,
-and update the three `stickspire.pages.dev` references in `site/index.html`
-(`canonical`, `og:url`) so link previews point at the real address.
+Wrangler is already available (v4.127.1 via npx, Node v24 installed). After you have
+logged in once, every future redeploy is that second line and nothing else — so a
+re-cut clip or a numbers refresh goes live without you touching a dashboard.
 
-### Keeping the page's numbers honest
+### After the first deploy, check three things
 
-The page has a section headed **"No reviews yet. Here are the numbers."** That is
-deliberate. Nobody has reviewed the game and all eight posts carry zero comments —
-checked through the API, not assumed — so there is no testimonial to quote, and an
-invented one would be the only thing on the page a visitor could catch as a lie.
+1. Open the site on your phone. The form should say **"Not wired"** until step 4 is
+   done — that is correct, not a bug.
+2. Paste the URL into a DM or a Discord channel. You should get the ember card, not a
+   grey box. If it is grey, the `og:image` is not resolving.
+3. Open the browser console. **It must be empty.** A Content-Security-Policy violation
+   there is the one failure that would silently stop signups reaching Kit.
 
-The honest substitute is only honest while it is true, so the figures are generated,
-not typed:
+### What `_headers` does
 
-    python python-tools/update_site_facts.py            # what would change
-    python python-tools/update_site_facts.py --write    # rewrite the page
+Cloudflare reads `site/_headers` at deploy time (it is never served). It sets a
+year-long immutable cache on `/assets/*` — safe because every asset that can change is
+requested with a `?v=` query — and `must-revalidate` on the HTML, which carries those
+`?v=` numbers and must never be stale.
 
-Run it before a redeploy. It reads the impressions, the post count and the clip count
-straight from the accounts and re-stamps the date underneath them.
+It also sets a CSP whose two load-bearing directives are `form-action` and
+`connect-src`, both pinned to `app.kit.com`. That means no injected script can quietly
+repoint your signup form at somebody else's endpoint. **If the wishlist ever stops
+working after a deploy, that line is the first suspect** — check the console before
+touching the JavaScript. It was tested in a real browser before shipping: the Kit
+request goes through, every other host is blocked.
+
+### When you buy a domain
+
+Cloudflare Registrar sells at cost (~£9/yr for `.com`, no cheap-first-year-then-triple
+pricing). Add it under the Pages project → Custom domains, then update the
+`stickspire.pages.dev` references in `site/index.html` (`canonical`, `og:url`),
+`site/robots.txt` and `site/sitemap.xml`.
 
 ---
 
