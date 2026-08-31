@@ -214,6 +214,59 @@ def build_horizontal_lockup() -> Path:
     return dst
 
 
+## The sizes a profile picture is ACTUALLY seen at, which are not the size it is
+## uploaded at. A 1024px avatar that reads beautifully in a folder is irrelevant; these
+## three are where the decision is really made.
+##   32  — the comment/notification row, and the browser tab
+##   40  — the avatar above a Reel or a TikTok in the feed, the most common size by far
+##   110 — the profile page header, the only place anyone looks at it deliberately
+LEGIBILITY_SIZES = (32, 40, 110)
+LEGIBILITY_ZOOM = 6
+
+
+def _legibility_sheet() -> None:
+    """Shrink the mark to feed sizes, then blow it back up so the survivors are visible.
+
+    ⚠ THIS IS THE ONLY HONEST WAY TO JUDGE AN AVATAR, and looking at the 1024px master
+    is how a mark with fine detail gets approved and then disappears in production. The
+    downscale is lanczos (what a platform does); the upscale back is NEAREST, so no
+    interpolation invents detail that the small version does not contain. What you see
+    in this sheet is exactly the information a viewer's eye receives.
+    """
+    src = OUT / "avatar_1024.png"
+    if not src.exists():
+        return
+    parts = []
+    for size in LEGIBILITY_SIZES:
+        dst = OUT / f"legibility_{size}px.png"
+        ff(["-i", str(src), "-vf",
+            f"scale={size}:{size}:flags=lanczos,"
+            f"scale={size * LEGIBILITY_ZOOM}:{size * LEGIBILITY_ZOOM}:flags=neighbor",
+            "-frames:v", "1", str(dst)])
+        parts.append(dst)
+        print(f"  legibility_{size}px.png       {verify(dst)}")
+    # One row, so the three are compared against each other rather than in sequence.
+    row = OUT / "legibility_row.png"
+    widths = [s * LEGIBILITY_ZOOM for s in LEGIBILITY_SIZES]
+    gap, pad = 40, 40
+    total_w = sum(widths) + gap * (len(widths) - 1) + pad * 2
+    total_h = max(widths) + pad * 2
+    args = ["-f", "lavfi", "-i",
+            f"color=c=0x0e0d13:s={total_w}x{total_h}:r=1,format=rgba"]
+    for p in parts:
+        args += ["-i", str(p)]
+    chain, x = "", pad
+    for i, w in enumerate(widths):
+        src_label = f"[{i + 1}:v]"
+        prev = "[0:v]" if i == 0 else f"[s{i - 1}]"
+        out_label = f"[s{i}]" if i < len(widths) - 1 else ""
+        chain += f"{prev}{src_label}overlay={x}:{(total_h - w) // 2}{out_label};"
+        x += w + gap
+    ff(args + ["-filter_complex", chain.rstrip(";"), "-frames:v", "1", str(row)])
+    print(f"  legibility_row.png          {verify(row)}   "
+          f"({', '.join(str(s) + 'px' for s in LEGIBILITY_SIZES)}, left to right)")
+
+
 def main() -> int:
     if not MARK.exists() or not LOCKUP.exists():
         sys.exit(f"missing source art in {BRAND} — run tools/render_logo.gd first")
@@ -247,6 +300,12 @@ def main() -> int:
 
         ("favicon_180.png",         180,  180, MARK,      195, PAPER, "c"),
         ("favicon_32.png",           32,   32, MARK,       35, PAPER, "c"),
+
+        # ── the website's link preview. 1200x630 is what every platform crops from
+        # when a URL is pasted into a post, a DM or a Discord channel — without it the
+        # link renders as a bare grey box, which is the first impression the bio link
+        # makes on everyone who has not already decided to click.
+        ("og_image_1200x630.png",  1200,  630, LOCKUP_H,  330, PAPER, "c"),
     ]
     print(f"building the kit into {OUT.relative_to(REPO)}\n")
     for name, w, h, art, art_h, bg, pos in jobs:
@@ -255,6 +314,7 @@ def main() -> int:
         print(f"  {name:<26} {verify(dst)}")
     print()
     _assert_yt_safe(OUT / "yt_channel_art.png")
+    _legibility_sheet()
     print(f"\n{len(jobs)} files. Source of truth is GameLogo.gd -> tools/render_logo.gd.")
     return 0
 

@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>STICKSPIRE — a stick-figure spell brawler</title>
+<meta name="description" content="Climb a tower that keeps taking floors back. Nine classes, each with a signature spell. Co-op or alone. Join the wishlist for one email at the demo and one at launch.">
+<link rel="canonical" href="https://stickspire.pages.dev/">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="STICKSPIRE">
+<meta property="og:description" content="A stick-figure spell brawler about climbing a tower that keeps taking floors back.">
+<meta property="og:image" content="assets/og.png">
+<meta property="og:url" content="https://stickspire.pages.dev/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#0e0d13">
+
+<link rel="icon" href="assets/favicon.png" sizes="32x32">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+
+<style>
+/* ── The palette is not invented here. It is GameLogo.gd's, converted:
+      PAPER 0.055,0.052,0.075 · CHALK 0.93,0.92,0.86 · EMBER 0.98,0.52,0.20
+      Keeping the site on the same three colours as the logo and the game's own
+      UI is the cheapest way for a stranger to recognise a clip and the site as
+      the same thing. ───────────────────────────────────────────────────────── */
+:root{
+  --paper:#0e0d13; --paper-2:#15141c; --chalk:#edebdb; --graphite:#9ea1b3;
+  --ember:#fa8533; --ember-dim:#c9682a;
+  --measure:min(1120px, 100% - 2.5rem);
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--paper); color:var(--chalk); font-family:var(--font);
+  font-size:clamp(1rem,0.94rem + 0.3vw,1.125rem); line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+img,video{max-width:100%; height:auto; display:block}
+a{color:var(--ember); text-underline-offset:.2em}
+a:focus-visible,button:focus-visible,input:focus-visible{
+  outline:2px solid var(--ember); outline-offset:3px; border-radius:4px;
+}
+.wrap{width:var(--measure); margin-inline:auto}
+
+/* ── hero ─────────────────────────────────────────────────────────────────── */
+header{position:relative; overflow:hidden; padding:clamp(2rem,6vw,4.5rem) 0 0}
+/* An ember glow behind the mark, echoing the one in the logo's cleft. Sized in
+   vmax so it stays a background presence on a phone instead of a bright disc. */
+header::before{
+  content:""; position:absolute; inset:-30% -10% auto; height:70vmax;
+  background:radial-gradient(closest-side, rgba(250,133,51,.16), transparent 70%);
+  pointer-events:none;
+}
+.brand{display:flex; align-items:center; gap:.9rem; margin-bottom:clamp(2rem,7vw,3.5rem)}
+.brand img{width:44px; height:44px; border-radius:11px}
+.brand span{
+  font-weight:800; letter-spacing:.22em; font-size:.82rem; text-transform:uppercase;
+}
+.brand span b{color:var(--ember); font-weight:800}
+h1{
+  margin:0 0 1.1rem; font-size:clamp(2.4rem,1.3rem + 5.2vw,4.6rem); line-height:1.03;
+  letter-spacing:-.02em; font-weight:800; max-width:16ch;
+}
+h1 em{color:var(--ember); font-style:normal}
+.lede{margin:0 0 2rem; max-width:54ch; color:var(--graphite); font-size:1.06em}
+.lede strong{color:var(--chalk); font-weight:600}
+
+/* ── the loop ─────────────────────────────────────────────────────────────── */
+figure{margin:clamp(2.5rem,6vw,4rem) 0 0; position:relative}
+figure video{
+  width:100%; border-radius:14px; border:1px solid rgba(237,235,219,.1);
+  background:var(--paper-2); box-shadow:0 30px 80px -40px rgba(0,0,0,.9);
+}
+figcaption{
+  margin-top:.8rem; font-size:.82rem; color:var(--graphite); letter-spacing:.02em;
+}
+
+/* ── beats ────────────────────────────────────────────────────────────────── */
+.beats{
+  display:grid; gap:clamp(1.5rem,3vw,2.5rem); padding:clamp(3.5rem,9vw,6rem) 0;
+  grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));
+}
+.beat h2{
+  margin:0 0 .5rem; font-size:1.02rem; letter-spacing:.02em; font-weight:700;
+}
+.beat p{margin:0; color:var(--graphite); font-size:.96em}
+.beat .rule{width:34px; height:2px; background:var(--ember); margin-bottom:1rem}
+
+/* ── wishlist ─────────────────────────────────────────────────────────────── */
+.wishlist{
+  background:var(--paper-2); border:1px solid rgba(237,235,219,.09);
+  border-radius:18px; padding:clamp(1.6rem,4vw,2.75rem);
+  scroll-margin-top:2rem;
+}
+.wishlist h2{margin:0 0 .6rem; font-size:clamp(1.4rem,1rem + 1.6vw,2rem); letter-spacing:-.01em}
+.wishlist p{margin:0 0 1.5rem; color:var(--graphite); max-width:48ch}
+form{display:flex; flex-wrap:wrap; gap:.7rem}
+input[type=email]{
+  flex:1 1 16rem; min-width:0; padding:.85rem 1rem; font:inherit; font-size:1rem;
+  color:var(--chalk); background:rgba(14,13,19,.75);
+  border:1px solid rgba(237,235,219,.18); border-radius:10px;
+}
+input[type=email]::placeholder{color:#6e7183}
+button{
+  flex:0 0 auto; padding:.85rem 1.5rem; font:inherit; font-weight:700; font-size:1rem;
+  color:#1a1206; background:var(--ember); border:0; border-radius:10px; cursor:pointer;
+  transition:background .15s ease, transform .06s ease;
+}
+button:hover:not(:disabled){background:#ffa055}
+button:active:not(:disabled){transform:translateY(1px)}
+button:disabled{background:#4a4638; color:#9a927f; cursor:not-allowed}
+.hp{position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden}
+.note{margin:1.1rem 0 0; font-size:.84rem; color:var(--graphite); max-width:60ch}
+.msg{margin:1rem 0 0; font-size:.94rem; min-height:1.4em}
+.msg[data-state=ok]{color:var(--ember)}
+.msg[data-state=err]{color:#ff8a7a}
+
+/* ── links + footer ───────────────────────────────────────────────────────── */
+.social{
+  display:flex; flex-wrap:wrap; gap:.6rem; padding:clamp(3rem,7vw,4.5rem) 0 0;
+}
+.social a{
+  display:inline-block; padding:.55rem 1rem; border-radius:999px; font-size:.9rem;
+  color:var(--chalk); text-decoration:none; border:1px solid rgba(237,235,219,.18);
+  transition:border-color .15s ease, color .15s ease;
+}
+.social a:hover{border-color:var(--ember); color:var(--ember)}
+footer{
+  padding:clamp(3rem,7vw,5rem) 0 clamp(2rem,5vw,3rem); margin-top:clamp(2rem,5vw,3rem);
+  border-top:1px solid rgba(237,235,219,.08); color:#6e7183; font-size:.84rem;
+}
+footer p{margin:.3rem 0}
+
+/* On a narrow screen the button drops onto its own row anyway; letting it stay
+   auto-width leaves a stubby control floating left of a lot of empty space. */
+@media (max-width:30rem){
+  form{flex-direction:column}
+  button{width:100%}
+}
+@media (prefers-reduced-motion: reduce){
+  *{animation:none !important; transition:none !important; scroll-behavior:auto !important}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="brand">
+      <img src="assets/mark.png" alt="" width="44" height="44">
+      <span><b>STICK</b>SPIRE</span>
+    </div>
+
+    <h1>Climb a tower that keeps <em>taking floors back</em>.</h1>
+
+    <p class="lede">
+      A stick-figure spell brawler. Nine classes, each with a signature spell and its
+      own way of moving. Fight through it alone or bring one friend —
+      <strong>friendly fire is always on</strong>.
+    </p>
+
+    <p><a href="#wishlist"><strong>Join the wishlist &rarr;</strong></a></p>
+
+    <figure>
+      <!-- muted+playsinline+autoplay is the only combination iOS Safari will start
+           on its own; without playsinline it hijacks the screen into fullscreen. -->
+      <video src="assets/loop.mp4" poster="assets/poster.jpg"
+             autoplay muted loop playsinline preload="metadata"
+             aria-label="Two stick figures fighting with spells inside a stone arena"></video>
+      <figcaption>Warlock vs Cleric. Captured in engine, not a mock-up.</figcaption>
+    </figure>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <section class="beats">
+      <div class="beat">
+        <div class="rule"></div>
+        <h2>The climb is the game</h2>
+        <p>Floors are authored, not shuffled — ten of them, each its own biome, each
+        with something in it that has been waiting.</p>
+      </div>
+      <div class="beat">
+        <div class="rule"></div>
+        <h2>Nine classes, no recolours</h2>
+        <p>Every class gets a signature spell and a movement verb nobody else has.
+        If two of them play the same, one of them is wrong.</p>
+      </div>
+      <div class="beat">
+        <div class="rule"></div>
+        <h2>Made for a phone, honestly</h2>
+        <p>One screen per floor, two players, no menus between you and the fight.
+        It runs on the device you already have.</p>
+      </div>
+    </section>
+
+    <section class="wishlist" id="wishlist">
+      <h2>Get told when it's out</h2>
+      <p>Two emails, ever: one when there's something playable, one when it launches.
+      No newsletter, no drip sequence, unsubscribe in a click.</p>
+
+      <!-- ⚠ NO-JS FALLBACK IS THE `action` ATTRIBUTE, NOT A NICETY. If the fetch
+           below is blocked (a content blocker, a locked-down corporate browser, a
+           JS error introduced later), the native form post still reaches Kit and
+           the signup is not silently lost. The script only intercepts to keep the
+           visitor on this page. -->
+      <form id="wishlist-form" method="post"
+            action="https://app.kit.com/forms/REPLACE_WITH_KIT_FORM_UID/subscriptions">
+        <label class="hp" aria-hidden="true">
+          Leave this empty <input type="text" name="website" tabindex="-1" autocomplete="off">
+        </label>
+        <label class="hp" for="email">Email address</label>
+        <input id="email" type="email" name="email_address" required
+               autocomplete="email" inputmode="email" placeholder="you@example.com">
+        <button type="submit" id="wishlist-submit">Join the wishlist</button>
+      </form>
+      <p class="msg" id="wishlist-msg" role="status" aria-live="polite"></p>
+      <p class="note">Stickspire is made by one person. The list is how you hear
+      about it before an algorithm decides whether to show you.</p>
+    </section>
+
+    <nav class="social" aria-label="Social accounts">
+      <a href="https://www.instagram.com/stick.spire/" rel="me noopener">Instagram</a>
+      <a href="https://www.instagram.com/stickspire.arena/" rel="me noopener">Instagram · Arena</a>
+      <a href="https://www.tiktok.com/@stick.spire" rel="me noopener">TikTok</a>
+      <a href="https://www.tiktok.com/@stickspire.arena" rel="me noopener">TikTok · Arena</a>
+    </nav>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>STICKSPIRE — in development.</p>
+    <p>Built in Godot. Posted about daily, whether or not it went well.</p>
+  </div>
+</footer>
+
+<script>
+/* Progressive enhancement only. Everything below can fail and the form still works,
+   because the <form action> posts to Kit directly — see the comment on it. */
+(function () {
+  var form = document.getElementById('wishlist-form');
+  var button = document.getElementById('wishlist-submit');
+  var msg = document.getElementById('wishlist-msg');
+  var endpoint = form.getAttribute('action');
+
+  /* ⚠ A WISHLIST FORM THAT SILENTLY DROPS SIGNUPS IS WORSE THAN NO FORM. Until the
+     real Kit form id is pasted in, refuse to accept an address at all rather than
+     take one and lose it — the visitor believes they signed up either way, and the
+     failure is invisible for as long as nobody checks the Kit dashboard. */
+  if (endpoint.indexOf('REPLACE_WITH_KIT_FORM_UID') !== -1) {
+    button.disabled = true;
+    button.textContent = 'Not connected yet';
+    msg.dataset.state = 'err';
+    msg.textContent = 'The signup form is not wired to a mailing list yet — ' +
+                      'see docs/GROWTH-OPS.md, step 4.';
+    form.addEventListener('submit', function (e) { e.preventDefault(); });
+    return;
+  }
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (form.website.value) { return; }              /* honeypot: a bot filled it in */
+    var email = form.email_address.value.trim();
+    if (!email) { return; }
+
+    button.disabled = true;
+    var original = button.textContent;
+    button.textContent = 'Adding you…';
+    msg.dataset.state = '';
+    msg.textContent = '';
+
+    fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ email_address: email })
+    }).then(function (res) {
+      if (!res.ok) { throw new Error('HTTP ' + res.status); }
+      form.style.display = 'none';
+      msg.dataset.state = 'ok';
+      msg.textContent = "You're on the list. Check your inbox for a confirmation — " +
+                        'it sometimes lands in Promotions.';
+    }).catch(function () {
+      button.disabled = false;
+      button.textContent = original;
+      msg.dataset.state = 'err';
+      /* Deliberately does NOT claim success on a network failure. Telling someone
+         they are signed up when the request never landed is the one outcome that
+         costs a real subscriber. */
+      msg.textContent = "That didn't go through. Try again in a moment, or DM " +
+                        '@stick.spire on Instagram and you will be added by hand.';
+    });
+  });
+})();
+</script>
+</body>
+</html>
