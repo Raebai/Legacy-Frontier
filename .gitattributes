@@ -38,3 +38,11 @@
 # PowerShell is happy either way, but keep it consistent with what Windows
 # tooling writes so the file does not churn on every edit.
 *.ps1 text eol=crlf
+
+# Web files are deployed as-is to a Linux edge and parsed there. `_headers` in
+# particular is read by Cloudflare's own parser, so pin LF rather than let this
+# machine's autocrlf hand a fresh clone CRLF versions of files that leave it.
+site/_headers text eol=lf
+site/robots.txt text eol=lf
+site/sitemap.xml text eol=lf
+site/index.html text eol=lf
