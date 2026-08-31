@@ -1,0 +1,402 @@
+{
+  "posts": {
+    "0b7c499740664d54867702dcc7b1974b": {
+      "error": null,
+      "features": {
+        "clip": "arcanist_vs_shadowblade",
+        "duration_s": 30.8,
+        "fighters": [
+          "arcanist",
+          "shadowblade"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "animation,gamedev,indiedev,indiegame,stickfight,stickman",
+        "hashtags": [
+          "animation",
+          "gamedev",
+          "indiedev",
+          "indiegame",
+          "stickfight",
+          "stickman"
+        ],
+        "height": 1080,
+        "hour": 10,
+        "orientation": "landscape",
+        "platform": "instagram",
+        "profile": "StickSpire",
+        "weekday": "Tue",
+        "width": 1920
+      },
+      "ok": true,
+      "platform": "instagram",
+      "platform_post_id": "18123113875870873",
+      "post_url": "https://www.instagram.com/reel/DcdRDkUgTw4/",
+      "posted_at": "2026-08-25T09:01:13.669Z",
+      "profile": "StickSpire",
+      "request_id": "0b7c499740664d54867702dcc7b1974b",
+      "snapshots": [
+        {
+          "at": "2026-08-31T17:43:22Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 140,
+            "likes": 2,
+            "reach": 127,
+            "saves": 0,
+            "shares": 0,
+            "views": 140
+          }
+        }
+      ],
+      "title": "ARCANIST vs SHADOWBLADE\n\n#stickman #indiegame #gamedev #indiedev #animation #stickfight"
+    },
+    "16c1ad793f88498cb783c2a357b101c0": {
+      "error": null,
+      "features": {
+        "clip": "cryomancer_vs_brawler",
+        "duration_s": 39.6,
+        "fighters": [
+          "brawler",
+          "cryomancer"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "animation,fyp,gaming,indiegame,stickfight,stickman",
+        "hashtags": [
+          "animation",
+          "fyp",
+          "gaming",
+          "indiegame",
+          "stickfight",
+          "stickman"
+        ],
+        "height": 1080,
+        "hour": 17,
+        "orientation": "landscape",
+        "platform": "instagram",
+        "profile": "StickSpire_Arena",
+        "weekday": "Tue",
+        "width": 1920
+      },
+      "ok": true,
+      "platform": "instagram",
+      "platform_post_id": "18424516552197590",
+      "post_url": "https://www.instagram.com/reel/DceEn_bkeYI/",
+      "posted_at": "2026-08-25T16:31:49.626Z",
+      "profile": "StickSpire_Arena",
+      "request_id": "16c1ad793f88498cb783c2a357b101c0",
+      "snapshots": [
+        {
+          "at": "2026-08-31T17:43:22Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 6,
+            "likes": 0,
+            "reach": 5,
+            "saves": 0,
+            "shares": 0,
+            "views": 6
+          }
+        }
+      ],
+      "title": "CRYOMANCER vs BRAWLER\n\n#stickman #indiegame #animation #gaming #fyp #stickfight"
+    },
+    "1b8f88549fd24f49b844a1d16b0ce10b": {
+      "error": null,
+      "features": {
+        "clip": "warlock_vs_cleric",
+        "duration_s": 23.8,
+        "fighters": [
+          "cleric",
+          "warlock"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "animation,gamedev,indiedev,indiegame,stickman",
+        "hashtags": [
+          "animation",
+          "gamedev",
+          "indiedev",
+          "indiegame",
+          "stickman"
+        ],
+        "height": 1080,
+        "hour": 16,
+        "orientation": "landscape",
+        "platform": "instagram",
+        "profile": "StickSpire",
+        "weekday": "Mon",
+        "width": 1920
+      },
+      "ok": true,
+      "platform": "instagram",
+      "platform_post_id": "18111648137009490",
+      "post_url": "https://www.instagram.com/reel/DcbXxqFgqU8/",
+      "posted_at": "2026-08-24T15:21:31.041Z",
+      "profile": "StickSpire",
+      "request_id": "1b8f88549fd24f49b844a1d16b0ce10b",
+      "snapshots": [
+        {
+          "at": "2026-08-31T17:43:22Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 344,
+            "likes": 7,
+            "reach": 290,
+            "saves": 0,
+            "shares": 1,
+            "views": 344
+          }
+        }
+      ],
+      "title": "WARLOCK vs CLERIC \u2014 who wins?\n\nEvery fight in Stickspire is two AI wizards actually fighting. Nothing is scripted.\n\n#indiegame #gamedev #stickman #indiedev #animation"
+    },
+    "67f6624aaa6840fcbed144c42cc9dbd8": {
+      "error": null,
+      "features": {
+        "clip": "stormcaller_vs_swordsaint",
+        "duration_s": 29.9,
+        "fighters": [
+          "stormcaller",
+          "swordsaint"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "animation,fyp,gamedev,indiegame,stickman",
+        "hashtags": [
+          "animation",
+          "fyp",
+          "gamedev",
+          "indiegame",
+          "stickman"
+        ],
+        "height": 1080,
+        "hour": 16,
+        "orientation": "landscape",
+        "platform": "instagram",
+        "profile": "StickSpire_Arena",
+        "weekday": "Mon",
+        "width": 1920
+      },
+      "ok": true,
+      "platform": "instagram",
+      "platform_post_id": "18613364254023519",
+      "post_url": "https://www.instagram.com/reel/DcbX1L7jvGO/",
+      "posted_at": "2026-08-24T15:21:57.571Z",
+      "profile": "StickSpire_Arena",
+      "request_id": "67f6624aaa6840fcbed144c42cc9dbd8",
+      "snapshots": [
+        {
+          "at": "2026-08-31T17:43:22Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 140,
+            "likes": 0,
+            "reach": 127,
+            "saves": 1,
+            "shares": 0,
+            "views": 140
+          }
+        }
+      ],
+      "title": "STORMCALLER vs SWORDSAINT\n\nLightning against a guard that punishes everything. 2 ultimates, 3 lead changes.\n\n#stickman #indiegame #gamedev #animation #fyp"
+    },
+    "85ecdee7d6cd416dac5c3b5af425be65": {
+      "error": null,
+      "features": {
+        "clip": "stormcaller_vs_cryomancer",
+        "duration_s": 20.6,
+        "fighters": [
+          "cryomancer",
+          "stormcaller"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "animation,fyp,gaming,indiegame,stickfight,stickman",
+        "hashtags": [
+          "animation",
+          "fyp",
+          "gaming",
+          "indiegame",
+          "stickfight",
+          "stickman"
+        ],
+        "height": 1080,
+        "hour": 17,
+        "orientation": "landscape",
+        "platform": "instagram",
+        "profile": "StickSpire_Arena",
+        "weekday": "Thu",
+        "width": 1920
+      },
+      "ok": true,
+      "platform": "instagram",
+      "platform_post_id": "18153173506506860",
+      "post_url": "https://www.instagram.com/reel/DcjOUPiFoEv/",
+      "posted_at": "2026-08-27T16:32:42.097Z",
+      "profile": "StickSpire_Arena",
+      "request_id": "85ecdee7d6cd416dac5c3b5af425be65",
+      "snapshots": [
+        {
+          "at": "2026-08-31T17:43:22Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 143,
+            "likes": 1,
+            "reach": 135,
+            "saves": 0,
+            "shares": 0,
+            "views": 143
+          }
+        }
+      ],
+      "title": "STORMCALLER vs CRYOMANCER\n\n#stickman #indiegame #animation #gaming #fyp #stickfight"
+    },
+    "8ae0999cd19f4a40b29518c524df9a10": {
+      "error": null,
+      "features": {
+        "clip": "juggernaut_vs_swordsaint",
+        "duration_s": 29.5,
+        "fighters": [
+          "juggernaut",
+          "swordsaint"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "animation,fyp,gaming,indiegame,stickfight,stickman",
+        "hashtags": [
+          "animation",
+          "fyp",
+          "gaming",
+          "indiegame",
+          "stickfight",
+          "stickman"
+        ],
+        "height": 1080,
+        "hour": 17,
+        "orientation": "landscape",
+        "platform": "instagram",
+        "profile": "StickSpire_Arena",
+        "weekday": "Wed",
+        "width": 1920
+      },
+      "ok": true,
+      "platform": "instagram",
+      "platform_post_id": "18099623438365527",
+      "post_url": "https://www.instagram.com/reel/DcgpbNMiZXt/",
+      "posted_at": "2026-08-26T16:31:56.204Z",
+      "profile": "StickSpire_Arena",
+      "request_id": "8ae0999cd19f4a40b29518c524df9a10",
+      "snapshots": [
+        {
+          "at": "2026-08-31T17:43:22Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 149,
+            "likes": 1,
+            "reach": 143,
+            "saves": 0,
+            "shares": 0,
+            "views": 149
+          }
+        }
+      ],
+      "title": "JUGGERNAUT vs SWORDSAINT\n\n#stickman #indiegame #animation #gaming #fyp #stickfight"
+    },
+    "a339af4344fd49f9b9488b3c722354c7": {
+      "error": null,
+      "features": {
+        "clip": "shadowblade_vs_juggernaut",
+        "duration_s": 22.3,
+        "fighters": [
+          "juggernaut",
+          "shadowblade"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "animation,gamedev,indiedev,indiegame,stickfight,stickman",
+        "hashtags": [
+          "animation",
+          "gamedev",
+          "indiedev",
+          "indiegame",
+          "stickfight",
+          "stickman"
+        ],
+        "height": 1080,
+        "hour": 10,
+        "orientation": "landscape",
+        "platform": "instagram",
+        "profile": "StickSpire",
+        "weekday": "Thu",
+        "width": 1920
+      },
+      "ok": true,
+      "platform": "instagram",
+      "platform_post_id": "18143261068564903",
+      "post_url": "https://www.instagram.com/reel/DciaqbOCegE/",
+      "posted_at": "2026-08-27T09:01:22.332Z",
+      "profile": "StickSpire",
+      "request_id": "a339af4344fd49f9b9488b3c722354c7",
+      "snapshots": [
+        {
+          "at": "2026-08-31T17:43:22Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 146,
+            "likes": 1,
+            "reach": 141,
+            "saves": 0,
+            "shares": 0,
+            "views": 146
+          }
+        }
+      ],
+      "title": "SHADOWBLADE vs JUGGERNAUT\n\n#stickman #indiegame #gamedev #indiedev #animation #stickfight"
+    },
+    "bd624fc3627047d2915136ff007d7216": {
+      "error": null,
+      "features": {
+        "clip": "juggernaut_vs_stormcaller",
+        "duration_s": 28.709,
+        "fighters": [
+          "juggernaut",
+          "stormcaller"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "animation,gamedev,indiedev,indiegame,stickfight,stickman",
+        "hashtags": [
+          "animation",
+          "gamedev",
+          "indiedev",
+          "indiegame",
+          "stickfight",
+          "stickman"
+        ],
+        "height": 1080,
+        "hour": 10,
+        "orientation": "landscape",
+        "platform": "instagram",
+        "profile": "StickSpire",
+        "weekday": "Wed",
+        "width": 1920
+      },
+      "ok": true,
+      "platform": "instagram",
+      "platform_post_id": "18162483106485199",
+      "post_url": "https://www.instagram.com/reel/Dcf148KDFEK/",
+      "posted_at": "2026-08-26T09:01:39.502Z",
+      "profile": "StickSpire",
+      "request_id": "bd624fc3627047d2915136ff007d7216",
+      "snapshots": [
+        {
+          "at": "2026-08-31T17:43:22Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 201,
+            "likes": 2,
+            "reach": 188,
+            "saves": 0,
+            "shares": 0,
+            "views": 201
+          }
+        }
+      ],
+      "title": "JUGGERNAUT vs STORMCALLER\n\n#stickman #indiegame #gamedev #indiedev #animation #stickfight"
+    }
+  }
+}

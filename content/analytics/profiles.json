@@ -1,0 +1,42 @@
+{
+  "snapshots": [
+    {
+      "at": "2026-08-31T17:43:22Z",
+      "platforms": {
+        "instagram": {
+          "comments": 0.0,
+          "followers": 5,
+          "impressions": 831.0,
+          "likes": 12.0,
+          "metric_type": "reach",
+          "primary_impressions_field": "reach",
+          "profileViews": 11.0,
+          "reach": 751.0,
+          "saves": 0.0,
+          "shares": 2.0,
+          "views": 831.0
+        }
+      },
+      "profile": "StickSpire"
+    },
+    {
+      "at": "2026-08-31T17:43:22Z",
+      "platforms": {
+        "instagram": {
+          "comments": 0.0,
+          "followers": 2,
+          "impressions": 438.0,
+          "likes": 2.0,
+          "metric_type": "reach",
+          "primary_impressions_field": "reach",
+          "profileViews": 3.0,
+          "reach": 411.0,
+          "saves": 1.0,
+          "shares": 0.0,
+          "views": 438.0
+        }
+      },
+      "profile": "StickSpire_Arena"
+    }
+  ]
+}
