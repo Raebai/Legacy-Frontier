@@ -141,3 +141,6 @@ content/daily_post.log
 content/queue_order.json
 content/ALERT.txt
 content/daily_accounts.pre-multiplatform.bak.json
+
+# Wrangler's local deploy cache. Machine state, not source.
+.wrangler/
