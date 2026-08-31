@@ -1,4 +1,38 @@
-# RESUME HERE — 2026-08-24
+# RESUME HERE
+
+## GROWTH STACK IS LIVE (2026-08-31)
+
+Marketing/posting is no longer a plan, it is running. **Read
+`docs/GROWTH-OPS.md` and the `project_v2_growth_stack` memory before touching
+posting, the website or the optimiser.**
+
+- **Queue is firing.** 14 posts held at Upload-Post, 1-5 Sep, across both
+  Instagrams, both TikToks and YouTube Shorts. Plan is Basic (paid).
+- **Site is live:** <https://stickspire.pages.dev>, Kit wishlist working end to
+  end (form 9866820). Redeploy with
+  `npx wrangler pages deploy site --project-name stickspire --branch main`.
+- **Nightly task registered:** `StickSpire daily ops`, 11:47. It snapshots
+  analytics, re-ranks and re-weights, SHOOTS new fights and deletes the
+  failures, builds 9:16 cuts, tops the vendor queue to 30 days, and verifies
+  yesterday. Nothing in it posts; the vendor posts.
+
+### ▶ The one thing waiting on the maker
+
+Runway is **0 days unspoken-for** with 5 days queued. The nightly shoot nets
+about +1 clip/day. To catch up faster, run once while not using the machine:
+
+    python python-tools/auto_shoot.py --live --max 8
+
+(~3.5 hours. It refuses to start while Godot is open, measures every render and
+deletes blanks and quality-gate failures rather than queueing them.)
+
+Also outstanding: rename the YouTube channel from `@raaedali271` to
+`@stickspire`, and delete the `claude-deploy-check@example.com` test subscriber
+in Kit.
+
+---
+
+## Earlier handoff — 2026-08-24
 
 **STICKSPIRE.** Branch `bot-fight-quality`, **176/176 green**. The maker watches
 **F5 → Lobby → Watch Bots** and reviews the final clips before posting.
