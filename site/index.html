@@ -4,297 +4,616 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>STICKSPIRE — a stick-figure spell brawler</title>
-<meta name="description" content="Climb a tower that keeps taking floors back. Nine classes, each with a signature spell. Co-op or alone. Join the wishlist for one email at the demo and one at launch.">
+<meta name="description" content="Climb a tower that keeps taking floors back. Nine classes, no two alike. A new fight posted every day. Join the list and hear when it's playable.">
 <link rel="canonical" href="https://stickspire.pages.dev/">
 
 <meta property="og:type" content="website">
 <meta property="og:title" content="STICKSPIRE">
 <meta property="og:description" content="A stick-figure spell brawler about climbing a tower that keeps taking floors back.">
-<meta property="og:image" content="assets/og.png">
+<meta property="og:image" content="https://stickspire.pages.dev/assets/og.png">
 <meta property="og:url" content="https://stickspire.pages.dev/">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="theme-color" content="#0e0d13">
+<meta name="theme-color" content="#0b0a0f">
 
+<!-- Set before any style is applied, so the reveal states below can never be
+     the thing standing between a visitor and the headline. -->
+<script>document.documentElement.className += " js";</script>
 <link rel="icon" href="assets/favicon.png" sizes="32x32">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 
+<!-- The poster is the LCP element on a phone: the video decodes after it. Telling
+     the browser before the CSS is parsed is worth more than any compression. -->
+<link rel="preload" as="image" href="assets/poster.jpg?v=3" fetchpriority="high">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Space+Grotesk:wght@400;500;700&display=swap">
+
 <style>
-/* ── The palette is not invented here. It is GameLogo.gd's, converted:
-      PAPER 0.055,0.052,0.075 · CHALK 0.93,0.92,0.86 · EMBER 0.98,0.52,0.20
-      Keeping the site on the same three colours as the logo and the game's own
-      UI is the cheapest way for a stranger to recognise a clip and the site as
-      the same thing. ───────────────────────────────────────────────────────── */
+/*
+  ─────────────────────────────────────────────────────────────────────────────
+  THE PAGE IS THE GAME'S HUD.
+
+  Everyone who arrives here has already watched a fight: two names in class
+  colours, two health bars, a timer between them. That HUD is the most
+  characteristic object in this game's world, so it is the page's chrome too —
+  the hero is a real fight card, the class list is built on the same bar
+  geometry, and the signup field is drawn as a HUD slot. One idea carried the
+  whole way down, rather than effects scattered about.
+
+  AND THIS IS A PHONE PAGE, WHICH DECIDES THE LAYOUT. Traffic arrives from a
+  Reel or a TikTok: the visitor is already holding a phone, has already watched
+  twenty seconds of the thing, and does not need it explained to them. So the
+  job is narrow — confirm this is the real account, give one reason to care past
+  the clip, take the email in one thumb reach. The form is above the fold at
+  390px wide. The desktop layout is this layout with more air, not the reverse.
+
+  COLOUR. Ash, chalk and ember are GameLogo.gd's own values, the ground deepened
+  one notch so footage is the brightest thing on the page. The nine class tints
+  are ClassInfo.gd's real values and appear ONLY where the game uses them — on a
+  fighter's name. Never as a UI accent, or they stop meaning anything.
+
+  TYPE. Anton for display, which is not a default pick here: the game's in-clip
+  HUD is set in Impact, and Anton is that same compressed poster voice properly
+  drawn. Space Grotesk to read. System mono for anything that is a number,
+  because in a HUD a number is a different kind of object from a word.
+  ─────────────────────────────────────────────────────────────────────────────
+*/
 :root{
-  --paper:#0e0d13; --paper-2:#15141c; --chalk:#edebdb; --graphite:#9ea1b3;
-  --ember:#fa8533; --ember-dim:#c9682a;
-  --measure:min(1120px, 100% - 2.5rem);
-  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-          "Helvetica Neue", Arial, sans-serif;
+  --ash:#0b0a0f;
+  --stone:#17151e;
+  --chalk:#edebdb;
+  --smoke:#8a8798;
+  --ember:#fa8533;
+  /* The dimmest grey that still clears 4.5:1 on the ash ground. */
+  --dim:#807e8e;
+
+  /* ClassInfo.gd, verbatim. Shadowblade's true tint is #291c38 — kept as the ink
+     for its roster tick, with a lifted twin for the name, because the real value
+     is darker than the page it would have to be read on. */
+  --arcanist:#ffc747;   --shadowblade:#291c38; --shadowblade-lit:#8f6fbf;
+  --brawler:#ad1717;    --juggernaut:#c78c47;  --cleric:#ffed99;
+  --cryomancer:#80d9ff; --stormcaller:#ccff2e; --warlock:#9959e6;
+  --swordsaint:#dbe6f5;
+
+  --display:"Anton","Haettenschweiler","Arial Narrow Bold",sans-serif;
+  --body:"Space Grotesk",ui-sans-serif,system-ui,-apple-system,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+
+  --gutter:clamp(1.15rem,5vw,4.5rem);
+  --rule:1px solid rgba(237,235,219,.10);
 }
+
 *,*::before,*::after{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%}
+html{-webkit-text-size-adjust:100%; scroll-behavior:smooth}
 body{
-  margin:0; background:var(--paper); color:var(--chalk); font-family:var(--font);
-  font-size:clamp(1rem,0.94rem + 0.3vw,1.125rem); line-height:1.6;
-  -webkit-font-smoothing:antialiased;
+  margin:0; background:var(--ash); color:var(--chalk); font-family:var(--body);
+  font-size:clamp(.97rem,.92rem + .22vw,1.06rem); line-height:1.55;
+  -webkit-font-smoothing:antialiased; overflow-x:hidden;
 }
-img,video{max-width:100%; height:auto; display:block}
-a{color:var(--ember); text-underline-offset:.2em}
-a:focus-visible,button:focus-visible,input:focus-visible{
-  outline:2px solid var(--ember); outline-offset:3px; border-radius:4px;
-}
-.wrap{width:var(--measure); margin-inline:auto}
+img,video{display:block; max-width:100%}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--ember); outline-offset:3px}
 
-/* ── hero ─────────────────────────────────────────────────────────────────── */
-header{position:relative; overflow:hidden; padding:clamp(2rem,6vw,4.5rem) 0 0}
-/* An ember glow behind the mark, echoing the one in the logo's cleft. Sized in
-   vmax so it stays a background presence on a phone instead of a bright disc. */
-header::before{
-  content:""; position:absolute; inset:-30% -10% auto; height:70vmax;
-  background:radial-gradient(closest-side, rgba(250,133,51,.16), transparent 70%);
-  pointer-events:none;
+/* GRAIN. One fixed film layer over everything. It is the cheapest way to stop
+   large flat dark areas reading as a CSS gradient, and it ties the page to
+   footage that has real noise in it. Drawn as inline SVG, so it costs no
+   request and nothing over the wire beyond this rule. */
+.grain{
+  position:fixed; inset:-50%; z-index:9; pointer-events:none; opacity:.038;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
-.brand{display:flex; align-items:center; gap:.9rem; margin-bottom:clamp(2rem,7vw,3.5rem)}
-.brand img{width:44px; height:44px; border-radius:11px}
-.brand span{
-  font-weight:800; letter-spacing:.22em; font-size:.82rem; text-transform:uppercase;
+
+/* ── the bar ─────────────────────────────────────────────────────────────── */
+.topbar{
+  position:fixed; top:0; left:0; right:0; z-index:20;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:.8rem var(--gutter); border-bottom:var(--rule);
+  background:rgba(11,10,15,.72); backdrop-filter:blur(14px) saturate(1.2);
 }
-.brand span b{color:var(--ember); font-weight:800}
+.topbar a{text-decoration:none}
+.sig{display:flex; align-items:center; gap:.6rem; font-family:var(--mono);
+     font-size:.7rem; letter-spacing:.2em; text-transform:uppercase}
+.sig i{width:7px; height:7px; border-radius:50%; background:var(--ember);
+       box-shadow:0 0 10px var(--ember); animation:pulse 2.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.topbar .go{
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--ember); border-bottom:1px solid transparent;
+}
+.topbar .go:hover{border-bottom-color:var(--ember)}
+
+/* ── hero ────────────────────────────────────────────────────────────────── */
+.hero{position:relative; min-height:100svh; display:flex; flex-direction:column;
+      justify-content:flex-end; padding:5rem var(--gutter) clamp(1.5rem,4vh,3rem);
+      overflow:hidden}
+.hero .film{position:absolute; inset:0; z-index:0}
+.hero video{width:100%; height:100%; object-fit:cover;
+            filter:saturate(.82) brightness(.7) contrast(1.05)}
+/* Four stops rather than a flat scrim: the footage stays bright at the top where
+   the fight is, and reaches solid ash under the headline so type never fights it. */
+.hero .film::after{
+  content:""; position:absolute; inset:0;
+  background:
+    /* a vignette, so the frame has edges instead of just stopping */
+    radial-gradient(120% 85% at 50% 32%,transparent 40%,rgba(11,10,15,.55) 100%),
+    linear-gradient(180deg,rgba(11,10,15,.30) 0%,rgba(11,10,15,.55) 34%,
+             rgba(11,10,15,.88) 62%,var(--ash) 92%);
+}
+.hero .inner{position:relative; z-index:2; width:100%; max-width:1180px;
+             margin-inline:auto}
+
+/* ── THE FIGHT CARD — the signature, and the only bold thing on the page ─── */
+.card{
+  max-width:44rem; margin-bottom:clamp(1.5rem,5vh,2.75rem);
+  font-family:var(--mono); font-size:clamp(.62rem,.55rem + .5vw,.78rem);
+  letter-spacing:.14em; text-transform:uppercase;
+}
+.card .row{display:grid; grid-template-columns:1fr auto 1fr; align-items:center;
+           gap:.6rem; margin-bottom:.45rem}
+.card .who{display:flex; align-items:center; gap:.5rem; min-width:0}
+.card .who.r{justify-content:flex-end}
+.card .who b{font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.card .who span{color:var(--smoke); font-variant-numeric:tabular-nums}
+.card .clock{font-variant-numeric:tabular-nums; opacity:.85}
+.card .bars{display:grid; grid-template-columns:1fr 1fr; gap:.5rem}
+.card .bar{height:10px; background:rgba(8,7,11,.72);
+           border:1px solid rgba(237,235,219,.22); position:relative; overflow:hidden}
+.card .bar i{position:absolute; top:0; bottom:0; left:0; width:0; display:block}
+.card .bar.r i{left:auto; right:0}
+.card .bar.l i{background:linear-gradient(90deg,#7b2020,#d94b3a)}
+.card .bar.r i{background:linear-gradient(270deg,#4b7b20,#8fd93a)}
+/* Filled by the load sequence, so the card ASSEMBLES rather than appears — the
+   same beat the game's own VS card plays before a bout starts. */
+.card .bar i{width:var(--fill)}
+.js .card .bar i{width:0}
+.js.is-ready .card .bar i{width:var(--fill);
+  transition:width 1.1s cubic-bezier(.2,.8,.2,1) .35s}
+
 h1{
-  margin:0 0 1.1rem; font-size:clamp(2.4rem,1.3rem + 5.2vw,4.6rem); line-height:1.03;
-  letter-spacing:-.02em; font-weight:800; max-width:16ch;
+  font-family:var(--display); font-weight:400; margin:0 0 1.1rem;
+  font-size:clamp(2.35rem,.95rem + 6.4vw,5.5rem); line-height:.92;
+  text-transform:uppercase;
 }
-h1 em{color:var(--ember); font-style:normal}
-.lede{margin:0 0 2rem; max-width:54ch; color:var(--graphite); font-size:1.06em}
-.lede strong{color:var(--chalk); font-weight:600}
+h1 em{font-style:normal; color:var(--ember)}
+/* Three lines masked up on load, staggered. That is the whole entrance — one
+   orchestrated moment instead of a page of things fading in independently. */
+h1 .ln{display:block; overflow:hidden}
+.js h1 .ln>span{transform:translateY(105%)}
+h1 .ln>span{display:block}
+.js.is-ready h1 .ln>span{transform:none;
+  transition:transform .9s cubic-bezier(.16,1,.3,1) calc(.18s + var(--i)*.09s)}
 
-/* ── the loop ─────────────────────────────────────────────────────────────── */
-figure{margin:clamp(2.5rem,6vw,4rem) 0 0; position:relative}
-figure video{
-  width:100%; border-radius:14px; border:1px solid rgba(237,235,219,.1);
-  background:var(--paper-2); box-shadow:0 30px 80px -40px rgba(0,0,0,.9);
-}
-figcaption{
-  margin-top:.8rem; font-size:.82rem; color:var(--graphite); letter-spacing:.02em;
-}
+.lede{max-width:46ch; color:var(--smoke); margin:0 0 1.6rem}
+.lede b{color:var(--chalk); font-weight:500}
 
-/* ── beats ────────────────────────────────────────────────────────────────── */
-.beats{
-  display:grid; gap:clamp(1.5rem,3vw,2.5rem); padding:clamp(3.5rem,9vw,6rem) 0;
-  grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));
+/* ── the signup, drawn as a HUD slot ─────────────────────────────────────── */
+.join{display:flex; gap:.5rem; max-width:30rem; flex-wrap:wrap}
+.join input[type=email]{
+  flex:1 1 12rem; min-width:0; padding:.9rem 1rem; font:inherit; font-size:1rem;
+  color:var(--chalk); background:rgba(11,10,15,.6); caret-color:var(--ember);
+  border:1px solid rgba(237,235,219,.22); border-radius:0;
+  transition:border-color .18s,box-shadow .18s,background .18s;
 }
-.beat h2{
-  margin:0 0 .5rem; font-size:1.02rem; letter-spacing:.02em; font-weight:700;
+.join input[type=email]::placeholder{color:var(--dim); font-family:var(--mono);
+  font-size:.82rem; letter-spacing:.08em; text-transform:uppercase}
+.join input[type=email]:focus{outline:none; border-color:var(--ember);
+  background:rgba(11,10,15,.85);
+  box-shadow:0 0 0 1px var(--ember),0 0 26px -6px var(--ember)}
+.join button{
+  flex:0 0 auto; padding:.9rem 1.8rem; border:0; border-radius:0; cursor:pointer;
+  font-family:var(--display); font-size:1.05rem; letter-spacing:.06em;
+  text-transform:uppercase; color:#180f04; background:var(--ember);
+  position:relative; overflow:hidden; transition:transform .08s;
 }
-.beat p{margin:0; color:var(--graphite); font-size:.96em}
-.beat .rule{width:34px; height:2px; background:var(--ember); margin-bottom:1rem}
-
-/* ── wishlist ─────────────────────────────────────────────────────────────── */
-.wishlist{
-  background:var(--paper-2); border:1px solid rgba(237,235,219,.09);
-  border-radius:18px; padding:clamp(1.6rem,4vw,2.75rem);
-  scroll-margin-top:2rem;
+/* A single sheen crossing the button on hover. The game's blades do this. */
+.join button::after{
+  content:""; position:absolute; inset:0; transform:translateX(-101%);
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent);
 }
-.wishlist h2{margin:0 0 .6rem; font-size:clamp(1.4rem,1rem + 1.6vw,2rem); letter-spacing:-.01em}
-.wishlist p{margin:0 0 1.5rem; color:var(--graphite); max-width:48ch}
-form{display:flex; flex-wrap:wrap; gap:.7rem}
-input[type=email]{
-  flex:1 1 16rem; min-width:0; padding:.85rem 1rem; font:inherit; font-size:1rem;
-  color:var(--chalk); background:rgba(14,13,19,.75);
-  border:1px solid rgba(237,235,219,.18); border-radius:10px;
-}
-input[type=email]::placeholder{color:#6e7183}
-button{
-  flex:0 0 auto; padding:.85rem 1.5rem; font:inherit; font-weight:700; font-size:1rem;
-  color:#1a1206; background:var(--ember); border:0; border-radius:10px; cursor:pointer;
-  transition:background .15s ease, transform .06s ease;
-}
-button:hover:not(:disabled){background:#ffa055}
-button:active:not(:disabled){transform:translateY(1px)}
-button:disabled{background:#4a4638; color:#9a927f; cursor:not-allowed}
-.hp{position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden}
-.note{margin:1.1rem 0 0; font-size:.84rem; color:var(--graphite); max-width:60ch}
-.msg{margin:1rem 0 0; font-size:.94rem; min-height:1.4em}
+.join button:hover:not(:disabled)::after{transform:translateX(101%);
+  transition:transform .55s}
+.join button:active:not(:disabled){transform:translateY(1px)}
+.join button:disabled{background:#3b382e; color:#7e7a6c; cursor:not-allowed}
+.msg{font-family:var(--mono); font-size:.74rem; letter-spacing:.06em;
+     margin:.85rem 0 0; min-height:1.2em; color:var(--smoke); max-width:46ch;
+     line-height:1.7}
 .msg[data-state=ok]{color:var(--ember)}
-.msg[data-state=err]{color:#ff8a7a}
+.msg[data-state=err]{color:#ff8f7d}
+.hp{position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden}
 
-/* ── links + footer ───────────────────────────────────────────────────────── */
-.social{
-  display:flex; flex-wrap:wrap; gap:.6rem; padding:clamp(3rem,7vw,4.5rem) 0 0;
-}
-.social a{
-  display:inline-block; padding:.55rem 1rem; border-radius:999px; font-size:.9rem;
-  color:var(--chalk); text-decoration:none; border:1px solid rgba(237,235,219,.18);
-  transition:border-color .15s ease, color .15s ease;
-}
-.social a:hover{border-color:var(--ember); color:var(--ember)}
-footer{
-  padding:clamp(3rem,7vw,5rem) 0 clamp(2rem,5vw,3rem); margin-top:clamp(2rem,5vw,3rem);
-  border-top:1px solid rgba(237,235,219,.08); color:#6e7183; font-size:.84rem;
-}
-footer p{margin:.3rem 0}
+/* ── marquee: the fights that have actually been cut ─────────────────────── */
+.strip{border-top:var(--rule); border-bottom:var(--rule); overflow:hidden;
+       padding:.85rem 0; background:var(--stone)}
+.strip .track{display:flex; width:max-content; gap:2.6rem;
+              animation:slide 62s linear infinite}
+.strip:hover .track{animation-play-state:paused}
+.strip span{font-family:var(--mono); font-size:.7rem; letter-spacing:.22em;
+            text-transform:uppercase; color:var(--smoke); white-space:nowrap}
+.strip span em{font-style:normal; color:var(--ember); margin:0 .5rem}
+@keyframes slide{to{transform:translateX(-50%)}}
 
-/* On a narrow screen the button drops onto its own row anyway; letting it stay
-   auto-width leaves a stubby control floating left of a lot of empty space. */
-@media (max-width:30rem){
-  form{flex-direction:column}
-  button{width:100%}
+/* ── sections ────────────────────────────────────────────────────────────── */
+section{padding:clamp(3.5rem,10vh,7rem) var(--gutter)}
+.inner{max-width:1180px; margin-inline:auto}
+.eyebrow{font-family:var(--mono); font-size:.68rem; letter-spacing:.26em;
+         text-transform:uppercase; color:var(--ember); margin:0 0 1.1rem}
+h2{font-family:var(--display); font-weight:400; text-transform:uppercase;
+   font-size:clamp(1.9rem,1rem + 3.6vw,3.4rem); line-height:.95; margin:0 0 1.2rem}
+.two{display:grid; gap:clamp(1.4rem,4vw,4rem); grid-template-columns:1fr}
+@media (min-width:56rem){.two{grid-template-columns:minmax(0,20rem) minmax(0,1fr)}}
+.two p{margin:0 0 1rem; color:var(--smoke); max-width:56ch}
+.two p b{color:var(--chalk); font-weight:500}
+
+/* ── the roster, on the HUD's own bar geometry ───────────────────────────── */
+.roster{list-style:none; margin:0; padding:0; border-top:var(--rule)}
+.roster li{
+  display:grid; grid-template-columns:auto minmax(0,1fr); gap:.6rem 1rem;
+  align-items:baseline; padding:.95rem .2rem; border-bottom:var(--rule);
+  transition:opacity .6s ease,transform .6s cubic-bezier(.16,1,.3,1),
+             background .25s,padding-left .25s;
 }
-@media (prefers-reduced-motion: reduce){
-  *{animation:none !important; transition:none !important; scroll-behavior:auto !important}
+.js .roster li{opacity:0; transform:translateY(12px)}
+.js .roster li.in{opacity:1; transform:none}
+.roster li:hover{background:rgba(237,235,219,.032); padding-left:.7rem}
+.roster .tick{width:4px; align-self:stretch;
+              background:var(--c-lit,var(--c));
+              box-shadow:0 0 14px -2px var(--c-lit,var(--c))}
+.roster .nm{font-family:var(--display); text-transform:uppercase; line-height:1;
+            font-size:clamp(1.15rem,.9rem + 1.2vw,1.7rem);
+            color:var(--c-lit,var(--c))}
+.roster .fy{grid-column:2; font-family:var(--mono); font-size:.72rem;
+            letter-spacing:.1em; text-transform:uppercase; color:var(--smoke)}
+@media (min-width:44rem){
+  .roster li{grid-template-columns:auto 14rem minmax(0,1fr); align-items:center}
+  .roster .fy{grid-column:auto}
+}
+
+/* ── verified numbers ────────────────────────────────────────────────────── */
+.facts{display:grid; gap:1px; background:rgba(237,235,219,.10); border:var(--rule);
+       grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr)); margin:0}
+.facts>div{background:var(--ash); padding:1.4rem 1.2rem}
+.facts dt{font-family:var(--mono); font-size:.66rem; letter-spacing:.16em;
+          text-transform:uppercase; color:var(--smoke); margin:0 0 .5rem}
+.facts dd{margin:0; font-family:var(--display); line-height:1; color:var(--chalk);
+          font-size:clamp(1.7rem,1.1rem + 2.4vw,2.7rem);
+          font-variant-numeric:tabular-nums}
+.facts dd small{display:block; font-family:var(--body); font-size:.72rem;
+                color:var(--smoke); margin-top:.55rem; line-height:1.5;
+                font-variant-numeric:normal}
+.stamp{font-family:var(--mono); font-size:.66rem; letter-spacing:.12em;
+       color:var(--dim); margin:1.1rem 0 0; text-transform:uppercase}
+
+/* ── closing CTA ─────────────────────────────────────────────────────────── */
+.end{background:var(--stone); border-top:var(--rule); border-bottom:var(--rule)}
+.end h2{max-width:16ch}
+
+/* ── footer ──────────────────────────────────────────────────────────────── */
+footer{padding:clamp(2.5rem,6vh,4rem) var(--gutter); color:var(--dim); font-size:.82rem}
+.links{display:flex; flex-wrap:wrap; gap:1.4rem; margin:0 0 1.6rem; padding:0;
+       list-style:none}
+.links a{font-family:var(--mono); font-size:.72rem; letter-spacing:.14em;
+         text-transform:uppercase; color:var(--chalk); text-decoration:none;
+         position:relative; padding-bottom:3px}
+.links a::after{content:""; position:absolute; left:0; right:0; bottom:0; height:1px;
+  background:var(--ember); transform:scaleX(0); transform-origin:right;
+  transition:transform .3s cubic-bezier(.16,1,.3,1)}
+.links a:hover::after{transform:scaleX(1); transform-origin:left}
+footer p{margin:.35rem 0; max-width:60ch}
+
+/* ⚠ THE WHOLE PHONE LAYOUT IS BUDGETED AGAINST ONE RULE: the email field has to
+   be on the first screen. That is the page's only job, and a visitor who arrived
+   from a Reel does not scroll to look for a form. So the film gets 40svh, the
+   headline and lede get tight margins, and the field and button stay on one row
+   (stacking them is 60px this budget does not have; they fit side by side from
+   340px up). Everything here is subordinate to that. */
+@media (max-width:44rem){
+  .hero .film{bottom:auto; height:40svh}
+  .hero .film::after{
+    background:radial-gradient(130% 90% at 50% 30%,transparent 45%,rgba(11,10,15,.5) 100%),
+      linear-gradient(180deg,rgba(11,10,15,.20) 0%,rgba(11,10,15,.30) 48%,
+        rgba(11,10,15,.88) 82%,var(--ash) 100%);
+  }
+  .hero{justify-content:flex-start; padding-top:calc(40svh + 1.75rem);
+        padding-bottom:1.25rem}
+  .card{margin-bottom:.85rem}
+  h1{margin-bottom:.75rem; font-size:clamp(2.1rem,.8rem + 6.2vw,3rem)}
+  .lede{margin-bottom:1.05rem; font-size:.95rem}
+  .msg{margin-top:.65rem}
+}
+@media (max-width:21rem){          /* below this the field and button really do collide */
+  .join{flex-direction:column}
+  .join button{width:100%}
+}
+
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation-duration:.001ms !important;
+    animation-iteration-count:1 !important; transition-duration:.001ms !important}
+  .js h1 .ln>span{transform:none}
+  .js .card .bar i{width:var(--fill)}
+  .js .roster li{opacity:1; transform:none}
 }
 </style>
 </head>
 <body>
+<div class="grain" aria-hidden="true"></div>
 
-<header>
-  <div class="wrap">
-    <div class="brand">
-      <img src="assets/mark.png" alt="" width="44" height="44">
-      <span><b>STICK</b>SPIRE</span>
-    </div>
-
-    <h1>Climb a tower that keeps <em>taking floors back</em>.</h1>
-
-    <p class="lede">
-      A stick-figure spell brawler. Nine classes, each with a signature spell and its
-      own way of moving. Fight through it alone or bring one friend —
-      <strong>friendly fire is always on</strong>.
-    </p>
-
-    <p><a href="#wishlist"><strong>Join the wishlist &rarr;</strong></a></p>
-
-    <figure>
-      <!-- muted+playsinline+autoplay is the only combination iOS Safari will start
-           on its own; without playsinline it hijacks the screen into fullscreen. -->
-      <video src="assets/loop.mp4" poster="assets/poster.jpg"
-             autoplay muted loop playsinline preload="metadata"
-             aria-label="Two stick figures fighting with spells inside a stone arena"></video>
-      <figcaption>Warlock vs Cleric. Captured in engine, not a mock-up.</figcaption>
-    </figure>
-  </div>
+<header class="topbar">
+  <a class="sig" href="#top"><i aria-hidden="true"></i>Stickspire</a>
+  <a class="go" href="#join">Join the list</a>
 </header>
 
-<main>
-  <div class="wrap">
-    <section class="beats">
-      <div class="beat">
-        <div class="rule"></div>
-        <h2>The climb is the game</h2>
-        <p>Floors are authored, not shuffled — ten of them, each its own biome, each
-        with something in it that has been waiting.</p>
-      </div>
-      <div class="beat">
-        <div class="rule"></div>
-        <h2>Nine classes, no recolours</h2>
-        <p>Every class gets a signature spell and a movement verb nobody else has.
-        If two of them play the same, one of them is wrong.</p>
-      </div>
-      <div class="beat">
-        <div class="rule"></div>
-        <h2>Made for a phone, honestly</h2>
-        <p>One screen per floor, two players, no menus between you and the fight.
-        It runs on the device you already have.</p>
-      </div>
-    </section>
-
-    <section class="wishlist" id="wishlist">
-      <h2>Get told when it's out</h2>
-      <p>Two emails, ever: one when there's something playable, one when it launches.
-      No newsletter, no drip sequence, unsubscribe in a click.</p>
-
-      <!-- ⚠ NO-JS FALLBACK IS THE `action` ATTRIBUTE, NOT A NICETY. If the fetch
-           below is blocked (a content blocker, a locked-down corporate browser, a
-           JS error introduced later), the native form post still reaches Kit and
-           the signup is not silently lost. The script only intercepts to keep the
-           visitor on this page. -->
-      <form id="wishlist-form" method="post"
-            action="https://app.kit.com/forms/REPLACE_WITH_KIT_FORM_UID/subscriptions">
-        <label class="hp" aria-hidden="true">
-          Leave this empty <input type="text" name="website" tabindex="-1" autocomplete="off">
-        </label>
-        <label class="hp" for="email">Email address</label>
-        <input id="email" type="email" name="email_address" required
-               autocomplete="email" inputmode="email" placeholder="you@example.com">
-        <button type="submit" id="wishlist-submit">Join the wishlist</button>
-      </form>
-      <p class="msg" id="wishlist-msg" role="status" aria-live="polite"></p>
-      <p class="note">Stickspire is made by one person. The list is how you hear
-      about it before an algorithm decides whether to show you.</p>
-    </section>
-
-    <nav class="social" aria-label="Social accounts">
-      <a href="https://www.instagram.com/stick.spire/" rel="me noopener">Instagram</a>
-      <a href="https://www.instagram.com/stickspire.arena/" rel="me noopener">Instagram · Arena</a>
-      <a href="https://www.tiktok.com/@stick.spire" rel="me noopener">TikTok</a>
-      <a href="https://www.tiktok.com/@stickspire.arena" rel="me noopener">TikTok · Arena</a>
-    </nav>
+<div class="hero" id="top">
+  <div class="film" aria-hidden="true">
+    <video src="assets/loop.mp4?v=3" poster="assets/poster.jpg?v=3"
+           autoplay muted loop playsinline preload="metadata"></video>
   </div>
+
+  <div class="inner">
+    <!-- The card is the game's own HUD, rebuilt in HTML. The names, colours and
+         numbers are the ones on the frame playing behind it, so the page's chrome
+         and the footage agree instead of merely coexisting. -->
+    <div class="card" aria-label="Warlock 219 against Cleric 366">
+      <div class="row">
+        <div class="who"><b style="color:var(--warlock)">Warlock</b><span>219</span></div>
+        <div class="clock">0:37</div>
+        <div class="who r"><span>366</span><b style="color:var(--cleric)">Cleric</b></div>
+      </div>
+      <div class="bars">
+        <div class="bar l"><i style="--fill:62%"></i></div>
+        <div class="bar r"><i style="--fill:88%"></i></div>
+      </div>
+    </div>
+
+    <h1>
+      <span class="ln" style="--i:0"><span>Climb a tower</span></span>
+      <span class="ln" style="--i:1"><span>that keeps</span></span>
+      <span class="ln" style="--i:2"><span><em>taking floors back</em></span></span>
+    </h1>
+
+    <p class="lede">
+      A stick-figure spell brawler. Nine classes, no two of them alike.
+      Fight up it alone or bring one friend — <b>friendly fire is always on</b>.
+    </p>
+
+    <form class="join" id="join-form" method="post"
+          action="https://app.kit.com/forms/REPLACE_WITH_KIT_FORM_UID/subscriptions">
+      <label class="hp" aria-hidden="true">Leave empty
+        <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+      <label class="hp" for="email">Email address</label>
+      <input id="email" type="email" name="email_address" required
+             autocomplete="email" inputmode="email" placeholder="your email">
+      <button type="submit">Join</button>
+    </form>
+    <p class="msg" id="join-msg" role="status" aria-live="polite">
+      Two emails, ever. One when it's playable, one when it launches.
+    </p>
+  </div>
+</div>
+
+<div class="strip" aria-hidden="true"><div class="track" id="track"></div></div>
+
+<main>
+  <section>
+    <div class="inner two">
+      <div>
+        <p class="eyebrow">The climb</p>
+        <h2>Floors are<br>authored, not<br>shuffled</h2>
+      </div>
+      <div>
+        <p>Ten of them, each its own biome, each with something in it that has been
+        waiting. You learn a floor instead of rerolling it.</p>
+        <p><b>Falling costs ground, not progress.</b> Nothing resets. You keep what you
+        found and give back the floors you took, and the town downstairs keeps count of
+        how often.</p>
+        <p>It is built for a phone and honest about that: one screen per floor, two
+        players, nothing between you and the fight.</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding-top:0">
+    <div class="inner two">
+      <div>
+        <p class="eyebrow">The roster</p>
+        <h2>Nine classes,<br>no recolours</h2>
+        <p style="color:var(--smoke);max-width:34ch;margin:0">Every one gets a signature
+        spell and a way of moving nobody else has. If two of them play the same, one of
+        them is wrong.</p>
+      </div>
+      <ul class="roster">
+        <li style="--c:var(--arcanist)"><span class="tick"></span><span class="nm">Arcanist</span><span class="fy">Ranged arcane zoner</span></li>
+        <li style="--c:var(--shadowblade);--c-lit:var(--shadowblade-lit)"><span class="tick"></span><span class="nm">Shadowblade</span><span class="fy">In-and-out assassin</span></li>
+        <li style="--c:var(--brawler)"><span class="tick"></span><span class="nm">Brawler</span><span class="fy">Pure melee — no magic at all</span></li>
+        <li style="--c:var(--juggernaut)"><span class="tick"></span><span class="nm">Juggernaut</span><span class="fy">Unbreakable siege tank</span></li>
+        <li style="--c:var(--cleric)"><span class="tick"></span><span class="nm">Cleric</span><span class="fy">Radiant lifesteal bruiser</span></li>
+        <li style="--c:var(--cryomancer)"><span class="tick"></span><span class="nm">Cryomancer</span><span class="fy">Ice control caster</span></li>
+        <li style="--c:var(--stormcaller)"><span class="tick"></span><span class="nm">Stormcaller</span><span class="fy">Hyper-mobile chain caster</span></li>
+        <li style="--c:var(--warlock)"><span class="tick"></span><span class="nm">Warlock</span><span class="fy">Dark attrition hexer</span></li>
+        <li style="--c:var(--swordsaint)"><span class="tick"></span><span class="nm">Swordsaint</span><span class="fy">Guard-and-punish duelist</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <div class="inner">
+      <p class="eyebrow">Where it actually is</p>
+      <h2>No reviews yet.<br>Here are the numbers.</h2>
+      <!-- ⚠ THIS SECTION IS WHAT HONEST SOCIAL PROOF LOOKS LIKE FOR A GAME NOBODY
+           HAS PLAYED. Nobody has reviewed it; all eight posts to date carry zero
+           comments, checked. A quote invented to fill this space would be the one
+           thing on the page a visitor could catch as a lie, and it would be the
+           thing they remember. Every figure below is read out of the posting
+           account by `python-tools/update_site_facts.py`, which also writes the
+           date underneath — so the numbers cannot quietly drift into fiction. -->
+      <dl class="facts">
+        <div><dt>Shown this month</dt>
+          <dd data-fact="reach">6,836<small>Times a fight was put in front of somebody on Instagram, this month.</small></dd></div>
+        <div><dt>Fights cut</dt>
+          <dd data-fact="clips">17<small>Finished, scored, kept. Roughly one bout in three is thrown away.</small></dd></div>
+        <div><dt>Posted so far</dt>
+          <dd data-fact="posts">8<small>Every one delivered. None failed.</small></dd></div>
+        <div><dt>People making it</dt>
+          <dd data-fact="people">1<small>Evenings and weekends, in Godot.</small></dd></div>
+      </dl>
+      <p class="stamp" data-fact="stamp">Read from the accounts on 31 Aug 2026 — not chosen.</p>
+    </div>
+  </section>
+
+  <section class="end" id="join">
+    <div class="inner">
+      <p class="eyebrow">The list</p>
+      <h2>Hear it from me,<br>not from an algorithm</h2>
+      <p class="lede">Instagram decides whether you are shown the next fight. This
+      doesn't. <b>Two emails, ever</b> — one when there is something you can play, one
+      when it launches. Unsubscribe in a click.</p>
+      <form class="join" id="join-form-2" method="post"
+            action="https://app.kit.com/forms/REPLACE_WITH_KIT_FORM_UID/subscriptions">
+        <label class="hp" aria-hidden="true">Leave empty
+          <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+        <label class="hp" for="email2">Email address</label>
+        <input id="email2" type="email" name="email_address" required
+               autocomplete="email" inputmode="email" placeholder="your email">
+        <button type="submit">Join</button>
+      </form>
+      <p class="msg" id="join-msg-2" role="status" aria-live="polite"></p>
+    </div>
+  </section>
 </main>
 
 <footer>
-  <div class="wrap">
-    <p>STICKSPIRE — in development.</p>
-    <p>Built in Godot. Posted about daily, whether or not it went well.</p>
+  <div class="inner">
+    <ul class="links">
+      <li><a href="https://www.instagram.com/stick.spire/" rel="me noopener">Instagram</a></li>
+      <li><a href="https://www.instagram.com/stickspire.arena/" rel="me noopener">IG · Arena</a></li>
+      <li><a href="https://www.tiktok.com/@stick.spire" rel="me noopener">TikTok</a></li>
+      <li><a href="https://www.tiktok.com/@stickspire.arena" rel="me noopener">TikTok · Arena</a></li>
+    </ul>
+    <p>STICKSPIRE — in development. Built in Godot.</p>
+    <p>A fight posted every day, whether or not it went well.</p>
   </div>
 </footer>
 
 <script>
-/* Progressive enhancement only. Everything below can fail and the form still works,
-   because the <form action> posts to Kit directly — see the comment on it. */
+/* All of this is enhancement. The page reads, and the form submits, with every
+   line of it removed — see the note on the form's `action` attribute. */
 (function () {
-  var form = document.getElementById('wishlist-form');
-  var button = document.getElementById('wishlist-submit');
-  var msg = document.getElementById('wishlist-msg');
-  var endpoint = form.getAttribute('action');
+  'use strict';
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  /* ⚠ A WISHLIST FORM THAT SILENTLY DROPS SIGNUPS IS WORSE THAN NO FORM. Until the
-     real Kit form id is pasted in, refuse to accept an address at all rather than
-     take one and lose it — the visitor believes they signed up either way, and the
-     failure is invisible for as long as nobody checks the Kit dashboard. */
-  if (endpoint.indexOf('REPLACE_WITH_KIT_FORM_UID') !== -1) {
-    button.disabled = true;
-    button.textContent = 'Not connected yet';
-    msg.dataset.state = 'err';
-    msg.textContent = 'The signup form is not wired to a mailing list yet — ' +
-                      'see docs/GROWTH-OPS.md, step 4.';
-    form.addEventListener('submit', function (e) { e.preventDefault(); });
-    return;
+  /* ── the entrance ──────────────────────────────────────────────────────── */
+  var started = false;
+  function ready(){ if (!started) { started = true; document.documentElement.classList.add('is-ready'); } }
+  /* Wait for Anton before running the masked-line reveal, or the lines animate in
+     a fallback face and then reflow underneath themselves mid-motion. Never wait
+     longer than 1.2s: a slow font must not cost the headline. */
+  if (document.fonts && document.fonts.ready) { document.fonts.ready.then(ready); }
+  setTimeout(ready, 1200);
+
+  /* ── the fight strip ───────────────────────────────────────────────────── */
+  /* The real matchups that have been cut, not invented ones. Duplicated once so
+     the -50% keyframe lands on an identical frame and the loop has no seam. */
+  var FIGHTS = ['Warlock/Cleric','Stormcaller/Swordsaint','Arcanist/Shadowblade',
+    'Juggernaut/Stormcaller','Cryomancer/Brawler','Juggernaut/Swordsaint',
+    'Shadowblade/Juggernaut','Stormcaller/Cryomancer','Cleric/Juggernaut',
+    'Swordsaint/Arcanist','Brawler/Stormcaller','Warlock/Arcanist',
+    'Arcanist/Cryomancer','Shadowblade/Warlock','Swordsaint/Shadowblade',
+    'Cleric/Brawler','Juggernaut/Cryomancer'];
+  var track = document.getElementById('track');
+  if (track) {
+    var html = FIGHTS.map(function (f) {
+      var p = f.split('/');
+      return '<span>' + p[0] + '<em>vs</em>' + p[1] + '</span>';
+    }).join('');
+    track.innerHTML = html + html;
   }
 
-  form.addEventListener('submit', function (e) {
-    e.preventDefault();
-    if (form.website.value) { return; }              /* honeypot: a bot filled it in */
-    var email = form.email_address.value.trim();
-    if (!email) { return; }
+  /* ── roster reveal ─────────────────────────────────────────────────────── */
+  var rows = Array.prototype.slice.call(document.querySelectorAll('.roster li'));
+  if (reduce || !('IntersectionObserver' in window)) {
+    rows.forEach(function (r) { r.classList.add('in'); });
+  } else {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e, i) {
+        if (!e.isIntersecting) { return; }
+        var el = e.target;
+        setTimeout(function () { el.classList.add('in'); }, i * 55);
+        io.unobserve(el);
+      });
+    }, { rootMargin: '0px 0px -12% 0px' });
+    rows.forEach(function (r) { io.observe(r); });
+  }
 
-    button.disabled = true;
-    var original = button.textContent;
-    button.textContent = 'Adding you…';
-    msg.dataset.state = '';
-    msg.textContent = '';
+  /* ── the wishlist, on both forms ───────────────────────────────────────── */
+  function wire(formId, msgId) {
+    var form = document.getElementById(formId);
+    if (!form) { return; }
+    var msg = document.getElementById(msgId);
+    var button = form.querySelector('button');
+    var endpoint = form.getAttribute('action');
+    var resting = msg ? msg.textContent : '';
 
-    fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ email_address: email })
-    }).then(function (res) {
-      if (!res.ok) { throw new Error('HTTP ' + res.status); }
-      form.style.display = 'none';
-      msg.dataset.state = 'ok';
-      msg.textContent = "You're on the list. Check your inbox for a confirmation — " +
-                        'it sometimes lands in Promotions.';
-    }).catch(function () {
-      button.disabled = false;
-      button.textContent = original;
-      msg.dataset.state = 'err';
-      /* Deliberately does NOT claim success on a network failure. Telling someone
-         they are signed up when the request never landed is the one outcome that
-         costs a real subscriber. */
-      msg.textContent = "That didn't go through. Try again in a moment, or DM " +
-                        '@stick.spire on Instagram and you will be added by hand.';
+    /* ⚠ A FORM THAT SILENTLY DROPS SIGNUPS IS WORSE THAN NO FORM. Until the real
+       Kit form id is in place it refuses the address rather than taking one it
+       cannot store: the visitor believes they signed up either way, and the
+       failure stays invisible until somebody thinks to open a dashboard that has
+       been empty for a month. */
+    if (endpoint.indexOf('REPLACE_WITH_KIT_FORM_UID') !== -1) {
+      button.disabled = true;
+      button.textContent = 'Not wired';
+      if (msg) {
+        msg.dataset.state = 'err';
+        msg.textContent = 'Signup is not connected to a mailing list yet — ' +
+                          'docs/GROWTH-OPS.md, step 4.';
+      }
+      form.addEventListener('submit', function (e) { e.preventDefault(); });
+      return;
+    }
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (form.website.value) { return; }            /* a bot filled the honeypot */
+      var email = form.email_address.value.trim();
+      if (!email) { return; }
+      var label = button.textContent;
+      button.disabled = true;
+      button.textContent = 'Adding';
+      if (msg) { msg.dataset.state = ''; msg.textContent = ''; }
+
+      fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ email_address: email })
+      }).then(function (res) {
+        if (!res.ok) { throw new Error(res.status); }
+        form.style.display = 'none';
+        if (msg) {
+          msg.dataset.state = 'ok';
+          msg.textContent = "You're on the list. There is a confirmation in your " +
+                            'inbox — it sometimes lands in Promotions.';
+        }
+      }).catch(function () {
+        button.disabled = false;
+        button.textContent = label;
+        /* Never claims success on a network failure. Telling somebody they signed
+           up when the request never landed is the one outcome that costs a real
+           subscriber. */
+        if (msg) {
+          msg.dataset.state = 'err';
+          msg.textContent = "That didn't go through. Try again, or DM @stick.spire " +
+                            'on Instagram and you will be added by hand.';
+        }
+        setTimeout(function () {
+          if (msg && msg.dataset.state === 'err') {
+            msg.dataset.state = '';
+            msg.textContent = resting;
+          }
+        }, 9000);
+      });
     });
-  });
+  }
+  wire('join-form', 'join-msg');
+  wire('join-form-2', 'join-msg-2');
 })();
 </script>
 </body>
