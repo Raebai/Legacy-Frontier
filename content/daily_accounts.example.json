@@ -48,9 +48,17 @@
   "accounts": [
     {
       "profile": "YourProfileName",
-      "platforms": ["instagram", "tiktok"],
+      "platforms": [
+        "instagram",
+        "tiktok"
+      ],
       "draft": false,
-      "post_times": ["09:12", "13:07", "17:41", "20:26"],
+      "post_times": [
+        "09:12",
+        "13:07",
+        "17:41",
+        "20:26"
+      ],
       "hashtag_variants": [
         "#stickspire #stickman #stickfigure #stickmananimation #2danimation",
         "#stickspire #indiegame #gamedev #indiedev #madewithgodot",
@@ -59,14 +67,64 @@
     },
     {
       "profile": "YourSecondProfile",
-      "platforms": ["instagram", "tiktok"],
+      "platforms": [
+        "instagram",
+        "tiktok"
+      ],
       "draft": false,
-      "post_times": ["08:37", "12:19", "15:53", "19:08", "22:14"],
+      "post_times": [
+        "08:37",
+        "12:19",
+        "15:53",
+        "19:08",
+        "22:14"
+      ],
       "hashtag_variants": [
         "#stickspire #stickman #animation #stickfigure #fightscene",
         "#stickspire #indiedev #gamedev #pixelart #indiegamedev",
         "#stickspire #stickfight #fyp #gaming #viral"
       ]
+    },
+    {
+      "_why": [
+        "A SECOND ENTRY FOR THE SAME PROFILE = A SECOND UPLOAD CALL. One call carries",
+        "one `title`, so the strictest platform in it wins - putting YouTube in with",
+        "Instagram and TikTok would cap all three captions at YouTube's 100-character",
+        "TITLE limit. Current captions are 93 characters, so it fits today and would",
+        "silently start truncating on one longer matchup name.",
+        "",
+        "same_clip_as: reuse the clip the flagship already took today, so YouTube costs",
+        "zero extra clips.",
+        "clip_suffix: the 9:16 cut from make_portrait.py. A LANDSCAPE upload to YouTube",
+        "is a normal video, not a Short, and gets no distribution. If the .portrait file",
+        "is missing the entry sits the day out rather than posting the wrong shape.",
+        "caption 'title': a title is one line. The two-line Instagram caption shape",
+        "would arrive mangled.",
+        "extra.categoryId '20' is Gaming; the vendor defaults to '22' (People & Blogs).",
+        "extra.youtube_description is the only field on any of these platforms that can",
+        "carry a working link, so it carries the wishlist."
+      ],
+      "profile": "YourProfileName",
+      "platforms": [
+        "youtube"
+      ],
+      "same_clip_as": "YourProfileName",
+      "clip_suffix": ".portrait",
+      "caption": "title",
+      "title_suffix": " | STICKSPIRE",
+      "draft": false,
+      "post_times": [
+        "11:24",
+        "16:38",
+        "19:52"
+      ],
+      "hashtag_variants": [
+        ""
+      ],
+      "extra": {
+        "categoryId": "20",
+        "youtube_description": "STICKSPIRE is a stick-figure spell brawler about climbing a tower that keeps taking floors back. Nine classes, each with a signature spell.\n\nWishlist: https://stickspire.pages.dev\n\n#Shorts #stickman #stickfight #indiegame #gamedev"
+      }
     }
   ]
 }

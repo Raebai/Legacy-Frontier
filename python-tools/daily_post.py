@@ -91,6 +91,7 @@ POSTS = ROOT / "content" / "posts"
 LEDGER = ROOT / "content" / "posted.json"
 ACCOUNTS_FILE = ROOT / "content" / "daily_accounts.json"
 QUEUE_ORDER = ROOT / "content" / "queue_order.json"
+WEIGHTS_FILE = ROOT / "content" / "variant_weights.json"
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -138,7 +139,8 @@ def pool() -> list[Path]:
     follows, sorted by NAME — a re-cut bumps a clip's mtime and would otherwise silently
     jump the queue under a schedule that is meant to be predictable.
     """
-    clips = sorted(p for p in POSTS.glob("*.mp4") if ".nomusic" not in p.name)
+    clips = sorted(p for p in POSTS.glob("*.mp4")
+                   if ".nomusic" not in p.name and ".portrait" not in p.name)
     if not QUEUE_ORDER.exists():
         return clips
     try:
@@ -190,21 +192,93 @@ def load_accounts() -> list[dict]:
                                      or ([a["hashtags"]] if a.get("hashtags") else [""]))
         a["post_times"] = list(a.get("post_times")
                                or [a.get("post_time", "10:00")])
+        # A second entry for the same profile is a second upload CALL. That is how
+        # YouTube gets its own short title and its own 9:16 file without dragging
+        # Instagram's and TikTok's captions down to YouTube's 100-character title
+        # limit — one call carries one `title`, so the strictest platform in it wins.
+        a["same_clip_as"] = a.get("same_clip_as")     # reuse that profile's clip today
+        a["clip_suffix"] = a.get("clip_suffix", "")   # e.g. ".portrait"
+        a["caption"] = a.get("caption", "full")       # "full" | "title"
     return accounts
 
 
-def variant_for(acct: dict, when: date) -> tuple[str, str, int]:
-    """(hashtags, HH:MM, variant index) for this account on this day.
+def load_weights() -> dict:
+    """Per-variant weights written by `insights.py --apply`, or {} if there are none."""
+    if not WEIGHTS_FILE.exists():
+        return {}
+    try:
+        return json.loads(WEIGHTS_FILE.read_text(encoding="utf-8")).get("accounts", {})
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def weighted_schedule(weights: list[float], length: int = 20) -> list[int]:
+    """A deterministic, balanced sequence of variant indices honouring `weights`.
+
+    ⚠ NOT A RANDOM DRAW. A random pick would make a dry run and the live run that
+    follows it disagree about what is going out, which would make the preview a lie —
+    and over thirty days it would cluster badly enough to confound the very comparison
+    the rotation exists to enable. Largest-remainder apportionment gives each variant
+    its exact share of the cycle, and the round-robin emission keeps the same variant
+    off consecutive days.
+    """
+    n = len(weights)
+    if n <= 1:
+        return [0] * length
+    raw = [w * length for w in weights]
+    counts = [int(x) for x in raw]
+    for i in sorted(range(n), key=lambda i: -(raw[i] - counts[i]))[:length - sum(counts)]:
+        counts[i] += 1
+    seq: list[int] = []
+    while len(seq) < length and any(counts):
+        for i in range(n):
+            if counts[i] > 0:
+                seq.append(i)
+                counts[i] -= 1
+                if len(seq) == length:
+                    break
+    return seq or [0] * length
+
+
+def _pick_variant(options: list, weights_by_value: dict, i: int):
+    """One option for day `i`, weighted by what the analytics have learned so far.
+
+    Uniform until there is evidence, and never fully exclusive after it — see
+    `insights.variant_weights` for how a weight is earned and why it has a floor.
+    Unknown values fall back to an equal share, so editing a variant's text resets
+    only that variant rather than corrupting the whole schedule.
+    """
+    if not weights_by_value or len(options) <= 1:
+        return options[i % len(options)], i % len(options)
+    raw = [max(float(weights_by_value.get(o, 0.0)), 0.0) for o in options]
+    total = sum(raw)
+    if total <= 0:
+        return options[i % len(options)], i % len(options)
+    seq = weighted_schedule([r / total for r in raw])
+    idx = seq[i % len(seq)]
+    return options[idx], idx
+
+
+def variant_for(acct: dict, when: date, weights: dict | None = None
+                ) -> tuple[str, str, int]:
+    """(hashtags, HH:MM, hashtag-variant index) for this account on this day.
 
     ⚠ THE TWO CYCLES ARE DELIBERATELY DIFFERENT LENGTHS in a well-built config (3 tag
-    sets against 2 or 4 times, say). Equal-length cycles stay in lockstep forever, so
-    tag-set A is only ever seen at 09:00 and the two effects can never be told apart —
-    a confound built at config time that no amount of later analysis can undo.
+    sets against 4 or 5 times). Equal-length cycles stay in lockstep forever, so tag-set
+    A is only ever seen at 09:12 and the two effects can never be told apart — a
+    confound built at config time that no amount of later analysis can undo.
+
+    ⚠ AND THE WEIGHTS ONLY EVER TILT THE CYCLE, NEVER COLLAPSE IT. The moment a
+    schedule stops showing a variant it stops learning about it, and the account is
+    locked to whatever was ahead on the day the evidence happened to clear the bar.
+    Every variant keeps a floor share for as long as it is in the config.
     """
     i = day_index(when)
-    tags = acct["hashtag_variants"][i % len(acct["hashtag_variants"])]
-    time_s = acct["post_times"][i % len(acct["post_times"])]
-    return tags, time_s, i
+    mine = (weights or {}).get(acct["profile"], {})
+    tags, tag_idx = _pick_variant(acct["hashtag_variants"],
+                                  mine.get("hashtags", {}), i)
+    time_s, _ = _pick_variant(acct["post_times"], mine.get("post_times", {}), i)
+    return tags, time_s, tag_idx
 
 
 def spoken_for(ledger: dict) -> set[str]:
@@ -258,20 +332,34 @@ def local_date_of(iso_utc: str) -> date | None:
     return dt.astimezone(ZoneInfo(POST_TZ)).date()
 
 
-def vendor_holdings(key: str) -> dict[tuple[str, date], dict]:
-    """{(profile, local date): row} for everything the vendor is holding.
+def vendor_holdings(key: str) -> dict[tuple[str, date], list[dict]]:
+    """{(profile, local date): [rows]} for everything the vendor is holding.
 
     The authoritative answer to "is this day already covered". The local ledger records
     what we ASKED for; this records what they ACCEPTED, and a `--cancel-all` from another
     machine, a vendor-side deletion or a failed queue attempt makes those differ.
+
+    ⚠ A LIST, NOT ONE ROW, and the difference is load-bearing now that a profile can
+    have more than one entry a day. The flagship posts once to Instagram and TikTok and
+    once more to YouTube; keyed by profile and date alone, queueing either one would
+    mark the whole day covered and the other would never go out. `covers()` asks the
+    narrower question the schedule actually needs answered.
     """
-    out: dict[tuple[str, date], dict] = {}
+    out: dict[tuple[str, date], list[dict]] = {}
     for row in pc.list_scheduled(key):
         day = local_date_of(row.get("scheduled_date"))
         profile = str(row.get("profile_username") or "")
         if day and profile:
-            out[(profile, day)] = row
+            out.setdefault((profile, day), []).append(row)
     return out
+
+
+def covers(rows: list[dict], wanted: list[str]) -> bool:
+    """Is every platform this entry wants already queued for that profile that day?"""
+    got: set[str] = set()
+    for row in rows or []:
+        got |= {str(p).lower() for p in (row.get("platforms") or [])}
+    return bool(wanted) and set(wanted) <= got
 
 
 def linked_platforms(key: str) -> dict[str, set[str]]:
@@ -365,27 +453,77 @@ def cmd_topup(days: int, accounts: list[dict], ledger: dict, key: str,
         print("  Link an account at upload-post.com, then re-run.")
         return 1
 
+    weights = load_weights()
+    if weights:
+        print(f"  using learned variant weights from "
+              f"{WEIGHTS_FILE.relative_to(ROOT)}")
+
+    # A second entry for the same profile is a second upload CALL, which is how
+    # YouTube gets its own short title and its own 9:16 file without dragging
+    # Instagram's and TikTok's captions down to YouTube's 100-character title limit
+    # (one call carries one `title`, so the strictest platform in it wins).
+    #
+    # An entry with `same_clip_as` REUSES the clip that profile already took today
+    # rather than consuming another. Leaders are processed first because a follower
+    # cannot resolve until its leader has picked.
+    leaders = [a for a in accounts if not a.get("same_clip_as")]
+    followers = [a for a in accounts if a.get("same_clip_as")]
+
     queued = failures = skipped = 0
     for offset in range(1, days + 1):
         when = today + timedelta(days=offset)
         taken: set[str] = set()
-        for acct in accounts:
+        chosen_today: dict[str, Path] = {}
+        for acct in leaders + followers:
             profile = acct["profile"]
-            if (profile, when) in held:
+            if covers(held.get((profile, when), []), acct["platforms"]):
                 skipped += 1
                 continue
-            clip = pick(ledger, taken)
+            if acct.get("same_clip_as"):
+                clip = chosen_today.get(acct["same_clip_as"])
+                if clip is None:
+                    # Leader skipped or ran dry. A rider with nothing to ride is not
+                    # a failure, it is simply nothing to do.
+                    continue
+            else:
+                clip = pick(ledger, taken)
             if clip is None:
                 print(f"\n  {when} {profile}: OUT OF CLIPS — everything on disk is "
                       f"already posted or already queued.")
                 failures += 1
                 continue
-            taken.add(clip.stem)
-            tags, hhmm, vidx = variant_for(acct, when)
+            if not acct.get("same_clip_as"):
+                taken.add(clip.stem)
+                chosen_today[profile] = clip
+
+            # A suffixed variant (the 9:16 cut) must EXIST or the entry sits this day
+            # out. Sending the landscape file to YouTube would publish a normal video
+            # rather than a Short, which reads as a mistake and is worse than posting
+            # nothing there.
+            send_clip = clip
+            if acct.get("clip_suffix"):
+                send_clip = clip.with_name(clip.stem + acct["clip_suffix"] + ".mp4")
+                if not send_clip.exists():
+                    print(f"\n  {when} {profile}: no {send_clip.name} yet - skipping. "
+                          f"Build them with python python-tools/make_portrait.py")
+                    continue
+
+            tags, hhmm, vidx = variant_for(acct, when, weights)
             when_utc, when_local = slot(when, hhmm)
-            caption = f"{title_of(clip.stem)}\n\n{tags}".strip()
+            # NO NEWLINE IN A "title" CAPTION: it becomes YouTube's video TITLE,
+            # and a title is one line. The two-line shape that suits Instagram
+            # arrives there mangled or truncated.
+            caption = (title_of(clip.stem) + acct.get("title_suffix", "")
+                       if acct.get("caption") == "title"
+                       else f"{title_of(clip.stem)}\n\n{tags}".strip())
+            clip = send_clip
+            # Per-platform tuning the vendor accepts but does not default well:
+            # YouTube's categoryId is "22" (People & Blogs) unless told otherwise, and
+            # its description defaults to the title, wasting the one field on that
+            # platform that can carry a link anywhere.
             target = pc.Target(profile=profile, platforms=acct["platforms"],
-                               caption=caption, draft=bool(acct.get("draft", False)))
+                               caption=caption, draft=bool(acct.get("draft", False)),
+                               extra=dict(acct.get("extra") or {}))
             payloads = pc.build_requests(clip, [target], caption, 0)
             payloads[0]["scheduled_date"] = when_utc
             payloads[0].pop("schedule_offset_minutes", None)
@@ -394,7 +532,8 @@ def cmd_topup(days: int, accounts: list[dict], ledger: dict, key: str,
                   f"[{', '.join(acct['platforms'])}]")
             print(f"      {clip.name}  ({clip.stat().st_size / 1e6:.1f} MB)")
             print(f"      {caption.splitlines()[0]}")
-            print(f"      variant #{vidx % len(acct['hashtag_variants'])}: {tags}")
+            if tags:
+                print(f"      variant #{vidx % len(acct['hashtag_variants'])}: {tags}")
 
             row = {"profile": profile, "clip": clip.stem,
                    "platforms": acct["platforms"], "when_utc": when_utc,

@@ -65,6 +65,7 @@ STORE = ROOT / "content" / "analytics"
 POSTS_DB = STORE / "posts.json"
 PROFILES_DB = STORE / "profiles.json"
 QUEUE_ORDER = ROOT / "content" / "queue_order.json"
+WEIGHTS_FILE = ROOT / "content" / "variant_weights.json"
 ACCOUNTS_FILE = ROOT / "content" / "daily_accounts.json"
 CLIPS = ROOT / "content" / "posts"
 
@@ -99,6 +100,19 @@ SEED_TERMS = ("stickman", "stickfight", "indiegame")
 ## enough that anybody browses it, is worth more than either extreme.
 MID_TAIL_MIN = 10_000
 MID_TAIL_MAX = 5_000_000
+
+## ── how hard the rotation is allowed to exploit what it has learned ──────────
+## The schedule tilts toward variants that are doing better, but it must never stop
+## showing the others: a schedule that drops a variant stops learning about it, and
+## the account is then locked to whatever happened to be ahead on the day the
+## evidence cleared the bar. Every variant in the config keeps at least this share.
+WEIGHT_FLOOR = 0.15
+## Temperature on the log-reach difference. At 1.0 a variant reaching 1.65x as many
+## people earns 1.65x the share - proportional, not winner-take-all.
+WEIGHT_TEMP = 1.0
+## Below this many measured posts for a profile, weights stay uniform outright.
+## Shrinkage alone would already keep them near-uniform; this is the second lock.
+WEIGHT_MIN_POSTS = 8
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────
@@ -757,6 +771,123 @@ def recommend(db: dict, key: str | None) -> int:
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────
+# weights — turn what is known into WHICH VARIANT goes out, not just which clip
+# ─────────────────────────────────────────────────────────────────────────────────────
+
+def variant_key(text: str) -> str:
+    """A hashtag line reduced to the same key `features()` builds from a caption.
+
+    Matching on the raw string would fail on a reordered or recased tag, and matching
+    loosely would merge two variants that differ by one tag - which is exactly the
+    contrast being measured. Sorted lowercase tag names is the only stable identity.
+    """
+    return ",".join(hashtags_of(text))
+
+
+def _weights_from(groups: dict[str, list[float]], options: list[str],
+                  key_of, global_mean: float) -> dict[str, float]:
+    """Turn per-option observations into a normalised, floored weight per option."""
+    raw: dict[str, float] = {}
+    for opt in options:
+        m = shrunk_mean(groups.get(key_of(opt), []), global_mean)
+        raw[opt] = math.exp((m - global_mean) / WEIGHT_TEMP)
+    total = sum(raw.values()) or 1.0
+    w = {k: v / total for k, v in raw.items()}
+    # Apply the floor, then renormalise. Doing it in this order means the floor is a
+    # guarantee rather than a suggestion the renormalisation can eat.
+    w = {k: max(v, WEIGHT_FLOOR) for k, v in w.items()}
+    total = sum(w.values()) or 1.0
+    return {k: round(v / total, 4) for k, v in w.items()}
+
+
+def variant_weights(db: dict, accounts: list[dict]) -> dict:
+    """Per-account weights for each hashtag set and each posting time.
+
+    ⚠ THIS IS THE ONLY PLACE THE SYSTEM ACTS ON WHAT IT LEARNED, and it is deliberately
+    the gentlest possible action. It does not silence a variant, change the copy, or
+    rewrite the config - it moves shares inside a rotation that keeps running. The
+    rotation is what produces the evidence in the first place, so anything that
+    collapses it saws off the branch.
+
+    Everything is measured on log reach at a matched age, for the same reasons the
+    comparisons are: view counts are long-tailed, and a post keeps accruing views for
+    days, so raw numbers across different ages compare calendars rather than content.
+    """
+    out: dict[str, dict] = {}
+    for acct in accounts:
+        profile = acct["profile"]
+        rows = []
+        for rec in (db.get("posts") or {}).values():
+            if not rec.get("ok") or rec.get("profile") != profile:
+                continue
+            m = metrics_at_age(rec)
+            if m is None:
+                continue
+            reach = reach_of(rec, m)
+            if reach is not None:
+                rows.append((rec.get("features") or {}, logv(reach)))
+
+        tag_opts = acct.get("hashtag_variants") or []
+        time_opts = acct.get("post_times") or []
+        if len(rows) < WEIGHT_MIN_POSTS:
+            out[profile] = {
+                "hashtags": {t: round(1 / len(tag_opts), 4) for t in tag_opts} if tag_opts else {},
+                "post_times": {t: round(1 / len(time_opts), 4) for t in time_opts} if time_opts else {},
+                "basis": {"measured_posts": len(rows), "weighted": False,
+                          "why": f"under {WEIGHT_MIN_POSTS} measured posts, staying uniform"},
+            }
+            continue
+
+        global_mean = _mean([v for _, v in rows])
+        by_tags: dict[str, list[float]] = defaultdict(list)
+        by_hour: dict[str, list[float]] = defaultdict(list)
+        for f, v in rows:
+            by_tags[str(f.get("hashtag_set") or "")].append(v)
+            if f.get("hour") is not None:
+                by_hour[str(int(f["hour"]))].append(v)
+
+        out[profile] = {
+            "hashtags": _weights_from(by_tags, tag_opts, variant_key, global_mean),
+            "post_times": _weights_from(by_hour, time_opts,
+                                        lambda t: str(int(t.split(":")[0])), global_mean),
+            "basis": {"measured_posts": len(rows), "weighted": True,
+                      "floor": WEIGHT_FLOOR, "temperature": WEIGHT_TEMP},
+        }
+    return out
+
+
+def write_weights(db: dict, write: bool = False) -> int:
+    accounts = _load(ACCOUNTS_FILE, {}).get("accounts", [])
+    if not accounts:
+        print("\n  no account config, so nothing to weight.")
+        return 1
+    for a in accounts:
+        a.setdefault("hashtag_variants", [a["hashtags"]] if a.get("hashtags") else [])
+        a.setdefault("post_times", [a.get("post_time", "10:00")])
+    weights = variant_weights(db, accounts)
+
+    print()
+    print("VARIANT WEIGHTS  (how the rotation is tilted by what it has measured)")
+    for profile, w in weights.items():
+        basis = w["basis"]
+        print(f"  {profile}   {basis['measured_posts']} measured post(s)   "
+              f"{'weighted' if basis['weighted'] else 'UNIFORM - ' + basis.get('why','')}")
+        for kind in ("hashtags", "post_times"):
+            for opt, share in sorted(w[kind].items(), key=lambda kv: -kv[1]):
+                label = opt if len(opt) < 46 else opt[:43] + "..."
+                bar = "#" * max(int(share * 40), 1)
+                print(f"      {share:>5.0%} {bar:<22} {label}")
+        print()
+    if write:
+        _save(WEIGHTS_FILE, {"generated": now_utc().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                             "note": "daily_post.variant_for reads this. Delete the "
+                                     "file to fall back to a uniform rotation.",
+                             "accounts": weights})
+        print(f"  wrote {WEIGHTS_FILE.relative_to(ROOT)}")
+    return 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────
 # rank — turn what is known into tomorrow's queue order
 # ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -786,8 +917,12 @@ def rank(db: dict, write: bool = False) -> int:
             by_fighter[fighter].append(v)
 
     posted = {f.get("clip") for f, _ in pool}
+    # `.nomusic` is the silent companion and `.portrait` is the 9:16 cut of a clip
+    # that is already in this list. Neither is a separate fight, and counting them
+    # here would both inflate the runway and rank the same bout twice.
     candidates = [p for p in sorted(CLIPS.glob("*.mp4"))
-                  if ".nomusic" not in p.name and p.stem not in posted]
+                  if ".nomusic" not in p.name and ".portrait" not in p.name
+                  and p.stem not in posted]
 
     scored = []
     for clip in candidates:
@@ -852,6 +987,7 @@ def main() -> int:
         recommend(db, key)
     if args.rank or args.all:
         rank(db, write=args.apply or args.all)
+        write_weights(db, write=args.apply or args.all)
     print()
     return 0
 

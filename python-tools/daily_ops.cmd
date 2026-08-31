@@ -32,12 +32,17 @@ REM 2. Re-rank the unposted clips from what that history says, and write
 REM    content/queue_order.json for step 3 to drain in.
 "%PY%" "%REPO%\python-tools\insights.py" --rank --apply >> "%LOG%" 2>&1
 
-REM 3. Fill every unqueued day in the next 30. Idempotent: a second run
+REM 3. Give any newly shot clip its 9:16 cut, so YouTube keeps getting
+REM    Shorts without anybody having to remember. Clips that already
+REM    have one are skipped, so this is a no-op on most days.
+"%PY%" "%REPO%\python-tools\make_portrait.py" >> "%LOG%" 2>&1
+
+REM 4. Fill every unqueued day in the next 30. Idempotent: a second run
 REM    finds no gaps and sends nothing, which is what makes it safe here.
 "%PY%" "%REPO%\python-tools\daily_post.py" --topup 30 --live >> "%LOG%" 2>&1
 set TOPUP=%ERRORLEVEL%
 
-REM 4. Ask whether the posts that were due have actually gone out. This
+REM 5. Ask whether the posts that were due have actually gone out. This
 REM    is the only step that can detect a silent vendor-side failure.
 "%PY%" "%REPO%\python-tools\daily_post.py" --verify >> "%LOG%" 2>&1
 set VERIFY=%ERRORLEVEL%
