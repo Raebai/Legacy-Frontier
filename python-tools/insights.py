@@ -728,7 +728,7 @@ def recommend(db: dict, key: str | None) -> int:
             return 0
         for seed in SEED_TERMS:
             try:
-                tags = api.suggestions(key, seed, "tiktok", "hashtags")
+                tags = api.suggestions(key, seed, linked_tiktok, "tiktok", "hashtags")
             except api.ApiError as e:
                 print(f"  suggestions for '{seed}' unavailable: {e}")
                 continue

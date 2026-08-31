@@ -291,11 +291,16 @@ def audience(profile: str, key: str, platform: str = "tiktok",
     else's audience. Until TikTok is connected, posting times here are a guess and this
     file will say so rather than dress the guess up.
     """
+    # ⚠ `profile` IS REQUIRED and was missing until the plan upgrade made this
+    # endpoint reachable at all — it had been failing on entitlement, so the
+    # 400 hiding underneath never surfaced. The signature always took a profile;
+    # it simply was not being sent.
     return _get("/uploadposts/audience", key,
-                {"platform": platform, "benchmark_category": benchmark_category})
+                {"profile": profile, "platform": platform,
+                 "benchmark_category": benchmark_category})
 
 
-def suggestions(key: str, query: str, platform: str = "tiktok",
+def suggestions(key: str, query: str, profile: str, platform: str = "tiktok",
                 kind: str = "hashtags") -> list[dict]:
     """Hashtag or keyword suggestions AROUND A SEED TERM. `kind` is hashtags|keywords.
 
@@ -311,8 +316,10 @@ def suggestions(key: str, query: str, platform: str = "tiktok",
     place to be buried — the useful band is the mid-tail, which `insights.py` filters for
     rather than taking the top rows.
     """
+    # `profile` as well as `q` — the account whose connection is used to ask.
     data = _get("/uploadposts/suggestions", key,
-                {"platform": platform, "type": kind, "q": query})
+                {"profile": profile, "platform": platform, "type": kind,
+                 "q": query})
     rows = data.get(kind) or data.get(f"{kind}[]") or data.get("results") or []
     return rows if isinstance(rows, list) else []
 
