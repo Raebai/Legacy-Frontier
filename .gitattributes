@@ -29,3 +29,12 @@
 *.ttf binary
 *.otf binary
 *.pdf binary
+
+# cmd.exe is not reliable on LF-only line endings, and `goto :label` across a
+# mangled file is exactly how the last batch wrapper died. Force CRLF on
+# checkout so a clone on any machine gets a file cmd.exe can actually read.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+# PowerShell is happy either way, but keep it consistent with what Windows
+# tooling writes so the file does not churn on every edit.
+*.ps1 text eol=crlf

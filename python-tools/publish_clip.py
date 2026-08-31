@@ -108,13 +108,34 @@ DEFAULT_STAGGER_MINUTES = 25
 
 @dataclass
 class Target:
-    """One account on one platform."""
+    """One profile, and every platform that profile should post this clip to at once.
+
+    ⚠ CROSS-PLATFORM IS ONE CALL; CROSS-ACCOUNT IS NOT. The vendor takes a repeated
+    `platform[]` field, so a single upload can land the same video on this profile's
+    Instagram AND its TikTok — and it SHOULD, because the duplicate-content pattern that
+    trips spam detection is the same clip on two accounts of the SAME platform, not the
+    same clip on one account's two platforms. Every creator alive cross-posts a Reel to
+    TikTok; nobody runs two Instagram accounts posting identical videos.
+
+    That distinction halves the clip supply problem: two clips a day covers four
+    accounts, not two.
+    """
     profile: str          # the aggregator's profile name (one per account)
-    platform: str
+    platforms: list[str]  # one upload call, one or more destinations
     caption: str = ""
     draft: bool = True
     scheduled_offset_min: int = 0
     extra: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if isinstance(self.platforms, str):        # tolerate the pre-multi shape
+            self.platforms = [self.platforms]
+        self.platforms = [p.lower() for p in self.platforms if p]
+
+    @property
+    def platform(self) -> str:
+        """The first destination. Kept so single-platform callers read unchanged."""
+        return self.platforms[0] if self.platforms else ""
 
 
 def load_key() -> str | None:
@@ -246,11 +267,12 @@ def cmd_check(targets_path: Path) -> int:
     print(f"\n  {targets_path.name} asks for {len(targets)} destination(s):")
     problems = 0
     for t in targets:
-        ok = (t.profile, t.platform) in linked
-        if not ok:
-            problems += 1
-        print(f"      {t.platform:<10} as {t.profile:<12} " +
-              ("ok" if ok else "*** NOT LINKED — this target would fail ***"))
+        for platform in t.platforms:
+            ok = (t.profile, platform) in linked
+            if not ok:
+                problems += 1
+            print(f"      {platform:<10} as {t.profile:<12} " +
+                  ("ok" if ok else "*** NOT LINKED — this target would fail ***"))
     if problems:
         print(f"\n  {problems} target(s) point at something that is not connected. "
               f"Fix the profile name or link the account before --live.")
@@ -259,9 +281,16 @@ def cmd_check(targets_path: Path) -> int:
     return 0
 
 
-def trim_caption(caption: str, platform: str) -> str:
-    """Fit the caption to the platform, cutting on a word boundary rather than mid-word."""
-    limit = CAPTION_LIMITS.get(platform, 2200)
+def trim_caption(caption: str, platform: str | list[str]) -> str:
+    """Fit the caption to the platform, cutting on a word boundary rather than mid-word.
+
+    ⚠ WITH SEVERAL PLATFORMS IN ONE CALL THE STRICTEST ONE WINS, because there is only
+    one `title` field on the wire. YouTube's 100-character title limit against TikTok's
+    2200 is not a rounding difference — send a 300-character caption to a call that
+    includes YouTube and the whole upload is rejected after the video has been sent.
+    """
+    platforms = [platform] if isinstance(platform, str) else list(platform)
+    limit = min((CAPTION_LIMITS.get(p, 2200) for p in platforms), default=2200)
     if len(caption) <= limit:
         return caption
     cut = caption[: limit - 1]
@@ -303,19 +332,22 @@ def build_requests(clip: Path, targets: list[Target], caption: str,
     out: list[dict] = []
     seen_per_platform: dict[str, int] = {}
     for t in targets:
-        n = seen_per_platform.get(t.platform, 0)
-        seen_per_platform[t.platform] = n + 1
-        text = trim_caption(t.caption or caption, t.platform)
+        # ⚠ THE STAGGER COUNTS PER PLATFORM, NOT PER TARGET, and with multi-platform
+        # targets it takes the WORST case. Two profiles both posting to Instagram are
+        # the pair that must not fire together; that one of them also posts to TikTok
+        # changes nothing about the Instagram collision.
+        n = max((seen_per_platform.get(p, 0) for p in t.platforms), default=0)
+        for p in t.platforms:
+            seen_per_platform[p] = seen_per_platform.get(p, 0) + 1
+        text = trim_caption(t.caption or caption, t.platforms)
         payload = {
             "user": t.profile,
-            "platform": [t.platform],
+            "platform": list(t.platforms),
             "video": str(clip),
             "title": text,
             # Draft/inbox rather than straight to the feed — see the module docstring.
             "post_mode": "MEDIA_UPLOAD" if t.draft else "DIRECT_POST",
         }
-        # The second and later accounts on the SAME platform are staggered, because
-        # simultaneous identical posts are the spam signal.
         delay = t.scheduled_offset_min or (n * stagger)
         if delay:
             payload["schedule_offset_minutes"] = delay
@@ -329,9 +361,12 @@ def load_targets(path: Path) -> list[Target]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     targets: list[Target] = []
     for row in raw.get("targets", []):
+        # `platforms: [...]` is the current shape; a bare `platform: "..."` is the
+        # original one and still reads, so an old targets file keeps working.
+        plats = row.get("platforms") or [row["platform"]]
         targets.append(Target(
             profile=row["profile"],
-            platform=row["platform"].lower(),
+            platforms=[str(p).lower() for p in plats],
             caption=row.get("caption", ""),
             draft=bool(row.get("draft", True)),
             scheduled_offset_min=int(row.get("schedule_offset_minutes", 0)),
@@ -408,17 +443,17 @@ def send(payloads: list[dict], key: str, timeout: int = 300,
                 job = body.get("job_id") or ""
                 when = p.get("scheduled_date", "")
                 note = f"  scheduled {when}  job {job}" if job else ""
-                print(f"  -> {p.get('platform')} as {p.get('user')}: "
+                print(f"  -> {','.join(p.get('platform') or [])} as {p.get('user')}: "
                       f"HTTP {r.status}{note}")
                 if results is not None:
                     results.append({"user": p.get("user"), "job_id": job,
                                     "scheduled_date": when, "status": r.status})
         except urllib.error.HTTPError as e:
-            print(f"  ! {p.get('platform')} as {p.get('user')}: HTTP {e.code} "
+            print(f"  ! {','.join(p.get('platform') or [])} as {p.get('user')}: HTTP {e.code} "
                   f"{e.read()[:300]!r}")
             failures += 1
         except Exception as e:  # noqa: BLE001 — a network tool reports, it does not raise
-            print(f"  ! {p.get('platform')} as {p.get('user')}: {e}")
+            print(f"  ! {','.join(p.get('platform') or [])} as {p.get('user')}: {e}")
             failures += 1
     return failures
 
@@ -473,10 +508,14 @@ def main() -> int:
     print(f"\n{args.clip.name}  ({size_mb:.1f} MB)  ->  {len(payloads)} destination(s)")
     for p in payloads:
         when = p.get("schedule_offset_minutes", 0)
-        mode = _mode_label(p["platform"][0], p["post_mode"])
         delay = f"  +{when}min" if when else ""
-        print(f"  {p['platform'][0]:<10} as {p['user']:<18} {mode}{delay}")
-        print(f"             \"{p['title'][:70]}\"")
+        print(f"  as {p['user']}{delay}")
+        # One line per platform: the same post_mode means different things on each, and
+        # a preview that collapses them hides that TikTok will wait in an inbox while
+        # Instagram is already public.
+        for platform in p["platform"]:
+            print(f"      {platform:<10} {_mode_label(platform, p['post_mode'])}")
+        print(f"      \"{p['title'][:70]}\"")
 
     if not args.live:
         print("\nDRY RUN — nothing was sent. Add --live to actually upload.")

@@ -206,6 +206,21 @@ def features(row: dict) -> dict:
 # pull
 # ─────────────────────────────────────────────────────────────────────────────────────
 
+## A post older than this with at least this many readings is treated as finished: its
+## curve is flat and re-reading it only spends the metered rate limit.
+SETTLED_AGE_DAYS = 30
+SETTLED_MIN_SNAPSHOTS = 3
+
+
+def settled(rec: dict) -> bool:
+    """Has this post stopped moving enough that another reading buys nothing?"""
+    posted = parse_ts(rec.get("posted_at"))
+    if not posted:
+        return False
+    old = (now_utc() - posted).days >= SETTLED_AGE_DAYS
+    return old and len(rec.get("snapshots") or []) >= SETTLED_MIN_SNAPSHOTS
+
+
 def pull(key: str, deep: bool = True, verbose: bool = True) -> dict:
     """Fetch everything readable and fold it into the local store.
 
@@ -242,6 +257,14 @@ def pull(key: str, deep: bool = True, verbose: bool = True) -> dict:
         fresh = 0
         for rid, rec in posts.items():
             if not rec.get("ok"):
+                continue
+            if settled(rec):
+                # ⚠ BOUNDED ON PURPOSE. This loop sleeps 3.2s per post to stay under
+                # 100 calls / 5 min, so it costs five minutes per hundred posts and
+                # grows forever. A post a month old with several readings has stopped
+                # moving — re-reading it spends the rate limit re-learning a number that
+                # will not change, at the expense of the recent posts that are still
+                # accruing views and are the only ones a decision depends on.
                 continue
             try:
                 data = api.post_analytics_by_request(rid, key)
