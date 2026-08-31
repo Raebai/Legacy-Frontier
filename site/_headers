@@ -1,14 +1,19 @@
 # Cloudflare Pages reads this file at deploy time. It is not served to anyone.
 #
-# ⚠ RULES ARE ADDITIVE AND LATER ONES WIN, so the order matters: the catch-all sets
-# the defaults and /assets/* then overrides only the caching.
+# ⚠ RULES ARE ADDITIVE — A LATER RULE DOES NOT REPLACE AN EARLIER ONE, IT APPENDS TO
+# IT. Measured, not assumed; see the Cache-Control note below for what that cost.
+# So a header must be set in exactly ONE block, never in two.
+
+# ⚠ NO Cache-Control IN THE CATCH-ALL. Cloudflare APPENDS matching rules rather than
+# overriding them, so setting it here AND on /assets/* produced the header
+#   Cache-Control: public, max-age=0, must-revalidate, public, max-age=31536000, immutable
+# on every asset — measured on the live deployment. A client reading the first
+# max-age revalidates everything, which is the exact opposite of what the second half
+# asks for. Pages already defaults HTML to `public, max-age=0, must-revalidate`
+# (verified against the live response), so leaving it unset here gets the right
+# behaviour for HTML and lets /assets/* own the only Cache-Control on the page.
 
 /*
-  # The HTML must never be cached hard. It carries the ?v= numbers that bust the
-  # asset cache, so a stale index.html pins a visitor to old media forever — the
-  # one file that must always be revalidated.
-  Cache-Control: public, max-age=0, must-revalidate
-
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: DENY

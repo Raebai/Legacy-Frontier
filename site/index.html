@@ -219,6 +219,7 @@ h1 .ln>span{display:block}
      line-height:1.7}
 .msg[data-state=ok]{color:var(--ember)}
 .msg[data-state=err]{color:#ff8f7d}
+.msg a{color:var(--ember)}
 .hp{position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden}
 
 /* ── marquee: the fights that have actually been cut ─────────────────────── */
@@ -594,13 +595,21 @@ html.lenis,html.lenis body{height:auto}
        failure stays invisible until somebody thinks to open a dashboard that has
        been empty for a month. */
     if (endpoint.indexOf('REPLACE_WITH_KIT_FORM_ID') !== -1) {
+      /* ⚠ THE VISITOR AND THE MAKER NEED DIFFERENT MESSAGES, and this said the
+         maker's out loud on a public page: a stranger was being shown a path to a
+         file in a private repo. What they need is a way to keep in touch; the
+         diagnostic belongs in the console, where only somebody looking for it
+         will find it. */
       button.disabled = true;
-      button.textContent = 'Not wired';
+      button.textContent = 'Soon';
       if (msg) {
-        msg.dataset.state = 'err';
-        msg.textContent = 'Signup is not connected to a mailing list yet — ' +
-                          'docs/GROWTH-OPS.md, step 4.';
+        msg.dataset.state = '';
+        msg.innerHTML = 'The list opens shortly. Until then the fights go up daily ' +
+          'on <a href="https://www.instagram.com/stick.spire/" rel="me noopener">' +
+          'Instagram</a>.';
       }
+      console.warn('[stickspire] wishlist form is not wired to Kit yet — ' +
+                   'see docs/GROWTH-OPS.md step 4');
       form.addEventListener('submit', function (e) { e.preventDefault(); });
       return;
     }
