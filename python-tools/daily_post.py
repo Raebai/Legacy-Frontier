@@ -416,7 +416,10 @@ def reconcile(ledger: dict, key: str, verbose: bool = True) -> int:
 def runway(accounts: list[dict], ledger: dict) -> tuple[int, float]:
     """(clips not spoken for, days of posting those cover)."""
     left = len(pool()) - len(spoken_for(ledger))
-    per_day = max(len(accounts), 1)
+    # Only entries that PICK a clip consume the pool. A rider (`same_clip_as`) reuses
+    # one, so counting it here understates the runway and would send the maker off to
+    # shoot fights that are not actually needed.
+    per_day = max(len([a for a in accounts if not a.get("same_clip_as")]), 1)
     return left, left / per_day
 
 
