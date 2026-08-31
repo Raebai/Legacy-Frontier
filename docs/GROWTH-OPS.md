@@ -32,6 +32,8 @@ It needs a plan that permits more than ten uploads a month, and clips to fill it
 
 **Upload-Post Basic. $24/month, or $16/month billed annually.**
 
+Dashboard and billing: **<https://app.upload-post.com>**
+
 | | Free (now) | Basic |
 |---|---|---|
 | profiles | 2 | 5 |
@@ -76,10 +78,13 @@ trending or chart sounds, **there is no toggle**, and the only way back is conve
 the account to Personal. Pick wrong here and it is not a setting you fix later, it is an
 account you convert.
 
+Sign up (do this twice, in two browsers or a private window):
+**<https://www.tiktok.com/signup>**
+
     TikTok   @stick.spire        (flagship)   Personal/Creator
     TikTok   @stickspire.arena   (volume)     Personal/Creator
 
-Then connect each to the matching Upload-Post profile:
+Then connect each at **<https://app.upload-post.com>** → Manage Users, to the matching profile:
 
 - `StickSpire` → TikTok `@stick.spire`
 - `StickSpire_Arena` → TikTok `@stickspire.arena`
@@ -117,20 +122,43 @@ TikTok inbox until you open the app, and on any day you do not, it does not post
 
 ## 4. Wire up the wishlist (5 minutes)
 
-1. Sign up at **kit.com** — free, no card, no approval wait.
-2. Create a **form** (Grow → Landing Pages & Forms → New → Form → Inline). Any style;
-   you will not use their design, only their endpoint.
-3. From the form's embed code, copy the **form UID** — the number in
-   `https://app.kit.com/forms/`**`1234567`**`/subscriptions`.
-4. In `site/index.html`, replace `REPLACE_WITH_KIT_FORM_UID` with it. One occurrence.
-5. Optional but worth it: in Kit, set the form's **incentive email** to a one-line
-   confirmation. That is the email people get after signing up.
+**Sign up: <https://app.kit.com/users/signup>** — free, no card, no approval wait.
 
-**Until step 4 is done the form disables itself and says so.** It will not take an
+1. Make a form: <https://app.kit.com/forms> → New → Form → Inline. Any style; you will
+   not use their design, only their endpoint.
+2. Get an API key: <https://app.kit.com/account_settings/developer_settings> →
+   **V4 Keys** → Add a new key. Put it in the gitignored `.env`:
+
+       KIT_API_KEY=kit_...
+
+3. Wire the page to it:
+
+       python python-tools/kit_setup.py            # list the forms on the account
+       python python-tools/kit_setup.py --wire     # patch site/index.html
+
+That is the whole step. Kit's API keys are **not** plan-restricted — their docs say
+*"creators on any plan can generate API keys"* — so this works on the free tier.
+
+⚠ **There is no `POST /forms`.** Kit's API lists forms, adds subscribers and reads
+counts, but cannot create a form. Making it once in the UI is the one irreducible click.
+
+⚠ **The API key never goes near the website.** `site/index.html` is served to strangers,
+so anything in it is public. The page posts to Kit's PUBLIC form endpoint
+(`app.kit.com/forms/<id>/subscriptions`), which anonymous browsers are meant to call and
+which needs no credential. `kit_setup.py` holds the key, runs on your machine, and
+writes only a form id — which is public anyway.
+
+⚠ **It is the numeric `id`, not the `uid`.** Kit returns both on every form: `id` is
+what the HTML form action takes, `uid` is for the JavaScript embed. Paste the uid and
+you get a form that looks perfectly fine and silently accepts nothing. `kit_setup.py`
+picks the right one.
+
+**Until this step is done the form disables itself and says so.** It will not take an
 address it cannot store — a wishlist that silently drops signups is worse than no
 wishlist, because the visitor believes they signed up and nobody finds out for a month.
 
----
+Optional but worth it: in Kit, set the form's **incentive email** to a one-line
+confirmation. That is what people get after signing up.
 
 ## 5. Put the site online (10 minutes)
 
@@ -138,8 +166,8 @@ The whole site is `site/` — one HTML file and five assets, **628 KB**, no buil
 step, no framework, scoring **100 / 100 / 100** on Lighthouse accessibility, best
 practices and SEO on mobile.
 
-1. Sign in at **dash.cloudflare.com** → Workers & Pages → Create → Pages →
-   **Upload assets**.
+1. Sign in at **<https://dash.cloudflare.com>** → Workers & Pages → Create →
+   Pages → **Upload assets**.  (Sign-up: <https://dash.cloudflare.com/sign-up>)
 2. Project name `stickspire`. Drag the **`site` folder** in. Deploy.
 3. You now have **`https://stickspire.pages.dev`**. That is the bio link.
 

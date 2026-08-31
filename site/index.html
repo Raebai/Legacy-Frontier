@@ -383,7 +383,7 @@ html.lenis,html.lenis body{height:auto}
     </p>
 
     <form class="join" id="join-form" method="post"
-          action="https://app.kit.com/forms/REPLACE_WITH_KIT_FORM_UID/subscriptions">
+          action="https://app.kit.com/forms/REPLACE_WITH_KIT_FORM_ID/subscriptions">
       <label class="hp" aria-hidden="true">Leave empty
         <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
       <label class="hp" for="email">Email address</label>
@@ -474,7 +474,7 @@ html.lenis,html.lenis body{height:auto}
       doesn't. <b>Two emails, ever</b> — one when there is something you can play, one
       when it launches. Unsubscribe in a click.</p>
       <form class="join" id="join-form-2" method="post"
-            action="https://app.kit.com/forms/REPLACE_WITH_KIT_FORM_UID/subscriptions">
+            action="https://app.kit.com/forms/REPLACE_WITH_KIT_FORM_ID/subscriptions">
         <label class="hp" aria-hidden="true">Leave empty
           <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
         <label class="hp" for="email2">Email address</label>
@@ -593,7 +593,7 @@ html.lenis,html.lenis body{height:auto}
        cannot store: the visitor believes they signed up either way, and the
        failure stays invisible until somebody thinks to open a dashboard that has
        been empty for a month. */
-    if (endpoint.indexOf('REPLACE_WITH_KIT_FORM_UID') !== -1) {
+    if (endpoint.indexOf('REPLACE_WITH_KIT_FORM_ID') !== -1) {
       button.disabled = true;
       button.textContent = 'Not wired';
       if (msg) {
