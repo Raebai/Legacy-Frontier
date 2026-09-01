@@ -1,130 +1,134 @@
 {
-  "_comment": [
-    "THE DAILY ROTA. One post per PROFILE per day, drawn from content/posts/.",
-    "The real file (content/daily_accounts.json) is GITIGNORED — it names real",
-    "accounts. This is the shape, committed so the format is documented.",
+ "_comment": [
+  "THE DAILY ROTA. One post per PROFILE per day, drawn from content/posts/.",
+  "The real file (content/daily_accounts.json) is GITIGNORED — it names real",
+  "accounts. This is the shape, committed so the format is documented.",
+  "",
+  "── platforms ──────────────────────────────────────────────────────────────",
+  "A LIST, and they go out in ONE upload call. The duplicate-content pattern",
+  "that trips spam detection is the same clip on two accounts of the SAME",
+  "platform — not one account's Reel also appearing on its own TikTok, which is",
+  "what every creator does. So two clips a day covers four accounts.",
+  "A platform named here but not yet connected is SKIPPED with a notice, so",
+  "'tiktok' can sit in this file before the account exists.",
+  "",
+  "── draft ──────────────────────────────────────────────────────────────────",
+  "false = the post publishes itself on the day. true = TikTok holds it in the",
+  "app's INBOX for you to finish (which is the only way to attach a trending",
+  "chart sound — those cannot be applied by any API, on any platform, ever).",
+  "⚠ INSTAGRAM HAS NO DRAFT STATE and ignores this: an IG upload is LIVE on",
+  "arrival either way. So draft:true on a profile that includes Instagram means",
+  "'IG posts itself, TikTok waits for me' — and if you never open the app, that",
+  "profile's TikTok never posts. Default false: a post that goes out with the",
+  "game's own music beats a draft sitting in an inbox.",
+  "",
+  "── hashtag_variants and post_times ────────────────────────────────────────",
+  "⚠ THESE ARE LISTS BECAUSE A CONSTANT TEACHES NOTHING. Every post used to",
+  "carry the identical tags at the identical minute, so no amount of analytics",
+  "could say whether either helped — there was no contrast to measure. They",
+  "rotate by day index (deterministic, so a re-run picks the same one, and",
+  "balanced, so a month spreads evenly), and the variant is written into the",
+  "ledger at queue time. `insights.py` compares them once there are enough.",
+  "",
+  "⚠ KEEP THE TWO CYCLE LENGTHS COPRIME. 3 tag sets against 3 times stay in",
+  "lockstep forever — tag set A is only ever seen at 09:12 — and the two",
+  "effects can then never be told apart. 3 against 4 takes 12 days to repeat",
+  "and covers every combination. That confound is built at config time and no",
+  "later analysis can undo it.",
+  "",
+  "The three tag families below are deliberately DIFFERENT AUDIENCES rather",
+  "than reshuffles of the same words, so the comparison answers a question",
+  "worth asking: does this land better with animation people, gamedev people,",
+  "or general gaming? #stickspire is in all three as a constant anchor.",
+  "",
+  "post_time is LOCAL (Europe/London); daily_post converts to a UTC instant.",
+  "Minutes deliberately avoid :00 and :30 — every scheduler on earth fires on",
+  "those, and the round number is a small bot tell.",
+  "",
+  "⚠ clip_suffix '.portrait' on EVERY entry, not just YouTube. TikTok, Instagram Reels and Shorts are all full-screen 9:16 feeds and letterbox a 16:9 file. Only YouTube makes the consequence loud (it files a landscape upload as a normal video, not a Short), so on TikTok and Instagram the same mistake was silent - and cost 42% of viewers inside the first second."
+ ],
+ "accounts": [
+  {
+   "profile": "YourProfileName",
+   "platforms": [
+    "instagram",
+    "tiktok"
+   ],
+   "draft": false,
+   "post_times": [
+    "09:12",
+    "13:07",
+    "17:41",
+    "20:26"
+   ],
+   "hashtag_variants": [
+    "#stickspire #stickman #stickfigure #stickmananimation #2danimation",
+    "#stickspire #indiegame #gamedev #indiedev #madewithgodot",
+    "#stickspire #stickfight #gaming #gameplay #fyp"
+   ],
+   "clip_suffix": ".portrait"
+  },
+  {
+   "profile": "YourSecondProfile",
+   "platforms": [
+    "instagram",
+    "tiktok"
+   ],
+   "draft": false,
+   "post_times": [
+    "08:37",
+    "12:19",
+    "15:53",
+    "19:08",
+    "22:14"
+   ],
+   "hashtag_variants": [
+    "#stickspire #stickman #animation #stickfigure #fightscene",
+    "#stickspire #indiedev #gamedev #pixelart #indiegamedev",
+    "#stickspire #stickfight #fyp #gaming #viral"
+   ],
+   "clip_suffix": ".portrait"
+  },
+  {
+   "_why": [
+    "A SECOND ENTRY FOR THE SAME PROFILE = A SECOND UPLOAD CALL. One call carries",
+    "one `title`, so the strictest platform in it wins - putting YouTube in with",
+    "Instagram and TikTok would cap all three captions at YouTube's 100-character",
+    "TITLE limit. Current captions are 93 characters, so it fits today and would",
+    "silently start truncating on one longer matchup name.",
     "",
-    "── platforms ──────────────────────────────────────────────────────────────",
-    "A LIST, and they go out in ONE upload call. The duplicate-content pattern",
-    "that trips spam detection is the same clip on two accounts of the SAME",
-    "platform — not one account's Reel also appearing on its own TikTok, which is",
-    "what every creator does. So two clips a day covers four accounts.",
-    "A platform named here but not yet connected is SKIPPED with a notice, so",
-    "'tiktok' can sit in this file before the account exists.",
-    "",
-    "── draft ──────────────────────────────────────────────────────────────────",
-    "false = the post publishes itself on the day. true = TikTok holds it in the",
-    "app's INBOX for you to finish (which is the only way to attach a trending",
-    "chart sound — those cannot be applied by any API, on any platform, ever).",
-    "⚠ INSTAGRAM HAS NO DRAFT STATE and ignores this: an IG upload is LIVE on",
-    "arrival either way. So draft:true on a profile that includes Instagram means",
-    "'IG posts itself, TikTok waits for me' — and if you never open the app, that",
-    "profile's TikTok never posts. Default false: a post that goes out with the",
-    "game's own music beats a draft sitting in an inbox.",
-    "",
-    "── hashtag_variants and post_times ────────────────────────────────────────",
-    "⚠ THESE ARE LISTS BECAUSE A CONSTANT TEACHES NOTHING. Every post used to",
-    "carry the identical tags at the identical minute, so no amount of analytics",
-    "could say whether either helped — there was no contrast to measure. They",
-    "rotate by day index (deterministic, so a re-run picks the same one, and",
-    "balanced, so a month spreads evenly), and the variant is written into the",
-    "ledger at queue time. `insights.py` compares them once there are enough.",
-    "",
-    "⚠ KEEP THE TWO CYCLE LENGTHS COPRIME. 3 tag sets against 3 times stay in",
-    "lockstep forever — tag set A is only ever seen at 09:12 — and the two",
-    "effects can then never be told apart. 3 against 4 takes 12 days to repeat",
-    "and covers every combination. That confound is built at config time and no",
-    "later analysis can undo it.",
-    "",
-    "The three tag families below are deliberately DIFFERENT AUDIENCES rather",
-    "than reshuffles of the same words, so the comparison answers a question",
-    "worth asking: does this land better with animation people, gamedev people,",
-    "or general gaming? #stickspire is in all three as a constant anchor.",
-    "",
-    "post_time is LOCAL (Europe/London); daily_post converts to a UTC instant.",
-    "Minutes deliberately avoid :00 and :30 — every scheduler on earth fires on",
-    "those, and the round number is a small bot tell."
-  ],
-  "accounts": [
-    {
-      "profile": "YourProfileName",
-      "platforms": [
-        "instagram",
-        "tiktok"
-      ],
-      "draft": false,
-      "post_times": [
-        "09:12",
-        "13:07",
-        "17:41",
-        "20:26"
-      ],
-      "hashtag_variants": [
-        "#stickspire #stickman #stickfigure #stickmananimation #2danimation",
-        "#stickspire #indiegame #gamedev #indiedev #madewithgodot",
-        "#stickspire #stickfight #gaming #gameplay #fyp"
-      ]
-    },
-    {
-      "profile": "YourSecondProfile",
-      "platforms": [
-        "instagram",
-        "tiktok"
-      ],
-      "draft": false,
-      "post_times": [
-        "08:37",
-        "12:19",
-        "15:53",
-        "19:08",
-        "22:14"
-      ],
-      "hashtag_variants": [
-        "#stickspire #stickman #animation #stickfigure #fightscene",
-        "#stickspire #indiedev #gamedev #pixelart #indiegamedev",
-        "#stickspire #stickfight #fyp #gaming #viral"
-      ]
-    },
-    {
-      "_why": [
-        "A SECOND ENTRY FOR THE SAME PROFILE = A SECOND UPLOAD CALL. One call carries",
-        "one `title`, so the strictest platform in it wins - putting YouTube in with",
-        "Instagram and TikTok would cap all three captions at YouTube's 100-character",
-        "TITLE limit. Current captions are 93 characters, so it fits today and would",
-        "silently start truncating on one longer matchup name.",
-        "",
-        "same_clip_as: reuse the clip the flagship already took today, so YouTube costs",
-        "zero extra clips.",
-        "clip_suffix: the 9:16 cut from make_portrait.py. A LANDSCAPE upload to YouTube",
-        "is a normal video, not a Short, and gets no distribution. If the .portrait file",
-        "is missing the entry sits the day out rather than posting the wrong shape.",
-        "caption 'title': a title is one line. The two-line Instagram caption shape",
-        "would arrive mangled.",
-        "extra.categoryId '20' is Gaming; the vendor defaults to '22' (People & Blogs).",
-        "extra.youtube_description is the only field on any of these platforms that can",
-        "carry a working link, so it carries the wishlist."
-      ],
-      "profile": "YourProfileName",
-      "platforms": [
-        "youtube"
-      ],
-      "same_clip_as": "YourProfileName",
-      "clip_suffix": ".portrait",
-      "caption": "title",
-      "title_suffix": " | STICKSPIRE",
-      "draft": false,
-      "post_times": [
-        "11:24",
-        "16:38",
-        "19:52"
-      ],
-      "hashtag_variants": [
-        ""
-      ],
-      "extra": {
-        "categoryId": "20",
-        "youtube_description": "STICKSPIRE is a stick-figure spell brawler about climbing a tower that keeps taking floors back. Nine classes, each with a signature spell.\n\nWishlist: https://stickspire.pages.dev\n\n#Shorts #stickman #stickfight #indiegame #gamedev"
-      }
-    }
-  ]
+    "same_clip_as: reuse the clip the flagship already took today, so YouTube costs",
+    "zero extra clips.",
+    "clip_suffix: the 9:16 cut from make_portrait.py. A LANDSCAPE upload to YouTube",
+    "is a normal video, not a Short, and gets no distribution. If the .portrait file",
+    "is missing the entry sits the day out rather than posting the wrong shape.",
+    "caption 'title': a title is one line. The two-line Instagram caption shape",
+    "would arrive mangled.",
+    "extra.categoryId '20' is Gaming; the vendor defaults to '22' (People & Blogs).",
+    "extra.youtube_description is the only field on any of these platforms that can",
+    "carry a working link, so it carries the wishlist."
+   ],
+   "profile": "YourProfileName",
+   "platforms": [
+    "youtube"
+   ],
+   "same_clip_as": "YourProfileName",
+   "clip_suffix": ".portrait",
+   "caption": "title",
+   "title_suffix": " | STICKSPIRE",
+   "draft": false,
+   "post_times": [
+    "11:24",
+    "16:38",
+    "19:52"
+   ],
+   "hashtag_variants": [
+    ""
+   ],
+   "extra": {
+    "categoryId": "20",
+    "youtube_description": "STICKSPIRE is a stick-figure spell brawler about climbing a tower that keeps taking floors back. Nine classes, each with a signature spell.\n\nWishlist: https://stickspire.pages.dev\n\n#Shorts #stickman #stickfight #indiegame #gamedev"
+   }
+  }
+ ]
 }

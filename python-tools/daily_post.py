@@ -362,6 +362,21 @@ def covers(rows: list[dict], wanted: list[str]) -> bool:
     return bool(wanted) and set(wanted) <= got
 
 
+## ⚠ EVERY ONE OF THESE IS A FULL-SCREEN 9:16 FEED, and a 16:9 file sent to one is
+## shown letterboxed: a small strip of picture with dead space above and below, on a
+## surface where the whole screen is the video. This list used to be YouTube alone,
+## because Shorts classification made the consequence LOUD there (a landscape upload
+## is filed as a normal video and never enters the Shorts feed). TikTok and Instagram
+## have no such classification, so the same mistake was SILENT on them - and both were
+## being sent the landscape file for weeks.
+##
+## What it cost, measured on the first two TikTok posts: 42% and 32% of viewers left
+## during SECOND ONE, before a single thing had happened on screen. A viewer deciding
+## in the first half second is judging the SHAPE of the frame, and the shape said
+## "this was made for somewhere else".
+VERTICAL_ONLY = {"youtube", "tiktok", "instagram"}
+
+
 def is_vertical(path: Path) -> bool | None:
     """Is this file taller than it is wide? None if ffprobe cannot say.
 
@@ -533,11 +548,13 @@ def cmd_topup(days: int, accounts: list[dict], ledger: dict, key: str,
                           f"Build them with python python-tools/make_portrait.py")
                     continue
 
-            if "youtube" in acct["platforms"] and is_vertical(send_clip) is False:
+            letterboxed_on = VERTICAL_ONLY.intersection(acct["platforms"])
+            if letterboxed_on and is_vertical(send_clip) is False:
                 print()
-                print(f"  {when} {profile}: {send_clip.name} is LANDSCAPE. "
-                      f"YouTube files that as a normal video, not a Short. "
-                      f"Refusing to send it.")
+                print(f"  {when} {profile}: {send_clip.name} is LANDSCAPE, and "
+                      f"{'/'.join(sorted(letterboxed_on))} would letterbox it. "
+                      f"Refusing to send it. Build the 9:16 cut with "
+                      f"python python-tools/make_portrait.py")
                 failures += 1
                 continue
 
