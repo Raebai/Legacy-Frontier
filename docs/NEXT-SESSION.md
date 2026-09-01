@@ -88,7 +88,7 @@ spreads them, as designed).
 ⚠ **A `--no-shoot` re-cut is the fix for a MIX change and cannot be the fix for a PICTURE
 change.** That line divides the whole backlog: the bed, the VO, the titles and the
 loudness all re-cut in ~2 minutes from the raw; the opening shot and the ults are baked
-in at SHOOT time and cost ~25 min a take.
+in at SHOOT time and cost ~10 min a take.
 
 **`.nomusic.mp4` DID NOT EXIST — it was documented, never written.** The module
 docstring listed it as a per-matchup output, `--no-music`'s help called it "the .nomusic
@@ -127,7 +127,7 @@ hard kill leaves it patched. `python python-tools/check_window_override.py` is t
    is baked into the render: the four old shoots have **no in-game VS card at all** —
    measured, the fight is already live at t=1.0s — so the announcer names fighters over
    a moving fight. They also predate the one-announcer fix and the ult fix below.
-   A re-shoot (~25 min/take) is the only way to get the stare-down, the single spell
+   A re-shoot (~10 min/take) is the only way to get the stare-down, the single spell
    name, and the ults.
 
    ⚠ The old handoff said only four clips were stale. It was wrong twice: three OTHERS
@@ -225,7 +225,7 @@ cause rather than a bad matchup.
 `juggernaut_vs_swordsaint`, `warlock_vs_cleric`, `cryomancer_vs_brawler`,
 `shadowblade_vs_juggernaut` were only RE-CUT — audio and titles only. They still open
 off-stage and still have no ults, because both fixes are baked in at SHOOT time. Each
-needs a ~25 min re-shoot. Deliberately not done: the maker judges these four first.
+needs a ~10 min re-shoot. Deliberately not done: the maker judges these four first.
 
 ## ▶ FIXED 2026-08-22 — THE OPENING SHOT
 
@@ -310,10 +310,20 @@ story about this slot that turned out to be wrong.
 * **A clip shoot REWRITES project.godot.** `git add -A` during one commits 1920x1080 as
   the real window size — done three times now. Run
   `python python-tools/check_window_override.py` before any push.
+* **The " M project.godot with an empty `git diff`" quirk is FIXED (2026-09-01), and the
+  old note about it had the direction backwards.** `render_size_override` restored the
+  file with `write_text`, which translates `\n` to CRLF on Windows, while
+  `.gitattributes` pins the file to `eol=lf`. So the restore returned identical content
+  with 230 line endings flipped and left the tree permanently dirty. It writes with
+  `newline=""` now and the round trip is byte-exact; a simulated shoot leaves the tree
+  clean. Six other tools had the same bug, including the one that writes
+  `site/index.html`, which is deployed as-is.
 * **A guard that exempts what it cannot explain is not a guard.** Prove a new test FAILS
   without its fix before trusting it — the ult test was reverted-and-run to confirm it
   reads 0.950 as a kit ult and 0.000 as a drop.
-* **A shoot costs ~25 minutes per take.**
+* **A shoot costs ~10 minutes per take, not ~25.** The five-clip re-shoot on
+  2026-08-24 took 64 minutes, not the ~4 h this file predicted. The old number is
+  what made re-shooting feel expensive enough to defer.
 * **`--no-shoot` re-cuts from the RAW shoot in `user://clips/`, not from `_cut/`.** If the
   raw is gone it silently re-shoots instead. Backups of the four originals are kept as
   `*.raw.bak.mp4` beside them.

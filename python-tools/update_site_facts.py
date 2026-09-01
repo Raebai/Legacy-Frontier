@@ -25,7 +25,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -47,20 +47,32 @@ def gather(key: str) -> dict:
     # profile added at the vendor is counted without anything here being edited.
     data = pc.fetch_profiles(key) or {}
     profiles = [str(p.get("username", "")) for p in data.get("profiles", []) or []]
-    month_start = datetime.now(timezone.utc).replace(day=1).strftime("%Y-%m-%d")
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # ⚠ A ROLLING 30 DAYS, NOT MONTH-TO-DATE. This used to start the window at the 1st,
+    # which meant the page's headline number COLLAPSED at midnight on the 1st of every
+    # month: run on 1 September it read 1,161 against August's 6,836, and the honest
+    # provenance stamp would have vouched for the drop. A month-to-date figure is a
+    # statement about the calendar as much as about the game. Thirty days always covers
+    # thirty days.
+    now = datetime.now(timezone.utc)
+    window_start = (now - timedelta(days=30)).strftime("%Y-%m-%d")
+    today = now.strftime("%Y-%m-%d")
 
     impressions = 0
     for profile in profiles:
         try:
-            data = api.total_impressions(profile, key, start=month_start, end=today,
+            data = api.total_impressions(profile, key, start=window_start, end=today,
                                          breakdown=False)
             impressions += int(data.get("total_impressions") or 0)
         except api.ApiError as e:
             print(f"  ! {profile}: {e}")
 
     posts = [r for r in api.upload_history(key) if r.get("success")]
-    clips = [p for p in CLIPS.glob("*.mp4") if ".nomusic" not in p.name]
+    # ⚠ ONE ENTRY PER FIGHT. `.portrait` is the SAME bout re-cut 9:16 for Shorts and
+    # `.nomusic` is the same mix without the bed; counting either would have told
+    # visitors there are 34 fights on disk when there are 17. The label beside this
+    # number says roughly one bout in three is thrown away, so it has to count bouts.
+    clips = [p for p in CLIPS.glob("*.mp4")
+             if ".nomusic" not in p.name and ".portrait" not in p.name]
 
     return {
         "reach": f"{impressions:,}",
@@ -68,9 +80,11 @@ def gather(key: str) -> dict:
         "posts": str(len(posts)),
         "people": "1",
         # `%-d` is not portable to Windows, so strip the pad by hand.
+        # ⚠ NO EM DASH. This string is rendered to visitors, and an em dash here would
+        # quietly undo the pass that removed every one of them from the page.
         "stamp": "Read from the accounts on "
-                 + datetime.now(timezone.utc).strftime("%d %b %Y").lstrip("0")
-                 + " — not chosen.",
+                 + now.strftime("%d %b %Y").lstrip("0")
+                 + ". Not chosen.",
     }
 
 
