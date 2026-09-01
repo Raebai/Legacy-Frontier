@@ -142,6 +142,7 @@ content/queue_order.json
 content/variant_weights.json
 content/ALERT.txt
 content/daily_accounts.pre-multiplatform.bak.json
+content/daily_accounts.pre-portrait.bak.json
 
 # Wrangler's local deploy cache. Machine state, not source.
 .wrangler/
