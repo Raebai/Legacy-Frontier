@@ -268,8 +268,20 @@ def encode_from_movie(avi: Path, out: Path, fps: int, width: int,
         # generations at crf 20/18/20 compound, and what compounding eats first is
         # thin high-contrast lines — which is the entire art style of this game.
         # crf 14 here costs disk on a throwaway file and nothing else.
-        "-vf", f"scale={even}:-2:flags=lanczos", "-c:v", "libx264",
+        # ⚠ AND THE COLOUR RANGE IS PINNED HERE, AT THE FIRST ENCODE, ON PURPOSE.
+        # Godot's MovieWriter AVI is MJPEG, which is FULL-range by definition. Asking
+        # for `-pix_fmt yuv420p` alone changes the chroma layout and NOTHING about the
+        # levels, so the full-range flag rode through every downstream pass untouched:
+        # all three delivered files probe as `yuvj420p`. Players that honour the flag
+        # and players that ignore it then disagree about black and white, which reads
+        # as washed-out or crushed depending on where it is watched. Converting once,
+        # at the top of the ladder, means every later pass inherits a real limited-range
+        # stream instead of guessing.
+        "-vf", f"scale={even}:-2:flags=lanczos:in_range=full:out_range=limited",
+        "-c:v", "libx264",
         "-preset", "slow", "-crf", "14", "-pix_fmt", "yuv420p",
+        "-color_range", "tv", "-colorspace", "bt709",
+        "-color_primaries", "bt709", "-color_trc", "bt709",
         "-c:a", "aac", "-b:a", "160k", str(out),
     ], check=True)
     return True
@@ -384,9 +396,14 @@ def main() -> int:
     # re-tuned CLASS_VITALITY, a Brawler (1.30) and a Juggernaut (1.20) carry 650 and
     # 600 effective HP at `--hp 500`, and two melee classes cannot close that inside
     # the 28 s budget. For a melee mirror, pass a lower `--hp`.
-    ap.add_argument("--intro", type=float, default=0.0,
-                    help="hold the frozen VS card this long before the bell, so a "
-                         "voice-over can finish before the fight starts (0 = as authored)")
+    # ⚠ -1.0 IS "AS AUTHORED"; 0.0 NOW MEANS "NO CARD AT ALL". The old default was 0.0
+    # and the engine-side guard was `if _intro > 0.0`, so the two were the same thing
+    # and a caller could not actually ask for no card. They are different requests and
+    # are spelled differently now.
+    ap.add_argument("--intro", type=float, default=-1.0,
+                    help="how long the fighter-name overlay stays up, in seconds. The "
+                         "fight runs underneath it from frame 0 - this no longer freezes "
+                         "anything. 0 = no overlay, -1 = as authored")
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--no-shoot", action="store_true", help="re-encode existing frames")
     ap.add_argument("--silent", action="store_true",

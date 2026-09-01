@@ -210,16 +210,38 @@ const PORTRAIT_BAND: float = 620.0
 ## the action and let a distant fighter leave frame"), and the maker has now asked
 ## for exactly it. At 1.25 the shot holds both while they are within ~510 px of each
 ## other, which is nearly all of the actual fighting, and a rig reads ~3.4%.
-const PORTRAIT_ZOOM_MIN: float = 1.25
-## ...and the ceiling, raised because a tall frame has room to go closer on a clinch.
-const PORTRAIT_ZOOM_MAX: float = 2.40
+##
+## ⚠ 1.25 -> 2.10, AND THE MEASUREMENT IS WHY. `probe_directed_framing ... portrait`
+## reported the delivered vertical shot at **SUBJECT 4.4% of frame height** — on a
+## 1080x1920 phone that is a 84 px figure, which is what the maker means by "the
+## graphics in the video are horrible ... not good quality like the gameplay". It is
+## not a fidelity problem: pulled at 1:1 the render is clean, anti-aliased linework.
+## The subject is simply tiny, and h264 spends its bits on a big flat background while
+## the thing worth seeing is a few dozen pixels tall.
+##
+## Raising the FLOOR is the only lever that moves this, per the three failed attempts
+## documented above: once separation pins the fit at the floor, trimming margins buys
+## nothing. The cost is paid in containment, knowingly — the maker asked for exactly
+## this trade twice, most recently *"if the camera shows more of the map or follows the
+## character better or zooms out where it needs to"*.
+const PORTRAIT_ZOOM_MIN: float = 2.10
+## ...and the ceiling, raised again so a clinch can actually fill a tall frame.
+const PORTRAIT_ZOOM_MAX: float = 3.40
 ## Horizontal slack in portrait. Smaller than `FRAME_MARGIN`: a tall frame already
 ## has headroom above the fighters for a beam to land in, so paying for it sideways
 ## as well is paying twice.
-const PORTRAIT_MARGIN: float = 60.0
+## ⚠ 60 -> 40: slack is a fixed WORLD distance, so a tighter frame spends a bigger
+## fraction of itself on it. At the old floor 120 px of slack was 23% of the visible
+## width; at the new one it would have been 39%, i.e. the margin would have eaten most
+## of what raising the floor just bought.
+const PORTRAIT_MARGIN: float = 40.0
 ## How far inside the frame edge a fighter has to be before `_hold_a_subject` calls
 ## them "in shot". A body sliced by the border reads as lost, not as framed.
-const PORTRAIT_HOLD_MARGIN: float = 110.0
+## ⚠ 110 -> 72, for the same reason and it matters MORE here: this is the recovery net
+## that pulls the eye back onto somebody when the leans have walked it off everyone,
+## and a tighter frame means it must fire sooner. Left at 110 against the new floor it
+## would have been calling "nobody is in shot" across most of the visible width.
+const PORTRAIT_HOLD_MARGIN: float = 72.0
 
 ## Groups read. All of them are things drawn on screen.
 const SPELL_GROUPS: Array[StringName] = [&"player_spell", &"enemy_projectile"]
@@ -792,6 +814,8 @@ func _frame(fighters: Array[Node2D], delta: float) -> void:
 		var relieved: Array = _relieve_the_lean(pts, mid, eye, want)
 		eye = relieved[0]
 		want = relieved[1]
+	else:
+		eye = _recentre_if_the_pair_fits(pts, mid, eye, want)
 	_sample_zoom(want)
 	# The FRAMING decision, smoothed on the director's own state. See `_zoom_smoothed`
 	# for why this is not read back off the camera.
@@ -811,6 +835,45 @@ func _frame(fighters: Array[Node2D], delta: float) -> void:
 	else:
 		camera.global_position = eye
 		_established = true
+
+
+## PORTRAIT ONLY. Pull the eye back toward the pair's midpoint, but ONLY on the frames
+## where both fighters would then still be in shot.
+##
+## ⚠ THIS IS THE OTHER HALF OF THE "NOT IN PORTRAIT" RULE ABOVE, AND WITHOUT IT
+## RAISING `PORTRAIT_ZOOM_MIN` MAKES THE CLIP WORSE. That rule is right about the case
+## it was written for: when the pair is too far apart to contain, their midpoint is
+## empty air and re-centring there is the "camera doesn't follow" bug. But it was
+## applied to EVERY frame, including the ones where the pair fits easily — and there,
+## an eye leaned off the midpoint pushes a fighter out of a frame that had room for
+## them both.
+##
+## MEASURED, `probe_directed_framing ... portrait` at the raised zoom floor: mean
+## separation was only ~135 world px against a ~287 px visible width, yet a fighter was
+## out of frame on 40-65% of samples. The leans were doing that, not the zoom.
+##
+## So the test is containment, not legibility: if the plain midpoint holds both, use it;
+## otherwise keep the lean, because then the lean genuinely IS the follow.
+func _recentre_if_the_pair_fits(pts: Array[Vector2], mid: Vector2, eye: Vector2,
+		want: float) -> Vector2:
+	if pts.size() < 2 or want <= 0.0:
+		return eye
+	var half_view: float = (_view().x / want) * 0.5 - PORTRAIT_MARGIN
+	if half_view <= 0.0:
+		return eye
+	var reach: float = 0.0
+	for p: Vector2 in pts:
+		reach = maxf(reach, absf(p.x - mid.x))
+	if reach > half_view:
+		return eye          # cannot hold both from the midpoint — the lean is the follow
+	# Both fit. Keep the eye's solved height (the ground anchor owns y) and take the
+	# midpoint's x, clamped exactly the way `_frame` clamps its own eye so the camera
+	# still cannot travel past the painted world.
+	var lo: float = stage.position.x + half_view
+	var hi: float = stage.end.x - half_view
+	if lo > hi:
+		return eye
+	return Vector2(clampf(mid.x, lo, hi), eye.y)
 
 
 ## Give the leans back when the shot has gone illegible. Returns [eye, zoom].

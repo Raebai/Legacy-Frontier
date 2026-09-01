@@ -122,7 +122,12 @@ var _round: float = 40.0
 ## on to understand" complaint, arriving in the first two seconds. Holding the stare-down
 ## for the length of the line gives the words the screen to themselves and the fight a
 ## clean start. 0 keeps `BotMatch.intro_seconds` as authored.
-var _intro: float = 0.0
+## ⚠ -1.0, NOT 0.0, AND THE SENTINEL IS THE POINT. The guard below read
+## `if _intro > 0.0`, which treats a requested ZERO as "the caller said nothing" — so
+## `--intro 0`, documented in make_clip's own help as a real value ("0 = as authored"),
+## could never reach `intro_seconds` and silently left the authored hold in place. A
+## negative default separates "unset" from "set to nothing".
+var _intro: float = -1.0
 var _patience: float = 12.0
 ## ⚠ MUST OUTLAST THE RESULT CARD, which now waits for the screen to go quiet
 ## (`BotMatch._screen_is_quiet`) instead of landing on a flat 0.55 s. The card can
@@ -183,7 +188,7 @@ func _initialize() -> void:
 		script.set("difficulty", _difficulty)
 		script.set("fighter_hp", _hp)
 		script.set("round_seconds", _round)
-		if _intro > 0.0:
+		if _intro >= 0.0:
 			script.set("intro_seconds", _intro)
 		# A clip ends where the match does. An auto-rematch would reload the scene out
 		# from under the capture and the tail would be the NEXT fight's opening.

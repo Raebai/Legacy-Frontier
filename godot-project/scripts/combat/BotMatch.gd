@@ -405,9 +405,13 @@ const CARD_CHALK: Color = Color(0.93, 0.92, 0.86)
 ## (`CARD_GRAPHITE` lived here and is gone with the tier caption it was the colour of.
 ## Kept out rather than left declared: an unused half of a palette invites the next
 ## edit to find a use for it, and the card is deliberately down to two lines now.)
-## The dim over the stage. Heavier than the result card's 0.42 — the fighters are
-## standing still behind it and the card is the only thing worth reading.
-const CARD_DIM: Color = Color(0.055, 0.052, 0.075, 0.62)
+## The dim over the stage. ⚠ 0.62 -> 0.16, because the premise inverted: it was heavy
+## precisely BECAUSE "the fighters are standing still behind it and the card is the only
+## thing worth reading". They are not standing still any more — the fight is live from
+## frame 0 — so the fight IS the thing worth reading and a 62% veil over it would throw
+## away the whole reason for the change. What is left is just enough separation for the
+## names, which carry their own fat outline for exactly this job.
+const CARD_DIM: Color = Color(0.055, 0.052, 0.075, 0.16)
 ## Typography, in the shape `Boss.card_style()` established for a big moment: one
 ## oversized head, one small caption, a fat outline so it survives a busy backdrop.
 const CARD_VS_SIZE: int = 44
@@ -1192,14 +1196,13 @@ func _process(delta: float) -> void:
 	# for this frame. See `_real_seconds`.
 	_shown += delta / maxf(Engine.time_scale, 0.001)
 	_tick_readout()
-	# THE CARD OWNS THE OPENING. Nothing below runs until it clears: the clock must not
-	# start, the rim check must not fire on a fighter standing still, and the music must
-	# not climb through a still frame. `_paint_hud` still runs so the plates are already
-	# full and correct behind the dim.
+	# THE CARD NO LONGER OWNS THE OPENING, IT RIDES ON TOP OF IT. Every reason this
+	# used to return early was a consequence of the freeze: the clock must not start on
+	# a still frame, the rim check must not fire on a fighter standing still, the music
+	# must not climb through a still frame. Nothing is still any more, so the match runs
+	# from frame 0 and the card is just another thing being drawn over it.
 	if _intro_phase != Intro.DONE:
 		_tick_intro()
-		_paint_hud()
-		return
 	if _outcome != Outcome.NONE:
 		_tick_result(delta)
 		_paint_hud()
@@ -1596,15 +1599,18 @@ func match_over() -> bool:
 	return _outcome != Outcome.NONE
 
 
-## IS THE PRE-FIGHT CARD STILL UP.
+## IS THE NAME OVERLAY STILL UP.
 ##
-## Public because a capture tool cannot film a card it cannot see, and `ClipDirector`
-## heat is STRUCTURALLY zero behind it: no damage (the tree is paused), no live spells,
-## no armed telegraphs, and the mirrored spawns sit `SPAWN_SPREAD * 2` = 560 px apart
-## against the director's own `CLOSE_RANGE * 2.5` = 400 px proximity cutoff — so even
-## the one term that could fire clamps to 0. MEASURED: `heat 0.000` on every rendered
-## frame of the card, and `is_hot()` first going true FOUR FRAMES AFTER it had gone.
-## A hot-gated capture therefore always starts after the intro, every time.
+## Public because a capture tool cannot film a card it cannot see.
+##
+## ⚠ THE OLD GUARANTEE HERE IS GONE ON PURPOSE, AND A CALLER MUST NOT ASSUME IT.
+## This used to promise that `ClipDirector` heat was STRUCTURALLY zero behind the card
+## ("no damage (the tree is paused), no live spells, no armed telegraphs") and therefore
+## that "a hot-gated capture always starts after the intro, every time". The tree is no
+## longer paused: the fight is live from frame 0 and heat can go hot WHILE the names are
+## still fading. That is the intent, not a regression — the whole point is that the
+## opening seconds contain a fight — but any code that gated on "the intro is over, so
+## now something can happen" is now gating on nothing.
 func intro_active() -> bool:
 	return _intro_phase != Intro.DONE
 
@@ -1963,7 +1969,26 @@ func _open_intro() -> void:
 	_intro_at = _real_seconds()
 	_intro_card.modulate.a = 0.0
 	_intro_card.visible = true
-	get_tree().paused = true
+	# ⚠ THE CARD NO LONGER FREEZES THE FIGHT, AND THE RETENTION CURVE IS WHY.
+	# This used to be `get_tree().paused = true`, so the first ~2.3-3.2 s of every
+	# delivered clip was a STILL IMAGE: two fighters standing at opposite edges under a
+	# 62% dim. Frames pulled from a shipped clip at 0.3 s, 2.0 s and 3.0 s were
+	# byte-identical. TikTok's first retention curves, 1 Sep 2026:
+	#     s0 100%   s1 58%   s2 23%   s3 17%      (arcanist_vs_cryomancer)
+	#     s0 100%   s1 68%   s2 33%   s3 25%      (brawler_vs_stormcaller)
+	# 42% and 32% left during second ONE, before anything had moved, and ~80% were gone
+	# by the time the fight actually began.
+	#
+	# ⚠ AND THE "WE ALREADY TRIM THAT" BELIEF WAS FALSE. `directed_clip_capture`
+	# keeps `_intro_clip_seconds = 1.2` and skips saving frames past it, and
+	# `intro_active()` below still claims "a hot-gated capture therefore always starts
+	# after the intro". Both are true only of the PNG-sequence path, which the shipped
+	# pipeline does not use: `--write-movie` records every frame continuously and
+	# `encode_from_movie` cuts ONE contiguous `-ss/-t` span, so the whole freeze shipped.
+	#
+	# The card is now an OVERLAY the fight runs underneath. `intro_seconds` still means
+	# what it says; it sizes how long the names stay up, not how long nothing happens.
+	_arm_opening_lockout()
 	_play("ding", 1.0)
 
 
@@ -1993,12 +2018,12 @@ func _tick_intro() -> void:
 		_intro_card.visible = false
 
 
-## The bell. Unpause FIRST, then swap the card to its second beat, so there is no frame
-## where "FIGHT" is on screen over a still stage.
+## The bell. There is no longer a pause to lift or a still stage to avoid — the fight
+## has been live under the card since frame 0 — so this is now purely the card's second
+## beat. The lockout is armed at `_open_intro` instead, because it has to start when the
+## FIGHT starts, and the fight no longer starts here.
 func _start_fight() -> void:
 	_intro_phase = Intro.FIGHT
-	get_tree().paused = false
-	_arm_opening_lockout()
 	if _intro_row != null:
 		_intro_row.visible = false
 	if _intro_fight != null:

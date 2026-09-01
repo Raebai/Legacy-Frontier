@@ -124,9 +124,17 @@ RENDER_W, RENDER_H = 1080, 1920
 # "for now".
 LANDSCAPE_W, LANDSCAPE_H = 1920, 1080
 
-# Where the announcer starts, in clip seconds. The VS card holds for 1.2 s of clip
-# time (`directed_clip_capture._intro_clip_seconds`), so a small offset puts the
-# names on the card and lets the question spill into the opening exchange.
+# Where the announcer starts, in clip seconds. A small offset so the first syllable is
+# not eaten by the encoder's first GOP.
+#
+# ⚠ THE REASONING THAT USED TO BE HERE WAS WRONG TWICE, AND IT MATTERED. It read: "The
+# VS card holds for 1.2 s of clip time (`directed_clip_capture._intro_clip_seconds`)".
+# That constant governs the PNG-sequence fallback, which the shipped pipeline never
+# takes — `--write-movie` records continuously and `encode_from_movie` cuts ONE
+# contiguous `-ss/-t` span, so the delivered clip carried the card's FULL duration, not
+# 1.2 s of it. And the card no longer holds anything at all: the names now ride as an
+# overlay over a fight that is live from frame 0. The number is unchanged; the belief
+# behind it is gone.
 VO_AT = 0.12
 ## Breath between the last word and the bell. Short — the point is that the fight starts
 ## AS the line finishes, not after a pause.
@@ -551,7 +559,7 @@ def _portrait_vf(card: str) -> str:
         f"[bg]crop=iw:ih*{BAND_HEIGHT}:0:ih*{BAND_TOP},"
         f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
         f"gblur=sigma=42,eq=brightness=-0.20:saturation=1.20[bgb];"
-        f"[fg]crop=iw:ih*{BAND_HEIGHT}:0:ih*{BAND_TOP},scale=1080:-2[fgs];"
+        f"[fg]crop=iw:ih*{BAND_HEIGHT}:0:ih*{BAND_TOP},scale=1080:-2:flags=lanczos[fgs];"
         f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2[comp];"
     ) + card
 
@@ -647,7 +655,8 @@ def mux(args_ns: argparse.Namespace, clip: Path, vo: Path, music: Path | None, o
         # below is compensation for a director that has no portrait branch; in 16:9
         # its framing IS the frame, so the picture passes through untouched.
         vf = (
-            f"[0:v]scale={LANDSCAPE_W}:{LANDSCAPE_H}:force_original_aspect_ratio=increase,"
+            f"[0:v]scale={LANDSCAPE_W}:{LANDSCAPE_H}:force_original_aspect_ratio=increase"
+            f":flags=lanczos,"
             f"crop={LANDSCAPE_W}:{LANDSCAPE_H}[comp];" + card
         )
     else:
@@ -791,20 +800,24 @@ def one(a: int, b: int, args: argparse.Namespace) -> Path | None:
         hold_source = build_vo(a, b, False) if planned_tail else vo_planned
 
     if not args.no_shoot or not clip.exists():
-        # ⚠ THE VOICE-OVER IS MEASURED BEFORE THE SHOOT, because it decides how long
-        # the fighters stay frozen. Maker: *"make the audio ... quicker so that it says
-        # that as the stick men are frozen and once complete the fight starts"*. The
-        # announcer used to talk over the opening exchange, which asked a viewer to
-        # parse a sentence and a fight simultaneously in the first two seconds.
-        # ⚠ AND IT ONLY EVER WORKED WHEN A LINE WAS HANDED IN ON THE COMMAND LINE.
-        # `intro_hold` was computed from `--vo` and from nothing else, but `make_post`
-        # BUILDS its own line from the word bank when `--vo` is absent — which is every
-        # normal invocation. So the default path measured nothing, held for 0.0s, and
-        # the announcer talked straight over the opening exchange. The maker asked for
-        # this twice; the second report was *"it needs to say that as the stick men are
-        # standing still and then the fight starts"*.
+        # ⚠ THE VOICE-OVER IS MEASURED BEFORE THE SHOOT, because it sizes how long the
+        # fighters' NAMES stay on screen. It used to size how long the fighters stayed
+        # FROZEN, on the maker's own instruction: *"make the audio ... quicker so that it
+        # says that as the stick men are frozen and once complete the fight starts"*, and
+        # again *"it needs to say that as the stick men are standing still and then the
+        # fight starts"*.
+        #
+        # ⚠ THAT INSTRUCTION IS DELIBERATELY OVERRIDDEN, BY A LATER ONE AND BY DATA.
+        # Maker, 2026-09-02: *"maybe have the narration and the text over but like let
+        # the fight start earlier"*. And the first TikTok retention curves say the freeze
+        # was costing almost the whole audience — 42% and 32% of viewers left during
+        # second ONE, ~80% before the fight began, while the picture had not changed at
+        # all. The names and the announcer survive exactly as before; what is gone is the
+        # still frame underneath them. If the overlay ever wants to be a hold again, this
+        # is the line that decides it and `BotMatch._open_intro` is the freeze that was
+        # removed.
         intro_hold = probe_duration(hold_source) + INTRO_TAIL_BEAT
-        print(f"  holding the stare-down {intro_hold:.1f}s for the names"
+        print(f"  names overlaid {intro_hold:.1f}s over a live fight"
               + (" (the question lands over the fight)" if planned_tail else ""))
 
         # ⚠ RE-ROLL A BORING FIGHT RATHER THAN PUBLISHING IT. Maker: *"ensure that the

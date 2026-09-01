@@ -19,6 +19,9 @@ extends SceneTree
 const MATCH_SCENE := "res://scenes/combat/BotMatch.tscn"
 const MATCH_SCRIPT := "res://scripts/combat/BotMatch.gd"
 const SETTLE: int = 150
+## ClipDirector.RIG_WORLD_PX, duplicated rather than imported: this probe drives a
+## SceneTree and must not depend on the director being loadable as a class here.
+const RIG_WORLD_PX: float = 31.0
 const FRAMES: int = 2400
 const NAMES: Array[String] = [
 	"Arcanist", "Shadowblade", "Brawler", "Juggernaut", "Cleric",
@@ -40,6 +43,14 @@ func _go() -> void:
 	var argv: PackedStringArray = OS.get_cmdline_user_args()
 	var a: int = int(argv[0]) if argv.size() > 0 else 3
 	var b: int = int(argv[1]) if argv.size() > 1 else 8
+	# ⚠ MEASURE THE SHAPE THAT IS ACTUALLY POSTED. Every clip that reaches a phone is
+	# 9:16, and ClipDirector takes a COMPLETELY different branch there — its own zoom
+	# clamps, its own ground anchor, its own recovery net. Measuring only 1366x768 was
+	# measuring a frame no viewer sees, which is the same class of mistake that made
+	# `probe_showcase_framing` describe a camera path the bot fight does not use.
+	if argv.size() > 2 and String(argv[2]) == "portrait":
+		root.size = Vector2i(1080, 1920)
+		await process_frame
 
 	var script: GDScript = load(MATCH_SCRIPT) as GDScript
 	script.set("class_a", a)
@@ -81,13 +92,20 @@ func _go() -> void:
 				offscreen += 1
 				break
 	offs.sort()
+	var zoom_mean: float = _mean(zooms)
 	zooms.sort()
 	var denom: float = maxf(float(read), 1.0)
-	print("DIRECTED %-24s off-centre mean=%.1f p95=%.1f  offscreen=%.1f%%  zoom %.2f..%.2f  pair spans %.0f%% of frame width" % [
-		"%s v %s" % [NAMES[a], NAMES[b]],
+	# SUBJECT SHARE is the number the maker is judging when they say the figures are
+	# too small: what fraction of frame HEIGHT one fighter fills. ClipDirector computes
+	# the same thing in `subject_share()`; it is recomputed here from the DRAWN zoom so
+	# the probe reports the picture rather than the director's intention.
+	var share: float = 100.0 * zoom_mean * RIG_WORLD_PX / maxf(view.y, 1.0)
+	var shape: String = "portrait" if view.y > view.x else "landscape"
+	print("DIRECTED %-24s [%s %dx%d] off-centre mean=%.1f p95=%.1f  offscreen=%.1f%%  zoom %.2f..%.2f (mean %.2f)  pair spans %.0f%% of frame width  SUBJECT %.1f%% of frame height" % [
+		"%s v %s" % [NAMES[a], NAMES[b]], shape, int(view.x), int(view.y),
 		_mean(offs), _pct(offs, 0.95), 100.0 * float(offscreen) / denom,
-		zooms[0], zooms[zooms.size() - 1],
-		100.0 * _mean(seps) / view.x])
+		zooms[0], zooms[zooms.size() - 1], zoom_mean,
+		100.0 * _mean(seps) / view.x, share])
 	quit()
 
 

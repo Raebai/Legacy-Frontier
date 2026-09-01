@@ -73,8 +73,17 @@ def convert(clip: Path, dst: Path) -> bool:
     tmp = dst.with_suffix(".tmp.mp4")
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(clip),
            "-filter_complex", FILTER, "-map", "[v]", "-map", "0:a?",
-           "-c:v", "libx264", "-preset", "medium", "-crf", "21",
-           "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(tmp)]
+           # ⚠ crf 21 -> 17, AND THIS IS THE LAST-MILE ENCODE OF A FOURTH GENERATION.
+           # The ladder to here is crf 14 (shoot) -> crf 14 (speed conform) -> crf 18
+           # (delivery mux) -> this, all on top of a lossy MJPEG capture. By this point
+           # the picture's quality budget is spent, and crf 21 was spending it hardest
+           # on the ONE file a viewer actually watches. What compounding eats first is
+           # thin high-contrast lines, which is the entire art style of this game.
+           # `-pix_fmt` was absent from this pass altogether, so it never even stated
+           # what it wanted and inherited whatever the source claimed.
+           "-c:v", "libx264", "-preset", "medium", "-crf", "17",
+           "-pix_fmt", "yuv420p", "-color_range", "tv", "-colorspace", "bt709",
+           "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(tmp)]
     started = time.time()
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
