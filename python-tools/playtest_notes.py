@@ -88,7 +88,8 @@ def main() -> int:
         if out.exists():
             prev = out.read_text(encoding="utf-8", errors="replace")
             body = text.split("\n\n", 2)[-1]           # drop the header on the re-export
-            out.write_text(prev.rstrip() + "\n\n" + body, encoding="utf-8")
+            out.write_text(prev.rstrip() + "\n\n" + body, encoding="utf-8",
+                           newline="")
             print(f"appended {n} entr{'y' if n == 1 else 'ies'} to {out}")
         else:
             DOCS.mkdir(parents=True, exist_ok=True)

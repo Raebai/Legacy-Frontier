@@ -285,7 +285,7 @@ def cmd_write_index(tools: list[Tool]) -> int:
     lines.append(f"_{len(tools)} tools._")
     lines.append("")
     INDEX_DOC.parent.mkdir(parents=True, exist_ok=True)
-    INDEX_DOC.write_text("\n".join(lines), encoding="utf-8")
+    INDEX_DOC.write_text("\n".join(lines), encoding="utf-8", newline="")
     print(f"wrote {INDEX_DOC}  ({len(tools)} tools)")
     return 0
 

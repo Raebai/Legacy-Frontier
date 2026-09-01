@@ -242,7 +242,8 @@ def main() -> int:
             if sheet(p, out):
                 print(f"  sheet -> {out}")
     if args.json:
-        Path(args.json).write_text(json.dumps(scores, indent=2), encoding="utf-8")
+        Path(args.json).write_text(json.dumps(scores, indent=2), encoding="utf-8",
+                                   newline="")
     return 0
 
 

@@ -118,8 +118,18 @@ def render_size_override(width: int, height: int):
     if project.godot already has uncommitted changes. A crash mid-shoot must not
     leave the maker's project on a phone-shaped window, and a concurrent session
     sharing this checkout must not have its own edit reverted underneath it.
+
+    ⚠ `newline=""` ON BOTH ENDS, AND IT IS LOAD-BEARING. `.gitattributes` pins
+    project.godot to `eol=lf`, but `write_text` in text mode translates every `\n`
+    to `os.linesep` — CRLF on Windows. So the "restore" wrote back a file that was
+    byte-for-byte different from the one it read: same content, 230 line endings
+    flipped. `git status` then showed ` M godot-project/project.godot` for ever
+    after while `git diff` showed nothing, which cost more than one session a
+    detour and got written into the handoff notes as an unexplained quirk (with
+    the direction backwards - the restore made it CRLF, not LF). With
+    `newline=""` the round trip is exact and the file stops churning.
     """
-    original = PROJECT_FILE.read_text(encoding="utf-8")
+    original = PROJECT_FILE.read_text(encoding="utf-8", newline="")
     if (f"window_width_override={width}\n" in original
             and f"window_height_override={height}\n" in original):
         yield                                  # already right; touch nothing
@@ -138,10 +148,10 @@ def render_size_override(width: int, height: int):
             raise SystemExit(f"project.godot has no window/size/{key}")
         patched = head + sep + str(value) + tail[tail.index("\n"):]
     try:
-        PROJECT_FILE.write_text(patched, encoding="utf-8")
+        PROJECT_FILE.write_text(patched, encoding="utf-8", newline="")
         yield
     finally:
-        PROJECT_FILE.write_text(original, encoding="utf-8")
+        PROJECT_FILE.write_text(original, encoding="utf-8", newline="")
 
 
 def shoot_movie(args: argparse.Namespace) -> tuple[Path, int, int] | None:

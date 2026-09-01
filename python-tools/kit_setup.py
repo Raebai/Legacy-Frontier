@@ -111,7 +111,9 @@ def wire(form_id: int) -> int:
                   "fills a placeholder,\n  so it can never silently repoint a live "
                   "signup form at a different list.")
         return 1
-    PAGE.write_text(attr.sub(rf"\g<1>{form_id}\g<2>", html), encoding="utf-8")
+    # newline="": site/index.html is pinned eol=lf and is deployed as-is.
+    PAGE.write_text(attr.sub(rf"\g<1>{form_id}\g<2>", html), encoding="utf-8",
+                    newline="")
     print(f"  wired {hits} form(s) to {PUBLIC_FORM_ACTION.format(id=form_id)}")
     print(f"  rewrote {PAGE.relative_to(ROOT)}")
     return 0

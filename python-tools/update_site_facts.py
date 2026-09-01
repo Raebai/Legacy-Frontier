@@ -132,7 +132,8 @@ def main() -> int:
     if not args.write:
         print("\nDRY RUN — nothing written. Add --write.")
         return 0
-    PAGE.write_text(updated, encoding="utf-8")
+    # newline="": site/index.html is pinned eol=lf and is deployed as-is.
+    PAGE.write_text(updated, encoding="utf-8", newline="")
     print(f"\nrewrote {PAGE.relative_to(ROOT)}. Redeploy for it to be public:")
     print("  npx wrangler pages deploy site --project-name stickspire")
     return 0

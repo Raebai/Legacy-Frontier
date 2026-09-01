@@ -134,7 +134,9 @@ def _save(path: Path, data) -> None:
     """Atomic. A crash mid-write must not cost the accumulated history."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+    # newline="" or this rewrites an LF-pinned tracked file as CRLF on Windows.
+    tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8",
+                   newline="")
     tmp.replace(path)
 
 

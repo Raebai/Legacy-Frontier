@@ -169,7 +169,7 @@ def load_ledger() -> dict:
 def save_ledger(data: dict) -> None:
     """Atomic, so a crash mid-write cannot leave a ledger that reposts everything."""
     tmp = LEDGER.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8", newline="")
     tmp.replace(LEDGER)
 
 
