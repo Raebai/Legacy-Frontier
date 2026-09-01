@@ -183,7 +183,21 @@ const STAGE_COVER: Array[Array] = [
 	[],
 ]
 ## Which stage this bout is on. `-1` rolls; the suite and the capture tools pin it.
-static var stage_layout: int = -1
+##
+## ⚠ -1 -> 0, ON THE MAKER'S ASK: *"the way we show the fight should be clearer like a
+## single map"*. Rolling one of three terrain shapes per bout meant no two clips shared
+## a stage, so a viewer never learned the map and every clip asked them to re-read the
+## geometry before they could read the fight. Variant 0 — the broad fight floor, a left
+## mound, a staircase to a right bluff — plus the three `BREAKABLE_PLATFORMS` floating
+## over it IS the Smash-shaped stage that was asked for: one main platform with
+## platforms above it.
+##
+## It also divides the destructible-stage work by three, because destruction has to be
+## correct, reachable and coherent-looking on ONE silhouette instead of three.
+##
+## Variety comes straight back by setting this to -1; nothing else has to change, and
+## the other two layouts are untouched and still covered by `slice_test_stage_variants`.
+static var stage_layout: int = 0
 ## What the roll landed on. Read by the suite; never written from outside.
 static var stage_layout_rolled: int = 0
 

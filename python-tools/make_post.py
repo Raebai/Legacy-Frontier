@@ -108,7 +108,9 @@ RENDER_W, RENDER_H = 1080, 1920
 # ⚠ AND LANDSCAPE IS NOT JUST A DIFFERENT NUMBER — IT IS THE FRAMING THE ENGINE
 # ALREADY HAS. Maker: *"clips must render LANDSCAPE, exactly as the bot fights look"*.
 #
-# Read the note on BAND_TOP/BAND_HEIGHT below: `ClipDirector` HAS NO PORTRAIT BRANCH.
+# ⚠ THE NOTE BELOW SAID `ClipDirector` HAS NO PORTRAIT BRANCH. IT HAS ONE NOW, and
+# `_portrait_vf` is a pass-through because of it. Landscape stays the default on the
+# maker's ruling, not because vertical is unframeable.
 # In a tall viewport it frames as though it were 16:9 and spends the extra height on
 # empty sky and sub-floor — which is why the portrait path has to crop a band back
 # out and lay it over a blurred copy of itself, and why the fighters end up at ~2.6%
@@ -186,14 +188,20 @@ VO_FX = ("highpass=f=70,"
          "aecho=0.85:0.75:70|140:0.28|0.16")
 
 # ── THE COMPOSITION ────────────────────────────────────────────────────────
-# ⚠ WHY THE NATIVE 9:16 FRAME IS CROPPED RATHER THAN SHOWN WHOLE, MEASURED off a
-# real 1080x1920 render: the fighters sit on a ground line ~56% down and about
-# EIGHTY PERCENT of the canvas is empty — sky above, then a dark sub-floor slab,
-# then the parallax backdrop repeating BENEATH the terrain. `ClipDirector` has no
-# portrait branch at all (the portrait work in commit b01bbd8 landed on
-# `VersusArena`'s showcase camera, which is a different camera and not the one the
-# clip engine films through), so in a tall viewport it frames as if it were 16:9
-# and the extra height is spent on basement.
+# ⚠ THIS WAS TRUE WHEN IT WAS WRITTEN AND IS NOT TRUE NOW. It read: the fighters sit
+# on a ground line ~56% down, EIGHTY PERCENT of the canvas is empty, and `ClipDirector`
+# has no portrait branch at all, so in a tall viewport it frames as if it were 16:9 and
+# the extra height is spent on basement.
+#
+# `ClipDirector` grew that branch since. `is_portrait()` reads the live viewport aspect
+# and switches to its own zoom clamps, its own margins, `_hold_a_subject`, and a ground
+# anchor that solves camera-y so the floor lands at `PORTRAIT_GROUND_AT` (0.72) of frame
+# height at ANY zoom. Measured on a fresh native shoot: ground at ~73%, fight above it,
+# rock below. A 1080x1920 shoot is now COMPOSED for 1080x1920.
+#
+# So these two numbers no longer apply to a native portrait shoot — `_portrait_vf`
+# passes it through whole — and are used only by `_portrait_band_vf`, which is the right
+# treatment for a 16:9 SOURCE that has to become 9:16 (the YouTube cut).
 #
 # These two numbers keep the band that has the fight in it: a generous run of sky,
 # because that is where the sigils, beams and meteors live, down to just under the
@@ -546,14 +554,35 @@ def build_music(seconds: float) -> Path:
 
 
 def _portrait_vf(card: str) -> str:
-    """The 9:16 composition: keep the band with the fight in it, lay it over a
-    blurred and darkened copy of itself blown up to fill the frame, then hand the
-    result to the shared title card.
+    """The 9:16 composition. A PASS-THROUGH now, because its premise stopped being true.
+
+    ⚠ THE BAND EXISTED BECAUSE "`ClipDirector` HAS NO PORTRAIT BRANCH" (the note above
+    BAND_TOP, and again at LANDSCAPE_W). IT HAS ONE NOW: `is_portrait()`,
+    `PORTRAIT_ZOOM_MIN/MAX`, `PORTRAIT_MARGIN`, `PORTRAIT_HOLD_MARGIN`,
+    `PORTRAIT_GROUND_AT` — which solves camera-y so the floor lands at 0.72 of frame
+    height at ANY zoom — plus `_hold_a_subject` and `_recentre_if_the_pair_fits`.
+
+    A natively-shot 1080x1920 frame is therefore COMPOSED for that shape. Measured on a
+    fresh native shoot: the ground sits at ~73% of frame height with the fight above it
+    and rock below, not the "sky above, dark sub-floor slab, backdrop repeating beneath
+    the terrain" the band was cut to avoid.
+
+    So cropping to `BAND_HEIGHT` and centring the result was spending **22% of the
+    frame** on blurred bars and re-sampling what was left, on a file that was already
+    the right shape and already framed for it. Pure loss, and part of what the maker
+    means by "the graphics in the video are horrible".
+
+    ⚠ The band is still correct for a 16:9 SOURCE and is kept as `_portrait_band_vf` —
+    `make_portrait.py` builds the YouTube cut that way from the landscape delivery.
+    """
+    return "[0:v]null[comp];" + card
+
+
+def _portrait_band_vf(card: str) -> str:
+    """Band-over-blur, for a 16:9 source that has to become 9:16.
 
     The blur is not decoration — it is what stops the bands reading as a broken
-    export, and it is the format every gameplay clip on the platform already uses.
-    See the BAND_TOP/BAND_HEIGHT note for why a band is needed at all: the director
-    has no portrait branch, so a tall frame is mostly sky and sub-floor."""
+    export, and it is the format every gameplay clip on the platform already uses."""
     return (
         f"[0:v]split=2[bg][fg];"
         f"[bg]crop=iw:ih*{BAND_HEIGHT}:0:ih*{BAND_TOP},"
@@ -1047,7 +1076,25 @@ def main() -> int:
     ap.add_argument("--takes", type=int, default=3,
                     help="shoot up to this many bouts and keep the first that passes "
                          "the FightScore bar (1 = keep whatever the first roll gives)")
-    ap.add_argument("--hp", type=int, default=420)
+    # ⚠ 420 -> 280, AND THE NUMBER CAME FROM THE SIM, NOT FROM A SHOOT.
+    # `tools/botmatch_sim.gd --pairs=20` reports bout length for free, so the knob was
+    # chosen by measuring it rather than by rendering half an hour of video:
+    #     hp 420   mean 14.1s   p90 22.0s      (the shipped setting)
+    #     hp 340   mean 12.6s   p90 22.0s
+    #     hp 280   mean  8.8s   p90 12.6s      <- this
+    # At the 0.80 speed conform that is a 11-16 s fight plus the result beat, i.e. a
+    # 14-19 s clip against the 34-37 s ones that shipped.
+    #
+    # WHY SHORTER AT ALL: at second 12 the two measured TikTok posts retained 1% and 3%,
+    # and full-watch rate was 0% and 1.5%. Two thirds of every clip was being rendered
+    # and watched by nobody. A bout that actually ENDS inside the clip also loops, and a
+    # loop is the strongest distribution signal on the platform.
+    #
+    # ⚠ THIS IS A CLIP KNOB, NOT A GAMEPLAY ONE - it sets the shoot's fighter HP and
+    # nothing a player ever touches. But it does change what the clips SHOW (shorter,
+    # more decisive fights), and a shorter bout has fewer lead changes, so expect the
+    # FightScore gate to reject more takes. That trade wants the maker's eye.
+    ap.add_argument("--hp", type=int, default=280)
     # ⚠ 24 -> 32, BECAUSE THE FIGHTS GOT LONGER. This is a cap, not a target: the
     # capture closes the shot as soon as the result card has had its beat, and dead
     # stage on the end is trimmed after, so a short bout still yields a short clip and
