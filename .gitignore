@@ -139,6 +139,7 @@ content/daily_post.log
 # `content/analytics/` is the deliberate exception and IS committed: the vendor's
 # cache reaches back only 30 days, so accumulated snapshots cannot be rebuilt.
 content/queue_order.json
+content/variant_weights.json
 content/ALERT.txt
 content/daily_accounts.pre-multiplatform.bak.json
 

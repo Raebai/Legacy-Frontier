@@ -27,21 +27,25 @@ echo ==== %DATE% %TIME% ==== >> "%LOG%"
 REM 1. Snapshot what the posts have done. Read-only; builds the history
 REM    that makes "views at 72 hours old" comparable between posts.
 "%PY%" "%REPO%\python-tools\insights.py" --pull >> "%LOG%" 2>&1
+set PULL=%ERRORLEVEL%
 
 REM 2. Re-rank the unposted clips from what that history says, and write
 REM    content/queue_order.json for step 3 to drain in.
 "%PY%" "%REPO%\python-tools\insights.py" --rank --apply >> "%LOG%" 2>&1
+set RANK=%ERRORLEVEL%
 
 REM 3. Top the clip pool back up. Refuses to run while Godot is open,
 REM    MEASURES every render before keeping it (a null renderer writes
 REM    a valid-looking black rectangle), and deletes anything that fails
 REM    inspection or the fight-quality gate.
-"%PY%" "%REPO%\python-toolsuto_shoot.py" --live --max 3 >> "%LOG%" 2>&1
+"%PY%" "%REPO%\python-tools\auto_shoot.py" --live --max 3 >> "%LOG%" 2>&1
+set SHOOT=%ERRORLEVEL%
 
 REM 4. Give any newly shot clip its 9:16 cut, so YouTube keeps getting
 REM    Shorts without anybody having to remember. Clips that already
 REM    have one are skipped, so this is a no-op on most days.
 "%PY%" "%REPO%\python-tools\make_portrait.py" >> "%LOG%" 2>&1
+set CUT=%ERRORLEVEL%
 
 REM 5. Fill every unqueued day in the next 30. Idempotent: a second run
 REM    finds no gaps and sends nothing, which is what makes it safe here.
@@ -53,6 +57,14 @@ REM    is the only step that can detect a silent vendor-side failure.
 "%PY%" "%REPO%\python-tools\daily_post.py" --verify >> "%LOG%" 2>&1
 set VERIFY=%ERRORLEVEL%
 
+REM Every step is checked, not just the last two. A mistyped path in step 3
+REM exits 2, and the wrapper used to sail straight past it and report OK. The
+REM shoot then never ran for days and the only symptom anybody saw was the
+REM queue quietly reporting OUT OF CLIPS.
+if not "%PULL%"=="0" goto problem
+if not "%RANK%"=="0" goto problem
+if not "%SHOOT%"=="0" goto problem
+if not "%CUT%"=="0" goto problem
 if not "%TOPUP%"=="0" goto problem
 if not "%VERIFY%"=="0" goto problem
 echo OK >> "%LOG%"
@@ -60,9 +72,9 @@ endlocal
 exit /b 0
 
 :problem
-echo NEEDS ATTENTION topup=%TOPUP% verify=%VERIFY% >> "%LOG%"
+echo NEEDS ATTENTION pull=%PULL% rank=%RANK% shoot=%SHOOT% cut=%CUT% topup=%TOPUP% verify=%VERIFY% >> "%LOG%"
 REM Leave a file the next session will see. There is no mail server here
 REM and a toast on a locked laptop is a notification nobody receives.
-echo %DATE% %TIME% topup=%TOPUP% verify=%VERIFY% - see content\daily_post.log > "%REPO%\content\ALERT.txt"
+echo %DATE% %TIME% pull=%PULL% rank=%RANK% shoot=%SHOOT% cut=%CUT% topup=%TOPUP% verify=%VERIFY% - see content\daily_post.log > "%REPO%\content\ALERT.txt"
 endlocal
 exit /b 1
