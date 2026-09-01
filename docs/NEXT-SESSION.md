@@ -1,5 +1,38 @@
 # RESUME HERE
 
+## THE NIGHTLY SHOOT WAS NEVER RUNNING (fixed 2026-09-01)
+
+**One byte.** `daily_ops.cmd` held a literal `0x07` where `\a` belonged, so step 3
+ran as `python-tools<BEL>uto_shoot.py`, python said `can't open file`, and the
+wrapper — which only checked the last two steps' exit codes — reported OK. The
+pool never refilled. Every "OUT OF CLIPS" and the 0-day runway trace back to it.
+
+Fixed, and the two properties that let it hide are now both tested:
+
+- every step's exit code is read and named in the alert
+  (`pull= rank= shoot= cut= topup= verify=`)
+- `python python-tools/check_daily_ops.py` runs the wrapper for real against a
+  stubbed interpreter and fails it if a byte is out of place, a named script is
+  missing, or **any single step's** failure does not reach the alert. Run it
+  after editing `daily_ops.cmd`.
+
+**A second bug fell out of checking today's posts: the analytics store was keyed
+by `request_id` alone.** One Upload-Post request fans out to several platforms
+and the history returns one row PER PLATFORM sharing that id, so the Instagram
+row and the TikTok row of the same upload were the same record: the second
+overwrote the first's `post_url`, and the deep read appended BOTH platforms'
+metrics to one snapshot list at one timestamp. `reach_of` then read Instagram
+impressions as TikTok views. The store is rekeyed by `(request, platform)`,
+`insights.py` migrates an old one on first pull, and the corrected re-rank
+already moved `swordsaint_vs_arcanist` from 2nd to 4th in the queue.
+
+**Today's posts all went out — five of them, not the three the store claimed:**
+YouTube 11:24, Instagram + TikTok for `brawler_vs_stormcaller` 19:09, Instagram
++ TikTok for `arcanist_vs_cryomancer` 20:26. TikTok is live and returning
+retention curves.
+
+---
+
 ## GROWTH STACK IS LIVE (2026-08-31)
 
 Marketing/posting is no longer a plan, it is running. **Read
@@ -18,8 +51,10 @@ posting, the website or the optimiser.**
 
 ### ▶ The one thing waiting on the maker
 
-Runway is **0 days unspoken-for** with 5 days queued. The nightly shoot nets
-about +1 clip/day. To catch up faster, run once while not using the machine:
+Runway is **0 days unspoken-for** with 4 days queued (2-5 Sep). The nightly
+shoot now actually runs — it never did before today's fix — and attempts 3
+matchups a night, so the pool heals on its own from here. To catch up faster,
+run once while not using the machine:
 
     python python-tools/auto_shoot.py --live --max 8
 

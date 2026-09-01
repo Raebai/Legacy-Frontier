@@ -336,14 +336,36 @@ a `scheduled_date` up to 365 days out. Queueing a post is a *deposit*: the video
 caption go to their servers now, and their servers publish it on the day. Once a day is
 queued, this machine is irrelevant to it — off, asleep, logged out, reinstalled.
 
-So the daily task does **not** post. It runs four steps:
+So the daily task does **not** post. It runs six steps:
 
 1. `insights.py --pull` — snapshot what every post has done so far
 2. `insights.py --rank --apply` — re-order the unposted clips from what that shows
-3. `daily_post.py --topup 30 --live` — refill the queue to 30 days
-4. `daily_post.py --verify` — check that yesterday's posts actually went out
+3. `auto_shoot.py --live --max 3` — shoot new fights, measure them, bin the failures
+4. `make_portrait.py` — give anything new its 9:16 cut for YouTube Shorts
+5. `daily_post.py --topup 30 --live` — refill the queue to 30 days
+6. `daily_post.py --verify` — check that yesterday's posts actually went out
 
-Step 3 is **idempotent**: it asks the vendor what it already holds and fills only the
+⚠ **STEP 3 SILENTLY DID NOT RUN FOR THE FIRST DAYS OF THE TASK'S LIFE, AND THAT IS
+THE FAILURE MODE THIS SECTION EXISTS TO PREVENT.** The wrapper held a literal `0x07`
+byte where `\a` belonged — `python-tools\auto_shoot.py` written by something that read
+the path as a C escape. cmd passed it along without complaint, python said `can't open
+file`, and the wrapper, which only checked the last two steps' exit codes, reported OK.
+The pool therefore never refilled, and the only symptom that reached a human was the
+queue saying `OUT OF CLIPS` and the runway sitting at 0 days — which reads like *"we
+need more clips"*, not *"the thing that makes clips is not being called."*
+
+Both halves are fixed: every step's exit code is now checked and named in the alert
+(`pull= rank= shoot= cut= topup= verify=`), and there is a checker that runs the wrapper
+for real against a stubbed interpreter:
+
+    python python-tools/check_daily_ops.py
+
+It fails the file if a byte is out of place, if a script it names does not exist, or if
+**any single step's** failure does not reach the alert — one step at a time, because
+failing them all at once proves nothing when step 1 short-circuits the rest. Run it
+after editing `daily_ops.cmd`. Nothing else edits that file, so nothing else needs to.
+
+Step 5 is **idempotent**: it asks the vendor what it already holds and fills only the
 gaps, so running it twice queues nothing the second time. That is what makes it safe on
 a timer — and because it maintains a *thirty-day* queue rather than tomorrow's post, the
 task can fail or not run for a fortnight without costing a single post.
@@ -439,7 +461,8 @@ telling you the truth about how far it can see.
 | Symptom | What it means |
 |---|---|
 | `has no tiktok connected — skipping it` | expected until step 2. The config is right; the account is not linked yet. |
-| `OUT OF CLIPS` | shoot more. Not a bug. |
+| `OUT OF CLIPS` | shoot more. Not a bug — **unless the nightly log has no `auto_shoot` output at all**, in which case step 3 is not running and `check_daily_ops.py` will say why. |
+| the store has fewer rows than the vendor's upload count | one row per (request, platform) is the correct shape. A request that fans out to Instagram AND TikTok is two rows sharing a `request_id`; keyed on the request alone they collapsed into one and the two platforms' metrics landed in a single snapshot series. Fixed — `insights.py` rekeys an old store on first pull. |
 | `HTTP 400 ... At least one platform is required` | a JSON array was sent where the API wants repeated `platform[]` fields. Already fixed; if it returns, look there. |
 | `202` from an upload | **success.** Scheduled uploads answer 202, not 200. |
 | a post shows `success: false` in `--verify` | read the platform's own `status` field, not `success`. Every result carries a falsy `success` until it has actually run. |

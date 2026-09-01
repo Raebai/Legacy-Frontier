@@ -37,6 +37,164 @@
         }
       },
       "profile": "StickSpire_Arena"
+    },
+    {
+      "at": "2026-09-01T21:25:22Z",
+      "platforms": {
+        "instagram": {
+          "comments": 0.0,
+          "followers": 5,
+          "impressions": 1052.0,
+          "likes": 12.0,
+          "metric_type": "reach",
+          "primary_impressions_field": "reach",
+          "profileViews": 12.0,
+          "reach": 951.0,
+          "saves": 0.0,
+          "shares": 2.0,
+          "views": 1052.0
+        },
+        "tiktok": {
+          "comments": 0,
+          "followers": 102325,
+          "following": 866,
+          "impressions": 62,
+          "likes": 410084,
+          "metric_type": "views",
+          "primary_impressions_field": "impressions",
+          "profileViews": 24,
+          "reach": 0,
+          "shares": 0,
+          "video_count": 1
+        },
+        "youtube": {
+          "average_view_duration_seconds": 0,
+          "comments": 0,
+          "data_source": "youtube_analytics_api",
+          "followers": 0,
+          "impressions": 0,
+          "likes": 0,
+          "metric_type": "views",
+          "primary_impressions_field": "impressions",
+          "profileViews": 0,
+          "reach": 0,
+          "saves": 0,
+          "shares": 0,
+          "watch_time_minutes": 0
+        }
+      },
+      "profile": "StickSpire"
+    },
+    {
+      "at": "2026-09-01T21:25:22Z",
+      "platforms": {
+        "instagram": {
+          "comments": 0.0,
+          "followers": 2,
+          "impressions": 584.0,
+          "likes": 2.0,
+          "metric_type": "reach",
+          "primary_impressions_field": "reach",
+          "profileViews": 3.0,
+          "reach": 544.0,
+          "saves": 1.0,
+          "shares": 0.0,
+          "views": 584.0
+        },
+        "tiktok": {
+          "comments": 0,
+          "followers": 0,
+          "following": 0,
+          "impressions": 246,
+          "likes": 1,
+          "metric_type": "views",
+          "primary_impressions_field": "impressions",
+          "profileViews": 0,
+          "reach": 0,
+          "shares": 0,
+          "video_count": 1
+        }
+      },
+      "profile": "StickSpire_Arena"
+    },
+    {
+      "at": "2026-09-01T21:54:08Z",
+      "platforms": {
+        "instagram": {
+          "comments": 0.0,
+          "followers": 5,
+          "impressions": 1052.0,
+          "likes": 12.0,
+          "metric_type": "reach",
+          "primary_impressions_field": "reach",
+          "profileViews": 12.0,
+          "reach": 951.0,
+          "saves": 0.0,
+          "shares": 2.0,
+          "views": 1052.0
+        },
+        "tiktok": {
+          "comments": 0,
+          "followers": 102325,
+          "following": 866,
+          "impressions": 63,
+          "likes": 410084,
+          "metric_type": "views",
+          "primary_impressions_field": "impressions",
+          "profileViews": 24,
+          "reach": 0,
+          "shares": 0,
+          "video_count": 1
+        },
+        "youtube": {
+          "average_view_duration_seconds": 0,
+          "comments": 0,
+          "data_source": "youtube_analytics_api",
+          "followers": 0,
+          "impressions": 0,
+          "likes": 0,
+          "metric_type": "views",
+          "primary_impressions_field": "impressions",
+          "profileViews": 0,
+          "reach": 0,
+          "saves": 0,
+          "shares": 0,
+          "watch_time_minutes": 0
+        }
+      },
+      "profile": "StickSpire"
+    },
+    {
+      "at": "2026-09-01T21:54:08Z",
+      "platforms": {
+        "instagram": {
+          "comments": 0.0,
+          "followers": 2,
+          "impressions": 585.0,
+          "likes": 2.0,
+          "metric_type": "reach",
+          "primary_impressions_field": "reach",
+          "profileViews": 3.0,
+          "reach": 545.0,
+          "saves": 1.0,
+          "shares": 0.0,
+          "views": 585.0
+        },
+        "tiktok": {
+          "comments": 0,
+          "followers": 0,
+          "following": 0,
+          "impressions": 279,
+          "likes": 1,
+          "metric_type": "views",
+          "primary_impressions_field": "impressions",
+          "profileViews": 0,
+          "reach": 0,
+          "shares": 0,
+          "video_count": 1
+        }
+      },
+      "profile": "StickSpire_Arena"
     }
   ]
 }

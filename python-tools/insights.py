@@ -32,7 +32,8 @@ WHAT CAN BE LEARNED WITHOUT STATISTICS AT ALL
   it and with a much more cautious table where it does not.
 
 THE STORE
-  `content/analytics/posts.json`     one row per upload, with a SNAPSHOT HISTORY
+  `content/analytics/posts.json`     one row per upload PER PLATFORM, with a
+                                     SNAPSHOT HISTORY
   `content/analytics/profiles.json`  dated account-level snapshots
   Kept locally because the vendor's own cache only reaches back 30 days. Snapshots are
   append-only: they are what makes "views at 72 hours old" comparable between a post
@@ -235,6 +236,55 @@ def settled(rec: dict) -> bool:
     return old and len(rec.get("snapshots") or []) >= SETTLED_MIN_SNAPSHOTS
 
 
+def store_key(request_id: str, platform: str) -> str:
+    """The identity of a POST, which is a request AND a platform.
+
+    ⚠ NOT THE REQUEST ID ALONE. One Upload-Post request fans out to every platform on
+    the profile, and `/uploadposts/history` returns one row PER PLATFORM sharing that
+    request_id. Keyed on the request alone, the Instagram row and the TikTok row of the
+    same upload were the same dict: the second overwrote the first's `post_url` and
+    `platform_post_id`, and the deep read then appended BOTH platforms' metrics to one
+    `snapshots` list, same timestamp, indistinguishable. `reach_of` reads those numbers
+    through `rec["platform"]` — so Instagram impressions were being scored as TikTok
+    views, and the count of measured posts was short by one per multi-platform upload.
+    """
+    return f"{request_id}::{platform}"
+
+
+def migrate_keys(posts: dict, verbose: bool = True) -> dict:
+    """Move a request-keyed store onto (request, platform) keys, once.
+
+    Snapshots that cannot be attributed are DROPPED rather than guessed at. A dropped
+    reading costs one row of a curve that the next pull re-takes; a mis-attributed one
+    is a wrong number that never announces itself.
+    """
+    if not posts or all("::" in k for k in posts):
+        return posts
+    out, dropped = {}, 0
+    for old_key, rec in posts.items():
+        rid = rec.get("request_id") or old_key.split("::")[0]
+        platform = rec.get("platform")
+        if not platform:
+            out[old_key] = rec
+            continue
+        snaps = rec.get("snapshots") or []
+        # A conflated record holds one snapshot per platform at the SAME instant. Only
+        # the count gives it away, so anything ambiguous goes rather than gets guessed.
+        by_stamp: dict[str, int] = {}
+        for s in snaps:
+            by_stamp[s.get("at")] = by_stamp.get(s.get("at"), 0) + 1
+        if any(n > 1 for n in by_stamp.values()):
+            dropped += len(snaps)
+            snaps = []
+        rec["request_id"] = rid
+        rec["snapshots"] = snaps
+        out[store_key(rid, platform)] = rec
+    if verbose:
+        note = f", {dropped} ambiguous snapshot(s) dropped" if dropped else ""
+        print(f"  store rekeyed by (request, platform){note}")
+    return out
+
+
 def pull(key: str, deep: bool = True, verbose: bool = True) -> dict:
     """Fetch everything readable and fold it into the local store.
 
@@ -242,7 +292,8 @@ def pull(key: str, deep: bool = True, verbose: bool = True) -> dict:
     one, and re-running an hour later just adds a denser sampling of the same curve.
     """
     db = _load(POSTS_DB, {"posts": {}})
-    posts = db.setdefault("posts", {})
+    posts = migrate_keys(db.setdefault("posts", {}), verbose=verbose)
+    db["posts"] = posts
     stamp = now_utc().strftime("%Y-%m-%dT%H:%M:%SZ")
 
     history = api.upload_history(key)
@@ -251,12 +302,15 @@ def pull(key: str, deep: bool = True, verbose: bool = True) -> dict:
 
     for row in history:
         rid = row.get("request_id")
-        if not rid:
+        platform = row.get("platform")
+        if not rid or not platform:
             continue
-        rec = posts.setdefault(rid, {"request_id": rid, "snapshots": []})
+        rec = posts.setdefault(store_key(rid, platform),
+                               {"request_id": rid, "platform": platform,
+                                "snapshots": []})
         rec["posted_at"] = row.get("upload_timestamp")
         rec["profile"] = row.get("profile_username")
-        rec["platform"] = row.get("platform")
+        rec["platform"] = platform
         rec["title"] = row.get("post_title") or row.get("post_caption") or ""
         rec["post_url"] = row.get("post_url")
         rec["platform_post_id"] = row.get("platform_post_id")
@@ -269,17 +323,27 @@ def pull(key: str, deep: bool = True, verbose: bool = True) -> dict:
         # minutes; a backfill of a few months of posts would blow through that and start
         # getting 429s halfway, leaving the store half-updated with no sign of why.
         fresh = 0
-        for rid, rec in posts.items():
-            if not rec.get("ok"):
+        # ONE metered call per REQUEST, not per record. A request that fanned out to
+        # three platforms is three records here but a single `/analytics` read, and the
+        # rate limit is counted in reads.
+        by_request: dict[str, dict[str, dict]] = {}
+        for rec in posts.values():
+            # BOUNDED ON PURPOSE. This loop sleeps 3.2s per REQUEST to stay under
+            # 100 calls / 5 min, so it costs five minutes per hundred requests and
+            # grows forever. A post a month old with several readings has stopped
+            # moving - re-reading it spends the rate limit re-learning a number that
+            # will not change, at the expense of the recent posts that are still
+            # accruing views and are the only ones a decision depends on.
+            # A request is read if ANY of its platforms is unsettled; the settled
+            # sibling then gets a free reading out of a response already paid for.
+            if not rec.get("ok") or settled(rec):
                 continue
-            if settled(rec):
-                # ⚠ BOUNDED ON PURPOSE. This loop sleeps 3.2s per post to stay under
-                # 100 calls / 5 min, so it costs five minutes per hundred posts and
-                # grows forever. A post a month old with several readings has stopped
-                # moving — re-reading it spends the rate limit re-learning a number that
-                # will not change, at the expense of the recent posts that are still
-                # accruing views and are the only ones a decision depends on.
-                continue
+            rid = rec.get("request_id")
+            plat = rec.get("platform")
+            if rid and plat:
+                by_request.setdefault(rid, {})[plat] = rec
+
+        for rid, per_platform in by_request.items():
             try:
                 data = api.post_analytics_by_request(rid, key)
             except api.ApiError as e:
@@ -290,7 +354,13 @@ def pull(key: str, deep: bool = True, verbose: bool = True) -> dict:
                 metrics = block.get("post_metrics") or {}
                 if not metrics:
                     continue
-                rec["platform"] = platform
+                # ⚠ ROUTE TO THE RECORD FOR THIS PLATFORM. Writing every platform's
+                # block into one record is what conflated an Instagram reading and a
+                # TikTok reading into a single series, under whichever platform name
+                # happened to be iterated last.
+                rec = per_platform.get(platform)
+                if rec is None:
+                    continue
                 rec["post_url"] = block.get("post_url") or rec.get("post_url")
                 rec["platform_post_id"] = (block.get("platform_post_id")
                                            or rec.get("platform_post_id"))
