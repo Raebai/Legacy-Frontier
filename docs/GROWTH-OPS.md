@@ -9,22 +9,34 @@ this).
 
 ---
 
-## ⚠ READ THIS FIRST — the queue is empty
+## ⚠ READ THIS FIRST — state as of 1 September 2026
 
-**The vendor is holding zero scheduled posts. The last one went out on 27 August.**
-Everything below is set up correctly; nothing is queued because the free plan's ten
-uploads for August are spent. Step 1 fixes it, step 8 refills it.
+**The queue is firing and the plan is paid.** Sections 1 to 8 below are the SETUP
+story and are kept because they explain why each piece is the way it is; they are not
+a to-do list any more. What is actually true today:
 
-The good news from the same check: **the posts that did fire are working.**
+| | |
+|---|---|
+| vendor | Upload-Post **Basic, paid**. 13 uploads delivered, none failed. |
+| queued | 11 posts, 2 to 5 September, across both Instagrams, both TikToks and YouTube |
+| platforms live | Instagram ✓, TikTok ✓ (first posts 1 Sep), YouTube Shorts ✓ |
+| impressions, last 30 days | 7,997 across both profiles |
+| site | <https://stickspire.pages.dev>, wishlist working end to end |
+| clip pool | **this is the constraint.** See "The real constraint" below. |
 
-| | flagship | arena |
-|---|---|---|
-| impressions this month | 4,666 | 2,170 |
-| best post | 344 reached | 149 reached |
-| trend | still climbing daily | still climbing daily |
+**TikTok is now answering the question it was connected for, and the answer is not
+comfortable:**
 
-Eight posts, all delivered, no failures. This is not a system that needs rebuilding.
-It needs a plan that permits more than ten uploads a month, and clips to fill it.
+    brawler_vs_stormcaller   25% still watching at 3s   4% at 10s   avg 4.0s of 34s
+    arcanist_vs_cryomancer   17% still watching at 3s   1% at 10s   avg 2.0s of 37s
+
+Three quarters of the audience is gone before the fight has started. That is a HOOK
+problem, and it is the first thing in this whole stack that is worth acting on ahead
+of making more clips. **It is also a maker judgement, not an engineering one** — the
+clips are ~35s and open on a VS card, and whether to cut the card, cold-open on a
+spell, or ship a much shorter clip is a taste call. `insights.py --report` prints
+these lines after every nightly pull, so the next few days will say whether two posts
+were a fluke.
 
 ---
 
