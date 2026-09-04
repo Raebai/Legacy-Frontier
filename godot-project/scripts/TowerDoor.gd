@@ -17,6 +17,10 @@ extends StaticBody2D
 ## so a walk-in on the same radius would fire on the first frame of the town and you
 ## would never see the room at all. There are two rings now: the wide one lights the
 ## threshold, the narrow one at the doorway itself takes you.
+## Nearest-wins arbitration for the `talk` key -- see the file for the two bugs
+## it exists for, both of which are two of these rings overlapping.
+const Interactables := preload("res://scripts/Interactables.gd")
+
 const HINT_TEXT: String = "walk in"
 const FRAME_COLOR: Color = Color(0.16, 0.15, 0.2)
 const STONE_COLOR: Color = Color(0.26, 0.24, 0.3)
@@ -61,6 +65,9 @@ var _phase: float = 0.0
 
 
 func _ready() -> void:
+	# Compete for the `talk` press by DISTANCE rather than by tree order.
+	# See `Interactables` for the two bugs that ordering shipped.
+	add_to_group(Interactables.GROUP)
 	# Threshold glow (behind the door — pulses in _process).
 	var glow := ColorRect.new()
 	glow.name = "Glow"
@@ -209,8 +216,18 @@ var _entering: bool = false
 func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_action_pressed("talk") or not _in_range:
 		return
+	# The door's ring is 150 px -- by far the widest in the town -- so without
+	# arbitration it would now steal presses meant for anyone standing near it, which
+	# is the same bug in the other direction. See `Interactables`.
+	if not Interactables.wins(self):
+		return
 	get_viewport().set_input_as_handled()
 	_enter()
+
+
+## Answers the arbitration in `Interactables`.
+func interact_ready() -> bool:
+	return _in_range
 
 
 ## Start the run — unless a town screen is up. The door sits UNDER the panels, so a

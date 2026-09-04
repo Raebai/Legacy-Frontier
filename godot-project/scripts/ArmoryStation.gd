@@ -58,6 +58,10 @@ extends StaticBody2D
 ## Set by `World._spawn_stations` before the node enters the tree.
 @export var kind: String = "armory"
 
+## Nearest-wins arbitration for the `talk` key -- see the file for the two bugs
+## it exists for, both of which are two of these rings overlapping.
+const Interactables := preload("res://scripts/Interactables.gd")
+
 const PROXIMITY_RADIUS: float = 46.0
 
 ## -- THE PAD ------------------------------------------------------------------
@@ -118,6 +122,9 @@ var _lift_from: Vector2 = Vector2.ZERO
 
 
 func _ready() -> void:
+	# Compete for the `talk` press by DISTANCE rather than by tree order.
+	# See `Interactables` for the two bugs that ordering shipped.
+	add_to_group(Interactables.GROUP)
 	_art = Node2D.new()
 	_art.z_index = -1     # under the player: you stand ON the pad
 	_art.draw.connect(_draw_pad)
@@ -340,10 +347,20 @@ func _hint_text() -> String:
 		_: return "[E] Armory"
 
 
+## Answers the arbitration in `Interactables`.
+func interact_ready() -> bool:
+	return _in_range
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_action_pressed("talk") or not _in_range:
 		return
 	if _overlay_open():
+		return
+	# The warden's 40 px ring reaches x=384 and the armoury pad sits at x=380, so for
+	# part of every lap he walks, standing ON the pad showed two hints and the press
+	# went to him. Nearest wins. See `Interactables`.
+	if not Interactables.wins(self):
 		return
 	# ⚠ FIRED BEFORE THE BRANCH, NOT INSIDE EACH ONE. Every kind below either opens a
 	# screen or leaves the room, and both are "the pad took you somewhere" — a beam per

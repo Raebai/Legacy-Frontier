@@ -51,6 +51,37 @@ const LINE_HOLD: float = 3.4
 ## Ambling speed, and how far either side of their post they wander.
 const PATROL_SPEED: float = 32.0
 
+## ── WHY THE AMBLE READ AS WRONG, AND WHAT EACH NUMBER BELOW FIXES ────────────
+## Maker, on the townsfolk: *"are they moving weird"*. They were, and it was three
+## separate faults stacked on the same 1.5-second beat:
+##
+##   1. NO ACCELERATION. `velocity.x` was assigned +/-32 outright, so a turn was a
+##      one-frame -32 -> +32 reversal and a stop was one frame of 32 -> 0. Nothing
+##      alive changes direction in one frame.
+##   2. THE MIRROR POPPED AT FULL SPEED. `set_facing` flips `scale.x` between +1 and
+##      -1 with no blend, and it was called on the same frame as the reversal, so the
+##      whole figure snapped inside out while travelling. Two snaps, together, is
+##      what the eye actually caught.
+##   3. NO PAUSE, EVER. A 48 px span at 32 px/s is a 1.5 s lap, turned at both ends,
+##      forever, metronomically. A person pacing a room stops at the end of a thought.
+##
+## The fix is one state, `_dwell`, plus a ramp. Reaching the end of a lap now sets the
+## dwell and asks for zero speed; the body decelerates into a stand, waits, and only
+## then sets off the other way -- which means the facing flip happens while it is
+## STATIONARY, because the facing is read off the actual walk velocity rather than
+## off `_patrol_dir`. The pop is still a pop; it just no longer happens mid-stride,
+## which is the only reason it was visible.
+##
+## ⚠ THE RIG IS NOT TOUCHED. Blending the mirror properly belongs in `CharacterRig`
+## and would change every body in the game, hero included. This is the townsfolk fix,
+## made where the townsfolk live.
+const PATROL_ACCEL: float = 190.0
+## Long enough to read as a decision, short enough that the room still has motion in
+## it. Randomised per turn so two townsfolk never fall into step -- the same reasoning
+## as the hop gap below, which is the fault this whole block is about.
+const TURN_DWELL_MIN: float = 0.7
+const TURN_DWELL_MAX: float = 1.9
+
 ## ── THE HOP ──────────────────────────────────────────────────────────────────
 ## Maker, on the town: "Townsfolk need PERSONALITY — have them jump around."
 ##
@@ -76,7 +107,15 @@ const MAX_FALL: float = 900.0
 const HOP_GAP_MIN: float = 2.6
 const HOP_GAP_MAX: float = 6.5
 
+## Nearest-wins arbitration for the `talk` key -- see the file for the two bugs it
+## exists for, one of which is this very script beating the tower door to the press.
+const Interactables := preload("res://scripts/Interactables.gd")
+
 var _player_in_range: bool = false
+## Ramped walk speed, so a turn is a decelerate-stand-accelerate and not a sign flip.
+var _walk_vel: float = 0.0
+## Seconds left standing at the end of a lap before setting off the other way.
+var _dwell: float = 0.0
 var _rig: CharacterRig = null
 var _patrol_center: float = 0.0
 var _patrol_range: float = 0.0
@@ -90,6 +129,9 @@ var _last_line: int = -1
 
 
 func _ready() -> void:
+	# Compete for the `talk` press by DISTANCE rather than by tree order.
+	# See `Interactables` for the two bugs that ordering shipped.
+	add_to_group(Interactables.GROUP)
 	hint_label.visible = false
 	proximity_area.body_entered.connect(_on_body_entered)
 	proximity_area.body_exited.connect(_on_body_exited)
@@ -123,36 +165,67 @@ func set_hub_patrol(center_x: float, patrol_range: float) -> void:
 
 
 ## Amble, but STOP and stand still whenever the player is close enough to talk
-## (maker: "show NPCs walking around but stop when you go up to them"). A
-## StaticBody2D on flat ground, so x is animated directly — no gravity needed.
+## (maker: "show NPCs walking around but stop when you go up to them").
+##
+## ⚠ THE COMMENT THAT USED TO SIT HERE SAID "A StaticBody2D on flat ground, so x is
+## animated directly — no gravity needed". Every clause of that was false: the scene
+## root is a `CharacterBody2D`, x goes through `move_and_slide`, and gravity is what
+## gives the hop its shape. Left as a note rather than deleted, because a confidently
+## wrong comment is the thing that makes the next reader stop measuring.
 func _physics_process(delta: float) -> void:
 	if _patrol_range <= 0.0 or _rig == null:
 		return  # not a patrolling townsperson (headless tests, for one)
 
 	# ── the decision: walk, stand, or hop ────────────────────────────────────
-	var walk: float = 0.0
+	var target: float = 0.0
+	var hop_now: bool = false
 	if _player_in_range:
-		# Stop and face you (maker: "show NPCs walking around but stop when you go up
-		# to them"). Standing still is a decision, not the absence of one.
-		_hop_wait = randf_range(HOP_GAP_MIN, HOP_GAP_MAX)
+		# Stop and face you. Standing still is a decision, not the absence of one.
+		#
+		# ⚠ THE HOP TIMER IS FROZEN, NOT RE-ROLLED. It used to be re-randomised on
+		# EVERY frame the player was in range, which does not delay the next hop, it
+		# makes one impossible: the countdown only ran in the other branch, so it was
+		# reset faster than it could ever tick down. The consequence is that the
+		# "townsfolk need PERSONALITY, have them jump around" feature was only ever
+		# visible from more than 40 px away -- i.e. never while you were looking at
+		# them. Freezing keeps the maker's stand-still ruling and lets the schedule
+		# resume where it left off when you walk away.
+		pass
+	elif _dwell > 0.0:
+		_dwell -= delta
 	else:
-		if global_position.x > _patrol_center + _patrol_range:
-			_patrol_dir = -1.0
-		elif global_position.x < _patrol_center - _patrol_range:
-			_patrol_dir = 1.0
-		walk = _patrol_dir * PATROL_SPEED
+		# TURN BEFORE THE BOUND, NOT AFTER IT. The old test compared the position the
+		# body had ALREADY reached, so it turned around roughly half a pixel past its
+		# own line and the turn point drifted by a frame. Testing where the next step
+		# would land keeps the lap inside the range it was given.
+		var next_x: float = global_position.x + _patrol_dir * PATROL_SPEED * delta
+		if next_x > _patrol_center + _patrol_range or next_x < _patrol_center - _patrol_range:
+			_patrol_dir = -_patrol_dir
+			_dwell = randf_range(TURN_DWELL_MIN, TURN_DWELL_MAX)
+		else:
+			target = _patrol_dir * PATROL_SPEED
 		# The hop only fires from the FLOOR. A timer that could fire mid-air would
 		# double-jump a townsperson, which reads as a bug even when it is brief.
 		if is_on_floor():
 			_hop_wait -= delta
 			if _hop_wait <= 0.0:
 				_hop_wait = randf_range(HOP_GAP_MIN, HOP_GAP_MAX)
-				velocity.y = -HOP_IMPULSE
+				hop_now = true
 
 	# ── the physics: the same three lines the player runs ────────────────────
-	velocity.x = walk
+	# Ramped, not assigned. See PATROL_ACCEL.
+	_walk_vel = move_toward(_walk_vel, target, PATROL_ACCEL * delta)
+	velocity.x = _walk_vel
 	velocity.y = 0.0 if (is_on_floor() and velocity.y >= 0.0) \
 		else minf(velocity.y + GRAVITY * delta, MAX_FALL)
+	# ⚠ THE IMPULSE LANDS AFTER GRAVITY, AND THAT IS A REAL 5 px OF HOP. Setting
+	# `velocity.y = -HOP_IMPULSE` before the line above meant the very next statement
+	# took the `else` branch (velocity.y was now negative, so "on floor and falling"
+	# was false) and immediately spent one frame of gravity out of the launch: 300
+	# became ~265, and the apex 22 px the constant is tuned for was really 16.7. The
+	# comment on HOP_IMPULSE was describing the intent, not the flight.
+	if hop_now:
+		velocity.y = -HOP_IMPULSE
 	move_and_slide()
 
 	# ── the rig, fed the truth ───────────────────────────────────────────────
@@ -167,15 +240,34 @@ func _physics_process(delta: float) -> void:
 		_rig.play(CharacterRig.State.AIR)
 	elif absf(velocity.x) > 1.0:
 		_rig.play(CharacterRig.State.RUN)
-		_rig.set_facing(Vector2(_patrol_dir, 0.0))
+		# ⚠ FACING COMES OFF THE VELOCITY, NOT OFF `_patrol_dir`. `_patrol_dir` flips
+		# the instant a lap ends, while the body is still travelling the old way at
+		# full speed -- so reading it here is what snapped the figure inside out
+		# mid-stride. The velocity does not change sign until the body has actually
+		# decelerated through zero and set off again, by which time it is standing
+		# still and the mirror is invisible. Same one-line call, one honest input.
+		_rig.set_facing(Vector2(signf(_walk_vel), 0.0))
 	else:
 		_rig.play(CharacterRig.State.IDLE)
+
+
+## Answers the arbitration in `Interactables`: this townsperson is only competing for
+## the `talk` press while the player is actually close enough to be talked to.
+func interact_ready() -> bool:
+	return _player_in_range
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_action_pressed("talk") or not _player_in_range:
 		return
 	if _overlay_open():
+		return
+	# ⚠ THE DOOR AND THE PADS LISTEN FOR THIS SAME KEY, AND THIS SCRIPT USED TO WIN BY
+	# ACCIDENT. Townsfolk are added to the tree after both, and `_unhandled_input`
+	# reaches later siblings first, so a townsperson standing inside the door's 150 px
+	# ring took every press meant for the tower. Nearest wins now; walking away from a
+	# person and up to a door does what it looks like it does.
+	if not Interactables.wins(self):
 		return
 	# ⚠ ONE NPC CAN DO SOMETHING AS WELL AS SAY SOMETHING. Maker: *"give me an option
 	# to reset the tower by speaking to one of the NPCs outside of it"*. The DOORKEEPER

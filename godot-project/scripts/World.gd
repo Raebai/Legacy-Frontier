@@ -122,7 +122,23 @@ const TOWER_X: float = 980.0         # the way out
 ## descend, so spawning 54 px from its centre put the player on the threshold — a town
 ## you enter and immediately leave. 104 stands you just outside it, still well inside
 ## `TowerDoor.PROXIMITY_RADIUS`, so the room still costs zero steps to leave.
-const PLAYER_SPAWN: Vector2 = Vector2(TOWER_X - 104.0, GROUND_Y)
+##
+## ⚠ 104 PUT THE PLAYER INSIDE THE DOORKEEPER'S LAP, which is a different bug from the
+## one above and a worse one. The doorkeeper ambled x=838..886 and the player spawned
+## at x=876 -- INSIDE that span, not merely inside his 40 px hint ring. So every boot
+## of the town opened with him frozen mid-stride and hint-lit, because `_player_in_
+## range` was true before either of them had moved, and he could never amble or hop
+## again until you walked away from your own spawn point. The whole "townsfolk have
+## personality" feature was switched off for the one townsperson you always meet.
+##
+## 128 stands the player clear of his lap (see TOWNSFOLK, where he also moved) and
+## still inside `TowerDoor.PROXIMITY_RADIUS` (150) -- and that ring is a 2D CIRCLE, so
+## the door sitting 62 px above the ground line costs real budget that reasoning in x
+## alone does not see: 140 px of x measures 153.3 px of distance and `slice_test_town`
+## rejected it outright. 128 measures 142.4. The door's WALK-IN box is `ENTER_W` 68
+## wide, i.e. x 946..1014 -- not the 96 an older comment here claimed -- so the new
+## spawn at 852 is nowhere near the threshold.
+const PLAYER_SPAWN: Vector2 = Vector2(TOWER_X - 128.0, GROUND_Y)
 
 ## Where the three townspeople stand, and how far they wander from it. They are
 ## posted NEXT TO the thing they talk about, so a bark is a signpost as well as a
@@ -154,7 +170,12 @@ const TOWNSFOLK: Array[Dictionary] = [
 	# FLOOR to their downward probes. `probe_town_feet` caught the third dummy reading
 	# its ground line at 436 instead of 452: it was standing on the Warden's head.
 	{"res": "res://data/npcs/warden.tres", "x": 320.0, "range": 24.0},   # by the pads
-	{"res": "res://data/npcs/doorkeeper.tres", "x": 862.0, "range": 24.0},  # the door
+	# ⚠ MOVED OFF THE PLAYER'S SPAWN (see PLAYER_SPAWN). At 862 +/- 24 he walked
+	# 838..886 and the player materialised at 876, so he was permanently in range and
+	# permanently frozen. 920 +/- 20 walks 900..940: it clears the new spawn at 852 by
+	# 48 px (his ring is 40), and stops 6 px short of the door's walk-in box at 946, so
+	# he never stands in the doorway you are trying to walk through either.
+	{"res": "res://data/npcs/doorkeeper.tres", "x": 920.0, "range": 20.0},  # the door
 ]
 
 ## Decoration only — a raised deck up-left that gives the skyline some depth. It
