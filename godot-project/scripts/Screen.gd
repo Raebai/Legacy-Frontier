@@ -10,15 +10,28 @@ extends Node
 ## `ImpactFrame.MAX_FULLSCREEN_FLASHES_PER_SECOND`, which is a photosensitivity budget
 ## for screen flashes and has nothing to do with the window.
 ##
-## ⚠ AND THERE WAS NO PERSISTENCE LAYER TO HOOK INTO, WHICH IS WHY THIS FILE OWNS ONE.
-## Four incompatible mechanisms are in use today and ALL FOUR forget on exit: the feel
-## knobs live in a `res://` Resource that is only ever LOADED (`Tuning.gd` has no
+## ⚠ AND THERE WAS NO PERSISTENCE LAYER TO HOOK INTO, WHICH IS WHY THIS FILE OWNED ONE.
+## Four incompatible mechanisms were in use and ALL FOUR forgot on exit: the feel knobs
+## live in a `res://` Resource that is only ever LOADED (`Tuning.gd` has no
 ## `ResourceSaver` call), camera zoom lives on `GameState` but is not in the save
 ## payload, brightness is stashed as metadata on the SceneTree root, and the volume
 ## sliders are written straight into `AudioServer` and never stored. A player who sets
-## fullscreen and quits must not have to set it again, so this writes a real file —
+## fullscreen and quits must not have to set it again, so this wrote a real file —
 ## `user://settings.cfg`, which `docs/references/stick-fight-feel-study.md` already
-## asked for. Other settings can move in here later; the shape is deliberately generic.
+## asked for.
+##
+## ⚠ "OTHER SETTINGS CAN MOVE IN HERE LATER" — THEY HAVE. `scripts/Settings.gd` now
+## owns that file and the other ten preferences (volume x2, camera zoom, screenshake,
+## hit-stop, aim assist, friendly fire, PvP rules, graphics quality, brightness,
+## colourway, plus the key-rebinding overlay). The fullscreen key below is UNCHANGED —
+## same path, same `[display]` section, same key — so a settings.cfg written before
+## that split is read back exactly as it was.
+##
+## THIS FILE STAYS THE ONE THAT DRIVES IT, for two reasons that are both about
+## ordering: it is the LAST autoload in `project.godot`, so `Tuning`, `GameState` and
+## the audio buses are all up by the time `_ready` runs here; and it is
+## `PROCESS_MODE_ALWAYS`, so the debounced flush keeps ticking while the pause menu
+## has the rest of the tree frozen — which is the exact moment settings are changed.
 ##
 ## ⚠ EXCLUSIVE vs WINDOWED-FULLSCREEN. This uses `WINDOW_MODE_FULLSCREEN`, which is
 ## Godot's borderless "windowed fullscreen", NOT `WINDOW_MODE_EXCLUSIVE_FULLSCREEN`.
@@ -26,16 +39,90 @@ extends Node
 ## that matters here — makes screen capture unreliable. This project's whole content
 ## pipeline is screen capture.
 
-const SETTINGS_PATH: String = "user://settings.cfg"
-const SECTION: String = "display"
+const Settings := preload("res://scripts/Settings.gd")
+
+const SETTINGS_PATH: String = Settings.PATH
+const SECTION: String = Settings.S_DISPLAY
 const KEY_FULLSCREEN: String = "fullscreen"
 
 
 func _ready() -> void:
 	# Runs while paused: the toggle has to work from the pause menu, which is the one
-	# place a player is most likely to look for it.
+	# place a player is most likely to look for it — and it is what keeps the debounced
+	# settings flush in `_process` ticking while the game itself is frozen.
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	# ⚠ CAPTURE THE SHIPPED KEY MAP BEFORE ANYTHING TOUCHES IT, unconditionally —
+	# including in the runs that skip the restore below. A rebind overwrites the map in
+	# place, so "reset to defaults" has nothing to return to unless the snapshot was
+	# taken first, and a headless suite that rebinds must still be able to reset.
+	Settings.capture_input_defaults()
+	if _skip_restore():
+		return
+	Settings.apply_all(get_tree())
 	_load()
+
+
+## Should this run put the player's saved preferences back on?
+##
+## ⚠ TWO RUNS SAY NO, AND BOTH OF THEM ARE OTHER PEOPLE'S TOOLING.
+##
+##   * HEADLESS — every test suite and the whole botmatch/telemetry side. A suite that
+##     inherited whatever the maker last dragged a slider to is a suite that passes on
+##     one machine. (`_load` already refused fullscreen here for its own reason: asking
+##     a dummy display to go fullscreen is at best wasted.)
+##   * `--write-movie` — the clip shoot. It renders with a real window, so it would
+##     otherwise pick up the maker's personal screenshake, brightness and graphics
+##     quality and bake them into footage that gets posted. The pipeline is entitled to
+##     the SHIPPED look; a clip is not a play session.
+##
+## Deliberately NOT gated on `OS.is_debug_build()`: the maker plays a debug build.
+func _skip_restore() -> bool:
+	if DisplayServer.get_name() == "headless":
+		return true
+	for arg: String in OS.get_cmdline_args():
+		if arg.begins_with("--write-movie"):
+			return true
+	return false
+
+
+## The debounced write. One bool test on a clean frame — see Settings.FLUSH_DELAY_MSEC
+## for why a save-per-`value_changed` was not an option.
+##
+## ⚠ `Settings` IS THE SCRIPT RESOURCE, NOT AN INSTANCE. `const X := preload("....gd")`
+## yields the `GDScript` object, so `Settings.flush_if_due()` only resolves because that
+## function is declared `static func`. A plain `func` would compile cleanly here and then
+## fail at RUNTIME with "Nonexistent function ... in base 'GDScript'" the first frame this
+## line is reached — one of the resolution traps this project has already paid for.
+## Option 1 of the two ways out was taken: every entry point on `Settings` is static and
+## all of its state lives in `static var`s, which is also the honest shape for a
+## preferences store that is a singleton by nature.
+##
+## ⚠ AND STATIC NAMES SHARE A NAMESPACE WITH `Script`/`Resource`/`Object`. `Settings`
+## briefly had a static `reload()`; every external call to it hit the ENGINE's
+## `Script.reload()`, recompiled the script and reset every static in it, silently. It is
+## `forget_cache()` now — see the long note there.
+func _process(_delta: float) -> void:
+	Settings.flush_if_due()
+
+
+## ⚠ THE TWO WAYS A GAME ACTUALLY STOPS, and neither of them is a frame going by.
+## A desktop quit and an Android task-switch both end the process without giving the
+## debounce time to fire, so a slider nudged in the last third of a second would be
+## lost — which reads exactly like "settings still do not save".
+##
+## Nothing here BLOCKS the quit (no `set_auto_accept_quit(false)`): the write is a few
+## hundred bytes of ConfigFile and a hang on exit would be a worse bug than the one
+## being fixed.
+func _notification(what: int) -> void:
+	match what:
+		NOTIFICATION_WM_CLOSE_REQUEST:
+			Settings.flush()
+		NOTIFICATION_WM_GO_BACK_REQUEST:
+			Settings.flush()
+		NOTIFICATION_APPLICATION_PAUSED:
+			Settings.flush()
+		NOTIFICATION_EXIT_TREE:
+			Settings.flush()
 
 
 ## ⚠ `_input`, NOT `_unhandled_input`. A fullscreen key that stops working because a
@@ -95,10 +182,7 @@ func _load() -> void:
 	# best wasted and at worst a resize the frame-grabber then films.
 	if DisplayServer.get_name() == "headless":
 		return
-	var cfg := ConfigFile.new()
-	if cfg.load(SETTINGS_PATH) != OK:
-		return                      # no file yet: keep the project default (windowed)
-	if bool(cfg.get_value(SECTION, KEY_FULLSCREEN, false)):
+	if bool(Settings.get_v(SECTION, KEY_FULLSCREEN, false)):
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
 		# A player who turned fullscreen on once takes THIS path on every later launch
 		# and never touches the toggle, so it has to report too or the common case is
@@ -106,8 +190,14 @@ func _load() -> void:
 		_report("startup")
 
 
+## ⚠ WRITTEN THROUGH `Settings`, NOT WITH A SECOND `ConfigFile`. The old version
+## loaded the file, set one key and saved — correct on its own, and a data-loss bug the
+## moment a second writer existed: the pause menu's in-memory copy holds ten other keys
+## the player has just changed, and a fresh load-set-save from here would write a file
+## built from what was on DISK and clobber all of them on the next flush.
+##
+## Flushed IMMEDIATELY rather than debounced. Fullscreen is one discrete press, not a
+## drag, and it is the setting whose forgetting was reported.
 func _save(on: bool) -> void:
-	var cfg := ConfigFile.new()
-	cfg.load(SETTINGS_PATH)         # keep anything else already in the file
-	cfg.set_value(SECTION, KEY_FULLSCREEN, on)
-	cfg.save(SETTINGS_PATH)
+	Settings.set_v(SECTION, KEY_FULLSCREEN, on)
+	Settings.flush()

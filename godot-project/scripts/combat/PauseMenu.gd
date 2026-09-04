@@ -11,6 +11,14 @@ extends Control
 ## to Hub" by default), so nothing here duplicates it into Settings. Settings owns
 ## the picture, the sound and the reference card; the main column owns the verbs.
 
+## ⚠ TWO SHARED SCRIPTS, BOTH `preload`ed AND NEITHER A `class_name`. A global class
+## has to be registered in `.godot/global_script_class_cache.cfg`, which is rebuilt by
+## an editor scan or an `--import`; a consumer compiled before that scan dies with
+## "Could not find type X in the current scope" (Sessions 6/8/9 lost real time to
+## exactly this trap). A `preload` resolves at load time with no cache involved.
+const HudStyle := preload("res://scripts/ui/HudStyle.gd")
+const Settings := preload("res://scripts/Settings.gd")
+
 signal resume_requested
 signal exit_requested
 ## The on-screen PAUSE affordance was tapped. Hosts already wire `ui_cancel` to
@@ -73,7 +81,7 @@ const CONTROLS_GAP: String = "     "
 ## nobody drags twice. Same trade the Graphics row below makes, and the maker's standing
 ## rule ("too much text and random UI pieces we dont need") decides it.
 const BRIGHTNESS_LABELS: PackedStringArray = ["Dim", "Normal", "Bright"]
-const BRIGHTNESS_DEFAULT: int = 1
+const BRIGHTNESS_DEFAULT: int = Settings.BRIGHTNESS_DEFAULT
 ## How black the DIM step lays over the frame, and how much white the BRIGHT step adds.
 ## Deliberately gentle: this is a legibility aid, not a grade, and it sits on top of
 ## `PostProcess`'s filmic pass — a heavy lift here would flatten that to milk.
@@ -95,7 +103,12 @@ const BRIGHTNESS_GROUP: StringName = &"brightness_overlay"
 ## nothing logged. The root `Window` is the one node that outlives
 ## `change_scene_to_file`, and `set_meta` needs no declaration to stick. Rejected: a
 ## plain member var, which forgets every time an arena builds a fresh menu — i.e. always.
-const BRIGHTNESS_META: StringName = &"pause_menu_brightness"
+##
+## ⚠ THE META IS STILL WHERE THE LIVE VALUE LIVES; what changed is that the STEP is now
+## also written to `user://settings.cfg` and pushed back onto this same meta at boot by
+## `Settings.apply_all`, so it survives closing the game as well as a scene change. The
+## key is declared in `Settings` and aliased here so there is one string, not two.
+const BRIGHTNESS_META: StringName = Settings.BRIGHTNESS_META
 
 ## -- the on-screen pause button (mobile) -------------------------------------
 ## ⚠ WITHOUT THIS THE SETTINGS MENU IS UNREACHABLE ON A PHONE. Every host opens the
@@ -145,6 +158,47 @@ const DIRECTOR_SCRIPT: String = "res://tools/director/Director.gd"
 ## double every hotkey (F1 open + F1 close on the same press).
 const DIRECTOR_GROUP: StringName = &"director"
 
+## -- the card, and why it kept falling off the screen -------------------------
+## ⚠ MEASURED, NOT GUESSED. `tools/probe_settings_panel.gd` printed this before the
+## fix, on the real 640x360 base viewport:
+##
+##     scroll min      : (320.0, 520.0)
+##     scroll rect     : y 0.0 .. 520.0
+##     off-screen      : 160.0 px below
+##     content height  : 1195.0 px   (scroll viewport 520.0)
+##     never reachable : 160.0 px of content, at ANY scroll position
+##
+## A `ScrollContainer` inside a `CenterContainer` is handed its MINIMUM size, so a
+## hardcoded 520 IS the panel — 160 px taller than the screen it sits on. Scrolling
+## only moves content INSIDE that box, so the band hanging off the bottom stayed
+## hidden at every scroll position: the last rows of the settings column could not be
+## reached by scrolling, by resizing, or at all.
+##
+## The rule now is `min(content, screen)` — see `_fit_one`.
+const SCREEN_MARGIN: float = 8.0    # air between the card and the screen edge
+const PANEL_PAD: float = 10.0       # the card's own inner padding, per side
+## The width the settings rows were authored against (240 px controls + air). Only an
+## upper bound now: a column of short rows gets a narrower card.
+const CARD_MAX_W: float = 330.0
+
+## -- rebinding ----------------------------------------------------------------
+## ⚠ THE PROJECT'S OWN BINDINGS ARE NEVER EDITED. `project.godot` is not this
+## workstream's file, and it is rewritten by the clip pipeline mid-shoot besides. A
+## rebind is a RUNTIME OVERLAY: `Settings` snapshots the shipped map at boot, applies
+## the player's overrides on top, and "Reset to Defaults" puts the snapshot back.
+##
+## ⚠ AND IT IS KEYBOARD/MOUSE ONLY, WHICH IS A CORRECTNESS RULE RATHER THAN A SCOPE
+## CUT. `Input.is_action_pressed` aggregates every device, so a joypad button bound to
+## an action would drive player ONE whenever player TWO pressed it. This repo keeps the
+## pad out of the action map on purpose (`PadController` reads raw per-device state);
+## `Settings.is_rebindable_event` refuses everything that is not a key or a mouse button.
+##
+## ⚠ ESC CANNOT BE BOUND TO ANYTHING, because Esc is how you cancel a capture. It is
+## the one key the picker spends. Pause keeps its shipped Esc binding unless the player
+## deliberately moves it to another key.
+const REBIND_PROMPT: String = "press a key…"
+const REBIND_HINT: String = "tap a key to change it   ·   Esc cancels"
+
 var _pause_layer: CanvasLayer = null
 var _pause_btn: Button = null
 var _quality_btn: Button = null
@@ -182,6 +236,27 @@ var _resume_btn: Button = null
 ## Settings rows are scrollable: the duel knobs pushed the column past the bottom
 ## of a 720p window, and a control you cannot reach is a control you do not have.
 var _settings_scroll: ScrollContainer = null
+## The MAIN column scrolls for the same reason and it is not hypothetical: hosts inject
+## rows here too (`FreePlay` alone adds four, plus the director), and the main page had
+## no scroll at all — it simply grew past the screen.
+var _main_scroll: ScrollContainer = null
+
+## -- the controls / rebinding page --------------------------------------------
+## A THIRD PAGE rather than more rows in Settings, and the reason is the measurement
+## above: twenty binding rows on the end of an already-1195px column is another 400 px
+## of scrolling to reach "Back". It also retires the generated controls CARD, which was
+## one 337-px-wide `Label` in a 320-px panel — it did not clip, it INFLATED the panel to
+## 343 px, which is why the settings card was never the width it was authored at.
+var _controls_center: CenterContainer = null
+var _controls_scroll: ScrollContainer = null
+var _controls_col: VBoxContainer = null
+## action -> the Button showing its key cap, so a rebind or a reset repaints every row
+## without rebuilding the page (a rebuild would drop the scroll position under the
+## player's thumb mid-edit).
+var _rebind_caps: Dictionary = {}
+## The action currently listening for a key, or &"" when nothing is.
+var _rebinding: StringName = &""
+var _rebind_note: Label = null
 
 
 ## Build the overlay. `exit_label` names the exit button (e.g. "Exit to Hub" /
@@ -193,12 +268,20 @@ func build(exit_label: String = "Exit to Hub") -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP  # eat clicks so they don't fall through
 	visible = false
 	var dim := ColorRect.new()
-	dim.color = Color(0.03, 0.03, 0.06, 0.74)
+	# The house scrim, from `HudStyle`, instead of this file's own near-black. It was
+	# `(0.03, 0.03, 0.06, 0.74)` — one of eleven near-blacks the HUD survey found, each
+	# rounded differently, which is most of what "unpolished" actually looks like.
+	dim.color = HudStyle.scrim()
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(dim)
+	# The shipped key map has to be snapshotted before anything can be reset TO it.
+	# `Screen` does this at boot; repeated here because a headless suite or an F6 scene
+	# has no autoloads, and it is idempotent.
+	Settings.capture_input_defaults()
 	_build_main()
 	_build_settings()
+	_build_controls()
 	_build_pause_button()
 	_build_brightness_overlay()
 	# Re-asserted on every build, not only when the row is tapped: a scene change throws
@@ -206,6 +289,18 @@ func build(exit_label: String = "Exit to Hub") -> void:
 	# moment the stored choice becomes visible again.
 	_apply_brightness()
 	_build_director()
+	# Size the cards to whatever screen this actually is. Also re-run on every `open()`
+	# — hosts inject rows AFTER `build()` returns (the duel adds five), so the height
+	# measured here is not the height the player will meet.
+	_fit_panels()
+	# ⚠ AND AGAIN WHENEVER THE WINDOW CHANGES SHAPE. `stretch/aspect="expand"` keeps
+	# 640 wide and grows the HEIGHT on a tall window (and vice versa), so the space a
+	# card has is not a constant even at a fixed base viewport. Guarded because a host
+	# may call `build()` before parenting us.
+	if is_inside_tree():
+		var vp: Viewport = get_viewport()
+		if vp != null and not vp.size_changed.is_connected(_fit_panels):
+			vp.size_changed.connect(_fit_panels)
 
 
 # ------------------------------------------------------------------ director
@@ -436,6 +531,7 @@ func _set_brightness_step(step: int) -> void:
 	var tree: SceneTree = get_tree()
 	if tree != null:
 		tree.root.set_meta(BRIGHTNESS_META, step)
+	Settings.set_v(Settings.S_VIDEO, Settings.K_BRIGHTNESS, step)
 
 
 ## Paint EVERY live overlay, not just the one this menu happens to own. The dedupe in
@@ -484,8 +580,10 @@ func _brightness_label() -> String:
 
 func open() -> void:
 	visible = true
-	_main_center.visible = true
-	_settings_center.visible = false
+	# Always lands on the main page, and `_show_page` also cancels a half-finished
+	# rebind and re-fits the cards — hosts inject rows AFTER `build()` returns, so the
+	# heights measured at build time are not the heights the player meets.
+	_show_page(_main_center)
 	# Refreshed on every open rather than only when tapped: `graphics_quality` is also
 	# reachable from the inspector and from Remote, so a label written once at build
 	# time would start lying the moment anyone touched it there.
@@ -514,23 +612,63 @@ func close() -> void:
 		_pause_layer.visible = Cinematic.shows_chrome()
 
 
+## ═════════════════════════════════════════════════════════ the three pages
+## Every page is the same sandwich: a CenterContainer holding a styled PanelContainer
+## holding a ScrollContainer holding the column. One shape, built once, so the pause
+## menu, the settings and the controls page cannot drift into three different looks —
+## which is precisely what the HUD survey found had happened everywhere else.
+func _build_page(title_text: String, font_size: int) -> Array:
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(center)
+	var panel := PanelContainer.new()
+	# ⚠ `HudStyle.panel()` VERBATIM, THEN TIGHTER MARGINS. The shape (PAPER ground, a
+	# 1px accent rule, a 3px radius) is the one panel the maker has signed off on and is
+	# kept exactly; its 26px side padding is authored for the full-width game-over card
+	# and would eat 52 of a 640-wide screen's 330-px settings column.
+	var box: StyleBoxFlat = HudStyle.panel(HudStyle.with_a(HudStyle.SKY, 0.45))
+	box.content_margin_left = PANEL_PAD
+	box.content_margin_right = PANEL_PAD
+	box.content_margin_top = PANEL_PAD
+	box.content_margin_bottom = PANEL_PAD
+	panel.add_theme_stylebox_override("panel", box)
+	center.add_child(panel)
+	var scroll := ScrollContainer.new()
+	# Horizontal scrolling stays OFF: a settings card that slides sideways under a thumb
+	# is a card whose rows are never where you left them. Everything here is authored to
+	# fit the width instead.
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_style_scrollbar(scroll)
+	panel.add_child(scroll)
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 8)
+	scroll.add_child(col)
+	if title_text != "":
+		var title := Label.new()
+		title.text = title_text
+		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		HudStyle.label(title, font_size, HudStyle.CHALK)
+		col.add_child(title)
+	return [center, scroll, col]
+
+
 func _build_main() -> void:
-	_main_center = CenterContainer.new()
-	_main_center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(_main_center)
-	_main_col = VBoxContainer.new()
-	_main_col.alignment = BoxContainer.ALIGNMENT_CENTER
-	_main_col.add_theme_constant_override("separation", 14)
-	_main_center.add_child(_main_col)
-	var title := Label.new()
-	title.text = "PAUSED"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 40)
-	title.add_theme_color_override("font_color", Color(0.95, 0.96, 1.0))
-	_main_col.add_child(title)
+	# LEAD (20), not the old 40. At a 640x360 base, 40 px of "PAUSED" was a fifth of the
+	# screen's height spent on a word nobody needs to read twice — and it was a seventh
+	# authored font size in a HUD that now has five.
+	var page: Array = _build_page("PAUSED", HudStyle.LEAD)
+	_main_center = page[0] as CenterContainer
+	_main_scroll = page[1] as ScrollContainer
+	_main_col = page[2] as VBoxContainer
+	_main_col.add_theme_constant_override("separation", 8)
 	_main_col.add_child(_menu_button("Resume  (Esc)", func() -> void: resume_requested.emit()))
 	_main_col.add_child(_menu_button("Settings", _open_settings))
 	_exit_btn = _menu_button(_exit_label, func() -> void: exit_requested.emit())
+	# The way OUT is the one row that is not the house blue. It is the only destructive
+	# verb on the page and it should not look like "Resume".
+	_style_button(_exit_btn, HudStyle.EMBER)
 	_main_col.add_child(_exit_btn)
 
 
@@ -563,9 +701,7 @@ func add_action(text: String, cb: Callable) -> Button:
 ## knobs (the duel's difficulty / bot class / learning toggles). Slotted above
 ## "Back", which stays the last row.
 func add_setting_button(text: String, cb: Callable) -> Button:
-	var b: Button = _menu_button(text, cb)
-	b.custom_minimum_size = Vector2(240, 30)
-	b.add_theme_font_size_override("font_size", 14)
+	var b: Button = _settings_row_button(text, cb)
 	_settings_col.add_child(b)
 	_pin_footer()
 	return b
@@ -577,8 +713,9 @@ func add_setting_section(title: String) -> Label:
 	var l := Label.new()
 	l.text = title
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	l.add_theme_font_size_override("font_size", 18)
-	l.add_theme_color_override("font_color", Color(1.0, 0.88, 0.62))
+	# GOLD from the house palette, not this file's own `(1.0, 0.88, 0.62)` — one of the
+	# seven near-identical golds the HUD survey found across seven files.
+	HudStyle.label(l, HudStyle.BODY, HudStyle.GOLD)
 	_settings_col.add_child(l)
 	_pin_footer()
 	return l
@@ -598,97 +735,41 @@ func _pin_footer() -> void:
 
 
 func _build_settings() -> void:
-	_settings_center = CenterContainer.new()
-	_settings_center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# SCROLLED, and now also SIZED — see the SCREEN_MARGIN block for the measurement.
+	# Hosts inject their own rows here (the duel's five knobs) on top of the built-ins.
+	var page: Array = _build_page("SETTINGS", HudStyle.BODY)
+	_settings_center = page[0] as CenterContainer
+	_settings_scroll = page[1] as ScrollContainer
+	_settings_col = page[2] as VBoxContainer
 	_settings_center.visible = false
-	add_child(_settings_center)
-	# SCROLLED. Hosts inject their own rows here (the duel's five knobs), and the
-	# column already ran to the bottom of a 720p window with just the built-ins —
-	# an unreachable control is not a control.
-	_settings_scroll = ScrollContainer.new()
-	_settings_scroll.custom_minimum_size = Vector2(320, 520)
-	_settings_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	_settings_center.add_child(_settings_scroll)
-	_settings_col = VBoxContainer.new()
-	_settings_col.alignment = BoxContainer.ALIGNMENT_CENTER
-	_settings_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_settings_col.add_theme_constant_override("separation", 12)
-	_settings_scroll.add_child(_settings_col)
 
-	var title := Label.new()
-	title.text = "SETTINGS"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 30)
-	_settings_col.add_child(title)
-
-	# Master volume.
-	var vol_label := Label.new()
-	vol_label.text = "Master Volume"
-	vol_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_settings_col.add_child(vol_label)
-	var slider := HSlider.new()
-	slider.min_value = 0.0
-	slider.max_value = 1.0
-	slider.step = 0.01
-	slider.custom_minimum_size = Vector2(240, 20)
-	slider.value = _current_master_linear()
-	slider.value_changed.connect(_on_volume_changed)
-	_settings_col.add_child(slider)
-
+	_settings_col.add_child(_slider_row("Master Volume", 0.0, 1.0, 0.01,
+		_current_master_linear(), _on_volume_changed))
 	# Music volume — drives the dedicated Music bus (independent of Master/SFX).
-	var music_label := Label.new()
-	music_label.text = "Music Volume"
-	music_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_settings_col.add_child(music_label)
-	var music_slider := HSlider.new()
-	music_slider.min_value = 0.0
-	music_slider.max_value = 1.0
-	music_slider.step = 0.01
-	music_slider.custom_minimum_size = Vector2(240, 20)
-	music_slider.value = _current_music_linear()
-	music_slider.value_changed.connect(_on_music_volume_changed)
-	_settings_col.add_child(music_slider)
+	_settings_col.add_child(_slider_row("Music Volume", 0.0, 1.0, 0.01,
+		_current_music_linear(), _on_music_volume_changed))
 	# The "cool option": cycle the current mood's playlist (same as the M key).
-	_settings_col.add_child(_menu_button("Next Track  (M)", func() -> void:
+	_settings_col.add_child(_settings_row_button("Next Track  (M)", func() -> void:
 		var m: Node = get_node_or_null("/root/Music")
 		if m != null and m.has_method("cycle_track"):
 			m.call("cycle_track")))
 
 	# Camera zoom (maker: "we should be able to alter the zoom in the setting").
 	# Slider LEFT = wider view, RIGHT = tighter. Applies live + persists.
-	var zoom_label := Label.new()
-	zoom_label.text = "Camera Zoom"
-	zoom_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_settings_col.add_child(zoom_label)
-	var zoom_slider := HSlider.new()
-	zoom_slider.min_value = 1.0
-	zoom_slider.max_value = 2.6
-	zoom_slider.step = 0.05
-	zoom_slider.custom_minimum_size = Vector2(240, 20)
-	zoom_slider.value = _current_zoom()
-	zoom_slider.value_changed.connect(_on_zoom_changed)
-	_settings_col.add_child(zoom_slider)
+	_settings_col.add_child(_slider_row("Camera Zoom", 1.0, 2.6, 0.05,
+		_current_zoom(), _on_zoom_changed))
 
 	# Screen shake intensity (0 = off) — motion-sensitivity accessibility; drives
 	# Tuning.cfg.shake_scale, which CombatCamera already reads live.
-	var shake_label := Label.new()
-	shake_label.text = "Screen Shake"
-	shake_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_settings_col.add_child(shake_label)
-	var shake_slider := HSlider.new()
-	shake_slider.min_value = 0.0
-	shake_slider.max_value = 1.0
-	shake_slider.step = 0.05
-	shake_slider.custom_minimum_size = Vector2(240, 20)
-	shake_slider.value = _current_shake()
-	shake_slider.value_changed.connect(_on_shake_changed)
-	_settings_col.add_child(shake_slider)
+	_settings_col.add_child(_slider_row("Screen Shake", 0.0, 1.0, 0.05,
+		_current_shake(), _on_shake_changed))
 
 	# Hit-stop toggle — some players dislike the micro-freeze on impacts.
 	var hs_btn := CheckButton.new()
 	hs_btn.text = "Hit-Stop"
 	hs_btn.button_pressed = _current_hit_stop()
 	hs_btn.toggled.connect(_on_hit_stop_toggled)
+	_style_check(hs_btn)
 	_settings_col.add_child(hs_btn)
 
 	# AIM ASSIST. Ships at 0 and 0 is inert — see SpellTargets.assist_aim, which
@@ -697,18 +778,8 @@ func _build_settings() -> void:
 	# reversing the maker's locked no-auto-aim decision, and so the question can be
 	# answered by hand instead of by argument. It bends an aim you already chose by at
 	# most SpellTargets.ASSIST_MAX_DEGREES; it never picks a target.
-	var aim_label := Label.new()
-	aim_label.text = "Aim Assist  (0 = off)"
-	aim_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_settings_col.add_child(aim_label)
-	var aim_slider := HSlider.new()
-	aim_slider.min_value = 0.0
-	aim_slider.max_value = 1.0
-	aim_slider.step = 0.05
-	aim_slider.custom_minimum_size = Vector2(240, 20)
-	aim_slider.value = _current_aim_assist()
-	aim_slider.value_changed.connect(_on_aim_assist_changed)
-	_settings_col.add_child(aim_slider)
+	_settings_col.add_child(_slider_row("Aim Assist  (0 = off)", 0.0, 1.0, 0.05,
+		_current_aim_assist(), _on_aim_assist_changed))
 
 	# ═══════════════════════════════════════════════════════════════ FRIENDLY FIRE
 	# ⚠ THE PLAYER HAD NO SWITCH FOR THE MECHANIC THE GAME IS BUILT AROUND.
@@ -732,13 +803,14 @@ func _build_settings() -> void:
 		+ "off: spells pass through each other — and through the crossfire jokes.")
 	ff_btn.button_pressed = FriendlyFire.enabled()
 	ff_btn.toggled.connect(_on_friendly_fire_toggled)
+	_style_check(ff_btn)
 	_settings_col.add_child(ff_btn)
 	_ff_check = ff_btn
 	_ff_note = Label.new()
 	_ff_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_ff_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_ff_note.custom_minimum_size = Vector2(240, 0)
-	_ff_note.add_theme_font_size_override("font_size", 12)
+	_ff_note.add_theme_font_size_override("font_size", HudStyle.SMALL)
 	_settings_col.add_child(_ff_note)
 	_refresh_friendly_fire()
 
@@ -748,58 +820,51 @@ func _build_settings() -> void:
 	# staying an inspector field: forcing LOW on a desktop renders the PHONE'S PICTURE
 	# without a phone, and no APK has ever been built — so this is currently the only
 	# way to look at what the mobile build will look like.
-	_quality_btn = _menu_button(_quality_label(), _on_quality_pressed)
-	_quality_btn.custom_minimum_size = Vector2(240, 30)
-	_quality_btn.add_theme_font_size_override("font_size", 14)
+	_quality_btn = _settings_row_button(_quality_label(), _on_quality_pressed)
 	_settings_col.add_child(_quality_btn)
 	# Directly under Graphics because the two are one question — "can I see what is
 	# happening" — asked of the renderer and then of the panel it is played on.
-	_brightness_btn = _menu_button(_brightness_label(), _on_brightness_pressed)
-	_brightness_btn.custom_minimum_size = Vector2(240, 30)
-	_brightness_btn.add_theme_font_size_override("font_size", 14)
+	_brightness_btn = _settings_row_button(_brightness_label(), _on_brightness_pressed)
 	_settings_col.add_child(_brightness_btn)
 	# ⚠ FULLSCREEN GETS A ROW *AND* A KEY. Maker: *"this game needs full screen
 	# capabilities"*. F11 is the muscle memory and `Screen` owns it globally, but a
 	# setting that exists only as an unlabelled keybind is a setting most players never
 	# find — and this panel is where they will look. Same cycling-label shape as the
 	# quality and brightness rows above it.
-	_fullscreen_btn = _menu_button(_fullscreen_label(), _on_fullscreen_pressed)
-	_fullscreen_btn.custom_minimum_size = Vector2(240, 30)
-	_fullscreen_btn.add_theme_font_size_override("font_size", 14)
+	_fullscreen_btn = _settings_row_button(_fullscreen_label(), _on_fullscreen_pressed)
 	_settings_col.add_child(_fullscreen_btn)
 	# HOW A PVP FIGHT IS WON. Same cycling-button shape as quality above, and for
 	# the same reason: two states and one label cost one row in a panel that is
 	# already scrolled to reach its bottom on a 720p window.
-	_pvp_btn = _menu_button(_pvp_label(), _on_pvp_pressed)
-	_pvp_btn.custom_minimum_size = Vector2(240, 30)
-	_pvp_btn.add_theme_font_size_override("font_size", 14)
+	_pvp_btn = _settings_row_button(_pvp_label(), _on_pvp_pressed)
 	_settings_col.add_child(_pvp_btn)
 
 	# PERFORMANCE OVERLAY. Lives next to the quality toggle because the two are one
 	# workflow: flip to LOW, watch the frame time. Silently absent when the Perf
 	# autoload is not registered (a headless run, or a build that excluded it).
 	if _perf_overlay() != null:
-		_settings_col.add_child(_menu_button("Performance Overlay", func() -> void:
+		_settings_col.add_child(_settings_row_button("Performance Overlay", func() -> void:
 			var p: Node = _perf_overlay()
 			if p != null and p.has_method("toggle"):
 				p.call("toggle")))
 
-	# Controls reference.
-	var ctrl_title := Label.new()
-	ctrl_title.text = "Controls"
-	ctrl_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	ctrl_title.add_theme_font_size_override("font_size", 18)
-	_settings_col.add_child(ctrl_title)
-	var ctrl := Label.new()
-	ctrl.text = controls_text()
-	ctrl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	ctrl.add_theme_font_size_override("font_size", 13)
-	ctrl.add_theme_color_override("font_color", Color(0.82, 0.86, 0.95))
-	_settings_col.add_child(ctrl)
+	# ⚠ THE CONTROLS CARD IS GONE AND ITS REPLACEMENT IS EDITABLE. It was a single
+	# generated `Label` whose longest line measured 337 px in a panel authored at 320
+	# with `horizontal_scroll_mode` DISABLED and no autowrap — so it did not clip, it
+	# INFLATED the whole settings card to 343 px wide, which is why this panel was never
+	# the width it says it is. (On any viewport narrower than that it would clip
+	# outright, with the right-hand keys simply not drawn.)
+	#
+	# It was also read-only, in a game that had NO key rebinding anywhere — and the
+	# header on `CONTROL_ROWS` had already written down why that was cheap to fix: every
+	# input goes through a named action (D-011), so the letters were always coming out of
+	# `InputMap` at display time. The card is now one row per action with its key on a
+	# button you can press to change it. Same table, same source of truth, one page over.
+	_settings_col.add_child(_settings_row_button("Controls…", _open_controls))
 
 	_build_appearance()
 
-	_back_btn = _menu_button("Back", _close_settings)
+	_back_btn = _settings_row_button("Back", _close_settings)
 	_settings_col.add_child(_back_btn)
 	# ⚠ AND A WAY STRAIGHT BACK INTO THE GAME. Maker: *"pausing should have a resume
 	# button as well when I pause"*. The MAIN page has always had one — but a host that
@@ -811,7 +876,8 @@ func _build_settings() -> void:
 	# It emits the SAME `resume_requested` the main row does rather than closing
 	# anything itself, so the host stays the owner of the actual unpause — see the note
 	# on that signal.
-	_resume_btn = _menu_button("Resume  (Esc)", func() -> void: resume_requested.emit())
+	_resume_btn = _settings_row_button("Resume  (Esc)",
+		func() -> void: resume_requested.emit())
 	_settings_col.add_child(_resume_btn)
 
 
@@ -868,33 +934,19 @@ static func _key_hint(actions: Array) -> String:
 
 ## One InputEvent as the thing printed on a key cap.
 ##
-## ⚠ PHYSICAL KEYCODE FIRST. Every binding in `project.godot` is stored physically so
-## QWERTY and AZERTY players get the same layout (set in M1 and never revisited), which
-## means `keycode` is 0 on all of them and reading it would print nothing at all.
+## ⚠ THE IMPLEMENTATION MOVED TO `Settings.event_label` AND THIS IS NOW A FORWARDER,
+## because the rebinding page needs the identical answer and two copies of "what is
+## printed on a key cap" is exactly how the printed card and the editable list would
+## start disagreeing. It is kept as a member because `_key_hint` (and therefore the
+## `controls_text()` that `FreePlay.gd` is pointed at) calls it.
 ##
-## `as_text()` is not used at all, though it would be shorter: it DECORATES. A physical
-## key comes back as "A (Physical)" and a mouse button as "Left Mouse Button" — neither
-## fits a card whose whole job is to be scanned.
-##
-## ⚠ GAMEPAD EVENTS RETURN "" ON PURPOSE, which is a real editorial call and not a gap.
-## `project.godot` binds no pad at all; the only joypad events in the map are the ones
-## Godot ships on its built-in `ui_*` actions, so printing them would put "Joypad Button
-## 1 (Bottom Action…)" on the Pause line of a game that cannot be played with a pad. The
-## day a pad is actually bound, this is the function that has to learn about it.
+## The reasoning that used to live here — physical keycode first, because every binding
+## in `project.godot` is stored physically for AZERTY/QWERTZ and `keycode` is 0 on all
+## of them; `as_text()` refused because it DECORATES ("A (Physical)"); pad events
+## returning "" on purpose — is now on `Settings.event_label` and
+## `Settings.is_rebindable_event`, which is where it is load-bearing.
 static func _event_label(ev: InputEvent) -> String:
-	if ev is InputEventKey:
-		var k := ev as InputEventKey
-		var code: int = k.physical_keycode if k.physical_keycode != 0 else k.keycode
-		return OS.get_keycode_string(code) if code != 0 else ""
-	if ev is InputEventMouseButton:
-		match (ev as InputEventMouseButton).button_index:
-			MOUSE_BUTTON_LEFT:
-				return "LMB"
-			MOUSE_BUTTON_RIGHT:
-				return "RMB"
-			MOUSE_BUTTON_MIDDLE:
-				return "MMB"
-	return ""
+	return Settings.event_label(ev)
 
 
 # ---------------------------------------------------------------- appearance
@@ -945,6 +997,7 @@ func _colour_label() -> String:
 func _cycle_colour() -> void:
 	var count: int = maxi(Outfitter.colourways().size(), 1)
 	Outfitter.chosen_colourway = (Outfitter.chosen_colourway + 1) % count
+	Settings.set_v(Settings.S_LOOK, Settings.K_COLOURWAY, Outfitter.chosen_colourway)
 	_sync_colourway()
 	if _colour_btn != null:
 		_colour_btn.text = _colour_label()
@@ -965,36 +1018,411 @@ func _sync_colourway() -> void:
 		hero.call("_cycle_colourway")
 
 
+## ═══════════════════════════════════════════════════════════ page switching
+## Exactly one page is up at a time, and switching goes through here so a page added
+## tomorrow cannot be left visible underneath another one — which is what happens the
+## third time two booleans are flipped by hand in four places.
+func _show_page(which: Control) -> void:
+	_cancel_rebind()
+	for page: Control in [_main_center, _settings_center, _controls_center]:
+		if page != null:
+			page.visible = page == which
+	_fit_panels()
+
+
 func _open_settings() -> void:
-	_main_center.visible = false
-	_settings_center.visible = true
+	_show_page(_settings_center)
 
 
 func _close_settings() -> void:
-	_settings_center.visible = false
-	_main_center.visible = true
+	_show_page(_main_center)
+
+
+func _open_controls() -> void:
+	_refresh_bindings()
+	_show_page(_controls_center)
+
+
+# ══════════════════════════════════════════════════════════ sizing the cards
+## Re-fit every page to the screen this actually is.
+func _fit_panels() -> void:
+	if not is_inside_tree():
+		return
+	var avail: Vector2 = get_viewport_rect().size
+	_fit_one(_main_scroll, _main_col, avail)
+	_fit_one(_settings_scroll, _settings_col, avail)
+	_fit_one(_controls_scroll, _controls_col, avail)
+
+
+## ⚠ THE RULE THAT WAS MISSING: `min(content, screen)`.
+##
+## A `ScrollContainer` inside a `CenterContainer` is handed its MINIMUM size, so the
+## minimum IS the panel — the old hardcoded `Vector2(320, 520)` was a 520-px-tall panel
+## on a 360-px-tall screen, and 160 px of it lived below the bottom edge at every scroll
+## position. See the SCREEN_MARGIN block for the measured before-numbers.
+##
+## Taking the CONTENT height while it is short matters as much as clamping it when it is
+## tall: a fixed height would top-align a four-row main menu inside a full-screen box
+## instead of centring it, which is worse-looking than the bug being fixed.
+##
+## ⚠ AND THE SCROLLBAR EATS WIDTH. A `VScrollBar` appearing takes a slice off the right
+## of the content area, so a card sized to exactly its content hides the last few pixels
+## of every row under the bar the moment it starts scrolling.
+func _fit_one(scroll: ScrollContainer, col: Control, avail: Vector2) -> void:
+	if scroll == null or col == null:
+		return
+	var max_h: float = maxf(avail.y - SCREEN_MARGIN * 2.0 - PANEL_PAD * 2.0, 80.0)
+	var max_w: float = minf(maxf(avail.x - SCREEN_MARGIN * 2.0 - PANEL_PAD * 2.0, 120.0),
+		CARD_MAX_W)
+	var content: Vector2 = col.get_combined_minimum_size()
+	var bar: float = 0.0
+	if content.y > max_h:
+		var vbar: VScrollBar = scroll.get_v_scroll_bar()
+		bar = 12.0 if vbar == null or vbar.size.x <= 0.0 else vbar.size.x
+	scroll.custom_minimum_size = Vector2(
+		clampf(content.x + bar, 0.0, max_w), minf(content.y, max_h))
+
+
+# ══════════════════════════════════════════════════════════════════ the look
+## ⚠ WHY THERE IS A STYLE PASS AT ALL. Every button and every slider in this menu was
+## on the STOCK GODOT THEME — flat grey rectangles — sitting next to a pause button
+## three hundred lines above that this file had already hand-styled with a 15px radius
+## and a 2px border, and directly on top of a game drawn in chalk on near-black paper.
+## Three visual languages on one screen. Maker: *"the game is really ugly and
+## unpolished"*.
+##
+## ⚠ NOTHING NEW IS INVENTED HERE. Every colour comes from `HudStyle`, which is itself a
+## consolidation of colours that already existed in the codebase, and the shapes match
+## the pause button's existing treatment (rounded, bordered, a real pressed state).
+func _style_button(b: Button, accent: Color = HudStyle.SKY) -> void:
+	b.add_theme_font_size_override("font_size", HudStyle.BODY)
+	b.add_theme_color_override("font_color", HudStyle.CHALK)
+	b.add_theme_color_override("font_hover_color", accent)
+	b.add_theme_color_override("font_pressed_color", HudStyle.PAPER)
+	b.add_theme_color_override("font_focus_color", accent)
+	b.add_theme_color_override("font_disabled_color", HudStyle.with_a(HudStyle.GRAPHITE, 0.5))
+	for state: String in ["normal", "hover", "pressed", "focus", "disabled"]:
+		var sb := StyleBoxFlat.new()
+		match state:
+			"pressed":
+				# A tap you cannot see land feels broken — the same reasoning the pause
+				# button's own PRESS state was built on.
+				sb.bg_color = HudStyle.with_a(accent, 0.85)
+				sb.border_color = accent
+			"hover", "focus":
+				sb.bg_color = HudStyle.with_a(accent, 0.16)
+				sb.border_color = HudStyle.with_a(accent, 0.9)
+			"disabled":
+				sb.bg_color = HudStyle.with_a(HudStyle.PAPER, 0.5)
+				sb.border_color = HudStyle.with_a(HudStyle.GRAPHITE, 0.25)
+			_:
+				sb.bg_color = HudStyle.with_a(HudStyle.TRACK, 0.92)
+				sb.border_color = HudStyle.with_a(accent, 0.45)
+		sb.set_border_width_all(1)
+		sb.set_corner_radius_all(3)   # HudStyle.panel()'s radius: one corner, everywhere
+		sb.content_margin_left = 8.0
+		sb.content_margin_right = 8.0
+		b.add_theme_stylebox_override(state, sb)
+
+
+## The track and the filled part of a slider. The grabber texture is left on the theme
+## deliberately: overriding it means shipping an image, and the stock grabber reads
+## correctly once the track behind it stops being a grey slab.
+func _style_slider(s: HSlider) -> void:
+	var track := StyleBoxFlat.new()
+	track.bg_color = HudStyle.TRACK
+	track.border_color = HudStyle.with_a(HudStyle.SKY, 0.35)
+	track.set_border_width_all(1)
+	track.set_corner_radius_all(3)
+	track.content_margin_top = 2.0
+	track.content_margin_bottom = 2.0
+	s.add_theme_stylebox_override("slider", track)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = HudStyle.with_a(HudStyle.SKY, 0.55)
+	fill.set_corner_radius_all(3)
+	s.add_theme_stylebox_override("grabber_area", fill)
+	var fill_hot := StyleBoxFlat.new()
+	fill_hot.bg_color = HudStyle.with_a(HudStyle.AZURE, 0.85)
+	fill_hot.set_corner_radius_all(3)
+	s.add_theme_stylebox_override("grabber_area_highlight", fill_hot)
+
+
+## A CheckButton keeps its stock on/off glyph — that shape is the affordance and
+## redrawing it would be inventing art — but loses the grey slab behind the label.
+func _style_check(c: CheckButton) -> void:
+	c.add_theme_font_size_override("font_size", HudStyle.BODY)
+	c.add_theme_color_override("font_color", HudStyle.CHALK)
+	c.add_theme_color_override("font_hover_color", HudStyle.SKY)
+	c.add_theme_color_override("font_pressed_color", HudStyle.SKY)
+	for state: String in ["normal", "pressed", "hover", "focus", "disabled"]:
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = HudStyle.with_a(HudStyle.TRACK, 0.0 if state == "normal" else 0.7)
+		sb.set_corner_radius_all(3)
+		sb.content_margin_left = 4.0
+		sb.content_margin_right = 4.0
+		c.add_theme_stylebox_override(state, sb)
+
+
+## The scrollbar is part of the card now that the card actually scrolls. Left stock it
+## is a wide grey channel down the right of a chalk-on-paper panel.
+func _style_scrollbar(scroll: ScrollContainer) -> void:
+	var bar: VScrollBar = scroll.get_v_scroll_bar()
+	if bar == null:
+		return
+	var channel := StyleBoxFlat.new()
+	channel.bg_color = HudStyle.with_a(HudStyle.INK, 0.55)
+	channel.set_corner_radius_all(3)
+	channel.content_margin_left = 2.0
+	channel.content_margin_right = 2.0
+	bar.add_theme_stylebox_override("scroll", channel)
+	bar.add_theme_stylebox_override("scroll_focus", channel)
+	for state: String in ["grabber", "grabber_highlight", "grabber_pressed"]:
+		var g := StyleBoxFlat.new()
+		g.bg_color = HudStyle.with_a(HudStyle.SKY,
+			0.45 if state == "grabber" else 0.85)
+		g.set_corner_radius_all(3)
+		bar.add_theme_stylebox_override(state, g)
+
+
+# ══════════════════════════════════════════════════════════════════ row makers
+## A captioned slider as ONE widget. It was five hand-written lines per knob, six knobs
+## over, and the copies had already drifted (every slider was 240x20 except that the
+## captions were plain `Label.new()` with no colour at all, so they rendered in the
+## theme's default white against a menu written in chalk).
+func _slider_row(caption: String, lo: float, hi: float, step: float, value: float,
+		cb: Callable) -> Control:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 1)
+	var l := Label.new()
+	l.text = caption
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	HudStyle.label(l, HudStyle.SMALL, HudStyle.GRAPHITE)
+	box.add_child(l)
+	var s := HSlider.new()
+	s.min_value = lo
+	s.max_value = hi
+	s.step = step
+	s.custom_minimum_size = Vector2(240, 16)
+	s.value = value
+	s.value_changed.connect(cb)
+	_style_slider(s)
+	box.add_child(s)
+	return box
+
+
+## The settings page's row shape. ⚠ EVERY row on that page uses it, including the ones
+## that were left on `_menu_button`: a 220-px "Next Track" stacked between two 240-px
+## rows is exactly the near-miss the eye reads as sloppiness without being able to name
+## it, which is most of what the "ugly and unpolished" note is about.
+func _settings_row_button(text: String, cb: Callable) -> Button:
+	var b: Button = _menu_button(text, cb)
+	b.custom_minimum_size = Vector2(240, 28)
+	return b
 
 
 ## Standard sized menu button wired to a Callable.
 func _menu_button(text: String, cb: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.custom_minimum_size = Vector2(220, 38)
-	b.add_theme_font_size_override("font_size", 17)
+	b.custom_minimum_size = Vector2(220, 30)
 	b.pressed.connect(cb)
+	_style_button(b)
 	return b
+
+
+# ═════════════════════════════════════════════════ the controls / rebind page
+## ⚠ THIS GAME HAD NO KEY REBINDING ANYWHERE, and the reason it was cheap to add is a
+## decision made in Milestone 1 and never revisited: every input goes through a NAMED
+## ACTION (D-011, the mobile-first rule — the touch pad fires the same actions), so the
+## letters were always being read out of `InputMap` at display time. The old controls
+## card already did that. It just could not be pressed.
+##
+## Every row here is DERIVED FROM `CONTROL_ROWS`, the table that already drove the
+## printed card, so the two can never disagree about which verbs exist. An action the
+## map does not carry is dropped rather than shown blank — exactly as `controls_text`
+## drops it, and for the same reason.
+static func rebindable_rows() -> Array:
+	var out: Array = []
+	for row: Array in CONTROL_ROWS:
+		for entry: Array in row:
+			var actions: Array = entry[1] as Array
+			for a: String in actions:
+				if not InputMap.has_action(StringName(a)):
+					continue
+				var label: String = String(entry[0])
+				# An entry naming several actions ("Move" -> move_left + move_right)
+				# needs one ROW each, and they cannot all be called "Move".
+				if actions.size() > 1:
+					label = "%s  %s" % [label, _row_suffix(a)]
+				out.append([StringName(a), label])
+	if InputMap.has_action(&"ui_cancel"):
+		out.append([&"ui_cancel", "Pause"])
+	return out
+
+
+## `move_left` -> "Left", `spell_1` -> "1". The part after the last underscore, which
+## is the only part that distinguishes two rows sharing an entry label.
+static func _row_suffix(action: String) -> String:
+	var parts: PackedStringArray = action.split("_")
+	return parts[parts.size() - 1].capitalize() if parts.size() > 0 else action
+
+
+func _build_controls() -> void:
+	var page: Array = _build_page("CONTROLS", HudStyle.BODY)
+	_controls_center = page[0] as CenterContainer
+	_controls_scroll = page[1] as ScrollContainer
+	_controls_col = page[2] as VBoxContainer
+	_controls_col.add_theme_constant_override("separation", 2)
+	_controls_center.visible = false
+	_rebind_note = Label.new()
+	_rebind_note.text = REBIND_HINT
+	_rebind_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_rebind_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_rebind_note.custom_minimum_size = Vector2(240, 0)
+	HudStyle.label(_rebind_note, HudStyle.SMALL, HudStyle.GRAPHITE)
+	_controls_col.add_child(_rebind_note)
+	for row: Array in rebindable_rows():
+		_controls_col.add_child(_binding_row(row[0] as StringName, String(row[1])))
+	_controls_col.add_child(_settings_row_button("Reset to Defaults", _reset_bindings))
+	_controls_col.add_child(_settings_row_button("Back", _open_settings))
+
+
+## One row: what the verb is called, and a button carrying the key it answers to.
+##
+## ⚠ `clip_text` ON BOTH HALVES. This is the fault that put the old card 337 px wide
+## into a 320-px panel: a `Label` with no autowrap and no clip does not shrink, it
+## pushes its container out. A row that cannot be honest about its width should at
+## least not silently resize the card around it.
+func _binding_row(action: StringName, label: String) -> Control:
+	var line := HBoxContainer.new()
+	line.custom_minimum_size = Vector2(240, 0)
+	line.add_theme_constant_override("separation", 6)
+	var l := Label.new()
+	l.text = label
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	l.clip_text = true
+	HudStyle.label(l, HudStyle.SMALL, HudStyle.GRAPHITE)
+	line.add_child(l)
+	var cap: Button = _menu_button(Settings.binding_label(action),
+		_begin_rebind.bind(action))
+	# ⚠ `.bind`, NOT A LAMBDA. A GDScript lambda captures by VALUE at creation, and a
+	# loop variable captured that way is a class of bug this repo has already paid for.
+	cap.custom_minimum_size = Vector2(96, 24)
+	cap.clip_text = true
+	line.add_child(cap)
+	_rebind_caps[action] = cap
+	return line
+
+
+func _begin_rebind(action: StringName) -> void:
+	_cancel_rebind()
+	_rebinding = action
+	var cap: Button = _rebind_caps.get(action) as Button
+	if is_instance_valid(cap):
+		cap.text = REBIND_PROMPT
+	if _rebind_note != null:
+		_rebind_note.text = "press a key or a mouse button   ·   Esc cancels"
+
+
+func _cancel_rebind() -> void:
+	if _rebinding == &"":
+		return
+	_rebinding = &""
+	_refresh_bindings()
+
+
+## Repaint every cap from the LIVE map rather than from anything remembered here. The
+## director, a reset, and a rebind all move the same map, and a cached label is how a
+## settings screen ends up lying about the game it is a settings screen for.
+func _refresh_bindings() -> void:
+	for action: StringName in _rebind_caps:
+		var cap: Button = _rebind_caps[action] as Button
+		if is_instance_valid(cap):
+			cap.text = Settings.binding_label(action)
+	if _rebind_note != null:
+		_rebind_note.text = REBIND_HINT
+
+
+func _reset_bindings() -> void:
+	Settings.reset_all_bindings()
+	Settings.flush()      # a reset is one deliberate press, not a drag: write it now
+	_rebinding = &""
+	_refresh_bindings()
+
+
+## ⚠ `_input`, NOT `_unhandled_input`, AND ONLY WHILE CAPTURING. The whole job is to
+## take the key BEFORE anything else acts on it — pressing `F` to rebind Melee must not
+## also swing, and pressing `1` must not also cast. Outside a capture this returns on
+## its first line, so nothing about normal input handling moves.
+##
+## ⚠ ESC IS SPENT ON CANCEL and therefore cannot be assigned to anything. That is the
+## universal convention and the alternative is a picker with no way out on a keyboard.
+## Pause keeps its shipped Esc binding; it just cannot be moved BACK onto Esc once moved.
+##
+## ⚠ A PAD EVENT IS REFUSED SILENTLY. `Input.is_action_pressed` aggregates every device,
+## so a joypad button on an action would drive player one whenever player two pressed
+## it — see the note on `Settings.is_rebindable_event`. The capture simply keeps
+## waiting, which is the right feedback: the button did nothing because it cannot.
+func _input(event: InputEvent) -> void:
+	if _rebinding == &"":
+		return
+	var captured: InputEvent = null
+	if event is InputEventKey:
+		var k := event as InputEventKey
+		if not k.pressed or k.echo:
+			return
+		get_viewport().set_input_as_handled()
+		if k.physical_keycode == KEY_ESCAPE or k.keycode == KEY_ESCAPE:
+			_cancel_rebind()
+			return
+		captured = k
+	elif event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if not mb.pressed:
+			return
+		get_viewport().set_input_as_handled()
+		captured = mb
+	else:
+		return
+	if captured == null or not Settings.is_rebindable_event(captured):
+		return
+	var action: StringName = _rebinding
+	_rebinding = &""
+	if not Settings.rebind(action, captured):
+		_refresh_bindings()
+		return
+	_refresh_bindings()
+	# ⚠ A CLASH IS REPORTED, NOT REFUSED. `jump` and `move_up` share W in the SHIPPED
+	# map, so a rule that forbade collisions would forbid the defaults. The player sees
+	# the same cap appear on two rows and is told which ones.
+	var clash: Array[StringName] = Settings.actions_bound_to(captured, action)
+	if not clash.is_empty() and _rebind_note != null:
+		var names: PackedStringArray = []
+		for other: StringName in clash:
+			names.append(String(other))
+		_rebind_note.text = "%s is also: %s" % [Settings.event_label(captured),
+			", ".join(names)]
 
 
 # --------------------------------------------------------------- resume on Esc
 ## PauseMenu is PROCESS_MODE_ALWAYS, so it keeps getting input while the tree is
 ## paused — that's how Esc closes the menu even though the (pausable) host can't
 ## process input while paused. Only acts while the menu is open.
+##
+## ⚠ ON THE CONTROLS PAGE ESC GOES BACK ONE PAGE INSTEAD OF RESUMING. Esc is already
+## the cancel key for a capture on that page, so having the same key ALSO quit the menu
+## from the same screen is the kind of near-miss that reads as a bug. Everywhere else
+## the shipped behaviour is untouched: Esc resumes.
 func _unhandled_input(event: InputEvent) -> void:
 	if not visible:
 		return
 	if event.is_action_pressed("ui_cancel"):
-		resume_requested.emit()
 		get_viewport().set_input_as_handled()
+		if _controls_center != null and _controls_center.visible:
+			_open_settings()
+			return
+		resume_requested.emit()
 
 
 # ------------------------------------------------------------------ audio (master bus)
@@ -1007,32 +1435,34 @@ func _music_bus() -> int:
 
 
 func _current_music_linear() -> float:
-	var idx: int = _music_bus()
-	if idx < 0:
-		return 1.0
-	return clampf(db_to_linear(AudioServer.get_bus_volume_db(idx)), 0.0, 1.0)
+	return Settings.bus_linear("Music")
 
 
+## ⚠ EVERY SETTING WRITER IN THIS FILE NOW HAS THE SAME TWO LINES: apply it live, then
+## record it. Before this, the ONLY setting in the whole project that survived closing
+## the game was fullscreen — volume, music, camera zoom, screenshake, hit-stop, aim
+## assist, friendly fire, graphics quality, brightness and colourway all reset on every
+## launch, because each was written straight into whatever owned it at runtime
+## (`AudioServer`, a `res://` Resource `Tuning.gd` only ever LOADS, `GameState` fields
+## outside the save payload, metadata on the SceneTree root, two class statics).
+##
+## `Settings.set_v` does NOT touch the disk — `HSlider` emits on every pixel of a drag
+## and that would be ~60 file writes a second. It marks dirty; `Screen` flushes once the
+## value has been still for `Settings.FLUSH_DELAY_MSEC`, and immediately on quit or on
+## the app being backgrounded.
 func _on_music_volume_changed(v: float) -> void:
-	var idx: int = _music_bus()
-	if idx < 0:
-		return
-	AudioServer.set_bus_volume_db(idx, linear_to_db(maxf(v, 0.0001)) if v > 0.0 else -80.0)
+	Settings.set_bus_linear("Music", v)
+	Settings.set_v(Settings.S_AUDIO, Settings.K_MUSIC, v)
 
 
 func _current_master_linear() -> float:
-	var idx: int = _master_bus()
-	if idx < 0:
-		return 1.0
-	return clampf(db_to_linear(AudioServer.get_bus_volume_db(idx)), 0.0, 1.0)
+	return Settings.bus_linear("Master")
 
 
 func _on_volume_changed(v: float) -> void:
-	var idx: int = _master_bus()
-	if idx < 0:
-		return
-	# A linear 0 slider = silence; otherwise map to dB.
-	AudioServer.set_bus_volume_db(idx, linear_to_db(maxf(v, 0.0001)) if v > 0.0 else -80.0)
+	# A linear 0 slider = silence; otherwise map to dB. See `Settings.set_bus_linear`.
+	Settings.set_bus_linear("Master", v)
+	Settings.set_v(Settings.S_AUDIO, Settings.K_MASTER, v)
 
 
 # ------------------------------------------------------------------ camera zoom
@@ -1047,10 +1477,20 @@ func _current_zoom() -> float:
 
 
 ## Live-apply the zoom to every combat camera (they persist it to GameState).
+##
+## ⚠ `GameState` IS ALSO WRITTEN DIRECTLY, and that is a fix rather than belt-and-braces.
+## The comment above was true and insufficient: it is the CAMERA that writes
+## `GameState.camera_zoom`, so a zoom set from a screen with no combat camera on it —
+## the lobby, the antechamber, a run summary — moved nothing and was forgotten before
+## the next frame. The camera write is idempotent, so both paths agree.
 func _on_zoom_changed(v: float) -> void:
 	for cam: Node in get_tree().get_nodes_in_group("combat_camera"):
 		if cam.has_method("set_base_zoom"):
 			cam.call("set_base_zoom", v)
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null:
+		gs.set("camera_zoom", v)
+	Settings.set_v(Settings.S_CAMERA, Settings.K_ZOOM, v)
 
 
 ## The Tuning autoload's live config resource (holds shake_scale, hit_stop_enabled).
@@ -1076,6 +1516,7 @@ func _on_shake_changed(v: float) -> void:
 	var cfg: Object = _tuning_cfg()
 	if cfg != null:
 		cfg.set("shake_scale", v)
+	Settings.set_v(Settings.S_FEEL, Settings.K_SHAKE, v)
 
 
 # ------------------------------------------------------------------ aim assist
@@ -1094,6 +1535,7 @@ func _on_aim_assist_changed(v: float) -> void:
 	var cfg: Object = _tuning_cfg()
 	if cfg != null:
 		cfg.set("aim_assist", v)
+	Settings.set_v(Settings.S_FEEL, Settings.K_AIM_ASSIST, v)
 
 
 # ------------------------------------------------------------- friendly fire
@@ -1104,6 +1546,7 @@ func _on_aim_assist_changed(v: float) -> void:
 ## their friend.
 func _on_friendly_fire_toggled(on: bool) -> void:
 	FriendlyFire.set_enabled(on)
+	Settings.set_v(Settings.S_GAME, Settings.K_FRIENDLY_FIRE, on)
 	_refresh_friendly_fire()
 
 
@@ -1151,7 +1594,9 @@ func _on_quality_pressed() -> void:
 		return
 	var v: Variant = cfg.get("graphics_quality")
 	var cur: int = TuningConfig.Quality.AUTO if v == null else int(v)
-	cfg.set("graphics_quality", (cur + 1) % 3)
+	var next: int = (cur + 1) % 3
+	cfg.set("graphics_quality", next)
+	Settings.set_v(Settings.S_VIDEO, Settings.K_QUALITY, next)
 	if _quality_btn != null:
 		_quality_btn.text = _quality_label()
 
@@ -1189,6 +1634,7 @@ func _on_hit_stop_toggled(on: bool) -> void:
 	var cfg: Object = _tuning_cfg()
 	if cfg != null:
 		cfg.set("hit_stop_enabled", on)
+	Settings.set_v(Settings.S_FEEL, Settings.K_HIT_STOP, on)
 
 
 ## ⚠ HEALTH <-> STOCKS. The maker's ask, verbatim: "I like health instead for the
@@ -1205,7 +1651,9 @@ func _on_pvp_pressed() -> void:
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs == null:
 		return
-	gs.set("pvp_rules", 1 - int(gs.get("pvp_rules")))
+	var next: int = 1 - int(gs.get("pvp_rules"))
+	gs.set("pvp_rules", next)
+	Settings.set_v(Settings.S_GAME, Settings.K_PVP_RULES, next)
 	if _pvp_btn != null:
 		_pvp_btn.text = _pvp_label()
 

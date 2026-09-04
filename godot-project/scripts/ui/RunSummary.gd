@@ -47,21 +47,36 @@ extends Control
 ## Built in code, house style (Lobby / ClassSelect / PauseMenu all do this), laid
 ## out for the 640x360 base viewport in LANDSCAPE with every tap target >= 30 px.
 
+const HudStyle := preload("res://scripts/ui/HudStyle.gd")
+
 ## Palette — deliberately the Lobby's, so the ceremony and the title screen read as
 ## the same sketchbook rather than as two different games.
-const PAPER: Color = Color(0.055, 0.052, 0.075)
-const CHALK: Color = Color(0.93, 0.92, 0.86)
-const GRAPHITE: Color = Color(0.62, 0.63, 0.70)
+##
+## ⚠ NOW ALIASED TO `HudStyle` RATHER THAN RE-AUTHORED, and the drift it removes is the
+## exact kind the HUD survey measured: this file stored the conquest gold as
+## `(1.0, 0.82, 0.36)` while `CharacterBars.PCT_WARM` stored `(1.0, 0.82, 0.35)` — two
+## constants in two files for one colour, one channel and one hundredth apart. The names
+## stay because `_Page` and `Arena` refer to them; only the source of the numbers moves.
+const PAPER: Color = HudStyle.PAPER
+const CHALK: Color = HudStyle.CHALK
+const GRAPHITE: Color = HudStyle.GRAPHITE
+## The ruled lines of the page. No palette entry: it is PAPER lifted just far enough to
+## be a line, and it is the only colour on this screen that is a texture rather than a
+## meaning.
 const RULE: Color = Color(0.16, 0.17, 0.23)
 
-const GOLD: Color = Color(1.0, 0.82, 0.36)      # conquered
-const ASH: Color = Color(0.96, 0.42, 0.36)      # rubbed out
-const SLATE: Color = Color(0.66, 0.82, 0.96)    # stepped off alive
+const GOLD: Color = HudStyle.GOLD       # conquered
+const ASH: Color = HudStyle.EMBER       # rubbed out
+const SLATE: Color = HudStyle.SKY       # stepped off alive
 
 const BUTTON_H: float = 30.0
 const PANEL_W: float = 300.0
 ## Room left for the drawn page on the left. Same split as the Lobby's tower.
 const STAT_W: float = 250.0
+## How many element names the "wielded" row prints before it says "+N". Four measured at
+## 124 px against the ~185 px the value half of that row has; five would be marginal and
+## six overflows outright. See `wielded_text`.
+const WIELDED_SHOWN: int = 4
 
 ## The three outcomes, as one enum so the headline, the colour, the line and the
 ## sound cannot disagree about which run this was.
@@ -172,10 +187,7 @@ static func stat_rows(run: Dictionary) -> Array:
 		rows.append(["guardian", "felled"])
 	var elems: Array = run.get("elements_used", [])
 	if not elems.is_empty():
-		var names: Array[String] = []
-		for e in elems:
-			names.append(String(e))
-		rows.append(["wielded", ", ".join(names).to_lower()])
+		rows.append(["wielded", wielded_text(elems)])
 	rows.append(["rank", String(run.get("rank_title", "Nameless"))])
 	var ff: int = int(run.get("friendly_damage", 0))
 	if ff > 0:
@@ -187,6 +199,36 @@ static func stat_rows(run: Dictionary) -> Array:
 	if falls > 0:
 		rows.append(["falls", str(falls)])
 	return rows
+
+
+## The elements you used, SHORT ENOUGH TO FIT THE ROW.
+##
+## ⚠ MEASURED. There are eight elements and the row they land in is `STAT_W` = 250 px
+## wide with the key label ("wielded") taking the left of it, so the value has ~185 px.
+## `tools/probe_settings_panel.gd` printed the join at font 11:
+##
+##     2 elements     39.0 px   fits
+##     4 elements    124.0 px   fits
+##     6 elements    208.0 px   OVERFLOWS
+##     8 elements    272.0 px   OVERFLOWS
+##
+## The `Label` carried no `clip_text` and no `autowrap_mode`, so from six elements on it
+## simply pushed out of its column and over the drawn page beside it.
+##
+## ⚠ WHY A CAP AND NOT AUTOWRAP. Wrapping is the tidier-sounding fix and it is the wrong
+## one here: it makes ONE row two or three rows tall, and this card is asserted to fit
+## 360 px of height with every optional row on (`slice_test_runend`, "the card fits a
+## phone"). A run that used every element would silently push the CLIMB AGAIN button off
+## the bottom of a phone screen — trading a cosmetic overflow for an unreachable button.
+## The count is preserved in the "+N", so nothing about the run is hidden.
+static func wielded_text(elems: Array) -> String:
+	var names: Array[String] = []
+	for e: Variant in elems:
+		names.append(String(e).to_lower())
+	if names.size() <= WIELDED_SHOWN:
+		return ", ".join(names)
+	return "%s +%d" % [", ".join(names.slice(0, WIELDED_SHOWN)),
+		names.size() - WIELDED_SHOWN]
 
 
 # ══════════════════════════════════════════════════════════════════════════ UI
@@ -213,10 +255,13 @@ func _build_ui() -> void:
 	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	head.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	head.custom_minimum_size = Vector2(PANEL_W, 0)
-	head.add_theme_font_size_override("font_size", 26)
+	# TITLE (26) and the outline weight that goes with it, from the house scale — this
+	# was one of five different outline widths (3/4/5/6/7) doing the same job in five
+	# files, which the eye reads as sloppiness long before it can name the difference.
+	head.add_theme_font_size_override("font_size", HudStyle.TITLE)
 	head.add_theme_color_override("font_color", accent)
-	head.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.04, 0.9))
-	head.add_theme_constant_override("outline_size", 6)
+	head.add_theme_color_override("font_outline_color", HudStyle.ink(0.95))
+	head.add_theme_constant_override("outline_size", HudStyle.outline_for(HudStyle.TITLE))
 	right.add_child(head)
 
 	var sub := Label.new()
@@ -269,13 +314,22 @@ func _stat_block(accent: Color) -> Control:
 		var k := Label.new()
 		k.text = String(row[0])
 		k.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		k.add_theme_font_size_override("font_size", 11)
+		k.size_flags_stretch_ratio = 1.0
+		k.clip_text = true
+		k.add_theme_font_size_override("font_size", HudStyle.SMALL)
 		k.add_theme_color_override("font_color", GRAPHITE)
 		line.add_child(k)
 		var v := Label.new()
 		v.text = String(row[1])
 		v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		v.add_theme_font_size_override("font_size", 11)
+		# ⚠ EXPAND + CLIP, as a BACKSTOP behind `wielded_text`'s cap. Without either, a
+		# `Label` that does not fit does not shrink — it pushes its container wider, and
+		# the value ran out over the drawn tower beside it. The cap is what keeps the row
+		# honest; this is what stops any FUTURE long value from moving the layout.
+		v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		v.size_flags_stretch_ratio = 1.9
+		v.clip_text = true
+		v.add_theme_font_size_override("font_size", HudStyle.SMALL)
 		v.add_theme_color_override("font_color", accent if String(row[0]) == "rank" else CHALK)
 		line.add_child(v)
 		box.add_child(line)
@@ -317,6 +371,12 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 # ══════════════════════════════════════════════════════════════════════ helpers
+## ⚠ THESE WERE STOCK-THEME GREY RECTANGLES on a page drawn in chalk on near-black
+## paper — the same fault the pause menu had, and the reason the maker's note was *"the
+## game is really ugly and unpolished"* rather than a complaint about any one screen.
+## The treatment matches `PauseMenu._style_button` exactly (PAPER-side fill, a 1px rule
+## in the page's own accent, a 3px radius, a real pressed state) so the ceremony and the
+## pause menu read as one game. Nothing new is invented: every colour is `HudStyle`.
 func _button(text: String, cb: Callable, font_size: int = 14) -> Button:
 	var b := Button.new()
 	b.text = text
@@ -324,6 +384,25 @@ func _button(text: String, cb: Callable, font_size: int = 14) -> Button:
 	b.add_theme_font_size_override("font_size", font_size)
 	b.focus_mode = Control.FOCUS_NONE   # a stray focus ring on a phone reads as a bug
 	b.pressed.connect(cb)
+	var accent: Color = accent_for(_kind)
+	b.add_theme_color_override("font_color", CHALK)
+	b.add_theme_color_override("font_hover_color", accent)
+	b.add_theme_color_override("font_pressed_color", PAPER)
+	for state: String in ["normal", "hover", "pressed"]:
+		var sb := StyleBoxFlat.new()
+		match state:
+			"pressed":
+				sb.bg_color = HudStyle.with_a(accent, 0.85)
+				sb.border_color = accent
+			"hover":
+				sb.bg_color = HudStyle.with_a(accent, 0.16)
+				sb.border_color = HudStyle.with_a(accent, 0.9)
+			_:
+				sb.bg_color = HudStyle.with_a(HudStyle.TRACK, 0.92)
+				sb.border_color = HudStyle.with_a(accent, 0.45)
+		sb.set_border_width_all(1)
+		sb.set_corner_radius_all(3)
+		b.add_theme_stylebox_override(state, sb)
 	return b
 
 
