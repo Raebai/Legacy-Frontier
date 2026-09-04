@@ -32,7 +32,19 @@ const TOWER_RISE: float = 300.0
 const TOWER_TAPER: float = 0.62      # how much narrower the top is than the base
 ## The step you cross to be taken. Narrower than the spawn offset (54) so standing
 ## still on arrival never triggers it.
-const ENTER_RADIUS: float = 34.0
+## ⚠ THE DOORWAY, NOT A BALL FLOATING IN IT. This was a 34 px circle centred at
+## `-DOOR_H * 0.4` = 75 px above the ground, so its LOWEST point sat 41 px up. A hero
+## standing on the floor is an 18x18 box whose top is 18 px up (`Hero.tscn`), so a
+## walking player passed clean underneath the thing meant to take them and only a JUMP
+## ever reached it. Maker: *"walking into it doesnt take u to the floors only jumping
+## into it"*. Now it is a rectangle filling the doorway from the ground up.
+##
+## ⚠ IT STAYS NARROW ON PURPOSE. `World.PLAYER_SPAWN` is `TOWER_X - 104`, i.e. you
+## arrive 104 px from this door — and the header above explains why a trigger you spawn
+## inside would fire on frame one and you would never see the town at all. Half-width 34
+## plus a hero's 9 px half-width is 43, so the spawn clears it by 61 px.
+const ENTER_W: float = 68.0
+const ENTER_H: float = 120.0
 ## ⚠ SIZED TO REACH THE SPAWN POINT. `World.PLAYER_SPAWN` is `TOWER_X - 54`, on the
 ## doorstep, so the hint is up on the town's FIRST FRAME and leaving costs one key
 ## press and zero steps of walking. Shrinking this re-introduces the walk this
@@ -172,11 +184,14 @@ func _build_threshold() -> void:
 	var step := Area2D.new()
 	step.collision_mask = 1 | 2   # the town body is a Hero (layer 2); see ArmoryStation
 	add_child(step)
+	step.name = "Threshold"
 	var cs := CollisionShape2D.new()
-	var c := CircleShape2D.new()
-	c.radius = ENTER_RADIUS
-	cs.shape = c
-	cs.position = Vector2(0.0, -DOOR_H * 0.4)
+	var box := RectangleShape2D.new()
+	box.size = Vector2(ENTER_W, ENTER_H)
+	cs.shape = box
+	# Sits ON the ground and reaches up: covers a walker, and still covers a jumper
+	# taking the doorway at speed.
+	cs.position = Vector2(0.0, -ENTER_H * 0.5)
 	step.add_child(cs)
 	step.body_entered.connect(func(b: Node) -> void:
 		if b.is_in_group("player") and not _entering:

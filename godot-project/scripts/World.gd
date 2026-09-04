@@ -11,7 +11,7 @@ extends Node2D
 ##   1. **THE TOWN IS THE INTERFACE, NOT A LOBBY YOU WALK TO A MENU INSIDE.** The
 ##      statue IS class select, the rack IS the armory, the lectern IS your three
 ##      spells, the door IS the tower. There is no "open the menu" step anywhere.
-##   2. **YOU SPAWN ON THE DOORSTEP.** `PLAYER_SPAWN` is `TOWER_X - 54` — inside
+##   2. **YOU SPAWN ON THE DOORSTEP.** `PLAYER_SPAWN` is `TOWER_X - 104` — inside
 ##      the door's own proximity ring. The hint is already up on the first frame,
 ##      so the town costs ONE key press to leave and ZERO steps of walking. Every
 ##      station is BEHIND you; you go to them because you want something, never

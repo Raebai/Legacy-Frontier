@@ -61,6 +61,7 @@ const TESTS: Array[String] = [
 	"townsfolk_speak_without_an_llm", "the_llm_stack_is_deleted",
 	"no_town_script_names_ollama", "the_lobby_still_leads_with_climb",
 	"tap_targets_clear_the_floor",
+	"walking_in_reaches_the_threshold",
 ]
 
 var _ran: bool = false
@@ -87,6 +88,7 @@ func _process(_delta: float) -> bool:
 
 
 func _run() -> void:
+	_test_walking_in_reaches_the_threshold()
 	_test_town_scene_builds()
 	_test_spawn_is_on_the_doorstep()
 	_test_you_can_cast_in_the_lobby()
@@ -147,6 +149,54 @@ func _find(from: Node, script_path: String, out: Array) -> void:
 # ---------------------------------------------------------------------------
 # It exists and it stands up
 # ---------------------------------------------------------------------------
+
+## ⚠ TWO CONSTRAINTS THAT PULL AGAINST EACH OTHER, WHICH IS WHY BOTH ARE ASSERTED.
+## The trigger has to reach DOWN far enough that a walking hero enters it — it used to
+## sit 41 px up, above the 18 px top of a standing body, so only a jump ever fired it.
+## And it has to stay NARROW enough that `World.PLAYER_SPAWN` (TOWER_X - 104) is outside
+## it, because you arrive on the doorstep and a trigger you spawn inside teleports you
+## out of the town on frame one. Widen it carelessly to fix the first and you break the
+## second silently — the town would simply never appear.
+##
+## Geometry rather than physics: a headless run has no reliable overlap tick, and the
+## rectangle is the thing that was wrong.
+func _test_walking_in_reaches_the_threshold() -> void:
+	var door: Node2D = (load(DOOR_SCRIPT) as GDScript).new() as Node2D
+	root.add_child(door)
+	var step: Area2D = door.get_node_or_null(^"Threshold") as Area2D
+	_expect(step != null, "the door has a named Threshold trigger")
+	if step == null:
+		return
+	var cs: CollisionShape2D = null
+	for c: Node in step.get_children():
+		if c is CollisionShape2D:
+			cs = c as CollisionShape2D
+			break
+	_expect(cs != null, "the Threshold carries a collision shape")
+	if cs == null:
+		return
+	var box: RectangleShape2D = cs.shape as RectangleShape2D
+	_expect(box != null, "the Threshold is a rectangle filling the doorway")
+	if box == null:
+		return
+	var trigger := Rect2(cs.position - box.size * 0.5, box.size)
+
+	# A hero is an 18x18 box (Hero.tscn) standing with its feet on the ground, so in
+	# door-local space it occupies y -18..0.
+	var standing := Rect2(Vector2(-9.0, -18.0), Vector2(18.0, 18.0))
+	_expect(trigger.intersects(standing),
+		"a WALKING hero must reach the threshold — trigger %s vs standing body %s"
+			% [trigger, standing])
+
+	# The same body, parked where the player actually spawns.
+	var at_spawn := Rect2(Vector2(-104.0 - 9.0, -18.0), Vector2(18.0, 18.0))
+	_expect(not trigger.intersects(at_spawn),
+		"the spawn must be OUTSIDE the threshold or the town is skipped on frame one — "
+			+ "trigger %s vs body at spawn %s" % [trigger, at_spawn])
+
+	door.queue_free()
+	_completes("walking_in_reaches_the_threshold")
+
 
 func _test_town_scene_builds() -> void:
 	# The whole town is built in code by World._ready. If any of it throws, the
