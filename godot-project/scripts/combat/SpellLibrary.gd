@@ -1700,7 +1700,20 @@ static func _blade_flurry() -> SpellDef:
 	s.effect = "shadow"
 	s.mp_cost = 44
 	s.cooldown = 3.0
-	s.damage = 16  # per slash
+	# ⚠ 16 -> 24 PER SLASH, and the arithmetic is the point. Six slashes fan across an
+	# ARC, so a single moving target is caught by two to four of them, not six: the old
+	# number read as 96 on paper and landed as 32-64, against single hits of 52
+	# (Boulder Hurl) and 60 (Chain Lightning) on other classes damage roles. At 24 a
+	# realistic three-slash connect is 72 and a full six is 144 - burst, which is what
+	# an in-and-out assassin is for.
+	#
+	# ⚠ SECOND TIME OF ASKING.  right above went 55 -> 85 the last time
+	# the maker said this class was not strong; that was the signature, this is the
+	# thing you press constantly. UNMEASURED - it is one constant, dial it.
+	#
+	# Shadowblade carries this by default; Swordsaint can swap it in but does not start
+	# with it, so this is not a quiet buff to two classes.
+	s.damage = 24  # per slash, x6 slashes
 	s.count = 6
 	return s
 
