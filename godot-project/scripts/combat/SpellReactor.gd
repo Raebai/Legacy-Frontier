@@ -128,6 +128,94 @@ const MAX_REACTIONS_PER_TICK: int = 2
 ## listen to this; gameplay does not depend on it.
 signal reaction_fired(outcome: String, point: Vector2, a: Node, b: Node)
 
+# ---------------------------------------------------- THE REFUSAL COUNTERS
+## WHY A REACTION DID NOT HAPPEN, counted by REASON, on the same terms as
+## `BotBrain.ult_gate_*` and for the same reason: this repo has already shipped one
+## confident story about a slot that turned out to be wrong (the ult scorer refused
+## 0 of 482 for the named cause). "The table has a row for it" is not evidence the
+## row is ever reached, and a bare zero in a fired-count cannot tell you WHICH of
+## the five stages said no — and the five want completely different fixes:
+##
+##   pair_tests          two live effects were compared at all (the denominator)
+##   gate_bucket_miss    stage 2 — nobody ever wrote a rule for those two FORMS
+##   gate_no_rule        stage 3 — the bucket exists, the row refused the pair
+##                       (element / owner / weight / head-on)
+##   gate_memo           stage 4 — this exact pair already reacted
+##   gate_no_shape       stage 5 — an effect published no geometry at all
+##   gate_no_overlap     stage 5 — they matched a row and never touched
+##   gate_applied        the outcome ran
+##
+## A dead reaction whose pair never even got a `pair_test` is a REGISTRATION
+## problem (nothing was in the system). One dying at `gate_no_rule` is a TABLE
+## problem. One dying at `gate_no_overlap` is a GEOMETRY or a pacing problem —
+## the two spells exist but never share space — and no amount of table editing
+## will move it. Reading a zero without these is guessing.
+##
+## Process-wide and monotonic, like the BotBrain set, and they cannot be switched
+## off — a counter with an off switch is a counter that is missing on the day it is
+## wanted.
+##
+## ⚠ WHAT THEY COST, MEASURED rather than waved at (tools/probe_reaction_cost.gd,
+## at the MAX_LIVE ceiling of 12 effects / 66 pair tests per tick):
+##
+##       no-rule load, counters WITHOUT the silence tally   637 us/tick
+##       no-rule load, counters as shipped                  810 us/tick
+##
+## 173 us of that is `no_rule_pairs`, which is the only one that formats a STRING on
+## the hot path. It is kept because that tally is what produced the whole finding
+## this file's rows were rewritten from — and because 810 us is 4.9% of a 60 fps
+## frame at a ceiling real play never approaches: a real duel averages 0.8-1.2 live
+## effects, i.e. ONE pair test every few ticks. If a future load genuinely sits at
+## twelve live reactants, this tally is the first thing to gate.
+static var pair_tests: int = 0
+static var gate_bucket_miss: int = 0
+static var gate_no_rule: int = 0
+static var gate_memo: int = 0
+static var gate_no_shape: int = 0
+static var gate_no_overlap: int = 0
+static var gate_applied: int = 0
+## outcome -> how many times the TABLE matched it, before geometry was consulted.
+## The gap between this and the fired count is exactly "the row is right and the
+## two spells never touch", which is invisible in every other number here.
+static var rule_matched: Dictionary = {}
+## "FORM Element x FORM Element" -> how many pair tests the table had NOTHING for.
+## THE ACTIONABLE LIST, and the reason it is measured rather than enumerated: the
+## table is silent on dozens of descriptor pairs and most of those two spells never
+## share a floor, so a static sweep of the silences answers "what could be written"
+## while this answers "what the player is actually watching do nothing".
+## Bounded by (6 forms x 8 elements)^2 in theory and by about a dozen entries in
+## practice, because a duel only has two kits in it.
+static var no_rule_pairs: Dictionary = {}
+## "FORM Element" -> how many effects of that description ever entered the registry,
+## and how many 30 Hz ticks they were collectively ACTIVE for. The denominator for
+## every zero above: a reaction between two things that were never both on the floor
+## is not a table failure, and these two numbers are the only way to tell.
+static var registrations: Dictionary = {}
+static var live_ticks: Dictionary = {}
+
+
+## For a harness measuring one run at a time.
+static func reset_gate_stats() -> void:
+	pair_tests = 0
+	gate_bucket_miss = 0
+	gate_no_rule = 0
+	gate_memo = 0
+	gate_no_shape = 0
+	gate_no_overlap = 0
+	gate_applied = 0
+	rule_matched = {}
+	no_rule_pairs = {}
+	registrations = {}
+	live_ticks = {}
+
+
+## Human-readable description of one registered effect, for the tallies above.
+static func describe(form: int, element: int) -> String:
+	const FORMS: Array[String] = ["BEAM", "BARRIER", "FIELD", "PROJECTILE", "IMPACT", "AURA"]
+	var f: String = FORMS[form] if form >= 0 and form < FORMS.size() else "?"
+	return "%s %s" % [f, Elements.display_name(element)]
+
+
 ## Test seam: false = match and memoize as normal but spawn no spectacle node.
 ## Lets the reactor's DETECTION be proven without a 1.6 s Hollow Purple and a
 ## camera it has no business touching inside a headless suite.
@@ -205,10 +293,15 @@ func register(node: Node, form: int, element: int) -> void:
 		_sweep_invalid()
 		if _live.size() >= MAX_LIVE:
 			return  # over budget: this effect simply does not react
+	# Built ONCE per registration and carried on the entry. The per-tick `live_ticks`
+	# tally is then a dictionary bump rather than a string format 30 times a second
+	# per live effect, which is the difference between a diagnostic and a cost.
+	var tag: String = describe(form, element)
 	_live.append({
 		"node": node, "form": form, "element": element,
-		"weight": _weight_of(node), "id": id,
+		"weight": _weight_of(node), "id": id, "tag": tag,
 	})
+	registrations[tag] = int(registrations.get(tag, 0)) + 1
 
 
 ## Remove an effect (its `_exit_tree`, or the moment it is consumed). Safe to
@@ -395,6 +488,8 @@ func resolve_now() -> int:
 		# read the result. Keeping it out of the pair loop is the whole reason
 		# this sits in the activity sweep rather than next to the rule lookup.
 		e["weight"] = _weight_of(n)
+		var tag: String = String(e.get("tag", ""))
+		live_ticks[tag] = int(live_ticks.get(tag, 0)) + 1
 		active.append(e)
 	if active.size() < 2:
 		return 0
@@ -406,8 +501,10 @@ func resolve_now() -> int:
 				return fired
 			var a: Dictionary = active[i]
 			var b: Dictionary = active[j]
+			pair_tests += 1
 			# Stage 2 — sparse-matrix gate. Most pairs die here.
 			if not _buckets.has(ReactionTable.bucket_key(int(a["form"]), int(b["form"]))):
+				gate_bucket_miss += 1
 				continue
 			# Stage 3 — the authored predicate, ownership included.
 			var rel: String = _owner_relation(a["node"], b["node"])
@@ -416,19 +513,29 @@ func resolve_now() -> int:
 					rel, int(a["weight"]), int(b["weight"]),
 					_heading_of(a["node"]), _heading_of(b["node"]))
 			if rule.is_empty():
+				gate_no_rule += 1
+				var silence: String = "%s x %s [%s]" % [
+					String(a.get("tag", "?")), String(b.get("tag", "?")), rel]
+				no_rule_pairs[silence] = int(no_rule_pairs.get(silence, 0)) + 1
 				continue
+			var outcome: String = String(rule["outcome"])
+			rule_matched[outcome] = int(rule_matched.get(outcome, 0)) + 1
 			# Stage 4 — one crossing fires once.
-			var key: String = _memo_key(int(a["id"]), int(b["id"]), String(rule["outcome"]))
+			var key: String = _memo_key(int(a["id"]), int(b["id"]), outcome)
 			if _memo.has(key):
+				gate_memo += 1
 				continue
 			# Stage 5 — geometry, last and only for pairs that got this far.
 			var sa: Dictionary = _shape_of(a, shapes)
 			var sb: Dictionary = _shape_of(b, shapes)
 			if sa.is_empty() or sb.is_empty():
+				gate_no_shape += 1
 				continue
 			if not SpellGeometry.overlaps(sa, sb):
+				gate_no_overlap += 1
 				continue
 			if _fire(rule, a, b, sa, sb, rel):
+				gate_applied += 1
 				_memo[key] = true
 				fired += 1
 	return fired

@@ -354,6 +354,12 @@ static func _contest_spectacle(ctx: Dictionary, spent: int) -> void:
 		return
 	var p: Vector2 = ctx.get("point", Vector2.ZERO)
 	var scale: float = 1.0 if spent >= 2 else CONTEST_ONE_SIDED_SCALE
+	# ⚠ THE WEIGHT FAMILY IS WHERE THE READ MATTERS MOST, because it is the family
+	# that actually fires: over 36 measured bot bouts `bolt_fizzle` and
+	# `barrier_blocks` were two of the six outcomes that ever happened, and both
+	# land here. A blended dot spray is the whole picture a player gets for six
+	# different reactions — see `_element_read`.
+	_element_read(ctx, p, _rule_radius(ctx) * scale)
 	# The two elements meeting, blended — a fire/lightning clash should not look
 	# like a fire/lightning clash's neighbour. No new palette to maintain.
 	var mix: Color = _element_color(int(ctx.get("element_a", -1))).lerp(
@@ -522,8 +528,85 @@ static func _rule_damage(ctx: Dictionary) -> int:
 	return int((ctx.get("rule", {}) as Dictionary).get("damage", 0))
 
 
+# ------------------------------------------------------------- THE READ
+## HOW BIG THE ELEMENT SIGNATURES ARE relative to the reaction's own radius. Under
+## half, because two signatures plus the blended spray at full size is a wash: the
+## spray says "they met", the signatures say "these two met", and the second read
+## only survives if it sits INSIDE the first.
+const READ_SIZE_FRAC: float = 0.5
+## Floor and ceiling on that size. The floor keeps a 46 px bolt-pop legible; the
+## ceiling stops a 190 px annihilation from asking FlameBurst for a plume the
+## height of the arena (and, above 40, from layering a `Vfx.explosion` scaled off
+## the same number).
+const READ_SIZE_MIN: float = 26.0
+const READ_SIZE_MAX: float = 96.0
+## How far apart the two signatures are placed, as a fraction of the radius. They
+## are pulled toward their OWN side's shape, so the picture says which element came
+## from where — the same directional read `_prism_burst` builds by hand.
+const READ_SPLIT_FRAC: float = 0.22
+
+
+## THE ELEMENT READ, and the gap it closes.
+##
+## Every reaction in this file drew exactly one thing: `CombatVfx.spawn_burst` with
+## a colour that is the LERP OF THE TWO ELEMENTS. So fire meeting ice and shadow
+## meeting earth were the same event in a different hue — and a lerp of two hues is
+## frequently a third colour that belongs to neither of them (fire orange into ice
+## cyan reads as a dull grey-white). The maker's ask is that spells interact
+## *"based on what works"*, which a player can only learn if they can SEE which two
+## things just interacted. A reaction that fires invisibly is a reaction that did
+## not fire.
+##
+## `ElementFx` already draws every element's own signature — flame plume, crystal
+## shards and a frost ring, branching arcs, inky tendrils, a rune sigil, stone
+## chunks and dust, radiant rays, wisp streaks — and its own header argues exactly
+## the case this needs: *"this node is the ELEMENT READ ... it is information, not
+## garnish"*. It was used by eleven spell impacts and by NO reaction at all.
+##
+## So this is not a new VFX system; it is the existing one pointed at the one place
+## in combat that most needed it. Two spawns, both under `ElementFx`'s own hard
+## live cap, on an event that fires well under once per bout.
+static func _element_read(ctx: Dictionary, at: Vector2, radius: float) -> void:
+	# ONCE PER REACTION, and this guard is load-bearing rather than defensive:
+	# `_prism_burst` calls `_flash` TWICE (one directional spray per side), so
+	# without it the one outcome whose entire identity is "two colours thrown apart"
+	# would draw four signatures on top of two. `ctx` is a Dictionary and therefore
+	# passed by reference, so the flag reaches the second call.
+	if bool(ctx.get("_read_done", false)):
+		return
+	ctx["_read_done"] = true
+	var host: Node = _stage_parent(ctx)
+	if host == null:
+		return
+	var ea: int = int(ctx.get("element_a", -1))
+	var eb: int = int(ctx.get("element_b", -1))
+	var size: float = clampf(radius * READ_SIZE_FRAC, READ_SIZE_MIN, READ_SIZE_MAX)
+	# Same element on both sides is ONE signature, not two stacked in the same
+	# place. `beam_resonance` and `field_merge` are both same-element by predicate,
+	# and drawing their signature twice would only make it brighter, not clearer.
+	if ea == eb or ea < 0 or eb < 0:
+		ElementFx.spawn(host, at, ea if ea >= 0 else eb, size)
+		return
+	# Pull each signature toward its own side so the two are readable side by side
+	# and the picture says which came from where. A side with no usable shape falls
+	# back to the meeting point, which degrades to "both drawn on top of each other"
+	# — still two signatures, just not separated.
+	var ca: Vector2 = _shape_center(_shape_at(ctx, 0), at)
+	var cb: Vector2 = _shape_center(_shape_at(ctx, 1), at)
+	var axis: Vector2 = cb - ca
+	var off: Vector2 = Vector2.ZERO
+	if axis.length_squared() > EPS_SQ:
+		off = axis.normalized() * (radius * READ_SPLIT_FRAC)
+	ElementFx.spawn(host, at - off, ea, size)
+	ElementFx.spawn(host, at + off, eb, size)
+
+
 ## One burst, tinted by the two elements meeting, honouring `spawn_effects`.
 ## Sized off the reaction's own radius so the picture and the damage agree.
+##
+## ⚠ THE BLENDED SPRAY IS NOT THE READ — see `_element_read`, which this now calls.
+## The spray is the "something happened here" beat and it is kept; the signatures
+## are the "these two things happened here" beat and they are what was missing.
 static func _flash(ctx: Dictionary, at: Vector2, radius: float, count: int,
 		life: float, dir: Vector2 = Vector2.ZERO, spread: float = 180.0,
 		additive: bool = true) -> void:
@@ -532,6 +615,7 @@ static func _flash(ctx: Dictionary, at: Vector2, radius: float, count: int,
 	var host: Node = _stage_parent(ctx)
 	if host == null:
 		return
+	_element_read(ctx, at, radius)
 	var mix: Color = _element_color(int(ctx.get("element_a", -1))).lerp(
 		_element_color(int(ctx.get("element_b", -1))), 0.5)
 	# Particle speed is derived from the radius so the spray reaches the edge of
@@ -746,12 +830,28 @@ static func _supercharge(ctx: Dictionary) -> bool:
 	var r: float = _shape_reach(fshape, _rule_radius(ctx))
 	# The ailment is the BEAM's (shock), not the field's: the field is the
 	# conductor, the lightning is what reaches you.
-	_radial(ctx, at, r, _rule_damage(ctx), _element_at(ctx, _caller_side(ctx, 0)))
+	var attacker: int = _caller_side(ctx, 0)
+	_radial(ctx, at, r, _rule_damage(ctx), _element_at(ctx, attacker))
 	_flash(ctx, at, r, 46, 0.34)
 	if bool(ctx.get("spawn_effects", true)):
-		Juice.hit_stop(MINOR_HITSTOP)
-		Juice.shake_camera(MINOR_SHAKE)
-		_reaction_sfx("supercharge", 1.0, 0.0)
+		# ⚠ THE BEAT IS SIZED BY WHAT WAS COMMITTED, and that is not decoration — it
+		# is what keeps the PROJECTILE arm shippable. A beam or a blast conducting
+		# into a field is a once-a-fight moment and earns a freeze; a BOLT is thrown
+		# two to four times a second, and 50 ms of hit-stop at that rate is 15% of the
+		# fight spent frozen. So a QUICK attacker gets the flash, the damage and the
+		# sound with no hit-stop and half the kick. `weight_a`/`weight_b` are in ctx
+		# precisely so an outcome can scale itself by the clash it was in rather than
+		# asking the nodes again.
+		var heavy: bool = int(ctx.get("weight_b" if attacker == 1 else "weight_a",
+			SpellTier.DEFAULT_WEIGHT)) > SpellTier.Tier.QUICK
+		if heavy:
+			Juice.hit_stop(MINOR_HITSTOP)
+		Juice.shake_camera(MINOR_SHAKE if heavy else MINOR_SHAKE * 0.5)
+		_reaction_sfx("supercharge", 1.0 if heavy else -3.0, 0.0)
+	# Spends only what the winning ROW named — nothing at all for the beam and blast
+	# arms, and the bolt for the projectile arm, which is what stops one caster
+	# stacking three area shocks a second on a standing field. See that row.
+	_spend(ctx)
 	return true
 
 

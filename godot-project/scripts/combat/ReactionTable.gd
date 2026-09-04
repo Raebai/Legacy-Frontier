@@ -380,6 +380,58 @@ static func rules() -> Array:
 			"elements_a": [E.LIGHTNING], "elements_b": [E.ICE],
 			"priority": 73, "damage": 55,
 		}),
+		# ══ ...AND THE ARM ON THE SHAPE LIGHTNING ACTUALLY TAKES ════════════
+		# LIGHTNING INTO FROST, THROWN. The two rows above are authored for a
+		# LIGHTNING beam and a LIGHTNING blast. A beam is impossible — the
+		# Stormcaller's chain, its thunderclap and its Heaven's Wrath all build
+		# spectacles that never register at all, so no lightning BEAM exists. A
+		# lightning BLAST is possible (the Q carries the class element) and is on a
+		# cooldown; MEASURED over 36 real bot bouts with tools/probe_reaction_count.gd,
+		# it did not register ONCE. What did, 12 times and for 9.8 s of live reactor
+		# ticks — the most-live projectile on the board — was the basic cast.
+		#
+		# So `supercharge`, the reaction `tools/botmatch_sim.gd` names in its own
+		# comments as the POINT of the STORMCALLER vs CRYOMANCER matchup, fired ZERO
+		# times: its two rows were written for the two shapes lightning almost never
+		# takes and not for the one it takes constantly.
+		#
+		# The set-up is the one a player guesses before being told, and it is in ONE
+		# hand: the Stormcaller carries the Blizzard in its control slot and throws
+		# lightning all fight. Drop the field, shoot through it.
+		#
+		# ⚠ THIS DOES NOT BREAK THE "a field is answered by things that FILL a volume,
+		# never by things that merely PASS THROUGH it" RULING further down. That
+		# ruling exists to stop a free, spammable basic cast DELETING a heavy control
+		# spell, and it is kept in full: nothing here consumes the field. The ice is
+		# the CONDUCTOR, not the victim — it keeps standing, and the only thing spent
+		# is the bolt.
+		#
+		# ⚠ `consumes_a` IS THE RATE LIMITER, AND IT IS ALSO THE PICTURE. Cast
+		# cooldowns run 0.22-0.45 s, so an un-spent bolt arm would let one caster
+		# stack three area zaps a second onto a field that stands for seconds — the
+		# highest-traffic reactant in the game multiplied by the longest-lived one.
+		# Spending the bolt caps it at one payoff per shot, and "the bolt earths
+		# itself into the ice and discharges" is what it should look like anyway. The
+		# trade is then honest: you convert a single-target shot into an area shock
+		# and you give up the shot.
+		#
+		# ⚠ DAMAGE 14, AND THE NUMBER IS DECIDED BY ARITHMETIC RATHER THAN BY FEEL.
+		# `Spell.damage` is 18, so the bolt you are giving up is worth 18 to ONE body.
+		# The first draft of this row paid 26, which made shooting into your own
+		# blizzard a straight 44% damage increase with an area and a free shock
+		# ailment on top — a strictly dominant play, i.e. not a decision. 14 makes it
+		# an actual trade: a LOSS against a single target you were already hitting,
+		# and a win the moment there are two of them, or when the shock is what you
+		# wanted. Against the beam and blast arms' 55, for the same reason a channel
+		# and a detonation are commitments and a bolt is not.
+		# UNTESTED: 14 is arithmetic against 18, not a played number.
+		#
+		# Priority 71 keeps the family ladder reading beam (75) > blast (73) > bolt
+		# (71); three buckets, so they never actually compete.
+		_rule("supercharge", Form.PROJECTILE, Form.FIELD, {
+			"elements_a": [E.LIGHTNING], "elements_b": [E.ICE],
+			"priority": 71, "consumes_a": true, "damage": 14,
+		}),
 		# ── HOLY vs SHADOW ─────────────────────────────────────────────────────
 		# The maker named this pair specifically, and the answer it wanted is NOT
 		# another clash. Everything else in this table meets and detonates: two
@@ -423,6 +475,51 @@ static func rules() -> Array:
 		_rule("banish", Form.IMPACT, Form.FIELD, {
 			"elements_a": [E.HOLY], "elements_b": [E.SHADOW],
 			"priority": 79, "consumes_b": true, "damage": 34,
+		}),
+		# ══ ...AND TWO MORE SHAPES HOLY ACTUALLY TAKES ═══════════════════════
+		# The block above promises that "a player who has seen one holy/shadow meeting
+		# can predict the rest without being told". MEASURED over 36 real bot bouts
+		# (tools/probe_reaction_count.gd), the promise was not kept once: `banish`
+		# fired ZERO times. CLERIC vs WARLOCK is the matchup `tools/botmatch_sim.gd`
+		# labels, in its own comments, "holy against shadow: banish".
+		#
+		# ⚠ THE HONEST VERSION OF WHY, because the obvious story is wrong. A holy BEAM
+		# genuinely cannot happen — Radiant Volley, Judgment and Heaven's Verdict all
+		# build spectacles that never register — but a holy IMPACT CAN: the Cleric's Q
+		# blast carries the class element, so the `banish` IMPACT rows are reachable on
+		# paper. Over those 36 bouts it never registered as one. What holy DID enter
+		# the reactor as was a BARRIER (the ward), a FIELD, and a PROJECTILE (the basic
+		# cast) — and of the three only the projectile is ruled out on purpose. So
+		# these two rows are not resurrecting something dead by construction; they put
+		# the pair on the two shapes holy holds for SECONDS at a time rather than only
+		# on the one it flashes for a frame.
+		#
+		# ⚠ BOTH OF THESE OBEY THE "a field is answered by things that FILL a volume,
+		# never by things that merely PASS THROUGH it" RULE — better than the rows
+		# above them do, in fact. A ward is a standing volume of light and a
+		# consecrated field is literally one; neither is a point crossing the dark.
+		# That is also why there is still NO projectile twin: a holy basic cast is free
+		# and spammable, and the rule is there to stop a free cast erasing a HEAVY
+		# control spell on repeat.
+		#
+		# 77 and 76 continue the family's ladder (beam 81 > blast 79 > field 77 >
+		# ward 76) purely so it reads in order. They are separate buckets and never
+		# compete; what does matter is that 77 sits above `field_merge` (50), which is
+		# the only other row in FIELD x FIELD, and that neither can be swallowed by
+		# `void_charged` (70), which lives in a different bucket entirely.
+		_rule("banish", Form.FIELD, Form.FIELD, {
+			"elements_a": [E.HOLY], "elements_b": [E.SHADOW],
+			"priority": 77, "consumes_b": true, "damage": 34,
+		}),
+		# ...and the ward. ⚠ THE ONE ROW HERE THAT IS NOT SYMMETRICAL WITH ITS
+		# NEIGHBOURS: it spends the FIELD and leaves the ward standing, un-degraded,
+		# because the ward's charges are spent by things it ABSORBS (see ward_absorb)
+		# and a void field is not something it absorbed — it is something that could
+		# not exist where the light is. Opening the BARRIER x FIELD bucket, which had
+		# no rows at all, so nothing can be stolen from.
+		_rule("banish", Form.BARRIER, Form.FIELD, {
+			"elements_a": [E.HOLY], "elements_b": [E.SHADOW],
+			"priority": 76, "consumes_b": true, "damage": 34,
 		}),
 		# Anything detonating inside a void field is void-charged: the knockback
 		# inverts into a pull. Wildcard on the attacking side, which is why `banish`
@@ -636,6 +733,56 @@ static func rules() -> Array:
 	]
 
 
+# ------------------------------------------------- THE AUTHORED TABLE, INDEXED
+## `bucket_key` -> the authored rows in that bucket, built ONCE and never mutated.
+##
+## MEASURED, because "the common case is free" was the claim and it was not true.
+## `tools/probe_reaction_cost.gd` drives `SpellReactor.resolve_now` at the
+## reactor's own `MAX_LIVE` ceiling — 12 effects, 66 pair tests a tick:
+##
+##       load          before        after      of a 60 fps frame
+##       bucket-miss    2772 us/tick    261 us/tick   16.6% -> 1.6%
+##       no-rule       12257 us/tick    810 us/tick   73.5% -> 4.9%
+##       overlap       12529 us/tick    963 us/tick   75.2% -> 5.8%
+##
+## The gate counters come out identical across the change (132,066 pair tests, the
+## same bucket-miss / no-rule / memo / applied split), which is what says this is a
+## speed-up and not a behaviour change. The remainder of the "after" column is
+## dominated by `SpellReactor`'s own diagnostic tallies, not by this lookup.
+##
+## 12.3 ms is 74% of a 60 fps frame, spent by a system whose header says the
+## common case is free. The cause is one line: `match_rule` called `rules()` —
+## which CONSTRUCTS all 21 authored dictionaries — once per pair test, kept the
+## handful in its bucket and threw the rest away. 66 pairs x 21 dictionaries is
+## 1,386 dictionary allocations per tick, 41,580 a second, to answer questions
+## about a table that never changes.
+##
+## ⚠ IT WAS NOT VISIBLE IN PLAY, AND THAT IS THE TRAP. The registry averages ~1
+## live effect in a real duel (measured over 36 bouts), so today the loop runs
+## almost never and the cost is invisible. It becomes real the moment more
+## spectacles register — which is exactly the fix this whole pass recommends. So
+## the optimisation is not tidying; it is the thing that has to land BEFORE the
+## registration work, or the reward for adding reactants is a frame-rate cliff.
+##
+## `rules()` itself is deliberately LEFT ALONE and still builds fresh rows. It is
+## the authoring surface every test reads, it is called once per boot by
+## `SpellReactor._ready`, and a caller that mutates what it gets back must not be
+## able to corrupt the live table.
+static var _BUCKETS: Dictionary = {}
+
+
+## The authored rows for one bucket. Built on first ask; the table is authored
+## constants, so there is nothing that could invalidate it.
+static func _bucket(key: int) -> Array:
+	if _BUCKETS.is_empty():
+		for r: Dictionary in rules():
+			var k: int = bucket_key(int(r["form_a"]), int(r["form_b"]))
+			if not _BUCKETS.has(k):
+				_BUCKETS[k] = []
+			(_BUCKETS[k] as Array).append(r)
+	return _BUCKETS.get(key, []) as Array
+
+
 ## Best matching rule for a pair of live effects, or {} when they simply coexist.
 ## `a` and `b` are {form, element} descriptors. Both orderings are tried, so a
 ## rule written fire-beam-vs-ice-wall also fires when the wall is seen first.
@@ -664,9 +811,11 @@ static func match_rule(form_a: int, element_a: int, form_b: int, element_b: int,
 		heading_b: Vector2 = Vector2.ZERO) -> Dictionary:
 	var key: int = bucket_key(form_a, form_b)
 	var best: Dictionary = {}
-	for r: Dictionary in rules():
-		if bucket_key(int(r["form_a"]), int(r["form_b"])) != key:
-			continue
+	var best_swapped: bool = false
+	# ⚠ `_bucket(key)`, NOT `rules()`. The old loop called `rules()` — which BUILDS
+	# all 21 authored dictionaries from scratch — once per pair test, then threw
+	# twenty of them away. See the header block on `_BUCKETS` for the measurement.
+	for r: Dictionary in _bucket(key):
 		var swapped: bool = false
 		if _sides_match(r, form_a, element_a, form_b, element_b, owner_rel,
 				weight_a, weight_b, heading_a, heading_b):
@@ -677,13 +826,23 @@ static func match_rule(form_a: int, element_a: int, form_b: int, element_b: int,
 		else:
 			continue
 		if best.is_empty() or int(r["priority"]) > int(best["priority"]):
-			# Safe to write into: rules() builds fresh dictionaries on every call,
-			# so there is no shared authored row to corrupt.
-			r["swapped"] = swapped
 			best = r
-	if not best.is_empty() and bool(best.get("suppress", false)):
+			best_swapped = swapped
+	if best.is_empty():
+		return best
+	if bool(best.get("suppress", false)):
 		return {}
-	return best
+	# ⚠ COPY BEFORE STAMPING. The rows in `_BUCKETS` are the shared authored table
+	# now, so writing `swapped` into the winner in place would leave the NEXT
+	# lookup of that row carrying the last caller's orientation — and
+	# `consumes_caller` reads exactly that flag to decide which side gets eaten.
+	# The bug would be a spell surviving something that should have consumed it,
+	# intermittently, depending on which way round the previous pair matched.
+	# A shallow duplicate is enough: nothing downstream mutates the row, and the
+	# only reference fields are the two element arrays, which are read-only.
+	var out: Dictionary = best.duplicate()
+	out["swapped"] = best_swapped
+	return out
 
 
 ## Does the winning rule spend the CALLER's side 0 (`a`) or side 1 (`b`)?
