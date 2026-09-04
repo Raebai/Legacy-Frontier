@@ -1135,6 +1135,13 @@ func _setup_heroes() -> void:
 		var h: Node = load("res://scenes/combat/Hero.tscn").instantiate()
 		(h as Node2D).position = DEFAULT_HERO_START
 		_heroes_root.add_child(h)
+		# SAME-SCREEN CO-OP lives on the OFFLINE branch only. A networked session
+		# already spawns one hero per peer above, and stacking a local joiner on top of
+		# that would put a body in the room the other machine has never heard of.
+		var coop := LocalCoop.new()
+		coop.name = "LocalCoop"
+		add_child(coop)
+		coop.setup(_heroes_root, DEFAULT_HERO_START)
 
 
 func _spawn_all_heroes(tag: String = "arena") -> void:

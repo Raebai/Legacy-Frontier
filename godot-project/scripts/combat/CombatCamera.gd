@@ -375,6 +375,26 @@ func _frame_group_update(delta: float) -> void:
 	var mn: Vector2 = hero_pos
 	var mx: Vector2 = hero_pos
 	var count: int = 1
+	# ⚠ THE OTHER PLAYERS PULL THE FRAME TOO. This solve used to fold in the "enemy"
+	# group and nothing else, which was complete while there was only ever one hero: the
+	# camera hangs off its own hero, so that hero was the frame by construction. On a
+	# couch that is exactly how player two walks off the side of the screen and stays
+	# there. Heroes are folded in FIRST, on the same footing as enemies.
+	#
+	# ⚠ SOLO IS UNCHANGED, and that is checked rather than hoped: with one hero the
+	# loop body never runs, `focus` is `hero_pos` to the bit, and `count` stays 1 so the
+	# empty-room early-return below still fires exactly when it used to.
+	var focus_sum: Vector2 = hero_pos
+	var focus_n: int = 1
+	for h: Node in get_tree().get_nodes_in_group("hero"):
+		if h == p or not is_instance_valid(h) or not (h is Node2D):
+			continue
+		var hp: Vector2 = (h as Node2D).global_position
+		mn = mn.min(hp)
+		mx = mx.max(hp)
+		count += 1
+		focus_sum += hp
+		focus_n += 1
 	for e: Node in get_tree().get_nodes_in_group("enemy"):
 		if e is Node2D and is_instance_valid(e):
 			var q: Vector2 = (e as Node2D).global_position
@@ -393,7 +413,11 @@ func _frame_group_update(delta: float) -> void:
 	# The bots still pull the frame + drive the auto-zoom, but the hero is weighted
 	# ~55% toward center so you never lose track of who you are.
 	var geo_center: Vector2 = (mn + mx) * 0.5
-	var centroid: Vector2 = hero_pos.lerp(geo_center, HERO_FRAME_BIAS)
+	# The bias pulls toward THE PLAYERS' midpoint, not toward this camera's own hero —
+	# weighting one of two co-op players as "the" focus would shove the other toward the
+	# edge on every spread. With one player the midpoint IS that player.
+	var focus: Vector2 = focus_sum / float(focus_n)
+	var centroid: Vector2 = focus.lerp(geo_center, HERO_FRAME_BIAS)
 	var span: Vector2 = (mx - mn) + FRAME_PAD
 	# ⚠ THE LIVE VIEWPORT, NOT THE HARDCODED ONE. `FRAME_VIEWPORT` is the 640x360 base,
 	# but the project stretches `canvas_items`/`expand`, which means a non-16:9 window

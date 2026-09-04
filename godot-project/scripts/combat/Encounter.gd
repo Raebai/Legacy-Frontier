@@ -866,11 +866,32 @@ func party_size() -> int:
 	# called `run_floor` before the first frame silently lost `_start_wave`.
 	if not is_inside_tree():
 		return 1
-	var net: Node = get_node_or_null(^"/root/Net")
-	if net == null or not net.has_method(&"is_active") or not bool(net.call(&"is_active")):
-		return 1
-	var heroes: int = get_tree().get_nodes_in_group("hero").size()
-	return maxi(heroes, 1)
+	# ⚠ COUNT THE PEOPLE IN THE ROOM, NOT THE NETWORK SESSION. This used to return 1
+	# unless `Net.is_active()`, which was right while the only way to get a second
+	# climber was to dial one in over ENet. Same-screen co-op breaks that assumption:
+	# two people on one couch are two climbers, and if the floor cannot see the second
+	# one then a 2P run is a solo run with a spare pair of hands - same wave budget,
+	# same concurrent cap, same guardian HP, split between two players. Which is EASIER
+	# than solo, not harder. Maker: *"it needs to scale with the amount of players"*.
+	#
+	# ⚠ AND IT COUNTS HUMANS, NOT BODIES. A bot-driven Hero sits in the "hero" group
+	# too, so a bare group count would let a future bot ally inflate the very floor it
+	# was brought along to help with. A Hero is a PLAYER when nothing is driving it
+	# (the keyboard path, and the remote puppets in co-op, both leave `controller`
+	# null) or when whatever drives it says it is a person. `BotController` has no
+	# `is_human`, so it answers no by simply not having the method.
+	var players: int = 0
+	for h: Node in get_tree().get_nodes_in_group("hero"):
+		if not is_instance_valid(h):
+			continue
+		var ctrl: Variant = h.get(&"controller")
+		var human: bool = ctrl == null
+		if not human and ctrl is Object:
+			var o: Object = ctrl as Object
+			human = o.has_method(&"is_human") and bool(o.call(&"is_human"))
+		if human:
+			players += 1
+	return maxi(players, 1)
 
 
 ## Largest-remainder split of `total` across `count` escalating shares (weights
