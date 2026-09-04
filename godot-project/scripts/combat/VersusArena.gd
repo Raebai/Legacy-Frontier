@@ -1112,6 +1112,32 @@ func _stage_theme() -> Object:
 	return gs.call("floor_env", stage_biome_rolled + 1)
 
 
+## SLICE 1 OF THE DESTRUCTIBLE STAGE, BEHIND A FLAG AND OFF BY DEFAULT.
+##
+## On, the five hand-made terrace boxes are replaced by ONE body whose shapes are
+## greedy-merged rectangles re-derived from a 4 px chunk grid — the same rock, described
+## in a form a hit can take a bite out of. Off, `_make_terrace` builds precisely what it
+## has always built and not one pixel of the shipped stage moves.
+##
+## ⚠ IT IS A FLAG BECAUSE THE ONLY HONEST TEST IS A PLAYTEST. The grid reproduces all
+## five walking surfaces exactly and 8 merged rectangles carry what 5 boxes carried
+## (`tools/slice_test_destructible_stage.gd`), and `slice_test_destructible_stage_wired`
+## raycasts the LIVE arena both ways and demands the same landing y. None of that is
+## "it feels the same to walk on" — [[feedback_verify_the_drawn_channel]]. Flip it,
+## play it, then decide whether the old path can go.
+##
+## Set it from a test, or pass it after `--` on the command line:
+##     godot --path godot-project -- --destructible-stage
+static var destructible_stage: bool = false
+
+## The live grid while the flag is on, else null. Slice 2's damage contract writes here.
+var stage: DestructibleStage = null
+
+
+static func _destructible_stage_wanted() -> bool:
+	return destructible_stage or OS.get_cmdline_user_args().has("--destructible-stage")
+
+
 ## The connected rock landscape: a permanent solid collider per terrace + ONE
 ## ArenaTerrain node that draws them all as one realistic layered landmass. The
 ## colliders extend well below their surface + overlap horizontally, so the risers
@@ -1119,8 +1145,11 @@ func _stage_theme() -> Object:
 ## behind the fighters; the colliders carry no visual.
 func _build_terrain() -> void:
 	var rows: Array = active_terraces()
-	for t: Dictionary in rows:
-		_make_terrace(float(t["surface_y"]), float(t["x0"]), float(t["x1"]))
+	if _destructible_stage_wanted():
+		_make_destructible_stage(rows)
+	else:
+		for t: Dictionary in rows:
+			_make_terrace(float(t["surface_y"]), float(t["x0"]), float(t["x1"]))
 	var terrain := ArenaTerrain.new()
 	# ⚠ `assign`, NOT `=`. `ArenaTerrain.terraces` is `Array[Dictionary]`; this used to
 	# be handed the typed const `TERRACES` and matched. `active_terraces()` indexes
@@ -1162,6 +1191,28 @@ static func _layout_index() -> int:
 
 
 static var _layout_rolled: bool = false
+
+
+## THE WHOLE STAGE AS ONE CHUNK-GRIDDED BODY — the flagged alternative to five boxes.
+##
+## It is handed the identical rects `_make_terrace` would have built: `surface_y` as the
+## TOP edge, `TERRACE_DEPTH` of rock below. The grid samples them, and the greedy merge
+## hands back a handful of rectangles covering the same rock.
+##
+## ⚠ THE BODY LIVES UNDER THE STAGE NODE, NOT UNDER THE ARENA. Slice 2 rebuilds it on
+## every hit, and a rebuild that frees its own subtree cannot reach a sibling it did not
+## create. The stage node sits at the origin, so the rects stay world-space.
+func _make_destructible_stage(rows: Array) -> void:
+	var rects: Array[Rect2] = []
+	for t: Dictionary in rows:
+		var x0: float = float(t["x0"])
+		rects.append(Rect2(Vector2(x0, float(t["surface_y"])),
+			Vector2(float(t["x1"]) - x0, TERRACE_DEPTH)))
+	stage = DestructibleStage.new()
+	stage.name = "DestructibleStage"
+	stage.build_from_rects(rects)
+	add_child(stage)
+	stage.rebuild_collision(stage)
 
 
 ## One solid, permanent terrace collider (layer 1). The TOP edge sits exactly on
