@@ -7,6 +7,17 @@ extends Node2D
 
 const GROUP_NAME: String = "floor_decal"
 const MAX_DECALS: int = 60  # session safety cap: oldest decals free past this
+## ⚠ THE CAP IGNORED `graphics_quality`, AND A DECAL IS A PER-FRAME COST FOREVER.
+## Every other pooled effect in this repo caps lower on the phone — `DeathSmudge`
+## has MAX_ALIVE_LOW, `ElementFx` has MAX_ALIVE_LOW, `CombatVfx` thins — but this
+## one did not, and it is the layer whose whole design is ACCUMULATION. A decal
+## draws once and is then RETAINED: its commands are re-submitted to the renderer
+## on every frame for the rest of the session, and a crack is ~28 individually
+## tapered `draw_line`s (the taper is per-segment on purpose; see `_draw_crack`).
+## Sixty of those is a standing bill of roughly 1,700 line primitives a frame that
+## nothing in the fight is looking at any more. 24 keeps the arena visibly wrecked
+## — the point of the system — at 40% of the standing cost.
+const MAX_DECALS_LOW: int = 24
 ## ⚠ FIVE EVENLY-SPACED SPOKES AROUND A PERFECT DISC IS A COMPASS ROSE, NOT A CRACK.
 ## Maker: *"those weird circular cracks in the floor"*. That is this — `_draw_crack`
 ## was the one arm of the two decal systems that never got the ragged treatment the
@@ -107,7 +118,7 @@ static func spawn(
 	decal.z_index = -1
 	parent.add_child(decal)
 	decal.global_position = pos
-	if _alive > MAX_DECALS:
+	if _alive > max_decals():
 		_enforce_cap(parent.get_tree())
 
 
@@ -120,6 +131,13 @@ func _process(delta: float) -> void:
 		queue_free()
 	elif _age > lifetime - FADE_OUT:
 		modulate.a = clampf((lifetime - _age) / FADE_OUT, 0.0, 1.0)
+
+
+## The live cap for the current quality setting. A pure static so the degradation
+## is arithmetic a headless suite can check, in the same idiom as
+## `SpawnTell.redraw_hz` and `Telegraph.ghosts_for`.
+static func max_decals() -> int:
+	return MAX_DECALS_LOW if TuningConfig.quality_is_low() else MAX_DECALS
 
 
 ## Live decals, O(1). See the note on `_enforce_cap` for why this exists.
@@ -163,7 +181,7 @@ static func _enforce_cap(tree: SceneTree) -> void:
 	for decal: Node in tree.get_nodes_in_group(GROUP_NAME):
 		if is_instance_valid(decal) and not decal.is_queued_for_deletion():
 			alive.append(decal)
-	var overflow: int = alive.size() - MAX_DECALS
+	var overflow: int = alive.size() - max_decals()
 	for i: int in overflow:
 		alive[i].queue_free()
 

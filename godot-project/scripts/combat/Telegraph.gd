@@ -12,6 +12,44 @@ extends Node2D
 ## Geometry (Shape CIRCLE/LINE) + timing are UNCHANGED so the "snapshot the spot,
 ## dodge the tell" grammar and the headless tests still hold; only the visuals +
 ## the `style`/`accent`/`source`/`aim_dir` reads are new. Primitive-drawn.
+##
+## ══ THE TELL LANGUAGE — THE THREE RULES THIS FILE ENFORCES ═══════════════════
+## The tells were audited style-by-style against the geometry that actually deals
+## the damage (`tools/probe_tell_audit.gd`). Three rules came out of it, and the
+## file now obeys all three where it is able to. Where the RULE is broken by a
+## CALLER rather than by this file, the probe names the caller — this file cannot
+## reach into `Enemy.gd` / `Hero.gd`.
+##
+##   1. COLOUR CARRIES ELEMENT. `accent` is the whole colour statement. Three of
+##      the eight styles used to paint hard-coded red/orange OVER the accent —
+##      ZONE's charge fill, BOMB's countdown arc and inner fill, and LANE's fired
+##      flash. So an ice mage's ground zone and a shadow mage's ground zone were
+##      the same orange picture, and the ring around them disagreed with its own
+##      middle. Every one of those now derives from `accent`; the only colours
+##      still written literally are WHITE hot-cores and leading edges, which are
+##      an intensity statement (this is at full charge) and not a hue statement.
+##   2. SHAPE CARRIES CONSEQUENCE. CIRCLE = "this ground". LINE = "this corridor".
+##      FIST / CRESCENT = "this blow, arriving". The drawn extent must not claim
+##      more ground than `danger_shape()` reports, because `danger_shape()` is what
+##      the dodge layer answers — `_work_reach` measures exactly that and the
+##      budget suite pins it.
+##   3. WINDUP IS PROPORTIONAL TO DANGER. Owned by the callers (they pass it), but
+##      `tools/probe_tell_audit.gd` tables every windup in the game against the
+##      damage behind it so a new attack that tells for less than the ladder says
+##      is visible rather than merely wrong.
+##
+## ══ COST ════════════════════════════════════════════════════════════════════
+## A tell is on screen for every single attack in the game, so it is a per-frame
+## tax on the whole roster the way `MagicCircle` is a tax on every cast. It had NO
+## instrumentation and NO `graphics_quality` gate at all — the one layer that must
+## stay readable on a phone was also the one layer that never got cheaper on one.
+## Both now exist, in `MagicCircle`'s idiom (see the WORK COUNTERS block) and with
+## `SpawnTell`'s pure-static plan functions so the LOW contract is assertable in a
+## headless suite with no renderer.
+##
+## ⚠ CHEAPER, NEVER QUIETER. The tell is the fairness contract. Nothing below
+## changes what a tell SAYS — no radius, no timing, no colour meaning, no ghost
+## count at HIGH. What changed is how many draw commands say it.
 
 signal fired
 
@@ -25,11 +63,37 @@ const RING_COLOR: Color = Color(0.95, 0.16, 0.13, 0.9)
 ## reads a SWEEP rather than a stack; four starts to read as separate blades. They
 ## are drawn at decreasing reach, so together they trace where the edge has been.
 const CRESCENT_GHOSTS: int = 3
+## The same at `graphics_quality = LOW`. ONE ghost, not zero: the leading blade
+## plus a single trail still reads as a sweep, and dropping to the bare blade
+## would change what the tell says (a cut that appeared rather than travelled) on
+## the one device where the read matters most. Each ghost is a 45-vertex polygon
+## plus two polylines, so this is the single biggest saving in the file.
+const CRESCENT_GHOSTS_LOW: int = 1
 ## How far back each ghost sits, as a fraction of the arc's own span. Tied to the
 ## span rather than to the lane so a bigger cut trails proportionally further.
 const CRESCENT_GHOST_STEP: float = 0.30
 ## Alpha multiplier per ghost. Steep on purpose — a slow falloff reads as smearing.
 const CRESCENT_GHOST_FALLOFF: float = 0.45
+## Vertices along one half of a crescent's belly. 22 at HIGH; a crescent is at most
+## ~40 px across on a 640x360 frame, so 11 is still under a pixel per step at LOW.
+const CRESCENT_STEPS: int = 22
+const CRESCENT_STEPS_LOW: int = 11
+
+## Runic ticks around the ring, per style, and the LOW floor. Ticks are a COUNT the
+## eye reads as "arcane" rather than a resolution, so they thin rather than vanish —
+## a ring with no ticks is a different picture, not a cheaper one.
+const TICKS_LOW_FACTOR: float = 0.5
+const TICKS_MIN: int = 4
+
+## Energy pulses sliding down the caster tether. Two at HIGH, one at LOW: the
+## travel direction is the whole message and one pulse still states it.
+const TETHER_PULSES: int = 2
+const TETHER_PULSES_LOW: int = 1
+
+## Chevron spacing down a charge lane, in px. Wider at LOW = fewer chevrons over
+## the same lane, and the scroll speed is unchanged so the lane still rushes.
+const CHEVRON_SPACING: float = 26.0
+const CHEVRON_SPACING_LOW: float = 44.0
 
 ## Geometry, depended on by the archetype tests. CIRCLE = a zone/point sigil;
 ## LINE = a charge lane. (Kept exactly — do not rename.)
@@ -42,6 +106,16 @@ enum Shape { CIRCLE, LINE }
 ## coming out of the hand. See `Hero._publish_swing_tell`.
 enum Style { ZONE, MUZZLE, LANE, DART, GATHER, BOMB, FIST, CRESCENT }
 
+## What each style PROMISES, as machine-readable text, so the audit probe and any
+## future suite can state the rule rather than re-deriving it from the drawings.
+## "ground" = a place you must not be standing. "corridor" = a line you must be off.
+## "blow" = a strike arriving out of a hand, dodged laterally.
+const STYLE_CONSEQUENCE: Dictionary = {
+	Style.ZONE: "ground", Style.MUZZLE: "corridor", Style.LANE: "corridor",
+	Style.DART: "ground", Style.GATHER: "ground", Style.BOMB: "ground",
+	Style.FIST: "blow", Style.CRESCENT: "blow",
+}
+
 var _radius: float = 0.0
 var _windup: float = 0.0
 var _elapsed: float = 0.0
@@ -51,6 +125,13 @@ var _shape: Shape = Shape.CIRCLE
 var _length: float = 0.0
 var _width: float = 0.0
 var _angle: float = 0.0
+## `graphics_quality = LOW` snapshot, taken once at `_ready` (the same moment
+## SpawnTell / DeathSmudge / GraveTide take theirs) rather than per `_draw`: a tell
+## lives well under a second and the setting cannot change inside one.
+## ⚠ DECLARED, so a headless suite can `t.set("_low", true)` and get the cheap
+## picture without a Tuning autoload — the SpawnTell idiom, and the reason the LOW
+## contract is testable at all.
+var _low: bool = false
 
 ## Set by the caster before start(): the enemy this tell emanates from (drawn as
 ## a tether), the accent colour, the aim direction + reach for muzzle/dart lines.
@@ -67,6 +148,7 @@ const GROUP: StringName = &"telegraph"
 
 func _ready() -> void:
 	add_to_group(GROUP)
+	_low = TuningConfig.quality_is_low()
 
 
 func start(radius: float, windup: float) -> void:
@@ -154,9 +236,161 @@ func is_armed() -> bool:
 	return _running and not _has_fired
 
 
+# ------------------------------------------------------------- WORK COUNTERS
+## Deterministic draw-work counters, in `MagicCircle`'s idiom and for the reason
+## its own block states at length: **wall-clock cannot measure this headlessly.**
+## A frame absorbs extra work into idle time until it crosses the pacing budget,
+## at which point the whole cost appears at once — so a millisecond figure here is
+## a coin toss and a primitive count is a fact.
+##
+##   `calls`    draw_* commands issued. THE PRIMARY NUMBER. Every batching change
+##              in this file moves this and nothing else, which is what makes a
+##              before/after mean "same picture, fewer commands".
+##   `segments` line/arc/polyline segments rasterised. Moves when the sagitta rule
+##              or the LOW gate thins geometry.
+##   `tells`    `_draw` bodies that ran, so everything is readable per-tell.
+##   `reach`    the furthest px from the tell's own origin that any primitive
+##              reached. THIS IS THE HONESTY NUMBER, not a cost one: rule 2 says a
+##              tell may not claim more ground than `danger_shape()` reports, and
+##              this is the only way to check the claim without a renderer.
+static var _work_calls: int = 0
+static var _work_segments: int = 0
+static var _work_tells: int = 0
+static var _work_reach: float = 0.0
+
+
+static func work_stats() -> Dictionary:
+	return {
+		"calls": _work_calls, "segments": _work_segments,
+		"tells": _work_tells, "reach": _work_reach,
+	}
+
+
+## Test hook.
+static func reset_work() -> void:
+	_work_calls = 0
+	_work_segments = 0
+	_work_tells = 0
+	_work_reach = 0.0
+
+
+## Record one issued draw command covering `segs` segments and reaching `r` px from
+## this tell's origin. Inlined at every draw site rather than wrapping the draw
+## calls themselves: a wrapper would have to take a colour, a width and an
+## antialias flag for eight different primitive shapes, and the wrapper would then
+## be the thing that has to be kept honest.
+func _bump(segs: int, r: float) -> void:
+	_work_calls += 1
+	_work_segments += segs
+	if r > _work_reach:
+		_work_reach = r
+
+
+# --------------------------------------------------------------- THE LOW PLAN
+# Pure statics, deliberately — `SpawnTell.stroke_plan`'s argument exactly. A LOW
+# contract asserted through a renderer is a screenshot diff; asserted through a
+# pure function it is arithmetic, and `tools/slice_test_tell_budget.gd` runs it
+# with no tree, no window and no Tuning autoload.
+
+## Segments for a ring of radius `r`, capped at the artistic `full`. Delegates to
+## `MagicCircle.seg_of` rather than re-deriving the sagitta rule, so the two layers
+## that draw circles in this game cannot drift apart on what "round enough" means.
+## `count_work: false` — MagicCircle's counters must keep meaning MagicCircle.
+static func seg_for(full: int, r: float, low: bool) -> int:
+	return MagicCircle.seg_of(full, r, low, false)
+
+
+## Runic ticks around a ring. Thins at LOW, never empties (see TICKS_MIN).
+static func ticks_for(full: int, low: bool) -> int:
+	if not low:
+		return full
+	return maxi(int(float(full) * TICKS_LOW_FACTOR), TICKS_MIN)
+
+
+static func ghosts_for(low: bool) -> int:
+	return CRESCENT_GHOSTS_LOW if low else CRESCENT_GHOSTS
+
+
+static func crescent_steps(low: bool) -> int:
+	return CRESCENT_STEPS_LOW if low else CRESCENT_STEPS
+
+
+static func tether_pulses(low: bool) -> int:
+	return TETHER_PULSES_LOW if low else TETHER_PULSES
+
+
+static func chevron_spacing(low: bool) -> float:
+	return CHEVRON_SPACING_LOW if low else CHEVRON_SPACING
+
+
+## Does the fist tell draw its knuckle flare?
+##
+## ⚠ THIS IS THE ONE PLACE A FIGURE IS DROPPED RATHER THAN THINNED, and it needs
+## the argument. FIST is the highest-frequency tell in the game — every melee swing
+## by every class publishes one — and it was the only style with NOTHING to shed:
+## four flat primitives and a two-segment flare, no arcs to tessellate and no
+## ghosts to trail, so it ignored `graphics_quality` entirely. (The budget suite
+## found that; it was not noticed by reading.)
+##
+## The flare is two 1.4 px strokes off the leading edge of a glove whose radius is
+## `max(width/2, 3)` — 5.2 px for the stock 58 px swing. On the phone that is a
+## sub-pixel ornament on a five-pixel object, which is the same "below the visible
+## threshold on the target device" argument `MagicCircle.MAX_SAGITTA_PX` already
+## makes for tessellation. What survives at LOW is the whole message: the travel
+## hint (where this goes), the motion streak (it is thrown), the element-tinted
+## glove and its hot centre. The blow still reads; the stitching on it does not.
+static func fist_knuckles(low: bool) -> bool:
+	return not low
+
+
+# ------------------------------------------------------------ THE COLOUR RULE
+# Rule 1 (colour carries element) made assertable. These three were WRITTEN OUT
+# INLINE as literal oranges and reds — `Color(1.0, lerpf(0.5, 0.14, t), ...)` in
+# the zone, `Color(1.0, 0.5, 0.15, 0.85)` on the bomb's countdown,
+# `Color(1.0, 0.5, 0.2, ...)` on the lane's payoff — over rings that were already
+# accent-coloured. A green summoner and a violet mage drew the same orange middle.
+#
+# Pulled out as pure functions for the same reason `SpawnTell.stroke_plan` is one:
+# a colour contract checked through a renderer is a screenshot diff, and checked
+# through a function it is arithmetic. `slice_test_tell_budget` asserts that each
+# one tracks its accent's hue rather than overwriting it.
+#
+# The SHAPE of each ramp is preserved exactly — washed-out and wide early, hot and
+# saturated late — because that ramp is the charge read and the charge read is the
+# dodge window. Only the hue it is built from changed.
+
+## The zone's charge fill at `t` (0 = tell just started, 1 = about to land).
+static func zone_fill(accent_col: Color, t: float) -> Color:
+	var c: Color = accent_col.lerp(Color(1.0, 1.0, 1.0, 1.0), 0.55 * (1.0 - t))
+	c.a = lerpf(0.16, 0.5, t)
+	return c
+
+
+## The bomb's inner fill. Same ramp, shallower whitening: a fuse is meant to look
+## hot from the start, where a zone begins as a cold outline.
+static func bomb_fill(accent_col: Color, t: float) -> Color:
+	var c: Color = accent_col.lerp(Color(1.0, 1.0, 1.0, 1.0), 0.4 * (1.0 - t))
+	c.a = 0.2 + 0.4 * t
+	return c
+
+
+## The fuse's countdown sweep — the hottest LINE in the bomb figure, so it is the
+## accent pushed toward white rather than a second hue.
+static func bomb_countdown(accent_col: Color) -> Color:
+	return accent_col.lerp(Color(1.0, 1.0, 1.0, 1.0), 0.35)
+
+
+## The charge lane's payoff flash.
+static func lane_flash(accent_col: Color, fade: float) -> Color:
+	var c: Color = accent_col.lerp(Color(1.0, 1.0, 1.0, 1.0), 0.3)
+	c.a = 0.4 * fade
+	return c
+
+
 func _draw() -> void:
 	if _radius <= 0.0:
 		return
+	_work_tells += 1
 	if _shape == Shape.LINE:
 		# The hero's melee strikes are lanes too, but they are drawn as the STRIKE
 		# rather than as a runic charge corridor — a punch is not a charger.
@@ -191,6 +425,13 @@ func _draw() -> void:
 # ------------------------------------------------------------------ shared bits
 ## A bright animated link from the caster to this danger spot: a faint beam with a
 ## pulse of energy travelling along it toward the target.
+##
+## ⚠ THE TETHER IS EXEMPT FROM THE REACH RULE, and it is the one deliberate
+## exemption in the file. It reaches all the way back to the caster, which is
+## further than the danger footprint by design — it is a statement about WHO, not
+## about WHERE the damage is. So it is counted as work but its distance is not fed
+## into `_work_reach`; a tether that fed the honesty number would make every ZONE
+## tell in the game look like it was lying about a caster standing 300 px away.
 func _draw_tether(t: float) -> void:
 	if source == null or not is_instance_valid(source):
 		return
@@ -200,11 +441,14 @@ func _draw_tether(t: float) -> void:
 		return
 	var c: Color = accent
 	draw_line(from, to, Color(c.r, c.g, c.b, (0.12 + 0.22 * t)), 1.5)
+	_bump(1, 0.0)
 	# Energy pulses sliding toward the target end.
-	for i: int in 2:
-		var f: float = fposmod(_elapsed * 2.2 + 0.5 * float(i), 1.0)
+	var pulses: int = tether_pulses(_low)
+	for i: int in pulses:
+		var f: float = fposmod(_elapsed * 2.2 + (1.0 / float(pulses)) * float(i), 1.0)
 		var p: Vector2 = from.lerp(to, f)
 		draw_circle(p, 2.4, Color(c.r, c.g, c.b, (0.7 * t) * (1.0 - f * 0.4)))
+		_bump(1, 0.0)
 
 
 func _draw_fired_circle() -> void:
@@ -213,34 +457,77 @@ func _draw_fired_circle() -> void:
 	var fade: float = clampf(1.0 - (_elapsed - _windup) / FADE_TIME, 0.0, 1.0)
 	var c: Color = accent
 	draw_circle(Vector2.ZERO, _radius, Color(c.r, c.g, c.b, 0.4 * fade))
-	draw_arc(Vector2.ZERO, _radius, 0.0, TAU, 48, Color(1.0, 1.0, 1.0, 0.7 * fade), 3.0)
+	_bump(1, _radius)
+	var seg: int = seg_for(48, _radius, _low)
+	draw_arc(Vector2.ZERO, _radius, 0.0, TAU, seg, Color(1.0, 1.0, 1.0, 0.7 * fade), 3.0)
+	_bump(seg, _radius)
 
 
 ## Rotating runic ticks around a ring — the shared "arcane" flourish.
+##
+## ⚠ ONE `draw_multiline`, NOT `count` `draw_line`s. This is the same batching the
+## repo has already measured elsewhere: sixteen dashes issued as one multiline cost
+## ~24 µs where the same sixteen as separate calls cost ~298 µs — a 12x difference
+## for an identical picture. BOMB draws sixteen of these every frame of a 0.9 s
+## fuse, MUZZLE eight, GATHER ten, and a room can hold several at once.
 func _draw_runic_ticks(r: float, count: int, spin: float, col: Color) -> void:
+	if count <= 0:
+		return
+	var pts := PackedVector2Array()
+	pts.resize(count * 2)
 	for i: int in count:
 		var th: float = spin + TAU * float(i) / float(count)
 		var dirv: Vector2 = Vector2.from_angle(th)
-		draw_line(dirv * r * 0.82, dirv * r, col, 1.5)
+		pts[i * 2] = dirv * r * 0.82
+		pts[i * 2 + 1] = dirv * r
+	draw_multiline(pts, col, 1.5)
+	_bump(count, r)
 
 
 # ----------------------------------------------------------------- ZONE (brute)
 ## The classic ground danger ring + inner charge fill (kept, so the default/test
 ## path is unchanged), now accent-tinted with the caster tether added on top.
+##
+## ⚠ THE FILL WAS HARD-CODED ORANGE-RED OVER AN ACCENT-COLOURED RING. Rule 1: a
+## MAGE's violet zone, a SUMMONER's green zone and a BRUTE's red zone were three
+## different rings around one identical orange middle, so the colour that carries
+## "which of the seven bodies in this room is doing it" stopped at the outline. The
+## ramp itself is unchanged in SHAPE — it still starts pale and wide and closes to
+## saturated and hot — it is just built out of `accent` now. White stays white: the
+## hot core is an intensity statement, not a hue one.
 func _draw_zone(t: float) -> void:
 	var danger: Color = accent
-	draw_arc(Vector2.ZERO, _radius, 0.0, TAU, 48, Color(danger.r, danger.g, danger.b, 0.85), 2.0)
+	var ring_seg: int = seg_for(48, _radius, _low)
+	draw_arc(Vector2.ZERO, _radius, 0.0, TAU, ring_seg,
+		Color(danger.r, danger.g, danger.b, 0.85), 2.0)
+	_bump(ring_seg, _radius)
 	var pulse: float = 1.0 + 0.05 * sin(_elapsed * 26.0) * t
 	var inner_r: float = minf(_radius * t * pulse, _radius)
-	var fill := Color(1.0, lerpf(0.5, 0.14, t), lerpf(0.28, 0.11, t), lerpf(0.16, 0.5, t))
-	draw_circle(Vector2.ZERO, inner_r, fill)
+	# Pale -> saturated as the charge fills: lerp the accent toward white by the
+	# INVERSE of t, which reproduces the old fill's read (washed out early, hot and
+	# solid late) in whatever hue the caster actually is.
+	draw_circle(Vector2.ZERO, inner_r, zone_fill(danger, t))
+	_bump(1, inner_r)
 	if inner_r > 2.0:
-		draw_arc(Vector2.ZERO, inner_r, 0.0, TAU, 40, Color(1.0, 0.32, 0.18, 0.25 + 0.65 * t), 2.0)
+		var in_seg: int = seg_for(40, inner_r, _low)
+		draw_arc(Vector2.ZERO, inner_r, 0.0, TAU, in_seg,
+			Color(danger.r, danger.g, danger.b, 0.25 + 0.65 * t), 2.0)
+		_bump(in_seg, inner_r)
 
 
 # --------------------------------------------------------------- MUZZLE (caster)
 ## A small face-on sigil at the staff tip + a brightening aim-tracer along the
 ## shot line — "it's charging a bolt, aimed there."
+##
+## ⚠ THE TRACER IS WHY `MUZZLE`'S CONSEQUENCE IS "corridor" AND ITS `danger_shape`
+## IS A CIRCLE, which is the one place in this file where the drawing and the
+## perception contract genuinely disagree. The picture is right (the bolt goes
+## THAT way, `reach` px of it) and the reported footprint is a small circle on the
+## caster, so a dodging brain sidesteps the sigil rather than the shot. Not changed
+## here: `danger_shape()` is answered by `BotDodge` / `BotBrain`, which are not this
+## file's to retune, and a silent widening of every caster's perceived threat is a
+## difficulty change wearing a legibility change's clothes. `probe_tell_audit`
+## prints it as a finding with the exact edit.
 func _draw_muzzle(t: float) -> void:
 	var c: Color = accent
 	var R: float = _radius
@@ -251,16 +538,27 @@ func _draw_muzzle(t: float) -> void:
 		dir = Vector2.RIGHT
 	var end: Vector2 = dir * reach
 	draw_line(Vector2.ZERO, end, Color(c.r, c.g, c.b, 0.12 + 0.2 * t), 1.5)
+	_bump(1, reach)
 	draw_line(Vector2.ZERO, dir * reach * (0.2 + 0.8 * t), Color(1.0, 1.0, 1.0, 0.25 + 0.45 * t), 1.5)
+	_bump(1, reach)
 	# Reticle at the aim end.
-	draw_arc(end, 5.0 + 2.0 * sin(_elapsed * 8.0), 0.0, TAU, 16, Color(c.r, c.g, c.b, 0.5 + 0.4 * t), 1.5)
+	var ret_r: float = 5.0 + 2.0 * sin(_elapsed * 8.0)
+	var ret_seg: int = seg_for(16, ret_r, _low)
+	draw_arc(end, ret_r, 0.0, TAU, ret_seg, Color(c.r, c.g, c.b, 0.5 + 0.4 * t), 1.5)
+	_bump(ret_seg, reach + ret_r)
 	# Face-on muzzle sigil: two counter-rotating rings + runic ticks + core.
-	draw_arc(Vector2.ZERO, R, 0.0, TAU, 32, Color(c.r, c.g, c.b, 0.8), 2.0)
-	_draw_runic_ticks(R * 0.92, 8, spin, Color(c.r, c.g, c.b, 0.5))
-	draw_arc(Vector2.ZERO, R * 0.6, 0.0, TAU, 24, Color(c.r, c.g, c.b, 0.4), 1.5)
+	var outer_seg: int = seg_for(32, R, _low)
+	draw_arc(Vector2.ZERO, R, 0.0, TAU, outer_seg, Color(c.r, c.g, c.b, 0.8), 2.0)
+	_bump(outer_seg, R)
+	_draw_runic_ticks(R * 0.92, ticks_for(8, _low), spin, Color(c.r, c.g, c.b, 0.5))
+	var mid_seg: int = seg_for(24, R * 0.6, _low)
+	draw_arc(Vector2.ZERO, R * 0.6, 0.0, TAU, mid_seg, Color(c.r, c.g, c.b, 0.4), 1.5)
+	_bump(mid_seg, R * 0.6)
 	var core: float = R * (0.18 + 0.22 * t)
 	draw_circle(Vector2.ZERO, core, Color(c.r, c.g, c.b, 0.4))
+	_bump(1, core)
 	draw_circle(Vector2.ZERO, core * 0.5, Color(1.0, 1.0, 1.0, 0.5 + 0.4 * t))
+	_bump(1, core * 0.5)
 
 
 # -------------------------------------------------------------- GATHER (summoner)
@@ -270,44 +568,80 @@ func _draw_gather(t: float) -> void:
 	var c: Color = accent
 	var R: float = _radius
 	# Rings pulled inward toward the centre (the "gathering" read).
+	# Three different alphas, so these genuinely cannot be one command — the ring
+	# COUNT is the animation. They are seg-scaled instead.
 	for i: int in 3:
 		var f: float = fposmod(-_elapsed * 0.6 + float(i) / 3.0, 1.0)
-		draw_arc(Vector2.ZERO, R * (0.4 + f * 1.1), 0.0, TAU, 40, Color(c.r, c.g, c.b, (1.0 - f) * 0.3), 2.0)
+		var rr: float = R * (0.4 + f * 1.1)
+		var seg: int = seg_for(40, rr, _low)
+		draw_arc(Vector2.ZERO, rr, 0.0, TAU, seg, Color(c.r, c.g, c.b, (1.0 - f) * 0.3), 2.0)
+		_bump(seg, rr)
 	var spin: float = _elapsed * 1.6
-	draw_arc(Vector2.ZERO, R, 0.0, TAU, 48, Color(c.r, c.g, c.b, 0.85), 2.5)
-	_draw_runic_ticks(R * 0.9, 10, spin, Color(c.r, c.g, c.b, 0.5))
+	var rim_seg: int = seg_for(48, R, _low)
+	draw_arc(Vector2.ZERO, R, 0.0, TAU, rim_seg, Color(c.r, c.g, c.b, 0.85), 2.5)
+	_bump(rim_seg, R)
+	_draw_runic_ticks(R * 0.9, ticks_for(10, _low), spin, Color(c.r, c.g, c.b, 0.5))
 	# Two opposed triangles (a hexagram-ish summoning star), counter-spinning.
-	_draw_star(R * 0.62, 3, -spin * 0.8, Color(c.r, c.g, c.b, 0.7))
-	_draw_star(R * 0.62, 3, -spin * 0.8 + PI, Color(c.r, c.g, c.b, 0.7))
+	# ⚠ ONE COMMAND, NOT TWO POLYLINES. Both triangles are the same colour and the
+	# same width — they were only two calls because they were written as two calls.
+	_draw_hexagram(R * 0.62, -spin * 0.8, Color(c.r, c.g, c.b, 0.7))
 	var core: float = R * (0.14 + 0.26 * t)
 	draw_circle(Vector2.ZERO, core, Color(c.r, c.g, c.b, 0.35))
+	_bump(1, core)
 	draw_circle(Vector2.ZERO, core * 0.5, Color(1.0, 1.0, 1.0, 0.4 + 0.5 * t))
+	_bump(1, core * 0.5)
 
 
-func _draw_star(r: float, points: int, offset: float, col: Color) -> void:
-	var pts: PackedVector2Array = PackedVector2Array()
-	for i: int in points:
-		pts.append(Vector2.from_angle(offset - PI / 2.0 + TAU * float(i) / float(points)) * r)
-	pts.append(pts[0])
-	draw_polyline(pts, col, 2.0)
+## Two opposed triangles as a single `draw_multiline` — six segments, one command.
+## Replaces the old `_draw_star` called twice (two `draw_polyline`s, eight
+## segments' worth of vertices between them and two commands). Same figure.
+func _draw_hexagram(r: float, offset: float, col: Color) -> void:
+	var pts := PackedVector2Array()
+	pts.resize(12)
+	for tri: int in 2:
+		var base: float = offset + PI * float(tri)
+		for i: int in 3:
+			var a: Vector2 = Vector2.from_angle(base - PI / 2.0 + TAU * float(i) / 3.0) * r
+			var b: Vector2 = Vector2.from_angle(base - PI / 2.0 + TAU * float(i + 1) / 3.0) * r
+			pts[tri * 6 + i * 2] = a
+			pts[tri * 6 + i * 2 + 1] = b
+	draw_multiline(pts, col, 2.0)
+	_bump(6, r)
 
 
 # ---------------------------------------------------------------- BOMB (bomber)
 ## A big pulsing rune ring centred on the bomber with a COUNTDOWN arc that fills
 ## as the fuse burns + an intensifying red core. "This thing is about to blow."
+##
+## ⚠ THE COUNTDOWN AND THE INNER FILL WERE HARD-CODED ORANGE-RED. Rule 1 again,
+## and it matters more here than anywhere: BOMB is the biggest, slowest, most
+## lethal tell in the roster, so it is the one the player has most time to read.
+## Both now derive from `accent` (which for the stock bomber IS orange, so the
+## stock body is unchanged on screen — what changes is that an elementally-tinted
+## or modded bomber stops arguing with itself).
 func _draw_bomb(t: float) -> void:
 	var c: Color = accent
 	var R: float = _radius
 	# Outer danger boundary (what's about to hurt).
-	draw_arc(Vector2.ZERO, R, 0.0, TAU, 56, Color(c.r, c.g, c.b, 0.8), 2.5)
-	_draw_runic_ticks(R * 0.94, 16, _elapsed * 0.8, Color(c.r, c.g, c.b, 0.4))
-	# Countdown: an arc that sweeps all the way round as the fuse burns out.
-	draw_arc(Vector2.ZERO, R * 0.8, -PI / 2.0, -PI / 2.0 + TAU * t, 48, Color(1.0, 0.5, 0.15, 0.85), 4.0)
+	var rim_seg: int = seg_for(56, R, _low)
+	draw_arc(Vector2.ZERO, R, 0.0, TAU, rim_seg, Color(c.r, c.g, c.b, 0.8), 2.5)
+	_bump(rim_seg, R)
+	_draw_runic_ticks(R * 0.94, ticks_for(16, _low), _elapsed * 0.8, Color(c.r, c.g, c.b, 0.4))
+	# Countdown: an arc that sweeps all the way round as the fuse burns out. Brightened
+	# off the accent rather than painted orange, so it still reads as the hottest line
+	# in the figure in any hue.
+	var cd_r: float = R * 0.8
+	var cd_seg: int = maxi(int(ceil(float(seg_for(48, cd_r, _low)) * t)), 1)
+	draw_arc(Vector2.ZERO, cd_r, -PI / 2.0, -PI / 2.0 + TAU * t, cd_seg,
+		bomb_countdown(c), 4.0)
+	_bump(cd_seg, cd_r)
 	# Inner fill reddening + a fast pulse as it nears zero.
 	var pulse: float = 1.0 + 0.08 * sin(_elapsed * (10.0 + 30.0 * t))
 	var inner_r: float = R * (0.15 + 0.5 * t) * pulse
-	draw_circle(Vector2.ZERO, inner_r, Color(1.0, lerpf(0.4, 0.1, t), 0.1, 0.2 + 0.4 * t))
+	draw_circle(Vector2.ZERO, inner_r, bomb_fill(c, t))
+	_bump(1, inner_r)
 	draw_circle(Vector2.ZERO, R * 0.1 * pulse, Color(1.0, 0.95, 0.8, 0.5 + 0.5 * t))
+	_bump(1, R * 0.1 * pulse)
 
 
 # -------------------------------------------------------------- DART (assassin)
@@ -317,13 +651,24 @@ func _draw_dart(t: float) -> void:
 	var c: Color = accent
 	var R: float = _radius
 	var spin: float = _elapsed * 4.0
-	draw_arc(Vector2.ZERO, R, spin, spin + TAU * 0.9, 24, Color(c.r, c.g, c.b, 0.6 + 0.3 * t), 2.0)
+	var arc_seg: int = maxi(int(float(seg_for(24, R, _low)) * 0.9), 1)
+	draw_arc(Vector2.ZERO, R, spin, spin + TAU * 0.9, arc_seg, Color(c.r, c.g, c.b, 0.6 + 0.3 * t), 2.0)
+	_bump(arc_seg, R)
 	# Snapping crosshair ticks that close in as the (fast) tell fills.
+	# ⚠ ONE COMMAND. Four identically-coloured, identically-wide lines were four
+	# calls; the DART is the FASTEST tell in the roster (0.35 s) so it is also the
+	# one most likely to be on screen several times at once during a pack fight.
 	var gap: float = R * (1.4 - 0.5 * t)
-	for a: float in [0.0, PI * 0.5, PI, PI * 1.5]:
-		var dirv: Vector2 = Vector2.from_angle(a + spin)
-		draw_line(dirv * gap, dirv * (gap + R * 0.5), Color(c.r, c.g, c.b, 0.5 + 0.4 * t), 2.0)
+	var ticks := PackedVector2Array()
+	ticks.resize(8)
+	for i: int in 4:
+		var dirv: Vector2 = Vector2.from_angle(float(i) * PI * 0.5 + spin)
+		ticks[i * 2] = dirv * gap
+		ticks[i * 2 + 1] = dirv * (gap + R * 0.5)
+	draw_multiline(ticks, Color(c.r, c.g, c.b, 0.5 + 0.4 * t), 2.0)
+	_bump(4, gap + R * 0.5)
 	draw_circle(Vector2.ZERO, R * 0.12, Color(1.0, 1.0, 1.0, 0.4 + 0.5 * t))
+	_bump(1, R * 0.12)
 
 
 # --------------------------------------------------------------- LANE (charger)
@@ -335,7 +680,11 @@ func _draw_lane() -> void:
 	if _has_fired:
 		var fade: float = clampf(1.0 - (_elapsed - _windup) / FADE_TIME, 0.0, 1.0)
 		draw_set_transform(Vector2.ZERO, _angle, Vector2.ONE)
-		draw_rect(Rect2(0.0, -_width * 0.5, _length, _width), Color(1.0, 0.5, 0.2, 0.4 * fade), true)
+		# ⚠ WAS A HARD-CODED ORANGE FLASH over an accent-coloured lane, so every
+		# charger in the game — whatever hue it wound up in — paid off in the same
+		# colour. Rule 1: the flash is the same statement as the lane, louder.
+		draw_rect(Rect2(0.0, -_width * 0.5, _length, _width), lane_flash(c, fade), true)
+		_bump(1, _length)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		return
 	var t: float = clampf(_elapsed / _windup, 0.0, 1.0)
@@ -343,24 +692,39 @@ func _draw_lane() -> void:
 	var hw: float = _width * 0.5
 	# Faint full-lane boundary (where it WILL reach), then a filling body.
 	draw_rect(Rect2(0.0, -hw, _length, _width), Color(c.r, c.g, c.b, 0.1 + 0.12 * t), false)
+	_bump(4, _length)
 	var grow: float = _length * (0.15 + 0.85 * t)
 	draw_rect(Rect2(0.0, -hw, grow, _width), Color(c.r, c.g, c.b, 0.14 + 0.28 * t), true)
+	_bump(1, grow)
 	# Chevrons of energy rushing down the lane toward the target.
-	var spacing: float = 26.0
+	# ⚠ ONE `draw_multiline` FOR THE WHOLE RUSH. A 300 px lane at 26 px spacing is
+	# up to twelve chevrons, and every one of them was its own `draw_polyline` — the
+	# exact shape of the batching win already measured in this repo. Identical
+	# picture: a chevron is two segments, and a multiline is a list of segments.
+	var spacing: float = chevron_spacing(_low)
 	var scroll: float = fposmod(_elapsed * 160.0, spacing)
+	var chevrons := PackedVector2Array()
 	var x: float = scroll
 	while x < grow:
-		draw_polyline(PackedVector2Array([
-			Vector2(x - 8.0, -hw * 0.7), Vector2(x, 0.0), Vector2(x - 8.0, hw * 0.7),
-		]), Color(1.0, 1.0, 1.0, 0.3 + 0.4 * t), 2.0)
+		chevrons.append(Vector2(x - 8.0, -hw * 0.7))
+		chevrons.append(Vector2(x, 0.0))
+		chevrons.append(Vector2(x, 0.0))
+		chevrons.append(Vector2(x - 8.0, hw * 0.7))
 		x += spacing
+	if not chevrons.is_empty():
+		draw_multiline(chevrons, Color(1.0, 1.0, 1.0, 0.3 + 0.4 * t), 2.0)
+		_bump(chevrons.size() / 2, grow)
 	# Bright core line + an arrowhead at the leading edge.
 	draw_line(Vector2.ZERO, Vector2(grow, 0.0), Color(1.0, 1.0, 1.0, 0.35 + 0.4 * t), 2.0)
+	_bump(1, grow)
 	draw_colored_polygon(PackedVector2Array([
 		Vector2(grow + 10.0, 0.0), Vector2(grow - 4.0, -hw), Vector2(grow - 4.0, hw),
 	]), Color(c.r, c.g, c.b, 0.6 + 0.35 * t))
+	_bump(3, grow + 10.0)
 	# Origin burst sigil at the charger.
-	draw_arc(Vector2.ZERO, hw * 1.1, 0.0, TAU, 20, Color(c.r, c.g, c.b, 0.6 + 0.3 * t), 2.0)
+	var burst_seg: int = seg_for(20, hw * 1.1, _low)
+	draw_arc(Vector2.ZERO, hw * 1.1, 0.0, TAU, burst_seg, Color(c.r, c.g, c.b, 0.6 + 0.3 * t), 2.0)
+	_bump(burst_seg, hw * 1.1)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
@@ -388,18 +752,33 @@ func _draw_fist() -> void:
 	# The travel hint: where it is going, at a weight that cannot be mistaken for
 	# the strike itself.
 	draw_line(Vector2.ZERO, dir * _length, Color(c.r, c.g, c.b, 0.10 * fade), 1.0, true)
+	_bump(1, _length)
 	# A short motion streak BEHIND the fist — this is what makes it read as thrown
 	# rather than as a dot sliding along a line.
 	draw_line(at - dir * rr * 2.2, at, Color(c.r, c.g, c.b, 0.35 * fade), rr * 0.9, true)
+	_bump(1, reach_now)
 	# THE GLOVE. Element-tinted core with a hot centre, so a fire fist is a fire fist
 	# and an ice one is not the same picture in a different hue.
 	draw_circle(at, rr * fade, Color(c.r, c.g, c.b, 0.85 * fade))
+	_bump(1, reach_now + rr)
 	draw_circle(at, rr * 0.55 * fade, Color(1.0, 1.0, 1.0, 0.7 * fade))
-	# Knuckle flare on the leading edge.
+	_bump(1, reach_now + rr * 0.55)
+	# Knuckle flare on the leading edge. One command: same colour, same width, and a
+	# fist tell fires on every single melee swing in the game — the highest-frequency
+	# tell there is, so its two-call version was the most-repeated waste in the file.
+	# Dropped entirely on the phone; see `fist_knuckles` for why this one is a drop
+	# rather than a thinning.
+	if not fist_knuckles(_low):
+		return
 	var perp: Vector2 = dir.orthogonal()
-	for sgn: float in [-1.0, 1.0]:
-		draw_line(at + perp * rr * 0.55 * sgn, at + dir * rr * 0.9 + perp * rr * 0.3 * sgn,
-			Color(c.r, c.g, c.b, 0.6 * fade), 1.4, true)
+	var flare := PackedVector2Array()
+	flare.resize(4)
+	for i: int in 2:
+		var sgn: float = -1.0 if i == 0 else 1.0
+		flare[i * 2] = at + perp * rr * 0.55 * sgn
+		flare[i * 2 + 1] = at + dir * rr * 0.9 + perp * rr * 0.3 * sgn
+	draw_multiline(flare, Color(c.r, c.g, c.b, 0.6 * fade), 1.4)
+	_bump(2, reach_now + rr * 0.9)
 
 
 ## A THIN CURVE OF AIR OFF A BLADE — the same idea as the fist, cut differently.
@@ -420,6 +799,7 @@ func _draw_crescent() -> void:
 	# lane, i.e. a scratch. A cut should be wider than the thing that made it.
 	var half: float = maxf(_width * 1.5, 11.0) * (0.45 + 0.55 * t)
 	draw_line(Vector2.ZERO, dir * _length, Color(c.r, c.g, c.b, 0.10 * fade), 1.0, true)
+	_bump(1, _length)
 	# ══ THE CUT IS A TAPERED BLADE OF AIR, NOT A LINE ═════════════════════════
 	# It was two constant-width `draw_polyline`s, and a constant-width band reads as a
 	# ribbon — the comment above them already said the taper was the point, and there
@@ -429,8 +809,16 @@ func _draw_crescent() -> void:
 	# Three ghosts trail behind it at decreasing reach and alpha, so the eye sees the
 	# edge SWEEP rather than appear. That is the whole of what "more epic" buys here —
 	# no new colours, no full-screen anything, and it costs four polygons.
-	var steps: int = 22
-	for ghost: int in CRESCENT_GHOSTS + 1:
+	#
+	# ⚠ AND FOUR POLYGONS IS WHY THIS IS THE MOST EXPENSIVE TELL IN THE GAME. At HIGH
+	# it is 4 x (45-vertex polygon + 22-segment polyline) plus a white core, and it
+	# fires on EVERY blade swing. `CRESCENT_GHOSTS_LOW` cuts the ghost count and
+	# `CRESCENT_STEPS_LOW` halves the tessellation on the phone; the leading blade,
+	# the taper, the white edge and one trail all survive, so the picture still says
+	# "an edge moved through here".
+	var steps: int = crescent_steps(_low)
+	var ghost_count: int = ghosts_for(_low)
+	for ghost: int in ghost_count + 1:
 		var back: float = float(ghost) * CRESCENT_GHOST_STEP
 		var lead: float = reach_now - half * back
 		if lead <= 0.0:
@@ -440,6 +828,7 @@ func _draw_crescent() -> void:
 		var outer := PackedVector2Array()
 		var inner := PackedVector2Array()
 		var spine := PackedVector2Array()
+		var far: float = 0.0
 		for i: int in steps + 1:
 			var off: float = (float(i) / float(steps) - 0.5) * 2.0
 			var belly: float = 1.0 - off * off          # 1 at the middle, 0 at the tips
@@ -449,13 +838,16 @@ func _draw_crescent() -> void:
 			spine.append(mid)
 			outer.append(mid + dir * thick)
 			inner.append(mid - dir * thick)
+			far = maxf(far, mid.length() + thick)
 		# Trailing edge back along the inside closes the blade into one shape.
 		for i: int in inner.size():
 			outer.append(inner[inner.size() - 1 - i])
 		draw_colored_polygon(outer, Color(c.r, c.g, c.b, 0.42 * g_fade))
+		_bump(outer.size(), far)
 		# The lit edge. Only the leading ghost gets the white core — every ghost
 		# carrying it would read as four blades rather than one that moved.
 		draw_polyline(spine, Color(c.r, c.g, c.b, 0.85 * g_fade), 2.2 * g_fade + 0.4, true)
+		_bump(steps, far)
 		if ghost == 0:
 			draw_polyline(spine, Color(1.6, 1.6, 1.6, 0.7 * g_fade), 1.2 * fade + 0.3, true)
-
+			_bump(steps, far)

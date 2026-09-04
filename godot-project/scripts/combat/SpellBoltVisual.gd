@@ -54,9 +54,14 @@ const GLOW_SCALE: float = 2.8
 ## multiple of the core half-width. Three nested widths is what makes a bolt read
 ## as a volume of light instead of a coloured line. UNTESTED GUESS.
 const FRINGE_SCALE: float = 5.2
-## Segments the wake taper is built from. More = smoother taper, more draw calls;
-## bolts are the highest-traffic visual in the game so this stays modest.
+## Stations the wake taper is sampled at. More = smoother taper; the taper is now
+## ONE polygon rather than one line per station (see `_draw_wake`), so this is a
+## vertex count and no longer a draw-call count.
 const WAKE_SEGMENTS: int = 9
+## The same at `graphics_quality = LOW`. Five stations still resolve the cubic
+## falloff into a taper — the shape the whole file exists for — at 55% of the
+## vertices. Not fewer: at four the head/tail ratio starts reading as a wedge.
+const WAKE_SEGMENTS_LOW: int = 5
 
 # ── animation ────────────────────────────────────────────────────────────────
 ## Only the shapes that genuinely need to CHANGE (flame tongues guttering,
@@ -103,8 +108,21 @@ var _animated: bool = false
 var _seed: float = 0.0
 
 
+## ⚠ THIS CLASS IGNORED `graphics_quality` ENTIRELY. A bolt is the most numerous
+## drawn object in the game and it was drawing its full desktop picture on a phone:
+## nine wake commands, three nested halos (each a capsule = a line plus two filled
+## circles) and then the per-element figure on top. What LOW drops is the FRINGE —
+## the widest, faintest of the three halos, at 34% of the glow's alpha — and it
+## coarsens the wake's taper. The core, the glow, the nose and every element's own
+## silhouette are untouched, so the bolt still reads as its element and still reads
+## as the same weight of projectile against everything else on screen.
+## DECLARED so a headless suite can set it (the `SpawnTell` idiom).
+var _low: bool = false
+
+
 func _ready() -> void:
 	_seed = randf() * TAU
+	_low = TuningConfig.quality_is_low()
 	set_process(_animated)
 
 
@@ -189,27 +207,58 @@ func _draw() -> void:
 
 ## The tapering streak behind the head — the motion cue, and the reason the bolt
 ## stopped reading as a sliding blob. Backwards only (see the ⚠ in the class doc).
+##
+## ⚠ ONE `draw_polygon`, NOT NINE `draw_line`s, AND THIS IS THE HIGHEST-LEVERAGE
+## BATCH IN THE FILE. A bolt is the most numerous drawn object in the game — every
+## class's primary, several a second, several in the air at once — and its wake was
+## nine separate commands on every one of them. The stations, their x positions,
+## their widths and their alphas are IDENTICAL to the loop this replaces; what
+## changes is that the outline through those stations is submitted once, with the
+## alpha carried as vertex colour.
+##
+## It is also, marginally, the picture the old comment already claimed. Nine butt-
+## capped lines of constant width per segment are a STAIRCASE; the polygon through
+## the same widths is the taper the comment described. At 0.7-5 px of width the
+## difference is sub-pixel, and it is in the direction of the stated intent.
+##
+## ⚠ THE HEAD END IS PINNED AT `-HEAD_HALF_LEN` AND MUST STAY THERE. The class doc's
+## one hard constraint: nothing may reach past the nose, because the nose is the
+## damaging extent (`Spell.tscn`'s collider). This polygon only ever runs backwards.
 func _draw_wake() -> void:
 	var back: float = -HEAD_HALF_LEN
-	for i: int in WAKE_SEGMENTS:
-		var f0: float = float(i) / float(WAKE_SEGMENTS)
-		var f1: float = float(i + 1) / float(WAKE_SEGMENTS)
-		var x0: float = back - WAKE_LEN * f0
-		var x1: float = back - WAKE_LEN * f1
+	var stations: int = WAKE_SEGMENTS_LOW if _low else WAKE_SEGMENTS
+	var pts := PackedVector2Array()
+	var cols := PackedColorArray()
+	pts.resize((stations + 1) * 2)
+	cols.resize((stations + 1) * 2)
+	for i: int in stations + 1:
+		var f: float = float(i) / float(stations)
+		var x: float = back - WAKE_LEN * f
 		# Cubic falloff: bright and fat right behind the head, gone by the tail.
 		# Linear looked like a stick; the curve is what makes it a streak.
-		var k: float = (1.0 - f0)
+		var k: float = (1.0 - f)
 		k = k * k * k
 		var w: float = maxf(CORE_HALF_WIDTH * k, 0.35)
-		draw_line(Vector2(x0, 0.0), Vector2(x1, 0.0),
-			Color(_trail_color.r, _trail_color.g, _trail_color.b, _trail_color.a * k), w * 2.0, true)
+		var col := Color(_trail_color.r, _trail_color.g, _trail_color.b, _trail_color.a * k)
+		# Top edge forward, bottom edge written into the mirrored slot so the array
+		# reads as one simple (non self-intersecting) outline head -> tail -> head.
+		pts[i] = Vector2(x, -w)
+		cols[i] = col
+		pts[pts.size() - 1 - i] = Vector2(x, w)
+		cols[cols.size() - 1 - i] = col
+	draw_polygon(pts, cols)
 
 
 ## Fringe + glow + core, the shared "volume of light" the head sits inside.
 func _draw_halos() -> void:
-	var fringe := Color(_glow_color.r, _glow_color.g, _glow_color.b, _glow_color.a * 0.34)
-	_capsule(Vector2(-HEAD_HALF_LEN - 5.0, 0.0), Vector2(HEAD_HALF_LEN, 0.0),
-		CORE_HALF_WIDTH * FRINGE_SCALE, fringe)
+	# The fringe is three draw commands (a capsule is a line plus two end-cap
+	# circles) for the faintest band of a three-band glow. Dropped on the phone;
+	# the glow and the core still make the bolt a volume of light rather than a
+	# coloured line, which is what the three bands were for.
+	if not _low:
+		var fringe := Color(_glow_color.r, _glow_color.g, _glow_color.b, _glow_color.a * 0.34)
+		_capsule(Vector2(-HEAD_HALF_LEN - 5.0, 0.0), Vector2(HEAD_HALF_LEN, 0.0),
+			CORE_HALF_WIDTH * FRINGE_SCALE, fringe)
 	_capsule(Vector2(-HEAD_HALF_LEN - 2.5, 0.0), Vector2(HEAD_HALF_LEN, 0.0),
 		CORE_HALF_WIDTH * GLOW_SCALE, _glow_color)
 
