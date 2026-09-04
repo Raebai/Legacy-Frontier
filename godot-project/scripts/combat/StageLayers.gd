@@ -84,6 +84,18 @@ const DRAWERS: Dictionary = {
 	## — the versus stage builds terraces, the tower builds a shell.
 	"RoomShell": TERRAIN,
 	"StageHazard": HAZARD,
+	## THE THIRD DRAWER THE SCANNER CANNOT SEE, for the third time and the same reason:
+	## `DestructibleStage` is a Node2D, and the scanner in `slice_test_stage_layers`
+	## matches `extends StaticBody2D`. So it was invisible to the one rule that catches a
+	## drawer defaulting to z 0 — and a stage that draws its own carved cavities at z 0
+	## would paint them over the fighters standing in front of it.
+	##
+	## ⚠ `HAZARD`, THE SAME RUNG AS `StageHazard`, AND FOR THE IDENTICAL ARGUMENT: a
+	## carved hole is a HOLE IN the ground, not an object sitting on it, so it belongs in
+	## the ground rather than in front of it. The two never overlap in practice — a pit is
+	## authored, a cavity is cut — and if they ever do, "both are absences in the floor"
+	## is the right thing for them to have in common.
+	"DestructibleStage": HAZARD,
 	"RuinPlatform": PLATFORM,
 	"BreakablePlatform": PLATFORM,
 	"DestructibleTerrain": COVER,
