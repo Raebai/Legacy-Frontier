@@ -37,6 +37,7 @@ extends RefCounted
 ##     agent's file).
 
 const BUBBLE_SCENE: PackedScene = preload("res://scenes/SpeechBubble.tscn")
+const HudStyle := preload("res://scripts/ui/HudStyle.gd")
 
 ## Name of the bubble node we parent to a speaker. Reused, never re-created — a
 ## second bubble on the same body would render two lines on top of each other.
@@ -46,7 +47,15 @@ const BUBBLE_NAME: StringName = &"BarkBubble"
 ## what `BotMatch` chose in wave 4, deliberately: the whole point of this change is
 ## that a duel taunt, an elite's line and a wave-clear shout are the same object
 ## drawn the same way, and two "bare" sizes would be the drift all over again.
-const BARE_FONT_SIZE: int = 9
+##
+## ⚠ IT IS THE SMALLEST TYPE IN THE GAME AND IT IS THE NARRATIVE LAYER — and it is
+## drawn in WORLD space, on a Node2D bubble that travels with the body. Multiplied
+## by the camera's 0.46 pull-back that made it **4.1 screen pixels**: the one line
+## of story the game has, rendered below the threshold at which a glyph is a glyph.
+## `_apply_bare` now sizes it through `HudStyle.ui_scale`, so it holds a constant
+## on-screen size across the camera's whole 5.6x range. See `HudStyle`'s ONE ZOOM
+## RULE block.
+const BARE_FONT_SIZE: int = HudStyle.MICRO
 
 ## How long a line stays up. Short: a bark is punctuation, not reading material.
 const HOLD: float = 1.9
@@ -531,6 +540,7 @@ static func voice_only(who: Node, mood: int, syllables: int = 0) -> void:
 static func _bubble_for(who: Node2D) -> Node:
 	var existing: Node = who.get_node_or_null(NodePath(String(BUBBLE_NAME)))
 	if existing != null:
+		_apply_bare(existing, who)   # re-size for the camera's current zoom
 		return existing
 	var bubble: Node = BUBBLE_SCENE.instantiate()
 	bubble.name = String(BUBBLE_NAME)
@@ -553,9 +563,25 @@ static func _bubble_for(who: Node2D) -> Node:
 	#
 	# ⚠ AFTER `add_child`, not before: the overrides go through `@onready` node
 	# references that do not exist until the bubble is in the tree.
-	if bubble.has_method(&"set_bare"):
-		bubble.call(&"set_bare", BARE_FONT_SIZE)
+	_apply_bare(bubble, who)
 	return bubble
+
+
+## Size a bare bubble for the camera's CURRENT zoom.
+##
+## ⚠ RE-APPLIED ON EVERY BARK, not just at construction, and that is the whole fix.
+## `SpeechBubble` is a Node2D and this file does not own it, so there is no
+## per-frame hook to compensate through: the only moment this side controls is the
+## moment a line is spoken. A bark lives 1.9s and the camera's zoom lerps at 2-7
+## per second, so sizing at speak-time is not perfect — but it is the difference
+## between a 4px line and a readable one, and the alternative is a per-frame
+## compensation inside `SpeechBubble.gd`, which belongs to another file. See the
+## report note if that ever becomes worth doing.
+static func _apply_bare(bubble: Node, who: Node2D) -> void:
+	if bubble == null or not bubble.has_method(&"set_bare"):
+		return
+	var fs: int = maxi(1, int(round(float(BARE_FONT_SIZE) * HudStyle.ui_scale(who))))
+	bubble.call(&"set_bare", fs)
 
 
 ## Per-speaker rate limit, stored on the node itself rather than in a static

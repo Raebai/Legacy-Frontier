@@ -31,13 +31,22 @@ extends Node2D
 ## the counter ratchets up, hits MAX_ALIVE, and damage numbers silently stop
 ## appearing for the rest of the session.
 
+const HudStyle := preload("res://scripts/ui/HudStyle.gd")
+
 const RISE_SPEED: float = 52.0
 const LIFETIME: float = 0.72
 const GRAVITY: float = 46.0     # slight downward pull so the number arcs
 const MAX_ALIVE: int = 64       # global cap (the pool ceiling)
 const BIG_HIT: int = 20         # >= this reads as a heavy hit -> bigger + longer
-const BASE_SIZE: int = 15
-const BIG_SIZE: int = 26
+## ⚠ THESE ARE WORLD UNITS ON A Node2D, AND THAT USED TO BE THE WHOLE PROBLEM.
+## Multiplied by the camera's zoom (0.46 .. 2.6) and by `_pop` (up to 1.5), a
+## damage number ran from **7 screen pixels to 101** across a single fight — the
+## same "-12" was unreadable when the camera pulled back to frame a crowd and a
+## billboard when it pushed in on a duel. `_draw` now multiplies by
+## `HudStyle.ui_scale`, which holds it at 29px (62 for a crit pop) throughout. See
+## the ONE ZOOM RULE block in `HudStyle`.
+const BASE_SIZE: int = HudStyle.SMALL + 4   # 15 — unchanged at the reference zoom
+const BIG_SIZE: int = HudStyle.TITLE        # 26 — unchanged at the reference zoom
 
 ## Live count of numbers currently animating. The cap check, O(1).
 static var _alive: int = 0
@@ -57,7 +66,7 @@ static var _alive: int = 0
 static var _pool: Array = []
 
 var _text: String = ""
-var _color: Color = Color(1.0, 1.0, 1.0)
+var _color: Color = HudStyle.CHALK
 var _age: float = 0.0
 var _life: float = LIFETIME
 var _vel: Vector2 = Vector2.ZERO
@@ -88,7 +97,7 @@ var _active: bool = false
 static var show_numbers: bool = false
 
 
-static func spawn(parent: Node, world_pos: Vector2, amount: int, color: Color = Color(1, 1, 1), crit: bool = false) -> void:
+static func spawn(parent: Node, world_pos: Vector2, amount: int, color: Color = HudStyle.CHALK, crit: bool = false) -> void:
 	if not show_numbers:
 		return
 	if parent == null or not parent.is_inside_tree() or amount <= 0:
@@ -96,7 +105,9 @@ static func spawn(parent: Node, world_pos: Vector2, amount: int, color: Color = 
 	if _alive >= MAX_ALIVE:
 		return
 	var dn: DamageNumber = _take(parent)
-	dn._text = "-" + str(absi(amount))
+	# Bounded so `_draw` can safely draw unclipped — see its note. Past four digits
+	# the exact figure is not information anyone reads mid-fight.
+	dn._text = "-9999+" if absi(amount) > 9999 else "-" + str(absi(amount))
 	dn._color = color
 	var big: bool = crit or amount >= BIG_HIT
 	dn._size = BIG_SIZE if big else BASE_SIZE
@@ -108,7 +119,10 @@ static func spawn(parent: Node, world_pos: Vector2, amount: int, color: Color = 
 	var jitter: float = sin(world_pos.x * 0.7 + world_pos.y * 1.3)
 	dn._vel = Vector2(jitter * 22.0, -RISE_SPEED)
 	dn.global_position = world_pos + Vector2(0.0, -6.0)
-	dn.z_index = 60  # above fighters + most VFX
+	# ⚠ BELOW THE HEALTH BARS, WHICH IT WAS NOT. This was 60 against
+	# `CharacterBars`' 30, so the number explaining a hit could cover the bar that
+	# hit moved. Both indices now come from one place.
+	dn.z_index = HudStyle.Z_DAMAGE_NUMBER  # above fighters + most VFX
 	dn._active = true
 	_alive += 1
 	dn.visible = true
@@ -203,11 +217,21 @@ func _draw() -> void:
 		return
 	var frac: float = _age / _life
 	var alpha: float = 1.0 - smoothstep(0.5, 1.0, frac)  # hold, then fade out
-	var fs: int = int(round(float(_size) * _pop))
-	var col: Color = Color(_color.r, _color.g, _color.b, alpha)
-	var outline: Color = Color(0.05, 0.04, 0.07, alpha * 0.95)
+	var ui: float = HudStyle.ui_scale(self)
+	var fs: int = maxi(1, int(round(float(_size) * _pop * ui)))
+	var col: Color = HudStyle.with_a(_color, alpha)
+	var outline: Color = HudStyle.ink(alpha * 0.95)
+	# ⚠ THE OUTLINE WEIGHT IS NO LONGER A FUNCTION OF THE FONT SIZE. `maxi(4, fs/4)`
+	# ran from 4 to 25 across the zoom range, so the same number was outlined like
+	# body copy at one moment and like a title card the next. `HudStyle.outline_for`
+	# gives the HUD two weights; the compensation scales the whole glyph anyway.
+	var stroke: int = int(round(float(HudStyle.outline_for(_size)) * ui))
 	# Center the text horizontally on the origin.
 	var w: float = font.get_string_size(_text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 	var pos: Vector2 = Vector2(-w * 0.5, 0.0)
-	draw_string_outline(font, pos, _text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, maxi(4, fs / 4), outline)
+	# ⚠ `-1` FOR THE WIDTH IS "NO CLIP", AND THAT IS DELIBERATE HERE — but only
+	# because the STRING is bounded instead. `spawn()` caps the printed magnitude,
+	# so the longest text this can ever draw is five characters; an unbounded amount
+	# used to render "-99999" straight off the side of the fighter it belonged to.
+	draw_string_outline(font, pos, _text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, stroke, outline)
 	draw_string(font, pos, _text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)

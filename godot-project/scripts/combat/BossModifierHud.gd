@@ -13,12 +13,19 @@ extends CanvasLayer
 ## word is the mnemonic. The blurb exists in BossModifier.REGISTRY for a codex that
 ## does not exist yet.
 
+const HudStyle := preload("res://scripts/ui/HudStyle.gd")
+
 ## Layer 56 sits one above the boss bar's 55, so the row always draws over the bar
-## rather than under it.
-const LAYER: int = 56
-## Under the bar: Boss's bar layer is at offset_top 40 and the bar itself ends
-## around y=79 inside it.
-const TOP: float = 84.0
+## rather than under it. Both indices, and the band below, now come from one place
+## — see the LAYERS AND BANDS block in `HudStyle`.
+const LAYER: int = HudStyle.LAYER_BOSS_MODS
+## Under the bar. ⚠ THIS WAS ONLY EVER SAFE BY ACCIDENT: the boss bar's Control
+## rect ran to y100 (offset_top 40 + a 60px minimum height) even though it drew
+## nothing below y79, so this row at y84 sat inside it and the two were kept apart
+## by `APPEAR_DELAY` — a timing coincidence, not a layout guarantee. The bar's rect
+## is now its band (42-80) and this one starts where that ends.
+const TOP: float = HudStyle.BAND_BOSS_MODS[0]
+const ROW_H: float = HudStyle.BAND_BOSS_MODS[1] - HudStyle.BAND_BOSS_MODS[0]
 ## Held back until the boss's own name card has finished its entrance — two pieces
 ## of text arriving together is neither of them landing.
 const APPEAR_DELAY: float = 1.35
@@ -37,7 +44,7 @@ func _ready() -> void:
 	var wrap := Control.new()
 	wrap.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	wrap.offset_top = TOP
-	wrap.custom_minimum_size = Vector2(0.0, 20.0)
+	wrap.custom_minimum_size = Vector2(0.0, ROW_H)
 	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(wrap)
 	_row = HBoxContainer.new()
@@ -57,9 +64,6 @@ func _ready() -> void:
 func _chip(mod_id: String) -> Label:
 	var l := Label.new()
 	l.text = BossModifier.name_for(mod_id)
-	l.add_theme_font_size_override("font_size", 11)
-	l.add_theme_color_override("font_color", BossModifier.tint_for(mod_id))
-	l.add_theme_color_override("font_outline_color", Color(0.04, 0.03, 0.05, 0.95))
-	l.add_theme_constant_override("outline_size", 5)
+	HudStyle.label(l, HudStyle.SMALL, BossModifier.tint_for(mod_id))
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l

@@ -29,6 +29,8 @@ extends Node
 ## every autoload it uses is reached through a guarded tree lookup (_autoload)
 ## for the same reason.
 
+const HudStyle := preload("res://scripts/ui/HudStyle.gd")
+
 ## Group the rest of the combat layer finds this by.
 const GROUP: StringName = &"hype"
 
@@ -64,13 +66,40 @@ const CLOSE_CALL_POWER: int = 4
 const WAVE_CLEAR_POWER: int = 6
 
 # ── look ─────────────────────────────────────────────────────────────────────
-const HUD_LAYER: int = 55          # above the ability bar (?), below pause (90)
+## ⚠ 60, NOT 55 — AND THE 55 WAS A REAL COLLISION, NOT A TIDINESS POINT. `Boss.gd`
+## builds the boss bar on layer 55 too. Two CanvasLayers on the same index fall
+## back to TREE ORDER, so which of the shout and the boss's health drew on top
+## depended on whether the Arena had built Hype before the boss spawned. And they
+## genuinely overlapped: the shout ran y62-96 at font 26 while the bar strip sat at
+## y64-79 — guaranteed, on every boss fight. 60 is "transient, and deliberately
+## above the boss bar"; the shout has also moved out of the bar's band entirely.
+const HUD_LAYER: int = HudStyle.LAYER_SHOUT
 const SHOUT_HOLD: float = 0.55
 const SHOUT_FADE: float = 0.45
-const COMBO_COLOR_LOW: Color = Color(0.95, 0.92, 0.80)
-const COMBO_COLOR_HIGH: Color = Color(1.0, 0.45, 0.25)
+const COMBO_COLOR_LOW: Color = HudStyle.CHALK
+const COMBO_COLOR_HIGH: Color = HudStyle.EMBER
 ## Chain length at which the combo colour reaches COMBO_COLOR_HIGH.
 const COMBO_COLOR_SPAN: float = 14.0
+## ⚠ THE SHOUT IS THE ONLY TYPE IN THE HUD ALLOWED TO SCALE, and it is now bounded.
+## `_shout_it` multiplied `26.0 * scale` with callers passing up to 1.3 — a dynamic
+## family spanning 22-34 on top of the seven fixed sizes already in these files. It
+## still gets louder for a bigger beat; it just cannot leave its band doing it.
+## 28, MEASURED: the fallback font's minimum label height is 39px at 28 and 42px at
+## 30, and the shout's band is 40px tall. 30 overflowed it by two pixels.
+const SHOUT_MAX_SIZE: int = 28
+## The chain counter's box, top-LEFT. ⚠ IT USED TO BE TOP-RIGHT AT x480-628, y34+,
+## and the pause BUTTON is a 44x44 target at x586-630, y10-54 on layer 50 — so the
+## combo label and its 148px window bar rendered ON TOP OF the only pause
+## affordance a phone has. It had to leave that corner.
+##
+## Top-left rather than lower-right: the right thumb owns the pause button and the
+## spell arc, the left thumb's stick is bottom-left, so the top-left corner is the
+## one piece of screen no thumb ever covers. The width is what is left after
+## clearing the boss bar's ink, whose left edge is at x=121 on a 640 base
+## (320 - 0.62 * 640 / 2) — hence 104, not 148.
+const COMBO_LEFT: float = 12.0
+const COMBO_WIDTH: float = 104.0
+const COMBO_TOP: float = 62.0
 
 var _combo: int = 0
 var _combo_timer: float = 0.0
@@ -115,7 +144,7 @@ func _process(delta: float) -> void:
 		_red_timer -= delta
 		if _red_timer <= 0.0:
 			_in_red = false
-			_shout_it("CLOSE CALL", Color(0.55, 0.95, 1.0), 0.9)
+			_shout_it("CLOSE CALL", HudStyle.SKY, 0.9)
 			_grant(CLOSE_CALL_POWER)
 			_sfx("ding", -2.0, 0.06, 0.8)
 
@@ -125,7 +154,7 @@ func _process(delta: float) -> void:
 ## but unused today, kept in the signature because a world-space burst at the kill
 ## is the obvious next beat and changing every call site later is the expensive
 ## part. `tint` is the victim's silhouette colour, so the shout wears its hue.
-func notify_kill(_where: Vector2 = Vector2.ZERO, tint: Color = Color(1, 1, 1, 1)) -> void:
+func notify_kill(_where: Vector2 = Vector2.ZERO, tint: Color = HudStyle.CHALK) -> void:
 	_combo += 1
 	_best_combo = maxi(_best_combo, _combo)
 	_combo_timer = COMBO_WINDOW
@@ -162,7 +191,7 @@ func _resolve_multi() -> void:
 	if n < 2:
 		return
 	var idx: int = clampi(n, 0, MULTI_SHOUTS.size() - 1)
-	_shout_it(MULTI_SHOUTS[idx], Color(1.0, 0.85, 0.35), 1.15)
+	_shout_it(MULTI_SHOUTS[idx], HudStyle.GOLD, 1.15)
 	_grant(MULTI_POWER * (n - 1))
 	_reaction_sfx("overpower", -1.0, 0.05, 1.0)
 	_camera_punch(0.07, 0.14)
@@ -182,7 +211,7 @@ func _break_chain() -> void:
 ## A wave is opening: the unseen hand is DRAWING the next mob in. Announce it,
 ## and pull the camera back so the arrival is something you watch land.
 func wave_opened(index: int, total: int) -> void:
-	_shout_it("WAVE %d / %d" % [index + 1, total], Color(0.72, 0.86, 1.0), 0.85)
+	_shout_it("WAVE %d / %d" % [index + 1, total], HudStyle.SKY, 0.85)
 	_sfx("sigil_form", -3.0, 0.05, 1.0 + 0.04 * float(index))
 	_camera_pull(0.13, 0.35)
 	_set_intensity(clampf(0.25 + 0.15 * float(index), 0.0, 1.0))
@@ -193,7 +222,7 @@ func wave_opened(index: int, total: int) -> void:
 ## point, the win lands on top of the fight instead of after it.
 func wave_beaten(index: int, total: int) -> void:
 	var last: bool = index + 1 >= total
-	_shout_it("WAVE %d DOWN" % (index + 1), Color(0.55, 1.0, 0.7), 1.1 if last else 0.95)
+	_shout_it("WAVE %d DOWN" % (index + 1), HudStyle.MINT, 1.1 if last else 0.95)
 	_grant(WAVE_CLEAR_POWER)
 	_sfx("holy_swell", -2.0, 0.04, 1.0)
 	_camera_punch(0.08, 0.16)
@@ -202,7 +231,7 @@ func wave_beaten(index: int, total: int) -> void:
 
 ## The floor's guardian has arrived. The loudest beat a floor has before its end.
 func guardian_arrived() -> void:
-	_shout_it("THE GUARDIAN", Color(1.0, 0.78, 0.3), 1.3)
+	_shout_it("THE GUARDIAN", HudStyle.GOLD, 1.3)
 	_sfx("breach", 0.0, 0.04, 0.9)
 	_camera_pull(0.2, 0.7)
 	_camera_trauma(0.35)
@@ -251,38 +280,61 @@ func _build_hud() -> void:
 	layer.layer = HUD_LAYER
 	add_child(layer)
 
-	# The shout: centre-upper, big, outlined, fades. One label reused for every
-	# beat so two shouts can never overlap into mush.
+	# The shout: centred, big, outlined, fades. One label reused for every beat so
+	# two shouts can never overlap into mush.
+	#
+	# ⚠ IT MOVED DOWN, from y62 to y150, and this is the one change in the layout
+	# pass a player will actually notice. It had to: the top of the screen is a
+	# stack of PERSISTENT readouts (rank, floor, boss bar, boss modifiers, floor
+	# affix) and the shout is the only piece of it that is transient and centred —
+	# i.e. the only one that can live over the fight for half a second without
+	# hiding something you need. y150-190 clears every band above it.
+	#
+	# The label's own rect is pinned to the band and the glyphs are centred inside
+	# it, so a louder beat grows the TYPE without growing the RECT.
 	_shout = Label.new()
 	_shout.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	_shout.offset_top = 62.0
+	_shout.offset_top = HudStyle.BAND_SHOUT[0]
+	_shout.custom_minimum_size = Vector2(0.0,
+		HudStyle.BAND_SHOUT[1] - HudStyle.BAND_SHOUT[0])
 	_shout.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_shout.add_theme_font_size_override("font_size", 26)
-	_shout.add_theme_color_override("font_outline_color", Color(0.04, 0.03, 0.07, 0.95))
-	_shout.add_theme_constant_override("outline_size", 7)
+	_shout.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_shout.clip_text = true
+	_shout.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	HudStyle.label(_shout, HudStyle.TITLE, HudStyle.CHALK)
 	_shout.modulate.a = 0.0
 	layer.add_child(_shout)
 
-	# The chain counter + its draining window bar, bottom-right, out of the way
-	# of the thumbs (mobile: the right thumb owns the spell buttons lower down).
+	# The chain counter + its draining window bar — see the COMBO_* constants for
+	# why it is top-LEFT now and why it is 104px wide rather than 148.
 	var box := VBoxContainer.new()
-	box.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	box.offset_left = -160.0
-	box.offset_right = -12.0
-	box.offset_top = 34.0
-	box.alignment = BoxContainer.ALIGNMENT_END
+	box.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	box.offset_left = COMBO_LEFT
+	box.offset_right = COMBO_LEFT + COMBO_WIDTH
+	box.offset_top = COMBO_TOP
+	box.alignment = BoxContainer.ALIGNMENT_BEGIN
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(box)
 
 	_combo_label = Label.new()
-	_combo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_combo_label.add_theme_font_size_override("font_size", 20)
-	_combo_label.add_theme_color_override("font_outline_color", Color(0.04, 0.03, 0.07, 0.95))
-	_combo_label.add_theme_constant_override("outline_size", 6)
+	_combo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_combo_label.custom_minimum_size = Vector2(COMBO_WIDTH, 0.0)
+	_combo_label.clip_text = true
+	_combo_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	# ⚠ BODY, NOT LEAD, AND THE REASON IS MEASURED (tools/probe_hud_style.gd). The
+	# strip that clears both the pause corner and the boss bar's ink is 104px wide.
+	# "24  CHAIN" is 96px at LEAD — it fits, barely — but "100  CHAIN" is 118px and
+	# ellipsises, i.e. the counter would break exactly when the player is doing best.
+	# At BODY the same string is 68px and a four-digit chain still fits. The counter
+	# reads as MOTION (it changes on every kill and its bar drains under it) far more
+	# than it reads as type, so it is the piece of the HUD that can afford the
+	# smaller step.
+	HudStyle.label(_combo_label, HudStyle.BODY, COMBO_COLOR_LOW)
 	box.add_child(_combo_label)
 
 	_combo_bar_bg = ColorRect.new()
-	_combo_bar_bg.custom_minimum_size = Vector2(148.0, 3.0)
-	_combo_bar_bg.color = Color(0.1, 0.1, 0.14, 0.55)
+	_combo_bar_bg.custom_minimum_size = Vector2(COMBO_WIDTH, 3.0)
+	_combo_bar_bg.color = HudStyle.TRACK
 	box.add_child(_combo_bar_bg)
 	_combo_bar = ColorRect.new()
 	_combo_bar.color = COMBO_COLOR_LOW
@@ -316,7 +368,8 @@ func _shout_it(text: String, color: Color, scale: float = 1.0) -> void:
 		return
 	_shout.text = text
 	_shout.add_theme_color_override("font_color", color)
-	_shout.add_theme_font_size_override("font_size", int(round(26.0 * scale)))
+	_shout.add_theme_font_size_override("font_size",
+		mini(int(round(float(HudStyle.TITLE) * scale)), SHOUT_MAX_SIZE))
 	_shout.modulate.a = 1.0
 	if _shout_tween != null and _shout_tween.is_valid():
 		_shout_tween.kill()

@@ -1,5 +1,9 @@
 class_name Boss
 extends "res://scripts/combat/Enemy.gd"
+
+## The HUD's one palette, type scale and layer allocation. No `class_name` on it, so
+## it is preloaded rather than referenced globally — see the file for why.
+const HudStyle := preload("res://scripts/ui/HudStyle.gd")
 ## THE ASHSPIRE GUARDIAN — a giant procedural stone-and-ember colossus, the
 ## tower's floor-5 final boss. Three HP-gated phases, a top-screen boss bar, an
 ## intro beat, and telegraphed spectacle attacks (the existing spell kit
@@ -1218,20 +1222,39 @@ func intro_time() -> float:
 ## override read the same numbers instead of each hard-coding 36 / 0.5 / 1.4 / 0.5.
 ## `hold` is the interval the card sits at full alpha; fade in/out bracket it, and
 ## the three together must fit inside `intro_time()`.
+## ⚠ THE `top` VALUES MOVED DOWN, AND THEY MOVED FOR A LAYOUT REASON RATHER THAN A
+## TASTE ONE. The HUD now has an authored band allocation (`HudStyle`, pinned by
+## `slice_test_hud_layout`), and this card was landing inside two OTHER widgets'
+## bands: the full ceremony at top 120 sat in the floor-affix band (110-142) and the
+## mini card at top 96 sat in the boss-modifier band (86-106).
+##
+## They did not visibly collide, and that is the part worth recording: the only thing
+## keeping them apart was `BossModifierHud.APPEAR_DELAY` (1.35 s) landing just after
+## the mini card's 0.74 s total life. A timing coincidence between two unrelated
+## constants is not a layout — it is a collision that has not happened yet, and the
+## first person to retune either number would have shipped it.
+##
+## 196 puts the card in a transient strip BELOW every persistent band, where nothing
+## else ever draws. The signature line keeps its original offset from the title.
 func card_style() -> Dictionary:
 	if full_ceremony():
-		return {"size": 36, "outline": 7, "top": 120.0, "sig_size": 12, "sig_top": 160.0,
+		return {"size": 36, "outline": 7, "top": 196.0, "sig_size": 12, "sig_top": 250.0,
 			"fade": 0.5, "hold": 1.4, "roar": 0.6, "pull": 0.2, "pull_hold": 0.4,
 			"pull_release": 0.6}
-	# A flash, not a card: smaller, higher up, and gone in under a second.
-	return {"size": 20, "outline": 5, "top": 96.0, "sig_size": 10, "sig_top": 122.0,
+	# A flash, not a card: smaller and gone in under a second. It keeps the SAME `top`
+	# as the full ceremony now — "higher up" used to be part of the distinction, and it
+	# was the half of that distinction that put it inside another widget's band.
+	return {"size": 20, "outline": 5, "top": 196.0, "sig_size": 10, "sig_top": 224.0,
 		"fade": 0.22, "hold": 0.3, "roar": 0.25, "pull": 0.1, "pull_hold": 0.18,
 		"pull_release": 0.35}
 
 
 func _build_bar() -> void:
 	_bar_layer = CanvasLayer.new()
-	_bar_layer.layer = 55
+	# Read from the allocation rather than re-typed here. Same value it has always
+	# had; the point is that there is now one place the number lives, so the boss bar
+	# cannot drift onto the same index as something else the way it had with `Hype`.
+	_bar_layer.layer = HudStyle.LAYER_BOSS_BAR
 	add_child(_bar_layer)
 	_bar = BossBar.new()
 	_bar_layer.add_child(_bar)
@@ -1255,8 +1278,11 @@ func _play_intro() -> void:
 	card.text = boss_title()
 	card.add_theme_font_size_override("font_size", int(s["size"]))
 	card.add_theme_color_override("font_color", boss_accent())
-	card.add_theme_color_override("font_outline_color", Color(0.05, 0.02, 0.03, 0.95))
-	card.add_theme_constant_override("outline_size", int(s["outline"]))
+	card.add_theme_color_override("font_outline_color", HudStyle.ink(0.95))
+	# Outline weight derived from the type size instead of carried per-card. The two
+	# authored values (7 and 5) were two more entries in the five-deep outline sprawl
+	# `HudStyle` exists to collapse.
+	card.add_theme_constant_override("outline_size", HudStyle.outline_for(int(s["size"])))
 	card.modulate.a = 0.0
 	_bar_layer.add_child(card)
 	var tw := create_tween()

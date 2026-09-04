@@ -7,6 +7,7 @@ extends Node2D
 ## The heavy lifting lives in FloorBuilder (room props) and Encounter (spawning);
 ## this script just wires them to the run loop + theme + banner.
 
+const HudStyle := preload("res://scripts/ui/HudStyle.gd")
 const EXIT_PORTAL_SCRIPT: Script = preload("res://scripts/combat/ExitPortal.gd")
 ## THE WAY OUT IS A PAD ON THE GROUND. Maker: "once killing the boss, the 'leave the
 ## tower' thing should be a door that spawns on the ground in the middle, or a teleport
@@ -36,7 +37,11 @@ var _room: Node2D = null
 var _atmo: Atmosphere = null
 var _portal: ExitPortal = null
 var _return_portal: ExitPortal = null
-const RETURN_PORTAL_COLOR: Color = Color(1.0, 0.85, 0.4)   # warm gold vs the cyan climb-exit
+## Warm gold vs the cyan climb-exit. ⚠ WAS `(1.0, 0.85, 0.4)`, i.e. one of SEVEN
+## golds this HUD was storing separately — `CharacterBars.PCT_WARM` had
+## `(1.0, 0.82, 0.35)`, `RunSummary` had `(1.0, 0.82, 0.36)`, `Hype`'s multi-kill
+## shout had `(1.0, 0.85, 0.35)`, its guardian shout `(1.0, 0.78, 0.3)`. One gold.
+const RETURN_PORTAL_COLOR: Color = HudStyle.GOLD
 ## Where the LEAVE portal stands on this floor, kept so the confirm can put it back.
 var _return_pt: Vector2 = Vector2.ZERO
 ## True between "keep climbing" and the portal actually returning — see `_cancel_leave`.
@@ -62,14 +67,18 @@ var _exit_taken: bool = false
 ## land on read as one game rather than two. `ASH` in particular is already that
 ## file's `accent_for(WIPED)` — this is the existing convention, not a new one.
 ##
-## ⚠ RESTATED RATHER THAN IMPORTED, and deliberately: naming `RunSummary` here would
-## bolt a UI script's compile onto the largest scene script in the game, for four
-## colours. `RunSummary` restates its own scene paths for the same class of reason.
-## If that file's palette ever moves, these move with it.
-const CARD_PAPER: Color = Color(0.055, 0.052, 0.075)
-const CARD_ASH: Color = Color(0.96, 0.42, 0.36)
-const CARD_CHALK: Color = Color(0.93, 0.92, 0.86)
-const CARD_GRAPHITE: Color = Color(0.62, 0.63, 0.70)
+## ⚠ THEY NOW COME FROM `HudStyle`, WHICH IS WHERE THE PALETTE ACTUALLY LIVES.
+## They used to be restated as literals here so that naming `RunSummary` would not
+## bolt a UI script's compile onto the largest scene script in the game — a good
+## instinct with the wrong destination: the four values were duplicated rather than
+## shared, and a survey of the ten HUD files found 52 distinct colours with ZERO of
+## them shared between two files. `HudStyle` is a `preload`ed script with no
+## `class_name`, no autoload and no dependencies, so it costs nothing to name and
+## it is the one place a colour can be changed.
+const CARD_PAPER: Color = HudStyle.PAPER
+const CARD_ASH: Color = HudStyle.EMBER
+const CARD_CHALK: Color = HudStyle.CHALK
+const CARD_GRAPHITE: Color = HudStyle.GRAPHITE
 ## `GameState.HUB_SCENE`, restated for the same reason (`GameState` has no
 ## `class_name` — it resolves only as an autoload, so naming it would break every
 ## headless tool that loads this scene). Used ONLY to decide whether to draw the
@@ -493,14 +502,14 @@ func _show_leave_confirm() -> void:
 	if is_instance_valid(_confirm_layer):
 		return
 	_confirm_layer = CanvasLayer.new()
-	_confirm_layer.layer = 80          # above the HUD (60), below the pause menu (90)
+	_confirm_layer.layer = 80          # above every HUD rung (<=60), below the pause menu (90)
 	add_child(_confirm_layer)
 	var root := Control.new()
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_STOP   # eat taps meant for the buttons
 	_confirm_layer.add_child(root)
 	var dim := ColorRect.new()
-	dim.color = Color(0.03, 0.03, 0.06, 0.66)
+	dim.color = HudStyle.scrim()
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(dim)
@@ -514,8 +523,9 @@ func _show_leave_confirm() -> void:
 	var head := Label.new()
 	head.text = "LEAVE THE TOWER?"
 	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	head.add_theme_font_size_override("font_size", 22)
-	head.add_theme_color_override("font_color", RETURN_PORTAL_COLOR)
+	# LEAD, not 22 — the game-over card's headline is also LEAD, and two cards that
+	# do the same job at 20 and 22 read as a mistake rather than as a hierarchy.
+	HudStyle.label(head, HudStyle.LEAD, RETURN_PORTAL_COLOR)
 	col.add_child(head)
 	var note := Label.new()
 	note.text = "the run ends here%s.
@@ -524,8 +534,7 @@ your climb is banked — floor %d is waiting." % [
 		mini(_gs.current_floor() + 1, _gs.total_floors()),
 	]
 	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	note.add_theme_font_size_override("font_size", 11)
-	note.add_theme_color_override("font_color", Color(0.72, 0.74, 0.82))
+	HudStyle.label(note, HudStyle.SMALL, CARD_GRAPHITE)
 	col.add_child(note)
 	# ══ THREE ANSWERS, AND ONE OF THEM WAS LYING ════════════════════════════════
 	# Maker: *"the keep climbing button does nothing, it needs to be reworded as stay
@@ -543,10 +552,12 @@ your climb is banked — floor %d is waiting." % [
 	# advances, through the SAME path the exit portal uses (`_on_portal_taken`) so
 	# co-op still routes its request through the host and single player still advances
 	# directly — one climb path, not a second one that can drift from it.
-	col.add_child(_confirm_button("Keep climbing  ▸", _climb_from_prompt,
-		Color(0.85, 0.95, 0.7)))
-	col.add_child(_confirm_button("Stay on the floor", _cancel_leave,
-		Color(0.88, 0.94, 1.0)))
+	# Green = onward, blue = stay, gold = out. The same three meanings the HUD's
+	# palette already carries elsewhere (MINT is the full end of every health bar
+	# and Hype's "wave down"; AZURE is mana and every cool callout), rather than
+	# three pastels invented at this call site.
+	col.add_child(_confirm_button("Keep climbing  ▸", _climb_from_prompt, HudStyle.MINT))
+	col.add_child(_confirm_button("Stay on the floor", _cancel_leave, HudStyle.SKY))
 	col.add_child(_confirm_button("Leave", _confirm_leave, RETURN_PORTAL_COLOR))
 
 
@@ -554,7 +565,7 @@ func _confirm_button(text: String, cb: Callable, tint: Color) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.custom_minimum_size = Vector2(196, 32)
-	b.add_theme_font_size_override("font_size", 15)
+	b.add_theme_font_size_override("font_size", HudStyle.BODY)
 	b.add_theme_color_override("font_color", tint)
 	b.focus_mode = Control.FOCUS_NONE
 	b.pressed.connect(cb)
@@ -906,7 +917,7 @@ func _show_game_over() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_STOP  # the run is over; nothing behind it wants taps
 	layer.add_child(root)
 	var dim := ColorRect.new()
-	dim.color = Color(CARD_PAPER, 0.72)
+	dim.color = HudStyle.scrim()
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(dim)
@@ -916,17 +927,12 @@ func _show_game_over() -> void:
 	# THE CARD IS AN ACTUAL CARD. Loose text over a dim is what an engine error looks
 	# like; a bordered page is what the rest of this game looks like. One flat panel,
 	# one hairline rule in the accent — no gradient, no shadow, no icon.
+	# ⚠ THIS SHAPE IS NOW THE HOUSE PANEL. It was the only panel in the HUD the maker
+	# had signed off on, and the survey found four different panel fills, four alphas
+	# (0.55 / 0.74 / 0.85 / 0.9), three border widths and one stray 15px corner
+	# radius against seven radius-0 surfaces. `HudStyle.panel` is this, moved.
 	var panel := PanelContainer.new()
-	var box := StyleBoxFlat.new()
-	box.bg_color = CARD_PAPER
-	box.border_color = CARD_ASH
-	box.set_border_width_all(1)
-	box.set_corner_radius_all(3)
-	box.content_margin_left = 26.0
-	box.content_margin_right = 26.0
-	box.content_margin_top = 16.0
-	box.content_margin_bottom = 16.0
-	panel.add_theme_stylebox_override("panel", box)
+	panel.add_theme_stylebox_override("panel", HudStyle.panel(CARD_ASH))
 	center.add_child(panel)
 	var col := VBoxContainer.new()
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -939,8 +945,7 @@ func _show_game_over() -> void:
 	# words did not; they were decoration on a screen the maker wants plain.
 	head.text = "GAME OVER"
 	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	head.add_theme_font_size_override("font_size", 20)
-	head.add_theme_color_override("font_color", CARD_ASH)
+	HudStyle.label(head, HudStyle.LEAD, CARD_ASH)
 	col.add_child(head)
 	# The one line that survives the trim, because it is not flavour: it answers the
 	# question a player has the instant they die, which is whether they just lost the
@@ -948,8 +953,7 @@ func _show_game_over() -> void:
 	var note := Label.new()
 	note.text = _game_over_subtitle()
 	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	note.add_theme_font_size_override("font_size", 11)
-	note.add_theme_color_override("font_color", CARD_GRAPHITE)
+	HudStyle.label(note, HudStyle.SMALL, CARD_GRAPHITE)
 	col.add_child(note)
 	# THE TWO EXITS. Held back for `GAME_OVER_HOLD` so the word lands first and so a
 	# key still held from the fight cannot choose for you, then revealed together.
@@ -969,8 +973,11 @@ func _show_game_over() -> void:
 		exits.add_child(again)
 	# …and the quiet one. Smaller type, dimmer ink, same tap target — restraint is in
 	# the weight, never in the size of the thing your thumb has to find.
+	# ⚠ THE SIZE OVERRIDE IS GONE, NOT SHRUNK. "restraint is in the weight, never in
+	# the size" is what the line above says, and a 13 next to a 15 was doing it in
+	# the size anyway — two steps apart on a 640-wide screen is not a hierarchy, it
+	# is a near-miss. Both buttons are BODY; the graphite ink is the restraint.
 	var menu: Button = _confirm_button("Menu", _to_menu, CARD_GRAPHITE)
-	menu.add_theme_font_size_override("font_size", 13)
 	exits.add_child(menu)
 	var reveal: Callable = func() -> void:
 		if is_instance_valid(exits):
@@ -1223,7 +1230,13 @@ func _spawn_hero_net(data: Dictionary) -> Node:
 
 func _build_ability_bar() -> void:
 	var layer := CanvasLayer.new()
-	layer.layer = 60  # above the floor banner (50), below Conversation (100)
+	# ⚠ 50, DOWN FROM 60, and this is a demotion on purpose. 60 is now the TRANSIENT
+	# rung (Hype's shout + chain), and the ability bar is the most persistent thing
+	# on the screen — it belongs on the persistent rung with the hero's bars and the
+	# pause button. Nothing changes visually: the bar sits at the bottom and the
+	# only things above it now are a shout that lives half a second and the pause
+	# menu. See the LAYERS AND BANDS block in `HudStyle`.
+	layer.layer = HudStyle.LAYER_HUD
 	add_child(layer)
 	layer.add_child(AbilityBar.new())
 	# Mobile two-thumb touch pad (self-hides on desktop; keyboard/mouse unaffected).
@@ -1234,7 +1247,7 @@ func _build_ability_bar() -> void:
 ## tree is paused. Esc toggles it; Exit bails to the hub (mid-floor = no bank).
 func _build_pause_overlay() -> void:
 	var layer := CanvasLayer.new()
-	layer.layer = 90  # above the ability bar (60), below Conversation (100)
+	layer.layer = 90  # above every HUD rung (<=60), below Conversation (100)
 	add_child(layer)
 	_pause_menu = PauseMenu.new()
 	layer.add_child(_pause_menu)
@@ -1398,16 +1411,27 @@ func _apply_sky(room: Vector2, wash: Color, theme: EnvTheme) -> void:
 
 func _build_floor_banner() -> void:
 	var layer := CanvasLayer.new()
-	layer.layer = 50
+	# ⚠ 52, NOT 50, AND THE 50 COLLIDED. `Rank`'s title label was also on 50, also
+	# `PRESET_TOP_WIDE`, also centred on x=320 — the rank at y~2-25 and this at
+	# y~18-41 — so their outline bands overlapped and which one drew on top was
+	# decided by tree order between an autoload and a scene. 52 is "the banner
+	# layer" and both now live on it inside bands that cannot touch.
+	layer.layer = HudStyle.LAYER_BANNER
 	add_child(layer)
 	_floor_banner = Label.new()
 	_floor_banner.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	_floor_banner.offset_top = 22.0
+	_floor_banner.offset_top = HudStyle.BAND_FLOOR_BANNER[0]
+	# The rect IS the band, so `tools/slice_test_hud_layout.gd` measures the thing
+	# the player sees rather than a constant this file typed.
+	_floor_banner.custom_minimum_size = Vector2(0.0,
+		HudStyle.BAND_FLOOR_BANNER[1] - HudStyle.BAND_FLOOR_BANNER[0])
 	_floor_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_floor_banner.add_theme_font_size_override("font_size", 13)
-	_floor_banner.add_theme_color_override("font_color", Color(0.95, 0.95, 1.0, 0.95))
-	_floor_banner.add_theme_color_override("font_outline_color", Color(0.05, 0.05, 0.1, 0.9))
-	_floor_banner.add_theme_constant_override("outline_size", 4)
+	_floor_banner.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	# A theme name is arbitrary text arriving from a `.tres`; ellipsise rather than
+	# let a long one run off both edges.
+	_floor_banner.clip_text = true
+	_floor_banner.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	HudStyle.label(_floor_banner, HudStyle.BODY, HudStyle.CHALK)
 	layer.add_child(_floor_banner)
 
 

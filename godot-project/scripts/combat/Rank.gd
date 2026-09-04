@@ -34,6 +34,8 @@ extends Node
 ## Re-run the sim after touching any of: these thresholds, KILL_POWER,
 ## Hype.WAVE_CLEAR_POWER, PHASE_BREAK_POWER, or a floor's wave budget.
 
+const HudStyle := preload("res://scripts/ui/HudStyle.gd")
+
 signal rank_changed(new_tier: int, new_title: String)
 
 ## Threshold CLIMB power per tier (index = tier). Reaching TIER_POWER[i] IS tier i.
@@ -150,16 +152,24 @@ func _on_run_ended(_outcome: Dictionary) -> void:
 ## rank title + the aura escalation are the entire progression UI.
 func _build_hud() -> void:
 	var hud: CanvasLayer = CanvasLayer.new()
-	hud.layer = 50
+	# ⚠ 52, NOT 50. This label and `Arena`'s floor banner were BOTH on layer 50, both
+	# `PRESET_TOP_WIDE`, both centred on x=320 — the rank title at y~2-25 and the
+	# banner at y~18-41 — so their outline bands overlapped and which one won was
+	# tree order. They are now one layer (52, "the banner layer") with two bands that
+	# cannot touch: see the LAYERS AND BANDS block in `HudStyle`.
+	hud.layer = HudStyle.LAYER_BANNER
 	add_child(hud)
 	_hud_label = Label.new()
 	_hud_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hud_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_hud_label.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	_hud_label.offset_top = 6.0
-	_hud_label.add_theme_font_size_override("font_size", 11)
-	_hud_label.add_theme_color_override("font_color", Color(0.93, 0.91, 0.98, 0.92))
-	_hud_label.add_theme_color_override("font_outline_color", Color(0.06, 0.05, 0.11, 0.9))
-	_hud_label.add_theme_constant_override("outline_size", 4)
+	_hud_label.offset_top = HudStyle.BAND_RANK[0]
+	# The rect IS the band, so the test can measure it rather than infer it.
+	_hud_label.custom_minimum_size = Vector2(0.0,
+		HudStyle.BAND_RANK[1] - HudStyle.BAND_RANK[0])
+	_hud_label.clip_text = true
+	_hud_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	HudStyle.label(_hud_label, HudStyle.SMALL, HudStyle.CHALK)
 	hud.add_child(_hud_label)
 
 

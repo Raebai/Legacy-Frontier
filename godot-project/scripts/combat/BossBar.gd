@@ -5,13 +5,21 @@ extends Control
 ## Poll-don't-push (like CharacterBars): reads the boss's hp/max_hp each frame.
 ## Built in code, lives on its own CanvasLayer (see Boss._build_bar).
 
+const HudStyle := preload("res://scripts/ui/HudStyle.gd")
+
 ## The Guardian's colours, kept as the DEFAULT rather than as the truth. See
 ## `setup()` — this file used to hard-code one boss's name in a `const`.
-const DEFAULT_ACCENT: Color = Color(1.0, 0.55, 0.2)
+##
+## ⚠ THE PHASE LADDER IS NOW BUILT FROM THE HUD PALETTE rather than from three
+## hand-picked oranges. It is the same cool->hot escalation it always was; the
+## point of deriving it is that "the hot red the boss bar reaches at P3" and "the
+## red the hero's health bar reaches at 10%" were two different reds, and the
+## player reads both in the same second of the same fight.
+const DEFAULT_ACCENT: Color = HudStyle.EMBER
 const PHASE_COLORS: Array[Color] = [
-	Color(0.95, 0.55, 0.2),   # P1
-	Color(0.95, 0.35, 0.15),  # P2
-	Color(0.9, 0.2, 0.1),     # P3
+	Color(0.98, 0.62, 0.36),   # P1 — GOLD.lerp(EMBER, 0.5)
+	HudStyle.EMBER,            # P2
+	Color(0.95, 0.28, 0.23),   # P3 — EMBER.lerp(DANGER, 0.7)
 ]
 const BAR_H: float = 15.0
 const WIDTH_FRAC: float = 0.62
@@ -21,7 +29,14 @@ const WIDTH_FRAC: float = 0.62
 ## CEREMONY block in Boss.gd for why the ceremony has two settings at all.
 const COMPACT_BAR_H: float = 9.0
 const COMPACT_WIDTH_FRAC: float = 0.40
-const COMPACT_NAME_SIZE: int = 11
+## Where the bar sits inside this control, and how thick its frame is. `BAR_TOP`
+## was a bare `24.0` in `_draw`; it is a layout number and it belongs with the band.
+const BAR_TOP: float = 22.0
+const FRAME: float = 2.0
+## Inset for the name label, so a long boss name ellipsises instead of running off
+## the screen.
+const NAME_INSET: float = 24.0
+const COMPACT_NAME_SIZE: int = HudStyle.SMALL
 
 var _boss: Node = null
 var _compact: bool = false
@@ -52,18 +67,29 @@ func setup(boss: Node, boss_name: String = "", accent: Color = DEFAULT_ACCENT,
 	if title == "" and boss != null and boss.has_method("boss_title"):
 		title = String(boss.call("boss_title"))
 	set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	offset_top = 40.0
-	custom_minimum_size = Vector2(0.0, 60.0)
+	# ⚠ THE CONTROL'S RECT IS THE BAND, EXACTLY. It used to sit at offset_top 40
+	# with a 60px minimum height — a rect from y40 to y100 — while drawing nothing
+	# below y79. That phantom 21px ran straight through `BossModifierHud`'s row at
+	# y84, so the two were only ever kept apart by `APPEAR_DELAY`, i.e. by a timing
+	# coincidence rather than by a layout guarantee. 42..80 is the whole band and
+	# the whole rect, and `tools/slice_test_hud_layout.gd` measures it.
+	offset_top = HudStyle.BAND_BOSS_BAR[0]
+	custom_minimum_size = Vector2(0.0, HudStyle.BAND_BOSS_BAR[1] - HudStyle.BAND_BOSS_BAR[0])
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_name_label = Label.new()
 	_name_label.text = title
 	_name_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	# ⚠ A NAME IS ARBITRARY TEXT AND THIS TOOK NONE OF IT ON TRUST. `setup()` accepts
+	# any `boss_name` a subclass hands it, with no length contract; a long one used to
+	# run off both edges of the screen. Inset + ellipsis is the honest answer — a
+	# clipped name is a WRONG name, an ellipsised one is a shortened one.
+	_name_label.offset_left = NAME_INSET
+	_name_label.offset_right = -NAME_INSET
+	_name_label.clip_text = true
+	_name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_name_label.add_theme_font_size_override("font_size",
-		COMPACT_NAME_SIZE if compact else 15)
-	_name_label.add_theme_color_override("font_color", accent.lerp(Color(1, 1, 1), 0.42))
-	_name_label.add_theme_color_override("font_outline_color", Color(0.05, 0.03, 0.05, 0.95))
-	_name_label.add_theme_constant_override("outline_size", 5)
+	HudStyle.label(_name_label, COMPACT_NAME_SIZE if compact else HudStyle.BODY,
+		accent.lerp(HudStyle.CHALK, 0.42))
 	add_child(_name_label)
 
 
@@ -96,6 +122,22 @@ func bar_width_frac() -> float:
 	return COMPACT_WIDTH_FRAC if _compact else WIDTH_FRAC
 
 
+## The bar's width in pixels for a viewport `full_w` wide.
+##
+## ⚠ THE WIDTH WAS THE ONLY VIEWPORT-RELATIVE DIMENSION IN THE WIDGET, and that is
+## why the bar changed SHAPE per device. `project.godot` runs `aspect="expand"`, so
+## a 20:9 phone hands this control a `size.x` of about 800 rather than 640 — the
+## fraction then grew the bar to ~496px while `BAR_H`, `BAR_TOP` and the name's
+## font size stayed exactly where they were. Same bar, different proportions, on
+## the device the game is actually for.
+##
+## Capping at the base viewport's width makes it one shape everywhere: on a wider
+## screen the bar keeps its 640-wide dimensions and simply sits centred in more
+## room, which is what every other piece of this HUD already does.
+func bar_pixel_width(full_w: float) -> float:
+	return minf(full_w, HudStyle.BASE_VIEWPORT.x) * bar_width_frac()
+
+
 func is_compact() -> bool:
 	return _compact
 
@@ -103,23 +145,24 @@ func is_compact() -> bool:
 func _draw() -> void:
 	var full_w: float = size.x
 	var bar_h: float = bar_height()
-	var bar_w: float = full_w * bar_width_frac()
+	var bar_w: float = bar_pixel_width(full_w)
 	var x0: float = (full_w - bar_w) * 0.5
-	var y0: float = 24.0
-	# Outline + dark track.
-	draw_rect(Rect2(x0 - 2.0, y0 - 2.0, bar_w + 4.0, bar_h + 4.0), Color(0.0, 0.0, 0.0, 0.7))
-	draw_rect(Rect2(x0, y0, bar_w, bar_h), Color(0.08, 0.06, 0.09, 0.9))
+	var y0: float = BAR_TOP
+	# Frame + track, at the one weight every bar in the game uses.
+	draw_rect(Rect2(x0 - FRAME, y0 - FRAME, bar_w + FRAME * 2.0, bar_h + FRAME * 2.0),
+		HudStyle.frame())
+	draw_rect(Rect2(x0, y0, bar_w, bar_h), HudStyle.TRACK)
 	# Trailing white "chip" (recent damage) then the phase-colored fill. The phase
 	# ladder is the Guardian's (cool -> hot as the fight escalates), pulled toward
 	# THIS boss's accent — so a cyan draughtsman does not get an ember-orange bar,
 	# and the Guardian's own bar is within a rounding error of what it always was.
 	var col: Color = PHASE_COLORS[_phase_index()].lerp(_accent, 0.55)
-	draw_rect(Rect2(x0, y0, bar_w * _shown, bar_h), Color(0.95, 0.9, 0.85, 0.5))
+	draw_rect(Rect2(x0, y0, bar_w * _shown, bar_h), HudStyle.with_a(HudStyle.CHIP, 0.5))
 	draw_rect(Rect2(x0, y0, bar_w * _ratio, bar_h), col)
 	# Phase-gate notches at 66% and 33%.
 	for frac: float in [0.66, 0.33]:
 		var nx: float = x0 + bar_w * frac
-		draw_rect(Rect2(nx - 1.0, y0 - 1.0, 2.0, bar_h + 2.0), Color(0.05, 0.03, 0.05, 0.85))
+		draw_rect(Rect2(nx - 1.0, y0 - 1.0, 2.0, bar_h + 2.0), HudStyle.ink(0.85))
 
 
 func _phase_index() -> int:
