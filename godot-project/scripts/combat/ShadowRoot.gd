@@ -410,8 +410,19 @@ func _hold_grip(delta: float) -> void:
 	if refresh:
 		_reapply_t = REAPPLY_EVERY
 	for v: Dictionary in _victims:
-		var n: Node2D = v["node"] as Node2D
-		if n == null or not is_instance_valid(n):
+		# ⚠ VALIDITY BEFORE `as`. Casting a FREED object throws, and a GDScript
+		# runtime error ABORTS the enclosing function — so the `is_instance_valid`
+		# that used to sit on the next line could never run. Confirmed live:
+		# "SCRIPT ERROR: Trying to cast a freed object."
+		# `_victims` is filled once in `_snap()` and NEVER pruned, so a rooted enemy
+		# that dies while held leaves a dangling entry here for the rest of the grip —
+		# which is why one death produced ~100 frames of error, not one line. Every
+		# victim after the dead one lost its root refresh and its anchor pin too.
+		var raw: Variant = v["node"]
+		if not is_instance_valid(raw):
+			continue
+		var n: Node2D = raw as Node2D
+		if n == null:
 			continue
 		if refresh and n.has_method("apply_status"):
 			n.apply_status(Elements.Element.EARTH)
@@ -441,8 +452,13 @@ func _draw() -> void:
 					_draw_claw(_lock, i, CATCH_HEIGHT, k)
 		else:
 			for v: Dictionary in _victims:
-				var n: Node2D = v["node"] as Node2D
-				if n == null or not is_instance_valid(n):
+				# ⚠ VALIDITY BEFORE `as` — see `_hold_grip`. Same unpruned `_victims`,
+				# same freed-cast abort; here it stops the grip VISUALS updating.
+				var raw: Variant = v["node"]
+				if not is_instance_valid(raw):
+					continue
+				var n: Node2D = raw as Node2D
+				if n == null:
 					continue
 				_draw_grip(n.global_position, k)
 

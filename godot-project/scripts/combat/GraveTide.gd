@@ -358,8 +358,19 @@ func _hold(delta: float) -> void:
 	var fed: int = 0
 	var live: Array[Dictionary] = []
 	for v: Dictionary in _victims:
-		var n: Node2D = v["node"] as Node2D
-		if n == null or not is_instance_valid(n) or n.is_queued_for_deletion():
+		# ⚠ VALIDITY BEFORE `as`. Casting a FREED object throws, and a GDScript
+		# runtime error ABORTS the enclosing function — so the `is_instance_valid`
+		# that used to sit on the next line could never run. Confirmed live:
+		# "SCRIPT ERROR: Trying to cast a freed object."
+		# THIS ONE IS SELF-TRIGGERING, which makes it the worst of the family: the
+		# drain below kills the victim, and the next tick casts the corpse. The abort
+		# lands BEFORE `_victims = live`, so the stale entry is never pruned and the
+		# error then repeats every frame for the rest of the channel.
+		var raw: Variant = v["node"]
+		if not is_instance_valid(raw):
+			continue
+		var n: Node2D = raw as Node2D
+		if n == null or n.is_queued_for_deletion():
 			continue
 		var held: float = float(v["held"]) + delta
 		v["held"] = held
@@ -487,8 +498,12 @@ func _draw() -> void:
 		_draw_side(side, ink, dark, sink)
 	# THE DRAIN. Drawn last so the threads sit over the hands.
 	for v: Dictionary in _victims:
-		var n: Node2D = v["node"] as Node2D
-		if n == null or not is_instance_valid(n):
+		# ⚠ VALIDITY BEFORE `as` — see `_hold`.
+		var raw: Variant = v["node"]
+		if not is_instance_valid(raw):
+			continue
+		var n: Node2D = raw as Node2D
+		if n == null:
 			continue
 		var pulse: float = 0.55 + 0.45 * sin(_elapsed * 9.0 + float(n.get_instance_id() % 17))
 		draw_line(n.global_position, _origin,

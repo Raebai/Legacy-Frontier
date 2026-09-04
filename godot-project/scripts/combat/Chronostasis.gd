@@ -135,7 +135,15 @@ func _physics_process(delta: float) -> void:
 ## Pin every held body and bank anything that hit it this frame.
 func _hold() -> void:
 	for row: Dictionary in _held:
-		var n: Node = row["node"]
+		# ⚠ VALIDITY BEFORE THE TYPED BIND. `var n: Node = row["node"]` is a typed
+		# ASSIGNMENT, and binding a freed instance throws exactly like a bad cast —
+		# before any guard below can run. `_held` persists across frames, so a body
+		# freed by a floor change or a boss reset while time is stopped would do it.
+		# PREVENTATIVE: no trigger path was found for this one, unlike GraveTide.
+		var raw: Variant = row["node"]
+		if not is_instance_valid(raw):
+			continue
+		var n: Node = raw as Node
 		# ⚠ ALIVE, not merely PRESENT -- the same hole `Petrify._statue_ok` carried. The
 		# line below writes `global_position` every tick, which is what a dead body's
 		# gravity (`Hero._process_defeated`) is trying to do at the same time, and this
@@ -166,9 +174,13 @@ func _pay_out() -> void:
 	var tint := Color(RIM_COLOR.r, RIM_COLOR.g, RIM_COLOR.b, 1.0)
 	var total: int = 0
 	for row: Dictionary in _held:
-		var n: Node = row["node"]
+		# ⚠ VALIDITY BEFORE THE TYPED BIND — see `_hold`.
+		var raw: Variant = row["node"]
+		if not is_instance_valid(raw):
+			continue
+		var n: Node = raw as Node
 		var owed: int = int(row["banked"])
-		if owed <= 0 or n == null or not is_instance_valid(n) or n.is_queued_for_deletion():
+		if owed <= 0 or n == null or n.is_queued_for_deletion():
 			continue
 		total += owed
 		SpellTargets.hurt(n, owed, tint)
