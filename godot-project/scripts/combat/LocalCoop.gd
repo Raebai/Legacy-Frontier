@@ -107,6 +107,16 @@ func _join(device: int) -> void:
 		print("[local-coop] pad %d joined as player %d" % [device, _player_count()])
 
 
+## Player two's class, or -1 to inherit player one's. Guarded lookup: the store lives
+## on an autoload, and a headless harness that builds a `LocalCoop` without one must get
+## the inherit answer rather than abort.
+func _class_for(device: int) -> int:
+	var gs: Node = get_node_or_null(^"/root/GameState")
+	if gs == null or not gs.has_method(&"local_class_of"):
+		return -1
+	return int(gs.call(&"local_class_of", device))
+
+
 func _first_undriven_hero() -> Node:
 	for h: Node in get_tree().get_nodes_in_group("hero"):
 		if is_instance_valid(h) and h.get(&"controller") == null:
@@ -127,6 +137,14 @@ func _spawn_hero(pad: PadController) -> Node:
 	var h: Node = scene.instantiate()
 	h.name = "Hero_local_%d" % pad.device
 	(h as Node2D).position = spawn_origin + SPAWN_STEP * float(_player_count())
+	# ⚠ BEFORE add_child, BECAUSE `_ready` IS WHAT READS IT. `Hero._ready` resolves its
+	# class as `net_class` (when >= 0) else `GameState.selected_class`, so a class set
+	# after the body is in the tree is a class set too late - the rig, weapon and spell
+	# config are already built. This is the same field and the same ordering the
+	# networked spawner uses at `Arena.gd:1219`; -1 falls through to player one's pick,
+	# which is exactly the behaviour this had before there was anywhere to store a
+	# second choice.
+	h.set(&"net_class", _class_for(pad.device))
 	heroes_root.add_child(h)
 	# ⚠ CONTROLLER AFTER add_child, CAMERA AFTER THAT. `Hero._ready` reads `net_class`
 	# and builds the rig, and it is `_ready` that puts the body in the "hero" group —

@@ -32,6 +32,7 @@ const TESTS: Array[String] = [
 	"a_bound_bar_draws_its_own_climber_and_nobody_else",
 	"a_bound_bar_whose_climber_died_draws_nothing",
 	"a_pad_player_can_be_a_rescuer_and_a_bot_cannot",
+	"player_two_has_a_class_of_their_own_that_does_not_leak",
 ]
 
 ## Everything `Hero` reads through the controller seam. If the pad cannot produce one of
@@ -106,6 +107,7 @@ func _run() -> void:
 	await a_bound_bar_draws_its_own_climber_and_nobody_else()
 	await a_bound_bar_whose_climber_died_draws_nothing()
 	await a_pad_player_can_be_a_rescuer_and_a_bot_cannot()
+	player_two_has_a_class_of_their_own_that_does_not_leak()
 
 	for t: String in TESTS:
 		_expect(_completed.has(t), "%s ran to completion" % t)
@@ -375,6 +377,38 @@ func a_pad_player_can_be_a_rescuer_and_a_bot_cannot() -> void:
 	rev.queue_free()
 	await process_frame
 	_done("a_pad_player_can_be_a_rescuer_and_a_bot_cannot")
+
+
+## ⚠ THE LEAK IS THE POINT OF THE TEST. `GameState.selected_class` is a single global
+## written by the hub altar, the in-run class switch, the versus arena and four Lobby
+## paths — so parking player two's pick in it would quietly overwrite player one's the
+## next time anybody switched. A separate store is only worth having if it stays separate.
+func player_two_has_a_class_of_their_own_that_does_not_leak() -> void:
+	var gs: Node = root.get_node_or_null(^"/root/GameState")
+	if gs == null:
+		_expect(false, "GameState autoload is missing — cannot test the P2 class store")
+		return
+	var p1_before: int = int(gs.get(&"selected_class"))
+
+	_expect(int(gs.call(&"local_class_of", 7)) == -1,
+		"an unset pad must inherit player one's class (-1), got %d"
+			% int(gs.call(&"local_class_of", 7)))
+
+	gs.call(&"set_local_class", 7, 3)
+	_expect(int(gs.call(&"local_class_of", 7)) == 3,
+		"player two's class must read back as set, got %d"
+			% int(gs.call(&"local_class_of", 7)))
+	# A second pad is a second player, not the same one.
+	_expect(int(gs.call(&"local_class_of", 8)) == -1,
+		"setting pad 7 must not decide pad 8's class")
+	_expect(int(gs.get(&"selected_class")) == p1_before,
+		"setting player two's class must NOT touch player one's (%d -> %d)"
+			% [p1_before, int(gs.get(&"selected_class"))])
+
+	# Leave the autoload as we found it — a suite that mutates shared state and walks
+	# away is a suite that fails whichever test happens to run after it.
+	(gs.get(&"local_class") as Dictionary).erase(7)
+	_done("player_two_has_a_class_of_their_own_that_does_not_leak")
 
 
 ## The count is only worth anything if it moves the numbers the player feels.

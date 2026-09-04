@@ -20,6 +20,19 @@ signal command_received(command: String, params: Dictionary)
 
 func _ready() -> void:
 	name = "MCPRuntime"
+	# ⚠ EDITOR BUILDS ONLY. `_cmd_call_method` does `node.callv(method, args)` with NO
+	# allowlist, on an unauthenticated TCP socket bound to port 7777, from a project-wide
+	# autoload. That is a development bridge and it is fine in a development build - but
+	# it was starting in EXPORTED builds too, where it is a remote "run any method on any
+	# node in the tree" service handed to anything that can reach the port, `free()`
+	# included. Nothing gated it, because until this project had a build to give anybody
+	# there was no exported build for it to be in.
+	#
+	# `editor` is true for the editor and for every `--headless --script` harness run
+	# (they use the editor binary), and false in every export template - so the whole
+	# Gopeak/dev loop is untouched and a shipped game simply never opens the port.
+	if not OS.has_feature("editor"):
+		return
 	_start_server()
 	print("[MCP Runtime] Autoload ready, server starting on port %d" % _port)
 

@@ -99,6 +99,31 @@ const CLIMBER_PATH: String = "user://climber.json"
 ## the hub or the debug switch. 0..7 (see Hero.HeroClass / CLASS_NAMES).
 var selected_class: int = 0
 
+## SAME-SCREEN CO-OP: what each LOCAL player after the first plays as, keyed by the
+## pad `device` id that joined. -1 or absent means "whatever player one picked".
+##
+## ⚠ A SEPARATE STORE, NOT `selected_class`. That one is a single global "the class
+## you last confirmed" and is written by the hub altar, the in-run `switch_class`, the
+## versus arena and four Lobby paths (`ClassSelect.gd:155`, `Hero.gd:3021`,
+## `Lobby.gd:541/555/585/673`) - so parking player two's choice in it would have player
+## two's pick silently become player one's the next time either of them switched.
+##
+## ⚠ KEYED BY DEVICE, MIRRORING `Net.peer_class`. The networked path already solved
+## this exact problem with an id->class dictionary read through `class_of(peer)` and
+## applied by setting `net_class` on the body BEFORE `_ready` resolves it
+## (`Arena.gd:1219`). Local co-op uses the same shape and the same consumption point,
+## so there is one way this works rather than two.
+var local_class: Dictionary = {}
+
+
+## The class a local player on `device` should spawn as, or -1 for "same as player one".
+func local_class_of(device: int) -> int:
+	return int(local_class.get(device, -1))
+
+
+func set_local_class(device: int, cls: int) -> void:
+	local_class[device] = cls
+
 ## Player gear loadout override, set from the hub Armory (Loadout UI). Slot -> gear
 ## kind; "" = keep the class default. Applied by Hero._ready after configure_class,
 ## so the chosen weapon/head/body (and their GearAbilities) shape the run hero.

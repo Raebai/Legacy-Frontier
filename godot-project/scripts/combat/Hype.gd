@@ -164,7 +164,7 @@ func _resolve_multi() -> void:
 	var idx: int = clampi(n, 0, MULTI_SHOUTS.size() - 1)
 	_shout_it(MULTI_SHOUTS[idx], Color(1.0, 0.85, 0.35), 1.15)
 	_grant(MULTI_POWER * (n - 1))
-	_sfx("overpower", -1.0, 0.05, 1.0)
+	_reaction_sfx("overpower", -1.0, 0.05, 1.0)
 	_camera_punch(0.07, 0.14)
 
 
@@ -347,6 +347,24 @@ func _grant(power: int) -> void:
 	var r: Node = _autoload(&"Rank")
 	if r != null and r.has_method("add_power"):
 		r.call("add_power", power)
+
+
+## ⚠ A REACTION NAME IS NOT AN SFX KEY. `_resolve_multi` asked `Sfx.play` for
+## "overpower", which is a ReactionTable OUTCOME; the roster key it maps to is
+## "rx_overpower". `Sfx.STREAMS` has no "overpower", so every multi-kill logged
+## `Sfx: unknown key 'overpower'` and played NOTHING - the shout appeared on screen in
+## silence. `Sfx.gd:476` says it in as many words: use `reaction_sound(outcome)`, do not
+## guess a key. This is that call, and it substitutes nothing of its own: an outcome with
+## no voice resolves to "" and stays silent by design.
+func _reaction_sfx(outcome: String, db: float = 0.0, jitter: float = 0.06,
+		pitch: float = 1.0) -> void:
+	var s: Node = _autoload(&"Sfx")
+	if s == null or not s.has_method("reaction_sound"):
+		return
+	var key: String = String(s.call("reaction_sound", outcome))
+	if key == "":
+		return
+	_sfx(key, db, jitter, pitch)
 
 
 func _sfx(key: String, db: float = 0.0, jitter: float = 0.06, pitch: float = 1.0) -> void:
