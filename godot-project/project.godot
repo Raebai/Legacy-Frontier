@@ -223,6 +223,12 @@ common/physics_ticks_per_second=60
 
 [rendering]
 
+# ANDROID REQUIRES ETC2/ASTC. Without this the export dialog refuses outright with
+# "Target platform requires ETC2/ASTC texture compression" - mobile GPUs cannot read the
+# desktop S3TC/BPTC formats, so Godot has to import a second compressed variant of every
+# VRAM-compressed texture. Costs import time and cache size; it is not optional for a
+# phone build. Desktop keeps using its own formats and is unaffected.
+textures/vram_compression/import_etc2_astc=true
 textures/default_filters/anisotropic_filtering_level=0
 viewport/hdr_2d=true
 anti_aliasing/quality/msaa_2d=2
