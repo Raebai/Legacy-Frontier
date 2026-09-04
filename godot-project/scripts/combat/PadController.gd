@@ -3,9 +3,16 @@ extends RefCounted
 ## ONE GAMEPAD, DRIVING ONE HERO. The second implementer of `Hero.controller`.
 ##
 ## `BotController` proved the seam works by letting a brain drive a body; this does the
-## same job for a HUMAN holding a specific pad. Six duck-typed methods, exactly the ones
-## `Hero._pressed/_just/_released/_axis/_vector/_aim_point` call, so a Hero cannot tell
-## a pad from a brain from a keyboard.
+## same job for a HUMAN holding a specific pad. SEVEN duck-typed methods, exactly the
+## ones a Hero calls on its driver — the six input reads behind
+## `_pressed/_just/_released/_axis/_vector/_aim_point`, plus `tick` — so a Hero cannot
+## tell a pad from a brain from a keyboard.
+##
+## ⚠ THIS DOCSTRING SAID "SIX" AND THE CLASS IMPLEMENTED SIX, AND THAT COST PLAYER TWO
+## EVERY VERB THEY HAD. `Hero._physics_process` also calls `controller.tick(...)`; a
+## missing method raises, a raise ABORTS the enclosing function, and player two's body
+## therefore never reached its own movement code. Booting the arena found it in one
+## frame; nothing that tested this class on its own could. See `tick` below.
 ##
 ## ⚠ THE PAD IS DELIBERATELY *NOT* BOUND IN THE ACTION MAP, and that is the whole design.
 ## `Input.is_action_pressed(action)` is aggregated across EVERY device: bind a stick to
@@ -62,7 +69,17 @@ const BUTTONS: Dictionary = {
 	&"spell_2": JOY_BUTTON_DPAD_DOWN,
 	&"spell_3": JOY_BUTTON_DPAD_RIGHT,
 	&"spell_4": JOY_BUTTON_RIGHT_STICK,
-	&"switch_class": JOY_BUTTON_BACK,
+	# ⚠ `class_menu`, NOT `switch_class`, AND THE NAME IS THE MECHANISM. `Hero` reads
+	# `_just(&"switch_class")` and CYCLES to the next class — nine presses to reach the
+	# ninth, rebuilding the rig and the whole spell config on every one, with nothing
+	# on screen saying what you are about to become. That was the standing workaround
+	# for player two having no class pick, and it is the thing being replaced.
+	#
+	# `class_menu` is read by `LocalCoop` and by NOTHING else in the game: it is not in
+	# the InputMap, no Hero polls it, and `BotIntent`'s forbidden list is unaffected.
+	# So a pad can no longer trip the cycle by accident, and the keyboard's own
+	# `switch_class` binding in `project.godot` is untouched — solo is byte-identical.
+	&"class_menu": JOY_BUTTON_BACK,
 	# REVIVE (`Revive.REVIVE_ACTION` is &"talk"). On the stick click because it is a
 	# HOLD taken while standing still over a downed ally, and every button a thumb
 	# reaches mid-fight was already spoken for. First-pass binding: if it fights the
@@ -91,6 +108,25 @@ const AXES: Dictionary = {
 
 var device: int = 0
 
+## ⚠ THE HERO'S HANDS ARE TIED WHILE A MENU IS UP. Player two's class chooser is driven
+## by the same stick and the same A button that jump and dash sit on, so without this
+## they would sprint and dash their way across the floor while reading their own class
+## grid.
+##
+## ⚠ IT GATES THE HERO CONTRACT, NOT THE SNAPSHOT, AND THE DIFFERENCE IS LOAD-BEARING.
+## The obvious shape — zero `strength()` — zeroes `_refresh`'s snapshot too, and then
+## THE MENU CANNOT READ THE PAD EITHER, because there is only one pad in the player's
+## hands however many objects are pointed at it. It also manufactures a phantom press
+## on the way out: A held down to confirm the menu reads as `just_pressed` on the frame
+## the hero gets the pad back, and player two leaps into the air on leaving their own
+## chooser.
+##
+## So the snapshot is always RAW and the six methods the HERO calls answer neutral while
+## suspended; `menu_pressed` / `menu_just_pressed` read straight through it. A held
+## button therefore has `_prev == _now == true` across the whole suspend, and produces
+## no edge in either direction when it ends.
+var suspended: bool = false
+
 var _now: Dictionary = {}          ## action -> bool, this physics frame
 var _prev: Dictionary = {}         ## action -> bool, the frame before
 var _frame: int = -1
@@ -110,17 +146,38 @@ func is_human() -> bool:
 
 # ------------------------------------------------------- the Hero.controller contract
 
+## ⚠ THE SEAM IS SEVEN METHODS, NOT SIX, AND THIS ONE WAS MISSING — WHICH MADE PLAYER
+## TWO COMPLETELY INERT.
+##
+## `Hero._physics_process` calls `controller.tick(self, _bot_clock)` unconditionally on
+## every frame a hero HAS a driver (`Hero.gd:2071`), because until now the only driver
+## was `BotController` and that call is how a brain gets to think. A `PadController` had
+## no `tick`, so the call raised `Invalid call. Nonexistent function 'tick'` — and a
+## GDScript error ABORTS THE ENCLOSING FUNCTION. `_physics_process` therefore returned
+## at that line every single frame, above the movement integration, above the cast
+## dispatch, above `move_and_slide`. Player two stood still for ever while the console
+## filled at 60 lines a second, and none of it was visible from any test that built a
+## `PadController` without putting it on a real Hero.
+##
+## It does nothing, and doing nothing is the correct implementation: a human IS the
+## brain. The signature mirrors `BotController.tick(body, now)`; the return is ignored
+## by the call site (only `BotIntent` reads a brain's dictionary), so `void` is honest
+## about there being no intent to hand back.
+func tick(_body: Object, _now: float) -> void:
+	pass
+
+
 func pressed(action: StringName) -> bool:
-	_refresh()
-	return bool(_now.get(action, false))
+	return false if suspended else menu_pressed(action)
 
 
 func just_pressed(action: StringName) -> bool:
-	_refresh()
-	return bool(_now.get(action, false)) and not bool(_prev.get(action, false))
+	return false if suspended else menu_just_pressed(action)
 
 
 func just_released(action: StringName) -> bool:
+	if suspended:
+		return false
 	_refresh()
 	return bool(_prev.get(action, false)) and not bool(_now.get(action, false))
 
@@ -128,7 +185,22 @@ func just_released(action: StringName) -> bool:
 ## Analogue, NOT the boolean press — a stick half over walks at half speed, the way the
 ## keyboard's -1/0/+1 never could.
 func axis(neg: StringName, pos: StringName) -> float:
-	return strength(pos) - strength(neg)
+	return 0.0 if suspended else strength(pos) - strength(neg)
+
+
+# ---- the same two reads, THROUGH a suspend ------------------------------------
+# For whoever owns the pad while the hero does not: today that is player two's class
+# chooser. Named rather than a `force` flag so a call site says which side of the
+# suspend it is on.
+
+func menu_pressed(action: StringName) -> bool:
+	_refresh()
+	return bool(_now.get(action, false))
+
+
+func menu_just_pressed(action: StringName) -> bool:
+	_refresh()
+	return bool(_now.get(action, false)) and not bool(_prev.get(action, false))
 
 
 func vector(nx: StringName, px: StringName, ny: StringName, py: StringName) -> Vector2:
@@ -142,7 +214,12 @@ func vector(nx: StringName, px: StringName, ny: StringName, py: StringName) -> V
 ## direction aimed rather than snapping to a default — the same rule the bot path uses,
 ## and the reason a pad player's aim does not flick back to centre between flicks.
 func aim_point(from: Vector2) -> Vector2:
-	var stick := Vector2(_raw_axis(JOY_AXIS_RIGHT_X), _raw_axis(JOY_AXIS_RIGHT_Y))
+	# Reads raw rather than through `strength`, so the suspend has to be repeated here
+	# — otherwise a menu-navigating stick would go on re-aiming the body behind it.
+	# Suspended, `_last_aim` is HELD rather than zeroed, so the body is still facing
+	# where it was facing when the menu opened.
+	var stick := Vector2.ZERO if suspended \
+		else Vector2(_raw_axis(JOY_AXIS_RIGHT_X), _raw_axis(JOY_AXIS_RIGHT_Y))
 	if stick.length() > STICK_DEADZONE:
 		_last_aim = stick.normalized()
 	return from + _last_aim * AIM_REACH
@@ -151,6 +228,8 @@ func aim_point(from: Vector2) -> Vector2:
 # ----------------------------------------------------------------------- raw reading
 
 ## 0..1 for any mapped action. Buttons are 0 or 1; sticks and triggers report how far.
+## ⚠ RAW, AND DELIBERATELY BLIND TO `suspended` — see the note on that field. The
+## snapshot is built from this, and a zeroed snapshot would blind the menu too.
 func strength(action: StringName) -> float:
 	if not _connected():
 		return 0.0

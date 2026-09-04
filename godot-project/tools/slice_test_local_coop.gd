@@ -33,6 +33,27 @@ const TESTS: Array[String] = [
 	"a_bound_bar_whose_climber_died_draws_nothing",
 	"a_pad_player_can_be_a_rescuer_and_a_bot_cannot",
 	"player_two_has_a_class_of_their_own_that_does_not_leak",
+	"a_pad_answers_every_call_a_hero_makes_on_its_driver",
+	"the_pad_cannot_trip_the_class_cycle",
+	"a_suspended_pad_is_neutral_to_the_hero_and_still_read_by_the_menu",
+	"a_held_button_does_not_fire_an_edge_when_the_suspend_lifts",
+	"a_pad_that_leaves_hands_player_one_back_to_the_keyboard",
+	"a_bot_ally_does_not_use_up_a_seat_on_the_couch",
+	"player_two_picks_a_class_with_a_pad_and_player_one_keeps_theirs",
+	"one_press_of_back_opens_the_chooser_and_does_not_also_shut_it",
+]
+
+## ⚠ EVERY METHOD `Hero` CALLS ON `controller`, NOT JUST THE ONES THE PAD WAS WRITTEN
+## FOR. `PadController`'s own header called this a six-method seam; it is seven, and
+## the seventh — `tick`, which `Hero._physics_process` calls on EVERY frame a hero has
+## a driver — was never implemented. A GDScript error aborts the enclosing function, so
+## `_physics_process` returned at that line above the movement integration and above
+## `move_and_slide`: player two stood still for ever. Nothing that built a
+## `PadController` without putting it on a real Hero could see it, which is exactly why
+## the list is asserted rather than assumed.
+const HERO_CONTROLLER_CALLS: Array[StringName] = [
+	&"tick", &"pressed", &"just_pressed", &"just_released", &"axis", &"vector",
+	&"aim_point",
 ]
 
 ## Everything `Hero` reads through the controller seam. If the pad cannot produce one of
@@ -108,6 +129,14 @@ func _run() -> void:
 	await a_bound_bar_whose_climber_died_draws_nothing()
 	await a_pad_player_can_be_a_rescuer_and_a_bot_cannot()
 	player_two_has_a_class_of_their_own_that_does_not_leak()
+	a_pad_answers_every_call_a_hero_makes_on_its_driver()
+	the_pad_cannot_trip_the_class_cycle()
+	await a_suspended_pad_is_neutral_to_the_hero_and_still_read_by_the_menu()
+	await a_held_button_does_not_fire_an_edge_when_the_suspend_lifts()
+	await a_pad_that_leaves_hands_player_one_back_to_the_keyboard()
+	await a_bot_ally_does_not_use_up_a_seat_on_the_couch()
+	await player_two_picks_a_class_with_a_pad_and_player_one_keeps_theirs()
+	await one_press_of_back_opens_the_chooser_and_does_not_also_shut_it()
 
 	for t: String in TESTS:
 		_expect(_completed.has(t), "%s ran to completion" % t)
@@ -429,3 +458,307 @@ func a_second_climber_actually_scales_the_floor() -> void:
 	print("  2P scaling: guardian HP x%.2f, wave budget x%.2f, concurrent cap %d -> %d"
 		% [duo_hp, duo_budget, solo_cap, duo_cap])
 	_done("a_second_climber_actually_scales_the_floor")
+
+
+# ══════════════════════════ THE SEAM ITSELF, AND THE ONE THAT WAS MISSING
+
+## THE BUG THAT MADE PLAYER TWO INERT. See `HERO_CONTROLLER_CALLS`.
+func a_pad_answers_every_call_a_hero_makes_on_its_driver() -> void:
+	var pad := FakePad.new(0)
+	var missing: Array[String] = []
+	for m: StringName in HERO_CONTROLLER_CALLS:
+		if not pad.has_method(m):
+			missing.append(String(m))
+	_expect(missing.is_empty(),
+		"a pad cannot answer %s — `Hero._physics_process` calls it, and a missing method ABORTS the frame"
+			% ", ".join(missing))
+	# ...and calling it must not blow up either. `tick` is the one with no meaning for
+	# a human — a person IS the brain — so "does nothing, quietly" is the contract.
+	if pad.has_method(&"tick"):
+		pad.call(&"tick", null, 0.0)
+	print("  pad answers %d of the %d calls a hero makes on its driver"
+		% [HERO_CONTROLLER_CALLS.size() - missing.size(), HERO_CONTROLLER_CALLS.size()])
+	_done("a_pad_answers_every_call_a_hero_makes_on_its_driver")
+
+
+## ⚠ `switch_class` CYCLES. Nine presses to reach the ninth class, rebuilding the rig
+## and the whole spell config on every one, with nothing on screen naming what you are
+## about to become — that was the standing workaround for player two having no class
+## pick, and BACK is now the real chooser instead. If `switch_class` ever comes back to
+## this layout the two fire together and the pick fights the cycle.
+func the_pad_cannot_trip_the_class_cycle() -> void:
+	var mapped: Array[StringName] = PadController.mapped_actions()
+	_expect(not mapped.has(&"switch_class"),
+		"the pad must NOT map `switch_class` — it cycles, and BACK now opens the chooser")
+	_expect(mapped.has(&"class_menu"),
+		"the pad must map `class_menu`, or player two has no way to reach their own class pick")
+	# And the action it uses must be one nothing else in the game reads, or a Hero
+	# would consume the press before `LocalCoop` ever polled it.
+	_expect(not InputMap.has_action(&"class_menu"),
+		"`class_menu` must stay out of the InputMap — a bound action is read by every device at once")
+	_done("the_pad_cannot_trip_the_class_cycle")
+
+
+## The gate is on the HERO CONTRACT, not on the snapshot — because there is only one
+## pad in the player's hands however many objects point at it, and a zeroed snapshot
+## blinds the menu that is supposed to be driving.
+func a_suspended_pad_is_neutral_to_the_hero_and_still_read_by_the_menu() -> void:
+	var pad := FakePad.new(0)
+	pad.buttons[JOY_BUTTON_A] = true
+	pad.axes[JOY_AXIS_LEFT_X] = 1.0
+	await physics_frame
+	_expect(pad.pressed(&"jump"), "baseline: an unsuspended pad reads its buttons")
+
+	pad.suspended = true
+	_expect(not pad.pressed(&"jump"), "a suspended pad reads no buttons TO THE HERO")
+	_expect(is_zero_approx(pad.axis(&"move_left", &"move_right")),
+		"a suspended pad reads no movement to the hero, got %.3f"
+			% pad.axis(&"move_left", &"move_right"))
+	_expect(pad.vector(&"move_left", &"move_right", &"move_up", &"move_down") == Vector2.ZERO,
+		"a suspended pad's movement vector is zero")
+	_expect(pad.menu_pressed(&"jump"),
+		"...and the MENU can still read the same button — otherwise nothing could drive the chooser")
+	pad.suspended = false
+	_expect(pad.pressed(&"jump"), "lifting the suspend hands the pad straight back")
+	_done("a_suspended_pad_is_neutral_to_the_hero_and_still_read_by_the_menu")
+
+
+## ⚠ THE PHANTOM LEAP. A is both "confirm" in the chooser and "jump" in the hand, so a
+## player confirming their class is holding A at the exact moment the pad comes back.
+## Zeroing the snapshot during the suspend would make that held button look like a
+## fresh press on the very next frame, and player two would jump on leaving their own
+## menu. The snapshot runs raw throughout, so `_prev == _now == true` and no edge
+## exists to fire.
+func a_held_button_does_not_fire_an_edge_when_the_suspend_lifts() -> void:
+	var pad := FakePad.new(0)
+	pad.buttons[JOY_BUTTON_A] = false
+	pad.pressed(&"jump")
+	await physics_frame
+	pad.buttons[JOY_BUTTON_A] = true
+	pad.suspended = true
+	# Several frames of the menu being up, with A held down the whole time.
+	for _i: int in 4:
+		pad.menu_pressed(&"jump")
+		await physics_frame
+	pad.suspended = false
+	var edges: int = 0
+	for _i: int in 3:
+		if pad.just_pressed(&"jump"):
+			edges += 1
+		await physics_frame
+	_expect(edges == 0,
+		"a button held across the whole suspend must NOT read as a fresh press when it lifts, got %d"
+			% edges)
+	_done("a_held_button_does_not_fire_an_edge_when_the_suspend_lifts")
+
+
+# ══════════════════════════════════════════ THE PAD LEAVING, AND THE SEAT COUNT
+
+func _coop() -> Node:
+	var scr: GDScript = load("res://scripts/combat/LocalCoop.gd") as GDScript
+	var c: Node = scr.new() as Node
+	c.call("setup", root, Vector2.ZERO)
+	root.add_child(c)
+	return c
+
+
+## The ADOPTED case, which is the one that must never free a body: that hero is the
+## arena's own, and freeing it empties the room. Handed back to the keyboard instead.
+func a_pad_that_leaves_hands_player_one_back_to_the_keyboard() -> void:
+	var coop: Node = _coop()
+	var hero := FakeHero.new()
+	hero.add_to_group("hero")
+	root.add_child(hero)
+	await process_frame
+
+	var pad := FakePad.new(9)
+	coop.set("device_override", [9] as Array[int])
+	var got: Variant = coop.call("join_with", 9, pad)
+	_expect(got == hero,
+		"with the keyboard untouched, the first pad ADOPTS the hero already in the room")
+	_expect(hero.controller == pad, "...and that hero is now driven by the pad")
+
+	# The cable comes out: the device is simply no longer in the machine's list.
+	coop.set("device_override", [] as Array[int])
+	await process_frame
+	await process_frame
+	_expect(is_instance_valid(hero) and not hero.is_queued_for_deletion(),
+		"an adopted player-one body must NOT be freed when the pad leaves — that empties the room")
+	_expect(hero.controller == null,
+		"...it goes back to the keyboard, which is the only recovery that leaves a game to play")
+	# And the device is free again, so plugging back in is a rejoin rather than a
+	# dead port.
+	coop.set("device_override", [9] as Array[int])
+	var again: Variant = coop.call("join_with", 9, FakePad.new(9))
+	_expect(again == hero, "plugging the same pad back in re-adopts rather than being ignored")
+
+	hero.queue_free()
+	coop.queue_free()
+	await process_frame
+	_done("a_pad_that_leaves_hands_player_one_back_to_the_keyboard")
+
+
+## MAX_PLAYERS is a cap on PEOPLE. A body count would let bot allies fill the couch and
+## turn a real person's join into a silent no-op.
+func a_bot_ally_does_not_use_up_a_seat_on_the_couch() -> void:
+	var coop: Node = _coop()
+	var bodies: Array[Node] = []
+	for i: int in 6:
+		var h := FakeHero.new()
+		h.controller = FakeBrain.new()
+		h.add_to_group("hero")
+		root.add_child(h)
+		bodies.append(h)
+	await process_frame
+	_expect(int(coop.call("_human_count")) == 0,
+		"six bot-driven bodies are zero people, got %d" % int(coop.call("_human_count")))
+	var human := FakeHero.new()
+	human.add_to_group("hero")
+	root.add_child(human)
+	await process_frame
+	_expect(int(coop.call("_human_count")) == 1,
+		"...and one keyboard body among them is exactly one person")
+	for b: Node in bodies:
+		b.queue_free()
+	human.queue_free()
+	coop.queue_free()
+	await process_frame
+	_done("a_bot_ally_does_not_use_up_a_seat_on_the_couch")
+
+
+# ═══════════════════════════════════ PLAYER TWO'S OWN CLASS PICK, ON A PAD ONLY
+
+## The closed gap, and the leak it must not open. `GameState.selected_class` is player
+## ONE's class and is written by six other paths; the pick has to land in the
+## per-device store and nowhere else, and it has to be reachable with no keyboard and
+## no mouse.
+func player_two_picks_a_class_with_a_pad_and_player_one_keeps_theirs() -> void:
+	var cs: Node = root.get_node_or_null(^"/root/ClassSelect")
+	var gs: Node = root.get_node_or_null(^"/root/GameState")
+	if cs == null or gs == null:
+		_expect(false, "ClassSelect / GameState autoload missing — cannot test the pad class pick")
+		return
+	if not cs.has_method(&"open_for_pad"):
+		_expect(false, "ClassSelect has no pad mode — player two still has no class pick")
+		return
+	var p1_before: int = int(gs.get(&"selected_class"))
+	var picked: Array[int] = []
+	var pad := FakePad.new(11)
+	pad.suspended = true      # LocalCoop suspends the hero side before handing it over
+	cs.call(&"open_for_pad", 11, pad,
+		func(device: int, index: int) -> void:
+			picked.append(device)
+			picked.append(index))
+	await process_frame
+	_expect(bool(cs.call(&"is_open_for", 11)), "the chooser opens for that device")
+	_expect(not bool(cs.call(&"is_open_for", 12)), "...and only for that device")
+
+	var start: int = int(cs.get("_cursor"))
+	# Walk the cursor with the stick. Driven through the real `_process`, so the
+	# repeat throttle and the clamped grid walk are the shipped ones.
+	pad.axes[JOY_AXIS_LEFT_X] = 1.0
+	await physics_frame
+	cs.call("_physics_process", 0.016)
+	var moved: int = int(cs.get("_cursor"))
+	_expect(moved != start, "the left stick walks the cursor (%d -> %d)" % [start, moved])
+	pad.axes[JOY_AXIS_LEFT_X] = 0.0
+
+	# Confirm with A. Read through the suspend — the hero side of this pad is neutral.
+	pad.buttons[JOY_BUTTON_A] = true
+	await physics_frame
+	cs.call("_physics_process", 0.016)
+	pad.buttons[JOY_BUTTON_A] = false
+	await process_frame
+
+	_expect(picked.size() == 2 and picked[0] == 11,
+		"confirming calls back with THAT device, got %s" % str(picked))
+	_expect(picked.size() == 2 and picked[1] == moved,
+		"...and with the class the cursor was on")
+	_expect(not bool(cs.call(&"is_open_for", 11)), "confirming closes the chooser")
+	_expect(int(gs.get(&"selected_class")) == p1_before,
+		"player two's pick must NOT be written to player one's class (%d -> %d)"
+			% [p1_before, int(gs.get(&"selected_class"))])
+
+	# Leave the autoload as we found it: a hub `open()` after this must be the plain
+	# hub screen, with the dimmer back and no device attached.
+	cs.call(&"close")
+	_expect(int(cs.get("_pad_device")) == -1,
+		"closing clears pad mode, so the next hub visit is the ordinary screen")
+	_done("player_two_picks_a_class_with_a_pad_and_player_one_keeps_theirs")
+
+
+## ⚠ THE SCREEN THAT OPENED AND SHUT IN THE SAME BREATH — found by booting the real
+## arena, invisible to every unit test because it needs BOTH files at once.
+##
+## BACK opens the chooser and BACK backs out of it, and a `PadController` press edge
+## lives for the whole physics frame it lands on. `LocalCoop` saw the edge and opened
+## the screen; `ClassSelect._process`, running later in that SAME frame against that
+## SAME live edge, read it as "back out" and closed it again. No error, no warning —
+## both halves did exactly what they were told, and player two's class pick simply did
+## not exist. The mirror case is just as bad: the edge that CLOSES it is still live
+## when `LocalCoop` next polls, which re-opens the screen the player just dismissed.
+##
+## Both directions are asserted here, because fixing one alone swaps which of them is
+## broken.
+func one_press_of_back_opens_the_chooser_and_does_not_also_shut_it() -> void:
+	var cs: Node = root.get_node_or_null(^"/root/ClassSelect")
+	if cs == null or not cs.has_method(&"open_for_pad"):
+		_expect(false, "ClassSelect pad mode missing — cannot test the BACK press")
+		return
+	var coop: Node = _coop()
+	var hero := FakeHero.new()
+	hero.add_to_group("hero")
+	root.add_child(hero)
+	await process_frame
+	var pad := FakePad.new(13)
+	coop.set("device_override", [13] as Array[int])
+	coop.call("join_with", 13, pad)
+	await process_frame
+
+	# ⚠ A SHAPE GUARD, AND IT IS LABELLED AS ONE BECAUSE IT CANNOT BE MORE THAN THAT.
+	# A `PadController` edge lives for exactly one PHYSICS frame, and Godot may run up
+	# to eight physics steps inside one slow idle frame — so a `_process` poll of that
+	# edge silently misses it on a busy floor and works fine on an empty one. Headless
+	# runs one step per frame, so this suite CANNOT reproduce that; only booting the
+	# real arena did (`tools/probe_local_coop_2p.gd`, which read
+	# "BACK -> chooser open = false" for three runs while every test here was green).
+	# What is assertable here is that both halves still tick on the clock the edge is
+	# defined on.
+	_expect(coop.has_method(&"_physics_process"),
+		"LocalCoop must poll the class menu on the PHYSICS clock — an idle-frame poll drops the edge on a slow frame")
+	_expect(cs.has_method(&"_physics_process"),
+		"ClassSelect's pad mode must tick on the PHYSICS clock, for the same reason")
+	pad.buttons[JOY_BUTTON_BACK] = true
+	for _i: int in 4:
+		await physics_frame
+		await process_frame
+	_expect(bool(cs.call(&"is_open_for", 13)),
+		"one press of BACK must leave the chooser OPEN — the opening edge must not also close it")
+
+	# Holding it must not flicker, and letting go must not close it either.
+	pad.buttons[JOY_BUTTON_BACK] = false
+	for _i: int in 3:
+		await physics_frame
+		await process_frame
+	_expect(bool(cs.call(&"is_open_for", 13)),
+		"releasing BACK must leave the chooser open — a release is not a decision")
+
+	# A SECOND press backs out, and must not immediately re-open.
+	pad.buttons[JOY_BUTTON_BACK] = true
+	for _i: int in 4:
+		await physics_frame
+		await process_frame
+	pad.buttons[JOY_BUTTON_BACK] = false
+	for _i: int in 3:
+		await physics_frame
+		await process_frame
+	_expect(not bool(cs.call(&"is_open_for", 13)),
+		"a second press of BACK closes the chooser and it STAYS closed — the closing edge must not re-open it")
+	_expect(not bool(pad.suspended),
+		"and the pad goes back to the hero, or player two is left unable to move")
+
+	cs.call(&"close")
+	hero.queue_free()
+	coop.queue_free()
+	await process_frame
+	_done("one_press_of_back_opens_the_chooser_and_does_not_also_shut_it")
