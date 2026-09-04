@@ -32,6 +32,14 @@ const PLAYER_SCRIPT: String = "res://scripts/Player.gd"
 const STATION_SCRIPT: String = "res://scripts/ArmoryStation.gd"
 const DOOR_SCRIPT: String = "res://scripts/TowerDoor.gd"
 const LOBBY_SCRIPT: String = "res://scripts/ui/Lobby.gd"
+## The screen the CLASS pad opens. It is the whole of "one pad for class within which I
+## can edit spells" — see `_test_the_class_pad_edits_spells_too`.
+const OUTFITTER_SCRIPT: String = "res://scripts/ui/Outfitter.gd"
+## The base viewport the whole game is laid out for. A screen taller than this walks its
+## bottom button off a phone, which nobody notices on a desktop.
+const BASE_H: float = 360.0
+## Every tappable target in the town clears this in base units.
+const MIN_TAP: float = 30.0
 
 ## Every town-side script that a player's input can reach. All of them are grepped
 ## for the LLM stack.
@@ -57,7 +65,7 @@ const DELETED: Array[String] = [
 
 const TESTS: Array[String] = [
 	"town_scene_builds", "spawn_is_on_the_doorstep", "you_can_cast_in_the_lobby",
-	"three_stations_answer",
+	"the_two_pads_answer", "the_class_pad_edits_spells_too",
 	"townsfolk_speak_without_an_llm", "the_llm_stack_is_deleted",
 	"no_town_script_names_ollama", "the_lobby_still_leads_with_climb",
 	"tap_targets_clear_the_floor",
@@ -70,11 +78,37 @@ var _completed: Dictionary = {}
 var _town: Node = null
 
 
+## ⚠ `_run()` IS A COROUTINE NOW AND QUITS ITSELF, which is why this returns FALSE and
+## no longer does the sweep. One test measures a real `Control` and a `Control` has no
+## size until a layout pass has run — see `_test_the_class_pad_edits_spells_too`. If the
+## sweep stayed here it would run on the frame `_run` first AWAITED, i.e. before most of
+## the tests had happened, and report every one of them as having aborted.
+##
+## `_process` rather than `_init`: a `SceneTree`'s `_init` has no `root` yet, and every
+## test below builds the town under it.
 func _process(_delta: float) -> bool:
 	if _ran:
 		return false
 	_ran = true
 	_run()
+	return false
+
+
+func _run() -> void:
+	_test_walking_in_reaches_the_threshold()
+	_test_town_scene_builds()
+	_test_spawn_is_on_the_doorstep()
+	_test_you_can_cast_in_the_lobby()
+	_test_the_two_pads_answer()
+	_test_townsfolk_speak_without_an_llm()
+	_test_the_llm_stack_is_deleted()
+	_test_no_town_script_names_ollama()
+	_test_the_lobby_still_leads_with_climb()
+	_test_tap_targets_clear_the_floor()
+	# LAST, because it is the only one that awaits — and everything above it is pure
+	# arithmetic and source reading that must not be delayed behind a frame.
+	await _test_the_class_pad_edits_spells_too()
+
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — something it reads has moved)" % t)
@@ -84,20 +118,6 @@ func _process(_delta: float) -> bool:
 	else:
 		print("Town tests: all PASS")
 		quit(0)
-	return true
-
-
-func _run() -> void:
-	_test_walking_in_reaches_the_threshold()
-	_test_town_scene_builds()
-	_test_spawn_is_on_the_doorstep()
-	_test_you_can_cast_in_the_lobby()
-	_test_three_stations_answer()
-	_test_townsfolk_speak_without_an_llm()
-	_test_the_llm_stack_is_deleted()
-	_test_no_town_script_names_ollama()
-	_test_the_lobby_still_leads_with_climb()
-	_test_tap_targets_clear_the_floor()
 
 
 func _expect(cond: bool, msg: String) -> void:
@@ -245,9 +265,26 @@ func _test_spawn_is_on_the_doorstep() -> void:
 		"you spawn INSIDE the tower door's ring — %.1f px from it, ring is %.1f (this is the whole reason the town is not a layer)"
 			% [dist, radius])
 	# And every station is BEHIND the spawn, never between it and the door.
-	for key: String in ["ARMORY_X", "ALTAR_X", "LECTERN_X"]:
-		_expect(float(wc.get(key, 1e9)) < spawn.x,
-			"%s is behind the spawn point, so nothing stands between you and the tower" % key)
+	#
+	# ⚠ THE CONSTANT'S EXISTENCE IS ASSERTED SEPARATELY, AND THAT IS NOT PEDANTRY. This
+	# loop used to read `wc.get(key, 1e9)` alone — so when the pad row was cut to two and
+	# `ALTAR_X` was renamed `CLASS_X`, the missing key fell through to the 1e9 default and
+	# this reported "ALTAR_X is behind the spawn point" as a GEOMETRY failure. It cost a
+	# real look at the map to find out the class pad had not moved anywhere near the
+	# spawn; it simply no longer had that name. A missing constant and a badly placed one
+	# are different bugs and must not share a message.
+	#
+	# ⚠ TWO KEYS, NOT THREE. `LECTERN_X` (the spell lectern) and `ARCHIVIST_X` (the spell
+	# tree) are deleted with their pads — see `_test_the_two_pads_answer`.
+	for key: String in ["ARMORY_X", "CLASS_X"]:
+		_expect(wc.has(key),
+			"World.%s still exists — if it was renamed, rename it here too rather than "
+			% key + "letting the default make it look like a placement bug")
+		if not wc.has(key):
+			continue
+		_expect(float(wc.get(key)) < spawn.x,
+			"World.%s (x %.0f) is behind the spawn (x %.0f), so nothing stands between you and the tower"
+				% [key, float(wc.get(key)), spawn.x])
 	_completes("spawn_is_on_the_doorstep")
 
 
@@ -290,9 +327,20 @@ func _test_you_can_cast_in_the_lobby() -> void:
 	_completes("you_can_cast_in_the_lobby")
 
 
-## The three stations exist in the built town, and each names the screen it opens.
-## A station whose screen went missing is a walk to a dead end.
-func _test_three_stations_answer() -> void:
+## THE PAD ROW IS TWO PADS, and each one names the screen it opens. A station whose
+## screen went missing is a walk to a dead end.
+##
+## ══ WHAT THE MAKER RULED ════════════════════════════════════════════════════
+## Asked which of the four pads to keep: *"I only want one for class within which I can
+## edit spells, and one for armoury where I can look at my equipment"*. So the LECTERN
+## (kind `"spells"`) and the ARCHIVIST (kind `"tree"`) are gone, and the class pad
+## absorbed the lectern's screen.
+##
+## ⚠ THE ABSENCES ARE ASSERTED, NOT JUST THE PRESENCES. A kinds-present-only check stays
+## green if somebody re-adds the lectern next to the class pad, which is the exact shape
+## of the thing that was just removed — and it would land 0 px from a pad whose ring is
+## 46. Both halves, or this test does not defend the ruling.
+func _test_the_two_pads_answer() -> void:
 	var town: Node = _get_town()
 	if town == null:
 		return
@@ -307,61 +355,241 @@ func _test_three_stations_answer() -> void:
 
 	var stations: Array = []
 	_find(town, STATION_SCRIPT, stations)
-	# FOUR PADS IN A SOLO VISIT: gear, class, spells, the Archivist. The PARTY STONE is
-	# the fifth and is co-op-only — `World._session_is_party()` keeps it out of a solo
-	# room, because a station that answers "nobody here" to a lone player is a dead
-	# object teaching them the room has broken parts.
+	# TWO PADS IN A SOLO VISIT: gear and class. The PARTY STONE is the third and is
+	# co-op-only — `World._session_is_party()` keeps it out of a solo room, because a
+	# station that answers "nobody here" to a lone player is a dead object teaching them
+	# the room has broken parts.
 	#
 	# ⚠ THE SPARRING PAD IS GONE, DELIBERATELY. It teleported you out to `FreePlay`, a
 	# whole second scene, to answer "what does this spell look like". The maker's
 	# ruling: "you should be able to cast spells and stuff within the lobby instead of
 	# a training ground — just have standing immortal test dummies on one side."
-	# `_test_the_dummy_yard_is_castable_at` below is that ruling, asserted.
+	# `_test_you_can_cast_in_the_lobby` above is that ruling, asserted.
 	#
 	# Asserted by KIND rather than by count alone, so adding a station cannot silently
-	# replace one: a count-only check passes just as happily on the wrong four.
+	# replace one: a count-only check passes just as happily on the wrong two.
 	var station_kinds: Dictionary = {}
 	for st: Node in stations:
 		station_kinds[String(st.get("kind"))] = true
-	_expect(stations.size() == 4,
-		"four pads in a solo room: gear, class, spells, Archivist (got %d)"
-		% stations.size())
-	_expect(station_kinds.has("armory"), "the gear pad is there")
-	_expect(station_kinds.has("class"), "the class pad is there")
-	_expect(station_kinds.has("spells"), "the spell pad is there")
-	_expect(station_kinds.has("tree"), "the Archivist's pad is there (the spell tree)")
+	var kinds: Array = []
+	for s: Node in stations:
+		kinds.append(String(s.get("kind")))
+	_expect(stations.size() == 2,
+		"two pads in a solo room: gear and class (got %d — %s)" % [stations.size(), str(kinds)])
+	_expect(station_kinds.has("armory"), "the gear pad is there (got %s)" % str(kinds))
+	_expect(station_kinds.has("class"), "the class pad is there (got %s)" % str(kinds))
 	_expect(not station_kinds.has("party"),
 		"...and the party stone is NOT, because this is a solo visit")
-	# ⚠ THE ROW IS EVENLY SPACED AND THE GAP CLEARS THE PROXIMITY RING. Two pads closer
-	# together than 2 x PROXIMITY_RADIUS put two "[E] ..." hints on screen at once and
-	# the player cannot tell which one the key presses. This was real: the lectern and
-	# the Archivist stood 58 px apart.
+	# THE DELETED HALF OF THE RULING. See the header of this test.
+	_expect(not station_kinds.has("spells"),
+		"the LECTERN is gone — its screen is what the class pad now opens, and a second "
+		+ "pad to the same screen is the row the maker just cut in half (got %s)" % str(kinds))
+	_expect(not station_kinds.has("tree"),
+		"the ARCHIVIST is gone — its screen spends real points that reach no fight "
+		+ "(`SpellTree.bindable_spells` has no caller), so the pad took something and "
+		+ "gave nothing back (got %s)" % str(kinds))
+	# ⚠ THE GAP CLEARS THE PROXIMITY RING, AND THIS IS THE RULE RESPACING BREAKS. Two
+	# pads closer together than 2 x PROXIMITY_RADIUS put two "[E] ..." hints on screen at
+	# once and the player cannot tell which one the key presses. This was real twice: the
+	# lectern and the Archivist stood 58 px apart, and the armoury pad at x=380 sat
+	# inside the WARDEN's ring (that second one is `slice_test_town_interact`'s, because
+	# a townsperson MOVES and a pad does not).
+	#
+	# ⚠ AND IT MUST NOT GO VACUOUS ON A ONE-PAD ROOM. With `stations.size() == 1` this
+	# loop runs zero times and reports nothing, which the suite's own idiom counts as a
+	# pass. The pair count is asserted first so an empty loop cannot be the reason.
 	var xs: Array[float] = []
 	for st2: Node in stations:
 		xs.append((st2 as Node2D).global_position.x)
 	xs.sort()
 	var ring: float = float(load(STATION_SCRIPT).get("PROXIMITY_RADIUS"))
+	_expect(xs.size() >= 2, "there are at least two pads to measure a gap between")
 	for i: int in range(1, xs.size()):
 		_expect(xs[i] - xs[i - 1] >= ring * 2.0,
-			"pads %d and %d are %.0f px apart, which is inside the %.0f px hint ring"
-				% [i - 1, i, xs[i] - xs[i - 1], ring * 2.0])
-	var kinds: Array = []
-	for s: Node in stations:
-		kinds.append(String(s.get("kind")))
-	_expect(station_kinds.has("armory"), "one of them is the armory rack (got %s)" % str(kinds))
-	_expect(station_kinds.has("spells"), "one of them is the spell lectern (got %s)" % str(kinds))
+			"pads at x %.0f and x %.0f are %.0f px apart, inside the %.0f px hint ring — "
+			% [xs[i - 1], xs[i], xs[i] - xs[i - 1], ring * 2.0]
+			+ "two prompts would be up at once")
 
 	# THE STATION IS THE SCREEN. Each one must reach a real destination.
 	_expect(load(DOOR_SCRIPT) != null and _code_only(DOOR_SCRIPT).contains("enter_run"),
 		"the door starts a run")
-	_expect(_code_only(STATION_SCRIPT).contains("ClassSelect"),
-		"the class pad opens class select")
 	var station_src: String = _code_only(STATION_SCRIPT)
 	_expect(station_src.contains("/root/Loadout"), "the rack opens the armory")
-	_expect(station_src.contains("open_outfitter"), "the lectern opens the outfitter")
-	_expect(_code_only(WORLD_SCRIPT).contains("func open_outfitter"),
+	# ⚠ THE CLASS PAD OPENS THE OUTFITTER NOW, NOT `ClassSelect`. This used to assert
+	# that `ArmoryStation` names `ClassSelect` — an assertion that would STILL PASS after
+	# the merge, because `_overlay_open()` mentions that autoload for an unrelated reason.
+	# The live-screen check is `_test_the_class_pad_edits_spells_too`; this half only
+	# pins that the pad reaches the town's opener at all.
+	_expect(station_src.contains("open_outfitter"),
+		"the class pad opens the outfitter (which is where the spells are)")
+	_expect(not station_src.contains("open_spell_tree"),
+		"...and nothing in the pad row still reaches for the deleted Archivist screen")
+	var world_src: String = _code_only(WORLD_SCRIPT)
+	_expect(world_src.contains("func open_outfitter"),
 		"and the town owns the outfitter's lifetime")
-	_completes("three_stations_answer")
+	_expect(not world_src.contains("func open_spell_tree"),
+		"the town no longer offers an opener nothing calls — `SpellTreeScreen` is kept "
+		+ "but reachable by nothing, and its header says what would bring the pad back")
+	_completes("the_two_pads_answer")
+
+
+## ══ THE MERGE: ONE PAD, BOTH DECISIONS, NO KEYBOARD ═════════════════════════
+## Maker: *"I only want one for class within which I can edit spells"*. That is two
+## claims and they fail in different ways, so both are checked against the LIVE screen
+## the pad opens rather than against the source text:
+##
+##   1. pressing the class pad lands on the screen that edits spells (the Outfitter);
+##   2. that screen offers a way to change class that a THUMB can reach. `ClassSelect`
+##      also answers to the number keys 1..9 and to card focus, and both of those are
+##      worth exactly nothing on the target platform (D-011: virtual joystick and a tap).
+##      So "reachable" here means a real `Button`, `MIN_TAP` tall, with something
+##      connected to it.
+##
+## ⚠ AND THE PANEL MUST STILL FIT A PHONE. `slice_test_outfitter` pins the 360 px budget
+## for the LOBBY's Outfitter — which does NOT build this row, because `show_class_picker`
+## is off there — so nothing but this assertion covers the town's taller variant. Adding
+## one more row is exactly how the bottom button walks off the bottom of a 6-inch screen
+## while every desktop playtest looks perfect.
+func _test_the_class_pad_edits_spells_too() -> void:
+	var town: Node = _get_town()
+	if town == null:
+		return
+	_expect(town.has_method("open_outfitter"), "the town can open the outfitter")
+	if not town.has_method("open_outfitter"):
+		_completes("the_class_pad_edits_spells_too")
+		return
+	# ⚠ THE WINDOW HAS TO EXIST BEFORE ANYTHING IS MEASURED. Headless has no window, so
+	# `get_visible_rect()` falls back to a SQUARE 640x640 — and this screen is laid out
+	# for 640x360 in LANDSCAPE, so measuring against the fallback would give the panel
+	# 280 px of headroom it does not have on a phone. Set the real aspect, let a frame
+	# land, and the viewport reads 640x360.
+	root.size = Vector2i(1366, 768)
+	await process_frame
+
+	town.call("open_outfitter")
+	# ⚠ TWO FRAMES, AND THIS IS WHAT THE FIRST VERSION OF THIS TEST GOT WRONG. It
+	# measured the column the instant `open_outfitter` returned and read **1771 px**
+	# against a 360 px budget — not a real overflow, an unlaid-out one. `_hint` and
+	# `_summary` are `AUTOWRAP_WORD_SMART` Labels, and an autowrapped Label's minimum
+	# HEIGHT is a function of its WIDTH; before a layout pass that width is 0, so every
+	# label reports the height of one word per line. The number was garbage and it was
+	# confidently red, which is worse than being green.
+	await process_frame
+	await process_frame
+	var out: Control = town.get("_outfitter") as Control
+	_expect(out != null, "...and the class pad's screen really builds")
+	if out == null:
+		_completes("the_class_pad_edits_spells_too")
+		return
+	_expect(bool(out.get("show_class_picker")),
+		"the TOWN's outfitter carries the class row (the flag the Lobby's copy leaves off)")
+
+	# The tappable route to the other half of the pad.
+	var buttons: Array = []
+	_walk(out, buttons)
+	var class_btn: Button = null
+	for b: Button in buttons:
+		if b.text.contains("change"):
+			class_btn = b
+			break
+	_expect(class_btn != null,
+		"the outfitter offers a CLASS button — without it the class pad only edits "
+		+ "spells and half the maker's sentence is unbuilt (buttons: %d)" % buttons.size())
+	if class_btn != null:
+		_expect(class_btn.custom_minimum_size.y >= MIN_TAP,
+			"the class button is %.0f px tall, under the %.0f px thumb floor"
+				% [class_btn.custom_minimum_size.y, MIN_TAP])
+		_expect(class_btn.pressed.get_connections().size() > 0,
+			"...and pressing it is wired to something")
+		_expect(class_btn.text.contains(ClassInfo.name_for(int(out.call("class_id")))),
+			"...and it names the class you are actually in, so the button is also the "
+			+ "readout (text was '%s')" % class_btn.text)
+
+	# And the screen the button opens has to be able to answer back, or the Outfitter
+	# would go on showing the OLD class's spells after a pick.
+	var sel: Node = root.get_node_or_null(^"/root/ClassSelect")
+	if sel != null:
+		_expect(sel.has_signal(&"class_picked"),
+			"ClassSelect announces a hub-side pick, so the merged screen can re-aim itself")
+		# ══ THE MERGE, DRIVEN ══════════════════════════════════════════════════
+		# ⚠ EVERYTHING ABOVE THIS POINT IS SHAPE, AND SHAPE IS NOT BEHAVIOUR. A button
+		# that exists, is tall enough and has a connection can still open a screen whose
+		# answer nobody listens to — in which case the class changes and the Outfitter
+		# goes on showing the OLD class's spells, which is the merge silently not being
+		# a merge. So: press the button for real, pick a card for real, and read back
+		# what the screen is now aimed at.
+		var before: int = int(out.call("class_id"))
+		if class_btn != null:
+			class_btn.pressed.emit()
+			await process_frame
+			_expect(bool(sel.call("is_open")),
+				"pressing the class button really opens the chooser")
+			# A DIFFERENT class, and an unlocked one — three of the nine are held by a
+			# guardian and `_on_card_pressed` re-checks that, so a locked card would
+			# refuse and this would look like a broken signal instead of a locked class.
+			var cards: Array = []
+			_walk(sel, cards)
+			var target: int = -1
+			for i: int in cards.size():
+				if i != before and not (cards[i] as Button).disabled:
+					target = i
+					break
+			_expect(target >= 0, "there is a second unlocked class to switch to")
+			if target >= 0:
+				(cards[target] as Button).pressed.emit()
+				await process_frame
+				_expect(not bool(sel.call("is_open")),
+					"...and picking a card closes the chooser")
+				_expect(int(out.call("class_id")) == target,
+					"THE MERGE: after picking class %d the outfitter is aimed at %d, not the "
+						% [target, int(out.call("class_id"))]
+					+ "%d it opened on — otherwise the pad changes your class and goes on "
+						% before
+					+ "showing the previous class's spells")
+				# ⚠ PUT BACK. `_on_card_pressed` writes `GameState.selected_class`, which
+				# is a persisted global shared with every other suite and with the player's
+				# own save. A test that leaves the player as a different class than they
+				# chose is a test that broke the game to prove a point.
+				var gs2: Node = root.get_node_or_null(^"/root/GameState")
+				if gs2 != null:
+					gs2.set("selected_class", before)
+				out.call("set_class", before)
+		# ⚠ THE LAYER ORDER IS THE MERGE'S ONE REAL TRAP AND IT WAS BROKEN. The town's
+		# overlay layer was 95 and BOTH autoload panels draw at 90, so the Outfitter's
+		# existing "⚒ Armory" button opened the armory BEHIND this screen's 0.93-opaque
+		# dimmer — a dead button with no error anywhere. The class button would have done
+		# the same. Asserted against the live autoload rather than against the literal 90.
+		var world_layer: int = int((load(WORLD_SCRIPT) as GDScript)
+			.get_script_constant_map().get("OVERLAY_LAYER", 1 << 30))
+		_expect(world_layer < int(sel.get("layer")),
+			"the town's overlay layer (%d) must sit BELOW ClassSelect's (%d) or the class "
+			% [world_layer, int(sel.get("layer"))]
+			+ "grid opens behind an opaque dimmer and the button looks dead")
+
+	# THE PHONE BUDGET. Measured, and the measurement is itself checked for zero — a
+	# container that reports nothing would otherwise sail under any ceiling.
+	var col: Control = out.get("_col") as Control
+	_expect(col != null, "the outfitter's column is reachable for measurement")
+	if col != null:
+		var needed: Vector2 = col.get_combined_minimum_size()
+		_expect(needed.y > 0.0,
+			"the column reports a real height (got %.0f — a zero measurement passes every "
+				% needed.y + "ceiling and proves nothing)")
+		_expect(needed.y <= BASE_H,
+			"the town's outfitter fits %.0f px of height WITH the class row (needs %.0f)"
+				% [BASE_H, needed.y])
+	# Left as we found it, or the next test inherits a full-screen overlay.
+	if out.has_method("close"):
+		out.call("close")
+	_completes("the_class_pad_edits_spells_too")
+
+
+## Every Button under a node, for the tap-target checks.
+func _walk(from: Node, out: Array) -> void:
+	if from is Button:
+		out.append(from)
+	for c: Node in from.get_children():
+		_walk(c, out)
 
 
 # ---------------------------------------------------------------------------

@@ -23,6 +23,19 @@ extends CanvasLayer
 ## with a thumb. Three columns so nine cards are a square rather than a column you
 ## scroll. The colour is not decoration — it is the same `ClassInfo.color_for` the
 ## hero is tinted with, so the card and the body you walk away in match.
+## ══ WHO ASKED, AND WHO NEEDS TELLING ════════════════════════════════════════
+## Emitted when the HUB path picks a class — i.e. from `_on_card_pressed`, after
+## `GameState.selected_class` is written and before this screen closes. NOT emitted in
+## pad mode, where `_confirm_cursor` is the confirm and `_pad_pick` is the one thing
+## allowed to apply the choice (see the three rules in the pad-mode block below).
+##
+## ⚠ IT EXISTS BECAUSE THE CLASS PAD AND THE SPELL PAD MERGED. `Outfitter` now opens
+## this screen from its own header button and has to re-aim itself at whatever comes
+## back. A signal rather than the Outfitter polling `selected_class` every frame, and
+## rather than this file reaching into the `town_overlay` group to find a screen it
+## should not know exists: the chooser announces, the caller decides what that means.
+signal class_picked(index: int)
+
 const CARD_SIZE: Vector2 = Vector2(124, 58)
 const GRID_COLUMNS: int = 3
 ## Appended to a locked card. Says WHERE the class is, not merely that it is gone —
@@ -394,6 +407,11 @@ func _on_card_pressed(index: int) -> void:
 	if gs != null:
 		gs.set("selected_class", index)
 	_apply_feedback(index)
+	# ⚠ ANNOUNCED BEFORE `close()`, NOT AFTER. `close()` calls `_end_pad_mode()`, and a
+	# listener that reacts by opening or rebuilding something wants the state settled
+	# but the screen still accounted for. Emitting after would also mean any listener
+	# that re-opened this screen fought the close it was standing on.
+	class_picked.emit(index)
 	close()
 
 

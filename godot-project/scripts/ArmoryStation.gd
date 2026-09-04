@@ -20,35 +20,39 @@ extends StaticBody2D
 ## has become the "another layer" this whole room was rewritten to stop being.
 ##
 ## KINDS, one script, because they differ only in their colour, their glyph and
-## which screen they open:
+## which screen they open. There are THREE, and only TWO of them are ever in a solo
+## room:
 ##
 ##   * `"armory"` — opens `Loadout` (3 slots x 19 pieces with real effect bags that
 ##     `Hero._aggregate_gear` already consumes). This had been built, finished, and
 ##     unreachable behind a literal `if false:` in the parked hub since the day it
-##     was written.
-##   * `"spells"` — opens the `Outfitter`: which of your class's five authored roles
-##     you carry, plus your colourway. The only customisation in the game that
-##     changes how you fight.
-##   * `"tree"` — opens the Archivist: which spells you may carry AT ALL.
-##   * `"class"` — opens ClassSelect: which of the nine you are. The ONE pad that
-##     still carries a prop, and it earns it: a gold stick-figure statue STANDS ON
-##     the pad, which is the "choose your fighter" mannequin the altar always was.
-##     Everything else about it — the disc, the beam, the trip — is the shared pad,
-##     so it reads as one of the row rather than as the odd landmark it used to be.
-##     This absorbed `ClassAltar.gd`, which was a fourth way of writing
-##     walk-up-and-press-E.
-##
-## ⚠ THERE IS NO `"sparring"` KIND ANY MORE. It teleported you out to `FreePlay` — a
-## whole second scene with its own stage, camera and control card — to answer "what
-## does this spell look like". The maker's ruling: "you should be able to cast spells
-## and stuff within the lobby instead of a training ground; just have standing
-## immortal test dummies on one side." `World._spawn_dummy_yard` is that, the town
-## body is a `Hero`, and this branch was deleted rather than left unspawned, because a
-## `kind` nothing builds is a fifth colour, a fifth glyph and a fifth code path that
-## the next reader has to work out is dead. `FreePlay` itself is untouched and still
-## opens on F6.
+##     was written. Equipment, and nothing but equipment.
+##   * `"class"` — opens the `Outfitter`, which is now BOTH halves of "who am I":
+##     which of the nine you are AND which of your class's five authored roles you
+##     carry. See `World.open_outfitter` for the merge and for why it is shaped as a
+##     header button rather than as two chained screens.
 ##   * `"party"` — the ONLY co-op-only station: `World` does not spawn it in a solo
 ##     session. Press it to begin the climb together (host) or to read who is here.
+##
+## ⚠ THREE KINDS HAVE BEEN DELETED FROM THIS FILE, and every one of them went for the
+## same reason: a `kind` nothing builds is a colour, a glyph and a code branch that the
+## next reader has to work out is dead.
+##
+##   * `"sparring"` teleported you out to `FreePlay` — a whole second scene with its own
+##     stage, camera and control card — to answer "what does this spell look like". The
+##     maker: "you should be able to cast spells and stuff within the lobby instead of a
+##     training ground; just have standing immortal test dummies on one side."
+##     `World._spawn_dummy_yard` is that. `FreePlay` itself is untouched, and still F6.
+##   * `"spells"` was the lectern, and its screen is what `"class"` now opens. The maker,
+##     asked which pads to keep: *"I only want one for class within which I can edit
+##     spells, and one for armoury where I can look at my equipment"*.
+##   * `"tree"` was the Archivist, and it is the one worth remembering. It opened
+##     `SpellTreeScreen`, which SPENDS REAL POINTS — and `SpellTree.bindable_spells()`,
+##     the function that whole economy exists to feed, has no caller anywhere outside
+##     its own test suite. So the pad took something from the player and gave back
+##     nothing that could reach a fight. Deleting it removed a screen that lied, which
+##     is a better argument for the ruling than tidiness was. `SpellTreeScreen.gd` is
+##     KEPT and its header says what has to become true before a pad points at it again.
 ##
 ## ⚠ THE STATION IS THE SCREEN. It does not open a menu that then offers the armory;
 ## pressing interact on the armoury pad IS opening the armory. That is the whole
@@ -87,21 +91,23 @@ const LIFT_HEIGHT: float = 40.0
 
 ## ONE COLOUR PER STATION, and it is the only thing that tells them apart at a
 ## glance. Chosen for what each screen is ABOUT rather than to be pretty: steel for
-## gear, arcane violet for your hand, gold for the Archivist's ledger, blood for the
-## sparring ring, and the party stone's cyan, which it already wore.
+## gear, gold for who you are, and the party stone's cyan, which it already wore.
+##
+## ⚠ THE VIOLET (`"spells"`) AND THE AMBER (`"tree"`) ARE GONE WITH THEIR KINDS. A
+## colour left in this table for a kind nothing spawns is a pad somebody will try to
+## build back by writing one line, without the branch below that makes it do anything.
 const PAD_COLORS: Dictionary = {
 	"armory": Color(0.62, 0.68, 0.78),
-	"spells": Color(0.72, 0.52, 0.95),
-	"tree": Color(1.0, 0.82, 0.42),
 	"party": Color(0.45, 0.85, 1.0),
 	"class": Color(0.95, 0.82, 0.35),
 }
 ## The glyph over each pad. ⚠ A PICTURE, NOT A WORD, deliberately — the maker's
 ## standing rule for every screen in this game is "remove the words, keep the
 ## picture", and the hint already carries the name for anyone who walks up.
+## These two are also what `World._build_signboard`'s left arm points with, so a glyph
+## added here without a glyph added there is a sign that under-reports the room.
 const PAD_GLYPHS: Dictionary = {
-	"armory": "⚔", "spells": "✦", "tree": "❖", "party": "◈",
-	"class": "☗",
+	"armory": "⚔", "party": "◈", "class": "☗",
 }
 const GLYPH_FONT_SIZE: int = 22
 const GLYPH_LIFT: float = 58.0
@@ -317,12 +323,12 @@ func _release_player() -> void:
 
 ## Rebuild the body's class kit as it lands.
 ##
-## ⚠ ONE PLACE, FOR EVERY PAD. The Outfitter changes which ROLES you carry, the
-## Archivist changes which spells are BINDABLE, and class select changes the class
-## itself — three screens, all of which used to be read only at `configure_class`
-## time, i.e. at spawn. Since the town body is a `Hero` you can cast with, a change
-## made on a pad has to reach the hand you walk away with, and the moment it lands is
-## the moment the trip ends. Doing it per-screen would be three chances to forget.
+## ⚠ ONE PLACE, FOR EVERY PAD. The Outfitter changes which ROLES you carry AND (since
+## the merge) which CLASS you are, and the armory changes your gear — all of which used
+## to be read only at `configure_class` time, i.e. at spawn. Since the town body is a
+## `Hero` you can cast with, a change made on a pad has to reach the hand you walk away
+## with, and the moment it lands is the moment the trip ends. Doing it per-screen would
+## be several chances to forget, and the merge just removed one of them.
 func _redress(body: Node2D) -> void:
 	if not body.has_method("configure_class"):
 		return
@@ -332,11 +338,13 @@ func _redress(body: Node2D) -> void:
 
 ## The hint IS the state for the party stone — it is the only station whose label
 ## changes with the world rather than with the player.
+##
+## ⚠ THE CLASS PAD SAYS BOTH THINGS IT DOES. "[E] Choose class" was true when the
+## lectern next door carried the spells; it is now the only route to either, and a hint
+## that names half a screen is how a player decides they have already seen it.
 func _hint_text() -> String:
 	match kind:
-		"spells": return "[E] Spells"
-		"tree": return _tree_hint()
-		"class": return "[E] Choose class"
+		"class": return "[E] Class & spells"
 		"party":
 			var net: Node = get_node_or_null(^"/root/Net")
 			if net == null or not bool(net.call(&"is_active")):
@@ -379,23 +387,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			_hint.text = _hint_text()   # re-read: a friend may have joined since
 		return
 	if kind == "class":
-		# ⚠ ClassSelect IS AN AUTOLOAD, not a `town_overlay` Control, so `_overlay_open`
-		# above cannot see it and it has to be asked directly. That asymmetry is why
-		# this used to be its own script; it is four lines, not a file.
-		var sel: Node = get_node_or_null("/root/ClassSelect")
-		if sel != null and sel.has_method("is_open") and not sel.is_open():
-			sel.call("open")
-			get_viewport().set_input_as_handled()
-		return
-	if kind == "tree":
-		# Same ownership rule as the Outfitter below: a full-screen Control cannot be
-		# parented to a StaticBody2D sitting in world space, so the town owns it.
-		var town_t: Node = get_tree().current_scene
-		if town_t != null and town_t.has_method("open_spell_tree"):
-			town_t.call("open_spell_tree")
-			get_viewport().set_input_as_handled()
-		return
-	if kind == "spells":
+		# ⚠ IT OPENS THE OUTFITTER, NOT `ClassSelect`, AND THAT IS THE MERGE. The maker
+		# wants ONE pad that answers both "which of the nine am I" and "which three do I
+		# carry"; the Outfitter is the screen that already held the second half and it now
+		# carries a header button for the first (`Outfitter.show_class_picker`, which
+		# `World.open_outfitter` sets). Pressing E here therefore lands on the SPELLS —
+		# the thing you come back for — with the class one tap away, rather than on a
+		# class grid you have to get past to reach a spell.
+		#
 		# The Outfitter is a Control and needs a CanvasLayer, so the town owns its
 		# lifetime rather than this station parenting a full-screen panel to a
 		# StaticBody2D sitting in world space.
@@ -424,18 +423,11 @@ func _overlay_open() -> bool:
 	return false
 
 
-## ⚠ THE HINT CARRIES THE UNSPENT-POINT COUNT, and that is the only prompting the
-## tree gets. A level-up already fires a spectacle in the fight; a second nag in the
-## town would be the "you have unspent points!" badge that every RPG menu wears and
-## that this town's whole design brief exists to avoid. But a player who has never
-## opened this screen has no way to learn a point is waiting, so the station says so
-## and then says nothing else.
-func _tree_hint() -> String:
-	var gs: Node = get_node_or_null(^"/root/GameState")
-	if gs == null:
-		return "[E] The Archivist"
-	var owned: Array = gs.get("unlocked_nodes") as Array
-	var spare: int = SpellTree.points_available(int(gs.call("level")), owned)
-	if spare <= 0:
-		return "[E] The Archivist"
-	return "[E] The Archivist  ·  %d point%s" % [spare, "" if spare == 1 else "s"]
+## ⚠ `_tree_hint()` IS DELETED WITH THE `"tree"` KIND, AND IT TOOK ONE REAL THING WITH
+## IT: the unspent-skill-point count. It read `SpellTree.points_available(...)` into the
+## Archivist's hint, and it was the ONLY place in the town that ever told a player a
+## point was waiting. Nothing surfaces that now, which is honest rather than a
+## regression — the points bought nodes that reached no fight (see the header) — but it
+## is the line to restore alongside the pad if the tree is ever wired up. `NPC.gd`'s
+## `{points}` token still exists and would put the same fact in a townsperson's mouth
+## for one word of a `.tres`, if a nag is wanted sooner than a pad.

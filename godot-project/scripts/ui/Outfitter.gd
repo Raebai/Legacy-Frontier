@@ -63,7 +63,25 @@ const COLOURWAY_NAMES: Array[String] = ["Azure", "Ember", "Void", "Jade", "Mono"
 ## lifetime `SpellLibrary._chosen_roles` needs and for the same reason.
 static var chosen_colourway: int = 0
 
+## ══ THE CLASS BUTTON — THE MERGE, AND WHY IT IS A FLAG ══════════════════════
+## Maker's ruling on the town's pad row: *"I only want one for class within which I can
+## edit spells, and one for armoury where I can look at my equipment"*. The lectern pad
+## (which opened this screen) and the class pad merged into one, and THIS screen is what
+## the survivor opens — so it grew a full-width header button carrying your class name,
+## which opens `/root/ClassSelect` on top and re-aims this screen at whatever comes back.
+##
+## ⚠ WHY IT IS OFF BY DEFAULT. The Lobby (the title screen) opens the same `Outfitter`
+## against its OWN `_selected_class`, which is not `GameState.selected_class` — the two
+## are only equal by coincidence. A class button there would write the global while the
+## Lobby went on believing its local pick, and the very next thing the player does on
+## that screen would silently disagree with the class they just chose. The town owns the
+## global, so the town is the only place that gets the button. `World.open_outfitter`
+## sets this BEFORE `add_child`, because `_build()` runs inside `_ready()` and a property
+## written afterwards has already missed it.
+var show_class_picker: bool = false
+
 var _class_id: int = 0
+var _class_btn: Button = null
 var _title: Label = null
 var _hint: Label = null
 var _list: VBoxContainer = null
@@ -123,11 +141,30 @@ func _build() -> void:
 	panel.add_child(col)
 	_col = col
 
-	_title = Label.new()
-	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_title.add_theme_font_size_override("font_size", 17)
-	_title.add_theme_color_override("font_color", CHALK)
-	col.add_child(_title)
+	# ── THE HEADER: A BUTTON **OR** A TITLE, NEVER BOTH ────────────────────────
+	# It is the first thing on the screen because it is the widest decision on it: every
+	# row below is scoped to the class this header names, so changing it changes the
+	# meaning of everything underneath. Full width and `MIN_TAP` tall because on a phone
+	# this is the tap that has to be impossible to miss.
+	#
+	# ⚠ THE BUTTON **REPLACES** THE TITLE, AND THAT WAS A MEASUREMENT, NOT A PREFERENCE.
+	# The first version added the button ABOVE the title and `tools/slice_test_town.gd`
+	# measured the column at **363 px against a 360 px base viewport** — three pixels of
+	# a bottom button hanging off the bottom of a phone, which no desktop playtest would
+	# ever show. It also read badly on its own terms: the title is "YOUR HAND — Stormcaller"
+	# and the button is "☗ Stormcaller · change", so the class name appeared twice, one
+	# line apart. Cutting the duplicate is both the fix and the better screen, and it
+	# obeys the standing rule — every screen should be cut, not added to. The hint line
+	# directly below still says what the screen is for, so nothing is actually lost.
+	if show_class_picker:
+		_class_btn = _button("", _open_class_select, 14)
+		col.add_child(_class_btn)
+	else:
+		_title = Label.new()
+		_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_title.add_theme_font_size_override("font_size", 17)
+		_title.add_theme_color_override("font_color", CHALK)
+		col.add_child(_title)
 
 	_hint = Label.new()
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -231,6 +268,7 @@ func _redraw() -> void:
 		_ult_slot_row.add_child(_role_row(_ult_role, true, false))
 	_refresh_summary()
 	_refresh_colour()
+	_refresh_class_btn()
 
 
 ## One role, as a thumb-sized row. The ult row is `enabled == false`: a class authors
@@ -315,6 +353,63 @@ func _refresh_summary() -> void:
 	_summary.text = "%s      %s" % [" · ".join(keys), "      ".join(names)]
 
 
+# ══════════════════════════════════════════════════════════════ which of the nine
+## The header button, tinted in the class's own colour so it matches the body you walk
+## away in — the same `ClassInfo.color_for` `ClassSelect`'s cards and the hub stick
+## figure both use.
+##
+## The word "change" is on it deliberately, against this project's standing "remove the
+## words, keep the picture" rule. The picture (the glyph, the colour) says WHICH class;
+## nothing in a glyph says the thing is PRESSABLE, and this row sits above a list of
+## rows that are all pressable for a different reason. One word buys the distinction.
+func _refresh_class_btn() -> void:
+	if _class_btn == null:
+		return
+	_class_btn.text = "☗  %s  ·  change" % _class_display_name()
+	if _class_id >= 0 and _class_id < ClassInfo.CLASSES.size():
+		_class_btn.add_theme_color_override(
+			"font_color", ClassInfo.color_for(_class_id).lightened(0.25))
+
+
+## ⚠ THE CHOOSER IS AN AUTOLOAD ON ITS OWN `CanvasLayer` AT 90, and this screen is on
+## the town's overlay layer at 80 — so it lands ON TOP, which is the only reason the
+## merge works at all without reparenting anything. `World.OVERLAY_LAYER` carries the
+## measurement; at the 95 it used to be, this call would have opened a screen the player
+## could not see, behind this screen's 0.93-opaque dimmer.
+##
+## Reached through the tree rather than as a bare global, like `_open_armory` and for
+## the same reason: this script stays loadable in a headless harness with no autoloads.
+func _open_class_select() -> void:
+	var sel: Node = get_node_or_null("/root/ClassSelect")
+	if sel == null or not sel.has_method("open"):
+		return
+	# Guarded rather than one-shot: a player who opens the grid, taps away to dismiss it
+	# and opens it again would otherwise stack a second connection and re-aim this screen
+	# twice on the next pick.
+	if sel.has_signal(&"class_picked") and not sel.is_connected(&"class_picked", _on_class_picked):
+		sel.connect(&"class_picked", _on_class_picked)
+	sel.call("open")
+	_sfx("ding", -6.0)
+
+
+## The pick came back. `set_class` re-reads `SpellLibrary` for the NEW class, so the
+## role list, the ult row and the summary all become that class's — which is the whole
+## point of merging the two pads rather than merely stacking their screens.
+func _on_class_picked(index: int) -> void:
+	set_class(index)
+
+
+## True while one of the two autoload panels this screen can open is up. Both draw ABOVE
+## this one, so while either is showing, this screen is not the thing the player is
+## looking at and must not answer for their Back press. See `_unhandled_input`.
+func _modal_over_me() -> bool:
+	for path: String in ["/root/ClassSelect", "/root/Loadout"]:
+		var n: Node = get_node_or_null(path)
+		if n != null and n.has_method("is_open") and bool(n.call("is_open")):
+			return true
+	return false
+
+
 # ═══════════════════════════════════════════════════════════════ the armory
 ## `Loadout` is an autoload (`/root/Loadout`) and draws on its own `CanvasLayer` at
 ## layer 90, so it lands cleanly on top of this screen with no reparenting. Reached
@@ -376,8 +471,15 @@ func close() -> void:
 	closed.emit()
 
 
+## ⚠ BACK IS REFUSED WHILE A PANEL IS OPEN OVER THIS ONE, AND THAT IS A REAL BUG, NOT
+## TIDINESS. `_unhandled_input` propagates in REVERSE tree order, and both panels this
+## screen can open (`ClassSelect`, `Loadout`) are autoloads — added to the root long
+## before the town, therefore reached AFTER it. So a bare handler here eats the Back
+## press meant for the class grid, closes the Outfitter out from under it, and leaves an
+## orphaned chooser floating over a town nothing is frozen for. The layer order says
+## those two are in front; the input order has to agree.
 func _unhandled_input(event: InputEvent) -> void:
-	if not visible:
+	if not visible or _modal_over_me():
 		return
 	if event.is_action_pressed("ui_cancel"):
 		close()

@@ -57,30 +57,47 @@ const BOUND_HEIGHT: float = 420.0
 ## Generous, so a body merely clipping into the floor is never teleported mid-stride.
 const FALL_OUT_MARGIN: float = 260.0
 
-## ══ THE PAD ROW ═════════════════════════════════════════════════════════════
-## Maker: "make the spacing of where the teleport pads are better and in a certain
-## location". They were scattered at 306 / 480 / 590 / 648 — three different gaps,
-## one of which (58) was tight enough that two hints fought for the same corner.
+## ══ THE PAD ROW — TWO PADS, AND THAT IS THE WHOLE ROW ═══════════════════════
+## Maker, asked which of the four pads to keep: *"I only want one for class within
+## which I can edit spells, and one for armoury where I can look at my equipment"*.
 ##
-## They are ONE EVENLY SPACED ROW now, all on the same side of the campfire, so the
-## row itself is the thing you read: four discs, one stride apart, in the order you
-## want them. `PAD_STEP` is the only number — write a fifth pad and it lands in the
-## row rather than wherever somebody thought looked right.
+## So the row is TWO discs and nothing else:
+##
+##   * `ARMORY_X` ⚔ — equipment. Opens `Loadout` (3 slots x 19 pieces).
+##   * `CLASS_X`  ☗ — WHO YOU ARE **AND** WHAT YOU CARRY, on one screen. Pressing it
+##     opens the `Outfitter`, whose top row is a full-width button carrying your class
+##     name; that button opens `ClassSelect` on top. Two taps to change class, one tap
+##     to change a spell, no keyboard anywhere — see the merge note on `open_outfitter`.
+##
+## ⚠ THE LECTERN AND THE ARCHIVIST ARE DELETED, and the archivist is the interesting
+## one. `"spells"` was a second pad for a screen the class pad now contains, i.e. the
+## fourth-and-fifth pad of a row whose complaint was already that it was a row. `"tree"`
+## opened `SpellTreeScreen`, which SPENDS REAL POINTS and changes nothing that reaches a
+## fight: `SpellTree.bindable_spells()` — the function the whole economy exists to feed
+## — has no caller anywhere outside its own suite. A pad that takes something from the
+## player and gives back nothing is worse than a missing pad, so it went first. See the
+## header of `scripts/ui/SpellTreeScreen.gd` for exactly what has to become true before
+## it comes back.
 ##
 ## ⚠ THE STEP IS NOT A LOOK, IT IS THE PROXIMITY RING. `ArmoryStation.PROXIMITY_RADIUS`
 ## is 46, so two pads closer than 92 px put two "[E] ..." hints on screen at once and
-## the player cannot tell which one the key will press. 100 clears it with room to
-## spare and still reads as a row rather than as four separate places.
-const PAD_FIRST_X: float = 380.0
-const PAD_STEP: float = 100.0
-const ARMORY_X: float = PAD_FIRST_X                    # ⚔ gear
-const ALTAR_X: float = PAD_FIRST_X + PAD_STEP          # ◆ which of the nine you are
-const LECTERN_X: float = PAD_FIRST_X + PAD_STEP * 2.0  # ✦ which spells you carry
-## THE ARCHIVIST'S DESK — which spells you may carry AT ALL (the tree). Next to the
-## lectern, because the two are one thought: the tree decides your options and the
-## lectern picks from them, so a player who has just learned a spell binds it without
-## a walk.
-const ARCHIVIST_X: float = PAD_FIRST_X + PAD_STEP * 3.0
+## the player cannot tell which one the key will press. `PAD_STEP` still describes the
+## row honestly: it is the centre-to-centre stride, a third pad would land at
+## `PAD_FIRST_X + PAD_STEP * 2.0`, and `tools/slice_test_town.gd` asserts the gap
+## against the ring rather than against this constant, so shrinking it fails loudly.
+##
+## ⚠ AND THE ROW MOVED RIGHT, WHICH IS THE PART A RESPACING BREAKS SILENTLY. The old
+## first pad sat at 380 and the WARDEN patrols 320 +/- 24 with a 40 px hint ring, so his
+## ring reached x=384 and overlapped the armoury pad — for part of every lap, standing ON
+## the pad lit two prompts and the `talk` press went to him. `Interactables` arbitrates
+## that by distance so it was survivable, but the honest fix for a two-pad row with a
+## whole empty street to spend is to not overlap at all. 460 puts the armoury ring's left
+## edge at 414, a clear 30 px beyond the warden's reach; `tools/probe_town_pads.gd`
+## prints that gap and `slice_test_town_interact` fails if it ever goes negative.
+const PAD_FIRST_X: float = 460.0
+const PAD_STEP: float = 120.0
+const ARMORY_X: float = PAD_FIRST_X                    # ⚔ your equipment
+const CLASS_X: float = PAD_FIRST_X + PAD_STEP          # ☗ your class AND your spells
 const CAMPFIRE_X: float = 800.0      # the warm middle; nothing to press
 
 ## ══ THE DUMMY YARD ═══════════════════════════════════════════════════════════
@@ -233,7 +250,6 @@ const MIN_TAP: float = 30.0
 
 var _outfitter_layer: CanvasLayer = null
 var _outfitter: Control = null
-var _tree_screen: Control = null
 
 
 func _ready() -> void:
@@ -340,7 +356,11 @@ func _build_signboard() -> void:
 	# pad) and both arms overflowed their planks — maker: "the symbols do not fit,
 	# neither does the tower text". The planks are measured from their own strings now,
 	# so an arm cannot be narrower than what is written on it.
-	_sign_arm("◂  ⚔ ☗ ✦ ❖", -1.0, SIGN_TOP + 10.0)
+	# ⚠ TWO GLYPHS, BECAUSE THERE ARE TWO PADS. It listed four (⚔ ☗ ✦ ❖) and the last
+	# two are the deleted lectern and Archivist — the same failure the arm already had
+	# once, when it advertised the removed sparring pad's ◎. A sign that names a door
+	# that is not there is worse than no sign, because the player goes looking.
+	_sign_arm("◂  ⚔ ☗", -1.0, SIGN_TOP + 10.0)
 	_sign_arm("THE TOWER  ▸", 1.0, SIGN_TOP + 42.0)
 
 
@@ -637,35 +657,28 @@ func _spawn_tower_entrance() -> void:
 	door.global_position = Vector2(TOWER_X, GROUND_Y)
 
 
-## The RACK and the LECTERN. Both are `ArmoryStation.gd` pointed at a different
+## THE RACK and THE CLASS PAD. Both are `ArmoryStation.gd` pointed at a different
 ## screen — see the header there. The rack is on the GROUND now: it used to sit on
 ## the loft behind a jump, and behind `if false:`, so in practice the whole armory
 ## (3 slots x 19 pieces, with live effect bags) had never been reachable in play.
+##
+## ⚠ TWO PADS, NOT FOUR. See the `PAD_FIRST_X` block for the maker's ruling and for
+## why the Archivist in particular had to go rather than merely move.
 func _spawn_stations() -> void:
 	# ⚠ THE CLASS ALTAR IS A STATION NOW, not its own script. `ClassAltar.gd` was a
 	# fourth hand-written copy of walk-up-and-press-E with its own hint, its own
 	# proximity ring and its own overlay guard — and the maker's ruling was that ALL
 	# the stations become pads, so keeping a separate one meant maintaining two
-	# answers to the same question. Its statue survives; see `_build_statue`.
+	# answers to the same question.
 	var altar: StaticBody2D = STATION_SCRIPT.new()
 	altar.set("kind", "class")
 	add_child(altar)
-	altar.global_position = Vector2(ALTAR_X, GROUND_Y)
+	altar.global_position = Vector2(CLASS_X, GROUND_Y)
 
 	var rack: StaticBody2D = STATION_SCRIPT.new()
 	rack.set("kind", "armory")
 	add_child(rack)
 	rack.global_position = Vector2(ARMORY_X, GROUND_Y)
-
-	var lectern: StaticBody2D = STATION_SCRIPT.new()
-	lectern.set("kind", "spells")
-	add_child(lectern)
-	lectern.global_position = Vector2(LECTERN_X, GROUND_Y)
-
-	var archivist: StaticBody2D = STATION_SCRIPT.new()
-	archivist.set("kind", "tree")
-	add_child(archivist)
-	archivist.global_position = Vector2(ARCHIVIST_X, GROUND_Y)
 
 	# ⚠ THE PARTY STONE ONLY EXISTS IN A PARTY. A station that says "nobody here" to
 	# a solo player is a dead object teaching them the room has broken parts — and
@@ -755,17 +768,58 @@ func _session_is_party() -> bool:
 	return int(gs.get("session_kind")) != 0
 
 
-## THE OUTFITTER, on demand. A `Control`, so it needs a `CanvasLayer` of its own to
-## sit above a `Node2D` world; grouped `town_overlay` so the player and every
-## station freeze underneath it without any of them knowing what it is.
+## ══ THE CLASS PAD'S SCREEN — CLASS **AND** SPELLS, MERGED ═══════════════════
+## Maker: *"I only want one for class within which I can edit spells"*.
+##
+## The Outfitter IS that screen. It already answered "which of my class's five roles do
+## I carry"; it now carries a full-width button along its top edge reading your class
+## name, which opens `ClassSelect` on top of it and re-aims this screen at whatever you
+## pick (`Outfitter.show_class_picker` / `ClassSelect.class_picked`).
+##
+## ⚠ WHY THIS SHAPE AND NOT THE OTHER TWO. The obvious alternative was to CHAIN — open
+## `ClassSelect` first, and open the Outfitter when a card is tapped. It is wrong on the
+## one constraint that decides everything in this room (D-011: virtual joystick and a
+## tap, nothing else): a player who only wants to swap a spell would have to re-pick the
+## class they are already in to get past the first screen, and a player who taps away to
+## dismiss the grid gets nothing at all. The other alternative — one panel holding a 3x3
+## class grid AND the role list — does not fit: the grid alone is ~390x190 and the base
+## viewport is 640x360, so the role list would have to scroll away and the hand would
+## stop reading as three. A screen with a header button is both, in the order you use
+## them, at one tap each.
+##
+## A `Control`, so it needs a `CanvasLayer` of its own to sit above a `Node2D` world;
+## grouped `town_overlay` so the player and every station freeze underneath it without
+## any of them knowing what it is.
+##
+## ⚠ THE LAYER IS 80 AND IT USED TO BE 95, WHICH WAS A MEASURED BUG. `ClassSelect` and
+## `Loadout` are both autoloads that draw on their OWN `CanvasLayer` at layer **90**. At
+## 95 this layer sat ON TOP of both of them — so the Outfitter's existing "⚒ Armory"
+## button opened the armory *behind* this screen's 0.93-opaque dimmer and the player saw
+## nothing happen, and the new class button would have done exactly the same. 80 is above
+## the town HUD (40) and the touch pad (70) and below the two autoload panels, which is
+## the only ordering in which every route out of this screen is visible.
+const OVERLAY_LAYER: int = 80
+
+
 func open_outfitter() -> void:
 	if _outfitter != null and is_instance_valid(_outfitter):
 		return
 	if _outfitter_layer == null:
 		_outfitter_layer = CanvasLayer.new()
-		_outfitter_layer.layer = 95
+		_outfitter_layer.layer = OVERLAY_LAYER
 		add_child(_outfitter_layer)
 	_outfitter = Outfitter.new()
+	# ⚠ SET BEFORE `add_child`, AND THAT IS NOT A STYLE CHOICE. `Outfitter._ready` runs
+	# the moment the node enters the tree and `_build()` is what decides whether the class
+	# button exists at all — a property written afterwards has already missed it. Same
+	# rule, same reason, as `World._spawn_peer_body`.
+	#
+	# ⚠ AND IT IS A FLAG RATHER THAN ALWAYS-ON. The Lobby (the title screen) opens the
+	# same `Outfitter` against its OWN `_selected_class`, which is not `GameState`'s; a
+	# class button there would write the global and leave the two disagreeing about which
+	# class the screen is showing. The town is the one place that owns the global, so the
+	# town is the one place that gets the button.
+	_outfitter.set("show_class_picker", true)
 	_outfitter.add_to_group("town_overlay")
 	_outfitter_layer.add_child(_outfitter)
 	var gs: Node = get_node_or_null("/root/GameState")
@@ -774,35 +828,13 @@ func open_outfitter() -> void:
 		_outfitter.connect(&"closed", _on_outfitter_closed)
 
 
-## THE SPELL TREE, on demand. Same lifetime rules as the Outfitter above and for the
-## same reasons — a `Control` needs a `CanvasLayer` over a `Node2D` world, and the
-## `town_overlay` group is what freezes the player and every station underneath it
-## without any of them having to know what is open.
-func open_spell_tree() -> void:
-	if _tree_screen != null and is_instance_valid(_tree_screen):
-		return
-	if _outfitter_layer == null:
-		_outfitter_layer = CanvasLayer.new()
-		_outfitter_layer.layer = 95
-		add_child(_outfitter_layer)
-	_tree_screen = SpellTreeScreen.new()
-	_tree_screen.add_to_group("town_overlay")
-	_outfitter_layer.add_child(_tree_screen)
-	var gs: Node = get_node_or_null("/root/GameState")
-	_tree_screen.call("set_class", int(gs.get("selected_class")) if gs != null else 0)
-	if _tree_screen.has_signal(&"closed"):
-		_tree_screen.connect(&"closed", _on_spell_tree_closed)
-
-
-func _on_spell_tree_closed() -> void:
-	if _tree_screen != null and is_instance_valid(_tree_screen):
-		# Out of the group in the same frame it closes, so the player is not frozen
-		# for the frame between `closed` and `queue_free` landing.
-		_tree_screen.remove_from_group("town_overlay")
-		_tree_screen.queue_free()
-	_tree_screen = null
-
-
+## ⚠ THERE IS NO `open_spell_tree()` ANY MORE, AND ITS ABSENCE IS DELIBERATE. It opened
+## `SpellTreeScreen` for the Archivist pad, which is deleted — see the `PAD_FIRST_X`
+## block for why. The screen file is KEPT (the spell trees are designed-but-unbuilt work:
+## `docs/superpowers/specs/2026-08-04-spell-trees-and-progression-design.md`), and its own
+## header now says so and lists what has to become true before a pad points at it again.
+## A public opener that nothing calls would read as "the town can still do this", which is
+## the kind of half-wired path the next reader has to disprove by grep.
 func _on_outfitter_closed() -> void:
 	if _outfitter != null and is_instance_valid(_outfitter):
 		# Out of the group in the same frame it closes, so the player is not frozen

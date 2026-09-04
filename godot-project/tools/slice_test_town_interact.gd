@@ -53,6 +53,7 @@ const NPC_RING: float = 40.0
 # ── Vacuous-pass armour (see tools/slice_test_loadout.gd for the full write-up) ──
 const TESTS: Array[String] = [
 	"nobody_is_standing_on_the_spawn_point",
+	"no_hint_ring_reaches_a_pad",
 	"every_talk_listener_is_registered",
 	"arbitration_picks_the_nearest",
 ]
@@ -68,6 +69,7 @@ func _process(_delta: float) -> bool:
 		return false
 	_ran = true
 	_test_spawn_is_clear()
+	_test_no_hint_ring_reaches_a_pad()
 	_test_listeners_registered()
 	_test_nearest_wins()
 	for t: String in TESTS:
@@ -142,6 +144,59 @@ func _test_spawn_is_clear() -> void:
 			("%s comes within %.1f px of the spawn and their hint ring is %.1f px, so "
 			+ "the town opens with their prompt already up") % [res, gap, NPC_RING])
 	_completes("nobody_is_standing_on_the_spawn_point")
+
+
+# ------------------------------------------------------------------------- 1b
+## ⚠ A TOWNSPERSON'S HINT MUST NOT REACH A PAD'S HINT. This is the SECOND bug named in
+## this file's header, and until now only the first one was pinned.
+##
+## The warden's 40 px ring reached x=384 against the armoury pad at x=380, so for part of
+## every lap he walks, standing ON the pad put two "[E] ..." labels on the screen. It is
+## survivable — `Interactables` picks the nearer — but the PLAYER cannot see which one
+## the key is about to press, and "the button did something else that time" is the least
+## debuggable complaint a game can collect.
+##
+## ⚠ WHY THIS TEST EXISTS AS OF THE TWO-PAD ROW. The row was just cut from four pads to
+## two and RESPACED (`PAD_FIRST_X` 380 -> 460), which is precisely the edit that moves a
+## disc into somebody's beat. Measured after the move, the tightest clearance in the room
+## is 30 px; before it, `armory x warden` was -50. `tools/probe_town_pads.gd` prints the
+## whole table when this goes red.
+##
+## Checked against the AUTHORED patrol SPAN and not against frame-one positions, for the
+## same reason test 1 is: a patrol is a moving fact, and a townsperson who starts clear
+## of a pad still paces into it a second later.
+func _test_no_hint_ring_reaches_a_pad() -> void:
+	var town: Node = _get_town()
+	if town == null:
+		return
+	var world_script: GDScript = load("res://scripts/World.gd") as GDScript
+	if world_script == null:
+		return
+	var pads: Array = []
+	_find(town, STATION_SCRIPT, pads)
+	var pad_ring: float = float(load(STATION_SCRIPT).get("PROXIMITY_RADIUS"))
+	var folk: Array = world_script.TOWNSFOLK
+	# ⚠ VACUOUS-PASS ARMOUR ON THE LOOP ITSELF. The body below runs `pads x folk` times,
+	# so an empty pad row or an empty table makes this test assert NOTHING while still
+	# recording its completion sentinel. Both counts are pinned first.
+	_expect(pads.size() >= 2, "there are pads to check (got %d)" % pads.size())
+	_expect(folk.size() >= 1, "there are townsfolk to check (got %d)" % folk.size())
+	for pad: Node in pads:
+		var px: float = (pad as Node2D).global_position.x
+		var kind: String = String(pad.get("kind"))
+		for entry: Dictionary in folk:
+			var cx: float = float(entry.get("x", 0.0))
+			var rng: float = float(entry.get("range", 0.0))
+			var who: String = String(entry.get("res", "?")).get_file()
+			# Distance from the pad's centre to the NEAREST point of the span they pace.
+			var gap: float = maxf(maxf((cx - rng) - px, px - (cx + rng)), 0.0)
+			_expect(gap >= pad_ring + NPC_RING,
+				("the %s pad at x %.0f and %s (who paces x %.0f..%.0f) come within %.0f px, "
+				+ "and their two hint rings need %.0f — so for part of every lap he walks, "
+				+ "standing on the pad lights TWO prompts and the player cannot tell which "
+				+ "one E will press")
+					% [kind, px, who, cx - rng, cx + rng, gap, pad_ring + NPC_RING])
+	_completes("no_hint_ring_reaches_a_pad")
 
 
 # ------------------------------------------------------------------------- 2

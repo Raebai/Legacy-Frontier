@@ -1,5 +1,48 @@
 class_name SpellTreeScreen
 extends Control
+## ⚠⚠ NOTHING OPENS THIS SCREEN. IT IS REACHABLE BY NO PATH A PLAYER CAN TAKE. ⚠⚠
+##
+## The Archivist pad (`ArmoryStation` kind `"tree"`) and `World.open_spell_tree()` were
+## both deleted when the maker cut the town's pad row to two: *"I only want one for class
+## within which I can edit spells, and one for armoury where I can look at my
+## equipment"*. The only thing that still constructs this file is
+## `tools/archivist_capture.gd`, a screenshot tool.
+##
+## ⚠ THE PAD WAS NOT CUT FOR SPACE. It was cut because THIS SCREEN LIED. It spends real
+## skill points on real nodes and the result reaches no fight:
+## `SpellTree.bindable_spells()` — the single function the whole economy exists to feed —
+## has no caller anywhere in the game outside `tools/slice_test_spell_tree.gd`. A player
+## could empty their points into a bough and walk into the tower with exactly the hand
+## they had before. Removing the pad removed a screen that took something and gave back
+## nothing, which is a better reason than tidiness.
+##
+## ⚠ THE FILE IS KEPT ON PURPOSE. The spell trees are designed-but-unbuilt work —
+## `docs/superpowers/specs/2026-08-04-spell-trees-and-progression-design.md` — and the
+## drawing, the growth animation and every rule in `SpellTree` are finished and tested.
+## This is a screen waiting for its consumer, not a corpse.
+##
+## ══ WHAT WOULD HAVE TO BE TRUE FOR THE PAD TO COME BACK ═════════════════════
+## In this order. The first one is the whole point and the other three are ten minutes:
+##
+##   1. **SOMETHING IN THE FIGHT READS `SpellTree.bindable_spells()`.** Concretely: the
+##      Outfitter's role list must offer only spells the tree has unlocked (today it
+##      offers `SpellLibrary.choosable_roles_for_class` unconditionally), OR
+##      `SpellLibrary.build_for_class` must refuse an un-unlocked spell. Until one of
+##      those exists, a restored pad is the same lie with a shorter walk.
+##   2. `ArmoryStation`: re-add the `"tree"` kind — a `PAD_COLORS` entry (it was amber,
+##      `Color(1.0, 0.82, 0.42)`), a `PAD_GLYPHS` entry (❖), a `_hint_text` case, and the
+##      branch in `_unhandled_input` that calls `open_spell_tree` on `get_tree().current_scene`.
+##      The hint used to carry the unspent-point count; that helper (`_tree_hint`) is
+##      described in the comment where it was deleted.
+##   3. `World`: re-add `open_spell_tree()` / `_on_spell_tree_closed()` / `_tree_screen`
+##      (identical in shape to `open_outfitter`, on the same `OVERLAY_LAYER`), a third
+##      pad x at `PAD_FIRST_X + PAD_STEP * 2.0`, and a third glyph on the signboard's
+##      left arm.
+##   4. `tools/slice_test_town.gd`: the pad count, the kind set and the ≥ 2 x
+##      `PROXIMITY_RADIUS` gap rule all move together — and check `PLAYER_SPAWN` still
+##      clears the new right-hand pad.
+##
+## ─────────────────────────────────────────────────────────────────────────────
 ## THE ARCHIVIST'S SCREEN — and it is a TREE now, not a list.
 ##
 ## ══ WHY IT WAS REWRITTEN ════════════════════════════════════════════════════
