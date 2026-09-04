@@ -2053,9 +2053,25 @@ func _separation_x() -> float:
 
 
 ## Live minion count for the summoner cap — prunes freed/queued refs in place.
+##
+## ⚠ THE LOOP VARIABLE IS DELIBERATELY UNTYPED, AND `for m: Node in _minions` IS A BUG.
+## A typed loop variable is a typed ASSIGNMENT: GDScript validates the instance as it
+## binds each element, so a FREED minion throws
+##
+##     SCRIPT ERROR: Trying to assign invalid previously freed instance.
+##
+## before `is_instance_valid(m)` on the next line ever gets to filter it. This function
+## exists to prune dead refs, so the one input it is written for was the one input that
+## killed it — every physics frame, from `_summoner_chase`.
+##
+## And it failed OPEN. An aborted GDScript function hands back its return type's zero, so
+## the count read 0 while four minions were alive: the gate `_live_minion_count() <
+## SUMMON_MAX_ALIVE` always passed and `SUMMON_MAX_ALIVE - 0` always sized a full batch.
+## One summoner spawned minions without end until the process was eating gigabytes.
+## Observed live 2026-09-04; covered by `slice3_test_enemy_abilities`.
 func _live_minion_count() -> int:
 	var alive: Array = []
-	for m: Node in _minions:
+	for m in _minions:
 		if is_instance_valid(m) and not m.is_queued_for_deletion():
 			alive.append(m)
 	_minions = alive

@@ -284,7 +284,19 @@ func _apply_damage() -> void:
 	# self-exclusion here and reuses machinery this loop already has: `_hurt()` skips
 	# anything already in `hit`, so a caster is "already hit" before the scan starts
 	# and can be reached by neither the radial pass nor the lance corridor.
-	for c: Object in _casters:
+	# ⚠ UNTYPED LOOP VARIABLE, DELIBERATELY. `_casters` is an untyped `Array`, and a
+	# typed loop variable over an untyped array is a validated assignment: a caster who
+	# died between the circle opening and this discharge throws "Trying to assign invalid
+	# previously freed instance" as it binds, before `is_instance_valid(c)` can filter it.
+	# Measured: untyped-array + typed-var throws, every other combination is fine, which
+	# is why the typed `Array[Node2D]` members elsewhere are safe as written.
+	#
+	# It would fail in the worst possible direction. The throw aborts THIS function, so
+	# the dedupe map never gets pre-seeded — and per the note on `_casters`, that seed IS
+	# the casters' self-exclusion. A surviving caster would then be erased by their own
+	# fused beam, exactly the outcome the design goes out of its way to prevent.
+	# Same defect as `Enemy._live_minion_count`, found by the scan for it on 2026-09-04.
+	for c in _casters:
 		if c != null and is_instance_valid(c):
 			hit[c.get_instance_id()] = true
 	for group: String in _groups:

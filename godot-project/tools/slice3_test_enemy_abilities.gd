@@ -22,6 +22,7 @@ extends SceneTree
 const TESTS: Array[String] = [
 	"summoner_windup_then_spawns_minions",
 	"summoner_abort_mid_windup_spawns_nothing",
+	"summon_cap_holds_when_a_minion_has_been_freed",
 ]
 
 var _fails: int = 0
@@ -47,6 +48,7 @@ func _process(_delta: float) -> bool:
 	_ran = true
 	_test_summoner_windup_then_spawns_minions()
 	_test_summoner_abort_mid_windup_spawns_nothing()
+	_test_summon_cap_holds_when_a_minion_has_been_freed()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -202,3 +204,59 @@ func _test_summoner_abort_mid_windup_spawns_nothing() -> void:
 
 	_teardown(ctx)
 	_completes("summoner_abort_mid_windup_spawns_nothing")
+
+## THE SWARM BUG. `_live_minion_count` is the ONLY thing enforcing SUMMON_MAX_ALIVE —
+## it gates the summon at `Enemy.gd:1646` and sizes the batch at `Enemy.gd:1673` — and
+## its whole job is to prune refs to minions that have died. It was written
+## `for m: Node in _minions`, and a TYPED loop variable is a typed ASSIGNMENT: GDScript
+## validates the instance as it binds it, so a freed element throws
+##
+##     SCRIPT ERROR: Trying to assign invalid previously freed instance.
+##
+## BEFORE `is_instance_valid(m)` on the next line ever runs. The pruner died on exactly
+## the input it exists for, every physics frame, and — per this suite's own header — an
+## aborted function hands its caller the return type's zero. So the cap read 0 live
+## minions forever: `0 < SUMMON_MAX_ALIVE` always passed, `SUMMON_MAX_ALIVE - 0` always
+## sized a full batch, and one summoner spawned minions without end until the process
+## was eating gigabytes. Observed live 2026-09-04.
+##
+## ⚠ THE ASSERTION IS THE COUNT, NOT THE ABSENCE OF AN ERROR. A GDScript runtime error
+## cannot be caught, so "did it print an error" is not something a test can read. What
+## it CAN read is the consequence: the count comes back 0 instead of the real number.
+func _test_summon_cap_holds_when_a_minion_has_been_freed() -> void:
+	var c: Dictionary = _consts()
+	var cap: int = int(c["SUMMON_MAX_ALIVE"])
+	var ctx: Dictionary = _setup(
+		int((c["Archetype"] as Dictionary)["SUMMONER"]), Vector2(250, 0), Vector2.ZERO)
+	var arena: Node2D = ctx["arena"]
+	var enemy: CharacterBody2D = ctx["enemy"]
+
+	# A full house of live minions, plus one that has already died — which is the
+	# ordinary state of this array a second after any minion is killed.
+	var roster: Array = []
+	for i: int in cap:
+		var live := Node2D.new()
+		arena.add_child(live)
+		roster.append(live)
+	var doomed := Node2D.new()
+	arena.add_child(doomed)
+	roster.append(doomed)
+	enemy.set("_minions", roster)
+	arena.remove_child(doomed)
+	doomed.free()
+
+	var n: int = int(enemy.call("_live_minion_count"))
+	_expect(n == cap,
+		"a freed minion in the list must prune to %d live, got %d. 0 means the typed "
+			% [cap, n] + "loop variable threw on the freed element and the function "
+			+ "aborted — which is the infinite-swarm bug, not a counting slip")
+	# The consequence the cap exists for: a full house summons nobody else.
+	_expect(maxi(cap - n, 0) == 0,
+		"with the cap full, the next batch must be 0, sized %d" % maxi(cap - n, 0))
+	# And the prune must actually have happened in place, not just been counted.
+	var kept: Array = enemy.get("_minions") as Array
+	_expect(kept.size() == cap,
+		"_minions must be rewritten to the %d live refs, holds %d" % [cap, kept.size()])
+
+	_teardown(ctx)
+	_completes("summon_cap_holds_when_a_minion_has_been_freed")
