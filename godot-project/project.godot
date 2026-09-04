@@ -223,11 +223,19 @@ common/physics_ticks_per_second=60
 
 [rendering]
 
-# ANDROID REQUIRES ETC2/ASTC. Without this the export dialog refuses outright with
-# "Target platform requires ETC2/ASTC texture compression" - mobile GPUs cannot read the
-# desktop S3TC/BPTC formats, so Godot has to import a second compressed variant of every
-# VRAM-compressed texture. Costs import time and cache size; it is not optional for a
-# phone build. Desktop keeps using its own formats and is unaffected.
+; ANDROID REQUIRES ETC2/ASTC. Without this the export dialog refuses outright with
+; "Target platform requires ETC2/ASTC texture compression" - mobile GPUs cannot read
+; the desktop S3TC/BPTC formats, so Godot has to import a second compressed variant of
+; every VRAM-compressed texture. Costs import time and cache size; it is not optional
+; for a phone build. Desktop keeps using its own formats and is unaffected.
+;
+; The comment marker is ';' and NOT '#', and that is the whole story of why the ETC2 fix
+; did not take the first time: project.godot is parsed by Godot's VariantParser, whose
+; only comment character is ';'. A '#' line is not skipped, it is a PARSE ERROR, and the
+; recovery swallows the assignment that follows it. So the one setting this block was
+; written to document was the one setting the block switched off, silently, while
+; reading as correct to every human who opened the file. Every other setting in this
+; file loaded fine because this was the only '#' block in it.
 textures/vram_compression/import_etc2_astc=true
 textures/default_filters/anisotropic_filtering_level=0
 viewport/hdr_2d=true
