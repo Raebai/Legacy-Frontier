@@ -110,6 +110,31 @@ func detonate_at(pos: Vector2) -> void:
 	# An unstamped hero telegraph is indistinguishable from an enemy one, which
 	# makes a bot-driven caster dodge its own spell for the whole wind-up.
 	telegraph.source = caster_node as Node2D
+	# == RULE 1 OF THE TELL LAYER: COLOUR CARRIES ELEMENT ==
+	# Without this the telegraph keeps `Telegraph.RING_COLOR` — the shared danger red —
+	# whatever the blast is made of, so a fire punch and an ice slam warn in identical
+	# red. That is the widest remaining hole in the audit, because the fire punch, the
+	# ground slam, `MeteorFist` and the mage AoE all route through this one function.
+	# The geometry was already 1:1 (ring r66 = hitbox r66 on the punch, r98 = r98 on the
+	# slam), so this is purely the colour channel.
+	#
+	# ⚠ GUARDED, AND THE UNGUARDED FORM WOULD HAVE BEEN A REGRESSION. `element_id`
+	# defaults to -1 on this class, and `Elements.color` FALLS BACK TO ARCANE MAGENTA
+	# for any unrecognised value rather than to anything neutral — read it, it says so.
+	# So a bare `telegraph.accent = Elements.color(element_id)` would repaint every
+	# unelemented blast from danger red to magenta, i.e. it would announce "arcane" on a
+	# spell that has no element at all. Checked rather than assumed: every live
+	# construction site does stamp a real element (`Hero._element` defaults to ARCANE,
+	# `Enemy._bolt_element`, `EliteVolatile` FIRE, `MeteorFist` passes its own) EXCEPT
+	# `Net.gd:986`, which reads `int(data.get("el", -1))` off a replicated payload and
+	# hands -1 through when the field is missing. That is the co-op divergence case
+	# exactly: one peer's blast warning red and the other's magenta.
+	#
+	# `element_id >= 0 else <fallback>` is the same idiom this file already uses for its
+	# burst colour further down; the fallback here is the ring colour so an unelemented
+	# blast keeps precisely the tell it has today.
+	if element_id >= 0:
+		telegraph.accent = Elements.color(element_id)
 	telegraph.fired.connect(_detonate)
 	telegraph.start(radius, windup)
 
@@ -201,6 +226,22 @@ func _detonate() -> void:
 			get_parent(), floor_pos, DEBRIS_COLOR, DEBRIS_COUNT, Vector2.UP, 300.0
 		)
 		GroundCrater.spawn(get_parent(), floor_pos, radius * CRATER_RADIUS_FACTOR, false)
+		# == SLICE 2: THE CRATER STOPS BEING A DECAL ==
+		# `GroundCrater` above draws a mark; this takes the rock out. Deliberately at
+		# `floor_pos` and not at `global_position`: a blast that goes off head-high must
+		# bite the ground UNDER it, not carve a bubble in mid-air, and `floor_below`
+		# already found exactly that point for the decal. Guarded by `ground["hit"]`
+		# with everything else in this block, so a detonation over a pit removes nothing.
+		#
+		# ⚠ IT IS OUTSIDE `_apply_blast_damage`, WHICH THE COSMETIC TWIN SKIPS. Terrain
+		# is the one thing a co-op twin must still change — same argument as the crate
+		# in `_apply_blast_damage` and as the twin's bolt in `Spell._try_damage`: both
+		# peers apply it, so both stages converge. Damage stays on the owner's peer.
+		#
+		# The blast's own `radius` is passed as a hint because the stage's damage->radius
+		# curve is tuned for a projectile impact, and a 90 px detonation that leaves a
+		# 30 px dent reads as a miss. `damage_at` can only ever WIDEN on a hint.
+		DestructibleStage.carve_area(self, damage, floor_pos, Vector2.UP, radius)
 	_shockwave_elapsed = 0.0
 	queue_redraw()
 	Juice.hit_stop(0.09)  # weighted: the AoE centerpiece, just under a kill

@@ -522,6 +522,13 @@ func _try_damage(node: Node, from_area: bool = false) -> void:
 	if visual_only and not node.is_in_group("destructible"):
 		if node.is_in_group("hero") or node.is_in_group(SpellCaster.MORTAL_GROUP) \
 				or node.is_in_group("enemy") or node is StaticBody2D:
+			# == THE TWIN STILL CARVES THE GROUND ==
+			# Exactly the reason `visual_only`'s own docs give for it still breaking
+			# crates: every peer sees every hero attack, so every peer applies the same
+			# damage to its own copy of the terrain and the two stages CONVERGE. A twin
+			# that skipped the carve would leave one phone with a hole the other does
+			# not have — precisely the divergence the cosmetic twin exists to prevent.
+			DestructibleStage.carve_from_body(node, damage, global_position, _dir)
 			_dead = true
 			_spawn_impact_burst()
 			queue_free()
@@ -575,6 +582,21 @@ func _try_damage(node: Node, from_area: bool = false) -> void:
 		# ⚠ `not from_area`: see `_on_area_hit`. A wall is a body and reaches this
 		# through `body_entered`; reaching it through a trigger ring means detonating
 		# on a prompt.
+		#
+		# == SLICE 2: AND IF THAT BODY IS THE DESTRUCTIBLE STAGE, IT TAKES A BITE ==
+		# Routed by the body's own back-pointer rather than by group, for two reasons.
+		# The stage may NOT join `"destructible"` (`SpellWorld.is_smashable` would then
+		# make the ground transparent to every floor query in the game — see the
+		# `DestructibleStage` header for the measurement), and the branch must fire only
+		# for the ground itself: a bolt that stopped on a ruin platform or the arena rim
+		# must not punch a hole in the rock underneath it. `carve_from_body` answers 0
+		# for anything that is not the stage collider, and 0 whenever the flag is off,
+		# because with the flag off there is no stage node and no meta to find.
+		#
+		# The bolt does NOT decide whether its own damage is heavy enough to bite. The
+		# stage owns that threshold, in one place, so a new spell cannot arrive carrying
+		# its own opinion of what counts as a heavy hit.
+		DestructibleStage.carve_from_body(node, damage, global_position, _dir)
 		_dead = true
 		Sfx.play("spell_impact")
 		Juice.hit_stop(0.03)

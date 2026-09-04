@@ -242,6 +242,35 @@ const BLAST_ZONES: Array[Dictionary] = [
 	{"center": Vector2(-180.0, 480.0), "size": Vector2(360.0, 1800.0)},  # off far left
 	{"center": Vector2(2200.0, 480.0), "size": Vector2(360.0, 1800.0)},  # off far right
 ]
+## ══ THE THIRD RING-OUT VECTOR, AND IT ONLY EXISTS WHEN THE GROUND CAN OPEN ══
+## Built ONLY when `destructible_stage` is on, so the shipped stage is byte-identical
+## without it. The two `BLAST_ZONES` above sit off the far L/R edges; the class header
+## above says the reason out loud — *"Everything is SOLID (no fall-through-into-the-void)
+## ... the bots can't fall through and hand an early win"*. Slice 2 makes that sentence
+## false: the rock over the fight floor is 320 px deep and enough committed hits at one
+## x will go through it.
+##
+## The clip-and-showcase mode already catches this — `BotMatch.is_off_stage` tests
+## `p.y > RIM_BOTTOM` (1100) as well as the two x rims — but the duel, free-play and
+## sandbox paths reach `VersusArena` WITHOUT passing through `BotMatch`, and they have
+## nothing below them at all. A body that fell through a fresh hole in those modes falls
+## forever. This is the "a fresh hole is a third ring-out vector" trap from
+## `docs/superpowers/specs/2026-09-02-clip-readability-and-destructible-stage.md` §3.4,
+## closed rather than noted.
+##
+## y 1200..1600 is BELOW the deepest collider (the fight floor's 780 + TERRACE_DEPTH 320
+## = 1100) and below `ArenaTerrain`'s drawn extent (`floor_y` = STAGE_SIZE.y = 1000), so
+## nothing standing on the stage can touch it and nothing on camera can see it. It spans
+## the whole playfield in x, because a hole can open anywhere the rock is.
+##
+## ⚠ IT IS SAFE TO SHOW A BOT. `BotController.perceive_hazards` publishes every PIT rect
+## to the blackboard as somewhere not to step, and `_safest` scores candidate exits
+## against them — but every candidate a bot ever scores is at fighting height, hundreds
+## of px above this rect, so it can never be inside it. It costs one extra Rect2 in a
+## list that is rebuilt every perceive tick anyway.
+const FLOOR_BLAST_ZONE: Dictionary = {
+	"center": Vector2(1002.5, 1400.0), "size": Vector2(1965.0, 400.0),
+}
 ## The reference point the stage is laid out around (the human duellist's side).
 const P1_SPAWN: Vector2 = Vector2(320.0, 716.0)
 ## Destructible cover sitting on the main ground (64px blocks; centre = surface - 32).
@@ -1128,6 +1157,34 @@ func _stage_theme() -> Object:
 ##
 ## Set it from a test, or pass it after `--` on the command line:
 ##     godot --path godot-project -- --destructible-stage
+##
+## ══ SLICE 2 SHIPS WITH IT STILL OFF, AND HERE IS THE ARITHMETIC ════════════
+## Slice 2 wires damage into the grid: heavy hits open real craters, the collision
+## rebuilds incrementally, and the hole is drawn. All of it is headless-verified
+## (`tools/slice_test_destructible_carve.gd`, and the A/B in
+## `slice_test_destructible_stage_wired` still reports 0 of 102 ground positions moved).
+## The default did NOT flip, for one measured reason and one live-consequence reason.
+##
+##   THE MEASUREMENT. `tools/probe_destructible_bot_fight.gd` runs real `BotMatch`
+##   bouts with the flag on and reports how much rock is gone. Six bouts: **0.00% –
+##   2.03%** after 13–30 game-seconds, and two of the three matchups removed NOTHING AT
+##   ALL. Only two damage sources reach the stage today (a bolt that stops on the ground
+##   and a `BlastSpell` detonation), and looking at `SpellLibrary`, not one of the nine
+##   classes carries a plain blast as its damage line — so the sources that would
+##   actually chew the floor (`ShockwaveStomp`, `BoulderHurl`'s impact, `FaultLine`,
+##   `EnergyNova`, `GraveTide`) are all still unwired. Turning it on today ships 34
+##   collision shapes, a per-frame rebuild pass and a third ring-out vector in exchange
+##   for a stage that visibly does not change.
+##
+##   THE LIVE CONSEQUENCE. This stage is the one the CLIP PIPELINE shoots on, and that
+##   pipeline runs unattended (see `project_v2_growth_stack`). A carve that opens a gap
+##   mid-bout meets `BotBrain._safest`, which HOLDS rather than reverses when every
+##   option is lethal — a stranded melee bot stands at the lip. The probe never saw a
+##   gap open (widest severed run: 0 px, in every bout), so the risk is low; it is not
+##   zero, and it would land on posts nobody is watching go out.
+##
+## ⚠ FLIP IT WITH THIS ONE LINE — `false` -> `true` — once the ground-aimed sources are
+## wired and a bout has been watched. Nothing else has to change.
 static var destructible_stage: bool = false
 
 ## The live grid while the flag is on, else null. Slice 2's damage contract writes here.
@@ -1304,6 +1361,13 @@ func _build_blast_zones() -> void:
 		pit.position = z["center"]
 		pit.fighter_fell.connect(_on_fighter_fell)
 		add_child(pit)
+	if _destructible_stage_wanted():
+		var floor_pit := StageHazard.new()
+		floor_pit.mode = StageHazard.Mode.PIT
+		floor_pit.zone_size = FLOOR_BLAST_ZONE["size"]
+		floor_pit.position = FLOOR_BLAST_ZONE["center"]
+		floor_pit.fighter_fell.connect(_on_fighter_fell)
+		add_child(floor_pit)
 
 
 ## Runtime load()s, never preload: both scenes' scripts reference autoload

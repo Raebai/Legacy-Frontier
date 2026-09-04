@@ -62,6 +62,7 @@ const TESTS: Array[String] = [
 	"the_flag_on_path_is_one_body_and_no_loose_terraces",
 	"the_ground_a_ray_lands_on_is_identical_either_way",
 	"the_flagged_stage_puts_the_five_surfaces_where_they_were_authored",
+	"the_flag_adds_a_floor_ring_out_and_the_shipped_stage_keeps_two",
 ]
 
 var _fails: int = 0
@@ -76,6 +77,8 @@ var _on_terraces: int = -1
 var _off_stage_bodies: int = -1
 var _on_stage_bodies: int = -1
 var _on_shapes: int = -1
+var _off_pits: int = -1
+var _on_pits: int = -1
 
 
 func _initialize() -> void:
@@ -105,6 +108,7 @@ func _run() -> void:
 	the_flag_on_path_is_one_body_and_no_loose_terraces()
 	the_ground_a_ray_lands_on_is_identical_either_way()
 	the_flagged_stage_puts_the_five_surfaces_where_they_were_authored()
+	the_flag_adds_a_floor_ring_out_and_the_shipped_stage_keeps_two()
 
 	for t: String in TESTS:
 		_expect(_completed.has(t), "%s ran to completion" % t)
@@ -150,6 +154,12 @@ func _boot_and_measure(flagged: bool) -> void:
 		shapes += body.get_child_count()
 		ground.append(body.get_rid())
 
+	# Ring-out pits, counted per configuration. See the test at the foot of this file.
+	var pits: int = 0
+	for h: Node in arena.find_children("", "StageHazard", true, false):
+		if int(h.get(&"mode")) == 0:  # StageHazard.Mode.PIT
+			pits += 1
+
 	var exclude: Array[RID] = []
 	_collect_non_ground(arena, ground, exclude)
 
@@ -166,10 +176,12 @@ func _boot_and_measure(flagged: bool) -> void:
 		_on_terraces = terraces
 		_on_stage_bodies = stage_bodies
 		_on_shapes = shapes
+		_on_pits = pits
 	else:
 		_off = reading
 		_off_terraces = terraces
 		_off_stage_bodies = stage_bodies
+		_off_pits = pits
 
 	arena.queue_free()
 	await process_frame
@@ -261,3 +273,25 @@ func the_flagged_stage_puts_the_five_surfaces_where_they_were_authored() -> void
 		print("  x=%-6.0f authored %-7.1f boxes %-9.2f grid %.2f"
 			% [x, want, got_off, got_on])
 	_done("the_flagged_stage_puts_the_five_surfaces_where_they_were_authored")
+
+
+## THE THIRD RING-OUT VECTOR, AND THAT IT COSTS THE SHIPPED STAGE NOTHING.
+##
+## The class docs of `VersusArena` say out loud that everything is solid and *"the bots
+## can't fall through and hand an early win"*. Slice 2 makes that false once the rock can
+## be opened: 320 px of fight floor is a lot, but it is finite. `BotMatch.is_off_stage`
+## already tests `p.y > RIM_BOTTOM`, so the mode the clips are shot in is covered — the
+## duel, free-play and sandbox paths reach this arena WITHOUT `BotMatch` and had nothing
+## below them at all, so a body through a fresh hole would fall forever.
+##
+## Both halves matter and both are asserted: the flag ADDS the floor pit, and the flag
+## being OFF leaves exactly the two authored `BLAST_ZONES` and not one thing more.
+func the_flag_adds_a_floor_ring_out_and_the_shipped_stage_keeps_two() -> void:
+	_expect(_off_pits == 2,
+		"flag off built %d PIT hazard(s); the authored BLAST_ZONES table has 2" % _off_pits)
+	_expect(_on_pits == 3,
+		"flag on built %d PIT hazard(s), expected the 2 authored plus the floor pit"
+			% _on_pits)
+	print("  ring-out pits: %d with the boxes, %d with the destructible grid"
+		% [_off_pits, _on_pits])
+	_done("the_flag_adds_a_floor_ring_out_and_the_shipped_stage_keeps_two")
