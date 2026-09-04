@@ -30,7 +30,20 @@ func _go() -> void:
 		quit(0)
 		return
 
-	for _i: int in 5:
+	# ⚠ BOOT THE REAL MAIN SCENE. The first version of this probe measured a bare
+	# root window with NO game in it and reported the stretch working — which was true
+	# of the window and said nothing about what the player is looking at. If anything in
+	# the actual scene tree (a CanvasLayer, the post-process rect, a fixed-size Control)
+	# is what stays small, only the real scene shows it.
+	var main_path: String = String(ProjectSettings.get_setting("application/run/main_scene", ""))
+	var main: PackedScene = load(main_path) as PackedScene
+	if main != null:
+		root.add_child(main.instantiate())
+		print("  booted main scene: %s" % main_path)
+	else:
+		print("  WARNING: could not load main scene %s — measuring a bare window" % main_path)
+
+	for _i: int in 30:
 		await process_frame
 	var before: Dictionary = _sample()
 

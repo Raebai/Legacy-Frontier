@@ -140,7 +140,7 @@ func _process(delta: float) -> void:
 	_phase += delta
 	_flash = maxf(_flash - delta, 0.0)
 	_resolve_pair()
-	if can_revive() and Input.is_action_pressed(REVIVE_ACTION):
+	if can_revive() and _holding_revive(_rescuer):
 		_progress += delta
 		if _progress >= CHANNEL_TIME:
 			_progress = 0.0
@@ -231,29 +231,54 @@ func _resolve_pair() -> void:
 	var was: Node2D = _ghost
 	_rescuer = null
 	_ghost = null
+	# ⚠ THE CLOSEST PAIR, NOT THE FIRST BODY IN THE GROUP. This used to `break` on
+	# the first local player it found and then look for a ghost near THEM — fine with
+	# one player, and wrong the moment there are two: whichever climber happened to be
+	# first in the group became the only one who could ever rescue, even with the other
+	# one standing over the body. Both players are candidates now, and the pair that is
+	# actually within reach of each other wins.
+	var rescuers: Array[Node2D] = []
 	for h: Node in get_tree().get_nodes_in_group(&"hero"):
 		if not _usable(h) or _is_ghost(h):
 			continue
 		if _is_local_player(h):
-			_rescuer = h as Node2D
-			break
-	if _rescuer == null:
+			rescuers.append(h as Node2D)
+	if rescuers.is_empty():
 		return
 	var best: float = RANGE
 	for h: Node in get_tree().get_nodes_in_group(GhostForm.GHOST_GROUP):
-		if h == _rescuer or not _usable(h) or not _is_ghost(h):
+		if not _usable(h) or not _is_ghost(h):
 			continue
 		# A hero mid-SECOND-WIND is already coming back on its own clock; offering to
 		# revive it would let one press be spent on a body that did not need it.
 		if h.has_method(&"awaiting_second_wind") and bool(h.call(&"awaiting_second_wind")):
 			continue
-		var d: float = _rescuer.global_position.distance_to((h as Node2D).global_position)
-		if d < best:
-			best = d
-			_ghost = h as Node2D
+		for r: Node2D in rescuers:
+			if h == r:
+				continue
+			var d: float = r.global_position.distance_to((h as Node2D).global_position)
+			if d < best:
+				best = d
+				_ghost = h as Node2D
+				_rescuer = r
 	# Switching targets mid-channel must not inherit the old target's progress.
 	if _ghost != was:
 		_progress = 0.0
+
+
+## ⚠ ASK THE RESCUER, NOT THE ROOM. A global `Input.is_action_pressed` is shared by
+## everyone in front of the screen, so on a couch player one's keyboard would drive
+## player two's revive channel and vice versa. A hero with a driver is asked through it;
+## the keyboard player, who has none, still reads the global action exactly as before.
+func _holding_revive(who: Node) -> bool:
+	if who == null or not is_instance_valid(who):
+		return false
+	var driver: Variant = who.get(&"controller")
+	if driver != null and driver is Object:
+		var o: Object = driver as Object
+		if o.has_method(&"pressed"):
+			return bool(o.call(&"pressed", REVIVE_ACTION))
+	return Input.is_action_pressed(REVIVE_ACTION)
 
 
 func _usable(n: Node) -> bool:
@@ -272,7 +297,15 @@ func _is_ghost(h: Node) -> bool:
 func _is_local_player(h: Node) -> bool:
 	var driver: Variant = h.get(&"controller")
 	if driver != null:
-		return false
+		# ⚠ A DRIVER IS NOT AUTOMATICALLY A BOT ANY MORE. This used to return false
+		# for anything with a controller, which was right while `BotController` was the
+		# only implementer — and it silently made player two on a pad unable to pick
+		# anybody up, because a pad IS a controller. Same rule as
+		# `Encounter.party_size`: a driver that says it is a person is a person.
+		if not (driver is Object):
+			return false
+		var o: Object = driver as Object
+		return o.has_method(&"is_human") and bool(o.call(&"is_human"))
 	var net: Node = get_node_or_null(^"/root/Net")
 	if net != null and net.has_method(&"is_active") and bool(net.call(&"is_active")):
 		return h.is_multiplayer_authority()

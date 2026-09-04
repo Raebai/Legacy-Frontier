@@ -63,6 +63,28 @@ func set_fullscreen(on: bool) -> void:
 		DisplayServer.WINDOW_MODE_FULLSCREEN if on
 		else DisplayServer.WINDOW_MODE_WINDOWED)
 	_save(on)
+	_report("toggle")
+
+
+## ⚠ THE TOGGLE SAYS WHAT IT DID, OUT LOUD. "Fullscreen does not work" was reported
+## twice while every measurement available here said it does: a standalone run, a run
+## with the real main scene booted, and a boot straight into a saved fullscreen all
+## filled a 2560x1600 screen at exactly 4.00x. That gap between the report and the
+## instrument is the thing to close, and it cannot be closed from this side - so the
+## game now writes the four numbers that settle it into `user://logs/`, where they
+## can be read after the fact rather than guessed at.
+##
+## `canvas scale` is the one that matters. The logical viewport reads 640x360 whether
+## scaling works or not, so it is NOT the tell; the final transform is what the renderer
+## actually applied. Scale 1.0 on a 2560-wide window means the picture is being drawn at
+## 640x360 in the corner of a black screen. Scale ~4.0 means it fills it.
+func _report(why: String) -> void:
+	await get_tree().process_frame
+	var vp: Viewport = get_viewport()
+	var scale: Vector2 = vp.get_final_transform().get_scale() if vp != null else Vector2.ZERO
+	print("[screen] %s -> mode %d | window %s | screen %s | canvas scale %s"
+		% [why, DisplayServer.window_get_mode(), DisplayServer.window_get_size(),
+			DisplayServer.screen_get_size(), scale])
 
 
 # ---------------------------------------------------------------- persistence
@@ -78,6 +100,10 @@ func _load() -> void:
 		return                      # no file yet: keep the project default (windowed)
 	if bool(cfg.get_value(SECTION, KEY_FULLSCREEN, false)):
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+		# A player who turned fullscreen on once takes THIS path on every later launch
+		# and never touches the toggle, so it has to report too or the common case is
+		# the one with no evidence.
+		_report("startup")
 
 
 func _save(on: bool) -> void:

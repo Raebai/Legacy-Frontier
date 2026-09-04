@@ -197,6 +197,28 @@ var _slots: Array = []
 ## Current class name, drawn above the hotbar so the player always knows their class.
 var _class_name: String = ""
 
+## SAME-SCREEN CO-OP. Null means "whoever is first in the hero group", which is the
+## single-player answer and the shipped behaviour. Set it and this bar belongs to one
+## specific climber for as long as that climber is alive.
+##
+## ⚠ THE SETTER EXISTS BECAUSE A FREED OBJECT COMPARES EQUAL TO null IN GODOT. The
+## first version of this tested `bound_hero != null` to decide whether it was bound —
+## which is true while the climber lives and quietly goes FALSE the moment they are
+## freed, dropping the bar back onto the group lookup and drawing the SURVIVOR's
+## cooldowns in the dead player's corner. It looked like it was working, which is the
+## one thing a HUD must never do. Caught by
+## `slice_test_local_coop.a_bound_bar_whose_climber_died_draws_nothing`; the boolean
+## remembers the intent even after the reference rots.
+var bound_hero: Node = null:
+	set(v):
+		bound_hero = v
+		_bound = v != null
+var _bound: bool = false
+## Which corner this bar lives in, and how far up the stack. Player one keeps the left
+## corner it has always had.
+var dock_right: bool = false
+var dock_row: int = 0
+
 
 func _ready() -> void:
 	# Full-rect anchors so our size tracks the viewport; all layout is
@@ -252,7 +274,21 @@ func _process(_delta: float) -> void:
 		return
 	# Poll-don't-push: cooldown timers tick every frame anyway, so a per-frame
 	# read of the hero contract is simpler than plumbing signals for 6 slots.
-	var hero: Node = get_tree().get_first_node_in_group("hero")
+	# ⚠ AN EXPLICIT HERO WINS; THE GROUP LOOKUP IS STILL THE DEFAULT. This bar was a
+	# singleton by construction - it found "the" hero with `get_first_node_in_group`,
+	# which is exactly right while there is one, and silently draws player one's
+	# cooldowns to BOTH players the moment there are two. `bound_hero` lets same-screen
+	# co-op hand each player their own bar; leaving it null is byte-identical to what
+	# shipped, which is why solo needed no change and got none.
+	#
+	# ⚠ A BOUND HERO THAT DIED DRAWS NOTHING, rather than falling back to the group.
+	# The fallback would quietly repoint player two's bar at player one and still look
+	# like it was working - the worst failure available to a HUD.
+	var hero: Node = null
+	if _bound:
+		hero = bound_hero if is_instance_valid(bound_hero) else null
+	else:
+		hero = get_tree().get_first_node_in_group("hero")
 	if hero == null or not hero.has_method("ability_hud_state"):
 		_slots = []
 		_class_name = ""
@@ -569,7 +605,15 @@ func _draw() -> void:
 	# Centred where it is a thumb target, tucked into the left corner where it is not —
 	# see DESKTOP_SCALE / SIDE_MARGIN.
 	var origin_x: float = (view.x - total_w) * 0.5 if is_equal_approx(k, 1.0) 		else SIDE_MARGIN
+	# Player two's bar hugs the OTHER corner. Two bars in one corner is one bar you
+	# cannot read, and opposite corners also match where the two of you are sitting.
+	if dock_right:
+		origin_x = view.x - total_w - SIDE_MARGIN
 	var origin_y: float = view.y - (BOTTOM_MARGIN * k) - slot_px
+	# Players three and four stack UPWARD off their own side rather than landing on
+	# top of whoever already has that corner.
+	if dock_row > 0:
+		origin_y -= float(dock_row) * (slot_px + 8.0 * k)
 	# Class name centered just above the hotbar (always know your class).
 	if _class_name != "":
 		draw_string(

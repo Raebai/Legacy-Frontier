@@ -29,6 +29,9 @@ const TESTS: Array[String] = [
 	"party_size_counts_people_in_the_room_not_the_network",
 	"party_size_counts_humans_not_bodies",
 	"a_second_climber_actually_scales_the_floor",
+	"a_bound_bar_draws_its_own_climber_and_nobody_else",
+	"a_bound_bar_whose_climber_died_draws_nothing",
+	"a_pad_player_can_be_a_rescuer_and_a_bot_cannot",
 ]
 
 ## Everything `Hero` reads through the controller seam. If the pad cannot produce one of
@@ -66,6 +69,16 @@ class FakePad:
 class FakeHero:
 	extends Node2D
 	var controller: Variant = null
+	var label: String = ""
+
+	## The bar asks for exactly these two. An empty slot list is enough: it makes the
+	## signature/charge stampers early-return, so this stays a test of the BINDING
+	## decision rather than of the whole draw path.
+	func ability_hud_state() -> Array:
+		return []
+
+	func class_display_name() -> String:
+		return label
 
 
 ## Something bot-shaped: drives a body, but is NOT a person. Deliberately has no
@@ -90,6 +103,9 @@ func _run() -> void:
 	await party_size_counts_people_in_the_room_not_the_network()
 	await party_size_counts_humans_not_bodies()
 	a_second_climber_actually_scales_the_floor()
+	await a_bound_bar_draws_its_own_climber_and_nobody_else()
+	await a_bound_bar_whose_climber_died_draws_nothing()
+	await a_pad_player_can_be_a_rescuer_and_a_bot_cannot()
 
 	for t: String in TESTS:
 		_expect(_completed.has(t), "%s ran to completion" % t)
@@ -260,6 +276,105 @@ func party_size_counts_humans_not_bodies() -> void:
 	e.queue_free()
 	await process_frame
 	_done("party_size_counts_humans_not_bodies")
+
+
+func _bar_for(hero: Node) -> Node:
+	var bar := AbilityBar.new()
+	bar.bound_hero = hero
+	root.add_child(bar)
+	return bar
+
+
+## Before `bound_hero`, both players' bars showed player ONE's cooldowns — which is
+## worse than showing nothing, because it looks correct.
+func a_bound_bar_draws_its_own_climber_and_nobody_else() -> void:
+	var first := FakeHero.new()
+	first.label = "FIRST"
+	first.add_to_group("hero")
+	root.add_child(first)
+	var second := FakeHero.new()
+	second.label = "SECOND"
+	second.add_to_group("hero")
+	root.add_child(second)
+	await process_frame
+
+	var bound: Node = _bar_for(second)
+	var loose: Node = _bar_for(null)          # null = the shipped, group-lookup default
+	await process_frame
+	bound.call("_process", 0.0)
+	loose.call("_process", 0.0)
+
+	_expect(String(bound.get("_class_name")) == "SECOND",
+		"a bound bar must draw ITS climber, got '%s'" % String(bound.get("_class_name")))
+	_expect(String(loose.get("_class_name")) == "FIRST",
+		"an unbound bar must still take the first hero in the group (the solo path), got '%s'"
+			% String(loose.get("_class_name")))
+
+	bound.queue_free()
+	loose.queue_free()
+	first.queue_free()
+	second.queue_free()
+	await process_frame
+	_done("a_bound_bar_draws_its_own_climber_and_nobody_else")
+
+
+## ⚠ IT MUST NOT FALL BACK. A bar that quietly repoints at the surviving player looks
+## like it is working, which is the one failure mode a HUD must never have.
+func a_bound_bar_whose_climber_died_draws_nothing() -> void:
+	var alive := FakeHero.new()
+	alive.label = "ALIVE"
+	alive.add_to_group("hero")
+	root.add_child(alive)
+	var doomed := FakeHero.new()
+	doomed.label = "DOOMED"
+	doomed.add_to_group("hero")
+	root.add_child(doomed)
+	await process_frame
+
+	var bar: Node = _bar_for(doomed)
+	root.remove_child(doomed)
+	doomed.free()
+	await process_frame
+	bar.call("_process", 0.0)
+
+	_expect(String(bar.get("_class_name")) == "",
+		"a bar whose climber died must draw nothing, not the survivor's bar — got '%s'"
+			% String(bar.get("_class_name")))
+
+	bar.queue_free()
+	alive.queue_free()
+	await process_frame
+	_done("a_bound_bar_whose_climber_died_draws_nothing")
+
+
+## `Revive._is_local_player` returned false for ANYTHING with a controller, which was
+## right while a controller could only be a bot — and silently meant player two on a pad
+## could never pick anybody up.
+func a_pad_player_can_be_a_rescuer_and_a_bot_cannot() -> void:
+	var scr: GDScript = load("res://scripts/combat/Revive.gd") as GDScript
+	var rev: Node = scr.new() as Node
+	root.add_child(rev)
+	await process_frame
+
+	var keyboard := FakeHero.new()
+	var pad_player := FakeHero.new()
+	pad_player.controller = FakePad.new(1)
+	var bot := FakeHero.new()
+	bot.controller = FakeBrain.new()
+
+	_expect(bool(rev.call("_is_local_player", keyboard)),
+		"the keyboard player is a rescuer")
+	_expect(bool(rev.call("_is_local_player", pad_player)),
+		"a PAD player must be able to rescue — this is the bug the fix exists for")
+	_expect(not bool(rev.call("_is_local_player", bot)),
+		"a bot-driven hero must NOT be treated as a local rescuer")
+
+	keyboard.free()
+	pad_player.free()
+	bot.free()
+	rev.queue_free()
+	await process_frame
+	_done("a_pad_player_can_be_a_rescuer_and_a_bot_cannot")
 
 
 ## The count is only worth anything if it moves the numbers the player feels.

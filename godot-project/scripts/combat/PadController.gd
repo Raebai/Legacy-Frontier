@@ -63,6 +63,11 @@ const BUTTONS: Dictionary = {
 	&"spell_3": JOY_BUTTON_DPAD_RIGHT,
 	&"spell_4": JOY_BUTTON_RIGHT_STICK,
 	&"switch_class": JOY_BUTTON_BACK,
+	# REVIVE (`Revive.REVIVE_ACTION` is &"talk"). On the stick click because it is a
+	# HOLD taken while standing still over a downed ally, and every button a thumb
+	# reaches mid-fight was already spoken for. First-pass binding: if it fights the
+	# hand in a playtest, this line is the whole change.
+	&"talk": JOY_BUTTON_LEFT_STICK,
 }
 
 ## Analogue triggers, read as buttons past `TRIGGER_THRESHOLD`.

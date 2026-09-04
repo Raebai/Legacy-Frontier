@@ -18,15 +18,16 @@ extends Node
 ## expect; it needs no UI and it cannot be got wrong by accident.
 ##
 ## ⚠ WHAT THIS DOES NOT DO YET, said out loud rather than discovered in play:
-##   * player two has NO ability bar — `AbilityBar` finds its hero with
-##     `get_first_node_in_group("hero")` (`AbilityBar.gd:255`) and is a singleton by
-##     construction, so it will keep drawing player one's cooldowns. P2 can still cast;
-##     they just cannot see their own timers.
-##   * `Revive._is_local_player` (`Revive.gd:272`) picks the FIRST undriven hero as the
-##     rescuer offline, so player two cannot currently start a revive.
-##   * P2 takes the class already selected in the hub; there is no per-player pick.
-## None of these stop a two-player floor from being played end to end, which is what
-## this slice is for.
+##   * P2 takes the class already selected in the hub — there is no per-player pick.
+##     They can change it in-game with `switch_class` (BACK on the pad), which is a
+##     workaround and not the feature.
+##   * Nothing here is PLAYTESTED. Two pads have never been held in front of this.
+##
+## Closed since the first slice: player two now has their own ability bar, pinned to
+## their own climber and docked to the opposite corner (`_build_bar_for`), and either
+## player can revive the other — `Revive` reads the rescuer's OWN controller instead of
+## the shared global `Input`, and picks the closest rescuer/ghost PAIR rather than
+## whichever body happened to be first in the group.
 
 ## Ceiling on bodies. The maker asked about 4P; the floor scaling in
 ## `Encounter.party_size` is already written for any count, so this is the only line
@@ -132,7 +133,25 @@ func _spawn_hero(pad: PadController) -> Node:
 	# so the camera below cannot be found until the node is actually in the tree.
 	h.set(&"controller", pad)
 	_silence_camera(h)
+	_build_bar_for(h)
 	return h
+
+
+## ⚠ A SECOND BAR, NOT A SHARED ONE. `AbilityBar` found its hero with
+## `get_first_node_in_group("hero")`, so before it learned `bound_hero` it drew player
+## one's cooldowns to both players — which is worse than no bar at all, because it looks
+## right. This one is pinned to the climber it belongs to and hugs the opposite corner.
+func _build_bar_for(hero: Node) -> void:
+	var layer := CanvasLayer.new()
+	# Same layer the arena gives player one's bar, so the two read as one HUD.
+	layer.layer = 60
+	add_child(layer)
+	var bar := AbilityBar.new()
+	bar.bound_hero = hero
+	bar.dock_right = true
+	# Player two owns the bottom of the right-hand side; three and four stack above.
+	bar.dock_row = maxi(_player_count() - 2, 0)
+	layer.add_child(bar)
 
 
 ## ⚠ EVERY Hero.tscn CARRIES A Camera2D, AND OFFLINE NOTHING TURNS THE SPARE ONES OFF.
