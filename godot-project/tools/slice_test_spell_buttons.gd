@@ -53,6 +53,8 @@ const TESTS: Array[String] = [
 	"touch_arc_has_no_overlapping_hitboxes",
 	"socket_glyphs_are_distinct_in_every_hand",
 	"every_kind_maps_to_a_motif",
+	"a_socket_fits_inside_its_own_slot",
+	"every_label_fits_its_box",
 ]
 
 var _fails: int = 0
@@ -86,6 +88,8 @@ func _process(_delta: float) -> bool:
 	_test_touch_arc()
 	_test_socket_glyphs_are_distinct()
 	_test_every_kind_maps_to_a_motif()
+	_test_socket_fits_its_slot()
+	_test_labels_fit()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -609,14 +613,110 @@ func _test_every_kind_maps_to_a_motif() -> void:
 		var k: int = int(kinds[name])
 		_expect(AbilityBar.MOTIF_BY_KIND.has(k),
 			"SpellDef.Kind.%s has a fallback figure (a missing row resolves to NONE, silently)" % name)
-	# GEOMETRY. `draw_motif` keeps every stroke inside MOTIF_OUTER of the radius it
-	# is given, so the figure must clear the ULT's gold ring — otherwise the socket
-	# reads as one candy-striped smear, which is the exact fault the old corner
-	# brackets were deleted for.
-	var reach: float = AbilityBar.GLYPH_RADIUS * MagicCircle.MOTIF_OUTER
-	var ult_ring: float = AbilityBar.SOCKET_RADIUS * AbilityBar.ULT_OUTER_R
-	_expect(reach < AbilityBar.SOCKET_RADIUS,
-		"the figure stays inside the tier ring (%.1f px vs %.1f)" % [reach, AbilityBar.SOCKET_RADIUS])
-	_expect(reach < ult_ring,
-		"the figure clears the ULT's gold ring (%.1f px vs %.1f)" % [reach, ult_ring])
 	_completes("every_kind_maps_to_a_motif")
+
+
+# ------------------------------------------------------------------------- 14
+## NOTHING A SOCKET DRAWS MAY LEAVE ITS OWN CELL -- CHECKED AT BOTH SCALES.
+##
+## THE GUARD THAT USED TO LIVE HERE COULD NOT HAVE CAUGHT THE BUG IT WAS WRITTEN
+## NEXT TO, and that is the part worth keeping. It asserted
+## `GLYPH_RADIUS * MOTIF_OUTER < SOCKET_RADIUS` -- both sides absolute, both sides
+## socket constants, a statement about the socket in terms of itself. It passed
+## happily while the socket was 32.00 px wide inside a 28.52 px slot, because it
+## never once compared a socket length to a SLOT length. A guard that only relates a
+## thing to itself is decoration.
+##
+## So this one relates the socket to the two lengths that actually constrain it:
+##   * the SLOT it is drawn in   -- or the circle bursts out of its own square
+##   * half the SLOT PITCH       -- or it reaches into the neighbouring square
+## and it does so at BOTH scales, because the shipped fault existed at only one of
+## them: at the 46 px thumb size everything fitted exactly as designed, so anybody
+## checking a touch build saw a correct picture. `slot_scale()` answers with whichever
+## one this machine is, so iterating the pair explicitly is the only way to cover the
+## one the runner is not.
+func _test_socket_fits_its_slot() -> void:
+	for k: float in [1.0, AbilityBar.DESKTOP_SCALE]:
+		var slot: float = AbilityBar.SLOT_SIZE * k
+		var half_pitch: float = (slot + AbilityBar.SLOT_GAP * k) * 0.5
+		var w: float = slot / AbilityBar.SLOT_SIZE
+		var disc: float = slot * AbilityBar.SOCKET_DISC_FRAC
+		var ring: float = slot * AbilityBar.SOCKET_RING_FRAC
+		var heaviest: float = float(AbilityBar.TIER_RING_WIDTH[AbilityBar.TIER_RING_WIDTH.size() - 1]) * w
+		# The disc IS the slot's inscribed circle: it may touch the edge, not pass it.
+		_expect(disc <= slot * 0.5 + 0.001,
+			"k=%.2f: the socket disc (r=%.2f) fits the %.2f px slot" % [k, disc, slot])
+		# The ULT's crown is drawn at rest, outside the element ring, inside the disc.
+		var crown: float = ring * AbilityBar.ULT_OUTER_R + 1.0 * w
+		_expect(crown <= disc + 0.001,
+			"k=%.2f: the ULT crown (r=%.2f) stays inside the disc (r=%.2f)" % [k, crown, disc])
+		# The element ring AT FULL CAST PUNCH is the outermost transient mark there is.
+		# This is the number that read 21.6 px against a 16.12 px half-pitch on the day
+		# the maker said the slots looked random.
+		var punched: float = ring * (1.0 + AbilityBar.SOCKET_PUNCH) + heaviest * 0.5
+		_expect(punched <= half_pitch + 0.001,
+			("k=%.2f: a socket at full cast punch (r=%.2f) does not reach its neighbour "
+			+ "(half pitch %.2f)") % [k, punched, half_pitch])
+		# ...and the figure inside still clears the ring it sits in, which is what the
+		# old assertion was reaching for and is still worth having.
+		var reach: float = ring * AbilityBar.GLYPH_R_OVER_RING * MagicCircle.MOTIF_OUTER
+		_expect(reach < ring,
+			"k=%.2f: the figure (r=%.2f) stays inside the tier ring (r=%.2f)" % [k, reach, ring])
+	_completes("a_socket_fits_inside_its_own_slot")
+
+
+# ------------------------------------------------------------------------- 15
+## EVERY LABEL THE BAR CAN DRAW FITS ITS BOX, AT A SIZE STILL WORTH READING.
+##
+## `fit_text` fits by construction, so "does it fit" is not a question worth asking
+## it -- the answer is yes by definition, which is the shape of a test that proves
+## nothing. What CAN still go wrong is the two ways fitting DEGRADES: the size walking
+## down to the illegibility floor, and a name long enough to need ellipsising. Both
+## are silent, and both mean a label somebody added has outgrown the HUD it went into.
+## So those are what is pinned.
+##
+## Driven off REAL heroes rather than a list of strings, because the strings are the
+## thing that changes: `Hero._move_slot_name()` alone answers with eleven different
+## words and a twelfth arrives with the next class.
+func _test_labels_fit() -> void:
+	var font: Font = ThemeDB.fallback_font
+	var slot: float = AbilityBar.SLOT_SIZE * AbilityBar.DESKTOP_SCALE
+	var checked: int = 0
+	for cls: int in ClassInfo.CLASSES.size():
+		var hero: CharacterBody2D = _make_hero()
+		hero.configure_class(cls)
+		var state: Array = hero.ability_hud_state()
+		# The verb rows are everything before the kit; only they draw a name.
+		var verbs: int = state.size() - SpellTier.SLOT_COUNT
+		for i: int in range(maxi(verbs, 0)):
+			if not state[i] is Dictionary:
+				continue
+			var d: Dictionary = state[i]
+			var nm: String = String(d.get("name", ""))
+			var ky: String = String(d.get("key", ""))
+			for pair: Array in [[nm, AbilityBar.NAME_FONT_SIZE], [ky, AbilityBar.KEY_FONT_SIZE]]:
+				var label: String = String(pair[0])
+				if label.is_empty():
+					continue
+				var fit: Array = AbilityBar.fit_text(font, label, slot, int(pair[1]))
+				checked += 1
+				_expect(not String(fit[1]).ends_with("\u2026"),
+					("label '%s' on %s cannot fit a %.1f px slot even at the floor, so it "
+					+ "is being ellipsised") % [label, String(ClassInfo.CLASSES[cls]["name"]), slot])
+				# mini(), not the floor alone: a preferred size already BELOW the floor
+				# is returned untouched, and asserting against the floor there would
+				# fail on a config that is perfectly correct. The invariant is "fitting
+				# never took this below the floor", not "every label is at least 6pt".
+				_expect(int(fit[0]) >= mini(int(pair[1]), AbilityBar.FIT_FLOOR_SIZE),
+					"label '%s' fitted below the legibility floor (%d)" % [label, int(fit[0])])
+			# The cooldown numeral is drawn at its own, much larger size. "10.5" is
+			# 30 px of a 28.5 px slot, so every ability with a ten-second-or-longer
+			# cooldown was losing its last digit -- on a timer, worse than useless.
+			var secs: String = "%.1f" % float(d.get("total", 0.0))
+			var tfit: Array = AbilityBar.fit_text(font, secs, slot, AbilityBar.TIMER_FONT_SIZE)
+			checked += 1
+			_expect(not String(tfit[1]).ends_with("\u2026"),
+				"cooldown numeral '%s' cannot fit a %.1f px slot" % [secs, slot])
+		hero.queue_free()
+	_expect(checked >= 40, "every class's labels were measured (%d checks)" % checked)
+	_completes("every_label_fits_its_box")

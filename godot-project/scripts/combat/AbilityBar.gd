@@ -643,98 +643,179 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
 	var total: float = float(slot.get("total", 0.0))
 	var enabled: bool = bool(slot.get("enabled", true))
 	var alpha: float = 1.0 if enabled else DISABLED_ALPHA
-
-	# Panel + resting border.
-	draw_rect(rect, _with_alpha(PANEL_COLOR, alpha))
-	# The socket rides between the panel and the border: it is the slot's CONTENTS,
-	# so it must sit under every mark that describes the slot's STATE. `accent` is
-	# stamped only onto spell slots, so a verb slot is drawn exactly as it always was.
+	# `accent` is stamped onto spell slots and only onto spell slots (see
+	# `_stamp_spell_identity`), so this one read answers both "does this slot have an
+	# element" and "is this slot a disc or a square". One fact, two consequences.
 	var is_spell: bool = slot.has("accent")
 	var cd_frac: float = clampf(remaining / total, 0.0, 1.0) if (remaining > 0.0 and total > 0.0) else 0.0
-	if is_spell:
-		var accent: Color = slot.get("accent", EMPTY_SOCKET_COLOR)
-		_draw_socket(rect, accent, int(slot.get("tier", SpellTier.Tier.QUICK)), alpha,
-			cd_frac, clampf(float(slot.get("pulse", 0.0)), 0.0, 1.0),
-			int(slot.get("glyph", MagicCircle.Motif.NONE)))
-	draw_rect(rect, _with_alpha(BORDER_COLOR, alpha), false, BORDER_WIDTH)
-	# The spell slots are all live and all show their own cooldown, so the bar
-	# also has to say WHICH one the cast key throws right now. A lifted outer frame
-	# rather than a colour change: movement reads faster than hue when your eyes are on
-	# the fight (the same reasoning as LoadoutBar's SELECTED_LIFT), and it survives the
-	# cooldown wipe drawn on top of the slot below.
-	if bool(slot.get("selected", false)):
-		draw_rect(rect.grow(SELECTED_GROW), _with_alpha(SELECTED_COLOR, alpha),
-			false, SELECTED_WIDTH)
-	# (The ULT's double RECTANGLE lived here. It is the gold counter-rotating outer
-	# RING inside `_draw_socket` now — the same "this one is special" job drawn in the
-	# grammar the rest of the socket speaks, and gold-OUTSIDE/element-inside rather
-	# than gold-on-orange, which was at its least visible on a fire ult.)
+	var pulse: float = clampf(float(slot.get("pulse", 0.0)), 0.0, 1.0)
+	var c: Vector2 = rect.get_center()
+	var disc_r: float = rect.size.x * SOCKET_DISC_FRAC
 
-	# Key label: top-left, small + bright — the "which finger" read.
-	draw_string(
-		font,
-		rect.position + Vector2(KEY_PADDING.x, KEY_PADDING.y + float(KEY_FONT_SIZE)),
-		key_label,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, KEY_FONT_SIZE,
-		_with_alpha(KEY_TEXT_COLOR, alpha)
-	)
-	# Ability name: bottom, tiny + dim — identification, not the focal point.
+	# THE SHAPE SPLIT IS FINALLY REAL, AND THAT IS THE WHOLE FIX.
 	#
-	# ⚠ SPELL SLOTS NO LONGER CARRY IT. At true phone pixels these were barely legible
+	# The header of this file has claimed for a while that "the left cluster keeps its
+	# squares (body verbs), the right cluster becomes rings (spells), so the split the
+	# maker drew is carried by SHAPE and not only by the gap". It was not true. What
+	# shipped was a square panel, a square border, a square ready-glow, a square
+	# selection frame and a square ready-flash, with a circle drawn INSIDE all of that
+	# and (measured, see the SOCKET_*_FRAC block) a circle 3.5 px WIDER than the square
+	# containing it. The dominant silhouette stayed square, the circle burst out of it
+	# into the neighbouring slot, and the maker read the result exactly as it was:
+	# "the spell slots like a box over a circle is so random".
+	#
+	# So the square goes. On a spell slot every mark that describes the SLOT is now
+	# drawn as a circle -- panel, border, ready glow, selection, ready flash -- and the
+	# socket has the whole cell to live in. The verb slots are untouched squares. Two
+	# shapes, two meanings, and neither one drawn on top of the other.
+	#
+	# THE KEY LABEL STAYS IN THE CELL'S TOP-LEFT CORNER ON BOTH SHAPES, which does put
+	# it outside the disc, and that is the one place shape purity deliberately loses.
+	# All six key labels sitting on one baseline is what lets a player find "which
+	# finger" by position without reading; moving the spell keys onto the disc would
+	# buy a tidier circle and cost the only alignment on the bar the eye actually uses.
+	# It gets an outline instead, since it no longer has a dark panel behind it.
+	if is_spell:
+		draw_circle(c, disc_r, _with_alpha(PANEL_COLOR, alpha), true, -1.0, true)
+		_draw_socket(rect, slot.get("accent", EMPTY_SOCKET_COLOR),
+			int(slot.get("tier", SpellTier.Tier.QUICK)), alpha, cd_frac, pulse,
+			int(slot.get("glyph", MagicCircle.Motif.NONE)))
+		draw_arc(c, disc_r, 0.0, TAU, DISC_SEGMENTS,
+			_with_alpha(BORDER_COLOR, alpha), BORDER_WIDTH, true)
+	else:
+		draw_rect(rect, _with_alpha(PANEL_COLOR, alpha))
+		draw_rect(rect, _with_alpha(BORDER_COLOR, alpha), false, BORDER_WIDTH)
+
+	# The bar has to say WHICH slot the cast key throws right now. A lifted outer
+	# frame rather than a colour change: movement reads faster than hue when your eyes
+	# are on the fight (the same reasoning as LoadoutBar's SELECTED_LIFT), and it
+	# survives the cooldown wipe drawn on top of the slot below.
+	if bool(slot.get("selected", false)):
+		var sel: Color = _with_alpha(SELECTED_COLOR, alpha)
+		if is_spell:
+			draw_arc(c, disc_r + SELECTED_GROW, 0.0, TAU, DISC_SEGMENTS, sel,
+				SELECTED_WIDTH, true)
+		else:
+			draw_rect(rect.grow(SELECTED_GROW), sel, false, SELECTED_WIDTH)
+
+	# Key label: top-left, small + bright -- the "which finger" read. Fitted, so a
+	# three-character key ("RMB", "Spc") cannot be clipped by a future scale change
+	# the way the ability names silently were.
+	var key_room: float = rect.size.x - KEY_PADDING.x
+	var key_fit: Array = fit_text(font, key_label, key_room, KEY_FONT_SIZE)
+	var key_size: int = int(key_fit[0])
+	var key_pos: Vector2 = rect.position + Vector2(KEY_PADDING.x, KEY_PADDING.y + float(key_size))
+	if is_spell:
+		# No dark panel under this corner any more, so the glyph and the arena show
+		# through behind it. Two pixels of outline buy the contrast back.
+		draw_string_outline(font, key_pos, String(key_fit[1]), HORIZONTAL_ALIGNMENT_LEFT,
+			-1, key_size, 2, _with_alpha(Color(0.03, 0.03, 0.05, 0.9), alpha))
+	draw_string(font, key_pos, String(key_fit[1]), HORIZONTAL_ALIGNMENT_LEFT, -1,
+		key_size, _with_alpha(KEY_TEXT_COLOR, alpha))
+
+	# Ability name: bottom, tiny + dim -- identification, not the focal point.
+	#
+	# SPELL SLOTS NO LONGER CARRY IT. At true phone pixels these were barely legible
 	# grey-on-black AND the socket ring crossed them, so 8 px of every slot was spent
 	# on something unreadable under pressure. The verb slots keep theirs (they name a
 	# class verb you cannot infer from a shape); the spell sockets are told apart by
-	# colour, ring weight and the ult's crown. A text REDUCTION, per the standing rule.
+	# colour, ring weight, motif and the ult's crown. A text REDUCTION, per the
+	# standing rule.
 	if not is_spell:
+		var name_fit: Array = fit_text(font, ability_name, rect.size.x, NAME_FONT_SIZE)
 		draw_string(
 			font,
 			Vector2(rect.position.x, rect.end.y - NAME_BOTTOM_PADDING),
-			ability_name,
-			HORIZONTAL_ALIGNMENT_CENTER, int(rect.size.x), NAME_FONT_SIZE,
+			String(name_fit[1]),
+			HORIZONTAL_ALIGNMENT_CENTER, int(rect.size.x), int(name_fit[0]),
 			_with_alpha(NAME_TEXT_COLOR, alpha)
 		)
 
 	var on_cooldown: bool = remaining > 0.0 and total > 0.0
-	# ⚠ A SPELL SOCKET SHOWS ITS COOLDOWN AS ITS RING CLOSING (see `_draw_socket`), so
-	# it gets neither the black wipe nor the numeral on top of it. Only the VERB slots
+	# A SPELL SOCKET SHOWS ITS COOLDOWN AS ITS RING CLOSING (see `_draw_socket`), so it
+	# gets neither the black wipe nor the numeral on top of it. Only the VERB slots
 	# keep them: they are squares with no ring to close, and theirs are the cooldowns
 	# you actually weave against. Four running "%.1f" timers were the loudest thing on
 	# the whole HUD and they broke the standing no-more-text rule.
 	if on_cooldown and not is_spell:
 		# Bottom-up wipe: overlay height shrinks with remaining/total, so the
-		# slot visibly "fills back up" as it cools — legible at a glance.
+		# slot visibly "fills back up" as it cools -- legible at a glance.
 		var wipe_h: float = rect.size.y * cd_frac
 		var wipe: Rect2 = Rect2(
 			Vector2(rect.position.x, rect.end.y - wipe_h),
 			Vector2(rect.size.x, wipe_h)
 		)
 		draw_rect(wipe, _with_alpha(COOLDOWN_OVERLAY_COLOR, alpha))
-		# Seconds left, 1 decimal, centered — precise timing for ability weaving.
-		var secs: String = "%.1f" % remaining
+		# Seconds left, 1 decimal, centered -- precise timing for ability weaving.
+		# Fitted: "10.5" is 30 px of a 28.5 px slot, so every cooldown of ten seconds
+		# or more was losing its last digit, which on a timer is worse than useless.
+		var secs_fit: Array = fit_text(font, "%.1f" % remaining, rect.size.x, TIMER_FONT_SIZE)
 		draw_string(
 			font,
-			Vector2(rect.position.x, rect.get_center().y + float(TIMER_FONT_SIZE) * 0.35),
-			secs,
-			HORIZONTAL_ALIGNMENT_CENTER, int(rect.size.x), TIMER_FONT_SIZE,
+			Vector2(rect.position.x, rect.get_center().y + float(int(secs_fit[0])) * 0.35),
+			String(secs_fit[1]),
+			HORIZONTAL_ALIGNMENT_CENTER, int(rect.size.x), int(secs_fit[0]),
 			_with_alpha(TIMER_TEXT_COLOR, alpha)
 		)
 	elif not on_cooldown and enabled:
 		# Ready: a brighter accent border so the eye reads "usable" without
 		# the slot shouting. Disabled slots never glow.
-		draw_rect(rect, READY_GLOW_COLOR, false, READY_GLOW_WIDTH)
+		if is_spell:
+			draw_arc(c, disc_r, 0.0, TAU, DISC_SEGMENTS, READY_GLOW_COLOR,
+				READY_GLOW_WIDTH, true)
+		else:
+			draw_rect(rect, READY_GLOW_COLOR, false, READY_GLOW_WIDTH)
 	# The flash rides OVER the cooldown branch rather than inside the `elif`: a slot
 	# that recovers and is re-cast within READY_PULSE_TIME is back on cooldown when
 	# this runs, and swallowing its flash would silence exactly the fastest, most
 	# satisfying rotation the player can pull off.
-	var pulse: float = clampf(float(slot.get("pulse", 0.0)), 0.0, 1.0)
 	if pulse > 0.0 and enabled:
-		draw_rect(rect.grow(READY_FLASH_GROW * (1.0 - pulse)),
-			Color(READY_FLASH_COLOR.r, READY_FLASH_COLOR.g, READY_FLASH_COLOR.b, pulse),
-			false, READY_FLASH_WIDTH)
+		var flash: Color = Color(READY_FLASH_COLOR.r, READY_FLASH_COLOR.g,
+			READY_FLASH_COLOR.b, pulse)
+		var grow: float = READY_FLASH_GROW * (1.0 - pulse)
+		if is_spell:
+			draw_arc(c, disc_r + grow, 0.0, TAU, DISC_SEGMENTS, flash,
+				READY_FLASH_WIDTH, true)
+		else:
+			draw_rect(rect.grow(grow), flash, false, READY_FLASH_WIDTH)
 	# LAST, over everything: the count has to survive the cooldown wipe. "Two left"
 	# is exactly the fact you need while the slot is recovering and you are deciding
 	# whether to spend the next one here or save it for the guardian.
-	_draw_charges(rect, int(slot.get("charges", -1)), font, alpha)
+	_draw_charges(rect, int(slot.get("charges", -1)), font, alpha, is_spell)
+
+
+## THE LARGEST SIZE THAT FITS, AND THE STRING TO DRAW AT IT. Returns `[size, text]`.
+##
+## `draw_string`'s `width` argument does not shrink and does not wrap -- it CLIPS,
+## mid-glyph, with no ellipsis and no error. So a label that outgrows its box fails
+## silently and looks, from the code, exactly like one that fits. This is the
+## measurement that closes that gap, and it runs at draw time against the real font
+## rather than against a table of hand-checked strings, so a movement verb somebody
+## names next month is covered without anyone remembering to re-check it.
+##
+## Static and pure, so the guard suite can ask it about every label the bar can hold
+## without building a HUD.
+static func fit_text(font: Font, text: String, max_w: float, preferred: int) -> Array:
+	if text.is_empty() or max_w <= 0.0:
+		return [preferred, text]
+	var size: int = preferred
+	while size > FIT_FLOOR_SIZE:
+		if font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x <= max_w:
+			return [size, text]
+		size -= 1
+	if font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x <= max_w:
+		return [size, text]
+	# At the floor and still too wide. Truncate rather than clip: an ellipsis says
+	# "there is more of this word" where a clipped glyph says nothing at all. No label
+	# the bar can currently hold reaches this branch -- the widest, "Bolt Step", fits
+	# at the floor with room to spare -- so it exists for the day one does, to degrade
+	# legibly instead of silently.
+	var cut: String = text
+	while cut.length() > 1:
+		cut = cut.substr(0, cut.length() - 1)
+		if font.get_string_size(cut + "…", HORIZONTAL_ALIGNMENT_LEFT, -1, size).x <= max_w:
+			return [size, cut + "…"]
+	return [size, cut]
 
 
 ## The socket frame: element wash, element ring, tier corner brackets.
@@ -778,19 +859,78 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
 const TIER_DASHES: Array[int] = [12, 8, 5]        # QUICK, HEAVY, ULT
 const TIER_DUTY: Array[float] = [0.30, 0.45, 0.55]
 const TIER_RING_WIDTH: Array[float] = [1.6, 2.2, 2.8]
-## Socket radius, and how far the ULT's second ring sits outside it. 1.18 rather than
-## anything larger because past that it pokes outside the 46 px slot box.
-const SOCKET_RADIUS: float = 16.0
+## ══ EVERY SOCKET RADIUS IS A FRACTION OF THE SLOT, AND THAT IS THE BUG FIX ═════
+## Maker: *"the spell slots like a box over a circle is so random"*. Measured, that
+## sentence is a literal description of the geometry, not a complaint about taste:
+##
+##     slot          28.52 px   (SLOT_SIZE 46 x DESKTOP_SCALE 0.62)
+##     socket ring   32.00 px   OVERFLOWS +3.48
+##     ult crown     37.76 px   OVERFLOWS +9.24
+##     ring at punch 43.20 px   OVERFLOWS +14.68
+##     slot pitch    32.24 px   -- so adjacent sockets TOUCH, and an ult's crown
+##                                 crosses 5.5 px into its neighbour's square.
+##
+## The socket was authored against the 46 px thumb slot, where 32 px sits inside 46
+## with a 7 px margin and everything is fine. `DESKTOP_SCALE` arrived later, scaled
+## the RECT, and left these constants absolute. Nobody re-measured, because on a
+## touch build (k = 1.0) it still looked exactly as designed.
+##
+## So they are fractions now, and the slot is the only length in the file. Correct at
+## both scales BY CONSTRUCTION rather than by anyone remembering to check the other
+## one — which is the property the absolute version lacked, and the reason it broke.
+## `tools/probe_hotbar_fit.gd` prints the arithmetic; `slice_test_hotbar_fit` pins it.
+##
+## The numbers are chosen so the OUTERMOST mark still clears half the slot pitch:
+##     ring at punch  0.40 x 1.28 = 0.512 of the slot   (+ half the 2.8 px ring width)
+##     ult crown      0.40 x 1.18 = 0.472 of the slot
+##     half pitch     (46 + 6) / 2 / 46 = 0.565 of the slot
+## i.e. nothing a socket draws at rest or on a cast can reach its neighbour.
+## The disc that BACKS the socket is the full half-slot: the socket fills its cell.
+const SOCKET_DISC_FRAC: float = 0.50
+const SOCKET_RING_FRAC: float = 0.40
 const ULT_OUTER_R: float = 1.18
 const SOCKET_SPIN: float = 0.35                   # rad/s at rest
 ## How hard a cast kicks the ring outward. The same `pulse` the ready-flash rides.
-const SOCKET_PUNCH: float = 0.35
+##
+## ⚠ APPLIED TO THE ELEMENT RING ONLY, NOT TO THE ULT'S CROWN. Inflating both made
+## the whole socket breathe, which at 0.35 pushed the crown past the neighbour and
+## also read as the slot wobbling rather than as the spell firing. A stable outer
+## crown with a kicking inner ring says the same thing and stays inside its cell.
+const SOCKET_PUNCH: float = 0.28
+## How many segments a socket circle is drawn with. 28 is where the rim stops reading
+## as a polygon at the 46 px touch size; below that the ult's crown visibly facets.
+const DISC_SEGMENTS: int = 28
 ## The glyph sits just OUTSIDE the ring's radius as a fraction, because
 ## `MagicCircle.draw_motif` keeps every stroke inside its own MOTIF_OUTER (0.62) —
 ## so 1.16 puts the figure at ~0.72 of the socket, filling the middle that the
 ## dashed ring leaves empty without touching the ULT's gold ring at 1.18.
-const GLYPH_RADIUS: float = SOCKET_RADIUS * 1.16
+const GLYPH_R_OVER_RING: float = 1.16
 const GLYPH_WIDTH: float = 1.8
+
+## ── TEXT THAT CANNOT SPILL OUT OF ITS BOX ────────────────────────────────────
+## Maker, in the same breath as the circle: *"the wording doesnt fit within some
+## boxes"*. Measured across all nine classes at the desktop scale, three verb labels
+## are clipped mid-word by `draw_string`'s width argument, and a cooldown numeral
+## joins them the moment it reaches double digits:
+##
+##     "Bolt Step"  (Stormcaller)  35.00 px into 28.52   CLIPPED +6.48
+##     "Air Dash"   (Shadowblade)  33.00 px into 28.52   CLIPPED +4.48
+##     "Radiant"    (Cleric)       30.00 px into 28.52   CLIPPED +1.48
+##     "10.5"       (any 10s+ cd)  30.00 px into 28.52   CLIPPED +1.48
+##
+## ⚠ THE CAUSE IS THE SAME ONE AS THE CIRCLE, AND FIXING IT THE OBVIOUS WAY WOULD
+## HAVE MADE IT WORSE. The slot shrank by `DESKTOP_SCALE` and the font sizes did not,
+## so the reflex is to multiply every font by `k` too. That drops the name to 5 px and
+## the key to 6 px on a 640x360 canvas and trades three clipped words for six
+## illegible ones. Shrinking is only correct WHERE IT IS NEEDED and only AS FAR as it
+## is needed, which is a measurement, not a constant.
+##
+## So the labels are fitted: the largest size at or below the preferred one whose
+## MEASURED width fits the box, floored so it can never become unreadable, and
+## ellipsised on the (currently unreachable) case where even the floor overflows.
+## Generality is the point — this holds for the next movement verb somebody names,
+## which is exactly the kind of thing a hand-shortened string table forgets.
+const FIT_FLOOR_SIZE: int = 6
 
 
 func _draw_socket(rect: Rect2, accent: Color, tier: int, alpha: float,
@@ -801,28 +941,47 @@ func _draw_socket(rect: Rect2, accent: Color, tier: int, alpha: float,
 	# motion is the texture. Same ruling MagicCircle already makes for its motif.
 	var phase: float = 0.0 if low else float(Time.get_ticks_msec()) * 0.001
 	var t: int = clampi(tier, 0, TIER_DASHES.size() - 1)
-	# A faint wash so the middle is not a hole, but well under the ring.
-	draw_circle(c, SOCKET_RADIUS,
-		_with_alpha(Color(accent.r, accent.g, accent.b, SOCKET_WASH_ALPHA), alpha), true, -1.0, not low)
+	# EVERY LENGTH IN THIS FUNCTION COMES OFF THE RECT. See the SOCKET_*_FRAC block:
+	# the previous version measured in absolute pixels authored against the 46 px thumb
+	# slot, so on desktop (0.62x) the ring was wider than the square it sat in.
+	var disc_r: float = rect.size.x * SOCKET_DISC_FRAC
+	var ring_r: float = rect.size.x * SOCKET_RING_FRAC
+	# ...and so does the LINE WEIGHT. A 2.8 px ring on a 46 px slot and the same 2.8 px
+	# on a 28.5 px slot are not the same drawing: the second is half again as heavy
+	# relative to what it encircles, which is why the desktop bar read as clotted even
+	# where it did fit. One ratio, applied to every stroke the socket makes.
+	var w: float = rect.size.x / SLOT_SIZE
+	# A faint wash across the whole disc interior so the socket reads as a filled
+	# object rather than as a ring floating on the arena. Well under the ring: this is
+	# a tint on the panel, not a second background competing with the cooldown veil.
+	draw_circle(c, disc_r - BORDER_WIDTH,
+		_with_alpha(Color(accent.r, accent.g, accent.b, SOCKET_WASH_ALPHA), alpha),
+		true, -1.0, not low)
 	# THE CAST PUNCH: on the frame the spell fires, the ring kicks out and spins up.
-	var r: float = SOCKET_RADIUS * (1.0 + SOCKET_PUNCH * pulse)
+	var r: float = ring_r * (1.0 + SOCKET_PUNCH * pulse)
 	var spin: float = phase * SOCKET_SPIN + pulse * 6.0
-	# ⚠ THE COOLDOWN IS THE RING CLOSING, and it replaces BOTH the black bottom-up
-	# wipe and the "%.1f" numeral that sat on top of it. Four running timers were the
+	# THE COOLDOWN IS THE RING CLOSING, and it replaces BOTH the black bottom-up wipe
+	# and the "%.1f" numeral that sat on top of it. Four running timers were the
 	# loudest thing on the HUD and they broke the standing no-more-text rule; a circle
 	# that visibly COMPLETES as the spell returns says the same thing without a word.
 	_ring(c, r, TIER_DASHES[t], TIER_DUTY[t], spin, TAU * (1.0 - clampf(frac, 0.0, 1.0)),
-		_with_alpha(accent, alpha), TIER_RING_WIDTH[t], not low)
+		_with_alpha(accent, alpha), TIER_RING_WIDTH[t] * w, not low)
 	if tier == SpellTier.Tier.ULT:
 		# The ULT is visibly HUNGRIER: a second ring outside, turning the other way, in
 		# the tier's gold. Gold OUTSIDE and the element inside also stops the hue clash
 		# the old double rectangle had on a fire ult, where gold sat on orange.
-		_ring(c, r * ULT_OUTER_R, 3, 0.5, -phase * 0.5, TAU,
-			_with_alpha(SpellTier.color(SpellTier.Tier.ULT), 0.75 * alpha), 2.0, not low)
-	# ⚠ DRAWN UNROTATED, WHICH IS THE WHOLE REASON IT IS A SEPARATE TRANSFORM FROM
-	# THE RING. LANCE means "that way" and a spinning arrow points everywhere; the
-	# world sigil makes exactly the same ruling for exactly the same reason (see the
-	# rules block on `MagicCircle.draw_motif`). The ring keeps turning around it.
+		#
+		# DRAWN AT THE RESTING RADIUS, NOT THE PUNCHED ONE. Riding the punch made the
+		# crown the outermost thing on the bar at exactly the moment it was largest,
+		# which is how it ended up 5.5 px inside its neighbour's slot. A crown that
+		# holds still while the element ring kicks under it also reads better: the
+		# stable frame is what makes the kick legible as movement.
+		_ring(c, ring_r * ULT_OUTER_R, 3, 0.5, -phase * 0.5, TAU,
+			_with_alpha(SpellTier.color(SpellTier.Tier.ULT), 0.75 * alpha), 2.0 * w, not low)
+	# DRAWN UNROTATED, WHICH IS THE WHOLE REASON IT IS A SEPARATE TRANSFORM FROM THE
+	# RING. LANCE means "that way" and a spinning arrow points everywhere; the world
+	# sigil makes exactly the same ruling for exactly the same reason (see the rules
+	# block on `MagicCircle.draw_motif`). The ring keeps turning around it.
 	#
 	# `count_work` is FALSE: `_work_*` are MagicCircle's own statics and the profile
 	# reads them to reason about sigil cost. Four HUD sockets redrawing every frame
@@ -830,8 +989,8 @@ func _draw_socket(rect: Rect2, accent: Color, tier: int, alpha: float,
 	if glyph != MagicCircle.Motif.NONE:
 		var gcol := Color(accent.r * 1.25, accent.g * 1.25, accent.b * 1.25, 0.95 * alpha)
 		draw_set_transform(c, 0.0, Vector2.ONE)
-		MagicCircle.draw_motif(self, glyph, GLYPH_RADIUS, gcol, GLYPH_WIDTH,
-			phase, low, 0.95 * alpha, false)
+		MagicCircle.draw_motif(self, glyph, ring_r * GLYPH_R_OVER_RING, gcol,
+			GLYPH_WIDTH * w, phase, low, 0.95 * alpha, false)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
@@ -855,19 +1014,38 @@ func _ring(c: Vector2, r: float, n: int, duty: float, rot: float, sweep: float,
 
 ## `charges` < 0 means "not a granted drop" and draws nothing — the pips are a fact
 ## about a PICKUP, and a count on every class spell would bury the one that runs out.
-func _draw_charges(rect: Rect2, charges: int, font: Font, alpha: float) -> void:
+func _draw_charges(rect: Rect2, charges: int, font: Font, alpha: float,
+		is_spell: bool = false) -> void:
 	if charges < 0:
 		return
 	var col: Color = _with_alpha(PIP_COLOR, alpha)
+	var w: float = rect.size.x / SLOT_SIZE
 	if charges > PIP_MAX_DOTS:
-		draw_string(font, rect.position + Vector2(rect.size.x - 18.0, float(PIP_FONT_SIZE) + 3.0),
-			"x%d" % charges, HORIZONTAL_ALIGNMENT_LEFT, -1, PIP_FONT_SIZE, col)
+		var over_fit: Array = fit_text(font, "x%d" % charges, rect.size.x * 0.5, PIP_FONT_SIZE)
+		draw_string(font, rect.position + Vector2(rect.size.x * 0.55, float(int(over_fit[0])) + 3.0 * w),
+			String(over_fit[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(over_fit[0]), col)
 		return
-	# Top-RIGHT: the key label owns the top-left and the ability name the bottom edge.
-	var y: float = rect.position.y + PIP_INSET.y
+	# A SQUARE PUTS THEM IN THE TOP-RIGHT CORNER; A DISC HAS NO CORNER. On the verb
+	# squares the key label owns the top-left and the ability name the bottom edge, so
+	# the top-right is the free one. On a spell disc that same point is OUTSIDE the
+	# circle, and pips floating off the edge of the socket read as a rendering fault
+	# rather than as a count. So the disc takes them as a centred row along the bottom
+	# of its interior, which is empty (the motif sits in the middle, the ring at the
+	# rim) and which is where a "how many are left" row belongs anyway.
+	var gap: float = PIP_GAP * w
+	var radius: float = PIP_RADIUS * w
+	if is_spell:
+		var c: Vector2 = rect.get_center()
+		var row_y: float = c.y + rect.size.x * SOCKET_RING_FRAC * 0.72
+		var row_w: float = float(charges - 1) * gap
+		for i: int in charges:
+			draw_circle(Vector2(c.x - row_w * 0.5 + float(i) * gap, row_y),
+				radius, col, true, -1.0, true)
+		return
+	var y: float = rect.position.y + PIP_INSET.y * w
 	for i: int in charges:
-		draw_circle(Vector2(rect.end.x - PIP_INSET.x - float(i) * PIP_GAP, y),
-			PIP_RADIUS, col, true, -1.0, true)
+		draw_circle(Vector2(rect.end.x - PIP_INSET.x * w - float(i) * gap, y),
+			radius, col, true, -1.0, true)
 
 
 ## Return `color` with its alpha scaled by `factor` — the one-line dimming
