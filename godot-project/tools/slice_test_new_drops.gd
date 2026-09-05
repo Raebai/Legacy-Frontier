@@ -117,10 +117,22 @@ func _test_severance_prices_itself_off_missing_health() -> void:
 ## THE RULE: every other area spell splits or stays flat. This one multiplies.
 func _test_zanshin_gets_stronger_with_more_bodies() -> void:
 	var n: Node2D = _cast("res://scripts/combat/Zanshin.gd", "zanshin", Vector2(0, -9000))
-	var one: int = int(n.call("toll_for", 1))
-	var four: int = int(n.call("toll_for", 4))
+	# ⚠ THE RULE IS UNCHANGED AND THE MEASUREMENT MOVED. Maker: *"Zanshin needs a buff
+	# it should be multiple insane cuts"*. The tally used to buy ONE cut worth more per
+	# body; it buys CUTS now, each flat. So `toll_for` — which answers "what is one
+	# cut worth" — is deliberately FLAT, and `total_for` is where the multiplication
+	# lives. Asserting the old shape would now forbid the buff.
+	var one: int = int(n.call("total_for", 1))
+	var four: int = int(n.call("total_for", 4))
 	_expect(four > one, "zanshin pays MORE per body as bodies gather (%d -> %d)" % [one, four])
-	_expect(int(n.call("toll_for", 0)) == 0, "an empty stance pays nothing")
+	_expect(int(n.call("cuts_for", 4)) > int(n.call("cuts_for", 1)),
+		"...and it buys the difference in CUTS (%d -> %d), which is the half you can see"
+			% [int(n.call("cuts_for", 1)), int(n.call("cuts_for", 4))])
+	_expect(int(n.call("cuts_for", 99)) <= int(n.get("CUTS_MAX")),
+		"the flurry is capped — escalating cuts AND per-cut damage compounds, and"
+		+ " a full room would end the fight before it started")
+	_expect(int(n.call("total_for", 0)) == 0, "an empty stance pays nothing")
+	_expect(int(n.call("toll_for", 0)) == 0, "...and one cut of nothing is nothing")
 	n.free()
 	_completes("zanshin_gets_stronger_with_more_bodies")
 

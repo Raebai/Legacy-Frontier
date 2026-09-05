@@ -112,6 +112,19 @@ const HEAL_RIM: Color = HudStyle.MINT
 ## --- the danger ring at the feet ---
 ## The hero's collision box is centred on its origin and the figure stands ~15px
 ## above that; the ring sits at ground level under the body.
+## ══ HOW FAR THE HEAD BAR SITS ABOVE THE FIGURE ═══════════════════
+## Maker: *"move the health bar slightly more above the stick figure"*.
+##
+## ⚠ APPLIED HERE RATHER THAN AT THE TWO PLACES THAT POSITION THIS NODE. `Enemy` and
+## `Hero` each build their own `CharacterBars` and set its `position`, so raising the
+## bar by editing those would be the same number written twice in two files that do
+## not know about each other — and they would drift the first time one of them was
+## tuned. One constant, applied to every head bar this node draws.
+##
+## SCALED BY `ui` like everything else here, so the gap holds its apparent size when
+## the camera zooms rather than growing into the figure at one end of the range.
+const HEAD_BAR_LIFT: float = 5.0
+
 const RING_FEET_DROP: float = 14.0
 const RING_RADIUS: float = 19.0
 const RING_COLOR: Color = HudStyle.DANGER
@@ -484,7 +497,7 @@ func _draw() -> void:
 	# only change is that it now holds that size when the camera moves.
 	var ui: float = _ui_scale()
 	var w: float = WIDTH * ui
-	_bar(Vector2(-w * 0.5, 0.0), w, HP_H * ui, _hp_ratio,
+	_bar(Vector2(-w * 0.5, -HEAD_BAR_LIFT * ui), w, HP_H * ui, _hp_ratio,
 		HudStyle.hp_color(_hp_ratio), ui)
 	_drew_head_bar = true
 
@@ -509,7 +522,7 @@ func _draw_hero() -> void:
 	# ⚠ ANCHORED OFF THE SCALED HEIGHT. This used to read `HP_H - h` — an UNSCALED
 	# constant minus a scaled one — so the bar's lower edge crept as the camera moved,
 	# which is the one thing a bottom-anchored bar exists to prevent.
-	_bar(Vector2(-w * 0.5, HP_H * ui - h), w, h, _hp_ratio,
+	_bar(Vector2(-w * 0.5, HP_H * ui - h - HEAD_BAR_LIFT * ui), w, h, _hp_ratio,
 		HudStyle.hp_color(_hp_ratio), ui)
 	_drew_head_bar = true
 

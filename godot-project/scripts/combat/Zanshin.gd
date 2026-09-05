@@ -46,6 +46,40 @@ const PER_EXTRA: float = 0.5
 ## on their way past, which is not "you were seen", it is a tripwire.
 const SCAN_INTERVAL: float = 0.12
 const CUT_TIME: float = 0.34
+
+## ══ IT IS A FLURRY NOW, NOT ONE CUT ════════════════════════════
+## Maker: *"Zanshin needs a buff it should be multiple insane cuts"*.
+##
+## The stance stays — the tally IS this spell, and `build_tier3` names it "the only
+## area spell that gets STRONGER with more bodies in it". What changes is where that
+## strength goes. It used to buy ONE cut worth more per body, which meant the payoff
+## for a perfect stance was a bigger number on a single white flash: the spell got
+## better and did not look better. The tally now buys CUTS.
+##
+##   cuts   = CUTS_BASE + (marks - 1), capped at CUTS_MAX
+##   each   = damage * PER_CUT
+##
+## Which lands roughly here against the old single cut (base 120, PER_EXTRA 0.5):
+##
+##   bodies   old total   new: cuts x each   new total
+##     1         120         3 x 66            198     +65%
+##     4         270         6 x 66            396     +47%
+##     8         540         8 x 66 (capped)   528     about level
+##
+## ⚠ THE CAP IS WHAT KEEPS THIS A BUFF AND NOT A DELETE BUTTON. Escalation on BOTH
+## axes — more cuts, each worth more per body — compounds: eight bodies would have
+## been ten cuts of 330, which is not a finisher, it is the end of the fight before it
+## started. So the per-body multiplier moved OFF the damage and ONTO the count, and
+## the count has a ceiling. The buff is biggest where the spell was weakest (one or
+## two bodies, where a stance felt wasted) and neutral where it was already strong.
+const CUTS_BASE: int = 3
+const CUTS_MAX: int = 8
+## What one cut of the flurry is worth, as a fraction of the spell's damage.
+const PER_CUT: float = 0.55
+## Time between cuts. Fast enough to read as ONE technique rather than as three
+## separate spells, slow enough that the eye can count them — under about 0.05 they
+## blur into a single flash and the whole change is invisible.
+const CUT_STAGGER: float = 0.07
 const STEEL: Color = Color(0.86, 0.93, 1.0)
 const FLASH: Color = Color(1.9, 2.0, 2.2)   # HDR — the cut whites out
 
@@ -60,6 +94,12 @@ var _cut: bool = false
 ## Marked bodies, by instance id so a body cannot be marked twice by re-entering.
 var _marked: Dictionary = {}
 var _cut_points: Array[Vector2] = []
+## Flurry state. `_cuts_left` counts DOWN from `cuts_for(marks)`; the node lives until
+## the last cut has had `CUT_TIME` to be drawn.
+var _cuts_left: int = 0
+var _cut_damage: int = 0
+var _next_cut: float = 0.0
+var _flurry_end: float = 0.0
 var _cut_axis: Vector2 = Vector2.RIGHT
 var _seed: int = 0
 
@@ -101,10 +141,29 @@ func _gather() -> void:
 
 ## The blow this stance is currently worth. Public and pure so the suite can assert
 ## the inversion — "more bodies is more damage per body" — without staging a cut.
+## What ONE cut of the flurry deals. Flat — the tally buys cuts, not bigger cuts. See
+## the `CUTS_BASE` block for why escalating both at once is not survivable.
+##
+## ⚠ PUBLIC AND UNCHANGED IN NAME, because `slice_test_*` and the bot's damage model
+## both ask this what a Zanshin is worth. It now answers per-cut; `total_for` answers
+## what it used to answer.
 func toll_for(marks: int) -> int:
 	if marks <= 0:
 		return 0
-	return int(round(float(_damage) * (1.0 + PER_EXTRA * float(marks - 1))))
+	return maxi(int(round(float(_damage) * PER_CUT)), 1)
+
+
+## How many cuts a tally of `marks` buys.
+func cuts_for(marks: int) -> int:
+	if marks <= 0:
+		return 0
+	return clampi(CUTS_BASE + marks - 1, CUTS_BASE, CUTS_MAX)
+
+
+## Everything one body takes across the whole flurry — the number to compare against
+## the old single cut, and the one a balance pass should look at.
+func total_for(marks: int) -> int:
+	return toll_for(marks) * cuts_for(marks)
 
 
 func marked_count() -> int:
@@ -120,25 +179,62 @@ func _process(delta: float) -> void:
 			_gather()
 		if _elapsed >= _life:
 			_release()
-	elif _elapsed >= _life + CUT_TIME:
-		queue_free()
-		return
+	else:
+		# The rest of the flurry. `while`, not `if`: a frame long enough to span two
+		# stagger windows must fire both, or a hitch silently eats a cut.
+		while _cuts_left > 0 and _elapsed >= _next_cut:
+			_fire_cut()
+		if _cuts_left <= 0 and _elapsed >= _flurry_end + CUT_TIME:
+			queue_free()
+			return
 	queue_redraw()
 
 
+## Open the flurry: price it off the LIVE tally, then fire the first cut immediately
+## so the stance still ends on an impact rather than on a pause.
 func _release() -> void:
 	_cut = true
+	var tally: int = _live_marked().size()
+	_cut_damage = toll_for(tally)
+	_cuts_left = cuts_for(tally)
+	_flurry_end = _elapsed + float(maxi(_cuts_left - 1, 0)) * CUT_STAGGER
+	_next_cut = _elapsed
+	_fire_cut()
+
+
+## The bodies still standing that this stance counted.
+##
+## ⚠ VALIDITY BEFORE `is` — `_marked` holds bodies from cast to release and dying in
+## between is this spell's normal case, not its edge case.
+func _live_marked() -> Array[Node2D]:
 	var live: Array[Node2D] = []
 	for id: Variant in _marked.keys():
 		var n: Variant = _marked[id]
-		# ⚠ VALIDITY BEFORE `is` — `_marked` holds bodies from cast to release, and dying
-		# in between is this spell's normal case, not its edge case.
 		if is_instance_valid(n) and n is Node2D and not (n as Node2D).is_queued_for_deletion():
 			live.append(n as Node2D)
-	# ⚠ PRICED OFF THE LIVE COUNT, not off everything ever marked. A body that died
-	# during the stance already paid; counting its ghost would let you inflate the
-	# cut by killing the very people it is supposed to land on.
-	var toll: int = toll_for(live.size())
+	return live
+
+
+## One cut of the flurry.
+##
+## ⚠ THE LIVE LIST IS RE-TAKEN EVERY CUT, and that is the whole reason a flurry is not
+## just the old release in a loop. Cut two must not swing at a body cut one killed —
+## it would tick the counters, draw a cut line at a corpse's last position, and on a
+## chain reaction it would be swinging at freed instances.
+func _fire_cut() -> void:
+	if _cuts_left <= 0:
+		return
+	_cuts_left -= 1
+	_next_cut += CUT_STAGGER
+	_resolve_cut(_live_marked(), _cut_damage)
+
+
+func _resolve_cut(live: Array[Node2D], toll: int) -> void:
+	# ⚠ PRICED OFF THE LIVE COUNT AT RELEASE, not off everything ever marked. A body
+	# that died during the stance already paid; counting its ghost would let you inflate
+	# the flurry by killing the very people it is supposed to land on. The price is set
+	# once in `_release` and every cut of the flurry is worth the same — a tally cannot
+	# grow mid-technique.
 	var tint := Color(FLASH.r, FLASH.g, FLASH.b, 1.0)
 	# ⚠ RE-VALIDATED INSIDE THE LOOP, AND THE LOOP VARIABLE IS UNTYPED ON PURPOSE.
 	# `SpellTargets.hurt` below KILLS, and a death here can free OTHER bodies still
