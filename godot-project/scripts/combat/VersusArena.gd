@@ -1158,34 +1158,69 @@ func _stage_theme() -> Object:
 ## Set it from a test, or pass it after `--` on the command line:
 ##     godot --path godot-project -- --destructible-stage
 ##
-## ══ SLICE 2 SHIPS WITH IT STILL OFF, AND HERE IS THE ARITHMETIC ════════════
-## Slice 2 wires damage into the grid: heavy hits open real craters, the collision
-## rebuilds incrementally, and the hole is drawn. All of it is headless-verified
-## (`tools/slice_test_destructible_carve.gd`, and the A/B in
-## `slice_test_destructible_stage_wired` still reports 0 of 102 ground positions moved).
-## The default did NOT flip, for one measured reason and one live-consequence reason.
+## ══ SLICE 3 TURNS IT ON, AND HERE IS THE ARITHMETIC THAT CHANGED ═══════════
+## This comment used to end "the default did NOT flip", on two arguments. Both were
+## sound when they were written and neither survives the ground-aimed wiring, so both
+## are answered here rather than deleted — the reasoning is the thing worth keeping.
 ##
-##   THE MEASUREMENT. `tools/probe_destructible_bot_fight.gd` runs real `BotMatch`
-##   bouts with the flag on and reports how much rock is gone. Six bouts: **0.00% –
-##   2.03%** after 13–30 game-seconds, and two of the three matchups removed NOTHING AT
-##   ALL. Only two damage sources reach the stage today (a bolt that stops on the ground
-##   and a `BlastSpell` detonation), and looking at `SpellLibrary`, not one of the nine
-##   classes carries a plain blast as its damage line — so the sources that would
-##   actually chew the floor (`ShockwaveStomp`, `BoulderHurl`'s impact, `FaultLine`,
-##   `EnergyNova`, `GraveTide`) are all still unwired. Turning it on today ships 34
-##   collision shapes, a per-frame rebuild pass and a third ring-out vector in exchange
-##   for a stage that visibly does not change.
+##   THE OLD MEASUREMENT, AND WHY IT WAS RIGHT. With only a bolt-hits-ground branch and
+##   `BlastSpell` reaching the stage, real bouts removed **0.00% – 2.03%** of the rock
+##   and two of three matchups removed NOTHING. Turning it on then would have shipped 34
+##   collision shapes and a per-frame rebuild in exchange for a stage that visibly did
+##   not change. That was the correct call on those numbers.
 ##
-##   THE LIVE CONSEQUENCE. This stage is the one the CLIP PIPELINE shoots on, and that
-##   pipeline runs unattended (see `project_v2_growth_stack`). A carve that opens a gap
-##   mid-bout meets `BotBrain._safest`, which HOLDS rather than reverses when every
-##   option is lethal — a stranded melee bot stands at the lip. The probe never saw a
-##   gap open (widest severed run: 0 px, in every bout), so the risk is low; it is not
-##   zero, and it would land on posts nobody is watching go out.
+##   WHAT IS WIRED NOW. The ground-aimed sources: `ShockwaveStomp` (the boot),
+##   `BoulderHurl._shatter` (at the snapped floor point, not the impact point),
+##   `FaultLine._tear` (a bite per crater along the rupture) and `GraveTide` (bites at a
+##   `CARVE_STRIDE` odometer along the tide). `MeteorFist` is covered ALREADY through
+##   `BlastSpell` and deliberately does not call `carve_area` itself — a second call
+##   would stack two craters on one landing. `EnergyNova` is deliberately NOT wired: its
+##   `NOVA_DAMAGE` is 30 against a `CARVE_MIN_DAMAGE` of 40, so the call the handoff
+##   asked for could only ever tick `refused_hits` while looking live. Each of those is
+##   pinned by `tools/slice_test_destructible_sources.gd`, and every assertion in it has
+##   been reverted and watched to fail.
 ##
-## ⚠ FLIP IT WITH THIS ONE LINE — `false` -> `true` — once the ground-aimed sources are
-## wired and a bout has been watched. Nothing else has to change.
-static var destructible_stage: bool = false
+##   THE NEW MEASUREMENT. Real bouts at the shipped `BotMatch` settings now remove
+##   **0.00% – 1.80%**, with the deepest hole at 44–100 px into a 320 px column; a
+##   deliberately over-long 104-second bout reached **4.06%**. Two matchups still carve
+##   nothing, and that is DESIGN rather than a gap: Stormcaller / Cryomancer / Arcanist
+##   / Shadowblade carry no earth spell, so their fights leave the floor alone. The
+##   stage now visibly changes in every fight that has an earth caster in it.
+##
+##   THE LIVE CONSEQUENCE, RE-MEASURED. The stranding story was: a carve opens a gap,
+##   a melee bot walks to the lip, `BotBrain._safest` HOLDS rather than reverses, and
+##   an unattended clip ships a bot standing still. It cannot happen, and the reason is
+##   structural rather than lucky. **The widest severed run was 0 px in every one of
+##   ~30 bouts**, including the 4.06% stress bout. The fight terrace is 320 px DEEP and
+##   the largest crater the roster can open is 34 px in RADIUS, so severing one column
+##   needs about ten craters stacked on the same x — and craters land where fighters
+##   are, which is spread along the floor. Nothing strands because nothing severs.
+##   `BotBrain.steer_vetoes` was added to check this rather than argue it.
+##
+##   ⚠ AND THE VETO RATE IS NOT EVIDENCE OF ANYTHING, WHICH TOOK TWO SAMPLES TO LEARN.
+##   An early comparison showed vetoes in flag-ON bouts and ZERO across 16 flag-OFF
+##   bouts, which looked exactly like "the merged-rectangle collision changes bot
+##   steering" and was one sentence away from being written down as such. Re-run on a
+##   matchup that carves nothing, the pattern INVERTED — 131 vetoes in an OFF bout, 0 in
+##   all four ON bouts. The rate is bimodal and bout-dependent (a bot pinned in a corner
+##   holds constantly) and the flag does not move it.
+##   [[feedback_dont_narrate_underpowered_measurements]].
+##
+## ══ WHAT ON ACTUALLY COSTS, NOW THAT CARVING HAPPENS ═══════════════════════
+##   REBUILD TIME: worst observed frame **2,993 us** against a 16,667 us budget (~18%),
+##   typically 600–2,200 us, and only on frames where something was carved. Aggregate
+##   was ~30 ms across a whole 50-second bout. Deferrals stayed at 0–3 and are counted,
+##   never swallowed.
+##
+##   COLLISION SHAPES: this is the real cost and it GROWS. 34 at boot, measured at 88
+##   by the time 1.49% of the stage was gone — roughly 36 shapes per 1% carved. At
+##   clip-pipeline bout lengths (3–30 game-seconds) that lands between 34 and ~90. A
+##   pathologically long bout would keep climbing, and if a future stage is ever left
+##   standing across many bouts, this is the number to watch rather than the carve %.
+##
+## ⚠ FLIP IT BACK WITH THIS ONE LINE — `true` -> `false` — if a playtest disagrees.
+## Nothing else has to change, and `--stage-off` on the probe runs the control arm.
+static var destructible_stage: bool = true
 
 ## The live grid while the flag is on, else null. Slice 2's damage contract writes here.
 var stage: DestructibleStage = null

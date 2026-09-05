@@ -309,6 +309,28 @@ func _detonate() -> void:
 			get_parent(), floor_pos,
 			NOVA_RADIUS * CRACK_RADIUS_FACTOR, "crack", CRACK_TINT, CRACK_LIFETIME
 		)
+		# ⚠ AND THERE IS DELIBERATELY NO `DestructibleStage.carve_area` HERE, WHICH IS
+		# THE OPPOSITE OF WHAT THE DESTRUCTIBLE HANDOFF ASKED FOR. The handoff named
+		# this site and spelled the line out:
+		#     carve_area(self, NOVA_DAMAGE, floor_pos, Vector2.UP, NOVA_RADIUS)
+		# That line cannot ever carve. `NOVA_DAMAGE` is 30 and
+		# `DestructibleStage.CARVE_MIN_DAMAGE` is 40, so `damage_at` refuses it on its
+		# first branch every single time; all the line would do is tick `refused_hits`
+		# up while LOOKING like the nova eats the floor. That is a comment pretending to
+		# be an implementation, and it is worse than the gap it fills because the next
+		# person reads the call and stops asking.
+		#
+		# The threshold is not in the way here, it is working: the nova is a 30-damage
+		# SHOVE — the roster's knockback tool, not a committed excavation — and the chip
+		# shelf is exactly where the design puts it. The scorch crack above is the whole
+		# intended read, and `damage_at` documents that a refused hit still marks.
+		#
+		# To make the nova carve you would have to hand `damage_at` an `amount` it did
+		# not do, and the `radius_hint` cannot help: the hint only widens a crater that
+		# already passed the gate. So the honest options are "leave it on the chip shelf"
+		# or "raise NOVA_DAMAGE", and the second is a combat-balance change that has
+		# nothing to do with destruction. Left on the chip shelf.
+		#
 		# Dust kicked SIDEWAYS along the floor rather than up: the read is a shove,
 		# not an explosion.
 		DebrisChunk.spawn_burst(

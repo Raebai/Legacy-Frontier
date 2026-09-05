@@ -304,15 +304,30 @@ func _maybe_smash(prop: Node, mid: Vector2, half: float, from: Vector2, to: Vect
 	cover_smashed += 1
 
 
-## Tear the floor. Purely cosmetic — nothing in the game reads a crater — so this
-## is the first thing thinned at LOW, and `GroundCrater` / `ScorchDecal` already
-## cap and skip themselves under budget pressure.
+## Tear the floor. The cosmetics here are the first thing thinned at LOW, and
+## `GroundCrater` / `ScorchDecal` already cap and skip themselves under budget pressure.
+##
+## ⚠ THIS COMMENT USED TO SAY "purely cosmetic — nothing in the game reads a crater",
+## AND THAT IS NO LONGER TRUE. With the destructible stage on, the carve below removes
+## real collision, so this loop is the one place in the roster where a single cast walks
+## a line of holes ACROSS the floor rather than opening one. That is why the fault is
+## the spell most able to sever the stage, and why the severed-run number in
+## `tools/probe_destructible_bot_fight.gd` is watched most closely after this cast.
+##
+## ⚠ AND THE CARVE DELIBERATELY DOES NOT FOLLOW THE `LOW` STRIDE. `CRATER_STRIDE_LOW`
+## thins the DECALS to save frame time, which is a graphics decision; letting it also
+## thin the holes would mean the floor a player can stand on depends on their graphics
+## setting, and two machines in the same co-op fight would disagree about where the
+## ground is. Cosmetics scale with quality, collision never does.
 func _tear(from: Vector2, to: Vector2) -> void:
 	var stride: float = CRATER_STRIDE_LOW if TuningConfig.quality_is_low() else CRATER_STRIDE
 	while _next_crater <= _travelled:
 		var at: Vector2 = point_at(_next_crater)
 		GroundCrater.spawn(get_parent(), at, 26.0, true)
 		ScorchDecal.spawn(get_parent(), at, 20.0, "crack", Color(0.22, 0.17, 0.12, 0.55), 6.0)
+		# The hole under the crack. 20.0 matches the scorch radius drawn one line up so
+		# the mark and the missing rock are the same size.
+		DestructibleStage.carve_area(self, _damage, at, Vector2.UP, 20.0)
 		terrain_bites += 1
 		_next_crater += stride
 	CombatVfx.spawn_burst(get_parent(), (from + to) * 0.5,

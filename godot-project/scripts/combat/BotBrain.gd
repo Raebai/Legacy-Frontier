@@ -594,6 +594,34 @@ static var ult_scored: int = 0
 ## to the cast threshold, i.e. "the best idea available was not a good enough idea".
 static var ult_best_but_under_threshold: int = 0
 
+## ══ THE STEERING VETO, COUNTED ═════════════════════════════════════════════
+## How many times `_steer` asked to move somewhere and `_safest` refused it, and how
+## many of those refusals arrived while the bot was ALSO out of reach of its foe —
+## which is the shape "stranded at a lip" would take if it ever happened.
+##
+## ⚠ ADDED BECAUSE THE DESTRUCTIBLE STAGE MADE IT AN OPEN QUESTION AND NOTHING COULD
+## ANSWER IT. The stage's flag was held off partly on this risk: a carve opens a gap
+## mid-bout, a melee bot walks up to the lip, `_safest` vetoes every crossing, and the
+## documented answer is HOLD — so the bot stands there and the clip is ruined. That was
+## a plausible story with no measurement under it, and a plausible story about a bot is
+## exactly the thing that turns out to be wrong.
+##
+## ⚠ AND THERE IS DELIBERATELY NO `steer_vetoes_unreachable` BESIDE IT, THOUGH THAT IS
+## THE COUNTER THE QUESTION WANTS. The first version had one, gated on
+## `bb.get("reachable", true)` — and NOTHING IN THE CODEBASE EVER WRITES A `reachable`
+## KEY. It would have read its own default on every call and reported a confident,
+## permanent ZERO, which is indistinguishable from "the stranding never happened" and
+## would have been quoted as evidence for exactly that. [[feedback_a_comment_is_not_an_implementation]].
+## Rather than invent a reachability predicate to feed a counter, the stranding question
+## is answered where it is actually decidable: `tools/probe_destructible_bot_fight.gd`
+## reports the WIDEST SEVERED RUN, and stranding needs a severed stage to be possible at
+## all.
+##
+## This is a counter, not behaviour. Nothing reads it but the probes; it exists so the
+## question "is the veto firing more often with the stage on?" has an answer other than
+## somebody's judgement.
+static var steer_vetoes: int = 0
+
 
 ## For a harness measuring one run at a time.
 static func reset_channel_stats() -> void:
@@ -1832,6 +1860,7 @@ static func _steer(bb: Dictionary, profile: Dictionary, m: Memory, evaluated: Ar
 			# walking the other way is doing the dodge layer's job badly, and standing
 			# still for a beat has never once read as a stutter.
 			want = 0.0
+			steer_vetoes += 1
 			if m != null and m.steer_intent != 0:
 				m.steer_intent = 0
 				m.steer_until = now + STEER_MIN_DWELL

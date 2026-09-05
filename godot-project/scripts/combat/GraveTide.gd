@@ -88,6 +88,13 @@ const TIDE_HEIGHT: float = 40.0
 const SURGE_CLEAR: float = 6.0
 ## Floor samples per side. The path is re-walked once, at cast, not per frame.
 const PATH_STEPS: int = 22
+## How far the tide travels between one bite of the floor and the next, in world px.
+## 56 is wider than the widest crater this spell's damage can open (34 px at the
+## roster ceiling, and Grave Tide is nowhere near it), so consecutive bites CANNOT
+## touch — there is always intact rock between two holes, and the tide can never dig a
+## continuous trench no matter how long its reach is. That property is what keeps the
+## stage crossable, so it is a floor on this number rather than a taste setting.
+const CARVE_STRIDE: float = 56.0
 
 # ═════════════════════════════════════════════════════════ THE GRIP
 ## How long a caught body is held after the front reaches it.
@@ -152,6 +159,15 @@ var _seed: int = 0
 ## One entry per side: the floor polyline the front walks, and how far along it is.
 var _paths: Array[PackedVector2Array] = []
 var _travelled: Array[float] = []
+## How far along each side the tide has already BITTEN. Parallel to `_travelled`.
+##
+## ⚠ WHY A SEPARATE ODOMETER AND NOT JUST `_travelled`. `_sweep` runs every physics
+## frame with the front somewhere new, and carving at the front each time would open a
+## hole every ~10 px at `TIDE_SPEED` 620 — a continuous trench along the whole reach,
+## which is the one shape that genuinely severs the stage. `CARVE_STRIDE` spaces the
+## bites the way `FaultLine._tear` spaces its craters, so the tide leaves a broken line
+## of holes (rock between them, still walkable) rather than a canal.
+var _next_carve: Array[float] = []
 var _spans: Array[float] = []
 ## `{"node": Node2D, "anchor": Vector2, "held": float}`
 var _victims: Array[Dictionary] = []
@@ -236,6 +252,9 @@ func _build_side(dir: Vector2, reach: float) -> void:
 		return
 	_paths.append(path)
 	_travelled.append(0.0)
+	# First bite one stride in, not at 0: the tide opens UNDER THE CASTER'S FEET, and a
+	# hole there would drop the Warlock through the floor on his own ult.
+	_next_carve.append(CARVE_STRIDE)
 	_spans.append(span)
 
 
@@ -262,6 +281,22 @@ func _advance(delta: float) -> void:
 		var after: float = minf(before + TIDE_SPEED * delta, _spans[i])
 		_travelled[i] = after
 		_sweep(i, before, after)
+		_bite_floor(i, after)
+
+
+## THE FLOOR GIVING WAY, which is what this spell IS — `SpellLibrary` calls Grave Tide
+## "a floor that gives way in both directions", and until the destructible stage was
+## wired that was a claim the drawing made and the collision did not.
+##
+## Bites are placed at `CARVE_STRIDE` intervals along the path the front has already
+## crossed, so a slow frame that advances the tide 200 px still opens the four holes it
+## passed rather than one at the far end. `carve_area` is a no-op with the flag off and
+## refuses where there is no rock, so a tide running out over a pit removes nothing.
+func _bite_floor(side: int, travelled: float) -> void:
+	while _next_carve[side] <= travelled:
+		var at: Vector2 = _point_at(side, _next_carve[side])
+		DestructibleStage.carve_area(self, _damage, at, Vector2.UP, 18.0)
+		_next_carve[side] += CARVE_STRIDE
 
 
 ## Everyone the front crossed BETWEEN the last frame and this one. Swept as a band

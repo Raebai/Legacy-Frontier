@@ -280,6 +280,18 @@ func advance(delta: float) -> void:
 func _stomp() -> void:
 	GroundCrater.spawn(get_parent(), _foot, 34.0, true)
 	ScorchDecal.spawn(get_parent(), _foot, 30.0, "crack", Color(0.20, 0.17, 0.14, 0.55), 6.0)
+	# ...and where the flag is on, the crack is REAL. The three lines above already say
+	# "the boot broke the ground" — a crater sprite, a scorch crack and flying rubble —
+	# and until this line the ground underneath was untouched by all of it. A stomp is
+	# the most ground-aimed thing in the roster; if anything carves, this does.
+	#
+	# `Vector2.UP` is the hit direction, not the normal: `_spawn_carve_spectacle` throws
+	# its debris back ALONG `-dir`, so UP here sends the stone down-and-out from the
+	# boot, which is where a stomp puts it. The 30.0 hint matches the scorch radius so
+	# the hole and the mark it leaves are the same size — a 30 px crack over an 11 px
+	# hole reads as the decal being wrong. The hint may only ever widen (see
+	# `damage_at`), so this cannot quietly shrink the crater a heavy stomp earns.
+	DestructibleStage.carve_area(self, _damage, _foot, Vector2.UP, 30.0)
 	DebrisChunk.spawn_burst(get_parent(), _foot, Color(0.42, 0.36, 0.30), 14,
 		Vector2.UP, 260.0)
 	CombatVfx.spawn_burst(get_parent(), _foot, Color(DUST.r, DUST.g, DUST.b, 0.9),

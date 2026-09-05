@@ -416,6 +416,16 @@ func _shatter(at: Vector2) -> void:
 	DebrisChunk.spawn_burst(get_parent(), floor_pos, Color(0.5, 0.38, 0.22), DEBRIS_COUNT, _dir, 340.0)
 	ScorchDecal.spawn(get_parent(), floor_pos, _radius * 0.6, "crack",
 		Color(0.6, 0.45, 0.28, 0.6), 8.0)
+	# ...and the rock the boulder landed on actually goes. This is the one carve site
+	# in the roster with a story reason to exist: the spell RIPPED this stone out of the
+	# ground a second ago, so a version where it lands and the floor is pristine is the
+	# spell arguing with itself.
+	#
+	# `floor_pos`, NOT `at` — the impact point can be a body's chest in mid-air, and the
+	# two lines above already snapped the residue down to the ground for exactly that
+	# reason. Carving at `at` would open holes in the sky over a pit; the `ground["hit"]`
+	# early-return above is what makes `floor_pos` safe to use here at all.
+	DestructibleStage.carve_area(self, _damage, floor_pos, Vector2.UP, _radius)
 
 
 ## Blast damage. `_radius` — the same number the shockwave and the boundary arc
