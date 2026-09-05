@@ -271,7 +271,16 @@ func _ready() -> void:
 	_build_backdrop()
 	_build_ground()
 	_build_bounds()
-	_build_loft()
+	# ⚠ `_build_loft()` USED TO BE HERE. Maker: *"remove the platforms on the training
+	# area at the entrance on the left"* — the two decks above the dummy yard. The
+	# function and its constants stay: `LOFT_CENTER` / `LOFT_SIZE` are read by
+	# `slice_test_town_bounds`, which teleports the player up there and fires them off
+	# at speed as its worst-case bounds case. That test never needed a real platform to
+	# stand on (it sets the position directly), so it keeps passing — but deleting the
+	# constants would take the stress case with them.
+	#
+	# The file already called them decoration: "nothing a phone player needs is up a
+	# platform any more". This is that sentence finished.
 	_build_signboard()
 	_spawn_ambience()
 	_place_player()

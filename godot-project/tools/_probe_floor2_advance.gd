@@ -171,12 +171,25 @@ func _real_path(gs: Node, seed_value: int) -> void:
 		e.queue_free()
 	arena.call(&"_on_floor_cleared")
 	await physics_frame
+	# ⚠ THE CYAN EXIT PORTAL NO LONGER SPAWNS ON A FLOOR THAT HAS A NEXT ONE. Maker:
+	# *"when you pass a floor no need for the exit sigil only the one sigil is needed
+	# where it asks if you want to go to the next floor or back"*. `Arena` builds it in
+	# an `else` now — only the final floor, which has no choice to offer, still gets it.
+	# So `_portal` is null here and this probe, which walked a hero into it, measured
+	# nothing. The advance path itself is unchanged: the gold pad's "Keep climbing"
+	# button routes through the same `_on_portal_taken`, so the probe drives THAT.
 	var portal: Node = arena.get(&"_portal")
-	print("  portal spawned: %s at %s" % [str(portal != null), str((portal as Node2D).global_position if portal != null else Vector2.ZERO)])
+	var pad: Node = arena.get(&"_return_portal")
+	print("  exit portal (final floors only): %s | choice pad: %s"
+		% [str(portal != null), str(pad != null)])
 	hero.global_position = _stance_at_exit(l1)
 	print("  hero moved onto the exit: %s" % str(hero.global_position))
-	# The portal arms after 0.35s then polls overlaps every frame.
 	var fired: bool = false
+	if portal == null:
+		# The choice route, which is what a cleared non-final floor actually offers.
+		arena.call(&"_on_return_taken")
+		await physics_frame
+		arena.call(&"_climb_from_prompt")
 	for i3: int in 120:
 		await physics_frame
 		if int(gs.call(&"current_floor")) == 2:

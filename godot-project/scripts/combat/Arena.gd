@@ -492,13 +492,28 @@ func _spawn_exit_portals() -> void:
 	var exit_pt: Vector2 = DEFAULT_EXIT_POINT
 	if layout != null:
 		exit_pt = layout.exit_point
-	_portal = EXIT_PORTAL_SCRIPT.new() as ExitPortal
-	add_child(_portal)
-	_portal.global_position = exit_pt
-	_portal.taken.connect(_on_portal_taken)
-	# A deliberate hub-return portal appears alongside the climb-exit on every
-	# non-final floor. Clearing the BOSS floor is the conquer (the climb-exit's
-	# advance path handles it), so no return portal there.
+	# ══ ONE SIGIL ON A CLEARED FLOOR, NOT TWO ═══════════════════════
+	# Maker: *"when you pass a floor no need for the exit sigil only the one sigil is
+	# needed where it asks if you want to go to the next floor or back"*.
+	#
+	# Two used to spawn together and one of them was strictly worse: the cyan climb
+	# portal advanced the floor THE INSTANT you touched it, no confirmation, while the
+	# gold pad a few metres away opened the three-way prompt — keep climbing, stay,
+	# leave. Every route the cyan one offered was already a button on the gold one, and
+	# "Keep climbing" routes through this very `_on_portal_taken`, so nothing is lost.
+	# What went with it is a portal that could commit you to the next floor by walking
+	# into it.
+	#
+	# ⚠ IT IS STILL BUILT ON THE FINAL FLOOR, and that is the whole reason this is an
+	# `else` rather than a deletion. The gold pad only exists while `has_next_floor()`
+	# is true — clearing the BOSS floor is the conquer, and there is no "keep climbing"
+	# to offer. Delete the cyan portal outright and the last floor of the tower has no
+	# way out of it at all.
+	if not _gs.has_next_floor():
+		_portal = EXIT_PORTAL_SCRIPT.new() as ExitPortal
+		add_child(_portal)
+		_portal.global_position = exit_pt
+		_portal.taken.connect(_on_portal_taken)
 	# ⚠ `has_next_floor()`, NOT `current_floor() < total_floors()`. `total_floors()` is
 	# the height of the AUTHORED spine and deliberately stays 10 now that the tower
 	# continues past it — so the old comparison went false at floor 10 and the walk-home

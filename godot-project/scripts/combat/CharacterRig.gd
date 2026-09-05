@@ -2720,7 +2720,24 @@ func _draw_aura() -> void:
 		var a: float = eff * base_alpha / float(layer)
 		var glow: Color = Color(aura_color.r, aura_color.g, aura_color.b, a)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2(s, s))
-		draw_figure(self, pose, glow, equipment, height)
+		# ⚠ NO EQUIPMENT ON A HALO LAYER, AND THIS IS THE "THREE GLOWING LIGHTS" BUG.
+		# Maker: *"the arcanists wand is all weird and like there is like 3 glowing
+		# lights"*. Every hero carries an aura by default (`Hero.AURA_STRENGTH` 0.6), and
+		# this loop re-drew the WHOLE FIGURE once per layer — held weapon included —
+		# scaled about the BODY ORIGIN. The staff's crystal tip sits far out at the end
+		# of an arm, so scaling about the body throws each ghost copy of that tip a
+		# different distance along the same ray: one real white-hot gem plus three
+		# element-tinted ghosts of it, fanned out beside the wand. Exactly three, because
+		# `AURA_LAYERS` is 3.
+		#
+		# It is on every class and reads worst on the Arcanist because the gem plus its
+		# white glint is the brightest shape any weapon draws — a sword's hamon highlight
+		# is muted enough that its ghosts stay inside the silhouette.
+		#
+		# A halo is a SILHOUETTE bloom. The body is what should bloom; a rigid object held
+		# at arm's length is the one part of the figure that a body-centred scale cannot
+		# keep registered. Motes and the ground ring are untouched.
+		draw_figure(self, pose, glow, {}, height)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)  # reset for the main figure
 	_draw_motes(eff)
 
