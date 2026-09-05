@@ -46,7 +46,26 @@ const CARD_NODE_NAME: StringName = SignatureRite.CARD_NAME
 ## of game time, not "ten seconds at 60 Hz" as the comment here used to claim. The bout
 ## never got anywhere near its own end and the suite could not have known.
 ## `tools/botmatch_sim.gd` already ran on a wall-clock cap for exactly this reason.
-const WALL_SECONDS: float = 45.0
+## ⚠ A HANG VALVE, NOT A BUDGET, AND IT USED TO BE THE BUDGET. See `SIM_FRAMES`.
+## Raised well clear of any honest bout so that tripping it means something is actually
+## stuck, and given its own failure message so it can never again be mistaken for
+## "the fight did not finish".
+const WALL_SECONDS: float = 110.0
+## THE REAL BUDGET, IN THE DOMAIN THE FIGHT ADVANCES IN.
+##
+## This suite was intermittent -- it failed roughly one run in three under `--jobs 3` and
+## passed alone -- and the cause was that it budgeted a SIMULATED fight in WALL SECONDS.
+## Godot paces physics to real time and clamps at 8 steps per frame, so on a contended
+## machine simulated time falls behind the clock. The bout needs `SHORT_ROUND` (4 s) plus
+## a result phase of simulated time; on an idle machine 45 wall seconds buys far more
+## than that, and on a loaded one it can buy less. Nothing about the game changed between
+## a pass and a fail -- only how much of the game got to happen per second of clock.
+##
+## 3600 physics frames is 60 simulated seconds against a 4 second round: enormous slack,
+## and slack that is now immune to what else the machine is doing. This is the lesson
+## already recorded here as "`Time.get_ticks_msec()` is ~20x wrong inside `--write-movie`,
+## use frames", applied to the ordinary case rather than to the movie writer.
+const SIM_FRAMES: int = 3600
 ## How long to keep pumping AFTER the bell, through the result phase and the teardown
 ## into the next bout — the path that crashed.
 const FRAMES_AFTER_END: int = 90
@@ -92,6 +111,19 @@ func _run() -> void:
 	if bm_script != null:
 		bm_script.set("round_seconds", SHORT_ROUND)
 	var match_node: Node = scene.instantiate()
+	# ⚠ PIN THE MATCHUP. `BotMatch._ready` rolls two random classes, which made this a
+	# LOTTERY rather than a test: measured, 3 of 8 concurrent runs failed with "spells
+	# reached the world (saw none)" purely because the roll had handed both sides a kit
+	# whose casts never join a spell group at all (`TheCircuit` and `Chronostasis` call
+	# `add_to_group` nowhere). Nothing was wrong with the game on those runs and nothing
+	# was right with it on the others; the suite was reporting the dice.
+	#
+	# This suite's claim is that a bout RUNS AND FINISHES CLEANLY end to end — the result
+	# phase and the teardown are the code path it was written for, and they do not care
+	# which two classes fought. Roster-wide coverage is `botmatch_sim`'s job and it
+	# already exists. So the pair is fixed to the statics' own default (Stormcaller vs
+	# Cryomancer), both of which throw ordinary projectiles.
+	match_node.set("random_matchup", false)
 	root.add_child(match_node)
 	_expect(is_instance_valid(match_node), "the bot match stands up")
 	_completed["the_bout_stands_up"] = true
@@ -104,12 +136,20 @@ func _run() -> void:
 	var names_seen: int = 0
 	var ended: bool = false
 	var frames_after_end: int = 0
-	for i: int in MAX_FRAMES:
-		await process_frame
+	# ⚠ PHYSICS FRAMES. The fight advances on `_physics_process`; idle frames in headless
+	# run as fast as the machine allows and are not a measure of how much fight has
+	# happened. Counting the wrong one is the whole reason this suite was flaky.
+	var wall_tripped: bool = false
+	for i: int in mini(MAX_FRAMES, SIM_FRAMES):
+		await physics_frame
 		if not is_instance_valid(match_node):
 			break
 		max_heroes = maxi(max_heroes, get_nodes_in_group("hero").size())
-		spells_seen = maxi(spells_seen, get_nodes_in_group("player_spell").size())
+		# BOTH SPELL GROUPS. A hero's cast joins "player_spell" and a monster's joins
+		# "enemy_projectile"; sampling only the first made this an assertion about
+		# WHICH SIDE cast rather than about whether the cast path ran at all.
+		var live: int = get_nodes_in_group("player_spell").size() + get_nodes_in_group("enemy_projectile").size()
+		spells_seen = maxi(spells_seen, live)
 		names_seen += _count_cast_names(match_node)
 		# ⚠ KEEP RUNNING AFTER THE BELL. The result phase and the teardown into the next
 		# bout are a DIFFERENT code path from the fight, and they are the path that
@@ -121,13 +161,20 @@ func _run() -> void:
 			frames_after_end += 1
 			if frames_after_end >= FRAMES_AFTER_END:
 				break
+		# The valve, not the budget. If this ever trips, the process is genuinely stuck
+		# and the message below says so rather than blaming the fight for not ending.
 		if float(Time.get_ticks_msec()) / 1000.0 - started > WALL_SECONDS:
+			wall_tripped = true
 			break
 
+	_expect(not wall_tripped,
+		("the %.0f s HANG VALVE tripped — this is not 'the fight was slow', it is the "
+			+ "process failing to advance %d physics frames in that time, which means "
+			+ "something is stuck") % [WALL_SECONDS, SIM_FRAMES])
 	_expect(ended,
-		"the bout reached its end inside %.0f s with round_seconds = %.0f — if it never "
-			% [WALL_SECONDS, SHORT_ROUND] + "ends, everything this suite says about the "
-			+ "result phase is vacuous")
+		"the bout reached its end inside %d simulated frames with round_seconds = %.0f — "
+			% [SIM_FRAMES, SHORT_ROUND] + "if it never ends, everything this suite says "
+			+ "about the result phase is vacuous")
 	_expect(frames_after_end >= FRAMES_AFTER_END,
 		"…and the result phase ran for %d frames afterwards (wanted %d), which is the "
 			% [frames_after_end, FRAMES_AFTER_END]
