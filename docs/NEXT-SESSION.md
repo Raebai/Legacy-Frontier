@@ -6,7 +6,13 @@ Branch `bot-fight-quality`, pushed. Seventeen commits landed in one sitting whil
 maker played and fed back live. **205+ suites green. NOTHING IN THEM IS PLAYTESTED** —
 every claim is a measurement or a headless suite.
 
-### ⚠ FIRST THING: THERE IS UNCOMMITTED WORK IN THE TREE
+### ✅ ALL FIVE AGENTS LANDED. TREE IS CLEAN, 209/209 GREEN, EVERYTHING PUSHED.
+
+The in-flight list below is kept as the RECORD of what each agent did and which suites
+cover it — it is no longer a to-do. Every item (a) through (g) is committed and pushed.
+`git status` should be clean apart from `content/analytics/*.json`.
+
+### ⚠ WHAT THE FIRST BLOCK USED TO SAY (kept, because it is how to handle this next time)
 
 Three subagents were still running when the session ended. **If their work is not
 committed, it is sitting dirty in the tree — `git status` first.** Diff it, run the suites
