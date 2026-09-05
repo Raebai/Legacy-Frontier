@@ -77,7 +77,13 @@ func _completes(n: String) -> void:
 ## The bug was that the writer never carried the field; a test that set `loadout`
 ## and read it straight back would have passed the whole time.
 func _test_a_hub_loadout_survives_a_save_and_load() -> void:
-	var chosen: Dictionary = {"weapon": "hammer", "head": "hood", "body": "robe"}
+	# ⚠ IDS THE ARMOURY STILL OFFERS. This used to name `hammer`/`hood`/`robe`, which
+	# the placeholder catalogue retired — and `GameState.sanitize_loadout` now rejects
+	# an id nobody can equip, precisely so a save cannot keep applying a stat from an
+	# item that has left the game. Asserting a retired id round-trips would be pinning
+	# the bug this test would otherwise have caught.
+	var chosen: Dictionary = {"weapon": "pl_stormtooth", "head": "pl_ironbrow",
+		"body": "pl_ashplate"}
 	var payload: Dictionary = _gs().build_climber_save(
 		3, 7, 1, false, 0, 120, [], [], 0, [], chosen)
 	_expect(payload.has("loadout"), "the climber save actually carries a loadout key")
@@ -115,11 +121,16 @@ func _test_an_old_save_without_a_loadout_still_loads() -> void:
 ## hand-edited or future-versioned save could otherwise put an arbitrary key into
 ## the rig's equipment dictionary and have it drawn (or not) forever.
 func _test_a_save_cannot_carry_junk_into_the_rig() -> void:
+	# ⚠ THE SURVIVOR HAS TO BE AN ID THE ARMOURY STILL OFFERS. `sword` was a real slot
+	# value when this was written; the placeholder catalogue retired it, and the sanitiser
+	# now drops any id nobody can equip — so `sword` became junk too, and this assertion
+	# was quietly testing the opposite of its own name. Using an offered id keeps it
+	# testing what it says: a GOOD entry survives while the junk around it is stripped.
 	var junk: Dictionary = {
-		"weapon": "sword", "cape": "red", "head": 7, "body": "", "": "x",
+		"weapon": "pl_stormtooth", "cape": "red", "head": 7, "body": "", "": "x",
 	}
 	var clean: Dictionary = _gs().sanitize_loadout(junk)
-	_expect(String(clean.get("weapon", "")) == "sword", "a real slot survives")
+	_expect(String(clean.get("weapon", "")) == "pl_stormtooth", "a real slot survives")
 	_expect(not clean.has("cape"), "an unknown slot is dropped")
 	_expect(not clean.has("head"), "a non-string value is dropped")
 	_expect(not clean.has("body"), "an empty value is dropped rather than stored")

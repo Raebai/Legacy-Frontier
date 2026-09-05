@@ -54,7 +54,7 @@ const GUARD_MEMBERS: Array[String] = ["oneshot_fraction", "persistent_reduction"
 const TESTS: Array[String] = [
 	"defaults_untouched", "weapon_element", "head_body_melee",
 	"gear_mitigation_is_real", "idempotent_recompute",
-	"signature_short_name",
+	"signature_short_name", "placeholders_apply_nothing",
 ]
 
 var _ran: bool = false
@@ -73,6 +73,7 @@ func _process(_delta: float) -> bool:
 	_test_gear_mitigation_is_real()
 	_test_idempotent_recompute()
 	_test_signature_short_name()
+	_test_placeholders_apply_nothing()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -328,3 +329,86 @@ func _test_signature_short_name() -> void:
 		_expect(not ARTICLES.has(AbilityBar.short_spell_name(s.display_name)),
 			"`%s` does not shorten to an article" % s.display_name)
 	_completes("signature_short_name")
+## THE ASSERTION THAT STOPS A PLACEHOLDER QUIETLY BECOMING BALANCE.
+##
+## The armoury's whole catalogue is now sixteen NAMED PROMISES with empty effect bags
+## (`GearAbilities.PLACEHOLDER_SLOTS`). The failure mode this guards is not a crash, it
+## is a drift: somebody wires "just a small bonus" onto a stub to make the screen feel
+## alive, and from that moment the game is being TUNED around an item that does not
+## exist, in a slot the design has not been written for. Once that has happened for a
+## few weeks it is indistinguishable from real content and cannot be safely removed.
+##
+## So the effects are asserted at TWO levels, because either one alone is weak:
+##   * DATA - every placeholder's bag is literally `{}`. Catches the edit directly.
+##   * BEHAVIOUR - a real Hero equips every placeholder in turn and NOT ONE of the
+##     stats `_recompute_gear_effects` writes moves. Catches the sneakier version where
+##     the bag stays empty and the special-casing goes somewhere else.
+## The behavioural half is the one worth having: it reads the numbers the player feels
+## rather than the table the reviewer skims.
+func _test_placeholders_apply_nothing() -> void:
+	var hero: CharacterBody2D = _make_hero()
+	hero.configure_class(hero.HeroClass.MAGE)
+	var slots: Dictionary = GearAbilities.PLACEHOLDER_SLOTS
+	_expect(slots.size() == 3, "the armoury offers three slots (got %d)" % slots.size())
+
+	# The untouched baseline, read AFTER configure_class so class + level are already in.
+	var base_hp: int = int(hero.max_hp)
+	var base_dmg: int = int(hero._melee_damage)
+	var base_kb: float = float(hero._melee_knockback)
+	var base_speed: float = float(hero._gear_speed_mult)
+	var base_elem: int = int(hero._element)
+	var guard: GuardComponent = GuardComponent.peek(hero)
+	var base_ward: float = guard.oneshot_fraction if guard != null else 0.0
+	var base_dr: float = guard.persistent_reduction if guard != null else 0.0
+
+	var checked: int = 0
+	for slot: String in slots:
+		for kind: String in (slots[slot] as Array):
+			# DATA: the bag is empty and the piece admits what it is.
+			_expect(GearAbilities.is_placeholder(kind), "'%s' is flagged as a placeholder" % kind)
+			var eff: Dictionary = GearAbilities.effect(kind)
+			_expect(eff.is_empty(),
+				"placeholder '%s' has an EMPTY effect bag - a stub must not be balance (got %s)"
+					% [kind, str(eff)])
+			# ...and it must SAY so to the player, who never sees the flag.
+			var desc: String = String(GearAbilities.of(kind).get("desc", ""))
+			_expect(desc.contains("COMING SOON"),
+				"placeholder '%s' tells the player it is not implemented (desc: '%s')" % [kind, desc])
+			_expect(String(GearAbilities.of(kind).get("name", "")) != "",
+				"placeholder '%s' has a name to put on its button" % kind)
+
+			# BEHAVIOUR: equip it on a real hero; nothing the player feels may move.
+			hero.set_loadout(slot, kind)
+			_expect(int(hero.max_hp) == base_hp,
+				"'%s' left max HP alone (%d -> %d)" % [kind, base_hp, int(hero.max_hp)])
+			_expect(int(hero._melee_damage) == base_dmg,
+				"'%s' left melee damage alone (%d -> %d)" % [kind, base_dmg, int(hero._melee_damage)])
+			_expect(is_equal_approx(float(hero._melee_knockback), base_kb),
+				"'%s' left knockback alone" % kind)
+			_expect(is_equal_approx(float(hero._gear_speed_mult), base_speed),
+				"'%s' left move speed alone (%.4f -> %.4f)"
+					% [kind, base_speed, float(hero._gear_speed_mult)])
+			_expect(int(hero._element) == base_elem,
+				"'%s' left the element alone - a spellement that reskinned your damage type would be a live item" % kind)
+			var g2: GuardComponent = GuardComponent.peek(hero)
+			if g2 != null:
+				_expect(is_equal_approx(g2.oneshot_fraction, base_ward), "'%s' granted no ward" % kind)
+				_expect(is_equal_approx(g2.persistent_reduction, base_dr), "'%s' granted no mitigation" % kind)
+			hero.set_loadout(slot, "")
+			checked += 1
+	# /!\ An invariant that is trivially true of an empty sweep is not an invariant. If
+	# the registry is ever emptied or renamed, every assertion above is skipped and this
+	# suite would report a confident green over a screen with nothing on it.
+	_expect(checked == 16, "all sixteen placeholders were equipped and measured (got %d)" % checked)
+
+	# The legacy catalogue must not have crept back into the MENU. Its rows still exist
+	# (the rig, the enemy roster and two other suites read them) but nothing the armoury
+	# offers may carry a live effect - that is the whole shape of this change.
+	for slot2: String in slots:
+		for kind2: String in (slots[slot2] as Array):
+			_expect(not ["hat", "hood", "helmet", "robe", "armor", "cape", "sword",
+				"dagger", "hammer", "greatsword", "staff", "staff_ice", "staff_storm",
+				"staff_holy", "scythe", "orb"].has(kind2),
+				"the retired piece '%s' is not being offered again" % kind2)
+	hero.queue_free()
+	_completes("placeholders_apply_nothing")

@@ -1411,7 +1411,14 @@ static func sanitize_loadout(raw: Variant) -> Dictionary:
 		return out
 	for slot: String in LOADOUT_SLOTS:
 		var v: Variant = (raw as Dictionary).get(slot, "")
-		if typeof(v) == TYPE_STRING and String(v) != "":
+		# ⚠ THE ITEM MUST STILL BE OFFERED, not merely be a non-empty string. The armoury
+		# catalogue was replaced with placeholders, and a save written before that still
+		# names a piece like `head: "helmet"` — which `Hero._apply_gamestate_loadout`
+		# happily keeps applying, so a returning player carries a +20% max HP bonus from
+		# an item that is no longer in the game and that they cannot see, unequip, or
+		# explain. The armoury sanitises on open, but only for a player who walks to it.
+		# This is the one place every load path passes through.
+		if typeof(v) == TYPE_STRING and String(v) != "" 				and (GearAbilities.PLACEHOLDER_SLOTS.get(slot, []) as Array).has(String(v)):
 			out[slot] = String(v)
 	return out
 

@@ -164,6 +164,45 @@ func _process(_delta: float) -> bool:
 	failed += _expect(is_equal_approx(float(agg2["melee_damage"]), 1.2), "hammer +20% melee damage")
 	failed += _expect(is_equal_approx(float(agg2["melee_knockback"]), 1.4), "hammer +40% knockback")
 
+	# -- THE ARMOURY MENU AND THE RIG REGISTRY ARE TWO DIFFERENT LISTS ------------
+	# Maker, verbatim: "Armoury - remove all of the options right now [...] add
+	# placeholder cool names of stuff that we can then introduce later."
+	#
+	# What that split has to survive is a well-meaning tidy-up in either direction, and
+	# both directions are silent failures:
+	#   * A retired piece creeping back into `PLACEHOLDER_SLOTS` puts a LIVE stat bag
+	#     back on the menu the maker just emptied.
+	#   * A placeholder creeping into `GEAR_KINDS` makes it "drawable", and since no art
+	#     exists for it the rig would draw NOTHING while the slot claimed to be filled -
+	#     which is precisely the pretending this change is here to stop.
+	var offered: Dictionary = GearAbilities.PLACEHOLDER_SLOTS
+	failed += _expect(offered.size() == 3, "the armoury offers three slots (got %d)" % offered.size())
+	var placeholders: int = 0
+	for slot3: String in offered:
+		var list: Array = offered[slot3]
+		failed += _expect(list.size() >= 4, "slot '%s' offers a real menu (got %d)" % [slot3, list.size()])
+		for kind3: String in list:
+			failed += _expect(GearAbilities.is_placeholder(kind3), "'%s' is flagged a placeholder" % kind3)
+			failed += _expect((GearAbilities.effect(kind3) as Dictionary).is_empty(),
+				"offered piece '%s' carries NO stat effect" % kind3)
+			failed += _expect(not equip_tex.has(kind3),
+				"placeholder '%s' is not in GEAR_KINDS - there is no art for it, so 'drawable' would mean 'invisible'" % kind3)
+			placeholders += 1
+	# An invariant that is trivially true of an empty sweep is not an invariant.
+	failed += _expect(placeholders == 16,
+		"all sixteen placeholders were swept (got %d)" % placeholders)
+	# ...and the retired catalogue is off the menu, not merely re-ordered on it.
+	for retired: String in ["hat", "hood", "helmet", "robe", "armor", "cape", "sword",
+			"dagger", "hammer", "greatsword", "staff", "staff_ice", "staff_storm",
+			"staff_holy", "scythe", "orb"]:
+		for slot4: String in offered:
+			failed += _expect(not (offered[slot4] as Array).has(retired),
+				"retired piece '%s' is not offered in slot '%s'" % [retired, slot4])
+		# ...while its ROW survives, because the rig, the enemy roster and two suites
+		# that are not this one read it. Removing the rows is what would break things.
+		failed += _expect(GearAbilities.has_ability(retired),
+			"retired piece '%s' keeps its registry row (the rig and Enemy read it)" % retired)
+
 	if failed > 0:
 		printerr("Gear tests: %d FAILED" % failed)
 		quit(1)

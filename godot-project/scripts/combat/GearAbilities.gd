@@ -72,6 +72,59 @@ const ABILITIES: Dictionary = {
 	"spear":       {"name": "Lunge",        "desc": "Long reach; a dash-thrust charge.",          "element": "",          "effect": {}},
 	"bomb":        {"name": "Volatile",     "desc": "Detonates in a fiery AoE.",                  "element": "fire",      "effect": {}},
 	"crown":       {"name": "Sovereign",    "desc": "A guardian-king's regalia.",                 "element": "",          "effect": {}},
+	# ─────────────────────────────────────────────────────────────────────────────
+	# THE ARMOURY MENU — PLACEHOLDERS. Maker, verbatim: "Armoury — remove all of the
+	# options right now. That is where we can have players equip custom cool armour
+	# pieces and cool spellements to add attributes to their current tools, but right
+	# now I don't think we have any of those if I'm not mistaken, so add placeholder
+	# cool names of stuff that we can then introduce later."
+	#
+	# ⚠ WHAT WAS REMOVED WAS THE MENU, NOT THE MACHINERY, AND NOT THE ROWS ABOVE.
+	# `Loadout.OPTIONS` no longer offers `hat`/`helmet`/`hammer`/`staff_ice`/... — but
+	# those rows STAY here, because three things that are not the armoury read them and
+	# two of them are other people's files:
+	#   * `CharacterRig.GEAR_KINDS` is the list of pieces the rig can DRAW, and
+	#     `tools/slice_test_rig_gait.gd` asserts every drawable kind carries an ability
+	#     + a non-empty label. Deleting the rows red-lights a suite this change has no
+	#     business touching.
+	#   * `Enemy.ARCHETYPE_GEAR` names `club`/`spear`/`bomb`/`crown` — enemy identity.
+	#   * `tools/slice_test_class_movement.gd` equips `hat` on a real Hero and reads the
+	#     effect back. Stripping the bag would break a test that is about MOVEMENT.
+	# Un-offered is enough: `Hero._aggregate_gear` only ever reads `_gear_override`, and
+	# the only things that write it are the player's armoury choice and `set_loadout`.
+	# A piece nobody can pick applies nothing to anybody.
+	#
+	# ⚠ EVERY PLACEHOLDER'S `effect` IS `{}`, AND THAT IS THE POINT. A placeholder that
+	# quietly applied +15% damage would be WORSE than no placeholder: it would look like
+	# content, behave like balance, and get tuned around before anyone noticed it was a
+	# stub. `slice_test_gear.gd` now asserts the empty bag directly, per placeholder, so
+	# the day someone "just adds a small bonus" the suite says no.
+	#
+	# The `desc` opens with a literal COMING SOON tag rather than only carrying the
+	# `placeholder` flag, because the flag is invisible to the person holding the phone.
+	# The reader of the description IS the player, and they must not be able to mistake
+	# a promise for a stat. Descriptions are written in the FUTURE tense for the same
+	# reason ("will chill", not "chills").
+	#
+	# --- SPELLEMENTS (the `weapon` slot): attachments that reshape a spell you own ---
+	"pl_emberglass":  {"name": "Emberglass Sliver", "desc": "COMING SOON — will set your spells alight, burning what they touch.", "element": "", "effect": {}, "placeholder": true},
+	"pl_rimeshard":   {"name": "Rimeshard",         "desc": "COMING SOON — will chill on contact, slowing what you hit.",          "element": "", "effect": {}, "placeholder": true},
+	"pl_stormtooth":  {"name": "Stormtooth",        "desc": "COMING SOON — will arc your spells on to a second target.",           "element": "", "effect": {}, "placeholder": true},
+	"pl_gravewick":   {"name": "Gravewick",         "desc": "COMING SOON — will drain a sliver of life back on every hit.",        "element": "", "effect": {}, "placeholder": true},
+	"pl_sunmote":     {"name": "Sunmote",           "desc": "COMING SOON — will turn every third cast into a mend, not a wound.",  "element": "", "effect": {}, "placeholder": true},
+	"pl_voidpin":     {"name": "Voidpin",           "desc": "COMING SOON — will drag enemies toward the point of impact.",         "element": "", "effect": {}, "placeholder": true},
+	"pl_quickthread": {"name": "Quicksilver Thread","desc": "COMING SOON — will shorten the wind-up on every spell you cast.",     "element": "", "effect": {}, "placeholder": true},
+	"pl_echostone":   {"name": "Echostone",         "desc": "COMING SOON — will echo your last spell back at half strength.",      "element": "", "effect": {}, "placeholder": true},
+	# --- HELMS (the `head` slot) ---
+	"pl_seers_circlet": {"name": "Seer's Circlet",  "desc": "COMING SOON — will show you an enemy's tell a beat earlier.",         "element": "", "effect": {}, "placeholder": true},
+	"pl_ironbrow":      {"name": "Ironbrow",        "desc": "COMING SOON — will shrug off the first stun of every floor.",         "element": "", "effect": {}, "placeholder": true},
+	"pl_veilhood":      {"name": "Veilhood",        "desc": "COMING SOON — will break their line of sight for a moment after a dash.", "element": "", "effect": {}, "placeholder": true},
+	"pl_crown_of_hours":{"name": "Crown of Hours",  "desc": "COMING SOON — will slow the world for a heartbeat when you fall low.", "element": "", "effect": {}, "placeholder": true},
+	# --- ARMOUR (the `body` slot) ---
+	"pl_ashplate":   {"name": "Ashplate",           "desc": "COMING SOON — will burn whatever strikes you in close.",              "element": "", "effect": {}, "placeholder": true},
+	"pl_tideweave":  {"name": "Tideweave Wrap",     "desc": "COMING SOON — will knit you back together while you stand still.",    "element": "", "effect": {}, "placeholder": true},
+	"pl_thornmail":  {"name": "Thornmail Vest",     "desc": "COMING SOON — will return a share of every wound you take.",          "element": "", "effect": {}, "placeholder": true},
+	"pl_stormcoat":  {"name": "Stormcoat",          "desc": "COMING SOON — will discharge a shock the moment your ward breaks.",   "element": "", "effect": {}, "placeholder": true},
 }
 
 
@@ -95,3 +148,36 @@ static func label(kind: String) -> String:
 	if a.is_empty():
 		return ""
 	return "%s — %s" % [a.get("name", kind), a.get("desc", "")]
+
+
+## ⚠ THE ARMOURY MENU LIVES HERE, NOT IN THE UI. `Loadout.OPTIONS` is built from this
+## table rather than typing the ids a second time, because a menu that duplicates its
+## own catalogue is a menu that can disagree with it — and the failure mode is silent:
+## a typo'd id shows a button captioned with the raw id, equips a kind with no ability
+## row, and reads as a broken stat rather than as a missing item.
+##
+## SLOT KEYS ARE STILL "weapon"/"head"/"body" AND THAT IS A CONTRACT, NOT A LEFTOVER.
+## `Hero._aggregate_gear` iterates those three literals, `GameState.LOADOUT_SLOTS`
+## sanitises saves against them, and both files belong to someone else. The armoury
+## reads the slots differently now (a spellement and two pieces of armour — see
+## `Loadout.SLOT_LABELS`), but renaming the KEYS would silently drop every player's
+## saved loadout on the floor while looking like a cosmetic change.
+const PLACEHOLDER_SLOTS: Dictionary = {
+	"weapon": ["pl_emberglass", "pl_rimeshard", "pl_stormtooth", "pl_gravewick",
+		"pl_sunmote", "pl_voidpin", "pl_quickthread", "pl_echostone"],
+	"head": ["pl_seers_circlet", "pl_ironbrow", "pl_veilhood", "pl_crown_of_hours"],
+	"body": ["pl_ashplate", "pl_tideweave", "pl_thornmail", "pl_stormcoat"],
+}
+
+
+## True when the piece is a NAMED PROMISE rather than a working item. The armoury
+## reads this to tag the button and to refuse to pretend on the paper doll; the
+## suites read it to assert the effect bag is empty.
+static func is_placeholder(kind: String) -> bool:
+	return bool((ABILITIES.get(kind, {}) as Dictionary).get("placeholder", false))
+
+
+## Every id offered in `slot` right now. Empty for an unknown slot (never null, so a
+## caller can iterate the result without a guard).
+static func options_for(slot: String) -> Array:
+	return PLACEHOLDER_SLOTS.get(slot, [])
