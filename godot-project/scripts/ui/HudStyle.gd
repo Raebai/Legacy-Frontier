@@ -351,3 +351,94 @@ const PAUSE_CORNER: Rect2 = Rect2(580.0, 0.0, 60.0, 60.0)
 ## The base viewport the bands are expressed in (`project.godot`
 ## `window/size/viewport_{width,height}`).
 const BASE_VIEWPORT: Vector2 = Vector2(640.0, 360.0)
+
+
+# ══════════════════════════════════════════════ THE PLAYER'S OWN HEALTH PLATE
+## ⚠ THE PLAYER'S HEALTH LEFT THE PLAYER'S HEAD. Maker: *"the health bar is blocking
+## the stick figure, the main one — put that somewhere else so that it's clear and
+## more professional"*. It was a 52x7 bar floating over a 31px figure, and on a
+## screen that frames two fighters it covered the one thing the player is looking at.
+##
+## WHY THE BOTTOM CORNER AND NOT THE TOP.
+##   * **The top of the screen is the ROOM's stack.** Every band above — rank, floor
+##     banner, boss bar, boss modifiers, affixes, shout — describes the FLOOR you are
+##     on. All of it is contextual and most of it is transient. The bottom is the
+##     PLAYER's stack: the hotbar, and now this. Health next to cooldowns is one
+##     glance; health at the top and cooldowns at the bottom is two.
+##   * **The top corners are both spoken for.** Top-right is `pause_corner()`, the only
+##     pause affordance a phone has. Top-left is free of the CENTRED text up there but
+##     not of the boss bar, which at `BossBar.WIDTH_FRAC` 0.62 of a 640 base runs
+##     x 121..519 — so a second player's mirrored plate would land on it during exactly
+##     the fight where both readouts matter most.
+##   * **Co-op is already solved down here.** `AbilityBar.dock_right` / `dock_row`
+##     hands player two the opposite corner and stacks three and four upward. The plate
+##     reuses that rule rather than inventing a second one, so the plate and the hotbar
+##     it belongs to are always in the same corner as each other.
+##
+## ⚠ AND IT IS SCREEN-SPACE, WHICH IS THE WHOLE POINT. The head bar was a `Node2D`, so
+## the ONE ZOOM RULE above had to fight for it: its on-screen size was its world size
+## times a camera zoom that swings 5.6x DURING a fight, and `ui_scale()` existed to
+## cancel that out. A `CanvasLayer` is not transformed by the camera at all, so the
+## plate is simply the same number of pixels always — the zoom problem is not
+## compensated for, it is gone. Enemy bars stay body-attached and stay compensated:
+## with six enemies on screen, "which one of those is hurt" is a question only a bar
+## over that specific body can answer.
+
+## The plate's shape, in base-viewport pixels. Wider and shorter than the head bar it
+## replaces (52x7): a screen-anchored bar never has to compete with a rig for space, so
+## the extra length buys resolution — 1% of health is 1.6px here against 0.5px before.
+const HERO_PLATE_SIZE: Vector2 = Vector2(156.0, 13.0)
+## Matches `AbilityBar.SIDE_MARGIN`, so the plate's edge and the hotbar's edge are the
+## same edge. Two margins 2px apart in one corner is the near-miss this palette file
+## exists to stop.
+const HERO_PLATE_MARGIN_X: float = 16.0
+## Clear air between the plate and the top of the hotbar underneath it.
+const HERO_PLATE_GAP: float = 7.0
+## A tick every quarter. Four segments is the most a bar can carry and still be read as
+## a SHAPE rather than counted — inherited verbatim from the head bar, which is the one
+## part of it that was working.
+const HERO_PLATE_SEGMENTS: int = 4
+## The frame weight, matching `BossBar.FRAME`. A screen-space bar does not use
+## `frame_pad()` — that function scales a WORLD bar by the camera, and there is no
+## camera in this coordinate space.
+const HERO_PLATE_FRAME: float = 2.0
+
+
+## Where one player's health plate goes.
+##
+## `bottom_reserved` is how far up from the bottom edge that player's own hotbar
+## already reaches — `AbilityBar.occupied_height()` plus whatever `dock_row` has
+## pushed it. Passed IN rather than read here on purpose: naming `AbilityBar` from this
+## file would bolt the hotbar's whole compile onto every file that draws a HUD pixel,
+## and it would make this function untestable without standing one up.
+##
+## ⚠ `view`, NOT `BASE_VIEWPORT`. `project.godot` runs `aspect="expand"`, so a 20:9
+## phone hands the HUD a logical viewport about 800x360 rather than 640x360 — the
+## HEIGHT is what stays fixed. Anything anchored to the left edge is safe as a
+## constant; anything anchored to the right edge is not, and a right-docked player two
+## computed off 640 would sit 160px inside the screen. See `pause_corner`, which is the
+## same bug, already shipped.
+static func hero_plate_rect(view: Vector2, dock_right: bool,
+		bottom_reserved: float) -> Rect2:
+	var y: float = view.y - bottom_reserved - HERO_PLATE_GAP - HERO_PLATE_SIZE.y
+	var x: float = HERO_PLATE_MARGIN_X
+	if dock_right:
+		x = view.x - HERO_PLATE_MARGIN_X - HERO_PLATE_SIZE.x
+	return Rect2(Vector2(x, y), HERO_PLATE_SIZE)
+
+
+## The pause button's reserved corner FOR A GIVEN VIEWPORT.
+##
+## ⚠ `PAUSE_CORNER` BELOW IS A FIXED RECT AND THE BUTTON IS NOT. `PauseMenu` anchors
+## its 44x44 button to the RIGHT EDGE at a 10px margin, so on the expanded 800-wide
+## viewport a 20:9 phone actually gets, the button is at x 746..790 and the constant
+## points at empty screen 160px away. Two tool files
+## (`tools/probe_touch_layout.gd`, `tools/slice_test_touch_layout.gd`) had each already
+## written that fault down in a comment and worked around it by restating the button's
+## two numbers as local literals — which is the codebase telling you, twice, that the
+## constant is the wrong shape. This is the right shape; the const stays as the 16:9
+## case so existing callers do not change meaning underneath them, and every new check
+## should call this instead.
+static func pause_corner(view: Vector2) -> Rect2:
+	return Rect2(view.x - PAUSE_CORNER.size.x, PAUSE_CORNER.position.y,
+		PAUSE_CORNER.size.x, PAUSE_CORNER.size.y)

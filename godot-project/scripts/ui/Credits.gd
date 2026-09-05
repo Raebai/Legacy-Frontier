@@ -140,7 +140,11 @@ func _ready() -> void:
 
 	var back := Button.new()
 	back.text = "Back"
-	back.custom_minimum_size = Vector2(160, 30)
+	# ⚠ 30 -> 46 px tall. This is the ONLY control on the credits screen — the one way
+	# back out of it — and at 30 px it was a 5.5 mm target on a 6.1" phone. Width stays
+	# 160: it is already 29 mm, and a wide short button is missed on the axis that is
+	# short. See `PauseMenu.ROW_H` for the conversion.
+	back.custom_minimum_size = Vector2(160, 46)
 	back.add_theme_font_size_override("font_size", 14)
 	back.focus_mode = Control.FOCUS_NONE
 	back.pressed.connect(close)

@@ -51,7 +51,18 @@ const GRAPHITE: Color = Color(0.62, 0.63, 0.70)
 const RULE: Color = Color(0.16, 0.17, 0.23)          # faint ruled lines
 const ACCENT_FALLBACK: Color = Color(0.55, 0.9, 1.0)
 
-const BUTTON_H: float = 30.0
+## ⚠ 30 -> 46, AND THE NUMBER IS A MILLIMETRE MEASUREMENT RATHER THAN A PREFERENCE.
+## `project.godot` is 640x360 with `aspect=expand`, which keeps the base HEIGHT and
+## grows the width — so 360 logical px always maps to the whole SHORT edge of the
+## physical screen. On a 6.1" 19.5:9 phone that edge is 65.9 mm (0.183 mm per base px)
+## and on a 6.7" it is 72.4 mm (0.201). `tools/probe_ui_screens.gd` therefore measured
+## the front door's four buttons at **5.5 to 7.6 mm** — every one of them under the
+## ~9 mm a thumb needs, on the title screen of a game being built for phones.
+##
+## 46 px is 8.4 mm / 9.25 mm. It is not 49 (a strict 9 mm on the SMALLER phone) for the
+## same arithmetic reason `PauseMenu.ROW_H` is not: 49 costs one row on every screen in
+## the game, and this column has to hold a logo, three verbs and two status lines.
+const BUTTON_H: float = 46.0
 const PANEL_W: float = 292.0
 
 ## FIXED height of the discovered-host list, in base units. This is the whole
@@ -237,8 +248,19 @@ func _build_ui() -> void:
 	# screen says it with. `GameLogo` draws the sigil the game already casts with, with
 	# the tower standing in it, and it is the SAME Control the app icon and the social
 	# avatar are stamped from, so the three cannot drift apart.
+	# ⚠ 112 -> 76, MEASURED. `tools/probe_ui_screens.gd` printed the logo as the
+	# tallest element on the screen at **112 px = 31% of the 360-px viewport** — the
+	# single biggest thing on a front door the maker called "too large", and nearly a
+	# third of the page spent on a mark that has already been read by the time the
+	# thumb moves. 76 px is 21%, which leaves the three buttons room to grow to a size
+	# a thumb can actually hit (BUTTON_H above) without the column getting taller:
+	# 253 px before, and the same order of magnitude after, with every target bigger.
+	#
+	# ⚠ THE MARK ITSELF IS NOT REDRAWN. `GameLogo` scales its own drawing to the rect
+	# it is given, and it is the SAME Control the app icon and the social avatar are
+	# stamped from — changing the art here would move all three.
 	var title := GameLogo.new()
-	title.custom_minimum_size = Vector2(PANEL_W, 112.0)
+	title.custom_minimum_size = Vector2(PANEL_W, 76.0)
 	title.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	# The Lobby paints its own PAPER, and the logo's disc is the same colour, so the
 	# emblem would read as a hole. Shrunk slightly and left to sit on the page.
@@ -272,7 +294,10 @@ func _build_ui() -> void:
 	# you climb (the PREPARE row) — labelled, so the screen answers "what is this
 	# group for" instead of presenting eight equal choices.
 	var play := _button("ENTER THE TOWER  ▸", _play_solo, 19)
-	play.custom_minimum_size = Vector2(PANEL_W, BUTTON_H + 8.0)
+	# Still the biggest target on the page — it is the whole game — but the margin over
+	# the others is 6 px now rather than 8, because the others are no longer too small
+	# to hit. A hierarchy built out of a target that MISSES is not a hierarchy.
+	play.custom_minimum_size = Vector2(PANEL_W, BUTTON_H + 6.0)
 	play.add_theme_color_override("font_color", CHALK)
 	right.add_child(play)
 

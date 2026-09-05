@@ -1,5 +1,7 @@
 class_name LocalCoop
 extends Node
+
+const HudStyle := preload("res://scripts/ui/HudStyle.gd")
 ## SAME-SCREEN CO-OP: press a button on a pad, a climber walks in.
 ##
 ## Maker: *"one on keyboard for example one on controller or both on controller"*.
@@ -424,7 +426,11 @@ func _spawn_hero(pad: PadController) -> Node:
 func _build_bar_for(hero: Node, device: int) -> void:
 	var layer := CanvasLayer.new()
 	# Same layer the arena gives player one's bar, so the two read as one HUD.
-	layer.layer = 60
+	# ⚠ 60 IS `LAYER_SHOUT`. Player one's hotbar is on LAYER_HUD (50), so this put the two
+	# players' bars on different layers AND put P2's on the same index as the Hype shouts —
+	# the exact two-CanvasLayers-on-one-index collision the allocation was written to stop,
+	# reintroduced. Two layers on one index resolve by tree order, i.e. by accident.
+	layer.layer = HudStyle.LAYER_HUD
 	add_child(layer)
 	var bar := AbilityBar.new()
 	bar.bound_hero = hero

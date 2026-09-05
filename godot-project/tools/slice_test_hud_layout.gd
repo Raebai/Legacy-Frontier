@@ -57,6 +57,7 @@ const TESTS: Array[String] = [
 	"third_affix_does_not_grow_the_card",
 	"body_attached_hud_holds_its_on_screen_size",
 	"damage_numbers_draw_under_the_health_bars",
+	"the_boss_bar_escalates_for_every_accent",
 ]
 
 var _fails: int = 0
@@ -115,6 +116,7 @@ func _run() -> void:
 	_test_third_affix()
 	_test_zoom_rule()
 	_test_z_order()
+	_test_boss_escalation()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -324,10 +326,17 @@ func _test_pause_corner() -> void:
 	if chain == null:
 		return
 	var r: Rect2 = chain.get_global_rect()
-	_expect(not r.intersects(HudStyle.PAUSE_CORNER),
+	# ⚠ `pause_corner(view)`, NOT THE CONST. `PauseMenu` anchors its button to the RIGHT
+	# EDGE, and `aspect="expand"` gives a 20:9 phone about 800 logical px of width — so
+	# the fixed const at x 580..640 describes empty screen 160px from the real button
+	# (measured: `tools/probe_hero_hud.gd` section 3). This assertion was being made
+	# against a rect that is only correct on 16:9, which is the shape of screen the
+	# maker's monitor happens to be.
+	var view: Vector2 = root.get_visible_rect().size
+	_expect(not r.intersects(HudStyle.pause_corner(view)),
 		("the chain counter %s enters the pause button's reserved corner %s — on a "
 		+ "phone that is the combo label rendering over the only way to pause")
-		% [r, HudStyle.PAUSE_CORNER])
+		% [r, HudStyle.pause_corner(view)])
 	_expect(r.position.x >= 0.0 and r.end.x <= HudStyle.BASE_VIEWPORT.x + 0.51,
 		"the chain counter %s runs off the side of a %.0f-wide screen"
 		% [r, HudStyle.BASE_VIEWPORT.x])
@@ -590,3 +599,43 @@ func _find_node_of_type(n: Node, cls: String) -> Node:
 		if deep != null:
 			return deep
 	return null
+
+
+# ══════════════════════════════════════════════════════════════════════ 11
+## DOES THE BOSS BAR ACTUALLY ESCALATE.
+##
+## ⚠ THE LADDER USED TO BE LERPED 55% TOWARD EACH BOSS'S OWN ACCENT AT EVERY RUNG, so a
+## boss with a cool accent got a cool "about to die" colour: measured, a cyan
+## draughtsman's P3 fill came out at r 0.43 / g 0.68 — the bar escalated from cyan,
+## through cyan, to cyan. The bar's whole job in the last third of a Cuphead-hard fight
+## is to say "nearly", and a colour that never becomes an alarm never says it.
+##
+## HEAT IS r MINUS g, not r. The red CHANNEL alone reports P1's gold (r 0.98) as hotter
+## than P3's red (r 0.95), which is the opposite of what the eye does, because gold is
+## red with a lot of green in it. Measuring the wrong channel is how this would have
+## passed while looking wrong.
+func _test_boss_escalation() -> void:
+	var accents: Array = [
+		["EMBER", HudStyle.EMBER], ["DANGER", HudStyle.DANGER], ["GOLD", HudStyle.GOLD],
+		["AZURE", HudStyle.AZURE], ["MINT", HudStyle.MINT],
+		["cyan", Color(0.0, 1.0, 1.0)],
+	]
+	for a: Array in accents:
+		var heat: Array[float] = []
+		for phase: int in 3:
+			heat.append(BossBar.heat(BossBar.phase_fill(phase, a[1])))
+		_expect(heat[0] < heat[1] and heat[1] < heat[2],
+			("a `%s` boss's bar does not get hotter as it escalates: heat %+.3f -> "
+			+ "%+.3f -> %+.3f") % [a[0], heat[0], heat[1], heat[2]])
+		_expect(heat[2] > 0.0,
+			("a `%s` boss's LAST phase reads cool (heat %+.3f) — the one rung where "
+			+ "the bar has to be an alarm is the one where the accent won")
+			% [a[0], heat[2]])
+	# The low-health breath has to mean "past the last gate", not "in the last phase".
+	# The notches are at 66% and 33%; a pulse that started at 33% would run for a whole
+	# third of the fight and be wallpaper by the time it mattered.
+	_expect(BossBar.LOW_FRACTION < 0.33,
+		("the boss bar's low-health pulse starts at %.2f, at or above the 33%% phase "
+		+ "notch — it would breathe for the entire last phase")
+		% BossBar.LOW_FRACTION)
+	_completes("the_boss_bar_escalates_for_every_accent")

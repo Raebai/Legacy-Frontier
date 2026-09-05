@@ -69,7 +69,12 @@ const GOLD: Color = HudStyle.GOLD       # conquered
 const ASH: Color = HudStyle.EMBER       # rubbed out
 const SLATE: Color = HudStyle.SKY       # stepped off alive
 
-const BUTTON_H: float = 30.0
+## ⚠ 30 -> 46, THE SAME MILLIMETRE MEASUREMENT AS `PauseMenu.ROW_H` AND
+## `Lobby.BUTTON_H`. 360 base px map to the physical screen's SHORT edge
+## (`aspect=expand` keeps the height), so a base px is 0.183 mm on a 6.1" phone and
+## 0.201 on a 6.7": a 30-px button is 5.5-6.0 mm against the ~9 mm a thumb needs.
+## This card is the LAST thing a run shows and its buttons are the only way off it.
+const BUTTON_H: float = 46.0
 const PANEL_W: float = 300.0
 ## Room left for the drawn page on the left. Same split as the Lobby's tower.
 const STAT_W: float = 250.0

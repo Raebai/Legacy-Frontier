@@ -21,6 +21,27 @@ const PHASE_COLORS: Array[Color] = [
 	HudStyle.EMBER,            # P2
 	Color(0.95, 0.28, 0.23),   # P3 — EMBER.lerp(DANGER, 0.7)
 ]
+## How far the phase colour is pulled toward THIS boss's accent, per phase.
+##
+## ⚠ IT USED TO BE A FLAT 0.55 AND THAT MADE THE LAST PHASE COOL FOR A COOL BOSS. The
+## ladder is an ESCALATION — the bar gets hotter as the fight gets worse, which is the
+## only thing on screen saying "nearly there" — and lerping it 55% toward an arbitrary
+## accent at every rung let the accent win the argument at exactly the rung that
+## matters. Measured, for a cyan draughtsman (accent 0,1,1) on the old flat weight, the
+## P3 fill came out at r 0.43 / g 0.68: the "he is about to die" colour was CYAN, and
+## the phase ladder had escalated the bar from cyan, through cyan, to cyan.
+##
+## Falling weights keep the boss's identity where identity is what the colour is for —
+## the opening, when you are learning who this is — and hand the last third back to the
+## alarm. `tools/probe_hero_hud.gd` prints the r-g "heat" of every rung for every accent
+## in the roster; it is monotonically increasing and positive at P3 for all of them.
+const PHASE_ACCENT_PULL: Array[float] = [0.55, 0.40, 0.20]
+## Under this, the fill breathes. The hero's bar has pulsed below `LOW_FRACTION` 0.35
+## since it was built and the boss's bar had NO low state at all — its only escalation
+## was a hue step at the 66/33 notches, so the difference between "a third left" and
+## "one more hit" was nothing. 0.15 rather than the hero's 0.35 because a boss spends a
+## whole phase under 0.33 and a bar that pulses for a third of the fight is wallpaper.
+const LOW_FRACTION: float = 0.15
 const BAR_H: float = 15.0
 const WIDTH_FRAC: float = 0.62
 ## THE MINI-GUARDIAN'S BAR. A floor-1 guardian is an event, not the headline act —
@@ -44,6 +65,9 @@ var _ratio: float = 1.0
 var _shown: float = 1.0   # eased display ratio (a smooth drain)
 var _name_label: Label = null
 var _accent: Color = DEFAULT_ACCENT
+## Free-running clock for the low-health breath. Advanced in `_process` rather than read
+## off `Time` so a paused tree freezes the pulse with everything else.
+var _phase_clock: float = 0.0
 
 
 ## THE BAR IS TOLD WHO IT IS DRAWING.
@@ -103,11 +127,21 @@ func _process(delta: float) -> void:
 	if _boss == null or not is_instance_valid(_boss):
 		queue_redraw()
 		return
-	var mx: float = float(_boss.get("max_hp"))
-	var hp: float = float(_boss.get("hp"))
+	# ⚠ `get()` ON A MISSING PROPERTY RETURNS null, AND `float(null)` IS AN ERROR, not a
+	# zero. `setup()` takes any Node — `Boss`, `TowerBoss`, and a null in the layout
+	# suite — so "it is a boss, it has max_hp" is an assumption about a parameter this
+	# file does not type. Checked rather than assumed.
+	var raw_mx: Variant = _boss.get("max_hp")
+	var raw_hp: Variant = _boss.get("hp")
+	if raw_mx == null or raw_hp == null:
+		queue_redraw()
+		return
+	var mx: float = float(raw_mx)
+	var hp: float = float(raw_hp)
 	if mx > 0.0:
 		_ratio = clampf(hp / mx, 0.0, 1.0)
 	_shown = move_toward(_shown, _ratio, delta * 0.6)   # smooth drain
+	_phase_clock += delta
 	queue_redraw()
 
 
@@ -156,13 +190,32 @@ func _draw() -> void:
 	# ladder is the Guardian's (cool -> hot as the fight escalates), pulled toward
 	# THIS boss's accent — so a cyan draughtsman does not get an ember-orange bar,
 	# and the Guardian's own bar is within a rounding error of what it always was.
-	var col: Color = PHASE_COLORS[_phase_index()].lerp(_accent, 0.55)
+	var col: Color = phase_fill(_phase_index(), _accent)
+	if _ratio <= LOW_FRACTION:
+		# The same breath the hero's bar uses, at the same rate, because to the player
+		# the two mean the same thing pointed in opposite directions.
+		col = col.lerp(HudStyle.CHALK, 0.20 + 0.20 * sin(_phase_clock * 7.0))
 	draw_rect(Rect2(x0, y0, bar_w * _shown, bar_h), HudStyle.with_a(HudStyle.CHIP, 0.5))
 	draw_rect(Rect2(x0, y0, bar_w * _ratio, bar_h), col)
 	# Phase-gate notches at 66% and 33%.
 	for frac: float in [0.66, 0.33]:
 		var nx: float = x0 + bar_w * frac
 		draw_rect(Rect2(nx - 1.0, y0 - 1.0, 2.0, bar_h + 2.0), HudStyle.ink(0.85))
+
+
+## The fill colour for a phase, for a boss with this accent. Public and pure so a probe
+## can print the whole ladder for the whole roster without standing up a fight, and so a
+## test can assert the ladder actually escalates rather than reading the constants back.
+static func phase_fill(phase: int, accent: Color) -> Color:
+	var i: int = clampi(phase, 0, PHASE_COLORS.size() - 1)
+	return PHASE_COLORS[i].lerp(accent, PHASE_ACCENT_PULL[i])
+
+
+## How HOT a colour reads, as r minus g. The honest metric for this ladder: the red
+## CHANNEL alone says P1's gold (r 0.98) is hotter than P3's red (r 0.95), which is the
+## opposite of what the eye reports, because gold is red plus a lot of green.
+static func heat(c: Color) -> float:
+	return c.r - c.g
 
 
 func _phase_index() -> int:

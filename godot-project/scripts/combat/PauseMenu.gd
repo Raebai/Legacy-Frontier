@@ -120,7 +120,11 @@ const BRIGHTNESS_META: StringName = Settings.BRIGHTNESS_META
 ## three spell buttons, both near the bottom of the screen, so the top corners are the
 ## only real estate a thumb is never resting on. Right rather than left because a
 ## right-handed grip reaches it without crossing the aim stick.
-const PAUSE_BTN_SIZE: Vector2 = Vector2(44.0, 44.0)
+## ⚠ 44 -> 46, MATCHING `ROW_H`. It was the LARGEST target in the whole menu and still
+## 8.05 mm on the 6.1" reference; at 46 it is 8.4/9.25 mm and it is no longer the one
+## control that disagrees with every row it opens. It still fits `HudStyle.PAUSE_CORNER`
+## (a reserved 60x60 at the top right): 46 + PAUSE_BTN_MARGIN 10 = 56.
+const PAUSE_BTN_SIZE: Vector2 = Vector2(46.0, 46.0)
 ## Margin from the screen corner. Generous enough to clear a rounded corner and a
 ## notch cutout, which is the failure mode you only find on hardware.
 const PAUSE_BTN_MARGIN: float = 10.0
@@ -180,6 +184,62 @@ const PANEL_PAD: float = 10.0       # the card's own inner padding, per side
 ## The width the settings rows were authored against (240 px controls + air). Only an
 ## upper bound now: a column of short rows gets a narrower card.
 const CARD_MAX_W: float = 330.0
+
+## ══ HOW BIG A ROW HAS TO BE, IN MILLIMETRES ═══════════════════════════════════
+## ⚠ MEASURED FROM THE PROJECT'S OWN STRETCH SETTINGS, NOT PICKED. `project.godot` is
+## 640x360 with `stretch=canvas_items` and `aspect=expand`; expand keeps the base
+## HEIGHT and grows the WIDTH, so 360 logical px always maps to the whole SHORT edge of
+## the physical screen — in landscape, the screen's height. That fixes the conversion:
+##
+##   6.1" 19.5:9 phone   short edge 65.9 mm   0.183 mm/px   ->   9 mm = 49 px
+##   6.7" 19.5:9 phone   short edge 72.4 mm   0.201 mm/px   ->   9 mm = 45 px
+##
+## The rows were 28 and 30 px — **5.1 to 6.0 mm**, every one of them under target, on
+## the one platform this game is being built for. `tools/probe_ui_screens.gd` printed
+## "27 of 27 distinct targets are under 9 mm".
+##
+## ⚠ 46, AND THE REASON IT IS NOT 49, IS ARITHMETIC RATHER THAN TASTE. A card gets
+## `360 - 2*SCREEN_MARGIN - 2*PANEL_PAD` = **324 px**. At 49 px a page holds SIX rows;
+## at 46 it holds seven, and every settings page here needs a title, its knobs and a
+## way out. 46 px is 9.25 mm on the larger reference phone and 8.4 mm on the smaller —
+## so the target is cleared on one and missed by 0.6 mm on the other, against 5.5 mm
+## before. Buying the last 0.6 mm costs one row on every page in the menu, which is
+## the same trade that produced the 771-px column this change exists to break up.
+const ROW_H: float = 46.0
+## A slider's HIT AREA is the whole control, not the grabber — so the track being 16 px
+## tall meant a 2.9 mm target you had to hit before you could even start dragging.
+## 26 px is 4.8/5.2 mm on its own, and the caption above it is not tappable, so the row
+## as a whole reads as ~41 px; the drag itself is forgiving in a way a tap is not,
+## which is why this is allowed to be the one control under ROW_H.
+const SLIDER_H: float = 26.0
+
+## ══ WHY THE ONE SETTINGS COLUMN BECAME FIVE PAGES ═════════════════════════════
+## Maker, verbatim: *"even how the settings are shown is so clunky and unoptimised —
+## show it, break it down into slightly more buttons and clearer"*. Measured before
+## (`tools/probe_ui_screens.gd`, 640x360):
+##
+##     settings   20 rows   34 controls   324 px card   771 px content   2.38 screens
+##
+## Twenty rows in a 324-px window: two and a half screens of dragging, with a volume
+## slider, a friendly-fire switch and a colourway cycler stacked in one undifferentiated
+## list, and the only landmark in it a single "Appearance" heading.
+##
+## ⚠ MORE BUTTONS, NOT FEWER — WHICH IS THE OPPOSITE OF THE INSTINCT. The cheap fix is
+## to consolidate rows; that makes each row mean more and the list shorter, and it is
+## wrong here, because the fault is not the row COUNT, it is that a player looking for
+## the brightness has to read fifteen unrelated knobs to find it. Four named doors put
+## a name on every group, and each door's page answers one question — how loud, how it
+## looks, how it plays, what the keys are.
+##
+## ⚠ THE HUB KEEPS `_settings_col`, AND THAT IS A HARD CONSTRAINT. Three hosts inject
+## their own knobs through `add_setting_button` (`FreePlay` 4, `BotMatch` 5,
+## `VersusArena` 5) and `tools/slice3_test_versus.gd` — not this workstream's file —
+## reads `menu._settings_col`'s DIRECT Button children and asserts "Back" then
+## "Resume  (Esc)" are the last two. So the hub is still that column, `_pin_footer`
+## still pins that pair, and an injected row still lands above them.
+const PAGE_AUDIO: String = "SOUND"
+const PAGE_VIDEO: String = "PICTURE"
+const PAGE_GAME: String = "GAMEPLAY"
 
 ## -- rebinding ----------------------------------------------------------------
 ## ⚠ THE PROJECT'S OWN BINDINGS ARE NEVER EDITED. `project.godot` is not this
@@ -258,6 +318,21 @@ var _rebind_caps: Dictionary = {}
 var _rebinding: StringName = &""
 var _rebind_note: Label = null
 
+## -- the three knob pages ------------------------------------------------------
+## Same `[center, scroll, col]` triple as every other page. Named `_audio_*`,
+## `_video_*`, `_game_*` so `tools/probe_ui_screens.gd` can DISCOVER them by name
+## rather than being handed a list somebody has to remember to extend — a page added
+## tomorrow is measured tomorrow, not the day someone notices it never was.
+var _audio_center: CenterContainer = null
+var _audio_scroll: ScrollContainer = null
+var _audio_col: VBoxContainer = null
+var _video_center: CenterContainer = null
+var _video_scroll: ScrollContainer = null
+var _video_col: VBoxContainer = null
+var _game_center: CenterContainer = null
+var _game_scroll: ScrollContainer = null
+var _game_col: VBoxContainer = null
+
 
 ## Build the overlay. `exit_label` names the exit button (e.g. "Exit to Hub" /
 ## "Quit"). Starts hidden — the host calls open() on Esc.
@@ -281,6 +356,9 @@ func build(exit_label: String = "Exit to Hub") -> void:
 	Settings.capture_input_defaults()
 	_build_main()
 	_build_settings()
+	_build_audio_page()
+	_build_video_page()
+	_build_game_page()
 	_build_controls()
 	_build_pause_button()
 	_build_brightness_overlay()
@@ -734,52 +812,189 @@ func _pin_footer() -> void:
 		_settings_col.move_child(_resume_btn, last)
 
 
+## THE SETTINGS HUB — four doors, not twenty rows. See the PAGE_* block for the
+## measurement that forced it and for why `_settings_col` is still this column.
+##
+## ⚠ THE ORDER IS BY HOW OFTEN A PLAYER OPENS IT, NOT BY ENGINE CATEGORY. Sound is
+## first because muting a game is the one setting somebody changes in a hurry, and
+## with somebody else in the room. Picture second (brightness is the reason this menu
+## grew a row at all — ten authored biomes, several underground, played outdoors).
+## Gameplay third. Controls last, because it is a keyboard page and this is a phone
+## game: it is the one door most players will never open.
 func _build_settings() -> void:
-	# SCROLLED, and now also SIZED — see the SCREEN_MARGIN block for the measurement.
-	# Hosts inject their own rows here (the duel's five knobs) on top of the built-ins.
 	var page: Array = _build_page("SETTINGS", HudStyle.BODY)
 	_settings_center = page[0] as CenterContainer
 	_settings_scroll = page[1] as ScrollContainer
 	_settings_col = page[2] as VBoxContainer
 	_settings_center.visible = false
+	# ⚠ 4, NOT THE 8 `_build_page` HANDS OUT. Seven rows at ROW_H plus six 8-px gaps is
+	# 370 px into a 324-px card; at 4 it is 346 with the title, and the two exits below
+	# the doors are the rows that get to be tight because they are not knobs.
+	_settings_col.add_theme_constant_override("separation", 4)
 
-	_settings_col.add_child(_slider_row("Master Volume", 0.0, 1.0, 0.01,
+	_settings_col.add_child(_settings_row_button("%s  ▸" % PAGE_AUDIO,
+		func() -> void: _show_page(_audio_center)))
+	_settings_col.add_child(_settings_row_button("%s  ▸" % PAGE_VIDEO,
+		func() -> void: _show_page(_video_center)))
+	_settings_col.add_child(_settings_row_button("%s  ▸" % PAGE_GAME,
+		func() -> void: _show_page(_game_center)))
+	# ⚠ THE CONTROLS PAGE ALREADY EXISTED AND IS THE SHAPE THE OTHER THREE COPY. It is
+	# the proof the split works: twenty binding rows were never going to live in the
+	# settings column, so they were given their own page — and every argument for
+	# doing that applies just as hard to fifteen knobs.
+	_settings_col.add_child(_settings_row_button("CONTROLS  ▸", _open_controls))
+
+	# ⚠ HOST KNOBS LAND HERE, ON THE HUB, AND THAT IS DELIBERATE. `add_setting_button`
+	# is called by three combat scenes with rows this file has never seen ("Fighter A",
+	# "Bot intent", "Practice dummies"). Filing them under one of the four doors would
+	# mean guessing which — and a duel knob is not Sound, Picture or Gameplay, it is
+	# *this arena*. They arrive above the footer pair, which is what `_pin_footer`
+	# guarantees and what `slice3_test_versus` asserts.
+
+	_back_btn = _settings_row_button("Back", _close_settings)
+	_settings_col.add_child(_back_btn)
+	# ⚠ AND A WAY STRAIGHT BACK INTO THE GAME. Maker: *"pausing should have a resume
+	# button as well when I pause"*. It emits the SAME `resume_requested` the main row
+	# does rather than closing anything itself, so the host stays the owner of the
+	# actual unpause — see the note on that signal.
+	_resume_btn = _settings_row_button("Resume  (Esc)",
+		func() -> void: resume_requested.emit())
+	_settings_col.add_child(_resume_btn)
+
+
+## One sub-page: title, knobs, and a single Back to the hub. Built through the same
+## `_build_page` sandwich as everything else so a fourth knob page cannot invent a
+## fifth look — which is exactly what the HUD survey found had happened to the rest of
+## this game's UI before `HudStyle` existed.
+func _build_sub_page(title_text: String) -> Array:
+	var page: Array = _build_page(title_text, HudStyle.BODY)
+	(page[0] as CenterContainer).visible = false
+	# ⚠ 4, MATCHING THE HUB, AND IT IS LOAD-BEARING RATHER THAN COSMETIC. At 6 the
+	# PICTURE page measured 333 px into a 324-px card — nine pixels, one gap's worth,
+	# and the page scrolled for it.
+	(page[2] as VBoxContainer).add_theme_constant_override("separation", 4)
+	return page
+
+
+## The Back row every sub-page ends with. Its own call rather than three copies,
+## because three copies of "the way out" is how one of them ends up 220 px wide next
+## to two that are 240.
+func _add_sub_back(col: VBoxContainer) -> void:
+	col.add_child(_settings_row_button("Back", func() -> void: _show_page(_settings_center)))
+
+
+# ------------------------------------------------------------------- SOUND
+## Three rows. Master and Music are the two buses that exist; "Next Track" is here
+## rather than on the hub because it is a thing you do TO the sound, and a player
+## hunting for the volume should meet it on the way.
+func _build_audio_page() -> void:
+	var page: Array = _build_sub_page(PAGE_AUDIO)
+	_audio_center = page[0] as CenterContainer
+	_audio_scroll = page[1] as ScrollContainer
+	_audio_col = page[2] as VBoxContainer
+	_audio_col.add_child(_slider_row("Master Volume", 0.0, 1.0, 0.01,
 		_current_master_linear(), _on_volume_changed))
 	# Music volume — drives the dedicated Music bus (independent of Master/SFX).
-	_settings_col.add_child(_slider_row("Music Volume", 0.0, 1.0, 0.01,
+	_audio_col.add_child(_slider_row("Music Volume", 0.0, 1.0, 0.01,
 		_current_music_linear(), _on_music_volume_changed))
 	# The "cool option": cycle the current mood's playlist (same as the M key).
-	_settings_col.add_child(_settings_row_button("Next Track  (M)", func() -> void:
+	_audio_col.add_child(_settings_row_button("Next Track  (M)", func() -> void:
 		var m: Node = get_node_or_null("/root/Music")
 		if m != null and m.has_method("cycle_track"):
 			m.call("cycle_track")))
+	_add_sub_back(_audio_col)
+
+
+# ----------------------------------------------------------------- PICTURE
+## Everything that decides what you can SEE, in the order the question is usually
+## asked: what is the renderer doing, how bright is the panel, how big is the window,
+## and how much of the room is in frame.
+func _build_video_page() -> void:
+	var page: Array = _build_sub_page(PAGE_VIDEO)
+	_video_center = page[0] as CenterContainer
+	_video_scroll = page[1] as ScrollContainer
+	_video_col = page[2] as VBoxContainer
+
+	# GRAPHICS QUALITY. Three states rather than a checkbox because AUTO (the shipping
+	# default: LOW on a mobile export, HIGH everywhere else) is a real answer and not
+	# the absence of one. The reason it belongs in the player-facing menu rather than
+	# staying an inspector field: forcing LOW on a desktop renders the PHONE'S PICTURE
+	# without a phone, and no APK has ever been built.
+	_quality_btn = _settings_row_button(_quality_label(), _on_quality_pressed)
+	_video_col.add_child(_quality_btn)
+	# Directly under Graphics because the two are one question — "can I see what is
+	# happening" — asked of the renderer and then of the panel it is played on.
+	_brightness_btn = _settings_row_button(_brightness_label(), _on_brightness_pressed)
+	_video_col.add_child(_brightness_btn)
+	# ⚠ FULLSCREEN GETS A ROW *AND* A KEY. Maker: *"this game needs full screen
+	# capabilities"*. F11 is the muscle memory and `Screen` owns it globally, but a
+	# setting that exists only as an unlabelled keybind is a setting most players never
+	# find — and this page is where they will look.
+	_fullscreen_btn = _settings_row_button(_fullscreen_label(), _on_fullscreen_pressed)
+	_video_col.add_child(_fullscreen_btn)
 
 	# Camera zoom (maker: "we should be able to alter the zoom in the setting").
 	# Slider LEFT = wider view, RIGHT = tighter. Applies live + persists.
-	_settings_col.add_child(_slider_row("Camera Zoom", 1.0, 2.6, 0.05,
+	#
+	# ⚠ IT MOVED OFF THE GAMEPLAY PAGE, AND THE REASON IS THE PIXEL BUDGET RATHER THAN
+	# A RECLASSIFICATION. Zoom is a feel knob and it sat with shake and aim assist; but
+	# Gameplay carries the friendly-fire switch AND its note AND the PvP row, and at
+	# ROW_H those seven rows do not fit 324 px. Zoom is the one of the three that can
+	# be argued into Picture without lying — it decides how much of the room is drawn.
+	_video_col.add_child(_slider_row("Camera Zoom", 1.0, 2.6, 0.05,
 		_current_zoom(), _on_zoom_changed))
+
+	# YOUR COLOURWAY — see `_build_appearance` for why it earns a row at all. It is
+	# here rather than on GAMEPLAY because it is a LOOK, and because GAMEPLAY measured
+	# 324 px of a 324-px card without it: this is the row that decides whether that
+	# page scrolls.
+	_build_appearance()
+
+	# PERFORMANCE OVERLAY. Next to the quality toggle because the two are one workflow:
+	# flip to LOW, watch the frame time. Silently absent when the Perf autoload is not
+	# registered (a headless run, or a build that excluded it) — which is also why this
+	# page is allowed to be the one that scrolls in a dev build and not in a shipped one.
+	if _perf_overlay() != null:
+		_video_col.add_child(_settings_row_button("Performance Overlay", func() -> void:
+			var p: Node = _perf_overlay()
+			if p != null and p.has_method("toggle"):
+				p.call("toggle")))
+	_add_sub_back(_video_col)
+
+
+# ---------------------------------------------------------------- GAMEPLAY
+## How the fight behaves and how the fighters look. The one page that still scrolls a
+## little, and it is the honest outcome of the arithmetic: at ROW_H a 324-px card
+## holds seven rows, and this page needs five knobs, a note, a heading and a way out.
+## Splitting it into a fifth door would have put a sixth row on the HUB, which pushes
+## the hub past 324 instead — the pixels have to be somewhere.
+func _build_game_page() -> void:
+	var page: Array = _build_sub_page(PAGE_GAME)
+	_game_center = page[0] as CenterContainer
+	_game_scroll = page[1] as ScrollContainer
+	_game_col = page[2] as VBoxContainer
 
 	# Screen shake intensity (0 = off) — motion-sensitivity accessibility; drives
 	# Tuning.cfg.shake_scale, which CombatCamera already reads live.
-	_settings_col.add_child(_slider_row("Screen Shake", 0.0, 1.0, 0.05,
+	_game_col.add_child(_slider_row("Screen Shake", 0.0, 1.0, 0.05,
 		_current_shake(), _on_shake_changed))
-
-	# Hit-stop toggle — some players dislike the micro-freeze on impacts.
-	var hs_btn := CheckButton.new()
-	hs_btn.text = "Hit-Stop"
-	hs_btn.button_pressed = _current_hit_stop()
-	hs_btn.toggled.connect(_on_hit_stop_toggled)
-	_style_check(hs_btn)
-	_settings_col.add_child(hs_btn)
 
 	# AIM ASSIST. Ships at 0 and 0 is inert — see SpellTargets.assist_aim, which
 	# returns the aim it was given before it scans anything at that strength. The
 	# slider exists so the spectrum the mobile spec asks for HAS a home without
-	# reversing the maker's locked no-auto-aim decision, and so the question can be
-	# answered by hand instead of by argument. It bends an aim you already chose by at
-	# most SpellTargets.ASSIST_MAX_DEGREES; it never picks a target.
-	_settings_col.add_child(_slider_row("Aim Assist  (0 = off)", 0.0, 1.0, 0.05,
+	# reversing the maker's locked no-auto-aim decision. It bends an aim you already
+	# chose by at most SpellTargets.ASSIST_MAX_DEGREES; it never picks a target.
+	_game_col.add_child(_slider_row("Aim Assist  (0 = off)", 0.0, 1.0, 0.05,
 		_current_aim_assist(), _on_aim_assist_changed))
+
+	# Hit-stop toggle — some players dislike the micro-freeze on impacts.
+	var hs_btn := CheckButton.new()
+	hs_btn.text = "Hit-Stop"
+	hs_btn.custom_minimum_size = Vector2(240, ROW_H)
+	hs_btn.button_pressed = _current_hit_stop()
+	hs_btn.toggled.connect(_on_hit_stop_toggled)
+	_style_check(hs_btn)
+	_game_col.add_child(hs_btn)
 
 	# ═══════════════════════════════════════════════════════════════ FRIENDLY FIRE
 	# ⚠ THE PLAYER HAD NO SWITCH FOR THE MECHANIC THE GAME IS BUILT AROUND.
@@ -794,91 +1009,31 @@ func _build_settings() -> void:
 	# THIS SHIPS ON/OFF AND NOT A SCALE, DELIBERATELY. A graded multiplier has to live
 	# where the damage is applied — `SpellTargets.hurt()`, which this workstream does
 	# not own — and a dial that scaled only the basic bolt while every AoE stayed at
-	# 100% would be worse than no dial. See the FriendlyFire header for the one-line
-	# seam that unlocks the graded version.
+	# 100% would be worse than no dial.
 	var ff_btn := CheckButton.new()
 	ff_btn.text = "Friendly Fire"
-	ff_btn.tooltip_text = ("ON: your spells hit your teammate. It is the point.
-"
+	ff_btn.custom_minimum_size = Vector2(240, ROW_H)
+	ff_btn.tooltip_text = ("ON: your spells hit your teammate. It is the point.\n"
 		+ "off: spells pass through each other — and through the crossfire jokes.")
 	ff_btn.button_pressed = FriendlyFire.enabled()
 	ff_btn.toggled.connect(_on_friendly_fire_toggled)
 	_style_check(ff_btn)
-	_settings_col.add_child(ff_btn)
+	_game_col.add_child(ff_btn)
 	_ff_check = ff_btn
 	_ff_note = Label.new()
 	_ff_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_ff_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_ff_note.custom_minimum_size = Vector2(240, 0)
 	_ff_note.add_theme_font_size_override("font_size", HudStyle.SMALL)
-	_settings_col.add_child(_ff_note)
+	_game_col.add_child(_ff_note)
 	_refresh_friendly_fire()
 
-	# GRAPHICS QUALITY. Three states rather than a checkbox because AUTO (the shipping
-	# default: LOW on a mobile export, HIGH everywhere else) is a real answer and not
-	# the absence of one. The reason it belongs in the player-facing menu rather than
-	# staying an inspector field: forcing LOW on a desktop renders the PHONE'S PICTURE
-	# without a phone, and no APK has ever been built — so this is currently the only
-	# way to look at what the mobile build will look like.
-	_quality_btn = _settings_row_button(_quality_label(), _on_quality_pressed)
-	_settings_col.add_child(_quality_btn)
-	# Directly under Graphics because the two are one question — "can I see what is
-	# happening" — asked of the renderer and then of the panel it is played on.
-	_brightness_btn = _settings_row_button(_brightness_label(), _on_brightness_pressed)
-	_settings_col.add_child(_brightness_btn)
-	# ⚠ FULLSCREEN GETS A ROW *AND* A KEY. Maker: *"this game needs full screen
-	# capabilities"*. F11 is the muscle memory and `Screen` owns it globally, but a
-	# setting that exists only as an unlabelled keybind is a setting most players never
-	# find — and this panel is where they will look. Same cycling-label shape as the
-	# quality and brightness rows above it.
-	_fullscreen_btn = _settings_row_button(_fullscreen_label(), _on_fullscreen_pressed)
-	_settings_col.add_child(_fullscreen_btn)
-	# HOW A PVP FIGHT IS WON. Same cycling-button shape as quality above, and for
-	# the same reason: two states and one label cost one row in a panel that is
-	# already scrolled to reach its bottom on a 720p window.
+	# HOW A PVP FIGHT IS WON. Same cycling-button shape as quality: two states and one
+	# label cost one row instead of four.
 	_pvp_btn = _settings_row_button(_pvp_label(), _on_pvp_pressed)
-	_settings_col.add_child(_pvp_btn)
+	_game_col.add_child(_pvp_btn)
 
-	# PERFORMANCE OVERLAY. Lives next to the quality toggle because the two are one
-	# workflow: flip to LOW, watch the frame time. Silently absent when the Perf
-	# autoload is not registered (a headless run, or a build that excluded it).
-	if _perf_overlay() != null:
-		_settings_col.add_child(_settings_row_button("Performance Overlay", func() -> void:
-			var p: Node = _perf_overlay()
-			if p != null and p.has_method("toggle"):
-				p.call("toggle")))
-
-	# ⚠ THE CONTROLS CARD IS GONE AND ITS REPLACEMENT IS EDITABLE. It was a single
-	# generated `Label` whose longest line measured 337 px in a panel authored at 320
-	# with `horizontal_scroll_mode` DISABLED and no autowrap — so it did not clip, it
-	# INFLATED the whole settings card to 343 px wide, which is why this panel was never
-	# the width it says it is. (On any viewport narrower than that it would clip
-	# outright, with the right-hand keys simply not drawn.)
-	#
-	# It was also read-only, in a game that had NO key rebinding anywhere — and the
-	# header on `CONTROL_ROWS` had already written down why that was cheap to fix: every
-	# input goes through a named action (D-011), so the letters were always coming out of
-	# `InputMap` at display time. The card is now one row per action with its key on a
-	# button you can press to change it. Same table, same source of truth, one page over.
-	_settings_col.add_child(_settings_row_button("Controls…", _open_controls))
-
-	_build_appearance()
-
-	_back_btn = _settings_row_button("Back", _close_settings)
-	_settings_col.add_child(_back_btn)
-	# ⚠ AND A WAY STRAIGHT BACK INTO THE GAME. Maker: *"pausing should have a resume
-	# button as well when I pause"*. The MAIN page has always had one — but a host that
-	# hangs its knobs here (the duel's Fighter A / Fighter B / Difficulty / Fighter HP
-	# rows all arrive through `add_setting_button`) drops you on THIS page, whose only
-	# exit was "Back" to a menu you then had to read again to find "Resume". Two
-	# presses and a page change to undo a pause you only opened to nudge a dial.
-	#
-	# It emits the SAME `resume_requested` the main row does rather than closing
-	# anything itself, so the host stays the owner of the actual unpause — see the note
-	# on that signal.
-	_resume_btn = _settings_row_button("Resume  (Esc)",
-		func() -> void: resume_requested.emit())
-	_settings_col.add_child(_resume_btn)
+	_add_sub_back(_game_col)
 
 
 # ------------------------------------------------------------------ controls
@@ -970,11 +1125,20 @@ static func _event_label(ev: InputEvent) -> String:
 ## which is what `_sync_colourway` does the first time this menu opens. The clean
 ## version is one line in `Hero._ready` — read `Outfitter.chosen_colourway` next to
 ## where it reads the class — and `Hero.gd` was owned elsewhere when this landed.
+## ⚠ IT BUILDS ONTO `_game_col`, NOT THROUGH `add_setting_section` /
+## `add_setting_button` ANY MORE. Those two are the HOST injection API and they append
+## to the settings HUB, which is now four doors and a footer — a colour cycler landing
+## there would put a knob on the page whose whole job is to have none. Same two rows,
+## one page over.
 func _build_appearance() -> void:
 	if Outfitter.colourways().is_empty():
 		return
-	add_setting_section("Appearance")
-	_colour_btn = add_setting_button(_colour_label(), _cycle_colour)
+	# ⚠ THE "Appearance" HEADING IS GONE. A section heading over a section of ONE row
+	# is 24 px of card spent telling the player that the next row is about appearance,
+	# on a row that already reads "Colour: …". It was the cheapest of the sixteen rows
+	# to cut and the PICTURE page needed exactly one.
+	_colour_btn = _settings_row_button(_colour_label(), _cycle_colour)
+	_video_col.add_child(_colour_btn)
 
 
 ## The palette entry the local hero is actually wearing, or -1 if there is no hero in
@@ -1022,11 +1186,26 @@ func _sync_colourway() -> void:
 ## Exactly one page is up at a time, and switching goes through here so a page added
 ## tomorrow cannot be left visible underneath another one — which is what happens the
 ## third time two booleans are flipped by hand in four places.
+## ⚠ ONE LIST, USED BY BOTH THE SWITCHER AND THE FITTER. It was two hardcoded triples
+## in two functions; adding the three knob pages to one and not the other is exactly
+## how a page ends up visible underneath another, or correctly hidden and never sized.
+func _all_pages() -> Array:
+	return [
+		[_main_center, _main_scroll, _main_col],
+		[_settings_center, _settings_scroll, _settings_col],
+		[_audio_center, _audio_scroll, _audio_col],
+		[_video_center, _video_scroll, _video_col],
+		[_game_center, _game_scroll, _game_col],
+		[_controls_center, _controls_scroll, _controls_col],
+	]
+
+
 func _show_page(which: Control) -> void:
 	_cancel_rebind()
-	for page: Control in [_main_center, _settings_center, _controls_center]:
-		if page != null:
-			page.visible = page == which
+	for page: Array in _all_pages():
+		var center: Control = page[0] as Control
+		if center != null:
+			center.visible = center == which
 	_fit_panels()
 
 
@@ -1049,9 +1228,8 @@ func _fit_panels() -> void:
 	if not is_inside_tree():
 		return
 	var avail: Vector2 = get_viewport_rect().size
-	_fit_one(_main_scroll, _main_col, avail)
-	_fit_one(_settings_scroll, _settings_col, avail)
-	_fit_one(_controls_scroll, _controls_col, avail)
+	for page: Array in _all_pages():
+		_fit_one(page[1] as ScrollContainer, page[2] as Control, avail)
 
 
 ## ⚠ THE RULE THAT WAS MISSING: `min(content, screen)`.
@@ -1202,7 +1380,10 @@ func _slider_row(caption: String, lo: float, hi: float, step: float, value: floa
 	s.min_value = lo
 	s.max_value = hi
 	s.step = step
-	s.custom_minimum_size = Vector2(240, 16)
+	# 16 -> SLIDER_H. A slider's hit area is the whole control; at 16 px it was a
+	# 2.9 mm target on the 6.1" reference phone — you had to hit the thing before you
+	# could start the drag that the size was supposedly forgiving about.
+	s.custom_minimum_size = Vector2(240, SLIDER_H)
 	s.value = value
 	s.value_changed.connect(cb)
 	_style_slider(s)
@@ -1216,7 +1397,7 @@ func _slider_row(caption: String, lo: float, hi: float, step: float, value: floa
 ## it, which is most of what the "ugly and unpolished" note is about.
 func _settings_row_button(text: String, cb: Callable) -> Button:
 	var b: Button = _menu_button(text, cb)
-	b.custom_minimum_size = Vector2(240, 28)
+	b.custom_minimum_size = Vector2(240, ROW_H)
 	return b
 
 
@@ -1224,7 +1405,10 @@ func _settings_row_button(text: String, cb: Callable) -> Button:
 func _menu_button(text: String, cb: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.custom_minimum_size = Vector2(220, 30)
+	# 30 -> ROW_H. Every menu row in this file was 28 or 30 px, which the probe measured
+	# at 5.1-6.0 mm on a phone: under target on BOTH reference devices, on the one
+	# platform this game is being built for. See the ROW_H block for the conversion.
+	b.custom_minimum_size = Vector2(220, ROW_H)
 	b.pressed.connect(cb)
 	_style_button(b)
 	return b
@@ -1419,9 +1603,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
-		if _controls_center != null and _controls_center.visible:
-			_open_settings()
-			return
+		# ⚠ ESC IS "BACK ONE PAGE" ON EVERY SUB-PAGE, NOT ONLY ON CONTROLS. It already
+		# had to be that on Controls (Esc is the cancel key for a key capture there, so
+		# a second meaning on the same screen reads as a bug); with three more pages a
+		# rule that applied to one of the four would be the near-miss instead. On the
+		# hub and the main page the shipped behaviour is untouched: Esc resumes.
+		for sub: Control in [_audio_center, _video_center, _game_center, _controls_center]:
+			if sub != null and sub.visible:
+				_open_settings()
+				return
 		resume_requested.emit()
 
 

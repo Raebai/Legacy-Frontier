@@ -48,7 +48,9 @@ extends SceneTree
 const TESTS: Array[String] = [
 	"the_harness_is_honest",
 	"the_panel_fits_the_screen",
-	"the_panel_scrolls_when_it_must",
+	"the_settings_split_into_pages",
+	"every_tap_target_is_thumb_sized",
+	"the_title_screen_is_not_oversized",
 	"nothing_is_wider_than_its_card",
 	"no_control_is_left_on_the_stock_theme",
 	"every_setting_survives_a_restart",
@@ -65,6 +67,31 @@ const HudStyle := preload("res://scripts/ui/HudStyle.gd")
 
 ## Somewhere that is not the maker's real settings file. See the header.
 const TEST_CFG: String = "user://settings_test.cfg"
+
+const LOBBY_SCENE: String = "res://scenes/ui/Lobby.tscn"
+
+## ⚠ MILLIMETRES PER BASE PIXEL, DERIVED FROM `project.godot` RATHER THAN CHOSEN.
+## 640x360 with `stretch=canvas_items` and `aspect=expand`: expand keeps the base
+## HEIGHT and grows the width, so 360 base px always map to the physical screen's SHORT
+## edge. On a 6.1" 19.5:9 phone that edge is 65.9 mm — the SMALLER of the two reference
+## devices, and therefore the one a layout has to survive. (A 6.7" gives 72.4 mm and
+## 0.201 mm/px, which is why 46 px clears 9 mm there and misses by 0.6 mm here.)
+const MM_PER_PX: float = 65.9 / 360.0
+
+## ⚠ THE FLOOR IS A LITERAL HERE, AND THE FIRST DRAFT OF THIS SUITE GOT IT WRONG IN A
+## WAY THAT PASSED. It asserted `h >= PauseMenu.ROW_H` — against the very constant the
+## rows are built from — so setting ROW_H back to its old 30 moved the floor down with
+## the buttons and the test stayed green through the exact regression it exists to
+## catch. Measured: with ROW_H reverted to 30 and SLIDER_H to 16, the suite reported
+## "all PASS" on the tap-target test.
+##
+## A test may not read the value under test. 46 px is written out here, and
+## `PauseMenu.ROW_H` is separately asserted to be at least this, so the constant and
+## the rows built from it are two independent claims.
+const MIN_TAP_PX: float = 46.0
+## A slider is a DRAG rather than a tap, and its caption is not tappable — so it is
+## allowed to be smaller than a button, but not the 16 px (2.9 mm) it shipped at.
+const MIN_SLIDER_PX: float = 26.0
 
 ## The base viewport (`project.godot` window/size/viewport_{width,height}).
 const BASE_W: float = 640.0
@@ -125,7 +152,9 @@ func _run() -> void:
 
 	_test_the_harness_is_honest()
 	await _test_the_panel_fits_the_screen()
-	await _test_the_panel_scrolls_when_it_must()
+	await _test_the_settings_split_into_pages()
+	await _test_every_tap_target_is_thumb_sized()
+	await _test_the_title_screen_is_not_oversized()
 	await _test_nothing_is_wider_than_its_card()
 	await _test_no_stock_theme()
 	await _test_every_setting_survives_a_restart()
@@ -189,7 +218,7 @@ func _test_the_panel_fits_the_screen() -> void:
 		var scroll: ScrollContainer = named[1] as ScrollContainer
 		if scroll == null:
 			continue
-		menu.call("_show_page", named[2])
+		menu.call("_show_page", named[3])
 		await process_frame
 		await process_frame
 		var r: Rect2 = scroll.get_global_rect()
@@ -205,35 +234,192 @@ func _test_the_panel_fits_the_screen() -> void:
 	_completes("the_panel_fits_the_screen")
 
 
-## Fitting is only half of it. A column taller than the screen has to SCROLL, and the
-## bug being fixed was a panel that did both wrongly at once: too tall for the screen
-## AND (for content between 360 and 520) too short to scroll.
-func _test_the_panel_scrolls_when_it_must() -> void:
+## ⚠ THIS TEST USED TO ASSERT THE EXACT OPPOSITE, AND THE REVERSAL IS THE POINT.
+##
+## It read: *"the built-in settings column is genuinely taller than one screen (%.0f vs
+## %.0f) — if this ever stops being true the scroll assertions below are vacuous"*, and
+## it passed at **771 px of content in a 324 px card: 2.38 screens of dragging.** That
+## was the correct invariant for the bug it was written against (a card resolving
+## 160 px off the bottom of the screen, where the fix was "make it scroll properly").
+## It is the wrong invariant for the fault the maker then reported — *"even how the
+## settings are shown is so clunky and unoptimised"* — because a card that scrolls
+## correctly through twenty undifferentiated rows is still twenty undifferentiated rows.
+##
+## The new claim is that the SPLIT happened: the hub is short, no page is a marathon,
+## and the 2.38-screen column does not exist anywhere any more.
+##
+## ⚠ THE VACUITY GUARD MOVED WITH IT. "Every page is short" is trivially true of a menu
+## with no pages, so the page COUNT and the presence of the four doors are asserted
+## first — that is what stops this from passing on a settings screen that has been
+## accidentally emptied.
+func _test_the_settings_split_into_pages() -> void:
 	var menu: PauseMenu = await _open_settings_menu()
-	var scroll: ScrollContainer = menu.get("_settings_scroll") as ScrollContainer
-	var col: VBoxContainer = menu.get("_settings_col") as VBoxContainer
-	_expect(scroll != null and col != null, "the settings page exposes its scroll + column")
-	if scroll == null or col == null:
+	var pages: Array = _pages(menu)
+	_expect(pages.size() == 6,
+		("the menu has all six pages — main, the settings hub, the three knob pages "
+		+ "and controls (got %d; a missing one is a page nothing below measures)")
+		% pages.size())
+
+	# The hub is DOORS, not knobs: four of them plus a title and the two exits.
+	var hub: VBoxContainer = menu.get("_settings_col") as VBoxContainer
+	_expect(hub != null, "the settings hub still exposes `_settings_col`")
+	if hub == null:
 		menu.queue_free()
 		return   # deliberately NOT completed: the missing sentinel fails the suite
-	var content: float = col.get_combined_minimum_size().y
-	var box: float = scroll.get_global_rect().size.y
-	_expect(content > box,
-		("the built-in settings column is genuinely taller than one screen (%.0f vs "
-		+ "%.0f) — if this ever stops being true the scroll assertions below are vacuous")
-		% [content, box])
-	var bar: VScrollBar = scroll.get_v_scroll_bar()
-	_expect(bar != null and bar.max_value - bar.page > 0.5,
-		"…and the scrollbar has somewhere to go, so the last row is reachable")
-	# The reachable band and the card are now the same thing — that is the fix.
-	var vp: Vector2 = root.get_visible_rect().size
-	var r: Rect2 = scroll.get_global_rect()
-	var lost: float = maxf(-r.position.y, 0.0) + maxf(r.end.y - vp.y, 0.0)
-	_expect(lost <= 0.5,
-		("0 px of the card is off-screen at any scroll position (got %.1f — this was "
-		+ "160.0 before the fix)") % lost)
+	var doors: Array[String] = []
+	for c: Node in hub.get_children():
+		if c is Button:
+			doors.append(String((c as Button).text))
+	for want: String in [PauseMenu.PAGE_AUDIO, PauseMenu.PAGE_VIDEO, PauseMenu.PAGE_GAME, "CONTROLS"]:
+		var found: bool = false
+		for d: String in doors:
+			if d.begins_with(want):
+				found = true
+		_expect(found, "the hub offers a `%s` door (got %s)" % [want, doors])
+	_expect(hub.get_child_count() <= 8,
+		("the hub is doors and exits only — %d rows (it was 20 knobs, 771 px, before "
+		+ "the split)") % hub.get_child_count())
+
+	# ⚠ NO SLIDER, NO CHECKBOX AND NO CYCLER MAY LIVE ON THE HUB. This is the assertion
+	# that actually stops the split from rotting: the cheapest way to add a setting is
+	# to append one more row to the column everything already reaches, which is exactly
+	# how the 771-px column grew in the first place. A knob has to pick a door.
+	_expect(_all(hub, "HSlider").is_empty(),
+		"no slider has crept back onto the hub (%d found)" % _all(hub, "HSlider").size())
+	_expect(_all(hub, "CheckButton").is_empty(),
+		"no checkbox has crept back onto the hub (%d found)"
+		% _all(hub, "CheckButton").size())
+
+	# And the marathon is gone. Measured per page, at the resolved rect.
+	for named: Array in pages:
+		var scroll: ScrollContainer = named[1] as ScrollContainer
+		var col: Control = named[2] as Control
+		if scroll == null or col == null:
+			continue
+		menu.call("_show_page", named[3])
+		await process_frame
+		await process_frame
+		var content: float = col.get_combined_minimum_size().y
+		var box: float = maxf(scroll.get_global_rect().size.y, 1.0)
+		var screens: float = content / box
+		# ⚠ THE CONTROLS PAGE IS EXEMPT AND THE REASON IS A MEASUREMENT, NOT A CARVE-OUT.
+		# It is one row per rebindable action — 24 of them — and a list of 24 things is
+		# a list. It is also the only page in the menu that CANNOT be used from a
+		# touchscreen: `Settings.is_rebindable_event` refuses everything that is not a
+		# key or a mouse button, so it is reached with a mouse, on a machine that has a
+		# scroll wheel.
+		var limit: float = 2.2 if named[0] == "controls" else 1.25
+		_expect(screens <= limit,
+			("the %s page is at most %.2f screens tall (got %.2f — %.0f px of content "
+			+ "in a %.0f px card; the single settings column was 2.38)")
+			% [named[0], limit, screens, content, box])
 	menu.queue_free()
-	_completes("the_panel_scrolls_when_it_must")
+	_completes("the_settings_split_into_pages")
+
+
+## ⚠ THE FAULT THE PROBE FOUND THAT NOBODY HAD NAMED: **every tap target in the menu
+## was too small for a thumb.** `tools/probe_ui_screens.gd` printed
+## "27 of 27 distinct targets are under 9 mm on the 6.1\" reference" — menu rows at 30
+## px, settings rows at 28, a slider track at 16.
+##
+## ⚠ THE CONVERSION IS READ OFF `project.godot`, NOT ASSUMED. 640x360 with
+## `aspect=expand` keeps the base HEIGHT and grows the width, so 360 base px always map
+## to the physical screen's SHORT edge — 65.9 mm on a 6.1" 19.5:9 phone, 72.4 on a 6.7".
+## That is 0.183 and 0.201 mm per base px, so 9 mm is 49 px and 45 px respectively.
+##
+## The floor asserted here is `PauseMenu.ROW_H` = 46 px, which clears 9 mm on the larger
+## reference phone and lands 0.6 mm short on the smaller. It is not 49 because 49 costs
+## one row on every page of a 324-px card, and the hub needs seven — see the ROW_H
+## block. What matters for a regression test is that nothing goes BACK below 46.
+func _test_every_tap_target_is_thumb_sized() -> void:
+	var menu: PauseMenu = await _open_settings_menu()
+	var checked: int = 0
+	var small: Array[String] = []
+	for named: Array in _pages(menu):
+		var page: Node = named[3] as Node
+		if page == null:
+			continue
+		menu.call("_show_page", page)
+		await process_frame
+		# ⚠ THE CONTROLS PAGE'S KEY CAPS ARE EXEMPT, for the same measured reason its
+		# length is: the page rebinds KEYBOARD and MOUSE events and refuses every other
+		# kind, so it cannot be operated from a touchscreen at all. A 9 mm rule is about
+		# a finger pad; this page is driven by a cursor.
+		if named[0] == "controls":
+			continue
+		for b: Button in _all(page, "Button"):
+			checked += 1
+			var h: float = maxf(b.custom_minimum_size.y, b.size.y)
+			if h < MIN_TAP_PX - 0.5:
+				small.append("%s %.0fpx (%.1f mm)" % [b.text.substr(0, 20), h, h * MM_PER_PX])
+		for s: HSlider in _all(page, "HSlider"):
+			checked += 1
+			var sh: float = maxf(s.custom_minimum_size.y, s.size.y)
+			# A slider is a DRAG, not a tap, and the caption above it is not tappable —
+			# so the control itself is allowed to be SLIDER_H rather than ROW_H. It was
+			# 16 px: a 2.9 mm target you had to hit before the forgiving part started.
+			if sh < MIN_SLIDER_PX - 0.5:
+				small.append("slider %.0fpx (%.1f mm)" % [sh, sh * MM_PER_PX])
+	_expect(checked >= 12,
+		"there are targets here to measure (%d) — a menu that built none would pass "
+		% checked + "this test vacuously")
+	_expect(small.is_empty(),
+		("every player-facing target clears %.0f px / %.1f mm on the 6.1\" reference; "
+		+ "these do not: %s") % [MIN_TAP_PX, MIN_TAP_PX * MM_PER_PX, small])
+	# The constants themselves, asserted separately from the rows built out of them —
+	# see MIN_TAP_PX for the vacuous pass this pair replaced.
+	_expect(PauseMenu.ROW_H >= MIN_TAP_PX,
+		"PauseMenu.ROW_H is at least %.0f px (got %.0f)" % [MIN_TAP_PX, PauseMenu.ROW_H])
+	_expect(PauseMenu.SLIDER_H >= MIN_SLIDER_PX,
+		"PauseMenu.SLIDER_H is at least %.0f px (got %.0f)"
+		% [MIN_SLIDER_PX, PauseMenu.SLIDER_H])
+	menu.queue_free()
+	_completes("every_tap_target_is_thumb_sized")
+
+
+## The front door, measured the same way. Maker: *"the home screen is a little too
+## cluttered and too large."* Both halves are numbers:
+##
+##   * TOO LARGE — the logo measured **112 px, 31% of the 360-px viewport**, the single
+##     tallest element on the screen. It is 76 px / 21% now.
+##   * TOO CLUTTERED — the whole column must still fit 360 px with the buttons at a
+##     size a thumb can hit, which is the constraint that stops a row being added back.
+func _test_the_title_screen_is_not_oversized() -> void:
+	var packed: PackedScene = load(LOBBY_SCENE) as PackedScene
+	_expect(packed != null, "the lobby scene loads")
+	if packed == null:
+		return   # deliberately NOT completed
+	var lobby: Control = packed.instantiate() as Control
+	root.add_child(lobby)
+	await process_frame
+	await process_frame
+	var col: Control = lobby.get("_col") as Control
+	_expect(col != null, "the lobby exposes its column")
+	if col == null:
+		lobby.queue_free()
+		return
+	var tallest: float = 0.0
+	for c: Node in col.get_children():
+		var cc: Control = c as Control
+		if cc != null and cc.visible:
+			tallest = maxf(tallest, cc.get_combined_minimum_size().y)
+	_expect(tallest <= BASE_H * 0.24,
+		("no single element eats more than 24%% of the 360-px screen (the tallest is "
+		+ "%.0f px = %.0f%%; the logo was 112 px = 31%%)")
+		% [tallest, tallest / BASE_H * 100.0])
+	var need: float = col.get_combined_minimum_size().y
+	_expect(need <= BASE_H,
+		"the whole column still fits 360 px with thumb-sized rows (needs %.0f)" % need)
+	for b: Button in _all(lobby, "Button"):
+		if not b.is_visible_in_tree():
+			continue    # the collapsed co-op panel and the join screen
+		_expect(b.custom_minimum_size.y >= MIN_TAP_PX - 0.5,
+			("the title-screen button `%s` is thumb-sized (%.0f px / %.1f mm — the "
+			+ "front door's four buttons measured 5.5 to 7.6 mm)")
+			% [b.text, b.custom_minimum_size.y, b.custom_minimum_size.y * MM_PER_PX])
+	lobby.queue_free()
+	await process_frame
+	_completes("the_title_screen_is_not_oversized")
 
 
 ## ⚠ THE OTHER HALF OF THE OVERFLOW FAULT, AND IT DID NOT LOOK LIKE ONE. The generated
@@ -246,7 +432,7 @@ func _test_nothing_is_wider_than_its_card() -> void:
 		var scroll: ScrollContainer = named[1] as ScrollContainer
 		if scroll == null:
 			continue
-		menu.call("_show_page", named[2])
+		menu.call("_show_page", named[3])
 		await process_frame
 		await process_frame
 		var inner: float = scroll.get_global_rect().size.x
@@ -283,7 +469,7 @@ func _test_no_stock_theme() -> void:
 	var plain_sliders: int = 0
 	var buttons: int = 0
 	for named: Array in _pages(menu):
-		var page: Node = named[2] as Node
+		var page: Node = named[3] as Node
 		if page == null:
 			continue
 		for b: Button in _all(page, "Button"):
@@ -521,13 +707,24 @@ func _open_settings_menu() -> PauseMenu:
 	return m
 
 
-## `[name, scroll, center]` for each of the three pages.
+## `[name, scroll, col, center]` for every page the menu owns.
+##
+## ⚠ DISCOVERED BY NAME, NOT LISTED. The three knob pages were added the day the single
+## 771-px settings column was split, and a hand-maintained list is how a fourth page
+## gets added and never measured. Every page in this file is `_<name>_center` /
+## `_<name>_scroll` / `_<name>_col`, so the convention IS the registry — a page that
+## does not follow it is a page that will not be tested, loudly, because the count
+## assertion in `_test_the_settings_split_into_pages` names the number expected.
 func _pages(m: PauseMenu) -> Array:
-	return [
-		["main", m.get("_main_scroll"), m.get("_main_center")],
-		["settings", m.get("_settings_scroll"), m.get("_settings_center")],
-		["controls", m.get("_controls_scroll"), m.get("_controls_center")],
-	]
+	var out: Array = []
+	for key: String in ["main", "settings", "audio", "video", "game", "controls"]:
+		var scroll: Variant = m.get("_%s_scroll" % key)
+		var col: Variant = m.get("_%s_col" % key)
+		var center: Variant = m.get("_%s_center" % key)
+		if scroll == null or col == null or center == null:
+			continue
+		out.append([key, scroll, col, center])
+	return out
 
 
 ## Every descendant of a given class. Walks the real tree rather than trusting a stored
