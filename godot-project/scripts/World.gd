@@ -192,7 +192,18 @@ const TOWNSFOLK: Array[Dictionary] = [
 	# permanently frozen. 920 +/- 20 walks 900..940: it clears the new spawn at 852 by
 	# 48 px (his ring is 40), and stops 6 px short of the door's walk-in box at 946, so
 	# he never stands in the doorway you are trying to walk through either.
-	{"res": "res://data/npcs/doorkeeper.tres", "x": 920.0, "range": 20.0},  # the door
+	# ⚠ RANGE 0 — HE DOES NOT PACE, AND THAT IS A RULING. Maker: *"the doorkeeper has
+	# too much text, it should be clear what he does, and he should stand still in front of
+	# the tower"*. He is the only townsperson with a JOB (he owns the climb reset), and a
+	# body that wanders is read as scenery — you look for a shopkeeper behind a counter, not
+	# walking laps past one. The warden still ambles, so the room keeps its motion.
+	#
+	# 930 puts him just outside the door's walk-in box (`TowerDoor.ENTER_W` 68 at
+	# `TOWER_X` 980 = x 946..1014), so he stands AT the tower without standing IN the
+	# doorway you are trying to walk through — he is a StaticBody-layer body and would
+	# block it. It also clears the player spawn at 852 by 78 px against his 40 px hint
+	# ring, so the town no longer opens with his prompt already up.
+	{"res": "res://data/npcs/doorkeeper.tres", "x": 930.0, "range": 0.0},  # AT the door
 ]
 
 ## Decoration only — a raised deck up-left that gives the skyline some depth. It

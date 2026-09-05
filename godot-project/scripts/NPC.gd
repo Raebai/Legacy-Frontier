@@ -173,8 +173,16 @@ func set_hub_patrol(center_x: float, patrol_range: float) -> void:
 ## gives the hop its shape. Left as a note rather than deleted, because a confidently
 ## wrong comment is the thing that makes the next reader stop measuring.
 func _physics_process(delta: float) -> void:
-	if _patrol_range <= 0.0 or _rig == null:
-		return  # not a patrolling townsperson (headless tests, for one)
+	if _rig == null:
+		return  # no body to drive (headless tests, for one)
+	# ⚠ A POSTED TOWNSPERSON IS NOT AN UNPROCESSED ONE. This used to return early on
+	# `_patrol_range <= 0.0` as well, which meant a posted body ran no physics and, more
+	# to the point, never fed the rig — and `set_grounded` DEFAULTS TO TRUE, so it would
+	# have stood correctly by luck rather than by being told. Range 0 now means "walk
+	# nowhere", not "skip the frame": the target speed is simply zero and everything
+	# below still runs, so the idle pose, the ground contact and the facing are all
+	# driven the same way they are for someone who paces.
+	var posted: bool = _patrol_range <= 0.0
 
 	# ── the decision: walk, stand, or hop ────────────────────────────────────
 	var target: float = 0.0
@@ -191,6 +199,8 @@ func _physics_process(delta: float) -> void:
 		# them. Freezing keeps the maker's stand-still ruling and lets the schedule
 		# resume where it left off when you walk away.
 		pass
+	elif posted:
+		pass    # standing at a post: no lap to walk, no bound to turn at
 	elif _dwell > 0.0:
 		_dwell -= delta
 	else:
@@ -278,8 +288,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		var gs: Node = get_node_or_null(^"/root/GameState")
 		if gs != null and gs.has_method("reset_climb"):
 			gs.call("reset_climb")
-			speech_bubble.say("Then it never happened. The tower is new again — "
-				+ "floor one, and the door is open.", LINE_HOLD)
+			# SHORT. The maker's note was about volume as much as clarity: a bubble you
+			# have to READ is a bubble you dismiss, and this one lands at the moment the
+			# player most wants to get on with it.
+			speech_bubble.say("Done. The tower is new.", LINE_HOLD)
 			Bark.voice_only(self, Gibberish.Mood.TALK)
 			get_viewport().set_input_as_handled()
 			return
@@ -289,8 +301,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		# accident this confirm exists to prevent. A second press inside the window
 		# commits; walking away cancels it, because `_reset_armed` clears on exit.
 		_reset_armed = true
-		speech_bubble.say("Start the whole climb again? Everything you have earned "
-			+ "stays — only the tower forgets. Press again if you mean it.", LINE_HOLD)
+		# Two facts and the instruction, in that order: what it costs, what it keeps,
+		# what to press. The long version buried the only actionable clause at the end.
+		speech_bubble.say("Restart the climb? You keep everything. Press again.", LINE_HOLD)
 		Bark.voice_only(self, Gibberish.Mood.TALK)
 		get_viewport().set_input_as_handled()
 		return
