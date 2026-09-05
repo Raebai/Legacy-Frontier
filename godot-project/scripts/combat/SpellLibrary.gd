@@ -1805,7 +1805,25 @@ static func _blink_strike() -> SpellDef:
 	s.mp_cost = 48
 	s.cooldown = 3.2
 	s.damage = 85  # was 55 — the assassin's signature should HURT (maker: "not strong")
-	s.reach = 300.0  # blink distance
+	# ══ 300 -> 420, AND THE COMPARISON IS THE ARGUMENT ═══════════════════
+	# Maker: *"shadowburst is a little confusing and doesnt go that far"*. It does not,
+	# and the number that says so is not this one on its own — it is this one next to
+	# the free movement buttons:
+	#
+	#     Hero.BLINK_DISTANCE            175   R, free, no mana, short cooldown
+	#     Hero.LIGHTNING_BLINK_DISTANCE  260   the Stormcaller's movement button
+	#     Shadowburst (was)              300   a SPELL SLOT, 48 mana, 3.2 s
+	#
+	# The assassin's signature reposition travelled forty pixels further than a class
+	# already gets for free on its move key. "Doesn't go that far" is not a feel note,
+	# it is that table.
+	#
+	# 420 is 1.6x the longest free blink and 2.4x the standard one, so the slot buys
+	# something a button does not, and it is a reach the tree already authors elsewhere
+	# rather than a new outlier. `BlinkStrike` clamps the aim to it and the caster's own
+	# `blink_to` still vets the destination for legality, so a longer reach cannot put
+	# anyone inside geometry. If it out-ranges the fight, this line is the lever.
+	s.reach = 420.0  # blink distance
 	return s
 
 

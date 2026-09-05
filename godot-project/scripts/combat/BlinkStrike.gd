@@ -103,10 +103,21 @@ const RETIRED_BLAST_KNOCKBACK: float = 280.0
 ## Telegraph.FADE_TIME (0.15) so the ring's own fade isn't cut off mid-frame.
 const FLASH_TIME: float = 0.26
 
-## How long the "you came from over there" wisp lingers at the origin. Kept SHORT
-## on purpose: the old streak band lived the whole spell and read as a dash path,
-## and a lingering line at the origin would re-teach exactly the read we removed.
-const DEPART_WISP_TIME: float = 0.14
+## How long the "you came from over there" wisp lingers at the origin.
+##
+## ⚠ 0.14 -> `BLAST_TELL`, AND THE OLD REASONING STILL STANDS — IT WAS ABOUT A LINE.
+## What was removed was a STREAK BAND that lived the whole spell and read as a dash
+## path you could be hit along, and re-teaching that read is still forbidden. This is
+## a collapsing RING at the origin: it says a body left from here, and it cannot be
+## mistaken for a corridor because it has no direction and no length.
+##
+## The length was the problem. At 0.14 s the origin mark was gone eight frames in,
+## while the arrival tell runs for `BLAST_TELL` (0.30 s) — so by the time the eye had
+## found the new position the old one had already vanished, and the two ends of a
+## teleport were never on screen together. Maker: *"shadowburst is a little
+## confusing"*. Matching the tell puts both ends up for the same beat, which is the
+## whole read: you were there, you are here, and THIS is about to go off.
+const DEPART_WISP_TIME: float = BLAST_TELL
 
 ## Total node lifetime: the tell, then the flash. Nothing else happens.
 const LIFE: float = BLAST_TELL + FLASH_TIME
