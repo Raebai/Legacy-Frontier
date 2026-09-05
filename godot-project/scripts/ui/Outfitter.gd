@@ -16,6 +16,20 @@ extends Control
 ##   3. **WHAT EACH SPELL ACTUALLY DOES.** Tap a role and the line under the header
 ##      tells you, in one sentence (`SpellBlurbs`). A hand of four picked from a list
 ##      of names is a guess; the blurb is what makes it a choice.
+##   4. **THE GRIMOIRE.** Eleven spells — the nine Tier 3s and both Tier 2s — could be
+##      cast only by bots in the Watch Bots showcase; `SpellDrops.TOWER_SPELL_DROPS` is
+##      false by the maker's own ruling, so a climber's hand on floor 41 was identical
+##      to their hand on floor 1. `SpellLibrary` grew the mechanism (`equippable` /
+##      `set_equipped` / `equipped_id` / `clear_equipped`) and NOTHING CALLED IT — the
+##      pool was reachable from no screen in the game. The ✦ button below is the door.
+##
+## == THE GRIMOIRE AND "CHOOSE YOUR THREE" ARE TWO MECHANISMS, DELIBERATELY =====
+## They answer different questions and neither replaces the other. Roles pick WHICH
+## FOUR of a class's five AUTHORED spells it carries — every option is already that
+## class's. The grimoire lays a Tier 2/3 over a SLOT INDEX, and a Tier 3 belongs to no
+## class's role table at all, so there is no role to name it by. Overlaying by index is
+## also what keeps them independent: re-order your roles and your equipped ult stays put.
+## See the `_equipped` header in `SpellLibrary.gd` for the maker's fork and their answer.
 ##
 ## == THE COLOURWAY IS NOT HERE ANY MORE, AND THE STATE IT USED IS UNTOUCHED ====
 ## Maker: *"remove that azure ember etc. options within the class selection"*. The
@@ -136,10 +150,42 @@ var _ult_role: String = "ult"
 ## any hand and the one row that is not a choice, so it is the only safe default that
 ## is never also a hint about what you should carry.
 var _focus_role: String = ""
+## A POOL SPELL whose description is showing. Only ever a grimoire spell: a role's
+## description is resolved live from `_focus_role` instead, because `_toggle_role`
+## re-orders the hand under it and a cached `SpellDef` would then describe the slot the
+## role used to be in. Null means "no pool spell is focused", which is the normal state.
+var _focus_spell: SpellDef = null
+
+# ── the grimoire ──────────────────────────────────────────────────────────────
+## THE POOL, BUILT ONCE. `SpellLibrary.equippable()` constructs eleven fresh `SpellDef`
+## objects on every call and `_redraw` draws a row per entry, so calling it per-draw
+## would rebuild eleven resources every time a thumb lands. Same rule the file already
+## follows for `TuningConfig.quality_is_low()`: cache in `_ready`, never per-draw.
+var _pool: Array = []
+## `id -> SpellDef` over `_pool`. `equipped_id` hands back an id and every row, the slot
+## line and the summary all need the def behind it.
+var _pool_by_id: Dictionary = {}
+## Which list the bounded scroll is showing. FALSE is the screen exactly as it was.
+##
+## ⚠ A MODE, NOT A FIFTH SECTION, AND THAT IS A HEIGHT BUDGET RATHER THAN A TASTE CALL.
+## `slice_test_outfitter` measures this column at 332 px against a 360 px base viewport,
+## so the whole screen has 28 px of slack — less than one `MIN_TAP` row plus its
+## separation. A grimoire list added BELOW the role list would have hung a phone's bottom
+## button off the bottom of the phone, which no desktop playtest ever shows. Swapping the
+## contents of the bounded scroll costs nothing, and the door into it shares the Armory's
+## row (which is where a second button already lived before the colourway picker was cut).
+var _grimoire: bool = false
+## WHICH SLOT THE NEXT PICK LANDS IN. The grimoire overlays by index, so a pick needs a
+## slot before it needs a spell — the fixed row under the list names it and cycles it.
+var _grim_slot: int = 0
+var _grim_btn: Button = null
 
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_pool = SpellLibrary.equippable()
+	for s: Variant in _pool:
+		_pool_by_id[String((s as SpellDef).id)] = s
 	_build()
 	refresh()
 
@@ -272,10 +318,22 @@ func _build() -> void:
 	_summary.add_theme_color_override("font_color", Color(0.72, 0.86, 0.95))
 	col.add_child(_summary)
 
-	# THE ONE REMAINING SIDE DOOR. It shared this row with the colourway picker; with
-	# that gone it takes the full width, which costs nothing (the row was already
-	# `MIN_TAP` tall) and doubles the tap target on the screen's one non-obvious button.
-	col.add_child(_button("⚒  Armory", _open_armory, 13))
+	# THE TWO SIDE DOORS, PAIRED.
+	#
+	# ⚠ THE ARMORY WENT BACK TO HALF WIDTH, AND THE RULING THAT WIDENED IT IS UPDATED
+	# RATHER THAN DELETED. It shared this row with the colourway picker; when that was
+	# cut it took the full width because the extra tap area was free. The grimoire is not
+	# free — the column has 28 px of slack against a 360 px phone (see `_grimoire`), so a
+	# row of its own was never available. Sharing this one costs ZERO height, and a
+	# half-width `MIN_TAP` button is still 158x30, which is a comfortable thumb. The
+	# earlier ruling held while this row had one occupant; it has two again.
+	var doors := HBoxContainer.new()
+	doors.add_theme_constant_override("separation", 4)
+	var half: float = (PANEL_W - 4.0) * 0.5
+	_grim_btn = _button("", _toggle_grimoire, 12, half)
+	doors.add_child(_grim_btn)
+	doors.add_child(_button("⚒  Armory", _open_armory, 12, half))
+	col.add_child(doors)
 
 	col.add_child(_button("Done", close, 14))
 
@@ -329,10 +387,14 @@ func _slot_box() -> StyleBoxFlat:
 	return box
 
 
-func _button(text: String, cb: Callable, font_size: int = 13) -> Button:
+## `width` defaults to the full panel; the paired bottom row passes half. The HEIGHT is
+## never a parameter — `MIN_TAP` is the floor `slice_test_outfitter` pins on every button
+## on this screen, and a caller allowed to shrink it is how that floor stops being one.
+func _button(text: String, cb: Callable, font_size: int = 13,
+		width: float = PANEL_W) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.custom_minimum_size = Vector2(PANEL_W, MIN_TAP)
+	b.custom_minimum_size = Vector2(width, MIN_TAP)
 	b.add_theme_font_size_override("font_size", font_size)
 	b.focus_mode = Control.FOCUS_NONE   # a stray focus ring on a phone reads as a bug
 	b.clip_text = true
@@ -352,6 +414,12 @@ func refresh() -> void:
 	# describe a spell that is no longer on this screen (roles are shared names, and
 	# `damage` on the Cleric is not `damage` on the Warlock).
 	_focus_role = ""
+	# ...and neither would a POOL spell: the grimoire is per class, so the spell that was
+	# focused for the Arcanist is not in the Swordsaint's slots. The slot cursor goes back
+	# to 1 for the same reason — a cursor pointing at slot 3 of a class you just left is a
+	# pick aimed at a hand the player has not looked at yet.
+	_focus_spell = null
+	_grim_slot = 0
 	_carried.clear()
 	for role: Variant in SpellLibrary.slot_roles_for_class(_class_id):
 		if String(role) != _ult_role:
@@ -377,15 +445,27 @@ func _redraw() -> void:
 		# list flickers one row taller.
 		_list.remove_child(child)
 		child.queue_free()
-	for role: String in SpellLibrary.choosable_roles_for_class(_class_id):
-		_list.add_child(_role_row(role, _carried.has(role), true))
+	# THE SAME BOUNDED SCROLL, TWO LISTS. See `_grimoire` for why this is a swap and not
+	# a second section.
+	if _grimoire:
+		for spell: Variant in _pool:
+			_list.add_child(_pool_row(spell as SpellDef))
+	else:
+		for role: String in SpellLibrary.choosable_roles_for_class(_class_id):
+			_list.add_child(_role_row(role, _carried.has(role), true))
 	if _ult_slot_row != null:
 		for child: Node in _ult_slot_row.get_children():
 			_ult_slot_row.remove_child(child)
 			child.queue_free()
-		_ult_slot_row.add_child(_role_row(_ult_role, true, false))
+		# THE FIXED ROW CARRIES THE MODE'S ONE UNCHOOSABLE FACT. In role mode that is the
+		# ult; in grimoire mode it is WHICH SLOT the next pick lands in, which a pick by
+		# index cannot be made without. Both are one row of fixed space under a scrolling
+		# list, which is exactly what this shelf was built to hold.
+		_ult_slot_row.add_child(_slot_cursor_row() if _grimoire
+			else _role_row(_ult_role, true, false))
 	_refresh_summary()
 	_refresh_class_btn()
+	_refresh_grim_btn()
 
 
 ## One role, as a thumb-sized row. The ult row is `enabled == false`: a class authors
@@ -395,6 +475,16 @@ func _role_row(role: String, carried: bool, enabled: bool) -> Button:
 	var spell: SpellDef = SpellLibrary.spell_for_role(_class_id, role)
 	var tier: int = SpellTier.of(spell) if spell != null else SpellTier.Tier.QUICK
 	var mark: String = "◉" if carried else "○"
+	# ⚠ A ROLE ROW SHOWS WHAT THE SLOT ACTUALLY CASTS, NOT WHAT THE CLASS AUTHORED.
+	# `build_for_class` lays the grimoire over the role LAST and by index, so with a Tier 3
+	# equipped this row's authored name is the one name on the screen that is not true —
+	# and it is the row the player taps to change their hand. `◈` plus GOLD is the same
+	# badge the pool list and the summary use, so the rare thing reads the same everywhere.
+	var over: SpellDef = _equipped_in_slot(_slot_of_role(role))
+	if over != null:
+		spell = over
+		tier = SpellTier.of(over)
+		mark = "◈"
 	var b := Button.new()
 	b.text = "%s  %s  ·  %s" % [mark, role.to_upper(), spell.display_name if spell != null else "--"]
 	b.tooltip_text = SpellTier.display_name(tier)
@@ -404,9 +494,13 @@ func _role_row(role: String, carried: bool, enabled: bool) -> Button:
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	b.clip_text = true
 	# The shelf, in the colour the whole game badges shelves with — so "this is my
-	# ult" is readable without reading.
-	b.add_theme_color_override("font_color",
-		SpellTier.color(tier) if carried else GRAPHITE)
+	# ult" is readable without reading. GOLD outranks the shelf colour when the slot is
+	# equipped: `HudStyle.GOLD` is already what the ability bar badges an ult with, and an
+	# equipped Tier 3 is the loudest, rarest thing on the hand.
+	var ink: Color = SpellTier.color(tier) if carried else GRAPHITE
+	if over != null:
+		ink = HudStyle.GOLD
+	b.add_theme_color_override("font_color", ink)
 	if enabled:
 		b.pressed.connect(_toggle_role.bind(role))
 	else:
@@ -443,7 +537,10 @@ func _toggle_role(role: String) -> void:
 	# The tap that changes the hand is also the tap that asks "what IS this one" -- so
 	# the blurb line follows it. There is no hover on a phone and no second gesture to
 	# spend, so the two questions share one tap and the answer arrives with the change.
+	# The POOL focus is dropped rather than kept: the question this tap asked is about a
+	# role, and `_refresh_blurb` resolves a role to whatever its slot actually casts.
 	_focus_role = role
+	_focus_spell = null
 	var open_slots: int = SpellTier.SLOT_COUNT - 1   # the last slot is the ult's
 	if _carried.has(role):
 		if _carried.size() <= 1:
@@ -477,8 +574,200 @@ func _commit() -> void:
 	roles.append(_ult_role)
 	if not SpellLibrary.set_slot_roles(_class_id, roles):
 		return
-	# No-op until `GameState.spell_roles` exists; see SpellLibrary.persist_to_state.
+	_persist()
+
+
+## THE ONE SAVE CALL, SHARED BY BOTH MECHANISMS. `SpellLibrary.persist_to_state` writes
+## `spell_roles` AND `spell_equipped` in one pass, so a grimoire pick that forgot to call
+## it would not merely fail to save itself — it would leave the equipped table one write
+## behind the roles table on disk. Reached through the tree, never as a bare global, so
+## this script stays loadable in a headless harness with no autoloads registered.
+func _persist() -> void:
 	SpellLibrary.persist_to_state(get_node_or_null("/root/GameState"))
+
+
+# ══════════════════════════════════════════════════════════════════ the grimoire
+## PICK A SLOT, THEN PICK A SPELL, AND TAP IT AGAIN TO TAKE IT BACK OUT.
+##
+## Two taps, because the grimoire overlays BY INDEX and a Tier 3 belongs to no class's
+## role table — there is no role for it to imply a slot through. The alternatives were
+## both worse on a phone: cycling one row through twelve states (authored plus eleven
+## spells) is a tap target that never tells you where it is going, and a nested
+## slot-then-pool screen is a third modal on a screen already able to open two.
+##
+## The slot cursor is the fixed row under the list, so both halves of the decision are on
+## screen at once, and the summary line already names all four slots and what is in them.
+
+
+## Which slot a role occupies, or -1 for a role this class authors but does not carry.
+##
+## Read from `SpellLibrary.slot_roles_for_class` rather than from `_carried`, and that is
+## load-bearing: `slot_roles_for_class` is the exact array `build_for_class` walks to
+## build the hero's hand, so a slot index derived from it cannot disagree with the slot
+## the grimoire overlay lands on. `_carried` is this screen's working copy and is one
+## `_commit` behind during a toggle.
+func _slot_of_role(role: String) -> int:
+	var roles: Array = SpellLibrary.slot_roles_for_class(_class_id)
+	for i: int in roles.size():
+		if String(roles[i]) == role:
+			return i
+	return -1
+
+
+func _role_of_slot(slot: int) -> String:
+	var roles: Array = SpellLibrary.slot_roles_for_class(_class_id)
+	if slot < 0 or slot >= roles.size():
+		return ""
+	return String(roles[slot])
+
+
+## The pool spell overlaying `slot`, or null for "this slot casts what the class
+## authored". Resolved through `_pool_by_id` rather than by rebuilding the pool, and a
+## `null` for an id the pool has never heard of — a save written by a build where a spell
+## was since renamed reaches this function, and a missing row must read as "not equipped"
+## rather than crash a town screen.
+func _equipped_in_slot(slot: int) -> SpellDef:
+	if slot < 0:
+		return null
+	var id: String = SpellLibrary.equipped_id(_class_id, slot)
+	if id == "":
+		return null
+	return _pool_by_id.get(id) as SpellDef
+
+
+## What a slot ACTUALLY casts: the overlay if there is one, else the authored role spell.
+## The same order `SpellLibrary.build_for_class` applies, restated here because this
+## screen needs it per-slot and that one only hands back the finished array.
+func _slot_spell(slot: int) -> SpellDef:
+	var over: SpellDef = _equipped_in_slot(slot)
+	if over != null:
+		return over
+	var role: String = _role_of_slot(slot)
+	return SpellLibrary.spell_for_role(_class_id, role) if role != "" else null
+
+
+## The door. Swaps which list the bounded scroll is showing; see `_grimoire`.
+func _toggle_grimoire() -> void:
+	_grimoire = not _grimoire
+	# The blurb follows the door, exactly as it follows a row: arriving in the grimoire
+	# with the previous mode's sentence still on screen would describe a spell that is no
+	# longer in the list under it.
+	_focus_spell = null
+	if _grimoire:
+		_focus_slot(_grim_slot)
+	else:
+		_focus_role = ""
+	_redraw()
+	_sfx("ding", -8.0)
+
+
+func _refresh_grim_btn() -> void:
+	if _grim_btn == null:
+		return
+	# The word is on it for the same reason "change" is on the class button: the glyph
+	# says WHICH thing, nothing in a glyph says the row is a door, and this one sits
+	# beside another door that goes somewhere else entirely.
+	_grim_btn.text = "↩  Your Hand" if _grimoire else "✦  Grimoire"
+	_grim_btn.add_theme_color_override("font_color",
+		CHALK if _grimoire else HudStyle.GOLD)
+
+
+## Point the description line at whatever a slot currently casts.
+func _focus_slot(slot: int) -> void:
+	var over: SpellDef = _equipped_in_slot(slot)
+	_focus_spell = over
+	_focus_role = "" if over != null else _role_of_slot(slot)
+	_refresh_blurb()
+
+
+## THE SLOT CURSOR. Names the slot the next pick lands in, shows what is in it now, and
+## cycles on tap. Four states, wrapping — short enough that a player finds the slot they
+## want by tapping rather than by reading, which is the only interaction model that
+## survives having no hover and no keyboard.
+func _slot_cursor_row() -> Button:
+	var spell: SpellDef = _slot_spell(_grim_slot)
+	var over: bool = _equipped_in_slot(_grim_slot) != null
+	var b := Button.new()
+	b.text = "%s  EQUIP INTO SLOT %d ▸  %s" % [
+		"◈" if over else "○", _grim_slot + 1,
+		String(spell.display_name) if spell != null else "--"]
+	b.tooltip_text = "Tap to aim at the next slot"
+	b.custom_minimum_size = Vector2(PANEL_W - 16.0, MIN_TAP)
+	b.add_theme_font_size_override("font_size", 12)
+	b.focus_mode = Control.FOCUS_NONE
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.clip_text = true
+	b.add_theme_color_override("font_color", HudStyle.GOLD if over else HudStyle.SKY)
+	b.pressed.connect(_cycle_grim_slot)
+	return b
+
+
+func _cycle_grim_slot() -> void:
+	_grim_slot = (_grim_slot + 1) % SpellTier.SLOT_COUNT
+	_focus_slot(_grim_slot)
+	_redraw()
+	_sfx("ding", -10.0)
+
+
+## One pool spell, as a thumb-sized row. Marked `◈` and GOLD when it is the spell in the
+## slot the cursor is aiming at — so the row that is already yours is the row that takes
+## it back out, which is the same tap-again-to-undo gesture the role list uses.
+func _pool_row(spell: SpellDef) -> Button:
+	if spell == null:
+		return Button.new()
+	var id: String = String(spell.id)
+	var mine: bool = SpellLibrary.equipped_id(_class_id, _grim_slot) == id
+	# Equipped ELSEWHERE in this class's hand. Shown, because a player who has put Meteor
+	# Storm in slot 2 and is now aiming at slot 3 needs to know it is already spoken for —
+	# without it, the same spell can be put in two slots and the hand quietly loses one.
+	var elsewhere: int = -1
+	for i: int in SpellTier.SLOT_COUNT:
+		if i != _grim_slot and SpellLibrary.equipped_id(_class_id, i) == id:
+			elsewhere = i
+			break
+	var tier: int = SpellTier.of(spell)
+	var b := Button.new()
+	var suffix: String = "" if elsewhere < 0 else "  (slot %d)" % (elsewhere + 1)
+	b.text = "%s  %s  ·  %s%s" % [
+		"◈" if mine else "○", String(spell.display_name),
+		SpellTier.display_name(tier), suffix]
+	b.tooltip_text = SpellBlurbs.for_spell(spell)
+	b.custom_minimum_size = Vector2(PANEL_W - 16.0, MIN_TAP)
+	b.add_theme_font_size_override("font_size", 12)
+	b.focus_mode = Control.FOCUS_NONE
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.clip_text = true
+	var ink: Color = GRAPHITE
+	if mine:
+		ink = HudStyle.GOLD
+	elif elsewhere >= 0:
+		ink = HudStyle.with_a(HudStyle.GOLD, 0.55)
+	b.add_theme_color_override("font_color", ink)
+	b.pressed.connect(_toggle_equip.bind(id))
+	return b
+
+
+## Put this spell in the aimed slot, or take it back out if it is already there.
+##
+## A TAP ALWAYS DOES SOMETHING, the same rule `_toggle_role` is built on: there is no
+## separate "clear" button, because a clear button on a phone is a second target for a
+## decision the player already has their thumb on.
+func _toggle_equip(spell_id: String) -> void:
+	# The tap that changes the slot is also the tap that asks what the spell does.
+	_focus_spell = _pool_by_id.get(spell_id) as SpellDef
+	_focus_role = ""
+	if SpellLibrary.equipped_id(_class_id, _grim_slot) == spell_id:
+		# `""` clears the slot back to the class's authored spell — see `set_equipped`.
+		SpellLibrary.set_equipped(_class_id, _grim_slot, "")
+	elif not SpellLibrary.set_equipped(_class_id, _grim_slot, spell_id):
+		# Refused (an id outside the pool). Nothing moved — but the description still
+		# lands, for the same reason the refused role DROP still describes itself: the one
+		# row a player cannot act on must not also be the one row that says nothing.
+		_refresh_blurb()
+		return
+	_persist()
+	_redraw()
+	_sfx("ding", -8.0)
 
 
 ## THE LINE THAT SAYS WHAT A SPELL DOES.
@@ -490,8 +779,16 @@ func _commit() -> void:
 func _refresh_blurb() -> void:
 	if _hint == null:
 		return
-	var role: String = _focus_role if _focus_role != "" else _ult_role
-	var spell: SpellDef = SpellLibrary.spell_for_role(_class_id, role)
+	# A POOL spell is held directly (it has no role to be looked up by). A ROLE is
+	# resolved LIVE — through the slot it occupies, so an equipped Tier 3 describes
+	# itself rather than the authored spell it displaced, and so a re-ordered hand cannot
+	# leave this line pointing at the slot a role used to be in.
+	var spell: SpellDef = _focus_spell
+	if spell == null:
+		var role: String = _focus_role if _focus_role != "" else _ult_role
+		spell = _equipped_in_slot(_slot_of_role(role))
+		if spell == null:
+			spell = SpellLibrary.spell_for_role(_class_id, role)
 	var text: String = SpellBlurbs.for_spell(spell)
 	if text == "":
 		# A HOLE, SHOWN. `tools/slice_test_class_identity.gd` asserts every id a class
@@ -505,10 +802,21 @@ func _refresh_blurb() -> void:
 func _refresh_summary() -> void:
 	if _summary == null:
 		return
+	# ⚠ `build_for_class` ALREADY CARRIES THE GRIMOIRE — it lays `_equipped` over the
+	# authored hand last and by index — so this line has always been the honest readout of
+	# what the hero will hold. What it could not say is which of the four are the rare
+	# ones, and this is a plain `Label` (one colour for the whole line, and it must stay
+	# one so its measured height is a constant). So the badge is a GLYPH: `◈` is the same
+	# mark the role rows and the pool list use, and it is the only part of this row that
+	# needs to survive being drawn in one colour.
+	var built: Array = SpellLibrary.build_for_class(_class_id)
 	var names: Array = []
-	for spell: Variant in SpellLibrary.build_for_class(_class_id):
-		if spell != null:
-			names.append(String((spell as SpellDef).display_name))
+	for i: int in built.size():
+		var spell: Variant = built[i]
+		if spell == null:
+			continue
+		var mark: String = "◈" if _equipped_in_slot(i) != null else ""
+		names.append("%s%s" % [mark, String((spell as SpellDef).display_name)])
 	# ⚠ THE KEY ROW IS COUNTED, NOT TYPED. It was the literal "1 · 2 · 3" and the hand
 	# grew to four. `Hero.SPELL_KEYS` is the real list, but `Hero` is not a `class_name`
 	# — naming it here would not compile — and reaching it by `load()` would drag the

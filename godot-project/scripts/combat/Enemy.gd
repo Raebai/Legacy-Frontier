@@ -381,6 +381,64 @@ const POUNCE_MIN_DEPTH: int = 2
 ## copy of that switch, drifting the moment a spectacle is re-pointed. A row is one
 ## word and `tools/slice_test_hitboxes.gd` fails a row that omits it, so a NEW
 ## archetype cannot inherit the old silent default.
+## ══ WHAT AN ELITE CASTS INSTEAD ═══════════════════════════════
+## Maker, watching the bot fights: *"I see all these cool classes spells and
+## interactions and spells please ensure the main game has all of these"*. Put to them
+## as a fork — arm every mob, or arm the elites and the guardians — they chose
+## GIVE ELITES AND BOSSES REAL KITS, on the stated grounds that ordinary mobs are
+## pressure rather than duels, so the spectacle should arrive as a spike you remember
+## and not as constant noise.
+##
+## ⚠ THE SPELLS ARE THE ORPHANS, AND THAT IS THE WHOLE IDEA. `SpellLibrary.unequipped_ids()`
+## is seven fully authored, fully tuned spells that NO class carries and, since the
+## tower stopped dropping spells, that NOTHING in the game has ever cast — the
+## anti-recolour pass displaced them out of `CLASS_KITS` and they have been sitting
+## there unreachable ever since. Handing them to elites does three things at once:
+##
+##   * it makes real content reachable instead of writing new content;
+##   * an elite casts something the player has never held, so it reads as ITS spell
+##     rather than as your own kit pointed back at you — which is the failure mode
+##     `ModMirrored` already occupies deliberately, and having two of them would make
+##     neither mean anything;
+##   * it costs the class balance nothing, because none of these is in any kit.
+##
+## ⚠ AND THE DAMAGE IS RE-TUNED, FOR THE REASON THE TABLE BELOW ALREADY GIVES. Library
+## damage is authored for a HERO's power budget — `colossus_pillar` is 96 against this
+## roster's single biggest hit of 22 — so the id is borrowed and every number that can
+## hurt you is this table's. Roughly 1.8x the archetype's ordinary spell: an elite hits
+## harder than the trash beside it and still cannot delete you. Cooldowns and windups
+## are LONGER than the ordinary row, not shorter: these are heavier, so they are rarer
+## and they are announced for longer.
+##
+## ⚠ THE THREE MELEE ARCHETYPES ARE ABSENT ON PURPOSE. Chaser, Charger and Bomber have
+## no ordinary spell row either — the file's own ruling is that they are pure pressure
+## with nothing to read. An elite one is already changed by its affix; giving it a cast
+## as well would make "elite" mean "different archetype" instead of "more of this one".
+const ELITE_SPELLS: Dictionary = {
+	Archetype.CASTER: {
+		"id": "frostpiercer", "dmg": 16, "cd": 7.5, "windup": 0.75,
+		"style": Telegraph.Style.MUZZLE, "band": [170.0, 420.0], "tell_at": "caster",
+	},
+	Archetype.MAGE: {
+		"id": "void_barrage", "dmg": 18, "radius": 135.0, "count": 5, "cd": 9.0,
+		"windup": 0.95, "style": Telegraph.Style.ZONE, "band": [140.0, 380.0],
+		"tell_at": "target",
+	},
+	Archetype.SUMMONER: {
+		"id": "avalanche", "dmg": 9, "radius": 145.0, "count": 5, "cd": 9.5,
+		"windup": 1.0, "style": Telegraph.Style.ZONE, "band": [120.0, 360.0],
+		"tell_at": "target",
+	},
+	Archetype.BRUTE: {
+		"id": "colossus_pillar", "dmg": 30, "radius": 74.0, "cd": 8.0, "windup": 0.9,
+		"style": Telegraph.Style.ZONE, "band": [0.0, 240.0], "tell_at": "target",
+	},
+	Archetype.ASSASSIN: {
+		"id": "umbral_lance", "dmg": 22, "cd": 7.5, "windup": 0.7,
+		"style": Telegraph.Style.MUZZLE, "band": [60.0, 320.0], "tell_at": "caster",
+	},
+}
+
 const ARCHETYPE_SPELLS: Dictionary = {
 	Archetype.CASTER: {
 		"id": "rune_orbs", "dmg": 7, "count": 3, "cd": 5.0, "windup": 0.55,
@@ -1210,6 +1268,12 @@ func _ready() -> void:
 	# always done, and the spell arrives once the fight has been going a while. It also
 	# keeps every existing test — all of which assert against a body's FIRST attack —
 	# byte-identical.
+	# ⚠ THE ORDINARY ROW ON PURPOSE, EVEN FOR AN ELITE. This runs at spawn, and
+	# `EliteModifier.attach` adds the `EliteMark` that makes `is_elite()` true AFTER
+	# the body exists — so `spell_row()` here would answer "not elite" and read the
+	# same table anyway, while looking like it had asked. The only consequence is
+	# that an elite's FIRST cast is timed off the light cooldown, which brings its
+	# one interesting spell forward rather than back.
 	var row: Dictionary = ARCHETYPE_SPELLS.get(archetype, {})
 	if not row.is_empty():
 		_spell_cd = float(row["cd"])
@@ -2027,10 +2091,34 @@ func _resolve_strike(center: Vector2) -> void:
 ## ⚠ `duplicate()` FIRST, ALWAYS. `SpellLibrary.by_id` hands back the SHARED catalog
 ## resource; writing `damage` on it would permanently re-tune the spell for the hero
 ## as well, and compound once per cast. See the ARCHETYPE_SPELLS block.
+## Is this body an elite? `EliteModifier.attach` adds an `EliteMark` child to every
+## body it dresses, so the mark IS the flag — no second field to keep in step, and it
+## is already replicated because the mark is a real node.
+func is_elite() -> bool:
+	return has_node(^"EliteMark")
+
+
+## The spell row for THIS body: the elite table if it is one and that archetype has an
+## elite entry, else the ordinary one.
+##
+## ⚠ ONE READER, BECAUSE THERE ARE THREE CALL SITES AND THEY MUST NOT DISAGREE.
+## `archetype_spell` builds the SpellDef from the row, `_wants_spell_cast` reads the
+## row's `band`, and `_cast_archetype_spell` reads its `cd`. Two of those reading the
+## ordinary row while the third read the elite one would give an elite the heavy
+## spell on the light cooldown, at the light range — which is exactly the shape of bug
+## that plays as "this enemy is broken" and reads in the diff as three correct lines.
+func spell_row() -> Dictionary:
+	if is_elite():
+		var elite: Dictionary = ELITE_SPELLS.get(archetype, {})
+		if not elite.is_empty():
+			return elite
+	return ARCHETYPE_SPELLS.get(archetype, {})
+
+
 func archetype_spell() -> SpellDef:
 	if _spell_def != null:
 		return _spell_def
-	var row: Dictionary = ARCHETYPE_SPELLS.get(archetype, {})
+	var row: Dictionary = spell_row()
 	if row.is_empty():
 		return null
 	var base: SpellDef = SpellLibrary.by_id(String(row["id"]))
@@ -2056,7 +2144,7 @@ func _wants_spell_cast() -> bool:
 	# The teaching-floor gate. `floor_depth == 0` is "not told" and unrestricted.
 	if floor_depth > 0 and floor_depth < SPELL_MIN_DEPTH:
 		return false
-	var row: Dictionary = ARCHETYPE_SPELLS.get(archetype, {})
+	var row: Dictionary = spell_row()
 	if row.is_empty() or archetype_spell() == null:
 		return false
 	var band: Array = row["band"]
@@ -2069,7 +2157,13 @@ func _wants_spell_cast() -> bool:
 ## the same KIND of event as every other windup in the game rather than as a new
 ## system the player has to learn separately.
 func _start_spell_windup() -> void:
-	var row: Dictionary = ARCHETYPE_SPELLS[archetype]
+	# ⚠ `spell_row()`, NOT `ARCHETYPE_SPELLS[archetype]`. This is the site the doc on
+	# `spell_row` names as the dangerous one, and it was still reading the ordinary
+	# table after the cast had moved to the elite one: an elite would have been
+	# ANNOUNCED with the light spell's windup, style and radius and then landed the
+	# heavy one. The whole contract of this file is dodge-the-tell, and a tell that
+	# describes a different attack is worse than no tell at all.
+	var row: Dictionary = spell_row()
 	_attack_state = AttackState.WINDUP
 	_spell_pending = true
 	_aim_dir = (_hero.global_position - global_position).normalized()
@@ -2139,7 +2233,7 @@ func _cast_archetype_spell() -> void:
 	if spell == null or arena == null or not arena.is_inside_tree():
 		_attack_state = AttackState.CHASE
 		return
-	var row: Dictionary = ARCHETYPE_SPELLS[archetype]
+	var row: Dictionary = spell_row()
 	var origin: Vector2 = rig.get_weapon_tip() if rig.has_method(&"get_weapon_tip") else global_position
 	SpellCaster.cast(spell, arena, origin, _strike_center,
 		Elements.color(SpellCaster.resolve_element(spell)), spell.effect, self, &"hero")

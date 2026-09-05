@@ -32,6 +32,7 @@ const TESTS: Array[String] = [
 	"free_play_is_reachable_from_the_lobby",
 	"the_colourway_is_reachable_without_a_keyboard",
 	"the_hint_line_describes_the_spell_you_tapped",
+	"the_grimoire_is_reachable_and_reaches_the_hero",
 ]
 
 const LOBBY_SCENE: String = "res://scenes/ui/Lobby.tscn"
@@ -69,7 +70,9 @@ func _init() -> void:
 	await _test_free_play_is_reachable_from_the_lobby()
 	_test_the_colourway_is_reachable_without_a_keyboard()
 	await _test_the_hint_line_describes_the_spell_you_tapped()
+	await _test_the_grimoire_is_reachable_and_reaches_the_hero()
 	SpellLibrary.clear_slot_roles()
+	SpellLibrary.clear_equipped()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -568,6 +571,206 @@ func _test_the_hint_line_describes_the_spell_you_tapped() -> void:
 	out.queue_free()
 	SpellLibrary.clear_slot_roles()
 	_completes("the_hint_line_describes_the_spell_you_tapped")
+
+
+## THE GRIMOIRE — THE ELEVEN SPELLS ONLY BOTS COULD CAST, PUT IN A PLAYER'S HAND.
+##
+## `SpellLibrary` grew `equippable` / `set_equipped` / `equipped_id` / `clear_equipped`
+## and NOTHING CALLED THEM: the nine Tier 3s and both Tier 2s were reachable from no
+## screen in the game, so the mechanism was fully tested and completely unreachable —
+## which is the same shape the Armory was in before it got a button.
+##
+## DRIVEN THROUGH THE REAL BUTTONS, never through the handlers. Every step below reaches
+## a `Button` in the live tree and emits its `pressed` signal, because the failure this
+## suite exists to catch is not "the handler is wrong" — it is "the handler is right and
+## nothing is connected to it", which is precisely the bug being fixed.
+##
+## CONFIRMED TO FAIL: dropping the `SpellLibrary.set_equipped(...)` call out of
+## `Outfitter._toggle_equip` reports
+##   FAIL: tapping a grimoire row equips it into the aimed slot (slot 0 holds '')
+##   FAIL: ...and a hero built for this class actually casts it
+##   FAIL: the equipped spell reaches GameState.spell_equipped, so it survives a quit
+##   FAIL: the equipped row is drawn in HudStyle.GOLD ...
+func _test_the_grimoire_is_reachable_and_reaches_the_hero() -> void:
+	SpellLibrary.clear_slot_roles()
+	SpellLibrary.clear_equipped()
+	var out: Control = load(OUTFITTER_SCRIPT).new() as Control
+	root.add_child(out)
+	await process_frame
+	out.call("set_class", 0)
+	await process_frame
+
+	# THE POOL EXISTS AND IS THE THING THE MAKER ASKED FOR: eleven spells, every one of
+	# them a Tier 2 or a Tier 3, none of them in any class's authored hand.
+	var pool: Array = SpellLibrary.equippable()
+	_expect(pool.size() >= 11, "the grimoire offers the showcase pool (%d spells)" % pool.size())
+	for s: Variant in pool:
+		var tier: int = SpellTier.of(s as SpellDef)
+		_expect(tier != SpellTier.Tier.QUICK,
+			"'%s' is a HEAVY or an ULT — the pool is the loud things, not the jabs"
+				% (s as SpellDef).id)
+		_expect(SpellBlurbs.for_spell(s as SpellDef) != "",
+			"'%s' says what it does before you choose it" % (s as SpellDef).id)
+
+	# ── THE DOOR ────────────────────────────────────────────────────────────────
+	var door: Button = out.get("_grim_btn") as Button
+	_expect(door != null, "the Outfitter carries a grimoire door")
+	if door == null:
+		out.queue_free()
+		_completes("the_grimoire_is_reachable_and_reaches_the_hero")
+		return
+	_expect(door.custom_minimum_size.y >= MIN_TAP_H,
+		"the door is a real tap target (%.0f px)" % door.custom_minimum_size.y)
+	door.pressed.emit()
+	await process_frame
+	var list: VBoxContainer = out.get("_list") as VBoxContainer
+	var rows: Array = []
+	_walk(list, rows)
+	_expect(rows.size() == pool.size(),
+		"the bounded scroll now shows the pool, one row each (%d rows / %d spells)"
+			% [rows.size(), pool.size()])
+	# ⚠ AND THE PANEL DID NOT GROW. Eleven 30px rows is 363px of content in a 132px
+	# scroll; if the list were ever allowed to size the panel this is the screen that
+	# would walk off the bottom of a phone. Measured here rather than assumed, because
+	# the mode swap is the only thing standing between the two.
+	_check_fits(out.get("_col") as Control, "outfitter in grimoire mode")
+	var gscroll: ScrollContainer = out.get("_scroll") as ScrollContainer
+	_expect(gscroll != null and gscroll.get_combined_minimum_size().y <= out.get("LIST_H") + 1.0,
+		"the pool is bounded by LIST_H like the role list — eleven rows scroll, "
+		+ "they do not grow the panel (scroll needs %.0f)"
+			% [gscroll.get_combined_minimum_size().y if gscroll != null else -1.0])
+	var col: Control = out.get("_col") as Control
+	print("[layout] outfitter grimoire column min %.0fx%.0f (budget %.0fx%.0f)"
+		% [col.get_combined_minimum_size().x, col.get_combined_minimum_size().y,
+			BASE_W, BASE_H])
+	var all_btns: Array = []
+	_walk(out, all_btns)
+	for b: Button in all_btns:
+		_expect(b.custom_minimum_size.y >= MIN_TAP_H,
+			"grimoire '%s' is at least %.0f px tall (got %.0f)"
+				% [b.text, MIN_TAP_H, b.custom_minimum_size.y])
+		_expect(b.focus_mode == Control.FOCUS_NONE, "grimoire '%s' takes no focus ring" % b.text)
+
+	# ── THE PICK ────────────────────────────────────────────────────────────────
+	var before: Array = _ids(SpellLibrary.build_for_class(0))
+	var want: SpellDef = pool[0] as SpellDef
+	(rows[0] as Button).pressed.emit()
+	await process_frame
+	_expect(SpellLibrary.equipped_id(0, 0) == String(want.id),
+		"tapping a grimoire row equips it into the aimed slot (slot 0 holds '%s')"
+			% SpellLibrary.equipped_id(0, 0))
+	var after: Array = _ids(SpellLibrary.build_for_class(0))
+	_expect(after.has(String(want.id)),
+		"...and a hero built for this class actually casts it (%s)" % [after])
+	_expect(after.size() == SpellTier.SLOT_COUNT, "the hand is still %d spells" % SpellTier.SLOT_COUNT)
+	_expect(after[0] == String(want.id), "in the slot it was aimed at, not another one")
+	# YOU CAN SEE WHAT IT DOES. The blurb line follows the tap, which is the whole reason
+	# a list of eleven names is a choice rather than a guess.
+	var hint: Label = out.get("_hint") as Label
+	_expect(hint != null and hint.text == SpellBlurbs.for_spell(want),
+		"the description line follows the pick (wanted: %s / line was: %s)"
+			% [SpellBlurbs.for_spell(want), hint.text if hint != null else "<none>"])
+	# IT SAVES. `GameState` carries `spell_equipped`, so `persist_to_state` is not a
+	# no-op any more — a pick that did not reach it would vanish on quit with nothing
+	# on screen to say so.
+	var gs: Node = root.get_node_or_null(^"GameState")
+	_expect(gs != null, "the GameState autoload is registered")
+	if gs != null:
+		var saved: Variant = gs.get(&"spell_equipped")
+		_expect(saved is Dictionary and (saved as Dictionary).has(0),
+			"the equipped spell reaches GameState.spell_equipped, so it survives a quit (%s)"
+				% [saved])
+
+	# ── IT READS AS THE RARE THING ──────────────────────────────────────────────
+	var rows2: Array = []
+	_walk(out.get("_list"), rows2)
+	_expect((rows2[0] as Button).get_theme_color(&"font_color") == HudStyle_GOLD(),
+		"the equipped row is drawn in HudStyle.GOLD (got %s)"
+			% [(rows2[0] as Button).get_theme_color(&"font_color")])
+	if rows2.size() > 1:
+		_expect((rows2[1] as Button).get_theme_color(&"font_color") != HudStyle_GOLD(),
+			"...and an unequipped one is not, so the badge means something")
+
+	# ── THE SLOT CURSOR ─────────────────────────────────────────────────────────
+	# Equipping by INDEX needs a slot before it needs a spell. The fixed row under the
+	# list is that cursor; it must be a real button and it must move.
+	var cursor_holder: Control = out.get("_ult_slot_row") as Control
+	_expect(cursor_holder != null and cursor_holder.get_child_count() > 0,
+		"the fixed row carries the slot cursor in grimoire mode")
+	var cursor: Button = cursor_holder.get_child(0) as Button
+	_expect(cursor != null, "...and it is pressable")
+	if cursor != null:
+		cursor.pressed.emit()
+		await process_frame
+		_expect(int(out.get("_grim_slot")) == 1, "tapping the cursor aims at the next slot")
+		var rows3: Array = []
+		_walk(out.get("_list"), rows3)
+		var want2: SpellDef = pool[1] as SpellDef
+		(rows3[1] as Button).pressed.emit()
+		await process_frame
+		_expect(SpellLibrary.equipped_id(0, 1) == String(want2.id),
+			"a second pick lands in the newly aimed slot")
+		_expect(SpellLibrary.equipped_id(0, 0) == String(want.id),
+			"...and the first one is still there — slots are independent")
+
+	# ── AND YOU CAN TAKE IT BACK OUT ────────────────────────────────────────────
+	# Tap-again-to-undo, the same gesture the role list uses. There is deliberately no
+	# separate Clear button: on a phone that is a second target for a decision the
+	# player's thumb is already on.
+	SpellLibrary.clear_equipped(0, 1)
+	out.call("_cycle_grim_slot")          # 1 -> 2
+	out.call("_cycle_grim_slot")          # 2 -> 3
+	out.call("_cycle_grim_slot")          # 3 -> 0, back on the equipped slot
+	await process_frame
+	var rows4: Array = []
+	_walk(out.get("_list"), rows4)
+	(rows4[0] as Button).pressed.emit()
+	await process_frame
+	_expect(SpellLibrary.equipped_id(0, 0) == "",
+		"tapping the equipped row again takes it back out")
+	_expect(_ids(SpellLibrary.build_for_class(0)) == before,
+		"...and the authored hand comes back exactly as it was")
+
+	# ── THE ROLE LIST STILL WORKS, AND IT TELLS THE TRUTH ───────────────────────
+	# Both mechanisms coexist by design: roles pick WHICH of the authored five you carry,
+	# the grimoire lays a Tier 3 over a slot INDEX. What the role row must never do is go
+	# on naming the authored spell for a slot the grimoire has taken over.
+	_expect(SpellLibrary.set_equipped(0, 0, String(want.id)), "re-equip for the role check")
+	door.pressed.emit()                   # back to the hand
+	await process_frame
+	_expect(not bool(out.get("_grimoire")), "the door goes both ways")
+	var role_rows: Array = []
+	_walk(out.get("_list"), role_rows)
+	var slot0_role: String = String(SpellLibrary.slot_roles_for_class(0)[0])
+	var found: bool = false
+	for b: Button in role_rows:
+		if not b.text.to_lower().contains(slot0_role.to_lower()):
+			continue
+		found = true
+		_expect(b.text.contains(String(want.display_name)),
+			"the role row for the overridden slot names what it ACTUALLY casts (%s)" % b.text)
+		_expect(b.get_theme_color(&"font_color") == HudStyle_GOLD(),
+			"...and is badged gold like everything else the grimoire touched")
+	_expect(found, "the '%s' role row is still in the hand list" % slot0_role)
+	# The summary is one colour by construction (it is a plain Label whose height must be
+	# a constant), so the badge there is a glyph.
+	var summary: Label = out.get("_summary") as Label
+	_expect(summary != null and summary.text.contains("◈"),
+		"the carried-hand line marks the rare one (line was: %s)"
+			% [summary.text if summary != null else "<none>"])
+	# And the panel still fits with a grimoire spell in the hand.
+	_check_fits(out.get("_col") as Control, "outfitter with a grimoire spell equipped")
+
+	out.queue_free()
+	SpellLibrary.clear_equipped()
+	SpellLibrary.clear_slot_roles()
+	_completes("the_grimoire_is_reachable_and_reaches_the_hero")
+
+
+## `HudStyle` has no `class_name` (see its header), so it is reached the same way every
+## consumer reaches it: `preload`, script object, `static` members only.
+static func HudStyle_GOLD() -> Color:
+	return (preload("res://scripts/ui/HudStyle.gd") as GDScript).get_script_constant_map()["GOLD"]
 
 
 # ---------------------------------------------------------------------------

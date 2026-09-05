@@ -597,9 +597,13 @@ static func clear_equipped(class_id: int = -1, slot: int = -1) -> void:
 ## written and covered; both no-op cleanly while the property is absent, and start
 ## working the moment it exists.
 ##
-## THE WIRING LEFT: `var spell_roles: Dictionary = {}` on `GameState`, saved and
-## loaded with `loadout`; then `hydrate_from_state($GameState)` once at boot and
-## `persist_to_state($GameState)` after a pick. Nothing else changes.
+## ⚠ THAT WIRING IS DONE, AND THIS PARAGRAPH USED TO SAY IT WAS NOT. It read "the
+## wiring left: a field on `GameState`, saved and loaded with `loadout`, then
+## hydrate at boot and persist after a pick" — and every one of those now exists:
+## `spell_roles` and `spell_equipped` are declared, written into the climber save
+## and read back out, `Lobby._ready` hydrates and `Outfitter` persists. The stale
+## note mattered because two other files quoted it as "no-op until GameState
+## .spell_roles exists", which stopped being true and went on being read.
 ##
 ## ⚠ `Object.set()` on an UNDECLARED property is a silent no-op in GDScript, so
 ## `persist_to_state` proves the property exists by reading it back rather than

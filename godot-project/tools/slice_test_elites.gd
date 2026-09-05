@@ -51,6 +51,7 @@ const TESTS: Array[String] = [
 	"an_elite_wave_takes_the_whole_budget",
 	"spawn_data_carries_the_affixes",
 	"attach_dresses_an_elite_and_leaves_trash_bare",
+	"an_elite_casts_a_spell_no_class_carries",
 	"peers_build_the_same_elite_from_the_same_dict",
 	"quickened_is_faster_not_tougher",
 	"inked_refuses_to_be_shoved",
@@ -116,6 +117,7 @@ func _run() -> void:
 	_test_an_elite_wave_takes_the_whole_budget()
 	await _test_spawn_data_carries_the_affixes()
 	await _test_attach_dresses_an_elite_and_leaves_trash_bare()
+	await _test_an_elite_casts_a_spell_no_class_carries()
 	_test_peers_build_the_same_elite_from_the_same_dict()
 	await _test_quickened_is_faster_not_tougher()
 	await _test_inked_refuses_to_be_shoved()
@@ -398,6 +400,96 @@ func _test_attach_dresses_an_elite_and_leaves_trash_bare() -> void:
 	_kill(affixed)
 	await _settle(2)
 	_completes("attach_dresses_an_elite_and_leaves_trash_bare")
+
+
+## ══ AN ELITE CASTS SOMETHING YOU HAVE NEVER HELD ═══════════════════
+## Maker, watching the bot fights: *"I see all these cool classes spells and
+## interactions and spells please ensure the main game has all of these"*, and, put to
+## them as a fork, they chose to arm the ELITES and the guardians rather than every mob
+## — so the spectacle is a spike you remember and not constant noise.
+##
+## Three properties, and the second is the one worth having:
+##   1. an elite casts the ELITE row, ordinary trash of the same archetype does not;
+##   2. the spell is an ORPHAN — in `SpellLibrary.unequipped_ids()`, i.e. authored,
+##      tuned, carried by no class and (since the tower stopped dropping spells) never
+##      cast by anything in the game. An elite throwing your own kit back at you is
+##      `ModMirrored`'s job and having two of those makes neither mean anything;
+##   3. the DAMAGE is this file's, not the library's. Library numbers are authored for
+##      a hero's power budget and `colossus_pillar` is 96 against a roster whose
+##      biggest hit is 22 — borrowing the id must never mean borrowing the number.
+func _test_an_elite_casts_a_spell_no_class_carries() -> void:
+	var script: GDScript = load("res://scripts/combat/Enemy.gd") as GDScript
+	var elite_rows: Dictionary = script.get("ELITE_SPELLS")
+	var plain_rows: Dictionary = script.get("ARCHETYPE_SPELLS")
+	_expect(elite_rows.size() >= 5,
+		"there are elite spell rows to test (%d)" % elite_rows.size())
+	# Every id any class actually carries, so the orphan claim is checked against the
+	# real kits rather than against a list somebody typed twice.
+	var carried: Array = []
+	for cls: int in SpellLibrary.CLASS_KITS.size():
+		for s: SpellDef in SpellLibrary.build_for_class(cls):
+			carried.append(s.id)
+	var orphans: Array = SpellLibrary.unequipped_ids()
+	var checked: int = 0
+	for key: Variant in elite_rows:
+		var arch: int = int(key)
+		var row: Dictionary = elite_rows[key]
+		var id: String = String(row["id"])
+		_expect(orphans.has(id),
+			"archetype %d's elite spell `%s` is an orphan — if it has been given to a"
+				% [arch, id]
+			+ " class since, an elite now casts that class's spell back at the player,"
+			+ " which is a different feature that already exists (ModMirrored)")
+		_expect(not carried.has(id),
+			"...and no class STARTS with `%s`" % id)
+		var lib: SpellDef = SpellLibrary.by_id(id)
+		_expect(lib != null, "`%s` is really in the library" % id)
+		if lib == null:
+			continue
+		_expect(int(row["dmg"]) < lib.damage,
+			"`%s` is re-tuned DOWN for an enemy (%d, library says %d). A borrowed id"
+				% [id, int(row["dmg"]), lib.damage]
+			+ " must not bring a hero's damage number with it.")
+		# ...and it is announced for longer than the light one, because it is heavier.
+		var plain: Dictionary = plain_rows.get(key, {})
+		if not plain.is_empty():
+			# ...and UP from the trash beside it. This is the half that says the elite
+			# row is an upgrade rather than merely a different id: bounded above by the
+			# library and below by the ordinary mob, so it can be neither a hero number
+			# nor a sidegrade. The first version of this test only checked the upper
+			# bound and passed `void_barrage` at exactly the library value.
+			_expect(int(row["dmg"]) > int(plain["dmg"]),
+				"archetype %d's elite spell hits harder than its ordinary one (%d vs %d)"
+					% [arch, int(row["dmg"]), int(plain["dmg"])])
+			_expect(float(row["windup"]) >= float(plain["windup"]),
+				"archetype %d's elite spell has at least the ordinary windup (%.2f vs %.2f)"
+					% [arch, float(row["windup"]), float(plain["windup"])])
+			_expect(float(row["cd"]) >= float(plain["cd"]),
+				"...and comes round no faster (%.1f vs %.1f)"
+					% [float(row["cd"]), float(plain["cd"])])
+		# ══ THE LIVE BODIES ═══════════════════════════════════════════════════
+		var trash: Node = _build(arch)
+		var elite: Node = _build(arch, [EliteModifier.INKED])
+		await _settle(3)
+		_expect(String((trash.call("spell_row") as Dictionary).get("id", ""))
+				== String(plain.get("id", "")),
+			"ordinary archetype %d still casts its own spell" % arch)
+		_expect(String((elite.call("spell_row") as Dictionary).get("id", "")) == id,
+			"an elite archetype %d casts `%s`" % [arch, id])
+		var built: SpellDef = elite.call("archetype_spell") as SpellDef
+		_expect(built != null and built.id == id,
+			"...and the SpellDef it builds is that spell")
+		if built != null:
+			_expect(built.damage == int(row["dmg"]),
+				"...carrying THIS table's damage (%d), not the library's (%d)"
+					% [built.damage, lib.damage])
+		checked += 1
+		_kill(trash)
+		_kill(elite)
+		await _settle(2)
+	_expect(checked >= 5,
+		"every elite row was exercised against a live body (%d)" % checked)
+	_completes("an_elite_casts_a_spell_no_class_carries")
 
 
 ## CO-OP. `build_enemy_from_data` runs on every peer from a replicated dictionary and

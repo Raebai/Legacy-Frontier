@@ -181,6 +181,20 @@ func _walk_one(gs: Node, seed_value: int) -> Dictionary:
 	hero.set(&"hp", maxi(1, int(round(float(maxhp) * 0.33))))
 	var hurt: int = int(hero.get(&"hp"))
 	hero.global_position = _stance_at_exit(l1)
+	# ⚠ THE CLIMB IS DRIVEN THROUGH THE CHOICE PAD NOW, NOT BY STANDING ON A PORTAL.
+	# Maker: *"when you pass a floor no need for the exit sigil only the one sigil is
+	# needed where it asks if you want to go to the next floor or back"*. `Arena` only
+	# builds the cyan walk-into-it portal on a FINAL floor now, so standing the hero
+	# on the exit point and waiting — which is what this did — waits forever.
+	#
+	# The advance path itself is unchanged and is still what is being measured: the
+	# pad's "Keep climbing" button routes into the same `_on_portal_taken` the portal
+	# used. The hero is still MOVED to the exit first, because where the body stands
+	# when the floor rebuilds is the whole subject of this suite.
+	if arena.get(&"_portal") == null:
+		arena.call(&"_on_return_taken")
+		await physics_frame
+		arena.call(&"_climb_from_prompt")
 	var reached: bool = false
 	# ⚠ SAMPLE THE HEAL ON THE FRAME IT ARRIVES, NOT AFTER THE SETTLE LOOP. The first
 	# version of this read hp 150 ticks later and reported 118..128 of 133 — the heal
