@@ -55,6 +55,8 @@ const TESTS: Array[String] = [
 	"every_kind_maps_to_a_motif",
 	"a_socket_fits_inside_its_own_slot",
 	"every_label_fits_its_box",
+	"the_key_and_the_name_never_touch",
+	"only_the_ult_wears_a_ring",
 ]
 
 var _fails: int = 0
@@ -90,6 +92,8 @@ func _process(_delta: float) -> bool:
 	_test_every_kind_maps_to_a_motif()
 	_test_socket_fits_its_slot()
 	_test_labels_fit()
+	_test_labels_do_not_collide()
+	_test_only_the_ult_wears_a_ring()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -719,4 +723,119 @@ func _test_labels_fit() -> void:
 				"cooldown numeral '%s' cannot fit a %.1f px slot" % [secs, slot])
 		hero.queue_free()
 	_expect(checked >= 40, "every class's labels were measured (%d checks)" % checked)
+
+
+## ══ TWO STRINGS IN ONE 28.5 PX SQUARE ══════════════════════════════
+## Maker, twice, the second time in capitals: *"the Guard and LUNGE BUTTONS IN THE
+## BOTTOM LEFT CORNER OF THE SCREEN ARE OVERWRITTEN BY THE RMB AND SPC TEXT"*.
+##
+## ⚠ `_test_labels_fit` DIRECTLY ABOVE COULD NOT HAVE CAUGHT THIS, and neither could
+## `probe_hotbar_fit`, and the difference is the whole reason this test exists. Both of
+## them ask "does this string fit its own box's WIDTH". Both answered yes about a bar
+## the maker was looking at while the two strings sat on top of each other, because
+## nothing in the tree had ever measured the distance between two DRAWN strings — only
+## each string against its own box. A suite can be entirely green about a HUD that is
+## unreadable.
+##
+## Measured at `DESKTOP_SCALE`, which is where it broke. At the 46 px touch slot the
+## same maths has ~13 px more room and clears easily; the desktop slot is 28.5 px and
+## it does not. A test at the touch size would pass forever.
+func _test_labels_do_not_collide() -> void:
+	var font: Font = ThemeDB.fallback_font
+	var slot: float = AbilityBar.SLOT_SIZE * AbilityBar.DESKTOP_SCALE
+	var checked: int = 0
+	for cls: int in ClassInfo.CLASSES.size():
+		var hero: CharacterBody2D = _make_hero()
+		hero.configure_class(cls)
+		var state: Array = hero.ability_hud_state()
+		var verbs: int = state.size() - SpellTier.SLOT_COUNT
+		for i: int in range(maxi(verbs, 0)):
+			if not state[i] is Dictionary:
+				continue
+			var d: Dictionary = state[i]
+			var nm: String = String(d.get("name", ""))
+			var ky: String = String(d.get("key", ""))
+			if nm.is_empty() or ky.is_empty():
+				continue
+			var kf: Array = AbilityBar.fit_text(font, ky,
+				slot - AbilityBar.KEY_PADDING.x, AbilityBar.KEY_FONT_SIZE)
+			var kpt: int = int(kf[0])
+			# ⚠ THROUGH THE SAME HELPER THE DRAW CALLS. Re-deriving the baseline here would
+			# be a test of this file's arithmetic, and the bug was that the arithmetic in
+			# the other file disagreed with what a font actually does.
+			var nf: Array = AbilityBar.fit_verb_name(font, nm,
+				Vector2(slot, slot), kpt, AbilityBar.NAME_FONT_SIZE)
+			var npt: int = int(nf[0])
+			# The bands the glyphs really occupy, from the font's own metrics rather than
+			# from the point size — a point size is not a height.
+			var key_bottom: float = AbilityBar.key_baseline_y(kpt) + font.get_descent(kpt)
+			var name_base: float = float(nf[2])
+			var name_top: float = name_base - font.get_ascent(npt)
+			var name_bottom: float = name_base + font.get_descent(npt)
+			checked += 1
+			_expect(name_top >= key_bottom,
+				"%s: '%s' overlaps its own '%s' key by %.1f px — the name's glyphs start at"
+					% [String(ClassInfo.CLASSES[cls]["name"]), nm, ky, key_bottom - name_top]
+				+ " y=%.1f and the key's still run to y=%.1f in a %.1f px square"
+					% [name_top, key_bottom, slot])
+			_expect(name_bottom <= slot + 0.5,
+				"%s: '%s' hangs %.1f px out of the bottom of its square — clearing the key"
+					% [String(ClassInfo.CLASSES[cls]["name"]), nm, name_bottom - slot]
+				+ " has pushed it out of the slot instead of onto it")
+		hero.queue_free()
+	_expect(checked >= 15,
+		"every class's verb rows were measured for collision (%d checks)" % checked)
+	_completes("the_key_and_the_name_never_touch")
+
+
+## ══ ONE RING ON THE BAR, AND IT IS ON THE ULT ════════════════════════
+## Maker: *"why does 1 have an order circle around it and not the others if anything
+## the ult should have that circle please fix that for all the classes"*.
+##
+## The ring on slot 1 was `selected` — a marker for `_signature_index`, from when one
+## cast key cycled between spells. Every slot has had its own key for a while, so the
+## marker had nothing left to mark and simply sat on slot 1 forever, because
+## `_signature_index` starts at 0 and slot 1 is the damage line you throw all fight.
+##
+## ⚠ THIS IS A SOURCE CHECK, and the reason is the one `slice_test_destructible_sources`
+## wrote down for Meteor Fist: the property is "this draw call is not made", and a
+## counter cannot see a draw call that did not happen. Comment lines are stripped
+## first, because the explanation of why the ring is gone names the ring.
+func _test_only_the_ult_wears_a_ring() -> void:
+	var src: String = FileAccess.get_file_as_string(
+		"res://scripts/combat/AbilityBar.gd")
+	_expect(src != "", "AbilityBar.gd could be read — otherwise this proves nothing")
+	# ⚠ THE DRAW CALL, NOT THE FLAG. The first version of this looked for
+	# `slot.get("selected"` and failed on a green tree: a SECOND reader forty lines
+	# away relabels the selected slot with the signature's name, which is nothing to do
+	# with a ring. A source check has to name the thing it forbids.
+	var ringed: bool = false
+	for raw: String in src.split("\n"):
+		var line: String = raw.strip_edges()
+		if line.begins_with("#"):
+			continue
+		if line.contains("draw_arc(c, disc_r + SELECTED_GROW"):
+			ringed = true
+	_expect(not ringed,
+		"the `selected` ring is drawn on spell discs again. It marks `_signature_index`,"
+		+ " which no longer means anything now every slot has its own key, and it parks"
+		+ " on slot 1 for the whole fight. The ult's crown in `_draw_socket` is the ring"
+		+ " that means something and it is already on `SpellTier.ULT_SLOT` everywhere.")
+	# ...and the crown must still READ the cooldown, or a ready ult and a spent one look
+	# identical on the one mark the eye goes to.
+	var sweeps: bool = false
+	var lines: PackedStringArray = src.split("\n")
+	for i: int in lines.size():
+		if not lines[i].strip_edges().begins_with("_ring(c, ring_r * ULT_OUTER_R"):
+			continue
+		var window: String = lines[i]
+		for j: int in range(i + 1, mini(i + 3, lines.size())):
+			window += lines[j]
+		if window.contains("frac"):
+			sweeps = true
+	_expect(sweeps,
+		"the ult crown draws a full circle regardless of its cooldown — it says the same"
+		+ " thing whether the ult is a second away or twenty. The element ring beneath it"
+		+ " has read its cooldown as a closing sweep since it replaced the numeral.")
+	_completes("only_the_ult_wears_a_ring")
 	_completes("every_label_fits_its_box")

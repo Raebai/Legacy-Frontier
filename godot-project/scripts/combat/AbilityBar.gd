@@ -89,7 +89,10 @@ const SIDE_MARGIN: float = 16.0
 ## Inset for the key label from the slot's top-left corner.
 const KEY_PADDING: Vector2 = Vector2(4.0, 3.0)
 ## Lift for the ability name off the slot's bottom edge.
-const NAME_BOTTOM_PADDING: float = 3.0
+## Clear air between the key label's baseline and the top of the ability name. The
+## constant this replaces (`NAME_BOTTOM_PADDING`) had been dead since the name stopped
+## hugging the bottom edge — it was the offset of a draw call that no longer existed.
+const NAME_KEY_GAP: float = 2.0
 
 ## -- Type ---------------------------------------------------------------
 const KEY_FONT_SIZE: int = 10
@@ -747,17 +750,27 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font,
 		draw_rect(rect, _with_alpha(PANEL_COLOR, alpha))
 		draw_rect(rect, _with_alpha(BORDER_COLOR, alpha), false, BORDER_WIDTH)
 
-	# The bar has to say WHICH slot the cast key throws right now. A lifted outer
-	# frame rather than a colour change: movement reads faster than hue when your eyes
-	# are on the fight (the same reasoning as LoadoutBar's SELECTED_LIFT), and it
-	# survives the cooldown wipe drawn on top of the slot below.
-	if bool(slot.get("selected", false)):
-		var sel: Color = _with_alpha(SELECTED_COLOR, alpha)
-		if is_spell:
-			draw_arc(c, disc_r + SELECTED_GROW, 0.0, TAU, DISC_SEGMENTS, sel,
-				SELECTED_WIDTH, true)
-		else:
-			draw_rect(rect.grow(SELECTED_GROW), sel, false, SELECTED_WIDTH)
+	# ⚠ THE SPELL DISCS NO LONGER DRAW THIS RING, and the maker is the one who spotted
+	# that it had stopped meaning anything. *"why does 1 have an order circle around it
+	# and not the others if anything the ult should have that circle"*.
+	#
+	# It marked `_signature_index` — "the slot the cast key throws right now" — from
+	# when there was ONE cast key and you cycled which spell it threw. Every slot has
+	# had its own action and its own key for a while (`Hero.SPELL_ACTIONS`, and that
+	# file's own comment says there is no longer "the one you can cast" and "the ones
+	# you have to cycle to"). What was left was a gold ring parked on slot 1, because
+	# `_signature_index` starts at 0 and slot 1 is the damage line you throw all fight,
+	# so it almost never moved. A permanent decoration on one arbitrary slot.
+	#
+	# The ULT's crown ring in `_draw_socket` is the circle that means something, it is
+	# already tier-derived, and it is already on `SpellTier.ULT_SLOT` for all nine
+	# classes. Removing this one leaves exactly one ring on the bar and it is on the ult.
+	#
+	# The VERB squares keep it: nothing sets `selected` on them today, so this is a
+	# no-op there rather than a second ruling.
+	if bool(slot.get("selected", false)) and not is_spell:
+		draw_rect(rect.grow(SELECTED_GROW), _with_alpha(SELECTED_COLOR, alpha),
+			false, SELECTED_WIDTH)
 
 	# Key label: top-left, small + bright -- the "which finger" read. Fitted, so a
 	# three-character key ("RMB", "Spc") cannot be clipped by a future scale change
@@ -788,10 +801,14 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font,
 		# slot used to carry a cooldown numeral in the middle; the numeral is fitted and
 		# small now, so the middle is where the word belongs — and a word pinned to the floor
 		# of a box reads as a caption under the box rather than as its label.
-		var name_fit: Array = fit_text(font, ability_name, rect.size.x, name_pt)
+		# See `fit_verb_name`: sized and seated in the room BELOW the key, not centred in
+		# the whole box on top of it. `key_size` and not `key_pt` — the key may have been
+		# shrunk to fit its own width, and reserving room for a size that was not drawn
+		# would rob the name on exactly the classes with the longest key labels.
+		var name_fit: Array = fit_verb_name(font, ability_name, rect.size, key_size, name_pt)
 		draw_string(
 			font,
-			Vector2(rect.position.x, rect.get_center().y + float(int(name_fit[0])) * 0.36),
+			Vector2(rect.position.x, rect.position.y + float(name_fit[2])),
 			String(name_fit[1]),
 			HORIZONTAL_ALIGNMENT_CENTER, int(rect.size.x), int(name_fit[0]),
 			_with_alpha(NAME_TEXT_COLOR, alpha)
@@ -1046,7 +1063,17 @@ func _draw_socket(rect: Rect2, accent: Color, tier: int, alpha: float,
 		# which is how it ended up 5.5 px inside its neighbour's slot. A crown that
 		# holds still while the element ring kicks under it also reads better: the
 		# stable frame is what makes the kick legible as movement.
-		_ring(c, ring_r * ULT_OUTER_R, 3, 0.5, -phase * 0.5, TAU,
+		#
+		# ⚠ AND IT CLOSES AS THE ULT COMES BACK. Maker: *"the yellow circle also needs to
+		# move around as the ults recharge"*. It drew a FULL ring at every moment of the
+		# cooldown, so the one mark the eye goes to on the bar said the same thing whether
+		# the ult was a second away or twenty. The element ring under it has read its
+		# cooldown as a closing sweep since it replaced the numeral; the crown simply
+		# never got the same treatment, and it is the ring people actually watch.
+		# Same expression, same 12-o'clock start, so the two close together and arrive
+		# together — and a ready ult is the only state where the crown is a whole circle.
+		_ring(c, ring_r * ULT_OUTER_R, 3, 0.5, -phase * 0.5,
+			TAU * (1.0 - clampf(frac, 0.0, 1.0)),
 			_with_alpha(SpellTier.color(SpellTier.Tier.ULT), 0.75 * alpha), 2.0 * w, not low)
 	# DRAWN UNROTATED, WHICH IS THE WHOLE REASON IT IS A SEPARATE TRANSFORM FROM THE
 	# RING. LANCE means "that way" and a spinning arrow points everywhere; the world
@@ -1062,6 +1089,63 @@ func _draw_socket(rect: Rect2, accent: Color, tier: int, alpha: float,
 		MagicCircle.draw_motif(self, glyph, ring_r * GLYPH_R_OVER_RING, gcol,
 			GLYPH_WIDTH * w, phase, low, 0.95 * alpha, false)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## ══ WHERE THE TWO STRINGS IN A VERB SQUARE SIT ═════════════════════════
+## Maker, twice: *"the rmb and spc buttons and what they do in the corner the text is
+## blocking each other its not very aestetic"*, then *"the Guard and LUNGE BUTTONS IN
+## THE BOTTOM LEFT CORNER OF THE SCREEN ARE OVERWRITTEN BY THE RMB AND SPC TEXT"*.
+##
+## Both strings are drawn inside ONE square, and the square is 28.5 px on desktop —
+## `SLOT_SIZE` 46 times `DESKTOP_SCALE` 0.62, not the 46 px thumb target the constant
+## is written for. The name used to sit on the square's bottom edge, as far from the
+## top-left key as the box allows. It was moved to the square's CENTRE to answer a
+## different maker note (*"the air dash and stuff should be centred in its little
+## square"*), and at 28.5 px the centre is only a few pixels below the key's own
+## baseline, so the two glyph bands landed on top of each other. On a 46 px touch
+## slot the same maths has ~13 px more room and does not collide — which is why it
+## survived a review and failed on the maker's screen.
+##
+## The name is still centred; it is centred in THE ROOM THAT IS LEFT rather than in
+## the whole box. That keeps the answer to both notes: it is not pinned to the floor
+## like a caption, and it is not sitting under the key.
+##
+## Static and pure so a test can assert the clearance without standing a HUD up — no
+## probe in the tree measured the gap between two drawn strings, only whether each
+## string fitted its own box's WIDTH, which is why nothing caught this.
+static func key_baseline_y(key_pt: int) -> float:
+	return KEY_PADDING.y + float(key_pt)
+
+
+## The ability name, fitted to the room LEFT OVER under the key label — in BOTH axes.
+## Returns `[size, text, baseline_y]`, with the baseline measured from the square's
+## own top edge.
+##
+## ⚠ THE KEY'S DESCENT IS PART OF THE KEY. The first attempt at this reserved
+## `key_baseline + gap` and still overlapped by 0.4 px on all nine classes, because a
+## baseline is not the bottom of a glyph — 'p' and 'y' hang about 3 px below it at
+## 10 pt. Caught by the test below, which measures the drawn bands rather than the
+## point sizes; the point sizes had looked fine.
+##
+## ⚠ AND HEIGHT IS FITTED, NOT ASSUMED. `fit_text` has only ever asked whether a
+## string fits its box's WIDTH, which is why every existing check was green about a
+## bar the maker could not read. A 28.5 px desktop square cannot hold a 10 pt key and
+## an 8 pt name stacked, so the name gives up a point rather than the two of them
+## sharing a row of pixels.
+static func fit_verb_name(font: Font, text: String, rect_size: Vector2,
+		key_pt: int, base_pt: int = NAME_FONT_SIZE) -> Array:
+	var top: float = key_baseline_y(key_pt) + font.get_descent(key_pt) + NAME_KEY_GAP
+	var room: float = maxf(rect_size.y - top, 1.0)
+	var fit: Array = fit_text(font, text, rect_size.x, base_pt)
+	var pt: int = int(fit[0])
+	while pt > FIT_FLOOR_SIZE and font.get_ascent(pt) + font.get_descent(pt) > room:
+		pt -= 1
+		fit = fit_text(font, text, rect_size.x, pt)
+		pt = int(fit[0])
+	var band: float = font.get_ascent(pt) + font.get_descent(pt)
+	# Centred on the GLYPH BAND inside the leftover room, so a word with no descenders
+	# does not sit visibly high in its own gap.
+	return [pt, fit[1], top + maxf(room - band, 0.0) * 0.5 + font.get_ascent(pt)]
 
 
 ## One dashed ring as a single `draw_multiline`. `sweep` < TAU draws a partial ring
