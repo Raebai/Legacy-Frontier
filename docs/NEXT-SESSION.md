@@ -62,6 +62,23 @@ two attack shapes on one press earlier today.
 `probe_basic_attack_visuals (before AND after)  slice_test_class_identity
 slice_test_hitboxes  slice_test_hero_tells  slice_test_spell_buttons`
 
+**(f) Shatter is too weak** — folded into (d), which already owns `SpellLibrary.gd`.
+Maker: *"also shatter is too weak of a spell change it or make it more powerful or easier
+to hit with"*. They named both acceptable routes themselves, so the job is to diagnose
+WHICH. ⚠ Shatter is a delayed/marked payoff (`Shatter.gd` has a `_draw_marked` loop over
+bodies marked earlier), so "too weak" may really be "the mark expires before I can cash
+it" — a REACH/WINDOW problem, not a damage one. Raising damage in that case leaves it
+feeling exactly as bad while hitting harder on the rare occasions it lands.
+
+**(g) The Cryomancer cannot dash upwards** — folded into (e), which already owns `Hero.gd`.
+Maker: *"also make sure I can dash upwards with cryomancer as well"*. Its verb is
+`ice_slide`, whose own comment says a slide BLEEDS speed and integrates a linear decay —
+so it is very likely a ground-plane slide that drops the vertical component and gives you
+a horizontal skid when you aim up. ⚠ **Do not turn it into a generic dash**: the standing
+ruling is nine classes / nine unique movement verbs, and this one's identity IS the decay.
+A slide that can be aimed upward and still bleeds speed is still a slide.
+`slice_test_class_movement` pins the nine verbs and their distance bands.
+
 ### PLAY IT
 **F5** → title → Single Player. **Lobby → Watch Bots** for the showcase.
 The Android APK is stale — it predates every commit below.
