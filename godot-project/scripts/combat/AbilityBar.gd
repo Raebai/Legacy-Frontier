@@ -196,6 +196,16 @@ const PIP_FONT_SIZE: int = 10
 var _slots: Array = []
 ## Current class name, drawn above the hotbar so the player always knows their class.
 var _class_name: String = ""
+## THE CLASS'S OWN COLOUR, and the only hue the sockets wear now. Maker: *"the loader is
+## enough, in their class colours — minimalistic and clear on what they do"*.
+##
+## What this replaces is the per-spell ELEMENT accent, which was a deliberate feature: you
+## found your fire slot by looking for orange. It cost more than it bought. Four sockets in
+## four different hues, each with a tier-weighted ring and a motif, is four things to tell
+## apart on a bar you are not looking at; one class colour makes the whole kit read as YOURS
+## at a glance and leaves the MOTIF as the thing that distinguishes the spells — which is the
+## axis that actually says what a spell does, and the one the socket already draws.
+var _class_color: Color = READY_GLOW_COLOR
 
 ## SAME-SCREEN CO-OP. Null means "whoever is first in the hero group", which is the
 ## single-player answer and the shipped behaviour. Set it and this bar belongs to one
@@ -295,6 +305,7 @@ func _process(_delta: float) -> void:
 	else:
 		_slots = hero.ability_hud_state()
 		_class_name = String(hero.call("class_display_name")) if hero.has_method("class_display_name") else ""
+		_class_color = _color_for_class(_class_name)
 		_repair_signature_label(hero)
 		_stamp_charges(hero)
 		_stamp_spell_identity(hero)
@@ -550,19 +561,27 @@ func _verb_row() -> Array:
 ## class. Sorted by the derived tier, so it stays true when a spell is retuned or a
 ## Tier 3 pickup drops into a slot mid-floor; ties keep the slot order the keys 1/2/3
 ## already imply, so two QUICK spells never swap places under the player's thumb.
+## ⚠ PUBLISHED ORDER — 1, 2, 3, 4 — AND THE STRENGTH RAMP IS GONE.
+##
+## This used to sort by `SpellTier.of` so the bar read weakest-to-heaviest and the ult was
+## always the far-right button whatever the class. That is a real property and it was
+## argued for at length. It is also wrong, and the maker said so plainly: *"the spells
+## should always be in the order of 1 2 3 4"*.
+##
+## The ramp optimised for a player READING the bar. The keys optimise for a player PRESSING
+## it — and the number printed on the square is a promise about which finger throws it. When
+## the ramp and the keys disagree, the bar is sorted by something the player cannot see while
+## the labels say something else, so slot 2 can sit third and every glance costs a re-read.
+## A hotbar's first duty is that the thing under "3" is the thing labelled 3.
 func _spell_row() -> Array:
 	var first: int = _spell_slot_start()
 	if first < 0:
 		return []
 	var items: Array = []
-	var ranks: Array = []
 	for i: int in range(first, _slots.size()):
-		if not _slots[i] is Dictionary:
-			continue
-		var slot: Dictionary = _slots[i]
-		items.append(slot)
-		ranks.append(int(slot.get("tier", SpellTier.Tier.QUICK)))
-	return _stable_by_rank(items, ranks)
+		if _slots[i] is Dictionary:
+			items.append(_slots[i])
+	return items
 
 
 ## `items` ordered by `ranks`, ties keeping their original order.
@@ -584,6 +603,38 @@ static func _stable_by_rank(items: Array, ranks: Array) -> Array:
 	for i: int in order:
 		out.append(items[i])
 	return out
+
+
+## ONE SIZE FOR EVERY LABEL ON THE BAR. Maker: *"the font should always match, it doesn't
+## look professional"* — and they were describing something this file did to itself.
+##
+## `fit_text` shrinks a label until it fits its box, which fixed the clipping it was written
+## for and introduced a worse-looking problem: it fits each label INDEPENDENTLY, so "Parry"
+## drew at 8 pt beside "Bolt Step" at 6 pt beside "Radiant" at 7 pt. Three type sizes in one
+## row of six squares reads as three different UIs, and it is exactly the kind of fault that
+## has no single wrong line to point at.
+##
+## So the fit is computed over the WHOLE ROW and the smallest winner is used everywhere: one
+## size, chosen by the longest word on the bar, changing only when the class does.
+func _uniform_size(font: Font, rows: Array, key: String, room: float, preferred: int) -> int:
+	var size: int = preferred
+	for slot: Variant in rows:
+		if not slot is Dictionary:
+			continue
+		var text: String = String((slot as Dictionary).get(key, ""))
+		if text.is_empty():
+			continue
+		size = mini(size, int(fit_text(font, text, room, preferred)[0]))
+	return size
+
+
+## The class's own hue, by name. Falls back to the ready accent when the class is unknown,
+## which is the hub/menu case where the bar draws nothing anyway.
+func _color_for_class(display: String) -> Color:
+	for i: int in ClassInfo.count():
+		if ClassInfo.name_for(i) == display:
+			return ClassInfo.color_for(i)
+	return READY_GLOW_COLOR
 
 
 func _draw() -> void:
@@ -621,20 +672,27 @@ func _draw() -> void:
 			HORIZONTAL_ALIGNMENT_CENTER, total_w, int(round(13.0 * k)),
 			Color(0.95, 0.96, 1.0, 0.95)
 		)
+	# Sized once, over every row, so the bar speaks in one voice. See `_uniform_size`.
+	var name_pt: int = _uniform_size(font, verbs, "name", slot_px, NAME_FONT_SIZE)
+	var key_pt: int = _uniform_size(font, verbs + spells, "key",
+		slot_px - KEY_PADDING.x, KEY_FONT_SIZE)
 	var x: float = origin_x
 	for slot: Dictionary in verbs:
-		_draw_slot(Rect2(Vector2(x, origin_y), Vector2(slot_px, slot_px)), slot, font)
+		_draw_slot(Rect2(Vector2(x, origin_y), Vector2(slot_px, slot_px)), slot, font,
+			name_pt, key_pt)
 		x += slot_px + SLOT_GAP * k
 	x += split
 	for slot: Dictionary in spells:
-		_draw_slot(Rect2(Vector2(x, origin_y), Vector2(slot_px, slot_px)), slot, font)
+		_draw_slot(Rect2(Vector2(x, origin_y), Vector2(slot_px, slot_px)), slot, font,
+			name_pt, key_pt)
 		x += slot_px + SLOT_GAP * k
 
 
 ## Draw one hotbar slot: panel + border + key/name labels, then either the
 ## cooldown wipe + seconds readout or the ready glow. `enabled == false`
 ## dims the whole slot and suppresses the glow.
-func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
+func _draw_slot(rect: Rect2, slot: Dictionary, font: Font,
+		name_pt: int = NAME_FONT_SIZE, key_pt: int = KEY_FONT_SIZE) -> void:
 	# Defensive reads: the contract is trusted but a missing key shouldn't
 	# take the HUD down (same .get()-with-fallback idiom as the save layer).
 	var ability_name: String = String(slot.get("name", ""))
@@ -677,7 +735,10 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
 	# It gets an outline instead, since it no longer has a dark panel behind it.
 	if is_spell:
 		draw_circle(c, disc_r, _with_alpha(PANEL_COLOR, alpha), true, -1.0, true)
-		_draw_socket(rect, slot.get("accent", EMPTY_SOCKET_COLOR),
+		# THE CLASS COLOUR, not the spell's element — see `_class_color`. An EMPTY socket
+		# keeps its neutral steel, because "there is nothing here" is not a class fact.
+		var socket_col: Color = _class_color if slot.get("accent", null) != null else EMPTY_SOCKET_COLOR
+		_draw_socket(rect, socket_col,
 			int(slot.get("tier", SpellTier.Tier.QUICK)), alpha, cd_frac, pulse,
 			int(slot.get("glyph", MagicCircle.Motif.NONE)))
 		draw_arc(c, disc_r, 0.0, TAU, DISC_SEGMENTS,
@@ -702,7 +763,7 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
 	# three-character key ("RMB", "Spc") cannot be clipped by a future scale change
 	# the way the ability names silently were.
 	var key_room: float = rect.size.x - KEY_PADDING.x
-	var key_fit: Array = fit_text(font, key_label, key_room, KEY_FONT_SIZE)
+	var key_fit: Array = fit_text(font, key_label, key_room, key_pt)
 	var key_size: int = int(key_fit[0])
 	var key_pos: Vector2 = rect.position + Vector2(KEY_PADDING.x, KEY_PADDING.y + float(key_size))
 	if is_spell:
@@ -722,10 +783,15 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
 	# colour, ring weight, motif and the ult's crown. A text REDUCTION, per the
 	# standing rule.
 	if not is_spell:
-		var name_fit: Array = fit_text(font, ability_name, rect.size.x, NAME_FONT_SIZE)
+		# ⚠ CENTRED IN THE SQUARE, not hugging its bottom edge. Maker: *"the air dash and
+		# stuff should be centred in its little square"*. It sat on the baseline because the
+		# slot used to carry a cooldown numeral in the middle; the numeral is fitted and
+		# small now, so the middle is where the word belongs — and a word pinned to the floor
+		# of a box reads as a caption under the box rather than as its label.
+		var name_fit: Array = fit_text(font, ability_name, rect.size.x, name_pt)
 		draw_string(
 			font,
-			Vector2(rect.position.x, rect.end.y - NAME_BOTTOM_PADDING),
+			Vector2(rect.position.x, rect.get_center().y + float(int(name_fit[0])) * 0.36),
 			String(name_fit[1]),
 			HORIZONTAL_ALIGNMENT_CENTER, int(rect.size.x), int(name_fit[0]),
 			_with_alpha(NAME_TEXT_COLOR, alpha)
@@ -749,7 +815,8 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
 		# Seconds left, 1 decimal, centered -- precise timing for ability weaving.
 		# Fitted: "10.5" is 30 px of a 28.5 px slot, so every cooldown of ten seconds
 		# or more was losing its last digit, which on a timer is worse than useless.
-		var secs_fit: Array = fit_text(font, "%.1f" % remaining, rect.size.x, TIMER_FONT_SIZE)
+		var secs_fit: Array = fit_text(font, "%.1f" % remaining, rect.size.x,
+			mini(TIMER_FONT_SIZE, maxi(name_pt + 4, FIT_FLOOR_SIZE)))
 		draw_string(
 			font,
 			Vector2(rect.position.x, rect.get_center().y + float(int(secs_fit[0])) * 0.35),
@@ -757,14 +824,17 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font) -> void:
 			HORIZONTAL_ALIGNMENT_CENTER, int(rect.size.x), int(secs_fit[0]),
 			_with_alpha(TIMER_TEXT_COLOR, alpha)
 		)
-	elif not on_cooldown and enabled:
-		# Ready: a brighter accent border so the eye reads "usable" without
-		# the slot shouting. Disabled slots never glow.
-		if is_spell:
-			draw_arc(c, disc_r, 0.0, TAU, DISC_SEGMENTS, READY_GLOW_COLOR,
-				READY_GLOW_WIDTH, true)
-		else:
-			draw_rect(rect, READY_GLOW_COLOR, false, READY_GLOW_WIDTH)
+	elif not on_cooldown and enabled and not is_spell:
+		# Ready: a brighter accent border so the eye reads "usable" without the slot
+		# shouting. Disabled slots never glow.
+		#
+		# ⚠ SPELL SLOTS NO LONGER GET ONE. Maker: *"for all of them remove that little blue
+		# circle around them — the loader is enough"*. And it is: a spell socket already
+		# shows readiness as its RING BEING WHOLE, because the cooldown is drawn as that ring
+		# closing. So the cyan disc was a second, redundant answer to a question the socket
+		# had already answered — in a hue that belongs to no class, on the one part of the
+		# bar the player chose. The verb squares keep theirs; they have no ring to complete.
+		draw_rect(rect, READY_GLOW_COLOR, false, READY_GLOW_WIDTH)
 	# The flash rides OVER the cooldown branch rather than inside the `elif`: a slot
 	# that recovers and is re-cast within READY_PULSE_TIME is back on cooldown when
 	# this runs, and swallowing its flash would silence exactly the fastest, most
