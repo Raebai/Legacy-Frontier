@@ -24,7 +24,7 @@ const TESTS: Array[String] = [
 	"nova_damages_and_pushes_inside_only",
 	"nova_hits_destructibles_in_radius",
 	"nova_center_overlap_knockback_fallback",
-	"hero_nova_cooldown_gate",
+	"the_rogue_is_the_only_way_a_hero_spawns_a_nova",
 	"nova_hit_radius_unaffected_by_visual_shrink",
 ]
 
@@ -66,7 +66,7 @@ func _process(_delta: float) -> bool:
 	_test_nova_damages_and_pushes_inside_only()
 	_test_nova_hits_destructibles_in_radius()
 	_test_nova_center_overlap_knockback_fallback()
-	_test_hero_nova_cooldown_gate()
+	_test_the_rogue_is_the_only_way_a_hero_spawns_a_nova()
 	_test_nova_hit_radius_unaffected_by_visual_shrink()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
@@ -245,34 +245,38 @@ func _test_nova_hit_radius_unaffected_by_visual_shrink() -> void:
 
 ## Hero wiring: _nova() spawns the nova at the hero, starts the cooldown, and
 ## re-firing during cooldown is a no-op.
-func _test_hero_nova_cooldown_gate() -> void:
+## ══ THIS TEST RECORDED A RULING THAT HAS TURNED OVER ═════════════════
+## It was `hero_nova_cooldown_gate`, and it drove `Hero._nova()` — the free T-button
+## panic burst seven of the nine classes carried — through its cooldown three times.
+## The maker asked three times across three sessions for that button to stop existing
+## (*"remember to remove the nova for all classes why do I still have it with the
+## stormcaller"*), so `_nova()` is gone and there is no cooldown left to gate.
+##
+## It is REWRITTEN RATHER THAN DELETED, because the interesting half survives and is
+## now the only half: `_spawn_nova` still exists and the Rogue's Q whirlwind is its
+## one caller. Deleting the ability along with its spawner is the obvious tidy-up and
+## would silently disarm the Rogue's Q — this is the test that would catch it, so it
+## had better still be here and still be pointed at something real.
+func _test_the_rogue_is_the_only_way_a_hero_spawns_a_nova() -> void:
 	var hero: CharacterBody2D = _make_hero()
 	hero.global_position = Vector2(8000.0, 8000.0)
 	var nearby: StubEnemy = _make_enemy(hero.global_position + Vector2(70.0, 0.0))
-
-	hero._nova()
+	# THE FREE BUTTON IS GONE. Asserted on the class table rather than by calling a
+	# method that no longer exists — a missing method THROWS and aborts the enclosing
+	# function, which this file's own header explains reads as a silent pass.
+	_expect(not ("has_nova" in hero.CLASS_CONFIG[hero.HeroClass.MAGE]),
+		"no class still declares `has_nova` — Nova is not a free per-class button")
+	_expect(not hero.has_method("_nova"),
+		"`Hero._nova` is gone. If it is back, the T button is back with it on however"
+		+ " many classes declare it, which is the thing that was asked for three times.")
+	# ...AND THE ROGUE'S WHIRLWIND STILL LANDS. `_spawn_nova` has no cooldown of its
+	# own — the Q button it hangs off owns that — so this is one cast, one hit.
+	hero.call("_spawn_nova")
 	_fire_pending_novas()
-	_expect(
-		hero._nova_cooldown_timer == hero.NOVA_COOLDOWN, "nova starts its cooldown"
-	)
-	_expect(
-		nearby.damage_taken == 30,
-		"hero nova damages an enemy standing next to the hero (got %d)" % nearby.damage_taken
-	)
-
-	hero._nova()  # still on cooldown — must be a no-op
-	_fire_pending_novas()
-	_expect(
-		nearby.damage_taken == 30, "second immediate nova does nothing (cooldown gate)"
-	)
-
-	hero._nova_cooldown_timer = 0.0  # simulate cooldown expiry
-	hero._nova()
-	_fire_pending_novas()
-	_expect(
-		nearby.damage_taken == 60, "nova fires again once cooldown expires"
-	)
-	_completes("hero_nova_cooldown_gate")
+	_expect(nearby.damage_taken == 30,
+		"the whirlwind spectacle still damages a body next to the caster (got %d)"
+			% nearby.damage_taken)
+	_completes("the_rogue_is_the_only_way_a_hero_spawns_a_nova")
 
 
 ## ⚠ ASSERTED AGAINST THE RULE, NOT AGAINST A CONSTANT. This used to read

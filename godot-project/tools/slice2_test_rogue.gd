@@ -105,12 +105,18 @@ func _test_rogue_config() -> void:
 	_expect(is_equal_approx(float(hero._cfg["dash_cd"]), 0.70), "rogue dash_cd 0.70 (no dash-fly)")
 	_expect(is_equal_approx(float(hero._cfg["blink_cd"]), 1.0), "rogue blink_cd 1.0")
 	_expect(bool(hero._cfg["dash_strike"]) == true, "rogue has dash_strike")
-	_expect(bool(hero._cfg["has_nova"]) == false, "rogue has no nova")
+	# ⚠ `has_nova` IS GONE FROM EVERY CLASS ROW, so the two lines that used to stand
+	# here — "rogue has no nova" and a call to `_nova()` proving it was a no-op — are
+	# assertions about a key and a method that no longer exist. The maker asked three
+	# times for Nova to stop being a free per-class button.
+	#
+	# What they were REALLY protecting is the confusing part of this class and it is
+	# still true and still worth a line: the Rogue's Q is a whirlwind that reuses the
+	# nova SPECTACLE (`aoe == "nova"`), which is a different verb on a different button
+	# that merely looks the same. That is the thing a tidy-up would break.
+	_expect(not ("has_nova" in hero._cfg),
+		"the rogue row no longer declares a free nova button")
 	_expect(String(hero._cfg["aoe"]) == "nova", "rogue Q is whirlwind (nova)")
-	# Nova (T) is a no-op for the rogue.
-	hero._nova_cooldown_timer = 0.0
-	hero._nova()
-	_expect(hero._nova_cooldown_timer == 0.0, "rogue _nova() is a no-op (no cooldown spent)")
 	_completes("rogue_config")
 
 
@@ -135,7 +141,10 @@ func _test_mage_config_unchanged() -> void:
 	_expect(is_equal_approx(float(hero._cfg["cast_cd"]), hero.CAST_COOLDOWN), "mage cast_cd == const")
 	_expect(is_equal_approx(float(hero._cfg["dash_cd"]), hero.DASH_COOLDOWN), "mage dash_cd == const")
 	_expect(bool(hero._cfg["dash_strike"]) == false, "mage has no dash_strike")
-	_expect(bool(hero._cfg["has_nova"]) == true, "mage has nova")
+	# See the rogue's row above: the free T button was removed from all nine classes,
+	# so "mage has nova" is no longer a fact about anything.
+	_expect(not ("has_nova" in hero._cfg),
+		"the mage row no longer declares a free nova button either")
 	_expect(String(hero._cfg["aoe"]) == "arcane_meteor", "mage Q is the arcane meteor storm")
 	_completes("mage_config_unchanged")
 

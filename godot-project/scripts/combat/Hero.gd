@@ -528,7 +528,13 @@ const GUARD_DEFLECT_REACH: float = 74.0
 ## and stays un-buffered.
 const BUFFER_TIME: float = 0.12
 ## Actions that go through that single-slot buffer (newest press wins).
-const BUFFERED_ACTIONS: Array[StringName] = [&"melee", &"dash", &"blast", &"blink", &"nova"]
+## ⚠ `nova` LEFT THIS LIST WITH THE ABILITY. The input ACTION still exists in
+## `project.godot` — `PadController.HERO_ACTIONS` names it and `slice_test_local_coop`
+## asserts a pad can produce every action on that seam — so the key is still bindable
+## and simply does nothing. Buffering a press that has no handler would hold a dead
+## action in a single-slot buffer where the newest press wins, i.e. it would eat the
+## NEXT real press.
+const BUFFERED_ACTIONS: Array[StringName] = [&"melee", &"dash", &"blast", &"blink"]
 
 ## THE THREE SPELL BUTTONS, in kit-slot order — the right thumb's whole job.
 ##
@@ -734,7 +740,7 @@ const CLASS_CONFIG: Dictionary = {
 		"move_verb": "arcane_phase", "dash_iframe_fraction": ARCANE_PHASE_IFRAME_FRACTION,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
-		"aoe": "arcane_meteor", "has_nova": true, "can_parry": true,  # Q: arcane star-fall
+		"aoe": "arcane_meteor", "can_parry": true,  # Q: arcane star-fall
 	},
 	HeroClass.ROGUE: {  # SHADOWBLADE — twitchy assassin; LMB = 3-dagger flurry
 		# `weapon_look` is COSMETIC ONLY (see the two-key note in `_apply_class`): the
@@ -788,7 +794,7 @@ const CLASS_CONFIG: Dictionary = {
 		# are untouched.
 		"throw_blade": true, "blade_damage": 6,
 		"dash_strike": true, "dash_strike_damage": 16, "dash_strike_range": 42.0,
-		"aoe": "nova", "has_nova": false, "can_parry": true,
+		"aoe": "nova", "can_parry": true,
 	},
 	HeroClass.BRAWLER: {  # PURE MELEE, no magic — punch/kick combo + double-jump + Thunderclap
 		"preset": "brawler", "weapon": "", "element": Elements.Element.FIRE, "melee_element": Elements.Element.FIRE,
@@ -799,7 +805,7 @@ const CLASS_CONFIG: Dictionary = {
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": true, "dash_strike_damage": 20, "dash_strike_range": 44.0,
 		"dash_strike_knockback": CHARGE_STAGGER_KNOCKBACK,  # the charge STAGGERS
-		"mobility2": "uppercut", "aoe": "fist_shock", "has_nova": true, "can_parry": true,
+		"mobility2": "uppercut", "aoe": "fist_shock", "can_parry": true,
 	},
 	HeroClass.JUGGERNAUT: {  # slow siege tank — wide heavy hammer, BLOCK, no blink
 		"preset": "juggernaut", "weapon": "sword", "weapon_look": "hammer", "element": Elements.Element.EARTH, "melee_element": Elements.Element.EARTH,
@@ -809,7 +815,7 @@ const CLASS_CONFIG: Dictionary = {
 		"move_verb": "surge", "dash_iframe_fraction": SURGE_IFRAME_FRACTION,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": true, "dash_strike_damage": 22, "dash_strike_range": 48.0,
-		"defense": "block", "aoe": "ground_slam", "has_nova": true, "can_parry": true,
+		"defense": "block", "aoe": "ground_slam", "can_parry": true,
 	},
 	HeroClass.CLERIC: {  # radiant sustain bruiser — LMB heal-bolt (lifesteal)
 		"preset": "cleric", "weapon": "staff", "weapon_look": "staff_holy", "element": Elements.Element.HOLY, "melee_element": Elements.Element.HOLY,
@@ -830,7 +836,7 @@ const CLASS_CONFIG: Dictionary = {
 		"move_verb": "radiant_step", "dash_iframe_fraction": RADIANT_STEP_IFRAME_FRACTION,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
-		"aoe": "consecrate", "has_nova": true, "can_parry": true,  # Q: consecrated ground
+		"aoe": "consecrate", "can_parry": true,  # Q: consecrated ground
 	},
 	HeroClass.CRYOMANCER: {  # ice control — LMB is a FROST CONE, not a bolt
 		"preset": "cryomancer", "weapon": "staff", "weapon_look": "staff_ice", "element": Elements.Element.ICE, "melee_element": Elements.Element.ICE,
@@ -862,7 +868,7 @@ const CLASS_CONFIG: Dictionary = {
 		"move_verb": "ice_slide", "dash_iframe_fraction": ICE_SLIDE_IFRAME_FRACTION,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
-		"aoe": "ice_shards", "has_nova": true, "can_parry": true,  # Q: homing frost shards
+		"aoe": "ice_shards", "can_parry": true,  # Q: homing frost shards
 	},
 	HeroClass.STORMCALLER: {  # hyper-mobile chain caster — LMB arcs, fast wind-dash
 		"preset": "stormcaller", "weapon": "staff", "weapon_look": "staff_storm", "element": Elements.Element.LIGHTNING, "melee_element": Elements.Element.LIGHTNING,
@@ -877,7 +883,7 @@ const CLASS_CONFIG: Dictionary = {
 		"move_verb": "lightning_blink", "dash_iframe_fraction": 0.0,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
-		"aoe": "call_lightning", "has_nova": true, "can_parry": true,  # Q: lightning strike column
+		"aoe": "call_lightning", "can_parry": true,  # Q: lightning strike column
 	},
 	HeroClass.WARLOCK: {  # dark attrition hexer — LMB drain-bolt (weaken + lifesteal)
 		"preset": "warlock", "weapon": "sword", "weapon_look": "scythe", "element": Elements.Element.SHADOW, "melee_element": Elements.Element.SHADOW,
@@ -891,7 +897,7 @@ const CLASS_CONFIG: Dictionary = {
 		"move_verb": "thrall_swap", "dash_iframe_fraction": 0.0,
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
-		"aoe": "curse_chain", "has_nova": true, "can_parry": true,  # Q: leaping shadow chain
+		"aoe": "curse_chain", "can_parry": true,  # Q: leaping shadow chain
 	},
 	# 8 SWORDSAINT — the DUELIST. The only class whose DEFENCE produces its OFFENCE:
 	# every other class guards to survive a beat, this one guards to be paid. See the
@@ -964,7 +970,7 @@ const CLASS_CONFIG: Dictionary = {
 		"move_verb": "committed_step",
 		"dash_iframe_fraction": COMMITTED_STEP_IFRAME_FRACTION,
 		"defense": "held_guard", "aoe": "ground_slam",
-		"has_nova": false, "can_parry": true,
+		"can_parry": true,
 	},
 }
 
@@ -1497,7 +1503,13 @@ func bot_body_state() -> Dictionary:
 	cds[BotIntent.CD_DASH] = _dash_cooldown_timer
 	cds[BotIntent.CD_BLAST] = _blast_cooldown_timer
 	cds[BotIntent.CD_BLINK] = _blink_cooldown_timer
-	cds[BotIntent.CD_NOVA] = _nova_cooldown_timer
+	# ⚠ PUBLISHED AS PERMANENTLY SPENT, NOT REMOVED. `BotIntent.CD_NOVA` is an index
+	# into a fixed-width array every bot reads; dropping the row would shift nothing but
+	# would leave the slot at its default READY, and a brain that still asked for the
+	# button would think it had one. `_nova_cooldown_timer` is never decremented from
+	# anywhere now that the ability is gone, so this reports what is true: there is no
+	# nova coming.
+	cds[BotIntent.CD_NOVA] = 999.0
 	cds[BotIntent.CD_SWING] = _melee_cooldown_timer
 	# The defensive slot is two different verbs behind one button, so the number
 	# published is the one the ability bar shows: a press class reports its wipe,
@@ -2655,10 +2667,6 @@ func _try_fire_buffered() -> bool:
 			if _blink_cooldown_timer <= 0.0:
 				_clear_input_buffer()
 				_blink()
-		"nova":
-			if _nova_cooldown_timer <= 0.0:
-				_clear_input_buffer()
-				_nova()
 		_:
 			return _try_fire_buffered_spell()
 	return false
@@ -3645,8 +3653,7 @@ func touch_button_state(action: StringName) -> Dictionary:
 			return _touch_state(_blast_cooldown_timer, float(_cfg["blast_cd"]))
 		&"blink":
 			return _touch_state(_blink_cooldown_timer, float(_cfg["blink_cd"]))
-		&"nova":
-			return _touch_state(_nova_cooldown_timer, NOVA_COOLDOWN)
+
 		&"melee":
 			return _touch_state(_melee_cooldown_timer, _melee_cd)
 	return _touch_state(0.0, 0.0)
@@ -5109,20 +5116,17 @@ func _ground_slam() -> void:
 	blast.call("detonate_at", global_position)
 
 
-## Energy nova: instant self-centered shockwave. No telegraph — the panic
-## button fires the moment the press lands (buffered like blast/blink). Mage
-## only; the rogue's whirlwind reuses _spawn_nova through _blast.
-func _nova() -> void:
-	if not bool(_cfg["has_nova"]):
-		return
-	# Shares the cast lockout — see the long note in `_blink`.
-	if _cast_lockout > 0.0:
-		return
-	if _nova_cooldown_timer > 0.0:
-		return
-	_nova_cooldown_timer = NOVA_COOLDOWN
-	_net_send("nv")
-	_spawn_nova()
+## ══ `_nova()` IS GONE; `_spawn_nova()` BELOW IS NOT ══════════════════
+## The free T ability was removed at the maker's third asking (see `ability_hud_state`
+## for the quote and the reasoning). What stood here was the class-gated entry point:
+## a `has_nova` check, the cast lockout, the cooldown, a net send and a spawn.
+##
+## The SPECTACLE is untouched, because a second caller still wants it: the Rogue's Q
+## whirlwind dispatches `_cfg["aoe"] == "nova"` straight to `_spawn_nova`, and it is
+## a different verb on a different button with a different cooldown that merely looks
+## the same. Deleting the spawner along with the ability is the obvious tidy-up and
+## would silently disarm the Rogue's Q; `slice2_test_rogue` is what would have caught
+## it, which is a poor second to not doing it.
 
 
 func _spawn_nova() -> void:
@@ -5556,25 +5560,23 @@ func ability_hud_state() -> Array:
 	# constantly; a square that is always full teaches nothing. Dash is the one whose
 	# readiness decides whether you commit.
 	var left: Array = [_defense_hud_slot(), _move_hud_slot()]
-	# ⚠ NOVA CAME BACK, BY NAME. Maker: "I really like Nova and its equivalent, so make
-	# sure those spells are one of the 4 — and if not, then one of the 5, including
-	# Nova." It was cut with the Q/R/T rows in the six-thing pass and that was the one
-	# removal they missed.
+	# ══ NOVA IS NOT A FREE BUTTON ANY MORE ═════════════════════════
+	# Maker, asked three times across three sessions, most recently: *"remember to
+	# remove the nova for all classes why do I still have it with the stormcaller"*, and
+	# originally *"remove Nova from all characters ... maybe it could be a spell option
+	# for certain spells instead"*.
 	#
-	# It joins the LEFT cluster rather than becoming a fifth socket, and that is the
-	# whole reason this lands as three-plus-four instead of five-on-the-right: the four
-	# sockets are the KIT — ramped weakest-to-heaviest with the ult crowned on the far
-	# right — and appending a class ability to that row would put something after the
-	# ult and break the ramp the maker specifically asked for. The left cluster is
-	# already "the buttons with a cooldown worth watching", which is exactly what Nova
-	# is. `has_nova` is false on the Shadowblade, so it publishes nothing there rather
-	# than a dead square.
-	if bool(_cfg.get("has_nova", false)):
-		left.append({
-			"name": "Nova", "key": "T",
-			"remaining": _nova_cooldown_timer, "total": float(_cfg.get("nova_cd", 6.0)),
-			"enabled": true,
-		})
+	# A row used to be appended here on the seven classes whose `has_nova` was true, and
+	# the ruling it recorded — that Nova belonged in the left cluster because it is a
+	# cooldown worth watching — was sound for a Nova that every class simply HAD. It is
+	# not the ruling any more: a panic burst handed free to seven of nine classes is a
+	# button nobody chose, on a bar the maker has twice asked to make smaller. The
+	# second half of the ask ("a spell option for certain spells") is content, not a
+	# deletion, and is its own change — what this does is stop it being free.
+	#
+	# ⚠ `_spawn_nova` SURVIVES AND MUST. The Rogue's Q whirlwind is a different verb
+	# that happens to reuse the same spectacle (`_cfg["aoe"] == "nova"`), and
+	# `slice2_test_rogue` pins that it does. Only the free T ability is gone.
 	return left + _signature_hud_slots()
 
 

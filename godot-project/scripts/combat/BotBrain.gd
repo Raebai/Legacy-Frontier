@@ -2080,11 +2080,18 @@ static func _pick_ability(bb: Dictionary, profile: Dictionary, m: Memory,
 	var dist: float = me.distance_to(foe)
 	var aggr: float = BotProfile.get_f(profile, "aggression")
 
-	# --- T: the panic burst. Highest priority of the three because it is the only
-	# one that answers "there is a body on top of me" without spending a dash.
-	if bool(kit.get("nova", true)) and dist <= NOVA_RANGE \
-			and _cd_ready(bb, CD_NOVA_INDEX) and pressure > 0.35:
-		return BotIntent.ABILITY_NOVA
+	# ══ T IS GONE, AND THE BOTS STOPPED REACHING FOR IT ═════════════════
+	# What stood here returned `BotIntent.ABILITY_NOVA` at the HIGHEST priority of the
+	# three ability branches, on the grounds that it was the only answer to "there is a
+	# body on top of me" that did not spend a dash. `Hero._nova` no longer exists (the
+	# maker asked three times for Nova to stop being a free per-class button), so that
+	# branch now returns the intent for a press nothing handles — and because it was
+	# FIRST, it would shadow the blink and the AoE below it every time a foe closed.
+	# The bots would have quietly stopped using two abilities as well as one.
+	#
+	# `nova` stays in `CLASS_ABILITIES` below as a data row rather than being stripped:
+	# it is the per-class record of which classes had the button, and the second half of
+	# the maker's ask ("maybe it could be a spell option") wants exactly that list.
 
 	# --- R: two opposite jobs on one button, decided by what R IS on this class.
 	var blink_kind: String = String(kit.get("blink", ""))

@@ -182,7 +182,13 @@ func _test_swordsaint_config() -> void:
 		"PLAIN STEEL: the blade applies no ailment (a burn would make it the fire melee class)")
 	_expect(String(cfg.get("mobility2", "")) == "uppercut",
 		"no blink — R is a rising cut, the same trade Juggernaut makes")
-	_expect(not bool(cfg.get("has_nova", true)), "no nova — it has no panic button")
+	# ⚠ WAS `not bool(cfg.get("has_nova", true))`. The Swordsaint was one of the two
+	# classes DENIED the free nova, and "it has no panic button" was a real piece of its
+	# identity. It is no longer a distinguishing fact, because no class has one: the
+	# maker asked three times for the T button to go. Kept, pointed at the new ruling,
+	# so the identity claim fails loudly if a per-class nova ever comes back.
+	_expect(not ("has_nova" in cfg),
+		"no free panic button — and no class declares one any more")
 	_expect(float(cfg.get("melee_range", 0.0)) > 58.0,
 		"a greatsword outreaches fists")
 	hero.queue_free()
