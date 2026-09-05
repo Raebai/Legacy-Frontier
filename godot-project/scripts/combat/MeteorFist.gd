@@ -345,6 +345,15 @@ func _land() -> void:
 	# `detonate_now`, not `detonate_at`: the windup and the flight above were the
 	# telegraph, and a second Telegraph ring blooming at the moment of impact would be
 	# a warning arriving after the hit.
+	# ⚠ AND THIS IS WHY THERE IS NO `DestructibleStage.carve_area` IN THIS FILE, even
+	# though the destructible handoff listed Meteor Fist as a ground-aimed heavy worth
+	# wiring. It is wired — one line down, inside `BlastSpell`, which has carved since
+	# Slice 2 (`BlastSpell.gd:244`). The fist does not damage anything itself; it drops
+	# a blast and the blast is the damage. Adding a carve here would open a SECOND
+	# crater at the same point in the same frame, from the same 120 damage, and the two
+	# would stack into a hole twice the radius the spell's own numbers earn.
+	# The rule this follows: carve where the DAMAGE is applied, never where it is
+	# ordered. Anything routing through `BlastSpell` is already covered.
 	blast.detonate_now(at)
 	Juice.hit_stop(0.12)
 	Juice.shake_camera(9.0)   # ON TOP of BlastSpell's own 12.0 — this is the ult beat
