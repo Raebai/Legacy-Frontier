@@ -3038,6 +3038,29 @@ func growth_damage_mult() -> float:
 	return _growth_damage_mult
 
 
+## PUBLIC, for `SpellCaster`: the element this CLASS is, for affinity.
+##
+## Maker: *"the classes should amplify current spells but it shouldnt prevent any player
+## for taking any spell."* The second half was already true — the Grimoire pool is not
+## gated by class. This is the first half, and the axis is ELEMENT AFFINITY: a spell of
+## your class's own element hits harder in your hands, so an off-element pick is a real
+## trade rather than a free one, and no spell is ever taken away from anybody.
+##
+## ⚠ IT IS `_base_element`, NOT `_element`, AND THE DIFFERENCE IS THE WHOLE POINT.
+## `_element` is what you are CASTING AS RIGHT NOW, which a spellement weapon overwrites
+## (`_recompute_gear_effects` sets it from the gear bag, reverting here when the bag is
+## empty). If affinity read `_element`, equipping a staff of your own element would be
+## a tautology — you would always be on-element, the bonus would be unconditional, and
+## the choice it exists to create would not exist. `_base_element` is the class you
+## picked at the altar, which is the thing that is supposed to be amplifying.
+##
+## Asked of the caster by `has_method` rather than looked up, exactly the way
+## `growth_damage_mult` is: an enemy, a bot, a thrall and a mirror image all opt out of
+## affinity by simply not answering, without a single `is` check at the call site.
+func affinity_element() -> int:
+	return _base_element
+
+
 ## A LEVEL LANDED. Re-read the stats, then play the beat.
 ##
 ## ⚠ ONLY ON THE HERO YOU ARE PLAYING. `GameState` is per-peer, so in co-op every
