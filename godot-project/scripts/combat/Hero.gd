@@ -5147,6 +5147,17 @@ func _stamp_faction(node: Node) -> void:
 	node.set("target_group", String(attack_group()))
 	node.set("_target_group", String(attack_group()))
 	node.set("caster_node", self)
+	# ⚠ STATED, NOT INFERRED. Every per-class Q spectacle goes through here
+	# (`_call_lightning`, `_curse_chain`, `_ice_shards`, `_arcane_meteor`...) and none of
+	# them set a tier, so they all entered the reactor's weight contests at
+	# `SpellTier.DEFAULT_WEIGHT`. That is currently harmless ONLY because the default
+	# happens to BE HEAVY — which is the shape of a trap rather than of a decision: the
+	# day that default is retuned for some unrelated reason, nine class abilities silently
+	# change weight class in every clash. Saying it out loud costs one line.
+	#
+	# A Q *is* a HEAVY: it is the class ability on a real cooldown, above the basic attack
+	# and below the ult, which is exactly the shelf the tier names.
+	node.set("spell_tier", SpellTier.Tier.HEAVY)
 
 
 ## Cursor target for a placed Q, clamped to BLAST_MAX_RANGE so it stays a skill-shot.
