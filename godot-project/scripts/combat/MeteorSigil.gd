@@ -830,6 +830,20 @@ func _apply_damage(at: Vector2) -> void:
 			at, METEOR_IMPACT_RADIUS, get_tree().get_nodes_in_group("destructible"), [], self):
 		if prop.has_method("take_damage"):
 			prop.take_damage(_damage)
+	# ⚠ THE FOOTPRINT IS `METEOR_IMPACT_RADIUS`, NOT `_radius` — AND THE PRESCRIBED
+	# TABLE ROW IN `DestructibleStage` WAS WRONG ABOUT THIS. That table asked for 140
+	# on the sigil and 210 on the storm, calling them "the meteor's blast". They are
+	# neither: `_radius` is the SCATTER, the width of the patch inside which meteors
+	# are allowed to fall, and no single rock is 140 px wide. What touches the ground
+	# is ONE meteor's impact — the same 48 px this function just used to pick who it
+	# hurt. At 140 a twelve-rock barrage would open twelve overlapping 34 px craters
+	# and take the terrace with it; at 48 it leaves the pockmarked patch the picture
+	# promises. One number for the damage and for the ground, which is the rule that
+	# generated every other row of that table.
+	#
+	# `source` defaults to `self`, so the anti-cascade ledger sees ONE sigil and not a
+	# dozen strangers: two rocks landing on the same spot open one hole, not two.
+	DestructibleStage.carve_area(self, _damage, at, Vector2.DOWN, METEOR_IMPACT_RADIUS)
 
 
 ## FIRE impact: outward explosion — flame plume + ember burst + persistent

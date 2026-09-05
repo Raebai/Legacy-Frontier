@@ -261,6 +261,17 @@ func _advance(lance: Dictionary, bodies: Array, cover: Array) -> void:
 		lance["alive"] = false
 		lances_blocked += 1
 		_spark(lance["pos"] as Vector2, 0.7)
+		# THE ONLY TERRAIN CONTACT THIS SPELL HAS. It never dealt the ground a damage
+		# number before — it stopped, sparked, and left the rock exactly as it found
+		# it — so the rank punched through crates and left the wall behind them clean.
+		#
+		# Footprint is `HIT_RADIUS`, the lance's own 13 px, which is the width of the
+		# thing that hit the rock. Not `LANCE_LEN`: 42 px is how LONG the spear is
+		# along its flight, and a spear does not excavate its own length sideways.
+		# It lands between the beam half-widths already in the table (11 and 21), so a
+		# volley stipples a wall rather than demolishing it, which is what eight thin
+		# lances look like.
+		DestructibleStage.carve_area(self, _dmg, lance["pos"] as Vector2, _dir, HIT_RADIUS)
 		return
 	# PIERCE. Every body the segment crossed that this lance has not already hurt.
 	# `SpellTargets.on_line` is the sanctioned selector: it applies the caster

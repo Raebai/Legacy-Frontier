@@ -371,6 +371,18 @@ func _snap() -> void:
 			return false
 		var lift2: float = _lock.y - p.y
 		return lift2 <= CATCH_HEIGHT and lift2 >= CATCH_BELOW)
+	# ...AND THE FLOOR THEY CAME OUT OF. The tendrils erupt THROUGH the ground — the
+	# crate standing on that patch is already taken above, and leaving the patch
+	# itself pristine was the one thing in this beat that read as a decal.
+	#
+	# `_catch_r` is the footprint because it is literally the grasp's half-width in
+	# x: the column of floor the tendrils occupy is the column of floor they break.
+	# The carve is a DISC and the grasp is a column, so the hole is narrower than the
+	# band is tall — correct, because what tore the surface is the surface-level
+	# eruption, not the full CATCH_HEIGHT of reach above it.
+	#
+	# `_snap` runs once per cast (`_snapped`), so there is no repeat bite to fear.
+	DestructibleStage.carve_area(self, _damage, _lock, Vector2.UP, _catch_r)
 	# Dark implosion beat — heavier when something was actually caught.
 	var caught: bool = not _victims.is_empty()
 	CombatVfx.spawn_burst(get_parent(), _lock + Vector2(0.0, -10.0),

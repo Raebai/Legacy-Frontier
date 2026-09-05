@@ -325,6 +325,18 @@ func _apply_launch() -> void:
 	for prop: Node in SpellTargets.on_line(base, Vector2.UP, reach, _half_width,
 			get_tree().get_nodes_in_group("destructible"), skip, self):
 		_smash(prop)
+	# THE FANG TAKES THE MATERIAL IT IS MADE OF. This is the one member of the
+	# raised-out-of-the-ground family that fits the existing primitive: `DestructibleStage`
+	# defers `RockWall`/`IceWall` because a wall's footprint is a long thin SPAN and
+	# `carve_disc` has no capsule sibling — but a pillar is a COLUMN, and a column's
+	# ground contact is a disc, so the shape is already right here.
+	#
+	# Footprint is `_half_width`, the same one number that draws the fang and sizes
+	# its damage capsule; the file's own header calls keeping those in step the whole
+	# point of it. The carve goes at `_ground` — the floor point the fang was seated
+	# against, not the aim mark — so a pillar erupting under a target still opens its
+	# trench in the floor rather than in mid-air at cursor height.
+	DestructibleStage.carve_area(self, _damage, _ground, Vector2.UP, _half_width)
 
 
 ## Damage one destructible, preferring the localized `damage_at` so cover breaks

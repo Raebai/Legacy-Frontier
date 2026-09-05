@@ -273,6 +273,20 @@ func _strike(at: Vector2) -> void:
 				(prop as Node2D).global_position if prop is Node2D else at, Vector2.DOWN)
 		else:
 			SpellTargets.hurt(prop, _damage, _color)
+	# THE STRIKE REACHES THE ROCK. `ScorchDecal` below already drew a crack here and
+	# it was only ever paint; a bolt that leaves a mark you cannot fall through is the
+	# decal-vs-damage gap this whole pass exists to close.
+	#
+	# ⚠ NO FLOOR GUARD, DELIBERATELY. `_place_mark` runs `at` through
+	# `SpellWorld.floor_point`, which on a MISS hands the point back untouched — so a
+	# mark taken from an airborne body stays in the air. That is wanted for the
+	# damage (a bolt does not need ground to arrive on) and wrong for the ground, and
+	# `carve_area` already refuses a carve where there is no rock. The guard exists;
+	# it just lives one call down instead of being restated here.
+	#
+	# `source` defaults to `self`, so the five bolts of one storm share a ledger: two
+	# that drift onto the same patch open one hole between them, not two.
+	DestructibleStage.carve_area(self, _damage, at, Vector2.DOWN, BOLT_RADIUS)
 	CombatVfx.spawn_burst(get_parent(), at,
 		Color(1.4, 1.5, 1.9, 0.95), Color(0.5, 0.7, 1.0, 0.0),
 		18, 0.35, 120.0, 300.0, 0.5, 1.6, 0.0, 0.0, true)

@@ -177,6 +177,19 @@ func _detonate() -> void:
 			at, _radius, get_tree().get_nodes_in_group("destructible"), [], self):
 		if prop.has_method("take_damage"):
 			prop.take_damage(_damage)
+	# THE BIGGEST HIT IN THE KIT NOW MOVES THE GROUND. `GroundCrater.spawn` below has
+	# always drawn the scar; this is the half of it you can fall into.
+	#
+	# Footprint is `_radius` — the detonation's own radius, exactly as `BlastSpell`
+	# passes its own — because eight lances slamming together IS the thing that
+	# touched the rock, the same shape a blast has.
+	#
+	# ⚠ AND OVER A PIT IT CARVES NOTHING, which `converge()` already promised in
+	# prose: on a miss `_ground` keeps the raw aim point rather than dropping the
+	# strike, because lances have no floor in their story. `carve_area` refuses where
+	# there is no rock, so "there is simply no crater" is now true of the terrain and
+	# not only of the decal.
+	DestructibleStage.carve_area(self, _damage, at, Vector2.DOWN, _radius)
 	_impact_burst(at)
 	_burn_starburst(at)
 	# The finisher CRATERS the ground + throws rubble.

@@ -26,13 +26,23 @@
 # is simply a spell that did not land on the ground that bout, which is a fact about the
 # fight and not about the wiring.
 #
-# ⚠ IT ALSO ASSERTS THE TWO DELIBERATE NON-WIRINGS, because "we chose not to" and "we
+# ⚠ IT ALSO ASSERTS THE DELIBERATE NON-WIRINGS, because "we chose not to" and "we
 # forgot" are indistinguishable from outside, and only one of them should survive
 # somebody's tidy-up:
-#   * ENERGY NOVA must NOT carve — `NOVA_DAMAGE` (30) is under `CARVE_MIN_DAMAGE` (40),
-#     so the line the handoff asked for could only ever tick `refused_hits`.
 #   * METEOR FIST must carve EXACTLY ONCE — it routes its damage through `BlastSpell`,
 #     which has carved since Slice 2, so a second call here would double the crater.
+#   * HORIZON ARC is absent ON PURPOSE. It is the only ground-aimed spell in the kit
+#     whose contact is a long thin SPAN rather than a disc, which is the same shape
+#     `DestructibleStage` defers `RockWall`/`IceWall` for. It waits on a capsule
+#     sibling to `carve_disc`; wiring it to a single disc would have it bite a 21 px
+#     hole with a 600 px wall of edge.
+#
+# ⚠ AND THE HEADER USED TO CARRY A THIRD RULING THAT THE FILE ITSELF NO LONGER HELD.
+# It said Energy Nova must NOT carve, because `NOVA_DAMAGE` (30) sat under a
+# `CARVE_MIN_DAMAGE` of 40. That shelf was retired at the maker's instruction, the
+# constant is 1, and test 5 asserts the OPPOSITE of what this paragraph asserted —
+# forty lines apart, in one file, for however long it took somebody to read both.
+# A header that states a ruling has to be edited when the ruling turns over.
 #
 # ⚠ THE HOUSE RULE, inherited from `slice_test_destructible_carve`. Never
 # `failed += _test_x()` — a dead property read aborts the enclosing function and hands
@@ -48,6 +58,12 @@ const TESTS: Array[String] = [
 	"grave_tide_bites_at_a_stride_and_never_under_the_caster",
 	"energy_nova_carves_a_ring_sized_hole",
 	"meteor_fist_carves_once_through_its_blast_and_not_twice",
+	"meteor_sigil_bites_per_rock_and_is_sized_by_the_rock",
+	"radiant_volley_punctures_the_rock_it_stops_on",
+	"shadow_root_tears_the_floor_it_erupts_through",
+	"rock_pillar_takes_the_material_it_is_made_of",
+	"heavens_wrath_grounds_the_bolts_it_commits",
+	"star_convergence_craters_the_seat_it_detonates_on",
 	"every_carve_stays_inside_the_budget_the_stage_advertises",
 ]
 
@@ -199,6 +215,35 @@ func _pump(n: int) -> void:
 	for _i: int in n:
 		await process_frame
 		await physics_frame
+
+
+## Pump, remembering the high-water mark of an int counter on a node THAT FREES
+## ITSELF, and return it.
+##
+## ⚠ READ DURING, NOT AFTER — and this cost a run. Every spectacle in this suite
+## calls `queue_free()` when its life ends, so by the time a `_pump` returns the node
+## whose counter proves the spell ran is usually gone. Read afterwards, Radiant
+## Volley's `lances_blocked` and Heaven's Wrath's `bolts_fired` both came back as the
+## sentinel and the suite reported "the volley never touched terrain" — blaming the
+## AIM for a fixture that had simply asked a dead node a question. Both spells were
+## carving correctly at the time; only the precondition was broken, which is the more
+## dangerous half, because a precondition is what a reader trusts when the real
+## assertion goes quiet.
+##
+## BOOLEAN FLAGS GO THROUGH HERE TOO (`int(true)` is 1), and they are the reason the
+## fault survived one round of fixing it: the two flag tests were written as
+## `flag or carve_events > 0`, which is TRUE on a green tree however dead the flag
+## read. Only the deliberate un-wired run exposed them, reporting "the grasp never
+## closed" about a grasp that had closed on time. A precondition ORed against the
+## thing it is supposed to precede is not a precondition.
+func _pump_watching(fx: Node, key: String, n: int) -> int:
+	var best: int = 0
+	for _i: int in n:
+		await process_frame
+		await physics_frame
+		if is_instance_valid(fx) and not fx.is_queued_for_deletion():
+			best = maxi(best, int(fx.get(key)))
+	return best
 
 
 # ── 1. Shockwave Stomp ─────────────────────────────────────────────────────
@@ -391,7 +436,190 @@ func meteor_fist_carves_once_through_its_blast_and_not_twice() -> void:
 	_done("meteor_fist_carves_once_through_its_blast_and_not_twice")
 
 
-# ── 7. the budget ──────────────────────────────────────────────────────────
+# ── 7-12. the six wired in this pass ───────────────────────────────
+
+## ⚠ EVERY ONE OF THESE WAS RUN AGAINST THE UNWIRED FILE FIRST and reported 0
+## `carve_events`. A carve test that has never been shown to fail is a test of the
+## fixture, not of the wiring — this suite's own Meteor Fist entry is the record of
+## what that costs.
+
+
+## THE SIZE READ-BACK. `carve_disc` removes every cell whose CENTRE is inside the
+## disc, so cells-removed is an AREA and the radius that produced it is recoverable.
+##
+## ⚠ IT IS A FULL-DISC EQUIVALENT AND THE REAL CRATER IS ROUGHLY HALF OF ONE. A hit
+## lands ON the surface, so about half the disc is open air with no cells in it to
+## remove. That factor is the same for every spell here, which is why this is only
+## ever used to COMPARE two candidate footprints against one measurement and never
+## to assert an absolute px number — the bias cancels in a comparison and does not
+## cancel in an equality.
+func _hole_equivalent_radius(cells: int) -> float:
+	return sqrt(float(maxi(cells, 0))) * DestructibleStage.CHUNK / sqrt(PI)
+
+
+## ⚠ THE FOOTPRINT THIS PASS OVERRODE A WRITTEN PRESCRIPTION FOR, so it is the one
+## that gets a size test rather than a liveness test.
+##
+## `DestructibleStage`'s table asked for 140 px on the sigil and 210 on the storm,
+## calling them "the meteor's blast". `_radius` is neither — it is the SCATTER, the
+## width of the patch meteors are allowed to fall inside, and no single rock is
+## 140 px wide. The spell carves at `METEOR_IMPACT_RADIUS` (48), the same number it
+## already used to pick who the rock hurt.
+##
+## ONE rock, not a barrage, because a barrage's craters overlap and a sum of
+## overlapping discs has no readable radius.
+func meteor_sigil_bites_per_rock_and_is_sized_by_the_rock() -> void:
+	await process_frame
+	var sigil: GDScript = load("res://scripts/combat/MeteorSigil.gd") as GDScript
+	var impact_r: float = float(sigil.get("METEOR_IMPACT_RADIUS"))
+	var scatter_r: float = 140.0   # the number the table prescribed
+	var dmg: int = 96
+	var stage: DestructibleStage = _live_stage()
+	var caster: Node2D = _caster()
+	var fx: Node2D = sigil.new()
+	fx.set("target_group", "enemies")
+	fx.set("caster_node", caster)
+	root.add_child(fx)
+	fx.call("rain", GROUND, Color.WHITE, scatter_r, dmg, 1, "fire")
+	await _pump(600)
+	_expect(stage.carve_events > 0,
+		"Meteor Sigil landed and the ground was untouched. Either the rock never"
+		+ " reached the floor inside the pump (raise it, and this zero says nothing"
+		+ " about the wiring) or `_apply_damage` is not carving.")
+	# THE SIZE. Compare the one measurement against both candidate footprints: it must
+	# sit nearer the rock than the scatter. Stated as a comparison, never as a px
+	# equality — see `_hole_equivalent_radius` for why an absolute would be a lie.
+	var measured: float = _hole_equivalent_radius(stage.carved_cells)
+	var by_rock: float = DestructibleStage.carve_radius_for_strike(dmg, impact_r)
+	var by_scatter: float = DestructibleStage.carve_radius_for_strike(dmg, scatter_r)
+	_expect(by_scatter > by_rock,
+		"the size rule no longer separates a %.0f px footprint from a %.0f px one"
+			% [impact_r, scatter_r]
+		+ " (%.1f vs %.1f px) — this test cannot tell them apart, so it proves nothing"
+			% [by_rock, by_scatter])
+	_expect(absf(measured - by_rock) < absf(measured - by_scatter),
+		"one meteor opened a %.1f px hole, which is nearer the %.1f px the whole SCATTER"
+			% [measured, by_scatter]
+		+ " would earn than the %.1f px the rock earns. The footprint has been put back"
+			% by_rock
+		+ " to `_radius`; a twelve-rock barrage at that size eats the terrace.")
+	await _teardown(stage, [fx, caster])
+	_done("meteor_sigil_bites_per_rock_and_is_sized_by_the_rock")
+
+
+## The volley's ONLY terrain contact is the world sweep that stops a lance. Fired
+## straight down into the terrace so every lance in the rank runs into rock rather
+## than expiring in open air — `lances_blocked` is the precondition, and without it a
+## zero below would mean "the lances missed", not "the wiring is dead".
+func radiant_volley_punctures_the_rock_it_stops_on() -> void:
+	await process_frame
+	var stage: DestructibleStage = _live_stage()
+	var caster: Node2D = _caster()
+	var spell: SpellDef = _spell(58)
+	var fx: Node2D = (load("res://scripts/combat/RadiantVolley.gd") as GDScript).new()
+	fx.set("target_group", "enemies")
+	root.add_child(fx)
+	fx.call("hex", caster, GROUND + Vector2(0.0, -260.0), GROUND + Vector2(0.0, 40.0),
+		spell, Color.WHITE, "holy")
+	var blocked: int = await _pump_watching(fx, "lances_blocked", 600)
+	_expect(blocked > 0,
+		"no lance was stopped by rock (%d) — the volley never touched terrain, so the"
+			% blocked + " carve assertion below would be measuring the aim, not the wiring")
+	_expect(stage.carve_events > 0,
+		"%d lance(s) stopped dead on the rock and left it unmarked" % blocked)
+	await _teardown(stage, [fx, caster])
+	_done("radiant_volley_punctures_the_rock_it_stops_on")
+
+
+## The tendrils come UP through the floor, so the floor is what they break. `_snapped`
+## is the precondition: the grasp resolves once, and before it does there is nothing
+## to have carved.
+func shadow_root_tears_the_floor_it_erupts_through() -> void:
+	await process_frame
+	var stage: DestructibleStage = _live_stage()
+	var caster: Node2D = _caster()
+	var fx: Node2D = (load("res://scripts/combat/ShadowRoot.gd") as GDScript).new()
+	fx.set("target_group", "enemies")
+	fx.set("caster_node", caster)
+	root.add_child(fx)
+	fx.call("erupt", GROUND, Vector2(200.0, 0.0), Color(0.6, 0.35, 0.9), 64.0, 62, "shadow")
+	var snapped: bool = await _pump_watching(fx, "_snapped", 600) > 0
+	_expect(snapped,
+		"the grasp never closed inside the pump — raise it; this run measured nothing")
+	_expect(stage.carve_events > 0,
+		"Shadow Root erupted through the floor and the floor is intact")
+	await _teardown(stage, [fx, caster])
+	_done("shadow_root_tears_the_floor_it_erupts_through")
+
+
+## The one member of the raised-out-of-the-ground family whose contact is a DISC, and
+## therefore the one that could be wired before the capsule exists. `erupt` frees the
+## pillar outright when it finds no floor, so "still in the tree" is the precondition.
+func rock_pillar_takes_the_material_it_is_made_of() -> void:
+	await process_frame
+	var stage: DestructibleStage = _live_stage()
+	var caster: Node2D = _caster()
+	var fx: Node2D = (load("res://scripts/combat/RockPillar.gd") as GDScript).new()
+	fx.set("target_group", "enemies")
+	fx.set("caster_node", caster)
+	root.add_child(fx)
+	fx.call("erupt", GROUND + Vector2(0.0, -40.0), Color(0.78, 0.55, 0.28), 46.0, 74, "earth")
+	_expect(not fx.is_queued_for_deletion(),
+		"the pillar found no floor under %s and freed itself — nothing below is about"
+			% str(GROUND) + " the carve")
+	await _pump(600)
+	_expect(stage.carve_events > 0,
+		"a fang of rock tore itself out of the ground and the ground did not change")
+	await _teardown(stage, [fx, caster])
+	_done("rock_pillar_takes_the_material_it_is_made_of")
+
+
+## Every bolt is a separate committed mark, so `bolts_fired` is the precondition and
+## the carve count is bounded BELOW by 1 rather than by the bolt count: the marks
+## drift, and two that land on the same patch share one hole by the anti-cascade rule.
+func heavens_wrath_grounds_the_bolts_it_commits() -> void:
+	await process_frame
+	var stage: DestructibleStage = _live_stage()
+	var caster: Node2D = _caster()
+	var spell: SpellDef = _spell(88)
+	var fx: Node2D = (load("res://scripts/combat/HeavensWrath.gd") as GDScript).new()
+	fx.set("target_group", "enemies")
+	root.add_child(fx)
+	fx.call("hex", caster, GROUND, GROUND, spell, Color.WHITE, "holy")
+	var fired: int = await _pump_watching(fx, "bolts_fired", 600)
+	_expect(fired > 0,
+		"the storm fired %d bolts inside the pump — raise it; nothing was measured" % fired)
+	_expect(stage.carve_events > 0,
+		"%d bolt(s) struck committed ground marks and the ground kept its shape" % fired)
+	await _teardown(stage, [fx, caster])
+	_done("heavens_wrath_grounds_the_bolts_it_commits")
+
+
+## The finisher. `_detonated` is the precondition — the lances spend 1.30 s converging
+## before anything is applied at all.
+func star_convergence_craters_the_seat_it_detonates_on() -> void:
+	await process_frame
+	var stage: DestructibleStage = _live_stage()
+	var caster: Node2D = _caster()
+	var fx: Node2D = (load("res://scripts/combat/StarConvergence.gd") as GDScript).new()
+	fx.set("target_group", "enemies")
+	fx.set("caster_node", caster)
+	root.add_child(fx)
+	fx.call("converge", GROUND + Vector2(0.0, -40.0), Color(1.0, 0.86, 0.4), 160.0, 130, "holy")
+	var boom: bool = await _pump_watching(fx, "_detonated", 600) > 0
+	_expect(boom,
+		"the lances never converged inside the pump — raise it; nothing was measured")
+	_expect(stage.carve_events > 0,
+		"the biggest hit in the kit detonated on a seated floor point and left it flat")
+	_expect(_widest_gap(stage) <= 0.0,
+		"Star Convergence severed the stage over %.0f px — a 160 px footprint is the"
+			% _widest_gap(stage)
+		+ " largest in the game and is the one most likely to cut the floor in two")
+	await _teardown(stage, [fx, caster])
+	_done("star_convergence_craters_the_seat_it_detonates_on")
+
+
+# ── 13. the budget ────────────────────────────────────────────────────────
 
 ## Whatever the sources do, the rebuild must stay inside the wall-clock budget the
 ## stage advertises, and a deferral must be COUNTED rather than swallowed.
