@@ -27,7 +27,7 @@ const TESTS: Array[String] = [
 	"resizing_does_not_share_shapes",
 	"every_authored_layout_fits",
 	"frame_all_on_for_every_floor_type",
-	"a_spell_can_carve_the_tower_floor",
+	"the_tower_floor_is_solid",
 ]
 
 var _fails: int = 0
@@ -53,7 +53,7 @@ func _run() -> void:
 	_test_resizing_does_not_share_shapes()
 	_test_every_authored_layout_fits()
 	_test_frame_all_on_for_every_floor_type()
-	await _test_a_spell_can_carve_the_tower_floor()
+	await _test_the_tower_floor_is_solid()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -111,70 +111,48 @@ func _test_default_room_fits_one_screen() -> void:
 	_expect(layout.exit_point.x < size.x and layout.exit_point.y < size.y,
 		"the exit portal sits inside the room")
 	_completes("default_room_fits_one_screen")
-
-
-## ══ A SPELL CAN ACTUALLY BITE A TOWER FLOOR ═══════════════════════
-## Maker, watching the bot fights: *"please ensure the main game has all of these ...
-## and like its similar in how the maps get destroyed"*.
+## == THE TOWER'S GROUND IS SOLID, AND THIS TEST HAS HELD BOTH RULINGS ==========
+## It was `a_spell_can_carve_the_tower_floor`, and it was right about the build it was
+## written against: `VersusArena` held the only line in the project that ever built a
+## `DestructibleStage`, so the showcase had destructible ground and the tower — the
+## actual game — had none, and all 21 carve call sites were dead there, silently.
+## Giving the tower a slab fixed that and this suite proved it.
 ##
-## ⚠ IT COULD NOT, AND THE FAILURE WAS COMPLETELY SILENT. `VersusArena` held the only
-## line in the project that ever constructed a `DestructibleStage`, so the showcase,
-## the duel and FreePlay had destructible ground and the tower — the actual game — had
-## none. Both carve routes die quietly on a floor with no stage: `carve_area` scans
-## `GROUP_NAME`, finds no members, returns 0; `carve_from_body` looks for `BODY_META`
-## on the collider it hit, which the tower's plain `Walls/WallBottom` has never
-## carried. Twenty-one call sites across the spell files, all dead, and NOTHING logged
-## it, because the refusal counters that would have said so live on the stage that
-## does not exist.
+## The maker then looked at it in play: *"also dont make the ground destroyable"*. Which
+## is the whole answer. A crate you break is a fight changing shape; a floor that gives
+## way under a wave with friendly fire on is the floor leaving.
 ##
-## So the assertion is deliberately made THROUGH `carve_area` rather than by poking
-## the stage directly: the thing that was broken is the lookup, and a test that calls
-## `carve_disc` on a stage it already holds would have passed on the broken build.
-func _test_a_spell_can_carve_the_tower_floor() -> void:
+## ⚠ SO THE ASSERTION INVERTS RATHER THAN BEING DELETED, because the interesting half is
+## not "is there a stage" — it is that a STALE one is worse than either state.
+## `DestructibleStage.stage_in` returns THE FIRST MEMBER of its group, so a stage left in
+## the group with its free pending goes on catching every carve in the game while the one
+## you are standing on keeps its shape. `slice_test_destructible_sources` records that
+## exact fault costing it five false failures in a row.
+func _test_the_tower_floor_is_solid() -> void:
 	var size := Vector2(700.0, 400.0)
 	_arena.call("_apply_room_size", size)
 	await process_frame
-	var ground: DestructibleStage = _arena.get_node_or_null(
-		"DestructibleGround") as DestructibleStage
-	_expect(ground != null, "the tower floor has a stage to carve")
-	if ground == null:
-		_completes("a_spell_can_carve_the_tower_floor")
-		return
-	var at := Vector2(size.x * 0.5, size.y - 16.0 * 0.5 + 2.0)
-	var before: int = ground.carved_cells
-	# A blast's numbers: the footprint band the size rule is anchored on.
-	var removed: int = DestructibleStage.carve_area(_arena, 90, at, Vector2.UP, 90.0)
-	_expect(removed > 0,
-		"a blast at the middle of a tower floor removed %d cells. Either the room has no"
-			% removed
-		+ " stage in `GROUP_NAME`, or the carve landed where there is no rock — both of"
-		+ " which look identical from a spell's side, which is why this was invisible.")
-	_expect(ground.carved_cells > before,
-		"the stage counted the carve (%d -> %d cells)" % [before, ground.carved_cells])
-	# ══ ...AND THE FLOOR IS STILL A FLOOR ═══════════════════════════
-	# The versus stage can absorb craters because its terraces are 320 px deep against a
-	# 46 px maximum crater; a tower room's rock is `GROUND_SLAB_DEPTH`, which is much
-	# thinner. The answer is not more depth, it is BEDROCK: `WallBottom` sits under the
-	# slab, so however much rock is removed there is always a floor beneath it. Asserted
-	# because the alternative — a wave fight where the ground can be deleted and the
-	# party falls out of the world — is the way this feature would go wrong.
+	_expect(_arena.get_node_or_null("DestructibleGround") == null,
+		"the tower builds no ground stage")
+	# ...AND NOT ONE IS LEFT IN THE GROUP EITHER. Re-driving the room size is what a new
+	# floor does, and it is the path that would strand one.
+	var stale: int = 0
+	for n: Node in _arena.get_tree().get_nodes_in_group(DestructibleStage.GROUP_NAME):
+		if _arena.is_ancestor_of(n):
+			stale += 1
+	_expect(stale == 0,
+		"no ground stage is left in %s after a floor rebuild (%d). A stale one keeps"
+			% [DestructibleStage.GROUP_NAME, stale]
+		+ " answering `stage_in` for every carve in the game.")
+	# The floor is the wall again, and its top face is the line everything is placed
+	# against — the one thing that has survived all three rulings unchanged.
 	var walls: Node = _arena.get_node_or_null("Walls")
-	var bed: CollisionShape2D = null
+	var bottom: CollisionShape2D = null
 	if walls != null:
-		bed = walls.get_node_or_null("WallBottom") as CollisionShape2D
-	_expect(bed != null and bed.shape is RectangleShape2D,
-		"the bedrock collider is still there after a carve")
-	if bed != null:
-		# BELOW THE KILL LINE, not merely below the rock. A wall anywhere a falling body
-		# could land on turns "you fell out of the world" into "you are standing in a pit
-		# you cannot leave", which is the worse of the two failures.
-		var kill_line: float = size.y + float(_arena.get("FALL_OUT_MARGIN"))
-		_expect(bed.position.y > kill_line,
-			"the bottom wall is at y=%.1f and the fall-out kill line is y=%.1f. Anything"
-				% [bed.position.y, kill_line]
-			+ " a body can land on above that line catches it instead of letting it fall"
-			+ " out, and a carved hole becomes a pit rather than a hole.")
-	_completes("a_spell_can_carve_the_tower_floor")
+		bottom = walls.get_node_or_null("WallBottom") as CollisionShape2D
+	_expect(bottom != null and is_equal_approx(bottom.position.y, size.y),
+		"the bottom wall is the floor again, centred on the room's foot")
+	_completes("the_tower_floor_is_solid")
 
 
 ## The floor rect and all four wall colliders are REBUILT from room_size. Before
@@ -194,7 +172,7 @@ func _test_walls_are_built_from_room_size() -> void:
 	if walls == null:
 		return   # deliberately NOT completed: the missing sentinel fails the suite
 	var thickness: float = float(_arena.get("WALL_THICKNESS"))
-	var fall: float = float(_arena.get("FALL_OUT_MARGIN"))
+
 	# ⚠ THIS ROW HAS NOW RECORDED TWO SUPERSEDED RULINGS IN ONE DAY, WHICH IS THE POINT
 	# OF WRITING THEM DOWN. It first pinned the wall centred on `size.y`, its top face
 	# exactly on the standable line. When the tower's ground became a `DestructibleStage`
@@ -210,8 +188,7 @@ func _test_walls_are_built_from_room_size() -> void:
 	# survived all three unchanged.
 	var expected: Dictionary = {
 		"WallTop": [Vector2(size.x * 0.5, 0.0), Vector2(size.x, thickness)],
-		"WallBottom": [Vector2(size.x * 0.5, size.y + fall + thickness),
-			Vector2(size.x, thickness)],
+		"WallBottom": [Vector2(size.x * 0.5, size.y), Vector2(size.x, thickness)],
 		"WallLeft": [Vector2(0.0, size.y * 0.5), Vector2(thickness, size.y)],
 		"WallRight": [Vector2(size.x, size.y * 0.5), Vector2(thickness, size.y)],
 	}
@@ -234,20 +211,11 @@ func _test_walls_are_built_from_room_size() -> void:
 	# ground cap `RoomShell` paints, the y `FloorGen` hands out. The rock slab was added
 	# BELOW it rather than on top of it precisely so none of that had to move, and this
 	# is the assertion that says so out loud.
-	var ground: DestructibleStage = _arena.get_node_or_null(
-		"DestructibleGround") as DestructibleStage
-	_expect(ground != null,
-		"the tower floor has a DestructibleStage. Without one every carve in the game is"
-		+ " a no-op here: `carve_area` scans a group with no members and returns 0, and"
-		+ " nothing logs it, because the refusal counters live on the stage.")
-	if ground != null:
-		var surface: float = ground.surface_y_at(size.x * 0.5)
-		_expect(absf(surface - (size.y - thickness * 0.5)) <= DestructibleStage.CHUNK,
-			"the rock's top face is at y=%.1f, and the line fighters have always stood on"
-				% surface
-			+ " is y=%.1f. Adding the slab moved the floor out from under every spawn"
-				% (size.y - thickness * 0.5)
-			+ " point and ledge height on the floor.")
+	_expect(_arena.get_node_or_null("DestructibleGround") == null,
+		"the tower floor is SOLID. Maker: \"also dont make the ground destroyable\" — a"
+		+ " stage here would put `carve_area` back on the ground you fight on, and a"
+		+ " leftover one is worse than a new one: `stage_in` returns the FIRST member of"
+		+ " the group, so a stale stage catches every carve in the game.")
 	# A second, different size re-drives it — the room is not a one-shot.
 	_arena.call("_apply_room_size", Vector2(960.0, 480.0))
 	var top: CollisionShape2D = walls.get_node_or_null("WallTop") as CollisionShape2D

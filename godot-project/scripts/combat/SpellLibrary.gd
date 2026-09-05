@@ -530,13 +530,38 @@ static func clear_slot_roles(class_id: int = -1) -> void:
 static var _equipped: Dictionary = {}
 
 
-## The pool the hub offers. Tier 2 and Tier 3, and deliberately NOT `unequipped_ids()`
-## — the orphans are spells no class authors and no pass has tuned against a hero's
-## power budget, which is a different question from "the loud things the bots get".
+## The pool the hub offers: Tier 2, Tier 3, and the ORPHANS.
+##
+## ⚠ THE ORPHANS WERE EXCLUDED HERE AND THE MAKER OVERRULED IT. The first version of
+## this said they were "a different question from the loud things the bots get" — they
+## are `unequipped_ids()`, spells no class authors, which had made them feel like
+## leftovers rather than choices. Maker: *"it shouldnt prevent any player for taking
+## any spell"*. A spell that exists, is tuned, and is authored is a spell somebody
+## should be able to choose; "no class happens to carry it" is a fact about the kits,
+## not a reason to hide it from the one screen whose whole job is choosing.
+##
+## ⚠ AND THE CLASS DOES NOT GATE THE LIST. Maker, same breath: *"the classes should
+## amplify current spells but it shouldnt prevent any player for taking any spell"*.
+## So `equippable()` takes no class id and never will — a class's identity is what its
+## AUTHORED hand is and what its stats do to a spell, not a wall around the library.
+## The one restriction the maker did ask for is by SHELF, not by class, and it lives in
+## `set_equipped`: an ult may only go in the ult slot.
 static func equippable() -> Array:
 	var out: Array = []
-	out.append_array(build_tier2())
-	out.append_array(build_tier3())
+	var seen: Dictionary = {}
+	for s: SpellDef in build_tier2() + build_tier3():
+		if not seen.has(s.id):
+			seen[s.id] = true
+			out.append(s)
+	# The orphans, resolved through the whole tree so this cannot drift from
+	# `unequipped_ids()`'s own derivation.
+	for id: Variant in unequipped_ids():
+		if seen.has(String(id)):
+			continue
+		var s2: SpellDef = by_id(String(id))
+		if s2 != null:
+			seen[s2.id] = true
+			out.append(s2)
 	return out
 
 
@@ -560,6 +585,23 @@ static func set_equipped(class_id: int, slot: int, spell_id: String) -> bool:
 		clear_equipped(class_id, slot)
 		return true
 	if not equippable_ids().has(spell_id):
+		return false
+	# ══ ONE ULT, AND IT GOES IN THE ULT SLOT ════════════════════════
+	# Maker: *"all the ults in the grimoire should only be able to be swapped with the
+	# existing ult, no one can have multiple ults"*.
+	#
+	# Without this, the nine Tier 3s could each be dropped into slots 1-3 and a hand
+	# could carry four finishers — which is not a strong loadout, it is a different game
+	# with no early spells in it. The hand's whole shape is a ramp from the cheap line
+	# you throw all fight up to the one thing you are saving.
+	#
+	# ⚠ THE TIER IS DERIVED, NOT DECLARED. `SpellTier.of` reads cast time, cooldown and
+	# mana, so a spell is an ult because of what it COSTS — there is no flag to forget to
+	# set on a new one, and a Tier 2 that gets tuned up into ult territory starts obeying
+	# this rule the moment its numbers say it should.
+	var picked: SpellDef = by_id(spell_id)
+	if picked != null and SpellTier.of(picked) == SpellTier.Tier.ULT \
+			and slot != SpellTier.ULT_SLOT:
 		return false
 	var picks: Dictionary = _equipped.get(class_id, {}) as Dictionary
 	picks[slot] = spell_id

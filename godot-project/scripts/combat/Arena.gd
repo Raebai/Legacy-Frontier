@@ -364,43 +364,39 @@ func _apply_room_size(size: Vector2) -> void:
 	# Built here rather than in `_rebuild_room` because it is a function of the room's
 	# SIZE, not of the floor's props, and `_rebuild_room` frees everything it owns.
 	_ensure_room_shell().build(Vector2(w, h))
-	# THE ROCK. Its TOP FACE sits exactly where the old bottom wall's did
-	# (`h - WALL_THICKNESS * 0.5`, the same line `RoomShell` paints its ground cap on),
-	# so nothing a fighter stands on moves — the slab fills the space that used to be
-	# void below the collider. See `GROUND_SLAB_DEPTH`.
-	var ground_y: float = h - WALL_THICKNESS * 0.5
-	var slab: DestructibleStage = _ensure_destructible_ground()
-	var rock: Array[Rect2] = [Rect2(0.0, ground_y, w, GROUND_SLAB_DEPTH)]
-	slab.build_from_rects(rock)
-	slab.rebuild_collision(slab)
+	# ══ THE TOWER'S GROUND IS SOLID, AND THIS IS THE THIRD RULING ON IT TODAY ════
+	# In order: the floor was a plain 16 px collider; it became a destructible
+	# `DestructibleStage` slab over indestructible bedrock (so a crater was a hole you
+	# could drop INTO but never THROUGH); the maker asked for a void under it you could
+	# fall out of, so the bedrock went; and then, plainly:
+	#
+	#     *"also dont make the ground destroyable"*
+	#
+	# Which is the whole answer and it stands. So no slab is built here at all and the
+	# bottom wall goes back to being the floor, below.
+	#
+	# ⚠ THE MAP IS STILL DESTROYABLE, AND THAT WAS NEVER THIS SLAB'S DOING. Crates,
+	# props and every ledge (`FloorBuilder` builds `BreakablePlatform` by default now)
+	# take damage through their own `take_damage`/`damage_at` and are untouched by this.
+	# What is gone is CARVING THE GROUND YOU FIGHT ON — and the maker is right that it is
+	# a different thing: a crate you break is a fight changing shape, a floor that gives
+	# way under a wave with friendly fire on is the floor leaving.
+	#
+	# The spells' `carve_area` calls are untouched and still fire in `VersusArena` — the
+	# showcase, the duel and Free Play all build a stage — which is the mode the maker
+	# was praising when they asked for the destruction in the first place. In the tower
+	# they find no stage and return 0, exactly as they always did.
+	_clear_destructible_ground()
 	var walls: Node = get_node_or_null("Walls")
 	if walls == null:
 		return
 	_set_wall(walls, "WallTop", Vector2(w * 0.5, 0.0), Vector2(w, WALL_THICKNESS))
-	# ══ AND THERE IS NOTHING UNDER THE ROCK ═════════════════════════
-	# ⚠ THIS REVERSES A CALL MADE EARLIER THE SAME DAY, AND THE MAKER MADE IT. When the
-	# tower's ground first became destructible I put the bottom wall UNDER the slab as
-	# bedrock, on the reasoning that a wave fight with friendly fire on should not be
-	# able to lose its floor: you could blow a hole and drop into it, never through it.
-	#
-	# Maker: *"make sure all the platforms and stuff are destroyable and the floor like
-	# not infinite floor like there should be a under the floor that you can fall out
-	# of"*. So a hole is a hole. The rock is now the only floor there is, and the wall
-	# drops below the kill line where it can catch nothing — kept rather than deleted so
-	# the physics world still has a bottom if the catcher below ever misses a body.
-	#
-	# ⚠ IT IS SAFE ON BOTH SIDES, AND ONLY BECAUSE BOTH SIDES WERE ALREADY HANDLED:
-	# `_catch_fallen_heroes` kills a hero past `FALL_OUT_MARGIN` through
-	# `kill_out_of_world` (not `take_damage`, which i-frames can swallow), and its
-	# second loop does the same for the `enemy` group — without that a mob knocked
-	# through the floor would fall for ever while the encounter still counted it alive,
-	# and the room could never be cleared.
-	#
-	# `GROUND_SLAB_DEPTH` is what makes a hole EARNED rather than free: the largest
-	# single crater in the game is 46 px, so one hit never opens a shaft — it takes
-	# repeated punishment on the same patch of ground.
-	_set_wall(walls, "WallBottom", Vector2(w * 0.5, h + FALL_OUT_MARGIN
-		+ WALL_THICKNESS), Vector2(w, WALL_THICKNESS))
+	# THE FLOOR, back where it has always been: centred on `h`, so its top face is the
+	# `h - WALL_THICKNESS * 0.5` line `RoomShell` paints its ground cap on and every
+	# spawn point, ledge height and `FloorGen` y is measured against. It has been moved
+	# twice today and put back; the surface a fighter stands on never moved through any
+	# of it, which is the invariant `slice_test_one_screen` pins.
+	_set_wall(walls, "WallBottom", Vector2(w * 0.5, h), Vector2(w, WALL_THICKNESS))
 	_set_wall(walls, "WallLeft", Vector2(0.0, h * 0.5), Vector2(WALL_THICKNESS, h))
 	_set_wall(walls, "WallRight", Vector2(w, h * 0.5), Vector2(WALL_THICKNESS, h))
 
@@ -417,14 +413,20 @@ func _apply_room_size(size: Vector2) -> void:
 ## here than for the shell: `DestructibleStage.stage_in` returns THE FIRST MEMBER of
 ## the group, so a second stage would silently take every carve in the game while the
 ## one you are standing on kept its shape.
-func _ensure_destructible_ground() -> DestructibleStage:
+## Drop any ground slab a previous floor left behind.
+##
+## ⚠ IT REMOVES ITSELF FROM THE GROUP BEFORE FREEING, and that is not tidiness.
+## `DestructibleStage.stage_in` returns THE FIRST MEMBER of `GROUP_NAME`, so a stage
+## still in the group while its free is pending would go on catching every carve in
+## the game — the exact fault `slice_test_destructible_sources` records costing it five
+## false failures in a row.
+func _clear_destructible_ground() -> void:
 	var slab: DestructibleStage = get_node_or_null("DestructibleGround") as DestructibleStage
-	if slab != null:
-		return slab
-	slab = DestructibleStage.new()
-	slab.name = "DestructibleGround"
-	add_child(slab)
-	return slab
+	if slab == null:
+		return
+	slab.remove_from_group(DestructibleStage.GROUP_NAME)
+	remove_child(slab)
+	slab.queue_free()
 
 
 func _ensure_room_shell() -> RoomShell:
