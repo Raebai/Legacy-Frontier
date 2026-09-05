@@ -36,6 +36,32 @@ slice_test_rig_body  slice_test_rig_gait  slice_test_climb`
 `slice_test_destructible_sources  slice_test_destructible_carve  slice_test_floor
 slice_test_floorgen  slice_test_one_screen  slice_test_wall_reachable`
 
+**(d) Iai Slash's look + Crescent Rush's redesign** — `scripts/combat/SpellLibrary.gd`,
+`scripts/combat/SpellBlurbs.gd`, and those two spells' effect scripts.
+Maker: *"iai slash looks goofy can you make it look cooler and crescent rush stopping on
+as soon as it hits something is bad maybe we can make it like a different spell something
+new"*. The steer given: an iai reads as **stillness → one instantaneous flash → the cut
+resolves AFTER**; if it is currently animating a visible arcing swing, that is the
+goofiness, because it turns a draw-cut into an ordinary slash with extra steps. For the
+rush, either make it PIERCE to its declared reach or replace it outright — the maker
+opened that door — but a replacement must not duplicate another class (NO RECOLOURS), and
+whatever happens the drawn shape must stay the damaging shape.
+`slice_test_spell_signature  slice_test_spell_targets  slice_test_spell_buttons
+slice_test_class_identity  slice8_test_spell_kits  slice_test_new_drops`
+
+**(e) Cryomancer's LMB becomes ice shards** — `scripts/combat/Hero.gd` and the frost-cone
+effect script.
+Maker: *"cryomancers left click attack the cone is weird and too big just change it all
+shoot out some crystal ice shards or something instead"*. Measured, that cone is
+**reach 118 px at a 60° half-angle** — 120° of arc, the widest and longest basic attack in
+the roster (the Brawler's is 58 px / 72.5°), so "too big" is literally true. Replaced with
+a small volley of crystal shards; it must stay a BASIC attack (cheap, fast, readable), the
+tell must become what the shards actually are, and it must draw **ONE shape per press** —
+`tools/probe_basic_attack_visuals.gd` is the instrument that caught two classes drawing
+two attack shapes on one press earlier today.
+`probe_basic_attack_visuals (before AND after)  slice_test_class_identity
+slice_test_hitboxes  slice_test_hero_tells  slice_test_spell_buttons`
+
 ### PLAY IT
 **F5** → title → Single Player. **Lobby → Watch Bots** for the showcase.
 The Android APK is stale — it predates every commit below.
