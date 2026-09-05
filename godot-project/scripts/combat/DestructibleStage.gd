@@ -288,6 +288,10 @@ const REBUILD_BUDGET_USEC: int = 1400
 ## carved cavity is not "more rock", it is the absence of it, and at the played zoom
 ## the only thing that separates them is value.
 const CAVITY_FILL: Color = Color(0.09, 0.085, 0.11)
+## How much of the surrounding rock's colour a hole keeps. A cavity is a SHADOW in
+## that rock, not a different material, so it is the same hue several stops down —
+## which is what makes it read as depth rather than as a sticker.
+const CAVITY_MIX: float = 0.34
 ## RULE 1 of the stage legend (see `StageLayers`): a lit cap says "standable". A carved
 ## crater floor IS standable, so it gets the same cap the authored terraces get, and
 ## for the same reason — one signal, not three near-misses.
@@ -975,10 +979,34 @@ func _process(_delta: float) -> void:
 	queue_redraw()
 
 
+## ══ THE HOLE BELONGS TO THE FLOOR IT WAS BLOWN IN ═══════════════════
+## Maker: *"destroying the map and stuff is done well but it just needs to match the
+## background, the destroyed areas — like make sure it looks and feels actually
+## destroyed"*.
+##
+## `CAVITY_FILL` is one fixed near-black. On the versus stage, whose rock is a fixed
+## brown, that reads correctly. The tower tints EVERY floor's ground from its biome
+## (`EnvTheme` → `RoomShell.GROUND_MIX`), so the same constant would punch an
+## identical brown-black hole in a blue Frostmarch slab and an orange Emberworks one
+## — a sticker laid on the floor rather than a hole in it. The caller pushes its own
+## rock colour through `set_palette` and the hole becomes a shadow in THAT rock.
+##
+## The lit cap on a newly exposed surface stays constant across biomes on purpose:
+## it is RULE 1 of the stage legend (`StageLayers`) — warm horizontal means YOU CAN
+## STAND ON THIS — and a legend that changes colour per floor is not a legend.
+var cavity_color: Color = CAVITY_FILL
+
+
+## Point the hole colour at the rock this stage is cut into. Safe to call every floor.
+func set_palette(rock: Color) -> void:
+	cavity_color = Color(rock.r * CAVITY_MIX, rock.g * CAVITY_MIX, rock.b * CAVITY_MIX, 1.0)
+	queue_redraw()
+
+
 func _draw() -> void:
 	for b: int in _block_cavities.size():
 		for r: Rect2 in _block_cavities[b]:
-			draw_rect(r, CAVITY_FILL, true)
+			draw_rect(r, cavity_color, true)
 	for b2: int in _block_caps.size():
 		for c: Rect2 in _block_caps[b2]:
 			draw_rect(c, NEW_SURFACE_CAP, true)

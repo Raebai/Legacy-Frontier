@@ -21,6 +21,33 @@ const SANDBOX_SPAWN_INTERVAL: float = 1.2
 const DEFAULT_EXIT_POINT: Vector2 = Vector2(870, 512)
 ## Wall collider thickness, matching Arena.tscn's authored value.
 const WALL_THICKNESS: float = 16.0
+
+## ══ THE TOWER'S GROUND IS ROCK, AND IT WAS THE ONLY STAGE THAT WAS NOT ══════
+## Maker, watching the bot fights: *"when I watch the bot fights I see all these cool
+## classes spells and interactions and spells please ensure the main game has all of
+## these ... and like its similar in how the maps get destroyed"*.
+##
+## ⚠ THE CLIMB HAD NO DESTRUCTIBLE TERRAIN AT ALL, and not because a flag was off.
+## `VersusArena._make_destructible_stage` was the ONLY line in the project that ever
+## constructed a `DestructibleStage`, so the showcase, the duel and FreePlay (which
+## all load `VersusArena.tscn`) had one and the tower never did. Both carve routes die
+## silently on a tower floor: `carve_area` finds no member of `GROUP_NAME` and returns
+## 0, and `carve_from_body` looks for `BODY_META` on the collider it hit — which the
+## tower's `Walls/WallBottom` has never carried. Every one of the 21 carve call sites
+## in the spell files, including the six wired this session, was dead here. Nothing
+## logged it: the refusal counters live ON the stage, so a missing stage does not even
+## tick `refused_hits`.
+##
+## ⚠ AND THE BOTTOM WALL BECOMES BEDROCK RATHER THAN BEING DELETED. The versus stage
+## can absorb craters because its terraces are 320 px deep against a 46 px maximum
+## crater, which is the argument that made severing structurally impossible there. A
+## tower room's floor is a 16 px collider under a painted slab; carve one crater in
+## that and you punch clean through on the first hit, and a wave fight becomes a pit
+## trap. So the slab is destructible and the wall moves to sit UNDER it, indestructible.
+## You can blow a hole in the floor and drop into it; you cannot blow the floor away.
+## That also means the severing arithmetic the versus stage depends on does not have
+## to transfer — the bedrock makes it irrelevant rather than merely unlikely.
+const GROUND_SLAB_DEPTH: float = 72.0
 ## Where a hero stands when no floor layout says otherwise (sandbox / boss rush).
 ## Kept in step with LayoutDef.hero_start — both moved when the room grew (maker:
 ## "the map is too small"), or heroes would spawn in the left third of a 1160-wide
@@ -337,11 +364,25 @@ func _apply_room_size(size: Vector2) -> void:
 	# Built here rather than in `_rebuild_room` because it is a function of the room's
 	# SIZE, not of the floor's props, and `_rebuild_room` frees everything it owns.
 	_ensure_room_shell().build(Vector2(w, h))
+	# THE ROCK. Its TOP FACE sits exactly where the old bottom wall's did
+	# (`h - WALL_THICKNESS * 0.5`, the same line `RoomShell` paints its ground cap on),
+	# so nothing a fighter stands on moves — the slab fills the space that used to be
+	# void below the collider. See `GROUND_SLAB_DEPTH`.
+	var ground_y: float = h - WALL_THICKNESS * 0.5
+	var slab: DestructibleStage = _ensure_destructible_ground()
+	var rock: Array[Rect2] = [Rect2(0.0, ground_y, w, GROUND_SLAB_DEPTH)]
+	slab.build_from_rects(rock)
+	slab.rebuild_collision(slab)
 	var walls: Node = get_node_or_null("Walls")
 	if walls == null:
 		return
 	_set_wall(walls, "WallTop", Vector2(w * 0.5, 0.0), Vector2(w, WALL_THICKNESS))
-	_set_wall(walls, "WallBottom", Vector2(w * 0.5, h), Vector2(w, WALL_THICKNESS))
+	# ⚠ THE BOTTOM WALL IS BEDROCK NOW — moved to the UNDERSIDE of the slab. Left where
+	# it was, it would be an indestructible 16 px floor at the same line as the rock's
+	# top face, and every crater would be decoration: a hole you can see and cannot fall
+	# into, which is the exact failure this feature would be judged on.
+	_set_wall(walls, "WallBottom", Vector2(w * 0.5, ground_y + GROUND_SLAB_DEPTH
+		+ WALL_THICKNESS * 0.5), Vector2(w, WALL_THICKNESS))
 	_set_wall(walls, "WallLeft", Vector2(0.0, h * 0.5), Vector2(WALL_THICKNESS, h))
 	_set_wall(walls, "WallRight", Vector2(w, h * 0.5), Vector2(WALL_THICKNESS, h))
 
@@ -351,6 +392,23 @@ func _apply_room_size(size: Vector2) -> void:
 ## `tools/slice_test_one_screen.gd` against a freshly instantiated Arena, so a
 ## find-or-create is the shape that cannot end up with two of them or with a stale
 ## freed one.
+## The tower's destructible ground, created on first use. Found BY NAME for exactly
+## the reason `_ensure_room_shell` is: `_apply_room_size` is re-driven on every floor
+## and also directly by `tools/slice_test_one_screen.gd` against a fresh Arena, so a
+## find-or-create is the shape that cannot end up with two of them. Two would be worse
+## here than for the shell: `DestructibleStage.stage_in` returns THE FIRST MEMBER of
+## the group, so a second stage would silently take every carve in the game while the
+## one you are standing on kept its shape.
+func _ensure_destructible_ground() -> DestructibleStage:
+	var slab: DestructibleStage = get_node_or_null("DestructibleGround") as DestructibleStage
+	if slab != null:
+		return slab
+	slab = DestructibleStage.new()
+	slab.name = "DestructibleGround"
+	add_child(slab)
+	return slab
+
+
 func _ensure_room_shell() -> RoomShell:
 	var shell: RoomShell = get_node_or_null("RoomShell") as RoomShell
 	if shell != null:
@@ -1352,6 +1410,13 @@ func _apply_theme(theme: EnvTheme) -> void:
 		shell.build(shell.room_size, wash)
 		_apply_decor(shell.room_size, wash, theme)
 		_apply_sky(shell.room_size, wash, theme)
+	# ...AND SO DO THE HOLES IN IT. The same hue, through the same GROUND_MIX the shell
+	# paints its rock with, so a crater is a shadow in THIS floor's stone rather than
+	# the versus stage's brown on every one of the ten biomes.
+	var slab: DestructibleStage = get_node_or_null("DestructibleGround") as DestructibleStage
+	if slab != null:
+		slab.set_palette(Color(wash.r * RoomShell.GROUND_MIX, wash.g * RoomShell.GROUND_MIX,
+			wash.b * RoomShell.GROUND_MIX, 1.0))
 	PostProcess.set_theme(wash)  # re-tint the grade to match the floor
 
 
