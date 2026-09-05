@@ -8,25 +8,33 @@ every claim is a measurement or a headless suite.
 
 ### ⚠ FIRST THING: THERE IS UNCOMMITTED WORK IN THE TREE
 
-A subagent was still building the **tavern lobby + title screen** when the session ended.
-Its files are modified and NOT committed:
+Three subagents were still running when the session ended. **If their work is not
+committed, it is sitting dirty in the tree — `git status` first.** Diff it, run the suites
+named beside each, then commit or discard. **Do not assume it parses** — an in-flight
+agent edit is how three suites went red mid-session.
 
-```
-godot-project/scripts/World.gd
-godot-project/scripts/HubAmbience.gd
-godot-project/scripts/ui/AntechamberBackdrop.gd
-godot-project/scripts/ui/Lobby.gd
-godot-project/tools/probe_antechamber_backdrop.gd
-godot-project/tools/slice_test_antechamber_sky.gd
-```
+**(a) Tavern lobby + title screen** — `scripts/World.gd`, `scripts/HubAmbience.gd`,
+`scripts/ui/AntechamberBackdrop.gd`, `scripts/ui/Lobby.gd`, `tools/probe_antechamber_backdrop.gd`,
+`tools/slice_test_antechamber_sky.gd`.
+The maker PLAYED it and liked it — refine, do not restart. Their four notes: the fire
+escapes the furnace and must be bounded to it; there are stray yellow lines that mean
+nothing (give them a reason or remove them); add ledges where helpful; add curved
+structures (arches, a vaulted ceiling, a curved bar front) because the room is currently
+all rectangles. Plus the title buttons, asked TWICE.
+`slice_test_town  slice_test_town_bounds  slice_test_town_interact  slice_test_settings
+slice_test_shell  slice_test_antechamber_sky  slice_test_stage_layers`
 
-`git diff` it, run the suites below, then commit it or throw it away. **Do not assume it
-parses** — an in-flight agent edit is how three suites went red mid-session.
+**(b) Gear replaces body parts + unlock legibility** — `scripts/ui/Outfitter.gd`,
+`scripts/ClassSelect.gd`, `scripts/combat/CharacterRig.gd`, `scripts/combat/GearAbilities.gd`,
+`scripts/GameState.gd`, `scripts/combat/Progression.gd`. See queue item 4 below.
+`slice_test_outfitter  slice_test_grimoire  slice_test_class_select_layout
+slice_test_rig_body  slice_test_rig_gait  slice_test_climb`
 
-```
-slice_test_town  slice_test_town_bounds  slice_test_town_interact
-slice_test_settings  slice_test_shell  slice_test_antechamber_sky  slice_test_stage_layers
-```
+**(c) Floating platforms carve into bits** — `scripts/combat/BreakablePlatform.gd`,
+`scripts/combat/RuinPlatform.gd`, `scripts/combat/FloorBuilder.gd`,
+`scripts/combat/DestructibleStage.gd`. See queue item 5 below.
+`slice_test_destructible_sources  slice_test_destructible_carve  slice_test_floor
+slice_test_floorgen  slice_test_one_screen  slice_test_wall_reachable`
 
 ### PLAY IT
 **F5** → title → Single Player. **Lobby → Watch Bots** for the showcase.
@@ -92,14 +100,48 @@ Ask before building. It moves every class's balance at once.
    Local play already exists and works (`Host Co-op` routes through loopback); it is
    simply not labelled as local.
 
-**4. ARMOURY: RECOLOUR THE STICKMAN PER PART.** Maker: *"in the armoury I should also be
-   able to change the colour of my stickman figure the colour of his head body and legs
-   individually"*. Not started. Today there is one whole-figure colourway
-   (`Outfitter.chosen_colourway` → `GameState.colourway` → `Hero._configure_class`).
-   Three independent tints means a new save shape and three pickers on a screen already
-   measuring 338 px against a 360 px ceiling — the HEIGHT is the hard part, not the tints.
+**4. GEAR THAT REPLACES A BODY PART, AND UNLOCKS YOU CAN READ.** In flight as (b) above.
+   Maker: *"no need for an armoury button within the changing class selection and the
+   grimoire is cool but still not clear what is unlockable and what isnt like for the
+   class and how to unlock it same with the armoury items please make mock versions of
+   like helmets and stuff that replace the character head are not work on top and other
+   items that emphasise what they do and do some thinking on how these items should be
+   unlocked"*.
+   ⚠ **THE MAKER'S INSIGHT IS THE DESIGN.** A helmet drawn OVER a stick figure's head
+   reads as a hat balanced on a dot, which is very likely why `CharacterRig.GEAR_DRAW` is
+   `false` and gear does not render at all — overlay gear looked wrong, so it was switched
+   off rather than redrawn. If the helm IS the head — same slot, different outline — the
+   figure stays a stick figure and the item reads at 640x360. Sticks stay sticks; the
+   PARTS change shape.
+   **The unlock design, and do not invent a currency:** guardians already grant a banked
+   PICK spent at the class altar (`Progression.CLASS_UNLOCK_FLOORS`, real and tested, and
+   currently disabled by `ALL_CLASSES_UNLOCKED = true`), and
+   `docs/superpowers/specs/2026-08-04-spell-trees-and-progression-design.md` specifies
+   Skill Points and was never built. The Grimoire and Armoury should be the VIEW onto
+   those: every row HELD / EARNABLE (with the exact verb on it) / CLASS-LOCKED (saying
+   whose). ⚠ While `ALL_CLASSES_UNLOCKED` is true everything correctly reads as HELD —
+   flip it to actually SEE the three states.
 
-**5. REAL ARMOURY ITEMS.** The placeholders are still inert and the real stat ranges are
+**5. FLOATING PLATFORMS CARVE INTO BITS.** In flight as (c) above. Maker: *"please make
+   the floating platforms destroyable into bits just like the floor was beforehand"*.
+   Not a contradiction of the solid-ground ruling: a ledge is optional footing, the floor
+   is the floor.
+   ⚠ **THE TRAP**: `carve_area` finds its stage by scanning `GROUP_NAME` and returning THE
+   FIRST MEMBER — written for a world with exactly ONE stage. If platforms join that
+   group, every carve in the game routes to whichever platform is first. The right
+   primitive is `carve_from_body`, which routes by `BODY_META` on the collider actually
+   hit. `slice_test_one_screen` asserts nothing is left in that group; if it goes red, the
+   wrong route was taken — do not relax it.
+
+**6. ARMOURY: RECOLOUR THE STICKMAN PER PART.** Maker: *"in the armoury I should also be
+   able to change the colour of my stickman figure the colour of his head body and legs
+   individually"*. Not started, and distinct from item 4 (that one is SHAPE, this is
+   TINT). Today there is one whole-figure colourway (`Outfitter.chosen_colourway` →
+   `GameState.colourway` → `Hero._configure_class`). Three independent tints means a new
+   save shape and three pickers on a screen already measuring 338 px against a 360 px
+   ceiling — the HEIGHT is the hard part, not the tints.
+
+**7. REAL ARMOURY ITEMS.** The placeholders are still inert and the real stat ranges are
    gone: max HP 0.94-1.20x, move speed 0.92-1.12x, melee damage 0.82-1.30x, cooldown
    0.70-1.30x, knockback 0.88-1.40x, a 0.40 one-shot ward, 0.15 flat mitigation. Any class
    quietly tuned around "you will wear a helmet" is squishier than intended. Machinery,
@@ -107,14 +149,14 @@ Ask before building. It moves every class's balance at once.
    ⚠ `CharacterRig.GEAR_DRAW` is FALSE under the "just stickmen" ruling, so helms and
    armour will not render on the doll even as real items. Only held weapons do.
 
-**6. WALLS DO NOT TAKE THE MATERIAL THEY ARE MADE OF.** Still the best unbuilt idea in the
+**8. WALLS DO NOT TAKE THE MATERIAL THEY ARE MADE OF.** Still the best unbuilt idea in the
    destruction work — a rock wall leaving a trench exactly as long as it is wide makes
    cover and hazard one act. Needs a **capsule sibling to `carve_disc`**: a wall's
    footprint is a long thin SPAN, and a row of discs is the shape most likely to move the
    severed-run number off 0. `HorizonArc` is deliberately unwired for the same reason and
    waits on the same primitive.
 
-**7. `probe_reachability` REPORTS 252 OF 939 PUBLIC ENTRY POINTS WITH NO SHIPPING CALLER.**
+**9. `probe_reachability` REPORTS 252 OF 939 PUBLIC ENTRY POINTS WITH NO SHIPPING CALLER.**
    It is a REPORT, not a gate, and it over-reports for autoloads. Read it and promote what
    matters, the way `slice_test_wall_reachable` already did for the shove.
 
