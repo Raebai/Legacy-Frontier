@@ -219,7 +219,7 @@ func _audit_enemy_spells(e: Dictionary) -> void:
 
 
 ## The hero's own tells. Damage geometry read from `Hero.gd`:
-## `_on_melee_hit_frame`, `_resolve_uppercut`, `_resolve_frost_cone`, `_fire_punch`,
+## `_on_melee_hit_frame`, `_resolve_uppercut`, `_resolve_frost_shards`, `_fire_punch`,
 ## `_ground_slam`, `_spawn_nova`.
 func _audit_hero(h: Dictionary) -> void:
 	var reach: float = float(h["MELEE_RANGE"])
@@ -264,22 +264,28 @@ func _audit_hero(h: Dictionary) -> void:
 			+ "whole rear disc). The AXIS was also wrong by 26.6 deg — the tell aimed "
 			+ "(face_x,-0.5) while the query aims (face_x,0) — and now takes the query's.",
 	})
-	# ⚠ HARD-CODED, AND FLAGGED AS SUCH. `CONE_RANGE` / `CONE_COS` are function-local
-	# consts inside `Hero._primary_frost_cone` (Hero.gd:4849-4850) so there is nothing
-	# to read. If that function is retuned this row goes stale and the note is the
-	# only thing that will say so.
-	var cone_range: float = 118.0
-	var cone_cos: float = 0.5
-	var cone_deg: float = rad_to_deg(acos(cone_cos))
+	# ⚠ NOT HARD-CODED ANY MORE, AND THAT IS THE POINT OF THE RESHAPE. This row used to
+	# copy `CONE_RANGE` / `CONE_COS` out of `Hero._primary_frost_cone` by hand, with a
+	# note saying the row would go stale the moment that function was retuned. It then
+	# went stale exactly that way: the cone is gone (maker: "the cone is weird and too
+	# big"), replaced by a shard volley behind a LANE corridor. The lane's two numbers
+	# are DERIVED from `FrostShards`' own constants in `Hero._primary_frost_shards`, so
+	# this row reads them from the same place rather than restating them.
+	var lane_len: float = FrostShards.MAX_RANGE
+	var lane_w: float = 2.0 * (FrostShards.MAX_RANGE * sin(FrostShards.FAN_SPREAD)
+		+ FrostShards.HIT_RADIUS)
 	_add({
-		"name": "CRYOMANCER frost cone", "style": "CONE", "colour": "class element",
-		"windup": float(h["ABILITY_TELL_LEAD"]), "dmg": 19,
-		"drawn": "cone r=%.0f, half-angle %.0f deg" % [cone_range, cone_deg],
-		"hurts": "cone r=%.0f, half-angle %.0f deg" % [cone_range, cone_deg],
+		"name": "CRYOMANCER frost shards", "style": "LANE", "colour": "class element",
+		"windup": float(h["ABILITY_TELL_LEAD"]),
+		"dmg": FrostShards.SHARD_COUNT * 6,
+		"drawn": "lane %.0f x %.0f px" % [lane_len, lane_w],
+		"hurts": "%d shards, r=%.0f, along the same %.0f px axis"
+			% [FrostShards.SHARD_COUNT, FrostShards.HIT_RADIUS, lane_len],
 		"verdict": OK, "err": "0 px", "err_deg": 0.0,
-		"note": "Hero._primary_frost_cone. Was a MUZZLE sigil reporting r=59 against a "
-			+ "cone reaching 102 px laterally. Hard-coded here — CONE_RANGE/CONE_COS are "
-			+ "function-local consts (Hero.gd:4849).",
+		"note": "Hero._primary_frost_shards. Was a MUZZLE sigil reporting r=59, then a "
+			+ "CONE r=118 / 60 deg, now a LANE the shards actually fly down. The lane "
+			+ "OVER-warns slightly: three thin shards do not fill the corridor, which is "
+			+ "the same conservative direction Telegraph.danger_shape documents.",
 	})
 	for spec: Array in [
 		["BRAWLER fire punch", 66.0, 30 + int(h["MELEE_DAMAGE"]), "44 px ahead"],

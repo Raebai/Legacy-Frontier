@@ -65,10 +65,19 @@ const CONFIGS: Array[Dictionary] = [
 	{"name": "BOMB bomber", "style": 5, "r": 78.0, "w": 0.90},
 	{"name": "FIST hero melee", "style": 6, "line": true, "len": 58.0, "wid": 10.4, "w": 0.077},
 	{"name": "CRESCENT blade", "style": 7, "line": true, "len": 58.0, "wid": 10.4, "w": 0.077},
-	# The three cones the game ships, with the geometry their DAMAGE queries use:
-	# `Hero._on_melee_hit_frame` (MELEE_RANGE 58, MELEE_ARC_DOT 0.30 -> 72.5 deg),
-	# `Hero._resolve_uppercut` (70, -0.20 -> 101.5 deg) and `Hero._resolve_frost_cone`
-	# (118, 0.50 -> 60.0 deg). The melee row is drawn LIGHT and the two abilities FULL,
+	# The cones, with the geometry their DAMAGE queries use:
+	# `Hero._on_melee_hit_frame` (MELEE_RANGE 58, MELEE_ARC_DOT 0.30 -> 72.5 deg) and
+	# `Hero._resolve_uppercut` (70, -0.20 -> 101.5 deg).
+	# ⚠ "CONE frost" (118, 0.50 -> 60.0 deg) IS NO LONGER A SHIPPING SHAPE. The
+	# Cryomancer's primary was that wedge until the maker called it "weird and too
+	# big"; it is a shard volley behind a `Style.LANE` corridor now
+	# (`Hero._primary_frost_shards`), whose draw cost is bounded by the "LANE charger"
+	# row above (len 300 / wid 34 — the real lane is 300 x 69, same two segments).
+	# The row is KEPT rather than deleted: it is the only WIDE full-weight cone in the
+	# table, so it is what pins the boundary-drawing cost of `Style.CONE` at reach,
+	# and deleting it would silently drop that ceiling. It is a style benchmark, not a
+	# claim about what the game draws.
+	# The melee row is drawn LIGHT and the two full-weight rows FULL,
 	# which is the legibility split `Telegraph.CONE_LIGHT_ALPHA` argues for; both weights
 	# are measured here so a change to either shows up as a number.
 	# ⚠ STYLE 6 (FIST), NOT 8 — THIS ROW IS THE TELL THE GAME ACTUALLY SHIPS. The

@@ -81,8 +81,8 @@ func _measure(cls: int, what: String) -> void:
 			hero.call("_uppercut")
 		"fire_punch":
 			hero.call("_fire_punch")
-		"frost_cone":
-			hero.call("_primary_frost_cone")
+		"frost_shards":
+			hero.call("_primary_frost_shards")
 		"melee":
 			hero.call("_melee")
 		"unsheathe":
@@ -113,7 +113,7 @@ func _run() -> void:
 	await _measure(2, "melee")
 	await _measure(2, "uppercut")
 	await _measure(2, "fire_punch")
-	await _measure(5, "frost_cone")
+	await _measure(5, "frost_shards")   # was "frost_cone" — the cone is gone
 	# 8 = SWORDSAINT. Its guard-return cut also plays PUNCH for the draw.
 	await _measure(8, "unsheathe")
 	quit(0)

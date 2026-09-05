@@ -142,7 +142,9 @@ func _test_class_primaries() -> void:
 	var hero: CharacterBody2D = _make_hero()
 	# Expected LMB primary per class (default "bolt" when unset).
 	var expect_primary: Array[String] = [
-		"bolt", "bolt", "melee_combo", "heavy_swing", "bolt", "frost_cone", "bolt", "bolt",
+		# 5 CRYOMANCER was "frost_cone" until the maker called that wedge "weird and too
+		# big"; it is a crystal shard volley now (`Hero._primary_frost_shards`).
+		"bolt", "bolt", "melee_combo", "heavy_swing", "bolt", "frost_shards", "bolt", "bolt",
 		"heavy_swing",
 	]
 	for cls: int in range(int(hero.HeroClass.size())):

@@ -884,7 +884,7 @@ const CLASS_CONFIG: Dictionary = {
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
 		"aoe": "consecrate", "can_parry": true,  # Q: consecrated ground
 	},
-	HeroClass.CRYOMANCER: {  # ice control — LMB is a FROST CONE, not a bolt
+	HeroClass.CRYOMANCER: {  # ice control — LMB is a CRYSTAL SHARD VOLLEY, not a bolt
 		"preset": "cryomancer", "weapon": "staff", "weapon_look": "staff_ice", "element": Elements.Element.ICE, "melee_element": Elements.Element.ICE,
 		# ⚠ 123 -> 152 ON A MAKER RULING BACKED BY MEASUREMENT. Maker: "the ice class
 		# needs a buff." A 72-bout sweep (all 36 pairings, both side orders) put the
@@ -900,12 +900,16 @@ const CLASS_CONFIG: Dictionary = {
 		# combos with itself — Blizzard to chill, Shatter to cash it in — so its damage
 		# costs two casts and a global lockout before anything lands, and it pays for
 		# that wait with the roster's 2nd-lowest health, its LOWEST melee damage (11),
-		# and a short-range `frost_cone` primary that puts a caster inside the range it
-		# is least able to survive. 152 is the number `BotMatch.CLASS_VITALITY` 1.10
+		# and a short-range primary that puts a caster inside the range it is least
+		# able to survive. (That primary was `frost_cone` when this was measured; it is
+		# `frost_shards` now, reaching 300 px rather than 118 — see
+		# `_primary_frost_shards`. The health ruling stands; if a re-sweep shows the
+		# class over 50% on the longer reach, THIS is the number to revisit, not the
+		# shard damage.) 152 is the number `BotMatch.CLASS_VITALITY` 1.10
 		# previews (the two tables agree to within 0.1 across all nine rows, which is
 		# what makes a bot match a faithful preview of a class change).
 		"hp": 152, "speed": 195.0,  # was 88, then 123
-		"primary": "frost_cone",
+		"primary": "frost_shards",  # was "frost_cone" — see `_primary_frost_shards`
 		# Rimed JAB: little damage, wide arc, and the biggest shove of any caster —
 		# the control class's melee CONTROLS.
 		"melee_cd": 0.30, "melee_arc_dot": 0.35, "melee_damage": 11,
@@ -3990,16 +3994,39 @@ func _begin_verb_extras(verb: String) -> void:
 			# (`Vector2(signf(facing.x), 0.0)`), so a slide with no usable input goes
 			# where the fighter is looking — which is what every other class's dash
 			# already does.
-			# ⚠ AND `_dash_dir` IS LEFT ALONE. The first version of this fix also wrote
+			# ⚠ AND `_dash_dir` IS LEFT ALONE. The first version of that fix also wrote
 			# the resolved direction back as `Vector2(slide_x, 0.0)`, and
 			# `slice_test_class_movement` caught it immediately: "Cryomancer keeps its
 			# vertical when aimed up — no verb is flattened now". Keeping the vertical
-			# is a deliberate property of every verb; only the ENTRY SPEED is
-			# horizontal here. Fixing the entry must not quietly re-flatten the aim.
-			var slide_x: float = _dash_dir.x
-			if absf(slide_x) < 0.01:
-				slide_x = signf(facing.x) if absf(facing.x) > 0.01 else 1.0
-			velocity.x = slide_x * _dash_speed
+			# is a deliberate property of every verb.
+			#
+			# ⚠ NEW RULING (2026-09-05): THE ENTRY SPEED IS 2D NOW. Maker: *"also make
+			# sure I can dash upwards with cryomancer as well"* — the SECOND time this
+			# class has been reported for it, and the reason the first fix did not
+			# settle it is written above: it only ever fixed the ENTRY SPEED's
+			# horizontal component. `_dash_dir` kept its vertical (so
+			# `slice_test_class_movement`'s "no verb is flattened" assertion went
+			# green), and then this line threw that vertical away before a single
+			# pixel of travel happened, and `_travel_velocity` replaced it with
+			# gravity every frame after. The test read the COMPUTED direction; the
+			# player felt the DRAWN displacement, and they disagreed.
+			#
+			# `_dash_dir` is already normalised and non-zero by `_start_dash`'s own
+			# fallback ladder (held keys -> velocity -> `_move_dir` -> facing), so the
+			# horizontal-only rescue the old code needed is gone with the cause of it.
+			# The zero guard stays as belt-and-braces: a slide with no direction at all
+			# must go where the fighter is looking rather than nowhere, which is what
+			# every other class's dash already does.
+			#
+			# THE SLIDE IS STILL A SLIDE. Nothing here touches what makes it this
+			# class's verb — it enters fast, it BLEEDS speed (`_travel_velocity`), it
+			# barely steers (`ICE_SLIDE_STEER`) and it is the longest-lasting travel in
+			# the roster. A slide you can aim up a wall is still a slide; it is only
+			# the plane it is confined to that changed.
+			var slide_dir: Vector2 = _dash_dir
+			if slide_dir.length_squared() < 0.0001:
+				slide_dir = Vector2(signf(facing.x) if absf(facing.x) > 0.01 else 1.0, 0.0)
+			velocity = slide_dir.normalized() * _dash_speed
 		"charge":
 			Sfx.play("dash", 1.0, 0.05, 0.8)
 		"shadow_slip":
@@ -4428,12 +4455,39 @@ func _travel_velocity(delta: float) -> Vector2:
 		"ice_slide":
 			# LOW FRICTION, POOR AUTHORITY. Speed decays linearly; the stick can lean
 			# the line but cannot turn it around inside the slide.
-			v.x = move_toward(v.x, 0.0, ICE_SLIDE_FRICTION * delta)
+			#
+			# ⚠ THE FRICTION IS ON THE WHOLE VECTOR NOW, AND GRAVITY IS OFF FOR THE
+			# DURATION. This line used to read
+			#   `v.y = 0.0 if is_on_floor() else minf(v.y + GRAVITY_FALL * delta, MAX_FALL)`
+			# and it is THE reason "cryomancer can't dash upwards" survived a previous
+			# fix: even after `_begin_verb_extras` was taught to launch along the full
+			# `_dash_dir`, this branch overwrote `v.y` with gravity (or with a flat
+			# zero on the floor) on every single frame of the 0.55 s travel. An upward
+			# slide climbed for exactly zero frames.
+			#
+			# Gravity-free is not a special case invented for this verb — it is what
+			# the four fall-through travel verbs below already do, and the note on that
+			# branch says so ("a flat gravity-free burst"). The slide simply joins
+			# them, and keeps its own character by bleeding: `move_toward` on the 2D
+			# vector decays the MAGNITUDE at exactly the old horizontal rate, so
+			# `movement_verb_distance`'s integral of that linear decay (470 * 0.55 -
+			# 0.5 * 240 * 0.55^2 = 222 px) is unchanged and the assertion band in
+			# `slice_test_class_movement` does not move.
+			#
+			# What the player gets that they did not have: hold up, press the movement
+			# button, and the Cryomancer glides UP 222 px and then falls, instead of
+			# skidding sideways or standing still. Gravity resumes the frame the travel
+			# ends — nothing here assumes the verb finishes on the ground, and the
+			# i-frame slice (`ICE_SLIDE_IFRAME_FRACTION`, 0.25 of `_dash_total`) is a
+			# fraction of TIME and is untouched by the change of plane.
+			v = v.move_toward(Vector2.ZERO, ICE_SLIDE_FRICTION * delta)
 			var steer_x: float = _axis(&"move_left", &"move_right")
 			if steer_x != 0.0:
+				# Lean stays HORIZONTAL-ONLY on purpose: "you can lean, you cannot turn
+				# around" is the verb's identity, and giving the slide full 2D steering
+				# would turn the longest travel in the roster into a flight stick.
 				v.x = move_toward(v.x, steer_x * _dash_speed,
 					GROUND_ACCEL * ICE_SLIDE_STEER * delta)
-			v.y = 0.0 if is_on_floor() else minf(v.y + GRAVITY_FALL * delta, MAX_FALL)
 			return v
 		# ⚠ THIS BRANCH IS NOW EMPTY OF CLASSES, and both departures were the same bug.
 		# `surge` (Juggernaut) and then `charge` (Brawler) each sat here having their
@@ -4871,7 +4925,9 @@ func _blink_shape() -> Shape2D:
 
 ## The LMB PRIMARY — dispatched per class so no two classes attack the same way:
 ## melee_combo (Brawler punch/kick, no magic), heavy_swing (Juggernaut wide slow
-## hammer), frost_cone (Cryomancer chilling cone), or a bolt with per-class flavour
+## hammer), frost_shards (Cryomancer crystal volley — was a cone until the maker
+## called it "weird and too big"; see `_primary_frost_shards`), or a bolt with
+## per-class flavour
 ## flags (plain / heal / drain / chain / burst). This is the core "classes feel
 ## different, not just different spells" fix.
 func _cast() -> void:
@@ -4885,8 +4941,8 @@ func _cast() -> void:
 			_primary_melee_combo()
 		"heavy_swing":
 			_primary_heavy_swing()
-		"frost_cone":
-			_primary_frost_cone()
+		"frost_shards":
+			_primary_frost_shards()
 		_:
 			_primary_bolt()
 
@@ -5039,81 +5095,116 @@ func _primary_heavy_swing() -> void:
 		_publish_swing_tell(CharacterRig.State.PUNCH)
 
 
-## CRYOMANCER primary — a short-range FROST CONE (no projectile): every enemy in
-## the forward arc is chilled (2nd stack freezes) + lightly shoved. Forces mid-range.
-func _primary_frost_cone() -> void:
+## CRYOMANCER primary — CRYSTAL ICE SHARDS: a tight volley of three faceted shards
+## thrown along the aim, each chilling (2nd stack freezes) and piercing on through.
+## Still forces mid-range — 300 px, not a bolt's 560.
+##
+## ⚠ THE RULING CHANGED HERE, AND THE OLD ONE IS KEPT BELOW RATHER THAN DELETED.
+## This was `_primary_frost_cone` — a hitscan wedge of reach 118 px and half-angle
+## 60 deg. Maker: *"cryomancers left click attack the cone is weird and too big just
+## change it all shoot out some crystal ice shards or something instead"*. "Too big"
+## was measurable: `tools/probe_basic_attack_visuals.gd` read that wedge as the
+## widest AND longest basic attack in the nine-class roster (the Brawler's fist is
+## 58 px / 72.5 deg), and 120 deg of arc is a shape you cannot miss with — the
+## class's most-pressed button asked nothing of the aim.
+##
+## ⚠ THE SHELF IS UNCHANGED, DELIBERATELY. The cone dealt **19 to every body in the
+## arc** on a 0.34 s gate. The volley deals **6 per shard x 3 shards = 18** through
+## one body — 5% under, which is parity inside the rounding, because 19 is not
+## divisible by three and rounding UP would have made a re-shape into a stealth
+## buff. The paragraph the cone carried for that 19 is preserved verbatim:
+##
+##   > ⚠ 12 -> 19. Maker: *"cryomancer needs a buff as well the spells make sure
+##   > they actually do something"* — and the arithmetic agreed before the eye did:
+##   > 12 on a 0.34 s cooldown is 35 DPS against a roster mean of 56, the LOWEST
+##   > primary in the game, on the class that also has to be in cone range to use
+##   > it. The five bolt classes get 60 DPS at 560 px; this asks you to walk into
+##   > the fight for less. 19 puts it just over the mean, which is what a
+##   > short-range primary should be worth for the risk it carries.
+##
+## 18 / 0.34 = 53 DPS, still just under the bolt classes' 60 and at roughly half
+## their reach. What DID change is that the damage now has to be aimed.
+func _primary_frost_shards() -> void:
 	if _cast_cooldown_timer > 0.0:
 		return
 	_cast_cooldown_timer = _cfg["cast_cd"]
 	rig.set_aim(_aim_dir)
 	rig.play(CharacterRig.State.CAST)
-	rig.cast_gesture(CharacterRig.GestureKind.IGNITE_DROP, 0.6, _element)  # frost coats the hand
-	const CONE_RANGE: float = 118.0
-	const CONE_COS: float = 0.5  # ~60° half-angle
-	## ⚠ 12 -> 19. Maker: *"cryomancer needs a buff as well the spells make sure they
-	## actually do something"* — and the arithmetic agreed before the eye did: 12 on a
-	## 0.34 s cooldown is 35 DPS against a roster mean of 56, the LOWEST primary in the
-	## game, on the class that also has to be in cone range to use it. The five bolt
-	## classes get 60 DPS at 560 px; this asks you to walk into the fight for less.
-	## 19 puts it just over the mean, which is what a short-range primary should be
-	## worth for the risk it carries.
-	const CONE_DAMAGE: int = 19
-	# ⚠ TELEGRAPHED, AND THIS WAS THE ONLY HITSCAN PRIMARY IN THE GAME WITH NOTHING TO
-	# PERCEIVE. It resolved in the same synchronous call as the press while the rig was
-	# still playing a CAST and coating the hand in frost — so the picture promised a
-	# wind-up that the damage had already skipped, and `BotDodge` had no object to read.
-	# The lead is `ABILITY_TELL_LEAD`; set that to 0.0 to restore the press-frame hit.
-	# ⚠ AND IT IS DRAWN AS THE CONE IT IS. The tell was a MUZZLE — a small sigil plus
-	# an aim tracer — reporting a `CONE_RANGE * 0.5` = 59 px circle against a cone that
-	# reaches 118 px forward and `118 * sin(60°)` = 102 px to the SIDE. An intermediate
-	# pass widened that circle to the wedge's enclosing circle, which fixed the
-	# under-draw but painted a 102 px disc for a 60 deg wedge — nearly half of it
-	# ground the cone cannot touch. `Telegraph.Style.CONE` draws the wedge itself;
-	# `danger_shape()` still publishes the enclosing circle so `BotDodge` is unchanged.
-	# The four numbers below are `_resolve_frost_cone`'s own arguments, one `acos`
-	# apart, which is what keeps the picture and the damage from drifting.
+	rig.cast_gesture(CharacterRig.GestureKind.FLICK, 0.6, _element)  # shards are THROWN
+	## Per-shard damage. See the shelf note above: 3 x 6 = 18 against the cone's 19.
+	const SHARD_DAMAGE: int = 6
+	# ⚠ TELEGRAPHED, AND THE DRAWN SHAPE IS THE DAMAGING SHAPE. The cone's own note
+	# is the reason this survives the reshape at all, so it is kept:
+	#
+	#   > this was the ONLY hitscan primary in the game with nothing to perceive. It
+	#   > resolved in the same synchronous call as the press while the rig was still
+	#   > playing a CAST, so the picture promised a wind-up the damage had already
+	#   > skipped, and `BotDodge` had no object to read. The lead is
+	#   > `ABILITY_TELL_LEAD`; set that to 0.0 to restore the press-frame hit.
+	#
+	# ⚠ AND THE TELL BECAME WHAT THE ATTACK BECAME. A `Style.CONE` wedge describing a
+	# volley of straight shards would be exactly the drift the cone's tell was fixed
+	# to stop, one shape later. The damaging region is now a CORRIDOR, so the tell is
+	# a `Style.LANE` line along the fixed aim, and its two numbers are derived from
+	# `FrostShards`' own constants rather than restated:
+	#   length = MAX_RANGE
+	#   width  = 2 * (MAX_RANGE * sin(FAN_SPREAD) + HIT_RADIUS)
+	#          = 2 * (300 * sin(0.085) + 12) = 75 px
+	# i.e. the outer shards' offset at full range plus a shard's own hit radius. That
+	# over-warns slightly (three thin shards do not fill the corridor) in the same
+	# conservative direction `Telegraph.danger_shape` already documents for cones:
+	# over-warning costs a dodge nobody needed, under-warning costs health somebody
+	# was promised.
+	#
+	# ⚠ ONE SHAPE PER PRESS. There is no second garnish — no `SwingArc`, no sigil, no
+	# muzzle burst. Two classes shipped basic attacks that drew two attack-shaped
+	# things on one press and the maker reported it as "two attacks";
+	# `tools/probe_basic_attack_visuals.gd` is the reading that catches it.
+	var lane_half_w: float = FrostShards.MAX_RANGE * sin(FrostShards.FAN_SPREAD) \
+		+ FrostShards.HIT_RADIUS
+	# `follow` for the same reason the cone used it: the shards leave from the WEAPON
+	# TIP at resolve time, so a corridor nailed to the ground where the press happened
+	# is wrong by however far the body walked during the lead. The AIM is still fixed
+	# at the press (bound below), so following cannot re-point it.
 	_telegraphed_ability({
-		"cone": true,
+		"line": true,
 		"follow": true,
 		"pos": global_position,
-		"reach": CONE_RANGE,
-		"half_angle": acos(clampf(CONE_COS, -1.0, 1.0)),
+		"length": FrostShards.MAX_RANGE,
+		"width": lane_half_w * 2.0,
 		"angle": _aim_dir.angle(),
 		"windup": ABILITY_TELL_LEAD,
-		"style": Telegraph.Style.CONE,
+		"style": Telegraph.Style.LANE,
 		"aim": _aim_dir,
-	}, _resolve_frost_cone.bind(_aim_dir, CONE_RANGE, CONE_COS, CONE_DAMAGE))
+	}, _resolve_frost_shards.bind(_aim_dir, SHARD_DAMAGE))
 
 
-## The frost cone's actual hit, split out so the tell above owns the timing. Takes the
-## aim as an ARGUMENT rather than reading `_aim_dir`: the cone is fixed at the press,
-## exactly like a telegraph lane, so spinning during the lead cannot re-point it.
-func _resolve_frost_cone(aim: Vector2, cone_range: float, cone_cos: float,
-		cone_damage: int) -> void:
-	var hit_any: bool = false
-	# The cone is now measured against the DRAWN body and line-of-sight filtered,
-	# through the same selector every spell uses. It was the clearest instance of the
-	# head bug in a primary attack: a frost cone aimed at head height resolved
-	# against an origin ~10 px lower and simply did not connect.
-	for enemy: Node in SpellTargets.in_cone(global_position, aim, cone_range,
-			cone_cos, get_tree().get_nodes_in_group(attack_group()), [self], self):
-		var to: Vector2 = (enemy as Node2D).global_position - global_position
-		if enemy.has_method("take_damage"):
-			enemy.take_damage(cone_damage)
-		if enemy.has_method("apply_status"):
-			enemy.apply_status(_element)
-		if enemy.has_method("apply_knockback"):
-			enemy.apply_knockback(to.normalized() * 160.0)
-		hit_any = true
-	# Frost fan VFX along the aim.
-	var fan_at: Vector2 = global_position + aim * cone_range * 0.55
-	CombatVfx.spawn_burst(
-		get_parent(), fan_at, Color(0.85, 0.97, 1.0, 0.9), Color(0.5, 0.8, 1.0, 0.0),
-		20, 0.32, 120.0, 260.0, 0.6, 1.8
-	)
+## The volley's actual launch, split out so the tell above owns the timing. Takes the
+## aim as an ARGUMENT rather than reading `_aim_dir`: the volley is fixed at the
+## press, exactly like a telegraph lane, so spinning during the lead cannot re-point
+## it. (Inherited verbatim from `_resolve_frost_cone`, which established the rule.)
+##
+## ⚠ THE ORIGIN IS THE WEAPON TIP, NOT `global_position`. The cone's own comment
+## recorded the head bug it was fixed for — "a frost cone aimed at head height
+## resolved against an origin ~10 px lower and simply did not connect" — and a
+## projectile has the same failure mode in reverse if it spawns at the feet.
+func _resolve_frost_shards(aim: Vector2, shard_damage: int) -> void:
+	var volley: Node2D = FrostShards.new()
+	get_parent().add_child(volley)
+	volley.set("element_id", _element)
+	_stamp_faction(volley)
+	# ⚠ AND THEN THE SHELF IS CORRECTED BACK DOWN. `_stamp_faction` stamps
+	# `SpellTier.Tier.HEAVY` because every call site it was written for is a Q. This
+	# is a BASIC ATTACK, and letting it enter clash contests at a Q's weight would
+	# quietly make the most-pressed button in the class the heaviest thing it throws.
+	volley.set("spell_tier", SpellTier.Tier.QUICK)
+	volley.call("launch", rig.get_weapon_tip(), aim.normalized(), _element_color,
+		FrostShards.SHARD_COUNT, shard_damage)
+	# The throw sound lives HERE rather than in `FrostShards.launch` — see the note at
+	# that call site: `Sfx` is an autoload, and naming one inside a `class_name` script
+	# breaks every headless suite that references the class.
 	Sfx.play("cast", -2.0, 0.06)
-	if hit_any:
-		Juice.shake_camera(2.0)
+	Juice.shake_camera(1.0)   # a light throw kick; the cone shook 2.0 only on a hit
 	_notify_element_used()
 
 

@@ -185,7 +185,7 @@ func _test_a_long_tell_still_uses_the_class_band() -> void:
 ## `source` in code this file can see. A route that forgot the stamp would make its own
 ## caster dodge its own ability for the whole lead, every time, forever.
 func _test_a_real_hero_ability_tells_the_foe_and_not_itself() -> void:
-	for row: Array in [[2, "_uppercut"], [2, "_fire_punch"], [5, "_primary_frost_cone"],
+	for row: Array in [[2, "_uppercut"], [2, "_fire_punch"], [5, "_primary_frost_shards"],
 			[3, "_ground_slam"]]:
 		var cls: int = row[0]
 		var call_name: String = row[1]
