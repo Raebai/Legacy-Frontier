@@ -63,24 +63,25 @@ const TESTS: Array[String] = [
 const PAUSE_BTN: Vector2 = Vector2(44.0, 44.0)
 const PAUSE_MARGIN: float = 10.0
 
-## ⚠ ONE TARGET IS KNOWINGLY UNDER THE 9 mm FLOOR AND IS NAMED HERE RATHER THAN QUIETLY
-## PASSING. The contextual handoff pad is 34 logical px on its short axis — 5.9-6.4 mm
-## across the device table. It cannot be grown from inside `TouchControls` alone:
+## ⚠ NOTHING IS EXEMPT ANY MORE, AND THE EMPTY LIST IS THE POINT. The handoff pad used
+## to be named here as a knowing 5.9-6.4 mm violation, because it could not be grown from
+## inside `TouchControls` alone:
 ##
 ##   height >= 53  (the 9 mm floor at the tightest pitch in TouchLayout.DEVICES)
 ##   + lift >= 23  (clear the home-swipe strip when a phone misreports its DPI)
-##   > 74          (`Revive.PAD_LIFT`, which `slice_test_ghost_revive.gd:397` asserts
-##                  the handoff pad stays below)
+##   > 74          (`Revive.PAD_LIFT`, which `slice_test_ghost_revive` asserts the
+##                  handoff pad stays below)
 ##
-## …is unsatisfiable by 2 px. The fix is two lines in `scripts/combat/Revive.gd` —
-## `PAD_LIFT` 74 -> 96 and `PAD_SIZE.y` 34 -> 54, since the revive pad is 5.9 mm for
-## exactly the same reason — and belongs to whoever owns that file.
+## — unsatisfiable by 2 px from either side alone, which is exactly why it had sat
+## unfixed. `Revive.PAD_LIFT` is 96 and `Revive.PAD_SIZE.y` is 54 now, so the handoff pad
+## grew to 54 at its existing lift of 30 (top 84, still clear below 96) and both pads
+## clear the floor.
 ##
-## Exempt rather than deleted, because the exemption is defensible on its own terms too:
-## a missed DASH or JUMP mid-fight is a death; a missed handoff is "nothing happened,
-## tap again" during a lull in which both thumbs are already free. The measurement is
-## still PRINTED on every run, so it stays visible instead of becoming folklore.
-const MM_FLOOR_EXEMPT: Array[String] = ["HANDOFF"]
+## The list stays, empty, rather than being deleted with the exemption: an exemption
+## mechanism that has to be REBUILT before the next one can be added is an invitation to
+## just widen a threshold instead, and a named exemption is the honest way to carry a
+## violation you have decided to live with.
+const MM_FLOOR_EXEMPT: Array[String] = []
 
 var _fails: int = 0
 var _completed: Dictionary = {}

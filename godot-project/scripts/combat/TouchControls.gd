@@ -412,7 +412,9 @@ const PIP_MAX_DOTS: int = 4
 ## on those 24 px gives a spell instead of spawning a stick, and a handoff is by
 ## definition a lull in which neither thumb is committed. Narrowing it instead would
 ## put "GIVE METEOR STORM" into 64 px, which is not a legible label at 11 pt.
-const HANDOFF_SIZE: Vector2 = Vector2(112.0, 34.0)
+## Short axis raised 34 -> 54 so it clears the 9 mm thumb floor; see `Revive.PAD_SIZE`
+## for why this and the revive pad could only be fixed together.
+const HANDOFF_SIZE: Vector2 = Vector2(112.0, 54.0)
 ## Clear air the pad keeps between itself and the nearest thumb button, and the width
 ## below which "GIVE METEOR STORM" stops being legible at HANDOFF_FONT_SIZE.
 ##

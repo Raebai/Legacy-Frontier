@@ -85,10 +85,24 @@ const TETHER_COLOR: Color = Color(0.55, 1.0, 0.78, 0.30)
 const FLASH_TIME: float = 0.8
 
 ## --- the contextual touch pad (centre dead band, above the handoff slot) ---
-const PAD_SIZE: Vector2 = Vector2(128.0, 34.0)
+## ⚠ SIZED FOR A THUMB, NOT FOR THE PICTURE. Both of this game's contextual pads were
+## 34 logical px on their short axis, which is 5.9-6.4 mm across the device table this
+## project measures against — well under the 9 mm floor a fingertip needs. They read fine
+## on a desktop monitor and are a coin-flip on a phone.
+##
+## The two pads had to move TOGETHER, which is why neither had been fixed: the handoff
+## pad cannot be grown from inside `TouchControls` alone, because
+##     height >= 53 (the 9 mm floor at the tightest pitch) + lift >= 23 (clear the
+##     Android home-swipe strip when a phone misreports its DPI)  >  74
+## and 74 was `PAD_LIFT`, which `slice_test_ghost_revive` asserts the handoff pad stays
+## below. Unsatisfiable by 2 px from either side on its own.
+##
+## So the revive pad lifts to 96 and grows to 54, the handoff pad grows to 54 at its
+## existing lift of 30 (top 84, still clear below 96), and both now clear the floor.
+const PAD_SIZE: Vector2 = Vector2(128.0, 54.0)
 ## Up from the bottom edge. `TouchControls.HANDOFF_LIFT` is 30 and its pad is 34
 ## tall, so 74 clears it with room — the two can never be under one thumb.
-const PAD_LIFT: float = 74.0
+const PAD_LIFT: float = 96.0
 const PAD_BG: Color = Color(0.06, 0.14, 0.11, 0.74)
 const PAD_RIM: Color = Color(0.55, 1.0, 0.78, 0.9)
 const PAD_TEXT: Color = Color(0.86, 1.0, 0.94, 0.98)
