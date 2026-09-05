@@ -172,6 +172,37 @@ func _report(why: String) -> void:
 	print("[screen] %s -> mode %d | window %s | screen %s | canvas scale %s"
 		% [why, DisplayServer.window_get_mode(), DisplayServer.window_get_size(),
 			DisplayServer.screen_get_size(), scale])
+	_report_touch_geometry(vp)
+
+
+## ⚠ THE SAME "CLOSE THE GAP BETWEEN THE REPORT AND THE INSTRUMENT" MOVE AS ABOVE, FOR
+## THE PHONE. An APK now builds and is about to be played on a device for the first
+## time, and every number the touch layer depends on is a number this machine cannot
+## observe: how wide the logical viewport actually came out under `aspect="expand"`,
+## what the display cutout claimed, and what the panel's real DPI is (which is what
+## turns "60 px" into a millimetre thumb target one way or the other).
+##
+## `tools/probe_touch_layout.gd` MODELS all three and `tools/slice_test_touch_layout.gd`
+## asserts against the model. This line is how the model gets checked against a real
+## device: read it out of `user://logs/` after a session and the four numbers either
+## match the probe's row for that phone or they do not.
+##
+## Costs one print per fullscreen toggle and one at startup — the same budget the line
+## above already spends, and for the same reason.
+func _report_touch_geometry(vp: Viewport) -> void:
+	if vp == null:
+		return
+	var logical: Vector2 = vp.get_visible_rect().size
+	var safe: Rect2i = DisplayServer.get_display_safe_area()
+	var win: Vector2i = DisplayServer.window_get_size()
+	var dpi: int = DisplayServer.screen_get_dpi()
+	# mm per LOGICAL px — the unit every thumb-target judgement in TouchLayout is made
+	# in. Printed rather than derived later, because getting it wrong is silent.
+	var mm: float = 0.0
+	if dpi > 1 and win.y > 0 and logical.y > 0.0:
+		mm = (25.4 / float(dpi)) * (float(win.y) / logical.y)
+	print("[touch] logical %s | safe area %s | dpi %d | %.4f mm per logical px | touchscreen %s"
+		% [logical, safe, dpi, mm, DisplayServer.is_touchscreen_available()])
 
 
 # ---------------------------------------------------------------- persistence

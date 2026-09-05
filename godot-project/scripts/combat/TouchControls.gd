@@ -14,17 +14,47 @@ extends CanvasLayer
 ## up, and the two are fully decoupled — which also un-tangles the old mess where
 ## pushing the move stick DOWN both ducked you and aimed you at the floor.
 ##
+## ⚠ THE LAYOUT HAS NOW BEEN MEASURED ON PHONE ASPECTS, WHICH IT NEVER HAD BEEN, AND
+## THREE OF THE THINGS IT FOUND WERE BUGS RATHER THAN TUNING.
+## `tools/probe_touch_layout.gd` sweeps 16:9 / 19.5:9 / 20:9 / 21:9 reading the DRAWN
+## rects off the real Controls, in logical px, in device px and in MILLIMETRES;
+## `tools/slice_test_touch_layout.gd` is the suite that fails on what it finds. It
+## found:
+##
+##   1. DASH SAT IN THE ANDROID HOME-SWIPE STRIP on every aspect — the panic button,
+##      inside the 24 dp the OS steals drags from. Lifted (see DASH_BTN_OFFSET).
+##   2. JUMP COULD NOT BE PRESSED WHILE MOVING. A landscape hand puts ONE finger on the
+##      glass, so the left thumb on the move stick is the left hand's whole input, and
+##      JUMP was bottom-left — 115 mm from the right knuckle against a 62 mm sweep.
+##      Moved to the right cluster (see JUMP_BTN_OFFSET). This is the one change a
+##      player will feel immediately.
+##   3. NOTHING IN THE PROJECT READ THE SAFE AREA. No `get_display_safe_area()` call
+##      existed anywhere in `scripts/` or `tools/`; a display cutout in landscape would
+##      have eaten a cluster whole. Now read on boot and on every resize
+##      (see `_refresh_insets`).
+##
+## Two smaller ones: the contextual handoff pad was 6 mm on its short axis (under the
+## 9 mm floor) and, once the insets moved the arc inboard, overlapped spell button 1's
+## hit box by 13x54 px. Both fixed at the HANDOFF_* block.
+##
 ## Layout (landscape, base viewport 640x360, canvas_items stretch):
 ##   LEFT THUMB  — DYNAMIC move stick (appears where you press in the left zone):
 ##                 full 360 analog move, push DOWN past a threshold = duck/ragdoll
-##                 (move_down). JUMP and PARRY sit above it.
+##                 (move_down). A SNAP of the stick dashes (DASH_ON_FLICK), so the one
+##                 movement verb that used to need the other thumb no longer does.
+##                 PARRY sits above it — and ONLY parry, because a held guard ROOTS you
+##                 (Hero zeroes move_x while blocking), so it is the single verb that
+##                 provably cannot be simultaneous with movement.
 ##   RIGHT THUMB — DYNAMIC aim stick (appears where you press in the right zone,
 ##                 anywhere that is not a button). Full 360 aim, and pushing past
 ##                 AIM_FIRE_THRESHOLD also holds `cast` — classic twin-stick. A dim
-##                 home ring marks the natural resting spot. THE SPELL BUTTONS sit
-##                 on an arc swept around the bottom-right corner, with DASH in the
-##                 corner itself; they consume their own taps, so a tap on a button
-##                 never spawns a stick under it.
+##                 home ring marks the natural resting spot. A quick TAP in this zone
+##                 fires one shot along the aim already held (AIM_TAP_FIRES) — the half
+##                 of the spec's tap/drag ATTACK that needs no ruling, because it points
+##                 nowhere the player was not already pointing. THE SPELL BUTTONS sit
+##                 on an arc swept around the bottom-right corner, with JUMP in the
+##                 corner itself and DASH one seat inboard; they consume their own taps,
+##                 so a tap on a button never spawns a stick under it.
 ##   CENTRE      — the dead band between the two zones, normally empty. The only
 ##                 thing that ever appears there is the CONTEXTUAL HANDOFF PAD,
 ##                 which exists exactly while a teammate is in range and you are
@@ -64,8 +94,11 @@ extends CanvasLayer
 ## pivot, an arc radius, three angles) rather than typed in per button, so tuning the
 ## reach on a device moves the whole arc coherently instead of one button at a time.
 ##
-## THE TWO-THUMB QUESTION. With the aim stick firing, the right thumb has two jobs:
-## hold the stick to spray the primary, or lift onto a spell button. Lifting is safe
+## THE TWO-THUMB QUESTION — AND WHAT NOW ANSWERS HALF OF IT. With the aim stick firing,
+## the right thumb has two jobs: hold the stick to spray the primary, or lift onto a
+## spell button. AIM_TAP_FIRES takes the HOLD out of the first job: a tap fires once
+## along the aim already held, so between shots the thumb is free rather than
+## committed. The rest of this paragraph still stands. Lifting is safe
 ## because Hero HOLDS the last aim below its deadzone (Hero.TOUCH_AIM_DEADZONE) — the
 ## shot does not fling somewhere random while your thumb is off the stick. So the
 ## real loop is: steer left, aim+fire right, flick the right thumb onto 1/2/3 to spend
@@ -80,6 +113,18 @@ extends CanvasLayer
 
 ## Force the pad visible on desktop to preview/verify (normally touchscreen-gated).
 @export var force_visible: bool = false
+## Simulate a phone's OS-owned edges during a desktop preview, in LOGICAL pixels, as
+## (left, top, right, bottom). A desktop has no cutout and no gesture bar, so a preview
+## is honest about the layout and silent about the thing that actually broke it; set
+## this to the numbers `tools/probe_touch_layout.gd` prints and the preview shows what
+## the phone shows. Ignored on a real device, which reports its own.
+@export var preview_insets: Vector4 = Vector4.ZERO
+
+## The layout maths, shared with `tools/probe_touch_layout.gd` and
+## `tools/slice_test_touch_layout.gd` so the pad and the things that measure it cannot
+## disagree about where a thumb target is. Every entry point on it is `static func` —
+## a `preload` of a .gd yields the SCRIPT OBJECT, not an instance.
+const TouchLayout := preload("res://scripts/combat/TouchLayout.gd")
 
 # ------------------------------------------------------------------ TUNING KNOBS
 # All UNTESTED GUESSES — nothing here has been felt on a real phone yet.
@@ -116,6 +161,56 @@ const RIGHT_ZONE_FRAC: float = 0.55
 ## guidance, not a hitbox.
 const AIM_HOME_OFFSET: Vector2 = Vector2(268.0, 88.0)
 
+## --- TAP TO FIRE, the half of the spec's ATTACK button that needs no ruling ---
+## A quick tap-and-release inside the aim zone fires ONE shot along the aim you are
+## already holding, without ever pushing the stick past AIM_FIRE_THRESHOLD.
+##
+## ⚠ THIS IS NOT AUTO-AIM AND IT IS DELIBERATELY NOT THE SPEC'S VERSION OF THE IDEA.
+## `docs/superpowers/specs/2026-09-04-mobile-controls-design.md` §5 proposes "tap =
+## fires at the obvious target", and flags in the same breath that it contradicts the
+## maker's standing NO-AUTO-AIM ruling. That contradiction is a maker decision and is
+## left alone here. What this does instead is the part nobody has to rule on: the tap
+## fires exactly where `Hero._aim_dir` is ALREADY pointing — the direction the player
+## themself last set and which Hero holds below its deadzone. No target is consulted,
+## nothing snaps, and a tap can no more hit an enemy you were not pointing at than a
+## keyboard click can.
+##
+## What it buys is the thing the file header calls "THE TWO-THUMB QUESTION": the right
+## thumb no longer has to HOLD the stick to keep the primary going, so lifting onto a
+## spell button stops being a trade.
+const AIM_TAP_FIRES: bool = true
+## How long a press may last and still count as a tap rather than a stick grab.
+const AIM_TAP_MSEC: float = 220.0
+## ...and how far it may travel. Above this the thumb was steering, not tapping.
+const AIM_TAP_SLOP: float = 18.0
+## How long the tap holds `cast` down. One frame is not enough: `Hero` samples the
+## action in `_physics_process`, so a press released inside the same render frame can
+## be missed entirely. Two physics ticks at 60 Hz, with slack.
+const AIM_TAP_HOLD_MSEC: float = 60.0
+
+## --- DASH ON A STICK FLICK (spec §4, §7.2) ---
+## Snap the MOVE stick sideways and you dash, with no button involved.
+##
+## ⚠ ADDITIVE, NOT A REPLACEMENT. The spec's §4 table removes the DASH button in the
+## same breath; the measurement in `tools/probe_touch_layout.gd` does not support
+## removing it — DASH overlaps nothing, sits 8 mm from the right thumb's knuckle (the
+## closest target on the pad, exactly as a panic button should be) and is well over the
+## 9 mm floor. So the flick is added as a SECOND way in, the button stays, and the cut
+## stays a maker call rather than a side effect of implementing a flick.
+const DASH_ON_FLICK: bool = true
+## Stick speed, in stick-units per second (the stick is normalised to 1.0 at full
+## deflection), that counts as a flick. A walk ramps; a dash snaps.
+const FLICK_SPEED: float = 7.0
+## ...and the deflection it must reach. A tiny fast wobble near centre is a hand
+## tremor, not an intention — this is the flick's deadzone, and it is what
+## `tools/slice_test_touch_layout.gd` pins so a resting stick can never dash.
+const FLICK_MIN_DEFLECTION: float = 0.55
+## Refractory window, so one physical flick fires exactly one dash instead of one per
+## frame while the stick is still travelling.
+const FLICK_COOLDOWN_MSEC: float = 260.0
+## How long the flick holds `dash`. Same reasoning as AIM_TAP_HOLD_MSEC.
+const FLICK_HOLD_MSEC: float = 60.0
+
 ## --- the right thumb's arc ---
 ## Everything below is an UNTESTED GUESS: no touch device has ever run this layout.
 ## They are named and derived rather than hand-placed so a device pass moves the whole
@@ -145,18 +240,99 @@ const SPELL_ARC_RADIUS: float = 165.0
 ## other in tools/slice_test_spell_buttons.gd; retune them there, not by eye.
 const SPELL_ARC_ANGLES: Array[float] = [0.0, 30.0, 60.0, 90.0]
 const SPELL_BTN_SIZE: float = 60.0
+## HOW MANY OF THEM ARE DRAWN. Normally all of them — one per kit slot.
+##
+## ⚠ THE SPEC ASKS FOR 4 -> 2 + A CONTEXTUAL ULT AND THE MEASUREMENT DOES NOT BACK IT.
+## `tools/probe_touch_layout.gd` swept 16:9 / 19.5:9 / 20:9 / 21:9 and found the four
+## arc buttons overlapping nothing, all four between 10.4 and 11.3 mm (over the 9 mm
+## floor and at the 11 mm thumb-contact width), and all four between 23 and 32 mm from
+## the right thumb's knuckle — comfortably inside a 45 mm sweep. The arc is not
+## crowded and it is not out of reach. The spec's case for cutting it is ATTENTION —
+## "we dont want to overwhelm them with buttons" — which is a claim about a person's
+## eyes during a fight and cannot be settled from this machine.
+##
+## So the trim is a KNOB, not a decision taken here. Set this to 2 and the arc draws
+## the first two slots only. ⚠ IT WILL FAIL TWO SUITES THIS LAYER DOES NOT OWN, both
+## of which derive their expectation from `SpellTier.SLOT_COUNT` rather than from here:
+## `tools/slice_test_touch.gd` (button-count equality, and its required-actions list
+## naming spell_3 / spell_4) and `tools/slice_test_spell_buttons.gd`
+## (`_test_touch_arc`, "the arc has one button per kit slot"). Both should be re-derived
+## from THIS constant when the maker makes the call.
+const SPELL_BUTTONS_SHOWN: int = 4
+## Is PARRY a touch button at all? Spec §6 asks for the cut to live behind a constant
+## so a device pass can put it back in one line — this is that constant, and it is
+## deliberately still TRUE.
+##
+## ⚠ THE SPEC SAYS "CUT IT BY DEFAULT" AND THE MEASUREMENT SAYS THERE IS NO ROOM
+## PROBLEM TO SOLVE: PARRY overlaps nothing at any aspect, sits 24 mm from the left
+## knuckle, and is 9.0-9.8 mm across — at the floor, but not under it. Cutting a real
+## defensive verb (Hero reads `parry` in three places, and the bots parry) on a
+## geometric argument that does not exist would be spending a mechanic to buy nothing.
+## Flipping this to false also fails `tools/slice_test_touch.gd`, whose required-verbs
+## list names `parry` — one line there, and it is the maker's line to write.
+const PARRY_ON_TOUCH: bool = true
 ## DASH lives in the corner itself — under the thumb at rest, because it is the panic
 ## button and the one press that must never need a reach.
-const DASH_BTN_OFFSET: Vector2 = Vector2(16.0, 14.0)
+##
+## ⚠ THE LIFT WENT 14 -> 26 AND IT IS THE ONE MEASURED BUG THIS PASS EXISTS FOR.
+## At 14, DASH's bottom edge sat 2.4-2.6 mm off the bottom of the screen, INSIDE the
+## 3.81 mm (24 dp) strip Android reserves for the swipe-up-from-the-bottom system
+## gesture — on every one of the four aspects probed. The safe area does NOT report
+## that strip: this game ships `screen/immersive_mode=true`, so the nav bar is hidden,
+## the safe area grows to the whole screen, and the gesture keeps working anyway. The
+## symptom on a device is the worst possible one for a panic button — a dash that
+## USUALLY works and occasionally throws the player to the home screen instead.
+## 26 clears 3.81 mm at the tightest pitch in the device table (0.173 mm/px -> 22 px)
+## with slack, and `_refresh_insets()` adds the device's measured strip on top at
+## runtime.
+##
+## ⚠ AND THE CORNER SEAT WENT TO JUMP — see JUMP_BTN_OFFSET for why that is a
+## measurement and not a preference. DASH sits one seat inboard at 84, which leaves
+## 12 logical px of clear air to JUMP on one side and 55 to spell button 1 on the other.
+## 12 px is tighter than a thumb pad (~11 mm ~ 60 px), so a mis-tap between these two IS
+## possible — accepted deliberately, because they are both MOVEMENT verbs and confusing
+## a dash for a jump costs a moment, whereas confusing a spell for a dash costs a
+## cooldown. The pair with the expensive mis-tap is the one given the wide gap.
+const DASH_BTN_OFFSET: Vector2 = Vector2(84.0, 26.0)
 const DASH_BTN_SIZE: float = 56.0
-## Left thumb, stacked above the move-stick zone.
-const JUMP_BTN_OFFSET: Vector2 = Vector2(14.0, 62.0)
+## ⚠ JUMP MOVED TO THE RIGHT THUMB, AND IT IS THE SECOND MEASURED BUG IN THIS PASS.
+##
+## It used to be bottom-LEFT at (14, 62) — stacked above the move stick. In landscape a
+## hand puts exactly ONE finger on the screen (the thumb; the index is behind the
+## phone), so the left thumb holding the move stick is the left hand's only contact.
+## JUMP therefore could not be pressed WITHOUT LETTING GO OF MOVEMENT, and running off
+## a ledge and jumping is not an advanced technique in a side-on platform fighter with
+## gravity, terraces and ring-out — it is the basic verb.
+##
+## Measured rather than argued: from the RIGHT thumb's knuckle, the old left-hand JUMP
+## sat ~115 mm away on a 20:9 phone, against a 62 mm maximum sweep. Not "awkward" —
+## geometrically out of reach. `tools/slice_test_touch_layout.gd` now fails on exactly
+## that class of pairing.
+##
+## The two ways out that were rejected:
+##   * `LEFT_STICK_UP_JUMPS = true`. It COLLIDES: `move_up` is not spare on this stick —
+##     `Hero` reads it in five places to resolve the DIRECTIONAL DASH (Hero.gd:3769 and
+##     four more), so up-to-jump would make every up-left dash a jump.
+##   * A second JUMP button on the right, keeping the left one. Two buttons for one verb
+##     is the "a keyboard drawn on a phone" failure the consolidation pass existed to
+##     undo.
+##
+## So JUMP takes the CORNER — the press that must never need a reach, which is the
+## claim the spec makes for it ("the most-pressed verb, must be dead reliable") — and
+## DASH moves one seat inboard. Dash can afford it: since DASH_ON_FLICK it has a second
+## way in that needs no button at all, and jump does not.
+const JUMP_BTN_OFFSET: Vector2 = Vector2(16.0, 26.0)
 const JUMP_BTN_SIZE: float = 54.0
 ## PARRY on the LEFT, which looks wrong and is not: a held guard ROOTS you (Hero zeroes
 ## move_x while ParryRing.blocks_attack), so it costs the left thumb nothing it was
 ## using — and it leaves the right thumb free to keep aiming through a block.
 const PARRY_BTN_OFFSET: Vector2 = Vector2(14.0, 126.0)
-const PARRY_BTN_SIZE: float = 52.0
+## ⚠ 52 -> 54, WHICH IS ONE MEASUREMENT AND NOT A NUDGE. On the smallest device in
+## `TouchLayout.DEVICES` (5", 1280x720) the pitch is 0.1730 mm per logical px, so 52 px
+## is 8.996 mm — a hair UNDER the 9 mm floor every other target on this pad clears, and
+## PARRY is the target you press while something is already swinging at you. 54 is
+## 9.34 mm there and 10.2 mm on a 6.5" phone. It stays clear of JUMP above it by 10 px.
+const PARRY_BTN_SIZE: float = 54.0
 
 ## --- shared ---
 const PAD_ALPHA: float = 0.34         # translucent so it doesn't hide the fight
@@ -205,8 +381,61 @@ const PIP_MAX_DOTS: int = 4
 ##     so neither thumb is committed, and the centre is the one place both can reach.
 ## It consumes its own taps (like the buttons do), so it can be wider than the band
 ## without a near-miss spawning a stick underneath it.
+## ⚠ 34 px IS 5.9-6.4 mm ON ITS SHORT AXIS — UNDER THE 9 mm FLOOR EVERY OTHER TARGET
+## ON THIS PAD CLEARS, and it stays that way, which is a tracked decision rather than an
+## oversight. It looked fine because it is WIDE; the axis a miss happens on is the short
+## one. It was measured, then grown, then put back:
+##
+##   * Growing it to 54 (9.3-10.2 mm, the band JUMP and PARRY sit in) works
+##     geometrically and then collides with a file this layer does not own.
+##     `Revive.PAD_LIFT` is 74 and its own comment DERIVES that number from this pair —
+##     "`TouchControls.HANDOFF_LIFT` is 30 and its pad is 34 tall, so 74 clears it" —
+##     and `tools/slice_test_ghost_revive.gd:397` asserts the two stay disjoint.
+##   * The three constraints are then unsatisfiable by 2 px: height >= 53 for the 9 mm
+##     floor, lift >= 23 to clear the home-swipe strip when a phone misreports its DPI,
+##     and lift + height <= 74 for the revive pad. 23 + 53 = 76.
+##   * THE FIX IS TWO LINES IN ANOTHER FILE — `Revive.PAD_LIFT` 74 -> 96 and
+##     `Revive.PAD_SIZE.y` 34 -> 54, which that pad needs for the same reason — and it
+##     is left to whoever owns it rather than reached across for.
+##
+## AND IT IS THE RIGHT TARGET TO LEAVE SMALL IF ONE HAS TO BE. What a miss COSTS is the
+## measure: missing DASH or JUMP mid-fight is a death; missing this is "nothing
+## happened, tap it again" during a lull in which both thumbs are already free. The 9 mm
+## floor is a floor for the fight, and this pad is not in the fight.
+## `tools/slice_test_touch_layout.gd` carries the exemption BY NAME and still PRINTS the
+## measurement every run, so it is a tracked finding and not folklore.
+##
+## ⚠ AND THE WIDTH IS WIDER THAN THE DEAD BAND IT CLAIMS TO LIVE IN. Measured: the
+## band is 64 logical px at 16:9 and 84 at 21:9; this pad is 112. So while an offer is
+## live it overhangs the bottom-centre of BOTH stick zones by ~24 px a side. Left as
+## it is on purpose — it consumes its own taps, so the only cost is that a thumb landing
+## on those 24 px gives a spell instead of spawning a stick, and a handoff is by
+## definition a lull in which neither thumb is committed. Narrowing it instead would
+## put "GIVE METEOR STORM" into 64 px, which is not a legible label at 11 pt.
 const HANDOFF_SIZE: Vector2 = Vector2(112.0, 34.0)
-## Up from the bottom edge. Clear of the screen edge, well inboard of both thumbs.
+## Clear air the pad keeps between itself and the nearest thumb button, and the width
+## below which "GIVE METEOR STORM" stops being legible at HANDOFF_FONT_SIZE.
+##
+## ⚠ THESE EXIST BECAUSE A CENTRE-ANCHORED PAD AND A CORNER-ANCHORED ARC MOVE APART.
+## The pad used to be pinned to the screen's midpoint, which is only the midpoint
+## BETWEEN THE THUMBS at 640x360 with no cutout. The moment `_refresh_insets` pulled
+## the arc 22 px inboard on a 16:9 phone with a notch, spell button 1's hit box and
+## this pad's overlapped by 13x52 logical px — a tap meant to cast that would sometimes
+## give the spell away instead. `_place_all()` now centres it in the MEASURED gap
+## between the two clusters rather than on the screen, which is what "the centre dead
+## band" was always trying to mean.
+const HANDOFF_GAP_MARGIN: float = 8.0
+const HANDOFF_MIN_WIDTH: float = 84.0
+## Up from the bottom edge, well inboard of both thumbs.
+##
+## ⚠ 30 CLEARS THE ANDROID HOME-SWIPE STRIP ON ITS OWN, and it has to, because the
+## runtime inset cannot be relied on to do it for anybody: `_gesture_lift()` is derived
+## from `DisplayServer.screen_get_dpi()`, and DPI is a number Android OEMs are entitled
+## to report badly (0 and 72 both happen in the wild). At the tightest pitch in
+## `TouchLayout.DEVICES` that strip is 22 logical px, so any BASE lift under it is a pad
+## the OS can steal a drag from the moment the fallback fires. `_refresh_insets()` adds
+## the measured strip on top of this where the device reports honestly; this number is
+## what is left when it does not.
 const HANDOFF_LIFT: float = 30.0
 const HANDOFF_BG: Color = Color(0.13, 0.11, 0.06, 0.72)
 const HANDOFF_RIM: Color = Color(1.0, 0.95, 0.7, 0.9)
@@ -247,6 +476,22 @@ var _spell_veils: Array[SpellVeil] = []
 var _handoff: HandoffPad = null
 ## Which stick the desktop-preview mouse is currently driving (null = none).
 var _mouse_stick: Stick = null
+## The OS-owned edges currently being honoured, as (left, top, right, bottom) in
+## logical px. Recomputed whenever the viewport resizes — an Android task-switch, a
+## fold, or a rotation all change it without restarting the game.
+var _insets: Vector4 = Vector4.ZERO
+## Every corner-anchored control plus the row that placed it, so `_place_all()` can be
+## re-run idempotently from the ORIGINAL offsets. Re-applying insets to already-inset
+## offsets is the obvious bug here and this is what stops it.
+var _placed: Array[Dictionary] = []
+## Tap-to-fire / flick-to-dash bookkeeping (see AIM_TAP_FIRES / DASH_ON_FLICK).
+var _aim_press_msec: float = 0.0
+var _aim_press_pos: Vector2 = Vector2.ZERO
+var _tap_cast_until: float = 0.0
+var _flick_dash_until: float = 0.0
+var _flick_ready_msec: float = 0.0
+var _last_move_vec: Vector2 = Vector2.ZERO
+var _last_move_msec: float = 0.0
 ## Every action this layer is currently holding down, so each press/release is
 ## edge-guarded and just_pressed/just_released stay clean for everyone else.
 var _held_actions: Dictionary = {}
@@ -275,7 +520,134 @@ func _ready() -> void:
 	add_to_group(PAD_GROUP)
 	_build_sticks()
 	_build_buttons()
+	_refresh_insets()
+	# ⚠ RE-MEASURED ON EVERY RESIZE, NOT ONCE AT BOOT. On Android the safe area is not
+	# a constant: it changes when the player rotates the device (the cutout swaps ends),
+	# when a foldable unfolds, and when the app comes back from a task switch. A pad
+	# that read it once is a pad that is correct until the first phone call.
+	get_viewport().size_changed.connect(_refresh_insets)
 	_adopt_heroes()
+
+
+# ------------------------------------------------------------ the OS-owned edges
+## What the operating system has a claim on, in logical px, as (l, t, r, b).
+##
+## ⚠ NOTHING IN THIS PROJECT READ THIS BEFORE. Not one `get_display_safe_area()` call
+## anywhere in `scripts/` or `tools/`. Two separate claims are being honoured and they
+## come from different places, which is the part that makes it easy to get wrong:
+##
+##   * THE DISPLAY CUTOUT / SAFE AREA — `DisplayServer.get_display_safe_area()`. In
+##     LANDSCAPE the notch eats a vertical strip off one END of the long axis (Godot's
+##     Android manifest asks for `shortEdges`), and WHICH end depends on which way the
+##     player turned the phone. So this can only ever be read, never assumed.
+##   * THE SYSTEM GESTURE STRIP — which the safe area does NOT report, because this
+##     game ships `screen/immersive_mode=true`: the nav bar is hidden, the safe area
+##     therefore grows to the full screen, and the swipe-up-from-the-bottom gesture
+##     keeps working regardless. Derived from real DPI instead, at Android's documented
+##     24 dp.
+##
+## Measured, not modelled: `tools/probe_touch_layout.gd` found DASH sitting inside that
+## strip on all four aspects it swept, which on a device is a panic button that
+## sometimes throws you to the home screen.
+func _refresh_insets() -> void:
+	var vp: Vector2 = get_viewport().get_visible_rect().size
+	var ins: Vector4 = Vector4.ZERO
+	if DisplayServer.is_touchscreen_available():
+		ins = TouchLayout.safe_insets(vp)
+		ins.w = maxf(ins.w, _gesture_lift(vp))
+	elif force_visible:
+		# A desktop has no cutout and no gesture bar, so a preview that invented one
+		# would be lying. `preview_insets` lets the maker paste the numbers the probe
+		# printed for a specific phone and see that layout instead.
+		ins = preview_insets
+	_insets = ins
+	_place_all()
+
+
+## The bottom strip Android reserves for the home-swipe, in logical px.
+##
+## ⚠ COMPUTED FROM REAL DPI, NOT FROM A PIXEL COUNT. 24 dp is 3.81 mm on every device
+## by definition, and millimetres are the only unit that survives the trip through
+## `canvas_items` stretch — the same 24 logical px is a different physical strip on
+## every phone in the table. Clamped because `screen_get_dpi()` is allowed to lie (it
+## returns 72 on some desktops and 0 on a headless server) and a wrong answer here
+## shoves the whole thumb cluster up the screen.
+func _gesture_lift(vp: Vector2) -> float:
+	var dpi: float = float(DisplayServer.screen_get_dpi())
+	var win: Vector2i = DisplayServer.window_get_size()
+	if dpi <= 1.0 or win.y <= 0 or vp.y <= 0.0:
+		return 0.0
+	var device_px: float = TouchLayout.GESTURE_STRIP_MM / TouchLayout.MM_PER_INCH * dpi
+	return clampf(device_px * (vp.y / float(win.y)), 0.0, 40.0)
+
+
+## Re-place every corner-anchored control from its ORIGINAL offset plus the current
+## insets. Idempotent by construction: it always starts from `row.off`, never from
+## where the control currently is.
+func _place_all() -> void:
+	for p: Dictionary in _placed:
+		var c: Control = p["ctrl"]
+		if not is_instance_valid(c):
+			continue
+		var off: Vector2 = p["off"]
+		var size: float = float(p["size"])
+		c.offset_top = -(off.y + _insets.w) - size
+		c.offset_bottom = -(off.y + _insets.w)
+		if String(p["corner"]) == "br":
+			c.offset_left = -(off.x + _insets.z) - size
+			c.offset_right = -(off.x + _insets.z)
+		else:
+			c.offset_left = off.x + _insets.x
+			c.offset_right = off.x + _insets.x + size
+	if _handoff != null:
+		_handoff.offset_top = -(HANDOFF_LIFT + _insets.w) - HANDOFF_SIZE.y
+		_handoff.offset_bottom = -(HANDOFF_LIFT + _insets.w)
+		_place_handoff()
+	if _aim_home != null:
+		var half: float = AIM_RADIUS * 0.75
+		_aim_home.offset_left = -(AIM_HOME_OFFSET.x + _insets.z) - half
+		_aim_home.offset_right = -(AIM_HOME_OFFSET.x + _insets.z) + half
+		_aim_home.offset_top = -(AIM_HOME_OFFSET.y + _insets.w) - half
+		_aim_home.offset_bottom = -(AIM_HOME_OFFSET.y + _insets.w) + half
+
+
+## Centre the contextual handoff pad in the MEASURED gap between the two thumb
+## clusters, not on the screen's midpoint. See HANDOFF_GAP_MARGIN for the overlap this
+## exists to kill.
+##
+## Both edges of the gap are read off the placement table rather than recomputed, so
+## this cannot drift from where the buttons actually went — including after a rotation
+## swaps which end of the phone the cutout is on.
+func _place_handoff() -> void:
+	var vp: Vector2 = get_viewport().get_visible_rect().size
+	var left_edge: float = _insets.x
+	var right_edge: float = vp.x - _insets.z
+	for p: Dictionary in _placed:
+		var c: Control = p["ctrl"]
+		if not is_instance_valid(c):
+			continue
+		var off: Vector2 = p["off"]
+		var size: float = float(p["size"])
+		if String(p["corner"]) == "br":
+			right_edge = minf(right_edge, vp.x - (off.x + _insets.z) - size)
+		else:
+			left_edge = maxf(left_edge, _insets.x + off.x + size)
+	left_edge += HANDOFF_GAP_MARGIN
+	right_edge -= HANDOFF_GAP_MARGIN
+	# ⚠ THE FLOOR WINS OVER THE GAP, deliberately. If a future arc squeezes the gap
+	# under HANDOFF_MIN_WIDTH the pad stays legible and overlaps a button, because an
+	# unreadable offer is a worse failure than a crowded one — and the geometry suite
+	# fails on the overlap, which is how anyone finds out.
+	var w: float = maxf(HANDOFF_MIN_WIDTH, minf(HANDOFF_SIZE.x, right_edge - left_edge))
+	var centre: float = (left_edge + right_edge) * 0.5
+	_handoff.offset_left = centre - vp.x * 0.5 - w * 0.5
+	_handoff.offset_right = centre - vp.x * 0.5 + w * 0.5
+
+
+## The insets currently being honoured. Public so a test can assert the pad ACTED on a
+## safe area rather than merely that a function to read one exists.
+func safe_insets() -> Vector4:
+	return _insets
 
 
 ## Tell heroes the on-screen pad is live so they read the aim STICK instead of the
@@ -328,12 +700,16 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
 		var t := event as InputEventScreenTouch
 		if t.pressed:
-			_try_start(t.index, t.position, vp)
+			var took: Stick = _try_start(t.index, t.position, vp)
+			if took == _aim_stick and took != null:
+				_arm_tap(t.position)
 		else:
 			if _move_stick.index == t.index:
 				_stop_move()
 			if _aim_stick.index == t.index:
+				var was: Vector2 = _aim_stick.cur
 				_stop_aim()
+				_maybe_tap_fire(was)
 	elif event is InputEventScreenDrag:
 		var d := event as InputEventScreenDrag
 		if _move_stick.active and _move_stick.index == d.index:
@@ -348,11 +724,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		if mb.button_index == MOUSE_BUTTON_LEFT:
 			if mb.pressed:
 				_mouse_stick = _try_start(-1, mb.position, vp)
+				if _mouse_stick == _aim_stick and _mouse_stick != null:
+					_arm_tap(mb.position)
 			elif _mouse_stick != null:
 				if _mouse_stick == _move_stick:
 					_stop_move()
 				else:
+					var was: Vector2 = _aim_stick.cur
 					_stop_aim()
+					_maybe_tap_fire(was)
 				_mouse_stick = null
 	elif event is InputEventMouseMotion and _mouse_stick != null:
 		_mouse_stick.cur = (event as InputEventMouseMotion).position
@@ -393,10 +773,102 @@ func _process(_delta: float) -> void:
 	_sync_buttons()
 	if _move_stick.active:
 		_move_stick.sync_knob()
-		publish_move(_move_stick.vector())
+		var mv: Vector2 = _move_stick.vector()
+		_watch_for_flick(mv)
+		publish_move(mv)
+	else:
+		_last_move_msec = 0.0
 	if _aim_stick.active:
 		_aim_stick.sync_knob()
 		publish_aim(_aim_stick.vector())
+	_expire_pulses()
+
+
+# ---------------------------------------------------- tap to fire, flick to dash
+## A press landed on the aim stick: remember when and where, so the lift can tell a tap
+## from a steer.
+func _arm_tap(pos: Vector2) -> void:
+	_aim_press_msec = float(Time.get_ticks_msec())
+	_aim_press_pos = pos
+
+
+## The aim thumb lifted. If it was quick and it barely moved, fire ONE shot along the
+## aim the player is already holding.
+##
+## ⚠ `_stop_aim()` HAS ALREADY RELEASED `cast` BY THE TIME THIS RUNS, and that ordering
+## is deliberate rather than incidental: the tap press must land on a clean edge, or a
+## thumb that grazed past AIM_FIRE_THRESHOLD on its way out would leave `cast` held and
+## the tap would be a no-op that looks like a dead button.
+##
+## The direction is NOT computed here and that is the whole point — `Hero` holds its
+## last `_aim_dir` below `TOUCH_AIM_DEADZONE`, so the shot goes exactly where the player
+## last pointed. Nothing is snapped to a target. See AIM_TAP_FIRES for why that
+## distinction is the one that keeps this off the maker's no-auto-aim ruling.
+func _maybe_tap_fire(released_at: Vector2) -> void:
+	if not AIM_TAP_FIRES or _aim_press_msec <= 0.0:
+		return
+	var held: float = float(Time.get_ticks_msec()) - _aim_press_msec
+	_aim_press_msec = 0.0
+	if not is_tap(held, released_at.distance_to(_aim_press_pos)):
+		return
+	_set_move("cast", 1.0, true)
+	_tap_cast_until = float(Time.get_ticks_msec()) + AIM_TAP_HOLD_MSEC
+
+
+## Snap the move stick and you dash. Watches the stick's own SPEED rather than its
+## position, because "how fast did the thumb move" is the thing that separates a dash
+## from a walk — a slow push to full deflection is a run, the same push in 40 ms is a
+## dash.
+##
+## ⚠ AND IT IS GATED ON DEFLECTION TOO, not on speed alone. A resting thumb jitters,
+## and jitter near the centre can clear any speed threshold you like over one frame;
+## requiring FLICK_MIN_DEFLECTION as well is what makes "a resting stick dashes nobody"
+## true rather than merely likely. `tools/slice_test_touch_layout.gd` pins it.
+func _watch_for_flick(v: Vector2) -> void:
+	var now: float = float(Time.get_ticks_msec())
+	if not DASH_ON_FLICK:
+		_last_move_vec = v
+		_last_move_msec = now
+		return
+	if _last_move_msec > 0.0 and now >= _flick_ready_msec 			and is_flick(_last_move_vec, v, (now - _last_move_msec) / 1000.0):
+		_set_move("dash", 1.0, true)
+		_flick_dash_until = now + FLICK_HOLD_MSEC
+		_flick_ready_msec = now + FLICK_COOLDOWN_MSEC
+	_last_move_vec = v
+	_last_move_msec = now
+
+
+## Did the stick SNAP? Pure, static and public for the same reason `publish_move` was
+## split out of `_process`: the decision is the only part of a gesture that can be
+## judged without a device, so it lives somewhere a headless suite can call it with
+## made-up numbers instead of having to fake the passage of time.
+static func is_flick(prev: Vector2, cur: Vector2, dt_sec: float) -> bool:
+	if dt_sec <= 0.0:
+		return false
+	if cur.length() < FLICK_MIN_DEFLECTION:
+		return false
+	return (cur - prev).length() / dt_sec >= FLICK_SPEED
+
+
+## Was that press a TAP rather than a steer? Same reasoning as `is_flick`.
+static func is_tap(held_msec: float, travel_px: float) -> bool:
+	return held_msec <= AIM_TAP_MSEC and travel_px <= AIM_TAP_SLOP
+
+
+## Drop the one-shot holds once their window is up. Both are TIMED rather than
+## single-frame because `Hero` samples input in `_physics_process`: a press raised and
+## dropped inside one render frame can be missed entirely at a high frame rate, which
+## on a device reads as "the tap only works sometimes".
+func _expire_pulses() -> void:
+	var now: float = float(Time.get_ticks_msec())
+	if _tap_cast_until > 0.0 and now >= _tap_cast_until:
+		_tap_cast_until = 0.0
+		if not (_aim_stick.active and AIM_STICK_FIRES \
+				and _aim_stick.vector().length() >= AIM_FIRE_THRESHOLD):
+			_release(["cast"])
+	if _flick_dash_until > 0.0 and now >= _flick_dash_until:
+		_flick_dash_until = 0.0
+		_release(["dash"])
 
 
 ## Publish a move-stick vector (components in -1..1) onto the named move actions.
@@ -469,14 +941,15 @@ func _button_layout() -> Array[Dictionary]:
 	var rows: Array[Dictionary] = [
 		# JUMP presses "jump", NOT "move_up": Hero polls the "jump" action, so pressing
 		# move_up made the touch jump button silently do nothing at all on a device.
-		{"label": "JUMP", "action": "jump", "corner": "bl",
+		{"label": "JUMP", "action": "jump", "corner": "br",
 			"off": JUMP_BTN_OFFSET, "size": JUMP_BTN_SIZE},
-		{"label": "PARRY", "action": "parry", "corner": "bl",
-			"off": PARRY_BTN_OFFSET, "size": PARRY_BTN_SIZE},
 		{"label": "DASH", "action": "dash", "corner": "br",
 			"off": DASH_BTN_OFFSET, "size": DASH_BTN_SIZE},
 	]
-	for i: int in SPELL_ARC_ANGLES.size():
+	if PARRY_ON_TOUCH:
+		rows.append({"label": "PARRY", "action": "parry", "corner": "bl",
+			"off": PARRY_BTN_OFFSET, "size": PARRY_BTN_SIZE})
+	for i: int in mini(SPELL_BUTTONS_SHOWN, SPELL_ARC_ANGLES.size()):
 		rows.append({
 			"label": str(i + 1), "action": "spell_%d" % (i + 1), "corner": "br",
 			"off": spell_button_offset(i), "size": SPELL_BTN_SIZE, "spell_slot": i,
@@ -488,9 +961,12 @@ func _button_layout() -> Array[Dictionary]:
 ## public so the geometry test can check the arc for overlapping hit boxes without
 ## building a pad — the maths IS the layout, and it is the only part of a touch layer
 ## that can be judged without a device.
+## ⚠ FORWARDS TO `TouchLayout.arc_offset` RATHER THAN RE-DOING THE TRIG. The maths
+## moved so the probe and the geometry suite can sweep an arc without building a pad;
+## this name stays because `tools/slice_test_spell_buttons.gd` already calls it and a
+## rename would be a change to a file this layer does not own.
 static func spell_button_offset(i: int) -> Vector2:
-	var a: float = deg_to_rad(SPELL_ARC_ANGLES[clampi(i, 0, SPELL_ARC_ANGLES.size() - 1)])
-	return THUMB_PIVOT + Vector2(cos(a), sin(a)) * SPELL_ARC_RADIUS
+	return TouchLayout.arc_offset(THUMB_PIVOT, SPELL_ARC_RADIUS, SPELL_ARC_ANGLES, i)
 
 
 func _build_buttons() -> void:
@@ -599,7 +1075,11 @@ func _add_button(row: Dictionary) -> void:
 		sb.border_color = Color(0.9, 0.96, 1.0, 0.85) if down else Color(0.8, 0.88, 1.0, 0.5)
 		sb.set_border_width_all(3 if down else 2)
 		b.add_theme_stylebox_override(state, sb)
-	# Anchor to the chosen bottom corner + place by pixel offset (resolution-safe).
+	# Anchor to the chosen bottom corner; the pixel offsets themselves are applied by
+	# `_place_all()`, which folds in the OS-owned insets and can be re-run on a resize.
+	# ⚠ THE ANCHORS ARE STILL SET HERE and the offsets are still given a sane value,
+	# because a control that spends one frame at (0,0) before the first `_place_all`
+	# is a control that flashes in the top-left corner on boot.
 	b.anchor_top = 1.0
 	b.anchor_bottom = 1.0
 	if String(row["corner"]) == "br":
@@ -612,6 +1092,7 @@ func _add_button(row: Dictionary) -> void:
 		b.offset_right = off.x + size
 	b.offset_top = -off.y - size
 	b.offset_bottom = -off.y
+	_placed.append({"ctrl": b, "off": off, "size": size, "corner": String(row["corner"])})
 	# Hold-to-repeat where the verb repeats (a held spell button re-fires the moment
 	# its slot recovers — Hero._update_input_buffer), a tap for the one-shots. Both are
 	# the same press/release pair; the difference lives in the consumer, not here.
