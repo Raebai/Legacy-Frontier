@@ -49,6 +49,7 @@ const TESTS: Array[String] = [
 	"teleport_verbs_always_land_legally",
 	"no_thrall_degrades_safely",
 	"thrall_swap_trades_places",
+	"warlock_space_dashes_and_r_swaps",
 	"stat_table_has_no_duplicates",
 	"class_hp_composes_with_gear",
 	"melee_profiles_are_all_distinct",
@@ -61,13 +62,16 @@ const TESTS: Array[String] = [
 const HERO_MEMBERS: Array[String] = [
 	"hp", "max_hp", "is_dashing", "velocity", "facing",
 	"_aim_dir", "_move_dir", "_dash_cooldown_timer", "_dash_verb",
+	# R-button members: the Warlock's swap moved onto `mobility2`, so the suite now
+	# presses `_blink` and watches the blink clock as well as the dash one.
+	"_blink_cooldown_timer", "_cast_lockout",
 	"_melee_cd", "_melee_damage", "_melee_range", "_melee_knockback", "_melee_arc_dot",
 	"_base_max_hp", "_surge_armor_timer",   # `_recall_timer` deleted with the Arcanist recall
 ]
 const HERO_METHODS: Array[String] = [
 	"configure_class", "movement_verb_name", "movement_verb_distance",
 	"movement_verb_iframe_fraction", "set_loadout", "_start_dash", "_dash_invulnerable",
-	"_class_speed",
+	"_class_speed", "_blink", "_move_slot_name",
 ]
 ## Stand-in for another agent's minion; see the header of that file for why the swap
 ## test cannot use a bare Node2D.
@@ -173,6 +177,7 @@ func _run() -> void:
 	await _test_teleport_verbs_always_land_legally()
 	await _test_no_thrall_degrades_safely()
 	await _test_thrall_swap_trades_places()
+	await _test_warlock_space_dashes_and_r_swaps()
 	await _test_stat_table_has_no_duplicates()
 	await _test_class_hp_composes_with_gear()
 	await _test_melee_profiles_are_all_distinct()
@@ -369,12 +374,18 @@ func _test_travel_is_measurably_different() -> void:
 	# raw distance was the one axis the maker took off the table.
 	#
 	# ⚠ TELEPORTS ARE NOT TRAVEL and are excluded by NAME rather than by a magnitude
-	# threshold: the Stormcaller's blink and the Warlock's thrall-swap resolve inside
-	# `_start_dash` and never enter the per-frame branch at all, so measuring them
-	# against a dash baseline compares two different mechanisms. Excluding them by
-	# "anything over N px" instead would silently start excluding a dash the day one
-	# got longer, which is how a guard quietly stops guarding.
-	const TELEPORTS: Array[int] = [STORMCALLER, WARLOCK]
+	# threshold: the Stormcaller's blink resolves inside `_start_dash` and never enters
+	# the per-frame branch at all, so measuring it against a dash baseline compares two
+	# different mechanisms. Excluding it by "anything over N px" instead would silently
+	# start excluding a dash the day one got longer, which is how a guard quietly stops
+	# guarding.
+	#
+	# ⚠ THE WARLOCK LEFT THIS LIST, AND THAT IS THE POINT OF THE CHANGE. Maker: *"space
+	# on warlock shouldn't also swap with the current one ... space should be reserved
+	# for the dash"*. Its SPACE is now SHADOW SLIP, a travelled 111 px step, so it is an
+	# ordinary dash for the purposes of this band and is measured like one. The swap it
+	# used to carry moved to R (`mobility2`) and is pinned by the thrall tests below.
+	const TELEPORTS: Array[int] = [STORMCALLER]
 	# The exceptions the class table names, and the reason each one is allowed to sit
 	# outside the band. Listed here so the test fails if somebody adds a THIRD.
 	const TRAVEL_EXCEPTIONS: Array[int] = [
@@ -536,7 +547,12 @@ func _test_teleport_verbs_always_land_legally() -> void:
 	await physics_frame
 	await physics_frame
 	var hero: CharacterBody2D = _make_hero(STORMCALLER)
-	# ⚠ THE ARCANIST IS NO LONGER A TELEPORT CLASS. Its verb was RECALL — an outbound
+	# ⚠ THE ARCANIST IS NO LONGER A TELEPORT CLASS.
+	#
+	# ⚠ AND THE WARLOCK'S TELEPORT IS NO LONGER ON THE MOVEMENT BUTTON — see
+	# `_press_teleport`, which is why this sweep still covers it. Dropping the class
+	# from the loop instead would have halved the sample AND stopped testing the one
+	# landing-legality path that reaches into another agent's minions. Its verb was RECALL — an outbound
 	# step whose SECOND press teleported you back to an anchor — and the maker had it
 	# deleted on 2026-08-04 ("get rid of that its just a repeat of blink"). Its verb
 	# is now ARCANE PHASE, a travelled step, so it belongs to the travel tests above
@@ -555,7 +571,7 @@ func _test_teleport_verbs_always_land_legally() -> void:
 					hero.set("_dash_cooldown_timer", 0.0)
 					hero.set("_move_dir", Vector2(cos(ang), 0.0))
 					hero.set("_aim_dir", Vector2(cos(ang), sin(ang)))
-					hero.call("_start_dash")
+					_press_teleport(hero, cls)
 					if bool(hero.get("is_dashing")):
 						# Spent the press as a travelled dash rather than a teleport.
 						# Legal, and not this sweep's subject — let it finish, move on.
@@ -582,7 +598,93 @@ func _test_teleport_verbs_always_land_legally() -> void:
 	_completes("teleport_verbs_always_land_legally")
 
 
+## PRESS THE BUTTON THE CLASS'S TELEPORT ACTUALLY LIVES ON.
+##
+## Every teleport used to be on SPACE, so every test pressed `_start_dash`. The maker
+## moved one: *"space on warlock shouldn't also swap with the current one that should
+## be something like the existing 2 button. space should be reserved for the dash"*.
+## The Warlock's swap is now `mobility2` (R -> `_blink`), and SPACE is Shadow Slip.
+##
+## Routed through `_blink()` rather than by calling `_thrall_swap()` directly, because
+## the claim under test after this change is "R REACHES the swap" as much as it is "the
+## swap lands legally" — calling the ability by hand would keep passing on the day the
+## dispatch was dropped.
+func _press_teleport(hero: CharacterBody2D, cls: int) -> void:
+	if cls == WARLOCK:
+		hero.set("_blink_cooldown_timer", 0.0)
+		hero.set("_cast_lockout", 0.0)   # the R path honours the opening lockout
+		hero.call("_blink")
+		return
+	hero.set("_dash_cooldown_timer", 0.0)
+	hero.call("_start_dash")
+
+
 # ------------------------------------------------------------- 4. THRALL SWAP
+## THE REHOUSING, PINNED. This is the assertion that fails on the pre-change code, and
+## it is stated as two halves because the maker's ask has two halves: SPACE must be a
+## DASH (a travel, not a teleport) and the swap must still be reachable, on R.
+##
+## ⚠ IT ALSO GUARDS THE RULING THE ASK CUTS ACROSS. `"dash"` on SPACE would satisfy
+## the maker's sentence and break the nine-unique-verbs rule in the same line, so the
+## verb is asserted to be the Warlock's OWN travel verb rather than merely "not the
+## swap". `_test_verbs_are_all_distinct` catches the collision case; this catches the
+## lazy case where somebody answers the maker with the shared fallback.
+func _test_warlock_space_dashes_and_r_swaps() -> void:
+	var hero: CharacterBody2D = _make_hero(WARLOCK)
+	_require_surface(hero)
+	var verb: String = String(hero.call("movement_verb_name"))
+	_expect(verb != "thrall_swap",
+		"the Warlock's SPACE is no longer the thrall swap (got '%s')" % verb)
+	_expect(verb != "dash",
+		"the Warlock's SPACE is its OWN travel verb, not the shared fallback (got '%s') — the unique-verb ruling survives the change"
+			% verb)
+	var consts: Dictionary = hero.get_script().get_script_constant_map()
+	var teleports: Variant = consts.get("TELEPORT_VERBS")
+	_expect(teleports is Array and not (teleports as Array).has(verb),
+		"the Warlock's movement verb TRAVELS rather than teleporting — 'space should be reserved for the dash'")
+
+	# ...and the press really moves the body through the room rather than resolving
+	# instantly, which is the difference between a dash and a teleport in this engine.
+	_park(hero)
+	await physics_frame
+	_park(hero)
+	hero.set("_dash_cooldown_timer", 0.0)
+	hero.set("_aim_dir", Vector2.RIGHT)
+	hero.set("_move_dir", Vector2.RIGHT)
+	hero.call("_start_dash")
+	_expect(bool(hero.get("is_dashing")),
+		"pressing SPACE as a Warlock enters the TRAVEL state (a teleport would have resolved inside the call)")
+	hero.set("is_dashing", false)
+
+	# The other half: the swap is not lost, it is on the second mobility button.
+	_expect(String(hero.call("_move_slot_name")) != "Swap",
+		"the movement slot no longer advertises the swap")
+	var mine: Node2D = _make_thrall(hero, hero.global_position + Vector2(300.0, 0.0))
+	_park(hero)
+	await physics_frame
+	_park(hero)
+	var thrall_at: Vector2 = hero.global_position + Vector2(300.0, -40.0)
+	mine.global_position = thrall_at
+	var hero_at: Vector2 = hero.global_position
+	hero.set("_blink_cooldown_timer", 0.0)
+	hero.set("_cast_lockout", 0.0)
+	hero.call("_blink")
+	_expect(hero.global_position.distance_to(thrall_at) < 8.0,
+		"pressing R as a Warlock performs the SWAP (wanted %s, got %s) — a generic blink would have travelled BLINK_DISTANCE along the aim instead"
+			% [str(thrall_at), str(hero.global_position)])
+	_expect(mine.global_position.distance_to(hero_at) < 8.0,
+		"...and the minion took our place (wanted %s, got %s)"
+			% [str(hero_at), str(mine.global_position)])
+	_expect(float(hero.get("_blink_cooldown_timer")) > 0.0,
+		"the swap charges the button it was pressed on (R / blink_cd), not the dash it no longer lives on")
+	_expect(is_zero_approx(float(hero.get("_dash_cooldown_timer"))),
+		"...and it leaves the DASH cooldown alone, so R does not lock SPACE")
+	mine.queue_free()
+	hero.queue_free()
+	await physics_frame
+	_completes("warlock_space_dashes_and_r_swaps")
+
+
 ## THE DEGRADATION, pinned. A Warlock who has not summoned anything must still get a
 ## movement button: a short vetted blink, or a clean refuse-and-refund. What it must
 ## NEVER do is strand the body, teleport to the origin, or crash.
@@ -597,11 +699,19 @@ func _test_no_thrall_degrades_safely() -> void:
 		_park(hero)
 		hero.set("_aim_dir", Vector2(cos(ang), sin(ang)))
 		var before: Vector2 = hero.global_position
-		var cd_before: float = float(hero.get("_dash_cooldown_timer"))
-		hero.call("_start_dash")
+		# ⚠ THE BUTTON AND THEREFORE THE COOLDOWN BOTH MOVED. The swap is on R now
+		# (`mobility2`), so it spends `blink_cd`; watching `_dash_cooldown_timer` here
+		# would have made the refund assertion below trivially true forever.
+		hero.set("_cast_lockout", 0.0)
+		# ...and cleared before every press, or the first success locks R and the
+		# remaining seven aims silently become "the button was on cooldown" — a sweep
+		# that passes its own refund assertion by never firing again.
+		hero.set("_blink_cooldown_timer", 0.0)
+		var cd_before: float = float(hero.get("_blink_cooldown_timer"))
+		hero.call("_blink")
 		var after: Vector2 = hero.global_position
 		var moved: float = before.distance_to(after)
-		var cd_after: float = float(hero.get("_dash_cooldown_timer"))
+		var cd_after: float = float(hero.get("_blink_cooldown_timer"))
 		_expect(after.is_finite() and after.length() < 100000.0,
 			"a thrall-less swap left the body somewhere real (got %s)" % str(after))
 		_expect(not bool(hero.get("is_dashing")),
@@ -637,9 +747,14 @@ func _test_thrall_swap_trades_places() -> void:
 	await physics_frame
 	var before_foreign: Vector2 = hero.global_position
 	var pin: Vector2 = theirs.global_position
-	hero.set("_dash_cooldown_timer", 0.0)
+	# ⚠ THE SWAP IS ON R NOW, NOT SPACE (`mobility2`). Maker: "space should be reserved
+	# for the dash". Pressing `_start_dash` here would fire SHADOW SLIP, a travelled
+	# dash that touches no minion at all — every assertion below would still pass, and
+	# would be measuring nothing.
+	hero.set("_blink_cooldown_timer", 0.0)
+	hero.set("_cast_lockout", 0.0)
 	hero.set("_aim_dir", Vector2.RIGHT)
-	hero.call("_start_dash")
+	hero.call("_blink")
 	_expect(theirs.global_position.distance_to(pin) < 1.0,
 		"another Warlock's thrall is NOT moved by our swap (it moved %.1f px)"
 			% theirs.global_position.distance_to(pin))
@@ -655,16 +770,17 @@ func _test_thrall_swap_trades_places() -> void:
 	var hero_before: Vector2 = hero.global_position
 	var thrall_before: Vector2 = hero_before + Vector2(320.0, -40.0)
 	mine.global_position = thrall_before
-	hero.set("_dash_cooldown_timer", 0.0)
-	hero.call("_start_dash")
+	hero.set("_blink_cooldown_timer", 0.0)
+	hero.set("_cast_lockout", 0.0)
+	hero.call("_blink")
 	_expect(hero.global_position.distance_to(thrall_before) < 8.0,
 		"the Warlock arrived where its thrall was (wanted %s, got %s)"
 			% [str(thrall_before), str(hero.global_position)])
 	_expect(mine.global_position.distance_to(hero_before) < 8.0,
 		"the thrall arrived where the Warlock was (wanted %s, got %s)"
 			% [str(hero_before), str(mine.global_position)])
-	_expect(float(hero.get("_dash_cooldown_timer")) > 0.0,
-		"a completed swap charges its cooldown")
+	_expect(float(hero.get("_blink_cooldown_timer")) > 0.0,
+		"a completed swap charges its cooldown — `blink_cd`, because R is the button it is on now")
 
 	# 3. A DEAD thrall is not a destination.
 	_park(hero)
@@ -675,8 +791,9 @@ func _test_thrall_swap_trades_places() -> void:
 	_expect(int(mine.get("hp")) == 0,
 		"the dead-thrall fixture really is at 0 hp (a `set()` on an undeclared property is a SILENT no-op — see _thrall_stub.gd)")
 	var before_dead: Vector2 = hero.global_position
-	hero.set("_dash_cooldown_timer", 0.0)
-	hero.call("_start_dash")
+	hero.set("_blink_cooldown_timer", 0.0)
+	hero.set("_cast_lockout", 0.0)
+	hero.call("_blink")
 	_expect(before_dead.distance_to(hero.global_position) < THRALL_FALLBACK_CEILING,
 		"a thrall at 0 hp is not a swap destination (travelled %.1f px, which is a swap not a fallback)"
 			% before_dead.distance_to(hero.global_position))

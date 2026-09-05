@@ -198,6 +198,15 @@ const PARRY_SHIELD_TIME: float = 0.26
 ## note: "the same brain drives a class whose R is a blink and a class whose R is an
 ## uppercut without knowing the difference").
 ##
+## ⚠ THE WARLOCK'S ENTRY MOVED, AND THE RULING SURVIVED IT. Maker: *"space on warlock
+## shouldn't also swap with the current one ... space should be reserved for the dash"*.
+## Its verb was `thrall_swap`, which was ALSO this ruling's own worked example
+## ("necro swaps with a minion"), so the obvious fix — give it `"dash"` — would have
+## answered the maker by making the class the single recolour in a roster built to have
+## none. It gets SHADOW SLIP instead: a real travel dash on SPACE that is still nobody
+## else's, with the swap rehoused on R via `mobility2`. The rule is unchanged: nine
+## classes, nine verbs. Only one of the nine names is different.
+##
 ## Dispatch is `_cfg["move_verb"]` -> `_start_dash()`. The nine values are unique by
 ## construction and `tools/slice_test_class_movement.gd` asserts that no two classes
 ## resolve to the same one; the pre-change code has NO `move_verb` key at all, so that
@@ -462,6 +471,43 @@ const CRAWL_SPEED: float = 46.0
 const COMMITTED_STEP_SPEED: float = 560.0
 const COMMITTED_STEP_TIME: float = 0.17
 const COMMITTED_STEP_IFRAME_FRACTION: float = 0.35
+
+## --- 7 WARLOCK: SHADOW SLIP ----------------------------------------------------
+## ══ SPACE IS A DASH AGAIN, AND THE SWAP MOVED TO R ═════════════════════════════
+## Maker: *"space on warlock shouldn't also swap with the current one that should be
+## something like the existing 2 button. space should be reserved for the dash"*.
+##
+## ⚠ THIS CHANGES A WRITTEN RULING, SO BOTH HALVES ARE STATED. The standing rule is
+## that every class has a movement verb NOBODY ELSE HAS ("no recolours"), and
+## *"necro swaps with a minion"* was that rule's own worked example for this class.
+## Handing the Warlock the generic `"dash"` would satisfy the maker's sentence and
+## break the ruling in the same line — the class would become the one recolour in a
+## roster built to have none, and `_test_verbs_are_all_distinct` would fail saying so.
+##
+## THE SHADOW SLIP is how both hold: SPACE is a genuine TRAVEL dash (it moves through
+## the room, it can be aimed up, it is not a teleport wearing a movement button), and
+## it is still nobody else's — the body goes thin and dark and DRIFTS rather than
+## bursting, trading the Shadowblade's snap for a longer, softer window you are hard
+## to touch during. The swap is not lost, it is rehoused: see `mobility2` in the
+## class row and the dispatch in `_blink()`.
+##
+## THE NUMBERS, and why they are unremarkable on purpose. 612 x 0.19 = 116 px, which
+## sits inside the ordinary-dash cluster (110-116) the maker asked for
+## (*"the dashes should all mostly be the same distance and strength"*) and lands the
+## MEASURED displacement at ~92 px, between the Arcanist's 90 and the Brawler's 91.5.
+## `slice_test_class_movement` compares the measured values against a 25% band that
+## today has about 2% of slack in it, so this number is chosen from the roster rather
+## than picked: 585 was the first draft and it undercut the band's floor by 1 px.
+##
+## What makes the verb the Warlock's is the I-FRAME FRACTION: 0.7 is second only to the
+## Shadowblade's 0.8 among travels, and unlike the Shadowblade it is not front-loaded
+## onto a burst — a long slip that is mostly untouchable is the shape of the ability.
+const SHADOW_SLIP_SPEED: float = 612.0
+const SHADOW_SLIP_TIME: float = 0.19
+const SHADOW_SLIP_IFRAME_FRACTION: float = 0.7
+## The drift's afterimage — the same near-black violet the swap poofs with, so the
+## class's two teleport-ish moves read as one family rather than two effects.
+const SHADOW_SLIP_COLOR: Color = Color(0.36, 0.16, 0.5, 0.7)
 
 ## ⚠ EMPTY, AND DELIBERATELY STILL HERE. These are the verbs whose travel USED to be
 ## bound to the ground plane: `charge`, `surge` and `ice_slide` flattened whatever you
@@ -886,15 +932,35 @@ const CLASS_CONFIG: Dictionary = {
 		"aoe": "call_lightning", "can_parry": true,  # Q: lightning strike column
 	},
 	HeroClass.WARLOCK: {  # dark attrition hexer — LMB drain-bolt (weaken + lifesteal)
-		"preset": "warlock", "weapon": "sword", "weapon_look": "scythe", "element": Elements.Element.SHADOW, "melee_element": Elements.Element.SHADOW,
+		# ⚠ `weapon_look` WAS `scythe`. Maker: *"the warlock staff is goofy looking have
+		# like a mini black hole at the end of a stick for it instead"*. The stats row
+		# (`weapon: "sword"`) is untouched, which is the whole reason the two keys are
+		# separate — the silhouette changed and not one melee number moved with it.
+		# Drawn in `CharacterRig._draw_equipment`'s `void_rod` branch.
+		"preset": "warlock", "weapon": "sword", "weapon_look": "void_rod", "element": Elements.Element.SHADOW, "melee_element": Elements.Element.SHADOW,
 		"hp": 133, "speed": 190.0,  # was 95
 		"primary": "bolt", "bolt_heal": 2,   # 3 -> 2: see the Cleric lifesteal note above
-		# Scythe RAKE: the slowest, longest, most committed swing short of the
-		# Juggernaut's hammer, and the narrowest arc in the game.
+		# The RAKE: the slowest, longest, most committed swing short of the
+		# Juggernaut's hammer, and the narrowest arc in the game. Every number here is
+		# unchanged by the scythe -> void-rod look swap; only the picture moved.
 		"melee_cd": 0.46, "melee_arc_dot": 0.05, "melee_damage": 21,
 		"melee_range": 74.0, "melee_knockback": 300.0,
 		"cast_cd": 0.30, "dash_cd": 0.85, "blink_cd": 1.1, "blast_cd": 2.5,
-		"move_verb": "thrall_swap", "dash_iframe_fraction": 0.0,
+		# ⚠ SPACE WAS `thrall_swap` AND IS NOW A DASH. Maker: *"space on warlock
+		# shouldn't also swap with the current one ... space should be reserved for the
+		# dash"*. The swap is not deleted, it MOVED to `mobility2` (the R button) — the
+		# maker's own suggestion, *"something like the existing 2 button"* — which is
+		# the slot the Brawler and Swordsaint already use to put a non-teleport on R.
+		#
+		# R was a generic `blink` for this class before, so the swap is not evicting
+		# anything the class needed: it is REPLACING a teleport with the class's own
+		# teleport, which is strictly more Warlock than what was there.
+		#
+		# The unique-verb ruling is honoured by SHADOW SLIP rather than by the generic
+		# dash — see the SHADOW_SLIP block above for why that distinction is the whole
+		# point of this change.
+		"move_verb": "shadow_slip", "dash_iframe_fraction": SHADOW_SLIP_IFRAME_FRACTION,
+		"mobility2": "thrall_swap",  # R trades places with your minion
 		"throw_blade": false, "blade_damage": 18,
 		"dash_strike": false, "dash_strike_damage": 0, "dash_strike_range": 0.0,
 		"aoe": "curse_chain", "can_parry": true,  # Q: leaping shadow chain
@@ -3936,6 +4002,19 @@ func _begin_verb_extras(verb: String) -> void:
 			velocity.x = slide_x * _dash_speed
 		"charge":
 			Sfx.play("dash", 1.0, 0.05, 0.8)
+		"shadow_slip":
+			# THE BODY GOES THIN. A dark violet after-image standing where the slip
+			# began — the same primitive the Arcane Phase uses, at half its intensity,
+			# because this is a step you are hard to hit during rather than one you
+			# cannot be hit during at all, and the tell has to be quieter than the one
+			# that means "untouchable".
+			#
+			# ⚠ NO BURST. The Warlock's swap already owns the two-ended violet burst
+			# and the whole point of moving the swap to R is that the two presses stop
+			# being the same press; giving them the same VFX would put the confusion
+			# straight back in through the eyes.
+			rig.spawn_ghost(get_parent(), SHADOW_SLIP_COLOR, Vector2.ZERO, Vector2.ZERO, 0.24)
+			Sfx.play("dash", -4.0, 0.06, 0.7)
 
 
 ## Travel speed for a verb. `_tune("dash_speed", ...)` still scales the baseline dash so
@@ -3959,6 +4038,8 @@ func _verb_speed(verb: String) -> float:
 			base = RADIANT_STEP_SPEED
 		"ice_slide":
 			base = ICE_SLIDE_SPEED
+		"shadow_slip":
+			base = SHADOW_SLIP_SPEED
 		"committed_step":
 			base = COMMITTED_STEP_SPEED
 	return base * scale
@@ -3980,6 +4061,8 @@ func _verb_time(verb: String) -> float:
 			base = RADIANT_STEP_TIME
 		"ice_slide":
 			base = ICE_SLIDE_TIME
+		"shadow_slip":
+			base = SHADOW_SLIP_TIME
 		"committed_step":
 			base = COMMITTED_STEP_TIME
 	return base * scale
@@ -4192,7 +4275,7 @@ func _thrall_swap() -> void:
 	var theirs: Vector2 = _safe_blink_destination(their_origin, origin)
 	if their_origin.distance_to(theirs) < BLINK_MIN_TRAVEL:
 		theirs = their_origin  # our half still happens; the minion holds its ground
-	_dash_cooldown_timer = _cfg["dash_cd"]
+	_charge_swap_cooldown()
 	_blink_iframe_timer = THRALL_SWAP_IFRAME
 	rig.spawn_ghost(get_parent(), THRALL_SWAP_START, Vector2.ZERO, Vector2.ZERO, 0.32)
 	CombatVfx.spawn_burst(get_parent(), origin, THRALL_SWAP_START, THRALL_SWAP_END,
@@ -4279,7 +4362,7 @@ func _thrall_swap_fallback() -> void:
 	if origin.distance_to(dest) < BLINK_MIN_TRAVEL:
 		_thrall_swap_fizzle(origin)
 		return
-	_dash_cooldown_timer = _cfg["dash_cd"]
+	_charge_swap_cooldown()
 	_blink_iframe_timer = THRALL_SWAP_IFRAME
 	rig.spawn_ghost(get_parent(), THRALL_SWAP_START, Vector2.ZERO, Vector2.ZERO, 0.28)
 	_blink_trail_fx(origin, dest)
@@ -4291,6 +4374,23 @@ func _thrall_swap_fallback() -> void:
 	rig.play(CharacterRig.State.CAST)
 	Sfx.play("blink", -3.0, 0.1, 0.7)
 	_net_send("sw", {"to": dest, "th": origin})
+
+
+## THE SWAP PAYS FOR THE BUTTON IT WAS PRESSED ON, and it now has two.
+##
+## The swap moved from SPACE to R (see the Warlock's `mobility2`), so charging
+## `dash_cd` from inside it would have left a Warlock able to slip AND swap off one
+## cooldown while the dash button it no longer uses sat locked — a free extra teleport
+## bought by a refactor rather than by a design decision.
+##
+## Both paths stay live: `move_verb: "thrall_swap"` is still dispatched by
+## `_start_dash` and any class naming it there is spending its DASH, which is the right
+## answer for that class. The button decides, not the ability.
+func _charge_swap_cooldown() -> void:
+	if String(_cfg.get("mobility2", "blink")) == "thrall_swap":
+		_blink_cooldown_timer = float(_cfg["blink_cd"])
+	else:
+		_dash_cooldown_timer = float(_cfg["dash_cd"])
 
 
 ## Refused: a dim fizzle at the feet, nothing spent. Same read as `_blink`'s refusal so
@@ -4364,6 +4464,8 @@ func _travel_ghost_color() -> Color:
 			return ARCANE_PHASE_COLOR
 		"radiant_step":
 			return RADIANT_WAKE_COLOR
+		"shadow_slip":
+			return SHADOW_SLIP_COLOR
 	return GHOST_COLOR
 
 
@@ -4425,6 +4527,19 @@ func _blink() -> void:
 	# the air (double-jump after them to juggle).
 	if String(_cfg.get("mobility2", "blink")) == "uppercut":
 		_uppercut()
+		return
+	# WARLOCK: R trades places with your minion. Maker: *"space on warlock shouldn't
+	# also swap ... that should be something like the existing 2 button"*.
+	#
+	# ⚠ IT GUARDS ITSELF, like `_uppercut` does, because this branch sits ABOVE the
+	# lockout/cooldown checks below. That placement is deliberate for the uppercut (a
+	# punch is not a blink and must not be refused by a blink's rules) and it means any
+	# sibling here inherits the obligation. Without these two lines R would fire the
+	# swap on every frame it was held and ignore the opening cast lockout entirely.
+	if String(_cfg.get("mobility2", "blink")) == "thrall_swap":
+		if _cast_lockout > 0.0 or _blink_cooldown_timer > 0.0:
+			return
+		_thrall_swap()
 		return
 	# ⚠ THE ABILITIES HONOUR THE CAST LOCKOUT TOO, AND THEY DID NOT USED TO.
 	# Maker: *"increase the time delay for the first abilities in the clips, as
@@ -5622,6 +5737,13 @@ func _move_slot_name() -> String:
 			return "Slide"
 		"lightning_blink":
 			return "Bolt Step"
+		"shadow_slip":
+			return "Slip"
+		# ⚠ NO CLASS PUTS THIS ON THE MOVEMENT BUTTON ANY MORE — the Warlock's SPACE is
+		# "Slip" and its swap moved to R (`mobility2`). The row survives because
+		# `move_verb: "thrall_swap"` is still a legal, dispatched value and a HUD that
+		# answered "Dash" for it would be the bar lying about the button, which is the
+		# exact failure this table exists to prevent.
 		"thrall_swap":
 			return "Swap"
 		"committed_step":
@@ -6038,6 +6160,14 @@ func _blade_tell_weapon() -> bool:
 		"sword", "greatsword", "dagger", "dagger_shadow", "scythe", "spear":
 			return true
 	return false
+	# ⚠ AND `void_rod` IS DELIBERATELY ABSENT, which COSTS THE WARLOCK ITS BLADE
+	# CRESCENT — exactly the silent change the note above warns about, so it is written
+	# down instead of discovered. The class carried a `scythe` (listed, edged) until the
+	# maker replaced it with *"a mini black hole at the end of a stick"*. A stick is not
+	# an edge: an air-curve peeling off a blunt rod would be the tell disagreeing with
+	# the weapon the player can see, which is the entire reason this function reads the
+	# LOOK. The Warlock's rake now draws the blunt figure, matching the Juggernaut's
+	# hammer. Its melee NUMBERS are untouched — only the picture moved.
 
 
 ## Build one of this hero's tells. Mirrors `Enemy._emit_telegraph`: a SIBLING in the

@@ -759,6 +759,22 @@ const GEAR_KINDS: Array[String] = [
 	# held weapons
 	"staff", "staff_ice", "staff_storm", "staff_holy", "orb",
 	"sword", "greatsword", "dagger", "dagger_shadow", "hammer", "scythe", "spear", "club", "bomb",
+	# ⚠ `scythe` IS KEPT THOUGH NOBODY CARRIES IT ANY MORE. It was the Warlock's, and
+	# the maker replaced it: *"the warlock staff is goofy looking have like a mini
+	# black hole at the end of a stick for it instead"*, so the class now carries
+	# `void_rod`. The crescent branch stays drawable because it is a finished weapon
+	# shape that `tools/rig_look_capture.gd` and the armoury still name; deleting it
+	# would be deleting an asset to make a swap look tidier.
+	#
+	# ⚠ AND `void_rod` IS DELIBERATELY **NOT** IN THIS LIST, which is the same call
+	# `_draw_adornments` made for hair/shades/saya and for the same reason: every entry
+	# here is OBLIGED to carry a `GearAbilities` stat bag and a label
+	# (`slice_test_rig_gait._test_gear_registry`, `slice_test_gear`), because this list
+	# is what the armoury offers. The void rod is a class SIGNATURE reached only through
+	# `Hero.CLASS_CONFIG`'s `weapon_look`, which is documented cosmetic-only — giving it
+	# a stat bag would put a Warlock-flavoured stick in the shop and let it retune
+	# somebody's melee. `set_equipment` does not validate against this registry (the
+	# adornments prove that), so the rod draws without being merchandise.
 ]
 ## MASTER CLOTHING SWITCH. False = helmets / hoods / hats / crowns / robes / armour /
 ## sandals are NOT DRAWN AT ALL, and every figure is a plain stick figure. Default
@@ -1950,6 +1966,10 @@ func _tip_from_pose(pose: Dictionary) -> Vector2:
 		"dagger_shadow": reach = height * 0.20   # matches the drawn length above
 		"spear": reach = height * 0.72
 		"scythe": reach = height * 0.6
+		# The rod is SHORTER than the scythe it replaced (0.6 -> 0.5) and this number
+		# has to move with the drawn length above, or the VFX that hang off the weapon
+		# tip float in mid-air past the end of the stick.
+		"void_rod": reach = height * 0.5
 		"sword": reach = height * 0.5
 		"orb": reach = height * 0.14
 	return to_global(hand + arm_dir * reach)
@@ -2174,10 +2194,15 @@ func class_preset(preset_name: String) -> void:
 			set_equipment("head", "")
 			set_equipment("weapon", "sword")
 			set_equipment("sheath", "saya")
-		"warlock":  # hooded hexer with a scythe
+		"warlock":  # hooded hexer holding a hole on a stick
 			set_equipment("body", "robe")
 			set_equipment("head", "hood")
-			set_equipment("weapon", "scythe")
+			# ⚠ WAS `scythe`, AND THE PRESET IS NOT THE AUTHORITY ANY MORE THAN IT WAS.
+			# `Hero._apply_class` applies `weapon_look` LAST and overwrites this line,
+			# so the two must agree or the preset silently means nothing. Changed here
+			# too rather than left stale, because this preset is what the capture tools
+			# and any non-Hero caller (spike figures, look sheets) actually get.
+			set_equipment("weapon", "void_rod")
 
 
 ## Enable/retint the under-figure aura glow. strength 0 turns it off.
@@ -3927,6 +3952,46 @@ static func _draw_equipment(
 			var sc_a: float = perp.angle()
 			item.draw_arc(sc_c, sc_r, sc_a - 0.35, sc_a + 1.5, 14, edge, w * 1.5)
 			item.draw_arc(sc_c, sc_r, sc_a - 0.35, sc_a + 1.5, 14, gear_col.lightened(0.3), w * 0.8)
+		"void_rod":
+			# ══ A MINI BLACK HOLE ON THE END OF A STICK ═════════════════════════
+			# Maker, replacing the scythe: *"the warlock staff is goofy looking have
+			# like a mini black hole at the end of a stick for it instead"*. THIS IS A
+			# RULING CHANGE — the Warlock's silhouette used to be the one curve in the
+			# roster (see the `scythe` branch above, which argued exactly that), and
+			# the curve is what read as goofy. The class read is now the TIP, not the
+			# outline: everyone else's weapon ends in something bright, this one ends
+			# in a hole with a bright edge.
+			#
+			# ⚠ HARD SHAPES, NOT A GRADIENT. The whole thing is ~5 px across at
+			# 640x360 on a phone, and a soft falloff at that size is a grey blob. So
+			# the accretion is ONE bright disc with the dark core stamped on top of it,
+			# which leaves a hard one-pixel rim that survives any downscale. The swirl
+			# is two short arcs and is the first thing to go at LOW quality.
+			var vr_len: float = fig_height * 0.5
+			var vr_butt: Vector2 = hand_lead - arm_dir * (fig_height * 0.09)
+			var vr_tip: Vector2 = hand_lead + arm_dir * vr_len
+			# The stick: deliberately PLAIN and dark — no gem, no head, no taper. It is
+			# the handle for the hole, and anything decorative on it competes with the
+			# only detail that is meant to be read.
+			item.draw_line(vr_butt, vr_tip, edge, w * 1.05)
+			item.draw_line(vr_butt, vr_tip, gear_col.darkened(0.45), w * 0.5)
+			# The hole sits just PAST the tip so the shaft does not run under it.
+			var hole_r: float = maxf(w * 1.45, 2.6)
+			var hole_c: Vector2 = vr_tip + arm_dir * (hole_r * 0.7)
+			# 1. accretion disc (bright), 2. event horizon (near-black) stamped over it.
+			item.draw_circle(hole_c, hole_r, Color(0.72, 0.32, 1.0, col.a))
+			item.draw_circle(hole_c, hole_r * 0.66, Color(0.03, 0.02, 0.06, col.a))
+			if not _gear_quality_low():
+				# The bright ARC — the accretion rim is not even, it is hottest on one
+				# side, which is what stops the tip reading as a plain ringed dot.
+				var vr_a: float = arm_dir.angle()
+				item.draw_arc(hole_c, hole_r * 0.86, vr_a - 1.5, vr_a + 0.9, 10,
+					Color(1.0, 0.86, 1.0, col.a), maxf(w * 0.34, 0.9), true)
+				# ...and the inward swirl: two short arcs winding toward the core.
+				item.draw_arc(hole_c, hole_r * 1.32, vr_a + 1.1, vr_a + 2.6, 8,
+					Color(0.62, 0.26, 0.95, col.a * 0.75), maxf(w * 0.26, 0.7), true)
+				item.draw_arc(hole_c, hole_r * 1.62, vr_a - 2.7, vr_a - 1.3, 8,
+					Color(0.52, 0.20, 0.85, col.a * 0.5), maxf(w * 0.22, 0.6), true)
 		"bomb":
 			# A held sphere with a lit fuse — a prop in the fist, not a polearm.
 			var b_c: Vector2 = hand_lead + arm_dir * (r * 0.5)
@@ -4036,6 +4101,24 @@ static func _draw_blade(
 	# every colour above already carries col.a through gear_col/edge.
 	if col.a < 0.0:
 		return
+
+
+## THE QUALITY FLAG, FOR THE STATIC DRAW PATH. `_status_low` is the instance cache
+## `_ready` fills, and it is unreachable from here: `draw_figure` and everything under
+## it — `_draw_equipment` included — are STATIC, because a ghost/afterimage draws the
+## same figure with no rig instance behind it.
+##
+## So this is the same trick one level up: read the setting ONCE per process and hold
+## the answer. `-1` means "not read yet"; after that it is 0 or 1 and no draw ever
+## touches `TuningConfig` again. A settings lookup per stroke, per body, per frame is
+## exactly the cost `_ready`'s note says would never show up in `TIME_PROCESS`.
+static var _gear_low: int = -1
+
+
+static func _gear_quality_low() -> bool:
+	if _gear_low < 0:
+		_gear_low = 1 if TuningConfig.quality_is_low() else 0
+	return _gear_low == 1
 
 
 ## Plain hafted shaft (hammer/scythe/spear backbone): keyline under, body over.
