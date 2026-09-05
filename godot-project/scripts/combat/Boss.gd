@@ -84,6 +84,121 @@ var _summoned: Array = []
 var _ground_snap_pending: bool = true
 
 
+# ══ THE SAFE SPOT, AND THE THREE THINGS THAT MADE IT ONE ═════════════════════
+## Maker: *"I really want the bosses to also be able to jump move around damage from
+## wherever no way to just smurf them by sitting high up like make some of them able
+## to fly for example and stuff."*
+##
+## MEASURED FIRST (`tools/probe_boss_reach.gd`, real room, one ledge 274 px up, a
+## hero parked on it, both body scales). What was actually true:
+##
+##   1 · IT DID JUMP. `_physics_process` already called `Enemy._try_chase_jump`, so
+##       the guardian launched a real ballistic leap and reached an apex of 267 px —
+##       it got its origin 53 px ABOVE the hero. So "the boss cannot jump" was false.
+##   2 · **AND THE ARC WAS DESTROYED ONE FRAME LATER.** `_launch_leap` writes a whole
+##       velocity — `compute_leap_velocity` solves BOTH components so the body lands
+##       ON the target — and the very next frame this loop overwrote `velocity.x`
+##       with the walk drive (`signf(dx) * move_speed`, 66 px/s). The probe caught it
+##       exactly: **113 airborne frames, 99 px of horizontal travel.** The guardian
+##       stood underneath the ledge and POGOED, head-butting its underside forever.
+##       That is the bug the maker was looking at. It is not a missing feature; it is
+##       a working solver whose answer was being thrown away every frame.
+##   3 · AND SOME ATTACKS GENUINELY CANNOT LOOK UP. `_atk_beam` flattened its aim
+##       (`dir.y * 0.35`) unconditionally, so a shot at a hero overhead came out
+##       nearly horizontal and hit the far wall. `pillars` is a GROUND-PLANTED spell
+##       by the floor rule in `RockPillar.erupt`, so it erupts under the ledge rather
+##       than on it, and `nova` detonates on the boss's own body. Three of the eight
+##       base attacks could not threaten a hero standing above.
+##
+## ⚠ THE GOAL IS REACH, NOT DIFFICULTY. Nothing below adds a new attack, a new
+## spectacle or a new number to dodge — the maker has already said fights had "too
+## much going on". Every change here either makes an EXISTING move arrive where the
+## player actually is, or stops the boss wasting its turn on a move that cannot.
+## What the player is supposed to DO about it is unchanged and is the same thing the
+## floor always taught: read the tell, leave the shape. High ground is now cover, not
+## immunity.
+
+## How far above the boss the hero has to be before "they are up there" is true. Just
+## past `Enemy.JUMP_TRIGGER_HEIGHT` (60), i.e. past the height a plain hop answers.
+const HIGH_GROUND_MARK: float = 90.0
+## ...and how long it has to stay true, WITH THE BOSS STILL ON THE FLOOR, before the
+## boss changes what it is doing about it. A boss that leaps up promptly never spends
+## this, so a normal fight never sees the branch at all.
+const STRANDED_GRACE: float = 1.8
+## A `velocity.y` this negative after `_try_chase_jump` means a launch was committed
+## (the small hop is -520, a solved leap is more). Well clear of ordinary jitter.
+const LAUNCH_VY_MARK: float = -120.0
+
+## THE BASE ATTACKS THAT CANNOT REACH A HERO OVERHEAD, and why each one cannot:
+##   pillars — `RockPillar` obeys the ground rule and erupts from the FLOOR.
+##   summon  — the adds are walkers; they mill about under the ledge.
+##   nova    — `EnergyNova.activate_at(global_position)` detonates on the boss.
+## `beam` is deliberately NOT in this list any more: it was, until the conditional
+## flatten in `_atk_beam` gave it the ability to aim up. Subclass attack ids are not
+## listed and are assumed to reach — most boss spectacle in this codebase is placed
+## at `_hero.global_position`, and a filter that silently deleted an artist's whole
+## kit because this base had never heard of it would be worse than not filtering.
+const GROUND_LOCKED_ATTACKS: Array[String] = ["pillars", "summon", "nova"]
+
+## Seconds the hero has been high while this boss stood on the floor. See `_track_reach`.
+var _stranded: float = 0.0
+## The horizontal a committed leap launched with, and the flag that says to keep it.
+## THIS IS THE FIX FOR FINDING 2 — see the block above.
+var _air_vx: float = 0.0
+var _air_committed: bool = false
+## Where `_stand_on_ground`'s ray found the floor, or NAN when it found none (a
+## headless harness with no walls, a boss over a pit). Flight clamps its altitude
+## against it and simply does not clamp when it is NAN.
+var _ground_y: float = NAN
+
+
+# ══ SOME OF THEM FLY ═════════════════════════════════════════════════════════
+## The maker asked for it by name. WHICH artists fly is a roster question and is
+## answered in `BossRoster`'s FLIGHT block next to the other identity columns —
+## the Illuminator and the Cartographer do, the four bodies whose read is weight
+## do not.
+##
+## ── WHAT FLIGHT IS HERE ──────────────────────────────────────────────────────
+## Not a mode with a transition to telegraph: a flier's body simply never rests on
+## the floor once the fight starts. It stands through its own intro (so the name card
+## still plays over a body on the ground), lifts off when P1 begins, holds a standoff
+## band around the hero at the hero's OWN height, and drops when it dies — a guardian
+## falling out of the air is the death beat for free.
+##
+## ── IT IS STILL DODGE-THE-TELL ───────────────────────────────────────────────
+## Flight changes WHERE the boss is, never how its attacks announce themselves. Every
+## attack it makes still goes out through the same `_emit_telegraph` / windup paths it
+## used on the ground, because none of that code is touched. What the player does
+## about a flier is what they did before: read the shape, leave the shape. What they
+## can no longer do is stand somewhere it cannot follow.
+##
+## ── FRAMING ──────────────────────────────────────────────────────────────────
+## Base viewport is 640x360 with `aspect="expand"`, so a taller phone gets a WIDER
+## shot, never a shorter one — vertical framing is the tight axis and a boss that
+## climbed out of it would be invisible. The hover target is defined as an offset
+## from the HERO's own y (the thing the camera frames), so a flier is in shot by
+## construction; the altitude clamp is only a floor/ceiling safety net on top.
+##
+## ── COST ─────────────────────────────────────────────────────────────────────
+## No new node, no new draw call, no VFX. It is a branch in the movement integrator,
+## so there is nothing here to degrade at `TuningConfig.quality_is_low()` and
+## deliberately nothing that would need to be.
+const FLY_ABOVE: float = 34.0        # hovers this far over the hero's own line
+const FLY_MIN_ALT: float = 54.0      # never sinks nearer the floor than this
+const FLY_MAX_ALT: float = 320.0     # ...nor rises past this above it
+const FLY_TRACK_GAIN: float = 4.0    # how hard it eases onto the hover line
+const FLY_SPEED_Y: float = 240.0     # cap on the vertical drift, so it glides
+const FLY_STANDOFF: float = 150.0    # the band it wants to hold on x
+const FLY_BAND: float = 40.0         # hysteresis, so it does not jitter on the edge
+const FLY_CLOSE_MULT: float = 1.35   # closing/backing off is brisker than a walk
+const FLY_ORBIT_MULT: float = 0.75   # ...and sliding along the band is lazier
+const FLY_ORBIT_FLIP: float = 2.2    # seconds before it drifts the other way
+
+var _flying: bool = false
+var _fly_orbit: float = 1.0
+var _fly_flip_t: float = FLY_ORBIT_FLIP
+
+
 ## WHO THIS BOSS IS. Declared on the base rather than on `TowerBoss` so that
 ## `BossBar` and the intro card can ask ANY boss what it is called and what colour it
 ## writes itself in — including this one. Before this, the bar carried a
@@ -152,6 +267,23 @@ func boss_equipment() -> Dictionary:
 	return {"head": "crown"}
 
 
+## Does this body leave the floor for the whole fight? See the FLIGHT block above.
+##
+## ⚠ THE ANSWER IS LOOKED UP RATHER THAN DECLARED, and it is looked up by TITLE. A
+## live boss node does not know its own roster id — `Encounter.build_enemy_from_data`
+## reads `bid` to choose the scene and never tells the body which row built it — but
+## `boss_title()` is a virtual per class and is already required to equal the roster's
+## `name` column, because that is what `BossBar` renders. So the title is the join
+## key. Keeping the answer on the roster means the question "which bosses fly?" has
+## one visible answer beside the other five identity columns, rather than six
+## overrides a reader has to go and collect.
+##
+## It is still a VIRTUAL: a subclass that ever needs to fly conditionally (only in
+## P3, say) overrides this and the roster row stops being consulted for it.
+func boss_flies() -> bool:
+	return BossRoster.flies_for_title(boss_title())
+
+
 ## Seconds between attacks in phase `p`. The Guardian's cadence IS `PHASE_CD`; a boss
 ## whose identity is rhythm overrides this. Declared here so the cadence question can
 ## be put to any boss on the roster.
@@ -201,6 +333,10 @@ func _ready() -> void:
 	add_child(_adorn)
 	_adorn.configure(boss_rig_height() * body_scale)
 	_adorn.set_intensity(0.35)
+	# Asked ONCE. `boss_flies()` walks the roster table, and this is read every
+	# physics frame — a table walk per frame per boss is a cost with no upside, and
+	# a body that could stop flying midway through a fight is not a thing that exists.
+	_flying = boss_flies()
 	_build_bar()
 	_install_voice()
 	_play_intro()
@@ -588,28 +724,21 @@ func _physics_process(delta: float) -> void:
 		_stand_on_ground()
 	_touch_cooldown = max(_touch_cooldown - delta, 0.0)
 	_knockback = _knockback.move_toward(Vector2.ZERO, KNOCKBACK_DECAY * delta)
-	_apply_gravity(delta)
-	var approach: float = 0.0
-	if not _busy and _bphase != BPhase.INTRO and is_instance_valid(_hero):
-		approach = signf(_hero.global_position.x - global_position.x) * move_speed
-	velocity.x = _knockback.x + approach
-	# ══ THE BOSS CAN LEAVE THE GROUND NOW ═══════════════════════════════════════
-	# Maker: *"make the stage 1 boss be able to jump"*. It could not — and the reason
-	# is that the whole airborne kit was INHERITED AND NEVER CALLED. `Enemy` already
-	# owns `_try_chase_jump` (the hop over a wall it is walking into, and the hop up to
-	# a hero standing above it), the ballistic LEAP solver, and the POUNCE; all of it
-	# is already replicated, already animated and already interruptible. Grep the boss
-	# scripts for `velocity.y` and the only hit in any of them is the ground-snap zero.
-	# So this is one call at the insertion point `Enemy._try_chase_jump` documents for
-	# itself — between gravity and `move_and_slide`.
-	#
-	# ⚠ GATED THE SAME WAY THE WALK IS. A boss mid-cast is rooted on purpose (`_busy`),
-	# the intro is a held pose, and the Etcher's breakable wind-up parks its own
-	# movement — a boss that hopped out of a rooted cast would break the one beat in
-	# the game the player is invited to interrupt.
-	if not _busy and _bphase != BPhase.INTRO and _bphase != BPhase.DEAD:
-		_try_chase_jump()
+	# THE THREE STATES THIS BODY MOVES IN, named once so the two integrators below
+	# do not each re-derive them. `fighting` is "the fight is live" (not the held
+	# intro pose, not a corpse); `drive` is "and I am also allowed to steer" — a boss
+	# mid-cast is rooted ON PURPOSE and that has not changed.
+	var fighting: bool = _bphase != BPhase.INTRO and _bphase != BPhase.DEAD
+	var drive: bool = fighting and not _busy
+	if _flying and fighting:
+		# ⚠ A FLIER HOVERS EVEN WHILE `_busy`. Rooted means it does not CHOOSE where to
+		# go, not that it falls out of the sky mid-cast — dropping a caster on its head
+		# every time it started an attack would make its own telegraphs unreadable.
+		_fly(delta, drive)
+	else:
+		_walk(delta, drive)
 	move_and_slide()
+	_track_reach(delta)
 	if is_instance_valid(rig):
 		if is_instance_valid(_hero):
 			rig.set_facing(Vector2(_hero.global_position.x - global_position.x, 0.0))
@@ -635,6 +764,145 @@ func _physics_process(delta: float) -> void:
 			if not _busy and _attack_cd <= 0.0:
 				_choose_attack()
 	_boss_touch()
+
+
+# ════════════════════════════════════════════════════ THE GROUNDED INTEGRATOR
+## Gravity, the walk drive, and the jump kit — the movement every boss had, with
+## finding 2 from the SAFE SPOT block above repaired.
+##
+## ── THE BOSS CAN LEAVE THE GROUND ────────────────────────────────────────────
+## Maker, earlier: *"make the stage 1 boss be able to jump"*. The whole airborne kit
+## was INHERITED AND NEVER CALLED — `Enemy` already owns `_try_chase_jump` (the hop
+## over a wall it is walking into, and the hop up to a hero standing above it), the
+## ballistic LEAP solver and the POUNCE, all of it already replicated, already
+## animated and already interruptible. The call sits at the insertion point
+## `Enemy._try_chase_jump` documents for itself: between gravity and `move_and_slide`.
+##
+## ── AND THE ARC IS NOW ALLOWED TO FINISH ─────────────────────────────────────
+## `Enemy.compute_leap_velocity` solves BOTH components: a vertical whose apex clears
+## the target and a horizontal that LANDS ON IT. Overwriting `velocity.x` with the
+## walk drive on the next frame kept the first half and threw away the second, which
+## is why the probe measured 113 airborne frames producing 99 px of travel — a boss
+## pogoing under the ledge it was trying to reach. So a committed launch's horizontal
+## is held until the body is back on the floor.
+##
+## ⚠ KNOCKBACK IS STILL ADDED ON TOP while airborne. Being hit mid-leap must still
+## shove a boss off its line; what is preserved is its own drive, not its immunity.
+func _walk(delta: float, drive: bool) -> void:
+	_apply_gravity(delta)
+	if is_on_floor():
+		_air_committed = false   # the arc is spent; the walk owns x again
+		_air_vx = 0.0
+	var approach: float = 0.0
+	if drive and is_instance_valid(_hero):
+		approach = signf(_hero.global_position.x - global_position.x) * move_speed
+	velocity.x = _knockback.x + (_air_vx if _air_committed else approach)
+	# ⚠ GATED THE SAME WAY THE WALK IS. A boss mid-cast is rooted on purpose
+	# (`_busy`), the intro is a held pose, and the Etcher's breakable wind-up parks
+	# its own movement — a boss that hopped out of a rooted cast would break the one
+	# beat in the game the player is invited to interrupt.
+	if not drive:
+		return
+	_try_chase_jump()
+	# Detected off the VELOCITY rather than off `is_on_floor()`, because on the launch
+	# frame the body has not moved yet and `is_on_floor()` still reports the previous
+	# frame's contact — the flag would be set one frame late, by which time the walk
+	# drive has already eaten the horizontal it was meant to protect.
+	if not _air_committed and velocity.y < LAUNCH_VY_MARK:
+		_air_committed = true
+		_air_vx = velocity.x
+
+
+# ══════════════════════════════════════════════════════ THE FLYING INTEGRATOR
+## Hold a standoff band around the hero, at the hero's own height. No gravity, no
+## jump kit, no floor. See the FLIGHT block at the top for who flies and why.
+##
+## `move_and_slide` still runs on the result, so the room's walls and ceiling still
+## stop a flier — it hovers inside the arena, it does not leave it.
+##
+## ── THIS IS ALSO THE "MOVE AROUND MORE" HALF ─────────────────────────────────
+## A grounded boss walks at you and then stands on you; that is a body pressing, and
+## for the heavy artists it is right. A flier that did the same would be a turret at
+## head height. So it holds a band instead: too far and it closes, too near and it
+## backs off, and inside the band it SLIDES ALONG IT, flipping direction on a slow
+## timer and off any wall it touches. The result is a body that is always somewhere
+## slightly different, without a single extra thing on screen to read.
+func _fly(delta: float, drive: bool) -> void:
+	# The orbit clock runs even while rooted, so a flier does not resume a long cast
+	# by snapping back to the direction it was drifting three seconds ago.
+	_fly_flip_t -= delta
+	if _fly_flip_t <= 0.0:
+		_fly_flip_t = FLY_ORBIT_FLIP
+		_fly_orbit = -_fly_orbit
+	if is_on_wall():
+		_fly_orbit = -_fly_orbit
+	if not is_instance_valid(_hero):
+		# Nothing to hold a band around: hang where it is rather than drifting off or
+		# dropping. A hero-less boss is a harness or a moment between deaths.
+		velocity = Vector2(_knockback.x, 0.0)
+		return
+	# VERTICAL — ease onto the hover line. Defined against the HERO's y, which is the
+	# thing the camera frames, so the boss is in shot by construction (see FRAMING).
+	# The altitude clamp is a floor/ceiling net on top of that, skipped entirely when
+	# the ground ray found nothing.
+	var want_y: float = _hero.global_position.y - FLY_ABOVE
+	if not is_nan(_ground_y):
+		want_y = clampf(want_y, _ground_y - FLY_MAX_ALT, _ground_y - FLY_MIN_ALT)
+	velocity.y = clampf((want_y - global_position.y) * FLY_TRACK_GAIN,
+		-FLY_SPEED_Y, FLY_SPEED_Y)
+	# HORIZONTAL — close, back off, or slide along the band.
+	var vx: float = 0.0
+	if drive:
+		var dx: float = _hero.global_position.x - global_position.x
+		var adx: float = absf(dx)
+		if adx > FLY_STANDOFF + FLY_BAND:
+			vx = signf(dx) * move_speed * FLY_CLOSE_MULT
+		elif adx < FLY_STANDOFF - FLY_BAND:
+			vx = -signf(dx) * move_speed * FLY_CLOSE_MULT
+		else:
+			vx = _fly_orbit * move_speed * FLY_ORBIT_MULT
+	velocity.x = _knockback.x + vx
+
+
+# ═══════════════════════════════════════════════ "THEY ARE UP THERE AND I AM NOT"
+## Pure predicate, FLOOR CHECK DELIBERATELY EXCLUDED — the same idiom, for the same
+## reason, as `Enemy._wants_chase_jump` and `_wants_leap`: a headless suite can drive
+## it by moving two nodes, without stepped physics or a room to stand in.
+func _is_high_ground() -> bool:
+	if not is_instance_valid(_hero):
+		return false
+	return global_position.y - _hero.global_position.y > HIGH_GROUND_MARK
+
+
+## Accumulate the time the hero has spent above this boss WHILE IT STAYED ON THE
+## FLOOR — which is the complaint stated as a measurement. A boss that leaps up
+## promptly is airborne (clock resets) or no longer below (clock resets), so an
+## ordinary fight never reaches the grace period at all and nothing below fires.
+##
+## A flier is never stranded by construction; it holds the hero's own height.
+func _track_reach(delta: float) -> void:
+	if _flying or not _is_high_ground() or not is_on_floor():
+		_stranded = 0.0
+		return
+	_stranded += delta
+
+
+## Has the safe spot lasted long enough to be a strategy rather than a moment?
+func is_stranded() -> bool:
+	return _stranded >= STRANDED_GRACE
+
+
+## Drop the moves that physically cannot arrive overhead. Unknown ids (every
+## subclass's whole kit) are KEPT — see `GROUND_LOCKED_ATTACKS` for why a filter that
+## deleted what it had not heard of would be worse than no filter. Returns `ids`
+## unchanged when the filter would empty it, so a boss whose entire phase is
+## ground-locked still takes its turn instead of standing there silently.
+func _reaching_attack_ids(ids: Array) -> Array:
+	var out: Array = []
+	for i in ids:
+		if not GROUND_LOCKED_ATTACKS.has(String(i)):
+			out.append(i)
+	return out if not out.is_empty() else ids
 
 
 # ══ THE GUARDIAN AND THE FLOOR MUST AGREE ABOUT WHERE THE FLOOR IS ═══════════
@@ -753,7 +1021,11 @@ func _stand_on_ground() -> void:
 	var hit: Dictionary = space.intersect_ray(q)
 	if hit.is_empty():
 		return
-	global_position.y = float((hit["position"] as Vector2).y) - _box_bottom_offset()
+	# Remembered, not just used: a FLIER clamps its altitude against this floor so it
+	# cannot sink into the room or climb out of the top of it. One ray, at birth, is
+	# the whole cost — and it is the same ray the ground snap was already paying for.
+	_ground_y = float((hit["position"] as Vector2).y)
+	global_position.y = _ground_y - _box_bottom_offset()
 	velocity.y = 0.0
 
 
@@ -993,6 +1265,15 @@ func _phase_attack_ids(phase: int) -> Array:
 
 func _choose_attack() -> void:
 	var ids: Array = _phase_attack_ids(current_phase())
+	# ⚠ SPEND THE TURN ON SOMETHING THAT CAN ARRIVE. While the hero is camped above,
+	# the moves that plant on the floor or detonate on the boss's own body are not
+	# "weaker" — they are a turn thrown away, and three thrown-away turns in a row is
+	# what a safe spot actually feels like from the other side. This changes WHICH of
+	# the boss's existing attacks it picks, never how many, how hard, or how they are
+	# announced: every one of them still lays its own tell. The player's answer is
+	# unchanged — leave the shape — it just has to be given now.
+	if is_stranded():
+		ids = _reaching_attack_ids(ids)
 	if ids.is_empty():
 		_attack_cd = 1.0
 		return
@@ -1083,7 +1364,16 @@ func _atk_beam() -> void:
 	if not is_instance_valid(_hero):
 		return
 	var dir: Vector2 = (_hero.global_position - global_position).normalized()
-	dir = Vector2(dir.x, dir.y * 0.35).normalized()   # flatten toward horizontal
+	# ⚠ THE FLATTEN IS CONDITIONAL NOW, AND THAT IS THE WHOLE "IT CANNOT SHOOT UP" FIX.
+	# Squashing y to 35% keeps the beam a readable horizontal lane across the room,
+	# which is right for the fight it was written for — and it was applied to EVERY
+	# shot, so a beam aimed at a hero on a ledge came out nearly level and hit the far
+	# wall. The flatten now applies only while the hero is NOT overhead, so every
+	# ground fight fires the identical lane it always did and a camped hero gets a
+	# beam that actually points at them. The telegraph is laid along this same `dir`
+	# below, so the tell moves with the shot for free and stays the dodge.
+	if not _is_high_ground():
+		dir = Vector2(dir.x, dir.y * 0.35).normalized()
 	if dir == Vector2.ZERO:
 		dir = Vector2.RIGHT
 	var tele: Telegraph = _emit_telegraph({

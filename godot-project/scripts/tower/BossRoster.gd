@@ -57,6 +57,33 @@ const ETCHER: String = "etcher"
 ##       The DEPTH curve lives entirely in FloorDef.boss_hp_multiplier and is not
 ##       touched here. Do not smuggle difficulty in through this column.
 ##   speed_scale — how fast the body moves, relative to Encounter.BOSS_MOVE_SPEED.
+##   flies       — WHETHER THIS ARTIST'S BODY TOUCHES THE FLOOR AT ALL. See the
+##       FLIGHT block below; it is an identity column like `artist`, not a dial.
+##
+## ── WHICH ARTISTS FLY, AND WHY IT IS DECIDED HERE ────────────────────────────
+## Maker: *"make some of them able to fly for example"*. The complaint underneath it
+## is a SAFE SPOT — a hero on a third-tier ledge that the guardian below can neither
+## reach nor threaten. `Boss` answers that for the grounded half by fixing its leap;
+## flight is the answer for the half whose fiction supports it.
+##
+## The choice is per ARTIST and it is made from the fiction, not from difficulty:
+##   ILLUMINATOR — gold leaf on vellum, a cleric silhouette that gilds the page from
+##       above. A seraph that has to walk is the wrong drawing. FLIES.
+##   CARTOGRAPHER — it surveys the room and rules lines across it. A surveyor takes
+##       the bearing from ABOVE the ground it is mapping. FLIES.
+##   GUARDIAN — a stone colossus. Its weight IS the read; it answers height by
+##       LEAPING, which is the verb its body already owns. Grounded.
+##   SCRIBBLE — its verb is the dash. A flying scribble is a different fight, not a
+##       better one. Grounded.
+##   ERASER — it denies ground by standing on it. Grounded.
+##   ETCHER — its whole fight is a breakable wind-up the player must reach. A flying
+##       Etcher would put its own break out of reach, which is a WORSE fight, not a
+##       harder one. Grounded.
+##
+## ⚠ IT LIVES ON THE ROSTER RATHER THAN AS A VIRTUAL ON EACH BOSS SCRIPT so that the
+## question "which bosses fly?" has ONE answer a reader can see in one place, next to
+## the other five identity columns. `Boss.boss_flies()` reads it and any subclass may
+## still override that virtual if it ever needs to fly conditionally.
 const ENTRIES: Array[Dictionary] = [
 	{
 		"id": SCRIBBLE,
@@ -65,6 +92,7 @@ const ENTRIES: Array[Dictionary] = [
 		"artist": "a child, blunt pencil, lined paper",
 		"min_floor": 1, "max_floor": 3,
 		"hp_scale": 0.66, "speed_scale": 2.05,
+		"flies": false,
 	},
 	{
 		"id": GUARDIAN,
@@ -73,6 +101,7 @@ const ENTRIES: Array[Dictionary] = [
 		"artist": "charcoal on stone",
 		"min_floor": 1, "max_floor": 0,
 		"hp_scale": 1.0, "speed_scale": 1.0,
+		"flies": false,
 	},
 	{
 		"id": CARTOGRAPHER,
@@ -81,6 +110,7 @@ const ENTRIES: Array[Dictionary] = [
 		"artist": "compass and ruler, ink on graph paper",
 		"min_floor": 2, "max_floor": 0,
 		"hp_scale": 0.88, "speed_scale": 0.62,
+		"flies": true,
 	},
 	{
 		"id": ILLUMINATOR,
@@ -89,6 +119,7 @@ const ENTRIES: Array[Dictionary] = [
 		"artist": "gold leaf on vellum, and it wants you dead",
 		"min_floor": 4, "max_floor": 0,
 		"hp_scale": 1.12, "speed_scale": 0.86,
+		"flies": true,
 	},
 	# ── APPENDED, AND THAT MATTERS ───────────────────────────────────────────
 	# `entry()` falls back to `ENTRIES[1]` BY INDEX, so the Guardian has to stay at
@@ -122,6 +153,7 @@ const ENTRIES: Array[Dictionary] = [
 		"min_floor": 3, "max_floor": 0,
 		# The slowest body on the roster. The break has to be REACHABLE.
 		"hp_scale": 1.05, "speed_scale": 0.55,
+		"flies": false,
 	},
 ]
 
@@ -173,6 +205,33 @@ static func hp_scale(id: String) -> float:
 
 static func speed_scale(id: String) -> float:
 	return float(entry(id)["speed_scale"])
+
+
+## Does this artist's body leave the floor for the whole fight? See the FLIGHT block
+## above ENTRIES for who does and why. `get` with a default rather than a bare index
+## so a row written before this column existed degrades to "grounded" instead of
+## aborting the caller — a missing key is a runtime error in GDScript, and this is
+## read from inside a boss's physics loop.
+static func flies(id: String) -> bool:
+	return bool(entry(id).get("flies", false))
+
+
+## The same question asked by DISPLAY NAME instead of by id.
+##
+## ⚠ WHY THIS EXISTS AT ALL. A live `Boss` node does not know its own roster id —
+## `Encounter.build_enemy_from_data` reads `bid` to pick the SCENE and then never
+## tells the body which row built it. The one identity every boss does carry is
+## `boss_title()`, which is a virtual per class and is already required to equal this
+## table's `name` column (that is what `BossBar.setup` renders). So the title is the
+## join key, and this is the join.
+##
+## Unknown titles answer `false` — a boss built outside the roster (a harness stub, a
+## capture tool's hand-made body) stays grounded, which is the behaviour that shipped.
+static func flies_for_title(title: String) -> bool:
+	for e: Dictionary in ENTRIES:
+		if String(e["name"]) == title:
+			return bool(e.get("flies", false))
+	return false
 
 
 ## Which artists draw at this depth. Never empty — the Guardian has no ceiling, so
