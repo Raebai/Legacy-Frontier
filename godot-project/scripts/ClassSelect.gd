@@ -129,8 +129,15 @@ const PAD_REPEAT_RATE: float = 0.13     ## and how fast it walks after that
 ## What the cursor sits on. Brighter than `HIGHLIGHT` (which marks the CURRENT class)
 ## so "where I am" and "what I am" never read as the same thing.
 const PAD_CURSOR: Color = Color(1.0, 0.95, 0.6)
+## How far a guarded row is faded. It is a whole-row alpha rather than a greyed font
+## because the class COLOUR is the only thing distinguishing nine rows of text, and a
+## locked class you cannot recognise is not a goal.
+const LOCKED_DIM: float = 0.45
 
 var _cards: Array[Button] = []
+## Per-row unlock state, kept because the row TINT has one writer now and it needs
+## to know. See `_paint_cursor`.
+var _unlocked: Array[bool] = []
 ## The right-hand column: who you currently are, and the four spells you cast.
 ## Rebuilt wholesale by `_refresh_detail` rather than diffed -- nine classes x five
 ## labels is nothing, and a diff is where a stale label survives a class change.
@@ -252,7 +259,21 @@ func _build_cards(rail: VBoxContainer) -> void:
 		b.add_theme_font_size_override("font_size", 13)
 		b.text = "%s  %s" % [SWATCH, String(info["name"])]
 		b.add_theme_color_override("font_color", (info["color"] as Color).lightened(0.25))
+		# ⚠ NO FOCUS, ON PURPOSE, AND IT IS WHAT MAKES UP/DOWN WORK AT ALL. Godot walks
+		# focus between Buttons itself on `ui_up`/`ui_down` and CONSUMES those actions
+		# before `_unhandled_input` ever sees them — so a focused rail and this file's
+		# own cursor would be two cursors fighting over one keypress. Worse, the built-in
+		# walk SKIPS DISABLED CONTROLS, which is exactly the three guarded classes the
+		# roster deliberately shows so a player can want them: keyboard navigation would
+		# have jumped straight over the only rows a preview is really for.
+		# The cursor tint is the focus indicator now, and it is the same one the pad
+		# already used.
+		b.focus_mode = Control.FOCUS_NONE
 		b.pressed.connect(_on_card_pressed.bind(i))
+		# HOVER PREVIEWS, CLICK COMMITS. A mouse crossing a row is free — it decides
+		# nothing — so it moves the same cursor the keyboard moves rather than a second
+		# one, and a disabled Button still reports the crossing.
+		b.mouse_entered.connect(_on_row_hovered.bind(i))
 		rail.add_child(b)
 		_cards.append(b)
 	_refresh_locks()
@@ -383,11 +404,19 @@ func _refresh_detail(index: int) -> void:
 func _refresh_locks() -> void:
 	var gs: Node = get_node_or_null("/root/GameState")
 	var owned: Array = [] if gs == null else (gs.get("unlocked_classes") as Array)
+	_unlocked.resize(_cards.size())
 	for i: int in _cards.size():
 		var unlocked: bool = Progression.is_class_unlocked(i, owned)
 		var b: Button = _cards[i]
 		b.disabled = not unlocked
-		b.modulate.a = 1.0 if unlocked else 0.45
+		# ⚠ THE DIM MOVED OUT OF HERE, AND IT WAS NEVER VISIBLE FROM HERE. This line used
+		# to be `b.modulate.a = 1.0 if unlocked else 0.45` — and `open()` calls
+		# `_refresh_locks()` and THEN a painter that assigns a whole `modulate`, alpha
+		# included. So the guarded rows were written at 0.45 and immediately overwritten
+		# back to 1.0, every single time the altar opened: three of the nine classes were
+		# advertised as available and only the `· guarded` suffix said otherwise. Two
+		# writers for one property, and the loser was the one that carried the meaning.
+		_unlocked[i] = unlocked
 		# Idempotent: `open()` re-runs this, and appending unconditionally would grow
 		# the label a little more every single time the altar is used.
 		var has_suffix: bool = b.text.ends_with(LOCK_SUFFIX)
@@ -410,15 +439,13 @@ func open() -> void:
 	if _dim != null:
 		_dim.visible = true
 	_refresh_locks()
-	_refresh_highlight()
-	# The detail column reads the class you are CURRENTLY in, which is what makes this
-	# screen a readout as well as a chooser. In pad mode `_paint_cursor` re-points it at
-	# the cursor instead; see the note there.
-	_refresh_detail(_selected_class())
+	# THE CURSOR STARTS ON THE CLASS YOU ARE. So the first thing the column shows is
+	# still a readout of yourself — the screen has not stopped being that — and one
+	# press of DOWN is already a preview of the next class rather than a jump to the
+	# top of a list you were not looking at.
+	_cursor = clampi(_selected_class(), 0, maxi(_cards.size() - 1, 0))
+	_paint_cursor()
 	visible = true
-	var idx: int = _selected_class()
-	if idx >= 0 and idx < _cards.size():
-		_cards[idx].grab_focus()
 
 
 func close() -> void:
@@ -571,23 +598,36 @@ func _move_cursor(dir: Vector2i) -> void:
 	_paint_cursor()
 
 
-## The cursor tint, drawn over the hub's "this is your class" highlight so both read.
+## The cursor tint, drawn over the hub's "this is your class" highlight so both read,
+## and THE ONLY WRITER OF `modulate` on a rail row.
+##
+## ⚠ THE DETAIL FOLLOWS THE CURSOR, NOT THE SELECTION — IN BOTH MODES NOW. The rule
+## has always been that an input which COMMITS may not also preview, and the reverse:
+## an input that commits nothing is free to. Pad mode had such an input (the stick)
+## and hub mode was recorded here as having none, because the only hub input this
+## screen took was a tap, and a tap picks.
+##
+## The maker supplied the missing input: *"in the class selection be able to press up
+## and down and hover over the options so that you can see exactly whats within each
+## one"*. Arrow keys and a hovering mouse commit nothing, so they preview, and they
+## drive THE SAME cursor the stick drives rather than a second one — which is why
+## this function stopped being pad-only rather than being copied.
+##
+## ONE TAP STILL COMMITS. The contract at the top of this file is untouched: moving
+## the cursor never writes `selected_class`, and a row `pressed` still picks and
+## closes on the first press.
 func _paint_cursor() -> void:
-	var sel: int = _local_class_of(_pad_device)
+	var sel: int = _local_class_of(_pad_device) if _pad_device >= 0 else _selected_class()
 	for i: int in _cards.size():
+		var tint: Color = Color.WHITE
 		if i == _cursor:
-			_cards[i].modulate = PAD_CURSOR
+			tint = PAD_CURSOR
 		elif i == sel:
-			_cards[i].modulate = HIGHLIGHT
-		else:
-			_cards[i].modulate = Color.WHITE
-	if _cursor >= 0 and _cursor < _cards.size():
-		_cards[_cursor].grab_focus()
-	# ⚠ THE DETAIL FOLLOWS THE CURSOR, NOT THE SELECTION, and only here. In pad mode
-	# moving the stick is FREE -- it commits nothing -- so it is the one input in this
-	# screen that can preview a class without becoming it. In hub (touch) mode there is
-	# no such input: a tap on a row commits, by the contract at the top of this file, so
-	# the column stays pointed at the class you are in until you change it.
+			tint = HIGHLIGHT
+		# The guarded rows are dimmed HERE rather than in `_refresh_locks`, because this
+		# assignment is what used to erase them. See the note there.
+		tint.a = 1.0 if (i < _unlocked.size() and _unlocked[i]) else LOCKED_DIM
+		_cards[i].modulate = tint
 	_refresh_detail(_cursor)
 
 
@@ -609,6 +649,17 @@ func _confirm_cursor() -> void:
 	if _pad_pick.is_valid():
 		_pad_pick.call(_pad_device, picked)
 	close()
+
+
+## A mouse crossing a rail row. Hub mode only: in pad mode the cursor belongs to
+## player two's stick, and a stray mouse on player one's desk must not move it.
+func _on_row_hovered(index: int) -> void:
+	if _pad_device >= 0 or not visible:
+		return
+	if index == _cursor:
+		return
+	_cursor = index
+	_paint_cursor()
 
 
 func _on_dim_input(event: InputEvent) -> void:
@@ -655,6 +706,27 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
 		close()
 		get_viewport().set_input_as_handled()
+	elif _pad_device < 0 and (event.is_action_pressed("ui_up", true)
+			or event.is_action_pressed("ui_down", true)
+			or event.is_action_pressed("ui_left", true)
+			or event.is_action_pressed("ui_right", true)):
+		# `true` = allow echo, so HOLDING an arrow walks the rail. The pad has its own
+		# repeat clock (`PAD_REPEAT_FIRST`/`RATE`) because a stick has no key-repeat to
+		# borrow; a keyboard already ships one, and running both would give the two
+		# inputs different speeds down the same list.
+		var dir := Vector2i(
+			1 if event.is_action_pressed("ui_right", true) else (
+				-1 if event.is_action_pressed("ui_left", true) else 0),
+			1 if event.is_action_pressed("ui_down", true) else (
+				-1 if event.is_action_pressed("ui_up", true) else 0))
+		_move_cursor(dir)
+		get_viewport().set_input_as_handled()
+	elif _pad_device < 0 and event.is_action_pressed("ui_accept"):
+		# The keyboard's commit. It goes through `_on_card_pressed` and not through
+		# `_confirm_cursor`: this is the HUB path, and the two differ in which store they
+		# write — the whole reason pad mode has a separate confirm at all.
+		_on_card_pressed(_cursor)
+		get_viewport().set_input_as_handled()
 	elif event is InputEventKey and event.pressed and event.keycode >= KEY_1 \
 			and event.keycode < KEY_1 + _cards.size():
 		# ⚠ WAS `<= KEY_8`, WITH NINE CLASSES. The ninth was unreachable by key for as
@@ -675,13 +747,12 @@ func _selected_class() -> int:
 
 ## Brighten the currently-selected card so the choice reads.
 func _refresh_highlight() -> void:
-	var sel: int = _selected_class()
-	for i: int in _cards.size():
-		_cards[i].modulate = HIGHLIGHT if i == sel else Color.WHITE
-	# Keep the readout honest. `_apply_feedback` calls this after a hub pick, and a
-	# detail column still describing the class you just left is worse than no column.
-	if _pad_device < 0:
-		_refresh_detail(sel)
+	# ⚠ DELEGATES NOW, rather than being the second writer of `modulate`. It ran AFTER
+	# `_refresh_locks` inside `open()` and assigned a full-alpha colour to every row,
+	# which is what made the guarded rows look unguarded. One painter, one truth.
+	if _cursor < 0 or _cursor >= _cards.size():
+		_cursor = clampi(_selected_class(), 0, maxi(_cards.size() - 1, 0))
+	_paint_cursor()
 
 
 ## Re-dress the hub body + update the class HUD label. No-ops in scenes without

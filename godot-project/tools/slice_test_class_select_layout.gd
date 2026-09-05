@@ -52,6 +52,8 @@ const TESTS: Array[String] = [
 	"nothing_in_the_panel_overlaps",
 	"the_roster_is_whole_and_unscrolled",
 	"the_detail_column_names_the_spells_the_class_really_casts",
+	"the_cursor_previews_a_class_without_becoming_it",
+	"a_guarded_class_can_be_read_before_it_can_be_played",
 ]
 
 const SELECT_SCRIPT: String = "res://scripts/ClassSelect.gd"
@@ -84,6 +86,8 @@ func _run() -> void:
 	await _test_nothing_in_the_panel_overlaps()
 	await _test_the_roster_is_whole_and_unscrolled()
 	await _test_the_detail_column_names_the_spells_the_class_really_casts()
+	await _test_the_cursor_previews_a_class_without_becoming_it()
+	await _test_a_guarded_class_can_be_read_before_it_can_be_played()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted -- a member it reads has moved)" % t)
@@ -379,3 +383,137 @@ func _test_the_detail_column_names_the_spells_the_class_really_casts() -> void:
 				"%s / %s has a description on the class card"
 					% [ClassInfo.name_for(i), spell.display_name])
 	_completes("the_detail_column_names_the_spells_the_class_really_casts")
+
+
+# ---------------------------------------------------------------------------
+# 7. the preview
+# ---------------------------------------------------------------------------
+
+## Maker: *"in the class selection be able to press up and down and hover over the
+## options so that you can see exactly whats within each one"*.
+##
+## The screen's standing contract is that ONE TAP COMMITS, so the thing that has to
+## be proven is not that the arrow keys move something — it is that they move it
+## WITHOUT committing. A preview that quietly wrote `selected_class` would look
+## identical on screen and would change your class every time you scrolled past one.
+##
+## ⚠ DRIVEN THROUGH `push_input`, NOT BY CALLING `_move_cursor`. Calling the mover
+## directly would pass on a build where the keys never reach it at all, and reaching
+## it is the entire feature: Godot's own focus walk consumes `ui_up`/`ui_down` before
+## `_unhandled_input` sees them, which is why the rail rows are `FOCUS_NONE`. A test
+## that skips the input path cannot notice that regression.
+func _test_the_cursor_previews_a_class_without_becoming_it() -> void:
+	var sel: CanvasLayer = await _open_at(BASE_W, BASE_H)
+	var gs: Node = root.get_node_or_null("/root/GameState")
+	_expect(gs != null, "GameState is up, so `selected_class` can be watched")
+	if gs == null:
+		_completes("the_cursor_previews_a_class_without_becoming_it")
+		return
+	var was: int = int(gs.get("selected_class"))
+	_expect(int(sel.get("_cursor")) == was,
+		"the cursor opens on the class you are (%d), not on the top of the list (%d)"
+			% [was, int(sel.get("_cursor"))])
+	_expect(int(sel.get("_detail_for")) == was,
+		"...and the column opens describing that same class")
+	await _press(&"ui_down")
+	var moved: int = int(sel.get("_cursor"))
+	_expect(moved != was,
+		"DOWN did not move the cursor (still %d). The arrow never reached" % moved
+		+ " `_unhandled_input` — check that the rail rows are still FOCUS_NONE, because a"
+		+ " focusable Button eats ui_down for its own focus walk.")
+	_expect(int(sel.get("_detail_for")) == moved,
+		"the detail column followed the cursor to %d (it is showing %d)"
+			% [moved, int(sel.get("_detail_for"))])
+	# THE HALF THAT MATTERS.
+	_expect(int(gs.get("selected_class")) == was,
+		"scrolling the roster CHANGED YOUR CLASS from %d to %d. Moving the cursor is a"
+			% [was, int(gs.get("selected_class"))]
+		+ " preview; only a press may commit.")
+	_expect(bool(sel.call("is_open")), "...and it did not close the screen either")
+	# A HOVERING MOUSE IS THE SAME CURSOR, not a second one. Emitted rather than
+	# simulated with a motion event: headless has no pointer, and what is being checked
+	# is the wiring from the row's own signal.
+	var cards: Array = sel.get("_cards") as Array
+	var far: int = maxi(ClassInfo.count() - 1, 0)
+	if far != moved and far < cards.size():
+		(cards[far] as Button).mouse_entered.emit()
+		await process_frame
+		_expect(int(sel.get("_cursor")) == far,
+			"hovering row %d left the cursor on %d" % [far, int(sel.get("_cursor"))])
+		_expect(int(sel.get("_detail_for")) == far,
+			"...and the column did not follow the hover")
+		_expect(int(gs.get("selected_class")) == was,
+			"a hover committed a class change")
+	_completes("the_cursor_previews_a_class_without_becoming_it")
+## The roster SHOWS the three guarded classes rather than hiding them, on the stated
+## grounds that a player has to be able to want a thing before it can be a reward. Two
+## properties follow from that, and both were broken:
+##
+##   1. A GUARDED ROW MUST LOOK GUARDED. `_refresh_locks` set `modulate.a = 0.45` and
+##      `open()` then called a painter that assigned a whole `modulate`, alpha included,
+##      so all nine rows were drawn at full strength and only the `· guarded` suffix
+##      distinguished the three that cannot be played. Two writers, one property, and
+##      the loser carried the meaning.
+##   2. A GUARDED ROW MUST STILL BE READABLE. Godot's built-in focus walk skips
+##      DISABLED controls, so keyboard navigation would have jumped over exactly the
+##      three rows a preview is most for.
+##
+## ⚠ THE LOCK IS FORCED ON THE SCREEN, NOT ON THE SAVE, and that is deliberate.
+## `Progression.ALL_CLASSES_UNLOCKED` is TRUE in this build (the maker asked to see the
+## whole roster), so `is_class_unlocked` answers true for all nine and a test that drove
+## this through `unlocked_classes` would pass by testing nothing — which is exactly what
+## the first version of it did. Driving the screen's own `_unlocked` row instead pins the
+## PAINTER'S contract, which is the thing that broke, and keeps holding whichever way the
+## roster gate is set.
+func _test_a_guarded_class_can_be_read_before_it_can_be_played() -> void:
+	var sel: CanvasLayer = await _open_at(BASE_W, BASE_H)
+	var cards: Array = sel.get("_cards") as Array
+	var unlocked: Array = sel.get("_unlocked") as Array
+	_expect(cards.size() > 1 and unlocked.size() == cards.size(),
+		"the screen tracks an unlock flag per row (%d rows, %d flags)"
+			% [cards.size(), unlocked.size()])
+	if cards.size() < 2 or unlocked.size() != cards.size():
+		_completes("a_guarded_class_can_be_read_before_it_can_be_played")
+		return
+	# Read from the script rather than retyped, so a re-tune of the dim does not turn
+	# this into a test of a number nobody uses any more.
+	var consts: Dictionary = (load(SELECT_SCRIPT) as GDScript).get_script_constant_map()
+	var dim: float = float(consts["LOCKED_DIM"])
+	_expect(dim < 1.0, "LOCKED_DIM (%.2f) actually dims something" % dim)
+	var guarded: int = cards.size() - 1          # the last row, whichever class that is
+	var elsewhere: int = 0
+	unlocked[guarded] = false
+	(cards[guarded] as Button).disabled = true   # what `_refresh_locks` would have done
+	sel.set("_cursor", elsewhere)
+	sel.call("_paint_cursor")
+	await process_frame
+	var a: float = (cards[guarded] as Button).modulate.a
+	_expect(is_equal_approx(a, dim),
+		"a guarded row is drawn at alpha %.2f, not %.2f — it reads as available, and the"
+			% [a, dim]
+		+ " painter has gone back to overwriting the dim the way `_refresh_locks` used to"
+		+ " have it overwritten")
+	_expect(is_equal_approx((cards[elsewhere] as Button).modulate.a, 1.0),
+		"an unguarded row was dimmed too — the alpha is not tracking the lock at all")
+	# ...and it can still be READ. `disabled` is true on it, which is precisely what
+	# Godot's focus walk refuses to visit.
+	(cards[guarded] as Button).mouse_entered.emit()
+	await process_frame
+	_expect(int(sel.get("_detail_for")) == guarded,
+		"a guarded row cannot be previewed (the column is on %d, not %d) — a locked class"
+			% [int(sel.get("_detail_for")), guarded]
+		+ " you cannot read is not a goal, it is an absence with a label on it")
+	_expect(is_equal_approx((cards[guarded] as Button).modulate.a, dim),
+		"the row stopped looking guarded as soon as the cursor landed on it")
+	_completes("a_guarded_class_can_be_read_before_it_can_be_played")
+
+
+## One keypress, delivered the way the game gets it. `InputEventAction` is enough:
+## everything on this screen reads actions, never keycodes, which is the D-011 rule
+## that lets a virtual pad drive the same screen.
+func _press(action: StringName) -> void:
+	var ev := InputEventAction.new()
+	ev.action = action
+	ev.pressed = true
+	root.push_input(ev)
+	await process_frame
