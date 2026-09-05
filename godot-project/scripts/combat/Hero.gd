@@ -1180,6 +1180,10 @@ var _melee_cd: float = MELEE_COOLDOWN     # per-class swing cadence (Brawler fas
 ## next animation to fire — quite possibly one of the four — would spend it. A window
 ## closes on its own.
 var _swing_window: float = 0.0
+## Where this body stood when the swing was DECLARED, before its lunge moved it.
+## `INF` means no swing has been declared yet. See the swept contact core in
+## `_on_melee_hit_frame` for what reads it.
+var _swing_from: Vector2 = Vector2.INF
 ## How long that window stays open. The longest strike one-shot is the 0.26 s KICK and
 ## its hit frame lands at 0.35 of that; this is comfortably past it while still being
 ## far shorter than any ability cooldown.
@@ -4850,6 +4854,7 @@ func _primary_heavy_swing() -> void:
 	# This path never calls `_melee`, and its damage IS the rig hit frame — so it has
 	# to declare the swing itself or it would stop dealing any. See _on_melee_hit_frame.
 	_swing_window = SWING_WINDOW
+	_swing_from = global_position   # BEFORE the lunge below. See `_on_melee_hit_frame`.
 	# Smaller wind-up (maker: "make the charge up for the heavys just slightly smaller").
 	#
 	# ⚠ THE GESTURE ELEMENT IS THE MELEE'S, NOT THE CLASS'S. Maker: *"the sword saint
@@ -4879,29 +4884,29 @@ func _primary_heavy_swing() -> void:
 	# this is the heavy attack that steps into its own lunge, so it is the one swing
 	# in the game with enough weight to earn a voice. See the `effort_grunt` pool.
 	Sfx.play("effort_grunt", -7.0, 0.14)
-	# THE CRESCENT. Maker: *"each swing of the sword basic attack should shoot out a
-	# short curved attack with low range to explain why the range is big for its basic
-	# attack"* — and that is exactly what it does: it draws the reach the melee hitbox
-	# ALREADY has. It carries no damage of its own, deliberately (see `SwingArc`), so
-	# the roster's slowest swinger does not quietly become its highest per-swing.
-	SwingArc.spawn(get_parent(), rig.get_weapon_tip(),
-		_aim_dir if _aim_dir != Vector2.ZERO else facing, _melee_range, _element_color)
-	# ⚠ AND THE TELL BELOW MUST NOT DRAW A SECOND CRESCENT. Maker: *"swordsaint is
-	# shooting two swords on its default attack, remove the slower one"*.
+	# ══ ONE SHAPE PER PRESS, AND IT IS THE SWORD ═══════════════════════
+	# Maker: *"juggernaut swordsaint still have like two attacks coming out of their
+	# left click like lets make it clear what the attack is and looks like"*. The word
+	# is STILL: this is the second pass at it.
 	#
-	# It was not two attacks. `SwingArc` above throws one crescent AT the swing, and
-	# `_publish_swing_tell` draws another one BEFORE it — a blade class gets
-	# `Style.CRESCENT`, so the windup crescent leads and the swing crescent follows, and
-	# two curved blades travel out of the same arm a beat apart. The leading one is the
-	# "slower" one the maker is describing.
+	# `SwingArc.spawn` USED TO BE HERE, and it was one of the two. It threw a crescent
+	# AT the swing while `_publish_swing_tell` drew a shape BEFORE it, so one press put
+	# two attack-shaped marks on screen a beat apart. Measured across the roster by
+	# `tools/probe_basic_attack_visuals.gd`: every class spawns ONE shape on LMB except
+	# these two, which spawn two — the only two that route through this function.
 	#
-	# ⚠ THE TELL ITSELF IS NOT REMOVED, ONLY ITS BLADE FIGURE. It joins the `telegraph`
-	# group, publishes `danger_shape` and `windup`, and is the ONLY thing that makes a
-	# committed two-handed swing dodgeable — `BotController.perceive_threats` reads that
-	# group and nothing else, so deleting the tell would make this class's heavy
-	# invisible to every bot in the game. It draws as a FIST mark instead: same line,
-	# same lead, same perception, one blade on screen.
-	_swing_tell_blade = false
+	# The last pass tried to fix it by making the two shapes DIFFERENT (`_swing_tell_blade
+	# = false`, so the tell drew a fist instead of a second blade). That answered the
+	# complaint it was written for — *"shooting two swords"* — and it left the count at
+	# two. It also put a FIST on the tell of a class holding a sword.
+	#
+	# So the garnish goes and the tell keeps its blade. What survives is the shape that
+	# has to survive: the tell joins the `telegraph` group, publishes `danger_shape` and
+	# `windup`, and is the ONLY thing that makes a committed two-handed swing dodgeable
+	# — `BotController.perceive_threats` reads that group and nothing else. `SwingArc`
+	# joined no group, carried no damage, offered no lead (it spawned AT the swing), and
+	# was dropped anyway whenever the arena was over its vfx budget. It explained the
+	# reach; the tell draws the reach, along the real cone, and warns you first.
 	# ⚠ AND THE TELL — this path never calls `_melee`, so it was missed by the clash
 	# declaration AND by the tell that goes with it. `SwingArc` above is explicitly NOT
 	# one: its own header says it is explanatory garnish, it joins no group, and it is
@@ -5801,6 +5806,7 @@ func _melee() -> void:
 				return
 	_melee_cooldown_timer = _melee_cd
 	_swing_window = SWING_WINDOW  # this one really is a swing; see _on_melee_hit_frame
+	_swing_from = global_position   # BEFORE the lunge below. See `_on_melee_hit_frame`.
 	_net_send("ml")
 	if _melee_kick_next:
 		rig.play(CharacterRig.State.KICK)
@@ -6371,6 +6377,36 @@ func _on_melee_hit_frame() -> void:
 			get_tree().get_nodes_in_group(attack_group()), [self], self):
 		if not enemies_in_arc.has(enemy):
 			enemies_in_arc.append(enemy)
+	# ══ ...AND ALONG THE GROUND THE SWING CROSSED TO GET HERE ═══════════════
+	# Maker, after the core above shipped: *"swordsaint juggernaut and all physical
+	# attack characters their basic hits do not register if the opponent is too close
+	# probably because the attack starts from a distance"*.
+	#
+	# The instinct is right and the mechanism is the other way round: the attack does
+	# not start from a distance, the ATTACKER MOVES ONE. Every plain swing steps into
+	# itself — `MELEE_LUNGE_SPEED` 170, the combo's 200, the heavy's 190 — and the hit
+	# frame lands `HIT_FRAME_FRACTION` into a 0.22 s one-shot, i.e. 0.077 s later. That
+	# is 13-18 px of travel between the press and the resolve, and everything above is
+	# measured from where the body ENDS UP.
+	#
+	# So a target you were already touching when you pressed is BEHIND you by the time
+	# the swing resolves: past the cone's angle test, and past the ~9.6 px the contact
+	# core reaches. The core above fixed the case of a body standing inside you at the
+	# hit frame; it never covered the body you walked THROUGH on the way to it.
+	#
+	# The fix is a capsule, not a bigger disc: everything within a silhouette's width of
+	# the LINE this body just travelled. That adds no forward reach — the far cap is the
+	# disc that was already being tested — and it takes back exactly the ground the lunge
+	# stole. `MeleeClash` has compensated for this same lunge since it was written
+	# (`CLASH_REACH_BONUS`, "both fighters are still closing"); the damage path never did.
+	var swept: Vector2 = (global_position - _swing_from) if _swing_from.is_finite() \
+		else Vector2.ZERO
+	if swept.length() > 1.0:
+		for enemy: Node in SpellTargets.on_line(_swing_from, swept.normalized(),
+				swept.length(), core, get_tree().get_nodes_in_group(attack_group()),
+				[self], self):
+			if not enemies_in_arc.has(enemy):
+				enemies_in_arc.append(enemy)
 	# ══ THE PACT NOW BUFFS STEEL ═══════════════════════════════════════════════
 	# Maker: *"the blood pact needs to be buffed"*.
 	#

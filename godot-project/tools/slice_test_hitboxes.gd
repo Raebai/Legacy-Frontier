@@ -48,6 +48,7 @@ extends SceneTree
 # suite BY ABSENCE.
 
 const TESTS: Array[String] = [
+	"a_swing_catches_what_its_lunge_stepped_over",
 	"every_fighter_has_a_hurtbox",
 	"hurtbox_tracks_the_drawn_body",
 	"hurtbox_survives_a_subclass_tick",
@@ -120,6 +121,7 @@ func _run() -> void:
 	_test_drawn_crescent_does_not_outreach_the_swing()
 	await _test_melee_autotarget_stays_in_front()
 	await _test_a_swing_connects_at_contact_range()
+	await _test_a_swing_catches_what_its_lunge_stepped_over()
 	_test_cone_tell_circle_encloses_its_cone()
 	_test_charge_lane_is_the_charge()
 	_test_every_archetype_spell_declares_where_it_warns()
@@ -676,6 +678,93 @@ func _test_a_swing_connects_at_contact_range() -> void:
 	hero.queue_free()
 	await process_frame
 	_completes("a_swing_connects_at_contact_range")
+
+
+## ══ THE SWING CATCHES WHAT ITS OWN LUNGE STEPPED OVER ════════════════
+## Maker, AFTER the contact core above shipped: *"swordsaint juggernaut and all
+## physical attack characters their basic hits do not register if the opponent is too
+## close probably because the attack starts from a distance"*.
+##
+## ⚠ THE TEST ABOVE COULD NOT HAVE CAUGHT THIS, and that is why this is a new test
+## rather than another offset in its loop. `_swing()` resolves the hit AT A FROZEN
+## POSITION: it opens `_swing_window` by hand and calls `_on_melee_hit_frame` directly,
+## so it never runs a primary, never applies the `velocity.x = ±190` lunge every plain
+## swing carries, and never lets a frame pass for that velocity to move anything. The
+## lunge is structurally absent from it. Its offsets are -1, -3 and a -20 px control;
+## the real overshoot is 13-18 px, in the gap between them that it never looks at.
+##
+## So this one drives the REAL primary, moves the body the way the lunge would, and
+## only then resolves — on all three physical classes rather than the Brawler alone.
+## The Brawler's 0.20 s combo lands the next punch a few frames later and papers over
+## the whiff, which is why the two single-swing classes are the ones the maker named.
+func _test_a_swing_catches_what_its_lunge_stepped_over() -> void:
+	# class id -> the primary it dispatches to. Called directly rather than through
+	# `_cast`, which also spends cooldowns and mana and would make a miss ambiguous.
+	var physical: Dictionary = {
+		2: "_primary_melee_combo",   # Brawler
+		3: "_primary_heavy_swing",   # Juggernaut
+		8: "_primary_heavy_swing",   # Swordsaint
+	}
+	var checked: int = 0
+	for cls: int in physical:
+		for travel: float in [10.0, 15.0, 20.0]:
+			var hero: Node2D = await _stand(HERO)
+			if hero == null:
+				_expect(false, "could not stand a hero up for the lunge check")
+				_completes("a_swing_catches_what_its_lunge_stepped_over")
+				return
+			hero.call("configure_class", cls)
+			var mark := HitCounter.new()
+			mark.add_to_group(String(hero.call("attack_group")))
+			mark.add_to_group(String(hero.get(&"hostile_group")))
+			_world.add_child(mark)
+			await physics_frame
+			# TOUCHING AT THE PRESS — the case the maker is describing: you are already on
+			# top of them when you swing.
+			var stood: Vector2 = hero.global_position
+			mark.global_position = stood
+			mark.hits = 0
+			hero.set(&"_melee_cooldown_timer", 0.0)
+			hero.set(&"_aim_dir", Vector2.RIGHT)
+			hero.set(&"facing", Vector2.RIGHT)
+			hero.call(String(physical[cls]))
+			# The lunge, done by hand. No `await` — `Hero._physics_process` ends by writing
+			# `facing = _aim_dir` and also decays the swing window, so a frame here would be
+			# measuring a different swing (the note on `_swing` records that trap costing a
+			# whole run). What is asserted is geometry: the body moved this far before it
+			# resolved.
+			hero.global_position = stood + Vector2(travel, 0.0)
+			hero.call("_on_melee_hit_frame")
+			checked += 1
+			_expect(mark.hits == 1,
+				"%s swung at a body it was touching, stepped %.0f px past it, and hit it"
+					% [String(ClassInfo.CLASSES[cls]["name"]), travel]
+				+ " %d time(s). The swing resolves from where the body ENDS UP, so a target"
+					% mark.hits
+				+ " you were already on top of is behind you by the hit frame — past the"
+				+ " cone's angle test and past the contact core's ~9.6 px.")
+			# ...AND THE GROUND BEHIND THE START IS STILL NOT REACHED. The capsule takes
+			# back the ground the lunge crossed; it must not become a swing that reaches
+			# backwards, which is the auto-target the "NO auto-aim" ruling killed.
+			mark.hits = 0
+			mark.global_position = stood + Vector2(-20.0, 0.0)
+			hero.set(&"_melee_cooldown_timer", 0.0)
+			hero.set(&"_aim_dir", Vector2.RIGHT)
+			hero.set(&"facing", Vector2.RIGHT)
+			hero.call(String(physical[cls]))
+			hero.global_position = stood + Vector2(travel, 0.0)
+			hero.call("_on_melee_hit_frame")
+			checked += 1
+			_expect(mark.hits == 0,
+				"%s reached 20 px BEHIND where its swing started (hits %d) — the swept core"
+					% [String(ClassInfo.CLASSES[cls]["name"]), mark.hits]
+				+ " has grown into a swing that hits what is behind you")
+			mark.queue_free()
+			hero.queue_free()
+			await process_frame
+	_expect(checked >= 18,
+		"all three physical classes were swept at three travels (%d checks)" % checked)
+	_completes("a_swing_catches_what_its_lunge_stepped_over")
 
 
 ## Counts melee landings. `take_damage` is the whole contract `_on_melee_hit_frame`
