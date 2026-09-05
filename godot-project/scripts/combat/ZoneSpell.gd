@@ -56,7 +56,27 @@ const HEAL_PER_TICK: int = 6
 ## so the field can never bite at a size that is not yet on screen — which is why
 ## there is no longer an immediate _tick() in open() (it would have hit at full
 ## radius against a footprint of zero).
-const GROW_TIME: float = 0.18
+##
+## ⚠ 0.18 -> 0.34, AND THE NUMBER CAME FROM A MEASUREMENT. `tools/probe_owned_spell_dodge.gd`
+## computes, for every spell in these files, whether a body starting at the WORST
+## case — the dead centre of the danger area — can be outside it before the damage
+## lands. The blizzard was the one row in the table that failed, and it failed
+## against every verb in the game: a 135 px frost column needs 0.30 s to leave with a
+## DASH (620 px/s for 0.18 s = 112 px, then 210 px/s for the rest) and the first bite
+## landed at 0.18 s. Slack: -6.8 frames. The maker's standing directive is
+## *"everything must be dodgeable"*, and a spell with negative slack is not dodgeable
+## no matter how legible its tell is.
+##
+## 0.34 is the ROCK WALL'S RISE_TIME, picked over a bespoke number so the game has
+## one duration for "a big placed thing is arriving". It leaves +2.6 frames, which is
+## THIN and is stated as thin: it makes the dead-centre dash a real escape rather
+## than a comfortable one. Raising it further is the dial if the maker wants slack.
+##
+## It moves the DRAWN ease and the DAMAGE ease together — they read the same
+## constant, which is the invariant this block exists to protect. Delaying only the
+## first bite would have been the smaller diff and would have re-opened the
+## drawn-vs-damaged gap the paragraph above closed.
+const GROW_TIME: float = 0.34
 ## Vertical squash of the ground ellipse. A field lies on the FLOOR; drawing it
 ## face-on would be a face-on disc. Damage now uses this too.
 const GROUND_SQUASH: float = 0.42
@@ -336,9 +356,28 @@ func _tick() -> void:
 		return
 	var tint: Color = Color(_color.r, _color.g, _color.b, 1.0)
 	for e: Node in _bodies_in_field(target_group, r):
+		# ⚠ DEFLECTABLE — and COUNTED before it was written, because it was not.
+		# `tools/slice_test_owned_spell_deflect.gd` measured a raised guard eating 0
+		# of a squall's 90 damage over one encase cycle.
+		#
+		# ⚠ AND IT IS DELIBERATELY THE CHIP TICK TOO, not only the payoff. The tick
+		# runs on a 0.4 s cadence and a parry window is 0.16 s, so this can never let
+		# somebody stand in a blizzard behind a held guard: it turns AT MOST one tick
+		# per press, which is the same deal every other spell offers. Excluding the
+		# tick would have been the tidier-looking rule and a worse one — a player who
+		# parries the visible sleet gust and still takes the damage learns that the
+		# defensive read is unreliable, which SpellDeflect's policy note names as
+		# costing more than any balance problem it fixes.
+		#
+		# The direction is DOWN because that is where the snow is coming from; the
+		# spark cone the beat draws is aimed off it.
+		var dealt: int = SpellDeflect.resolve(e, _tick_dmg, Vector2.DOWN,
+			SpellTargets.aim_point(e), _deflect_window())
+		if dealt <= 0:
+			continue
 		if e.has_method("take_damage"):
 			# Enemy.take_damage already routes to the host in co-op; no gating here.
-			SpellTargets.hurt(e, _tick_dmg, tint)
+			SpellTargets.hurt(e, dealt, tint)
 		if _effect != "frost" and e.has_method("apply_status"):
 			e.apply_status(element_id)
 	# ...and the SCENERY standing in the field, on the same tick cadence. A blizzard
@@ -372,6 +411,12 @@ func _tick() -> void:
 		CombatVfx.spawn_burst(get_parent(), _at + Vector2(0.0, 4.0),
 			Color(_color.r, _color.g, _color.b, 0.7), Color(_color.r, _color.g, _color.b, 0.0),
 			8, 0.5, 30.0, 70.0, 0.6, 1.6, 0.0, 0.0, true)
+
+
+## How much of a victim's parry window counts against this field. Same two-line
+## expression as every other spectacle, so the ult policy cannot drift per spell.
+func _deflect_window() -> float:
+	return SpellDeflect.WINDOW_ULT if spell_tier == SpellTier.Tier.ULT 		else SpellDeflect.WINDOW_NORMAL
 
 
 # ------------------------------------------------------------ rime -> encase -> shatter
@@ -474,8 +519,15 @@ func _shatter_casing(n: Node2D) -> void:
 	if n == null or not is_instance_valid(n):
 		return
 	var p: Vector2 = n.global_position
-	if n.has_method("take_damage"):
-		SpellTargets.hurt(n, ENCASE_SHATTER_DAMAGE, Color(0.72, 0.92, 1.0, 1.0))
+	# ⚠ DEFLECTABLE. The casing bursting is the field's one SUDDEN beat and the only
+	# thing in it that reads as a hit you could have answered — so it is the one that
+	# most needed to reach the guard, and the one that most obviously did not.
+	# The casing still opens (the victim is released either way); what a guard buys
+	# is not eating the burst.
+	var dealt: int = SpellDeflect.resolve(n, ENCASE_SHATTER_DAMAGE, Vector2.UP,
+		SpellTargets.aim_point(n), _deflect_window())
+	if dealt > 0 and n.has_method("take_damage"):
+		SpellTargets.hurt(n, dealt, Color(0.72, 0.92, 1.0, 1.0))
 		# ⚠ THE PAYOFF MOVED NOBODY. This is the field's "sudden beat" (see the header)
 		# and it dealt 34 damage while leaving the victim standing exactly where it
 		# found them. UP-and-out rather than radial: the casing bursts around the body,

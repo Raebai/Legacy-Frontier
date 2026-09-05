@@ -9,6 +9,21 @@ extends Node2D
 ## smashes crates, and slams to a stop against real world geometry.
 ## Instantiate .new(), add to arena, call raise_wall(). Draws in world coords.
 ##
+## ══ WHAT THIS WALL IS, AGAINST THE OTHER ONE ═══════════════════════════════
+## Maker: *"a rock wall and an ice wall must not be the same spell in two colours"*.
+## Both walls answer the SAME second press and answer it OPPOSITELY, which is the
+## whole of the distinction and is written out at length in IceWall's header:
+##
+##   ROCK (here) — the press DISPLACES it. The wall survives the press, LEAVES, and
+##                 becomes a grinding ram travelling away from you: offence at RANGE,
+##                 along a LINE, and you keep nothing where you were standing.
+##   ICE         — the press DETONATES it. It does not move; it bursts where it
+##                 stands: offence UP CLOSE, in a RING, and it costs you the barrier.
+##
+## Stone is the one that MOVES because stone is MASS. That is not decoration: the
+## slide is the only reason `_plow_enemies`, `_smash_props`, `_hit_world` and
+## `_slam_stop` exist, and none of them have an equivalent on the ice.
+##
 ## THE TWO-BEAT (the maker's ask): rock wall is ONE button pressed twice — the
 ## first press summons the wall, the second press is the punch that sends it. The
 ## arbitration that decides which of those a press means lives in the caster (it
@@ -447,15 +462,30 @@ static func snapshot_shoveable(tree: SceneTree) -> Array:
 ## Stamp `by` onto every shoveable wall that was not in `before`. Returns how many
 ## were adopted. Already-owned walls are left alone, so a second bracket around a
 ## nested cast can never steal the first caster's wall.
+##
+## ⚠ DUCK-TYPED, NOT `as RockWall`. It used to cast, which silently skipped every
+## wall that was not literally this class — so the moment the ICE wall joined the
+## "shoveable" registry (it answers the same press by DETONATING; see IceWall's
+## header) an ice wall could never be claimed, and the claimable half of the
+## two-beat — the primed tell, which requires `is_raised_by(you)` — would never
+## light for it. Nothing would have errored: the wall would simply have been
+## punchable by anyone and advertised to no one, which reads as the tell being
+## broken rather than as ownership never being stamped.
+##
+## The marker for "this is a wall that can be owned" is `is_raised_by` plus a
+## DECLARED `caster_node`. `get()` on an undeclared property returns null, which is
+## indistinguishable from a declared-and-unowned one, so the method is what carries
+## the contract and the property is only read once the method has vouched for it.
 static func adopt_new_shoveable(tree: SceneTree, before: Array, by: Node) -> int:
 	if tree == null:
 		return 0
 	var claimed: int = 0
 	for w: Node in tree.get_nodes_in_group("shoveable"):
-		var wall := w as RockWall
-		if wall == null or wall.caster_node != null or before.has(wall):
+		if not is_instance_valid(w) or not w.has_method("is_raised_by"):
 			continue
-		wall.caster_node = by
+		if w.get("caster_node") != null or before.has(w):
+			continue
+		w.set("caster_node", by)
 		claimed += 1
 	return claimed
 
@@ -676,6 +706,12 @@ func _is_smashable(n: Node) -> bool:
 	return n.is_in_group("destructible") or n.is_queued_for_deletion()
 
 
+## How much of a victim's parry window counts against the plow. Same two-line
+## expression as every other spectacle, so the ult policy cannot drift per spell.
+func _deflect_window() -> float:
+	return SpellDeflect.WINDOW_ULT if spell_tier == SpellTier.Tier.ULT 		else SpellDeflect.WINDOW_NORMAL
+
+
 ## Anything caught in the wall's path gets plowed ONCE: real damage + a heavy
 ## up-and-out launch. One hit per enemy per slide (no per-frame damage ticks).
 func _plow_enemies() -> void:
@@ -693,9 +729,29 @@ func _plow_enemies() -> void:
 		var id: int = e.get_instance_id()
 		if _plowed.has(id):
 			continue
+		# ⚠ MARKED PLOWED EVEN WHEN THE GUARD EATS IT, and that is a design decision
+		# rather than an ordering accident. The wall keeps grinding after the parry,
+		# so without the mark the very next frame would re-test the same body and
+		# collect the hit the moment the 0.16 s window lapsed — a correct read would
+		# buy three frames instead of the exchange. One press turns one ram, once.
 		_plowed[id] = true
+		# ⚠ DEFLECTABLE — and COUNTED before it was written, because it was not.
+		# `tools/slice_test_owned_spell_deflect.gd` measured a raised guard eating 0
+		# of this plow's 40 damage. A wall grinding at 820 px/s is the heaviest thing
+		# the two-beat can do to somebody and it went through a raised guard as if the
+		# guard were not there.
+		#
+		# It is the `resolve()` path and NOT `reflect()`, despite the wall genuinely
+		# travelling — SpellDeflect's split is about whether the thing can be SENT
+		# BACK, and a 44 x 124 slab of stone bouncing off a parry into reverse is the
+		# ram's whole physics story (plow marks, slam-stop, grind dust) running
+		# backwards. The guard turns the hit aside; the wall keeps going.
+		var dealt: int = SpellDeflect.resolve(e, SHOVE_DAMAGE, _slide_dir,
+			SpellTargets.aim_point(e), _deflect_window())
+		if dealt <= 0:
+			continue   # the guard turned the mass aside: no damage, no ailment, no launch
 		if e.has_method("take_damage"):
-			e.take_damage(SHOVE_DAMAGE)
+			e.take_damage(dealt)
 		if element_id >= 0 and e.has_method("apply_status"):
 			e.apply_status(element_id)
 		if e.has_method("apply_knockback"):

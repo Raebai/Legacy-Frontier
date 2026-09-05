@@ -15,6 +15,39 @@ extends Node2D
 ##   * every standing ice wall is in the "ice_wall" group
 ##   * `shatter()` bursts it NOW (idempotent — safe to call twice)
 ##
+## ══ THE SECOND BEAT, AND WHY IT IS NOT THE ROCK WALL'S ══════════════════════
+## Maker, reviewing in the playground: *"a rock wall and an ice wall must not be the
+## same spell in two colours"*, in the same breath as *"a wall should be SHOVEABLE —
+## you should be able to push it"*. Those two asks pull against each other if you
+## answer them the obvious way, because the obvious way is to give BOTH walls a
+## shove, which is the recolour complaint restated in verbs.
+##
+## So both walls now answer the SAME input — the punch / use-press that the two-beat
+## arbitration routes to a wall standing in front of you — and they answer it with
+## OPPOSITE consequences:
+##
+##   ROCK  — `shove()` DISPLACES it. The wall survives, leaves, and becomes a
+##           grinding ram travelling away from you. Offence at RANGE, along a LINE.
+##   ICE   — `shove()` DETONATES it. The wall does not move a pixel; it comes apart
+##           where it stands, into the shard burst it was always going to end in.
+##           Offence UP CLOSE, in a RING, and it costs you the barrier.
+##
+## That is one verb the player learns once, two materials that answer it differently,
+## and no new machinery: this reuses the "shoveable" registry, the existing two-beat
+## claim, the existing primed tell (drawn here in the wall's own crack lines rather
+## than as a second highlight) and `shatter()` exactly as it already was.
+##
+## ⚠ AND IT IS DELIBERATELY NOT PUSHABLE. Stone slides because stone is MASS; a
+## crystal cluster grown out of the floor that skated across the arena would be the
+## rock wall in cyan, which is the thing being fixed. The refusal is the identity.
+##
+## SHOVE CONTRACT (the duck-typed half `RockWall.find_shoveable_near` searches on —
+## every method here is the same name and shape as RockWall's, which is what lets the
+## caster ask one question of both walls):
+##   * every standing ice wall is ALSO in the "shoveable" group
+##   * `can_shove()` / `wall_distance()` / `time_since_raise()` / `is_raised_by()`
+##     / `footprint_center()` / `set_primed()` / `shove()`
+##
 ## REACTION CONTRACT (see SpellReactor): this wall is a BARRIER of ICE, so the
 ## rows already authored for it — `shatter_ice_barrier` (a fire/holy beam or any
 ## physical impact pops it), `shrapnel_cone` (a thrown thing bursts it ALONG its
@@ -77,6 +110,16 @@ const EDGE_COLOR: Color = Color(0.95, 1.45, 1.85)   # HDR cyan edge lines (bloom
 const CRACK_COLOR: Color = Color(1.4, 1.7, 2.0)     # HDR internal cracks
 const GLINT_COLOR: Color = Color(1.6, 1.85, 2.1)    # HDR tip sparkle
 
+## ── the primed tell ──────────────────────────────────────────────────────────
+## Deliberately NOT a new highlight, and deliberately not the rock wall's amber
+## crown either. This wall already draws internal fracture lines that shimmer; when
+## it is primed those SAME cracks run hot and fast, which is the only read the ice
+## needs — the crystal is about to let go. Same pulse rate as RockWall.PRIME_PULSE_HZ
+## so the two walls' tells beat in time and a player learns one rhythm, not two.
+## UNTESTED GUESSES: both numbers are reasoning, not feel.
+const PRIME_PULSE_HZ: float = 2.6
+const PRIME_GLOW: float = 1.1
+
 ## WHO THIS SPELL MAY HURT. Stamped by SpellCaster._stamp() at cast time, so it
 ## follows the CASTER's faction rather than being fixed at "enemy" forever.
 ##
@@ -121,6 +164,7 @@ var _cracks: Array[PackedVector2Array] = []  # internal fracture polylines
 var _sparkle_t: float = 0.0
 
 # Shatter state.
+var _primed: bool = false           # the next use-press DETONATES me — see set_primed()
 var _shattered: bool = false
 var _shatter_elapsed: float = -1.0
 var _shatter_center: Vector2 = Vector2.ZERO
@@ -137,6 +181,10 @@ func raise_wall(
 	_elapsed = 0.0
 	_build_shards()
 	add_to_group("ice_wall")  # Phase 3 finds shatter targets through this group
+	# ...and the two-beat registry, so the punch/use-press that SENDS a rock wall
+	# instead BURSTS this one. See the SHOVE CONTRACT in the header for why one
+	# verb with two answers is the point rather than a collision.
+	add_to_group("shoveable")
 	# Real blocking body — layer 1 stops enemy bodies + enemy projectiles.
 	_body = StaticBody2D.new()
 	_body.collision_layer = 1
@@ -243,6 +291,98 @@ func reaction_consume() -> void:
 	shatter()
 
 
+# --- the second beat: DETONATE (see the SHOVE CONTRACT in the header) --------
+## Every method below is the same NAME and SHAPE as RockWall's, because
+## `RockWall.find_shoveable_near()` searches the "shoveable" group duck-typed and
+## the caster must be able to ask ONE question of a wall without first asking what
+## the wall is made of. What differs is only `shove()`'s answer.
+
+## Where this wall actually STANDS. `global_position` is (0, 0) — this node draws in
+## world coordinates — so a caller deciding "is it to my left or my right" must ask
+## for this and never for the transform. Same trap, same fix, same name as RockWall.
+func footprint_center() -> Vector2:
+	return _floor_base - Vector2(0.0, WALL_SIZE.y * 0.5)
+
+
+## Distance from `pos` to the blocking footprint (0 when touching it). Measured
+## against the COLLIDER box rather than the wider `chill_contains` pad: this answers
+## "can I reach it to punch it", and reach should be to the thing, not to its aura.
+func wall_distance(pos: Vector2) -> float:
+	var hw: float = WALL_SIZE.x * 0.5
+	var nearest := Vector2(
+		clampf(pos.x, _floor_base.x - hw, _floor_base.x + hw),
+		clampf(pos.y, _floor_base.y - WALL_SIZE.y, _floor_base.y),
+	)
+	return pos.distance_to(nearest)
+
+
+## Would a press do anything RIGHT NOW? Asked BEFORE a caller commits a button to
+## this wall, so a press is never eaten by a wall already coming apart.
+##
+## ⚠ THE `RISE_TIME` GATE IS THE SPELL'S TELL, and it exists because the dodge probe
+## said so. `tools/probe_owned_spell_dodge.gd` measures, for every spell in these
+## files, whether a body starting inside the danger area can leave it before the
+## damage lands. Without this gate the answer for a punched ice wall was NO BY
+## CONSTRUCTION: raise at t=0, press at t=0.01, and a 120 px shard burst arrives with
+## a windup of one frame. A spell with negative slack is not dodgeable no matter what
+## the tell says, and "everything must be dodgeable" is a standing maker directive.
+##
+## So the wall must finish CRYSTALLISING before it can be detonated: 0.30 s, which is
+## the rise you can already see, drawn spire by spire, with the frost sigil open under
+## it. Not a new telegraph — the existing one, now load-bearing. It buys 18 frames, of
+## which a dash (620 px/s) spends 12 to clear the burst: +6 frames of slack. A WALK
+## still cannot make it, and that is the honest cost of standing next to somebody's
+## ice wall.
+##
+## ⚠ AND IT IS DELIBERATELY UNLIKE THE ROCK WALL, which `shove()` explicitly allows
+## mid-rise ("a mid-rise shove snaps the wall solid first"). Stone snapping to full
+## height early is fine because the slide then has to CROSS the arena to reach you —
+## the travel is the tell. The crystal's burst is instantaneous at its own position,
+## so the only tell it can have is the one before the press.
+func can_shove() -> bool:
+	return _elapsed >= RISE_TIME and not _shattered
+
+
+## Seconds since it was raised, for the two-beat's combo window. INF before the
+## raise so an un-raised wall can never look "fresh".
+func time_since_raise() -> float:
+	return _elapsed if _elapsed >= 0.0 else INF
+
+
+func is_raised_by(who: Node) -> bool:
+	return who != null and caster_node == who
+
+
+## THE TELL. The player has to SEE that the next press will burst this rather than
+## cast. No new element: `_draw` reads `_primed` and runs the fracture lines it was
+## already drawing hot and fast. See PRIME_GLOW.
+func set_primed(on: bool) -> void:
+	if _primed == on:
+		return
+	_primed = on
+	queue_redraw()
+
+
+## THE SECOND BEAT. Signature-compatible with `RockWall.shove()` — same arguments,
+## same bool return meaning "the press was spent on me" — and deliberately IGNORES
+## both of them: an ice wall does not travel, so a direction and a speed have nothing
+## to steer. It bursts where it stands.
+##
+## Returns false when there is nothing to burst, which is what stops a press being
+## swallowed by a wall that is already gone.
+##
+## ⚠ THE BURST IS `shatter()`, NOT A PRIVATE COPY OF IT. The wall has exactly one way
+## to die — natural expiry, a fire beam through the reaction layer and this press all
+## arrive at the same function — because a second teardown path is how a wall ends up
+## freed while still grouped, still blocking, or silent. `shatter()` is idempotent, so
+## a press racing the expiry timer is safe.
+func shove(_dir: Vector2 = Vector2.RIGHT, _speed: float = 0.0) -> bool:
+	if not can_shove():
+		return false
+	shatter()
+	return true
+
+
 ## Pure geometry (testable): where the wall lands relative to the caster + aim.
 static func wall_center(from: Vector2, aim: Vector2, offset: float = WALL_OFFSET) -> Vector2:
 	var d: Vector2 = aim.normalized()
@@ -309,6 +449,8 @@ func shatter() -> void:
 	_shatter_elapsed = 0.0
 	_shatter_center = _floor_base - Vector2(0.0, WALL_SIZE.y * 0.45)
 	remove_from_group("ice_wall")
+	remove_from_group("shoveable")  # a bursting wall must not be offered a second press
+	_primed = false
 	if _collider != null:
 		_collider.set_deferred("disabled", true)  # shards don't block
 	# The burst: glassy chunks arc out + a white-hot mote flash that blooms.
@@ -334,13 +476,30 @@ func shatter() -> void:
 			in_range.append(e)
 	for e: Node in SpellWorld.filter_reachable(_shatter_center, in_range, skip, self):
 		var p: Vector2 = (e as Node2D).global_position
+		var away: Vector2 = (p - _shatter_center).normalized()
+		if away == Vector2.ZERO:
+			away = Vector2.UP
+		# ⚠ DEFLECTABLE — and COUNTED before it was written, because it was not.
+		# `tools/slice_test_owned_spell_deflect.gd` measured a raised guard eating
+		# 0 of this burst's 18 damage. The wall never travels, so per SpellDeflect's
+		# split there is nothing to send back: a correctly-timed guard EATS the
+		# shards. The direction handed over is the way the shards are flying, which
+		# is what the spark cone is drawn along.
+		#
+		# It matters more than it did. This burst used to be an expiry event you
+		# stood too near; the second beat (a punched ice wall detonates — see the
+		# header) makes it something an opponent AIMS at you, and every other aimed
+		# hit in the game can be read and answered.
+		var dealt: int = SpellDeflect.resolve(e, SHATTER_DAMAGE, away,
+			SpellTargets.aim_point(e), _deflect_window())
+		if dealt <= 0:
+			continue   # the guard ate the shards: no damage, no chill, no shove
 		if e.has_method("take_damage"):
-			e.take_damage(SHATTER_DAMAGE)
+			e.take_damage(dealt)
 		if e.has_method("apply_status"):
 			e.apply_status(element_id)
 		if e.has_method("apply_knockback"):
-			var away: Vector2 = (p - _shatter_center).normalized()
-			e.apply_knockback((away if away != Vector2.ZERO else Vector2.UP) * SHATTER_KNOCKBACK)
+			e.apply_knockback(away * SHATTER_KNOCKBACK)
 	# ...and the SCENERY. A wall of ice bursting apart at head height should take the
 	# crate next to it with it. Reuses `shatter_contains` rather than a bounding
 	# circle so the drawn ring, the fighter ring and the cover ring are the same ring.
@@ -361,6 +520,14 @@ func shatter() -> void:
 	Juice.tier_frame(spell_tier, _shatter_center, element_id,
 		{"zoom": 0.0, "shake": 0.0, "shock": 0.0, "hitstop": 0.0})
 	queue_redraw()
+
+
+## How much of a victim's parry window counts against this burst. An ULT-weight
+## wall is BRUTAL to time against rather than unblockable — the policy is written
+## out at length in SpellDeflect's header, and this is the same two-line expression
+## every other spectacle uses so the rule cannot drift per spell.
+func _deflect_window() -> float:
+	return SpellDeflect.WINDOW_ULT if spell_tier == SpellTier.Tier.ULT 		else SpellDeflect.WINDOW_NORMAL
 
 
 ## Chill any enemy overlapping the wall footprint (touching the ice). Runs on
@@ -421,6 +588,11 @@ func _draw() -> void:
 	if _shattered:
 		_draw_shatter()
 		return
+	# THE PRIMED TELL, computed once for the whole cluster so every crack in the wall
+	# beats together — a wall whose fractures flickered independently would read as
+	# noise rather than as one object about to let go. Zero when not primed, which is
+	# what makes every expression below collapse to exactly the old drawing.
+	var prime: float = (0.5 + 0.5 * sin(_elapsed * PRIME_PULSE_HZ * TAU)) if _primed else 0.0
 	# Frost pool on the ground under the cluster (translucent, not a dust skirt).
 	draw_circle(_floor_base, WALL_SIZE.x * 1.3, Color(0.7, 0.92, 1.0, 0.12), true, -1.0, true)
 	draw_arc(_floor_base, WALL_SIZE.x * 1.3, PI, TAU, 24, Color(0.85, 0.97, 1.05, 0.25), 1.2, true)
@@ -451,12 +623,18 @@ func _draw() -> void:
 		draw_line(pts[1], pts[2], Color(EDGE_COLOR.r, EDGE_COLOR.g, EDGE_COLOR.b, 0.95), 2.0, true)
 		# Internal crack (only once the spire is mostly grown) with a slow shimmer.
 		if u > 0.8:
-			var shimmer: float = 0.32 + 0.16 * sin(_sparkle_t * 5.0 + float(i) * 1.7)
+			# PRIMED: the same crack, run hot and thick. The alpha floor rises with the
+			# pulse and the colour is multiplied into an already-HDR value so the BLOOM
+			# does the work — a fatter line would compete with the spires' own edges,
+			# and the maker has already said the fight has "too much going on".
+			var shimmer: float = 0.32 + 0.16 * sin(_sparkle_t * 5.0 + float(i) * 1.7) 				+ 0.45 * prime
 			var crack: PackedVector2Array = _cracks[i]
 			var cpts := PackedVector2Array()
 			for c in crack:
 				cpts.append(_floor_base + Vector2(bx + (c.x - bx) * widen, c.y * s))
-			draw_polyline(cpts, Color(CRACK_COLOR.r, CRACK_COLOR.g, CRACK_COLOR.b, shimmer), 1.0, true)
+			var ck: Color = CRACK_COLOR * (1.0 + PRIME_GLOW * prime)
+			draw_polyline(cpts, Color(ck.r, ck.g, ck.b, minf(shimmer, 1.0)),
+				1.0 + 1.4 * prime, true)
 		# Tip glint: a tiny pulsing HDR star.
 		if u >= 1.0:
 			var tip: Vector2 = pts[2]

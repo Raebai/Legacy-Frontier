@@ -1588,9 +1588,9 @@ static func _ice_wall() -> SpellDef:
 	var s := SpellDef.new()
 	s.id = "ice_wall"
 	s.display_name = "Ice Wall"
-	s.description = "Raise a crystalline wall of ice in the aim direction — it blocks "\
-		+ "enemy bodies and projectiles for a few seconds and CHILLS anything pressed "\
-		+ "against it, then shatters."
+	s.description = "Grow a brittle wall of crystal in the aim direction. It blocks "\
+		+ "and CHILLS what presses against it — then PUNCH IT and it does not move an "\
+		+ "inch, it comes apart in their face."
 	s.kind = SpellDef.Kind.ICE_WALL
 	s.element = Elements.Element.ICE
 	s.use_element_color = true
@@ -1915,7 +1915,20 @@ static func _rock_wall() -> SpellDef:
 	var s := SpellDef.new()
 	s.id = "rock_wall"
 	s.display_name = "Rock Wall"
-	s.description = "Raise a temporary wall of stone in the aim direction — it blocks enemy bodies and projectiles for a few seconds, then crumbles."
+	## ⚠ BOTH WALL CARDS WERE REWRITTEN TOGETHER, and that is the point of the edit
+	## rather than a flourish. Maker: *"a rock wall and an ice wall must not be the
+	## same spell in two colours"*. The two walls differ in a dozen ways in code — one
+	## is opaque mass that SLIDES, one is a brittle bomb that BURSTS — but the two
+	## cards said the same sentence: "raise a wall, it blocks things, then it goes
+	## away". A difference the player cannot read is a difference that does not exist
+	## to them.
+	##
+	## Both walls answer the same second press. This one is MASS: the press SENDS it.
+	## The crystal does not move an inch and comes apart instead. See IceWall.gd's
+	## header for the full ruling.
+	s.description = "Slam up a slab of stone in the aim direction. It blocks bodies "\
+		+ "and shots — then PUNCH IT and it grinds off across the arena, plowing "\
+		+ "whatever is in front of it until it slams into something solid."
 	s.kind = SpellDef.Kind.WALL
 	s.element = Elements.Element.EARTH
 	s.use_element_color = true
