@@ -79,6 +79,22 @@ ruling is nine classes / nine unique movement verbs, and this one's identity IS 
 A slide that can be aimed upward and still bleeds speed is still a slide.
 `slice_test_class_movement` pins the nine verbs and their distance bands.
 
+### ⚠ A PRE-EXISTING BUG WORTH FIXING FIRST — THE MUSIC BUS NEVER LOADS
+
+Every headless run today printed `ERROR: Unrecognized UID: "uid://dh7jpov3r60sy"`. That is
+`default_bus_layout.tres`, so the **Music bus never resolves and `set_bus_linear("Music",
+…)` is a silent no-op** — reproduced on a PRISTINE HEAD checkout, so it is not from any of
+this session's work. It surfaces as `slice_test_settings` intermittently failing "music
+volume came back". The known cure is a headless re-import:
+
+```
+godot --headless --path godot-project --import
+```
+
+Not run during this session because four agents were mid-edit and the maker had the editor
+open — a re-import rewrites the `.godot` cache and `.uid` sidecars. **Do it on a quiet
+tree, first thing.**
+
 ### PLAY IT
 **F5** → title → Single Player. **Lobby → Watch Bots** for the showcase.
 The Android APK is stale — it predates every commit below.
