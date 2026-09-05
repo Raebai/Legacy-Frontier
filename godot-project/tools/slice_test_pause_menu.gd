@@ -33,6 +33,7 @@ const TESTS: Array[String] = [
 	"settings_has_the_new_rows",
 	"aim_assist_row_writes_through",
 	"quality_row_cycles_and_labels_itself",
+	"resume_is_the_first_row_on_both_pages",
 ]
 
 var _fails: int = 0
@@ -57,6 +58,7 @@ func _process(_delta: float) -> bool:
 	_test_settings_rows()
 	_test_aim_assist_row()
 	_test_quality_row()
+	_test_resume_is_first()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -243,7 +245,69 @@ func _test_quality_row() -> void:
 	_completes("quality_row_cycles_and_labels_itself")
 
 
+# ----------------------------------------------------------------------- 7
+## RESUME IS THE FIRST ROW ON BOTH PAGES.
+##
+## Maker, 2026-09: *"remove the resume button at the end of when you click a button
+## from the bottom but put it on the top instead"* — the settings hub's Resume used to
+## be pinned to the FOOT, below Back, and the hub is a SCROLLING column (host knobs
+## routinely push it past the card), so "get me back into the game" could sit below the
+## fold. The main page already led with it. Now both do.
+##
+## ⚠ ESC ALREADY CLOSED THIS MENU AND STILL DOES — nothing about that was changed and
+## nothing here re-implements it. `PauseMenu` is `PROCESS_MODE_ALWAYS`, so it keeps
+## receiving input while the (pausable) host is frozen, and its `_unhandled_input`
+## emits `resume_requested` on `ui_cancel` from the main page and the hub, or steps
+## back one page from any sub-page. That behaviour is asserted below rather than
+## assumed, because "it already works" is exactly the claim that rots silently.
+func _test_resume_is_first() -> void:
+	var m: PauseMenu = _make_menu()
+	var main: Array[String] = _row_texts(m.get("_main_col"))
+	var settings: Array[String] = _row_texts(m.get("_settings_col"))
+	_expect(not main.is_empty() and main[0].begins_with("Resume"),
+		"Resume is the FIRST row of the main pause page, got %s" % [main])
+	_expect(not settings.is_empty() and settings[0].begins_with("Resume"),
+		"Resume is the FIRST row of the settings hub, got %s" % [settings])
+	_expect(not settings.is_empty() and settings[settings.size() - 1] == "Back",
+		"...and Back is still the LAST one, got %s" % [settings])
+	# An injected host knob may not push it off the head. `_pin_footer` runs on every
+	# injection; this is the assertion that the head half of it is real.
+	m.add_setting_section("Section")
+	m.add_setting_button("Injected", func() -> void: pass)
+	var after: Array[String] = _row_texts(m.get("_settings_col"))
+	_expect(not after.is_empty() and after[0].begins_with("Resume"),
+		"an injected knob cannot displace Resume from the head, got %s" % [after])
+	_expect(not after.is_empty() and after[after.size() - 1] == "Back",
+		"...nor Back from the foot, got %s" % [after])
+	# ESC. The menu is open, so the handler is live; `ui_cancel` must ask the HOST to
+	# resume (the menu never unpauses anything itself — see the signal's own note).
+	m.open()
+	var resumed: Array[bool] = [false]
+	m.resume_requested.connect(func() -> void: resumed[0] = true)
+	var esc := InputEventAction.new()
+	esc.action = &"ui_cancel"
+	esc.pressed = true
+	m.call("_unhandled_input", esc)
+	_expect(resumed[0],
+		"Esc on the main page emits resume_requested — this already worked and must keep working")
+	m.queue_free()
+	_completes("resume_is_the_first_row_on_both_pages")
+
+
 # ------------------------------------------------------------------- helpers
+## Button texts of a column, in order. Buttons only: the pages carry Labels (the title,
+## the section headings) and a row-ORDER claim is about the pressable rows.
+func _row_texts(col: Variant) -> Array[String]:
+	var out: Array[String] = []
+	var node: Node = col as Node
+	if node == null:
+		return out
+	for child: Node in node.get_children():
+		if child is Button:
+			out.append(String((child as Button).text))
+	return out
+
+
 func _collect_labels(n: Node, out: Array[String]) -> void:
 	var l: Label = n as Label
 	if l != null:

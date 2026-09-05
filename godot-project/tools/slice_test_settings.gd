@@ -93,6 +93,18 @@ const MIN_TAP_PX: float = 46.0
 ## allowed to be smaller than a button, but not the 16 px (2.9 mm) it shipped at.
 const MIN_SLIDER_PX: float = 26.0
 
+## ══ THE TITLE SCREEN'S SECONDARY BAND ═══════════════════════════════════════
+## The floor for a row the maker has explicitly ruled is NOT one of the two things you
+## came to the front door to press (Watch Bots, Credits). 30 px is the game-wide tap
+## floor that `Lobby.MIN_TAP`, `Outfitter.MIN_TAP` and `World.MIN_TAP` all hold to and
+## that `slice_test_shell` and `slice_test_town` both assert; this band is small, not
+## exempt. See the two-bands note in `_test_the_title_screen_is_not_oversized`.
+const MIN_SECONDARY_PX: float = 30.0
+## How many title rows may be in that band at once. TWO — the footer pair and nothing
+## else. Without this cap "some buttons are allowed to be small" is a rule that ends
+## with every button small, one demotion at a time.
+const MAX_SECONDARY: int = 2
+
 ## The base viewport (`project.godot` window/size/viewport_{width,height}).
 const BASE_W: float = 640.0
 const BASE_H: float = 360.0
@@ -381,7 +393,10 @@ func _test_every_tap_target_is_thumb_sized() -> void:
 ## cluttered and too large."* Both halves are numbers:
 ##
 ##   * TOO LARGE — the logo measured **112 px, 31% of the 360-px viewport**, the single
-##     tallest element on the screen. It is 76 px / 21% now.
+##     tallest element on the screen. It went to 76 px / 21%, and is 56 px / 16% now
+##     that the duplicate disc emblem is off on this screen (maker: *"we don't need the
+##     double logo so remove that smaller logo"* — the `_Sigil` backdrop is already a
+##     tower in a circle, so `GameLogo`'s own disc was the same mark drawn twice).
 ##   * TOO CLUTTERED — the whole column must still fit 360 px with the buttons at a
 ##     size a thumb can hit, which is the constraint that stops a row being added back.
 func _test_the_title_screen_is_not_oversized() -> void:
@@ -410,13 +425,42 @@ func _test_the_title_screen_is_not_oversized() -> void:
 	var need: float = col.get_combined_minimum_size().y
 	_expect(need <= BASE_H,
 		"the whole column still fits 360 px with thumb-sized rows (needs %.0f)" % need)
+	# ══ TWO BANDS NOW, AND THE SPLIT IS A MAKER RULING, NOT A RELAXATION ═══════
+	# The 46-px / 9-mm rule was written when the front door presented FOUR equal
+	# actions, all of which measured 5.5–7.6 mm; "make them all thumb-sized" was the
+	# right fix for a screen of four equals. Maker, 2026-09: *"the credits and watch
+	# bots buttons should be smaller … single player and multiplayer should be the
+	# buttons visible"* — so the screen now has a stated hierarchy, and a rule that
+	# forbids hierarchy would forbid the design.
+	#
+	# ⚠ THE HOLE IS CAPPED IN THREE WAYS, because "some buttons may be small" is exactly
+	# the shape of exemption that eats a rule:
+	#   1. a secondary row still clears `MIN_SECONDARY_PX` — small, never un-hittable;
+	#   2. at most `MAX_SECONDARY` rows may be in that band, so the next person cannot
+	#      demote the whole screen one button at a time;
+	#   3. the two PRIMARY verbs are named and must clear the full 46 px, so the
+	#      hierarchy can only ever be built by shrinking the footer, never by shrinking
+	#      the thing you came to press.
+	var secondary: Array[String] = []
 	for b: Button in _all(lobby, "Button"):
 		if not b.is_visible_in_tree():
 			continue    # the collapsed co-op panel and the join screen
-		_expect(b.custom_minimum_size.y >= MIN_TAP_PX - 0.5,
-			("the title-screen button `%s` is thumb-sized (%.0f px / %.1f mm — the "
-			+ "front door's four buttons measured 5.5 to 7.6 mm)")
-			% [b.text, b.custom_minimum_size.y, b.custom_minimum_size.y * MM_PER_PX])
+		var h: float = b.custom_minimum_size.y
+		if h < MIN_TAP_PX - 0.5:
+			secondary.append("%s %.0fpx" % [b.text, h])
+			_expect(h >= MIN_SECONDARY_PX - 0.5,
+				("the SECONDARY title button `%s` still clears the game-wide %.0f px "
+				+ "floor (%.0f px / %.1f mm)")
+				% [b.text, MIN_SECONDARY_PX, h, h * MM_PER_PX])
+		if b.text.begins_with("SINGLE PLAYER") or b.text.begins_with("MULTIPLAYER"):
+			_expect(h >= MIN_TAP_PX - 0.5,
+				("the PRIMARY title button `%s` is thumb-sized (%.0f px / %.1f mm — the "
+				+ "front door's four buttons once measured 5.5 to 7.6 mm)")
+				% [b.text, h, h * MM_PER_PX])
+	_expect(secondary.size() <= MAX_SECONDARY,
+		("at most %d title rows may sit in the secondary band; found %d: %s — a "
+		+ "hierarchy is two loud rows and a quiet footer, not a quiet screen")
+		% [MAX_SECONDARY, secondary.size(), secondary])
 	lobby.queue_free()
 	await process_frame
 	_completes("the_title_screen_is_not_oversized")

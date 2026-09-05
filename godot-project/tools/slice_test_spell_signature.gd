@@ -198,7 +198,12 @@ func _test_hero_nova_never_damages_its_own_caster() -> void:
 		"the caster IS in the group their own nova scans (%s) — otherwise this test is vacuous"
 		% scanned)
 
-	hero._nova()
+	# ⚠ `_spawn_nova`, NOT `_nova`. The free T ability is gone (the maker asked three
+	# times); the SPECTACLE is not, because the Rogue's Q whirlwind still spawns it, and
+	# this invariant is about the spectacle. `_spawn_nova` is precisely the function the
+	# comment above names as the one that stamps only the faction — so the test is now
+	# pointed straight at the code it was always describing rather than at a wrapper.
+	hero.call("_spawn_nova")
 	for n: Node in root.get_children():
 		if n.has_method("detonate_now"):
 			n.call("detonate_now")

@@ -247,6 +247,10 @@ const GRAPHITE: Color = Color(0.62, 0.63, 0.70)
 const TOWER_DOOR_SCRIPT: Script = preload("res://scripts/TowerDoor.gd")
 const STATION_SCRIPT: Script = preload("res://scripts/ArmoryStation.gd")
 const HUB_AMBIENCE_SCRIPT: Script = preload("res://scripts/HubAmbience.gd")
+## The sky band ABOVE the forest: the colossal spire, the moon, the ridges, the drifting
+## cloud and the petals. `preload`ed rather than named, like every other drawer here —
+## it has no `class_name`, so it can never hit the global-class-cache trap.
+const ANTECHAMBER_BACKDROP_SCRIPT: Script = preload("res://scripts/ui/AntechamberBackdrop.gd")
 const NPC_SCENE: PackedScene = preload("res://scenes/NPC.tscn")
 ## ⚠ REACHED BY PATH, NEVER PRELOADED. `Hero.tscn` drags the whole combat dependency
 ## chain — SpellCaster, every spectacle, the bot stack — and a `preload` here would
@@ -293,16 +297,39 @@ func _ready() -> void:
 
 
 # ------------------------------------------------------------------- environment
+## ⚠ THE SKY GOT DEEPER AND THE ROOM GOT A TOWER IN IT. Maker: *"optimise the lobby
+## area where they can enter the tower, make it feel way more epic, change the
+## background to make it feel cooler … I'll add some cool anime peaceful music for the
+## entry area"*.
+##
+## The palette below is the same FOUR STOPS it always was, moved off flat navy onto a
+## twilight ramp (deep indigo overhead, warm violet at the horizon) so the room reads
+## as dusk rather than as night — which is the light calm music is scored against, and
+## the light a silhouette needs to be a silhouette. The accent moves with it, from the
+## old teal to a periwinkle that the aurora and the tower rim both read from.
+##
+## The tower itself is `AntechamberBackdrop`, and it is a SEPARATE node on a separate
+## rung for the reasons written at the top of that file. `Atmosphere` still owns the
+## sky gradient and the distant spires; nothing about it changed except its colours.
 func _build_backdrop() -> void:
 	var atmo := Atmosphere.new()
 	add_child(atmo)
+	var sky_bottom := Color(0.19, 0.16, 0.30)
+	var accent := Color(0.62, 0.70, 1.0)
 	atmo.build(Rect2(Vector2(-400.0, -320.0), Vector2(TOWN_WIDTH + 800.0, GROUND_Y + 760.0)), {
-		"sky_top": Color(0.03, 0.04, 0.11),
-		"sky_bottom": Color(0.10, 0.16, 0.24),
-		"silhouette_far": Color(0.06, 0.10, 0.16),
-		"silhouette_near": Color(0.03, 0.06, 0.10),
-		"accent": Color(0.5, 0.85, 0.8),
+		"sky_top": Color(0.035, 0.035, 0.09),
+		"sky_bottom": sky_bottom,
+		"silhouette_far": Color(0.07, 0.08, 0.17),
+		"silhouette_near": Color(0.035, 0.04, 0.09),
+		"accent": accent,
 	})
+	# THE SPIRE, THE MOON, THE RIDGES, THE CLOUD AND THE PETALS. Added AFTER the
+	# Atmosphere so tree order agrees with the z ladder rather than fighting it — the
+	# backdrop parks itself on `StageLayers.MOUNTAIN` (-18), in front of Atmosphere's
+	# SKYLINE (-22) and behind the forest (-6).
+	var spire: Node2D = ANTECHAMBER_BACKDROP_SCRIPT.new()
+	add_child(spire)
+	spire.call("build", TOWN_WIDTH, GROUND_Y, TOWER_X, sky_bottom, accent)
 
 
 func _spawn_ambience() -> void:
@@ -634,7 +661,16 @@ func _place_player() -> void:
 			cam.limit_left = 0
 			cam.limit_top = -420   # the tower shaft rises ~300 px above its own arch
 			cam.limit_right = int(TOWN_WIDTH)
-			cam.limit_bottom = int(GROUND_Y + 60.0)
+			# ⚠ 60 -> 18, AND IT IS THE SKY THAT PAYS FOR IT. `limit_bottom` is what the
+			# camera CLAMPS against, and at this zoom the clamp — not the offset — was
+			# deciding the framing: 0.72 zoom on a 360-line viewport shows 500 world px,
+			# so the lowest legal centre was `limit_bottom - 250`. At 512 that pinned the
+			# centre at 262 and the visible band at y 12..512, i.e. SIXTY PIXELS OF
+			# OPAQUE DIRT below the ground line and only 120 px of sky above the
+			# treeline. The room's whole backdrop was competing for a twelfth of the
+			# frame. 18 spends that dirt on sky instead, and nothing is lost: there is
+			# nothing under the ground to look at.
+			cam.limit_bottom = int(GROUND_Y + 18.0)
 			# ⚠ 1.2 WAS TOO CLOSE. Maker: "zoom out, we are too close to the figure right
 			# now". At 1.2 the 640-wide base view showed 533 px of a 1180 px street, so
 			# the room was a corridor you read one object at a time; 0.85 shows 753 and
@@ -643,7 +679,13 @@ func _place_player() -> void:
 			# 0.72 shows 889 px of the 1180 px street, so the pad row, the sign, the
 			# campfire and the tower are all in one frame from the spawn point.
 			cam.zoom = Vector2(0.72, 0.72)
-			cam.offset = Vector2(0.0, -54.0)
+			# ⚠ -54 -> -96, WHICH ONLY DOES ANYTHING NOW THAT `limit_bottom` MOVED. The
+			# offset was being eaten by the clamp above (it asked for a centre at 398 and
+			# got 262), so raising it alone would have changed nothing at all — the two
+			# numbers have to move together. With the clamp at 470-250=220 the requested
+			# 356 still clamps, but the frame is now y -30..470: the player stands in the
+			# lower third looking up at the tower, which is the shot this room is for.
+			cam.offset = Vector2(0.0, -96.0)
 
 
 ## The townspeople, instanced here rather than parked in `Main.tscn` so the town's

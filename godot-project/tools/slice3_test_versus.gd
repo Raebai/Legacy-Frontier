@@ -232,21 +232,31 @@ func _test_pause_menu_injection_order() -> void:
 	var settings: Array[String] = _button_texts(menu._settings_col)
 	_expect(not main.is_empty() and main[main.size() - 1] == "Exit",
 		"the exit button stays the LAST main-menu row, got %s" % [main])
-	# ⚠ THE SETTINGS PAGE HAS TWO EXITS NOW, AND THE INVARIANT IS THE PAIR. Maker:
-	# *"pausing should have a resume button as well when I pause"* — a host that hangs
-	# its knobs here (the duel's Fighter A / Difficulty / Fighter HP rows) dropped you
-	# on this page, whose only way out was "Back" to a menu you then had to re-read to
-	# find "Resume". The claim under test never was "Back is last"; it was "an injected
-	# row cannot land below the way out", and that is now a two-row footer.
-	_expect(settings.size() >= 2
-			and settings[settings.size() - 2] == "Back"
-			and settings[settings.size() - 1] == "Resume  (Esc)",
-		"Back + Resume stay the LAST TWO settings rows, in that order, got %s" % [settings])
+	# ⚠ THE SETTINGS PAGE HAS TWO EXITS, AND THE INVARIANT IS THAT AN INJECTED ROW
+	# CANNOT DISPLACE EITHER. Maker: *"pausing should have a resume button as well when
+	# I pause"* — a host that hangs its knobs here (the duel's Fighter A / Difficulty /
+	# Fighter HP rows) dropped you on this page, whose only way out was "Back" to a menu
+	# you then had to re-read to find "Resume".
+	#
+	# ⚠ THE PAIR USED TO BE A FOOTER; RESUME IS NOW THE **HEAD** ROW. Previous claim,
+	# kept because it was overturned rather than wrong: "Back + Resume are the last two
+	# rows, in that order". Maker, 2026-09: *"remove the resume button at the end of when
+	# you click a button from the bottom but put it on the top instead"*. The hub is a
+	# SCROLLING column, so a footer Resume is a Resume you may have to scroll to find;
+	# `PauseMenu._pin_footer` carries the full argument. The claim under test never was
+	# "Back is last" — it was "an injected row cannot land on the way out" — and that is
+	# now enforced from both ends.
+	_expect(not settings.is_empty() and settings[0] == "Resume  (Esc)",
+		"Resume is the FIRST settings row, above the four doors, got %s" % [settings])
+	_expect(not settings.is_empty() and settings[settings.size() - 1] == "Back",
+		"Back stays the LAST settings row, got %s" % [settings])
 	_expect(main.has("Injected Main") and settings.has("Injected Setting"),
 		"...and both injected rows are actually present")
-	# The point of the pin: the injected knob is ABOVE both exits, not between them.
-	_expect(settings.find("Injected Setting") < settings.size() - 2,
-		"an injected knob sits above the footer pair, got %s" % [settings])
+	# The point of the pin: the injected knob is BETWEEN the two exits, never on top of
+	# either — it cannot push Resume off the head or Back off the foot.
+	var injected: int = settings.find("Injected Setting")
+	_expect(injected > 0 and injected < settings.size() - 1,
+		"an injected knob sits between Resume and Back, got %s" % [settings])
 	root.remove_child(menu)
 	menu.queue_free()
 	_completes("pause_menu_injection_order")

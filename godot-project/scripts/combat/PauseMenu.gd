@@ -799,17 +799,44 @@ func add_setting_section(title: String) -> Label:
 	return l
 
 
-## Keep the settings page's two exits at the very bottom, in that order, however many
-## knobs a host injects above them. It used to be one line repeated in both injectors
-## and it only pinned `Back`; with a Resume row alongside it, an un-pinned second exit
-## would drift up the column as rows arrive and end up in the middle of the duel's
-## own settings.
+## Keep the settings page's two exits WHERE THEY BELONG, however many knobs a host
+## injects between them. It used to be one line repeated in both injectors and it only
+## pinned `Back`; an un-pinned exit drifts up the column as rows arrive and ends up in
+## the middle of the duel's own settings.
+##
+## ⚠ RESUME IS PINNED TO THE **HEAD** NOW, NOT THE FOOT — THE RULING CHANGED.
+## Previous ruling (kept here because it is the thing that was overturned, not a thing
+## that was wrong): "Back + Resume are the last two rows, in that order", so an injected
+## knob could never land below the way out. Maker, 2026-09: *"remove the resume button at
+## the end of when you click a button from the bottom but put it on the top instead"*.
+##
+## The new ruling is better on its own terms and this is why: the settings hub is a
+## SCROLLING column (`_build_page` wraps every page in a ScrollContainer precisely
+## because host knobs push it past the card), and a footer row on a scrolling column is
+## a row you may have to scroll to find. "Get me back into the game" is the one action
+## that must never be below the fold. `Back` — which only walks you one screen up — is
+## the row that can afford to be at the bottom, so it keeps the foot on its own.
+##
+## The invariant the old footer pair actually protected is UNCHANGED and still pinned by
+## `slice3_test_versus`: an injected row can never land on top of the way out. It is now
+## bounded on both sides instead of pushed above both.
 func _pin_footer() -> void:
 	var last: int = _settings_col.get_child_count() - 1
 	if _back_btn != null:
 		_settings_col.move_child(_back_btn, last)
 	if _resume_btn != null:
-		_settings_col.move_child(_resume_btn, last)
+		_settings_col.move_child(_resume_btn, _settings_head_index())
+
+
+## Index of the first ROW on the settings hub — i.e. just past the page title, which
+## `_build_page` adds as child 0 whenever it is handed a non-empty title. Computed
+## rather than hardcoded to 1: `_build_page` skips the title for an empty string, and a
+## `move_child(btn, 1)` on a title-less column would tuck Resume under whatever happened
+## to be first instead of at the top.
+func _settings_head_index() -> int:
+	if _settings_col.get_child_count() > 0 and _settings_col.get_child(0) is Label:
+		return 1
+	return 0
 
 
 ## THE SETTINGS HUB — four doors, not twenty rows. See the PAGE_* block for the
@@ -828,9 +855,20 @@ func _build_settings() -> void:
 	_settings_col = page[2] as VBoxContainer
 	_settings_center.visible = false
 	# ⚠ 4, NOT THE 8 `_build_page` HANDS OUT. Seven rows at ROW_H plus six 8-px gaps is
-	# 370 px into a 324-px card; at 4 it is 346 with the title, and the two exits below
-	# the doors are the rows that get to be tight because they are not knobs.
+	# 370 px into a 324-px card; at 4 it is 346 with the title. The row count is
+	# unchanged by Resume moving to the head — it is the same seven rows in a different
+	# order — so the measurement above still holds exactly.
 	_settings_col.add_theme_constant_override("separation", 4)
+
+	# ⚠ RESUME IS THE **FIRST** ROW ON THIS PAGE, ABOVE THE FOUR DOORS. Maker: *"remove
+	# the resume button at the end of when you click a button from the bottom but put it
+	# on the top instead"*. It emits the SAME `resume_requested` the main page's first
+	# row does rather than closing anything itself, so the host stays the owner of the
+	# actual unpause — see the note on that signal. `_pin_footer` keeps it here as host
+	# knobs arrive; the full argument for the move is on that function.
+	_resume_btn = _settings_row_button("Resume  (Esc)",
+		func() -> void: resume_requested.emit())
+	_settings_col.add_child(_resume_btn)
 
 	_settings_col.add_child(_settings_row_button("%s  ▸" % PAGE_AUDIO,
 		func() -> void: _show_page(_audio_center)))
@@ -851,15 +889,10 @@ func _build_settings() -> void:
 	# *this arena*. They arrive above the footer pair, which is what `_pin_footer`
 	# guarantees and what `slice3_test_versus` asserts.
 
+	# BACK KEEPS THE FOOT ON ITS OWN. It walks you one screen up, not out of the menu,
+	# so it is the row that can afford to be below the fold on a scrolling column.
 	_back_btn = _settings_row_button("Back", _close_settings)
 	_settings_col.add_child(_back_btn)
-	# ⚠ AND A WAY STRAIGHT BACK INTO THE GAME. Maker: *"pausing should have a resume
-	# button as well when I pause"*. It emits the SAME `resume_requested` the main row
-	# does rather than closing anything itself, so the host stays the owner of the
-	# actual unpause — see the note on that signal.
-	_resume_btn = _settings_row_button("Resume  (Esc)",
-		func() -> void: resume_requested.emit())
-	_settings_col.add_child(_resume_btn)
 
 
 ## One sub-page: title, knobs, and a single Back to the hub. Built through the same

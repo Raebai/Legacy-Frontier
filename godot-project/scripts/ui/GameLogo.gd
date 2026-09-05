@@ -348,6 +348,20 @@ const PULSE: float = 0.9
 
 ## Draw the wordmark under the emblem. Off for the app icon, which is square.
 @export var show_wordmark: bool = true
+## Draw the EMBLEM (the disc, the tower, the ember, the crest) above the wordmark.
+##
+## ⚠ DEFAULTS TRUE, AND THAT DEFAULT IS LOAD-BEARING. This Control is the single
+## source the app icon, the social avatar and every `tools/render_logo*` stamp are
+## taken from, so anything that changes the mark for everyone has to be opt-IN. The
+## one caller that turns it off is `Lobby._build_ui`, and only because the title
+## screen's backdrop is ALREADY a full-screen summoning circle with a tower in it —
+## maker: *"we don't need the double logo so remove that smaller logo"*. Everywhere
+## else the lockup is unchanged.
+##
+## With this off the wordmark is centred in the WHOLE rect rather than sitting under
+## a reserved emblem box, so a caller can shrink the Control to the type's own height
+## instead of banking empty space where the disc used to be.
+@export var show_emblem: bool = true
 ## Emblem radius as a fraction of the smaller side (leaves room for the glow).
 @export var emblem_scale: float = 1.0
 ## Hold the animation still — the PNG stamper wants a repeatable frame, not whatever
@@ -373,6 +387,23 @@ func _phase() -> float:
 
 
 func _draw() -> void:
+	# ⚠ WORDMARK-ONLY IS ITS OWN SHORT PATH, NOT THE MAIN ONE WITH A BRANCH IN IT.
+	# `box` below is `min(width, height - wordmark_h)` — the EMBLEM's square — and with
+	# no emblem there is no square to reserve: the type should take the whole rect. The
+	# main path would have sized a ten-letter mark to a 46-px height and drawn it a
+	# third of the way down a strip that is 292 px wide. See `show_emblem`.
+	if not show_emblem:
+		if show_wordmark and size.x > 16.0 and size.y > 8.0:
+			# TYPE SIZED BY HEIGHT, WIDTH CAPPED SEPARATELY. In the lockup those are the
+			# same number — `box` is the emblem's square and the wordmark sits under it,
+			# so one value legitimately drives both. Alone in a wide, short strip they
+			# are not: sizing from the 292-px width would draw 51-px type into a 56-px
+			# control, and sizing the WIDTH from the height would cap a title mark at
+			# half the column it has to fill. `0.175` is `_draw_wordmark`'s own ratio,
+			# so `size.y * 0.60 / 0.175` is "as tall as 60% of this rect".
+			_draw_wordmark(Vector2(size.x * 0.5, size.y * 0.46), size.y * 3.43,
+				size.x * 0.98)
+		return
 	var wordmark_h: float = (size.y * 0.24) if show_wordmark else 0.0
 	var box: float = minf(size.x, size.y - wordmark_h)
 	if box <= 8.0:
@@ -767,8 +798,17 @@ func _draw_halo(c: Vector2, r: float, p: float) -> void:
 
 ## Letter-spaced by hand. A Label packs glyphs at their natural advance, which reads as
 ## UI; a wordmark wants air between the letters, and there is no theme constant for it.
-func _draw_wordmark(centre: Vector2, box: float) -> void:
+## `box` sizes the TYPE; `max_w` is the width it must fit inside.
+##
+## ⚠ THEY DEFAULT TO THE SAME THING AND THE DEFAULT IS THE SHIPPED LOCKUP. Under the
+## emblem the wordmark's width limit genuinely IS a fraction of the emblem's square, so
+## one argument served both and this signature had one parameter. The wordmark-only
+## path (see `show_emblem`) is the first caller for which they differ: a 292x56 strip
+## wants type sized off its HEIGHT and width capped by its WIDTH, and collapsing those
+## again gives either overflowing type or a title mark half the width of its column.
+func _draw_wordmark(centre: Vector2, box: float, max_w: float = -1.0) -> void:
 	var font: Font = ThemeDB.fallback_font
+	var fit: float = max_w if max_w > 0.0 else box * WORDMARK_FIT
 	# ⚠ SIZED TO FIT, NOT TO A CONSTANT. 0.175 was tuned against a SEVEN-letter
 	# wordmark; STICKSPIRE is ten, and the same constant simply ran the mark off both
 	# sides of the circle. Rather than swap one magic number for another that the next
@@ -779,9 +819,9 @@ func _draw_wordmark(centre: Vector2, box: float) -> void:
 	for ch: String in TITLE:
 		total += font.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + track
 	total -= track
-	if total > box * WORDMARK_FIT:
-		px = int(maxf(float(px) * (box * WORDMARK_FIT) / total, 8.0))
-		track = box * 0.030 * (box * WORDMARK_FIT) / total
+	if total > fit:
+		px = int(maxf(float(px) * fit / total, 8.0))
+		track = box * 0.030 * fit / total
 		total = 0.0
 		for ch: String in TITLE:
 			total += font.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + track

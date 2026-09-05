@@ -722,8 +722,15 @@ func _test_the_opening_beat_covers_every_button() -> void:
 	var src: String = f.get_as_text()
 	f.close()
 	# Each ability entry point, and the window of source that follows its declaration.
-	for fn: String in ["func _blink() -> void:", "func _nova() -> void:",
-			"func _uppercut() -> void:"]:
+	# ⚠ `func _nova() -> void:` WAS THE THIRD ENTRY AND IS NOT AN ENTRY POINT ANY MORE.
+	# The free T button was removed from all nine classes at the maker's third asking,
+	# so a row demanding Hero still declares it would fail for the reason it was working.
+	# It is not simply deleted, because the property this test defends is "EVERY ability
+	# entry point gates on `_cast_lockout`" — the list is the population, and a shrinking
+	# population is exactly how a list-driven test quietly stops covering anything. Two
+	# is the whole population now: `_blink` and `_uppercut`. The Rogue's whirlwind is not
+	# a third, because it is reached through `_blast`, which carries its own gate.
+	for fn: String in ["func _blink() -> void:", "func _uppercut() -> void:"]:
 		var at: int = src.find(fn)
 		_expect(at >= 0, "Hero still has `%s`" % fn)
 		if at < 0:

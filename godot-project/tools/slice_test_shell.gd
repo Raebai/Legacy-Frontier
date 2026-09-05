@@ -209,17 +209,19 @@ func _test_lobby_names_no_hub_and_no_ollama() -> void:
 ## straight to a run. This is the assertion that catches a well-meaning reorder.
 func _test_climb_stays_above_the_town() -> void:
 	var src: String = _code_only(LOBBY_SCRIPT)
-	# ⚠ MATCHES "ENTER THE TOWER", NOT "CLIMB". The label changed on 2026-08-04
-	# (maker: "there should be an Enter the tower button"), and the CLAIM this
-	# guards is unchanged: the one verb that starts the game is built before the
-	# detour to the town. Only the string moved.
-	var climb_at: int = src.find("ENTER THE TOWER")
+	# ⚠ MATCHES "SINGLE PLAYER". The label has been "CLIMB" (until 2026-08-04), then
+	# "ENTER THE TOWER" (maker: "there should be an Enter the tower button"), and is
+	# "SINGLE PLAYER" as of 2026-09 — maker: *"I like enter the tower … but enter the
+	# tower and multiplayer should be the buttons visible. reword it to Single Player
+	# and Multiplayer"*. Three labels, one unchanged CLAIM: the verb that starts the
+	# game is built before the detour to the town. Only the string has ever moved.
+	var climb_at: int = src.find("SINGLE PLAYER")
 	# ⚠ THE SEPARATE "The Town" BUTTON IS GONE, and its absence is the point:
-	# ENTER THE TOWER now goes to the room itself, so a second button to the same
+	# the play button now goes to the room itself, so a second button to the same
 	# place was one of the "too many buttons" the maker named twice. The claim this
 	# block guards — the fast path is the FIRST thing on the screen and it routes
 	# through `visit_hub` — is unchanged and asserted below.
-	_expect(climb_at >= 0, "the lobby has an ENTER THE TOWER button")
+	_expect(climb_at >= 0, "the lobby has a SINGLE PLAYER button")
 	_expect(src.find("The Town") < 0,
 		"...and no SECOND button to the same room")
 	_expect(ResourceLoader.exists("res://scenes/Main.tscn"), "the town scene exists")
@@ -275,8 +277,9 @@ func _test_tap_targets_are_thumb_sized() -> void:
 	var joined: String = " | ".join(labels)
 	for wanted: String in ["Host Co-op", "Join", "Start Run", "Credits"]:
 		_expect(joined.contains(wanted), "the lobby still has '%s' (has: %s)" % [wanted, joined])
-	_expect(joined.contains("ENTER THE TOWER"),
-		"and the one button that matters (has: %s)" % joined)
+	_expect(joined.contains("SINGLE PLAYER") and joined.contains("MULTIPLAYER"),
+		("and the TWO buttons that matter — maker: *\"single player and multiplayer "
+		+ "should be the buttons visible\"* (has: %s)") % joined)
 	# The class picker must be derived from the real roster, never a literal —
 	# a hardcoded `% 8` once made the 9th class silently unreachable.
 	_expect(not _code_only(LOBBY_SCRIPT).contains("% 8"), "the class picker is not a hardcoded count")

@@ -44,6 +44,13 @@ extends Control
 
 const CREDITS_SCENE: PackedScene = preload("res://scenes/ui/Credits.tscn")
 
+## ⚠ `preload`ed, NOT NAMED. `HudStyle` has no `class_name`, so a named reference could
+## only resolve once `.godot/global_script_class_cache.cfg` is current — and this is the
+## BOOT scene, the one script in the game that cannot afford to fail to parse. A
+## `preload` resolves at load time with no cache involved. `PauseMenu` and `Outfitter`
+## reach it exactly this way.
+const HudStyle := preload("res://scripts/ui/HudStyle.gd")
+
 # ── the look ────────────────────────────────────────────────────────────────
 const PAPER: Color = Color(0.055, 0.052, 0.075)      # ink-dark sketchbook
 const CHALK: Color = Color(0.93, 0.92, 0.86)
@@ -109,6 +116,11 @@ var _outfitter: Control = null
 ## the 640×360 base viewport — the thing that silently breaks the first time
 ## somebody adds one more row.
 var _col: VBoxContainer = null
+## The card the column sits on. Held so its accent rule can follow the class tint —
+## see `_apply_class_tint`, which already re-tints the sigil and the buttons; a frame
+## that stayed one fixed blue while everything inside it changed colour would be the
+## one element on the screen that did not belong to the class you picked.
+var _card: PanelContainer = null
 
 # ── the join screen ─────────────────────────────────────────────────────────
 ## A SEPARATE column that swaps in for `_col`, rather than more rows appended to
@@ -235,12 +247,41 @@ func _build_ui() -> void:
 	margin.add_theme_constant_override("margin_bottom", 10)
 	add_child(margin)
 
+	# ══ THE CARD THE MENU SITS ON ═══════════════════════════════════════════════
+	# Maker, 2026-09: *"lets also make the thing look more aesthetic and professional"*.
+	#
+	# ⚠ THE PROBLEM WAS LEGIBILITY BEFORE IT WAS TASTE. `_Sigil` is a full-screen
+	# summoning circle that spins, breathes and pours motes — and the menu was type and
+	# untextured buttons floating straight on top of it, so a rune band drifted THROUGH
+	# the wordmark and the mote pour crossed the buttons. Every unfinished game's title
+	# screen looks like that, and for this reason: no ground under the type.
+	#
+	# So the column gets a card — the house `HudStyle.panel` shape (PAPER ground, a 1 px
+	# accent rule, a 3 px radius), the same one the pause menu, the game-over card and
+	# now the Outfitter wear, at 0.72 alpha so the circle still reads THROUGH it.
+	#
+	# ⚠ IT COSTS 20 px OF HEIGHT AND THERE ARE 130 SPARE. `probe_ui_screens` measured
+	# the column at 229 px of a 360 px viewport after the logo shrank; the card takes it
+	# to ~249. The bound `slice_test_shell` pins is 360 and it is measured on `_col`,
+	# which is still the VBox below — the panel is its PARENT, so the assertion keeps
+	# measuring the same thing it always did.
+	var card := PanelContainer.new()
+	card.size_flags_horizontal = Control.SIZE_SHRINK_END
+	card.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE  # the buttons take their own taps
+	card.add_theme_stylebox_override("panel", _card_box(ACCENT_FALLBACK))
+	margin.add_child(card)
+	_card = card
+
 	var right := VBoxContainer.new()
 	right.alignment = BoxContainer.ALIGNMENT_CENTER
 	right.size_flags_horizontal = Control.SIZE_SHRINK_END
 	right.custom_minimum_size = Vector2(PANEL_W, 0)
-	right.add_theme_constant_override("separation", 3)
-	margin.add_child(right)
+	# ⚠ 3 -> 5. Three pixels between a 52-px button and a 46-px one is not a gap, it is
+	# a seam — the two primaries read as one block. Five separates them and the whole
+	# column still measures well inside the budget above.
+	right.add_theme_constant_override("separation", 5)
+	card.add_child(right)
 	_col = right
 
 	# ⚠ THE MARK, NOT A LABEL. The front door said the game's name in the default UI
@@ -259,11 +300,33 @@ func _build_ui() -> void:
 	# ⚠ THE MARK ITSELF IS NOT REDRAWN. `GameLogo` scales its own drawing to the rect
 	# it is given, and it is the SAME Control the app icon and the social avatar are
 	# stamped from — changing the art here would move all three.
+	#
+	# ⚠ THE EMBLEM IS OFF ON *THIS* SCREEN ONLY, AND IT IS THE "DOUBLE LOGO" FIX.
+	# Maker: *"intro screen, we don't need the double logo so remove that smaller
+	# logo"*. There were two circular tower marks on the front door at once — the
+	# `_Sigil` backdrop, which is a full-screen summoning circle with a tower motif and
+	# is the animation the whole screen is built around, and `GameLogo`'s own small disc
+	# emblem, which is the SAME idea drawn 76 px tall in the corner of it. Two versions
+	# of one mark, one inside the other.
+	#
+	# The wordmark stays: the screen still has to say the game's name, and the disc is
+	# the half that was duplicated. `show_emblem` defaults TRUE, so the app icon, the
+	# social avatar and every `tools/render_logo*` stamp are untouched — this is a
+	# per-instance opt-out on the one screen that already has a circle in it.
 	var title := GameLogo.new()
-	title.custom_minimum_size = Vector2(PANEL_W, 76.0)
+	title.show_emblem = false
+	# ⚠ 76 -> 56. The old height was `emblem box + wordmark` for a mark that is now
+	# wordmark ONLY; leaving it would bank 20 px of empty page above the buttons, which
+	# is worse than the duplicate was. 56 px is 16% of the 360-px viewport (it was 21%),
+	# it sets the type at ~34 px — a title, not a caption — and the 20 px it hands back
+	# is what pays for the button hierarchy below.
+	title.custom_minimum_size = Vector2(PANEL_W, 56.0)
 	title.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	# The Lobby paints its own PAPER, and the logo's disc is the same colour, so the
-	# emblem would read as a hole. Shrunk slightly and left to sit on the page.
+	# ⚠ KEPT THOUGH THE EMBLEM IS OFF, DELIBERATELY. `emblem_scale` is inert while
+	# `show_emblem` is false; it is left set so that turning the emblem back on here
+	# restores the previous look exactly rather than a slightly bigger disc. The
+	# original note it carried: the Lobby paints its own PAPER and the logo's disc is
+	# the same colour, so a full-size emblem read as a hole.
 	title.emblem_scale = 0.95
 	right.add_child(title)
 
@@ -293,7 +356,26 @@ func _build_ui() -> void:
 	# either a way to bring a friend (the MULTIPLAYER row) or something you do before
 	# you climb (the PREPARE row) — labelled, so the screen answers "what is this
 	# group for" instead of presenting eight equal choices.
-	var play := _button("ENTER THE TOWER  ▸", _play_solo, 19)
+	#
+	# ⚠ "ENTER THE TOWER" -> "SINGLE PLAYER", AND THE OLD LABEL WAS THE BETTER PHRASE
+	# BUT THE WORSE SIGN. Maker, 2026-09: *"I like enter the tower … but enter the tower
+	# and multiplayer should be the buttons visible. reword it to Single Player and
+	# Multiplayer"*. The two rows are a PAIR and the pair only reads as a choice if both
+	# halves answer the same question. "ENTER THE TOWER" answers "where am I going";
+	# "MULTIPLAYER" answers "who with" — so the screen asked two different questions and
+	# the player had to work out that the first one implied "alone". The flavour is not
+	# lost, it moves: the room you land in is the Antechamber and the door you walk into
+	# is the tower.
+	#
+	# ⚠ UPPERCASE, THOUGH THE MAKER WROTE IT IN TITLE CASE. `MULTIPLAYER` is already
+	# uppercase and the maker's own sentence says *"I like it right now"* about the
+	# screen as it stands; matching the existing case is what keeps the pair a pair. If
+	# they want title case, both rows change together, not one.
+	# ⚠ THE STRING IS PINNED BY THREE SUITES (`slice_test_shell`, `slice_test_town`,
+	# `slice_test_outfitter`), all of which guard the SAME claim — "the one verb that
+	# starts the game is the first thing built on this screen". They were updated with
+	# the label; the claim is untouched.
+	var play := _button("SINGLE PLAYER  ▸", _play_solo, 19)
 	# Still the biggest target on the page — it is the whole game — but the margin over
 	# the others is 6 px now rather than 8, because the others are no longer too small
 	# to hit. A hierarchy built out of a target that MISSES is not a hierarchy.
@@ -393,8 +475,17 @@ func _build_ui() -> void:
 	#
 	# It goes back because the maker's stated goal for this mode is to record duels to
 	# share, and a content tool nobody can open from the game is a command-line script.
-	extras.add_child(_half("Watch Bots", _watch_bots))
-	extras.add_child(_half("Credits", _open_credits))
+	#
+	# ⚠ THEY ARE `_minor`, NOT `_half`, AND THE DEMOTION IS THE ASK. Maker, 2026-09:
+	# *"the credits and watch bots buttons should be smaller … SINGLE PLAYER and
+	# MULTIPLAYER should be the buttons visible"*. As equal-height `_half` rows they
+	# were 46 px tall in the same weight as the two verbs — three tiers of importance
+	# drawn at two sizes, so the front door presented four near-equal choices when it
+	# only has two. `_minor` drops them to 32 px at font 11 in GRAPHITE, which is
+	# visibly a footer and still 2 px over the 30 px tap floor the whole game holds to.
+	# The saved 14 px goes back into the gap above them.
+	extras.add_child(_minor("Watch Bots", _watch_bots))
+	extras.add_child(_minor("Credits", _open_credits))
 
 	# The status row exists anyway and is empty at boot, so it is a free place to say
 	# what the safe button is — the one sentence of onboarding this screen can afford.
@@ -522,6 +613,11 @@ func _apply_class_tint() -> void:
 	if _paper != null:
 		_paper.set("accent", accent)
 		_paper.queue_redraw()
+	# THE CARD'S RULE FOLLOWS THE PICK TOO. Rebuilt rather than mutated: a StyleBox is a
+	# shared Resource and `HudStyle.panel` hands back a fresh one every call, so editing
+	# the live box in place would be editing whatever else happened to be holding it.
+	if _card != null:
+		_card.add_theme_stylebox_override("panel", _card_box(accent))
 	# The duel opponent is derived from YOUR pick (it refuses to be a mirror), so the
 	# tooltip has to be re-derived every time the class cycler moves.
 	_refresh_duel_button()
@@ -1100,12 +1196,56 @@ func _restyle_buttons(node: Node) -> void:
 		_restyle_buttons(c)
 
 
+## THE MENU CARD'S BOX, in one place because two places is how the boot screen and the
+## class-tint path end up wearing different frames.
+##
+## `HudStyle.panel` verbatim, then two changes with reasons:
+##   * THE GROUND IS TRANSLUCENT (0.72). Opaque PAPER would hide the summoning circle
+##     behind exactly the part of the screen the eye rests on, and that circle is the
+##     backdrop the whole title screen was rebuilt around.
+##   * TIGHTER MARGINS. `HudStyle.panel` authors 26/16 for the full-width game-over
+##     card; 12/10 keeps this one inside the 360-px viewport with room to spare.
+func _card_box(accent: Color) -> StyleBoxFlat:
+	var box: StyleBoxFlat = HudStyle.panel(HudStyle.with_a(accent, 0.30))
+	box.bg_color = Color(PAPER.r, PAPER.g, PAPER.b, 0.72)
+	box.content_margin_left = 12.0
+	box.content_margin_right = 12.0
+	box.content_margin_top = 10.0
+	box.content_margin_bottom = 10.0
+	return box
+
+
 ## Half a row. Two of these in an HBox occupy exactly the height of one full-width
 ## button, which is the entire reason four secondary actions fit where two did.
 func _half(text: String, cb: Callable) -> Button:
 	var b: Button = _button(text, cb, 13)
 	b.custom_minimum_size = Vector2(PANEL_W * 0.5 - 3.0, BUTTON_H)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	return b
+
+
+## A HALF-WIDTH ROW THAT IS DELIBERATELY NOT A VERB — the footer pair (Watch Bots,
+## Credits). See the note where they are built for the maker's ask.
+##
+## ⚠ `MINOR_H` IS 32 AND NOT LOWER, AND THE FLOOR IS A MEASUREMENT. `BUTTON_H`'s own
+## comment carries the arithmetic: `project.godot` is 640x360 with `aspect=expand`, so
+## 360 logical px always maps to the whole SHORT edge of the physical screen — 0.183 mm
+## per base px on a 6.1" phone. 32 px is 5.9 mm, which is under the ~9 mm a thumb wants
+## and is the deliberate trade for "this is not one of the two things you came here to
+## press". It stays above the game-wide 30 px floor `slice_test_shell` and the town both
+## assert, so it is small, not un-hittable. Anything smaller than this stops being a
+## button and starts being a mis-tap.
+const MINOR_H: float = 32.0
+
+
+func _minor(text: String, cb: Callable) -> Button:
+	var b: Button = _button(text, cb, 11)
+	b.custom_minimum_size = Vector2(PANEL_W * 0.5 - 3.0, MINOR_H)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# GRAPHITE, not CHALK. Weight is the other half of hierarchy and it is free: a
+	# quieter colour says "secondary" at a glance on a screen where everything else is
+	# the same shape.
+	b.add_theme_color_override("font_color", GRAPHITE)
 	return b
 
 

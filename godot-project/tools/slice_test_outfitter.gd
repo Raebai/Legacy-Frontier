@@ -428,7 +428,10 @@ func _test_the_lobby_still_fits_a_phone() -> void:
 	# Free Play and Loadout MOVED INTO THE ANTECHAMBER (the ring and the rack) when
 	# the maker asked twice for fewer title buttons. What a title screen still has to
 	# offer is the choice it exists to ask: alone, or with someone.
-	for wanted: String in ["ENTER THE TOWER", "Host Co-op", "Join"]:
+	# ⚠ "ENTER THE TOWER" -> "SINGLE PLAYER" (2026-09, maker: *"reword it to Single
+	# Player and Multiplayer"*). Only the string moved; the claim is still "the title
+	# screen offers the choice it exists to ask — alone, or with someone".
+	for wanted: String in ["SINGLE PLAYER", "Host Co-op", "Join"]:
 		_expect(joined.contains(wanted), "the lobby offers '%s' (has: %s)" % [wanted, joined])
 	_completes("the_lobby_still_fits_a_phone")
 

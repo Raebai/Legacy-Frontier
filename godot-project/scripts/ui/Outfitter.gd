@@ -76,6 +76,12 @@ const HERO_PATH: String = "res://scripts/combat/Hero.gd"
 ## screen -- not at parse time. See that file's header.
 const SpellBlurbs := preload("res://scripts/combat/SpellBlurbs.gd")
 
+## ⚠ `preload`ed AND NOT A `class_name` — the same rule and the same reason as the line
+## above. `HudStyle` has no `class_name`, so a named reference could not resolve without
+## `.godot/global_script_class_cache.cfg` being current; a `preload` resolves at load
+## time with no cache involved. `PauseMenu` reaches it exactly this way.
+const HudStyle := preload("res://scripts/ui/HudStyle.gd")
+
 ## Colourway display names, in `Hero.COLOURWAYS` order. Names only — the COLOURS are
 ## read off Hero at runtime, so a palette edit there cannot leave this lying. A
 ## colourway past the end of this list is shown by index rather than dropped.
@@ -106,6 +112,11 @@ static var chosen_colourway: int = 0
 var show_class_picker: bool = false
 
 var _class_id: int = 0
+## The framed card. Held so its accent rule can be RE-TINTED when the class changes —
+## see `_style_panel`. Without the reference the frame would be authored once, in
+## whatever colour the screen happened to open on, and then lie for the rest of the
+## session as the player walks the roster.
+var _panel: PanelContainer = null
 var _class_btn: Button = null
 var _title: Label = null
 var _hint: Label = null
@@ -161,13 +172,28 @@ func _build() -> void:
 
 	# A real panel, like ClassSelect and the Armory — so the screen has an edge and
 	# reads as a thing sitting ON the title screen rather than text floating over it.
-	var panel := PanelContainer.new()
-	center.add_child(panel)
+	#
+	# ⚠ IT WAS A BARE `PanelContainer` UNTIL NOW, i.e. Godot's DEFAULT theme box: a flat
+	# mid-grey rounded rectangle that appears nowhere else in this game. The one screen
+	# the maker reaches to change class was the one screen wearing the engine's stock
+	# UI. `HudStyle.panel` is the shape the whole HUD was consolidated onto (PAPER
+	# ground, a 1 px accent rule, a 3 px radius) and `PauseMenu` already sets the
+	# precedent for taking it verbatim and then tightening the margins.
+	#
+	# ⚠ THE MARGINS ARE TIGHTENED, AND IT IS A HEIGHT BUDGET RATHER THAN A TASTE CALL.
+	# `HudStyle.panel` authors 26 px sides and 16 px top/bottom for the full-width
+	# game-over card. `slice_test_outfitter` measures this screen's COLUMN at 332 px
+	# against a 360 px base viewport, so the stock 16+16 would put the drawn panel at
+	# 364 — four pixels of a phone's bottom row hanging off the bottom of the phone.
+	# 8+8 lands it at 348 and leaves the same 12 px of slack the column had.
+	_panel = PanelContainer.new()
+	center.add_child(_panel)
+	_style_panel()
 
 	var col := VBoxContainer.new()
 	col.custom_minimum_size = Vector2(PANEL_W, 0)
 	col.add_theme_constant_override("separation", 4)
-	panel.add_child(col)
+	_panel.add_child(col)
 	_col = col
 
 	# ── THE HEADER: A BUTTON **OR** A TITLE, NEVER BOTH ────────────────────────
@@ -231,6 +257,12 @@ func _build() -> void:
 	# thing that makes the hand read as THREE rather than two, was the row that
 	# scrolled off. It is fixed content in a fixed slot; it belongs in fixed space.
 	_ult_slot_row = PanelContainer.new()
+	# Styled for the same reason the outer panel now is — it was the second bare
+	# `PanelContainer` on this screen, so the ONE row that is not a choice was drawn in
+	# Godot's stock grey while every row that IS a choice was drawn in the house palette.
+	# It reads as the shelf the finisher sits on, at a lower accent alpha than the frame
+	# so it recedes rather than competing with it.
+	_ult_slot_row.add_theme_stylebox_override("panel", _slot_box())
 	col.add_child(_ult_slot_row)
 
 	_summary = Label.new()
@@ -246,6 +278,55 @@ func _build() -> void:
 	col.add_child(_button("⚒  Armory", _open_armory, 13))
 
 	col.add_child(_button("Done", close, 14))
+
+
+# ─────────────────────────────────────────────────────────────────── the frame
+## THE CARD, IN THE CLASS'S OWN COLOUR.
+##
+## `HudStyle.panel` verbatim, then two changes, both of which have a reason:
+##
+##   * TIGHTER MARGINS — see the height-budget note where the panel is built.
+##   * THE ACCENT IS THE CLASS'S, at 0.5 alpha. Every other framed card in the game
+##     takes the house SKY; this one is the screen whose entire question is WHICH of
+##     the nine you are, so the frame answers it before you have read a word. It is the
+##     same `ClassInfo.color_for` the header button, `ClassSelect`'s cards and the hub
+##     stick figure all read, so the four cannot disagree.
+##
+## Idempotent and re-callable: `_redraw` calls it on every class change, which is the
+## only way the frame can follow the pick rather than freeze on whatever the screen
+## opened with.
+const PANEL_PAD_X: float = 10.0
+const PANEL_PAD_Y: float = 8.0
+
+
+func _accent() -> Color:
+	if _class_id >= 0 and _class_id < ClassInfo.CLASSES.size():
+		return ClassInfo.color_for(_class_id)
+	return HIGHLIGHT
+
+
+func _style_panel() -> void:
+	if _panel == null:
+		return
+	var box: StyleBoxFlat = HudStyle.panel(HudStyle.with_a(_accent(), 0.5))
+	box.content_margin_left = PANEL_PAD_X
+	box.content_margin_right = PANEL_PAD_X
+	box.content_margin_top = PANEL_PAD_Y
+	box.content_margin_bottom = PANEL_PAD_Y
+	_panel.add_theme_stylebox_override("panel", box)
+
+
+## The ult row's shelf. Same shape as the card, one step quieter: a barely-there fill
+## over PAPER and a 0.22-alpha rule, so it separates the fixed slot from the choosable
+## rows without becoming a second frame competing with the first.
+func _slot_box() -> StyleBoxFlat:
+	var box: StyleBoxFlat = HudStyle.panel(HudStyle.with_a(_accent(), 0.22))
+	box.bg_color = HudStyle.TRACK
+	box.content_margin_left = 4.0
+	box.content_margin_right = 4.0
+	box.content_margin_top = 2.0
+	box.content_margin_bottom = 2.0
+	return box
 
 
 func _button(text: String, cb: Callable, font_size: int = 13) -> Button:
@@ -279,6 +360,12 @@ func refresh() -> void:
 
 
 func _redraw() -> void:
+	# THE FRAME FOLLOWS THE PICK. Re-tinting here rather than only at build time is the
+	# whole point of holding `_panel`: `set_class` funnels into this function, so walking
+	# the roster in `ClassSelect` re-colours the card you come back to.
+	_style_panel()
+	if _ult_slot_row != null:
+		_ult_slot_row.add_theme_stylebox_override("panel", _slot_box())
 	if _title != null:
 		_title.text = "YOUR HAND — %s" % _class_display_name()
 	_refresh_blurb()

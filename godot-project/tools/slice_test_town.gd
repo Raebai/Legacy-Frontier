@@ -684,15 +684,17 @@ func _test_no_town_script_names_ollama() -> void:
 ## menu in front of it.
 func _test_the_lobby_still_leads_with_climb() -> void:
 	var src: String = _code_only(LOBBY_SCRIPT)
-	# See the note in slice_test_shell: the label is "ENTER THE TOWER" now and the
-	# ordering claim it guards is the same one.
-	var climb_at: int = src.find("ENTER THE TOWER")
+	# See the note in slice_test_shell. The label has now been "CLIMB", then "ENTER THE
+	# TOWER", and is "SINGLE PLAYER" as of 2026-09 (maker: *"reword it to Single Player
+	# and Multiplayer"*). The ordering claim it guards has never changed: the one verb
+	# that starts the game is the FIRST thing built on this screen.
+	var climb_at: int = src.find("SINGLE PLAYER")
 	# ⚠ THE SEPARATE "The Town" BUTTON IS GONE, and its absence is the point:
-	# ENTER THE TOWER now goes to the room itself, so a second button to the same
+	# the play button now goes to the room itself, so a second button to the same
 	# place was one of the "too many buttons" the maker named twice. The claim this
 	# block guards — the fast path is the FIRST thing on the screen and it routes
 	# through `visit_hub` — is unchanged and asserted below.
-	_expect(climb_at >= 0, "the lobby still has an ENTER THE TOWER button")
+	_expect(climb_at >= 0, "the lobby still has a SINGLE PLAYER button")
 	_expect(src.find("The Town") < 0,
 		"...and no SECOND button to the same room")
 	_expect(src.contains("_play_solo"), "CLIMB still routes to _play_solo")
