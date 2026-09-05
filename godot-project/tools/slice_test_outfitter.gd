@@ -33,6 +33,8 @@ const TESTS: Array[String] = [
 	"the_colourway_is_reachable_without_a_keyboard",
 	"the_hint_line_describes_the_spell_you_tapped",
 	"the_grimoire_is_reachable_and_reaches_the_hero",
+	"an_ult_only_fits_the_ult_slot",
+	"reset_to_default_puts_the_whole_hand_back",
 ]
 
 const LOBBY_SCENE: String = "res://scenes/ui/Lobby.tscn"
@@ -71,6 +73,8 @@ func _init() -> void:
 	_test_the_colourway_is_reachable_without_a_keyboard()
 	await _test_the_hint_line_describes_the_spell_you_tapped()
 	await _test_the_grimoire_is_reachable_and_reaches_the_hero()
+	_test_an_ult_only_fits_the_ult_slot()
+	await _test_reset_to_default_puts_the_whole_hand_back()
 	SpellLibrary.clear_slot_roles()
 	SpellLibrary.clear_equipped()
 	for t: String in TESTS:
@@ -98,6 +102,23 @@ func _ids(spells: Array) -> Array:
 	var out: Array = []
 	for s: Variant in spells:
 		out.append(String((s as SpellDef).id))
+	return out
+
+
+## Indices into a `SpellLibrary.equippable()` pool whose shelf is / is not an ULT.
+##
+## ⚠ ASKED OF `SpellTier.of`, NEVER HARDCODED, and that is the whole reason this helper
+## exists instead of two literal indices. The shelf is DERIVED from cast time, cooldown and
+## mana — a spell is an ult because of what it costs, not because of a flag or a name. Pin
+## "index 1 is the ult" and the first balance pass that slows a Tier 2 into ult territory,
+## or speeds a Tier 3 out of it, leaves this suite still green while testing the opposite
+## of the rule it claims to test. Ask the derivation and it cannot go quietly wrong.
+static func _pool_indices(pool: Array, want_ult: bool) -> Array[int]:
+	var out: Array[int] = []
+	for i: int in pool.size():
+		var is_ult: bool = SpellTier.of(pool[i] as SpellDef) == SpellTier.Tier.ULT
+		if is_ult == want_ult:
+			out.append(i)
 	return out
 
 
@@ -600,10 +621,28 @@ func _test_the_grimoire_is_reachable_and_reaches_the_hero() -> void:
 	out.call("set_class", 0)
 	await process_frame
 
-	# THE POOL EXISTS AND IS THE THING THE MAKER ASKED FOR: eleven spells, every one of
-	# them a Tier 2 or a Tier 3, none of them in any class's authored hand.
+	# THE POOL EXISTS AND IS THE THING THE MAKER ASKED FOR.
+	#
+	# ⚠ IT WAS ELEVEN AND IS NOW THE WHOLE LIBRARY ABOVE THE JAB SHELF, and the earlier
+	# claim is narrowed rather than dropped. It read "eleven spells, every one of them a
+	# Tier 2 or a Tier 3" — true while `equippable()` was exactly `build_tier2() +
+	# build_tier3()`. Maker, 2026-09: *"it shouldnt prevent any player for taking any
+	# spell"*, so `equippable()` now unions in the ORPHANS (`unequipped_ids()` — spells no
+	# class authors), which is ~18-20 rows. Eleven is therefore a FLOOR, not the count: the
+	# number is not written down here because a number copied out of a derivation is a
+	# number that goes stale the next time a spell is authored.
 	var pool: Array = SpellLibrary.equippable()
 	_expect(pool.size() >= 11, "the grimoire offers the showcase pool (%d spells)" % pool.size())
+	_expect(pool.size() > 11,
+		"...and the orphans too, so no spell in the game is unreachable (%d spells)"
+			% pool.size())
+	# Named against the real derivation, so "the orphans are in" cannot pass by coincidence.
+	var pool_ids: Array = _ids(pool)
+	for orphan: Variant in SpellLibrary.unequipped_ids():
+		_expect(pool_ids.has(String(orphan)),
+			"the orphan '%s' is offered — 'no class happens to carry it' is a fact about "
+				% orphan
+			+ "the kits, not a reason to hide it from the screen whose job is choosing")
 	for s: Variant in pool:
 		var tier: int = SpellTier.of(s as SpellDef)
 		_expect(tier != SpellTier.Tier.QUICK,
@@ -652,9 +691,24 @@ func _test_the_grimoire_is_reachable_and_reaches_the_hero() -> void:
 		_expect(b.focus_mode == Control.FOCUS_NONE, "grimoire '%s' takes no focus ring" % b.text)
 
 	# ── THE PICK ────────────────────────────────────────────────────────────────
+	# ⚠ THE SPELL IS CHOSEN BY ITS SHELF, NOT BY ITS INDEX. This block used to take
+	# `pool[0]` and the one below took `pool[1]`, which worked only for as long as the pool
+	# happened to start with two non-ults. Slot 0 is not the ult slot, so what belongs here
+	# is "the first row that is not an ult" — see `_pool_indices`.
+	var open_idx: Array[int] = _pool_indices(pool, false)
+	var ult_idx: Array[int] = _pool_indices(pool, true)
+	_expect(open_idx.size() >= 2,
+		"the pool offers at least two non-ults, or the open slots have nothing to hold (%d)"
+			% open_idx.size())
+	_expect(ult_idx.size() >= 1,
+		"...and at least one ult, or the ult-slot rule is untestable (%d)" % ult_idx.size())
+	if open_idx.size() < 2 or ult_idx.is_empty():
+		out.queue_free()
+		_completes("the_grimoire_is_reachable_and_reaches_the_hero")
+		return
 	var before: Array = _ids(SpellLibrary.build_for_class(0))
-	var want: SpellDef = pool[0] as SpellDef
-	(rows[0] as Button).pressed.emit()
+	var want: SpellDef = pool[open_idx[0]] as SpellDef
+	(rows[open_idx[0]] as Button).pressed.emit()
 	await process_frame
 	_expect(SpellLibrary.equipped_id(0, 0) == String(want.id),
 		"tapping a grimoire row equips it into the aimed slot (slot 0 holds '%s')"
@@ -684,12 +738,11 @@ func _test_the_grimoire_is_reachable_and_reaches_the_hero() -> void:
 	# ── IT READS AS THE RARE THING ──────────────────────────────────────────────
 	var rows2: Array = []
 	_walk(out.get("_list"), rows2)
-	_expect((rows2[0] as Button).get_theme_color(&"font_color") == HudStyle_GOLD(),
+	_expect((rows2[open_idx[0]] as Button).get_theme_color(&"font_color") == HudStyle_GOLD(),
 		"the equipped row is drawn in HudStyle.GOLD (got %s)"
-			% [(rows2[0] as Button).get_theme_color(&"font_color")])
-	if rows2.size() > 1:
-		_expect((rows2[1] as Button).get_theme_color(&"font_color") != HudStyle_GOLD(),
-			"...and an unequipped one is not, so the badge means something")
+			% [(rows2[open_idx[0]] as Button).get_theme_color(&"font_color")])
+	_expect((rows2[open_idx[1]] as Button).get_theme_color(&"font_color") != HudStyle_GOLD(),
+		"...and an unequipped one is not, so the badge means something")
 
 	# ── THE SLOT CURSOR ─────────────────────────────────────────────────────────
 	# Equipping by INDEX needs a slot before it needs a spell. The fixed row under the
@@ -705,26 +758,101 @@ func _test_the_grimoire_is_reachable_and_reaches_the_hero() -> void:
 		_expect(int(out.get("_grim_slot")) == 1, "tapping the cursor aims at the next slot")
 		var rows3: Array = []
 		_walk(out.get("_list"), rows3)
-		var want2: SpellDef = pool[1] as SpellDef
-		(rows3[1] as Button).pressed.emit()
+		# ⚠ THIS ASSERTION USED TO SAY THE OPPOSITE, AND THE RULING THAT CHANGED IT IS
+		# NAMED RATHER THAN DELETED. It read `want2 = pool[1]` / `rows3[1]` and claimed
+		# "a second pick lands in the newly aimed slot" for ANY pool row — which was true
+		# while the only restriction on `set_equipped` was "an id inside the pool".
+		#
+		# Maker, 2026-09: *"all the ults in the grimoire should only be able to be swapped
+		# with the existing ult, no one can have multiple ults"*. `SpellLibrary.set_equipped`
+		# now returns FALSE for an ult-shelf spell aimed at any slot but `SpellTier.ULT_SLOT`,
+		# so the old assertion was aiming an ult at slot 1 and asserting it landed. The claim
+		# survives, narrowed to the spells the rule still allows there: a NON-ult lands in the
+		# newly aimed non-ult slot.
+		var want2: SpellDef = pool[open_idx[1]] as SpellDef
+		(rows3[open_idx[1]] as Button).pressed.emit()
 		await process_frame
 		_expect(SpellLibrary.equipped_id(0, 1) == String(want2.id),
-			"a second pick lands in the newly aimed slot")
+			"a second NON-ULT pick lands in the newly aimed slot (slot 1 holds '%s')"
+				% SpellLibrary.equipped_id(0, 1))
 		_expect(SpellLibrary.equipped_id(0, 0) == String(want.id),
 			"...and the first one is still there — slots are independent")
 
+		# ── AND THE OTHER DIRECTION: AN ULT AIMED AT SLOT 1 IS NOT OFFERED ───────
+		# The rule is only half kept if the library refuses the pick; the other half is
+		# that the SCREEN must not present a row it knows will be refused. Driven through
+		# the real Button, because "the handler is right and nothing is connected" is the
+		# bug class this suite exists for — and here the *absence* of the connection IS
+		# the feature, so emitting `pressed` must move nothing.
+		# ⚠ RE-WALKED. The `pressed.emit()` above ran a real `_redraw`, which frees every
+		# row and rebuilds the list — so `rows3` is a list of freed objects by now, and
+		# reading it is a script error rather than a failing assertion (which this suite's
+		# completion sentinels catch, but only as "the test aborted").
+		var rows3b: Array = []
+		_walk(out.get("_list"), rows3b)
+		var ult_row: Button = rows3b[ult_idx[0]] as Button
+		var ult_spell: SpellDef = pool[ult_idx[0]] as SpellDef
+		_expect(ult_row.disabled,
+			"aiming slot 1, the ult row '%s' is drawn as unavailable, not as a live button"
+				% ult_row.text)
+		_expect(ult_row.text.contains("slot %d only" % (SpellTier.ULT_SLOT + 1)),
+			"...and the row itself says WHERE it can go — a phone has no hover to ask "
+			+ "(row was: %s)" % ult_row.text)
+		var held_before_ult: String = SpellLibrary.equipped_id(0, 1)
+		ult_row.pressed.emit()
+		await process_frame
+		_expect(SpellLibrary.equipped_id(0, 1) == held_before_ult,
+			"...and tapping it moves NOTHING — slot 1 still holds '%s'"
+				% SpellLibrary.equipped_id(0, 1))
+		# The tap is refused; the QUESTION is not. Same rule the fixed ult ROLE row obeys:
+		# the one row a player cannot act on must not also be the one row that says nothing.
+		var blocked_hint: Label = out.get("_hint") as Label
+		out.call("_on_blocked_row_input",
+			_press_event(), String(ult_spell.id))
+		await process_frame
+		_expect(blocked_hint != null and blocked_hint.text.contains("slot %d"
+				% (SpellTier.ULT_SLOT + 1)),
+			"tapping a blocked row explains itself on the description line (line was: %s)"
+				% [blocked_hint.text if blocked_hint != null else "<none>"])
+
+		# ── AIM THE ULT SLOT AND THE SAME SPELL IS TAKEABLE ──────────────────────
+		# One ult, in the ult slot. This is the direction the maker asked FOR, and without
+		# it the rule above is indistinguishable from "ults cannot be equipped at all".
+		# ⚠ THE CURSOR IS RE-FETCHED EVERY TAP, for the same reason the rows are re-walked:
+		# `_cycle_grim_slot` redraws, and the redraw frees and rebuilds the fixed row. The
+		# `cursor` captured above is a freed object from its first press onward. Driven
+		# through the live button each time rather than by calling `_cycle_grim_slot`,
+		# because "nothing is connected to it" is the bug this suite is for.
+		while int(out.get("_grim_slot")) != SpellTier.ULT_SLOT:
+			var holder: Control = out.get("_ult_slot_row") as Control
+			(holder.get_child(0) as Button).pressed.emit()
+			await process_frame
+		var rows_ult: Array = []
+		_walk(out.get("_list"), rows_ult)
+		var ult_row2: Button = rows_ult[ult_idx[0]] as Button
+		_expect(not ult_row2.disabled,
+			"aiming the ult slot, the same ult row IS live (row was: %s)" % ult_row2.text)
+		ult_row2.pressed.emit()
+		await process_frame
+		_expect(SpellLibrary.equipped_id(0, SpellTier.ULT_SLOT) == String(ult_spell.id),
+			"an ult equips into the ult slot (slot %d holds '%s')"
+				% [SpellTier.ULT_SLOT + 1, SpellLibrary.equipped_id(0, SpellTier.ULT_SLOT)])
+		_expect(_ids(SpellLibrary.build_for_class(0)).has(String(ult_spell.id)),
+			"...and a hero built for this class actually casts it")
+		SpellLibrary.clear_equipped(0, SpellTier.ULT_SLOT)
+
 	# ── AND YOU CAN TAKE IT BACK OUT ────────────────────────────────────────────
 	# Tap-again-to-undo, the same gesture the role list uses. There is deliberately no
-	# separate Clear button: on a phone that is a second target for a decision the
-	# player's thumb is already on.
+	# separate Clear button for ONE slot: on a phone that is a second target for a decision
+	# the player's thumb is already on. (The Reset Hand button is a different question —
+	# it puts the WHOLE class back, and is covered by its own test below.)
 	SpellLibrary.clear_equipped(0, 1)
-	out.call("_cycle_grim_slot")          # 1 -> 2
-	out.call("_cycle_grim_slot")          # 2 -> 3
-	out.call("_cycle_grim_slot")          # 3 -> 0, back on the equipped slot
+	while int(out.get("_grim_slot")) != 0:
+		out.call("_cycle_grim_slot")      # ...back round onto the equipped slot
 	await process_frame
 	var rows4: Array = []
 	_walk(out.get("_list"), rows4)
-	(rows4[0] as Button).pressed.emit()
+	(rows4[open_idx[0]] as Button).pressed.emit()
 	await process_frame
 	_expect(SpellLibrary.equipped_id(0, 0) == "",
 		"tapping the equipped row again takes it back out")
@@ -765,6 +893,180 @@ func _test_the_grimoire_is_reachable_and_reaches_the_hero() -> void:
 	SpellLibrary.clear_equipped()
 	SpellLibrary.clear_slot_roles()
 	_completes("the_grimoire_is_reachable_and_reaches_the_hero")
+
+
+## A press, as the blocked-row handler wants it. `_on_blocked_row_input` gates on a
+## PRESSED mouse/touch event exactly like `_on_locked_row_input` does, so a bare
+## `InputEvent.new()` would be silently ignored and the assertion under it would then be
+## measuring nothing.
+static func _press_event() -> InputEventMouseButton:
+	var e := InputEventMouseButton.new()
+	e.button_index = MOUSE_BUTTON_LEFT
+	e.pressed = true
+	return e
+
+
+## ══ ONE ULT, AND IT GOES IN THE ULT SLOT ═════════════════════════════════════
+## Maker: *"all the ults in the grimoire should only be able to be swapped with the
+## existing ult, no one can have multiple ults"*.
+##
+## The test above drives this through the real buttons; this one asks the LIBRARY
+## directly, across the whole pool and every slot, because the UI can only ever exercise
+## the rows a player happens to tap. Between them: the screen does not offer it, and the
+## thing underneath would refuse it anyway.
+##
+## ⚠ EVERY SPELL IS CLASSIFIED BY `SpellTier.of`, NEVER BY ID. See `_pool_indices`.
+##
+## CONFIRMED TO FAIL: removing the `SpellTier.of(picked) == ULT` guard from
+## `SpellLibrary.set_equipped` reports
+##   FAIL: the ult 'the_void' is REFUSED in slot 0 — a hand carries one finisher
+func _test_an_ult_only_fits_the_ult_slot() -> void:
+	SpellLibrary.clear_equipped()
+	var pool: Array = SpellLibrary.equippable()
+	var ults: int = 0
+	var opens: int = 0
+	for s: Variant in pool:
+		var spell: SpellDef = s as SpellDef
+		var id: String = String(spell.id)
+		var is_ult: bool = SpellTier.of(spell) == SpellTier.Tier.ULT
+		for slot: int in SpellTier.SLOT_COUNT:
+			var ok: bool = SpellLibrary.set_equipped(0, slot, id)
+			if is_ult and slot != SpellTier.ULT_SLOT:
+				_expect(not ok,
+					"the ult '%s' is REFUSED in slot %d — a hand carries one finisher"
+						% [id, slot])
+				_expect(SpellLibrary.equipped_id(0, slot) != id,
+					"...and nothing was half-applied into slot %d" % slot)
+			else:
+				# THE OTHER DIRECTION, and it is not decoration. A rule enforced by
+				# refusing everything is not a rule, it is a broken screen — so every
+				# legal placement is asserted to still land.
+				_expect(ok, "'%s' is accepted in slot %d" % [id, slot])
+				_expect(SpellLibrary.equipped_id(0, slot) == id,
+					"...and slot %d really holds it (holds '%s')"
+						% [slot, SpellLibrary.equipped_id(0, slot)])
+			SpellLibrary.clear_equipped(0, slot)
+		if is_ult:
+			ults += 1
+		else:
+			opens += 1
+	# A pool of all-ults or no-ults would make both halves above vacuous.
+	_expect(ults >= 1, "the pool contains at least one ult (%d)" % ults)
+	_expect(opens >= 1, "...and at least one non-ult (%d)" % opens)
+	# ⚠ AND A NON-ULT IS STILL WELCOME IN THE ULT SLOT. The maker asked that nobody carry
+	# FOUR finishers, not that the last slot refuse anything ordinary — the asymmetry is
+	# deliberate and is asserted so a future "tidy-up" that makes the rule symmetric gets
+	# caught here rather than as a slot a player cannot fill.
+	var open_idx: Array[int] = _pool_indices(pool, false)
+	if not open_idx.is_empty():
+		var plain: String = String((pool[open_idx[0]] as SpellDef).id)
+		_expect(SpellLibrary.set_equipped(0, SpellTier.ULT_SLOT, plain),
+			"a NON-ult may still be equipped into the ult slot ('%s')" % plain)
+	SpellLibrary.clear_equipped()
+	_completes("an_ult_only_fits_the_ult_slot")
+
+
+## ══ RESET TO DEFAULT ═════════════════════════════════════════════════════════
+## Maker: *"also add a reset to default button to the grimoire"*.
+##
+## What "default" means here is the decision worth testing, not the button. The screen
+## carries TWO mechanisms that both move the hand — the role picks (`_chosen_roles`) and
+## the grimoire overlay (`_equipped`) — and `_summary` is drawn from `build_for_class`,
+## which carries both. So a reset that cleared only the grimoire would leave that line
+## showing a non-default hand one row under a button claiming it had restored the default.
+## Both tables, one class: asserted below in the only way that can catch a half-reset,
+## which is to dirty BOTH before pressing it.
+##
+## Driven through the real Button, never through `_reset_to_defaults` — the failure this
+## suite exists to catch is "the handler is right and nothing is connected to it".
+##
+## CONFIRMED TO FAIL: dropping the `clear_slot_roles` line out of
+## `Outfitter._reset_to_defaults` reports
+##   FAIL: ...and the role picks too — a half-reset leaves the summary line lying
+func _test_reset_to_default_puts_the_whole_hand_back() -> void:
+	SpellLibrary.clear_slot_roles()
+	SpellLibrary.clear_equipped()
+	var out: Control = load(OUTFITTER_SCRIPT).new() as Control
+	root.add_child(out)
+	await process_frame
+	out.call("set_class", 0)
+	await process_frame
+	var authored: Array = _ids(SpellLibrary.build_for_class(0))
+
+	# DIRTY BOTH HALVES. A role pick AND a grimoire overlay, so a reset that only clears
+	# one of them cannot pass by clearing the half this test happened to set.
+	_expect(SpellLibrary.set_slot_roles(0, ["damage", "answer", "payoff", "ult"]),
+		"a role pick lands, so there is something to reset")
+	var pool: Array = SpellLibrary.equippable()
+	var open_idx: Array[int] = _pool_indices(pool, false)
+	_expect(not open_idx.is_empty(), "the pool offers a non-ult to overlay slot 0 with")
+	if open_idx.is_empty():
+		out.queue_free()
+		_completes("reset_to_default_puts_the_whole_hand_back")
+		return
+	var overlay: String = String((pool[open_idx[0]] as SpellDef).id)
+	_expect(SpellLibrary.set_equipped(0, 0, overlay), "a grimoire pick lands too")
+	# ...and the class NEXT DOOR is dirtied as well, because the one thing a reset must
+	# NOT do is reach past the class being edited. There is no undo on this screen and the
+	# very next line persists to disk.
+	_expect(SpellLibrary.set_slot_roles(1, ["damage", "answer", "payoff", "ult"]),
+		"the Shadowblade is dirtied so the blast radius is measurable")
+	out.call("refresh")
+	await process_frame
+	_expect(_ids(SpellLibrary.build_for_class(0)) != authored,
+		"the hand really is off-default before the reset")
+
+	# ── THE BUTTON ──────────────────────────────────────────────────────────────
+	var reset: Button = out.get("_reset_btn") as Button
+	_expect(reset != null, "the Outfitter carries a reset button")
+	if reset == null:
+		out.queue_free()
+		_completes("reset_to_default_puts_the_whole_hand_back")
+		return
+	_expect(reset.custom_minimum_size.y >= MIN_TAP_H,
+		"it is a real tap target (%.0f px)" % reset.custom_minimum_size.y)
+	# HONEST ABOUT ITS SCOPE, on the button itself. "Reset" alone on a screen carrying a
+	# class button, a role list, a grimoire and an armoury door is a button whose blast
+	# radius a player has to discover by pressing it.
+	_expect(reset.text.to_lower().contains("reset")
+			and reset.text.to_lower().contains("hand"),
+		"...and it says WHAT it resets (label was: %s)" % reset.text)
+	reset.pressed.emit()
+	await process_frame
+
+	_expect(SpellLibrary.equipped_id(0, 0) == "",
+		"the reset clears the grimoire overlay (slot 0 holds '%s')"
+			% SpellLibrary.equipped_id(0, 0))
+	_expect(not SpellLibrary.has_custom_slot_roles(0),
+		"...and the role picks too — a half-reset leaves the summary line lying")
+	_expect(_ids(SpellLibrary.build_for_class(0)) == authored,
+		"...so the hand is exactly what the class was authored with (%s)"
+			% [_ids(SpellLibrary.build_for_class(0))])
+	# SCOPED TO ONE CLASS.
+	_expect(SpellLibrary.has_custom_slot_roles(1),
+		"the reset did NOT reach the class next door — one class was being edited")
+	# AND THE SCREEN'S OWN WORKING COPY FOLLOWED. `_carried` is seeded in `refresh` and
+	# never re-read by `_redraw`, so a reset that redrew without refreshing would leave the
+	# old hand standing in this screen and commit it straight back on the next role tap.
+	var carried: Array = out.get("_carried") as Array
+	var default_roles: Array = SpellLibrary.default_slot_roles_for_class(0)
+	for role: Variant in carried:
+		_expect(default_roles.has(String(role)),
+			"the screen's working hand followed the reset (stale role '%s')" % role)
+	# IT SAVED. Same `_persist` path every other pick takes — a reset that did not reach
+	# `GameState` would come back from the dead on the next launch.
+	var gs: Node = root.get_node_or_null(^"GameState")
+	if gs != null:
+		var saved: Variant = gs.get(&"spell_equipped")
+		_expect(not (saved is Dictionary and (saved as Dictionary).get(0, {}) is Dictionary
+				and not ((saved as Dictionary).get(0, {}) as Dictionary).is_empty()),
+			"the cleared grimoire reached GameState.spell_equipped, so it stays cleared "
+			+ "across a quit (%s)" % [saved])
+
+	out.queue_free()
+	SpellLibrary.clear_slot_roles()
+	SpellLibrary.clear_equipped()
+	_completes("reset_to_default_puts_the_whole_hand_back")
 
 
 ## `HudStyle` has no `class_name` (see its header), so it is reached the same way every
