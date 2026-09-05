@@ -1,106 +1,153 @@
 # RESUME HERE
 
-## THE POLISH PASS — 2026-09-04/05
+## THE POLISH PASS — 2026-09-05. 32 COMMITS, NOT PUSHED.
 
-Branch `bot-fight-quality`. **18+ commits ahead of `origin` and NOT PUSHED** — that is the
-first decision for whoever reads this.
+Branch `bot-fight-quality`, **32 commits ahead of `origin`**. Pushing is the first decision.
+Fifteen agents ran against a partitioned file-ownership map. **Everything below is measured
+and revert-tested. NOTHING is playtested.**
 
-The maker asked for a full polish pass (*"the game is really ugly and unpolished... dont
-just add random effects optimise the ones that current exist"*), then added: make it feel
-precise and professional, optimise the stick-figure hitboxes, make the map destroyable,
-have spells interact, verify local multiplayer, and get an Android APK they can play.
-Fifteen agents ran against a partitioned file-ownership map. Everything below is measured
-and revert-tested, and **none of it is playtested**.
-
-### ▶ PLAY IT
-
-* **Android:** `exports/android/Stickspire.apk` — signed, verified, `com.stickspire.game`.
-  ⚠ **REBUILD BEFORE HANDING IT OVER**; the current file predates most of these commits.
+### PLAY IT
+* **PC:** F5 -> Lobby -> Watch Bots.
+* **Android:** `exports/android/Stickspire.apk` — REBUILD FIRST, it predates ~15 commits:
   `"godot-engine/Godot_v4.6.2-stable_win64_console.exe" --headless --path godot-project --export-debug "Android" "../exports/android/Stickspire.apk"`
-* **PC:** F5 → Lobby → Watch Bots. `boot_check: OK`.
-
-### ▶ THE ONE THAT COST THE MOST TO FIND
-
-**`#` IS NOT A COMMENT IN `project.godot`.** Godot parses it with VariantParser, whose only
-comment character is `;`. A `#` line is a PARSE ERROR whose recovery **swallows the
-assignment on the next line**.
-
-Commit `84caf09` added five careful `#` lines explaining why Android needs ETC2, then the
-setting they explained. The comment switched off the line it documented. `grep` found it,
-every human read it as set, and `ProjectSettings` returned `false` — so every Android
-export kept failing, **with a blank error body**, because the Android exporter's ETC2 check
-sets `valid = false` without writing a reason into the string headless prints. Four signals
-all read "fixed" while the build stayed broken. `tools/slice_test_project_config.gd` now
-bans `#`-led lines and asserts platform gates on their PARSED VALUE, never on presence.
-
-### ▶ WHAT LANDED
-
-* **The hero had no hurtbox** — an 18×18 box under a 33 px figure, so head/neck/chest (41%
-  of a stick figure) were unhittable. The enemy's was 5.6 px short at the top; the
-  guardian's was never synced, because `Boss._physics_process` does not chain `super`.
-* **Melee auto-target deleted** under the standing **"NO auto-aim"** ruling.
-* **Player two could not move** — `PadController` never implemented `tick`, and a missing
-  method ABORTS the enclosing function, so P2's whole `_physics_process` returned above
-  movement at 60 errors/sec. Three green suite runs had said 2P worked.
-* **The tower is endless and scored.** The probe found the pressure-cap axis was DEAD
-  (`clampi(caps[i], 2, 8)` silently clipped every 9 and 10 — a clamped number is not a
-  rejected one) and that the seam was a step DOWN (floor 10 already ends with all four
-  classes, so the first five generated floors were easier than the summit).
-  ⚠ **No online board is possible here** — no backend, scores are client-side plain text.
-* **HUD unified:** 56 colour literals → 5, four rect collisions → 0, one zoom rule.
-* **Hotbar:** the socket circle measured 32.00 px inside a 28.52 px slot and crossed into
-  its neighbour; three labels clipped mid-word. Spell slots are discs now.
-* **Telegraph:** draw calls 103 → 60, and five effects had NO low-quality gate at all.
-* **Mobile:** DASH sat inside Android's home-swipe strip; JUMP was 115 mm from the right
-  knuckle against a 62 mm sweep; nothing read `get_display_safe_area()`.
-* **Hub:** two pads per the maker's ruling; the town overlay drew at layer 95 while
-  `ClassSelect`/`Loadout` are autoloads at 90, so the Outfitter's Armory button opened the
-  armoury BEHIND its own dimmer.
-* **Both known-flaky suites fixed** — one awaited idle frames while asserting about
-  physics-frame positions; the other randomised its matchup and was reporting the dice.
-
-### ▶ OPEN — FOR THE MAKER, NOT FOR ENGINEERING
-
-1. **The melee cone is 10–11× wider than the lane that draws it** (Brawler 110.7 vs
-   10.4 px). A cone-sized lane is wider than the swing is long (already vetoed: *"i hate
-   that circle thing for brawler"*); a lane-sized cone is a needle. Measured, not decided.
-2. **The auto-aim contradiction, now sharp.** To hit someone behind you: keep the aim stick
-   (today) = flick the thumb back ~10 mm and tap, sub-degree error; drag-to-aim (spec, not
-   built) = press, drag, release; facing-follows-movement (spec as written) = **walk
-   backward to turn around**, which on a ledge in a ring-out game is the swing killing you.
-   **The spec's aiming scheme breaks melee unless drag-to-aim ships with it.**
-3. **The 4→2 spell trim and parry cut are built behind consts but NOT defaulted on** — the
-   measurement does not support them; the spec's case is *attention*, which needs eyes.
-
-### ▶ HARD-WON FACTS — do not re-learn these
-
-* **`#` in `project.godot` eats the next line.** Use `;`.
-* **`preload` yields the SCRIPT OBJECT** — entry points must be `static func`. A plain
-  `func` fails at RUNTIME, not parse time. Four agents hit a variant of this in one session.
-* **A static method named `reload()` IS `Script.reload()`** — it recompiles and resets every
-  static. A suite's redirect was undone two lines after it was made and the tests overwrote
-  the maker's real `settings.cfg` while reporting all PASS.
-* **`Sfx`/`GameState`/`Music` are AUTOLOADS, not `class_name`s** — naming one at compile
-  scope from a file a `--script` suite loads in `_init` fails with "Identifier not found".
-* **Count the frames your subject moves on** — gravity advances on `physics_frame`.
-* **`aspect="expand"` keeps HEIGHT and adds WIDTH** — 20:9 is an 800×360 logical viewport,
-  so right-anchored controls drift up to 200 px from left-anchored ones.
-* **A suite printing NEITHER summary line is a FAILURE**, and one printing `all PASS`
-  alongside a runtime SCRIPT ERROR is also failed by the harness.
-* **`.gd` is pinned to LF but the tree has stale CRLF files** (`Arena.gd`, `Boss.gd`,
-  `GameState.gd`, `TouchControls.gd`). Preserve each file's endings when patching.
-
-### ▶ STILL FLAGGED, NOT FIXED
-
-The Gopeak MCP runtime autoload is an unauthenticated `call_method` on port 7777. The
-export excludes the addon so it does not ship, but `project.godot` still registers it, so
-an exported build logs "failed to instantiate an autoload" on boot. The clean fix is a tiny
-exported shim that loads the real addon only in the editor; deferred because changing an
-autoload mid-session breaks every running agent.
 
 ---
 
-# EARLIER HANDOFF (preserved — marketing/ops below is still live)
+## OPEN ITEMS — EACH WITH ITS SOLUTION
+
+**1. NOVA REMOVAL — ASKED FOR, NOT STARTED.** Maker: *"remove Nova from all characters...
+maybe it could be a spell option for certain spells instead."*
+SOLUTION: drop the `_cfg.has_nova` row from `Hero.ability_hud_state` (left cluster, key T);
+add nova to the selectable pool in `SpellLibrary`; change `slice_test_spell_buttons`'s
+`hotbar_is_six_things` to FIVE **with the new ruling named at the site** — that file records
+the OPPOSITE ruling, so update it rather than delete it. Re-run: spell_buttons, touch,
+touch_layout, spell_kits, tier_spells, class_attacks, local_coop.
+
+**2. `MeteorSigil` CARVES NOTHING** — odd, given the maker's *"a meteor would do more
+destruction"*. SOLUTION: one `DestructibleStage.carve_from_body(...)` in `_impact_burst(at)`
+(`MeteorSigil.gd:937`, which already holds the landing point), footprint = blast radius
+(140/210). Same one-liner for `RadiantVolley`, `ShadowRoot`, `RockPillar`, `HeavensWrath`,
+`StarConvergence`, `HorizonArc`.
+
+**3. 96 MORE CRASH SITES OF THE FLOOR-10 SHAPE.** A statically typed assignment
+(`var e: Node = <freed>`) FAULTS as it binds — before any `is_instance_valid` guard beneath
+it, and before a callee's guard, because parameters bind too.
+SOLUTION: the `live_node(v: Variant) -> Node` pattern now on `EliteRider`/`BossModRider`.
+Priority, because these hold nodes that genuinely die mid-life: `BotMatch._fighters[side]`
+(x6), `Net.gd:940`, `Net.gd:1638`. Also `MagicCircle.offer(circle: MagicCircle, ...)` —
+its guard is unreachable; the parameter must be `Variant` (its own `_expire_offer:564`
+already does it correctly).
+
+**4. THE MELEE TELL FIXES ITS AXIS AT SWING START; THE DAMAGE RE-READS FACING AT THE HIT
+FRAME.** Turning inside the 0.077 s lead re-aims the hit under a fixed drawing.
+SOLUTION — the maker's call, not a legibility one: freeze `facing` at swing start (which
+changes how the button plays), or accept it. It is written into the audit row either way.
+
+**5. NO OFF-SCREEN THREAT INDICATOR** — the biggest remaining HUD gap. At the camera's tight
+end enemies leave frame silently, and friendly fire is always on, so this is the cheapest
+source of an unfair death. Belongs to `Arena` / `CombatCamera`.
+
+**6. ARMOURY PLACEHOLDERS ARE INERT, AND REAL RANGES ARE GONE:** max HP 0.94-1.20x, move
+speed 0.92-1.12x, melee damage 0.82-1.30x, cooldown 0.70-1.30x, knockback 0.88-1.40x, a
+0.40 one-shot ward, 0.15 flat mitigation, and the only player-facing ELEMENT override. Any
+class quietly tuned around "you will wear a helmet" is now squishier than intended.
+SOLUTION: author real items against the `GearAbilities.PLACEHOLDER_SLOTS` ids — machinery,
+saves, sanitiser and paper doll are already wired.
+NOTE: `CharacterRig.GEAR_DRAW` is FALSE under the "just stickmen" ruling, so helms and
+armour will not render on the doll even as real items. Only held weapons do.
+
+**7. A NOVA OUT-CARVES A BOULDER** (32.4 vs 17.6 px). That follows honestly from footprint —
+135 px of scouring ring against 26 px of falling rock.
+SOLUTION if the maker disagrees: size the boulder off its BLAST (90) rather than its rock,
+accepting that it then excavates ground it never touched.
+
+**8. WALLS DO NOT TAKE THE MATERIAL THEY ARE MADE OF** — the best unbuilt idea in the
+destruction work; cover and hazard in one act.
+SOLUTION: `carve_disc` needs a capsule sibling. A wall is a long thin span and a row of
+discs is the shape most likely to move the severed-run number off 0, so it wants its own
+measured slice.
+
+**9. `FreePlay.gd:395` INJECTS AN UNGATED "Heal" CHEAT** onto the player-facing pause menu.
+SOLUTION: move it inside that file's own `FileAccess.file_exists(DIRECTOR_SCRIPT)` dev block
+a few lines below. Also `FreePlay.gd:341` prints the stale `CONTROLS_TEXT` const instead of
+`PauseMenu.controls_text()`, which reads the live InputMap.
+
+**10. `GameState.colourway` HAS NO WRITER ANYWHERE** — it was -1 before this pass and is -1
+after; the pause menu replays the pick onto a live hero instead.
+SOLUTION if wanted: `gs.colourway = Outfitter.chosen_colourway` at the hub spawn.
+
+**11. THE MCP RUNTIME AUTOLOAD** is an unauthenticated `call_method` on port 7777. The export
+excludes the addon so it does not ship, but `project.godot` still registers the autoload, so
+a shipped build logs "failed to instantiate an autoload" on boot.
+SOLUTION: a tiny exported shim registered as the autoload, loading the real addon only when
+`OS.has_feature("editor")`.
+
+**12. `tools/probe_reachability.gd`** reports every public entry point whose only callers live
+in trees the export strips. It is a REPORT, not a guard, and it over-reports for autoloads
+(it excludes a file's own self-calls). Read it and promote what matters, the way
+`slice_test_wall_reachable.gd` already does for the shove.
+
+---
+
+## WHAT LANDED (all measured, none playtested)
+
+**Android was never actually fixed.** `#` is NOT a comment in `project.godot` — it is a parse
+error whose recovery **swallows the next line**. A commit added five `#` lines explaining the
+ETC2 setting and then the setting; the comment switched off the line it documented, `grep`
+found it, every reader saw it set, and the export refused with a BLANK error body.
+
+**The hero had no hurtbox** — an 18x18 box under a 33 px figure, so head, neck and chest (41%
+of the figure) were unhittable by anything. **Player two could not move** — `PadController`
+never implemented `tick`, and a missing method aborts the enclosing function, so P2's whole
+`_physics_process` returned above movement at 60 errors/sec. **Melee had a dead zone one
+pixel wide** — `in_cone` measures reach to the silhouette but ANGLE between the two origins,
+and overlapping bodies have no direction: miss at -1 px, hit at 0.
+
+**The wall two-beat existed only in the playground** — one caller, in a spike scene. Every
+unit test of it passed, because every unit test drove it directly.
+
+**The mana bar was showing a constant** — no spend site anywhere, pinned at 100% for the life
+of every hero — and two comments in two files claimed `show_mp` was never passed true while a
+third line passed it 830 rows below one of them.
+
+Also: the tower is endless and scored (its probe found a DEAD difficulty axis — a `clampi`
+silently clipping every value above 8); HUD unified from 56 colour literals to 5; telegraph
+draw calls 103 -> 60 with five effects that had no low-quality gate at all; settings went
+from 771 px of content in a 324 px card to four doors; **27 of 27 tap targets were under
+9 mm**; DASH sat inside Android's home-swipe strip; class kit cards were one slot stale on
+all nine classes; and both long-standing flaky suites are now deterministic.
+
+---
+
+## HARD-WON FACTS — do not re-learn these
+
+* **`#` in `project.godot` eats the next line.** Use `;`.
+* **A typed assignment FAULTS on a freed instance** — before the `is_instance_valid` guard
+  beneath it, and before a callee's guard, because parameters bind too. `freed == null` is
+  TRUE, so a null check proves nothing. Take a `Variant` and cast inside.
+* **`preload` yields the SCRIPT OBJECT** — entry points must be `static func`; a plain `func`
+  fails at RUNTIME. And **a static `reload()` IS `Script.reload()`**, which recompiles the
+  script and resets every static.
+* **`Sfx` / `GameState` / `Music` are AUTOLOADS, not `class_name`s** — naming one at compile
+  scope from a file a `--script` suite loads in `_init` fails outright.
+* **Count the frames your subject moves on** — gravity advances on `physics_frame`.
+* **`aspect="expand"` keeps HEIGHT and adds WIDTH.** 360 px always maps to the phone's SHORT
+  edge, so 9 mm is 45-49 px. Right-anchored controls drift up to 200 px from left-anchored.
+* **Headless has no window and therefore no aspect** — `get_visible_rect()` returns a SQUARE
+  640x640. Set `root.size` and wait a frame.
+* **`Control.get_global_rect()` is the rect in the control's OWN canvas** and cannot see a
+  camera. Use `get_global_transform_with_canvas()` to prove zoom immunity.
+* **A suite printing NEITHER summary line is a FAILURE**, and one printing `all PASS`
+  alongside a runtime SCRIPT ERROR is failed by the harness too.
+* **A backgrounded `run_all_tests.py` can stall and report absurd durations** (34,019 s) as
+  TIMEOUTs. Re-run the named suites alone before believing it.
+* **`.gd` is pinned to LF but the tree holds stale CRLF files.** Preserve each file's endings.
+* If the Music bus fails to resolve in a suite, run `--import` — it is the UID cache, not the
+  code.
+
+---
+
+# EARLIER HANDOFF (preserved — the marketing/ops sections below are still live)
 
 ## THE NIGHTLY SHOOT WAS NEVER RUNNING (fixed 2026-09-01)
 

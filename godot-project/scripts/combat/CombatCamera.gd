@@ -69,7 +69,7 @@ func _hud_reserve() -> float:
 	# health moved out of world space into this corner, so the reserved strip grew by 24 px
 	# (gap + plate + frame). Without this the camera happily frames two fighters into the
 	# band their own health readout occupies.
-	return AbilityBar.occupied_height() + HudStyle.HERO_PLATE_GAP \n		+ HudStyle.HERO_PLATE_SIZE.y + HudStyle.HERO_PLATE_FRAME * 2.0 + HUD_CLEARANCE
+	return AbilityBar.occupied_height() + HudStyle.HERO_PLATE_GAP + HudStyle.HERO_PLATE_SIZE.y + HudStyle.HERO_PLATE_FRAME * 2.0 + HUD_CLEARANCE
 
 
 ## ══ THE ROOM THE CAMERA IS ALLOWED TO SHOW, AND THE OTHER HALF OF THE BAR BUG ═════
