@@ -140,7 +140,19 @@ static func build_platforms(container: Node2D, layout: LayoutDef) -> void:
 	if layout == null:
 		return
 	for p: Dictionary in layout.platforms:
-		var breakable: bool = bool(p.get("breakable", false))
+		# ⚠ THE DEFAULT IS BREAKABLE NOW. Maker: *"make sure all the platforms and stuff
+		# are destroyable"*. It was false, so a ledge was permanent unless a layout said
+		# otherwise, and almost none did — the amber breakable ledge was the rare case
+		# instead of the rule, on a floor whose ground is destructible rock.
+		#
+		# A `BreakablePlatform` SHATTERS AND RE-FORMS rather than being removed for good,
+		# which is what makes flipping the default safe: `FloorGen` reasons about
+		# reachable surfaces when it lays a floor out, and ledges that never came back
+		# could strand a spawn point or a pickup above a gap nothing can cross.
+		#
+		# A layout can still ask for a permanent one with `"breakable": false`, which is
+		# the escape hatch for a ledge some floor genuinely needs to keep.
+		var breakable: bool = bool(p.get("breakable", true))
 		var gs: GDScript = load(BREAKABLE_PLATFORM_PATH if breakable else RUIN_PLATFORM_PATH) as GDScript
 		if gs == null:
 			continue

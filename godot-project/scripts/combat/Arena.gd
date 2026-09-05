@@ -377,12 +377,30 @@ func _apply_room_size(size: Vector2) -> void:
 	if walls == null:
 		return
 	_set_wall(walls, "WallTop", Vector2(w * 0.5, 0.0), Vector2(w, WALL_THICKNESS))
-	# ⚠ THE BOTTOM WALL IS BEDROCK NOW — moved to the UNDERSIDE of the slab. Left where
-	# it was, it would be an indestructible 16 px floor at the same line as the rock's
-	# top face, and every crater would be decoration: a hole you can see and cannot fall
-	# into, which is the exact failure this feature would be judged on.
-	_set_wall(walls, "WallBottom", Vector2(w * 0.5, ground_y + GROUND_SLAB_DEPTH
-		+ WALL_THICKNESS * 0.5), Vector2(w, WALL_THICKNESS))
+	# ══ AND THERE IS NOTHING UNDER THE ROCK ═════════════════════════
+	# ⚠ THIS REVERSES A CALL MADE EARLIER THE SAME DAY, AND THE MAKER MADE IT. When the
+	# tower's ground first became destructible I put the bottom wall UNDER the slab as
+	# bedrock, on the reasoning that a wave fight with friendly fire on should not be
+	# able to lose its floor: you could blow a hole and drop into it, never through it.
+	#
+	# Maker: *"make sure all the platforms and stuff are destroyable and the floor like
+	# not infinite floor like there should be a under the floor that you can fall out
+	# of"*. So a hole is a hole. The rock is now the only floor there is, and the wall
+	# drops below the kill line where it can catch nothing — kept rather than deleted so
+	# the physics world still has a bottom if the catcher below ever misses a body.
+	#
+	# ⚠ IT IS SAFE ON BOTH SIDES, AND ONLY BECAUSE BOTH SIDES WERE ALREADY HANDLED:
+	# `_catch_fallen_heroes` kills a hero past `FALL_OUT_MARGIN` through
+	# `kill_out_of_world` (not `take_damage`, which i-frames can swallow), and its
+	# second loop does the same for the `enemy` group — without that a mob knocked
+	# through the floor would fall for ever while the encounter still counted it alive,
+	# and the room could never be cleared.
+	#
+	# `GROUND_SLAB_DEPTH` is what makes a hole EARNED rather than free: the largest
+	# single crater in the game is 46 px, so one hit never opens a shaft — it takes
+	# repeated punishment on the same patch of ground.
+	_set_wall(walls, "WallBottom", Vector2(w * 0.5, h + FALL_OUT_MARGIN
+		+ WALL_THICKNESS), Vector2(w, WALL_THICKNESS))
 	_set_wall(walls, "WallLeft", Vector2(0.0, h * 0.5), Vector2(WALL_THICKNESS, h))
 	_set_wall(walls, "WallRight", Vector2(w, h * 0.5), Vector2(WALL_THICKNESS, h))
 

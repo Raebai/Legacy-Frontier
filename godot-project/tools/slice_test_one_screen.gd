@@ -165,10 +165,15 @@ func _test_a_spell_can_carve_the_tower_floor() -> void:
 	_expect(bed != null and bed.shape is RectangleShape2D,
 		"the bedrock collider is still there after a carve")
 	if bed != null:
-		_expect(bed.position.y > size.y,
-			"the bedrock sits BELOW the rock (y=%.1f, room floor y=%.1f). At or above it,"
-				% [bed.position.y, size.y]
-			+ " every crater is decoration: a hole you can see and cannot fall into.")
+		# BELOW THE KILL LINE, not merely below the rock. A wall anywhere a falling body
+		# could land on turns "you fell out of the world" into "you are standing in a pit
+		# you cannot leave", which is the worse of the two failures.
+		var kill_line: float = size.y + float(_arena.get("FALL_OUT_MARGIN"))
+		_expect(bed.position.y > kill_line,
+			"the bottom wall is at y=%.1f and the fall-out kill line is y=%.1f. Anything"
+				% [bed.position.y, kill_line]
+			+ " a body can land on above that line catches it instead of letting it fall"
+			+ " out, and a carved hole becomes a pit rather than a hole.")
 	_completes("a_spell_can_carve_the_tower_floor")
 
 
@@ -189,20 +194,24 @@ func _test_walls_are_built_from_room_size() -> void:
 	if walls == null:
 		return   # deliberately NOT completed: the missing sentinel fails the suite
 	var thickness: float = float(_arena.get("WALL_THICKNESS"))
-	var slab: float = float(_arena.get("GROUND_SLAB_DEPTH"))
-	# ⚠ THE BOTTOM WALL IS BEDROCK NOW, AND THIS ROW RECORDED THE OLD RULING. It used
-	# to sit centred on `size.y`, i.e. with its top face exactly on the standable line.
-	# The tower's ground is a `DestructibleStage` slab as of the pass that gave the climb
-	# the destruction the versus stage always had, and an indestructible collider at the
-	# top of that slab would make every crater decoration — a hole you can see and cannot
-	# fall into. So the wall moved to the slab's UNDERSIDE and became the floor of the
-	# world: you can blow a hole in the ground, you cannot blow the ground away.
+	var fall: float = float(_arena.get("FALL_OUT_MARGIN"))
+	# ⚠ THIS ROW HAS NOW RECORDED TWO SUPERSEDED RULINGS IN ONE DAY, WHICH IS THE POINT
+	# OF WRITING THEM DOWN. It first pinned the wall centred on `size.y`, its top face
+	# exactly on the standable line. When the tower's ground became a `DestructibleStage`
+	# slab the wall moved to the slab's UNDERSIDE as bedrock, so a crater was a hole you
+	# could drop INTO but never THROUGH — my call, to stop a wave fight losing its floor.
 	#
-	# The invariant worth pinning was never the wall's y. It is that THE SURFACE A
-	# FIGHTER STANDS ON DID NOT MOVE, which is asserted separately below.
+	# The maker reversed it: *"there should be a under the floor that you can fall out
+	# of"*. So the rock is the only floor, and the wall sits below the kill line where it
+	# catches nothing — kept so the physics world still has a bottom.
+	#
+	# The invariant worth pinning was never the wall's y under any of the three. It is
+	# that THE SURFACE A FIGHTER STANDS ON DID NOT MOVE, which is asserted below and has
+	# survived all three unchanged.
 	var expected: Dictionary = {
 		"WallTop": [Vector2(size.x * 0.5, 0.0), Vector2(size.x, thickness)],
-		"WallBottom": [Vector2(size.x * 0.5, size.y + slab), Vector2(size.x, thickness)],
+		"WallBottom": [Vector2(size.x * 0.5, size.y + fall + thickness),
+			Vector2(size.x, thickness)],
 		"WallLeft": [Vector2(0.0, size.y * 0.5), Vector2(thickness, size.y)],
 		"WallRight": [Vector2(size.x, size.y * 0.5), Vector2(thickness, size.y)],
 	}
