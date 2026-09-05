@@ -92,6 +92,17 @@ static func name_for(i: int) -> String:
 	return String(CLASSES[i]["name"]) if i >= 0 and i < CLASSES.size() else "Class"
 
 
+## Every display name, in class-id order. Exists so `Progression.gear_unlock_verb` can
+## say "Stormcaller's own" without `Progression` importing the roster's display strings —
+## that file is pure maths and stays that way. Two screens ask, so it is derived once
+## here rather than assembled twice at the call sites.
+static func names() -> Array:
+	var out: Array = []
+	for i: int in CLASSES.size():
+		out.append(String(CLASSES[i]["name"]))
+	return out
+
+
 static func fantasy_for(i: int) -> String:
 	return String(CLASSES[i]["fantasy"]) if i >= 0 and i < CLASSES.size() else ""
 

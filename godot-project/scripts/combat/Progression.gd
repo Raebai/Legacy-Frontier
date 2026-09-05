@@ -435,3 +435,218 @@ static func choosable_classes(unlocked: Array) -> Array[int]:
 		if not is_class_unlocked(c, unlocked):
 			out.append(c)
 	return out
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# OWNERSHIP — "what is unlockable and what isnt … and how to unlock it"
+# ═══════════════════════════════════════════════════════════════════════════════
+## THE MAKER'S ASK, verbatim (2026-09-05): *"the grimoire is cool but still not clear
+## what is unlockable and what isnt like for the class and how to unlock it same with
+## the armoury items … and do some thinking on how these items should be unlocked"*.
+##
+## ⚠ NO NEW CURRENCY, AND THAT IS THE WHOLE DESIGN CONSTRAINT. This project already
+## banks three things a player EARNS, all of them persisted and all of them currently
+## under-spent. An unlock table is a READ over those, never a fourth ledger:
+##
+##   1. **DEPTH** — `GameState._highest_floor`, monotonic across falls. The tower is
+##      the teacher, so the tower is the shop. This is the axis that carries most of
+##      the roster because it is the only one that says "you went somewhere new".
+##   2. **LEVEL** — `level_for_xp(GameState.xp())`, the curve at the top of this file.
+##      Time served, not distance. It pays out for the player who fights everything on
+##      a floor they have already beaten, which depth deliberately does not.
+##   3. **THE CLASS YOU ARE** — the roster itself, gated by the guardian PICK mechanic
+##      that already exists above (`LOCKED_CLASSES` / `CLASS_UNLOCK_FLOORS` /
+##      `GameState.pending_class_choices`). A piece keyed to a class is that class's
+##      identity; you hold it while you are them. **No pick is spent on gear** — the
+##      banked pick still buys exactly one thing, a class, and this table never
+##      touches `pending_class_choices`.
+##
+## ⚠ AND NOTHING HERE INVENTS A SPEND. `docs/superpowers/specs/2026-08-04-spell-trees-
+## and-progression-design.md` reserves the one spendable currency (Skill Points, tree
+## only). Every condition below is a THRESHOLD you pass, never a resource you burn, so
+## the tree can be built later without this having taken anything from it.
+
+## The three states a row can be in. `EARNABLE` is the one that has to carry a
+## sentence — a locked row that does not say the verb is worse than no row at all.
+enum Owned { HELD, EARNABLE, CLASS_LOCKED }
+
+## ⚠ SPELLS ARE GATED BY **SHELF AND DEPTH**, DERIVED — never by an id list, and never
+## by class. Both halves of that are load-bearing:
+##
+##   * DERIVED, like `Outfitter._can_equip_here`: the shelf comes from `SpellTier.of`,
+##     which reads cast time / cooldown / mana. Re-tune a Tier 2 up into ult territory
+##     and its gate moves with it, from the one edit. A hardcoded list here would drift
+##     and the drift would look like a row that lies.
+##   * **NOT BY CLASS, AND THAT IS THE MAKER'S OWN STANDING RULING** — *"the classes
+##     should amplify current spells but it shouldnt prevent any player for taking any
+##     spell"* (see `SpellLibrary.equippable`). So `Owned.CLASS_LOCKED` is DELIBERATELY
+##     UNREACHABLE for a spell. It is a real state, it is drawn, and it is exercised —
+##     by GEAR, where a class signature is the point, and by the roster itself. The
+##     grimoire showing two states rather than three is the ruling being kept, not a
+##     hole in this table.
+##
+## ⚠ INDEXED BY `SpellTier.Tier`, WHICH IS QUICK / HEAVY / ULT — three shelves, not four.
+## Written as a bare array rather than a dictionary so a shelf inserted between HEAVY and
+## ULT (which `SpellTier`'s own header says is the expected growth) is a compile-visible
+## gap here rather than a silent fall-through to floor 1.
+##
+## QUICK at floor 1 means the shallow shelf is HELD from the first step: a fresh save can
+## already swap its hand, which is what stopped the pool reading as decoration.
+## ⚠ THE FIRST DRAFT GATED HEAVY AT FLOOR 4 AND IT WAS WRONG — MEASURED, not felt.
+## `SpellLibrary.equippable()` is the Tier 2s, the Tier 3s and the orphans, and NOT ONE
+## of the eighteen is a QUICK: they are all HEAVY or ULT. So a floor-4 HEAVY gate made a
+## brand-new climber open the grimoire to eighteen locked rows, which is not "legible
+## progression", it is the wall the maker's *"it shouldnt prevent any player for taking
+## any spell"* ruling exists to forbid. `slice_test_outfitter` counts the two buckets on a
+## fresh save, which is how this surfaced at all.
+##
+## What is gated is therefore the ULT SHELF only: the one finisher a hand carries. Every
+## other row is HELD from the first step, one row in the list reads EARNABLE with the verb
+## on it, and the maker gets the three states without losing the library.
+const SPELL_UNLOCK_FLOOR: Array[int] = [
+	1,    # QUICK — none exist in the pool today; free if one is ever authored
+	1,    # HEAVY — the body of the library, HELD from the first step
+	5,    # ULT   — the finisher, and the only shelf the climb actually gates
+]
+
+## ⚠ MEASURED, AND THE MAKER SHOULD SEE THE NUMBER BEFORE ACCEPTING IT. On a brand-new
+## save `slice_test_outfitter` prints **2 held, 16 earnable of 18**: `SpellTier.of` derives
+## the shelf from cast time / cooldown / mana, and sixteen of the eighteen pool spells are
+## big enough to read as ULTs. So "gate only the ult shelf" is, today, gating most of the
+## visible list — which is a far heavier gate than the sentence sounds like.
+##
+## IT IS SHIPPED ANYWAY, for two reasons, and the dial is one integer:
+##   * Those sixteen can only ever enter the ULT SLOT (`set_equipped` refuses them
+##     anywhere else), and every class already HAS an ult. Nothing is taken away; what is
+##     deferred is SWAPPING your finisher, until floor 5.
+##   * A gate nobody meets is a gate nobody can read, and the ask was to make unlockability
+##     legible. Floor 5 is one short climb.
+## Lower this to 2 or 3 if playtest says the grimoire reads as a wall on a first open.
+
+## GEAR. Exactly one key per row — `floor`, `level` or `class` — because a piece with
+## two conditions cannot state itself in the six words a phone row has.
+##
+## ⚠ THE SHAPE OF THE SPREAD IS THE DESIGN, not the individual numbers. Every slot
+## opens with ONE free piece, so the armoury is never a wall of grey on a fresh save;
+## the rest fans out across all three axes so no single kind of play buys the whole
+## shelf. The numbers themselves are first-pass and unplayed — they are the cheapest
+## thing here to move.
+const GEAR_UNLOCK: Dictionary = {
+	# --- spellements (the `weapon` slot) ---
+	"pl_emberglass":   {"floor": 1},
+	"pl_rimeshard":    {"floor": 2},
+	"pl_stormtooth":   {"floor": 4},
+	"pl_gravewick":    {"level": 4},
+	"pl_sunmote":      {"class": 4},    # CLERIC — a mend on a cast is the Cleric's whole read
+	"pl_voidpin":      {"class": 7},    # WARLOCK — dragging bodies to a point is the hex
+	"pl_quickthread":  {"level": 8},
+	"pl_echostone":    {"floor": 8},
+	# --- helms (the `head` slot) ---
+	"pl_veilhood":       {"floor": 1},
+	"pl_ironbrow":       {"floor": 3},
+	"pl_seers_circlet":  {"level": 5},
+	"pl_crown_of_hours": {"floor": 10},
+	# --- armour (the `body` slot) ---
+	"pl_tideweave":  {"floor": 1},
+	"pl_ashplate":   {"floor": 3},
+	"pl_thornmail":  {"level": 6},
+	"pl_stormcoat":  {"class": 6},      # STORMCALLER — the coat IS the class's silhouette
+	# --- greaves (the `legs` slot) ---
+	"pl_swiftsoles":  {"floor": 1},
+	"pl_ironmarch":   {"floor": 5},
+	"pl_ashenstride": {"level": 7},
+}
+
+
+## ⚠ THE SAME ESCAPE HATCH `ALL_CLASSES_UNLOCKED` IS, AND FOR THE SAME REASON. True =
+## every row reads HELD and nothing is refused; the table above still answers, so the
+## three states stay TESTABLE (`slice_test_unlocks` drives `state_of` directly and never
+## reads this flag) and flipping it costs no save migration.
+##
+## FALSE is shipped, and that is the difference from the class flag. The maker asked to
+## see all nine classes *"for now"* mid-balance-pass, which is a request to remove a
+## gate. This ask is the opposite one — *"still not clear what is unlockable and what
+## isnt"* presupposes that some things are — so the honest read of the newer instruction
+## is gates ON. If playtest says otherwise this is the one-line revert.
+const ALL_GEAR_UNLOCKED: bool = false
+
+
+## The state of one gear id. `hero_class` is who you are RIGHT NOW — a class-keyed piece
+## is HELD while you are that class and CLASS_LOCKED the moment you walk away from it,
+## which is the point: it is the class's identity, not a trophy you keep.
+##
+## An id with no row is HELD. Silent-default holes are how a registry starts lying, so
+## `slice_test_unlocks` asserts every offered id HAS a row — but a missing one must fail
+## OPEN (you can wear it) rather than closed (an item nobody can ever reach).
+static func gear_state(kind: String, highest_floor: int, level: int, hero_class: int) -> int:
+	if ALL_GEAR_UNLOCKED or kind == "":
+		return Owned.HELD
+	var cond: Dictionary = GEAR_UNLOCK.get(kind, {})
+	if cond.is_empty():
+		return Owned.HELD
+	if cond.has("class"):
+		return Owned.HELD if hero_class == int(cond["class"]) else Owned.CLASS_LOCKED
+	if cond.has("floor"):
+		return Owned.HELD if maxi(highest_floor, 1) >= int(cond["floor"]) else Owned.EARNABLE
+	if cond.has("level"):
+		return Owned.HELD if maxi(level, 1) >= int(cond["level"]) else Owned.EARNABLE
+	return Owned.HELD
+
+
+## The state of one spell, by SHELF. `already_equipped` grandfathers a spell that is
+## sitting in the player's hand from before this table existed — a gate that retroactively
+## confiscates something is a bug that reads as a lost save, and there is no upside to it.
+static func spell_state(tier: int, highest_floor: int, already_equipped: bool = false) -> int:
+	if already_equipped:
+		return Owned.HELD
+	var need: int = spell_unlock_floor(tier)
+	return Owned.HELD if maxi(highest_floor, 1) >= need else Owned.EARNABLE
+
+
+static func spell_unlock_floor(tier: int) -> int:
+	if tier < 0 or tier >= SPELL_UNLOCK_FLOOR.size():
+		return 1
+	return SPELL_UNLOCK_FLOOR[tier]
+
+
+## THE VERB, and it is a verb on purpose. "Floor 5" is a label; "Reach floor 5" is an
+## instruction, and the maker's ask was *how* to unlock it. `class_name_of` is passed in
+## rather than looked up so this file stays free of the roster's display strings.
+static func gear_unlock_verb(kind: String, class_names: Array = []) -> String:
+	var cond: Dictionary = GEAR_UNLOCK.get(kind, {})
+	if cond.is_empty():
+		return ""
+	if cond.has("class"):
+		var ci: int = int(cond["class"])
+		var who: String = String(class_names[ci]) if ci >= 0 and ci < class_names.size() else "another class"
+		return "%s's own — play as the %s" % [who, who]
+	if cond.has("floor"):
+		return "Reach floor %d" % int(cond["floor"])
+	if cond.has("level"):
+		return "Reach level %d" % int(cond["level"])
+	return ""
+
+
+static func spell_unlock_verb(tier: int) -> String:
+	return "Reach floor %d" % spell_unlock_floor(tier)
+
+
+## THE SAME FACT, SHORT ENOUGH FOR A BUTTON. Not a duplicate of `gear_unlock_verb` — a
+## different SURFACE for it, and the difference was measured rather than guessed: the full
+## verb on the caption made the armoury's HFlowContainer wrap an extra line per row and
+## pushed a quarter of the visible menu out of the 158 px bounded scroll
+## (`slice_test_armory_layout` counts the buttons still on screen and went from 10 to 8).
+## The button is the SCAN — enough to know a row is locked and roughly by what; the detail
+## pane under it still carries the whole sentence.
+static func gear_unlock_short(kind: String, class_names: Array = []) -> String:
+	var cond: Dictionary = GEAR_UNLOCK.get(kind, {})
+	if cond.is_empty():
+		return ""
+	if cond.has("class"):
+		var ci: int = int(cond["class"])
+		return String(class_names[ci]) if ci >= 0 and ci < class_names.size() else "class"
+	if cond.has("floor"):
+		return "floor %d" % int(cond["floor"])
+	if cond.has("level"):
+		return "lvl %d" % int(cond["level"])
+	return ""

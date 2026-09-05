@@ -125,6 +125,21 @@ const ABILITIES: Dictionary = {
 	"pl_tideweave":  {"name": "Tideweave Wrap",     "desc": "COMING SOON — will knit you back together while you stand still.",    "element": "", "effect": {}, "placeholder": true},
 	"pl_thornmail":  {"name": "Thornmail Vest",     "desc": "COMING SOON — will return a share of every wound you take.",          "element": "", "effect": {}, "placeholder": true},
 	"pl_stormcoat":  {"name": "Stormcoat",          "desc": "COMING SOON — will discharge a shock the moment your ward breaks.",   "element": "", "effect": {}, "placeholder": true},
+	# --- GREAVES (the `legs` slot) — NEW ---
+	# ⚠ A FOURTH SLOT, AND THE THREE-LITERAL CONTRACT ABOVE IS NOT BROKEN BY IT.
+	# `Hero._aggregate_gear` still iterates "weapon"/"head"/"body" and still owns the
+	# stat maths; `legs` is deliberately outside that loop, which costs NOTHING here
+	# because every piece below carries the same empty effect bag as the rest of the
+	# armoury. The day a greave gets a real stat, the fix is one literal in Hero.gd —
+	# and until then a slot Hero cannot read cannot silently apply anything.
+	# `GameState.LOADOUT_SLOTS` DOES carry it, because the save has to round-trip the
+	# player's choice or the screen forgets it the moment they walk away.
+	#
+	# It exists because the maker asked for gear that REPLACES a body part, and the
+	# lower leg is the third one a stick figure has. See `CharacterRig._draw_leg`.
+	"pl_swiftsoles":  {"name": "Swiftsoles",        "desc": "COMING SOON — will let you keep your speed through a turn.",          "element": "", "effect": {}, "placeholder": true},
+	"pl_ironmarch":   {"name": "Ironmarch Greaves", "desc": "COMING SOON — will hold your ground against a shove.",                "element": "", "effect": {}, "placeholder": true},
+	"pl_ashenstride": {"name": "Ashenstride Boots", "desc": "COMING SOON — will leave a scorch trail where you dash.",             "element": "", "effect": {}, "placeholder": true},
 }
 
 
@@ -167,6 +182,7 @@ const PLACEHOLDER_SLOTS: Dictionary = {
 		"pl_sunmote", "pl_voidpin", "pl_quickthread", "pl_echostone"],
 	"head": ["pl_seers_circlet", "pl_ironbrow", "pl_veilhood", "pl_crown_of_hours"],
 	"body": ["pl_ashplate", "pl_tideweave", "pl_thornmail", "pl_stormcoat"],
+	"legs": ["pl_swiftsoles", "pl_ironmarch", "pl_ashenstride"],
 }
 
 

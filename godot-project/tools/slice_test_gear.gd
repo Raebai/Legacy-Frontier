@@ -172,25 +172,42 @@ func _process(_delta: float) -> bool:
 	# both directions are silent failures:
 	#   * A retired piece creeping back into `PLACEHOLDER_SLOTS` puts a LIVE stat bag
 	#     back on the menu the maker just emptied.
-	#   * A placeholder creeping into `GEAR_KINDS` makes it "drawable", and since no art
-	#     exists for it the rig would draw NOTHING while the slot claimed to be filled -
-	#     which is precisely the pretending this change is here to stop.
+	#   * A placeholder creeping into `GEAR_KINDS` puts it in the registry that OBLIGES a
+	#     stat bag and the no-strict-dominance sweep, which is the wrong bar for a promise.
+	#
+	# /!\ THE "NO ART, SO DRAWABLE WOULD MEAN INVISIBLE" HALF OF THAT RULING IS DEAD, AND
+	# THE MAKER KILLED IT: *"please make mock versions of like helmets and stuff that
+	# replace the character head"*. Every worn placeholder now HAS a silhouette
+	# (`CharacterRig.MOCK_HEAD` / `MOCK_BODY` / `LEG_GEAR`), so the assertion is INVERTED
+	# rather than deleted — a worn piece MUST draw, or the slot claims to be filled and
+	# the body says otherwise, which is the exact failure the old line was guarding.
+	# `GEAR_KINDS` membership is still forbidden; drawable and registered are now two
+	# different questions and `CharacterRig.draws_kind` is the one that means "visible".
 	var offered: Dictionary = GearAbilities.PLACEHOLDER_SLOTS
-	failed += _expect(offered.size() == 3, "the armoury offers three slots (got %d)" % offered.size())
+	failed += _expect(offered.size() == 4, "the armoury offers four slots (got %d)" % offered.size())
 	var placeholders: int = 0
 	for slot3: String in offered:
 		var list: Array = offered[slot3]
-		failed += _expect(list.size() >= 4, "slot '%s' offers a real menu (got %d)" % [slot3, list.size()])
+		failed += _expect(list.size() >= 3, "slot '%s' offers a real menu (got %d)" % [slot3, list.size()])
 		for kind3: String in list:
 			failed += _expect(GearAbilities.is_placeholder(kind3), "'%s' is flagged a placeholder" % kind3)
 			failed += _expect((GearAbilities.effect(kind3) as Dictionary).is_empty(),
 				"offered piece '%s' carries NO stat effect" % kind3)
 			failed += _expect(not equip_tex.has(kind3),
-				"placeholder '%s' is not in GEAR_KINDS - there is no art for it, so 'drawable' would mean 'invisible'" % kind3)
+				"placeholder '%s' is not in GEAR_KINDS - that registry obliges a live stat bag" % kind3)
+			# A WORN slot must be VISIBLE; a spellement must NOT be. A spellement attaches
+			# to a spell, so drawing one would put back the sticker-on-a-stickman that the
+			# replacement scheme exists to remove.
+			if slot3 == "weapon":
+				failed += _expect(not CharacterRig.draws_kind(kind3),
+					"spellement '%s' draws NOTHING on the body - it attaches to a spell" % kind3)
+			else:
+				failed += _expect(CharacterRig.draws_kind(kind3),
+					"worn piece '%s' has a silhouette - a filled slot the body does not show is a lie" % kind3)
 			placeholders += 1
 	# An invariant that is trivially true of an empty sweep is not an invariant.
-	failed += _expect(placeholders == 16,
-		"all sixteen placeholders were swept (got %d)" % placeholders)
+	failed += _expect(placeholders == 19,
+		"all nineteen placeholders were swept (got %d)" % placeholders)
 	# ...and the retired catalogue is off the menu, not merely re-ordered on it.
 	for retired: String in ["hat", "hood", "helmet", "robe", "armor", "cape", "sword",
 			"dagger", "hammer", "greatsword", "staff", "staff_ice", "staff_storm",

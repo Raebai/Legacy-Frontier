@@ -365,13 +365,31 @@ func _build() -> void:
 	# A third each, and allowed to STRETCH: `_button` sets a minimum, the expand flag
 	# spends whatever the panel actually has. Sizing by minimum alone would leave the row
 	# short of PANEL_W and the three buttons visibly not filling their own frame.
+	# ⚠ THE ARMORY DOOR IS GONE FROM THE CLASS-CHANGING FLOW, AND THE MAKER ASKED TWICE.
+	# Verbatim, 2026-09-05: *"no need for an armoury button within the chaning class
+	# selection"*.
+	#
+	# WHICH FLOW LOST IT: the TOWN one — `show_class_picker == true`, the Outfitter the
+	# class pad opens, the screen whose header button walks the roster. In the town the
+	# armoury is its OWN pad twenty metres away (`World.ARMORY_X`, the rack), so the door
+	# here was a second entrance to a room the player is already standing outside.
+	#
+	# WHICH FLOW STILL HAS IT: the LOBBY one — `show_class_picker == false`, the title
+	# screen's Outfitter. That screen has no pads and no hub to walk, so this button is
+	# the ONLY way to the armoury from there. Removing it everywhere would have deleted
+	# the room rather than the duplicate door.
+	#
+	# The row keeps its thirds arithmetic either way: with two occupants they simply take
+	# half each through `SIZE_EXPAND_FILL`, which costs no height, and the height budget
+	# (see the 22 px note above) is what this row is judged on.
 	var third: float = (PANEL_W - 8.0) / 3.0
 	_grim_btn = _button("", _toggle_grimoire, 12, third)
 	_grim_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	doors.add_child(_grim_btn)
-	var armory: Button = _button("⚒  Armory", _open_armory, 12, third)
-	armory.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	doors.add_child(armory)
+	if not show_class_picker:
+		var armory: Button = _button("⚒  Armory", _open_armory, 12, third)
+		armory.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		doors.add_child(armory)
 	# The word says WHAT it resets, not merely that it resets. "Reset" alone on a screen
 	# carrying a class button, a role list, a grimoire and an armoury door is a button
 	# whose blast radius a player has to find out by pressing it.
@@ -789,6 +807,43 @@ func _can_equip_here(spell: SpellDef) -> bool:
 	return SpellTier.of(spell) != SpellTier.Tier.ULT or _grim_slot == SpellTier.ULT_SLOT
 
 
+# ══ OWNERSHIP — A DIFFERENT AXIS FROM THE SHELF, DELIBERATELY ═════════════════
+## Maker: *"the grimoire is cool but still not clear what is unlockable and what isnt …
+## and how to unlock it"*.
+##
+## ⚠ THIS DOES NOT TOUCH THE ULT RULE AND MUST NOT. `_can_equip_here` answers WHICH SHELF
+## a spell may sit on and is owned by `SpellLibrary.set_equipped`; this answers WHETHER
+## THE SPELL IS YOURS AT ALL. A spell can fail either, both, or neither, and the row has
+## to say which — so the two reasons are separate strings and the shelf one wins the
+## caption when both apply (it is the one the slot cursor can fix in one tap).
+##
+## ⚠ ENFORCED HERE AND NOT IN THE LIBRARY, which is the opposite of the ult rule and is
+## the right cut. `SpellLibrary` is pure and knows nothing about a climb; teaching it the
+## floor you reached would put a save-shaped dependency inside the one file every hero is
+## built through. The grimoire is the ONLY door into `set_equipped` for a player, so the
+## door is where the gate belongs — and a spell already in the hand is grandfathered
+## (`Progression.spell_state`'s `already_equipped`) so no gate can ever eat a save.
+func _spell_state(spell: SpellDef) -> int:
+	if spell == null:
+		return Progression.Owned.HELD
+	var id: String = String(spell.id)
+	var equipped_now: bool = false
+	for i: int in SpellTier.SLOT_COUNT:
+		if SpellLibrary.equipped_id(_class_id, i) == id:
+			equipped_now = true
+			break
+	var gs: Node = get_node_or_null("/root/GameState")
+	var best: int = int(gs.call("highest_floor")) if gs != null and gs.has_method("highest_floor") else 1
+	return Progression.spell_state(SpellTier.of(spell), best, equipped_now)
+
+
+## The sentence an UNEARNED row puts on the description line. Names the verb, because the
+## maker's ask was *how* to unlock it and "locked" on its own answers nothing.
+func _unowned_reason(spell: SpellDef) -> String:
+	return "NOT YOURS YET — %s. The tower is where the library opens." \
+		% Progression.spell_unlock_verb(SpellTier.of(spell))
+
+
 ## The sentence a blocked row puts on the description line instead of its blurb. Names the
 ## slot by the number the cursor row shows (1-based), so the two rows agree on screen.
 func _blocked_reason() -> String:
@@ -818,18 +873,28 @@ func _pool_row(spell: SpellDef) -> Button:
 	# reached `set_equipped`, was refused, and NOTHING HAPPENED — no movement, no message.
 	# On a phone that reads as a broken button, and the player's only way to discover the
 	# rule is to tap every ult in the list and watch nothing happen to any of them.
-	var blocked: bool = not _can_equip_here(spell)
+	# OWNERSHIP is the second reason a row can refuse — see `_spell_state`. It is folded
+	# into the SAME `blocked` path rather than given a new one, because the row already
+	# has a correct treatment for "cannot be taken, and here is why": dim, disabled,
+	# `MOUSE_FILTER_PASS`, tap-says-why. A second mechanism would be a second thing to
+	# keep in step for no gain.
+	var unowned: bool = _spell_state(spell) != Progression.Owned.HELD
+	var blocked: bool = not _can_equip_here(spell) or unowned
 	var b := Button.new()
 	var suffix: String = "" if elsewhere < 0 else "  (slot %d)" % (elsewhere + 1)
 	# The reason is IN THE ROW, not only in the colour: "dimmed" says *something* is wrong
 	# and a phone has no hover to ask what. The slot number is the answer and it is four
 	# characters, which the row has room for even at `clip_text`.
-	if blocked:
+	if not _can_equip_here(spell):
 		suffix = "  (slot %d only)" % (SpellTier.ULT_SLOT + 1)
+	elif unowned:
+		# The SHELF reason wins the caption when both apply: it is the one the player can
+		# clear in one tap of the slot cursor, so it is the one worth six characters.
+		suffix = "  🔒 %s" % Progression.spell_unlock_verb(tier)
 	b.text = "%s  %s  ·  %s%s" % [
 		"◈" if mine else ("✕" if blocked else "○"), String(spell.display_name),
 		SpellTier.display_name(tier), suffix]
-	b.tooltip_text = _blocked_reason() if blocked else SpellBlurbs.for_spell(spell)
+	b.tooltip_text = _row_reason(spell) if blocked else SpellBlurbs.for_spell(spell)
 	b.custom_minimum_size = Vector2(PANEL_W - 16.0, MIN_TAP)
 	b.add_theme_font_size_override("font_size", 12)
 	b.focus_mode = Control.FOCUS_NONE
@@ -874,8 +939,18 @@ func _on_blocked_row_input(event: InputEvent, spell_id: String) -> void:
 		return
 	_focus_spell = _pool_by_id.get(spell_id) as SpellDef
 	_focus_role = ""
-	_focus_reason = _blocked_reason()
+	_focus_reason = _row_reason(_focus_spell)
 	_refresh_blurb()
+
+
+## WHY THIS ROW REFUSED — the shelf reason or the ownership one, whichever applies. The
+## shelf is checked first for the same reason it wins the caption: it is the fixable one.
+func _row_reason(spell: SpellDef) -> String:
+	if spell == null:
+		return ""
+	if not _can_equip_here(spell):
+		return _blocked_reason()
+	return _unowned_reason(spell)
 
 
 ## Put this spell in the aimed slot, or take it back out if it is already there.

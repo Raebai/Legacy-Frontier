@@ -163,10 +163,11 @@ func _test_tap_floor(lo: CanvasLayer) -> void:
 	await process_frame
 	var btns: Array = []
 	_buttons(lo, btns)
-	# 3 Defaults + 16 placeholders + Done. Pinned as a NUMBER because a sweep over an
-	# empty list passes every assertion it contains.
-	_expect(btns.size() == 20,
-		"every piece is offered plus Default and Done (expected 20 buttons, found %d)"
+	# 4 Defaults + 19 placeholders + Done. Pinned as a NUMBER because a sweep over an
+	# empty list passes every assertion it contains. (Was 3 + 16 + Done = 20 before the
+	# `legs` slot and its three greaves.)
+	_expect(btns.size() == 24,
+		"every piece is offered plus Default and Done (expected 24 buttons, found %d)"
 			% btns.size())
 	for b: Button in btns:
 		_expect(b.custom_minimum_size.y >= MIN_TAP_H,
@@ -241,7 +242,7 @@ func _test_markers_on_the_doll(lo: CanvasLayer) -> void:
 	var h: float = float(consts["DOLL_H"])
 	var box := Rect2(Vector2.ZERO, Vector2(w, h))
 	var slots: Array = consts["SLOTS"]
-	_expect(slots.size() == 3, "there are three slots to place markers for (got %d)" % slots.size())
+	_expect(slots.size() == 4, "there are four slots to place markers for (got %d)" % slots.size())
 	const RING_R: float = 9.0
 	for slot: String in slots:
 		var c: Vector2 = lo.call("_slot_anchor", slot)
@@ -278,5 +279,5 @@ func _test_menu_is_the_registry(lo: CanvasLayer) -> void:
 			_expect(list.has(kind), "slot '%s' offers registry piece '%s'" % [slot, kind])
 			_expect(GearAbilities.has_ability(kind), "'%s' has an ability row to caption its button" % kind)
 			offered += 1
-	_expect(offered == 16, "all sixteen placeholders reach the menu (got %d)" % offered)
+	_expect(offered == 19, "all nineteen placeholders reach the menu (got %d)" % offered)
 	_completes("the_menu_is_the_registry")

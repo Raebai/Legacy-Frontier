@@ -35,6 +35,8 @@ const TESTS: Array[String] = [
 	"the_grimoire_is_reachable_and_reaches_the_hero",
 	"an_ult_only_fits_the_ult_slot",
 	"reset_to_default_puts_the_whole_hand_back",
+	"the_class_flow_has_no_armoury_door",
+	"the_grimoire_says_what_is_earnable",
 ]
 
 const LOBBY_SCENE: String = "res://scenes/ui/Lobby.tscn"
@@ -75,6 +77,8 @@ func _init() -> void:
 	await _test_the_grimoire_is_reachable_and_reaches_the_hero()
 	_test_an_ult_only_fits_the_ult_slot()
 	await _test_reset_to_default_puts_the_whole_hand_back()
+	await _test_the_class_flow_has_no_armoury_door()
+	await _test_the_grimoire_says_what_is_earnable()
 	SpellLibrary.clear_slot_roles()
 	SpellLibrary.clear_equipped()
 	for t: String in TESTS:
@@ -1067,6 +1071,120 @@ func _test_reset_to_default_puts_the_whole_hand_back() -> void:
 	SpellLibrary.clear_slot_roles()
 	SpellLibrary.clear_equipped()
 	_completes("reset_to_default_puts_the_whole_hand_back")
+
+
+## ══ THE ARMOURY DOOR IS GONE FROM THE CLASS-CHANGING FLOW ════════════════════
+## Maker, twice, most recently 2026-09-05: *"no need for an armoury button within the
+## chaning class selection"*.
+##
+## ⚠ THE TEST IS THE PAIR, NOT THE ABSENCE. "There is no Armory button" alone would also
+## pass if the button vanished from EVERY Outfitter — which would delete the room rather
+## than the duplicate door, and would strand the title screen with no way into the
+## armoury at all. So both halves are asserted against the same screen built two ways.
+func _test_the_class_flow_has_no_armoury_door() -> void:
+	for picker: bool in [true, false]:
+		var out: Control = (load(OUTFITTER_SCRIPT) as GDScript).new() as Control
+		out.set("show_class_picker", picker)
+		root.add_child(out)
+		await process_frame
+		var btns: Array = []
+		_walk(out, btns)
+		var doors: int = 0
+		for b: Button in btns:
+			if b.text.contains("Armory") or b.text.contains("Armoury"):
+				doors += 1
+		if picker:
+			_expect(doors == 0,
+				"the class-changing Outfitter has NO armoury door (found %d) - the town has its own rack pad" % doors)
+		else:
+			_expect(doors == 1,
+				"the Lobby Outfitter keeps its armoury door (found %d) - it is the only way in from the title screen" % doors)
+		# ...and the row that lost an occupant must not have grown the column. The budget
+		# is 22 px and a new row costs 34, so this is the number that actually bites.
+		var col: Control = out.get("_col") as Control
+		if col != null:
+			var mn: Vector2 = col.get_combined_minimum_size()
+			print("[layout] outfitter column (show_class_picker=%s) min %.0fx%.0f (budget %.0fx%.0f)"
+				% [str(picker), mn.x, mn.y, BASE_W, BASE_H])
+			_expect(mn.y <= BASE_H,
+				"the outfitter (show_class_picker=%s) fits 360 px (needs %.0f)" % [str(picker), mn.y])
+		# The grimoire is the taller of the two modes (it grows a slot-cursor row), so it
+		# is the one the budget is actually judged on.
+		out.call("_toggle_grimoire")
+		await process_frame
+		if col != null:
+			var mg: Vector2 = col.get_combined_minimum_size()
+			print("[layout] outfitter GRIMOIRE (show_class_picker=%s) min %.0fx%.0f"
+				% [str(picker), mg.x, mg.y])
+			_expect(mg.y <= BASE_H,
+				"the grimoire mode (show_class_picker=%s) fits 360 px (needs %.0f)" % [str(picker), mg.y])
+		out.queue_free()
+		await process_frame
+	_completes("the_class_flow_has_no_armoury_door")
+
+
+## ══ "STILL NOT CLEAR WHAT IS UNLOCKABLE AND WHAT ISNT" ═══════════════════════
+## Every grimoire row must be in one of the three states and must SAY which. The state
+## itself is `Progression`'s and is pinned by `slice_test_unlocks`; what is pinned HERE is
+## that the screen actually draws it — a correct table nobody can read was the bug.
+func _test_the_grimoire_says_what_is_earnable() -> void:
+	# ⚠ THE DEVELOPER'S OWN SAVE IS A FIXTURE, AND IT LIED. `GameState` hydrates from
+	# `user://climber.json` on `_ready`, so this ran against whatever floor the machine had
+	# reached — on this one, deep enough that every row was HELD and the whole sweep below
+	# tested NOTHING while reporting green. Pinned to floor 1 (a brand-new climber, the
+	# state the screen has to be legible in) and restored, so the suite means the same
+	# thing on a fresh checkout as on a played one.
+	var gs: Node = root.get_node_or_null(^"GameState")
+	var saved_floor: int = int(gs.get("_highest_floor")) if gs != null else 1
+	if gs != null:
+		gs.set("_highest_floor", 1)
+	var out: Control = (load(OUTFITTER_SCRIPT) as GDScript).new() as Control
+	root.add_child(out)
+	await process_frame
+	out.call("_toggle_grimoire")
+	await process_frame
+	var pool: Array = SpellLibrary.equippable()
+	_expect(pool.size() >= 5, "there is a pool to gate (%d spells)" % pool.size())
+	var earnable: int = 0
+	var held: int = 0
+	for s: SpellDef in pool:
+		var st: int = int(out.call("_spell_state", s))
+		if st == Progression.Owned.HELD:
+			held += 1
+		elif st == Progression.Owned.EARNABLE:
+			earnable += 1
+			# THE VERB, on the row itself. A dim row that does not say why is the exact
+			# thing the maker could not read.
+			var row: Button = out.call("_pool_row", s) as Button
+			_expect(row.text.contains("🔒") or row.text.contains("slot"),
+				"'%s' is locked and its ROW says so ('%s')" % [s.display_name, row.text])
+			_expect(row.disabled, "'%s' refuses the tap rather than doing nothing" % s.display_name)
+			# ⚠ TWO REASONS CAN APPLY AT ONCE AND THE SHELF WINS THE SENTENCE — which is
+			# the design (the slot rule is the one a player clears in one tap of the
+			# cursor), so an ult aimed at slot 1 correctly says "slot 4 only" and not
+			# "reach floor 8". Asserting "floor" unconditionally would have been asserting
+			# my own preference over the shipped precedence.
+			var reason: String = String(out.call("_row_reason", s))
+			if bool(out.call("_can_equip_here", s)):
+				_expect(reason.contains("floor"), "'%s' names the floor that opens it (%s)" % [s.display_name, reason])
+			else:
+				_expect(reason.contains("slot"), "'%s' names the slot rule first (%s)" % [s.display_name, reason])
+			row.free()
+		# CLASS_LOCKED must never appear for a spell — the maker's standing ruling is
+		# that no class is prevented from taking any spell. `slice_test_unlocks` proves
+		# it from the table; this proves the SCREEN never produces it either.
+		_expect(st != Progression.Owned.CLASS_LOCKED,
+			"'%s' is not class-locked - the roster never walls the library" % s.display_name)
+	print("[grimoire] %d held, %d earnable of %d" % [held, earnable, pool.size()])
+	# An invariant true of an empty sweep is not an invariant: on a fresh save (floor 1)
+	# the deep shelves MUST be showing as earnable, or nothing is being tested.
+	_expect(earnable >= 1, "at least one row reads EARNABLE on a fresh climber (got %d)" % earnable)
+	_expect(held >= 1, "...and at least one reads HELD (got %d)" % held)
+	out.queue_free()
+	await process_frame
+	if gs != null:
+		gs.set("_highest_floor", saved_floor)
+	_completes("the_grimoire_says_what_is_earnable")
 
 
 ## `HudStyle` has no `class_name` (see its header), so it is reached the same way every

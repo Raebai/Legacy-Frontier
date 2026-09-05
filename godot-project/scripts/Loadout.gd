@@ -78,9 +78,15 @@ extends CanvasLayer
 ## changed, to match what the armoury is now for: one spellement (an attachment for the
 ## tools you already carry) and two pieces of armour. Renaming the KEYS would have
 ## dropped every saved loadout on the floor while looking like a cosmetic edit.
-const SLOTS: Array = ["weapon", "head", "body"]
+## /!\ `legs` IS THE FOURTH, AND IT IS NOT A NEW CONTRACT WITH Hero.gd. Hero still reads
+## three; this screen and `GameState.LOADOUT_SLOTS` read four. Every greave is a
+## placeholder with an empty effect bag, so a slot Hero never looks at applies nothing —
+## the note in GameState.LOADOUT_SLOTS carries the full reasoning and the one-line fix.
+## It exists because the maker asked for gear that REPLACES a body part, and the lower
+## leg is the third one a stick figure has (`CharacterRig._draw_leg`).
+const SLOTS: Array = ["weapon", "head", "body", "legs"]
 const SLOT_LABELS: Dictionary = {
-	"weapon": "SPELLEMENT", "head": "HELM", "body": "ARMOUR",
+	"weapon": "SPELLEMENT", "head": "HELM", "body": "ARMOUR", "legs": "GREAVES",
 }
 ## One-line "what goes here", because SPELLEMENT is a coined word and a player who has
 ## never seen it needs the slot to explain itself rather than be guessed at.
@@ -88,6 +94,7 @@ const SLOT_BLURBS: Dictionary = {
 	"weapon": "attaches to the spells you already carry",
 	"head": "worn on the head",
 	"body": "worn on the body",
+	"legs": "worn on the lower legs",
 }
 const HIGHLIGHT: Color = Color(0.55, 0.9, 1.0)
 ## Placeholder buttons are DIMMED rather than DISABLED. Disabling them would make the
@@ -95,6 +102,12 @@ const HIGHLIGHT: Color = Color(0.55, 0.9, 1.0)
 ## the detail pane could never explain what the item WILL do, and reading the promises
 ## is the entire job of this screen right now.
 const PLACEHOLDER_TINT: Color = Color(0.72, 0.72, 0.78)
+## EARNABLE — visible, dim, and captioned with the verb that opens it.
+const LOCKED_TINT: Color = Color(0.46, 0.48, 0.55)
+## CLASS_LOCKED — dimmest AND warm, so the two refusals are told apart by hue and not
+## only by brightness. One of them you can fix by climbing; the other you fix by being
+## someone else, and a player should not have to read the row twice to know which.
+const CLASS_LOCKED_TINT: Color = Color(0.62, 0.50, 0.42)
 
 ## Laid out for the 640x360 base viewport in LANDSCAPE - the same budget the Lobby and
 ## the Outfitter are pinned to. Every piece button clears BUTTON_H.
@@ -236,6 +249,8 @@ func _slot_anchor(slot: String) -> Vector2:
 			return Vector2(cx, RIG_FEET_Y - h * 0.86)
 		"body":
 			return Vector2(cx, RIG_FEET_Y - h * 0.55)
+		"legs":
+			return Vector2(cx, RIG_FEET_Y - h * 0.16)
 		_:
 			# The spellement rides the tools in your hand, so its marker sits off to the
 			# side of the torso rather than on the body.
@@ -252,6 +267,14 @@ func _on_doll_draw() -> void:
 	for slot: String in SLOTS:
 		var kind: String = String(lo.get(slot, ""))
 		if kind == "" or not GearAbilities.is_placeholder(kind):
+			continue
+		# /!\ AND NOW ONLY FOR A PIECE WITH NO SILHOUETTE. The maker asked to SEE the mock
+		# items, so every helm / armour / greave draws on the body above (see
+		# CharacterRig.MOCK_HEAD). A dashed ring drawn over a piece that is already on the
+		# figure would read as "this failed to load". The eight SPELLEMENTS still get one,
+		# because a spellement attaches to a spell and has no body part to become — which
+		# is the case this marker was written for.
+		if CharacterRig.draws_kind(kind):
 			continue
 		# SCHEMATIC ON PURPOSE - a dashed ring, not a piece of gear. See the header:
 		# drawing real art here would claim the placeholder works, and drawing nothing
@@ -270,8 +293,13 @@ func _on_doll_draw() -> void:
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, col)
 	# Caption. Names what the box is and - because every offered piece is a promise right
 	# now - says so where the player's eyes already are.
+	# /!\ THE CAPTION CHANGED WITH THE RULING ABOVE, and the old wording is why. It read
+	# "PREVIEW - pieces not yet worn", which was true when nothing drew and is now a lie
+	# on a body visibly wearing a helm. What is still absent is the STAT, not the item, so
+	# the caption says that instead — same honesty, aimed at the thing that is actually
+	# missing.
 	_doll.draw_string(ThemeDB.fallback_font, Vector2(6.0, DOLL_H - 6.0),
-		"PREVIEW - pieces not yet worn", HORIZONTAL_ALIGNMENT_LEFT, DOLL_W - 12.0, 9,
+		"PREVIEW - mock look, no stats yet", HORIZONTAL_ALIGNMENT_LEFT, DOLL_W - 12.0, 9,
 		Color(0.62, 0.67, 0.78))
 
 
@@ -314,7 +342,30 @@ func _option_label(kind: String) -> String:
 		return "Default"
 	var a: Dictionary = GearAbilities.of(kind)
 	var piece_name: String = String(a.get("name", kind))
+	# /!\ THE STATE GOES ON THE BUTTON, NOT ONLY IN THE COLOUR. Maker: *"still not clear
+	# what is unlockable and what isnt … and how to unlock it"*. A dimmed button says
+	# SOMETHING is wrong and a phone has no hover to ask what, so a row that cannot be
+	# taken carries its own condition — the same fix the grimoire's "(slot 4 only)" is.
+	var st: int = _state_of(kind)
+	if st != Progression.Owned.HELD:
+		return "%s  🔒 %s" % [piece_name, Progression.gear_unlock_short(kind, ClassInfo.names())]
 	return piece_name + " *" if GearAbilities.is_placeholder(kind) else piece_name
+
+
+## HELD / EARNABLE / CLASS_LOCKED for one piece, against the live save. `""` (Default) is
+## always HELD — taking nothing off the shelf is not something anyone has to earn.
+##
+## Read through the tree rather than as a bare global so this autoload stays loadable in a
+## headless harness with no GameState registered; a missing one reads as a fresh climber
+## (floor 1, level 1), which is the strictest answer and therefore the safe default.
+func _state_of(kind: String) -> int:
+	if kind == "":
+		return Progression.Owned.HELD
+	var gs: Node = get_node_or_null("/root/GameState")
+	var floor_best: int = int(gs.call("highest_floor")) if gs != null and gs.has_method("highest_floor") else 1
+	var lvl: int = int(gs.call("level")) if gs != null and gs.has_method("level") else 1
+	var cls: int = int(gs.get("selected_class")) if gs != null else 0
+	return Progression.gear_state(kind, floor_best, lvl, cls)
 
 
 func is_open() -> bool:
@@ -367,6 +418,14 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _on_option(slot: String, kind: String) -> void:
+	# /!\ A ROW YOU HAVE NOT EARNED STILL ANSWERS THE QUESTION IT WAS TAPPED WITH.
+	# The button is NOT `disabled` (see PLACEHOLDER_TINT above — a disabled Button eats its
+	# own press, so the detail pane could never say why), so the refusal lives here: focus
+	# moves, the pane explains, nothing is equipped. Reading is not choosing.
+	_focus_kind = kind
+	if _state_of(kind) != Progression.Owned.HELD:
+		_refresh()
+		return
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs != null:
 		var lo: Variant = gs.get("loadout")
@@ -401,13 +460,22 @@ func _preview() -> void:
 	player.call("preview_loadout", preset, wearable)
 
 
-## The equipped set with every placeholder stripped - what a rig may legitimately wear.
+## The equipped set a rig may legitimately wear.
+##
+## /!\ THE RULE WAS "STRIP EVERY PLACEHOLDER" AND IS NOW "STRIP EVERY PLACEHOLDER THE RIG
+## CANNOT DRAW". The old rule existed so a promise could not sit in the equipment dict
+## LOOKING like a working piece; the maker has since asked for exactly that look
+## (*"make mock versions of like helmets and stuff that replace the character head"*), so
+## the honesty is moved rather than dropped — the ART is now real and the DETAIL PANE
+## still stamps [NOT YET IMPLEMENTED] on every one of them. A spellement, which has no
+## silhouette at all, is still stripped: handing the rig an id it draws nothing for is
+## the case that reads as a broken slot.
 func _wearable_loadout() -> Dictionary:
 	var out: Dictionary = {}
 	var lo: Dictionary = _loadout()
 	for slot: String in SLOTS:
 		var kind: String = String(lo.get(slot, ""))
-		out[slot] = "" if GearAbilities.is_placeholder(kind) else kind
+		out[slot] = kind if CharacterRig.draws_kind(kind) else ""
 	return out
 
 
@@ -430,7 +498,7 @@ func _loadout() -> Dictionary:
 		var lo: Variant = gs.get("loadout")
 		if lo is Dictionary:
 			return lo
-	return {"weapon": "", "head": "", "body": ""}
+	return {"weapon": "", "head": "", "body": "", "legs": ""}
 
 
 ## Highlight the selected button per slot, dim the promises, refresh the detail pane.
@@ -443,7 +511,14 @@ func _refresh() -> void:
 		for i: int in buttons.size():
 			var kind: String = String(opts[i])
 			var b: Button = buttons[i] as Button
-			if kind == sel:
+			# THREE STATES, ORDERED BY INK: yours > a promise you hold > not yours yet.
+			# LOCKED is dimmest because it is the only one the tap will refuse.
+			var st: int = _state_of(kind)
+			if st == Progression.Owned.CLASS_LOCKED:
+				b.modulate = CLASS_LOCKED_TINT
+			elif st == Progression.Owned.EARNABLE:
+				b.modulate = LOCKED_TINT
+			elif kind == sel:
 				b.modulate = HIGHLIGHT
 			elif GearAbilities.is_placeholder(kind):
 				b.modulate = PLACEHOLDER_TINT
@@ -477,4 +552,11 @@ func _ability_text(lo: Dictionary) -> String:
 
 func _piece_line(kind: String, a: Dictionary) -> String:
 	var tag: String = "  [color=#c8a04a][NOT YET IMPLEMENTED][/color]" if GearAbilities.is_placeholder(kind) else ""
+	# The condition is repeated here in full because the button caption CLIPS on a phone.
+	# The row tells you there is a lock; this tells you the whole sentence.
+	var st: int = _state_of(kind)
+	if st != Progression.Owned.HELD:
+		var word: String = "NOT YOURS YET" if st == Progression.Owned.EARNABLE else "ANOTHER CLASS'S"
+		tag += "  [color=#e08a5a][%s — %s][/color]" % [
+			word, Progression.gear_unlock_verb(kind, ClassInfo.names())]
 	return "[color=#8fd0ff]%s[/color]%s  %s" % [a.get("name", kind), tag, a.get("desc", "")]

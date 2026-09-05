@@ -790,10 +790,68 @@ const GEAR_KINDS: Array[String] = [
 ## must never disagree about what the character looks like. Flip it to true (from a
 ## capture tool, or permanently) to get the armoured look back; nothing else changes.
 static var draw_clothing: bool = false
+
+## ⚠ THE RULING CHANGED ON 2026-09-05, AND THE ONE ABOVE IS KEPT BECAUSE IT IS STILL
+## HALF TRUE. Maker, verbatim: *"please make mock versions of like helmets and stuff
+## that replace the character head are not work on top and other items that emphasise
+## what they do"*. That is a request to SEE gear, which `draw_clothing = false` makes
+## impossible — so the flag was doing two jobs and only one of them was still wanted.
+##
+## THE SPLIT: the two instructions are about different gear, and separating them is what
+## lets both stand.
+##
+##   * `draw_clothing` (STILL FALSE) now governs **class-preset cosmetics only** — the
+##     robe-and-hat every mage was BORN wearing because `class_preset` set them. That is
+##     what *"the characters are not stickmen, I just want to see STICKMEN"* was aimed
+##     at: a roster that arrived dressed. It stays off, so a hero who has equipped
+##     nothing is byte-for-byte the plain stick figure shipped today.
+##   * `draw_equipped_gear` (TRUE) governs a piece the PLAYER put on in the armoury.
+##     Gear you chose is not clothing you were issued, and the whole reason to choose it
+##     is to see it. It still REPLACES the part rather than sitting on it, which is the
+##     other half of the maker's sentence and the reason overlay gear was killed.
+##
+## `class_preset` marks the slots it authored (see `_PRESET_KEY`); `set_equipment` clears
+## the mark, so "the player touched this slot" is the exact distinction being drawn.
+static var draw_equipped_gear: bool = true
+
+## Reserved key inside the `equipment` dictionary listing the slots `class_preset` wrote.
+## It rides INSIDE that dict rather than on the instance because `draw_figure` is static
+## and every ghost / afterimage / corpse is seeded from `equipment.duplicate()` — a mark
+## held on the rig would be lost by exactly the copies that must not disagree with it.
+## Never a slot name, so no lookup of a real slot can collide with it.
+const _PRESET_KEY: String = "_preset"
 ## Head kinds that BECOME the head (the default head circle is suppressed for them).
 const HEAD_GEAR: Array[String] = ["hat", "hood", "helmet", "crown"]
 ## Body kinds that BECOME the torso (the default spine stroke is suppressed).
 const TORSO_GEAR: Array[String] = ["robe", "armor"]
+## Lower-leg kinds that THICKEN the shin (the plain leg stroke is drawn under them).
+const LEG_GEAR: Array[String] = ["pl_swiftsoles", "pl_ironmarch", "pl_ashenstride"]
+
+## ⚠ THE ARMOURY'S PIECES ARE MOCKS, AND A MOCK STILL HAS TO HAVE A SILHOUETTE.
+## Every id `GearAbilities.PLACEHOLDER_SLOTS` offers is a NAMED PROMISE with an empty
+## effect bag — but the maker asked to *see* them, so each one below draws. The look is
+## real; the stat is still absent and every screen that shows one still says so
+## ([NOT YET IMPLEMENTED] in `Loadout._piece_line`). That is the honest pairing: art you
+## can judge, and no number pretending to exist behind it.
+##
+## THE SHAPE SAYS WHAT THE PIECE DOES — *"other items that emphasise what they do"*. A
+## heavy helm has MASS past the skull; a hood is a thin sweep with nothing to it. At
+## 640x360 that difference is the only thing a player can read, so it is the thing the
+## shapes are authored against rather than detail.
+##
+## The `weapon` slot's eight spellements are DELIBERATELY absent: a spellement attaches
+## to a spell, not to a hand, so there is no body part for it to become and drawing one
+## would put back the sticker this whole scheme exists to remove.
+const MOCK_HEAD: Array[String] = ["pl_ironbrow", "pl_veilhood", "pl_seers_circlet", "pl_crown_of_hours"]
+const MOCK_BODY: Array[String] = ["pl_ashplate", "pl_tideweave", "pl_thornmail", "pl_stormcoat"]
+
+
+## True when the rig has a silhouette for this kind — i.e. equipping it changes the
+## drawing. The armoury asks so it can show a real figure for a piece that draws and
+## keep its dashed "a piece goes HERE" marker for one that does not.
+static func draws_kind(kind: String) -> bool:
+	return HEAD_GEAR.has(kind) or TORSO_GEAR.has(kind) or LEG_GEAR.has(kind) \
+		or MOCK_HEAD.has(kind) or MOCK_BODY.has(kind) or GEAR_KINDS.has(kind)
 ## Element tints for the staff variants' crystal — the ONE spot of non-body colour a
 ## piece is allowed, because it is the gameplay read (your staff sets your element).
 const STAFF_GEM_TINT: Dictionary = {
@@ -2147,6 +2205,14 @@ func set_equipment(slot: String, kind: String) -> void:
 		equipment.erase(slot)
 	else:
 		equipment[slot] = kind
+	# A DELIBERATE WRITE CLEARS THE PRESET MARK. Whoever calls this is either the armoury
+	# or a class preset, and the preset re-stamps its own slots afterwards (see
+	# `class_preset`) — so "unmarked" means "the player chose this", which is exactly the
+	# question `draw_figure` asks before deciding whether the piece is drawn.
+	var marks: Dictionary = equipment.get(_PRESET_KEY, {})
+	if marks.has(slot):
+		marks.erase(slot)
+		equipment[_PRESET_KEY] = marks
 	queue_redraw()
 
 
@@ -2156,6 +2222,24 @@ func set_equipment(slot: String, kind: String) -> void:
 ## Overlay art is reused (robe/hat/hood/staff/sword/orb/fists) — the strong
 ## class read comes from the element colour, AoE variant, and signature ult.
 func class_preset(preset_name: String) -> void:
+	_apply_class_preset(preset_name)
+	# ⚠ STAMPED AFTER, NEVER DURING. Every branch below goes through `set_equipment`,
+	# which CLEARS the mark — so marking inside the match would be undone by the next
+	# line of the same match. The head and body are the only two cosmetic slots the
+	# preset authors (the weapon and the sheath are class SIGNATURE, always drawn), so
+	# they are the only two the "you were issued this" rule applies to.
+	var marks: Dictionary = {}
+	for slot: String in ["head", "body"]:
+		if String(equipment.get(slot, "")) != "":
+			marks[slot] = true
+	if marks.is_empty():
+		equipment.erase(_PRESET_KEY)
+	else:
+		equipment[_PRESET_KEY] = marks
+	queue_redraw()
+
+
+func _apply_class_preset(preset_name: String) -> void:
 	match preset_name:
 		"mage":
 			set_equipment("body", "robe")
@@ -3418,8 +3502,14 @@ static func draw_figure(
 	# little armoured man. The slots are still SET (GearAbilities, the loadout UI and
 	# the enemy archetype table all read `equipment`) — they simply aren't DRAWN, so
 	# the ability plumbing is untouched and this is one boolean away from coming back.
-	var head_kind: String = String(equipment_slots.get("head", "")) if draw_clothing else ""
-	var body_kind: String = String(equipment_slots.get("body", "")) if draw_clothing else ""
+	#
+	# ⚠ AND THAT PARAGRAPH IS NOW HALF THE RULE — see `draw_equipped_gear`. What is
+	# suppressed is the gear the CLASS PRESET issued; what the player equipped in the
+	# armoury draws, because seeing it is the entire reason to choose it. A hero wearing
+	# nothing is unchanged, which is why this reconciles rather than reverses.
+	var head_kind: String = _visible_gear(equipment_slots, "head")
+	var body_kind: String = _visible_gear(equipment_slots, "body")
+	var legs_kind: String = _visible_gear(equipment_slots, "legs")
 
 	# Crisp dark OUTLINE pass: the same articulated skeleton drawn thicker under so
 	# the bold coloured figure reads against any background (the Stick-Fight look).
@@ -3437,8 +3527,8 @@ static func draw_figure(
 		_draw_torso(item, body_kind, neck, hip, oc, ow, r)
 		_draw_limb(item, shoulder, elbow_lead, hand_lead, oc, ow)
 		_draw_limb(item, shoulder, elbow_off, hand_off, oc, ow)
-		_draw_limb(item, hip, knee_lead, foot_lead, oc, ow)
-		_draw_limb(item, hip, knee_off, foot_off, oc, ow)
+		_draw_leg(item, legs_kind, hip, knee_lead, foot_lead, oc, ow, r)
+		_draw_leg(item, legs_kind, hip, knee_off, foot_off, oc, ow, r)
 		item.draw_circle(hand_lead, hlr + oe * 0.6, oc)
 		item.draw_circle(hand_off, hor + oe * 0.6, oc)
 		item.draw_circle(foot_lead, ftr + oe * 0.5, oc)
@@ -3454,8 +3544,8 @@ static func draw_figure(
 	_draw_torso(item, body_kind, neck, hip, col, w, r)
 	_draw_limb(item, shoulder, elbow_lead, hand_lead, col, w)
 	_draw_limb(item, shoulder, elbow_off, hand_off, col, w)
-	_draw_limb(item, hip, knee_lead, foot_lead, col, w)
-	_draw_limb(item, hip, knee_off, foot_off, col, w)
+	_draw_leg(item, legs_kind, hip, knee_lead, foot_lead, col, w, r)
+	_draw_leg(item, legs_kind, hip, knee_off, foot_off, col, w, r)
 	# Rounded joints/ends: filled dots cap the lines so the limbs read solid.
 	item.draw_circle(shoulder, w * 0.5, col)
 	item.draw_circle(hip, w * 0.55, col)
@@ -3606,6 +3696,56 @@ static func _draw_head(
 					c + Vector2(bx, -r * 1.85),
 				]), col)
 			item.draw_line(c + Vector2(-r, -r * 0.72), c + Vector2(r, -r * 0.72), col, w * 0.8)
+		# ── THE ARMOURY'S FOUR HELMS. Mocks (no stat), but real silhouettes — and each
+		# one is authored so that its MASS is the sentence. See MOCK_HEAD.
+		"pl_ironbrow":
+			# THE HEAVIEST THING ON THE SHELF. A closed bucket wider than the skull, flat
+			# across the crown, with a brow band. It should look like it costs you speed.
+			item.draw_colored_polygon(PackedVector2Array([
+				c + Vector2(-r * 1.2, -r * 1.05), c + Vector2(r * 1.2, -r * 1.05),
+				c + Vector2(r * 1.1, r * 1.2), c + Vector2(-r * 1.1, r * 1.2),
+			]), col)
+			if not _gear_quality_low():
+				item.draw_line(c + Vector2(-r * 1.2, -r * 0.25), c + Vector2(r * 1.2, -r * 0.25),
+					col.darkened(0.45), w * 0.9)
+		"pl_veilhood":
+			# THE LIGHTEST. A shallow cowl with a long tail swept back — thin everywhere,
+			# and the only piece that extends BEHIND the head rather than around it.
+			item.draw_colored_polygon(PackedVector2Array([
+				c + Vector2(-r * 0.95, r * 0.35), c + Vector2(-r * 0.9, -r * 0.85),
+				c + Vector2(r * 0.15, -r * 1.25), c + Vector2(r * 0.95, -r * 0.45),
+				c + Vector2(r * 0.85, r * 0.55),
+			]), col)
+			if not _gear_quality_low():
+				# The trailing tail. Pure motion read; first thing dropped at LOW.
+				item.draw_colored_polygon(PackedVector2Array([
+					c + Vector2(-r * 0.85, -r * 0.5), c + Vector2(-r * 0.55, -r * 0.15),
+					c + Vector2(-r * 2.0, r * 0.55),
+				]), col)
+		"pl_seers_circlet":
+			# A BAND AND AN EYE. Almost no mass — it does not protect, it SEES, so the one
+			# thing that leaves the skull is a single needle above the brow.
+			item.draw_line(c + Vector2(-r * 1.0, -r * 0.35), c + Vector2(r * 1.0, -r * 0.35),
+				col.lightened(0.35), w * 0.85)
+			item.draw_colored_polygon(PackedVector2Array([
+				c + Vector2(-r * 0.3, -r * 0.5), c + Vector2(r * 0.3, -r * 0.5),
+				c + Vector2(0.0, -r * 1.7),
+			]), col.lightened(0.35))
+			if not _gear_quality_low():
+				item.draw_circle(c + Vector2(0.0, -r * 0.62), maxf(w * 0.42, 0.9), Color(1, 1, 1, col.a))
+		"pl_crown_of_hours":
+			# TIME, NOT RANK. A low ring plus ONE tall gnomon and two short ticks — the
+			# asymmetry is what stops it reading as the guardian `crown` above.
+			item.draw_line(c + Vector2(-r * 1.0, -r * 0.62), c + Vector2(r * 1.0, -r * 0.62),
+				col, w * 0.95)
+			item.draw_colored_polygon(PackedVector2Array([
+				c + Vector2(-r * 0.22, -r * 0.62), c + Vector2(r * 0.22, -r * 0.62),
+				c + Vector2(r * 0.05, -r * 2.05),
+			]), col)
+			if not _gear_quality_low():
+				for s: float in [-1.0, 1.0]:
+					item.draw_line(c + Vector2(s * r * 0.78, -r * 0.62),
+						c + Vector2(s * r * 0.9, -r * 1.15), col, w * 0.6)
 
 
 ## THE TORSO — geared or bare. Same substitution rule: armour IS the torso, so the
@@ -3651,8 +3791,151 @@ static func _draw_torso(
 				hem - sd * r * 1.9, hem + sd * r * 1.9,
 			]), col)
 			item.draw_line(neck, hip, col, w)
+		# ── THE ARMOURY'S FOUR ARMOURS. Same rule as the helms: mock, but the SHAPE is
+		# the description. All four are built off the neck->hip axis so the facing flip
+		# and the body pitch come free, exactly as `armor` and `robe` do above.
+		"pl_ashplate", "pl_tideweave", "pl_thornmail", "pl_stormcoat":
+			var d2: Vector2 = (hip - neck)
+			if d2.length() < 0.001:
+				d2 = Vector2.DOWN
+			var ax: Vector2 = d2.normalized()
+			var sx: Vector2 = ax.orthogonal().normalized()
+			var low2: bool = _gear_quality_low()
+			match kind:
+				"pl_ashplate":
+					# HEAVIEST. Wider than `armor`, with squared pauldrons past the
+					# shoulder line — the silhouette says "nothing gets through".
+					item.draw_colored_polygon(PackedVector2Array([
+						neck + sx * r * 1.35, neck - sx * r * 1.35,
+						hip - sx * r * 1.1, hip + sx * r * 1.1,
+					]), col)
+					for s2: float in [-1.0, 1.0]:
+						item.draw_circle(neck + sx * r * 1.3 * s2 + ax * r * 0.15, r * 0.5, col)
+				"pl_tideweave":
+					# LIGHTEST. Narrow at the chest, long hem well past the hip — it flows
+					# rather than plates, which is the read a regeneration wrap wants.
+					var hem2: Vector2 = hip + ax * r * 2.1
+					item.draw_colored_polygon(PackedVector2Array([
+						neck + sx * r * 0.6, neck - sx * r * 0.6,
+						hem2 - sx * r * 1.5, hem2 + sx * r * 1.5,
+					]), col)
+				"pl_thornmail":
+					# A VEST THAT BITES BACK. Body mass close to `armor`, and the thing
+					# that names it is the row of spikes along both outer edges.
+					item.draw_colored_polygon(PackedVector2Array([
+						neck + sx * r * 1.0, neck - sx * r * 1.0,
+						hip - sx * r * 0.9, hip + sx * r * 0.9,
+					]), col)
+					if not low2:
+						for i2: int in 3:
+							var t2: float = 0.2 + 0.3 * float(i2)
+							var p2: Vector2 = neck.lerp(hip, t2)
+							for s3: float in [-1.0, 1.0]:
+								item.draw_colored_polygon(PackedVector2Array([
+									p2 + sx * r * 0.95 * s3 - ax * r * 0.2,
+									p2 + sx * r * 0.95 * s3 + ax * r * 0.2,
+									p2 + sx * r * 1.7 * s3,
+								]), col)
+				"pl_stormcoat":
+					# A COAT. Straight skirt to just past the hip plus a HIGH COLLAR that
+					# rises beside the neck — the collar is the whole identity and it is
+					# the only piece here that adds mass ABOVE the shoulders.
+					var hem3: Vector2 = hip + ax * r * 1.2
+					item.draw_colored_polygon(PackedVector2Array([
+						neck + sx * r * 0.9, neck - sx * r * 0.9,
+						hem3 - sx * r * 1.05, hem3 + sx * r * 1.05,
+					]), col)
+					for s4: float in [-1.0, 1.0]:
+						item.draw_colored_polygon(PackedVector2Array([
+							neck + sx * r * 0.55 * s4, neck + sx * r * 1.0 * s4,
+							neck + sx * r * 1.15 * s4 - ax * r * 0.95,
+							neck + sx * r * 0.5 * s4 - ax * r * 0.75,
+						]), col)
+			item.draw_line(neck, hip, col, w)
 		_:
 			item.draw_line(neck, hip, col, w)
+
+
+## WHAT A SLOT ACTUALLY DRAWS, after the two flags. "" = nothing.
+##
+## The whole ruling in four lines: a piece the player equipped draws whenever
+## `draw_equipped_gear` is on; a piece the class preset issued draws only when
+## `draw_clothing` is on. See both flags' notes for why they are separate.
+static func _visible_gear(equipment_slots: Dictionary, slot: String) -> String:
+	var kind: String = String(equipment_slots.get(slot, ""))
+	if kind == "":
+		return ""
+	var from_preset: bool = bool((equipment_slots.get(_PRESET_KEY, {}) as Dictionary).get(slot, false))
+	if from_preset:
+		return kind if draw_clothing else ""
+	return kind if draw_equipped_gear else ""
+
+
+## THE LOWER LEG — geared or bare. The third body part gear may become, and the one the
+## maker named last: *"other items that emphasise what they do"* is easiest to read on a
+## leg, because a thick shin says SLOW and a bare one says FAST at any size.
+##
+## HITBOX CONTRACT: nothing here moves hip / knee / foot, and the plain limb is ALWAYS
+## drawn first — greaves only add mass around the knee->foot segment. `Enemy.body_distance`
+## measures the spine, so a leg is free to be wider than it is; it must never be narrower
+## or somewhere else.
+##
+## ⚠ DEGRADES AT LOW QUALITY through `_gear_quality_low()`, the static tri-state cache
+## (`draw_figure` and everything under it is static, so the instance `_status_low` is
+## unreachable — same reason `void_rod` reads it this way). LOW keeps the SILHOUETTE, which
+## is the gameplay read, and drops the second-pass detail, which is decoration.
+static func _draw_leg(item: CanvasItem, kind: String, hip: Vector2, knee: Vector2,
+		foot: Vector2, col: Color, w: float, r: float) -> void:
+	_draw_limb(item, hip, knee, foot, col, w)
+	if kind == "" or not LEG_GEAR.has(kind):
+		return
+	var down: Vector2 = foot - knee
+	if down.length() < 0.001:
+		return
+	var dir: Vector2 = down.normalized()
+	var side: Vector2 = dir.orthogonal().normalized()
+	var low: bool = _gear_quality_low()
+	match kind:
+		"pl_ironmarch":
+			# HEAVY. A slab greave from knee to ankle, clearly wider than the shin, plus a
+			# squared boot past the foot. This is the shape that reads "you do not move".
+			var hw: float = w * 1.55
+			item.draw_colored_polygon(PackedVector2Array([
+				knee + side * hw, knee - side * hw,
+				foot - side * hw * 1.05, foot + side * hw * 1.05,
+			]), col)
+			item.draw_colored_polygon(PackedVector2Array([
+				foot + side * hw * 1.15 - dir * r * 0.1, foot - side * hw * 1.15 - dir * r * 0.1,
+				foot - side * hw * 1.15 + dir * r * 0.55, foot + side * hw * 1.15 + dir * r * 0.55,
+			]), col)
+			if not low:
+				# Knee cop — the one detail, and the thing that says PLATE rather than boot.
+				item.draw_circle(knee, w * 0.95, col)
+		"pl_swiftsoles":
+			# LIGHT. Almost nothing on the shin; a thin forward-swept sole under the foot.
+			# Deliberately the SMALLEST silhouette change of the three — a fast item that
+			# added mass would be lying with its shape.
+			item.draw_colored_polygon(PackedVector2Array([
+				foot + side * w * 0.8 + dir * r * 0.05, foot - side * w * 0.8 + dir * r * 0.05,
+				foot - side * w * 1.5 + dir * r * 0.3, foot + side * w * 1.5 + dir * r * 0.3,
+			]), col)
+			if not low:
+				item.draw_line(knee + dir * r * 0.4, knee + dir * r * 0.9, col, w * 0.9)
+		"pl_ashenstride":
+			# MID. A banded shin and a short boot — the in-between mass, so the three
+			# greaves are legible as a light / mid / heavy row rather than as three items.
+			var mw: float = w * 1.2
+			item.draw_colored_polygon(PackedVector2Array([
+				knee + dir * r * 0.5 + side * mw, knee + dir * r * 0.5 - side * mw,
+				foot - side * mw, foot + side * mw,
+			]), col)
+			item.draw_colored_polygon(PackedVector2Array([
+				foot + side * mw * 1.2, foot - side * mw * 1.2,
+				foot - side * mw * 1.2 + dir * r * 0.4, foot + side * mw * 1.2 + dir * r * 0.4,
+			]), col)
+			if not low:
+				item.draw_line(knee + dir * r * 0.75 + side * mw, knee + dir * r * 0.75 - side * mw,
+					col.darkened(0.3), w * 0.5)
 
 
 ## Draw a two-segment limb root->mid->end with a rounded joint cap at the mid.

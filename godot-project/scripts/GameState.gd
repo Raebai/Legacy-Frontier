@@ -156,7 +156,7 @@ func set_local_class(device: int, cls: int) -> void:
 ## Player gear loadout override, set from the hub Armory (Loadout UI). Slot -> gear
 ## kind; "" = keep the class default. Applied by Hero._ready after configure_class,
 ## so the chosen weapon/head/body (and their GearAbilities) shape the run hero.
-var loadout: Dictionary = {"weapon": "", "head": "", "body": ""}
+var loadout: Dictionary = {"weapon": "", "head": "", "body": "", "legs": ""}
 
 ## Which THREE of a class's five authored roles the player carries. class id ->
 ## Array of role names. `{}` = that class uses its authored default hand.
@@ -975,6 +975,15 @@ func xp() -> int:
 	return _xp
 
 
+## The climber's lifetime best floor. A PUBLIC READ of `_highest_floor`, which the
+## unlock table (`Progression.gear_state` / `spell_state`) is stated in terms of and
+## which two UI screens now ask for. It existed only as an underscore field others were
+## reaching into with `gs.get("_highest_floor")` — a private name read through a string
+## is a rename waiting to fail silently, and there are now three more callers.
+func highest_floor() -> int:
+	return maxi(_highest_floor, 1)
+
+
 ## XP banked into the current level, and what the next one costs — the two numbers
 ## a progress bar needs, both derived so the bar can never disagree with the level.
 func xp_into_level() -> int:
@@ -1420,7 +1429,14 @@ static func build_climber_save(current_floor: int, highest_floor: int, falls: in
 
 
 ## The three gear slots, and the only keys allowed into a save or out of one.
-const LOADOUT_SLOTS: Array[String] = ["weapon", "head", "body"]
+## ⚠ `legs` JOINED ON 2026-09-05 AND `Hero._aggregate_gear` STILL ITERATES THREE.
+## That is deliberate, not an oversight: this list decides what SURVIVES A SAVE, and the
+## player's greave choice has to, or the armoury forgets it the moment they walk away.
+## What Hero reads decides what APPLIES A STAT, and every greave is a placeholder with an
+## empty effect bag — so a fourth slot Hero never looks at cannot apply anything, and the
+## day one earns a real stat the fix is one literal in a file this one does not own.
+## A save written before this simply has no `legs` key; `sanitize_loadout` reads "" for it.
+const LOADOUT_SLOTS: Array[String] = ["weapon", "head", "body", "legs"]
 
 
 ## A loadout dict reduced to known slots with string values. Shared by the writer

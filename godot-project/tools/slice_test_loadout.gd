@@ -349,7 +349,10 @@ func _test_placeholders_apply_nothing() -> void:
 	var hero: CharacterBody2D = _make_hero()
 	hero.configure_class(hero.HeroClass.MAGE)
 	var slots: Dictionary = GearAbilities.PLACEHOLDER_SLOTS
-	_expect(slots.size() == 3, "the armoury offers three slots (got %d)" % slots.size())
+	# /!\ FOUR SINCE 2026-09-05: `legs` joined so a greave choice survives a save. Hero
+	# still aggregates three (see GameState.LOADOUT_SLOTS) and every greave is a
+	# placeholder, so the behavioural half below still proves nothing applies.
+	_expect(slots.size() == 4, "the armoury offers four slots (got %d)" % slots.size())
 
 	# The untouched baseline, read AFTER configure_class so class + level are already in.
 	var base_hp: int = int(hero.max_hp)
@@ -399,7 +402,7 @@ func _test_placeholders_apply_nothing() -> void:
 	# /!\ An invariant that is trivially true of an empty sweep is not an invariant. If
 	# the registry is ever emptied or renamed, every assertion above is skipped and this
 	# suite would report a confident green over a screen with nothing on it.
-	_expect(checked == 16, "all sixteen placeholders were equipped and measured (got %d)" % checked)
+	_expect(checked == 19, "all nineteen placeholders were equipped and measured (got %d)" % checked)
 
 	# The legacy catalogue must not have crept back into the MENU. Its rows still exist
 	# (the rig, the enemy roster and two other suites read them) but nothing the armoury
