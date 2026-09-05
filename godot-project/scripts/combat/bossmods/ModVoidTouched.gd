@@ -72,8 +72,14 @@ func _open_field(at: Vector2, radius: float) -> void:
 		return
 	_prune()
 	while _zones.size() >= MAX_ZONES:
-		var oldest: Node = _zones.pop_front()
-		if is_instance_valid(oldest):
+		# ⚠ THE `EliteHerald._restore` OPCODE. `var oldest: Node = _zones.pop_front()`
+		# binds a container element into a typed slot, which FAULTS on a freed instance
+		# rather than yielding null -- so the `is_instance_valid` below was unreachable in
+		# exactly the case it was written for. Safe today only because `_prune()` runs
+		# three lines up and clears freed entries out first; that is an ordering
+		# dependency invisible from here, so the value is laundered instead.
+		var oldest: Node = live_node(_zones.pop_front())
+		if oldest != null:
 			oldest.queue_free()
 	var gs: GDScript = load(ZONE_SCRIPT) as GDScript
 	if gs == null:

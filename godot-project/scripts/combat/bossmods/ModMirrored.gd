@@ -229,7 +229,17 @@ func _fire() -> void:
 	# the spell is spawned and in the SAME FRAME, because the spectacle adopts
 	# inside its own constructor path. And rule 2: let go of the reference straight
 	# after, or we would drag the sigil back onto the boss while it is travelling.
-	MagicCircle.offer(_circle, boss)
+	# ⚠ VALIDITY BEFORE THE CALL, BECAUSE THE CALLEE CANNOT DO IT FOR US.
+	# `MagicCircle.offer` opens with `if circle == null or not is_instance_valid(circle)`
+	# and that guard is unreachable from here: its parameter is TYPED
+	# (`circle: MagicCircle`), and binding a freed instance to a typed parameter faults
+	# before the body runs at all. Measured -- "The Object-derived class of argument 1
+	# (previously freed) is not a subclass of the expected argument class."
+	# `_circle` is held across the TELL (a SceneTreeTimer) and is parented to the ARENA,
+	# not to the boss -- so a floor teardown during the tell frees the sigil while this
+	# rider and its boss survive the frame. That is the window.
+	if is_instance_valid(_circle):
+		MagicCircle.offer(_circle, boss)
 	_circle = null
 	SpellCaster.cast(_spell, host, origin, h.global_position, col, _spell.effect, boss, &"hero")
 	# CO-OP: THE ANSWER. The nastiest modifier in the set throwing your own ult back

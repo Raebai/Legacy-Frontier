@@ -75,6 +75,46 @@ func _tick_visual(_delta: float) -> void:
 
 
 # --------------------------------------------------------------------- helpers
+## ⚠ THE ONE SAFE WAY TO TAKE A NODE BACK OUT OF A CONTAINER OR A `get()`.
+##
+## THE BUG THIS EXISTS TO END, measured rather than remembered (the measurements are
+## in `tools/probe_freed_semantics.gd`, the reproduction in `probe_elite_teardown.gd`):
+##
+##   is_instance_valid(freed)  ->  false
+##   freed == null             ->  TRUE      (yes, really -- Godot 4.6)
+##   var n: Node = <freed>     ->  FAULTS: "Trying to assign invalid previously freed
+##                                 instance."
+##
+## The third line is the whole problem, and it is why guarding did not help. A
+## STATICALLY TYPED slot -- a typed local, a typed member, a typed function PARAMETER --
+## type-checks the value as it is bound, and that check faults on a freed instance
+## instead of quietly yielding null. So in
+##
+##     var e: Node = row["n"]          # line 119: faults HERE
+##     if e == null or not is_instance_valid(e):   # line 120: never reached
+##
+## the guard is unreachable, and worse: a GDScript runtime error ABORTS the enclosing
+## function, so everything after the fault -- the `_lifted.clear()` that made the
+## teardown idempotent -- silently does not happen. That is exactly the floor-10
+## crash, and it left the whole room permanently buffed on top of the log spam.
+##
+## Two consequences worth stating, because both have already bitten this repo:
+##   * A CALLEE CANNOT DEFEND ITSELF. `MagicCircle.offer(circle: MagicCircle, ...)`
+##     opens with `is_instance_valid(circle)` and that guard is *still* unreachable,
+##     because the parameter binds before the body runs. The CALLER owns the check.
+##   * `!= null` IS NOT A SUBSTITUTE, even though it happens to answer correctly here.
+##     It is right for the wrong reason and it does nothing about the binding fault.
+##
+## So: never let a value whose provenance is a container, a `get()`, a `call()` or a
+## replicated dictionary land in a typed slot directly. Launder it through here. The
+## parameter is `Variant` precisely so the binding cannot fault, and it answers `null`
+## for a freed instance, for a never-set entry, and for a non-Object alike.
+static func live_node(v: Variant) -> Node:
+	if not is_instance_valid(v):
+		return null
+	return v as Node
+
+
 ## True in single player and on the host; false on a co-op client's puppet boss.
 func is_authority() -> bool:
 	if _net == null or not _net.is_active():
@@ -109,11 +149,16 @@ func hp_fraction() -> float:
 
 ## The arena the boss (and every spell spectacle) is parented to.
 func arena() -> Node:
-	return boss.get_parent() if boss != null else null
+	return boss.get_parent() if is_instance_valid(boss) else null
 
 
+# ⚠ GUARDED. This used to dereference `boss` unconditionally -- the only accessor in
+# either rider family with no check at all -- so a rider that outlived its boss by a
+# frame turned every caller into "Attempt to call function on a previously freed
+# instance". Reachable today only through signal handlers (where the boss is alive by
+# construction), which is why it had never fired; that is luck, not a design.
 func rig() -> Node:
-	return boss.get_node_or_null("Rig")
+	return boss.get_node_or_null("Rig") if is_instance_valid(boss) else null
 
 
 ## Nearest live hero, or null. Group "hero" is the TOWER group — "player" is the
@@ -121,9 +166,12 @@ func rig() -> Node:
 ## mechanics in this codebase already).
 func nearest_hero() -> Node2D:
 	var tree: SceneTree = get_tree()
-	# ⚠ `boss == null` DOES NOT CATCH A FREED BOSS — a freed Object is not null, and the
-	# `as Node2D` cast below dereferences it. Riders are usually freed with their boss,
-	# but nothing here enforces that, so check validity rather than relying on it.
+	# ⚠ VALIDITY, NOT NULLITY -- and the reason is not the one this comment used to give.
+	# It claimed "a freed Object is not null". MEASURED, that is false: in Godot 4.6 a
+	# freed instance DOES compare equal to null (tools/probe_freed_semantics.gd), so
+	# `boss == null` happens to catch this case. It is right for the wrong reason, and
+	# the reason matters: what nullity does NOT catch is a freed instance being bound to
+	# a statically typed slot, which faults outright. See `live_node` above.
 	if tree == null or not is_instance_valid(boss):
 		return null
 	var best: Node2D = null
@@ -140,8 +188,8 @@ func nearest_hero() -> Node2D:
 
 
 func boss_pos() -> Vector2:
-	# ⚠ UNGUARDED `is` ON A STORED REF — `boss` is a member that outlives nothing in
-	# particular, and `is` throws on a freed instance rather than answering false.
+	# ⚠ VALIDITY ON A STORED REF — `boss` is a member that outlives nothing in
+	# particular. See the note in `nearest_hero` for what nullity does and does not buy.
 	if not is_instance_valid(boss):
 		return Vector2.ZERO
 	return (boss as Node2D).global_position if boss is Node2D else Vector2.ZERO

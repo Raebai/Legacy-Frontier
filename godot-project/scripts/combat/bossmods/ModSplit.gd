@@ -108,11 +108,20 @@ func _on_defeated() -> void:
 func _spawn_copy(at: Vector2, phase: int) -> void:
 	var data: Dictionary = _copy_data(modifier_ctx, _original_max_hp, at, phase)
 	var host: Node = arena()
+	# ⚠ THE HOST CAN BE GONE BY NOW, AND THIS USED TO DEREFERENCE IT BLIND.
+	# The second copy is `call_deferred`, so this body runs a frame AFTER the parent
+	# boss died -- which is exactly the frame a floor teardown or a run-end is also
+	# using. `arena()` answers null once the boss is freed, and `host.has_method(...)`
+	# on a null instance is a hard error. `_on_defeated` checks this; this did not.
+	if host == null or not is_instance_valid(host):
+		return
 	var node: Node = null
 	if host.has_method("spawn_extra_enemy"):
 		# The replicated path: in co-op this goes through the MultiplayerSpawner, so
 		# both peers build the copy from this identical dictionary.
-		node = host.call("spawn_extra_enemy", data)
+		# LAUNDERED: `Arena.spawn_extra_enemy` is not our file, and a foreign return
+		# value bound into a typed slot faults on a freed instance. See live_node.
+		node = live_node(host.call("spawn_extra_enemy", data))
 	else:
 		node = _fallback_build(host, data)
 	if node == null:

@@ -282,6 +282,46 @@ func _mark_spoke() -> void:
 
 
 # --------------------------------------------------------------------- helpers
+## ⚠ THE ONE SAFE WAY TO TAKE A NODE BACK OUT OF A CONTAINER OR A `get()`.
+##
+## THE BUG THIS EXISTS TO END, measured rather than remembered (the measurements are
+## in `tools/probe_freed_semantics.gd`, the reproduction in `probe_elite_teardown.gd`):
+##
+##   is_instance_valid(freed)  ->  false
+##   freed == null             ->  TRUE      (yes, really -- Godot 4.6)
+##   var n: Node = <freed>     ->  FAULTS: "Trying to assign invalid previously freed
+##                                 instance."
+##
+## The third line is the whole problem, and it is why guarding did not help. A
+## STATICALLY TYPED slot -- a typed local, a typed member, a typed function PARAMETER --
+## type-checks the value as it is bound, and that check faults on a freed instance
+## instead of quietly yielding null. So in
+##
+##     var e: Node = row["n"]          # line 119: faults HERE
+##     if e == null or not is_instance_valid(e):   # line 120: never reached
+##
+## the guard is unreachable, and worse: a GDScript runtime error ABORTS the enclosing
+## function, so everything after the fault -- the `_lifted.clear()` that made the
+## teardown idempotent -- silently does not happen. That is exactly the floor-10
+## crash, and it left the whole room permanently buffed on top of the log spam.
+##
+## Two consequences worth stating, because both have already bitten this repo:
+##   * A CALLEE CANNOT DEFEND ITSELF. `MagicCircle.offer(circle: MagicCircle, ...)`
+##     opens with `is_instance_valid(circle)` and that guard is *still* unreachable,
+##     because the parameter binds before the body runs. The CALLER owns the check.
+##   * `!= null` IS NOT A SUBSTITUTE, even though it happens to answer correctly here.
+##     It is right for the wrong reason and it does nothing about the binding fault.
+##
+## So: never let a value whose provenance is a container, a `get()`, a `call()` or a
+## replicated dictionary land in a typed slot directly. Launder it through here. The
+## parameter is `Variant` precisely so the binding cannot fault, and it answers `null`
+## for a freed instance, for a never-set entry, and for a non-Object alike.
+static func live_node(v: Variant) -> Node:
+	if not is_instance_valid(v):
+		return null
+	return v as Node
+
+
 ## True in single player and on the host; false on a co-op client's puppet.
 func is_authority() -> bool:
 	if _net == null or not _net.is_active():
@@ -308,12 +348,12 @@ func enemy_pos() -> Vector2:
 
 
 func rig() -> Node:
-	return enemy.get_node_or_null(^"Rig") if enemy != null else null
+	return enemy.get_node_or_null(^"Rig") if is_instance_valid(enemy) else null
 
 
 ## The arena everything (spectacles included) is parented to.
 func arena() -> Node:
-	return enemy.get_parent() if enemy != null else null
+	return enemy.get_parent() if is_instance_valid(enemy) else null
 
 
 ## Nearest live hero, or null. Group "hero" is the TOWER group — "player" is the old

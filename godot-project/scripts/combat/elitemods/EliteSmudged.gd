@@ -98,14 +98,18 @@ func _begin(hero_at: Vector2) -> void:
 	var col: Color = tint()
 	# The mark, through the enemy's OWN telegraph channel — same vocabulary as every
 	# other tell in the room, and replicated to clients without a line of new netcode.
-	var tele: Node = enemy.call("_emit_telegraph", {
+	# ⚠ LAUNDERED. `Enemy._emit_telegraph` is not our file and its return is a foreign
+	# value: binding it straight into `var tele: Node` faults outright if it is ever a
+	# freed instance, one line before the `is_instance_valid(tele)` below could answer.
+	# Same opcode as the floor-10 `EliteHerald._restore` crash. See EliteRider.live_node.
+	var tele: Node = live_node(enemy.call("_emit_telegraph", {
 		"style": Telegraph.Style.ZONE,
 		"pos": dest,
 		"radius": MARK_RADIUS,
 		"windup": TELL,
 		"accent": col,
 		"no_resolve": true,
-	})
+	}))
 	# The smear it leaves behind: the body scribbled out where it stood.
 	var host: Node = arena()
 	var r: Node = rig()
@@ -113,7 +117,7 @@ func _begin(hero_at: Vector2) -> void:
 		var ghost_col: Color = col
 		ghost_col.a = 0.45
 		r.call("spawn_ghost", host, ghost_col)
-	if tele != null and is_instance_valid(tele) and tele.has_signal("fired"):
+	if tele != null and tele.has_signal("fired"):
 		tele.connect("fired", _land.bind(dest), CONNECT_ONE_SHOT)
 	else:
 		_land(dest)
