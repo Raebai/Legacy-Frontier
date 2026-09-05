@@ -163,6 +163,7 @@ func chain(
 	Juice.tier_frame(SpellTier.Tier.HEAVY, _points[_points.size() - 1], element_id,
 		{"zoom": 0.0, "shake": 0.0, "shock": 0.0, "hitstop": 0.0})
 	Sfx.play("zap", -1.0, 0.08)
+	_join_reactor()
 	queue_redraw()
 
 
@@ -176,6 +177,7 @@ func _whiff(origin: Vector2, d: Vector2) -> void:
 		8, 0.25, 50.0, 120.0, 0.6, 1.4, 0.0, 0.0, true)
 	Juice.shake_camera(2.5)
 	Sfx.play("zap_chain", -4.0, 0.08)
+	_join_reactor()
 	queue_redraw()
 
 
@@ -325,3 +327,131 @@ func _draw_branches(pts: PackedVector2Array, intensity: float, tq: int, salt_bas
 			Color(_color.r, _color.g, _color.b, 0.55 * intensity), 1.8, true)
 		draw_polyline(PackedVector2Array([base, p1, p2]),
 			Color(CORE_COLOR.r, CORE_COLOR.g, CORE_COLOR.b, 0.45 * intensity), 0.9, true)
+
+
+# --- reaction contract (see SpellReactor) ------------------------------------
+## WHY THIS FILE ADOPTED THE CONTRACT AT ALL, measured rather than reasoned.
+## `tools/probe_reaction_count.gd` over a full 36-bout round robin: 12 reactions
+## fired from 6 of 21 authored outcomes, on only ~600-1300 pair tests, because the
+## registry averaged 0.84 live effects and a reaction needs TWO. Twenty of the
+## thirty-six kit spells never called `register` at all — the table was not being
+## refused, it was barely being asked. This is the single most-thrown of them:
+## `PROJECTILE Lightning` (the basic cast) and this arc are the Stormcaller's whole
+## damage line, and `ReactionTable`'s `supercharge` block says so in its own words —
+## "the Stormcaller carries the Blizzard in its control slot and throws lightning
+## all fight. Drop the field, shoot through it." That row (IMPACT x FIELD, priority
+## 73) has been authored and unreachable because this script never entered the
+## system.
+##
+## REGISTERED AS AN IMPACT, not a PROJECTILE, and the distinction is real rather
+## than bookkeeping: a projectile is a body that TRAVELS and can be intercepted
+## mid-flight (`Spell.gd` publishes a swept segment for exactly that reason). This
+## does not travel. The whole chain resolves inside `chain()` on one frame and what
+## is left on screen for `LIFE` is the discharge. A detonation that is simply THERE
+## is an IMPACT, which is also the form `ReactionTable.form_of` calls "the least
+## surprising default".
+##
+## ⚠ THE HONEST LIMIT OF THAT: the damage is already paid by the time anything can
+## react to it, so an outcome that CONSUMES this arc (`mutual_annihilation`
+## IMPACT x IMPACT against an opposed EARTH blast) cuts the afterimage short and
+## takes nothing back. That is the correct picture — the arc is swallowed — but it
+## is not the arc being STOPPED, and no row should ever be authored on the
+## assumption that consuming this prevents a hit. The row this file was adopted for
+## spends nothing on either side, deliberately (see the two ⚠ blocks on
+## `supercharge` in ReactionTable).
+
+## Set by a reaction that spent this arc, so `reaction_active()` stops answering
+## true in the same tick rather than one `_process` later.
+var _consumed: bool = false
+
+
+## THE SHAPE PUBLISHED IS THE FIRST LINK, NOT THE WHOLE CHAIN — the one real
+## decision in this block.
+##
+## `SpellGeometry` speaks exactly two shapes, a circle and a capsule, and a chain is
+## neither: it is a POLYLINE of up to `max_hops` links that can fold back on itself.
+## Two ways of forcing it into one shape were tried on paper and rejected:
+##   * A CAPSULE FROM THE ORIGIN TO THE LAST STRIKE POINT. Exact on a one-target
+##     chain and badly wrong on a folded one — a bolt that reaches 500 px out and
+##     then hops back toward the caster would publish a stub covering almost none of
+##     the arc it drew, i.e. it would silently stop reacting on exactly the casts
+##     where it looks most spectacular.
+##   * THE BOUNDING CIRCLE OF `_points`. Never under-claims, and over-claims
+##     enormously: a straight 560 px run becomes a 280 px DISC, a phantom reactant
+##     filling a third of the arena perpendicular to a line the bolt never went
+##     near. Over-claiming invents reactions the player did not cause, which is the
+##     one failure mode this system cannot afford — the whole of SpellGeometry.gd's
+##     header is about a detector that reported every pair as touching.
+##
+## The first link is the one the player AIMED: `build_chain` only accepts target 1
+## inside `FIRST_CORRIDOR` of the aim ray and explicitly refuses to bend, and on a
+## whiff `_whiff` fills it with the full `FIRST_REACH` down that same ray. Every
+## link after it is the chain's automatic consequence of having connected. So this
+## UNDER-claims — later hops cannot react — and never over-claims, which is the safe
+## direction: a reaction that does not happen, never one that was invented. And in a
+## 1v1, which is every bout the bot harness runs and most of what the game is, there
+## IS only one link and the shape is exact.
+##
+## Width is `ARC_COVER_REACH * 2` — the number this file already uses for "how far
+## off the drawn arc a thing has to be to survive it" — so the reach the reactor
+## sees and the reach the crates see cannot drift apart.
+##
+## ⚠ NEVER `global_position`. This node parks at the arena origin and draws in world
+## coordinates (see `chain()`), so its transform is (0, 0) and is NOT where the arc
+## is. `_points` is already world space.
+func reaction_shape() -> Dictionary:
+	if _points.size() < 2:
+		return {}
+	return SpellGeometry.capsule(_points[0], _points[1], ARC_COVER_REACH * 2.0)
+
+
+## An arc has no telegraph — it is the discharge, and it exists only after it has
+## already struck — so the only inert states are "not fired yet" and "spent".
+func reaction_active() -> bool:
+	return _elapsed >= 0.0 and _elapsed < LIFE and not _consumed
+
+
+func reaction_element() -> int:
+	return element_id
+
+
+func reaction_form() -> int:
+	return ReactionTable.Form.IMPACT
+
+
+func reaction_owner() -> Node:
+	return caster_node
+
+
+func reaction_weight() -> int:
+	return spell_tier
+
+
+## Spent by a reaction: the afterimage is cut short. See the ⚠ in the block above
+## about what this does NOT undo.
+func reaction_consume() -> void:
+	if _consumed:
+		return
+	_consumed = true
+	queue_free()
+
+
+## Joined at the end of BOTH entry paths — the connected chain and the whiff — for
+## the same reason `_whiff` exists at all: a bolt that ripped the full reach down
+## your aim and hit nothing is still a live arc on the floor, and a reaction it
+## could have caused would go missing on exactly the casts the player is already
+## least happy with.
+##
+## The node is in the tree by here: `SpellCaster` does `arena.add_child()` then
+## `_stamp()` then `chain()`, so both `element_id` and `caster_node` are already
+## written and the autoload lookup below can succeed.
+func _join_reactor() -> void:
+	var reactor: Node = get_node_or_null(^"/root/SpellReactor")
+	if reactor != null:
+		reactor.call(&"register", self, ReactionTable.Form.IMPACT, element_id)
+
+
+func _exit_tree() -> void:
+	var reactor: Node = get_node_or_null(^"/root/SpellReactor")
+	if reactor != null:
+		reactor.call(&"unregister", self)

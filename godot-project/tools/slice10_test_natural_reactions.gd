@@ -507,15 +507,93 @@ func _test_holy_shadow_is_asymmetric() -> void:
 ## nothing from it — which is the assertion that keeps `shatter_ward` from having
 ## quietly become "any impact breaks any ward", and keeps the documented "IMPACT
 ## gets no blocks/breach rung" ruling true.
+##
+## ⚠ ONE ASSERTION IN HERE WAS DELIBERATELY OVERTURNED, and this note is the record
+## of why, because reversing a test is the easiest way in the world to delete a
+## decision by accident. The line used to read:
+##
+##     _assert_silent("a fire blast beside a stone wall", F.IMPACT, E.FIRE,
+##         F.BARRIER, E.EARTH)
+##
+## It was a MEASURED silence rather than a hypothetical one — the Brawler is a FIRE
+## class carrying `rock_wall`, and `tools/probe_reaction_count.gd` saw the pair
+## `BARRIER Earth x IMPACT Fire` reach the table with nothing for it 21 times in one
+## 36-bout sweep — so it now resolves to `molten_slag`, whose BEAM arm has said "fire
+## melts stone" since the row was written.
+##
+## THE RULING IS NOT WHAT THAT LINE SAID IT WAS. Read where it is written, under
+## `barrier_blocks` in ReactionTable: *"A blast is not a thing travelling toward a
+## wall that the wall can be in the way of — a meteor landing next to a barrier
+## SHOULD CRACK IT, which is what the shatter_ice_barrier IMPACT row already does,
+## not be swallowed by it."* It forbids an IMPACT being SWALLOWED (`barrier_blocks`,
+## which spends the attacker) or having to out-WEIGH the wall (`breach`); it
+## explicitly endorses the elemental crack, and `shatter_ward`'s IMPACT row was added
+## on exactly that argument, spelled out at its own row. So the sentence the deleted
+## line was guarding is still guarded — just by assertions that actually say it,
+## below, instead of by one element pair that happened to have no row yet.
 func _test_ward_answers_every_shadow_shape() -> void:
 	var E := Elements.Element
 	var F := ReactionTable.Form
+	var T := SpellTier.Tier
 	_assert_rule("a shadow BLAST on a holy ward", "shatter_ward", 83,
 		F.IMPACT, E.SHADOW, F.BARRIER, E.HOLY)
 	# A blast is NOT swallowed, absorbed or blocked by a barrier it was never
 	# travelling toward — the whole reason IMPACT has no rung on the barrier ladder.
 	_assert_silent("a FIRE blast beside a holy ward", F.IMPACT, E.FIRE, F.BARRIER, E.HOLY)
-	_assert_silent("a fire blast beside a stone wall", F.IMPACT, E.FIRE, F.BARRIER, E.EARTH)
+
+	# ── THE RULING ITSELF, asserted on the terms it is actually written in ─────
+	# An IMPACT with NO elemental answer to the wall in front of it gets nothing —
+	# not a block, not a breach, not a carve — and gets nothing AT EVERY WEIGHT,
+	# which is the half that a single HEAVY-vs-HEAVY probe would never have caught.
+	# An ULT blast beside a QUICK wall is the case a `breach` rung would have picked
+	# up, so it is the one worth stating.
+	#
+	# ⚠ ICE IS EXCLUDED FROM THIS SWEEP, and the exclusion is the authored table
+	# rather than a convenience: `shatter_ice_barrier`'s IMPACT arm is WILDCARD on
+	# the attacking element on purpose — "any physical hit bursts ice" — so an
+	# arcane blast beside an ice wall correctly bursts it. That is an ELEMENTAL
+	# answer (the wall's own material is the reason), not a weight rung, so it does
+	# not touch the ruling being guarded here. Including ICE would have made this
+	# loop assert that a documented wildcard does not exist.
+	for wall: int in [E.EARTH, E.HOLY]:
+		_assert_silent("an ARCANE blast beside a wall it has no answer to",
+			F.IMPACT, E.ARCANE, F.BARRIER, wall)
+		_assert_silent("...and an ULT one, which is where a breach rung would show",
+			F.IMPACT, E.ARCANE, F.BARRIER, wall, T.ULT, T.QUICK)
+		_assert_silent("...and an outmatched one, where a blocks rung would",
+			F.IMPACT, E.ARCANE, F.BARRIER, wall, T.QUICK, T.ULT)
+
+	# ── AND THE THIRD ARM OF THE ELEMENTAL CRACK, the row that replaced the
+	# assertion described above. Weight-blind like its two siblings: bringing fire is
+	# supposed to BE the answer to stone, so a jab of it still melts a heavy wall.
+	_assert_rule("a fire blast beside a stone wall", "molten_slag", 84,
+		F.IMPACT, E.FIRE, F.BARRIER, E.EARTH)
+	_assert_rule("...even a QUICK one against an ULT wall", "molten_slag", 84,
+		F.IMPACT, E.FIRE, F.BARRIER, E.EARTH, "different", T.QUICK, T.ULT)
+	# ...and it spends the WALL, never the blast. Checked in BOTH orderings, because
+	# a row authored fire-then-stone also matches stone-first and its `consumes_b`
+	# then means the caller's `a` — getting that backwards deletes the attacker and
+	# leaves the wall standing, i.e. the reaction running exactly wrong while still
+	# reporting as fired. (Same trap the ram test documents.)
+	var straight: Dictionary = ReactionTable.match_rule(
+		F.IMPACT, E.FIRE, F.BARRIER, E.EARTH, "different", T.HEAVY, T.HEAVY)
+	_expect(not ReactionTable.consumes_caller(straight, 0),
+		"the fire blast is not spent melting the wall (blast seen first)")
+	_expect(ReactionTable.consumes_caller(straight, 1),
+		"the STONE WALL is (blast seen first)")
+	var swapped: Dictionary = ReactionTable.match_rule(
+		F.BARRIER, E.EARTH, F.IMPACT, E.FIRE, "different", T.HEAVY, T.HEAVY)
+	_expect(bool(swapped.get("swapped", false)),
+		"the row really did match with its sides reversed")
+	_expect(ReactionTable.consumes_caller(swapped, 0),
+		"the WALL is still the side spent (wall seen first)")
+	_expect(not ReactionTable.consumes_caller(swapped, 1),
+		"...and the blast still is not")
+	# The three elemental IMPACT arms are disjoint on the WALL's element, which is
+	# what lets all three live in one bucket without contesting each other. Asserted
+	# rather than assumed: it is the property that makes adding a fourth safe.
+	_assert_rule("...while ice is still the ice row's", "shatter_ice_barrier", 85,
+		F.IMPACT, E.FIRE, F.BARRIER, E.ICE)
 	_completes("ward_answers_every_shadow_shape")
 
 

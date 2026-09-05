@@ -138,6 +138,19 @@ var _slab_jitter: PackedFloat32Array = PackedFloat32Array()
 ## shared `"mortal"` group. Declaring it is what arms `SpellTargets.hostiles()` /
 ## `SpellTargets.owner_of()`, which is where the exclusion is now enforced.
 var caster_node: Node = null
+## THE SHELF THIS SITS ON — a `SpellTier.Tier`, and the reaction system's WEIGHT.
+##
+## ⚠ DECLARED BECAUSE IT WAS BEING WRITTEN INTO A VOID. `SpellCaster._stamp()` has
+## always done `node.set("spell_tier", SpellTier.of(spell))` on every spectacle it
+## builds, and `set()` on a property a script has not declared is a SILENT no-op —
+## the same fact, and the same one-line fix, as the `caster_node` note directly
+## above. Judgment and the Colossus Pillar are both `_ray()`s off the ULT shelf, and
+## without this they entered every weight contest as DEFAULT_WEIGHT (HEAVY), so a
+## pillar could be traded off by a jab. Nothing else reads it; `reaction_weight()`
+## below is its only consumer.
+var spell_tier: int = SpellTier.DEFAULT_WEIGHT
+## Set by a reaction that spent this pillar.
+var _consumed: bool = false
 
 
 ## Public entry: smite the single point `target` with a pillar dealing `damage`
@@ -173,6 +186,7 @@ func strike(
 			_slab_jitter.append(randf_range(-0.3, 0.3))
 		Sfx.play("earth", -4.0, 0.08)  # the ground starts to groan
 		Juice.shake_camera(3.0)
+		_join_reactor()
 		queue_redraw()
 		return
 	# NO SKY SIGIL (see the header note). The tell is drawn by this file, in
@@ -181,6 +195,7 @@ func strike(
 	# the game grows, spins or pulses, so a threat that simply HANGS there is
 	# instantly identifiable as this one.
 	Sfx.play("holy", -8.0, 0.05)  # a quiet, sustained note under the stillness
+	_join_reactor()
 	queue_redraw()
 
 
@@ -768,3 +783,114 @@ func _draw_stone_rubble(alpha: float) -> void:
 		_ground + Vector2(r * 0.15, -13.0), _ground + Vector2(r * 0.55, -17.0),
 		Color(STONE_LIT.r, STONE_LIT.g, STONE_LIT.b, 0.6 * alpha), 2.0, true
 	)
+
+
+# --- reaction contract (see SpellReactor) ------------------------------------
+## THE FILE `ReactionTable` NAMES BY HAND AS THE MISSING ADOPTER. Its `banish`
+## block, authoring a row it knew it could not reach, says: *"The BEAM row is
+## unreachable TODAY (no holy beam implements the participant contract yet —
+## Judgment is a DIVINE_RAY whose spectacle has not adopted it) and is authored
+## anyway: that is the whole promise of keying on FORM, and it costs one row rather
+## than a code edit later."* This is that code edit. `banish` BEAM(HOLY) x
+## FIELD(SHADOW) at priority 81 is the CLERIC-vs-WARLOCK payoff `tools/botmatch_sim
+## .gd` labels in its own comments, and over a 36-bout round robin it fired zero
+## times — not because the row was wrong but because no holy beam was ever IN the
+## registry to be asked about.
+##
+## ⚠ TWO FORMS OUT OF ONE FILE, AND IT IS NOT A HEDGE. This script is two spells
+## wearing one costume: `strike()` reinterprets holy+EARTH as the COLOSSUS PILLAR,
+## a slate spire that erupts out of the dirt, and everything after that branches on
+## `_stone`. Registering the spire as a BEAM would be actively wrong rather than
+## merely imprecise — BEAM x BARRIER has a wildcard floor (`barrier_blocks`, priority
+## 20, `consumes_a`), so a 300 px mountain erupting anywhere near any wall would be
+## SWALLOWED by it. A spire is a detonation that is simply there, which is an IMPACT,
+## and as an IMPACT it inherits exactly the sentences it should: it bursts an ice
+## wall (`shatter_ice_barrier`, wildcard on the attacking element) and it is
+## void-charged inside a shadow field. The form is fixed at registration, which is
+## legitimate here because `_stone` is decided in `strike()` BEFORE the register call
+## and can never change afterwards.
+
+## The pillar's world-space geometry, and it is the DAMAGE CORRIDOR rather than the
+## drawing: a capsule from the sky down to the marked ground, `_radius *
+## COLUMN_HALF_FACTOR` to either side — precisely the arguments `_smite()` hands
+## `_column_targets`, so what reacts and what is hurt cannot drift apart. The stone
+## arm swaps in its own two constants for the same reason.
+##
+## ⚠ IT DELIBERATELY OMITS THE FOOT DISC. `_column_targets` is a capsule UNIONed
+## with a `base_radius` splash where the column meets the floor, and SpellGeometry
+## speaks one shape per effect. Publishing the union as a circle big enough to hold
+## both would make the whole vertical corridor a fat disc; publishing the capsule
+## under-claims a ring of ground around the impact. Under-claiming is the safe
+## direction — a reaction that does not fire, never one that was invented — and it
+## is also the more honest description: the splash is the aftermath of the pillar,
+## the pillar is the thing another spell can meet.
+##
+## ⚠ NEVER `global_position`. This node parks at the arena origin and draws in world
+## coordinates, so its transform is (0, 0) and is NOT where the pillar is. `_ground`
+## is world space.
+func reaction_shape() -> Dictionary:
+	if _stone:
+		return SpellGeometry.capsule(_ground,
+			_ground - Vector2(0.0, STONE_HEIGHT),
+			_radius * STONE_COLUMN_FACTOR * 2.0)
+	return SpellGeometry.capsule(Vector2(_ground.x, _ground.y - SKY_HEIGHT), _ground,
+		_radius * COLUMN_HALF_FACTOR * 2.0)
+
+
+## LOAD-BEARING, and for this spell more than most: the whole contract of Judgment
+## is a long MOTIONLESS tell you are meant to walk out of, and the Colossus Pillar's
+## `STONE_CHARGE` is over twice as long again. A pillar that reacted during its own
+## telegraph would banish a void field, or burst an ice wall, half a second before
+## anything actually arrived — the player would watch the payoff happen and then
+## watch the attack that caused it miss. `_struck` is written by `_smite()` and by
+## `_erupt_stone()`, i.e. at the exact frame the damage lands, on both arms.
+func reaction_active() -> bool:
+	return _struck and not _consumed
+
+
+func reaction_element() -> int:
+	return element_id
+
+
+## See the ⚠ above on why these are two different answers out of one file.
+func reaction_form() -> int:
+	return ReactionTable.Form.IMPACT if _stone else ReactionTable.Form.BEAM
+
+
+func reaction_owner() -> Node:
+	return caster_node
+
+
+func reaction_weight() -> int:
+	return spell_tier
+
+
+## Spent by a reaction: gone without the rest of its burn-down. Nothing here spawns
+## the residue `_stone_step` would have left on a natural death, which is correct —
+## the pillar did not finish, it was eaten.
+func reaction_consume() -> void:
+	if _consumed:
+		return
+	_consumed = true
+	queue_free()
+
+
+## Joined at the end of BOTH arms of `strike()`. `reaction_active()` keeps the
+## effect inert until it actually lands, so registering during the telegraph is
+## correct and expected — it is what lets a beam be in the system for its whole life
+## without being able to react during its charge (the same shape `BeamSpell` uses).
+##
+## The node is in the tree by here: `SpellCaster` does `arena.add_child()` then
+## `_stamp()` then `strike()`, so `element_id`, `caster_node` and `spell_tier` are
+## all written before this runs. That ordering matters — `register()` REFUSES an
+## effect whose element is still < 0, which is this file's declared default.
+func _join_reactor() -> void:
+	var reactor: Node = get_node_or_null(^"/root/SpellReactor")
+	if reactor != null:
+		reactor.call(&"register", self, reaction_form(), element_id)
+
+
+func _exit_tree() -> void:
+	var reactor: Node = get_node_or_null(^"/root/SpellReactor")
+	if reactor != null:
+		reactor.call(&"unregister", self)

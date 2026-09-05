@@ -256,6 +256,7 @@ func hex(caster: Node, origin: Vector2, target: Vector2, spell: SpellDef,
 	# ARMS (see `_scan`), which is the beat that actually means something.
 	SpellDrops.sfx("ice_throw", -2.0, 0.0, 1.15)
 	_scan()
+	_join_reactor()
 	queue_redraw()
 
 
@@ -745,3 +746,106 @@ func _draw_break(low: bool) -> void:
 
 static func _hash01(n: int) -> float:
 	return fposmod(sin(float(n) * 12.9898) * 43758.5453, 1.0)
+
+
+# --- reaction contract (see SpellReactor) ------------------------------------
+## THE CRYOMANCER'S DAMAGE HAND, ENTERING THE REACTION SYSTEM.
+##
+## Measured (`tools/probe_reaction_count.gd`, 36-bout round robin): the registry
+## averaged 0.84 live effects and a reaction needs TWO, so only ~600-1300 pair tests
+## happened in a whole sweep and 12 reactions fired from 6 of 21 authored rows.
+## Twenty of the thirty-six kit spells never called `register` at all. This is one of
+## them, and it is the whole of a class's damage output — every Cryomancer bout was
+## a fight with a hole in the reaction matrix where its attacking spell should be.
+##
+## AN IMPACT, and unusually literally so: this spell is a detonation and nothing
+## else. It does not travel (the thrown shard is the fuse timer made visible, not a
+## damaging body — see the class docs), it does not stand, it does not sweep. It goes
+## off once at `_at`.
+##
+## WHAT IT UNLOCKS, none of it needing a new row: ICE meets FIRE as
+## `mutual_annihilation` wherever the two schools cross; a break beside an ice wall
+## bursts it (`shatter_ice_barrier` IMPACT x BARRIER is wildcard on the attacking
+## element); a break inside a void field is `void_charged`.
+##
+## ⚠ ONE OF THOSE IS A SELF-INTERACTION AND IT IS WORTH SAYING OUT LOUD, because it
+## is not something this file chose. The Cryomancer kit is
+## `damage: shatter / control: blizzard / answer: ice_wall`, and the
+## `shatter_ice_barrier` IMPACT arm carries no `require_owner` — so a break that goes
+## off next to your OWN ice wall bursts your own wall. "You detonated an ice casing
+## against your own sheet of ice and it came apart" is the honest reading and it is
+## legible in one play, which is why it is left alone rather than special-cased here:
+## if it turns out to be annoying, the fix is ONE predicate on that row in
+## `ReactionTable`, never a branch in this file.
+##
+## ⚠ AND THE LIMIT, the same one `ChainBolt` carries: the damage is already paid by
+## the time anything can react, so an outcome that CONSUMES this takes nothing back.
+## It cuts the burst short, which is the right picture, but no row may be authored on
+## the assumption that spending this prevents a hit.
+
+## Set by a reaction that spent this break.
+var _consumed: bool = false
+
+
+## The footprint, in world space — the same `_at` and `_radius` that `_break()`
+## queries and `_draw_break()` draws, so what reacts, what is hurt and what is shown
+## are one circle and cannot drift apart.
+##
+## ⚠ NEVER `global_position`. `hex()` parks this node at the arena origin and draws
+## in world coordinates, so its transform is (0, 0) and is NOT where the mark is.
+func reaction_shape() -> Dictionary:
+	return SpellGeometry.circle(_at, _radius)
+
+
+## LOAD-BEARING. `FUSE` is a real telegraph — the mark snaps down at full radius and
+## the fracture lattice etches outward for seventeen frames before anything happens,
+## and the whole "everything is dodgeable" rule for this spell lives in that window.
+## An effect that reacted during it would burst a wall, or annihilate an oncoming
+## fireball, BEFORE the break it is supposed to be caused by. `_broken` flips in
+## `_process` on the frame `_break()` runs, i.e. exactly when the damage lands.
+func reaction_active() -> bool:
+	return _broken and not _consumed
+
+
+func reaction_element() -> int:
+	return element_id
+
+
+func reaction_form() -> int:
+	return ReactionTable.Form.IMPACT
+
+
+func reaction_owner() -> Node:
+	return caster_node
+
+
+func reaction_weight() -> int:
+	return spell_tier
+
+
+## Spent by a reaction: the burst is cut short, without the rest of `BURST_LIFE`.
+func reaction_consume() -> void:
+	if _consumed:
+		return
+	_consumed = true
+	queue_free()
+
+
+## Joined at the end of `hex()`. Registering during the fuse is correct and
+## expected — `reaction_active()` above is what decides when this may actually react,
+## and holding registration back until `_break()` would mean an effect that is
+## visible on the floor for 0.28 s before the registry has ever heard of it.
+##
+## The node is in the tree by here: `SpellCaster` does `arena.add_child()` then
+## `_stamp()` then `hex()`, so `element_id`, `caster_node` and `spell_tier` are all
+## written before this runs.
+func _join_reactor() -> void:
+	var reactor: Node = get_node_or_null(^"/root/SpellReactor")
+	if reactor != null:
+		reactor.call(&"register", self, ReactionTable.Form.IMPACT, element_id)
+
+
+func _exit_tree() -> void:
+	var reactor: Node = get_node_or_null(^"/root/SpellReactor")
+	if reactor != null:
+		reactor.call(&"unregister", self)

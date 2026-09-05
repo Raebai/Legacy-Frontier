@@ -330,6 +330,68 @@ static func rules() -> Array:
 			"elements_a": [Elements.Element.FIRE], "elements_b": [Elements.Element.EARTH],
 			"priority": 86, "consumes_b": true, "radius": 140.0, "damage": 38,
 		}),
+		# ══ ...AND THE SHAPE FIRE ACTUALLY TAKES AGAINST STONE ══════════════
+		# THE ROW ABOVE IS AUTHORED FOR A FIRE BEAM, AND THE PAIR THAT ACTUALLY MEETS
+		# ON THE FLOOR IS A FIRE BLAST. Same finding, same shape, as the two blocks
+		# above this one: `supercharge` was written for a lightning beam that does
+		# not exist, `banish` for a holy beam that did not implement the contract,
+		# and this was written for `infernal_lance` — one spell, in one kit, on a
+		# long cooldown. MEASURED over a 36-bout round robin
+		# (tools/probe_reaction_count.gd, which tallies every pair the table had
+		# NOTHING for): `BARRIER Earth x IMPACT Fire` came up 21 times in one sweep
+		# and 7 in another, and `molten_slag` fired ZERO times in either. The BRAWLER
+		# is a FIRE class carrying `rock_wall`, so a fire blast beside a stone wall is
+		# one of the commonest silences the roster produces.
+		#
+		# ⚠ THIS OVERTURNS AN ASSERTION, WHICH IS WHY THE ARGUMENT IS WRITTEN OUT.
+		# `tools/slice10_test_natural_reactions.gd` asserted this exact pair SILENT,
+		# under the heading "keeps the documented 'IMPACT gets no blocks/breach rung'
+		# ruling true". That ruling is real and is NOT being violated. Read it where
+		# it is written (below `barrier_blocks`): *"A blast is not a thing travelling
+		# toward a wall that the wall can be in the way of — a meteor landing next to
+		# a barrier SHOULD CRACK IT, which is what the shatter_ice_barrier IMPACT row
+		# already does, not be swallowed by it."* The ruling forbids exactly two
+		# things for an IMPACT — being SWALLOWED (`barrier_blocks`, `consumes_a`) and
+		# having to out-WEIGH the wall (`breach`) — and it explicitly endorses the
+		# elemental crack. This row is the crack: `consumes_b` only, never
+		# `consumes_a`, weight-blind like the rest of the elemental band.
+		#
+		# It is the THIRD member of a family that already has two, and the second one
+		# was added with this argument spelled out at its own row: see `shatter_ward`
+		# IMPACT x BARRIER below, *"This does NOT contradict the 'IMPACT gets no
+		# blocks/breach rung' ruling... this is the same sentence the IMPACT arm of
+		# shatter_ice_barrier already says."* All three are disjoint on `elements_b`
+		# — ICE (85), EARTH (here), HOLY (83) — so they can never contest each other,
+		# and none of them is a wildcard, so the bucket still has NO general rung for
+		# an IMPACT. A blast with no elemental answer to a wall is still silent
+		# against it, at any weight, and slice10 asserts that directly.
+		#
+		# ⚠ NO `require_owner`, AND THE SAME-OWNER CASE IS THE COMMON ONE. Both of the
+		# measured occurrences above are tagged `[same]`: it is the Brawler's own fire
+		# beside the Brawler's own wall. So the ordinary reading of this row in play
+		# is "I dropped a fireball next to my own stone wall and melted it". That is
+		# left in on purpose, for the reason `ward_absorb` states for its own missing
+		# predicate — a wall you can shoot over freely is a wall you plant in front of
+		# your face and forget, and this makes it a PLACE you commit to. It is also
+		# the elemental band's whole principle: bringing fire IS the answer to stone,
+		# and a row that checked whose fire it was would be checking something the
+		# picture does not show. Frequency, since that is what decides whether this is
+		# a consequence or a tax: those 21 pair-tests are roughly seven distinct
+		# blast-beside-wall events across 36 bouts, and the pair memoizes, so it is
+		# about once every five fights. This is the single most likely thing here to
+		# be wrong, and it is ONE predicate (`"require_owner": "different"`) to
+		# reverse if playtest says so.
+		#
+		# Priority 84 rather than 85: the family ladder would put the IMPACT arm one
+		# under the BEAM arm's 86, and 85 is already the ice IMPACT row. They are
+		# element-disjoint and can never compete, so the number is only there to keep
+		# the band readable. Radius, damage and consumption are copied from the BEAM
+		# arm unchanged — it is the same event, so it should not be a second set of
+		# numbers.
+		_rule("molten_slag", Form.IMPACT, Form.BARRIER, {
+			"elements_a": [Elements.Element.FIRE], "elements_b": [Elements.Element.EARTH],
+			"priority": 84, "consumes_b": true, "radius": 140.0, "damage": 38,
+		}),
 		# ...and the whole point of weight mattering: a heavier spell does NOT
 		# trade with a lighter one. It eats it and keeps going. An ult that could
 		# be cancelled by a jab would not feel like an ult.
@@ -576,6 +638,15 @@ static func rules() -> Array:
 		# thing travelling toward a wall that the wall can be in the way of — a
 		# meteor landing next to a barrier should crack it, which is what the
 		# shatter_ice_barrier IMPACT row already does, not be swallowed by it.
+		#
+		# ⚠ "CRACK IT" NOW HAS THREE ARMS AND THE RULING IS UNCHANGED BY THAT. The
+		# elemental band carries `shatter_ice_barrier` (ICE, 85), `molten_slag`
+		# (EARTH, 84) and `shatter_ward` (HOLY, 83) on IMPACT x BARRIER. All three
+		# name their wall's element explicitly, none is a wildcard, and every one of
+		# them spends only the WALL. So there is still no general rung here: an
+		# IMPACT with no elemental answer to a barrier gets nothing from it at any
+		# weight, which is the half of this ruling that had to survive and which
+		# slice10_test_natural_reactions asserts by name.
 		#
 		# ── SEAM: PROTECTIVE SPELLS ────────────────────────────────────────────
 		# Wards / shields / counterspells are coming, and they need NO new
