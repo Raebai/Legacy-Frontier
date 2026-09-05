@@ -538,6 +538,16 @@ func _test_the_builder_raises_the_skyline() -> void:
 	# through it, melee cannot chew it), while a BreakablePlatform joins
 	# "destructible" + "breakable_platform" and sits on collision layer 5, so spells
 	# stop on it and eventually shatter it — and then it re-forms.
+	#
+	# ⚠ THE GROUP HALF OF THAT STANDS; THE "SPELLS PASS THROUGH IT" HALF NO LONGER DOES.
+	# Maker: *"please make the floating platforms destroyable into bits just like the
+	# floor was beforehand as well"*. BOTH kinds now hang a `DestructibleStage` chunk
+	# grid on themselves and lose chunks where they are hit. What separates them is
+	# unchanged and is still exactly what the groups say: an amber BreakablePlatform can
+	# be REMOVED FROM THE WORLD, a stone RuinPlatform can only be holed and knits back.
+	# A RuinPlatform still must NOT join `"destructible"` — `SpellWorld.is_smashable`
+	# would then blind every floor query in the game to it — so it is reached by
+	# `BODY_META` / `carve_from_body` alone. See both scripts' headers.
 	_expect(not bodies[0].is_in_group("destructible"),
 		"the permanent ledge is permanent (it is not in the damage contract)")
 	_expect(bodies[1].is_in_group("destructible"),
@@ -548,15 +558,53 @@ func _test_the_builder_raises_the_skyline() -> void:
 		"the permanent ledge is NOT breakable")
 	# The collider is built in _ready from platform_size, so setting the size after
 	# add_child would leave a mismatched shape — this is that ordering, asserted.
-	var cs: CollisionShape2D = null
+	#
+	# ⚠ IT IS NO LONGER ONE BOX OF EXACTLY `platform_size`, AND THAT IS THE CARVE.
+	# The old assertion read `size.is_equal_approx(Vector2(150, 24))` against the single
+	# `RectangleShape2D` the ledge used to build. A ledge's collision is now whatever its
+	# chunk grid merges to — one rectangle per block while it is whole, more once it has
+	# holes in it — each grown sideways by `SEAM_OVERLAP_X` and down by `seam_grow_down`
+	# to kill seams. So an exact-size test would now be asserting the seam constants, not
+	# the ordering it was written for.
+	#
+	# What it was ACTUALLY written for survives intact and is what is asserted instead:
+	# a ledge whose `platform_size` had been set after `add_child` would have built its
+	# grid from the 190x24 DEFAULT, so its span would read ~190 and its top edge would
+	# sit at -12 of the wrong slab. Span-and-top-edge catches that; it also catches the
+	# invariant that actually hurts if it slips, which the exact-size test never did —
+	# THE WALKING SURFACE MUST LAND EXACTLY ON THE SLAB'S TOP EDGE
+	# ([[feedback_rig_feet_vs_collider]]).
+	var left: float = INF
+	var right: float = -INF
+	var top: float = INF
+	var shapes: int = 0
 	for c2: Node in bodies[1].get_children():
-		if c2 is CollisionShape2D:
-			cs = c2 as CollisionShape2D
-	_expect(cs != null and cs.shape is RectangleShape2D,
-		"the ledge built a rectangle collider")
-	if cs != null and cs.shape is RectangleShape2D:
-		_expect((cs.shape as RectangleShape2D).size.is_equal_approx(Vector2(150.0, 24.0)),
-			"the collider matches the authored size (set BEFORE add_child)")
+		var cs: CollisionShape2D = c2 as CollisionShape2D
+		if cs == null:
+			continue
+		var rr: RectangleShape2D = cs.shape as RectangleShape2D
+		if rr == null:
+			continue
+		shapes += 1
+		left = minf(left, cs.position.x - rr.size.x * 0.5)
+		right = maxf(right, cs.position.x + rr.size.x * 0.5)
+		top = minf(top, cs.position.y - rr.size.y * 0.5)
+	_expect(shapes > 0, "the ledge built no rectangle collider at all")
+	if shapes > 0:
+		# 150 authored, +4 seam (SEAM_OVERLAP_X on each end), +up to CHUNK (4) because
+		# the grid's origin is SNAPPED DOWN to a chunk multiple and its cells are
+		# CENTRE-SAMPLED — a 150 px slab from -75 lands on a 152 px grid. Measured: 156.
+		# A range, not a point: what this is catching is a ledge built from the 190x24
+		# DEFAULT because the size was set after `add_child`, which reads ~194 and is
+		# nowhere near this band.
+		var span: float = right - left
+		_expect(span >= 150.0 and span <= 158.0,
+			"the collider spans %.2f px, the layout authored 150 (expect 150-158 after"
+				% span + " seam + chunk snap) — the size was set AFTER add_child and the"
+			+ " grid used the 190 px default")
+		_expect(absf(top - (-12.0)) < 0.001,
+			"the walking surface is at local y %.3f, the authored 24 px slab says -12"
+				% top)
 	room.free()
 	_completes("the_builder_raises_the_skyline")
 

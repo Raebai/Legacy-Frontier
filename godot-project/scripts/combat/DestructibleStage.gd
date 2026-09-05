@@ -354,6 +354,58 @@ var deferred_rebuilds: int = 0
 var rebuild_usec_total: int = 0
 var rebuild_usec_worst: int = 0
 
+## ══ THE LEDGE MODE ═════════════════════════════════════════════════════════
+## Maker: *"please make the floating platforms destroyable into bits just like the
+## floor was beforehand as well"*. A ledge is the SAME chunk grid as the ground —
+## the four knobs below are the whole difference, and every one of them exists
+## because a ledge is a small thing hanging in the air rather than the world's
+## floor. See `attach_ledge`, which is the only supported way to set them.
+
+## ⚠ WHETHER THIS STAGE JOINS `GROUP_NAME`, AND THE ANSWER FOR A LEDGE IS NO.
+## `stage_in` returns THE FIRST MEMBER of the group, which is written for a world
+## with exactly ONE stage. Put twenty ledges in the group and `carve_area` — the
+## route used by Blast, Fault Line, Grave Tide, Heaven's Wrath, Ice Spike, Meteor
+## Sigil, Radiant Volley, Rock Pillar, Shadow Root, Shockwave Stomp and Star
+## Convergence — sends every carve in the game to whichever ledge happens to sort
+## first, so a stomp at the player's feet quietly chews a platform across the room
+## while the rock under the boot keeps its shape. That is the exact fault
+## `slice_test_destructible_sources` records costing it five false failures, and
+## `slice_test_one_screen` pins the group empty on a tower floor.
+##
+## So a ledge routes by `BODY_META` ONLY (`carve_from_body`, which reads the meta off
+## the collider that was actually hit) plus its owner's own `damage_at`. Both are
+## per-body by construction and cannot cross-talk.
+var advertise_in_group: bool = true
+
+## The node whose LOCAL space the grid is expressed in, or null for world space.
+##
+## The ground stage sits at the origin, so world space and its own space are the same
+## and this stays null — `damage_at` is byte-identical for it. A ledge's grid lives in
+## its OWNER BODY's local space instead, because the merged collision shapes are
+## installed as children of that body (see `rebuild_collision`'s borrowed-body mode)
+## and a child's position is local. Carve call sites all speak world, so the
+## conversion happens once, here, at the entry.
+var space: Node2D = null
+
+## Whether a carve fires the stage's own rubble + crack. A ledge says no and spawns its
+## own: `_spawn_carve_spectacle` throws `ArenaTerrain.ROCK_UPPER` chips and stamps a
+## `radius * 0.9` crack, which is the right weight for a hole in the world's floor and
+## far too much for a 24 px plank — this is a ledge breaking, not the ult that broke it.
+var spectacle: bool = true
+
+## False in borrowed-body mode: the body belongs to someone else, so a rebuild must not
+## free it, rename it, or reparent it.
+var _owns_body: bool = true
+
+## How far each merged rectangle grows DOWN past its own cells. `SEAM_GROW_DOWN` (8) is
+## right for the ground, where the extra is buried inside 320 px of rock and only ever
+## kills seams. On a 24 px ledge it is a THIRD of the plank hanging below the picture —
+## invisible solid air a fighter jumping up from underneath would bonk on early. So a
+## ledge trims it to a hair. ⚠ NEVER APPLIED UPWARD, at any value: the top edge is the
+## walking surface and moving it moves every fighter's feet
+## ([[feedback_rig_feet_vs_collider]]).
+var seam_grow_down: float = SEAM_GROW_DOWN
+
 
 func _ready() -> void:
 	# The one z table (see `StageLayers`). A carved cavity is a HOLE IN the ground, so
@@ -363,7 +415,11 @@ func _ready() -> void:
 	# keyed by files the scanner can see (`extends StaticBody2D`) and this is a Node2D;
 	# the one-line entry is named in this slice's report.
 	StageLayers.apply(self, StageLayers.HAZARD)
-	add_to_group(GROUP_NAME)
+	# ⚠ CONDITIONAL SINCE THE LEDGES ARRIVED. See `advertise_in_group` for why a
+	# ledge must stay out of the first-member-wins group scan. The GROUND still
+	# joins, unchanged, so `carve_area` finds it exactly as it always has.
+	if advertise_in_group:
+		add_to_group(GROUP_NAME)
 
 
 ## Lay a grid over `rects` (world-space, e.g. the terrace boxes) and mark every cell
@@ -375,6 +431,11 @@ func _ready() -> void:
 ## smaller than half a chunk, and the surface lands on a chunk boundary because the grid
 ## is aligned to the rects below.
 func build_from_rects(rects: Array[Rect2]) -> void:
+	# A rebuild on a BORROWED body has to take its old shapes with it — see
+	# `_free_shape_nodes`. A no-op for the ground stage, which has never rebuilt its
+	# grid once it was laid.
+	if not _owns_body:
+		_free_shape_nodes()
 	if rects.is_empty():
 		cols = 0
 		rows = 0
@@ -685,11 +746,28 @@ func _caps_for(rects: Array) -> Array:
 ## Build (or rebuild) the whole collision body from the current grid. This is the
 ## EXPENSIVE path — 8.6 ms on the shipped stage — and after the initial build it is
 ## never taken again: `_rebuild_dirty_blocks` does the per-hit work.
-func rebuild_collision(parent: Node) -> StaticBody2D:
-	if _body != null and is_instance_valid(_body):
-		_body.queue_free()
-	_body = StaticBody2D.new()
-	_body.name = "DestructibleStageBody"
+## ⚠ `into` IS THE LEDGE MODE, AND IT EXISTS SO A LEDGE STAYS ONE BODY. A platform is
+## already a `StaticBody2D` that carries `collision_layer = 5`, the `"destructible"`
+## group and the `take_damage` / `damage_at` contract every spell branch routes
+## through. Handing it a SECOND body of our own would have split one ledge in two: a
+## bolt stopping on the grid body would find a bare `StaticBody2D` that is not in
+## `"destructible"`, fall through `Spell._try_damage` to the terrain branch, carve —
+## and never reach the owner's `damage_at`, so its hp would never move, it would never
+## collapse and the co-op `broadcast_prop_state` wire would never fire.
+##
+## So the shapes are installed onto the body that is already there. The grid must then
+## be expressed in THAT BODY'S LOCAL SPACE, because a `CollisionShape2D`'s position is
+## local to its parent — which is what `space` is for.
+func rebuild_collision(parent: Node, into: StaticBody2D = null) -> StaticBody2D:
+	if into != null:
+		_body = into
+		_owns_body = false
+	else:
+		if _body != null and is_instance_valid(_body) and _owns_body:
+			_body.queue_free()
+		_body = StaticBody2D.new()
+		_body.name = "DestructibleStageBody"
+		_owns_body = true
 	# The back-pointer a call site uses when all it holds is the body a bolt hit.
 	# Meta rather than a script on the body, because a scripted body would be picked up
 	# by `slice_test_destructible_stage_wired`'s "a bare StaticBody2D is a terrace"
@@ -699,8 +777,32 @@ func rebuild_collision(parent: Node) -> StaticBody2D:
 	for by: int in _block_rows:
 		for bx: int in _block_cols:
 			_install_block(bx, by)
-	parent.add_child(_body)
+	if _owns_body:
+		parent.add_child(_body)
 	return _body
+
+
+## Drop every `CollisionShape2D` this stage installed and forget the node lists.
+##
+## Only borrowed-body mode needs it: an owned body is freed whole by the line above, but
+## a BORROWED one outlives the grid — a ledge that reforms builds a fresh grid into the
+## same body, and without this the old shapes would stay parented there as invisible
+## solid geometry and the ledge would never actually lose a chunk.
+func _free_shape_nodes() -> void:
+	for nodes: Variant in _block_shapes:
+		for n: Variant in (nodes as Array):
+			var cs: Node = n as Node
+			if cs == null or not is_instance_valid(cs):
+				continue
+			# REMOVED BEFORE FREED. `queue_free` lands at the end of the frame, so a
+			# shape merely queued goes on colliding for one more frame — which on a
+			# reforming ledge is a plank you fall through and on a carve is a hole you
+			# cannot fall into. Detach first; the free is then just memory.
+			if cs.get_parent() != null:
+				cs.get_parent().remove_child(cs)
+			cs.queue_free()
+	_block_shapes = []
+	_shape_count = 0
 
 
 ## One block's shapes, cavities and caps — computed together so they can never
@@ -724,9 +826,9 @@ func _install_block(bx: int, by: int) -> void:
 		var r: Rect2 = rects[i]
 		# ⚠ SIDEWAYS AND DOWN ONLY. See the seam rule at the top of this file: the top
 		# edge is the walking surface and must land exactly where the source rect put it.
-		var size := Vector2(r.size.x + SEAM_OVERLAP_X * 2.0, r.size.y + SEAM_GROW_DOWN)
+		var size := Vector2(r.size.x + SEAM_OVERLAP_X * 2.0, r.size.y + seam_grow_down)
 		var at := Vector2(r.position.x + r.size.x * 0.5,
-			r.position.y + (r.size.y + SEAM_GROW_DOWN) * 0.5)
+			r.position.y + (r.size.y + seam_grow_down) * 0.5)
 		if i < nodes.size():
 			var old_cs: CollisionShape2D = nodes[i] as CollisionShape2D
 			if old_cs != null and is_instance_valid(old_cs):
@@ -802,16 +904,29 @@ func damage_at(amount: int, world_pos: Vector2, dir: Vector2,
 		refused_hits += 1
 		return 0
 	var r: float = carve_radius_for_strike(amount, footprint)
-	if not _ledger_admits(source, r, world_pos):
+	# WORLD IN, GRID OUT. Identity for the ground stage (`space` is null and it sits at
+	# the origin); a ledge's grid lives in its owner body's local space. The ledger and
+	# the carve both work in grid space so they agree with each other; the SPECTACLE
+	# keeps the world point, because debris and decals are parented into the arena.
+	var at: Vector2 = _to_grid(world_pos)
+	if not _ledger_admits(source, r, at):
 		repeat_refused_hits += 1
 		return 0
-	var removed: int = carve_disc(world_pos, r)
+	var removed: int = carve_disc(at, r)
 	if removed <= 0:
 		return 0
-	_ledger_record(source, world_pos, r)
+	_ledger_record(source, at, r)
 	carve_events += 1
-	_spawn_carve_spectacle(world_pos, r, dir)
+	if spectacle:
+		_spawn_carve_spectacle(world_pos, r, dir)
 	return removed
+
+
+## World point -> this grid's coordinate space. See `space`.
+func _to_grid(world_pos: Vector2) -> Vector2:
+	if space != null and is_instance_valid(space) and space.is_inside_tree():
+		return space.to_local(world_pos)
+	return world_pos
 
 
 ## THE SIZE RULE. Pure and static so a test can print the whole roster's table without
@@ -1010,6 +1125,99 @@ func _draw() -> void:
 	for b2: int in _block_caps.size():
 		for c: Rect2 in _block_caps[b2]:
 			draw_rect(c, NEW_SURFACE_CAP, true)
+
+
+# ═══════════════════════════════════════════════════════════════ THE LEDGE
+## Hang a chunk grid on a platform body so the ledge carves the way the ground does.
+##
+## `body` keeps everything it already had — its layer, its `"destructible"` membership,
+## its `damage_at` — and gains the merged collision of a grid plus `BODY_META`, which is
+## what makes the six `carve_from_body` call sites (`Spell`, `BeamSpell`, `BoulderHurl`,
+## `DivineRay`, `EnergyNova`, `RiftDagger`) start biting ledges for free.
+##
+## ⚠ `size` IS THE BODY'S OWN LOCAL RECT, centred on its origin, because that is where
+## both platform drawers put their slab. The grid, the cavities it paints and the
+## shapes it installs are all in that one space; see `space`.
+##
+## ⚠ MEASURED, NOT ASSUMED — the grid a ledge gets is TINY. `CHUNK` is 4 px and
+## `FloorGen.PLATFORM_H` is 24, so a ledge is SIX CELLS DEEP and 28-60 wide. That is
+## under one `BLOCK_W` x `BLOCK_H` (48x48) block, so a ledge is a ONE-BLOCK stage: a
+## carve dirties one or two blocks rather than the ground stage's thirty, and the
+## re-merge walks ~150-330 cells rather than 68,926.
+##
+## MEASURED by `tools/probe_platform_carve_cost.gd`, and it is the answer to the fair
+## objection that N ledges each rebuilding their own collision is N times the cost:
+##     12 ledges (100-210 px), ALL carved and ALL re-merged in the SAME frame
+##       worst frame 1,235 us   mean frame 839 us   deferred rebuilds 0
+## Against a 16,667 us frame, and against the 767-897 us mean / 1,713-1,886 us worst the
+## GROUND stage costs for ONE hit. So a whole floor's ledges carving at once costs about
+## what one ground carve costs, and nothing is ever pushed to a later frame — which
+## matters more than the mean, because a deferral is a hole you can see and cannot fall
+## into, one frame late.
+##
+## The reason it is that cheap is structural rather than lucky: `_process` only walks
+## DIRTY blocks, a ledge has at most two of them, and the merge is O(cells in the block).
+##
+## ⚠ AND SIX CELLS DEEP IS WHY A LEDGE NEEDS A COLLAPSE RULE THE GROUND DOES NOT.
+## `CARVE_RADIUS_MAX` is 46 px — wider than a ledge is tall, twice over — so one heavy
+## hit takes the FULL DEPTH across ~92 px of a 110-200 px plank. The ground absorbs that
+## (its terraces are 320 px deep); a ledge cannot. Owners therefore watch
+## `widest_standable_run` and take the whole thing when what is left is a splinter.
+static func attach_ledge(body: StaticBody2D, size: Vector2, rock: Color) -> DestructibleStage:
+	if body == null or size.x <= 0.0 or size.y <= 0.0:
+		return null
+	var s := DestructibleStage.new()
+	s.name = "CarveGrid"
+	s.advertise_in_group = false   # see `advertise_in_group` — the first-member trap
+	s.spectacle = false            # the owner fires its own, ledge-sized
+	s.space = body
+	s.seam_grow_down = 2.0         # see `seam_grow_down` — 8 is a third of a plank
+	s.build_from_rects([Rect2(-size * 0.5, size)] as Array[Rect2])
+	body.add_child(s)
+	# ⚠ NOT `HAZARD` HERE. `_ready` parked it on the pit rung (-5) because a hole in the
+	# GROUND draws behind everything you stand on. A hole in a LEDGE has to draw over
+	# the ledge's own slab or it is painted out by it, so it shares the ledge's rung and
+	# wins on tree order (a child draws after its parent at equal z).
+	StageLayers.apply(s, StageLayers.PLATFORM)
+	s.rebuild_collision(body, body)
+	s.set_palette(rock)
+	return s
+
+
+## The widest unbroken run of columns that still hold rock, in world px. THE ledge
+## question: not "how much is left" but "is any of what is left wide enough to land on".
+## A plank carved into three 8 px slivers has a healthy `solid_fraction` and nothing you
+## can stand on.
+func widest_standable_run() -> float:
+	if cols <= 0 or rows <= 0:
+		return 0.0
+	var best: int = 0
+	var run: int = 0
+	for cx: int in cols:
+		var any: bool = false
+		for cy: int in rows:
+			if _solid[cy * cols + cx] == 1:
+				any = true
+				break
+		if any:
+			run += 1
+			best = maxi(best, run)
+		else:
+			run = 0
+	return float(best) * CHUNK
+
+
+## How much of the rock this stage was built with is still there. The complement of
+## `carved_fraction`, kept separate because that one counts EVENTS (`carved_cells`) and
+## this one counts the grid — they disagree the moment a grid is rebuilt under a
+## reforming ledge, and the owner's collapse test must read the grid.
+func solid_fraction() -> float:
+	var was: int = 0
+	for b: int in _original:
+		was += b
+	if was <= 0:
+		return 0.0
+	return float(solid_count()) / float(was)
 
 
 # ═══════════════════════════════════════════════════════ CALL-SITE HELPERS

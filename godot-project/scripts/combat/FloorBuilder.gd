@@ -127,6 +127,18 @@ static func build_health_packs(container: Node2D, layout: LayoutDef) -> void:
 		pack.global_position = pos
 
 
+## ⚠ AND BOTH KINDS CARVE INTO BITS NOW. Maker: *"please make the floating platforms
+## destroyable into bits just like the floor was beforehand as well"*. Each ledge hangs
+## a `DestructibleStage` chunk grid on itself (`DestructibleStage.attach_ledge`) and
+## loses chunks where it is hit, instead of standing pristine until it shatters whole.
+## BOTH kinds, deliberately: `FloorGen._try_add` authors `"breakable"` explicitly as
+## `rng.randf() < break_chance`, which is 0.0 on floors 1-2 and caps at 0.5 — so the
+## `p.get("breakable", true)` default below almost never applies on a generated floor,
+## and carving only the amber ones would be invisible on the floors a run starts on.
+## What still separates them is what the groups have always said: an amber one can be
+## REMOVED from the world, a stone one can only be holed and knits back. Neither joins
+## `DestructibleStage.GROUP_NAME` — see `advertise_in_group` for the first-member trap.
+##
 ## THE LEDGES. Turns `LayoutDef.platforms` into real bodies — permanent
 ## `RuinPlatform`s and amber-rimmed `BreakablePlatform`s (which shatter and re-form).
 ## Both are `StaticBody2D`s that already carry the "destructible" damage contract and

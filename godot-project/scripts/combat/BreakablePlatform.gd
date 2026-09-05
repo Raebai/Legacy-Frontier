@@ -15,6 +15,58 @@ extends StaticBody2D
 @export var base_color: Color = Color(0.20, 0.22, 0.29)
 
 const REFORM_WARNING_TIME: float = 1.0
+
+## ══ IT CARVES INTO BITS NOW, AND THE WHOLE-SLAB SHATTER IS WHAT IT ENDS IN ══
+## Maker: *"please make the floating platforms destroyable into bits just like the floor
+## was beforehand as well"*. The header above still describes a "lean single-hp
+## break/reform state machine" and that half is intact — hp still decides WHEN the ledge
+## goes, the co-op wire is untouched, the regen is untouched. What changed is that every
+## hit now also takes a bite out of a `DestructibleStage` chunk grid hung on this body
+## (`DestructibleStage.attach_ledge`), so the ledge visibly loses chunks on the way down
+## instead of standing pristine at 3 hp and then vanishing.
+##
+## ⚠ ROUTED BY `BODY_META`, NEVER BY `DestructibleStage.GROUP_NAME`. `stage_in` returns
+## THE FIRST MEMBER of that group, so twenty ledges in it would send every `carve_area`
+## in the game to whichever one sorted first. See `DestructibleStage.advertise_in_group`.
+## Ledges are reached two ways instead, both per-body: this `damage_at` (the
+## `"destructible"` group contract, which is how every bolt already found this node) and
+## `carve_from_body`, which reads the meta off the collider that was actually hit.
+
+## ══ HOW SMALL BEFORE IT SHOULD JUST GO ═════════════════════════════════════
+## A plank chewed down to a two-chunk splinter you can still technically balance on is
+## worse than a clean break: it reads as broken, it is not, and it silently keeps a
+## route open that the fight has visibly closed. Two rules, and the SECOND is the one
+## that matters.
+##
+## `COLLAPSE_SOLID_FRACTION` — bulk. Under a third of its rock left, the ledge goes.
+##
+## `MIN_STANDABLE_RUN` — shape, and the real test. What survives has to be a landing,
+## not a sliver: `widest_standable_run` measures the widest UNBROKEN span still holding
+## rock, because a plank carved into three 8 px slivers has a perfectly healthy
+## fraction and nothing whatever to land on. 24 px is the fighter's own footprint plus a
+## margin — the body collider under the 31 px rig is 18 px wide
+## ([[feedback_rig_feet_vs_collider]]), so anything narrower than this cannot hold one.
+const COLLAPSE_SOLID_FRACTION: float = 0.34
+const MIN_STANDABLE_RUN: float = 24.0
+
+## ══ AND WHY A CARVED LEDGE HEALS ═══════════════════════════════════════════
+## The same argument that made "shatters and re-forms" load-bearing: `FloorGen` reasons
+## about REACHABLE SURFACES when it lays a floor out, so a ledge that stays permanently
+## holed can strand a spawn point or a pickup above a gap nothing can cross — and unlike
+## a shattered ledge, a HOLED one leaves no amber outline to say it is coming back, so
+## the stranding would be silent. Permanent loss would need a reachability argument this
+## does not have.
+##
+## So carving arms the same clock the break does. Every fresh bite refreshes it; when it
+## runs out the grid is rebuilt whole with a quiet poof — no shake, no sound, because
+## this is a plank knitting a hole shut and not a platform materialising.
+const REPAIR_POOF_COUNT: int = 8
+## Ledge-sized rubble per bite. This is a plank losing a chunk, not the ult that took
+## it: `DestructibleStage`'s own spectacle throws `ArenaTerrain.ROCK_UPPER` chips and
+## stamps a `radius * 0.9` crack, which is right for a hole in the world's floor and
+## absurd on a 24 px plank — so the grid's `spectacle` is off and this is what fires.
+const CARVE_DEBRIS: int = 3
+const CARVE_DEBRIS_LOW: int = 1
 ## ⚠ AMBER IS RULE 2 OF THE STAGE LEGEND (see StageLayers): a lit cap says "you can
 ## land here", and amber says "and it breaks". Both come from StageLayers so this
 ## ledge and a permanent one are the same shape in different paint — which is the
@@ -30,7 +82,17 @@ var _broken: bool = false
 var _regen_timer: float = 0.0
 var _flash_timer: float = 0.0
 var _nudge: Vector2 = Vector2.ZERO
-var _collider: CollisionShape2D = null
+## The chunk grid. It installs its merged shapes onto THIS body (borrowed-body mode),
+## so there is no separate `_collider` any more — the collision a fighter stands on IS
+## the surviving rock.
+var _grid: DestructibleStage = null
+## Counts down while the ledge is standing but holed. Distinct from `_regen_timer`,
+## which only runs while it is gone: one repairs a surface, the other restores a whole
+## platform, and they must not share a clock or a bite in the last second before a
+## reform would cancel the reform.
+var _repair_timer: float = 0.0
+## Cached once — never per-draw, per-carve or per-frame (mobile-first, 640x360 base).
+var _low: bool = false
 
 
 func _ready() -> void:
@@ -41,11 +103,15 @@ func _ready() -> void:
 	add_to_group("breakable_platform")
 	hp = max_hp
 	collision_layer = 5  # bit1 (blocks + supports movement) + bit3 (spell-Area2D bucket)
-	var shape := RectangleShape2D.new()
-	shape.size = platform_size
-	_collider = CollisionShape2D.new()
-	_collider.shape = shape
-	add_child(_collider)
+	_low = TuningConfig.quality_is_low()
+	# ⚠ THE SINGLE `RectangleShape2D` IS GONE. It was one box the width of the ledge, so
+	# the ledge was solid until the frame it was not. The grid hands back the same
+	# geometry to begin with (one merged rect over a full slab) and then LOSES PIECES OF
+	# IT, which is the whole ask. Built in `_ready` and not deferred: `platform_size` is
+	# set before `add_child` by `FloorBuilder` (its comment says why), and the grid is in
+	# LOCAL space, so unlike a world-space grid it does not have to wait for
+	# `global_position` to be assigned after the add.
+	_grid = DestructibleStage.attach_ledge(self, platform_size, base_color)
 	queue_redraw()
 
 
@@ -61,6 +127,13 @@ func _process(delta: float) -> void:
 			queue_redraw()  # fade the "it's coming back" outline in
 		if _regen_timer <= 0.0:
 			_reform()
+		return
+	# STANDING BUT HOLED. See `REPAIR_POOF_COUNT`'s block: a carved ledge has to come
+	# back or `FloorGen`'s reachability reasoning quietly stops being true.
+	if _repair_timer > 0.0:
+		_repair_timer -= delta
+		if _repair_timer <= 0.0:
+			_repair()
 
 
 ## Group contract entry (blind damage): chew from the centre.
@@ -94,9 +167,19 @@ func take_damage(amount: int) -> void:
 ## lockstep. That is tens of milliseconds on the LAN this ships for, it is
 ## self-correcting, and paying a packet to tighten it would buy nothing a player
 ## could perceive.
-func damage_at(amount: int, world_pos: Vector2, dir: Vector2) -> void:
+##
+## ⚠ THE CARVE RUNS ON EVERY PEER; ONLY THE COLLAPSE IS THE HOST'S. That is not a
+## loosening of the rule above, it is the same rule applied to two different things.
+## The break is a VERDICT — it must be taken once and broadcast, or one screen has
+## ground the other does not. A carve is DERIVED: both peers see the same hit at the
+## same point with the same damage and remove the same cells, so the two grids converge
+## on their own. It is the identical argument `Spell._try_damage` writes down for why
+## even a cosmetic twin still carves the ground.
+func damage_at(amount: int, world_pos: Vector2, dir: Vector2,
+		footprint: float = 0.0, source: Object = null) -> void:
 	if _broken:
 		return
+	_carve(amount, world_pos, dir, footprint, source)
 	var net: Node = get_node_or_null(^"/root/Net")
 	var coop: bool = net != null and net.has_method(&"is_active") and bool(net.call(&"is_active"))
 	if coop and not bool(net.call(&"is_host")):
@@ -104,7 +187,7 @@ func damage_at(amount: int, world_pos: Vector2, dir: Vector2) -> void:
 		_hit_feedback(world_pos)
 		return
 	hp = max(hp - amount, 0)
-	if hp == 0:
+	if hp == 0 or _is_splintered():
 		# Broadcast BEFORE breaking: the receiver finds this node by its position in
 		# the `destructible` group, and `_break` removes it from that group.
 		if coop:
@@ -129,6 +212,56 @@ func net_apply_prop_state(hp_now: int, shattered: bool) -> void:
 	_hit_feedback(global_position)
 
 
+## Take a bite out of the grid at the point the hit landed, and arm the repair clock.
+##
+## Everything about HOW BIG the bite is belongs to `DestructibleStage` and is deliberately
+## not second-guessed here: the ledge does not get its own opinion of what counts as a
+## heavy hit, for the same reason `Spell` does not get one about the ground.
+func _carve(amount: int, world_pos: Vector2, dir: Vector2,
+		footprint: float, source: Object) -> void:
+	if _grid == null or not is_instance_valid(_grid):
+		return
+	if _grid.damage_at(amount, world_pos, dir, footprint, source) <= 0:
+		return
+	# Refreshed, not accumulated: a ledge under sustained fire stays holed for as long as
+	# it is being hit and knits up `regen_time` after the last bite.
+	_repair_timer = regen_time
+	DebrisChunk.spawn_burst(get_parent(), world_pos, base_color.lightened(0.2),
+		CARVE_DEBRIS_LOW if _low else CARVE_DEBRIS, dir, 150.0)
+
+
+## Is what is left a landing, or a splinter? See `MIN_STANDABLE_RUN`.
+func _is_splintered() -> bool:
+	if _grid == null or not is_instance_valid(_grid):
+		return false
+	return _grid.solid_fraction() < COLLAPSE_SOLID_FRACTION \
+		or _grid.widest_standable_run() < MIN_STANDABLE_RUN
+
+
+## Knit the holes shut. The ledge never left, so this is quiet on purpose — no shake and
+## no sound, both of which belong to a platform coming BACK (`_reform`).
+func _repair() -> void:
+	_repair_timer = 0.0
+	_rebuild_grid()
+	CombatVfx.spawn_burst(
+		get_parent(), global_position, REFORM_POOF_START, REFORM_POOF_END,
+		1 if _low else REPAIR_POOF_COUNT, 0.3, 40.0, 90.0, 1.0, 2.5
+	)
+	queue_redraw()
+
+
+## Lay a fresh, whole grid over this body — dropping the shapes the old one installed.
+## Used by both restore paths; see `DestructibleStage._free_shape_nodes` for why the old
+## shapes have to be detached rather than merely queued.
+func _rebuild_grid() -> void:
+	if _grid == null or not is_instance_valid(_grid):
+		_grid = DestructibleStage.attach_ledge(self, platform_size, base_color)
+		return
+	_grid.build_from_rects([Rect2(-platform_size * 0.5, platform_size)] as Array[Rect2])
+	_grid.rebuild_collision(self, self)
+	_grid.queue_redraw()
+
+
 func _hit_feedback(world_pos: Vector2) -> void:
 	_flash_timer = HIT_FLASH_TIME
 	_nudge = Vector2.from_angle(randf() * TAU) * HIT_NUDGE
@@ -142,7 +275,13 @@ func _hit_feedback(world_pos: Vector2) -> void:
 func _break(dir: Vector2) -> void:
 	_broken = true
 	remove_from_group("destructible")  # same-frame AoE queries don't re-hit a dead platform
-	_collider.disabled = true
+	_repair_timer = 0.0   # the whole thing is going; there is nothing left to knit shut
+	# ⚠ THE LAYER, NOT THE SHAPES. There is no single `_collider` to disable any more —
+	# collision is however many merged rectangles the grid currently has, and it changes
+	# on every carve. Zeroing the layer takes the body out of BOTH buckets (bit1 movement,
+	# bit3 the spell-Area2D one) in one assignment that cannot go stale, and `_reform`
+	# puts it back. The shapes themselves are untouched, so the grid can keep its state.
+	collision_layer = 0
 	visible = false
 	DebrisChunk.spawn_burst(get_parent(), global_position, base_color, 10, dir, 260.0)
 	# ⚠ SNAPPED. A breakable platform is BY DEFINITION a thing floating in the air, so
@@ -159,7 +298,11 @@ func _break(dir: Vector2) -> void:
 func _reform() -> void:
 	_broken = false
 	hp = max_hp
-	_collider.disabled = false
+	# A ledge that came back holed would be a ledge that never really came back — and
+	# every one of `FloorGen`'s reachable-surface guarantees is written against a WHOLE
+	# platform. So the grid is laid fresh, not restored.
+	_rebuild_grid()
+	collision_layer = 5   # see `_break` — bit1 movement + bit3 spell-Area2D
 	visible = true
 	add_to_group("destructible")
 	CombatVfx.spawn_burst(

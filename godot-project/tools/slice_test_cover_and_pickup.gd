@@ -112,9 +112,28 @@ func _test_platform_host_state_breaks_the_ground() -> void:
 	_expect(not bool(p.get("_broken")), "a non-fatal hit does not break it")
 	p.call(&"net_apply_prop_state", 0, true)
 	_expect(bool(p.get("_broken")), "the host's shatter verdict breaks it here too")
-	var col: Node = p.get("_collider")
-	_expect(col != null and bool(col.get("disabled")),
-		"THE GROUND: the collider is actually disabled, not just the hp zeroed")
+	# ⚠ THE ASSERTION MOVED FROM `_collider.disabled` TO THE LAYER, AND THE PROPERTY IT
+	# GUARDS IS UNCHANGED. `BreakablePlatform` no longer owns a single `_collider`: its
+	# collision is however many rectangles its `DestructibleStage` chunk grid currently
+	# merges to, and that count changes on every carve (maker: *"please make the floating
+	# platforms destroyable into bits just like the floor was beforehand as well"*). So
+	# `_break` zeroes `collision_layer` instead of disabling one shape — one assignment
+	# that takes the body out of BOTH buckets (bit1 movement, bit3 the spell-Area2D one)
+	# and cannot go stale as the shape list changes underneath it.
+	#
+	# What this test is FOR is untouched and is exactly what is checked below: hp
+	# converging while the collision state did not is the bug that stays invisible to a
+	# health check, and here it is still solid ground on one screen and open air on the
+	# other.
+	_expect(p.get("collision_layer") == 0,
+		"THE GROUND: the shattered platform still collides (layer %s), not just the hp"
+			% str(p.get("collision_layer")) + " zeroed")
+	for ch: Node in (p as Node).get_children():
+		var cs: CollisionShape2D = ch as CollisionShape2D
+		if cs != null:
+			_expect(not cs.disabled,
+				"the grid's shapes were disabled as well as the layer — `_reform` puts"
+				+ " the layer back and would leave these dead")
 	p.call(&"net_apply_prop_state", 50, false)
 	_expect(bool(p.get("_broken")), "…and a late state for a broken platform is ignored")
 	_kill(p)
