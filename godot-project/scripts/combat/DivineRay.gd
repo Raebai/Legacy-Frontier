@@ -296,6 +296,9 @@ func _erupt_stone() -> void:
 	)
 	DebrisChunk.spawn_burst(get_parent(), at, Color(0.42, 0.37, 0.30), 14, Vector2.UP, 320.0)
 	GroundCrater.spawn(get_parent(), at, _radius * 0.7, true)
+	# The stone spire tears its way up THROUGH the deck — see `_carve_terrain`. The
+	# crater decal on the line above has always claimed this; now the collision agrees.
+	_carve_terrain(at)
 	Juice.hit_stop(0.11)
 	Juice.shake_camera(18.0)
 	Juice.zoom_punch_camera(0.10, 0.26)
@@ -337,6 +340,7 @@ func _smite() -> void:
 			get_tree().get_nodes_in_group("destructible")):
 		if prop.has_method("take_damage"):
 			prop.take_damage(_damage)
+	_carve_terrain(at)
 	_impact_burst(at)
 	_impact_mark(at)
 	Juice.hit_stop(0.09)
@@ -449,6 +453,50 @@ func _impact_mark(at: Vector2) -> void:
 				Color(0.06, 0.03, 0.02, 0.6), 8.0
 			)
 			GroundCrater.spawn(get_parent(), at, _radius * 0.5, true)
+
+
+## THE COLUMN TAKING THE GROUND OUT FROM UNDER ITSELF.
+##
+## The second of the maker's two beams (`BeamSpell` is the other) and it had the same
+## two faults: it never asked the world where the column landed, and its 95 damage
+## would have been sized by a damage curve that knows nothing about how wide the pillar
+## is.
+##
+## ⚠ `_ground` IS AN AIM POINT, NOT A CONTACT POINT. `SpellCaster` builds it as
+## `caster_pos + aim` clamped to reach and hands it straight to `strike()` — nothing
+## snaps it to a surface. It is normally a body's chest, ~20-30 px clear of the floor,
+## and over a ledge it can be metres of empty air. Carving there would open a bubble in
+## the sky, which is the mirror of the bug `BoulderHurl` documents from the other side.
+##
+## So the column is asked the same question the picture already answers: descending
+## from the sky, where does it FIRST meet something solid? That is the contact point,
+## and it is above `_ground` when the pillar lands on a platform, at `_ground` when the
+## aim was on the deck, and absent when the pillar ends in mid-air.
+##
+## The second probe is the honest part. When the descent finds nothing, the column
+## visually terminates in the air at `_ground` and there IS no terrain contact — but the
+## drawn base disc rests on whatever is directly beneath, and `_impact_mark` already
+## spawns its `GroundCrater` on that assumption. So a short `floor_below` of the base
+## radius is allowed to find it, and anything further down is left alone: a ray fired
+## out over a pit carves nothing rather than punching the deck two storeys below.
+##
+## Footprint is `_radius` — the pillar's own ground footprint, the same number the
+## damage disc and the crater decal already use. A 70 px pillar opens a ~26 px radius
+## hole: unmistakably bigger than a beam's 13 and unmistakably smaller than a meteor's.
+func _carve_terrain(at: Vector2) -> void:
+	var skip: Array[RID] = SpellWorld.rids([caster_node])
+	var top: Vector2 = Vector2(at.x, at.y - (STONE_HEIGHT if _stone else SKY_HEIGHT))
+	var r: Dictionary = SpellWorld.first_solid(top, at, skip, self)
+	var collider: Object = r["collider"]
+	var point: Vector2 = r["position"] as Vector2
+	if not bool(r["hit"]):
+		var below: Dictionary = SpellWorld.floor_below(at, _radius, skip, self)
+		if not bool(below["hit"]):
+			return
+		collider = below.get("collider")
+		point = below["position"] as Vector2
+	DestructibleStage.carve_from_body(collider, _damage, point,
+		Vector2.DOWN, _radius, self)
 
 
 ## Pure geometry (testable): nodes within `radius` of `center`.

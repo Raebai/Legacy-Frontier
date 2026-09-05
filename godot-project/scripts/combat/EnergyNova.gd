@@ -309,27 +309,25 @@ func _detonate() -> void:
 			get_parent(), floor_pos,
 			NOVA_RADIUS * CRACK_RADIUS_FACTOR, "crack", CRACK_TINT, CRACK_LIFETIME
 		)
-		# ⚠ AND THERE IS DELIBERATELY NO `DestructibleStage.carve_area` HERE, WHICH IS
-		# THE OPPOSITE OF WHAT THE DESTRUCTIBLE HANDOFF ASKED FOR. The handoff named
-		# this site and spelled the line out:
-		#     carve_area(self, NOVA_DAMAGE, floor_pos, Vector2.UP, NOVA_RADIUS)
-		# That line cannot ever carve. `NOVA_DAMAGE` is 30 and
-		# `DestructibleStage.CARVE_MIN_DAMAGE` is 40, so `damage_at` refuses it on its
-		# first branch every single time; all the line would do is tick `refused_hits`
-		# up while LOOKING like the nova eats the floor. That is a comment pretending to
-		# be an implementation, and it is worse than the gap it fills because the next
-		# person reads the call and stops asking.
+		# ⚠ THIS BLOCK USED TO EXPLAIN, AT LENGTH, WHY THE NOVA COULD NOT CARVE. The
+		# argument was sound and its premise is gone. It ran: `NOVA_DAMAGE` is 30,
+		# `CARVE_MIN_DAMAGE` was 40, so the call would only ever tick `refused_hits`
+		# while looking like the floor was being eaten — a comment pretending to be an
+		# implementation. The maker's correction retired that shelf (*"for all things
+		# where it was hit"*), so the nova now carves like everything else, and the
+		# other half of the old note — that a hint could only ever WIDEN a crater the
+		# damage had already earned — is retired with it: the footprint SETS the size.
 		#
-		# The threshold is not in the way here, it is working: the nova is a 30-damage
-		# SHOVE — the roster's knockback tool, not a committed excavation — and the chip
-		# shelf is exactly where the design puts it. The scorch crack above is the whole
-		# intended read, and `damage_at` documents that a refused hit still marks.
+		# `NOVA_RADIUS` (135) is the footprint, and a 30-damage shove sits near the
+		# bottom of the damage band, so the ring opens a ~32 px crater: plainly wider
+		# than a beam's 13 and plainly narrower than a meteor's 41. That is the shape of
+		# the spell — a wide, shallow shove — rendered in missing rock.
 		#
-		# To make the nova carve you would have to hand `damage_at` an `amount` it did
-		# not do, and the `radius_hint` cannot help: the hint only widens a crater that
-		# already passed the gate. So the honest options are "leave it on the chip shelf"
-		# or "raise NOVA_DAMAGE", and the second is a combat-balance change that has
-		# nothing to do with destruction. Left on the chip shelf.
+		# `Vector2.UP` is the hit direction, not the normal: `_spawn_carve_spectacle`
+		# throws its debris back along `-dir`, so UP sends the stone down and out, which
+		# is where a ground-hugging shockwave puts it.
+		DestructibleStage.carve_from_body(hit.get("collider"), NOVA_DAMAGE,
+			floor_pos, Vector2.UP, NOVA_RADIUS, self)
 		#
 		# Dust kicked SIDEWAYS along the floor rather than up: the read is a shove,
 		# not an explosion.

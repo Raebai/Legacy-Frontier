@@ -19,7 +19,7 @@
 extends SceneTree
 
 const TESTS: Array[String] = [
-	"a_jab_leaves_the_ground_alone_and_a_committed_hit_does_not",
+	"a_jab_marks_the_ground_and_a_committed_hit_takes_a_bite",
 	"the_crater_curve_is_monotonic_and_bounded",
 	"a_carve_removes_rock_only_where_it_landed",
 	"a_carve_dirties_only_the_blocks_it_touched",
@@ -104,9 +104,15 @@ func _live_stage() -> DestructibleStage:
 
 # ── 1. the threshold ───────────────────────────────────────────────────────
 
-## The whole design decision, asserted at both ends. A `ZoneSpell` tick (8) and a Blade
-## Flurry cut (24) must leave the floor exactly as they found it; a heavy (62) must not.
-func a_jab_leaves_the_ground_alone_and_a_committed_hit_does_not() -> void:
+## ⚠ THIS TEST USED TO ASSERT THE OPPOSITE AND ITS NAME SAID SO. It was
+## `a_jab_leaves_the_ground_alone_and_a_committed_hit_does_not`, pinning a 40-damage
+## shelf, and the maker's correction retired that shelf outright: *"for all things where
+## it was hit much like stick fight"*. So the property inverts — the SIZE separates a jab
+## from a committed hit now, not a gate that turns the jab away.
+##
+## What survives is the half that still matters: a light hit must leave a SMALL mark and
+## a heavy one a large mark, and the bookkeeping must be exact either way.
+func a_jab_marks_the_ground_and_a_committed_hit_takes_a_bite() -> void:
 	await process_frame
 	var s: DestructibleStage = _stage()
 	var before: int = s.solid_count()
@@ -114,46 +120,79 @@ func a_jab_leaves_the_ground_alone_and_a_committed_hit_does_not() -> void:
 	_expect(s.is_solid(int((at.x - s.origin.x) / DestructibleStage.CHUNK),
 		int((at.y - s.origin.y) / DestructibleStage.CHUNK)),
 		"the cell under the test point is rock to begin with")
-	for jab: int in [1, 8, 24, DestructibleStage.CARVE_MIN_DAMAGE - 1]:
-		_expect(s.damage_at(jab, at, Vector2.DOWN) == 0,
-			"a %d-damage hit removed rock — the threshold is not holding" % jab)
-	_expect(s.solid_count() == before,
-		"%d cell(s) went missing to hits that should all have been refused"
-			% (before - s.solid_count()))
-	_expect(s.refused_hits == 4, "4 refusals were counted, got %d" % s.refused_hits)
-	# ...and the committed hit does bite.
-	var removed: int = s.damage_at(62, at, Vector2.DOWN)
-	_expect(removed > 0, "a 62-damage hit removed nothing")
-	_expect(s.carve_events == 1, "one carve event was recorded, got %d" % s.carve_events)
-	_expect(s.solid_count() == before - removed,
-		"solid count fell by exactly the cells the carve reported")
-	_done("a_jab_leaves_the_ground_alone_and_a_committed_hit_does_not")
+	# A zone tick, a volley pip, a flurry cut, an Iai cut — all previously refused.
+	var jab_cells: int = 0
+	var x: float = 300.0
+	for jab: int in [1, 8, 15, 24, 38]:
+		var got: int = s.damage_at(jab, Vector2(x, 782.0), Vector2.DOWN, 6.0)
+		_expect(got > 0, "a %d-damage hit on rock removed nothing" % jab)
+		jab_cells = maxi(jab_cells, got)
+		x += 160.0
+	_expect(s.refused_hits == 0,
+		"%d hit(s) were refused by a damage shelf that is supposed to be gone"
+			% s.refused_hits)
+	# ...and the committed hit takes visibly more. Same footprint on both sides, so the
+	# only thing that moved is the damage — which is exactly the band the size rule lets
+	# damage move the crater across.
+	var heavy: int = s.damage_at(200, at, Vector2.DOWN, 6.0)
+	_expect(heavy > jab_cells,
+		"a 200-damage hit took %d cells where the heaviest jab took %d — damage no"
+			% [heavy, jab_cells] + " longer separates a jab from a committed hit at all")
+	_expect(s.carve_events == 6, "six carve events recorded, got %d" % s.carve_events)
+	_expect(s.solid_count() == before - s.carved_cells,
+		"solid count fell by exactly the cells the carves reported")
+	_done("a_jab_marks_the_ground_and_a_committed_hit_takes_a_bite")
 
 
+## THE SIZE RULE, at the two ends and in the middle.
+##
+## ⚠ `carve_radius_for` IS NOW THE FALLBACK CURVE, NOT THE RULE. It is the size rule
+## evaluated at `CARVE_FALLBACK_FOOTPRINT` — what a source with no published footprint
+## gets — so it deliberately does NOT reach `CARVE_RADIUS_MAX`: a source that cannot say
+## how big it is may not claim the biggest crater in the game. The bounds are asserted
+## against `carve_radius_for_strike`, which is where the whole range lives.
 func the_crater_curve_is_monotonic_and_bounded() -> void:
 	await process_frame
-	var lo: float = DestructibleStage.carve_radius_for(DestructibleStage.CARVE_MIN_DAMAGE)
+	var lo: float = DestructibleStage.carve_radius_for(1)
 	var mid: float = DestructibleStage.carve_radius_for(120)
 	var hi: float = DestructibleStage.carve_radius_for(9999)
-	_expect(is_equal_approx(lo, DestructibleStage.CARVE_RADIUS_MIN),
-		"the lightest carving hit opens CARVE_RADIUS_MIN (%.2f vs %.2f)"
-			% [lo, DestructibleStage.CARVE_RADIUS_MIN])
 	_expect(lo < mid and mid < hi, "the curve rises: %.2f < %.2f < %.2f" % [lo, mid, hi])
-	_expect(is_equal_approx(hi, DestructibleStage.CARVE_RADIUS_MAX),
-		"an absurd damage number still clamps at CARVE_RADIUS_MAX (%.2f)" % hi)
-	# SUB-LINEAR: five times the damage must not be five times the radius, or an ult
-	# takes a bite the size of the fight floor. The same reasoning `SpellTier` records.
-	var five_x: float = DestructibleStage.carve_radius_for(200)
-	_expect(five_x < lo * 5.0,
-		"5x the damage opened %.2f px against a linear %.2f px" % [five_x, lo * 5.0])
-	# The hint may only ever widen. A call site cannot switch destruction off by
-	# passing a small footprint.
+	_expect(hi <= DestructibleStage.CARVE_RADIUS_MAX,
+		"the fallback curve (%.2f) escaped CARVE_RADIUS_MAX" % hi)
+	_expect(hi < DestructibleStage.CARVE_RADIUS_MAX * 0.5,
+		"a source that publishes NO footprint (%.2f px) is claiming a crater close to"
+			% hi + " the roster ceiling (%.2f px)" % DestructibleStage.CARVE_RADIUS_MAX)
+	# The real bounds, on the real rule.
+	_expect(is_equal_approx(
+		DestructibleStage.carve_radius_for_strike(1, 0.01),
+		DestructibleStage.CARVE_RADIUS_MIN),
+		"the smallest possible strike does not land on CARVE_RADIUS_MIN")
+	_expect(is_equal_approx(
+		DestructibleStage.carve_radius_for_strike(9999, 9999.0),
+		DestructibleStage.CARVE_RADIUS_MAX),
+		"the largest possible strike does not clamp at CARVE_RADIUS_MAX")
+	# SUB-LINEAR IN BOTH TERMS: five times the damage must not be five times the radius,
+	# and neither must five times the footprint, or an ult takes a bite the size of the
+	# fight floor. The same reasoning `SpellTier.push_for_spectacle` records.
+	var base: float = DestructibleStage.carve_radius_for_strike(40, 20.0)
+	_expect(DestructibleStage.carve_radius_for_strike(200, 20.0) < base * 5.0,
+		"5x the damage is not sub-linear")
+	_expect(DestructibleStage.carve_radius_for_strike(40, 100.0) < base * 5.0,
+		"5x the footprint is not sub-linear")
+	# ⚠ AND THE SEMANTIC THAT INVERTED. The fourth argument used to be a `radius_hint`
+	# that could only ever WIDEN a damage-derived crater; it is now the FOOTPRINT and it
+	# is what sets the size, so a small footprint MUST produce a small hole however big
+	# the damage. That inversion is the maker's correction — *"nothing more or less than
+	# that, just that definitive hole"* — and this is where it is pinned.
 	var s: DestructibleStage = _stage()
-	var narrow: int = s.damage_at(200, Vector2(700.0, 782.0), Vector2.DOWN, 1.0)
+	var narrow: int = s.damage_at(200, Vector2(700.0, 782.0), Vector2.DOWN, 4.0)
 	var s2: DestructibleStage = _stage()
-	var plain: int = s2.damage_at(200, Vector2(700.0, 782.0), Vector2.DOWN)
-	_expect(narrow == plain,
-		"a tiny radius hint narrowed the crater (%d cells vs %d)" % [narrow, plain])
+	var wide: int = s2.damage_at(200, Vector2(700.0, 782.0), Vector2.DOWN, 120.0)
+	_expect(narrow > 0 and narrow < wide,
+		"a 4 px footprint (%d cells) did not open a smaller hole than a 120 px one"
+			% narrow + " (%d cells) at identical damage" % wide)
+	s.queue_free()
+	s2.queue_free()
 	_done("the_crater_curve_is_monotonic_and_bounded")
 
 

@@ -141,6 +141,14 @@ var _trail: Array[Vector2] = []               # recent positions, oldest first
 ## Where the flight stopped, and what stopped it. Set by `_check_flight_collision`
 ## so `_process` does not have to re-derive the impact point.
 var _hit_point: Vector2 = Vector2.ZERO
+## The un-lifted world contact from `_check_flight_collision`, and the body it was on.
+## A null collider means the rock detonated on a BODY, or ran out of flight, and never
+## touched terrain at all — the one case the floor snap in `_shatter` is right for.
+var _world_contact: Vector2 = Vector2.ZERO
+var _world_collider: Object = null
+## Measurement only, read by `tools/probe_destructible_hitpoint.gd`: how far the old
+## floor-snapped carve point sat from the real contact. -1 until an impact resolves.
+var contact_vs_floor_px: float = -1.0
 
 
 func hurl(
@@ -368,6 +376,12 @@ func _check_flight_collision() -> bool:
 		var n: Vector2 = world["normal"]
 		_hit_point = (world["position"] as Vector2) + n.normalized() * IMPACT_LIFT \
 			if n != Vector2.ZERO else world["position"]
+		# ...and the RAW contact, kept separately and un-lifted. `_hit_point` is where the
+		# SPECTACLE is staged (lifted clear of the surface so the burst is not half
+		# buried); the carve needs the point the rock actually touched, and the two are
+		# IMPACT_LIFT apart by construction. See `_shatter`.
+		_world_contact = world["position"] as Vector2
+		_world_collider = world["collider"]
 		return true
 	# Clear segment — now look for a body. `BOULDER_R` and nothing else: the drawn
 	# rock's own radius, with the target's published `hit_margin()` added by
@@ -425,7 +439,35 @@ func _shatter(at: Vector2) -> void:
 	# two lines above already snapped the residue down to the ground for exactly that
 	# reason. Carving at `at` would open holes in the sky over a pit; the `ground["hit"]`
 	# early-return above is what makes `floor_pos` safe to use here at all.
-	DestructibleStage.carve_area(self, _damage, floor_pos, Vector2.UP, _radius)
+	# ⚠ THE CARVE POINT MOVED, AND THE COMMENT ABOVE IT ARGUED FOR THE WRONG ONE.
+	# `floor_pos` is a downward snap from the impact, defended above by the mid-air
+	# case: "the impact point can be a body's chest". True — but only WHEN THE ROCK HIT
+	# A BODY. When it hit TERRAIN, `_check_flight_collision` already held the exact
+	# contact from its own raycast and this threw it away, then re-derived a point
+	# straight down from a position that had been pushed IMPACT_LIFT out along the
+	# surface normal. On a flat deck the two agree within a few px; on a terrace FACE or
+	# the arena rim — any vertical surface — the snap walks the hole down the wall to
+	# the floor at its foot, which is *"kept accurate to where it hit"* failing in the
+	# most visible way available.
+	#
+	# `contact_vs_floor_px` records the disagreement in px so the probe can report it
+	# rather than anyone arguing about it from the geometry.
+	var carve_at: Vector2 = floor_pos
+	var carve_on: Object = ground.get("collider")
+	if _world_collider != null and is_instance_valid(_world_collider):
+		contact_vs_floor_px = _world_contact.distance_to(floor_pos)
+		carve_at = _world_contact
+		carve_on = _world_collider
+	#
+	# ⚠ THE FOOTPRINT IS `BOULDER_R`, THE ROCK, NOT `_radius`, THE BLAST. The maker's
+	# worked example is physical — *"a boulder of course should take a piece out of the
+	# floor"* — and what takes the piece is the stone, not the pressure wave around it.
+	# `_radius` is the damage/knockback reach and is several times wider; sizing the
+	# crater off it would have the rock excavate ground it never touched, which is the
+	# same error as a beam digging wider than the beam. A 26 px rock leaves a ~35 px
+	# hole: visibly a bite the rock's own size, and visibly smaller than a meteor's.
+	DestructibleStage.carve_from_body(carve_on, _damage, carve_at, -_dir,
+		BOULDER_R, self)
 
 
 ## Blast damage. `_radius` — the same number the shockwave and the boundary arc

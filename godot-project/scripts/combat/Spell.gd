@@ -528,7 +528,8 @@ func _try_damage(node: Node, from_area: bool = false) -> void:
 			# damage to its own copy of the terrain and the two stages CONVERGE. A twin
 			# that skipped the carve would leave one phone with a hole the other does
 			# not have — precisely the divergence the cosmetic twin exists to prevent.
-			DestructibleStage.carve_from_body(node, damage, global_position, _dir)
+			DestructibleStage.carve_from_body(node, damage, global_position, _dir,
+				BOLT_RADIUS, self)
 			_dead = true
 			_spawn_impact_burst()
 			queue_free()
@@ -596,7 +597,8 @@ func _try_damage(node: Node, from_area: bool = false) -> void:
 		# The bolt does NOT decide whether its own damage is heavy enough to bite. The
 		# stage owns that threshold, in one place, so a new spell cannot arrive carrying
 		# its own opinion of what counts as a heavy hit.
-		DestructibleStage.carve_from_body(node, damage, global_position, _dir)
+		DestructibleStage.carve_from_body(node, damage, global_position, _dir,
+			BOLT_RADIUS, self)
 		_dead = true
 		Sfx.play("spell_impact")
 		Juice.hit_stop(0.03)

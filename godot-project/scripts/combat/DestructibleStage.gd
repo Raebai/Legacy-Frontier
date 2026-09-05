@@ -107,45 +107,149 @@ const GROUP_NAME: StringName = &"destructible_stage"
 const BODY_META: StringName = &"destructible_stage"
 
 ## ══ WHICH HITS BITE THE GROUND ═════════════════════════════════════════════
-## Below this, a hit scorches and chips and removes NOTHING.
+## ⚠ THIS WAS 40 AND THE MAKER RETIRED IT. The shelf was written to keep a jab off the
+## floor, and the correction is explicit that everything which strikes rock leaves a
+## mark: *"for all things where it was hit much like stick fight"*. A beam — the
+## maker's OWN example — carries 58–88 damage and still carved nothing, because the
+## beam never asked the world where it landed; but `RadiantVolley` (15), a Blade Flurry
+## cut (24), an `EnergyNova` (30) and a `MeteorSigil` meteor (36) were all refused by
+## THIS NUMBER even where they were wired.
 ##
-## The roster's damage spans 8 (a zone tick) to 260 (an ult). 40 puts the line between
-## the CHIP shelf (a zone tick at 8, `RadiantVolley` at 15, a Blade Flurry cut at 24, an
-## Iai cut at 38) and the COMMITTED shelf (48 and up): a basic attack does not eat the
-## floor, a heavy or an ult does. That is the same split the maker already reads in the
-## game — a committed cast is telegraphed and a jab is not — so destruction lands on the
-## beats that were already loud.
+## So the shelf goes to 1: every hit that reaches rock takes rock.
 ##
-## ⚠ AND THE MEASUREMENT SAYS IT IS A GUARDRAIL, NOT A TUNING KNOB — WHICH IS NOT WHAT
-## WAS EXPECTED. `tools/probe_destructible_bot_fight.gd` runs real `BotMatch` bouts and
-## reports how much rock is gone. Over six bouts (three matchups, run at this threshold
-## and again at a threshold of 1, i.e. "everything carves"), the stage lost
-## **0.00% – 2.03%** of its rock in 13–30 game-seconds. Setting the threshold to 1 did
-## not move the result outside that spread. So the fear this constant was written
-## against — "the stage dissolves in ten seconds" — is not the situation, and lowering
-## the number would buy nothing measurable.
+## ⚠ AND THE THING THE SHELF WAS ACTUALLY PROTECTING AGAINST IS NOW PROTECTED
+## PROPERLY. The documented fear was never the jab, it was the REPEAT: a `ZoneSpell`
+## field ticking 8 damage into the same square metre every `TICK` for eight seconds, or
+## a beam held on one spot. A damage floor is a blunt instrument for that — it refuses
+## the first tick as well as the hundredth. `CARVE_REPEAT_BITE` refuses only the
+## re-digging, which is also the Stick Fight property the correction is pointing at:
+## shooting the same hole again does not widen it forever, it is already a hole.
+const CARVE_MIN_DAMAGE: int = 1
+
+## ══ HOW BIG THE HOLE IS ════════════════════════════════════════════════════
+## THE OLD RULE WAS DAMAGE-ONLY AND IT IS THE SECOND THING THE CORRECTION BREAKS.
+## `carve_radius_for` maps 40 -> 11 px and 260 -> 34 px, so an 88-damage beam opened a
+## 38 px-wide hole with a 30 px-wide beam. The maker: *"nothing more or less than that,
+## just that definitive hole"* — the size is a property of the STRIKE, not of the
+## damage number attached to it.
 ##
-## What it DOES buy is safety at the next widening. Only two damage sources reach this
-## file today (`Spell`'s bolt-hits-ground branch and `BlastSpell`'s detonation), and
-## they hardly ever touch rock — the fight happens ON TOP of the floor and spells fly
-## horizontally at body height. The moment the ground-AIMED sources are wired
-## (`ShockwaveStomp`, `BoulderHurl`'s impact, `FaultLine`, `EnergyNova`, `GraveTide`) the
-## rate goes up by a large and unmeasured factor, and a `ZoneSpell` field ticking its
-## scenery pass every `TICK` for eight seconds is the case that would genuinely dissolve
-## the floor. This threshold is what makes that widening safe to do one source at a time.
-const CARVE_MIN_DAMAGE: int = 40
-## Crater radius, in world px, at `CARVE_MIN_DAMAGE` and at the roster's ceiling.
-## Sub-linear in damage (sqrt), for the same reason `SpellTier.push_for_spectacle` is:
-## a hit worth five times as much must not dig twenty-five times as wide.
-const CARVE_RADIUS_MIN: float = 11.0
-const CARVE_RADIUS_MAX: float = 34.0
-## The damage at which the radius reaches its ceiling — the heaviest ult in
-## `SpellLibrary` (`Teardown`'s 210 / `Equinox`'s 260 shelf).
+## So the size is driven by the effect's own contact footprint, and damage only nudges
+## it. `sqrt` on the footprint for the same reason the damage curve had it: the roster's
+## footprints span 8 px (a bolt) to 210 px (a meteor's blast), a 26x range, and a linear
+## map either makes the beam invisible or the meteor uncrossable. The measured spread
+## this produces is printed by `tools/slice_test_destructible_hitpoint.gd`, which fails
+## if any two of beam / dagger / nova / meteor land within `SIZE_DISTINCT_PX` of each
+## other — because "visibly different" is the requirement and a table is not proof.
+const CARVE_FOOTPRINT_K: float = 3.4
+## Damage moves the crater inside a bounded band around the footprint's answer. Bounded
+## on purpose: a 260-damage ult through a 30 px beam is still a 30 px beam, it just
+## bites a little harder.
+const CARVE_DAMAGE_SCALE_MIN: float = 0.70
+const CARVE_DAMAGE_SCALE_MAX: float = 1.30
+## The damage band the scale is normalised across — the roster's floor (a zone tick)
+## and its ceiling (`Teardown` 210 / `Equinox` 260).
+const CARVE_DAMAGE_FLOOR: float = 8.0
 const CARVE_DAMAGE_CEILING: float = 260.0
-## How much of a detonation's own radius becomes crater. Well under half: the blast
-## REACHES that far, it does not excavate that far, and a 1:1 crater would have a single
-## `EnergyNova` take a 200 px bite out of the fight floor.
-const BLAST_CRATER_FRACTION: float = 0.38
+
+## Hard bounds on any crater.
+##
+## MIN is 5, not the old 11: a beam has to be ALLOWED to make a small hole, and 5 px of
+## radius is still 2 whole cells of the 4 px grid gone plus their neighbours — a hole
+## you can see and fall into the edge of, which is the point.
+##
+## MAX is 46. The Juggernaut's flat-gap reach is 97.1 px and 46 px of radius is a 92 px
+## hole, so the widest single crater in the game is still crossable by the whole roster
+## — and the maker's ruling that a gap may become uncrossable ("if that happens then it
+## happens") is about the UNION of many hits, which nothing here caps.
+const CARVE_RADIUS_MIN: float = 5.0
+const CARVE_RADIUS_MAX: float = 46.0
+
+## ══ WHAT EACH SPELL DOES TO THE GROUND, AND WHY IT FOLLOWS FROM THE SPELL ══
+## The maker's rule: *"use your logic for all the spells to think about how they
+## interact with the environment"*, and the result must be PREDICTABLE — a player who
+## has watched one boulder land knows what the next one does.
+##
+## So the footprint every call site passes is THE PHYSICAL THING THAT TOUCHED THE ROCK,
+## never the spell's damage number and never its reach. That single rule generates the
+## whole table; nothing below was picked to be tidy.
+##
+##   SPELL              WHAT TOUCHES THE GROUND        FOOTPRINT     HOLE (radius)
+##   bolt               the bolt, r6                    6.0            7.3 px
+##   rift dagger        the BLADE, half-width 4.2        8.4            8.2 px
+##   frostpiercer beam  the beam, half of w22           11.0           10.3 px
+##   ice spike          the spike base, half-width      16.0           11.6 px
+##   first lance beam   the beam, half of w30           15.0           13.1 px
+##   infernal lance     the beam, half of w42           21.0           15.0 px
+##   fault line bite    the crack, per bite             20.0           15.7 px
+##   boulder hurl       the ROCK, BOULDER_R 26          26.0           17.6 px
+##   shockwave stomp    the boot's shock front          30.0           16.8 px
+##   divine ray         the pillar's ground disc        70.0           28.8 px
+##   blast Q / meteor   the detonation's own radius     90.0           32.7 px
+##     fist
+##   energy nova        the ring, NOVA_RADIUS           135.0          32.4 px
+##   meteor sigil       the meteor's blast              140.0          33.9 px
+##   meteor storm       the meteor's blast              210.0          40.4 px
+##
+## THE ONE ROW THAT LOOKS WRONG AND IS NOT. A nova (32.4) out-carves a boulder (17.6),
+## which reads backwards until you say what each one touches: a boulder is 26 px of
+## stone landing on a point, a nova is a 135 px shockwave ring scouring every bit of
+## floor it crosses. Wide-and-shallow beating small-and-heavy is what those two spells
+## LOOK like, so the ground agreeing with the picture is the rule working. Forcing the
+## boulder above the nova would mean sizing it off its blast reach instead of its rock,
+## and then the rock would excavate ground it never touched.
+##
+## AND THE ROWS THAT ARE DELIBERATELY ABSENT:
+##
+##   ZONES AND FIELDS carve ONCE, on the tick that first touches a given patch, and
+##   then nothing — not because the tick is too weak (that shelf is gone) but because
+##   `CARVE_REPEAT_BITE` refuses a source re-digging its own hole. A burning field
+##   leaves a scorched pockmark where it started; it does not eat the floor for eight
+##   seconds. That is the same answer the old damage shelf gave, arrived at honestly.
+##
+##   CHAIN LIGHTNING carves nothing, and that is not an omission. An arc leaps body to
+##   body through the AIR; it has no terrain contact to be accurate to. Wiring it would
+##   mean inventing a ground strike the spell does not have.
+##
+##   WALLS RAISED OUT OF THE GROUND (`RockWall`, `IceWall`) DO NOT YET TAKE THE
+##   MATERIAL THEY ARE MADE OF, and it is the best unbuilt idea in this pass: a rock
+##   wall that leaves a trench where it tore itself free would make cover and hazard the
+##   same act, and the trench would be exactly as long as the wall is wide, so it is
+##   readable without a tutorial. It is NOT built here for two reasons, both worth
+##   stating. Those files are not in this pass's ownership. And a wall's footprint is a
+##   long thin SPAN, not a disc — `carve_disc` would need a capsule sibling or a row of
+##   overlapping bites, and a row of bites is exactly the shape most likely to move the
+##   severed-run number off 0. It wants its own measured slice, not a bolt-on.
+##
+## The damage-only fallback curve, for a source that cannot publish a footprint. Kept
+## because `carve_from_body` is reached by bodies whose caller knows nothing about them,
+## and a source with no footprint must still carve SOMETHING rather than nothing.
+## Anchored at the same two ends as the size rule so the two curves agree at the edges.
+const CARVE_FALLBACK_FOOTPRINT: float = 8.0
+
+## ══ NOTHING CASCADES ═══════════════════════════════════════════════════════
+## A second carve from THE SAME SOURCE is refused when its centre falls inside this
+## fraction of an earlier crater's radius. That is the whole anti-cascade rule, and it
+## is deliberately per-source rather than global:
+##
+##   - a zone ticking on one spot opens ONE hole and then stops, however long it burns
+##   - a beam held on a wall opens ONE hole, not a tunnel
+##   - a Fault Line marching along the ground keeps carving, because each bite is a
+##     fresh point further along (its stride is larger than 0.75 of its own radius)
+##   - two DIFFERENT spells hitting the same spot both carve, because they are two
+##     separate strikes and the maker's model is per-strike
+##
+## ⚠ WHY NOT A COOLDOWN. A wall-clock cooldown lets a long-lived effect dissolve a
+## floor slowly instead of quickly, which is the same failure at a different speed. A
+## SPATIAL ledger cannot: the ground a source has already taken is the ground it may
+## never take again.
+const CARVE_REPEAT_BITE: float = 0.75
+## Craters remembered per source. A Fault Line is the longest walker in the roster at
+## ~30 bites; 48 covers it with room, and the oldest entry is dropped past that so a
+## pathological source cannot grow this without bound.
+const CARVE_LEDGER_MAX: int = 48
+## Sources tracked before a validity sweep runs. Freed spells leave dead ids behind and
+## nothing else would ever collect them.
+const CARVE_LEDGER_SOURCES_MAX: int = 96
 
 ## ⚠ TWO CAPS, NEVER ONE — spec §6.3. The maker's ruling forbids capping the CHUNKS
 ## REMOVED per hit ("if that happens then it happens it will be a projectile based
@@ -203,6 +307,10 @@ var _solid: PackedByteArray = PackedByteArray()
 ## air is sky) and `carved_fraction()`, which is the budget number.
 var _original: PackedByteArray = PackedByteArray()
 
+## source instance id -> Array[Vector3] of (x, y, radius) craters it has opened.
+## See `CARVE_REPEAT_BITE`.
+var _ledger: Dictionary = {}
+
 var _body: StaticBody2D = null
 var _shape_count: int = 0
 
@@ -231,6 +339,11 @@ var carve_events: int = 0
 ## threshold is doing nothing" and "the threshold is eating everything" look identical
 ## from the outside, and only this number separates them.
 var refused_hits: int = 0
+## Hits refused by the anti-cascade ledger — the same source trying to re-dig ground
+## it already took. Counted separately from `refused_hits` because "the shelf is
+## eating everything" and "one zone is looping on one spot" are different problems
+## and a single number cannot tell them apart.
+var repeat_refused_hits: int = 0
 ## Block re-merges pushed to a later frame by `MAX_BLOCK_REBUILDS_PER_FRAME`.
 var deferred_rebuilds: int = 0
 ## Wall-clock microseconds spent in block re-merges, and the worst single frame.
@@ -656,39 +769,125 @@ func surface_y_at(world_x: float) -> float:
 ## (`DestructibleTerrain.damage_at`, `DestructibleProp.damage_at`). Returns the number
 ## of cells actually removed, which is what the probes count.
 ##
-## ⚠ THE THRESHOLD IS THE WHOLE DESIGN. See `CARVE_MIN_DAMAGE`. A refused hit is not a
-## no-op: it still gets the chip and the scorch, because a spell that visibly hits rock
-## and leaves no mark reads as a bug even when the rock is supposed to survive.
-## `radius_hint` is the OPTIONAL fourth argument, and the three-argument shipped
-## contract is untouched by it. It exists for one honest case: a detonation already
-## knows its own footprint, and a 90 px blast that leaves a 30 px dent looks like the
-## spell missed. A hint can only ever WIDEN the crater, never narrow it, so no call site
-## can quietly disable destruction by passing a small number.
+## `world_pos` IS THE CONTACT POINT AND NOTHING ELSE. The maker's correction is
+## explicit — *"ensure that the damage done is kept accurate to where it hit"* — so
+## every call site owes this function the point the strike actually met the rock, not
+## the caster's position, not the spell's origin, and not a floor point snapped some
+## distance away from it. Where a source genuinely has no contact point (a detonation
+## in mid-air over ground it never touched) it snaps DOWN and says so at the call site.
+##
+## `footprint` is the effect's own contact RADIUS / half-width in world px, and it is
+## what SIZES the hole. ⚠ ITS MEANING CHANGED. It used to be `radius_hint`, a number
+## that could only ever WIDEN a damage-derived crater; it is now the primary term, and
+## a small footprint therefore makes a SMALL hole however big the damage number is.
+## That is the correction: a 30 px beam carrying 88 damage used to open a 38 px hole,
+## which is the spell arguing with its own picture. Pass 0 only when the source truly
+## has no published size — see `CARVE_FALLBACK_FOOTPRINT`.
+##
+## `source` is the effect doing the striking, and it exists for the anti-cascade rule
+## only — see `CARVE_REPEAT_BITE`. Passing null opts a call site out of repeat
+## protection, which is correct for a one-shot projectile that dies on impact and wrong
+## for anything that ticks.
+##
+## ⚠ A REFUSED HIT IS STILL NOT A NO-OP at the call site: the chip and the scorch fire
+## regardless, because a spell that visibly hits rock and leaves no mark reads as a bug
+## even when the rock is supposed to survive.
 func damage_at(amount: int, world_pos: Vector2, dir: Vector2,
-		radius_hint: float = 0.0) -> int:
+		footprint: float = 0.0, source: Object = null) -> int:
 	if amount < CARVE_MIN_DAMAGE:
 		refused_hits += 1
 		return 0
-	var r: float = maxf(carve_radius_for(amount),
-		minf(radius_hint * BLAST_CRATER_FRACTION, CARVE_RADIUS_MAX * 1.6))
+	var r: float = carve_radius_for_strike(amount, footprint)
+	if not _ledger_admits(source, r, world_pos):
+		repeat_refused_hits += 1
+		return 0
 	var removed: int = carve_disc(world_pos, r)
 	if removed <= 0:
 		return 0
+	_ledger_record(source, world_pos, r)
 	carve_events += 1
 	_spawn_carve_spectacle(world_pos, r, dir)
 	return removed
 
 
-## Crater radius for a damage number. Sub-linear (sqrt), anchored so the lightest hit
-## that is allowed to carve at all opens `CARVE_RADIUS_MIN` and the heaviest ult in the
-## library opens `CARVE_RADIUS_MAX`. Static and pure so a test can assert the curve
-## without building a stage.
+## THE SIZE RULE. Pure and static so a test can print the whole roster's table without
+## building a stage — and `tools/slice_test_destructible_hitpoint.gd` does exactly that,
+## then fails if the four shapes the maker named are not visibly apart.
+##
+## Sub-linear in the footprint AND in the damage, for the reason the old damage curve
+## already gave: a hit worth five times as much must not dig twenty-five times as wide.
+## Here the same argument applies twice over, because the footprint range (8 px to
+## 210 px) is wider than the damage range.
+static func carve_radius_for_strike(amount: int, footprint: float) -> float:
+	var f: float = footprint if footprint > 0.0 else CARVE_FALLBACK_FOOTPRINT
+	var base: float = CARVE_FOOTPRINT_K * sqrt(maxf(f, 1.0))
+	return clampf(base * carve_damage_scale(amount),
+		CARVE_RADIUS_MIN, CARVE_RADIUS_MAX)
+
+
+## How much damage nudges the footprint's answer. Bounded to
+## [`CARVE_DAMAGE_SCALE_MIN`, `CARVE_DAMAGE_SCALE_MAX`] so damage can never take the
+## size question away from the footprint — which is the whole point of the correction.
+static func carve_damage_scale(amount: int) -> float:
+	var lo: float = sqrt(CARVE_DAMAGE_FLOOR)
+	var hi: float = sqrt(CARVE_DAMAGE_CEILING)
+	var t: float = clampf((sqrt(maxf(float(amount), CARVE_DAMAGE_FLOOR)) - lo)
+		/ maxf(hi - lo, 0.001), 0.0, 1.0)
+	return lerpf(CARVE_DAMAGE_SCALE_MIN, CARVE_DAMAGE_SCALE_MAX, t)
+
+
+## The damage-only curve, kept for the call site that has a damage number and nothing
+## else. It is now defined AS the size rule with the fallback footprint, so there is one
+## curve in this file and not two that can drift apart.
 static func carve_radius_for(amount: int) -> float:
-	var lo: float = float(CARVE_MIN_DAMAGE)
-	var hi: float = CARVE_DAMAGE_CEILING
-	var t: float = clampf((sqrt(maxf(float(amount), lo)) - sqrt(lo))
-		/ maxf(sqrt(hi) - sqrt(lo), 0.001), 0.0, 1.0)
-	return lerpf(CARVE_RADIUS_MIN, CARVE_RADIUS_MAX, t)
+	return carve_radius_for_strike(amount, CARVE_FALLBACK_FOOTPRINT)
+
+
+# ── the anti-cascade ledger ────────────────────────────────────────────────
+## May `source` open a crater of `radius` at `at`? No, if it already opened one whose
+## centre is within `CARVE_REPEAT_BITE` of ITS radius. See that constant for why this is
+## spatial and not a cooldown.
+##
+## A null source is always admitted: a bolt that dies on impact cannot repeat itself,
+## and making every projectile allocate a ledger entry would be pure cost.
+## ⚠ `radius` IS THE NEW CRATER'S AND IS DELIBERATELY NOT READ. The question is
+## whether this point is inside ground the source ALREADY took, so the test is against
+## the OLD crater's radius. Comparing against the new one instead would let a source
+## widen its own hole indefinitely by escalating — which is the erosion this exists to
+## stop. It stays in the signature so the two ledger calls read alike at the call site.
+func _ledger_admits(source: Object, _new_radius: float, at: Vector2) -> bool:
+	if source == null or not is_instance_valid(source):
+		return true
+	var id: int = source.get_instance_id()
+	if not _ledger.has(id):
+		return true
+	for e: Vector3 in (_ledger[id] as Array):
+		var old_r: float = e.z
+		if Vector2(e.x, e.y).distance_to(at) < old_r * CARVE_REPEAT_BITE:
+			return false
+	return true
+
+
+func _ledger_record(source: Object, at: Vector2, radius: float) -> void:
+	if source == null or not is_instance_valid(source):
+		return
+	var id: int = source.get_instance_id()
+	if _ledger.size() >= CARVE_LEDGER_SOURCES_MAX and not _ledger.has(id):
+		_ledger_sweep()
+	var list: Array = _ledger.get(id, []) as Array
+	list.append(Vector3(at.x, at.y, radius))
+	while list.size() > CARVE_LEDGER_MAX:
+		list.remove_at(0)
+	_ledger[id] = list
+
+
+## Drop every source that has been freed. Called only when the table is full, because
+## the sweep is O(sources) and a bout opens far fewer than the cap.
+func _ledger_sweep() -> void:
+	for id: int in _ledger.keys():
+		var o: Object = instance_from_id(id)
+		if o == null or not is_instance_valid(o):
+			_ledger.erase(id)
 
 
 ## Clear every cell whose centre is inside the disc. Returns cells removed.
@@ -806,7 +1005,7 @@ static func stage_in(ctx: Node) -> DestructibleStage:
 ## underneath it. Returns cells removed; 0 whenever the flag is off, because with the
 ## flag off there is no stage node and `get_meta` finds nothing.
 static func carve_from_body(hit: Object, amount: int, world_pos: Vector2,
-		dir: Vector2) -> int:
+		dir: Vector2, footprint: float = 0.0, source: Object = null) -> int:
 	if hit == null or not is_instance_valid(hit):
 		return 0
 	var n: Node = hit as Node
@@ -815,15 +1014,16 @@ static func carve_from_body(hit: Object, amount: int, world_pos: Vector2,
 	var s: DestructibleStage = n.get_meta(BODY_META) as DestructibleStage
 	if s == null or not is_instance_valid(s):
 		return 0
-	return s.damage_at(amount, world_pos, dir)
+	return s.damage_at(amount, world_pos, dir, footprint, source)
 
 
 ## Route an AREA hit that never touched a body — a blast, a nova, a ground slam. The
 ## stage is found by group, and the carve is refused where there is no rock, so a blast
 ## detonating in mid-air over a pit removes nothing.
 static func carve_area(ctx: Node, amount: int, world_pos: Vector2, dir: Vector2,
-		radius_hint: float = 0.0) -> int:
+		footprint: float = 0.0, source: Object = null) -> int:
 	var s: DestructibleStage = stage_in(ctx)
 	if s == null:
 		return 0
-	return s.damage_at(amount, world_pos, dir, radius_hint)
+	return s.damage_at(amount, world_pos, dir, footprint,
+		source if source != null else ctx)

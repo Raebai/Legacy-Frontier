@@ -46,7 +46,7 @@ const TESTS: Array[String] = [
 	"boulder_hurl_bites_the_floor_where_it_landed",
 	"fault_line_walks_a_broken_line_of_holes_and_never_a_trench",
 	"grave_tide_bites_at_a_stride_and_never_under_the_caster",
-	"energy_nova_is_on_the_chip_shelf_and_must_stay_there",
+	"energy_nova_carves_a_ring_sized_hole",
 	"meteor_fist_carves_once_through_its_blast_and_not_twice",
 	"every_carve_stays_inside_the_budget_the_stage_advertises",
 ]
@@ -306,14 +306,16 @@ func grave_tide_bites_at_a_stride_and_never_under_the_caster() -> void:
 	_done("grave_tide_bites_at_a_stride_and_never_under_the_caster")
 
 
-# ── 5. Energy Nova — the NEGATIVE control ──────────────────────────────────
+# ── 5. Energy Nova — carves, and its hole is nova-shaped ───────────────────
 
-## ⚠ A PASSING TEST HERE MEANS THE SPELL DID NOTHING, which is the one shape of test
-## that rots quietly. It is here because the destructible handoff explicitly asked for
-## `carve_area(self, NOVA_DAMAGE, ...)` at `EnergyNova.gd:312`, and that call is
-## arithmetically dead: 30 < 40. If somebody later adds it "to finish the list", this
-## fails and the comment at that site explains why it must not be there.
-func energy_nova_is_on_the_chip_shelf_and_must_stay_there() -> void:
+## ⚠ THIS TEST USED TO ASSERT THE EXACT OPPOSITE. It was a NEGATIVE control named
+## `energy_nova_is_on_the_chip_shelf_and_must_stay_there`, and it was right about the
+## code it was written against: `NOVA_DAMAGE` is 30, `CARVE_MIN_DAMAGE` was 40, so the
+## carve the handoff asked for was arithmetically dead. The maker's correction retired
+## that shelf — *"for all things where it was hit"* — so the property inverts, and it is
+## rewritten here rather than deleted because the interesting half survives: the nova's
+## hole must be NOVA-SIZED, i.e. sized by its 135 px ring and not by its 30 damage.
+func energy_nova_carves_a_ring_sized_hole() -> void:
 	await process_frame
 	# ⚠ READ THROUGH A RUNTIME `load()`, NEVER AS `EnergyNova.NOVA_DAMAGE`. Naming the
 	# class forces the compiler to resolve `EnergyNova.gd` while THIS file is being
@@ -324,21 +326,24 @@ func energy_nova_is_on_the_chip_shelf_and_must_stay_there() -> void:
 	var nova: GDScript = load("res://scripts/combat/EnergyNova.gd") as GDScript
 	var nova_damage: int = int(nova.get("NOVA_DAMAGE"))
 	var nova_radius: float = float(nova.get("NOVA_RADIUS"))
-	_expect(nova_damage < DestructibleStage.CARVE_MIN_DAMAGE,
-		"NOVA_DAMAGE (%d) is no longer under CARVE_MIN_DAMAGE (%d) — the nova has moved"
-			% [nova_damage, DestructibleStage.CARVE_MIN_DAMAGE]
-		+ " onto the committed shelf, so the reasoning in EnergyNova's comment is stale"
-		+ " and the carve it argues against may now be the right call")
-	# And the contract itself refuses it, so this is not just an arithmetic claim.
 	var stage: DestructibleStage = _live_stage()
 	var removed: int = stage.damage_at(nova_damage, GROUND + Vector2(0.0, 2.0),
 		Vector2.UP, nova_radius)
-	_expect(removed == 0,
-		"a nova-strength hit removed %d cell(s) — even the radius hint must not be able"
-			% removed + " to drag a chip-shelf hit past the threshold")
-	_expect(stage.refused_hits == 1, "the refusal was counted, got %d" % stage.refused_hits)
+	_expect(removed > 0,
+		"a nova removed nothing — %d damage at a %.0f px footprint must carve now that"
+			% [nova_damage, nova_radius] + " the damage shelf is retired")
+	_expect(stage.refused_hits == 0,
+		"the nova was refused by the damage shelf, %d time(s)" % stage.refused_hits)
+	# THE SIZE IS THE POINT. A damage-only curve would give 30 damage the smallest
+	# crater in the game; the nova's own 135 px ring must dominate it.
+	var by_footprint: float = DestructibleStage.carve_radius_for_strike(
+		nova_damage, nova_radius)
+	var by_damage_only: float = DestructibleStage.carve_radius_for(nova_damage)
+	_expect(by_footprint > by_damage_only * 2.0,
+		"the nova's footprint is not driving its crater: %.1f px with the ring vs %.1f"
+			% [by_footprint, by_damage_only] + " px on damage alone")
 	await _teardown(stage, [])
-	_done("energy_nova_is_on_the_chip_shelf_and_must_stay_there")
+	_done("energy_nova_carves_a_ring_sized_hole")
 
 
 # ── 6. Meteor Fist — carves, but only once ─────────────────────────────────

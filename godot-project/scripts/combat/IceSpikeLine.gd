@@ -380,6 +380,24 @@ func _strike(sp: Dictionary, h: float) -> void:
 	var base: Vector2 = sp["base"]
 	var hw: float = sp["hw"]
 	var hit: Dictionary = sp["hit"]
+	# THE DECK THE SPIKE CAME THROUGH. Requirement 3 of the maker's correction: a
+	# spike erupting out of the floor is as much a hit on the floor as anything else
+	# in the roster, and until now the ground it tore through was pristine.
+	#
+	# `base` is `_step_floor`'s probe result — the surface the spike is drawn standing
+	# on — so the hole is exactly under the spike and hit-point accurate by
+	# construction. `SPIKE_HALF_W` (16) as the footprint gives a ~12 px crater, so at
+	# `SPIKE_SPACING` (32) neighbouring holes do NOT touch: a spike line perforates the
+	# deck, it does not saw through it. That is measured, not assumed — the severed-run
+	# number in `tools/probe_destructible_bot_fight.gd` is what would catch it.
+	#
+	# ⚠ `_strike` RUNS EVERY FRAME A SPIKE IS STANDING, so this is called dozens of
+	# times per spike. It does not dig dozens of times: `DestructibleStage`'s per-source
+	# ledger refuses a second carve inside a crater this same node already opened. That
+	# is the mechanism that replaced the old damage shelf, and this is its loudest
+	# customer in the roster.
+	if h > 0.0:
+		DestructibleStage.carve_area(self, _damage, base, Vector2.UP, SPIKE_HALF_W)
 	# hostiles(): spike 0 erupts under the caster's own feet.
 	for enemy: Node in targets_in_spike(base, hw, h,
 			SpellTargets.hostiles(self, target_group)):

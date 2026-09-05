@@ -132,10 +132,22 @@ func _go() -> void:
 			+ " Either the wiring is dead or nothing ever hit the ground. The budget"
 			+ " numbers above are meaningless until this is non-zero.")
 	if not any_refusal:
-		printerr("[carve-budget] CONTROL FAILED: the threshold refused NOTHING."
-			+ " With CARVE_MIN_DAMAGE at %d something should have been turned away;"
+		# ⚠ NOT A FAILURE, AND IT USED TO BE PRINTED AS ONE. With the damage shelf retired
+		# (`CARVE_MIN_DAMAGE` is 1) this counter is the ANTI-CASCADE ledger's, and the
+		# ledger only fires when ONE source hits rock twice inside its own crater — a zone
+		# burning on a spot, an ice-spike line standing, a beam held. A four-bout sample of
+		# bot fights routinely contains none of those, so a zero here is a statement about
+		# what the bots cast, not about whether the mechanism works.
+		#
+		# The mechanism is asserted where it can be forced:
+		# `tools/slice_test_destructible_hitpoint.gd`, test 4, which drives 33 drifting
+		# ticks into one spot and fails if the floor erodes. Reporting it as CONTROL FAILED
+		# here trained the reader to ignore a line that will usually be zero.
+		# [[feedback_harnesses_lie_verify_them]].
+		print("[carve-budget] note: nothing was refused. With CARVE_MIN_DAMAGE at %d"
 			% DestructibleStage.CARVE_MIN_DAMAGE
-			+ " a flat zero means the threshold is unreachable, not that it is right.")
+			+ " that counter is the anti-cascade ledger's, and no repeating ground source"
+			+ " (zone / spike line / held beam) came up in these bouts. Expected.")
 	quit(0)
 
 
@@ -176,11 +188,11 @@ func _one_bout(scene: PackedScene, pair: Vector2i) -> Dictionary:
 			next_mark += 5.0
 			print("    t=%5.1fs  carved %5.2f%%  events %3d  refused %4d  shapes %3d"
 				% [clock, stage.carved_fraction() * 100.0, stage.carve_events,
-					stage.refused_hits, stage.shape_count()])
+					stage.refused_hits + stage.repeat_refused_hits, stage.shape_count()])
 	var row: Dictionary = {
 		"carved": stage.carved_fraction() if stage != null else 0.0,
 		"events": stage.carve_events if stage != null else 0,
-		"refused": stage.refused_hits if stage != null else 0,
+		"refused": (stage.refused_hits + stage.repeat_refused_hits) if stage != null else 0,
 	}
 	var outcome: String = ""
 	var match_seconds: float = clock
@@ -192,7 +204,8 @@ func _one_bout(scene: PackedScene, pair: Vector2i) -> Dictionary:
 		% [label, clock, match_seconds, " | BOUT ENDED" if over else "", outcome])
 	if stage != null:
 		print("    carved %.2f%% of the rock over %d carve event(s); %d hit(s) refused"
-			% [stage.carved_fraction() * 100.0, stage.carve_events, stage.refused_hits])
+			% [stage.carved_fraction() * 100.0, stage.carve_events,
+				stage.refused_hits + stage.repeat_refused_hits])
 		print("    deepest hole %.0f px into a %.0f px column; widest severed run %.0f px"
 			% [_deepest(stage), _column_depth(stage), _widest_gap(stage)])
 		print("    rebuild: %.0f us total, worst frame %.0f us, %d block re-merge(s) deferred"

@@ -432,6 +432,24 @@ func _check_flight_collision() -> bool:
 		SpellWorld.rids([_owner]), self, false)
 	if bool(world["hit"]):
 		_bite_cover(world)
+		# THE BLADE GOES IN, AND SO DOES A LITTLE OF THE ROCK. Requirement 3 of the
+		# maker's correction — everything that hits carves, not a privileged list — and
+		# the dagger is the smallest thing in the roster that hits terrain at all, which
+		# makes it the bottom end of the size table — the maker's *"a dagger, a bolt: a
+		# chip"*.
+		#
+		# ⚠ THE FOOTPRINT IS THE BLADE, NOT `HIT_RADIUS`. `HIT_RADIUS` (15) is the
+		# spell's REACH — how close the blade has to pass a body to cut it — and it is
+		# larger than the blade itself. What goes into the rock is `BLADE_HALF_W` (4.2)
+		# of steel, so that is the contact patch and it opens an ~8 px crater: a chip.
+		# Using the reach instead would have given a thrown knife the same hole a 30 px
+		# beam makes, which is the size rule drifting back off the physical object.
+		#
+		# `world["position"]` is the raycast contact and nothing is snapped to it, so
+		# this is hit-point accurate by construction — the dagger plants itself at the
+		# same point the hole opens, and you can see the two agree.
+		DestructibleStage.carve_from_body(world["collider"], _damage,
+			world["position"] as Vector2, _dir, BLADE_HALF_W * 2.0, self)
 		_stick_world(world["position"] as Vector2)
 		return true
 	return false

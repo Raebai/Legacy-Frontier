@@ -269,6 +269,7 @@ func _discharge() -> void:
 	_fired = true
 	_apply_beam_damage()
 	var tip: Vector2 = _beam_tip()
+	_carve_terrain(tip)
 	_impact_burst(tip)
 	_impact_mark(tip)
 	Juice.hit_stop(0.09)
@@ -291,6 +292,50 @@ func _discharge() -> void:
 	Sfx.play(_beam_sfx_key(), 1.0, 0.06)  # discharge, in this beam's own voice
 	if _circle != null and is_instance_valid(_circle):
 		_circle.vanish(FIRE_TIME + FADE_TIME)
+
+
+## THE MAKER'S OWN EXAMPLE, AND UNTIL NOW IT CARVED NOTHING AT ALL.
+##
+##   *"if I shoot a beam for example, one of arcanist's abilities, it creates a hole
+##   where I struck but nothing more or less than that, just that definitive hole."*
+##
+## Two separate faults were in the way. The first is that this file never asked the
+## world ANY question: `_beam_tip()` is `_origin + _dir * _length`, a fixed reach, so
+## the beam has always been drawn straight through rock and had no idea where it met
+## it. The second is that `DestructibleStage.CARVE_MIN_DAMAGE` was 40 and would have
+## refused half the beam roster anyway; that shelf is gone.
+##
+## ⚠ ONE POINT, NOT A TRENCH. The obvious reading of "a beam carves" is a line of holes
+## down the corridor, and it is wrong twice over. The maker ruled it out in the same
+## breath — *"nothing more or less than that"* — and the geometry agrees: this beam does
+## not sweep. It is fired once along a fixed axis and held; every frame of it occupies
+## the identical corridor, so there is exactly one place it meets the ground, and a
+## trench would be inventing motion the spell does not have. A beam that DID sweep
+## would earn a trench, and nothing in the roster sweeps one today.
+##
+## ⚠ AND IT IS THE RAY'S CONTACT POINT, NOT THE TIP. The tip is wherever `_length` runs
+## out, which for a 1,150 px lance is usually deep inside the far wall or out over the
+## pit past it. Carving there would put the hole metres from the flash the player
+## watched — precisely the "accurate to where it hit" failure the correction names.
+##
+## `smash_destructibles` is left TRUE so the ray pierces crates the way the beam's own
+## damage pass does, and stops on the first thing that is genuinely solid. Routing
+## through `carve_from_body` rather than `carve_area` means a beam that stopped on a
+## ruin platform or the arena rim carves nothing, because only the stage's own collider
+## carries the back-pointer.
+##
+## Footprint is the beam's own WIDTH as a half-width — the hole is the size of the
+## thing that made it. Measured against the shipped defs by
+## `tools/slice_test_destructible_hitpoint.gd`: 22 px Frostpiercer -> 10.3 px radius,
+## 30 px First Lance -> 13.1, 42 px Infernal Lance -> 15.0. A beam's hole is about as
+## wide as the beam, which is what "definitive" has to mean.
+func _carve_terrain(tip: Vector2) -> void:
+	var r: Dictionary = SpellWorld.first_solid(
+		_origin, tip, SpellWorld.rids([caster_node]), self)
+	if not bool(r["hit"]):
+		return
+	DestructibleStage.carve_from_body(r["collider"], _damage,
+		r["position"] as Vector2, _dir, _width * 0.5, self)
 
 
 ## Impact spray at the beam tip, charactered per effect: frost = fast shards
