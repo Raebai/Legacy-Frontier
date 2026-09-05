@@ -46,8 +46,25 @@ const GROUND_THICKNESS: float = 260.0
 ##
 ## So: real walls at the slab's own edges, and a catch under the world in case anything
 ## ever gets past them.
-const BOUND_LEFT: float = -100.0
+##
+## ⚠ THE LEFT WALL MOVED OUT, AND THE CAMERA MOVED WITH IT. Maker: *"the far left side
+## of the lobby can be a little further out before the invisible barrier"*. -100 put the
+## wall's inner face at -76 — but the town camera's `limit_left` was 0, so the last
+## ~76 px of legal floor were floor the camera COULD NOT FRAME: you walked off the left
+## edge of the picture and then hit something you could not see. Handing back more room
+## without moving the clamp would have made that corridor longer, not better.
+##
+## So both numbers move together and the new room is FRAMED. -196 puts the inner face at
+## -172 (a body reaches about x -163) and `_place_player` sets `limit_left` to -210, so
+## at the far wall the player still stands ~47 px inside the frame. It is also what the
+## bar in `AntechamberBackdrop` is drawn into — a room does not need more empty floor,
+## it needs somewhere else to be.
+const BOUND_LEFT: float = -196.0
 const BOUND_RIGHT: float = TOWN_WIDTH + 100.0
+## What the town camera is allowed to show past the left wall. See the ⚠ above: it is
+## OUTSIDE `BOUND_LEFT` on purpose, so the wall is a place you arrive at rather than the
+## edge of the picture. The floor slab and the drawn room both run further still.
+const CAM_LIMIT_LEFT: float = -210.0
 ## Thick enough that a body moving fast cannot tunnel through it in one physics step.
 const BOUND_THICKNESS: float = 48.0
 ## Tall enough that no jump, and no jump off the loft, clears the top. The loft is
@@ -98,6 +115,11 @@ const PAD_FIRST_X: float = 460.0
 const PAD_STEP: float = 120.0
 const ARMORY_X: float = PAD_FIRST_X                    # ⚔ your equipment
 const CLASS_X: float = PAD_FIRST_X + PAD_STEP          # ☗ your class AND your spells
+## THE HEARTH. Still named for the campfire it used to be — the constant is what
+## `_spawn_ambience` hands `HubAmbience`, and renaming it would churn a public seam for
+## a comment's worth of clarity. It is a stone fireplace set into the tavern's back wall
+## now (see `HubAmbience._draw_hearth`); the x is unchanged, so the warm middle of the
+## room is where it always was.
 const CAMPFIRE_X: float = 800.0      # the warm middle; nothing to press
 
 ## ══ THE DUMMY YARD ═══════════════════════════════════════════════════════════
@@ -206,9 +228,13 @@ const TOWNSFOLK: Array[Dictionary] = [
 	{"res": "res://data/npcs/doorkeeper.tres", "x": 930.0, "range": 0.0},  # AT the door
 ]
 
-## Decoration only — a raised deck up-left that gives the skyline some depth. It
-## used to be where the armory lived, behind a jump. Nothing a phone player needs
-## is up a platform any more.
+## Decoration only — a raised deck up-left. It used to be where the armory lived,
+## behind a jump. Nothing a phone player needs is up a platform any more.
+##
+## ⚠ IT IS THE TAVERN'S GALLERY NOW, and it finally has a reason to be reachable:
+## `AntechamberBackdrop._draw_stair` draws a stringer and seven treads under these two
+## slabs, so the loft reads as the upstairs and the STEP reads as the landing. The
+## numbers are unchanged — only the thing drawn behind them is.
 ## ── THE SIGNBOARD ────────────────────────────────────────────────────────────
 ## Maker: "a SIGN in the background, part of the map, telling you where to go."
 ##
@@ -239,8 +265,19 @@ const LOFT_SIZE: Vector2 = Vector2(300.0, 16.0)
 const STEP_CENTER: Vector2 = Vector2(340.0, GROUND_Y - 58.0)
 const STEP_SIZE: Vector2 = Vector2(120.0, 14.0)
 
-const GROUND_COLOR: Color = Color(0.10, 0.11, 0.13)
-const GROUND_RIM: Color = Color(0.3, 0.55, 0.42)
+## ⚠ THE FLOOR IS BOARDS NOW, NOT DIRT, AND THE RIM IS NOT MOSS. The old pair was a
+## neutral grey-blue ground under a MOSSY GREEN lip, which was right for a forest
+## clearing and is the single loudest wrong colour in a tavern — a cold floor with a
+## green edge under warm lamplight reads as outdoors no matter what is drawn behind it.
+## The ground is now dark oak and the lip is the `StageLayers` grammar's own warm cap
+## (rule 1: a bright warm line along a top edge = you can stand on this), which is the
+## colour every ledge in every fight already wears.
+const GROUND_COLOR: Color = Color(0.121, 0.086, 0.064)
+const GROUND_RIM: Color = Color(0.52, 0.39, 0.24)
+## Floorboard seams. Drawn as thin darker lines across the slab — the only texture the
+## floor gets, and what stops a gradient reading as a painted block under the lamps.
+const BOARD_STEP: float = 96.0
+const BOARD_SEAM: Color = Color(0.06, 0.042, 0.032, 0.85)
 const CHALK: Color = Color(0.93, 0.92, 0.86)
 const GRAPHITE: Color = Color(0.62, 0.63, 0.70)
 
@@ -271,6 +308,7 @@ func _ready() -> void:
 	_build_backdrop()
 	_build_ground()
 	_build_bounds()
+	_build_ledges()
 	# ⚠ `_build_loft()` USED TO BE HERE. Maker: *"remove the platforms on the training
 	# area at the entrance on the left"* — the two decks above the dummy yard. The
 	# function and its constants stay: `LOFT_CENTER` / `LOFT_SIZE` are read by
@@ -311,25 +349,39 @@ func _ready() -> void:
 ## background to make it feel cooler … I'll add some cool anime peaceful music for the
 ## entry area"*.
 ##
-## The palette below is the same FOUR STOPS it always was, moved off flat navy onto a
-## twilight ramp (deep indigo overhead, warm violet at the horizon) so the room reads
-## as dusk rather than as night — which is the light calm music is scored against, and
-## the light a silhouette needs to be a silhouette. The accent moves with it, from the
-## old teal to a periwinkle that the aurora and the tower rim both read from.
+## ⚠ AND THEN THE WHOLE ROOM WENT INDOORS. Maker, later: *"make the lobby very
+## different like a tavern vibe I like that feel way more — not outside at a campfire
+## but instead inside of a tavern with warm lit and cool graphics"*. The verdict above
+## still holds and the epic is still here; what changed is WHERE you are standing while
+## you look at it. `AntechamberBackdrop` is now a tavern shell — plank wall, tie-beam,
+## hanging lamps, a bar — and the spire, the moon and the night are seen THROUGH its
+## three windows. See the brainstorm at the top of that file for what an interior
+## excludes and why nothing here was merely re-tinted.
 ##
-## The tower itself is `AntechamberBackdrop`, and it is a SEPARATE node on a separate
+## The room itself is `AntechamberBackdrop`, and it is a SEPARATE node on a separate
 ## rung for the reasons written at the top of that file. `Atmosphere` still owns the
-## sky gradient and the distant spires; nothing about it changed except its colours.
+## sky gradient and the distant spires — which are now what shows through the glass.
 func _build_backdrop() -> void:
 	var atmo := Atmosphere.new()
 	add_child(atmo)
-	var sky_bottom := Color(0.19, 0.16, 0.30)
+	# ⚠ THIS IS NOW THE NIGHT SEEN THROUGH THREE WINDOWS, NOT THE ROOM'S OWN SKY, AND
+	# THAT IS WHY IT GOT COLDER. `AntechamberBackdrop` paints an opaque plank wall over
+	# this whole rung and stops the paint at its window openings — so every pixel of
+	# `Atmosphere` that survives is framed by timber, and its job changed from "the dusk
+	# you are standing in" to "the cold thing the tavern is warm against". A dusk violet
+	# read as a second warm light source through the glass and killed the contrast the
+	# whole room is built on. Deep night blue does not.
+	#
+	# ⚠ AND IT IS NOT DELETED, THOUGH NOTHING BUT THE WINDOWS SHOWS IT. It is what makes
+	# the openings holes rather than blue rectangles: the sky gradient and the distant
+	# spires slide behind the frames exactly as a view does.
+	var sky_bottom := Color(0.105, 0.118, 0.235)
 	var accent := Color(0.62, 0.70, 1.0)
 	atmo.build(Rect2(Vector2(-400.0, -320.0), Vector2(TOWN_WIDTH + 800.0, GROUND_Y + 760.0)), {
-		"sky_top": Color(0.035, 0.035, 0.09),
+		"sky_top": Color(0.020, 0.024, 0.062),
 		"sky_bottom": sky_bottom,
-		"silhouette_far": Color(0.07, 0.08, 0.17),
-		"silhouette_near": Color(0.035, 0.04, 0.09),
+		"silhouette_far": Color(0.048, 0.056, 0.120),
+		"silhouette_near": Color(0.026, 0.030, 0.068),
 		"accent": accent,
 	})
 	# THE SPIRE, THE MOON, THE RIDGES, THE CLOUD AND THE PETALS. Added AFTER the
@@ -349,10 +401,18 @@ func _spawn_ambience() -> void:
 
 func _build_ground() -> void:
 	var body := StaticBody2D.new()
-	body.position = Vector2(TOWN_WIDTH * 0.5, GROUND_Y + GROUND_THICKNESS * 0.5)
+	# ⚠ THE SLAB IS DERIVED FROM THE WALLS NOW, NOT FROM `TOWN_WIDTH`. It used to be
+	# `TOWN_WIDTH + 200` centred on the town, i.e. -100..1280 — which happened to end
+	# exactly at the old `BOUND_LEFT`. Moving that wall out by 96 px would have left the
+	# player standing on nothing, and the bug would have looked like a physics fault
+	# rather than an arithmetic one. Spanning the bounds with 100 px of overhang at each
+	# end makes it impossible to move a wall past the floor again.
+	var slab_l: float = BOUND_LEFT - 100.0
+	var slab_r: float = BOUND_RIGHT + 100.0
+	body.position = Vector2((slab_l + slab_r) * 0.5, GROUND_Y + GROUND_THICKNESS * 0.5)
 	var cs := CollisionShape2D.new()
 	var shape := RectangleShape2D.new()
-	shape.size = Vector2(TOWN_WIDTH + 200.0, GROUND_THICKNESS)
+	shape.size = Vector2(slab_r - slab_l, GROUND_THICKNESS)
 	cs.shape = shape
 	body.add_child(cs)
 	var grad := Gradient.new()
@@ -377,12 +437,82 @@ func _build_ground() -> void:
 	rim.z_index = -4
 	rim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	body.add_child(rim)
+	# FLOORBOARD SEAMS. Cheap `ColorRect`s rather than a `_draw`, so the floor stays a
+	# node with no script and no redraw cost at all — they are static, and a static
+	# thing that never animates has no business owning a paint callback.
+	#
+	# ⚠ THEY ARE PERPENDICULAR TO THE BOARDS YOU'D EXPECT. This is a SIDE-ON room, so
+	# the floor is seen edge-on: what a player can actually see of a board is its END,
+	# which is a vertical seam. A horizontal "plank" line here would read as a step.
+	var seam_x: float = slab_l + BOARD_STEP
+	while seam_x < slab_r:
+		var seam := ColorRect.new()
+		seam.color = BOARD_SEAM
+		seam.size = Vector2(1.0, 14.0)
+		seam.position = Vector2(seam_x - body.position.x, -shape.size.y * 0.5 + 4.0)
+		seam.z_index = -4
+		seam.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		body.add_child(seam)
+		seam_x += BOARD_STEP
 	add_child(body)
 
 
 func _build_loft() -> void:
 	_make_platform(LOFT_CENTER, LOFT_SIZE)
 	_make_platform(STEP_CENTER, STEP_SIZE)
+
+
+## ══ THE TWO LEDGES, AND WHY THEY ARE NOT THE ONES THAT WERE DELETED ═════════
+## Maker: *"add ledge where you think they could be helpful"*. The same maker had the
+## LOFT and the STEP removed from this room hours earlier (*"remove the platforms on
+## the training area at the entrance on the left"*), so "add a ledge" cannot mean "put
+## those back". What was wrong with them is the thing this avoids:
+##
+##   1. THEY WERE FLOATING SLABS. A dark rectangle hanging in the air over the dummy
+##      yard is level geometry, not a room. Both ledges here are the TOP OF SOMETHING
+##      THAT IS ALREADY DRAWN — the bar counter and the barrel stack beside it — so
+##      they read as furniture you climbed onto, which is what a tavern ledge is.
+##   2. THEY WERE IN THE WAY. They sat over the training dummies. These are in the
+##      strip the left wall gave back (`BOUND_LEFT` moved out to -196), west of the
+##      first dummy at x 110, so nothing in the room has to be walked around.
+##
+## The stack is a real two-step traversal: floor -> barrel (y 379) -> bar top (y 393)
+## is wrong-way-round on paper, so it is floor -> bar top -> barrel, i.e. a short hop
+## up and then a taller one, which is the shape that is worth doing at all.
+##
+## ⚠ COLLIDER-ONLY, VIA `_make_ledge` RATHER THAN `_make_platform`. The visual already
+## exists in `AntechamberBackdrop._draw_bar`, and `_make_platform` paints its own dark
+## slab plus a rim — running it here would draw a grey plank straight through the
+## counter it is meant to BE.
+const LEDGE_BAR_CENTER: Vector2 = Vector2(-59.0, 398.0)
+const LEDGE_BAR_SIZE: Vector2 = Vector2(238.0, 10.0)
+## ⚠ ITS RIGHT EDGE IS x 90 AND THE FIRST DUMMY STANDS AT 110. See `BARREL_DX` in
+## `AntechamberBackdrop`: a ledge reaching under a dummy makes the dummy read its ground
+## line off the ledge instead of the floor, which is the fault `probe_town_feet` exists
+## to catch.
+const LEDGE_BARREL_CENTER: Vector2 = Vector2(68.0, 383.0)
+const LEDGE_BARREL_SIZE: Vector2 = Vector2(44.0, 8.0)
+
+
+func _build_ledges() -> void:
+	_make_ledge(LEDGE_BAR_CENTER, LEDGE_BAR_SIZE)
+	_make_ledge(LEDGE_BARREL_CENTER, LEDGE_BARREL_SIZE)
+
+
+## A standable surface with NO visual of its own — for ledges whose picture is drawn by
+## the scenery. Same layer/mask contract as `_build_bounds`: layer 1 is what `Hero`
+## collides with, mask 0 because a ledge detects nothing.
+func _make_ledge(center: Vector2, size: Vector2) -> void:
+	var body := StaticBody2D.new()
+	body.collision_layer = 1
+	body.collision_mask = 0
+	body.position = center
+	var cs := CollisionShape2D.new()
+	var shape := RectangleShape2D.new()
+	shape.size = size
+	cs.shape = shape
+	body.add_child(cs)
+	add_child(body)
 
 
 ## A two-armed signpost: one arm pointing back at the pads, one at the door.
@@ -667,7 +797,10 @@ func _place_player() -> void:
 	for c: Node in player.get_children():
 		if c is Camera2D:
 			var cam := c as Camera2D
-			cam.limit_left = 0
+			# ⚠ 0 -> `CAM_LIMIT_LEFT`. See the ⚠ on `BOUND_LEFT`: the wall and this
+			# clamp are one number in two places, and at 0 the last 76 px of walkable
+			# floor were unframed.
+			cam.limit_left = int(CAM_LIMIT_LEFT)
 			cam.limit_top = -420   # the tower shaft rises ~300 px above its own arch
 			cam.limit_right = int(TOWN_WIDTH)
 			# ⚠ 60 -> 18, AND IT IS THE SKY THAT PAYS FOR IT. `limit_bottom` is what the

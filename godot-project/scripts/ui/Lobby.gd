@@ -70,7 +70,38 @@ const ACCENT_FALLBACK: Color = Color(0.55, 0.9, 1.0)
 ## same arithmetic reason `PauseMenu.ROW_H` is not: 49 costs one row on every screen in
 ## the game, and this column has to hold a logo, three verbs and two status lines.
 const BUTTON_H: float = 46.0
-const PANEL_W: float = 292.0
+## ⚠ 292 -> 208, AND IT IS A WIDTH CHANGE AND EXPLICITLY NOT A HEIGHT ONE. Maker,
+## 2026-09: *"make those single player multiplayer buttons smaller so that they do not
+## cover the cool graphic on the left"* — and, asked a second time because the first
+## pass did not go far enough: *"please make the single player multiplayer etc. buttons
+## smaller so that they dont overshadow the cool graphic on the left"*.
+##
+## "Smaller" here has to mean NARROWER. `BUTTON_H`'s own note above is a millimetre
+## measurement — 46 px is the ~9 mm a thumb needs on the game's own base viewport — and
+## `tools/slice_test_settings.gd` fails the build if either named primary drops below
+## it. Shrinking the height to answer a horizontal complaint would trade a measured
+## accessibility floor for a composition one; shrinking the width answers the actual
+## ask, because what is being covered is to the LEFT.
+##
+## THE ARITHMETIC, AND IT IS WHY THE FIRST PASS WAS NOT ENOUGH. `_Sigil` centres the
+## summoning circle at `0.34 * width` with radius `min(0.42w, 0.62h) * 0.62`, i.e.
+## centre 218 and radius 138 on the 640x360 base — so the circle's RIGHT EDGE IS x 356.
+##
+## The block's left edge is `640 - 18 (the right margin) - (PANEL_W + 24)`, and the 24
+## is the padding the column carries (12 px each side; it was the card's inset and it
+## survived the card — see `_build_ui`). Leaving that 24 out is exactly the mistake the
+## first pass made:
+##
+##   PANEL_W 292 -> block 316 wide, left edge 306.  50 px ON TOP of the circle.
+##   PANEL_W 250 -> block 274 wide, left edge 348.  STILL 8 px on top of it.
+##   PANEL_W 208 -> block 232 wide, left edge 390.  34 px of clear air, and the
+##                  buttons themselves start at 402 — 46 px clear of the art.
+##
+## 208 still holds every row: "SINGLE PLAYER  ▸" measures ~152 px at font 19, the two
+## half-width footer rows are 101 px each, the host list is 192 and the join row is
+## `208 - 96` plus an 88 px button = 200. On a taller phone `aspect=expand` grows the
+## LOGICAL WIDTH (never the height), so the gap only opens further from here.
+const PANEL_W: float = 208.0
 
 ## FIXED height of the discovered-host list, in base units. This is the whole
 ## reason a variable-length list cannot break the layout: the ScrollContainer
@@ -116,11 +147,11 @@ var _outfitter: Control = null
 ## the 640×360 base viewport — the thing that silently breaks the first time
 ## somebody adds one more row.
 var _col: VBoxContainer = null
-## The card the column sits on. Held so its accent rule can follow the class tint —
-## see `_apply_class_tint`, which already re-tints the sigil and the buttons; a frame
-## that stayed one fixed blue while everything inside it changed colour would be the
-## one element on the screen that did not belong to the class you picked.
-var _card: PanelContainer = null
+## ⚠ `_card` IS GONE. It held the `PanelContainer` behind the column so its accent rule
+## could follow the class tint. The maker removed the box (see `_build_ui`), so the
+## field, its tint hook in `_apply_class_tint` and `_card_box` all went with it rather
+## than being left as a null nobody assigns — the sigil and the buttons still follow
+## the pick, which is where the tint was ever visible.
 
 # ── the join screen ─────────────────────────────────────────────────────────
 ## A SEPARATE column that swaps in for `_col`, rather than more rows appended to
@@ -247,31 +278,44 @@ func _build_ui() -> void:
 	margin.add_theme_constant_override("margin_bottom", 10)
 	add_child(margin)
 
-	# ══ THE CARD THE MENU SITS ON ═══════════════════════════════════════════════
-	# Maker, 2026-09: *"lets also make the thing look more aesthetic and professional"*.
+	# ══ THE CARD THE MENU USED TO SIT ON, AND WHY IT IS GONE ════════════════════
+	# It was added for a real reason and the reason is recorded here rather than
+	# deleted, because the fault it fixed can come back:
 	#
-	# ⚠ THE PROBLEM WAS LEGIBILITY BEFORE IT WAS TASTE. `_Sigil` is a full-screen
-	# summoning circle that spins, breathes and pours motes — and the menu was type and
-	# untextured buttons floating straight on top of it, so a rune band drifted THROUGH
-	# the wordmark and the mote pour crossed the buttons. Every unfinished game's title
-	# screen looks like that, and for this reason: no ground under the type.
+	#   > *"lets also make the thing look more aesthetic and professional"*. `_Sigil` is
+	#   > a full-screen summoning circle that spins, breathes and pours motes — and the
+	#   > menu was type and untextured buttons floating straight on top of it, so a rune
+	#   > band drifted THROUGH the wordmark and the mote pour crossed the buttons. Every
+	#   > unfinished game's title screen looks like that, and for this reason: no ground
+	#   > under the type. So the column got a card — the house `HudStyle.panel` shape
+	#   > (PAPER ground, a 1 px accent rule, a 3 px radius) at 0.72 alpha.
 	#
-	# So the column gets a card — the house `HudStyle.panel` shape (PAPER ground, a 1 px
-	# accent rule, a 3 px radius), the same one the pause menu, the game-over card and
-	# now the Outfitter wear, at 0.72 alpha so the circle still reads THROUGH it.
+	# ⚠ NEW RULING, 2026-09, AND IT OVERRIDES THAT ONE: *"remove the box on the home
+	# screen around the single player multiplayer etc. options — I like all the other
+	# stuff"*. The card is the widest opaque thing on the screen: PANEL_W plus 12 px of
+	# margin each side, and a 0.72-alpha PAPER ground that DIMS whatever it overlaps. It
+	# reached x 306 on the 640-px base and the summoning circle's right edge is 356, so
+	# the one element added to stop the circle crossing the type was itself sitting on
+	# fifty pixels of the circle and greying it out.
 	#
-	# ⚠ IT COSTS 20 px OF HEIGHT AND THERE ARE 130 SPARE. `probe_ui_screens` measured
-	# the column at 229 px of a 360 px viewport after the logo shrank; the card takes it
-	# to ~249. The bound `slice_test_shell` pins is 360 and it is measured on `_col`,
-	# which is still the VBox below — the panel is its PARENT, so the assertion keeps
-	# measuring the same thing it always did.
-	var card := PanelContainer.new()
+	# The legibility problem it solved is now solved twice over without a ground: the
+	# buttons have carried real `StyleBoxFlat` fills with borders since `_btn_style`
+	# landed (they are no longer untextured), and the column is narrower and further
+	# right, so the rune band no longer crosses the wordmark at all.
+	#
+	# What survives is the PADDING — a `MarginContainer` with the card's own 12/10
+	# insets — so nothing moved when the frame was taken away. The height budget note
+	# still applies and is now 20 px cheaper: `slice_test_shell` measures `_col`, the
+	# VBox below, which is unchanged.
+	var card := MarginContainer.new()
 	card.size_flags_horizontal = Control.SIZE_SHRINK_END
 	card.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE  # the buttons take their own taps
-	card.add_theme_stylebox_override("panel", _card_box(ACCENT_FALLBACK))
+	card.add_theme_constant_override("margin_left", 12)
+	card.add_theme_constant_override("margin_right", 12)
+	card.add_theme_constant_override("margin_top", 10)
+	card.add_theme_constant_override("margin_bottom", 10)
 	margin.add_child(card)
-	_card = card
 
 	var right := VBoxContainer.new()
 	right.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -613,11 +657,9 @@ func _apply_class_tint() -> void:
 	if _paper != null:
 		_paper.set("accent", accent)
 		_paper.queue_redraw()
-	# THE CARD'S RULE FOLLOWS THE PICK TOO. Rebuilt rather than mutated: a StyleBox is a
-	# shared Resource and `HudStyle.panel` hands back a fresh one every call, so editing
-	# the live box in place would be editing whatever else happened to be holding it.
-	if _card != null:
-		_card.add_theme_stylebox_override("panel", _card_box(accent))
+	# ⚠ THE CARD'S RULE USED TO FOLLOW THE PICK HERE TOO. There is no card any more —
+	# see `_build_ui` for the maker's ruling — and the tint still lands on the sigil
+	# above and on every button via `_restyle_buttons`, which is where it reads.
 	# The duel opponent is derived from YOUR pick (it refuses to be a mirror), so the
 	# tooltip has to be re-derived every time the class cycler moves.
 	_refresh_duel_button()
@@ -1196,23 +1238,11 @@ func _restyle_buttons(node: Node) -> void:
 		_restyle_buttons(c)
 
 
-## THE MENU CARD'S BOX, in one place because two places is how the boot screen and the
-## class-tint path end up wearing different frames.
-##
-## `HudStyle.panel` verbatim, then two changes with reasons:
-##   * THE GROUND IS TRANSLUCENT (0.72). Opaque PAPER would hide the summoning circle
-##     behind exactly the part of the screen the eye rests on, and that circle is the
-##     backdrop the whole title screen was rebuilt around.
-##   * TIGHTER MARGINS. `HudStyle.panel` authors 26/16 for the full-width game-over
-##     card; 12/10 keeps this one inside the 360-px viewport with room to spare.
-func _card_box(accent: Color) -> StyleBoxFlat:
-	var box: StyleBoxFlat = HudStyle.panel(HudStyle.with_a(accent, 0.30))
-	box.bg_color = Color(PAPER.r, PAPER.g, PAPER.b, 0.72)
-	box.content_margin_left = 12.0
-	box.content_margin_right = 12.0
-	box.content_margin_top = 10.0
-	box.content_margin_bottom = 10.0
-	return box
+## ⚠ `_card_box` IS DELETED. It built the menu card's `StyleBoxFlat` — `HudStyle.panel`
+## with a translucent PAPER ground and 12/10 insets. The maker removed the box (see
+## `_build_ui`); the 12/10 insets survive as the `MarginContainer` constants there, so
+## the column did not move when the frame came off. `HudStyle` is still imported: the
+## buttons and the join screen use it.
 
 
 ## Half a row. Two of these in an HBox occupy exactly the height of one full-width

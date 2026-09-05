@@ -1,16 +1,17 @@
 # Run: Godot_v4.6.2-stable_win64_console.exe --headless --path godot-project --script tools/probe_antechamber_backdrop.gd
 #
-# WHAT THE ANTECHAMBER'S SKY ACTUALLY MEASURES — because a backdrop is judged by eye
+# WHAT THE ANTECHAMBER'S TAVERN ACTUALLY MEASURES — because a room is judged by eye
 # and headless has no eye.
 #
 # ⚠ HEADLESS RUNS THE DUMMY RENDERER, so nothing here is a screenshot and nothing here
 # proves the room looks good. What it CAN prove is the set of things that were wrong
 # before and would go wrong again silently:
 #
-#   * the spire is actually WIDE in the frame the town camera gives you (the old
-#     `TowerDoor` shaft was 112 px of an 889 px frame — 12%);
-#   * the camera's own numbers agree with the sky they are meant to show, i.e. the
-#     `limit_bottom` clamp is not quietly throwing the offset away (it was);
+#   * the spire is FRAMED by the great window rather than filling it (the outdoor
+#     version drew 291 px of stone across a 224 px opening);
+#   * the camera's own numbers agree with the room they are meant to show — the
+#     ceiling and the window band are both in shot, and the `limit_bottom` clamp is
+#     not quietly throwing the offset away (it was);
 #   * `_draw()` runs without a script error at BOTH quality settings;
 #   * LOW really is cheaper — every seeded count actually drops.
 #
@@ -30,10 +31,12 @@ const WORLD: String = "res://scripts/World.gd"
 ## The base viewport the whole game is laid out for. `project.godot` is 640x360 with
 ## `aspect=expand`, so HEIGHT is the fixed edge and width only ever grows.
 const BASE: Vector2 = Vector2(640.0, 360.0)
-## `HubAmbience`'s tallest near pine, measured from its own seeding: `near_h` tops out
-## at 320 and the third tier's apex sits `1.167 * h` above the base. The spire has to
-## be readable ABOVE this or it is a tower behind a hedge.
-const TREELINE: float = 360.0
+## ⚠ `TREELINE` IS GONE WITH THE FOREST. It was `HubAmbience`'s tallest near pine, and
+## the old probe printed how much clear SKY the camera bought above it. The room is an
+## interior now (see the header of `AntechamberBackdrop`), so what that number was
+## asking — "is the backdrop visible above the thing in front of it?" — is asked of the
+## CEILING and the WINDOW BAND instead, and both come from the backdrop's own constants
+## rather than from a number copied out of another file.
 
 var _ran: bool = false
 
@@ -64,16 +67,17 @@ func _process(_delta: float) -> bool:
 	print("[camera] zoom %.2f shows %.0fx%.0f world px" % [zoom, view.x, view.y])
 	print("[camera] centre wanted %.0f, clamped to %.0f -> visible y %.0f..%.0f"
 		% [want_centre, centre, top, bottom])
-	print("[camera] dirt below the ground line %.0f px | sky above it %.0f px | clear sky above the treeline %.0f px"
-		% [maxf(bottom - ground, 0.0), maxf(ground - top, 0.0),
-		maxf((ground - TREELINE) - top, 0.0)])
-
 	var script: GDScript = load(BACKDROP) as GDScript
 	var bk: Dictionary = script.get_script_constant_map()
+	print("[camera] slab below the floor line %.0f px | room above it %.0f px"
+		% [maxf(bottom - ground, 0.0), maxf(ground - top, 0.0)])
+	print("[camera] ceiling in shot %.0f px (line at %.0f) | window band %.0f..%.0f"
+		% [maxf(float(bk["CEIL_Y"]) - top, 0.0), float(bk["CEIL_Y"]),
+		float(bk["WINDOW_TOP"]), float(bk["WINDOW_BOTTOM"])])
 	for low: bool in [false, true]:
 		var b: Node2D = script.new()
 		root.add_child(b)
-		b.call("build", town_w, ground, tower_x, Color(0.19, 0.16, 0.30),
+		b.call("build", town_w, ground, tower_x, Color(0.105, 0.118, 0.235),
 			Color(0.62, 0.70, 1.0))
 		# `build` re-reads the LIVE quality, so the override has to land after it — and
 		# `reseed()` has to follow, or the counts below are still the HIGH ones. See the
@@ -81,36 +85,44 @@ func _process(_delta: float) -> bool:
 		b.set("_low", low)
 		b.call("reseed")
 		var tag: String = "LOW " if low else "HIGH"
-		var half_ground: float = float(b.call("_spire_half_at", ground))
-		var half_tree: float = float(b.call("_spire_half_at", ground - TREELINE))
-		var half_top: float = float(b.call("_spire_half_at", top))
-		print("[%s] spire half-width: ground %.0f | treeline %.0f | frame-top %.0f"
-			% [tag, half_ground, half_tree, half_top])
-		print("[%s] spire fills %.0f%% of the %.0f px frame at the treeline"
-			% [tag, 200.0 * half_tree / view.x, view.x])
 		var wins: Array = b.get("_windows")
-		var clouds: Array = b.get("_clouds")
-		var petals: Node = b.get("_petals")
-		var n_petals: int = int(petals.get("count")) if petals != null else -1
-		var span: Rect2 = petals.get("span") if petals != null else Rect2()
-		var on_screen: float = float(n_petals) \
+		var great: Rect2 = Rect2()
+		for w: Variant in wins:
+			var r: Rect2 = w
+			if r.size.x > great.size.x:
+				great = r
+		var mid_y: float = great.position.y + great.size.y * 0.5
+		var half_mid: float = float(b.call("_spire_half_at", mid_y))
+		print("[%s] windows %d | great %.0f px wide (%.0f%% of the %.0f px frame)"
+			% [tag, wins.size(), great.size.x, 100.0 * great.size.x / view.x, view.x])
+		print("[%s] spire half-width: floor %.0f | window mid %.0f | fills %.0f%% of the opening"
+			% [tag, float(b.call("_spire_half_at", ground)), half_mid,
+			200.0 * half_mid / maxf(great.size.x, 1.0)])
+		print("[%s] frame-top half-width %.0f (the shaft never terminates on screen)"
+			% [tag, float(b.call("_spire_half_at", top))])
+		var bottles: Array = b.get("_bottles")
+		var haze: Array = b.get("_haze")
+		var dust: Node = b.get("_dust")
+		var n_dust: int = int(dust.get("count")) if dust != null else -1
+		var span: Rect2 = dust.get("span") if dust != null else Rect2()
+		var on_screen: float = float(n_dust) \
 			* clampf(view.x / maxf(span.size.x, 1.0), 0.0, 1.0) \
 			* clampf(view.y / maxf(span.size.y, 1.0), 0.0, 1.0)
-		print("[%s] lit windows %d | cloud bands %d | petals %d (~%.0f on screen) | redraw %.0f Hz"
-			% [tag, wins.size(), clouds.size(), n_petals, on_screen,
+		print("[%s] bottles %d | haze bands %d | dust %d (~%.0f on screen) | redraw %.0f Hz"
+			% [tag, bottles.size(), haze.size(), n_dust, on_screen,
 			float(bk["REDRAW_HZ_LOW"]) if low else float(bk["REDRAW_HZ"])])
-		print("[%s] rungs: backdrop z %d | petals z %d (fighters are 0)"
-			% [tag, b.z_index, petals.z_index if petals != null else 999])
+		print("[%s] rungs: room z %d | dust z %d (fighters are 0)"
+			% [tag, b.z_index, dust.z_index if dust != null else 999])
 		# Force the paint. Under the dummy renderer this still runs `_draw`, so a bad
 		# index or a null in there is a SCRIPT ERROR in this run rather than a black
 		# screen on the maker's machine.
 		b.call("_process", 0.5)
 		b.queue_redraw()
-		if petals != null:
-			petals.set("phase", 3.0)
-			petals.queue_redraw()
+		if dust != null:
+			dust.set("phase", 3.0)
+			dust.queue_redraw()
 		root.remove_child(b)
 		b.queue_free()
-	print("[probe] antechamber backdrop probe done")
+	print("[probe] antechamber tavern probe done")
 	quit(0)
 	return true

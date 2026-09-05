@@ -1,145 +1,230 @@
 extends Node2D
-## Mystic-forest hub ambience (maker: "campfire in the middle, cool glowing stars
-## up top, a cool artsy mystic-forest feel"). Draws, in world space: a twinkling
-## STARFIELD, layered dark FOREST-TREE silhouettes with bioluminescent glows, and
-## a central animated CAMPFIRE (flickering flame + warm light pool). Adds drifting
-## FIREFLY + rising EMBER particles. Built in code (house style, like Atmosphere).
-## _process advances _phase for the flame flicker + star twinkle.
+## THE TAVERN'S FURNITURE AND ITS FIRE — everything that stands ON the floor.
+##
+## Maker: *"make the lobby very different like a tavern vibe … inside of a tavern with
+## warm lit and cool graphics"*.
+##
+## ══ WHAT THIS FILE IS, AND WHY IT IS STILL A SEPARATE ONE ═══════════════════
+## `AntechamberBackdrop` draws the ROOM — the plank wall, the windows onto the night,
+## the posts, the bar, the hanging lamps. This draws what is IN it: tables, stools,
+## barrels, crates, candles, and the hearth. The split is the same one it always was
+## and it is a Z one, not a taste one: the shell parks on `StageLayers.MOUNTAIN` (-18),
+## behind everything, and this sits on the TERRAIN rung (-6) so its furniture stands in
+## FRONT of the wall and its firelight lands on the floor you are walking on.
+##
+## ══ WHAT REPLACED WHAT ══════════════════════════════════════════════════════
+## This used to be a mystic FOREST: a starfield, two bands of pine silhouettes, glowing
+## mushrooms, a campfire, fireflies and embers. Every one of those has an interior
+## counterpart doing the same compositional job, which is why the file kept its shape:
+##
+##   * STARFIELD  -> deleted. There is a roof over the room now; the twinkle it bought
+##     is on the bar's bottles in `AntechamberBackdrop` and on the candles below.
+##   * PINE BANDS -> FURNITURE, in the same two parallax bands and for the same reason:
+##     a far band hazed toward the wall behind it, a near band in near-black. Depth
+##     comes from two ranks of silhouette, exactly as it did from two ranks of trees.
+##   * GROUND GLOWS -> CANDLES on the tables. Warm instead of teal + violet, and they
+##     sit on a surface instead of on the dirt.
+##   * CAMPFIRE -> THE HEARTH. The flame drawing is kept VERBATIM — it is the best
+##     thing in the file and a fire is a fire — and it is set into a stone fireplace
+##     with a mantel, which is the whole difference between camping and being indoors.
+##   * FIREFLIES -> deleted, and deliberately not re-tinted. The layer of drifting
+##     motes now lives in `AntechamberBackdrop._Dust`, IN FRONT of the player where it
+##     catches the lamp light; a second emitter here would be the same effect twice at
+##     twice the cost.
+##   * EMBERS -> kept, rising into the chimney.
+##
+## ══ IT MUST DEGRADE ═════════════════════════════════════════════════════════
+## ⚠ AND IT DID NOT BEFORE. The forest version read no quality setting at all and called
+## `queue_redraw()` EVERY FRAME — a full furniture-and-fire repaint at 60 Hz on a phone,
+## to animate a flame flicker. `_low` is now read ONCE into a field (the `Telegraph._low`
+## pattern, never per draw) and the repaint is rate-capped like the backdrop's. LOW also
+## drops the far furniture band, the candle halos and the hearth's outer light ring.
 
-var _bounds: Rect2 = Rect2(0, 0, 1720, 452)
+## Redraw budget. The flame is the fastest thing here and it is a sub-pixel wobble
+## between frames at 24 Hz, so the frames are bought and nothing is lost.
+const REDRAW_HZ: float = 24.0
+const REDRAW_HZ_LOW: float = 12.0
+
+## ── the palette ─────────────────────────────────────────────────────────────
+## Read from `AntechamberBackdrop` rather than re-declared, so the furniture cannot
+## drift off the wall's own timber. `preload` and not a bare name: the backdrop has no
+## `class_name`, which is what keeps it clear of the global-class-cache trap.
+const Shell := preload("res://scripts/ui/AntechamberBackdrop.gd")
+## Near furniture is drawn nearly black — it is the rank closest to the camera and its
+## whole job is a readable silhouette against the lit floor.
+const NEAR_WOOD: Color = Color(0.055, 0.040, 0.033)
+## Far furniture is hazed toward the wall, so "further away = closer to the background"
+## is structural here rather than a hand-picked second brown. Same idea `StageLayers.haze`
+## applies to distant landforms, applied at four metres instead of four hundred.
+const FAR_WOOD: Color = Color(0.098, 0.070, 0.055)
+const STONE: Color = Color(0.135, 0.125, 0.125)
+const STONE_LIT: Color = Color(0.215, 0.195, 0.180)
+const CANDLE: Color = Color(1.0, 0.82, 0.48)
+
+## ⚠ DECLARED AS A FIELD so a headless suite can force the cheap picture with
+## `set("_low", true)` and then call `reseed()` — the same affordance the backdrop
+## documents.
+var _low: bool = false
+
+var _bounds: Rect2 = Rect2(0, 0, 1180, 452)
 var _ground_y: float = 452.0
-var _fire: Vector2 = Vector2(860, 452)
+var _fire: Vector2 = Vector2(800, 452)
 var _phase: float = 0.0
-var _stars: Array[Dictionary] = []       # {pos, r, seed, glow}
-var _trees: Array[Dictionary] = []       # {x, base_y, w, h, layer, glow_col}
-var _glows: Array[Dictionary] = []       # bioluminescent dots {pos, r, col, seed}
+var _redraw_acc: float = 0.0
+## {x, w, h, kind, near} — kind is one of the `_KIND_*` values below.
+var _props: Array[Dictionary] = []
+## {pos, seed} — a candle flame standing on a table top.
+var _candles: Array[Dictionary] = []
+
+const _KIND_TABLE: int = 0
+const _KIND_STOOL: int = 1
+const _KIND_BARREL: int = 2
+const _KIND_CRATE: int = 3
+
+## ⚠ AUTHORED, NOT SCATTERED, AND THE REASON IS COLLISION-FREE FURNITURE.
+## Nothing here has a body, so a randomly placed table can end up drawn through a
+## training dummy, a teleport pad's glyph or the doorkeeper. Every x below is picked
+## against `World`'s own layout: the dummies stand at 110/172/234, the pads at 460 and
+## 580, the signboard at 630, the hearth at 800, the party stone at 860, the doorkeeper
+## at 930 and the tower door's walk-in box is 946..1014. The gaps are what is furnished.
+##
+## `near` decides the rank (and therefore the colour and the scale); `w`/`h` are the
+## silhouette in world px at the near rank and are shrunk for the far one.
+const LAYOUT: Array[Dictionary] = [
+	# ── far rank: against the wall, hazed, small. Read as depth, never as objects.
+	{"x": 300.0, "kind": _KIND_STOOL, "near": false},
+	{"x": 520.0, "kind": _KIND_TABLE, "near": false},
+	{"x": 556.0, "kind": _KIND_STOOL, "near": false},
+	{"x": 700.0, "kind": _KIND_BARREL, "near": false},
+	{"x": 906.0, "kind": _KIND_TABLE, "near": false},
+	{"x": 942.0, "kind": _KIND_STOOL, "near": false},
+	{"x": 1060.0, "kind": _KIND_CRATE, "near": false},
+	# ── near rank: the room you actually walk through.
+	{"x": 386.0, "kind": _KIND_TABLE, "near": true},
+	{"x": 344.0, "kind": _KIND_STOOL, "near": true},
+	{"x": 428.0, "kind": _KIND_STOOL, "near": true},
+	{"x": 690.0, "kind": _KIND_TABLE, "near": true},
+	{"x": 648.0, "kind": _KIND_STOOL, "near": true},
+	{"x": 1096.0, "kind": _KIND_CRATE, "near": true},
+	{"x": 1146.0, "kind": _KIND_BARREL, "near": true},
+]
 
 
-## town_width / ground_y frame the forest; fire_x is the campfire's ground x.
+## town_width / ground_y frame the room; fire_x is the hearth's x on the floor.
 func build(town_width: float, ground_y: float, fire_x: float) -> void:
 	_bounds = Rect2(0, 0, town_width, ground_y)
 	_ground_y = ground_y
 	_fire = Vector2(fire_x, ground_y)
-	z_index = -6  # behind the characters, in front of the sky/spires
-	_seed_stars()
-	_seed_trees()
-	_seed_glows()
-	_build_fireflies()
+	z_index = -6  # in front of the room shell, behind the characters
+	_low = TuningConfig.quality_is_low()
+	reseed()
 	_build_embers()
 	set_process(true)
 	queue_redraw()
 
 
+## Rebuild every seeded table from the CURRENT `_low`. Public and separate for the same
+## measurement reason `AntechamberBackdrop.reseed` is: `build()` reads the live quality
+## setting, so an override applied afterwards only flips the draw branches unless this
+## is called, and a probe that skips it reports that LOW costs the same as HIGH.
+func reseed() -> void:
+	_props.clear()
+	_candles.clear()
+	_seed_props()
+
+
 func _process(delta: float) -> void:
 	_phase += delta
+	_redraw_acc += delta
+	var step: float = 1.0 / (REDRAW_HZ_LOW if _low else REDRAW_HZ)
+	if _redraw_acc < step:
+		return
+	_redraw_acc = 0.0
 	queue_redraw()
 
 
 # --------------------------------------------------------------------- seeding
-## Deterministic star positions in the upper sky (no RNG -> stable frame-to-frame).
-func _seed_stars() -> void:
-	var n: int = 90
-	for i: int in n:
-		var fx: float = fmod(sin(float(i) * 12.9898) * 43758.5453, 1.0)
-		var fy: float = fmod(sin(float(i) * 78.233) * 12543.245, 1.0)
-		fx = absf(fx)
-		fy = absf(fy)
-		# Stars sit in the sky BAND above the tree line + within the camera frame
-		# (ground_y - 380 .. ground_y - 120), so they read as a glowing night sky.
-		_stars.append({
-			"pos": Vector2(_bounds.size.x * fx, _ground_y - 380.0 + fy * 260.0),
-			"r": 0.8 + absf(sin(float(i) * 3.3)) * 1.6,
-			"seed": float(i) * 1.7,
-			"glow": (i % 6 == 0),  # a few bright glowing ones
-		})
-
-
-## Two layers of pine-ish tree silhouettes across the back of the forest.
-func _seed_trees() -> void:
-	var far_col := Color(0.09, 0.13, 0.16)
-	var near_col := Color(0.05, 0.08, 0.10)
-	var x: float = -60.0
+func _seed_props() -> void:
 	var i: int = 0
-	while x < _bounds.size.x + 60.0:
-		var far_h: float = 150.0 + absf(sin(x * 0.017 + 1.3)) * 90.0
-		_trees.append({"x": x, "base_y": _ground_y + 6.0, "w": 54.0, "h": far_h, "col": far_col,
-			"glow": Color(0.3, 0.7, 0.6, 0.0)})
-		x += 78.0 + absf(sin(x)) * 20.0
-		i += 1
-	x = -30.0
-	i = 0
-	while x < _bounds.size.x + 60.0:
-		var near_h: float = 200.0 + absf(sin(x * 0.013 + 3.1)) * 120.0
-		# A few near trees carry a faint teal bioluminescent glow (mystic).
-		var glow_a: float = 0.16 if i % 4 == 0 else 0.0
-		_trees.append({"x": x, "base_y": _ground_y + 10.0, "w": 74.0, "h": near_h, "col": near_col,
-			"glow": Color(0.35, 0.85, 0.7, glow_a)})
-		x += 132.0 + absf(sin(x * 1.7)) * 26.0
-		i += 1
-
-
-## Bioluminescent ground dots (glowing mushrooms/flowers) scattered along the floor.
-func _seed_glows() -> void:
-	for i: int in 26:
-		var fx: float = absf(fmod(sin(float(i) * 34.21) * 8123.7, 1.0))
-		var teal := Color(0.4, 0.9, 0.75)
-		var violet := Color(0.7, 0.5, 1.0)
-		_glows.append({
-			"pos": Vector2(_bounds.size.x * fx, _ground_y - 2.0 - absf(sin(float(i))) * 6.0),
-			"r": 2.0 + absf(sin(float(i) * 5.5)) * 2.5,
-			"col": teal if i % 2 == 0 else violet,
-			"seed": float(i) * 2.3,
+	for entry: Dictionary in LAYOUT:
+		var near: bool = bool(entry["near"])
+		# LOW drops the far rank entirely. It is the rank that carries the least read
+		# (it is hazed most of the way to the wall behind it) for a per-prop cost that
+		# is identical to the near one, which makes it the honest thing to cut first.
+		if _low and not near:
+			i += 1
+			continue
+		var kind: int = int(entry["kind"])
+		var scale: float = 1.0 if near else 0.72
+		var w: float = 0.0
+		var h: float = 0.0
+		match kind:
+			_KIND_TABLE:
+				w = 68.0
+				h = 26.0
+			_KIND_STOOL:
+				w = 18.0
+				h = 17.0
+			_KIND_BARREL:
+				w = 30.0
+				h = 36.0
+			_KIND_CRATE:
+				w = 34.0
+				h = 30.0
+		_props.append({
+			"x": float(entry["x"]),
+			"w": w * scale,
+			"h": h * scale,
+			"kind": kind,
+			"near": near,
+			# The far rank stands a little higher on the screen, which is the whole of
+			# the perspective cue: the floor recedes upward.
+			"base_y": _ground_y + (2.0 if near else -9.0),
+			"seed": float(i) * 2.7,
 		})
+		# A table gets a candle on it, and that is the only light source in the room
+		# that is not the hearth or a hanging lamp — so it is what makes a table read as
+		# a place somebody sits rather than as a box.
+		if kind == _KIND_TABLE:
+			_candles.append({
+				"pos": Vector2(float(entry["x"]) + w * scale * 0.24,
+					_ground_y + (2.0 if near else -9.0) - h * scale),
+				"seed": float(i) * 3.1,
+				"near": near,
+			})
+		i += 1
 
 
 # ---------------------------------------------------------------------- particles
-## Drifting fireflies across the clearing — warm-green glowing motes.
-func _build_fireflies() -> void:
-	var ff := GPUParticles2D.new()
-	ff.amount = 46
-	ff.lifetime = 7.0
-	ff.preprocess = 7.0
-	ff.position = Vector2(_bounds.size.x * 0.5, _ground_y - 90.0)
-	var mat := ParticleProcessMaterial.new()
-	mat.particle_flag_disable_z = true
-	mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
-	mat.emission_box_extents = Vector3(_bounds.size.x * 0.5, 110.0, 0.0)
-	mat.direction = Vector3(0.0, -0.2, 0.0)
-	mat.spread = 180.0
-	mat.gravity = Vector3.ZERO
-	mat.initial_velocity_min = 4.0
-	mat.initial_velocity_max = 16.0
-	mat.scale_min = 1.2
-	mat.scale_max = 3.0
-	var ramp := Gradient.new()
-	ramp.set_color(0, Color(0.6, 1.0, 0.5, 0.0))
-	ramp.set_color(1, Color(0.6, 1.0, 0.5, 0.0))
-	ramp.add_point(0.5, Color(0.75, 1.0, 0.55, 0.85))  # twinkle in + out
-	var ramp_tex := GradientTexture1D.new()
-	ramp_tex.gradient = ramp
-	mat.color_ramp = ramp_tex
-	ff.process_material = mat
-	add_child(ff)
-
-
-## Embers rising from the campfire.
+## Embers rising off the hearth and up the chimney. The one particle system in the
+## room — see the header for why the firefly emitter is gone rather than re-tinted.
 func _build_embers() -> void:
 	var em := GPUParticles2D.new()
-	em.amount = 30
-	em.lifetime = 2.2
-	em.preprocess = 2.2
-	em.position = _fire + Vector2(0.0, -8.0)
+	em.amount = (12 if _low else 30)
+	# ⚠ 2.2 s -> 1.05 s, AND IT IS THE MAIN CAUSE OF "THE FIRE DOES NOT STAY IN THE
+	# FURNACE". Maker, after playing: *"the fire should stay within the furnace"*. At
+	# 2.2 s against 28-70 px/s of initial rise plus 18 px/s^2 of upward drift, an ember
+	# travelled about 200 px before it died — and the firebox is only `MOUTH_H` = 92 px
+	# tall. Every ember therefore flew UP THROUGH the mantel and out into the room, which
+	# is exactly what a fire that has escaped its fireplace looks like. The budget is
+	# arithmetic, not taste: `v_max * t + 0.5 * g * t^2` at 1.05 s and 44 px/s is ~56 px,
+	# which dies inside the flue with room to spare.
+	em.lifetime = 1.05
+	em.preprocess = 1.05
+	em.position = _fire + Vector2(0.0, -10.0)
 	var mat := ParticleProcessMaterial.new()
 	mat.particle_flag_disable_z = true
 	mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
-	mat.emission_box_extents = Vector3(10.0, 4.0, 0.0)
+	mat.emission_box_extents = Vector3(9.0, 3.0, 0.0)
 	mat.direction = Vector3(0.0, -1.0, 0.0)
-	mat.spread = 22.0
+	# Tighter than the campfire's 22 degrees: a fire in a fireplace is drawn UP a flue,
+	# and a wide spread would have embers going into the room.
+	mat.spread = 12.0
 	mat.gravity = Vector3(0.0, -18.0, 0.0)  # embers drift UP
-	mat.initial_velocity_min = 28.0
-	mat.initial_velocity_max = 70.0
+	mat.initial_velocity_min = 18.0
+	mat.initial_velocity_max = 44.0
 	mat.scale_min = 1.0
-	mat.scale_max = 2.4
+	mat.scale_max = 2.0
 	var ramp := Gradient.new()
 	ramp.set_color(0, Color(1.0, 0.8, 0.3, 0.9))
 	ramp.set_color(1, Color(1.0, 0.3, 0.1, 0.0))
@@ -151,73 +236,184 @@ func _build_embers() -> void:
 
 
 # --------------------------------------------------------------------------- draw
+## Call order is depth: the far rank, then the hearth (which lights them), then the
+## near rank in front of its glow, then the candles on top of the tables they stand on.
 func _draw() -> void:
-	_draw_stars()
-	_draw_trees()
-	_draw_glows()
-	_draw_campfire()
+	for p: Dictionary in _props:
+		if not bool(p["near"]):
+			_draw_prop(p)
+	_draw_hearth()
+	for p: Dictionary in _props:
+		if bool(p["near"]):
+			_draw_prop(p)
+	_draw_candles()
 
 
-func _draw_stars() -> void:
-	for s: Dictionary in _stars:
-		var tw: float = 0.55 + 0.45 * sin(_phase * 1.6 + float(s["seed"]))
-		var p: Vector2 = s["pos"]
-		var r: float = float(s["r"])
-		if bool(s["glow"]):
-			# A soft halo around the bright ones.
-			draw_circle(p, r * 3.2, Color(0.7, 0.82, 1.0, 0.10 * tw))
-			draw_circle(p, r * 1.8, Color(0.85, 0.92, 1.0, 0.20 * tw))
-		draw_circle(p, r, Color(1.0, 1.0, 1.0, 0.5 + 0.5 * tw))
+## One piece of furniture. Everything wears the `StageLayers` grammar's lit cap along
+## its top edge — the same warm pale band a ledge you can stand on wears in the arena —
+## so a table top and a crate lid read as SURFACES at 640x360 without any detail.
+func _draw_prop(p: Dictionary) -> void:
+	var x: float = float(p["x"])
+	var w: float = float(p["w"])
+	var h: float = float(p["h"])
+	var base: float = float(p["base_y"])
+	var near: bool = bool(p["near"])
+	var body: Color = NEAR_WOOD if near else StageLayers.haze(FAR_WOOD, Shell.TIMBER, 0.45)
+	var cap: Color = Color(Shell.CAP_LIT.r, Shell.CAP_LIT.g, Shell.CAP_LIT.b,
+		0.30 if near else 0.16)
+	var top: float = base - h
+	match int(p["kind"]):
+		_KIND_TABLE:
+			# A slab on two trestles. The gap under the top is what stops it reading as
+			# a solid block, and it is one rect's worth of work.
+			draw_rect(Rect2(Vector2(x - w * 0.5, top), Vector2(w, h * 0.26)), body)
+			draw_rect(Rect2(Vector2(x - w * 0.5, top), Vector2(w, 2.0)), cap)
+			for side: float in [-1.0, 1.0]:
+				draw_rect(Rect2(Vector2(x + side * w * 0.34 - w * 0.045,
+					top + h * 0.26), Vector2(w * 0.09, h * 0.74)), body)
+		_KIND_STOOL:
+			draw_rect(Rect2(Vector2(x - w * 0.5, top), Vector2(w, h * 0.30)), body)
+			draw_rect(Rect2(Vector2(x - w * 0.5, top), Vector2(w, 1.5)), cap)
+			for side: float in [-1.0, 1.0]:
+				draw_rect(Rect2(Vector2(x + side * w * 0.32 - 1.5, top + h * 0.30),
+					Vector2(3.0, h * 0.70)), body)
+		_KIND_BARREL:
+			draw_rect(Rect2(Vector2(x - w * 0.5, top), Vector2(w, h)), body)
+			draw_rect(Rect2(Vector2(x - w * 0.5, top), Vector2(w, 2.0)), cap)
+			for f: float in [0.32, 0.68]:
+				draw_rect(Rect2(Vector2(x - w * 0.5, top + h * f), Vector2(w, 1.5)),
+					Color(Shell.BRASS.r, Shell.BRASS.g, Shell.BRASS.b, 0.6))
+		_KIND_CRATE:
+			draw_rect(Rect2(Vector2(x - w * 0.5, top), Vector2(w, h)), body)
+			draw_rect(Rect2(Vector2(x - w * 0.5, top), Vector2(w, 2.0)), cap)
+			# A diagonal brace, which is the one line that says "crate" and not "box".
+			draw_line(Vector2(x - w * 0.5, base), Vector2(x + w * 0.5, top),
+				Color(Shell.TIMBER_LIT.r, Shell.TIMBER_LIT.g, Shell.TIMBER_LIT.b, 0.35),
+				1.5)
 
 
-func _draw_trees() -> void:
-	for t: Dictionary in _trees:
-		var x: float = t["x"]
-		var base_y: float = t["base_y"]
-		var w: float = t["w"]
-		var h: float = t["h"]
-		var col: Color = t["col"]
-		# A stacked-triangle pine silhouette.
-		var tiers: int = 3
-		for k: int in tiers:
-			var kf: float = float(k) / float(tiers)
-			var ty: float = base_y - h * kf
-			var tw: float = w * (1.0 - kf * 0.55)
-			var th: float = h * 0.5
-			draw_colored_polygon(PackedVector2Array([
-				Vector2(x - tw * 0.5, ty), Vector2(x + tw * 0.5, ty), Vector2(x, ty - th),
-			]), col)
-		# Bioluminescent glow on the mystic near-trees — subtle, not a big blob.
-		var glow: Color = t["glow"]
-		if glow.a > 0.0:
-			var gy: float = base_y - h * 0.55
-			var pulse: float = 0.6 + 0.4 * sin(_phase * 1.2 + x)
-			draw_circle(Vector2(x, gy), w * 0.28, Color(glow.r, glow.g, glow.b, glow.a * pulse))
+## Candles on the tables. A flame the size of a pixel needs a HALO to be seen at all,
+## which is why the halo is the part LOW cuts rather than the flame.
+func _draw_candles() -> void:
+	for c: Dictionary in _candles:
+		var p: Vector2 = c["pos"]
+		var pulse: float = 0.72 + 0.28 * sin(_phase * 4.3 + float(c["seed"]))
+		draw_rect(Rect2(p - Vector2(1.5, 7.0), Vector2(3.0, 7.0)),
+			Color(0.86, 0.82, 0.70, 0.85))
+		if not _low:
+			draw_circle(p - Vector2(0.0, 9.0), 11.0,
+				Color(CANDLE.r, CANDLE.g, CANDLE.b, 0.07 * pulse))
+		draw_circle(p - Vector2(0.0, 9.0), 4.0,
+			Color(CANDLE.r, CANDLE.g, CANDLE.b, 0.16 * pulse))
+		draw_circle(p - Vector2(0.0, 9.0), 1.7,
+			Color(1.0, 0.95, 0.75, 0.95 * pulse))
 
 
-func _draw_glows() -> void:
-	for g: Dictionary in _glows:
-		var pulse: float = 0.5 + 0.5 * sin(_phase * 2.0 + float(g["seed"]))
-		var c: Color = g["col"]
-		var p: Vector2 = g["pos"]
-		var r: float = float(g["r"])
-		draw_circle(p, r * 2.6, Color(c.r, c.g, c.b, 0.10 * pulse))
-		draw_circle(p, r, Color(c.r, c.g, c.b, 0.55 + 0.35 * pulse))
+## THE HEARTH. Stone surround, an ARCHED mouth, a mantel and the campfire's own flame
+## drawing set into it.
+##
+## ⚠ THE FLAME CODE IS UNCHANGED FROM THE CAMPFIRE ON PURPOSE. It was the best thing in
+## the forest version — three layered flickering teardrops, outer orange to a white
+## core — and a fire indoors is the same fire. What changed is everything AROUND it, and
+## that is the whole difference between camping and being in a tavern.
+##
+## ⚠ AND THE LIGHT IS NOW BOUNDED BY THE FIREPLACE, WHICH IS A BUG FIX. Maker, after
+## playing: *"the fire should stay within the furnace"*. The first pass drew the old
+## campfire's light as two radial discs centred on the fire at radius 92 and 150 —
+## correct for a fire in the open, and 150 px is nearly TWICE the surround's own
+## half-width, so the room had a glowing orange circle spilling out of both sides of a
+## stone fireplace. The cause was the shape, not the brightness, so the fix is the
+## shape: the glow now lives INSIDE the firebox, and what reaches the room is a flat
+## floor spill in front of the mouth that is narrower than the surround.
+const MOUTH_HALF: float = 46.0
+const MOUTH_H: float = 92.0
+const SURROUND_HALF: float = 78.0
+## The floor spill's half-width. Deliberately less than `SURROUND_HALF`, so no lit pixel
+## is ever outside the fireplace's own footprint — see the ⚠ above.
+const SPILL_RX: float = 62.0
+const ARCH_SEGS: int = 14
+const ARCH_SEGS_LOW: int = 7
 
 
-func _draw_campfire() -> void:
+func _draw_hearth() -> void:
 	var base: Vector2 = _fire
-	# Warm light pool on the ground (flickers with the flame).
 	var flick: float = 0.82 + 0.18 * sin(_phase * 11.0) + 0.06 * sin(_phase * 23.0)
-	draw_circle(base, 120.0 * flick, Color(1.0, 0.6, 0.25, 0.06))
-	draw_circle(base, 70.0 * flick, Color(1.0, 0.65, 0.3, 0.09))
-	# Log pile (two crossed dark logs).
+	var stack_top: float = _ground_y - 196.0
+	# The surround, and the flue narrowing above it — the taper is what makes it a
+	# chimney rather than a slab with a hole in it.
+	draw_rect(Rect2(Vector2(base.x - SURROUND_HALF, stack_top),
+		Vector2(SURROUND_HALF * 2.0, _ground_y - stack_top)), STONE)
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(base.x - SURROUND_HALF, stack_top),
+		Vector2(base.x + SURROUND_HALF, stack_top),
+		Vector2(base.x + SURROUND_HALF * 0.62, stack_top - 74.0),
+		Vector2(base.x - SURROUND_HALF * 0.62, stack_top - 74.0),
+	]), STONE.darkened(0.15))
+	# THE ARCHED MOUTH. Maker: *"add some cool curved structures"* — and the fireplace
+	# is where an arch actually carries something, so it is the honest place to put one.
+	# Near-black, never pure black: rule 3 of the `StageLayers` grammar reserves a true
+	# void for a thing that kills you, and a fireplace is not one.
+	var spring: float = _ground_y - MOUTH_H + MOUTH_HALF
+	var mouth: PackedVector2Array = PackedVector2Array([
+		Vector2(base.x - MOUTH_HALF, _ground_y),
+		Vector2(base.x - MOUTH_HALF, spring),
+	])
+	var segs: int = ARCH_SEGS_LOW if _low else ARCH_SEGS
+	for i: int in segs + 1:
+		var a: float = lerpf(PI, TAU, float(i) / float(segs))
+		mouth.append(Vector2(base.x + cos(a) * MOUTH_HALF, spring + sin(a) * MOUTH_HALF))
+	mouth.append(Vector2(base.x + MOUTH_HALF, _ground_y))
+	draw_colored_polygon(mouth, Color(0.045, 0.032, 0.030))
+	# The voussoirs — one lighter ring of stone following the arch, which is what turns
+	# a rounded hole into something that was built.
+	var prev: Vector2 = Vector2.ZERO
+	for i: int in segs + 1:
+		var a: float = lerpf(PI, TAU, float(i) / float(segs))
+		var q := Vector2(base.x + cos(a) * (MOUTH_HALF + 5.0),
+			spring + sin(a) * (MOUTH_HALF + 5.0))
+		if i > 0:
+			draw_line(prev, q, STONE_LIT, 5.0)
+		prev = q
+	# THE GLOW, INSIDE THE MOUTH. Two discs whose radius is capped by the opening, so
+	# the light cannot reach the stone's outer edge, let alone the room.
+	draw_circle(base + Vector2(0.0, -10.0), MOUTH_HALF * 0.92 * flick,
+		Color(1.0, 0.52, 0.18, 0.10))
+	draw_circle(base + Vector2(0.0, -10.0), MOUTH_HALF * 0.55 * flick,
+		Color(1.0, 0.66, 0.28, 0.11))
+	# THE FLOOR SPILL. Flat, in front of the mouth, and narrower than the surround —
+	# this is the only firelight that leaves the fireplace, and it lies on the boards
+	# rather than hanging in the air.
+	var spill: PackedVector2Array = PackedVector2Array()
+	var ssegs: int = 10 if _low else 20
+	for i: int in ssegs:
+		var a: float = TAU * float(i) / float(ssegs)
+		spill.append(base + Vector2(cos(a) * SPILL_RX * flick, sin(a) * 11.0))
+	draw_colored_polygon(spill, Color(1.0, 0.58, 0.22, 0.09))
+	# The mantel. The strongest horizontal on this half of the room, so it is what the
+	# eye uses to place the fire in space.
+	#
+	# ⚠ ITS HIGHLIGHT IS STONE, NOT `CAP_LIT`. Maker: *"there are random yellow lines on
+	# the taverns that dont really make sense"*. A warm amber cap is the grammar's word
+	# for "you can stand on this", and a mantelpiece 104 px up is not standable — so it
+	# gets a pale STONE edge, which says "lit shelf" without making a promise.
+	draw_rect(Rect2(Vector2(base.x - SURROUND_HALF - 8.0, _ground_y - MOUTH_H - 12.0),
+		Vector2(SURROUND_HALF * 2.0 + 16.0, 12.0)), STONE_LIT)
+	draw_rect(Rect2(Vector2(base.x - SURROUND_HALF - 8.0, _ground_y - MOUTH_H - 12.0),
+		Vector2(SURROUND_HALF * 2.0 + 16.0, 2.5)), STONE_LIT.lightened(0.35))
+	# Log pile (two crossed dark logs), kept from the campfire.
 	draw_line(base + Vector2(-14, 2), base + Vector2(14, -4), Color(0.22, 0.14, 0.09), 5.0)
 	draw_line(base + Vector2(-14, -4), base + Vector2(14, 2), Color(0.28, 0.17, 0.10), 5.0)
 	# Flame: layered flickering teardrops (outer orange -> inner yellow -> white core).
-	_draw_flame(base + Vector2(0, -6), 20.0, 46.0 * flick, Color(1.0, 0.45, 0.12, 0.85), 0.0)
-	_draw_flame(base + Vector2(0, -6), 13.0, 34.0 * flick, Color(1.0, 0.72, 0.22, 0.9), 1.7)
-	_draw_flame(base + Vector2(0, -6), 7.0, 22.0 * flick, Color(1.0, 0.95, 0.6, 0.95), 3.1)
+	#
+	# ⚠ THE TALLEST OF THEM IS CAPPED AT `MOUTH_H - 18`. At 46 px x a 1.06 flicker the
+	# outer teardrop reached 49 px, which fitted — but nothing in the file said so, and
+	# the next person to make the fire bigger would have had it lick out through the
+	# arch with no test to catch it. The cap makes "the flame is inside the furnace" a
+	# property of the code rather than a coincidence of two numbers.
+	var fh: float = minf(46.0 * flick, MOUTH_H - 18.0)
+	_draw_flame(base + Vector2(0, -6), 20.0, fh, Color(1.0, 0.45, 0.12, 0.85), 0.0)
+	_draw_flame(base + Vector2(0, -6), 13.0, fh * 0.74, Color(1.0, 0.72, 0.22, 0.9), 1.7)
+	_draw_flame(base + Vector2(0, -6), 7.0, fh * 0.48, Color(1.0, 0.95, 0.6, 0.95), 3.1)
 	draw_circle(base + Vector2(0, -6), 4.0, Color(1.0, 1.0, 0.9, 0.9))
 
 
