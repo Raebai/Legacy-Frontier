@@ -111,9 +111,16 @@ static func build_health_packs(container: Node2D, layout: LayoutDef) -> void:
 	if not layout.health_pickups.is_empty():
 		for pos: Vector2 in layout.health_pickups:
 			points.append(settle_onto_surface(layout, pos))
-	else:
+	elif not layout.health_packs_authored:
+		# EMPTY AND SILENT — "no opinion", so the floor gets the sensible pair rather
+		# than shipping with no healing on it at all. This is the pre-existing branch
+		# and every floor authored before `health_packs_authored` existed takes it.
 		for frac: Vector2 in DEFAULT_HEALTH_PACKS:
 			points.append(_anchor(layout, frac))
+	# EMPTY AND AUTHORED — "this floor has none", and it is obeyed literally. The deep
+	# ascent (floor 36+) is what asked for it; see `LayoutDef.health_packs_authored`.
+	# Falling through with an empty `points` is the whole implementation: the loop
+	# below builds nothing, which is exactly what was asked for.
 	for pos: Vector2 in points:
 		var pack: Area2D = scene.instantiate()
 		container.add_child(pack)

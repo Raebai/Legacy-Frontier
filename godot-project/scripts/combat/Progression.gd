@@ -177,8 +177,23 @@ static func expected_level_on_floor(floor: int) -> float:
 ## levels at level-1 prices, and every floor above is worth `depth_gain()` times
 ## the one below. That closed form IS the maker's "proportionally": the phrase is
 ## not decoration on the design, it is the exponent.
+##
+## ⚠ THE DEPTH IS CAPPED, AND IT IS NOT A NERF. The tower is endless now
+## (`TowerDef.endless`), so `floor` is no longer bounded by ten. This curve is
+## geometric: at floor 999 it evaluates to ~1e103, and `GameState._open_floor_purse`
+## rounds it into an int — which is not a big number, it is an OVERFLOW, in the one
+## function that decides what a kill pays.
+##
+## `XP_DEPTH_CAP` is 30 because that is where levelling has already stopped:
+## `expected_level_on_floor(26)` is 31 and `MAX_LEVEL` is 30, so from floor 26 the
+## curve is already paying into a bar that cannot move. Capping four floors past that
+## changes the value of nothing anyone can spend. Below 30 this is the identity.
+const XP_DEPTH_CAP: int = 30
+
+
 static func floor_xp_value(floor: int) -> float:
-	return BASE_XP * LEVELS_PER_FLOOR * pow(depth_gain(), float(maxi(floor, 1) - 1))
+	var d: int = clampi(maxi(floor, 1), 1, XP_DEPTH_CAP)
+	return BASE_XP * LEVELS_PER_FLOOR * pow(depth_gain(), float(d - 1))
 
 
 ## What one body on this floor is worth. **DERIVED BY DIVISION**, not authored.

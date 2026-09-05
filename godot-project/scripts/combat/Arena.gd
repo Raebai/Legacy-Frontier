@@ -441,7 +441,12 @@ func _spawn_exit_portals() -> void:
 	# A deliberate hub-return portal appears alongside the climb-exit on every
 	# non-final floor. Clearing the BOSS floor is the conquer (the climb-exit's
 	# advance path handles it), so no return portal there.
-	if _gs.current_floor() < _gs.total_floors():
+	# ⚠ `has_next_floor()`, NOT `current_floor() < total_floors()`. `total_floors()` is
+	# the height of the AUTHORED spine and deliberately stays 10 now that the tower
+	# continues past it — so the old comparison went false at floor 10 and the walk-home
+	# portal simply stopped being built for the whole ascent, leaving dying as the only
+	# way out of an endless climb.
+	if _gs.has_next_floor():
 		# ON THE GROUND, IN THE MIDDLE — the maker's words, and both halves are derived
 		# rather than placed: the middle is half the authored room, and the ground is the
 		# floor's top face, which `FloorGen` computes as `h - WALL_THICKNESS * 0.5`.
@@ -531,7 +536,9 @@ func _show_leave_confirm() -> void:
 	note.text = "the run ends here%s.
 your climb is banked — floor %d is waiting." % [
 		("  ·  for both of you" if _is_coop() else ""),
-		mini(_gs.current_floor() + 1, _gs.total_floors()),
+		# `climb_ceiling()`, for the same reason as the portal gate above: clamping to the
+		# authored ten told a floor-34 player that floor 10 was waiting for them.
+		mini(_gs.current_floor() + 1, _gs.climb_ceiling()),
 	]
 	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	HudStyle.label(note, HudStyle.SMALL, CARD_GRAPHITE)
@@ -1438,11 +1445,12 @@ func _build_floor_banner() -> void:
 func _show_floor_banner(floor: int, theme: EnvTheme) -> void:
 	if _floor_banner == null:
 		return
-	var total: int = GameState.TOTAL_FLOORS
-	if _gs.active_tower != null:
-		total = _gs.active_tower.floors.size()
+	# ⚠ NO DENOMINATOR. "Floor %d / %d" was true while the tower had a top; past the
+	# authored spine it read "Floor 34 / 10", which is worse than saying nothing because
+	# it invites the player to believe they have overshot the game. `floor_label` owns the
+	# one rule for how a depth is spoken, so the banner and the run card cannot drift.
 	var theme_name: String = theme.name if theme != null else "?"
-	var label: String = "Floor %d / %d  ·  %s" % [floor, total, theme_name]
+	var label: String = "%s  ·  %s" % [_gs.floor_label(floor), theme_name]
 	if _current_floor_def != null and _current_floor_def.floor_type == FloorDef.FloorType.BOSS:
 		label = "⚔  GUARDIAN  ⚔   ·   " + label
 	_floor_banner.text = label

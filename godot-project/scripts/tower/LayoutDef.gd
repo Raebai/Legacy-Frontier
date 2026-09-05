@@ -44,6 +44,22 @@ extends Resource
 ## is silent; when the first floor genuinely wants none, the honest fix is a
 ## `health_packs_authored: bool` beside this, not a magic sentinel position.
 @export var health_pickups: Array[Vector2] = []
+## THE FIRST FLOOR THAT GENUINELY WANTS NONE HAS ARRIVED, so this is that fix.
+##
+## True means `health_pickups` is a STATEMENT and is obeyed literally, empty included;
+## false (every hand-authored layout, and every generated one below the ascent) means
+## "this floor has not been given an opinion" and `FloorBuilder.DEFAULT_HEALTH_PACKS`
+## still applies. Nothing that existed before this flag changes behaviour, because
+## nothing that existed before sets it.
+##
+## WHAT ASKED FOR IT: the deep ascent (`GameState.ascent_floor_def`, floor 36+) takes
+## healing away as its terminal escalation. That is the honest opposite of an HP
+## sponge — it does not make a fight longer, it makes your margin inside one smaller —
+## and it is one of only two dials still moving after every other axis has plateaued.
+## A magic sentinel position (`Vector2(-1, -1)` means none) was the alternative and is
+## the thing the note above already rejected: a position that is not a position is a
+## lie that every consumer has to be taught.
+@export var health_packs_authored: bool = false
 ## THE SKYLINE. Ledges the floor is drawn with, as
 ## `{"x", "y", "w", "h", "breakable"}` — x/y are the platform's CENTRE, so a ledge's
 ## standing surface is `y - h * 0.5`. `breakable` picks the amber-rimmed

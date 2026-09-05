@@ -284,6 +284,55 @@ const FLOOR_AFFIX_CHANCE: float = 0.30
 ## combat script into a headless harness's compile graph.
 ## `tools/slice_test_elites.gd` fails if these two lists ever disagree.
 const FLOOR_AFFIX_POOL: Array[String] = ["quickened", "inked", "volatile"]
+
+## ══ THE ASCENT'S OWN FLOOR AFFIXES — the one dial still moving at floor 40 ══════
+## Everything the ascent escalates on (bodies, pressure cap, wave count, class
+## breadth, guardian HP, elite budget, boss modifiers) plateaus by floor 26. Two
+## dials do not, and this is one of them: past the authored spine the tower starts
+## editing every body on the floor, one rule at a time.
+##
+##   floor 11-25  one affix     floor 26-40  two     floor 41+  three (the whole pool)
+##
+## ⚠ THIS IS NOT `floor_affixes_enabled`, AND THE DIFFERENCE IS THE WHOLE SAFETY
+## ARGUMENT. That static is a per-process toggle, and its own comment says two peers
+## holding different values derive different floors from the same seed and desync.
+## These affixes are derived by `ascent_affixes()` — a PURE function of
+## `(tower_id, depth, climb_seed)` — so both peers reach the same list from the same
+## tower, exactly as they already do for the room shape and the boss roll. Nothing
+## here reads a per-player setting.
+##
+## ⚠ AND IT DOES NOT REACH THE SHIPPED TEN. `docs/THE-TOWER-mobile-plan.md` lists
+## floor modifiers as out for v1; floors 1-10 are the whole game today and they stay
+## clean, so that spec item still holds over everything a player has ever seen. The
+## ascent is new content the plan predates. It is one named constant so the maker can
+## overrule the call in a single edit rather than by unpicking a feature.
+const ASCENT_FLOOR_AFFIXES: bool = true
+## Where the ascent begins to edit the room, and where it adds the second and third
+## rule. Deliberately slow: an affix rewrites how EVERY body behaves, and three at
+## once is the terminal state of the tower, not a mid-climb escalation.
+const ASCENT_AFFIX_1_DEPTH: int = 11
+const ASCENT_AFFIX_2_DEPTH: int = 26
+const ASCENT_AFFIX_3_DEPTH: int = 41
+
+## ══ THE HARD CEILING ON A WAVE'S PRESSURE CAP ═════════════════════════════════
+## 8 is the authored tower's own maximum (floors 9 and 10), and `_reshape` conserves
+## the SUM rather than the maximum — so a redraw of floor 9's `6,7,7,8` can legally
+## produce `6,6,7,9`. This clamp is what stops the generator making a hand-tuned floor
+## denser than it was ever authored to be, and it must keep doing that.
+##
+## ⚠ AND IT WAS SILENTLY EATING THE ASCENT'S ENTIRE PRESSURE ESCALATION. The endless
+## tower raises its cap 8 -> 9 -> 10 with depth, and every one of those was being
+## clipped straight back to 8 here — measured by `tools/probe_endless_curve.gd`, which
+## reported the cap axis "last moves at floor 14, settles at 8.00" against a design
+## that said floor 21 and 10. The floor was asking for ten and getting eight, and
+## nothing anywhere said so: the number is clamped, not rejected.
+##
+## So the ceiling is depth-gated rather than raised. An authored floor keeps the 8 it
+## has always had; only a floor SYNTHESIZED past the spine may reach 10, and 10 is
+## where it stops (ten bodies on a 640x360 screen under a fit-all camera is already
+## dense; twelve is soup).
+const WAVE_CAP_MAX: int = 8
+const ASCENT_WAVE_CAP_MAX: int = 10
 ## Odds a wave gets an explicit opening burst instead of the cap-derived default.
 const VANGUARD_CHANCE: float = 0.35
 ## Odds a wave gets an explicit spawn interval.
@@ -362,6 +411,12 @@ static func vary_tower(t: TowerDef, seed_value: int) -> TowerDef:
 	out.id = t.id
 	out.display_name = t.display_name
 	out.theme = t.theme
+	# CARRIED, NOT RECOMPUTED. `endless` is a property of the tower that was handed in
+	# (GameState decides it); the seed is the number this redraw was performed with, and
+	# stamping it here is what lets an ascent floor be derived later from the tower alone
+	# rather than from `last_seed`, which any other climb in the process may have moved.
+	out.endless = t.endless
+	out.climb_seed = seed_value
 	var floors: Array[FloorDef] = []
 	for i: int in t.floors.size():
 		var f: FloorDef = t.floors[i]
@@ -374,14 +429,23 @@ static func vary_tower(t: TowerDef, seed_value: int) -> TowerDef:
 
 
 ## Redraw ONE floor. Returns a fresh FloorDef — the input is read, never written.
-static func vary_floor(f: FloorDef, depth: int, tower_id: String, seed_value: int) -> FloorDef:
+##
+## `ascent` marks a floor SYNTHESIZED past the authored spine (see
+## `TowerDef.endless`). It changes nothing about how the room, the mix or the tags
+## are drawn — the whole point of the ascent is that a generated floor and an
+## authored one are indistinguishable downstream — and buys exactly one thing: the
+## ascent's own floor affixes get stamped on (`ASCENT_FLOOR_AFFIXES`). It is a
+## TRAILING DEFAULTED PARAM so every existing caller is byte-identical.
+static func vary_floor(f: FloorDef, depth: int, tower_id: String, seed_value: int,
+		ascent: bool = false) -> FloorDef:
 	var out: FloorDef = _clone_floor(f)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = floor_seed(tower_id, depth, seed_value)
 	var shape: String = _roll_shape(rng, int(out.floor_type))
 	out.layout = generate_layout(rng, shape, int(out.floor_type), depth)
 	out.theme = _jitter_theme(rng, f.theme)
-	out.waves = vary_waves(rng, f.waves, depth)
+	out.waves = vary_waves(rng, f.waves, depth,
+		(ASCENT_WAVE_CAP_MAX if ascent else WAVE_CAP_MAX))
 	# Keep the flat legacy fields consistent with the redrawn waves, exactly as
 	# GameState._make_floor does — anything still reading `enemy_budget` (including
 	# Encounter's synthesized-wave fallback) must see the same floor.
@@ -394,8 +458,62 @@ static func vary_floor(f: FloorDef, depth: int, tower_id: String, seed_value: in
 		out.enemy_budget = total
 		out.concurrent_cap = cap
 	out.special_tags = _stamp_tags(f.special_tags, shape, int(rng.seed),
-		_roll_floor_affix(rng, depth, int(out.floor_type)))
+		_roll_floor_affix(rng, depth, int(out.floor_type)),
+		(ascent_affixes(depth, tower_id, seed_value) if ascent else ([] as Array[String])))
 	return out
+
+
+## ══ THE ASCENT'S FLOOR AFFIXES, DERIVED ═══════════════════════════════════════
+## PURE: same (depth, tower_id, seed) -> the same list on every machine, forever.
+## That purity is the co-op safety property — see the block on ASCENT_FLOOR_AFFIXES.
+##
+## The pool is drawn WITHOUT REPLACEMENT and in a deterministic shuffled order, so a
+## floor asking for two affixes gets two DIFFERENT ones rather than the same word
+## twice, and a floor asking for three gets the whole pool (which is the terminal
+## state the design note names).
+static func ascent_affixes(depth: int, tower_id: String, seed_value: int) -> Array[String]:
+	var out: Array[String] = []
+	var want: int = ascent_affix_count(depth)
+	if want <= 0:
+		return out
+	var pool: Array[String] = FLOOR_AFFIX_POOL.duplicate()
+	var rng := RandomNumberGenerator.new()
+	# Mixed exactly the way `floor_seed` mixes, and then salted again, so the affix
+	# roll does not land on the same stream position as the room roll for this floor —
+	# two rolls sharing a seed correlate, and a correlation here would mean the ledge
+	# shape and the affix always arrived together.
+	rng.seed = _mix(floor_seed(tower_id, depth, seed_value), 0x5A17)
+	_shuffle_strings(pool, rng)
+	for i: int in mini(want, pool.size()):
+		out.append(pool[i])
+	out.sort()   # stable order -> the HUD reads the same on both phones
+	return out
+
+
+## How many floor-wide rules ride an ascent floor. 0 below the ascent, which is what
+## keeps the authored ten clean.
+static func ascent_affix_count(depth: int) -> int:
+	if not ASCENT_FLOOR_AFFIXES:
+		return 0
+	var d: int = maxi(depth, 1)
+	if d >= ASCENT_AFFIX_3_DEPTH:
+		return 3
+	if d >= ASCENT_AFFIX_2_DEPTH:
+		return 2
+	if d >= ASCENT_AFFIX_1_DEPTH:
+		return 1
+	return 0
+
+
+## Fisher-Yates over a typed string array. Duplicated from BossRoster._shuffle rather
+## than reached for, for the reason stated at FLOOR_AFFIX_POOL: this file must drag no
+## combat script into a headless harness's compile graph.
+static func _shuffle_strings(arr: Array[String], rng: RandomNumberGenerator) -> void:
+	for i: int in range(arr.size() - 1, 0, -1):
+		var j: int = rng.randi_range(0, i)
+		var tmp: String = arr[i]
+		arr[i] = arr[j]
+		arr[j] = tmp
 
 
 ## The per-floor seed. Mixed so two adjacent floors of the same climb land in
@@ -970,8 +1088,11 @@ static func _place_pickups(rng: RandomNumberGenerator, reach: Array[Dictionary],
 ## `depth` unlocks the escalation knobs — see the MIX_MIN_DEPTH block. Defaulted
 ## to a deep floor so every existing caller (and the pure-function tests) gets
 ## exactly the generator it had.
+## `cap_ceiling` is the hard ceiling on any one wave's pressure — see WAVE_CAP_MAX.
+## A TRAILING DEFAULTED PARAM at the authored value, so every existing caller keeps
+## exactly the generator it had; only the ascent passes anything else.
 static func vary_waves(rng: RandomNumberGenerator, waves: Array[WaveDef],
-		depth: int = 99) -> Array[WaveDef]:
+		depth: int = 99, cap_ceiling: int = WAVE_CAP_MAX) -> Array[WaveDef]:
 	var out: Array[WaveDef] = []
 	if waves.is_empty():
 		return out
@@ -998,7 +1119,7 @@ static func vary_waves(rng: RandomNumberGenerator, waves: Array[WaveDef],
 		var src: WaveDef = waves[i]
 		var w2 := WaveDef.new()
 		w2.enemy_budget = budgets[i]
-		w2.concurrent_cap = clampi(caps[i], 2, 8)
+		w2.concurrent_cap = clampi(caps[i], 2, maxi(cap_ceiling, 2))
 		w2.brute_chance = src.brute_chance
 		# NEVER TOUCHED. -1 = inherit the floor's 1.0. See the header block.
 		w2.hp_multiplier = -1.0
@@ -1203,8 +1324,15 @@ static func _jitter_theme(rng: RandomNumberGenerator, src: EnvTheme) -> EnvTheme
 ## redraw; `genaff:<id>` is this file's own stamp and is stripped and rewritten each
 ## time, exactly like `gen:` and `genseed:`. Stripping both prefixes here would have
 ## quietly deleted authored pins on the second `apply()`.
+## `extra_affixes` is the ASCENT's list (see `ascent_affixes`). It rides the same
+## `genaff:` prefix as the rolled one because it is the same kind of thing — a
+## generator-owned floor rule that is stripped and rewritten on every redraw — and
+## because `EliteRoster.parse_floor_affixes` already reads EVERY tag with that prefix
+## rather than the first, so a floor carrying three of them needs no reader change.
+## De-duplicated against the rolled affix so a floor cannot be told to be "quickened"
+## twice.
 static func _stamp_tags(tags: Array[String], shape: String, used_seed: int,
-		affix: String = "") -> Array[String]:
+		affix: String = "", extra_affixes: Array[String] = []) -> Array[String]:
 	var out: Array[String] = []
 	for t: String in tags:
 		if t.begins_with(TAG_SHAPE) or t.begins_with(TAG_SEED) or t.begins_with(TAG_GEN_AFFIX):
@@ -1212,8 +1340,14 @@ static func _stamp_tags(tags: Array[String], shape: String, used_seed: int,
 		out.append(t)
 	out.append(TAG_SHAPE + shape)
 	out.append(TAG_SEED + str(used_seed))
+	var seen: Array[String] = []
 	if affix != "":
-		out.append(TAG_GEN_AFFIX + affix)
+		seen.append(affix)
+	for a: String in extra_affixes:
+		if a != "" and not seen.has(a):
+			seen.append(a)
+	for a2: String in seen:
+		out.append(TAG_GEN_AFFIX + a2)
 	return out
 
 

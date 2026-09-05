@@ -64,8 +64,30 @@ static func budget(depth: int) -> int:
 ## and two only in the deep tower. The difference is screen budget: a boss owns the
 ## whole frame and a HUD row to explain itself, a trash mob owns one word over its
 ## head in a room with ten other bodies in it.
+##
+## ⚠ A THIRD WORD, AND ONLY IN THE ASCENT. The endless tower (`TowerDef.endless`)
+## climbs past the authored ten, and the two dials this file owns — `budget` and
+## `affix_count` — were both saturated by floor 5, so a floor-40 elite was the same
+## body as a floor-6 one. The ceiling on BODIES stays 2 for the reason above (six
+## glowing sticks is a light show), so the escalation has to be depth on ONE body.
+## Three affixes is the whole pool for most archetypes, so it is also the last rung
+## there is — the curve plateaus here rather than running away, which is the design
+## note's stated shape.
+##
+##   floor: 1  5  21+
+##   words: 1  2  3
+##
+## 21 rather than 11: the ascent's first band is already carrying a floor-wide affix
+## on every body (`FloorGen.ascent_affix_count`), and stacking a third elite word on
+## top of that in the same band is two escalations landing on one floor.
+const ASCENT_AFFIX_DEPTH: int = 21
+
+
 static func affix_count(depth: int) -> int:
-	return 2 if maxi(depth, 1) >= 5 else 1
+	var d: int = maxi(depth, 1)
+	if d >= ASCENT_AFFIX_DEPTH:
+		return 3
+	return 2 if d >= 5 else 1
 
 
 ## Affixes that must never ride certain archetypes, and why.

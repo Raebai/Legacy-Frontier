@@ -95,6 +95,35 @@ const CLIMBER_SAVE_VERSION: int = 2
 ## Where the persistent climber lives (highest/current floor, falls, conquered, rank).
 const CLIMBER_PATH: String = "user://climber.json"
 
+## ══ THE SCORE ═════════════════════════════════════════════════════════════════
+## Maker, 2026-09-04: *"revamp the tower so thats its infinite and you are scored on
+## like how high you get ... and the game is just who can get highest in the tower"*.
+## Design note: docs/superpowers/specs/2026-09-04-infinite-tower-and-score.md
+##
+## ⚠ `preload`, NOT a `class_name`. It hands back the SCRIPT OBJECT, so every entry
+## point on that file is `static` — and it needs no import step, which is the only
+## reliable way to add a script to this project without the global class cache being
+## the thing that decides whether the build parses.
+const ClimbScore := preload("res://scripts/tower/ClimbScore.gd")
+
+## The local board. A SEPARATE FILE from climber.json, deliberately: the climber is
+## one record rewritten on every floor transition, and the board is a list that grows.
+## Merging them makes the per-floor write bigger every run and lets a corrupt board
+## take the climber down with it.
+const SCORES_PATH: String = "user://scores.json"
+
+## ══ HOW HIGH THE CLIMB MAY GO ═════════════════════════════════════════════════
+## "Infinite", with a number, and the number is the point.
+##
+## An unbounded floor counter is a place for a hand-edited save, an overflowing
+## format string or a runaway loop to live, and every consumer that prints "Floor %d"
+## wants a bound it can trust. At roughly ninety seconds a floor, 9999 is two hundred
+## and fifty hours in one unbroken sitting — and the difficulty curve reaches its
+## terminal state around floor 41 (see `ascent_floor_def`), so the last ~9950 floors
+## are the same floor with a different number on it anyway. This is a guard rail, not
+## a design statement.
+const MAX_CLIMB_FLOOR: int = 9999
+
 ## Which hero class the next/current run uses. Read by Hero._ready(). Set from
 ## the hub or the debug switch. 0..7 (see Hero.HeroClass / CLASS_NAMES).
 var selected_class: int = 0
@@ -264,6 +293,38 @@ var _elements_used: Dictionary = {}      # used as a String set
 ## `FriendlyFire.report` banks it here and the summary card reads it back.
 var _friendly_damage: int = 0
 
+## THE HIGHEST FLOOR *THIS RUN* TOUCHED — the headline score input.
+##
+## ⚠ NOT the same number as `_highest_floor`, and the difference is the whole reason
+## both exist. `_highest_floor` is the climber's lifetime best and is monotonic across
+## every run forever; this is one run's peak and resets on every entry. A board row
+## says what a RUN did, so it has to be this one — otherwise every row after your best
+## run would silently claim your best run's height.
+var _run_peak_floor: int = 1
+
+## When the current run started, in engine milliseconds. The score's tiebreak.
+##
+## ⚠ `Time.get_ticks_msec()` is ~20x wrong inside `--write-movie` (a documented trap in
+## docs/NEXT-SESSION.md), which is a clip-render mode nobody scores a run in. The
+## ORDERING rule that consumes this lives in `ClimbScore.is_better` and is tested
+## against explicit numbers, so the rule is never dependent on the clock being right.
+var _run_started_ms: int = 0
+
+## THE LOCAL BOARD, newest-best-first. Loaded at `_ready`, written at `end_run`.
+## The personal best is `ClimbScore.best(score_history)` — DERIVED, never stored
+## beside the list it is the best of.
+var score_history: Array = []
+
+## Ascent floors already synthesized this climb, keyed by depth.
+##
+## ⚠ THIS CACHE IS CORRECTNESS, NOT SPEED. `floor_def_for` is called several times per
+## floor — `Arena` builds the room from it, `Encounter` runs the fight from it, the
+## XP purse counts bodies from it — and each caller MUST be handed the same floor. It
+## is a pure function of (id, depth, seed) so a re-derive would agree anyway; caching
+## makes that true by construction rather than by argument, and stops a future
+## non-pure line from silently building a room that does not match its fight.
+var _ascent_cache: Dictionary = {}
+
 
 # ---------------------------------------------------------------- transitions
 const TOWER_PATH: String = "res://data/towers/ashspire.tres"
@@ -271,6 +332,7 @@ const TOWER_PATH: String = "res://data/towers/ashspire.tres"
 
 func _ready() -> void:
 	_load_climber()
+	_load_scores()
 
 
 ## ══ START THE CLIMB OVER ═══════════════════════════════════════════════════════
@@ -296,6 +358,10 @@ func reset_climb() -> void:
 	# Rebuilt on the next `enter_run`, so a fresh climb is a fresh tower rather than
 	# the same rooms in the same order.
 	active_tower = null
+	# ...and the ascent goes with it. The cache is keyed by depth alone, so a stale
+	# entry would hand the NEW climb the OLD climb's floor 37 — the one bug a
+	# depth-keyed cache can have, and the reset is where it would have appeared.
+	_ascent_cache.clear()
 	_save_climber()
 
 
@@ -303,13 +369,21 @@ func enter_run() -> void:
 	ringout_mode = false                  # a tower run is HP-death, never ring-out
 	if active_tower == null:
 		active_tower = _load_or_build_tower()
-	# Persistent climb: a conquered tower re-climbs fresh; otherwise resume from
-	# the saved floor. NEVER a blanket reset to 1.
-	if tower_conquered:
+	# Persistent climb: resume from the saved floor. NEVER a blanket reset to 1.
+	#
+	# ⚠ ON AN ENDLESS TOWER, CONQUEST NO LONGER RESETS YOU. Clearing the authored
+	# summit used to end the run and send the next one back to floor 1; under the
+	# endless climb the summit is a MILESTONE you climb through, so `tower_conquered`
+	# is a badge the card and the hub NPCs read, not a reset trigger. `reset_climb()`
+	# — walking over to a person and asking — remains the one door back to floor 1,
+	# which is the friction that decision was given on purpose.
+	if tower_conquered and not is_endless():
 		_floor = 1
 		tower_conquered = false
-	_floor = clampi(_floor, 1, total_floors())
+	_floor = clampi(_floor, 1, climb_ceiling())
 	_highest_floor = maxi(_highest_floor, _floor)
+	_run_peak_floor = _floor
+	_run_started_ms = Time.get_ticks_msec()
 	_restore_rank_power()
 	_kills = 0
 	_boss_killed = false
@@ -336,12 +410,30 @@ func enter_run() -> void:
 ## The hand never draws the same room twice — FloorGen keeps each floor's
 ## IDENTITY (type, depth, wave count, total bodies, boss curve) and redraws its
 ## EXPRESSION (room proportion, ledge skyline, cover, spawns, pickups, mix).
+##
+## ⚠ AND THE ENDLESS FLAG IS SET *HERE*, not in `build_default_tower()`, for exactly
+## the reason above one level up. Eight tools and suites call the builder directly and
+## assert against the authored ten — `slice2_test_runloop` pins `floors.size() ==
+## TOTAL_FLOORS`, `slice_test_climb` pins that clearing the last floor CONQUERS and
+## emits no `floor_advanced`. Those describe the authored spine and they are still
+## true of it. Endlessness is a property of the tower as PLAYED, so it is applied on
+## the way to being played, next to the generator that is applied for the same reason.
 func _load_or_build_tower() -> TowerDef:
+	_ascent_cache.clear()          # a new tower means a new ascent
 	if ResourceLoader.exists(TOWER_PATH):
 		var t: Resource = load(TOWER_PATH)
 		if t is TowerDef:
-			return FloorGen.apply(stamp_depths(t as TowerDef))
-	return FloorGen.apply(build_default_tower())
+			return _make_endless(FloorGen.apply(stamp_depths(t as TowerDef)))
+	return _make_endless(FloorGen.apply(build_default_tower()))
+
+
+## Mark a tower as one the climb does not fall off the end of. Separated so the one
+## line that turns the game infinite is greppable, and so a future "this tower really
+## does end" (a scripted campaign, a tutorial tower) has an obvious place to say so.
+func _make_endless(t: TowerDef) -> TowerDef:
+	if t != null:
+		t.endless = true
+	return t
 
 
 ## Write each floor's 1-based index into `FloorDef.depth`.
@@ -362,10 +454,52 @@ static func stamp_depths(t: TowerDef) -> TowerDef:
 
 
 ## Total floors in the active tower (or the legacy const when none is set).
+##
+## ⚠ THIS STILL MEANS "HOW TALL IS THE AUTHORED SPINE", AND IT WAS NOT REDEFINED.
+## The tower is endless now, so there is a real temptation to make this answer
+## "infinity" or "where you are". It answers neither. It is read by the checkpoint
+## clamp, the summary card and the floor banner, and silently changing what it means
+## is precisely the `TOTAL_FLOORS`-vs-`total_floors()` bug this repo already recorded
+## once (every climb test passed while the two disagreed). The new questions got new
+## methods instead: `is_endless`, `climb_ceiling`, `has_next_floor`, `floor_label`.
 func total_floors() -> int:
 	if active_tower != null:
 		return active_tower.floors.size()
 	return TOTAL_FLOORS
+
+
+## Does the climb continue past the authored spine? See `TowerDef.endless`.
+func is_endless() -> bool:
+	return active_tower != null and active_tower.endless
+
+
+## The highest floor the climb may reach. The authored spine's height on a finite
+## tower; the guard-rail constant on an endless one (see MAX_CLIMB_FLOOR).
+func climb_ceiling() -> int:
+	return MAX_CLIMB_FLOOR if is_endless() else total_floors()
+
+
+## Is there a floor above the one you are on? The question `Arena` is really asking
+## when it decides whether to draw the walk-home portal beside the climb portal, and
+## the question `advance_floor` asks before it ends the run in victory.
+##
+## Its own method because `current_floor() < total_floors()` — which is what the two
+## call sites used to spell — silently became FALSE forever at floor 10 the moment the
+## tower stopped ending there.
+func has_next_floor() -> bool:
+	return _floor < climb_ceiling()
+
+
+## "Floor 7 / 10" on the authored spine, "Floor 34" once you are past it.
+##
+## One implementation, because the banner, the run card and the board all want this
+## string and three of them inventing it independently is how a game ends up showing
+## "Floor 34 / 10" on one screen and "Floor 34" on another.
+func floor_label(floor: int = -1) -> String:
+	var f: int = _floor if floor < 0 else floor
+	if is_endless() and f > total_floors():
+		return "Floor %d" % f
+	return "Floor %d / %d" % [f, total_floors()]
 
 
 ## Called by the arena when a floor is cleared and the player takes the exit.
@@ -380,14 +514,33 @@ func advance_floor() -> void:
 	# does not exist.
 	grant_xp(Progression.clear_xp(_floor), "clear")
 	if _floor >= total_floors():
+		# ══ THE SUMMIT OF THE AUTHORED SPINE ══════════════════════════════════════
+		# It is still a MILESTONE — `tower_conquered` is what the summary card, the hub
+		# NPCs and the class-choice hook read, and clearing floor 10 has always been
+		# the moment they are talking about. What it stopped being is an ENDING.
 		_boss_killed = true               # cleared the guardian floor
 		tower_conquered = true
 		_highest_floor = maxi(_highest_floor, total_floors())
+		if not is_endless():
+			# A finite tower (the F6 sandbox, a scripted tower, and every suite that
+			# drives `build_default_tower()` directly) behaves exactly as before: the
+			# run ends here in victory and emits no `floor_advanced`.
+			_save_climber()
+			end_run(false)
+			return
+		# ...and on an endless one, the ascent begins. Falling through is the whole
+		# implementation: the floor moves, the purse opens, the save is written and
+		# `floor_advanced` fires, which is what rebuilds the Arena on every peer.
+	if _floor >= climb_ceiling():
+		# The guard rail, reached only by a hand-edited save. Ending the run is the
+		# right answer — there is no floor above this one to advance to, and looping
+		# forever on the same number is worse than a victory card.
 		_save_climber()
 		end_run(false)
 		return
 	_floor += 1
 	_highest_floor = maxi(_highest_floor, _floor)
+	_run_peak_floor = maxi(_run_peak_floor, _floor)
 	_open_floor_purse()                   # a new floor, a new purse
 	_save_climber()
 	floor_advanced.emit(_floor)
@@ -427,8 +580,13 @@ func enter_coop_run(floor: int) -> void:
 	ringout_mode = false                  # co-op is a tower run: HP-death, not ring-out
 	if active_tower == null:
 		active_tower = _load_or_build_tower()
-	_floor = clampi(floor, 1, total_floors())
+	# ⚠ `climb_ceiling()`, NOT `total_floors()`. A party climbing an endless tower can
+	# legitimately be handed floor 37; clamping that to the authored ten would silently
+	# drop the whole party back to floor 10 the moment they crossed the summit.
+	_floor = clampi(floor, 1, climb_ceiling())
 	_highest_floor = maxi(_highest_floor, _floor)
+	_run_peak_floor = _floor
+	_run_started_ms = Time.get_ticks_msec()
 	_kills = 0
 	_boss_killed = false
 	_elements_used = {}
@@ -447,8 +605,12 @@ func enter_coop_run(floor: int) -> void:
 func net_set_floor(floor: int) -> void:
 	if active_tower == null:
 		active_tower = _load_or_build_tower()
-	_floor = clampi(floor, 1, total_floors())
+	# `climb_ceiling()` for the same reason `enter_coop_run` uses it: the host may be
+	# replicating an ascent floor, and clamping to the spine would desync the party's
+	# floor number from the fight the host is actually running.
+	_floor = clampi(floor, 1, climb_ceiling())
 	_highest_floor = maxi(_highest_floor, _floor)
+	_run_peak_floor = maxi(_run_peak_floor, _floor)
 	_run_active = true
 	mode = Mode.RUN
 	# The client opens its OWN purse for the new floor. It never draws from it (kills
@@ -491,7 +653,14 @@ func game_over() -> void:
 		return                            # sandbox death: Hero handles the local reset
 	var died_on: int = _floor
 	_falls += 1
-	_floor = DeathRules.resume_floor_after_game_over(_floor, total_floors())
+	# ⚠ `climb_ceiling()`, NOT `total_floors()`. `resume_floor_after_game_over` CLAMPS
+	# its first argument to its second before taking the checkpoint band, so passing
+	# the authored ten would turn "you fell on floor 37" into "you fell on floor 10"
+	# and resume you at 6 — deleting twenty-seven floors on one death. The band
+	# arithmetic itself (`DeathRules.checkpoint_for`) extends to any depth unchanged:
+	# floor 37 -> 36, which is the guardian floor's own band, which is the alignment
+	# the ascent's five-floor type rhythm was chosen for.
+	_floor = DeathRules.resume_floor_after_game_over(_floor, climb_ceiling())
 	_save_climber()
 	end_run(true, died_on)
 
@@ -506,9 +675,14 @@ func return_to_hub() -> void:
 	# does — the two are the same event with different destinations, and paying only
 	# one of them would make "go home" quietly cost you a fifth of the floor.
 	grant_xp(Progression.clear_xp(_floor), "clear")
-	if _floor < total_floors():
+	# `has_next_floor()`, not `_floor < total_floors()`: on an endless tower there is
+	# always a floor above, and the old spelling would have stopped banking the cleared
+	# floor from the summit onward — walking home from floor 34 would have put you back
+	# on floor 34 to refight it.
+	if has_next_floor():
 		_floor += 1
 		_highest_floor = maxi(_highest_floor, _floor)
+		_run_peak_floor = maxi(_run_peak_floor, _floor)
 	_save_climber()
 	end_run(false)
 
@@ -532,11 +706,30 @@ func end_run(died: bool, floor_override: int = -1) -> void:
 	if not _run_active:
 		return                        # ignore a stray Hero._die in the sandbox
 	_run_active = false
+	# ══ THE SCORE, BANKED ═════════════════════════════════════════════════════════
+	# Recorded BEFORE the outcome is frozen, so the card can be handed this run's
+	# place on the board rather than having to go and look it up. Every route out of a
+	# run passes through here — death, walking home, abandoning, conquering — which is
+	# why this is the one place it is done: peak floor is peak floor however the run
+	# ended, and a route that scored and a route that did not would be a board with a
+	# hole in it that nobody could see.
+	var died_floor: int = (_floor if floor_override < 0 else floor_override)
+	_run_peak_floor = maxi(_run_peak_floor, died_floor)
+	var rec: Dictionary = ClimbScore.make_record(
+		_run_peak_floor, _elapsed_ms(), selected_class, died, _kills,
+		int(Time.get_unix_time_from_system()), _is_coop_session()
+	)
+	var place: int = ClimbScore.rank_of(score_history, rec)
+	var record: bool = ClimbScore.is_record(score_history, rec)
+	var prev_best: int = ClimbScore.best_floor(score_history)
+	score_history = ClimbScore.insert(score_history, rec)
+	_save_scores()
 	last_run = build_outcome(
-		(_floor if floor_override < 0 else floor_override),
+		died_floor,
 		_kills, _boss_killed, died,
 		_elements_used.keys(), _rank_tier(), _rank_title(), _falls,
-		_friendly_damage, _highest_floor, total_floors()
+		_friendly_damage, _highest_floor, total_floors(),
+		_run_peak_floor, _elapsed_ms(), place, record, maxi(prev_best, 0)
 	)
 	mode = Mode.HUB
 	run_ended.emit(last_run)
@@ -652,6 +845,92 @@ func _load_climber(path: String = CLIMBER_PATH) -> void:
 	# after every `configure_class`, so a climber walks back into the tower wearing
 	# what they picked last session rather than their class default.
 	loadout = state["loadout"]
+
+
+# ------------------------------------------------------------- the local board
+## How long the current run has been going, in milliseconds. 0 outside a run.
+func _elapsed_ms() -> int:
+	if _run_started_ms <= 0:
+		return 0
+	return maxi(Time.get_ticks_msec() - _run_started_ms, 0)
+
+
+## Is this a networked session? Recorded as a FACT on a board row (co-op runs are
+## easier per head and it is honest to say which rows were which), never as a score
+## input. Same `is_inside_tree()` guard as `_is_net_host` and for the same reason: an
+## absolute `get_node()` from a detached node is an ERROR, and the suites drive a bare
+## `GameState.new()` on purpose.
+func _is_coop_session() -> bool:
+	if not is_inside_tree():
+		return false
+	var n: Node = get_node_or_null("/root/Net")
+	return n != null and n.is_active()
+
+
+## THE PERSONAL BEST, derived from the board. `{}` until the first run finishes.
+func best_climb() -> Dictionary:
+	return ClimbScore.best(score_history)
+
+
+## The best floor ever recorded on the board. 0 means "no finished run yet" — which is
+## not the same as `_highest_floor`, which counts a floor the moment you STAND on it.
+func best_climb_floor() -> int:
+	return ClimbScore.best_floor(score_history)
+
+
+## The board, ranked. Handed to whatever draws it.
+func score_board() -> Array:
+	return ClimbScore.ranked(score_history)
+
+
+## Write the local board. Atomic (tmp-then-rename), and carrying the SAME tree guard
+## `_save_climber` carries — a test run must never write the player's real board, and
+## the discriminator is the same one: the real autoload is always inside the tree and
+## a bare `GameState.new()` never is. A suite that genuinely wants the disk round-trip
+## passes an explicit path, which is taken as "I know what I am doing".
+func _save_scores(path: String = SCORES_PATH) -> void:
+	if path == SCORES_PATH and not is_inside_tree():
+		return
+	var payload: Dictionary = ClimbScore.build_board(score_history)
+	var tmp_path: String = path + ".tmp"
+	var f: FileAccess = FileAccess.open(tmp_path, FileAccess.WRITE)
+	if f == null:
+		push_error("GameState._save_scores: cannot open %s for writing" % tmp_path)
+		return
+	f.store_string(JSON.stringify(payload, "\t"))
+	f.close()
+	var dir: DirAccess = DirAccess.open("user://")
+	if dir == null:
+		push_error("GameState._save_scores: cannot open user://")
+		return
+	var err: int = dir.rename(tmp_path.get_file(), path.get_file())
+	if err != OK:
+		push_error("GameState._save_scores: rename %s -> %s failed (err=%d)"
+			% [tmp_path.get_file(), path.get_file(), err])
+
+
+## Load the local board. A missing or malformed file yields an EMPTY board and no
+## error path — the board is a nice-to-have, and a corrupt one must never be able to
+## stop the game from starting the way a corrupt climber save could.
+##
+## ⚠ AND IT RECONCILES `_highest_floor` UPWARD. The board and the monotone counter are
+## two records of the same fact, and the codebase's own standing lesson is that two
+## stored numbers about one thing will eventually disagree. They cannot be collapsed
+## into one (the counter ticks when you STAND on a floor; a board row exists only once
+## a run has FINISHED), so instead the load makes the counter the maximum of the two.
+## A hand-deleted climber.json therefore does not silently erase a real best.
+func _load_scores(path: String = SCORES_PATH) -> void:
+	if not FileAccess.file_exists(path):
+		return
+	var f: FileAccess = FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return
+	var text: String = f.get_as_text()
+	f.close()
+	var parsed: Variant = JSON.parse_string(text)
+	var board: Dictionary = ClimbScore.parse_board(parsed)
+	score_history = board["history"]
+	_highest_floor = maxi(_highest_floor, ClimbScore.best_floor(score_history))
 
 
 ## The live rank power to persist. Reads /root/Rank when present (combat), else
@@ -925,10 +1204,19 @@ func _rank_title() -> String:
 ## is untouched. `conquered` is derived rather than stored: "you put the guardian
 ## down AND walked away with it" is one question, and two call sites answering it
 ## independently is how a victory screen ends up disagreeing with the save file.
+##
+## ⚠ THE FIVE SCORE FIELDS ARE APPENDED TOO, and for the same reason. They are what
+## the run card needs to say "floor 34, a new best, 2nd of 25" without going and
+## computing any of it a second time — and a second computation of a ranking is how a
+## victory screen ends up disagreeing with the board it is supposed to be reporting.
+## `peak_floor` is NOT the same as `floor_reached`: you can die on floor 34 having
+## walked back down to 32, and the score is the height you reached.
 static func build_outcome(
 	floor_reached: int, kills: int, boss_killed: bool, died: bool,
 	elements: Array, rank_tier: int, rank_title: String, falls: int = 0,
-	friendly_damage: int = 0, highest_floor: int = 0, total_floors_in_tower: int = 0
+	friendly_damage: int = 0, highest_floor: int = 0, total_floors_in_tower: int = 0,
+	peak_floor: int = 0, elapsed_ms: int = 0, board_place: int = 0,
+	is_record: bool = false, previous_best: int = 0
 ) -> Dictionary:
 	var elems: Array = []
 	for e in elements:
@@ -947,16 +1235,78 @@ static func build_outcome(
 		"friendly_damage": maxi(friendly_damage, 0),
 		"highest_floor": maxi(highest_floor, floor_reached),
 		"total_floors": maxi(total_floors_in_tower, floor_reached),
+		# ── THE SCORE. `peak_floor` is the headline, `elapsed_ms` the tiebreak; the
+		# other three are what the card says ABOUT them. See ClimbScore.
+		"peak_floor": maxi(peak_floor, floor_reached),
+		"elapsed_ms": maxi(elapsed_ms, 0),
+		"board_place": maxi(board_place, 0),
+		"is_record": is_record,
+		"previous_best": maxi(previous_best, 0),
 	}
 
 
 
 ## The FloorDef for a given floor: the authored one if a tower is active, else a
 ## FloorDef synthesized from the depth math (identical to pre-tower behaviour).
+##
+## ⚠ THREE ANSWERS NOW, AND THE THIRD IS THE ASCENT. Past the authored spine on an
+## endless tower the floor is SYNTHESIZED (`ascent_floor_def`) and then run through
+## the very same `FloorGen.vary_floor` an authored floor is redrawn by — so it gets a
+## generated room, a jittered biome, a varied mix and the same `gen:`/`genseed:` tags.
+## Everything downstream is handed a `FloorDef` and cannot tell which kind it got,
+## which is the whole point: `Encounter`, `Arena`, `FloorBuilder`, `BossRoster` and
+## `EliteRoster` needed no change at all to climb forever.
 func floor_def_for(floor: int) -> FloorDef:
 	if active_tower != null and floor >= 1 and floor <= active_tower.floors.size():
 		return active_tower.floors[floor - 1]
+	if is_endless() and floor > active_tower.floors.size():
+		return _ascent_floor(floor)
 	return synthesize_floor_def(floor)
+
+
+## One ascent floor, cached by depth. See `_ascent_cache` for why the cache is
+## correctness rather than speed.
+##
+## The seed comes off the TOWER (`TowerDef.climb_seed`, stamped by `FloorGen`), not
+## off `FloorGen.last_seed`: that static is process-global and any other climb or tool
+## in the same process may have moved it, whereas the tower's own number is the one
+## this climb was actually drawn with — and in co-op it is the pinned 0 both peers
+## share, so both derive the same floor 37.
+func _ascent_floor(floor: int) -> FloorDef:
+	var d: int = clampi(floor, 1, MAX_CLIMB_FLOOR)
+	if _ascent_cache.has(d):
+		return _ascent_cache[d]
+	var tower_id: String = active_tower.id if active_tower != null else "ashspire"
+	var seed_value: int = active_tower.climb_seed if active_tower != null else 0
+	var fd: FloorDef = FloorGen.vary_floor(ascent_floor_def(d), d, tower_id, seed_value, true)
+	# HEALING, TAKEN AWAY — stamped after the redraw because `FloorGen.generate_layout`
+	# builds a fresh LayoutDef and never has an opinion about packs, so this is the
+	# only place the ascent's opinion can survive. See `LayoutDef.health_packs_authored`.
+	if fd.layout != null:
+		fd.layout.health_packs_authored = true
+		fd.layout.health_pickups = _ascent_health_packs(d, fd.layout)
+	_ascent_cache[d] = fd
+	return fd
+
+
+## Where an ascent floor's health packs go, and how many.
+##
+## 2 to floor 20, 1 from 21, NONE from 36 — the design note's terminal escalation, and
+## the honest opposite of an HP sponge: it does not make a fight longer, it makes your
+## margin inside one smaller. The positions mirror `FloorBuilder.DEFAULT_HEALTH_PACKS`
+## (the same room fractions, resolved against this floor's own room) so the pack sits
+## where a player has learned packs sit, and so nothing random enters a function both
+## co-op peers must agree on.
+static func _ascent_health_packs(depth: int, layout: LayoutDef) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	if depth >= ASCENT_NO_HEAL_DEPTH:
+		return out
+	var want: int = 1 if depth >= ASCENT_ONE_PACK_DEPTH else 2
+	var room: Vector2 = layout.room_size
+	for i: int in mini(want, DEFAULT_HEALTH_PACK_FRACTIONS.size()):
+		var frac: Vector2 = DEFAULT_HEALTH_PACK_FRACTIONS[i]
+		out.append(Vector2(room.x * frac.x, room.y * frac.y))
+	return out
 
 
 ## Build a FloorDef purely from the depth math — the null-tower fallback. Pure +
@@ -1170,6 +1520,265 @@ const A_MAGE: int = 7
 ## the first guardian anyone meets arrives alone) — and that transition does not
 ## use this timer at all: `_tick_wave` calls `_begin_boss()` directly.
 const EARLY_WAVE_BREAKS: Array[float] = [1.8, 1.4, 1.1]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# THE ASCENT — every floor past the authored spine
+# ══════════════════════════════════════════════════════════════════════════════
+# Design note: docs/superpowers/specs/2026-09-04-infinite-tower-and-score.md SS2.
+#
+# ⚠ THE ONE RULE THIS FILE ALREADY STATES AT FOUR SITES, AND WHICH AN INFINITE CURVE
+# IS THE STRONGEST POSSIBLE TEMPTATION TO BREAK:
+#
+#     "higher floors add modifiers, not HP. HP scaling makes fights longer, not
+#      harder, and long is the enemy of chaos on a phone."
+#
+# So `hp_multiplier` is 1.0 at EVERY generated depth, forever, and
+# `tools/slice_test_endless.gd` fails the build if a single ascent floor ever says
+# otherwise. Depth is carried by WHO shows up, HOW MANY AT ONCE, and what rules ride
+# the room — never by how long the same body takes to kill.
+#
+# ── WHAT ESCALATES, AND WHERE IT STOPS ────────────────────────────────────────
+#   type rhythm   C,C,E,C,B repeating every 5 — a guardian at 15/20/25..., which
+#                 puts a checkpoint (DeathRules band 5) right after each one
+#   archetype mix 2 classes -> 3 (f17) -> 4 (f23), and widening INSIDE each floor
+#   wave count    4 -> 5 (f16) -> 6 (f21), and 6 is the ceiling
+#   bodies        78 +2/floor -> 90 at floor 16, then FLAT
+#   pressure cap  8 -> 9 (f16) -> 10 (f21), then FLAT
+#   guardian HP   x2.4 +0.1/floor -> x4.0 at floor 26, then FLAT
+#   floor affixes 1 (f11) -> 2 (f26) -> 3 (f41)          [FloorGen]
+#   healing       2 packs -> 1 (f21) -> none (f36)
+#
+# ⚠ EVERYTHING PLATEAUS, AND THAT IS THE DESIGN RATHER THAN AN OVERSIGHT. By floor 41
+# the tower is at terminal intensity and stays there. For a HEIGHT score that is the
+# correct shape: past the plateau the question stops being "can you survive what is
+# next" and becomes "how long can you hold at the ceiling", which is exactly what the
+# score measures. An unbounded curve is just a wall with a floor number on it, and
+# every player's score would converge on the same floor anyway.
+
+## The ascent's band length. 5, matching `DeathRules.CHECKPOINT_BAND`, so that a
+## band's guardian and the checkpoint you resume on after failing it are the same
+## boundary. That alignment is free and it is why the period is not 4 or 6.
+const ASCENT_BAND: int = 5
+
+## Body count continues the authored curve from floor 10's 78 and stops at 90.
+## 90 bodies at a cap of 10 is already ~4 minutes of continuous fighting; a floor-60
+## room holding 300 would be a chore at exactly the same peak intensity.
+const ASCENT_BODY_STEP: int = 2
+const ASCENT_BODY_CAP: int = 90
+
+## Concurrent alive. Ten on a 640x360 screen under a fit-all camera is already dense;
+## twelve is soup, and the maker's own note on the early floors was "there are too
+## many opponents".
+const ASCENT_CAP_MAX: int = 10
+
+## Waves per floor. Six is the ceiling because a seventh wave is not harder, it is
+## longer — the exact failure mode the HP rule exists to prevent, wearing a hat.
+const ASCENT_MIN_WAVES: int = 4
+const ASCENT_MAX_WAVES: int = 6
+
+## The guardian's depth HP curve, continued from floor 10's x2.4 and CAPPED. This is
+## the one place depth may legitimately buy HP (one committed duel, not twelve bodies
+## to shred) and x4.0 is where it stops being a duel and starts being a wait.
+const ASCENT_BOSS_HP_STEP: float = 0.1
+const ASCENT_BOSS_HP_CAP: float = 4.0
+
+## ══ HOW MANY THREAT CLASSES ARRIVE AT ONCE — the headline escalation ═════════
+##
+## ⚠ THE ESCALATION IS *HOW EARLY THE FLOOR GETS WIDE*, NOT HOW WIDE IT EVER GETS,
+## AND THE FIRST VERSION HAD THAT BACKWARDS. It ramped a floor's MAXIMUM breadth from
+## 2 up to 4 — which sounds like escalation and is actually a cliff at the seam. The
+## authored spine already ENDS wide: floor 10's finale is chaser/brute/charger/
+## assassin/bomber/mage, all four classes at once. So an ascent that opened at two
+## classes made floors 11-15 NARROWER than the floor below them.
+##
+## `tools/probe_endless_curve.gd` measured exactly that, and it is the whole reason
+## this block reads the way it does: floors 11-15 came back at index 32.8 / 31.4 /
+## 30.1 / 31.9 / 32.2 against floor 10's 32.4 — four of the first five ascent floors
+## were a step DOWN from the summit. That is the "an infinite tower that starts with
+## procedural filler is strictly worse than what exists" failure, moved to floor 11.
+##
+## So every ascent floor's FINALE is four classes, continuing the spine, and what
+## climbs with depth is the OPENING: floor 11 opens at two and widens across its waves,
+## floor 17 opens at three, floor 23 opens at four and every wave of it is a finale.
+## The floor stops giving you a narrow wave to settle into, which is a harder floor in
+## the way the maker asked for and in no other way.
+const ASCENT_BREADTH_OPEN_MIN: int = 2   # the opening wave, on the first ascent floors
+const ASCENT_BREADTH_MAX: int = 4        # the finale, on EVERY ascent floor
+const ASCENT_BREADTH_EVERY: int = 6      # the opening widens by one every six floors
+
+## Where a COMBAT floor starts concentrating its elite budget into one wave (an ELITE
+## floor always does, mirroring the authored table). Below this the ascent's elites
+## are still sprinkled, which keeps the first ascent band reading as "more of the
+## tower" rather than as "a new system".
+const ASCENT_ELITE_WAVE_DEPTH: int = 21
+
+## Healing, taken away — the terminal escalation. See `_ascent_health_packs`.
+const ASCENT_ONE_PACK_DEPTH: int = 21
+const ASCENT_NO_HEAL_DEPTH: int = 36
+
+## ⚠ DUPLICATED FROM `FloorBuilder.DEFAULT_HEALTH_PACKS`, DELIBERATELY, AND GUARDED
+## BY A TEST. `tools/slice_test_endless.gd` fails if these two ever disagree.
+##
+## This is the same trade `FloorGen.FLOOR_AFFIX_POOL` already makes against
+## `EliteRoster.FLOOR_AFFIX_POOL`, and for a sharper version of the same reason.
+## Naming `FloorBuilder` here puts it in `GameState`'s COMPILE graph, and
+## `FloorBuilder` preloads `DestructibleProp.tscn`, whose script calls `Sfx.play`.
+## `Sfx` is an AUTOLOAD, not a `class_name` — so in any `--script` harness that
+## `load()`s GameState from `_init`, the autoloads are not registered yet, the
+## identifier does not resolve, and the WHOLE compile fails with an error that names
+## a crate sound effect and points nowhere near the tower. It was caught by
+## `slice_test_runend` doing exactly that, and this project has the mirror-image trap
+## already recorded ("preloading Arena.gd forces compile-time resolution of the
+## GameState autoload").
+##
+## The general cost is worth stating too: `GameState` is loaded by a lot of suites,
+## so every compile-scope dependency added here is paid by all of them.
+const DEFAULT_HEALTH_PACK_FRACTIONS: Array[Vector2] = [
+	Vector2(0.18, 0.34), Vector2(0.82, 0.34),
+]
+
+## The four threat classes, in the fixed order the rotation walks. Mirrors
+## `FloorGen.CLASS_*` — the same four pairs, written here as a table so the
+## composition below reads as data rather than as four constant lookups.
+const ASCENT_CLASSES: Array = [
+	[A_CHASER, A_ASSASSIN],     # PRESSURE — bodies in your face
+	[A_BRUTE, A_CHARGER],       # HEAVY    — telegraphed commitment
+	[A_CASTER, A_MAGE],         # RANGED   — you cannot only look forward
+	[A_SUMMONER, A_BOMBER],     # ODD      — threat multipliers
+]
+
+
+## THE ASCENT BLUEPRINT for one depth. Pure + static, so the whole curve is readable
+## from a headless probe (`tools/probe_endless_curve.gd`) without a run being active —
+## which is the only way an escalation like this gets argued about rather than trusted.
+##
+## What comes back is a plain `FloorDef` in exactly the shape `_make_floor` produces
+## for an authored floor. `_ascent_floor` then runs it through `FloorGen.vary_floor`,
+## which draws the room, jitters the biome and varies the mix — the same treatment an
+## authored floor gets, which is what makes the two indistinguishable downstream.
+static func ascent_floor_def(depth: int) -> FloorDef:
+	var d: int = maxi(depth, TOTAL_FLOORS + 1)
+	var since: int = d - TOTAL_FLOORS                 # 1 on the first ascent floor
+	@warning_ignore("integer_division")
+	var band: int = (since - 1) / ASCENT_BAND         # 0, 1, 2, ...
+	var pos: int = (since - 1) % ASCENT_BAND          # 0..4 inside the band
+
+	# ── THE TYPE RHYTHM. Band 1's own shape (C, C, E, C, B), repeating.
+	var ftype: int = FloorDef.FloorType.COMBAT
+	if pos == ASCENT_BAND - 1:
+		ftype = FloorDef.FloorType.BOSS
+	elif pos == 2:
+		ftype = FloorDef.FloorType.ELITE
+
+	# ── HOW MUCH FIGHT. Continues floor 10's numbers rather than restarting them, so
+	#    crossing the summit is a step up and not a fresh start.
+	var bodies: int = mini(ASCENT_BODY_CAP, 78 + ASCENT_BODY_STEP * since)
+	var cap: int = mini(ASCENT_CAP_MAX, 8 + band)
+	var n_waves: int = clampi(ASCENT_MIN_WAVES + band, ASCENT_MIN_WAVES, ASCENT_MAX_WAVES)
+	if ftype == FloorDef.FloorType.BOSS:
+		n_waves = mini(n_waves + 1, ASCENT_MAX_WAVES)
+	@warning_ignore("integer_division")
+	var opening: int = clampi(ASCENT_BREADTH_OPEN_MIN + (since - 1) / ASCENT_BREADTH_EVERY,
+		ASCENT_BREADTH_OPEN_MIN, ASCENT_BREADTH_MAX)
+
+	# ── THE WAVES.
+	var elite_idx: int = -1
+	if ftype == FloorDef.FloorType.ELITE \
+			or (ftype == FloorDef.FloorType.COMBAT and d >= ASCENT_ELITE_WAVE_DEPTH):
+		# The SECOND-TO-LAST wave, which is where every authored elite wave sits
+		# (floors 3, 7 and 9 all put it at n-2): late enough to be an event, early
+		# enough that the floor still has a finale after it.
+		elite_idx = maxi(n_waves - 2, 0)
+	var waves: Array[WaveDef] = []
+	var budgets: Array[int] = _ascent_budgets(bodies, n_waves)
+	for i: int in n_waves:
+		var w := WaveDef.new()
+		w.enemy_budget = budgets[i]
+		# The cap RAMPS INSIDE THE FLOOR too — the last wave is the floor's stated
+		# pressure and the opener is two below it, which is the shape every authored
+		# floor uses (floor 6 is 5/6/6/7 against a floor cap of 7).
+		w.concurrent_cap = clampi(cap - mini(2, n_waves - 1 - i), 2, cap)
+		w.archetypes = _ascent_roster(d, i, n_waves, opening)
+		w.hp_multiplier = -1.0            # inherit the floor's 1.0. NEVER set here.
+		w.brute_chance = -1.0
+		w.spawn_interval = -1.0
+		w.vanguard = -1
+		# Left derived: the handoff threshold is the one wave knob that can put dead
+		# air back into a floor, and dead air is what the pacing pass removed.
+		w.handoff_alive = -1
+		w.elite_wave = (i == elite_idx)
+		waves.append(w)
+
+	var f := FloorDef.new()
+	f.floor_type = ftype
+	f.depth = d
+	f.waves = waves
+	f.enemy_budget = bodies
+	f.concurrent_cap = cap
+	f.brute_chance = clampf(0.50 + 0.02 * float(since), 0.50, 0.75)
+	f.hp_multiplier = 1.0             # ⚠ THE RULE. Never anything else, at any depth.
+	f.boss_hp_multiplier = clampf(2.4 + ASCENT_BOSS_HP_STEP * float(since),
+		2.4, ASCENT_BOSS_HP_CAP)
+	f.theme = floor_env(d)            # the biome table wraps past ten, by design
+	f.layout = default_layout()       # replaced wholesale by FloorGen.generate_layout
+	return f
+
+
+## Split `bodies` across `n` waves as a non-decreasing ramp summing EXACTLY to
+## `bodies`. Weighted `6, 7, 8 ...` so the last wave is roughly 1.4x the first — the
+## same gentle escalation the authored floors carry (floor 8 is 11/13/15/16).
+##
+## The remainder lands on the LAST wave, never the first: a rounding crumb belongs on
+## the floor's finale, and putting it on the opener would make the ramp start high.
+static func _ascent_budgets(bodies: int, n: int) -> Array[int]:
+	var out: Array[int] = []
+	var waves: int = maxi(n, 1)
+	var total_w: int = 0
+	for i: int in waves:
+		total_w += 6 + i
+	var running: int = 0
+	for i2: int in waves:
+		@warning_ignore("integer_division")
+		var share: int = maxi(1, bodies * (6 + i2) / total_w)
+		out.append(share)
+		running += share
+	out[waves - 1] += bodies - running
+	# The remainder can only be positive here (integer division floors every share),
+	# but a floor whose last wave came back SMALLER than its neighbour would be a
+	# difficulty inversion inside one floor, so it is clamped rather than assumed.
+	if waves >= 2:
+		out[waves - 1] = maxi(out[waves - 1], out[waves - 2])
+	return out
+
+
+## THE MIX for one wave. The headline escalation axis.
+##
+## Wave 0 fields `opening` classes and the LAST WAVE ALWAYS FIELDS FOUR, so a floor
+## escalates inside itself and its finale never drops below the width the spine had
+## already reached. What depth moves is `opening` — see the ASCENT_BREADTH block for
+## why that is the escalation and the maximum is not.
+##
+## The rotation is keyed on `(depth + wave)` so two consecutive floors never field the
+## same opening pair, and the member of each class is keyed the same way so the tower
+## never settles into "the chaser is the pressure class".
+##
+## The last wave repeats its lead class once. Duplicates in a roster ARE weights (the
+## spawn roll is uniform), so that one entry is what stops a four-class finale from
+## arriving as one neat helping of each — the argument `FloorGen.give_character` makes.
+static func _ascent_roster(depth: int, wave: int, n_waves: int, opening: int) -> Array[int]:
+	var out: Array[int] = []
+	var span: int = maxi(n_waves - 1, 1)
+	@warning_ignore("integer_division")
+	var k: int = clampi(opening + (wave * (ASCENT_BREADTH_MAX - opening)) / span,
+		opening, ASCENT_BREADTH_MAX)
+	var start: int = (depth + wave) % ASCENT_CLASSES.size()
+	for c: int in k:
+		var cls: Array = ASCENT_CLASSES[(start + c) % ASCENT_CLASSES.size()]
+		out.append(int(cls[(depth + wave + c) % cls.size()]))
+	if wave == n_waves - 1 and not out.is_empty():
+		out.append(out[0])
+	return out
 
 
 static func build_default_tower() -> TowerDef:
