@@ -58,6 +58,7 @@ const TESTS: Array[String] = [
 	"foot_overhang_is_the_cap_radius",
 	"drawn_crescent_does_not_outreach_the_swing",
 	"melee_autotarget_stays_in_front",
+	"a_swing_connects_at_contact_range",
 	"cone_tell_circle_encloses_its_cone",
 	"charge_lane_is_the_charge",
 	"every_archetype_spell_declares_where_it_warns",
@@ -118,6 +119,7 @@ func _run() -> void:
 	await _test_foot_overhang_is_the_cap_radius()
 	_test_drawn_crescent_does_not_outreach_the_swing()
 	await _test_melee_autotarget_stays_in_front()
+	await _test_a_swing_connects_at_contact_range()
 	_test_cone_tell_circle_encloses_its_cone()
 	_test_charge_lane_is_the_charge()
 	_test_every_archetype_spell_declares_where_it_warns()
@@ -617,6 +619,65 @@ func _test_melee_autotarget_stays_in_front() -> void:
 	_completes("melee_autotarget_stays_in_front")
 
 
+## ══ A MOB STANDING ON TOP OF YOU IS HITTABLE ═════════════════════
+##
+## Maker: *"the mobs that are TOO close to the brawler don't get hit by the left click
+## attack, please fix that."*
+##
+## THE FAULT, MEASURED (`tools/probe_hitboxes.gd`, the OVERLAP sweep). It is not a
+## minimum range — a point target connects at 0.5 px on every bearing inside the arc,
+## for all nine classes. It is that `SpellTargets.in_cone` measures REACH to the
+## silhouette but ANGLE between the two ORIGINS, and two overlapping bodies have no
+## meaningful relative direction. Brawler, signed offset along the facing:
+##
+##   offset  -12   -8   -4   -2   -1    0    1    2    4    8   20
+##   before  MISS MISS MISS MISS MISS  hit  hit  hit  hit  hit  hit
+##
+## One pixel past your own origin and the swing goes through them. Walking into
+## someone is how a mob arrives, so this is the common case, not a corner.
+##
+## ⚠ AND THE FIX MUST NOT REINTRODUCE THE AUTO-TARGET. Both edges are asserted here
+## for that reason: contact range connects, and a body 20 px behind — well outside any
+## silhouette overlap and squarely in the ground the "NO auto-aim" ruling reclaimed —
+## still takes nothing. A contact core that grew to melee reach would pass the first
+## assertion and fail the second, which is the point of having both.
+func _test_a_swing_connects_at_contact_range() -> void:
+	var hero: Node2D = await _stand(HERO)
+	if hero == null:
+		_expect(false, "could not stand a hero up for the contact-range check")
+		_completes("a_swing_connects_at_contact_range")
+		return
+	hero.call("configure_class", 2)   # Brawler, the class the maker named
+	# Both groups, for the reason `melee_autotarget_stays_in_front` records at length.
+	var mark := HitCounter.new()
+	mark.add_to_group(String(hero.call("attack_group")))
+	mark.add_to_group(String(hero.get(&"hostile_group")))
+	_world.add_child(mark)
+	await physics_frame
+	# The maker's case: the mob's origin has crossed the swinger's, bodies overlapping.
+	for off: float in [-1.0, -3.0]:
+		mark.hits = 0
+		mark.global_position = hero.global_position + Vector2(off, 0.0)
+		await physics_frame
+		_swing(hero, Vector2.RIGHT)
+		_expect(mark.hits == 1,
+			"a mob overlapping the swinger at offset %.0f px is hit (hits %d) — the swing"
+			% [off, mark.hits] + " must not have a hole where the bodies touch")
+	# ...and the auto-target stays dead. 20 px is no overlap by any silhouette on a
+	# 31 px rig, and it is the exact distance `melee_autotarget_stays_in_front` uses.
+	mark.hits = 0
+	mark.global_position = hero.global_position + Vector2(-20.0, 0.0)
+	await physics_frame
+	_swing(hero, Vector2.RIGHT)
+	_expect(mark.hits == 0,
+		"the contact core did NOT grow back into the auto-target: a body 20 px behind"
+		+ " still takes nothing (hits %d)" % mark.hits)
+	mark.queue_free()
+	hero.queue_free()
+	await process_frame
+	_completes("a_swing_connects_at_contact_range")
+
+
 ## Counts melee landings. `take_damage` is the whole contract `_on_melee_hit_frame`
 ## needs; `hp` keeps `HpWatch.is_alive` happy so the body stays a legal target.
 class HitCounter extends Node2D:
@@ -652,14 +713,22 @@ func _swing(hero: Node2D, dir: Vector2) -> void:
 	hero.call("_on_melee_hit_frame")
 
 
-## `Hero._cone_tell_circle` claims to return the smallest circle CONTAINING a wedge.
+## `Telegraph.cone_bound` claims to return the smallest circle CONTAINING a wedge.
 ## Containment is the half that matters — a tell smaller than its attack is the whole
 ## fault — so it is checked by SAMPLING the wedge rather than by re-deriving the
 ## formula, which would only prove the formula equals itself.
+##
+## ⚠ MOVED FROM `Hero._cone_tell_circle`, WHICH IS DELETED, AND IT NOW GUARDS A
+## DIFFERENT THING. It used to guard a circle DRAWN in place of a cone; `Telegraph`
+## has a real CONE style now and the uppercut and frost cone draw wedges. What this
+## formula still backs is `Telegraph.danger_shape()`'s machine-readable summary,
+## which reports a cone AS a circle because six consumers this repo owns branch on
+## `shape == "circle" or "line"` and would drop a third case on the floor. So the
+## circle is what every bot in the game dodges, and it must still contain the wedge.
 func _test_cone_tell_circle_encloses_its_cone() -> void:
-	var hero: GDScript = load("res://scripts/combat/Hero.gd") as GDScript
-	if hero == null:
-		_expect(false, "could not load Hero.gd to check the cone tell geometry")
+	var tell: GDScript = load("res://scripts/combat/Telegraph.gd") as GDScript
+	if tell == null:
+		_expect(false, "could not load Telegraph.gd to check the cone bound geometry")
 		_completes("cone_tell_circle_encloses_its_cone")
 		return
 	# Spans all three branches of the derivation: narrow (< 45 deg), wide (45-90) and
@@ -670,8 +739,8 @@ func _test_cone_tell_circle_encloses_its_cone() -> void:
 	]:
 		var reach: float = float(case[0])
 		var min_dot: float = float(case[1])
-		var circle: Vector2 = hero.call("_cone_tell_circle", reach, min_dot)
 		var a: float = acos(clampf(min_dot, -1.0, 1.0))
+		var circle: Vector2 = tell.call("cone_bound", reach, a)
 		var centre := Vector2(circle.x, 0.0)
 		var worst: float = 0.0
 		# The wedge's whole boundary: the apex, the two straight edges, and the arc.

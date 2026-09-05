@@ -464,8 +464,23 @@ static func in_cone(apex: Vector2, facing: Vector2, reach: float, min_dot: float
 		if not hits(n, apex, reach):
 			continue
 		var toward: Vector2 = (n as Node2D).global_position - apex
-		if toward.length_squared() <= EPS:
-			out.append(n)  # standing on top of you — no direction, always in the arc
+		# ⚠ CONTACT BEATS THE ANGLE TEST, AND THE OLD GUARD WAS ONE PIXEL WIDE.
+		#
+		# This function measures REACH to the silhouette but ANGLE between the two
+		# ORIGINS, and two overlapping bodies have no meaningful relative direction. The
+		# old guard only caught an exactly-coincident origin (`length_squared <= EPS`),
+		# so a body ONE PIXEL past you failed the dot test and the swing passed straight
+		# through it. Measured on the Brawler, signed offset along the facing: MISS at
+		# -12, -8, -4, -2 and -1; hit at 0 and beyond. Walking into you is how a mob
+		# arrives, so the dead zone sat exactly where melee is most needed.
+		#
+		# `hits(n, apex, 0.0)` asks whether the target's SILHOUETTE reaches the apex —
+		# i.e. we are touching — which is the same machinery the reach test already uses
+		# and adds no reach in any direction. It is not the auto-target returning: that
+		# snapped to the nearest body anywhere in range at any angle. This only removes
+		# an angle test that has no defined answer.
+		if toward.length_squared() <= EPS or hits(n, apex, 0.0):
+			out.append(n)
 			continue
 		if f.dot(toward.normalized()) <= min_dot:
 			continue

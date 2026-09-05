@@ -113,11 +113,23 @@ func _audit_enemy_base(e: Dictionary) -> void:
 		"hurts": "a %.0f px run (%.0f px/s x %.2f s), catch radius %.0f -> effective width %.0f"
 			% [charge_travel, float(e["CHARGE_SPEED"]), float(e["CHARGE_TIME"]),
 				float(e["CHARGE_HIT_RADIUS"]), float(e["CHARGE_HIT_RADIUS"]) * 2.0],
-		"verdict": UNDER,
+		# ⚠ DERIVED, NOT ASSERTED. This row carried a hard-coded UNDER-DRAWN verdict
+		# next to figures that had since been retuned to agree — it printed
+		# "UNDER-DRAWN: WIDTH UNDER by 0 px", which is the audit lying about the game in
+		# the audit's own voice. A verdict computed from the same numbers the row prints
+		# cannot go stale behind a tune.
+		"verdict": UNDER if (float(e["CHARGE_HIT_RADIUS"]) * 2.0
+				- float(e["CHARGE_WIDTH"]) > 0.5) else OK,
 		"err": "length OVER by %.0f px; WIDTH UNDER by %.0f px (%.0f per side)"
 			% [float(e["CHARGE_LEN"]) - charge_travel - float(e["CHARGE_HIT_RADIUS"]),
 				float(e["CHARGE_HIT_RADIUS"]) * 2.0 - float(e["CHARGE_WIDTH"]),
 				(float(e["CHARGE_HIT_RADIUS"]) * 2.0 - float(e["CHARGE_WIDTH"])) * 0.5],
+		# A lane is an angular claim too: a corridor `L` long and `w` wide subtends
+		# `atan((w/2)/L)` from the body that starts it, and the run it stands for
+		# subtends `atan(catch/travel)`. Reported so the one remaining UNDER-drawn
+		# geometry in the enemy roster carries the same two units as the hero rows.
+		"err_deg": rad_to_deg(atan(float(e["CHARGE_HIT_RADIUS"]) / maxf(charge_travel, 0.001)))
+			- rad_to_deg(atan((float(e["CHARGE_WIDTH"]) * 0.5) / maxf(float(e["CHARGE_LEN"]), 0.001))),
 		"note": "Enemy._process_charging: distance_to(hero) <= CHARGE_HIT_RADIUS along "
 			+ "the run. Standing just outside the drawn lane is still inside the catch.",
 	})
@@ -211,41 +223,46 @@ func _audit_enemy_spells(e: Dictionary) -> void:
 ## `_ground_slam`, `_spawn_nova`.
 func _audit_hero(h: Dictionary) -> void:
 	var reach: float = float(h["MELEE_RANGE"])
-	var tell_w: float = maxf(reach * float(h["SWING_TELL_WIDTH"]), float(h["SWING_TELL_MIN_WIDTH"]))
-	# The tell's own angular half-width, measured at full reach: a lane of width w
-	# over a length L subtends atan((w/2)/L) from the swinger.
-	var tell_deg: float = rad_to_deg(atan((tell_w * 0.5) / reach))
 	var arc_deg: float = rad_to_deg(acos(clampf(float(h["MELEE_ARC_DOT"]), -1.0, 1.0)))
-	var swing_windup: float = float(CharacterRig.ONE_SHOT_DURATIONS.get(CharacterRig.State.PUNCH, 0.22)) \
-		* CharacterRig.HIT_FRAME_FRACTION
+	var swing_windup: float = float(CharacterRig.ONE_SHOT_DURATIONS.get(CharacterRig.State.PUNCH, 0.22)) 		* CharacterRig.HIT_FRAME_FRACTION
+	# ⚠ THE ROW THAT USED TO BE THE WORST IN THE TABLE. It read:
+	#   drawn  : lane 58 x 10.4 px from the lead hand (half-angle 5.1 deg)
+	#   hurts  : cone r=58, half-angle 72.5 deg from the BODY
+	#   VERDICT: UNDER-DRAWN, arc under-drawn by 67.4 deg per side
+	# — a factor of 14.2 in angle on the class shipped here and 10.2-11.1 across the
+	# roster, on the most-pressed attack in the game. `Telegraph.Style.CONE` closed it:
+	# `_publish_swing_tell` passes `_melee_range` and `acos(_melee_arc_dot)`, which are
+	# the SAME TWO VALUES `_on_melee_hit_frame` hands `SpellTargets.in_cone`, so the
+	# figures below are one expression read twice rather than two numbers kept in step.
 	_add({
-		"name": "HERO melee swing", "style": "FIST / CRESCENT", "colour": "class element",
+		"name": "HERO melee swing", "style": "FIST / CRESCENT on CONE", "colour": "class element",
 		"windup": swing_windup, "dmg": int(h["MELEE_DAMAGE"]),
-		"drawn": "lane %.0f x %.1f px from the lead hand (half-angle %.1f deg)"
-			% [reach, tell_w, tell_deg],
-		"hurts": "cone r=%.0f, half-angle %.1f deg from the BODY, PLUS the nearest body "
-			% [reach, arc_deg] + "within %.0f px at ANY angle (auto-target)" % reach,
-		"verdict": UNDER,
-		"err": "arc under-drawn by %.1f deg per side; auto-target makes the real "
-			% (arc_deg - tell_deg) + "footprint a full 360 deg disc for the closest body",
-		"note": "Hero._on_melee_hit_frame: `_nearest_enemy_in_melee_range()` always "
-			+ "connects regardless of the cone. This is the largest drawn-vs-damage "
-			+ "gap in the game and it is on the most-used attack in the game.",
+		"drawn": "cone r=%.0f, half-angle %.1f deg from the BODY (drawn LIGHT: rim + limit rays)"
+			% [reach, arc_deg],
+		"hurts": "cone r=%.0f, half-angle %.1f deg from the BODY" % [reach, arc_deg],
+		"verdict": OK, "err": "0 px", "err_deg": 0.0,
+		"note": "Hero._publish_swing_tell reads `_melee_range` + `acos(_melee_arc_dot)`; "
+			+ "Hero._on_melee_hit_frame passes the same pair to SpellTargets.in_cone. The "
+			+ "apex follows the swinger (Telegraph.follow_source), which closes the 14.6 px "
+			+ "the heavy swing's own 190 px/s lunge used to displace it by. REMAINING GAP: "
+			+ "the tell fixes its axis at the swing's START and the damage re-reads `facing` "
+			+ "at the hit frame, so turning inside the 0.077 s lead still re-aims the hit "
+			+ "under a fixed drawing. Not closed here — freezing facing changes how the "
+			+ "button plays and is a maker call, not a legibility one.",
 	})
 	var up_reach: float = float(h["UPPERCUT_REACH"])
 	var up_deg: float = rad_to_deg(acos(clampf(float(h["UPPERCUT_DOT"]), -1.0, 1.0)))
-	var up_drawn_r: float = up_reach * 0.6
 	_add({
-		"name": "BRAWLER uppercut", "style": "DART", "colour": "class element",
+		"name": "BRAWLER uppercut", "style": "CONE", "colour": "class element",
 		"windup": float(h["ABILITY_TELL_LEAD"]), "dmg": 18 + int(h["MELEE_DAMAGE"]),
-		"drawn": "circle r=%.0f centred 24 px ahead" % up_drawn_r,
+		"drawn": "cone r=%.0f, half-angle %.1f deg from the body" % [up_reach, up_deg],
 		"hurts": "cone r=%.0f, half-angle %.1f deg from the body" % [up_reach, up_deg],
-		"verdict": UNDER,
-		"err": "the wedge reaches %.0f deg off the aim; the circle covers roughly the "
-			% up_deg + "forward %.0f px only, so up to %.0f px of rear/lateral danger is undrawn"
-			% [up_drawn_r + 24.0, up_reach],
-		"note": "Hero._resolve_uppercut: SpellTargets.in_cone(..., UPPERCUT_DOT = %.2f), "
-			% float(h["UPPERCUT_DOT"]) + "i.e. everything but a 157 deg rear wedge.",
+		"verdict": OK, "err": "0 px", "err_deg": 0.0,
+		"note": "Hero._uppercut passes UPPERCUT_REACH + acos(UPPERCUT_DOT) to the tell and "
+			+ "_resolve_uppercut passes the same pair to in_cone. Was a circle r42 at +24 "
+			+ "(under-drawn), then briefly the wedge's ENCLOSING circle (over-drawn by the "
+			+ "whole rear disc). The AXIS was also wrong by 26.6 deg — the tell aimed "
+			+ "(face_x,-0.5) while the query aims (face_x,0) — and now takes the query's.",
 	})
 	# ⚠ HARD-CODED, AND FLAGGED AS SUCH. `CONE_RANGE` / `CONE_COS` are function-local
 	# consts inside `Hero._primary_frost_cone` (Hero.gd:4849-4850) so there is nothing
@@ -255,15 +272,13 @@ func _audit_hero(h: Dictionary) -> void:
 	var cone_cos: float = 0.5
 	var cone_deg: float = rad_to_deg(acos(cone_cos))
 	_add({
-		"name": "CRYOMANCER frost cone", "style": "MUZZLE", "colour": "class element",
+		"name": "CRYOMANCER frost cone", "style": "CONE", "colour": "class element",
 		"windup": float(h["ABILITY_TELL_LEAD"]), "dmg": 19,
-		"drawn": "circle r=%.0f centred %.0f px ahead (+ a %.0f px tracer)"
-			% [cone_range * 0.5, cone_range * 0.5, cone_range],
+		"drawn": "cone r=%.0f, half-angle %.0f deg" % [cone_range, cone_deg],
 		"hurts": "cone r=%.0f, half-angle %.0f deg" % [cone_range, cone_deg],
-		"verdict": UNDER,
-		"err": "at mid-range the real cone is %.0f px wide per side against the circle's %.0f"
-			% [cone_range * 0.5 * tan(deg_to_rad(cone_deg)), cone_range * 0.5],
-		"note": "Hero._resolve_frost_cone. Hard-coded here — CONE_RANGE/CONE_COS are "
+		"verdict": OK, "err": "0 px", "err_deg": 0.0,
+		"note": "Hero._primary_frost_cone. Was a MUZZLE sigil reporting r=59 against a "
+			+ "cone reaching 102 px laterally. Hard-coded here — CONE_RANGE/CONE_COS are "
 			+ "function-local consts (Hero.gd:4849).",
 	})
 	for spec: Array in [
@@ -306,13 +321,38 @@ func _report() -> void:
 		print("   colour : %s" % String(r["colour"]))
 		print("   drawn  : %s" % String(r["drawn"]))
 		print("   hurts  : %s" % String(r["hurts"]))
+		# ⚠ TWO UNITS, NOT ONE, AND THE SECOND ONE IS WHY THIS COLUMN EXISTS. A px
+		# error is the right unit for a placed ground danger (a circle drawn 10 px small)
+		# and the WRONG unit for a swept one: the melee tell was a lane 10.4 px wide over
+		# a 58 px reach against a cone of 72.5 deg half-angle, and "48 px narrow at full
+		# reach" understates that — the miss grows with distance and the thing the player
+		# is actually reading is an ANGLE. Reported as `n/a` where a row's geometry makes
+		# no angular claim (a bomb has no axis to be wrong about).
+		var deg_txt: String = "n/a"
+		if r.has("err_deg"):
+			deg_txt = "%+.1f deg" % float(r["err_deg"])
 		print("   VERDICT: %-12s %s" % [String(r["verdict"]), String(r["err"])])
+		print("   error  : %-28s angle %s" % [String(r["err"]), deg_txt])
 		print("   why    : %s" % String(r["note"]))
 	print("")
 	print("╠═ SUMMARY ════════════════════════════════════════════════════════════════")
 	for v: String in [OK, OVER, UNDER, SHAPE, ORIGIN, NONE]:
 		if counts.has(v):
 			print("║  %-12s %d of %d" % [v, int(counts[v]), _rows.size()])
+	print("║")
+	var deg_rows: int = 0
+	var deg_worst: float = 0.0
+	for r: Dictionary in _rows:
+		if r.has("err_deg"):
+			deg_rows += 1
+			deg_worst = maxf(deg_worst, absf(float(r["err_deg"])))
+	print("║  angle error: %d of %d rows make an angular claim; worst |err| %.1f deg"
+		% [deg_rows, _rows.size(), deg_worst])
+	print("║")
+	print("║  THE THREE CONE ROWS ARE 0.0 deg BY CONSTRUCTION, not by coincidence: the")
+	print("║  melee swing, the uppercut and the frost cone each pass ONE pair of values")
+	print("║  (reach, acos(min_dot)) to both `Telegraph.start_cone` and")
+	print("║  `SpellTargets.in_cone`. There is no second number for them to drift on.")
 	print("║")
 	print("║  A tell that does not match its hitbox is the 'everything is dodgeable'")
 	print("║  rule being broken while a picture says it is not. UNDER-DRAWN is the")

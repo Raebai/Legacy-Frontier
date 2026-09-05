@@ -20,6 +20,7 @@ const TESTS: Array[String] = [
 	"a_short_tell_can_reach_the_parry_rung",
 	"a_long_tell_still_uses_the_class_band",
 	"a_real_hero_ability_tells_the_foe_and_not_itself",
+	"the_drawn_wedge_is_the_damaged_wedge",
 ]
 
 const HERO_SCENE_PATH: String = "res://scenes/combat/Hero.tscn"
@@ -50,6 +51,7 @@ func _run() -> void:
 	_test_a_short_tell_can_reach_the_parry_rung()
 	_test_a_long_tell_still_uses_the_class_band()
 	_test_a_real_hero_ability_tells_the_foe_and_not_itself()
+	_test_the_drawn_wedge_is_the_damaged_wedge()
 	for name: String in TESTS:
 		if not _ran.has(name):
 			_failures.append("test `%s` is registered but was never called" % name)
@@ -218,6 +220,91 @@ func _test_a_real_hero_ability_tells_the_foe_and_not_itself() -> void:
 		for t: Node in get_nodes_in_group(&"telegraph"):
 			t.free()   # immediate, so the next row starts from a clean board
 	_completes("a_real_hero_ability_tells_the_foe_and_not_itself")
+
+
+## ══ THE TELL EQUALS THE HITBOX, ASSERTED IN DEGREES ═══════════════════
+##
+## THE FAULT THIS PINS, MEASURED BEFORE IT WAS FIXED: every wide melee attack in the
+## game queries `SpellTargets.in_cone(origin, dir, reach, min_dot)`, and none of them
+## could DRAW a cone, because `Telegraph` had no such style. So each drew something
+## else, and each was measured lying:
+##
+##   melee swing   cone r58, half-angle 66.4-90.0 deg   drawn as a 10.4 px LANE
+##                 — a drawn half-angle of 5.1 deg, i.e. 10.2-11.1x too narrow, on the
+##                 most-pressed attack in the game, and since the melee auto-target was
+##                 deleted that cone is the WHOLE of what a swing hits
+##   uppercut      cone r70, half-angle 101.5 deg       drawn as a circle r42 at +24
+##   frost cone    cone r118, half-angle 60 deg         drawn as a circle r59 at +59
+##
+## ⚠ AND IT IS ASSERTED AGAINST THE LIVE TELL, NOT AGAINST THE TABLE. A real Hero of
+## each class is driven through the real publish path and the wedge is read back off
+## `Telegraph.danger_shape()["cone"]` — the dictionary the game itself publishes. A
+## table-vs-table check would only prove the constants equal themselves; this proves
+## the thing on screen equals the thing that damages.
+##
+## ⚠ VERIFIED BY REVERTING. With `_publish_swing_tell` put back to its `"line": true`
+## form this test reports:
+##   FAIL: Brawler: the swing tell is a CONE (its danger_shape has no `cone` block)
+##   FAIL: Brawler: the drawn wedge half-angle is the damage query's (n/a vs 72.5 deg)
+## — for every class in the loop. It fails for the right reason and by name.
+func _test_the_drawn_wedge_is_the_damaged_wedge() -> void:
+	# Brawler (fists, dot 0.30), Juggernaut (widest swing in the game, dot 0.00) and
+	# Shodowblade-tier narrow (dot 0.40) are what bracket the roster; driving three
+	# classes rather than one is what makes "derived, not re-typed" checkable, because a
+	# hard-coded tell would agree with exactly one of them.
+	var checked: int = 0
+	for cls: int in [2, 3, 5]:
+		var hero: CharacterBody2D = (load(HERO_SCENE_PATH) as PackedScene).instantiate()
+		root.add_child(hero)
+		hero.global_position = Vector2(float(cls) * 9000.0, 0.0)
+		if hero.has_method("configure_class"):
+			hero.call("configure_class", cls)
+		hero.set("facing", Vector2.RIGHT)
+		hero.set("_aim_dir", Vector2.RIGHT)
+		# The two numbers the DAMAGE path uses. `_on_melee_hit_frame` passes exactly these
+		# to `SpellTargets.in_cone`, so they are the ground truth for this assertion.
+		var want_reach: float = float(hero.get("_melee_range"))
+		var want_half: float = acos(clampf(float(hero.get("_melee_arc_dot")), -1.0, 1.0))
+		var before: Dictionary = {}
+		for t: Node in get_nodes_in_group(&"telegraph"):
+			before[t.get_instance_id()] = true
+		hero.call("_publish_swing_tell", CharacterRig.State.PUNCH)
+		var tell: Node = null
+		for t: Node in get_nodes_in_group(&"telegraph"):
+			if not before.has(t.get_instance_id()):
+				tell = t
+		if tell == null:
+			_expect(false, "class %d publishes a swing tell at all" % cls)
+		else:
+			var shape: Dictionary = tell.call("danger_shape")
+			_expect(shape.has("cone"),
+				"class %d: the swing tell is a CONE (its danger_shape has no `cone` block)" % cls)
+			var cone: Dictionary = shape.get("cone", {})
+			var got_half: float = float(cone.get("half_angle", -1.0))
+			var got_reach: float = float(cone.get("radius", -1.0))
+			_expect(absf(got_half - want_half) < 0.001,
+				"class %d: the drawn wedge half-angle is the damage query's (%.1f vs %.1f deg)"
+				% [cls, rad_to_deg(got_half), rad_to_deg(want_half)])
+			_expect(absf(got_reach - want_reach) < 0.01,
+				"class %d: the drawn wedge reach is the damage query's (%.1f vs %.1f px)"
+				% [cls, got_reach, want_reach])
+			# The apex. `in_cone` originates at `global_position`; a wedge hinged on the
+			# lead hand (which is where this tell used to be planted) is mis-hinged by
+			# ~8 px every frame, and by 14.6 px more on the heavy swing's own lunge.
+			_expect((cone.get("apex", Vector2.ZERO) as Vector2)
+					.distance_to(hero.global_position) < 0.01,
+				"class %d: the wedge apexes on the BODY, where in_cone originates" % cls)
+			# Vacuity armour: a wedge of zero angle or zero reach would satisfy an
+			# equality against a table that had also gone to zero.
+			_expect(got_half > 0.5 and got_reach > 10.0,
+				"class %d: the wedge is a real wedge (half %.2f rad, reach %.1f px)"
+				% [cls, got_half, got_reach])
+			checked += 1
+		hero.queue_free()
+		for t: Node in get_nodes_in_group(&"telegraph"):
+			t.free()
+	_expect(checked == 3, "all three classes were driven through a real swing (%d)" % checked)
+	_completes("the_drawn_wedge_is_the_damaged_wedge")
 
 
 ## How many of `seen` were created since the `before` snapshot.

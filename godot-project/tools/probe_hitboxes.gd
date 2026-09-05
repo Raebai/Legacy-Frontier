@@ -441,15 +441,17 @@ func _melee_report(world: Node2D) -> void:
 	print("")
 	print("   ── WHAT THE SWING HITS vs WHAT THE TELL DRAWS ──")
 	print("   The auto-target is gone (maker ruling: NO auto-aim), so the CONE is now the")
-	print("   whole of a swing. `_publish_swing_tell` draws it as a LANE, and a lane cannot")
+	print("   whole of a swing. The tell used to draw it as a LANE, and a lane cannot")
 	print("   represent a 66-90 degree wedge: the cone's own lateral extent at full reach")
 	print("   is 2 * range * sin(half-angle), which is WIDER THAN THE SWING IS LONG for")
-	print("   every class in the roster. Widening the lane to it would draw the blob the")
-	print("   maker vetoed (\"i hate that circle thing for brawler\"); narrowing the cone to")
-	print("   the lane would make melee a needle. Both are feel calls the maker owns, so")
-	print("   the gap is MEASURED here rather than closed by this agent.")
+	print("   every class in the roster. The ratio column below is what that cost — it is")
+	print("   the factor by which the drawing understated the damage.")
+	print("   ⚠ CLOSED. `Telegraph.Style.CONE` now draws the wedge itself and")
+	print("   `_publish_swing_tell` sizes it from `_melee_range` + `acos(_melee_arc_dot)`,")
+	print("   the same pair `_on_melee_hit_frame` hands `SpellTargets.in_cone`. The lane")
+	print("   column is kept as the BEFORE number so the size of the old lie stays readable.")
 	print("   %-12s %7s %9s %10s %10s %8s" % [
-		"class", "range", "halfangle", "coneWidth", "laneWidth", "ratio"])
+		"class", "range", "halfangle", "coneWidth", "oldLane", "ratio"])
 	var tell_w: float = float(hero_script.get("SWING_TELL_WIDTH"))
 	var tell_min: float = float(hero_script.get("SWING_TELL_MIN_WIDTH"))
 	for cls: int in cfgs.keys():
@@ -468,5 +470,110 @@ func _melee_report(world: Node2D) -> void:
 	print("     bound on the crescent's real reach. The guard in")
 	print("     tools/slice_test_hitboxes.gd pins the tip-independent half (range *")
 	print("     1.147 vs range + margin), which is the part that cannot move under it.")
+	_sweep_the_dead_zone(cfgs, names, default_range, default_dot)
 	if hero != null and is_instance_valid(hero):
 		hero.queue_free()
+
+
+## ══ IS THERE A HOLE IN THE MIDDLE OF THE SWING? ══════════════════
+##
+## Maker: *"the mobs that are TOO close to the brawler don't get hit by the left click
+## attack"*. That is a claim about a MINIMUM range, and a minimum range is invisible to
+## every other measurement in this file — they all sweep outward from a comfortable
+## distance and report where the swing STOPS.
+##
+## So this sweeps a target from the swinger's own origin outward, along several
+## bearings, and prints the FIRST offset at which `SpellTargets.in_cone` — the exact
+## call `Hero._on_melee_hit_frame` makes — returns it. A dead zone shows as a
+## non-zero lower bound on the forward bearings. A bearing that is simply outside the
+## arc prints "never", which is the cone working, not a bug.
+##
+## ⚠ THE TARGET IS A BARE `Node2D`, DELIBERATELY. `SpellTargets` falls back to a
+## zero-size point for a body with no `body_distance`, so no `hit_margin` is available
+## to paper over an angular hole. This measures the ANGLE test alone, which is where a
+## close-range fault has to live: reach only ever gets easier as distance drops.
+func _sweep_the_dead_zone(cfgs: Dictionary, names: Array, default_range: float,
+		default_dot: float) -> void:
+	print("")
+	print("══ MELEE DEAD ZONE — first distance at which a swing connects, per bearing ══")
+	print("   bearing 0° = straight down the facing. Values are px from the swinger's")
+	print("   ORIGIN. `0.0` means contact range works. Anything above 0 on a bearing")
+	print("   inside the arc is a hole a player standing on top of a mob falls into.")
+	var host := Node2D.new()
+	root.add_child(host)
+	var target := Node2D.new()
+	host.add_child(target)
+	# ⚠ THE FIRST CUT OF THIS SWEEP STARTED AT d = 0 AND READ 0.0 ON EVERY BEARING
+	# INCLUDING 180 DEGREES — i.e. it "proved" a swing hits things directly behind you.
+	# It was measuring `in_cone`'s exact-overlap branch (`toward.length_squared() <= EPS`
+	# appends unconditionally, because a body at zero distance has no direction), which
+	# is true at d = 0 for every bearing and says nothing about any of them. The sweep
+	# starts at STEP now, so a "never" is a real never.
+	const STEP: float = 0.5
+	var bearings: Array[float] = [0.0, 30.0, 60.0, 89.0, 91.0, 120.0, 180.0]
+	var header: String = "   %-12s %9s" % ["class", "halfangle"]
+	for b: float in bearings:
+		header += " %7s" % ("%.0f°" % b)
+	print(header)
+	for cls: int in cfgs.keys():
+		var r2: float = float((cfgs[cls] as Dictionary).get("melee_range", default_range))
+		var d2: float = float((cfgs[cls] as Dictionary).get("melee_arc_dot", default_dot))
+		var line: String = "   %-12s %8.1f°" % [
+			str(names[cls]) if cls < names.size() else str(cls),
+			rad_to_deg(acos(clampf(d2, -1.0, 1.0)))]
+		for b: float in bearings:
+			var dirv: Vector2 = Vector2.from_angle(deg_to_rad(b))
+			var first: float = -1.0
+			var d: float = STEP
+			while d <= r2:
+				target.global_position = host.global_position + dirv * d
+				# LOS off: a raycast needs a physics world this harness does not stand up,
+				# and an unreachable-by-default answer would report a dead zone everywhere.
+				var got: Array = SpellTargets.in_cone(host.global_position, Vector2.RIGHT,
+					r2, d2, [target], [], null, false)
+				if not got.is_empty():
+					first = d
+					break
+				d += STEP
+			line += " %7s" % ("never" if first < 0.0 else "%.1f" % first)
+		print(line)
+	print("")
+	# ══ AND THE CASE THE MAKER IS ACTUALLY DESCRIBING ══════════════════
+	# A point target on a bearing is a clean way to read the ARC, and it is not the
+	# shape of "a mob standing on top of me". Two real bodies that overlap have their
+	# ORIGINS a few px apart, and `in_cone` measures REACH to the silhouette but ANGLE
+	# between the ORIGINS. So an enemy whose origin has drifted even 1 px past the
+	# swinger's — which is what walking into someone looks like — produces a `toward`
+	# pointing BACKWARDS, dot = -1, and is culled, while its body is inside yours.
+	#
+	# This sweeps a SIGNED offset along the facing axis with a body that has a real
+	# silhouette, and prints the band that connects. A left edge above ~0 is the hole.
+	print("══ OVERLAP CASE — signed offset along the facing, real silhouette ══")
+	print("   negative = the mob's ORIGIN is behind the swinger's while its BODY still")
+	print("   overlaps. `hit` = the swing connects. This is the row the maker is")
+	print("   describing: mobs that are TOO close do not get hit.")
+	var body_target: Node2D = target
+	var probe_cls: int = 2  # Brawler, the class named in the report
+	var pr: float = float((cfgs[probe_cls] as Dictionary).get("melee_range", default_range))
+	var pd: float = float((cfgs[probe_cls] as Dictionary).get("melee_arc_dot", default_dot))
+	var row: String = "   Brawler offset:"
+	var hits_row: String = "   connects     :"
+	for off: float in [-12.0, -8.0, -4.0, -2.0, -1.0, 0.0, 1.0, 2.0, 4.0, 8.0, 20.0]:
+		body_target.global_position = host.global_position + Vector2(off, 0.0)
+		var got: Array = SpellTargets.in_cone(host.global_position, Vector2.RIGHT,
+			pr, pd, [body_target], [], null, false)
+		row += " %6.0f" % off
+		hits_row += " %6s" % ("hit" if not got.is_empty() else "MISS")
+	print(row)
+	print(hits_row)
+	print("   ⚠ THIS ROW MEASURES `SpellTargets.in_cone` ALONE AND IS EXPECTED TO SHOW")
+	print("   THE HOLE — the selector is not where the fix went. `in_cone` is shared by")
+	print("   every cone in the game and widening it would quietly widen five other")
+	print("   attacks, so `Hero._on_melee_hit_frame` unions the cone with a CONTACT CORE")
+	print("   (`in_radius(pos, hit_margin(self))`, i.e. our two silhouettes touching)")
+	print("   instead. The end-to-end behaviour is pinned behaviourally against a real")
+	print("   swing in tools/slice_test_hitboxes.gd :: a_swing_connects_at_contact_range,")
+	print("   which also asserts a body 20 px behind still takes nothing so the contact")
+	print("   core cannot grow back into the deleted auto-target.")
+	print("")
+	host.queue_free()

@@ -65,6 +65,23 @@ const CONFIGS: Array[Dictionary] = [
 	{"name": "BOMB bomber", "style": 5, "r": 78.0, "w": 0.90},
 	{"name": "FIST hero melee", "style": 6, "line": true, "len": 58.0, "wid": 10.4, "w": 0.077},
 	{"name": "CRESCENT blade", "style": 7, "line": true, "len": 58.0, "wid": 10.4, "w": 0.077},
+	# The three cones the game ships, with the geometry their DAMAGE queries use:
+	# `Hero._on_melee_hit_frame` (MELEE_RANGE 58, MELEE_ARC_DOT 0.30 -> 72.5 deg),
+	# `Hero._resolve_uppercut` (70, -0.20 -> 101.5 deg) and `Hero._resolve_frost_cone`
+	# (118, 0.50 -> 60.0 deg). The melee row is drawn LIGHT and the two abilities FULL,
+	# which is the legibility split `Telegraph.CONE_LIGHT_ALPHA` argues for; both weights
+	# are measured here so a change to either shows up as a number.
+	# ⚠ STYLE 6 (FIST), NOT 8 — THIS ROW IS THE TELL THE GAME ACTUALLY SHIPS. The
+	# melee swing publishes a FIST figure over a CONE-shaped tell, so measuring a bare
+	# CONE here would measure a picture no player ever sees and would miss the one
+	# saving that matters (the fist's lane hint is suppressed under a cone).
+	{"name": "FIST melee cone", "style": 6, "cone": true, "reach": 58.0,
+		"half": 1.2661, "wid": 10.4, "light": true, "w": 0.077,
+		# A light cone draws no boundary, so the fist figure alone IS the picture. See the
+		# ruling at the floors below.
+		"min_low_calls": 3.0, "min_low_segments": 3.0},
+	{"name": "CONE uppercut", "style": 8, "cone": true, "reach": 70.0, "half": 1.7722, "w": 0.10},
+	{"name": "CONE frost", "style": 8, "cone": true, "reach": 118.0, "half": 1.0472, "w": 0.10},
 ]
 
 const PHASE: float = 0.6
@@ -169,7 +186,10 @@ func _measure_one(c: Dictionary, low: bool) -> Dictionary:
 		t.set("aim_dir", Vector2.RIGHT)
 		t.set("reach", float(c["reach"]))
 	var windup: float = float(c["w"])
-	if bool(c.get("line", false)):
+	if bool(c.get("cone", false)):
+		t.call("start_cone", float(c["reach"]), float(c["half"]), 0.35, windup,
+			float(c.get("wid", 0.0)), bool(c.get("light", false)))
+	elif bool(c.get("line", false)):
 		t.call("start_line", float(c["len"]), float(c["wid"]), 0.35, windup)
 	else:
 		t.call("start", float(c["r"]), windup)
@@ -213,7 +233,11 @@ func _test_every_style_degrades_at_low() -> void:
 				% [n, hc, lc, hs, ls])
 		checked += 1
 	# Vacuity guard: a table that lost its rows would pass the loop above silently.
-	_expect(checked == 9, "all nine tell configurations were measured (%d)" % checked)
+	# ⚠ `CONFIGS.size()`, NOT A LITERAL. This guard exists to catch a table that LOST
+	# rows; written as a hard 9 it also fired every time the table legitimately GREW,
+	# which trains the next reader to edit the number rather than to read the failure.
+	_expect(checked == CONFIGS.size(),
+		"all %d tell configurations were measured (%d)" % [CONFIGS.size(), checked])
 	_completes("every_style_degrades_at_low")
 
 
@@ -223,10 +247,29 @@ func _test_every_style_degrades_at_low() -> void:
 func _test_low_still_draws_the_tell() -> void:
 	for c: Dictionary in CONFIGS:
 		var n: String = String(c["name"])
-		_expect(_stat(n, "low", "calls") >= 4.0,
-			"%s still draws a figure at LOW (%.0f draw commands)" % [n, _stat(n, "low", "calls")])
-		_expect(_stat(n, "low", "segments") >= 4.0,
-			"%s still has geometry at LOW (%.0f segments)" % [n, _stat(n, "low", "segments")])
+		# ⚠ THE FLOOR IS PER-ROW NOW, AND ONE ROW DELIBERATELY SITS UNDER 4. A cone
+		# drawn at the LIGHT weight is a boundary and nothing else — the rim arc and the
+		# two limit rays, two commands — because a 66-90 degree wedge published three
+		# times a second at a spell tell's weight would be the loudest thing in a fight
+		# the maker has called *"too much going on"*. That is a chosen picture, not a
+		# missing one, so the row states its own floor rather than the floor being bent
+		# down for everybody. See `Telegraph.CONE_LIGHT_ALPHA`.
+		# ⚠ THE MELEE FLOORS DROPPED TO 3, AND THAT IS A RULING RATHER THAN A REGRESSION.
+		# A LIGHT cone now draws NO boundary at all. Measured, that boundary was an 86 px,
+		# 174-degree ARCANE-magenta arc wrapped around the Swordsaint — the maker's *"goofy
+		# large pink barrier thing in its left click attack"* — and the same object at 58 px
+		# on the Brawler, which they read as a deflect shield on an offensive verb. So the
+		# strike figure (the fist, the crescent) is the whole read, and 3 commands IS the
+		# picture rather than a missing one. The floor is stated per row so the general
+		# "every style still draws something at LOW" rule is not bent down for everybody.
+		var floor_calls: float = float(c.get("min_low_calls", 4.0))
+		var floor_segs: float = float(c.get("min_low_segments", 4.0))
+		_expect(_stat(n, "low", "calls") >= floor_calls,
+			"%s still draws a figure at LOW (%.0f draw commands, floor %.0f)"
+				% [n, _stat(n, "low", "calls"), floor_calls])
+		_expect(_stat(n, "low", "segments") >= floor_segs,
+			"%s still has geometry at LOW (%.0f segments, floor %.0f)"
+				% [n, _stat(n, "low", "segments"), floor_segs])
 		_expect(_stat(n, "low", "tells") >= 1.0,
 			"%s's _draw actually ran at LOW (a headless frame that never drew would pass every count above)" % n)
 	_completes("low_still_draws_the_tell")
@@ -283,21 +326,31 @@ func _test_colour_ramps_follow_the_accent() -> void:
 
 ## Rule 2 made explicit: every style must state what it PROMISES. A style added
 ## tomorrow with no row is a tell whose meaning nobody wrote down, and the whole
-## point of the vocabulary is that the player learns eight shapes and not nine.
+## point of the vocabulary is that the player learns a fixed small set of shapes.
+##
+## ⚠ EIGHT SHAPES / THREE WORDS BECAME NINE / FOUR, AND THE COUNT WAS RAISED
+## DELIBERATELY RATHER THAN THE CODE BENT TO KEEP IT GREEN. `Style.CONE` was added
+## because three attacks (the melee swing, the Brawler uppercut, the Cryomancer frost
+## cone) all query `SpellTargets.in_cone` and none of them could DRAW a cone — the
+## melee tell was a lane 10.2-11.1x narrower in angle than the swing that damages.
+## A fourth word, "wedge", came with it, because the dodge a wedge asks for is neither
+## a ground zone's (leave in any direction) nor a corridor's (step off the line): it is
+## get behind it or out of it. Teaching the player a word for a shape they must dodge
+## differently is the vocabulary working, not the vocabulary growing.
 func _test_every_style_states_a_consequence() -> void:
 	var styles: Dictionary = TELL.Style
-	_expect(styles.size() == 8, "the Style enum is the eight-shape vocabulary (%d)" % styles.size())
+	_expect(styles.size() == 9, "the Style enum is the nine-shape vocabulary (%d)" % styles.size())
 	var seen: Dictionary = {}
 	for name: String in styles:
 		var s: int = int(styles[name])
 		_expect(TELL.STYLE_CONSEQUENCE.has(s),
 			"Style.%s states its consequence (an unlisted style is a tell nobody defined)" % name)
 		var word: String = String(TELL.STYLE_CONSEQUENCE.get(s, ""))
-		_expect(word in ["ground", "corridor", "blow"],
-			"Style.%s's consequence is one of the three the player is taught ('%s')" % [name, word])
+		_expect(word in ["ground", "corridor", "blow", "wedge"],
+			"Style.%s's consequence is one of the four the player is taught ('%s')" % [name, word])
 		seen[word] = true
-	_expect(seen.size() == 3,
-		"all three consequences are in use (%d) — a vocabulary with an unused word is one the player never learns"
+	_expect(seen.size() == 4,
+		"all four consequences are in use (%d) — a vocabulary with an unused word is one the player never learns"
 			% seen.size())
 	_completes("every_style_states_a_consequence")
 

@@ -95,16 +95,50 @@ const TETHER_PULSES_LOW: int = 1
 const CHEVRON_SPACING: float = 26.0
 const CHEVRON_SPACING_LOW: float = 44.0
 
+## ══ THE CONE ═══════════════════════════════════════════════════════════════
+## Full segment budget for a cone's rim arc, before `MagicCircle.seg_of`'s sagitta
+## rule and the arc's own angular FRACTION cut it down. 48 is ZONE's ring budget:
+## a cone is a ring with a bite taken out of it and must not look coarser than one.
+const CONE_ARC_SEGMENTS: int = 48
+## Floor under the tessellation. Three points still make a wedge; two make a
+## triangle that lies about a curved rim.
+const CONE_ARC_MIN: int = 3
+## The two alpha weights a cone can be drawn at.
+##
+## ⚠ THIS CONSTANT IS THE ANSWER TO "A HONEST CONE IS A LOT OF SCREEN". The melee
+## swing publishes a 66-90 degree wedge three times a second; the frost cone and the
+## uppercut publish one about once every two seconds. Drawn at the same weight, the
+## melee wedge would be the loudest thing in a fight that the maker has separately
+## called *"too much going on"*. So a cone has two weights and the caller picks:
+##
+##   FULL  — a growing wedge fill + rim + limit rays + apex core. For a deliberate,
+##           telegraphed ability with a real lead (0.10 s here). 4 draw calls.
+##   LIGHT — rim arc + the two limit rays, and NOTHING inside them. 2 draw calls,
+##           at the alpha the FIST tell's old lane hint already used. The strike
+##           figure (the fist / the crescent) stays the bright read and the wedge is
+##           a boundary under it, which is the exact weight the thing deserves: a
+##           0.077 s flick is not a 0.9 s bomb.
+##
+## The LIGHT cone is not a compromise on rule 2 — it claims EXACTLY the ground the
+## damage query sweeps, to the degree. It is quieter, not smaller.
+const CONE_LIGHT_ALPHA: float = 0.10
+const CONE_LIGHT_ALPHA_ARMED: float = 0.26
+
 ## Geometry, depended on by the archetype tests. CIRCLE = a zone/point sigil;
-## LINE = a charge lane. (Kept exactly — do not rename.)
-enum Shape { CIRCLE, LINE }
+## LINE = a charge lane; CONE = a wedge swept from an apex.
+## ⚠ APPEND ONLY, for the same reason `Style` is — `Shape` is stored as an int the
+## moment anything serialises or forwards it.
+enum Shape { CIRCLE, LINE, CONE }
 ## Visual flavour, chosen per archetype. ZONE = ground danger ring (brute + the
 ## default for the plain tests); the rest are the distinct sigils.
 ## ⚠ APPEND ONLY — callers set these by name but `Enemy._emit_telegraph` passes them
 ## through a Dictionary as ints, so reordering would silently repaint every archetype.
 ## FIST / CRESCENT are the HERO's melee strikes: not a place on the floor, a thing
 ## coming out of the hand. See `Hero._publish_swing_tell`.
-enum Style { ZONE, MUZZLE, LANE, DART, GATHER, BOMB, FIST, CRESCENT }
+## CONE = a wedge swept out of a body: "this arc, from where I am standing". It is
+## the style the file was MISSING, and its absence was the largest lie left in the
+## tell layer — see `_draw_cone`.
+enum Style { ZONE, MUZZLE, LANE, DART, GATHER, BOMB, FIST, CRESCENT, CONE }
 
 ## What each style PROMISES, as machine-readable text, so the audit probe and any
 ## future suite can state the rule rather than re-deriving it from the drawings.
@@ -114,6 +148,11 @@ const STYLE_CONSEQUENCE: Dictionary = {
 	Style.ZONE: "ground", Style.MUZZLE: "corridor", Style.LANE: "corridor",
 	Style.DART: "ground", Style.GATHER: "ground", Style.BOMB: "ground",
 	Style.FIST: "blow", Style.CRESCENT: "blow",
+	# "wedge" = an arc of ground swept from a body. Distinct from "ground" (a place
+	# you must not be standing, which you leave in any direction) and from "corridor"
+	# (a line you step off): the answer to a wedge is to get BEHIND it or OUT of it,
+	# and those are different dodges, so it needs its own word.
+	Style.CONE: "wedge",
 }
 
 var _radius: float = 0.0
@@ -125,6 +164,14 @@ var _shape: Shape = Shape.CIRCLE
 var _length: float = 0.0
 var _width: float = 0.0
 var _angle: float = 0.0
+## Half-opening of a CONE tell, in RADIANS, measured off `_angle`. Stored as an
+## angle rather than as a dot product on purpose: `acos` is done ONCE at the call
+## site, from the very `min_dot` the damage query uses, so the drawn wedge and the
+## queried wedge cannot be two independently-typed numbers. That is the whole point
+## of the style existing.
+var _half_angle: float = 0.0
+## Draw the cone as a boundary only (see `CONE_LIGHT_ALPHA`). Set by the melee tell.
+var _cone_light: bool = false
 ## `graphics_quality = LOW` snapshot, taken once at `_ready` (the same moment
 ## SpawnTell / DeathSmudge / GraveTide take theirs) rather than per `_draw`: a tell
 ## lives well under a second and the setting cannot change inside one.
@@ -140,6 +187,23 @@ var accent: Color = RING_COLOR
 var style: Style = Style.ZONE
 var aim_dir: Vector2 = Vector2.RIGHT
 var reach: float = 120.0
+
+## Keep the tell's APEX on its `source` for as long as it lives.
+##
+## ⚠ OFF BY DEFAULT, AND IT MUST STAY OFF FOR THE ENEMY TELLS. `_emit_telegraph` /
+## `_emit_hero_telegraph` deliberately parent a tell to the ARENA, not to the caster,
+## so a placed ground danger (a brute's snapshot spot, a bomber's fuse) stays where
+## it was planted even if the caster is knocked across the room. That is correct for
+## everything whose danger is a PLACE.
+##
+## A melee cone's danger is not a place — it is an arc measured from the swinger's
+## own body at the frame the swing lands. `Hero._on_melee_hit_frame` apexes at
+## `global_position` AT THAT MOMENT, so a tell nailed to the ground where the swing
+## STARTED is wrong by however far the body travelled during the wind-up. Measured:
+## the Juggernaut's heavy swing sets `velocity.x = ±190` and tells for 0.077 s, so
+## the apex drifts 14.6 px — a quarter of the swing's own reach — and every degree
+## of the drawn wedge is displaced with it. Following the source closes that to zero.
+var follow_source: bool = false
 
 ## Every live telegraph joins this group so a dodging brain can find the set of
 ## things currently threatening it in one scan. See the perception block below.
@@ -172,6 +236,35 @@ func start_line(length: float, width: float, angle: float, windup: float) -> voi
 	start(maxf(width, 1.0), windup)
 
 
+## Cone telegraph: a wedge with its APEX on this node, opening `half_angle` radians
+## either side of `angle` and reaching `reach_px`.
+##
+## ⚠ THE ARGUMENTS ARE THE DAMAGE QUERY'S OWN ARGUMENTS, AND THAT IS THE POINT.
+## `SpellTargets.in_cone(origin, dir, reach, min_dot, ...)` is what every wide melee
+## attack in the game sweeps with; a caller passes `reach` straight through and
+## `acos(min_dot)` as `half_angle`. There is no second set of numbers to keep in
+## step, which is how the lane-vs-cone drift this style exists to kill got in.
+##
+## `width_px` sizes the STRIKE FIGURE only (the fist's glove, the crescent's belly)
+## for FIST / CRESCENT styles; it has no bearing on the danger footprint.
+## `light` picks the boundary-only weight — see `CONE_LIGHT_ALPHA`.
+func start_cone(reach_px: float, half_angle: float, angle: float, windup: float,
+		width_px: float = 0.0, light: bool = false) -> void:
+	_shape = Shape.CONE
+	_angle = angle
+	# Clamped to a real wedge. 0 would be a ray with no area (nothing to dodge off)
+	# and > PI would wrap past itself and double-count the ground behind.
+	_half_angle = clampf(half_angle, 0.02, PI)
+	_length = maxf(reach_px, 0.0)
+	_width = maxf(width_px, 0.0)
+	_cone_light = light
+	aim_dir = Vector2.from_angle(angle)
+	reach = _length
+	if style == Style.ZONE:
+		style = Style.CONE
+	start(_length, windup)
+
+
 func _process(delta: float) -> void:
 	advance(delta)
 
@@ -180,6 +273,12 @@ func _process(delta: float) -> void:
 func advance(delta: float) -> void:
 	if not _running:
 		return
+	# A cone that apexes on a body has to travel with the body — see `follow_source`.
+	# In `advance` rather than in `_process` so the headless suites, which step tells
+	# with `advance(0.02)` and never let a frame pass, measure the same apex the game
+	# does.
+	if follow_source and source != null and is_instance_valid(source):
+		global_position = source.global_position
 	_elapsed += delta
 	if not _has_fired and _elapsed >= _windup:
 		_has_fired = true
@@ -204,7 +303,41 @@ func advance(delta: float) -> void:
 
 ## World-space danger footprint. Circle: {shape, center, radius}.
 ## Line: {shape, from, to, width}.
+## Cone: {shape:"circle", center, radius} — the SMALLEST CIRCLE CONTAINING THE WEDGE
+## — plus a `cone` sub-dictionary carrying the exact wedge.
+##
+## ⚠ A CONE REPORTS ITSELF AS A CIRCLE ON PURPOSE, AND THE REASON IS NOT LAZINESS.
+## Six things read this dictionary and none of them are this file's to change:
+## `BotDodge.contains` / `_escape_dir`, `BotController.perceive_threats`,
+## `BotBrain`, `Enemy.gd:1129`, `tools/bot_sim.gd` and two suites. Every one of them
+## branches on `shape == "circle"` or `"line"` and has no third case. Publishing a
+## `"cone"` string would make each of them fall through to "not a threat" — i.e. the
+## day melee got an honest DRAWING would be the day every bot in the game stopped
+## dodging melee, silently, with all suites green.
+##
+## So the perception contract is widened CONSERVATIVELY (the enclosing circle warns
+## about slightly more ground than the wedge sweeps — over-warning, which costs a
+## dodge nobody needed rather than health somebody was promised) and the exact wedge
+## is attached alongside for whoever wants it next. `_draw` uses the exact wedge; it
+## is only the machine-readable summary that rounds outward.
+##
+## ⚠ FOR A CONSUMER TO PICK THIS UP LATER, in a file this agent does not own:
+## `shape["cone"]` is `{apex: Vector2, dir: Vector2, half_angle: float, radius: float}`
+## in world space, and the containment test is
+## `to.length() <= radius and dir.dot(to.normalized()) >= cos(half_angle)`.
 func danger_shape() -> Dictionary:
+	if _shape == Shape.CONE:
+		var dirv: Vector2 = Vector2.from_angle(_angle)
+		var bound: Vector2 = cone_bound(_length, _half_angle)
+		return {
+			"shape": "circle",
+			"center": global_position + dirv * bound.x,
+			"radius": bound.y,
+			"cone": {
+				"apex": global_position, "dir": dirv,
+				"half_angle": _half_angle, "radius": _length,
+			},
+		}
 	if _shape == Shape.LINE:
 		return {
 			"shape": "line",
@@ -323,6 +456,48 @@ static func chevron_spacing(low: bool) -> float:
 	return CHEVRON_SPACING_LOW if low else CHEVRON_SPACING
 
 
+## Segments along a cone's rim arc.
+##
+## A cone is a ring with a bite out of it, so it gets the RING's sagitta budget for
+## its radius (`seg_for`) scaled by the fraction of a full turn it actually covers.
+## Deriving it that way rather than picking a number means a 66-degree melee wedge
+## and a 203-degree uppercut wedge are tessellated to the same smoothness per unit of
+## rim, and both get cheaper on a phone through the one rule the rest of the file
+## already uses.
+static func cone_steps(full: int, r: float, half_angle: float, low: bool) -> int:
+	var frac: float = clampf(half_angle / PI, 0.0, 1.0)
+	return maxi(int(ceil(float(seg_for(full, r, low)) * frac)), CONE_ARC_MIN)
+
+
+## The SMALLEST CIRCLE CONTAINING a wedge with its apex at the origin, reaching
+## `reach` px, opening `half_angle` either side of the axis. Returned as
+## `(offset along the axis, radius)`.
+##
+## ⚠ THIS DERIVATION MOVED HERE FROM `Hero._cone_tell_circle`, WHICH IS DELETED.
+## It was written there as a stop-gap while `Telegraph` had no CONE style — a circle
+## standing in for a cone, sized so it could never UNDER-draw. Two of Hero's wide
+## attacks used it and both now draw real wedges, so the only surviving consumer is
+## `danger_shape()`, which needs it for the perception summary. Keeping one copy, in
+## the file that publishes the number, is the point: two copies is how the lane and
+## the cone drifted apart in the first place.
+##
+## Three cases, and each one is a different point being the binding one:
+##   a <= 45 deg   the APEX is the far point, so the circle is the circumcircle of
+##                 the apex and the two arc ends:   c = r = reach / (2 cos a)
+##   45 < a <= 90  the two arc ENDS are the far pair and their chord is the
+##                 diameter:                        c = reach cos a, r = reach sin a
+##   a > 90 deg    the arc wraps behind the apex and the axis TIP becomes binding, so
+##                 the honest answer is apex-centred: c = 0, r = reach
+static func cone_bound(reach_px: float, half_angle: float) -> Vector2:
+	var a: float = clampf(half_angle, 0.0, PI)
+	if a > PI * 0.5:
+		return Vector2(0.0, maxf(reach_px, 0.0))
+	if a > PI * 0.25:
+		return Vector2(reach_px * cos(a), reach_px * sin(a))
+	var c: float = reach_px / maxf(2.0 * cos(a), 0.0001)
+	return Vector2(c, c)
+
+
 ## Does the fist tell draw its knuckle flare?
 ##
 ## ⚠ THIS IS THE ONE PLACE A FIGURE IS DROPPED RATHER THAN THINNED, and it needs
@@ -391,6 +566,24 @@ func _draw() -> void:
 	if _radius <= 0.0:
 		return
 	_work_tells += 1
+	if _shape == Shape.CONE:
+		var ct: float = clampf(_elapsed / _windup, 0.0, 1.0)
+		var cfade: float = 1.0
+		if _has_fired:
+			ct = 1.0
+			cfade = clampf(1.0 - (_elapsed - _windup) / FADE_TIME, 0.0, 1.0)
+		# ⚠ THE BOUNDARY IS DRAWN FIRST, UNDER THE STRIKE FIGURE, NOT INSTEAD OF IT.
+		# FIST / CRESCENT keep the picture the maker asked for by name — *"a little
+		# fire fist ... in the direction being punched"* — and what changes is only
+		# the faint hint UNDER it: it used to be a 10.4 px lane, which claimed a
+		# tenth of the ground the swing actually swept, and it is now the swing's
+		# own wedge. Same weight, same call count budget, no new effect.
+		_draw_cone(ct, cfade)
+		if style == Style.FIST:
+			_draw_fist()
+		elif style == Style.CRESCENT:
+			_draw_crescent()
+		return
 	if _shape == Shape.LINE:
 		# The hero's melee strikes are lanes too, but they are drawn as the STRIKE
 		# rather than as a runic charge corridor — a punch is not a charger.
@@ -728,6 +921,104 @@ func _draw_lane() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
+# ----------------------------------------------------------------- CONE (a wedge)
+## THE ARC THIS ATTACK ACTUALLY SWEEPS, DRAWN AS THE ARC IT ACTUALLY SWEEPS.
+##
+## ══ WHY THIS STYLE EXISTS ═══════════════════════════════════════════════════
+## Three of the game's attacks query `SpellTargets.in_cone` and none of them could
+## draw one, so all three drew something else and all three were measured lying:
+##
+##   melee swing    cone r58, half-angle 66-90 deg   drawn as a 10.4 px LANE
+##   uppercut       cone r70, half-angle 101.5 deg   drawn as a circle r42 at +24
+##   frost cone     cone r118, half-angle 60 deg     drawn as a circle r59 at +59
+##
+## The melee row is the worst of them and the most important: the drawn lane is
+## 10.2-11.1x narrower than the cone that damages, and since melee auto-target was
+## deleted the cone IS the whole swing. Both obvious repairs were rejected before
+## this one was written: a cone-sized LANE is wider than the swing is long and the
+## maker vetoed that look directly (*"i hate that circle thing for brawler"*), and a
+## lane-sized CONE is a needle that would gut melee. The remaining option was to
+## teach this file the shape, which is what this is.
+##
+## ══ WHAT IS DRAWN ═══════════════════════════════════════════════════════════
+## Rule 2 (shape carries consequence): a wedge says "this arc, from my body". So the
+## figure is the wedge's own outline — the rim arc at full reach, closed back to the
+## apex down the two limit rays — and nothing that reaches past it. `_bump`'s reach
+## is fed the rim, so the honesty number equals `danger_shape()`'s radius by
+## construction rather than by inspection.
+##
+## Rule 1 (colour carries element): every stroke is `accent`. The apex core is white,
+## which is the file's standing intensity-not-hue exception.
+##
+## ⚠ AND THE FILL IS A SINGLE POLYGON THAT GROWS, NOT A STACK OF ARCS. `_draw_zone`
+## already established the charge read — pale and wide early, saturated and hot late
+## — and it costs one `draw_colored_polygon` here because a wedge is a triangle fan
+## the rasteriser can take in one command. A cone drawn as N arcs at N radii would be
+## the same picture at N times the price, on a style that fires three times a second.
+func _draw_cone(t: float, fade: float) -> void:
+	# ⚠ A LIGHT CONE DRAWS NOTHING AT ALL, and this return sits FIRST on purpose.
+	#
+	# It used to sit four lines down, after the rim arc and the two limit rays, so a
+	# "light" cone still drew its boundary. Measured, that boundary is what the maker was
+	# objecting to twice over: on the Swordsaint it is an 86 px, 174-degree arc in ARCANE
+	# MAGENTA wrapped around the body — *"that goofy large pink barrier thing in its left
+	# click attack"* — and on the Brawler the same object at 58 px is the little pale bar
+	# they read as a deflect. One shape, both complaints, on an OFFENSIVE verb where a
+	# shell around the body says "defending" to anyone who has played anything.
+	#
+	# `_cone_light` is set in exactly one place in the whole codebase — the swing tell —
+	# so this cut reaches basic attacks and nothing else BY CONSTRUCTION. The Cryomancer's
+	# frost cone and the uppercut are full cones and keep their drawing.
+	#
+	# ⚠ THE TELL ITSELF IS NOT DELETED, only its picture. `BotController.perceive_threats`
+	# finds melee by walking the `telegraph` group; removing the node would make every
+	# heavy swing invisible to every bot, silently, with all suites green. The strike
+	# figure drawn on top — the fist, the crescent — is now the whole read.
+	if _cone_light:
+		return
+	var c: Color = accent
+	var dirv: Vector2 = Vector2.from_angle(_angle)
+	var steps: int = cone_steps(CONE_ARC_SEGMENTS, _radius, _half_angle, _low)
+	# The two limit rays, as ONE command. They are the same colour and the same width
+	# and were only ever going to be two calls because they are two lines — the same
+	# batching argument `_draw_runic_ticks` and the DART's crosshair already make.
+	var a0: float = _angle - _half_angle
+	var a1: float = _angle + _half_angle
+	var edge_a: float = CONE_LIGHT_ALPHA + (CONE_LIGHT_ALPHA_ARMED - CONE_LIGHT_ALPHA) * t
+	var rays := PackedVector2Array()
+	rays.resize(4)
+	rays[0] = Vector2.ZERO
+	rays[1] = Vector2.from_angle(a0) * _radius
+	rays[2] = Vector2.ZERO
+	rays[3] = Vector2.from_angle(a1) * _radius
+	draw_multiline(rays, Color(c.r, c.g, c.b, edge_a * 2.0 * fade), 1.5)
+	_bump(2, _radius)
+	# The rim: where the swing stops. This is the single most useful line in the
+	# figure, because "am I inside the arc" is answered by which side of it you are on.
+	draw_arc(Vector2.ZERO, _radius, a0, a1, steps,
+		Color(c.r, c.g, c.b, (edge_a * 3.0) * fade), 2.0)
+	_bump(steps, _radius)
+	# The charge fill, as one growing wedge. `zone_fill` is reused rather than
+	# re-derived so a cone and a ground zone at the same charge are the same colour —
+	# they are the same statement about time, differing only in shape.
+	var fill_r: float = _radius * (0.12 + 0.88 * t)
+	var fan := PackedVector2Array()
+	fan.resize(steps + 2)
+	fan[0] = Vector2.ZERO
+	for i: int in steps + 1:
+		fan[i + 1] = Vector2.from_angle(a0 + (a1 - a0) * float(i) / float(steps)) * fill_r
+	var fc: Color = zone_fill(c, t)
+	fc.a *= fade
+	draw_colored_polygon(fan, fc)
+	_bump(steps + 2, fill_r)
+	# The apex: a hot point that says WHERE the wedge is hinged. Small deliberately —
+	# a wedge's danger is its area, and a bright apex would pull the eye to the one
+	# spot inside it that is always safe to be standing on (your own body).
+	draw_circle(Vector2.ZERO, maxf(_radius * 0.06, 2.0),
+		Color(1.0, 1.0, 1.0, (0.3 + 0.5 * t) * fade))
+	_bump(1, maxf(_radius * 0.06, 2.0))
+
+
 # ------------------------------------------------------- FIST / CRESCENT (hero melee)
 ## A SMALL GLOVE-SIZED FIST THAT TRAVELS OUT ALONG THE PUNCH.
 ##
@@ -751,8 +1042,15 @@ func _draw_fist() -> void:
 	var rr: float = maxf(_width * 0.5, 3.0)
 	# The travel hint: where it is going, at a weight that cannot be mistaken for
 	# the strike itself.
-	draw_line(Vector2.ZERO, dir * _length, Color(c.r, c.g, c.b, 0.10 * fade), 1.0, true)
-	_bump(1, _length)
+	# ⚠ SUPPRESSED ON A CONE, AND THIS IS THE SWAP THAT MAKES THE MELEE TELL HONEST.
+	# This line WAS the lane claim — a 58 px thread down the aim, against a swing that
+	# damages 66-90 degrees either side of it. `_draw_cone` has already drawn the real
+	# wedge underneath at the same weight, so drawing this too would be a second,
+	# narrower claim inside the true one. Net call count for the melee tell: -1 here,
+	# +2 there.
+	if _shape != Shape.CONE:
+		draw_line(Vector2.ZERO, dir * _length, Color(c.r, c.g, c.b, 0.10 * fade), 1.0, true)
+		_bump(1, _length)
 	# A short motion streak BEHIND the fist — this is what makes it read as thrown
 	# rather than as a dot sliding along a line.
 	draw_line(at - dir * rr * 2.2, at, Color(c.r, c.g, c.b, 0.35 * fade), rr * 0.9, true)
@@ -798,8 +1096,12 @@ func _draw_crescent() -> void:
 	# epic"*. The curve was the right IDEA at the wrong size — a 15 px arc on an 86 px
 	# lane, i.e. a scratch. A cut should be wider than the thing that made it.
 	var half: float = maxf(_width * 1.5, 11.0) * (0.45 + 0.55 * t)
-	draw_line(Vector2.ZERO, dir * _length, Color(c.r, c.g, c.b, 0.10 * fade), 1.0, true)
-	_bump(1, _length)
+	# Suppressed on a cone for the reason spelled out in `_draw_fist`: the wedge under
+	# this figure is already the honest claim, and this thread would be a narrower one
+	# drawn inside it.
+	if _shape != Shape.CONE:
+		draw_line(Vector2.ZERO, dir * _length, Color(c.r, c.g, c.b, 0.10 * fade), 1.0, true)
+		_bump(1, _length)
 	# ══ THE CUT IS A TAPERED BLADE OF AIR, NOT A LINE ═════════════════════════
 	# It was two constant-width `draw_polyline`s, and a constant-width band reads as a
 	# ribbon — the comment above them already said the taper was the point, and there

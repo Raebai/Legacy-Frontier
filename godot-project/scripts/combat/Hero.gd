@@ -4498,20 +4498,34 @@ func _uppercut() -> void:
 	# it left `BotDodge` nothing to perceive. The hero still rises immediately; only
 	# the connect waits, which is also how a real uppercut reads. `ABILITY_TELL_LEAD`
 	# is the one knob; 0.0 restores the press-frame hit.
-	# ⚠ THE CIRCLE IS DERIVED FROM THE CONE NOW, NOT PLACED BY EYE. `_resolve_uppercut`
+	# ⚠ IT IS THE CONE NOW, NOT A CIRCLE STANDING IN FOR ONE. `_resolve_uppercut`
 	# sweeps `in_cone(global_position, (face_x,0), UPPERCUT_REACH, UPPERCUT_DOT)` — a
-	# 101.5° half-angle at 70 px, so the danger is very nearly a 70 px disc around the
-	# body. The old tell was a 42 px circle centred 24 px in front, which left a wide
+	# 101.5 deg half-angle at 70 px, so the danger is very nearly a 70 px disc around
+	# the body. The tell drew a 42 px circle centred 24 px in front, which left a wide
 	# band of ground that was lethal and unmarked (measured worst case: a body 66 px
-	# behind-and-above the swinger was inside the cone and outside the drawn circle).
-	# See `_cone_tell_circle` for the derivation and for why it deliberately over-draws.
-	var uc_circle: Vector2 = _cone_tell_circle(UPPERCUT_REACH, UPPERCUT_DOT)
+	# behind-and-above the swinger was inside the cone and outside the drawn circle);
+	# an intermediate pass then widened that circle to the wedge's ENCLOSING circle,
+	# which stopped the under-draw at the price of colouring ground the launcher
+	# cannot reach. `Telegraph.Style.CONE` ends both: the drawn wedge IS the queried
+	# wedge, and `danger_shape()` keeps publishing the enclosing circle for the bots.
+	#
+	# ⚠ AND THE AIM WAS WRONG BY 26.6 DEGREES. It was `(face_x, -0.5)` — the direction
+	# the hero LOOKS during a launcher — while `in_cone` is given `(face_x, 0.0)`. A
+	# cone drawn off the wrong axis is a new lie in the shape of the old one, so the
+	# tell now takes the damage query's own axis. The rise is in the animation, which
+	# is where it belongs.
+	# FULL weight, not LIGHT: this is a 0.10 s telegraphed launcher on a ~1.1 s
+	# cooldown, not a three-a-second flick, so it gets the growing wedge fill.
 	_telegraphed_ability({
-		"pos": global_position + Vector2(face_x * uc_circle.x, -10.0),
-		"radius": uc_circle.y,
+		"cone": true,
+		"follow": true,
+		"pos": global_position,
+		"reach": UPPERCUT_REACH,
+		"half_angle": acos(clampf(UPPERCUT_DOT, -1.0, 1.0)),
+		"angle": Vector2(face_x, 0.0).angle(),
 		"windup": ABILITY_TELL_LEAD,
-		"style": Telegraph.Style.DART,
-		"aim": Vector2(face_x, -0.5), "reach": UPPERCUT_REACH,
+		"style": Telegraph.Style.CONE,
+		"aim": Vector2(face_x, 0.0),
 	}, _resolve_uppercut.bind(face_x))
 
 
@@ -4922,20 +4936,25 @@ func _primary_frost_cone() -> void:
 	# still playing a CAST and coating the hand in frost — so the picture promised a
 	# wind-up that the damage had already skipped, and `BotDodge` had no object to read.
 	# The lead is `ABILITY_TELL_LEAD`; set that to 0.0 to restore the press-frame hit.
-	# ⚠ AND THE FOOTPRINT IS DERIVED FROM THE CONE, NOT HALVED BY EYE. `radius` is what
-	# `Telegraph.danger_shape()` publishes and what `BotDodge` reads, so it IS the
-	# machine-readable danger, and it was `CONE_RANGE * 0.5` = 59 px against a cone
-	# that reaches 118 px forward and `118 * sin(60°)` = 102 px to the SIDE. The
-	# centre was already right (the enclosing circle of a 60° wedge is centred at
-	# `reach * cos(a)`, which is exactly `CONE_RANGE * 0.5`); only the radius was
-	# short, by 43 px. See `_cone_tell_circle`.
-	var fc_circle: Vector2 = _cone_tell_circle(CONE_RANGE, CONE_COS)
+	# ⚠ AND IT IS DRAWN AS THE CONE IT IS. The tell was a MUZZLE — a small sigil plus
+	# an aim tracer — reporting a `CONE_RANGE * 0.5` = 59 px circle against a cone that
+	# reaches 118 px forward and `118 * sin(60°)` = 102 px to the SIDE. An intermediate
+	# pass widened that circle to the wedge's enclosing circle, which fixed the
+	# under-draw but painted a 102 px disc for a 60 deg wedge — nearly half of it
+	# ground the cone cannot touch. `Telegraph.Style.CONE` draws the wedge itself;
+	# `danger_shape()` still publishes the enclosing circle so `BotDodge` is unchanged.
+	# The four numbers below are `_resolve_frost_cone`'s own arguments, one `acos`
+	# apart, which is what keeps the picture and the damage from drifting.
 	_telegraphed_ability({
-		"pos": global_position + _aim_dir.normalized() * fc_circle.x,
-		"radius": fc_circle.y,
+		"cone": true,
+		"follow": true,
+		"pos": global_position,
+		"reach": CONE_RANGE,
+		"half_angle": acos(clampf(CONE_COS, -1.0, 1.0)),
+		"angle": _aim_dir.angle(),
 		"windup": ABILITY_TELL_LEAD,
-		"style": Telegraph.Style.MUZZLE,
-		"aim": _aim_dir, "reach": CONE_RANGE,
+		"style": Telegraph.Style.CONE,
+		"aim": _aim_dir,
 	}, _resolve_frost_cone.bind(_aim_dir, CONE_RANGE, CONE_COS, CONE_DAMAGE))
 
 
@@ -5893,45 +5912,23 @@ func _swing_tell_windup(state: int) -> float:
 var _swing_tell_blade: bool = true
 
 
-## ⚠ A CIRCLE STANDING IN FOR A CONE, SIZED SO IT NEVER UNDER-DRAWS THE CONE.
+## THE CIRCLE THAT STOOD IN FOR A CONE IS GONE — the derivation moved to
+## `Telegraph.cone_bound`, and the two callers that needed it now draw real wedges.
 ##
-## `Telegraph` has no CONE style — every style it does have resolves to a circle or a
-## lane, and `danger_shape()` publishes `{circle, center, radius}` for all of them,
-## which is what `BotDodge` reads. So two of this file's wide-cone attacks were drawn
-## as circles picked by eye, and both were picked SMALLER than the cone:
+## For the record of WHY it existed at all, because the same hole could be dug again:
+## `Telegraph` had no CONE style, so every style it did have resolved to a circle or a
+## lane, and two of this file's wide-cone attacks were therefore drawn as circles
+## PICKED BY EYE — and both were picked SMALLER than the cone they stood for:
 ##
-##   uppercut     cone r70, half-angle 101.5°   drawn as r42 centred 24 px ahead
-##   frost cone   cone r118, half-angle 60°     drawn as r59 centred 59 px ahead
+##   uppercut     cone r70, half-angle 101.5 deg   drawn as r42 centred 24 px ahead
+##   frost cone   cone r118, half-angle 60 deg     drawn as r59 centred 59 px ahead
 ##
-## The frost cone's real footprint reaches 102 px to the SIDE at full range against a
-## 59 px drawn radius; the uppercut's reaches 70 in nearly every direction against 42.
-## In both cases you could stand outside the drawn danger and be hit by it, which is
-## the one thing a tell must never allow.
-##
-## This returns the SMALLEST circle that CONTAINS the wedge (apex at the body, range
-## `reach`, half-angle `acos(min_dot)`), as `(offset along the aim, radius)`. Derived
-## rather than eyeballed, in three cases:
-##
-##   a <= 45°   the apex is the far point, so the circle is the circumcircle of the
-##              apex and the two arc ends:      c = r = reach / (2 cos a)
-##   45° < a <= 90°   the two arc ends are the far pair and their chord is the
-##              diameter:                       c = reach cos a,  r = reach sin a
-##   a > 90°    the arc wraps behind the apex and the axis TIP becomes binding, so
-##              the honest answer is apex-centred: c = 0, r = reach
-##
-## ⚠ IT OVER-DRAWS, AND THAT IS THE CHOSEN DIRECTION. A circle around a 120°-wide
-## wedge colours ground the attack cannot reach. Over-drawing costs a player a dodge
-## they did not need; under-drawing costs them health they were told they would keep.
-## The real fix is a CONE style in `Telegraph.gd` — which this agent does not own, and
-## which is flagged in the handoff rather than approximated a second way here.
-static func _cone_tell_circle(reach: float, min_dot: float) -> Vector2:
-	var a: float = acos(clampf(min_dot, -1.0, 1.0))
-	if a > PI * 0.5:
-		return Vector2(0.0, maxf(reach, 0.0))
-	if a > PI * 0.25:
-		return Vector2(reach * cos(a), reach * sin(a))
-	var c: float = reach / maxf(2.0 * cos(a), 0.0001)
-	return Vector2(c, c)
+## You could stand outside the drawn danger and be hit by it, which is the one thing a
+## tell must never allow. The stop-gap was a circle sized to CONTAIN the wedge, which
+## fixed the unfair direction at the cost of colouring ground the attack cannot reach.
+## `Telegraph.Style.CONE` removes the trade entirely: the drawing is the wedge, and
+## only `danger_shape()`'s machine-readable summary still rounds outward to a circle —
+## see the long note there for why that one must stay a circle.
 
 
 func _publish_swing_tell(state: int = CharacterRig.State.PUNCH) -> void:
@@ -5958,11 +5955,50 @@ func _publish_swing_tell(state: int = CharacterRig.State.PUNCH) -> void:
 	# still publishes `danger_shape` and `windup`, and a lane threat yields a LATERAL
 	# exit, so the honest answer is to step off the line, which is what "that can be
 	# dodged" asks for.
+	# ══ AND THE LINE IS NOW A CONE, BECAUSE THE SWING ALWAYS WAS ═══════════════
+	#
+	# ⚠ THIS WAS THE LARGEST DRAWN-VS-DAMAGE LIE LEFT IN THE GAME, on the attack the
+	# player presses more than any other. MEASURED, before: the tell was a lane
+	# `_melee_range` long by `max(range * 0.18, 9)` wide — 58 x 10.4 px on a Brawler,
+	# a half-angle of 5.1 degrees at full reach. `_on_melee_hit_frame` sweeps
+	# `SpellTargets.in_cone(global_position, facing, _melee_range, _melee_arc_dot)`,
+	# which is a half-angle of 66.4 deg (Shadowblade, dot 0.40) to 90.0 deg
+	# (Juggernaut, dot 0.0). The drawing understated the damage by a factor of 10.2 to
+	# 11.1 in angle, and since the melee auto-target was deleted from the damage path
+	# this session, that cone is the WHOLE of what a swing hits.
+	#
+	# TWO REPAIRS WERE REJECTED FIRST, both for stated reasons. Widening the LANE to
+	# cone width makes it wider than the swing is long, and the maker vetoed that look
+	# by name (*"i hate that circle thing for brawler"*). Narrowing the CONE to lane
+	# width turns melee into a needle and would gut three classes. What was left was to
+	# give `Telegraph` the shape it never had, which is what `Style.CONE` is.
+	#
+	# ⚠ NOTHING HERE IS RE-TYPED. `reach` and `half_angle` are read off the very
+	# variables `_on_melee_hit_frame` passes to `in_cone` — `_melee_range` and
+	# `acos(_melee_arc_dot)` — so a class that retunes its arc retunes its tell in the
+	# same edit, and there is no second number for the two to drift apart on.
+	#
+	# ⚠ APEX MOVED FROM THE LEAD HAND TO THE BODY, and that is a correctness fix, not
+	# a taste one: `in_cone`'s origin is `global_position`. The hand sits ~8 px off it
+	# and swings during the animation, so a wedge hinged there was mis-hinged every
+	# frame. `follow` then keeps the apex on the body for the 0.077 s of lead — the
+	# heavy swing sets `velocity.x = ±190`, so a tell nailed to the ground where the
+	# swing STARTED was displaced 14.6 px by the time it landed.
+	#
+	# ⚠ AND IT IS DRAWN LIGHT (`"light": true`). A 66-90 degree wedge three times a
+	# second at a spell tell's weight would be the loudest object in a fight the maker
+	# has already called *"too much going on"*. LIGHT draws the boundary only — the rim
+	# and the two limit rays, at the alpha the lane hint it replaces already used — and
+	# the fist / crescent stays the bright read on top of it. Quieter, not smaller: the
+	# boundary is the true arc to the degree. See `Telegraph.CONE_LIGHT_ALPHA`.
 	var blade: bool = _blade_tell_weapon()
 	_emit_hero_telegraph({
-		"line": true,
-		"pos": rig.get_lead_hand_global() if rig != null else global_position,
-		"length": _melee_range,
+		"cone": true,
+		"follow": true,
+		"light": true,
+		"pos": global_position,
+		"reach": _melee_range,
+		"half_angle": acos(clampf(_melee_arc_dot, -1.0, 1.0)),
 		"width": maxf(_melee_range * SWING_TELL_WIDTH, SWING_TELL_MIN_WIDTH),
 		"angle": aim.angle(),
 		"windup": _swing_tell_windup(state),
@@ -5971,7 +6007,6 @@ func _publish_swing_tell(state: int = CharacterRig.State.PUNCH) -> void:
 		"style": Telegraph.Style.CRESCENT if (blade and _swing_tell_blade)
 			else Telegraph.Style.FIST,
 		"aim": aim,
-		"reach": _melee_range,
 	})
 	_swing_tell_blade = true
 
@@ -6020,7 +6055,19 @@ func _emit_hero_telegraph(cfg: Dictionary) -> Telegraph:
 	# NOTHING IS CONNECTED TO `fired`. The swing resolves on its own clock through
 	# `rig.hit_frame`; this node is a DESCRIPTION of that swing, not a second timer
 	# that could drift from it or a second place damage could come from.
-	if bool(cfg.get("line", false)):
+	# ⚠ `follow` IS ONLY EVER SET BY A CONE, and the sibling-not-child note above is
+	# exactly why it has to be opt-in rather than the default: a placed ground danger
+	# must stay planted, and a wedge measured off a body must not. See
+	# `Telegraph.follow_source`.
+	tele.follow_source = bool(cfg.get("follow", false))
+	if bool(cfg.get("cone", false)):
+		# The four numbers here are the four `SpellTargets.in_cone` takes. Passing them
+		# straight through is the whole mechanism by which the drawing and the damage
+		# cannot drift — see `Telegraph.start_cone`.
+		tele.start_cone(float(cfg.get("reach", 60.0)), float(cfg.get("half_angle", PI * 0.5)),
+			float(cfg.get("angle", 0.0)), float(cfg.get("windup", 0.1)),
+			float(cfg.get("width", 0.0)), bool(cfg.get("light", false)))
+	elif bool(cfg.get("line", false)):
 		tele.start_line(float(cfg.get("length", 60.0)), float(cfg.get("width", 10.0)),
 			float(cfg.get("angle", 0.0)), float(cfg.get("windup", 0.1)))
 	else:
@@ -6289,6 +6336,41 @@ func _on_melee_hit_frame() -> void:
 	# forgiveness the swing keeps is the cone's own 66-90 degrees of half-angle plus
 	# the target's published `hit_margin`; what it loses is the snap onto a body the
 	# player never faced. `tools/slice_test_hitboxes.gd` pins the absence.
+	#
+	# ══ THE CONTACT CORE: YOU CANNOT MISS SOMETHING YOU ARE STANDING INSIDE ═════
+	#
+	# Maker: *"the mobs that are TOO close to the brawler don't get hit by the left
+	# click attack, please fix that."*
+	#
+	# ⚠ MEASURED FIRST (`tools/probe_hitboxes.gd`, the DEAD ZONE + OVERLAP sweeps), and
+	# the mechanism is not the one it looks like. The arc has NO minimum range — a
+	# point target connects at 0.5 px on every bearing inside the wedge, for all nine
+	# classes, so this is not a ring and not a forward-offset origin. What it is:
+	#
+	#   `SpellTargets.in_cone` measures REACH to the silhouette but ANGLE between the
+	#   two ORIGINS.
+	#
+	# Two bodies that overlap have their origins a few px apart in an arbitrary
+	# direction, so the angle between them stops meaning anything. Measured on a
+	# Brawler, offset along the facing:
+	#
+	#   offset  -12   -8   -4   -2   -1    0    1    2    4    8   20
+	#   connect MISS MISS MISS MISS MISS  hit  hit  hit  hit  hit  hit
+	#
+	# A mob whose origin has crossed yours by ONE PIXEL is unhittable while its body is
+	# inside yours — and walking into someone is exactly how a mob arrives.
+	#
+	# ⚠ THIS IS NOT THE AUTO-TARGET COMING BACK, and the difference is the radius. The
+	# auto-target snapped to the nearest body anywhere within `_melee_range` (58 px),
+	# at any angle, which made a swing a full disc and is what the maker's "NO auto-aim"
+	# ruling killed. This is `hit_margin()` — the swinger's OWN silhouette, ~4-5 px on a
+	# 31 px rig — and it fires only for a body already touching you. It adds no reach in
+	# any direction; it removes an angle test that has no defined answer.
+	var core: float = SpellTargets.hit_margin(self)
+	for enemy: Node in SpellTargets.in_radius(global_position, core,
+			get_tree().get_nodes_in_group(attack_group()), [self], self):
+		if not enemies_in_arc.has(enemy):
+			enemies_in_arc.append(enemy)
 	# ══ THE PACT NOW BUFFS STEEL ═══════════════════════════════════════════════
 	# Maker: *"the blood pact needs to be buffed"*.
 	#
