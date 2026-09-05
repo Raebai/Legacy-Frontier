@@ -505,6 +505,91 @@ static func clear_slot_roles(class_id: int = -1) -> void:
 		_chosen_roles.erase(class_id)
 
 
+# ══ THE GRIMOIRE: TIER 2 AND TIER 3, EQUIPPED IN THE HUB ═════════════════
+#
+# ⚠ ELEVEN SPELLS WERE UNREACHABLE BY THE PLAYER, AND ONLY THE BOTS COULD CAST THEM.
+# The maker, watching Watch Bots: *"I see all these cool classes spells and
+# interactions and spells please ensure the main game has all of these"*. Counted:
+# the nine Tier 3s (`the_void`, `chronostasis`, `equinox`, `roulette`, `severance`,
+# `zanshin`, `teardown`, `siegeworks`, `the_circuit`) and both Tier 2s (`arc_of_fools`,
+# `meteor_storm`) could be reached ONLY through `BotMatch._grant_showcase_drop`, a
+# hand-written back door whose own comment says a duel has no floor to find them on.
+# `SpellDrops.TOWER_SPELL_DROPS` is false by the maker's own earlier ruling (*"you
+# shouldn't be able to find spells in the tower"*), so the front door did not exist:
+# a climber's hand on floor 41 was byte-identical to their hand on floor 1.
+#
+# Put to the maker as a fork, because the two rulings genuinely collide. Their answer
+# was EQUIP THEM IN THE HUB — the tower stays clean, and you choose at the door. So
+# this is not a drop table coming back; it is a loadout.
+#
+# ⚠ BY SLOT AND BY ID, NOT BY ROLE, WHICH IS WHY IT IS A SECOND TABLE. `_chosen_roles`
+# picks WHICH FOUR of a class's five authored roles it carries — every option in it is
+# already a spell that class authors. A Tier 3 belongs to no class's role table at all,
+# so there is no role to name it by. Overlaying by slot index also keeps the two
+# mechanisms independent: you may re-order your roles and keep your equipped ult.
+static var _equipped: Dictionary = {}
+
+
+## The pool the hub offers. Tier 2 and Tier 3, and deliberately NOT `unequipped_ids()`
+## — the orphans are spells no class authors and no pass has tuned against a hero's
+## power budget, which is a different question from "the loud things the bots get".
+static func equippable() -> Array:
+	var out: Array = []
+	out.append_array(build_tier2())
+	out.append_array(build_tier3())
+	return out
+
+
+static func equippable_ids() -> Array:
+	var out: Array = []
+	for s: SpellDef in equippable():
+		out.append(s.id)
+	return out
+
+
+## Put `spell_id` in `slot` for `class_id`. An empty id clears that slot back to the
+## authored hand. Returns false — and changes nothing — for a slot out of range or an
+## id outside the pool, so a bad call cannot half-apply.
+##
+## ⚠ VALIDATED HERE AND NOWHERE ELSE, matching `set_slot_roles`: `build_for_class` is
+## on the hero-configure path and asks no questions.
+static func set_equipped(class_id: int, slot: int, spell_id: String) -> bool:
+	if slot < 0 or slot >= SpellTier.SLOT_COUNT:
+		return false
+	if spell_id == "":
+		clear_equipped(class_id, slot)
+		return true
+	if not equippable_ids().has(spell_id):
+		return false
+	var picks: Dictionary = _equipped.get(class_id, {}) as Dictionary
+	picks[slot] = spell_id
+	_equipped[class_id] = picks
+	return true
+
+
+## The id equipped in one slot, or "" for "whatever the class authored".
+static func equipped_id(class_id: int, slot: int) -> String:
+	var picks: Variant = _equipped.get(class_id)
+	if not (picks is Dictionary):
+		return ""
+	return String((picks as Dictionary).get(slot, ""))
+
+
+## Clear one slot, one class, or (no arguments) the whole grimoire.
+static func clear_equipped(class_id: int = -1, slot: int = -1) -> void:
+	if class_id < 0:
+		_equipped.clear()
+		return
+	if slot < 0:
+		_equipped.erase(class_id)
+		return
+	var picks: Variant = _equipped.get(class_id)
+	if picks is Dictionary:
+		(picks as Dictionary).erase(slot)
+		if (picks as Dictionary).is_empty():
+			_equipped.erase(class_id)
+
+
 ## ── the save hook, and the one piece of this that is not yet wired ──────────
 ## `GameState` is where a choice that must outlive the process belongs (it already
 ## carries `selected_class` and `loadout` for exactly this reason), but adding a field
@@ -520,6 +605,8 @@ static func clear_slot_roles(class_id: int = -1) -> void:
 ## `persist_to_state` proves the property exists by reading it back rather than
 ## trusting the write — otherwise a missing field reads as a successful save.
 const STATE_PROPERTY: StringName = &"spell_roles"
+## ...and the grimoire's. Same contract, same silent-no-op guard.
+const EQUIP_STATE_PROPERTY: StringName = &"spell_equipped"
 
 
 static func hydrate_from_state(state: Object) -> bool:
@@ -534,6 +621,22 @@ static func hydrate_from_state(state: Object) -> bool:
 		# Keys arrive as floats out of JSON — the standing int/float trap.
 		if roles is Array and set_slot_roles(int(key), roles as Array):
 			applied = true
+	# ══ ...AND THE GRIMOIRE ═══════════════════════════════════
+	# ⚠ EVERY VALUE GOES BACK THROUGH `set_equipped`, WHICH REFUSES WHAT IT DOES NOT
+	# RECOGNISE. A save is a file on a player's disk: a hand-edited one, or one written
+	# by a build where a spell id has since been renamed, must not be able to put an
+	# unknown id in a hand. The refusal is per-slot, so one bad row does not throw away
+	# a valid loadout beside it. Keys are `int()`-cast on both axes for the same
+	# JSON-float reason as above — a slot index arrives as 3.0.
+	var eq: Variant = state.get(EQUIP_STATE_PROPERTY)
+	if eq is Dictionary:
+		for cls: Variant in (eq as Dictionary):
+			var picks: Variant = (eq as Dictionary)[cls]
+			if not (picks is Dictionary):
+				continue
+			for slot: Variant in (picks as Dictionary):
+				if set_equipped(int(cls), int(slot), String((picks as Dictionary)[slot])):
+					applied = true
 	return applied
 
 
@@ -543,6 +646,8 @@ static func persist_to_state(state: Object) -> bool:
 	if not (state.get(STATE_PROPERTY) is Dictionary):
 		return false   # the field does not exist yet; see the handoff note above
 	state.set(STATE_PROPERTY, _chosen_roles.duplicate(true))
+	if state.get(EQUIP_STATE_PROPERTY) is Dictionary:
+		state.set(EQUIP_STATE_PROPERTY, _equipped.duplicate(true))
 	return state.get(STATE_PROPERTY) is Dictionary
 
 
@@ -562,6 +667,23 @@ static func build_for_class(class_id: int) -> Array:
 		# the kit test is what turns it into a loud failure at build time.
 		if s != null:
 			out.append(s)
+	# ══ THE HUB'S PICK, LAID OVER THE AUTHORED HAND ════════════════════
+	# See `_equipped`. Applied LAST and by index, so it is the final word on a slot and
+	# survives any re-ordering of the roles above it.
+	#
+	# ⚠ NOTHING IS EQUIPPED UNLESS THE PLAYER PUT IT THERE. `_equipped` is empty until a
+	# hub screen writes to it, so the default hand is byte-identical to what it was and
+	# `slice_test_drops`' "a class does not START with a drop" invariant still holds —
+	# which is the whole reason this is an overlay rather than an edit to `CLASS_KITS`.
+	var picks: Variant = _equipped.get(class_id)
+	if picks is Dictionary:
+		for key: Variant in (picks as Dictionary):
+			var i: int = int(key)   # keys come back from JSON as floats — the standing trap
+			if i < 0 or i >= out.size():
+				continue
+			var pick: Variant = by_id.get(String((picks as Dictionary)[key]))
+			if pick != null:
+				out[i] = pick
 	return out
 
 

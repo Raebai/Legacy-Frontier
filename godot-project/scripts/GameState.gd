@@ -170,6 +170,13 @@ var loadout: Dictionary = {"weapon": "", "head": "", "body": ""}
 ## field back and returns false rather than pretending it saved.
 var spell_roles: Dictionary = {}
 
+## The Tier 2 / Tier 3 spells equipped in the hub, `class_id -> {slot: spell_id}`.
+## Written by `SpellLibrary.persist_to_state`, read by `hydrate_from_state`. Separate
+## from `spell_roles` because they answer different questions: that one picks WHICH
+## FOUR of a class's five authored roles it carries, this one puts a spell no class
+## authors into a numbered slot. See the grimoire block in `SpellLibrary`.
+var spell_equipped: Dictionary = {}
+
 ## Body colourway index the player chose in the Outfitter. -1 = untouched, use the
 ## class default. Read by `Hero._configure_class` AT SPAWN — before this existed the
 ## pick was replayed onto the hero the first time the pause menu opened, so you
@@ -798,7 +805,8 @@ func _save_climber(path: String = CLIMBER_PATH) -> void:
 	var payload: Dictionary = build_climber_save(
 		_floor, _highest_floor, _falls, tower_conquered, _live_rank_power(),
 		_xp, unlocked_nodes, unlocked_classes,
-		pending_class_choices, _earned_choice_floors, loadout
+		pending_class_choices, _earned_choice_floors, loadout,
+		spell_roles, spell_equipped
 	)
 	var tmp_path: String = path + ".tmp"
 	var f: FileAccess = FileAccess.open(tmp_path, FileAccess.WRITE)
@@ -1358,7 +1366,8 @@ static func default_layout() -> LayoutDef:
 static func build_climber_save(current_floor: int, highest_floor: int, falls: int, tower_conquered: bool, rank_power: int,
 		xp: int = 0, unlocked_nodes: Array = [], unlocked_classes: Array = [],
 		pending_class_choices: int = 0, earned_choice_floors: Array = [],
-		loadout: Dictionary = {}) -> Dictionary:
+		loadout: Dictionary = {}, spell_roles: Dictionary = {},
+		spell_equipped: Dictionary = {}) -> Dictionary:
 	var current: int = maxi(current_floor, 1)
 	var nodes: Array = []
 	for n in unlocked_nodes:
@@ -1395,6 +1404,18 @@ static func build_climber_save(current_floor: int, highest_floor: int, falls: in
 		# whole: an old save, a hand-edited one, or a future slot that gets removed
 		# must not be able to put an unknown key into the rig's equipment dictionary.
 		"loadout": sanitize_loadout(loadout),
+		# ⚠ AND THE SPELL PICKS, WHICH HAD THE SAME HOLE `loadout` IS DESCRIBED AS HAVING
+		# ABOVE. `spell_roles` was declared, hydrated and persisted, and never written to
+		# disk — so a re-ordered hand survived walking into the tower and did not survive
+		# quitting. `spell_equipped` would have shipped with the identical hole, and the
+		# maker's answer to "how do the Tier 3s reach the player" was EQUIP THEM IN THE
+		# HUB, which is not a feature if the hub forgets.
+		#
+		# Duplicated rather than sanitised: unlike `loadout`, an unknown key here cannot
+		# reach a rig — `SpellLibrary.set_equipped` validates the slot AND the id on the
+		# way back in, so a hand-edited save is refused at hydrate time, not trusted here.
+		"spell_roles": spell_roles.duplicate(true),
+		"spell_equipped": spell_equipped.duplicate(true),
 	}
 
 
@@ -1473,6 +1494,10 @@ static func parse_climber_save(raw: Dictionary) -> Dictionary:
 		"pending_class_choices": maxi(int(raw.get("pending_class_choices", 0)), 0),
 		"earned_choice_floors": earned,
 		"loadout": gear,
+		# Absent on every save written before this existed, and an empty dictionary is
+		# exactly right for that: the authored hand wins. No migration needed.
+		"spell_roles": raw.get("spell_roles", {}) if raw.get("spell_roles", {}) is Dictionary else {},
+		"spell_equipped": raw.get("spell_equipped", {}) if raw.get("spell_equipped", {}) is Dictionary else {},
 	}
 
 
