@@ -75,6 +75,8 @@ const TESTS: Array[String] = [
 	"thousand_cuts",
 	"iai_slash",
 	"crescent_step",
+	"crescent_rush_phases_through",
+	"iai_late_impact",
 	"shockwave_stomp",
 	"meteor_fist",
 ]
@@ -146,6 +148,30 @@ class CasterStub extends Node2D:
 		return dest
 
 
+## THE CASTER THAT MODELS `Hero._safe_blink_destination`'S FORWARD-PHASE BRANCH, which
+## is the branch Crescent Rush used to die on. When a hop's endpoint lands inside
+## geometry, Hero does NOT refuse it: it looks up to `BLINK_PROBE_EXTRA` px FURTHER
+## along the ray for daylight and rests the body there. So a legal hop can land PAST
+## where the spell planned - and the old stop rule read that as a wall.
+##
+## `overshoot_on` is 1-based over the hops; `refuse_from` models the other branch (a
+## genuine wall: nothing legal anywhere on the ray, so the body does not move at all).
+class PhaseCaster extends CasterStub:
+	var overshoot_on: int = 1
+	var overshoot_by: float = 55.0
+	var refuse_from: int = 0
+
+	func blink_to(dest: Vector2) -> Vector2:
+		blinks.append(dest)
+		if refuse_from > 0 and blinks.size() >= refuse_from:
+			return global_position   # walled: the slide-back walked all the way home
+		var landed: Vector2 = dest
+		if blinks.size() == overshoot_on:
+			landed = dest + (dest - global_position).normalized() * overshoot_by
+		global_position = landed
+		return landed
+
+
 func _process(_delta: float) -> bool:
 	if _ran:
 		return false
@@ -156,6 +182,8 @@ func _process(_delta: float) -> bool:
 	_test_thousand_cuts()
 	_test_iai_slash()
 	_test_crescent_step()
+	_test_crescent_rush_phases_through()
+	_test_iai_late_impact()
 	_test_shockwave_stomp()
 	_test_meteor_fist()
 	for t: String in TESTS:
@@ -629,6 +657,111 @@ func _test_crescent_step() -> void:
 		"...and ends up down the lane (x=%.1f, lane %.1f)"
 			% [caster.global_position.x, spell.reach])
 	_completes("crescent_step")
+
+
+# ══════════════════════════════════════════════════════════════════════ TEST 6b
+## CRESCENT RUSH DOES NOT DIE ON ITS OWN SUCCESS.
+##
+## The maker: *"crescent rush stopping on as soon as it hits something is bad"*. The
+## stop rule used to be `landed.distance_to(planned) > _step_length() * 0.5` - ANY
+## deviation from a fixed plan ended the dash, and the forward-phase branch of
+## `Hero._safe_blink_destination` deviates BY OVERSHOOTING (that branch is what "goes
+## through stuff" means). So one crate in the lane - `DestructibleProp` is on collision
+## layer 1, inside `BLINK_WALL_MASK` - killed the rush on the branch that was working.
+##
+## THIS TEST FAILS AGAINST THE OLD RULE: `PhaseCaster` overshoots hop 1 by 55 px, well
+## over half a 40 px step, so the old rule set `_blocked` on the first hop and the
+## bodies further down the lane were never reached.
+func _test_crescent_rush_phases_through() -> void:
+	_fresh_arena()
+	var spell: SpellDef = _spell_for("crescent_step", _def_crescent_step())
+	var caster := PhaseCaster.new()
+	_arena.add_child(caster)
+	caster.global_position = Vector2.ZERO
+	caster.add_to_group(HOSTILE)
+	var far: Dummy = _dummy(Vector2(spell.reach - 30.0, -14.0))
+	var node: Node2D = _spawn(STEP_PATH, spell, caster)
+	node.call(&"hex", caster, Vector2.ZERO, Vector2(400.0, 0.0), spell,
+		Color(0.95, 0.4, 0.85), "arcane")
+	_run(node, 1.5)
+	_expect(far.hits() == 1,
+		"a hop phased FORWARD past an obstacle does not end the rush - the body at the "
+		+ "far end of the lane is still cut (hits=%d)" % far.hits())
+	_expect(caster.global_position.x > spell.reach * 0.9,
+		"...and he still crosses the lane (x=%.1f of %.1f)"
+			% [caster.global_position.x, spell.reach])
+
+	# The OTHER branch is unchanged and must STAY unchanged: a body that genuinely
+	# cannot move has run into a wall, and the dash ends there rather than sweeping
+	# damage down a corridor the body never travelled.
+	_fresh_arena()
+	var walled := PhaseCaster.new()
+	_arena.add_child(walled)
+	walled.global_position = Vector2.ZERO
+	walled.add_to_group(HOSTILE)
+	walled.overshoot_on = 0      # no phase-through at all
+	walled.refuse_from = 2       # the second hop finds nothing legal on the ray
+	var past_wall: Dummy = _dummy(Vector2(spell.reach - 30.0, -14.0))
+	var node2: Node2D = _spawn(STEP_PATH, spell, walled)
+	node2.call(&"hex", walled, Vector2.ZERO, Vector2(400.0, 0.0), spell,
+		Color(0.95, 0.4, 0.85), "arcane")
+	_run(node2, 1.5)
+	_expect(past_wall.hits() == 0,
+		"a rush stopped by a wall cuts nothing past the wall (hits=%d) - what ends the "
+			% past_wall.hits() + "run is whatever `Hero` refuses to rest a body on")
+	_completes("crescent_rush_phases_through")
+
+
+# ══════════════════════════════════════════════════════════════════════ TEST 5b
+## THE IAI READ: the cut lands on the promised frame, the WORLD reacts after it.
+##
+## The maker: *"iai slash looks goofy"*. Half of that fix is that the damage and the
+## reaction are no longer the same beat - stance, flash, THEN the room lurches. This
+## pins the half a headless suite can measure: damage is still spent exactly on
+## `DRAW_TIME` (the telegraph's promise, which may never move) at a moment when
+## `_juice_done` is still false, and the hitstop/shake/burst arrive `IMPACT_LAG` later.
+##
+## THIS TEST FAILS IF THE SPLIT IS REVERTED: with one combined beat there is no frame
+## in which a body has been hurt and the world has not yet reacted.
+func _test_iai_late_impact() -> void:
+	_fresh_arena()
+	var spell: SpellDef = _spell_for("iai_slash", _def_iai_slash())
+	var consts: Dictionary = (load(IAI_PATH) as GDScript).get_script_constant_map()
+	_expect(consts.has("IMPACT_LAG") and consts.has("FLASH_TIME"),
+		"IaiSlash declares the two beats of a draw-cut (IMPACT_LAG, FLASH_TIME)")
+	if not consts.has("IMPACT_LAG") or not consts.has("FLASH_TIME"):
+		_completes("iai_late_impact")
+		return
+	var lag: float = float(consts["IMPACT_LAG"])
+	var draw_time: float = float(consts["DRAW_TIME"])
+	var flash: float = float(consts["FLASH_TIME"])
+	var sheathe: float = float(consts["SHEATHE_TIME"])
+	var life: float = draw_time + float(consts["CUT_TIME"]) + sheathe
+	_expect(lag > 0.0 and lag < life,
+		"the lag is a real beat and fits inside the spell's life (%.3f of %.3f)"
+			% [lag, life])
+	_expect(flash > 0.0 and flash < sheathe,
+		"the flash is SHORTER than the beat it is held on - an iai is found, not "
+		+ "watched (flash %.3f, sheathe %.3f)" % [flash, sheathe])
+	var caster: CasterStub = _caster(Vector2.ZERO)
+	var lift: float = float(consts["MUZZLE_LIFT"])
+	var victim: Dummy = _dummy(Vector2(70.0, lift))
+	var node: Node2D = _spawn(IAI_PATH, spell, caster)
+	node.call(&"hex", caster, Vector2.ZERO, Vector2(200.0, 0.0), spell,
+		Color(0.95, 0.4, 0.85), "arcane")
+	# Land ONE tick past the promised frame: the blade has bitten, the room has not
+	# moved yet. (DT is 1/120 and the lag is 0.05, so this cannot overshoot it.)
+	_run(node, draw_time + DT)
+	_expect(victim.hits() == 1,
+		"the cut still lands on the frame the telegraph promised (hits=%d)"
+			% victim.hits())
+	_expect(bool(node.get(&"_cut_done")) and not bool(node.get(&"_juice_done")),
+		"...and the world has NOT reacted yet - that gap IS the draw-cut")
+	_run(node, lag + DT * 2.0)
+	_expect(bool(node.get(&"_juice_done")),
+		"the hitstop, the shake and the burst arrive IMPACT_LAG afterwards")
+	_expect(victim.hits() == 1, "...and nothing is hit twice for it")
+	_completes("iai_late_impact")
 
 
 # ══════════════════════════════════════════════════════════════════════ TEST 7

@@ -72,6 +72,22 @@ const CUT_TIME: float = 0.16
 ## poke; this is that beat, and it is when the after-line thins out to nothing.
 const SHEATHE_TIME: float = 0.34
 
+## THE FLASH: how long the cut is a SHAPE at all. Three or four frames at 60 fps. An
+## iai is not something you watch happen, it is something you find has happened, and
+## this is the entire window in which the blade is visible.
+const FLASH_TIME: float = 0.06
+## THE HELD BEAT. The last share of the draw in which the wind-up goes QUIET rather
+## than building - light DRAINS out of it (see `_draw_gleam`). Stillness is the
+## anticipation; without it a draw-cut is only a slash with a long start.
+const HOLD_FRAC: float = 0.42
+## HOW LATE THE WORLD REACTS. Damage lands on the exact frame the telegraph promised
+## (`DRAW_TIME` - nothing about fairness moves, and `slice_test_melee_signatures`
+## pins it), but the hitstop, the shake, the burst and the impact sound arrive two or
+## three frames afterwards, so the victim comes apart AFTER the flash rather than
+## inside it. That gap is the whole drama of a draw-cut: stance, flash, then the
+## result. Must stay well inside `_life()`.
+const IMPACT_LAG: float = 0.05
+
 ## Where the blade actually is, relative to the caster's origin. The rigs draw a body
 ## whose head centre sits ~10 px above the node origin, so a corridor fired from the
 ## origin runs through the shins. This lifts it to roughly hand height.
@@ -140,6 +156,10 @@ var _reach: float = 118.0
 var _half: float = 26.0
 var _elapsed: float = -1.0    ## < 0 means hex() has not run yet
 var _cut_done: bool = false
+## The deferred half of the cut - see `IMPACT_LAG`. The damage is already spent; this
+## is only whether the WORLD has reacted to it yet.
+var _juice_done: bool = false
+var _hit_any: bool = false
 var _telegraph: Telegraph = null
 
 
@@ -223,6 +243,12 @@ func advance(delta: float) -> void:
 		_draw_step()
 		_cut_done = true
 		_cut()
+	# The late half. Deliberately a SECOND beat off the same clock rather than a timer
+	# or an await, so a headless suite driving `advance()` sees it exactly where a
+	# frame would.
+	if _cut_done and not _juice_done and _elapsed >= DRAW_TIME + IMPACT_LAG:
+		_juice_done = true
+		_impact()
 	if _elapsed >= _life():
 		queue_free()
 		return
@@ -238,6 +264,7 @@ func _cut() -> void:
 	var tint := Color(_color.r, _color.g, _color.b, 1.0)
 	var tip: Vector2 = _muzzle + _dir * _reach
 	var hit_any: bool = false
+	_hit_any = false
 	for e: Node in SpellTargets.on_line(_muzzle, _dir, _reach, _half, _hostiles(),
 			[caster_node], self):
 		# Deflectable: a cut does not travel, so there is nothing to send back and a
@@ -265,6 +292,17 @@ func _cut() -> void:
 			prop.call("damage_at", _damage, contact, _dir)
 		elif prop.has_method("take_damage"):
 			prop.call("take_damage", _damage)
+	_hit_any = hit_any
+
+
+## THE LATE HALF, `IMPACT_LAG` after the damage. Everything the WORLD does about the
+## cut lives here and nothing the cut does to a body does: no query, no damage, no
+## knockback, no status. Splitting it is what buys the iai read - the blade flashes,
+## and only then does the room lurch.
+##
+## ⚠ It is guarded by `_juice_done` rather than re-derived, because it must fire
+## exactly once even if `advance()` is handed one enormous delta by a headless suite.
+func _impact() -> void:
 	CombatVfx.spawn_burst(get_parent(), _muzzle + _dir * _reach * 0.6, CORE,
 		Color(_color.r, _color.g, _color.b, 0.0), 22, 0.3, 90.0, 240.0, 0.6, 1.8,
 		0.0, 0.0, true, _dir, 24.0)
@@ -278,8 +316,8 @@ func _cut() -> void:
 	# picks a mark per shelf — so the shelf decides, not this file.
 	Juice.tier_frame(spell_tier, _muzzle + _dir * _reach * 0.5, element_id,
 		{"zoom": 0.08, "shake": 0.0, "shock": 0.0, "hitstop": 0.0})
-	SpellDrops.sfx("melee_crit" if hit_any else "melee_swing", -1.0 if hit_any else -8.0,
-		0.06, 0.95)
+	SpellDrops.sfx("melee_crit" if _hit_any else "melee_swing",
+		-1.0 if _hit_any else -8.0, 0.06, 0.95)
 
 
 ## Everyone this spell may hurt, minus the caster. Never a bare group scan: under
@@ -331,8 +369,10 @@ func reaction_consume() -> void:
 
 # ------------------------------------------------------------------ the picture
 ## The cheap picture (the phone, and the maker's desktop LOW preview). THE RULE:
-## thin the garnish, never the read — the lane, the gleam and the cut lens all still
-## draw at LOW; what goes is vertex count and the soft ghost pass.
+## thin the garnish, never the read — the Telegraph lane, the sheath seam, the flash
+## lens and the held after-line all still draw at LOW. What goes is vertex count, the
+## wide bloom pass, and the two corridor-edge hairlines (which restate a width the
+## Telegraph is already drawing underneath them).
 func _low() -> bool:
 	return TuningConfig.quality_is_low()
 
@@ -373,49 +413,83 @@ func _draw() -> void:
 	_draw_cut()
 
 
-## The draw. A hairline of light creeping down the corridor as the blade leaves the
-## sheath — it reaches the tip on the exact frame the cut lands, so the lane's length
-## is being counted out in front of the victim. Plus a thickening glint at the muzzle:
-## the two together say "from here, to there, now".
+## THE DRAW - and what it draws is STILLNESS, not a swing.
+##
+## ⚠ WHAT WAS GOOFY, NAMED SO IT CANNOT COME BACK. This used to EXTRUDE the cut: a
+## bright line crept from the muzzle to the tip across the whole `DRAW_TIME` while a
+## disc at the hand fattened from 3 px to 9 px. So the player watched the blade come
+## out, slowly, and the "cut" that followed was a shape already on screen. That is an
+## ordinary slash with a long start-up, wearing a charging orb at the fist. The iai
+## read is the opposite of it and is the reason the spell exists: STANCE, then
+## NOTHING, then the RESULT. You are not supposed to see the swing.
+##
+## So the corridor's two edges are now stated STATIC and at FULL length from the first
+## frame (the extent is promised EARLIER than it used to be, never later - the tell
+## got more generous, not less), a taut seam sits ACROSS the sheath rather than
+## running down the lane, and the whole thing DIMS through the last `HOLD_FRAC` of the
+## draw. The held beat of nothing is the anticipation.
 func _draw_gleam() -> void:
 	var t: float = clampf(_elapsed / DRAW_TIME, 0.0, 1.0)
-	var tip: Vector2 = _muzzle + _dir * (_reach * t)
-	draw_line(_muzzle, tip, Color(_color.r, _color.g, _color.b, 0.30 + 0.5 * t),
-		1.4 + 1.6 * t, true)
-	draw_circle(_muzzle, 3.0 + 6.0 * t,
-		Color(CORE.r, CORE.g, CORE.b, 0.45 + 0.45 * t), true, -1.0, true)
-	if _low():
-		return
-	# Two hairlines set out at the corridor's true half-width, converging on the tip:
-	# the lane's WIDTH stated without a second filled shape competing with the
-	# Telegraph's own lane drawing underneath.
+	# `hush` runs 1 -> 0 across the last HOLD_FRAC of the draw and is pinned at 1.0
+	# before it. Light DRAINS as the cut approaches; it does not gather.
+	var hush: float = clampf((1.0 - t) / maxf(HOLD_FRAC, 0.001), 0.0, 1.0)
 	var n: Vector2 = Vector2(-_dir.y, _dir.x)
+	# THE SEAM: a short taut line at the sheath, ACROSS the corridor rather than down
+	# it. It says "the blade is still in there", which is the one thing an extruding
+	# gleam could never say.
+	draw_line(_muzzle - n * (_half * 0.55), _muzzle + n * (_half * 0.55),
+		Color(CORE.r, CORE.g, CORE.b, 0.28 + 0.34 * hush), 1.6, true)
+	if _low():
+		return   # the phone keeps the seam and the Telegraph's own lane; that is the read
+	# Two hairlines set out at the corridor's TRUE half-width, held at full reach for
+	# the whole draw: the lane's width stated without a second filled shape competing
+	# with the Telegraph's lane underneath.
+	var tip: Vector2 = _muzzle + _dir * _reach
 	for side: float in [1.0, -1.0]:
-		draw_line(_muzzle + n * (_half * side), tip + n * (_half * 0.35 * side),
-			Color(_color.r, _color.g, _color.b, 0.16 + 0.22 * t), 1.0, true)
+		draw_line(_muzzle + n * (_half * side), tip + n * (_half * 0.30 * side),
+			Color(_color.r, _color.g, _color.b, 0.10 + 0.20 * hush), 1.0, true)
 
 
-## The cut itself: three stacked passes, the same grammar `BladeFlurry` uses for its
-## crescents — a soft tinted ghost, a saturated body, and a thin over-1.0 core so the
-## bloom catches the EDGE and not the whole smear.
+## THE RESULT, in two beats, and neither of them is a swing.
+##
+## ⚠ WHAT WAS GOOFY, PART TWO. This used to HOLD the lens: a leaf 168 px long and 62
+## px across its belly, drawn as three stacked polygons - the ghost pass alone was
+## 1.7x that width, so 105 px of magenta - at better than three-quarters brightness
+## for a quarter of a second, and on screen at all for half a second. At 640x360 on a
+## phone that is a pudding hanging off the duelist's hand for a third of a second.
+## A blade is an EDGE, and an edge is not something you can look at.
+##
+##   1. THE FLASH (`FLASH_TIME`, three or four frames). The lens still draws here and
+##      it MUST: `_lens(1.0)` is the only thing on screen that states the corridor's
+##      true half-width (that is what `LENS_PEAK` normalises it for), and the standing
+##      rule is that nothing may land outside what was drawn. It is over-bright and it
+##      is gone almost at once - a bloom that dies inside the flash, not a shape.
+##   2. THE HELD FRAME. After that: ONE straight hard line at exactly full reach,
+##      thinning to a hairline across the sheathe. The cut, resolved, held.
+##
+## The `SHEATHE_TIME` beat therefore now holds a LINE where it used to hold a leaf,
+## which is the whole difference between a draw-cut and an ordinary slash.
 func _draw_cut() -> void:
-	var f: float = clampf((_elapsed - DRAW_TIME) / (CUT_TIME + SHEATHE_TIME), 0.0, 1.0)
-	var intensity: float = 1.0 - f * f
+	var since: float = _elapsed - DRAW_TIME
 	var emissive: Color = Elements.emissive(element_id)
-	if not _low():
-		# The ghost is a HINT of motion blur, not a second blade. It was 2.4x at 0.20
-		# alpha on the first render and swallowed the cut it was supposed to trail.
-		draw_colored_polygon(_lens(1.7, 1.0),
-			Color(_color.r, _color.g, _color.b, 0.13 * intensity))
-	draw_colored_polygon(_lens(1.0, 1.0),
-		Color(_color.r * 1.25, _color.g * 1.1, _color.b * 1.3, 0.85 * intensity))
-	draw_colored_polygon(_lens(0.26, 1.0),
-		Color(emissive.r, emissive.g, emissive.b, 0.95 * intensity))
-	# The after-line: a hairline held at EXACTLY the full reach for the whole sheathe,
-	# so the last thing on screen is an honest statement of how far the cut went. The
-	# maker's rule is that nothing may land outside what was drawn.
+	if since < FLASH_TIME:
+		var flash: float = 1.0 - clampf(since / FLASH_TIME, 0.0, 1.0)
+		if not _low():
+			# Wider than the corridor and dead in half the flash. Over-draw is safe;
+			# UNDER-draw is the bug `LENS_PEAK`'s note exists to prevent.
+			draw_colored_polygon(_lens(1.55, 1.0),
+				Color(_color.r, _color.g, _color.b, 0.22 * flash * flash))
+		draw_colored_polygon(_lens(1.0, 1.0),
+			Color(CORE.r, CORE.g, CORE.b, 0.95 * flash))
+		draw_colored_polygon(_lens(0.30, 1.0),
+			Color(emissive.r, emissive.g, emissive.b, flash))
+	# The after-line: held at EXACTLY the full reach for the whole sheathe, so the last
+	# thing on screen is an honest statement of how far the cut went. The maker's rule
+	# is that nothing may land outside what was drawn.
+	var f: float = clampf(since / (CUT_TIME + SHEATHE_TIME), 0.0, 1.0)
+	var keep: float = 1.0 - f * f
 	draw_line(_muzzle, _muzzle + _dir * _reach,
-		Color(CORE.r, CORE.g, CORE.b, 0.55 * intensity), 1.2, true)
+		Color(CORE.r, CORE.g, CORE.b, 0.85 * keep), 0.9 + 1.6 * keep, true)
 
 
 ## The step itself. Guarded on everything: no caster, a freed caster, or a body with

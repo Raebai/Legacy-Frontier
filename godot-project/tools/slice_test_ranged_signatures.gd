@@ -532,6 +532,12 @@ func _test_shatter_breaks_the_frozen_and_taps_the_warm() -> void:
 		"nothing is hurt during the fuse — the tell is a real window")
 	_step(sh, 6)
 	_expect(int(sh.get(&"bodies_hit")) == 2, "both bodies in the footprint were caught")
+	# ⚠ THE RUNG THE MARK ARMS FOR ITSELF. Only the WARM body is rimed on the way in;
+	# an already-frozen one is left completely alone, which is the anti-stunlock rule
+	# asserted further down.
+	_expect(int(sh.get(&"rimed_on_cast")) == 1,
+		"the mark rimes the warm body it landed on, and only that one (%d)"
+			% int(sh.get(&"rimed_on_cast")))
 	_expect(int(sh.get(&"frozen_breaks")) == 1, "exactly one casing broke")
 	_expect(frozen.damage_log.size() > 0 and warm.damage_log.size() > 0,
 		"both took a hit (the assertions below are only meaningful if they did)")
@@ -539,8 +545,19 @@ func _test_shatter_breaks_the_frozen_and_taps_the_warm() -> void:
 		_expect(frozen.damage_log[0] == int(scr.call("damage_for", base, int(cold["FROZEN"]))),
 			"the frozen body took the FROZEN multiplier (%d)" % frozen.damage_log[0])
 	if warm.damage_log.size() > 0:
-		_expect(warm.damage_log[0] == int(scr.call("damage_for", base, int(cold["WARM"]))),
-			"the warm body took the WARM multiplier (%d)" % warm.damage_log[0])
+		# ⚠ THIS EXPECTED `Cold.WARM` UNTIL THE MAKER SAID *"shatter is too weak of a
+		# spell change it or make it more powerful or easier to hit with"*. The previous
+		# ruling - "fixing the read is the fix", on the note above `FROZEN_MULT` - had
+		# already shipped and had not answered him. Shatter now rimes what its mark
+		# lands on (`Shatter._rime`), so a clean hit reaches the MIDDLE rung under its
+		# own power and the 3x still costs a Blizzard. No multiplier and no base damage
+		# moved; the RUNG did. THIS ASSERT IS THE PROOF: delete `_rime` and it fails.
+		_expect(warm.damage_log[0] == int(scr.call("damage_for", base, int(cold["RIMED"]))),
+			"a body the mark landed on takes the RIMED multiplier, not the 0.35x tap "
+				+ "(%d, expected %d)" % [warm.damage_log[0],
+					int(scr.call("damage_for", base, int(cold["RIMED"])))])
+		_expect(warm.damage_log[0] > int(scr.call("damage_for", base, int(cold["WARM"]))),
+			"...which is strictly more than the tap it used to be")
 	_expect(int(sh.get(&"shard_hits")) == 1,
 		"the broken casing splashed its neighbour — the crowd payoff")
 	# ⚠ THE ANTI-STUNLOCK RULE. A second ICE application on an already-chilled body
@@ -548,8 +565,13 @@ func _test_shatter_breaks_the_frozen_and_taps_the_warm() -> void:
 	# chill->freeze->chill lock Blizzard's rework deleted. Shatter CONSUMES cold.
 	_expect(frozen.applied.is_empty(),
 		"an already-frozen body is NOT re-iced (would be a stunlock)")
+	# ⚠ EXACTLY ONE ICE ON THE WARM BODY. The mark rimes it on the cast frame and
+	# `_hurt_one` then declines to re-ice it (it is no longer WARM by break time), so a
+	# second application - which would be a FREEZE - never happens. If both paths ever
+	# fire, this is the assert that catches the stunlock coming back.
 	_expect(warm.applied.size() == 1 and warm.applied[0] == int(Elements.Element.ICE),
-		"...but a warm body is chilled — the spell sets up its own next cast")
+		"...a warm body is chilled exactly ONCE (got %d) — two ICE applications is a "
+			% warm.applied.size() + "freeze, and that is the stunlock")
 	_cleanup()
 	_completes("shatter_breaks_the_frozen_and_taps_the_warm")
 

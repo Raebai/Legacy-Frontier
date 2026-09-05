@@ -73,6 +73,14 @@ const TRAVEL: float = 0.22
 ## How long the trail lingers after he arrives.
 const AFTER_GLOW: float = 0.24
 
+## The shortest hop worth offering to `Hero.blink_to`. MIRRORS `Hero.BLINK_MIN_TRAVEL`
+## (24.0) and is deliberately a local copy rather than a reference: naming the `Hero`
+## class from a spectacle drags its whole dependency graph into this file's compile,
+## and `tools/slice_test_melee_signatures.gd` already pins the two against each other
+## by reading both constant maps. A hop shorter than this is refused outright by the
+## caster, so asking for one is the same as arriving.
+const MIN_HOP: float = 24.0
+
 ## How many vetted sub-steps the lane is walked in.
 ##
 ## ⚠ THE STEP LENGTH IT IMPLIES MUST STAY ABOVE `Hero.BLINK_MIN_TRAVEL` (24 px) OR
@@ -194,6 +202,13 @@ func _step_length() -> float:
 	return _lane / float(STEP_COUNT)
 
 
+## How far along the lane a world point sits, clamped to the promised length. The one
+## place "how far has he got" is answered, so the hop arithmetic, the stop rule and the
+## clamp that keeps the cut inside the Telegraph cannot disagree with each other.
+func _progress(at: Vector2) -> float:
+	return clampf((at - _origin).dot(_dir), 0.0, _lane)
+
+
 func _life() -> float:
 	return WINDUP + TRAVEL + AFTER_GLOW
 
@@ -247,19 +262,50 @@ func advance(delta: float) -> void:
 ## everything in the segment actually crossed, and adopt wherever the body ended up.
 func _advance_one() -> void:
 	_stepped += 1
-	var planned: Vector2 = _origin + _dir * (_step_length() * float(_stepped))
+	var was: float = _progress(_at)
+	# ⚠ THE HOP IS PLANNED FROM WHERE THE BODY ACTUALLY IS, not from `_origin` times
+	# the step index. The old fixed plan could not survive its own success: when a hop
+	# was phased FORWARD past something (`Hero._safe_blink_destination` looks up to
+	# `BLINK_PROBE_EXTRA` px beyond a blocked endpoint for daylight, which is what
+	# "goes through stuff" means), the body ended up past the fixed point, the NEXT
+	# fixed point was then behind it by less than `MIN_HOP`, and the hop after that
+	# was refused outright.
+	var hop: float = minf(_step_length(), _lane - was)
+	if hop < MIN_HOP:
+		_blocked = true   # the lane is walked; what is left is under a legal hop
+		return
+	var planned: Vector2 = _at + _dir * hop
 	var landed: Vector2 = _move_caster(planned)
-	_sweep(_at, landed)
-	# ⚠ THE STOP RULE. `Hero.blink_to` returns where the body may LEGALLY rest, which
-	# is the planned point in the common case and a slid-back substitute when the lane
-	# runs into a wall, a pit lip or the edge of the room. Landing appreciably short
-	# of the plan means the world said no, and the dash ends there rather than
-	# continuing to sweep damage down a corridor the body never travelled. Half a step
-	# of slack, so a couple of pixels of vetting nudge is not read as a wall.
-	if landed.distance_to(planned) > _step_length() * 0.5:
+	# The spell's own frame of reference never leaves the lane, even when the BODY was
+	# carried a little past it by a phase-through: the Telegraph promised exactly
+	# `_lane`, and neither the cut nor the picture may sit outside what was drawn.
+	# Where the body legally rests is `Hero`'s business and is already vetted there.
+	var reached: Vector2 = _origin + _dir * _progress(landed)
+	_sweep(_at, reached)
+	# ⚠ THE STOP RULE, AND IT USED TO BE THE MAKER'S BUG - *"crescent rush stopping
+	# on as soon as it hits something is bad"*. It read
+	# `landed.distance_to(planned) > _step_length() * 0.5`, i.e. ANY deviation from the
+	# plan ended the dash - including the forward phase-through, which deviates by
+	# coming out the FAR SIDE of what you dashed into. The dash therefore died on the
+	# one branch that was working. A crate did it every time: `DestructibleProp` sits
+	# on collision layer 1, so it is inside `Hero.BLINK_WALL_MASK`, and the Swordsaint's
+	# own dash-cut halted on the props the arenas are littered with.
+	#
+	# ⚠ FOR THE RECORD, BODIES NEVER STOPPED IT and the pass-through this class was
+	# designed around always worked: heroes are collision layer 2 and enemies layer 4,
+	# and neither is in `BLINK_WALL_MASK`. What stopped it was geometry. So the rule now
+	# asks the only question that matters - DID HE ADVANCE ALONG THE LANE? - instead of
+	# asking whether he landed where a fixed arithmetic guessed he would.
+	#
+	# WHAT ENDS THE RUN, then, is exactly what `Hero._safe_blink_destination` refuses:
+	# he stops at a wall face (the slide-back branch), at the lip of a ring-out pit
+	# (`_dest_in_pit`), and he can never be carried outside the room (`_enclosed`). A
+	# rush that pierces cannot throw a player off a ledge, because the caster's own
+	# landing rules will not rest a body over one.
+	if _progress(landed) - was < hop * 0.5:
 		_blocked = true
-	_at = landed
-	_marks.append(landed)
+	_at = reached
+	_marks.append(reached)
 	_mark_at.append(_elapsed)
 	if _stepped >= STEP_COUNT:
 		_blocked = true   # arrived: nothing left to walk

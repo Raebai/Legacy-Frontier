@@ -2446,9 +2446,9 @@ static func _shatter() -> SpellDef:
 	s.id = "shatter"
 	s.display_name = "Shatter"
 	s.description = "Hurl a frost charge at the ground and let the fracture lattice "\
-		+ "spread. It barely scratches something warm. It TRIPLES on something "\
-		+ "frozen, and the casing shards cut everything stood near it. Chill them "\
-		+ "first, or do not bother."
+		+ "spread. The mark rimes whoever it lands on, so it always bites. It "\
+		+ "TRIPLES on something already frozen, and the casing shards cut everything "\
+		+ "stood near it. Freeze them first for the real one."
 	s.kind = SpellDef.Kind.HEX
 	s.element = Elements.Element.ICE
 	s.use_element_color = true

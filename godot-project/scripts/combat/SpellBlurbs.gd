@@ -95,7 +95,7 @@ const BLURBS: Dictionary = {
 	"rock_pillar": "Telegraphed ground erupts into stone, launching whoever was standing on it.",
 	"rock_wall": "A slab of stone rises to block the lane. Cast again to shove it forward.",
 	"rune_orbs": "A staggered fan of rune-orbs, flung exactly where you aimed and nowhere else.",
-	"shatter": "A frost charge hurled at the ground. Triple damage against a frozen body.",
+	"shatter": "A frost charge hurled at the ground. It rimes what it lands on; TRIPLE on a frozen body.",
 	"shockwave_stomp": "Boot the floor. A ridge runs along the ground to either side of you.",
 	"thousand_cuts": "Mark one body, vanish, and open it from every angle at once.",
 	"thunderclap": "A jagged bolt rips straight down your aim from a charged fist.",

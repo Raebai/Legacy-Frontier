@@ -11,8 +11,9 @@ extends Node2D
 ## rime -> encase -> shatter fuse). Nothing consumed that state. Now something does.
 ##
 ## ── THE WHOLE IDENTITY: FREEZE, THEN BREAK ───────────────────────────────────
-## Cast on a warm target this is a weak thump — deliberately, embarrassingly weak.
-## Cast on a body that Blizzard has rimed it is an ordinary hit. Cast on a body
+## The mark RIMES what is standing in it when it lands (`_rime`), so a clean hit is
+## an ordinary hit and the spell arms its own middle rung. Cast at a body that walks
+## in late, or one that is already leaving, and it is a weak thump. Cast on a body
 ## that is ENCASED, or frozen by any other means, it detonates the casing:
 ## triple damage on that body, and the flying casing shards splash everything
 ## standing near it. Freezing a crowd and then breaking all of them at once is the
@@ -170,6 +171,9 @@ enum Arm { COLD_NONE, PRIMED, ARMED }
 ## Deterministic tallies (see the same note on `RadiantVolley`): the suite asserts
 ## what the break DID, never how many milliseconds it took.
 var bodies_hit: int = 0
+## Warm bodies the MARK rimed on the way in - see `_rime`. Counted rather than
+## inferred, so the suite can assert the rung the spell arms for itself.
+var rimed_on_cast: int = 0
 var frozen_breaks: int = 0
 var shard_hits: int = 0
 var damage_dealt: int = 0
@@ -255,9 +259,60 @@ func hex(caster: Node, origin: Vector2, target: Vector2, spell: SpellDef,
 	# The HURL, not the encasing — `ice_encase` now belongs to the moment the mark
 	# ARMS (see `_scan`), which is the beat that actually means something.
 	SpellDrops.sfx("ice_throw", -2.0, 0.0, 1.15)
+	# BEFORE the first scan, so the fuse's own read already reflects the rung the mark
+	# just armed for itself rather than showing WARM for a frame and then correcting.
+	_rime()
 	_scan()
 	_join_reactor()
 	queue_redraw()
+
+
+## THE MARK RIMES WHAT IS STANDING IN IT, on the cast frame.
+##
+## ⚠ THIS SUPERSEDES ONE HALF OF THE RULING ON `FROZEN_MULT` ABOVE; the other half
+## still stands and is still enforced here. That note says: do not raise this spell's
+## damage, the armed case is already the biggest single hit in the roster, and "the
+## warm rung (62 x 0.35 = 22) is the one he kept landing" - so FIXING THE READ IS THE
+## FIX. The read fix shipped (the fuse now states its rung out loud) and the maker came
+## back anyway: *"shatter is too weak of a spell change it or make it more powerful or
+## easier to hit with"*. This takes the SECOND of the two routes he named. `WARM_MULT`,
+## `RIMED_MULT`, `FROZEN_MULT` and `SpellDef.damage` are all untouched - what changes
+## is which rung a landed cast reaches, not what a rung is worth.
+##
+## THE EVIDENCE THAT IT IS A WINDOW PROBLEM AND NOT A DAMAGE ONE, because "too weak"
+## can mean either. This file already claims the warm cast sets up its own next one -
+## "only a warm target is chilled, and that is the spell setting up its own next cast".
+## THAT LOOP CANNOT CLOSE: `StatusComponent.CHILL_DURATION` is 2.2 s and this spell's
+## cooldown is 4.0 s, so the chill it applies has expired 1.8 s before it can be cast
+## again. The documented set-up was arithmetically impossible, which is precisely why
+## the 0.35x rung was the one he kept landing - the only other route to cold is
+## Blizzard's 1.5 s rime fuse, and `FREEZE_DURATION` is 0.6 s against a 0.28 s fuse
+## plus a 300 px throw. So the mark rimes on the way IN instead: a landed Shatter now
+## scores at least `RIMED_MULT` on its own account, and the 3x still costs a Blizzard.
+##
+## ⚠ WARM BODIES ONLY, AND THE GUARD IS LOAD-BEARING - it is the same rule `_hurt_one`
+## already keeps, for the same reason. `StatusComponent.apply(ICE)` on an ALREADY
+## chilled body FREEZES it, so riming indiscriminately would rebuild the
+## chill -> freeze -> chill stunlock that Blizzard's rework exists to delete ("ice is
+## not fair"). Anything already cold is left completely alone; this spell only ever
+## lays the FIRST layer, and it still never lays the one that roots you.
+##
+## The telegraph is untouched by all of this: the footprint ring still snaps to full
+## radius on the cast frame and the break still lands at `FUSE`. Stepping off the mark
+## is the counterplay it always was, and a body that walks IN after the cast is not
+## rimed and takes the 0.35x tap - the rime is a reward for the mark landing on you,
+## not a field.
+func _rime() -> void:
+	for body: Node in SpellTargets.in_radius(_at, _radius,
+			SpellTargets.hostiles(self, StringName(target_group)), [caster_node], self):
+		if body == null or not is_instance_valid(body):
+			continue
+		if cold_state(body) != Cold.WARM:
+			continue
+		if element_id < 0 or not body.has_method("apply_status"):
+			continue
+		body.apply_status(element_id)
+		rimed_on_cast += 1
 
 
 func _process(delta: float) -> void:
