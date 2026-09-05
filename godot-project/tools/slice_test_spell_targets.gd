@@ -134,6 +134,15 @@ class Silhouette extends Node2D:
 		return {
 			"neck": xf * (head_local + Vector2(0.0, head_r)),
 			"hip": xf * Vector2(0.0, height * HIP_Y_FACTOR + FEET_OFFSET),
+			## ⚠ THE SEGMENT RUNS NECK -> FEET NOW, NOT NECK -> HIP. A stick figure's hip
+			## sits a hair ABOVE its mid-line, so a spine that stopped there covered the
+			## head and torso and NOTHING BELOW THE BELT — measured on a shipped enemy,
+			## the drawn body spans -21.13 .. +11.18 while the hit shape stopped at -1.28,
+			## i.e. 38% of the figure was not part of it. It also disagreed with the same
+			## body's own physics hurtbox, which has always been cut neck-to-feet. See
+			## `Enemy.body_distance`. `HIP_Y_FACTOR + LEG_LEN_FACTOR` is 0.5 by
+			## construction, so this is the `+height/2` the rig draws its feet at.
+			"foot": xf * Vector2(0.0, height * 0.5 + FEET_OFFSET),
 			"head": xf * head_local,
 			"head_r": head_r * s,
 			"scale": s,
@@ -142,7 +151,7 @@ class Silhouette extends Node2D:
 	func body_distance(p: Vector2) -> float:
 		var s: Dictionary = _sil()
 		var spine_d: float = SpellGeometry.point_segment_distance(
-			p, s["neck"] as Vector2, s["hip"] as Vector2)
+			p, s["neck"] as Vector2, s["foot"] as Vector2)
 		return minf(spine_d, p.distance_to(s["head"] as Vector2) - float(s["head_r"]))
 
 	func hit_margin() -> float:

@@ -187,9 +187,35 @@ const CHARGE_WINDUP: float = 0.7
 const CHARGE_SPEED: float = 520.0
 const CHARGE_TIME: float = 0.35  # seconds the charge lasts
 const CHARGE_DAMAGE: int = 18   # was 24 — x0.75. CHARGE_SPEED is untouched on purpose.
-const CHARGE_LEN: float = 300.0  # telegraph lane length
-const CHARGE_WIDTH: float = 34.0
+## How near the charger's ORIGIN the hero's origin has to be for the charge to land.
+## `_process_charging` tests `global_position.distance_to(_hero.global_position) <=
+## this`, so it is a disc, and the two constants below are DERIVED from it rather than
+## typed beside it — see the block on `CHARGE_WIDTH`.
 const CHARGE_HIT_RADIUS: float = 26.0
+## ⚠ THE LANE USED TO BE NARROWER THAN THE CATCH, SO A CHARGE THAT VISIBLY MISSED HIT.
+##
+## It was a hand-typed 34.0 against a catch radius of 26.0 — a drawn half-width of 17
+## px over a real one of 26, i.e. **9 px of lethal ground on each side that the tell
+## never coloured in**. On a 640x360 viewport with a 31 px fighter, 9 px is nearly a
+## third of a body: you could step off the drawn lane, see daylight, and still be run
+## down. That is the same fault as a spell whose warning is smaller than its blast,
+## which is the one thing a telegraph exists not to do.
+##
+## Derived now, so the two can never disagree again. If the catch is ever re-tuned the
+## drawing follows in the same edit.
+const CHARGE_WIDTH: float = CHARGE_HIT_RADIUS * 2.0
+## ...and the LENGTH is the travel the charge actually has, not a round number.
+##
+## It was 300.0. The charge runs `CHARGE_SPEED * CHARGE_TIME` = 520 * 0.35 = 182 px and
+## catches within `CHARGE_HIT_RADIUS` of where it stops, so the honest lane is 208 px.
+## The old 300 promised **92 px of charge that does not exist** — the opposite lie to
+## the width's, and the one that teaches players to dodge something already over.
+##
+## ⚠ A CHARGER CAN STILL TOUCH YOU AFTER THE LANE ENDS. `_physics_process`'s generic
+## contact damage (`distance < 22.0`) is a separate, permanent thing that every enemy
+## carries and no tell has ever drawn. That is not this lane's business; it is flagged
+## so nobody reads a 208 px lane as "the charger is harmless past 208 px".
+const CHARGE_LEN: float = CHARGE_SPEED * CHARGE_TIME + CHARGE_HIT_RADIUS
 const CHARGE_COOLDOWN: float = 1.25  # was 1.6
 
 # SUMMONER archetype: kites like the caster, telegraphs on itself, then calls
@@ -329,27 +355,54 @@ const POUNCE_MIN_DEPTH: int = 2
 ##
 ## Keys: `id` the library spell, `dmg` the re-tuned damage, `cd` seconds between casts,
 ## `windup` the tell length, `style` the Telegraph style, `band` the [min,max] x-range
-## it will cast from, and the optional `count` / `radius` / `length` overrides.
+## it will cast from, `tell_at` where the warning is planted (see below), and the
+## optional `count` / `radius` / `length` overrides.
+##
+## ⚠ `tell_at` EXISTS BECAUSE FOUR OF THESE FIVE WARNED ON THE WRONG BODY.
+##
+## `_start_spell_windup` planted every archetype tell at `_strike_center` — the hero —
+## with a flat fallback radius, whatever the spell's real shape was. That is correct
+## for a spell that is PLACED at the marked point and wrong for one that erupts from
+## the caster and travels, and this table has four of the latter:
+##
+##   rune_orbs        MISSILES  launched from the caster's weapon tip down the aim
+##   void_zone        ZONE, but `effect == "shadow"` — and `SpellCaster.cast` forks
+##                    that to `ShadowRoot.erupt(caster_pos, ...)`, i.e. out of the
+##                    caster's FEET. The one row where the kind alone is misleading.
+##   shockwave_stomp  HEX — two ridges running `reach` (300) px each way from the
+##                    caster. It was warning with a 90 px circle on the HERO.
+##   creeping_shade   CRAWLER — peels off the caster's feet and races the floor
+##   blizzard         ZONE, `effect == "frost"` — genuinely placed at the mark. The
+##                    only one whose old tell position was right.
+##
+## Written as DATA rather than derived from `SpellDef.kind`, because the honest
+## discriminator is `SpellCaster.cast`'s placement fork and that fork keys off
+## `effect` as well as `kind` (see void_zone). A rule inferred here would be a second
+## copy of that switch, drifting the moment a spectacle is re-pointed. A row is one
+## word and `tools/slice_test_hitboxes.gd` fails a row that omits it, so a NEW
+## archetype cannot inherit the old silent default.
 const ARCHETYPE_SPELLS: Dictionary = {
 	Archetype.CASTER: {
 		"id": "rune_orbs", "dmg": 7, "count": 3, "cd": 5.0, "windup": 0.55,
-		"style": Telegraph.Style.MUZZLE, "band": [150.0, 320.0],
+		"style": Telegraph.Style.MUZZLE, "band": [150.0, 320.0], "tell_at": "caster",
 	},
 	Archetype.MAGE: {
 		"id": "void_zone", "dmg": 12, "radius": 96.0, "length": 2.4, "cd": 6.5,
 		"windup": 0.75, "style": Telegraph.Style.ZONE, "band": [140.0, 340.0],
+		"tell_at": "caster",
 	},
 	Archetype.SUMMONER: {
 		"id": "blizzard", "dmg": 4, "radius": 100.0, "length": 3.0, "cd": 7.5,
 		"windup": 0.8, "style": Telegraph.Style.ZONE, "band": [120.0, 330.0],
+		"tell_at": "target",
 	},
 	Archetype.BRUTE: {
 		"id": "shockwave_stomp", "dmg": 18, "cd": 6.0, "windup": 0.7,
-		"style": Telegraph.Style.ZONE, "band": [0.0, 190.0],
+		"style": Telegraph.Style.ZONE, "band": [0.0, 190.0], "tell_at": "caster",
 	},
 	Archetype.ASSASSIN: {
 		"id": "creeping_shade", "dmg": 12, "cd": 6.0, "windup": 0.5,
-		"style": Telegraph.Style.DART, "band": [90.0, 420.0],
+		"style": Telegraph.Style.DART, "band": [90.0, 420.0], "tell_at": "caster",
 	},
 }
 
@@ -518,6 +571,35 @@ var _hurtbox_height: float = -1.0  # rig height the current shapes were cut for
 ## a flailing arm you did not control feels arbitrary. Spine + head is the honest
 ## target. Scale-aware — a 1.9x sparring dummy reports 1.9x the reach, so no call
 ## site needs to know about node scale.
+## ⚠ THE SEGMENT RUNS NECK -> FEET, NOT NECK -> HIP, AND THE OLD END POINT WAS THE
+## HEAD BUG UPSIDE DOWN.
+##
+## The hip sits at `HIP_Y_FACTOR * h`, which is a hair ABOVE the figure's mid-line
+## (-0.019 h — a stick figure's hips are high). So a segment that stopped there
+## covered the head and the torso and nothing else. MEASURED by
+## `tools/probe_hitboxes.gd` on a shipped enemy standing on a floor (body-local):
+##
+##     DRAWN     -21.13 .. +11.18      the figure
+##     ANALYTIC  -25.81 ..  -1.28      what a blast was measured against
+##
+## Everything from the hip to the soles — **12.5 px, 38% of the drawing** — was not
+## part of the enemy at all. It is precisely the fault this file's own header
+## describes at the other end ("the head was never a target"), rotated 180 degrees,
+## and it was invisible for the same reason: no probe had ever printed the two
+## extents next to each other.
+##
+## It also disagreed with this enemy's OWN physics hurtbox, which has always been cut
+## neck-to-feet (`_sync_hurtbox`). Two hit channels on one body, differing by more
+## than a third of its height, is the two-schemes bug this whole silhouette seam
+## exists to end — so the analytic one is brought onto the drawing rather than the
+## physics one being cut back to the hip.
+##
+## ARMS STAY EXCLUDED, and that is not an inconsistency. The stated reason is that
+## "being clipped by a flailing arm you did not control feels arbitrary", and it is
+## about a limb that swings WIDE of the body — measured, the drawn width goes 9.13 px
+## at rest to 24.05 px mid-stride, nearly all of it arms. The legs are directly under
+## the torso on the same centre line; excluding them was never a design choice about
+## flailing, it was the segment simply ending early.
 func body_distance(p: Vector2) -> float:
 	var s: Dictionary = _silhouette()
 	if s.is_empty():
@@ -525,7 +607,7 @@ func body_distance(p: Vector2) -> float:
 		# caller still gets a monotonic distance rather than INF-shaped nonsense.
 		return global_position.distance_to(p)
 	var spine_d: float = SpellGeometry.point_segment_distance(
-		p, s["neck"] as Vector2, s["hip"] as Vector2
+		p, s["neck"] as Vector2, s["foot"] as Vector2
 	)
 	return minf(spine_d, p.distance_to(s["head"] as Vector2) - float(s["head_r"]))
 
@@ -562,6 +644,13 @@ func _silhouette() -> Dictionary:
 	return {
 		"neck": xf * (head_local + Vector2(0.0, head_r)),
 		"hip": xf * Vector2(0.0, h * RIG_HIP_Y_FACTOR),
+		# The SOLES, on the figure's own centre line — `HIP_Y_FACTOR + LEG_LEN_FACTOR`
+		# is exactly 0.5 by construction (see CharacterRig), so this is the same
+		# `+h/2` the rig draws its feet at and the same `feet_y` `_sync_hurtbox` cuts
+		# to. Written as the sum rather than as `0.5` so it stays true if the leg
+		# factors are ever re-derived. `hip` is kept for callers that want the joint
+		# itself; `body_distance` measures against `foot`.
+		"foot": xf * Vector2(0.0, h * (RIG_HIP_Y_FACTOR + RIG_LEG_LEN_FACTOR)),
 		"head": xf * head_local,
 		"head_r": head_r * s,
 		"scale": s,
@@ -606,32 +695,39 @@ func refresh_hurtbox() -> void:
 	_sync_hurtbox()
 
 
-## ⚠ WHY THERE IS NO RIG OFFSET HERE, AND WHY THE HURTBOX MUST NOT ASSUME ONE.
+## ⚠ THE RIG OFFSET THIS BLOCK ONCE SAID DID NOT EXIST NOW DOES, AND IT PUT THE
+## HEAD-SHAPED DEAD ZONE STRAIGHT BACK.
 ##
-## The hub does offset its rig — Player.gd and NPC.gd both run
-## `_rig.position.y = -_rig.height * 0.5`. Enemy (and Hero) deliberately do not, and
-## copying that one line across would be a bug, not a fix. Two reasons, measured
-## against the shipped scenes rather than eyeballed:
+## The note that used to live here said the arena's rigs are drawn centred on the
+## node origin, so the shapes below (all measured from that origin) sat exactly on
+## the drawing. It ended with the standing warning: *"IF the arena ever does adopt
+## the feet-on-origin convention, every `y` computed here must gain the same
+## `rig.position.y` term — otherwise the hitbox stays where the art used to be."*
 ##
-##   1. IT IS HALF OF A PAIR. Player.gd ALSO shifts its collider up by half its
-##      height first, so the node origin ends up at the feet and the lifted rig lands
-##      on it. Enemy.tscn's collider is centred on the origin. Lifting the rig alone
-##      would leave enemies floating a full 15.5 px above the floor they stand on —
-##      a much louder bug than the one being fixed.
-##   2. THE COMBAT ARENA HAS ONE CONVENTION AND BOTH ACTORS FOLLOW IT. Measured:
-##      Enemy draws its feet at y +15.5 with its collider bottom at +10 (sinks 5.5);
-##      Hero draws its feet at +15.5 with its collider bottom at +9 (sinks 6.5). The
-##      hero sinks MORE. Correcting the enemy alone would not un-sink the arena, it
-##      would just make enemies hover relative to the player standing next to them.
-##      Whether the arena should adopt the hub's feet-on-origin convention is a
-##      combat-wide change (Hero.tscn/Hero.gd + Enemy.tscn + every spawner that
-##      positions a body), not an Enemy-local one.
+## The arena then adopted it. `CharacterRig._align_feet_to_body()` runs in the rig's
+## own `_ready` and writes `position.y = box_bottom - height * 0.5`, so a shipped
+## enemy's rig hangs at **-5.50** and a guardian's at **+4.50**. The warning was
+## never acted on, so the shapes below stayed on the origin while the drawing moved.
 ##
-## So the silhouette below matches WHAT IS DRAWN, which is the property that has to
-## hold: a bolt aimed at a head must hit the head the player can see. IF the arena
-## ever does adopt the feet-on-origin convention, every `y` computed here must gain
-## the same `rig.position.y` term — otherwise the hitbox stays where the art used to
-## be, which is precisely the head-shaped dead zone this hurtbox was added to close.
+## MEASURED by `tools/probe_hitboxes.gd` before the fix, on Enemy.tscn standing on a
+## real floor (all body-local, y down):
+##
+##     DRAWN   -21.13 .. +11.18      the figure the player sees
+##     AREA    -15.50 .. +15.50      the shapes cut below
+##     -> the Area sat 5.63 px LOW at the top and hung 4.32 px past the feet
+##
+## The drawn head circle spans -21.13 .. -14.62 and the Area's head circle spans
+## -15.50 .. -8.98: they overlap over **0.88 px of 6.51**, so **86% of the drawn
+## head had no bolt-collidable shape behind it**. `Spell.gd` is an Area2D that
+## damages on `body_entered` / `area_entered` — an aimed bolt therefore flew through
+## the skull exactly as it did before this hurtbox was ever built.
+##
+## THE FIX IS ONE TERM AND IT LIVES IN `_sync_body_offset`, NOT HERE. The shapes are
+## cut in the rig's own frame (head top at -h/2, feet at +h/2) and the whole Area is
+## then translated by `rig.position.y`, which already carries the align offset AND
+## the body spring's ride. One number, read from the rig every frame, so the shapes
+## cannot drift from the drawing again — including on a guardian, whose offset is
+## recomputed by `Boss._realign_feet()` long after this ran.
 func _sync_hurtbox() -> void:
 	if _hurtbox == null or not is_instance_valid(_hurtbox) or not is_instance_valid(rig):
 		return
@@ -663,10 +759,27 @@ func _sync_hurtbox() -> void:
 ##
 ## Two float writes a frame. The shapes themselves are untouched; only the frame they
 ## live in moves, so no hitbox is inflated by this.
+##
+## ⚠ `rig.position.y`, NOT `rig.body_ride()`. It used to be the ride alone, which
+## tracked the squash but MISSED the feet-alignment offset that
+## `CharacterRig._align_feet_to_body` writes into the same field — 5.50 px on a
+## standard enemy, 4.50 px the other way on a guardian. See the long block above
+## `_sync_hurtbox` for the measurement; the short version is that 86% of the drawn
+## head had no shape behind it.
+##
+## Reading the field itself rather than adding two accessors is deliberate:
+## `_apply_body_transform` maintains `position.y = align + ride` as one value, so
+## anything that ever writes a THIRD term into it (a future crouch, a scene author's
+## nudge) is carried for free instead of being silently dropped.
 func _sync_body_offset() -> void:
 	if _hurtbox == null or not is_instance_valid(_hurtbox) or not is_instance_valid(rig):
 		return
-	_hurtbox.position.y = rig.body_ride()
+	# The whole vector, so the Area2D's transform is EXACTLY the rig's: Godot composes
+	# a Node2D as `translate(position) * rotate(rotation)`, so matching both fields
+	# makes the two frames identical rather than merely close. (`scale` is skipped on
+	# purpose — the rig mirrors `scale.x` to face left and the hurtbox is symmetric,
+	# so copying it would only flip a shape onto itself.)
+	_hurtbox.position = rig.position
 	_hurtbox.rotation = rig.body_pitch()
 
 
@@ -1130,14 +1243,39 @@ func _ready() -> void:
 	_setup_enemy_net()
 
 
-func _physics_process(delta: float) -> void:
+## ⚠ THE HURTBOX SYNC LIVES IN `_process`, NOT IN `_physics_process`, AND THE
+## GUARDIAN IS WHY.
+##
+## It used to sit at the top of `_physics_process` below. Godot calls
+## `_physics_process` on the MOST DERIVED script only, and `Boss._physics_process`
+## (Boss.gd:574) does not chain `super._physics_process` — it re-implements the whole
+## tick. So every guardian in the game ran with a hurtbox that was never re-glued to
+## its rig: no ride tracking, no pitch, and no feet-alignment offset (+4.50 on a
+## full-size guardian). MEASURED before this moved, by `tools/probe_hitboxes.gd`:
+##
+##     Boss DRAWN  -43.48 .. +55.56      AREA  -47.50 .. +47.50
+##
+## — 8 px of the guardian's own legs outside its own hitbox, permanently.
+##
+## `_process` is inherited by Boss, TowerBoss, Thrall and every future subclass
+## whether or not they chain anything, so the sync cannot be lost by a subclass that
+## overrides the tick. The cost is that the shapes can be at most one rendered frame
+## behind the physics they are queried in; at the ~1 px/frame the ride spring moves,
+## that is well inside the 4.8 px forgiveness ring the same body publishes.
+##
+## ⚠ AND IT MUST STAY ABOVE / OUTSIDE EVERY CO-OP EARLY-OUT. A client-side puppet is
+## still shot at locally, so its silhouette has to be right even though it runs none
+## of the AI below.
+func _process(_delta: float) -> void:
 	# A rig can be resized long after _ready (class presets, guardian scaling). One
 	# float compare a frame keeps the hurtbox honest without anyone remembering to
-	# call refresh_hurtbox(). Sits ABOVE the co-op puppet early-out on purpose: a
-	# client-side puppet is still shot at locally, so its silhouette must be right.
+	# call refresh_hurtbox().
 	if is_instance_valid(rig) and not is_equal_approx(_hurtbox_height, rig.height):
 		_sync_hurtbox()
 	_sync_body_offset()
+
+
+func _physics_process(delta: float) -> void:
 	# Groundedness for the rig's floating-capsule body: an enemy that is launched,
 	# leaps or is knocked off a ledge now gets the same takeoff stretch and weighted
 	# landing squash the hero does, instead of touching down like a decal.
@@ -1943,10 +2081,44 @@ func _start_spell_windup() -> void:
 	_strike_center = _hero.global_position
 	var windup: float = float(row["windup"])
 	rig.flash()
+	# ⚠ EVERY NUMBER BELOW NOW COMES OFF THE SPELL THIS BODY WILL ACTUALLY CAST.
+	#
+	# It used to be: position `_strike_center` always, radius `row.radius` or a flat
+	# 90, reach a flat 130. Three separate ways for the warning to describe a
+	# different attack from the one that lands, and all three were live:
+	#
+	#   POSITION  four of the five archetype spells erupt from the CASTER (see the
+	#             `tell_at` block on ARCHETYPE_SPELLS). `shockwave_stomp` drew a 90 px
+	#             circle on the hero while the real thing was two ridges running 300 px
+	#             each way from the enemy's own feet — a warning with no relationship
+	#             to the danger at all.
+	#   RADIUS    the flat 90 fallback applied to any row without an explicit override,
+	#             which is both spells that erupt from the caster.
+	#   REACH     the flat 130 sized the MUZZLE tracer for `rune_orbs`, whose orbs fly
+	#             `SpellDef.reach` (260) — half the warning it needed.
+	#
+	# `archetype_spell()` is the SAME duplicated SpellDef `_cast_archetype_spell` casts,
+	# with this row's `radius` / `count` / `length` overrides already applied, so the
+	# tell and the cast now read one object. That also settles the reported
+	# "blizzard warns 100 against a 135 field": the library's 135 is overridden to 100
+	# for this archetype, the field really is 100, and reading the spell is what makes
+	# that verifiable rather than a coincidence of two matching literals.
+	var spell: SpellDef = archetype_spell()
+	var at_caster: bool = String(row.get("tell_at", "caster")) == "caster"
 	_telegraph = _emit_telegraph({
-		"style": row["style"], "pos": _strike_center,
-		"radius": float(row.get("radius", 90.0)), "windup": windup,
-		"aim": _aim_dir, "reach": 130.0,
+		"style": row["style"],
+		"pos": global_position if at_caster else _strike_center,
+		"radius": spell.radius if spell != null else float(row.get("radius", 90.0)),
+		"windup": windup,
+		"aim": _aim_dir,
+		"reach": spell.reach if spell != null else 130.0,
+		# ⚠ COLOUR MEANS ELEMENT EVERYWHERE ELSE IN THE GAME, so a spell tell may not
+		# be painted in the body's archetype hue. `_accent()` (the default in
+		# `_emit_telegraph`) is right for a melee strike or a charge lane, which have
+		# no element; it is wrong for a shadow root drawn in caster-purple or an ice
+		# field drawn in summoner-green. Same resolver `_cast_archetype_spell` uses.
+		"accent": Elements.color(SpellCaster.resolve_element(spell)) if spell != null
+			else _accent(),
 	})
 	_spawn_caster_signal(13.0, windup)
 

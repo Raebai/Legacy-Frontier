@@ -1815,6 +1815,11 @@ func _ready() -> void:
 	var bars := CharacterBars.new()
 	add_child(bars)
 	bars.configure(self, true, -26.0)
+	# Make the DRAWN hero solid to travelling bolts, head and legs included. Deferred
+	# re-cut for the same reason Enemy defers its own: `configure_class` may still
+	# resize the rig after this returns, and a deferred call lands after that.
+	_build_hurtbox()
+	_sync_hurtbox.call_deferred()
 
 
 ## Float-channel: the 4 big spectacles (beam/ray/meteor/convergence) become a
@@ -2031,6 +2036,12 @@ func _touch_aim() -> bool:
 
 
 func _physics_process(delta: float) -> void:
+	# ⚠ ABOVE EVERY EARLY-OUT BELOW, and that placement is the point. A remote co-op
+	# puppet, a downed body, a spectated loser and a petrified statue are all still
+	# SHOT AT locally, so their silhouette has to keep matching what is drawn even
+	# though none of them run a single line of the rest of this function. `Enemy`
+	# makes the same call for the same reason.
+	_sync_hurtbox_if_stale()
 	# Co-op: you only drive YOUR hero. Remote heroes follow the synchronizer and
 	# just animate (no Input, no move_and_slide).
 	if _net != null and _net.is_active() and not is_multiplayer_authority():
@@ -4444,9 +4455,17 @@ func _uppercut() -> void:
 	# it left `BotDodge` nothing to perceive. The hero still rises immediately; only
 	# the connect waits, which is also how a real uppercut reads. `ABILITY_TELL_LEAD`
 	# is the one knob; 0.0 restores the press-frame hit.
+	# ⚠ THE CIRCLE IS DERIVED FROM THE CONE NOW, NOT PLACED BY EYE. `_resolve_uppercut`
+	# sweeps `in_cone(global_position, (face_x,0), UPPERCUT_REACH, UPPERCUT_DOT)` — a
+	# 101.5° half-angle at 70 px, so the danger is very nearly a 70 px disc around the
+	# body. The old tell was a 42 px circle centred 24 px in front, which left a wide
+	# band of ground that was lethal and unmarked (measured worst case: a body 66 px
+	# behind-and-above the swinger was inside the cone and outside the drawn circle).
+	# See `_cone_tell_circle` for the derivation and for why it deliberately over-draws.
+	var uc_circle: Vector2 = _cone_tell_circle(UPPERCUT_REACH, UPPERCUT_DOT)
 	_telegraphed_ability({
-		"pos": global_position + Vector2(face_x * 24.0, -10.0),
-		"radius": UPPERCUT_REACH * 0.6,
+		"pos": global_position + Vector2(face_x * uc_circle.x, -10.0),
+		"radius": uc_circle.y,
 		"windup": ABILITY_TELL_LEAD,
 		"style": Telegraph.Style.DART,
 		"aim": Vector2(face_x, -0.5), "reach": UPPERCUT_REACH,
@@ -4860,9 +4879,17 @@ func _primary_frost_cone() -> void:
 	# still playing a CAST and coating the hand in frost — so the picture promised a
 	# wind-up that the damage had already skipped, and `BotDodge` had no object to read.
 	# The lead is `ABILITY_TELL_LEAD`; set that to 0.0 to restore the press-frame hit.
+	# ⚠ AND THE FOOTPRINT IS DERIVED FROM THE CONE, NOT HALVED BY EYE. `radius` is what
+	# `Telegraph.danger_shape()` publishes and what `BotDodge` reads, so it IS the
+	# machine-readable danger, and it was `CONE_RANGE * 0.5` = 59 px against a cone
+	# that reaches 118 px forward and `118 * sin(60°)` = 102 px to the SIDE. The
+	# centre was already right (the enclosing circle of a 60° wedge is centred at
+	# `reach * cos(a)`, which is exactly `CONE_RANGE * 0.5`); only the radius was
+	# short, by 43 px. See `_cone_tell_circle`.
+	var fc_circle: Vector2 = _cone_tell_circle(CONE_RANGE, CONE_COS)
 	_telegraphed_ability({
-		"pos": global_position + _aim_dir.normalized() * CONE_RANGE * 0.5,
-		"radius": CONE_RANGE * 0.5,
+		"pos": global_position + _aim_dir.normalized() * fc_circle.x,
+		"radius": fc_circle.y,
 		"windup": ABILITY_TELL_LEAD,
 		"style": Telegraph.Style.MUZZLE,
 		"aim": _aim_dir, "reach": CONE_RANGE,
@@ -5784,6 +5811,47 @@ func _swing_tell_windup(state: int) -> float:
 var _swing_tell_blade: bool = true
 
 
+## ⚠ A CIRCLE STANDING IN FOR A CONE, SIZED SO IT NEVER UNDER-DRAWS THE CONE.
+##
+## `Telegraph` has no CONE style — every style it does have resolves to a circle or a
+## lane, and `danger_shape()` publishes `{circle, center, radius}` for all of them,
+## which is what `BotDodge` reads. So two of this file's wide-cone attacks were drawn
+## as circles picked by eye, and both were picked SMALLER than the cone:
+##
+##   uppercut     cone r70, half-angle 101.5°   drawn as r42 centred 24 px ahead
+##   frost cone   cone r118, half-angle 60°     drawn as r59 centred 59 px ahead
+##
+## The frost cone's real footprint reaches 102 px to the SIDE at full range against a
+## 59 px drawn radius; the uppercut's reaches 70 in nearly every direction against 42.
+## In both cases you could stand outside the drawn danger and be hit by it, which is
+## the one thing a tell must never allow.
+##
+## This returns the SMALLEST circle that CONTAINS the wedge (apex at the body, range
+## `reach`, half-angle `acos(min_dot)`), as `(offset along the aim, radius)`. Derived
+## rather than eyeballed, in three cases:
+##
+##   a <= 45°   the apex is the far point, so the circle is the circumcircle of the
+##              apex and the two arc ends:      c = r = reach / (2 cos a)
+##   45° < a <= 90°   the two arc ends are the far pair and their chord is the
+##              diameter:                       c = reach cos a,  r = reach sin a
+##   a > 90°    the arc wraps behind the apex and the axis TIP becomes binding, so
+##              the honest answer is apex-centred: c = 0, r = reach
+##
+## ⚠ IT OVER-DRAWS, AND THAT IS THE CHOSEN DIRECTION. A circle around a 120°-wide
+## wedge colours ground the attack cannot reach. Over-drawing costs a player a dodge
+## they did not need; under-drawing costs them health they were told they would keep.
+## The real fix is a CONE style in `Telegraph.gd` — which this agent does not own, and
+## which is flagged in the handoff rather than approximated a second way here.
+static func _cone_tell_circle(reach: float, min_dot: float) -> Vector2:
+	var a: float = acos(clampf(min_dot, -1.0, 1.0))
+	if a > PI * 0.5:
+		return Vector2(0.0, maxf(reach, 0.0))
+	if a > PI * 0.25:
+		return Vector2(reach * cos(a), reach * sin(a))
+	var c: float = reach / maxf(2.0 * cos(a), 0.0001)
+	return Vector2(c, c)
+
+
 func _publish_swing_tell(state: int = CharacterRig.State.PUNCH) -> void:
 	var aim: Vector2 = _aim_dir if _aim_dir != Vector2.ZERO else facing
 	if aim == Vector2.ZERO:
@@ -5987,6 +6055,35 @@ func _apply_aim_assist() -> void:
 		get_tree().get_nodes_in_group(hostile_group), strength, [self], self)
 
 
+## ══ THE MELEE AUTO-TARGET IS GONE FROM THE DAMAGE PATH ═════════════════════
+##
+## `_on_melee_hit_frame` used to run its strict facing cone AND then unconditionally
+## append whatever this returns, at any angle. That made every basic attack in the
+## game a DISC: a swing thrown to the right landed on someone standing behind your
+## heels, and nothing on screen ever said so.
+##
+## THE MEASUREMENT. The drawn tell (`_publish_swing_tell`) is a lane `_melee_range`
+## long and `max(range * 0.18, 9)` wide — 58 x 10.4 px on a Brawler. The queried cone
+## is 72.5 degrees per side. The auto-target then took it to 180 per side.
+##
+## ⚠ REMOVED ON A MAKER RULING, NOT ON TASTE. The recorded directive is **"NO
+## auto-aim"** alongside "everything must be dodgeable", and the maker's words about
+## this exact attack were *"a little fire fist ... small, the size of the glove, in the
+## direction being punched, **that can be dodged**"*. A swing you cannot step behind is
+## not dodgeable. The previous pass through this code flagged the tension in writing
+## and left it; this resolves it.
+##
+## NO-AUTO-AIM IS NOT NO-FORGIVENESS, and nothing forgiving was removed: the per-class
+## cone survives untouched at 66-90 degrees of half-angle, which is between two thirds
+## and the whole of the forward half-plane. What is gone is only the SNAP onto a body
+## the player never faced.
+##
+## ⚠ AND THIS FUNCTION STAYS, because it is not only a damage path. It is the
+## documented FACTION seam (`SpellTargets.nearest`'s own docs name it, as does
+## `MirrorImage`), and `slice6_test_bot_seams` / `slice_test_friendly_fire` assert
+## through it that a hero finds an opposing hero and never a team-mate. It is left
+## exactly as it was — a disc scan — so those keep testing what they were written to
+## test. The ruling is about what `_on_melee_hit_frame` DOES with the answer.
 func _nearest_enemy_in_melee_range() -> Node2D:
 	# Nearest measured to the SILHOUETTE, so a tall enemy whose head is closer than a
 	# short enemy's origin wins — which is what the eye expects, and which is what
@@ -6080,14 +6177,12 @@ func _on_melee_hit_frame() -> void:
 	var hit_any: bool = false
 	var melee_el: int = int(_cfg.get("melee_element", -1))  # class element on the strike
 	# Auto-target (Stick-Fight punches don't need pixel-perfect aim): the single
-	# NEAREST enemy within _melee_range always connects, regardless of the facing
-	# cone below — a click near an enemy shouldn't whiff just because the cursor
-	# isn't exactly on them. Wide swings (Juggernaut's soft _melee_arc_dot) still
-	# additionally cleave every OTHER enemy that IS inside the strict arc, so
-	# that crowd-hit behaviour is unchanged; auto-target only adds a guaranteed
-	# hit, it never removes the arc-gated ones.
-	var nearest_enemy: Node2D = _nearest_enemy_in_melee_range()
-	# THE ARC IS NOW MEASURED AGAINST THE DRAWN BODY. All three loops below used to
+	# ⚠ THE AUTO-TARGET USED TO BE READ HERE AND IT IS GONE. A `nearest_enemy` was
+	# fetched at any angle and appended to the arc below, so the swing was a full
+	# DISC. Removed on the maker's standing **"NO auto-aim"** ruling — see the block
+	# on `_nearest_enemy_in_melee_range`, which survives as a faction seam. The cone
+	# below is now the whole of what a swing hits.
+	# THE ARC IS MEASURED AGAINST THE DRAWN BODY. All three loops below used to
 	# be `distance_to(node.global_position)` — a point test against an origin that
 	# sits ~10 px under the head being aimed at (19 px on the 1.9x dummies), which is
 	# the maker's "spells pass through heads without registering" bug in the form the
@@ -6103,14 +6198,15 @@ func _on_melee_hit_frame() -> void:
 	var enemies_in_arc: Array = SpellTargets.in_cone(global_position, facing,
 		_melee_range, _melee_arc_dot, get_tree().get_nodes_in_group(attack_group()),
 		[self], self)
-	# The auto-target is PRESERVED deliberately, not reintroduced: it predates this
-	# change, `slice_test_selfdamage.gd` asserts it explicitly (an enemy directly
-	# BEHIND you still eats the swing), and it only ever ADDS a guaranteed hit — it
-	# never removes an arc-gated one. It is, however, in genuine tension with the
-	# locked no-aim-assist rule, and it is flagged in the handoff rather than
-	# silently deleted here.
-	if nearest_enemy != null and not enemies_in_arc.has(nearest_enemy):
-		enemies_in_arc.append(nearest_enemy)
+	# ⚠ AND NOTHING IS APPENDED TO IT. What stood here was:
+	#
+	#     if nearest_enemy != null and not enemies_in_arc.has(nearest_enemy):
+	#         enemies_in_arc.append(nearest_enemy)
+	#
+	# — the guaranteed connect, at any angle, which is what made a swing a disc. The
+	# forgiveness the swing keeps is the cone's own 66-90 degrees of half-angle plus
+	# the target's published `hit_margin`; what it loses is the snap onto a body the
+	# player never faced. `tools/slice_test_hitboxes.gd` pins the absence.
 	# ══ THE PACT NOW BUFFS STEEL ═══════════════════════════════════════════════
 	# Maker: *"the blood pact needs to be buffed"*.
 	#
@@ -7290,9 +7386,16 @@ func _notify_element_used() -> void:
 ## `Enemy.body_distance` uses, because two different silhouette tests is precisely
 ## how "spells pass through heads" happened the first time.
 ##
-## Limbs are excluded on purpose, matching `Enemy` and `SpikeFigure`: being clipped
-## by a flailing arm you did not control feels arbitrary. Spine + head is the honest
-## target.
+## ARMS are excluded on purpose, matching `Enemy` and `SpikeFigure`: being clipped by
+## a flailing arm you did not control feels arbitrary, and measured, an arm is most of
+## the difference between a 12.74 px resting silhouette and a 24.05 px mid-stride one.
+##
+## ⚠ THE LEGS ARE NOT, AND USED TO BE. The segment ran neck -> HIP, and a stick
+## figure's hip sits a hair above its mid-line — so the shape stopped at -2.28 on a
+## body drawn down to +10.18 (`tools/probe_hitboxes.gd`). 39% of the hero, from the
+## belt down, was not part of the hero. See the long note on `Enemy.body_distance`:
+## it is the "spells pass through heads" bug rotated 180 degrees, and it disagreed
+## with the neck-to-feet physics hurtbox on the same body.
 func body_distance(p: Vector2) -> float:
 	var s: Dictionary = _hit_silhouette()
 	if s.is_empty():
@@ -7300,7 +7403,7 @@ func body_distance(p: Vector2) -> float:
 		# beats INF-shaped nonsense, and matches the old behaviour exactly.
 		return global_position.distance_to(p)
 	var spine_d: float = SpellGeometry.point_segment_distance(
-		p, s["neck"] as Vector2, s["hip"] as Vector2)
+		p, s["neck"] as Vector2, s["foot"] as Vector2)
 	return minf(spine_d, p.distance_to(s["head"] as Vector2) - float(s["head_r"]))
 
 
@@ -7321,6 +7424,135 @@ func head_point() -> Vector2:
 	return (s["head"] as Vector2) if not s.is_empty() else global_position
 
 
+# ------------------------------------------------------- the PHYSICS hurtbox
+## ⚠ THE SILHOUETTE ABOVE ONLY ANSWERS ONE OF THE TWO WAYS A HERO GETS HIT, AND THE
+## OTHER ONE WAS A HOLE THE SHAPE OF A HEAD.
+##
+## `body_distance` / `hit_margin` serve the ANALYTIC channel: `SpellTargets` asks
+## them when a blast, cone, beam or nearest-target search wants to know who is in
+## range. That covers most spectacle spells.
+##
+## It does not cover a bolt. `Spell.gd` is a real travelling `Area2D` that deals its
+## damage from `body_entered` / `area_entered` — pure physics overlap, no silhouette
+## anywhere in it. So a hero's collidable extent was whatever shapes sat under the
+## `CharacterBody2D`, and `Hero.tscn` ships exactly one: an 18x18 box centred on the
+## origin. MEASURED by `tools/probe_hitboxes.gd` on a hero standing on a real floor
+## (body-local, y down):
+##
+##     DRAWN   -22.51 .. +10.18      33 px of figure
+##     BOX      -9.00 ..  +9.00      18 px of it is solid
+##
+## The drawn head spans -22.51 .. -15.99 and the box starts at -9.00, so **the entire
+## head, the neck and the top of the chest — 13.5 px, 41% of the drawing — had
+## nothing behind them**. Maker, watching bot fights: *"the hit boxes for these
+## spells is so small the stick figures will be sntading in the borders of the spell
+## and it wont register"*. This is the physics half of that, and hero-vs-hero is
+## where it bites hardest because both fighters are Heroes.
+##
+## ⚠ THIS IS `Enemy`'S HURTBOX, NOT A SECOND SCHEME. Enemy has carried exactly this
+## Area2D since the "spells pass through heads" fix; the hero simply never got one.
+## Same two shapes (head circle + neck-to-feet box), same layer as the body, same
+## `monitoring = false / monitorable = true`, same per-frame re-glue to the rig. A
+## bolt that overlaps it routes through `Spell._on_area_hit` -> `area.get_parent()`,
+## which is this node, so every existing rule about who a bolt may damage (the
+## `node == caster` self-guard, co-op authority routing, the reflected-bolt
+## exception) applies unchanged. Nothing new decides anything.
+##
+## WHY NOT JUST GROW THE MOVEMENT COLLIDER TO 31. Because that box is what decides
+## where a hero stands, what it fits through, when it bumps a ceiling and how a
+## ledge reads. Growing it to correct a hitbox would change every physical fact
+## about a fighter to fix a drawing — the same trade `CharacterRig._align_feet_to_body`
+## refused, for the same reason.
+var _hurtbox: Area2D = null
+var _hurtbox_height: float = -1.0  # the rig height the current shapes were cut for
+
+## Layer the hurtbox falls back to when this node's own `collision_layer` is 0 — a
+## headless harness building a bare Hero with engine defaults rather than the scene.
+## 2 is the hero layer `Spell.set_hostile_group(&"hero")` adds to its mask.
+const HURTBOX_FALLBACK_LAYER: int = 2
+## Hurtbox width when the movement collider is not a rectangle we can read. Hero.tscn
+## ships 18 against a 31 px rig; the point of the fallback is that it can never
+## WIDEN a hero, only keep one measurable.
+const HURTBOX_WIDTH_FALLBACK_FACTOR: float = 18.0 / 31.0
+
+
+## Build the silhouette hurtbox. Shapes are `.new()` per instance on purpose: a
+## shared sub-resource would have every hero in a co-op session resizing every other
+## hero's hitbox.
+func _build_hurtbox() -> void:
+	if _hurtbox != null and is_instance_valid(_hurtbox):
+		return
+	_hurtbox = Area2D.new()
+	_hurtbox.name = "Hurtbox"
+	_hurtbox.collision_layer = collision_layer if collision_layer != 0 else HURTBOX_FALLBACK_LAYER
+	_hurtbox.collision_mask = 0    # it is detected, it never detects
+	_hurtbox.monitoring = false    # ...so skip the overlap work entirely
+	_hurtbox.monitorable = true
+	var head := CollisionShape2D.new()
+	head.name = "HurtHead"
+	head.shape = CircleShape2D.new()
+	_hurtbox.add_child(head)
+	var torso := CollisionShape2D.new()
+	torso.name = "HurtBody"
+	torso.shape = RectangleShape2D.new()
+	_hurtbox.add_child(torso)
+	add_child(_hurtbox)
+	_sync_hurtbox()
+
+
+## Re-cut the shapes if the rig has been resized since they were last cut, then
+## re-glue the whole Area to the rig's current frame. One float compare a frame
+## keeps it honest without any caller having to remember — `configure_class` swaps
+## presets mid-session and a debug class switch does it mid-fight.
+func _sync_hurtbox_if_stale() -> void:
+	if _hurtbox == null or not is_instance_valid(_hurtbox) or not is_instance_valid(rig):
+		return
+	if not is_equal_approx(_hurtbox_height, rig.height):
+		_sync_hurtbox()
+	# ⚠ THE WHOLE `rig.position`, WHICH CARRIES THE FEET-ALIGNMENT OFFSET. The shapes
+	# below are cut in the RIG's frame (head top at -h/2, feet at +h/2) and the Area is
+	# then moved into it. `CharacterRig._align_feet_to_body` parks a hero's rig at
+	# -6.50, so an Area left on the body origin would sit 6.5 px low — which is how
+	# `Enemy`'s hurtbox silently lost 86% of its head. Godot composes a Node2D as
+	# `translate(position) * rotate(rotation)`, so copying both fields makes this
+	# Area's frame EXACTLY the rig's rather than merely close.
+	_hurtbox.position = rig.position
+	_hurtbox.rotation = rig.body_pitch()
+
+
+## Cut the shapes to the rig's CURRENT height, in the RIG's own local frame.
+## Deliberately the same arithmetic as `Enemy._sync_hurtbox`, derived from the same
+## `CharacterRig` constants rather than copied literals — two hurtbox schemes is how
+## the original head bug happened, and this file already carries that warning once.
+func _sync_hurtbox() -> void:
+	if _hurtbox == null or not is_instance_valid(_hurtbox) or not is_instance_valid(rig):
+		return
+	var h: float = float(rig.height)
+	_hurtbox_height = h
+	var head_r: float = h * CharacterRig.HEAD_R_FACTOR
+	var head_y: float = -h * 0.5 + head_r          # head TOP lands exactly at -h/2
+	var neck_y: float = head_y + head_r
+	var feet_y: float = h * CharacterRig.HIP_Y_FACTOR + h * CharacterRig.LEG_LEN_FACTOR
+	var head_cs := _hurtbox.get_node_or_null("HurtHead") as CollisionShape2D
+	var torso_cs := _hurtbox.get_node_or_null("HurtBody") as CollisionShape2D
+	if head_cs != null and head_cs.shape is CircleShape2D:
+		(head_cs.shape as CircleShape2D).radius = head_r
+		head_cs.position = Vector2(0.0, head_y)
+	if torso_cs != null and torso_cs.shape is RectangleShape2D:
+		(torso_cs.shape as RectangleShape2D).size = Vector2(_hurtbox_width(h), feet_y - neck_y)
+		torso_cs.position = Vector2(0.0, (neck_y + feet_y) * 0.5)
+
+
+## The hurtbox is exactly as WIDE as the movement collider already was. The fix is
+## "a hero is as tall as it is drawn", not "heroes are bigger now" — reusing the
+## shipped width means no horizontal inflation sneaks in with it.
+func _hurtbox_width(rig_height: float) -> float:
+	var cs := get_node_or_null("CollisionShape2D") as CollisionShape2D
+	if cs != null and cs.shape is RectangleShape2D:
+		return (cs.shape as RectangleShape2D).size.x
+	return rig_height * HURTBOX_WIDTH_FALLBACK_FACTOR
+
+
 ## World-space skeleton: neck / hip / head centre / head radius / uniform scale.
 ## Empty when there is no rig to measure.
 func _hit_silhouette() -> Dictionary:
@@ -7336,6 +7568,12 @@ func _hit_silhouette() -> Dictionary:
 	return {
 		"neck": xf * (head_local + Vector2(0.0, head_r)),
 		"hip": xf * Vector2(0.0, h * CharacterRig.HIP_Y_FACTOR),
+		# The SOLES. `HIP_Y_FACTOR + LEG_LEN_FACTOR` is 0.5 by construction, so this is
+		# the same `+h/2` the rig draws its feet at and the same `feet_y` the hurtbox
+		# above is cut to — written as the sum so it survives a re-derivation of the
+		# leg factors. `hip` is kept for callers that want the joint itself.
+		"foot": xf * Vector2(0.0,
+			h * (CharacterRig.HIP_Y_FACTOR + CharacterRig.LEG_LEN_FACTOR)),
 		"head": xf * head_local,
 		"head_r": head_r * s,
 		"scale": s,

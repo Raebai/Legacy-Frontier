@@ -201,10 +201,32 @@ func _test_try_damage_never_hits_caster() -> void:
 	_completes("try_damage_never_hits_caster")
 
 
-## Melee auto-target: the cursor points RIGHT (facing = RIGHT) but the only
-## enemy in range sits directly BEHIND (LEFT) — well outside the old strict
-## facing.dot(toward) <= _melee_arc_dot cone (dot ~ -1.0 <<= 0.3). The swing
-## must still connect because the nearest in-range enemy always auto-targets.
+## ⚠ THIS TEST PINNED THE AUTO-TARGET, AND THE AUTO-TARGET WAS DELETED ON A MAKER
+## RULING. What it used to assert, verbatim: the cursor points RIGHT while the only
+## enemy sits directly BEHIND (dot ~ -1.0, far outside the 0.3 cone) and the swing
+## connects anyway, "because the nearest in-range enemy always auto-targets".
+##
+## The recorded directive is **"NO auto-aim"**, alongside "everything must be
+## dodgeable" — and the maker's words about this exact attack were *"a little fire
+## fist ... in the direction being punched, that can be dodged"*. A swing that lands
+## on a body behind your heels is not dodgeable, so the unconditional append in
+## `Hero._on_melee_hit_frame` is gone and the per-class facing cone is now the whole
+## of what a swing hits. `tools/slice_test_hitboxes.gd` pins its absence from the
+## other side (a body BEHIND the swinger must take nothing).
+##
+## WHAT REPLACED IT, AND WHY THIS TEST STILL EARNS ITS PLACE. The ruling forbids the
+## SNAP, not the forgiveness: the cone is 66-90 degrees of half-angle per class and
+## reach is measured to the drawn silhouette plus the target's own `hit_margin`. So
+## the surviving promise is the one that actually matters to a player on a virtual
+## stick — a swing does not whiff because the cursor was not exactly on the body. The
+## probe below moves from "directly behind" to "in front, well off the cursor axis"
+## (dot 0.83 against an arc_dot of 0.30), which is that promise stated honestly.
+##
+## ⚠ AND THE STUB NOW JOINS BOTH GROUPS. The two halves of the old swing scanned
+## DIFFERENT groups — the cone scans `attack_group()` (`mortal` with friendly fire
+## on) while the auto-target scanned `hostile_group` (`enemy`) — so a stub in `enemy`
+## alone was reachable ONLY by the auto-target. That is why this test went red on the
+## deletion, and it is also why it has to join `mortal` to test the cone at all.
 func _test_melee_autotargets_nearest_enemy() -> void:
 	var hero: CharacterBody2D = (load(HERO_PATH) as PackedScene).instantiate()
 	root.add_child(hero)
@@ -213,8 +235,10 @@ func _test_melee_autotargets_nearest_enemy() -> void:
 	hero.set("_aim_dir", Vector2.RIGHT)
 	hero.set("facing", Vector2.RIGHT)
 	var enemy := StubEnemy.new()
-	enemy.add_to_group("enemy")
-	enemy.global_position = Vector2(-20.0, 0.0)  # within _melee_range, opposite the cursor
+	enemy.add_to_group("enemy")                  # hostile_group — the faction seam
+	enemy.add_to_group(SpellCaster.MORTAL_GROUP) # attack_group() — what the cone scans
+	# In range, in FRONT, and well off the cursor axis: dot 0.83 against arc_dot 0.30.
+	enemy.global_position = Vector2(30.0, -20.0)
 	root.add_child(enemy)
 	# ⚠ DECLARE THE SWING. `_on_melee_hit_frame` now refuses to land unless a swing
 	# was actually declared — the rig fires `hit_frame` for ANY punch or kick, and
@@ -223,7 +247,8 @@ func _test_melee_autotargets_nearest_enemy() -> void:
 	# harness has to open the window the real path opens.
 	hero.set("_swing_window", hero.SWING_WINDOW)
 	hero.call("_on_melee_hit_frame")
-	_expect(enemy.hit_count > 0, "melee auto-targets the nearest enemy even when the cursor isn't aimed at them")
+	_expect(enemy.hit_count > 0,
+		"a swing still connects on a body the cursor is not exactly aimed at")
 	# Control: with no enemy at all in range, nothing should hit or crash.
 	enemy.global_position = Vector2(500.0, 500.0)  # out of _melee_range
 	hero.set("_swing_window", hero.SWING_WINDOW)
