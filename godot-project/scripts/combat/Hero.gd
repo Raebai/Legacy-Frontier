@@ -1081,6 +1081,9 @@ var _remote_cast_total: float = 0.0
 var _status: StatusComponent = null
 
 var _aim_dir: Vector2 = Vector2.RIGHT
+## The wall the NEXT punch will spend itself on, or null. Held so the highlight can be
+## moved off the previous one — `set_primed` is a latch on the wall, not a query.
+var _primed_wall: Node2D = null
 var _move_dir: Vector2 = Vector2.RIGHT
 var is_dashing: bool = false
 var _dash_timer: float = 0.0
@@ -2562,12 +2565,52 @@ func _process(_delta: float) -> void:
 		return
 	if _net != null and _net.is_active() and not is_multiplayer_authority():
 		return
+	_update_wall_claim()
 	for action: StringName in BUFFERED_ACTIONS:
 		if Input.is_action_just_pressed(action):
 			_latch_buffer(String(action), BUFFER_TIME, false)
 	for i: int in SPELL_ACTIONS.size():
 		if Input.is_action_just_pressed(SPELL_ACTIONS[i]):
 			_latch_buffer(spell_buffer_key(i), SPELL_BUFFER_TIME, false)
+
+
+## How far in front of you a wall can be and still take the punch, and how nearly you
+## have to be facing it. `WALL_REACH` matches the playground's own 150 px so the two
+## behave identically; the dot is deliberately loose (about 84 degrees either side)
+## because a wall is a wide, close object and demanding precision to punch one you are
+## standing against would read as the button failing.
+const WALL_REACH: float = 150.0
+const WALL_FACING_DOT: float = 0.1
+
+
+## Which wall the next punch belongs to, resolved every frame.
+##
+## ⚠ A GUARDING HERO LIGHTS NOTHING. Guarding already costs you your offence, so a tell
+## promising a shove you cannot currently perform would be the HUD lying — the same
+## ruling the playground makes, for the same reason.
+func _update_wall_claim() -> void:
+	if downed or is_dashing:
+		_set_primed_wall(null)
+		return
+	var wall: Node2D = RockWall.find_shoveable_near(get_tree(), global_position, WALL_REACH, self)
+	if wall != null and wall.has_method("footprint_center"):
+		var to_wall: Vector2 = (wall.call("footprint_center") as Vector2) - global_position
+		if to_wall.normalized().dot(_aim_dir) <= WALL_FACING_DOT:
+			wall = null
+	_set_primed_wall(wall)
+
+
+## Move the highlight, and only when it actually changes. `set_primed` is a latch held
+## BY THE WALL, so the previous one has to be told it lost the claim — dropping the
+## reference alone would leave a wall glowing for a punch that is no longer coming.
+func _set_primed_wall(wall: Node2D) -> void:
+	if wall == _primed_wall:
+		return
+	if is_instance_valid(_primed_wall) and _primed_wall.has_method("set_primed"):
+		_primed_wall.call("set_primed", false)
+	_primed_wall = wall
+	if wall != null and wall.has_method("set_primed"):
+		wall.call("set_primed", true)
 
 
 ## Fire the buffered action if its gate is now open, consuming the buffer so
@@ -5698,6 +5741,34 @@ func equip_weapon(kind: String) -> void:
 
 
 func _melee() -> void:
+	# ══ THE WALL TWO-BEAT, WHICH UNTIL NOW EXISTED ONLY IN THE PLAYGROUND ═══════════
+	# `RockWall.find_shoveable_near` had exactly ONE caller in the whole repo —
+	# `scripts/spike/SpellPlaygroundController.gd` — so in the Arena, on every tower
+	# floor and in every bot fight, no press could shove or detonate a wall. The claim
+	# tell, the grinding ram and the ice wall's detonate were all playground-only.
+	#
+	# That is the worst shape a feature can have: the maker reviewed these spells IN the
+	# playground, saw the two-beat work, and asked for more of it — while the game they
+	# would actually ship did not have it at all.
+	#
+	# A punch that lands on a standing wall SPENDS ITSELF on the wall rather than also
+	# cutting through to whatever is behind it, which is what makes it a beat rather than
+	# a bonus. `find_shoveable_near` is duck-typed and answers with either kind, and each
+	# wall decides what its own second press means: rock slides, ice bursts where it
+	# stands (see `IceWall`/`RockWall`).
+	#
+	# ⚠ GATED ON FACING, via the same dot test the playground uses. Without it a wall
+	# raised behind you eats the punch you aimed forward, which reads as the attack
+	# button being broken.
+	if not is_dashing:
+		var wall: Node2D = RockWall.find_shoveable_near(get_tree(), global_position, WALL_REACH)
+		if wall != null and wall.has_method("footprint_center") and wall.has_method("shove"):
+			var to_wall: Vector2 = (wall.call("footprint_center") as Vector2) - global_position
+			var push_x: float = signf(to_wall.x) if not is_zero_approx(to_wall.x) else 1.0
+			if to_wall.normalized().dot(_aim_dir) > WALL_FACING_DOT \
+					and bool(wall.call("shove", Vector2(push_x, 0.0))):
+				_set_primed_wall(null)
+				return
 	_melee_cooldown_timer = _melee_cd
 	_swing_window = SWING_WINDOW  # this one really is a swing; see _on_melee_hit_frame
 	_net_send("ml")
