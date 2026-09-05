@@ -58,7 +58,17 @@ const TESTS: Array[String] = [
 	"spectacle_paths_are_warmed",
 	"signatures_are_carried_and_declared",
 	"warlock_opens_the_floor_with_a_thrall",
+	"every_spell_a_class_can_carry_has_a_blurb",
+	"the_blurbs_are_short_enough_to_draw",
+	"the_class_card_names_the_hand_it_really_holds",
 ]
+
+## The description table. Reached by `preload` (it has no `class_name`), which hands
+## back the SCRIPT OBJECT -- so only `static func` entry points on it are callable, and
+## calling them from here is itself the check that they really are static. A plain
+## `func` there fails at RUNTIME, not at parse time, which is why it is exercised by a
+## suite rather than trusted to review.
+const SpellBlurbs := preload("res://scripts/combat/SpellBlurbs.gd")
 
 const ARENA_PATH: String = "res://scripts/combat/Arena.gd"
 const RAISE_PATH: String = "res://scripts/combat/RaiseThrall.gd"
@@ -103,6 +113,9 @@ func _process(_delta: float) -> bool:
 	_test_spectacle_paths_are_warmed()
 	_test_signatures_are_carried_and_declared()
 	_test_warlock_opens_the_floor_with_a_thrall()
+	_test_every_spell_a_class_can_carry_has_a_blurb()
+	_test_the_blurbs_are_short_enough_to_draw()
+	_test_the_class_card_names_the_hand_it_really_holds()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -379,3 +392,192 @@ func _test_warlock_opens_the_floor_with_a_thrall() -> void:
 class _StubHero:
 	extends Node2D
 	var _hero_class: int = 7
+
+
+# ---------------------------------------------------------------------------
+# THE DESCRIPTIONS
+# ---------------------------------------------------------------------------
+
+## EVERY ID A CLASS CAN ACTUALLY END UP HOLDING.
+##
+## Not the carried hand -- the whole authored POOL. `SpellLibrary.CLASS_KITS` authors
+## five roles per class and `SLOT_ROLES` starts you with four of them; the fifth is the
+## reserve, and the Outfitter lets a player swap it in with one tap. So all five are
+## reachable, all five are inspectable, and all five need a description.
+##
+## Derived from the library rather than typed, so a kit re-point is covered the moment
+## it lands. `SpellLibrary.reserve_for_class` is deliberately NOT used: it answers what
+## is out of the CURRENT hand, which moves as the player chooses, and this wants the
+## union.
+func _carriable_ids() -> Array[String]:
+	var out: Array[String] = []
+	for i: int in ClassInfo.count():
+		var kit: Dictionary = SpellLibrary.kit_for_class(i)
+		for role: Variant in kit.keys():
+			var id: String = String(kit[role])
+			if id != "" and not out.has(id):
+				out.append(id)
+	out.sort()
+	return out
+
+
+## ...plus the floor pickups and the boss drops, which a player is HANDED mid-run and
+## has to decide about in the same breath. A spell you were just given with no
+## description is the same failure as one on a class card with no description.
+func _droppable_ids() -> Array[String]:
+	var out: Array[String] = []
+	for arr: Array in [SpellLibrary.build_tier2(), SpellLibrary.build_tier3()]:
+		for s: Variant in arr:
+			var d: SpellDef = s as SpellDef
+			if d != null and d.id != "" and not out.has(d.id):
+				out.append(d.id)
+	out.sort()
+	return out
+
+
+## THE COVERAGE CHECK THE MAKER'S ASK NEEDS.
+##
+## A description table that silently covers 40 of 54 is the same class of failure as
+## the rotted `ClassInfo.kit` strings this suite's neighbours are about: the screen
+## looks finished and a seventh of the roster reads blank. So the table is diffed
+## against the library's OWN id list, both for what a class can carry and for what a
+## floor can hand you.
+##
+## CONFIRMED TO FAIL: deleting the "iai_slash" row from `SpellBlurbs.BLURBS` reports
+##   FAIL: 1 spell(s) a class can carry have no description: iai_slash
+func _test_every_spell_a_class_can_carry_has_a_blurb() -> void:
+	var carriable: Array[String] = _carriable_ids()
+	# A zero-length sweep would pass every assertion below by having nothing to check,
+	# which is how a coverage test ships covering nothing.
+	_expect(carriable.size() >= 30,
+		"the sweep found a real kit pool to check (%d ids)" % carriable.size())
+	var missing: Array[String] = SpellBlurbs.missing_ids(carriable)
+	_expect(missing.is_empty(),
+		"%d spell(s) a class can carry have no description: %s"
+			% [missing.size(), ", ".join(missing)])
+
+	var drops: Array[String] = _droppable_ids()
+	_expect(drops.size() >= 8, "the drop sweep found a real pool (%d ids)" % drops.size())
+	var missing_drops: Array[String] = SpellBlurbs.missing_ids(drops)
+	_expect(missing_drops.is_empty(),
+		"%d spell(s) a floor can hand you have no description: %s"
+			% [missing_drops.size(), ", ".join(missing_drops)])
+
+	# And the accessors are really static -- see the note on the `preload` above. Called
+	# on the SCRIPT here, exactly as `ClassSelect` and `Outfitter` call them.
+	_expect(SpellBlurbs.for_id("iai_slash") != "", "for_id answers on the script object")
+	_expect(SpellBlurbs.for_id("no_such_spell_id") == "",
+		"...and answers EMPTY for an unknown id rather than inventing a placeholder")
+	_expect(not SpellBlurbs.has_blurb("no_such_spell_id"), "has_blurb agrees")
+	var built: SpellDef = SpellLibrary.by_id("iai_slash")
+	_expect(built != null and SpellBlurbs.for_spell(built) != "",
+		"for_spell resolves a built SpellDef")
+	_expect(SpellBlurbs.for_spell(null) == "", "...and a null def is a clean empty string")
+	_completes("every_spell_a_class_can_carry_has_a_blurb")
+
+
+## AN OVER-LONG BLURB DOES NOT ERROR -- IT WRAPS.
+##
+## Both consumers reserve exactly two lines for it (`ClassSelect`'s detail rows and the
+## `Outfitter`'s header line), because a reserved height is what makes those screens
+## measure the same for every class. A third line does not overflow visibly; it pushes
+## the panel it sits in down, and the 360 px budget is 19 px of headroom on the class
+## screen. So the ceiling is a test, not an intention.
+func _test_the_blurbs_are_short_enough_to_draw() -> void:
+	var ids: Array[String] = SpellBlurbs.ids()
+	_expect(ids.size() >= 40, "the blurb table is populated (%d entries)" % ids.size())
+	var over: Array[String] = SpellBlurbs.overlong_ids()
+	_expect(over.is_empty(),
+		"%d blurb(s) exceed the %d-character ceiling and would wrap to a third line: %s"
+			% [over.size(), SpellBlurbs.MAX_LEN, ", ".join(over)])
+	for id: String in ids:
+		var text: String = SpellBlurbs.for_id(id)
+		# The bar the maker set is "clear what it does", and the shortest honest way to
+		# check that mechanically is that the line is a SENTENCE rather than a tagline.
+		_expect(text.length() >= 24, "blurb for `%s` is too thin to say anything: %s"
+			% [id, text])
+	# AND THE LONG FORM NEVER REACHES THESE SCREENS. `SpellDef.description` is populated
+	# on all 54 spells and 46 of them are longer than this ceiling -- they are long-form
+	# paragraphs, three or four lines each at the size a 30 px row draws at. `for_spell`
+	# therefore prefers the TABLE and keeps the def as a fallback only. That order was a
+	# bug before it was a decision (it deferred to the def first, on the assumption the
+	# field was empty), so it is pinned rather than remembered.
+	var long_form: int = 0
+	for id2: String in _carriable_ids():
+		var built2: SpellDef = SpellLibrary.by_id(id2)
+		if built2 == null:
+			continue
+		if built2.description.length() > SpellBlurbs.MAX_LEN:
+			long_form += 1
+		_expect(SpellBlurbs.for_spell(built2).length() <= SpellBlurbs.MAX_LEN,
+			"`%s` resolves to the SHORT form for a UI row (got %d chars)"
+				% [id2, SpellBlurbs.for_spell(built2).length()])
+	_expect(long_form > 0,
+		"the fixture is real: at least one carriable spell has a long-form description "
+		+ "that this ordering has to be keeping off a 30 px row (found %d)" % long_form)
+	_completes("the_blurbs_are_short_enough_to_draw")
+
+
+## THE ROT THIS FILE'S NEIGHBOUR WAS ALWAYS ABOUT, TURNED INTO AN ASSERTION.
+##
+## `ClassInfo`'s own header records that its `kit` strings drifted from the real kits
+## and advertised three beams that were in NOBODY's kit -- and that it was "caught by
+## hand, not by a test". Measured again during this pass: ALL NINE strings named only
+## THREE spells while the hand has held FOUR since `SpellTier.SLOT_COUNT` became 4.
+## Both drifts are the same bug, which is that a string cannot be wrong, only stale.
+##
+## So both directions are pinned:
+##   * every spell the class REALLY carries is named on the card -- an omission is how
+##     the fourth slot went unadvertised on nine cards for months;
+##   * no spell the class does NOT carry is named on it -- an addition is how the card
+##     advertised beams nobody held, which is the failure that reached a player.
+##
+## CONFIRMED TO FAIL: putting "Blizzard" back into the Brawler's row reports
+##   FAIL: the Brawler's card names Blizzard, which that class does NOT carry
+func _test_the_class_card_names_the_hand_it_really_holds() -> void:
+	# Every display name in the game, so "named on the card" can be checked against a
+	# closed set rather than against a guess.
+	var all_names: Array[String] = []
+	for s: Variant in SpellLibrary.build_all():
+		var d: SpellDef = s as SpellDef
+		if d != null and not all_names.has(String(d.display_name)):
+			all_names.append(String(d.display_name))
+	_expect(all_names.size() >= 30, "there is a real name set to check against (%d)"
+		% all_names.size())
+	for i: int in ClassInfo.count():
+		var card: String = String((ClassInfo.CLASSES[i] as Dictionary).get("kit", ""))
+		var cls: String = ClassInfo.name_for(i)
+		_expect(card != "", "%s has a kit line at all" % cls)
+		var held: Array[String] = []
+		for s2: Variant in SpellLibrary.build_for_class(i):
+			var d2: SpellDef = s2 as SpellDef
+			if d2 != null:
+				held.append(String(d2.display_name))
+		for spell_name: String in held:
+			_expect(card.contains(spell_name),
+				"the %s card must name %s, which that class actually carries (card: %s)"
+					% [cls, spell_name, card])
+		for other: String in all_names:
+			if held.has(other):
+				continue
+			# Substring, so a name that is a substring of a CARRIED one is not a false
+			# positive: "Judgment" sits inside "Judgment - Divine Ray", and the Cleric
+			# carries the latter, so this guard skips it.
+			var swallowed: bool = false
+			for h: String in held:
+				if h.contains(other):
+					swallowed = true
+					break
+			if swallowed:
+				continue
+			_expect(not card.contains(other),
+				"the %s card names %s, which that class does NOT carry (card: %s)"
+					% [cls, other, card])
+		# And the DERIVED line agrees with the authored one about which spells exist.
+		# `ClassInfo.kit_for` is what `ClassSelect` actually draws, so a disagreement
+		# here is the screen and the string having different opinions about the game.
+		var derived: String = ClassInfo.kit_for(i)
+		for third: String in held:
+			_expect(derived.contains(third),
+				"the DERIVED %s line names %s (derived: %s)" % [cls, third, derived])
+	_completes("the_class_card_names_the_hand_it_really_holds")

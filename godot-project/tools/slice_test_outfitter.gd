@@ -31,10 +31,17 @@ const TESTS: Array[String] = [
 	"the_lobby_still_fits_a_phone",
 	"free_play_is_reachable_from_the_lobby",
 	"the_colourway_is_reachable_without_a_keyboard",
+	"the_hint_line_describes_the_spell_you_tapped",
 ]
 
 const LOBBY_SCENE: String = "res://scenes/ui/Lobby.tscn"
 const PAUSE_SCRIPT: String = "res://scripts/combat/PauseMenu.gd"
+const OUTFITTER_SCRIPT: String = "res://scripts/ui/Outfitter.gd"
+
+## The description table. `preload` yields the SCRIPT OBJECT, so only `static func`
+## entry points on it are callable -- which is the same call the Outfitter itself
+## makes, so this suite exercises the real access path rather than a friendlier one.
+const SpellBlurbs := preload("res://scripts/combat/SpellBlurbs.gd")
 
 ## Godot's base viewport, from project.godot. Everything a thumb touches has to live
 ## inside this in LANDSCAPE. Same numbers `tools/slice_test_shell.gd` pins.
@@ -61,6 +68,7 @@ func _init() -> void:
 	await _test_the_lobby_still_fits_a_phone()
 	await _test_free_play_is_reachable_from_the_lobby()
 	_test_the_colourway_is_reachable_without_a_keyboard()
+	await _test_the_hint_line_describes_the_spell_you_tapped()
 	SpellLibrary.clear_slot_roles()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
@@ -320,6 +328,14 @@ func _test_the_outfitter_fits_a_phone() -> void:
 		_completes("the_outfitter_fits_a_phone")
 		return
 	_check_fits(out.get("_col") as Control, "outfitter")
+	# The number, printed. A budget nobody can see is a budget nobody notices getting
+	# tighter -- and this column has 360 px and no more, on the screen that grew a
+	# description line this pass.
+	var col0: Control = out.get("_col") as Control
+	if col0 != null:
+		print("[layout] outfitter column min %.0fx%.0f (budget %.0fx%.0f)"
+			% [col0.get_combined_minimum_size().x, col0.get_combined_minimum_size().y,
+				BASE_W, BASE_H])
 	var buttons: Array = []
 	_walk(out, buttons)
 	_expect(buttons.size() >= 6,
@@ -445,21 +461,110 @@ func _test_free_play_is_reachable_from_the_lobby() -> void:
 	_completes("free_play_is_reachable_from_the_lobby")
 
 
-## `cycle_colourway` has been bound to `C` for a long time. There is no `C` on a phone,
-## so on the target platform the feature did not exist. It needs a row a thumb finds.
+## THE COLOURWAY IS NOT ON THIS SCREEN ANY MORE -- AND ITS STATE SURVIVED THE CUT.
+##
+## Maker: *"remove that azure ember etc. options within the class selection"*. So the
+## picker row is gone from the Outfitter. What this test now pins is the thing that is
+## easy to get wrong when a UI row is deleted: `Outfitter.chosen_colourway`,
+## `colourways()` and `colourway_name()` are read by THREE files outside this one --
+## `scripts/combat/PauseMenu.gd`, `scripts/Settings.gd` and
+## `tools/slice_test_settings.gd` -- and deleting the statics along with the button
+## would have been a parse-time break in files this pass does not own.
+##
+## So: the button is gone, the API is not, and the colourway is still reachable on a
+## touchscreen -- through the pause menu's appearance row, which is where a cosmetic
+## belongs and where it already was.
 func _test_the_colourway_is_reachable_without_a_keyboard() -> void:
 	var palette: Array = Outfitter.colourways()
 	_expect(palette.size() >= 2, "there is a palette to choose from (%d entries)" % palette.size())
-	_expect(Outfitter.colourway_name(0) != "", "entries are named for the picker")
+	_expect(Outfitter.colourway_name(0) != "", "entries are still named for the picker")
 	# Past the end of the name list is a number, not a crash or a dropped entry.
 	_expect(Outfitter.colourway_name(99) != "", "an unnamed colourway still reads")
+
+	# THE ROW IS GONE FROM THIS SCREEN. Asserted against the source rather than by
+	# walking the tree, because "no button whose text happens to contain a colour name"
+	# is a check that passes for the wrong reason the moment a colour is renamed.
+	var out_src: String = FileAccess.get_file_as_string(OUTFITTER_SCRIPT)
+	_expect(out_src != "", "the Outfitter source is readable")
+	_expect(not out_src.contains("_cycle_colour("),
+		"the Outfitter no longer builds a colourway picker -- it is noise on the one "
+		+ "screen whose question is which of nine fighters you are about to be")
+	# ...and the static the OTHER three files read is still declared here.
+	_expect(out_src.contains("static var chosen_colourway"),
+		"but `chosen_colourway` survives: PauseMenu.gd, Settings.gd and "
+		+ "slice_test_settings.gd all read it, and none of them is ours to change")
+
 	var src: String = FileAccess.get_file_as_string(PAUSE_SCRIPT)
 	_expect(src.contains("_build_appearance"), "the pause menu carries an appearance row")
-	_expect(src.contains("_sync_colourway"), "...that applies the lobby-side pick to the live hero")
+	_expect(src.contains("_sync_colourway"), "...that applies the picked colourway to the live hero")
 	# The pause menu is the ONE settings surface reachable on a touchscreen (it owns
-	# the on-screen pause button), which is the whole reason the row lives there.
+	# the on-screen pause button), which is why the colourway can leave this screen
+	# without leaving the game.
 	_expect(src.contains("PAUSE_BTN_SIZE"), "and the pause menu is itself touch-reachable")
 	_completes("the_colourway_is_reachable_without_a_keyboard")
+
+
+## EVERY SPELL SAYS WHAT IT DOES, ON THE SCREEN WHERE YOU PICK IT.
+##
+## Maker: *"each spell should have a description of what it does, short and sweet but
+## in an epic way and clear what it does"*. The Outfitter is where a hand is actually
+## chosen, and until this pass it listed four role rows as bare names -- so choosing
+## between them was choosing between words. The header line, which used to be a
+## one-off instruction nobody re-reads, now carries the blurb for whichever role was
+## last tapped.
+##
+## Driven, not inspected: the real `_toggle_role` is called and the real Label is read
+## back, because a `_refresh_blurb` that exists and is never reached is exactly the
+## shape of a screen that ships blank.
+##
+## CONFIRMED TO FAIL: dropping the `_refresh_blurb()` call out of `_redraw()` reports
+##   FAIL: tapping the damage role puts its description on screen (line was ...)
+func _test_the_hint_line_describes_the_spell_you_tapped() -> void:
+	var out: Control = load(OUTFITTER_SCRIPT).new() as Control
+	root.add_child(out)
+	await process_frame
+	out.call("set_class", 8)          # Swordsaint -- four distinct, well-described spells
+	await process_frame
+	var hint: Label = out.get("_hint") as Label
+	_expect(hint != null, "the Outfitter still has a header line to write into")
+	if hint == null:
+		out.queue_free()
+		_completes("the_hint_line_describes_the_spell_you_tapped")
+		return
+
+	# ON OPEN it describes the ULT. The finisher is the most interesting line on any
+	# hand and the one row that is NOT a choice, so it is the only default that cannot
+	# also read as a hint about what you should carry.
+	var ult_role: String = String(out.get("_ult_role"))
+	var ult: SpellDef = SpellLibrary.spell_for_role(8, ult_role)
+	_expect(ult != null and hint.text == SpellBlurbs.for_spell(ult),
+		"the screen opens describing the ult (line was: %s)" % hint.text)
+
+	# ...and tapping a role re-points it at that role's spell.
+	for role: Variant in SpellLibrary.choosable_roles_for_class(8):
+		var r: String = String(role)
+		out.call("_toggle_role", r)
+		await process_frame
+		var spell: SpellDef = SpellLibrary.spell_for_role(8, r)
+		_expect(spell != null, "the Swordsaint authors a `%s` spell" % r)
+		if spell == null:
+			continue
+		var want: String = SpellBlurbs.for_spell(spell)
+		_expect(want != "", "`%s` has a description at all" % spell.id)
+		_expect(hint.text == want,
+			"tapping the %s role puts ITS description on screen (wanted: %s / line was: %s)"
+				% [r, want, hint.text])
+
+	# AND THE LINE IS BOUNDED. It reserves two lines of height so the panel measures the
+	# same for every class; a blurb long enough to need three would push a 360 px screen
+	# off a phone, and only a capture would ever show it.
+	_expect(hint.custom_minimum_size.y >= 20.0,
+		"the blurb line reserves its two lines (%.0f px) so the panel height is a "
+			% hint.custom_minimum_size.y
+		+ "constant rather than a function of which role is selected")
+	out.queue_free()
+	SpellLibrary.clear_slot_roles()
+	_completes("the_hint_line_describes_the_spell_you_tapped")
 
 
 # ---------------------------------------------------------------------------

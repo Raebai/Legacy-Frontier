@@ -13,9 +13,28 @@ extends Control
 ##   2. **THE ARMORY.** `Loadout.gd` — 3 slots x 19 pieces, real effect bags, live on
 ##      the hero — has been complete and unreachable behind an `if false:` in the
 ##      parked hub since it was written. One button opens it.
-##   3. **A COLOURWAY.** `cycle_colourway` is a real input action bound to `C` that no
-##      player would ever find, and in co-op two identical stick figures at 640x360 is
-##      a genuine readability problem. Pick your colour where you pick everything else.
+##   3. **WHAT EACH SPELL ACTUALLY DOES.** Tap a role and the line under the header
+##      tells you, in one sentence (`SpellBlurbs`). A hand of four picked from a list
+##      of names is a guess; the blurb is what makes it a choice.
+##
+## == THE COLOURWAY IS NOT HERE ANY MORE, AND THE STATE IT USED IS UNTOUCHED ====
+## Maker: *"remove that azure ember etc. options within the class selection"*. The
+## colourway picker was the third row of this screen and it is gone from it -- "Azure /
+## Ember / Void / Jade / Mono" are limb TINTS, and a tint is noise on the one screen
+## whose entire question is which of nine fighters you are about to be.
+##
+## ⚠ THE PICKER WENT; THE PICK DID NOT. `chosen_colourway`, `colourways()` and
+## `colourway_name()` below are still here and still exported, because THREE consumers
+## outside this file read them and none of them is ours:
+##     scripts/combat/PauseMenu.gd:953-1018  -- the appearance row, which is where a
+##                                             cosmetic belongs and where it still is
+##     scripts/Settings.gd:201,245-248       -- persists it across launches
+##     tools/slice_test_settings.gd:334-372  -- pins that round-trip
+## Deleting the static would have been a parse-time break in a file another agent owns.
+## What was checked before cutting the button: `GameState.colourway` (read at hero spawn,
+## `Hero.gd:1787`) has NO WRITER anywhere in the tree, so it was -1 before this edit and
+## it is -1 after -- nothing was stranded, because nothing was ever connected. The
+## one-line hook that would connect it is named in the report for this pass.
 ##
 ## Built in code, house style (`ClassSelect` / `Loadout` / `PauseMenu` / `Lobby` all
 ## do this), laid out for the **640x360 base viewport in landscape** with every tap
@@ -50,6 +69,12 @@ const LIST_H: float = 132.0
 ## same reason: a parse-time reference to Hero would drag its whole autoload-touching
 ## dependency chain into this script's compile.
 const HERO_PATH: String = "res://scripts/combat/Hero.gd"
+
+## ⚠ `preload` HANDS BACK THE SCRIPT OBJECT, NOT AN INSTANCE, so only `static func`
+## entry points on it are callable. `SpellBlurbs` is written to that rule end to end;
+## a plain `func` there would fail HERE, at runtime, in the frame a player opens this
+## screen -- not at parse time. See that file's header.
+const SpellBlurbs := preload("res://scripts/combat/SpellBlurbs.gd")
 
 ## Colourway display names, in `Hero.COLOURWAYS` order. Names only — the COLOURS are
 ## read off Hero at runtime, so a palette edit there cannot leave this lying. A
@@ -89,13 +114,17 @@ var _scroll: ScrollContainer = null
 ## The fixed ult slot, outside the scrolling list. See the note where it is built.
 var _ult_slot_row: PanelContainer = null
 var _summary: Label = null
-var _colour_btn: Button = null
 ## The panel column. Held so a suite can assert the whole screen still fits 360 px —
 ## the thing that silently breaks the first time somebody adds one more row.
 var _col: VBoxContainer = null
 ## Carried non-ult roles, OLDEST FIRST. The order is the feature: see `_toggle_role`.
 var _carried: Array = []
 var _ult_role: String = "ult"
+## WHICH ROLE'S DESCRIPTION IS SHOWING. Empty means "not chosen yet", which
+## `_refresh_blurb` resolves to the ULT -- the finisher is the most interesting line on
+## any hand and the one row that is not a choice, so it is the only safe default that
+## is never also a hint about what you should carry.
+var _focus_role: String = ""
 
 
 func _ready() -> void:
@@ -166,9 +195,23 @@ func _build() -> void:
 		_title.add_theme_color_override("font_color", CHALK)
 		col.add_child(_title)
 
+	# ⚠ THIS LINE USED TO BE AN INSTRUCTION AND IS NOW THE ANSWER. It read
+	# "five spells - 4 buttons - pick the 3 you carry": a sentence a player reads once,
+	# on a screen whose rows are already self-evidently pressable. It is now the
+	# DESCRIPTION of whichever spell you last touched, which is the thing the maker
+	# actually asked for and the thing this screen could not tell you. Same row, same
+	# height budget, strictly more information -- the standing "cut, do not add" rule
+	# is obeyed by replacement rather than by addition.
 	_hint = Label.new()
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	# TWO LINES, RESERVED. `SpellBlurbs.MAX_LEN` is 96 characters and this label is
+	# PANEL_W wide at font 9, which holds ~71 -- so every blurb is one or two lines and
+	# never three. Reserving the second means the panel measures the SAME height for a
+	# long blurb and a short one, so `slice_test_outfitter`'s 360 px budget is a fact
+	# about the screen rather than about which role happened to be selected.
+	_hint.custom_minimum_size = Vector2(PANEL_W, 22.0)
+	_hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_hint.add_theme_font_size_override("font_size", 9)
 	_hint.add_theme_color_override("font_color", GRAPHITE)
 	col.add_child(_hint)
@@ -197,19 +240,10 @@ func _build() -> void:
 	_summary.add_theme_color_override("font_color", Color(0.72, 0.86, 0.95))
 	col.add_child(_summary)
 
-	# The two OTHER customisations, paired on one row so they cost one row of height
-	# between them rather than two. Both are still MIN_TAP tall.
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 6)
-	col.add_child(row)
-	var armory := _button("⚒  Armory", _open_armory, 13)
-	armory.custom_minimum_size = Vector2(PANEL_W * 0.5 - 3.0, MIN_TAP)
-	armory.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(armory)
-	_colour_btn = _button("", _cycle_colour, 13)
-	_colour_btn.custom_minimum_size = Vector2(PANEL_W * 0.5 - 3.0, MIN_TAP)
-	_colour_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(_colour_btn)
+	# THE ONE REMAINING SIDE DOOR. It shared this row with the colourway picker; with
+	# that gone it takes the full width, which costs nothing (the row was already
+	# `MIN_TAP` tall) and doubles the tap target on the screen's one non-obvious button.
+	col.add_child(_button("⚒  Armory", _open_armory, 13))
 
 	col.add_child(_button("Done", close, 14))
 
@@ -233,6 +267,10 @@ func refresh() -> void:
 	# Seed from whatever the class is ACTUALLY carrying — the player's pick if they
 	# made one, else the authored hand. So opening this screen never silently
 	# rearranges a hand just by being opened.
+	# A new class means a new hand; keeping the previous class's focused role would
+	# describe a spell that is no longer on this screen (roles are shared names, and
+	# `damage` on the Cleric is not `damage` on the Warlock).
+	_focus_role = ""
 	_carried.clear()
 	for role: Variant in SpellLibrary.slot_roles_for_class(_class_id):
 		if String(role) != _ult_role:
@@ -243,14 +281,7 @@ func refresh() -> void:
 func _redraw() -> void:
 	if _title != null:
 		_title.text = "YOUR HAND — %s" % _class_display_name()
-	if _hint != null:
-		# ⚠ DERIVED, BECAUSE IT WAS WRONG. This line read "five spells · three buttons ·
-		# pick the two you carry" — true until `SpellTier.SLOT_COUNT` became 4, and a
-		# hand-typed count is a fact that goes stale silently while the screen underneath
-		# it stays correct.
-		var open_slots: int = SpellTier.SLOT_COUNT - 1
-		_hint.text = "five spells · %d buttons · pick the %d you carry" % [
-			SpellTier.SLOT_COUNT, open_slots]
+	_refresh_blurb()
 	if _list == null:
 		return
 	for child: Node in _list.get_children():
@@ -267,7 +298,6 @@ func _redraw() -> void:
 			child.queue_free()
 		_ult_slot_row.add_child(_role_row(_ult_role, true, false))
 	_refresh_summary()
-	_refresh_colour()
 	_refresh_class_btn()
 
 
@@ -293,9 +323,25 @@ func _role_row(role: String, carried: bool, enabled: bool) -> Button:
 	if enabled:
 		b.pressed.connect(_toggle_role.bind(role))
 	else:
+		# ⚠ THE ULT ROW IS `disabled`, AND A DISABLED BUTTON EMITS NOTHING -- not
+		# `pressed`, not `gui_input`. So the one spell on this screen a player cannot
+		# change was also the one they could not ask about. `mouse_filter = PASS` lets
+		# the tap reach this row's own handler while `disabled` goes on refusing to
+		# TOGGLE it, which is the distinction that matters: reading is not choosing.
 		b.disabled = true
+		b.mouse_filter = Control.MOUSE_FILTER_PASS
+		b.gui_input.connect(_on_locked_row_input.bind(role))
 		b.modulate = Color(1.0, 1.0, 1.0, 0.85)
 	return b
+
+
+## Tapping the fixed ult row shows its description and changes nothing else.
+func _on_locked_row_input(event: InputEvent, role: String) -> void:
+	var tap: bool = (event is InputEventMouseButton and (event as InputEventMouseButton).pressed) 		or (event is InputEventScreenTouch and (event as InputEventScreenTouch).pressed)
+	if not tap:
+		return
+	_focus_role = role
+	_refresh_blurb()
 
 
 ## Tap a role to carry it.
@@ -307,10 +353,24 @@ func _role_row(role: String, carried: bool, enabled: bool) -> Button:
 ## un-tap first. Tapping a carried role when both slots are full is the explicit
 ## un-tap, and is refused only when it would leave the hand short.
 func _toggle_role(role: String) -> void:
+	# The tap that changes the hand is also the tap that asks "what IS this one" -- so
+	# the blurb line follows it. There is no hover on a phone and no second gesture to
+	# spend, so the two questions share one tap and the answer arrives with the change.
+	_focus_role = role
 	var open_slots: int = SpellTier.SLOT_COUNT - 1   # the last slot is the ult's
 	if _carried.has(role):
 		if _carried.size() <= 1:
-			return   # a hand with one spell in it is not a choice, it is a bug
+			# A hand with one spell in it is not a choice, it is a bug -- so the DROP is
+			# refused. The description is not.
+			#
+			# ⚠ THIS USED TO BE A BARE `return`, AND THE BLURB LINE TURNED IT INTO A
+			# BUG. Caught by `slice_test_outfitter`, not by looking: walking the
+			# Swordsaint's four roles, the last one left carried refused the tap and
+			# fell out of this function BEFORE `_redraw`, so the header line went on
+			# describing the PREVIOUS role. The one spell a player cannot drop was the
+			# one spell they could not read about, and it was silent about both.
+			_refresh_blurb()
+			return
 		_carried.erase(role)
 	else:
 		_carried.append(role)
@@ -332,6 +392,27 @@ func _commit() -> void:
 		return
 	# No-op until `GameState.spell_roles` exists; see SpellLibrary.persist_to_state.
 	SpellLibrary.persist_to_state(get_node_or_null("/root/GameState"))
+
+
+## THE LINE THAT SAYS WHAT A SPELL DOES.
+##
+## Reads through `SpellBlurbs.for_spell`, so a `SpellDef` that ever authors its own
+## `description` wins over the table -- see that file. Falls back to the class name
+## rather than to an instruction, because an empty line here would read as a bug and a
+## re-typed instruction is what this row used to be.
+func _refresh_blurb() -> void:
+	if _hint == null:
+		return
+	var role: String = _focus_role if _focus_role != "" else _ult_role
+	var spell: SpellDef = SpellLibrary.spell_for_role(_class_id, role)
+	var text: String = SpellBlurbs.for_spell(spell)
+	if text == "":
+		# A HOLE, SHOWN. `tools/slice_test_class_identity.gd` asserts every id a class
+		# can carry has a blurb, so reaching this branch means the suite is stale or a
+		# spell was added without one -- and the name alone is still more useful than a
+		# sentence apologising for itself.
+		text = String(spell.display_name) if spell != null else ""
+	_hint.text = text
 
 
 func _refresh_summary() -> void:
@@ -442,22 +523,6 @@ static func colourway_name(index: int) -> String:
 	if index >= 0 and index < COLOURWAY_NAMES.size():
 		return COLOURWAY_NAMES[index]
 	return "Colour %d" % (index + 1)
-
-
-func _cycle_colour() -> void:
-	var count: int = maxi(colourways().size(), 1)
-	chosen_colourway = (chosen_colourway + 1) % count
-	_refresh_colour()
-	_sfx("ding", -8.0)
-
-
-func _refresh_colour() -> void:
-	if _colour_btn == null:
-		return
-	var palette: Array = colourways()
-	_colour_btn.text = "◧  %s" % colourway_name(chosen_colourway)
-	if chosen_colourway >= 0 and chosen_colourway < palette.size():
-		_colour_btn.add_theme_color_override("font_color", palette[chosen_colourway] as Color)
 
 
 # ══════════════════════════════════════════════════════════════════ helpers

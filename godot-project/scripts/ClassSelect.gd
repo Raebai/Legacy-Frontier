@@ -8,21 +8,49 @@ extends CanvasLayer
 ## when the player / label groups are absent (i.e. in the arena). Referenced
 ## elsewhere via /root/ClassSelect so headless tests never need the autoload.
 
-## ══ SIMPLER, BECAUSE IT WAS ASKED FOR ═══════════════════════════════════════
-## Maker: "class select must be far simpler", under the standing rule "this game has
-## too much text and too many random UI pieces — every screen should be cut, not
-## added to."
+## == THE ROSTER RAIL, AND THE TWO LAYOUTS IT BEAT ============================
+## Maker: *"revamp how the class selection looks. Research the popular simple
+## non-confusing ways of showing classes"*. There is no browser here, so nothing was
+## surveyed -- the shape was reasoned from what this screen is for and from four
+## measurements, and the constraints did most of the work.
 ##
-## What each card used to carry: the name, a bracketed FANTASY line, and a KIT
-## sentence — three lines, nine times, in a two-column grid 232 px wide. That is
-## roughly sixty words on a screen whose entire question is "which one". The kit line
-## in particular was answering a question the ARCHIVIST and the Outfitter both answer
-## properly, with the actual spells, at the two pads either side of this one.
+## WHAT IT IS NOW: a **master-detail roster** -- a fixed rail of all nine classes down
+## the left, and a detail column on the right showing the class you are CURRENTLY in:
+## its fantasy line and the four spells it actually casts, each with one sentence
+## saying what that spell does. Tap a rail row to become that class (one tap, as
+## before); the detail follows the pad cursor in pad mode.
 ##
-## What it carries now: the NAME, in the class's own colour, on a card you can hit
-## with a thumb. Three columns so nine cards are a square rather than a column you
-## scroll. The colour is not decoration — it is the same `ClassInfo.color_for` the
-## hero is tinted with, so the card and the body you walk away in match.
+## WHY MASTER-DETAIL:
+##   * 640x360 is a LANDSCAPE STRIP, and `stretch/aspect="expand"` means a taller phone
+##     gets a WIDER logical viewport (a 20:9 handset reads 800x360), never a shorter
+##     one. So HEIGHT is the fixed, scarce axis and WIDTH is the one that only grows.
+##     A layout that spends width and leaves height alone cannot be broken by a device.
+##   * Nine rows at `ROW_H` 30 px is 278 px of rail -- the whole roster on screen with
+##     NO scrolling. Nothing a player must choose between is hidden behind a gesture.
+##   * The detail column is where the spell descriptions finally have somewhere to
+##     live, which is the other half of the same ask.
+##
+## REJECTED 1 -- THE 3x3 GRID THIS REPLACES. Nine 124x58 cards carrying the name and
+## nothing else. Measured: 388 x 226, so it left ~250 px of width and ~130 px of height
+## empty on the base viewport and MORE of both on a 20:9 phone, while answering only
+## "what are they called". The grid was not too big; it was too empty to be worth a
+## screen. It also forced `_move_cursor` to reason about a short last row.
+##
+## REJECTED 2 -- A CAROUSEL (one big class card, arrows either side). It is the layout
+## that shows a class best, and it is the layout that COMPARES classes worst: nine
+## classes means up to eight swipes to see the eighth, and the thing a player is doing
+## here is comparing. It also needs two more tap targets (the arrows) on a screen the
+## standing rule says to cut, and at `MIN_TAP` those arrows eat 60 px of the width the
+## detail column wants.
+##
+## == ONE TAP STILL COMMITS, AND THAT IS A CONTRACT ===========================
+## A rail row `pressed` PICKS the class and closes, exactly as the old cards did.
+## Tap-to-preview / tap-again-to-confirm was drafted and dropped: `tools/slice_test_town.gd`
+## drives the merge by emitting `pressed` on one card and asserting the screen closes and
+## the Outfitter re-aims, so a two-tap confirm would silently break the merge test in a
+## file this agent does not own. It is also the better screen -- the preview a two-tap
+## flow would buy already exists one step later, on the Outfitter this returns to, which
+## shows the new class's four roles WITH their blurbs and is one tap to change again.
 ## ══ WHO ASKED, AND WHO NEEDS TELLING ════════════════════════════════════════
 ## Emitted when the HUB path picks a class — i.e. from `_on_card_pressed`, after
 ## `GameState.selected_class` is written and before this screen closes. NOT emitted in
@@ -36,12 +64,40 @@ extends CanvasLayer
 ## should not know exists: the chooser announces, the caller decides what that means.
 signal class_picked(index: int)
 
-const CARD_SIZE: Vector2 = Vector2(124, 58)
-const GRID_COLUMNS: int = 3
-## Appended to a locked card. Says WHERE the class is, not merely that it is gone —
+const HudStyle := preload("res://scripts/ui/HudStyle.gd")
+const SpellBlurbs := preload("res://scripts/combat/SpellBlurbs.gd")
+
+## ONE COLUMN. Kept as a constant rather than inlined as `1` because `_move_cursor`
+## still reasons in rows/columns and a future two-column rail should be one edit here,
+## not a rewrite of the cursor walk.
+const GRID_COLUMNS: int = 1
+
+## The rail. `ROW_H` is the thumb floor (`Outfitter.MIN_TAP`, `slice_test_shell`'s
+## floor, and the number `tools/slice_test_class_select_layout.gd` asserts against);
+## `RAIL_W` is wide enough for "Cryomancer  · guarded" at font 13 without clipping.
+const RAIL_W: float = 152.0
+const ROW_H: float = 30.0
+## The detail column. 300 px is what is left of the 640 base viewport once the rail,
+## the gap and the panel's own margins are taken -- with ~170 px of slack, which is
+## where the wider logical viewport of a tall phone goes.
+const DETAIL_W: float = 300.0
+const GAP: float = 6.0
+
+## Appended to a locked row. Says WHERE the class is, not merely that it is gone —
 ## the difference between a goal and a smaller game. Two words instead of five.
-const LOCK_SUFFIX: String = "\nguarded"
+##
+## ⚠ IT IS A MIDDLE DOT NOW, NOT A NEWLINE. A newline was fine on a 58 px card and is
+## not fine in a 30 px row: the second line is simply not drawn, so three of the nine
+## rows would have said nothing about being locked at all.
+const LOCK_SUFFIX: String = "  · guarded"
 const HIGHLIGHT: Color = Color(0.55, 0.9, 1.0)
+
+## The leading block on a rail row, drawn in the class colour by the row's own
+## `font_color`. A glyph rather than a `ColorRect` child so the row stays ONE Button:
+## `tools/slice_test_town.gd` walks this screen for Buttons and indexes the result BY
+## CLASS, so any extra Button anywhere before the rail would renumber the roster under
+## a test in a file this agent does not own.
+const SWATCH: String = "█"
 
 ## ══ PLAYER TWO PICKS THEIR OWN CLASS, WITH A PAD AND NOTHING ELSE ═══════════════
 ## The standing known gap in same-screen co-op: a joining pad inherited player one's
@@ -75,6 +131,17 @@ const PAD_REPEAT_RATE: float = 0.13     ## and how fast it walks after that
 const PAD_CURSOR: Color = Color(1.0, 0.95, 0.6)
 
 var _cards: Array[Button] = []
+## The right-hand column: who you currently are, and the four spells you cast.
+## Rebuilt wholesale by `_refresh_detail` rather than diffed -- nine classes x five
+## labels is nothing, and a diff is where a stale label survives a class change.
+var _detail: VBoxContainer = null
+## Which class the detail column is currently drawn for. `-1` forces the first draw.
+var _detail_for: int = -1
+var _detail_name: Label = null
+var _detail_fantasy: Label = null
+var _detail_names: Array[Label] = []
+var _detail_blurbs: Array[Label] = []
+var _detail_reserve: Label = null
 var _panel: PanelContainer = null
 var _dim: ColorRect = null
 
@@ -118,44 +185,190 @@ func _ready() -> void:
 	_panel = PanelContainer.new()
 	center.add_child(_panel)
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 10)
+	# 4, not the old 10. The screen is a rail and a column now rather than three loose
+	# blocks, and a 10 px gutter between the title and a 278 px rail is the difference
+	# between fitting 360 px with room and fitting it by luck.
+	vbox.add_theme_constant_override("separation", 4)
 	_panel.add_child(vbox)
 	var title := Label.new()
 	_title = title
 	title.text = "CHOOSE YOUR CLASS"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 20)
-	title.add_theme_color_override("font_color", Color(0.95, 0.96, 1.0))
+	# Was 20. `HudStyle.BODY` is the size this game gives a menu row, and the title of a
+	# screen that is already unmistakably a class list does not need to be the loudest
+	# thing on it -- the 6 px it gives back go to the rail.
+	HudStyle.label(title, HudStyle.BODY, HudStyle.CHALK)
 	vbox.add_child(title)
-	var grid := GridContainer.new()
-	grid.columns = GRID_COLUMNS
-	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 8)
-	vbox.add_child(grid)
-	_build_cards(grid)
-	# ⚠ THE HINT LINE IS GONE. It read "tap a class · Esc / tap-away to cancel" — an
-	# instruction for tapping a grid of nine buttons, which is the one interaction on
+
+	# THE TWO COLUMNS. The rail is fixed-width; the detail column is fixed-width; the
+	# HBox is therefore fixed-width, which is what lets a probe assert a rect instead
+	# of hoping about one.
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override("separation", int(GAP))
+	vbox.add_child(body)
+
+	var rail := VBoxContainer.new()
+	rail.custom_minimum_size = Vector2(RAIL_W, 0)
+	# 0, not the grid's 8. Nine rows at 8 px of gutter is 64 px of nothing -- a fifth of
+	# the height budget spent on gaps, on the one axis a phone cannot give more of. The
+	# rows are told apart by the colour block at the head of each, and by the cursor /
+	# highlight tint, neither of which needs a gap to read. MEASURED: at 1 px of
+	# separation the panel came to 349 px against the 360 ceiling; at 0 it is 341, and
+	# `tools/slice_test_class_select_layout.gd` prints the number on every run.
+	rail.add_theme_constant_override("separation", 0)
+	body.add_child(rail)
+	_build_cards(rail)
+
+	_detail = VBoxContainer.new()
+	_detail.custom_minimum_size = Vector2(DETAIL_W, 0)
+	_detail.add_theme_constant_override("separation", 2)
+	body.add_child(_detail)
+	_build_detail()
+	# The hint line is still gone. It read "tap a class - Esc / tap-away to cancel", an
+	# instruction for tapping a list of nine buttons, which is the one interaction on
 	# earth nobody needs told. Both routes it described still work.
 
 
-func _build_cards(grid: GridContainer) -> void:
+## The rail: one row per class, the whole roster visible with no scrolling.
+##
+## The row carries the NAME and a leading block in the class's own colour -- the same
+## `ClassInfo.color_for` the hero rig is tinted with, so the row and the body you walk
+## away in match. It is deliberately not an icon: there are no class icons in this
+## project, and a screen that needs nine new pieces of art to read is a screen that
+## does not ship.
+func _build_cards(rail: VBoxContainer) -> void:
 	for i: int in ClassInfo.count():
 		var info: Dictionary = ClassInfo.CLASSES[i]
 		var b := Button.new()
-		b.custom_minimum_size = CARD_SIZE
-		b.clip_text = false
-		b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		b.add_theme_font_size_override("font_size", 15)
-		# ⚠ THE NAME AND NOTHING ELSE. `info["fantasy"]` and `info["kit"]` are still
-		# authored and still read — `ClassInfo` feeds the class cards elsewhere — they
-		# are simply not what this screen is for. What the class actually casts is two
-		# pads away, on the Archivist and the Outfitter, in the form of the spells.
-		b.text = String(info["name"])
+		b.custom_minimum_size = Vector2(RAIL_W, ROW_H)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		# clip, not wrap. A wrapped row grows and nine grown rows walk the panel off a
+		# phone; a clipped one loses a character and the layout survives. Nothing here
+		# is long enough to clip at RAIL_W, which the layout probe measures rather than
+		# assumes.
+		b.clip_text = true
+		b.autowrap_mode = TextServer.AUTOWRAP_OFF
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.add_theme_font_size_override("font_size", 13)
+		b.text = "%s  %s" % [SWATCH, String(info["name"])]
 		b.add_theme_color_override("font_color", (info["color"] as Color).lightened(0.25))
 		b.pressed.connect(_on_card_pressed.bind(i))
-		grid.add_child(b)
+		rail.add_child(b)
 		_cards.append(b)
 	_refresh_locks()
+
+
+# ============================================================ THE DETAIL COLUMN
+## Build the column ONCE with empty labels, then let `_refresh_detail` fill them.
+##
+## Built once and refilled rather than rebuilt per class, for the reason the Outfitter
+## learned the hard way: a container whose children are freed and re-added re-measures
+## between the remove and the free, and the panel visibly jumps a row. Fixed labels
+## cannot do that, and it also means the panel's height is decided at build time by
+## `SPELL_ROWS`, so a class that somehow answered with more spells cannot grow the
+## screen off a phone.
+##
+## `SPELL_ROWS` is `SpellTier.SLOT_COUNT` -- the number of buttons the right thumb has,
+## which is what "the spells you cast" means. Read, not typed: it was literally 3 in
+## nine hand-written `ClassInfo.kit` strings when the hand became 4, and nothing
+## noticed for months.
+func _build_detail() -> void:
+	var name_l := Label.new()
+	name_l.clip_text = true
+	HudStyle.label(name_l, HudStyle.LEAD, HudStyle.CHALK)
+	_detail.add_child(name_l)
+	_detail_name = name_l
+
+	var fant := Label.new()
+	fant.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	fant.custom_minimum_size = Vector2(DETAIL_W, 0)
+	HudStyle.label(fant, HudStyle.MICRO, HudStyle.GRAPHITE)
+	_detail.add_child(fant)
+	_detail_fantasy = fant
+
+	# A hairline between "who" and "what they cast". One pixel of rule does the job a
+	# blank row would take eleven pixels to do.
+	var rule := ColorRect.new()
+	rule.color = HudStyle.with_a(HudStyle.GRAPHITE, 0.35)
+	rule.custom_minimum_size = Vector2(DETAIL_W, 1)
+	_detail.add_child(rule)
+
+	for n: int in SpellTier.SLOT_COUNT:
+		var row := VBoxContainer.new()
+		row.add_theme_constant_override("separation", 0)
+		_detail.add_child(row)
+		var nm := Label.new()
+		nm.clip_text = true
+		HudStyle.label(nm, HudStyle.SMALL, HudStyle.CHIP)
+		row.add_child(nm)
+		var blurb := Label.new()
+		blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		# TWO LINES RESERVED, ALWAYS. `SpellBlurbs.MAX_LEN` is set so no entry needs a
+		# third at this width, and a fixed reservation means the column measures the
+		# same for every class -- so the layout probe's numbers are the shipped numbers
+		# and not "whichever class happened to be selected when it ran".
+		blurb.custom_minimum_size = Vector2(DETAIL_W, float(HudStyle.MICRO) * 2.0 + 4.0)
+		blurb.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+		HudStyle.label(blurb, HudStyle.MICRO, HudStyle.GRAPHITE)
+		row.add_child(blurb)
+		_detail_names.append(nm)
+		_detail_blurbs.append(blurb)
+
+	var reserve := Label.new()
+	reserve.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	reserve.custom_minimum_size = Vector2(DETAIL_W, 0)
+	HudStyle.label(reserve, HudStyle.MICRO, HudStyle.with_a(HudStyle.GRAPHITE, 0.75))
+	_detail.add_child(reserve)
+	_detail_reserve = reserve
+
+
+## Point the detail column at a class.
+##
+## \u26a0 EVERY SPELL NAMED HERE IS ONE THE CLASS IS ACTUALLY HOLDING, because it comes
+## from `ClassInfo.carried_spells` -> `SpellLibrary.build_for_class` -- the same call
+## `Hero._configure_class` makes to build the hand. This is the whole reason the
+## screen was rebuilt rather than restyled: the string it used to be able to show
+## (`ClassInfo.CLASSES[i]["kit"]`) has drifted from the real kit TWICE, once
+## advertising three beams nobody carried and once, measured during this pass, naming
+## only three of four spells on all nine classes. A screen that derives cannot drift.
+func _refresh_detail(index: int) -> void:
+	if _detail == null or _detail_name == null:
+		return
+	var i: int = clampi(index, 0, maxi(ClassInfo.count() - 1, 0))
+	_detail_for = i
+	var col: Color = ClassInfo.color_for(i)
+	_detail_name.text = ClassInfo.name_for(i).to_upper()
+	_detail_name.add_theme_color_override("font_color", col.lightened(0.35))
+	_detail_fantasy.text = ClassInfo.fantasy_for(i)
+	var spells: Array = ClassInfo.carried_spells(i)
+	for n: int in _detail_names.size():
+		var nm: Label = _detail_names[n]
+		var bl: Label = _detail_blurbs[n]
+		if n >= spells.size():
+			# An honest hole. A class that answered with fewer spells than the thumb has
+			# buttons is a real bug somewhere else, and blanking the row shows it rather
+			# than leaving the PREVIOUS class's spell sitting there reading as this one's.
+			nm.text = ""
+			bl.text = ""
+			continue
+		var spell: SpellDef = spells[n] as SpellDef
+		var last: bool = n == spells.size() - 1
+		# The number is the HOTBAR KEY, so the list reads in the order the thumb will
+		# meet it. The last slot is the ult slot by `SpellLibrary.SLOT_ROLES`.
+		nm.text = "%d  %s%s" % [n + 1, String(spell.display_name), "   ULT" if last else ""]
+		nm.add_theme_color_override("font_color", HudStyle.GOLD if last else HudStyle.CHIP)
+		bl.text = SpellBlurbs.for_spell(spell)
+	# The fifth authored role -- the one this hand does NOT start with. Named as a
+	# place to go rather than as a fact, because the Outfitter is one tap away and is
+	# where it gets swapped in.
+	var reserve: Array = SpellLibrary.reserve_for_class(i)
+	if _detail_reserve != null:
+		if reserve.is_empty():
+			_detail_reserve.text = ""
+		else:
+			var held: SpellDef = reserve[0] as SpellDef
+			_detail_reserve.text = "+ %s in reserve \u2014 swap it in at the Outfitter" % (
+				String(held.display_name) if held != null else "one more spell")
 
 
 ## ⚠ LOCKED CLASSES ARE SHOWN, NOT HIDDEN. Three of the nine are withheld until a
@@ -198,6 +411,10 @@ func open() -> void:
 		_dim.visible = true
 	_refresh_locks()
 	_refresh_highlight()
+	# The detail column reads the class you are CURRENTLY in, which is what makes this
+	# screen a readout as well as a chooser. In pad mode `_paint_cursor` re-points it at
+	# the cursor instead; see the note there.
+	_refresh_detail(_selected_class())
 	visible = true
 	var idx: int = _selected_class()
 	if idx >= 0 and idx < _cards.size():
@@ -245,7 +462,7 @@ func open_for_pad(device: int, pad: PadController, on_pick: Callable, seat: int 
 	_refresh_locks()
 	var start: int = _local_class_of(device)
 	_cursor = start if start >= 0 and start < _cards.size() else 0
-	_paint_cursor()
+	_paint_cursor()   # also draws the detail column for the class under the cursor
 	visible = true
 	_opened_frame = Engine.get_physics_frames()
 	set_physics_process(true)
@@ -336,9 +553,20 @@ func _move_cursor(dir: Vector2i) -> void:
 	var rows: int = int(ceil(float(n) / float(GRID_COLUMNS)))
 	var col: int = _cursor % GRID_COLUMNS
 	var row: int = _cursor / GRID_COLUMNS
+	# ⚠ ON A ONE-COLUMN RAIL, SIDEWAYS ALSO WALKS THE LIST. With `GRID_COLUMNS == 1`
+	# the `dir.x` clamp below can only ever be a no-op, so a push left or right would do
+	# NOTHING -- and `tools/slice_test_local_coop.gd` drives exactly that
+	# (`pad.axes[JOY_AXIS_LEFT_X] = 1.0`) and asserts the cursor moved. It is also the
+	# right behaviour on its own terms: on a vertical list a sideways push is a thumb
+	# that missed, and answering it by moving one step is more forgiving than answering
+	# it with silence. Folded into `dir.y` rather than special-cased at the call site so
+	# a future two-column rail gets the ordinary clamp back for free.
+	var step_y: int = dir.y
+	if GRID_COLUMNS <= 1 and dir.x != 0:
+		step_y = dir.x
 	col = clampi(col + dir.x, 0, GRID_COLUMNS - 1)
-	row = clampi(row + dir.y, 0, rows - 1)
-	# The last row can be short (9 cards in 3 columns is square, but the roster moves).
+	row = clampi(row + step_y, 0, rows - 1)
+	# The last row can be short (the roster moves, and the rail is one column deep).
 	_cursor = clampi(row * GRID_COLUMNS + col, 0, n - 1)
 	_paint_cursor()
 
@@ -355,6 +583,12 @@ func _paint_cursor() -> void:
 			_cards[i].modulate = Color.WHITE
 	if _cursor >= 0 and _cursor < _cards.size():
 		_cards[_cursor].grab_focus()
+	# ⚠ THE DETAIL FOLLOWS THE CURSOR, NOT THE SELECTION, and only here. In pad mode
+	# moving the stick is FREE -- it commits nothing -- so it is the one input in this
+	# screen that can preview a class without becoming it. In hub (touch) mode there is
+	# no such input: a tap on a row commits, by the contract at the top of this file, so
+	# the column stays pointed at the class you are in until you change it.
+	_refresh_detail(_cursor)
 
 
 ## ⚠ NOT `_on_card_pressed`. That one writes `selected_class` and calls
@@ -444,6 +678,10 @@ func _refresh_highlight() -> void:
 	var sel: int = _selected_class()
 	for i: int in _cards.size():
 		_cards[i].modulate = HIGHLIGHT if i == sel else Color.WHITE
+	# Keep the readout honest. `_apply_feedback` calls this after a hub pick, and a
+	# detail column still describing the class you just left is worse than no column.
+	if _pad_device < 0:
+		_refresh_detail(sel)
 
 
 ## Re-dress the hub body + update the class HUD label. No-ops in scenes without
