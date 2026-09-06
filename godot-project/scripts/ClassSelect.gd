@@ -1,8 +1,14 @@
 extends CanvasLayer
-## Hub Class-Select panel (autoload "ClassSelect"). A modal 8-card grid opened by
-## the Class Altar in the hub; tap a card to pick your class (writes
-## GameState.selected_class), which retints the hub player + updates the class HUD
-## label, then closes. Built in code (house style, no .tscn) like PauseMenu.
+## Hub Class-Select panel (autoload "ClassSelect"). A modal master-detail roster opened
+## by the Class Altar in the hub: a rail of all nine classes down the left, and a column
+## on the right that DRAWS the one under the cursor and lists the four spells it casts.
+## Tap a row to pick your class (writes GameState.selected_class), which retints the hub
+## player + updates the class HUD label, then closes. Built in code (house style, no
+## .tscn) like PauseMenu.
+##
+## ⚠ IT SAID "8-CARD GRID" UNTIL NOW, AND HAS BEEN NEITHER FOR TWO REBUILDS — there are
+## nine classes and there is no grid. A header describing a layout two revisions old is
+## the first thing a cold reader trusts and the last thing anybody updates.
 ##
 ## Scene-safe: only the hub Altar ever open()s it; the selection feedback no-ops
 ## when the player / label groups are absent (i.e. in the arena). Referenced
@@ -83,6 +89,91 @@ const ROW_H: float = 30.0
 const DETAIL_W: float = 300.0
 const GAP: float = 6.0
 
+## ══ THE RESTYLE, AND THE ONE MEASUREMENT THAT DECIDED ITS SIZE ══════════════
+## Maker, twice: *"revamp how the class selection looks it needs to be simple and way
+## more aesthetic and easier to use"*. The SHAPE was not the complaint — the rail was
+## itself the answer to an earlier revamp — so nothing about master-detail moved. What
+## changed is that the rail rows are now element-accented instead of a text glyph, the
+## detail column leads with a DRAWN FIGURE of the class instead of a bare name, and the
+## two exits the screen never had are on it.
+##
+## ⚠ EVERY PIXEL OF THAT WAS PAID FOR OUT OF THE DETAIL COLUMN'S OWN SLACK, and the
+## slack was measured before a line was written rather than discovered as an overflow.
+## `tools/slice_test_class_select_layout.gd` prints both columns on every run; the
+## numbers it printed at the start of this pass were:
+##
+##     rail 152x297   detail 300x249      -> panel 482x341 against a 360 px ceiling
+##
+## The rail is nine rows that cannot shrink, so the HBox height is `max(rail, detail)`
+## and the detail column had **48 px of free vertical space** — anything added to it up
+## to that line costs the panel NOTHING, and every pixel past it costs 1:1 out of the
+## 19 px the panel had left. The doll and the footer together spend 51, i.e. 48 free
+## and 3 real. Panel lands at 350. Do not add a row here without re-reading the print.
+
+## The row's left accent bar, drawn as a StyleBoxFlat BORDER rather than as a child.
+##
+## ⚠ AND IT REPLACES A GLYPH THAT WAS NEVER BEING DRAWN. The row used to lead with
+## `SWATCH = "█"` (U+2588) "drawn in the class colour". It is not in the font: the
+## project theme (`assets/ui/stickspire_theme.tres`) sets no font resource, so every
+## Label and Button falls back to Godot's built-in Open Sans subset, and a probe of it
+## reports `has_char` FALSE for U+2588 — and for U+258C, U+2502, U+25C6, U+25CF, U+2726,
+## U+2744, U+26A1 and U+2694, which between them are every symbol a fancier rail row
+## might have reached for. Only Latin-1 and General Punctuation come back true (`·` and
+## `—`, both already shipping here, are fine). So the colour block a player was supposed
+## to be reading the roster by was a missing glyph, and NOTHING in this screen's visual
+## language may be a character outside Latin-1 again. Bars, plates and rules are DRAWN.
+##
+## A border rather than a `ColorRect` child for the reason the glyph was chosen over one:
+## `tools/slice_test_town.gd` walks this screen for Buttons and indexes the result BY
+## CLASS. A ColorRect would not renumber that walk (it is not a Button) — but a stylebox
+## needs no node at all, and the row stays exactly one Control.
+const ROW_BAR_W: int = 3        ## every row: the class's element, quietly
+const ROW_BAR_SEL_W: int = 6    ## the class you ARE: the same bar, twice as loud
+const ROW_TEXT_PAD: float = 10.0
+## How present the bar is on a row that is neither your class nor under the cursor.
+const ROW_BAR_IDLE_A: float = 0.40
+## The cursor's own fill. See `_paint_cursor` for why "where I am" and "what I am" are
+## now two different channels rather than two colours of one.
+const ROW_CURSOR_FILL_A: float = 0.16
+
+## ══ THE PAPER DOLL ══════════════════════════════════════════════════════════
+## The single biggest "more aesthetic" lever available, and it costs no panel height
+## because it fits inside the slack measured above. Pattern lifted verbatim from
+## `Loadout._build_doll` / `_on_doll_draw`: a plain `Control` with a `draw` SIGNAL and a
+## real `CharacterRig` child — a Control SUBCLASS would want a `class_name`, which is the
+## editor-cache trap this project has lost real time to repeatedly.
+##
+## ⚠ IT IS THE BODY YOU WALK AWAY IN, not a piece of art. The rig is dressed from the
+## same `Hero.CLASS_CONFIG` row `Hero._apply_class` dresses the real hero from, so the
+## preview cannot drift from the game — which is the entire reason a drawn figure is
+## worth more here than nine sprites would be.
+const DOLL_W: float = 64.0
+const DOLL_H: float = 64.0
+const HEAD_GAP: float = 8.0
+## What is left of the detail column beside the doll. Declared rather than left implicit
+## because the fantasy line AUTOWRAPS, and an autowrapping label whose minimum width is
+## still `DETAIL_W` would push the header HBox to 372 px and silently widen the panel.
+const HEAD_TEXT_W: float = DETAIL_W - DOLL_W - HEAD_GAP
+## Rig geometry inside the doll, same three numbers `Loadout` keeps. The rig draws about
+## `CharacterRig.DEFAULT_HEIGHT` (31) tall at scale 1 with its FEET below the origin.
+const RIG_SCALE: float = 1.85
+const RIG_FEET_Y: float = 57.0
+## Lifted off the raw class colour only enough to survive the dark plate behind it. The
+## Shadowblade's own tint is Color(0.16, 0.11, 0.22) — a near-black figure on a near-black
+## card is not a preview. Small on purpose: this is the tint the hub body wears.
+const DOLL_TINT_LIFT: float = 0.15
+
+## The footer. `MIN_TAP` again — the same thumb floor every row clears.
+const FOOTER_H: float = 30.0
+
+## Read for `CLASS_CONFIG` (element, preset, weapon) through
+## `get_script_constant_map()` rather than by naming the `Hero` global.
+##
+## ⚠ THAT IS `Loadout._preset`'s IDIOM, COPIED ON PURPOSE. Naming `Hero` here would make
+## a 7000-line combat script a load-time dependency of a hub autoload, and this screen
+## wants three keys out of nine dictionaries. A constant map is a read, not a link.
+const HERO_PATH: String = "res://scripts/combat/Hero.gd"
+
 ## Appended to a locked row. Says WHERE the class is, not merely that it is gone —
 ## the difference between a goal and a smaller game. Two words instead of five.
 ##
@@ -92,12 +183,8 @@ const GAP: float = 6.0
 const LOCK_SUFFIX: String = "  · guarded"
 const HIGHLIGHT: Color = Color(0.55, 0.9, 1.0)
 
-## The leading block on a rail row, drawn in the class colour by the row's own
-## `font_color`. A glyph rather than a `ColorRect` child so the row stays ONE Button:
-## `tools/slice_test_town.gd` walks this screen for Buttons and indexes the result BY
-## CLASS, so any extra Button anywhere before the rail would renumber the roster under
-## a test in a file this agent does not own.
-const SWATCH: String = "█"
+## ⚠ `SWATCH` IS GONE. It was `"█"`, and the font does not have it — see `ROW_BAR_W`
+## above for the probe. The element accent bar is what a player reads the roster by now.
 
 ## ══ PLAYER TWO PICKS THEIR OWN CLASS, WITH A PAD AND NOTHING ELSE ═══════════════
 ## The standing known gap in same-screen co-op: a joining pad inherited player one's
@@ -145,12 +232,31 @@ var _detail: VBoxContainer = null
 ## Which class the detail column is currently drawn for. `-1` forces the first draw.
 var _detail_for: int = -1
 var _detail_name: Label = null
+## The element line under the class name — the mockup's "⚡ lightning", as a WORD in the
+## element's colour, because the glyph half of that mockup is not in the font.
+var _detail_element: Label = null
 var _detail_fantasy: Label = null
 var _detail_names: Array[Label] = []
 var _detail_blurbs: Array[Label] = []
 var _detail_reserve: Label = null
 var _panel: PanelContainer = null
 var _dim: ColorRect = null
+## The rail container. Held only so the layout suite can print its height beside the
+## detail column's — the two numbers that decide whether anything new here is free.
+var _rail: VBoxContainer = null
+## One StyleBoxFlat per row, MUTATED by `_paint_cursor` rather than swapped. A new box
+## per repaint would allocate nine resources every time the cursor moves one row.
+var _row_styles: Array[StyleBoxFlat] = []
+## `Hero.CLASS_CONFIG` rows, in class order, read once at build. See `HERO_PATH`.
+var _class_cfg: Array[Dictionary] = []
+## The paper doll: the Control that owns the plate, and the real rig inside it.
+var _doll: Control = null
+var _rig: CharacterRig = null
+## The two exits. Held so pad mode can hide them — see `_footer`.
+var _footer: HBoxContainer = null
+## "  +25%", derived from `SpellCaster.AFFINITY_MULT` rather than typed, so a re-tune of
+## the multiplier cannot leave this screen quoting a number the fight stopped paying.
+var _affinity_tag: String = ""
 
 ## --- pad mode state. `_pad_device < 0` means every line of it is dead. ---
 var _pad_device: int = -1
@@ -179,6 +285,7 @@ func _ready() -> void:
 	layer = 90
 	visible = false
 	set_physics_process(false)   # pad mode is the only thing that needs a tick
+	_load_class_cfg()
 	var dim := ColorRect.new()
 	_dim = dim
 	dim.color = Color(0.03, 0.03, 0.06, 0.6)
@@ -201,10 +308,16 @@ func _ready() -> void:
 	_title = title
 	title.text = "CHOOSE YOUR CLASS"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	# Was 20. `HudStyle.BODY` is the size this game gives a menu row, and the title of a
-	# screen that is already unmistakably a class list does not need to be the loudest
-	# thing on it -- the 6 px it gives back go to the rail.
-	HudStyle.label(title, HudStyle.BODY, HudStyle.CHALK)
+	# Was 20, then BODY. SMALL and GRAPHITE now, because the detail column grew a
+	# 20 pt class name and a drawn figure: two headings competing at the top of one
+	# 350 px panel is exactly the "near-misses read as sloppiness" the house style
+	# file was written about. This line is an EYEBROW; the class name is the headline.
+	#
+	# ⚠ IT STAYS A LABEL RATHER THAN BEING DELETED, and pad mode is the whole reason.
+	# `open_for_pad` rewrites it to "PLAYER 2 — CHOOSE YOUR CLASS", which is the only
+	# thing on screen that says whose chooser this is while player one is still fighting
+	# behind it. See `_title_style`, which is why that case gets its colour back.
+	HudStyle.label(title, HudStyle.SMALL, HudStyle.GRAPHITE)
 	vbox.add_child(title)
 
 	# THE TWO COLUMNS. The rail is fixed-width; the detail column is fixed-width; the
@@ -215,6 +328,7 @@ func _ready() -> void:
 	vbox.add_child(body)
 
 	var rail := VBoxContainer.new()
+	_rail = rail
 	rail.custom_minimum_size = Vector2(RAIL_W, 0)
 	# 0, not the grid's 8. Nine rows at 8 px of gutter is 64 px of nothing -- a fifth of
 	# the height budget spent on gaps, on the one axis a phone cannot give more of. The
@@ -257,8 +371,35 @@ func _build_cards(rail: VBoxContainer) -> void:
 		b.autowrap_mode = TextServer.AUTOWRAP_OFF
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.add_theme_font_size_override("font_size", 13)
-		b.text = "%s  %s" % [SWATCH, String(info["name"])]
+		b.text = String(info["name"])
 		b.add_theme_color_override("font_color", (info["color"] as Color).lightened(0.25))
+		# ⚠ THE HOVER / PRESSED / FOCUS COLOURS ARE PINNED TO THE ROW'S OWN, and it is
+		# not decoration. The project theme gives Button a white hover colour and a pale
+		# blue pressed colour; on a rail whose ONLY job is to tell nine classes apart by
+		# colour, crossing a row with the mouse would repaint it white — i.e. the roster
+		# loses its identity exactly when a player is pointing at it.
+		var row_col: Color = (info["color"] as Color).lightened(0.25)
+		for state: String in ["font_hover_color", "font_pressed_color",
+				"font_hover_pressed_color", "font_focus_color"]:
+			b.add_theme_color_override(state, row_col)
+		# ONE StyleBoxFlat SHARED BY EVERY STATE of this row. The cursor and the
+		# selection are painted by `_paint_cursor` mutating this box, so a theme state
+		# with a box of its OWN would flicker the painted state away under the pointer.
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.0, 0.0, 0.0, 0.0)
+		sb.border_color = Elements.color(_element_of(i))
+		sb.set_border_width(SIDE_LEFT, ROW_BAR_W)
+		sb.content_margin_left = ROW_TEXT_PAD
+		sb.content_margin_right = 6.0
+		# ⚠ ZERO, AND THAT IS WHAT KEEPS `ROW_H` HONEST. Godot's Button box carries its
+		# own vertical content margins, which is precisely the "the theme is currently
+		# covering for it" the layout suite's thumb-floor assertion complains about. With
+		# these at zero the row is `ROW_H` because the screen ASKED for `ROW_H`.
+		sb.content_margin_top = 0.0
+		sb.content_margin_bottom = 0.0
+		_row_styles.append(sb)
+		for state: String in ["normal", "hover", "pressed", "focus", "disabled"]:
+			b.add_theme_stylebox_override(state, sb)
 		# ⚠ NO FOCUS, ON PURPOSE, AND IT IS WHAT MAKES UP/DOWN WORK AT ALL. Godot walks
 		# focus between Buttons itself on `ui_up`/`ui_down` and CONSUMES those actions
 		# before `_unhandled_input` ever sees them — so a focused rail and this file's
@@ -294,17 +435,47 @@ func _build_cards(rail: VBoxContainer) -> void:
 ## nine hand-written `ClassInfo.kit` strings when the hand became 4, and nothing
 ## noticed for months.
 func _build_detail() -> void:
+	# ── THE HEAD: the figure, then the three tiers of type beside it. ──
+	# One HBox, so the doll and the naming share a band instead of queueing. That is what
+	# makes the figure free: `max(64, 56)` is 64, and the 43 px the name and fantasy line
+	# occupied on their own were already inside the column's measured slack.
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", int(HEAD_GAP))
+	_detail.add_child(head)
+	head.add_child(_build_doll())
+
+	# REAL HIERARCHY, THREE STEPS: who (LEAD 20), what element (SMALL 11, in that
+	# element's colour), what they play like (MICRO 9, grey). The screen used to jump
+	# straight from 20 to 9 with nothing between, which is why the name read as a label
+	# rather than as a headline.
+	var titles := VBoxContainer.new()
+	titles.add_theme_constant_override("separation", 1)
+	# Centred against the doll rather than top-aligned: a 56 px stack hard against the
+	# top of a 64 px figure reads as a layout that missed, not as a choice.
+	titles.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	titles.custom_minimum_size = Vector2(HEAD_TEXT_W, 0)
+	head.add_child(titles)
+
 	var name_l := Label.new()
 	name_l.clip_text = true
 	HudStyle.label(name_l, HudStyle.LEAD, HudStyle.CHALK)
-	_detail.add_child(name_l)
+	titles.add_child(name_l)
 	_detail_name = name_l
+
+	var elem := Label.new()
+	elem.clip_text = true
+	HudStyle.label(elem, HudStyle.SMALL, HudStyle.GRAPHITE)
+	titles.add_child(elem)
+	_detail_element = elem
 
 	var fant := Label.new()
 	fant.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	fant.custom_minimum_size = Vector2(DETAIL_W, 0)
+	# ⚠ `HEAD_TEXT_W`, NOT `DETAIL_W`. This label used to be a direct child of the column
+	# and could ask for the column's full 300 px; beside a 64 px doll that minimum would
+	# push the header HBox to 372 and widen the whole panel with no error anywhere.
+	fant.custom_minimum_size = Vector2(HEAD_TEXT_W, 0)
 	HudStyle.label(fant, HudStyle.MICRO, HudStyle.GRAPHITE)
-	_detail.add_child(fant)
+	titles.add_child(fant)
 	_detail_fantasy = fant
 
 	# A hairline between "who" and "what they cast". One pixel of rule does the job a
@@ -342,6 +513,143 @@ func _build_detail() -> void:
 	_detail.add_child(reserve)
 	_detail_reserve = reserve
 
+	# ⚠ THE FOOTER SITS IN THE DETAIL COLUMN, NOT UNDER BOTH COLUMNS, and that is the
+	# whole reason it fits. A row across the bottom of the panel is `FOOTER_H` plus a
+	# separation of PANEL height — 350 becomes 384 and walks off a phone. Inside the
+	# column it is spent out of the column's own slack against the rail, which was
+	# measured at 48 px. The mockup draws it here too.
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_detail.add_child(spacer)
+
+	_footer = HBoxContainer.new()
+	_footer.add_theme_constant_override("separation", 6)
+	_detail.add_child(_footer)
+	# ⚠ NO ARMOURY DOOR HERE, AND THE MAKER ASKED FOR THAT BY NAME: *"there should be
+	# class selection as the main theme and then a change spells button, no need for the
+	# armoury button within the class selection"*. The armoury is its own pad in the town
+	# and its own door on the LOBBY Outfitter; a third entrance from the class screen is
+	# the duplicate they were pointing at. See `Outfitter._build`, which lost the same
+	# button from the same flow for the same sentence.
+	_footer.add_child(_footer_button("CHANGE SPELLS", _on_change_spells))
+	# ⚠ IT SAYS "DONE", NOT "PLAY", AND THE MOCKUP SAID PLAY. This screen is a modal the
+	# hub Class Altar opens; there is nothing to play INTO from here — you close it and
+	# walk to the tower portal. A button that reads PLAY and merely dismisses a panel is
+	# the worst kind of lie a menu can tell, so the deviation is deliberate and is
+	# reported rather than quietly taken. Wire a real launch and the word can change.
+	_footer.add_child(_footer_button("DONE", close))
+
+
+## One footer exit. `MIN_TAP` tall and `FOCUS_NONE` for the same reason the rail rows
+## are — see `_build_cards`: a focused Button eats `ui_down` for Godot's own focus walk,
+## and the moment a player clicked one of these the arrow-key preview would stop working
+## with no error anywhere.
+func _footer_button(text: String, on_press: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.custom_minimum_size = Vector2(0, FOOTER_H)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.add_theme_font_size_override("font_size", 12)
+	b.focus_mode = Control.FOCUS_NONE
+	b.pressed.connect(on_press)
+	return b
+
+
+## Back to the spells. The Outfitter is the screen that opened this one (its header
+## button walks the roster), so this is the return leg of a pair rather than a new door:
+## `World.open_outfitter` no-ops when one is already up, and closing this simply reveals
+## it. From the altar with no Outfitter behind it, one is built.
+##
+## Scene-safe: outside the town nothing answers `open_outfitter`, and the button then
+## does the honest half of its job — it closes.
+func _on_change_spells() -> void:
+	# ⚠ NEVER IN PAD MODE. Player two must not open player ONE's spell loadout, for the
+	# same reason `_on_card_pressed` refuses there. The footer is hidden in pad mode as
+	# well; this is the guard behind the guard.
+	if _pad_device >= 0:
+		return
+	close()
+	var scene: Node = get_tree().current_scene
+	if scene != null and scene.has_method("open_outfitter"):
+		scene.call("open_outfitter")
+
+
+# ═══════════════════════════════════════════════════════════════ THE PAPER DOLL
+## A plain `Control` owning the plate, with a real `CharacterRig` child standing on it.
+## See the `DOLL_W` block for why this is a `draw` SIGNAL and not a Control subclass.
+func _build_doll() -> Control:
+	_doll = Control.new()
+	_doll.custom_minimum_size = Vector2(DOLL_W, DOLL_H)
+	_doll.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_doll.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# ⚠ CLIPPED, BECAUSE A RIG DRAWS OUTSIDE ITS PARENT'S RECT. A Control does not bound
+	# its children; a hood, a hammer or a limp arm on a hit frame reaches past 64 px, and
+	# unclipped it would be drawn ACROSS the rail rows to the left with nothing to
+	# suggest it was not a rendering fault.
+	_doll.clip_contents = true
+	_doll.draw.connect(_on_doll_draw)
+	_rig = CharacterRig.new()
+	_rig.position = Vector2(DOLL_W * 0.5, RIG_FEET_Y)
+	_rig.scale = Vector2(RIG_SCALE, RIG_SCALE)
+	_doll.add_child(_rig)
+	_rig.play(CharacterRig.State.IDLE)
+	# ⚠ AND IT DOES NOT TICK WHILE THE SCREEN IS SHUT. This is an AUTOLOAD: the node is
+	# in the tree for the whole session including every fight, and a rig runs a gait
+	# simulation per frame. `Loadout` pays that cost; this screen does not have to.
+	# `open()` / `open_for_pad()` turn it back on. DISABLED rather than `set_process`
+	# because the rig also has a physics side.
+	_rig.process_mode = Node.PROCESS_MODE_DISABLED
+	return _doll
+
+
+## The plate under the figure: a dark card washed with the class's ELEMENT.
+##
+## Every mark is a `draw_rect`. Nothing here may be a glyph — see `ROW_BAR_W` for the
+## font probe that ruled out every symbol outside Latin-1.
+func _on_doll_draw() -> void:
+	if _doll == null:
+		return
+	var col: Color = Elements.color(_element_of(_detail_for))
+	var r := Rect2(Vector2.ZERO, _doll.size)
+	_doll.draw_rect(r, Color(0.09, 0.10, 0.15, 0.92), true)
+	# The element as a WASH rather than as a word. It is the second place the element is
+	# stated (the line beside it is the first) and it is the one a player reads without
+	# looking, which is the whole trick the rail's accent bars are also playing.
+	_doll.draw_rect(r, Color(col.r, col.g, col.b, 0.10), true)
+	# A ground line under the feet, so the figure stands on something instead of
+	# floating in a box. Two pixels; it does more for the read than anything else here.
+	_doll.draw_rect(Rect2(6.0, RIG_FEET_Y + 1.0, maxf(_doll.size.x - 12.0, 0.0), 2.0),
+		Color(col.r, col.g, col.b, 0.30), true)
+	_doll.draw_rect(r, Color(col.r, col.g, col.b, 0.45), false, 1.0)
+
+
+## Dress the figure as a class, out of the SAME `CLASS_CONFIG` row the real hero is
+## dressed from — so the preview cannot drift from the body you walk away in.
+##
+## ⚠ `weapon_look` IS APPLIED AFTER `class_preset`, WHICH IS WHAT `Hero._apply_class`
+## DOES AND FOR THE SAME REASON. Four of the nine presets name a generic staff or sword
+## while the class actually carries `staff_ice` / `staff_storm` / `void_rod` /
+## `dagger_shadow` / `hammer` — applying only the preset would put the same stick in four
+## different classes' hands and the doll would be a recolour, which is the exact thing
+## the class-identity ruling forbids.
+func _dress_doll(index: int) -> void:
+	if _rig == null:
+		return
+	var cfg: Dictionary = _cfg_for(index)
+	var preset: String = String(cfg.get("preset", ""))
+	if preset != "":
+		_rig.class_preset(preset)
+	var look: String = String(cfg.get("weapon_look", cfg.get("weapon", "")))
+	if look != "":
+		_rig.set_equipment("weapon", look)
+	# ⚠ `set_tint` — the WHOLE-FIGURE paint. CharacterRig is growing a per-part tint API
+	# elsewhere; this screen deliberately does not reach for it. One class, one colour, and
+	# it is the same `ClassInfo.color_for` the rail row and the hub stick already read.
+	_rig.set_tint(ClassInfo.color_for(index).lightened(DOLL_TINT_LIFT))
+	if _doll != null:
+		_doll.queue_redraw()
+
 
 ## Point the detail column at a class.
 ##
@@ -360,7 +668,12 @@ func _refresh_detail(index: int) -> void:
 	var col: Color = ClassInfo.color_for(i)
 	_detail_name.text = ClassInfo.name_for(i).to_upper()
 	_detail_name.add_theme_color_override("font_color", col.lightened(0.35))
+	var elem: int = _element_of(i)
+	if _detail_element != null:
+		_detail_element.text = Elements.display_name(elem).to_upper()
+		_detail_element.add_theme_color_override("font_color", Elements.color(elem))
 	_detail_fantasy.text = ClassInfo.fantasy_for(i)
+	_dress_doll(i)
 	var spells: Array = ClassInfo.carried_spells(i)
 	for n: int in _detail_names.size():
 		var nm: Label = _detail_names[n]
@@ -376,7 +689,26 @@ func _refresh_detail(index: int) -> void:
 		var last: bool = n == spells.size() - 1
 		# The number is the HOTBAR KEY, so the list reads in the order the thumb will
 		# meet it. The last slot is the ult slot by `SpellLibrary.SLOT_ROLES`.
-		nm.text = "%d  %s%s" % [n + 1, String(spell.display_name), "   ULT" if last else ""]
+		#
+		# ══ AND WHICH ONES THIS CLASS HITS HARDER WITH ═══════════════════════════
+		# Element affinity ships: a spell of the class's OWN element is worth
+		# `SpellCaster.AFFINITY_MULT` in that class's hands. This screen is where a
+		# player picks the class, so it is one of exactly two places they can learn that
+		# (`LoadoutBar` rings the slot in-fight). Marked with the derived percentage and
+		# nothing else — no colour change, no second glyph: the figure and the class name
+		# are the hero of this column and a row of badges would out-shout them.
+		#
+		# ⚠ ASKED THROUGH `SpellCaster.resolve_element`, NOT BY READING `spell.element`.
+		# That helper is the rule the FIGHT uses to decide the same question, and a screen
+		# that re-implements a rule is a screen that will disagree with it eventually.
+		#
+		# ⚠ THE BRAWLER SHOWS NO MARK AT ALL AND THAT IS CORRECT. Its class element is
+		# FIRE while every spell in its hand is EARTH, so affinity pays it nothing. That
+		# is a live design question for the maker (see `SpellCaster.affinity_mult`), and
+		# a layout that reserved a slot for a mark would quietly imply the class has one.
+		var amplified: bool = elem >= 0 and SpellCaster.resolve_element(spell) == elem
+		nm.text = "%d  %s%s%s" % [n + 1, String(spell.display_name),
+			"   ULT" if last else "", _affinity_tag if amplified else ""]
 		nm.add_theme_color_override("font_color", HudStyle.GOLD if last else HudStyle.CHIP)
 		bl.text = SpellBlurbs.for_spell(spell)
 	# The fifth authored role -- the one this hand does NOT start with. Named as a
@@ -436,8 +768,12 @@ func open() -> void:
 	# both, and it is exactly what a stale field would produce.
 	_end_pad_mode()
 	_title.text = "CHOOSE YOUR CLASS"
+	_title_style(false)
 	if _dim != null:
 		_dim.visible = true
+	if _footer != null:
+		_footer.visible = true
+	_wake_doll(true)
 	_refresh_locks()
 	# THE CURSOR STARTS ON THE CLASS YOU ARE. So the first thing the column shows is
 	# still a readout of yourself — the screen has not stopped being that — and one
@@ -450,7 +786,27 @@ func open() -> void:
 
 func close() -> void:
 	_end_pad_mode()
+	_wake_doll(false)
 	visible = false
+
+
+## The rig ticks only while somebody is looking at it. See `_build_doll`: this is an
+## autoload, so "always" would mean a gait simulation running through every fight.
+func _wake_doll(on: bool) -> void:
+	if _rig == null or not is_instance_valid(_rig):
+		return
+	_rig.process_mode = Node.PROCESS_MODE_INHERIT if on else Node.PROCESS_MODE_DISABLED
+
+
+## The eyebrow, in its two moods. Quiet grey in the hub, where the class name below it is
+## the headline; `CHIP` in pad mode, where the line is carrying WHOSE chooser this is
+## over a fight that is still running — the one time it is the most important string on
+## the panel.
+func _title_style(pad: bool) -> void:
+	if _title == null:
+		return
+	_title.add_theme_color_override("font_color",
+		HudStyle.CHIP if pad else HudStyle.GRAPHITE)
 
 
 # ═════════════════════════════════════════════════════ PAD MODE (player two)
@@ -486,6 +842,14 @@ func open_for_pad(device: int, pad: PadController, on_pick: Callable, seat: int 
 		_dim.visible = false     # player one is still fighting behind this
 	if _title != null:
 		_title.text = "PLAYER %d — CHOOSE YOUR CLASS" % maxi(seat, 2)
+	_title_style(true)
+	# ⚠ THE TWO EXITS ARE HIDDEN FOR PLAYER TWO. Neither is reachable by a pad — there is
+	# no cursor in pad mode and the rows are `FOCUS_NONE` — so leaving them on screen
+	# would advertise two buttons that cannot be pressed, and CHANGE SPELLS would open
+	# player ONE's loadout if it ever were. B backs out; that is the whole exit surface.
+	if _footer != null:
+		_footer.visible = false
+	_wake_doll(true)
 	_refresh_locks()
 	var start: int = _local_class_of(device)
 	_cursor = start if start >= 0 and start < _cards.size() else 0
@@ -517,6 +881,9 @@ func _end_pad_mode() -> void:
 		_dim.visible = true
 	if _title != null:
 		_title.text = "CHOOSE YOUR CLASS"
+	_title_style(false)
+	if _footer != null:
+		_footer.visible = true
 	_refresh_highlight()   # drop the cursor tint, leave the hub's own highlight
 
 
@@ -619,13 +986,38 @@ func _move_cursor(dir: Vector2i) -> void:
 func _paint_cursor() -> void:
 	var sel: int = _local_class_of(_pad_device) if _pad_device >= 0 else _selected_class()
 	for i: int in _cards.size():
-		var tint: Color = Color.WHITE
-		if i == _cursor:
-			tint = PAD_CURSOR
-		elif i == sel:
-			tint = HIGHLIGHT
+		# ⚠ "WHERE I AM" AND "WHAT I AM" ARE TWO CHANNELS NOW, NOT TWO COLOURS OF ONE.
+		# They used to be `PAD_CURSOR` and `HIGHLIGHT` written into the same `modulate`,
+		# which meant a cursor parked on your own class could only say one of the two
+		# things — and, worse, a whole-row `modulate` tint multiplies the element accent
+		# bar as well, so the yellow cursor would have washed the element out of the one
+		# row a player was actually looking at.
+		#
+		#   * the BAR says WHAT YOU ARE: the element colour at full strength and double
+		#     width on the selected class, thin and faded on every other row.
+		#   * the FILL says WHERE YOU ARE: `PAD_CURSOR` at `ROW_CURSOR_FILL_A` under the
+		#     cursor, nothing anywhere else.
+		#
+		# Both can therefore be true of one row and still be read separately.
+		if i < _row_styles.size():
+			var sb: StyleBoxFlat = _row_styles[i]
+			var bar: Color = Elements.color(_element_of(i))
+			var chosen: bool = i == sel
+			sb.border_color = Color(bar.r, bar.g, bar.b,
+				1.0 if chosen else ROW_BAR_IDLE_A)
+			sb.set_border_width(SIDE_LEFT, ROW_BAR_SEL_W if chosen else ROW_BAR_W)
+			if i == _cursor:
+				sb.bg_color = HudStyle.with_a(PAD_CURSOR, ROW_CURSOR_FILL_A)
+			elif chosen:
+				# Half the cursor's strength: the selected row is still marked when the
+				# cursor has walked away from it, without competing with where you are.
+				sb.bg_color = HudStyle.with_a(HIGHLIGHT, ROW_CURSOR_FILL_A * 0.5)
+			else:
+				sb.bg_color = Color(0.0, 0.0, 0.0, 0.0)
+		# ⚠ `modulate` CARRIES ONLY THE LOCK NOW, and it is still the ONE writer of it.
 		# The guarded rows are dimmed HERE rather than in `_refresh_locks`, because this
 		# assignment is what used to erase them. See the note there.
+		var tint: Color = Color.WHITE
 		tint.a = 1.0 if (i < _unlocked.size() and _unlocked[i]) else LOCKED_DIM
 		_cards[i].modulate = tint
 	_refresh_detail(_cursor)
@@ -734,6 +1126,42 @@ func _unhandled_input(event: InputEvent) -> void:
 		# written for. Derived now.
 		_on_card_pressed(event.keycode - KEY_1)
 		get_viewport().set_input_as_handled()
+
+
+# ══════════════════════════════════════════ WHAT ELEMENT IS EACH CLASS, AND WHY HERE
+## The nine `Hero.CLASS_CONFIG` rows, read ONCE at build.
+##
+## ⚠ `ClassInfo` CANNOT ANSWER THIS AND MUST NOT BE MADE TO GUESS. Its `color` is
+## described as "the class's element tint" and for four classes it literally is
+## (`Cryomancer` == `Elements.color(ICE)` to the decimal) — but the Arcanist is amber
+## against a magenta ARCANE and the Stormcaller is lime against a yellow LIGHTNING, so
+## reverse-engineering the element from the colour would be right five times out of nine
+## and silently wrong the rest. `CLASS_CONFIG["element"]` is the value the FIGHT uses,
+## which makes it the only one that can be quoted on a card.
+##
+## Keyed by `Hero.HeroClass`, whose members are 0..8 in the same order as
+## `ClassInfo.CLASSES` — the ordering `ClassInfo`'s own header pins.
+func _load_class_cfg() -> void:
+	_affinity_tag = "   +%d%%" % int(round((SpellCaster.AFFINITY_MULT - 1.0) * 100.0))
+	var script: GDScript = load(HERO_PATH) as GDScript
+	var all: Dictionary = ({} if script == null
+		else script.get_script_constant_map().get("CLASS_CONFIG", {}) as Dictionary)
+	_class_cfg.resize(ClassInfo.count())
+	for i: int in ClassInfo.count():
+		var row: Variant = all.get(i, {})
+		_class_cfg[i] = (row as Dictionary) if (row is Dictionary) else {}
+
+
+func _cfg_for(index: int) -> Dictionary:
+	if index < 0 or index >= _class_cfg.size():
+		return {}
+	return _class_cfg[index]
+
+
+## The class's element, or ARCANE when nothing answered. A fallback rather than a -1
+## because every consumer here is a COLOUR, and a colour has to be something.
+func _element_of(index: int) -> int:
+	return int(_cfg_for(index).get("element", Elements.Element.ARCANE))
 
 
 func _selected_class() -> int:

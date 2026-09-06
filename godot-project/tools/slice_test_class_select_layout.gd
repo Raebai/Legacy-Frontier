@@ -54,6 +54,11 @@ const TESTS: Array[String] = [
 	"the_detail_column_names_the_spells_the_class_really_casts",
 	"the_cursor_previews_a_class_without_becoming_it",
 	"a_guarded_class_can_be_read_before_it_can_be_played",
+	"every_character_on_the_screen_is_in_the_font_that_draws_it",
+	"the_rail_wears_the_element_and_marks_the_class_you_are",
+	"the_detail_column_draws_the_class_it_names",
+	"the_screen_offers_change_spells_and_done_and_no_armoury",
+	"an_on_element_spell_is_marked_and_a_class_with_none_is_not",
 ]
 
 const SELECT_SCRIPT: String = "res://scripts/ClassSelect.gd"
@@ -88,6 +93,11 @@ func _run() -> void:
 	await _test_the_detail_column_names_the_spells_the_class_really_casts()
 	await _test_the_cursor_previews_a_class_without_becoming_it()
 	await _test_a_guarded_class_can_be_read_before_it_can_be_played()
+	await _test_every_character_on_the_screen_is_in_the_font_that_draws_it()
+	await _test_the_rail_wears_the_element_and_marks_the_class_you_are()
+	await _test_the_detail_column_draws_the_class_it_names()
+	await _test_the_screen_offers_change_spells_and_done_and_no_armoury()
+	await _test_an_on_element_spell_is_marked_and_a_class_with_none_is_not()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted -- a member it reads has moved)" % t)
@@ -206,6 +216,24 @@ func _measure(sel: CanvasLayer, label: String, view_w: float) -> void:
 			% [label, r.position.y, r.end.y, BASE_H])
 	print("[layout] %s panel drawn %.0fx%.0f at (%.0f, %.0f), min %.0fx%.0f"
 		% [label, r.size.x, r.size.y, r.position.x, r.position.y, need.x, need.y])
+	# THE TWO COLUMNS, SEPARATELY. The panel number alone cannot say WHICH column is
+	# deciding the height, and that is the only number that matters when something is
+	# added to one of them: the rail is nine fixed rows and cannot shrink, so every
+	# addition to the detail column is free right up until it passes the rail and then
+	# costs 1:1. Printed on every run so the next person adding a row can see the slack
+	# instead of discovering it as an overflow.
+	var rail: Control = sel.get("_rail") as Control
+	var detail: Control = sel.get("_detail") as Control
+	if rail != null and detail != null:
+		# MINIMUMS, not drawn sizes. Both columns are stretched to the taller of the two
+		# by the HBox, so a drawn number tells you nothing about which one is deciding.
+		var rmin: Vector2 = rail.get_combined_minimum_size()
+		var dmin: Vector2 = detail.get_combined_minimum_size()
+		print("[layout] %s rail needs %.0fx%.0f | detail needs %.0fx%.0f -> the %s decides"
+			% [label, rmin.x, rmin.y, dmin.x, dmin.y,
+				"rail" if rmin.y >= dmin.y else "detail"]
+			+ " (drawn band %.0f, %.0f px of the %.0f ceiling left on the panel)"
+				% [rail.size.y, BASE_H - panel.get_combined_minimum_size().y, BASE_H])
 
 
 func _test_the_panel_fits_a_phone_at_640x360() -> void:
@@ -506,6 +534,338 @@ func _test_a_guarded_class_can_be_read_before_it_can_be_played() -> void:
 	_expect(is_equal_approx((cards[guarded] as Button).modulate.a, dim),
 		"the row stopped looking guarded as soon as the cursor landed on it")
 	_completes("a_guarded_class_can_be_read_before_it_can_be_played")
+
+
+# ---------------------------------------------------------------------------
+# 8. the restyle: the font, the rail, the figure, the exits, the affinity mark
+# ---------------------------------------------------------------------------
+
+## ⚠ THIS IS THE ONE THAT WOULD HAVE CAUGHT THE BUG THE RESTYLE FOUND. The rail led
+## every row with `SWATCH = "█"` (U+2588), described in the source as "the leading block
+## on a rail row, drawn in the class colour" — the thing a player was supposed to read
+## the roster by. It is not in the font. `assets/ui/stickspire_theme.tres` sets no font
+## resource, so every Label and Button on this screen falls back to Godot's built-in Open
+## Sans subset, and that font answers `has_char` FALSE for U+2588 — and for U+258C,
+## U+2502, U+25C6, U+25CF, U+2726, U+2744 (❄), U+26A1 (⚡) and U+2694 (⚔), which is most
+## of what a nicer rail row would reach for next. Only Latin-1 and General Punctuation
+## come back true.
+##
+## Nothing on screen said so. A missing glyph is not an error, not a warning and not a
+## crash — it is a blank, or a box, depending on the platform's own font fallback, which
+## means it can look FINE on the machine that shipped it. So the rule is now a test:
+## every character this screen draws must be in the font that will draw it.
+##
+## ⚠ ASKED OF THE CONTROL'S OWN FONT, NOT OF `ThemeDB.fallback_font`. The two are the
+## same today only because the project theme declares no font; the moment somebody adds
+## one, a test that kept asking the fallback would be checking a font nobody sees.
+func _test_every_character_on_the_screen_is_in_the_font_that_draws_it() -> void:
+	var sel: CanvasLayer = await _open_at(BASE_W, BASE_H)
+	var panel: Control = _panel_of(sel)
+	if panel == null:
+		_expect(false, "no panel to sweep for glyphs")
+		_completes("every_character_on_the_screen_is_in_the_font_that_draws_it")
+		return
+	# Every class, because the detail column's text is per-class and only one class is
+	# drawn at a time. A sweep of whatever happened to be selected is a sweep of one ninth.
+	var checked: int = 0
+	var seen: Dictionary = {}
+	for c: int in ClassInfo.count():
+		sel.call("_refresh_detail", c)
+		await process_frame
+		var all: Array = []
+		_walk(panel, all)
+		for node: Variant in all:
+			var ctrl: Control = node as Control
+			var text: String = ""
+			if ctrl is Label:
+				text = (ctrl as Label).text
+			elif ctrl is Button:
+				text = (ctrl as Button).text
+			if text == "":
+				continue
+			var font: Font = ctrl.get_theme_font(&"font")
+			if font == null:
+				font = ThemeDB.fallback_font
+			for k: int in text.length():
+				var cp: int = text.unicode_at(k)
+				if cp <= 32 or seen.has(cp):
+					continue
+				seen[cp] = true
+				checked += 1
+				_expect(font.has_char(cp),
+					"the screen draws U+%04X ('%s', in '%s') and the font it will be drawn"
+						% [cp, String.chr(cp), text]
+					+ " with does not have that glyph — it renders as a blank or a box on"
+					+ " the player's machine with no error anywhere. Draw it (a rect, a"
+					+ " stylebox border) or use a Latin-1 character.")
+	_expect(checked > 20,
+		"the glyph sweep actually looked at something (%d distinct characters)" % checked)
+	_completes("every_character_on_the_screen_is_in_the_font_that_draws_it")
+
+
+## THE RAIL'S TWO SIGNALS, WHICH USED TO BE ONE.
+##
+## `_paint_cursor` wrote `PAD_CURSOR` or `HIGHLIGHT` into a single `modulate`, so a row
+## could say "you are here" or "this is you" but never both — and because `modulate`
+## multiplies the WHOLE row, a cursor sitting on a class also washed the colour out of
+## the one row the player was looking at. They are two channels now: the left border is
+## the class's ELEMENT and widens on the class you are; the fill is the cursor.
+##
+## Driven through the screen's own painter with a real selection, not by reading the
+## constants back: the constants were never the thing that broke.
+func _test_the_rail_wears_the_element_and_marks_the_class_you_are() -> void:
+	var sel: CanvasLayer = await _open_at(BASE_W, BASE_H)
+	var styles: Array = sel.get("_row_styles") as Array
+	var cards: Array = sel.get("_cards") as Array
+	_expect(styles != null and cards != null and styles.size() == cards.size(),
+		"one row style per rail row (%d styles, %d rows)"
+			% [0 if styles == null else styles.size(), 0 if cards == null else cards.size()])
+	if styles == null or cards == null or styles.size() != cards.size():
+		_completes("the_rail_wears_the_element_and_marks_the_class_you_are")
+		return
+	var chosen: int = int(sel.call("_selected_class"))
+	# Park the cursor somewhere that is NOT the selected class, so "where I am" and
+	# "what I am" are on two different rows and can be told apart at all.
+	var elsewhere: int = 0 if chosen != 0 else 1
+	sel.set("_cursor", elsewhere)
+	sel.call("_paint_cursor")
+	await process_frame
+	var wide: int = 0
+	for i: int in styles.size():
+		var sb: StyleBoxFlat = styles[i] as StyleBoxFlat
+		_expect(sb != null, "row %d has a StyleBoxFlat to paint" % i)
+		if sb == null:
+			continue
+		var want: Color = Elements.color(int(sel.call("_element_of", i)))
+		_expect(is_equal_approx(sb.border_color.r, want.r)
+				and is_equal_approx(sb.border_color.g, want.g)
+				and is_equal_approx(sb.border_color.b, want.b),
+			"row %d (%s) wears element colour %s, not its own %s — the accent bar is the"
+				% [i, ClassInfo.name_for(i), str(sb.border_color), str(want)]
+			+ " only thing on the row that says which element the class is")
+		_expect(sb.border_color.a > 0.0 and sb.get_border_width(SIDE_LEFT) > 0,
+			"row %d has a visible accent bar at all" % i)
+		if sb.get_border_width(SIDE_LEFT) > int(sel.get("_row_styles")[elsewhere]
+				.get_border_width(SIDE_LEFT)):
+			wide += 1
+	var mine: StyleBoxFlat = styles[chosen] as StyleBoxFlat
+	var other: StyleBoxFlat = styles[elsewhere] as StyleBoxFlat
+	_expect(mine.get_border_width(SIDE_LEFT) > other.get_border_width(SIDE_LEFT),
+		"the class you ARE (%d) has a louder accent bar than one you are not (%d vs %d px)"
+			% [chosen, mine.get_border_width(SIDE_LEFT), other.get_border_width(SIDE_LEFT)])
+	_expect(wide == 1,
+		"exactly ONE row is marked as the class you are (found %d)" % wide)
+	_expect(other.bg_color.a > 0.0,
+		"the row under the CURSOR is filled, so 'where I am' reads separately from"
+		+ " 'what I am' (alpha %.2f)" % other.bg_color.a)
+	_expect(mine.bg_color.a < other.bg_color.a,
+		"...and the cursor's fill is the louder of the two (%.2f vs %.2f), or walking the"
+			% [other.bg_color.a, mine.bg_color.a]
+		+ " rail loses track of where the cursor is")
+	_completes("the_rail_wears_the_element_and_marks_the_class_you_are")
+
+
+## THE FIGURE. Maker: *"way more aesthetic"*, and a drawn body of the class you are about
+## to become is the single biggest lever this screen had — it costs no panel height
+## because it fits inside the detail column's measured slack against the rail.
+##
+## ⚠ WHAT IS ASSERTED IS THAT IT FOLLOWS THE CLASS, not that it exists. A doll that is
+## built once and never re-dressed looks completely correct on the class the screen
+## opened on and is a lie on the other eight — and that is a bug with no symptom until
+## somebody scrolls.
+func _test_the_detail_column_draws_the_class_it_names() -> void:
+	var sel: CanvasLayer = await _open_at(BASE_W, BASE_H)
+	var doll: Control = sel.get("_doll") as Control
+	var rig: Node2D = sel.get("_rig") as Node2D
+	_expect(doll != null and rig != null, "the detail column carries a paper doll")
+	if doll == null or rig == null:
+		_completes("the_detail_column_draws_the_class_it_names")
+		return
+	var r: Rect2 = doll.get_global_rect()
+	_expect(r.size.x > 24.0 and r.size.y > 24.0,
+		"the doll has a real drawn rect (%.0fx%.0f) — a zero-size Control draws a rig"
+			% [r.size.x, r.size.y]
+		+ " that is clipped to nothing and reports no error")
+	_expect(rig.get_parent() == doll, "the rig is inside the doll's own rect")
+	# ⚠ CLIPPED. A Control does not bound its children, and a rig draws a hood, a hammer
+	# and loose limbs well past its origin — unclipped, the figure is drawn ACROSS the
+	# rail rows to its left and reads as a rendering fault.
+	_expect(doll.clip_contents,
+		"the doll clips its contents, or the figure spills over the rail beside it")
+	# IT FOLLOWS THE CLASS. Two classes with different colours and different weapons.
+	var tints: Array[Color] = []
+	var weapons: Array[String] = []
+	for c: int in ClassInfo.count():
+		sel.call("_refresh_detail", c)
+		await process_frame
+		tints.append(rig.get("limb_color") as Color)
+		weapons.append(String((rig.get("equipment") as Dictionary).get("weapon", "")))
+	var distinct_tints: Dictionary = {}
+	for t: Color in tints:
+		distinct_tints[t.to_html(false)] = true
+	_expect(distinct_tints.size() >= ClassInfo.count() - 1,
+		"the figure is re-tinted per class (%d distinct tints over %d classes) — a doll"
+			% [distinct_tints.size(), ClassInfo.count()]
+		+ " that keeps one colour is a picture, not a preview")
+	var distinct_weapons: Dictionary = {}
+	for w: String in weapons:
+		distinct_weapons[w] = true
+	# ⚠ THE WEAPON, NOT ONLY THE COLOUR, and the class-identity ruling is why: four of the
+	# nine presets name a generic "staff" or "sword" while the class actually carries
+	# `staff_ice` / `staff_storm` / `void_rod` / `dagger_shadow`. Applying the preset alone
+	# would put one stick in four hands and make the doll a recolour.
+	_expect(distinct_weapons.size() >= 4,
+		"the figure carries the class's OWN weapon (%d distinct over %d classes: %s)"
+			% [distinct_weapons.size(), ClassInfo.count(), str(distinct_weapons.keys())])
+	# ⚠ AND SPECIFICALLY THE `weapon_look`, WHICH THE PRESET ALONE DOES NOT GIVE. The
+	# count above is not enough on its own — seven of the nine presets already name
+	# different sticks, so it stays green on a doll dressed by `class_preset` only. The
+	# Shadowblade is the case with teeth: its preset is "rogue", which hands out a plain
+	# `sword`, while the class actually carries `dagger_shadow`. If this row reads
+	# "sword", `Hero._apply_class`'s last step has been skipped and the assassin is
+	# previewed holding the duelist's blade.
+	var shadow: int = ClassInfo.names().find("Shadowblade")
+	if shadow >= 0 and shadow < weapons.size():
+		_expect(weapons[shadow] == "dagger_shadow",
+			"the Shadowblade's doll holds '%s'. `class_preset(\"rogue\")` hands out a"
+				% weapons[shadow]
+			+ " generic sword; the class's `weapon_look` is what makes it the class's own"
+			+ " dagger, and Hero applies it LAST for exactly this reason.")
+	_completes("the_detail_column_draws_the_class_it_names")
+
+
+## THE TWO EXITS, AND THE ONE THE MAKER ASKED TO REMOVE.
+##
+## Verbatim: *"there should be class selection as the main theme and then a change spells
+## button, no need for the armoury button within the class selection"*.
+##
+## ⚠ THE FOOTER MUST NOT RENUMBER THE ROSTER. `tools/slice_test_town.gd` drives the
+## class/spell-pad merge by walking THIS screen for Buttons and indexing the result BY
+## CLASS — so a Button added anywhere ahead of the rail would silently make card 0 mean
+## something else in a suite this file does not own. Asserted here rather than discovered
+## there.
+func _test_the_screen_offers_change_spells_and_done_and_no_armoury() -> void:
+	var sel: CanvasLayer = await _open_at(BASE_W, BASE_H)
+	var panel: Control = _panel_of(sel)
+	var all: Array = []
+	_walk(panel, all)
+	var buttons: Array[Button] = []
+	for node: Variant in all:
+		if node is Button:
+			buttons.append(node as Button)
+	var cards: Array = sel.get("_cards") as Array
+	_expect(buttons.size() == cards.size() + 2,
+		"the screen has the nine rows plus exactly two exits (%d buttons, %d rows)"
+			% [buttons.size(), cards.size()])
+	for i: int in mini(cards.size(), buttons.size()):
+		_expect(buttons[i] == cards[i],
+			"button %d in tree order is still class row %d — a Button ahead of the rail"
+				% [i, i]
+			+ " renumbers the roster under `slice_test_town`'s merge test")
+	var words: String = ""
+	for b: Button in buttons:
+		words += b.text.to_lower() + "|"
+	_expect(words.contains("change spells"),
+		"the footer offers CHANGE SPELLS (buttons: %s)" % words)
+	_expect(words.contains("done"), "the footer offers DONE (buttons: %s)" % words)
+	_expect(not words.contains("armo"),
+		"the armoury button is GONE from this screen — the maker asked by name, and the"
+		+ " armoury is its own pad in the town and its own door on the lobby Outfitter"
+		+ " (buttons: %s)" % words)
+	for i: int in range(cards.size(), buttons.size()):
+		var b: Button = buttons[i]
+		_expect(b.get_global_rect().size.y >= MIN_TAP_H,
+			"exit '%s' clears the %.0f px thumb floor (drawn %.1f)"
+				% [b.text, MIN_TAP_H, b.get_global_rect().size.y])
+		# ⚠ `FOCUS_NONE`, FOR THE SAME REASON THE RAIL ROWS ARE. Godot's focus walk eats
+		# `ui_up`/`ui_down` before `_unhandled_input` ever sees them, so the instant a
+		# player clicked one of these the arrow-key preview would stop working — with no
+		# error, and only on a build where somebody had touched the footer first.
+		_expect(b.focus_mode == Control.FOCUS_NONE,
+			"exit '%s' is FOCUS_NONE, or clicking it kills the arrow-key preview" % b.text)
+	# DONE ACTUALLY CLOSES. A footer button that only looks like an exit is the failure
+	# this whole file is written against.
+	var done: Button = null
+	for b: Button in buttons:
+		if b.text.to_lower().contains("done"):
+			done = b
+	if done != null:
+		done.pressed.emit()
+		await process_frame
+		_expect(not bool(sel.call("is_open")), "pressing DONE really closes the screen")
+	_completes("the_screen_offers_change_spells_and_done_and_no_armoury")
+
+
+## ELEMENT AFFINITY, WHERE A PLAYER CAN ACTUALLY LEARN IT.
+##
+## A spell of the class's own element is worth `SpellCaster.AFFINITY_MULT` in that
+## class's hands. The fight rings the slot; this screen is the OTHER place, and it is the
+## one you read before you have committed to the class.
+##
+## ⚠ AND THE BRAWLER IS ASSERTED TO SHOW NOTHING. Its class element is FIRE while every
+## spell in its hand is EARTH, so affinity pays it nothing at all. That is a live design
+## question for the maker (`SpellCaster.affinity_mult` says so at length) and NOT a thing
+## this screen may paper over — a layout that always marked something would quietly claim
+## every class has an amplified spell.
+func _test_an_on_element_spell_is_marked_and_a_class_with_none_is_not() -> void:
+	var sel: CanvasLayer = await _open_at(BASE_W, BASE_H)
+	var names: Array = sel.get("_detail_names") as Array
+	if names == null or names.is_empty():
+		_expect(false, "no spell rows to read the affinity mark from")
+		_completes("an_on_element_spell_is_marked_and_a_class_with_none_is_not")
+		return
+	var tag: String = String(sel.get("_affinity_tag")).strip_edges()
+	_expect(tag != "" and tag.contains("25"),
+		"the mark is derived from SpellCaster.AFFINITY_MULT (%.2f), so a re-tune cannot"
+			% SpellCaster.AFFINITY_MULT
+		+ " leave the card quoting a number the fight stopped paying (got '%s')" % tag)
+	var marked_classes: int = 0
+	var brawler: int = -1
+	for c: int in ClassInfo.count():
+		if ClassInfo.name_for(c) == "Brawler":
+			brawler = c
+		sel.call("_refresh_detail", c)
+		await process_frame
+		var elem: int = int(sel.call("_element_of", c))
+		var hand: Array = ClassInfo.carried_spells(c)
+		var marked_here: int = 0
+		var should: int = 0
+		for n: int in mini(names.size(), hand.size()):
+			var spell: SpellDef = hand[n] as SpellDef
+			var drawn: String = (names[n] as Label).text
+			var on_element: bool = SpellCaster.resolve_element(spell) == elem
+			if on_element:
+				should += 1
+			if drawn.contains(tag):
+				marked_here += 1
+			_expect(drawn.contains(tag) == on_element,
+				"%s / %s: the card %s the affinity mark and the fight %s amplify it"
+					% [ClassInfo.name_for(c), spell.display_name,
+						"shows" if drawn.contains(tag) else "omits",
+						"does" if on_element else "does not"])
+		_expect(marked_here == should,
+			"%s marks %d of the %d spells its own element amplifies"
+				% [ClassInfo.name_for(c), marked_here, should])
+		if marked_here > 0:
+			marked_classes += 1
+	_expect(marked_classes >= 5,
+		"the mark reaches most of the roster (%d of %d classes) — if it reaches almost"
+			% [marked_classes, ClassInfo.count()]
+		+ " none, the rule being read here is not the rule the fight uses")
+	# The known hole, pinned so it goes red the day somebody re-elements the class rather
+	# than being rediscovered as a bug in this screen.
+	if brawler >= 0:
+		sel.call("_refresh_detail", brawler)
+		await process_frame
+		var any: bool = false
+		for n: int in names.size():
+			if (names[n] as Label).text.contains(tag):
+				any = true
+		_expect(not any,
+			"the Brawler is marked as having an on-element spell. Its class element is"
+			+ " FIRE and its whole hand is EARTH, so affinity pays it NOTHING — if that"
+			+ " changed, the maker changed it, and this line is the notice.")
+	_completes("an_on_element_spell_is_marked_and_a_class_with_none_is_not")
 
 
 ## One keypress, delivered the way the game gets it. `InputEventAction` is enough:
