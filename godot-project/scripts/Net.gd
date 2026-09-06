@@ -43,6 +43,12 @@ const GHOST_GROUP: StringName = &"none"
 ## rather than by `class_name`: the mark is a pure `_draw` node with no global
 ## class registration, so nothing here depends on the editor's class cache.
 const SPAWN_TELL_SCRIPT: GDScript = preload("res://scripts/combat/SpawnTell.gd")
+## WHO THIS PLAYER IS. Reached by `preload` rather than as a bare identifier because
+## `PlayerProfile` deliberately carries no `class_name` — see its header for why (a
+## global class registration rewrites `global_script_class_cache.cfg`, which several
+## agents editing this checkout at once will corrupt). `Settings` and `HudStyle` are
+## imported the same way.
+const PlayerProfile := preload("res://scripts/PlayerProfile.gd")
 ## THE TOWER spec caps a session at 2 players. This is a hard design cap, not a
 ## placeholder: the 25-entity budget, the one-screen arena and the friendly-fire
 ## social loop are all balanced around exactly two thumbs in one room.
@@ -55,6 +61,20 @@ var peer_class: Dictionary = {}
 ## way `peer_class` is, and read ONCE, by `start_coop_run`, to decide where the
 ## party begins. Before this the host's floor was simply imposed on everyone.
 var peer_floor: Dictionary = {}
+## peer id -> that player's DISPLAY NAME, already sanitised. Announced on join exactly
+## the way `peer_class` and `peer_floor` are.
+##
+## ⚠ BEFORE THIS A PEER ANNOUNCED A CLASS AND A FLOOR AND NOTHING ELSE, so the best a
+## co-op screen could say about the person you were about to climb with was
+## "Player 2 — Stormcaller". The number is an ENet peer id: it is assigned by the host,
+## it is not chosen, and it is not a person.
+##
+## ⚠ EVERY VALUE IN HERE HAS BEEN THROUGH `PlayerProfile.clean_incoming`, INCLUDING THE
+## HOST'S OWN. That is the invariant readers rely on: `name_of()` hands its result
+## straight to a `Label`, so if an unsanitised string could reach this dictionary the
+## sanitising would be decorative. See `_announce_name` for what is actually stripped
+## and why a bidi override is the interesting half.
+var peer_name: Dictionary = {}
 var _pending_class: int = 0
 ## True between a floor clearing and the party advancing — the host advances ONCE
 ## per clear, whichever hero reaches the exit first (debounces two near-simultaneous
@@ -155,6 +175,9 @@ func host(my_class: int, port: int = DEFAULT_PORT) -> int:
 	multiplayer.multiplayer_peer = peer
 	peer_class = {1: my_class}
 	peer_floor = {1: _my_climb_floor()}
+	# Sanitised even though it came from our own disk: `peer_name` promises every value
+	# in it is clean, and a promise with one exception is not one.
+	peer_name = {1: PlayerProfile.clean_incoming(PlayerProfile.display_name(), 1)}
 	_arena_ready.clear()
 	_party_ready_sent.clear()
 	_run_started = false
@@ -162,7 +185,13 @@ func host(my_class: int, port: int = DEFAULT_PORT) -> int:
 	# the Lobby so the host half of discovery cannot be forgotten: "two phones in one
 	# room" only works if the host is findable without anyone reading an IP aloud.
 	# It stops itself when the run starts (the session is closed by then).
-	start_beacon()
+	# ⚠ THE BEACON NOW ADVERTISES THE PLAYER, NOT THE PC — but only once there IS a
+	# player to advertise. The join list used to say `DESKTOP-4F2K9B1`, which is the
+	# right answer only in the sense that it is unique; nobody in the room recognises
+	# it. `is_named()` is what stops the cure being worse than the disease: two unnamed
+	# hosts would both advertise the default and be two identical buttons, so an unnamed
+	# host keeps the machine name, which at least differs per machine.
+	start_beacon(PlayerProfile.display_name() if PlayerProfile.is_named() else "")
 	server_started.emit()
 	lobby_changed.emit()
 	return OK
@@ -184,6 +213,7 @@ func leave() -> void:
 	multiplayer.multiplayer_peer = null
 	peer_class.clear()
 	peer_floor.clear()
+	peer_name.clear()
 	_pickup_awarded.clear()
 	_arena_ready.clear()
 	_party_ready_sent.clear()
@@ -252,6 +282,7 @@ func _join_refused(reason: String) -> void:
 func _on_peer_disconnected(id: int) -> void:
 	peer_class.erase(id)
 	peer_floor.erase(id)
+	peer_name.erase(id)
 	_arena_ready.erase(id)
 	_free_peer_hero(id)
 	player_disconnected.emit(id)
@@ -335,6 +366,13 @@ func _on_connected_ok() -> void:
 	join_ok.emit()
 	_announce_class.rpc_id(1, _pending_class)
 	_announce_floor.rpc_id(1, _my_climb_floor())
+	# ⚠ AND OUR OWN ROW, LOCALLY, BEFORE THE HOST'S TABLE COMES BACK. The client's copy
+	# of `peer_name` is filled by `_sync_name_table`, which is a round trip away — and
+	# the realm screen is on screen for the whole of that round trip. Without this line
+	# the left-hand card reads "Player 2" for a beat and then snaps to your own name,
+	# which looks exactly like the bug the card exists to fix.
+	peer_name[my_id()] = PlayerProfile.clean_incoming(PlayerProfile.display_name(), my_id())
+	_announce_name.rpc_id(1, PlayerProfile.display_name())
 
 
 func _on_connected_fail() -> void:
@@ -386,6 +424,67 @@ func _sync_class_table(table: Dictionary) -> void:
 		clean[int(k)] = int(table[k])
 	peer_class = clean
 	lobby_changed.emit()
+
+
+# ------------------------------------------------------------ NAME TABLE (RPC)
+## ══════════════════════════════════════════════════════════════════════════════
+## ⚠ SANITISE ON RECEIPT. THIS IS THE WHOLE POINT OF THIS FUNCTION.
+## ══════════════════════════════════════════════════════════════════════════════
+##
+## `raw` is a `String` that arrived over a socket from a machine this one does not
+## control, and its destination is a `Label` on the realm screen. Sanitising it where it
+## was SENT is worth nothing: the sender is the untrusted party. Godot will happily
+## deliver a 40 000-character name, a name containing newlines, or a name containing
+## `U+202E RIGHT-TO-LEFT OVERRIDE` — which reverses the rendering of the text after it,
+## so the row this game wrote as "Rae — Stormcaller" can be made to read as something
+## the sender chose. It is invisible in a hex-free view and a length check does not
+## notice it. `PlayerProfile.sanitize_name` strips all three classes and caps the
+## length; `clean_incoming` then turns an empty result into this peer's own number, so
+## a peer that announces nothing is "Player 3" rather than a blank card.
+##
+## ⚠ THE PEER ID COMES FROM `get_remote_sender_id()`, NEVER FROM THE PACKET. A sender
+## cannot name itself: if the id were a parameter, any peer could overwrite the host's
+## row. This mirrors `_announce_class`, which keys the same way for the same reason.
+@rpc("any_peer", "reliable")
+func _announce_name(raw: String) -> void:
+	var sender: int = multiplayer.get_remote_sender_id()
+	peer_name[sender] = PlayerProfile.clean_incoming(raw, sender)
+	# ⚠ ONLY THE HOST REBROADCASTS — the same guard, and the same reasoning, as
+	# `_announce_class` directly above: `_sync_name_table` is `@rpc("authority")` so a
+	# non-host sending it is refused by Godot anyway, and the error it throws names the
+	# wrong thing. Inert while MAX_PLAYERS is 2; a trap the moment that cap moves.
+	if is_host():
+		_sync_name_table.rpc(peer_name)
+	lobby_changed.emit()
+
+
+## ⚠ AND SANITISED AGAIN HERE, WHICH IS NOT BELT-AND-BRACES. This table arrives from the
+## HOST, and the host is another untrusted machine — the one clause `_announce_name` does
+## not cover is a host that rewrites the table before relaying it. Cleaning on both
+## receipts means there is no route to `peer_name` that skips the filter, which is the
+## invariant the dictionary's own comment promises.
+@rpc("authority", "reliable")
+func _sync_name_table(table: Dictionary) -> void:
+	var clean: Dictionary = {}
+	for k in table.keys():
+		var pid: int = int(k)
+		var v: Variant = table[k]
+		# A non-string value is not a name. Refused rather than coerced: `str()` on a
+		# Dictionary produces a page of braces, which is a `Label` the height of the
+		# screen.
+		if typeof(v) != TYPE_STRING:
+			continue
+		clean[pid] = PlayerProfile.clean_incoming(String(v), pid)
+	peer_name = clean
+	lobby_changed.emit()
+
+
+## The display name for `peer_id`, safe to hand to a `Label`. An id we have heard nothing
+## from yet reads as its own number — the realm screen wants "Player 2", not "", while a
+## peer is still connecting.
+func name_of(peer_id: int) -> String:
+	var stored: String = String(peer_name.get(peer_id, ""))
+	return stored if stored != "" else ("Player %d" % maxi(peer_id, 1))
 
 
 # ============================================================ co-op run entry

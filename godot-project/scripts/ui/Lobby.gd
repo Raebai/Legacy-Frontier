@@ -97,7 +97,7 @@ const BUTTON_H: float = 46.0
 ##   PANEL_W 208 -> block 232 wide, left edge 390.  34 px of clear air, and the
 ##                  buttons themselves start at 402 — 46 px clear of the art.
 ##
-## 208 still holds every row: "SINGLE PLAYER  ▸" measures ~152 px at font 19, the two
+## 208 still holds every row: "SINGLE PLAYER  ›" measures ~152 px at font 19, the two
 ## half-width footer rows are 101 px each, the host list is 192 and the join row is
 ## `208 - 96` plus an 88 px button = 200. On a taller phone `aspect=expand` grows the
 ## LOGICAL WIDTH (never the height), so the gap only opens further from here.
@@ -419,7 +419,15 @@ func _build_ui() -> void:
 	# `slice_test_outfitter`), all of which guard the SAME claim — "the one verb that
 	# starts the game is the first thing built on this screen". They were updated with
 	# the label; the claim is untouched.
-	var play := _button("SINGLE PLAYER  ▸", _play_solo, 19)
+	# ⚠ `›`, NOT `▸`, AND THESE TWO WERE NOT ON THE FONT SWEEP'S LIST BECAUSE ITS SCANNER
+	# READS `.text =` ASSIGNMENTS AND THESE ARE CONSTRUCTOR ARGUMENTS. The defect is the
+	# same one and on the worst possible pair: the two PRIMARY verbs on the front door
+	# were each rendering their trailing marker as a zero-width nothing, so the game's
+	# first screen showed "SINGLE PLAYER" followed by two blank columns. See the long
+	# note in `_apply_class_tint` for why the fallback font cannot draw U+25B8.
+	# The suites pin these by `begins_with` / `contains` on the WORDS, so the marker is
+	# free to change.
+	var play := _button("SINGLE PLAYER  ›", _play_solo, 19)
 	# Still the biggest target on the page — it is the whole game — but the margin over
 	# the others is 6 px now rather than 8, because the others are no longer too small
 	# to hit. A hierarchy built out of a target that MISSES is not a hierarchy.
@@ -465,10 +473,34 @@ func _build_ui() -> void:
 	# build. The suites' walker recurses the whole tree and does not check visibility,
 	# so a hidden panel satisfies them honestly — the actions ARE all still reachable,
 	# which is what those assertions are actually protecting.
-	var mp := _button("MULTIPLAYER  ▸", _toggle_coop, 16)
+	# ⚠ THE DOOR NOW OPENS A SCREEN, NOT THREE MORE ROWS. Maker: *"pressing multiplayer
+	# should take you to a character selection screen where you can add other people to
+	# your realm etc. and connect local play"*. The collapsed panel below could not be
+	# that: it had no seats, no names and nothing that said "local", because until
+	# `PlayerProfile` landed there was no player identity in this game to put on a card.
+	#
+	# ⚠ THE BUTTON ITSELF IS UNTOUCHED — same label, same handler ARITY, same
+	# `BUTTON_H`. The maker asked TWICE for the front door's buttons to be smaller and
+	# clear of the artwork, and `slice_test_settings` fails the build if either named
+	# primary drops below 46 px. Nothing is added to this screen and nothing is resized;
+	# only where the press GOES has changed.
+	var mp := _button("MULTIPLAYER  ›", _open_realm, 16)
 	mp.custom_minimum_size = Vector2(PANEL_W, BUTTON_H)
 	right.add_child(mp)
 
+	# ⚠ THIS PANEL IS NOW THE FALLBACK, NOT THE DOOR, and it is kept for two reasons
+	# rather than out of caution.
+	#
+	#   1. It is the by-path fallback for a build with no `RealmScreen.gd` — exactly the
+	#      shape `free_play_available()`, `bot_match_available()` and `versus_available()`
+	#      already use three times in this file. `_open_realm` calls `_toggle_coop` when
+	#      the script is missing, so a stripped build loses the seats and the names and
+	#      keeps every action.
+	#   2. Four suites assert the literal strings "Host Co-op", "Join", "Start Run" and
+	#      "Credits" are present among this screen's buttons, and one asserts the source
+	#      still builds `var coop := HBoxContainer.new()`. Deleting any of them fails the
+	#      build — and what those assertions are actually protecting (every co-op action
+	#      is reachable) is still true, now through the realm screen.
 	# The panel itself. Inside `_col` so it inherits the column's fade-in, and hidden
 	# at boot — a `Container` excludes non-visible children from its minimum size, so
 	# the collapsed screen is SHORTER than it was and the 360 px viewport bound the
@@ -639,7 +671,15 @@ func _apply_class_tint() -> void:
 	var info: Dictionary = ClassInfo.CLASSES[i] if i < ClassInfo.CLASSES.size() else {}
 	var accent: Color = ClassInfo.color_for(i) if ClassInfo.count() > 0 else ACCENT_FALLBACK
 	if _class_btn != null:
-		_class_btn.text = "◂  %s  ▸" % String(info.get("name", "Class %d" % i))
+		# ⚠ `‹ ›` (U+2039/U+203A) AND NOT `◂ ▸` (U+25C2/U+25B8), AND THE OLD PAIR WAS
+		# DRAWING NOTHING AT ALL. `assets/ui/stickspire_theme.tres` declares 21 font_size
+		# and font_color entries and NO Font resource, and there is no font file in the
+		# repo — so every control here falls back to Godot's built-in Open Sans subset,
+		# whose coverage stops at Latin-1. `Font.has_char(0x25B8)` is false, and Godot
+		# draws a zero-width nothing and raises no error. The cycler read
+		# "  Stormcaller  " with two mystery gaps. `tools/slice_test_font_coverage.gd`
+		# is the gate that stops this coming back.
+		_class_btn.text = "‹  %s  ›" % String(info.get("name", "Class %d" % i))
 		_class_btn.add_theme_color_override("font_color", accent)
 		_class_btn.add_theme_color_override("font_hover_color", accent.lightened(0.25))
 	if _class_kit != null:
@@ -899,6 +939,112 @@ func _open_outfitter() -> void:
 		_outfitter.connect(&"closed", _on_outfitter_closed)
 
 
+## ══════════════════════════════════════════════════════════════ YOUR REALM
+## The screen behind MULTIPLAYER: your character on the left, the joined peer on the
+## right, and Host / Join / Local Play.
+##
+## ⚠ BY PATH AND `load()`, NEVER A BARE `RealmScreen` IDENTIFIER — the same rule the
+## duel stage, the bot arena and free play all document in this file. A named reference
+## would compile that script (and everything it touches) at the BOOT SCREEN's parse
+## time, and `slice_test_botmatch_intro` greps this source for bare identifiers.
+## By-path also means a build without the script falls back to the flat co-op rows
+## instead of failing to load the title screen.
+const REALM_SCRIPT: String = "res://scripts/ui/RealmScreen.gd"
+
+var _realm: Control = null
+
+
+func realm_available() -> bool:
+	return ResourceLoader.exists(REALM_SCRIPT)
+
+
+func _open_realm() -> void:
+	if _realm != null and is_instance_valid(_realm):
+		return
+	if not realm_available():
+		_toggle_coop()   # the flat rows, exactly as before this screen existed
+		return
+	var script: GDScript = load(REALM_SCRIPT) as GDScript
+	if script == null:
+		_toggle_coop()
+		return
+	_realm = script.new() as Control
+	add_child(_realm)
+	# The three verbs come back as SIGNALS so the realm screen never learns this file's
+	# private methods — and, more usefully, so the `session_kind` writes and the
+	# discovery teardown that must wrap each one stay in the single place that owns them.
+	_realm.connect(&"host_pressed", _realm_host)
+	_realm.connect(&"join_pressed", _realm_join)
+	_realm.connect(&"local_pressed", _local_play)
+	_realm.connect(&"start_pressed", _start_run)
+	_realm.connect(&"closed", _on_realm_closed)
+
+
+func _on_realm_closed() -> void:
+	if _realm != null and is_instance_valid(_realm):
+		_realm.queue_free()
+	_realm = null
+
+
+## Host, and report back onto the realm screen rather than onto the title's status row —
+## which is behind the overlay and therefore invisible at the moment it has something to
+## say. Same problem `_say` already solves for the join screen.
+func _realm_host() -> void:
+	_host()
+	_realm_say(_status.text if _status != null else "")
+
+
+## The join screen is the LOBBY's, not the realm screen's: it owns the LAN discovery
+## pump, the TTL sweep and the manual address field, and duplicating any of that would
+## be a second implementation of the one thing in co-op that is genuinely fiddly. So
+## this closes the realm overlay and swaps in the existing screen.
+func _realm_join() -> void:
+	_on_realm_closed()
+	_open_join()
+
+
+func _realm_say(text: String) -> void:
+	if _realm != null and is_instance_valid(_realm) and _realm.has_method("say") and text != "":
+		_realm.call("say", text)
+
+
+## ══ LOCAL PLAY — THE FEATURE THAT WAS BUILT AND HAD NO DOOR ═══════════════════
+##
+## ⚠ IT IS NOT A LOOPBACK HOST, AND CALLING IT ONE WOULD BE RELABELLING THE WRONG
+## THING. `_host()` opens a real ENet server on a real port and starts a UDP beacon;
+## that is ONLINE play that happens to also answer on 127.0.0.1. Same-screen co-op is a
+## completely separate, already-shipped mechanism: `Arena` builds a `LocalCoop` on every
+## offline run, and a second person presses A or START on any unclaimed pad and a
+## climber walks in mid-floor.
+##
+## `LocalCoop`'s own header explains why it has no menu — *"couch co-op is a social act
+## and a join screen puts a form between them and the game"* — and that is right, and it
+## is exactly why NOTHING IN THE GAME HAS EVER SAID THE FEATURE EXISTS. This is the
+## sentence, not a second path: no new machinery, no socket, and the arena is untouched.
+##
+## The one line of state it sets is `SessionKind.LOCAL`, which was DECLARED IN
+## `GameState` AND WRITTEN BY NOBODY — so `World._session_is_party()` was false for a
+## couch game and the hub's Party Stone could never stand up for one.
+func _local_play() -> void:
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs == null:
+		_realm_say("the tower is missing. (GameState unavailable)")
+		return
+	gs.set("session_kind", 1)   # SessionKind.LOCAL
+	gs.set("selected_class", _selected_class)
+	_stop_discovery()
+	_on_realm_closed()
+	# The room is the front door for this exactly as it is for SINGLE PLAYER, and the
+	# same fallback applies: a build with no town starts the run outright rather than
+	# stranding the player on the title screen.
+	if gs.has_method("visit_hub") and bool(gs.call("visit_hub")):
+		_say("entering...")
+		return
+	if gs.has_method("enter_run"):
+		_say("climbing...")
+		gs.call("enter_run")
+
+
 func _on_outfitter_closed() -> void:
 	if _outfitter != null and is_instance_valid(_outfitter):
 		_outfitter.queue_free()
@@ -1038,7 +1184,9 @@ func _host_row(entry: Dictionary) -> Button:
 	var port: int = int(entry.get("port", _default_port()))
 	var host_name: String = String(entry.get("name", ip))
 	var b := Button.new()
-	b.text = "▸  %s" % host_name
+	# `›` (U+203A), not `▸` (U+25B8) — see the note in `_apply_class_tint`: the fallback
+	# font cannot draw the triangle, so this row read as two blank columns then a name.
+	b.text = "›  %s" % host_name
 	# The address is the tie-breaker when two machines share a name, which on a
 	# home network is not unusual. Small, secondary, always present.
 	b.tooltip_text = "%s:%d" % [ip, port]
