@@ -1036,6 +1036,25 @@ var _was_airborne: bool = false
 ## _local_floor_y(x) instead. Kept alongside rather than replacing it because the
 ## local value is still the honest answer for a point directly under the origin.
 var _ground_world_y: float = INF
+## ══ THE FLOOR THE SHADOW IS CAST ON — RETAINED, NOT RE-PROBED ══════════════════
+## `_ground_world_y` above goes INF the instant the figure leaves the floor (see
+## `_update_ground_probe`'s guard), which is exactly the moment a contact shadow
+## becomes worth something: the shadow that STAYS ON THE GROUND while the figure
+## rises off it is the whole cue that says "that was a jump" rather than "that
+## sprite moved up the screen".
+##
+## ⚠ IT IS THE LAST KNOWN VALUE AND NOT A SECOND RAYCAST, DELIBERATELY. A dedicated
+## downward ray per figure per frame is not free at the scale this runs at — a wave
+## is a dozen bodies at 60 Hz, which is ~700 extra ray queries a second on a phone,
+## to place a 13 px ellipse. Retaining the line the figure LEFT costs nothing, is
+## exactly right for the common case (you jump from a surface and land back on it),
+## and re-syncs on the first grounded frame after a landing.
+##
+## The one case it is wrong for is leaping onto a DIFFERENT height mid-arc, where
+## the shadow sits on the surface departed from until touchdown. That reads as a
+## shadow on the floor below — which is what a shadow on the floor below looks
+## like — and it self-corrects the frame the feet land.
+var _shadow_world_y: float = INF
 
 
 ## ⚠ THE RIG TICKS ON PHYSICS, NOT ON RENDER — and this line moved for a measured
@@ -1773,6 +1792,10 @@ func _update_ground_probe() -> void:
 	# because _sim_pose's plant contract is expressed in local space.
 	_ground_world_y = (hit["position"] as Vector2).y
 	_ground_local_y = to_local(hit["position"] as Vector2).y
+	# The contact shadow's floor line. Written only on the frames the probe SUCCEEDS,
+	# never cleared — see the block on `_shadow_world_y` for why the stale value is
+	# the right answer while the figure is off the ground.
+	_shadow_world_y = _ground_world_y
 
 
 ## Clamp a drawn foot so it rests ON the ground contact line, never sinking below it:
@@ -2485,8 +2508,14 @@ func _draw_weapon_trail(pose: Dictionary) -> void:
 
 func _draw() -> void:
 	var col: Color = _flash_color if _flash_timer > 0.0 else limb_color
-	if _airborne > 0.01:
-		_draw_shadow()  # ground shadow stays put while the figure lifts (flight)
+	# ⚠ SOLVED BEFORE THE SHADOW, NOT AFTER, and that is the only reason this line
+	# moved. `_sim_pose()` is not cached — it re-runs `_compute_pose()` on every call —
+	# so the contact shadow reads the pose the figure is ABOUT to be drawn from rather
+	# than paying for a third solve of the same frame. Nothing between here and the
+	# transform below touches sim state, so the pose is identical to the one this line
+	# produced when it sat further down.
+	var pose: Dictionary = _sim_pose()  # draw the PHYSICAL body, not the raw target
+	_draw_shadow(pose)  # ground shadow stays on the floor while the figure leaves it
 	_draw_aura()
 	# Draw-time transform: impact pop (scale) composed with flight lift (y-offset).
 	# Never touches node.scale — set_facing() owns scale.x for the horizontal flip.
@@ -2497,7 +2526,6 @@ func _draw() -> void:
 	var lift: Vector2 = Vector2(0.0, -_airborne * height * AIRBORNE_LIFT_FACTOR)
 	if lift != Vector2.ZERO or pop_scale != Vector2.ONE:
 		draw_set_transform(lift, 0.0, pop_scale)
-	var pose: Dictionary = _sim_pose()  # draw the PHYSICAL body, not the raw target
 	# BEHIND THE FIGURE, and from the pose the limbs are about to be drawn from — a
 	# trail solved off the TARGET pose leaves a hand that is not where the hand is.
 	_draw_weapon_trail(pose)
@@ -2876,14 +2904,142 @@ func _draw_parry_shield(pose: Dictionary) -> void:
 	draw_arc(center, r_out + height * 0.06, ang - half_span, ang + half_span, 16, Color(0.85, 0.95, 1.0, 0.22 * alpha), height * 0.09)
 
 
-## Soft ground shadow beneath the figure while airborne — shrinks + fades as it
-## rises, selling the top-down "lifted off the ground" read. Drawn in un-lifted
-## space (stays on the floor) before the figure's lift transform.
-func _draw_shadow() -> void:
-	var sh_scale: float = 1.0 - 0.45 * _airborne
-	var sh_alpha: float = 0.30 * (1.0 - 0.35 * _airborne)
-	draw_set_transform(Vector2(0.0, height * 0.5), 0.0, Vector2(sh_scale, sh_scale * 0.4))
-	draw_circle(Vector2.ZERO, height * 0.42, Color(0.0, 0.0, 0.0, sh_alpha))
+## ══ THE CONTACT SHADOW — EVERY FIGURE, EVERY FRAME, NOT JUST IN FLIGHT ═════════
+##
+## ⚠ THIS EXISTED AND ALMOST NOBODY EVER SAW IT. The call site read
+## `if _airborne > 0.01: _draw_shadow()`, and `_airborne` is a DRAW-TIME LIFT written
+## by a handful of `Hero` paths and nothing else: the flight/float states, the
+## summon-cast lift, and the Ghost. Jumping does not set it. Falling does not set it.
+## Standing still certainly does not. So a hero walking across a floor, an enemy
+## holding a ledge and a boss mid-arena all drew with NO shadow of any kind, and the
+## one moment the game did cast one was a moment the figure is deliberately NOT
+## standing on anything.
+##
+## MEASURED BY EYE, which is the only instrument for this: `tools/rig_look_capture.gd`
+## (`rigcap_gait_new_*.png`), `tools/floorgen_capture.gd` on a real tower floor and
+## `tools/postprocess_capture.gd` on the versus stage all show the same thing — a flat
+## coloured silhouette sitting ON TOP of the floor rather than IN the scene. Nothing
+## in the picture connects a figure to the surface it is standing on, which is the
+## single largest reason the stages read as flat: it is not the stage art, it is that
+## every object in front of it is unlit and ungrounded.
+##
+## WHAT IT IS NOT: it is not detail added to the stick figure. STICKS STAY STICKS —
+## the mark is on the FLOOR, underneath, and the figure itself is byte-identical.
+##
+## ══ HOW IT BEHAVES ═════════════════════════════════════════════════════════════
+## The shadow lives on the floor line (`_shadow_world_y`, retained across a jump —
+## see its declaration) and is centred on the FEET rather than on the node origin,
+## so it slides with the stance as the gait swings and does not sit stubbornly under
+## the hips while the figure steps away from it. As the feet leave the floor —
+## whether by jumping, by being launched, or by the flight lift — it shrinks and
+## fades, which is the cue that says "that is height" instead of "that moved up".
+##
+## ⚠ THE SHRINK/FADE CURVE IS THE OLD ONE, EXACTLY: at gap == height *
+## AIRBORNE_LIFT_FACTOR the constants below give scale 0.55 / alpha 0.195, which is
+## what `1.0 - 0.45 * 1.0` and `0.30 * (1.0 - 0.35 * 1.0)` gave. What HAS changed is
+## the ellipse the curve is applied to — see SHADOW_SQUASH.
+##
+## MEASURED: over one scripted versus fight (`tools/combat_capture.gd` with the draw
+## counted), 221 shadow draws against 79 frames with no floor known — the 79 are the
+## spawn drop before anyone has landed, and the count stops growing once they have,
+## which is the retention contract working. Planted frames reported gap 0.00 / alpha
+## 0.30; a launched fighter reported gap 57.1 px / alpha 0.195, i.e. both ends of the
+## curve are reached in a normal fight rather than only in theory.
+const SHADOW_R_FACTOR: float = 0.34     # radius as a fraction of figure height
+## ⚠ FLAT, BECAUSE THE CAMERA IS SIDE-ON. This was 0.4 — a near-circular blob, which
+## is the correct figure for a TOP-DOWN shadow and the wrong one here. The first
+## capture of it (`combat_capture.gd`, red Brawler on the versus crust) showed the top
+## half of the ellipse standing clear of the floor line and dimming the WALL BEHIND
+## the figure, which reads as a stain on the backdrop rather than as a shadow on the
+## ground. In a side view the floor is an EDGE, not a plane, so the shadow has to be
+## a smear along that edge; 0.26 keeps roughly 3 px of it either side of the line at
+## the shipped 31 px figure height.
+const SHADOW_SQUASH: float = 0.26       # vertical squash — a ground smear, not a disc
+const SHADOW_ALPHA: float = 0.30        # planted alpha
+const SHADOW_SHRINK: float = 0.45       # size lost by the top of the lift span
+const SHADOW_FADE: float = 0.35         # alpha lost by the top of the lift span
+## The gap (in figure heights) over which the shadow goes from planted to its
+## smallest/faintest. Equal to AIRBORNE_LIFT_FACTOR so the flight end lands on the
+## old values exactly; it is also about a jump's apex, which is what makes the
+## curve read on the far more common jump.
+const SHADOW_LIFT_SPAN: float = 0.7
+## The soft penumbra: a wider, fainter ellipse under the core one. Two draw calls
+## instead of one — a hard-edged black pill under a 31 px figure reads as a decal.
+const SHADOW_HALO_SCALE: float = 1.35
+const SHADOW_HALO_ALPHA: float = 0.45   # fraction of the core alpha
+
+## Size + opacity of the contact shadow for a figure whose feet are `gap_px` above
+## the floor. PURE — no tree, no draw state — so `tools/slice_test_rig_shadow.gd`
+## can pin the curve headlessly, which is the half of this that a test can actually
+## reach (the drawing itself cannot be asserted on; see that suite's header).
+static func shadow_geometry(gap_px: float, figure_height: float) -> Dictionary:
+	var span: float = maxf(figure_height * SHADOW_LIFT_SPAN, 0.001)
+	var k: float = clampf(maxf(gap_px, 0.0) / span, 0.0, 1.0)
+	return {
+		"scale": 1.0 - SHADOW_SHRINK * k,
+		"alpha": SHADOW_ALPHA * (1.0 - SHADOW_FADE * k),
+	}
+
+
+## Draw the contact shadow. Called in UN-LIFTED local space (before `_draw`'s flight
+## transform), so the flight lift has to be added back into the gap by hand — it is a
+## draw-time offset that never reaches the pose.
+func _draw_shadow(pose: Dictionary) -> void:
+	# ⚠ NO KNOWN FLOOR MEANS NO SHADOW, rather than a shadow guessed at the feet. The
+	# alternative — falling back to the foot line — puts a shadow UNDER a body that has
+	# never touched anything, so a long spawn-drop would fall with its own shadow glued
+	# to it and a Ghost ("a ghost never stands on anything") would cast one. It also
+	# keeps this silent under the dummy renderer, where there is no physics world to
+	# probe at all.
+	if not is_finite(_shadow_world_y):
+		return
+	# ⚠ A MENU PREVIEW MUST NOT CAST INTO THE WORLD, and it very nearly could. `_grounded`
+	# DEFAULTS TO TRUE (NPC.gd says so twice), so a rig that is never told anything runs
+	# the ground probe — and the UI rigs are real `CharacterRig`s parented to a `Control`
+	# (`ClassSelect._rig`, `Outfitter`'s preview). Under a CanvasLayer their
+	# `global_position` is a SCREEN coordinate, so a ray from it can strike hub or arena
+	# geometry that has nothing to do with where the figure is drawn, and would have
+	# stamped a black ellipse somewhere across the panel.
+	#
+	# The existing foot-plant IK shares that exposure and got away with it because
+	# `_plant_foot` only CLAMPS a foot already past the line — a floor found far below
+	# does nothing visible. A shadow is not so forgiving: it DRAWS at the line it found.
+	#
+	# The discriminator is ownership, and it is exact rather than heuristic: every rig in
+	# the world hangs off a body — Hero, Enemy, Boss, Thrall, the town NPC and the town
+	# Player are all a `CharacterRig` added directly to a `CharacterBody2D` — and every
+	# rig that is a picture of a character hangs off a `Control`. Only a body has a floor.
+	if get_parent() as CollisionObject2D == null:
+		return
+	# Where the floor is, in THIS frame's local space. `to_local` rather than a stored
+	# local y because the body PITCHES (the same reason `_local_floor_y` exists), and a
+	# pitched figure's floor is not a constant local y.
+	var floor_local_y: float = to_local(Vector2(global_position.x, _shadow_world_y)).y
+	# The LOWEST foot is the one bearing weight, so it is the one the gap is measured
+	# from — using the midpoint would lift the shadow off the floor for the whole of
+	# every stride's swing phase.
+	var foot_lead: Vector2 = pose["foot_lead"]
+	var foot_off: Vector2 = pose["foot_off"]
+	var feet_y: float = maxf(foot_lead.y, foot_off.y)
+	var lift_px: float = _airborne * height * AIRBORNE_LIFT_FACTOR
+	var geo: Dictionary = shadow_geometry(floor_local_y - feet_y + lift_px, height)
+	var sh_scale: float = float(geo["scale"])
+	var sh_alpha: float = float(geo["alpha"])
+	if sh_alpha <= 0.004:
+		return
+	# Centred between the feet so it tracks the stance rather than the hips.
+	var cx: float = (foot_lead.x + foot_off.x) * 0.5
+	draw_set_transform(Vector2(cx, floor_local_y), 0.0,
+		Vector2(sh_scale, sh_scale * SHADOW_SQUASH))
+	# ⚠ THE PENUMBRA IS THE THING THAT DEGRADES. `_status_low` is the quality flag this
+	# file already reads once in `_ready` (a settings lookup per body per frame is the
+	# cost that note exists to prevent). At LOW the figure keeps its shadow — the
+	# grounding cue is READABILITY and this file's doctrine is that readability never
+	# degrades — and loses only the soft outer ellipse, halving the primitive count.
+	if not _status_low:
+		draw_circle(Vector2.ZERO, height * SHADOW_R_FACTOR * SHADOW_HALO_SCALE,
+			Color(0.0, 0.0, 0.0, sh_alpha * SHADOW_HALO_ALPHA))
+	draw_circle(Vector2.ZERO, height * SHADOW_R_FACTOR, Color(0.0, 0.0, 0.0, sh_alpha))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 

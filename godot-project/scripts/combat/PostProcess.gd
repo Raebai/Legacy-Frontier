@@ -33,6 +33,24 @@ var _heat: float = 0.0
 var _shock_age: float = -1.0           # <0 = no active ripple
 var _shock_amp: float = 0.0
 var _shock_center: Vector2 = Vector2(0.5, 0.5)
+## ══ HOW BIG THIS PARTICULAR RIPPLE IS — AND IT USED TO BE THROWN AWAY ══════════
+## ⚠ `shock(strength)` HAD NO EFFECT ON THE PICTURE. `_begin_shock` wrote
+## `_shock_amp = SHOCK_BASE_AMP * clampf(strength, 0.0, 2.0)`, and then the very next
+## `_process` frame overwrote that same variable with `SHOCK_BASE_AMP * k * k` — an
+## expression that does not mention `strength` at all. The argument survived for a
+## fraction of a frame, was never pushed to the shader, and was then gone.
+##
+## MEASURED: 23 `PostProcess.shock(...)` call sites across the combat scripts pass
+## literals from 0.35 (a ChainBolt tick) to 1.4 (Hollow Purple's release), and
+## `Juice.epic_moment` / the big-beat helper scale theirs by the beat's own strength
+## on top of that. A FOUR-FOLD authored range, every member of which rendered as the
+## identical ripple. So the signature ult and the spell that fires four times a second
+## rang the screen exactly as hard as each other, which is the opposite of what every
+## one of those call sites was written to say.
+##
+## Held separately from `_shock_amp` because `_shock_amp` is the DECAYED value the
+## shader is fed each frame; this is the constant it decays from.
+var _shock_strength: float = 1.0
 
 
 ## Idempotent: add one PostProcess under `parent` (a combat arena). Safe to call
@@ -96,7 +114,13 @@ func _process(delta: float) -> void:
 	if _shock_age >= 0.0:
 		_shock_age += delta
 		var k: float = 1.0 - clampf(_shock_age / SHOCK_DURATION, 0.0, 1.0)
-		_shock_amp = SHOCK_BASE_AMP * k * k  # ease-out fade
+		# ⚠ `_shock_strength` IS THE FIX — see its declaration. Without the factor this
+		# line silently discarded the argument every caller passes. Note the direction
+		# of the change: strength 1.0 is byte-identical to what shipped, so nothing gets
+		# LOUDER by default. The frequent small ripples (0.35, 0.45, 0.5) get quieter
+		# and the ults get bigger, which is the same ordering the maker asked for when
+		# they said mid-fight should read clearer.
+		_shock_amp = SHOCK_BASE_AMP * _shock_strength * k * k  # ease-out fade
 		_mat.set_shader_parameter(&"shock", Vector3(_shock_center.x, _shock_center.y, _shock_age))
 		_mat.set_shader_parameter(&"shock_amp", _shock_amp)
 		if _shock_age >= SHOCK_DURATION:
@@ -141,10 +165,25 @@ func _camera_trauma() -> float:
 	return 0.0
 
 
+## ⚠ A RIPPLE ALREADY RUNNING IS NOT INTERRUPTED BY A WEAKER ONE, AND THIS GUARD IS
+## PART OF THE FIX ABOVE RATHER THAN AN EXTRA. While every ripple was the same size,
+## a re-trigger was free: restarting the ring cost nothing because the ring it replaced
+## was identical. The moment strength is honoured that stops being true. Big beats fire
+## in CLUSTERS — an ult's release, its impact and the reaction it triggers can all land
+## inside a few frames — so without this, an ult's 1.4 ripple would be stamped out three
+## frames in by a 0.35 follow-up, and the fix would have made the signature moments
+## WORSE than the bug did. Taking the louder of the two while the ring is still young
+## keeps the biggest thing on screen as the thing the screen is doing. Past halfway the
+## new beat wins outright, so a genuine second event still reads.
 func _begin_shock(strength: float, center: Vector2) -> void:
+	var s: float = clampf(strength, 0.0, 2.0)
+	var young: bool = _shock_age >= 0.0 and _shock_age < SHOCK_DURATION * 0.5
+	if young and s < _shock_strength:
+		return
 	_shock_center = center
 	_shock_age = 0.0
-	_shock_amp = SHOCK_BASE_AMP * clampf(strength, 0.0, 2.0)
+	_shock_strength = s
+	_shock_amp = SHOCK_BASE_AMP * s
 
 
 func _bump_heat(amount: float) -> void:

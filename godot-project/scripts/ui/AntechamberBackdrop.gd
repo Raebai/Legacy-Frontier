@@ -635,7 +635,15 @@ func _draw_posts() -> void:
 				# The concave face, swept from the beam back down to the post.
 				var c: Vector2 = Vector2(x + side * (half + reach), top + reach)
 				var a0: float = -PI * 0.5
-				var a1: float = PI if side < 0.0 else 0.0
+				# ⚠ `-PI`, NOT `PI`, AND THE SIGN WAS A CRASH. `_arc_points` lerps from
+				# `a0` to `a1`, so it walks whichever way the numbers point rather than
+				# taking the short way round. From -PI/2 to +PI is 270 degrees: the left
+				# brace swept three-quarters of a circle back over itself, the polygon
+				# self-intersected, and every frame printed `Invalid polygon data,
+				# triangulation failed` — the left brace simply did not draw, and the spam
+				# broke `tools/town_capture.gd` outright. -PI is the same 90 degree sweep
+				# the right brace already got, mirrored.
+				var a1: float = -PI if side < 0.0 else 0.0
 				for q: Vector2 in _arc_points(c, Vector2(reach, reach), a0, a1):
 					pts.append(q)
 				draw_colored_polygon(pts, TIMBER_DARK)
