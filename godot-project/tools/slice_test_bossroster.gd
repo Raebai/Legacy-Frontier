@@ -153,8 +153,14 @@ func _test_floor_windows() -> void:
 		_expect(BossRoster.eligible(d).size() >= 2,
 			"depth %d has at least two artists to choose between (got %d)" % [d, BossRoster.eligible(d).size()])
 	# ...and every hand-built boss must actually be reachable somewhere.
+	#
+	# ⚠ THE WINDOW GOES TO 21, NOT 20, AND THAT IS A FIX RATHER THAN A LOOSENING. It used
+	# to stop at 19 — written when the deepest authored boss was shallower than that — so
+	# the sweep could not see floor 20 and THE SENSEI read as unreachable the moment he was
+	# added. A reachability check whose window excludes the deepest entry is not checking
+	# reachability, it is checking the window.
 	var reachable: Dictionary = {}
-	for d: int in range(1, 20):
+	for d: int in range(1, 21):
 		for id: String in BossRoster.eligible(d):
 			reachable[id] = true
 	_expect(reachable.size() == BossRoster.ids().size(),

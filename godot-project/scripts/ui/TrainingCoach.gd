@@ -5,24 +5,26 @@ extends CanvasLayer
 ## Maker: *"it needs a tutorial area where the users can learn all the basic moves and
 ## attacks per class and the aim of the game"*.
 ##
-## ══ WHY THIS IS NOT A TUTORIAL AREA, AND THAT IS THE POINT ═══════════════════
-## The obvious build is a training level. It was NOT built, because the maker has
-## already ruled that exact thing out twice and building it would re-litigate both:
+## ══ IT RUNS IN TWO PLACES, AND THE DOJO IS THE ONE THAT MATTERS ══════════════
+## This was first built lobby-only, on the reasoning that the maker had twice ruled out a
+## training ground (the `"sparring"` pad that teleported you to `FreePlay` was deleted on
+## *"you should be able to cast spells and stuff within the lobby instead of a training
+## ground; just have standing immortal test dummies on one side"*, and the pads were cut
+## to two by name). **The maker overruled that**: *"no no I want like a training that the
+## user has the option to select at the start and when they click enter the tower for the
+## first time … they get sent there and a sensei gives them some lore on the tower and how
+## to attack"*. Their call, and the reasoning above was wrong about what they wanted — a
+## room with a teacher in it is not the prop-scattered training ground that was cut.
 ##
-##   * The `"sparring"` station used to teleport you to `FreePlay` — a whole second
-##     scene with its own stage and camera — and it was DELETED on this ruling:
-##     *"you should be able to cast spells and stuff within the lobby instead of a
-##     training ground; just have standing immortal test dummies on one side."*
-##     `World._spawn_dummy_yard` is that yard. It is the training area. It exists.
-##   * Asked which pads to keep: *"I only want one for class within which I can edit
-##     spells, and one for armoury where I can look at my equipment"*. Three kinds were
-##     deleted for being a colour, a glyph and a dead branch. A "tutorial" pad would be
-##     a fourth, and the room is deliberately down to two.
+## So there are two hosts, and this file serves both without knowing which it is in:
 ##
-## So what was missing was never the PLACE. The lobby already has immortal dummies, a
-## floor, ledges and every button live. What was missing is that nothing ever TELLS you
-## what the buttons are, what your particular class does with them, or what the Tower is
-## for. This is that telling, and it adds no room, no pad and no prop.
+##   * **THE DOJO** (`FreePlay` with `dojo = true`) — the real thing. A no-death stage, a
+##     sensei who gives the Tower's lore and then teaches, and a fight at the end. This is
+##     where a new player is sent the first time they press ENTER THE TOWER.
+##   * **THE LOBBY** — the same steps with no lore and no speaker, for a player who taps
+##     HOW TO PLAY and wants the button list again next to the dummies. No pad, no prop.
+##
+## `set_sensei(who, with_lore)` is the only difference between them.
 ##
 ## ══ IT TEACHES THE CLASS YOU ARE, NOT A GENERIC HERO ═════════════════════════
 ## Every step below is derived from live data — `ClassInfo.carried_spells` for the four
@@ -116,6 +118,25 @@ var _at: int = 0
 var _hold: float = 0.0
 var _running: bool = false
 
+## THE SENSEI, when there is one. Maker: *"a sensei gives them some lore on the tower and
+## how to attack and all that jazz"*.
+##
+## ⚠ OPTIONAL, AND THE LESSON MUST STAND UP WITHOUT HIM. The same coach runs in the hub,
+## where there is no sensei and never will be — the lobby was cut down to two pads and a
+## dummy yard on the maker's own ruling. So the sensei is a VOICE the lesson borrows when
+## the dojo provides one, never a thing it depends on: every step still shows its card and
+## still ticks on the same press if `_sensei` is null.
+##
+## The division of labour is deliberate. The sensei SAYS it, in his own voice, above his
+## own head. The card says WHICH BUTTON, and stays up while you fumble for it. A talking
+## head alone makes you re-trigger dialogue to remember a key; a card alone is a manual
+## with nobody in it.
+var _sensei: Node = null
+
+## Whether to open with the Tower lore. False in the hub — a player who has walked into
+## their own town does not need to be told what the Tower is for the fourth time.
+var _lore: bool = false
+
 var _card: PanelContainer = null
 var _title: Label = null
 var _body: Label = null
@@ -138,6 +159,13 @@ func _ready() -> void:
 ## Build (or rebuild) the lesson for `class_id` and show it. Safe to call again — the
 ## player can change class at the altar three steps away, so the lesson is rebuilt from
 ## live data every time rather than cached.
+## Give the lesson a voice and the Tower lore. Called by the dojo before `start`; the hub
+## never calls it, so the hub lesson is the same steps with no lore and no speaker.
+func set_sensei(who: Node, with_lore: bool = true) -> void:
+	_sensei = who
+	_lore = with_lore
+
+
 func start(class_id: int) -> void:
 	_steps = _lesson_for(class_id)
 	_at = 0
@@ -195,6 +223,19 @@ func _lesson_for(class_id: int) -> Array[Step]:
 	var out: Array[Step] = []
 	var cls_name: String = ClassInfo.name_for(class_id)
 
+	# ══ THE LORE, FIRST, AND SPOKEN BY A PERSON ══════════════════════════════
+	# Maker: *"a sensei gives them some lore on the tower and how to attack and all that
+	# jazz"*. Lore BEFORE the verbs, unlike the aim card that closes the lesson: what the
+	# Tower IS is the reason to learn a button, so it is the greeting. What happens when
+	# you DIE is a rule about a thing they have not done yet, so it stays at the end.
+	#
+	# ⚠ THESE ARE THE ONLY HARDCODED STRINGS IN THE LESSON, and they are hardcoded
+	# because they are AUTHORED VOICE — the sensei's, not a description of a data table.
+	# Everything below is derived from the class you are.
+	if _lore:
+		out.append(Step.new("The Tower", "So. You have come to climb.\n\nThe Tower has no summit that anyone has returned to describe. It has floors, and each one is worse than the last, and that is the whole of the arrangement.", &""))
+		out.append(Step.new("The Sensei", "I am not going to fight you. Nothing on this floor can hurt you — it is the only floor where that is true.\n\nStay a while. Learn your hands.", &""))
+
 	out.append(Step.new("Move", "Walk left and right. Everything in the Tower is decided by where you are standing.", &"move_left", &"move_right"))
 	out.append(Step.new("Jump", "Leave the ground. Some of you can do it twice.", &"jump"))
 
@@ -222,7 +263,7 @@ func _lesson_for(class_id: int) -> Array[Step]:
 
 	# ⚠ THE AIM OF THE GAME, WHICH THE MAKER ASKED FOR BY NAME and which nothing in the
 	# game had ever said out loud. Read, not done — satisfied by the interact key.
-	out.append(Step.new("The Tower", "That is the whole of %s. Now climb: each floor is harder than the last, and the Tower does not end.\n\nDie and you fall two floors — but you keep everything you earned.\n\nThe dummies here never die. Practise as long as you like." % cls_name, &""))
+	out.append(Step.new("The Climb", "That is the whole of %s.\n\nNow climb. Each floor is worse than the one below it and the Tower does not end.\n\nWhen you fall — and you will fall — you drop two floors. You keep everything you earned. The town keeps count.\n\nThe straw here never dies. Stay as long as you like." % cls_name, &""))
 	return out
 
 
@@ -304,10 +345,31 @@ func _advance() -> void:
 	_refresh()
 
 
+## Say the step out loud, if there is anyone to say it.
+##
+## ⚠ ONLY WHEN THE STEP ARRIVES, never on the tick. `_refresh` runs twice per step — once
+## when it opens and once when it is ticked green — and speaking on both would have the
+## sensei repeat every instruction back at you the instant you obeyed it.
+##
+## ⚠ AND THE BUBBLE GETS THE FIRST SENTENCE, NOT THE WHOLE CARD. `SpeechBubble` shrinks to
+## fit its text and the lore steps are three paragraphs; the whole body would put a panel
+## over half the stage. The card is already showing the full text — the bubble's job is to
+## make it his voice, not to duplicate the card.
+func _voice(s: Step) -> void:
+	if _sensei == null or not is_instance_valid(_sensei) or not _sensei.has_method("say"):
+		return
+	var line: String = s.body.split("\n")[0].strip_edges()
+	if line == "":
+		return
+	_sensei.call("say", line, 4.0)
+
+
 func _refresh() -> void:
 	if _at < 0 or _at >= _steps.size():
 		return
 	var s: Step = _steps[_at]
+	if not s.done:
+		_voice(s)
 	_title.text = s.title
 	_body.text = s.body
 	_progress.text = "%d / %d" % [_at + 1, _steps.size()]

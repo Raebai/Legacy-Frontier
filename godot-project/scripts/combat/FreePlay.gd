@@ -79,6 +79,56 @@ const CLASS_LABELS: Array[String] = [
 ## player already picked there without this scene having to reach into GameState.
 static var start_class: int = -1
 
+## ══ THE DOJO. Free play with a teacher in it. ═══════════════════════════════
+## Maker: *"I want like a training that the user has the option to select at the start and
+## when they click enter the tower for the first time when they start the game they get
+## sent there and a sensei gives them some lore on the tower and how to attack and all
+## that jazz"*.
+##
+## ⚠ THIS SCENE WAS ALREADY THE ANSWER AND NOBODY COULD REACH IT. Read this file's own
+## header: *"IT IS THE ONBOARDING SURFACE, AND THAT IS HALF ITS JOB … this game has ZERO
+## onboarding — a player's first contact with the control scheme is a floor of things
+## trying to kill them. A room where nothing can hurt you is where verbs get learned."*
+## That was written, built, given a control card and a dummy count and a no-death stage,
+## and then `FreePlay.enter(tree)` — described in that header as "the one-line hook for
+## the Lobby button" — was never called by anything in the shipping game. It has been F6
+## only. So the training area the maker is asking for did not need building; it needed a
+## door, a teacher, and a reason to be there.
+##
+## `dojo` is that mode: the same stage, plus a sensei who gives the Spire's lore and walks
+## you through YOUR class's hands, and an exit that continues into the climb instead of
+## dumping you back at the title.
+static var dojo: bool = false
+
+const SENSEI_SCENE: String = "res://scenes/NPC.tscn"
+const SENSEI_DATA: String = "res://data/npcs/sensei.tres"
+const COACH_SCRIPT: String = "res://scripts/ui/TrainingCoach.gd"
+const PROFILE_SCRIPT: String = "res://scripts/PlayerProfile.gd"
+
+## Where the sensei stands: to the LEFT of the player's drop, so he is the first thing on
+## screen and is never between you and the straw you are being told to hit.
+const SENSEI_X: float = -120.0
+
+## What he becomes. Jade while he teaches; this the moment he stops.
+const SENSEI_TURNED: Color = Color(0.86, 0.24, 0.30)
+
+## ⚠ THE SWORDSAINT, and it is a character note rather than a coin toss. He is a martial
+## teacher: the iai is a draw-cut that is stillness, one flash, and the cut resolving
+## AFTER — which is exactly how a master should read against a student who has been
+## practising for ninety seconds.
+const SENSEI_CLASS: int = 8
+
+## "Ridiculous damage and abilities and speed", by the maker's word. `_growth_damage_mult`
+## is the levelling POWER axis and is already wired through both damage paths, so x6 needs
+## no new plumbing. Vitality is high enough that a lucky ult cannot rob the scene of its
+## ending — this fight has an author.
+const SENSEI_POWER: float = 6.0
+const SENSEI_VITALITY: int = 8
+const SENSEI_BOT_TIER: int = 3
+
+var _sensei: Node2D = null
+var _coach: CanvasLayer = null
+
 ## Has the controls card been dismissed this session? Static for the same reason:
 ## being told the controls again every time you reset the stage is not onboarding,
 ## it is nagging.
@@ -133,6 +183,8 @@ func _ready() -> void:
 	_apply_class(_class_id, false)
 	_build_overlay()
 	_extend_pause_menu()
+	if dojo:
+		_begin_dojo()
 
 
 ## ⚠ CLEAR THE STATIC ON THE WAY OUT, and this is not optional book-keeping.
@@ -145,6 +197,202 @@ func _exit_tree() -> void:
 	var arena_script: GDScript = load(ARENA_SCRIPT) as GDScript
 	if arena_script != null:
 		arena_script.set("free_play", false)
+	# ⚠ SAME REASON AS `free_play` ABOVE — `dojo` is a static and outlives this scene. A
+	# dojo left set would put a sensei into the next plain free-play session and teach the
+	# lesson again to someone who came in to test a spell.
+	dojo = false
+
+
+# ==========================================================================
+# THE DOJO
+# ==========================================================================
+
+## Stand the sensei up and start the lesson.
+##
+## ⚠ HE IS A HERO BODY, NOT AN `NPC`, AND THAT IS THE WHOLE PLAN. He has to TEACH and then
+## FIGHT, and a townsperson cannot fight — `NPC.tscn` is a StaticBody2D that ambles and
+## says one line. Giving him a hero body from the first frame means the person who greets
+## you and the person who beats you are the same object: no swap, no second silhouette, no
+## moment where the teacher vanishes and a boss appears wearing his colour.
+##
+## ⚠ PHYSICS OFF WHILE HE TEACHES, and it is not an optimisation. A `Hero` with no
+## controller falls through to the real `Input` singleton in `Hero._pressed`, so a live
+## hero body MIRRORS EVERY BUTTON THE PLAYER PRESSES — the sensei would shadow-box your
+## whole tutorial in perfect lockstep. `World._spawn_dummy_yard` and
+## `VersusArena._rebuild_dummies` both carry this same warning; the symptom reads as "he
+## is copying me", not as "he is broken".
+func _begin_dojo() -> void:
+	_spawn_sensei()
+	var coach_script: GDScript = load(COACH_SCRIPT) as GDScript
+	if coach_script == null:
+		return
+	_coach = coach_script.new()
+	add_child(_coach)
+	if _coach.has_method("set_sensei"):
+		_coach.call("set_sensei", _sensei, true)
+	if _coach.has_signal("finished"):
+		_coach.connect("finished", _on_lesson_finished)
+	if _coach.has_method("start"):
+		_coach.call("start", _class_id)
+
+
+func _spawn_sensei() -> void:
+	if _arena == null or not is_instance_valid(_arena):
+		return
+	var hero_scene: PackedScene = load("res://scenes/combat/Hero.tscn") as PackedScene
+	if hero_scene == null:
+		return
+	_sensei = hero_scene.instantiate() as Node2D
+	if _sensei == null:
+		return
+	_arena.add_child(_sensei)
+	_sensei.set_physics_process(false)   # see the header: or he mirrors your input
+	if _sensei.has_method("set_faction"):
+		_sensei.call("set_faction", &"sensei", &"player")
+	var player: Node = get_tree().get_first_node_in_group("player")
+	if player is Node2D:
+		_sensei.global_position = (player as Node2D).global_position + Vector2(SENSEI_X, 0.0)
+	# A teacher does not wear a student's colours. Calm jade while he teaches; it is the
+	# same value his `sensei.tres` carries, so if he is ever spawned as a townsperson
+	# instead the two bodies still look like one person.
+	_tint_sensei(Color(0.62, 0.86, 0.78))
+
+
+func _tint_sensei(c: Color) -> void:
+	if _sensei == null or not is_instance_valid(_sensei):
+		return
+	var rig: Variant = _sensei.get("rig")
+	if rig != null and is_instance_valid(rig) and rig.has_method("set_tint"):
+		rig.call("set_tint", c)
+
+
+## ══ THE TURN ════════════════════════════════════════════════════════════════
+## Maker: *"have the sensei kill you at the end of the tutorial or turn evil and end with
+## 'i'll see you in the tower...'"*, and *"the final tutorial fight is with the sensei and
+## he just has ridiculous damage and abilities and speed — he can also be the floor 20
+## boss"*.
+##
+## So the lesson does not end with a well done. It ends with the only person who has been
+## kind to you putting you on the floor, and then leaving for the place you are about to
+## go. That is the hook: the tutorial boss is not a tutorial boss, he is a preview, and
+## `BossRoster`'s SENSEI entry means the promise is literally kept twenty floors later.
+##
+## ⚠ IT IS A REAL FIGHT, NOT A CUTSCENE, and that is the maker's word — "ridiculous damage
+## and abilities and speed". He gets the same bot brain the duel uses, so he actually
+## fights: dodges, casts, chases. The numbers below are what make it a lesson in humility
+## rather than a boss you might fluke.
+##
+## ⚠ AND LOSING COSTS THE PLAYER NOTHING. This is the dojo — no floor drop, no lost gear,
+## no climb state touched at all. `GameState` is never told. A tutorial that takes
+## something from you for losing a fight it authored is a tutorial that lied.
+func _on_lesson_finished(completed: bool) -> void:
+	_mark_taught()
+	if not completed or _sensei == null or not is_instance_valid(_sensei):
+		_leave_dojo()
+		return
+	_sensei_turns()
+
+
+func _mark_taught() -> void:
+	var prof: GDScript = load(PROFILE_SCRIPT) as GDScript
+	if prof != null and prof.has_method("mark_taught"):
+		prof.call("mark_taught")
+
+
+## He drops the teacher. Three beats, then he is hostile and absurd.
+func _sensei_turns() -> void:
+	if _sensei == null or not is_instance_valid(_sensei):
+		return
+	_say("Good. You learn quickly.", 2.2)
+	await get_tree().create_timer(2.4).timeout
+	if not is_instance_valid(_sensei):
+		return
+	# The colour turns before the words do — the player should feel it a beat early.
+	_tint_sensei(SENSEI_TURNED)
+	Juice.shake_camera(9.0)
+	Juice.hit_stop(0.10)
+	_say("Quickly enough to be worth killing.", 2.6)
+	await get_tree().create_timer(2.6).timeout
+	if not is_instance_valid(_sensei):
+		return
+	_arm_sensei()
+	_say("Show me.", 1.6)
+	_watch_for_defeat()
+
+
+## RIDICULOUS, by the maker's word, and every number here is a multiplier on machinery
+## that already exists rather than a special case:
+##   * `_growth_damage_mult` is the levelling POWER axis, already wired through BOTH damage
+##     paths (melee via the gear aggregate, spells via `SpellCaster._blood_pacted`), which
+##     is why `BotMatch.CLASS_POWER` uses it too. x6 needs no new plumbing and cannot drift
+##     from how damage is actually applied.
+##   * the bot brain is the DUEL's brain at its top tier, so he genuinely dodges, chases
+##     and casts. He is not a damage number standing still.
+func _arm_sensei() -> void:
+	if _sensei == null or not is_instance_valid(_sensei):
+		return
+	_sensei.set_physics_process(true)
+	if _sensei.has_method("configure_class"):
+		_sensei.call("configure_class", SENSEI_CLASS)
+	_tint_sensei(SENSEI_TURNED)
+	_sensei.set("_growth_damage_mult", SENSEI_POWER)
+	var hp: Variant = _sensei.get("max_hp")
+	if hp != null:
+		_sensei.set("max_hp", int(hp) * SENSEI_VITALITY)
+		_sensei.set("hp", int(hp) * SENSEI_VITALITY)
+	# ⚠ ASKED OF THE ARENA, NOT REIMPLEMENTED. `VersusArena._attach_bot` is the one place
+	# that knows how to give a hero body a brain, and it is guarded the same way the
+	# capture tools reach this scene — a missing tools script must degrade to "he stands
+	# there", never crash a tutorial.
+	if _arena != null and is_instance_valid(_arena) and _arena.has_method("_attach_bot"):
+		_arena.call("_attach_bot", _sensei, SENSEI_BOT_TIER)
+
+
+## The player going down is the END OF THE SCENE, not a death. Polled rather than hooked
+## because `Hero`'s death path belongs to the climb — it drops floors and writes the save —
+## and the dojo must touch none of that.
+func _watch_for_defeat() -> void:
+	var player: Node = get_tree().get_first_node_in_group("player")
+	while is_instance_valid(player) and int(player.get("hp")) > 0:
+		await get_tree().create_timer(0.25).timeout
+		if not is_instance_valid(self):
+			return
+	if not is_instance_valid(self):
+		return
+	# He does not gloat over the body. One line, and he is already somewhere else.
+	_say("I'll see you in the tower...", 4.0)
+	await get_tree().create_timer(3.6).timeout
+	if is_instance_valid(self):
+		_leave_dojo()
+
+
+func _say(text: String, hold: float = 3.0) -> void:
+	if _sensei == null or not is_instance_valid(_sensei):
+		return
+	if _sensei.has_method("say"):
+		_sensei.call("say", text, hold)
+		return
+	# A hero body has no `say` of its own; the shared bubble is what townspeople use, and
+	# `Bark` will attach one to any Node2D.
+	var bubble: Node = Bark._bubble_for(_sensei as Node2D)
+	if bubble != null and bubble.has_method("say"):
+		bubble.call("say", text, hold)
+
+
+## Out of the dojo and into the thing it was for.
+##
+## ⚠ IT CONTINUES INTO THE CLIMB rather than returning to the title, because the player
+## pressed ENTER THE TOWER to get here. Dropping them back at the front door would make
+## the tutorial feel like an interruption of the thing they asked for instead of the first
+## step of it.
+func _leave_dojo() -> void:
+	dojo = false
+	get_tree().paused = false
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs != null and gs.has_method("enter_run"):
+		gs.call("enter_run")
+		return
+	_exit_to_hub()
 
 
 ## The class to start on: the explicit request, then the last one played here, then

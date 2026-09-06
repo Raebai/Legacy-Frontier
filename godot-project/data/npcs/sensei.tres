@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="NPCData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/NPCData.gd" id="1_npc_data"]
+
+[resource]
+script = ExtResource("1_npc_data")
+npc_id = "sensei"
+npc_name = "the sensei"
+display_color = Color(0.62, 0.86, 0.78, 1)
+lines = Array[String](["nothing here can kill you. that is the only floor where that is true.", "hit the straw. it does not mind.", "when you are ready, the door is behind me.", "the tower does not end. neither does anyone who climbs it well."])

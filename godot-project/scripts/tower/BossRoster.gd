@@ -45,6 +45,11 @@ const CARTOGRAPHER: String = "cartographer"
 const ILLUMINATOR: String = "illuminator"
 const ERASER: String = "eraser"
 const ETCHER: String = "etcher"
+## ⚠ THE TUTORIAL'S TEACHER, KEPT. He beats you on the dojo floor and leaves saying
+## "I'll see you in the tower..." — this entry is the game keeping that promise rather
+## than it being a line. Floor 20 exactly: far enough that a player has forgotten to
+## expect him, close enough that they have not stopped believing it.
+const SENSEI: String = "sensei"
 
 ## THE ROSTER. One row per boss.
 ##
@@ -153,6 +158,19 @@ const ENTRIES: Array[Dictionary] = [
 		"min_floor": 3, "max_floor": 0,
 		# The slowest body on the roster. The break has to be REACHABLE.
 		"hp_scale": 1.05, "speed_scale": 0.55,
+		"flies": false,
+	},
+	{
+		"id": SENSEI,
+		"scene": "res://scenes/combat/Boss.tscn",
+		"name": "THE SENSEI",
+		"artist": "ink, one stroke, no correction",
+		"min_floor": 20, "max_floor": 20,
+		# He was absurd on the dojo floor and he has not got worse. Vitality and speed are
+		# what this table can express; his DAMAGE lives in the tutorial's own
+		# `FreePlay.SENSEI_POWER`, and a bespoke scene with his iai kit is the follow-up
+		# this entry is honest about not being.
+		"hp_scale": 2.4, "speed_scale": 1.55,
 		"flies": false,
 	},
 ]

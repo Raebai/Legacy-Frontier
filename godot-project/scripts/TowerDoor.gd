@@ -20,6 +20,14 @@ extends StaticBody2D
 ## Nearest-wins arbitration for the `talk` key -- see the file for the two bugs
 ## it exists for, both of which are two of these rings overlapping.
 const Interactables := preload("res://scripts/Interactables.gd")
+## Reached by `preload` because neither declares a `class_name` — see `PlayerProfile`'s
+## own note on why registering a global class is avoided in this project.
+const PlayerProfile := preload("res://scripts/PlayerProfile.gd")
+## ⚠ BY PATH, NOT `preload`. `FreePlay` instantiates `VersusArena`, which pulls the whole
+## combat graph in at COMPILE time — preloading it here would drag the arena into the hub's
+## own load just so a door can check a flag. `load` at the moment of use costs nothing on
+## the 999 visits where the player is already taught.
+const DOJO_SCRIPT: String = "res://scripts/combat/FreePlay.gd"
 
 const HINT_TEXT: String = "walk in"
 const FRAME_COLOR: Color = Color(0.16, 0.15, 0.2)
@@ -245,6 +253,26 @@ func _enter() -> void:
 	for o: Node in get_tree().get_nodes_in_group("town_overlay"):
 		if o is CanvasItem and (o as CanvasItem).visible:
 			_entering = false
+			return
+	# ⚠ THE FIRST TIME YOU EVER PRESS THIS, YOU DO NOT GO CLIMBING. Maker: *"when they
+	# click enter the tower for the first time when they start the game they get sent
+	# there and a sensei gives them some lore on the tower and how to attack"*.
+	#
+	# It is intercepted HERE rather than inside `enter_run` on purpose: `enter_run` is the
+	# climb's own bookkeeping — floor, rank, purse, the run clock — and a player who is
+	# about to be taught has not started a run. Routing before it means the dojo costs
+	# nothing and rewinds nothing, and the real `enter_run` still happens exactly once,
+	# when the lesson lets them out.
+	#
+	# The flag is on the PROFILE, which outlives every climb, so this fires once per player
+	# rather than once per run. Skipping the lesson counts as taught.
+	if not PlayerProfile.has_been_taught():
+		var fp: GDScript = load(DOJO_SCRIPT) as GDScript
+		if fp != null:
+			fp.set("dojo", true)
+			var gs_c: Node = get_node_or_null("/root/GameState")
+			fp.call("enter", get_tree(),
+				int(gs_c.get("selected_class")) if gs_c != null else -1)
 			return
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs != null and gs.has_method("enter_run"):
