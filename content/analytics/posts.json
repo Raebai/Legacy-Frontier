@@ -70,6 +70,18 @@
             "shares": 0,
             "views": 142
           }
+        },
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 142,
+            "likes": 2,
+            "reach": 128,
+            "saves": 0,
+            "shares": 0,
+            "views": 142
+          }
         }
       ],
       "title": "ARCANIST vs SHADOWBLADE\n\n#stickman #indiegame #gamedev #indiedev #animation #stickfight"
@@ -135,6 +147,18 @@
         },
         {
           "at": "2026-09-01T21:54:08Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 6,
+            "likes": 0,
+            "reach": 5,
+            "saves": 0,
+            "shares": 0,
+            "views": 6
+          }
+        },
+        {
+          "at": "2026-09-04T13:30:33Z",
           "metrics": {
             "comments": 0,
             "impressions": 6,
@@ -217,9 +241,107 @@
             "shares": 1,
             "views": 346
           }
+        },
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 346,
+            "likes": 7,
+            "reach": 291,
+            "saves": 0,
+            "shares": 1,
+            "views": 346
+          }
         }
       ],
       "title": "WARLOCK vs CLERIC \u2014 who wins?\n\nEvery fight in Stickspire is two AI wizards actually fighting. Nothing is scripted.\n\n#indiegame #gamedev #stickman #indiedev #animation"
+    },
+    "2221787f1a604fccaf3a1bdeb1ad6a24::youtube": {
+      "error": null,
+      "features": {
+        "clip": "cleric_vs_brawler",
+        "duration_s": 41.002,
+        "fighters": [
+          "brawler",
+          "cleric"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "",
+        "hashtags": [],
+        "height": 1920,
+        "hour": 16,
+        "orientation": "portrait",
+        "platform": "youtube",
+        "profile": "StickSpire",
+        "weekday": "Wed",
+        "width": 1080
+      },
+      "ok": true,
+      "platform": "youtube",
+      "platform_post_id": "1zG6tDt5iIk",
+      "post_url": "https://www.youtube.com/watch?v=1zG6tDt5iIk",
+      "posted_at": "2026-09-02T15:38:04.293Z",
+      "profile": "StickSpire",
+      "request_id": "2221787f1a604fccaf3a1bdeb1ad6a24",
+      "snapshots": [
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "average_view_duration_seconds": 0,
+            "average_view_percentage": 0.0,
+            "comments": 0,
+            "favorites": 0,
+            "likes": 0,
+            "views": 23,
+            "watch_time_minutes": 0
+          }
+        }
+      ],
+      "title": "CLERIC vs BRAWLER | STICKSPIRE"
+    },
+    "248e934d44514fc4a5bf6d99f6bd7b64::youtube": {
+      "error": null,
+      "features": {
+        "clip": "juggernaut_vs_cryomancer",
+        "duration_s": 26.704,
+        "fighters": [
+          "cryomancer",
+          "juggernaut"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "",
+        "hashtags": [],
+        "height": 1920,
+        "hour": 19,
+        "orientation": "portrait",
+        "platform": "youtube",
+        "profile": "StickSpire",
+        "weekday": "Thu",
+        "width": 1080
+      },
+      "ok": true,
+      "platform": "youtube",
+      "platform_post_id": "h-MWOXdwy6M",
+      "post_url": "https://www.youtube.com/watch?v=h-MWOXdwy6M",
+      "posted_at": "2026-09-03T18:52:05.074Z",
+      "profile": "StickSpire",
+      "request_id": "248e934d44514fc4a5bf6d99f6bd7b64",
+      "snapshots": [
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "average_view_duration_seconds": 0,
+            "average_view_percentage": 0.0,
+            "comments": 0,
+            "favorites": 0,
+            "likes": 0,
+            "views": 327,
+            "watch_time_minutes": 0
+          }
+        }
+      ],
+      "title": "JUGGERNAUT vs CRYOMANCER | STICKSPIRE"
     },
     "67f6624aaa6840fcbed144c42cc9dbd8::instagram": {
       "error": null,
@@ -290,6 +412,18 @@
             "shares": 0,
             "views": 140
           }
+        },
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 140,
+            "likes": 0,
+            "reach": 127,
+            "saves": 1,
+            "shares": 0,
+            "views": 140
+          }
         }
       ],
       "title": "STORMCALLER vs SWORDSAINT\n\nLightning against a guard that punishes everything. 2 ultimates, 3 lead changes.\n\n#stickman #indiegame #gamedev #animation #fyp"
@@ -338,6 +472,18 @@
             "saves": 0,
             "shares": 0,
             "views": 217
+          }
+        },
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 226,
+            "likes": 0,
+            "reach": 212,
+            "saves": 0,
+            "shares": 0,
+            "views": 226
           }
         }
       ],
@@ -591,6 +737,221 @@
             "total_time_watched": 152,
             "views": 63
           }
+        },
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "audience_types": [
+              {
+                "percentage": 0.27,
+                "type": "RETURN_VIEWER"
+              },
+              {
+                "percentage": 0.6,
+                "type": "FOLLOWER_PERCENT"
+              },
+              {
+                "percentage": 0.73,
+                "type": "NEW_VIEWER"
+              },
+              {
+                "percentage": 0.4,
+                "type": "NON_FOLLOWER_PERCENT"
+              }
+            ],
+            "average_time_watched": 2.03,
+            "comments": 0,
+            "favorites": 0,
+            "full_video_watched_rate": 0,
+            "impression_sources": [
+              {
+                "impression_source": "Follow",
+                "percentage": 0.02
+              },
+              {
+                "impression_source": "For You",
+                "percentage": 0.773
+              },
+              {
+                "impression_source": "Others",
+                "percentage": 0.167
+              },
+              {
+                "impression_source": "Personal Profile",
+                "percentage": 0.02
+              },
+              {
+                "impression_source": "Search",
+                "percentage": 0.02
+              },
+              {
+                "impression_source": "Sound",
+                "percentage": 0
+              },
+              {
+                "impression_source": "Direct Message",
+                "percentage": 0
+              }
+            ],
+            "is_ai_generated": false,
+            "likes": 2,
+            "new_followers": 0,
+            "profile_views": 0,
+            "reach": 71,
+            "retention": [
+              {
+                "percentage": 1,
+                "second": "0"
+              },
+              {
+                "percentage": 0.55,
+                "second": "1"
+              },
+              {
+                "percentage": 0.24,
+                "second": "2"
+              },
+              {
+                "percentage": 0.15,
+                "second": "3"
+              },
+              {
+                "percentage": 0.13,
+                "second": "4"
+              },
+              {
+                "percentage": 0.1,
+                "second": "5"
+              },
+              {
+                "percentage": 0.05,
+                "second": "6"
+              },
+              {
+                "percentage": 0.05,
+                "second": "7"
+              },
+              {
+                "percentage": 0.05,
+                "second": "8"
+              },
+              {
+                "percentage": 0.03,
+                "second": "9"
+              },
+              {
+                "percentage": 0.02,
+                "second": "10"
+              },
+              {
+                "percentage": 0.02,
+                "second": "11"
+              },
+              {
+                "percentage": 0.01,
+                "second": "12"
+              },
+              {
+                "percentage": 0.01,
+                "second": "13"
+              },
+              {
+                "percentage": 0.01,
+                "second": "14"
+              },
+              {
+                "percentage": 0.01,
+                "second": "15"
+              },
+              {
+                "percentage": 0.01,
+                "second": "16"
+              },
+              {
+                "percentage": 0.01,
+                "second": "17"
+              },
+              {
+                "percentage": 0.01,
+                "second": "18"
+              },
+              {
+                "percentage": 0.01,
+                "second": "19"
+              },
+              {
+                "percentage": 0.01,
+                "second": "20"
+              },
+              {
+                "percentage": 0.01,
+                "second": "21"
+              },
+              {
+                "percentage": 0.01,
+                "second": "22"
+              },
+              {
+                "percentage": 0.01,
+                "second": "23"
+              },
+              {
+                "percentage": 0.01,
+                "second": "24"
+              },
+              {
+                "percentage": 0,
+                "second": "25"
+              },
+              {
+                "percentage": 0,
+                "second": "26"
+              },
+              {
+                "percentage": 0,
+                "second": "27"
+              },
+              {
+                "percentage": 0,
+                "second": "28"
+              },
+              {
+                "percentage": 0,
+                "second": "29"
+              },
+              {
+                "percentage": 0,
+                "second": "30"
+              },
+              {
+                "percentage": 0,
+                "second": "31"
+              },
+              {
+                "percentage": 0,
+                "second": "32"
+              },
+              {
+                "percentage": 0,
+                "second": "33"
+              },
+              {
+                "percentage": 0,
+                "second": "34"
+              },
+              {
+                "percentage": 0,
+                "second": "35"
+              },
+              {
+                "percentage": 0,
+                "second": "36"
+              }
+            ],
+            "shares": 0,
+            "total_time_watched": 206,
+            "views": 88
+          }
         }
       ],
       "title": "ARCANIST vs CRYOMANCER\n\n#stickspire #stickman #stickfigure #stickmananimation #2danimation"
@@ -656,6 +1017,18 @@
         },
         {
           "at": "2026-09-01T21:54:08Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 143,
+            "likes": 1,
+            "reach": 135,
+            "saves": 0,
+            "shares": 0,
+            "views": 143
+          }
+        },
+        {
+          "at": "2026-09-04T13:30:33Z",
           "metrics": {
             "comments": 0,
             "impressions": 143,
@@ -739,9 +1112,686 @@
             "shares": 0,
             "views": 149
           }
+        },
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 149,
+            "likes": 1,
+            "reach": 143,
+            "saves": 0,
+            "shares": 0,
+            "views": 149
+          }
         }
       ],
       "title": "JUGGERNAUT vs SWORDSAINT\n\n#stickman #indiegame #animation #gaming #fyp #stickfight"
+    },
+    "96958ada231e4e28b8af39000049b62b::instagram": {
+      "error": null,
+      "features": {
+        "clip": "cleric_vs_juggernaut",
+        "duration_s": 31.0,
+        "fighters": [
+          "cleric",
+          "juggernaut"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "gamedev,indiedev,indiegamedev,pixelart,stickspire",
+        "hashtags": [
+          "gamedev",
+          "indiedev",
+          "indiegamedev",
+          "pixelart",
+          "stickspire"
+        ],
+        "height": 1080,
+        "hour": 22,
+        "orientation": "landscape",
+        "platform": "instagram",
+        "profile": "StickSpire_Arena",
+        "weekday": "Wed",
+        "width": 1920
+      },
+      "ok": true,
+      "platform": "instagram",
+      "platform_post_id": "17887409790457329",
+      "post_url": "https://www.instagram.com/reel/DczLadYAFCk/",
+      "posted_at": "2026-09-02T21:15:11.996Z",
+      "profile": "StickSpire_Arena",
+      "request_id": "96958ada231e4e28b8af39000049b62b",
+      "snapshots": [
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 147,
+            "likes": 1,
+            "reach": 144,
+            "saves": 1,
+            "shares": 0,
+            "views": 147
+          }
+        }
+      ],
+      "title": "CLERIC vs JUGGERNAUT\n\n#stickspire #indiedev #gamedev #pixelart #indiegamedev"
+    },
+    "96958ada231e4e28b8af39000049b62b::tiktok": {
+      "error": null,
+      "features": {
+        "clip": "cleric_vs_juggernaut",
+        "duration_s": 31.0,
+        "fighters": [
+          "cleric",
+          "juggernaut"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "gamedev,indiedev,indiegamedev,pixelart,stickspire",
+        "hashtags": [
+          "gamedev",
+          "indiedev",
+          "indiegamedev",
+          "pixelart",
+          "stickspire"
+        ],
+        "height": 1080,
+        "hour": 22,
+        "orientation": "landscape",
+        "platform": "tiktok",
+        "profile": "StickSpire_Arena",
+        "weekday": "Wed",
+        "width": 1920
+      },
+      "ok": true,
+      "platform": "tiktok",
+      "platform_post_id": "7681049363677859104",
+      "post_url": "https://www.tiktok.com/t/7681049363677859104",
+      "posted_at": "2026-09-02T21:15:37.494Z",
+      "profile": "StickSpire_Arena",
+      "request_id": "96958ada231e4e28b8af39000049b62b",
+      "snapshots": [
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "audience": {
+              "cities": [],
+              "countries": [
+                {
+                  "country": "FR",
+                  "percentage": 0.028
+                },
+                {
+                  "country": "Others",
+                  "percentage": 0.293
+                },
+                {
+                  "country": "SE",
+                  "percentage": 0.028
+                },
+                {
+                  "country": "GB",
+                  "percentage": 0.341
+                },
+                {
+                  "country": "IE",
+                  "percentage": 0.07
+                },
+                {
+                  "country": "NL",
+                  "percentage": 0.046
+                },
+                {
+                  "country": "PL",
+                  "percentage": 0.041
+                },
+                {
+                  "country": "DE",
+                  "percentage": 0.043
+                },
+                {
+                  "country": "RO",
+                  "percentage": 0.034
+                },
+                {
+                  "country": "IT",
+                  "percentage": 0.04
+                },
+                {
+                  "country": "NO",
+                  "percentage": 0.036
+                }
+              ],
+              "genders": [
+                {
+                  "gender": "male_vv",
+                  "percentage": 0.6
+                },
+                {
+                  "gender": "other_vv",
+                  "percentage": 0
+                },
+                {
+                  "gender": "female_vv",
+                  "percentage": 0.4
+                }
+              ]
+            },
+            "audience_types": [
+              {
+                "percentage": 0,
+                "type": "RETURN_VIEWER"
+              },
+              {
+                "percentage": 0,
+                "type": "FOLLOWER_PERCENT"
+              },
+              {
+                "percentage": 1,
+                "type": "NEW_VIEWER"
+              },
+              {
+                "percentage": 1,
+                "type": "NON_FOLLOWER_PERCENT"
+              }
+            ],
+            "average_time_watched": 4.12,
+            "comments": 0,
+            "favorites": 0,
+            "full_video_watched_rate": 0.01,
+            "impression_sources": [
+              {
+                "impression_source": "Personal Profile",
+                "percentage": 0
+              },
+              {
+                "impression_source": "Search",
+                "percentage": 0
+              },
+              {
+                "impression_source": "Sound",
+                "percentage": 0
+              },
+              {
+                "impression_source": "Direct Message",
+                "percentage": 0
+              },
+              {
+                "impression_source": "Follow",
+                "percentage": 0
+              },
+              {
+                "impression_source": "For You",
+                "percentage": 1
+              },
+              {
+                "impression_source": "Others",
+                "percentage": 0
+              }
+            ],
+            "is_ai_generated": false,
+            "likes": 6,
+            "new_followers": 0,
+            "profile_views": 0,
+            "reach": 238,
+            "retention": [
+              {
+                "percentage": 1,
+                "second": "0"
+              },
+              {
+                "percentage": 0.75,
+                "second": "1"
+              },
+              {
+                "percentage": 0.42,
+                "second": "2"
+              },
+              {
+                "percentage": 0.33,
+                "second": "3"
+              },
+              {
+                "percentage": 0.28,
+                "second": "4"
+              },
+              {
+                "percentage": 0.24,
+                "second": "5"
+              },
+              {
+                "percentage": 0.19,
+                "second": "6"
+              },
+              {
+                "percentage": 0.15,
+                "second": "7"
+              },
+              {
+                "percentage": 0.13,
+                "second": "8"
+              },
+              {
+                "percentage": 0.11,
+                "second": "9"
+              },
+              {
+                "percentage": 0.1,
+                "second": "10"
+              },
+              {
+                "percentage": 0.08,
+                "second": "11"
+              },
+              {
+                "percentage": 0.08,
+                "second": "12"
+              },
+              {
+                "percentage": 0.06,
+                "second": "13"
+              },
+              {
+                "percentage": 0.06,
+                "second": "14"
+              },
+              {
+                "percentage": 0.05,
+                "second": "15"
+              },
+              {
+                "percentage": 0.05,
+                "second": "16"
+              },
+              {
+                "percentage": 0.05,
+                "second": "17"
+              },
+              {
+                "percentage": 0.04,
+                "second": "18"
+              },
+              {
+                "percentage": 0.03,
+                "second": "19"
+              },
+              {
+                "percentage": 0.03,
+                "second": "20"
+              },
+              {
+                "percentage": 0.03,
+                "second": "21"
+              },
+              {
+                "percentage": 0.02,
+                "second": "22"
+              },
+              {
+                "percentage": 0.02,
+                "second": "23"
+              },
+              {
+                "percentage": 0.02,
+                "second": "24"
+              },
+              {
+                "percentage": 0.02,
+                "second": "25"
+              },
+              {
+                "percentage": 0.02,
+                "second": "26"
+              },
+              {
+                "percentage": 0.02,
+                "second": "27"
+              },
+              {
+                "percentage": 0.02,
+                "second": "28"
+              },
+              {
+                "percentage": 0.02,
+                "second": "29"
+              },
+              {
+                "percentage": 0.01,
+                "second": "30"
+              },
+              {
+                "percentage": 0.01,
+                "second": "31"
+              }
+            ],
+            "shares": 0,
+            "total_time_watched": 2895,
+            "views": 698
+          }
+        }
+      ],
+      "title": "CLERIC vs JUGGERNAUT\n\n#stickspire #indiedev #gamedev #pixelart #indiegamedev"
+    },
+    "9e3dd0bde75540dfa5a6bd9a3018ffc8::instagram": {
+      "error": null,
+      "features": {
+        "clip": "cleric_vs_brawler",
+        "duration_s": 41.0,
+        "fighters": [
+          "brawler",
+          "cleric"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "gamedev,indiedev,indiegame,madewithgodot,stickspire",
+        "hashtags": [
+          "gamedev",
+          "indiedev",
+          "indiegame",
+          "madewithgodot",
+          "stickspire"
+        ],
+        "height": 1080,
+        "hour": 9,
+        "orientation": "landscape",
+        "platform": "instagram",
+        "profile": "StickSpire",
+        "weekday": "Wed",
+        "width": 1920
+      },
+      "ok": true,
+      "platform": "instagram",
+      "platform_post_id": "17955008097015416",
+      "post_url": "https://www.instagram.com/reel/Dcxx4jyFcgF/",
+      "posted_at": "2026-09-02T08:12:53.459Z",
+      "profile": "StickSpire",
+      "request_id": "9e3dd0bde75540dfa5a6bd9a3018ffc8",
+      "snapshots": [
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 237,
+            "likes": 1,
+            "reach": 223,
+            "saves": 0,
+            "shares": 1,
+            "views": 237
+          }
+        }
+      ],
+      "title": "CLERIC vs BRAWLER\n\n#stickspire #indiegame #gamedev #indiedev #madewithgodot"
+    },
+    "9e3dd0bde75540dfa5a6bd9a3018ffc8::tiktok": {
+      "error": null,
+      "features": {
+        "clip": "cleric_vs_brawler",
+        "duration_s": 41.0,
+        "fighters": [
+          "brawler",
+          "cleric"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "gamedev,indiedev,indiegame,madewithgodot,stickspire",
+        "hashtags": [
+          "gamedev",
+          "indiedev",
+          "indiegame",
+          "madewithgodot",
+          "stickspire"
+        ],
+        "height": 1080,
+        "hour": 9,
+        "orientation": "landscape",
+        "platform": "tiktok",
+        "profile": "StickSpire",
+        "weekday": "Wed",
+        "width": 1920
+      },
+      "ok": true,
+      "platform": "tiktok",
+      "platform_post_id": "7680847825177021728",
+      "post_url": "https://www.tiktok.com/t/7680847825177021728",
+      "posted_at": "2026-09-02T08:14:07.567Z",
+      "profile": "StickSpire",
+      "request_id": "9e3dd0bde75540dfa5a6bd9a3018ffc8",
+      "snapshots": [
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "audience_types": [
+              {
+                "percentage": 0.63,
+                "type": "FOLLOWER_PERCENT"
+              },
+              {
+                "percentage": 0.76,
+                "type": "NEW_VIEWER"
+              },
+              {
+                "percentage": 0.37,
+                "type": "NON_FOLLOWER_PERCENT"
+              },
+              {
+                "percentage": 0.24,
+                "type": "RETURN_VIEWER"
+              }
+            ],
+            "average_time_watched": 3.13,
+            "comments": 0,
+            "favorites": 0,
+            "full_video_watched_rate": 0,
+            "impression_sources": [
+              {
+                "impression_source": "Follow",
+                "percentage": 0.009
+              },
+              {
+                "impression_source": "For You",
+                "percentage": 0.845
+              },
+              {
+                "impression_source": "Others",
+                "percentage": 0.119
+              },
+              {
+                "impression_source": "Personal Profile",
+                "percentage": 0.009
+              },
+              {
+                "impression_source": "Search",
+                "percentage": 0.018
+              },
+              {
+                "impression_source": "Sound",
+                "percentage": 0
+              },
+              {
+                "impression_source": "Direct Message",
+                "percentage": 0
+              }
+            ],
+            "is_ai_generated": false,
+            "likes": 2,
+            "new_followers": 0,
+            "profile_views": 0,
+            "reach": 88,
+            "retention": [
+              {
+                "percentage": 1,
+                "second": "0"
+              },
+              {
+                "percentage": 0.62,
+                "second": "1"
+              },
+              {
+                "percentage": 0.3,
+                "second": "2"
+              },
+              {
+                "percentage": 0.24,
+                "second": "3"
+              },
+              {
+                "percentage": 0.18,
+                "second": "4"
+              },
+              {
+                "percentage": 0.13,
+                "second": "5"
+              },
+              {
+                "percentage": 0.09,
+                "second": "6"
+              },
+              {
+                "percentage": 0.09,
+                "second": "7"
+              },
+              {
+                "percentage": 0.08,
+                "second": "8"
+              },
+              {
+                "percentage": 0.08,
+                "second": "9"
+              },
+              {
+                "percentage": 0.06,
+                "second": "10"
+              },
+              {
+                "percentage": 0.06,
+                "second": "11"
+              },
+              {
+                "percentage": 0.06,
+                "second": "12"
+              },
+              {
+                "percentage": 0.04,
+                "second": "13"
+              },
+              {
+                "percentage": 0.04,
+                "second": "14"
+              },
+              {
+                "percentage": 0.04,
+                "second": "15"
+              },
+              {
+                "percentage": 0.04,
+                "second": "16"
+              },
+              {
+                "percentage": 0.04,
+                "second": "17"
+              },
+              {
+                "percentage": 0.04,
+                "second": "18"
+              },
+              {
+                "percentage": 0.04,
+                "second": "19"
+              },
+              {
+                "percentage": 0.04,
+                "second": "20"
+              },
+              {
+                "percentage": 0.04,
+                "second": "21"
+              },
+              {
+                "percentage": 0.04,
+                "second": "22"
+              },
+              {
+                "percentage": 0.03,
+                "second": "23"
+              },
+              {
+                "percentage": 0.03,
+                "second": "24"
+              },
+              {
+                "percentage": 0.03,
+                "second": "25"
+              },
+              {
+                "percentage": 0.03,
+                "second": "26"
+              },
+              {
+                "percentage": 0.03,
+                "second": "27"
+              },
+              {
+                "percentage": 0.02,
+                "second": "28"
+              },
+              {
+                "percentage": 0,
+                "second": "29"
+              },
+              {
+                "percentage": 0,
+                "second": "30"
+              },
+              {
+                "percentage": 0,
+                "second": "31"
+              },
+              {
+                "percentage": 0,
+                "second": "32"
+              },
+              {
+                "percentage": 0,
+                "second": "33"
+              },
+              {
+                "percentage": 0,
+                "second": "34"
+              },
+              {
+                "percentage": 0,
+                "second": "35"
+              },
+              {
+                "percentage": 0,
+                "second": "36"
+              },
+              {
+                "percentage": 0,
+                "second": "37"
+              },
+              {
+                "percentage": 0,
+                "second": "38"
+              },
+              {
+                "percentage": 0,
+                "second": "39"
+              },
+              {
+                "percentage": 0,
+                "second": "40"
+              },
+              {
+                "percentage": 0,
+                "second": "41"
+              }
+            ],
+            "shares": 0,
+            "total_time_watched": 340,
+            "views": 106
+          }
+        }
+      ],
+      "title": "CLERIC vs BRAWLER\n\n#stickspire #indiegame #gamedev #indiedev #madewithgodot"
     },
     "a339af4344fd49f9b9488b3c722354c7::instagram": {
       "error": null,
@@ -813,9 +1863,278 @@
             "shares": 0,
             "views": 148
           }
+        },
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 148,
+            "likes": 1,
+            "reach": 142,
+            "saves": 0,
+            "shares": 0,
+            "views": 148
+          }
         }
       ],
       "title": "SHADOWBLADE vs JUGGERNAUT\n\n#stickman #indiegame #gamedev #indiedev #animation #stickfight"
+    },
+    "b10a7af8dfb84844b2bab45253b2c626::instagram": {
+      "error": null,
+      "features": {
+        "clip": "swordsaint_vs_shadowblade",
+        "duration_s": 25.9,
+        "fighters": [
+          "shadowblade",
+          "swordsaint"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "animation,fightscene,stickfigure,stickman,stickspire",
+        "hashtags": [
+          "animation",
+          "fightscene",
+          "stickfigure",
+          "stickman",
+          "stickspire"
+        ],
+        "height": 1080,
+        "hour": 12,
+        "orientation": "landscape",
+        "platform": "instagram",
+        "profile": "StickSpire_Arena",
+        "weekday": "Fri",
+        "width": 1920
+      },
+      "ok": true,
+      "platform": "instagram",
+      "platform_post_id": "17900070090604526",
+      "post_url": "https://www.instagram.com/reel/Dc3Q6OwCo7y/",
+      "posted_at": "2026-09-04T11:20:11.509Z",
+      "profile": "StickSpire_Arena",
+      "request_id": "b10a7af8dfb84844b2bab45253b2c626",
+      "snapshots": [
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 3,
+            "likes": 0,
+            "reach": 3,
+            "saves": 0,
+            "shares": 0,
+            "views": 3
+          }
+        }
+      ],
+      "title": "SWORDSAINT vs SHADOWBLADE\n\n#stickspire #stickman #animation #stickfigure #fightscene"
+    },
+    "b10a7af8dfb84844b2bab45253b2c626::tiktok": {
+      "error": null,
+      "features": {
+        "clip": "swordsaint_vs_shadowblade",
+        "duration_s": 25.9,
+        "fighters": [
+          "shadowblade",
+          "swordsaint"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "animation,fightscene,stickfigure,stickman,stickspire",
+        "hashtags": [
+          "animation",
+          "fightscene",
+          "stickfigure",
+          "stickman",
+          "stickspire"
+        ],
+        "height": 1080,
+        "hour": 12,
+        "orientation": "landscape",
+        "platform": "tiktok",
+        "profile": "StickSpire_Arena",
+        "weekday": "Fri",
+        "width": 1920
+      },
+      "ok": true,
+      "platform": "tiktok",
+      "platform_post_id": "7681638188674288928",
+      "post_url": "https://www.tiktok.com/t/7681638188674288928",
+      "posted_at": "2026-09-04T11:20:37.391Z",
+      "profile": "StickSpire_Arena",
+      "request_id": "b10a7af8dfb84844b2bab45253b2c626",
+      "snapshots": [
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "audience_types": [
+              {
+                "percentage": 0,
+                "type": "FOLLOWER_PERCENT"
+              },
+              {
+                "percentage": 0,
+                "type": "NEW_VIEWER"
+              },
+              {
+                "percentage": 1,
+                "type": "NON_FOLLOWER_PERCENT"
+              },
+              {
+                "percentage": 0,
+                "type": "RETURN_VIEWER"
+              }
+            ],
+            "average_time_watched": 3.16,
+            "comments": 0,
+            "favorites": 1,
+            "full_video_watched_rate": 0.0061,
+            "impression_sources": [
+              {
+                "impression_source": "Personal Profile",
+                "percentage": 0
+              },
+              {
+                "impression_source": "Search",
+                "percentage": 0
+              },
+              {
+                "impression_source": "Sound",
+                "percentage": 0
+              },
+              {
+                "impression_source": "Direct Message",
+                "percentage": 0
+              },
+              {
+                "impression_source": "Follow",
+                "percentage": 0
+              },
+              {
+                "impression_source": "For You",
+                "percentage": 1
+              },
+              {
+                "impression_source": "Others",
+                "percentage": 0
+              }
+            ],
+            "is_ai_generated": false,
+            "likes": 5,
+            "new_followers": 0,
+            "profile_views": 0,
+            "reach": 0,
+            "retention": [
+              {
+                "percentage": 1,
+                "second": "0"
+              },
+              {
+                "percentage": 0.72,
+                "second": "1"
+              },
+              {
+                "percentage": 0.39,
+                "second": "2"
+              },
+              {
+                "percentage": 0.3,
+                "second": "3"
+              },
+              {
+                "percentage": 0.22,
+                "second": "4"
+              },
+              {
+                "percentage": 0.19,
+                "second": "5"
+              },
+              {
+                "percentage": 0.16,
+                "second": "6"
+              },
+              {
+                "percentage": 0.1,
+                "second": "7"
+              },
+              {
+                "percentage": 0.08,
+                "second": "8"
+              },
+              {
+                "percentage": 0.07,
+                "second": "9"
+              },
+              {
+                "percentage": 0.06,
+                "second": "10"
+              },
+              {
+                "percentage": 0.04,
+                "second": "11"
+              },
+              {
+                "percentage": 0.03,
+                "second": "12"
+              },
+              {
+                "percentage": 0.03,
+                "second": "13"
+              },
+              {
+                "percentage": 0.03,
+                "second": "14"
+              },
+              {
+                "percentage": 0.02,
+                "second": "15"
+              },
+              {
+                "percentage": 0.02,
+                "second": "16"
+              },
+              {
+                "percentage": 0.02,
+                "second": "17"
+              },
+              {
+                "percentage": 0.01,
+                "second": "18"
+              },
+              {
+                "percentage": 0.01,
+                "second": "19"
+              },
+              {
+                "percentage": 0.01,
+                "second": "20"
+              },
+              {
+                "percentage": 0.01,
+                "second": "21"
+              },
+              {
+                "percentage": 0.01,
+                "second": "22"
+              },
+              {
+                "percentage": 0.01,
+                "second": "23"
+              },
+              {
+                "percentage": 0,
+                "second": "24"
+              },
+              {
+                "percentage": 0,
+                "second": "25"
+              }
+            ],
+            "shares": 0,
+            "total_time_watched": 1035,
+            "views": 340
+          }
+        }
+      ],
+      "title": "SWORDSAINT vs SHADOWBLADE\n\n#stickspire #stickman #animation #stickfigure #fightscene"
     },
     "bc6078299e0b4fd6a77bdce11aa2e5fc::instagram": {
       "error": null,
@@ -861,6 +2180,18 @@
             "saves": 0,
             "shares": 0,
             "views": 149
+          }
+        },
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 152,
+            "likes": 0,
+            "reach": 138,
+            "saves": 0,
+            "shares": 0,
+            "views": 152
           }
         }
       ],
@@ -1106,6 +2437,301 @@
             "total_time_watched": 1352,
             "views": 278
           }
+        },
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "audience": {
+              "cities": [
+                {
+                  "city_name": "US Prince George's",
+                  "percentage": 0.0012
+                },
+                {
+                  "city_name": "US Camden",
+                  "percentage": 0.0012
+                },
+                {
+                  "city_name": "US King",
+                  "percentage": 0.0012
+                },
+                {
+                  "city_name": "US Orange",
+                  "percentage": 0.0012
+                },
+                {
+                  "city_name": "US Other",
+                  "percentage": 0.011
+                },
+                {
+                  "city_name": "US Pasco",
+                  "percentage": 0.0012
+                }
+              ],
+              "countries": [
+                {
+                  "country": "NO",
+                  "percentage": 0.03
+                },
+                {
+                  "country": "BE",
+                  "percentage": 0.007
+                },
+                {
+                  "country": "DK",
+                  "percentage": 0.016
+                },
+                {
+                  "country": "GB",
+                  "percentage": 0.721
+                },
+                {
+                  "country": "IE",
+                  "percentage": 0.048
+                },
+                {
+                  "country": "US",
+                  "percentage": 0.017
+                },
+                {
+                  "country": "DE",
+                  "percentage": 0.022
+                },
+                {
+                  "country": "NL",
+                  "percentage": 0.024
+                },
+                {
+                  "country": "Others",
+                  "percentage": 0.074
+                },
+                {
+                  "country": "SE",
+                  "percentage": 0.03
+                },
+                {
+                  "country": "IT",
+                  "percentage": 0.011
+                }
+              ],
+              "genders": [
+                {
+                  "gender": "female_vv",
+                  "percentage": 0.48
+                },
+                {
+                  "gender": "male_vv",
+                  "percentage": 0.52
+                },
+                {
+                  "gender": "other_vv",
+                  "percentage": 0
+                }
+              ]
+            },
+            "audience_types": [
+              {
+                "percentage": 0,
+                "type": "FOLLOWER_PERCENT"
+              },
+              {
+                "percentage": 1,
+                "type": "NEW_VIEWER"
+              },
+              {
+                "percentage": 1,
+                "type": "NON_FOLLOWER_PERCENT"
+              },
+              {
+                "percentage": 0,
+                "type": "RETURN_VIEWER"
+              }
+            ],
+            "average_time_watched": 4.37,
+            "comments": 0,
+            "favorites": 0,
+            "full_video_watched_rate": 0.0121,
+            "impression_sources": [
+              {
+                "impression_source": "Follow",
+                "percentage": 0
+              },
+              {
+                "impression_source": "For You",
+                "percentage": 1
+              },
+              {
+                "impression_source": "Others",
+                "percentage": 0
+              },
+              {
+                "impression_source": "Personal Profile",
+                "percentage": 0
+              },
+              {
+                "impression_source": "Search",
+                "percentage": 0
+              },
+              {
+                "impression_source": "Sound",
+                "percentage": 0
+              },
+              {
+                "impression_source": "Direct Message",
+                "percentage": 0
+              }
+            ],
+            "is_ai_generated": false,
+            "likes": 3,
+            "new_followers": 0,
+            "profile_views": 0,
+            "reach": 636,
+            "retention": [
+              {
+                "percentage": 1,
+                "second": "0"
+              },
+              {
+                "percentage": 0.72,
+                "second": "1"
+              },
+              {
+                "percentage": 0.37,
+                "second": "2"
+              },
+              {
+                "percentage": 0.28,
+                "second": "3"
+              },
+              {
+                "percentage": 0.22,
+                "second": "4"
+              },
+              {
+                "percentage": 0.17,
+                "second": "5"
+              },
+              {
+                "percentage": 0.14,
+                "second": "6"
+              },
+              {
+                "percentage": 0.12,
+                "second": "7"
+              },
+              {
+                "percentage": 0.08,
+                "second": "8"
+              },
+              {
+                "percentage": 0.07,
+                "second": "9"
+              },
+              {
+                "percentage": 0.06,
+                "second": "10"
+              },
+              {
+                "percentage": 0.06,
+                "second": "11"
+              },
+              {
+                "percentage": 0.05,
+                "second": "12"
+              },
+              {
+                "percentage": 0.05,
+                "second": "13"
+              },
+              {
+                "percentage": 0.04,
+                "second": "14"
+              },
+              {
+                "percentage": 0.04,
+                "second": "15"
+              },
+              {
+                "percentage": 0.03,
+                "second": "16"
+              },
+              {
+                "percentage": 0.03,
+                "second": "17"
+              },
+              {
+                "percentage": 0.03,
+                "second": "18"
+              },
+              {
+                "percentage": 0.03,
+                "second": "19"
+              },
+              {
+                "percentage": 0.03,
+                "second": "20"
+              },
+              {
+                "percentage": 0.03,
+                "second": "21"
+              },
+              {
+                "percentage": 0.02,
+                "second": "22"
+              },
+              {
+                "percentage": 0.02,
+                "second": "23"
+              },
+              {
+                "percentage": 0.02,
+                "second": "24"
+              },
+              {
+                "percentage": 0.02,
+                "second": "25"
+              },
+              {
+                "percentage": 0.02,
+                "second": "26"
+              },
+              {
+                "percentage": 0.02,
+                "second": "27"
+              },
+              {
+                "percentage": 0.02,
+                "second": "28"
+              },
+              {
+                "percentage": 0.02,
+                "second": "29"
+              },
+              {
+                "percentage": 0.02,
+                "second": "30"
+              },
+              {
+                "percentage": 0.02,
+                "second": "31"
+              },
+              {
+                "percentage": 0.01,
+                "second": "32"
+              },
+              {
+                "percentage": 0.01,
+                "second": "33"
+              },
+              {
+                "percentage": 0.01,
+                "second": "34"
+              }
+            ],
+            "shares": 0,
+            "total_time_watched": 3622,
+            "views": 636
+          }
         }
       ],
       "title": "BRAWLER vs STORMCALLER\n\n#stickspire #stickman #animation #stickfigure #fightscene"
@@ -1180,6 +2806,18 @@
             "shares": 0,
             "views": 202
           }
+        },
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 202,
+            "likes": 2,
+            "reach": 189,
+            "saves": 0,
+            "shares": 0,
+            "views": 202
+          }
         }
       ],
       "title": "JUGGERNAUT vs STORMCALLER\n\n#stickman #indiegame #gamedev #indiedev #animation #stickfight"
@@ -1235,9 +2873,622 @@
             "views": 501,
             "watch_time_minutes": 0
           }
+        },
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "average_view_duration_seconds": 10,
+            "average_view_percentage": 28.68,
+            "comments": 0,
+            "favorites": 0,
+            "likes": 3,
+            "views": 745,
+            "watch_time_minutes": 35
+          }
         }
       ],
       "title": "ARCANIST vs CRYOMANCER | STICKSPIRE"
+    },
+    "d29b905e41b3416dab403b856839985d::instagram": {
+      "error": null,
+      "features": {
+        "clip": "shadowblade_vs_warlock",
+        "duration_s": 35.3,
+        "fighters": [
+          "shadowblade",
+          "warlock"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "fyp,gaming,stickfight,stickspire,viral",
+        "hashtags": [
+          "fyp",
+          "gaming",
+          "stickfight",
+          "stickspire",
+          "viral"
+        ],
+        "height": 1080,
+        "hour": 8,
+        "orientation": "landscape",
+        "platform": "instagram",
+        "profile": "StickSpire_Arena",
+        "weekday": "Thu",
+        "width": 1920
+      },
+      "ok": true,
+      "platform": "instagram",
+      "platform_post_id": "18053461793566821",
+      "post_url": "https://www.instagram.com/reel/Dc0SrWXkzG0/",
+      "posted_at": "2026-09-03T07:37:55.119Z",
+      "profile": "StickSpire_Arena",
+      "request_id": "d29b905e41b3416dab403b856839985d",
+      "snapshots": [
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 50,
+            "likes": 0,
+            "reach": 49,
+            "saves": 0,
+            "shares": 0,
+            "views": 50
+          }
+        }
+      ],
+      "title": "SHADOWBLADE vs WARLOCK\n\n#stickspire #stickfight #fyp #gaming #viral"
+    },
+    "d29b905e41b3416dab403b856839985d::tiktok": {
+      "error": null,
+      "features": {
+        "clip": "shadowblade_vs_warlock",
+        "duration_s": 35.3,
+        "fighters": [
+          "shadowblade",
+          "warlock"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "fyp,gaming,stickfight,stickspire,viral",
+        "hashtags": [
+          "fyp",
+          "gaming",
+          "stickfight",
+          "stickspire",
+          "viral"
+        ],
+        "height": 1080,
+        "hour": 8,
+        "orientation": "landscape",
+        "platform": "tiktok",
+        "profile": "StickSpire_Arena",
+        "weekday": "Thu",
+        "width": 1920
+      },
+      "ok": true,
+      "platform": "tiktok",
+      "platform_post_id": "7681209873350004001",
+      "post_url": "https://www.tiktok.com/t/7681209873350004001",
+      "posted_at": "2026-09-03T07:38:57.712Z",
+      "profile": "StickSpire_Arena",
+      "request_id": "d29b905e41b3416dab403b856839985d",
+      "snapshots": [
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "audience_types": [
+              {
+                "percentage": 0,
+                "type": "NEW_VIEWER"
+              },
+              {
+                "percentage": 1,
+                "type": "NON_FOLLOWER_PERCENT"
+              },
+              {
+                "percentage": 0,
+                "type": "RETURN_VIEWER"
+              },
+              {
+                "percentage": 0,
+                "type": "FOLLOWER_PERCENT"
+              }
+            ],
+            "average_time_watched": 3.8,
+            "comments": 0,
+            "favorites": 0,
+            "full_video_watched_rate": 0.0045,
+            "impression_sources": [
+              {
+                "impression_source": "Sound",
+                "percentage": 0
+              },
+              {
+                "impression_source": "Direct Message",
+                "percentage": 0
+              },
+              {
+                "impression_source": "Follow",
+                "percentage": 0
+              },
+              {
+                "impression_source": "For You",
+                "percentage": 1
+              },
+              {
+                "impression_source": "Others",
+                "percentage": 0
+              },
+              {
+                "impression_source": "Personal Profile",
+                "percentage": 0
+              },
+              {
+                "impression_source": "Search",
+                "percentage": 0
+              }
+            ],
+            "is_ai_generated": false,
+            "likes": 4,
+            "new_followers": 0,
+            "profile_views": 0,
+            "reach": 0,
+            "retention": [
+              {
+                "percentage": 1,
+                "second": "0"
+              },
+              {
+                "percentage": 0.71,
+                "second": "1"
+              },
+              {
+                "percentage": 0.34,
+                "second": "2"
+              },
+              {
+                "percentage": 0.29,
+                "second": "3"
+              },
+              {
+                "percentage": 0.25,
+                "second": "4"
+              },
+              {
+                "percentage": 0.19,
+                "second": "5"
+              },
+              {
+                "percentage": 0.14,
+                "second": "6"
+              },
+              {
+                "percentage": 0.12,
+                "second": "7"
+              },
+              {
+                "percentage": 0.09,
+                "second": "8"
+              },
+              {
+                "percentage": 0.07,
+                "second": "9"
+              },
+              {
+                "percentage": 0.06,
+                "second": "10"
+              },
+              {
+                "percentage": 0.06,
+                "second": "11"
+              },
+              {
+                "percentage": 0.06,
+                "second": "12"
+              },
+              {
+                "percentage": 0.05,
+                "second": "13"
+              },
+              {
+                "percentage": 0.04,
+                "second": "14"
+              },
+              {
+                "percentage": 0.04,
+                "second": "15"
+              },
+              {
+                "percentage": 0.04,
+                "second": "16"
+              },
+              {
+                "percentage": 0.04,
+                "second": "17"
+              },
+              {
+                "percentage": 0.04,
+                "second": "18"
+              },
+              {
+                "percentage": 0.04,
+                "second": "19"
+              },
+              {
+                "percentage": 0.04,
+                "second": "20"
+              },
+              {
+                "percentage": 0.03,
+                "second": "21"
+              },
+              {
+                "percentage": 0.03,
+                "second": "22"
+              },
+              {
+                "percentage": 0.03,
+                "second": "23"
+              },
+              {
+                "percentage": 0.03,
+                "second": "24"
+              },
+              {
+                "percentage": 0.03,
+                "second": "25"
+              },
+              {
+                "percentage": 0.03,
+                "second": "26"
+              },
+              {
+                "percentage": 0.03,
+                "second": "27"
+              },
+              {
+                "percentage": 0.03,
+                "second": "28"
+              },
+              {
+                "percentage": 0.03,
+                "second": "29"
+              },
+              {
+                "percentage": 0.03,
+                "second": "30"
+              },
+              {
+                "percentage": 0.03,
+                "second": "31"
+              },
+              {
+                "percentage": 0.02,
+                "second": "32"
+              },
+              {
+                "percentage": 0.02,
+                "second": "33"
+              },
+              {
+                "percentage": 0.01,
+                "second": "34"
+              },
+              {
+                "percentage": 0,
+                "second": "35"
+              }
+            ],
+            "shares": 0,
+            "total_time_watched": 839,
+            "views": 220
+          }
+        }
+      ],
+      "title": "SHADOWBLADE vs WARLOCK\n\n#stickspire #stickfight #fyp #gaming #viral"
+    },
+    "d2ffa8c219ed4e22991e687ce8bc859f::youtube": {
+      "error": null,
+      "features": {
+        "clip": "swordsaint_vs_arcanist",
+        "duration_s": 32.608,
+        "fighters": [
+          "arcanist",
+          "swordsaint"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "",
+        "hashtags": [],
+        "height": 1920,
+        "hour": 11,
+        "orientation": "portrait",
+        "platform": "youtube",
+        "profile": "StickSpire",
+        "weekday": "Fri",
+        "width": 1080
+      },
+      "ok": true,
+      "platform": "youtube",
+      "platform_post_id": "Y4QbdQfvajo",
+      "post_url": "https://www.youtube.com/watch?v=Y4QbdQfvajo",
+      "posted_at": "2026-09-04T10:24:04.529Z",
+      "profile": "StickSpire",
+      "request_id": "d2ffa8c219ed4e22991e687ce8bc859f",
+      "snapshots": [
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "average_view_duration_seconds": 0,
+            "average_view_percentage": 0.0,
+            "comments": 0,
+            "favorites": 0,
+            "likes": 0,
+            "views": 0,
+            "watch_time_minutes": 0
+          }
+        }
+      ],
+      "title": "SWORDSAINT vs ARCANIST | STICKSPIRE"
+    },
+    "e3064d55ce5943689f05b61ff6837feb::instagram": {
+      "error": null,
+      "features": {
+        "clip": "juggernaut_vs_cryomancer",
+        "duration_s": 26.7,
+        "fighters": [
+          "cryomancer",
+          "juggernaut"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "fyp,gameplay,gaming,stickfight,stickspire",
+        "hashtags": [
+          "fyp",
+          "gameplay",
+          "gaming",
+          "stickfight",
+          "stickspire"
+        ],
+        "height": 1080,
+        "hour": 13,
+        "orientation": "landscape",
+        "platform": "instagram",
+        "profile": "StickSpire",
+        "weekday": "Thu",
+        "width": 1920
+      },
+      "ok": true,
+      "platform": "instagram",
+      "platform_post_id": "17906226210509108",
+      "post_url": "https://www.instagram.com/reel/Dc0xmGgjP5S/",
+      "posted_at": "2026-09-03T12:07:59.515Z",
+      "profile": "StickSpire",
+      "request_id": "e3064d55ce5943689f05b61ff6837feb",
+      "snapshots": [
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "comments": 0,
+            "impressions": 281,
+            "likes": 3,
+            "reach": 256,
+            "saves": 0,
+            "shares": 0,
+            "views": 281
+          }
+        }
+      ],
+      "title": "JUGGERNAUT vs CRYOMANCER\n\n#stickspire #stickfight #gaming #gameplay #fyp"
+    },
+    "e3064d55ce5943689f05b61ff6837feb::tiktok": {
+      "error": null,
+      "features": {
+        "clip": "juggernaut_vs_cryomancer",
+        "duration_s": 26.7,
+        "fighters": [
+          "cryomancer",
+          "juggernaut"
+        ],
+        "fps": 48.0,
+        "hashtag_set": "fyp,gameplay,gaming,stickfight,stickspire",
+        "hashtags": [
+          "fyp",
+          "gameplay",
+          "gaming",
+          "stickfight",
+          "stickspire"
+        ],
+        "height": 1080,
+        "hour": 13,
+        "orientation": "landscape",
+        "platform": "tiktok",
+        "profile": "StickSpire",
+        "weekday": "Thu",
+        "width": 1920
+      },
+      "ok": true,
+      "platform": "tiktok",
+      "platform_post_id": "7681279543394487584",
+      "post_url": "https://www.tiktok.com/t/7681279543394487584",
+      "posted_at": "2026-09-03T12:09:21.250Z",
+      "profile": "StickSpire",
+      "request_id": "e3064d55ce5943689f05b61ff6837feb",
+      "snapshots": [
+        {
+          "at": "2026-09-04T13:30:33Z",
+          "metrics": {
+            "audience_types": [
+              {
+                "percentage": 0.59,
+                "type": "FOLLOWER_PERCENT"
+              },
+              {
+                "percentage": 0,
+                "type": "NEW_VIEWER"
+              },
+              {
+                "percentage": 0.41,
+                "type": "NON_FOLLOWER_PERCENT"
+              },
+              {
+                "percentage": 0,
+                "type": "RETURN_VIEWER"
+              }
+            ],
+            "average_time_watched": 2.57,
+            "comments": 0,
+            "favorites": 0,
+            "full_video_watched_rate": 0,
+            "impression_sources": [
+              {
+                "impression_source": "Follow",
+                "percentage": 0
+              },
+              {
+                "impression_source": "For You",
+                "percentage": 0.79
+              },
+              {
+                "impression_source": "Others",
+                "percentage": 0.173
+              },
+              {
+                "impression_source": "Personal Profile",
+                "percentage": 0
+              },
+              {
+                "impression_source": "Search",
+                "percentage": 0.037
+              },
+              {
+                "impression_source": "Sound",
+                "percentage": 0
+              },
+              {
+                "impression_source": "Direct Message",
+                "percentage": 0
+              }
+            ],
+            "is_ai_generated": false,
+            "likes": 1,
+            "new_followers": 0,
+            "profile_views": 0,
+            "reach": 0,
+            "retention": [
+              {
+                "percentage": 1,
+                "second": "0"
+              },
+              {
+                "percentage": 0.61,
+                "second": "1"
+              },
+              {
+                "percentage": 0.27,
+                "second": "2"
+              },
+              {
+                "percentage": 0.2,
+                "second": "3"
+              },
+              {
+                "percentage": 0.17,
+                "second": "4"
+              },
+              {
+                "percentage": 0.14,
+                "second": "5"
+              },
+              {
+                "percentage": 0.14,
+                "second": "6"
+              },
+              {
+                "percentage": 0.11,
+                "second": "7"
+              },
+              {
+                "percentage": 0.08,
+                "second": "8"
+              },
+              {
+                "percentage": 0.05,
+                "second": "9"
+              },
+              {
+                "percentage": 0.05,
+                "second": "10"
+              },
+              {
+                "percentage": 0.01,
+                "second": "11"
+              },
+              {
+                "percentage": 0.01,
+                "second": "12"
+              },
+              {
+                "percentage": 0.01,
+                "second": "13"
+              },
+              {
+                "percentage": 0.01,
+                "second": "14"
+              },
+              {
+                "percentage": 0,
+                "second": "15"
+              },
+              {
+                "percentage": 0,
+                "second": "16"
+              },
+              {
+                "percentage": 0,
+                "second": "17"
+              },
+              {
+                "percentage": 0,
+                "second": "18"
+              },
+              {
+                "percentage": 0,
+                "second": "19"
+              },
+              {
+                "percentage": 0,
+                "second": "20"
+              },
+              {
+                "percentage": 0,
+                "second": "21"
+              },
+              {
+                "percentage": 0,
+                "second": "22"
+              },
+              {
+                "percentage": 0,
+                "second": "23"
+              },
+              {
+                "percentage": 0,
+                "second": "24"
+              },
+              {
+                "percentage": 0,
+                "second": "25"
+              },
+              {
+                "percentage": 0,
+                "second": "26"
+              }
+            ],
+            "shares": 0,
+            "total_time_watched": 208,
+            "views": 77
+          }
+        }
+      ],
+      "title": "JUGGERNAUT vs CRYOMANCER\n\n#stickspire #stickfight #gaming #gameplay #fyp"
     }
   }
 }
