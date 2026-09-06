@@ -425,7 +425,7 @@ func _build_director() -> void:
 	_director = (script as GDScript).new()
 	add_child(_director)
 	_director.add_to_group(DIRECTOR_GROUP)
-	add_action("◆  DIRECTOR  (F1)", func() -> void:
+	add_action("•  DIRECTOR  (F1)", func() -> void:
 		if _director != null and _director.has_method("set_open"):
 			_director.call("set_open", true)
 		resume_requested.emit())
@@ -870,17 +870,17 @@ func _build_settings() -> void:
 		func() -> void: resume_requested.emit())
 	_settings_col.add_child(_resume_btn)
 
-	_settings_col.add_child(_settings_row_button("%s  ▸" % PAGE_AUDIO,
+	_settings_col.add_child(_settings_row_button("%s  ›" % PAGE_AUDIO,
 		func() -> void: _show_page(_audio_center)))
-	_settings_col.add_child(_settings_row_button("%s  ▸" % PAGE_VIDEO,
+	_settings_col.add_child(_settings_row_button("%s  ›" % PAGE_VIDEO,
 		func() -> void: _show_page(_video_center)))
-	_settings_col.add_child(_settings_row_button("%s  ▸" % PAGE_GAME,
+	_settings_col.add_child(_settings_row_button("%s  ›" % PAGE_GAME,
 		func() -> void: _show_page(_game_center)))
 	# ⚠ THE CONTROLS PAGE ALREADY EXISTED AND IS THE SHAPE THE OTHER THREE COPY. It is
 	# the proof the split works: twenty binding rows were never going to live in the
 	# settings column, so they were given their own page — and every argument for
 	# doing that applies just as hard to fifteen knobs.
-	_settings_col.add_child(_settings_row_button("CONTROLS  ▸", _open_controls))
+	_settings_col.add_child(_settings_row_button("CONTROLS  ›", _open_controls))
 
 	# ⚠ HOST KNOBS LAND HERE, ON THE HUB, AND THAT IS DELIBERATE. `add_setting_button`
 	# is called by three combat scenes with rows this file has never seen ("Fighter A",

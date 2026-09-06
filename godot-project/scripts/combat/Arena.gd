@@ -656,7 +656,7 @@ your climb is banked — floor %d is waiting." % [
 	# palette already carries elsewhere (MINT is the full end of every health bar
 	# and Hype's "wave down"; AZURE is mana and every cool callout), rather than
 	# three pastels invented at this call site.
-	col.add_child(_confirm_button("Keep climbing  ▸", _climb_from_prompt, HudStyle.MINT))
+	col.add_child(_confirm_button("Keep climbing  ›", _climb_from_prompt, HudStyle.MINT))
 	col.add_child(_confirm_button("Stay on the floor", _cancel_leave, HudStyle.SKY))
 	col.add_child(_confirm_button("Leave", _confirm_leave, RETURN_PORTAL_COLOR))
 
@@ -1552,5 +1552,5 @@ func _show_floor_banner(floor: int, theme: EnvTheme) -> void:
 	var theme_name: String = theme.name if theme != null else "?"
 	var label: String = "%s  ·  %s" % [_gs.floor_label(floor), theme_name]
 	if _current_floor_def != null and _current_floor_def.floor_type == FloorDef.FloorType.BOSS:
-		label = "⚔  GUARDIAN  ⚔   ·   " + label
+		label = "†  GUARDIAN  †   ·   " + label
 	_floor_banner.text = label

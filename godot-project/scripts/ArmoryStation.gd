@@ -107,7 +107,7 @@ const PAD_COLORS: Dictionary = {
 ## These two are also what `World._build_signboard`'s left arm points with, so a glyph
 ## added here without a glyph added there is a sign that under-reports the room.
 const PAD_GLYPHS: Dictionary = {
-	"armory": "⚔", "party": "◈", "class": "☗",
+	"armory": "†", "party": "•", "class": "§",
 }
 const GLYPH_FONT_SIZE: int = 22
 const GLYPH_LIFT: float = 58.0
@@ -143,7 +143,7 @@ func _ready() -> void:
 	# wrong thing about the row; every pad is now the same object with a different
 	# colour and glyph, which was the point of making them pads.
 	var glyph := Label.new()
-	glyph.text = String(PAD_GLYPHS.get(kind, "◆"))
+	glyph.text = String(PAD_GLYPHS.get(kind, "•"))
 	glyph.position = Vector2(-14.0, -GLYPH_LIFT)
 	glyph.add_theme_font_size_override("font_size", GLYPH_FONT_SIZE)
 	glyph.add_theme_color_override("font_color", _tint())

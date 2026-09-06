@@ -537,8 +537,8 @@ func _build_signboard() -> void:
 	# two are the deleted lectern and Archivist — the same failure the arm already had
 	# once, when it advertised the removed sparring pad's ◎. A sign that names a door
 	# that is not there is worse than no sign, because the player goes looking.
-	_sign_arm("◂  ⚔ ☗", -1.0, SIGN_TOP + 10.0)
-	_sign_arm("THE TOWER  ▸", 1.0, SIGN_TOP + 42.0)
+	_sign_arm("‹  † §", -1.0, SIGN_TOP + 10.0)
+	_sign_arm("THE TOWER  ›", 1.0, SIGN_TOP + 42.0)
 
 
 ## One plank, hanging off the post on `side`. The label is drawn on the plank rather
@@ -1087,15 +1087,15 @@ func _spawn_touch_pad() -> void:
 	layer.layer = 70
 	add_child(layer)
 	# Walk: two wide pads in the bottom-left, thumb-sized.
-	_pad(layer, "move_left", "◂", Vector2(14.0, -14.0 - 46.0), Vector2(52.0, 46.0), false)
-	_pad(layer, "move_right", "▸", Vector2(72.0, -14.0 - 46.0), Vector2(52.0, 46.0), false)
+	_pad(layer, "move_left", "<", Vector2(14.0, -14.0 - 46.0), Vector2(52.0, 46.0), false)
+	_pad(layer, "move_right", ">", Vector2(72.0, -14.0 - 46.0), Vector2(52.0, 46.0), false)
 	# Jump and interact under the other thumb. INTERACT is the biggest thing on the
 	# screen because it is the only one that does anything in a town.
-	_pad(layer, "jump", "▲", Vector2(-14.0 - 52.0, -14.0 - 46.0), Vector2(52.0, 46.0), true)
+	_pad(layer, "jump", "^", Vector2(-14.0 - 52.0, -14.0 - 46.0), Vector2(52.0, 46.0), true)
 	_pad(layer, "talk", "E", Vector2(-14.0 - 52.0 - 74.0, -14.0 - 52.0), Vector2(68.0, 52.0), true)
 	# BACK. A touch player has no Esc key, so without this the only exit from the
 	# town on the target platform is to start a run.
-	_pad(layer, "ui_cancel", "✕", Vector2(-14.0 - 38.0, -360.0), Vector2(38.0, 32.0), true)
+	_pad(layer, "ui_cancel", "×", Vector2(-14.0 - 38.0, -360.0), Vector2(38.0, 32.0), true)
 
 
 ## One pad, pressing one named action. `anchor_right` places it from the right edge

@@ -10,7 +10,7 @@ const BINARY_SEARCH_PRECISION: float = 4.0
 # as "thinking" with horizontal motion rather than the additive grow-shrink
 # pattern of earlier versions.
 const THINKING_FRAMES: PackedStringArray = [
-	"[b]●[/b] [color=#888]●[/color] [color=#888]●[/color]",
+	"[b]•[/b] [color=#888]•[/color] [color=#888]•[/color]",
 	"[color=#888]●[/color] [b]●[/b] [color=#888]●[/color]",
 	"[color=#888]●[/color] [color=#888]●[/color] [b]●[/b]",
 ]

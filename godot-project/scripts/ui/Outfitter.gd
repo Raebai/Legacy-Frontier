@@ -80,6 +80,27 @@ const HIGHLIGHT: Color = Color(0.55, 0.9, 1.0)
 ## it is a comfortable thumb; below it, misses start. `tools/slice_test_shell.gd`
 ## pins the same floor on the Lobby.
 const MIN_TAP: float = 30.0
+
+## ══ THE THREE MARKS THIS SCREEN SPEAKS IN ═══════════════════════════════════
+## `RARE_BADGE` says "the grimoire touched this" — it appears on the role row whose
+## authored spell has been overridden, on the grimoire slot header, on a pool row you
+## carry, and on the summary. `CARRIED_MARK` and `PLAIN_MARK` are the ordinary
+## have/have-not pair.
+##
+## ⚠ THEY ARE CONSTS BECAUSE A TEST HARDCODED ONE AND A GLYPH SWEEP BROKE IT. These used
+## to be `◈` / `◉` / `○` inline at five call sites, and `slice_test_outfitter` asserted
+## the literal `◈` in a sixth place. None of those characters was ever DRAWN — the theme
+## declares no font, so the fallback has no coverage above Latin-1 — and when they were
+## replaced with glyphs that render, the sweep collapsed the rare badge and the carried
+## mark onto the same dot. That is a real regression (the screen deliberately keeps them
+## distinct) and the suite caught it, then failed again on its own hardcoded copy.
+## One name, read by both sides, is the fix for both halves.
+##
+## ⚠ EVERY ONE IS VERIFIED PRESENT IN THE FALLBACK FONT. `slice_test_font_coverage` will
+## fail the build if a future edit reaches for a prettier symbol the font cannot draw.
+const RARE_BADGE: String = "‡"
+const CARRIED_MARK: String = "•"
+const PLAIN_MARK: String = "·"
 const PANEL_W: float = 320.0
 
 ## FIXED height of the role list — the same trick the Lobby's host list uses, and for
@@ -497,7 +518,7 @@ func _build() -> void:
 	_grim_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	doors.add_child(_grim_btn)
 	if not show_class_picker:
-		var armory: Button = _button("⚒  Armory", _open_armory, fs, share)
+		var armory: Button = _button("†  Armory", _open_armory, fs, share)
 		armory.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		doors.add_child(armory)
 	_colour_btn = _button("", _toggle_colours, fs, share)
@@ -509,7 +530,7 @@ func _build() -> void:
 	#
 	# ⚠ AND IT NOW RESETS WHAT THE MODE IS ABOUT — see `_reset_pressed`. One button, two
 	# blast radii, and the label always names the live one.
-	_reset_btn = _button("↺  Reset Hand", _reset_pressed, fs, share)
+	_reset_btn = _button("×  Reset Hand", _reset_pressed, fs, share)
 	_reset_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	doors.add_child(_reset_btn)
 	col.add_child(doors)
@@ -747,17 +768,17 @@ func _redraw() -> void:
 func _role_row(role: String, carried: bool, enabled: bool) -> Button:
 	var spell: SpellDef = SpellLibrary.spell_for_role(_class_id, role)
 	var tier: int = SpellTier.of(spell) if spell != null else SpellTier.Tier.QUICK
-	var mark: String = "◉" if carried else "○"
+	var mark: String = CARRIED_MARK if carried else PLAIN_MARK
 	# ⚠ A ROLE ROW SHOWS WHAT THE SLOT ACTUALLY CASTS, NOT WHAT THE CLASS AUTHORED.
 	# `build_for_class` lays the grimoire over the role LAST and by index, so with a Tier 3
 	# equipped this row's authored name is the one name on the screen that is not true —
-	# and it is the row the player taps to change their hand. `◈` plus GOLD is the same
+	# and it is the row the player taps to change their hand. `‡` plus GOLD is the same
 	# badge the pool list and the summary use, so the rare thing reads the same everywhere.
 	var over: SpellDef = _equipped_in_slot(_slot_of_role(role))
 	if over != null:
 		spell = over
 		tier = SpellTier.of(over)
-		mark = "◈"
+		mark = RARE_BADGE
 	var b := Button.new()
 	b.text = "%s  %s  ·  %s" % [mark, role.to_upper(), spell.display_name if spell != null else "--"]
 	b.tooltip_text = SpellTier.display_name(tier)
@@ -968,7 +989,7 @@ func _refresh_grim_btn() -> void:
 	# says WHICH thing, nothing in a glyph says the row is a door, and this one sits
 	# beside another door that goes somewhere else entirely.
 	var here: bool = _mode == Mode.GRIMOIRE
-	_grim_btn.text = "↩  Your Hand" if here else "✦  Grimoire"
+	_grim_btn.text = "«  Your Hand" if here else "»  Grimoire"
 	_grim_btn.add_theme_color_override("font_color", CHALK if here else HudStyle.GOLD)
 
 
@@ -995,8 +1016,8 @@ func _slot_cursor_row() -> Button:
 	# unrelated facts on screen and has to guess that they are the same fact. It costs six
 	# characters on a row that already clips.
 	var shelf: String = " · ULT" if _grim_slot == SpellTier.ULT_SLOT else ""
-	b.text = "%s  EQUIP INTO SLOT %d%s ▸  %s" % [
-		"◈" if over else "○", _grim_slot + 1, shelf,
+	b.text = "%s  EQUIP INTO SLOT %d%s ›  %s" % [
+		RARE_BADGE if over else PLAIN_MARK, _grim_slot + 1, shelf,
 		String(spell.display_name) if spell != null else "--"]
 	b.tooltip_text = "Tap to aim at the next slot — only slot %d takes an ULT" \
 		% (SpellTier.ULT_SLOT + 1)
@@ -1123,9 +1144,9 @@ func _pool_row(spell: SpellDef) -> Button:
 	elif unowned:
 		# The SHELF reason wins the caption when both apply: it is the one the player can
 		# clear in one tap of the slot cursor, so it is the one worth six characters.
-		suffix = "  🔒 %s" % Progression.spell_unlock_verb(tier)
+		suffix = "  — %s" % Progression.spell_unlock_verb(tier)
 	b.text = "%s  %s  ·  %s%s" % [
-		"◈" if mine else ("✕" if blocked else "○"), String(spell.display_name),
+		RARE_BADGE if mine else ("×" if blocked else PLAIN_MARK), String(spell.display_name),
 		SpellTier.display_name(tier), suffix]
 	b.tooltip_text = _row_reason(spell) if blocked else SpellBlurbs.for_spell(spell)
 	b.custom_minimum_size = Vector2(PANEL_W - 16.0, MIN_TAP)
@@ -1250,7 +1271,7 @@ func _reset_pressed() -> void:
 func _refresh_reset_btn() -> void:
 	if _reset_btn == null:
 		return
-	_reset_btn.text = "↺  Reset Colour" if _mode == Mode.COLOURS else "↺  Reset Hand"
+	_reset_btn.text = "×  Reset Colour" if _mode == Mode.COLOURS else "×  Reset Hand"
 
 
 ## ALL THREE PARTS BACK TO "NEVER CHOSEN", not to a hardcoded index. -1 is what makes a
@@ -1355,7 +1376,7 @@ func _refresh_summary() -> void:
 		var spell: Variant = built[i]
 		if spell == null:
 			continue
-		var mark: String = "◈" if _equipped_in_slot(i) != null else ""
+		var mark: String = RARE_BADGE if _equipped_in_slot(i) != null else ""
 		names.append("%s%s" % [mark, String((spell as SpellDef).display_name)])
 	# ⚠ THE KEY ROW IS COUNTED, NOT TYPED. It was the literal "1 · 2 · 3" and the hand
 	# grew to four. `Hero.SPELL_KEYS` is the real list, but `Hero` is not a `class_name`
@@ -1381,7 +1402,7 @@ func _refresh_summary() -> void:
 func _refresh_class_btn() -> void:
 	if _class_btn == null:
 		return
-	_class_btn.text = "☗  %s  ·  change" % _class_display_name()
+	_class_btn.text = "§  %s  ·  change" % _class_display_name()
 	if _class_id >= 0 and _class_id < ClassInfo.CLASSES.size():
 		_class_btn.add_theme_color_override(
 			"font_color", ClassInfo.color_for(_class_id).lightened(0.25))
@@ -1533,7 +1554,7 @@ func _persist_colours() -> void:
 func _part_cursor_row() -> Button:
 	var idx: int = part_colourway(_colour_part)
 	var b := Button.new()
-	b.text = "◐  PAINT  %s ▸  %s" % [PART_NAMES[_colour_part], colourway_name(idx)]
+	b.text = "•  PAINT  %s ›  %s" % [PART_NAMES[_colour_part], colourway_name(idx)]
 	b.tooltip_text = "Tap to aim at the next part — head, body, legs"
 	b.custom_minimum_size = Vector2(PANEL_W - 16.0, MIN_TAP)
 	b.add_theme_font_size_override("font_size", 12)
@@ -1560,12 +1581,29 @@ func _cycle_part_cursor() -> void:
 func _colour_row(index: int, swatch: Color) -> Button:
 	var mine: bool = part_colourway(_colour_part) == index
 	var b := Button.new()
-	# ⚠ THE BLOCK GLYPHS ARE THE SWATCH. A `Button` is one font colour for its whole label
-	# and this row has to show a colour AND stay legible when it is not the pick — so the
-	# NAME carries the state (mark + ink) and three filled blocks carry the hue. Four
-	# characters, no second control, and it survives `clip_text` because it is at the end.
-	b.text = "%s  %s  ·  %s   ███" % [
-		"◉" if mine else "○", PART_NAMES[_colour_part], colourway_name(index)]
+	# ⚠ THE SWATCH IS DRAWN, NOT TYPED, AND THAT IS A BUG FIX RATHER THAN A STYLE CHOICE.
+	# This row used to read `"%s  %s  ·  %s   ███"` with `◉`/`○` for the state — and NOT
+	# ONE of those three glyphs was ever drawn. `assets/ui/stickspire_theme.tres` declares
+	# no font at all, so every control falls back to Godot's built-in Open Sans subset,
+	# whose `has_char` is false for U+25C9, U+25CB and U+2588 alike. A colour picker was
+	# shipping rows with no colour on them.
+	#
+	# So the hue is a StyleBoxFlat LEFT BORDER — the same primitive the class roster's
+	# accent bar uses, for the same reason: it is a real drawn rectangle, it needs no
+	# second control, and no font can fail to render it. The state mark falls back to
+	# `•`/`·`, both of which ARE in the fallback font (verified, not assumed).
+	b.text = "%s  %s  ·  %s" % [
+		"•" if mine else "·", PART_NAMES[_colour_part], colourway_name(index)]
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.0, 0.0, 0.0, 0.0)
+	sb.border_color = _swatch(index)
+	sb.set_border_width(SIDE_LEFT, 9.0 if mine else 5.0)
+	sb.content_margin_left = 8.0
+	sb.content_margin_right = 6.0
+	sb.content_margin_top = 0.0
+	sb.content_margin_bottom = 0.0
+	for state: String in ["normal", "hover", "pressed", "focus", "disabled"]:
+		b.add_theme_stylebox_override(state, sb)
 	b.tooltip_text = "Paint the %s %s" % [PART_NAMES[_colour_part].to_lower(),
 		colourway_name(index)]
 	b.custom_minimum_size = Vector2(PANEL_W - 16.0, MIN_TAP)
@@ -1611,7 +1649,7 @@ func _refresh_colour_btn() -> void:
 	if _colour_btn == null:
 		return
 	var here: bool = _mode == Mode.COLOURS
-	_colour_btn.text = "↩  Your Hand" if here else "◐  Colours"
+	_colour_btn.text = "«  Your Hand" if here else "•  Colours"
 	# Tinted with the BODY's live colour rather than a house accent, so the door advertises
 	# what is behind it — the same argument that puts the class colour on the card frame.
 	_colour_btn.add_theme_color_override("font_color",

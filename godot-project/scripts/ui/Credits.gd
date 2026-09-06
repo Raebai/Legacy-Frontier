@@ -182,7 +182,7 @@ func _row(kind: String, text: String) -> Control:
 			l.add_theme_font_size_override("font_size", HEAD_SIZE)
 			l.add_theme_color_override("font_color", HEAD_COLOR)
 		"warn":
-			l.text = "⚠  " + text
+			l.text = "!  " + text
 			l.add_theme_font_size_override("font_size", BODY_SIZE)
 			l.add_theme_color_override("font_color", WARN_COLOR)
 		"note":

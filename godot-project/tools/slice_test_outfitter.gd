@@ -914,7 +914,15 @@ func _test_the_grimoire_is_reachable_and_reaches_the_hero() -> void:
 	# The summary is one colour by construction (it is a plain Label whose height must be
 	# a constant), so the badge there is a glyph.
 	var summary: Label = out.get("_summary") as Label
-	_expect(summary != null and summary.text.contains("◈"),
+	# ⚠ READ THE BADGE FROM THE SCREEN, DO NOT SPELL IT HERE. This assertion used to
+	# hardcode `◈`, which had two problems at once: that character was never DRAWN (the
+	# theme declares no font, so the fallback has no coverage above Latin-1), and when the
+	# glyph sweep replaced it this test failed on its own private copy of the answer rather
+	# than on anything a player could see. `Outfitter.RARE_BADGE` is the one name both
+	# sides read now, so a future change to the mark moves both together.
+	var badge: String = String(out.get_script().get_script_constant_map().get("RARE_BADGE", ""))
+	_expect(badge != "", "Outfitter.RARE_BADGE is readable — without it this claim is unanchored")
+	_expect(summary != null and summary.text.contains(badge),
 		"the carried-hand line marks the rare one (line was: %s)"
 			% [summary.text if summary != null else "<none>"])
 	# And the panel still fits with a grimoire spell in the hand.

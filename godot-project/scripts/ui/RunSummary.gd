@@ -283,7 +283,7 @@ func _build_ui() -> void:
 	# THE ONE BUTTON THAT MATTERS. Same shape and same emphasis as the Lobby's
 	# CLIMB, because it is the same verb: the fastest possible loop back into a
 	# fight is what the brief ("action packed, endorphin chasing") asks for.
-	var again := _button("CLIMB AGAIN  ▸", _climb_again, 17)
+	var again := _button("CLIMB AGAIN  ›", _climb_again, 17)
 	again.custom_minimum_size = Vector2(PANEL_W, BUTTON_H + 4.0)
 	again.add_theme_color_override("font_color", CHALK)
 	right.add_child(again)

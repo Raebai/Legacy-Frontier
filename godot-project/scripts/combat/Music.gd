@@ -352,7 +352,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	var name_str: String = cycle_track()
 	if name_str != "":
-		_toast("♪  " + name_str)
+		_toast("•  " + name_str)
 
 
 ## Tiny top-corner "now playing" label, ~1.4s fade. Built lazily.

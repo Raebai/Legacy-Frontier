@@ -117,7 +117,7 @@ const ARM_DELAY: float = 0.35
 ## The glyph over the pad. A PICTURE, not a second word — the label already says
 ## "LEAVE THE TOWER" and the maker's standing rule for every screen in this game is
 ## "remove the words, keep the picture". Down-and-out, because that is the trip.
-const GLYPH: String = "⇩"
+const GLYPH: String = "v"
 const GLYPH_FONT_SIZE: int = 20
 const HINT_TEXT: String = "walk in"
 
