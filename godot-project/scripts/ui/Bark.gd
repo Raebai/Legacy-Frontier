@@ -289,6 +289,38 @@ const LINES: Dictionary = {
 		"the plate is ruined.",
 	],
 
+	# THE SENSEI — the only body in the tower that has met you before, and the only
+	# one whose lines are addressed to a STUDENT rather than to an intruder or to the
+	# work. He taught you on the dojo floor, put you down, and left saying "I'll see
+	# you in the tower..." (`FreePlay._sensei_turns`). Twenty floors later he is
+	# keeping that.
+	#
+	# ⚠ NOT ONE OF THESE IS A THREAT, AND THAT IS THE CHARACTER. Every other artist
+	# announces what it is going to do to you; he grades you. The arrival line is the
+	# promise being collected, the phase lines are corrections, and the down line is
+	# the only praise anyone in this tower ever gives. Writing him a villain's voice
+	# here would undo the dojo, which is the one place this game is warm.
+	&"boss_arrive_sensei": [
+		# 6 words -> 4. `slice_test_bark` caps a line at five ("nobody reads mid-dodge")
+		# and "i said i would be here." was six. The cut is better anyway: the shorter
+		# line is the one a person who has been waiting actually says.
+		"i said i would.",
+		"twenty floors. slow.",
+		"show me what you kept.",
+	],
+	&"boss_phase_sensei": [
+		"better. still wide.",
+		"you moved. good.",
+	],
+	&"boss_final_sensei": [
+		"one stroke. no correction.",
+		"this is the lesson.",
+	],
+	&"boss_down_sensei": [
+		"...you climbed well.",
+		"go on, then.",
+	],
+
 	# ── THE ELITES ──────────────────────────────────────────────────────────
 	# A named body in a wave of eleven. It gets ONE line when it arrives and one
 	# more on the beat that defines it — everything else it does it does with its
@@ -397,6 +429,16 @@ const MOODS: Dictionary = {
 	&"boss_phase_etcher": Gibberish.Mood.TALK,
 	&"boss_final_etcher": Gibberish.Mood.SHOUT,
 	&"boss_down_etcher": Gibberish.Mood.DIE,
+	# The Sensei never shouts, in any phase, including his last. He is the only artist
+	# on the roster that stays at TALK all the way to the final page — a teacher raising
+	# his voice at a student is a different character, and the fight's whole argument is
+	# that the calm one is the dangerous one. The Eraser is the only other boss that
+	# refuses to escalate its voice, and it refuses for the opposite reason (it is not
+	# fighting you, it is tidying) — the two should not be mistaken for the same choice.
+	&"boss_arrive_sensei": Gibberish.Mood.TALK,
+	&"boss_phase_sensei": Gibberish.Mood.TALK,
+	&"boss_final_sensei": Gibberish.Mood.TALK,
+	&"boss_down_sensei": Gibberish.Mood.DIE,
 
 	# The elites. The mood IS the tell: a rising QUESTION is the keen one reading
 	# you, a SHOUT is the herald addressing the room, a MUTTER is the inked one

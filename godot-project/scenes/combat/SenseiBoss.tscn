@@ -1,0 +1,21 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/combat/SenseiBoss.gd" id="1_sensei_script"]
+[ext_resource type="Script" path="res://scripts/combat/CharacterRig.gd" id="2_rig_script"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_sensei"]
+size = Vector2(30, 94)
+
+[node name="SenseiBoss" type="CharacterBody2D"]
+collision_layer = 4
+collision_mask = 1
+script = ExtResource("1_sensei_script")
+
+[node name="Rig" type="Node2D" parent="."]
+script = ExtResource("2_rig_script")
+limb_color = Color(0.62, 0.86, 0.78, 1)
+height = 99.0
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, 6)
+shape = SubResource("RectangleShape2D_sensei")

@@ -162,14 +162,20 @@ const ENTRIES: Array[Dictionary] = [
 	},
 	{
 		"id": SENSEI,
-		"scene": "res://scenes/combat/Boss.tscn",
+		# ⚠ THIS SAID `Boss.tscn` AND THAT MADE HIM THE ASHEN GUARDIAN IN A DIFFERENT
+		# ROW. Sharing the scene meant sharing the identity: `boss_title()` answered
+		# "THE ASHSPIRE GUARDIAN", the bar carried that name, the barks were the
+		# Guardian's, the rig was its height and every attack id already belonged to it.
+		# A player who climbed twenty floors on a spoken promise met a body they had
+		# already fought several times, and four suites were red saying exactly that.
+		# `SenseiBoss.gd` is the bespoke scene the original entry said it was not.
+		"scene": "res://scenes/combat/SenseiBoss.tscn",
 		"name": "THE SENSEI",
 		"artist": "ink, one stroke, no correction",
 		"min_floor": 20, "max_floor": 20,
 		# He was absurd on the dojo floor and he has not got worse. Vitality and speed are
 		# what this table can express; his DAMAGE lives in the tutorial's own
-		# `FreePlay.SENSEI_POWER`, and a bespoke scene with his iai kit is the follow-up
-		# this entry is honest about not being.
+		# `FreePlay.SENSEI_POWER`.
 		"hp_scale": 2.4, "speed_scale": 1.55,
 		"flies": false,
 	},

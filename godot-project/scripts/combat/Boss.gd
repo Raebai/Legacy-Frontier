@@ -657,6 +657,40 @@ class PageRedraw extends Node2D:
 							"w": rng.randf_range(2.6, 4.4),
 							"at": 0.5 + 0.35 * float(c) / float(bites), "col": ink})
 						pb = pb2
+			&"cut":
+				# THE SENSEI. Not a hand that DRAWS at all — the page is already there
+				# and he opens it. `BossRoster` bills him "ink, one stroke, no
+				# correction", so this is the one style with almost nothing in it: a
+				# handful of full-width strokes, each laid in a single pass, all sharing
+				# roughly one bearing because a swordsman's cuts do.
+				#
+				# ⚠ IT IS DELIBERATELY THE SPARSEST STYLE ON THE ROSTER and that is the
+				# character, not a saving. Every other hand fills the floor — scrawl
+				# overlaps itself, gild lays leaf, etch bites twice. Adding strokes here
+				# to make it feel like "more of a boss" would say the opposite of what
+				# the fight says.
+				var cuts: int = maxi(budget / 7, 3)
+				var bearing: float = rng.randf_range(-0.55, -0.25)
+				for i5 in cuts:
+					# Struck from off the page so no stroke starts or ends where the eye
+					# can see it begin — a cut has no beginning, only a length.
+					var oy: float = -_half.y + h * (float(i5) + 0.5) / float(cuts)
+					var jog: float = rng.randf_range(-h * 0.10, h * 0.10)
+					var reach: float = w * 1.5
+					var dir5: Vector2 = Vector2.RIGHT.rotated(
+						bearing + rng.randf_range(-0.05, 0.05))
+					var a5 := Vector2(-_half.x * 1.3, oy + jog)
+					_strokes.append({"a": a5, "b": a5 + dir5 * reach,
+						"w": rng.randf_range(2.0, 3.2),
+						"at": float(i5) / float(cuts) * 0.55, "col": ink})
+					# The bleed: a second, fainter, shorter line just under the first.
+					# One stroke reads as a ruled line; two read as an EDGE that went
+					# through something.
+					_strokes.append({"a": a5 + Vector2(0.0, 4.0),
+						"b": a5 + dir5 * (reach * 0.7) + Vector2(0.0, 4.0),
+						"w": 1.0,
+						"at": float(i5) / float(cuts) * 0.55 + 0.05,
+						"col": Color(ink.r, ink.g, ink.b, 0.45)})
 			_:
 				# CHARCOAL. The first hand: dense diagonal hatching, pressed hard.
 				for i3 in budget:
