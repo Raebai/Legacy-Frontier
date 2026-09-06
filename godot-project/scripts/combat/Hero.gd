@@ -1873,7 +1873,24 @@ func _ready() -> void:
 		var cw: Variant = gs.get("colourway")
 		if cw != null and int(cw) >= 0:
 			_colourway = int(cw) % COLOURWAYS.size()
-			rig.set_tint(COLOURWAYS[_colourway])
+		# ⚠ THREE TINTS, NOT ONE — head, torso+arms, legs. Maker: *"i should also be able
+		# to change the colour of my stickman figure the colour of his head body and legs
+		# individually"*.
+		#
+		# `colourway_parts` returns [head, body, legs] ALREADY migrated and clamped
+		# against the palette size, so indexing `COLOURWAYS` with it cannot go out of
+		# bounds and an old single-colour save comes back as all three parts on that one
+		# index. It needs no separate `colourway` read: the legacy field is the second
+		# link of its own fallback chain (part index -> `colourway` -> `fallback`), and
+		# `_colourway` is passed as the fallback so a player who has never opened the
+		# colours screen still spawns in the palette the pause menu's `C` key walks.
+		#
+		# ⚠ `set_part_tints` is NOT a replacement for `set_tint` and must not become one.
+		# `set_tint` still means "paint the WHOLE figure" and CLEARS these overrides —
+		# which is what keeps `_cycle_colourway`, `BotMatch`'s corner colours,
+		# `ModPatient`'s save/restore, enemies, thralls and NPCs all working unchanged.
+		var parts: Array[int] = gs.colourway_parts(COLOURWAYS.size(), _colourway)
+		rig.set_part_tints(COLOURWAYS[parts[0]], COLOURWAYS[parts[1]], COLOURWAYS[parts[2]])
 	# configure_class sets the class element, rig preset, weapon, AND the class's
 	# signature loadout (SpellLibrary.build_for_class) + emits signature_changed.
 	configure_class(start_class)  # also applies the hub Armory loadout (GameState.loadout)

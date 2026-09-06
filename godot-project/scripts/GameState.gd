@@ -183,6 +183,18 @@ var spell_equipped: Dictionary = {}
 ## played the whole first floor as the default palette.
 var colourway: int = -1
 
+## ══ THREE COLOURS, ONE FIGURE ═════════════════════════════════════════════════
+## Maker: *"i should also be able to change the colour of my stickman figure the colour
+## of his head body and legs individually"*. So the single index above became three, and
+## the three parts are named for the SAME slots the rig's gear already uses
+## (`CharacterRig._visible_gear`: "head" / "body" / "legs") — a helmet replaces the head
+## and is drawn in the head's colour, so one vocabulary rather than two.
+##
+## -1 means "this part was never chosen", exactly as `colourway` -1 means it. See
+## `colourway_parts` for how a -1 resolves, and for the migration.
+const COLOURWAY_PARTS: Array[String] = ["head", "body", "legs"]
+var part_colourways: Dictionary = {"head": -1, "body": -1, "legs": -1}
+
 ## Player camera-zoom preference (combat). Lower = wider view. Read by
 ## CombatCamera as its resting zoom; adjustable live from the pause Settings.
 ## Default pulled back from the old tight 2.2 so more of the fight is visible.
@@ -806,7 +818,7 @@ func _save_climber(path: String = CLIMBER_PATH) -> void:
 		_floor, _highest_floor, _falls, tower_conquered, _live_rank_power(),
 		_xp, unlocked_nodes, unlocked_classes,
 		pending_class_choices, _earned_choice_floors, loadout,
-		spell_roles, spell_equipped
+		spell_roles, spell_equipped, part_colourways
 	)
 	var tmp_path: String = path + ".tmp"
 	var f: FileAccess = FileAccess.open(tmp_path, FileAccess.WRITE)
@@ -853,6 +865,10 @@ func _load_climber(path: String = CLIMBER_PATH) -> void:
 	# after every `configure_class`, so a climber walks back into the tower wearing
 	# what they picked last session rather than their class default.
 	loadout = state["loadout"]
+	# The figure's three colours, restored. `Hero._configure_class` reads these through
+	# `colourway_parts` at SPAWN, so a climber walks back into the tower as the stickman
+	# they built rather than as the class default they last saw on a fresh install.
+	part_colourways = state["part_colourways"]
 
 
 # ------------------------------------------------------------- the local board
@@ -1376,7 +1392,7 @@ static func build_climber_save(current_floor: int, highest_floor: int, falls: in
 		xp: int = 0, unlocked_nodes: Array = [], unlocked_classes: Array = [],
 		pending_class_choices: int = 0, earned_choice_floors: Array = [],
 		loadout: Dictionary = {}, spell_roles: Dictionary = {},
-		spell_equipped: Dictionary = {}) -> Dictionary:
+		spell_equipped: Dictionary = {}, part_colours: Dictionary = {}) -> Dictionary:
 	var current: int = maxi(current_floor, 1)
 	var nodes: Array = []
 	for n in unlocked_nodes:
@@ -1425,6 +1441,13 @@ static func build_climber_save(current_floor: int, highest_floor: int, falls: in
 		# way back in, so a hand-edited save is refused at hydrate time, not trusted here.
 		"spell_roles": spell_roles.duplicate(true),
 		"spell_equipped": spell_equipped.duplicate(true),
+		# ⚠ AND THE FIGURE'S THREE COLOURS, WHICH HAD THE SAME HOLE AGAIN. A colour you
+		# chose in the armoury and lost on quit is not a customisation, it is a setting
+		# that does not work — the identical failure `loadout` and `spell_roles` are
+		# described as having two entries up. Sanitised on the way out, like `loadout`
+		# and unlike `spell_roles`, because this dict IS read straight onto a rig and an
+		# unknown key or a string value must not reach `set_part_tints`.
+		"part_colourways": sanitize_part_colourways(part_colours),
 	}
 
 
@@ -1458,6 +1481,77 @@ static func sanitize_loadout(raw: Variant) -> Dictionary:
 		if typeof(v) == TYPE_STRING and String(v) != "" 				and (GearAbilities.PLACEHOLDER_SLOTS.get(slot, []) as Array).has(String(v)):
 			out[slot] = String(v)
 	return out
+
+
+## ══════════════════════════════════ the figure's three colours ══════════════════════
+## A part-colourway dict reduced to the three known parts with INT values. Shared by the
+## writer and the reader for the same reason `sanitize_loadout` is: a save cannot then
+## round-trip into a shape the rig would not accept.
+##
+## ⚠ THE M9 JSON TRAP, IN A DICTIONARY. `JSON.parse_string` hands back every number as
+## `TYPE_FLOAT`, so a saved `2` arrives as `2.0` and `part_colourways["head"] == 2` is
+## FALSE against it — the pick would silently revert to the default on every load, which
+## is precisely the class of bug that destroyed the NPC saves in M9. Every value is
+## coerced through `int()`, and a non-numeric value is dropped rather than cast (a
+## hand-edited `"head": "blue"` must read as "never chosen", not as index 0).
+##
+## ⚠ NO UPPER CLAMP HERE, DELIBERATELY. The palette lives on `Hero`, which this file must
+## not reach (see `colourway_parts`), so the ceiling is applied at read time where the
+## size is known. What this guarantees is the SHAPE; `colourway_parts` guarantees the
+## RANGE. Splitting them is what lets a save survive a palette that grows and then shrinks.
+static func sanitize_part_colourways(raw: Variant) -> Dictionary:
+	var out: Dictionary = {"head": -1, "body": -1, "legs": -1}
+	if not (raw is Dictionary):
+		return out
+	for part: String in COLOURWAY_PARTS:
+		var v: Variant = (raw as Dictionary).get(part, -1)
+		if typeof(v) != TYPE_INT and typeof(v) != TYPE_FLOAT:
+			continue
+		out[part] = maxi(int(v), -1)
+	return out
+
+
+## THE THREE INDICES A HERO SPAWNS IN — resolved, migrated and clamped — in the order
+## `CharacterRig.set_part_tints(head, body, legs)` takes them.
+##
+## `palette_size` is the CALLER'S (`Hero.COLOURWAYS.size()`), a parameter rather than
+## something this file looks up. `Hero` has no `class_name` — see `Outfitter.HERO_PATH`
+## for the same problem and the same answer — so reaching its constant from here would
+## mean a runtime `load()` of the whole combat dependency chain inside the autoload that
+## every hero already reads at spawn. The caller owns the palette; this owns the pick.
+##
+## ⚠ THE MIGRATION IS THE FALLBACK CHAIN, AND IT IS LOSSLESS BY CONSTRUCTION:
+##
+##     the part's own index  ->  the whole-figure `colourway`  ->  `fallback`
+##
+## A save written before this existed carries no `part_colourways` at all, so all three
+## parts are -1, all three resolve to the ONE `colourway` that save did carry, and the
+## climber comes back the exact colour they were — now expressed in three pieces they can
+## edit. No version bump, no rewrite-on-load, and no way for the old value to be lost.
+##
+## ⚠ CLAMPED, NEVER TRUSTED. A hand-edited save, or one written by a build whose palette
+## was longer, can name index 9 of a five-entry table — and `COLOURWAYS[9]` is not a
+## wrong colour, it is an index-out-of-bounds at spawn. Same rule `sanitize_loadout`
+## states for gear: the file is data, not an instruction.
+func colourway_parts(palette_size: int, fallback: int = 0) -> Array[int]:
+	var count: int = maxi(palette_size, 1)
+	var base: int = colourway if colourway >= 0 else fallback
+	var out: Array[int] = []
+	for part: String in COLOURWAY_PARTS:
+		var v: int = int(part_colourways.get(part, -1))
+		out.append(clampi(v if v >= 0 else base, 0, count - 1))
+	return out
+
+
+## Write one part's pick. Unknown part names are IGNORED rather than added: the dict is a
+## fixed three-slot record that `sanitize_part_colourways` will drop anything else from on
+## the next save anyway, and silently accepting `"torso"` here would look like it worked.
+## -1 puts a part back to "never chosen", which is how a reset returns it to the
+## whole-figure colour rather than to a hardcoded one.
+func set_colourway_part(part: String, index: int) -> void:
+	if not COLOURWAY_PARTS.has(part):
+		return
+	part_colourways[part] = maxi(index, -1)
 
 
 ## Parse a raw (JSON-loaded) climber dict into typed fields. JSON.parse_string
@@ -1514,6 +1608,10 @@ static func parse_climber_save(raw: Dictionary) -> Dictionary:
 		# exactly right for that: the authored hand wins. No migration needed.
 		"spell_roles": raw.get("spell_roles", {}) if raw.get("spell_roles", {}) is Dictionary else {},
 		"spell_equipped": raw.get("spell_equipped", {}) if raw.get("spell_equipped", {}) is Dictionary else {},
+		# Absent on every save written before the figure had three colours, and the
+		# sanitiser turns that absence into three -1s — which `colourway_parts` resolves
+		# to the whole-figure `colourway`. THAT is the migration; there is no other step.
+		"part_colourways": sanitize_part_colourways(raw.get("part_colourways", {})),
 	}
 
 

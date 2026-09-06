@@ -512,14 +512,38 @@ func _test_the_colourway_is_reachable_without_a_keyboard() -> void:
 	# Past the end of the name list is a number, not a crash or a dropped entry.
 	_expect(Outfitter.colourway_name(99) != "", "an unnamed colourway still reads")
 
-	# THE ROW IS GONE FROM THIS SCREEN. Asserted against the source rather than by
-	# walking the tree, because "no button whose text happens to contain a colour name"
-	# is a check that passes for the wrong reason the moment a colour is renamed.
+	# THE ROW IS STILL GONE FROM THIS SCREEN, AND THE MODE IS NOT THE ROW.
+	#
+	# ⚠ THE RULING MOVED ONCE AND THIS ASSERTION MOVED WITH IT. The maker cut the
+	# colourway from the CLASS DECISION (*"remove that azure ember etc. options within the
+	# class selection"*) and later asked for it back as its own thing (*"in the armoury I
+	# should also be able to change the colour of my stickman figure the colour of his head
+	# body and legs individually"*). Those are not in conflict: what was refused was a
+	# cosmetic sitting IN the way of the class pick, and what shipped is a cosmetic behind
+	# a door — the default screen is byte-identical.
+	#
+	# So the thing pinned here is the DEFAULT SCREEN, not the absence of the feature: no
+	# row of the role list may be a colour. Walked rather than grepped, because the source
+	# now legitimately contains the word "colour" all over it.
 	var out_src: String = FileAccess.get_file_as_string(OUTFITTER_SCRIPT)
 	_expect(out_src != "", "the Outfitter source is readable")
-	_expect(not out_src.contains("_cycle_colour("),
-		"the Outfitter no longer builds a colourway picker -- it is noise on the one "
-		+ "screen whose question is which of nine fighters you are about to be")
+	var fresh: Control = (load(OUTFITTER_SCRIPT) as GDScript).new() as Control
+	root.add_child(fresh)
+	var listed: Array = []
+	_walk(fresh.get("_list") as Node, listed)
+	var colour_rows: int = 0
+	for b: Button in listed:
+		for i: int in palette.size():
+			if b.text.contains(Outfitter.colourway_name(i).to_upper()) \
+					or b.text.contains(Outfitter.colourway_name(i)):
+				colour_rows += 1
+				break
+	_expect(colour_rows == 0,
+		"the screen a player OPENS still has no colour rows (found %d) -- the colours are "
+		% colour_rows
+		+ "a mode behind a door, which is what makes both of the maker's rulings true")
+	_expect(int(fresh.get("_mode")) == 0, "...and it opens on the hand, not on a cosmetic")
+	fresh.queue_free()
 	# ...and the static the OTHER three files read is still declared here.
 	_expect(out_src.contains("static var chosen_colourway"),
 		"but `chosen_colourway` survives: PauseMenu.gd, Settings.gd and "
@@ -870,7 +894,10 @@ func _test_the_grimoire_is_reachable_and_reaches_the_hero() -> void:
 	_expect(SpellLibrary.set_equipped(0, 0, String(want.id)), "re-equip for the role check")
 	door.pressed.emit()                   # back to the hand
 	await process_frame
-	_expect(not bool(out.get("_grimoire")), "the door goes both ways")
+	# ⚠ `_grimoire` (a bool) BECAME `_mode` (a three-state enum) when the colours mode
+	# landed — two booleans would have had four states and two of them are undrawable. The
+	# assertion is unchanged in meaning: the door goes back to the hand.
+	_expect(int(out.get("_mode")) == 0, "the door goes both ways (mode %s)" % [out.get("_mode")])
 	var role_rows: Array = []
 	_walk(out.get("_list"), role_rows)
 	var slot0_role: String = String(SpellLibrary.slot_roles_for_class(0)[0])

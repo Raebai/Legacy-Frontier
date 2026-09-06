@@ -31,11 +31,21 @@ extends Control
 ## also what keeps them independent: re-order your roles and your equipped ult stays put.
 ## See the `_equipped` header in `SpellLibrary.gd` for the maker's fork and their answer.
 ##
-## == THE COLOURWAY IS NOT HERE ANY MORE, AND THE STATE IT USED IS UNTOUCHED ====
-## Maker: *"remove that azure ember etc. options within the class selection"*. The
-## colourway picker was the third row of this screen and it is gone from it -- "Azure /
-## Ember / Void / Jade / Mono" are limb TINTS, and a tint is noise on the one screen
-## whose entire question is which of nine fighters you are about to be.
+## == THE COLOURWAY LEFT AS A ROW AND CAME BACK AS A MODE, AND BOTH ARE RIGHT ===
+## Maker, first: *"remove that azure ember etc. options within the class selection"*. The
+## colourway picker was the third ROW of this screen and it is still gone from the rows --
+## "Azure / Ember / Void / Jade / Mono" are limb TINTS, and a tint is noise on the one
+## screen whose entire question is which of nine fighters you are about to be.
+##
+## Maker, since: *"in the armoury I should also be able to change the colour of my stickman
+## figure the colour of his head body and legs individually"*. So it is back, as the third
+## MODE of the bounded scroll -- behind a door, exactly like the Grimoire -- and the two
+## rulings do not contradict each other: what was cut was a cosmetic sitting IN the way of
+## the class decision, and what is here is a cosmetic you have to go and ask for. Nothing
+## on the default screen changed.
+##
+## See `_mode` for why a third mode rather than a third section (the answer is 22 px), and
+## `_colour_part` for the two-tap gesture, which is the grimoire's slot-cursor verbatim.
 ##
 ## ⚠ THE PICKER WENT; THE PICK DID NOT. `chosen_colourway`, `colourways()` and
 ## `colourway_name()` below are still here and still exported, because THREE consumers
@@ -96,6 +106,27 @@ const SpellBlurbs := preload("res://scripts/combat/SpellBlurbs.gd")
 ## time with no cache involved. `PauseMenu` reaches it exactly this way.
 const HudStyle := preload("res://scripts/ui/HudStyle.gd")
 
+## ⚠ THE SAME BODY YOU FIGHT WITH, and `preload`ed by PATH rather than named as
+## `CharacterRig`, which it does have. Two reasons, and the second is the load-bearing
+## one: a `class_name` reference resolves through
+## `.godot/global_script_class_cache.cfg`, which this project has watched go stale after
+## every new script for four sessions running (see CLAUDE.md, Sessions 6/8/9); and
+## `Loadout.gd` has already proved a bare rig is headless-safe (no parent collider means
+## `_align_feet_to_body` no-ops, and its `Sfx` lookup is tree-guarded). The preview cannot
+## drift from the game because it IS the game's rig, which is the whole reason it is worth
+## drawing instead of painting five swatches.
+const RigScript := preload("res://scripts/combat/CharacterRig.gd")
+
+## The preview box, in base units. Sized to hold the default 31 px figure at
+## `PREVIEW_SCALE` with air around it; `PREVIEW_GAP` is the space between it and the
+## panel's left edge. All four are consumed by `_build_preview`'s anchor maths — see there
+## for why 30 px of the 640 is still free once they are spent.
+const PREVIEW_W: float = 104.0
+const PREVIEW_H: float = 104.0
+const PREVIEW_GAP: float = 16.0
+const PREVIEW_SCALE: float = 2.2
+const PREVIEW_FEET_Y: float = 92.0
+
 ## Colourway display names, in `Hero.COLOURWAYS` order. Names only — the COLOURS are
 ## read off Hero at runtime, so a palette edit there cannot leave this lying. A
 ## colourway past the end of this list is shown by index rather than dropped.
@@ -107,6 +138,44 @@ const COLOURWAY_NAMES: Array[String] = ["Azure", "Ember", "Void", "Jade", "Mono"
 ## spawn. A static, so it outlives the scene change into the arena — the same
 ## lifetime `SpellLibrary._chosen_roles` needs and for the same reason.
 static var chosen_colourway: int = 0
+
+## ══ THREE COLOURS, ONE FIGURE ═════════════════════════════════════════════════
+## Maker: *"the colour of his head body and legs individually"*. Indices into the SAME
+## `Hero.COLOURWAYS` the whole-figure pick uses, in `CharacterRig.set_part_tints(head,
+## body, legs)` order. -1 means "this part was never chosen" and resolves to
+## `chosen_colourway` — see `part_colourway`.
+##
+## ⚠ A STATIC **AND** A `GameState` FIELD, WHICH IS TWO HOMES FOR ONE FACT, AND THAT IS
+## DELIBERATE — it is the same split `chosen_colourway` (static, persisted by `Settings`)
+## and `SpellLibrary._chosen_roles` (static, persisted to `GameState.spell_roles`) both
+## already live with, for two reasons that do not overlap:
+##
+##   * THE STATIC is what makes this screen work with NO AUTOLOADS AT ALL. Every suite
+##     that opens the Outfitter builds it bare (`slice_test_town`, `slice_test_shell`,
+##     `slice_test_outfitter`), and a picker whose state lived only in `/root/GameState`
+##     would silently do nothing there — which is a picker nobody can test.
+##   * `GameState` is what makes the pick reach the HERO and the DISK.
+##     `Hero._configure_class` reads `GameState.colourway_parts()` at spawn and
+##     `GameState._save_climber` writes `part_colourways` to `user://climber.json`.
+##
+## The rule that keeps them honest: `_ready` HYDRATES the static from `GameState` (the
+## disk is authoritative on open), and every pick MIRRORS the static back into it in the
+## same frame (`_persist_colours`). There is no third path that writes one without the
+## other.
+static var chosen_parts: Array[int] = [-1, -1, -1]
+
+## The three regions, in `chosen_parts` order and named for the SAME slots the rig's gear
+## uses (`CharacterRig._visible_gear`) — a helmet REPLACES the head and is drawn in the
+## head's colour, so there is one vocabulary rather than two.
+const PART_KEYS: Array[String] = ["head", "body", "legs"]
+## What the cursor row calls each one, and what each one actually covers. The second
+## string is what stops "BODY" being a guess: the maker asked for three colours, not five,
+## so the arms went with the torso (an arm on a stick figure reads as trunk) and the feet
+## went with the legs (a foot dot caps the shin — in the body colour it reads as a sock).
+## Kept SHORT because both strings share the 96-character description line with a colour
+## name, and that line reserves exactly two rows of height — see `_hint` in `_build`.
+const PART_NAMES: Array[String] = ["HEAD", "BODY", "LEGS"]
+const PART_COVERS: Array[String] = ["skull and helm", "torso and arms", "legs and feet"]
 
 ## ══ THE CLASS BUTTON — THE MERGE, AND WHY IT IS A FLAG ══════════════════════
 ## Maker's ruling on the town's pad row: *"I only want one for class within which I can
@@ -177,28 +246,51 @@ var _focus_reason: String = ""
 ## spell"*. The count is deliberately not written down here or anywhere else in this
 ## file: `equippable()` derives it, and a number copied into a comment is a number that
 ## goes stale the next time a spell is authored. What the extra rows cost this screen is
-## nothing, because the list was ALREADY in a bounded scroll (`LIST_H`) — see `_grimoire`
+## nothing, because the list was ALREADY in a bounded scroll (`LIST_H`) — see `_mode`
 ## for why that bound is a height budget rather than a style choice, and
 ## `slice_test_outfitter` for the assertion that eighteen rows still do not grow the panel.
 var _pool: Array = []
 ## `id -> SpellDef` over `_pool`. `equipped_id` hands back an id and every row, the slot
 ## line and the summary all need the def behind it.
 var _pool_by_id: Dictionary = {}
-## Which list the bounded scroll is showing. FALSE is the screen exactly as it was.
+## Which list the bounded scroll is showing. `HAND` is the screen exactly as it was.
 ##
 ## ⚠ A MODE, NOT A FIFTH SECTION, AND THAT IS A HEIGHT BUDGET RATHER THAN A TASTE CALL.
-## `slice_test_outfitter` measures this column at 332 px against a 360 px base viewport,
-## so the whole screen has 28 px of slack — less than one `MIN_TAP` row plus its
-## separation. A grimoire list added BELOW the role list would have hung a phone's bottom
-## button off the bottom of the phone, which no desktop playtest ever shows. Swapping the
-## contents of the bounded scroll costs nothing, and the door into it shares the Armory's
-## row (which is where a second button already lived before the colourway picker was cut).
-var _grimoire: bool = false
+## `slice_test_outfitter` measures this column at 331 px in role mode and 338 px in the
+## other two against a 360 px base viewport, so the whole screen has 22 px of slack —
+## less than one `MIN_TAP` row (30) plus its separation (4). A grimoire list added BELOW
+## the role list would have hung a phone's bottom button off the bottom of the phone,
+## which no desktop playtest ever shows. Swapping the contents of the bounded scroll costs
+## nothing, and the door into it shares the Armory's row.
+##
+## ⚠ AND THE THIRD MODE PAID EXACTLY THE SAME PRICE — ZERO. Three colour pickers as
+## inline rows would have cost 3 x 34 = 102 px against 22 px of slack; as a MODE they cost
+## one more button on a row that was already there. `_grimoire` became `_mode` rather than
+## a second boolean, because two booleans have FOUR states and two of them (both true, and
+## "which one wins") are states this screen has no drawing for.
+enum Mode { HAND, GRIMOIRE, COLOURS }
+var _mode: int = Mode.HAND
 ## WHICH SLOT THE NEXT PICK LANDS IN. The grimoire overlays by index, so a pick needs a
 ## slot before it needs a spell — the fixed row under the list names it and cycles it.
 var _grim_slot: int = 0
 var _grim_btn: Button = null
 var _reset_btn: Button = null
+
+# ── the colours ───────────────────────────────────────────────────────────────
+## WHICH PART THE NEXT COLOUR LANDS ON. The grimoire's `_grim_slot` verbatim, and for the
+## identical reason: a colour has no way to imply which of three regions it is for, so the
+## pick needs a target before it needs a colour. The fixed row under the list names the
+## part and cycles it; the list under it is then unambiguously "colours for THAT part".
+##
+## The alternative — fifteen rows, three parts x five colours — was rejected on the same
+## grounds the grimoire rejected a twelve-state cycling row: a scroll where every third
+## row repeats the same five names is a list a thumb gets lost in.
+var _colour_part: int = 0
+var _colour_btn: Button = null
+## THE FIGURE, LIVE, BESIDE THE PANEL. See `_build_preview` — it is an OVERLAY and not a
+## column row, which is the only reason it costs zero of the 22 px.
+var _preview: Control = null
+var _preview_rig: Node2D = null
 
 
 func _ready() -> void:
@@ -206,6 +298,12 @@ func _ready() -> void:
 	_pool = SpellLibrary.equippable()
 	for s: Variant in _pool:
 		_pool_by_id[String((s as SpellDef).id)] = s
+	# THE DISK IS AUTHORITATIVE ON OPEN. `GameState` hydrates `part_colourways` from
+	# `user://climber.json` in its own `_ready`, so by the time a player can reach this
+	# screen it holds last session's figure. Reading it into the static here is what makes
+	# the picker open showing what the player IS rather than what the process defaulted to.
+	# See `chosen_parts` for why there are two homes.
+	_hydrate_colours()
 	_build()
 	refresh()
 
@@ -343,7 +441,7 @@ func _build() -> void:
 	# ⚠ THE ARMORY WENT BACK TO HALF WIDTH, AND THE RULING THAT WIDENED IT IS UPDATED
 	# RATHER THAN DELETED. It shared this row with the colourway picker; when that was
 	# cut it took the full width because the extra tap area was free. The grimoire is not
-	# free — the column has 28 px of slack against a 360 px phone (see `_grimoire`), so a
+	# free — the column has 11 px of slack against a 360 px phone (see `_mode`), so a
 	# row of its own was never available. Sharing this one costs ZERO height, and a
 	# half-width `MIN_TAP` button is still 158x30, which is a comfortable thumb. The
 	# earlier ruling held while this row had one occupant; it has two again.
@@ -382,23 +480,117 @@ func _build() -> void:
 	# The row keeps its thirds arithmetic either way: with two occupants they simply take
 	# half each through `SIZE_EXPAND_FILL`, which costs no height, and the height budget
 	# (see the 22 px note above) is what this row is judged on.
-	var third: float = (PANEL_W - 8.0) / 3.0
-	_grim_btn = _button("", _toggle_grimoire, 12, third)
+	#
+	# ⚠ AND NOW A FOURTH DOOR ON THE SAME ROW, WHICH IS WHY THE ARITHMETIC IS COMPUTED
+	# RATHER THAN THE WORD "third". Maker: *"i should also be able to change the colour of
+	# my stickman figure the colour of his head body and legs individually"* — three
+	# pickers, which as inline rows would cost 3 x 34 = 102 px against 22 px of slack. As
+	# one more door onto a mode they cost NOTHING in height, and height is the only axis
+	# this screen is short of. `_door_count` is what decides the share, so the town flow
+	# (no armoury door — see below) still gets fat thirds and only the lobby flow pays
+	# quarters. At 4 the share is 77 px, which still clears `MIN_TAP` on the axis that
+	# matters (`MIN_TAP` is a HEIGHT floor) and still fits "↺ Reset Hand" once the row
+	# steps down one font size — see `_door_font`.
+	var share: float = (PANEL_W - 4.0 * float(_door_count() - 1)) / float(_door_count())
+	var fs: int = _door_font()
+	_grim_btn = _button("", _toggle_grimoire, fs, share)
 	_grim_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	doors.add_child(_grim_btn)
 	if not show_class_picker:
-		var armory: Button = _button("⚒  Armory", _open_armory, 12, third)
+		var armory: Button = _button("⚒  Armory", _open_armory, fs, share)
 		armory.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		doors.add_child(armory)
+	_colour_btn = _button("", _toggle_colours, fs, share)
+	_colour_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	doors.add_child(_colour_btn)
 	# The word says WHAT it resets, not merely that it resets. "Reset" alone on a screen
 	# carrying a class button, a role list, a grimoire and an armoury door is a button
 	# whose blast radius a player has to find out by pressing it.
-	_reset_btn = _button("↺  Reset Hand", _reset_to_defaults, 12, third)
+	#
+	# ⚠ AND IT NOW RESETS WHAT THE MODE IS ABOUT — see `_reset_pressed`. One button, two
+	# blast radii, and the label always names the live one.
+	_reset_btn = _button("↺  Reset Hand", _reset_pressed, fs, share)
 	_reset_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	doors.add_child(_reset_btn)
 	col.add_child(doors)
 
 	col.add_child(_button("Done", close, 14))
+
+	# LAST, AND OUTSIDE THE COLUMN ENTIRELY. See `_build_preview`.
+	_build_preview()
+
+
+## HOW MANY DOORS SHARE THE BOTTOM ROW. The grimoire, the colours and the reset always;
+## the armoury only in the LOBBY flow (the town has its own rack pad twenty metres away —
+## see the block above). Derived rather than written down twice, so the width share and
+## the font step below cannot disagree with what is actually built.
+func _door_count() -> int:
+	return 3 if show_class_picker else 4
+
+
+## ONE SIZE DOWN WHEN THE ROW IS FULL. At three doors the share is 104 px and font 12 is
+## comfortable; at four it is 77 px and "↺  Reset Hand" at 12 clips its last character.
+## Dropping the row (not the screen) to 11 buys ~6 px of text and costs no height at all,
+## because `_button` pins `MIN_TAP` regardless of the font.
+func _door_font() -> int:
+	return 12 if _door_count() <= 3 else 11
+
+
+## ══ THE FIGURE, LIVE, BESIDE THE PANEL ════════════════════════════════════════
+## Five colour NAMES do not tell you what a stickman with an Ember head and Void legs
+## looks like, and this screen's whole job in colours mode is that question.
+##
+## ⚠ IT IS AN OVERLAY, NOT A COLUMN ROW, AND THAT IS THE ENTIRE REASON IT EXISTS.
+## `slice_test_outfitter` judges `_col.get_combined_minimum_size().y` against 360 px and
+## the slack is 22 px, so a preview INSIDE the column — at any useful size — is refused by
+## the suite before a player ever sees it. Anchored to the viewport centre instead, it
+## participates in no layout, contributes nothing to any minimum size, and the measured
+## column is identical with it and without it.
+##
+## HEIGHT IS SCARCE; WIDTH IS NOT. The panel is `PANEL_W` + two `PANEL_PAD_X` = 340 wide
+## in a 640 base viewport, so 150 px sit unused on each side. The box is placed in the
+## left one: 320 - 170 - 16 - 104 = 30 px from the screen edge. It is anchored to 0.5/0.5
+## rather than to the left edge so it stays glued to the PANEL on a wider window instead
+## of drifting away from it.
+##
+## ⚠ AND IT IS NOT PARENTED TO THE PANEL, which would have been the obvious move and is
+## the wrong one: `CenterContainer` centres its children, `PanelContainer` sizes to its
+## child, and either would have shoved the card off-centre by half the preview the moment
+## the box appeared. The screen must not jump when a door is opened.
+func _build_preview() -> void:
+	_preview = Control.new()
+	_preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_preview.visible = false
+	_preview.anchor_left = 0.5
+	_preview.anchor_right = 0.5
+	_preview.anchor_top = 0.5
+	_preview.anchor_bottom = 0.5
+	_preview.offset_left = -(PANEL_W * 0.5 + PANEL_PAD_X + PREVIEW_GAP + PREVIEW_W)
+	_preview.offset_right = -(PANEL_W * 0.5 + PANEL_PAD_X + PREVIEW_GAP)
+	_preview.offset_top = -PREVIEW_H * 0.5
+	_preview.offset_bottom = PREVIEW_H * 0.5
+	_preview.draw.connect(_on_preview_draw)
+	add_child(_preview)
+	# The rig is a plain Node2D child: it draws itself every frame off its own
+	# `_physics_process`, so there is no advance loop to own here. `Loadout` builds its
+	# paper doll the same way, down to the scale-rather-than-height sizing — `height` is
+	# what the gear geometry is derived from, so scaling the node keeps every proportion
+	# the fighting figure has instead of re-deriving them at a new size.
+	var rig: Node2D = RigScript.new() as Node2D
+	rig.position = Vector2(PREVIEW_W * 0.5, PREVIEW_FEET_Y)
+	rig.scale = Vector2(PREVIEW_SCALE, PREVIEW_SCALE)
+	_preview.add_child(rig)
+	_preview_rig = rig
+
+
+## The box the figure stands in. Same ground and same 1 px rule as the armoury's doll, so
+## the two previews read as the same object seen on two screens.
+func _on_preview_draw() -> void:
+	if _preview == null:
+		return
+	var r := Rect2(Vector2.ZERO, _preview.size)
+	_preview.draw_rect(r, Color(0.10, 0.11, 0.16, 0.85), true)
+	_preview.draw_rect(r, HudStyle.with_a(_accent(), 0.5), false, 1.0)
 
 
 # ─────────────────────────────────────────────────────────────────── the frame
@@ -509,27 +701,44 @@ func _redraw() -> void:
 		# list flickers one row taller.
 		_list.remove_child(child)
 		child.queue_free()
-	# THE SAME BOUNDED SCROLL, TWO LISTS. See `_grimoire` for why this is a swap and not
-	# a second section.
-	if _grimoire:
-		for spell: Variant in _pool:
-			_list.add_child(_pool_row(spell as SpellDef))
-	else:
-		for role: String in SpellLibrary.choosable_roles_for_class(_class_id):
-			_list.add_child(_role_row(role, _carried.has(role), true))
+	# THE SAME BOUNDED SCROLL, THREE LISTS. See `_mode` for why this is a swap and not
+	# a second section — and then a third one.
+	match _mode:
+		Mode.GRIMOIRE:
+			for spell: Variant in _pool:
+				_list.add_child(_pool_row(spell as SpellDef))
+		Mode.COLOURS:
+			# One row per colourway, for the ONE part the cursor is aiming at. The palette
+			# is read off `Hero` at runtime (see `colourways`), so a colour edited there is
+			# a row shown here and this list cannot name a colour that no longer exists.
+			var palette: Array = colourways()
+			for i: int in palette.size():
+				_list.add_child(_colour_row(i, palette[i] as Color))
+		_:
+			for role: String in SpellLibrary.choosable_roles_for_class(_class_id):
+				_list.add_child(_role_row(role, _carried.has(role), true))
 	if _ult_slot_row != null:
 		for child: Node in _ult_slot_row.get_children():
 			_ult_slot_row.remove_child(child)
 			child.queue_free()
 		# THE FIXED ROW CARRIES THE MODE'S ONE UNCHOOSABLE FACT. In role mode that is the
 		# ult; in grimoire mode it is WHICH SLOT the next pick lands in, which a pick by
-		# index cannot be made without. Both are one row of fixed space under a scrolling
-		# list, which is exactly what this shelf was built to hold.
-		_ult_slot_row.add_child(_slot_cursor_row() if _grimoire
-			else _role_row(_ult_role, true, false))
+		# index cannot be made without; in colours mode it is WHICH PART, for exactly the
+		# same reason — a colour implies no target either. All three are one row of fixed
+		# space under a scrolling list, which is what this shelf was built to hold.
+		match _mode:
+			Mode.GRIMOIRE:
+				_ult_slot_row.add_child(_slot_cursor_row())
+			Mode.COLOURS:
+				_ult_slot_row.add_child(_part_cursor_row())
+			_:
+				_ult_slot_row.add_child(_role_row(_ult_role, true, false))
 	_refresh_summary()
 	_refresh_class_btn()
 	_refresh_grim_btn()
+	_refresh_colour_btn()
+	_refresh_reset_btn()
+	_refresh_preview()
 
 
 ## One role, as a thumb-sized row. The ult row is `enabled == false`: a class authors
@@ -712,18 +921,42 @@ func _slot_spell(slot: int) -> SpellDef:
 	return SpellLibrary.spell_for_role(_class_id, role) if role != "" else null
 
 
-## The door. Swaps which list the bounded scroll is showing; see `_grimoire`.
+## The door. Swaps which list the bounded scroll is showing; see `_mode`.
+##
+## ⚠ EACH DOOR TOGGLES ITS OWN MODE AGAINST `HAND`, RATHER THAN THE THREE CYCLING. A
+## cycler would have cost no button at all, and was rejected: the label can only ever name
+## ONE destination, so reaching the colours from the hand would have flashed the whole
+## grimoire on the way past — a list of eighteen spells appearing for one tap, on the way
+## to picking a colour. Two doors that each go somewhere and come back is what a player
+## can predict.
 func _toggle_grimoire() -> void:
-	_grimoire = not _grimoire
-	# The blurb follows the door, exactly as it follows a row: arriving in the grimoire
-	# with the previous mode's sentence still on screen would describe a spell that is no
-	# longer in the list under it.
+	_set_mode(Mode.HAND if _mode == Mode.GRIMOIRE else Mode.GRIMOIRE)
+
+
+## The other door. Same shape, same rules, different list.
+func _toggle_colours() -> void:
+	_set_mode(Mode.HAND if _mode == Mode.COLOURS else Mode.COLOURS)
+
+
+## ONE PLACE THAT CHANGES THE MODE, so the focus-clearing rules cannot be applied by one
+## door and forgotten by the other. The blurb follows the door exactly as it follows a
+## row: arriving in a new list with the previous mode's sentence still on screen would be
+## a line describing something that is no longer under it.
+func _set_mode(next: int) -> void:
+	_mode = next
 	_focus_spell = null
 	_focus_reason = ""
-	if _grimoire:
-		_focus_slot(_grim_slot)
-	else:
-		_focus_role = ""
+	match _mode:
+		Mode.GRIMOIRE:
+			_focus_slot(_grim_slot)
+		Mode.COLOURS:
+			# There is no `SpellDef` behind a colour, so the description line is written
+			# rather than looked up — see `_refresh_blurb`, which checks the mode BEFORE
+			# it resolves a role. Clearing the role is what stops the previous mode's
+			# spell sentence surviving into a screen with no spells on it.
+			_focus_role = ""
+		_:
+			_focus_role = ""
 	_redraw()
 	_sfx("ding", -8.0)
 
@@ -734,9 +967,9 @@ func _refresh_grim_btn() -> void:
 	# The word is on it for the same reason "change" is on the class button: the glyph
 	# says WHICH thing, nothing in a glyph says the row is a door, and this one sits
 	# beside another door that goes somewhere else entirely.
-	_grim_btn.text = "↩  Your Hand" if _grimoire else "✦  Grimoire"
-	_grim_btn.add_theme_color_override("font_color",
-		CHALK if _grimoire else HudStyle.GOLD)
+	var here: bool = _mode == Mode.GRIMOIRE
+	_grim_btn.text = "↩  Your Hand" if here else "✦  Grimoire"
+	_grim_btn.add_theme_color_override("font_color", CHALK if here else HudStyle.GOLD)
 
 
 ## Point the description line at whatever a slot currently casts.
@@ -996,6 +1229,42 @@ func _toggle_equip(spell_id: String) -> void:
 ## roster and this passes neither. A player editing the Arcanist has said nothing about
 ## their Swordsaint, and a reset that silently wiped eight other hands is unrecoverable —
 ## there is no undo on this screen and the picks persist to disk on the very next line.
+## ⚠ ONE BUTTON, TWO BLAST RADII, AND THE LABEL ALWAYS NAMES THE LIVE ONE.
+##
+## The row has no space for a fifth door (see `_door_count`), and a "Reset Hand" button
+## sitting under a list of colours would be the one control on the screen that ignores
+## the mode it is in — which on a phone reads as "this resets whatever I am looking at",
+## which is exactly what a player would be wrong about. So the reset follows the mode,
+## and `_refresh_reset_btn` renames it in the same `_redraw` that swapped the list.
+##
+## HAND and GRIMOIRE share one radius deliberately: `_reset_to_defaults` clears BOTH
+## halves of the hand for the reason its own header gives, and the two modes are two views
+## of one hand.
+func _reset_pressed() -> void:
+	if _mode == Mode.COLOURS:
+		_reset_colours()
+	else:
+		_reset_to_defaults()
+
+
+func _refresh_reset_btn() -> void:
+	if _reset_btn == null:
+		return
+	_reset_btn.text = "↺  Reset Colour" if _mode == Mode.COLOURS else "↺  Reset Hand"
+
+
+## ALL THREE PARTS BACK TO "NEVER CHOSEN", not to a hardcoded index. -1 is what makes a
+## part resolve to `chosen_colourway` (see `part_colourway`), so a reset returns the
+## figure to the ONE whole-figure colour the pause menu and the `C` key still drive —
+## rather than to Azure, which would silently override a player's whole-figure pick with
+## a "reset" they asked to undo their PART picks with.
+func _reset_colours() -> void:
+	chosen_parts = [-1, -1, -1]
+	_persist_colours()
+	_redraw()
+	_sfx("ding", -6.0)
+
+
 func _reset_to_defaults() -> void:
 	SpellLibrary.clear_equipped(_class_id)
 	SpellLibrary.clear_slot_roles(_class_id)
@@ -1025,6 +1294,20 @@ func _refresh_blurb() -> void:
 	if _focus_reason != "":
 		_hint.text = _focus_reason
 		return
+	# ⚠ COLOURS MODE HAS NO `SpellDef` TO DESCRIBE, so it is checked BEFORE the resolution
+	# below rather than folded into it. Without this the line would fall through to "the
+	# ult, if no role is focused" and put a spell description under a list of colours —
+	# the exact stale-line bug `_focus_reason`'s own header was written about.
+	#
+	# ⚠ AND IT STAYS UNDER 96 CHARACTERS, which is not a style note. `_hint` reserves
+	# exactly two lines (~71 chars each) so the panel measures the same height whatever is
+	# on it; a third line grows the column and walks the Done button off a 360 px phone.
+	# Longest case measured: "LEGS — legs and feet. Now Ember. Tap again to unpaint." = 54.
+	if _mode == Mode.COLOURS:
+		_hint.text = "%s — %s. Now %s. Tap again to unpaint." % [
+			PART_NAMES[_colour_part], PART_COVERS[_colour_part],
+			colourway_name(part_colourway(_colour_part))]
+		return
 	# A POOL spell is held directly (it has no role to be looked up by). A ROLE is
 	# resolved LIVE — through the slot it occupies, so an equipped Tier 3 describes
 	# itself rather than the authored spell it displaced, and so a re-ordered hand cannot
@@ -1047,6 +1330,17 @@ func _refresh_blurb() -> void:
 
 func _refresh_summary() -> void:
 	if _summary == null:
+		return
+	# ⚠ IN COLOURS MODE THIS LINE ANSWERS THE MODE'S QUESTION, NOT THE HAND'S. The cursor
+	# row can only show ONE part at a time, so without this the screen never states the
+	# figure as a whole — and "what does head Ember / body Void / legs Jade actually look
+	# like together" is the entire reason the mode exists. Same Label, same one colour,
+	# same constant height; the 360 px budget does not move.
+	if _mode == Mode.COLOURS:
+		var worn: Array[String] = []
+		for i: int in PART_NAMES.size():
+			worn.append("%s %s" % [PART_NAMES[i], colourway_name(part_colourway(i))])
+		_summary.text = "   ·   ".join(worn)
 		return
 	# ⚠ `build_for_class` ALREADY CARRIES THE GRIMOIRE — it lays `_equipped` over the
 	# authored hand last and by index — so this line has always been the honest readout of
@@ -1164,6 +1458,186 @@ static func colourway_name(index: int) -> String:
 	if index >= 0 and index < COLOURWAY_NAMES.size():
 		return COLOURWAY_NAMES[index]
 	return "Colour %d" % (index + 1)
+
+
+# ══════════════════════════════════════════════ head, body and legs, separately
+## WHICH COLOUR ONE PART IS WEARING, resolved. This is the FALLBACK CHAIN and it is the
+## whole migration story in three lines:
+##
+##     the part's own pick  ->  the whole-figure `chosen_colourway`
+##
+## A player who has never opened this mode has three -1s and therefore three parts on the
+## one colour they already had — so the picker opens showing what they ARE, and turning
+## the mode on changes nothing until they tap. It is the same chain
+## `GameState.colourway_parts` applies on the way to the hero, stated in both places
+## because neither file may reach the other's state.
+##
+## ⚠ CLAMPED ON READ. `chosen_parts` is a static that outlives a scene change and
+## `colourways()` is read off `Hero` at runtime, so a palette that shrinks between the two
+## is a real sequence — and an unclamped index here is a crash on a town screen, not a
+## wrong colour.
+static func part_colourway(part: int) -> int:
+	var count: int = maxi(colourways().size(), 1)
+	if part < 0 or part >= chosen_parts.size():
+		return clampi(chosen_colourway, 0, count - 1)
+	var v: int = chosen_parts[part]
+	return clampi(chosen_colourway if v < 0 else v, 0, count - 1)
+
+
+## Read the saved figure out of `GameState` into the static. See `chosen_parts` for why
+## there are two homes; this is the "disk is authoritative on open" half.
+##
+## Reached through the tree and shape-checked rather than trusted: this script has to stay
+## loadable in a headless harness with NO autoloads, and `GameState.part_colourways` is a
+## dictionary that has been through JSON — where every number comes back as a float. The
+## `int()` is the M9 trap, and it is the same one `GameState.sanitize_part_colourways`
+## guards on the other side.
+func _hydrate_colours() -> void:
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs == null:
+		return
+	var raw: Variant = gs.get(&"part_colourways")
+	if not (raw is Dictionary):
+		return
+	var out: Array[int] = [-1, -1, -1]
+	for i: int in PART_KEYS.size():
+		var v: Variant = (raw as Dictionary).get(PART_KEYS[i], -1)
+		if typeof(v) == TYPE_INT or typeof(v) == TYPE_FLOAT:
+			out[i] = maxi(int(v), -1)
+	chosen_parts = out
+
+
+## Mirror the static into `GameState`, which is what carries the pick to the HERO
+## (`colourway_parts` at spawn) and to DISK (`_save_climber` writes `part_colourways`).
+##
+## `save_progress` is called by name only if it exists, the same defensive shape
+## `_persist` uses for `SpellLibrary.persist_to_state`: a build without the autoload, or a
+## suite that never registered it, must leave this screen working rather than erroring on
+## every tap.
+func _persist_colours() -> void:
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs == null:
+		return
+	if not gs.has_method("set_colourway_part"):
+		return
+	for i: int in PART_KEYS.size():
+		gs.call("set_colourway_part", PART_KEYS[i], chosen_parts[i])
+	if gs.has_method("save_progress"):
+		gs.call("save_progress")
+
+
+## THE PART CURSOR. Names the part the next colour lands on, shows what it is wearing now,
+## and cycles on tap. Three states, wrapping — the grimoire's `_slot_cursor_row` in every
+## respect except what it is aiming at, because the problem is identical: a pick with no
+## implied target, on a screen with no hover and no keyboard.
+func _part_cursor_row() -> Button:
+	var idx: int = part_colourway(_colour_part)
+	var b := Button.new()
+	b.text = "◐  PAINT  %s ▸  %s" % [PART_NAMES[_colour_part], colourway_name(idx)]
+	b.tooltip_text = "Tap to aim at the next part — head, body, legs"
+	b.custom_minimum_size = Vector2(PANEL_W - 16.0, MIN_TAP)
+	b.add_theme_font_size_override("font_size", 12)
+	b.focus_mode = Control.FOCUS_NONE
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.clip_text = true
+	# THE CURSOR IS DRAWN IN THE COLOUR IT IS POINTING AT. It is the one row on this screen
+	# whose subject IS a colour, so naming it in chalk and showing the colour nowhere would
+	# be a colour picker that never shows you a colour.
+	b.add_theme_color_override("font_color", _swatch(idx))
+	b.pressed.connect(_cycle_part_cursor)
+	return b
+
+
+func _cycle_part_cursor() -> void:
+	_colour_part = (_colour_part + 1) % PART_KEYS.size()
+	_redraw()
+	_sfx("ding", -10.0)
+
+
+## One colourway, as a thumb-sized row, for the part the cursor is aiming at. `◉` and the
+## colour itself when it is the live pick — the same mark the role list uses for a carried
+## role, so "this one is mine" reads the same everywhere on the screen.
+func _colour_row(index: int, swatch: Color) -> Button:
+	var mine: bool = part_colourway(_colour_part) == index
+	var b := Button.new()
+	# ⚠ THE BLOCK GLYPHS ARE THE SWATCH. A `Button` is one font colour for its whole label
+	# and this row has to show a colour AND stay legible when it is not the pick — so the
+	# NAME carries the state (mark + ink) and three filled blocks carry the hue. Four
+	# characters, no second control, and it survives `clip_text` because it is at the end.
+	b.text = "%s  %s  ·  %s   ███" % [
+		"◉" if mine else "○", PART_NAMES[_colour_part], colourway_name(index)]
+	b.tooltip_text = "Paint the %s %s" % [PART_NAMES[_colour_part].to_lower(),
+		colourway_name(index)]
+	b.custom_minimum_size = Vector2(PANEL_W - 16.0, MIN_TAP)
+	b.add_theme_font_size_override("font_size", 12)
+	b.focus_mode = Control.FOCUS_NONE
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.clip_text = true
+	# The unpicked rows draw in their own colour at half strength: bright enough that the
+	# palette is visible at a glance, dim enough that the ONE row that is yours still wins.
+	b.add_theme_color_override("font_color",
+		_swatch(index) if mine else HudStyle.with_a(swatch, 0.55))
+	b.pressed.connect(_pick_colour.bind(index))
+	return b
+
+
+## The colour a row/cursor draws its text in. Lightened, because `Hero.COLOURWAYS` is a
+## palette of LIMB fills read against a stick figure, and the same value read as 12 px
+## type on the near-black `PAPER` ground is a step too dark.
+static func _swatch(index: int) -> Color:
+	var palette: Array = colourways()
+	if index < 0 or index >= palette.size():
+		return CHALK
+	return (palette[index] as Color).lightened(0.2)
+
+
+## Paint the aimed part. A TAP ALWAYS DOES SOMETHING — the rule `_toggle_role` and
+## `_toggle_equip` are both built on — so tapping the colour a part already wears is NOT a
+## no-op: it puts the part back to -1, which hands it to the whole-figure colour. That is
+## the same tap-again-to-undo gesture the other two lists use, and it is the only way to
+## give a part back without a second control.
+func _pick_colour(index: int) -> void:
+	if _colour_part < 0 or _colour_part >= chosen_parts.size():
+		return
+	var parts: Array[int] = chosen_parts.duplicate()
+	parts[_colour_part] = -1 if chosen_parts[_colour_part] == index else index
+	chosen_parts = parts
+	_persist_colours()
+	_redraw()
+	_sfx("ding", -8.0)
+
+
+func _refresh_colour_btn() -> void:
+	if _colour_btn == null:
+		return
+	var here: bool = _mode == Mode.COLOURS
+	_colour_btn.text = "↩  Your Hand" if here else "◐  Colours"
+	# Tinted with the BODY's live colour rather than a house accent, so the door advertises
+	# what is behind it — the same argument that puts the class colour on the card frame.
+	_colour_btn.add_theme_color_override("font_color",
+		CHALK if here else _swatch(part_colourway(1)))
+
+
+## THE FIGURE FOLLOWS EVERY TAP. Shown only in colours mode — everywhere else it is a
+## stickman standing beside a list of spell names, answering a question nobody asked.
+##
+## ⚠ `set_part_tints`, NOT THREE `set_tint` CALLS. `CharacterRig.set_tint` is documented
+## as "paint the whole figure" and CLEARS the per-part overrides, so three of them in a
+## row would leave the figure in the last colour passed. See that function's header.
+func _refresh_preview() -> void:
+	if _preview == null:
+		return
+	_preview.visible = _mode == Mode.COLOURS
+	_preview.queue_redraw()
+	if _preview_rig == null or not _preview.visible:
+		return
+	var palette: Array = colourways()
+	if palette.is_empty():
+		return
+	_preview_rig.call("set_part_tints",
+		palette[part_colourway(0)] as Color,
+		palette[part_colourway(1)] as Color,
+		palette[part_colourway(2)] as Color)
 
 
 # ══════════════════════════════════════════════════════════════════ helpers

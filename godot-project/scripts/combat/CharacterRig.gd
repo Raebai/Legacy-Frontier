@@ -715,6 +715,36 @@ const BODY_MAX_SUBSTEPS: int = 16
 @export var step_sfx: bool = false
 
 @export var limb_color: Color = Color(0.55, 0.75, 1.0, 1.0)
+
+## ══ THREE TINTS, AND `limb_color` IS STILL THE ONE THAT MATTERS ═══════════════
+## Maker: *"i should also be able to change the colour of my stickman figure the colour
+## of his head body and legs individually"*. So the head and the legs may each carry
+## their OWN colour — but as an OVERRIDE that is UNSET by default, never as two more
+## fields every caller now has to remember.
+##
+## ⚠ A ZERO ALPHA MEANS "UNSET", AND THAT IS NOT A HACK — IT IS THE ONLY SENTINEL THAT
+## SURVIVES THE WAY THIS RIG IS ACTUALLY DRIVEN. Half a dozen capture tools and
+## `bossmods/ModPatient` write `rig.limb_color = X` DIRECTLY, bypassing `set_tint`
+## entirely (see `tools/rig_look_capture.gd`, `rig_tickrate_capture.gd`,
+## `new_spells_capture.gd`, `thrall_capture.gd`, `ult_sheet_capture.gd`). Had the head
+## and legs been plain fields defaulting to the same blue, every one of those would have
+## produced a figure with a recoloured TORSO and a default-blue head and shins — a
+## regression invisible to every existing assertion, because they all read `limb_color`.
+## Resolving to `limb_color` whenever the override is unset makes the direct-write path
+## keep working byte-for-byte.
+##
+## A fully transparent body colour is meaningless on its own terms (an invisible figure),
+## and the drawn ALPHA never comes from here anyway — `draw_figure` takes it from the
+## `col` it is handed, so a fading corpse or a dash ghost fades all three parts together.
+## That is what leaves `a == 0` free to mean something else.
+##
+## ⚠ `set_tint` CLEARS BOTH. It is documented as "set the whole figure" and three
+## consumers rely on that reading — `BotMatch` repaints a fighter in its corner colour,
+## `ModPatient` restores a boss's saved tint, `Hero._cycle_colourway` walks the palette.
+## Clearing rather than assigning is what makes a later bare `limb_color = X` still reach
+## the head and the shins.
+var _head_tint: Color = Color(0.0, 0.0, 0.0, 0.0)
+var _legs_tint: Color = Color(0.0, 0.0, 0.0, 0.0)
 ## Moderate size bump (was 26) so the fighter reads as a bold puppet, not a speck.
 ## Boss.tscn / capture rigs override this per-instance, so only the default fighters grow.
 ## The shipped figure height, named so the fallbacks that assume it (a headless stub
@@ -2063,9 +2093,59 @@ func set_air_phase(rising: bool, grounded: bool) -> void:
 
 
 ## Set the base limb/head color (enemy archetype tint, hero blue, ...).
+##
+## ⚠ THIS IS STILL "PAINT THE WHOLE FIGURE", and it has to stay that way: every caller
+## outside the Outfitter — enemies, bosses, thralls, NPCs, the `BotMatch` corner colours,
+## `ModPatient`'s dormant wash, `Hero._cycle_colourway` — means the entire body. So it
+## CLEARS the per-part overrides rather than leaving a head from a previous pick standing
+## on a body that was just repainted.
 func set_tint(color: Color) -> void:
 	limb_color = color
+	_head_tint = Color(0.0, 0.0, 0.0, 0.0)
+	_legs_tint = Color(0.0, 0.0, 0.0, 0.0)
 	queue_redraw()
+
+
+## THREE TINTS AT ONCE — head, torso+arms, legs. The Outfitter's colours mode is the
+## only caller; everything else keeps using `set_tint`.
+##
+## `body` lands on `limb_color`, so the figure a player who never opens that screen sees
+## is byte-identical to before AND so `slice1_test_elements`'s `rig.limb_color ==
+## COLOURWAYS[i]` reads the thing it has always read. The head and legs become overrides
+## (see `_head_tint`), which is what lets a later bare `set_tint` take the figure back.
+##
+## Passing the same colour three times is exactly equivalent to `set_tint(c)` in what is
+## DRAWN; it differs only in that the overrides are then set rather than cleared.
+func set_part_tints(head: Color, body: Color, legs: Color) -> void:
+	limb_color = body
+	_head_tint = head
+	_legs_tint = legs
+	queue_redraw()
+
+
+## The colour each part actually draws in — the override when there is one, else
+## `limb_color`. Public so the Outfitter's preview and its suite can read back what they
+## just set without reaching into a private.
+func head_tint() -> Color:
+	return _head_tint if _head_tint.a > 0.0 else limb_color
+
+
+func body_tint() -> Color:
+	return limb_color
+
+
+func legs_tint() -> Color:
+	return _legs_tint if _legs_tint.a > 0.0 else limb_color
+
+
+## The dict `draw_figure` takes, built from the live overrides. Empty when the figure is
+## one colour, which is both the common case and the cheapest one — an empty dict makes
+## every lookup inside `draw_figure` fall through to `col` and skips the per-part keyline
+## solve entirely.
+func _part_tint_dict() -> Dictionary:
+	if _head_tint.a <= 0.0 and _legs_tint.a <= 0.0:
+		return {}
+	return {"head": head_tint(), "body": limb_color, "legs": legs_tint()}
 
 
 ## Briefly whiten the whole figure (hit feedback), then restore the tint.
@@ -2423,7 +2503,12 @@ func _draw() -> void:
 	_draw_weapon_trail(pose)
 	# One pass, one drawing: draw_figure now substitutes geared parts for default
 	# parts internally, so there is no second overlay layer to keep in sync.
-	draw_figure(self, pose, col, equipment, height, keyline_for(col))
+	# ⚠ A FLASH IS ONE COLOUR, ALWAYS. `_flash_color` repaints the WHOLE figure (white on
+	# a hit, red on hero damage), so the per-part tints are deliberately withheld while one
+	# is running — a three-coloured hit-flash would read as the figure failing to flash
+	# rather than as three parts. They come back the frame the flash expires.
+	var parts: Dictionary = {} if _flash_timer > 0.0 else _part_tint_dict()
+	draw_figure(self, pose, col, equipment, height, keyline_for(col), parts)
 	_draw_slash_arc(pose, col)
 	_draw_parry_shield(pose)
 	_draw_cast_gesture_vfx(pose)
@@ -3395,6 +3480,26 @@ func _compute_pose() -> Dictionary:
 ## Draw a stick-figure pose onto any CanvasItem. Must be called from that
 ## item's own _draw(). Shared by _draw() and RigGhost so dash afterimages
 ## render the exact same silhouette. `col.a` scales the robe/gear alphas.
+##
+## ══ `part_cols` — THREE TINTS OVER ONE FIGURE ═════════════════════════════════
+## Optional, and EMPTY IS THE OLD BEHAVIOUR EXACTLY. Keys `"head"`, `"body"`, `"legs"`;
+## any key absent falls through to `col`, so `{"head": red}` is a red-headed figure in
+## `col` and nothing else changes. Appended LAST so every existing positional caller
+## (`RigGhost`, `DeathSmudge`, the aura silhouette, `tools/stickman_look_capture.gd`)
+## is untouched.
+##
+## ⚠ RGB ONLY — THE ALPHA IS ALWAYS `col`'s. A dash ghost, a fading corpse and the aura
+## silhouette all express themselves through `col.a`, and a part carrying its own alpha
+## would be the one piece of the body that refused to fade with the rest of it. So a part
+## contributes its hue and takes its transparency from the caller, every time.
+##
+## ⚠ AND THE KEYLINE IS SOLVED PER PART when there are parts. `keyline_for` FLIPS to a
+## pale rim below `KEYLINE_FLIP_LUMA` so a near-black fighter reads as a figure with an
+## edge instead of a hole (see that constant). One keyline for three fills would put the
+## dark-fill treatment on the light parts or the light-fill treatment on the dark one the
+## moment a player picks a dark head. The shipped `Hero.COLOURWAYS` are all far above the
+## threshold so this changes nothing today — it is here so that adding one dark entry to
+## that palette is a palette edit and not a rendering bug.
 static func draw_figure(
 	item: CanvasItem,
 	pose: Dictionary,
@@ -3402,6 +3507,7 @@ static func draw_figure(
 	equipment_slots: Dictionary,
 	fig_height: float,
 	outline_col: Color = Color(0.0, 0.0, 0.0, 0.0),
+	part_cols: Dictionary = {},
 ) -> void:
 	var w: float = pose["w"]
 	var r: float = pose["r"]
@@ -3511,6 +3617,18 @@ static func draw_figure(
 	var body_kind: String = _visible_gear(equipment_slots, "body")
 	var legs_kind: String = _visible_gear(equipment_slots, "legs")
 
+	# THE THREE FILLS. See the `part_cols` block in this function's header: empty dict ->
+	# all three are `col` and every line below is the drawing this file has always made.
+	#
+	# ⚠ THE GEARED PART TAKES THE PART'S COLOUR, WHICH IS THE WHOLE POINT OF PASSING THESE
+	# THROUGH `_draw_head` / `_draw_torso` / `_draw_leg` RATHER THAN AROUND THEM. Gear
+	# REPLACES a body part here (a helmet IS the head — see `_draw_head`'s hitbox
+	# contract), so a helmeted head drawn in the body colour would be the one part of the
+	# figure a player could not recolour, and it would be the part they notice first.
+	var head_col: Color = _part_fill(part_cols, "head", col)
+	var body_col: Color = _part_fill(part_cols, "body", col)
+	var legs_col: Color = _part_fill(part_cols, "legs", col)
+
 	# Crisp dark OUTLINE pass: the same articulated skeleton drawn thicker under so
 	# the bold coloured figure reads against any background (the Stick-Fight look).
 	# Aura silhouette + dash ghosts pass no outline_col (a==0) -> they stay soft.
@@ -3519,44 +3637,68 @@ static func draw_figure(
 	# part of the drawing, not a decal sitting on it.
 	if outline_col.a > 0.0:
 		var oc: Color = Color(outline_col.r, outline_col.g, outline_col.b, outline_col.a * col.a)
+		# ONE KEYLINE OR THREE — see the `part_cols` header note. With no parts these three
+		# are all `oc`, i.e. the exact colour this pass used before per-part tints existed.
+		var oc_head: Color = _part_keyline(part_cols, "head", head_col, oc)
+		var oc_body: Color = _part_keyline(part_cols, "body", body_col, oc)
+		var oc_legs: Color = _part_keyline(part_cols, "legs", legs_col, oc)
 		# Keyline scaled off the stroke (see OUTLINE_FACTOR) rather than a flat +2 px,
 		# so a spindly limb keeps a proportionate dark edge instead of disappearing
 		# under one. `oe` is the per-side bleed the joint dots reuse below.
 		var oe: float = maxf(OUTLINE_MIN, w * OUTLINE_FACTOR)
 		var ow: float = w + oe
-		_draw_torso(item, body_kind, neck, hip, oc, ow, r)
-		_draw_limb(item, shoulder, elbow_lead, hand_lead, oc, ow)
-		_draw_limb(item, shoulder, elbow_off, hand_off, oc, ow)
-		_draw_leg(item, legs_kind, hip, knee_lead, foot_lead, oc, ow, r)
-		_draw_leg(item, legs_kind, hip, knee_off, foot_off, oc, ow, r)
-		item.draw_circle(hand_lead, hlr + oe * 0.6, oc)
-		item.draw_circle(hand_off, hor + oe * 0.6, oc)
-		item.draw_circle(foot_lead, ftr + oe * 0.5, oc)
-		item.draw_circle(foot_off, ftr + oe * 0.5, oc)
+		_draw_torso(item, body_kind, neck, hip, oc_body, ow, r)
+		_draw_limb(item, shoulder, elbow_lead, hand_lead, oc_body, ow)
+		_draw_limb(item, shoulder, elbow_off, hand_off, oc_body, ow)
+		_draw_leg(item, legs_kind, hip, knee_lead, foot_lead, oc_legs, ow, r)
+		_draw_leg(item, legs_kind, hip, knee_off, foot_off, oc_legs, ow, r)
+		item.draw_circle(hand_lead, hlr + oe * 0.6, oc_body)
+		item.draw_circle(hand_off, hor + oe * 0.6, oc_body)
+		item.draw_circle(foot_lead, ftr + oe * 0.5, oc_legs)
+		item.draw_circle(foot_off, ftr + oe * 0.5, oc_legs)
 		# The head keyline is sized off the LIMB bleed, not the head radius, so the
 		# skull keeps a matching line weight rather than a fat ring of its own.
-		_draw_head(item, head_kind, head_center, r + oe * 0.7, oc, ow)
+		_draw_head(item, head_kind, head_center, r + oe * 0.7, oc_head, ow)
 
 	# The figure: head + torso + 2 articulated arms + 2 articulated legs. The head and
 	# torso are drawn THROUGH the gear helpers, which substitute the geared part for
 	# the default one rather than stacking a second shape over it.
-	_draw_head(item, head_kind, head_center, r, col, w)
-	_draw_torso(item, body_kind, neck, hip, col, w, r)
-	_draw_limb(item, shoulder, elbow_lead, hand_lead, col, w)
-	_draw_limb(item, shoulder, elbow_off, hand_off, col, w)
-	_draw_leg(item, legs_kind, hip, knee_lead, foot_lead, col, w, r)
-	_draw_leg(item, legs_kind, hip, knee_off, foot_off, col, w, r)
+	#
+	# ⚠ WHERE THE THREE FILLS LAND, AND WHY EACH JOINT DOT GOT ITS SIDE PICKED BY HAND.
+	# A part is not a shape, it is a REGION, and the dots are what stitch the regions
+	# together — so each one has to belong to the region it caps or the seam shows:
+	#   * head  — the skull disc (or the helm that replaces it) and the adornments on it.
+	#   * body  — torso, BOTH arms, the shoulder and HIP caps, both fists. The arms go
+	#             with the torso because the maker asked for three colours, not five, and
+	#             an arm is the part of a stick figure that reads as trunk rather than limb.
+	#   * legs  — both legs and both FEET. The foot dot caps the shin, so on a two-colour
+	#             figure a body-coloured foot reads as a sock, not as a joint.
+	# The HIP is the seam and goes to the body: it is drawn at `w * 0.55` (wider than the
+	# shoulder) precisely to hide the torso's end, and giving the leg colour a cap sitting
+	# on top of the torso's terminus would draw the seam instead of hiding it.
+	_draw_head(item, head_kind, head_center, r, head_col, w)
+	_draw_torso(item, body_kind, neck, hip, body_col, w, r)
+	_draw_limb(item, shoulder, elbow_lead, hand_lead, body_col, w)
+	_draw_limb(item, shoulder, elbow_off, hand_off, body_col, w)
+	_draw_leg(item, legs_kind, hip, knee_lead, foot_lead, legs_col, w, r)
+	_draw_leg(item, legs_kind, hip, knee_off, foot_off, legs_col, w, r)
 	# Rounded joints/ends: filled dots cap the lines so the limbs read solid.
-	item.draw_circle(shoulder, w * 0.5, col)
-	item.draw_circle(hip, w * 0.55, col)
+	item.draw_circle(shoulder, w * 0.5, body_col)
+	item.draw_circle(hip, w * 0.55, body_col)
 	# VISIBLE hands/fists — clearly bigger than a joint cap (Stick-Fight read); the
 	# lead fist grows through a strike / flaming charge via hlr from _compute_pose.
-	item.draw_circle(hand_off, hor, col)
-	item.draw_circle(hand_lead, hlr, col)
+	item.draw_circle(hand_off, hor, body_col)
+	item.draw_circle(hand_lead, hlr, body_col)
 	# Feet: rounded leg-ends only (SF has no toe nub).
-	item.draw_circle(foot_off, ftr, col)
-	item.draw_circle(foot_lead, ftr, col)
+	item.draw_circle(foot_off, ftr, legs_col)
+	item.draw_circle(foot_lead, ftr, legs_col)
 
+	# ⚠ EQUIPMENT KEEPS `col`, AND THAT IS THE LINE BETWEEN A BODY PART AND A POSSESSION.
+	# A sword, a staff, a shield and a quiver are things the figure HOLDS; recolouring
+	# them with a body tint would make "legs" mean "legs and also my sword". The three
+	# pieces that genuinely replace a body part — helm, cuirass, greaves — are NOT drawn
+	# here: they go through `_draw_head` / `_draw_torso` / `_draw_leg` above and therefore
+	# already carry their part's colour. See `_visible_gear`.
 	_draw_equipment(
 		item, equipment_slots, col, w, r, fig_height,
 		head_center, shoulder, hand_lead, foot_lead, foot_off, neck, hip
@@ -3569,7 +3711,11 @@ static func draw_figure(
 	# four identical silhouettes apart, and none of them replaces a body part — they
 	# only ever ADD outside the head disc, so the hitbox contract `_draw_head` states
 	# is untouched. See `_draw_adornments`.
-	_draw_adornments(item, equipment_slots, col, w, r, head_center, neck)
+	#
+	# HEAD COLOUR, because everything it draws is ON the head — hair off the crown, shades
+	# across the skull. `_draw_adornments` lightens what it is given for the hair, so a
+	# recoloured head grows hair a shade above ITSELF rather than a shade above the torso.
+	_draw_adornments(item, equipment_slots, head_col, w, r, head_center, neck)
 
 
 ## HAIR AND FACE PIECES — the two slots the rig never had.
@@ -3854,6 +4000,39 @@ static func _draw_torso(
 			item.draw_line(neck, hip, col, w)
 		_:
 			item.draw_line(neck, hip, col, w)
+
+
+## THE FILL ONE PART DRAWS IN. Absent key -> `col`, so an empty `part_cols` reproduces
+## the single-colour drawing this file made before per-part tints existed, key by key.
+##
+## ⚠ RGB FROM THE PART, ALPHA FROM `col`, ALWAYS — the rule stated in `draw_figure`'s
+## `part_cols` header. A dash ghost, a fading corpse and the aura silhouette all express
+## themselves purely through `col.a`; a part carrying its own alpha would be the one
+## piece of the body that refused to fade with the rest of it.
+static func _part_fill(part_cols: Dictionary, key: String, col: Color) -> Color:
+	if part_cols.is_empty() or not part_cols.has(key):
+		return col
+	var c: Color = part_cols[key]
+	return Color(c.r, c.g, c.b, col.a)
+
+
+## THE KEYLINE UNDER ONE PART. With no parts this is `oc` unchanged — the exact colour
+## the outline pass used before, so the common path is bit-for-bit what it always was.
+##
+## With parts it re-solves through `keyline_for`, because that function FLIPS to a pale
+## rim below `KEYLINE_FLIP_LUMA` so a near-black fighter reads as a figure with an edge
+## rather than a hole. One keyline shared by three fills would put the dark-fill
+## treatment on the light parts the moment a player picks a dark head. Every shipped
+## `Hero.COLOURWAYS` entry sits far above the threshold, so this changes nothing today —
+## it is here so that adding one dark entry to that palette stays a palette edit.
+##
+## `oc`'s alpha is kept: it already carries the `col.a` the caller folded in, which is
+## what fades a ghost's outline with its fill.
+static func _part_keyline(part_cols: Dictionary, key: String, fill: Color, oc: Color) -> Color:
+	if part_cols.is_empty() or not part_cols.has(key):
+		return oc
+	var k: Color = keyline_for(fill)
+	return Color(k.r, k.g, k.b, oc.a)
 
 
 ## WHAT A SLOT ACTUALLY DRAWS, after the two flags. "" = nothing.
