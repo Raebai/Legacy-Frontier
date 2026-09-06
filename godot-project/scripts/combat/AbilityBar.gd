@@ -104,6 +104,14 @@ const TIMER_FONT_SIZE: int = 15
 const PANEL_COLOR: Color = Color(0.08, 0.08, 0.12, 0.88)
 const BORDER_COLOR: Color = Color(0.36, 0.36, 0.44, 0.9)
 const BORDER_WIDTH: float = 1.0
+
+## The affinity ring — the slot's "your class amplifies this" tell. Sized to be legible at
+## the 640x360 base viewport and no louder than that: it sits OUTSIDE the socket border by
+## a hair, at partial alpha, so a player who has not learned what it means reads it as
+## trim rather than as an alert.
+const AFFINITY_RING_GAP: float = 2.0
+const AFFINITY_RING_WIDTH: float = 1.4
+const AFFINITY_RING_ALPHA: float = 0.85
 ## Accent: the "usable NOW" glow — cool cyan so it pops against the warm
 ## combat VFX without fighting the element colours.
 const READY_GLOW_COLOR: Color = Color(0.55, 0.9, 1.0, 0.9)
@@ -375,6 +383,22 @@ func _stamp_spell_identity(hero: Node) -> void:
 			accent = sig.resolve_color(Elements.color(SpellCaster.resolve_element(sig)))
 		slot["accent"] = accent
 		slot["glyph"] = glyph_for(sig)
+		# ══ ELEMENT AFFINITY — "your class makes this one hit harder" ═══════════
+		# A spell of your CLASS'S own element is amplified in your hands
+		# (`SpellCaster.AFFINITY_MULT`). A bonus nobody can see is a bonus nobody has.
+		#
+		# ⚠ IT HAD TO BE PERSISTENT RATHER THAN PER-HIT: the damage number's colour is
+		# ALREADY the element's hue, so an on-element bonus is invisible at the moment of
+		# impact by construction — and the player needs to know BEFORE committing the
+		# cast, which means the tell belongs on the slot.
+		#
+		# ⚠ AND IT LIVES HERE RATHER THAN ON `LoadoutBar`, WHICH IS WHERE IT WAS FIRST
+		# PUT AND WHERE IT DREW NOTHING. `LoadoutBar` is instantiated only by
+		# `scripts/spike/SpellPlaygroundController.gd`; every shipping host — `Arena`,
+		# `VersusArena`, `LocalCoop` — builds an `AbilityBar`. So the tell existed, was
+		# tested, and could not appear in a single fight the player would ever play. That
+		# is the exact bug class this session has been hunting, committed by the hunt.
+		slot["affinity"] = sig != null and SpellCaster.affinity_mult(sig, hero) > 1.0
 
 
 # ══ THE SOCKET GLYPH — the THIRD axis, after colour and tier ═══════════════════
@@ -746,6 +770,14 @@ func _draw_slot(rect: Rect2, slot: Dictionary, font: Font,
 			int(slot.get("glyph", MagicCircle.Motif.NONE)))
 		draw_arc(c, disc_r, 0.0, TAU, DISC_SEGMENTS,
 			_with_alpha(BORDER_COLOR, alpha), BORDER_WIDTH, true)
+		# THE AFFINITY RING — see `_stamp_spell_identity`. A thin outer arc in the SPELL'S
+		# element, outside the border rather than replacing it, so it adds a fact without
+		# taking the socket's own reading away. Only on a slot your class amplifies, which
+		# is what makes it information rather than decoration.
+		if bool(slot.get("affinity", false)):
+			draw_arc(c, disc_r + AFFINITY_RING_GAP, 0.0, TAU, DISC_SEGMENTS,
+				_with_alpha(slot.get("accent", BORDER_COLOR), alpha * AFFINITY_RING_ALPHA),
+				AFFINITY_RING_WIDTH, true)
 	else:
 		draw_rect(rect, _with_alpha(PANEL_COLOR, alpha))
 		draw_rect(rect, _with_alpha(BORDER_COLOR, alpha), false, BORDER_WIDTH)

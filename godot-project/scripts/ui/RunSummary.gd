@@ -203,7 +203,40 @@ static func stat_rows(run: Dictionary) -> Array:
 	var falls: int = int(run.get("falls", 0))
 	if falls > 0:
 		rows.append(["falls", str(falls)])
+	# ══ THE THREE FACTS THE CARD ALREADY KNEW AND NEVER SAID ═════════════════════
+	# `GameState.build_outcome` threads `is_record`, `previous_best` and `board_place`
+	# into `last_run`, and its own comment says they are "what the run card needs to say
+	# 'floor 34, a new best, 2nd of 25'". They had ZERO readers in `scripts/`: the work of
+	# deciding whether you had just beaten yourself was done on every single run and then
+	# thrown away one function short of a player seeing it. This is that last function.
+	#
+	# ⚠ BEATING YOUR BEST GOES ABOVE "your best", not below it — a record is the loudest
+	# thing that can be on this card, and burying it under the number it just replaced is
+	# how a card full of true rows still fails to say the one thing that happened.
+	if bool(run.get("is_record", false)):
+		var prev: int = int(run.get("previous_best", 0))
+		rows.append(["a new record",
+			("floor %d beats %d" % [floor_reached, prev]) if prev > 0 else "your first"])
+	var place: int = int(run.get("board_place", 0))
+	if place > 0:
+		rows.append(["on the board", "%d%s" % [place, _ordinal_suffix(place)]])
 	return rows
+
+
+## "1st", "2nd", "3rd", "4th" — including the teens, which are the whole reason this is a
+## function and not `["st","nd","rd"][n % 10]`. 11th, 12th and 13th all take "th".
+static func _ordinal_suffix(n: int) -> String:
+	var v: int = absi(n)
+	if v % 100 >= 11 and v % 100 <= 13:
+		return "th"
+	match v % 10:
+		1:
+			return "st"
+		2:
+			return "nd"
+		3:
+			return "rd"
+	return "th"
 
 
 ## The elements you used, SHORT ENOUGH TO FIT THE ROW.
