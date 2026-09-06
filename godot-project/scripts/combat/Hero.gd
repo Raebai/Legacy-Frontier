@@ -843,7 +843,21 @@ const CLASS_CONFIG: Dictionary = {
 		"aoe": "nova", "can_parry": true,
 	},
 	HeroClass.BRAWLER: {  # PURE MELEE, no magic — punch/kick combo + double-jump + Thunderclap
-		"preset": "brawler", "weapon": "", "element": Elements.Element.FIRE, "melee_element": Elements.Element.FIRE,
+		# ⚠ EARTH IS THE CLASS, FIRE IS THE FIST, AND THE SPLIT IS DELIBERATE.
+		# `element` was FIRE while the Brawler's entire hand is EARTH — Stomp, Petrify,
+		# Rock Wall, Boulder Hurl, Meteor Fist — so when element affinity landed, this was
+		# the one class in the roster it paid NOTHING. Maker's ruling: *"make the brawler
+		# an earth rank"*. `element` is what `affinity_element()` reports, so its own kit
+		# is amplified now, like everyone else's.
+		#
+		# `melee_element` STAYS FIRE on purpose. It is not the affinity axis — affinity is
+		# spells only, melee composes through the gear aggregate — so it costs the Brawler
+		# nothing to keep, and it is load-bearing for a built visual: `_melee` reads it and
+		# lights `_flaming_fist_timer`, which is the burning fist that trails embers for
+		# ~1.6 s after a punch. Aligning it to EARTH for tidiness would silently delete
+		# that, and a stone brawler whose knuckles ignite is a better character than a
+		# consistent table.
+		"preset": "brawler", "weapon": "", "element": Elements.Element.EARTH, "melee_element": Elements.Element.FIRE,
 		"hp": 161, "speed": 215.0,  # was 115
 		"primary": "melee_combo", "air_jumps": 1, "melee_cd": 0.20, "melee_knockback": 320.0,
 		"cast_cd": 0.22, "dash_cd": 0.70, "blink_cd": 1.1, "blast_cd": 2.2,

@@ -73,7 +73,7 @@ const TESTS: Array[String] = [
 const CLASS_ELEMENTS: Array[int] = [
 	Elements.Element.ARCANE,     # 0 Arcanist
 	Elements.Element.SHADOW,     # 1 Shadowblade
-	Elements.Element.FIRE,       # 2 Brawler
+	Elements.Element.EARTH,      # 2 Brawler  — maker ruling 2026-09-06; its hand was always Earth
 	Elements.Element.EARTH,      # 3 Juggernaut
 	Elements.Element.HOLY,       # 4 Cleric
 	Elements.Element.ICE,        # 5 Cryomancer
@@ -89,39 +89,53 @@ const ALL_ELEMENTS: Array[int] = [
 	Elements.Element.HOLY, Elements.Element.WIND,
 ]
 
-## The one element no class carries. Nine classes over eight elements cannot be a
-## bijection, and this is the leftover. Named as a KNOWN FACT so it is discovered
-## once, here, rather than a second time by whoever authors a Wind spell and wonders
-## why nobody amplifies it.
+## The elements NO class carries. Named as KNOWN FACTS so each is discovered once,
+## here, rather than a second time by whoever authors a spell of that element and
+## wonders why nobody amplifies it.
 ##
-## It is a RESERVED SLOT, not a hole: WIND is the element of the designed-but-unbuilt
-## AIR class (the one whose movement verb is a long hop-dash, per the class-identity
-## mandate). Do not "fix" this by re-elementing an existing class into it — that would
-## quietly move the amplification off whatever element that class holds today.
-const ORPHAN_ELEMENT: int = Elements.Element.WIND
+## WIND is a RESERVED SLOT rather than a hole: it is the element of the
+## designed-but-unbuilt AIR class (the one whose movement verb is a long hop-dash, per
+## the class-identity mandate).
+##
+## ⚠ FIRE JOINED IT ON 2026-09-06, AND THAT IS A REAL CONSEQUENCE OF A MAKER RULING, not
+## an oversight. The Brawler was the roster's only FIRE class while its entire hand is
+## EARTH — Stomp, Petrify, Rock Wall, Boulder Hurl, Meteor Fist — so affinity paid it
+## nothing at all. Maker: *"make the brawler an earth rank"*. Correct for the Brawler,
+## and it leaves FIRE with no class: a Fire spell is now amplified by nobody, exactly as
+## a Wind spell is. The Brawler still PUNCHES fire (`melee_element` is deliberately
+## unchanged, and lights the burning fist), so the class did not stop feeling fiery — but
+## no one is paid for casting Fire.
+##
+## The honest options, all the maker's: leave it (Fire is a neutral, universal element
+## nobody specialises in), give a future class FIRE the way the air class will take WIND,
+## or move one existing class. Do NOT close it by re-elementing a class whose kit does not
+## match, which is the mistake this whole entry exists to record.
+const ORPHAN_ELEMENTS: Array[int] = [Elements.Element.FIRE, Elements.Element.WIND]
 
-## ⚠ THE CLASSES ELEMENT AFFINITY PAYS NOTHING, AND WHY. Measured, not assumed — the
-## first run of `_test_every_class_amplifies_something_it_actually_carries` found this
-## and it is a REAL GAP, recorded here rather than papered over by weakening the
-## assertion.
+## ⚠ THE CLASSES ELEMENT AFFINITY PAYS NOTHING. **EMPTY, AND IT WAS NOT ALWAYS.**
 ##
-##   2 BRAWLER. Its class element is FIRE, and every spell in its hand is EARTH:
-##   Shockwave Stomp, Petrify, Rock Wall, Boulder Hurl, Meteor Fist. So the Brawler
-##   is the one class that gets nothing at all from this feature.
+## The first run of `_test_every_class_amplifies_something_it_actually_carries` found a
+## real gap and it was recorded here rather than papered over by weakening the
+## assertion: the **BRAWLER** was declared FIRE in `Hero.CLASS_CONFIG` while every spell
+## in its hand is EARTH — Shockwave Stomp, Petrify, Rock Wall, Boulder Hurl, Meteor Fist
+## — so it was the one class this feature paid nothing at all.
 ##
-## It is COHERENT with the class (its card reads *"Pure-melee knockout — no magic"*,
-## its FIRE shows up as `melee_element` — the fists apply burn — and melee deliberately
-## does not go through the spell seam). But coherent is not the same as intended, and
-## this is a design call for the maker, not something a damage seam may decide: either
-## the Brawler's element is really EARTH and `Hero.CLASS_CONFIG` is stale, or the class
-## wants one fire spell in hand, or the melee-only class is meant to sit this feature
-## out. Whichever it is, it should be chosen once.
+## It was COHERENT (its card reads *"Pure-melee knockout — no magic"*, and its fire lived
+## in `melee_element`, where the fists apply burn), but coherent is not intended. It was
+## put to the maker as a design call rather than decided by a damage seam, and the ruling
+## was: *"make the brawler an earth rank"*. `Hero.CLASS_CONFIG` was stale; the Brawler is
+## EARTH now and is paid for its own kit like everyone else.
 ##
-## Frozen as a literal so it cannot drift silently in EITHER direction: give the
-## Brawler a fire spell and this test goes red pointing at this note, and if a SECOND
-## class ever falls off the feature it goes red too instead of being absorbed into a
-## vague "most classes" assertion.
-const UNPAID_CLASSES: Array[int] = [2]  # Brawler — see above
+## ⚠ `melee_element` STAYED FIRE, deliberately — see the note on that row in `Hero.gd`. It
+## is not the affinity axis, and it lights the burning fist. The consequence is recorded
+## on `ORPHAN_ELEMENTS`: **no class carries FIRE any more.**
+##
+## KEPT EMPTY RATHER THAN DELETED, and that is the point of the mechanism. The check runs
+## BOTH WAYS — a listed class must still be unpaid, an unlisted one must still be paid —
+## so with nothing listed, ANY class falling off the feature goes red here, next to the
+## story of the last one that did, instead of being absorbed into a vague "most classes"
+## assertion. Do not add to it to silence a failure; a name here is a design debt.
+const UNPAID_CLASSES: Array[int] = []
 
 var _fails: int = 0
 var _completed: Dictionary = {}
@@ -551,11 +565,11 @@ func _test_wind_is_the_element_no_class_carries() -> void:
 				+ "below has changed, and so has who the feature pays)")
 		covered[CLASS_ELEMENTS[cls]] = true
 	for e: int in ALL_ELEMENTS:
-		if e == ORPHAN_ELEMENT:
+		if ORPHAN_ELEMENTS.has(e):
 			_expect(not covered.has(e),
 				"%s is still the element NO class carries — a %s spell is amplified by "
 					% [Elements.display_name(e), Elements.display_name(e)]
-					+ "nobody. If a class now carries it, update ORPHAN_ELEMENT and "
+					+ "nobody. If a class now carries it, update ORPHAN_ELEMENTS and "
 					+ "decide whether that is intended")
 		else:
 			_expect(covered.has(e),
