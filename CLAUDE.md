@@ -2,15 +2,63 @@
 
 > Customised for the Legacy Frontier project. Based on the user's reusable workspace template.
 
+---
+
+## 🧠 THE SECOND BRAIN — USE IT, EVERY SESSION, BEFORE ANYTHING ELSE
+
+Maker, 2026-09-07: *"install and use this as priority I never want you to forget the
+context again"*. The vault is not optional context and it is not a nice-to-have; it is
+the reason this project stops re-explaining itself every session.
+
+- **Vault:** `C:\Users\Raaed\Documents\Second Brain`
+  (`OBSIDIAN_VAULT_PATH` in `~/.claude/settings.json`).
+- **Skill:** [`obsidian-second-brain`](https://github.com/eugeniughelbur/obsidian-second-brain),
+  installed at `~/.claude/skills/obsidian-second-brain`. ~47 `/obsidian-*` and
+  `/research*` slash commands live in `~/.claude/commands/`.
+  Update it with `git pull` in the skill folder — it is a CLONE, not a `/plugin` install.
+
+**AT THE START of a session**, when you need background rather than live state:
+
+| Want | Do |
+|---|---|
+| What exists in the vault at all | read `<vault>/index.md` — **before** searching. It is cheaper and faster than a scan. |
+| The 150-token essentials | read `<vault>/CRITICAL_FACTS.md` |
+| Who the maker is + current state | `/obsidian-world` |
+| A specific thing | `/obsidian-find <query>` |
+| Argue against a plan using the maker's own history | `/obsidian-challenge` |
+
+**AT THE END of anything worth keeping** — a ruling, a lesson that cost real time, a
+decision, a dev session — write it back. `/obsidian-save`, or `/obsidian-log` for a dev
+session. Do not wait to be asked; the whole point is that the next session inherits it.
+Notes must follow the AI-first rules (`## For future agent` preamble, frontmatter with
+`type`/`date`/`tags`/`ai-first: true`, `as of` stamps on external claims, `[[wikilinks]]`
+for everything referenced). `<vault>/_CLAUDE.md` is the full operating manual.
+
+⚠ **WHAT THE VAULT IS FOR, AND WHAT IT MUST NOT DO.** It holds the **durable** layer —
+what the game is, the rulings that must not be re-litigated, the lessons that cost real
+time. It **deliberately does not hold live state**: branch names, suite counts, what is
+red today. A note that duplicates a branch name is a note that will be wrong next week
+and will then be believed. **`docs/NEXT-SESSION.md` and `git log --oneline` remain
+authoritative for live state.**
+
+⚠ **THE BACKGROUND AGENT IS REGISTERED BUT DELIBERATELY OFF.** The PostCompact hook that
+would write the conversation to the vault automatically runs a headless Claude with
+`--dangerously-skip-permissions`. Arming it means adding `"OBSIDIAN_BG_AGENT_ENABLED":
+"1"` to the `env` block of `~/.claude/settings.json`. **That is the maker's call.** Do
+not set it without being asked.
+
+---
+
 ## ⚡ Current Direction (READ THIS FIRST — the session log below is partly historical)
 
 Legacy Frontier has **pivoted twice** since the v0.5 work logged in "Session Context Update" (Sessions 1–14). Those sessions describe a **now-PARKED** game — do not assume they describe current work.
 
-- **ACTIVE (2026-07-08 →):** a mobile-first **2D top-down co-op roguelite tower-climber** — Soul Knight feel + Hades soul + Tower of God structure + Cuphead-hard bosses, with the AI-NPC-memory hub as the moat. Canonical design: **`docs/v2.0-design.md`**. Working branch: **`v2.0-tower`**.
+- **ACTIVE (2026-07-08 →):** a mobile-first **2D top-down co-op roguelite tower-climber** — Soul Knight feel + Hades soul + Tower of God structure + Cuphead-hard bosses. Now called **STICKSPIRE**; the repo folder keeps the old name. Canonical design: **`docs/v2.0-design.md`**.
+- ⚠ **WORKING BRANCH IS `bot-fight-quality`** (as of 2026-09-07), NOT `v2.0-tower` as this block said for weeks. Confirm with `git branch --show-current` rather than trusting this line — it is exactly the sort of fact that goes stale here and stays believed.
 - **PARKED (not deleted):** the v1.0 3D action-RPG (branch `v1.0-3d`) and the v0.0–v0.5 2D AI-NPC-memory game (`main`). The 2D + memory stack is reused, not thrown away.
-- **Live state ledger — open this at the start of every session:** **`.superpowers/sdd/progress.md`** (read its top STATUS block first). Then `git log --oneline`, then `docs/v2.0-design.md`.
-- **Memory pointers:** `project_v2_tower_pivot.md` (active) and `project_3d_protagonist_pivot.md` (superseded).
-- **Current state:** Slices 0/1/2 are built + headless-verified but **UNPLAYTESTED** (awaiting maker F5 GO/NO-GO — Gopeak can't render feel). In progress: a data-driven-floors + persistent-climb refactor, **steps 1–4 done, step 5 (persistent-climb spine) not started.** Full detail in `progress.md`.
+- ⚠ **LIVE STATE LEDGER IS `docs/NEXT-SESSION.md`**, then `git log --oneline`, then `docs/v2.0-design.md`. (`.superpowers/sdd/progress.md` was the ledger for the older cycle and is now historical.) **And check the handoff's own date against the log**: on 2026-09-07 it was seven commits stale and claimed a clear queue while five suites were red.
+- **Memory pointers:** `project_v2_resume_queue.md` (the live queue), `project_v2_second_brain_vault.md`, `project_v2_tower_pivot.md`.
+- **Standing risk:** work here is routinely built + headless-verified but **UNPLAYTESTED**. A green suite is not a shipped feature. Say plainly what has and has not been played.
 - The `docs/roadmap.md` "Tier" language in the Mission/Scope sections below is v0.5-era and is **superseded by `docs/v2.0-design.md`** for current work.
 
 ## Mission
