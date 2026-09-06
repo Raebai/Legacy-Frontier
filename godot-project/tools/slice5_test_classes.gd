@@ -124,7 +124,14 @@ func _test_class_elements_and_aoe() -> void:
 	# Arcanist..Swordsaint. The Swordsaint is ARCANE like the Arcanist, but note its
 	# CLASS_CONFIG `melee_element` is -1: the element only TINTS the blade, it is
 	# never applied as an ailment, which is that class's whole flavour rule.
-	var expect_element: Array[int] = [4, 3, 0, 5, 6, 1, 2, 3, 4]
+	#
+	# ⚠ THE BRAWLER (index 2) IS EARTH, NOT FIRE, AND THAT IS A RULING NOT A DRIFT.
+	# Maker: *"make the brawler an earth rank"*. `element` is the axis element affinity
+	# reads, and the Brawler's entire hand is EARTH, so while this said FIRE it was the
+	# one class in the roster affinity paid nothing. Its `melee_element` is STILL FIRE
+	# on purpose — that is what lights the burning fist — so the two differ by design
+	# here and only here; see the block on `HeroClass.BRAWLER` in `Hero.CLASS_CONFIG`.
+	var expect_element: Array[int] = [4, 3, 5, 5, 6, 1, 2, 3, 4]
 	# Each class has a DISTINCT Q spectacle now (no more 5 shared blasts).
 	var expect_aoe: Array[String] = ["arcane_meteor", "nova", "fist_shock", "ground_slam",
 		"consecrate", "ice_shards", "call_lightning", "curse_chain", "ground_slam"]

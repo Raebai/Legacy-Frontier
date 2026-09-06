@@ -852,19 +852,31 @@ func _test_an_on_element_spell_is_marked_and_a_class_with_none_is_not() -> void:
 		"the mark reaches most of the roster (%d of %d classes) — if it reaches almost"
 			% [marked_classes, ClassInfo.count()]
 		+ " none, the rule being read here is not the rule the fight uses")
-	# The known hole, pinned so it goes red the day somebody re-elements the class rather
-	# than being rediscovered as a bug in this screen.
+	# ⚠ THE HOLE WAS CLOSED AND THIS ASSERTION IS THE OTHER HALF OF THE SAME GUARD.
+	# It used to read "the Brawler is marked as having an on-element spell … if that
+	# changed, the maker changed it, and this line is the notice" — and the maker did
+	# change it: *"make the brawler an earth rank"* (`Hero.CLASS_CONFIG`, commit
+	# da6ec14). Its class element is EARTH now and its whole hand — Stomp, Petrify,
+	# Rock Wall, Boulder Hurl, Meteor Fist — is EARTH, so it is the class affinity pays
+	# MOST, not least. Flipping the assertion rather than deleting it keeps the same
+	# tripwire pointed the other way: the melee class falling back off the affinity
+	# ladder now goes red here.
+	#
+	# It stays a SEPARATE named case rather than folding into the loop above because
+	# this class is the one the roster-wide `marked_classes >= 5` line can never speak
+	# for: a five-of-nine floor passes with the Brawler unpaid, which is exactly the
+	# state that shipped.
 	if brawler >= 0:
 		sel.call("_refresh_detail", brawler)
 		await process_frame
-		var any: bool = false
+		var marked: int = 0
 		for n: int in names.size():
 			if (names[n] as Label).text.contains(tag):
-				any = true
-		_expect(not any,
-			"the Brawler is marked as having an on-element spell. Its class element is"
-			+ " FIRE and its whole hand is EARTH, so affinity pays it NOTHING — if that"
-			+ " changed, the maker changed it, and this line is the notice.")
+				marked += 1
+		_expect(marked > 0,
+			"the Brawler's card marks no on-element spell. Its class element is EARTH"
+			+ " and its whole hand is EARTH, so affinity should pay it on every slot —"
+			+ " if the class was re-elemented again, this line is the notice.")
 	_completes("an_on_element_spell_is_marked_and_a_class_with_none_is_not")
 
 
