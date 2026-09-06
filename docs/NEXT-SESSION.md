@@ -1,303 +1,184 @@
 # RESUME HERE
 
-## STATE — 2026-09-05, the live-playtest session. 17 COMMITS, PUSHED.
+## STATE — 2026-09-06. QUEUE CLEARED. 8 COMMITS, 215/215 GREEN, TREE CLEAN, PUSHED.
 
-Branch `bot-fight-quality`, pushed. Seventeen commits landed in one sitting while the
-maker played and fed back live. **205+ suites green. NOTHING IN THEM IS PLAYTESTED** —
-every claim is a measurement or a headless suite.
+Branch `bot-fight-quality`. **Every item in the previous queue is now built** — items 1–8,
+plus the open design question, which the maker answered. Six agents ran with strict
+disjoint file ownership; all six landed.
 
-### ✅ ALL FIVE AGENTS LANDED. TREE IS CLEAN, 209/209 GREEN, EVERYTHING PUSHED.
+**NOTHING HERE IS PLAYTESTED.** Every claim below is a measurement or a headless suite.
+That judgement is unchanged and it is the whole point: playtest beats reasoning.
 
-The in-flight list below is kept as the RECORD of what each agent did and which suites
-cover it — it is no longer a to-do. Every item (a) through (g) is committed and pushed.
-`git status` should be clean apart from `content/analytics/*.json`.
+### ▶ PLAY IT FIRST — three things you can only judge by looking
 
-### ⚠ WHAT THE FIRST BLOCK USED TO SAY (kept, because it is how to handle this next time)
+**F5** → title → Single Player. **Lobby → Watch Bots** for the showcase. The Android APK
+is stale — it predates every commit below.
 
-Three subagents were still running when the session ended. **If their work is not
-committed, it is sitting dirty in the tree — `git status` first.** Diff it, run the suites
-named beside each, then commit or discard. **Do not assume it parses** — an in-flight
-agent edit is how three suites went red mid-session.
-
-**(a) Tavern lobby + title screen** — `scripts/World.gd`, `scripts/HubAmbience.gd`,
-`scripts/ui/AntechamberBackdrop.gd`, `scripts/ui/Lobby.gd`, `tools/probe_antechamber_backdrop.gd`,
-`tools/slice_test_antechamber_sky.gd`.
-The maker PLAYED it and liked it — refine, do not restart. Their four notes: the fire
-escapes the furnace and must be bounded to it; there are stray yellow lines that mean
-nothing (give them a reason or remove them); add ledges where helpful; add curved
-structures (arches, a vaulted ceiling, a curved bar front) because the room is currently
-all rectangles. Plus the title buttons, asked TWICE.
-`slice_test_town  slice_test_town_bounds  slice_test_town_interact  slice_test_settings
-slice_test_shell  slice_test_antechamber_sky  slice_test_stage_layers`
-
-**(b) Gear replaces body parts + unlock legibility** — `scripts/ui/Outfitter.gd`,
-`scripts/ClassSelect.gd`, `scripts/combat/CharacterRig.gd`, `scripts/combat/GearAbilities.gd`,
-`scripts/GameState.gd`, `scripts/combat/Progression.gd`. See queue item 4 below.
-`slice_test_outfitter  slice_test_grimoire  slice_test_class_select_layout
-slice_test_rig_body  slice_test_rig_gait  slice_test_climb`
-
-**(c) Floating platforms carve into bits** — `scripts/combat/BreakablePlatform.gd`,
-`scripts/combat/RuinPlatform.gd`, `scripts/combat/FloorBuilder.gd`,
-`scripts/combat/DestructibleStage.gd`. See queue item 5 below.
-`slice_test_destructible_sources  slice_test_destructible_carve  slice_test_floor
-slice_test_floorgen  slice_test_one_screen  slice_test_wall_reachable`
-
-**(d) Iai Slash's look + Crescent Rush's redesign** — `scripts/combat/SpellLibrary.gd`,
-`scripts/combat/SpellBlurbs.gd`, and those two spells' effect scripts.
-Maker: *"iai slash looks goofy can you make it look cooler and crescent rush stopping on
-as soon as it hits something is bad maybe we can make it like a different spell something
-new"*. The steer given: an iai reads as **stillness → one instantaneous flash → the cut
-resolves AFTER**; if it is currently animating a visible arcing swing, that is the
-goofiness, because it turns a draw-cut into an ordinary slash with extra steps. For the
-rush, either make it PIERCE to its declared reach or replace it outright — the maker
-opened that door — but a replacement must not duplicate another class (NO RECOLOURS), and
-whatever happens the drawn shape must stay the damaging shape.
-`slice_test_spell_signature  slice_test_spell_targets  slice_test_spell_buttons
-slice_test_class_identity  slice8_test_spell_kits  slice_test_new_drops`
-
-**(e) Cryomancer's LMB becomes ice shards** — `scripts/combat/Hero.gd` and the frost-cone
-effect script.
-Maker: *"cryomancers left click attack the cone is weird and too big just change it all
-shoot out some crystal ice shards or something instead"*. Measured, that cone is
-**reach 118 px at a 60° half-angle** — 120° of arc, the widest and longest basic attack in
-the roster (the Brawler's is 58 px / 72.5°), so "too big" is literally true. Replaced with
-a small volley of crystal shards; it must stay a BASIC attack (cheap, fast, readable), the
-tell must become what the shards actually are, and it must draw **ONE shape per press** —
-`tools/probe_basic_attack_visuals.gd` is the instrument that caught two classes drawing
-two attack shapes on one press earlier today.
-`probe_basic_attack_visuals (before AND after)  slice_test_class_identity
-slice_test_hitboxes  slice_test_hero_tells  slice_test_spell_buttons`
-
-**(f) Shatter is too weak** — folded into (d), which already owns `SpellLibrary.gd`.
-Maker: *"also shatter is too weak of a spell change it or make it more powerful or easier
-to hit with"*. They named both acceptable routes themselves, so the job is to diagnose
-WHICH. ⚠ Shatter is a delayed/marked payoff (`Shatter.gd` has a `_draw_marked` loop over
-bodies marked earlier), so "too weak" may really be "the mark expires before I can cash
-it" — a REACH/WINDOW problem, not a damage one. Raising damage in that case leaves it
-feeling exactly as bad while hitting harder on the rare occasions it lands.
-
-**(g) The Cryomancer cannot dash upwards** — folded into (e), which already owns `Hero.gd`.
-Maker: *"also make sure I can dash upwards with cryomancer as well"*. Its verb is
-`ice_slide`, whose own comment says a slide BLEEDS speed and integrates a linear decay —
-so it is very likely a ground-plane slide that drops the vertical component and gives you
-a horizontal skid when you aim up. ⚠ **Do not turn it into a generic dash**: the standing
-ruling is nine classes / nine unique movement verbs, and this one's identity IS the decay.
-A slide that can be aimed upward and still bleeds speed is still a slide.
-`slice_test_class_movement` pins the nine verbs and their distance bands.
-
-### ⚠ A PRE-EXISTING BUG WORTH FIXING FIRST — THE MUSIC BUS NEVER LOADS
-
-Every headless run today printed `ERROR: Unrecognized UID: "uid://dh7jpov3r60sy"`. That is
-`default_bus_layout.tres`, so the **Music bus never resolves and `set_bus_linear("Music",
-…)` is a silent no-op** — reproduced on a PRISTINE HEAD checkout, so it is not from any of
-this session's work. It surfaces as `slice_test_settings` intermittently failing "music
-volume came back". The known cure is a headless re-import:
-
-```
-godot --headless --path godot-project --import
-```
-
-Not run during this session because four agents were mid-edit and the maker had the editor
-open — a re-import rewrites the `.godot` cache and `.uid` sidecars. **Do it on a quiet
-tree, first thing.**
-
-### PLAY IT
-**F5** → title → Single Player. **Lobby → Watch Bots** for the showcase.
-The Android APK is stale — it predates every commit below.
+1. **Half the UI's icons were never being drawn and now are.** See the font block below.
+   The touch D-pad, the title screen's two primary buttons and every padlock were blank.
+   Look at the title screen, the pause menu, the armoury, and a phone build.
+2. **The class roster is restyled** — element-coloured rows, a drawn stickman, a real type
+   hierarchy, no armoury button.
+3. **Nineteen armoury items are real** and unplaytested. "Nothing is unpickable" is not
+   "these are the right numbers".
 
 ---
 
-## ▶ THE OPEN DESIGN QUESTION — asked, not answered
+## ⚠ THE FINDING THAT MATTERS MOST — THE THEME HAS NO FONT
 
-Maker: *"the classes should amplify current spells but it shouldnt prevent any player for
-taking any spell."* The second half is built (the Grimoire pool is not gated by class).
-**The first half is not, and needs the maker's steer before anyone builds it.**
+`assets/ui/stickspire_theme.tres` carries 21 font_size/font_color entries and **not one
+Font resource**, and there is no font file anywhere in the repo. Every control falls back
+to Godot's built-in Open Sans subset, whose coverage stops at Latin-1. `has_char` is false
+for 12 of 15 symbols probed. **Godot draws a zero-width nothing and raises no error**,
+which makes this the hardest class of bug to report: the person looking at it can only say
+"it needs to look better".
 
-There is no per-class amplification today: a Warlock casting The Void casts exactly what
-an Arcanist casting The Void does. The bots already have machinery to copy —
-`BotMatch.CLASS_POWER` is a per-class damage multiplier written straight onto
-`_growth_damage_mult`. The question is which axis it rides:
+What was invisible — not decoration:
 
-* element affinity (shadow spells hit harder on the Warlock, holy on the Cleric), or
-* a flat per-class multiplier like the bots', or
-* per-role (the class's own authored role for that slot is the one amplified).
+* **The on-screen touch D-pad.** `◂ ▸ ▲ ✕` are left, right, jump and close in `World._pad`.
+  On a phone, the platform this game is built for, they were four blank rectangles.
+* **Both primary verbs on the title screen.** `SINGLE PLAYER ▸` and `MULTIPLAYER ▸` drew
+  the words followed by two blank columns.
+* **The padlock** on every locked armoury row and every locked spell.
+* The class roster's leading colour block — the source calls it "the leading block on a
+  rail row, drawn in the class colour" and it had never once been drawn.
+* The colour picker's swatch and both state marks — a colour picker with no colour.
+* The hub signpost, the guardian banner, the exit pad arrow, the speech bubble's dots, the
+  music toast, all four Settings chevrons, and the Armory and Reset Hand buttons.
 
-Ask before building. It moves every class's balance at once.
+Fixed by DRAWING blocks as `StyleBoxFlat` borders and substituting verified-drawable
+characters (`« » ‹ › • · † ‡ × §`). `slice_test_font_coverage` guards 237 files.
 
----
-
-## ▶ THE QUEUE
-
-**1. TAVERN LOBBY + TITLE BUTTONS — IN THE TREE, UNCOMMITTED.** See the block above.
-   The brief: *"make the lobby very different like a tavern vibe ... not outside at a
-   campfire but instead inside of a tavern with warm lit and cool graphics"*, plus *"the
-   far left side of the lobby can be a little further out before the invisible barrier"*.
-   ⚠ **THE MAKER ASKED TWICE FOR THE TITLE BUTTONS TO SHRINK**, which usually means the
-   first attempt was not visible enough: *"remove the box on the home screen around the
-   single player multiplayer etc. options"* and *"make the single player multiplayer etc.
-   buttons smaller so that they dont overshadow the cool graphic on the left"*. Read that
-   as NARROWER and moved clear of the artwork — `slice_test_settings` requires those two
-   named primaries to clear 46 px of HEIGHT (9 mm, a thumb target) and caps the secondary
-   band at two rows, so shrinking their height would break a measured rule. Verify with a
-   number, not by eye.
-
-**2. CLASS SELECT NEEDS A REVAMP — the one ask left completely untouched.** Maker:
-   *"please revamp how the class selection looks it needs to be simple and way more
-   aesthetic and easier to use"*, and separately *"there should be class selection as the
-   main theme and then a change spells button, no need for the armoury button within the
-   class selection"*.
-   ⚠ The current master-detail rail was ITSELF the product of an earlier *"revamp how the
-   class selection looks"*, so a third pass done blind will probably miss again. **Get a
-   direction from the maker first.** The keyboard/hover preview added this session works
-   and should survive any restyle (`ClassSelect.gd`: arrows and hover move ONE cursor, and
-   the rail rows are `FOCUS_NONE` because Godot's own focus walk eats `ui_down` and skips
-   disabled rows — which are exactly the guarded classes a preview is most for).
-
-**3. MULTIPLAYER → A REALM / CHARACTER SCREEN. BLOCKED ON TWO FACTS, not on effort.**
-   Maker: *"pressing multiplayer should take you to a character selection screen where you
-   can add other people to your realm etc. and connect local play"*.
-   * `Net.MAX_PLAYERS = 2`. "Add other people" implies 3+, which contradicts the settled
-     mobile scope-lock (2 players, one-screen floors).
-   * **There is no player identity at all.** `Net` tracks `peer_class` and nothing else —
-     no display name, no friend list, nowhere to store one. A realm screen built today
-     could only ever say "Player 2 — Stormcaller". It is a persistence feature wearing a
-     UI feature's clothes.
-   Local play already exists and works (`Host Co-op` routes through loopback); it is
-   simply not labelled as local.
-
-**4. GEAR THAT REPLACES A BODY PART, AND UNLOCKS YOU CAN READ.** In flight as (b) above.
-   Maker: *"no need for an armoury button within the changing class selection and the
-   grimoire is cool but still not clear what is unlockable and what isnt like for the
-   class and how to unlock it same with the armoury items please make mock versions of
-   like helmets and stuff that replace the character head are not work on top and other
-   items that emphasise what they do and do some thinking on how these items should be
-   unlocked"*.
-   ⚠ **THE MAKER'S INSIGHT IS THE DESIGN.** A helmet drawn OVER a stick figure's head
-   reads as a hat balanced on a dot, which is very likely why `CharacterRig.GEAR_DRAW` is
-   `false` and gear does not render at all — overlay gear looked wrong, so it was switched
-   off rather than redrawn. If the helm IS the head — same slot, different outline — the
-   figure stays a stick figure and the item reads at 640x360. Sticks stay sticks; the
-   PARTS change shape.
-   **The unlock design, and do not invent a currency:** guardians already grant a banked
-   PICK spent at the class altar (`Progression.CLASS_UNLOCK_FLOORS`, real and tested, and
-   currently disabled by `ALL_CLASSES_UNLOCKED = true`), and
-   `docs/superpowers/specs/2026-08-04-spell-trees-and-progression-design.md` specifies
-   Skill Points and was never built. The Grimoire and Armoury should be the VIEW onto
-   those: every row HELD / EARNABLE (with the exact verb on it) / CLASS-LOCKED (saying
-   whose). ⚠ While `ALL_CLASSES_UNLOCKED` is true everything correctly reads as HELD —
-   flip it to actually SEE the three states.
-
-**5. FLOATING PLATFORMS CARVE INTO BITS.** In flight as (c) above. Maker: *"please make
-   the floating platforms destroyable into bits just like the floor was beforehand"*.
-   Not a contradiction of the solid-ground ruling: a ledge is optional footing, the floor
-   is the floor.
-   ⚠ **THE TRAP**: `carve_area` finds its stage by scanning `GROUP_NAME` and returning THE
-   FIRST MEMBER — written for a world with exactly ONE stage. If platforms join that
-   group, every carve in the game routes to whichever platform is first. The right
-   primitive is `carve_from_body`, which routes by `BODY_META` on the collider actually
-   hit. `slice_test_one_screen` asserts nothing is left in that group; if it goes red, the
-   wrong route was taken — do not relax it.
-
-**6. ARMOURY: RECOLOUR THE STICKMAN PER PART.** Maker: *"in the armoury I should also be
-   able to change the colour of my stickman figure the colour of his head body and legs
-   individually"*. Not started, and distinct from item 4 (that one is SHAPE, this is
-   TINT). Today there is one whole-figure colourway (`Outfitter.chosen_colourway` →
-   `GameState.colourway` → `Hero._configure_class`). Three independent tints means a new
-   save shape and three pickers on a screen already measuring 338 px against a 360 px
-   ceiling — the HEIGHT is the hard part, not the tints.
-
-**7. REAL ARMOURY ITEMS.** The placeholders are still inert and the real stat ranges are
-   gone: max HP 0.94-1.20x, move speed 0.92-1.12x, melee damage 0.82-1.30x, cooldown
-   0.70-1.30x, knockback 0.88-1.40x, a 0.40 one-shot ward, 0.15 flat mitigation. Any class
-   quietly tuned around "you will wear a helmet" is squishier than intended. Machinery,
-   saves, sanitiser and paper doll are already wired — this is authoring, not plumbing.
-   ⚠ `CharacterRig.GEAR_DRAW` is FALSE under the "just stickmen" ruling, so helms and
-   armour will not render on the doll even as real items. Only held weapons do.
-
-**8. WALLS DO NOT TAKE THE MATERIAL THEY ARE MADE OF.** Still the best unbuilt idea in the
-   destruction work — a rock wall leaving a trench exactly as long as it is wide makes
-   cover and hazard one act. Needs a **capsule sibling to `carve_disc`**: a wall's
-   footprint is a long thin SPAN, and a row of discs is the shape most likely to move the
-   severed-run number off 0. `HorizonArc` is deliberately unwired for the same reason and
-   waits on the same primitive.
-
-**9. `probe_reachability` REPORTS 252 OF 939 PUBLIC ENTRY POINTS WITH NO SHIPPING CALLER.**
-   It is a REPORT, not a gate, and it over-reports for autoloads. Read it and promote what
-   matters, the way `slice_test_wall_reachable` already did for the shove.
+> **⚠ THIS IS THE WORKAROUND. THE FIX IS A FONT, AND IT IS THE MAKER'S CALL.**
+> Ship a font with symbol coverage and the suite goes green on its own, and every glyph
+> above comes back looking the way it was written. `WAIVED` is deliberately empty:
+> anything that needs to be in it is a symbol someone wants and cannot have.
 
 ---
 
-## WHAT LANDED THIS SESSION (all measured, none playtested)
+## ▶ THE THREE THINGS THE MAKER MUST DECIDE
 
-**THE BIG ONE.** The maker watched Watch Bots and said the main game did not have "all
-these cool classes spells and interactions". Investigated rather than guessed; three gaps
-were real:
+**1. A FONT (see above).** The single highest-value visual change available.
 
-1. **The climb had NO destructible terrain at all.** `VersusArena` held the ONLY line in
-   the project that ever constructed a `DestructibleStage` — so the showcase, the duel and
-   Free Play had it and the tower never did. All 21 carve call sites were dead there,
-   silently, because the refusal counters live ON the stage that did not exist.
-   ⚠ **AND THE MAKER THEN RULED IT BACK OUT** after trying it: *"also dont make the ground
-   destroyable"*. Ground is solid; crates, props and every ledge break.
-   **Do not re-add the ground slab.**
-2. **Eleven spells were castable only by bots** — the nine Tier 3s and both Tier 2s,
-   reachable only through `BotMatch._grant_showcase_drop`, because `TOWER_SPELL_DROPS` is
-   false by the maker's own earlier ruling. Now equippable in the hub: the **Grimoire**.
-3. **Showcase fighters are a different power tier** — roughly 3.3x HP, a per-class damage
-   multiplier, and `SHOWCASE_COOLDOWN_MULT` 1.6 giving each cast room to READ on screen.
-   Untouched, and it is the remaining reason a climb fight does not look like a bot fight.
+**2. THE BRAWLER IS PAID NOTHING BY ELEMENT AFFINITY.** Measured, not assumed: its class
+element is FIRE and its entire hand is EARTH (Stomp, Petrify, Rock Wall, Boulder Hurl,
+Meteor Fist). Coherent for a no-magic class whose fire lives in `melee_element`, but
+coherent is not intended. Three ways out, all the maker's: `CLASS_CONFIG` is stale and the
+Brawler is really EARTH; it wants one fire spell in hand; or the melee class sits this out.
+Recorded in `UNPAID_CLASSES` and asserted BOTH ways, so giving it a fire spell goes red
+pointing at the note, and a second class falling off goes red too.
 
-**Fixed from the playtest:** the RMB/Spc labels overlapped by ~4 px at desktop scale (no
-probe in the repo had ever measured two DRAWN strings against each other — only each
-string against its own box); slot 1's stray gold ring was a vestigial "last cast" marker
-and the ult's ring now closes as it recharges; Juggernaut and Swordsaint drew TWO attack
-shapes on one press; **close-range melee missed because the attacker lunges 13-18 px past
-the target between the press and the hit frame** (measured 0 hits at every distance
-before, 1 after); Nova removed from all nine classes; the class roster previews on arrows
-and hover, and its three guarded rows were never actually being dimmed; one sigil on a
-cleared floor; the wand's "3 glowing lights" were the aura re-drawing the whole figure —
-weapon included — three times, scaled about the BODY origin; Shadowburst travelled 40 px
-further than a FREE movement button (now 420); Zanshin's tally buys CUTS instead of one
-bigger cut; the head bar sits higher; elites cast the ORPHAN spells no class carries;
-**a boss's ballistic leap was overwritten by the walk drive one frame after launch** (113
-airborne frames producing 99 px of travel — it pogoed off the ledge's underside for ever),
-and the Illuminator and Cartographer now fly; the Warlock carries a void rod, SPACE dashes
-and R swaps with its thrall.
+**3. WHY A CLIMB FIGHT STILL DOES NOT LOOK LIKE A BOT FIGHT — AND IT IS NOT COOLDOWNS.**
+The climb already pays x1.8 on quick and heavy spells. The gap is **HP**: a showcase
+fighter has 320 to a base hero's 100, so the fight lasts long enough to see a whole kit.
+Left untouched deliberately — it moves the whole game's balance at once.
+
+---
+
+## ▶ WHAT LANDED (8 commits; each message carries its own red-run evidence)
+
+* **`a438566` the Music and SFX sliders were writing into a mixer that did not exist.** The
+  bus layout was referenced by `uid://`, which resolves through untracked build output the
+  editor rewrites. When it failed Godot booted a ONE-BUS default, so
+  `get_bus_index("Music")` was -1 and every volume write was silently discarded. Now a
+  `res://` path, which consults no cache. The re-import on record treated the symptom once
+  per machine.
+* **`3b7d16f` element affinity** — a spell of your class's own element hits 1.25x harder.
+  Shatter 62 → 78 for a Cryomancer, 62 for an Arcanist. Bonus-only, never a penalty. Rides
+  `_base_element`, not `_element`, or a spellement staff would make it unconditional. The
+  amplified slot wears its element's colour on `LoadoutBar`, because the damage number is
+  already tinted by element, so the bonus is invisible at impact by construction.
+* **`bd86a75` three tints** — head, body, legs, and a helmet takes the head's. Six capture
+  tools write `limb_color` DIRECTLY, so the parts are OVERRIDES with an unset sentinel;
+  plain fields would have drawn a recoloured torso on a default-blue head in every one of
+  them, and no existing test could have seen it.
+* **`518deeb` walls take the material they are made of** — `carve_capsule`. Severed run
+  0 → 56 px, honestly compared against 16 px for the best a single disc could do (the walls
+  carved nothing before, so 0 was trivially true). **Cheaper** than the 36 disc calls it
+  replaces — 516 vs 637 us — while removing more, because a disc row leaves scallops.
+  `HorizonArc` finally wired.
+* **`0c22676` the class roster restyled** — the maker picked this shape from three mockups.
+* **`1d6e220` nineteen real armoury items** — and **the legs slot was never being read**:
+  `Hero` walked a three-slot literal in TWO places while `GameState.LOADOUT_SLOTS` has said
+  four for a long time. Found by DRIVING a real Hero (16 of 19 pieces moved a stat, the
+  three greaves moved exactly 0), not by reading the table. Both loops walk
+  `Hero.GEAR_SLOTS` now.
+* **`d135120` the player has a name** — `user://profile.json`, carried across the wire and
+  sanitised ON RECEIPT, bidi overrides included (U+202E reverses the rendering of
+  everything after it, so a peer's name could rewrite the text this game wrote next to it).
+  And **Local Play finally exists**: `LocalCoop.gd` was real and built on every offline run,
+  but `SessionKind.LOCAL` was written by nobody, so a couch game was never a party.
+* **`9be9624` the font fix** (above).
+
+---
+
+## ▶ WHAT IS LEFT
+
+**1. PLAYTEST.** Nothing above has been. That is the only real item.
+
+**2. A FONT.** See above.
+
+**3. `probe_reachability` REPORTS 252 OF 939 PUBLIC ENTRY POINTS WITH NO SHIPPING CALLER.**
+A report, not a gate, and it over-reports for autoloads. Read it and promote what matters,
+the way `slice_test_wall_reachable` already did for the shove.
+
+**4. TWO CARVE LIMITATIONS LEFT ALONE ON PURPOSE — both fixes are FEEL changes.**
+`RockPillar` stays on `carve_disc`/`carve_area`: a column's contact IS round, and its seat
+comes from a piercing floor probe that has already gone through any plank the fang grew
+through, so routing it by body would carve UNDER the ledge. `IceWall` has the same piercing
+seat and got a 6 px non-piercing probe as a local workaround; making the seat itself
+non-piercing, as `RockWall` already is, would move where every ice wall in the game plants
+itself.
+
+**5. `GameState.colourway` STILL HAS NO WRITER.** Pre-existing. It is the middle link of
+the per-part fallback chain, so wiring `Outfitter.chosen_colourway` into it would make
+unpainted parts follow the pause-menu pick automatically. Until then they follow the
+fallback, which is what `Hero` passes.
+
+**6. `_host()` CALLS `visit_hub()`**, so hosting navigates immediately and Start Run is
+effectively unreachable from the title. Already true of the old coop panel; the button is
+kept as a fallback for when `visit_hub` fails.
 
 ---
 
 ## ⚠ TRAPS THIS SESSION PAID FOR — do not re-learn these
 
-* **THE GODOT EDITOR STRIPS `project.godot` KEYS WHILE IT IS OPEN.**
-  `common/physics_ticks_per_second` and BOTH `renderer/rendering_method` lines went
-  missing mid-session while the maker was playtesting. `slice_test_mobile_config` is the
-  guard. **Run it before any push**, along with `check_window_override.py`.
-* **A tracked file was corrupted by stray keystrokes** — `rigddddddddaaaaaaaa()` appeared
-  in `EliteHerald.gd` and took THREE unrelated suites down at once. If several unrelated
-  suites fail together, `git diff` before debugging any of them.
-* **Do NOT edit code through shell heredocs.** Python-through-bash emitted a literal
-  `.strip()` into GDScript this session, on top of the three `\n` incidents already on
-  record. Write a patch FILE with single-occurrence anchors and **assert the count** —
-  that assertion caught a double-apply that had already duplicated two lines.
-* **Subagents with STRICT file ownership work** — five used, zero collisions — but their
-  in-flight edits make a full sweep unreadable. Verify per-suite and commit per-agent, and
-  never accept "that failure is not mine" without checking: one agent was right about
-  exactly that and another was wrong about it an hour apart.
-* **A test that has never gone red is a test of the fixture.** Every behavioural change
-  here was run against its own disabled fix first, which is what caught: a 0.4 px residual
-  overlap AFTER the "fix"; `void_barrage`'s elite damage set to exactly its library value
-  ("re-tuned" that had re-tuned nothing); and two preconditions quietly reading a node
-  that had already freed itself.
-* **A precondition ORed against the thing it precedes is not a precondition.**
-  `flag or carve_events > 0` is true on a green tree however dead the flag reads.
-* **`_apply_room_size` is re-driven on every floor**, so anything it builds must be
-  find-or-create — and a `DestructibleStage` must be removed from its GROUP before being
-  freed, because `stage_in` returns the FIRST member and a stale one silently catches
-  every carve in the game.
+* **A GATE BUILT FROM AN ALLOWLIST OF SINKS MISSED THE FRONT DOOR.** The font suite matched
+  `.text =` and walked straight past `_button("SINGLE PLAYER ▸", …)` — a CONSTRUCTOR
+  ARGUMENT. The set of ways a string can reach a control is open; the set of sinks that are
+  NOT the screen is small and closed. **Invert the rule: suspect everything, exempt the
+  console.** That widening took the count from 3 remaining to 36.
+* **SIX CONCURRENT OPUS AGENTS EXHAUSTED THE SESSION LIMIT** and all six died mid-edit. One
+  had called two helpers it had not yet written, so `CharacterRig.gd` did not parse and
+  EVERY rig suite went down — while the other five were being told to verify against it.
+  Run **three at a time**, and on a resume `git status` and prove the tree PARSES before
+  believing any suite result.
+* **A FULL SWEEP IS UNREADABLE WHILE AGENTS ARE WRITING.** Proved, not assumed:
+  `slice_test_bout_runs_clean` reported FAIL in a sweep and passed clean run alone. Verify
+  per-suite during, sweep once at the end.
+* **NAMING A CLASS IN A TEST MAKES IT A COMPILE-TIME DEPENDENCY**, which in a `--script` run
+  resolves BEFORE autoloads register — so an audio autoload was unresolvable, `load().new()`
+  handed back an uncompiled script, three tests aborted, and the console blamed an unrelated
+  file another agent happened to be editing. Read constants via `get_script_constant_map()`.
+* **`--script` DOES register this project's autoloads** (all twelve). Only `--check-only`
+  against a script compiles its chain before the autoload table exists.
+* **A TEST THAT HARDCODES A GLYPH BREAKS WHEN THE GLYPH MOVES.** `slice_test_outfitter`
+  asserted a literal `◈` that was never drawn, then failed on its own private copy of the
+  answer. Both sides read `Outfitter.RARE_BADGE` now.
+* **SCRAPING SOURCE TEXT FOR A LITERAL IS WHY THE LITERAL DRIFTED.** `slice_test_gear`
+  scraped Hero's inline slot array because "there is nothing to reflect over" — which is
+  exactly how the same list came to say three slots in two functions. Name the const and
+  reflect over it.
+* Still true from before: **the Godot editor strips `project.godot` keys while it is open**
+  (`slice_test_mobile_config` guards it; run it before any push), **do NOT edit code through
+  shell heredocs** (write a patch FILE and assert single-occurrence anchors — that assertion
+  caught a double-apply again this session), and **a precondition ORed against the thing it
+  precedes is not a precondition**.
 
 ## HOW TO VERIFY
 ```
-python python-tools/run_all_tests.py --jobs 3        # ~205 suites, ~260s
+python python-tools/run_all_tests.py --jobs 3        # 215 suites, ~340s
 python python-tools/check_window_override.py         # 1366x768 committed
 godot --headless --path godot-project --script tools/slice_test_mobile_config.gd
+godot --headless --path godot-project --script tools/slice_test_font_coverage.gd
 ```
