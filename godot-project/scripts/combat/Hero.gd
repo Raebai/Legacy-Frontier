@@ -2995,6 +2995,25 @@ func set_loadout(slot: String, kind: String) -> void:
 ## Apply the hub Armory's loadout override (GameState.loadout) after the class base:
 ## any non-empty slot swaps the class-default piece for the player's choice, then the
 ## gear abilities recompute once. No-op when nothing is overridden (default classes).
+## THE FOUR SLOTS A PLAYER CAN EQUIP, and it must stay four.
+##
+## ⚠ THIS WAS `["weapon", "head", "body"]`, HARDCODED IN TWO PLACES, AND IT DROPPED THE
+## LEGS. `GameState.LOADOUT_SLOTS` has been four for a long time: the armoury offered
+## greaves, the save round-tripped them, the paper doll drew them, and then BOTH of this
+## file's loops walked three literals — so equipping boots put nothing on the rig and read
+## no effect. Measured rather than reasoned: driving a real Hero, 16 of 19 pieces moved a
+## stat and the three greaves moved exactly 0. It looked like an authoring gap for two
+## years' worth of items and it was one missing string, twice.
+##
+## ⚠ MIRRORS `GameState.LOADOUT_SLOTS` AND MUST MOVE WITH IT — the same contract
+## `Enemy.RIG_HEAD_R_FACTOR` has with `CharacterRig.HEAD_R_FACTOR`. It is a const here
+## rather than a read of that autoload because both loops run in contexts where GameState
+## is absent (bots, thralls, headless suites) and a slot list that silently empties itself
+## is exactly the failure this comment exists about. `slice_test_gear` scrapes this loop
+## and fails if it and the registry disagree in EITHER direction.
+const GEAR_SLOTS: Array[String] = ["weapon", "head", "body", "legs"]
+
+
 func _apply_gamestate_loadout(gs: Node) -> void:
 	if gs == null:
 		return
@@ -3002,7 +3021,7 @@ func _apply_gamestate_loadout(gs: Node) -> void:
 	if not (lo is Dictionary):
 		return
 	var changed: bool = false
-	for slot: String in ["weapon", "head", "body"]:
+	for slot: String in GEAR_SLOTS:
 		var kind: String = String((lo as Dictionary).get(slot, ""))
 		if kind != "":
 			_gear_override[slot] = kind
@@ -3139,7 +3158,7 @@ func _aggregate_gear() -> Dictionary:
 	# Juggernaut's 21.8% simply SWALLOWS a 15% gear piece, so the armour you equipped
 	# would silently stop doing anything the moment you out-levelled it.
 	# Growth's WARD is composed as its own layer in `_recompute_gear_effects`.
-	for slot: String in ["weapon", "head", "body"]:
+	for slot: String in GEAR_SLOTS:
 		var kind: String = String(_gear_override.get(slot, ""))  # only player CHOICES grant abilities
 		if kind == "":
 			continue

@@ -16,30 +16,47 @@ extends CanvasLayer
 ## the reading taken here is deliberate and stated: THE MACHINERY STAYS, THE CONTENT
 ## GOES. Slots, the equip flow, Hero._recompute_gear_effects, the save round-trip and
 ## the read-out are all exactly what a real item will need on the day one exists. What
-## is being rejected is the CATALOGUE - nineteen stat-tweak weapons and hats that were
+## is being rejected is the CATALOGUE - sixteen stat-tweak weapons and hats that were
 ## never the "custom armour and spellements" this screen is supposed to be. So the
-## nineteen are no longer OFFERED (see GearAbilities.PLACEHOLDER_SLOTS); their rows
+## sixteen are no longer OFFERED (see GearAbilities.PLACEHOLDER_SLOTS); their rows
 ## survive because the rig, the enemy roster and two other people's test suites read
 ## them. The header of GearAbilities.gd carries that argument in full.
 ##
-## /!\ THE PLACEHOLDERS ARE HONESTLY INERT - EVERY `effect` IS `{}`. A placeholder that
-## quietly applied +15% damage would be worse than no placeholder at all: it would look
-## like content, behave like balance, and get tuned around long before anyone noticed it
-## was a stub. That costs real gameplay, and the cost is written down rather than
-## discovered in play - every number the armoury used to hand out is listed in the
-## report that shipped with this change.
+## == AND THEN THE DAY CAME =====================================================
+## /!\ THE NINETEEN PROMISES HAVE BEEN KEPT, AND THIS FILE STOPPED APOLOGISING FOR THEM.
+## They shipped as named promises with empty effect bags, and everything on this screen
+## was built to say so out loud: a dimmed button, a trailing "*", a [NOT YET IMPLEMENTED]
+## stamp in the detail pane, a dashed schematic ring instead of an item on the doll, and
+## a caption reading "no stats yet". Every one of those was correct and every one of them
+## is now a LIE, which is the failure mode nobody looks for - an apology that outlives the
+## thing it apologised for reads as "this slot is broken", and a player who believes that
+## never equips a piece that works. Removing them is not cosmetic tidying; it is the other
+## half of shipping the items.
+##
+## What survives is the honesty MACHINERY, aimed at what is actually still missing:
+##   * `GearAbilities.is_placeholder` still exists and this screen still renders it. It
+##     answers false for all nineteen today, and it is the seam the NEXT batch of stubs
+##     hangs on. Deleting it would mean the next promise ships with no way to admit it.
+##   * `GearAbilities.is_unwired` is new and answers TRUE for the three greaves, whose
+##     stats are real, budgeted and asserted but sit in a slot `Hero._aggregate_gear`
+##     does not iterate. They are captioned [SLOT NOT LIVE YET] - a different sentence
+##     from [NOT YET IMPLEMENTED] on purpose, because "we have not built this" and "this
+##     is built and waiting on one literal in Hero.gd" are different apologies and the
+##     player is owed the accurate one.
 ##
 ## == THE PAPER DOLL, AND WHY IT LOOKS SCHEMATIC ===============================
 ## The figure is a real CharacterRig - the SAME class the town player and the combat
 ## hero draw with - not a second drawing of a stick figure. It wears the class preset,
 ## so it is your body.
 ##
-## A placeholder must not put GEAR on it. The two failure modes are symmetrical and both
-## are lies: a placeholder that changes nothing on the doll makes the slot read as
-## broken, and a placeholder that changes the doll claims to be implemented. So an
-## equipped placeholder draws a SCHEMATIC MARKER at the point on the body it would
-## occupy - a dashed ring and the slot's initial, obviously a diagram rather than an
-## item. The screen shows WHERE a piece goes without pretending one is on.
+## The dashed SCHEMATIC MARKER on the doll was written for placeholders - a piece that
+## changed nothing on the body made the slot read as broken, and a piece that changed the
+## body claimed to be implemented, so a dashed ring said "a piece goes HERE" without
+## pretending one was on. Its condition has moved with the items: it now marks any
+## equipped piece THE RIG CANNOT DRAW, which today is exactly the eight spellements. That
+## is the same job for a better reason - a spellement is a real item now, but it attaches
+## to a spell rather than to a body, so it has no silhouette to show and the ring is the
+## only channel that can tell you the slot is filled.
 ##
 ## /!\ CharacterRig.GEAR_DRAW (the master clothing switch) is FALSE on the maker's
 ## "I just want to see STICKMEN". Helms and armour therefore would not be drawn on the
@@ -101,7 +118,18 @@ const HIGHLIGHT: Color = Color(0.55, 0.9, 1.0)
 ## menu untappable and unreadable on a phone - a disabled Button eats its own press, so
 ## the detail pane could never explain what the item WILL do, and reading the promises
 ## is the entire job of this screen right now.
+##
+## /!\ NOTHING IN THE ARMOURY IS DIMMED BY THIS ANY MORE. All nineteen carry live stats,
+## so `is_placeholder` answers false for every one of them and this tint is reached only
+## by a FUTURE stub. It is kept, unused, for the same reason the flag it reads is kept:
+## the next promise needs somewhere to look like a promise. `UNWIRED_TINT` is what the
+## three greaves actually get.
 const PLACEHOLDER_TINT: Color = Color(0.72, 0.72, 0.78)
+## REAL, but in a slot the Hero does not read yet (the greaves - see the header). Dimmed
+## slightly less than a placeholder and cooler than the two LOCKED tints, because this is
+## the mildest of the four caveats: the item is finished, the wiring is one literal away,
+## and it is the only one of them that will clear itself without any design work.
+const UNWIRED_TINT: Color = Color(0.78, 0.82, 0.88)
 ## EARNABLE — visible, dim, and captioned with the verb that opens it.
 const LOCKED_TINT: Color = Color(0.46, 0.48, 0.55)
 ## CLASS_LOCKED — dimmest AND warm, so the two refusals are told apart by hue and not
@@ -266,19 +294,23 @@ func _on_doll_draw() -> void:
 	var lo: Dictionary = _loadout()
 	for slot: String in SLOTS:
 		var kind: String = String(lo.get(slot, ""))
-		if kind == "" or not GearAbilities.is_placeholder(kind):
+		if kind == "":
 			continue
-		# /!\ AND NOW ONLY FOR A PIECE WITH NO SILHOUETTE. The maker asked to SEE the mock
-		# items, so every helm / armour / greave draws on the body above (see
-		# CharacterRig.MOCK_HEAD). A dashed ring drawn over a piece that is already on the
-		# figure would read as "this failed to load". The eight SPELLEMENTS still get one,
-		# because a spellement attaches to a spell and has no body part to become — which
-		# is the case this marker was written for.
+		# /!\ THE CONDITION IS NOW "NO SILHOUETTE", NOT "IS A PLACEHOLDER", AND DROPPING
+		# THE OLD TEST WAS THE WHOLE FIX. It read `is_placeholder(kind)` first, which was
+		# every offered piece; now it is NONE of them, so leaving it would have silently
+		# stopped drawing every marker and made the spellement slot look like it did
+		# nothing when tapped. The maker asked to SEE the mock items, so every helm /
+		# armour / greave draws on the body above (see CharacterRig.MOCK_HEAD) and a ring
+		# over one of those would read as "this failed to load". The eight SPELLEMENTS get
+		# one, because a spellement attaches to a spell and has no body part to become —
+		# which is the case this marker was written for, placeholder or not.
 		if CharacterRig.draws_kind(kind):
 			continue
-		# SCHEMATIC ON PURPOSE - a dashed ring, not a piece of gear. See the header:
-		# drawing real art here would claim the placeholder works, and drawing nothing
-		# would make the slot read as broken. This says "a piece goes HERE, later".
+		# SCHEMATIC ON PURPOSE - a dashed ring, not a piece of gear. Drawing invented art
+		# for a spellement would claim the stick figure is carrying something it is not;
+		# drawing nothing would make the slot read as broken. This says "something is
+		# attached HERE" and lets the detail pane say what.
 		var c: Vector2 = _slot_anchor(slot)
 		var col := Color(0.55, 0.9, 1.0, 0.85)
 		var segments: int = 12
@@ -291,15 +323,16 @@ func _on_doll_draw() -> void:
 		var initial: String = String(SLOT_LABELS[slot]).substr(0, 1)
 		_doll.draw_string(ThemeDB.fallback_font, c + Vector2(-3.0, 3.5), initial,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, col)
-	# Caption. Names what the box is and - because every offered piece is a promise right
-	# now - says so where the player's eyes already are.
-	# /!\ THE CAPTION CHANGED WITH THE RULING ABOVE, and the old wording is why. It read
-	# "PREVIEW - pieces not yet worn", which was true when nothing drew and is now a lie
-	# on a body visibly wearing a helm. What is still absent is the STAT, not the item, so
-	# the caption says that instead — same honesty, aimed at the thing that is actually
-	# missing.
+	# Caption. Names what the box is, in the one place the player's eyes already are.
+	# /!\ THIRD WORDING, AND EACH ONE WAS TRUE WHEN IT WAS WRITTEN. It read "PREVIEW -
+	# pieces not yet worn" while nothing drew, then "PREVIEW - mock look, no stats yet"
+	# once the mock art landed but the bags were still empty. Both are lies now: the
+	# pieces are worn AND they carry stats. A caption is the cheapest thing on a screen to
+	# leave behind and the most expensive to be wrong, because it is read as the summary
+	# of everything above it - so it now claims only what is still true, that this is a
+	# preview of your figure rather than the figure itself.
 	_doll.draw_string(ThemeDB.fallback_font, Vector2(6.0, DOLL_H - 6.0),
-		"PREVIEW - mock look, no stats yet", HORIZONTAL_ALIGNMENT_LEFT, DOLL_W - 12.0, 9,
+		"PREVIEW - your figure, wearing your picks", HORIZONTAL_ALIGNMENT_LEFT, DOLL_W - 12.0, 9,
 		Color(0.62, 0.67, 0.78))
 
 
@@ -348,8 +381,18 @@ func _option_label(kind: String) -> String:
 	# taken carries its own condition — the same fix the grimoire's "(slot 4 only)" is.
 	var st: int = _state_of(kind)
 	if st != Progression.Owned.HELD:
-		return "%s  🔒 %s" % [piece_name, Progression.gear_unlock_short(kind, ClassInfo.names())]
-	return piece_name + " *" if GearAbilities.is_placeholder(kind) else piece_name
+		return "%s  — %s" % [piece_name, Progression.gear_unlock_short(kind, ClassInfo.names())]
+	# /!\ THE TRAILING "*" USED TO MEAN "NAMED, NOT YET IMPLEMENTED" AND IT IS GONE FROM
+	# EVERY WORKING PIECE. It marked all nineteen while they were empty promises; leaving
+	# it on a live item would tell a scanning player that a piece which now grants +20%
+	# max HP does nothing, and the button is the surface they actually read. It survives
+	# for a genuine stub, and "~" is the milder mark for a finished piece whose SLOT is
+	# not read yet - a different claim, so a different character.
+	if GearAbilities.is_placeholder(kind):
+		return piece_name + " *"
+	if GearAbilities.is_unwired(kind):
+		return piece_name + " ~"
+	return piece_name
 
 
 ## HELD / EARNABLE / CLASS_LOCKED for one piece, against the live save. `""` (Default) is
@@ -442,10 +485,10 @@ func _preview() -> void:
 	var preset: String = _preset()
 	if _rig != null and preset != "":
 		_rig.class_preset(preset)
-	# /!\ PLACEHOLDER KINDS ARE NEVER HANDED TO A RIG. set_equipment tolerates an unknown
+	# /!\ UNDRAWABLE KINDS ARE NEVER HANDED TO A RIG. set_equipment tolerates an unknown
 	# kind (it draws nothing), so this is not a crash guard - it is an honesty guard. A
-	# placeholder must not sit in the rig's equipment dict as though it were a piece; the
-	# doll's dashed marker is where it gets to appear.
+	# spellement must not sit in the rig's equipment dict as though it were something the
+	# figure is wearing; the doll's dashed marker is where it gets to appear.
 	var wearable: Dictionary = _wearable_loadout()
 	if _rig != null:
 		for slot: String in SLOTS:
@@ -462,14 +505,15 @@ func _preview() -> void:
 
 ## The equipped set a rig may legitimately wear.
 ##
-## /!\ THE RULE WAS "STRIP EVERY PLACEHOLDER" AND IS NOW "STRIP EVERY PLACEHOLDER THE RIG
-## CANNOT DRAW". The old rule existed so a promise could not sit in the equipment dict
-## LOOKING like a working piece; the maker has since asked for exactly that look
-## (*"make mock versions of like helmets and stuff that replace the character head"*), so
-## the honesty is moved rather than dropped — the ART is now real and the DETAIL PANE
-## still stamps [NOT YET IMPLEMENTED] on every one of them. A spellement, which has no
-## silhouette at all, is still stripped: handing the rig an id it draws nothing for is
-## the case that reads as a broken slot.
+## /!\ THE RULE WAS "STRIP EVERY PLACEHOLDER", THEN "STRIP EVERY PLACEHOLDER THE RIG
+## CANNOT DRAW", AND IS NOW SIMPLY "STRIP WHAT THE RIG CANNOT DRAW". The first rule
+## existed so a promise could not sit in the equipment dict LOOKING like a working piece.
+## The maker then asked for exactly that look (*"make mock versions of like helmets and
+## stuff that replace the character head"*), and the pieces have since become real, so
+## both halves of the original worry are gone: there is no promise left to hide, and the
+## art is honest because the item behind it works. What remains is a rendering fact
+## rather than an ethical one - a spellement has no silhouette, and handing the rig an id
+## it draws nothing for is the case that reads as a broken slot.
 func _wearable_loadout() -> Dictionary:
 	var out: Dictionary = {}
 	var lo: Dictionary = _loadout()
@@ -522,6 +566,8 @@ func _refresh() -> void:
 				b.modulate = HIGHLIGHT
 			elif GearAbilities.is_placeholder(kind):
 				b.modulate = PLACEHOLDER_TINT
+			elif GearAbilities.is_unwired(kind):
+				b.modulate = UNWIRED_TINT
 			else:
 				b.modulate = Color.WHITE
 	if _ability_label != null:
@@ -545,13 +591,32 @@ func _ability_text(lo: Dictionary) -> String:
 			continue
 		lines.append(_piece_line(kind, a))
 	if lines.is_empty():
-		return "[color=#9aa4b5]Class default gear. Every piece below is a NAME WE HAVE PROMISED, not a working item - equipping one changes nothing yet.[/color]"
-	lines.append("[color=#9aa4b5]Marked * - named, not yet implemented. Equipping it changes nothing yet.[/color]")
+		return "[color=#9aa4b5]Class default gear. Tap any piece to read what it does - every one of them changes a real stat, and nothing in a slot is strictly better than the rest of it.[/color]"
+	# /!\ THE FOOTER IS PRINTED ONLY WHEN IT APPLIES. It used to be unconditional
+	# ("Marked * - named, not yet implemented"), which was true of all nineteen and is now
+	# true of none: a permanent disclaimer under a working catalogue teaches the player to
+	# distrust the whole screen, and it is the kind of line nobody deletes because nobody
+	# owns it. It is rebuilt from what is actually on screen instead.
+	var caveats: Array = []
+	for line: String in lines:
+		if line.contains("NOT YET IMPLEMENTED") and not caveats.has(_FOOT_PROMISE):
+			caveats.append(_FOOT_PROMISE)
+		if line.contains("SLOT NOT LIVE YET") and not caveats.has(_FOOT_UNWIRED):
+			caveats.append(_FOOT_UNWIRED)
+	lines.append_array(caveats)
 	return "\n".join(lines)
 
 
+const _FOOT_PROMISE: String = "[color=#9aa4b5]Marked * - named, not yet implemented. Equipping it changes nothing yet.[/color]"
+const _FOOT_UNWIRED: String = "[color=#9aa4b5]Marked ~ - the piece is finished, but the greaves slot is not read in combat yet.[/color]"
+
+
 func _piece_line(kind: String, a: Dictionary) -> String:
-	var tag: String = "  [color=#c8a04a][NOT YET IMPLEMENTED][/color]" if GearAbilities.is_placeholder(kind) else ""
+	var tag: String = ""
+	if GearAbilities.is_placeholder(kind):
+		tag = "  [color=#c8a04a][NOT YET IMPLEMENTED][/color]"
+	elif GearAbilities.is_unwired(kind):
+		tag = "  [color=#c8a04a][SLOT NOT LIVE YET][/color]"
 	# The condition is repeated here in full because the button caption CLIPS on a phone.
 	# The row tells you there is a lock; this tells you the whole sentence.
 	var st: int = _state_of(kind)

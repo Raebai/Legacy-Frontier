@@ -5,13 +5,19 @@ extends RefCounted
 ## description, and an element hint per piece — queryable by the loadout UI and by
 ## the Hero once the effects are activated.
 ##
-## SCOPE NOTE (honest): the pieces already apply COSMETICALLY (CharacterRig.EQUIP_TEX
-## overlays). Turning these into live GAMEPLAY modifiers (gear that grants/reshapes
-## your kit) is a loadout + BALANCE design pass that needs playtest — see
-## docs/superpowers/specs for the design. This registry is the seam that pass plugs
-## into: swap the piece -> look up its ability here -> apply the effect. Kept as pure
-## data (no combat wiring) so it can't destabilise the balanced classes before it's
-## designed + felt.
+## SCOPE NOTE (honest): the balance pass this file used to be WAITING for has now been
+## done for the armoury's nineteen pieces — they carry live, budgeted, mutually
+## non-dominating stats, and the reasoning is written down at the armoury block below
+## rather than left to be rediscovered. It is still pure DATA: nothing here reaches into
+## combat, `Hero._aggregate_gear` pulls from it, and that direction is the whole reason
+## a bad number here can be re-tuned without touching a class.
+##
+## ⚠ NONE OF IT HAS BEEN PLAYTESTED. Every number below is reasoned from the envelope
+## the retired catalogue already established and asserted against the invariants that
+## matter (no strict dominance, everything pays, everything inside the budget). That
+## makes it defensible on paper and nothing more — "no item is unpickable" is not the
+## same claim as "these are the right numbers", and only the maker's hands can close
+## that gap. Re-tuning is a one-line edit per row, by design.
 
 ## kind -> {name, desc, element, effect}. `effect` is a machine-readable modifier
 ## bag the Hero aggregates (Hero._aggregate_gear); ACTIVE effects are the ones with
@@ -20,8 +26,28 @@ extends RefCounted
 ## the WIRED behaviour (no promises the code doesn't keep).
 ##
 ## effect keys: element (str) | melee_damage/melee_knockback/melee_cd/max_hp/speed
-## (float mults) | ward (float 0..1, first-hit reduction). {} = no hero effect
-## (enemy/boss pieces — their "ability" is the roster AI behaviour they already drive).
+## (float mults) | ward (float 0..1, first-hit reduction) | damage_reduction (float
+## 0..1, flat % off EVERY hit). {} = no hero effect (enemy/boss pieces — their
+## "ability" is the roster AI behaviour they already drive).
+##
+## ⚠ THAT LIST IS THE WHOLE VOCABULARY, AND `Hero._aggregate_gear` IS THE ONLY READER.
+## A key that is not on it is not "unsupported yet", it is INERT AND SILENT: the bag
+## accepts it, the suites' well-formedness sweep skips it (it only walks known axes),
+## the description promises it, and nothing ever applies it. That is the single
+## cheapest way to ship a lie in this file, so a piece whose fantasy needs a verb that
+## does not exist is wired to the CLOSEST REAL AXIS and described in those terms —
+## never given an invented key. `pl_thornmail` "returns a share of every wound" with no
+## reflect axis in the engine, so it is wired as the thing a spiked vest actually does
+## to a body that closes on it (+35% knockback) and its description says exactly that.
+##
+## ⚠ `ward` AND `damage_reduction` COMBINE WITH `maxf`, NOT MULTIPLICATION. Two pieces
+## carrying a ward do not stack — the bigger one simply wins and the other is wasted.
+## So two wards in the SAME slot would be a straight downgrade for one of them, and two
+## in DIFFERENT slots is a trap the player cannot see. `pl_sunmote` (weapon),
+## `pl_crown_of_hours` (head) and `pl_stormcoat` (body) all carry 0.40 for exactly one
+## reason: each is the ONLY ward its slot offers, so the choice is always "a ward or
+## something else" and never "a ward or the same ward".
+##
 ## ⚠ NO ITEM MAY STRICTLY DOMINATE ANOTHER IN THE SAME SLOT. Two did, and a
 ## strictly-dominated item is not "weak" — it is UNPICKABLE. There was no hero, no
 ## class and no situation in which it was the right answer, so it was dead content
@@ -34,11 +60,20 @@ extends RefCounted
 ##     is the same currency `greatsword` already pays in.
 ## `slice_test_gear.gd` asserts the no-dominance rule directly, per slot.
 ##
-## STILL OPEN, AND A DESIGN CALL RATHER THAN A DEFECT: 17 of 19 pieces still
-## strictly dominate the EMPTY slot. Only `greatsword` and now `helmet`/`hammer`
-## pay for anything, so "equip something" remains a checklist even though "equip
-## WHICH" is now a real choice. Closing that means giving most of the roster a real
-## cost, which changes how every class plays and wants the maker's hands on it.
+## STILL OPEN ON THE RETIRED CATALOGUE, AND A DESIGN CALL RATHER THAN A DEFECT: most
+## of the sixteen RETIRED pieces above still strictly dominate the EMPTY slot. Only
+## `greatsword`, `helmet` and `hammer` pay for anything, so for them "equip something"
+## remains a checklist even though "equip WHICH" is a real choice. Closing that means
+## giving most of the old roster a real cost, which changes how every class plays and
+## wants the maker's hands on it. It is deliberately NOT closed here.
+##
+## ⚠ AND THE NINETEEN ARMOURY PIECES BELOW DO NOT MAKE IT WORSE — every one of them
+## pays. That was the one rule the new catalogue could not inherit, because these are
+## the pieces a player actually picks from: the sixteen above are off the menu, so
+## their free lunch is inert, while a free lunch on an OFFERED piece is a live one. So
+## each of the nineteen is worse than the empty slot on at least one axis the hero
+## reads, and `slice_test_gear.gd` sweeps all four slots for it rather than the three
+## the retired list occupied.
 const ABILITIES: Dictionary = {
 	# --- caster weapons: your weapon defines your ELEMENT (the flagship gear ability) ---
 	"staff":       {"name": "Arcane Focus", "desc": "Your spells strike as Arcane.",              "element": "arcane",    "effect": {"element": "arcane"}},
@@ -94,52 +129,120 @@ const ABILITIES: Dictionary = {
 	# the only things that write it are the player's armoury choice and `set_loadout`.
 	# A piece nobody can pick applies nothing to anybody.
 	#
-	# ⚠ EVERY PLACEHOLDER'S `effect` IS `{}`, AND THAT IS THE POINT. A placeholder that
-	# quietly applied +15% damage would be WORSE than no placeholder: it would look like
-	# content, behave like balance, and get tuned around before anyone noticed it was a
-	# stub. `slice_test_gear.gd` now asserts the empty bag directly, per placeholder, so
-	# the day someone "just adds a small bonus" the suite says no.
+	# ⚠ THE PROMISES HAVE BEEN KEPT. The nineteen below WERE named promises with empty
+	# effect bags and a COMING SOON tag; they are now real items with live stats. The old
+	# rule ("every placeholder's effect is {}, and that is the point") existed to stop a
+	# stub quietly becoming balance before anyone designed it. That danger is not dodged
+	# by staying empty forever — it is retired by DESIGNING the thing, on the record, to
+	# a stated budget, with the invariants asserted. Which is what follows.
 	#
-	# The `desc` opens with a literal COMING SOON tag rather than only carrying the
-	# `placeholder` flag, because the flag is invisible to the person holding the phone.
-	# The reader of the description IS the player, and they must not be able to mistake
-	# a promise for a stat. Descriptions are written in the FUTURE tense for the same
-	# reason ("will chill", not "chills").
+	# ⚠ THE BUDGET IS THE EXISTING CATALOGUE'S ENVELOPE, DELIBERATELY. Every number here
+	# lands inside the range the retired sixteen already established and the balance pass
+	# already lived with:
+	#     max_hp 0.94–1.20  |  speed 0.92–1.12  |  melee_damage 0.82–1.30
+	#     melee_cd 0.70–1.30 (LOWER IS BETTER)  |  melee_knockback 0.88–1.40
+	#     ward 0.40 (one-shot)  |  damage_reduction 0.15 (flat, every hit)
+	# Nothing here is stronger than something the game has already been tuned against, so
+	# the armoury becomes a real choice without becoming a power creep. The alternative —
+	# picking numbers that felt good per item — is how a catalogue ends up with a best
+	# item, and a best item is the same dead content as a dominated one seen from the
+	# other end.
+	#
+	# ⚠ DEPTH BUYS A SHARPER TRADE, NEVER A BIGGER NUMBER. `Progression.GEAR_UNLOCK` gates
+	# these by floor / level / class, and the tempting reading is "floor 10 item > floor 1
+	# item". That reading is FORBIDDEN by the no-dominance rule and it is also wrong for
+	# this game: unlocks here are THRESHOLDS you pass, not a currency you spend, so a
+	# strictly-better late piece would delete the early one from the game the moment you
+	# walked past it. `pl_crown_of_hours` (floor 10) is not a better `pl_veilhood` (floor
+	# 1) — it is a ward bought with your feet, which is a trade a fresh climber is not
+	# offered rather than a trade that is simply better.
+	#
+	# ⚠ A NAME IS A PROMISE THE STATS HAVE TO KEEP. These were authored NAME-FIRST: read
+	# the name, decide what the player would guess before reading a number, then find the
+	# axes that mean it. `pl_ironbrow` is heavy and `pl_veilhood` is light because the
+	# words say so, and an armoury a player can guess at is an armoury they can shop in at
+	# a glance. Where the fantasy needed a verb the engine does not have (lifesteal,
+	# reflect, line-of-sight, time-stop) it is wired to the nearest REAL axis and the
+	# description is rewritten to say what actually happens — see the vocabulary note in
+	# the header. No description here describes an effect the code does not apply.
 	#
 	# --- SPELLEMENTS (the `weapon` slot): attachments that reshape a spell you own ---
-	"pl_emberglass":  {"name": "Emberglass Sliver", "desc": "COMING SOON — will set your spells alight, burning what they touch.", "element": "", "effect": {}, "placeholder": true},
-	"pl_rimeshard":   {"name": "Rimeshard",         "desc": "COMING SOON — will chill on contact, slowing what you hit.",          "element": "", "effect": {}, "placeholder": true},
-	"pl_stormtooth":  {"name": "Stormtooth",        "desc": "COMING SOON — will arc your spells on to a second target.",           "element": "", "effect": {}, "placeholder": true},
-	"pl_gravewick":   {"name": "Gravewick",         "desc": "COMING SOON — will drain a sliver of life back on every hit.",        "element": "", "effect": {}, "placeholder": true},
-	"pl_sunmote":     {"name": "Sunmote",           "desc": "COMING SOON — will turn every third cast into a mend, not a wound.",  "element": "", "effect": {}, "placeholder": true},
-	"pl_voidpin":     {"name": "Voidpin",           "desc": "COMING SOON — will drag enemies toward the point of impact.",         "element": "", "effect": {}, "placeholder": true},
-	"pl_quickthread": {"name": "Quicksilver Thread","desc": "COMING SOON — will shorten the wind-up on every spell you cast.",     "element": "", "effect": {}, "placeholder": true},
-	"pl_echostone":   {"name": "Echostone",         "desc": "COMING SOON — will echo your last spell back at half strength.",      "element": "", "effect": {}, "placeholder": true},
+	# ⚠ SIX OF THE EIGHT SET YOUR ELEMENT, AND THAT IS A LATERAL TRADE, NOT A GAIN. A
+	# spellement in this slot OVERRIDES the element your class already has (see
+	# `Hero.GEAR_ELEMENT`), so "strikes as Fire" is a swap rather than a bonus and there is
+	# no axis on which to charge for it. The retired staffs were EXEMPTED from the
+	# pays-something rule for exactly that reason. These are not exempted: every one of
+	# them ALSO pays a real numeric cost, so the exemption list does not have to grow and
+	# the weapon slot holds itself to the same bar as the other three.
+	# The two without an element (`pl_quickthread`, `pl_echostone`) are mechanisms rather
+	# than elements — they keep whatever element you brought, which is its own reason to
+	# take one.
+	"pl_emberglass":  {"name": "Emberglass Sliver", "desc": "Your spells strike as Fire, and the shard bites deep (+18% melee damage) — but emberglass is brittle (-6% max HP).", "element": "fire", "effect": {"element": "fire", "melee_damage": 1.18, "max_hp": 0.94}},
+	"pl_rimeshard":   {"name": "Rimeshard",         "desc": "Your spells strike as Ice and every blow shoves (+25% knockback), but the cold is in you too (-6% move speed).", "element": "ice", "effect": {"element": "ice", "melee_knockback": 1.25, "speed": 0.94}},
+	"pl_stormtooth":  {"name": "Stormtooth",        "desc": "Your spells strike as Lightning and you strike far faster (-18% swing cooldown), but each bite lands light (-10% melee damage).", "element": "lightning", "effect": {"element": "lightning", "melee_cd": 0.82, "melee_damage": 0.9}},
+	"pl_gravewick":   {"name": "Gravewick",         "desc": "Your spells strike as Shadow, and what it takes it keeps (+16% max HP) — but a burning wick has little bite left (-12% melee damage).", "element": "shadow", "effect": {"element": "shadow", "max_hp": 1.16, "melee_damage": 0.88}},
+	"pl_sunmote":     {"name": "Sunmote",           "desc": "Your spells strike as Holy, and the first hit of every fight is turned aside (-40%) — but a mote of light is no weapon (-12% melee damage).", "element": "holy", "effect": {"element": "holy", "ward": 0.4, "melee_damage": 0.88}},
+	"pl_voidpin":     {"name": "Voidpin",           "desc": "Your spells strike as Arcane and pin rather than shove: +20% melee damage, -12% knockback, so they stay in your reach.", "element": "arcane", "effect": {"element": "arcane", "melee_damage": 1.2, "melee_knockback": 0.88}},
+	"pl_quickthread": {"name": "Quicksilver Thread","desc": "The shortest wind-up in the armoury: -26% swing cooldown, keeping whatever element you brought — but nothing that quick lands heavy (-16% melee damage).", "element": "", "effect": {"melee_cd": 0.74, "melee_damage": 0.84}},
+	"pl_echostone":   {"name": "Echostone",         "desc": "Every strike lands with its own echo (+30% melee damage), but the stone needs time to ring again (+28% swing cooldown).", "element": "", "effect": {"melee_damage": 1.3, "melee_cd": 1.28}},
 	# --- HELMS (the `head` slot) ---
-	"pl_seers_circlet": {"name": "Seer's Circlet",  "desc": "COMING SOON — will show you an enemy's tell a beat earlier.",         "element": "", "effect": {}, "placeholder": true},
-	"pl_ironbrow":      {"name": "Ironbrow",        "desc": "COMING SOON — will shrug off the first stun of every floor.",         "element": "", "effect": {}, "placeholder": true},
-	"pl_veilhood":      {"name": "Veilhood",        "desc": "COMING SOON — will break their line of sight for a moment after a dash.", "element": "", "effect": {}, "placeholder": true},
-	"pl_crown_of_hours":{"name": "Crown of Hours",  "desc": "COMING SOON — will slow the world for a heartbeat when you fall low.", "element": "", "effect": {}, "placeholder": true},
+	# The head slot is the LIGHT-vs-HEAVY axis the retired `hat`/`hood`/`helmet` trio used
+	# to carry, and the names already sort themselves: a hood is light, an iron brow is
+	# not. `pl_seers_circlet` is the odd one out on purpose — "sees the tell a beat
+	# earlier" has no perception axis in this engine, so it is wired as the thing seeing a
+	# tell early actually buys you (you answer sooner: -16% swing cooldown) and pays the
+	# price a circlet obviously pays (it stops nothing: -6% max HP).
+	"pl_seers_circlet": {"name": "Seer's Circlet",  "desc": "You read the tell a beat early and answer it: -16% swing cooldown — but a circlet turns nothing aside (-6% max HP).", "element": "", "effect": {"melee_cd": 0.84, "max_hp": 0.94}},
+	"pl_ironbrow":      {"name": "Ironbrow",        "desc": "A heavy iron brow: +20% max HP, but it weighs on you (-6% move speed).", "element": "", "effect": {"max_hp": 1.2, "speed": 0.94}},
+	"pl_veilhood":      {"name": "Veilhood",        "desc": "Light and loose: +10% move speed, with nothing between you and a hit (-6% max HP).", "element": "", "effect": {"speed": 1.1, "max_hp": 0.94}},
+	"pl_crown_of_hours":{"name": "Crown of Hours",  "desc": "Time thickens around the first hit of every fight (-40%) — and around your feet with it (-8% move speed).", "element": "", "effect": {"ward": 0.4, "speed": 0.92}},
 	# --- ARMOUR (the `body` slot) ---
-	"pl_ashplate":   {"name": "Ashplate",           "desc": "COMING SOON — will burn whatever strikes you in close.",              "element": "", "effect": {}, "placeholder": true},
-	"pl_tideweave":  {"name": "Tideweave Wrap",     "desc": "COMING SOON — will knit you back together while you stand still.",    "element": "", "effect": {}, "placeholder": true},
-	"pl_thornmail":  {"name": "Thornmail Vest",     "desc": "COMING SOON — will return a share of every wound you take.",          "element": "", "effect": {}, "placeholder": true},
-	"pl_stormcoat":  {"name": "Stormcoat",          "desc": "COMING SOON — will discharge a shock the moment your ward breaks.",   "element": "", "effect": {}, "placeholder": true},
-	# --- GREAVES (the `legs` slot) — NEW ---
-	# ⚠ A FOURTH SLOT, AND THE THREE-LITERAL CONTRACT ABOVE IS NOT BROKEN BY IT.
-	# `Hero._aggregate_gear` still iterates "weapon"/"head"/"body" and still owns the
-	# stat maths; `legs` is deliberately outside that loop, which costs NOTHING here
-	# because every piece below carries the same empty effect bag as the rest of the
-	# armoury. The day a greave gets a real stat, the fix is one literal in Hero.gd —
-	# and until then a slot Hero cannot read cannot silently apply anything.
-	# `GameState.LOADOUT_SLOTS` DOES carry it, because the save has to round-trip the
-	# player's choice or the screen forgets it the moment they walk away.
-	#
+	# ⚠ `pl_ashplate` AND `pl_thornmail` BOTH NAME A RETALIATION THE ENGINE CANNOT DO —
+	# "burns whatever strikes you", "returns a share of every wound". There is no reflect
+	# axis and inventing one would make both of them silently inert (see the vocabulary
+	# note in the header). So each is wired to what its SHAPE really does to a body that
+	# closes on it: the plate soaks (flat mitigation), the spiked vest throws them off
+	# (knockback), and both descriptions were rewritten to say only that.
+	"pl_ashplate":   {"name": "Ashplate",           "desc": "Ash-forged plate: -15% damage from every hit, at the cost of your feet (-8% move speed).", "element": "", "effect": {"damage_reduction": 0.15, "speed": 0.92}},
+	"pl_tideweave":  {"name": "Tideweave Wrap",     "desc": "Bound tide-cloth knits you together: +12% max HP, but a wrapped arm swings soft (-10% melee damage).", "element": "", "effect": {"max_hp": 1.12, "melee_damage": 0.9}},
+	"pl_thornmail":  {"name": "Thornmail Vest",     "desc": "Spiked: anything that closes gets thrown off you (+35% knockback), and the thorns catch your own swing (+12% swing cooldown).", "element": "", "effect": {"melee_knockback": 1.35, "melee_cd": 1.12}},
+	"pl_stormcoat":  {"name": "Stormcoat",          "desc": "Storm-borne: the first hit of every fight breaks on it (-40%) and you ride the gale (+8% move speed) — but a coat is not armour (-6% max HP).", "element": "", "effect": {"ward": 0.4, "speed": 1.08, "max_hp": 0.94}},
+	# --- GREAVES (the `legs` slot) ---
 	# It exists because the maker asked for gear that REPLACES a body part, and the
 	# lower leg is the third one a stick figure has. See `CharacterRig._draw_leg`.
-	"pl_swiftsoles":  {"name": "Swiftsoles",        "desc": "COMING SOON — will let you keep your speed through a turn.",          "element": "", "effect": {}, "placeholder": true},
-	"pl_ironmarch":   {"name": "Ironmarch Greaves", "desc": "COMING SOON — will hold your ground against a shove.",                "element": "", "effect": {}, "placeholder": true},
-	"pl_ashenstride": {"name": "Ashenstride Boots", "desc": "COMING SOON — will leave a scorch trail where you dash.",             "element": "", "effect": {}, "placeholder": true},
+	#
+	# ⚠⚠ THESE THREE ARE THE ONLY PIECES IN THE ARMOURY WHOSE STATS DO NOT REACH THE HERO
+	# YET, AND THE REASON IS ONE LINE IN A FILE THIS ONE DOES NOT OWN.
+	# `Hero._aggregate_gear` iterates the literal `["weapon", "head", "body"]`. `legs` is
+	# not in it, so a greave's bag is read by nobody. When the other eighteen went live
+	# this was the one slot that could not follow, and there were exactly two honest ways
+	# to handle it:
+	#   * REJECTED — leave the greaves statless. Then they fail the "every piece must pay"
+	#     rule for the only reason that is not a design reason (they give nothing, so they
+	#     cost nothing), and the legs slot stays a decoration in a screen where the other
+	#     three slots became decisions. The maker asked for nineteen real items.
+	#   * TAKEN — author them properly, to the same budget and the same no-dominance bar
+	#     as everything above, and flag them `unwired` so the SCREEN tells the truth while
+	#     the wiring is one literal away. `Loadout` prints [SLOT NOT LIVE YET] on exactly
+	#     these three, so the player is never sold a stat that does not fire.
+	# The fix, for whoever owns Hero.gd:
+	#     for slot: String in ["weapon", "head", "body", "legs"]:
+	# and then delete the three `"unwired": true` flags below. `slice_test_gear.gd`
+	# asserts those two halves move TOGETHER — it reads Hero's loop and fails if a greave
+	# is flagged unwired while Hero reads legs, or unflagged while Hero does not. So this
+	# cannot rot in either direction: fixing Hero without clearing the flags goes red, and
+	# clearing the flags without fixing Hero goes red.
+	#
+	# `GameState.LOADOUT_SLOTS` already carries `legs`, because the save has to round-trip
+	# the player's choice or the screen forgets it the moment they walk away.
+	#
+	# ⚠ `pl_ironmarch` NAMES A SHOVE-RESISTANCE THE ENGINE DOES NOT HAVE. `melee_knockback`
+	# is the knockback you DEAL, not the knockback you SOAK, so wiring "hold your ground
+	# against a shove" to it would have been backwards as well as inert. Iron greaves are
+	# wired as weight — HP up, feet down — and described as weight.
+	"pl_swiftsoles":  {"name": "Swiftsoles",        "desc": "Barely there: +12% move speed, with nothing to soak a hit (-6% max HP).", "element": "", "effect": {"speed": 1.12, "max_hp": 0.94}},
+	"pl_ironmarch":   {"name": "Ironmarch Greaves", "desc": "Iron to the knee: +18% max HP, and every step costs you (-8% move speed).", "element": "", "effect": {"max_hp": 1.18, "speed": 0.92}},
+	"pl_ashenstride": {"name": "Ashenstride Boots", "desc": "The middle road: +6% move speed and -10% swing cooldown, bought with your guard (-6% max HP).", "element": "", "effect": {"speed": 1.06, "melee_cd": 0.9, "max_hp": 0.94}},
 }
 
 
@@ -177,6 +280,14 @@ static func label(kind: String) -> String:
 ## reads the slots differently now (a spellement and two pieces of armour — see
 ## `Loadout.SLOT_LABELS`), but renaming the KEYS would silently drop every player's
 ## saved loadout on the floor while looking like a cosmetic change.
+##
+## ⚠ THE CONST'S NAME IS NOW A MISNOMER AND IS KEPT ANYWAY. Nothing in it is a
+## placeholder any more — these are the nineteen live items the armoury offers. The name
+## survives because it is READ BY FILES THIS ONE DOES NOT OWN (`GameState.gd`'s save
+## sanitiser) and by four suites, so renaming it is a cross-file change dressed up as a
+## tidy-up, and the failure mode is a save sanitiser that silently matches nothing and
+## drops every equipped piece. Read it as "the ids the armoury offers, per slot" — which
+## is all any caller ever used it for.
 const PLACEHOLDER_SLOTS: Dictionary = {
 	"weapon": ["pl_emberglass", "pl_rimeshard", "pl_stormtooth", "pl_gravewick",
 		"pl_sunmote", "pl_voidpin", "pl_quickthread", "pl_echostone"],
@@ -189,8 +300,31 @@ const PLACEHOLDER_SLOTS: Dictionary = {
 ## True when the piece is a NAMED PROMISE rather than a working item. The armoury
 ## reads this to tag the button and to refuse to pretend on the paper doll; the
 ## suites read it to assert the effect bag is empty.
+##
+## ⚠ NOTHING IN THE ARMOURY ANSWERS TRUE ANY MORE, AND THE FUNCTION STILL EXISTS ON
+## PURPOSE. All nineteen `pl_*` pieces carry live stats now, so every caller correctly
+## stops tagging them — but this is the seam the NEXT batch of promises will hang on,
+## and deleting it would mean the next stub ships with no way to say it is a stub. It
+## reads a per-row flag rather than a name prefix (`pl_`) for the same reason: the
+## prefix is now a historical accident of these nineteen ids, not a statement about
+## whether an item works, and a helper that confused the two would re-tag the entire
+## working catalogue the moment someone trusted it.
 static func is_placeholder(kind: String) -> bool:
 	return bool((ABILITIES.get(kind, {}) as Dictionary).get("placeholder", false))
+
+
+## True when the piece has real, designed stats that the HERO CANNOT READ YET because
+## its slot is not in `Hero._aggregate_gear`'s loop. Today that is exactly the three
+## greaves — see the ⚠⚠ block on the `legs` rows for the one-line fix and for why the
+## flag exists instead of simply leaving those three statless.
+##
+## ⚠ THIS IS NOT A SOFTER `is_placeholder`. A placeholder has NO design behind it; an
+## unwired piece is fully designed, fully budgeted and fully asserted, and is waiting on
+## a literal in someone else's file. They are tagged differently in the armoury for that
+## reason: one says "we have not built this", the other says "this slot is not live
+## yet", and a player owed an explanation deserves the accurate one.
+static func is_unwired(kind: String) -> bool:
+	return bool((ABILITIES.get(kind, {}) as Dictionary).get("unwired", false))
 
 
 ## Every id offered in `slot` right now. Empty for an unknown slot (never null, so a
