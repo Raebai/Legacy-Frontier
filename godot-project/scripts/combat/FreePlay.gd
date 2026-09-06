@@ -95,7 +95,7 @@ static var start_class: int = -1
 ## only. So the training area the maker is asking for did not need building; it needed a
 ## door, a teacher, and a reason to be there.
 ##
-## `dojo` is that mode: the same stage, plus a sensei who gives the Spire's lore and walks
+## `dojo` is that mode: the same stage, plus a sensei who gives the Tower's lore and walks
 ## you through YOUR class's hands, and an exit that continues into the climb instead of
 ## dumping you back at the title.
 static var dojo: bool = false
@@ -303,7 +303,7 @@ func _mark_taught() -> void:
 func _sensei_turns() -> void:
 	if _sensei == null or not is_instance_valid(_sensei):
 		return
-	_say("Good. You learn quickly.", 2.2)
+	_sensei_say("Good. You learn quickly.", 2.2)
 	await get_tree().create_timer(2.4).timeout
 	if not is_instance_valid(_sensei):
 		return
@@ -311,12 +311,12 @@ func _sensei_turns() -> void:
 	_tint_sensei(SENSEI_TURNED)
 	Juice.shake_camera(9.0)
 	Juice.hit_stop(0.10)
-	_say("Quickly enough to be worth killing.", 2.6)
+	_sensei_say("Quickly enough to be worth killing.", 2.6)
 	await get_tree().create_timer(2.6).timeout
 	if not is_instance_valid(_sensei):
 		return
 	_arm_sensei()
-	_say("Show me.", 1.6)
+	_sensei_say("Show me.", 1.6)
 	_watch_for_defeat()
 
 
@@ -360,13 +360,18 @@ func _watch_for_defeat() -> void:
 	if not is_instance_valid(self):
 		return
 	# He does not gloat over the body. One line, and he is already somewhere else.
-	_say("I'll see you in the tower...", 4.0)
+	_sensei_say("I'll see you in the tower...", 4.0)
 	await get_tree().create_timer(3.6).timeout
 	if is_instance_valid(self):
 		_leave_dojo()
 
 
-func _say(text: String, hold: float = 3.0) -> void:
+## ⚠ NOT `_say` — this file already had one, and naming a second the same made the
+## whole script fail to parse ("Function \"_say\" has the same name as a previously
+## declared function"), which took the dojo down without any suite noticing because
+## none of them load this scene. The other `_say` flashes the ARENA BANNER; this one
+## is a person speaking above their own head. Different things, different names.
+func _sensei_say(text: String, hold: float = 3.0) -> void:
 	if _sensei == null or not is_instance_valid(_sensei):
 		return
 	if _sensei.has_method("say"):
