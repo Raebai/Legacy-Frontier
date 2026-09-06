@@ -71,6 +71,11 @@ static var _path: String = PATH
 static var _loaded: bool = false
 static var _name: String = ""
 static var _id: String = ""
+## Has this player been shown the lobby tutorial? Per-PLAYER, which is why it lives
+## here and not in `GameState`: GameState is the state of a CLIMB, and it is wiped and
+## rebuilt every run, so a tutorial flag there would re-teach the game to a veteran
+## every time they died. This file is the identity that outlives every climb.
+static var _taught: bool = false
 
 
 # ══════════════════════════════════════════════════════════════════ the reads
@@ -130,7 +135,12 @@ static func set_display_name(raw: String) -> String:
 ## `GameState._save_climber`, and for its stated reason — a crash mid-write cannot
 ## corrupt a profile that already exists.
 static func write_now() -> void:
-	var payload: Dictionary = build_profile_save(_name, _id)
+	# ⚠ `_taught` IS PASSED, and forgetting it is the whole bug class this project keeps
+	# paying for: a field that is declared, parsed and read, but that nothing ever WRITES,
+	# so it is `false` on every load for ever and the feature it gates silently never
+	# changes state. `GameState.colourway` is sitting in the tree in exactly that shape
+	# right now. If you add a field above, add it here in the same commit.
+	var payload: Dictionary = build_profile_save(_name, _id, _taught)
 	var tmp_path: String = _path + ".tmp"
 	var f: FileAccess = FileAccess.open(tmp_path, FileAccess.WRITE)
 	if f == null:
@@ -156,7 +166,11 @@ static func write_now() -> void:
 ## `build_climber_save` states about its own three levelling fields, and it is what keeps
 ## every existing positional caller — and every suite that pins one — untouched when this
 ## record grows a friend list.
-static func build_profile_save(display: String, id: String = "") -> Dictionary:
+## ⚠ `taught` APPENDS WITH A DEFAULT rather than being inserted, which is the shape this
+## file already promises: every existing positional caller and every existing suite
+## keeps working, and an older profile on disk simply reads `false` and gets taught
+## once. Never insert a parameter ahead of an existing one here.
+static func build_profile_save(display: String, id: String = "", taught: bool = false) -> Dictionary:
 	return {
 		"version": SAVE_VERSION,
 		# Sanitised ON THE WAY OUT as well as on the way in. A hand-edited file is one
@@ -164,6 +178,7 @@ static func build_profile_save(display: String, id: String = "") -> Dictionary:
 		# the single point both pass through.
 		"name": sanitize_name(display),
 		"id": _sanitize_id(id),
+		"taught": taught,
 	}
 
 
@@ -181,7 +196,7 @@ static func build_profile_save(display: String, id: String = "") -> Dictionary:
 ## response to "your profile file is nonsense" is a climber called `Climber`, not a
 ## refusal to start the game.
 static func parse_profile_save(raw: Variant) -> Dictionary:
-	var out: Dictionary = {"version": SAVE_VERSION, "name": "", "id": ""}
+	var out: Dictionary = {"version": SAVE_VERSION, "name": "", "id": "", "taught": false}
 	if not (raw is Dictionary):
 		return out
 	var d: Dictionary = raw
@@ -194,6 +209,14 @@ static func parse_profile_save(raw: Variant) -> Dictionary:
 	var i: Variant = d.get("id", "")
 	if typeof(i) == TYPE_STRING:
 		out["id"] = _sanitize_id(String(i))
+	# ⚠ ACCEPTS A NUMBER AS WELL AS A BOOL, for the same JSON reason `version` is coerced:
+	# a hand-edited or re-serialised profile can carry `1` where `true` was written, and
+	# `typeof(t) == TYPE_BOOL` alone would silently re-teach that player for ever.
+	var t: Variant = d.get("taught", false)
+	if typeof(t) == TYPE_BOOL:
+		out["taught"] = bool(t)
+	elif typeof(t) == TYPE_INT or typeof(t) == TYPE_FLOAT:
+		out["taught"] = float(t) != 0.0
 	return out
 
 
@@ -322,6 +345,7 @@ static func _ensure_loaded() -> void:
 	var state: Dictionary = parse_profile_save(parsed)
 	_name = String(state["name"])
 	_id = String(state["id"])
+	_taught = bool(state["taught"])
 
 
 ## Where the profile lives right now.
@@ -343,6 +367,23 @@ static func use_path(p: String) -> void:
 ##
 ## ⚠ NOT CALLED `reload()`. See the header: that name resolves to `Script.reload()` on a
 ## preloaded script and recompiles this file, resetting every static above.
+## Has this player already been shown the lobby tutorial?
+static func has_been_taught() -> bool:
+	_ensure_loaded()
+	return _taught
+
+
+## Record that the lesson has been seen — whether it was finished or skipped. Skipping
+## counts: a player who dismissed it asked to be left alone, and ambushing them with it
+## again on the next visit would be the game not listening.
+static func mark_taught() -> void:
+	_ensure_loaded()
+	if _taught:
+		return
+	_taught = true
+	write_now()
+
+
 static func forget_cache() -> void:
 	_loaded = false
 	_name = ""

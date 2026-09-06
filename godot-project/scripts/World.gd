@@ -283,6 +283,21 @@ const GRAPHITE: Color = Color(0.62, 0.63, 0.70)
 
 const TOWER_DOOR_SCRIPT: Script = preload("res://scripts/TowerDoor.gd")
 const STATION_SCRIPT: Script = preload("res://scripts/ArmoryStation.gd")
+
+## THE TUTORIAL. Maker: *"it needs a tutorial area where the users can learn all the basic
+## moves and attacks per class and the aim of the game"*.
+##
+## ⚠ IT IS NOT AN AREA, AND THAT IS DELIBERATE — see `TrainingCoach`'s header. The maker
+## has already deleted a training ground once (*"you should be able to cast spells and
+## stuff within the lobby instead of a training ground; just have standing immortal test
+## dummies on one side"*) and cut the pads down to two by name. This room ALREADY IS the
+## training area: `_spawn_dummy_yard` puts three immortal bodies at the far end and every
+## button is live. What was missing was anything telling the player what the buttons are,
+## what THEIR class does with them, or what the Tower is for. So the tutorial is a coach
+## on the HUD, and it adds no room, no pad and no prop.
+const COACH_SCRIPT: Script = preload("res://scripts/ui/TrainingCoach.gd")
+## Reached by `preload` because it has no `class_name` either — see that file.
+const PlayerProfile := preload("res://scripts/PlayerProfile.gd")
 const HUB_AMBIENCE_SCRIPT: Script = preload("res://scripts/HubAmbience.gd")
 ## The sky band ABOVE the forest: the colossal spire, the moon, the ridges, the drifting
 ## cloud and the petals. `preload`ed rather than named, like every other drawer here —
@@ -302,6 +317,8 @@ const MIN_TAP: float = 30.0
 
 var _outfitter_layer: CanvasLayer = null
 var _outfitter: Control = null
+## The tutorial coach. Always built, shown only when the player has not been taught.
+var _coach: CanvasLayer = null
 
 
 func _ready() -> void:
@@ -333,6 +350,10 @@ func _ready() -> void:
 	_spawn_hud()
 	_spawn_touch_pad()
 	_reflect_selected_class()
+	# AFTER the touch pad, so a phone player's on-screen buttons already exist when the
+	# first prompt names them, and AFTER `_reflect_selected_class`, so the lesson is built
+	# for the class the player actually is rather than the default.
+	_spawn_coach()
 
 	var music: Node = get_node_or_null("/root/Music")
 	if music != null and music.has_method("play_hub"):
@@ -1147,6 +1168,49 @@ func _unhandled_input(event: InputEvent) -> void:
 	if gs != null and gs.has_method("go_to_title"):
 		get_viewport().set_input_as_handled()
 		gs.call("go_to_title")
+
+
+## THE COACH. Built always, shown only to a player who has never been taught — and
+## re-runnable for ever after through `teach_now()`.
+##
+## ⚠ THE FLAG LIVES ON `PlayerProfile`, NOT ON `GameState`, and that is load-bearing.
+## `GameState` is the state of a CLIMB: it is wiped and rebuilt every run, so a tutorial
+## flag there would re-teach the game to a veteran every single time they died. The
+## profile is the identity that outlives every climb, which is the only place "this person
+## already knows how to play" can honestly live.
+##
+## ⚠ SKIPPING COUNTS AS TAUGHT. A player who dismissed it asked to be left alone; showing
+## it again on the next visit is the game not listening.
+func _spawn_coach() -> void:
+	if _coach != null and is_instance_valid(_coach):
+		return
+	# ⚠ THE GROUP IS HOW THE PAUSE MENU FINDS US, and it is a group rather than a path
+	# because `PauseMenu` is built by the arena AND by the hub and must not know which
+	# scene it is in. Mid-climb there is no hub, the group is empty, and the menu simply
+	# does not offer "How to play" — absent rather than present-and-disabled.
+	add_to_group(&"hub_world")
+	_coach = COACH_SCRIPT.new()
+	add_child(_coach)
+	_coach.finished.connect(func(_completed: bool) -> void:
+		PlayerProfile.mark_taught())
+	if not PlayerProfile.has_been_taught():
+		teach_now()
+
+
+## Run the lesson from the top, whatever the player has seen before. Public because the
+## pause menu offers it as "How to play" — the tutorial has to be REPEATABLE or the one
+## chance to learn a nine-class roster is the first thirty seconds you ever played.
+func teach_now() -> void:
+	if _coach == null or not is_instance_valid(_coach):
+		return
+	var gs: Node = get_node_or_null("/root/GameState")
+	_coach.start(int(gs.get("selected_class")) if gs != null else 0)
+
+
+## True while the lesson is on screen. Read by the suite, and by anything that wants to
+## avoid talking over it.
+func is_teaching() -> bool:
+	return _coach != null and is_instance_valid(_coach) and _coach.is_running()
 
 
 func _reflect_selected_class() -> void:

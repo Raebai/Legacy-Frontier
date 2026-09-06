@@ -367,6 +367,7 @@ func build(exit_label: String = "Exit to Hub") -> void:
 	# moment the stored choice becomes visible again.
 	_apply_brightness()
 	_build_director()
+	_build_how_to_play()
 	# Size the cards to whatever screen this actually is. Also re-run on every `open()`
 	# — hosts inject rows AFTER `build()` returns (the duel adds five), so the height
 	# measured here is not the height the player will meet.
@@ -394,6 +395,39 @@ static func director_available() -> bool:
 	if not OS.is_debug_build():
 		return false
 	return ResourceLoader.exists(DIRECTOR_SCRIPT)
+
+
+## HOW TO PLAY — re-run the lobby tutorial from the top.
+##
+## ⚠ THE TUTORIAL HAS TO BE REPEATABLE, and this row is the only thing that makes it so.
+## It runs itself once, on a profile that has never seen it, and then never again — so
+## without a way back the single chance to learn a NINE-class roster is the first thirty
+## seconds you ever played, on whichever class you happened to start as. Every class has
+## its own movement verb and its own four spells; the lesson is rebuilt per class, so
+## "how to play" genuinely means something different after you switch at the altar.
+##
+## ⚠ ONLY IN THE HUB, and the row is simply absent elsewhere rather than present and
+## disabled. `World` is the only thing that owns a coach, so mid-climb there is nothing to
+## re-run — and a greyed row that is never enabled anywhere the player can see is the
+## "screen with broken parts" this menu has been cut down twice to stop being.
+##
+## It goes on the MAIN menu, next to the director, for the same reason that one does: a
+## player who is lost opened the menu to get un-lost, not to adjust a preference.
+func _build_how_to_play() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var world: Node = null
+	for n: Node in tree.get_nodes_in_group(&"hub_world"):
+		if n != null and is_instance_valid(n) and n.has_method("teach_now"):
+			world = n
+			break
+	if world == null:
+		return
+	add_action("•  HOW TO PLAY", func() -> void:
+		if world != null and is_instance_valid(world) and world.has_method("teach_now"):
+			world.call("teach_now")
+		resume_requested.emit())
 
 
 ## Build the director and give it a row on the MAIN menu (not Settings): it is
