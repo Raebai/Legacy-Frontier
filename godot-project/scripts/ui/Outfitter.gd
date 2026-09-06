@@ -55,10 +55,13 @@ extends Control
 ##     scripts/Settings.gd:201,245-248       -- persists it across launches
 ##     tools/slice_test_settings.gd:334-372  -- pins that round-trip
 ## Deleting the static would have been a parse-time break in a file another agent owns.
-## What was checked before cutting the button: `GameState.colourway` (read at hero spawn,
-## `Hero.gd:1787`) has NO WRITER anywhere in the tree, so it was -1 before this edit and
-## it is -1 after -- nothing was stranded, because nothing was ever connected. The
-## one-line hook that would connect it is named in the report for this pass.
+##
+## ⚠ AND IT IS CONNECTED NOW. When the button was cut, `GameState.colourway` (read at
+## hero spawn) had NO WRITER anywhere in the tree — it was -1 before that edit and -1
+## after, so nothing was stranded because nothing had ever been joined up. That missing
+## writer is the property setter on `chosen_colourway` below, and it means the two
+## consumers above now reach a spawning hero without either of them changing.
+## Pinned by `tools/slice_test_appearance_relay.gd`.
 ##
 ## Built in code, house style (`ClassSelect` / `Loadout` / `PauseMenu` / `Lobby` all
 ## do this), laid out for the **640x360 base viewport in landscape** with every tap
@@ -153,12 +156,57 @@ const PREVIEW_FEET_Y: float = 92.0
 ## colourway past the end of this list is shown by index rather than dropped.
 const COLOURWAY_NAMES: Array[String] = ["Azure", "Ember", "Void", "Jade", "Mono"]
 
-## THE CHOSEN COLOURWAY, and the one piece of this screen that is not yet wired all
-## the way through. See `PauseMenu`'s appearance row for what applies it and the
-## honest note there about the one-line `Hero` hook that would do it properly at
-## spawn. A static, so it outlives the scene change into the arena — the same
-## lifetime `SpellLibrary._chosen_roles` needs and for the same reason.
-static var chosen_colourway: int = 0
+## THE CHOSEN COLOURWAY. A static, so it outlives the scene change into the arena — the
+## same lifetime `SpellLibrary._chosen_roles` needs and for the same reason.
+##
+## ══ THE FIELD IT FEEDS HAD NO WRITER, AND THAT IS WHY THIS IS A PROPERTY ══════════
+## Both halves of this feature were built, correct, and never introduced:
+##
+##   * THIS static is a real persisted preference — written by `PauseMenu`'s appearance
+##     row and restored at boot by `Settings.apply_all` off `user://settings.cfg`.
+##   * `GameState.colourway` is read AT SPAWN by `Hero._ready`, which hands it to
+##     `GameState.colourway_parts()` as the middle link of the per-part fallback chain
+##     (the part's own index -> `colourway` -> the caller's fallback).
+##
+## `GameState.colourway` **had no writer anywhere in the tree**. It was declared -1 and
+## was still -1 at every spawn that has ever happened, so the middle link was dead, every
+## unpainted part fell through to the hardcoded fallback, and a player who set their
+## colour and quit came back the default colour.
+##
+## ⚠ IT DID NOT LOOK BROKEN, WHICH IS WHY IT LASTED. `PauseMenu._sync_colourway` REPLAYS
+## the pick onto the live hero the first time that menu opens — so the colour was right
+## the moment you went looking for it and wrong on every floor until you did. The fault
+## was invisible from inside the only screen that could show it.
+##
+## ⚠ WHY A SETTER RATHER THAN A MIRROR CALL AT THE WRITE SITES. The two writers are
+## `Settings.apply_all` (boot) and `PauseMenu._cycle_appearance` (live), and BOTH assign
+## this field plainly. A `sync_appearance()` helper would have to be remembered at both,
+## and forgetting it at the boot site is precisely the failure above — the preference
+## would then work only for players who touch the pause menu every single run. As a
+## property, every existing assignment feeds the relay and no other file changes at all.
+## The same "there is no third path that writes one without the other" rule `chosen_parts`
+## states below, enforced by the language instead of by discipline.
+##
+## ⚠ REACHED THROUGH `Engine.get_main_loop()`, NOT `get_node_or_null`. A setter on a
+## static has no `self` to look a node up from. A suite with no autoloads registered — or
+## the window between engine start and the tree existing — gets a silent no-op, which is
+## what keeps this screen buildable bare (see `chosen_parts`).
+static var chosen_colourway: int = 0:
+	set(value):
+		_chosen_colourway = value
+		var loop: Object = Engine.get_main_loop()
+		if not (loop is SceneTree):
+			return
+		var gs: Node = (loop as SceneTree).root.get_node_or_null(^"/root/GameState")
+		if gs == null:
+			return
+		gs.set(&"colourway", value)
+	get:
+		return _chosen_colourway
+
+## The backing store for the property above. Separate because a property setter that
+## assigned to its own name would recurse.
+static var _chosen_colourway: int = 0
 
 ## ══ THREE COLOURS, ONE FIGURE ═════════════════════════════════════════════════
 ## Maker: *"the colour of his head body and legs individually"*. Indices into the SAME
