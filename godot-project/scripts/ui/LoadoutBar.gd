@@ -181,6 +181,24 @@ func _draw() -> void:
 				total = cd
 			var frac: float = clampf(cd / maxf(total, 0.001), 0.0, 1.0)
 			draw_rect(Rect2(pos, Vector2(SLOT, SLOT * frac)), COOLDOWN_VEIL, true)
+		# ══ THE AFFINITY RING — "your class makes this one hit harder" ═══════════════
+		# A spell of your CLASS'S OWN element is amplified in your hands
+		# (`SpellCaster.AFFINITY_MULT`). A bonus nobody can see is a bonus nobody has,
+		# so the slot wears its element's colour as an extra ring.
+		#
+		# ⚠ IT HAD TO BE PERSISTENT RATHER THAN PER-HIT, and that is a finding rather
+		# than a preference: the damage number's colour is ALREADY the element's hue
+		# (`Enemy.gd`), so an on-element bonus is invisible at the moment of impact by
+		# construction. The player needs to know BEFORE they commit the cast, which
+		# means the tell belongs on the slot, not on the hit.
+		#
+		# Drawn UNDER the selection border below so the selected slot still reads as
+		# selected first — affinity is a property of the kit, selection is where your
+		# thumb is, and the two must not compete.
+		var spell_def: Variant = entry.get("spell")
+		if spell_def != null and SpellCaster.affinity_mult(spell_def, _owner_hero()) > 1.0:
+			draw_rect(box.grow(1.0), Elements.color(SpellCaster.resolve_element(spell_def)),
+				false, 1.0)
 		draw_rect(box, BORDER_SELECTED if is_sel else BORDER, false, 2.0 if is_sel else 1.0)
 		if is_sel:
 			# A soft outer glow so the selected slot survives a busy background.

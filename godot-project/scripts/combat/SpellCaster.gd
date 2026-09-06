@@ -430,11 +430,12 @@ static func _stamp(node: Node, elem: int, spell: SpellDef, caster: Node,
 ## economy, and every one of them would have been a bug if bolted onto individual
 ## arms:
 ##
-##   BEFORE — BLOOD PACT. `BloodPact.multiplier_for` is asked once, here, and the
-##            spell is dispatched as a boosted DUPLICATE. Doing it per-arm would
-##            have meant twenty-one chances to forget; doing it in place on the
-##            SpellDef would have left the hero permanently buffed, because a
-##            SpellDef is a Resource the hero keeps.
+##   BEFORE — THE DAMAGE MULTIPLIERS. `_blood_pacted` is asked once, here, for every
+##            per-cast scale the caster is under — Blood Pact, level growth, and
+##            CLASS ELEMENT AFFINITY — and the spell is dispatched as a boosted
+##            DUPLICATE. Doing it per-arm would have meant twenty-one chances to
+##            forget; doing it in place on the SpellDef would have left the hero
+##            permanently buffed, because a SpellDef is a Resource the hero keeps.
 ##   AFTER  — CHARGES. A Tier 3 boss drop has 1-2 uses. The charge is spent HERE,
 ##            on a cast that actually produced a spectacle, so a cast that fizzled
 ##            on a bad kind does not cost the player their only Void.
@@ -464,9 +465,81 @@ static func cast(
 	return true
 
 
+# ────────────────────────────────────────────────────────── ELEMENT AFFINITY
+## How much harder an on-element spell hits in the hands of the class that shares
+## its element. 1.25 — a quarter more.
+##
+## WHY A NUMBER THIS SIZE. It has to survive the int rounding that every spell's
+## damage goes through, and it has to be legible without being coercive. At 1.10 a
+## 13-damage primary rounds to 14 and the whole feature is one point nobody sees;
+## at 1.5 the classes stop being flavours and start being a correct answer, which is
+## the exact thing the maker's ruling forbids. 1.25 turns the smallest carried
+## damage in the game (13) into 16 and the largest into a visibly heavier hit, while
+## still leaving an off-element spell a perfectly reasonable thing to equip.
+const AFFINITY_MULT: float = 1.25
+
+
+## The per-cast damage multiplier `spell` earns from `caster`'s CLASS element:
+## `AFFINITY_MULT` when the spell's resolved element is the caster's own, else 1.0.
+##
+## The maker's ruling, and the reason this axis was chosen over a flat per-class
+## number: *"the classes should amplify current spells but it shouldn't prevent any
+## player from taking any spell."* The Grimoire pool is not gated, and this does not
+## gate it either — it says what you are GOOD at, not what you are ALLOWED.
+##
+## ⚠ AFFINITY IS A BONUS AND NEVER A PENALTY. There is deliberately no branch that
+## returns below 1.0. A penalty would re-gate the pool through the back door: an
+## off-element spell would become the wrong choice rather than a different one, and
+## the second half of the ruling would be dead in everything but the UI.
+##
+## ⚠ IT ASKS FOR `affinity_element`, WHICH IS `Hero._base_element` — the class you
+## picked at the altar, NOT `Hero._element`, which is what you are casting as right
+## now. A spellement weapon overwrites `_element`; if affinity read that, equipping a
+## staff of your own element would make the bonus unconditional and there would be no
+## choice left to make.
+##
+## Asked by `has_method`, exactly like `growth_damage_mult` four lines below and for
+## exactly the same reason: an enemy, a bot, a thrall and a mirror image all opt out
+## of affinity by simply not answering, with no `is` check at any call site.
+##
+## ⚠ TWO CLASSES SHARE SHADOW (Shadowblade, Warlock) AND TWO SHARE ARCANE (Arcanist,
+## Swordsaint). That is not a bug to be normalised away — nine classes over eight
+## elements cannot be a bijection, and the shared pairs read as two takes on one
+## element rather than as a collision.
+##
+## ⚠ WIND IS THE ELEMENT NO CLASS CARRIES, so a Wind spell is amplified by nobody.
+## That is a RESERVED SLOT, not a hole — WIND belongs to the designed-but-unbuilt AIR
+## class — so do NOT close it by re-elementing an existing class, which would silently
+## move that class's amplification off whatever it holds today.
+##
+## ⚠ THE BRAWLER IS PAID NOTHING BY THIS FEATURE, and it was measured rather than
+## assumed. Its class element is FIRE while every spell in its hand is EARTH (Stomp,
+## Petrify, Rock Wall, Boulder Hurl, Meteor Fist). Coherent with a class whose card
+## reads "no magic" and whose FIRE lives in `melee_element` — but coherent is not the
+## same as intended, and it is a design call for the maker, not one this seam may make.
+##
+## All three facts are asserted, with their reasoning, in
+## `tools/slice_test_element_affinity.gd` — as KNOWN facts that go red when they
+## change, rather than as things discovered a second time by the next reader.
+##
+## `caster` is typed `Object`, not `Node`, so a test can hand this a plain
+## `RefCounted` stub with an `affinity_element` on it and never manage a Node's
+## lifetime. Nothing here touches the tree.
+static func affinity_mult(spell: SpellDef, caster: Object) -> float:
+	if spell == null or caster == null or not is_instance_valid(caster):
+		return 1.0
+	if not caster.has_method("affinity_element"):
+		return 1.0
+	var mine: int = int(caster.call("affinity_element"))
+	if mine < 0:
+		return 1.0  # a caster with no class element is on-element with nothing
+	return AFFINITY_MULT if resolve_element(spell) == mine else 1.0
+
+
 ## The spell as it should actually be thrown, given every multiplier its caster is
-## under: a Blood Pact, and the caster's POWER growth from levelling. Returns
-## `spell` UNCHANGED when both are neutral, so the common path allocates nothing.
+## under: a Blood Pact, the caster's POWER growth from levelling, and their CLASS
+## ELEMENT AFFINITY. Returns `spell` UNCHANGED when all three are neutral, so the
+## common path allocates nothing.
 ##
 ## ⚠ THIS IS THE ONLY PLACE A SPELL'S DAMAGE MAY BE SCALED PER-CAST. A `SpellDef`
 ## is a SHARED RESOURCE out of the catalog — the same object every caster of that
@@ -474,9 +547,19 @@ static func cast(
 ## enemies, bots and the other player too, compounding once per cast. Duplicating
 ## first is not a nicety; it is the whole reason this function exists.
 ##
-## Melee is NOT scaled here: it composes through Hero's gear aggregate, which owns
-## `_base_melee_damage`. Two paths because there are genuinely two bases, not
-## because the rule differs.
+## The three multipliers COMPOSE MULTIPLICATIVELY and are applied in one rounding.
+## Rounding each in turn would make a pacted, levelled Cryomancer's Shatter depend on
+## the order the three were asked in, which is a number nobody could ever reproduce
+## from the tooltip.
+##
+## Melee is NOT scaled here — not by the pact's spell path, not by growth, and NOT by
+## affinity. It composes through Hero's gear aggregate, which owns
+## `_base_melee_damage`. Two paths because there are genuinely two bases, not because
+## the rule differs, and the asymmetry is deliberate: DO NOT "fix" it by adding an
+## affinity call to the melee hit frame. A Brawler is FIRE and swings almost nothing
+## but melee, so affinity on melee would be a flat 25% for that one class and a
+## conditional for everyone else — the flat per-class multiplier the maker did not
+## pick, wearing this axis's name.
 static func _blood_pacted(spell: SpellDef, caster: Node, ctx: Node) -> SpellDef:
 	var mult: float = BloodPact.multiplier_for(caster, ctx)
 	# LEVEL GROWTH. Asked of the caster rather than looked up from GameState, so an
@@ -485,6 +568,8 @@ static func _blood_pacted(spell: SpellDef, caster: Node, ctx: Node) -> SpellDef:
 	# power rather than the local player's.
 	if caster != null and is_instance_valid(caster) and caster.has_method("growth_damage_mult"):
 		mult *= maxf(float(caster.call("growth_damage_mult")), 0.01)
+	# CLASS ELEMENT AFFINITY. Same duck-typed opt-out; see `affinity_mult` above.
+	mult *= affinity_mult(spell, caster)
 	if mult <= 1.0 or spell.damage <= 0:
 		return spell
 	var boosted: SpellDef = spell.duplicate() as SpellDef
