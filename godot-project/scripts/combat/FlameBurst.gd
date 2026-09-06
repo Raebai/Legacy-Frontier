@@ -22,6 +22,23 @@ static func spawn(parent: Node, world_pos: Vector2, size: float) -> void:
 	parent.add_child(fb)
 	fb.global_position = world_pos
 	fb.z_index = 40
+	# ⚠ THE HEAT HAZE IS A BUILT LAYER THAT ALMOST NEVER FIRED. `PostProcess.pulse_heat`
+	# had exactly TWO call sites in the whole game — `Vfx.explosion` and one line of
+	# `MeteorSigil` — so the shimmer existed, was tuned, and was invisible in ordinary
+	# play: every flame plume, the fire beam's skin, Meteor Fist and the Brawler's burning
+	# fist all made fire without making air move. This is the one place every plume in the
+	# game passes through, so one line lights the whole layer up.
+	#
+	# ⚠ SCALED SMALL, AND DELIBERATELY SMALLER THAN `Vfx.explosion`'s. DoT ticks spawn many
+	# tiny plumes; at size 8 this contributes 0.03 and is felt as nothing, while a 210-px
+	# nova reaches the 0.35 cap. Big beats still get `Vfx.explosion`'s own louder pulse on
+	# top (`ElementFx` fires it above size 40), so the explosion stays the dominant heat
+	# event rather than being drowned by the plume that accompanies it.
+	#
+	# No quality guard needed: the whole grade is gated by `screen_shaders_allowed()`, so
+	# on LOW the node is not active and this is a silent no-op — which is why every
+	# `PostProcess` poke is written guard-free.
+	PostProcess.pulse_heat(clampf(size / 260.0, 0.0, 0.35))
 
 
 func _process(delta: float) -> void:
