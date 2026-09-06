@@ -173,9 +173,6 @@ const BARREL_DX: float = 24.0
 ## keeps the wall arithmetic three rectangles and still gives a round-headed window.
 const ARCH_SEGS: int = 10
 const ARCH_SEGS_LOW: int = 5
-## Rib spacing across the ceiling, and how far each rib bows down into the room.
-const RIB_STEP: float = 236.0
-const RIB_SAG: float = 26.0
 
 # ── the air ─────────────────────────────────────────────────────────────────
 ## Slow warm haze crossing the lamp band. Inherits the old cloud-band code wholesale —
@@ -201,9 +198,35 @@ const REDRAW_HZ_LOW: float = 12.0
 const TIMBER_DARK: Color = Color(0.113, 0.078, 0.058)
 const TIMBER: Color = Color(0.168, 0.114, 0.079)
 const TIMBER_LIT: Color = Color(0.232, 0.157, 0.101)
-const BEAM_COL: Color = Color(0.086, 0.060, 0.046)
+## ⚠ 0.086 -> 0.205, AND IT WAS MEASURED OFF THE SCREEN, NOT PICKED. The tie-beam is
+## this file's own "heaviest horizontal in the room" and it was reaching the player at
+## **drawn luma 1 of 255, one single value, against a roof void of 0** — a Δ of one.
+## The grade is steep down here (declared 0.113 lands at luma ~3, declared 0.168 at
+## ~24), so a beam a shade darker than the wall is not a darker beam, it is no beam.
+## At 0.205 it sits ABOVE the plank wall instead of under it, which is also the honest
+## reading: the lamps hang from it and light it from below.
+##
+## It gets no warm CAP_LIT edge, and that is deliberate rather than an omission — the
+## grammar's warm cap means "you can stand on this", and the last full-width amber
+## stroke up here was half of the maker's "random yellow lines" report.
+const BEAM_COL: Color = Color(0.205, 0.140, 0.098)
 const ROOF_VOID: Color = Color(0.036, 0.027, 0.026)
 const DADO_COL: Color = Color(0.093, 0.066, 0.052)
+## ⚠ FURNITURE IS NOT WALL, AND UNTIL THIS EXISTED IT WAS PAINTED AS IF IT WERE. The
+## bar's apron and the barrel stack both stand in FRONT of the wainscot and both were
+## drawn in wall timber, so measured off the screen the counter's whole body came back
+## at drawn luma 6 against a wainscot of 5 — while its lit cap came back at **123**.
+## That is a bar that is one bright plank floating in the dark, and the barrels beside
+## it were a stack of brass hoops with no barrel: 25 luma of hoop on 8 luma of body.
+##
+## Both are the same fault and it is worth stating once: A HIGHLIGHT TWENTY TIMES THE
+## VALUE OF THE THING IT IS ON IS NOT A HIGHLIGHT, IT IS THE ONLY MARK. Every "random
+## line" in the maker's report is one of these — a rim, a cap or a hoop that outlived
+## the object it was describing.
+##
+## These pieces are also, physically, the ones the lamps actually reach: they are a
+## metre off the wall and directly under the light. So they get their own tone.
+const FURNITURE: Color = Color(0.196, 0.134, 0.092)
 ## The lit cap, borrowed from `StageLayers`'s visual grammar rule 1 — a warm pale line
 ## along the top edge of a horizontal surface. The counter, the wainscot and every stair
 ## tread wear it, so "this is something's top" is answerable at a glance here in exactly
@@ -356,8 +379,13 @@ func _seed_haze() -> void:
 			# whole parallax cue and it costs one multiply.
 			"speed": lerpf(6.0, 2.4, f),
 			"scale": lerpf(1.0, 0.66, f),
-			"alpha": lerpf(0.055, 0.030, f),
-			"puffs": (4 if _low else 8),
+			# ⚠ HALVED WITH THE SOFTENING, AND FOR A REASON THE OLD NUMBER HIDES. A
+			# flat disc shows its edge but its INTERIOR is one flat value, so 0.055 read
+			# as 0.055. A falloff puff peaks at its centre and overlaps its neighbours
+			# there, so the same number lands brighter in the crowded middle of the band
+			# — which is exactly where the report was pointing.
+			"alpha": lerpf(0.030, 0.017, f),
+			"puffs": (3 if _low else 5),
 		})
 
 
@@ -381,7 +409,6 @@ func _draw() -> void:
 	_draw_wall()
 	_draw_arch_heads()
 	_draw_window_frames()
-	_draw_vault()
 	_draw_posts()
 	_draw_bar()
 	_draw_lamps()
@@ -588,14 +615,17 @@ func _draw_window_frames() -> void:
 		draw_rect(Rect2(Vector2(w.position.x, w.position.y + w.size.y * 0.5),
 			Vector2(w.size.x, 1.5)),
 			Color(TIMBER_DARK.r, TIMBER_DARK.g, TIMBER_DARK.b, 0.85))
-		if _low:
-			continue
-		# THE SPILL. A short cold wash on the wall under the sill, fading down.
-		for s: int in 5:
-			var f: float = float(s) / 5.0
-			draw_rect(Rect2(Vector2(w.position.x - 6.0, w.end.y + 7.0 + f * 22.0),
-				Vector2(w.size.x + 12.0, 5.0)),
-				Color(cold.r, cold.g, cold.b, 0.055 * (1.0 - f)))
+		# ⚠ THE SPILL IS DELETED, AND IT IS THE OTHER HALF OF THE "RANDOM LINES" REPORT.
+		# It was five 5 px cold bars stepping down the wall under each sill with a 4 px
+		# GAP between them — a gradient drawn in five pieces is not a gradient, it is
+		# five stripes, and three windows made fifteen of them. Photographed against a
+		# wall this dark they were the most legible marks in the upper half of the room:
+		# pale blue rungs on a ladder to nowhere, next to a window opening that was
+		# itself barely visible.
+		#
+		# Nothing replaces it. The sill's own cold cap two lines above already says the
+		# light comes from outside, and it says it with ONE mark attached to an object
+		# instead of five floating near one.
 
 
 # -------------------------------------------------------------------- posts
@@ -694,21 +724,42 @@ func _draw_bar() -> void:
 			Vector2((BAR_X1 - BAR_X0) * 0.5 + 13.0, 22.0), 0.0, PI):
 		apron.append(q)
 	apron.append(Vector2(BAR_X0 - 10.0, _ground_y - 22.0))
-	draw_colored_polygon(apron, TIMBER_DARK)
+	# ⚠ `FURNITURE`, NOT `TIMBER_DARK`. See the note on that constant: this body was
+	# reaching the screen at luma 6 against a wainscot of 5, under a cap of 123, so the
+	# counter photographed as one bright plank hanging in the dark with no bar under it.
+	draw_colored_polygon(apron, FURNITURE)
+	# A shadow line where the counter's overhang meets its own belly. It is what stops
+	# the slab and the apron reading as one flat shape now that they are close in value
+	# — the same job the wall/wainscot boundary does one rung back.
+	draw_rect(Rect2(Vector2(BAR_X0 - 12.0, top + 2.0), Vector2(BAR_X1 - BAR_X0 + 30.0, 2.0)),
+		Color(TIMBER_DARK.r, TIMBER_DARK.g, TIMBER_DARK.b, 0.8))
 	draw_rect(Rect2(Vector2(BAR_X0 - 14.0, top - 7.0), Vector2(BAR_X1 - BAR_X0 + 34.0, 9.0)),
-		TIMBER)
+		TIMBER_LIT)
 	draw_rect(Rect2(Vector2(BAR_X0 - 14.0, top - 7.0), Vector2(BAR_X1 - BAR_X0 + 34.0, 2.5)),
 		CAP_LIT)
 	# Barrel stack at the counter's open end — the mass that stops the bar dead-ending
 	# into open floor.
+	#
+	# ⚠ IT READ AS A LADDER. Six horizontal strokes — two lid caps and four brass hoops
+	# at 25 luma — over two bodies at 8, on a wainscot at 5. From across the room that is
+	# a rung ladder propped against the wall, and "what is that" is the right question to
+	# ask about it. The body carries the object now and the hoops are hoops.
 	for i: int in 2:
 		var c := Vector2(BAR_X1 + BARREL_DX, _ground_y - 20.0 - float(i) * 36.0)
-		draw_rect(Rect2(c - Vector2(22.0, 17.0), Vector2(44.0, 34.0)), TIMBER)
-		draw_rect(Rect2(c - Vector2(22.0, 17.0), Vector2(44.0, 2.0)),
-			Color(CAP_LIT.r, CAP_LIT.g, CAP_LIT.b, 0.30))
+		draw_rect(Rect2(c - Vector2(22.0, 17.0), Vector2(44.0, 34.0)), FURNITURE)
+		# The stave shading: darker at both edges so the barrel is ROUND. Two rectangles
+		# is the whole trick at this size, and it is what a hoop cannot do on its own.
+		for edge: float in [-22.0, 16.0]:
+			draw_rect(Rect2(Vector2(c.x + edge, c.y - 17.0), Vector2(6.0, 34.0)),
+				Color(TIMBER_DARK.r, TIMBER_DARK.g, TIMBER_DARK.b, 0.55))
+		# ⚠ THE LID LINE IS GONE. Two barrels each wore a warm cap across their top edge,
+		# which with two hoops apiece made SIX horizontal strokes stacked in one 44 px
+		# column — the ladder. A barrel seen side-on from a camera level with the floor
+		# has no visible lid to catch the light, so the line was describing a surface
+		# that is not in shot. Four strokes on two round bodies is a barrel stack.
 		for hoop: float in [-9.0, 9.0]:
 			draw_rect(Rect2(Vector2(c.x - 22.0, c.y + hoop), Vector2(44.0, 2.0)),
-				Color(BRASS.r, BRASS.g, BRASS.b, 0.75))
+				Color(BRASS.r, BRASS.g, BRASS.b, 0.55))
 
 
 # ------------------------------------------------------------------- curves
@@ -753,7 +804,25 @@ func _draw_arch_heads() -> void:
 			pts.append(Vector2(cx + side * rx, w.position.y))
 			pts.append(Vector2(cx + side * rx, spring))
 			var a0: float = PI if side < 0.0 else 0.0
-			var a1: float = PI * 1.5 if side < 0.0 else PI * 1.5
+			# ⚠ THE RIGHT CORNER SWEPT 270 DEGREES THE LONG WAY AND PAINTED A DISC OVER
+			# EVERY WINDOW IN THE ROOM. The line read
+			# `PI * 1.5 if side < 0.0 else PI * 1.5` — a ternary whose two branches are
+			# THE SAME VALUE, so the right corner got the left corner's end angle.
+			# `_arc_points` lerps a0 -> a1 and walks whichever way the numbers point, so
+			# 0 -> +1.5PI is not a quarter turn up, it is three quarters DOWN and back:
+			# the polygon self-intersected and filled as a near-complete circle of
+			# `TIMBER` a full radius BELOW the springing line, i.e. straight across the
+			# glass. Photographed at 3 px on a 640x360 phone that is a smudge; at 1366
+			# with the haze softened off the front of it, it is unmistakably a porthole.
+			#
+			# ⚠ IT IS THE SAME FAULT `5d40d74` FIXED IN `_draw_posts` — the knee brace
+			# whose `-PI` was written `PI` — and the fix stopped at the function that had
+			# been reported. The brace's version at least ERRORED (`Invalid polygon data,
+			# triangulation failed`, every frame, loud enough to break a capture tool);
+			# this one triangulated CLEANLY into the wrong shape and said nothing, which
+			# is why it outlived the sibling it was born with. `slice_test_antechamber_sky`
+			# now asserts the sweep of every arc this file draws.
+			var a1: float = PI * 1.5 if side < 0.0 else -PI * 0.5
 			for q: Vector2 in _arc_points(Vector2(cx, spring), Vector2(rx, rx), a0, a1):
 				pts.append(q)
 			draw_colored_polygon(pts, TIMBER)
@@ -767,24 +836,18 @@ func _draw_arch_heads() -> void:
 			prev = ring[i]
 
 
-## VAULT RIBS. Shallow arcs springing from the tie-beam and sagging into the room, on
-## the post stride so the ceiling and the walls share one rhythm. It is the cheapest
-## possible "this room has a roof over it" — three lines per rib, no fill.
-func _draw_vault() -> void:
-	if _low:
-		return  # the ribs are pure texture; the beam alone still says "ceiling".
-	var top: float = CEIL_Y + BEAM_H
-	var x: float = _wall_left() + 84.0
-	while x < _wall_right():
-		var pts: PackedVector2Array = _arc_points(
-			Vector2(x + RIB_STEP * 0.5, top - RIB_SAG),
-			Vector2(RIB_STEP * 0.5, RIB_SAG * 2.0), PI * 0.15, PI * 0.85)
-		var prev: Vector2 = Vector2.ZERO
-		for i: int in pts.size():
-			if i > 0:
-				draw_line(prev, pts[i], BEAM_COL, 5.0)
-			prev = pts[i]
-		x += RIB_STEP
+## ⚠ THE VAULT RIBS ARE DELETED, AND THE MEASUREMENT IS WHY. Nine shallow arcs sprang
+## from the tie-beam on the post stride, drawn as `draw_line` in `BEAM_COL` — and
+## `BEAM_COL` was two shades off the wall they were drawn on, so they reached the player
+## at **drawn luma 1–4 against a wall of 1–4**. Every frame of the room paid for
+## ninety-odd line segments that photographed as nothing at all.
+##
+## They are not restored now that `BEAM_COL` reads, and that is the maker's report
+## rather than my taste: *"too many random lines and stuff and isnt clear what half of
+## them are"*. A rib that finally became visible would become a curved line sagging out
+## of the ceiling into an otherwise empty band — a new mark in the exact register the
+## complaint is about. The beam alone says "ceiling", which is what the LOW branch of
+## this function already asserted in its own comment before it was deleted with it.
 
 
 # -------------------------------------------------------------------- lamps
@@ -818,17 +881,20 @@ func _draw_lamps() -> void:
 				Vector2(lx + POOL_RX * 0.86, _ground_y),
 				Vector2(lx - POOL_RX * 0.86, _ground_y),
 			]), Color(LAMP_WARM.r, LAMP_WARM.g, LAMP_WARM.b, 0.030 * flick))
-		# THE POOL on the boards.
-		_ellipse(Vector2(lx, _ground_y - 1.0), POOL_RX * flick, POOL_RY,
-			Color(LAMP_WARM.r, LAMP_WARM.g, LAMP_WARM.b, 0.075 * flick))
-		_ellipse(Vector2(lx, _ground_y - 1.0), POOL_RX * 0.55 * flick, POOL_RY * 0.62,
-			Color(LAMP_WARM.r, LAMP_WARM.g, LAMP_WARM.b, 0.075 * flick))
-		# The lamp itself: a brass cage, a glass, a core.
+		# THE POOL on the boards. One falloff rather than two stacked flat ellipses —
+		# the pair was an attempt at a gradient with two steps in it, and two steps is a
+		# ring with a smaller ring drawn on top of it.
+		_glow(Vector2(lx, _ground_y - 1.0), POOL_RX * flick, POOL_RY, LAMP_WARM,
+			0.13 * flick)
+		# THE HALO. ⚠ TWO FLAT DISCS BEFORE, AND THEY WERE VISIBLE AS DISCS — a hard rim
+		# at 3.6R and a second at 1.9R, i.e. two concentric rings around every lamp in
+		# the room. See `_glow`: a lamp does not have an edge and must not be drawn with
+		# one. Slightly wider and slightly fainter, because a falloff that reaches the
+		# same distance has to start lower to end up as bright in the middle.
 		if not _low:
-			draw_circle(Vector2(lx, ly), LAMP_R * 3.6,
-				Color(LAMP_WARM.r, LAMP_WARM.g, LAMP_WARM.b, 0.055 * flick))
-		draw_circle(Vector2(lx, ly), LAMP_R * 1.9,
-			Color(LAMP_WARM.r, LAMP_WARM.g, LAMP_WARM.b, 0.11 * flick))
+			_glow(Vector2(lx, ly), LAMP_R * 4.4, LAMP_R * 4.4, LAMP_WARM, 0.15 * flick)
+		else:
+			_glow(Vector2(lx, ly), LAMP_R * 2.4, LAMP_R * 2.4, LAMP_WARM, 0.13 * flick)
 		draw_colored_polygon(PackedVector2Array([
 			Vector2(lx - LAMP_R, ly - LAMP_R * 0.4),
 			Vector2(lx + LAMP_R, ly - LAMP_R * 0.4),
@@ -847,6 +913,50 @@ func _ellipse(c: Vector2, rx: float, ry: float, col: Color) -> void:
 		var a: float = TAU * float(i) / float(segs)
 		pts.append(c + Vector2(cos(a) * rx, sin(a) * ry))
 	draw_colored_polygon(pts, col)
+
+
+## ══════════════════════════════════════════════════════════ THE SOFT EDGE
+## A glow with a FALLOFF — concentric rings whose alpha fades to nothing at the rim.
+##
+## ⚠ THIS FUNCTION IS THE ANSWER TO A MAKER REPORT AND IT IS NOT A TASTE CALL.
+## *"too many random lines and stuff and isnt clear what half of them are"*. Captured
+## and measured rather than guessed: in the lamp band this room was reaching the screen
+## at luma 190 while the tie-beam three metres above it reached luma 1, and every one of
+## those bright marks was a `draw_circle` — a disc of FLAT alpha, which has a hard edge
+## by construction. Twenty-four of them overlapping is not smoke and is not lamplight;
+## it is a field of brown circles, and "what are those" is the correct reaction to it.
+##
+## `draw_circle` cannot fade, so the fade is built: `rings` bands from the centre out,
+## each one a filled ellipse, alpha weighted `(1-t)^2`. Squared rather than linear
+## because a linear ramp still shows its outermost ring as a visible boundary — the eye
+## finds a constant gradient's end. The alphas SUM as they overlap, so `peak` is the
+## alpha at the centre and the caller passes what it used to pass.
+##
+## It is deliberately the only way this file draws a glow now: the lamp halo, the floor
+## pool and every haze puff go through it, so a soft edge cannot be forgotten by
+## whatever gets added next.
+func _glow(c: Vector2, rx: float, ry: float, col: Color, peak: float) -> void:
+	var rings: int = (3 if _low else 5)
+	# ⚠ WEIGHTS ARE NORMALISED, and that is what makes this a drop-in for a `draw_circle`
+	# the caller already tuned. Band k covers radius (k+1)/rings and carries the falloff
+	# evaluated at its own outer edge; the bands overlap, so their alphas SUM, and
+	# without dividing by the total a five-ring glow would be five times as bright as
+	# the disc it replaces. `peak` is the alpha at the centre, exactly as before.
+	var total: float = 0.0
+	for k: int in rings:
+		var w: float = 1.0 - float(k) / float(rings)
+		total += w * w
+	if total <= 0.0:
+		return
+	# Largest band FIRST: the outermost is the faintest and has to sit under the rest.
+	for i: int in rings:
+		var k: int = rings - 1 - i
+		var w: float = 1.0 - float(k) / float(rings)
+		var a: float = peak * w * w / total
+		if a < 0.003:
+			continue
+		var f: float = float(k + 1) / float(rings)
+		_ellipse(c, rx * f, ry * f, Color(col.r, col.g, col.b, a))
 
 
 # --------------------------------------------------------------------- haze
@@ -872,13 +982,17 @@ func _draw_haze() -> void:
 				x -= span
 			var wob: float = sin(pf * 2.7 + float(i)) * 12.0
 			var r: float = (62.0 + _hash01(pf + float(i) * 7.0) * 44.0) * sc
-			# Three overlapping discs per puff: one is a ball, three is smoke.
-			draw_circle(Vector2(x, by + wob), r, Color(LAMP_WARM.r, LAMP_WARM.g,
-				LAMP_WARM.b, a))
-			draw_circle(Vector2(x + r * 0.72, by + wob + r * 0.18), r * 0.72,
-				Color(LAMP_WARM.r, LAMP_WARM.g, LAMP_WARM.b, a * 0.85))
-			draw_circle(Vector2(x - r * 0.68, by + wob + r * 0.24), r * 0.64,
-				Color(LAMP_WARM.r, LAMP_WARM.g, LAMP_WARM.b, a * 0.8))
+			# ⚠ ONE SOFT PUFF, NOT THREE HARD DISCS. It used to be three overlapping
+			# `draw_circle`s per puff on the theory that "one is a ball, three is smoke".
+			# Photographed, it is neither: a flat-alpha disc has a hard rim, and
+			# twenty-four rimmed discs stacked across the lamp band read as a field of
+			# brown circles — the "random stuff" half of the maker's report, and the
+			# brightest thing in a room whose beams were reaching luma 1.
+			#
+			# WIDE AND FLAT, because smoke lying under a ceiling is. The ellipse does the
+			# job the three offset discs were reaching for (a puff longer than it is
+			# tall) in one call instead of three, so this is CHEAPER as well as softer.
+			_glow(Vector2(x, by + wob), r * 1.35, r * 0.62, LAMP_WARM, a)
 
 
 # ══════════════════════════════════════════════════════════════════════ dust

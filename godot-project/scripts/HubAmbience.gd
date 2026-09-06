@@ -57,8 +57,20 @@ const NEAR_WOOD: Color = Color(0.055, 0.040, 0.033)
 ## is structural here rather than a hand-picked second brown. Same idea `StageLayers.haze`
 ## applies to distant landforms, applied at four metres instead of four hundred.
 const FAR_WOOD: Color = Color(0.098, 0.070, 0.055)
-const STONE: Color = Color(0.135, 0.125, 0.125)
-const STONE_LIT: Color = Color(0.215, 0.195, 0.180)
+## ⚠ 0.135 -> 0.178, MEASURED OFF THE SCREEN. The chimney breast is the biggest single
+## object on this half of the room and it was reaching the player as **(4,3,3) — one
+## flat value, drawn luma 3** across nine thousand pixels, against a wall running 1..36.
+## So the fireplace photographed as its MANTEL and nothing else: a pale horizontal
+## stroke hanging in mid-air with black under it, which is precisely the maker's *"too
+## many random lines … isnt clear what half of them are"*. The line was never the
+## problem; the mass it belongs to was missing.
+##
+## It stays COOL against the tavern's warm timber (`AntechamberBackdrop.TIMBER` is
+## 0.168/0.114/0.079) rather than being lifted past it, so the two read apart by HUE as
+## well as by value — stone in a wooden room — and the fireplace does not start
+## competing with the fire inside it.
+const STONE: Color = Color(0.178, 0.166, 0.166)
+const STONE_LIT: Color = Color(0.300, 0.274, 0.252)
 const CANDLE: Color = Color(1.0, 0.82, 0.48)
 
 ## ⚠ DECLARED AS A FIELD so a headless suite can force the cheap picture with

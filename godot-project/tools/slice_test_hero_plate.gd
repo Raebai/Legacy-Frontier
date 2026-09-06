@@ -50,6 +50,7 @@ const TESTS: Array[String] = [
 	"a_driven_player_gets_a_screen_plate",
 	"the_head_bar_is_gone_for_a_plated_player",
 	"an_undriven_fighter_keeps_its_head_bar",
+	"a_hotbar_parented_the_way_real_scenes_parent_one_is_found",
 	"the_plate_is_immune_to_the_camera",
 	"the_plate_binds_to_its_own_hero",
 	"two_players_do_not_share_a_corner",
@@ -61,6 +62,9 @@ const TESTS: Array[String] = [
 ]
 
 var _fails: int = 0
+## The nested-hotbar case's scene, built at step 4 and asserted at the end.
+var _nested_scene: Node2D = null
+var _nested_bars: CharacterBars = null
 var _completed: Dictionary = {}
 var _step: int = 0
 
@@ -160,6 +164,7 @@ func _process(_delta: float) -> bool:
 			_test_plate_exists()
 			_test_head_bar_gone()
 			_test_undriven_keeps_head_bar()
+			_build_nested_hotbar()
 			_test_binding()
 			_test_corners()
 			_test_hiding()
@@ -181,6 +186,7 @@ func _process(_delta: float) -> bool:
 			pass
 		_:
 			_run_geometry()
+			_test_hotbar_under_a_scene_node()
 			_finish()
 			return true
 	_step += 1
@@ -261,6 +267,64 @@ func _test_undriven_keeps_head_bar() -> void:
 	_expect(_bars_mob.draws_head_bar(),
 		"an undriven fighter lost its head bar and now has no health readout at all")
 	_completes("an_undriven_fighter_keeps_its_head_bar")
+
+
+# ══════════════════════════════════════════════════════════════════════ 4b
+## ⚠ THE CASE THIS SUITE WAS MISSING, AND IT IS THE ONLY ARRANGEMENT THE GAME SHIPS.
+##
+## Every test above builds its hotbar with `_spawn_hotbar`, which does
+## `root.add_child(layer)` — the CanvasLayer parented DIRECTLY to the scene-tree root.
+## No scene in this project does that. `Arena._spawn_hud`, `LocalCoop._build_bar_for`
+## and `World._spawn_hud` all `add_child(layer)` onto THEMSELVES, which puts the layer
+## two or three levels down. And `CharacterBars._find_bound_ability_bar` used to walk
+## only `tree.root.get_children()`, entering a child solely if that child WAS a
+## CanvasLayer — so it could resolve exactly one shape: this suite's.
+##
+## The result was nine green assertions describing a plate that had never once appeared
+## in the game. Measured against the real town with
+## `tools/probe_plate_in_real_scenes.gd`: `local=true plate=false head_bar=true`. Every
+## hero in this game was still wearing the bar over its head that the maker asked to
+## have moved, and the suite that owns that ask said otherwise.
+##
+## So this builds the hotbar the way a scene does — under a plain `Node2D` standing in
+## for `Arena`/`World` — and asks the same question. Revert the search to root's direct
+## children and this line goes red while every other line in the file stays green,
+## which is the whole point of it being a separate case.
+##
+## ⚠ IT IS SPLIT ACROSS TWO STEPS AND MUST STAY THAT WAY. `_process` here is a step
+## machine whose RETURN VALUE quits the tree, so a test that `await`s inside it hands
+## back a coroutine and the step counter runs on without it. `_build_nested_hotbar` runs
+## at step 4 and the assertion at the end, which gives `_tick_plate` (polling every
+## `PLATE_POLL` = 0.25 s) many frames to resolve — the same shape the zoom cases use.
+func _build_nested_hotbar() -> void:
+	_nested_scene = Node2D.new()
+	root.add_child(_nested_scene)
+	var hero: Node2D = Fighter.new()
+	hero.add_to_group(&"hero")
+	_nested_scene.add_child(hero)
+	_nested_bars = BARS.new()
+	hero.add_child(_nested_bars)
+	_nested_bars.configure(hero, true, -26.0)
+	# The layer goes under `_nested_scene`, NOT under `root` — that one line is the
+	# difference between this case and every other one in the file.
+	var layer := CanvasLayer.new()
+	layer.layer = HudStyle.LAYER_HUD
+	_nested_scene.add_child(layer)
+	var bar := AbilityBar.new()
+	bar.bound_hero = hero
+	layer.add_child(bar)
+
+
+func _test_hotbar_under_a_scene_node() -> void:
+	var bars: CharacterBars = _nested_bars
+	_expect(bars != null and bars.has_plate(),
+		("a hotbar parented under a scene node instead of under the tree root was not "
+		+ "found, so this hero keeps a bar over its head. That is how EVERY scene in "
+		+ "this game builds one — see World._spawn_hud, Arena._spawn_hud and "
+		+ "LocalCoop._build_bar_for. Verify with tools/probe_plate_in_real_scenes.gd."))
+	_expect(bars != null and not bars.draws_head_bar(),
+		"...and it is still drawing the head bar the plate is supposed to replace")
+	_completes("a_hotbar_parented_the_way_real_scenes_parent_one_is_found")
 
 
 # ══════════════════════════════════════════════════════════════════════ 5

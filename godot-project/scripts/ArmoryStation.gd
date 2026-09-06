@@ -101,18 +101,26 @@ const PAD_COLORS: Dictionary = {
 	"party": Color(0.45, 0.85, 1.0),
 	"class": Color(0.95, 0.82, 0.35),
 }
-## The glyph over each pad. ⚠ A PICTURE, NOT A WORD, deliberately — the maker's
-## standing rule for every screen in this game is "remove the words, keep the
-## picture", and the hint already carries the name for anyone who walks up.
-## These two are also what `World._build_signboard`'s left arm points with, so a glyph
-## added here without a glyph added there is a sign that under-reports the room.
-const PAD_GLYPHS: Dictionary = {
-	"armory": "†", "party": "•", "class": "§",
-}
-const GLYPH_FONT_SIZE: int = 22
+## THE SIGN over each pad. ⚠ A PICTURE, NOT A WORD, and now a picture that is DRAWN
+## rather than typed — see the ⚠ block in `_ready` for why a font character could not
+## be one. The maker's standing rule for every screen in this game is "remove the
+## words, keep the picture"; the hint already carries the name for anyone who walks up.
+##
+## `_draw_sign` switches on `kind`, so this table is only the ORDER of the roster and
+## the fact that an unknown kind still gets something: a pad with no branch draws the
+## party mark rather than nothing, because a blank pad is the bug this replaces.
+const SIGN_KINDS: Array[String] = ["armory", "class", "party"]
+## How far above the pad the sign floats, and how big it is drawn. The height is the
+## old `GLYPH_LIFT` unchanged — the mark sits where the mark has always sat, so nothing
+## about the room's spacing moves with this.
 const GLYPH_LIFT: float = 58.0
+const SIGN_SCALE: float = 11.0
+const SIGN_INK: Color = Color(0.04, 0.04, 0.09, 0.9)
 
 var _hint: Label = null
+## The drawn sign floating over the pad. Its own `Node2D` for the same reason `_art`
+## is: it sits at a different height and a different z from the disc on the floor.
+var _sign: Node2D = null
 var _in_range: bool = false
 ## The pad's drawing surface. A child `Node2D` rather than `_draw` on the body, so the
 ## art sits at its own z and the player stands ON the pad rather than behind it.
@@ -142,14 +150,24 @@ func _ready() -> void:
 	# standing still that you can walk up to". A pad that is the odd one out teaches the
 	# wrong thing about the row; every pad is now the same object with a different
 	# colour and glyph, which was the point of making them pads.
-	var glyph := Label.new()
-	glyph.text = String(PAD_GLYPHS.get(kind, "•"))
-	glyph.position = Vector2(-14.0, -GLYPH_LIFT)
-	glyph.add_theme_font_size_override("font_size", GLYPH_FONT_SIZE)
-	glyph.add_theme_color_override("font_color", _tint())
-	glyph.add_theme_color_override("font_outline_color", Color(0.04, 0.04, 0.09, 0.9))
-	glyph.add_theme_constant_override("outline_size", 4)
-	add_child(glyph)
+	# ══ THE SIGN OVER THE PAD, AND IT IS DRAWN NOW ══════════════════════════════
+	# ⚠ IT WAS A `Label` CARRYING ONE TYPOGRAPHIC CHARACTER, AND THE MAKER COULD NOT
+	# READ IT. *"isnt clear what half of them are"*. Photographed in the room, the two
+	# stations in this tavern were a floating DAGGER (`†`) and a floating SECTION SIGN
+	# (`§`) hanging over a coloured ring — and neither of those means "your gear" or
+	# "your class" to anybody, because neither was chosen to. They are what
+	# `slice_test_font_coverage` could prove the built-in font would DRAW, after the
+	# theme was found to ship no font at all; the sword and the crest they replaced
+	# (`⚔`, `❖`) were the ones that meant something and they drew as blank rectangles.
+	#
+	# A drawn icon settles both problems at once: it means what it looks like, and it
+	# has no font to fall back to. `_draw_sign` renders it in polygons on the same node
+	# that already draws the pad, so it inherits the tint and there is one drawing per
+	# station instead of a drawing plus a piece of text hovering above it.
+	_sign = Node2D.new()
+	_sign.position = Vector2(0.0, -GLYPH_LIFT)
+	_sign.draw.connect(_draw_sign)
+	add_child(_sign)
 
 	# ⚠ NO COLLISION SHAPE ANY MORE, AND THAT IS THE POINT OF A PAD. The props were
 	# solid, so "walk up to it" meant "walk INTO it and stop"; a pad is floor, and you
@@ -244,6 +262,86 @@ func _draw_pad() -> void:
 			]))
 
 
+## ══════════════════════════════════════════════════ THE SIGN OVER THE PAD
+## One drawn mark per station, in the pad's own colour, so "what is this" is answered
+## from across the room without a word or a font. See the ⚠ block in `_ready`.
+##
+## ⚠ EVERY SHAPE IS AUTHORED IN A UNIT BOX AND SCALED BY `SIGN_SCALE`. Coordinates
+## picked in pixels are coordinates that have to be re-picked the day the sign changes
+## size, which is how the old glyph ended up at a hand-tuned `position` of (-14, -58)
+## that only centred one character width.
+##
+## Each is drawn TWICE — once fat in near-black, once in the tint — because these float
+## against a lamp-lit wall AND against the dark boards depending on where you stand,
+## and a single-colour line drawing loses one of those. That is the same outline the
+## `Label` carried in `font_outline_color`, kept.
+func _draw_sign() -> void:
+	var col: Color = _tint()
+	var lit: float = clampf(_beam, 0.0, 1.0)
+	var bright := Color(col.r, col.g, col.b, 0.85 + 0.15 * lit)
+	for pass_i: int in 2:
+		var ink: Color = SIGN_INK if pass_i == 0 else bright
+		var w: float = (4.2 if pass_i == 0 else 2.0)
+		for shape: PackedVector2Array in _sign_strokes():
+			var pts := PackedVector2Array()
+			for p: Vector2 in shape:
+				pts.append(p * SIGN_SCALE)
+			_sign.draw_polyline(pts, ink, w)
+
+
+## The unit-box strokes for this station's mark. Open polylines, never fills: a filled
+## silhouette at 22 px reads as a blob, and the pad is already a filled shape.
+func _sign_strokes() -> Array[PackedVector2Array]:
+	match kind:
+		# THE ARMOURY — a breastplate. Shoulders, a waist and a centre seam. Chosen over
+		# a sword because this pad is where four SLOTS live (head, body, hands, legs) and
+		# three of the four are armour; a sword would advertise the one thing it is not.
+		"armory":
+			return [
+				PackedVector2Array([
+					Vector2(-0.62, -0.78), Vector2(-0.30, -0.95), Vector2(0.30, -0.95),
+					Vector2(0.62, -0.78), Vector2(0.52, -0.05), Vector2(0.0, 0.62),
+					Vector2(-0.52, -0.05), Vector2(-0.62, -0.78),
+				]),
+				PackedVector2Array([Vector2(0.0, -0.86), Vector2(0.0, 0.30)]),
+			]
+		# YOUR CLASS — a hooded head and shoulders, i.e. a FIGURE, because that is what
+		# the pad opens: who you are. A stick game's own vocabulary, so it needs no
+		# explaining to anyone who has looked at the screen for a second.
+		"class":
+			return [
+				PackedVector2Array([
+					Vector2(-0.34, -0.28), Vector2(-0.34, -0.62), Vector2(-0.12, -0.86),
+					Vector2(0.12, -0.86), Vector2(0.34, -0.62), Vector2(0.34, -0.28),
+				]),
+				PackedVector2Array([
+					Vector2(-0.72, 0.72), Vector2(-0.62, 0.10), Vector2(-0.26, -0.20),
+					Vector2(0.26, -0.20), Vector2(0.62, 0.10), Vector2(0.72, 0.72),
+				]),
+			]
+	# THE PARTY STONE, and the fallback for any kind with no branch — two figures, which
+	# is exactly `MAX_PLAYERS`. A pad that reaches this by accident still draws SOMETHING,
+	# because a blank pad is the fault this whole function replaces.
+	return [
+		PackedVector2Array([
+			Vector2(-0.66, 0.72), Vector2(-0.58, 0.02), Vector2(-0.34, -0.30),
+			Vector2(-0.10, 0.02), Vector2(-0.02, 0.72),
+		]),
+		PackedVector2Array([
+			Vector2(-0.50, -0.50), Vector2(-0.34, -0.62), Vector2(-0.18, -0.50),
+			Vector2(-0.34, -0.38), Vector2(-0.50, -0.50),
+		]),
+		PackedVector2Array([
+			Vector2(0.10, 0.72), Vector2(0.18, 0.02), Vector2(0.42, -0.30),
+			Vector2(0.66, 0.02), Vector2(0.74, 0.72),
+		]),
+		PackedVector2Array([
+			Vector2(0.26, -0.50), Vector2(0.42, -0.62), Vector2(0.58, -0.50),
+			Vector2(0.42, -0.38), Vector2(0.26, -0.50),
+		]),
+	]
+
+
 ## A filled ellipse, flattened by `PAD_SQUASH` so it lies on the floor. `draw_circle`
 ## with a scaled transform would also scale the rim WIDTH, which is what made the
 ## first pass look like a smudge at distance.
@@ -291,6 +389,12 @@ func _process(delta: float) -> void:
 			_release_player()
 	if _art != null:
 		_art.queue_redraw()
+	# The sign brightens with the beam too, so it is on the same clock as the pad. It
+	# is redrawn HERE rather than only on a change because `_beam` is a continuous ramp
+	# — there is no edge to hang a one-shot redraw off, and this whole `_process`
+	# already runs every frame for the pad below it.
+	if _sign != null:
+		_sign.queue_redraw()
 
 
 ## Take hold of the player standing on this pad. Position and alpha are RESTORED from

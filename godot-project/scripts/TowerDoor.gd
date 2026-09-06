@@ -33,6 +33,11 @@ const HINT_TEXT: String = "walk in"
 const FRAME_COLOR: Color = Color(0.16, 0.15, 0.2)
 const STONE_COLOR: Color = Color(0.26, 0.24, 0.3)
 const GLOW_COLOR: Color = Color(1.0, 0.62, 0.3)      # warm arcane threshold glow
+## How far the threshold glow reaches in from the jamb, and in how many steps. Wide
+## enough to read at 640x360 across a room; narrow enough that the opening is still
+## mostly the dark you are walking into. See the ⚠ block where the glow is built.
+const GLOW_INSET: float = 10.0
+const GLOW_BANDS: int = 4
 ## ⚠ BIGGER, BECAUSE IT IS THE DESTINATION. Maker: "the tower should be way higher and
 ## further out to the right slightly and just look cooler". 62x96 read as a garden
 ## gate next to a figure 31 px tall; this is a tower mouth you walk into.
@@ -76,14 +81,6 @@ func _ready() -> void:
 	# Compete for the `talk` press by DISTANCE rather than by tree order.
 	# See `Interactables` for the two bugs that ordering shipped.
 	add_to_group(Interactables.GROUP)
-	# Threshold glow (behind the door — pulses in _process).
-	var glow := ColorRect.new()
-	glow.name = "Glow"
-	glow.color = Color(GLOW_COLOR.r, GLOW_COLOR.g, GLOW_COLOR.b, 0.5)
-	glow.size = Vector2(DOOR_W - 12.0, DOOR_H - 12.0)
-	glow.position = Vector2(-(DOOR_W - 12.0) * 0.5, -DOOR_H + 4.0)
-	glow.z_index = -1
-	add_child(glow)
 	# Stone door body (dark) + a lighter arched frame around it.
 	var frame := ColorRect.new()
 	frame.color = STONE_COLOR
@@ -103,6 +100,35 @@ func _ready() -> void:
 	door.size = Vector2(DOOR_W, DOOR_H)
 	door.position = Vector2(-DOOR_W * 0.5, -DOOR_H)
 	add_child(door)
+	# ══ THE THRESHOLD GLOW, AND IT USED TO REACH ZERO PIXELS ════════════════════
+	# ⚠ IT WAS BUILT FIRST, AT `z_index = -1`, AND ITS COMMENT SAID "behind the door".
+	# It is 12 px SMALLER than the door slab and centred inside it, so "behind the door"
+	# meant entirely UNDER an opaque `ColorRect` — every pixel of it, on every frame the
+	# town has ever run. `_process` has been writing a sine into the alpha of something
+	# nothing can see. The whole file's stated design is that this doorway is the one
+	# warm-cold beacon in the room ("the eye goes to the way out without a single arrow
+	# being drawn", `AntechamberBackdrop`'s brainstorm rule 2) — and photographed, the
+	# way out was a flat black rectangle, the darkest object on the screen.
+	#
+	# So it is built AFTER the slab now, and it is not a fill: a fill at any readable
+	# alpha turns the doorway into a lit panel, which is a wall with a lamp on it, not
+	# an opening. It is an INSET RIM — the threshold glowing around the dark you are
+	# about to walk into, which is what a door into somewhere else looks like.
+	# ⚠ AND IT IS A GRADED RIM, NOT A `ColorRect` FRAME. The first pass here WAS a
+	# ColorRect at alpha 0.5 with the doorway's dark laid over its middle, and
+	# photographed that is a flat rust-orange PICTURE FRAME with a hard edge on both
+	# sides — a painted border around a hole, which is a decal, not light. Light has a
+	# falloff or it is paint. `GLOW_BANDS` nested rings, alpha rising inward, is the
+	# cheapest honest one, and it is the same correction `AntechamberBackdrop._glow`
+	# makes to every disc in the room this door stands in.
+	var glow := Node2D.new()
+	glow.name = "Glow"
+	glow.draw.connect(_draw_threshold)
+	# ⚠ NOT A CHILD OF THE DOOR SLAB. `_process` finds it with `get_node_or_null("Glow")`
+	# against THIS node, so a nested path would silently stop the pulse — the failure
+	# would be a door that glows at a constant brightness and nobody would call that a
+	# bug, which is precisely how the original spent its whole life fully occluded.
+	add_child(glow)
 	_build_shaft()
 	# NO SOLID COLLIDER — see the header. The doorway is a threshold, not a wall.
 	# Proximity trigger + hint.
@@ -123,7 +149,12 @@ func _ready() -> void:
 	area.body_exited.connect(_on_body_exited)
 	_hint = Label.new()
 	_hint.text = HINT_TEXT
-	_hint.position = Vector2(-58.0, -DOOR_H - 54.0)
+	# ⚠ ON THE LINTEL, NOT IN THE AIR ABOVE IT. It sat at `-DOOR_H - 54`, i.e. 20 px
+	# clear of the pointed arch's own apex, so it read as a caption hanging in the room
+	# rather than as a word written over a door — and `PROXIMITY_RADIUS` reaches the
+	# spawn point, so it is up on the town's very first frame, which is where the maker
+	# meets it. `-DOOR_H - 30` puts it inside the arch, touching the stone.
+	_hint.position = Vector2(-58.0, -DOOR_H - 30.0)
 	_hint.add_theme_color_override("font_color", Color(1.0, 0.9, 0.7))
 	_hint.add_theme_color_override("font_outline_color", Color(0.05, 0.03, 0.08, 0.9))
 	_hint.add_theme_constant_override("outline_size", 4)
@@ -133,9 +164,33 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_phase += delta
-	var glow: ColorRect = get_node_or_null("Glow")
+	var glow: Node2D = get_node_or_null("Glow")
 	if glow != null:
-		glow.color.a = 0.35 + 0.2 * (0.5 + 0.5 * sin(_phase * 2.2))
+		glow.queue_redraw()
+
+
+## THE THRESHOLD, GLOWING. Nested rings inset from the doorway, faint at the jamb and
+## brightest where they meet the dark — so the opening reads as somewhere lit on the
+## far side rather than as a panel with a border painted on it.
+##
+## Drawn every frame because the pulse is continuous; it is `GLOW_BANDS` rectangles on
+## one node, which is less work than the two `ColorRect`s it replaces did in layout.
+func _draw_threshold(_unused: int = 0) -> void:
+	var glow: Node2D = get_node_or_null("Glow")
+	if glow == null:
+		return
+	var pulse: float = 0.72 + 0.28 * (0.5 + 0.5 * sin(_phase * 2.2))
+	for i: int in GLOW_BANDS:
+		# Band 0 is the outermost and faintest, at the jamb; the last is a thin hot
+		# line right against the dark.
+		var t: float = float(i) / float(GLOW_BANDS - 1)
+		var inset: float = GLOW_INSET * t
+		var a: float = lerpf(0.05, 0.42, t * t) * pulse
+		glow.draw_rect(Rect2(
+			Vector2(-DOOR_W * 0.5 + inset, -DOOR_H + inset),
+			Vector2(DOOR_W - inset * 2.0, DOOR_H - inset)),
+			Color(GLOW_COLOR.r, GLOW_COLOR.g, GLOW_COLOR.b, a), false,
+			maxf(GLOW_INSET / float(GLOW_BANDS), 1.0))
 
 
 ## THE TOWER ITSELF, above the door: a tapering shaft with banded courses and a lit

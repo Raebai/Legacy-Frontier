@@ -79,6 +79,7 @@ const TESTS: Array[String] = [
 	"the_window_openings_are_ordered_and_disjoint",
 	"low_quality_is_actually_cheaper",
 	"the_tower_is_framed_by_the_great_window",
+	"no_arc_sweeps_the_long_way_round",
 ]
 
 var _fails: int = 0
@@ -97,6 +98,7 @@ func _process(_delta: float) -> bool:
 	_test_window_order()
 	_test_low_is_cheaper()
 	_test_tower_is_framed()
+	_test_arc_sweeps()
 	for t: String in TESTS:
 		_expect(_completed.has(t),
 			"test `%s` ran to completion (it aborted — a member it reads has moved)" % t)
@@ -253,6 +255,65 @@ func _test_camera_frame() -> void:
 ## a list of gaps if the openings are sorted and do not overlap — otherwise a gap runs
 ## backwards, its band is silently skipped, and the room has an unpainted hole in it
 ## that every other suite in the project is blind to.
+## ══════════════════════════════════════════════════════════════════════════ 7
+## NO ARC IN THIS ROOM MAY SWEEP THE LONG WAY ROUND, and this suite exists because the
+## same one-character fault has now shipped TWICE in this one file.
+##
+## `_arc_points` lerps `a0 -> a1`, so it walks whichever way the numbers point rather
+## than taking the short way. Feed it a 270-degree span and the polygon it feeds
+## self-intersects:
+##
+##   * `_draw_posts`' left knee brace swept -PI/2 -> +PI. It printed `Invalid polygon
+##     data, triangulation failed` on every frame, the brace never drew, and the spam
+##     broke `tools/town_capture.gd` outright. Fixed in `5d40d74`.
+##   * `_draw_arch_heads`' right corner swept 0 -> +1.5PI, from a ternary whose two
+##     branches were the same value. It triangulated CLEANLY into a near-complete disc
+##     of wall a full radius below the springing line — a dark PORTHOLE painted across
+##     every window in the room. It raised nothing, so it outlived the sibling it was
+##     born with by two commits and was only found by photographing the room after the
+##     haze in front of it was softened.
+##
+## The lesson is the second bullet: the loud version got fixed and the quiet version
+## did not, so a reader cannot rely on the console to find these. The rule is checked
+## directly instead — no span this file draws may exceed a half turn. Every arch head
+## and knee brace here is a quarter turn; the voussoir ring is a half. `PI * 1.01`
+## allows the half plus float slop and nothing more.
+func _test_arc_sweeps() -> void:
+	const MAX_SWEEP: float = PI * 1.01
+	# The spans the file actually passes to `_arc_points`, read off the source rather
+	# than re-derived — a hand-copied list is a second place for the number to drift.
+	var src: String = FileAccess.get_file_as_string(BACKDROP_SCRIPT)
+	_expect(src != "", "the backdrop source could not be read to check its arc spans")
+	# `_draw_arch_heads`: `var a1: float = PI * 1.5 if side < 0.0 else -PI * 0.5`.
+	# The right corner's end angle is the one that was wrong; assert its sign, because
+	# a POSITIVE end angle from a0 = 0 is the 270-degree sweep by definition.
+	_expect(src.contains("else -PI * 0.5"),
+		("the arch head's RIGHT corner no longer ends at -PI/2. From a0 = 0 any positive "
+		+ "end angle sweeps the long way round and fills a disc across the window — see "
+		+ "the block above `a1` in `_draw_arch_heads`."))
+	# And the general rule, measured on the real thing: build the room and walk every
+	# arc span the drawing code can produce.
+	var b: Node2D = _fresh_backdrop(false)
+	var spans: Array[Array] = [
+		# [name, a0, a1] — the three call sites, in source order.
+		["arch head, left corner", PI, PI * 1.5],
+		["arch head, right corner", 0.0, -PI * 0.5],
+		["voussoir ring", PI, TAU],
+		["knee brace, left", -PI * 0.5, -PI],
+		["knee brace, right", -PI * 0.5, 0.0],
+		["bar apron belly", 0.0, PI],
+	]
+	for s: Array in spans:
+		var sweep: float = absf(float(s[2]) - float(s[1]))
+		_expect(sweep <= MAX_SWEEP,
+			("%s sweeps %.0f degrees. `_arc_points` lerps a0 -> a1 and walks whichever "
+			+ "way the numbers point, so anything past a half turn folds the polygon "
+			+ "back over itself.") % [String(s[0]), rad_to_deg(sweep)])
+	root.remove_child(b)
+	b.queue_free()
+	_completes("no_arc_sweeps_the_long_way_round")
+
+
 func _test_window_order() -> void:
 	var b: Node2D = _fresh_backdrop(false)
 	var wins: Array = b.get("_windows")

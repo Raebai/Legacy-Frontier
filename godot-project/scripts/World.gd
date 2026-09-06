@@ -554,11 +554,19 @@ func _build_signboard() -> void:
 	# pad) and both arms overflowed their planks — maker: "the symbols do not fit,
 	# neither does the tower text". The planks are measured from their own strings now,
 	# so an arm cannot be narrower than what is written on it.
-	# ⚠ TWO GLYPHS, BECAUSE THERE ARE TWO PADS. It listed four (⚔ ☗ ✦ ❖) and the last
-	# two are the deleted lectern and Archivist — the same failure the arm already had
-	# once, when it advertised the removed sparring pad's ◎. A sign that names a door
-	# that is not there is worse than no sign, because the player goes looking.
-	_sign_arm("‹  † §", -1.0, SIGN_TOP + 10.0)
+	# ⚠ THE LEFT ARM SAYS WORDS NOW, AND THAT IS NOT A RETREAT FROM THE PICTURE RULE.
+	# It read `‹  † §` — a dagger and a section sign, which is what survived the
+	# theme-has-no-font substitution — and the maker's report on this room was
+	# *"isnt clear what half of them are"*. It was never clear: those two characters
+	# were picked for being DRAWABLE, not for meaning anything, and a sign whose whole
+	# job is to name what is behind you cannot be written in marks with no referent.
+	#
+	# The picture rule is kept where it belongs — ON THE PADS, which now draw a
+	# breastplate and a figure (`ArmoryStation._draw_sign`) instead of borrowing
+	# typography. A SIGNPOST is the one object in a room that is allowed to use words;
+	# the right arm has said "THE TOWER" in words all along, and the two arms disagreeing
+	# about that was itself part of what made this corner read as noise.
+	_sign_arm("‹  ARMOURY · CLASS", -1.0, SIGN_TOP + 10.0)
 	_sign_arm("THE TOWER  ›", 1.0, SIGN_TOP + 42.0)
 
 
@@ -1074,7 +1082,33 @@ func _spawn_hud() -> void:
 	# yard and no hotbar is a room that will not tell you what your four buttons are.
 	# `AbilityBar` polls `get_first_node_in_group("hero")` and draws nothing when there
 	# is none, so it costs exactly nothing in a scene without a fighter.
-	layer.add_child(AbilityBar.new())
+	#
+	# ⚠ IT IS BOUND, AND THAT IS WHAT TAKES THE HEALTH BAR OFF THE PLAYER'S HEAD.
+	# `CharacterBars._resolve_plate` decides between a corner PLATE and a bar over the
+	# body by asking one question — "is there a hotbar bound to me" — because that is
+	# the question that actually means "is a human holding the controls for this
+	# fighter". This bar was built UNBOUND, so in the town the answer was no, and the
+	# local player wore a 52 px green bar over a 31 px stick figure. Photographed in the
+	# tavern it was the brightest and most saturated object in the room, floating beside
+	# the campfire in a room where nothing can attack you, and the maker's report was
+	# *"isnt clear what half of them are"*.
+	#
+	# The bar is not hidden and the readout is not removed — a hero can still be hurt in
+	# here (you can cast at the dummies, and a spell that costs health does not care
+	# what room it is in). It goes to the same corner plate the arena gives it, which is
+	# a ruling the maker already made once: *"the health bar is blocking the stick
+	# figure, the main one — put that somewhere else so that it's clear and more
+	# professional"*. The town was simply never included in it.
+	#
+	# ⚠ BOUND THROUGH `"player"`, NEVER `"hero"`. Both this body and every peer's body
+	# are in `"hero"` — `_spawn_peer_body` REMOVES the peer from `"player"` and adds it
+	# to `"town_peer"` precisely so that group means "the local person", which is the
+	# same reason the overlay freeze and the armoury resolve through it. Binding by
+	# `"hero"` would hand this corner to whichever body the group happened to yield
+	# first, and in a two-player town that is a coin toss.
+	var bar := AbilityBar.new()
+	bar.bound_hero = get_tree().get_first_node_in_group("player")
+	layer.add_child(bar)
 
 	var who := Label.new()
 	who.add_to_group("class_hud_label")

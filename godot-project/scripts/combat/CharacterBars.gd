@@ -364,15 +364,50 @@ func _resolve_plate() -> void:
 ## the project lives (`Arena` and `LocalCoop._build_bar_for` each build one inside a
 ## fresh layer), and a full scene walk during a fight, four times a second, is a walk
 ## over the whole arena.
+## ⚠ IT USED TO LOOK ONLY AT ROOT'S DIRECT CHILDREN AND THEREFORE NEVER FOUND ONE.
+## The old body was `for child in tree.root.get_children(): if child is CanvasLayer:` —
+## so the ONLY arrangement it could resolve was a hotbar layer parented straight to the
+## scene-tree root. **No scene in this game builds that.** `Arena._spawn_hud`,
+## `LocalCoop._build_bar_for` and `World._spawn_hud` all `add_child(layer)` onto
+## themselves, which puts every hotbar in the project two or three levels down.
+##
+## ⚠ AND BOTH INSTRUMENTS AGREED WITH IT, BECAUSE BOTH BUILT THE SHAPE THEMSELVES.
+## `slice_test_hero_plate` and `probe_hero_hud` each construct a fighter and then call
+## `root.add_child(layer)` — the one layout the search supports and the one layout the
+## game never produces. The suite went green on nine assertions about a plate that had
+## never appeared on a screen, which is the whole failure mode of a harness that
+## supplies its own world. Measured against the real town with
+## `tools/probe_plate_in_real_scenes.gd`: `local=true plate=false head_bar=true`.
+##
+## The consequence was visible and was reported as something else. Every hero in this
+## game — in the arena and in the tavern — has been wearing the bar over its head that
+## the maker asked to have moved (*"the health bar is blocking the stick figure"*), and
+## in the lobby capture it is the brightest object in the room.
+##
+## The walk descends into CanvasLayers WHEREVER they are rather than only at depth 1.
+## Cost is bounded by the caller, not by this shape: `_tick_plate` polls at
+## `PLATE_POLL` for `PLATE_WINDOW`, i.e. sixteen times in the fighter's whole life and
+## never again.
 func _find_bound_ability_bar() -> Node:
 	var tree: SceneTree = get_tree()
 	if tree == null or tree.root == null:
 		return null
-	for child: Node in tree.root.get_children():
+	return _search_layers(tree.root)
+
+
+## Descend for CanvasLayers; hand each one to `_search_for_bound_bar`, which is the part
+## that knows what a hotbar looks like. Kept separate so the "where do layers live"
+## question and the "which bar is mine" question stay one each.
+func _search_layers(from: Node) -> Node:
+	for child: Node in from.get_children():
 		if child is CanvasLayer:
 			var found: Node = _search_for_bound_bar(child)
 			if found != null:
 				return found
+		else:
+			var deeper: Node = _search_layers(child)
+			if deeper != null:
+				return deeper
 	return null
 
 
