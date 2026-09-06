@@ -78,6 +78,25 @@ const MAX_SLIDE: float = 2200.0     # off-map cap: despawn if nothing stopped it
 const GRIND_DUST_INTERVAL: float = 0.06
 const PLOW_PAD: float = 22.0        # extra reach on the enemy plow check
 
+## ══ THE TRENCH THE SLAB LEAVES BEHIND ══════════════════════════════════════
+## Maker's standing idea, finally buildable now that `DestructibleStage` has a capsule
+## sibling to `carve_disc`: *a rock wall that leaves a trench where it tore itself free
+## makes cover and hazard the same act, and the trench is exactly as long as the wall is
+## wide, so it is readable without a tutorial.*
+##
+## THE NUMBER IS A SIZE KNOB, NOT A DAMAGE NUMBER, and it is worth being blunt about
+## that because it looks like one. Nothing takes 30 damage from a wall going up — this
+## is fed to `DestructibleStage.damage_span`, where damage only NUDGES the crater inside
+## a ±30 % band and the FOOTPRINT does the sizing (that is the maker's correction: *"the
+## size is a property of the strike"*). It sits at the same weight as an ordinary
+## committed hit so the trench looks like what a heavy slab tearing loose would leave,
+## and it clears `CARVE_MIN_DAMAGE` with room, which is the only hard requirement.
+##
+## ⚠ IT MUST NOT BE `SHOVE_DAMAGE`. That number is the ram's payload and is tuned
+## against fighters; borrowing it would silently tie how deep the ground opens to how
+## hard the slide hits, and the next person to tune the plow would move the terrain.
+const TRENCH_BITE: int = 30
+
 const BODY_COLOR: Color = Color(0.38, 0.27, 0.17)
 const FACE_COLOR: Color = Color(0.5, 0.37, 0.23)
 const LIT_COLOR: Color = Color(0.62, 0.46, 0.26)
@@ -201,6 +220,10 @@ func raise_wall(
 	#
 	# The wall is the whole point of the spell, so the wall wins and the BODY moves.
 	_eject_bodies_from_wall()
+	# ⚠ ...AND THE SURFACE IT CAME OUT OF LOSES THAT MUCH ROCK. `hit` is the private,
+	# NON-PIERCING probe above, so its collider is the thing the wall is actually
+	# standing on — a ledge, a carvable stage — and never something two planks below it.
+	_carve_trench(hit.get("collider"))
 	# The ground BREAKS as the first slab tears out — a slam, not a fade-in.
 	DebrisChunk.spawn_burst(get_parent(), _floor_base, Color(0.5, 0.38, 0.22), 8, Vector2.UP, 260.0)
 	CombatVfx.spawn_burst(get_parent(), _floor_base, Color(0.85, 0.62, 0.35, 0.8),
@@ -264,6 +287,40 @@ func _eject_bodies_from_wall() -> void:
 				side = 1.0 if _floor_base.x >= global_position.x else -1.0
 			b.global_position = Vector2(
 				_floor_base.x + side * (half_w + EJECT_PAD), p.y)
+
+
+## ══ THE WALL TAKES THE MATERIAL IT IS MADE OF ══════════════════════════════
+## A slab this size does not appear out of nothing: it is torn out of the surface under
+## it, and that surface should be short by a wall's worth of rock afterwards. One
+## `carve_capsule` along the wall's own footprint — see `TRENCH_BITE`.
+##
+## ⚠ ROUTED BY THE COLLIDER, NEVER BY `DestructibleStage.carve_area`. That helper finds
+## its stage by scanning the group and returning THE FIRST MEMBER, which is written for
+## a world with exactly one stage; on a tower floor every ledge is deliberately out of
+## that group, so an area-routed trench would either hit nothing or hit the wrong plank.
+## `carve_span_from_body` reads `BODY_META` off the body the floor probe actually
+## stopped on, which cannot cross-talk. A surface with no meta — the tower's plain
+## ground, which the maker ruled explicitly NOT destructible — returns 0 and the wall
+## simply rises out of solid ground, unchanged.
+##
+## ⚠ THE SPAN IS SUNK BY ITS OWN RADIUS. A capsule laid ON the surface line would put
+## half the stadium in the air above the floor, where there is nothing to remove, and
+## the trench would be half as deep as it looks. Dropping the centre-line by `r` puts
+## the TOP of the trench exactly at the surface and its floor `2 * r` below — a trench
+## as deep as it is wide, which is what makes it sever a six-cell ledge and merely
+## pockmark a 320 px terrace. Both of those are the right answer for their material.
+##
+## ⚠ `source` IS `self`, so the anti-cascade ledger sees one wall as one source. A wall
+## carves once in its life, but a wall raised, shoved and re-raised on the same spot by
+## the same caster must not saw a hole downward, and this is what refuses that.
+func _carve_trench(floor_body: Object) -> void:
+	var half: float = WALL_SIZE.x * 0.5
+	var sink := Vector2(0.0,
+		DestructibleStage.carve_radius_for_strike(TRENCH_BITE, half))
+	DestructibleStage.carve_span_from_body(floor_body, TRENCH_BITE,
+		_floor_base + Vector2(-half, 0.0) + sink,
+		_floor_base + Vector2(half, 0.0) + sink,
+		Vector2.UP, half, self)
 
 
 func _exit_tree() -> void:

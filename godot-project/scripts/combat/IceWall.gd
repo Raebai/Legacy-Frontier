@@ -104,6 +104,22 @@ const FLOOR_PROBE: float = 220.0
 ## GUESS only in the sense that every number here is — it is not a new one.
 const REACTION_HALF_WIDTH: float = WALL_SIZE.x * 0.5 + CHILL_PAD
 
+## ══ THE TRENCH THE CRYSTAL LEAVES BEHIND ═══════════════════════════════════
+## The same act as `RockWall`'s (see `RockWall.TRENCH_BITE` for the full reasoning on
+## why this is a SIZE knob and not a damage number) and deliberately the SAME weight,
+## because the thing that must differ between the two walls is the FOOTPRINT, not the
+## force. Ice is `WALL_SIZE.x` 30 against rock's 44, so the ice trench comes out
+## visibly narrower and shallower on its own — which is the header's whole argument
+## about the two walls being one idea in two materials, arriving in the floor.
+##
+## ⚠ NOT tuned DOWN to make ice "gentler". That would be a second opinion about size
+## living in this file, and `DestructibleStage`'s size rule is explicitly the only one.
+const TRENCH_BITE: int = 30
+## How far the surface probe reaches below the seated base. Short on purpose — this is
+## asking "what am I standing on", not "where is the floor" (that is already answered).
+## 6 px is under two chunk cells, so it cannot skip past a plank onto the ground below.
+const SURFACE_PROBE: float = 6.0
+
 const FILL_COLOR: Color = Color(0.45, 0.75, 1.0)    # drawn at ~0.3 alpha: see-through
 const CORE_COLOR: Color = Color(0.6, 0.88, 1.1)     # inner facet, slightly hot
 const EDGE_COLOR: Color = Color(0.95, 1.45, 1.85)   # HDR cyan edge lines (bloom)
@@ -197,6 +213,8 @@ func raise_wall(
 	_collider.shape = shape
 	_collider.position = Vector2(0.0, -WALL_SIZE.y * 0.5)  # extend UP from the base
 	_body.add_child(_collider)
+	# ⚠ ...AND THE SURFACE IT GREW OUT OF LOSES THAT MUCH ROCK. See `_carve_trench`.
+	_carve_trench(_surface_under_base())
 	# Frost mist as the crystals grow + an immediate chill on anything in the space.
 	CombatVfx.spawn_burst(get_parent(), _floor_base, Color(0.75, 0.92, 1.0, 0.9),
 		Color(0.4, 0.65, 1.0, 0.0), 18, 0.5, 50.0, 160.0, 0.8, 2.4, 0.0, 0.0, true)
@@ -215,6 +233,52 @@ func raise_wall(
 	if reactor != null:
 		reactor.call(&"register", self, ReactionTable.Form.BARRIER, element_id)
 	queue_redraw()
+
+
+## The body whose top face `_floor_base` is resting on, or null.
+##
+## ⚠ A SECOND, SHORTER, NON-PIERCING PROBE — NOT THE SEAT'S OWN COLLIDER. The seat is
+## placed by `SpellWorld.floor_point`, which hands back only a POINT and whose
+## `smash_destructibles` defaults to TRUE, so the ray it fired pierced straight through
+## any breakable plank in the way and the collider it finally stopped on is not
+## necessarily the thing the crystal ends up standing on. This asks the narrower
+## question directly: fire from a hair above the seat, 6 px down, stopping on the first
+## solid whatever group it is in.
+##
+## The tidier fix — making the SEAT itself non-piercing, so an ice wall stands on the
+## ledge you are standing on the way `RockWall` already does — is deliberately NOT taken
+## here. It would move where every ice wall in the game plants itself, which is a feel
+## change and belongs to a playtested slice, not to a terrain one.
+func _surface_under_base() -> Object:
+	var world: World2D = get_world_2d()
+	if world == null:
+		return null
+	var from: Vector2 = _floor_base - Vector2(0.0, 1.0)
+	var q := PhysicsRayQueryParameters2D.create(
+		from, from + Vector2(0.0, SURFACE_PROBE), 1)
+	# Point-blank by construction: the seat lies ON the surface's top face, so without
+	# this the ray can report clear from inside the very rock it must find.
+	q.hit_from_inside = true
+	var hit: Dictionary = world.direct_space_state.intersect_ray(q)
+	return hit.get("collider") if not hit.is_empty() else null
+
+
+## ══ THE WALL TAKES THE MATERIAL IT IS MADE OF ══════════════════════════════
+## `RockWall._carve_trench` in the other material, and every ⚠ written there applies
+## verbatim: routed by the COLLIDER (never `carve_area`, whose group scan returns the
+## first member and would trench the wrong plank), and the span is SUNK by its own
+## radius so the trench's top edge is the surface rather than its middle.
+##
+## The one thing that differs is the number that reaches it — `WALL_SIZE.x * 0.5`, 15
+## against rock's 22 — and that is the point. See `TRENCH_BITE`.
+func _carve_trench(floor_body: Object) -> void:
+	var half: float = WALL_SIZE.x * 0.5
+	var sink := Vector2(0.0,
+		DestructibleStage.carve_radius_for_strike(TRENCH_BITE, half))
+	DestructibleStage.carve_span_from_body(floor_body, TRENCH_BITE,
+		_floor_base + Vector2(-half, 0.0) + sink,
+		_floor_base + Vector2(half, 0.0) + sink,
+		Vector2.UP, half, self)
 
 
 func _exit_tree() -> void:

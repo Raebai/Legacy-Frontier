@@ -325,11 +325,24 @@ func _apply_launch() -> void:
 	for prop: Node in SpellTargets.on_line(base, Vector2.UP, reach, _half_width,
 			get_tree().get_nodes_in_group("destructible"), skip, self):
 		_smash(prop)
-	# THE FANG TAKES THE MATERIAL IT IS MADE OF. This is the one member of the
-	# raised-out-of-the-ground family that fits the existing primitive: `DestructibleStage`
-	# defers `RockWall`/`IceWall` because a wall's footprint is a long thin SPAN and
-	# `carve_disc` has no capsule sibling — but a pillar is a COLUMN, and a column's
-	# ground contact is a disc, so the shape is already right here.
+	# THE FANG TAKES THE MATERIAL IT IS MADE OF, and it is the member of the
+	# raised-out-of-the-ground family that wants a DISC. `RockWall` and `IceWall` are its
+	# siblings and take `damage_span` / `carve_capsule` instead, because a wall's ground
+	# contact is a long thin SPAN — but a pillar is a COLUMN, and a column's contact is
+	# round, so the disc is not a compromise here, it is the right shape.
+	#
+	# ⚠ THIS COMMENT USED TO SAY THE CAPSULE SIBLING DID NOT EXIST. It does now
+	# (`DestructibleStage.carve_capsule`), and a stale note claiming a primitive is
+	# missing is exactly how the next reader rebuilds one. The pillar is NOT switched to
+	# it: a span of length zero is a disc, so routing through `damage_span` would buy a
+	# longer call and an identical hole.
+	#
+	# ⚠ AND IT STAYS ON `carve_area` rather than moving to `carve_span_from_body`'s
+	# body routing, which is a real limitation and not an endorsement. `SpellWorld.
+	# floor_below` above runs with `smash_destructibles` TRUE, so the collider it hands
+	# back has already pierced any breakable plank the fang grew through — routing by it
+	# would carve whatever is UNDER the ledge rather than the ledge. Fixing that means
+	# changing where the fang seats, which is a feel change and not this slice's.
 	#
 	# Footprint is `_half_width`, the same one number that draws the fang and sizes
 	# its damage capsule; the file's own header calls keeping those in step the whole

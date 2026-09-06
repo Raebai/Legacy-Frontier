@@ -210,15 +210,18 @@ const CARVE_RADIUS_MAX: float = 46.0
 ##   body through the AIR; it has no terrain contact to be accurate to. Wiring it would
 ##   mean inventing a ground strike the spell does not have.
 ##
-##   WALLS RAISED OUT OF THE GROUND (`RockWall`, `IceWall`) DO NOT YET TAKE THE
-##   MATERIAL THEY ARE MADE OF, and it is the best unbuilt idea in this pass: a rock
-##   wall that leaves a trench where it tore itself free would make cover and hazard the
-##   same act, and the trench would be exactly as long as the wall is wide, so it is
-##   readable without a tutorial. It is NOT built here for two reasons, both worth
-##   stating. Those files are not in this pass's ownership. And a wall's footprint is a
-##   long thin SPAN, not a disc — `carve_disc` would need a capsule sibling or a row of
-##   overlapping bites, and a row of bites is exactly the shape most likely to move the
-##   severed-run number off 0. It wants its own measured slice, not a bolt-on.
+##   WALLS RAISED OUT OF THE GROUND (`RockWall`, `IceWall`) NOW TAKE THE MATERIAL THEY
+##   ARE MADE OF, through `carve_capsule` / `damage_span` — the capsule sibling this
+##   block used to say `carve_disc` was missing. A wall's footprint is a long thin SPAN,
+##   not a disc, so the trench it leaves is that span swept by the ordinary crater
+##   radius: exactly as long as the wall is wide, which is readable without a tutorial,
+##   and cover and hazard become one act. `HorizonArc` waited on the same primitive and
+##   is wired to it too — its span is the crescent's tip-to-tip chord.
+##
+##   ⚠ AND IT IS THE SHAPE THAT FINALLY MOVED THE SEVERED-RUN NUMBER OFF 0. A row of
+##   overlapping bites was always the most likely thing to cut a run of stage in two,
+##   and on a LEDGE — six cells deep — a wall's trench does exactly that. See
+##   `tools/slice_test_carve_capsule.gd`, which measures it both ways.
 ##
 ## The damage-only fallback curve, for a source that cannot publish a footprint. Kept
 ## because `carve_from_body` is reached by bodies whose caller knows nothing about them,
@@ -256,6 +259,28 @@ const CARVE_LEDGER_SOURCES_MAX: int = 96
 ## ending"), so nothing here limits the carve. What is capped is the COSMETIC debris,
 ## which is a frame-rate concern and carries no gameplay information at all.
 const MAX_DEBRIS_PER_CARVE: int = 6
+
+## ══ WHAT A SPAN'S SPECTACLE IS, AND WHY IT IS NOT A DISC'S REPEATED ════════
+## A trench is not a hole. Firing `_spawn_carve_spectacle` at every step of a span
+## would throw a disc's worth of chips and stamp a disc's crack at each one — six
+## bursts and six decals for one 600 px sword cut, which is both the wrong picture
+## (a fissure, not a string of craters) and six times the cosmetic cost the disc
+## budget was measured against.
+##
+## Two alternatives were rejected before this one. ONE BURST AT THE MIDPOINT is what
+## `damage_at` would do for free, and it puts the rubble in the middle of a trench
+## whose ends are where the rock actually tore — a hole at one end of a slot. ONE
+## BURST PER END reads better but says nothing about a long span, and a 600 px cut
+## and a 44 px one would look identical in the middle.
+##
+## So: the DISC'S OWN CHUNK BUDGET, SPREAD ALONG THE SPAN. Sample points are laid
+## every `SPAN_SPECTACLE_STRIDE` px, `MAX_DEBRIS_PER_CARVE` bounds the sample COUNT
+## as well as the chunk count, and the total chunks spawned is distributed across
+## those samples so it is EXACTLY the number a disc of the same radius would have
+## thrown — never a multiple of it. A short trench collapses to one sample and is
+## then byte-identical to a disc's burst; a long one gets a chain of smaller ones,
+## which is what a fissure looks like.
+const SPAN_SPECTACLE_STRIDE: float = 48.0
 
 ## ══ THE REBUILD PARTITION ══════════════════════════════════════════════════
 ## Block edge, in CELLS. 48 x 48 cells = 192 x 192 world px, so the 482 x 143 grid is
@@ -922,6 +947,56 @@ func damage_at(amount: int, world_pos: Vector2, dir: Vector2,
 	return removed
 
 
+## ══ THE SPAN CONTRACT — A WALL TAKES THE MATERIAL IT IS MADE OF ════════════
+## `damage_at`'s sibling for an effect whose contact footprint is a LONG THIN SPAN
+## rather than a point: a slab of rock tearing itself out of the ground, a crescent of
+## edge cutting through a plank. `from_world` -> `to_world` is the span the effect
+## actually occupied, and the trench it leaves is that span swept by the SAME crater
+## radius `damage_at` would have used for the same footprint and damage — so a 44 px
+## rock wall leaves a trench 44 px long and a 30 px ice wall a narrower one, and
+## neither file gets its own opinion about how big a hole is.
+##
+## Everything else is `damage_at` verbatim and deliberately so: the same
+## `CARVE_MIN_DAMAGE` shelf, the same `carve_radius_for_strike` size rule, the same
+## anti-cascade ledger, the same `carve_events` bookkeeping. The ONLY thing that
+## differs is the shape that comes out the far end.
+##
+## ⚠ THE LEDGER IS TAKEN ON THE WHOLE TRENCH, NOT ON ITS MIDPOINT. `_ledger_admits`
+## asks "is this point inside ground this source has already taken", and for a span
+## the honest answer covers the entire stadium — record only the midpoint and a source
+## re-digs its own trench by aiming at one end of it, which is precisely the erosion
+## `CARVE_REPEAT_BITE` exists to stop. So the crater recorded is the span's BOUNDING
+## CIRCLE: centre at the midpoint, radius half-length plus the carve radius. That is
+## what makes a travelling cut bite once and not once per frame.
+##
+## ⚠ NO CAP ON WHAT COMES OUT, inherited from `carve_disc` and for the maker's stated
+## reason: *"if that happens then it happens it will be a projectile based ending"*. A
+## span is the shape most able to sever a run of stage in two and it is ALLOWED to.
+func damage_span(amount: int, from_world: Vector2, to_world: Vector2, dir: Vector2,
+		footprint: float = 0.0, source: Object = null) -> int:
+	if amount < CARVE_MIN_DAMAGE:
+		refused_hits += 1
+		return 0
+	var r: float = carve_radius_for_strike(amount, footprint)
+	# WORLD IN, GRID OUT — both endpoints, through the one conversion `damage_at` uses.
+	# A ledge's grid lives in its owner body's LOCAL space, and converting one endpoint
+	# and not the other would draw the trench off at an angle nobody asked for.
+	var a: Vector2 = _to_grid(from_world)
+	var b: Vector2 = _to_grid(to_world)
+	var mid: Vector2 = (a + b) * 0.5
+	if not _ledger_admits(source, r, mid):
+		repeat_refused_hits += 1
+		return 0
+	var removed: int = carve_capsule(a, b, r)
+	if removed <= 0:
+		return 0
+	_ledger_record(source, mid, a.distance_to(b) * 0.5 + r)
+	carve_events += 1
+	if spectacle:
+		_spawn_span_spectacle(from_world, to_world, r, dir)
+	return removed
+
+
 ## World point -> this grid's coordinate space. See `space`.
 func _to_grid(world_pos: Vector2) -> Vector2:
 	if space != null and is_instance_valid(space) and space.is_inside_tree():
@@ -1036,6 +1111,67 @@ func carve_disc(world_pos: Vector2, radius: float) -> int:
 	return removed
 
 
+## ══ THE CAPSULE — `carve_disc`'S SIBLING FOR A SHAPE WITH A LENGTH ═════════
+## Clear every cell whose centre is inside the STADIUM swept by a disc of `radius`
+## dragged from `a` to `b`. Returns cells removed. Both points are in THIS GRID'S
+## space (see `_to_grid`); `damage_span` is the world-space entry.
+##
+## ⚠ NOT A LOOP OF `carve_disc` CALLS, and the reason is measured rather than felt.
+## N discs spaced along a span re-walk every cell in every overlap — for a trench the
+## width of its own radius that is ~2x the cells for a wall and worse for a sword cut,
+## and each repeat pays the full bounds arithmetic again. This walks the span's cell
+## rectangle ONCE. `tools/slice_test_carve_capsule.gd` prints both costs side by side
+## and fails if the capsule is not the cheaper of the two.
+##
+## ⚠ AND IT IS BOUNDED TO THE SPAN, NOT TO THE GRID. The scan rectangle is the
+## segment's own AABB inflated by `radius` and then clipped to the grid — the same
+## discipline `carve_disc` applies to its disc. A capsule that swept the whole grid
+## would be correct and would also cost a ledge 60x what its own footprint costs.
+##
+## THE MATHS, once, so it cannot drift: project the cell centre onto the segment,
+## CLAMP the parameter to [0, 1], and compare the squared distance to the clamped
+## point. The clamp is the whole difference between a stadium and an infinite strip,
+## and it is what gives the trench its round ends. No `sqrt` anywhere — the comparison
+## is squared on both sides, as in `carve_disc`.
+##
+## ⚠ A DEGENERATE SPAN IS A DISC, NOT A DIVISION BY ZERO. `a == b` happens for real
+## (a wall of zero width is a nonsense the caller may still hand us), and collapsing to
+## `t = 0` makes this return exactly what `carve_disc(a, radius)` would.
+##
+## ⚠ NO CAP ON CELLS REMOVED — see `carve_disc`. This is the shape most able to cut a
+## run of stage clean in two and the maker's ruling explicitly permits it.
+func carve_capsule(a: Vector2, b: Vector2, radius: float) -> int:
+	if cols <= 0 or rows <= 0 or radius <= 0.0:
+		return 0
+	var seg: Vector2 = b - a
+	var seg_len2: float = seg.length_squared()
+	var lo_x: float = minf(a.x, b.x)
+	var hi_x: float = maxf(a.x, b.x)
+	var lo_y: float = minf(a.y, b.y)
+	var hi_y: float = maxf(a.y, b.y)
+	var cx0: int = maxi(int(floorf((lo_x - radius - origin.x) / CHUNK)), 0)
+	var cx1: int = mini(int(ceilf((hi_x + radius - origin.x) / CHUNK)), cols - 1)
+	var cy0: int = maxi(int(floorf((lo_y - radius - origin.y) / CHUNK)), 0)
+	var cy1: int = mini(int(ceilf((hi_y + radius - origin.y) / CHUNK)), rows - 1)
+	var r2: float = radius * radius
+	var removed: int = 0
+	for cy: int in range(cy0, cy1 + 1):
+		var dy0: float = origin.y + (float(cy) + 0.5) * CHUNK - a.y
+		for cx: int in range(cx0, cx1 + 1):
+			var dx0: float = origin.x + (float(cx) + 0.5) * CHUNK - a.x
+			var t: float = 0.0
+			if seg_len2 > 0.0000001:
+				t = clampf((dx0 * seg.x + dy0 * seg.y) / seg_len2, 0.0, 1.0)
+			var ox: float = dx0 - seg.x * t
+			var oy: float = dy0 - seg.y * t
+			if ox * ox + oy * oy > r2:
+				continue
+			if clear_cell(cx, cy):
+				removed += 1
+	carved_cells += removed
+	return removed
+
+
 ## Rubble and a mark, reusing the two systems that already exist for exactly this —
 ## `DebrisChunk` for the falling stone and `ScorchDecal` for the crack left behind.
 ## The maker's standing rule: optimise what is here, do not add a new particle system.
@@ -1054,6 +1190,39 @@ func _spawn_carve_spectacle(world_pos: Vector2, radius: float, dir: Vector2) -> 
 	DebrisChunk.spawn_burst(host, world_pos, ArenaTerrain.ROCK_UPPER, count, away, 240.0)
 	ScorchDecal.spawn(host, world_pos, radius * 0.9, "crack",
 		Color(0.16, 0.14, 0.13, 0.5), 6.0)
+
+
+## A TRENCH'S rubble and marks. See `SPAN_SPECTACLE_STRIDE` for why this is not the
+## disc's spectacle fired repeatedly — the short version is that a fissure is a chain of
+## small tears, not a string of craters, and the chunk budget is the disc's TOTAL rather
+## than the disc's total PER SAMPLE.
+func _spawn_span_spectacle(from_world: Vector2, to_world: Vector2, radius: float,
+		dir: Vector2) -> void:
+	var host: Node = get_parent()
+	if host == null or not host.is_inside_tree():
+		return
+	var away: Vector2 = -dir.normalized() if dir != Vector2.ZERO else Vector2.UP
+	# The disc's own budget for this radius, unchanged — that is the point.
+	var total: int = clampi(int(radius / 5.0), 2, MAX_DEBRIS_PER_CARVE)
+	# ⚠ SAMPLES ARE CAPPED BY `total`, NOT ONLY BY `MAX_DEBRIS_PER_CARVE`. With
+	# samples <= total, integer division below can never hand a sample zero chunks, so
+	# no sample is a bare decal with nothing coming off it.
+	var samples: int = clampi(
+		int(from_world.distance_to(to_world) / SPAN_SPECTACLE_STRIDE) + 1, 1, total)
+	for i: int in samples:
+		# A single sample sits at the MIDPOINT (matching the disc exactly); two or more
+		# walk end to end, so the two ends of a trench are always where rock tore.
+		var t: float = 0.5 if samples <= 1 else float(i) / float(samples - 1)
+		var at: Vector2 = from_world.lerp(to_world, t)
+		# Exact distribution: the remainder goes to the leading samples, so the chunks
+		# spawned sum to `total` and never to `total * samples`.
+		var n: int = total / samples + (1 if i < total % samples else 0)
+		DebrisChunk.spawn_burst(host, at, ArenaTerrain.ROCK_UPPER, n, away, 240.0)
+		# The crack is stamped per sample rather than once: a trench with one mark in
+		# the middle reads as a hole that missed, and the mark is the only thing left
+		# once the chips have settled.
+		ScorchDecal.spawn(host, at, radius * 0.9, "crack",
+			Color(0.16, 0.14, 0.13, 0.5), 6.0)
 
 
 ## ══ THE REBUILD, ONCE A FRAME, OFF THE HIT PATH ════════════════════════════
@@ -1251,6 +1420,31 @@ static func carve_from_body(hit: Object, amount: int, world_pos: Vector2,
 	if s == null or not is_instance_valid(s):
 		return 0
 	return s.damage_at(amount, world_pos, dir, footprint, source)
+
+
+## `carve_from_body` for a SPAN. Same routing, same refusals, a trench instead of a
+## crater — see `damage_span`.
+##
+## ⚠ THERE IS DELIBERATELY NO `carve_span_area` SIBLING, and that is the whole point of
+## this function. `carve_area` finds its stage by scanning `GROUP_NAME` and returning
+## THE FIRST MEMBER, which was written for a world holding exactly one stage; every
+## ledge is kept out of that group for precisely that reason (`advertise_in_group`).
+## A span is the longest-reaching carve in the file, so a span sent to whichever stage
+## sorted first would be the loudest possible version of that bug — a sword cut
+## trenching a platform across the room while the plank under the blade keeps its
+## shape. Callers hold the collider they actually struck; they pass it here.
+static func carve_span_from_body(hit: Object, amount: int, from_world: Vector2,
+		to_world: Vector2, dir: Vector2, footprint: float = 0.0,
+		source: Object = null) -> int:
+	if hit == null or not is_instance_valid(hit):
+		return 0
+	var n: Node = hit as Node
+	if n == null or not n.has_meta(BODY_META):
+		return 0
+	var s: DestructibleStage = n.get_meta(BODY_META) as DestructibleStage
+	if s == null or not is_instance_valid(s):
+		return 0
+	return s.damage_span(amount, from_world, to_world, dir, footprint, source)
 
 
 ## Route an AREA hit that never touched a body — a blast, a nova, a ground slam. The

@@ -229,8 +229,17 @@ func _process(delta: float) -> void:
 	for smashed: Node in blocked.get("smashed", []) as Array:
 		if smashed != null and is_instance_valid(smashed) and smashed.has_method("take_damage"):
 			smashed.take_damage(_damage)
+		# ...and the cut takes the material out of it. See `_carve_through`.
+		_carve_through(smashed)
 	if bool(blocked.get("hit", false)):
 		_travelled = prev + float(blocked.get("distance", 0.0))
+		# ⚠ AFTER THE CLIP, NEVER BEFORE IT. `_travelled` was speculatively advanced a
+		# full frame's flight above and is only now pulled back to where the blade
+		# actually met the surface. Carving on the pre-clip value would open the slot
+		# up to `SPEED * delta` past the face it stopped on — a cut drawn in one place
+		# and taken out of another, which is the exact drawn-vs-damaged lie this file's
+		# header exists to prevent.
+		_carve_through(blocked.get("collider"))
 		_sweep_damage()
 		_sweep_deflect()
 		_begin_dissipate()
@@ -241,6 +250,47 @@ func _process(delta: float) -> void:
 		_begin_dissipate()
 		return
 	queue_redraw()
+
+
+## ══ THE CUT TAKES THE MATERIAL IT PASSED THROUGH ═══════════════════════════
+## This spell waited on a primitive rather than on a decision. `DestructibleStage`
+## carves a DISC, and a disc is the wrong description of a wall of edge by every
+## measure that matters: the crescent is 180-600 px tall and 30 px deep, so a disc
+## sized to its height would gouge a crater the width of the cut's height, and one
+## sized to its thickness would nick it. `carve_capsule` is the shape that was
+## missing, and the cut's span is the one it already publishes.
+##
+## ⚠ THE SPAN IS THE TIP-TO-TIP CHORD, BUILT FROM `arc_point`. Not a hand-written
+## line, not `global_position` (which is the arena origin — see the header), and not
+## the reaction capsule, which is a deliberate SUPERSET that fills the hollow of the
+## crescent. It is the same function `_draw()` and `contains_point()` ask, at the same
+## `_travelled` and the same `_half_height()`, so the slot the cut leaves in the rock
+## cannot describe a different blade from the one on screen. That is the file's whole
+## structural defence and it costs nothing to extend it here.
+##
+## THE FOOTPRINT IS HALF THE THICKNESS, which is what the size rule wants: the
+## effect's own contact half-width. At 30 px thick and 110 damage that lands at a
+## ~28 px slot — the cut takes about its own width out of what it hit, which is the
+## predictable answer a player who has watched one Horizon Cut can carry to the next.
+##
+## ⚠ IT CANNOT BECOME A TUNNEL, and the guard is not in this file. `damage_span`
+## records the whole trench in the anti-cascade ledger (centre plus half-length plus
+## radius), so the second frame this arc reaches the same body is refused outright by
+## `CARVE_REPEAT_BITE`. Without that a cut grinding along one plank would re-cut it
+## sixty times a second and the depth would be a function of frame rate.
+##
+## ⚠ ROUTED BY THE BODY, NEVER BY `carve_area`. A travelling wall passes over many
+## surfaces, and the group scan returns the first member of the group regardless of
+## what the blade actually met — the loudest possible version of that bug. A body with
+## no `BODY_META` (a rim, a plain tower ground slab, a fighter) returns 0.
+func _carve_through(body: Object) -> void:
+	if body == null:
+		return
+	var hh: float = _half_height()
+	DestructibleStage.carve_span_from_body(body, _damage,
+		arc_point(_origin, _dir, _travelled, hh, BOW, -1.0),
+		arc_point(_origin, _dir, _travelled, hh, BOW, 1.0),
+		_dir, _thickness * 0.5, self)
 
 
 ## Progress along the flight, 0..1 — drives the widening and the draw's intensity.
