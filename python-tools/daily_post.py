@@ -281,19 +281,46 @@ def variant_for(acct: dict, when: date, weights: dict | None = None
     return tags, time_s, tag_idx
 
 
+def consumed_stem(stem: str, pool_stems: set[str]) -> str:
+    """The POOL entry a ledger stem spent, given what is on disk.
+
+    ⚠ A LEDGER WRITTEN BEFORE `clip_suffix` EXISTED IS NOT THE ONLY SHAPE IN THIS FILE.
+    Rows queued between the day cuts arrived and the day this was fixed name the CUT
+    (`x_vs_y.portrait`), not the fight (`x_vs_y`). Retiring only the literal string
+    leaves the fight looking free forever, which is the whole bug — so it is resolved
+    back to the pool entry here rather than migrated, because a migration only fixes
+    the rows that exist on the day it runs and this keeps working for the ones the
+    vendor is still holding.
+
+    Longest-prefix, so a future `x_vs_y.portrait.hdr` also resolves and no list of
+    suffixes has to be kept in step with the account config.
+    """
+    if stem in pool_stems:
+        return stem
+    best = ""
+    for p in pool_stems:
+        if stem.startswith(p + ".") and len(p) > len(best):
+            best = p
+    return best or stem
+
+
 def spoken_for(ledger: dict) -> set[str]:
     """Every clip already public OR already sitting in the vendor's queue.
 
     ⚠ BOTH, and the second half is the one that bites. A clip queued for Thursday has
     not been posted yet, so a ledger that only tracked `posted` would happily queue it
     again for Friday — and the duplicate would only surface when both went live.
+
+    Returned in POOL terms, because every caller is asking the same question — which
+    fights are spent — and none of them cares which cut of it went out.
     """
+    stems = {p.stem for p in pool()}
     used: set[str] = set()
     for by_acct in ledger.get("posted", {}).values():
         used |= set(by_acct.keys())
     for row in ledger.get("scheduled", []):
         used.add(row["clip"])
-    return used
+    return {consumed_stem(s, stems) for s in used}
 
 
 def pick(ledger: dict, taken: set[str]) -> Path | None:
@@ -566,7 +593,16 @@ def cmd_topup(days: int, accounts: list[dict], ledger: dict, key: str,
             caption = (title_of(clip.stem) + acct.get("title_suffix", "")
                        if acct.get("caption") == "title"
                        else f"{title_of(clip.stem)}\n\n{tags}".strip())
-            clip = send_clip
+            # ⚠ `clip` IS THE POOL ENTRY AND `send_clip` IS THE FILE. They were the
+            # same object until `clip_suffix` arrived, and a `clip = send_clip` here
+            # collapsed them again — so the row below recorded the stem of the CUT
+            # (`x_vs_y.portrait`) as the thing that had been consumed. `pick()` asks
+            # whether the POOL stem (`x_vs_y`) is spoken for, the two never matched,
+            # and the same fight was handed out on every day of the queue forever:
+            # 57 copies of one clip and 28 of another, live, out to October. Every
+            # account carries a `clip_suffix`, so this fired on every send.
+            # Keep them separate. `clip` is what the pool spent; `send_clip` is what
+            # went on the wire.
             # Per-platform tuning the vendor accepts but does not default well:
             # YouTube's categoryId is "22" (People & Blogs) unless told otherwise, and
             # its description defaults to the title, wasting the one field on that
@@ -574,18 +610,19 @@ def cmd_topup(days: int, accounts: list[dict], ledger: dict, key: str,
             target = pc.Target(profile=profile, platforms=acct["platforms"],
                                caption=caption, draft=bool(acct.get("draft", False)),
                                extra=dict(acct.get("extra") or {}))
-            payloads = pc.build_requests(clip, [target], caption, 0)
+            payloads = pc.build_requests(send_clip, [target], caption, 0)
             payloads[0]["scheduled_date"] = when_utc
             payloads[0].pop("schedule_offset_minutes", None)
 
             print(f"\n  {when_local:<22} {profile}  "
                   f"[{', '.join(acct['platforms'])}]")
-            print(f"      {clip.name}  ({clip.stat().st_size / 1e6:.1f} MB)")
+            print(f"      {send_clip.name}  "
+                  f"({send_clip.stat().st_size / 1e6:.1f} MB)")
             print(f"      {caption.splitlines()[0]}")
             if tags:
                 print(f"      variant #{vidx % len(acct['hashtag_variants'])}: {tags}")
 
-            row = {"profile": profile, "clip": clip.stem,
+            row = {"profile": profile, "clip": clip.stem, "file": send_clip.name,
                    "platforms": acct["platforms"], "when_utc": when_utc,
                    "when_local": when_local, "job_id": "",
                    "hashtags": tags, "post_time": hhmm}
@@ -659,7 +696,11 @@ def main() -> int:
             for stem, when in sorted(done.items(), key=lambda kv: kv[1]):
                 print(f"      posted    {when[:10]}  {stem}")
             for r in sorted(queued, key=lambda r: r["when_utc"]):
-                print(f"      queued    {r['when_local']:<22}  {r['clip']}")
+                # The FILE, when the row knows it — `clip` is the fight that was
+                # spent, and two accounts spending different fights on the same cut
+                # is exactly what this listing is read to check.
+                print(f"      queued    {r['when_local']:<22}  "
+                      f"{r.get('file') or r['clip']}")
         return 0
 
     key = pc.load_key()
@@ -707,7 +748,7 @@ def main() -> int:
             elif not due:
                 flag = "   (not due yet)"
             print(f"  {r['when_local']:<22} {r['profile']:<20} {state:<12}{flag}")
-            print(f"      {r['clip']}")
+            print(f"      {r.get('file') or r['clip']}")
             # ⚠ READ THE PLATFORM'S OWN `status`, NOT `success`. Every result carries
             # `success: false` until it has actually run, so inferring FAIL from a
             # falsy success marked all six queued jobs as failures — an alerting tool
