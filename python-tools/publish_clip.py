@@ -168,10 +168,21 @@ def fetch_profiles(key: str, timeout: int = 25) -> dict | None:
         return None
 
 
-def list_scheduled(key: str, timeout: int = 25) -> list[dict]:
+def list_scheduled(key: str, timeout: int = 25) -> list[dict] | None:
     """Every post the VENDOR is holding for a future date. The only honest source of
     truth about what will go out — a local ledger records what we asked for, not what
-    they accepted."""
+    they accepted.
+
+    ⚠ RETURNS None WHEN IT COULD NOT TELL, AND THAT DISTINCTION IS LOAD-BEARING. It
+    used to return `[]` on any error, which is the same value as "the vendor is holding
+    nothing" — and the two mean opposite things to every caller. On 2026-09-07 a bulk
+    cancel hit the endpoint's rate limit mid-run, the next listing came back 429, the
+    caller read the empty list as "the vendor no longer holds these" and dropped 18
+    rows from the ledger that were still queued to publish. Nothing was cancelled and
+    nothing on this machine knew they were still coming.
+
+    An empty list still means empty. None means ASK AGAIN — never act on it.
+    """
     import urllib.error
     import urllib.request
     req = urllib.request.Request(SCHEDULE_ENDPOINT, method="GET",
@@ -182,10 +193,10 @@ def list_scheduled(key: str, timeout: int = 25) -> list[dict]:
                 "scheduled_posts", []) or []
     except urllib.error.HTTPError as e:
         print(f"  could not list the schedule: HTTP {e.code} {e.read()[:200]!r}")
-        return []
+        return None
     except Exception as e:                                   # noqa: BLE001
         print(f"  could not reach the schedule endpoint: {type(e).__name__}: {e}")
-        return []
+        return None
 
 
 def job_status(job_id: str, key: str, timeout: int = 25) -> dict:

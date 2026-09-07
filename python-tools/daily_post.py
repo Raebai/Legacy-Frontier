@@ -359,7 +359,7 @@ def local_date_of(iso_utc: str) -> date | None:
     return dt.astimezone(ZoneInfo(POST_TZ)).date()
 
 
-def vendor_holdings(key: str) -> dict[tuple[str, date], list[dict]]:
+def vendor_holdings(key: str) -> dict[tuple[str, date], list[dict]] | None:
     """{(profile, local date): [rows]} for everything the vendor is holding.
 
     The authoritative answer to "is this day already covered". The local ledger records
@@ -371,9 +371,16 @@ def vendor_holdings(key: str) -> dict[tuple[str, date], list[dict]]:
     once more to YouTube; keyed by profile and date alone, queueing either one would
     mark the whole day covered and the other would never go out. `covers()` asks the
     narrower question the schedule actually needs answered.
+
+    ⚠ None PROPAGATES. A listing that failed is not an empty schedule, and reading it
+    as one here is the double-booking case: every day would look uncovered and the
+    top-up would queue a second post on top of every day already held.
     """
+    rows = pc.list_scheduled(key)
+    if rows is None:
+        return None
     out: dict[tuple[str, date], list[dict]] = {}
-    for row in pc.list_scheduled(key):
+    for row in rows:
         day = local_date_of(row.get("scheduled_date"))
         profile = str(row.get("profile_username") or "")
         if day and profile:
@@ -442,7 +449,15 @@ def reconcile(ledger: dict, key: str, verbose: bool = True) -> int:
     fight that was never actually published. Reconciling on every run keeps the ledger a
     description of reality rather than of intent.
     """
-    still_held = {str(r.get("job_id")) for r in pc.list_scheduled(key)}
+    listing = pc.list_scheduled(key)
+    if listing is None:
+        # Could not tell. Reconciling on a guess would mark still-queued posts as
+        # published or free their clips for re-queueing; leaving the ledger alone for
+        # one run costs nothing, because the next run asks again.
+        if verbose:
+            print("  skipped reconcile: the vendor could not be asked just now")
+        return 0
+    still_held = {str(r.get("job_id")) for r in listing}
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     kept, moved, freed = [], 0, 0
     for row in ledger.get("scheduled", []):
@@ -504,60 +519,99 @@ def cmd_cancel_dupes(ledger: dict, key: str, live: bool) -> int:
     refills the days from the pool. It is the queue that is being edited, not anything
     that has been published.
     """
-    held = {str(r.get("job_id")) for r in pc.list_scheduled(key)}
+    listing = pc.list_scheduled(key)
+    if listing is None:
+        # ⚠ THE FAILURE THAT WROTE THIS GUARD. A 429 mid-run made this listing empty,
+        # every straggler read as "the vendor no longer holds it", and 18 rows were
+        # dropped from the ledger while still queued to publish. Nothing was cancelled
+        # and nothing here knew they were still coming. Refuse instead.
+        print("\n  the vendor could not be asked what it is holding, so nothing was")
+        print("  cancelled. An unanswered listing is not an empty one. Try again in a")
+        print("  minute — the endpoint rate-limits bulk cancels.")
+        return 1
     stems = {p.stem for p in pool()}
-    rows = sorted(ledger.get("scheduled", []), key=lambda r: r["when_utc"])
 
-    seen: dict[tuple[str, str], str] = {}     # (profile, fight) -> when_local of keeper
+    # ⚠ JUDGED ON THE VENDOR'S OWN ROWS, NOT THE LEDGER'S. The ledger records what this
+    # machine asked for; only this listing says what will actually publish, and on
+    # 2026-09-07 they disagreed by 18 rows. Working from the listing also means a queue
+    # this machine has never seen — queued from another checkout, or orphaned by a
+    # half-finished cancel — still gets cleaned.
+    #
+    # The join is the caption's first line, which `title_of` builds from the stem and
+    # `insights.clip_stem_of` reads back. Reused rather than re-derived: two inverses of
+    # one format drift apart, and this repo has paid for that.
+    from insights import clip_stem_of                         # noqa: PLC0415
+
+    def sort_key(r: dict) -> str:
+        return str(r.get("scheduled_date") or "")
+
+    # (profile, fight, platforms) — the rider is the SAME fight on a DIFFERENT platform
+    # on the same day, and is not a repeat. Two of them on different days is.
+    seen: dict[tuple[str, str, str], str] = {}
     for prof, by in ledger.get("posted", {}).items():
         for stem in by:
-            seen.setdefault((prof, consumed_stem(stem, stems)), "already published")
+            fight = consumed_stem(stem, stems)
+            for plats in {str(sorted(r.get("platforms") or []))
+                          for r in listing
+                          if str(r.get("profile_username") or "") == prof}:
+                seen.setdefault((prof, fight, plats), "already published")
 
     keep, dupes = [], []
-    for r in rows:
-        fight = consumed_stem(r["clip"], stems)
-        mark = (r["profile"], fight)
+    for r in sorted(listing, key=sort_key):
+        prof = str(r.get("profile_username") or "")
+        fight = clip_stem_of(str(r.get("title") or ""))
+        mark = (prof, fight, str(sorted(r.get("platforms") or [])))
         if mark in seen:
             dupes.append((r, fight, seen[mark]))
         else:
-            seen[mark] = r["when_local"]
+            seen[mark] = sort_key(r)[:16]
             keep.append(r)
 
     print()
     if not dupes:
-        print(f"  no repeats: {len(rows)} queued post(s) are "
-              f"{len(rows)} different fights.")
+        print(f"  no repeats: the vendor's {len(listing)} queued post(s) are "
+              f"{len(keep)} different fights.")
         return 0
 
     by_fight: dict[str, int] = {}
-    for r, fight, _ in dupes:
+    for _r, fight, _ in dupes:
         by_fight[fight] = by_fight.get(fight, 0) + 1
-    print(f"  {len(dupes)} of {len(rows)} queued post(s) are repeats:")
+    print(f"  {len(dupes)} of the vendor's {len(listing)} queued post(s) are repeats:")
     for fight, n in sorted(by_fight.items(), key=lambda kv: -kv[1]):
         print(f"      {fight:<34} {n} extra copie(s)")
-    print(f"\n  keeping {len(keep)}, and the first showing of each fight stays.")
-    orphan = [r for r, _, _ in dupes if str(r.get("job_id") or "") not in held]
-    if orphan:
-        print(f"  note: {len(orphan)} of them are no longer held by the vendor "
-              f"(already fired, or cancelled elsewhere) — dropped locally only.")
+    kept_names = sorted({clip_stem_of(str(r.get("title") or "")) for r in keep})
+    print(f"\n  keeping {len(keep)}: {', '.join(kept_names) or '(none)'}")
     if not live:
         print("\n  DRY RUN — nothing cancelled. Add --live.")
         return 0
 
-    gone, failed = 0, []
+    gone, failed, misses = 0, [], 0
     for r, _, _ in dupes:
         job = str(r.get("job_id") or "")
-        if job and job in held and not pc.cancel_scheduled(job, key):
-            failed.append(r)
+        if not job or not pc.cancel_scheduled(job, key):
+            failed.append(job)
+            misses += 1
+            # ⚠ STOP RATHER THAN HAMMER. The endpoint rate-limits bulk cancels, and
+            # once it starts refusing, every further call is another refusal — the
+            # first run of this hit 18 of them in a row. Re-running finishes the job,
+            # because it re-reads what the vendor is still holding.
+            if misses >= 5:
+                print(f"\n  the endpoint stopped accepting cancels after {gone}. "
+                      f"Re-run in a minute to finish.")
+                break
             continue
+        misses = 0
         gone += 1
-    # ⚠ ONLY THE ONES THAT ACTUALLY WENT. A row dropped locally while the vendor still
-    # holds it is the worst of both: it posts anyway and nothing here knows it did.
-    ledger["scheduled"] = keep + failed
+    # The ledger is only ever narrowed by what the VENDOR confirmed gone, never by what
+    # this function believes it asked for.
+    killed = {str(r.get("job_id")) for r, _, _ in dupes} - set(failed)
+    ledger["scheduled"] = [row for row in ledger.get("scheduled", [])
+                           if str(row.get("job_id") or "") not in killed]
     save_ledger(ledger)
-    print(f"\n  cancelled {gone}/{len(dupes)}; {len(keep)} left queued")
+    print(f"\n  cancelled {gone}/{len(dupes)}; "
+          f"{len(listing) - gone} still queued at the vendor")
     if failed:
-        print(f"  ⚠ {len(failed)} would not cancel and are still queued at the vendor.")
+        print(f"  ⚠ {len(failed)} would not cancel. Re-run to finish them.")
     return 1 if failed else 0
 
 
@@ -571,6 +625,13 @@ def cmd_topup(days: int, accounts: list[dict], ledger: dict, key: str,
     """
     reconcile(ledger, key)
     held = vendor_holdings(key)
+    if held is None:
+        # The whole idempotence claim rests on knowing what is already queued. Without
+        # it, "fill only the gaps" degrades to "queue every day again" — the double-post
+        # this command was written to make impossible.
+        print("\n  could not ask the vendor what is already queued, so nothing was")
+        print("  queued. Filling gaps needs to know where the gaps are. Try again.")
+        return 1
     today = datetime.now(ZoneInfo(POST_TZ)).date()
 
     # ⚠ A CONFIGURED PLATFORM THAT IS NOT LINKED FAILS THE WHOLE UPLOAD, not just its
@@ -786,6 +847,9 @@ def main() -> int:
 
     if args.list:
         rows = pc.list_scheduled(key)
+        if rows is None:
+            print("\ncould not ask the vendor what it is holding. Try again shortly.")
+            return 1
         print()
         print(f"the vendor is holding {len(rows)} scheduled post(s)")
         print()
@@ -847,6 +911,11 @@ def main() -> int:
 
     if args.cancel_all:
         rows = pc.list_scheduled(key)
+        if rows is None:
+            print("\ncould not ask the vendor what it is holding, so nothing was "
+                  "cancelled.\nAn unanswered listing is not an empty one. Try again "
+                  "shortly.")
+            return 1
         print()
         print(f"{len(rows)} scheduled post(s) would be cancelled")
         for r in rows:
