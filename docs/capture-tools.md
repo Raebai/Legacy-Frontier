@@ -28,9 +28,11 @@ Frames land in `C:\Users\Raaed\AppData\Roaming\Godot\app_userdata\Stickspire`.
 |---|---|---|
 | `archivist_capture` | THE ARCHIVIST — the spell tree, drawn. Three frames, because the whole point of | script |
 | `arena_wide_capture` | Wide overview of the whole VersusArena stage (to see the mountain + terrain). | script |
+| `biome_read_capture` | DOES THE FIGHTER READ AGAINST THE STAGE, IN ALL TEN BIOMES? | script |
 | `blink_aim_capture` | Shows the three things about blink that no assertion can settle: it goes where you | script |
 | `boss_capture` | Force a floor-5 (BOSS) run and render the Ashen Guardian across its 3 phases. | script |
 | `boss_redraw_capture` | Render THE FLOOR REDRAWING ITSELF at a boss phase break — all four artists. | script |
+| `boss_roster_capture` | python python-tools/run_capture.py boss_roster | script |
 | `bot_clip_capture` | THE CLIP ENGINE — renders a real bot-vs-bot fight to a PNG frame sequence that | script |
 | `cast_pose_capture` | Visual check for the per-spell CAST POSES (magic-overhaul rule 4). Renders the | script |
 | `cast_windup_capture` | Visual check for the SHIPPED hero's casting PROCESS (not the spike rig — see | script |
@@ -52,6 +54,7 @@ Frames land in `C:\Users\Raaed\AppData\Roaming\Godot\app_userdata\Stickspire`.
 | `enemy_gear_capture` | Enemy gear capture: render the archetype weapons on stick rigs (brute club, | script |
 | `floor_sim` | HOW LONG IS A FLOOR? — a headless estimator for the wave tables. | script |
 | `floorgen_capture` | LOOK AT THE ROLLS. Renders the SAME floor drawn several different ways, into real | script |
+| `font_specimen_capture` | Render every display-face candidate drawing the REAL title-screen strings through the | script |
 | `freeplay_capture` | FREE PLAY, rendered — proof that the no-bots stage actually comes up: the | script |
 | `friendly_fire_capture` | python python-tools/run_capture.py friendly_fire | script |
 | `gear_capture` | Gear capture: render a row of stick-figure rigs, each with a class_preset, so the | script |
@@ -89,9 +92,11 @@ Frames land in `C:\Users\Raaed\AppData\Roaming\Godot\app_userdata\Stickspire`.
 | `stickman_look_capture` | STICKMAN LOOK capture — the "is it actually a stickman?" render. | script |
 | `summon_capture` | Capture a hero mid-SUMMON (spell circle blooming) then at ERUPTION, to review the | script |
 | `summon_showcase_capture` | LOOK AT EVERY SPELL SUMMONING. Fires the eighteen spectacles that gained a | script |
+| `tavern_capture` | python python-tools/run_capture.py tavern | script |
 | `terrain_capture` | Frame the playable TERRAIN band of VersusArena (HUD hidden) so the terrain look | script |
 | `thrall_capture` | Visual verification for RAISE THRALL and GRAVE TIDE. | script |
 | `tier_spell_capture` | Visual verification for the seven NEW drop spectacles (the three that reuse an | script |
+| `title_capture` | renderer, every frame saves successfully and every PNG is blank, which looks exactly | script |
 | `touch_capture` | Force-show the mobile TouchControls over VersusArena to review the pad layout. | script |
 | `town_capture` | THE TOWN — the game's front door. Four frames, so the layout can be judged by | script |
 | `ult_focus_capture` | Full-resolution single-moment look at ONE ult, for when the contact sheet | script |
@@ -103,4 +108,4 @@ Frames land in `C:\Users\Raaed\AppData\Roaming\Godot\app_userdata\Stickspire`.
 | `ward_capture` | Visual verification for the AEGIS WARD and the STEAM CLOUD (agent-owned; safe | script |
 | `weather_capture` | LOOK AT THE FLOOR'S AIR. One cell per biome, all ten, each showing that floor's | script |
 
-_76 tools._
+_81 tools._

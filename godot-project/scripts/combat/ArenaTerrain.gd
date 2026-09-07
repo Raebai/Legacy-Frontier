@@ -33,6 +33,11 @@ const PEBBLE: Color = Color(0.44, 0.41, 0.38)
 const BOULDER: Color = Color(0.25, 0.24, 0.27)
 const BOULDER_LIT: Color = Color(0.34, 0.33, 0.34)
 
+## How far the ground leans into its biome. ⚠ MODEST ON PURPOSE. At 1.0 the rock
+## becomes the sky and the stage stops reading as rock at all; the point is that the
+## ground belongs to the room, not that it matches it. Tuned by shooting all ten.
+const DRESS_AMOUNT: float = 0.30
+
 const CRUST_H: float = 12.0        # sunlit soil band thickness
 const UPPER_H: float = 90.0        # exposed-rock band before it goes deep
 const RIM_H: float = 4.0           # bright top edge line
@@ -66,8 +71,8 @@ func _draw_shelf(surface_y: float, x0: float, x1: float) -> void:
 		return
 	var seed_x: int = int(x0)
 	# --- Deep rock body (fills the whole column) then the upper-rock band on top.
-	draw_rect(Rect2(x0, surface_y, w, floor_y - surface_y), ROCK_DEEP, true)
-	draw_rect(Rect2(x0, surface_y, w, UPPER_H), ROCK_UPPER, true)
+	draw_rect(Rect2(x0, surface_y, w, floor_y - surface_y), _c(ROCK_DEEP), true)
+	draw_rect(Rect2(x0, surface_y, w, UPPER_H), _c(ROCK_UPPER), true)
 	# --- Top soil crust with a jittered lower edge so soil meets rock organically.
 	var step: float = 22.0
 	var n: int = maxi(2, int(w / step))
@@ -83,7 +88,7 @@ func _draw_shelf(surface_y: float, x0: float, x1: float) -> void:
 		soil.append(p)
 	for j in range(crust_bot.size() - 1, -1, -1):
 		soil.append(crust_bot[j])
-	draw_colored_polygon(soil, CRUST_BODY)
+	draw_colored_polygon(soil, _c(CRUST_BODY))
 	# --- Horizontal strata / bedding lines across the exposed rock.
 	for s in range(1, 5):
 		var sy: float = surface_y + CRUST_H + float(s) * 17.0 + (_h(seed_x, s) - 0.5) * 5.0
@@ -94,7 +99,7 @@ func _draw_shelf(surface_y: float, x0: float, x1: float) -> void:
 		for i in range(m + 1):
 			var fx2: float = x0 + w * float(i) / float(m)
 			poly.append(Vector2(fx2, sy + (_h(seed_x + i, s * 3) - 0.5) * 4.0))
-		draw_polyline(poly, STRATA_LINE, 1.5, true)
+		draw_polyline(poly, _c(STRATA_LINE), 1.5, true)
 	# --- Vertical cracks fracturing down from the surface.
 	var cracks: int = maxi(1, int(w / 130.0))
 	for c in range(cracks):
@@ -107,7 +112,7 @@ func _draw_shelf(surface_y: float, x0: float, x1: float) -> void:
 			var ky: float = cy + len_c * float(k) / float(seg)
 			var kx: float = cx + (_h(seed_x + c, k * 7) - 0.5) * 14.0
 			pts.append(Vector2(kx, ky))
-		draw_polyline(pts, CRACK_COLOR, 1.6, true)
+		draw_polyline(pts, _c(CRACK_COLOR), 1.6, true)
 	# --- Embedded boulders in the deep rock (lit-from-above ellipse pairs).
 	var rocks: int = maxi(1, int(w / 150.0))
 	for r in range(rocks):
@@ -117,8 +122,8 @@ func _draw_shelf(surface_y: float, x0: float, x1: float) -> void:
 		_draw_boulder(Vector2(rx, ry), rr)
 	# --- RULE 1: the lit cap along the walkable ridge — shaded band, then the lit
 	# line — plus sparse moss + pebbles on it.
-	draw_rect(Rect2(x0, surface_y - RIM_H, w, RIM_H + 2.0), CRUST_CORE, true)
-	draw_rect(Rect2(x0, surface_y - RIM_H, w, RIM_H * 0.5), CRUST_TOP, true)
+	draw_rect(Rect2(x0, surface_y - RIM_H, w, RIM_H + 2.0), _c(CRUST_CORE), true)
+	draw_rect(Rect2(x0, surface_y - RIM_H, w, RIM_H * 0.5), _c(CRUST_TOP), true)
 	var tufts: int = maxi(1, int(w / 90.0))
 	for tf in range(tufts):
 		var tx: float = x0 + 12.0 + (w - 24.0) * _h(seed_x + tf, 41)
@@ -126,12 +131,12 @@ func _draw_shelf(surface_y: float, x0: float, x1: float) -> void:
 			_draw_moss(Vector2(tx, surface_y - RIM_H))
 		if _h(seed_x, tf * 17 + 2) > 0.5:
 			var pr: float = 1.4 + _h(seed_x + tf, 3) * 1.8
-			draw_circle(Vector2(tx + 6.0, surface_y - RIM_H - pr * 0.4), pr, PEBBLE, true, -1.0, true)
+			draw_circle(Vector2(tx + 6.0, surface_y - RIM_H - pr * 0.4), pr, _c(PEBBLE), true, -1.0, true)
 
 
 func _draw_boulder(c: Vector2, r: float) -> void:
-	draw_circle(c, r, BOULDER, true, -1.0, true)
-	draw_circle(c + Vector2(-r * 0.25, -r * 0.3), r * 0.6, BOULDER_LIT, true, -1.0, true)
+	draw_circle(c, r, _c(BOULDER), true, -1.0, true)
+	draw_circle(c + Vector2(-r * 0.25, -r * 0.3), r * 0.6, _c(BOULDER_LIT), true, -1.0, true)
 	draw_arc(c, r, 0.0, TAU, 20, Color(0.10, 0.09, 0.11, 0.6), 1.0, true)
 
 
@@ -139,5 +144,43 @@ func _draw_boulder(c: Vector2, r: float) -> void:
 func _draw_moss(base: Vector2) -> void:
 	for b in range(3):
 		var off: float = (float(b) - 1.0) * 3.2
-		var col: Color = MOSS if b != 1 else MOSS_DARK
+		var col: Color = _c(MOSS) if b != 1 else _c(MOSS_DARK)
 		draw_line(base + Vector2(off, 1.0), base + Vector2(off * 1.3, -4.5 - float(b % 2)), col, 1.6, true)
+
+
+## ══ THE BIOME DRESSING ══════════════════════════════════════════════════════════
+## ⚠ THE GROUND DID NOT CHANGE COLOUR IN ANY OF THE TEN BIOMES, AND IT WAS MEASURED.
+## `tools/biome_read_capture.gd` shoots the versus stage in every biome, one engine
+## boot each (a single-process loop leaks arena state and photographs a half-torn-down
+## world — the first version of that tool did exactly that). Across the ten, the sky
+## moved by (79, 77, 104) per channel and the hazed backdrop spires moved with it. The
+## GROUND BAND moved by (1, 1, 2).
+##
+## So "ten skies from no new art" was literally ten SKIES: the variety stopped at the
+## backdrop and never reached the surface the fight happens on — the middle of the
+## screen, where the eye lives. This is the seam that lets it.
+##
+## ⚠ THE PUBLIC CONSTANTS ARE UNTOUCHED, and that is deliberate rather than lazy:
+## `DestructibleStage` throws `ArenaTerrain.ROCK_UPPER` chips and reasons about
+## `ROCK_DEEP` in its own comments. Those are the AUTHORED rock. This only changes what
+## gets drawn.
+##
+## ⚠ AND IT PRESERVES VALUE, via `StageLayers.dress`. The terrain's readability IS its
+## value ladder — lit crust over body over upper rock over deep rock — and a player
+## stands on that. The tint moves hue and saturation only.
+var _wash: Color = Color.WHITE
+var _wash_amt: float = 0.0
+
+
+## Dress this terrain in a biome's colour. `amount` 0 is exactly today's rock, which is
+## also the default, so a stage that never calls this is byte-identical to before.
+func dress_for(wash: Color, amount: float = DRESS_AMOUNT) -> void:
+	_wash = wash
+	_wash_amt = clampf(amount, 0.0, 1.0)
+	queue_redraw()
+
+
+func _c(col: Color) -> Color:
+	if _wash_amt <= 0.0:
+		return col
+	return StageLayers.dress(col, _wash, _wash_amt)

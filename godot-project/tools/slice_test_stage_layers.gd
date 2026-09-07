@@ -45,6 +45,7 @@ const TESTS: Array[String] = [
 	"table_is_ordered", "nothing_sits_on_the_fighter_layer",
 	"registered_drawers_park_correctly", "every_solid_drawer_is_registered",
 	"cap_height_survives_thin_and_thick",
+	"dressing_a_surface_keeps_its_value",
 ]
 
 var _ran: bool = false
@@ -61,6 +62,7 @@ func _process(_delta: float) -> bool:
 	_test_registered_drawers_park_correctly()
 	_test_every_solid_drawer_is_registered()
 	_test_cap_height()
+	_test_dress_keeps_value()
 	for name: String in TESTS:
 		if not _completed.has(name):
 			_fails += 1
@@ -216,3 +218,63 @@ func _test_cap_height() -> void:
 	_expect(StageLayers.BREAK_AMBER.r > StageLayers.BREAK_AMBER.b + 0.3,
 		"BREAK_AMBER is no longer amber")
 	_completed["cap_height_survives_thin_and_thick"] = true
+
+
+# --------------------------------------------------------------------------- 5
+## ⚠ `dress` MUST MOVE HUE AND NOT VALUE, AND THAT IS THE WHOLE SAFETY OF IT.
+##
+## The versus stage's ground is dressed in its biome's colour so the surface the fight
+## happens on belongs to the room — measured before it existed, the sky moved by
+## (79, 77, 104) across the ten biomes and the ground band moved by (1, 1, 2).
+##
+## But the terrain's READABILITY is its value ladder: lit crust over soil over upper
+## rock over deep rock is how a player reads where the floor is, and a player stands on
+## that. `haze` would flatten it (it lerps luma too, which is right for something
+## receding into air and wrong for the ground). So `dress` puts the original's luma
+## back, and this pins that: tint hard, in every direction, and the value must hold.
+func _test_dress_keeps_value() -> void:
+	# The terrain's ladder, brightest first.
+	var rungs: Array[Color] = [
+		StageLayers.CAP_LIT, Color(0.45, 0.38, 0.27), Color(0.37, 0.35, 0.36),
+		Color(0.22, 0.21, 0.25), Color(0.08, 0.07, 0.10),
+	]
+	var washes: Array[Color] = [
+		Color(0.9, 0.2, 0.15), Color(0.1, 0.8, 0.3), Color(0.15, 0.2, 0.95),
+		Color(1.0, 1.0, 1.0), Color(0.0, 0.0, 0.0), Color(0.55, 0.5, 0.35),
+	]
+	var amt: float = ArenaTerrain.DRESS_AMOUNT
+	for w: Color in washes:
+		# 1. AT THE SHIPPED AMOUNT, value barely moves. This is the claim the ground
+		#    change actually rests on.
+		for c: Color in rungs:
+			var d: Color = StageLayers.dress(c, w, amt)
+			var moved: float = absf(StageLayers.luma(d) - StageLayers.luma(c))
+			# ⚠ 0.03 AND NOT 0.0, AND THE NUMBER IS A GAMUT FACT. The brightest rung
+			# (CAP_LIT, luma 0.871) tinted toward a saturated dark wash has no sRGB
+			# colour with both that hue and that value, so the per-channel clamp eats
+			# part of the luma correction — worst case measured here, 0.025. On the ten
+			# real biomes the ground band's luma range came out at 1.2/255 (0.005), so
+			# this bound is the synthetic worst case and not the played one.
+			_expect(moved < 0.03,
+				"at the shipped amount dress moved value by %.3f (%s toward %s)"
+				% [moved, c, w])
+			_expect(d.a == c.a, "dress must not touch alpha")
+		# 2. AT ANY AMOUNT, THE LADDER STAYS ORDERED, which is what a player reads.
+		#    ⚠ Exact luma CANNOT be held at every amount and this is a gamut fact, not
+		#    a bug: a bright rung tinted hard toward a dark saturated wash has no sRGB
+		#    colour with both that hue and that value, so the per-channel clamp eats
+		#    part of the correction. The first version of this test asserted exact luma
+		#    at amount 0.5 and failed on CAP_LIT (0.871 -> 0.807). What must never break
+		#    is the ORDER.
+		for hard: float in [0.15, 0.3, 0.5, 0.8]:
+			var prev: float = 2.0
+			for c: Color in rungs:
+				var l: float = StageLayers.luma(StageLayers.dress(c, w, hard))
+				_expect(l <= prev + 0.001,
+					"dress broke the value ladder at amount %.2f toward %s" % [hard, w])
+				prev = l
+	# 3. Amount 0 is the identity — what makes an undressed stage byte-identical.
+	var same: Color = StageLayers.dress(StageLayers.CAP_LIT, Color(1, 0, 0), 0.0)
+	_expect(same.is_equal_approx(StageLayers.CAP_LIT),
+		"dress(.., 0.0) must be the identity")
+	_completed["dressing_a_surface_keeps_its_value"] = true

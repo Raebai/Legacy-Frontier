@@ -64,6 +64,50 @@ require the guard to go red.
 
 ---
 
+## ▶ THE LOOK PASS — WHAT WAS ACTUALLY BROKEN, AND WHAT ALREADY WORKED
+
+Maker: *"make the graphics way better ... the shadows the effects ... small changes that
+make a big impact"*. Two real faults, and a longer list of things that turned out to be
+**already built and working**, which is worth writing down so the next pass does not
+re-investigate them.
+
+**FIXED — FOUR ULTS OPENED IN SILENCE.** `slice_test_perf_budget` prints
+`Sfx: unknown key 'rock_rise'` while casting every spell. A scan of every literal key in
+`scripts/` against `STREAMS` found three dead names over five call sites — `lightning`
+(TheCircuit, its open AND every arc), `rock_rise` (Siegeworks, Teardown), `shadow_mark`
+(Severance). Each sits one line under a `SpellSigil.open` and one above a camera pull:
+the sigil blooms, the camera lurches, no sound. Re-pointed at streams that exist.
+⚠ The gate that should have caught it was `CALLED_KEYS`, **21 names hand-copied and
+frozen** while the game grew to 55 — the allowlist trap again. It scans now.
+
+**FIXED — THE HEAD BAR OUT-INKED THE FIGHTER 3.8:1.** Probed off a real frame: bar ink
+4272 px vs the fighter's 1122, at salience density 0.724 against red's 0.348, and MINT is
+the only green in a stage that is 68% red. 52x7 -> 34x5. ⚠ This is the un-plated path,
+which is what `BotMatch` uses — **so it was the biggest thing in every posted clip**.
+
+**FIXED — TEN BIOMES, ONE GROUND.** `tools/biome_read_capture.gd` (new) shoots the versus
+stage in every biome, **one engine boot each**. Across the ten the sky moved by
+(79, 77, 104) per channel and the ground band moved by **(1, 1, 2)**. `ArenaTerrain`
+carried twelve hardcoded colours and no palette parameter, so it could not vary — "ten
+skies" was literal and the variety never reached the middle of the screen. Now dressed
+via `StageLayers.dress`, which moves hue and puts the original's luma back: measured
+after, ground range (13, 4, 15) with luma range 1.2/255. `ArenaTerrain.DRESS_AMOUNT`
+(0.30) is the one knob.
+
+⚠ **ALREADY WORKING — DO NOT "FIX" THESE.** Checked, measured, and left alone: contact
+shadows (luma ~40 under the feet against ~88 either side — the `_airborne` bug really was
+fixed); aerial perspective (`Atmosphere` hazes spires 0.86/0.70 toward the sky *by
+design*, so sky and spires sharing a value is the feature, not a fault); the rig's
+inverting keyline (dark, flipping pale for dark classes — the fighters read against all
+ten biomes); MSAA 4x + `hdr_2d` + the glow environment; every one of 572 literal resource
+paths; every boss and elite rider script. Performance measures clean — no frame over
+12 ms, `slice_test_perf_budget` green.
+
+⚠ **AND A PHANTOM I NEARLY REPORTED.** `profile_draw_cost` showed `PauseMenu` plus 172
+Buttons in the frame census — which looked like a fat always-on cost. It is not: the tool
+does `get_tree().paused = true` for its ablation, and that opens the menu. The census is
+of the harness. Read line 422 before believing that table.
+
 ## ▶ THE THEME HAS A FONT AT LAST — AND THE PREMISE WAS WRONG
 
 `assets/ui/fonts/`: **DejaVu Sans** is the theme's `default_font` (the only audition

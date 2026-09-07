@@ -192,3 +192,38 @@ static func cap_height(h: float) -> float:
 ## palette cannot re-create the problem by picking a punchy silhouette colour.
 static func haze(col: Color, sky: Color, amount: float) -> Color:
 	return col.lerp(Color(sky.r, sky.g, sky.b, col.a), clampf(amount, 0.0, 1.0))
+
+
+## DRESS A SURFACE IN A BIOME'S COLOUR WITHOUT MOVING ITS VALUE.
+##
+## ⚠ WHY THIS IS NOT `haze`. `haze` lerps the whole colour, luma included, which is
+## exactly right for something receding into the air and exactly wrong for the ground:
+## the terrain's readability IS its value ladder — lit crust over body over upper rock
+## over deep rock — and a lerp toward a pale sky flattens that ladder, which is the one
+## property a player stands on. So this takes the HUE and SATURATION of `toward` and
+## then puts the original's luma back.
+##
+## THE MEASUREMENT THAT ASKED FOR IT. `tools/biome_read_capture.gd` shot the versus
+## stage in all ten biomes, one engine boot each. Across the ten, the sky moved by
+## (79, 77, 104) per channel and the backdrop spires moved with it — and the GROUND
+## BAND moved by (1, 1, 2). "Ten skies from no new art" was literal: the variety
+## stopped at the backdrop and never reached the surface the fight happens on, which is
+## the middle of the screen and where the eye actually lives.
+static func dress(col: Color, toward: Color, amount: float) -> Color:
+	var a: float = clampf(amount, 0.0, 1.0)
+	var mixed: Color = col.lerp(Color(toward.r, toward.g, toward.b, col.a), a)
+	var was: float = luma(col)
+	var now: float = luma(mixed)
+	if now <= 0.0001:
+		return col
+	# Scale back onto the original's value. Clamped per channel so a strong tint cannot
+	# blow a highlight out; the ladder is preserved either way because every rung is
+	# scaled by its own ratio.
+	var k: float = was / now
+	return Color(minf(mixed.r * k, 1.0), minf(mixed.g * k, 1.0),
+		minf(mixed.b * k, 1.0), col.a)
+
+
+## Rec. 709 luma. Named once so `dress` and anything that follows it agree.
+static func luma(c: Color) -> float:
+	return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b

@@ -1098,6 +1098,13 @@ func _build_background() -> void:
 	var theme: Object = _stage_theme()
 	if theme != null:
 		var wash: Color = theme.call("lit_wash")
+		# ⚠ KEPT FOR THE GROUND, WHICH IS BUILT AFTER THIS. `_build_background` runs
+		# before `_build_terrain` (see `_ready`), so this is the one moment the biome is
+		# known and the rock has not been drawn yet. Measured before it existed: across
+		# all ten biomes the sky moved by (79, 77, 104) per channel and the ground band
+		# moved by (1, 1, 2) — the variety stopped at the backdrop.
+		_biome_wash = wash
+		_biome_wash_amt = ArenaTerrain.DRESS_AMOUNT
 		var accent: Color = theme.call("accent")
 		var lift: float = 1.18 if _is_showcase() else 1.0
 		sky = {
@@ -1124,6 +1131,18 @@ func _build_background() -> void:
 ## Rolled ONCE, here, never in a drawer: `FloorDecor` and `ArenaTerrain` both require
 ## hashed pseudo-noise rather than an RNG inside `_draw`, because a shape that
 ## reshuffles every redraw boils. Same rule `BotMatch._roll_matchup` follows.
+## The biome wash `_build_background` resolved, for the surfaces built after it.
+##
+## ⚠ THE AMOUNT IS THE SWITCH, NOT THE COLOUR. It stays 0 until a biome actually
+## resolves, so the authored-dusk path (no biome rolled) draws the authored rock,
+## byte-identical to before. An earlier version of this pair carried a comment saying
+## exactly that and no `_biome_wash_amt` at all — so the no-biome stage would have been
+## dressed 30% toward `Color.WHITE` and come out washed out. A comment is not an
+## implementation.
+var _biome_wash: Color = Color.WHITE
+var _biome_wash_amt: float = 0.0
+
+
 func _stage_theme() -> Object:
 	var gs: GDScript = load("res://scripts/GameState.gd") as GDScript
 	if gs == null:
@@ -1243,6 +1262,9 @@ func _build_terrain() -> void:
 		for t: Dictionary in rows:
 			_make_terrace(float(t["surface_y"]), float(t["x0"]), float(t["x1"]))
 	var terrain := ArenaTerrain.new()
+	# The ground joins the room it is in. Value-preserving and modest — see
+	# `StageLayers.dress` and `ArenaTerrain.DRESS_AMOUNT`.
+	terrain.dress_for(_biome_wash, _biome_wash_amt)
 	# ⚠ `assign`, NOT `=`. `ArenaTerrain.terraces` is `Array[Dictionary]`; this used to
 	# be handed the typed const `TERRACES` and matched. `active_terraces()` indexes
 	# `STAGE_TERRACES: Array[Array]`, and GDScript cannot express
