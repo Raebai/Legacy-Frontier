@@ -167,6 +167,17 @@ on the clock now.
 * **THE NIGHTLY TASK WRITES TO THIS CHECKOUT.** On 2026-09-07 it fired mid-session: a
   shoot had `project.godot` patched to 1920x1080 (restored in a `finally`) and
   `content/analytics/posts.json` rewritten. Neither is yours — **diff before you stage.**
+* **AND SO DOES SOMETHING THAT COMMITS.** Later the same evening, three commits appeared
+  on this branch that this session did not make — `2a7b9f8`, `afb700e`, `ce44ccf`,
+  timestamped 21:48–21:53, each containing THIS session's uncommitted edits under its own
+  terse message. The `git commit` that followed found nothing to commit. Nothing was lost
+  and the content is correct (verified line by line, and the 219/219 sweep was run against
+  it), but the reasoning those messages were going to carry was — and `2a7b9f8` is
+  labelled `docs:` while containing a `Lobby.gd` code change. The identity is the repo's
+  own (`Raebai`), so **`git log` cannot tell you whether a commit is yours.** History was
+  NOT rewritten to fix it, deliberately: another live writer may be building on those
+  commits. **Commit early and in small pieces here, and read `git log` before assuming
+  your working tree is still yours.** See `project_collab_concurrent_sessions`.
 * **A FULL SWEEP IS UNREADABLE WHILE AGENTS ARE WRITING.** Verify per-suite during, sweep
   once at the end.
 * **NAMING A CLASS IN A TEST MAKES IT A COMPILE-TIME DEPENDENCY.** Read constants via
