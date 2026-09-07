@@ -145,6 +145,18 @@ on the clock now.
   against 88 queued posts because it shared the broken function. When choosing where to
   put a check, put it downstream of NOTHING — `--assert-no-dupes` reads the vendor.
 * **A SINGLE EXOTIC CODEPOINT IS NOT A CANARY.** DejaVu claims emoji and denies CJK.
+* **FIVE SUITES IS A SAMPLE, NOT A SWEEP — AND THE GLYPH RESTORE PROVED IT AGAIN.**
+  Restoring `▸` on the front door was checked against `font_coverage`, `shell`, `town`,
+  `settings` and `outfitter`, all green, and committed. The full sweep then found
+  `slice_test_realm` red: it held its OWN copy of the two primary labels, marker
+  included, so the two rows read as NEW rows to a suite that has no opinion about
+  markers. **This is the hardcoded-glyph trap already in this list, and it was walked
+  into anyway.** Fixed the way the rule says: `Lobby.PLAY_LABEL` /
+  `Lobby.MULTIPLAYER_LABEL` are the single source, and the suite reflects them out with
+  `get_script_constant_map()` — never a bare `Lobby.` reference, which would make it a
+  compile-time dependency that a `--script` run resolves before autoloads exist. The
+  reflection fails OPEN (a renamed const reads as `""`), so there is an explicit
+  assertion that it read something; sabotage-verified by renaming the const.
 * **THE LOUD BUG GETS FIXED AND THE QUIET ONE DOES NOT.**
 * **A SUITE THAT BUILDS ITS OWN WORLD CAN ONLY TEST THAT WORLD.** `slice_test_hero_plate`
   passed nine assertions about a HUD element that had never appeared in the game.
