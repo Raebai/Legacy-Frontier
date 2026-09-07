@@ -1,5 +1,8 @@
 [gd_resource type="Theme" format=3 uid="uid://1mn3r0tuktf4"]
 
+[ext_resource type="FontFile" uid="uid://b45wo4sk66q01" path="res://assets/ui/fonts/DejaVuSans.ttf" id="1_body"]
+[ext_resource type="FontVariation" uid="uid://cx8n2vqhrf4ka" path="res://assets/ui/fonts/display_font.tres" id="2_display"]
+
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_disabled"]
 content_margin_left = 10.0
 content_margin_top = 7.0
@@ -231,6 +234,7 @@ shadow_size = 6
 
 [resource]
 resource_name = "Stickspire"
+default_font = ExtResource("1_body")
 Button/colors/font_color = Color(0.93, 0.92, 0.86, 1)
 Button/colors/font_disabled_color = Color(0.62, 0.63, 0.7, 0.45)
 Button/colors/font_focus_color = Color(0.93, 0.92, 0.86, 1)
@@ -238,6 +242,7 @@ Button/colors/font_hover_color = Color(1, 1, 1, 1)
 Button/colors/font_hover_pressed_color = Color(0.8, 0.97, 1, 1)
 Button/colors/font_pressed_color = Color(0.8, 0.97, 1, 1)
 Button/constants/h_separation = 6
+Button/fonts/font = ExtResource("2_display")
 Button/styles/disabled = SubResource("StyleBoxFlat_btn_disabled")
 Button/styles/focus = SubResource("StyleBoxFlat_btn_focus")
 Button/styles/hover = SubResource("StyleBoxFlat_btn_hover")

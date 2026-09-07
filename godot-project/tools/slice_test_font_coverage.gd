@@ -82,6 +82,7 @@ func _fail(msg: String) -> void:
 
 func _init() -> void:
 	_font = _resolve_font()
+	_test_system_fallback_is_off()
 	_test_the_probe_can_fail()
 	_test_no_undrawable_glyph_reaches_a_control()
 	print("  scanned %d files, %d ui lines, font '%s'"
@@ -112,12 +113,62 @@ func _test_the_probe_can_fail() -> void:
 		return
 	if not _font.has_char(0x0041):
 		_fail("the font cannot draw 'A', so the probe is broken rather than the strings")
-	# U+1F600, outside every desktop UI font's normal coverage. If this is ever drawable
-	# the font has full Unicode coverage, and the ban below can simply be lifted.
-	if _font.has_char(0x1F600):
-		_fail("the font reports coverage of U+1F600 — either it now has full Unicode "
+	# ⚠ A SET, NOT ONE CODEPOINT, AND THIS COST A GREEN RUN TO LEARN. The canary was
+	# U+1F600 alone, on the reasoning that no desktop UI font carries emoji. DejaVu Sans
+	# — shipped 2026-09-07 as the coverage font — answers `has_char(0x1F600)` TRUE while
+	# answering CJK U+4E2D false, with `allow_system_fallback` off in both cases. So one
+	# exotic codepoint is not a reliable canary: a font can misreport a single block and
+	# still be discriminating everywhere else, and the suite would refuse to run at all.
+	#
+	# The property actually worth asserting is that the instrument can still say NO. So:
+	# several codepoints from scripts this game will never set, and at least one of them
+	# must come back absent. If ALL of them are claimed, `has_char` has stopped
+	# answering and the scan below would pass on a screen full of blanks.
+	var exotic: Array[int] = [
+		0x4E2D,   # CJK
+		0x0915,   # Devanagari
+		0x13A0,   # Cherokee
+		0x0F00,   # Tibetan
+		0x1F600,  # emoji
+	]
+	var claimed: Array[String] = []
+	var any_absent: bool = false
+	for cp: int in exotic:
+		if _font.has_char(cp):
+			claimed.append("U+%04X" % cp)
+		else:
+			any_absent = true
+	if not any_absent:
+		_fail("the font claims every one of %s — either it now has full Unicode "
+			% ", ".join(claimed)
 			+ "coverage (in which case delete this suite and restore the glyphs) or "
 			+ "`has_char` is not answering, and the scan below proves nothing")
+
+
+## ⚠ THE SETTING THAT MAKES EVERY NUMBER BELOW MEAN ANYTHING, AND IT LIVES IN A FILE
+## GIT IGNORES BY DEFAULT.
+##
+## `allow_system_fallback` is a font IMPORT parameter, stored in `<font>.ttf.import`, and
+## `.import` files are ignored repo-wide because they are normally regenerable from the
+## defaults. These two are not: the default is TRUE, and with it true `has_char` answers
+## about whatever the host OS happens to have installed rather than about the font. It
+## claimed CJK and emoji alike on a font that has neither. Every glyph on screen would go
+## back to depending on the machine it is drawn on — which is the exact thing shipping a
+## font was meant to end, and it would revert SILENTLY on any fresh clone.
+##
+## So the two font `.import` files are force-tracked (see `.gitignore`) and this asserts
+## the setting, turning a silent revert into a red suite.
+func _test_system_fallback_is_off() -> void:
+	if _font == null:
+		return
+	for f: Font in [_font] + _font.get_fallbacks():
+		if not (f is FontFile):
+			continue
+		if (f as FontFile).allow_system_fallback:
+			_fail(("'%s' has allow_system_fallback ON, so `has_char` is answering about "
+				+ "the OS and not about the font — set it false in the .ttf.import "
+				+ "(and check .gitignore is still force-tracking that file)")
+				% f.get_font_name())
 
 
 func _test_no_undrawable_glyph_reaches_a_control() -> void:

@@ -6,6 +6,18 @@ build/
 *.tmp
 .import/
 
+# ⚠ THE TWO FONT `.import` FILES ARE FORCE-TRACKED, AND THEY HAVE TO BE.
+# An `.import` is normally regenerable, which is why the blanket ignore above is safe —
+# Godot rewrites it from the defaults on first scan. But the fonts carry a NON-DEFAULT
+# setting: `allow_system_fallback=false`, which is the entire point of shipping a font.
+# With it true (the default), `has_char` answers about whatever the host OS has rather
+# than about the font, `slice_test_font_coverage`'s canary fires and the suite refuses to
+# run, and every glyph on screen quietly goes back to depending on the machine it is
+# drawn on. A fresh clone would regenerate exactly that.
+# `slice_test_font_coverage` asserts the setting, so a regenerated one goes RED instead
+# of silently reverting.
+!godot-project/assets/ui/fonts/*.ttf.import
+
 # export_presets.cfg is deliberately TRACKED (it was ignored until Phase 6).
 # It is real, shared project config now — the Android preset's exclude list is
 # the only thing keeping the MCP dev bridge, the spike sandboxes and 327 tools
