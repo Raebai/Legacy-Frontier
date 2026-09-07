@@ -1,5 +1,42 @@
 # RESUME HERE
 
+## ⏸ PAUSED 2026-09-08, MID-PLAYTEST. THE MAKER WAS AT THE CONTROLS.
+
+Branch `bot-fight-quality`, **pushed**, tree clean, 219/219 on a frozen tree. This is the
+first arc in a long time where findings came from PLAYING rather than from measuring, so
+the notes below are worth more than usual.
+
+**THREE ANSWERED, TWO OPEN.** Answered by the maker at the controls and already shipped:
+the font (Bangers out, Chakra Petch on Buttons + Inter for body), the strike key, and
+training moving to the dojo. Still waiting on them:
+
+1. **Should the LOBBY DUMMIES go too?** Only the lobby *lesson* was removed
+   (`World._spawn_coach` is no longer called). `_spawn_dummy_yard` still puts three
+   straw bodies in the hub. The maker said *"not in the lobby with the dummies"*, which
+   may mean the dummies as well — unresolved, deliberately not guessed.
+2. **Is Chakra Petch the right face?** Picked by me, not by them. The specimen at
+   `user://font_specimen.png` also carries Rajdhani, Exo 2, Barlow Semi Condensed and
+   Inter-everywhere; swapping is one `base_font` line in
+   `assets/ui/fonts/display_font.tres`.
+
+**⚠ THE ONE PIECE OF THEIR ASK THAT IS NOT BUILT: THE SENSEI DOES NOT WALK.** Maker:
+*"that sensei who is walking around and talking to you"*. He is a stick figure, he is on
+screen, and he talks — he stands still. Left unbuilt rather than half-built.
+
+**AND THE STRIKE WAS NEVER BROKEN, WHICH IS THE LESSON.** The report was *"strike isnt
+regstering in the training"*. `tools/probe_town_strike.gd` drives the real sweep: dummy
+in `mortal`, 29.7 px against a 62 px reach, 9999 → 9986. The damage path is healthy. What
+was missing is that **`melee` is bound to F and nothing in the game ever said so** — no
+lesson step named its key, and the hotbar advertises RMB/Spc/1-4 and never the strike.
+A verb with no affordance reads exactly like a broken verb.
+
+⚠ **AND THE FIRST VERSION OF THAT PROBE INVENTED A BUG.** It reported "NO DAMAGE" and
+was one step from being filed. `facing` is aim-driven, so a `facing = RIGHT` written
+sixty frames before the sweep had been overwritten to (-0.71, -0.71) — the player was
+swinging AWAY. Always assert the harness's own preconditions AT the moment of the
+measurement, not sixty frames earlier.
+
+
 ## STATE — 2026-09-07 (evening). Branch `bot-fight-quality`. THE QUEUE WAS PUBLISHING ONE FIGHT.
 
 ⚠ **THIS FILE GOES STALE AND `git log` DOES NOT.** It has been seven commits behind
