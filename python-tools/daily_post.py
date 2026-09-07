@@ -487,6 +487,80 @@ def runway(accounts: list[dict], ledger: dict) -> tuple[int, float]:
     return left, left / per_day
 
 
+def cmd_cancel_dupes(ledger: dict, key: str, live: bool) -> int:
+    """Unqueue every REPEAT, keeping the earliest post of each fight per profile.
+
+    ⚠ THE CLEANUP `--cancel-all` COULD NOT DO. On 2026-09-07 the vendor was holding 80
+    copies of two fights (see `check_post_rotation.py` for how). `--cancel-all` was the
+    only cleanup that existed and it takes the healthy rows with it, which on a pool
+    down to 3 unspoken-for clips means emptying the queue to fix a duplicate — the
+    account goes quiet to stop it repeating itself.
+
+    Duplicate means: this profile already has an EARLIER row for the same fight, or has
+    already PUBLISHED it. Judged on the fight, not the row's stem, so the rows written
+    before the stems were separated are read correctly.
+
+    Cancelling here is reversible in the only sense that matters — the next `--topup`
+    refills the days from the pool. It is the queue that is being edited, not anything
+    that has been published.
+    """
+    held = {str(r.get("job_id")) for r in pc.list_scheduled(key)}
+    stems = {p.stem for p in pool()}
+    rows = sorted(ledger.get("scheduled", []), key=lambda r: r["when_utc"])
+
+    seen: dict[tuple[str, str], str] = {}     # (profile, fight) -> when_local of keeper
+    for prof, by in ledger.get("posted", {}).items():
+        for stem in by:
+            seen.setdefault((prof, consumed_stem(stem, stems)), "already published")
+
+    keep, dupes = [], []
+    for r in rows:
+        fight = consumed_stem(r["clip"], stems)
+        mark = (r["profile"], fight)
+        if mark in seen:
+            dupes.append((r, fight, seen[mark]))
+        else:
+            seen[mark] = r["when_local"]
+            keep.append(r)
+
+    print()
+    if not dupes:
+        print(f"  no repeats: {len(rows)} queued post(s) are "
+              f"{len(rows)} different fights.")
+        return 0
+
+    by_fight: dict[str, int] = {}
+    for r, fight, _ in dupes:
+        by_fight[fight] = by_fight.get(fight, 0) + 1
+    print(f"  {len(dupes)} of {len(rows)} queued post(s) are repeats:")
+    for fight, n in sorted(by_fight.items(), key=lambda kv: -kv[1]):
+        print(f"      {fight:<34} {n} extra copie(s)")
+    print(f"\n  keeping {len(keep)}, and the first showing of each fight stays.")
+    orphan = [r for r, _, _ in dupes if str(r.get("job_id") or "") not in held]
+    if orphan:
+        print(f"  note: {len(orphan)} of them are no longer held by the vendor "
+              f"(already fired, or cancelled elsewhere) — dropped locally only.")
+    if not live:
+        print("\n  DRY RUN — nothing cancelled. Add --live.")
+        return 0
+
+    gone, failed = 0, []
+    for r, _, _ in dupes:
+        job = str(r.get("job_id") or "")
+        if job and job in held and not pc.cancel_scheduled(job, key):
+            failed.append(r)
+            continue
+        gone += 1
+    # ⚠ ONLY THE ONES THAT ACTUALLY WENT. A row dropped locally while the vendor still
+    # holds it is the worst of both: it posts anyway and nothing here knows it did.
+    ledger["scheduled"] = keep + failed
+    save_ledger(ledger)
+    print(f"\n  cancelled {gone}/{len(dupes)}; {len(keep)} left queued")
+    if failed:
+        print(f"  ⚠ {len(failed)} would not cancel and are still queued at the vendor.")
+    return 1 if failed else 0
+
+
 def cmd_topup(days: int, accounts: list[dict], ledger: dict, key: str,
               live: bool) -> int:
     """Fill every unqueued day in the next `days`, and nothing else.
@@ -675,6 +749,8 @@ def main() -> int:
                     help="did the queued posts actually GO OUT? asks per job_id")
     ap.add_argument("--cancel-all", action="store_true",
                     help="cancel every queued post and forget them locally")
+    ap.add_argument("--cancel-dupes", action="store_true",
+                    help="cancel only the repeats, keeping the first of each fight")
     args = ap.parse_args()
 
     accounts = load_accounts()
@@ -765,6 +841,9 @@ def main() -> int:
         print()
         print(f"{len(rows)} queued, {bad} needing attention")
         return 1 if bad else 0
+
+    if args.cancel_dupes:
+        return cmd_cancel_dupes(ledger, key, args.live)
 
     if args.cancel_all:
         rows = pc.list_scheduled(key)
