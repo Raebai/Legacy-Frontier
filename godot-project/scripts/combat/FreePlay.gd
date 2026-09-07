@@ -221,7 +221,20 @@ func _exit_tree() -> void:
 ## whole tutorial in perfect lockstep. `World._spawn_dummy_yard` and
 ## `VersusArena._rebuild_dummies` both carry this same warning; the symptom reads as "he
 ## is copying me", not as "he is broken".
+## How many straw bodies the dojo opens with.
+##
+## ⚠ IT WAS ZERO, AND THE LESSON WAS TELLING YOU TO HIT ONE. `VersusArena.free_dummies`
+## is a static defaulting to 0 and the dojo never raised it, so the Strike step's own
+## words — *"Your basic attack ... Try it on a dummy"* — were addressed to an empty
+## room. The `+` pad could summon them, but a lesson that requires the player to find a
+## button before it can be obeyed is not a lesson. Maker: *"we need dummies in the
+## training arena area as well"*.
+const DOJO_DUMMIES: int = 3
+
+
 func _begin_dojo() -> void:
+	if _arena != null and is_instance_valid(_arena) 			and _arena.has_method("set_dummy_count"):
+		_arena.call("set_dummy_count", DOJO_DUMMIES)
 	_spawn_sensei()
 	var coach_script: GDScript = load(COACH_SCRIPT) as GDScript
 	if coach_script == null:
@@ -249,9 +262,26 @@ func _spawn_sensei() -> void:
 	_sensei.set_physics_process(false)   # see the header: or he mirrors your input
 	if _sensei.has_method("set_faction"):
 		_sensei.call("set_faction", &"sensei", &"player")
-	var player: Node = get_tree().get_first_node_in_group("player")
-	if player is Node2D:
-		_sensei.global_position = (player as Node2D).global_position + Vector2(SENSEI_X, 0.0)
+	# ⚠ `"hero"`, NOT `"player"` — AND THIS IS THE GROUP-DRIFT TRAP `Hero._ready` WARNS
+	# ABOUT BY NAME ("'hero' the tower group vs 'player' the old hub group"). A fighter
+	# in an arena joins `hero`; `player` is the HUB body's group and nothing in this
+	# scene is in it. So this lookup returned null, the `is Node2D` guard swallowed it,
+	# the sensei was never moved off his spawn origin, and the teacher the whole dojo is
+	# built around was standing off-camera for every player who ever reached it.
+	# Photographed, not reasoned about: `tools/dojo_capture.gd` shows three dummies, the
+	# lesson card, and no teacher anywhere in frame.
+	#
+	# He is excluded from his own search: he is a `Hero` body too, and he is added to the
+	# tree above this line.
+	var player: Node2D = null
+	for h: Node in get_tree().get_nodes_in_group("hero"):
+		if h != _sensei and h is Node2D:
+			player = h as Node2D
+			break
+	if player != null:
+		_sensei.global_position = player.global_position + Vector2(SENSEI_X, 0.0)
+	else:
+		push_warning("FreePlay: no hero to stand the sensei next to — he stays at spawn")
 	# A teacher does not wear a student's colours. Calm jade while he teaches; it is the
 	# same value his `sensei.tres` carries, so if he is ever spawned as a townsperson
 	# instead the two bodies still look like one person.
@@ -543,7 +573,13 @@ func _build_overlay() -> void:
 	_refresh_hint()
 
 	if not controls_dismissed:
-		_build_controls_card(layer)
+		# ⚠ NOT IN THE DOJO. The lesson has its own card and its own voice; the free-play
+		# card lands on top of it, so the first thing a taught player saw was two panels
+		# fighting for the same rectangle — one headed "The Tower" and one headed "FREE
+		# PLAY", with a GOT IT button over the sensei's opening line. Free play keeps it;
+		# the dojo is a different room with a different job.
+		if not dojo:
+			_build_controls_card(layer)
 
 
 ## THE ONBOARDING CARD. Every verb this game has, on screen, on the one surface
@@ -638,7 +674,12 @@ func _unhandled_input(event: InputEvent) -> void:
 func _refresh_hint() -> void:
 	if _hint == null:
 		return
-	_hint.text = "FREE PLAY — %s      Esc: settings, class, dummies" % CLASS_LABELS[_class_id]
+	# ⚠ THE ROOM SAYS WHICH ROOM IT IS. The dojo and free play are the same scene, and
+	# the header called both of them FREE PLAY — so a player sent to be TAUGHT, by a
+	# teacher, was told they were in a sandbox. Maker: *"the training should be in a new
+	# place ... it should be with that sensei"*. It is a different place; it now says so.
+	_hint.text = ("THE DOJO — %s      Esc: settings, class, dummies"
+		if dojo else "FREE PLAY — %s      Esc: settings, class, dummies") 		% CLASS_LABELS[_class_id]
 
 
 ## Flash a line through the arena's own banner rather than standing up a second one.

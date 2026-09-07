@@ -353,7 +353,19 @@ func _ready() -> void:
 	# AFTER the touch pad, so a phone player's on-screen buttons already exist when the
 	# first prompt names them, and AFTER `_reflect_selected_class`, so the lesson is built
 	# for the class the player actually is rather than the default.
-	_spawn_coach()
+	# ⚠ THE LOBBY NO LONGER TEACHES. Maker, playing: *"the training should be in a new
+	# place please not in the lobby with the dummies it should be with that sensei who
+	# is walking around and talking to you as we discussed"*.
+	#
+	# There were TWO tutorials. `4d357ed` built the dojo — a room, a teacher, and the
+	# promise he keeps on floor 20 — and the lobby coach from `434e036` was never taken
+	# out when it landed, so the hub greeted every player with the lesson first and the
+	# dojo's sensei was never reached. That is the whole of the report: not that the
+	# lesson was wrong, but that it happened in the wrong room and without him.
+	#
+	# `_spawn_coach` and its helpers stay: `FreePlay` runs the SAME coach in the dojo,
+	# and this is the seam a hub-side refresher would use if one is ever wanted.
+	# Deleting the call is the change; deleting the machinery would not be.
 
 	var music: Node = get_node_or_null("/root/Music")
 	if music != null and music.has_method("play_hub"):

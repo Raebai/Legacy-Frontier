@@ -375,6 +375,18 @@ func _refresh() -> void:
 	_progress.text = "%d / %d" % [_at + 1, _steps.size()]
 	var accent: Color = HudStyle.MINT if s.done else HudStyle.GOLD
 	HudStyle.label(_title, HudStyle.BODY, accent)
+	# ⚠ THE CARD NAMES THE KEY. Maker, playing: *"strike isnt regstering in the
+	# training"*. It was registering fine — `melee` is bound to physical keycode 70,
+	# the letter F, and NOTHING in this game ever says so. No step named its key, the
+	# hint below said only "Press it to continue", and the desktop hotbar advertises
+	# RMB, Spc and 1-4 but never the strike. Move and Jump are guessable; F is not, so
+	# the lesson stopped dead on the one verb a player cannot find.
+	#
+	# ⚠ READ FROM THE InputMap, NEVER TYPED HERE. A second copy of a binding is a
+	# binding that drifts — this branch has already paid for a test that hardcoded a
+	# glyph and for two inverses of one caption format. Rebind `melee` and this line
+	# follows on its own.
+	_skip_hint.text = _hint_for(s)
 	_skip_hint.visible = not s.done
 
 
@@ -423,5 +435,50 @@ func _build_card() -> void:
 
 	_skip_hint = Label.new()
 	HudStyle.label(_skip_hint, HudStyle.MICRO, HudStyle.GRAPHITE)
-	_skip_hint.text = "Press it to continue  ·  the dummies never die"
+	_skip_hint.text = "the dummies never die"
 	col.add_child(_skip_hint)
+
+
+## The line under the card: which key this step is waiting for, in the player's own
+## keyboard's terms, plus the standing reassurance.
+func _hint_for(s: Step) -> String:
+	if s.action == &"":
+		return "Press %s to continue  ·  the dummies never die" % _key_label(&"talk")
+	var keys: String = _key_label(s.action)
+	if s.second_action != &"":
+		keys = "%s and %s" % [keys, _key_label(s.second_action)]
+	return "Press %s  ·  the dummies never die" % keys
+
+
+## A human name for whatever `action` is bound to, asked of the InputMap rather than
+## written down. Prefers a keyboard key, falls back to a mouse button, and says the
+## action's own name if it is bound to nothing at all — which is itself worth seeing on
+## screen, because an unbound verb is a verb no player can perform.
+static func _key_label(action: StringName) -> String:
+	if not InputMap.has_action(action):
+		return String(action)
+	var mouse: String = ""
+	for e: InputEvent in InputMap.action_get_events(action):
+		if e is InputEventKey:
+			var k: InputEventKey = e as InputEventKey
+			# ⚠ PHYSICAL FIRST. Every binding in this project is by `physical_keycode`
+			# so QWERTY and AZERTY behave the same; `keycode` is 0 on all of them and
+			# reading it would return "(unset)" for the whole game.
+			var code: int = k.physical_keycode if k.physical_keycode != 0 else k.keycode
+			if code != 0:
+				# ⚠ THE PHYSICAL->LAYOUT LOOKUP IS SKIPPED WITHOUT A WINDOW. The headless
+				# display server has no keyboard layout and warns on every call, which
+				# would put a stack trace in the log of every suite that builds a card.
+				# The raw code is the right answer there anyway: no layout, no remap.
+				if k.physical_keycode != 0 and DisplayServer.get_name() != "headless":
+					code = DisplayServer.keyboard_get_keycode_from_physical(code)
+				return OS.get_keycode_string(code)
+		elif e is InputEventMouseButton and mouse == "":
+			match (e as InputEventMouseButton).button_index:
+				MOUSE_BUTTON_LEFT: mouse = "LMB"
+				MOUSE_BUTTON_RIGHT: mouse = "RMB"
+				MOUSE_BUTTON_MIDDLE: mouse = "MMB"
+				_: mouse = "Mouse %d" % (e as InputEventMouseButton).button_index
+	if mouse != "":
+		return mouse
+	return String(action)
