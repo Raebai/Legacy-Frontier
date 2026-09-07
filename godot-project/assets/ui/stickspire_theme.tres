@@ -1,6 +1,6 @@
 [gd_resource type="Theme" format=3 uid="uid://1mn3r0tuktf4"]
 
-[ext_resource type="FontFile" uid="uid://b45wo4sk66q01" path="res://assets/ui/fonts/DejaVuSans.ttf" id="1_body"]
+[ext_resource type="FontVariation" uid="uid://b7qk2xvn3mfua" path="res://assets/ui/fonts/body_font.tres" id="1_body"]
 [ext_resource type="FontVariation" uid="uid://cx8n2vqhrf4ka" path="res://assets/ui/fonts/display_font.tres" id="2_display"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_disabled"]

@@ -1,0 +1,23 @@
+; EVERYTHING THAT IS READ RATHER THAN PRESSED.
+;
+; Inter is the theme's `default_font`: every Label, every card, every line of lore. It is
+; the plainest thing here on purpose — body text has one job and character is not it.
+;
+; ⚠ WHY THIS EXISTS AT ALL, WHEN DejaVu WAS ALREADY THE DEFAULT. DejaVu was picked for
+; COVERAGE (24/24 of the glyphs the font gate had to substitute) and it is still the one
+; that provides it, underneath. But coverage and legibility are different jobs and it was
+; doing both: DejaVu's letterforms are wide and dated next to a UI built in 2026. Inter
+; on top, DejaVu behind, gets both — the reading face is clean and any symbol it lacks
+; still draws.
+;
+; The pairing is the same shape as `display_font.tres`, for the same reason: a control
+; resolves to ONE font and then falls through that FONT's own chain, never the theme's.
+[gd_resource type="FontVariation" load_steps=3 format=3 uid="uid://b7qk2xvn3mfua"]
+
+[ext_resource type="FontFile" uid="uid://mtivdsi5hs1y" path="res://assets/ui/fonts/Inter.ttf" id="1_base"]
+[ext_resource type="FontFile" uid="uid://b45wo4sk66q01" path="res://assets/ui/fonts/DejaVuSans.ttf" id="2_fallback"]
+
+[resource]
+resource_name = "StickspireBody"
+base_font = ExtResource("1_base")
+fallbacks = Array[Font]([ExtResource("2_fallback")])

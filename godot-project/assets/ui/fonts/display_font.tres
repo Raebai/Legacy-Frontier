@@ -1,19 +1,24 @@
-; THE DISPLAY FACE, WITH COVERAGE BEHIND IT.
+; THE VERBS, WITH COVERAGE BEHIND THEM.
 ;
-; Bangers is what the game speaks in - it carries the Buttons, which is where the title
-; screen's primaries live. It is a display face and covers Latin and little else.
+; Chakra Petch SemiBold carries the Buttons — the title screen's primaries and every
+; action row. Sharp and slightly technical, which suits a tower of sigils, and it stays
+; legible at the 16-19 px the front door actually uses.
+;
+; ⚠ IT REPLACED BANGERS, AND THE REASON IS WHY YOU LOOK AT A THING IN MOTION. Bangers
+; was chosen off a static specimen and shipped; the maker played it and said it was not
+; clear enough. A specimen sheet answers "what does this letterform look like" and does
+; not answer "can I read my own buttons mid-fight". The second question is the one that
+; matters and only the game can ask it.
 ;
 ; DejaVu Sans sits in `fallbacks` because Godot resolves a missing glyph PER CHARACTER
 ; down this chain. A theme's `default_font` does NOT serve as that fallback: once a
-; control resolves to Bangers, the theme default is out of the picture entirely, and a
+; control resolves to this face the theme default is out of the picture entirely, and a
 ; button reading "SINGLE PLAYER  >" would be back to depending on whatever the host OS
 ; happens to ship. `probe_font_candidates.gd` measured DejaVu at 24/24 of the glyphs
-; `slice_test_font_coverage` had to substitute; Bangers scored 6.
-;
-; So: character on top, coverage underneath, and nothing on screen depends on the OS.
+; `slice_test_font_coverage` had to substitute.
 [gd_resource type="FontVariation" load_steps=3 format=3 uid="uid://cx8n2vqhrf4ka"]
 
-[ext_resource type="FontFile" uid="uid://btpyh4d3a8xi5" path="res://assets/ui/fonts/Bangers-Regular.ttf" id="1_base"]
+[ext_resource type="FontFile" uid="uid://dp0l5al1w0e3g" path="res://assets/ui/fonts/ChakraPetch-SemiBold.ttf" id="1_base"]
 [ext_resource type="FontFile" uid="uid://b45wo4sk66q01" path="res://assets/ui/fonts/DejaVuSans.ttf" id="2_fallback"]
 
 [resource]

@@ -2,13 +2,13 @@
 
 importer="font_data_dynamic"
 type="FontFile"
-uid="uid://btpyh4d3a8xi5"
-path="res://.godot/imported/Bangers-Regular.ttf-787412098e10fe130fd64d4fdb13e4e5.fontdata"
+uid="uid://dp0l5al1w0e3g"
+path="res://.godot/imported/ChakraPetch-SemiBold.ttf-a9abcd88b93ddd8f040dd5cdd5c41c7c.fontdata"
 
 [deps]
 
-source_file="res://assets/ui/fonts/Bangers-Regular.ttf"
-dest_files=["res://.godot/imported/Bangers-Regular.ttf-787412098e10fe130fd64d4fdb13e4e5.fontdata"]
+source_file="res://assets/ui/fonts/ChakraPetch-SemiBold.ttf"
+dest_files=["res://.godot/imported/ChakraPetch-SemiBold.ttf-a9abcd88b93ddd8f040dd5cdd5c41c7c.fontdata"]
 
 [params]
 
