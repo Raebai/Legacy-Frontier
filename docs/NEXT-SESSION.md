@@ -1,183 +1,191 @@
 # RESUME HERE
 
-## STATE — 2026-09-07. Branch `bot-fight-quality`. THE ROSTER IS GREEN AGAIN.
+## STATE — 2026-09-07 (evening). Branch `bot-fight-quality`. THE QUEUE WAS PUBLISHING ONE FIGHT.
 
-⚠ **THE PREVIOUS VERSION OF THIS FILE WAS SEVEN COMMITS STALE** and said the queue was
-clear at 215/215. It was written at `8be29c5`; the session then kept working until
-`9c3c7de` and left **five red suites** behind. That is this file's failure mode: it is
-written once and the work continues. **Always check its date against
+⚠ **THIS FILE GOES STALE AND `git log` DOES NOT.** It has been seven commits behind
+before, claiming a clear queue while five suites were red. **Check its date against
 `git log --oneline` and trust the log.**
 
-Now: **219 suites, all green**, tree clean.
-
-**NOTHING BELOW HAS BEEN PLAYTESTED.** Every claim is a measurement or a headless suite.
-That judgement is unchanged and it is the whole point.
-
----
-
-## ▶ PLAY IT FIRST — two things you can only judge by looking
-
-**F5** → title → Single Player.
-
-1. **THE TAVERN IS RE-CUT.** Walk the whole room. Its atmosphere was being drawn thirty
-   times brighter than its structure; the beam, the bar, the barrels, the fireplace and
-   the tower door have bodies now, and the haze is smoke instead of a field of
-   hard-edged circles. The two station pads say what they are with a drawn breastplate
-   and a drawn figure instead of a floating `†` and `§`.
-2. **THE SENSEI IS A REAL BOSS.** Floor 20. He was a table row pointing at the Ashen
-   Guardian's own scene, so he had the Guardian's name, voice, body and moveset. He has
-   his own everything now. His numbers are a FIRST PASS — see the open question below.
-
-Render the room without the HUD in the way:
-`python python-tools/run_capture.py tavern`
-Render every boss side by side: `python python-tools/run_capture.py boss_roster`
+**NOTHING IN THE GAME HAS BEEN PLAYTESTED.** That judgement is unchanged and it is the
+whole point. The posting work below is different — it was measured against the live
+vendor, not a suite.
 
 ---
 
-## ▶ WHAT LANDED THIS SESSION (3 commits; each carries its own red-run evidence)
+## ▶ THE THING THAT MATTERED MOST TODAY, AND IT WAS NOT IN THE GAME
 
-* **`eb94f27` the Brawler is Earth and two guards still said Fire.** `da6ec14` acted on
-  the maker's ruling and left the roster red. Both suites had been written to notice
-  exactly this and both said so in their own failure text. The class-select assertion is
-  FLIPPED rather than deleted, so the tripwire still points at the same fault from the
-  other side — the melee class falling back off the affinity ladder goes red there now.
-* **`ce508a4` the tavern was drawing its atmosphere thirty times brighter than its
-  structure.** Measured off the screen, not reasoned about: the tie-beam reached drawn
-  luma **1**, the bar counter's body **6** under a cap of **123**, the chimney breast a
-  flat **3** across nine thousand pixels — while the haze reached **190**, all of it
-  hard-rimmed `draw_circle`. Also fixed: an arch-head ternary whose two branches were
-  the same value, which had been painting a dark disc across every window in the room;
-  and the tower door's threshold glow, built behind the opaque slab that entirely covers
-  it, reaching zero pixels for the life of the game.
-* **`(the Sensei commit)` the promise on floor 20 is kept by a real body.** Bespoke
-  scene, moveset, voice, rig height and redraw hand.
+**The daily queue was 88 scheduled posts holding 5 distinct clips.**
+`arcanist_vs_juggernaut.portrait` was queued **57 times** and `arcanist_vs_brawler.portrait`
+**28**, `draft: false`, one to four times a day, on Instagram/TikTok/YouTube, out to
+4 October. One duplicate of each had already published.
+
+One line. `cmd_topup` reassigned `clip = send_clip` before writing the ledger row, so a
+send using a `clip_suffix` recorded the stem of the CUT (`x_vs_y.portrait`) as the thing
+spent. `pick()` asks whether the POOL stem (`x_vs_y`) is spoken for. The two strings
+never met, nothing was ever retired, and `pick()` returned the first pool entry on every
+day of the queue forever. **Every account carries a `clip_suffix`, so it fired on 100% of
+sends** — it arrived with the portrait cuts.
+
+⚠ **BOTH INSTRUMENTS THAT COULD HAVE CAUGHT IT WERE DOWNSTREAM OF THE BROKEN FUNCTION.**
+`--status` prints the ROW, so the repetition was on screen every day and read as a list
+of scheduled posts. `runway()` shares `spoken_for()`, so it reported "5 clips
+unspoken-for, 2.5 days" against 88 queued posts. The number that should have screamed was
+computed by the thing that was wrong. After the fix: 3 unspoken-for, 1.5 days, and a
+SHOOT MORE warning that had never once fired.
+
+**Now: the vendor holds 8 posts and they are 8 different fights**, four of them
+shadowblade fights the nightly shoot rendered AFTER the rendering fixes — so the content
+going out is finally from the current build. That was the maker's open ask
+(*"ensure the content coming out daily is updated with these updates that we send out"*).
+
+## ⚠ AND I BROKE IT FURTHER BEFORE FIXING IT — READ THIS ONE
+
+The first bulk cancel hit the endpoint's rate limit. The next listing came back HTTP 429,
+`list_scheduled` returned `[]` for the failure exactly as it does for an empty schedule,
+and the caller read that as "the vendor no longer holds these" — **dropping 18 rows from
+the ledger that were still queued to publish.** Nothing was cancelled and nothing here
+knew they were still coming. Recovered by asking the vendor directly.
+
+The previous commit's own comment had named that exact failure — *"a row forgotten here
+while the vendor still holds it is the worst of both"* — and guarded the CANCEL call while
+trusting the LIST call that decides which cancels to attempt. **The guard was one call
+upstream of where it was needed.**
+
+`list_scheduled` now returns `None` for "could not tell". Every caller reads it. The one
+that mattered most was never hit: `vendor_holdings` feeds `--topup`, whose whole
+idempotence claim is "fill only the gaps" — a failed listing read as "no days covered"
+queues a second post on top of every day already held.
+
+**New verbs:** `--cancel-dupes` (keeps the first showing of each fight, judged on the
+VENDOR's rows because the ledger had diverged by 18) and `--assert-no-dupes`, which is
+now **step 7 of the nightly wrapper** and exits 1 if the queue repeats itself.
+`check_post_rotation.py` has 9 checks and 2 sabotages that put the old behaviour back and
+require the guard to go red.
 
 ---
 
-## ⚠ THE FINDING THAT REACHES BEYOND THE LOBBY
+## ▶ THE THEME HAS A FONT AT LAST — AND THE PREMISE WAS WRONG
 
-**`slice_test_hero_plate` passed nine assertions about a HUD element that had never
-appeared in the game.** `CharacterBars._find_bound_ability_bar` walked only
-`tree.root.get_children()` and descended only into children that WERE CanvasLayers — the
-one arrangement no scene in this project builds (`Arena`, `LocalCoop` and `World` all
-`add_child(layer)` onto themselves). The suite parented its own hotbar that one way, so
-it could only ever have passed.
+`assets/ui/fonts/`: **DejaVu Sans** is the theme's `default_font` (the only audition
+candidate answering `has_char` for all 24 wanted glyphs — every other scored 6, Noto Sans
+Symbols 2 got 17 and still missed the block and all four arrows). **Bangers** rides on top
+for Buttons via `display_font.tres`, a `FontVariation` with DejaVu in `fallbacks`.
+`slice_test_font_coverage` went green on its own, exactly as its own header predicted.
 
-**Every hero in this game, arena included, was still wearing the head bar the maker
-asked to have moved.** Proved with `tools/probe_plate_in_real_scenes.gd`, fixed,
-re-probed, and the suite now carries one case built the way production builds one.
-Worth re-reading whenever a suite is about to be used as evidence.
+⚠ **BUT THE GLYPHS WERE NEVER BLANK ON THIS MACHINE.** Measured before any font was
+added, headless AND GUI: `has_char` false for 13 of 14 — **and a rendered specimen drew
+every one of them**, with ⚠ coming out in COLOUR, which is a system emoji font.
+`get_string_size` returned non-zero width for all 14. The text server falls back to OS
+fonts; **`has_char` on a single Font is not the question the renderer asks.** The maker's
+report of blank buttons is real but its cause is unconfirmed — most likely the APK.
+`allow_system_fallback=false` on both fonts makes it moot either way, which is why
+shipping the font was still right.
+
+Two traps paid for while doing it:
+
+* **`has_char` on an imported FontFile with `allow_system_fallback=true` answers about the
+  OS, not the font.** It claimed CJK and emoji alike. Turn it off or the measurement means
+  nothing.
+* **The suite's canary was ONE codepoint** (U+1F600) asserted absent, to prove `has_char`
+  could still say no. DejaVu claims U+1F600 while correctly denying CJK U+4E2D, both with
+  fallback off — so the suite refused to run at all. It is now a SET of five, of which at
+  least one must come back absent.
+
+**Look at it:** `Godot_v4.6.2-stable_win64.exe --path godot-project --script
+tools/title_capture.gd` → `user://title_screen.png` + `title_coop.png`. The front door had
+no capture tool at all until today, and it is the screen every player sees.
+
+⚠ **`title_capture` first shot a half-swept sigil on an empty screen** because it waited
+150 `process_frame`s for a 3.4 s animation. **A frame count is not a duration.** It waits
+on the clock now.
 
 ---
 
 ## ▶ THE THINGS THE MAKER MUST DECIDE
 
-**1. A FONT. Still the single highest-value visual change available.**
-`assets/ui/stickspire_theme.tres` carries 21 font_size/font_color entries and **not one
-Font resource**, and there is no font file anywhere in the repo. Everything falls back to
-Godot's built-in Open Sans subset, whose coverage stops at Latin-1, and Godot draws a
-zero-width nothing with no error. `slice_test_font_coverage` guards 237 files with
-substitutions. Two of those substitutions were deleted this session by DRAWING the icons
-instead (the armoury and class pads), which is the better fix wherever it is affordable
-— but it is not affordable for every glyph. Ship a font and the suite goes green on its
-own, and every glyph comes back looking the way it was written.
-
-**2. THE SENSEI'S NUMBERS.** His tells are the longest on the roster (0.85–0.95 s) and
-his cooldowns the shortest (1.9 → 1.0). That pairing IS the fight — a long tell is what
-makes crossing his lane possible, a short cooldown is what stops crossing once being the
-answer forever — so read either number alone and it looks mistuned. It has never been
-played. `BossRoster` also gives him hp_scale 2.4 and speed_scale 1.55, both inherited
-from the dojo.
-
-**3. WHY A CLIMB FIGHT STILL DOES NOT LOOK LIKE A BOT FIGHT — AND IT IS NOT COOLDOWNS.**
-Unchanged from the last handoff. The climb already pays x1.8 on quick and heavy spells.
-The gap is **HP**: a showcase fighter has 320 to a base hero's 100, so the fight lasts
-long enough to see a whole kit. Left untouched deliberately — it moves the whole game's
-balance at once.
-
----
+1. **Restoring the substituted glyphs.** Decision taken today was *ship the font, then
+   re-test and unwind* — verifying by capture, not by `has_char`. 237 files are still
+   carrying substitutions that the font no longer requires. **Never add to `WAIVED`.**
+2. **The `STICKSPIRE` wordmark is deliberately NOT in the display face.** It is
+   `GameLogo`, a custom-drawn brand asset also used for the app icon, the social avatar
+   and every `tools/render_logo*` stamp. Changing its font changes the brand everywhere.
+3. **Bangers reads small inside full-width buttons.** Visible in `title_coop.png`. It is a
+   font-size tune, not a font problem, and it wants a playtest not a measurement.
+4. **The Sensei's numbers.** Unchanged: longest tells on the roster (0.85–0.95 s) paired
+   with the shortest cooldowns (1.9 → 1.0). That pairing IS the fight; read either alone
+   and it looks mistuned. Never played.
+5. **Roster balance is unsolved** — Stormcaller went 16-0 in bot fights.
 
 ## ▶ WHAT IS LEFT
 
-1. **PLAYTEST.** The only real item.
-2. **A font.** See above.
+1. **PLAYTEST.** Still the only real item.
+2. The glyph unwind (see above).
 3. **`probe_reachability` reports 252 of 939 public entry points with no shipping
-   caller.** A report, not a gate, and it over-reports for autoloads. Read it and
-   promote what matters.
+   caller.** A report, not a gate; it over-reports for autoloads.
 4. **Two carve limitations left alone on purpose** — both fixes are FEEL changes.
-   `RockPillar` stays on `carve_disc`/`carve_area` (a column's contact IS round);
-   `IceWall`'s piercing seat got a 6 px non-piercing probe as a local workaround, and
-   making the seat itself non-piercing would move where every ice wall in the game
-   plants itself.
-5. **`_host()` calls `visit_hub()`**, so hosting navigates immediately and Start Run is
-   effectively unreachable from the title. Already true of the old coop panel; the
-   button is kept as a fallback for when `visit_hub` fails.
-6. **Roster balance is unsolved** — Stormcaller went 16-0 in bot fights.
+   `RockPillar` stays on `carve_disc`/`carve_area`; `IceWall`'s piercing seat has a 6 px
+   non-piercing probe as a local workaround.
+5. ~~`_host()` calls `visit_hub()`, so Start Run is unreachable~~ — **FALSE POSITIVE,
+   checked 2026-09-07.** `RealmScreen` carries the real Start Run and its own comment says
+   the title panel "is no longer the door"; `Lobby` wires the fallback through
+   `_net.server_started` → `_refresh`, which reveals the hidden row. Nothing to fix.
+   Left here struck through so it is not re-investigated a third time.
 
 ---
 
 ## ⚠ TRAPS THIS BRANCH HAS PAID FOR — do not re-learn these
 
-* **A HANDOFF FILE GOES STALE AND A GIT LOG DOES NOT.** See the top of this file.
-* **THE LOUD BUG GETS FIXED AND THE QUIET ONE DOES NOT.** The same 270-degree
-  `_arc_points` sweep existed in two sibling functions in one file. The one that printed
-  `Invalid polygon data, triangulation failed` every frame was fixed in `5d40d74`; the
-  one that triangulated cleanly into the wrong shape survived two more commits and was
-  only found by photographing the room. Do not let the console define the search.
-* **A SUITE THAT BUILDS ITS OWN WORLD CAN ONLY TEST THAT WORLD.** See the hero-plate
-  finding above. When a suite constructs its own scaffolding, add one case built the way
-  production builds it — that case is usually the whole value of the file.
-* **A HIGHLIGHT TWENTY TIMES THE VALUE OF THE THING IT IS ON IS NOT A HIGHLIGHT, IT IS
-  THE ONLY MARK.** Every "random line" in the maker's lobby report was a rim, cap or
-  hoop that had outlived the object it described. Capture the screen and measure it —
-  `tools/tavern_capture.gd` plus a pixel probe found all of them in one pass.
-* **A GATE BUILT FROM AN ALLOWLIST OF SINKS MISSES THE FRONT DOOR.** The font suite
-  matched `.text =` and walked past a CONSTRUCTOR ARGUMENT. The set of ways a string
-  reaches a control is open; the set of sinks that are NOT the screen is small and
-  closed. Invert the rule: suspect everything, exempt the console.
-* **SIX CONCURRENT OPUS AGENTS EXHAUSTED THE SESSION LIMIT** and all six died mid-edit.
-  One left `CharacterRig.gd` unparseable while the other five were being told to verify
-  against it. Run **three at a time**, and on a resume `git status` and prove the tree
-  PARSES before believing any suite result.
-* **A FULL SWEEP IS UNREADABLE WHILE AGENTS ARE WRITING.** Proved, not assumed. Verify
-  per-suite during, sweep once at the end.
-* **NAMING A CLASS IN A TEST MAKES IT A COMPILE-TIME DEPENDENCY**, which in a `--script`
-  run resolves BEFORE autoloads register. Read constants via `get_script_constant_map()`.
-* **`--script` DOES register this project's autoloads** (all twelve). Only `--check-only`
-  compiles a script's chain before the autoload table exists.
-* **A TEST THAT HARDCODES A GLYPH BREAKS WHEN THE GLYPH MOVES.** Both sides must read
-  the same named constant.
-* **SCRAPING SOURCE TEXT FOR A LITERAL IS WHY THE LITERAL DRIFTED.** Name the const and
-  reflect over it.
-* Still true: **the Godot editor strips `project.godot` keys while it is open**
-  (`slice_test_mobile_config` guards it; run it before any push), **do NOT edit code
-  through shell heredocs** (write a patch FILE and assert single-occurrence anchors),
-  and **a precondition ORed against the thing it precedes is not a precondition**.
+* **A FAILED READ IS NOT AN EMPTY READ.** See above. Any function reading remote state
+  must be able to say *could not tell*, and the guard belongs on the read that CHOOSES
+  the writes, not only on the writes.
+* **A HANDOFF FILE GOES STALE AND A GIT LOG DOES NOT.**
+* **A FRAME COUNT IS NOT A DURATION.** 150 `process_frame`s elapsed well under a second
+  against a 3.4 s animation, and the capture saved successfully showing nothing.
+* **AN INSTRUMENT DOWNSTREAM OF THE BUG WILL REPORT HEALTHY.** `runway()` said 2.5 days
+  against 88 queued posts because it shared the broken function. When choosing where to
+  put a check, put it downstream of NOTHING — `--assert-no-dupes` reads the vendor.
+* **A SINGLE EXOTIC CODEPOINT IS NOT A CANARY.** DejaVu claims emoji and denies CJK.
+* **THE LOUD BUG GETS FIXED AND THE QUIET ONE DOES NOT.**
+* **A SUITE THAT BUILDS ITS OWN WORLD CAN ONLY TEST THAT WORLD.** `slice_test_hero_plate`
+  passed nine assertions about a HUD element that had never appeared in the game.
+* **A HIGHLIGHT TWENTY TIMES THE VALUE OF THE THING IT IS ON IS THE ONLY MARK.**
+* **A GATE BUILT FROM AN ALLOWLIST OF SINKS MISSES THE FRONT DOOR.**
+* **SIX CONCURRENT OPUS AGENTS EXHAUSTED THE SESSION LIMIT.** Run three at a time, and on
+  a resume `git status` and prove the tree PARSES before believing any suite result.
+* **THE NIGHTLY TASK WRITES TO THIS CHECKOUT.** On 2026-09-07 it fired mid-session: a
+  shoot had `project.godot` patched to 1920x1080 (restored in a `finally`) and
+  `content/analytics/posts.json` rewritten. Neither is yours — **diff before you stage.**
+* **A FULL SWEEP IS UNREADABLE WHILE AGENTS ARE WRITING.** Verify per-suite during, sweep
+  once at the end.
+* **NAMING A CLASS IN A TEST MAKES IT A COMPILE-TIME DEPENDENCY.** Read constants via
+  `get_script_constant_map()`.
+* **`--script` DOES register this project's autoloads** (all twelve).
+* Still true: **the Godot editor strips `project.godot` keys while it is open**, **do NOT
+  edit code through shell heredocs** (write a patch FILE and assert single-occurrence
+  anchors — both the `daily_ops.cmd` and the theme edits today went through one), and **a
+  precondition ORed against the thing it precedes is not a precondition**.
 
 ---
 
-## ▶ THERE IS NOW AN OBSIDIAN SECOND BRAIN
+## ▶ THERE IS AN OBSIDIAN SECOND BRAIN
 
-Installed 2026-09-07 at the maker's request, so context survives between sessions.
-
-* **Vault:** `C:\Users\Raaed\Documents\Second Brain`, wired as `OBSIDIAN_VAULT_PATH` in
-  `~/.claude/settings.json`, with a SessionStart hook that publishes it.
-* **What is in it:** the DURABLE layer only — what the game is, the rulings that must
-  not be re-litigated, and the lessons that cost real time. **It deliberately does not
-  hold live state**: this file and `git log` remain authoritative, because a note that
-  duplicates a branch name is a note that will be wrong next week. Anything
-  time-sensitive in the vault carries an `as of` stamp.
-* **Commands:** `/obsidian-save`, `/obsidian-log`, `/obsidian-find`, `/obsidian-world`,
-  `/obsidian-challenge` and ~42 more. Read `<vault>/index.md` before searching it.
-
----
+Vault: `C:\Users\Raaed\Documents\Second Brain` (`OBSIDIAN_VAULT_PATH` in
+`~/.claude/settings.json`). It holds the DURABLE layer only — what the game is, the
+rulings, the lessons that cost real time. **It deliberately does not hold live state:
+this file and `git log` remain authoritative.** Read `<vault>/index.md` before searching.
+Commands: `/obsidian-save`, `/obsidian-log`, `/obsidian-find`, `/obsidian-world`,
+`/obsidian-challenge` and ~42 more.
 
 ## HOW TO VERIFY
 ```
-python python-tools/run_all_tests.py --jobs 3        # 219 suites, ~340s
+python python-tools/run_all_tests.py --jobs 3        # 219 suites, ~360s
+python python-tools/check_post_rotation.py           # the queue-rotation guard + sabotage
+python python-tools/check_daily_ops.py               # 7 nightly steps, each failed alone
+python python-tools/daily_post.py --assert-no-dupes  # asks the VENDOR, not the ledger
 python python-tools/check_window_override.py         # 1366x768 committed
 godot --headless --path godot-project --script tools/slice_test_mobile_config.gd
 godot --headless --path godot-project --script tools/slice_test_font_coverage.gd
+Godot_v4.6.2-stable_win64.exe --path godot-project --script tools/title_capture.gd
 python python-tools/run_capture.py tavern            # the lobby, without the HUD
 python python-tools/run_capture.py boss_roster       # every artist, side by side
 ```
