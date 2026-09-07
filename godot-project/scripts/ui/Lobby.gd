@@ -419,15 +419,21 @@ func _build_ui() -> void:
 	# `slice_test_outfitter`), all of which guard the SAME claim — "the one verb that
 	# starts the game is the first thing built on this screen". They were updated with
 	# the label; the claim is untouched.
-	# ⚠ `›`, NOT `▸`, AND THESE TWO WERE NOT ON THE FONT SWEEP'S LIST BECAUSE ITS SCANNER
-	# READS `.text =` ASSIGNMENTS AND THESE ARE CONSTRUCTOR ARGUMENTS. The defect is the
-	# same one and on the worst possible pair: the two PRIMARY verbs on the front door
-	# were each rendering their trailing marker as a zero-width nothing, so the game's
-	# first screen showed "SINGLE PLAYER" followed by two blank columns. See the long
-	# note in `_apply_class_tint` for why the fallback font cannot draw U+25B8.
+	# `▸` (U+25B8) — RESTORED 2026-09-07, when the theme finally got a font.
+	#
+	# ⚠ THE HISTORY MATTERS, BECAUSE THE MARKER HAS BEEN WRONG IN BOTH DIRECTIONS. These
+	# two are CONSTRUCTOR ARGUMENTS, not `.text =` assignments, so the first font gate
+	# read straight past the two primary verbs on the front door — the worst possible
+	# pair to miss. They were then substituted to `›` (U+203A) because the theme carried
+	# no Font at all and the built-in Open Sans subset stops at Latin-1.
+	#
+	# The theme now ships DejaVu Sans with `allow_system_fallback` off, so U+25B8 is
+	# drawn by a font this repo controls rather than by whatever the host OS has.
+	# `slice_test_font_coverage` asks the resolved font, so if that ever stops being
+	# true this goes red rather than blank.
 	# The suites pin these by `begins_with` / `contains` on the WORDS, so the marker is
 	# free to change.
-	var play := _button("SINGLE PLAYER  ›", _play_solo, 19)
+	var play := _button("SINGLE PLAYER  ▸", _play_solo, 19)
 	# Still the biggest target on the page — it is the whole game — but the margin over
 	# the others is 6 px now rather than 8, because the others are no longer too small
 	# to hit. A hierarchy built out of a target that MISSES is not a hierarchy.
@@ -484,7 +490,7 @@ func _build_ui() -> void:
 	# clear of the artwork, and `slice_test_settings` fails the build if either named
 	# primary drops below 46 px. Nothing is added to this screen and nothing is resized;
 	# only where the press GOES has changed.
-	var mp := _button("MULTIPLAYER  ›", _open_realm, 16)
+	var mp := _button("MULTIPLAYER  ▸", _open_realm, 16)
 	mp.custom_minimum_size = Vector2(PANEL_W, BUTTON_H)
 	right.add_child(mp)
 
@@ -671,15 +677,16 @@ func _apply_class_tint() -> void:
 	var info: Dictionary = ClassInfo.CLASSES[i] if i < ClassInfo.CLASSES.size() else {}
 	var accent: Color = ClassInfo.color_for(i) if ClassInfo.count() > 0 else ACCENT_FALLBACK
 	if _class_btn != null:
-		# ⚠ `‹ ›` (U+2039/U+203A) AND NOT `◂ ▸` (U+25C2/U+25B8), AND THE OLD PAIR WAS
-		# DRAWING NOTHING AT ALL. `assets/ui/stickspire_theme.tres` declares 21 font_size
-		# and font_color entries and NO Font resource, and there is no font file in the
-		# repo — so every control here falls back to Godot's built-in Open Sans subset,
-		# whose coverage stops at Latin-1. `Font.has_char(0x25B8)` is false, and Godot
-		# draws a zero-width nothing and raises no error. The cycler read
-		# "  Stormcaller  " with two mystery gaps. `tools/slice_test_font_coverage.gd`
-		# is the gate that stops this coming back.
-		_class_btn.text = "‹  %s  ›" % String(info.get("name", "Class %d" % i))
+		# `◂ ▸` (U+25C2/U+25B8) — RESTORED 2026-09-07. This cycler is why the font gate
+		# exists: the pair was drawing NOTHING and the button read "  Stormcaller  "
+		# with two mystery gaps, because the theme declared 21 font_size entries and no
+		# Font resource, so every control fell back to the built-in Open Sans subset and
+		# `has_char(0x25B8)` was false.
+		#
+		# The theme now ships DejaVu Sans with `allow_system_fallback` off, so these are
+		# drawn by a font in this repo. `tools/slice_test_font_coverage.gd` asks the
+		# RESOLVED font, so it is still the gate — it just passes now.
+		_class_btn.text = "◂  %s  ▸" % String(info.get("name", "Class %d" % i))
 		_class_btn.add_theme_color_override("font_color", accent)
 		_class_btn.add_theme_color_override("font_hover_color", accent.lightened(0.25))
 	if _class_kit != null:

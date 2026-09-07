@@ -167,13 +167,17 @@ func _build() -> void:
 	# `Lobby._open_realm`), so without this row a host could gather a friend and then
 	# have nothing to press. Hidden until `is_host()` — `_refresh` owns that rule, the
 	# same way `Lobby._refresh` owns it for the panel.
-	# ⚠ `›` (U+203A), NEVER `▸` (U+25B8). `assets/ui/stickspire_theme.tres` declares no
-	# Font resource and the repo ships no font file, so every control falls back to
-	# Godot's built-in Open Sans subset — Latin-1 only. A glyph outside it draws as a
-	# ZERO-WIDTH NOTHING and raises no error, which is why ten of these shipped. The
-	# `…` on the empty seat below is fine (verified in the fallback); `▸ ◂ █ ◆ ● ■ →`
-	# are not. `tools/slice_test_font_coverage.gd` is the gate.
-	_start_btn = _action("Start Run  ›", func() -> void: start_pressed.emit())
+	# ⚠ THIS NOTE USED TO SAY "`›` (U+203A), NEVER `▸` (U+25B8)". THAT RULE IS DEAD, and
+	# it is written out rather than deleted because it was emphatic and correct at the
+	# time: the theme declared no Font resource and the repo shipped no font file, so
+	# every control fell back to Godot's built-in Open Sans subset and anything past
+	# Latin-1 drew as a zero-width nothing with no error. Ten of those shipped.
+	#
+	# 2026-09-07: the theme carries DejaVu Sans with `allow_system_fallback` off, which
+	# covers `▸ ◂ █ ◆ ● ■ →` and the rest. `tools/slice_test_font_coverage.gd` is still
+	# the gate and still asks the font the game actually resolves — it just passes now,
+	# and it goes red if the font or that import setting is ever lost.
+	_start_btn = _action("Start Run  ▸", func() -> void: start_pressed.emit())
 	_start_btn.custom_minimum_size = Vector2(0, ACTION_H)
 	_start_btn.add_theme_color_override("font_color", CHALK)
 	_start_btn.visible = false
