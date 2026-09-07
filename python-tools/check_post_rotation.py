@@ -103,7 +103,8 @@ def make_pool(root: Path, fights: list[str]) -> None:
         (root / f"{stem}.nomusic.mp4").write_bytes(b"\0" * 2048)
 
 
-def run_topup(days: int, ledger: dict, sabotage: bool = False) -> tuple[dict, str]:
+def run_topup(days: int, ledger: dict, sabotage: bool = False,
+              holdings: str = "empty") -> tuple[dict, str]:
     """Call the SHIPPED cmd_topup, with only the four network seams replaced.
 
     live=False, so `pc.send` is never reached — and it is replaced with a raiser so
@@ -115,7 +116,10 @@ def run_topup(days: int, ledger: dict, sabotage: bool = False) -> tuple[dict, st
     saved_send = pc.send
     try:
         dp.reconcile = lambda ledger, key, verbose=True: 0
-        dp.vendor_holdings = lambda key: {}
+        # "unanswerable" is the 429 case: the vendor could not be asked. It is NOT an
+        # empty schedule, and the difference is what the fifth check pins.
+        dp.vendor_holdings = (lambda key: None) if holdings == "unanswerable" \
+            else (lambda key: {})
         dp.linked_platforms = lambda key: {"A": {"instagram", "youtube"},
                                            "B": {"instagram", "youtube"}}
         dp.load_weights = lambda: {}
@@ -202,7 +206,70 @@ def main() -> int:
               f"pick returned {free.stem if free else None}, "
               f"expected one of {FIGHTS[3:]}")
 
-        # ── 5. SELF-PROOF: the guard must go RED against the old system ────────────
+        # ── 5. AN UNANSWERED LISTING IS NOT AN EMPTY ONE ───────────────────────────
+        # The vendor rate-limits bulk calls. `list_scheduled` used to return [] for
+        # both "holding nothing" and "could not ask", and on 2026-09-07 a cancel run
+        # read a 429 as an empty schedule and dropped 18 rows that were still queued
+        # to publish. The same value reaching `--topup` is worse: every day looks
+        # uncovered, so it queues a SECOND post on top of every day already held,
+        # which is the double-post the whole idempotence design exists to prevent.
+        ledger3 = {"posted": {}, "scheduled": []}
+        _, out3 = run_topup(3, ledger3, holdings="unanswerable")
+        check(not ledger3["scheduled"],
+              "unanswerable: --topup queues NOTHING when it cannot see the schedule",
+              f"queued {len(ledger3['scheduled'])} row(s) on a guess")
+
+        cancelled_any = []
+        saved_list, saved_cancel = pc.list_scheduled, pc.cancel_scheduled
+        try:
+            pc.list_scheduled = lambda key, timeout=25: None
+            pc.cancel_scheduled = lambda job, key, timeout=25: cancelled_any.append(job)
+            standing = [{"profile": "A", "clip": FIGHTS[0], "job_id": "j1",
+                         "when_utc": "2026-01-01", "when_local": "x",
+                         "platforms": ["instagram"]}]
+            led4 = {"posted": {"A": {FIGHTS[0]: "2026-01-01"}},
+                    "scheduled": list(standing)}
+            buf4 = io.StringIO()
+            with redirect_stdout(buf4):
+                rc = dp.cmd_cancel_dupes(led4, "fake-key", live=True)
+        finally:
+            pc.list_scheduled, pc.cancel_scheduled = saved_list, saved_cancel
+        check(rc != 0 and not cancelled_any and led4["scheduled"] == standing,
+              "unanswerable: --cancel-dupes cancels nothing and keeps every row",
+              f"rc={rc}, cancelled={cancelled_any}, "
+              f"rows left={len(led4['scheduled'])}")
+
+        # ── 6. THE NIGHTLY ASSERTION FIRES ON A REPEATING QUEUE ────────────────────
+        # `--assert-no-dupes` is the only check that reads the queue the VENDOR will
+        # actually publish from. Every local instrument on 2026-09-07 reported healthy
+        # because they were all downstream of one broken function; this one is not.
+        def vendor_queue(fights: list[str]) -> list[dict]:
+            return [{"job_id": f"j{i}", "profile_username": "A",
+                     "platforms": ["instagram"],
+                     "title": dp.title_of(f),
+                     "scheduled_date": f"2026-01-{i + 1:02d}T09:00:00Z"}
+                    for i, f in enumerate(fights)]
+
+        saved_list = pc.list_scheduled
+        try:
+            pc.list_scheduled = lambda key, timeout=25: vendor_queue(
+                [FIGHTS[0], FIGHTS[0], FIGHTS[1]])          # one repeat
+            buf6 = io.StringIO()
+            with redirect_stdout(buf6):
+                rc_dirty = dp.cmd_cancel_dupes({"posted": {}, "scheduled": []},
+                                               "fake-key", live=False, assert_only=True)
+            pc.list_scheduled = lambda key, timeout=25: vendor_queue(FIGHTS[:3])
+            buf6b = io.StringIO()
+            with redirect_stdout(buf6b):
+                rc_clean = dp.cmd_cancel_dupes({"posted": {}, "scheduled": []},
+                                               "fake-key", live=False, assert_only=True)
+        finally:
+            pc.list_scheduled = saved_list
+        check(rc_dirty == 1 and rc_clean == 0,
+              "assertion: --assert-no-dupes is 1 on a repeating queue, 0 on a clean one",
+              f"repeating gave {rc_dirty} (want 1), clean gave {rc_clean} (want 0)")
+
+        # ── 7. SELF-PROOF: the guard must go RED against the old system ────────────
         print("\n  sabotage — resolution stubbed to the identity (the old system):")
         held = len(failures)
         legacy_sab = json.loads(json.dumps(legacy))
@@ -219,6 +286,15 @@ def main() -> int:
               "evidence of anything")
         if len(failures) == held + 0 and red:
             print(f"          (it re-served {FIGHTS[0]}, which is the 2026-09-07 bug)")
+
+        # And the same treatment for check 5: put the OLD return value back — `[]` for
+        # a failure, indistinguishable from an empty schedule — and the topup that just
+        # refused must start queueing again. That difference IS the fix.
+        ledger5 = {"posted": {}, "scheduled": []}
+        run_topup(3, ledger5, holdings="empty")
+        check(len(ledger5["scheduled"]) > 0,
+              "sabotage: with the old `[]`-on-failure value, --topup queues anyway",
+              "it queued nothing either way, so check 5 proves nothing")
 
     finally:
         dp.POSTS, dp.QUEUE_ORDER = saved_posts, saved_order

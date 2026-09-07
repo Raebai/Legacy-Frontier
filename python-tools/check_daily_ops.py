@@ -48,6 +48,10 @@ EXPECTED = [
     ("make_portrait.py", "", "make_portrait", "cut"),
     ("daily_post.py", "--topup", "--topup", "topup"),
     ("daily_post.py", "--verify", "--verify", "verify"),
+    # Added 2026-09-07. `--verify` asks whether the posts that were DUE went out; it
+    # cannot see that the queue behind them is the same fight over and over, which is
+    # what 85 of 88 queued posts were on the day this step was written.
+    ("daily_post.py", "--assert-no-dupes", "--assert-no-dupes", "rotate"),
 ]
 
 STUB = (

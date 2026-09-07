@@ -502,7 +502,8 @@ def runway(accounts: list[dict], ledger: dict) -> tuple[int, float]:
     return left, left / per_day
 
 
-def cmd_cancel_dupes(ledger: dict, key: str, live: bool) -> int:
+def cmd_cancel_dupes(ledger: dict, key: str, live: bool,
+                     assert_only: bool = False) -> int:
     """Unqueue every REPEAT, keeping the earliest post of each fight per profile.
 
     ⚠ THE CLEANUP `--cancel-all` COULD NOT DO. On 2026-09-07 the vendor was holding 80
@@ -581,6 +582,15 @@ def cmd_cancel_dupes(ledger: dict, key: str, live: bool) -> int:
         print(f"      {fight:<34} {n} extra copie(s)")
     kept_names = sorted({clip_stem_of(str(r.get("title") or "")) for r in keep})
     print(f"\n  keeping {len(keep)}: {', '.join(kept_names) or '(none)'}")
+    if assert_only:
+        # ⚠ THE NIGHTLY CHECK MEASURES THE QUEUE, NOT THE CODE. `check_post_rotation.py`
+        # pins the selection logic; this asks the vendor what it is actually about to
+        # publish. The 2026-09-07 queue was 85 copies of two fights and every local
+        # instrument reported healthy, because they were all downstream of the one
+        # broken function. This one is downstream of nothing.
+        print("\n  ASSERT FAILED: the queue is repeating itself. "
+              "Run --cancel-dupes --live.")
+        return 1
     if not live:
         print("\n  DRY RUN — nothing cancelled. Add --live.")
         return 0
@@ -812,6 +822,9 @@ def main() -> int:
                     help="cancel every queued post and forget them locally")
     ap.add_argument("--cancel-dupes", action="store_true",
                     help="cancel only the repeats, keeping the first of each fight")
+    ap.add_argument("--assert-no-dupes", action="store_true",
+                    help="exit 1 if the vendor's queue repeats a fight (cancels "
+                         "nothing). The nightly guard on the real queue.")
     args = ap.parse_args()
 
     accounts = load_accounts()
@@ -905,6 +918,9 @@ def main() -> int:
         print()
         print(f"{len(rows)} queued, {bad} needing attention")
         return 1 if bad else 0
+
+    if args.assert_no_dupes:
+        return cmd_cancel_dupes(ledger, key, live=False, assert_only=True)
 
     if args.cancel_dupes:
         return cmd_cancel_dupes(ledger, key, args.live)

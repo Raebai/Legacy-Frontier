@@ -57,6 +57,14 @@ REM    is the only step that can detect a silent vendor-side failure.
 "%PY%" "%REPO%\python-tools\daily_post.py" --verify >> "%LOG%" 2>&1
 set VERIFY=%ERRORLEVEL%
 
+REM 7. Ask the VENDOR whether the queue it will publish from repeats
+REM    a fight. On 2026-09-07, 85 of 88 queued posts were two clips and
+REM    every local instrument reported healthy, because they were all
+REM    downstream of the one broken function. This one is not: it reads
+REM    the schedule the vendor will actually post from. Cancels nothing.
+"%PY%" "%REPO%\python-tools\daily_post.py" --assert-no-dupes >> "%LOG%" 2>&1
+set ROTATE=%ERRORLEVEL%
+
 REM Every step is checked, not just the last two. A mistyped path in step 3
 REM exits 2, and the wrapper used to sail straight past it and report OK. The
 REM shoot then never ran for days and the only symptom anybody saw was the
@@ -67,14 +75,15 @@ if not "%SHOOT%"=="0" goto problem
 if not "%CUT%"=="0" goto problem
 if not "%TOPUP%"=="0" goto problem
 if not "%VERIFY%"=="0" goto problem
+if not "%ROTATE%"=="0" goto problem
 echo OK >> "%LOG%"
 endlocal
 exit /b 0
 
 :problem
-echo NEEDS ATTENTION pull=%PULL% rank=%RANK% shoot=%SHOOT% cut=%CUT% topup=%TOPUP% verify=%VERIFY% >> "%LOG%"
+echo NEEDS ATTENTION pull=%PULL% rank=%RANK% shoot=%SHOOT% cut=%CUT% topup=%TOPUP% verify=%VERIFY% rotate=%ROTATE% >> "%LOG%"
 REM Leave a file the next session will see. There is no mail server here
 REM and a toast on a locked laptop is a notification nobody receives.
-echo %DATE% %TIME% pull=%PULL% rank=%RANK% shoot=%SHOOT% cut=%CUT% topup=%TOPUP% verify=%VERIFY% - see content\daily_post.log > "%REPO%\content\ALERT.txt"
+echo %DATE% %TIME% pull=%PULL% rank=%RANK% shoot=%SHOOT% cut=%CUT% topup=%TOPUP% verify=%VERIFY% rotate=%ROTATE% - see content\daily_post.log > "%REPO%\content\ALERT.txt"
 endlocal
 exit /b 1
