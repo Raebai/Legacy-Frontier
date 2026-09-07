@@ -101,14 +101,27 @@ const MIN_PRIMARY_PX: float = 46.0
 ## Every button the title screen is allowed to show at once. ⚠ A SET, NOT A COUNT. The
 ## maker asked TWICE for the front door to have fewer, smaller buttons; a count would let
 ## somebody swap one for another, and a set says exactly which ones survived.
-## ⚠ THE MARKER IS `›` (U+203A) AND NOT `▸` (U+25B8), WHICH IS ITSELF A FIXED BUG. The
-## theme declares no Font, the repo ships none, so the fallback is Godot's Latin-1
-## Open Sans subset and U+25B8 drew as a ZERO-WIDTH NOTHING with no error — on the two
-## primary verbs of the front door. `tools/slice_test_font_coverage.gd` is the gate;
-## this const is pinned to the fixed strings so a revert fails here too.
-const TITLE_BUTTONS: Array[String] = [
-	"SINGLE PLAYER  ›", "MULTIPLAYER  ›", "Watch Bots", "Credits",
-]
+##
+## ⚠ THE TWO PRIMARY LABELS ARE READ FROM `Lobby`, NOT COPIED. This const used to carry
+## its own spelling of them, marker included — `"SINGLE PLAYER  ›"` — with a note
+## explaining that `›` was deliberate because the theme had no Font and `▸` drew as a
+## zero-width nothing. Both of those were true. Then the theme gained a font on
+## 2026-09-07, the source restored the marker it always meant, and this file failed the
+## build complaining that the front door had grown two NEW rows. It has no opinion about
+## markers; it is asserting WHICH FOUR ROWS EXIST.
+##
+## So the strings live once, in `Lobby`, and are reflected out of the script rather than
+## scraped from its source text or re-typed here. Reflection and not a bare `Lobby.`
+## reference on purpose: naming the class makes it a compile-time dependency, which in a
+## `--script` run resolves before the autoload table exists.
+static func title_buttons() -> Array[String]:
+	var consts: Dictionary = load("res://scripts/ui/Lobby.gd").get_script_constant_map()
+	var out: Array[String] = [
+		String(consts.get("PLAY_LABEL", "")),
+		String(consts.get("MULTIPLAYER_LABEL", "")),
+		"Watch Bots", "Credits",
+	]
+	return out
 
 var _fails: int = 0
 var _completed: Dictionary = {}
@@ -710,13 +723,21 @@ func _test_the_title_screen_gained_no_button() -> void:
 				("the PRIMARY title button `%s` still clears %.0f px (got %.0f) — the "
 				+ "front door's four buttons once measured 5.5 to 7.6 mm")
 				% [b.text, MIN_PRIMARY_PX, b.custom_minimum_size.y])
+	var agreed: Array[String] = title_buttons()
+	# ⚠ REFLECTION FAILS OPEN IF THE CONSTANT IS RENAMED — `get()` would hand back "" and
+	# the set below would then be asserting against two empty strings. Say so here rather
+	# than let the real assertion report a confusing mismatch.
+	_expect(not agreed.has(""),
+		("could not read PLAY_LABEL / MULTIPLAYER_LABEL out of Lobby.gd — they have been "
+		+ "renamed or removed, and this suite is no longer checking the labels it "
+		+ "believes it is. Got %s") % [agreed])
 	for t: String in visible_texts:
-		_expect(TITLE_BUTTONS.has(t),
+		_expect(agreed.has(t),
 			("the title screen shows only its four agreed rows; `%s` is new. The realm "
 			+ "screen is one press IN — nothing is added to the front door.") % t)
-	_expect(visible_texts.size() == TITLE_BUTTONS.size(),
+	_expect(visible_texts.size() == agreed.size(),
 		"and it still shows exactly %d (found %d: %s)"
-		% [TITLE_BUTTONS.size(), visible_texts.size(), visible_texts])
+		% [agreed.size(), visible_texts.size(), visible_texts])
 	lobby.queue_free()
 	await process_frame
 	_completes("the_title_screen_gained_no_button")
