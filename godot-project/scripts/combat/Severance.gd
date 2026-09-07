@@ -76,7 +76,7 @@ func cataclysm(caster: Node, _origin: Vector2, target: Vector2, spell: SpellDef,
 	_mark()
 	SpellSigil.open(self, _center, color, maxf(_radius * 1.2, 30.0) / SpellSigil.RADIUS_HEAVY,
 		false, Vector2.RIGHT, true, 0.12, 0.5)
-	SpellDrops.sfx("shadow_mark", -2.0, 0.05, 0.6)
+	SpellDrops.sfx("shadow_cast", -2.0, 0.05, 0.6)
 	Juice.zoom_pull_camera(0.20, _life * 0.5, 0.2, 0.7)
 	Juice.shake_camera(6.0)
 	queue_redraw()

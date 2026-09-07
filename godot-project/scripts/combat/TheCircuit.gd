@@ -71,7 +71,7 @@ func cataclysm(caster: Node, origin: Vector2, _target: Vector2, spell: SpellDef,
 	_build_queue()
 	_path.append(_origin_pos)
 	SpellSigil.open(self, _origin_pos, color, 1.0, false, Vector2.RIGHT, true, 0.10, 0.45)
-	SpellDrops.sfx("lightning", -1.0, 0.06, 0.7)
+	SpellDrops.sfx("thunder", -1.0, 0.06, 0.7)
 	Juice.zoom_pull_camera(0.22, _life * 0.8, 0.18, 0.7)
 	Juice.shake_camera(7.0)
 	queue_redraw()
@@ -144,7 +144,7 @@ func _strike(who: Variant) -> void:
 			float(_damage), SpellTier.PUSH_TIER[SpellTier.Tier.ULT]))
 	CombatVfx.spawn_burst(get_parent(), p, Color(1.5, 1.9, 2.3, 1.0),
 		Color(0.3, 0.6, 0.9, 0.0), 16, 0.34, 90.0, 240.0, 0.8, 2.4, 0.0, 0.0, true)
-	SpellDrops.sfx("lightning", -5.0, 0.10, 0.25)
+	SpellDrops.sfx("zap_arc", -5.0, 0.10, 0.25)
 	Juice.on_hit({"shake": 7.0, "zoom": 0.06, "hitstop": 0.03})
 
 

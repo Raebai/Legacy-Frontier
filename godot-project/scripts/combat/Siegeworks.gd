@@ -71,7 +71,7 @@ func cataclysm(caster: Node, _origin: Vector2, target: Vector2, spell: SpellDef,
 	process_physics_priority = 200
 	SpellSigil.open(self, _center, color, maxf(_radius * 1.1, 30.0) / SpellSigil.RADIUS_HEAVY,
 		false, Vector2.RIGHT, true, 0.16, 0.7)
-	SpellDrops.sfx("rock_rise", 0.0, 0.05, 0.75)
+	SpellDrops.sfx("earth_pillar", 0.0, 0.05, 0.75)
 	Juice.zoom_pull_camera(0.26, _life * 0.7, 0.24, 0.9)
 	Juice.shake_camera(10.0)
 	queue_redraw()

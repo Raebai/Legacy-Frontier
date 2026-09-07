@@ -86,8 +86,26 @@ const HP_H: float = 4.0
 ## --- the head bar, for a fighter with NO hotbar (an enemy, a bot ally, a remote peer) ---
 ## The hero geometry is kept for the un-plated case: a co-op ally you can see but do not
 ## drive still needs a bar you can read from across the room.
-const HERO_WIDTH: float = 52.0
-const HERO_HP_H: float = 7.0
+##
+## ⚠ 52x7 -> 34x5, AND THE REASON IS A MEASUREMENT OF THE DRAWN FRAME. On-screen size is
+## `world * ZOOM_REF` (1.6) by construction, so 52 units of bar was 83 viewport units
+## across a figure ~14 units wide — the readout was 3.7x the width of the fighter it
+## described. Photographed in `combat_full_b.png` and probed: the bar's ink was **3.8x
+## the fighter's own ink**, and at salience density 0.724 against red's 0.348 every green
+## pixel pulled the eye 2.1x as hard as any red one — because the HP ramp's MINT is the
+## ONLY green in a stage that is 68% red and orange. The loudest object in the frame was
+## the label on the quietest subject.
+##
+## ⚠ AND THIS IS THE SHAPE EVERY POSTED CLIP IS IN. The un-plated path is what a
+## `BotMatch` fighter takes, which is exactly what `make_post` records for Instagram and
+## YouTube — so this bar, not the fight, was the biggest thing in the marketing.
+##
+## 34 lands just above the enemy bar's 30 (still distinguishable as "a fighter, not a
+## mob") while cutting the ink by ~54%. The fill colour is untouched: it is
+## `HudStyle.hp_color`, shared with the whole HUD, and a bar that is hard to read is a
+## worse bug than a bar that is loud.
+const HERO_WIDTH: float = 34.0
+const HERO_HP_H: float = 5.0
 
 ## Above this the bar is a resource; below it, it is a warning.
 const LOW_FRACTION: float = 0.35

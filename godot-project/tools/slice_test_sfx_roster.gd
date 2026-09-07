@@ -38,6 +38,7 @@ extends SceneTree
 const TESTS: Array[String] = [
 	"every_stream_loads",
 	"roster_covers_call_sites",
+	"every_key_any_script_asks_for_exists",
 	"profile_and_roster_agree",
 	"stems_do_not_recurse",
 	"weight_grading_is_monotonic",
@@ -90,6 +91,7 @@ const DISTINCT_FAMILIES: Dictionary = {
 func _init() -> void:
 	_test_every_stream_loads()
 	_test_roster_covers_call_sites()
+	_test_every_key_any_script_asks_for_exists()
 	_test_profile_and_roster_agree()
 	_test_stems_do_not_recurse()
 	_test_weight_grading_is_monotonic()
@@ -168,6 +170,72 @@ func _test_roster_covers_call_sites() -> void:
 	_expect((streams.get("footstep", []) as Array).size() == steps.size(),
 		"legacy 'footstep' alias points at the same step set")
 	_completes("roster_covers_call_sites")
+
+
+## ⚠ THE GATE ABOVE IS AN ALLOWLIST, AND AN ALLOWLIST MISSES THE FRONT DOOR.
+## `CALLED_KEYS` is 21 names, hand-copied when the roster was rewritten and frozen
+## there. The game asks for 55 distinct literal keys today, so 34 of them were
+## covered by nothing at all — and three were DEAD:
+##
+##   `lightning`   TheCircuit    the storm ult's opening beat, and every arc it throws
+##   `rock_rise`   Siegeworks    the siege ult's opening beat
+##   `rock_rise`   Teardown      the same, on the other earth ult
+##   `shadow_mark` Severance     the shadow ult's opening beat
+##
+## Every one of them sits one line under a `SpellSigil.open` and one line above a
+## camera pull: the sigil blooms, the camera lurches, and the ULT makes no sound.
+## `Sfx._emit` push_warning()s and returns false, which nothing reads, so the only
+## symptom that ever reached a human was silence during the biggest moment in the game.
+## Surfaced by `slice_test_perf_budget` printing the warning while casting every spell.
+##
+## So this asks the closed question instead of the open one: not "are the 21 keys we
+## wrote down still there" but "does EVERY key any script names actually exist". A
+## twenty-second spell that ships next month is covered on the day it is written.
+func _test_every_key_any_script_asks_for_exists() -> void:
+	var streams: Dictionary = _sfx_const("STREAMS")
+	var re := RegEx.new()
+	# `Sfx.play("x"` / `Sfx.play(&"x"` / `Sfx.play_at(...` / `SpellDrops.sfx("x"`.
+	re.compile('(?:Sfx\\.play|Sfx\\.play_at|\\bsfx)\\(\\s*&?"([a-z0-9_]+)"')
+	var seen: Dictionary = {}
+	_scan_for_keys("res://scripts", re, seen)
+	_expect(seen.size() >= CALLED_KEYS.size(),
+		"the scan found %d keys, fewer than the %d hand-listed ones — the pattern has "
+		% [seen.size(), CALLED_KEYS.size()]
+		+ "stopped matching and this test is now vacuous")
+	for key: String in seen:
+		_expect(streams.has(key),
+			"'%s' is asked for at %s but is not in STREAMS, so it plays SILENCE"
+			% [key, String(seen[key])])
+	_completes("every_key_any_script_asks_for_exists")
+
+
+## Walk .gd files under `path`, collecting every literal Sfx key with one call site
+## each for the failure message. Comment lines are skipped — this file's own header
+## names all three dead keys.
+func _scan_for_keys(path: String, re: RegEx, out: Dictionary) -> void:
+	var d: DirAccess = DirAccess.open(path)
+	if d == null:
+		return
+	for sub: String in d.get_directories():
+		_scan_for_keys(path.path_join(sub), re, out)
+	for f: String in d.get_files():
+		if not f.ends_with(".gd"):
+			continue
+		var full: String = path.path_join(f)
+		var fa: FileAccess = FileAccess.open(full, FileAccess.READ)
+		if fa == null:
+			continue
+		var n: int = 0
+		while not fa.eof_reached():
+			n += 1
+			var line: String = fa.get_line()
+			if line.strip_edges().begins_with("#"):
+				continue
+			for m: RegExMatch in re.search_all(line):
+				var key: String = m.get_string(1)
+				if not out.has(key):
+					out[key] = "%s:%d" % [full, n]
+		fa.close()
 
 
 func _test_profile_and_roster_agree() -> void:
