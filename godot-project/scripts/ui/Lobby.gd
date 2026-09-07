@@ -52,6 +52,18 @@ const CREDITS_SCENE: PackedScene = preload("res://scenes/ui/Credits.tscn")
 const HudStyle := preload("res://scripts/ui/HudStyle.gd")
 
 # ── the look ────────────────────────────────────────────────────────────────
+## ⚠ THE TWO PRIMARY VERBS ARE NAMED HERE BECAUSE THE TEST PINNED THEIR LITERAL, AND A
+## LITERAL WRITTEN IN TWO PLACES DRIFTS. `slice_test_realm.TITLE_BUTTONS` held its own
+## copy — glyph included — so restoring `▸` (the marker the source always meant, drawable
+## since the theme gained a font on 2026-09-07) turned both rows into "new" rows and
+## failed a suite that had no opinion about markers at all. It reflects over these now.
+##
+## The suite's actual claim is a SET, not a count: the maker asked twice for the front
+## door to have fewer, smaller buttons, and a count would let one be swapped for another.
+## That claim is unchanged; only the place the strings live has moved.
+const PLAY_LABEL: String = "SINGLE PLAYER  ▸"
+const MULTIPLAYER_LABEL: String = "MULTIPLAYER  ▸"
+
 const PAPER: Color = Color(0.055, 0.052, 0.075)      # ink-dark sketchbook
 const CHALK: Color = Color(0.93, 0.92, 0.86)
 const GRAPHITE: Color = Color(0.62, 0.63, 0.70)
@@ -433,7 +445,7 @@ func _build_ui() -> void:
 	# true this goes red rather than blank.
 	# The suites pin these by `begins_with` / `contains` on the WORDS, so the marker is
 	# free to change.
-	var play := _button("SINGLE PLAYER  ▸", _play_solo, 19)
+	var play := _button(PLAY_LABEL, _play_solo, 19)
 	# Still the biggest target on the page — it is the whole game — but the margin over
 	# the others is 6 px now rather than 8, because the others are no longer too small
 	# to hit. A hierarchy built out of a target that MISSES is not a hierarchy.
@@ -490,7 +502,7 @@ func _build_ui() -> void:
 	# clear of the artwork, and `slice_test_settings` fails the build if either named
 	# primary drops below 46 px. Nothing is added to this screen and nothing is resized;
 	# only where the press GOES has changed.
-	var mp := _button("MULTIPLAYER  ▸", _open_realm, 16)
+	var mp := _button(MULTIPLAYER_LABEL, _open_realm, 16)
 	mp.custom_minimum_size = Vector2(PANEL_W, BUTTON_H)
 	right.add_child(mp)
 
