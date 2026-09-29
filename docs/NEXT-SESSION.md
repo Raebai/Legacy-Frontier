@@ -109,10 +109,16 @@ click is the maker's.** Launcher → Unreal Engine → Library → + → 5.8 →
 9. Late-map reveal: what is shown to the player versus kept as mystery.
 10. **`concept_art.py` has no key and the maker said skip it for now.** Its live API call
     is therefore still unverified. `--list`, `--dry-run` and the missing-key path are.
-11. **The isekai project has no repo, folder or engine project of its own yet** — it
-    currently lives as two files inside the STICKSPIRE checkout (`python-tools/concept_art.py`,
-    `docs/archive/world-bible-...`). Where it should live is the maker's call and was not
-    guessed at.
+11. ~~The isekai project has no repo or folder of its own~~ — **it does now, as of
+    2026-09-29: `C:\Users\Raaed\Documents\Isekai MMO`**, git repo on `main`, first commit
+    `04ef67b`, with Git LFS configured and *proved* before any binary asset exists (a
+    200,000-byte `.uasset` staged as a 131-byte pointer) and `.uasset`/`.umap` marked
+    `lockable`, because Unreal assets cannot be merged. It carries its own `CLAUDE.md` and
+    **no design doc, deliberately** — there is only ever the one Claude Doc.
+    ⚠ **Its folder name is a placeholder** and says so in its README: rename it freely, but
+    do it **before** a `.uproject` exists, because that one is painful to change after.
+    `concept_art.py` was **copied, not moved** — this repo keeps its commit history.
+    **The engine project itself does not exist yet** and cannot until UE 5.8 is installed.
 
 ---
 
