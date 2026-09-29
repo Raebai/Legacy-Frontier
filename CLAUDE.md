@@ -62,8 +62,10 @@ artifact file as well all focus on that when I say resume keep this noted"*.
   heavy-fantasy **isekai MMO in Unreal Engine 5.8**. Co-op PvE *and* PvP, premium, never
   free-to-play. 10 players now, architected so thousands is possible later. It reuses the
   maker's existing 17-region world design wholesale — out is Lord of the Rings, down is
-  Made in Abyss, up is Tower of God. **It has taken the name Legacy Frontier back**, which
-  is why the repo folder and the plan document share that name with the parked 2D game.
+  Made in Abyss, up is Tower of God. ⚠ **Its name is NOT settled.** The plan document is
+  *titled* "Legacy Frontier", which is also this repo folder's name and the parked 2D
+  game's original name — but nothing on record says the maker ratified that as the new
+  game's name. Do not assert it; ask.
 - ⚠ **THE CANONICAL DESIGN IS A CLAUDE DOC, NOT A FILE IN THIS REPO:**
   https://claude.ai/code/artifact/53c7c6d1-5489-4d97-affa-0d721e62b4cf
   It is long and every section is decided, not speculative. **Reading or editing it needs
