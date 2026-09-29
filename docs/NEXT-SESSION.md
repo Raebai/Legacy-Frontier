@@ -94,6 +94,34 @@ installs from inside the Epic Games Launcher, which needs an Epic account login.
 click is the maker's.** Launcher → Unreal Engine → Library → + → 5.8 → Install
 (~115 GB with the editor symbols deselected).
 
+### Verified tooling research lives in the new repo, not here
+
+`C:\Users\Raaed\Documents\Isekai MMO\docs\` — written 2026-09-30, every claim marked
+VERIFIED / CONTRADICTED / COULD-NOT-CONFIRM against Epic's own 5.8 docs and the GitHub API:
+
+* **`unreal-mcp-setup.md`** — UE 5.8 ships an MCP server *inside the editor*
+  (`ModelContextProtocol`, HTTP on 127.0.0.1:8000, does viewport screenshots).
+  ⚠ **It ships ZERO tools unless you also enable `AllToolsets`** — a connected server with an
+  empty tool list looks exactly like a working one. Epic also ships a Claude Code plugin:
+  `/plugin install unreal-engine-skills-for-claude-code@claude-plugins-official`.
+* **`engineering-stack.md`** — GAS / Iris / terrain / hosting / LLM-sidecar findings.
+  **Every locked engineering ruling was checked and none were overturned.**
+
+**Two costs that were not priced anywhere, and one strategic fact:**
+
+1. **A dedicated server requires a SOURCE build of Unreal** (Epic's own words). The launcher
+   build cannot produce one. ~100+ GB and a recompile per hotfix.
+2. **UE 5.8 is the LAST UE5 release** — Epic has moved to UE6. Every "architected for
+   thousands later" decision has a UE6 migration in front of "later".
+3. At 100 players, measured: **replication is 79% of frame time and game logic is 4%.** The
+   ~40-byte-spectacle-event ruling is right and generalises — *not sending things* is the
+   optimisation.
+
+⚠ **Corrections to the options list:** **Hathora shut down 5 May 2026.** **SpatialOS
+UnrealGDK is ARCHIVED** and is the most-cited server-meshing answer online. There is **no
+maintained open-source UE MMO framework at all.** And **star count is not a safety signal** —
+the two most-starred UE-MCP servers (2087★ and 612★) are both abandoned *and* unlicensed.
+
 ### Still open on the active project
 
 1. **The seven-boss roster needs the maker's yes** (see above).
