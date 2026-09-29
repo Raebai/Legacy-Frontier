@@ -1,5 +1,127 @@
 # RESUME HERE
 
+## ⚠ 2026-09-29 — "RESUME" NOW MEANS THE ISEKAI MMO. STICKSPIRE IS ON THE BACK BURNER.
+
+Maker, 2026-09-29, when asked whether to keep working the STICKSPIRE queue below:
+
+> *"this is to do with the old game that is being replaces stickspire please pause it and
+> put it on the back end we are focussing on the isekai project thats the main thing with
+> the artifact file as well all focus on that when I say resume keep this noted"*
+
+**So: do not start on anything under "PARKED — STICKSPIRE" below unless the maker names it.**
+
+### The active project
+
+A first-person heavy-fantasy **isekai MMO in Unreal Engine 5.8**. Co-op PvE *and* PvP,
+premium, never free-to-play; 10 players now, architected so thousands is possible later.
+It reuses the maker's existing 17-region world design — out is Lord of the Rings, down is
+Made in Abyss, up is Tower of God. **It has taken the name Legacy Frontier back**, which is
+why this repo folder and the plan document share a name with the parked 2D game.
+
+**⚠ THE CANONICAL DESIGN IS A CLAUDE DOC, NOT A FILE IN THIS REPO:**
+https://claude.ai/code/artifact/53c7c6d1-5489-4d97-affa-0d721e62b4cf
+
+Reading or editing it **needs the Claude Docs connector enabled for the session** — the
+`mcp__claude_ai_Claude_Docs__*` tools the 2026-09-27 session used. On 2026-09-29 it was not
+connected and **all three routes to the document were tried and all three are dead ends.
+Do not re-walk them:**
+
+1. **The `Artifact` tool cannot read it.** `action: "read"` returns the Claude Docs
+   *viewer's* own HTML — 56 KB of JS shell. Grepped it for nine distinctive plan words
+   (`swordsman`, `isekai`, `empyrean`, `mushoku`, `crater`, `hoodie`, `Soul Engine`,
+   `Anterill`, `Manyak`): **zero hits.** The content is fetched at runtime from the Claude
+   Docs service and is not in the page.
+2. **`claude-in-chrome` is not connected** — "Browser extension is not connected."
+3. **The `chrome-devtools` CDP browser is not signed in.** Navigating it to the artifact URL
+   returns **"Page not found – Claude"**, because it runs a fresh profile with none of the
+   maker's cookies. A 404 there means *not logged in*, not *no such document*.
+
+So if the connector is missing, **say so and ask** rather than guessing at the plan's
+contents or treating the archived World Bible as canonical. There is
+exactly ONE document by the maker's explicit ask (*"I want there to be one"*); a second
+World Bible doc was folded in and deleted on 2026-09-27, with a plain-text copy kept at
+`docs/archive/world-bible-2026-09-23-archived.md`.
+
+### Locked rulings — do not re-litigate
+
+* **HARD CAP £1,000** on one-off demo assets, separate from monthly tooling.
+* **No sale, no release date.** A Steam page collects wishlists only. The
+  Early-Access-product framing was rejected outright: *"stop analysing it as like a product
+  I can sell."*
+* **Traditional classes** — Swordsman, Knight, Mage, Priest, Ranger, Rogue. Invented
+  abstract classes were *"too confusing"*. Copy Mushoku Tensei and World of Warcraft.
+* **Casting = hold to chant, release.** Chant shrinks with rank, chantless at Saint.
+  **No microphone** — the character speaks, the player never does. **Gesture casting is
+  OUT**, and the rune-trace money shot went out with it; the money shot is now the
+  legendary spell landing on a boss in slow motion, magic circle blooming under the cast.
+* **Bosses must be things that FIGHT, not concepts.** *"these are not like cool enough i
+  dont want to fiht a tree"* killed a tree/choir/floating-hand roster permanently. The
+  replacement is corporeal: wolf, knight, giant, dragon-mountain, Vessel, hoodie-man,
+  Architect-colossus. **That roster is still unconfirmed by the maker** — it was the last
+  thing on screen when the 2026-09-27 session ended.
+* **Rank ladder is Mushoku Tensei's:** Beginner → Intermediate → Advanced → Saint → King
+  → Emperor → God, per school, public and certified.
+* **Few NPCs.** *"we want to limit the amount of NPCs, player-player interactions are
+  cool."* The world, the Spire's archive and other players carry the story.
+* **Colour before fidelity.** Anime-cel-shaded high fidelity was rejected on cost.
+* **The opening is the maker's own idea and they love it:** jump off a ledge in a hoodie,
+  **the fall is the character creator**, land in a crater that never disappears.
+* **Spend nothing until the editor opens.** *"Order matters: install Unreal first, confirm
+  the free Manyak cel shader before paying for Anterill, and claim the free Paladin set
+  before 6 October. Don't buy a single thing until the editor opens and the MCP screenshot
+  loop works."*
+* **Epic shipped a first-party MCP plugin in UE 5.8** (17 June 2026) and it supersedes
+  UnrealGenAISupport, which is kept only for its image/3D-gen API wiring.
+* Engineering rulings from research, meant to stick: **never replicate the Niagara actor,
+  only the ~40-byte spectacle event** (NetMulticast from a culled actor silently fails);
+  **don't build terrain on Mesh Terrain** (experimental); **don't ship gameplay
+  replication on Iris** (experimental); **Soul Engine tier-70 LLM brains run server-side
+  in a sidecar, never client-side** (client inference costs 1/3–1/2 frame rate); **cap
+  tier-70 souls per region to a handful, not a population.**
+
+### State of the toolchain, 2026-09-29
+
+The maker said **"Start the installs"**. Kicked off via `winget` on this machine:
+Blender, the Epic Games Launcher, and Visual Studio 2022 Community with the
+`NativeGame` + `NativeDesktop` + `ManagedDesktop` workloads (Build Tools 2022 was
+already present but has no IDE and no Unreal integration). Script and log:
+`scratchpad/install_ue_stack.ps1` → `install_log.txt`.
+
+⚠ **UNREAL ENGINE 5.8 ITSELF IS NOT SCRIPTABLE.** There is no winget package for it; it
+installs from inside the Epic Games Launcher, which needs an Epic account login. **That
+click is the maker's.** Launcher → Unreal Engine → Library → + → 5.8 → Install
+(~115 GB with the editor symbols deselected).
+
+### Still open on the active project
+
+1. **The seven-boss roster needs the maker's yes** (see above).
+2. **Cities 8 and 9** are provisional only — desert city in the Wandering Wilds, forge
+   city in the Crimson Reach — *"not ratified."*
+3. Do non-combat living areas exist, separate from the fighting?
+4. How do dungeon side quests differ from each city's main quest?
+5. The Soul Engine's real tech approach, and the limits that keep it from becoming
+   computationally unbounded.
+6. How much gets open-sourced, and how a community is built around it.
+7. Fundraising: positioning this as a venture rather than a build-in-public side project.
+8. Monetisation — deliberately set aside.
+9. Late-map reveal: what is shown to the player versus kept as mystery.
+10. **`concept_art.py` has no key and the maker said skip it for now.** Its live API call
+    is therefore still unverified. `--list`, `--dry-run` and the missing-key path are.
+11. **The isekai project has no repo, folder or engine project of its own yet** — it
+    currently lives as two files inside the STICKSPIRE checkout (`python-tools/concept_art.py`,
+    `docs/archive/world-bible-...`). Where it should live is the maker's call and was not
+    guessed at.
+
+---
+
+# PARKED — STICKSPIRE (the 2D tower-climber). Everything below this line is the OLD project.
+
+**Parked clean on 2026-09-29: branch `bot-fight-quality`, pushed, `219/219` suites green
+(319 s wall, measured that day). Nothing in it has been playtested to completion.** The
+two questions it was waiting on were never answered because the project was paused
+instead — the lobby dummies and the display face. Kept verbatim below so that if the
+maker ever says "back to STICKSPIRE", nothing has to be re-derived.
+
 ## ⏸ PAUSED 2026-09-08, MID-PLAYTEST. THE MAKER WAS AT THE CONTROLS.
 
 Branch `bot-fight-quality`, **pushed**, tree clean, 219/219 on a frozen tree. This is the
