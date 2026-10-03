@@ -41,11 +41,13 @@ red today. A note that duplicates a branch name is a note that will be wrong nex
 and will then be believed. **`docs/NEXT-SESSION.md` and `git log --oneline` remain
 authoritative for live state.**
 
-⚠ **THE BACKGROUND AGENT IS REGISTERED BUT DELIBERATELY OFF.** The PostCompact hook that
-would write the conversation to the vault automatically runs a headless Claude with
-`--dangerously-skip-permissions`. Arming it means adding `"OBSIDIAN_BG_AGENT_ENABLED":
-"1"` to the `env` block of `~/.claude/settings.json`. **That is the maker's call.** Do
-not set it without being asked.
+⚠ **THE BACKGROUND AGENT IS ARMED — corrected 2026-10-03.** This block previously said it
+was "deliberately OFF" and that was **wrong**: `~/.claude/settings.json` carries
+`"OBSIDIAN_BG_AGENT_ENABLED": "1"` and the PostCompact hook is registered. So on every
+compaction a **headless Claude runs with `--dangerously-skip-permissions`** and writes the
+conversation into the vault unsupervised. Confirmed and kept armed by the maker on
+2026-10-03. **Do not assume the vault is only written by the session you can see.**
+Disarming is one line — remove that env key — and it is still the maker's call.
 
 ---
 
