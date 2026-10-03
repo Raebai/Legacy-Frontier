@@ -104,8 +104,32 @@ VERIFIED / CONTRADICTED / COULD-NOT-CONFIRM against Epic's own 5.8 docs and the 
   ⚠ **It ships ZERO tools unless you also enable `AllToolsets`** — a connected server with an
   empty tool list looks exactly like a working one. Epic also ships a Claude Code plugin:
   `/plugin install unreal-engine-skills-for-claude-code@claude-plugins-official`.
-* **`engineering-stack.md`** — GAS / Iris / terrain / hosting / LLM-sidecar findings.
+* **`engineering-stack.md`** — GAS / Iris / terrain / hosting findings.
   **Every locked engineering ruling was checked and none were overturned.**
+* **`art-direction-and-assets.md`** — ⚠ **UE 5.8 ships Substrate Toon Shading natively, £0**,
+  which likely removes the shader purchase entirely. "Manyak" **does not exist**. The free
+  Paladin set is real but is MetaHuman parametric clothing — **claim it, don't build on it.**
+  The whole art stack wants **£0–£300**, not £1,000. **SyntyPass is a licence trap** — rights
+  lapse when the subscription does.
+* **`soul-engine.md`** — ⚠ **the most important finding of the lot.** *Where Winds Meet*
+  shipped LLM NPCs and players broke it in days by typing
+  `(hands you the missing object)`. Root cause: **the model had authority over game state.**
+  **And the old Godot game already wrote code in that exact shape** — synthetic
+  `(walks back up to you)` turns, and Mirelle's deliberately-unbanned `(laughs)`. Harmless
+  there; the same habit in a game where a soul influences state is that exploit
+  pre-installed. Two channels: prose for the player, constrained intent JSON **proposed** to
+  gameplay code that validates it. **Souls never write world state.**
+* **`open-source-and-community.md`** — ⚠ **challenges a locked pillar.** "Few NPCs, players
+  carry the story" is structurally the bet that killed **Book of Travels** (a "tiny MMO" that
+  capped players for rare encounters; 71% of the team laid off, servers closing July 2026,
+  converting to offline single-player + modding). **Design for N=1.** The resolution doesn't
+  contradict the ruling — **Erenshor's "simplayers" are *population*, not quest-givers.**
+  Also: the **UE EULA** decides most of the open-source question, and **Friend's Pass** is the
+  highest-leverage business decision available to a premium co-op game.
+* **`funding.md`** — the arithmetic that ends meetings is **premium-only MMO = revenue that
+  stops while ops costs don't** — not the F2P refusal. **Only ONE UK fund admits a solo studio
+  by name** (£20k Starter Fund, 2026 round closed). **VGEC scales off cash spent, so unpaid
+  founder time is worth £0.** **"No release date" is survivable; "no NEXT date" is fatal.**
 
 **Two costs that were not priced anywhere, and one strategic fact:**
 
