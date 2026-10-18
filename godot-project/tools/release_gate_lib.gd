@@ -33,6 +33,11 @@ const DEV_AUTOLOADS: Dictionary = {
 ## of. It simply is not in the pack. That is only true while this line is.
 const DEV_PATHS: Array[String] = [
 	"res://tools/*",
+	## The native MCP addon: it opens a listening HTTP server on 9080 that will
+	## edit scenes, run scripts and screenshot the editor on request. The two
+	## HaD0Yun addons below it are disabled now but still on disk, so they stay
+	## excluded too — a disabled plugin's FILES still pack.
+	"res://addons/godot_mcp/*",
 	"res://addons/godot_mcp_runtime/*",
 	"res://addons/godot_mcp_editor/*",
 	"res://addons/auto_reload/*",

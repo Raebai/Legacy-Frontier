@@ -1,9 +1,33 @@
-# Force a floor-5 (BOSS) run and render the Ashen Guardian across its 3 phases.
+# Render the Ashen Guardian across its 3 phases.
 # MUST run with the GUI binary (dummy renderer draws black):
 #   Godot_v4.6.2-stable_win64.exe --path godot-project --script tools/boss_capture.gd
 # Outputs: user://boss_p1.png, boss_p2.png, boss_p3.png
 # All boss access is duck-typed (.call/.get) — no compile-time Boss dependency.
+#
+# ⚠ THIS TOOL WROTE NOTHING FOR AS LONG AS IT HAS EXISTED IN ITS OLD FORM, and it
+# said so only in one line of stderr. It used to force GameState to floor 5 (the
+# BOSS floor), instantiate the Arena, settle 70 frames and expect the guardian to
+# be standing there. That was true of an older Encounter. It is not true now: the
+# guardian arrives in `Phase.BOSS`, which is the END of a floor, after WAVES and
+# SURGE have been fought through. At frame 70 there is no boss on the stage and
+# never will be, so `_find_boss()` returned null, the tool printed
+# "no boss spawned" and quit, and `run_capture.py` reported NO FRAMES WRITTEN.
+#
+# The Arena grew a static for exactly this caller — `Arena.boss_rush`, whose own
+# comment says "set true (by the duel's Esc menu, OR BY A TOOL) before this scene
+# loads": the sandbox branch then builds the room, spawns the guardian and nothing
+# else, and switches to boss framing. This tool was never migrated to it.
+#
+# Arming it is also the safer path: boss_rush leaves GameState untouched, so a
+# capture can no longer leave a half-begun climb in the maker's save. Forcing
+# `_run_active`/`_floor` the old way did write to it.
 extends SceneTree
+
+## By PATH, never by `class_name Arena` — a `--script` harness compiles whatever
+## it names, and Arena's dependency chain reaches autoloads. Same idiom as
+## `boot_check.gd` and `VersusArena._enter_boss_fight`, the two other callers.
+const ARENA_SCRIPT: String = "res://scripts/combat/Arena.gd"
+const ARENA_SCENE: String = "res://scenes/combat/Arena.tscn"
 
 
 func _initialize() -> void:
@@ -43,22 +67,29 @@ func _shoot(path: String) -> void:
 
 func _run() -> void:
 	await process_frame
-	var gs: Node = root.get_node_or_null("GameState")
-	if gs == null:
-		printerr("boss_capture: no GameState autoload")
+
+	# Arm the boss rush BEFORE the scene loads — the flag is read in Arena._ready
+	# and consumed there, so setting it afterwards does nothing at all.
+	var arena_script: GDScript = load(ARENA_SCRIPT) as GDScript
+	if arena_script == null:
+		printerr("boss_capture: could not load ", ARENA_SCRIPT)
 		quit(1)
 		return
-	gs.active_tower = gs.build_default_tower()
-	gs.set("_run_active", true)
-	gs.set("_floor", 5)
-	gs.set("mode", 1)   # Mode.RUN
-	var arena: Node = load("res://scenes/combat/Arena.tscn").instantiate()
-	root.add_child(arena)
+	arena_script.set("boss_rush", true)
+
+	var packed: PackedScene = load(ARENA_SCENE) as PackedScene
+	if packed == null:
+		printerr("boss_capture: ", ARENA_SCENE, " did not load as a PackedScene")
+		quit(1)
+		return
+	root.add_child(packed.instantiate())
 	await _settle(70)
 
 	var boss: Node = _find_boss()
 	if boss == null:
-		printerr("boss_capture: no boss spawned")
+		printerr("boss_capture: no boss spawned — Arena.boss_rush did not put a ",
+			"node with current_phase() in the `enemy` group. Check ",
+			"Encounter.spawn_boss and the sandbox branch of Arena._ready.")
 		quit(1)
 		return
 

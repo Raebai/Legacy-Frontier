@@ -1,5 +1,45 @@
 # RESUME HERE
 
+## ⚠⚠ 2026-10-18 — EVERYTHING BELOW THIS BANNER IS OUT OF DATE. READ THIS FIRST.
+
+**The project changed again on 2026-10-18. STICKSPIRE is the game.** The isekai MMO in
+Unreal (repo `Raebai/LegacyFrontier`, no hyphen) is ARCHIVED; its story, world, Seven
+Legends, bestiary, classes and magic moved INTO Stickspire. Maker, 18 Oct: *"ignore legacy
+frontier we are putting that in the back pedal we are focusing on stickspire now as
+intended"*.
+
+So the 2026-09-29 banner immediately below — *"RESUME NOW MEANS THE ISEKAI MMO"* — is
+**reversed**, and so is the pause it placed on the Stickspire queue. Everything under it is
+kept as history. Do not start work from it.
+
+**Where the live queue actually is right now:** the **Build board** tab of
+https://claude.ai/code/artifact/f551ee82-cf1e-4d29-bc2e-aa1b2c567045 (needs the Claude Docs
+connector). Read `CLAUDE.md`'s Current Direction block, then that board.
+
+**This file has not been rewritten yet, and that is a queued task, not an oversight.**
+Board row **1.1** (lane QA, Where: *Cloud, first run*) is *"merge bot-fight-quality into
+main; rewrite docs/NEXT-SESSION.md from this board; archive banner in README"*. The cloud
+session has not had its first run. The PC session does not take Cloud items, so this banner
+is the minimum that stops the file misdirecting the next reader — it is not the rewrite.
+
+### PC queue status
+
+- [x] **1.2 — Install Godot-MCP-Native, disable the two old MCP addons, prove the
+  screenshot and pixel-diff loop on boss_capture.** Done 2026-10-18.
+  Proof: `proof/2026-10-18-1.2-editor-loop/` (+ `caption.md`). 219/219 green.
+  ⚠ Two things the maker should know: `boss_capture` had **never** written a frame (it
+  used a spawn path the Encounter outgrew — fixed, it now arms `Arena.boss_rush`), and
+  `boss_capture` is **not** a valid pixel-diff subject — its own run-to-run noise is
+  16–35%. `boss_roster` is (0.0–1.5%), and is what `proof/_baseline/` now holds.
+  ⚠ NOT proven: the native MCP tools have not been called. `.mcp.json` is read at Claude
+  Code startup, so they only come alive in a NEW session with the editor open.
+
+Next PC item: whatever the board's Phase 1 table lists for PC once 1.1 has rewritten this
+file. As of 18 Oct the PC-side rows are 1.3 (profiler measurement), 1.4/1.5 (tuning after
+the cloud wires them), 1.6a (rig tuning), 1.6e (melee tuning), 1.10 (Recraft silhouettes).
+
+---
+
 ## ⚠ 2026-09-29 — "RESUME" NOW MEANS THE ISEKAI MMO. STICKSPIRE IS ON THE BACK BURNER.
 
 Maker, 2026-09-29, when asked whether to keep working the STICKSPIRE queue below:

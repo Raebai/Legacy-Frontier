@@ -91,13 +91,13 @@ const CLEAN_PRESET: String = """
 name="Android"
 [preset.0.options]
 export_filter="all_resources"
-exclude_filter="res://tools/*, res://addons/godot_mcp_runtime/*, res://addons/godot_mcp_editor/*, res://addons/auto_reload/*, res://scripts/spike/*"
+exclude_filter="res://tools/*, res://addons/godot_mcp/*, res://addons/godot_mcp_runtime/*, res://addons/godot_mcp_editor/*, res://addons/auto_reload/*, res://scripts/spike/*"
 """
 
 ## `res://tools/*` dropped — the director would land in the pack.
 const PRESET_WITHOUT_TOOLS: String = """
 [preset.0.options]
-exclude_filter="res://addons/godot_mcp_runtime/*, res://addons/godot_mcp_editor/*, res://addons/auto_reload/*"
+exclude_filter="res://addons/godot_mcp/*, res://addons/godot_mcp_runtime/*, res://addons/godot_mcp_editor/*, res://addons/auto_reload/*"
 """
 
 ## The paths are all present as TEXT, but only in a comment; the real filter is

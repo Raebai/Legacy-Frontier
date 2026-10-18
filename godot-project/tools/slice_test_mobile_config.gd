@@ -63,6 +63,7 @@ const REQUIRED_PROJECT_LINES: Array[String] = [
 ## socket at boot.
 const REQUIRED_EXCLUDES: Array[String] = [
 	"res://tools/*",
+	"res://addons/godot_mcp/*",
 	"res://addons/godot_mcp_runtime/*",
 	"res://addons/godot_mcp_editor/*",
 	"res://addons/auto_reload/*",

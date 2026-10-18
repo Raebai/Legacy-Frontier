@@ -26,7 +26,6 @@ buses/default_bus_layout="res://default_bus_layout.tres"
 
 [autoload]
 
-MCPRuntime="*uid://qc4i28l1mvja"
 Sfx="*res://scripts/combat/Sfx.gd"
 Music="*res://scripts/combat/Music.gd"
 Rank="*res://scripts/combat/Rank.gd"
@@ -51,7 +50,7 @@ window/handheld/orientation="landscape"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/auto_reload/plugin.cfg", "res://addons/godot_mcp_editor/plugin.cfg", "res://addons/godot_mcp_runtime/plugin.cfg")
+enabled=PackedStringArray("res://addons/auto_reload/plugin.cfg", "res://addons/godot_mcp/plugin.cfg")
 
 [gui]
 
