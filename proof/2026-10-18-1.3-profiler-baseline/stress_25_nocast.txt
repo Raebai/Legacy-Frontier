@@ -1,0 +1,18 @@
+[stress] entities=25 seconds=20.0 quality=auto casting=off seed=20260731
+[stress] spawned 25 entities (live count reports 25)
+[stress] --------------------------------------------------
+[stress] entities   25   frames sampled 1140
+[stress] physics ms   avg 10.46  p50 10.61  p95 13.02  worst 13.02
+[stress] process ms   avg 12.17  p50 2.59  p95 98.39  worst 98.39
+[stress] cpu total    avg 22.63 ms  (budget: 33.3 at 30fps, 16.7 at 60)
+[stress] per entity   avg 0.905 ms
+[stress] pools         dmg alive 0 pooled 0 | vfx pooled 38
+[stress] nodes         554 (peak 592)
+[stress] 2d bodies     79
+[stress] WORK particles  requested 9311, granted 9311  (0% of demand cut)
+[stress] WORK debris     requested 104, granted 104  (0% of demand cut)
+[stress] WORK decals     spawned 0, skipped 0  (0% of demand cut)
+[stress] WORK elementfx  requested 0, granted 0  (0% of demand cut)
+[stress] --------------------------------------------------
+[stress] REMINDER: dummy renderer. This is CPU only — the GPU cost
+[stress] that decides the phone's frame rate is not in these numbers.

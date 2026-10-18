@@ -1,0 +1,21 @@
+[stress] entities=8 seconds=20.0 quality=auto casting=4.0Hz seed=20260731
+[stress] spawned 8 entities (live count reports 8)
+[stress] casting armed: 54 spells, 4.0 Hz, caster=hero
+[stress] --------------------------------------------------
+[stress] entities   8   frames sampled 1141
+[stress] physics ms   avg 59.52  p50 66.14  p95 152.66  worst 152.66
+[stress] process ms   avg 12.19  p50 8.78  p95 66.77  worst 66.77
+[stress] cpu total    avg 71.71 ms  (budget: 33.3 at 30fps, 16.7 at 60)
+[stress] per entity   avg 8.964 ms
+[stress] pools         dmg alive 0 pooled 0 | vfx pooled 91
+[stress] nodes         337 (peak 489)
+[stress] 2d bodies     4
+[stress] casts         64  |  PEAK LIVE SPECTACLES 12  (budget 8)
+[stress] reactor       tracked 3 (MAX_LIVE 12)  reactions fired 6
+[stress] WORK particles  requested 14123, granted 11794  (16% of demand cut)
+[stress] WORK debris     requested 271, granted 190  (30% of demand cut)
+[stress] WORK decals     spawned 0, skipped 0  (0% of demand cut)
+[stress] WORK elementfx  requested 59, granted 59  (0% of demand cut)
+[stress] --------------------------------------------------
+[stress] REMINDER: dummy renderer. This is CPU only — the GPU cost
+[stress] that decides the phone's frame rate is not in these numbers.

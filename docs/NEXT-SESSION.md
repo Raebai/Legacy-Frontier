@@ -34,6 +34,28 @@ is the minimum that stops the file misdirecting the next reader — it is not th
   ⚠ NOT proven: the native MCP tools have not been called. `.mcp.json` is read at Claude
   Code startup, so they only come alive in a NEW session with the editor open.
 
+- [x] **1.3 (PC half) — profiler baseline at the ceiling.** Done 2026-10-18.
+  Proof: `proof/2026-10-18-1.3-profiler-baseline/` (+ `caption.md`), two replicated run-sets.
+  ⚠ **The measurement redirects the row.** The ceiling costs ~70 ms CPU against a 33.3 ms
+  budget, but: (a) the crowd is NOT the cost — 8 and 25 entities cost the same, so
+  *"entity cap on the floor"* buys nothing; (b) casting adds ~48 ms and **all of it is
+  PHYSICS** (10 -> 58 ms), while `process` stays flat at ~12 ms; (c) the spectacles' own
+  per-frame cost is **already under** the row's 8 ms Check (5.01 ms at 8 concurrent)
+  before any pooling. Pooling still pays, but on the `cast` column — boulder_hurl and
+  rift_dagger construct in 7 ms each. `MagicCircle` is ~half of all draw cost across 44
+  spells. `PEAK LIVE SPECTACLES 12 (budget 8)` every run: the budget is declared and not
+  enforced. Headless = CPU only; the GPU question needs a phone and `PerfOverlay`.
+  **For the cloud lane: the 30 fps budget is being lost in spell physics, and nothing on
+  the board currently targets that.**
+
+- [ ] **Ashfall density — MAKER RULING 2026-10-18.** In `proof/2026-10-18-1.2-editor-loop/boss_p3.png`
+  the phase-3 ashfall streaks are dense enough that the Guardian's body is nearly invisible
+  behind them. Asked directly, the maker said **too dense, thin it out** — *"phase 3 should
+  still show its boss"*. Not a board row; it came out of 1.2's proof. Tuning pass on the
+  ashfall density/opacity so the Guardian reads through it. Verify with
+  `python python-tools/run_capture.py boss_capture` and LOOK at `boss_p3.png` — do not
+  pixel-diff it, see the 1.2 caption for why.
+
 Next PC item: whatever the board's Phase 1 table lists for PC once 1.1 has rewritten this
 file. As of 18 Oct the PC-side rows are 1.3 (profiler measurement), 1.4/1.5 (tuning after
 the cloud wires them), 1.6a (rig tuning), 1.6e (melee tuning), 1.10 (Recraft silhouettes).

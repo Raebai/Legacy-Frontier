@@ -1,0 +1,143 @@
+[prof] copies=16 iters=300 crowd=8 quality=auto
+[prof] crowd up (8 + hero), 54 spells
+[prof]  ordinary_spell         cast   756.0 us  proc   1.42 us  draw  243.69 us  [MagicCircle 244]
+[prof]  frostpiercer           cast   297.1 us  proc   1.84 us  draw  222.63 us  [MagicCircle 223]
+[prof]  infernal_lance         cast   322.8 us  proc   2.84 us  draw 1031.88 us  [BeamSpell 787 | MagicCircle 245]
+[prof]  umbral_lance           cast   283.9 us  proc   1.87 us  draw 2101.00 us  [BeamSpell 838 | MagicCircle 388 | Telegraph 875]
+[prof]  tempest                cast   159.8 us  proc   1.45 us  draw  458.94 us  [BeamSpell 49 | MagicCircle 410]
+[prof]  thunderclap            cast  3915.6 us  proc   1.86 us  draw  242.44 us  [LightningRush 71 | MagicCircle 172]
+[prof]  chain_lightning        cast  5023.9 us  proc   0.00 us  draw    0.00 us  []
+[prof]  judgment               cast   247.6 us  proc   0.65 us  draw    0.00 us  []
+[prof]  colossus_pillar        cast   773.4 us  proc   0.38 us  draw  575.94 us  [DivineRay 576]
+[prof]  rock_pillar            cast   947.3 us  proc   2.18 us  draw 1115.94 us  [RockPillar 892 | MagicCircle 224]
+[prof]  heavens_verdict        cast   119.9 us  proc   0.46 us  draw  149.56 us  [StarConvergence 150]
+[prof]  horizon_cut            cast  4723.9 us  proc   1.81 us  draw  252.06 us  [MagicCircle 252]
+[prof]  meteor_sigil           cast   538.6 us  proc  19.69 us  draw  477.75 us  [MeteorSigil 146 | MagicCircle 332]
+[prof]  void_barrage           cast   349.1 us  proc  19.99 us  draw  791.75 us  [MeteorSigil 792]
+[prof]  avalanche              cast   673.6 us  proc  19.57 us  draw 1382.75 us  [MagicCircle 1383]
+[prof]  frozen_comet           cast  4763.3 us  proc   9.06 us  draw 1003.56 us  [IceSpikeLine 836 | MagicCircle 168]
+[prof]  rune_orbs              cast   121.2 us  proc   3.85 us  draw  184.31 us  [MagicCircle 184]
+[prof]  boulder_hurl           cast  7039.9 us  proc  15.42 us  draw  216.00 us  [MagicCircle 216]
+[prof]  blink_strike           cast  5549.5 us  proc   4.26 us  draw 2277.50 us  [MagicCircle 896 | Telegraph 752 |  68 | DebrisChunk 562]
+[prof]  blade_flurry           cast  2859.1 us  proc   2.01 us  draw    0.00 us  []
+[prof]  void_zone              cast   562.6 us  proc   2.04 us  draw  154.19 us  [MagicCircle 154]
+[prof]  blizzard               cast   363.4 us  proc  71.12 us  draw  685.88 us  [ZoneSpell 469 | MagicCircle 217]
+[prof]  drain_tether           cast  5886.7 us  proc   2.22 us  draw  431.81 us  [DrainTether 212 | MagicCircle 220]
+[prof]  rock_wall              cast   725.7 us  proc   4.90 us  draw  288.88 us  [MagicCircle 289]
+[prof]  ice_wall               cast  7019.6 us  proc   1.48 us  draw  104.31 us  [MagicCircle 104]
+[prof]  aegis_ward             cast  5032.5 us  proc   1.78 us  draw  945.25 us  [AegisWard 846 | MagicCircle 99]
+[prof]  creeping_shade         cast  5059.4 us  proc   2.36 us  draw   91.13 us  [MagicCircle 91]
+[prof]  rift_dagger            cast  7009.7 us  proc   1.11 us  draw  883.75 us  [RiftDagger 884]
+[prof]  thousand_cuts          cast  5399.1 us  proc   4.73 us  draw 2414.19 us  [ThousandCuts 858 | MagicCircle 677 | Telegraph 880]
+[prof]  iai_slash              cast  3852.3 us  proc   4.03 us  draw    0.00 us  []
+[prof]  crescent_step          cast  4665.0 us  proc   4.40 us  draw   45.25 us  [CrescentStep 45]
+[prof]  shockwave_stomp        cast   700.8 us  proc   6.22 us  draw  267.31 us  [MagicCircle 267]
+[prof]  meteor_fist            cast  4110.8 us  proc   3.98 us  draw  321.81 us  [MagicCircle 322]
+[prof]  radiant_volley         cast  4009.5 us  proc 243.35 us  draw  127.19 us  [MagicCircle 127]
+[prof]  shatter                cast  6555.8 us  proc   3.63 us  draw 1355.88 us  [Shatter 652 | MagicCircle 704]
+[prof]  heavens_wrath          cast  5400.6 us  proc   2.44 us  draw  350.81 us  [MagicCircle 351]
+[prof]  fault_line             cast  5714.7 us  proc   1.75 us  draw 1255.19 us  [FaultLine 759 | MagicCircle 496]
+[prof]  raise_thrall           cast  4368.6 us  proc   3.28 us  draw  209.81 us  [MagicCircle 210]
+[prof]  grave_tide             cast  6111.1 us  proc   1.59 us  draw  306.44 us  [MagicCircle 306]
+[prof]  mirror_image           cast   587.8 us  proc  21.74 us  draw 1494.25 us  [MirrorImage 893 | MagicCircle 147 | RigGhost 455]
+[prof]  petrify                cast  4345.7 us  proc   1.41 us  draw 1211.19 us  [Petrify 896 | MagicCircle 315]
+[prof]  gravity_flip           cast  4264.6 us  proc  32.49 us  draw  271.25 us  [MagicCircle 271]
+[prof]  blood_pact             cast   215.1 us  proc   4.72 us  draw  267.69 us  [MagicCircle 268]
+[prof]  arc_of_fools           cast   775.0 us  proc   0.00 us  draw    0.00 us  []
+[prof]  meteor_storm           cast   831.4 us  proc  24.65 us  draw  828.38 us  [MeteorSigil 711 | MagicCircle 118]
+[prof]  the_void               cast  3233.1 us  proc  17.15 us  draw  679.56 us  [MagicCircle 680]
+[prof]  chronostasis           cast  4727.6 us  proc  19.11 us  draw  776.56 us  [MagicCircle 777]
+[prof]  equinox                cast  2808.0 us  proc   1.85 us  draw  487.19 us  [MagicCircle 487]
+[prof]  roulette               cast   557.0 us  proc  13.27 us  draw  552.06 us  [MagicCircle 453 | Equinox 23 | VoidCollapse 76]
+[prof]  severance              cast  3242.1 us  proc   3.06 us  draw 2024.19 us  [Severance 682 | MagicCircle 478 | EnemyProjectile 864]
+[prof]  zanshin                cast  3186.1 us  proc   1.83 us  draw  589.25 us  [MagicCircle 589]
+[prof]  teardown               cast  3251.9 us  proc   1.54 us  draw  630.31 us  [MagicCircle 630]
+[prof]  siegeworks             cast  3274.3 us  proc  17.14 us  draw  577.94 us  [MagicCircle 578]
+[prof]  the_circuit            cast  2781.3 us  proc   4.29 us  draw  514.19 us  [MagicCircle 514]
+[prof] ============================================================
+[prof] spell                  script             cast us  proc us   draw us  frame us  nodes
+[prof] thousand_cuts          ThousandCuts        5399.1     4.73   2414.19   2418.91    4.8
+[prof] blink_strike           BlinkStrike         5549.5     4.26   2277.50   2281.76    7.8
+[prof] umbral_lance           BeamSpell            283.9     1.87   2101.00   2102.87    3.1
+[prof] severance              Severance           3242.1     3.06   2024.19   2027.25    2.1
+[prof] mirror_image           MirrorImage          587.8    21.74   1494.25   1515.99    3.0
+[prof] avalanche              MeteorSigil          673.6    19.57   1382.75   1402.32    4.0
+[prof] shatter                Shatter             6555.8     3.63   1355.88   1359.51    3.4
+[prof] fault_line             FaultLine           5714.7     1.75   1255.19   1256.93    2.0
+[prof] petrify                Petrify             4345.7     1.41   1211.19   1212.59    2.0
+[prof] rock_pillar            RockPillar           947.3     2.18   1115.94   1118.12    2.0
+[prof] infernal_lance         BeamSpell            322.8     2.84   1031.88   1034.72    3.1
+[prof] frozen_comet           IceSpikeLine        4763.3     9.06   1003.56   1012.62    2.4
+[prof] aegis_ward             AegisWard           5032.5     1.78    945.25    947.03    2.9
+[prof] rift_dagger            RiftDagger          7009.7     1.11    883.75    884.86    1.9
+[prof] meteor_storm           MeteorSigil          831.4    24.65    828.38    853.02    2.0
+[prof] void_barrage           MeteorSigil          349.1    19.99    791.75    811.74    2.1
+[prof] chronostasis           Chronostasis        4727.6    19.11    776.56    795.67    4.0
+[prof] blizzard               ZoneSpell            363.4    71.12    685.88    756.99    4.1
+[prof] the_void               VoidCollapse        3233.1    17.15    679.56    696.71    2.0
+[prof] teardown               Teardown            3251.9     1.54    630.31    631.86    2.0
+[prof] siegeworks             Siegeworks          3274.3    17.14    577.94    595.07    2.2
+[prof] zanshin                Zanshin             3186.1     1.83    589.25    591.08    2.0
+[prof] colossus_pillar        DivineRay            773.4     0.38    575.94    576.32    1.0
+[prof] roulette               Chronostasis         557.0    13.27    552.06    565.33    3.0
+[prof] the_circuit            TheCircuit          2781.3     4.29    514.19    518.48    2.5
+[prof] meteor_sigil           MeteorSigil          538.6    19.69    477.75    497.44    2.0
+[prof] equinox                Equinox             2808.0     1.85    487.19    489.04    2.0
+[prof] tempest                BeamSpell            159.8     1.45    458.94    460.39    3.0
+[prof] drain_tether           DrainTether         5886.7     2.22    431.81    434.03    2.8
+[prof] radiant_volley         RadiantVolley       4009.5   243.35    127.19    370.54    2.4
+[prof] heavens_wrath          HeavensWrath        5400.6     2.44    350.81    353.26    2.0
+[prof] meteor_fist            MeteorFist          4110.8     3.98    321.81    325.79    3.9
+[prof] grave_tide             GraveTide           6111.1     1.59    306.44    308.02    2.0
+[prof] gravity_flip           GravityFlip         4264.6    32.49    271.25    303.74    2.0
+[prof] rock_wall              RockWall             725.7     4.90    288.88    293.78   15.9
+[prof] shockwave_stomp        ShockwaveStomp       700.8     6.22    267.31    273.53    4.0
+[prof] blood_pact             BloodPact            215.1     4.72    267.69    272.40    2.0
+[prof] horizon_cut            HorizonArc          4723.9     1.81    252.06    253.88    2.0
+[prof] ordinary_spell         BeamSpell            756.0     1.42    243.69    245.10    3.1
+[prof] thunderclap            LightningRush       3915.6     1.86    242.44    244.30    3.0
+[prof] boulder_hurl           BoulderHurl         7039.9    15.42    216.00    231.42    8.6
+[prof] frostpiercer           BeamSpell            297.1     1.84    222.63    224.46    3.0
+[prof] raise_thrall           RaiseThrall         4368.6     3.28    209.81    213.10    2.1
+[prof] rune_orbs              RuneOrbs             121.2     3.85    184.31    188.17    2.3
+[prof] void_zone              ShadowRoot           562.6     2.04    154.19    156.22    2.6
+[prof] heavens_verdict        StarConvergence      119.9     0.46    149.56    150.02    1.0
+[prof] ice_wall               IceWall             7019.6     1.48    104.31    105.79    4.8
+[prof] creeping_shade         ShadowCrawler       5059.4     2.36     91.13     93.48    3.1
+[prof] crescent_step          CrescentStep        4665.0     4.40     45.25     49.65    3.4
+[prof] iai_slash              IaiSlash            3852.3     4.03      0.00      4.03    3.0
+[prof] blade_flurry           BladeFlurry         2859.1     2.01      0.00      2.01    2.3
+[prof] judgment               DivineRay            247.6     0.65      0.00      0.65    1.0
+[prof] arc_of_fools           -                    775.0     0.00      0.00      0.00    1.8
+[prof] chain_lightning        -                   5023.9     0.00      0.00      0.00    2.3
+[prof] ---------------- DRAW COST BY SCRIPT ----------------
+[prof] script                 spells    mean us   worst us    share
+[prof] MagicCircle                44      369.9     1382.8    48.1%
+[prof] Telegraph                   3      835.8      880.1     7.4%
+[prof] BeamSpell                   3      557.8      837.6     4.9%
+[prof] MeteorSigil                 3      549.4      791.8     4.9%
+[prof] Petrify                     1      896.0      896.0     2.6%
+[prof] MirrorImage                 1      892.6      892.6     2.6%
+[prof] RockPillar                  1      892.2      892.2     2.6%
+[prof] RiftDagger                  1      883.7      883.7     2.6%
+[prof] EnemyProjectile             1      863.9      863.9     2.6%
+[prof] ThousandCuts                1      857.6      857.6     2.5%
+[prof] AegisWard                   1      846.0      846.0     2.5%
+[prof] IceSpikeLine                1      835.8      835.8     2.5%
+[prof] FaultLine                   1      759.4      759.4     2.2%
+[prof] Severance                   1      681.9      681.9     2.0%
+[prof] Shatter                     1      652.3      652.3     1.9%
+[prof] DivineRay                   1      575.9      575.9     1.7%
+[prof] DebrisChunk                 1      562.1      562.1     1.7%
+[prof] ZoneSpell                   1      469.1      469.1     1.4%
+[prof] RigGhost                    1      454.6      454.6     1.3%
+[prof] DrainTether                 1      211.6      211.6     0.6%
+[prof] StarConvergence             1      149.6      149.6     0.4%
+[prof] VoidCollapse                1       75.9       75.9     0.2%
+[prof] LightningRush               1       70.9       70.9     0.2%
+[prof]                             1       67.5       67.5     0.2%
+[prof] CrescentStep                1       45.3       45.3     0.1%
+[prof] Equinox                     1       22.8       22.8     0.1%
+[prof] ============================================================
+[prof] roster mean frame cost 639.11 us/instance;  8 concurrent = 5.11 ms/frame
+[prof] REMINDER: dummy renderer — draw cost here is COMMAND BUILDING only.
