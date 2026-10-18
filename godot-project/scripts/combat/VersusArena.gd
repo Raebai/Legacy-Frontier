@@ -436,15 +436,33 @@ static var showcase_ringout: bool = true
 static var free_play: bool = false
 ## How many practice dummies to stand up. 0 = a genuinely empty stage.
 static var free_dummies: int = 0
+## ⚠ HOW FAR A BODY'S ORIGIN SITS ABOVE THE SURFACE ITS FEET REST ON. Not guessed:
+## measured off a hero that had actually settled (`tools/probe_dojo_feet.gd`) — origin
+## 771.00, collision box bottom 780.00, floor 780.00. So a body standing on a surface
+## has `origin = surface - 9`, and every spawn point below is written that way instead
+## of carrying a second magic number that can drift from `GROUND_TOP`.
+##
+## This constant exists because four bodies in the dojo were flying. Their y values had
+## been written as if the floor were ~60 px higher than it is, and nothing corrected
+## them: a dummy runs with `set_physics_process(false)` (deliberately — see
+## `_rebuild_dummies`), so it has no gravity to fall back onto the floor with. The hero
+## spawned at the SAME wrong y and looked fine purely because gravity saved it.
+## Guarded now by `tools/slice_test_dojo_feet.gd`.
+const BODY_FEET_OFFSET: float = 9.0
+## The ruin terrace the third dummy stands on — `TERRACES`' own `surface_y` for the
+## x≈1330..1580 deck. Named so the dummy point below reads as "on the terrace".
+const RUIN_TERRACE_TOP: float = 696.0
 ## Where the free-play hero lands: middle of the main ground, room either side.
-const FREE_SPAWN: Vector2 = Vector2(700.0, 716.0)
+const FREE_SPAWN: Vector2 = Vector2(700.0, GROUND_TOP - BODY_FEET_OFFSET)
 ## Free play gives the hero back its OWN camera (the pair-framing camera exists to
 ## keep two fighters in shot; with one fighter it is just a worse follow cam).
 const FREE_HP: int = 400
 ## Practice dummies stand here, spaced along the ground so one of them is always in
 ## reach of the terraces and one is out in the open.
 const FREE_DUMMY_POINTS: Array[Vector2] = [
-	Vector2(1050.0, 716.0), Vector2(430.0, 716.0), Vector2(1420.0, 626.0),
+	Vector2(1050.0, GROUND_TOP - BODY_FEET_OFFSET),
+	Vector2(430.0, GROUND_TOP - BODY_FEET_OFFSET),
+	Vector2(1420.0, RUIN_TERRACE_TOP - BODY_FEET_OFFSET),
 ]
 ## A dummy is a hero body with no controller, no faction hostility and a big HP
 ## pool: something to hit that hits back with nothing. Deliberately a HERO and not
@@ -1673,6 +1691,18 @@ func _update_free_camera(delta: float) -> void:
 ## Rebuild the practice dummies to match `free_dummies`. Cheap and idempotent —
 ## it frees whatever is there and stands up the requested number, so the count
 ## button can be pressed as fast as the maker likes.
+## The y a body's ORIGIN needs so its feet rest on the main ground.
+##
+## ⚠ EXISTS SO NOTHING HAS TO COPY A BODY THAT MIGHT STILL BE IN THE AIR. The dojo's
+## sensei used to be placed at `player.global_position + Vector2(SENSEI_X, 0)`, which is
+## the right idea — stand him beside the student — taken on the wrong frame: the hero is
+## at its SPAWN y then, 55 px up, and has not fallen yet. The sensei has physics off, so
+## he kept that y for the whole lesson and hung in the air beside a student standing on
+## the floor. Asking the stage where the floor is cannot go stale that way.
+func ground_stand_y() -> float:
+	return GROUND_TOP - BODY_FEET_OFFSET
+
+
 func _rebuild_dummies() -> void:
 	for d: Node in get_tree().get_nodes_in_group(&"free_dummy"):
 		if is_instance_valid(d):

@@ -71,7 +71,13 @@ const LAYER: int = 60
 ## The prompt card, in the 640x360 base space. Anchored to the TOP so it cannot collide
 ## with the loadout bar, which owns the bottom of the screen.
 const CARD_W: float = 300.0
-const CARD_TOP: float = 14.0
+## ⚠ 14 -> 34, BECAUSE THE CARD LANDED ON TOP OF THE ROOM LABEL. The stage draws
+## "THE DOJO — ARCANIST    Esc: settings, class, dummies" across the top-left, and at 14
+## the card's own panel started inside that line: the label's words rendered over the
+## card's dark fill, two unrelated pieces of text sharing the same pixels. Photographed
+## in `proof/2026-10-18-tutorial-fixes/`, which is also why this is a number and not an
+## opinion. 34 clears the label's baseline with room to spare at the 640x360 base size.
+const CARD_TOP: float = 34.0
 
 ## How long a ticked step stays up saying "yes, that" before the next one replaces it.
 ## Short enough not to be a wait, long enough that the tick is seen rather than inferred.
@@ -303,10 +309,20 @@ func _process(delta: float) -> void:
 		return
 	var s: Step = _steps[_at]
 	if s.action == &"":
-		# A CARD. Any of the confirm-ish keys closes it, so a player never hunts for the
-		# one that works.
-		if Input.is_action_just_pressed(&"talk") or Input.is_action_just_pressed(&"jump") \
-				or Input.is_action_just_pressed(&"melee"):
+		# A CARD. More than one confirm-ish key closes it, so a player never hunts for
+		# the one that works.
+		#
+		# ⚠ BUT NOT `jump`, AND THAT WAS THE WHOLE "RUSHED" BUG. `jump` is bound to W
+		# and Up — the keys a player holds to WALK, and the keys this very lesson is
+		# about to teach them. So anyone who touched a movement key during the eleven
+		# lore cards blew straight through the story they were being told, several
+		# cards at a time, while the card in front of them said "Press E to continue".
+		# Maker: *"the text is weird and ... it feels rushed and cofusing"*.
+		#
+		# `talk` (E, and the on-screen E pad) is what the card names, and `melee` (F)
+		# stays as the second key because it is not a movement key and cannot be hit
+		# by accident while trying to walk.
+		if Input.is_action_just_pressed(&"talk") or Input.is_action_just_pressed(&"melee"):
 			_tick(s)
 		return
 	if s.second_action != &"":

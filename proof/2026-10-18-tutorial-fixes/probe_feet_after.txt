@@ -1,0 +1,11 @@
+DOJO FEET, after 40 physics frames
+figure                    body   box_foot   rig_foot     ground       GAP  falling
+------------------------------------------------------------------------------------
+Hero (hero)              771.00     780.00     780.00     780.00      0.00      0.0
+@CharacterBody2D@563 (hero)   771.00     780.00     780.00     780.00      0.00      0.0
+@CharacterBody2D@565 (hero)   771.00     780.00     780.00     780.00      0.00      0.0
+@CharacterBody2D@567 (hero)   687.00     696.00     696.00     696.00      0.00      0.0
+@CharacterBody2D@569 (hero)   771.00     780.00     780.00     780.00      0.00      0.0
+------------------------------------------------------------------------------------
+0 of 5 figures are MORE THAN 2 px above the floor they are standing over.
+GAP > 0 means flying. `falling` is the body's y velocity: ~0 on an airborne

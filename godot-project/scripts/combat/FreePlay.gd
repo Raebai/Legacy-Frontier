@@ -279,7 +279,16 @@ func _spawn_sensei() -> void:
 			player = h as Node2D
 			break
 	if player != null:
-		_sensei.global_position = player.global_position + Vector2(SENSEI_X, 0.0)
+		# ⚠ HIS X COMES FROM THE STUDENT, HIS Y COMES FROM THE FLOOR, and taking both
+		# from the student is what had him flying. This runs while the hero is still at
+		# its spawn y — 55 px up, not yet fallen — and the sensei has physics disabled
+		# (just above: or he mirrors your input), so he had nothing to pull him down
+		# afterwards. He hung there beside a student standing on the ground for the
+		# whole lesson. Maker: *"during the tutorial the bots are flying"*.
+		var stand_y: float = player.global_position.y
+		if _arena != null and is_instance_valid(_arena) 				and _arena.has_method("ground_stand_y"):
+			stand_y = float(_arena.call("ground_stand_y"))
+		_sensei.global_position = Vector2(player.global_position.x + SENSEI_X, stand_y)
 	else:
 		push_warning("FreePlay: no hero to stand the sensei next to — he stays at spawn")
 	# A teacher does not wear a student's colours. Calm jade while he teaches; it is the
