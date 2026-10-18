@@ -53,48 +53,53 @@ Disarming is one line — remove that env key — and it is still the maker's ca
 
 ## ⚡ Current Direction (READ THIS FIRST — nearly everything below it is historical)
 
-⚠ **THE PROJECT CHANGED ON 2026-09-29. READ THIS BLOCK BEFORE ACTING ON ANYTHING ELSE IN THIS FILE.**
+**THE PROJECT CHANGED AGAIN ON 2026-10-18. STICKSPIRE IS THE GAME. The Unreal isekai MMO
+(repo Raebai/LegacyFrontier, no hyphen) is ARCHIVED; its story, world, Seven Legends,
+bestiary, classes and magic moved INTO Stickspire.** Maker, 18 Oct: "ignore legacy frontier
+we are putting that in the back pedal we are focusing on stickspire now as intended".
 
-Maker, 2026-09-29, asked directly whether to keep working the STICKSPIRE queue:
-*"this is to do with the old game that is being replaces stickspire please pause it and put
-it on the back end we are focussing on the isekai project thats the main thing with the
-artifact file as well all focus on that when I say resume keep this noted"*.
-
-- **ACTIVE — and the only thing "resume" means now (2026-09-26 →):** a first-person
-  heavy-fantasy **isekai MMO in Unreal Engine 5.8**. Co-op PvE *and* PvP, premium, never
-  free-to-play. 10 players now, architected so thousands is possible later. It reuses the
-  maker's existing 17-region world design wholesale — out is Lord of the Rings, down is
-  Made in Abyss, up is Tower of God. ⚠ **Its name is NOT settled.** The plan document is
-  *titled* "Legacy Frontier", which is also this repo folder's name and the parked 2D
-  game's original name — but nothing on record says the maker ratified that as the new
-  game's name. Do not assert it; ask.
-- ⚠ **THE CANONICAL DESIGN IS A CLAUDE DOC, NOT A FILE IN THIS REPO:**
-  https://claude.ai/code/artifact/53c7c6d1-5489-4d97-affa-0d721e62b4cf
-  It is long and every section is decided, not speculative. **Reading or editing it needs
-  the Claude Docs connector enabled for the session** — the Artifact tool alone returns the
-  viewer's own HTML, not the document. If the connector is missing, say so rather than
-  guessing at the plan's contents. There is exactly ONE document by the maker's explicit
-  ask; a second World Bible doc was folded into it and deleted on 2026-09-27, with a
-  plain-text copy kept at `docs/archive/world-bible-2026-09-23-archived.md`.
-- **BACK BURNER, NOT DELETED, AND EXPLICITLY "SAVED AND KEPT" — STICKSPIRE.** The
-  mobile-first 2D co-op roguelite tower-climber (Soul Knight + Hades + Tower of God +
-  Cuphead) on branch `bot-fight-quality`, pushed, **219/219 suites green measured
-  2026-09-29**, APK built, ~34 commits of polish never playtested. Its own queue and
-  traps are preserved in `docs/NEXT-SESSION.md` and `project_v2_resume_queue.md`.
-  **Do not work it unless the maker names it.** Design: `docs/v2.0-design.md`.
-- **ALSO PARKED:** the v1.0 3D action-RPG (branch `v1.0-3d`) and the v0.0–v0.5 2D
-  AI-NPC-memory game (`main`).
-- ⚠ **LIVE STATE LEDGER IS `docs/NEXT-SESSION.md`**, then `git log --oneline`. **And check
-  the handoff's own date against the log**: on 2026-09-07 it was seven commits stale and
-  claimed a clear queue while five suites were red.
-- **Memory pointers:** `project_isekai_mmo_new_project.md` (the active project),
-  `project_world_design.md` (the 17 regions it reuses), `project_v2_resume_queue.md`
-  (STICKSPIRE's parked queue), `project_v2_second_brain_vault.md`.
-- **Standing risk, unchanged and now inherited by the new project:** work here is
-  routinely built + headless-verified but **UNPLAYTESTED**. A green suite is not a shipped
-  feature. Say plainly what has and has not been played or run for real.
-- The `docs/roadmap.md` "Tier" language and the Mission/Scope sections below are v0.5-era
-  and describe the parked 2D game. They are **not** the current project.
+- **ACTIVE (2026-10-18 ->): STICKSPIRE.** Godot 4.6, side-view 2D, procedurally drawn white
+  stick figures over dark painted silhouette backdrops, set in Ilvar inside the Empyrean
+  Spire. PC first, then iOS and Android. Single player or parties of 6 in one shared online
+  world with instanced floors 20 to 30 screens wide, party teleport, safe zones, duels,
+  arenas. Permanent progression (player-allocated stats, several aura kinds, Marks, rank),
+  seven open classes plus Shadowblade and Warlock hidden, the Seven Legends roaming as
+  world-state rows, 20 to 30 named "souls" as the ONLY runtime AI (small model, loaded per
+  room, line banks first). No narrator, no Discord. Friendly fire always on.
+- **THE DESIGN OF RECORD IS A CLAUDE DOC WITH THREE TABS, NOT A FILE HERE:**
+  https://claude.ai/code/artifact/f551ee82-cf1e-4d29-bc2e-aa1b2c567045
+  "Design" (the game), "Build board" (the MVP, the lanes, the phased task tables with Proof
+  and Check columns), "Build log" (newest-first table every session appends to). Lore canon
+  stays in the Lore tab of https://claude.ai/code/artifact/53c7c6d1-5489-4d97-affa-0d721e62b4cf.
+  Reading it needs the Claude Docs connector; without it, say so and ask. Never make a
+  second design doc here. `docs/v2.0-design.md` is historical.
+- **TWO SESSION KINDS, TWO PROMPTS.** The cloud session (twice daily, 08:52 and 20:52
+  London) follows `docs/CLOUD-SESSION.md` and takes only the CLOUD queue. The PC session
+  (started by double-clicking `Stickspire.bat`) follows `docs/PC-SESSION.md` and takes the
+  PC queue: anything that needs the editor, eyes, a phone or the maker. Both queues live in
+  `docs/NEXT-SESSION.md`, rewritten from the Build board, each item carrying its board
+  number, proof and check.
+- **THE PROOF RULE.** A task is done when its proof (PNG, GIF or 10 s MP4 from the capture
+  tools, plus a caption.md) is in `proof/<date>-<task>/` and a row is on the Build log tab.
+  Cloud-made visual work is UNVERIFIED ON SCREEN until the PC captures it. Only the QA
+  lane ticks a task, after the sabotage pass (break the guard, see it go RED naming the
+  fault, restore). Verify the drawn channel, not the computed one.
+- **THE EDITOR LOOP.** Godot-MCP-Native (in `art-source/third_party/`, MIT) is the editor
+  plugin for Claude Code: run/stop, editor and runtime screenshots with pixel diff, logs,
+  breakpoints, scene and script edits. Once enabled it replaces the two HaD0Yun MCP addons.
+  The capture tools (`python python-tools/run_capture.py --list`) need the GUI binary in
+  `godot-engine/`; headless renders blank PNGs that report success.
+- **FREE PACKS ON DISK, LICENSED, NOT IMPORTED:** `art-source/third_party/README.md` lists
+  17 (Kenney Particle Pack CC0, saltmire-juice and -fx MIT, GODOT-VFX-LIBRARY, netfox,
+  Dialogic, inventory-system, gdUnit4, nakama-godot, Phantom Camera...). `Effects/` holds
+  the Sonniss GDC 2026 bundle, royalty-free. Copy only what a feature uses into
+  `godot-project/assets/` and add the credit. Nothing pixel art, ever: it fights the look.
+- **STILL TRUE:** work here is routinely built + headless-verified but UNPLAYTESTED; say
+  plainly what has and has not been played. The Second Brain rules above still apply; the
+  vault note for this project is `Projects/Stickspire.md` (create it on first use, ASCII
+  only, the Legacy Frontier note stays as history).
+- **PARKED, NOT DELETED:** branch `v1.0-3d` and the v0.0 to v0.5 game on old `main`. The
+  2026-09-29 pause of Stickspire below is reversed.
 
 ## Mission
 
